@@ -54,3 +54,11 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 - 对同一真实 Cron 用户原话、当前动作和此前历史完成[旧/新审批 A/B](evidence/old-new-classifier-comparison.md)：每分支一次，两者均 S1 allow。没有为得到拒绝反复试探，也不据此声称误拒率下降。
 
 当前状态：共享实现和聚焦代码审查已提交到 `codex/feat-552`；外部阻塞已解除，执行者真实旅程已完成，进入独立产品验收和实现对账。Heartbeat 独立测试栈、CLI/单聊天临时服务及集成者主 unit 隔离 IM/Gateway 均已停止，后续 reviewer 从已固定的候选版本重新启动。尚未归档或创建 PR，未合并、未部署 Nano。
+
+## 独立 Cron 误拒的事实补齐
+
+产品 reviewer 的独立 Cron 注册成功，但到点写入被 Terra 拒绝。S1 说可能覆盖既有文件，S2 直接断言目标已存在；注册后和触发前的观察均表明该文件不存在。实际审批输入没有文件存在性事实，不能将此失败写成用户未授权。
+
+修复在现有 Write permission check 中核对实际 cwd 下的目标，并以既有 passthrough reason 附到当前动作。原参数、CC policy、scheduled 模板、阶段规则和权限决定保持不变，没有新增 DTO、工具方法或免审路径。现有 gate dispatch 以真实 WriteTool 覆盖存在/不存在及相对/绝对路径，4 项先 Red，相关 117 项 Green；分类器仍可 deny，新建和已有目标均不会提前写入。
+
+一次有界真实请求复验保留原失败的 scheduled 原文、动作、路径、内容和 policy，仅加入实际工具检查的目标不存在事实：Terra S1 返回 `<block>no</block>`。未执行工具，不能代替真实 Cron 入口 closure。记录位于本机代理 `2026-09-12_13-00-40_247_feat552-write-state-fixed-replay`，响应 ID `msg_c9a1b7141a274a6bab9dfe135f100e4c`。临时客户端最初把 SSE 当 JSON 读取而报解析错误；实际模型响应由代理原始记录核对，没有重试挑样本。

@@ -262,3 +262,46 @@ class TestSafetyLockedBypassImmune:
         )
         # dangerously + no safety_locked → bypass
         assert result is None or result.get("block") is not True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exists", [False, True])
+@pytest.mark.parametrize("absolute", [False, True])
+async def test_write_classifier_receives_observed_target_state(
+    tmp_path, exists, absolute
+):
+    """An Auto write needs actual target state without bypassing classification."""
+    from agent.platform.tools.builtins.write import WriteTool
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "result.txt"
+    if exists:
+        target.write_text("original")
+    config = AutoModeConfig()
+    handler, _ = _get_handler(config)
+    ctx = _make_ctx(config=config, tool_instance=WriteTool())
+    ctx.repo_root = tmp_path
+    ctx.cwd = None
+    ctx.metadata["cwd"] = str(workspace)
+    ctx.metadata["auto_mode_interaction"] = "return_to_agent"
+    ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>yes</block>"))
+
+    result = await handler(
+        {
+            "name": "write",
+            "args": {
+                "path": str(target) if absolute else "result.txt",
+                "content": "new",
+            },
+        },
+        ctx,
+    )
+
+    assert result["block"] is True
+    assert ctx.call_model.await_count == 2
+    for call in ctx.call_model.call_args_list:
+        prompt = call.kwargs["user_prompt"]
+        state = "exists" if exists else "does not exist"
+        assert f"Filesystem check: {target} {state} at permission-check time." in prompt
+    assert target.read_text() == "original" if exists else not target.exists()

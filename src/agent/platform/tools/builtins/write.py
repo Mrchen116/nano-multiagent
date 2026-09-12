@@ -1,5 +1,6 @@
 """Built-in `write` tool for sandboxed file creation and overwrite."""
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -142,7 +143,12 @@ class WriteTool:
         raw_path = str(tool_input.get("path", ""))
         # Resolve cwd: prefer ctx.cwd (ToolContext), fall back to ctx.repo_root (HookContext).
         # This dual-ctx support avoids AttributeError when gate passes HookContext (R2-#1 fix).
-        cwd = getattr(ctx, "cwd", None) or getattr(ctx, "repo_root", None)
+        cwd = (
+            getattr(ctx, "cwd", None)
+            or getattr(ctx, "metadata", {}).get("cwd")
+            or getattr(ctx, "repo_root", None)
+            or Path.cwd()
+        )
         if check_dangerous_path(raw_path, cwd=cwd):
             return PermissionDecision(
                 behavior="ask",
@@ -152,7 +158,13 @@ class WriteTool:
                     "(sensitive system file or directory)"
                 ),
             )
-        return PermissionDecision(behavior="passthrough")
+        # The classifier cannot observe file reads; give it the actual create/overwrite fact.
+        file_path = (Path(cwd) / Path(raw_path).expanduser()).resolve()
+        state = "exists" if file_path.exists() else "does not exist"
+        return PermissionDecision(
+            behavior="passthrough",
+            reason=f"Filesystem check: {file_path} {state} at permission-check time.",
+        )
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Write UTF-8 content to a resolved sandbox path."""

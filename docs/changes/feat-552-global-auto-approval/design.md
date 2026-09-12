@@ -111,6 +111,8 @@ Inbox 说明同时供主 session 和 Auto Gate 使用；分类器拥有独立 sy
 
 `agent` 新派发、follow-up 保持免审；`send_message` 移出内置整工具安全表。用户显式配置的许可仍按当前配置规则读取，再依 CC 对 Auto 宽规则的筛选处理，不能先用工具名短路明确 deny。工具缺失/动作投影失败保留显式故障，不用空动作调用分类器。
 
+写入目标的存在性由已有工具 `check_permissions` 在实际 cwd 下检查，并通过既有 passthrough `reason` 附到当前动作；不把它当作历史 outcome、用户授权或免审决定。此细化来自独立验收中一次真实 Cron 将不存在目标误判为已有文件的失败。原 CC policy、scheduled 来源和两阶段流程不变；实际写入仍执行既有 Read-Before-Write 约束。
+
 Bash 仍由 `bash_policy.check_command_policy` 返回 `allow/review/deny`，执行器不再查第二次。替换前缀免审实现为固定 CC 的同等检查：
 
 1. 保留命令原始字符串，解析命令列表、管道、重定向、引号、替换及子命令；不能先 lower 整行或丢失引号边界后判权限。

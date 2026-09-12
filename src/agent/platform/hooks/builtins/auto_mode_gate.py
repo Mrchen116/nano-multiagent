@@ -581,6 +581,9 @@ def setup(hooks: Any) -> None:
                 raise ValueError(f"missing classifier projection for {tool_name}")
             if not projection.strip():
                 raise ValueError(f"empty classifier projection for {tool_name}")
+            check_reason = getattr(checked, "reason", "")
+            if check_reason:
+                projection += f"\nTool permission check: {check_reason}"
             transcript = _build_transcript_user_message(ctx, tool_name, projection)
         except Exception as exc:
             return _verdict(
