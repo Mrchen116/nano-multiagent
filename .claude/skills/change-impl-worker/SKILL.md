@@ -19,10 +19,10 @@ orchestrator 在派发前决定是否值得交给独立实现 owner。派发给 
 
 ## 实施
 
-1. 读取当前任务所需的 unit 首文档和设计、相关实现/测试与仓库规则；涉及真实入口或 worktree 集成时，分别读取 [真实入口验证](references/real-entry-validation.md) 或 [worktree 集成](references/worktree-integration.md)。
-2. 在 milestone 目录从 `assets/tasks.md` 和 `assets/progress.md` 创建这两份短记录，删除 `.gitkeep`。`tasks.md` 写实际实施块和验证；`progress.md` 只更新已完成、关键决定或 blocker、验证和 evidence。没有内容就不造条目。
-3. 自主安排实现、测试和 commit。遵循确认的设计与现有架构，先跑有信息量的最窄验证；代码、命令、环境和风险未变时复用已有结果，不为流程重复 gate。适用时完成真实入口验证。
-4. design 错误、遗漏或范围外发现时，停止受影响部分并带事实报告 orchestrator；不自行改写 design/spec。根因不明的异常、flaky 或集成失败才使用 `systematic-debugging`。
+- 读取当前任务所需的 unit 首文档和设计、相关实现/测试与仓库规则；涉及真实入口或 worktree 集成时，分别读取 [真实入口验证](references/real-entry-validation.md) 或 [worktree 集成](references/worktree-integration.md)。
+- 在 milestone 目录从 [tasks](assets/tasks.md) 和 [progress](assets/progress.md) 创建这两份短记录，删除 `.gitkeep`。`tasks.md` 写实际实施块和验证；`progress.md` 只更新已完成、关键决定或 blocker、验证和 evidence。没有内容就不造条目。
+- 自主安排实现、测试和 commit。遵循确认的设计与现有架构，先跑有信息量的最窄验证；代码、命令、环境和风险未变时复用已有结果，不为流程重复 gate。适用时完成真实入口验证。
+- design 错误、遗漏或范围外发现时，停止受影响部分并带事实报告 orchestrator；不自行改写 design/spec。根因不明的异常、flaky 或集成失败才使用 `systematic-debugging`。
 
 ## 集成与交接
 

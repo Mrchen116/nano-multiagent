@@ -14,8 +14,8 @@
 | `show_to_user` | 提供绝对本地文件路径；有帮助时，用 Markdown 以绝对路径嵌入图片。 |
 | `eval_js`、`eval_js_user_view`、`run_script` | 脚本用 Shell。 |
 | `web_fetch`、`web_search` | 若存在则用 Codex 的 web 工具；用于时效性事实、内容素材补充或用户要求的网络查询。 |
-| `generate_image` | 无内置对应。会话中若接入了图像生成工具则使用；否则跳过 AI 生图，用内联 SVG / CSS 图形兜底，并在交付说明中注明。 |
-| `search_images` | 无专用对应。若有 web 工具则用其检索图片，用于需要真实图片的素材与确立方向的参考图；没有就跳过。 |
+| `generate_image` | 使用当前暴露的图像生成工具；不可用时依据任务选择替代媒介或说明阻塞，不假设工具永远缺失。 |
+| `search_images` | 使用当前暴露的图片搜索或 web 工具检索图片，用于需要真实图片的素材与确立方向的参考图；没有就跳过。 |
 | `copy_starter_component` | Shell `cp <本 skill 所在目录>/starter-components/<file> .`（cwd 通常是应用项目目录而非 skill 目录，需用 skill 目录实际路径；或读取后改编）。 |
 | 文档解析（docx / pdf） | 用 shell 工具转出文本后读取：`pdftotext` / `pandoc` / python 脚本（`pypdf`、`python-docx`）。 |
 | `invoke_skill("X")` / `invoke the "X" skill` | 阅读对应的 `references/<file>.md`（媒介技能与本文件同在 `references/` 目录）。 |

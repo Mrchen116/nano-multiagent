@@ -82,6 +82,7 @@
 | [`research/brainstorms/`](research/brainstorms/README.md) | 脑暴与阶段性方案材料 |
 | [`research/architecture-reviews/`](research/architecture-reviews/README.md) | 带 commit 和 working-tree 状态的架构审查快照 |
 | [`research/studies/`](research/studies/README.md) | 带来源记录与结论文章的主体研究包 |
+| [2026-09-13 Skills 精简审计](research/studies/skills-gpt6-audit-2026-09-13/README.md) | Skill 触发、渐进披露与约束保留的改写记录 |
 | [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
 
 旧 TDD control-tower 的 `LOGBOOK/ROADMAP/TASKS/PROGRESS/ACCEPTANCE` 已停止写入并整体迁入 [`archive/legacy-development-records/`](archive/legacy-development-records/README.md)。新 change 的状态、过程和证据只写入 `docs/changes/<unit>/`；旧记录只用于历史取证，不能据其中的状态或更新时间推断当前工作。
