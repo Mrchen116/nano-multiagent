@@ -52,7 +52,7 @@ Auto Gate 仅在 Auto 已启用、工具返回 `ask` 且原因为 `fallback` 时
 
 真实 SDK 回归同时暴露配置接线遗漏：`WebFetchTool` 原先只读没有运行时装配方写入的 `_auto_mode_config`，导致工作区域名规则未被消费。修复为从会话配置 loader 读取规则，普通子 Agent 优先使用继承的父策略快照；不向共享工具对象写入会话配置。只改 Gate 的中间版本有 6 项显式域名规则回归失败，补齐此接线后通过。
 
-消费者行为已同步到 [kernel tools-hooks](../../specs/kernel/tools-hooks.md)。
+消费者行为已同步到 [kernel tools-hooks](../../../specs/kernel/tools-hooks.md)。
 
 ## 验证
 
