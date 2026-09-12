@@ -571,6 +571,16 @@ def setup(hooks: Any) -> None:
                 return allow()
             return await escalate(reason, "manual_required")
 
+        # CC skips the classifier when the tool would allow this in acceptEdits.
+        # Consume that tool-owned result only after deny/ask and only in Auto.
+        if (
+            config.enabled
+            and behavior == "passthrough"
+            and getattr(checked, "decision_reason", None)
+            == {"type": "mode", "mode": "acceptEdits"}
+        ):
+            return allow()
+
         try:
             projection = (
                 _project_tool_for_classifier(tool, tool_name, tool_input)

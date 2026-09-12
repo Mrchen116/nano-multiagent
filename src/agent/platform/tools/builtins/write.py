@@ -7,7 +7,7 @@ from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
-from agent.platform.tools.dangerous_paths import check_dangerous_path
+from agent.platform.tools.dangerous_paths import check_file_edit_permissions
 from agent.platform.tools.presentation import (
     ToolPresentationEvent,
     _enforce_cap,
@@ -130,16 +130,7 @@ class WriteTool:
     def check_permissions(
         self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:
-        """Guard writes to dangerous system files/directories (D5, bugfix-355).
-
-        Matches against DANGEROUS_FILES (basename) and DANGEROUS_DIRECTORIES (any segment).
-        Returns ask + decision_reason.type='safety_check' so auto_mode_gate treats this
-        as bypass-immune — even dangerously_skip_permissions mode cannot auto-approve.
-
-        ctx may be a ToolContext (tool body execution) or a HookContext (gate pre-check).
-        Both carry repo_root; ToolContext also has cwd. We use cwd when available and fall
-        back to repo_root so relative paths can be resolved in both call sites.
-        """
+        """Guard sensitive paths and mark ordinary workspace writes for Auto."""
         raw_path = str(tool_input.get("path", ""))
         # Resolve cwd: prefer ctx.cwd (ToolContext), fall back to ctx.repo_root (HookContext).
         # This dual-ctx support avoids AttributeError when gate passes HookContext (R2-#1 fix).
@@ -149,20 +140,17 @@ class WriteTool:
             or getattr(ctx, "repo_root", None)
             or Path.cwd()
         )
-        if check_dangerous_path(raw_path, cwd=cwd):
-            return PermissionDecision(
-                behavior="ask",
-                decision_reason={"type": "safety_check", "matched_path": raw_path},
-                reason=(
-                    f"Writing to {raw_path} requires explicit confirmation "
-                    "(sensitive system file or directory)"
-                ),
-            )
+        decision = check_file_edit_permissions(
+            raw_path, cwd=cwd, workspace_root=getattr(ctx, "repo_root", None)
+        )
+        if decision.behavior != "passthrough":
+            return decision
         # The classifier cannot observe file reads; give it the actual create/overwrite fact.
         file_path = (Path(cwd) / Path(raw_path).expanduser()).resolve()
         state = "exists" if file_path.exists() else "does not exist"
         return PermissionDecision(
             behavior="passthrough",
+            decision_reason=decision.decision_reason,
             reason=f"Filesystem check: {file_path} {state} at permission-check time.",
         )
 

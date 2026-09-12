@@ -270,7 +270,7 @@ class TestSafetyLockedBypassImmune:
 async def test_write_classifier_receives_observed_target_state(
     tmp_path, exists, absolute
 ):
-    """An Auto write needs actual target state without bypassing classification."""
+    """An outside-workspace write still supplies target state to the classifier."""
     from agent.platform.tools.builtins.write import WriteTool
 
     workspace = tmp_path / "workspace"
@@ -281,7 +281,7 @@ async def test_write_classifier_receives_observed_target_state(
     config = AutoModeConfig()
     handler, _ = _get_handler(config)
     ctx = _make_ctx(config=config, tool_instance=WriteTool())
-    ctx.repo_root = tmp_path
+    ctx.repo_root = tmp_path / "other-workspace"
     ctx.cwd = None
     ctx.metadata["cwd"] = str(workspace)
     ctx.metadata["auto_mode_interaction"] = "return_to_agent"
@@ -305,3 +305,84 @@ async def test_write_classifier_receives_observed_target_state(
         state = "exists" if exists else "does not exist"
         assert f"Filesystem check: {target} {state} at permission-check time." in prompt
     assert target.read_text() == "original" if exists else not target.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["write", "edit"])
+@pytest.mark.parametrize(
+    "target_kind,auto_enabled,expected",
+    [
+        ("new", True, "allow"),
+        ("existing", True, "allow"),
+        ("absolute", True, "allow"),
+        ("outside", True, "classifier"),
+        ("symlink-outside", True, "classifier"),
+        ("outside-link-inside", True, "classifier"),
+        ("sensitive", True, "manual"),
+        ("symlink-sensitive", True, "manual"),
+        ("cwd-outside", True, "classifier"),
+        ("new", False, "classifier"),
+    ],
+)
+async def test_workspace_file_auto_permission(
+    tmp_path, tool_name, target_kind, auto_enabled, expected
+):
+    """Auto skips classification only for ordinary writes within the workspace."""
+    from agent.platform.tools.builtins.edit import EditTool
+    from agent.platform.tools.builtins.write import WriteTool
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "result.txt"
+    raw_path = "result.txt"
+    cwd = workspace
+    if target_kind == "existing":
+        target.write_text("original")
+    elif target_kind == "absolute":
+        raw_path = str(target)
+    elif target_kind == "outside":
+        raw_path = "../outside.txt"
+    elif target_kind == "symlink-outside":
+        target.symlink_to(tmp_path / "outside.txt")
+    elif target_kind == "outside-link-inside":
+        link = tmp_path / "outside-link"
+        link.symlink_to(workspace, target_is_directory=True)
+        raw_path = str(link / "result.txt")
+    elif target_kind == "sensitive":
+        raw_path = ".nano/config.yaml"
+    elif target_kind == "symlink-sensitive":
+        target.symlink_to(workspace / ".nano/config.yaml")
+    elif target_kind == "cwd-outside":
+        cwd = tmp_path
+
+    config = AutoModeConfig(enabled=auto_enabled)
+    handler, _ = _get_handler(config)
+    tool = WriteTool() if tool_name == "write" else EditTool()
+    ctx = _make_ctx(config=config, tool_instance=tool)
+    ctx.cwd = None
+    ctx.repo_root = workspace
+    ctx.metadata["cwd"] = str(cwd)
+    ctx.metadata["run_origin"] = "cron"
+    ctx.metadata["auto_mode_interaction"] = "return_to_agent"
+    ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>yes</block>"))
+    args = (
+        {"path": raw_path, "content": "new"}
+        if tool_name == "write"
+        else {"path": raw_path, "oldText": "original", "newText": "new"}
+    )
+
+    result = await handler({"name": tool_name, "args": args}, ctx)
+
+    if expected == "allow":
+        assert result is None
+        ctx.call_model.assert_not_called()
+    else:
+        assert result["block"] is True
+        assert result["decision_source"] == (
+            "classifier_block" if expected == "classifier" else "manual_required"
+        )
+        assert ctx.call_model.await_count == (2 if expected == "classifier" else 0)
+    if target_kind == "existing":
+        assert target.read_text() == "original"
+    else:
+        assert not target.exists()
