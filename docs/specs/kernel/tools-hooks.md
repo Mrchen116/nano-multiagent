@@ -1,6 +1,6 @@
 # kernel (agent) - Tools and Hooks Specification
 
-> 对齐: feat-552
+> 对齐: bugfix-555
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -242,6 +242,18 @@
 #### Scenario: 明确 deny 与整工具 allow 同时存在
 - **WHEN** Auto 工具检查明确拒绝当前动作
 - **THEN** 内置安全表与宽工具许可不能短路该结果；工具检查保持单次、执行器不重复查策略。
+
+### Requirement: 普通网页抓取可由 Auto 审批
+
+#### Scenario: 首次抓取公开网页
+- **WHEN** Auto 中的内置 `web_fetch` 抓取合法公开 URL，且目标没有匹配预批准或显式域名规则
+- **THEN** 进入自动审批，允许后实际抓取；不把默认尚未授权当作必须人工确认。
+- **AND** 审批拒绝或无有效结果时，继续遵循该运行入口既有的拒绝、人工处理或无人值守策略。
+
+#### Scenario: 会话域名规则与子 Agent 继承
+- **WHEN** 主会话或普通子 Agent 抓取未预批准的目标
+- **THEN** 工具检查使用会话有效配置，普通子 Agent 使用继承的父会话规则；显式 deny/ask 不进入自动审批，显式 allow 保留允许行为。
+- **AND** URL 校验失败或 Auto 关闭时不采用默认未决动作的自动审批路径，已有预批准保持原行为。
 
 ### Requirement: Auto 直接放行工作目录内的普通文件写入
 

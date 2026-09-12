@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-552
+> 对齐: bugfix-555
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
@@ -25,7 +25,7 @@
 | [Background Tasks](background-tasks.md) | 后台完成通知与真实消费归因、subagent follow-up、Workflow、task_stop、派生子 agent 隔离 | 6 |
 | [Workflows](workflows.md) | Python Workflow tool、编排 runtime、子 Agent、后台控制、resume、保存发现、预算与规模 | 8 |
 | [Context and Persistence](context-persistence.md) | compaction、会话档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、运行配置、fork_session | 11 |
-| [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本、session-local workspace extensions | 16 |
+| [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本、session-local workspace extensions | 17 |
 | [Skills](skills.md) | 有序 Skill 发现、读取、管理、生命周期、使用统计、preview/list_skills | 8 |
 | [Prompts](prompts.md) | PromptSlots、产品中立 prompt、runtime footer policy、系统提示模板 | 4 |
 
