@@ -10,6 +10,7 @@ from agent.core.background_tasks.notifications import BACKGROUND_TASK_PROMPT_BLO
 from agent.core.types import ToolSpec
 from agent.core.types import Message
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+from agent.core.agent.message_context import classifier_metadata
 from agent.core.skills.formatter import format_available_skills_section
 from agent.core.skills.registry import SkillMetadata
 
@@ -110,6 +111,11 @@ def build_chat_messages(
     messages: list[LLMMessage] = []
     for message in history_messages:
         metadata = dict(message.metadata)
+        if "context_origin" not in metadata:
+            if metadata.get("is_compact_summary"):
+                metadata["context_origin"] = "summary"
+            elif metadata.get("is_meta") or metadata.get("output_status"):
+                metadata["context_origin"] = "system"
         messages.append(
             LLMMessage(
                 role=message.role,
@@ -128,6 +134,8 @@ def build_chat_messages(
                 and metadata.get("tool_error") is not None,
                 reasoning_content=message.reasoning_content,
                 reasoning_signature=message.reasoning_signature,
+                message_id=message.message_id,
+                context_metadata=classifier_metadata(metadata),
             )
         )
     messages = _merge_adjacent_assistant(messages)
@@ -531,8 +539,8 @@ def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
             prev = result[-1]
             merged_content = (prev.content or "") + (msg.content or "")
             merged_tool_calls = tuple(prev.tool_calls) + tuple(msg.tool_calls)
-            result[-1] = LLMMessage(
-                role="assistant",
+            result[-1] = replace(
+                prev,
                 content=merged_content,
                 tool_calls=merged_tool_calls,
                 tool_call_id=prev.tool_call_id,

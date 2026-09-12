@@ -10,7 +10,11 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from agent.sdk import PermissionDecision, ToolContext, ToolPresentationEvent
-from personal_assistant.tools.inbox_result import model_page
+from personal_assistant.tools.inbox_result import (
+    INBOX_SOURCE_INSTRUCTIONS,
+    REPLY_FIELDS,
+    model_page,
+)
 
 
 def content_digest(content: Any) -> str:
@@ -145,6 +149,7 @@ class InboxTool:
         "continue with next_cursor. Text, images and attachments stay in source order. Times are UTC."
     )
     presenter = QueryPresenter("Inbox")
+    auto_classifier_context_instructions = INBOX_SOURCE_INSTRUCTIONS
     max_result_size_chars = None
     is_concurrency_safe = False
     input_schema = {
@@ -239,7 +244,7 @@ class InboxTool:
         return serialize_inbox_page(output, error)
 
     def to_auto_classifier_result(self, content: Any) -> str | None:
-        """Expose received user requests to approval without promoting Agent replies.
+        """Preserve each received message's application-supplied source for approval.
 
         The main model receives these requests through a tool result rather than
         a native user turn. Retain their source identity for the same permission
@@ -261,11 +266,18 @@ class InboxTool:
             or not isinstance(page.get("messages"), list)
         ):
             return None
-        requests = [
+        messages = [
             {
                 "message_id": message.get("id"),
                 "sender": message.get("sender"),
+                "context_origin": {
+                    "user": "human",
+                    "external": "human",
+                    "agent": "agent",
+                    "system": "system",
+                }.get(message.get("sender", {}).get("type"), "unclassified"),
                 "target": page.get("target"),
+                "channel": page.get("channel"),
                 "partial": message.get("partial", False),
                 "text": message.get("text")
                 or "\n".join(
@@ -273,14 +285,14 @@ class InboxTool:
                     for block in message.get("content", [])
                     if block.get("type") == "text"
                 ),
+                **{field: message[field] for field in REPLY_FIELDS if field in message},
             }
             for message in page.get("messages", [])
-            if message.get("sender", {}).get("type") in {"user", "external"}
         ]
         return (
-            "User messages received through this Agent's Inbox: "
-            + json.dumps(requests, ensure_ascii=False)
-            if requests
+            "Inbox messages with application-provided source metadata: "
+            + json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+            if messages
             else None
         )
 

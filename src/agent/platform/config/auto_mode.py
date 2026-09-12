@@ -48,10 +48,12 @@ class AutoModeConfig:
     dangerously_skip_permissions: bool = False
     always_allow_tools: tuple[str, ...] = ()
     deny_limit: int = 3
+    total_deny_limit: int = 20
     ask_timeout_sec: int = 600
     unattended_fallback: Literal["deny", "allow"] = "deny"
     allow: tuple[str, ...] = ()
     soft_deny: tuple[str, ...] = ()
+    hard_deny: tuple[str, ...] = ()
     environment: tuple[str, ...] = ()
     web_fetch: WebFetchConfig = field(default_factory=WebFetchConfig)
 
@@ -115,12 +117,16 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
         raw.get("always_allow_tools"), defaults.always_allow_tools
     )
     deny_limit = _coerce_int(raw.get("deny_limit"), defaults.deny_limit)
+    total_deny_limit = _coerce_int(
+        raw.get("total_deny_limit"), defaults.total_deny_limit
+    )
     ask_timeout_sec = _coerce_int(raw.get("ask_timeout_sec"), defaults.ask_timeout_sec)
     unattended_fallback = _coerce_literal(
         raw.get("unattended_fallback"), ("deny", "allow"), defaults.unattended_fallback
     )
     allow = _coerce_str_tuple(raw.get("allow"), defaults.allow)
     soft_deny = _coerce_str_tuple(raw.get("soft_deny"), defaults.soft_deny)
+    hard_deny = _coerce_str_tuple(raw.get("hard_deny"), defaults.hard_deny)
     environment = _coerce_str_tuple(raw.get("environment"), defaults.environment)
 
     web_fetch_section = raw.get("web_fetch", {})
@@ -140,10 +146,12 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
         dangerously_skip_permissions=dangerously_skip,
         always_allow_tools=always_allow_tools,
         deny_limit=deny_limit,
+        total_deny_limit=total_deny_limit,
         ask_timeout_sec=ask_timeout_sec,
         unattended_fallback=unattended_fallback,
         allow=allow,
         soft_deny=soft_deny,
+        hard_deny=hard_deny,
         environment=environment,
         web_fetch=web_fetch,
     )

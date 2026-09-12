@@ -14,6 +14,7 @@ from agent.platform.hooks.loader import build_hook_registry
 from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.builtins.bash_policy import BashPolicyOverrides
 from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import (
     set_tool_safety_config_factory,
@@ -64,10 +65,10 @@ async def test_builtin_bash_gate_executes_allowlisted_read_only_command(
     assert result.get("exitCode") == 0 or "content" in result or "stdout" in result
 
 
-async def test_builtin_bash_gate_blocks_hard_denied_command(
+async def test_builtin_bash_gate_blocks_explicitly_denied_command(
     tmp_path: Path,
 ) -> None:
-    """Commands matching the hardcoded denylist are blocked without classifier."""
+    """An explicit user deny stays a denial and never falls through to classification."""
     hooks = build_hook_registry(repo_root=tmp_path)
     registry = ToolRegistry(
         context=ToolContext.create(repo_root=tmp_path),
@@ -75,17 +76,25 @@ async def test_builtin_bash_gate_blocks_hard_denied_command(
     )
     registry.register(BashTool())
 
-    # Hard-denied commands must never reach execution or require a classifier.
-    with pytest.raises(ToolError, match="tool blocked by hook"):
+    with pytest.raises(ToolError, match="tool blocked by hook") as exc_info:
         await registry.execute(
             "bash",
             {"command": "reboot"},
             hook_context=HookContext(
                 session_id="sess-risk-2",
                 repo_root=tmp_path,
-                metadata={"tool_call_id": "call-risk-2"},
+                metadata={
+                    "tool_call_id": "call-risk-2",
+                    "bash_policy_overrides": BashPolicyOverrides(
+                        blocked_commands=("reboot",)
+                    ),
+                },
             ),
         )
+    assert (
+        exc_info.value.details["permission_context"]["decision_source"]
+        == "explicit_deny"
+    )
 
 
 async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(
@@ -99,13 +108,11 @@ async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(
     )
     registry.register(BashTool())
 
-    # "uname -a" hits the "review" policy level — classifier needed but unavailable.
-    # auto_mode_gate: no model_caller → classifier unavailable → fail-closed to ask
-    # → no permission_requester → "no permission channel" deny.
-    with pytest.raises(ToolError, match="tool blocked by hook"):
+    # Python code needs review; a missing model and permission channel must block it.
+    with pytest.raises(ToolError, match="tool blocked by hook") as exc_info:
         await registry.execute(
             "bash",
-            {"command": "uname -a"},
+            {"command": "python3 -c 'pass'"},
             hook_context=HookContext(
                 session_id="sess-risk-3",
                 repo_root=tmp_path,
@@ -113,3 +120,7 @@ async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(
                 # no model_caller → classifier unavailable
             ),
         )
+    assert (
+        exc_info.value.details["permission_context"]["decision_source"]
+        == "classifier_unavailable"
+    )

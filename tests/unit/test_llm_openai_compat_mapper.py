@@ -29,7 +29,12 @@ def test_map_message_assistant_with_tool_calls_and_reasoning_content() -> None:
         _request(
             messages=(
                 LLMMessage(role="system", content="you are helpful"),
-                LLMMessage(role="user", content="run pwd"),
+                LLMMessage(
+                    role="user",
+                    content="run pwd",
+                    message_id="internal-id",
+                    context_metadata={"context_origin": "human"},
+                ),
                 LLMMessage(
                     role="assistant",
                     content="",
@@ -54,6 +59,7 @@ def test_map_message_assistant_with_tool_calls_and_reasoning_content() -> None:
     messages = payload["messages"]
     # [system, user, assistant, tool]
     assert len(messages) == 4
+    assert messages[1] == {"role": "user", "content": "run pwd"}
     assistant_msg = messages[2]
     assert assistant_msg["role"] == "assistant"
     assert "tool_calls" in assistant_msg

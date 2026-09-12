@@ -39,6 +39,17 @@ class RuntimeRunner(BackgroundSubagentRunner):
         self._executor = executor
         self._foreground_stopper = foreground_stopper
 
+    def _parent_context(
+        self, parent_session_id: str, workspace_root: Path
+    ) -> dict[str, Any]:
+        ref = self._directory.ref_for(parent_session_id)
+        if ref is None:
+            ref = SessionRef(
+                session_id=parent_session_id, workspace_root=workspace_root
+            )
+        parent = self._directory.open(ref)
+        return parent.subagent_context_snapshot()
+
     def start(
         self,
         *,
@@ -70,6 +81,9 @@ class RuntimeRunner(BackgroundSubagentRunner):
             auxiliary=auxiliary,
             session_id=agent_session_id,
             foreground_stopper=self._foreground_stopper,
+            parent_context=lambda: self._parent_context(
+                parent_session_id, workspace_root
+            ),
         )
 
         def _watch() -> None:
@@ -135,6 +149,9 @@ class RuntimeRunner(BackgroundSubagentRunner):
             auxiliary=auxiliary,
             session_id=agent_session_id,
             foreground_stopper=self._foreground_stopper,
+            parent_context=lambda: self._parent_context(
+                parent_session_id, workspace_root
+            ),
         )
 
     def start_workflow_agent(
@@ -168,6 +185,9 @@ class RuntimeRunner(BackgroundSubagentRunner):
             auxiliary=auxiliary,
             session_id=agent_session_id,
             foreground_stopper=self._foreground_stopper,
+            parent_context=lambda: self._parent_context(
+                parent_session_id, workspace_root
+            ),
         )
 
     def _start_auxiliary(
@@ -196,7 +216,16 @@ class RuntimeRunner(BackgroundSubagentRunner):
                 agent_session_id,
                 session,
                 TurnRequest(
-                    parts=({"type": "text", "text": prompt},),
+                    parts=(
+                        {
+                            "type": "text",
+                            "text": prompt,
+                            "context_origin": "agent",
+                            "inherited_approval_context": self._parent_context(
+                                parent_session_id, workspace_root
+                            ),
+                        },
+                    ),
                     llm_session_id=llm_session_id,
                     run_id=run_id,
                     controller=controller,
@@ -216,11 +245,13 @@ class _ControllerHandle(ForegroundSubagentHandle):
         auxiliary: AuxiliaryHandle,
         session_id: str,
         foreground_stopper: Callable[[str], bool] | None,
+        parent_context: Callable[[], dict[str, Any]],
     ) -> None:
         self._controller = controller
         self._auxiliary = auxiliary
         self._session_id = session_id
         self._foreground_stopper = foreground_stopper
+        self._parent_context = parent_context
 
     def stop(self) -> None:
         self._controller.abort()
@@ -233,7 +264,14 @@ class _ControllerHandle(ForegroundSubagentHandle):
 
     def send_message(self, prompt: str) -> bool:
         return self._controller.enqueue_message(
-            LLMMessage(role="user", content=prompt),
+            LLMMessage(
+                role="user",
+                content=prompt,
+                context_metadata={
+                    "context_origin": "agent",
+                    "inherited_approval_context": self._parent_context(),
+                },
+            ),
             origin=RunOrigin.USER,
         )
 

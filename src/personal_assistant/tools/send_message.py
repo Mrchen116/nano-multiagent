@@ -121,6 +121,10 @@ class SendMessageTool:
             else json.dumps(output, ensure_ascii=False, separators=(",", ":"))
         )
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Expose the complete destination and message before dispatch."""
+        return json.dumps(dict(tool_input), ensure_ascii=False, separators=(",", ":"))
+
     def __init__(
         self,
         *,
@@ -237,7 +241,11 @@ class SendMessageTool:
         return {
             "ok": True,
             "target": target,
-            **({"message_id": body["message_id"]} if body.get("message_id") else {}),
+            **{
+                key: body[key]
+                for key in ("message_id", "status", "accepted")
+                if key in body
+            },
         }
 
 

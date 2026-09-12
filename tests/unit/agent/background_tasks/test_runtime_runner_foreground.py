@@ -43,8 +43,14 @@ class _Directory:
         self.session = SimpleNamespace(
             ref="subagent",
             partial_turn_result=lambda: None,
+            subagent_context_snapshot=lambda: {
+                "parent_approval_context": [{"role": "user", "content": "parent facts"}]
+            },
         )
         self.refs: list[Any] = []
+
+    def ref_for(self, session_id: str):
+        return None
 
     def get(self, ref: Any) -> object:
         self.refs.append(ref)
@@ -80,7 +86,16 @@ def test_foreground_submits_typed_request_to_executor(tmp_path: Path) -> None:
 
     assert handle.result(timeout=1).messages[-1].content == "done"
     _agent_id, _session, request = executor.calls[0]
-    assert request.parts == ({"type": "text", "text": "inspect"},)
+    assert request.parts == (
+        {
+            "type": "text",
+            "text": "inspect",
+            "context_origin": "agent",
+            "inherited_approval_context": {
+                "parent_approval_context": [{"role": "user", "content": "parent facts"}]
+            },
+        },
+    )
     assert request.llm_session_id == "parent"
     assert request.model == "test:model"
 

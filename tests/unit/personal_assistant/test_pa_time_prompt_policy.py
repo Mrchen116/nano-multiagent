@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import pytest
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -81,3 +82,22 @@ def test_prompt_preview_forces_same_internal_policy_without_ui_toggle() -> None:
         piece.name == "pa.timezone" and piece.text == "Time zone: Asia/Shanghai"
         for piece in prompt.head
     )
+
+
+@pytest.mark.parametrize("run_origin", ["human", "heartbeat", "cron"])
+def test_global_runtime_keeps_return_to_agent_choice_independent_of_run_origin(
+    tmp_path: Path, run_origin: str
+) -> None:
+    snapshot = _snapshot(tmp_path)
+
+    global_runtime = project_agent_runtime(
+        snapshot,
+        scenario={"pa_work_scope": "global_main", "run_origin": run_origin},
+        resolved_model="test-model",
+    ).runtime
+    single_runtime = project_agent_runtime(
+        snapshot, scenario={"run_origin": run_origin}, resolved_model="test-model"
+    ).runtime
+
+    assert global_runtime.auto_mode_interaction == "return_to_agent"
+    assert single_runtime.auto_mode_interaction is None

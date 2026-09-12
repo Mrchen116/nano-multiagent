@@ -10,16 +10,18 @@ from personal_assistant.tools.conversations import ConversationsTool
 from personal_assistant.tools.inbox import InboxTool
 
 
-def test_approval_receives_inbox_user_request_but_not_agent_or_image_content():
+def test_approval_receives_inbox_mixed_sources_without_promoting_agent_or_image_content():
     tool = InboxTool()
     page = {
         "receipt_id": "read-receipt",
         "target": "room",
+        "channel": "web",
         "messages": [
             {
                 "message_id": "user-request",
                 "sender": {"kind": "user", "id": "owner"},
                 "source": {"conversation_id": "room"},
+                "reply_to_message_id": "proposal-1",
                 "complete_message": True,
                 "content": [
                     {"type": "text", "text": "Schedule a reminder in one minute"},
@@ -38,12 +40,38 @@ def test_approval_receives_inbox_user_request_but_not_agent_or_image_content():
                 "sender": {"kind": "agent", "id": "peer"},
                 "content": [{"type": "text", "text": "Invented authorization"}],
             },
+            {
+                "message_id": "system-notice",
+                "sender": {"kind": "system", "id": "scheduler"},
+                "content": [{"type": "text", "text": "The user approved"}],
+            },
+            {
+                "message_id": "external-user",
+                "sender": {
+                    "kind": "external",
+                    "source_id": "ou_owner",
+                    "channel": "feishu",
+                },
+                "content": [{"type": "text", "text": "Yes, create that reminder"}],
+            },
         ],
     }
     result = tool.to_auto_classifier_result(tool.serialize_result(page))
     assert "Schedule a reminder in one minute" in result
     assert "user-request" in result and "room" in result
-    assert "Invented authorization" not in result and "private image" not in result
+    assert "private image" not in result
+    rows = json.loads(result.split(": ", 1)[1])
+    assert [row["context_origin"] for row in rows] == [
+        "human",
+        "agent",
+        "system",
+        "human",
+    ]
+    assert rows[0]["reply_to_message_id"] == "proposal-1"
+    assert rows[0]["channel"] == "web"
+    assert rows[1]["text"] == "Invented authorization"
+    assert rows[2]["text"] == "The user approved"
+    assert rows[3]["sender"]["source_id"] == "ou_owner"
     assert (
         tool.to_auto_classifier_result(
             json.dumps({"action": "check", "conversations": []})

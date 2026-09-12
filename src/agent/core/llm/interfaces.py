@@ -37,6 +37,9 @@ class LLMMessage:
     reasoning_signature: str | None = None
     # Runtime-only tool status for consumers such as approval transcript projection.
     is_error: bool = False
+    # Internal provenance: provider mappers deliberately serialize none of these facts.
+    message_id: str | None = field(default=None, repr=False)
+    context_metadata: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

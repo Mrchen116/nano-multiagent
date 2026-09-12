@@ -27,7 +27,12 @@ def test_map_generate_request_joins_system_and_applies_default_max_tokens() -> N
             messages=(
                 LLMMessage(role="system", content="S1"),
                 LLMMessage(role="system", content="S2"),
-                LLMMessage(role="user", content="hello"),
+                LLMMessage(
+                    role="user",
+                    content="hello",
+                    message_id="internal-id",
+                    context_metadata={"context_origin": "human"},
+                ),
             ),
             max_tokens=None,
         )
@@ -56,6 +61,23 @@ def test_map_generate_request_merges_extra_body() -> None:
     )
 
     assert payload["thinking"] == {"type": "adaptive"}
+
+
+def test_map_generate_request_preserves_classifier_stop_sequence() -> None:
+    payload = AnthropicMapper().map_generate_request(
+        LLMGenerateRequest(
+            session_id="sess_auto_classifier",
+            model="approval-model",
+            messages=(LLMMessage(role="user", content="Review action"),),
+            max_tokens=2112,
+            stop_sequences=("</block>",),
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+    )
+
+    assert payload["stop_sequences"] == ["</block>"]
+    assert payload["max_tokens"] == 2112
+    assert payload["thinking"] == {"type": "disabled"}
 
 
 def test_map_generate_request_requires_non_system_messages() -> None:

@@ -12,7 +12,62 @@ from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.core.types import Message
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import _build_transcript_user_message
+from agent.platform.hooks.builtins.auto_mode_gate import build_transcript_entries
 from tests.unit.test_auto_mode_gate_dispatch import _get_handler, _make_ctx
+
+
+def test_only_a_later_native_human_reply_selects_recent_assistant_text() -> None:
+    proposal = LLMMessage(
+        role="assistant", content="OLD" + "x" * 2200 + "Push branch release?"
+    )
+    human = LLMMessage(
+        role="user", content="yes", context_metadata={"context_origin": "human"}
+    )
+    event = LLMMessage(
+        role="user", content="completed", context_metadata={"context_origin": "system"}
+    )
+    entries = build_transcript_entries([proposal, human])
+    assert entries[0]["role"] == "assistant"
+    text = entries[0]["content"][0]["text"]
+    assert text.endswith("Push branch release?") and "OLD" not in text
+    assert len(text) == 2000
+    assert not any(
+        e["role"] == "assistant"
+        for e in build_transcript_entries([proposal, event, human])
+    )
+    assert not any(
+        e["role"] == "assistant"
+        for e in build_transcript_entries(
+            [proposal, human], prior_assistant_context=False
+        )
+    )
+
+
+def test_materialized_host_context_is_live_only_for_exact_runtime_record() -> None:
+    from agent.core.agent.message_context import LiveToolContext
+
+    ledger = LiveToolContext()
+    history = _history("kernel")
+    history[-1] = replace(
+        history[-1],
+        message_id="result-id",
+        context_metadata={"host_classifier_context": "User: yes"},
+    )
+    ledger.register("result-id", "call-source", "User: yes")
+    ctx = _context(
+        history, Mock(side_effect=AssertionError("must not reproject history"))
+    )
+    ctx.metadata["_live_tool_context"] = ledger
+    live = _build_transcript_user_message(ctx, "bash", "git push")
+    assert '"host_context_live": "User: yes"' in live
+    ledger.clear()
+    restored = _build_transcript_user_message(ctx, "bash", "git push")
+    assert '"host_context": "User: yes"' in restored
+    assert "host_context_live" not in restored
+    ledger.register("result-id", "call-source", "different text")
+    assert "host_context_live" not in _build_transcript_user_message(
+        ctx, "bash", "git push"
+    )
 
 
 def _history(format: str, *, error: bool = False) -> list:

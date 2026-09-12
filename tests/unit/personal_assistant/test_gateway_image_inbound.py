@@ -120,7 +120,13 @@ def test_inbound_preserves_provider_text_image_order_without_placeholder(
     assert all("[图片]" not in str(part.get("text", "")) for part in captured_parts)
 
 
-def test_buffered_group_post_preserves_image_and_provider_order(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("sender_type", "context_origin"),
+    [("agent", "agent"), ("system", "system"), ("unknown", "unclassified")],
+)
+def test_buffered_group_post_preserves_image_order_and_each_senders_origin(
+    tmp_path: Path, sender_type: str, context_origin: str
+) -> None:
     store = GroupContextStore(db_path=tmp_path / "group-context.sqlite3")
     pipeline, kernel, _ = _make_pipeline(tmp_path, group_context_store=store)
     captured_parts: list[dict[str, object]] = []
@@ -141,6 +147,7 @@ def test_buffered_group_post_preserves_image_and_provider_order(tmp_path: Path) 
         agent_id="agent-a",
         metadata={
             "mentioned_agent_ids": [],
+            "sender_type": sender_type,
             "attachments": [{"url": data_url, "content_type": "image/png"}],
             "kernel_input_parts": [
                 {"type": "text", "text": "前文"},
@@ -174,6 +181,12 @@ def test_buffered_group_post_preserves_image_and_provider_order(tmp_path: Path) 
         "[bob] @agent-a 看看上面的图",
     ]
     assert all("[图片]" not in str(part.get("text", "")) for part in captured_parts)
+    assert [part["context_origin"] for part in captured_parts] == [
+        context_origin,
+        context_origin,
+        context_origin,
+        "human",
+    ]
 
 
 @pytest.mark.parametrize(

@@ -153,6 +153,7 @@ class TestToolCheckPermissionsProtocol:
 def _make_ctx(cwd: Path | None = None) -> MagicMock:
     ctx = MagicMock()
     ctx.cwd = cwd or Path("/workspace")
+    ctx.repo_root = ctx.cwd
     return ctx
 
 

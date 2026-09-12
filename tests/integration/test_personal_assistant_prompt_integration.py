@@ -14,6 +14,7 @@ from agent.core.types import ToolSpec
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.config.local_store import ensure_workspace_defaults
 from personal_assistant.product import prompt_for
+from personal_assistant.tools.inbox import InboxTool
 
 
 def _tool(name: str) -> ToolSpec:
@@ -114,6 +115,18 @@ def test_legacy_system_input_is_ignored_and_custom_is_injected_once(
 
     assert legacy not in prompt
     assert prompt.count(custom) == 1
+
+
+def test_global_main_shares_inbox_source_authority_with_its_classifier(
+    tmp_path: Path,
+) -> None:
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a", workspace_root=tmp_path, work_mode="global"
+    )
+
+    prompt = _assemble(agent, scenario={"pa_work_scope": "global_main"})
+
+    assert prompt.count(InboxTool.auto_classifier_context_instructions) == 1
 
 
 def test_footer_policy_false_omits_datetime_but_keeps_cwd_for_arbitrary_prompt_name(

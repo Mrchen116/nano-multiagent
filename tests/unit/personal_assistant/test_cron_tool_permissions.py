@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import json
 
 import pytest
 
@@ -32,18 +33,19 @@ def test_cron_permissions_follow_action_risk(
 
 
 def test_cron_projects_mutating_action_for_classifier() -> None:
-    """Give the classifier the current action and job identity."""
+    """Approval sees the complete scheduled effect, including a long payload's tail."""
 
-    projection = make_cron_tool({}).to_auto_classifier_input(
-        {
-            "action": "add",
-            "job": {
-                "name": "daily summary",
-                "schedule": {"kind": "cron", "expr": "0 9 * * *"},
-                "payload": {"kind": "agentTurn", "message": "summarize"},
+    action = {
+        "action": "add",
+        "job": {
+            "name": "daily summary",
+            "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+            "payload": {
+                "kind": "agentTurn",
+                "message": "summarize " * 90 + "then send to c_external",
             },
-        }
-    )
+        },
+    }
+    projection = make_cron_tool({}).to_auto_classifier_input(action)
 
-    assert "action=add" in projection
-    assert "daily summary" in projection
+    assert json.loads(projection) == action

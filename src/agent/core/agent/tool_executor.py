@@ -215,6 +215,7 @@ class StreamingToolExecutor:
                     arguments=dict(item.tool_call.arguments),
                     approval=approval,
                     event_metadata=event_metadata,
+                    permission_context=exec_meta.get("permission_context"),
                 )
             item.status = "completed"
         except asyncio.CancelledError:
@@ -266,6 +267,7 @@ class StreamingToolExecutor:
                     approval=approval,
                     reason=block_reason,
                     is_subagent=self._is_fork_sidechain,
+                    permission_context=details.get("permission_context"),
                 )
             else:
                 error_text = str(exc)
@@ -278,6 +280,9 @@ class StreamingToolExecutor:
                 arguments=dict(item.tool_call.arguments),
                 reason_code=reason_code,
                 approval=approval,
+                permission_context=details.get("permission_context")
+                if isinstance(details, Mapping)
+                else None,
             )
             item.status = "completed"
             # Bash error triggers sibling abort.
@@ -302,6 +307,7 @@ class StreamingToolExecutor:
                     reason_code=item.result.reason_code,
                     approval=item.result.approval,
                     event_metadata=item.result.event_metadata,
+                    permission_context=item.result.permission_context,
                 )
         item._event.set()
         await self._process_queue()

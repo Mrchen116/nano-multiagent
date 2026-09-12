@@ -26,6 +26,7 @@ from agent.core.runs.executor import KernelExecutor, TargetCompletion, TargetTok
 from agent.core.session.directory import SessionDirectory
 from agent.core.session.types import SessionRef, TurnRequest
 from agent.core.agent.run_control import PendingMessage, RunController
+from agent.core.agent.message_context import restore_input_parts
 from agent.core.workspace import WorkspaceExecutionScope
 
 
@@ -1102,10 +1103,7 @@ def _group_pending_by_origin(
 
 def _input_parts_from_message(message: LLMMessage) -> list[Mapping[str, Any]]:
     """Recover canonical submit parts from a pending provider-neutral message."""
-
-    if isinstance(message.content, str):
-        return [{"type": "text", "text": message.content}]
-    return [dict(part) for part in message.content]
+    return restore_input_parts(message.content, message.context_metadata)
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

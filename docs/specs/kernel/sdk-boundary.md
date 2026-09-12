@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-517, feat-530
+> 对齐: feat-552
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -185,3 +185,16 @@
 - **WHEN** 应用经 SDK 保存某 run script 或列出 workspace 适用的命名 Workflow
 - **THEN** 返回 SDK-owned saved-workflow records
 - **AND** project/personal/plugin 路径解析留在内核实现边界内
+
+### Requirement: 应用通过完整 session runtime 选择 Auto 交互方式
+
+既有 `SessionRuntimeConfig` 增加可选字段 `auto_mode_interaction: Literal["return_to_agent"] | None = None`。应用经原有 `create_session(runtime=...)` / `reconfigure_session(runtime=...)` 提供该值；它随完整 runtime 持久化、读回并参与 identity。
+
+#### Scenario: 选择交互并在后续会话操作中保留
+- **WHEN** 应用把 `auto_mode_interaction="return_to_agent"` 作为完整 runtime 的一部分创建或重配 session
+- **THEN** `get_session_runtime` 返回的 runtime 保留该值，`identify_runtime` 对该字段的变化产生不同 identity；既有重配的忙闲与未来运行边界不变。
+- **AND** 普通运行按该选择返回未获准原因，由 Agent 继续处理；实际无人值守入口及普通 child 仍遵守各自运行路由，不仅凭该字段判定来源或覆盖工具硬限制。
+
+#### Scenario: 省略或清除交互选择
+- **WHEN** 应用省略该字段，或在完整 runtime 中显式传入 `None`
+- **THEN** 不增加 session 级 Auto 交互覆盖，继续既有路由；读回缺少该字段的既有完整 runtime 时，该字段为 `None`，不要求配置迁移或新增装配步骤。

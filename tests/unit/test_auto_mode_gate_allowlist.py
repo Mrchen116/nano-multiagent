@@ -24,7 +24,6 @@ class TestSafeToolAllowlist:
                 "skill_view",
                 "task_stop",
                 "agent",
-                "send_message",
                 "memory",
             }
         )

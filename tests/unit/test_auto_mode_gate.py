@@ -16,63 +16,10 @@ from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
     build_transcript_entries,
-    build_yolo_system_prompt,
     parse_xml_block,
     parse_xml_reason,
     strip_thinking,
 )
-
-
-# ---------------------------------------------------------------------------
-# System prompt three-layer assembly
-# ---------------------------------------------------------------------------
-
-
-class TestBuildYoloSystemPrompt:
-    def test_permissions_template_substituted(self):
-        cfg = AutoModeConfig()
-        prompt = build_yolo_system_prompt(cfg)
-        # permissions_template placeholder should be replaced
-        assert "<permissions_template>" not in prompt
-        # Default rules from external permissions template should appear
-        assert "Allow Rules" in prompt
-        assert "Deny Rules" in prompt
-
-    def test_user_allow_rules_replace_defaults(self):
-        cfg = AutoModeConfig(allow=("my custom allow rule",))
-        prompt = build_yolo_system_prompt(cfg)
-        assert "my custom allow rule" in prompt
-        # The tags themselves should be gone
-        assert "<user_allow_rules_to_replace>" not in prompt
-
-    def test_user_deny_rules_replace_defaults(self):
-        cfg = AutoModeConfig(soft_deny=("never delete production db",))
-        prompt = build_yolo_system_prompt(cfg)
-        assert "never delete production db" in prompt
-
-    def test_user_environment_replaces_defaults(self):
-        cfg = AutoModeConfig(environment=("Rust project using cargo",))
-        prompt = build_yolo_system_prompt(cfg)
-        assert "Rust project using cargo" in prompt
-
-    def test_empty_user_rules_keep_defaults(self):
-        """Empty user rules should preserve the default text in the template."""
-        cfg = AutoModeConfig()  # no user rules
-        prompt = build_yolo_system_prompt(cfg)
-        # Default allow rule from permissions_external template
-        assert (
-            "Running read-only shell commands" in prompt
-            or "read-only" in prompt.lower()
-        )
-
-    def test_xml_output_format_replaces_tool_use_line(self):
-        """The classify_result tool line must be replaced with XML format."""
-        cfg = AutoModeConfig()
-        prompt = build_yolo_system_prompt(cfg)
-        assert "classify_result" not in prompt
-        assert "<block>yes</block>" in prompt
-        assert "<block>no</block>" in prompt
-        assert "## Output Format" in prompt
 
 
 # ---------------------------------------------------------------------------

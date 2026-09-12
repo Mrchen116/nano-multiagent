@@ -30,6 +30,11 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
+from agent.core.agent.message_context import (
+    LiveToolContext,
+    input_context_metadata,
+    restore_input_parts,
+)
 from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.session.conversation import ConversationState
 from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
@@ -151,6 +156,7 @@ class AgentEngine:
         prompt_sections: Sequence[PromptSection] | None = None,
         execution_scope_resolver: Callable[[Path], WorkspaceExecutionScope]
         | None = None,
+        source_instructions: Mapping[str, str] | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -194,6 +200,8 @@ class AgentEngine:
         # don't support the ask flow (unit tests, CI without interactive terminal).
         # Stored here so _build_hook_context can inject permission_requester per call.
         self._permission_broker = permission_broker
+        self._live_tool_context = LiveToolContext()
+        self._source_instructions = dict(source_instructions or {})
         # Optional consumer-supplied can_use_tool callback. When set (injected by
         # Kernel.__init__ for CLI products), _build_hook_context races the callback
         # against the broker future so the CLI's interactive prompt resolves the ask
@@ -439,13 +447,12 @@ class AgentEngine:
             if last_user is None:
                 raise ValueError("replay-last-user requires a prior user message")
             user_text = last_user.content if isinstance(last_user.content, str) else ""
-            if last_user.parts:
-                # 保留原 user parts（含图片），不要退化成纯文本占位。
-                input_parts = parse_input_parts(list(last_user.parts))
-            else:
-                input_parts = parse_input_parts(
-                    [{"type": "text", "text": user_text}] if user_text else []
+            input_parts = parse_input_parts(
+                restore_input_parts(
+                    last_user.parts or user_text,
+                    last_user.metadata,
                 )
+            )
             if not user_text:
                 user_text = render_user_text(input_parts)
         else:
@@ -462,6 +469,15 @@ class AgentEngine:
         hook_metadata: dict[str, Any] = (
             dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         )
+        # A child follow-up brings a fresh snapshot, without changing who authored it.
+        for message in history:
+            inherited = message.metadata.get("inherited_approval_context")
+            if isinstance(inherited, Mapping):
+                hook_metadata.update(inherited)
+        for part in input_parts:
+            inherited = part.metadata.get("inherited_approval_context")
+            if isinstance(inherited, Mapping):
+                hook_metadata.update(inherited)
         hook_metadata["cwd"] = str(session_workspace_root)
         hook_metadata["transcript_path"] = str(path)
         if config.skills is not None:
@@ -575,6 +591,9 @@ class AgentEngine:
             user_text = message_override
         if not user_text and not replay_last_user:
             raise ValueError("empty input parts are not allowed")
+        # Persist and project the same hook-transformed text sent to the model.
+        if len(input_parts) == 1 and input_parts[0].type == "text":
+            input_parts = (replace(input_parts[0], text=user_text),)
         hook_system_prompt_override = before_payload.get("system_prompt")
         if isinstance(hook_system_prompt_override, str):
             hook_system_prompt_override = hook_system_prompt_override.strip() or None
@@ -664,9 +683,13 @@ class AgentEngine:
                 role="user",
                 content=user_text,
                 parts=tuple(user_content_parts) if user_content_parts else None,
-                metadata={"submission_id": submission_id, "run_id": run_id}
-                if submission_id
-                else {},
+                metadata={
+                    **input_context_metadata(
+                        input_parts, origin=origin, metadata=hook_metadata
+                    ),
+                    "run_id": run_id,
+                    **({"submission_id": submission_id} if submission_id else {}),
+                },
             )
             history.append(user_msg)
             state.transcript.append_messages(
@@ -721,6 +744,17 @@ class AgentEngine:
         effective_user_text = user_text
         effective_input_parts = input_parts
         if len(input_parts) > 1:
+            if user_msg.metadata.get("context_has_human"):
+                input_parts = [
+                    replace(
+                        part,
+                        metadata={
+                            **dict(part.metadata),
+                            "context_has_human": True,
+                        },
+                    )
+                    for part in input_parts
+                ]
             extra_parts = input_parts[:-1]
             last_part = input_parts[-1:]
             # bugfix-433 CRITICAL-1: an extra image part must carry structured parts so
@@ -740,6 +774,9 @@ class AgentEngine:
                     parts=tuple(blocks)
                     if (blocks := render_user_content_parts([part]))
                     else None,
+                    metadata=input_context_metadata(
+                        [part], origin=origin, metadata=hook_metadata
+                    ),
                 )
                 for part in extra_parts
                 if render_user_text([part]) or render_user_content_parts([part])
@@ -1779,6 +1816,9 @@ class AgentEngine:
         if registry is not None:
             resolved_metadata["tool_registry"] = registry
 
+        resolved_metadata["_live_tool_context"] = self._live_tool_context
+        resolved_metadata["_source_instructions"] = self._source_instructions
+
         final_metadata: Mapping[str, Any] = (
             scope.metadata(resolved_metadata)
             if scope is not None
@@ -2313,7 +2353,11 @@ class AgentEngine:
             parent_message_id=last_preserved_id,
             role="user",
             content=summary,
-            metadata={"is_compact_summary": True, "is_meta": True},
+            metadata={
+                "is_compact_summary": True,
+                "is_meta": True,
+                "context_origin": "summary",
+            },
         )
         reinjection_msg = self._build_skill_reinjection_message(
             session_id,
@@ -2413,6 +2457,7 @@ class AgentEngine:
             metadata={
                 "is_meta": True,
                 "is_skill_reinjection": True,
+                "context_origin": "system",
                 "skill_reinjection_refs": refs,
                 "compact_entry_id": compact_entry_id,
             },

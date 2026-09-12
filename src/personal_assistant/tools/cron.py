@@ -60,17 +60,6 @@ class _PassthroughDecision:
 
 _CRON_TOOL_PASSTHROUGH = _PassthroughDecision()
 _CRON_LOW_RISK_ACTIONS = frozenset({"list", "runs"})
-_CRON_PROJECTION_TEXT_LIMIT = 240
-
-
-def _projection_value(value: Any) -> str:
-    if isinstance(value, Mapping):
-        text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    else:
-        text = str(value)
-    return text[:_CRON_PROJECTION_TEXT_LIMIT]
-
-
 _CRON_SUBDIR = ".nanoassistant/cron"
 _JOBS_FILENAME = "jobs.json"
 
@@ -360,14 +349,8 @@ class CronTool:
         return _CRON_TOOL_PASSTHROUGH
 
     def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
-        """Project cron action details for the auto-mode classifier."""
-
-        parts = [f"action={_projection_value(tool_input.get('action', ''))}"]
-        for key in ("jobId", "id", "job", "patch"):
-            value = tool_input.get(key)
-            if value is not None:
-                parts.append(f"{key}={_projection_value(value)}")
-        return " ".join(parts)
+        """Expose the full scheduled action; its payload may define later effects."""
+        return json.dumps(dict(tool_input), ensure_ascii=False, separators=(",", ":"))
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         action = _require_str(args.get("action"), field_name="action")

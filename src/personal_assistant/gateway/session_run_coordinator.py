@@ -2069,7 +2069,22 @@ class SessionRunCoordinator:
                 message_parts = _prefix_sender_parts(message_parts, sender=sender)
             readable_parts.extend(dict(part) for part in message_parts)
             frozen = FrozenHumanMessageContext.from_metadata(metadata)
-            model_parts.extend(apply_frozen_header(message_parts, frozen))
+            # A notification or another agent does not become human input merely
+            # because its buffered message is admitted alongside a human turn.
+            source_origin = (
+                "agent"
+                if metadata.get("sender_agent_id")
+                else {
+                    "user": "human",
+                    "external": "human",
+                    "agent": "agent",
+                    "system": "system",
+                }.get(metadata.get("sender_type", "user"), "unclassified")
+            )
+            model_parts.extend(
+                {**part, "context_origin": source_origin}
+                for part in apply_frozen_header(message_parts, frozen)
+            )
         return _MessagePartsProjection(
             model_parts=model_parts,
             model_fallback=_render_parts_fallback(model_parts),

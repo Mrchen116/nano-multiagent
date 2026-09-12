@@ -1,2 +1,5 @@
 # The bundled Lark skills are source snapshots. Preserve their original whitespace.
 src/personal_assistant/builtin_skills/lark-*/** -whitespace
+
+# Pinned CC source prefixes intentionally end with the original blank separator.
+src/agent/platform/hooks/builtins/auto_mode_policy_assets/cc-2.1.267-nano-v1/*_source.txt whitespace=-blank-at-eof

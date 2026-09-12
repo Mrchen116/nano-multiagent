@@ -374,6 +374,7 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         features={"memory_curation": False},
         reasoning_effort="high",
         reasoning_effort_override="high",
+        auto_mode_interaction="return_to_agent",
     )
     try:
         session = await kernel.create_session(

@@ -54,7 +54,7 @@ class _ConcurrentScopeLLM:
             "",
         )
         self.user_texts.append(user_text)
-        if user_text.startswith("<task-notification>"):
+        if "<task-notification>" in user_text:
             return self._stop()
         if getattr(request.messages[-1], "role", None) == "tool":
             return self._stop()

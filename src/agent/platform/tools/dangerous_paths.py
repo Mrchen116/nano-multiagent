@@ -11,6 +11,9 @@ this project, update this set accordingly.
 from __future__ import annotations
 
 from pathlib import Path
+from os.path import abspath
+
+from agent.platform.permissions.broker import PermissionDecision
 
 
 # ---------------------------------------------------------------------------
@@ -124,3 +127,51 @@ def check_dangerous_path(file_path: str, *, cwd: Path | None = None) -> bool:
         i += 1
 
     return False
+
+
+def _workspace_path_spelling(path: Path) -> Path:
+    path = Path(abspath(path))
+    # CC treats these macOS system aliases as the same spelling, not an added root.
+    if path.parts[:3] in {("/", "private", "var"), ("/", "private", "tmp")}:
+        return Path("/", *path.parts[2:])
+    return path
+
+
+def check_file_edit_permissions(
+    raw_path: str, *, cwd: Path, workspace_root: Path | None
+) -> PermissionDecision:
+    """Check sensitive paths and identify CC acceptEdits-compatible file changes.
+
+    Both the supplied path and its symlink target must be within the workspace.
+    The mode hint only permits Auto to skip classification; other modes retain
+    their existing permission flow.
+
+    Args:
+        raw_path: File path supplied to write or edit.
+        cwd: Actual execution directory for relative paths.
+        workspace_root: Session workspace boundary, if available.
+
+    Returns:
+        A sensitive-path ask or passthrough with an optional acceptEdits hint.
+    """
+    supplied = Path(cwd) / Path(raw_path).expanduser()
+    resolved = supplied.resolve()
+    if check_dangerous_path(str(supplied)) or check_dangerous_path(str(resolved)):
+        return PermissionDecision(
+            behavior="ask",
+            decision_reason={"type": "safety_check", "matched_path": raw_path},
+            reason=(
+                f"Writing to {raw_path} requires explicit confirmation "
+                "(sensitive system file or directory)"
+            ),
+        )
+    if workspace_root is not None:
+        root = Path(workspace_root)
+        if _workspace_path_spelling(supplied).is_relative_to(
+            _workspace_path_spelling(root)
+        ) and (resolved.is_relative_to(root.resolve())):
+            return PermissionDecision(
+                behavior="passthrough",
+                decision_reason={"type": "mode", "mode": "acceptEdits"},
+            )
+    return PermissionDecision(behavior="passthrough")

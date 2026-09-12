@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from agent.core import ids
+from agent.core.agent.message_context import classifier_metadata
 from agent.core.types import Message
 from agent.core.utils.time import utc_now_iso
 
@@ -911,12 +912,14 @@ def _turn_metadata(entry: Mapping[str, Any]) -> dict[str, Any]:
         "run_id",
     )
     metadata = {key: entry[key] for key in keys if key in entry}
+    metadata.update(classifier_metadata(entry))
     if "idempotency_key" in entry:
         metadata["idempotency_key"] = entry["idempotency_key"]
     return metadata
 
 
 def _copy_turn_metadata(entry: dict[str, Any], metadata: Mapping[str, Any]) -> None:
+    entry.update(classifier_metadata(metadata))
     for key in (
         "is_meta",
         "is_compact_summary",

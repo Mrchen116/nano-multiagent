@@ -101,6 +101,7 @@ class WorkspaceExecutionScope:
     tool_result_compressor: Any
     bash_policy_overrides: Any
     auto_mode_config_loader: Callable[[], Any]
+    global_config_root: Path | None = None
 
     def metadata(self, values: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         """Return immutable hook metadata bound to this exact workspace scope."""
@@ -111,6 +112,9 @@ class WorkspaceExecutionScope:
                 "workspace_root": str(self.layout.workspace_root),
                 "workspace_config_dirname": self.layout.config_dirname,
                 "workspace_config_root": str(self.layout.config_root),
+                "global_config_root": str(self.global_config_root)
+                if self.global_config_root
+                else None,
                 "tool_registry": self.tool_registry,
                 "_auto_mode_config_loader": self.auto_mode_config_loader,
                 "bash_policy_overrides": self.bash_policy_overrides,

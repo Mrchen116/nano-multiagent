@@ -1,186 +1,127 @@
-"""Behavioral tests for BashTool command policy decisions and overrides."""
+"""Command-policy behavior, pinned-reference parity, and explicit overrides."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch
-import tempfile
 
-# These imports will fail (Red) until bash_policy.py is created.
+from agent.core.errors import ToolError
+from agent.platform.tools.builtins import bash_readonly
 from agent.platform.tools.builtins.bash_policy import (
+    BashPolicyOverrides,
     check_command_policy,
     enforce_command_policy,
     load_bash_policy_overrides,
-    BashPolicyOverrides,
 )
-from agent.core.errors import ToolError
+
+_REFERENCE = json.loads(
+    Path(__file__)
+    .with_name("fixtures")
+    .joinpath("bash_readonly_cc_2_1_267.json")
+    .read_text()
+)
 
 
-class TestCheckCommandPolicyAllowed:
-    """check_command_policy 对允许命令返回 status='allowed'。"""
+@pytest.mark.parametrize(
+    "group", ["commands_and_flags", "syntax_and_security", "windows_security"]
+)
+def test_readonly_decisions_match_fixed_reference(group, tmp_path, monkeypatch):
+    """Every frozen expected result comes from the pinned JavaScript functions."""
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin", "HOME": str(tmp_path)})
+    monkeypatch.setattr(bash_readonly, "_IS_WINDOWS", group == "windows_security")
+    for command, expected in _REFERENCE[group]:
+        decision = check_command_policy(command, cwd=tmp_path)
+        assert decision.status == expected, (command, expected, decision)
 
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "ls -la",
-            "ls",
-            "cat /etc/hosts",
-            "cat README.md",
-            "echo hello",
-            "head -n 10 file.txt",
-            "tail -f log.txt",
-            "pwd",
-            "wc -l src/main.py",
-            "rg 'TODO' src/",
-            "true",
-            "false",
-            "command -v python3",
-        ],
+
+@pytest.mark.parametrize("command", ["reboot", "python3 script.py"])
+def test_enforce_requires_readonly_or_explicit_permission(command):
+    with pytest.raises(ToolError):
+        enforce_command_policy(command)
+    enforce_command_policy("ls -la")
+
+
+@pytest.mark.parametrize(
+    "command", ["reboot", "ls | reboot", 'echo "prefix $(reboot)"']
+)
+def test_explicit_deny_override_precedes_explicit_allow(command):
+    overrides = BashPolicyOverrides(
+        allow_prefixes=("reboot", "ls", "echo"), blocked_commands=("reboot",)
     )
-    def test_single_readonly_commands_allowed(self, cmd):
-        decision = check_command_policy(cmd)
-        assert decision.status == "allowed", (
-            f"{cmd!r} should be allowed, got {decision}"
-        )
+    assert check_command_policy(command, overrides=overrides).status == "denied"
 
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "git status",
-            "git log --oneline",
-            "git diff HEAD~1",
-            "git show HEAD",
-            "git branch -a",
-            "git config --list",
-            "git rev-parse HEAD",
-            "git ls-files",
-            "git blame src/main.py",
-            "git tag",
-            "git describe --tags",
-            "git remote -v",
-            "git stash list",
-        ],
+
+def test_explicit_allow_override_replaces_defaults_and_keeps_its_scope():
+    overrides = BashPolicyOverrides(allow_prefixes=("custom-tool", "git"))
+    assert (
+        check_command_policy("custom-tool --write", overrides=overrides).status
+        == "allowed"
     )
-    def test_git_readonly_subcommands_allowed(self, cmd):
-        decision = check_command_policy(cmd)
-        assert decision.status == "allowed", (
-            f"{cmd!r} should be allowed, got {decision}"
-        )
+    assert check_command_policy("git push", overrides=overrides).status == "allowed"
+    assert check_command_policy("cat README.md", overrides=overrides).status == "review"
 
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "python --version",
-            "python -V",
-            "python3 --version",
-            "python3 -V",
-        ],
+
+def test_explicit_fragment_override_still_denies():
+    rules = BashPolicyOverrides(blocked_fragments=("forbidden-text",))
+    assert (
+        check_command_policy("echo forbidden-text", overrides=rules).status == "denied"
     )
-    def test_python_version_flags_allowed(self, cmd):
-        decision = check_command_policy(cmd)
-        assert decision.status == "allowed", (
-            f"{cmd!r} should be allowed, got {decision}"
-        )
-
-    def test_and_chain_of_readonly(self):
-        """ls && cat file.txt → allowed（两段都匹配 prefix）。"""
-        decision = check_command_policy("ls -la && cat README.md")
-        assert decision.status == "allowed"
 
 
-class TestCheckCommandPolicyReview:
-    """check_command_policy 对未列入 prefix 的命令返回 status='review'。"""
-
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "python3 file.py",
-            "python3 src/main.py",
-            "python app.py",
-            "bash script.sh",
-            "bash -c 'echo hi'",
-            "pytest tests/",
-            "pytest -xvs tests/unit/",
-            "sed -i 's/x/y/' file.txt",
-            "sed 's/a/b/' file.txt",  # sed 本身整体 review，无论是否 -i
-            "sleep 5",
-            "git push origin main",
-            "git commit -m 'msg'",
-            "git reset --hard HEAD~1",
-            "git checkout -b new-branch",
-            "git merge main",
-            "rm -rf /tmp/test",
-            "npm install",
-            "make build",
-        ],
-    )
-    def test_non_allowlisted_commands_review(self, cmd):
-        decision = check_command_policy(cmd)
-        assert decision.status == "review", f"{cmd!r} should be review, got {decision}"
-
-    def test_review_contains_unmatched_segments(self):
-        """review 状态 details 包含 unmatched_segments。"""
-        decision = check_command_policy("python3 script.py")
-        assert decision.status == "review"
-        assert "unmatched_segments" in decision.details
+@pytest.mark.parametrize("marker", ["HEAD", "objects", "refs"])
+def test_git_checks_effective_cwd_and_ancestors_for_bare_indicators(tmp_path, marker):
+    (tmp_path / marker).write_text("untrusted")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    assert check_command_policy("git status", cwd=nested).status == "review"
+    assert check_command_policy("ls", cwd=nested).status == "allowed"
 
 
-class TestCheckCommandPolicyDenied:
-    """check_command_policy 对硬 deny 命令返回 status='denied'。"""
-
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "mkfs /dev/sda",
-            "reboot",
-            "shutdown -h now",
-            "halt",
-            "poweroff",
-            "zmodload zsh/net/tcp",
-            "mapfile -t lines < file.txt",
-            "zf_rm /etc/passwd",
-        ],
-    )
-    def test_blocked_commands_denied(self, cmd):
-        decision = check_command_policy(cmd)
-        assert decision.status == "denied", f"{cmd!r} should be denied, got {decision}"
-
-    def test_fork_bomb_fragment_denied(self):
-        """Fork-bomb 语法 fragment 直接 deny。"""
-        decision = check_command_policy(":(){:|:&};:")
-        assert decision.status == "denied"
-        assert "blocked_fragment" in decision.details
-
-    def test_blocked_command_not_substring(self):
-        """'reboot-helper.sh' 不命中 blocked_commands（token 级匹配）。"""
-        decision = check_command_policy("./reboot-helper.sh")
-        # Should be review, not denied
-        assert decision.status != "denied", (
-            "reboot-helper.sh should NOT be denied (substring guard)"
-        )
-
-    def test_blocked_command_details(self):
-        decision = check_command_policy("reboot")
-        assert decision.status == "denied"
-        assert (
-            "blocked_command" in decision.details
-            or "blocked_fragment" in decision.details
-        )
+def test_git_allows_a_normal_repository(tmp_path):
+    dotgit = tmp_path / ".git"
+    dotgit.mkdir()
+    (dotgit / "HEAD").write_text("ref: refs/heads/main\n")
+    (dotgit / "objects").mkdir()
+    (dotgit / "refs").mkdir()
+    assert check_command_policy("git status", cwd=tmp_path).status == "allowed"
 
 
-class TestEnforceCommandPolicy:
-    """enforce_command_policy 行为验证。"""
+@pytest.mark.parametrize("symlink", [False, True])
+def test_git_rejects_plantable_gitdir_indirection(tmp_path, symlink):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    (payload / "HEAD").write_text("ref: refs/heads/main\n")
+    if symlink:
+        (checkout / ".git").symlink_to(payload)
+    else:
+        (checkout / ".git").write_text(f"gitdir: {payload}\n")
+    assert check_command_policy("git log", cwd=checkout).status == "review"
 
-    def test_allowed_does_not_raise(self):
-        enforce_command_policy("ls -la")  # should not raise
 
-    def test_denied_raises_tool_error(self):
-        with pytest.raises(ToolError):
-            enforce_command_policy("reboot")
+def test_git_allows_worktree_gitdir_inside_original_git_directory(tmp_path):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    gitdir = tmp_path / "original" / ".git" / "worktrees" / "checkout"
+    gitdir.mkdir(parents=True)
+    (gitdir / "HEAD").write_text("ref: refs/heads/work\n")
+    (checkout / ".git").write_text(f"gitdir: {gitdir}\n")
+    assert check_command_policy("git status", cwd=checkout).status == "allowed"
 
-    def test_review_raises_tool_error(self):
-        """review 状态下 enforce_command_policy 也 raise（单点 policy，D10）。"""
-        with pytest.raises(ToolError):
-            enforce_command_policy("python3 script.py")
+
+def test_malformed_command_does_not_produce_an_allow_decision():
+    with pytest.raises(ToolError, match="command parsing failed"):
+        check_command_policy("echo 'unterminated")
+    assert check_command_policy("echo hi &&").status == "review"
+
+
+@pytest.mark.parametrize("count, expected", [(4997, "allowed"), (4998, "review")])
+def test_command_length_uses_reference_utf16_units(count, expected):
+    assert check_command_policy("echo " + "😀" * count).status == expected
 
 
 class TestBashPolicyOverrides:

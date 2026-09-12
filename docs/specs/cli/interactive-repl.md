@@ -1,6 +1,6 @@
 # cli (coding_cli) - Interactive REPL Specification
 
-> 对齐: feat-517
+> 对齐: feat-552
 > 上级: [cli (coding_cli) Specification](spec.md)
 
 ## Purpose
@@ -189,3 +189,25 @@ CLI 收到包含非空真实更新对象的 `self_evolution_review` session even
 - **WHEN** 该后台 review 结束
 - **THEN** CLI 不显示 self-evolution updated 提示
 - **AND** 终端也不显示 raw `Nothing to save.`、错误文本或 review 工具过程
+
+### Requirement: Auto 理解多轮确认并保留现有人工入口
+
+#### Scenario: 已授权的常规工作
+- **WHEN** 用户要求项目内修改、测试或 loopback 开发服务
+- **THEN** 使用更新后的策略判断实际范围，不因旧笼统服务规则反复确认。
+
+#### Scenario: 回答具体提议
+- **WHEN** 真人回答 assistant 的明确提议
+- **THEN** 审批按 CC 启用分支获得前文和回复，未获真人回应的当前旁白不构成授权。
+
+#### Scenario: 有效拒绝达到阈值
+- **WHEN** 当前 session 连续或累计有效自动拒绝达到阈值
+- **THEN** 本次动作走现有人工入口；批准按成功处理，拒绝不执行；不新增永久暂停锁或配置切换。
+
+#### Scenario: 审批故障
+- **WHEN** 审批模型未给有效结论
+- **THEN** 用户看到实际故障原因，沿既有人工路径处理，故障不计入有效拒绝次数。
+
+#### Scenario: 继续使用已有配置
+- **WHEN** 用户升级后使用原 global/workspace 配置
+- **THEN** 配置根与逐字段覆盖规则不变，不要求迁移或新增必填项；新默认策略和扩展规则键可说明。

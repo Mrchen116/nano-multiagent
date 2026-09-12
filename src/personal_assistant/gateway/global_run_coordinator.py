@@ -240,6 +240,7 @@ class GlobalRunCoordinator:
                 parts=[
                     {
                         "type": "text",
+                        "context_origin": "system",
                         "text": (
                             "<system-reminder>\n"
                             "New messages have arrived in your Inbox. "

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from personal_assistant.tools.inbox_result import source_summary
+from personal_assistant.tools.inbox_result import REPLY_FIELDS, source_summary
 
 from personal_assistant.tools.inbox import (
     content_digest,
@@ -466,6 +466,7 @@ class GlobalInboxService:
                     {"part_key": "0:text:0", "content": [{"type": "text", "text": ""}]}
                 ]
             attention = bool(should_process and normal_live_input)
+            reply_metadata = (reply_context or {}).get("metadata", {})
             data = {
                 "seq": seq,
                 "target": target,
@@ -480,6 +481,11 @@ class GlobalInboxService:
                     "channel": channel,
                     "conversation_id": conversation_id,
                     "reply_target": target,
+                    **{
+                        key: reply_metadata[key]
+                        for key in REPLY_FIELDS
+                        if key in reply_metadata
+                    },
                 },
             }
             db.execute(

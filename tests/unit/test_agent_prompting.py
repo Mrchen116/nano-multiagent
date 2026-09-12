@@ -8,10 +8,41 @@ from agent.core.agent.prompting import (
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     build_prompt_messages,
+    build_chat_messages,
     build_system_prompt,
 )
 from agent.core.skills.registry import SkillMetadata
 from agent.core.types import Message, ToolSpec
+
+
+def test_rebuilt_history_preserves_source_parts_and_materialized_host_context() -> None:
+    source_parts = [
+        {"text": "yes", "context_origin": "human"},
+        {"text": "task completed", "context_origin": "system"},
+    ]
+    messages = build_chat_messages(
+        history_messages=(
+            Message(
+                message_id="mixed",
+                role="user",
+                content="yes\ntask completed",
+                metadata={"context_parts": source_parts},
+            ),
+            Message(
+                message_id="inbox",
+                role="tool",
+                content="original result",
+                tool_call_id="read-inbox",
+                metadata={"host_classifier_context": "user:yes"},
+            ),
+        ),
+        user_text="next",
+    )
+    assert messages[0].context_metadata["context_parts"] == source_parts
+    assert messages[1].message_id == "inbox"
+    assert messages[1].context_metadata["host_classifier_context"] == "user:yes"
+    assert "host_context_live" not in messages[1].context_metadata
+
 
 _SYSTEM_TEMPLATE = (
     "SYSTEM_INPUT_SENTINEL\n"

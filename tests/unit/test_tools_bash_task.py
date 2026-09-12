@@ -81,30 +81,18 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
     assert exc_info.value.details["reason_code"] == "tool_timeout"
 
 
-def test_bash_rejects_disallowed_command_via_check_permissions(tmp_path: Path) -> None:
-    """After M6 (D10 single-point principle), policy is checked in check_permissions,
-    not in BashTool.run. This test validates check_permissions returns 'deny' for
-    blocked commands and 'passthrough' for review-class commands.
-
-    BashTool.run no longer raises ToolError for unlisted commands; that decision
-    is now made by the auto_mode_gate hook which calls check_permissions first.
-    """
+@pytest.mark.parametrize("command", ["reboot", ":(){:|:&};:", "rm -rf /tmp/forbidden"])
+def test_bash_routes_risk_to_classifier_via_check_permissions(
+    tmp_path: Path, command: str
+) -> None:
+    """Unproved commands need classification; checking permission never executes them."""
     from agent.platform.permissions.broker import PermissionDecision
 
     ctx = _context(tmp_path)
     tool = BashTool()
 
-    # Blocked command → deny from check_permissions
-    result = tool.check_permissions({"command": "reboot"}, ctx)
+    result = tool.check_permissions({"command": command}, ctx)
     assert isinstance(result, PermissionDecision)
-    assert result.behavior == "deny"
-
-    # Fork-bomb → deny
-    result = tool.check_permissions({"command": ":(){:|:&};:"}, ctx)
-    assert result.behavior == "deny"
-
-    # Review command (rm -rf) → passthrough (classifier decides)
-    result = tool.check_permissions({"command": "rm -rf /tmp/forbidden"}, ctx)
     assert result.behavior == "passthrough"
 
 

@@ -766,7 +766,7 @@ async def test_active_steer_reuses_decorated_parts_without_staging_readable_hist
 
     assert injected.run_id == "run-1"
     assert kernel.try_steer_calls[-1]["parts"] == [
-        {"type": "text", "text": f"{header} two"}
+        {"type": "text", "text": f"{header} two", "context_origin": "human"}
     ]
     assert readable_store.resolve_exact("sess-1", f"{header} two") is None
     kernel.finish("run-1")
