@@ -10,7 +10,7 @@
 
 > 修正
 
-用户已在根因说明后要求修正。修复范围是普通网页抓取的 Auto 审批分流，保留显式禁止、显式人工确认与 URL 安全检查；不改变默认提示词，不通过域名白名单或跳过权限规避问题。本次交付到可审查 PR。
+用户已在根因说明后要求修正，并明确“别用 change-orchestrator，自己简化流程。在 worktree 内高质量完整就行”。修复范围是普通网页抓取的 Auto 审批分流，保留显式禁止、显式人工确认与 URL 安全检查；不改变默认提示词，不通过域名白名单或跳过权限规避问题。本次在独立 worktree 完成实现与验证。
 
 ## 现象 / 复现
 
@@ -48,4 +48,17 @@
 
 ## 修复
 
+Auto Gate 仅在 Auto 已启用、工具返回 `ask` 且原因为 `fallback` 时继续分类；其他 `ask` 仍走原有人工处理分流。工具的 URL 校验、预批准、显式规则和分类器拒绝／故障处理保持各自职责。
+
+真实 SDK 回归同时暴露配置接线遗漏：`WebFetchTool` 原先只读没有运行时装配方写入的 `_auto_mode_config`，导致工作区域名规则未被消费。修复为从会话配置 loader 读取规则，普通子 Agent 优先使用继承的父策略快照；不向共享工具对象写入会话配置。只改 Gate 的中间版本有 6 项显式域名规则回归失败，补齐此接线后通过。
+
+消费者行为已同步到 [kernel tools-hooks](../../specs/kernel/tools-hooks.md)。
+
 ## 验证
+
+- 新增 `tests/integration/test_web_fetch_auto_approval.py`：真实 SDK、内置 WebFetch 和内置 agent 派生子会话；仅模型回复及 HTTP 传输使用可控替身。主／子会话各覆盖允许、两阶段拒绝、审批不可用、无有效结果、显式 ask/deny/allow、预批准、Auto 关闭、非法 URL，共 20 项；同时断言审批次数、实际 HTTP 调用次数及抓取正文进入后续模型请求。未修复版本 10 失败／10 通过，修复后全部通过。
+- Auto Gate、交互分流、WebFetch 权限／结果／配置、审批上下文与 SDK 行为契约，共 **218 passed**。Ruff 检查、格式检查、`scripts/docs-check` 与 `git diff --check` 通过。
+- 真实隔离 IM → Gateway → Global Inbox → 工具 → 聊天回复：DeepSeek `deepseek-v4-flash` 主模型、`gpt-5.6-luna` 审批模型，未替换模型或 HTTP 响应。节点 `wt-unit-bugfix-555-39462`、IM `127.0.0.1:61974`、Agent `webfetch555`；消息 `aef80b06618a4823a8297e69dd3c7408`，聊天 `c_ym8qc8ik`。主会话 `sess_60bc4a0c20b75392` 抓取 `https://example.org/`，子会话 `sess_76ca6a6065943b7b` 抓取 `https://raw.githubusercontent.com/python/cpython/main/README.rst`。两者均经真实 Luna S1 `<block>no</block>` 后执行，HTTP 200，公开工作记录显示 completed 和正文，最终聊天分别收到标题。
+- 上述实际审批请求定位于 LLM_PROXY `logs/session/2026-09-12_22-41-35_353_sess_60bc4a0c20b75392/2026-09-12_22-41-38_858-req-anthropic_messages.json` 与 `logs/session/2026-09-12_22-41-43_572_sess_76ca6a6065943b7b/2026-09-12_22-41-43_572-req-anthropic_messages.json`，配对响应各明确允许。这里只记录可复核定位，不提交原始日志或数据库。
+
+本次交付不包含合并或生产部署。
