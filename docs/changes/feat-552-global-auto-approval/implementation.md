@@ -31,6 +31,12 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 - 聚焦代码审查发现并由独立 verifier 确认 fallback replay 会丢失已提交输入来源。新增 system、agent、mixed 三例均先 Red；修正重放入口复用已持久化的分段来源，并与 stranded pending continuation 共用现有恢复逻辑，相关 58 项 Green。只复验该 finding 及修复增量，不重跑大规模 finder。
 - 真实 CLI 发现 Anthropic mapper 未传出 gate 已提供的 S1 停止序列；最小 mapper 回归先 Red（缺少字段），修复后相关 37 项 Green，随后真实 Terra 请求确认 `stop_sequences=["</block>"]`、2112 token 预算、禁用 thinking 和完整 policy 均已出站。见 [CLI journey](evidence/cli-real-journey.md)。
 
+## 独立验收发现与修正
+
+独立实现对账 Round 1 的两项 WARNING 已在 `b218d31e4` 修复，保留原报告和定点 closure：审批故障触发人工入口后，用户实际否决必须保留用户拒绝语义；结构化 `ModelError` 的 `context_length_exceeded` 必须归为上下文超限。现有反馈/gate 测试扩展先得到 4 个有效失败，修复后相关 84 项通过。只消费已有标准错误字段，未增加模型替换、重试或新协议。
+
+产品 reviewer 的新隔离栈还暴露旧 Global journal 与全新 IM 数据混用：此前 `e2e-up.sh` 清理了其他运行数据库，却遗漏 `global_agent.sqlite3`，旧 work 同步得到 `scope_not_allowed`，使新 Global 请求无法开跑。同一提交在原有新数据清理边界补齐 journal 及 sidecars；reviewer 重启后新真人请求已进入主 session，完整旅程结论由 [acceptance](acceptance.md) 记录。未调整生产数据或 Gateway 运行逻辑。
+
 ## 当前验证快照
 
 2026-09-12，实施 worktree：

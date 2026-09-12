@@ -5,7 +5,7 @@
 - 初始审查范围：`2fd84b9ac2b1949947ac899b3de7fea1488731ef..acbf06f9be8cad5fd98175f028f785b7cc8dc85a`。
 - finder 检查来源投影、持久化/live 恢复、父上下文及 follow-up、计数/分流、hook 结果传播、PA 工具接线和 Bash AST/参数校验，提出 1 个具体候选。
 - 定点 verifier 独立复现并确认；修复后同一 verifier 只核验 finding closure 与修复增量。
-- 当前有效代码结论对应 `0fbc85b7b9db8f6ae3f1fd724718c0d1af1c095c`。这份报告不代替尚未完成的全局产品真实旅程验收。
+- 初始完整审查及 C1 closure 对应 `0fbc85b7b9db8f6ae3f1fd724718c0d1af1c095c`；后续代码增量的有效性见下方 patch 审查。本报告与独立产品验收、实现对账分别记录。
 
 ## C1：模型 fallback replay 丢失输入来源（P1，已关闭）
 
@@ -24,3 +24,14 @@
 ```json
 []
 ```
+
+## Patch review：人工否决、超限类别及隔离启动修复
+
+范围 `21537b980..b218d31e4`，只检查本次五文件增量及其必要调用上下文。一名独立 finder 合并逐行、跨文件、删除 guard 和修复层级检查，未提出新候选，因此没有无目的的二次 finder 或 verifier。
+
+- 显式 `user_deny` 正确优先于此前触发人工入口的分类故障；诊断 metadata 仍保留。
+- 已有 `ModelError.details` 为字典，读取其标准 provider 错误字段未新增异常路径。
+- `e2e-up.sh` 的 Global journal 清理与新建 IM 数据一致，位于服务存活检查之后；不改变生产启动脚本。
+- 独立验证：20 项相关单测、`bash -n` 和增量 diff check 通过。未启动或清理服务、未修改源码；实际重启入口另由产品 reviewer 验收。
+
+本报告有效代码结论更新到 `b218d31e4e27bb2fdad8cbd27bc33e3f92adc817`；完整范围中其余代码沿用上述已通过结论。存活 findings 仍为 `[]`。
