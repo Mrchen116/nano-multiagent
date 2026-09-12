@@ -4,7 +4,7 @@
 
 - Unit branch：`codex/feat-552`。
 - 实施基线：`origin/main=2fd84b9ac2b1949947ac899b3de7fea1488731ef`。
-- Gate 2：[design-review.md](design-review.md) Round 5，Approved，0 CRITICAL / 0 WARNING；17 个受审输入哈希未变。相对审查代码基线的新 main 只合入 JPEG 修复及旧 active 文档清理，无权限代码交叉。
+- Gate 2：实施前准入核对 [design-review.md](design-review.md) Round 5，Approved，0 CRITICAL / 0 WARNING；当时 17 个受审输入哈希未变。后续范围内 runtime 接线与写入事实细化由独立实现对账核验。相对审查代码基线的新 main 只合入 JPEG 修复及旧 active 文档清理，无权限代码交叉。
 - 现场：专属 unit worktree 与独立 Python 3.12.9 虚拟环境；主 checkout 的既有改动保留。
 
 ## 基线验证
@@ -20,7 +20,7 @@
 
 ## 实现与已观察到的修正
 
-M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据，待独立产品验收和实现对账：
+M1/M2 产品实现、真实旅程、独立产品验收和实现对账均已完成：
 
 - 固定策略、来源模板、defaults 和 Bash 命令/参数表成为随 wheel 分发的版本化资产；Bash 使用 tree-sitter 语法树与固定 CC fixture 对照。见 [policy adaptation](evidence/policy-adaptation.md) 和 [Bash port](evidence/bash-port-implementation.md)。
 - 共享 gate 按原工具决定、Auto 分类、session 的 3/20 计数和实际入口分流；Global 普通主会话/child 返回 Agent，Heartbeat/Cron 仍按显式无人值守 fallback。PA runtime 装配见 [PA integration](evidence/pa-integration.md)。
@@ -41,7 +41,7 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 
 2026-09-12，实施 worktree：
 
-- 修复并独立复验 replay 后重新运行 CI 等价 Python 两组检查：agent/PA 1870 passed；其余 1914 passed，共 3784 项。未运行标记为 e2e 的套件作为这些计数的一部分；真实旅程另列。
+- 最终代码 `10bf12c44` 的 CI 等价 Python 两组检查：agent/PA 1870 passed；其余 1923 passed，共 3793 项。未运行标记为 e2e 的套件作为这些计数的一部分；真实旅程另列。
 - Ruff check / format check、`git diff --check` 通过；将本 unit 新文档纳入待跟踪集合的 docs-check 为 0 issues。
 - `uv build --wheel` 成功，逐项比对 wheel 包含全部 11 个策略/命令资产。
 - 前端依赖安装完成；critical 级 dependency audit 通过，79 个测试文件 / 745 tests passed。未改动前端代码或 lockfile。
@@ -53,7 +53,7 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 - 首次 T3 的外部代理 strict 问题已在用户授权后修复并重启本机代理，外部提交 `016f32e`；持久回归先 Red，转换与路由 56 项通过，实际 `/v1/messages` 转换恢复可选参数语义。见[完整证据](evidence/proxy-strict-blocker.md)。
 - 对同一真实 Cron 用户原话、当前动作和此前历史完成[旧/新审批 A/B](evidence/old-new-classifier-comparison.md)：每分支一次，两者均 S1 allow。没有为得到拒绝反复试探，也不据此声称误拒率下降。
 
-当前状态：共享实现和聚焦代码审查已提交到 `codex/feat-552`；外部阻塞已解除，执行者真实旅程已完成，进入独立产品验收和实现对账。Heartbeat 独立测试栈、CLI/单聊天临时服务及集成者主 unit 隔离 IM/Gateway 均已停止，后续 reviewer 从已固定的候选版本重新启动。尚未归档或创建 PR，未合并、未部署 Nano。
+收尾状态：实现及适用独立验收已完成，已核对的 delta 归入 canonical，整个 unit 随 PR 归档。所有验收服务均已停止；交付以对应 PR 的 required CI 结果为准。未合并、未部署 Nano。
 
 ## 独立 Cron 误拒的事实补齐
 
@@ -64,3 +64,16 @@ M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据�
 一次有界真实请求复验保留原失败的 scheduled 原文、动作、路径、内容和 policy，仅加入实际工具检查的目标不存在事实：Terra S1 返回 `<block>no</block>`。未执行工具，不能代替真实 Cron 入口 closure。记录位于本机代理 `2026-09-12_13-00-40_247_feat552-write-state-fixed-replay`，响应 ID `msg_c9a1b7141a274a6bab9dfe135f100e4c`。临时客户端最初把 SSE 当 JSON 读取而报解析错误；实际模型响应由代理原始记录核对，没有重试挑样本。
 
 独立验收同时发现 Cron 无法遵循“只回发起聊天”的结果目标要求。已核对执行/投递文件与 `origin/main=2fd84b9ac` 完全一致，当前路径使用 owner-direct 目标，非本 unit 引入的权限回归。按范围边界另记 [issue #293](https://github.com/Mrchen116/nano-multiagent/issues/293)，保留同 owner 两聊天的观察，不将期间 compact 与目标选择推断为因果。
+
+## 最终里程碑与验收有效性
+
+| 目标 | 退出证据 |
+|---|---|
+| M1 shared-auto-migration | 固定 CC policy/来源/Bash 资产、配置与计数、SDK 来源/子任务接线均已核对；完整 Python 3793 项、前端 745 项和 wheel 11 资产验证通过。独立 reviewer 追加原生默认工厂 CLI 创建/读回，单聊天真实人工 allow_once 与带理由 deny 均闭环。 |
+| M2 global-chat-confirmation | 独立 reviewer 真实确认、跨聊天独立工作、部分批准、引用边界、child、compact/正常重启均通过；修复后原 Cron 请求仅改时间即真实创建目标文件，三次有效策略拒绝后仍能处理另一聊天且无 pending permission。 |
+
+- 产品验收：[acceptance](acceptance.md) 最终 Round 3 保留前轮失败与逐项 closure；已知范围外 Cron 投递目标缺口跟踪 #293。
+- 实现对账：[verification](verification.md) 完整核验、W1/W2 closure、写入事实增量 closure 均通过；六份 delta 的 corrected-delta `aligned` 结论随最后增量继续有效。
+- 代码审查：[code review](code-review.md) 初始完整范围及 replay、审批语义、写入事实的必要增量均无存活 findings，有效产品代码为 `10bf12c44`。
+- 收尾只展开完整 delta、归并对应 canonical 条目/派生数量、增加配置操作指南并移动归档位置；没有改动产品代码、测试或策略资产，因此不使上述通过范围失效。
+- 最终同步基线 `origin/main=2fd84b9ac2b1949947ac899b3de7fea1488731ef`，没有新的 main 增量需要整合。主 checkout 保留原分支和所有原有改动。

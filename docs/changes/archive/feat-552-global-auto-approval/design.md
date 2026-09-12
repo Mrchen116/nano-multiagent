@@ -1,6 +1,6 @@
 # feat-552: Auto 权限机制迁移与全局模式主动确认 — 技术方案
 
-> 对齐：[spec.md](spec.md) v1，含 2026-09-12 用户确认。已按授权进入 change-orchestrator-simple 实施；M2 PA 接线及脚本模型下的真实 SDK/Gateway 集成已完成，共享内核集成与真实模型旅程继续验证中，未部署。本文记录范围内技术细化，既定需求与 D6 路由不变。
+> 对齐：[spec.md](spec.md) v1，含 2026-09-12 用户确认。已按授权由 change-orchestrator-simple 完成实施及独立验收，未部署。本文保留设计基线和实施中核验过的技术细化；既定需求与 D6 路由不变。
 > Unit branch: `codex/feat-552`
 
 ## 架构总览
@@ -77,7 +77,7 @@ CC 2.1.267 策略与阶段参数有真实代理请求；历史提议分支有安
 
 ### 契约与约束
 
-已核对 current 的 [Kernel Runs](../../specs/kernel/runs.md)、[SDK Boundary](../../specs/kernel/sdk-boundary.md)、[Tools/Hooks](../../specs/kernel/tools-hooks.md)、[Global Agent](../../specs/gateway/global-agent.md)、[Heartbeat/Cron](../../specs/gateway/heartbeat-cron.md) 和 CLI 入口。
+已核对 current 的 [Kernel Runs](../../../specs/kernel/runs.md)、[SDK Boundary](../../../specs/kernel/sdk-boundary.md)、[Tools/Hooks](../../../specs/kernel/tools-hooks.md)、[Global Agent](../../../specs/gateway/global-agent.md)、[Heartbeat/Cron](../../../specs/gateway/heartbeat-cron.md) 和 CLI 入口。
 
 Runs 中“内核不内置权限策略”比实现宽：SDK 已装配 platform Auto hook；delta 精确区分 core、platform 与人工 callback。其余 current 的配置覆盖、指定审批模型不降级、取消解除人工等待、Inbox 成功结果显式投影等继续成立。此次不修改 SDK 导出表或新增公开 DTO。
 
@@ -312,7 +312,7 @@ M1 不提前部署给全局用户，完整交付等待 M2。涉及相同接线�
 
 ### 前置与隔离启动
 
-使用仓库隔离 E2E 账号和两个 Agent，现有代理 `127.0.0.1:4000` 的 Sol 主模型 / Terra 审批模型；默认不重启代理或生产服务。2026-09-12 用户明确授权修复外部 strict 转换问题并重启本机代理，该次例外已执行并验证，见 [代理证据](evidence/proxy-strict-blocker.md)。启动前核对仓库 [worktree runtime](../../development/worktree-runtime.md) 与 [LLM 联调](../../development/llm-integration.md)。端口、node identity、配置、workspace、SQLite 由 e2e-up 隔离。
+使用仓库隔离 E2E 账号和两个 Agent，现有代理 `127.0.0.1:4000` 的 Sol 主模型 / Terra 审批模型；默认不重启代理或生产服务。2026-09-12 用户明确授权修复外部 strict 转换问题并重启本机代理，该次例外已执行并验证，见 [代理证据](evidence/proxy-strict-blocker.md)。启动前核对仓库 [worktree runtime](../../../development/worktree-runtime.md) 与 [LLM 联调](../../../development/llm-integration.md)。端口、node identity、配置、workspace、SQLite 由 e2e-up 隔离。
 
 在实施 worktree 根目录启动：
 
