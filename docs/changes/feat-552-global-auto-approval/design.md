@@ -310,7 +310,7 @@ M1 不提前部署给全局用户，完整交付等待 M2。涉及相同接线�
 
 ### 前置与隔离启动
 
-使用仓库隔离 E2E 账号和两个 Agent，现有代理 `127.0.0.1:4000` 的 Sol 主模型 / Terra 审批模型；不重启代理或生产服务。启动前核对仓库 [worktree runtime](../../development/worktree-runtime.md) 与 [LLM 联调](../../development/llm-integration.md)。端口、node identity、配置、workspace、SQLite 由 e2e-up 隔离。
+使用仓库隔离 E2E 账号和两个 Agent，现有代理 `127.0.0.1:4000` 的 Sol 主模型 / Terra 审批模型；默认不重启代理或生产服务。2026-09-12 用户明确授权修复外部 strict 转换问题并重启本机代理，该次例外已执行并验证，见 [代理证据](evidence/proxy-strict-blocker.md)。启动前核对仓库 [worktree runtime](../../development/worktree-runtime.md) 与 [LLM 联调](../../development/llm-integration.md)。端口、node identity、配置、workspace、SQLite 由 e2e-up 隔离。
 
 在实施 worktree 根目录启动：
 

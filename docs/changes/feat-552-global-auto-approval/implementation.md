@@ -20,7 +20,7 @@
 
 ## 实现与已观察到的修正
 
-M1/M2 的产品实现已落入本 worktree，尚未完成全部真实旅程和独立验收：
+M1/M2 的产品实现已落入本 worktree，实际旅程已取得下列证据，待独立产品验收和实现对账：
 
 - 固定策略、来源模板、defaults 和 Bash 命令/参数表成为随 wheel 分发的版本化资产；Bash 使用 tree-sitter 语法树与固定 CC fixture 对照。见 [policy adaptation](evidence/policy-adaptation.md) 和 [Bash port](evidence/bash-port-implementation.md)。
 - 共享 gate 按原工具决定、Auto 分类、session 的 3/20 计数和实际入口分流；Global 普通主会话/child 返回 Agent，Heartbeat/Cron 仍按显式无人值守 fallback。PA runtime 装配见 [PA integration](evidence/pa-integration.md)。
@@ -41,7 +41,9 @@ M1/M2 的产品实现已落入本 worktree，尚未完成全部真实旅程和�
 - 前端依赖安装完成；critical 级 dependency audit 通过，79 个测试文件 / 745 tests passed。未改动前端代码或 lockfile。
 - T1 的真实 CLI 写文件、unittest、loopback HTTP 服务和停止清理通过；使用现有 CLI kernel factory 注入点的隔离真实 SDK 装配，默认 CLI factory 的个人配置读取不在该证据覆盖内。
 - T1 的[真实单聊天](evidence/single-chat-real-journey.md)也完成文件创建、unittest 和 loopback HTTP 服务清理；实际捕获一个 S1 block → S2 allow，六份审批请求保留正确阶段参数。
-- T6 的[真实 Global Heartbeat 对照](evidence/heartbeat-real-journey.md)通过：真实 Sol 在 Global main 发起写入，审批端点无监听并在 S1 超时；显式 allow 实际生成文件，显式 deny 未执行，均保留 classifier_unavailable 故障类别且无 pending permission。普通 Global wake/child 对照仍被 Inbox 参数问题挡在目标动作之前，未记通过；T6 其余矩阵以确定性契约测试为证，不能混为这两条真实旅程。
-- T2–T5/T8 的全局真实旅程尚未通过。首次 T3 被既存外部代理 strict 转换问题挡在 Inbox(check)，不是审批机制拒绝；[阻塞证据](evidence/proxy-strict-blocker.md)记录真实 A/B 和待审补丁。未放宽 Inbox 校验或将该失败计为产品旅程成功。
+- T6 的[真实 Global Heartbeat 对照](evidence/heartbeat-real-journey.md)通过：真实 Sol 在 Global main 发起写入，审批端点无监听并在 S1 超时；显式 allow 实际生成文件，显式 deny 未执行，均保留 classifier_unavailable 故障类别且无 pending permission。代理修复后普通 Global wake/child 对照也完成：即使配置 fallback=allow，两次真实 write 均无结论而未执行，独立事项仍被委派处理；故障未被说成用户否决。T6 其余矩阵以确定性契约测试为证。
+- [T2–T5 全局真实旅程](evidence/global-real-journeys.md)：跨聊天确认 3/3、明确一次性 Cron 创建和实际 write 3/3；无关同意、引用伪造、拒绝和部分批准组合通过；真实 compact 及同数据 Gateway 重启后可继续。结构化证据明确不同 Web owner 的额外消息被 ingress 404 拒绝，并未声称模型实际判读过它。
+- [T8 真实 child/follow-up](evidence/child-real-journey.md)完成两次经 Terra 审批的写入，原真人范围及 Agent 来源保留；伪造批准文件未扩大范围，无关聊天零消息。未发生的越权工具提议没有被写成 gate deny。
+- 首次 T3 的外部代理 strict 问题已在用户授权后修复并重启本机代理，外部提交 `016f32e`；持久回归先 Red，转换与路由 56 项通过，实际 `/v1/messages` 转换恢复可选参数语义。见[完整证据](evidence/proxy-strict-blocker.md)。
 
-当前状态：共享实现、聚焦代码审查及上述检查已提交到 `codex/feat-552`；全局旅程被外部代理阻塞，尚未形成最终产品验收结论、归档或创建 PR。主 unit 测试 IM/Gateway、Heartbeat 独立测试栈和 CLI/单聊天临时服务均已停止；保留工作分支供授权后继续。未合并、未部署。
+当前状态：共享实现和聚焦代码审查已提交到 `codex/feat-552`；外部阻塞已解除，执行者真实旅程已完成，进入独立产品验收和实现对账。Heartbeat 独立测试栈及 CLI/单聊天临时服务已停止；主 unit 隔离栈由集成者管理，验收接管前及最终交付前清理。尚未归档或创建 PR，未合并、未部署 Nano。

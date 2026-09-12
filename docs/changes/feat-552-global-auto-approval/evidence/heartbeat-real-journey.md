@@ -4,7 +4,7 @@
 
 Two real Global Heartbeat runs used the normal Gateway, `PollingHeartbeatRunner`, SDK kernel, main Sol model and permission gate. With the approval provider pointed at an unavailable loopback endpoint, explicit `unattended_fallback: allow` executed the proposed write; explicit `deny` did not. Both completed without a pending permission request. Both durable tool outcomes identify `decision_source=unattended_fallback` and `category=classifier_unavailable`.
 
-This establishes the real Global Heartbeat portion of [design T6](../design.md). It does not close all of T6. A follow-up ordinary Global wake entered the real IM/Gateway path but stopped at the existing Inbox optional-argument incompatibility before reading the request. Its proposed main/child writes therefore did not reach the no-verdict boundary; those contrasts remain unverified by this journey. Single-thread Heartbeat, Cron, invalid XML, prompt overflow and counter behavior were not exercised here.
+This establishes the real Global Heartbeat portion of [design T6](../design.md). An initial ordinary Global wake stopped at the existing Inbox optional-argument incompatibility. After the integration owner corrected the external proxy, a fresh real ordinary Global main/child journey completed: each attempted one write, each received `classifier_unavailable` with a no-verdict explanation, and neither file was created despite explicit `unattended_fallback: allow`. The child inherited both that allow setting and `auto_mode_interaction=return_to_agent`; its own write crossed the gate after delegation succeeded. These ordinary contrasts are now verified below. This still does not close all of T6: single-thread Heartbeat, Cron, invalid XML, prompt overflow and counter behavior were not exercised here.
 
 ## Runtime and configuration
 
@@ -45,7 +45,7 @@ The deny tool result explicitly said the action was not executed because automat
 
 Authenticated IM work reads showed both main executions idle and their turns completed. Both views had empty `control_items`; a direct read of the isolated IM work-item table found zero `kind=permission, status=pending` rows. The saved session headers supplied the runtime interaction field, while the work journal and proxy requests supplied the executed origin. Thus the result covers unattended Heartbeat routing despite the reused Global main session retaining `return_to_agent` for ordinary interaction.
 
-## Ordinary Global wake and child contrast: blocked before the action
+## Ordinary Global wake and child: initial blocked attempt
 
 The same allow-configured agent received an ordinary user request through the real isolated IM API. The authenticated test owner requested two independent one-attempt writes: one by the main Agent, then one by a foreground child. It required any no-verdict result to be reported without a retry, configuration change or external message. The intended targets were `ordinary-main-result.txt` and `ordinary-child-result.txt` in the allow workspace.
 
@@ -57,7 +57,7 @@ The main model attempted Inbox check three times, each with the actual arguments
 {"action":"check","cursor":"","limit":20,"target":""}
 ```
 
-`InboxTool.check_permissions` rejected these arguments as `invalid_arguments: unsupported action or fields`; `target` is not a field for `check`, and empty optional cursor values are also invalid. This matches the independently tracked [proxy strict-argument blocker](proxy-strict-blocker.md). The run completed with the explanation that Inbox could not be checked and no messages had been read or acted upon. The live user messages remained unread. There was no main write and no child creation, so neither absent target file proves the requested no-verdict routing contrast. This report records the blocker rather than treating that absence as a passing result.
+`InboxTool.check_permissions` rejected these arguments as `invalid_arguments: unsupported action or fields`; `target` is not a field for `check`, and empty optional cursor values are also invalid. This matches the independently tracked [proxy strict-argument blocker](proxy-strict-blocker.md). The run completed with the explanation that Inbox could not be checked and no messages had been read or acted upon. The live user messages remained unread. There was no main write and no child creation, so neither absent target file proves the requested no-verdict routing contrast. This initial attempt remains recorded as blocked; the later successful contrast did not change its evidence.
 
 ## Evidence locators and cleanup
 
@@ -71,3 +71,36 @@ Main-model proxy records remain under these session directories; the Heartbeat r
 The normal main-model requests retain their scheduled/system notification wrapper and actual tool results. There is no approval response capture because the selected approval endpoint was unavailable; this journey makes no fresh byte-for-byte approval-policy request claim. Full policy and successful S1 request-shape verification belongs to the separate [CLI evidence](cli-real-journey.md).
 
 After recording terminal results, the Heartbeat files were made non-actionable and the supervisor invoked `scripts/e2e-down.sh --wt <runtime-root>`. It exited with status 0. At 2026-09-12 03:02:27.057419 UTC+08, live-test PIDs 77824/77857 and initial-start PIDs 75182/75216 were absent; TCP connects to live-test ports 53994/54008, initial IM port 53466 and unavailable approval port 53430 all returned error 61. No task-owned process or listener remains.
+
+## Ordinary Global main/child recheck after the proxy correction
+
+The integration owner applied external LLM_PROXY commit `016f32e` (`fix: preserve non-strict tool schemas in Responses conversion`) and restarted the shared proxy with user authorization. This verification owner made no proxy or product-code change. A fresh runtime used unit HEAD `7b654b8b453f1ce1d0d45102f3cf2d24cbc8c670`, the same real Sol main model at `:4000`, and a newly allocated unavailable approval endpoint `http://127.0.0.1:54655/v1` under the registered `openai_compat` approval model. Independent connection probes returned error 61 before and after execution; no fake server or classifier response was supplied.
+
+The new temporary root was `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/nano-feat552-noverdict-jajoaiql`. Normal `e2e-up.sh` and the persistent supervisor started IM PID 53778 at `127.0.0.1:54689` and Gateway PID 53829 with its internal listener at `127.0.0.1:54710`. Only test agent `feat552-global-fault` was configured, with `work_mode: global`, Heartbeat and Cron disabled, the same explicit empty skill selection, and normal Global tool composition. Its complete workspace auto-mode section retained all defaults except explicit `unattended_fallback: allow`. The same factory-global-root limitation recorded above applies; no config, rule, permission answer, source metadata or model response was replaced to make the test pass.
+
+Authenticated owner `u_sbro55m4` created direct conversation `c_v3a8a2po` with the advertised test Agent. Real user message `fba392847de8473ebc94d3c2f5b465a5`, sent at 2026-09-12 12:24:24.541393 UTC+08, requested two independent one-attempt operations: the main Agent writes `ordinary-main-result.txt`, then an ordinary foreground child writes `ordinary-child-result.txt`. Both complete temporary paths and distinct markers were supplied. The user required continuation to the independent child step after a main approval failure, preservation of the original failure reason, no retry or alternate tool, no configuration change, no waiting for human approval and no outbound `send_message`.
+
+Inbox now actually succeeded with `{"action":"check"}`, then `{"action":"read","limit":20,"target":"c_v3a8a2po"}`. The main Agent read the live user request, attempted its write, reported that no approval verdict was produced, then called `agent` exactly once with `subagent_type=general-purpose` and `run_in_background=false`. That delegation completed successfully in 37824 ms and created child Agent `a6a887f3b27d75fc4`; it was not itself treated as proof of the child's side-effect decision.
+
+| Observation | Ordinary Global main | Ordinary child |
+|---|---|---|
+| Session | `sess_756517075341e503` | `sess_9f9407b993f5f640` |
+| Turn | `turn_e294ef5bcc450737` | `turn_ad3bd4d63612ac6a` |
+| Actual work scope/origin | `global_main` / `human` | `subagent` / `background_task` |
+| Runtime interaction | `return_to_agent` | Inherited `return_to_agent`, `kind=subagent` |
+| Fallback configuration | Explicit `allow` | Persisted `inherited_auto_mode_config.unattended_fallback=allow` |
+| Write call | `call_2jxm3XwHVRaJ9X3G8awxc5d7` | `call_udhh2YhuJrzmrqp29xpwMuxE` |
+| Write result time, UTC+08 | 12:25:07.569294 | 12:25:50.617044 |
+| Gate/tool duration | 30023 ms | 30017 ms |
+| Durable tool outcome | `status=denied`, `decision_source=classifier_unavailable`, `category=classifier_unavailable` | Same three fields, independently recorded in the child JSONL |
+| Tool explanation | Automatic approval produced no verdict; `Classifier stage 1 unavailable (TimeoutError: )`; action not executed | Same explanation |
+| Actual write count / target | One / `ordinary-main-result.txt` absent | One / `ordinary-child-result.txt` absent |
+| Turn completion, UTC+08 | 12:27:00.677287 | 12:25:53.314604 |
+
+Both outcomes carry policy version `cc-2.1.267-nano-v1`. The serialized status remains `denied`; the specific source/category and error text establish the no-verdict failure, not a new literal `no_verdict` status or a valid classifier rejection. Neither outcome has `decision_source=unattended_fallback`. The ordinary child is recorded with `background_task` origin despite the foreground Agent call; its inherited Global interaction still took precedence over generic unattended behavior. This makes the explicit allow-configured child a meaningful contrast with the earlier Global Heartbeat allow result.
+
+The complete durable main tool sequence was two successful Inbox calls, one failed write and one successful Agent call. The child had exactly one tool call, its failed write. The child returned the original approval-failure reason; the main final response correctly said both independent operations were attempted once and neither write executed. Authenticated work reads showed the main idle, both turns completed and empty main `control_items`; the isolated IM database contained zero pending permission rows. The two target files were absent before the input and after both completed turns. No fallback permission answer, repeated write or alternative side effect was used.
+
+The new runtime retains `ordinary-input.json`, `ordinary-proof-summary.json`, `ordinary-work-final.json`, `child-work-final.json`, `global-session-binding.json`, complete workspace configuration, generated config snapshots, main/child JSONL, `proxy-request-summary.json`, listener observations and `cleanup-proof.json`. Seven actual main/child Sol requests are grouped by the normal parent LLM session identity under `/Users/czj/Repos/LLM_PROXY/logs/session/2026-09-12_12-24-24_588_sess_756517075341e503/`; requests at 12:25:15.538 and 12:25:50.621 UTC+08 are the child's task and post-write response turns. No raw request, runtime database, secret or generated config was added to the repository.
+
+After terminal verification the supervisor invoked `e2e-down.sh` for this new root and exited with status 0. At 2026-09-12 12:28:42.123766 UTC+08, PIDs 53778/53829 were absent and ports 54689/54710 were released; the selected approval port 54655 remained unavailable. The prior Heartbeat runtime and the integration owner's separate unit runtime were not changed.
