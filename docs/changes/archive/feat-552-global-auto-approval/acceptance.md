@@ -404,3 +404,104 @@ b218d31e4 修复测试启动清理后，用同样公开 HTTP 消息形态独立�
 R3 两个 supervisor 均正常 exit 0，分别执行 e2e-down；独立 ps 确认 Gateway PID19723/19759均不存在，两个 IM 端口50136/50152的TCP connect_ex均为61。R1/R2的清理证据已在前轮保留；本次没有残留测试服务，也没有删除他人内容或生产数据。仅提交本报告。
 
 上层文档同步检查继承前轮：`SPEC.md`、`AGENTS.md`/`CLAUDE.md` 和文档规范无新增变更需要；kernel/gateway/CLI 的目标 delta 正由 orchestrator 收尾归并，最终文档一致性由对应门禁确认；IM没有本单元 spec delta。范围外Cron投递问题保留在#293，不通过改写当前契约隐去。
+
+# Round 4 — 2026-09-12：普通工作区 Write/Edit 增量
+
+- Unit: `feat-552`
+- Review mode: targeted，独立产品验收；沿用 `change-reviewer`
+- Validated at: `b9a61941a2e81f988a5fd5d416687ed4385ce82d`
+- Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+- Verdict: **pass**
+- Highest Required Action: **pass**
+- Issues: blocking 0 / major 0 / minor 0
+
+本轮只复验用户追加的普通工作目录内 `write`/`edit` 直接执行，以及目录外 `write` 继续进入审批模型。两个实际到点的 Cron 各执行一次：目录内新建和编辑均完成，独立 Cron 会话有 5 次 Sol 请求、0 次 Terra 请求；目录外动作有一次真实 Terra Stage 1 请求，返回 `<block>no</block>` 后文件创建成功。没有重试、挑选样本或重跑前轮全量矩阵；结论只覆盖这两条增量旅程，不代表总体审批准确率。
+
+## R4 Environment and Evidence Boundary
+
+按现有 Runbook 使用 `/tmp/feat552-review-gateway.yaml`、`e2e-up.sh` / `e2e-down.sh` 和真实 PTY supervisor。IM `55050`、Gateway PID `90963`、IM PID `90782`、node `wt-unit-feat-552-90720`、owner `u_as3gtu1x` 均为本轮隔离身份。主模型 `codexOAuth:gpt-5.6-sol`、审批模型 `codexOAuth:gpt-5.6-terra`，没有重启代理或生产服务。
+
+启动时 HEAD 为 `ab80c695af56ee2d9270c44fc09fd5acc82d77bc`，运行的是 orchestrator 已准备的未提交补丁；运行前保存了四个产品文件的 SHA-256，随后逐文件与固定提交 `b9a61941a` 对比，全部相同。没有通过阅读实现源码归因或修改产品、测试、配置；模型请求日志仅用于这次明确要求的审批调用边界核对。
+
+通过真实认证 IM API 创建 Global Agent `review552r4` 和 direct 聊天 `c_fr0r2rmt`。workspace 原样使用公开 Agent API 返回的 `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-552/.gateway-workspace/review552r4`；没有为获得免审而替换用户输入的路径拼写。目录外请求保持 `/tmp/feat552-independent-review-r4/outside-workspace.txt`，实际解析为 `/private/tmp/feat552-independent-review-r4/outside-workspace.txt`，二者都在 workspace 外。本轮未覆盖 workspace 本身采用 `/var` 与 `/private/var` 别名的组合。
+
+期望来源为新增的 [工作区 Write/Edit delta](specs/kernel/tools-hooks.md) 与 [补漏范围](evidence/workspace-file-fastpath.md)。没有前端变更或新的视觉 reference，本轮不重复 UI 构建与视觉验收。完整真人输入、注册结果、公开 work/turn/message 快照、文件结果、请求指纹和清理结果保存在 `/tmp/feat552-independent-review-r4/`；认证材料、原始请求、runtime 数据和文件正文不提交。
+
+## R4 Actual Scheduled Journeys
+
+真人消息 `f2da95b72679464faa1ce0b55a5b1432` 于 `08:45:57.895791Z` 要求只注册两个一次性 Cron，不提前写文件。Global 主会话 `sess_6392be119af923de` 成功保存两份 instruction 和 `deleteAfterRun=true`。在 `08:47:08Z` 检查时两份 job 均已存在，而两个目标文件仍不存在。此处的 Cron 注册请求可能被审批，不计作实际文件动作的 classifier 请求。
+
+### R4-A：目录内 Write → Edit → Read
+
+- Job `a0020cecb29141cc916451fab9af2d60`，名称 `feat552-r4-inside`；计划 `08:47:37.873934Z`，实际 Cron session `sess_6d08dde51e5c8365` 于 `08:47:47.835787Z` 启动，`08:48:10.895163Z` 完成，origin=cron、trigger=scheduled。
+- `write` 调用 `call_gWZS8kaL4bNaOVwknCy2HU03` 于 `08:47:51.842091Z` completed，创建 `cron-accept-edits.txt`，内容为 `FEAT552_R4_INSIDE_BEFORE` 加换行；公开结果为新建 25B。
+- `edit` 调用 `call_YbMlMeAMFHngjDTmhdauhpe4` 于 `08:47:56.027720Z` completed，将唯一的 `BEFORE` 替换为 `AFTER`。首次 read 返回 unchanged，模型随后用同一 read 工具指定行范围读取确认；没有再次写入或换工具绕过。
+- 最终实际文件为 `FEAT552_R4_INSIDE_AFTER` 加一个换行，24B；SHA-256 `083ff50d2ede1b596f80acde37a673ebe99760d2f2bda9d9c3aecadf97fdf71d`。结果消息 `b1a929b2508949609607047f12c2b045` 送达原聊天。
+- 代理 session 目录 `2026-09-12_16-47-47_841_sess_6d08dde51e5c8365` 在完整会话窗口内共有 5 个 `*-req-anthropic_messages.json`，全部为 Sol，Terra 为 **0**。请求起始时间（日志使用 UTC+8）分别为 `16:47:47.841`、`16:47:51.844`、`16:47:56.032`、`16:47:59.309`、`16:48:07.063`。结合实际 Write/Edit 成功及文件结果，证明本条普通工作区文件旅程没有调用审批模型，不只是配置写了免审。
+
+### R4-B：目录外 Write 实际进入 classifier
+
+- Job `7d30a505eeb645f9aaaa9951952cb3d5`，名称 `feat552-r4-outside`；计划 `08:48:42.874794Z`，实际 Cron session `sess_6d6207d52cc801cb` 于 `08:48:47.844340Z` 启动，`08:48:59.986674Z` 完成。
+- 该会话有 2 次 Sol 请求和 **1 次 Terra Stage 1 请求**。classifier 原件为 `2026-09-12_16-48-51_911-req-anthropic_messages.json`，目录为 `2026-09-12_16-48-47_852_sess_6d6207d52cc801cb`，SHA-256 `7396f3a8fdb52e7b76f89b5e57d6670e76a633f1a9317b3dcb3c7c785de89a4d`。
+- 请求含 scheduled 自动触发标记，待审动作精确为 `write` / `call_kBiSnODeOBwO154yArp7qnOw` / `/tmp/feat552-independent-review-r4/outside-workspace.txt`，并包含解析目标在权限检查时不存在的文件系统事实。对应 Terra 原始响应于 `16:48:56.081` 完成，内容为 `<block>no</block>`；本次没有 Stage 2。
+- 同一 write 于 `08:48:56.090365Z` completed，公开结果为新建 19B。实际文件为 `FEAT552_R4_OUTSIDE` 加换行，SHA-256 `46c32a3aef8f03e1e66e88f2034185e3c5e676746cebec5f21e4dac7792c584c`。结果消息 `aebe78db1a804cb5995ab8462cae215b` 送达原聊天。
+- 判据是目录外动作仍真实经过审批，不要求它一定被拒。本次原始首样本恰为允许，保留该结果；不将其与 CC 的单次 outside 拒绝比较成准确率改进或相同上下文 A/B。
+
+## R4 Coverage and Historical Evidence Disposition
+
+| 增量 Scenario | 本轮证据 | 结果 |
+|---|---|---|
+| Auto 普通工作区新建与编辑直接执行，包括 Cron | R4-A：实际 Write/Edit、落盘、独立会话 0 Terra 请求 | pass |
+| 工作区外动作保留权限分类流程 | R4-B：实际 Terra 请求及对应 Write 执行 | pass |
+| 传入或解析路径敏感、符号链接跨界、Auto 关闭 | 本轮未扩展真实旅程；由 orchestrator 的聚焦确定性回归覆盖，不冒充 reviewer 实测 | not rerun |
+
+R1–R3 的历史轮次保留，但普通 inside Write 的旧 classifier/no-verdict 旅程已被本次新行为替代，**不能继续作为当前普通工作区文件动作会调用 classifier 的证明**。这包括 R2 的 inside Cron 误拒、R3 的旧修复后 inside Cron 允许、J5 的 inside Write 人工 allow/deny，以及先前普通 Global/child/Heartbeat 的 inside Write 故障分流对照。R3 三次 workspace 文件 classifier 拒绝也只证明当时版本，不再作为本补漏后同一路径必然被分类和拒绝的证据。
+
+上述旧材料仍可定位其发生时的来源、消息与结果；非文件动作、目录外分类、既有来源投影和计数/故障机制的既有验证不因此被重写。R4 不重跑全量来源与 fallback 矩阵，不把普通 inside 文件改为直接执行称为故障覆盖缺失。敏感路径的显式检查要求继续按新 delta 保留，具体确定性边界检查由对应实施/核对门禁负责。
+
+## R4 Cleanup and Documentation Disposition
+
+两个 Cron 均实际执行完成、结果送达，最终 jobs=[]、main idle、control_items=[]。supervisor 正常 exit 0 并执行 e2e-down；`08:50:13Z` 独立检查 Gateway PID `90963`、IM PID `90782` 均不存在，IM `55050` 的 TCP connect_ex=61，PID/端口/config 控制文件均已移除。没有遗留本轮测试服务或修改生产数据。
+
+本轮只追加验收报告。新行为的 delta、设计/实施说明和归档证据索引由 orchestrator 同步；本轮不覆盖其并行文档或测试改动，不把未执行的别名路径组合写成已通过。
+
+# Round 5 — 2026-09-12：最终版本与 macOS 路径别名
+
+- Unit: `feat-552`
+- Review mode: targeted，独立产品验收；沿用 `change-reviewer`
+- Validated at: `1cf0866961f2b6da185dc49f32ef659b05246d72`
+- Executed base: `2fd84b9ac2b1949947ac899b3de7fea1488731ef`
+- Verdict: **pass**
+- Highest Required Action: **pass**
+- Issues: blocking 0 / major 0 / minor 0
+
+R4 完成并清理后，orchestrator 追加 macOS 系统路径别名修复。本轮因此重新启动真实隔离栈，在最终提交上各跑一次 inside/outside Cron。R4 的先前通过证据保留在其实际版本下，没有将旧进程结果改标为新提交。R5 新增的真实观察是：workspace 保存为 `/private/var/...` 时，用户与实际 Write/Edit 都使用 `/var/...`，仍直接成功且无审批请求；目录外写入仍有真实 Terra 请求。
+
+## R5 Fresh Runtime and Natural Path
+
+使用同一 Runbook 的全新栈，IM `57627`，Gateway PID `2815`，IM PID `2760`，node `wt-unit-feat-552-2730`，owner `u_74ku7wi9`。启动时 HEAD 已为 `1cf086696`；四个产品文件的运行前 SHA-256 与该提交逐一一致。真实主模型/审批模型仍为 Sol/Terra。
+
+`tempfile.mkdtemp(prefix='feat552-r5-alias-')` 自然返回 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat552-r5-alias-yma7xo2l`。通过公开 API 为新 Global Agent `review552r5` 选择该已有临时目录，API 返回的 workspace 为 `/private/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat552-r5-alias-yma7xo2l`。用户输入继续采用自然返回的 `/var/...`，没有改写成 API 的规范路径。
+
+真人消息 `b61eddd2dd154ce9b7ec15d271ad7199` 于 `08:54:39.107924Z` 进入聊天 `c_fux0b712`，注册两个一次性 Cron。保存的 inside instruction 也保留 `/var/...`。`08:56:07.826928Z` 的公开 jobs 与实际文件检查确认两个任务已注册、两个目标文件均不存在。新输入只更新任务名、时间、唯一内容标记和本轮临时路径；同样要求 Write → Edit → Read，以及 outside 只尝试一次。模型自然生成的 instruction 不作为逐字固定回放。
+
+## R5 Actual Scheduled Results
+
+| 旅程 | 实际执行 | 模型请求与文件结果 |
+|---|---|---|
+| inside，job `df6eba16e36c49ad81660dc025f8f203` | 计划 `08:56:19.094394Z`；session `sess_f1673d0a59f598f5` 于 `08:56:37.592105Z` 开始、`08:57:05.832812Z` 完成 | Write、Edit 均 completed，实际参数始终为自然 `/var/.../cron-accept-edits.txt`；5 次 Sol、0 次 Terra；最终 24B，为 `FEAT552_R5_INSIDE_AFTER` 加换行 |
+| outside，job `8a1efd6a1ab3465a974e1e9f19894c92` | 计划 `08:57:24.094654Z`；session `sess_3974ecf412b96e3f` 于 `08:57:37.605053Z` 开始、`08:57:47.944929Z` 完成 | 2 次 Sol、1 次 Terra Stage 1，返回 `<block>no</block>` 后 Write completed；最终 19B，为 `FEAT552_R5_OUTSIDE` 加换行 |
+
+inside 的 write `call_Dwk5lNF6BMpjhnKJktCZPKYt` 于 `08:56:43.985582Z` 成功创建；edit `call_Sj8YxjhX9U7Rkmn5ynl3QOMr` 于 `08:56:50.274527Z` 成功替换。两个实际参数都使用 `/var/...`，解析到 API 的 `/private/var/...` 工作目录内。首次 read 返回 unchanged，随后指定同文件行范围读取成功；仅重复读取，没有重复写入。最终文件 SHA-256 为 `6c1c5af8d07db15c2e2d4134a2f8aa1c3d1230a273fb9e94a3708dc2d73cd600`。
+
+inside 代理目录为 `2026-09-12_16-56-37_599_sess_f1673d0a59f598f5`。完整请求窗口的五个起始时间为 `16:56:37.599`、`16:56:44.011`、`16:56:50.278`、`16:56:53.421`、`16:57:00.552`，均为 `codexOAuth:gpt-5.6-sol`，没有 Terra 请求。此处不仅验证最终文件，也直接验证新别名路径未进入 classifier。
+
+outside 的原始用户路径与实际 write 参数为 `/tmp/feat552-independent-review-r5/outside-workspace.txt`，解析目标在 `/private/tmp/...`，始终在 `/private/var/...` workspace 外。Terra 请求位于 `2026-09-12_16-57-37_610_sess_3974ecf412b96e3f/2026-09-12_16-57-40_838-req-anthropic_messages.json`，SHA-256 为 `a863ca268c54d468dcf10caa0a1fcb5c57a736dedce88995c88e4b798bba47c4`。请求明确绑定 `call_y9zyT7y7obMyt44GljHexmAw`，含 scheduled 来源和解析目标不存在的事实；响应在 `16:57:45.021` 返回 `<block>no</block>`，同一 write 于 `08:57:45.036241Z` completed。最终文件 SHA-256 为 `fbe30a45f9f2f6015046ebfcb40758ca9af5026ce58ed1cfaef892595f4bf6a5`。
+
+inside/outside 结果分别以消息 `59234fbe3afd4590943d6f81dd42716b`、`e60e7971c20540238f0b0286c11300cb` 送达原聊天。各一次真实调度均完成，无重试或挑样本；本轮不扩展为统计分母或声称验证所有符号链接别名。
+
+## R5 Final Coverage, Cleanup and Disposition
+
+最终提交上的普通 workspace Write/Edit 和 outside classifier 两项均通过，额外覆盖了 macOS `/var` → `/private/var` 的自然路径组合。敏感目标、任意 symlink 跨界及 Auto 关闭仍由聚焦确定性回归负责，本轮没有冒充新的真实验收。R4 已写明的旧 inside Write classifier/no-verdict 证据替代边界继续有效；其余旅程与范围外 #293 的处置不变。
+
+原始输入、API workspace 与自然路径对照、到点前快照、最终 work/turn/message、请求指纹和文件结果位于 `/tmp/feat552-independent-review-r5/`。最终 jobs=[]、main idle、control_items=[]。supervisor 正常 exit 0 并执行 e2e-down；`08:58:53.600767Z` 确认 Gateway PID `2815`、IM PID `2760` 均退出，`57627` TCP connect_ex=61，PID/端口/config 控制文件已移除。R4/R5 两轮服务均已关闭，没有改动生产或清理他人资源。只追加并提交本报告，上层文档仍由 orchestrator 同步。
