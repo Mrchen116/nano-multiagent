@@ -81,6 +81,15 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         with client.websocket_connect("/im/ws/gateway") as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
 
+        binding = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
+        )
+        bound = client.post(
+            "/im/v1/bind",
+            json={"action": "confirm", "bind_id": binding.json()["bind_id"]},
+        )
+        assert bound.status_code == 201
+
         # Seed the agent user rows so conversation participants can resolve them.
         # ws register writes agent_profiles but not users; we seed users manually.
         agent_x_user_id = seed_user_under_owner(
@@ -94,6 +103,7 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         conv_resp = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "group",
                 "participant_ids": [agent_x_user_id],
             },

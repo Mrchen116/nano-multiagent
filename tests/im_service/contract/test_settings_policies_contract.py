@@ -5,12 +5,14 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from tests.im_service._auth_helpers import register_and_authorize
 
 
 def test_policies_contract_shape_and_patch_semantics(tmp_path: Path) -> None:
     """Expose stable policies fields for settings-page reads and writes."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        register_and_authorize(client)
         response = client.get("/im/v1/policies")
         assert response.status_code == 200
         assert set(response.json()) == {

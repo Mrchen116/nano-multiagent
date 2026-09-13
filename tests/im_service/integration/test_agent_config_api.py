@@ -241,7 +241,9 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
         assert body["skills"] == []
 
 
-def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
+def test_profile_update_keeps_existing_direct_snapshot_and_new_group_uses_new_version(
+    tmp_path: Path,
+) -> None:
     """Snapshot alias-backed direct conversations so old threads stay old and new threads pick up updates."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -278,6 +280,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         first_conv = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "first",
                 "participant_ids": [owner.id, agent_participant.id],
             },
@@ -304,6 +307,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         second_conv = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "second",
                 "participant_ids": [owner.id, agent_participant.id],
             },

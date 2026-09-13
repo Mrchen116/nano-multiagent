@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from tests.im_service._auth_helpers import register_and_authorize
 
 
 def test_policies_reseed_and_persist_across_app_reload(tmp_path: Path) -> None:
@@ -12,6 +13,7 @@ def test_policies_reseed_and_persist_across_app_reload(tmp_path: Path) -> None:
     db_path = tmp_path / "im.db"
     app = create_app(db_path=db_path)
     with TestClient(app) as client:
+        user = register_and_authorize(client)
         with app.state.connection:
             app.state.connection.execute("DELETE FROM settings_policies")
 
@@ -34,6 +36,14 @@ def test_policies_reseed_and_persist_across_app_reload(tmp_path: Path) -> None:
 
     reloaded_app = create_app(db_path=db_path)
     with TestClient(reloaded_app) as reloaded_client:
+        logged_in = reloaded_client.post(
+            "/im/v1/auth/login",
+            json={"username": user.username, "password": "hunter2-strong"},
+        )
+        assert logged_in.status_code == 200
+        reloaded_client.headers["Authorization"] = (
+            f"Bearer {logged_in.json()['access_token']}"
+        )
         persisted = reloaded_client.get("/im/v1/policies")
 
     assert persisted.status_code == 200

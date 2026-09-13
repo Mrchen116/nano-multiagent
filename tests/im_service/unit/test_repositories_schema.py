@@ -129,8 +129,8 @@ def test_initialize_schema_backfills_last_message_preview_from_latest_message(
     connection.execute(
         """
         INSERT INTO conversations(
-            id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, title, type, owner_id, creator_id, last_message_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "conv-1",
@@ -138,9 +138,6 @@ def test_initialize_schema_backfills_last_message_preview_from_latest_message(
             "direct",
             "owner-1",
             "user-1",
-            0,
-            0,
-            1,
             "2026-03-26T00:02:00Z",
             "2026-03-26T00:00:00Z",
         ),
@@ -201,8 +198,8 @@ def test_initialize_schema_reconciles_old_relay_preview_mismatches(
     connection.execute(
         """
         INSERT INTO conversations(
-            id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, title, type, owner_id, creator_id, last_message_preview, last_message_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "conv-1",
@@ -210,9 +207,6 @@ def test_initialize_schema_reconciles_old_relay_preview_mismatches(
             "direct",
             "owner-1",
             "user-1",
-            0,
-            0,
-            1,
             "11",
             "2026-03-26T00:01:00Z",
             "2026-03-26T00:00:00Z",

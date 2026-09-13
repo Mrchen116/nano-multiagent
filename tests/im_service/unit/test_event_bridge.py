@@ -39,13 +39,15 @@ def _make_bridge(tmp_path: Path):
         event_repository=events,
     )
     alice = users.create_user(username="alice", display_name="Alice")
-    # Register a synthetic agent user under alice's owner scope so the bridge can address it as sender.
+    # The executing Agent must be an actual chat member.
     agent_user = users.create_user(username="agent:planner", display_name="Planner")
     connection.execute(
         "UPDATE users SET owner_id = ? WHERE id = ?", (alice.owner_id, agent_user.id)
     )
     connection.commit()
-    conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
+    conv = conversations.create_conversation(
+        title="t", participant_ids=[alice.id, agent_user.id]
+    )
     return bridge, conv.id, agent_user.id, messages, captured
 
 
@@ -309,14 +311,12 @@ def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(
     assert stored["message_id"] is None
     assert json.loads(stored["payload_json"])["message_id"] == msg.id
     projection = connection.execute(
-        "SELECT last_message_preview, last_message_at, unread_count "
-        "FROM conversations WHERE id = ?",
+        "SELECT last_message_preview, last_message_at FROM conversations WHERE id = ?",
         (conv_id,),
     ).fetchone()
     assert projection is not None
     assert projection["last_message_preview"] == ""
     assert projection["last_message_at"] is None
-    assert projection["unread_count"] == 0
 
 
 def test_on_run_heartbeat_appends_liveness_event_without_mutating_message(

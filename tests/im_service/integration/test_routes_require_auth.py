@@ -60,7 +60,11 @@ def test_resources_are_hidden_across_tenants(tmp_path: Path) -> None:
 
             conversation = alice_client.post(
                 "/im/v1/conversations",
-                json={"title": "Alice room", "participant_ids": [alice.id]},
+                json={
+                    "type": "group",
+                    "title": "Alice room",
+                    "participant_ids": [alice.id],
+                },
             ).json()
             conversation_id = conversation["id"]
 

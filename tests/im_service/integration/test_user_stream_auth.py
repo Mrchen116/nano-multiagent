@@ -44,7 +44,7 @@ def test_user_stream_accepts_valid_token_and_replays_owners_events(
         authorize(client, alice)
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "alice", "participant_ids": [alice.id]},
+            json={"type": "group", "title": "alice", "participant_ids": [alice.id]},
         )
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
