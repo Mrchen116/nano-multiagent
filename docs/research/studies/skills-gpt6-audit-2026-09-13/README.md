@@ -8,6 +8,8 @@ current-owner: .claude/skills and src/personal_assistant/builtin_skills
 
 # Workspace Skills 精简审计 — 2026-09-13
 
+对应需求：[refactor-556 spec](../../../changes/refactor-556-workspace-skills-gpt6/spec.md)，由用户在首轮 PR 交付后要求补写；审计正文仍保留当时的执行与证据口径。
+
 用户明确要求跳过 Skill 工作流，在独立 worktree 直接修改并提 PR。本次只改 Skill 文档及审计索引，没有修改应用源码、Skill 脚本、AGENTS 或开发生命周期权威。本报告是历史审计记录，不是新的共享必读规则；当前流程以各 Skill 和 [change-workflow](../../../development/change-workflow.md) 为准。
 
 ## 范围
