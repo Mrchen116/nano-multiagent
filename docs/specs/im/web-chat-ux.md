@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: feat-551-agent-reply-images
+> 对齐: feat-551-agent-reply-images / feat-554
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -202,6 +202,17 @@ Web IM SHALL 为每个会话保留各自一份尚未发送的输入框内容，�
 - **THEN** 每个候选显示其来源 Agent 和该 Agent 的完整 levels，不合并成公共集合
 - **AND** 用户选择其中一项后，composer 填入指向该 Agent 的 `@Agent /effort `，使任意 group reply policy 下也只更新该 Agent 的 session
 
+#### Scenario: 跨管理归属的聊天成员取得命令候选
+- **GIVEN** 当前真人是包含他人 Agent 的聊天成员
+- **WHEN** 打开该聊天的 slash 面板
+- **THEN** 获得各成员 Agent 的已启用 Skill 名称／说明和运行命令，包含各自完整命令描述；不以读取完整 Agent 配置为前提，不返回本机路径或其他管理字段。
+- **AND** 一个 Agent 离线或查询失败不使其他 Agent 候选消失；被移出聊天或切换账号后原候选缓存不可继续使用。
+
+#### Scenario: 同名不同来源 Skill 在成员候选中保留
+- **GIVEN** 多个聊天 Agent 暴露同名但实际位置或节点不同的 Skill
+- **WHEN** 用户打开 slash 候选
+- **THEN** 不同来源保留独立行与各自说明，同节点同位置的候选合并来源 Agent；用于区分的 opaque key 不暴露本机路径。
+
 ### Requirement: Web IM 消息气泡支持复制与长按/右键菜单
 
 Web IM SHALL 让消息正文的文本选择、链接和代码优先使用浏览器原生交互，同时通过不干扰阅读的独立入口提供整条消息复制和既有 fork 能力。
@@ -333,8 +344,7 @@ Web IM SHALL 为 Agent Markdown 中的每个 block code 提供独立、可访问
 
 ### Requirement: 历史会话蒸馏 conversation 选择入口
 
-用户可从 IM 左侧 conversation 列表选择已完成、属于同一 Gateway 的会话生成 skill。IM 只按 source Agent
-与其 `source_node_id` 做 owner、idle 和同节点选择；不扫描或读取 Gateway JSONL。用户确认 execution Agent 与
+用户可从 IM 左侧 conversation 列表选择本人参与、已完成且来源明确的 single_thread 会话生成 skill。来源和执行 Agent 保留原 owner 管理归属，均为 single_thread，按 source Agent 与其 `source_node_id` 做 idle 和同节点选择；不扫描或读取 Gateway JSONL。用户确认 execution Agent 与
 scope 后，IM 保留既有 distiller/`skill_view` preflight，并向该 Gateway 请求当前格式的 distill prompt。成功才新建
 固定到该 node 的 execution Agent 单聊并原样预填 prompt；后续普通 relay 优先该固定 node，不因 Agent profile
 重新注册而改送其他 Gateway。用户随后按既有普通聊天发送；builtin skill 继续从 prompt fields 读取该 Gateway
@@ -366,6 +376,16 @@ scope 后，IM 保留既有 distiller/`skill_view` preflight，并向该 Gateway
 - **WHEN** 用户未进入“生成 skill”选择模式
 - **THEN** conversation 列表保持既有普通浏览外观
 - **AND** 不显示 running、different Gateway 或 checkbox 等只服务于蒸馏选择的标签
+
+#### Scenario: Skill 写入范围与 Agent 工作模式分开
+- **GIVEN** 用户选择同 Gateway 的 single_thread 来源与执行 Agent
+- **WHEN** 选择 agent 或 global Skill 写入范围
+- **THEN** 两个既有范围均保留；global 指该 Gateway 的全局 Skill 目录，不使全局 Agent 聊天成为本次支持的蒸馏来源或执行者。
+
+#### Scenario: 可见聊天不自动取得 Skill 管理资格
+- **GIVEN** 用户是聊天成员，但不管理其 source Agent 或 execution Agent
+- **WHEN** 尝试以这些 Agent 发起本机 transcript 蒸馏
+- **THEN** 不接受该组合，不创建执行聊天；正常聊天、成员 slash 候选与公开 Work 仍按各自规则使用。
 
 ### Requirement: Web IM 聊天输入框支持把剪贴板图片加入待发附件
 
@@ -471,3 +491,14 @@ Web IM 在移动端以同一套克制、清晰的产品图标表达 Chat、Agent
 - **WHEN** 用户打开新建群聊
 - **THEN** 候选第一行显示名称及本地化在线状态，第二行显示 Agent ID 与所属机器名；机器名缺省时回退 node ID
 - **AND** 描述不占用额外行，机器归属不依赖描述内容
+
+### Requirement: 协作入口沿用现有 IM 导航和语言设置
+
+#### Scenario: 桌面和移动端寻找协作者
+- **WHEN** 用户从新聊天、建群或成员入口查找人和 Agent
+- **THEN** 沿用现有导航、搜索与弹层，能选择合法对象并开始沟通；原有聊天、消息操作与附件能力继续可用。
+
+#### Scenario: 新增协作界面跟随中英文切换
+- **GIVEN** 用户正在编辑未发送内容
+- **WHEN** 从桌面头像菜单或手机“我的”切换中英文，随后刷新
+- **THEN** 界面文案及反馈使用所选语言，刷新后保留语言选择；切换当下不清空未发送内容，聊天正文、名字和原始 Work 内容不被翻译。

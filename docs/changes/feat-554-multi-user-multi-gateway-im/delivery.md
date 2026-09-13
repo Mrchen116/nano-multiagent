@@ -16,7 +16,20 @@ Every gate's original `executed_base` is `94338a2a7d2e01b7868648895e6cfdcf0f6c53
 
 ## Contract correction
 
-After ordinary gates passed, the delta adds the actual external sender identity in place of two obsolete “you” promises, the supported explicit image entrypoint for existing conversations, and viewer-specific default human-direct titles. It preserves all other original scenarios. Corrected-delta verification and canonical merge are still required at this record's creation.
+After ordinary gates passed, the delta adds the actual external sender identity in place of two obsolete “you” promises, the supported explicit image entrypoint for existing conversations, and viewer-specific default human-direct titles. The independent corrected-delta check additionally closed two document mismatches: configuration-boundary visibility follows chat membership, and reserved runtime usernames cannot be registered as people. It preserves the applicable original scenarios.
+
+Corrected-delta `validated_at` is `a16f6d37c75ed62ed04335ce6592bdacdafb69b0`; outcome **aligned**, report commit `ec99b1809077b58b21f7737cf073127f486361a0`. All eight target areas were then mechanically merged: 15 MODIFIED, 11 ADDED and 5 REMOVED operations. A structural comparison verified exact corrected bodies, only the required link rebasing, and preservation of every unrelated requirement. IM Purpose, area summaries/counts and alignment markers were synchronized. The root `SPEC.md` import boundaries and its general multi-user isolation description remain accurate and unchanged.
+
+The last fetch before canonical merge again found the same main SHA. The changes since ordinary gates are contract corrections/reports and mechanical documentation operations; product source stays `274ad07bc` and test behavior stays `c3046c6a2`. All ordinary conclusions remain effective; corrected-delta is an additional independent gate, not a replacement for them.
+
+## Validation and cleanup
+
+- Full local Python partitions: **1882 + 1977 = 3859 passed**. Frontend: **753 passed in 80 files**; TypeScript/Vite build passed. The required critical dependency-audit gate passed, with no dependency change.
+- Source Ruff, format and whitespace checks passed. Merged documentation integrity passed with 251 maintained sources and 73 required routes. Archive-specific checks are performed after moving the complete unit; required remote CI is checked on the Ready PR.
+- Reviewer closed its five browser sessions; root closed its own session. Root verified and stopped only task-owned A1/A2/C1/IM PIDs 41363/41365/41367/57800, removed the isolated runtime/data/Skill root and its 60 local screenshot/evidence cache files. The 510 daily Skill files exactly match their pre-run hashes. Both temporary missing-source tests restored the original hash before cleanup.
+- The independent verifier removed its own worktree. Root's delivery worktree is retained only through PR/CI handoff and then removed by root. Main and unrelated worktrees are preserved. The original prototype at `http://127.0.0.1:18554/prototype.html` still returned 200 after stopping the dedicated test stack.
+
+Private runtime paths and screenshot names in earlier reports describe evidence actually observed during acceptance; those disposable files are not committed or retained as production state. No test configuration, token, database, PID, build artifact or generated Skill enters the PR.
 
 ## Deployment boundary
 

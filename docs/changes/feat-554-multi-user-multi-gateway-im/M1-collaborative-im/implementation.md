@@ -1,5 +1,7 @@
 # M1 implementation
 
+Final status: implementation and all independent gates passed. The earlier pending sections below are historical checkpoints; final scope, synchronization and delivery state are recorded in [delivery.md](../delivery.md).
+
 ## Scope and baseline
 
 User selected `change-orchestrator-simple`. Worktree `.worktrees/unit-feat-554`, branch `unit/feat-554`, initial executed base `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`. Gate 2 Round 11 is Approved, 0/0; frozen design/prototype hashes matched before copying as `8df3c1e4d`. Main and unrelated work are preserved.
