@@ -155,8 +155,24 @@ class ReplyImages:
         data["images"] = [ReplyImage(**item) for item in data["images"]]
         return PreparedReply(**data)
 
-    def prepare(self, context: ReplyImageContext, markdown: str) -> PreparedReply:
-        """Snapshot at most five distinct sources; represent per-image errors inline."""
+    def prepare(
+        self,
+        context: ReplyImageContext,
+        markdown: str,
+        *,
+        im_conversation_id: str | None = None,
+    ) -> PreparedReply:
+        """Snapshot sources or reuse protected references in the same IM chat.
+
+        Args:
+            context: Immutable output identity and allowed export workspace.
+            markdown: Original reply text containing at most five distinct images.
+            im_conversation_id: Current target whose hosted images may be reused;
+                their existing IM read authorization remains authoritative.
+
+        Returns:
+            Saved image preparation with per-image failures represented inline.
+        """
 
         with self._lock:
             existing = self.load(context.output_key)
@@ -175,7 +191,17 @@ class ReplyImages:
                     try:
                         if len(images) > 5:
                             raise ValueError("limit")
-                        if source.startswith("img_"):
+                        if im_conversation_id and re.fullmatch(
+                            re.escape(
+                                f"/im/v1/conversations/{quote(im_conversation_id, safe='')}/images/"
+                            )
+                            + r"[0-9a-f]{32}",
+                            source,
+                        ):
+                            resource.status = "im"
+                            resource.error_code = "source"
+                            resource.im_receipts[im_conversation_id] = source
+                        elif source.startswith("img_"):
                             resource.status = "legacy"
                         else:
                             if urlsplit(source).scheme in {"http", "https", "data"}:
@@ -305,8 +331,12 @@ class ReplyImages:
                 else receipt.get("image_key")
             )
             try:
-                data = b"" if key else self.image_bytes(item)
-                error = receipt.get("error_code")
+                if item.status == "im":
+                    # A protected chat reference grants no cross-channel export.
+                    data, error = b"", "missing"
+                else:
+                    data = b"" if key else self.image_bytes(item)
+                    error = receipt.get("error_code")
             except (OSError, ValueError):
                 data, error = b"", "missing"
             result.append(
@@ -336,6 +366,9 @@ class ReplyImages:
         replacements: dict[int, str] = {}
         async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
             for item in reply.images:
+                if item.status == "im" and conversation_id in item.im_receipts:
+                    replacements[item.ordinal] = item.im_receipts[conversation_id]
+                    continue
                 if item.status != "ready":
                     replacements[item.ordinal] = image_failure(
                         item.error_code or "legacy"

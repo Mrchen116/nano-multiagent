@@ -170,6 +170,46 @@ async def test_global_direct_image_retry_reuses_snapshot_and_upload_receipt(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mixed", [False, True])
+async def test_global_reply_preserves_current_chat_image_reference_on_retry(
+    tmp_path, monkeypatch, mixed
+):
+    images, source, local_text, requests = _images(tmp_path, monkeypatch)
+    known = "/im/v1/conversations/c_group001/images/" + "a" * 32
+    text = f"Reusing ![earlier image]({known})"
+    if mixed:
+        text += " and " + local_text
+    model = _ImageModel(text)
+    rt = await _runtime(tmp_path, model, reply_images=images)
+    try:
+        await _receive(
+            rt,
+            replace(
+                _message("request", f"Please show this again: ![image]({known})"),
+                is_group=False,
+            ),
+        )
+        await _wait(
+            lambda: (
+                model.requests
+                and not rt.coordinator._monitors
+                and not rt.coordinator._drains
+            )
+        )
+        expected = f"Reusing ![earlier image]({known})"
+        if mixed:
+            expected += " and before ![generated](/im/v1/conversations/c_group001/images/reply-image) after"
+        assert rt.manager.sent[0]["text"] == expected
+        source.unlink()
+        result = await rt.handler.handle({**rt.manager.sent[0], "text": text})
+        assert result["ok"] is True
+        assert rt.manager.sent[1]["text"] == expected
+        assert len(requests) == int(mixed)
+    finally:
+        await _close(rt)
+
+
+@pytest.mark.asyncio
 async def test_global_group_withheld_image_has_no_snapshot_until_new_input_is_read(
     tmp_path, monkeypatch
 ):
@@ -274,10 +314,16 @@ async def test_global_image_upload_failure_keeps_text_without_exposing_source(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_first", [False, True])
+@pytest.mark.parametrize("include_hosted", [False, True])
 async def test_global_external_image_uses_provider_projection_and_saved_receipt(
-    tmp_path, monkeypatch, fail_first
+    tmp_path, monkeypatch, fail_first, include_hosted
 ):
     images, source, text, requests = _images(tmp_path, monkeypatch)
+    hosted_prefix = ""
+    if include_hosted:
+        known = "/im/v1/conversations/c_group001/images/" + "a" * 32
+        hosted_prefix = f"![earlier image]({known}) "
+        text = hosted_prefix + text
     data = source.read_bytes()
 
     class Client:
@@ -363,11 +409,17 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
         assert len(requests) == 1
         assert client.uploads == [(data, "image/png")]
         assert len(client.sent) == 1
-        assert client.sent[0]["text"] == "before ![generated](img_provider_saved) after"
+        provider_prefix = "图片未能展示：图片快照不可用 " if include_hosted else ""
+        assert (
+            client.sent[0]["text"]
+            == provider_prefix + "before ![generated](img_provider_saved) after"
+        )
+        assert "/im/v1/" not in client.sent[0]["text"]
         assert client.sent[0]["receive_id"] == "human"
         assert (
             rt.manager.sent[0]["text"]
-            == "before ![generated](/im/v1/conversations/c_group001/images/reply-image) after"
+            == hosted_prefix
+            + "before ![generated](/im/v1/conversations/c_group001/images/reply-image) after"
         )
         assert (
             len(
@@ -386,7 +438,9 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
                 ]
             )
         assert (
-            manifest["images"][0]["feishu_receipts"]["image-app:image-app"]["image_key"]
+            manifest["images"][-1]["feishu_receipts"]["image-app:image-app"][
+                "image_key"
+            ]
             == "img_provider_saved"
         )
     finally:

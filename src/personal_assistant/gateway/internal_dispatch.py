@@ -506,6 +506,7 @@ class InternalDispatchHandler:
                     workspace=agent.config.workspace_root,
                 ),
                 dispatch["text"],
+                im_conversation_id=conversation_id,
             )
             try:
                 dispatch["text"] = await self._reply_images.project_im(
@@ -515,7 +516,8 @@ class InternalDispatchHandler:
                 dispatch["text"] = self._reply_images.render(
                     prepared,
                     {
-                        image.ordinal: image_failure("upload")
+                        image.ordinal: image.im_receipts.get(conversation_id)
+                        or image_failure("upload")
                         for image in prepared.images
                     },
                 )
