@@ -31,7 +31,7 @@
 | 其他原成员 | 对没有既有个人状态的真人初始化 pin=false、mute=false、unread=0，已读边界置于该会话停写时的末条消息；空聊天边界为 NULL。Agent 行按目标结构的普通默认值初始化。 |
 | 普通私聊唯一键 | 所有既有会话的新增 `direct_key` 置 NULL，保留原聊天入口，不猜哪些旧 direct 是 fork 或蒸馏执行。新版本从联系人新建的普通私聊才写规范化唯一键。 |
 
-目标字段以 [db.py](../../../src/IM/infra/db.py) 和 [ConversationRepository](../../../src/IM/infra/repositories/conversations.py) 为准，当前实现具体为：
+目标字段以 [db.py](../../../../src/IM/infra/db.py) 和 [ConversationRepository](../../../../src/IM/infra/repositories/conversations.py) 为准，当前实现具体为：
 
 - `conversation_participants` 继续以 `(conversation_id, user_id)` 为联合主键。新增 `is_pinned`、`is_muted`、`unread_count` 均为 `INTEGER NOT NULL DEFAULT 0`；`last_read_message_id` 为可空 `TEXT`，保存本聊天真实 `messages.id`，不填事件 ID、Kernel 消息 ID 或 `:relay:` 合成气泡 ID。末条消息及已读推进按 `messages.rowid` 插入顺序判断；如需重建表，保留每个聊天内原插入顺序，不能按显示时间或随机消息 ID 重排。
 - `conversations.direct_key` 为允许 NULL 的唯一 `TEXT`。普通联系人私聊使用排序后的两个稳定 `users.id` 以 `|` 连接；group、fork、蒸馏执行聊天不占用该唯一键。保留原 `type`、`creator_id`、`target_node_id`，不因为现有参与者恰好有两人就把群改成私聊。
@@ -45,7 +45,7 @@
 
 先核对目标版本实际的资源 schema 和 `/im/v1/conversations/{id}/attachments/{resource_id}` 接口。保留已有受保护 images 资源的 ID、URL、原字节和独立 fork 关联；这条仍在使用的接口不是旧公开上传兼容入口。
 
-当前实现共用 `message_images` 表，没有新增 attachments 表或单独的关联表：一行就是一个会话资源关联。其列为 `image_id`（主键）、`conversation_id`、`source_key`、`sha256`、`content_type`、`file_name`、`byte_size`、`storage_name`，并要求 `(conversation_id, source_key)` 唯一。普通附件 URL 中的 `resource_id` 就是该行的 `image_id`；images URL 也使用同一个 ID。字节位于实际 IM 数据库父目录的 `message-images/<storage_name>`，`file_name` 仅为下载显示名；不要把旧 uploads 目录或 `file_name` 当作新字节定位依据。以 [资源仓库](../../../src/IM/infra/repositories/message_images.py) 和 [应用存储装配](../../../src/IM/app.py) 复核路径。新增关联分别分配唯一 `image_id` 和聊天内不冲突的 `source_key`；新字节快照分配不冲突的 `storage_name`，复用已核对字节时可保留其 `storage_name`。不同聊天各自保留独立资源行，沿用现有 fork 的读取方式。
+当前实现共用 `message_images` 表，没有新增 attachments 表或单独的关联表：一行就是一个会话资源关联。其列为 `image_id`（主键）、`conversation_id`、`source_key`、`sha256`、`content_type`、`file_name`、`byte_size`、`storage_name`，并要求 `(conversation_id, source_key)` 唯一。普通附件 URL 中的 `resource_id` 就是该行的 `image_id`；images URL 也使用同一个 ID。字节位于实际 IM 数据库父目录的 `message-images/<storage_name>`，`file_name` 仅为下载显示名；不要把旧 uploads 目录或 `file_name` 当作新字节定位依据。以 [资源仓库](../../../../src/IM/infra/repositories/message_images.py) 和 [应用存储装配](../../../../src/IM/app.py) 复核路径。新增关联分别分配唯一 `image_id` 和聊天内不冲突的 `source_key`；新字节快照分配不冲突的 `storage_name`，复用已核对字节时可保留其 `storage_name`。不同聊天各自保留独立资源行，沿用现有 fork 的读取方式。
 
 对旧普通上传逐项执行：
 

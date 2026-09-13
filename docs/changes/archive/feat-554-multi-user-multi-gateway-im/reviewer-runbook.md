@@ -1,6 +1,6 @@
 # feat-554 — Runbook for Reviewer
 
-这是实施后真人浏览器验收的起停与前置说明，设计阶段不把这里的命令视为已经执行过的产品旅程。隔离规范以 [worktree-runtime](../../development/worktree-runtime.md) 为准。账号为本地测试账号，不需外部企业租户或第三方通讯权限。Q10 指定旧数据转换由正式部署 agent 按 [migration-prompt.md](migration-prompt.md)执行；本 Runbook 的开发验收只使用目标格式数据，不要求实现迁移程序。
+这是实施后真人浏览器验收的起停与前置说明，设计阶段不把这里的命令视为已经执行过的产品旅程。隔离规范以 [worktree-runtime](../../../development/worktree-runtime.md) 为准。账号为本地测试账号，不需外部企业租户或第三方通讯权限。Q10 指定旧数据转换由正式部署 agent 按 [migration-prompt.md](migration-prompt.md)执行；本 Runbook 的开发验收只使用目标格式数据，不要求实现迁移程序。
 
 ## 前置与拓扑
 

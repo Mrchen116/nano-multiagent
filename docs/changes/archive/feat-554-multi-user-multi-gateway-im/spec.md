@@ -70,11 +70,11 @@
 
 ## 现状与目标
 
-当前 [账号与租户契约](../../specs/im/auth-tenancy.md)按 owner 隔离会话、Agent 和节点；[节点契约](../../specs/im/agents-nodes.md)将节点及其 Agent 归给绑定者。[群聊契约](../../specs/im/conversations-messages.md)也沿用 owner 隔离，不能直接表达不同账号参与同一个群的共同访问权。
+当前 [账号与租户契约](../../../specs/im/auth-tenancy.md)按 owner 隔离会话、Agent 和节点；[节点契约](../../../specs/im/agents-nodes.md)将节点及其 Agent 归给绑定者。[群聊契约](../../../specs/im/conversations-messages.md)也沿用 owner 隔离，不能直接表达不同账号参与同一个群的共同访问权。
 
 目标保留个人对 Gateway 和 Agent 的管理归属，同时让人与 Agent 按 IM 联系人关系沟通。聊天按成员关系可见；全局 Agent Work 是明确的例外，登录用户可完整查看工作详情。查看 Work 不会把用户加入来源聊天，也不授予修改他人 Gateway 或 Agent 配置的能力。
 
-当前[全局工作视图](../../specs/im/agent-work.md)展示跨聊天连续轨迹。目标保留完整轨迹并向登录用户开放查看，不新增按来源聊天过滤或逐段遮盖。本文定义目标行为，不将目标提前覆盖到 current specs。
+当前[全局工作视图](../../../specs/im/agent-work.md)展示跨聊天连续轨迹。目标保留完整轨迹并向登录用户开放查看，不新增按来源聊天过滤或逐段遮盖。本文定义目标行为，不将目标提前覆盖到 current specs。
 
 ## 用户场景
 

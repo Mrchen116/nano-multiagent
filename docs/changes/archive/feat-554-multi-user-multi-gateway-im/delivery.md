@@ -25,11 +25,15 @@ The last fetch before canonical merge again found the same main SHA. The changes
 ## Validation and cleanup
 
 - Full local Python partitions: **1882 + 1977 = 3859 passed**. Frontend: **753 passed in 80 files**; TypeScript/Vite build passed. The required critical dependency-audit gate passed, with no dependency change.
-- Source Ruff, format and whitespace checks passed. Merged documentation integrity passed with 251 maintained sources and 73 required routes. Archive-specific checks are performed after moving the complete unit; required remote CI is checked on the Ready PR.
+- Source Ruff, format and whitespace checks passed. Merged documentation integrity passed with 251 maintained sources and 73 required routes. After archive, documentation integrity passed with 233 maintained sources and the same 73 routes; the archive checker, all 156 contract tests, Ruff/format and whitespace checks passed. Required remote CI is checked on the Ready PR.
 - Reviewer closed its five browser sessions; root closed its own session. Root verified and stopped only task-owned A1/A2/C1/IM PIDs 41363/41365/41367/57800, removed the isolated runtime/data/Skill root and its 60 local screenshot/evidence cache files. The 510 daily Skill files exactly match their pre-run hashes. Both temporary missing-source tests restored the original hash before cleanup.
 - The independent verifier removed its own worktree. Root's delivery worktree is retained only through PR/CI handoff and then removed by root. Main and unrelated worktrees are preserved. The original prototype at `http://127.0.0.1:18554/prototype.html` still returned 200 after stopping the dedicated test stack.
 
 Private runtime paths and screenshot names in earlier reports describe evidence actually observed during acceptance; those disposable files are not committed or retained as production state. No test configuration, token, database, PID, build artifact or generated Skill enters the PR.
+
+## Archive handoff
+
+The complete 19-file unit is under `docs/changes/archive/feat-554-multi-user-multi-gateway-im`; only its former empty milestone placeholder was retired after implementation evidence existed. A path-set comparison confirms no unit artifact was lost, all relative document links resolve, and the prototype bytes are unchanged by archive. The canonical merge commit is `78a260048`; the archive change rebases relative links and records these checks, without changing implementation or test behavior. The final PR head is the ultimate `effective_through` for the retained ordinary and corrected-delta gates, with the original execution snapshots preserved above and in their reports.
 
 ## Deployment boundary
 
