@@ -32,3 +32,21 @@ The source delta does not alter membership, credentials, permission routing or P
 - `review_mode`: `patch`; `diff_range`: `9b4ed2e93..086467a12`
 
 Independent finder reviewed both changed files and returned `[]`. Native relay decoding supplies the conversation ID in `external_chat_id` and its durable user-message anchor in `ingress.im_relay.im_message_id`; the patch uses these when building the runtime-change outbox entry. External shadow references and pending-saga promotion remain unchanged. The finder inspected runtime application/outbox ordering and independently ran the four focused admission cases, all passed. No new candidate required candidate verification. Full and prior closure conclusions remain retained outside this defined delta. The product-visible divider still requires the independent live targeted acceptance.
+
+## Explicit images and distillation text, round 4
+
+- `validated_at`: `513ee21637917dabe16f2f2080136ed63510f7d9`
+- `executed_base`: unchanged
+- `review_mode`: `patch`; `diff_range`: `4e93dbaae..513ee2163`
+
+Independent finder found one P2: explicit dispatch newly interpreted a protected image reference from the same chat as a local file and replaced it with a source failure. Independent candidate verifier reproduced the actual old/new handler difference with the real ReplyImages service. The concrete trigger is a later send whose input includes an existing hosted URL. The initial suggestion that SendMessageTool returns the projected text to the model was disproved: the public tool response omits text, so that explanation is not used as evidence. No other candidate survived this patch review; the bilingual distillation error change had no finding.
+
+## Hosted-reference closure and test layout, round 5
+
+- `validated_at`: `c3046c6a2`
+- `executed_base`: unchanged
+- `review_mode`: `patch + closure`; `diff_range`: `513ee2163..c3046c6a2`
+
+`274ad07bc` preserves a strictly matched current-chat hosted image receipt while continuing to snapshot and upload local images in the same message. Other-chat and malformed references remain rejected; browser resource access still checks membership. External projection does not send IM private URLs and reports a local image failure when no exportable snapshot exists. Stable-call retry and local/provider receipts remain intact. Two SDK regression cases failed before the fix and passed after it; 76 relevant implementation tests passed.
+
+The final test-layout commit `c3046c6a2` splits the external-channel case from the native file to satisfy the repository's new-test-file size contract. All test/helper AST bodies are unchanged; the focused contract and image run passed 14 tests. Independent finder inspected the complete final patch, including discovery/imports after the split, and independently ran 29 tests. Findings: `[]`; the P2 is closed. All earlier full and patch conclusions are retained outside these explicit deltas. This report does not substitute for the separately recorded product and implementation-verifier gates.
