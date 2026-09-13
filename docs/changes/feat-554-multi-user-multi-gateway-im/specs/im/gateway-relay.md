@@ -18,13 +18,13 @@
 
 本条按 conversation/首条用户消息定位的配置边界及 Scenario 适用于 `single_thread`。global 的实际配置应用事实随主工作轮次经工作记录同步，作用域和持久回看见 [agent-work](agent-work.md)；不为全局主上下文构造聊天锚点。
 
-Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正采用新运行配置的事实关联到首条用户消息。IM 校验已注册 node、owner、conversation、agent 与锚点归属，幂等持久化成功后才返回 success ACK；持久化或归属校验失败返回稳定 error ACK。重复上报同一边界复用既有条目，不产生重复时间线项。
+Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正采用新运行配置的事实关联到首条用户消息。IM 校验当前已注册 node 与 Agent profile 的管理归属一致、该 Agent 是聊天成员且锚点消息属于该聊天，幂等持久化成功后才返回 success ACK；持久化或关联校验失败返回稳定 error ACK。重复上报同一边界复用既有条目，不产生重复时间线项。
 
 #### Scenario: 配置边界持久化后返回成功 ACK
-- **GIVEN** Gateway 已注册且 owner、conversation、agent 与锚点归属一致
+- **GIVEN** Gateway 当前已注册，node 与 Agent profile 的管理归属一致、该 Agent 是聊天成员且锚点消息属于该聊天
 - **WHEN** Gateway 上行一条新的 `agent.config.boundary`
 - **THEN** IM 持久化唯一配置边界后返回 success ACK
-- **AND** owner 的历史读取与用户事件流最终可见该边界
+- **AND** 当前聊天成员的历史读取与用户事件流最终可见该边界；未参与聊天的 Agent 管理者不因此取得读取资格
 
 #### Scenario: 重复上报复用同一边界
 - **GIVEN** 某配置边界已持久化但 Gateway 未收到 ACK
