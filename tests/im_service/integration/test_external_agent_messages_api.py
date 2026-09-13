@@ -1,6 +1,8 @@
 """Integration coverage for terminal external Agent snapshot reconciliation."""
 
 import asyncio
+from contextlib import contextmanager
+from collections.abc import Iterator
 import json
 from pathlib import Path
 
@@ -12,7 +14,10 @@ from IM.infra.repositories.agents import AgentProfileRepository
 from .conftest import authorize, register_user, seed_user_under_owner
 
 
-def _external_conversation(client: TestClient, app) -> tuple[str, str]:
+@contextmanager
+def _external_conversation(
+    client: TestClient, app
+) -> Iterator[tuple[str, str, dict[str, str]]]:
     owner = register_user(client, username="owner")
     authorize(client, owner)
     agent_user_id = seed_user_under_owner(
@@ -28,22 +33,36 @@ def _external_conversation(client: TestClient, app) -> tuple[str, str]:
         group_reply_policy="MENTION",
         default_model=None,
         workspace_root="",
+        node_id="node-1",
     )
-    response = client.post(
-        "/im/v1/conversations/external/find-or-create",
-        json={
-            "external_source": "feishu",
-            "external_chat_id": "chat-1",
-            "agent_id": "plato",
-            "title": "Plato · feishu",
-            "is_group": False,
-            "participant_ids": [f"user:{owner.id}", "agent:plato"],
-            "metadata": {},
-        },
-    )
-    assert response.status_code == 201, response.text
-    assert agent_user_id
-    return response.json()["id"], owner.id
+    with client.websocket_connect("/im/ws/gateway") as websocket:
+        websocket.send_json(
+            {
+                "type": "node.register",
+                "payload": {"node_id": "node-1", "agents": ["plato"]},
+            }
+        )
+        registration = websocket.receive_json()
+        assert registration["type"] == "ack", registration
+        gateway_headers = {
+            "Authorization": f"Bearer {registration['payload']['gateway_access_token']}"
+        }
+        response = client.post(
+            "/im/v1/conversations/external/find-or-create",
+            headers=gateway_headers,
+            json={
+                "external_source": "feishu",
+                "external_chat_id": "chat-1",
+                "agent_id": "plato",
+                "title": "Plato · feishu",
+                "is_group": False,
+                "participant_ids": [f"user:{owner.id}", "agent:plato"],
+                "metadata": {},
+            },
+        )
+        assert response.status_code == 201, response.text
+        assert agent_user_id
+        yield response.json()["id"], owner.id, gateway_headers
 
 
 def _snapshot() -> dict:
@@ -78,15 +97,23 @@ def test_offline_snapshot_creates_one_complete_terminal_message_and_replays(
     tmp_path: Path,
 ) -> None:
     app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        conversation_id, owner_id = _external_conversation(client, app)
+    with (
+        TestClient(app) as client,
+        _external_conversation(client, app) as (
+            conversation_id,
+            owner_id,
+            gateway_headers,
+        ),
+    ):
         anchor = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            headers={"Idempotency-Key": "shadow-user-1"},
+            headers={**gateway_headers, "Idempotency-Key": "shadow-user-1"},
+            params={"agent_id": "plato"},
             json={
                 "sender_user_id": owner_id,
                 "content": "hello",
                 "suppress_relay": True,
+                "sender_source_id": "feishu-speaker-1",
             },
         )
         assert anchor.status_code == 201, anchor.text
@@ -95,8 +122,8 @@ def test_offline_snapshot_creates_one_complete_terminal_message_and_replays(
             "shadow-message-1"
         )
 
-        first = client.put(url, json=_snapshot())
-        replay = client.put(url, json=_snapshot())
+        first = client.put(url, headers=gateway_headers, json=_snapshot())
+        replay = client.put(url, headers=gateway_headers, json=_snapshot())
 
         assert first.status_code == 200, first.text
         assert replay.status_code == 200, replay.text
@@ -128,8 +155,14 @@ def test_snapshot_reconciles_existing_same_identity_without_moving_or_duplicatin
     tmp_path: Path,
 ) -> None:
     app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        conversation_id, _owner_id = _external_conversation(client, app)
+    with (
+        TestClient(app) as client,
+        _external_conversation(client, app) as (
+            conversation_id,
+            _owner_id,
+            gateway_headers,
+        ),
+    ):
         ack = asyncio.run(
             app.state.gateway_execution.handle_streaming_delta(
                 payload={
@@ -161,6 +194,7 @@ def test_snapshot_reconciles_existing_same_identity_without_moving_or_duplicatin
         reconciled = client.put(
             f"/im/v1/conversations/{conversation_id}/external-agent-messages/"
             "shadow-message-live",
+            headers=gateway_headers,
             json=_snapshot(),
         )
 
@@ -180,17 +214,16 @@ def test_snapshot_rejects_non_shadow_conversation_and_non_terminal_status(
     tmp_path: Path,
 ) -> None:
     app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        owner = register_user(client, username="owner")
-        authorize(client, owner)
-        agent_user_id = seed_user_under_owner(
-            client, username="agent:plato", owner_id=owner.owner_id
-        )
+    with (
+        TestClient(app) as client,
+        _external_conversation(client, app) as (_shadow_id, owner_id, gateway_headers),
+    ):
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "ordinary",
-                "participant_ids": [owner.id, agent_user_id],
+                "participant_ids": [owner_id, "agent:plato"],
             },
         )
         assert conversation.status_code == 201
@@ -199,11 +232,11 @@ def test_snapshot_rejects_non_shadow_conversation_and_non_terminal_status(
             "shadow-message-1"
         )
 
-        ordinary = client.put(url, json=_snapshot())
+        ordinary = client.put(url, headers=gateway_headers, json=_snapshot())
         running_payload = {**_snapshot(), "delivery_status": "running"}
-        running = client.put(url, json=running_payload)
+        running = client.put(url, headers=gateway_headers, json=running_payload)
 
-        assert ordinary.status_code == 400
+        assert ordinary.status_code == 404
         assert running.status_code == 422
 
 
@@ -211,8 +244,14 @@ def test_snapshot_rejects_wrong_agent_and_other_owner_without_side_effects(
     tmp_path: Path,
 ) -> None:
     app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        conversation_id, _owner_id = _external_conversation(client, app)
+    with (
+        TestClient(app) as client,
+        _external_conversation(client, app) as (
+            conversation_id,
+            _owner_id,
+            gateway_headers,
+        ),
+    ):
         before_messages = app.state.connection.execute(
             "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
             (conversation_id,),
@@ -226,13 +265,15 @@ def test_snapshot_rejects_wrong_agent_and_other_owner_without_side_effects(
             "shadow-message-isolated"
         )
 
-        wrong_agent = client.put(url, json={**_snapshot(), "agent_id": "socrates"})
-        assert wrong_agent.status_code == 400
+        wrong_agent = client.put(
+            url, headers=gateway_headers, json={**_snapshot(), "agent_id": "socrates"}
+        )
+        assert wrong_agent.status_code == 404
 
         other_owner = register_user(client, username="other-owner")
         authorize(client, other_owner)
         cross_owner = client.put(url, json=_snapshot())
-        assert cross_owner.status_code == 404
+        assert cross_owner.status_code == 401
 
         after_messages = app.state.connection.execute(
             "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",

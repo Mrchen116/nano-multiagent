@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 
@@ -184,7 +185,11 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
 
     assert register_ack == {
         "type": "ack",
-        "payload": {"message_type": "node.register", "node_id": "node-1"},
+        "payload": {
+            "message_type": "node.register",
+            "node_id": "node-1",
+            "gateway_access_token": ANY,
+        },
     }
     assert heartbeat_ack == {
         "type": "ack",
@@ -347,7 +352,11 @@ def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(
 
     assert ack == {
         "type": "ack",
-        "payload": {"message_type": "node.register", "node_id": "node-1"},
+        "payload": {
+            "message_type": "node.register",
+            "node_id": "node-1",
+            "gateway_access_token": ANY,
+        },
     }
     profile = AgentProfileRepository(connection).get_profile(agent_id="agent-a")
     assert profile is not None
@@ -890,6 +899,7 @@ def _build_handler_with_event_bridge(
     bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo)
     handler = build_gateway(
         relay_service=RelayService(connection),
+        node_persistence=GatewayNodePersistence(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
         message_repository=msg_repo,
@@ -909,7 +919,16 @@ def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) ->
     )
     connection.commit()
     conv = ConversationRepository(connection).create_conversation(
-        title="t", participant_ids=[owner.id]
+        title="t", participant_ids=[owner.id, agent_user.id]
+    )
+    websocket = StubWebSocket()
+    asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            authenticated_owner_id=owner.owner_id,
+            payload={"node_id": "node-1", "agents": ["alpha"]},
+        )
     )
     msg = bridge.on_turn_start(
         conversation_id=conv.id, agent_user_id=agent_user.id, agent_id="alpha"
@@ -917,9 +936,11 @@ def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) ->
 
     response = asyncio.run(
         handler.runtime.handle_message(
-            websocket=StubWebSocket(),
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "thinking_segment",
                 "message_id": msg.id,
                 "text": "先看 types.py",
@@ -952,6 +973,7 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["alpha"], "capabilities": {}},
         )
@@ -960,8 +982,10 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     response = asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "turn_start",
                 "to_user_id": owner.id,
                 "agent_id": "alpha",
@@ -1011,6 +1035,7 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
     asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["beta"], "capabilities": {}},
         )
@@ -1019,8 +1044,10 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
     response = asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "turn_start",
                 "to_user_id": owner.id,
                 "agent_id": "beta",
@@ -1063,6 +1090,7 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
     asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["gamma"], "capabilities": {}},
         )
@@ -1071,8 +1099,10 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
     response = asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "turn_start",
                 "to_user_id": owner.id,
                 "agent_id": "gamma",
@@ -1108,6 +1138,7 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
     asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
         )
@@ -1116,8 +1147,10 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
     response = asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "turn_start",
                 "conversation_id": conv.id,
                 "agent_id": "delta",
@@ -1151,13 +1184,15 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     """
     handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
-    # Register agent user so agent lookup succeeds; owner user intentionally absent.
+    # The registered Gateway has a real operator; only the requested recipient is absent.
     users = UserRepository(connection)
     users.create_user(username="agent:epsilon", display_name="Epsilon")
+    owner = users.create_user(username="operator", display_name="Operator")
 
     asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["epsilon"], "capabilities": {}},
         )
@@ -1167,8 +1202,10 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     response = asyncio.run(
         handler.runtime.handle_message(
             websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
             message_type="node.streaming_delta",
             payload={
+                "node_id": "node-1",
                 "kind": "turn_start",
                 "to_user_id": nonexistent_owner_id,
                 "agent_id": "epsilon",

@@ -10,6 +10,7 @@ from IM.app import create_app
 from IM.ws.gateway.sessions import GatewayConnection
 
 from .conftest import authorize, register_user, seed_user_under_owner
+from ._gateway_helpers import seed_node_and_profiles
 
 
 def _create_user(client: TestClient, username: str) -> str:
@@ -28,13 +29,36 @@ def _create_user(client: TestClient, username: str) -> str:
     )
 
 
-def _create_conversation(client: TestClient, participant_id: str) -> str:
+def _create_conversation(
+    client: TestClient, participant_id: str, *, agent_id: str = "agent-a"
+) -> str:
+    agent_user_id = _create_user(client, f"agent:{agent_id}")
+    seed_node_and_profiles(
+        client.app,
+        owner_id=client.get("/im/v1/me").json()["owner_id"],
+        agent_ids=(agent_id,),
+    )
     response = client.post(
         "/im/v1/conversations",
-        json={"title": "chat", "participant_ids": [participant_id]},
+        json={
+            "type": "direct",
+            "title": "chat",
+            "participant_ids": [participant_id, agent_user_id],
+        },
     )
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+def _seed_agent_message(client: TestClient, conversation_id: str, agent_id: str) -> str:
+    # Node reports update an existing Agent timeline; a human HTTP request may not
+    # impersonate an Agent to create that fixture.
+    return client.app.state.message_repository.create_message(
+        conversation_id=conversation_id,
+        sender_user_id=f"agent:{agent_id}",
+        sender_type="agent",
+        content="heartbeat placeholder",
+    ).id
 
 
 class FailingGatewaySocket:
@@ -42,10 +66,11 @@ class FailingGatewaySocket:
         raise RuntimeError("socket closed")
 
 
-async def _register_failing_gateway(app, *, node_id: str) -> None:  # noqa: ANN001
+async def _register_failing_gateway(app, *, node_id: str, owner_id: str) -> None:  # noqa: ANN001
     await app.state.gateway_runtime.handle_message(
         websocket=FailingGatewaySocket(),
         message_type="node.register",
+        authenticated_owner_id=owner_id,
         payload={
             "node_id": node_id,
             "node_name": node_id,
@@ -250,11 +275,6 @@ def test_message_post_to_disconnected_node_persists_actionable_failure_events(
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
-        client.app.state.connection.execute(
-            "INSERT INTO nodes(node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("node-1", None, "MacBook", "offline", "1970-01-01T00:00:00Z", 0, "", None),
-        )
-        client.app.state.connection.commit()
 
         created = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
@@ -294,21 +314,9 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(
     """Persist heartbeat-style node.report payloads into IM events users can read."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        agent_id = _create_user(client, "agent-a")
-        conversation_id = client.post(
-            "/im/v1/conversations",
-            json={"title": "主 Agent · OpsBot", "participant_ids": [agent_id]},
-        ).json()["id"]
-        created = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={
-                "sender_user_id": agent_id,
-                "content": "heartbeat placeholder",
-                "sender_type": "agent",
-            },
-        )
-        assert created.status_code == 201
-        message_id = created.json()["id"]
+        owner_id = _create_user(client, "owner")
+        conversation_id = _create_conversation(client, owner_id)
+        message_id = _seed_agent_message(client, conversation_id, "agent-a")
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -370,18 +378,9 @@ def test_gateway_websocket_malformed_node_report_does_not_close_connection(
     """
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        agent_id = _create_user(client, "agent-b")
-        conversation_id = _create_conversation(client, agent_id)
-        created = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={
-                "sender_user_id": agent_id,
-                "content": "placeholder",
-                "sender_type": "agent",
-            },
-        )
-        assert created.status_code == 201
-        message_id = created.json()["id"]
+        owner_id = _create_user(client, "owner")
+        conversation_id = _create_conversation(client, owner_id, agent_id="agent-b")
+        message_id = _seed_agent_message(client, conversation_id, "agent-b")
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -447,7 +446,13 @@ def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
-        asyncio.run(_register_failing_gateway(app, node_id="node-1"))
+        asyncio.run(
+            _register_failing_gateway(
+                app,
+                node_id="node-1",
+                owner_id=client.get("/im/v1/me").json()["owner_id"],
+            )
+        )
 
         created = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",

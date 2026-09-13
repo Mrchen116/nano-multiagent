@@ -50,11 +50,16 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
         user_id = seed_user(client, "alice")
         agent_a_user_id = seed_user(client, "agent:agent-a")
         agent_b_user_id = seed_user(client, "agent:agent-b")
-        seed_node_and_profiles(app, agent_ids=("agent-a", "agent-b"))
+        seed_node_and_profiles(
+            app,
+            owner_id=client.get("/im/v1/me").json()["owner_id"],
+            agent_ids=("agent-a", "agent-b"),
+        )
 
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "Kernel Ops Group",
                 "participant_ids": [user_id, agent_a_user_id, agent_b_user_id],
             },

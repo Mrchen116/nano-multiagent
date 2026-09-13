@@ -2,11 +2,14 @@
 
 import json
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.infra.repositories.conversations import ConversationRepository
+from tests.im_service.integration._gateway_helpers import seed_node_and_profiles
 from IM.ws.gateway.protocol import (
     parse_delivery_receipt_event,
     parse_node_report_event,
@@ -217,21 +220,19 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
             username="agent:planner",
             owner_id=owner.owner_id,
         )
-        conversation = client.post(
-            "/im/v1/conversations",
-            json={
-                "title": "Planner",
-                "participant_ids": [owner.id, agent_user_id],
-            },
+        seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("planner",))
+        conversation = ConversationRepository(app.state.connection).create_conversation(
+            title="Planner",
+            participant_ids=[owner.id, agent_user_id],
+            caller_owner_id=owner.owner_id,
         )
-        assert conversation.status_code == 201, conversation.text
-        conversation_id = conversation.json()["id"]
-        anchor = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner.id, "content": "use the new runtime"},
+        conversation_id = conversation.id
+        anchor = app.state.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=owner.id,
+            content="use the new runtime",
         )
-        assert anchor.status_code == 201, anchor.text
-        anchor_id = anchor.json()["id"]
+        anchor_id = anchor.id
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -275,11 +276,11 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
             },
             {
                 "type": "message",
-                "message": {
-                    **anchor.json(),
-                },
+                "message": ANY,
             },
         ]
+        assert listed.json()["items"][1]["message"]["id"] == anchor.id
+        assert listed.json()["items"][1]["message"]["content"] == anchor.content
         rows = app.state.connection.execute(
             "SELECT COUNT(*) AS count FROM agent_config_boundaries"
         ).fetchone()
@@ -303,20 +304,18 @@ def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
             username="agent:planner",
             owner_id=owner.owner_id,
         )
-        conversation = client.post(
-            "/im/v1/conversations",
-            json={
-                "title": "Planner",
-                "participant_ids": [owner.id, agent_user_id],
-            },
+        seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("planner",))
+        conversation = ConversationRepository(app.state.connection).create_conversation(
+            title="Planner",
+            participant_ids=[owner.id, agent_user_id],
+            caller_owner_id=owner.owner_id,
         )
-        assert conversation.status_code == 201, conversation.text
-        conversation_id = conversation.json()["id"]
-        anchor = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner.id, "content": "external runtime change"},
+        conversation_id = conversation.id
+        anchor = app.state.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=owner.id,
+            content="external runtime change",
         )
-        assert anchor.status_code == 201, anchor.text
         frame = {
             "type": "agent.config.boundary",
             "payload": {
@@ -324,7 +323,7 @@ def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
                 "node_id": "node-1",
                 "conversation_id": conversation_id,
                 "agent_id": "planner",
-                "before_message_id": anchor.json()["id"],
+                "before_message_id": anchor.id,
                 "runtime_fingerprint": "runtime-sha256",
                 "fingerprint_schema": "v1",
                 "profile_version": None,
@@ -382,25 +381,23 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
             username="agent:planner",
             owner_id=owner.owner_id,
         )
-        conversation = client.post(
-            "/im/v1/conversations",
-            json={
-                "title": "Planner",
-                "participant_ids": [owner.id, agent_user_id],
-            },
+        seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("planner",))
+        conversation = ConversationRepository(app.state.connection).create_conversation(
+            title="Planner",
+            participant_ids=[owner.id, agent_user_id],
+            caller_owner_id=owner.owner_id,
         )
-        assert conversation.status_code == 201, conversation.text
-        conversation_id = conversation.json()["id"]
-        first_anchor = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner.id, "content": "first"},
+        conversation_id = conversation.id
+        first_anchor = app.state.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=owner.id,
+            content="first",
         )
-        second_anchor = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner.id, "content": "second"},
+        second_anchor = app.state.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=owner.id,
+            content="second",
         )
-        assert first_anchor.status_code == 201, first_anchor.text
-        assert second_anchor.status_code == 201, second_anchor.text
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -425,7 +422,7 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
                     "type": "agent.config.boundary",
                     "payload": {
                         **common,
-                        "before_message_id": first_anchor.json()["id"],
+                        "before_message_id": first_anchor.id,
                     },
                 }
             )
@@ -435,7 +432,7 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
                     "type": "agent.config.boundary",
                     "payload": {
                         **common,
-                        "before_message_id": second_anchor.json()["id"],
+                        "before_message_id": second_anchor.id,
                     },
                 }
             )
@@ -446,7 +443,7 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
                     "payload": {
                         **common,
                         "boundary_id": "next-boundary-id",
-                        "before_message_id": second_anchor.json()["id"],
+                        "before_message_id": second_anchor.id,
                     },
                 }
             )
@@ -481,7 +478,11 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
             )
             assert websocket.receive_json() == {
                 "type": "ack",
-                "payload": {"message_type": "node.register", "node_id": "node-1"},
+                "payload": {
+                    "message_type": "node.register",
+                    "node_id": "node-1",
+                    "gateway_access_token": ANY,
+                },
             }
             websocket.send_json(
                 {
@@ -504,11 +505,11 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
     }
 
 
-@pytest.mark.parametrize("legacy_orphan", [False, True])
-def test_agent_private_dispatch_link_is_readable_by_shared_owner(
-    tmp_path: Path, legacy_orphan: bool
+@pytest.mark.parametrize("existing_conversation", [False, True])
+def test_agent_private_dispatch_is_only_readable_by_agent_members(
+    tmp_path: Path, existing_conversation: bool
 ) -> None:
-    """The dispatch receipt must open its real conversation under the human owner."""
+    """A manager can inspect Work without gaining access to an Agent-only chat."""
     from IM.infra.repositories.agents import AgentProfileRepository
     from IM.infra.repositories.conversations import ConversationRepository
     from IM.infra.repositories.users import UserRepository
@@ -536,21 +537,28 @@ def test_agent_private_dispatch_link_is_readable_by_shared_owner(
                 group_reply_policy="MENTION",
                 default_model=None,
                 workspace_root="",
+                node_id="node-1",
             )
         old = None
-        if legacy_orphan:
+        if existing_conversation:
             old = ConversationRepository(app.state.connection).create_conversation(
-                title="Budget", participant_ids=participants
+                title="Budget",
+                participant_ids=participants,
+                caller_owner_id=owner.owner_id,
             )
             assert client.get(f"/im/v1/conversations/{old.id}").status_code == 404
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "agents": []},
+                    "payload": {"node_id": "node-1", "agents": ["planner", "budget"]},
                 }
             )
-            assert websocket.receive_json()["type"] == "ack"
+            registration = websocket.receive_json()
+            assert registration["type"] == "ack"
+            gateway_headers = {
+                "Authorization": f"Bearer {registration['payload']['gateway_access_token']}"
+            }
             websocket.send_json(
                 {
                     "type": "agent.message",
@@ -562,24 +570,30 @@ def test_agent_private_dispatch_link_is_readable_by_shared_owner(
                     },
                 }
             )
+            relay = websocket.receive_json()
+            assert relay["type"] == "relay.message", relay
+            assert relay["payload"]["agent_id"] == "budget"
             response = websocket.receive_json()
             assert response["type"] == "ack", response
-        receipt = response["payload"]
-        cid = receipt["conversation_id"]
-        if old:
-            assert cid == old.id
-        detail = client.get(f"/im/v1/conversations/{cid}")
-        assert detail.status_code == 200, detail.text
-        assert detail.json()["owner_id"] == owner.owner_id
-        assert cid in [
+            receipt = response["payload"]
+            cid = receipt["conversation_id"]
+            if old:
+                assert cid == old.id
+            messages = client.get(
+                f"/im/v1/conversations/{cid}/messages",
+                params={"agent_id": "planner"},
+                headers=gateway_headers,
+            )
+            assert messages.status_code == 200, messages.text
+            assert any(
+                item.get("message", {}).get("id") == receipt["message_id"]
+                for item in messages.json()["items"]
+            )
+        assert client.get(f"/im/v1/conversations/{cid}").status_code == 404
+        assert client.get(f"/im/v1/conversations/{cid}/messages").status_code == 404
+        assert cid not in [
             item["id"] for item in client.get("/im/v1/conversations").json()["items"]
         ]
-        messages = client.get(f"/im/v1/conversations/{cid}/messages")
-        assert messages.status_code == 200
-        assert any(
-            item.get("message", {}).get("id") == receipt["message_id"]
-            for item in messages.json()["items"]
-        )
         outsider = register_user(client, username="outsider")
         authorize(client, outsider)
         assert client.get(f"/im/v1/conversations/{cid}").status_code == 404

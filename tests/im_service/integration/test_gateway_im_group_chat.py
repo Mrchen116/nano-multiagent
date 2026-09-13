@@ -51,7 +51,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
 
     with TestClient(app) as client:
         owner_id = seed_user(client, "owner")
-        human_user_id = seed_user(client, "alice")
+        human_user_id = owner_id
         agent_a_user_id = seed_user(client, "agent:agent-a")
         agent_b_user_id = seed_user(client, "agent:agent-b")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
@@ -63,6 +63,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         group_conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "same group",
                 "participant_ids": [human_user_id, agent_a_user_id, agent_b_user_id],
             },
@@ -268,7 +269,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             "conversation_type": "group",
             "external_chat_id": conversation_id,
             "participants": [
-                {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
+                {"type": "user", "user_id": human_user_id, "display_name": "Owner"},
                 {"type": "agent", "agent_id": "agent-a", "display_name": "A"},
                 {"type": "agent", "agent_id": "agent-b", "display_name": "B"},
             ],
@@ -294,7 +295,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     # First relay: profile_version=1, no NO_REPLY prompt → message is sent.
     # Second relay: profile_version=2, NO_REPLY prompt → output suppressed; relay_adapter.sent only has first message.
     assert [message.text for message in relay_adapter.sent] == [
-        f'gateway-reply:[Alice] <mention type="user" target_id="{agent_a_user_id}"/> first mention',
+        f'gateway-reply:[Owner] <mention type="user" target_id="{agent_a_user_id}"/> first mention',
     ]
     assert relay_adapter.sent[0].metadata["config_profile_version"] == 1
     assert [payload["detail"] for payload in accepted_payloads] == [None, None]

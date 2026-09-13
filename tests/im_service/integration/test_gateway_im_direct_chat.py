@@ -10,6 +10,7 @@ import threading
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.users import UserRepository
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
@@ -49,7 +50,7 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
 
     with TestClient(app) as client:
         owner_id = seed_user(client, "owner")
-        human_user_id = seed_user(client, "alice")
+        human_user_id = owner_id
         agent_user_id = seed_user(client, "agent:agent-a")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
@@ -58,6 +59,7 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "legacy direct",
                 "participant_ids": [human_user_id, agent_user_id],
             },
@@ -162,22 +164,25 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
     with TestClient(app) as client:
         owner_id = seed_user(client, "owner")
-        human_user_id = seed_user(client, "alice")
+        human_user_id = owner_id
         agent_user_id = seed_user(client, "agent:agent-a")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
         seed_node_and_profiles(app, owner_id=owner.owner_id)
 
-        old_conversation = client.post(
-            "/im/v1/conversations",
-            json={
-                "title": "old direct",
-                "participant_ids": [human_user_id, agent_user_id],
-            },
+        # An independent execution chat (as created by fork/distillation) remains
+        # pinned; ordinary contact creation below must use the current profile.
+        old_conversation = ConversationRepository(
+            app.state.connection
+        ).create_conversation(
+            title="old independent direct",
+            participant_ids=[human_user_id, agent_user_id],
+            caller_owner_id=owner.owner_id,
+            creator_id=human_user_id,
+            conversation_type="direct",
         )
-        assert old_conversation.status_code == 201
-        assert old_conversation.json()["config_profile_version"] == 1
-        old_conversation_id = old_conversation.json()["id"]
+        assert old_conversation.config_profile_version == 1
+        old_conversation_id = old_conversation.id
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -304,6 +309,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             new_conversation = client.post(
                 "/im/v1/conversations",
                 json={
+                    "type": "direct",
                     "title": "new direct",
                     "participant_ids": [human_user_id, agent_user_id],
                 },
@@ -437,7 +443,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[1].target_chat_id == old_conversation_id
     assert relay_adapter.sent[2].target_chat_id == new_conversation_id
     assert relay_adapter.sent[0].metadata == {
-        "sender_display_name": "Alice",
+        "sender_display_name": "Owner",
         "participants": first_relay["payload"]["participants"],
         "relay_task_id": first_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-before",
@@ -449,7 +455,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[1].metadata == {
-        "sender_display_name": "Alice",
+        "sender_display_name": "Owner",
         "participants": old_after_relay["payload"]["participants"],
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-after",
@@ -461,7 +467,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[2].metadata == {
-        "sender_display_name": "Alice",
+        "sender_display_name": "Owner",
         "participants": new_after_relay["payload"]["participants"],
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-new-after",
