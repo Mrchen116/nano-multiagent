@@ -70,6 +70,22 @@ def _seed_agent(app: object, agent_id: str) -> str:
     agent = UserRepository(app.state.connection).create_user(  # type: ignore[attr-defined]
         username=f"agent:{agent_id}", display_name=agent_id
     )
+    from IM.infra.repositories.agents import AgentProfileRepository
+
+    owner_id = app.state.connection.execute(
+        "SELECT owner_id FROM users WHERE username = 'alice'"
+    ).fetchone()[0]
+    AgentProfileRepository(app.state.connection).upsert_profile(
+        agent_id=agent_id,
+        owner_id=owner_id,
+        display_name=agent_id,
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=None,
+    )
     return agent.id
 
 
@@ -81,7 +97,7 @@ def test_post_participants_adds_agent_returns_200(tmp_path: Path) -> None:
         _seed_agent(app, "planner")
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]
@@ -106,7 +122,7 @@ def test_post_participants_idempotent(tmp_path: Path) -> None:
         _seed_agent(app, "planner")
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]
@@ -130,7 +146,7 @@ def test_post_participants_empty_returns_400(tmp_path: Path) -> None:
         auth, alice_id = _register_owner(client)
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]
@@ -150,7 +166,7 @@ def test_post_participants_unknown_agent_returns_400(tmp_path: Path) -> None:
         auth, alice_id = _register_owner(client)
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]
@@ -171,7 +187,7 @@ def test_post_participants_cross_tenant_returns_404(tmp_path: Path) -> None:
         _seed_agent(app, "planner")
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth_alice,
         )
         convo_id = convo.json()["id"]
@@ -203,7 +219,7 @@ def test_participant_payload_carries_user_id(tmp_path: Path) -> None:
         agent_user_id = _seed_agent(app, "planner")
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]
@@ -231,7 +247,7 @@ def test_remove_participant_by_user_id_removes_agent(tmp_path: Path) -> None:
         _seed_agent(app, "planner")
         convo = client.post(
             "/im/v1/conversations",
-            json={"title": "Solo", "participant_ids": [alice_id]},
+            json={"type": "group", "title": "Solo", "participant_ids": [alice_id]},
             headers=auth,
         )
         convo_id = convo.json()["id"]

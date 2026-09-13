@@ -141,12 +141,10 @@ def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
     assert profiles.get_profile(agent_id="agent-1").owner_id == owner.owner_id
 
 
-def test_create_group_conversation_owner_id_uses_caller(tmp_path: Path) -> None:
-    """create_conversation must use caller_owner_id when participants span multiple owners.
-
-    Regression for R3-1: multi-owner participants previously generated a random UUID
-    as the conversation owner_id, making list_conversations_for_owner unable to find it.
-    """
+def test_create_group_preserves_creator_ownership_and_membership(
+    tmp_path: Path,
+) -> None:
+    """Source ownership stays intact while the creator sees the chat through membership."""
     users, conversations, _, _, _, _ = _build_repositories(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
     # Agent user with empty owner_id simulates an unbound/ownerless agent participant
@@ -167,7 +165,7 @@ def test_create_group_conversation_owner_id_uses_caller(tmp_path: Path) -> None:
         f"Expected owner_id={alice.owner_id!r}, got {created.owner_id!r}; "
         "multi-owner participants must use caller_owner_id, not a random UUID"
     )
-    visible = conversations.list_conversations_for_owner(owner_id=alice.owner_id)
+    visible = conversations.list_conversations_for_member(user_id=alice.id)
     assert any(c.id == created.id for c in visible), (
         "Newly created group conversation must appear in caller's conversation list"
     )
@@ -198,7 +196,7 @@ def test_conversation_exposes_run_state_and_source_node(
         participant_ids=[owner.id, agent_user.id],
         caller_owner_id=owner.owner_id,
     )
-    listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
+    listed = conversations.list_conversations_for_member(user_id=owner.id)
 
     assert listed[0].id == created.id
     assert listed[0].run_state == "idle"
@@ -239,7 +237,7 @@ def test_conversation_run_state_is_running_for_active_agent_message(
         delivery_status="running",
     )
 
-    listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
+    listed = conversations.list_conversations_for_member(user_id=owner.id)
 
     assert listed[0].run_state == "running"
 

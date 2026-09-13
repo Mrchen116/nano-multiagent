@@ -86,6 +86,7 @@ class MessageRepository:
         delivery_status: str | None = None,
         sender_display_name: str | None = None,
         sender_source_id: str | None = None,
+        external_sender: bool = False,
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
         system_notice: SystemNotice | None = None,
@@ -105,13 +106,14 @@ class MessageRepository:
                 and persist both message.sent and message.delivered. Relay-backed writes pass False so
                 gateway receipts remain the single source of truth for completion.
             created_at: Optional caller-owned timestamp for ordered history copies.
+            external_sender: The authenticated Gateway has validated an external shadow speaker.
 
         Returns:
             Created message entity.
 
         Raises:
-            ValueError: When conversation/sender is missing, owner scope mismatches, sender type is invalid,
-                or sender is not a participant for user-originated messages.
+            ValueError: When conversation/sender is missing, sender type is invalid,
+                or a non-system sender lacks membership or verified external identity.
         """
         normalized_attachments = _normalize_attachments(attachments)
         normalized_tool_calls = _normalize_tool_calls(tool_calls)
@@ -137,7 +139,7 @@ class MessageRepository:
         if normalized_idempotency_key == "":
             raise ValueError("caller_idempotency_key must be non-empty")
         conversation_exists = self._connection.execute(
-            "SELECT owner_id FROM conversations WHERE id = ?",
+            "SELECT owner_id, external_source, external_chat_id FROM conversations WHERE id = ?",
             (conversation_id,),
         ).fetchone()
         if conversation_exists is None:
@@ -235,15 +237,17 @@ class MessageRepository:
             """,
             (conversation_id, resolved_sender_user_id),
         ).fetchone()
-        # System messages are server-originated and bypass the owner scope check;
-        # they can be injected into any conversation regardless of participant/owner alignment.
-        if sender_type != "system":
-            if participant_exists is None and str(sender_user["owner_id"]) != str(
-                conversation_exists["owner_id"]
+        if external_sender:
+            if (
+                sender_type != "user"
+                or not conversation_exists["external_source"]
+                or not conversation_exists["external_chat_id"]
+                or not sender_source_id
+                or not str(sender_user["username"]).startswith("shadow:")
+                or sender_user["password_hash"] is not None
             ):
-                raise ValueError("sender_user_id is outside conversation owner scope")
-
-        if sender_type == "user" and participant_exists is None:
+                raise ValueError("external sender requires a verified shadow identity")
+        elif sender_type != "system" and participant_exists is None:
             raise ValueError("sender_user_id is not a participant of conversation")
 
         message_id = uuid4().hex
@@ -390,35 +394,34 @@ class MessageRepository:
                     "UPDATE messages SET delivery_status = ? WHERE id = ?",
                     (final_status, message_id),
                 )
-            # Only increment unread_count for messages from other participants, not the conversation owner's own messages.
-            owner_id = str(conversation_exists["owner_id"])
-            is_own_message = resolved_sender_user_id == owner_id
-            if is_own_message:
-                self._connection.execute(
-                    "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
-                    (
-                        _to_message_preview(
-                            content=content, attachments=normalized_attachments
-                        ),
-                        created_at_value,
-                        conversation_id,
+            self._connection.execute(
+                "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
+                (
+                    _to_message_preview(
+                        content=content, attachments=normalized_attachments
                     ),
-                )
-            else:
-                self._connection.execute(
-                    "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
-                    (
-                        _to_message_preview(
-                            content=content, attachments=normalized_attachments
-                        ),
-                        created_at_value,
-                        conversation_id,
-                    ),
-                )
+                    created_at_value,
+                    conversation_id,
+                ),
+            )
+            self._increment_member_unread(
+                conversation_id=conversation_id, sender_user_id=resolved_sender_user_id
+            )
         if self._notify is not None:
             for live_event in pending_live_events:
                 self._notify(live_event)
         return created_message
+
+    def _increment_member_unread(
+        self, *, conversation_id: str, sender_user_id: str
+    ) -> None:
+        """Count a newly visible message once for each other signed-in human identity."""
+        self._connection.execute(
+            """UPDATE conversation_participants SET unread_count = unread_count + 1
+            WHERE conversation_id = ? AND user_id != ?
+              AND user_id IN (SELECT id FROM users WHERE password_hash IS NOT NULL)""",
+            (conversation_id, sender_user_id),
+        )
 
     def discard_running_agent_message(
         self, *, message_id: str, reason: str
@@ -442,7 +445,7 @@ class MessageRepository:
 
         with self._connection:
             row = self._connection.execute(
-                "SELECT conversation_id, sender_type, delivery_status "
+                "SELECT rowid, conversation_id, sender_type, delivery_status "
                 "FROM messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
@@ -451,6 +454,19 @@ class MessageRepository:
             if row["sender_type"] != "agent" or row["delivery_status"] != "running":
                 raise ValueError("only a running agent message can be discarded")
             conversation_id = str(row["conversation_id"])
+            # Only members who have not displayed this provisional message lose an unread.
+            self._connection.execute(
+                """UPDATE conversation_participants SET unread_count = MAX(unread_count - 1, 0)
+                WHERE conversation_id = ? AND user_id IN (SELECT id FROM users WHERE password_hash IS NOT NULL)
+                  AND COALESCE((SELECT rowid FROM messages WHERE id = last_read_message_id), 0) < ?""",
+                (conversation_id, row["rowid"]),
+            )
+            self._connection.execute(
+                """UPDATE conversation_participants SET last_read_message_id = (
+                    SELECT id FROM messages WHERE conversation_id = ? AND rowid < ? ORDER BY rowid DESC LIMIT 1
+                ) WHERE conversation_id = ? AND last_read_message_id = ?""",
+                (conversation_id, row["rowid"], conversation_id, message_id),
+            )
             deleted = self._connection.execute(
                 "DELETE FROM messages "
                 "WHERE id = ? AND sender_type = 'agent' AND delivery_status = 'running'",
@@ -477,17 +493,8 @@ class MessageRepository:
                 else ""
             )
             latest_at = str(latest["created_at"]) if latest is not None else None
-            # turn_start increments unread_count for an agent placeholder. Roll back
-            # that projection too; MAX handles a user who read the conversation while
-            # the run was still in flight.
             self._connection.execute(
-                """
-                UPDATE conversations
-                SET last_message_preview = ?,
-                    last_message_at = ?,
-                    unread_count = MAX(unread_count - 1, 0)
-                WHERE id = ?
-                """,
+                "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
                 (latest_preview, latest_at, conversation_id),
             )
             # Insert after the delete so the message's cascaded stream events disappear
@@ -602,9 +609,8 @@ class MessageRepository:
                         stored_key,
                     ),
                 )
-                self._connection.execute(
-                    "UPDATE conversations SET unread_count = unread_count + 1 WHERE id = ?",
-                    (conversation_id,),
+                self._increment_member_unread(
+                    conversation_id=conversation_id, sender_user_id=sender_user_id
                 )
             else:
                 if (
@@ -1021,7 +1027,6 @@ class MessageRepository:
         conversation_id: str,
         limit: int = 50,
         before_message_id: str | None = None,
-        mark_as_read: bool = False,
     ) -> list[Message]:
         """List messages for a conversation in insertion order.
 
@@ -1029,7 +1034,6 @@ class MessageRepository:
             conversation_id: Target conversation identifier.
             limit: Maximum number of recent messages to return.
             before_message_id: Exclusive cursor; return messages older than this message.
-            mark_as_read: Whether to clear unread_count for the conversation after loading latest page.
 
         Returns:
             Messages ordered from oldest to newest within the selected page.
@@ -1049,12 +1053,6 @@ class MessageRepository:
                 raise ValueError("before_message_id not found")
             merged_messages = merged_messages[:cursor_index]
         paged_messages = merged_messages[-bounded_limit:]
-        if mark_as_read and before_message_id is None:
-            with self._connection:
-                self._connection.execute(
-                    "UPDATE conversations SET unread_count = 0 WHERE id = ?",
-                    (conversation_id,),
-                )
         return paged_messages
 
     def _list_message_timeline(self, *, conversation_id: str) -> list[Message]:
@@ -1151,7 +1149,9 @@ class MessageRepository:
         replaced = False
         for index, entry in enumerate(existing):
             if entry.get("request_id") == request_id:
-                existing[index] = dict(permission_data)
+                if entry.get("status") in {"submitted", "resolved"}:
+                    return str(row["conversation_id"])
+                existing[index] = {**entry, **permission_data}
                 replaced = True
                 break
         if not replaced:
@@ -1165,6 +1165,118 @@ class MessageRepository:
                 (json.dumps(existing), utc_now(), message_id),
             )
         return str(row["conversation_id"])
+
+    def claim_permission_decision(
+        self,
+        *,
+        message_id: str,
+        conversation_id: str,
+        request_id: str,
+        decision: str,
+        decided_by: str,
+        reason: str | None = None,
+    ) -> dict[str, object]:
+        """Persist the first valid decision for the original execution request.
+
+        Args:
+            message_id: Message containing the original card.
+            conversation_id: Current member conversation.
+            request_id: Original Gateway request identity.
+            decision: An option present on that card.
+            decided_by: Authenticated human member identity.
+            reason: Optional rejection explanation.
+
+        Returns:
+            The durable submitted or resolved card; subsequent decisions cannot replace it.
+
+        Raises:
+            ValueError: When the message, request, execution membership or choice is invalid.
+        """
+        with self._connection:
+            row = self._connection.execute(
+                "SELECT permission_request_json FROM messages WHERE id = ? AND conversation_id = ?",
+                (message_id, conversation_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError("message_id not found")
+            requests = _load_permission_requests(row["permission_request_json"])
+            target = next(
+                (item for item in requests if item.get("request_id") == request_id),
+                None,
+            )
+            if target is None:
+                raise ValueError("request_id not found")
+            if target.get("status") in {"submitted", "resolved"}:
+                return dict(target)
+            if target.get("status") != "pending":
+                raise ValueError("permission request is not pending")
+            member = self._connection.execute(
+                "SELECT 1 FROM conversation_participants p JOIN users u ON u.id = p.user_id WHERE p.conversation_id = ? AND p.user_id = ? AND u.password_hash IS NOT NULL",
+                (conversation_id, decided_by),
+            ).fetchone()
+            agent = self._connection.execute(
+                """SELECT 1 FROM conversation_participants p JOIN users u ON u.id = p.user_id
+                JOIN agent_profiles a ON u.username = 'agent:' || a.agent_id
+                WHERE p.conversation_id = ? AND a.agent_id = ? AND a.node_id = ? AND a.work_mode = 'single_thread' AND a.is_stale = 0""",
+                (conversation_id, target.get("agent_id"), target.get("node_id")),
+            ).fetchone()
+            if member is None or agent is None:
+                raise ValueError("permission participants are unavailable")
+            choices = target.get("options") or []
+            if decision not in {
+                option.get("id") for option in choices if isinstance(option, dict)
+            }:
+                raise ValueError("decision is not an option for this request")
+            target.update(
+                status="submitted",
+                decision=decision,
+                decided_by=decided_by,
+                reason=reason,
+            )
+            claimed = self._connection.execute(
+                "UPDATE messages SET permission_request_json = ? WHERE id = ? AND permission_request_json = ?",
+                (json.dumps(requests), message_id, row["permission_request_json"]),
+            )
+            if claimed.rowcount == 1:
+                return dict(target)
+        # Another connection won the compare-and-set. Read its durable decision.
+        return self.claim_permission_decision(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            decision=decision,
+            decided_by=decided_by,
+            reason=reason,
+        )
+
+    def list_submitted_permissions(self, *, node_id: str) -> list[dict[str, object]]:
+        """Return durable decisions still awaiting confirmation from this node."""
+        rows = self._connection.execute(
+            "SELECT id, conversation_id, permission_request_json FROM messages WHERE permission_request_json LIKE '%submitted%'"
+        ).fetchall()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            for entry in _load_permission_requests(row["permission_request_json"]):
+                if (
+                    entry.get("status") != "submitted"
+                    or entry.get("node_id") != node_id
+                ):
+                    continue
+                member = self._connection.execute(
+                    """SELECT 1 FROM conversation_participants p JOIN users u ON u.id = p.user_id
+                    JOIN agent_profiles a ON u.username = 'agent:' || a.agent_id
+                    WHERE p.conversation_id = ? AND a.agent_id = ? AND a.node_id = ? AND a.is_stale = 0""",
+                    (row["conversation_id"], entry.get("agent_id"), node_id),
+                ).fetchone()
+                if member is not None:
+                    results.append(
+                        {
+                            **entry,
+                            "message_id": str(row["id"]),
+                            "conversation_id": str(row["conversation_id"]),
+                        }
+                    )
+        return results
 
     def update_permission_resolution(
         self,
@@ -1215,7 +1327,9 @@ class MessageRepository:
         # bugfix-410-M2 (#98): clear the awaiting_permission marker only when no other
         # ask on this message is still pending (a message can carry several asks).
         # While any remains pending the marker stays set (and heartbeat-refreshed).
-        any_still_pending = any(entry.get("status") == "pending" for entry in existing)
+        any_still_pending = any(
+            entry.get("status") in {"pending", "submitted"} for entry in existing
+        )
         with self._connection:
             self._connection.execute(
                 "UPDATE messages SET permission_request_json = ?, "
@@ -1477,18 +1591,18 @@ class MessageRepository:
                 return None
 
         by_id = self._connection.execute(
-            "SELECT id, username, display_name, owner_id FROM users WHERE id = ?",
+            "SELECT id, username, display_name, owner_id, password_hash FROM users WHERE id = ?",
             (normalized_sender,),
         ).fetchone()
         if by_id is not None:
             return by_id
         if sender_type == "agent":
             return self._connection.execute(
-                "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+                "SELECT id, username, display_name, owner_id, password_hash FROM users WHERE username = ?",
                 (f"agent:{normalized_sender}",),
             ).fetchone()
         return self._connection.execute(
-            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+            "SELECT id, username, display_name, owner_id, password_hash FROM users WHERE username = ?",
             (normalized_sender,),
         ).fetchone()
 

@@ -104,7 +104,7 @@ async def test_copy_failure_after_binding_rolls_back(tmp_path: Path) -> None:
         kernel_message_id="kmsg-a1",
         allow_empty=True,
     )
-    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    before = len(conversations.list_conversations_for_member(user_id=human.id))
 
     # Make the copy step (create_message into the branch) fail after binding succeeded.
     orig_create = messages.create_message
@@ -127,7 +127,7 @@ async def test_copy_failure_after_binding_rolls_back(tmp_path: Path) -> None:
             )
     finally:
         messages.create_message = orig_create  # type: ignore[method-assign]
-    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    after = len(conversations.list_conversations_for_member(user_id=human.id))
     assert after == before, "copy failure after binding must roll back the branch conv"
 
 

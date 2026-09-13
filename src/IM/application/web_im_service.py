@@ -31,7 +31,7 @@ class ForkError(Exception):
 
 
 class ForkNotFoundError(ForkError):
-    """Source conversation absent or outside the caller's tenant (→ 404)."""
+    """Source conversation absent or outside the caller's membership (→ 404)."""
 
 
 class ForkValidationError(ForkError):
@@ -81,6 +81,9 @@ class WebIMService:
         participant_ids: list[str],
         caller_owner_id: str | None = None,
         target_node_id: str | None = None,
+        creator_id: str | None = None,
+        conversation_type: str | None = None,
+        reuse_direct: bool = False,
     ) -> Conversation:
         """Create one conversation with validated participants."""
         return self._conversations.create_conversation(
@@ -88,6 +91,9 @@ class WebIMService:
             participant_ids=participant_ids,
             caller_owner_id=caller_owner_id,
             target_node_id=target_node_id,
+            creator_id=creator_id,
+            conversation_type=conversation_type,
+            reuse_direct=reuse_direct,
         )
 
     def find_or_create_external_conversation(
@@ -122,6 +128,7 @@ class WebIMService:
         self,
         *,
         conversation_id: str,
+        user_id: str,
         title: str | None,
         is_pinned: bool | None,
         is_muted: bool | None,
@@ -129,6 +136,7 @@ class WebIMService:
         """Update mutable conversation metadata."""
         return self._conversations.update_conversation(
             conversation_id=conversation_id,
+            user_id=user_id,
             title=title,
             is_pinned=is_pinned,
             is_muted=is_muted,
@@ -138,16 +146,32 @@ class WebIMService:
         """List conversations visible in the current storage scope."""
         return self._conversations.list_conversations()
 
-    def list_conversations_for_owner(self, *, owner_id: str) -> list[Conversation]:
-        """List conversations owned by ``owner_id`` (SQL-level tenant filter)."""
-        return self._conversations.list_conversations_for_owner(owner_id=owner_id)
+    def is_member(self, *, conversation_id: str, user_id: str) -> bool:
+        """Check current membership without exposing conversation metadata."""
+        return self._conversations.is_member(
+            conversation_id=conversation_id, user_id=user_id
+        )
 
-    def get_conversation_for_owner(
-        self, *, conversation_id: str, owner_id: str
+    def list_conversations_for_member(self, *, user_id: str) -> list[Conversation]:
+        """List the member's current conversations and personal state."""
+        return self._conversations.list_conversations_for_member(user_id=user_id)
+
+    def get_conversation_for_member(
+        self, *, conversation_id: str, user_id: str
     ) -> Conversation | None:
-        """Return the conversation iff it belongs to ``owner_id`` (else None)."""
-        return self._conversations.get_conversation_for_owner(
-            conversation_id=conversation_id, owner_id=owner_id
+        """Read a conversation only while the user is a member."""
+        return self._conversations.get_conversation_for_member(
+            conversation_id=conversation_id, user_id=user_id
+        )
+
+    def mark_read(
+        self, *, conversation_id: str, user_id: str, last_read_message_id: str
+    ) -> Conversation:
+        """Acknowledge an explicit displayed-message boundary for one member."""
+        return self._conversations.mark_read(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            last_read_message_id=last_read_message_id,
         )
 
     def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
@@ -210,6 +234,7 @@ class WebIMService:
         auto_complete_delivery: bool = True,
         sender_display_name: str | None = None,
         sender_source_id: str | None = None,
+        external_sender: bool = False,
         emit_created_event: bool = False,
         caller_idempotency_key: str | None = None,
     ) -> Message:
@@ -237,6 +262,7 @@ class WebIMService:
             auto_complete_delivery=auto_complete_delivery,
             sender_display_name=sender_display_name,
             sender_source_id=sender_source_id,
+            external_sender=external_sender,
             emit_created_event=emit_created_event,
             caller_idempotency_key=caller_idempotency_key,
         )
@@ -301,14 +327,12 @@ class WebIMService:
         conversation_id: str,
         limit: int = 50,
         before_message_id: str | None = None,
-        mark_as_read: bool = False,
     ) -> list[Message]:
         """List messages for one conversation in storage order."""
         return self._messages.list_messages(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
-            mark_as_read=mark_as_read,
         )
 
     def list_timeline(
@@ -317,14 +341,12 @@ class WebIMService:
         conversation_id: str,
         limit: int = 50,
         before_message_id: str | None = None,
-        mark_as_read: bool = False,
     ) -> list[Message | AgentConfigChangedBoundary]:
         """List one message-counted page with each boundary immediately before its anchor."""
         messages = self.list_messages(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
-            mark_as_read=mark_as_read,
         )
         if self._boundaries is None:
             return list(messages)
@@ -361,8 +383,8 @@ class WebIMService:
         Raises ForkNotFoundError / ForkValidationError / AgentOfflineError /
         ForkDelegationError; the route maps each to 404 / 400 / 409 / 502.
         """
-        source = self._conversations.get_conversation_for_owner(
-            conversation_id=source_conversation_id, owner_id=owner_id
+        source = self._conversations.get_conversation_for_member(
+            conversation_id=source_conversation_id, user_id=actor_user_id
         )
         if source is None:
             raise ForkNotFoundError("conversation_id not found")
@@ -487,7 +509,19 @@ class WebIMService:
                         else message.content
                     ),
                     sender_type=message.sender_type,
-                    attachments=message.attachments,
+                    attachments=[
+                        replace(
+                            attachment,
+                            url=self._images.copy_references(
+                                source_conversation_id=source_conversation_id,
+                                target_conversation_id=new_conversation.id,
+                                content=attachment.url,
+                            ),
+                        )
+                        for attachment in message.attachments
+                    ]
+                    if self._images is not None
+                    else message.attachments,
                     tool_calls=message.tool_calls,
                     background_returns=message.background_returns,
                     reply_process=message.reply_process,
