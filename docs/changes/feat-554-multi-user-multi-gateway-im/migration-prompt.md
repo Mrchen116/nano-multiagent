@@ -31,6 +31,12 @@
 | 其他原成员 | 对没有既有个人状态的真人初始化 pin=false、mute=false、unread=0，已读边界置于该会话停写时的末条消息；空聊天边界为 NULL。Agent 行按目标结构的普通默认值初始化。 |
 | 普通私聊唯一键 | 所有既有会话的新增 `direct_key` 置 NULL，保留原聊天入口，不猜哪些旧 direct 是 fork 或蒸馏执行。新版本从联系人新建的普通私聊才写规范化唯一键。 |
 
+目标字段以 [db.py](../../../src/IM/infra/db.py) 和 [ConversationRepository](../../../src/IM/infra/repositories/conversations.py) 为准，当前实现具体为：
+
+- `conversation_participants` 继续以 `(conversation_id, user_id)` 为联合主键。新增 `is_pinned`、`is_muted`、`unread_count` 均为 `INTEGER NOT NULL DEFAULT 0`；`last_read_message_id` 为可空 `TEXT`，保存本聊天真实 `messages.id`，不填事件 ID、Kernel 消息 ID 或 `:relay:` 合成气泡 ID。末条消息及已读推进按 `messages.rowid` 插入顺序判断；如需重建表，保留每个聊天内原插入顺序，不能按显示时间或随机消息 ID 重排。
+- `conversations.direct_key` 为允许 NULL 的唯一 `TEXT`。普通联系人私聊使用排序后的两个稳定 `users.id` 以 `|` 连接；group、fork、蒸馏执行聊天不占用该唯一键。保留原 `type`、`creator_id`、`target_node_id`，不因为现有参与者恰好有两人就把群改成私聊。
+- 成员与 `messages.sender_user_id` 存 `users.id`；真人 Actor 仍是 `type=user`，Agent Actor 的 `id` 是逻辑 `agent_id`、`user_id` 是 `username=agent:<agent_id>` 的合成用户 ID。目录中的 `kind=human` 只是公开资料分类，不写入消息 `sender_type`。真人识别以现有可登录账号为依据，不把没有密码的 Agent／shadow 用户补成真人；若同一身份同时具有登录凭据和合成 Agent／shadow 语义，记录冲突并停止，不自行改密码、改 ID 或扩大成员资格。
+
 在副本离线建立目标 schema 的列、约束与索引；状态映射核对完成后移除 conversations 的三项共享偏好列。目标程序的读写与初始化均不得再依赖或重新补出这些列。与本次变化无关的表及字段保留。
 
 事件重放、缓存会话快照中若含原共享 pin／mute／unread，按目标事件协议转换或移除这些个人字段，不能让旧快照再次覆盖个人状态；保留消息、事件 ID、顺序及投递状态。不要靠新版本识别“旧事件”补偿。
@@ -38,6 +44,8 @@
 ## 3. 将旧附件引用转换为新资源引用
 
 先核对目标版本实际的资源 schema 和 `/im/v1/conversations/{id}/attachments/{resource_id}` 接口。保留已有受保护 images 资源的 ID、URL、原字节和独立 fork 关联；这条仍在使用的接口不是旧公开上传兼容入口。
+
+当前实现共用 `message_images` 表，没有新增 attachments 表或单独的关联表：一行就是一个会话资源关联。其列为 `image_id`（主键）、`conversation_id`、`source_key`、`sha256`、`content_type`、`file_name`、`byte_size`、`storage_name`，并要求 `(conversation_id, source_key)` 唯一。普通附件 URL 中的 `resource_id` 就是该行的 `image_id`；images URL 也使用同一个 ID。字节位于实际 IM 数据库父目录的 `message-images/<storage_name>`，`file_name` 仅为下载显示名；不要把旧 uploads 目录或 `file_name` 当作新字节定位依据。以 [资源仓库](../../../src/IM/infra/repositories/message_images.py) 和 [应用存储装配](../../../src/IM/app.py) 复核路径。新增关联分别分配唯一 `image_id` 和聊天内不冲突的 `source_key`；新字节快照分配不冲突的 `storage_name`，复用已核对字节时可保留其 `storage_name`。不同聊天各自保留独立资源行，沿用现有 fork 的读取方式。
 
 对旧普通上传逐项执行：
 
@@ -50,6 +58,8 @@
 旧文件缺失、哈希不符或无法确定来源聊天时，保留证据并停止该次正式转换，不删除消息或伪造资源。没有任何消息关联的孤立文件留在备份，不公开、不猜测归属。
 
 新版本不挂载 `/im/uploads`，也不提供旧路径重定向、别名或鉴权兼容 handler；旧的独立书签不再可用。用户从已转换的原聊天历史继续预览／下载同一字节。部署完成后给需要保留链接的操作者提供新链接。
+
+正常新上传仍走 `POST /im/v1/uploads`，必须携带 `conversation_id` 与 `file_name`，返回相对的受保护 attachments URL；这与已移除的公开 GET `/im/uploads/...` 是不同入口。部署核对时也确认 `GET /im/v1/conversations/{id}/images/{image_id}` 仍可读取已有图片，避免误把整个 uploads POST 或 images API 一并下线。
 
 ## 4. 副本核对与正式切换
 
