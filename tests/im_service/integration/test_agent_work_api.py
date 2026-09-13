@@ -286,8 +286,21 @@ def test_work_http_journal_query_and_permission_share_real_ownership(
                 == 409
             )
             assert client.get(f"{base}/sessions/unrelated/turns").status_code == 404
+            full_view = client.get(base).json()
             authorize(client, stranger)
-            assert client.get(base).status_code == 404
+            assert client.get(base).json() == full_view
+            assert client.get(f"{base}/sessions/main/turns").status_code == 200
+            assert (
+                client.get(f"{base}/sessions/main/turns/turn/items").status_code == 200
+            )
+            assert client.get(f"{base}/sessions/unrelated/turns").status_code == 404
+            assert client.get("/im/v1/agents/global/config").status_code == 404
+            assert (
+                client.post(
+                    f"{base}/permissions/permit", json={"decision": "deny"}
+                ).status_code
+                == 404
+            )
             authorize(client, owner)
         assert client.get(base).json()["node_connection_state"] == "offline"
         assert client.get("/im/v1/agents/global/config").json()["work_mode"] == "global"

@@ -936,7 +936,10 @@ def build_kernel_event_observer(
         if (
             not im_connected
             and not has_external_context
-            and not (event_name == "permission_resolved" and manager is not None)
+            and not (
+                event_name in {"permission_request", "permission_resolved"}
+                and manager is not None
+            )
         ):
             return _PreparedEvent(handled=True, result=None)
         if not im_connected:
@@ -1655,7 +1658,6 @@ def build_kernel_event_observer(
         ctx = scope.ctx
         event_name = scope.event_name
         message_id = scope.message_id
-        im_connected = scope.im_connected
         shadow_snapshot = scope.shadow_snapshot
         shadow_process_seq = scope.shadow_process_seq
 
@@ -1901,7 +1903,7 @@ def build_kernel_event_observer(
                 "options": options,
                 "status": "pending",
             }
-            if message_id and im_connected and manager is not None:
+            if message_id and manager is not None:
                 task_tracker.start(
                     _send(
                         manager,

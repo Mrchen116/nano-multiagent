@@ -1,4 +1,4 @@
-"""Owner-scoped durable Agent work and permission HTTP APIs."""
+"""Shared global Agent Work reads and owner-scoped permission HTTP APIs."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -10,11 +10,16 @@ from IM.infra.repositories.agents import AgentProfileRepository
 router = APIRouter(tags=["agent-work"])
 
 
-def _profile(request: Request, user: User, agent_id: str):
+def _profile(request: Request, agent_id: str, *, owner_id: str | None = None):
     profile = AgentProfileRepository(request.app.state.connection).get_profile(
         agent_id=agent_id
     )
-    if profile is None or profile.owner_id != user.owner_id or profile.is_stale:
+    if (
+        profile is None
+        or profile.is_stale
+        or profile.work_mode != "global"
+        or (owner_id is not None and profile.owner_id != owner_id)
+    ):
         raise HTTPException(404, "agent_not_accessible")
     return profile
 
@@ -28,7 +33,7 @@ async def get_work(
     user: User = Depends(current_user),
 ) -> dict:
     """Read the main timeline and actual linked execution summaries."""
-    profile = _profile(request, user, agent_id)
+    profile = _profile(request, agent_id)
     try:
         view = request.app.state.work_repository.view(agent_id, before_turn, limit)
     except ValueError as exc:
@@ -56,7 +61,7 @@ def get_turns(
     user: User = Depends(current_user),
 ) -> dict:
     """Read turns belonging to one proven child or main Session."""
-    _profile(request, user, agent_id)
+    _profile(request, agent_id)
     try:
         return request.app.state.work_repository.turns(
             agent_id, session_id, before_turn, limit
@@ -76,7 +81,7 @@ def get_items(
     user: User = Depends(current_user),
 ) -> dict:
     """Read the next durable item page in stable observed order."""
-    _profile(request, user, agent_id)
+    _profile(request, agent_id)
     try:
         return request.app.state.work_repository.items(
             agent_id, session_id, turn_id, after_seq, limit
@@ -101,7 +106,7 @@ async def decide_permission(
     user: User = Depends(current_user),
 ) -> dict:
     """Apply an offered option to the live broker's actual pending request."""
-    profile = _profile(request, user, agent_id)
+    profile = _profile(request, agent_id, owner_id=user.owner_id)
     try:
         pending = request.app.state.work_repository.pending_permission(
             agent_id, request_id

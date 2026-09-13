@@ -53,9 +53,9 @@ async def _observe(observer: Any, event: Mapping[str, object]) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("connected_at_resolution", [True, False])
+@pytest.mark.parametrize("disconnected_event", [None, "request", "resolution"])
 async def test_permission_request_and_resolution_are_forwarded_to_im(
-    connected_at_resolution,
+    disconnected_event,
 ) -> None:
     manager = _Manager()
     observer = build_kernel_event_observer(
@@ -71,6 +71,7 @@ async def test_permission_request_and_resolution_are_forwarded_to_im(
         ),
     )
 
+    manager.connected = disconnected_event != "request"
     await _observe(
         observer,
         {
@@ -83,7 +84,7 @@ async def test_permission_request_and_resolution_are_forwarded_to_im(
             "options": [{"id": "allow_once", "label": "Allow once"}],
         },
     )
-    manager.connected = connected_at_resolution
+    manager.connected = disconnected_event != "resolution"
     await _observe(
         observer,
         {
@@ -219,9 +220,9 @@ async def test_foreground_observer_skips_tagged_workflow_child_permission() -> N
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("connected_at_resolution", [True, False])
+@pytest.mark.parametrize("disconnected_event", [None, "request", "resolution"])
 async def test_bound_workflow_child_permission_reuses_web_and_external_surfaces(
-    connected_at_resolution,
+    disconnected_event,
 ) -> None:
     manager = _Manager()
     external_request = MagicMock()
@@ -260,8 +261,9 @@ async def test_bound_workflow_child_permission_reuses_web_and_external_surfaces(
         "decision": "allow_once",
     }
 
+    manager.connected = disconnected_event != "request"
     await deliver(WorkflowPermissionDelivery(anchor=anchor, event=request_event))
-    manager.connected = connected_at_resolution
+    manager.connected = disconnected_event != "resolution"
     await deliver(WorkflowPermissionDelivery(anchor=anchor, event=resolved_event))
 
     request_frame = next(
