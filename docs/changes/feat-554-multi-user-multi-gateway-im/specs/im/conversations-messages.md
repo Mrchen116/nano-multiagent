@@ -16,6 +16,37 @@
 
 ## MODIFIED Requirements
 
+### Requirement: 外部 channel 用户消息可写入影子会话
+
+IM 支持 Gateway 将来自外部 channel 的用户消息写入影子会话。消息按已注册 Gateway 的外部来源和发送者标识保存独立外部身份，并持久化 `sender_display_name`；直聊和群聊均显示原发送者名称。外部来源身份不冒充登录用户，也不出现在真人联系人目录。外部消息与普通 IM 消息共享读取、分页、权限和投递状态语义。
+
+#### Scenario: 外部 1:1 用户消息保留原发送者身份
+- **GIVEN** Gateway 写入一条 IM owner 从飞书 1:1 发来的消息
+- **WHEN** 用户通过 REST 或 WebSocket 查看该会话历史
+- **THEN** 该消息显示原发送者名称，不自动映射为 Gateway 管理者或当前浏览器用户
+
+#### Scenario: 外部群聊消息显示原发送者名字
+- **GIVEN** Gateway 写入一条 Alice 从飞书群发来的消息
+- **WHEN** 用户通过 REST 或 WebSocket 查看该会话历史
+- **THEN** 该消息显示为 Alice 发送
+
+### Requirement: 外部 channel 用户消息实时出现
+
+IM 将外部 channel 用户消息写入影子会话后,必须通过浏览器 user-stream 发出足以直接插入当前会话消息列表的 live 事件。打开中的影子会话不得依赖刷新历史才能看到飞书/Lark 用户刚发来的消息。该 live 事件必须携带消息正文、附件、发送者类型、发送者显示名、delivery status 和创建时间。
+
+#### Scenario: 打开的影子会话不刷新即可看到飞书用户消息
+- **GIVEN** 用户已经在浏览器打开 `plato · feishu` 影子会话
+- **WHEN** Gateway 写入一条 IM owner 从飞书 1:1 发来的新消息
+- **THEN** 浏览器通过 user-stream 收到 canonical `message.created` 或等效完整新消息事件
+- **AND** 当前消息列表立即追加该用户气泡,无需刷新页面或重新进入会话
+- **AND** 该气泡显示原发送者名称，与刷新历史后的身份一致
+
+#### Scenario: 外部群成员 live 消息显示原发送者名
+- **GIVEN** 用户已经在浏览器打开 `plato · 产品群 · feishu` shadow group
+- **WHEN** Gateway 写入一条 Alice 从飞书群发来的新消息
+- **THEN** 当前消息列表立即追加 Alice 的用户气泡
+- **AND** live 显示名与刷新历史后的显示名一致
+
 ### Requirement: Agent 新托管图片按会话保护且稳定可回看
 
 IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问遵循会话成员权限；历史回看不依赖 Agent 原文件或节点在线。普通新旧上传附件的承接以本文件“IM 托管聊天附件按会话成员关系读取”为准。
@@ -75,6 +106,12 @@ IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问�
 #### Scenario: 群类型不由人数推断
 - **WHEN** 用户明确新建只有本人和一个 Agent 的群
 - **THEN** 仍创建群会话，可按群操作添加成员。
+
+
+#### Scenario: 普通人际私聊默认显示对方名称
+- **GIVEN** 两个真人的普通私聊尚未被明确改名
+- **WHEN** 任一成员读取列表、详情或同步结果
+- **THEN** 默认聊天名显示该查看者的对方；明确设置的共享名称继续对双方一致，fork 与 Skill 蒸馏聊天保留自己的标题。
 
 
 ## ADDED Requirements
