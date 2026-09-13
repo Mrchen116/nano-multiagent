@@ -7,6 +7,28 @@
 
 多人协作与既有体验承接的目标契约，实施验收后归并。
 
+## MODIFIED Requirements
+
+### Requirement: 账号注册/登录走 JWT,刷新令牌轮换且可吊销
+
+终端用户经 `/im/v1/auth/*` 注册/登录获得一对令牌(短期 access + 长期 refresh);refresh 一次性轮换,旧 refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),不静默成功,也不泄漏用户是否存在。
+
+#### Scenario: 注册返回令牌对且密码经哈希,弱口令/重名被拒
+- **WHEN** 终端用户 `POST /im/v1/auth/register {username,password,display_name,locale?}`
+- **THEN** 201 返回 `{access_token, refresh_token, user}`,`user` 含 `id/username/display_name/owner_id`且不泄漏密码哈希;口令短于下限或用户名重复时注册失败(不创建用户)
+
+#### Scenario: 登录凭证错误返回 401 且不区分"用户不存在"与"密码错"
+- **WHEN** 终端用户以错误密码或未知用户名 `POST /im/v1/auth/login`
+- **THEN** 401(同一种失败语义,避免存在性预言机);凭证正确时返回新令牌对
+
+#### Scenario: refresh 轮换令牌,旧 refresh 失效;登出吊销 refresh
+- **WHEN** 用户 `POST /im/v1/auth/refresh` 用合法 refresh
+- **THEN** 返回新 access+refresh,且原 refresh 再次使用被拒;`POST /im/v1/auth/logout` 后该 refresh 也被拒
+
+#### Scenario: 保留运行身份不可用于真人注册
+- **WHEN** 用户注册时，用户名去除首尾空白后等于 `system`，或以 `agent:`、`shadow:` 开头
+- **THEN** 注册被拒且不创建账号，不能通过注册取得系统、Agent 或外部影子发送者身份；普通用户名继续按原注册规则处理。
+
 ## REMOVED Requirements
 
 ### Requirement: 数据面 HTTP 路由强制 Bearer 鉴权且按 owner 隔离
