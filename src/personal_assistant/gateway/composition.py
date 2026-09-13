@@ -1226,6 +1226,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
+        reply_images=reply_images,
+        reply_image_owner_id=_owner_user_id,
+        image_account_id_provider=lambda channel_name: (
+            channel_registry.get(channel_name).image_account_id
+        ),
         global_inbox=global_inbox,
         work_recorder=work_recorder,
         shadow_sync=shadow_sync,

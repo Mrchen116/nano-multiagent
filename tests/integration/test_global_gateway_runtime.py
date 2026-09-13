@@ -124,7 +124,15 @@ async def _wait(predicate):
             await asyncio.sleep(0.01)
 
 
-async def _runtime(tmp_path, model, *, outbound_router=None, shadow_sync=None):
+async def _runtime(
+    tmp_path,
+    model,
+    *,
+    outbound_router=None,
+    shadow_sync=None,
+    reply_images=None,
+    image_account_id_provider=None,
+):
     endpoint = InternalDispatchEndpoint()
     classifier_requests = []
 
@@ -189,6 +197,9 @@ async def _runtime(tmp_path, model, *, outbound_router=None, shadow_sync=None):
         work_recorder=recorder,
         outbound_router=outbound_router,
         shadow_sync=shadow_sync,
+        reply_images=reply_images,
+        reply_image_owner_id="owner",
+        image_account_id_provider=image_account_id_provider,
     )
     app = web.Application()
     app.router.add_post("/internal/dispatch", handler.build_aiohttp_handler())

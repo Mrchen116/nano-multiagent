@@ -13,11 +13,19 @@ import logging
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
+import httpx
+
 if TYPE_CHECKING:
     from agent.sdk import Kernel
 
 from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.reply_images import (
+    PreparedReply,
+    ReplyImageContext,
+    ReplyImages,
+    image_failure,
+)
 from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
     GatewaySessionBinder,
@@ -85,6 +93,9 @@ class InternalDispatchHandler:
         work_recorder: Any | None = None,
         shadow_sync: Any | None = None,
         outbound_router: OutboundRouter | None = None,
+        reply_images: ReplyImages | None = None,
+        reply_image_owner_id: str = "",
+        image_account_id_provider: Callable[[str], str] | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
@@ -95,6 +106,9 @@ class InternalDispatchHandler:
         self._work_recorder = work_recorder
         self._shadow_sync = shadow_sync
         self._outbound_router = outbound_router
+        self._reply_images = reply_images
+        self._reply_image_owner_id = reply_image_owner_id
+        self._image_account_id_provider = image_account_id_provider
         self._sealed = False
 
     def seal(self) -> None:
@@ -214,7 +228,9 @@ class InternalDispatchHandler:
                     # This callback runs under the Kernel's short acceptance lock.
                     # Only enqueue here; the network and ACK run after lock release.
                     send_task = asyncio.create_task(
-                        manager.send_agent_message(dict(dispatch_payload))
+                        self._send_im_dispatch(
+                            dict(dispatch_payload), payload, provenance
+                        )
                     )
 
                 decision = self._kernel.try_commit_output(
@@ -241,9 +257,11 @@ class InternalDispatchHandler:
                         "error": "group output run is no longer active",
                     }
                 assert send_task is not None
-                ack = await send_task
+                ack, _prepared = await send_task
             else:
-                ack = await manager.send_agent_message(dispatch_payload)
+                ack, _prepared = await self._send_im_dispatch(
+                    dispatch_payload, payload, provenance
+                )
             await self._sync_direct_session(
                 ack=ack,
                 text=text.strip(),
@@ -356,9 +374,7 @@ class InternalDispatchHandler:
                     def enqueue() -> None:
                         nonlocal send_task
                         send_task = asyncio.create_task(
-                            self._im_connection_manager.send_agent_message(
-                                dict(dispatch)
-                            )
+                            self._send_im_dispatch(dispatch, payload, provenance)
                         )
 
                     decision = self._kernel.try_commit_output(
@@ -391,9 +407,11 @@ class InternalDispatchHandler:
                             "ok": False,
                             "error": "global output run is no longer active",
                         }
-                ack = await send_task
+                ack, prepared = await send_task
             else:
-                ack = await self._im_connection_manager.send_agent_message(dispatch)
+                ack, prepared = await self._send_im_dispatch(
+                    dispatch, payload, provenance
+                )
             dispatch_event_id = f"dispatch:{session_id}:{call_id}"
             channel_name = metadata.get("channel_name")
             if (
@@ -405,8 +423,26 @@ class InternalDispatchHandler:
                     raise RuntimeError("external delivery router unavailable")
                 # The IM ACK confirms only the shadow bubble. The captured source
                 # route must also succeed before this explicit reply is delivered.
+                image_delivery = {}
+                if prepared is not None and prepared.images:
+                    if self._image_account_id_provider is None:
+                        raise RuntimeError("external image account is unavailable")
+                    account_id = self._image_account_id_provider(channel_name)
+                    image_delivery = {
+                        "images": await asyncio.to_thread(
+                            self._reply_images.outbound_images, prepared, account_id
+                        ),
+                        "record_provider_receipts": lambda receipt: (
+                            self._reply_images.record_provider_receipts(
+                                prepared.output_key, receipt
+                            )
+                        ),
+                        "before_publish": lambda: True,
+                    }
                 await self._outbound_router.send_text_async(
-                    text=dispatch["text"],
+                    text=prepared.markdown_template
+                    if prepared is not None
+                    else dispatch["text"],
                     reply_context=ReplyContext(
                         channel_name=channel_name,
                         target_chat_id=metadata["target_chat_id"],
@@ -416,6 +452,7 @@ class InternalDispatchHandler:
                             "reply_dedupe_key": dispatch_event_id,
                         },
                     ),
+                    **image_delivery,
                 )
             try:
                 recorder.record(
@@ -435,6 +472,55 @@ class InternalDispatchHandler:
             return {"ok": True, "to": target, "text": dispatch["text"], **ack.as_dict()}
         except Exception as exc:
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
+
+    async def _send_im_dispatch(
+        self,
+        dispatch: dict[str, Any],
+        payload: Mapping[str, Any],
+        provenance: SessionProvenance | None,
+    ) -> tuple[Any, PreparedReply | None]:
+        """Project a committed tool reply using its original Agent and stable call id."""
+
+        prepared = None
+        conversation_id = dispatch["to"]
+        if (
+            self._reply_images is not None
+            and provenance is not None
+            and conversation_id.startswith("c_")
+        ):
+            call_id = payload.get("dispatch_request_id")
+            if not isinstance(call_id, str) or not call_id.strip():
+                raise ValueError("reply images require a stable dispatch_request_id")
+            agent = provenance.agent
+            output_key = (
+                f"dispatch:{agent.agent_id}:{provenance.kernel_session_id}:{call_id}"
+            )
+            prepared = await asyncio.to_thread(
+                self._reply_images.prepare,
+                ReplyImageContext(
+                    output_key=output_key,
+                    owner_id=self._reply_image_owner_id,
+                    agent_id=agent.agent_id,
+                    run_id=str(payload.get("origin_run_id") or ""),
+                    bubble_id=call_id,
+                    workspace=agent.config.workspace_root,
+                ),
+                dispatch["text"],
+            )
+            try:
+                dispatch["text"] = await self._reply_images.project_im(
+                    prepared, conversation_id, agent_id=agent.agent_id
+                )
+            except httpx.HTTPError:
+                dispatch["text"] = self._reply_images.render(
+                    prepared,
+                    {
+                        image.ordinal: image_failure("upload")
+                        for image in prepared.images
+                    },
+                )
+        ack = await self._im_connection_manager.send_agent_message(dispatch)
+        return ack, prepared
 
     def build_query_handler(self, tool_name: str) -> Callable:
         """Build a loopback query handler with actual Session provenance checks."""
