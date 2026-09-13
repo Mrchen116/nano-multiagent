@@ -105,6 +105,7 @@ class GatewayRuntime:
                     await self._channel_control.initialize_channel_control(
                         node_id=node_id
                     )
+                    await self._control.replay_submitted_permissions(node_id=node_id)
         except WebSocketDisconnect:
             pass
         finally:
@@ -231,4 +232,13 @@ class GatewayRuntime:
                     },
                 }
         handler = handlers[message_type]
+        if message_type == "node.streaming_delta":
+            try:
+                self._execution.authorize_streaming_payload(payload)
+                return await handler(payload=payload)
+            except ValueError as exc:
+                return {
+                    "type": "error",
+                    "payload": {"code": "bad_payload", "message": str(exc)},
+                }
         return await handler(payload=payload)

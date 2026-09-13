@@ -26,6 +26,13 @@ class MessageImage:
         """Return the stable owner-gated relative resource URL."""
         return f"/im/v1/conversations/{self.conversation_id}/images/{self.image_id}"
 
+    @property
+    def attachment_url(self) -> str:
+        """Return the ordinary attachment address for the same private snapshot."""
+        return (
+            f"/im/v1/conversations/{self.conversation_id}/attachments/{self.image_id}"
+        )
+
 
 class ImageConflictError(ValueError):
     """The caller reused a source identity for different snapshot bytes."""
@@ -139,12 +146,12 @@ class MessageImageRepository:
         the branch, so deleting the source conversation cannot revoke branch reads.
         """
         pattern = re.compile(
-            re.escape(f"/im/v1/conversations/{source_conversation_id}/images/")
-            + r"([0-9a-f]{32})(?![0-9a-f])"
+            re.escape(f"/im/v1/conversations/{source_conversation_id}/")
+            + r"(images|attachments)/([0-9a-f]{32})(?![0-9a-f])"
         )
 
         def copy(match: re.Match[str]) -> str:
-            image = self.get(conversation_id=source_conversation_id, image_id=match[1])
+            image = self.get(conversation_id=source_conversation_id, image_id=match[2])
             if image is None:
                 return match[0]
             source_key = f"fork:{source_conversation_id}:{image.image_id}"
@@ -162,6 +169,6 @@ class MessageImageRepository:
                 )
                 with self._connection:
                     self._insert(copied)
-            return copied.url
+            return copied.url if match[1] == "images" else copied.attachment_url
 
         return pattern.sub(copy, content)

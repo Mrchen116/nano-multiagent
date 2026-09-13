@@ -351,7 +351,7 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
             gateway.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                    "payload": {"node_id": "node-offline", "agents": ["planner"]},
                 }
             )
             assert gateway.receive_json()["type"] == "ack"
@@ -360,7 +360,7 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
                     "type": "agent.config.boundary",
                     "payload": {
                         "boundary_id": "before-m3",
-                        "node_id": "node-1",
+                        "node_id": "node-offline",
                         "conversation_id": conversation_id,
                         "agent_id": "planner",
                         "before_message_id": anchor_id,

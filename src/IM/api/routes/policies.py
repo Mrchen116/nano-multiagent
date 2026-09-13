@@ -3,11 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import get_policy_service
+from IM.api.deps import current_user, get_policy_service
 from IM.application.policy_service import PolicyService
 from IM.domain.models import SettingsPolicy
 
-router = APIRouter(tags=["policies"])
+router = APIRouter(tags=["policies"], dependencies=[Depends(current_user)])
 
 
 class PolicyResponse(BaseModel):

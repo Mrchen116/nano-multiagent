@@ -17,6 +17,43 @@ from tests.im_service.integration.conftest import (
 )
 
 
+def test_runtime_token_rotates_with_connection_and_never_grants_human_access(
+    tmp_path: Path,
+) -> None:
+    """Only the current registered socket can authorize machine data requests."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="runtime-alice")
+        authorize(client, alice)
+        registration = _registration(node_id="runtime-node", key_seed=b"r" * 32)
+        with client.websocket_connect("/im/ws/gateway") as first:
+            first.send_json(registration)
+            token = first.receive_json()["payload"]["gateway_access_token"]
+            machine = {"Authorization": f"Bearer {token}"}
+            for route in ("me", "nodes", "policies", "agents"):
+                assert client.get(f"/im/v1/{route}", headers=machine).status_code == 401
+            missing = (
+                "/im/v1/conversations/missing/images/missing?agent_id=agent-secure"
+            )
+            assert client.get(missing, headers=machine).status_code == 404
+            with client.websocket_connect("/im/ws/gateway") as replacement:
+                replacement.send_json(registration)
+                fresh = replacement.receive_json()["payload"]["gateway_access_token"]
+                assert fresh != token
+                assert client.get(missing, headers=machine).status_code == 401
+                assert (
+                    client.get(
+                        missing, headers={"Authorization": f"Bearer {fresh}"}
+                    ).status_code
+                    == 404
+                )
+            assert (
+                client.get(
+                    missing, headers={"Authorization": f"Bearer {fresh}"}
+                ).status_code
+                == 401
+            )
+
+
 def _bind(client, *, node_id: str) -> None:
     started = client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
     confirmed = client.post(
@@ -33,13 +70,39 @@ def _registration(*, node_id: str, key_seed: bytes) -> dict[str, object]:
         "payload": {
             "node_id": node_id,
             "node_name": node_id,
-            "agents": ["agent-secure"],
+            "agents": [f"agent-{node_id}"],
             "capabilities": {"channel_bootstrap": True},
             "credential_key_id": pair.key_id,
             "credential_algorithm": "X25519-HKDF-SHA256-AES-256-GCM",
             "credential_public_key": pair.public_key,
         },
     }
+
+
+def test_registration_cannot_rebind_another_nodes_agent(tmp_path: Path) -> None:
+    """Advertising a known Agent id cannot steal its node binding or membership."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="collision-alice")
+        bob = register_user(client, username="collision-bob")
+        authorize(client, alice)
+        original = _registration(node_id="original", key_seed=b"e" * 32)
+        original["payload"]["capabilities"] = {}
+        with client.websocket_connect("/im/ws/gateway") as owner_socket:
+            owner_socket.send_json(original)
+            assert owner_socket.receive_json()["type"] == "ack"
+            _bind(client, node_id="original")
+            authorize(client, bob)
+            with client.websocket_connect("/im/ws/gateway") as attacker:
+                stolen = _registration(node_id="attacker", key_seed=b"f" * 32)
+                stolen["payload"]["agents"] = original["payload"]["agents"]
+                attacker.send_json(stolen)
+                rejected = attacker.receive_json()
+                assert rejected["type"] == "error", rejected
+            row = client.app.state.connection.execute(
+                "SELECT node_id, owner_id FROM agent_profiles WHERE agent_id = ?",
+                (original["payload"]["agents"][0],),
+            ).fetchone()
+            assert tuple(row) == ("original", alice.id)
 
 
 def test_gateway_websocket_rejects_missing_bearer_before_registration(

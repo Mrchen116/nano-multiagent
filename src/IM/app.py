@@ -8,12 +8,12 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
 from IM.api.routes.agent_channels import router as agent_channels_router
 from IM.api.routes.auth import router as auth_router
+from IM.api.routes.conversation_commands import router as conversation_commands_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.message_images import router as message_image_router
 from IM.api.routes.metrics import router as metrics_router
@@ -296,6 +296,7 @@ def create_app(
             users=UserRepository(connection),
             jwt_secret=resolved_jwt_secret,
         )
+        app_instance.state.command_key_secret = resolved_jwt_secret
 
         registry = UserStreamRegistry()
         outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue()
@@ -333,7 +334,11 @@ def create_app(
         app_instance.state.message_repository = message_repository
 
         pump_task = asyncio.create_task(
-            pump_user_stream_outbound(registry=registry, outbound_queue=outbound_queue)
+            pump_user_stream_outbound(
+                registry=registry,
+                outbound_queue=outbound_queue,
+                event_repository=event_repository,
+            )
         )
         app_instance.state.user_stream_pump_task = pump_task
 
@@ -358,7 +363,9 @@ def create_app(
             ),
             lock=gateway_lock,
         )
-        gateway_control = GatewayControl(sessions=gateway_sessions, lock=gateway_lock)
+        gateway_control = GatewayControl(
+            sessions=gateway_sessions, lock=gateway_lock, messages=message_repository
+        )
         gateway_channel_control = GatewayChannelControl(
             sessions=gateway_sessions,
             channel_control_store=app_instance.state.channel_control_store,
@@ -443,15 +450,13 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.mount(
-        "/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads"
-    )
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)
     app.include_router(agent_work_router)
     app.include_router(agent_channels_router)
     app.include_router(web_im_router)
+    app.include_router(conversation_commands_router)
     app.include_router(message_router)
     app.include_router(message_image_router)
     app.include_router(nodes_router)

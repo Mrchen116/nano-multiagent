@@ -22,12 +22,57 @@ def _conversation(client, user):
     response = client.post(
         "/im/v1/conversations",
         json={
+            "type": "group",
             "title": "Images",
             "participant_ids": [user.id],
         },
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def test_regular_uploads_follow_membership_and_cannot_grant_access_by_url(
+    tmp_path: Path,
+):
+    """Ordinary files share the conversation boundary, including later messages."""
+    with make_app_client(tmp_path) as client:
+        alice = register_and_authorize(client)
+        bob = register_user(client, username="member-bob")
+        outsider = register_user(client, username="outsider")
+        created = client.post(
+            "/im/v1/conversations",
+            json={
+                "type": "group",
+                "title": "Shared",
+                "participant_ids": [alice.id, bob.id],
+            },
+        )
+        assert created.status_code == 201, created.text
+        cid = created.json()["id"]
+        upload = client.post(
+            "/im/v1/uploads",
+            params={"conversation_id": cid, "file_name": "notes.txt"},
+            content=b"private team notes",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert upload.status_code == 201, upload.text
+        attachment = upload.json()
+        assert attachment["url"].startswith(f"/im/v1/conversations/{cid}/attachments/")
+        authorize(client, bob)
+        assert client.get(attachment["url"]).content == b"private team notes"
+        authorize(client, outsider)
+        assert client.get(attachment["url"]).status_code == 404
+        own = _conversation(client, outsider)
+        copied = client.post(
+            f"/im/v1/conversations/{own}/messages",
+            json={
+                "sender": {"type": "user", "id": outsider.id},
+                "content": "copied",
+                "attachments": [attachment],
+            },
+        )
+        assert copied.status_code == 404
+        assert client.get("/im/uploads/anything.txt").status_code == 404
 
 
 def _upload(client, conversation_id, *, data=PNG, key="output:0", mime="image/png"):
@@ -148,6 +193,7 @@ def test_fork_rebinds_image_urls_and_source_deletion_keeps_snapshot(
         response = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "Writer",
                 "participant_ids": [f"user:{user.id}", "agent:writer"],
             },

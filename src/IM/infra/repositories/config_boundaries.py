@@ -52,8 +52,6 @@ class AgentConfigBoundaryRepository:
         ).fetchone()
         if conversation is None:
             raise ValueError("conversation_id not found")
-        if owner_id and str(conversation["owner_id"]) != owner_id:
-            raise ValueError("conversation is outside gateway owner scope")
         anchor = self._connection.execute(
             "SELECT conversation_id FROM messages WHERE id = ?", (before_message_id,)
         ).fetchone()
@@ -61,7 +59,7 @@ class AgentConfigBoundaryRepository:
             raise ValueError("before_message_id is not in conversation")
         agent = self._connection.execute(
             """
-            SELECT agent_profiles.node_id
+            SELECT agent_profiles.node_id, agent_profiles.owner_id
             FROM conversation_participants
             JOIN users ON users.id = conversation_participants.user_id
             JOIN agent_profiles ON agent_profiles.agent_id = substr(users.username, 7)
@@ -74,6 +72,8 @@ class AgentConfigBoundaryRepository:
             raise ValueError("agent_id is not a conversation participant")
         if str(agent["node_id"] or "") != node_id:
             raise ValueError("agent_id is not hosted by gateway node")
+        if owner_id and str(agent["owner_id"]) != owner_id:
+            raise ValueError("agent_id is outside gateway owner scope")
         return self._record(
             boundary_id=boundary_id,
             conversation_id=conversation_id,

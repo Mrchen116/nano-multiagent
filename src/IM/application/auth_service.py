@@ -112,6 +112,10 @@ class AuthService:
         """
         if not username.strip():
             raise RegistrationError("username must be non-empty")
+        if username.strip() == "system" or username.strip().startswith(
+            ("agent:", "shadow:")
+        ):
+            raise RegistrationError("username uses a reserved runtime identity")
         if not display_name.strip():
             raise RegistrationError("display_name must be non-empty")
         if len(password) < _PASSWORD_MIN_LENGTH:

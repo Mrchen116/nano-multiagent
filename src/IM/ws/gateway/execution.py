@@ -57,6 +57,45 @@ class GatewayExecution:
         """Report whether this runtime can create browser-visible instant messages."""
         return self._event_bridge is not None
 
+    def authorize_streaming_payload(self, payload: dict[str, object]) -> None:
+        """Limit a registered node to its actual Agent messages and memberships."""
+        if self._conversation_persistence is None or self._message_repository is None:
+            raise ValueError("streaming persistence is unavailable")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if payload.get("kind") == "turn_start":
+            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+            if (
+                self._conversation_persistence.agent_node_id(agent_id=agent_id)
+                != node_id
+            ):
+                raise ValueError("source agent does not belong to authenticated node")
+            actual_user = self._conversation_persistence.agent_user_id(
+                agent_id=agent_id
+            )
+            if payload.get("agent_user_id") not in (None, actual_user):
+                raise ValueError("agent_user_id does not match source Agent")
+            if payload.get("conversation_id") is None:
+                return
+            conversation_id = _require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            )
+        else:
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
+            message = self._message_repository.get_message(message_id=message_id)
+            if (
+                message is None
+                or message.sender is None
+                or message.sender.type != "agent"
+            ):
+                raise ValueError("streaming message must belong to an Agent")
+            conversation_id = message.conversation_id
+            agent_id = message.sender.id
+        self._conversation_persistence.resolve_system_notice_source_display_name(
+            conversation_id=conversation_id, source_agent_id=agent_id, node_id=node_id
+        )
+
     def emit_instant_message(self, **kwargs: object):
         """Persist and notify a completed background notification through EventBridge."""
         if self._event_bridge is None:
@@ -409,9 +448,10 @@ class GatewayExecution:
             permission_request = event.permission_request
             if not isinstance(permission_request, dict):
                 raise ValueError("permission_request must be a dict")
+            target = self._permission_target(payload)
             self._event_bridge.on_permission_request(
                 message_id=message_id,
-                permission_request=permission_request,
+                permission_request={**permission_request, **target},
             )
 
         elif kind == "permission_resolved":
@@ -420,6 +460,25 @@ class GatewayExecution:
             message_id = _require_text(event.message_id, field_name="message_id")
             request_id = _require_text(event.request_id, field_name="request_id")
             decision = _require_text(event.decision, field_name="decision")
+            target = self._permission_target(payload)
+            message = self._message_repository.get_message(message_id=message_id)
+            pending = next(
+                (
+                    item
+                    for item in message.permission_requests
+                    if item.get("request_id") == request_id
+                ),
+                None,
+            )
+            if pending is None or any(
+                pending.get(key) != value for key, value in target.items()
+            ):
+                raise ValueError("permission result does not match original execution")
+            if (
+                pending.get("status") in {"submitted", "resolved"}
+                and pending.get("decision") != decision
+            ):
+                raise ValueError("permission result changed the submitted decision")
             self._event_bridge.on_permission_resolved(
                 message_id=message_id,
                 request_id=request_id,
@@ -435,6 +494,35 @@ class GatewayExecution:
         return {
             "type": "ack",
             "payload": {"message_type": "node.streaming_delta", "kind": kind},
+        }
+
+    def _permission_target(self, payload: dict[str, object]) -> dict[str, str]:
+        """Bind one card to the message's actual Agent on this registered node."""
+        if self._message_repository is None or self._conversation_persistence is None:
+            raise ValueError("permission persistence is unavailable")
+        message_id = _require_text(payload.get("message_id"), field_name="message_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        run_id = _require_text(payload.get("run_id"), field_name="run_id")
+        message = self._message_repository.get_message(message_id=message_id)
+        if message is None or message.sender is None or message.sender.type != "agent":
+            raise ValueError("permission message must belong to an Agent")
+        agent_id = message.sender.id
+        self._conversation_persistence.resolve_system_notice_source_display_name(
+            conversation_id=message.conversation_id,
+            source_agent_id=agent_id,
+            node_id=node_id,
+        )
+        if (
+            self._conversation_persistence.agent_work_mode(agent_id=agent_id)
+            != "single_thread"
+        ):
+            raise ValueError("global Agent does not expose chat permission cards")
+        return {
+            "conversation_id": message.conversation_id,
+            "message_id": message_id,
+            "agent_id": agent_id,
+            "node_id": node_id,
+            "run_id": run_id,
         }
 
     def _persist_report_event(self, *, payload: dict[str, object]) -> None:

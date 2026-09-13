@@ -98,6 +98,20 @@ class GatewayNodePersistence:
         self._profiles = AgentProfileRepository(connection)
         self._users = UserRepository(connection)
 
+    def validate_agent_bindings(
+        self, *, node_id: str, owner_id: str, agent_ids: list[str]
+    ) -> None:
+        """Reject advertisements that would reassign an existing Agent identity."""
+        for agent_id in agent_ids:
+            profile = self._profiles.get_profile(agent_id=agent_id)
+            if profile is not None and (
+                (profile.node_id and profile.node_id != node_id)
+                or (profile.owner_id and profile.owner_id != owner_id)
+            ):
+                raise ValueError(
+                    f"Agent {agent_id} is already bound to another node or owner"
+                )
+
     def owner_for_node(self, *, node_id: str) -> str:
         """Return the durable owner scope for a node, or an empty owner pre-bind."""
         node = self._nodes.get_node(node_id=node_id)
@@ -109,6 +123,7 @@ class GatewayNodePersistence:
         node_id: str,
         node_name: str,
         version: str,
+        owner_id: str = "",
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
         agent_work_modes: dict[str, str] | None = None,
@@ -174,10 +189,10 @@ class GatewayNodePersistence:
         create_operations = agent_create_operations or {}
         for agent_id in agent_ids:
             existing = self._profiles.get_profile(agent_id=agent_id)
-            owner_id = (
+            profile_owner_id = (
                 existing.owner_id
                 if existing is not None and existing.owner_id.strip()
-                else (node.owner_id or "")
+                else (node.owner_id or owner_id)
             )
             if existing is None:
                 display_name = agent_id
@@ -215,7 +230,7 @@ class GatewayNodePersistence:
                 )
             self._profiles.upsert_profile(
                 agent_id=agent_id,
-                owner_id=owner_id,
+                owner_id=profile_owner_id,
                 display_name=display_name,
                 description=description,
                 skills=skills,

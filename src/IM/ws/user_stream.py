@@ -124,7 +124,13 @@ class UserStreamRegistry:
         """
         await self.broadcast_to_users((user_id,), text)
 
-    async def broadcast_to_users(self, user_ids: Iterable[str], text: str) -> None:
+    async def broadcast_to_users(
+        self,
+        user_ids: Iterable[str],
+        text: str,
+        *,
+        recipient_check: Callable[[str], bool] | None = None,
+    ) -> None:
         """向给定用户下的所有连接发送同一文本帧（忽略已断开）。"""
         id_set = frozenset(user_ids)
         if not id_set:
@@ -146,6 +152,8 @@ class UserStreamRegistry:
                         targets.append((uid, ws))
             dead: list[tuple[str, WebSocket]] = []
             for uid, ws in targets:
+                if recipient_check is not None and not recipient_check(uid):
+                    continue
                 try:
                     await ws.send_text(text)
                     if event_id is not None:
@@ -253,11 +261,19 @@ async def pump_user_stream_outbound(
     *,
     registry: UserStreamRegistry,
     outbound_queue: asyncio.Queue[tuple[frozenset[str], str]],
+    event_repository: EventRepository,
 ) -> None:
     """后台任务：从队列取出并广播到用户连接。"""
     while True:
         user_ids, text = await outbound_queue.get()
-        await registry.broadcast_to_users(user_ids, text)
+        conversation_id = json.loads(text)["conversation_id"]
+        await registry.broadcast_to_users(
+            user_ids,
+            text,
+            recipient_check=lambda uid: (
+                uid in event_repository.recipient_user_ids(conversation_id)
+            ),
+        )
 
 
 async def serve_user_websocket(
@@ -297,7 +313,10 @@ async def serve_user_websocket(
             if not outcome.events:
                 return
             for event in outcome.events:
-                await websocket.send_text(encode_user_stream_event_frame(event))
+                if user_id in event_repository.recipient_user_ids(
+                    event.conversation_id
+                ):
+                    await websocket.send_text(encode_user_stream_event_frame(event))
             next_after = outcome.events[-1].event_id
             if len(outcome.events) < REPLAY_MAX_BATCH:
                 return
