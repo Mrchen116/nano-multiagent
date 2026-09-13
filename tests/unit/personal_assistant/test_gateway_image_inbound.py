@@ -69,7 +69,7 @@ def _image_inbound() -> InboundMessage:
 def test_inbound_downloads_attachment_before_kernel_submit(tmp_path: Path) -> None:
     """The pipeline connects resolver output to the Kernel image part."""
 
-    async def _fetcher(url: str) -> bytes:
+    async def _fetcher(url: str, agent_id: str) -> bytes:
         assert url == "http://im.local/im/uploads/a.png"
         return _PNG_BYTES
 
@@ -212,7 +212,7 @@ def test_image_failure_stops_submit_and_replies_with_actionable_message(
     failure: str,
     expected_message: str,
 ) -> None:
-    async def _fetcher(_url: str) -> bytes:
+    async def _fetcher(_url: str, agent_id: str) -> bytes:
         if failure == "download":
             raise RuntimeError("404 not found")
         if failure == "oversize":
@@ -229,7 +229,7 @@ def test_image_failure_stops_submit_and_replies_with_actionable_message(
 def test_corrupt_image_does_not_poison_following_text_turn(tmp_path: Path) -> None:
     """Rejecting corrupt bytes leaves the same conversation usable next turn."""
 
-    async def _fetcher(_url: str) -> bytes:
+    async def _fetcher(_url: str, agent_id: str) -> bytes:
         return b"\x89PNG\r\n\x1a\n" + b"not a valid png body random ascii"
 
     pipeline, kernel, _ = _make_pipeline(tmp_path, fetcher=_fetcher)

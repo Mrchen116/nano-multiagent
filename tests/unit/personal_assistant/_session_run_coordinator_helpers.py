@@ -433,7 +433,7 @@ class CountingImageResolver:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def resolve(self, attachments: object) -> ImageResolution:
+    async def resolve(self, attachments: object, *, agent_id: str) -> ImageResolution:
         del attachments
         self.calls += 1
         return ImageResolution(parts=())

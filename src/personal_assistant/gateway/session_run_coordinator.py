@@ -2052,7 +2052,9 @@ class SessionRunCoordinator:
             if is_current_message or (
                 isinstance(raw_attachments, list) and raw_attachments
             ):
-                resolution = await self._image_resolver.resolve(raw_attachments)
+                resolution = await self._image_resolver.resolve(
+                    raw_attachments, agent_id=request.agent.agent_id
+                )
                 if resolution.failure is not None:
                     return _empty_message_parts_projection(), resolution.failure
                 image_parts = resolution.parts

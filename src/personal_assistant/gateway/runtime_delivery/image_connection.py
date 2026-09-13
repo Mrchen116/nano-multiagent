@@ -112,7 +112,9 @@ class ImageReplyConnection:
                         )
                         try:
                             outgoing["final_content"] = await self._images.project_im(
-                                prepared, context.conversation_id
+                                prepared,
+                                context.conversation_id,
+                                agent_id=context.agent_id,
                             )
                         except httpx.HTTPError:
                             # Native IM has no new crash outbox. A failed resource

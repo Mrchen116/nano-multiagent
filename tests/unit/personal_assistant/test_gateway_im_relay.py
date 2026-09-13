@@ -70,6 +70,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
+        gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="stale-config-user",
         node_id="node-a",
         transport=httpx.MockTransport(handler),
@@ -102,6 +103,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     corrected_config_client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
+        gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="actual-user",
         node_id="node-a",
         transport=httpx.MockTransport(handler),
@@ -162,6 +164,7 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
     client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
+        gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="stale-config-user",
         node_id="node-a",
         transport=httpx.MockTransport(handler),
@@ -224,6 +227,7 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
     client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("bob-token"),
+        gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="alice-user",
         node_id="alice-node",
         transport=httpx.MockTransport(handler),

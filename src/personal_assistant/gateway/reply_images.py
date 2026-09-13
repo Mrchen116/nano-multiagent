@@ -316,16 +316,24 @@ class ReplyImages:
             )
         return tuple(result)
 
-    async def project_im(self, prepared: PreparedReply, conversation_id: str) -> str:
-        """Upload absent conversation resources and return durable private URLs."""
+    async def project_im(
+        self, prepared: PreparedReply, conversation_id: str, *, agent_id: str
+    ) -> str:
+        """Upload absent conversation resources and return durable private URLs.
+
+        Args:
+            prepared: Immutable source snapshots for this reply.
+            conversation_id: Target chat to associate with the resources.
+            agent_id: Executing Agent used for this node's resource authorization.
+
+        Returns:
+            Reply Markdown containing protected resource URLs or image failures.
+        """
 
         reply = self.load(prepared.output_key) or prepared
         if not reply.images:
             return reply.markdown_template
         replacements: dict[int, str] = {}
-        token = self._token_getter() if self._token_getter else None
-        if inspect.isawaitable(token):
-            token = await token
         async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
             for item in reply.images:
                 if item.status != "ready":
@@ -336,13 +344,20 @@ class ReplyImages:
                 url = item.im_receipts.get(conversation_id)
                 if not url:
                     try:
+                        token = self._token_getter() if self._token_getter else None
+                        if inspect.isawaitable(token):
+                            token = await token
+                        if not token:
+                            raise httpx.ConnectError(
+                                "IM image upload requires a registered Gateway connection"
+                            )
                         data = await asyncio.to_thread(self.image_bytes, item)
                         response = await client.post(
                             f"{self._im_base_url}/im/v1/conversations/{quote(conversation_id, safe='')}/images",
-                            params={"file_name": item.file_name},
+                            params={"file_name": item.file_name, "agent_id": agent_id},
                             content=data,
                             headers={
-                                "Authorization": f"Bearer {token or ''}",
+                                "Authorization": f"Bearer {token}",
                                 "Content-Type": item.content_type,
                                 "Idempotency-Key": f"{reply.output_key}:{item.ordinal}",
                             },

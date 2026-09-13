@@ -602,7 +602,7 @@ class _GatedImageResolver:
         self.release = tuple(asyncio.Event() for _ in range(count))
         self._calls = 0
 
-    async def resolve(self, attachments: object) -> ImageResolution:
+    async def resolve(self, attachments: object, *, agent_id: str) -> ImageResolution:
         del attachments
         index = self._calls
         self._calls += 1

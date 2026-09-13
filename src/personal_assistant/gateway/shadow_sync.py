@@ -58,6 +58,7 @@ class IMShadowConversationSync:
         *,
         base_url: str,
         token_getter: Callable[[], Awaitable[str | None]],
+        gateway_token_getter: Callable[[], Awaitable[str | None]],
         owner_user_id: str,
         node_id: str = "",
         timeout_seconds: float = 3.0,
@@ -74,6 +75,7 @@ class IMShadowConversationSync:
     ) -> None:
         self._base_url = normalize_im_http_base_url(base_url)
         self._token_getter = token_getter
+        self._gateway_token_getter = gateway_token_getter
         self._owner_user_id = owner_user_id.strip()
         self._node_id = node_id.strip()
         self._timeout_seconds = timeout_seconds
@@ -178,6 +180,14 @@ class IMShadowConversationSync:
                         owner_user_id,
                         saga.saga_id,
                     )
+            gateway_token = await self._require_gateway_token()
+            async with httpx.AsyncClient(
+                base_url=self._base_url,
+                headers=build_im_http_headers(gateway_token),
+                timeout=self._timeout_seconds,
+                trust_env=False,
+                transport=self._transport,
+            ) as client:
                 conversation_response = await client.post(
                     "/im/v1/conversations/external/find-or-create",
                     json={
@@ -204,6 +214,7 @@ class IMShadowConversationSync:
                     raise ValueError("external shadow conversation response missing id")
                 message_response = await client.post(
                     f"/im/v1/conversations/{conversation_id}/messages",
+                    params={"agent_id": agent_id},
                     headers=_shadow_message_headers(
                         message,
                         saga_user_idempotency_key=(
@@ -335,7 +346,7 @@ class IMShadowConversationSync:
             output_key=snapshot.output_key,
             content=snapshot.content,
         )
-        token = await self._token_getter()
+        token = await self._require_gateway_token()
         token_usage = snapshot.token_usage
         token_payload = None
         if token_usage is not None:
@@ -367,6 +378,7 @@ class IMShadowConversationSync:
                 response = await client.put(
                     f"/im/v1/conversations/{shadow_ref.conversation_id}/external-agent-messages/"
                     f"{snapshot.shadow_message_id}",
+                    params={"agent_id": saga.agent_id},
                     json={
                         "agent_id": saga.agent_id,
                         "content": content,
@@ -447,7 +459,7 @@ class IMShadowConversationSync:
             output_key=output.output_key,
             content=output.content,
         )
-        token = await self._token_getter()
+        token = await self._require_gateway_token()
         async with httpx.AsyncClient(
             base_url=self._base_url,
             headers=build_im_http_headers(token),
@@ -464,6 +476,7 @@ class IMShadowConversationSync:
             try:
                 response = await client.post(
                     f"/im/v1/conversations/{shadow_ref.conversation_id}/messages",
+                    params={"agent_id": saga.agent_id},
                     headers={"Idempotency-Key": output.caller_idempotency_key},
                     json={
                         "sender": {"type": "agent", "id": saga.agent_id},
@@ -505,7 +518,9 @@ class IMShadowConversationSync:
                 content,
             )
         assert saga.shadow_ref is not None
-        return await images.project_im(prepared, saga.shadow_ref.conversation_id)
+        return await images.project_im(
+            prepared, saga.shadow_ref.conversation_id, agent_id=saga.agent_id
+        )
 
     def _promote_boundary(
         self, *, saga_id: str, shadow_ref: ShadowConversationRef
@@ -587,6 +602,14 @@ class IMShadowConversationSync:
             return
         except Exception:
             logging.getLogger(__name__).exception("external shadow recovery failed")
+
+    async def _require_gateway_token(self) -> str:
+        token = await self._gateway_token_getter()
+        if not token:
+            raise ConnectionError(
+                "IM shadow data requires a registered Gateway connection"
+            )
+        return token
 
     async def _resolve_owner_identity(
         self, client: httpx.AsyncClient, *, token: str | None

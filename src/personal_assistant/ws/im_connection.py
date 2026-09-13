@@ -364,6 +364,7 @@ class IMConnectionManager:
         self._external_shadow_run_ids: set[str] = set()
         self._wire_frame_owner: WireFrameOwner | None = None
         self._registered = False
+        self._gateway_access_token: str | None = None
         self._connection_epoch = 0
         self._registration_deadline: float | None = None
         self._outbound_drained: asyncio.Event | None = None
@@ -388,6 +389,12 @@ class IMConnectionManager:
         """Report whether the IM websocket is currently connected."""
 
         return self._connected
+
+    @property
+    def gateway_access_token(self) -> str | None:
+        """Return the current registered connection credential, never the owner JWT."""
+
+        return self._gateway_access_token
 
     @property
     def _awaiting_ack_type(self) -> str | None:
@@ -475,6 +482,7 @@ class IMConnectionManager:
         self._websocket = None
         self._connected = False
         self._registered = False
+        self._gateway_access_token = None
         self._registration_deadline = None
         if websocket is not None:
             await websocket.close()
@@ -924,6 +932,10 @@ class IMConnectionManager:
         if message_type == "ack":
             released = self._ack_pending_frame(body)
             if released is not None and released.message_type == "node.register":
+                token = body.get("gateway_access_token")
+                self._gateway_access_token = (
+                    token if isinstance(token, str) and token else None
+                )
                 self._registered = True
                 self._registration_deadline = None
                 self._reconnect_delay = self._config.reconnect_initial_seconds
@@ -1865,6 +1877,7 @@ class IMConnectionManager:
         self._connected = False
         self._websocket = None
         self._registered = False
+        self._gateway_access_token = None
         self._connection_epoch += 1
         self._registration_deadline = None
         self._wire_frame_owner = None

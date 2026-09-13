@@ -78,6 +78,7 @@ def _build_sync(
     return IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token_getter,
+        gateway_token_getter=token_getter,
         owner_user_id="owner-a",
         node_id="node-a",
         transport=httpx.MockTransport(handler),
@@ -380,6 +381,7 @@ def test_im_unavailable_after_saga_preparation_preserves_external_source_fact(
     sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token_getter,
+        gateway_token_getter=token_getter,
         owner_user_id="owner-a",
         transport=httpx.MockTransport(unavailable),
         saga_store=saga_store,
@@ -403,6 +405,7 @@ def test_token_refresh_failure_happens_after_durable_saga_preparation(
     sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token_getter,
+        gateway_token_getter=token_getter,
         owner_user_id="owner-a",
         saga_store=saga_store,
     )

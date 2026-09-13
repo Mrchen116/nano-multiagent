@@ -334,8 +334,8 @@ class GlobalInboxService:
     Args:
         store: This Gateway's shared persistent store.
         conversation_reader: Authorized IM query callback; None uses received cache.
-        image_materializer: Existing approved attachment resolver. Receives the original
-            image descriptor and returns actual SDK image content, or None to retry later.
+        image_materializer: Attachment resolver receiving the executing Agent identity
+            and original image descriptor. Returns SDK image content, or None to retry.
     """
 
     def __init__(
@@ -347,7 +347,7 @@ class GlobalInboxService:
         ]
         | None = None,
         image_materializer: Callable[
-            [Mapping[str, Any]], Awaitable[Mapping[str, Any] | None]
+            [str, Mapping[str, Any]], Awaitable[Mapping[str, Any] | None]
         ]
         | None = None,
     ) -> None:
@@ -592,7 +592,7 @@ class GlobalInboxService:
                         else native_args,
                     )
                     if not local_cursor:
-                        return await self._materialize_history_page(page)
+                        return await self._materialize_history_page(agent_id, page)
                 except (ConnectionError, TimeoutError):
                     if args.get("cursor") and not local_cursor:
                         raise
@@ -961,12 +961,14 @@ class GlobalInboxService:
         )
 
     async def _materialize_image(
-        self, block: Mapping[str, Any]
+        self, agent_id: str, block: Mapping[str, Any]
     ) -> dict[str, Any] | None:
         if self._image_materializer is None or not self._has_image_locator(block):
             return None
         try:
-            resolved = await self._image_materializer(json.loads(_json(block)))
+            resolved = await self._image_materializer(
+                agent_id, json.loads(_json(block))
+            )
         except Exception:
             # A failed fetch cannot turn an unread image into a consumed placeholder.
             return None
@@ -989,7 +991,7 @@ class GlobalInboxService:
                     or (block.get("source") or {}).get("type") == "base64"
                 ):
                     continue
-                materialized = await self._materialize_image(block)
+                materialized = await self._materialize_image(agent, block)
                 if materialized is None:
                     continue
                 with self.store._lock, self.store._db:
@@ -1021,7 +1023,7 @@ class GlobalInboxService:
                     )
 
     async def _materialize_history_page(
-        self, page: Mapping[str, Any]
+        self, agent_id: str, page: Mapping[str, Any]
     ) -> dict[str, Any]:
         result = json.loads(_json(page))
         errors = list(result.get("errors", []))
@@ -1034,7 +1036,7 @@ class GlobalInboxService:
                 ):
                     content.append(block)
                     continue
-                resolved = await self._materialize_image(block)
+                resolved = await self._materialize_image(agent_id, block)
                 if resolved is not None:
                     content.append(resolved)
                 else:

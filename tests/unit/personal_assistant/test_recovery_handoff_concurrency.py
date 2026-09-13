@@ -24,7 +24,7 @@ class _BlockingImageResolver:
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def resolve(self, attachments: object) -> ImageResolution:
+    async def resolve(self, attachments: object, *, agent_id: str) -> ImageResolution:
         del attachments
         if self.block:
             self.entered.set()

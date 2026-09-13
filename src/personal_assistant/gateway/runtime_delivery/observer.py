@@ -933,7 +933,11 @@ def build_kernel_event_observer(
                 handled=True, result=_close_before_pending_shadow_anchor()
             )
 
-        if not im_connected and not has_external_context:
+        if (
+            not im_connected
+            and not has_external_context
+            and not (event_name == "permission_resolved" and manager is not None)
+        ):
             return _PreparedEvent(handled=True, result=None)
         if not im_connected:
             if event_name == "assistant_message":
@@ -1925,7 +1929,7 @@ def build_kernel_event_observer(
             # so the user sees the final decision.
             request_id = str(event.get("request_id") or "").strip()
             decision = str(event.get("decision") or "").strip()
-            if message_id and im_connected and manager is not None:
+            if message_id and manager is not None:
                 task_tracker.start(
                     _send(
                         manager,

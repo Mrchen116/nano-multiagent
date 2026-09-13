@@ -38,7 +38,8 @@ class Images(ReplyImages):
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def project_im(self, reply, conversation_id):
+    async def project_im(self, reply, conversation_id, *, agent_id):
+        assert agent_id == "agent"
         self.entered.set()
         await self.release.wait()
         assert conversation_id == "conversation"

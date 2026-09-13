@@ -195,6 +195,8 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
         if request.url.path.endswith("/images"):
             assert request.content == b"\x89PNG\r\n\x1a\noriginal"
             assert request.headers["Idempotency-Key"] == f"{key}:0"
+            assert request.url.params["agent_id"] == "agent"
+            assert request.headers["Authorization"] == "Bearer token"
             actions.append("upload")
             if fail[0]:
                 return httpx.Response(503)
@@ -233,6 +235,7 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
     sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token,
+        gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=reopened,
         reply_images=images,
@@ -254,6 +257,7 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
     restarted = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token,
+        gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=ExternalShadowSagaStore(db_path=tmp_path / "sagas.db"),
         reply_images=images,

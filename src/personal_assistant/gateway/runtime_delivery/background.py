@@ -353,7 +353,7 @@ def build_workflow_permission_delivery(
         if event_name != "permission_resolved":
             return
         decision = str(event.get("decision") or "").strip()
-        if manager is not None and manager.connected and anchor.message_id:
+        if manager is not None and anchor.message_id:
             await manager.send_json(
                 "node.streaming_delta",
                 {
