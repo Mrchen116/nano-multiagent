@@ -23,7 +23,6 @@ export async function listConversations(): Promise<Conversation[]> {
 export interface ListMessagesOptions {
   limit?: number;
   beforeMessageId?: string;
-  markAsRead?: boolean;
 }
 
 export interface ListMessagesResult {
@@ -38,20 +37,9 @@ export async function listMessages(
   const params = new URLSearchParams();
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.beforeMessageId) params.set("before_message_id", opts.beforeMessageId);
-  if (opts.markAsRead) params.set("mark_as_read", "true");
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
-  const response = await authFetchJson<{ items: Array<TimelineItem | Message>; next_before_message_id: string | null }>(
-    url,
-    undefined,
-    "listMessages"
-  );
-  // During rolling deploys a stale IM can still return the former bare-message
-  // page. Normalize at the API seam so the workspace remains a typed consumer.
-  return {
-    ...response,
-    items: response.items.map((item) => "type" in item ? item : { type: "message", message: item })
-  };
+  return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
 }
 
 export interface CreateMessageRequest {
@@ -82,19 +70,19 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
 
 export interface CreateConversationRequest {
   title: string;
-  /** Agent IDs to include alongside the current user. */
-  agentIds: string[];
+  type: "direct" | "group";
+  participants: Actor[];
 }
 
 export async function createConversation(req: CreateConversationRequest): Promise<Conversation> {
   const self = requireSelfUser();
   const participants: Actor[] = [
     { type: "user", id: self.id },
-    ...req.agentIds.map((id): Actor => ({ type: "agent", id }))
+    ...req.participants.filter((actor) => !(actor.type === "user" && actor.id === self.id))
   ];
   return authFetchJson<Conversation>(
     "/im/v1/conversations",
-    { method: "POST", body: JSON.stringify({ title: req.title, participants }) },
+    { method: "POST", body: JSON.stringify({ title: req.title, type: req.type, participants }) },
     "createConversation"
   );
 }
@@ -152,7 +140,7 @@ export async function forkConversation(
 /** Update mutable conversation metadata (currently just the group title). */
 export async function updateConversation(
   conversationId: string,
-  patch: { title: string }
+  patch: { title?: string; is_pinned?: boolean; is_muted?: boolean }
 ): Promise<Conversation> {
   return authFetchJson<Conversation>(
     `/im/v1/conversations/${encodeURIComponent(conversationId)}`,
@@ -164,9 +152,8 @@ export async function updateConversation(
 /** Add agent participants to an existing group; returns the refreshed snapshot. */
 export async function addParticipants(
   conversationId: string,
-  agentIds: string[]
+  participants: Actor[]
 ): Promise<Conversation> {
-  const participants: Actor[] = agentIds.map((id): Actor => ({ type: "agent", id }));
   return authFetchJson<Conversation>(
     `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants`,
     { method: "POST", body: JSON.stringify({ participants }) },
@@ -212,4 +199,22 @@ export interface AgentRow {
   description?: string;
   /** IM user UUID for ``agent:<agent_id>`` — used to map WS sender_user_id → display_name. */
   user_id?: string | null;
+}
+
+/** Advance this person's read boundary only through a message actually displayed. */
+export async function markConversationRead(conversationId: string, messageId: string): Promise<Conversation> {
+  return authFetchJson<Conversation>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/read`, {
+    method: "POST", body: JSON.stringify({ last_read_message_id: messageId })
+  }, "markConversationRead");
+}
+
+export interface ConversationCommands {
+  agent_id: string;
+  display_name: string;
+  status: string;
+  skills: { skill_key: string; name: string; description: string }[];
+  commands: { name: string; description: string }[];
+}
+export async function getConversationCommands(conversationId: string): Promise<ConversationCommands[]> {
+  return (await authFetchJson<{items: ConversationCommands[]}>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/commands`)).items;
 }

@@ -22,8 +22,8 @@ export class AttachmentUploadError extends Error {
   }
 }
 
-export async function uploadOneAttachment(file: File): Promise<Attachment> {
-  const qs = new URLSearchParams({ file_name: file.name }).toString();
+export async function uploadOneAttachment(file: File, conversationId: string): Promise<Attachment> {
+  const qs = new URLSearchParams({ file_name: file.name, conversation_id: conversationId }).toString();
   const res = await authFetch(`/im/v1/uploads?${qs}`, {
     method: "POST",
     body: file,

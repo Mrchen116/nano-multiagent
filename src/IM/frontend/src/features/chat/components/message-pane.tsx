@@ -11,6 +11,7 @@ import React, {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
+import { Link } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -25,6 +26,8 @@ import {
   type ContextMenuContextFacts,
   type RecentPointerRecord
 } from "./message-content-policy";
+import { AttachmentLink } from "../attachments/attachment-link";
+import { protectedResourceUrl } from "./message-image";
 import { AttachmentChip } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
 import { uploadOneAttachment } from "../attachments/use-attachment-upload";
@@ -124,6 +127,11 @@ export interface MessagePaneProps {
   onLoadOlder?(): void;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
+  onReadMessage?(messageId: string): void;
+  configLabel?: string;
+  onPreferenceChange?(patch: { is_pinned?: boolean; is_muted?: boolean }): Promise<unknown>;
+  globalAgentIds?: string[];
+  agentNodeNames?: Record<string, string>;
   /** Reports each rejected attachment to the page-level error owner. */
   onAttachmentUploadError?(error: unknown): void;
   /**
@@ -219,7 +227,12 @@ export function MessagePane({
   hasMoreHistory = null,
   isLoadingHistory = false,
   onLoadOlder,
-  uploadAttachment = uploadOneAttachment,
+  uploadAttachment,
+  onReadMessage,
+  configLabel,
+  onPreferenceChange,
+  globalAgentIds = [],
+  agentNodeNames = {},
   onAttachmentUploadError,
   onDraftSeedConsumed,
   composerStore
@@ -266,6 +279,7 @@ export function MessagePane({
   const skipNextMessageAutoScrollRef = useRef(false);
   const lastMessageIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
+  const lastReadRef = useRef<string | null>(null);
   const forceScrollToBottomRef = useRef(false);
   const sendInFlightRef = useRef(false);
   const composerBusy = Boolean(
@@ -694,7 +708,7 @@ export function MessagePane({
       try {
         // Sequential uploads keep the chip ordering deterministic and avoid
         // bursting `/im/v1/uploads` with N parallel large bodies.
-        const att = await uploadAttachment(file);
+        const att = await (uploadAttachment ? uploadAttachment(file) : uploadOneAttachment(file, conversation.id));
         const base = displayedConversationIdRef.current === sourceConversationId
           ? liveComposerRef.current
           : (composerSnapshots.get(sourceConversationId) ?? EMPTY_COMPOSER_SNAPSHOT);
@@ -780,13 +794,23 @@ export function MessagePane({
     nearBottomRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= NEAR_BOTTOM_PX;
   }
 
+  function reportReadBoundary() {
+    if (document.visibilityState === "hidden" || !nearBottomRef.current) return;
+    const id = [...messages].reverse().find(message => !message.id.includes(":relay:"))?.id;
+    if (!id || id === lastReadRef.current) return;
+    lastReadRef.current = id;
+    onReadMessage?.(id);
+  }
+
   function handleMessagesScroll() {
     updateNearBottom();
     maybeLoadOlderFromScroll();
+    reportReadBoundary();
   }
 
   useEffect(() => {
     lastMessageIdRef.current = null;
+    lastReadRef.current = null;
     nearBottomRef.current = true;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
@@ -825,9 +849,15 @@ export function MessagePane({
     if (shouldFollowBottom) {
       el.scrollTop = el.scrollHeight;
       updateNearBottom();
+      reportReadBoundary();
     }
     forceScrollToBottomRef.current = false;
   }, [messages]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", reportReadBoundary);
+    return () => document.removeEventListener("visibilitychange", reportReadBoundary);
+  }, [messages, onReadMessage]);
 
   useLayoutEffect(() => {
     if (isLoadingHistory && !historyWasLoadingRef.current) {
@@ -908,7 +938,8 @@ export function MessagePane({
         {!isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
-            onRename={onRename} onOpenConfig={onOpenConfig} />
+            onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
+            isPinned={conversation.is_pinned} isMuted={conversation.is_muted} onPreferenceChange={onPreferenceChange} />
         ) : onOpenConfig && (
           <button
             type="button"
@@ -955,6 +986,9 @@ export function MessagePane({
                     availableMessageIds={anchoredMessageIds}
                   key={m.id}
                   message={m}
+                  selfUserId={selfUserId}
+                  workAgentId={globalAgentIds.includes(m.sender.id) ? m.sender.id : undefined}
+                  nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
                   isMobile={isMobile}
                   participants={conversation.participants}
@@ -1370,6 +1404,9 @@ function ContextMenu({
 
 function MessageBubble({
   message,
+  selfUserId,
+  workAgentId,
+  nodeName,
   availableMessageIds,
   conversationId,
   isMobile,
@@ -1383,6 +1420,9 @@ function MessageBubble({
   onSheetRequest,
 }: {
   message: Message;
+  selfUserId?: string | null;
+  workAgentId?: string;
+  nodeName?: string;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
   isMobile?: boolean;
@@ -1413,7 +1453,8 @@ function MessageBubble({
 }) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
-  const isUser = message.sender.type === "user";
+  const isHuman = message.sender.type === "user";
+  const isUser = isHuman && (message.sender.id === selfUserId || message.sender_user_id === selfUserId);
   const isAgent = message.sender.type === "agent";
   const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
   const ts = formatHM(message.created_at);
@@ -1597,6 +1638,7 @@ function MessageBubble({
             <span className="chat-bubble-sender" style={{ color: isAgent && message.sender.display_name ? foregroundForAvatar(senderColor) : senderColor }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
+            {nodeName && <small>{nodeName}</small>}
           </div>
         )}
         <div
@@ -1614,9 +1656,9 @@ function MessageBubble({
           {message.content && (
             <div
               ref={bodyRef}
-              className={`chat-message-body${isUser ? " chat-bubble-content" : ""}`}
+              className={`chat-message-body${isHuman ? " chat-bubble-content" : ""}`}
             >
-              {isUser
+              {isHuman
                 ? renderInlineContent(message.content, participants)
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
@@ -1651,12 +1693,14 @@ function MessageBubble({
               <PermissionCard
                 key={req.request_id}
                 request={req}
+                disabled={!!req.agent_id && !(participants ?? []).some(p => p.type === "agent" && p.id === req.agent_id)}
                 conversationId={message.conversation_id}
                 messageId={message.id}
                 onResolved={() => {/* WS event will update the message status */}}
               />
             ))}
 
+          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work`}>{t("chat.viewWork")} →</Link>}
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
             <div
@@ -1769,6 +1813,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
     a: (props: any) => {
       const { node: _node, children, href, ...rest } = props;
       const label = getReactNodeText(children);
+      if (protectedResourceUrl(href ?? "")) return <AttachmentLink href={href}>{children}</AttachmentLink>;
       const disposition = classifyChatLink(href ?? "", window.location.href);
       if (disposition === "unsupported") {
         return <span className="im-md-link-unsupported">{children}</span>;

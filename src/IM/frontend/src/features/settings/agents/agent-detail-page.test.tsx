@@ -399,14 +399,13 @@ describe("agent detail page", () => {
     expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open chat/i })).toBeInTheDocument();
-    await waitFor(() => expect(apiMocks.listAgentSummariesMock).toHaveBeenCalledTimes(1));
 
     await user.click(screen.getByRole("button", { name: /Open chat/i }));
 
     await waitFor(() => {
       expect(apiMocks.createConversationMock).toHaveBeenCalledWith({
         title: "Core Planner",
-        agentIds: ["agent-core-1"]
+        type: "direct", participants: [{ type: "agent", id: "agent-core-1" }]
       });
     });
     await waitFor(() => {

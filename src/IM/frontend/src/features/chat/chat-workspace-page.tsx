@@ -16,6 +16,8 @@ import {
   forkConversation,
   listConversations,
   listMessages,
+  markConversationRead,
+  getConversationCommands,
   removeParticipant,
   updateConversation,
   type AgentRow
@@ -38,6 +40,7 @@ import {
 import {
   classifyConversationKind,
   type Attachment,
+  type Actor,
   type BackgroundReturn,
   type Conversation,
   type Message,
@@ -49,13 +52,12 @@ import {
   getAgentCapabilities,
   getAgentConfig,
   normalizeAllowlistOptions,
-  type AgentCommandOption,
 } from "../settings/agents/im-agent-config-api";
 import {
   buildSlashCommands,
   buildSlashSkills,
   resolveEnabledSkills,
-  type AgentEnabledSkills,
+
 } from "./components/slash-candidates";
 import { ConversationSidebar } from "./components/conversation-sidebar";
 import { isDistillConversationEligible } from "./components/distill-selection";
@@ -65,6 +67,9 @@ import {
   type GroupSettingsMember
 } from "./components/group-settings";
 import { MessagePane } from "./components/message-pane";
+import { listContacts, contactActor, type Contact } from "./contacts-api";
+import { NewChatModal } from "./components/new-chat-modal";
+import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
 const HISTORY_PAGE_SIZE = 50;
@@ -268,13 +273,8 @@ function mergePermissionRequests(
       byId.set(req.request_id, req);
       continue;
     }
-    if (prev.status === "pending" && req.status === "resolved") {
-      byId.set(req.request_id, req);
-    } else if (prev.status === "resolved" && req.status === "pending") {
-      continue;
-    } else {
-      byId.set(req.request_id, req);
-    }
+    const rank = { pending: 0, submitted: 1, resolved: 2 };
+    if (rank[req.status] >= rank[prev.status]) byId.set(req.request_id, req);
   }
   const order: string[] = [];
   for (const req of server) {
@@ -313,6 +313,8 @@ export function ChatWorkspacePage() {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const [membershipReady, setMembershipReady] = useState(true);
+  const [showNewChat, setShowNewChat] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<ChatWorkspaceError | null>(null);
@@ -333,17 +335,17 @@ export function ChatWorkspacePage() {
     queryKey: ["chat", "conversations"],
     queryFn: listConversations
   });
-  const sidebarConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
+  const localConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
   const activeConversation: Conversation | null = useMemo(() => {
-    if (!conversationId) return null;
+    if (!conversationId || !membershipReady) return null;
     return conversationsQuery.data?.find((c) => c.id === conversationId) ?? null;
-  }, [conversationId, conversationsQuery.data]);
+  }, [conversationId, conversationsQuery.data, membershipReady]);
 
   const messagesQuery = useQuery({
-    enabled: Boolean(conversationId),
+    enabled: Boolean(conversationId && activeConversation),
     queryKey: ["chat", "messages", conversationId],
-    queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, markAsRead: true }),
+    queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE }),
     refetchOnWindowFocus: false
   });
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -366,15 +368,6 @@ export function ChatWorkspacePage() {
     };
   }, []);
 
-  // bugfix-442: 读消息走 markAsRead=true 让后端把该会话 unread_count 清零，但侧边栏
-  // 角标来自独立的 conversations query，不会自动反映。react-query v5 的 useQuery 无
-  // onSuccess，用 effect 监听每次成功取数(dataUpdatedAt 变化)后刷新会话列表。
-  useEffect(() => {
-    if (messagesQuery.isSuccess) {
-      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-    }
-  }, [messagesQuery.isSuccess, messagesQuery.dataUpdatedAt, queryClient]);
-
   const agentsQuery = useQuery({
     queryKey: ["chat", "agents"],
     queryFn: fetchAgents
@@ -385,13 +378,19 @@ export function ChatWorkspacePage() {
     queryFn: fetchNodes
   });
 
+  const contactsQuery = useQuery({ queryKey: ["contacts", selfUserId], queryFn: () => listContacts(), refetchInterval: 3000 });
+  const publicAgents = (contactsQuery.data ?? []).filter(c => c.kind === "agent");
+  const distillAgentIds = new Set(publicAgents.filter(a => a.owner_id === selfUserId && a.work_mode === "single_thread").map(a => a.agent_id));
+  const sidebarConversations = localConversations.map(c => distillAgentIds.has(c.source_agent_id ?? "") ? c : { ...c, source_agent_id: null, source_node_id: null });
+  function canDistillConversation(c: Conversation) { return isDistillConversationEligible(c) && distillAgentIds.has(c.source_agent_id ?? ""); }
+
+
   const sendersById = useMemo(() => {
     const map: Record<string, string | undefined> = {};
-    for (const agent of agentsQuery.data ?? []) {
-      if (agent.user_id) map[agent.user_id] = agent.display_name;
-    }
+    for (const contact of contactsQuery.data ?? []) map[contact.user_id] = contact.display_name;
+    for (const p of activeConversation?.participants ?? []) map[p.user_id ?? p.id] = p.display_name ?? p.id;
     return map;
-  }, [agentsQuery.data]);
+  }, [contactsQuery.data, activeConversation]);
 
   const mentionCandidates = useMemo(() => {
     if (!activeConversation) return [];
@@ -400,75 +399,20 @@ export function ChatWorkspacePage() {
       agent_id: p.type === "agent" ? p.id : undefined,
       display_name: p.display_name || p.user_id || p.id,
       initials: (p.display_name || p.id).slice(0, 2).toUpperCase(),
-      status: "online" as const
+      status: p.type === "agent" ? publicAgents.find(a => a.agent_id === p.id)?.status ?? "offline" : "online" as const
     }));
-  }, [activeConversation]);
+  }, [activeConversation, contactsQuery.data]);
 
-  // feat-430: agents in the active conversation (canonical agent_id + display_name)
-  // — drives the slash picker's per-agent skill fetch.
-  const conversationAgents = useMemo(() => {
-    if (!activeConversation) return [] as { agent_id: string; display_name: string }[];
-    const allowed = new Set(
-      activeConversation.participants
-        .filter((p) => p.type === "agent")
-        .map((p) => p.id.replace(/^agent:/, ""))
-    );
-    return (agentsQuery.data ?? [])
-      .filter((a) => allowed.has(a.agent_id.replace(/^agent:/, "")))
-      .map((a) => ({ agent_id: a.agent_id, display_name: a.display_name }));
-  }, [activeConversation, agentsQuery.data]);
-
-  // Slash candidates come from each Agent's live capability snapshot. Skills still
-  // apply config ∩ capability semantics; runtime commands are already authorized by
-  // the Gateway and are only unioned here. Fetch per conversation, not per keystroke.
   const slashCandidatesQuery = useQuery({
-    enabled: conversationAgents.length > 0,
-    queryKey: [
-      "chat",
-      "slash-candidates",
-      conversationAgents.map((a) => a.agent_id).sort(),
-    ],
-    staleTime: 60_000,
+    enabled: !!activeConversation,
+    queryKey: ["chat", "slash-candidates", selfUserId, conversationId],
     queryFn: async () => {
-      // fix-r2 (P1.4): allSettled so one agent's failed config/capabilities fetch does
-      // not collapse the whole picker — only that agent's skills drop out.
-      // fix-r2 (P0): source="live" pulls the agent's真实已启用 skills whitelist from the
-      // owning Gateway (the IM mirror is empty for Gateway-seeded agents), so the
-      // config ∩ capabilities intersection reflects真实 enablement instead of全量.
-      const results = await Promise.allSettled(
-        conversationAgents.map(async (a): Promise<AgentEnabledSkills & {
-          agentId: string;
-          commands: AgentCommandOption[];
-        }> => {
-          const [config, capabilities] = await Promise.all([
-            getAgentConfig(a.agent_id, "live"),
-            getAgentCapabilities(a.agent_id),
-          ]);
-          const capSkills = normalizeAllowlistOptions(capabilities.skills);
-          return {
-            agentId: a.agent_id,
-            agentDisplayName: a.display_name,
-            skills: resolveEnabledSkills(
-              config.skills ?? [],
-              capSkills,
-              config.skills_selection_mode,
-            ),
-            commands: capabilities.commands ?? [],
-          };
-        })
-      );
-      const perAgent = results.flatMap((result) =>
-        result.status === "fulfilled" ? [result.value] : []
-      );
+      const agents = await getConversationCommands(conversationId!);
       return {
-        skills: buildSlashSkills(perAgent),
-        commands: buildSlashCommands(perAgent.map((agent) => ({
-          agentId: agent.agentId,
-          agentDisplayName: agent.agentDisplayName,
-          commands: agent.commands,
-        }))),
+        skills: buildSlashSkills(agents.map(a => ({ agentDisplayName: a.display_name, skills: a.skills }))),
+        commands: buildSlashCommands(agents.map(a => ({ agentId: a.agent_id, agentDisplayName: a.display_name, commands: a.commands })))
       };
-    },
+    }
   });
   const slashSkills = slashCandidatesQuery.data?.skills ?? [];
   const slashCommands = slashCandidatesQuery.data?.commands ?? [];
@@ -476,18 +420,18 @@ export function ChatWorkspacePage() {
   const selectedDistillConversations = useMemo(() => {
     const byId = new Set(selectedDistillConversationIds);
     return (conversationsQuery.data ?? []).filter(
-      (c) => byId.has(c.id) && isDistillConversationEligible(c)
+      (c) => byId.has(c.id) && canDistillConversation(c)
     );
-  }, [conversationsQuery.data, selectedDistillConversationIds]);
+  }, [conversationsQuery.data, selectedDistillConversationIds, contactsQuery.data]);
 
   const selectedDistillSourceNodeId = selectedDistillConversations[0]?.source_node_id ?? null;
 
   const distillExecutionAgentOptions = useMemo(() => {
     if (!selectedDistillSourceNodeId) return [];
     return (agentsQuery.data ?? [])
-      .filter((agent) => agent.node_id === selectedDistillSourceNodeId)
+      .filter((agent) => agent.node_id === selectedDistillSourceNodeId && distillAgentIds.has(agent.agent_id))
       .map((agent) => ({ agentId: agent.agent_id, displayName: agent.display_name }));
-  }, [agentsQuery.data, selectedDistillSourceNodeId]);
+  }, [agentsQuery.data, selectedDistillSourceNodeId, contactsQuery.data]);
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
@@ -505,22 +449,15 @@ export function ChatWorkspacePage() {
     if (!agentParticipant) {
       return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
     }
-    const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === agentParticipant.id);
-    if (!agentRow) {
-      return { agentId: agentParticipant.id, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
-    }
-    const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id);
-    const nodeStatus = nodeRow?.status === "online" ? "online" : "offline";
-    const initials = agentRow.display_name?.slice(0, 2) ?? agentRow.agent_id.slice(0, 2);
-    const color = colorForAgent(agentRow);
+    const agent = publicAgents.find(a => a.agent_id === agentParticipant.id);
     return {
-      agentId: agentRow.agent_id,
-      nodeName: nodeRow?.node_name ?? null,
-      nodeStatus,
-      agentColor: color,
-      agentInitials: initials
+      agentId: agentParticipant.id,
+      nodeName: agent?.node_name ?? null,
+      nodeStatus: agent?.status ?? "offline",
+      agentColor: colorForAgent({ display_name: agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id }),
+      agentInitials: (agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id).slice(0, 2)
     };
-  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+  }, [activeConversation, contactsQuery.data]);
 
   // feat-438 决策 2: the ⚙ entry dispatches by conversation kind. Group /
   // agent-network open the in-place GroupSettings surface; direct-agent keeps
@@ -539,11 +476,7 @@ export function ChatWorkspacePage() {
       const userId = p.user_id ?? (p.type === "user" ? p.id : null);
       let status: "online" | "offline" | null = null;
       if (p.type === "agent") {
-        const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === p.id);
-        const nodeRow = agentRow
-          ? (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id)
-          : undefined;
-        status = nodeRow?.status === "online" ? "online" : "offline";
+        status = publicAgents.find(a => a.agent_id === p.id)?.status ?? "offline";
       }
       return {
         id: p.id,
@@ -556,26 +489,15 @@ export function ChatWorkspacePage() {
         isStale: p.is_stale ?? null
       };
     });
-  }, [activeConversation, agentsQuery.data, nodesQuery.data, selfUserId]);
+  }, [activeConversation, contactsQuery.data, selfUserId]);
 
   const addableAgents = useMemo<GroupSettingsAgentOption[]>(() => {
     if (!activeConversation) return [];
-    const inGroup = new Set(
-      activeConversation.participants
-        .filter((p) => p.type === "agent")
-        .map((p) => p.id.replace(/^agent:/, ""))
-    );
-    return (agentsQuery.data ?? [])
-      .filter((a) => !inGroup.has(a.agent_id.replace(/^agent:/, "")))
-      .map((a) => {
-        const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
-        return {
-          agentId: a.agent_id,
-          displayName: a.display_name,
-          status: (nodeRow?.status === "online" ? "online" : "offline") as "online" | "offline"
-        };
-      });
-  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+    const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
+    return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
+      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status
+    }));
+  }, [activeConversation, contactsQuery.data, selfUserId]);
 
   // Switching conversations closes any open settings surface.
   useEffect(() => {
@@ -658,8 +580,7 @@ export function ChatWorkspacePage() {
     try {
       const page = await listMessages(conversationId, {
         limit: HISTORY_PAGE_SIZE,
-        beforeMessageId: historyCursor,
-        markAsRead: false
+        beforeMessageId: historyCursor
       });
       if (conversationIdRef.current !== conversationId) return;
       dispatch({ type: "prepend_history", timeline: page.items });
@@ -720,6 +641,30 @@ export function ChatWorkspacePage() {
   const sendersByIdRef = useRef(sendersById);
   sendersByIdRef.current = sendersById;
 
+  async function reconcileMembership(conversations: Conversation[]) {
+    const allowed = new Set(conversations.map(c => c.id));
+    const cached = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
+    for (const previous of cached) {
+      if (allowed.has(previous.id)) continue;
+      await queryClient.cancelQueries({ queryKey: ["chat", "messages", previous.id] });
+      queryClient.removeQueries({ queryKey: ["chat", "messages", previous.id] });
+      forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), previous.id);
+    }
+    restoreComposerMembership(composerStoreFor(useAuthStore.getState().user?.id ?? null), allowed);
+    queryClient.setQueryData(["chat", "conversations"], conversations);
+    const active = conversationIdRef.current;
+    if (active && !allowed.has(active)) {
+      tokenUsageCache.current.clear();
+      pendingLiveMessageIdsRef.current.clear();
+      pendingDiscardedMessageIdsRef.current.clear();
+      dispatch({ type: "reset", conversationId: active, timeline: [] });
+      setShowGroupSettings(false);
+      navigate("/chat", { replace: true });
+    } else if (active) {
+      await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
+    }
+  }
+
   // Subscribe to owner-scoped status events so all node/agent status indicators
   // in the Chat workspace (Node chip, sidebar status dot, mention candidate
   // status) update in real time when a Gateway connects or disconnects.
@@ -727,18 +672,31 @@ export function ChatWorkspacePage() {
   useEffect(() => {
     const dispose = subscribeUserStream({
       onRecovery: async () => {
-        const activeConversationId = conversationIdRef.current;
-        const queryKeys = [
-          ["chat", "conversations"],
-          ["chat", "agents"],
-          ["chat", "nodes"],
-          ...(activeConversationId ? [["chat", "messages", activeConversationId]] : [])
-        ];
-        await Promise.allSettled(
-          queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
-        );
+        setMembershipReady(false);
+        const conversations = await listConversations();
+        await reconcileMembership(conversations);
+        setMembershipReady(true);
+        await queryClient.invalidateQueries({ queryKey: ["contacts"] });
+        await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
+        const id = conversationIdRef.current;
+        if (id && conversations.some(c => c.id === id)) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", id] });
       },
       onEvent: (event) => {
+        if (event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") {
+          const id = event.payload.conversation_id;
+          if (typeof id === "string") {
+            if (id === conversationIdRef.current) setMembershipReady(false);
+            // Drop visible private content before the membership refresh, including
+            // mounted blob previews. Remaining members reload from the server.
+            if (id === conversationIdRef.current) dispatch({ type: "reset", conversationId: id, timeline: [] });
+            void queryClient.cancelQueries({ queryKey: ["chat", "messages", id] });
+            queryClient.removeQueries({ queryKey: ["chat", "messages", id] });
+            queryClient.removeQueries({ queryKey: ["chat", "slash-candidates"] });
+            void listConversations().then(async rows => { await reconcileMembership(rows); setMembershipReady(true); }).catch(() => undefined);
+          }
+          return;
+        }
+        if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
           if (messagesQueryFetchingRef.current && chatEvent.type !== "agent.config.changed") {
@@ -757,6 +715,9 @@ export function ChatWorkspacePage() {
           const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
           const status = typeof payload.status === "string" ? payload.status : null;
           if (!nodeId || !status) return;
+          const owned = queryClient.getQueryData<AgentRow[]>(["chat", "agents"]) ?? [];
+          const agentIds = new Set(owned.filter(a => a.node_id === nodeId).map(a => a.agent_id));
+          if (status === "online" || status === "offline") queryClient.setQueriesData<Contact[]>({ queryKey: ["contacts"] }, contacts => contacts?.map(c => c.agent_id && agentIds.has(c.agent_id) ? { ...c, status } : c));
           queryClient.setQueryData<NodeRow[] | undefined>(["chat", "nodes"], (prev) => {
             if (!prev) return prev;
             let changed = false;
@@ -773,6 +734,7 @@ export function ChatWorkspacePage() {
           const agentId = typeof payload.agent_id === "string" ? payload.agent_id : null;
           const status = typeof payload.status === "string" ? payload.status : null;
           if (!agentId || (status !== "online" && status !== "offline")) return;
+          queryClient.setQueriesData<Contact[]>({ queryKey: ["contacts"] }, contacts => contacts?.map(c => c.agent_id === agentId ? { ...c, status } : c));
           // AgentRow carries node_id but not status directly — all status indicators
           // in Chat are derived from the nodes cache. Find the agent's owning node
           // and patch the nodes cache so sidebar dot, Node chip, and mention
@@ -865,8 +827,8 @@ export function ChatWorkspacePage() {
   // Auto-scroll is handled inside MessagePane via a ref on the messages container.
 
   const createGroupMutation = useMutation({
-    mutationFn: (payload: { agentIds: string[]; name: string }) =>
-      createConversation({ title: payload.name, agentIds: payload.agentIds }),
+    mutationFn: (payload: { agentIds: string[]; userIds: string[]; name: string }) =>
+      createConversation({ title: payload.name, type: "group", participants: [...payload.agentIds.map(id => ({ type: "agent" as const, id })), ...payload.userIds.map(id => ({ type: "user" as const, id }))] }),
     onSuccess: (conv) => {
       setShowNewGroup(false);
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
@@ -921,7 +883,7 @@ export function ChatWorkspacePage() {
   });
 
   const addParticipantsMutation = useMutation({
-    mutationFn: (agentIds: string[]) => addParticipants(conversationId!, agentIds),
+    mutationFn: (agentIds: string[]) => addParticipants(conversationId!, agentIds.map(id => ({ type: addableAgents.find(a => a.agentId === id)?.type ?? "agent", id } as Actor))),
     onSuccess: invalidateConversations
   });
 
@@ -951,7 +913,7 @@ export function ChatWorkspacePage() {
     setDistillNotice(null);
     if (conversationId) {
       const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
-      if (!conversation || !isDistillConversationEligible(conversation)) {
+      if (!conversation || !canDistillConversation(conversation)) {
         setDistillNotice(t("chat.distill.selectionRequired"));
         return;
       }
@@ -973,7 +935,7 @@ export function ChatWorkspacePage() {
 
   function toggleDistillConversation(conversationId: string) {
     const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
-    if (!conversation || !isDistillConversationEligible(conversation)) return;
+    if (!conversation || !canDistillConversation(conversation)) return;
     if (
       selectedDistillSourceNodeId
       && conversation.source_node_id !== selectedDistillSourceNodeId
@@ -1140,6 +1102,7 @@ export function ChatWorkspacePage() {
           conversations={sidebarConversations}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
+          onNewChat={() => setShowNewChat(true)}
           onNewGroup={() => setShowNewGroup(true)}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
@@ -1150,14 +1113,7 @@ export function ChatWorkspacePage() {
           onEnterDistillMode={enterDistillMode}
           onCancelDistillMode={cancelDistillMode}
           onStartDistill={openDistillDialog}
-          agents={(agentsQuery.data ?? []).map((a) => {
-            const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
-            return {
-              agent_id: a.agent_id,
-              display_name: a.display_name,
-              status: nodeRow?.status === "online" ? "online" : "offline"
-            };
-          })}
+          agents={publicAgents.map(a => ({ agent_id: a.agent_id!, display_name: a.display_name, status: a.status ?? "offline" }))}
         />
       )}
       {showDetail && (
@@ -1165,10 +1121,17 @@ export function ChatWorkspacePage() {
           <MessagePane
             conversation={activeConversation}
             timeline={visibleTimeline}
+            onReadMessage={(messageId) => {
+              void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);
+            }}
+            onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}
+            agentNodeNames={Object.fromEntries(publicAgents.filter(a => a.node_name).map(a => [a.agent_id!, a.node_name!]))}
+            globalAgentIds={publicAgents.filter(a => a.work_mode === "global").map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
+            configLabel={headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}
@@ -1219,18 +1182,18 @@ export function ChatWorkspacePage() {
           )
         )
       )}
+      {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
+        const chat = await createConversation({ title: contact.display_name, type: "direct", participants: [contactActor(contact)] });
+        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        setShowNewChat(false); navigate(`/chat/${chat.id}`);
+      }} />}
       {showNewGroup && (
         <NewGroupModal
-          agents={(agentsQuery.data ?? []).map((a) => {
-            const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
-            return {
-              agent_id: a.agent_id,
-              display_name: a.display_name,
-              description: a.description,
-              node_name: nodeRow?.node_name || a.node_id,
-              status: nodeRow?.status === "online" ? "online" : "offline"
-            };
-          })}
+          isBusy={createGroupMutation.isPending}
+          error={createGroupMutation.isError}
+          agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status
+          }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />
@@ -1320,6 +1283,9 @@ export function ChatWorkspacePage() {
       {showGroupSettings && activeConversation && isGroupKind && (
         <GroupSettings
           title={activeConversation.title}
+          isPinned={activeConversation.is_pinned}
+          isMuted={activeConversation.is_muted}
+          onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}
           members={groupMembers}
           addableAgents={addableAgents}
           isMobile={isMobile}
@@ -1328,6 +1294,7 @@ export function ChatWorkspacePage() {
           onRename={(title) => renameMutation.mutateAsync(title)}
           onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
           onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
+          onLeave={async () => { await removeParticipant(activeConversation.id, selfUserId!); await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate("/chat"); }}
           onDissolve={() => dissolveMutation.mutateAsync()}
           onOpenAgentConfig={(agentId) => navigate(`/settings/agents/${agentId}`)}
         />

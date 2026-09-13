@@ -1,3 +1,4 @@
+import { useMembershipCache } from "../features/chat/use-membership-cache";
 import { Outlet } from "react-router-dom";
 
 import { InAppToast } from "../features/chat/components/in-app-toast";
@@ -6,6 +7,7 @@ import { AgentCompletionNotifier } from "../features/notifications/agent-complet
 import { AppShell } from "./shell/app-shell";
 
 export function App() {
+  useMembershipCache();
   const { toast, dismiss, agentCompletionCandidate } = useGlobalMessageToast();
 
   return (

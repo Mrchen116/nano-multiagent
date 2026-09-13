@@ -6,9 +6,13 @@ type Props = {
   title: string;
   onRename(title: string): Promise<unknown>;
   onOpenConfig?(): void;
+  configLabel?: string;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  onPreferenceChange?(patch: { is_pinned?: boolean; is_muted?: boolean }): Promise<unknown>;
 };
 
-export function DirectConversationMenu({ title, onRename, onOpenConfig }: Props) {
+export function DirectConversationMenu({ title, onRename, onOpenConfig, configLabel, isPinned, isMuted, onPreferenceChange }: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -83,9 +87,14 @@ export function DirectConversationMenu({ title, onRename, onOpenConfig }: Props)
           <button type="button" role="menuitem" onClick={() => {
             setDraft(title); setError(null); setOpen(false); setRenaming(true);
           }}>{t("chat.conversationMenu.rename")}</button>
+          {onPreferenceChange && <>
+            <button role="menuitemcheckbox" aria-checked={!!isPinned} onClick={() => void onPreferenceChange({is_pinned:!isPinned}).catch(() => setError(t("chat.contacts.failed")))}>{t("chat.preferences.pin")} {isPinned ? "✓" : ""}</button>
+            <button role="menuitemcheckbox" aria-checked={!!isMuted} onClick={() => void onPreferenceChange({is_muted:!isMuted}).catch(() => setError(t("chat.contacts.failed")))}>{t("chat.preferences.mute")} {isMuted ? "✓" : ""}</button>
+            {error && <p role="alert">{error}</p>}
+          </>}
           {onOpenConfig && <button type="button" role="menuitem" onClick={() => {
             setOpen(false); onOpenConfig();
-          }}>{t("chat.conversationMenu.agentConfig")}</button>}
+          }}>{configLabel ?? t("chat.conversationMenu.agentConfig")}</button>}
         </div>
       )}
       <Dialog.Root open={renaming} onOpenChange={(next) => { if (!saving) setRenaming(next); }}>

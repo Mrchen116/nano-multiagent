@@ -10,21 +10,25 @@ interface AgentRow {
   description?: string;
   node_name?: string;
   status?: "online" | "offline";
+  kind?: "human" | "agent";
 }
 
 export interface NewGroupModalProps {
   agents: AgentRow[];
+  isBusy?: boolean;
+  error?: boolean;
   onClose(): void;
-  onCreate(payload: { agentIds: string[]; name: string }): void;
+  onCreate(payload: { agentIds: string[]; userIds: string[]; name: string }): void;
 }
 
-export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps) {
+export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error = false }: NewGroupModalProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const titleId = useId();
   const nameInputId = useId();
   const [selected, setSelected] = useState<string[]>([]);
   const [name, setName] = useState("");
+  const [search, setSearch] = useState("");
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -33,7 +37,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
   function handleCreate() {
     if (selected.length === 0) return;
     const trimmed = name.trim();
-    onCreate({ agentIds: selected, name: trimmed || selectedNames });
+    onCreate({ agentIds: agents.filter(a => selected.includes(a.agent_id) && a.kind !== "human").map(a => a.agent_id), userIds: agents.filter(a => selected.includes(a.agent_id) && a.kind === "human").map(a => a.agent_id), name: trimmed || selectedNames });
   }
 
   const selectedNames = agents
@@ -80,9 +84,11 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
         </div>
       </header>
       <div className="chat-modal-body">
+        {error && <p role="alert">{t("chat.contacts.failed")}</p>}
         <p className="chat-modal-section-label">{t("chat.newGroup.sectionAgents")}</p>
+        <input type="search" className="chat-sidebar-search" aria-label={t("chat.contacts.search")} placeholder={t("chat.contacts.search")} value={search} onChange={e => setSearch(e.target.value)} />
         <ul className="chat-modal-agents">
-          {agents.map((a) => {
+          {agents.filter(a => `${a.display_name} ${a.agent_id}`.toLowerCase().includes(search.toLowerCase())).map((a) => {
             const on = selected.includes(a.agent_id);
             return (
               <li key={a.agent_id}>
@@ -160,7 +166,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
         <button
           type="button"
           className="chat-modal-btn-primary"
-          disabled={selected.length === 0}
+          disabled={selected.length === 0 || isBusy}
           onClick={handleCreate}
           style={{ flex: isMobile ? 1 : undefined }}
         >
@@ -176,7 +182,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
         className="chat-modal-bottom-sheet"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       >
-        <div className="chat-modal">
+        <div className="chat-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
           {inner}
         </div>
       </div>

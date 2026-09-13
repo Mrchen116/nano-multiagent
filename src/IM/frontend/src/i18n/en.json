@@ -640,7 +640,15 @@
       "固定": "Required",
       "已停止": "Stopped",
       "已终止": "Killed"
-    }
+    },
+    "publicProfile": "Profile",
+    "managedBy": "Managed by",
+    "device": "Device",
+    "mode": "Work mode",
+    "globalMode": "Global mode",
+    "threadMode": "Single Thread mode",
+    "mine": "Mine",
+    "search": "Find Agent"
   },
   "chat": {
     "conversationMenu": {
@@ -660,7 +668,8 @@
         "all": "All",
         "agent": "Agent",
         "group": "Group",
-        "network": "Network"
+        "network": "Network",
+        "people": "People"
       },
       "generateSkill": "Generate skill",
       "distillToSkill": "Distill to skill",
@@ -678,8 +687,8 @@
     },
     "newGroup": {
       "title": "New group chat",
-      "subtitle": "Select agents, then give the group a name.",
-      "sectionAgents": "Agents",
+      "subtitle": "Choose people and Agents you manage",
+      "sectionAgents": "People and my Agents",
       "groupName": "Group name (optional)",
       "groupNamePlaceholder": "Auto-generated from participants",
       "create": "Create group",
@@ -848,14 +857,16 @@
       "add": "Add",
       "addCount": "Add ({{count}})",
       "addCountMobile": "Add {{count}} member(s)",
-      "noAddableAgents": "No agents available to add",
+      "noAddableAgents": "No members available to add",
       "remove": "Remove",
       "removeMember": "Remove {{name}}",
       "removeConfirm": "Remove this member from the group?",
       "dissolve": "Dissolve group",
       "dissolveConfirmTitle": "Dissolve “{{name}}”?",
       "dissolveConfirm": "The group and its chat history will be permanently deleted and can't be recovered.",
-      "actionError": "Something went wrong. Please try again."
+      "actionError": "Something went wrong. Please try again.",
+      "leave": "Leave group",
+      "memberCount": "{{count}} members"
     },
     "mention": {
       "header": "Mention member",
@@ -876,7 +887,8 @@
       "optionAllowAlways": "Always allow",
       "optionDeny": "Deny",
       "reasonPlaceholder": "Reason for denying (optional)",
-      "reasonLabel": "Denial reason (optional)"
+      "reasonLabel": "Denial reason (optional)",
+      "submitted": "Decision submitted. Waiting for the device to confirm."
     },
     "slash": {
       "header": "Select a slash command or skill",
@@ -888,7 +900,21 @@
       "newGroupDesc": "Start a new session for every agent in this group",
       "compactDesc": "Compact the current session context",
       "from": "from {{agents}}"
-    }
+    },
+    "contacts": {
+      "title": "New chat",
+      "search": "Find people or Agents",
+      "empty": "No contacts found",
+      "person": "Person",
+      "message": "Message",
+      "failed": "Could not complete this action. Try again."
+    },
+    "preferences": {
+      "title": "Chat preferences",
+      "pin": "Pin chat",
+      "mute": "Mute chat"
+    },
+    "viewWork": "View Work"
   },
   "feature": {
     "memory_curation": {

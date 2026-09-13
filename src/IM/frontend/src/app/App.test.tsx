@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
@@ -29,8 +29,8 @@ function QueryClientCapture() {
 describe("App shell", () => {
   beforeEach(() => {
     capturedQueryClient = null;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-      new Response(JSON.stringify({ items: [] }), {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      new Response(JSON.stringify(String(input).endsWith("/nodes") ? [] : { items: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       })
@@ -46,7 +46,7 @@ describe("App shell", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("uses one notification stream coordinator even off the chat route", () => {
+  it("clears inaccessible chat data after membership changes even off the chat route", async () => {
     const fake = vi.fn(() => ({ onclick: null, close: vi.fn() })) as unknown as typeof Notification & {
       permission: NotificationPermission;
       requestPermission: () => Promise<NotificationPermission>;
@@ -59,10 +59,17 @@ describe("App shell", () => {
       <AppProviders>
         <MemoryRouter>
           <App />
+          <QueryClientCapture />
         </MemoryRouter>
       </AppProviders>
     );
-    expect(spy).toHaveBeenCalledTimes(1);
+    capturedQueryClient!.setQueryData(["chat", "conversations"], [{ id: "removed-chat" }]);
+    capturedQueryClient!.setQueryData(["chat", "messages", "removed-chat"], { items: ["private message"] });
+    await act(async () => {
+      for (const [subscriber] of spy.mock.calls) subscriber.onEvent({eventType:"conversation.membership_changed",payload:{conversation_id:"removed-chat"}});
+    });
+    await waitFor(() => expect(capturedQueryClient!.getQueryData(["chat", "conversations"])).toEqual([]));
+    expect(capturedQueryClient!.getQueryData(["chat", "messages", "removed-chat"])).toBeUndefined();
     spy.mockRestore();
     delete (globalThis as unknown as { Notification?: unknown }).Notification;
   });

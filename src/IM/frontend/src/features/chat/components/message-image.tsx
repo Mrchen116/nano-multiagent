@@ -7,13 +7,13 @@ import { authFetch } from "../../auth/auth-fetch";
 import { useAuthStore } from "../../auth/auth-store";
 
 const PENDING_IMAGE = /^nano-image-pending:\d+$/;
-const PRIVATE_IMAGE_PATH = /^\/im\/v1\/conversations\/[a-zA-Z0-9_-]+\/images\/[a-zA-Z0-9_-]+$/;
+const PRIVATE_IMAGE_PATH = /^\/im\/v1\/conversations\/[a-zA-Z0-9_-]+\/(?:images|attachments)\/[a-zA-Z0-9_-]+$/;
 
 /** Allow the display-only pending protocol on images without changing link sanitization. */
 export const messageImageUrlTransform: UrlTransform = (url, key, node) =>
   node.tagName === "img" && key === "src" && PENDING_IMAGE.test(url) ? url : defaultUrlTransform(url);
 
-function privateImageUrl(src: string): string | null {
+export function protectedResourceUrl(src: string): string | null {
   try {
     const url = new URL(src, window.location.href);
     // Never forward a session token to a Markdown-supplied foreign origin or arbitrary API.
@@ -32,7 +32,7 @@ export function MessageImage({ src = "", alt = "", title }: { src?: string; alt?
   if (PENDING_IMAGE.test(src)) {
     return <span className="chat-message-image-state" role="status">{t("chat.messagePane.imageLoading")}</span>;
   }
-  const privateUrl = privateImageUrl(src);
+  const privateUrl = protectedResourceUrl(src);
   if (privateUrl) {
     // Remount on account/source changes so old bytes and open previews cannot survive a switch.
     return <PrivateMessageImage key={`${userId ?? ""}:${privateUrl}`} url={privateUrl} signedIn={!!userId} alt={alt} title={title} />;
@@ -49,6 +49,16 @@ function PrivateMessageImage({ url, signedIn, alt, title }: { url: string; signe
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (new URL(url).pathname.split("/")[4] !== id) return;
+      setOpen(false); setBlobUrl(null); setAttempt(n => n + 1);
+    };
+    window.addEventListener("im:conversation-invalidated", invalidate);
+    return () => window.removeEventListener("im:conversation-invalidated", invalidate);
+  }, [url]);
 
   useEffect(() => {
     if (!signedIn) return;

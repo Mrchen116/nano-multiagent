@@ -9,7 +9,7 @@ import { RequireAuth } from "../features/auth/require-auth";
 import { MePage } from "../features/me/me-page";
 import { AccountPage } from "../features/settings/account/account-page";
 import { AgentCreatePage } from "../features/settings/agents/agent-create-page";
-import { AgentDetailPage } from "../features/settings/agents/agent-detail-page";
+import { AgentProfilePage } from "../features/settings/agents/agent-profile-page";
 import { AgentsListPage } from "../features/settings/agents/agents-list-page";
 import { NodesPage } from "../features/settings/nodes/nodes-page";
 import { PoliciesPage } from "../features/settings/policies/policies-page";
@@ -52,7 +52,7 @@ export const appRoutes: RouteObject[] = [
               },
               {
                 path: ":agentId",
-                element: <AgentDetailPage />
+                element: <AgentProfilePage />
               }
             ]
           },

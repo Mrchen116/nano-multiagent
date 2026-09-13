@@ -1,3 +1,5 @@
+import { MessageImage } from "../components/message-image";
+import { AttachmentLink } from "./attachment-link";
 import type { Attachment } from "../chat-types";
 
 export interface AttachmentChipProps {
@@ -17,7 +19,7 @@ export function AttachmentChip({ attachment, onRemove, removeDisabled = false }:
   if (isImage(attachment.content_type)) {
     return (
       <div className="chat-attachment-chip chat-attachment-chip--image">
-        <img className="chat-attachment-thumb" src={attachment.url} alt={name} />
+        <MessageImage src={attachment.url} alt={name} />
         {onRemove && (
           <button
             type="button"
@@ -35,9 +37,7 @@ export function AttachmentChip({ attachment, onRemove, removeDisabled = false }:
   return (
     <div className="chat-attachment-chip chat-attachment-chip--doc">
       <span className="chat-attachment-icon" aria-hidden>📄</span>
-      <a className="chat-attachment-name" href={attachment.url} target="_blank" rel="noreferrer">
-        {name}
-      </a>
+      <AttachmentLink href={attachment.url} fileName={name}>{name}</AttachmentLink>
       {onRemove && (
         <button
           type="button"

@@ -8,16 +8,16 @@ const apiMocks = vi.hoisted(() => ({
   listNodes: vi.fn()
 }));
 
-vi.mock("./im-agent-config-api", () => ({
-  listAgentSummaries: apiMocks.listAgentSummaries,
+vi.mock("./public-agents", () => ({
+  listPublicAgents: apiMocks.listAgentSummaries,
   listNodes: apiMocks.listNodes
 }));
 
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 
 const SAMPLE_AGENTS = [
-  { agent_id: "agent-one", display_name: "Planner", node_id: "node-1", node_status: "online" },
-  { agent_id: "agent-two", display_name: "Researcher", node_id: "node-1", node_status: "offline" }
+  { agent_id: "agent-one", display_name: "Planner", node_name: "mac-mini", node_status: "online" },
+  { agent_id: "agent-two", display_name: "Researcher", node_name: "mac-mini", node_status: "offline" }
 ];
 
 const SAMPLE_NODES = [

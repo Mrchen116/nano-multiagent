@@ -65,7 +65,6 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   let reconnectAttempt = 0;
   let activeUserId: string | null = null;
   let activeToken: string | null = null;
-  let lastOpenedUserId: string | null = null;
   let recoveryInFlight: Promise<void> | null = null;
   let resyncInFlightGeneration: number | null = null;
   let resyncHandledGeneration: number | null = null;
@@ -81,7 +80,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     }
   }
 
-  function invalidateConnection(resetContinuity: boolean): void {
+  function invalidateConnection(): void {
     generation += 1;
     clearTimers();
     const previous = socket;
@@ -93,7 +92,6 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     recoveryInFlight = null;
     resyncInFlightGeneration = null;
     resyncHandledGeneration = null;
-    if (resetContinuity) lastOpenedUserId = null;
   }
 
   function reportSubscriberError(error: unknown): void {
@@ -185,7 +183,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     } catch (error) {
       if (currentGeneration !== generation) return;
       dependencies.reportError(error);
-      invalidateConnection(false);
+      invalidateConnection();
       scheduleReconnect();
       return;
     } finally {
@@ -235,6 +233,9 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       }
       return;
     }
+    if ((event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") && typeof event.payload.conversation_id === "string") {
+      window.dispatchEvent(new CustomEvent("im:conversation-invalidated", { detail: event.payload.conversation_id }));
+    }
     if (event.eventId !== undefined) {
       const current = readCursor(userId);
       if (event.eventId <= current) return;
@@ -267,7 +268,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if (subscribers.size === 0) return;
     const snapshot = dependencies.getSession();
     if (!snapshot.userId || !snapshot.accessToken) {
-      invalidateConnection(true);
+      invalidateConnection();
       return;
     }
 
@@ -290,29 +291,27 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       return;
     }
     if (readiness.status === "signed_out") {
-      invalidateConnection(true);
+      invalidateConnection();
       return;
     }
     const latest = dependencies.getSession();
     if (latest.userId !== readiness.userId || latest.accessToken !== readiness.accessToken) return;
 
     const initialCursor = readCursor(readiness.userId);
-    let establishedColdBaseline = false;
-    if (!baselinedCursorUsers.has(readiness.userId) && initialCursor === 0) {
-      try {
-        const baseline = await dependencies.sync();
-        if (currentGeneration !== generation || subscribers.size === 0) return;
-        replaceCursor(readiness.userId, baseline.maxEventId);
-        baselinedCursorUsers.add(readiness.userId);
-        establishedColdBaseline = true;
-      } catch (error) {
-        if (currentGeneration !== generation) return;
-        dependencies.reportError(error);
-        scheduleReconnect();
-        return;
-      }
-    } else {
+    try {
+      // Refresh membership on every connection before any event replay can render
+      // a conversation that was removed while this device was disconnected.
+      const baseline = await dependencies.sync();
+      if (currentGeneration !== generation || subscribers.size === 0) return;
+      if (!baselinedCursorUsers.has(readiness.userId) && initialCursor === 0) replaceCursor(readiness.userId, baseline.maxEventId);
       baselinedCursorUsers.add(readiness.userId);
+      await signalRecovery(currentGeneration);
+      if (currentGeneration !== generation || subscribers.size === 0) return;
+    } catch (error) {
+      if (currentGeneration !== generation) return;
+      dependencies.reportError(error);
+      scheduleReconnect();
+      return;
     }
 
     activeUserId = readiness.userId;
@@ -325,14 +324,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       nextSocket.send(
         JSON.stringify({ op: "resume", after_event_id: readCursor(readiness.userId) })
       );
-      const recovering = lastOpenedUserId === readiness.userId;
-      lastOpenedUserId = readiness.userId;
       pingTimer = window.setInterval(() => {
         if (currentGeneration === generation && nextSocket.readyState === SOCKET_OPEN) {
           nextSocket.send(JSON.stringify({ op: "ping" }));
         }
       }, 25_000);
-      if (recovering || establishedColdBaseline) void signalRecovery(currentGeneration);
     };
     nextSocket.onmessage = (event) => dispatchFrame(event.data, currentGeneration, readiness.userId);
     nextSocket.onerror = () => dependencies.reportError(new Error("user stream socket error"));
@@ -348,7 +344,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if (subscribers.size === 0) return;
     const current = dependencies.getSession();
     if (!current.userId || !current.accessToken) {
-      invalidateConnection(true);
+      invalidateConnection();
       return;
     }
     if (current.userId === activeUserId && current.accessToken === activeToken) return;
@@ -370,7 +366,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
         if (subscribers.size > 0) return;
         sessionUnsubscribe?.();
         sessionUnsubscribe = null;
-        invalidateConnection(true);
+        invalidateConnection();
       };
     }
   };

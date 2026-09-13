@@ -34,6 +34,8 @@ export interface PermissionCardProps {
 type TransientState =
   | { kind: "idle" }
   | { kind: "submitting"; chosenId: string }
+  | { kind: "submitted"; chosenId: string }
+  | { kind: "resolved"; chosenId: string }
   | { kind: "error"; chosenId: string; message: string };
 
 // feat-434-M1 (F1): map the stable backend option id → i18n key so the待决卡 buttons
@@ -126,7 +128,9 @@ export function PermissionCard({
       }
       // 不再写本地 resolved state —— 服务端的 permission.resolved WS 事件会通过
       // reducer 把 request.status 更新为 "resolved", 组件自然重渲染。
-      onResolved(option.id);
+      const result = await resp.json() as { status: string; decision: string };
+      setTransient({ kind: result.status === "resolved" ? "resolved" : "submitted", chosenId: result.decision });
+      onResolved(result.decision);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("chat.permission.submitError");
       setTransient({ kind: "error", chosenId: option.id, message });
@@ -136,8 +140,13 @@ export function PermissionCard({
   // feat-434 决策 3: 已决审批不再渲染独立卡 —— 它已并入工具调用行的闸门区
   // （读 tool_call.approval → 已授权/已拒绝）。resolved 时本组件渲染空，由工具面板承载呈现。
   // PermissionCard 自此只负责「待决」职责（pending）。
-  if (request.status === "resolved") {
+  if (request.status === "resolved" || transient.kind === "resolved") {
     return null;
+  }
+
+  if (request.status === "submitted" || transient.kind === "submitted") {
+    const decision = request.decision ?? (transient.kind === "submitted" ? transient.chosenId : "");
+    return <div className="chat-permission-card" role="status"><strong>{request.tool_name}</strong><p>{t("chat.permission.submitted")}</p>{decision && <span>{t(OPTION_LABEL_KEYS[decision] ?? decision)}</span>}</div>;
   }
 
   const isSubmitting = transient.kind === "submitting";

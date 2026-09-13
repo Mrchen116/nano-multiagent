@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
 import type { Conversation } from "../chat-types";
-import type { ComposerSnapshot } from "./composer-draft-store";
+import { forgetComposerConversation, restoreComposerMembership, type ComposerSnapshot } from "./composer-draft-store";
 import { MessagePane } from "./message-pane";
 
 const CONV_A: Conversation = {
@@ -273,4 +273,22 @@ describe("MessagePane composer drafts are per conversation", () => {
     render(<StrictMode>{pane(CONV_A, { composerStore: store })}</StrictMode>);
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("survives leaving the chat");
   });
+});
+
+it("does not restore a removed conversation's draft after unmount or a late upload", async () => {
+  const store = new Map<string, ComposerSnapshot>();
+  let finishUpload!: (value: {url: string}) => void;
+  const uploadAttachment = vi.fn(() => new Promise<{url: string}>(resolve => { finishUpload = resolve; }));
+  const view = render(pane(CONV_A, {composerStore: store, uploadAttachment}));
+  await userEvent.type(screen.getByRole("textbox"), "private draft");
+  const file = new File(["private"], "note.txt", {type:"text/plain"});
+  fireEvent.drop(screen.getByRole("textbox").closest("[data-dragging]")!, { dataTransfer:{files:[file],types:["Files"]} });
+  await waitFor(() => expect(uploadAttachment).toHaveBeenCalled());
+  act(() => forgetComposerConversation(store, CONV_A.id));
+  view.unmount();
+  await act(async () => { finishUpload({url:"/im/v1/conversations/c1/attachments/r1"}); });
+  expect(store.has(CONV_A.id)).toBe(false);
+  restoreComposerMembership(store, [CONV_A.id]);
+  render(pane(CONV_A, {composerStore:store}));
+  expect(screen.getByRole("textbox")).toHaveValue("");
 });

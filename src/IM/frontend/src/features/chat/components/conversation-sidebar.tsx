@@ -17,14 +17,14 @@ interface SidebarAgent {
 
 type FilterKey = "all" | ConversationKind;
 
-const FILTER_ORDER: FilterKey[] = ["all", "direct-agent", "group", "agent-network"];
+const FILTER_ORDER: FilterKey[] = ["all", "direct-user", "direct-agent", "group", "agent-network"];
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   all: "chat.list.filters.all",
   "direct-agent": "chat.list.filters.agent",
   group: "chat.list.filters.group",
   "agent-network": "chat.list.filters.network",
-  "direct-user": "chat.list.filters.all" // unused but keeps the map total
+  "direct-user": "chat.list.filters.people"
 };
 
 export interface ConversationSidebarProps {
@@ -32,6 +32,7 @@ export interface ConversationSidebarProps {
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
   onNewGroup(): void;
+  onNewChat?(): void;
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
@@ -68,6 +69,7 @@ export function ConversationSidebar({
   activeConversationId,
   onSelect,
   onNewGroup,
+  onNewChat,
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
@@ -104,6 +106,7 @@ export function ConversationSidebar({
       <header className="chat-sidebar-header">
         <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
+          {onNewChat && <button type="button" className="chat-sidebar-new-group" aria-label={t("chat.contacts.title")} onClick={onNewChat}>＋</button>}
           <button type="button" className="chat-sidebar-new-group" onClick={onNewGroup}>
             {t("chat.list.newGroup")}
           </button>

@@ -127,6 +127,11 @@ const FIXTURES = {
       source_node_id: null
     }
   ] satisfies Conversation[],
+  agents: [
+    {agent_id:"a-planner",display_name:"Planner",user_id:"user-uuid-planner"},
+    {agent_id:"a-writer",display_name:"Writer",user_id:"user-uuid-writer"},
+    {agent_id:"a-reviewer",display_name:"Reviewer",user_id:"user-uuid-reviewer"}
+  ],
   messagesC1: [
     {
       id: "m1",
@@ -191,6 +196,10 @@ function mockFetch(opts: {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
+    if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: FIXTURES.agents.map(a => ({ kind:"agent", user_id:a.user_id, agent_id:a.agent_id, display_name:a.display_name, owner_id:"u-self", owner_display_name:"You", node_name:"laptop-prod", status:"online", work_mode:"single_thread" })), next_cursor:null });
+    if (url.endsWith("/commands")) { const state = opts.dynamicAgentState?.(); return jsonResponse({items: FIXTURES.agents.filter(a => conversations.find(c => c.id === url.split("/")[4])?.participants.some(p => p.type === "agent" && p.id === a.agent_id)).map(a => ({agent_id:a.agent_id,display_name:a.display_name,status:"available",skills:[],commands:state?.commands ?? []}))}); }
+    if (url.endsWith("/read")) { const id=url.split("/")[4]; return jsonResponse(conversations.find(c => c.id===id)); }
+
     if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
       return jsonResponse({ items: conversations });
     }
@@ -465,7 +474,7 @@ describe("ChatWorkspacePage — integration", () => {
     await screen.findByRole("heading", { name: "Planner" });
     await waitFor(() => {
       expect(
-        queryClient.getQueryData(["chat", "slash-candidates", ["a-planner"]]),
+        queryClient.getQueryData(["chat", "slash-candidates", "u-self", "c1"]),
       ).toMatchObject({ commands: [] });
     });
 
@@ -1272,6 +1281,7 @@ describe("ChatWorkspacePage — integration", () => {
           next_before_message_id: null
         });
       }
+      if (url.includes("/im/v1/contacts?")) return jsonResponse({items:[{kind:"agent",user_id:"user-uuid-planner",agent_id:"a-planner",display_name:recovered ? "Recovered Agent":"Planner",owner_id:"u-self",node_name:recovered ? "recovered-node":"laptop-prod",status:recovered ? "offline":"online",work_mode:"single_thread"}],next_cursor:null});
       if (url.endsWith("/im/v1/agents")) {
         return jsonResponse([
           {
@@ -1316,7 +1326,7 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByText("message restored from REST after recovery")).toBeInTheDocument();
     expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
     expect((await screen.findAllByText("Recovered Planner")).length).toBeGreaterThanOrEqual(2);
-    const recoveredChip = await screen.findByText("recovered-node");
+    const recoveredChip = (await screen.findAllByText("recovered-node")).find(el => el.classList.contains("chat-node-chip-name"))!;
     expect(recoveredChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
     expect(screen.getAllByText("RE").length).toBeGreaterThanOrEqual(1);
   });
@@ -1823,6 +1833,7 @@ describe("ChatWorkspacePage — integration", () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       sent.push({ url, init });
+
       return originalImpl(input, init);
     });
     (fetchSpy as unknown as { sent: typeof sent }).sent = sent;
@@ -1855,7 +1866,7 @@ describe("ChatWorkspacePage — integration", () => {
     await screen.findByText("older 1");
     const messageGets = sent.filter((entry) => /\/im\/v1\/conversations\/c1\/messages/.test(entry.url));
     expect(messageGets[0]!.url).toContain("limit=50");
-    expect(messageGets[0]!.url).toContain("mark_as_read=true");
+    expect(messageGets[0]!.url).not.toContain("mark_as_read");
     expect(messageGets[1]!.url).toContain("limit=50");
     expect(messageGets[1]!.url).toContain("before_message_id=new-1");
     expect(messageGets[1]!.url).not.toContain("mark_as_read=true");
@@ -1872,6 +1883,7 @@ describe("ChatWorkspacePage — integration", () => {
     fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       sent.push({ url, init });
+
       if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
         if (url.includes("before_message_id=guard-new-1")) {
           return olderResponse;
