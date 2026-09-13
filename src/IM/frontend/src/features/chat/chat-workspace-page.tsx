@@ -1035,8 +1035,8 @@ export function ChatWorkspacePage() {
       setSelectedDistillConversationIds(new Set());
       await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
-    } catch (err) {
-      setDistillError(err instanceof Error ? err.message : t("chat.distill.startError"));
+    } catch {
+      setDistillError(t("chat.distill.startError"));
     } finally {
       setDistillSubmitting(false);
     }

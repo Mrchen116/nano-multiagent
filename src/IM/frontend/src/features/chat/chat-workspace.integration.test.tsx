@@ -756,7 +756,8 @@ describe("ChatWorkspacePage — integration", () => {
     await user.click(screen.getByRole("button", { name: "Distill to skill" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("source session file is unavailable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not prepare the selected chats.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("createDistillPrompt");
     expect(screen.getByRole("heading", { name: "Distill conversations" })).toBeInTheDocument();
     const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
       (request) => request.url.endsWith("/im/v1/conversations") && request.init?.method === "POST"

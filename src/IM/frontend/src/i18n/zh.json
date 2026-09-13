@@ -702,7 +702,7 @@
       "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
       "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",
       "starting": "启动中…",
-      "startError": "启动蒸馏失败。"
+      "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
     "messagePane": {
       "systemNotice": {
