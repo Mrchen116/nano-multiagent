@@ -237,3 +237,43 @@ The acceptance report's ten must-match comparison rows are all **match**. Its co
 - The corrected-delta gate must still reconcile all final delta files and omitted outward behavior, including explicit external sender identity in place of obsolete “you” wording and the supported known-conversation explicit image entrypoint. These are required upcoming document-alignment checks, not a claim that canonical specs have already been updated. This ordinary gate does not waive or pre-approve them.
 
 `requires_full_verification: false`. The original full scope remains covered; subsequent fixes are bounded and independently closed. The verifier changed only this report and retains its detached worktree for the separately dispatched corrected-delta continuation.
+
+## Corrected Delta Reconciliation
+
+- unit_id: `feat-554`
+- verification_mode: `corrected-delta`
+- initial_dispatched_snapshot: `9eea4b442158e30d2e9a5eba4448cc89d6ba4bf9`
+- validated_at: `a16f6d37c75ed62ed04335ce6592bdacdafb69b0`
+- executed_base: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- outcome: **aligned**
+- Open delta mismatches: **0**; implementation mismatches: **0**.
+
+This check independently read every final delta Requirement/Scenario, compared its target current contract and the cumulative unit implementation diff, and reconciled the previous tests/acceptance evidence. It does not repeat full implementation or product acceptance. Product source remains `274ad07bc`, the test layout remains `c3046c6a2`; `fc114a19b..a16f6d37c` contains no source/test change. Historical ordinary-gate snapshots above are unchanged.
+
+### Corrections found and closed during this gate
+
+| Snapshot / finding | Required correction | Final disposition |
+|---|---|---|
+| `9eea4b442`, CD1: configuration-boundary success scenario still promised owner history/user-stream visibility and implied common ownership of node/chat | Match the real check: registered node/profile management, Agent membership, message anchor in the chat; reads and events follow current chat membership | `7db6cf144` corrects the requirement prose and GIVEN/AND. Independently matched to `config_boundaries.py:55–76`, member access/user-stream filtering and accepted mixed-owner boundary journey. Closed. |
+| `7db6cf144`, CD2: reserved runtime usernames added by the unit were missing from the registration contract | Preserve the entire current JWT registration requirement and add the actual rejected namespace rule | `a16f6d37c` retains the three original scenarios and adds the exact stripped-username `system` / `agent:` / `shadow:` rule. It matches the pre-creation guard in `AuthService.register:115–119` and existing auth-boundary regressions. Closed. |
+
+These were **delta-mismatch** findings; neither required changing implementation, tests or product scope. The initial mismatches are retained here rather than represented as an uninterrupted aligned result.
+
+### All final delta areas
+
+| Final delta | Alignment with implementation and preserved contracts |
+|---|---|
+| `gateway/relay-protocol.md` | Stable original request/run permission resolution; current registered machine token for data; separate owner-JWT identity/node checks; durable shadow retry/token refresh. Matches actual PA consumers and IM boundary tests. |
+| `gateway/routing-delivery.md` | Original single-thread routing, liveness and external routes preserved. Known-conversation explicit global image delivery uses shared preparation, snapshots, receipts and the existing commit guard; does not promise new first-contact resolution. Same-group cross-account inputs retain real identity. Image permission/failure/route constraints remain in the full retained requirement. |
+| `im/agent-work.md` | Login users can read complete main and linked-child Work without owner/source filtering; original source chat/resource authorization remains separate. Visible-page refresh and offline/unknown state match the retained Work panel and actual non-owner journeys. |
+| `im/agents-nodes.md` | Public human/Agent discovery and profile projection are separate from owner-only management. Existing capabilities keep local-path fields for managers; member slash projection uses opaque keys. User-stream replay is current-member scoped; private node/config events remain owner-only. Multiple/zero/offline-node rules match implementation. |
+| `im/auth-tenancy.md` | Real-user JWT, member-scoped chat/resource access, owner-scoped management/metrics, public directory/Work exception and separate bounded machine credentials align. Added reserved registration namespace matches the exact new guard; original auth/refresh/logout scenarios remain. |
+| `im/conversations-messages.md` | Both historical and live external-message clauses now describe an independent source identity/display name, not browser-owner impersonation. Stable per-viewer human-direct titles, unique ordinary directs versus independent fork/distill, real sender identity, explicit group type, shared governance, personal read/preferences, protected immutable resources and member-based source access match the code and regressions. Legacy conversion is explicitly deployment-document work. |
+| `im/gateway-relay.md` | Final CD1 correction distinguishes node/profile management from chat membership. Actual boundary ACK/replay, per-node fan-out, one durable offered card choice and later actual execution confirmation, global-mode behavior and current node runtime credentials align with their production consumers. |
+| `im/web-chat-ux.md` | Single-thread owner-qualified distillation retains both Skill scopes, same-Gateway locking, preparation before chat creation and localized failure. Member slash candidates preserve independent source identity without configuration access; existing responsive navigation, language controls, content and drafts are retained. |
+
+Independent structural comparison confirms **8 target files**, **15 MODIFIED**, **11 ADDED** and **5 REMOVED** requirement operations: every replacement/removal resolves to an exact current heading, every added heading is new. All scenarios under MODIFIED blocks are retained except the explicitly approved rename from external 1:1 “you” display to real source identity. Renamed owner-access requirements preserve their applicable scenarios under the new member-based rules.
+
+The cumulative source scan also accounted for policy-route authentication, saved node aliases, mobile Policies, contacts/commands cache invalidation, protected file/fork handling, Agent/node credential binding, personal unread boundaries, native configuration anchors, explicit image preparation and both final regression repairs. They are covered by the final delta areas above or the explicitly preserved current contract; no additional outward behavior is omitted. The general image contract plus protected-resource rules cover the hosted-reference repair without granting cross-chat or cross-channel byte access. Existing arbitrary-file model-input limits, controlled external-provider evidence and deferred production migration are not represented as new delivered features.
+
+The orchestrator may proceed to canonical merge/archive, including updating the current IM Purpose/index summaries from blanket owner isolation to the final member/public-Work distinction. That mechanical documentation step and production deployment have not happened as part of this check. Only `verification.md` was modified. The report is handed off on the unit branch; the verifier cleans its own detached worktree after pushing it.
