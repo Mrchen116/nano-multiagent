@@ -4,7 +4,7 @@ Workflow id: `knowledge_organize`
 
 Risk / Structure: `R2-R3` / `S3`
 
-This file implements the registered knowledge organization workflow. Before execution, the agent MUST read [`lark-drive-workflow.md`](lark-drive-workflow.md) and [`../../lark-shared/SKILL.md`](../../lark-shared/SKILL.md), and follow the shared execution protocol, Artifact Contract, Workflow Loading rules, authentication rules, and write confirmation rules.
+This file implements the registered knowledge organization workflow. Before execution, the agent MUST read [`lark-drive-workflow.md`](lark-drive-workflow.md) when selecting the workflow, and follow the shared execution protocol, Artifact Contract, Workflow Loading rules, authentication rules, and write confirmation rules.
 
 It defines the workflow-specific state machine and progressive loading map. Stage-specific rules live in phase files and MUST be loaded only when the workflow reaches the corresponding state.
 
@@ -12,7 +12,7 @@ Phase files are references for this workflow, not independent skills. Do not rou
 
 ## Required Context
 
-Before running this workflow, MUST read [`../../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) for identity, authentication, permission handling, and write-operation confirmation rules.
+Use [`../../lark-shared/SKILL.md`](../../lark-shared/SKILL.md) when identity, authentication, scope or confirmation handling needs clarification; reuse existing authorization for the same concrete operation.
 
 Load other skills / references progressively:
 

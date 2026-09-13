@@ -1,41 +1,12 @@
 # Claude Code 真实实验手册
 
-只有源码和官方文档两条证据路径已经定位出具体未知项后，才使用本手册。
+运行受控轨迹或解释现有请求时使用；已有有效证据可复用。
 
-## 成本阶梯
+## 成本与现场
 
-从能够区分假设的最低层级开始，得到答案后立即停止：
+使用能够区分当前假设的最小实验，沿用用户已配置/授权的模型与代理；只有实验确需不同模型或并发时才调整，并遵守既有预算。无需固定型号、effort 或逐级跑完所有实验。
 
-| 层级 | 主进程/子进程 | 实验形态 | 用途 |
-|---|---|---|---|
-| L0 | 无 | 检查源码、文档、CLI help 和已有轨迹 | 始终首先执行 |
-| L1 | Luna/Luna | 一个请求或一个子进程，不调用工具 | 激活条件、提示词、生命周期 |
-| L2 | Luna/Luna | 两个子进程，输出简单结果 | 并行顺序或屏障语义 |
-| L3 | Luna/Luna | 一个子进程，调用一个只读工具 | 子进程权限和工具传播 |
-| L4 | 用户批准 | 只使用解决问题所需的最小更大规模 | 低层级无法推断的行为 |
-
-记录实际 token 用量。即使子进程“不调用工具”，它的 system prompt、工具 schema、skill 和仓库附件仍会消耗输入 token，因此成本可能并不低。
-
-## 受控环境
-
-研究功能机制时优先使用干净的临时目录。如果仓库指令本身属于待验证假设，则使用目标仓库，但必须记录其 commit 和 dirty 状态。不得修改或清理用户无关变更。
-
-使用用户已经授权的代理配置。以下是一组有代表性的低成本覆盖配置：
-
-```bash
-export ANTHROPIC_BASE_URL="http://127.0.0.1:4000"
-export ANTHROPIC_AUTH_TOKEN="token"
-unset ANTHROPIC_API_KEY
-export ANTHROPIC_MODEL="codexOAuth:gpt-5.6-luna"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="codexOAuth:gpt-5.6-luna"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="codexOAuth:gpt-5.6-luna"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="codexOAuth:gpt-5.6-luna"
-export ANTHROPIC_DEFAULT_FABLE_MODEL="codexOAuth:gpt-5.6-luna"
-export CLAUDE_CODE_SUBAGENT_MODEL="codexOAuth:gpt-5.6-luna"
-export CLAUDE_CODE_EFFORT_LEVEL=low
-```
-
-不要把占位凭据复制进待提交文件，也不要假设这些值在用户已配置环境之外仍然有效。
+在隔离目录运行；仓库指令属于待验假设时记录目标 commit 与 dirty 状态。保留无关工作，不复制占位凭据或重写用户的代理配置。记录实际主/子模型、effort、token 与耗时；无工具调用也可能有大量上下文成本。
 
 ## 实验记录
 
@@ -68,7 +39,7 @@ limit:
 
 如果官方文档搜索没有结果，另行添加一条搜索记录，包含 `official_entry_points`、`queries`、`version_or_date_range`、`accessed_at` 和 `rejected_near_matches`。结论必须限定在记录的搜索范围内。
 
-## 轨迹阅读顺序
+## 轨迹定位
 
 1. 在代理 session 中找到 `*-req-anthropic_messages.json` 文件。
 2. 根据 `tools[]` 中的目标工具识别主请求。

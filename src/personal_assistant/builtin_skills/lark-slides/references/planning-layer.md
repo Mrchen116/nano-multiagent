@@ -1,23 +1,16 @@
 # Planning Layer
 
-新建演示文稿或大幅改写页面时，必须先写 `.lark-slides/plan/<deck-or-task-id>/slide_plan.json`，再生成 XML。这个文件是 deck 的设计中间层，用来把叙事、页面角色、布局、视觉重点和文字密度固定下来，避免从用户提示直接跳到 XML。
+多页叙事、跨会话续做或协作需要持久设计状态时，可先写 `.lark-slides/plan/<deck-or-task-id>/slide_plan.json`，再生成 XML。这个文件是 deck 的设计中间层，用来把叙事、页面角色、布局、视觉重点和文字密度固定下来，避免从用户提示直接跳到 XML。
 
-小型已有页编辑可豁免，例如只替换一个标题、改一个数字、插入一个块、上传并插入一张图。只要任务会重排多页、生成新 deck、替换整页结构，仍然需要规划层。
+规划文件按任务需要使用，不是创建或重排页面的前置门禁。下列字段是采用持久计划时的参考结构，不要求为无关信息填占位。
 
-## Required Flow
+## 使用方式
 
-1. 理解用户需求，必要时澄清主题、受众、页数、风格。
-2. 选择唯一 plan 目录：`.lark-slides/plan/<deck-or-task-id>/`。
-3. 先创建目录：`mkdir -p .lark-slides/plan/<deck-or-task-id>`。
-4. 写入 `.lark-slides/plan/<deck-or-task-id>/slide_plan.json`。
-5. 读取 `xml-schema-quick-ref.md`、`visual-planning.md` 和 `asset-planning.md`。
-6. 按 plan、visual planning 和 asset planning 规则逐页生成 XML，把 `layout_type`、`visual_focus`、`text_density` 转成具体页面几何和文本量约束，并把缺失素材转成可执行兜底视觉。
-7. 创建 PPT 后用 `slides +xml-get` 回读，核对页面数量、关键元素和 plan 到 XML 的对应关系，空白 PPT 中没有 slide 元素。
-
+采用计划时，为当前 deck 保留独立路径，并使页面顺序、素材来源和已创建对象与实际产物一致。XML 语法、布局和素材规则按所用元素查对应参考；交付前回读并验证实际页面。
 
 ## Plan Path
 
-Use a separate plan directory per deck or task so multiple presentations in the same workspace cannot overwrite each other.
+When saving a plan, use a separate plan directory per deck or task so multiple presentations in the same workspace cannot overwrite each other.
 
 Recommended IDs:
 
@@ -88,7 +81,7 @@ Exception:
         "asset_type": "logo",
         "purpose": "Signal product or team identity on the opening page.",
         "suggested_query": "product logo",
-        "fallback_if_missing": "Create a close-enough image with the image generation tool instead of a real logo."
+        "fallback_if_missing": "Use the supplied brand asset or an explicitly labeled text placeholder; do not invent a substitute logo."
       },
       "text_density": "low",
       "speaker_intent": "Frame the decision and establish the deck's point of view."
@@ -97,7 +90,7 @@ Exception:
 }
 ```
 
-## Required Fields
+## Plan Fields
 
 Top-level fields:
 
@@ -109,7 +102,7 @@ Top-level fields:
 - `verification_plan`: explicit checks to perform after creation or major edits; include background consistency, text fit, visual focus, and asset rendering when relevant.
 - `slides`: ordered page plans.
 
-Each slide must include:
+Useful per-slide fields:
 
 - `page`: 1-based page number.
 - `title`: slide title.
@@ -150,7 +143,7 @@ When `chart_contract.required == true`, XML generation must produce a `<chart>` 
 
 ## Layout Vocabulary
 
-Use one of these `layout_type` values unless the user explicitly needs a custom structure:
+Common `layout_type` examples (custom structures are allowed):
 
 - `title-cover`
 - `section-divider`
@@ -173,7 +166,7 @@ The value must affect XML geometry, not just appear as a label. For example, `ti
 - `medium`: title plus 2-4 concise bullets or labeled regions.
 - `high`: allowed only when the user needs detail; use tables, columns, or grouped regions instead of a long bullet list.
 
-Do not let all pages become title + bullet slides. For decks of 4 or more pages, aim for at least 4 different `layout_type` values when the content allows it.
+Do not let all pages become title + bullet slides. Use layout variety when it helps the narrative, without a fixed quota.
 
 Text density must be realistic for the planned geometry. If a page needs long titles, bilingual labels, paper figure captions, legal disclaimers, or dense technical wording, record how the text will be shortened, split, or moved to speaker notes. Do not rely on small font sizes or tight boxes to make text fit.
 
@@ -219,7 +212,7 @@ For detailed rules and examples, read `asset-planning.md`.
 Good examples:
 
 - `{"asset_type":"architecture_diagram","purpose":"Explain component relationships.","suggested_query":"service architecture diagram","fallback_if_missing":"Render the component diagram with <shape> + <line>."}`
-- `{"asset_type":"logo","purpose":"Identify the customer context.","suggested_query":"customer logo","fallback_if_missing":"Create a close-enough image with the image generation tool instead of a real logo."}`
+- `{"asset_type":"logo","purpose":"Identify the customer context.","suggested_query":"customer logo","fallback_if_missing":"Use the supplied brand asset or an explicitly labeled text placeholder; do not invent a substitute logo."}`
 - `{"asset_type":"chart","purpose":"Show adoption trend.","suggested_query":"monthly adoption trend chart","fallback_if_missing":"Render a native `<chart>` using the provided series when available; otherwise render a native `<chart>` with mock placeholder values and label it as 模拟数据，仅占位，待替换真实数据."}`
 
 ## XML Generation Contract
