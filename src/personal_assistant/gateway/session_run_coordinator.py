@@ -2301,15 +2301,26 @@ class SessionRunCoordinator:
         """Build an outbox intent only when this user message has a durable IM anchor."""
 
         node_id = self._node_id
+        if node_id is None:
+            return None
+        relay = routed.message.ingress.im_relay
         shadow_ref = routed.shadow.ref
-        if node_id is None or shadow_ref is None:
+        if relay is not None:
+            if not relay.im_message_id:
+                return None
+            conversation_id = routed.message.external_chat_id
+            before_message_id = relay.im_message_id
+        elif shadow_ref is not None:
+            conversation_id = shadow_ref.conversation_id
+            before_message_id = shadow_ref.im_message_id
+        else:
             return None
         return BoundaryIntent(
             boundary_id=str(uuid4()),
             node_id=node_id,
-            conversation_id=shadow_ref.conversation_id,
+            conversation_id=conversation_id,
             agent_id=agent_id,
-            before_message_id=shadow_ref.im_message_id,
+            before_message_id=before_message_id,
             runtime_fingerprint=runtime_fingerprint,
             fingerprint_schema=fingerprint_schema,
             profile_version=profile_version,

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from personal_assistant.channels.base import (
     ExternalConversationIdentity,
+    IMRelayIngress,
     InboundIngress,
 )
 
@@ -393,12 +394,14 @@ async def test_failed_external_new_persists_recoverable_confirmation_intent(
 
 
 @pytest.mark.asyncio
-async def test_runtime_replacement_persists_web_anchor_before_submit(
+@pytest.mark.parametrize("is_group", [False, True])
+async def test_runtime_replacement_persists_native_im_anchor_before_submit(
     tmp_path: Path,
+    is_group: bool,
 ) -> None:
-    """A changed retained runtime records a durable divider anchored to this message."""
+    """Native IM replies record the real relay anchor without a shadow saga."""
 
-    store = SessionBindingStore()
+    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
     kernel, catalog, binder, router, group_store = build_dependencies(
         tmp_path, session_store=store
     )
@@ -409,47 +412,45 @@ async def test_runtime_replacement_persists_web_anchor_before_submit(
         group_context_store=group_store,
         node_id="node-1",
     )
-    first_message = inbound(chat_id="conversation-1", text="before")
+
+    def native_message(message_id: str, text: str):
+        return replace(
+            inbound(chat_id="conversation-1", text=text, is_group=is_group),
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id=f"relay:{message_id}",
+                    idempotency_key=f"input:{message_id}",
+                    im_message_id=message_id,
+                )
+            ),
+        )
+
     first = asyncio.create_task(
         coordinator.dispatch(
-            _request(
-                first_message,
-                catalog,
-                shadow=GatewayShadowState(
-                    saga_id="saga-before",
-                    ref=ShadowConversationRef(
-                        conversation_id="conversation-1",
-                        im_message_id="message-before",
-                    ),
-                ),
-            )
+            _request(native_message("message-before", "before"), catalog)
         )
     )
     await kernel.wait_stream("run-1")
     kernel.finish("run-1")
     await first
+    assert store.pending_boundaries() == ()
 
     current = catalog.require("agent-a").config
     catalog.publish(replace(current, default_model="updated-model"))
-    changed_message = inbound(chat_id="conversation-1", text="after")
     changed = asyncio.create_task(
         coordinator.dispatch(
-            _request(
-                changed_message,
-                catalog,
-                shadow=GatewayShadowState(
-                    saga_id="saga-after",
-                    ref=ShadowConversationRef(
-                        conversation_id="conversation-1",
-                        im_message_id="message-after",
-                    ),
-                ),
-            )
+            _request(native_message("message-after", "after"), catalog)
         )
     )
     await kernel.wait_stream("run-2")
 
-    assert store.pending_boundaries()[0].before_message_id == "message-after"
+    boundaries = store.pending_boundaries()
+    assert len(boundaries) == 1
+    boundary = boundaries[0]
+    assert boundary.node_id == "node-1"
+    assert boundary.agent_id == "agent-a"
+    assert boundary.conversation_id == "conversation-1"
+    assert boundary.before_message_id == "message-after"
     assert kernel.reconfigure_calls[-1][1].model == "updated-model"
 
     kernel.finish("run-2")
