@@ -159,3 +159,155 @@ I5 复现：B→Nova `c_29l7m2vr` 要求新建纯黄 PNG 并正常 send_message 
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新，本 unit 未改变文档规范。
 
 收尾责任：owner 保持本轮运行根与未决批准现场，完成修复/targeted 后统一清理自己启动的专用栈及测试 Skill；reviewer 不销毁共享验收现场。报告外未修改产品源码、测试、配置或设计。
+
+## Round 2 — targeted revalidation
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 513ee21637917dabe16f2f2080136ed63510f7d9`
+>
+> 验收时间：2026-09-14；mode：full；revalidation_mode：targeted；fix_delta_range：`1f14e77db..513ee2163`；prior_acceptance_paths：本报告 Round 1（报告提交 `fc5c093c7`）。范围为 I1–I5、U1–U4；其他已通过且未失效的旅程继承 Round 1。
+
+### Verdict
+
+**pass**。Highest Required Action：**pass**。I1–I5 全部关闭，U1–U4 补齐；18 个 Scenario 在 runbook 规定的实施期验收范围内均为 pass。未关闭的本 unit 产品问题为 0；另记录 1 项既有普通文件模型入参限制，不将它描述成此次已支持的能力。没有创建外部 issue。
+
+此结论适用于上述实测版本。正式旧数据转换仍由部署 agent 按 `migration-prompt.md` 执行，未在本轮提前宣称迁移完成。owner 随后提交的 `274ad07bc` 图片引用修复及 `c3046c6a2` 测试文件整理不是本轮运行版本；其窄 delta 有效性由 owner／后续验证门禁判断，不把更新后的 HEAD 冒充实测版本。
+
+### 运行版本与观察边界
+
+- 继续使用 Round 1 的专用 IM、三 Gateway、独立身份与浏览器。Round 2 最终三个 Gateway 均重启到 `513ee2163`，A1/A2/C1 PID 分别为 41363/41365/41367。最终前端 `index--ymP6Kyu.js` 的来源为 `00dff29be`，到 `513ee2163` 前端源码不变；运行根 `frontend-build.json` 已读，bundle SHA256 为 `b9f5cde51aedc8a9801c22f2f7e166e68f550410f13df1c7d0eedf56cd74f698`。Round 1 的 manifest 另存，未覆盖其历史证据。
+- I1/I2/I3 的首个修复后观察、部分承接操作与 U4 解散发生在期中 IM `4e93`／前端 `a62b98d45` 版本；owner 确认相关实现未在最终 `513ee2163` 改变。最终 bundle 又实际观察到设备别名、手机 Policies、私聊对方名称、蒸馏错误与图片新交付。报告保留这段版本边界。
+- U1 由 owner 保留数据库/JWT/端口真实重启 IM：PID 16913→57800；C1 保持原 PID 41367 和原待批内核。曾尝试暂停 C1，但 tmux 恢复了直接子进程，该暂停窗口作废。有效旅程是正常 Gateway 重连后恢复同一 pending 请求，再并发提交；没有声称 Gateway 在重启窗口一直冻结，也没有声称独立观察到 submitted 状态跨断线保留。
+- 必要的缺源文件与离线前置由 owner 操作，reviewer 从产品观察结果。临时移走的 `sess_54a52fc17eb28657.jsonl` 已恢复原路径，owner 回报并在 restore 记录确认 SHA256 仍为 `d60c3749d5ef2a299619970ac9c7346671e3918c64e12f661ade0cf3637d8203`。没有删除来源、修改数据库或触及日常 Skill 根。帮助 Agent 的 distiller 与 skill_view 均已用管理 UI 恢复启用。
+- 截图仍在 `output/playwright/`，不提交缓存。桌面 1440×960、手机 390×844；767/768px 导航边界继承 Round 1。下列新截图已目视核对；移动长按用真实浏览器内合成 touchstart 事件触发，不冒称物理手机手势测试。
+
+### 修复复验与补充旅程
+
+**R2-J1：对方身份、设备名和手机设置。** C 打开原人际私聊 `c_d8u24y7n`，标题与侧栏为小李，副标题小李·小王，输入提示也是给小李；修复前的自称错误已消失。随后 C 通过菜单改为 `review-人际私聊改名`，刷新仍保持自定义标题。A1 已保存别名 `review-A1` 出现在 Iris/Atlas 的联系人、聊天头部和发送者设备标注中，管理页的技术 node ID 仍作为标识保留。D 手机“我的”现在有独立策略行、线条图标与原语言分段按钮；实际进入 Policies，把保留天数 30→31 保存并重载确认，再恢复 30。账号显示名保存为 `review新同事已保存`，Account 重载保持；退出后访问 `/chat` 回到登录，再次登录后显示新名字且中文保持。证据：`review-round2-human-peer.png`、`review-round2-single-image-alias.png`、`review-round2-mobile-me-final.png`。
+
+**R2-J2：他人创建的群实际看到新配置边界。** C 在 Muse Config 再保存不同标记 `review-boundary-0130`；A 在 A 创建的 `c_qanmoqrx` @Muse 发新请求。A/B/C 时间线出现独立分界“Agent 配置已更新 · 后续请求将不再命中此前的上下文缓存”，位置在首条采用新配置的请求之前，刷新后仍只有该边界。第一次请求受到之前普通 txt 附件的既有入参限制影响；下一条无附件请求实际回复 `review-boundary-0130`，证明新配置采用与可见边界同时成立。旧轮缺失的边界没有被回填。证据：`review-round2-config-boundary.png`；此截图也如实保留第一次图片误报，见 Side Finding。
+
+**R2-J3：全局 Agent 生成及重发 workspace 图片。** B 在原 Nova 私聊 `c_29l7m2vr` 要求正常生成一张 120×60 绿色 PNG 后 send_message 回传，message `4bfbe7436eeb454a8063e679cffa12bd` 使用受保护 URL `/im/v1/conversations/c_29l7m2vr/images/2743d30942994ab4981cbd29d870303e`。浏览器实际显示绿色图，naturalWidth=120，放大预览可见。再要求发送已存在的 `review-generated.png`，message `80d70a433ec046ff8fcfe9e96325b6c4` 得到新资源 `/im/v1/conversations/c_29l7m2vr/images/ab63574975a84424a2dc6dc9a298de3e`；刷新后实际显示黄色图，naturalWidth=120。A/C 直接读取新绿色资源均 404，B 200，无凭据 401；消息继续有 View Work。历史 Round 1 失败消息仍破图，不将旧记录重写说成修复条件；本轮证明新生成与再次发送已有 workspace 文件两条路径可用。证据：`review-round2-global-image-preview.png`、`review-round2-existing-image.png`。single_thread 图片与合法 fork 的实际显示另见 R2-J6。
+
+**R2-J4：原待批卡经 IM 重启恢复，多人并发只执行一次。** A 在 `c_qanmoqrx` 让 C 管理的 Muse 新建 `review-approval-0132` 目录、先 read 尚不存在的 `.gitconfig`，再用 write 写单行 `# review-once-0132`。B 手机实际看到三个原批准选项。原 message 为 `c963e485f86a420c846229f93e9f2a1a`，request 为 `5cfc86d9-4be9-4c7f-bdca-4cdd11a6a5d9`，run 为 `run_7a83bd8c90f9d343`，路由为 C1/Muse。owner 重启 IM 后，reviewer 独立刷新观察同一 pending 卡，并核对同一 request/run 与文件尚不存在。
+
+reviewer 用真实 A/B 登录令牌、同步屏障和两条并发 HTTP 请求提交 allow_once：二者均返回 200/submitted，decision 均为 allow_once，decided_by 均为 A（`u_btms4c9h`）。随后 C 对同一请求提交相反的 deny，返回 resolved，仍保持 A 的 allow_once。最后原消息 resolved，工具轨迹只有一次完成的 write（tool_call `call_00_ZpB3LEySE3FZNmJXqRJM7569`，approval=user_allow）；实际文件内容恰为 `# review-once-0132\n`，没有第二次 write。此前唯一 read 失败是预先要求验证文件不存在，不计作第二次副作用。B 英文与 C 中文均看到同一完成结果和 1 次批准/1 次允许。原进程、IM 变更及 gateway_frozen=false 记录在运行根 `independent-reconnect-window.json`；reviewer 的实际并发响应及最终工具记录在 `review-concurrent-decisions.json`、`review-concurrent-final.json`。截图：`review-round2-permission-pending.png`、`review-round2-before-restart.png`、`review-round2-permission-resolved.png`。这组独立证据关闭 U1，没有借用 owner 自己群内的成功过程。
+
+**R2-J5：单 Thread 多聊天 Skill 的剩余操作与失败路径。** A 从指定在线 A1 真正创建 `review-helper-0110`（single_thread），并从 A2 创建 `review-peer-0128`；后者在普通聊天 `c_o9ga6ixe` 实际回复 `review-peer-ready`。在选择 A1 Iris 来源后，A2 review-peer 来源显示 Different Gateway 且复选框禁用。桌面侧栏底部、会话右键 Distill to skill 均可进入；390px 上实际选择两段 Iris 聊天、执行 helper、切 scope，底部操作可用。两种 scope 的真实 Skill 创建和原样预填不自动发送继承 Round 1，不以新建 helper 代替这两次模型结果。
+
+对同一来源 `c_kqn7i8hc/c_tm2ws7fd`，通过 helper 管理 UI 分别禁用 distiller、恢复后再禁用 skill_view：Start 分别提示启用相应能力，均未建空聊天。恢复两项后，owner 临时移走一份来源 JSONL，Start 因源不可用失败且保留选择；恢复源后真正成功预填到 `c_hrrs6ey4`，尚未发送。owner 随后实际停止 A1 并确认进程退出，Start 因 Gateway 不在线失败，仍未建聊天；此前无效的 SIGSTOP 不作为离线证据。A1 恢复到最终版本后，再次临时移走相同来源，用最终前端复验为友好英文提示：“Could not prepare the selected chats. Check that their Gateway is online and their history is available, then try again.” 当前 `/chat`、来源、helper 与 scope 保留，没有原始 HTTP/JSON 或空执行聊天；源现已恢复并核对哈希。截图：`review-distill-cross-gateway-lock.png`、`review-mobile-distill-selection.png`、`review-distill-no-distiller.png`、`review-distill-no-skill-view.png`、`review-distill-offline.png`、`review-round2-distill-friendly-error.png`。
+
+**R2-J6：文件、历史资源、fork 与消息操作。** B 在三人群上传普通文件 `review-group-file.txt`，正文为 `review-group-file-0109\n`；message `6903785234d14b4f8b5baf53f5558af0`，附件 `/im/v1/conversations/c_qanmoqrx/attachments/df8aaa46dba84b6295f6730d91585158`。真实请求 A/B/C 都是 200 且字节相同，非成员 D 404、无凭据 401；旧 `/im/uploads/review-group-file.txt` 为 404。B 在浏览器点击附件下载并读取文件确认字节，不只记录接口状态。群消息的实时移除隔离继承 Round 1；这里单独关闭群资源 U3。
+
+B 作为非管理者，在已完成的 Iris 图片 direct 回复使用 Branch from here，原聊天 `c_0qsml7dd` 生成 `c_22kfp1v4`。输入图片及 Agent 输出均实际加载（naturalWidth=480），刷新后仍可回看。再在此聊天上传普通 `review-fork-file.txt`，正文 `review-file-for-fork-0124\n`，并在下一条无附件请求得到真实代码块 `review-code-0127`；Copy code 的剪贴板内容精确匹配。于已完成回复继续 fork 为 `c_xapqwfg5`，txt 附件被改写为新聊天资源 `/im/v1/conversations/c_xapqwfg5/attachments/64c50ee979b0499494c96d63f6b21685`，B 重载后下载字节正确，A/C 404、无凭据 401；图片也继续可见。由此证明目标格式历史资源随合法 fork 可用，不假称测试了正式存量转换。截图：`review-fork-protected-images.png`、`review-fork-file-and-code.png`。
+
+另从 C 工具栏复制人际消息，剪贴板与正文相同；B 手机以合成 touchstart 等待 700ms 触发真实消息长按菜单，Copy/Branch 操作出现。Iris 离线时 fork 禁用并显示原因，恢复后可用。C 的人际聊天草稿 `review-独立草稿H-0119` 与群草稿 `review-独立草稿G-0119` 在两个聊天切换后各自保留；等待目标标题加载后再输入，未把自动化导航竞态误报为产品丢稿。证据：`review-mobile-message-menu.png` 及独立剪贴板结果。
+
+**R2-J7：管理页面与群操作补齐。** helper 的创建、模型选择、Config 技能/工具保存均走正式 UI；Iris Skills 显示真实使用统计（含 distiller 使用），Overview/Sessions 原空态与顺序继承 Round 1。Channels 的 Add 打开实际 Feishu 向导，空保存分别给出 App ID/App Secret 必填校验，Cancel 不留下渠道。runbook 明确本轮不开 Feishu channel、不需要外部租户，因此此处证明原入口、操作资格与表单行为，没有声称连通真实第三方租户。D Account/Policies 的实际保存和退出已在 R2-J1 完成。B 手机 New group 为底部弹层，空选择时创建禁用，零 Gateway 账号只显示可选人；实际混合群建成及由 C 加自己的 Agent 继承 Round 1。截图：`review-round2-mobile-create-group.png`、`review-mobile-public-agent.png`。
+
+U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期中 IM `4e93` 的本轮观察，相关 IM 实现到最终版本不变：A 创建者可确认 Dissolve，B 仅有 Leave，解散后 B 正打开的群设置、消息、composer、dialog 全部清空。记录实际版本后关闭 U4，不将它逆归入 Round 1，也未为同一无变化结果再解散其他群。证据：`review-group-dissolved.png`。
+
+### Reference Artifacts Reviewed
+
+继续对照 Round 1 已打开的 `prototype.html` 与 design must-match 1–10；旧有对照截图保留。结论只要求约定的信息层级、入口、状态及操作资格，不要求像素一致。以下结合新截图与未失效前轮证据关闭所有原型对照缺口。
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| 新聊天，must-match 1 | 人/Agent、无设备、空搜索、正确私聊对象 | Round 1 J1；R2-J1；review-round2-human-peer.png | 1440×960、390×844；对方私聊/零设备 | match；I1 关闭 |
+| 建群与成员，must-match 2 | 桌面弹窗/手机底部弹层、空选择禁用、本人 Agent 选择 | Round 1 J3；R2-J7；review-round2-mobile-create-group.png | 1440×960、390×844；三人混合群/手机空选择 | match；手机缺口关闭 |
+| 群时间线，must-match 3 | 发送者、设备名字与在线状态 | Round 1 J2/J3；R2-J1；review-round2-single-image-alias.png | 桌面/390×844；多节点及离线 | match；I2 关闭 |
+| 批准卡，must-match 4 | 原三个选项、非 owner 可用、全体同一处理结果 | R2-J4；review-round2-permission-pending.png、review-round2-permission-resolved.png | B 手机；重启前后、并发批准后 | match；U1 关闭 |
+| 全局 Work，must-match 5 | 完整主/子执行可读，链接不开放原聊天 | Round 1 J5；R2-J3 新图片仍受聊天保护且保留 View Work | C 桌面、B 手机；非成员/刷新 | match；完整 Work 证据继承 |
+| Agents/Nodes，must-match 6 | 只管理自己的配置，多设备/空设备/离线 | Round 1 J2；R2-J1/J5/J7；review-mobile-public-agent.png | A/B/C/D；两节点、零节点、他人 Agent | match；指定节点创建与配置写入补齐 |
+| 中英文，must-match 7 | 原控件、即时持久、正文/草稿不翻译 | Round 1 J7；R2-J1/J4/J5；review-round2-mobile-me-final.png | 桌面 EN \| 中、390px 分段按钮；重载/批准/错误 | match；新错误提示也可理解 |
+| 多聊天 Skill，must-match 8 | 同 Gateway、两 scope、失败不建聊天、预填未发送 | Round 1 J6；R2-J5；六张 distill 截图与真实创建结果 | 桌面/390×844；成功/缺能力/离线/缺路径 | match；U2 对应缺口关闭 |
+| 既有聊天与管理入口，must-match 9 | 原菜单/fork/slash/草稿/管理操作资格 | Round 1 J6/J7；R2-J1/J5/J6/J7；review-fork-protected-images.png、review-mobile-message-menu.png | 桌面/手机；本人/协作者、在线/离线、历史资源 | match；I4/I5 与 U2 剩余项关闭；第三方连接范围见 R2-J7 |
+| 设置层级，must-match 10 | 独立设备/账号/策略行、图标、原语言控件 | 原型 review-reference-mobile-me.png 对照 review-round2-mobile-me-final.png；桌面菜单继承 Round 1 | 390×844、桌面；保存后/零设备 | match；I3 关闭，无语言区域嵌套其他设置 |
+
+### 问题收口与 Side Finding
+
+| ID | 原 Severity / Relation | 本轮实际结果 | 状态 / Required Action |
+|---|---|---|---|
+| I1 | major / direct | 对方标题、侧栏、composer 一致；显式改名持久 | closed / pass（R2-J1） |
+| I2 | minor / direct | 保存的 review-A1 显示在 Agent 与聊天设备标签 | closed / pass（R2-J1） |
+| I3 | major / direct | 手机独立 Policies 行可进入并真实保存/重载 | closed / pass（R2-J1） |
+| I4 | major / suspected-regression | 新配置的系统分界与实际采用同时出现，刷新保持 | closed / pass（R2-J2） |
+| I5 | major / suspected-regression | global 新生成和既有 workspace 图片回传可见，仍有成员保护 | closed / pass（R2-J3） |
+| U1 | 先前 inconclusive | 独立观察原请求经 IM 重启恢复、A/B 并发、C 相反重复、一次真实 write | closed / pass（R2-J4） |
+| U2 | 先前覆盖不足 | 失败前置、手机选择、同 Gateway、消息/草稿/fork/文件、本人管理与设置操作补齐 | closed / pass（R2-J1/J5/J6/J7） |
+| U3 | 先前覆盖不足 | 群文件 A/B/C 可读，D/匿名不可读；浏览器下载字节一致 | closed / pass（R2-J6） |
+| U4 | 版本未归档 | 解散证据明确归入期中 4e93，行为到最终版本不变 | closed / pass（R2-J7） |
+
+**SF1 — 既有普通文件模型入参限制（nonblocking；Regression Relation：unrelated-existing，由 owner 的基线比对归类）。** B 给 Iris 附 txt 的 message `21140bc730264d7ea049a7b394c5c955` 得到“这张图片我无法识别…”；群内之前未消费的 txt 也影响了 Muse 第一次新请求。下一条无附件请求可正常完成。普通文件的上传、浏览器下载、历史与 fork 读取均已实际通过，但这些结果不意味着 Agent 能理解任意文件。owner 独立核对基线到本 unit 的现有 adapter/resolver：所有 URL 附件原先即进入图片解析，未按 MIME 排除 txt；本次变化只涉及受保护读取身份。reviewer 未阅读源码定位根因。按本轮已确认范围，此既有入参限制不作此次权限/资源改造的新增失败，也不将任意文件模型处理算作已验能力；未外发 issue。
+
+### 验收标准覆盖
+
+以下每一行均对应 spec 的原 Scenario；本轮继续继承前轮 fail/inconclusive 行并逐一关闭。“继承”仅表示相关实现未失效，不表示把新 HEAD 当成旧旅程的运行版本。
+
+#### Requirement: 用户无需 Gateway 即可注册登录并查找联系人 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 无 Gateway 的用户开始沟通 | spec；must-match 1 | 继承 D 注册/B 零设备沟通；D 保存/退出/重登 | Round 1 J1；R2-J1 | pass | 无绑定前置 |
+| 没有匹配联系人 | spec；must-match 1 | 继承真实无结果搜索 | Round 1 J1 | pass | 不误建聊天 |
+
+#### Requirement: 人与人可以跨账号私聊并持久回看 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 两个账号实时沟通 | spec；联系人稳定身份 | 重看原双向私聊、标题、改名与重载 | R2-J1；review-round2-human-peer.png | pass | 关闭原 fail/I1 |
+
+#### Requirement: 一个人可以管理多个 Gateway 及其 Agent — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 同一人绑定多台设备 | spec；must-match 6 | 继承真实双节点；分别指定 A1/A2 新建 Agent 并交办 | Round 1 J2；R2-J1/J5 | pass | 别名 I2 关闭；节点独立 |
+| 协作者不能修改他人的设备或 Agent 配置 | spec；must-match 6 | 继承真实拒绝，B 继续公开资料/fork/交办 | Round 1 J2；R2-J6/J7 | pass | 未扩大完整管理能力 |
+| 单台设备离线 | spec；must-match 3/6 | 继承 C1 离线；补 A1 真实退出与恢复 | Round 1 J2；R2-J5 | pass | 末次 Heartbeat/其余节点可用证据继承 |
+
+#### Requirement: 用户可以直接私聊其他人管理的 Agent — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 跨管理归属交办工作 | spec；runbook 图文交付 | 继承 Nova 真实文本/识图；新生成/既有 PNG 回传并预览 | R2-J3；两张图片截图；R2-J6 single_thread 图片 | pass | 关闭原 fail/I5；历史失败消息不改写 |
+
+#### Requirement: 多人与不同 Gateway 上的 Agent 可以在同一群协作 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 建立混合成员项目群 | spec；must-match 2 | 继承真实群；补手机空选择/底部弹层 | Round 1 J3；R2-J7 | pass | 手机 Reference 缺口关闭 |
+| 不同群成员共同交办工作 | spec；runbook 配置边界 | C 再保存配置，A 请求，三人见边界与新结果 | R2-J2；review-round2-config-boundary.png | pass | 关闭原 fail/I4；SF1 单列 |
+| 群成员与群名变更 | spec；既有群操作 | 继承改名/偏好/移除；归档实际解散 | Round 1 J3；R2-J7；review-group-dissolved.png | pass | 关闭原 inconclusive/U4 |
+
+#### Requirement: 工具批准遵循工作模式且不新增人员权限配置 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 全局模式不弹批准卡 | spec；must-match 4 | 继承实际多工具轮次；新增 Nova 回图未弹卡 | Round 1 J5/J6；R2-J3 | pass | 按原工作模式 |
+| 单 Thread 模式的群成员可操作批准卡 | spec；must-match 4 | 继承 B 非 owner 批准；补同卡多人状态 | Round 1 J4；R2-J4 | pass | 原三个选项保留 |
+| 同一张卡被多人操作 | spec；runbook 并发/重连 | 原 pending 跨 IM 重启恢复；A/B 并发；C 相反重复；真实文件 | R2-J4；原 request/run、并发响应与一次 write | pass | 关闭原 inconclusive/U1；未伪造冻结窗口 |
+
+#### Requirement: 聊天按成员可见，全局 Agent Work 详情完整可见 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 未参与者不能读取私聊 | spec；must-match 5 | 继承历史/消息；对新图、fork 文件再次请求 | Round 1 J5；R2-J3/J6 | pass | owner A 仍不能读 B 原聊天资源 |
+| 未加入的群不可读取 | spec；runbook 资源边界 | 继承移除即时/重载；对群文件多身份直读与浏览器下载 | Round 1 J3；R2-J6 | pass | 关闭原 inconclusive/U3 |
+| 全局 Work 不按来源聊天过滤 | spec；must-match 5 | 继承 C 非成员完整主执行/子执行及刷新 | Round 1 J5；Work 两张真实截图 | pass | 不按来源遮盖 |
+| Work 链接不授予原聊天访问权 | spec；must-match 5 | 继承原聊天目的地拒绝；新资源边界复核 | Round 1 J5；R2-J3 | pass | Work 与聊天两规则并存 |
+
+#### Requirement: 既有使用数据和工作能力在升级后保留 — 组内结论：pass（实施期范围）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 原用户继续使用 | spec Q9/Q10；承接矩阵/must-match 7–10；runbook | 目标格式历史、两 scope 实际创建及全部失败前置、fork/文件/菜单/草稿/管理/设置 | Round 1 J6/J7；R2-J1/J2/J3/J5/J6/J7；Reference 表 | pass | 关闭原 fail/I3/I4/I5/U2；真实存量转换仍是正式部署验收事项，第三方渠道连通及任意文件模型处理未宣称已测 |
+
+合计 18 pass、0 fail、0 inconclusive；此计数遵循 runbook 的实施期范围，不替代部署 agent 对旧库转换与保真核对的单独结论。
+
+### 上层文档同步与交接
+
+- [x] `SPEC.md`：架构 import 边界不变；公开目录/Work 与成员聊天的产品摘要应由 owner 在收尾核对，避免仍表达“全部只看本人数据”。
+- [x] `docs/specs/im/`、`docs/specs/gateway/`：**需要归并本 unit 的最终 delta**，责任仍在 owner／verifier。Round 1 已指出 current IM 的 owner 全隔离文字；本 reviewer 不改 canonical，也不以实施成功叙述替代同步核对。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+最终源码窄 delta 判定、canonical 归并和迁移 Markdown 与最终接口核对交由 owner／verifier。报告没有改写设计或要求新增旧版本兼容代码。专用服务、浏览器、测试 Agent/Skill 暂按 owner 要求保留到其后续核对完成，再由各自生命周期 owner 清理；恢复过的源 JSONL 已完成哈希核对，Policies 与缺能力前置已复原。没有仍待用户补充才能完成的产品验收项。
