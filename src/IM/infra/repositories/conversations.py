@@ -444,21 +444,32 @@ class ConversationRepository:
     ) -> Conversation | None:
         """Return a member's private preferences alongside shared chat metadata."""
         state = self._connection.execute(
-            "SELECT is_pinned, is_muted, unread_count FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+            """SELECT p.is_pinned, p.is_muted, p.unread_count, c.direct_key, c.title_is_custom
+            FROM conversation_participants p JOIN conversations c ON c.id = p.conversation_id
+            WHERE p.conversation_id = ? AND p.user_id = ?""",
             (conversation_id, user_id),
         ).fetchone()
         if state is None:
             return None
         conversation = self.get_conversation(conversation_id=conversation_id)
-        return (
-            replace(
-                conversation,
-                is_pinned=bool(state["is_pinned"]),
-                is_muted=bool(state["is_muted"]),
-                unread_count=int(state["unread_count"]),
+        if conversation is None:
+            return None
+        title = conversation.title
+        if (
+            state["direct_key"]
+            and not state["title_is_custom"]
+            and conversation.direct_kind == "user-user"
+        ):
+            peer = next(
+                actor for actor in conversation.participants if actor.id != user_id
             )
-            if conversation
-            else None
+            title = peer.display_name or peer.id
+        return replace(
+            conversation,
+            title=title,
+            is_pinned=bool(state["is_pinned"]),
+            is_muted=bool(state["is_muted"]),
+            unread_count=int(state["unread_count"]),
         )
 
     def list_conversations_for_member(self, *, user_id: str) -> list[Conversation]:

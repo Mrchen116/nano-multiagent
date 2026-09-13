@@ -47,7 +47,8 @@ class UserRepository:
                 CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
                 COALESCE(ap.display_name, u.display_name) AS display_name,
                 ap.agent_id, ap.owner_id, owner.display_name AS owner_display_name,
-                n.node_name, COALESCE(n.status, 'offline') AS status, ap.work_mode
+                COALESCE(NULLIF(n.alias, ''), n.node_name) AS node_name,
+                COALESCE(n.status, 'offline') AS status, ap.work_mode
             FROM users u
             LEFT JOIN agent_profiles ap ON u.username = 'agent:' || ap.agent_id
             LEFT JOIN users owner ON owner.id = ap.owner_id

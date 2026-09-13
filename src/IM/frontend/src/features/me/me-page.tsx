@@ -129,6 +129,22 @@ export function MePage() {
 
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
+        data-testid="me-card-policies"
+      >
+        <Link to="/settings/policies" className={ROW_BASE} data-testid="me-row-policies">
+          <span className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`} aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+              <path d="M4 7h6m4 0h6M4 17h10m4 0h2" />
+              <circle cx="12" cy="7" r="2" /><circle cx="16" cy="17" r="2" />
+            </svg>
+          </span>
+          <p className={LABEL}>{t("shell.userMenu.policies")}</p>
+          <span className={CHEVRON} aria-hidden="true">›</span>
+        </Link>
+      </div>
+
+      <div
+        className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-language"
       >
         <div

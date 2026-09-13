@@ -84,6 +84,68 @@ def test_public_contacts_exclude_shadow_and_configuration_and_page_stably(tmp_pa
         )
 
 
+def test_normal_human_direct_shows_peer_until_shared_title_is_customized(tmp_path):
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice", display_name="Alice")
+        bob = register_user(client, username="bob", display_name="Bob")
+        carol = register_user(client, username="carol", display_name="Carol")
+        chats = {}
+        for sender in (alice, carol):
+            authorize(client, sender)
+            created = client.post(
+                "/im/v1/conversations",
+                json={
+                    "type": "direct",
+                    "title": "Bob",
+                    "participant_ids": [bob.id],
+                },
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["title"] == "Bob"
+            chats[sender.username] = created.json()["id"]
+        authorize(client, bob)
+        assert {
+            c["title"] for c in client.get("/im/v1/conversations").json()["items"]
+        } == {"Alice", "Carol"}
+        reused = client.post(
+            "/im/v1/conversations",
+            json={
+                "type": "direct",
+                "title": "Alice",
+                "participant_ids": [alice.id],
+            },
+        ).json()
+        assert reused["id"] == chats["alice"] and reused["title"] == "Alice"
+        changed = client.patch(
+            f"/im/v1/conversations/{chats['alice']}", json={"title": "Project note"}
+        )
+        assert changed.json()["title"] == "Project note"
+        authorize(client, alice)
+        assert (
+            client.get(f"/im/v1/conversations/{chats['alice']}").json()["title"]
+            == "Project note"
+        )
+
+
+def test_public_agent_device_label_preserves_saved_node_alias(tmp_path):
+    with make_app_client(tmp_path) as client:
+        owner = register_user(client, username="owner")
+        member = register_user(client, username="member")
+        authorize(client, owner)
+        agent = _agent(client, owner, "atlas")
+        NodeRepository(client.app.state.connection).upsert_node(
+            node_id="node-atlas", node_name="Raw MacBook", owner_id=owner.id
+        )
+        saved = client.patch(
+            "/im/v1/nodes/node-atlas/config", json={"alias": "Office Laptop"}
+        )
+        assert saved.status_code == 200, saved.text
+        for user in (owner, member):
+            authorize(client, user)
+            contact = client.get(f"/im/v1/contacts/{agent.id}").json()
+            assert contact["node_name"] == "Office Laptop"
+
+
 def test_people_share_group_but_keep_personal_preferences_and_membership(tmp_path):
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice")
