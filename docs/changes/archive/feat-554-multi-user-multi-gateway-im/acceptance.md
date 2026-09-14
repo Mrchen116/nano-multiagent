@@ -396,3 +396,25 @@ U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期�
 - 两种语言、两种视口均保留用户 ID、显示名、资料卡及两台设备的名称／ID／在线状态／Agent 数、已拥有节点数 2；四张截图已独立目视核对，没有用原型替代产品。
 - 截图：`output/playwright/r6-account-desktop-en.png`、`r6-account-desktop-zh.png`、`r6-account-mobile-en.png`、`r6-account-mobile-zh.png`。语言只通过账号页所在顶栏菜单切换，未测试其他页面或保存任何资料。
 - 独立浏览器已关闭，临时服务保留；未更改账号、绑定或配置。仅追加报告，无单独 commit；本轮不重新宣称保存／绑定通过，不新增上层契约或扩大检查。
+
+## Round 7 — targeted no-device Agent creation entry
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 6e2ce034545194593f7d4a9c768259d121dd78ac`；2026-09-14 09:40–09:42（Asia/Shanghai）；mode=full；revalidation_mode=targeted；fix_delta_range=`8e32f0c7e..6e2ce0345`。
+
+**Verdict：pass；Highest Required Action：pass；本轮问题 0。** 仅复验 `/settings/agents/new` 的无设备分支与有设备表单入口；Round 1–6 未受影响旅程 retained。
+- 独立会话 `feat554-new-agent-review` 使用真实 `http://127.0.0.1:54719`；开始时 HEAD 与指定版本一致，入口为 `index-CxS6SHKu.js`／`index-AcqoURxY.css`，最终有设备页面也实际加载同一 JS。CLI 的 npm 获取等待发生在导航前，不记作产品 Loading。
+- xiaoli（菜单显示 0 已拥有／0 在线）直接打开入口后，1440×960 和 390×844 均显示“创建 Agent 前，请先绑定设备”及说明，没有停留在加载状态；两种视口均实际点击“管理设备”进入 `/settings/nodes`、“返回 Agents”进入 `/settings/agents`。这里只确认目标地址，不验 Nodes 布局。
+- nano 有设备账号直接打开同一入口，正常显示原“新建 Agent”表单及工作模式、身份、所属节点、Workspace 等内容；未填写、创建或保存任何 Agent。
+- 三张真实截图已目视核对，中文可读：`output/playwright/r7-no-device-desktop.png`、`r7-no-device-mobile.png`、`r7-device-new-agent-form.png`。EN 的既有测试证据 retained，本轮没有扩做双语全流程。
+- 浏览器已关闭，服务／数据保留；未重启服务、绑定设备或改配置。仅追加本报告，不单独 commit；不扩大到其他页面，不重新宣称实际 Agent 创建或完整 IM 验收通过。
+
+## Round 8 — targeted Nodes empty-state presentation
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → d502eaccc639eed6b2634c498c4c31a983dad957`；2026-09-14 09:52–09:55（Asia/Shanghai）；mode=full；revalidation_mode=targeted；fix_delta_range=`6e2ce034545194593f7d4a9c768259d121dd78ac..d502eaccc639eed6b2634c498c4c31a983dad957`。
+
+**Verdict：pass；Highest Required Action：pass；本轮问题 0。** 仅验 `/settings/nodes` 空状态及原设备／Heartbeat 展示；Round 1–7 未影响旅程 retained。
+- 独立 `feat554-nodes-review` 会话使用真实 `http://127.0.0.1:54719`；HEAD、HTTP 入口与浏览器实际 JS 均对应指定版本（`index-B46Grx1b.js`／`index-DX2OdQ8z.css`），保留已有文档改动，未重启服务。
+- xiaoli 中文 1440×960／390×844：空卡片的设备图标、标题、两步说明与刷新按钮间距清楚，手机文字正常换行；手机文档宽度 390px、正文无横向溢出。实际点击“刷新设备”后仍正常显示空状态；手机“返回”进入 `/me`。
+- 英文实际显示完整的无设备说明及两步绑定指引，点击 “Refresh devices” 后恢复可点击状态，没有停留加载或错误；桌面文档宽度 1440px、正文无横向溢出。
+- nano 1440×960：原两张设备卡（工作站／第二台 Gateway）、在线状态、Agent 数及各自 Live Snapshot 的 Heartbeat 时间均可见；未编辑别名或保存配置。
+- 三张截图已独立目视核对：`output/playwright/r8-nodes-empty-desktop.png`、`r8-nodes-empty-mobile.png`、`r8-nodes-owned-heartbeat.png`。测试浏览器已关闭，临时服务与业务数据保留；仅追加报告，不单独 commit，不扩查其他页面或实际绑定流程。

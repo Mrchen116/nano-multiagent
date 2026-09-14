@@ -86,3 +86,20 @@ Independent finder reviewed the two-action menu, unchanged callback wiring, scop
 - `review_mode`: `patch`; `diff_range`: `55da199dc..7a6a6176a`
 
 Independent finder checked the removed account controls/draft state, retained profile-save payload, device rendering and translation consumers. Result: `[]`; no candidate required confirmation. The node-selector translation still used by Agent creation is preserved. Previous unaffected scope remains retained.
+
+
+## No-device Agent creation patch, round 10
+
+- `validated_at`: `6e2ce034545194593f7d4a9c768259d121dd78ac`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch`; `diff_range`: `8e32f0c7e..6e2ce0345`
+
+Independent finder checked the successful-empty node query branch, preserved selected-node creation flow, localized links and regression tests. Result: `[]`; no candidate required confirmation. Earlier unaffected evidence remains retained.
+
+## Nodes empty-page layout patch, round 11
+
+- `validated_at`: `d502eaccc639eed6b2634c498c4c31a983dad957`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch` and focused closure; `diff_range`: `6e2ce0345..d502eaccc`
+
+Finder found one P2 in the uncommitted patch: an unconditional error branch hid existing devices and Heartbeat after a failed background refetch. An independent verifier reproduced `isRefetchError=true` with retained node data in the installed React Query. Restricting the error panel to an empty list preserves loaded cards. The added regression failed before this correction and passed afterward; independent closure returned `[]`, finding **closed**. No other finding remains, and no unrelated review scope was added. Product acceptance is recorded separately.
