@@ -59,3 +59,12 @@ The final test-layout commit `c3046c6a2` splits the external-channel case from t
 - `review_mode`: `patch`; `diff_range`: `a7610b283..255903e3e`
 
 Independent finder reviewed the public profile JSX, removal of the separate public CSS layout, the existing owner-page comparison and the updated Work label expectation. Result: `[]`; no candidate required a separate candidate-verification pass. Existing full/patch findings remain closed outside this presentation-only delta. Public identity lookup, ownership decision, message creation and Work access retain their existing implementations; the separate product reviewer owns visual and actual-entrypoint acceptance.
+
+
+## Person avatar consistency patch, round 7
+
+- `validated_at`: `320b39c96c6be1c7f4d247cca405a0dd058168fd`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch`; `diff_range`: `0256a531d..320b39c96`
+
+Independent finder reviewed the shared person-peer selection, viewer identity wiring, sidebar/header/message palette use and the rendered cross-surface regressions. Result: `[]`; no candidate required independent confirmation. Earlier full and patch conclusions remain retained outside this frontend presentation delta. Product acceptance is recorded independently; this code verdict is not a browser-verification claim.

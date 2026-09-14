@@ -349,3 +349,26 @@ U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期�
 ### 上层同步与收尾
 
 本次只统一呈现，未改变 spec 的成员关系、公开 Work 或管理资格，无需为此新增权限／数据契约。Round 2 的其他 Scenario 结论及迁移由部署 agent 执行的边界保持；本轮没有重新宣称完成正式存量迁移。独立 `feat554-public-review` 浏览器已关闭，现有 IM／Gateway、caller 浏览器及用户体验数据继续保留；未重启／停止服务，未修改源码、测试、配置或设计。仅追加本报告，按 caller 明确分工由 root 统一提交，reviewer 不另 commit。
+
+## Round 4 — targeted human avatar color revalidation
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 320b39c96c6be1c7f4d247cca405a0dd058168fd`
+>
+> 时间：2026-09-14 08:52–08:57（Asia/Shanghai）；mode：full；revalidation_mode：targeted；fix_delta_range：`0256a531d..320b39c96`。仅按用户最新反馈检查人物头像颜色一致性；Round 1–3 未受影响的范围 retained，不重验完整 IM 或全部 Agent。
+
+**颜色验收 verdict：pass；Highest Required Action（本轮限定范围）：pass。** 小李在侧栏、私聊页头、私聊消息、联系人、群消息和 @ 候选中均为一致的浅粉背景／深粉文字。实际浏览器计算值均为背景 `rgb(231, 215, 220)`、文字 `rgb(121, 82, 95)`；小王的联系人与 @ 候选也一致，分别为 `rgb(203, 222, 219)`、`rgb(47, 89, 84)`。手机 390×844 下小李头像与桌面一致；群组在列表和聊天页头仍使用独立群图标。头像范围内新增问题数为 0；相邻布局问题另列，不以颜色结论替代完整手机入口验收。
+
+### 实际版本、参考与证据
+
+- 独立会话 `feat554-avatar-review` 登录 `nano`，真实入口 `http://127.0.0.1:54719`；开始时 HEAD 为上述完整 SHA，tracked tree clean。当前 HTTP JS `index-D3V5Y4tm.js` 与本 worktree dist 逐字节一致，SHA256 `1d48ecc329c97616d13d8006b44be8d0684582011e49f5f6a63697a3a892ed2a`；CSS `index-BDySxW--.css` 与 Round 3 相同。构建版本关联由 caller 提供，本轮独立核对 HEAD 和所服务产物，没有重建／重启服务。
+- 参考为用户指出的 `/chat/c_b8riugvc` 同一人不同颜色问题，以及 spec 的稳定联系人身份、design 既有聊天样式承接要求；验收取真实页面与 computed styles，不取原型或实现者成功叙述。
+- 桌面 1440×960：小李私聊 `/chat/c_b8riugvc` 同屏对照 sidebar/header/message；打开联系人对照小李、小王；群 `/chat/c_2gaw2u66` 查看已有小李消息并在空 composer 输入 `@` 查看候选，随后清空，未发送。截图：`output/playwright/r4-li-direct-desktop.png`、`r4-contacts-desktop.png`、`r4-group-mention-desktop.png`。
+- 手机 390×844：查看小李私聊、列表、群消息和 @ 候选；联系人仅验证**桌面打开弹层后缩到 390px 的显示**。截图：`output/playwright/r4-li-direct-mobile.png`、`r4-sidebar-mobile.png`、`r4-group-mobile.png`、`r4-group-mention-mobile.png`、`r4-contacts-mobile.png`。上述截图均已独立目视核对，属于浏览器移动视口，非物理手机测试。
+
+### 相邻问题，未纳入本轮颜色收口
+
+**SF3：390px 列表的 New chat 按钮被 + Group 遮挡。** 实际点击 `New chat` 时浏览器报告 `+ Group intercepts pointer events`，截图 `output/playwright/r4-sidebar-mobile.png` 也只看到右侧 + Group。因此本轮**不宣称手机新聊天入口通过**；只通过桌面打开联系人后缩屏观察其头像显示。该问题影响手机新聊天入口，应由 owner 单独处理；本轮没有读源码或重验修复前版本，回归关系尚未判定，不能仅凭 CSS 未变化宣称已定位原因。caller 明确本轮只收口头像颜色，并随后要求停止继续 review、交付 PR；故如实单列现场，不扩大或掩盖该问题，也没有创建外部 issue。
+
+### 收尾
+
+独立 `feat554-avatar-review` 浏览器已关闭；未发送真人／模型消息、未改配置，检查 @ 所用临时草稿已清空；没有重启或停止用户临时服务。仅追加 acceptance.md，由 root 统一提交，无 reviewer 单独 commit。此次颜色统一不改变 spec／API 契约，无需新增上层规则；此前轮次与正式迁移边界保持。
