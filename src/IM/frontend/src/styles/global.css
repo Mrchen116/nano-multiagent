@@ -5228,14 +5228,9 @@ body {
 .chat-work-link { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--im-accent); }
 .chat-sidebar-new-group { flex-shrink: 0; }
 
-.public-agent-profile { flex: 1; min-width: 0; overflow: auto; padding: 24px; }
-.public-agent-header { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 24px 0; }
-.public-agent-header h1, .public-agent-header p { margin: 0 0 4px; }
-.public-agent-header p, .public-agent-profile dt { color: var(--im-text-muted); }
-.public-agent-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--im-border); margin-bottom: 24px; }
-.public-agent-tabs button { padding: 12px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--im-text); cursor: pointer; }
-.public-agent-tabs button[aria-current] { border-color: var(--im-accent); color: var(--im-accent); }
-.public-agent-profile dd { margin: 4px 0 20px; }
+.im-agent-profile-details { margin: 0; }
+.im-agent-profile-details dt { font-size: 0.78rem; font-weight: 600; }
+.im-agent-profile-details dd { margin: 4px 0 0; font-size: 0.85rem; overflow-wrap: anywhere; }
 .agent-mine { color: var(--im-accent); font-size: 10px; padding: 2px 5px; background: var(--im-accent-soft); border-radius: 5px; }
 
 .group-settings-preferences { display: grid; gap: 12px; padding: 16px 0; }

@@ -36,7 +36,7 @@ it("opens another person's global Agent Work without requesting management confi
   view(<AgentProfilePage />);
   expect(await screen.findByRole("heading",{name:"Muse"})).toBeVisible();
   expect(screen.queryByRole("button",{name:"Config"})).toBeNull();
-  await userEvent.click(screen.getByRole("button",{name:"View Work"}));
+  await userEvent.click(screen.getByRole("button",{name:"Work"}));
   await waitFor(() => expect(calls.some(url=>url.endsWith("/agents/colleague-agent/work"))).toBe(true));
   expect(calls.some(url => /\/config|\/capabilities|\/nodes/.test(url))).toBe(false);
 });
