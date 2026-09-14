@@ -97,6 +97,12 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     if ((event.eventType === "agent.work.updated" || event.eventType === "agent.status_changed") && event.payload.agent_id === agentId) void client.invalidateQueries({ queryKey: ["agent-work", agentId] });
   }, onRecovery: async () => { await client.invalidateQueries({ queryKey: ["agent-work", agentId] }); } }), [agentId, client]);
   useEffect(() => {
+    const refreshVisible = () => { if (document.visibilityState !== "hidden") void client.invalidateQueries({ queryKey: ["agent-work", agentId] }); };
+    const timer = window.setInterval(refreshVisible, 3000);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshVisible); };
+  }, [agentId, client]);
+  useEffect(() => {
     if (!view || restored.current) return;
     restored.current = true;
     const frame = requestAnimationFrame(() => {

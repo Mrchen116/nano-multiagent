@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -43,6 +44,7 @@ class GatewayConnection:
     capabilities: dict[str, object]
     reports: list[dict[str, object]]
     heartbeats: list[dict[str, object]]
+    access_token: str = field(default="", repr=False)
     credential_key_id: str | None = None
     credential_algorithm: str | None = None
     credential_public_key: str | None = None
@@ -248,6 +250,22 @@ class GatewaySessions:
         async with self._lock:
             return set(self._connections.keys())
 
+    async def authenticate_access_token(self, token: str) -> GatewayConnection | None:
+        """Resolve a machine token only while its registered connection is current."""
+        async with self._lock:
+            for connection in self._connections.values():
+                if connection.access_token and secrets.compare_digest(
+                    connection.access_token, token
+                ):
+                    if self._node_persistence is not None:
+                        owner = self._node_persistence.owner_for_node(
+                            node_id=connection.node_id
+                        )
+                        if owner and owner != connection.owner_id:
+                            return None
+                    return connection
+        return None
+
     async def register(
         self,
         *,
@@ -271,6 +289,10 @@ class GatewaySessions:
             if durable_owner and durable_owner != authenticated_owner_id:
                 raise GatewayAuthorizationError("node is bound to another owner")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
+        if self._node_persistence is not None:
+            self._node_persistence.validate_agent_bindings(
+                node_id=node_id, owner_id=authenticated_owner_id, agent_ids=agents
+            )
         # Workspace roots are optional Gateway-owned declarations. Old frames omit
         # them; IM must keep the resulting profile unknown rather than synthesize a
         # path from its own host.
@@ -344,6 +366,7 @@ class GatewaySessions:
             capabilities=capabilities,
             reports=[],
             heartbeats=[],
+            access_token=secrets.token_urlsafe(32),
             credential_key_id=_optional_text(payload.get("credential_key_id")),
             credential_algorithm=_optional_text(payload.get("credential_algorithm")),
             credential_public_key=_optional_text(payload.get("credential_public_key")),
@@ -353,6 +376,7 @@ class GatewaySessions:
                 node_id=node_id,
                 node_name=node_name,
                 version=version,
+                owner_id=authenticated_owner_id,
                 agent_ids=agents,
                 agent_workspaces=agent_workspaces,
                 agent_work_modes=payload.get("agent_work_modes")
@@ -379,7 +403,11 @@ class GatewaySessions:
             self._connections[node_id] = connection
         return {
             "type": "ack",
-            "payload": {"message_type": "node.register", "node_id": node_id},
+            "payload": {
+                "message_type": "node.register",
+                "node_id": node_id,
+                "gateway_access_token": connection.access_token,
+            },
         }
 
     async def authorize(

@@ -3,7 +3,8 @@ import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
+import { NewConversationMenu } from "./new-conversation-menu";
 import {
   getDistillConversationUnavailableKey,
   isDistillConversationEligible,
@@ -17,21 +18,23 @@ interface SidebarAgent {
 
 type FilterKey = "all" | ConversationKind;
 
-const FILTER_ORDER: FilterKey[] = ["all", "direct-agent", "group", "agent-network"];
+const FILTER_ORDER: FilterKey[] = ["all", "direct-user", "direct-agent", "group", "agent-network"];
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   all: "chat.list.filters.all",
   "direct-agent": "chat.list.filters.agent",
   group: "chat.list.filters.group",
   "agent-network": "chat.list.filters.network",
-  "direct-user": "chat.list.filters.all" // unused but keeps the map total
+  "direct-user": "chat.list.filters.people"
 };
 
 export interface ConversationSidebarProps {
   conversations: Conversation[];
+  selfUserId?: string | null;
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
   onNewGroup(): void;
+  onNewChat?(): void;
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
@@ -65,9 +68,11 @@ function formatDate(iso: string | null): string {
 
 export function ConversationSidebar({
   conversations,
+  selfUserId = null,
   activeConversationId,
   onSelect,
   onNewGroup,
+  onNewChat,
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
@@ -104,9 +109,7 @@ export function ConversationSidebar({
       <header className="chat-sidebar-header">
         <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
-          <button type="button" className="chat-sidebar-new-group" onClick={onNewGroup}>
-            {t("chat.list.newGroup")}
-          </button>
+          <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} />
         </div>
         {distillMode && (
           <div className="chat-sidebar-distill-actions">
@@ -202,14 +205,11 @@ export function ConversationSidebar({
             const agentStatus = kind === "direct-agent" && agentParticipant
               ? (agentRow?.status ?? null)
               : null;
+            const avatarName = kind === "direct-user" ? directPersonAvatarName(c, selfUserId) : c.title;
             const avatarColor =
               kind === "direct-agent" && agentRow
                 ? colorForAgent(agentRow)
-                : kind === "group"
-                  ? "oklch(0.52 0.14 270)"
-                  : kind === "agent-network" || kind === "direct-user"
-                    ? "oklch(0.52 0.14 30)"
-                    : colorForAgentSeed(c.title);
+                : colorForAgentSeed(avatarName);
             return (
               <li key={c.id}>
                 {distillMode ? (
@@ -225,7 +225,7 @@ export function ConversationSidebar({
                       onChange={() => onToggleDistillConversation?.(c.id)}
                     />
                     <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                     </span>
                     <span className="chat-sidebar-row-body">
                       <span className="chat-sidebar-row-title-line">
@@ -259,7 +259,7 @@ export function ConversationSidebar({
                     aria-current={active ? "true" : undefined}
                   >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">

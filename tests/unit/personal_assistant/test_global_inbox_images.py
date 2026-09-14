@@ -52,7 +52,8 @@ async def test_image_retry_runs_without_database_lock_and_never_changes_old_rece
     store.save_global_session("agent", "main", str(tmp_path))
     attempts = []
 
-    async def materialize(block):
+    async def materialize(agent_id, block):
+        assert agent_id == "agent"
         attempts.append(block)
         # A recorder thread can still append while image IO is suspended.
         executor = ThreadPoolExecutor(max_workers=1)
@@ -119,7 +120,8 @@ async def test_native_history_materializes_actual_images_without_inbox_consumpti
             "history_scope": "im_history",
         }
 
-    async def materialize(block):
+    async def materialize(agent_id, block):
+        assert agent_id == "agent"
         calls.append(block)
         return IMAGE
 
@@ -166,7 +168,8 @@ async def test_concurrent_image_retries_cannot_replace_content_bound_to_a_receip
     release_first = asyncio.Event()
     attempts = 0
 
-    async def materialize(block):
+    async def materialize(agent_id, block):
+        assert agent_id == "agent"
         nonlocal attempts
         attempts += 1
         if attempts == 1:

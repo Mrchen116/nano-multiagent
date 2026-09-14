@@ -30,7 +30,7 @@ def _attachments(*, content_type: str = "image/jpeg") -> list[dict[str, str]]:
 async def test_resolve_returns_typed_data_url_with_detected_mime() -> None:
     """Downloaded bytes become typed parts and detected MIME overrides client input."""
 
-    async def _fetch(url: str) -> bytes:
+    async def _fetch(url: str, agent_id: str) -> bytes:
         assert url.endswith("/a.png")
         return _PNG_BYTES
 
@@ -46,7 +46,7 @@ async def test_resolve_returns_typed_data_url_with_detected_mime() -> None:
 async def test_resolve_accepts_complete_jpeg_with_trailing_data() -> None:
     """A complete JPEG remains valid when metadata follows its EOI marker."""
 
-    async def _fetch(_url: str) -> bytes:
+    async def _fetch(_url: str, agent_id: str) -> bytes:
         return _JPEG_BYTES + b"synthetic-trailing-data"
 
     result = await ImageAttachmentResolver(fetcher=_fetch).resolve(_attachments())
@@ -58,7 +58,7 @@ async def test_resolve_accepts_complete_jpeg_with_trailing_data() -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_accepts_self_contained_data_url_without_http_fetch() -> None:
-    async def _fetch(_url: str) -> bytes:
+    async def _fetch(_url: str, agent_id: str) -> bytes:
         raise AssertionError("data URLs must not be sent to the IM HTTP fetcher")
 
     data_url = "data:image/png;base64," + base64.b64encode(_PNG_BYTES).decode()
@@ -121,7 +121,7 @@ async def test_resolve_returns_typed_failure_for_invalid_image(
 ) -> None:
     """The first invalid attachment fails the whole resolution without partial parts."""
 
-    async def _fetch(_url: str) -> bytes:
+    async def _fetch(_url: str, agent_id: str) -> bytes:
         return payload
 
     result = await ImageAttachmentResolver(
@@ -137,10 +137,60 @@ async def test_resolve_returns_typed_failure_for_invalid_image(
 async def test_resolve_maps_fetch_exception_to_download_failure() -> None:
     """Fetcher errors are exposed as the stable download failure kind."""
 
-    async def _fetch(_url: str) -> bytes:
+    async def _fetch(_url: str, agent_id: str) -> bytes:
         raise RuntimeError("unavailable")
 
     result = await ImageAttachmentResolver(fetcher=_fetch).resolve(_attachments())
 
     assert result.parts == ()
     assert result.failure == "download"
+
+
+@pytest.mark.asyncio
+async def test_im_fetcher_scopes_credentials_to_protected_origin_and_current_agent(
+    monkeypatch,
+):
+    import httpx
+    from personal_assistant.gateway.image_attachments import build_im_attachment_fetcher
+
+    seen = []
+    token = "runtime-first"
+
+    async def current_token():
+        return token
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=_PNG_BYTES)
+
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: client_class(**kwargs, transport=httpx.MockTransport(handler)),
+    )
+    fetch = build_im_attachment_fetcher(
+        base_url="http://im.local", token_getter=current_token
+    )
+    resolver = ImageAttachmentResolver(fetcher=fetch)
+    for url in (
+        "/im/v1/conversations/chat/images/image",
+        "https://external.example/photo.png",
+        "http://im.local/public.png",
+    ):
+        result = await resolver.resolve([{"url": url}], agent_id="agent-a")
+        assert result.failure is None
+    assert seen[0].headers["Authorization"] == "Bearer runtime-first"
+    assert seen[0].url.params["agent_id"] == "agent-a"
+    assert all("Authorization" not in req.headers for req in seen[1:])
+    assert all("agent_id" not in req.url.params for req in seen[1:])
+    token = "runtime-next"
+    await fetch("/im/v1/conversations/chat/attachments/file", "agent-b")
+    assert seen[-1].headers["Authorization"] == "Bearer runtime-next"
+    assert seen[-1].url.params["agent_id"] == "agent-b"
+    token = None
+    result = await resolver.resolve(
+        [{"url": "/im/v1/conversations/chat/images/image"}], agent_id="agent-a"
+    )
+    assert result.failure == "download"
+    assert len(seen) == 4

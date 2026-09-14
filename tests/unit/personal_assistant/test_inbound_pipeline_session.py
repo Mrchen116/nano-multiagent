@@ -817,6 +817,7 @@ def test_external_without_provider_identity_replies_without_shadow_side_effects(
     shadow_sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token_getter,
+        gateway_token_getter=token_getter,
         owner_user_id="owner-a",
         transport=httpx.MockTransport(unexpected_request),
         saga_store=saga_store,
@@ -885,6 +886,7 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
     sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token_getter,
+        gateway_token_getter=token_getter,
         owner_user_id="owner-a",
         transport=httpx.MockTransport(unavailable),
         saga_store=saga_store,

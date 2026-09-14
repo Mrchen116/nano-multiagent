@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -5,19 +6,21 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { AgentRow } from "./agent-row";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
-import { listAgentSummaries, listNodes } from "./im-agent-config-api";
+import { listPublicAgents } from "./public-agents";
+import { useAuthStore } from "../../auth/auth-store";
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
+  const self = useAuthStore(s => s.user?.id);
   const navigate = useNavigate();
   useAgentStatusBroadcastConsumer();
-  const agentsQuery = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries });
-  const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes });
+  const agentsQuery = useQuery({ queryKey: ["public-agents", self], queryFn: listPublicAgents, refetchInterval: 3000 });
 
   const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
+  const [search, setSearch] = useState("");
   const agents = agentsQuery.data ?? [];
-  const nodes = nodesQuery.data ?? [];
+  const nodes: [] = [];
   const newAgentPath = "/settings/agents/new";
   const errorDetail =
     agentsQuery.error instanceof Error
@@ -80,6 +83,7 @@ export function AgentsListPage() {
           )}
         </div>
 
+        <input type="search" className="chat-sidebar-search" aria-label={t("agents.search")} placeholder={t("agents.search")} value={search} onChange={e => setSearch(e.target.value)} />
         {/* Body */}
         <div
           className="flex-1 overflow-y-auto"
@@ -114,12 +118,12 @@ export function AgentsListPage() {
             </section>
           ) : (
             <nav aria-label={t("agents.title")}>
-              {agents.map((agent) => (
+              {agents.filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
                 <AgentRow
                   key={agent.agent_id}
                   agent={agent}
                   nodes={nodes}
-                  nodesPending={nodesQuery.isPending}
+                  nodesPending={false}
                   isActive={agent.agent_id === activeAgentId}
                   isMobile={isMobile}
                   onSelect={(agentId) => navigate(`/settings/agents/${agentId}`)}

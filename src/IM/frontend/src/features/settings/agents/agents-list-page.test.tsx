@@ -53,7 +53,7 @@ function jsonResponse(body: unknown, status = 200) {
 function mockAgentsAndNodes(agents: unknown = SAMPLE_AGENTS, nodes: unknown = SAMPLE_NODES) {
   fetchMock.mockImplementation(async (input) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/im/v1/agents")) return jsonResponse(agents);
+    if (url.includes("/im/v1/contacts?")) return jsonResponse({items: (agents as typeof SAMPLE_AGENTS).map(a => ({ user_id: a.agent_id, kind: "agent", agent_id: a.agent_id, owner_id: a.owner_id, display_name: a.display_name, owner_display_name: "Owner", node_name: "MacBook", status: a.node_status, work_mode: "single_thread" })), next_cursor: null});
     if (url.endsWith("/im/v1/nodes")) return jsonResponse(nodes);
     return new Response(null, { status: 404 });
   });
@@ -103,11 +103,11 @@ describe("agents list page", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/im/v1/nodes")) return jsonResponse(SAMPLE_NODES);
-      if (url.endsWith("/im/v1/agents")) {
+      if (url.includes("/im/v1/contacts?")) {
         attempts += 1;
         return attempts === 1
           ? jsonResponse({ detail: "upstream unavailable" }, 503)
-          : jsonResponse(SAMPLE_AGENTS);
+          : jsonResponse({items: SAMPLE_AGENTS.map(a => ({...a, user_id:a.agent_id, kind:"agent", status:a.node_status})),next_cursor:null});
       }
       return new Response(null, { status: 404 });
     });

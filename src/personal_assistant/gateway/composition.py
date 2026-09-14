@@ -308,7 +308,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             raise ValueError(str(response.get("error") or "source_unavailable"))
         return dict(response["result"])
 
-    async def _materialize_image(block: Mapping[str, Any]) -> dict | None:
+    async def _materialize_image(
+        agent_id: str, block: Mapping[str, Any]
+    ) -> dict | None:
         source = block.get("source") or {}
         if source.get("type") == "base64":
             return dict(block)
@@ -318,7 +320,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         }
         if not descriptor.get("url"):
             return None
-        resolution = await image_resolver.resolve([dict(descriptor)])
+        resolution = await image_resolver.resolve([dict(descriptor)], agent_id=agent_id)
         if resolution.failure or not resolution.parts:
             return None
         part = resolution.parts[0]
@@ -414,6 +416,14 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         context_store=run_delivery_contexts
     )
     token_getter = None
+
+    async def gateway_token_getter() -> str | None:
+        return (
+            im_connection_manager.gateway_access_token
+            if im_connection_manager is not None
+            else None
+        )
+
     reply_images = ReplyImages(
         runtime_dir / "reply-images",
         im_base_url=(
@@ -421,7 +431,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             if config.im_service
             else ""
         ),
-        token_getter=lambda: token_getter() if token_getter is not None else None,
+        token_getter=gateway_token_getter,
     )
 
     def _image_context(
@@ -672,6 +682,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         shadow_sync = IMShadowConversationSync(
             base_url=config.im_service.url,
             token_getter=token_getter,
+            gateway_token_getter=gateway_token_getter,
             owner_user_id=_owner_user_id,
             node_id=config.node.node_id,
             reply_images=reply_images,
@@ -690,7 +701,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             )[0],
         )
         image_resolver = ImageAttachmentResolver(
-            fetcher=build_im_attachment_fetcher(token_getter=token_getter)
+            fetcher=build_im_attachment_fetcher(
+                base_url=config.im_service.url, token_getter=gateway_token_getter
+            )
         )
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
@@ -830,7 +843,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     or not im_connection_manager.connected
                 ):
                     return
-                projected = await reply_images.project_im(prepared, conversation_id)
+                projected = await reply_images.project_im(
+                    prepared, conversation_id, agent_id=agent_id
+                )
                 if not await _admit_live_reply(run_id):
                     return
                 try:
@@ -1211,6 +1226,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
+        reply_images=reply_images,
+        reply_image_owner_id=_owner_user_id,
+        image_account_id_provider=lambda channel_name: (
+            channel_registry.get(channel_name).image_account_id
+        ),
         global_inbox=global_inbox,
         work_recorder=work_recorder,
         shadow_sync=shadow_sync,

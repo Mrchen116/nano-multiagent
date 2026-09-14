@@ -6,7 +6,10 @@ from IM.application.event_bridge import EventBridge
 from IM.application.relay_service import RelayService
 from IM.domain.models import ReplyProcessItem
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import GatewayConversationPersistence
+from IM.infra.gateway_persistence import (
+    GatewayConversationPersistence,
+    GatewayNodePersistence,
+)
 from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
 from tests.im_service.unit.test_gateway_handler import StubWebSocket, build_gateway
@@ -23,6 +26,7 @@ def _setup(tmp_path):
     bridge = EventBridge(message_repository=messages, event_repository=events)
     gateway = build_gateway(
         relay_service=relay_service,
+        node_persistence=GatewayNodePersistence(connection),
         conversation_persistence=GatewayConversationPersistence(connection),
         message_repository=messages,
         event_repository=events,
@@ -32,13 +36,15 @@ def _setup(tmp_path):
     for agent, node in (("S", "node-source"), ("Z", "node-z-old"), ("A", "node-a-old")):
         socket = StubWebSocket()
         sockets[agent] = socket
-        asyncio.run(
+        registration = asyncio.run(
             gateway.runtime.handle_message(
                 websocket=socket,
+                authenticated_owner_id="owner-scope",
                 message_type="node.register",
                 payload={"node_id": node, "agents": [agent], "capabilities": {}},
             )
         )
+        assert registration["type"] == "ack", registration
     return gateway, messages, relay_service, bridge, conversation, sockets
 
 
@@ -74,8 +80,9 @@ def test_committed_output_fans_out_once_despite_consumed_follower_receipts(tmp_p
     async def frame(kind, **fields):
         return await gateway.runtime.handle_message(
             websocket=sockets["S"],
+            authenticated_owner_id="owner-scope",
             message_type="node.streaming_delta",
-            payload={"kind": kind, **fields},
+            payload={"node_id": "node-source", "kind": kind, **fields},
         )
 
     asyncio.run(frame("message_completed", message_id=draft.id, final_content=""))
@@ -87,6 +94,7 @@ def test_committed_output_fans_out_once_despite_consumed_follower_receipts(tmp_p
         asyncio.run(
             gateway.runtime.handle_message(
                 websocket=sockets["S"],
+                authenticated_owner_id="owner-scope",
                 message_type="node.delivery_receipt",
                 payload={
                     "node_id": "node-source",
@@ -114,6 +122,7 @@ def test_committed_output_fans_out_once_despite_consumed_follower_receipts(tmp_p
         asyncio.run(
             gateway.runtime.handle_message(
                 websocket=sockets[peer],
+                authenticated_owner_id="owner-scope",
                 message_type="node.delivery_receipt",
                 payload={
                     "node_id": "node-z-old" if peer == "Z" else "node-a-old",
@@ -133,8 +142,10 @@ def test_group_tool_outputs_fan_out_by_committed_id_including_identical_text(tmp
         return asyncio.run(
             gateway.runtime.handle_message(
                 websocket=sockets["S"],
+                authenticated_owner_id="owner-scope",
                 message_type="agent.message",
                 payload={
+                    "node_id": "node-source",
                     "from_session_id": f"S|tool_call:{call_id}",
                     "to": f"conversation:{conversation.id}",
                     "text": "2",

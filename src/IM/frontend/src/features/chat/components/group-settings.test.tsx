@@ -77,7 +77,7 @@ describe("GroupSettings (desktop drawer)", () => {
     const user = userEvent.setup();
     renderSettings({ addableAgents: [] });
     await user.click(screen.getByRole("button", { name: /Add members/i }));
-    expect(screen.getByText(/No agents available to add/i)).toBeInTheDocument();
+    expect(screen.getByText(/No members available to add/i)).toBeInTheDocument();
   });
 
   it("remove: confirming passes the participant's user_id (not agent id)", async () => {

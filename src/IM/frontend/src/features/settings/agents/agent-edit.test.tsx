@@ -2,6 +2,7 @@ import userEvent from "@testing-library/user-event";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
+import { useAuthStore } from "../../auth/auth-store";
 import { appRoutes } from "../../../app/router";
 import { renderRouter } from "../../../test/render-router";
 
@@ -51,6 +52,7 @@ describe("agent edit page", () => {
 
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
 
       if (url === "/im/v1/nodes") {
         return new Response(
@@ -211,6 +213,7 @@ describe("agent edit page", () => {
 
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
 
       if (url === "/im/v1/nodes") {
         return new Response(JSON.stringify([]), {
@@ -300,6 +303,7 @@ describe("agent edit page", () => {
 
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
 
       if (url === "/im/v1/nodes") {
         return new Response(JSON.stringify([]), {
@@ -375,6 +379,7 @@ describe("agent edit page", () => {
 
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
 
       if (url === "/im/v1/nodes") {
         return new Response(JSON.stringify([]), {
@@ -448,6 +453,7 @@ describe("agent edit page", () => {
 
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
       if (url === "/im/v1/nodes" || url === "/im/v1/agents") {
         return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       }

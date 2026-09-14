@@ -18,29 +18,35 @@ from .conftest import authorize, make_app_client, register_user, seed_user_under
 
 
 def _create_user(client: TestClient, username: str) -> str:
-    """Create a user for the IM tests, transparently handling multi-tenant auth.
-
-    First call → registers a fresh tenant and authorizes the client.
-    Subsequent calls → seed additional participant users sharing the first caller's
-    tenant (so conversations involving multiple users are all owned by the caller).
-    The behavior keeps legacy test code working without rewriting each test, while
-    still going through the new auth gate on the actual route layer.
-    """
-    auth_header = client.headers.get("Authorization")
-    if auth_header is None:
+    """Register humans and seed an owned, discoverable Agent identity when requested."""
+    if client.headers.get("Authorization") is None:
         user = register_user(client, username=username)
         authorize(client, user)
         return user.id
-    # Reuse the existing tenant's owner_id by reading /im/v1/me
+    if not username.startswith("agent:"):
+        return register_user(client, username=username).id
     me = client.get("/im/v1/me").json()
-    return seed_user_under_owner(client, username=username, owner_id=me["owner_id"])
+    user_id = seed_user_under_owner(client, username=username, owner_id=me["owner_id"])
+    AgentProfileRepository(client.app.state.connection).upsert_profile(
+        agent_id=username.removeprefix("agent:"),
+        owner_id=me["owner_id"],
+        display_name=username,
+        description="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=None,
+        node_id="node-offline",
+    )
+    return user_id
 
 
 def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
     """Create a conversation for a single participant."""
     response = client.post(
         "/im/v1/conversations",
-        json={"title": title, "participant_ids": [user_id]},
+        json={"type": "group", "title": title, "participant_ids": [user_id]},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -120,88 +126,104 @@ def test_external_find_or_create_and_message_display_name_roundtrip(
             workspace_root="",
         )
 
-        created = client.post(
-            "/im/v1/conversations/external/find-or-create",
-            json={
-                "external_source": "feishu",
-                "external_chat_id": "ou_user",
-                "agent_id": "plato",
-                "title": "Plato · feishu",
-                "is_group": False,
-                "participant_ids": [f"user:{owner_id}", "agent:plato"],
-                "metadata": {"channel": "feishu"},
-            },
-        )
-        assert created.status_code == 201, created.text
-        conversation = created.json()
-        assert conversation["type"] == "direct"
-        assert conversation["external_source"] == "feishu"
-        assert conversation["external_chat_id"] == "ou_user"
-        assert conversation["config_agent_id"] == "plato"
-
-        same = client.post(
-            "/im/v1/conversations/external/find-or-create",
-            json={
-                "external_source": "feishu",
-                "external_chat_id": "ou_user",
-                "agent_id": "plato",
-                "title": "Plato renamed · feishu",
-                "is_group": False,
-                "participant_ids": [f"user:{owner_id}", f"user:{agent_user_id}"],
-                "metadata": {},
-            },
-        )
-        assert same.status_code == 200, same.text
-        assert same.json()["id"] == conversation["id"]
-        assert same.json()["title"] == "Plato renamed · feishu"
-
-        message = client.post(
-            f"/im/v1/conversations/{conversation['id']}/messages",
-            json={
-                "sender_user_id": owner_id,
-                "content": "from feishu",
-                "sender_display_name": "你",
-                "attachments": [
-                    {
-                        "url": "https://example.test/a.png",
-                        "content_type": "image/png",
-                        "file_name": "a.png",
-                    }
-                ],
-                "suppress_relay": True,
-            },
-        )
-        assert message.status_code == 201, message.text
-        assert message.json()["sender"]["display_name"] == "你"
-        rows = app.state.connection.execute(
-            """
-            SELECT event_type, payload_json
-            FROM conversation_events
-            WHERE conversation_id = ? AND message_id = ?
-            ORDER BY event_id
-            """,
-            (conversation["id"], message.json()["id"]),
-        ).fetchall()
-        assert [row["event_type"] for row in rows] == [
-            "message.sent",
-            "message.created",
-            "message.delivered",
-        ]
-        sent_payload = json.loads(rows[0]["payload_json"])
-        created_payload = json.loads(rows[1]["payload_json"])
-        delivered_payload = json.loads(rows[2]["payload_json"])
-        assert sent_payload["semantic"] == "persisted_to_im"
-        assert delivered_payload["semantic"] == "message_history_ready"
-        assert created_payload["content"] == "from feishu"
-        assert created_payload["attachments"] == [
-            {
-                "url": "https://example.test/a.png",
-                "content_type": "image/png",
-                "file_name": "a.png",
+        with client.websocket_connect("/im/ws/gateway") as gateway:
+            gateway.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-plato", "agents": ["plato"]},
+                }
+            )
+            registered = gateway.receive_json()
+            assert registered["type"] == "ack"
+            machine = {
+                "Authorization": f"Bearer {registered['payload']['gateway_access_token']}"
             }
-        ]
-        assert created_payload["sender"]["display_name"] == "你"
-        assert created_payload["sender_display_name"] == "你"
+            created = client.post(
+                "/im/v1/conversations/external/find-or-create",
+                headers=machine,
+                json={
+                    "external_source": "feishu",
+                    "external_chat_id": "ou_user",
+                    "agent_id": "plato",
+                    "title": "Plato · feishu",
+                    "is_group": False,
+                    "participant_ids": [f"user:{owner_id}", "agent:plato"],
+                    "metadata": {"channel": "feishu"},
+                },
+            )
+            assert created.status_code == 201, created.text
+            conversation = created.json()
+            assert conversation["type"] == "direct"
+            assert conversation["external_source"] == "feishu"
+            assert conversation["external_chat_id"] == "ou_user"
+            assert conversation["config_agent_id"] == "plato"
+
+            same = client.post(
+                "/im/v1/conversations/external/find-or-create",
+                headers=machine,
+                json={
+                    "external_source": "feishu",
+                    "external_chat_id": "ou_user",
+                    "agent_id": "plato",
+                    "title": "Plato renamed · feishu",
+                    "is_group": False,
+                    "participant_ids": [owner_id, "agent:plato"],
+                    "metadata": {},
+                },
+            )
+            assert same.status_code == 200, same.text
+            assert same.json()["id"] == conversation["id"]
+            assert same.json()["title"] == "Plato renamed · feishu"
+
+            message = client.post(
+                f"/im/v1/conversations/{conversation['id']}/messages?agent_id=plato",
+                headers=machine,
+                json={
+                    "sender_user_id": owner_id,
+                    "content": "from feishu",
+                    "sender_display_name": "你",
+                    "sender_source_id": "ou_external",
+                    "attachments": [
+                        {
+                            "url": "https://example.test/a.png",
+                            "content_type": "image/png",
+                            "file_name": "a.png",
+                        }
+                    ],
+                    "suppress_relay": True,
+                },
+            )
+            assert message.status_code == 201, message.text
+            assert message.json()["sender"]["display_name"] == "你"
+            rows = app.state.connection.execute(
+                """
+                SELECT event_type, payload_json
+                FROM conversation_events
+                WHERE conversation_id = ? AND message_id = ?
+                ORDER BY event_id
+                """,
+                (conversation["id"], message.json()["id"]),
+            ).fetchall()
+            assert [row["event_type"] for row in rows] == [
+                "message.sent",
+                "message.created",
+                "message.delivered",
+            ]
+            sent_payload = json.loads(rows[0]["payload_json"])
+            created_payload = json.loads(rows[1]["payload_json"])
+            delivered_payload = json.loads(rows[2]["payload_json"])
+            assert sent_payload["semantic"] == "persisted_to_im"
+            assert delivered_payload["semantic"] == "message_history_ready"
+            assert created_payload["content"] == "from feishu"
+            assert created_payload["attachments"] == [
+                {
+                    "url": "https://example.test/a.png",
+                    "content_type": "image/png",
+                    "file_name": "a.png",
+                }
+            ]
+            assert created_payload["sender"]["display_name"] == "你"
+            assert created_payload["sender_display_name"] == "你"
 
 
 def test_system_notice_sidecar_is_returned_in_message_history(tmp_path: Path) -> None:
@@ -238,50 +260,61 @@ def test_system_notice_sidecar_is_returned_in_message_history(tmp_path: Path) ->
         }
 
 
-def test_list_messages_mark_as_read_clears_conversation_unread_counter(
+def test_history_reads_do_not_acknowledge_until_member_posts_displayed_boundary(
     tmp_path: Path,
 ) -> None:
-    """Treat initial history load as read acknowledgement for unread badge sync."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        user_id = _create_user(client, "alice")
-        # bob sends both messages so they count as unread (owner's own messages are excluded).
-        bob_id = _create_user(client, "bob")
-        # Include bob in the conversation so his messages pass participant validation.
-        resp = client.post(
+    """History GET is observational; the authenticated member acknowledges an exact row."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice")
+        bob = register_user(client, username="bob")
+        authorize(client, alice)
+        response = client.post(
             "/im/v1/conversations",
-            json={"title": "chat", "participant_ids": [user_id, bob_id]},
+            json={
+                "type": "direct",
+                "title": "Chat",
+                "participant_ids": [alice.id, bob.id],
+            },
         )
-        assert resp.status_code == 201, resp.text
-        conversation_id = resp.json()["id"]
-
+        assert response.status_code == 201
+        conversation_id = response.json()["id"]
+        authorize(client, bob)
         first = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": bob_id, "content": "hello"},
+            json={"sender_user_id": bob.id, "content": "hello"},
         )
         second = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": bob_id, "content": "world"},
+            json={"sender_user_id": bob.id, "content": "world"},
         )
-        assert first.status_code == 201
-        assert second.status_code == 201
-
-        before_read = client.get(f"/im/v1/conversations/{conversation_id}")
-        assert before_read.status_code == 200
-        assert before_read.json()["unread_count"] == 2
-
-        listed = client.get(
-            f"/im/v1/conversations/{conversation_id}/messages?mark_as_read=true"
-        )
+        assert first.status_code == second.status_code == 201
+        authorize(client, alice)
+        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages")
         assert listed.status_code == 200
         assert [item["content"] for item in _message_items(listed.json()["items"])] == [
             "hello",
             "world",
         ]
-
-        after_read = client.get(f"/im/v1/conversations/{conversation_id}")
-        assert after_read.status_code == 200
-        assert after_read.json()["unread_count"] == 0
+        assert (
+            client.get(f"/im/v1/conversations/{conversation_id}").json()["unread_count"]
+            == 2
+        )
+        read = client.post(
+            f"/im/v1/conversations/{conversation_id}/read",
+            json={"last_read_message_id": first.json()["id"]},
+        )
+        assert read.status_code == 200 and read.json()["unread_count"] == 1
+        assert (
+            client.get(f"/im/v1/conversations/{conversation_id}").json()["unread_count"]
+            == 1
+        )
+        assert (
+            client.post(
+                f"/im/v1/conversations/{conversation_id}/read",
+                json={"last_read_message_id": "missing"},
+            ).status_code
+            == 400
+        )
 
 
 def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
@@ -293,14 +326,11 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
         owner_id = _create_user(client, "alice")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
-        agent_user_id = seed_user_under_owner(
-            client,
-            username="agent:planner",
-            owner_id=owner.owner_id,
-        )
+        agent_user_id = _create_user(client, "agent:planner")
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "Planner",
                 "participant_ids": [owner_id, agent_user_id],
             },
@@ -308,20 +338,20 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
         assert conversation.status_code == 201, conversation.text
         conversation_id = conversation.json()["id"]
         posted = [
-            client.post(
-                f"/im/v1/conversations/{conversation_id}/messages",
-                json={"sender_user_id": owner_id, "content": content},
+            MessageRepository(app.state.connection).create_message(
+                conversation_id=conversation_id,
+                sender_user_id=owner_id,
+                content=content,
             )
             for content in ("m1", "m2", "m3")
         ]
-        assert all(response.status_code == 201 for response in posted)
-        anchor_id = posted[-1].json()["id"]
+        anchor_id = posted[-1].id
 
         with client.websocket_connect("/im/ws/gateway") as gateway:
             gateway.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                    "payload": {"node_id": "node-offline", "agents": ["planner"]},
                 }
             )
             assert gateway.receive_json()["type"] == "ack"
@@ -330,7 +360,7 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
                     "type": "agent.config.boundary",
                     "payload": {
                         "boundary_id": "before-m3",
-                        "node_id": "node-1",
+                        "node_id": "node-offline",
                         "conversation_id": conversation_id,
                         "agent_id": "planner",
                         "before_message_id": anchor_id,
@@ -377,6 +407,7 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(
         create_group = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "A + Q",
                 "participant_ids": [owner_id, agent_a_user_id, agent_q_user_id],
             },
@@ -516,7 +547,7 @@ def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) 
         conversation_id = _create_conversation(client, user_id, "chat")
 
         uploaded = client.post(
-            "/im/v1/uploads?file_name=demo.txt",
+            f"/im/v1/uploads?file_name=demo.txt&conversation_id={conversation_id}",
             content=b"demo attachment body",
             headers={"Content-Type": "text/plain"},
         )
@@ -525,7 +556,9 @@ def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) 
         attachment = uploaded.json()
         assert attachment["file_name"] == "demo.txt"
         assert attachment["content_type"] == "text/plain"
-        assert attachment["url"].startswith("http://testserver/im/uploads/")
+        assert attachment["url"].startswith(
+            f"/im/v1/conversations/{conversation_id}/attachments/"
+        )
 
         download = client.get(attachment["url"].removeprefix("http://testserver"))
         assert download.status_code == 200
@@ -584,7 +617,11 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(
 
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "You & Ops", "participant_ids": [owner_id, agent_user_id]},
+            json={
+                "type": "direct",
+                "title": "You & Ops",
+                "participant_ids": [owner_id, agent_user_id],
+            },
         )
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
@@ -606,10 +643,11 @@ def test_upload_rejects_disallowed_mime_type(tmp_path: Path) -> None:
     """Block uploads outside the MIME white-list to keep agent intake bounded (M8 decision 8)."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        _create_user(client, "alice")
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "Files")
 
         response = client.post(
-            "/im/v1/uploads?file_name=evil.sh",
+            f"/im/v1/uploads?file_name=evil.sh&conversation_id={conversation_id}",
             content=b"#!/bin/sh\necho hi\n",
             headers={"Content-Type": "application/x-sh"},
         )
@@ -621,10 +659,11 @@ def test_upload_accepts_whitelisted_text_markdown(tmp_path: Path) -> None:
     """Accept all white-listed text and document types (text/markdown is in white-list)."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        _create_user(client, "alice")
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "Files")
 
         response = client.post(
-            "/im/v1/uploads?file_name=notes.md",
+            f"/im/v1/uploads?file_name=notes.md&conversation_id={conversation_id}",
             content=b"# notes\n",
             headers={"Content-Type": "text/markdown"},
         )
@@ -636,11 +675,12 @@ def test_upload_rejects_body_above_size_limit(tmp_path: Path) -> None:
     """Reject upload bodies above the 10 MB per-file ceiling (M8 decision 8)."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        _create_user(client, "alice")
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "Files")
 
         oversized = b"x" * (10 * 1024 * 1024 + 1)
         response = client.post(
-            "/im/v1/uploads?file_name=big.txt",
+            f"/im/v1/uploads?file_name=big.txt&conversation_id={conversation_id}",
             content=oversized,
             headers={"Content-Type": "text/plain"},
         )

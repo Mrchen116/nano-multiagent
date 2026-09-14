@@ -246,7 +246,7 @@ async def test_fork_rolls_back_on_cancelled_error(tmp_path: Path) -> None:
 
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
-    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    before = len(conversations.list_conversations_for_member(user_id=human.id))
 
     async def _cancel(**_kw):
         raise asyncio.CancelledError()
@@ -260,7 +260,7 @@ async def test_fork_rolls_back_on_cancelled_error(tmp_path: Path) -> None:
             check_agent_online=_online(None),
             request_fork=_cancel,
         )
-    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    after = len(conversations.list_conversations_for_member(user_id=human.id))
     assert after == before, "cancelled fork must roll back the empty conversation"
 
 

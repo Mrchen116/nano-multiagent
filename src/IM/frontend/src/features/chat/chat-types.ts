@@ -296,6 +296,7 @@ export type WsEvent =
   // dedup);`permission.resolved` 按 request_id 在 list 中定位、就地改 status。
   // 每次 WS event 仍只承载一条,载荷形状不变。
   | { type: "permission.request"; seq?: number; conversation_id: string; message_id: string; permission_request: PermissionRequest }
+  | { type: "permission.submitted"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string; decided_by?: string }
   | { type: "permission.resolved"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string };
 
 export interface MentionCandidate {
@@ -325,7 +326,9 @@ export interface PermissionRequest {
   question: string;
   options: PermissionOption[];
   /** "pending" until the user has responded; "resolved" once a decision is recorded. */
-  status: "pending" | "resolved";
+  status: "pending" | "submitted" | "resolved";
+  decided_by?: string;
+  agent_id?: string;
   /** Populated when status === "resolved" (from permission_resolved WS event). */
   decision?: string;
 }

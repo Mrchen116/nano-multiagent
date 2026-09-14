@@ -18,6 +18,7 @@ const CHAT_STREAM_EVENT_TYPES = new Set([
   "reply_process.updated",
   "permission.request",
   "permission.resolved",
+  "permission.submitted",
   "agent.config.changed"
 ]);
 
@@ -172,10 +173,11 @@ export function validateCanonicalUserStreamEvent(
         || !isRecord(request.tool_input)
         || typeof request.question !== "string"
         || !Array.isArray(request.options)
-        || (request.status !== "pending" && request.status !== "resolved")
+        || (request.status !== "pending" && request.status !== "submitted" && request.status !== "resolved")
       ) malformed(eventType);
       return;
     }
+    case "permission.submitted":
     case "permission.resolved":
       if (!isText(payload.request_id) || !isText(payload.decision)) malformed(eventType);
   }

@@ -44,7 +44,7 @@ describe("NewGroupModal", () => {
     await user.click(screen.getByLabelText(/Planner/));
     await user.type(screen.getByLabelText(/Group name/), "  Sprint  ");
     await user.click(screen.getByRole("button", { name: /Create group/ }));
-    expect(onCreate).toHaveBeenCalledWith({ agentIds: ["agent-a", "agent-b"], name: "Sprint" });
+    expect(onCreate).toHaveBeenCalledWith({ agentIds: ["agent-a", "agent-b"], userIds: [], name: "Sprint" });
   });
 
   it("falls back to a comma-joined participant name when no group name is given", async () => {
@@ -55,7 +55,7 @@ describe("NewGroupModal", () => {
     await user.click(screen.getByLabelText(/Reviewer/));
     expect(screen.getByLabelText(/Group name/)).toHaveAttribute("placeholder", "Planner, Reviewer");
     await user.click(screen.getByRole("button", { name: /Create group/ }));
-    expect(onCreate).toHaveBeenCalledWith({ agentIds: ["agent-b", "agent-c"], name: "Planner, Reviewer" });
+    expect(onCreate).toHaveBeenCalledWith({ agentIds: ["agent-b", "agent-c"], userIds: [], name: "Planner, Reviewer" });
   });
 
   it("invokes onClose when Cancel is clicked", async () => {

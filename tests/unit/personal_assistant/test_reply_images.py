@@ -36,6 +36,48 @@ def test_snapshot_survives_source_change_and_restart(tmp_path: Path) -> None:
     assert restarted.image_bytes(recovered.images[0]) == PNG
 
 
+@pytest.mark.asyncio
+async def test_hosted_im_image_reference_does_not_grant_another_chat_access(
+    tmp_path: Path,
+):
+    url = "/im/v1/conversations/c_known/images/" + "a" * 32
+    store = ReplyImages(tmp_path / "state")
+    reply = store.prepare(
+        context(tmp_path),
+        f"before ![earlier]({url}) after",
+        im_conversation_id="c_known",
+    )
+    assert (
+        await store.project_im(reply, "c_known", agent_id="agent")
+        == f"before ![earlier]({url}) after"
+    )
+    elsewhere = await store.project_im(reply, "c_elsewhere", agent_id="agent")
+    assert "图片未能展示" in elsewhere
+    assert url not in elsewhere
+
+
+@pytest.mark.parametrize(
+    "conversation_id, image_id",
+    [
+        ("c_elsewhere", "a" * 32),
+        ("c_known", "not-an-image-id"),
+        ("c_known", "../private.png"),
+    ],
+)
+def test_only_exact_current_chat_image_reference_is_reused(
+    tmp_path: Path, conversation_id: str, image_id: str
+):
+    url = f"/im/v1/conversations/{conversation_id}/images/{image_id}"
+    store = ReplyImages(tmp_path / "state")
+    reply = store.prepare(
+        context(tmp_path),
+        f"before ![earlier]({url}) after",
+        im_conversation_id="c_known",
+    )
+    assert "图片未能展示" in reply.markdown_template
+    assert url not in reply.markdown_template
+
+
 @pytest.mark.parametrize(
     ("suffix", "data", "content_type"),
     [("jpg", JPEG, "image/jpeg"), ("webp", WEBP, "image/webp")],

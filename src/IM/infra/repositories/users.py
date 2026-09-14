@@ -43,6 +43,75 @@ class UserRepository:
         "password_hash, locale, created_at"
     )
 
+    _CONTACT_SELECT = """SELECT u.id AS user_id,
+                CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
+                COALESCE(ap.display_name, u.display_name) AS display_name,
+                ap.agent_id, ap.owner_id, owner.display_name AS owner_display_name,
+                COALESCE(NULLIF(n.alias, ''), n.node_name) AS node_name,
+                COALESCE(n.status, 'offline') AS status, ap.work_mode
+            FROM users u
+            LEFT JOIN agent_profiles ap ON u.username = 'agent:' || ap.agent_id
+            LEFT JOIN users owner ON owner.id = ap.owner_id
+            LEFT JOIN nodes n ON n.node_id = ap.node_id
+            WHERE ((u.password_hash IS NOT NULL AND u.password_hash != '' AND ap.agent_id IS NULL)
+                OR (ap.agent_id IS NOT NULL AND ap.is_stale = 0))
+    """
+
+    def list_contacts(
+        self, *, q: str = "", kind: str | None = None, cursor: str | None = None
+    ) -> tuple[list[dict[str, object]], str | None]:
+        """Return a stable, paged public directory without configuration or shadow users.
+
+        Args:
+            q: Case-insensitive display name or stable identity substring.
+            kind: Optional human or agent filter.
+            cursor: Exclusive stable user identifier from the previous page.
+
+        Returns:
+            Public contact records and the next page cursor, if present.
+        """
+        if kind not in {None, "human", "agent"}:
+            raise ValueError("kind must be human or agent")
+        rows = self._connection.execute(
+            self._CONTACT_SELECT
+            + """
+              AND (? IS NULL OR u.id > ?)
+              AND (? IS NULL OR CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END = ?)
+              AND (? = '' OR INSTR(LOWER(COALESCE(ap.display_name, u.display_name)), LOWER(?)) > 0
+                OR INSTR(LOWER(u.id), LOWER(?)) > 0 OR INSTR(LOWER(COALESCE(ap.agent_id, '')), LOWER(?)) > 0)
+            ORDER BY u.id LIMIT 51""",
+            (cursor, cursor, kind, kind, q.strip(), q.strip(), q.strip(), q.strip()),
+        ).fetchall()
+        contacts = [self._public_contact(row) for row in rows[:50]]
+        return contacts, str(rows[49]["user_id"]) if len(rows) > 50 else None
+
+    def get_contact(self, *, user_id: str) -> dict[str, object] | None:
+        """Return the same public projection for one currently discoverable identity."""
+        row = self._connection.execute(
+            self._CONTACT_SELECT + " AND u.id = ?",
+            (user_id,),
+        ).fetchone()
+        return self._public_contact(row) if row is not None else None
+
+    @staticmethod
+    def _public_contact(row: sqlite3.Row) -> dict[str, object]:
+        contact = {key: row[key] for key in ("user_id", "kind", "display_name")}
+        if row["kind"] == "agent":
+            contact.update(
+                {
+                    key: row[key]
+                    for key in (
+                        "agent_id",
+                        "owner_id",
+                        "owner_display_name",
+                        "node_name",
+                        "status",
+                        "work_mode",
+                    )
+                }
+            )
+        return contact
+
     def create_user(
         self,
         *,

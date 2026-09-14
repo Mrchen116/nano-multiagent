@@ -62,7 +62,10 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 "node-1",
                 "node-1",
             ]
-            assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
+            assert [item["owner_id"] for item in before_bind.json()] == [
+                authed.id,
+                authed.id,
+            ]
             alpha_config = client.get("/im/v1/agents/Alpha/config?source=mirror")
             assert alpha_config.status_code == 200
             assert alpha_config.json()["custom_prompt"] is None
@@ -256,6 +259,7 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(
             created = client.post(
                 "/im/v1/conversations",
                 json={
+                    "type": "group",
                     "title": "Fresh Runtime Group",
                     "participant_ids": [
                         user_id,

@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-546
+> 对齐: feat-546 / feat-554
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -331,37 +331,6 @@ agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `no
 - **WHEN** 前端 `GET /im/v1/agents`
 - **THEN** 每个 agent 行带非空 `user_id`;以该 `user_id` 作 `participant_ids` 创建 direct 会话被接受
 
-### Requirement: 浏览器经用户维 WebSocket 收事件流,鉴权后只回放本租事件
-
-浏览器经 `/im/ws/user` 建用户维事件流;身份取自 JWT(`?token=<jwt>` 查询串或 `Sec-WebSocket-Protocol:
-bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,单凭 `?user_id=` 不构成信任锚。
-握手后发 `{op:"resume", after_event_id:N}` 即回放该用户 owner 范围内、`event_id > N` 的事件帧
-(`op:"event"`),跨租事件不投递。`GET /im/v1/sync` 给出会话列表快照 + 全局 `max_event_id`,供前端在
-`resync_required` 后对齐游标。浏览器短暂断网或登录凭证自动更新后,使用当前登录身份恢复连接和游标;
-账号切换后不再接收前一账号事件。
-
-#### Scenario: 无 token / 非法 token / 仅 user_id 的连接被拒
-- **WHEN** 浏览器 `websocket_connect("/im/ws/user")`(无 token,或 `?token=not-a-jwt`,或仅 `?user_id=`)
-- **THEN** 连接被服务端关闭(policy violation),收不到事件帧
-
-#### Scenario: 合法 token 连接并 resume 回放本租事件
-- **GIVEN** 已授权用户在自己会话里发过消息
-- **WHEN** 浏览器以 `?token=<合法 jwt>` 连上后发 `{op:"resume", after_event_id:0}`
-- **THEN** 收到 `op:"event"` 帧,含 `message.sent`、`message.delivered` 等 `event_type`;只含本 owner 事件
-
-#### Scenario: sync 返回快照与全局游标
-- **WHEN** 前端 `GET /im/v1/sync`
-- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(>0);前端据其对齐用户流游标
-
-#### Scenario: 长时间登录后短暂断网自动恢复
-- **GIVEN** 用户已在 Web IM 持续登录一段时间
-- **WHEN** 浏览器网络短暂中断后恢复
-- **THEN** 浏览器以当前登录身份恢复用户流,继续收到本账号的新事件,无需退出后重新登录
-
-#### Scenario: 切换账号后只接收新账号事件
-- **WHEN** 用户退出账号 A 并登录账号 B
-- **THEN** 浏览器停止接收 A 的事件,后续用户流只交付 B 的 owner 范围事件
-
 ### Requirement: 设备绑定把节点归属到当前用户
 
 终端用户在本机发起绑定:`POST /im/v1/bind {action:"start", node_id}` 取得绑定链接,浏览器登录后 `{action:"confirm", bind_id|bind_token}` 确认,确认后该节点及其上 Agent 自动归属当前用户。缺必填字段大声失败(400),不静默。
@@ -419,7 +388,7 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 - **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`
 - **THEN** 返回的 `skills` 列表中每项携带实际命中的 `location`（SKILL.md 路径，可空）
 - **AND** Gateway 能确定来源时，该 Skill 同时携带 `source_group: "workspace" | "global" | "compatibility"`，供配置页分组
-- **AND** 同一 Agent 的同名 Skill 只返回有序 roots 中最先命中的版本；多 Agent 聊天的 SlashPicker 仍可用 `location` 区分不同 Agent 暴露的同名不同路径 Skill
+- **AND** 同一 Agent 的同名 Skill 只返回有序 roots 中最先命中的版本；多 Agent 聊天的 SlashPicker 使用会话成员 commands 投影的 opaque `skill_key` 区分不同节点／位置的同名 Skill，保留独立说明与来源 Agent；上述管理能力接口仍保留 `location`／`source_group`，成员候选不暴露本机路径
 
 #### Scenario: 旧节点未提供来源分组时安全降级
 - **GIVEN** 在线 Gateway 返回的旧 capability payload 不含 `source_group`
@@ -671,3 +640,49 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 #### Scenario: 不提供模式切换
 - **WHEN** 用户查看或编辑一个已创建 Agent 的配置
 - **THEN** 可以辨认其模式，但不能将其改成另一种模式
+
+### Requirement: 浏览器经用户维 WebSocket 接收和重放当前成员事件
+
+浏览器经 `/im/ws/user` 建用户维事件流;身份取自 JWT(`?token=<jwt>` 查询串或 `Sec-WebSocket-Protocol:
+bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,单凭 `?user_id=` 不构成信任锚。
+握手后发 `{op:"resume", after_event_id:N}` 即回放该用户当前参与聊天范围内、`event_id > N` 的事件帧
+(`op:"event"`),非成员聊天事件不投递；个人节点／配置事件仍只向 owner 发送。`GET /im/v1/sync` 给出会话列表快照 + 全局 `max_event_id`,供前端在
+`resync_required` 后对齐游标。浏览器短暂断网或登录凭证自动更新后,使用当前登录身份恢复连接和游标;
+账号切换后不再接收前一账号事件。
+
+#### Scenario: 无 token / 非法 token / 仅 user_id 的连接被拒
+- **WHEN** 浏览器 `websocket_connect("/im/ws/user")`(无 token,或 `?token=not-a-jwt`,或仅 `?user_id=`)
+- **THEN** 连接被服务端关闭(policy violation),收不到事件帧
+
+#### Scenario: 合法 token 连接并 resume 回放成员事件
+- **GIVEN** 已授权用户在自己会话里发过消息
+- **WHEN** 浏览器以 `?token=<合法 jwt>` 连上后发 `{op:"resume", after_event_id:0}`
+- **THEN** 收到 `op:"event"` 帧,含 `message.sent`、`message.delivered` 等 `event_type`;仅包含当前身份可访问的事件
+
+#### Scenario: sync 返回快照与全局游标
+- **WHEN** 前端 `GET /im/v1/sync`
+- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(>0);前端据其对齐用户流游标
+
+#### Scenario: 长时间登录后短暂断网自动恢复
+- **GIVEN** 用户已在 Web IM 持续登录一段时间
+- **WHEN** 浏览器网络短暂中断后恢复
+- **THEN** 浏览器以当前登录身份恢复用户流,继续收到本账号的新事件,无需退出后重新登录
+
+#### Scenario: 切换账号后只接收新账号事件
+- **WHEN** 用户退出账号 A 并登录账号 B
+- **THEN** 浏览器停止接收 A 的事件,后续用户流只交付 B 当前成员范围内的聊天事件及其个人事件
+
+### Requirement: 登录用户可发现人和 Agent，管理配置保持个人归属
+
+#### Scenario: 从目录直接发起聊天
+- **WHEN** 登录用户按名字或稳定 ID 搜索联系人
+- **THEN** 可辨认真人与 Agent 并直接私聊，不要求已有 Gateway、好友申请或管理者逐人授权；无匹配时显示空结果。
+
+#### Scenario: 公开 Agent 资料与配置分开
+- **GIVEN** Agent 由另一人管理
+- **WHEN** 用户浏览该 Agent 资料
+- **THEN** 能看到名字、管理者、设备名、在线状态及工作模式，能发消息，全局 Agent 可进入 Work；不能读取完整配置、凭据或保存管理修改。
+
+#### Scenario: 一个人多 Gateway，单台离线
+- **WHEN** 用户绑定多台 Gateway，其中一台离线
+- **THEN** 可辨认各 Agent 所属设备与在线状态，其余设备和人际沟通正常；设备及其 Agent 仍只有原管理者管理。

@@ -1,9 +1,13 @@
 import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
+import { useAuthStore } from "../../auth/auth-store";
+import { useTranslation } from "../../../i18n";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
+
+type AgentListItem = Pick<AgentSummary, "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string };
 
 /** Online when the agent's owning node reports online, via the agent's own
  *  node_status first and the nodes table as fallback. */
-export function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
+export function statusOf(agent: AgentListItem, nodes: NodeSummary[]): "online" | "offline" {
   if (agent.node_status === "online") return "online";
   if (agent.node_status === "offline") return "offline";
   if (!agent.node_id) return "offline";
@@ -15,14 +19,15 @@ export function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | 
  *  Account page (alias || node_name) so both pages name a node identically;
  *  falls back to node_id when the nodes table lacks the node, and to null
  *  (nothing rendered) when the agent has no owning node. */
-export function nodeLabelOf(agent: AgentSummary, nodes: NodeSummary[]): string | null {
+export function nodeLabelOf(agent: AgentListItem, nodes: NodeSummary[]): string | null {
+  if (agent.node_name) return agent.node_name;
   if (!agent.node_id) return null;
   const node = nodes.find((n) => n.node_id === agent.node_id);
   return node ? node.alias || node.node_name : agent.node_id;
 }
 
 export interface AgentRowProps {
-  agent: AgentSummary;
+  agent: AgentListItem;
   /** Nodes table for the device label join and status fallback; may be empty
    *  when the nodes query failed (label falls back to node_id). */
   nodes: NodeSummary[];
@@ -42,6 +47,8 @@ export interface AgentRowProps {
  * standalone status dot — presence lives on the avatar badge only.
  */
 export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobile, onSelect }: AgentRowProps) {
+  const { t } = useTranslation();
+  const self = useAuthStore(s => s.user?.id);
   const status = statusOf(agent, nodes);
   const deviceLabel = nodesPending ? null : nodeLabelOf(agent, nodes);
 
@@ -80,7 +87,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
         <p
           className={`m-0 font-semibold truncate text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}
         >
-          {agent.display_name}
+          {agent.display_name} {self && agent.owner_id === self && <small className="agent-mine">{t("agents.mine")}</small>}
         </p>
         <p
           className={`m-0 mt-[2px] truncate text-im-text-muted ${isMobile ? "text-[12.5px]" : "font-mono text-[11px]"}`}

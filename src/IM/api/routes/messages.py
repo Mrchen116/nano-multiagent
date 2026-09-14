@@ -1,17 +1,22 @@
 """Message and event routes for IM HTTP APIs."""
 
 from pathlib import Path
+import hashlib
+import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import (
+    GatewayPrincipal,
+    current_data_principal,
+    current_gateway,
     current_user,
-    get_relay_service,
     get_web_im_service,
+    require_conversation_access,
 )
-from IM.application.relay_service import RelayService
+from IM.api.resource_access import authorize_resource_references
 from IM.application.web_im_service import WebIMService
 from IM.api.deps import get_gateway_control, get_gateway_relay
 from IM.ws.gateway.control import GatewayControl
@@ -28,6 +33,7 @@ from IM.domain.models import (
     ToolCall,
     User,
 )
+from IM.infra.repositories.users import UserRepository
 
 router = APIRouter(tags=["messages"])
 
@@ -369,20 +375,6 @@ def _resolve_upload_content_type(request: Request) -> str:
     return raw_content_type.split(";", 1)[0].strip() or "application/octet-stream"
 
 
-def _assert_conversation_in_owner_scope(
-    *, service: WebIMService, conversation_id: str, owner_id: str
-) -> Conversation:
-    """Return one owner-scoped conversation or raise 404."""
-    conversation = service.get_conversation_for_owner(
-        conversation_id=conversation_id, owner_id=owner_id
-    )
-    if conversation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="conversation_id not found"
-        )
-    return conversation
-
-
 @router.post(
     "/im/v1/uploads",
     response_model=AttachmentPayload,
@@ -390,11 +382,13 @@ def _assert_conversation_in_owner_scope(
 )
 async def create_upload(
     request: Request,
+    conversation_id: str = Query(min_length=1),
     file_name: str = Query(min_length=1),
-    user: User = Depends(current_user),
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
 ) -> AttachmentPayload:
-    del user  # auth-gated only; uploads themselves are tenant-agnostic by URL design
-    """Persist one raw upload body and return the IM-hosted attachment descriptor."""
+    """Store an ordinary attachment under its authenticated conversation boundary."""
+    require_conversation_access(request, user, conversation_id, agent_id)
     safe_name = _sanitize_upload_file_name(file_name)
     content_type = _resolve_upload_content_type(request)
     if not _is_allowed_upload_content_type(content_type):
@@ -402,19 +396,21 @@ async def create_upload(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"unsupported content_type: {content_type}",
         )
-    body = await request.body()
-    if len(body) > _UPLOAD_MAX_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"upload exceeds {_UPLOAD_MAX_BYTES} bytes",
-        )
-    suffix = Path(safe_name).suffix
-    stored_name = f"{uuid4().hex}{suffix}"
-    upload_dir = Path(request.app.state.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    (upload_dir / stored_name).write_bytes(body)
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > _UPLOAD_MAX_BYTES:
+            raise HTTPException(413, f"upload exceeds {_UPLOAD_MAX_BYTES} bytes")
+        body.extend(chunk)
+    require_conversation_access(request, user, conversation_id, agent_id)
+    resource, _ = request.app.state.message_image_repository.put(
+        conversation_id=conversation_id,
+        source_key=f"upload:{uuid4().hex}",
+        data=bytes(body),
+        content_type=content_type,
+        file_name=safe_name,
+    )
     return AttachmentPayload(
-        url=f"{str(request.base_url).rstrip('/')}/im/uploads/{stored_name}",
+        url=resource.attachment_url,
         content_type=content_type,
         file_name=safe_name,
     )
@@ -430,26 +426,41 @@ async def create_message(
     payload: CreateMessageRequest,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    user: User = Depends(current_user),
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
     service: WebIMService = Depends(get_web_im_service),
     gateway_handler: GatewayRelay = Depends(get_gateway_relay),
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
-    del request
-    conversation = _assert_conversation_in_owner_scope(
-        service=service, conversation_id=conversation_id, owner_id=user.owner_id
-    )
+    conversation = require_conversation_access(request, user, conversation_id, agent_id)
     if len(payload.attachments) > _MESSAGE_MAX_ATTACHMENTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"too many attachments: max {_MESSAGE_MAX_ATTACHMENTS} per message",
         )
     try:
-        sender_user_id, sender_type = _resolve_create_message_sender(payload)
+        sender_user_id, sender_type = _resolve_authorized_sender(
+            request, user, conversation, payload, agent_id
+        )
+        content = authorize_resource_references(
+            request, user, conversation_id, payload.content, agent_id
+        )
+        attachments = [
+            Attachment(
+                url=authorize_resource_references(
+                    request, user, conversation_id, item.url, agent_id
+                ),
+                content_type=item.content_type,
+                file_name=item.file_name,
+            )
+            for item in payload.attachments
+        ]
         resolved_target_node_id = None
-        if not payload.suppress_relay:
-            resolved_target_node_id = conversation.target_node_id or (
-                payload.target_node_id
+        if not payload.suppress_relay and any(
+            member.type == "agent" for member in conversation.participants
+        ):
+            resolved_target_node_id = (
+                conversation.target_node_id
                 or service.resolve_target_node_id(
                     conversation_id=conversation_id,
                     content=payload.content,
@@ -459,20 +470,21 @@ async def create_message(
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,
             sender_type=sender_type,
-            content=payload.content,
-            attachments=[
-                Attachment(
-                    url=item.url,
-                    content_type=item.content_type,
-                    file_name=item.file_name,
-                )
-                for item in payload.attachments
-            ],
+            content=content,
+            attachments=attachments,
             auto_complete_delivery=resolved_target_node_id is None,
-            sender_display_name=payload.sender_display_name,
-            sender_source_id=payload.sender_source_id,
+            sender_display_name=(
+                payload.sender_display_name
+                if isinstance(user, GatewayPrincipal)
+                else None
+            ),
+            sender_source_id=(
+                payload.sender_source_id if isinstance(user, GatewayPrincipal) else None
+            ),
             emit_created_event=payload.suppress_relay,
             caller_idempotency_key=idempotency_key,
+            external_sender=isinstance(user, GatewayPrincipal)
+            and sender_type == "user",
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
@@ -522,20 +534,26 @@ def reconcile_external_agent_message(
     conversation_id: str,
     shadow_message_id: str,
     payload: ExternalAgentMessageSnapshotRequest,
-    user: User = Depends(current_user),
+    request: Request,
+    user: GatewayPrincipal = Depends(current_gateway),
     service: WebIMService = Depends(get_web_im_service),
 ) -> MessageResponse:
     """Create or reconcile one terminal external Agent message by source identity."""
 
-    _assert_conversation_in_owner_scope(
-        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    conversation = require_conversation_access(
+        request, user, conversation_id, payload.agent_id
+    )
+    if not conversation.external_source or not conversation.external_chat_id:
+        raise HTTPException(404, "external conversation not found")
+    content = authorize_resource_references(
+        request, user, conversation_id, payload.content, payload.agent_id
     )
     try:
         message = service.reconcile_external_agent_message(
             conversation_id=conversation_id,
             shadow_message_id=shadow_message_id,
             agent_id=payload.agent_id,
-            content=payload.content,
+            content=content,
             thinking=[
                 ThinkingSegment(seq=item.seq, text=item.text)
                 for item in payload.thinking
@@ -585,22 +603,20 @@ def reconcile_external_agent_message(
 )
 def list_messages(
     conversation_id: str,
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     before_message_id: str | None = Query(default=None),
-    mark_as_read: bool = Query(default=False),
-    user: User = Depends(current_user),
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
     service: WebIMService = Depends(get_web_im_service),
 ) -> ListMessagesResponse:
     """List messages for one conversation in insertion order (owner-scoped)."""
-    _assert_conversation_in_owner_scope(
-        service=service, conversation_id=conversation_id, owner_id=user.owner_id
-    )
+    require_conversation_access(request, user, conversation_id, agent_id)
     try:
         items = service.list_timeline(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
-            mark_as_read=mark_as_read,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -656,48 +672,50 @@ async def submit_permission_decision(
     conversation_id: str,
     request_id: str,
     payload: SubmitPermissionDecisionRequest,
+    request: Request,
     user: User = Depends(current_user),
-    service: WebIMService = Depends(get_web_im_service),
-    relay_service: RelayService = Depends(get_relay_service),
     gateway_control: GatewayControl = Depends(get_gateway_control),
 ) -> dict:
-    """Forward user's permission decision to the gateway node hosting the parked run.
-
-    Resolves the target node from the conversation's agent participant, then pushes
-    a ``permission_response`` frame via the gateway WS so the PA can relay it to the
-    agent inbound endpoint and resume the parked hook.
-
-    Returns:
-        ``{"status": "forwarded"}`` when the node was connected, otherwise
-        ``{"status": "queued"}`` when the node is offline (decision will be retried).
-    """
-    _assert_conversation_in_owner_scope(
-        service=service, conversation_id=conversation_id, owner_id=user.owner_id
-    )
-    # Resolve which node hosts the agent in this conversation.
-    target_node_id = relay_service.resolve_target_node_id(
-        conversation_id=conversation_id,
-        content="",
-    )
-    if target_node_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="no agent node found for this conversation",
+    """Durably accept the first member decision for the card's original execution."""
+    require_conversation_access(request, user, conversation_id)
+    normalized_reason = payload.reason.strip() if payload.reason else None
+    try:
+        decision = request.app.state.message_repository.claim_permission_decision(
+            conversation_id=conversation_id,
+            message_id=payload.message_id,
+            request_id=request_id,
+            decision=payload.decision,
+            decided_by=user.id,
+            reason=normalized_reason or None,
         )
-    # feat-440-M2 (F3): trim the reason at the HTTP boundary. A non-frontend /
-    # direct-API caller can send leading/trailing or pure whitespace; a strip()-empty
-    # reason is treated as "not provided" (→ None) so it never reaches the LLM as a
-    # blank "the user said:\n   ". The frontend already trims, but the backend must
-    # not trust it.
-    normalized_reason = payload.reason.strip() if payload.reason is not None else None
-    delivered = await gateway_control.push_permission_response(
-        target_node_id=target_node_id,
-        message_id=payload.message_id,
-        request_id=request_id,
-        decision=payload.decision,
-        reason=normalized_reason or None,
-    )
-    return {"status": "forwarded" if delivered else "queued"}
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    if decision["status"] == "submitted":
+        request.app.state.event_repository.append_event(
+            conversation_id=conversation_id,
+            message_id=payload.message_id,
+            event_type="permission.submitted",
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": payload.message_id,
+                "request_id": request_id,
+                "status": "submitted",
+                "decision": decision["decision"],
+                "decided_by": decision["decided_by"],
+            },
+        )
+        await gateway_control.push_permission_response(
+            target_node_id=str(decision["node_id"]),
+            message_id=payload.message_id,
+            request_id=request_id,
+            decision=str(decision["decision"]),
+            reason=decision.get("reason"),
+        )
+    return {
+        key: decision.get(key)
+        for key in ("status", "request_id", "decision", "decided_by")
+    }
 
 
 def _resolve_create_message_sender(payload: CreateMessageRequest) -> tuple[str, str]:
@@ -715,3 +733,51 @@ def _resolve_create_message_sender(payload: CreateMessageRequest) -> tuple[str, 
     assert payload.sender_user_id is not None
     legacy_sender_type = (payload.sender_type or "user").strip().lower()
     return (payload.sender_user_id.strip(), legacy_sender_type)
+
+
+def _resolve_authorized_sender(
+    request: Request,
+    principal: User | GatewayPrincipal,
+    conversation: Conversation,
+    payload: CreateMessageRequest,
+    agent_id: str | None,
+) -> tuple[str, str]:
+    sender_id, sender_type = _resolve_create_message_sender(payload)
+    if isinstance(principal, User):
+        if sender_type != "user" or sender_id not in {
+            principal.id,
+            f"user:{principal.id}",
+        }:
+            raise HTTPException(403, "sender must be the authenticated user")
+        if payload.suppress_relay:
+            raise HTTPException(403, "suppress_relay requires a gateway")
+        return principal.id, "user"
+    if sender_type == "agent" and sender_id == f"agent:{agent_id}":
+        return sender_id, "agent"
+    if (
+        sender_type != "user"
+        or not conversation.external_source
+        or not conversation.external_chat_id
+        or conversation.source_agent_id != agent_id
+        or conversation.owner_id != principal.owner_id
+    ):
+        raise HTTPException(
+            403, "external sender requires its gateway shadow conversation"
+        )
+    source_user_id = sender_id.removeprefix("user:")
+    if source_user_id != principal.owner_id or not payload.sender_source_id:
+        raise HTTPException(403, "external speaker identity is required")
+    # The transport's owner anchors the shadow source, never the external speaker.
+    # A non-login identity preserves source attribution without impersonating an account.
+    identity = json.dumps(
+        [principal.node_id, conversation.external_source, payload.sender_source_id]
+    )
+    username = "shadow:" + hashlib.sha256(identity.encode()).hexdigest()
+    users = UserRepository(request.app.state.connection)
+    speaker = users.get_user_by_username(username=username)
+    if speaker is None:
+        speaker = users.create_user(
+            username=username,
+            display_name=payload.sender_display_name or payload.sender_source_id,
+        )
+    return speaker.id, "user"

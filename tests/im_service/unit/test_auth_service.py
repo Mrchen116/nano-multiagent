@@ -53,6 +53,19 @@ def test_register_creates_user_with_hashed_password(auth_service: AuthService) -
     )
 
 
+@pytest.mark.parametrize(
+    "username", ["agent:future-agent", "shadow:external-id", "system"]
+)
+def test_register_cannot_claim_runtime_actor_identity(
+    auth_service: AuthService, username: str
+) -> None:
+    """A human login must not acquire the actor used by a future Gateway Agent."""
+    with pytest.raises(RegistrationError, match="reserved"):
+        auth_service.register(
+            username=username, password="hunter2-strong", display_name="Attacker"
+        )
+
+
 def test_register_rejects_duplicate_username(auth_service: AuthService) -> None:
     """Two registrations with the same username must raise RegistrationError."""
     auth_service.register(

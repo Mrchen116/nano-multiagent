@@ -13,28 +13,23 @@ import {
   updateAccount
 } from "../im-settings-api";
 
-// M19/R11-6: prototype `im-extra-pages.jsx::AccountPage` 是 2 张窄居中卡 (Profile +
-// Gateway, maxWidth 620px),Profile 头部带 54×54 圆 avatar + initials + mono user_id。
+// M19/R11-6: 保留 2 张窄居中卡 (Profile + Devices, maxWidth 620px)，
+// Profile 头部带 54×54 圆 avatar + initials + mono user_id。
 // Preferences 卡 (Language radio + Notifications checkbox) 不在 prototype —
 // Language 入口在 Me 页 / UserMenu (R2 已落),Notifications toggle 在 Me 页 (R2 已落)。
 
 interface DraftState {
   display_name: string;
-  default_entry_node_id: string | null;
 }
 
 function toDraft(profile: AccountProfile): DraftState {
   return {
-    display_name: profile.display_name,
-    default_entry_node_id: profile.default_entry_node_id
+    display_name: profile.display_name
   };
 }
 
 function isDirty(draft: DraftState, profile: AccountProfile): boolean {
-  return (
-    draft.display_name !== profile.display_name ||
-    draft.default_entry_node_id !== profile.default_entry_node_id
-  );
+  return draft.display_name !== profile.display_name;
 }
 
 function initialsOf(name: string): string {
@@ -100,7 +95,7 @@ export function AccountPage() {
     if (!dirty || mutation.isPending) return;
     mutation.mutate({
       display_name: draft.display_name.trim(),
-      default_entry_node_id: draft.default_entry_node_id,
+      default_entry_node_id: profile.default_entry_node_id,
       locale: currentLocale
     });
   };
@@ -197,33 +192,9 @@ export function AccountPage() {
             {t("settings.account.defaults.subtitle")}
           </p>
         </header>
-        <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-          {t("settings.account.defaults.defaultEntryNode")}
-          <select
-            className="im-input"
-            value={draft.default_entry_node_id ?? ""}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                default_entry_node_id: event.target.value.length > 0 ? event.target.value : null
-              })
-            }
-          >
-            <option value="">{t("settings.account.defaults.selectNode")}</option>
-            {ownedNodeRows.map((node) => (
-              <option key={node.node_id} value={node.node_id}>
-                {node.alias || node.node_name} ({node.status})
-              </option>
-            ))}
-          </select>
-          <span className="text-[12px] text-[oklch(0.55_0.01_240)]">
-            {t("settings.account.defaults.defaultEntryNodeHint")}
-          </span>
-        </label>
         <div className="grid gap-2">
           {ownedNodeRows.map((node) => {
             const isOnline = node.status === "online";
-            const isDefault = node.node_id === draft.default_entry_node_id;
             return (
               <div
                 key={node.node_id}
@@ -256,14 +227,6 @@ export function AccountPage() {
                   </p>
                   <p className="m-0">v{node.version}</p>
                 </div>
-                {isDefault ? (
-                  <span
-                    data-testid={`account-owned-node-default-chip-${node.node_id}`}
-                    className="shrink-0 rounded-full border border-[oklch(0.78_0.12_180)] bg-[oklch(0.93_0.06_180)] px-2 py-0.5 text-[11px] font-bold text-[oklch(0.35_0.12_180)]"
-                  >
-                    {t("settings.account.defaults.defaultChip")}
-                  </span>
-                ) : null}
               </div>
             );
           })}

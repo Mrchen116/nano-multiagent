@@ -1416,7 +1416,8 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
     mutationFn: async () => {
       return createConversation({
         title: draft?.display_name || agentId,
-        agentIds: [agentId]
+        type: "direct",
+        participants: [{ type: "agent", id: agentId }]
       });
     },
     onSuccess: async ({ id: conversationId }) => {

@@ -31,6 +31,7 @@ export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot 
 
 const stores = new Map<string, Map<string, ComposerSnapshot>>();
 const sendingIds = new Set<string>();
+const revokedConversations = new WeakMap<Map<string, ComposerSnapshot>, Set<string>>();
 const listeners = new WeakMap<Map<string, ComposerSnapshot>, Set<(conversationId: string) => void>>();
 
 export function composerStoreFor(userId: string | null): Map<string, ComposerSnapshot> {
@@ -48,6 +49,7 @@ export function writeComposerSnapshot(
   conversationId: string,
   snapshot: ComposerSnapshot
 ): void {
+  if (revokedConversations.get(store)?.has(conversationId)) return;
   store.set(conversationId, cloneComposerSnapshot(snapshot));
   listeners.get(store)?.forEach((listener) => listener(conversationId));
 }
@@ -83,4 +85,17 @@ export function isComposerSending(conversationId: string): boolean {
 export function resetComposerStores(): void {
   stores.clear();
   sendingIds.clear();
+}
+
+/** Reject late upload/unmount writes after this person loses the conversation. */
+export function forgetComposerConversation(store: Map<string, ComposerSnapshot>, conversationId: string): void {
+  const revoked = revokedConversations.get(store) ?? new Set<string>();
+  revoked.add(conversationId);
+  revokedConversations.set(store, revoked);
+  store.delete(conversationId);
+  listeners.get(store)?.forEach(listener => listener(conversationId));
+}
+
+export function restoreComposerMembership(store: Map<string, ComposerSnapshot>, conversationIds: Iterable<string>): void {
+  for (const id of conversationIds) revokedConversations.get(store)?.delete(id);
 }

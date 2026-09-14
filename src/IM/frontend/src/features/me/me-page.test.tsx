@@ -54,13 +54,14 @@ describe("MePage", () => {
     localStorage.clear();
   });
 
-  it("shows account / nodes / language / sign-out entries with EN copy by default", () => {
+  it("shows account / nodes / policies / language / sign-out entries with EN copy by default", () => {
     renderMe();
     expect(screen.getByRole("heading", { name: /me/i })).toBeInTheDocument();
     expect(screen.getByText("Alex Chen")).toBeInTheDocument();
     expect(screen.getByText("user-1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /account/i })).toHaveAttribute("href", "/settings/account");
     expect(screen.getByRole("link", { name: /nodes/i })).toHaveAttribute("href", "/settings/nodes");
+    expect(screen.getByRole("link", { name: /policies/i })).toHaveAttribute("href", "/settings/policies");
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
 

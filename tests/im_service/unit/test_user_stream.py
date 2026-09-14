@@ -12,6 +12,7 @@ from IM.ws.user_stream import (
     UserStreamRegistry,
     conversation_event_to_wire_data,
     encode_user_stream_event_frame,
+    pump_user_stream_outbound,
     serve_user_websocket,
 )
 
@@ -90,6 +91,48 @@ class _PagedEventRepository:
 
     def global_max_event_id(self) -> int:
         return self.events[-1].event_id if self.events else 0
+
+    def recipient_user_ids(self, conversation_id: str) -> tuple[str, ...]:
+        return ("user-a",)
+
+
+async def test_queued_event_rechecks_members_before_each_socket_delivery() -> None:
+    """A queued audience must not keep receiving chat data after membership removal."""
+    delivered = asyncio.Event()
+
+    class CurrentMembers:
+        def recipient_user_ids(self, conversation_id):
+            assert conversation_id == "conv-1"
+            return ("remaining",)
+
+    class RemainingSocket(_StubWebSocket):
+        async def send_text(self, text):
+            await super().send_text(text)
+            delivered.set()
+
+    registry = UserStreamRegistry()
+    removed = _StubWebSocket()
+    remaining = RemainingSocket()
+    await registry.add("removed", removed)
+    await registry.add("remaining", remaining)
+    queue = asyncio.Queue()
+    # The queue captured this audience before the member was removed.
+    queue.put_nowait(
+        (frozenset({"removed", "remaining"}), encode_user_stream_event_frame(_event(1)))
+    )
+    pump = asyncio.create_task(
+        pump_user_stream_outbound(
+            registry=registry, outbound_queue=queue, event_repository=CurrentMembers()
+        )
+    )
+    try:
+        await asyncio.wait_for(delivered.wait(), timeout=1)
+        assert removed.sent == []
+        assert json.loads(remaining.sent[0])["event_id"] == 1
+    finally:
+        pump.cancel()
+        with suppress(asyncio.CancelledError):
+            await pump
 
 
 class _ResumeWebSocket(_StubWebSocket):

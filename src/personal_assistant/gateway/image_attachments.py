@@ -7,10 +7,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 import logging
 from typing import Any, Literal
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from personal_assistant.gateway.im_http_transport import build_im_http_headers
+from personal_assistant.gateway.im_http_transport import (
+    build_im_http_headers,
+    normalize_im_http_base_url,
+)
 
 
 ImageFailureKind = Literal["download", "oversize", "corrupt"]
@@ -34,15 +38,15 @@ class ImageAttachmentResolver:
     """Own image fetch, limit, validation, MIME and data-URL policy.
 
     Args:
-        fetcher: Optional asynchronous URL downloader. Without one, valid attachment
-            descriptors pass through as raw URLs for product-agnostic/test wiring.
+        fetcher: Optional downloader accepting a URL and executing Agent identity.
+            Without one, descriptors pass through as raw URLs for standalone wiring.
         max_image_bytes: Inclusive maximum accepted downloaded payload size.
     """
 
     def __init__(
         self,
         *,
-        fetcher: Callable[[str], Awaitable[bytes]] | None = None,
+        fetcher: Callable[[str, str], Awaitable[bytes]] | None = None,
         max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES,
     ) -> None:
         if max_image_bytes <= 0:
@@ -50,11 +54,14 @@ class ImageAttachmentResolver:
         self._fetcher = fetcher
         self._max_image_bytes = max_image_bytes
 
-    async def resolve(self, attachments: object) -> ImageResolution:
+    async def resolve(
+        self, attachments: object, *, agent_id: str = ""
+    ) -> ImageResolution:
         """Resolve every valid attachment descriptor or fail the whole image set.
 
         Args:
             attachments: Raw inbound metadata value expected to contain attachment dicts.
+            agent_id: Executing Agent identity for protected IM resource access.
 
         Returns:
             Ordered Kernel image parts, or an empty set with the first stable failure kind.
@@ -96,7 +103,7 @@ class ImageAttachmentResolver:
                 parts.append(part)
                 continue
             try:
-                raw = await self._fetcher(url)
+                raw = await self._fetcher(url, agent_id)
             except Exception as exc:  # noqa: BLE001
                 logging.getLogger(__name__).info(
                     "image attachment download failed (%s): %s", url, exc
@@ -133,14 +140,40 @@ def _decode_image_data_url(url: str) -> bytes | None:
 
 
 def build_im_attachment_fetcher(
-    *, token_getter: Callable[[], Awaitable[str | None]]
-) -> Callable[[str], Awaitable[bytes]]:
-    """Build the authenticated IM downloader used by image resolution."""
+    *, base_url: str, token_getter: Callable[[], Awaitable[str | None]]
+) -> Callable[[str, str], Awaitable[bytes]]:
+    """Download images, authenticating only this IM's protected resource URLs.
 
-    async def fetch(url: str) -> bytes:
-        token = await token_getter()
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=build_im_http_headers(token))
+    Args:
+        base_url: Configured IM origin.
+        token_getter: Current registered node credential provider.
+
+    Returns:
+        Downloader accepting the source URL and executing Agent identity.
+    """
+    base = normalize_im_http_base_url(base_url)
+    origin = urlparse(base)
+
+    async def fetch(url: str, agent_id: str) -> bytes:
+        target = urljoin(base + "/", url)
+        parsed = urlparse(target)
+        protected = (
+            (parsed.scheme, parsed.netloc) == (origin.scheme, origin.netloc)
+            and parsed.path.startswith("/im/v1/conversations/")
+            and any(part in parsed.path for part in ("/images/", "/attachments/"))
+        )
+        headers = {}
+        params = None
+        if protected:
+            token = await token_getter()
+            if not token or not agent_id:
+                raise ConnectionError(
+                    "IM resource access requires registered Agent identity"
+                )
+            headers = build_im_http_headers(token)
+            params = {"agent_id": agent_id}
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+            response = await client.get(target, headers=headers, params=params)
             response.raise_for_status()
             return response.content
 

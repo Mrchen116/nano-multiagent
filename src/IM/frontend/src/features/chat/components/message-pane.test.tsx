@@ -2316,6 +2316,7 @@ describe("MessagePane", () => {
         <MessagePane
           conversation={DIRECT_CONV}
           messages={[TS_USER, TS_AGENT_LOW]}
+          selfUserId={TS_USER.sender.id}
           mentionCandidates={[]}
           onSend={() => {}}
         />

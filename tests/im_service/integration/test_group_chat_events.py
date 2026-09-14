@@ -26,11 +26,16 @@ def test_dual_mention_keeps_per_agent_identity_across_realtime_and_completion_ev
         user_id = seed_user(client, "alice")
         agent_q_user_id = seed_user(client, "agent:agent-q")
         agent_a_user_id = seed_user(client, "agent:agent-a")
-        seed_node_and_profiles(app, agent_ids=("agent-q", "agent-a"))
+        seed_node_and_profiles(
+            app,
+            owner_id=client.get("/im/v1/me").json()["owner_id"],
+            agent_ids=("agent-q", "agent-a"),
+        )
 
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "Dual Mention SSE Identity",
                 "participant_ids": [user_id, agent_q_user_id, agent_a_user_id],
             },

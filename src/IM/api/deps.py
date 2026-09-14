@@ -3,6 +3,8 @@
 import asyncio
 import concurrent.futures
 import os
+import json
+from dataclasses import dataclass
 from collections.abc import Coroutine
 from typing import Any
 
@@ -19,7 +21,7 @@ from IM.application.policy_service import PolicyService
 from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import User
+from IM.domain.models import Conversation, User
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.agent_config_operations import (
     AgentConfigOperationRepository,
@@ -315,3 +317,94 @@ def current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayPrincipal:
+    """The node and owner proven by the current registered machine connection."""
+
+    node_id: str
+    owner_id: str
+
+
+async def current_gateway(request: Request) -> GatewayPrincipal:
+    """Authenticate the narrow machine-only HTTP data surface."""
+    token = _extract_bearer_token(request)
+    connection = await request.app.state.gateway_sessions.authenticate_access_token(
+        token
+    )
+    if connection is None:
+        raise HTTPException(401, "invalid gateway access token")
+    return GatewayPrincipal(connection.node_id, connection.owner_id)
+
+
+async def current_data_principal(request: Request) -> User | GatewayPrincipal:
+    """Authenticate a human or current machine on explicitly shared data routes."""
+    token = _extract_bearer_token(request)
+    connection = await request.app.state.gateway_sessions.authenticate_access_token(
+        token
+    )
+    if connection is not None:
+        return GatewayPrincipal(connection.node_id, connection.owner_id)
+    return current_user(request, service=request.app.state.auth_service)
+
+
+def require_conversation_access(
+    request: Request,
+    principal: User | GatewayPrincipal,
+    conversation_id: str,
+    agent_id: str | None = None,
+) -> Conversation:
+    """Require human membership or a node-owned Agent's membership for data access."""
+    repository = _build_conversation_repository(request)
+    conversation = repository.get_conversation(conversation_id=conversation_id)
+    if conversation is None:
+        raise HTTPException(404, "conversation_id not found")
+    if isinstance(principal, User):
+        if not any(
+            member.user_id == principal.id for member in conversation.participants
+        ):
+            raise HTTPException(404, "conversation_id not found")
+        return repository.get_conversation_for_member(
+            conversation_id=conversation_id, user_id=principal.id
+        )
+    profile = _build_profile_repository(request).get_profile(agent_id=agent_id or "")
+    if (
+        profile is None
+        or profile.is_stale
+        or profile.node_id != principal.node_id
+        or profile.owner_id != principal.owner_id
+        or not any(
+            member.type == "agent" and member.id == agent_id
+            for member in conversation.participants
+        )
+    ):
+        raise HTTPException(404, "conversation_id not found")
+    return conversation
+
+
+async def notify_conversation_membership(
+    request: Request,
+    conversation_id: str,
+    user_ids: list[str],
+    *,
+    deleted: bool = False,
+) -> None:
+    """Invalidate former members' live views without sending conversation data.
+
+    This control notification has no replay cursor. Reconnection first reloads
+    membership-filtered sync, covering removals while a caller was offline.
+    """
+    await request.app.state.user_stream_registry.broadcast_to_users(
+        user_ids,
+        json.dumps(
+            {
+                "op": "event",
+                "event_type": "conversation.deleted"
+                if deleted
+                else "conversation.membership_changed",
+                "conversation_id": conversation_id,
+                "data": {"conversation_id": conversation_id},
+            }
+        ),
+    )

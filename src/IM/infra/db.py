@@ -39,9 +39,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
     creator_id TEXT NOT NULL DEFAULT '',
-    is_pinned INTEGER NOT NULL DEFAULT 0,
-    is_muted INTEGER NOT NULL DEFAULT 0,
-    unread_count INTEGER NOT NULL DEFAULT 0,
+    direct_key TEXT UNIQUE,
     last_message_preview TEXT,
     last_message_at TEXT,
     config_agent_id TEXT,
@@ -125,6 +123,10 @@ CREATE TABLE IF NOT EXISTS bind_requests (
 CREATE TABLE IF NOT EXISTS conversation_participants (
     conversation_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    is_muted INTEGER NOT NULL DEFAULT 0,
+    unread_count INTEGER NOT NULL DEFAULT 0,
+    last_read_message_id TEXT,
     PRIMARY KEY (conversation_id, user_id),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -467,18 +469,6 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             )
             WHERE owner_id = ''
             """
-        )
-    if "is_pinned" not in column_names:
-        connection.execute(
-            "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
-        )
-    if "is_muted" not in column_names:
-        connection.execute(
-            "ALTER TABLE conversations ADD COLUMN is_muted INTEGER NOT NULL DEFAULT 0"
-        )
-    if "unread_count" not in column_names:
-        connection.execute(
-            "ALTER TABLE conversations ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0"
         )
     if "last_message_at" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN last_message_at TEXT")

@@ -7,29 +7,20 @@ from fastapi.testclient import TestClient
 
 from IM.infra.repositories.nodes import NodeRepository
 
-from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
+from .conftest import authorize, make_app_client, register_user
 
 
 def _create_user(client: TestClient, username: str) -> str:
-    """Auth-aware user creation: first call registers + authorizes, subsequent calls seed."""
-    auth = client.headers.get("Authorization")
-    if auth is None:
-        user = register_user(client, username=username, display_name=username.title())
-        authorize(client, user)
-        return user.id
-    me = client.get("/im/v1/me").json()
-    return seed_user_under_owner(
-        client,
-        username=username,
-        display_name=username.title(),
-        owner_id=me["owner_id"],
-    )
+    """Create and authenticate a real participant."""
+    user = register_user(client, username=username, display_name=username.title())
+    authorize(client, user)
+    return user.id
 
 
 def _create_conversation(client: TestClient, participant_id: str) -> str:
     response = client.post(
         "/im/v1/conversations",
-        json={"title": "chat", "participant_ids": [participant_id]},
+        json={"type": "group", "title": "chat", "participant_ids": [participant_id]},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -180,11 +171,7 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(
     """Delay relay-backed usage until completed reports deliver real kernel usage."""
     with make_app_client(tmp_path) as client:
         owner_id = _create_user(client, "alice")
-        agent_id = _create_user(client, "agent-alpha")
-        conversation_id = client.post(
-            "/im/v1/conversations",
-            json={"title": "chat", "participant_ids": [owner_id, agent_id]},
-        ).json()["id"]
+        agent_id = "agent-alpha"
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -200,6 +187,19 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(
                 }
             )
             assert websocket.receive_json()["type"] == "ack"
+            conversation = client.post(
+                "/im/v1/conversations",
+                json={
+                    "type": "direct",
+                    "title": "chat",
+                    "participants": [
+                        {"type": "user", "id": owner_id},
+                        {"type": "agent", "id": agent_id},
+                    ],
+                },
+            )
+            assert conversation.status_code == 201, conversation.text
+            conversation_id = conversation.json()["id"]
 
             created = client.post(
                 f"/im/v1/conversations/{conversation_id}/messages",

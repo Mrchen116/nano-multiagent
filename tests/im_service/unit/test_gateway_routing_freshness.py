@@ -146,6 +146,7 @@ def test_direct_dispatch_rebinds_to_latest_node_before_enqueue(tmp_path: Path) -
     """A post-write agent rebind routes relay/push to the replacement node."""
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
+    _insert_user(connection, user_id="owner-id", username="owner", display_name="Owner")
     old_ws = _RecordingWebSocket()
     new_ws = _RecordingWebSocket()
     persistence = _RebindAfterDispatchPersistence(connection)
@@ -158,6 +159,7 @@ def test_direct_dispatch_rebinds_to_latest_node_before_enqueue(tmp_path: Path) -
     asyncio.run(
         handler.handle_message(
             websocket=old_ws,
+            authenticated_owner_id="owner-scope",
             message_type="node.register",
             payload={
                 "node_id": "node-old",
@@ -169,6 +171,7 @@ def test_direct_dispatch_rebinds_to_latest_node_before_enqueue(tmp_path: Path) -
     asyncio.run(
         handler.handle_message(
             websocket=new_ws,
+            authenticated_owner_id="owner-scope",
             message_type="node.register",
             payload={"node_id": "node-new", "agents": [], "capabilities": {}},
         )
@@ -177,8 +180,10 @@ def test_direct_dispatch_rebinds_to_latest_node_before_enqueue(tmp_path: Path) -
     response = asyncio.run(
         handler.handle_message(
             websocket=old_ws,
+            authenticated_owner_id="owner-scope",
             message_type="agent.message",
             payload={
+                "node_id": "node-old",
                 "from_session_id": "A|tool_call:rebind-direct",
                 "to": "agent:B",
                 "text": "route after rebind",
@@ -264,13 +269,15 @@ def test_group_fanout_rebinds_later_peer_before_its_enqueue(tmp_path: Path) -> N
         ("node-a-old", ["A"]),
         ("node-a-new", []),
     ):
-        asyncio.run(
+        registration = asyncio.run(
             handler.handle_message(
                 websocket=sockets[node_id],
+                authenticated_owner_id="owner-scope",
                 message_type="node.register",
                 payload={"node_id": node_id, "agents": agents, "capabilities": {}},
             )
         )
+        assert registration["type"] == "ack", registration
     message = MessageRepository(connection).create_message(
         conversation_id=conversation.id,
         sender_user_id="source-id",
@@ -283,6 +290,7 @@ def test_group_fanout_rebinds_later_peer_before_its_enqueue(tmp_path: Path) -> N
     response = asyncio.run(
         handler.handle_message(
             websocket=sockets["node-source"],
+            authenticated_owner_id="owner-scope",
             message_type="node.streaming_delta",
             payload={
                 "node_id": "node-source",

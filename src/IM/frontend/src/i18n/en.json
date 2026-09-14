@@ -88,7 +88,13 @@
       "title": "Nodes",
       "subtitle": "Gateway nodes connected to this workspace.",
       "loading": "Loading nodes…",
-      "empty": "No nodes connected yet.",
+      "empty": "No devices bound yet",
+      "emptyBody": "Bind a device to run and manage your own Agents.",
+      "bindStart": "Start Gateway on your device and connect it to this IM.",
+      "bindConfirm": "Open the binding link provided by Gateway and confirm with your current account.",
+      "refresh": "Refresh devices",
+      "refreshing": "Refreshing…",
+      "loadFailed": "Unable to load devices. Please try again.",
       "aliasLabel": "Alias {{nodeId}}",
       "liveSnapshot": "Live Snapshot",
       "heartbeat": "Heartbeat",
@@ -117,7 +123,7 @@
     },
     "account": {
       "title": "Account",
-      "subtitle": "Your profile and default gateway configuration.",
+      "subtitle": "Your profile and devices.",
       "identity": {
         "heading": "Profile",
         "subtitle": "Your identity inside the workspace.",
@@ -127,14 +133,11 @@
         "createdAt": "Member since"
       },
       "defaults": {
-        "heading": "Gateway",
-        "subtitle": "Controls which node routes your messages by default.",
-        "defaultEntryNode": "Default entry node",
-        "defaultEntryNodeHint": "Choose from your owned nodes.",
+        "heading": "Devices",
+        "subtitle": "Devices you own and their connection status.",
         "selectNode": "— Select a node —",
         "ownedNodes": "Owned nodes",
         "ownedNodesEmpty": "No nodes bound yet.",
-        "defaultChip": "Default",
         "agentsShort": "agents"
       },
       "preferences": {
@@ -506,6 +509,10 @@
     },
     "create": {
       "title": "New agent",
+      "noDevicesTitle": "Bind a device before creating an Agent",
+      "noDevicesBody": "To create your own Agent, first bind a device running Gateway.",
+      "manageDevices": "Manage devices",
+      "backToAgents": "Back to Agents",
       "subtitle": "Configure identity, behavior, and tool access.",
       "submit": "Create agent",
       "submitArrow": "Create agent →",
@@ -640,7 +647,15 @@
       "固定": "Required",
       "已停止": "Stopped",
       "已终止": "Killed"
-    }
+    },
+    "publicProfile": "Profile",
+    "managedBy": "Managed by",
+    "device": "Device",
+    "mode": "Work mode",
+    "globalMode": "Global mode",
+    "threadMode": "Single Thread mode",
+    "mine": "Mine",
+    "search": "Find Agent"
   },
   "chat": {
     "conversationMenu": {
@@ -654,13 +669,15 @@
     },
     "list": {
       "header": "Messages",
-      "newGroup": "+ Group",
+      "createConversation": "New conversation",
+      "newGroup": "Create group",
       "search": "Search…",
       "filters": {
         "all": "All",
         "agent": "Agent",
         "group": "Group",
-        "network": "Network"
+        "network": "Network",
+        "people": "People"
       },
       "generateSkill": "Generate skill",
       "distillToSkill": "Distill to skill",
@@ -678,8 +695,8 @@
     },
     "newGroup": {
       "title": "New group chat",
-      "subtitle": "Select agents, then give the group a name.",
-      "sectionAgents": "Agents",
+      "subtitle": "Choose people and Agents you manage",
+      "sectionAgents": "People and my Agents",
       "groupName": "Group name (optional)",
       "groupNamePlaceholder": "Auto-generated from participants",
       "create": "Create group",
@@ -696,7 +713,7 @@
       "requireSkillView": "Enable skill_view for the execution agent before starting.",
       "requireDistillerAndSkillView": "Enable conversation-skill-distiller and skill_view for the execution agent before starting.",
       "starting": "Starting…",
-      "startError": "Failed to start distillation."
+      "startError": "Could not prepare the selected chats. Check that their Gateway is online and their history is available, then try again."
     },
     "messagePane": {
       "systemNotice": {
@@ -848,14 +865,16 @@
       "add": "Add",
       "addCount": "Add ({{count}})",
       "addCountMobile": "Add {{count}} member(s)",
-      "noAddableAgents": "No agents available to add",
+      "noAddableAgents": "No members available to add",
       "remove": "Remove",
       "removeMember": "Remove {{name}}",
       "removeConfirm": "Remove this member from the group?",
       "dissolve": "Dissolve group",
       "dissolveConfirmTitle": "Dissolve “{{name}}”?",
       "dissolveConfirm": "The group and its chat history will be permanently deleted and can't be recovered.",
-      "actionError": "Something went wrong. Please try again."
+      "actionError": "Something went wrong. Please try again.",
+      "leave": "Leave group",
+      "memberCount": "{{count}} members"
     },
     "mention": {
       "header": "Mention member",
@@ -876,7 +895,8 @@
       "optionAllowAlways": "Always allow",
       "optionDeny": "Deny",
       "reasonPlaceholder": "Reason for denying (optional)",
-      "reasonLabel": "Denial reason (optional)"
+      "reasonLabel": "Denial reason (optional)",
+      "submitted": "Decision submitted. Waiting for the device to confirm."
     },
     "slash": {
       "header": "Select a slash command or skill",
@@ -888,7 +908,21 @@
       "newGroupDesc": "Start a new session for every agent in this group",
       "compactDesc": "Compact the current session context",
       "from": "from {{agents}}"
-    }
+    },
+    "contacts": {
+      "title": "New chat",
+      "search": "Find people or Agents",
+      "empty": "No contacts found",
+      "person": "Person",
+      "message": "Message",
+      "failed": "Could not complete this action. Try again."
+    },
+    "preferences": {
+      "title": "Chat preferences",
+      "pin": "Pin chat",
+      "mute": "Mute chat"
+    },
+    "viewWork": "View Work"
   },
   "feature": {
     "memory_curation": {

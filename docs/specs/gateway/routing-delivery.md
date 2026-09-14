@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: feat-546 / feat-551-agent-reply-images
+> 对齐: feat-546 / feat-551-agent-reply-images / feat-554
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -13,7 +13,7 @@
 
 ### Requirement: 当前会话的 Agent 图片回复具有统一交付语义
 
-Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺序交付到当前聊天，支持本地 PNG/JPEG/WebP 产物和既有可获取网络图片。图片引用不授予额外文件读取权限。每气泡最多五个不同来源、单图最多 10 MiB；同来源重复引用不重复准备资源。
+Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺序交付到当前聊天；全局 Agent 向已有聊天显式调用 `send_message` 时沿用相同图片交付。支持本地 PNG/JPEG/WebP 产物和既有可获取网络图片。图片引用不授予额外文件读取权限。每气泡最多五个不同来源、单图最多 10 MiB；同来源重复引用不重复准备资源。
 
 #### Scenario: 本地产物跨机器查看
 - **WHEN** 用户请求 Agent 展示其通过工具准备的本地图片
@@ -41,6 +41,12 @@ Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺�
 #### Scenario: 普通文本和示例保持原语义
 - **WHEN** Agent 回复纯文字或代码中的 Markdown 图片示例
 - **THEN** 保持原有文字，示例不触发文件读取或图片发送。
+
+#### Scenario: 全局 Agent 向已有聊天显式发送图片
+- **GIVEN** 全局 Agent 已有可投递的 IM 聊天目标
+- **WHEN** Agent 通过 `send_message` 发送其准备的本地图片及说明
+- **THEN** 聊天成员直接看到保护后的图片，刷新后仍可回看；持同一 URL 的非成员不能读取
+- **AND** 同次投递重试复用原快照与上传回执，群消息提交前的复核不会提前上传未获提交的图片。
 
 ### Requirement: PA 为每条真人消息固定模型侧发生时间与实际入口
 
@@ -143,6 +149,11 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 #### Scenario: 路由到未知 Agent 被拒
 - **WHEN** 入站消息显式指定一个 Gateway 未注册的 `agent_id`
 - **THEN** Gateway 拒绝该路由(抛 `LookupError`),不创建会话也不执行
+
+#### Scenario: 同群跨账号输入保持真实身份
+- **GIVEN** 不同账号与该 Gateway 的 Agent 共同参与一个 IM 群
+- **WHEN** 群内不同的人按既有规则向该 Agent 发消息或插话
+- **THEN** 消息保留实际发送者，按同一聊天和 Agent 执行上下文处理，回复回到该群；不会因发送者不是 Gateway 管理者而另建会话或忽略输入。
 
 ### Requirement: Gateway 为已接收的普通消息维持可见恢复交付
 

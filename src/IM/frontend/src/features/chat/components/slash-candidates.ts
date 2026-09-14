@@ -73,7 +73,7 @@ export function buildSlashCommands(
  */
 export interface AgentEnabledSkills {
   agentDisplayName: string;
-  skills: AgentAllowlistOption[];
+  skills: (AgentAllowlistOption & { skill_key?: string })[];
 }
 
 /**
@@ -109,7 +109,7 @@ export function buildSlashSkills(perAgent: AgentEnabledSkills[]): SlashSkillCand
   for (const { agentDisplayName, skills } of perAgent) {
     for (const skill of skills) {
       const location = skill.location ?? null;
-      const key = location ?? `name:${skill.name}`;
+      const key = skill.skill_key ?? location ?? `name:${skill.name}`;
       const existing = byKey.get(key);
       if (existing) {
         if (!existing.fromAgents.includes(agentDisplayName)) {

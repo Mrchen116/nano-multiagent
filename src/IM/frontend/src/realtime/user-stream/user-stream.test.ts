@@ -93,8 +93,7 @@ function setup(overrides: Partial<UserStreamRuntimeDependencies> = {}) {
 }
 
 async function settle(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
 }
 
 describe("user stream runtime", () => {
@@ -148,7 +147,7 @@ describe("user stream runtime", () => {
     const second = FakeSocket.instances[1]!;
     second.open();
     await settle();
-    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(2);
   });
 
   it.each(["retry", "signed_out"] as const)("honors %s readiness without opening a socket", async (status) => {
@@ -247,9 +246,7 @@ describe("user stream runtime", () => {
   it("aligns resync with max cursor and settles isolated recovery callbacks once per generation", async () => {
     sessionStorage.setItem("cursor:user-a", "12");
     let releaseSync!: (value: { maxEventId: number }) => void;
-    const sync = vi.fn(() => new Promise<{ maxEventId: number }>((resolve) => {
-      releaseSync = resolve;
-    }));
+    const sync = vi.fn<() => Promise<{ maxEventId: number }>>().mockResolvedValueOnce({ maxEventId: 12 }).mockImplementation(() => new Promise<{ maxEventId: number }>((resolve) => { releaseSync = resolve; }));
     const recovered = vi.fn(async () => undefined);
     const brokenRecovery = vi.fn(async () => {
       throw new Error("recovery failed");
@@ -263,17 +260,17 @@ describe("user stream runtime", () => {
 
     socket.message({ op: "resync_required" });
     socket.message({ op: "resync_required" });
-    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledTimes(2);
     releaseSync({ maxEventId: 20 });
     await settle();
 
     expect(sessionStorage.getItem("cursor:user-a")).toBe("20");
-    expect(recovered).toHaveBeenCalledTimes(1);
-    expect(brokenRecovery).toHaveBeenCalledTimes(1);
-    expect(errors).toHaveLength(1);
+    expect(recovered).toHaveBeenCalledTimes(2);
+    expect(brokenRecovery).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(2);
     socket.message({ op: "resync_required" });
     await settle();
-    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledTimes(2);
   });
 
   it("does not let stale resync completion mutate a new user's cursor", async () => {
@@ -281,6 +278,7 @@ describe("user stream runtime", () => {
     let releaseSync!: (value: { maxEventId: number }) => void;
     const sync = vi
       .fn<() => Promise<{ maxEventId: number }>>()
+      .mockResolvedValueOnce({ maxEventId: 1 })
       .mockImplementationOnce(() => new Promise<{ maxEventId: number }>((resolve) => {
         releaseSync = resolve;
       }))
@@ -322,7 +320,7 @@ describe("user stream runtime", () => {
   it("reconnects and retries when epoch resync cannot establish the replacement cursor", async () => {
     sessionStorage.setItem("cursor:user-a", "50");
     const syncError = new Error("sync unavailable");
-    const sync = vi.fn().mockRejectedValueOnce(syncError).mockResolvedValueOnce({ maxEventId: 3 });
+    const sync = vi.fn().mockResolvedValueOnce({ maxEventId: 50 }).mockRejectedValueOnce(syncError).mockResolvedValue({ maxEventId: 3 });
     const recovered = vi.fn();
     const received = vi.fn();
     const { runtime, errors } = setup({ sync });
@@ -336,7 +334,7 @@ describe("user stream runtime", () => {
 
     expect(errors).toContain(syncError);
     expect(first.closed).toBe(true);
-    expect(recovered).not.toHaveBeenCalled();
+    expect(recovered).toHaveBeenCalledTimes(1);
     await vi.advanceTimersToNextTimerAsync();
     await settle();
     const second = FakeSocket.instances[1]!;
@@ -344,9 +342,9 @@ describe("user stream runtime", () => {
     expect(second.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 50 }));
     second.message({ op: "resync_required", reason: "cursor_ahead_of_event_store" });
     await settle();
-    expect(sync).toHaveBeenCalledTimes(2);
+    expect(sync).toHaveBeenCalledTimes(4);
     expect(sessionStorage.getItem("cursor:user-a")).toBe("3");
-    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(3);
     second.message({ op: "event", event_type: "future.persisted", event_id: 4, data: { content: "new epoch" } });
     expect(received).toHaveBeenCalledWith(expect.objectContaining({ eventId: 4 }));
   });
@@ -385,7 +383,7 @@ describe("user stream runtime", () => {
     await settle();
 
     expect(errors).toHaveLength(2);
-    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(2);
     expect(sessionStorage.getItem("cursor:user-a")).toBe("1");
   });
 
@@ -394,6 +392,7 @@ describe("user stream runtime", () => {
     let releaseRecovery!: () => void;
     const recovered = vi
       .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
       .mockImplementationOnce(() => new Promise<void>((resolve) => {
         releaseRecovery = resolve;
       }))
@@ -409,16 +408,16 @@ describe("user stream runtime", () => {
     first.disconnect();
     await vi.advanceTimersToNextTimerAsync();
     await settle();
-    const second = FakeSocket.instances[1]!;
-    second.open();
-    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(recovered).toHaveBeenCalledTimes(2);
     releaseRecovery();
     await settle();
-    await settle();
+    const second = FakeSocket.instances[1]!;
+    second.open();
 
     second.message({ op: "event", event_type: "message.created", event_id: 1, data: { message_id: null } });
     await settle();
-    expect(recovered).toHaveBeenCalledTimes(2);
+    expect(recovered).toHaveBeenCalledTimes(3);
   });
 
   it("rejects malformed canonical events before cursor advance or subscriber fan-out", async () => {
@@ -436,7 +435,7 @@ describe("user stream runtime", () => {
 
     expect(received).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("cursor:user-a")).toBe("5");
-    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(2);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(UserStreamRecoveryError);
   });

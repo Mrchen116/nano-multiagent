@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.infra.repositories.agents import AgentProfileRepository
 
 from tests.im_service._auth_helpers import authorize, register_user
 
@@ -13,7 +14,7 @@ from tests.im_service._auth_helpers import authorize, register_user
 def _create_conversation(client: TestClient, participant_id: str) -> str:
     response = client.post(
         "/im/v1/conversations",
-        json={"title": "chat", "participant_ids": [participant_id]},
+        json={"type": "group", "title": "chat", "participant_ids": [participant_id]},
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -87,9 +88,21 @@ def test_user_stream_replays_boundary_without_runtime_provenance(
             username="agent:planner",
             owner_id=alice.owner_id,
         )
+        AgentProfileRepository(app.state.connection).upsert_profile(
+            agent_id="planner",
+            owner_id=alice.owner_id,
+            display_name="Planner",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
         conversation = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "Planner",
                 "participant_ids": [alice.id, agent_user_id],
             },

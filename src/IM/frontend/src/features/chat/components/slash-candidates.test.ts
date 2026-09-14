@@ -163,3 +163,14 @@ describe("matchSlashTrigger", () => {
     expect(matchSlashTrigger("/stop ")).toBeNull();
   });
 });
+
+it("deduplicates member-visible skills by opaque key without publishing filesystem locations", () => {
+  const out = buildSlashSkills([
+    { agentDisplayName: "A", skills: [{ name: "review", skill_key: "node-a-review", description: "A review" }] },
+    { agentDisplayName: "B", skills: [{ name: "review", skill_key: "node-b-review", description: "B review" }] },
+    { agentDisplayName: "C", skills: [{ name: "review", skill_key: "node-a-review", description: "A review" }] },
+  ]);
+  expect(out).toHaveLength(2);
+  expect(out.map(row => row.fromAgents)).toEqual([["A", "C"], ["B"]]);
+  expect(out.every(row => row.location === null)).toBe(true);
+});

@@ -1,4 +1,4 @@
-"""Owner-gated HTTP delivery of immutable Agent reply images."""
+"""Member-gated HTTP delivery of immutable chat resources."""
 
 from pathlib import Path
 
@@ -6,24 +6,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from IM.api.deps import current_user, get_web_im_service
+from IM.api.deps import (
+    GatewayPrincipal,
+    current_data_principal,
+    require_conversation_access,
+)
 from IM.api.routes.messages import AttachmentPayload
-from IM.application.web_im_service import WebIMService
 from IM.domain.models import User
 from IM.infra.repositories.message_images import ImageConflictError
 
 router = APIRouter(tags=["message-images"])
 _MAX_BYTES = 10 * 1024 * 1024
-
-
-def _assert_owner(service: WebIMService, conversation_id: str, owner_id: str) -> None:
-    if (
-        service.get_conversation_for_owner(
-            conversation_id=conversation_id, owner_id=owner_id
-        )
-        is None
-    ):
-        raise HTTPException(404, "conversation_id not found")
 
 
 def _content_type(data: bytes) -> str | None:
@@ -49,10 +42,10 @@ async def create_image(
     response: Response,
     file_name: str = Query(min_length=1),
     idempotency_key: str = Header(min_length=1, alias="Idempotency-Key"),
-    user: User = Depends(current_user),
-    service: WebIMService = Depends(get_web_im_service),
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
 ) -> AttachmentPayload:
-    """Upload raw raster bytes under the authenticated conversation owner.
+    """Upload raw raster bytes within the caller's conversation membership.
 
     Returns:
         A stable private URL, with 201 for creation or 200 for a same-byte retry.
@@ -61,7 +54,7 @@ async def create_image(
         HTTPException: 401/404 for access, 409 for key conflicts, 413 for size,
             or 415 for unsupported or mismatching image types.
     """
-    _assert_owner(service, conversation_id, user.owner_id)
+    require_conversation_access(request, user, conversation_id, agent_id)
     safe_name = Path(file_name.strip()).name
     if not safe_name or not idempotency_key.strip():
         raise HTTPException(400, "file_name and Idempotency-Key must be non-empty")
@@ -76,6 +69,7 @@ async def create_image(
     data = bytes(body)
     if _content_type(data) != mime:
         raise HTTPException(415, "image content does not match content type")
+    require_conversation_access(request, user, conversation_id, agent_id)
     try:
         image, created = await run_in_threadpool(
             request.app.state.message_image_repository.put,
@@ -98,11 +92,11 @@ def get_image(
     conversation_id: str,
     image_id: str,
     request: Request,
-    user: User = Depends(current_user),
-    service: WebIMService = Depends(get_web_im_service),
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
 ) -> FileResponse:
     """Read a private image only within the caller's existing conversation scope."""
-    _assert_owner(service, conversation_id, user.owner_id)
+    require_conversation_access(request, user, conversation_id, agent_id)
     repository = request.app.state.message_image_repository
     image = repository.get(conversation_id=conversation_id, image_id=image_id)
     if image is None or not (repository.directory / image.storage_name).is_file():
@@ -110,6 +104,35 @@ def get_image(
     return FileResponse(
         repository.directory / image.storage_name,
         media_type=image.content_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/im/v1/conversations/{conversation_id}/attachments/{resource_id}")
+def get_attachment(
+    conversation_id: str,
+    resource_id: str,
+    request: Request,
+    agent_id: str | None = None,
+    user: User | GatewayPrincipal = Depends(current_data_principal),
+) -> FileResponse:
+    """Read a conversation's ordinary file using the same private snapshot store."""
+    require_conversation_access(request, user, conversation_id, agent_id)
+    repository = request.app.state.message_image_repository
+    resource = repository.get(conversation_id=conversation_id, image_id=resource_id)
+    if resource is None or not (repository.directory / resource.storage_name).is_file():
+        raise HTTPException(404, "attachment not found")
+    return FileResponse(
+        repository.directory / resource.storage_name,
+        media_type=resource.content_type,
+        filename=resource.file_name,
+        content_disposition_type="inline"
+        if resource.content_type
+        in {"image/png", "image/jpeg", "image/webp", "image/gif"}
+        else "attachment",
         headers={
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",

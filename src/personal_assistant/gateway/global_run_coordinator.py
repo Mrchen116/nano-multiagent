@@ -472,7 +472,7 @@ class GlobalRunCoordinator:
             reply_payload = asdict(reply)
             if shadow.saga_id:
                 reply_payload["metadata"]["global_shadow_saga_id"] = shadow.saga_id
-            content = await self._content(message)
+            content = await self._content(message, agent_id=agent.agent_id)
             reasons = []
             if not message.is_group:
                 reasons.append("direct")
@@ -538,7 +538,9 @@ class GlobalRunCoordinator:
             None,
         )
 
-    async def _content(self, message: InboundMessage) -> list[dict[str, Any]]:
+    async def _content(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> list[dict[str, Any]]:
         parts = [{"type": "text", "text": message.text}]
         input_parts = message.metadata.get("kernel_input_parts")
         images = [
@@ -553,7 +555,9 @@ class GlobalRunCoordinator:
                 mime = str(attachment.get("content_type") or "")
                 if not mime.startswith("image/"):
                     continue
-                resolution = await self.image_resolver.resolve([dict(attachment)])
+                resolution = await self.image_resolver.resolve(
+                    [dict(attachment)], agent_id=agent_id
+                )
                 if resolution.failure:
                     parts.append(
                         {

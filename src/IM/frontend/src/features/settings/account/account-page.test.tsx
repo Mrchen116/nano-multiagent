@@ -100,7 +100,7 @@ afterEach(() => {
 });
 
 describe("account settings", () => {
-  it("loads account defaults and saves profile and entry-node changes", async () => {
+  it("shows owned devices without a routing selector and still saves the profile", async () => {
     const user = userEvent.setup();
     mockAccountApi();
 
@@ -108,11 +108,13 @@ describe("account settings", () => {
 
     const displayName = await screen.findByLabelText(/display name/i);
     expect(displayName).toHaveValue("Alex Chen");
-    expect(screen.getByLabelText(/default entry node/i)).toHaveValue("node-app-01");
+    expect(screen.queryByLabelText(/default entry node/i)).toBeNull();
+    expect(screen.getByTestId("account-owned-node-node-app-01")).toHaveTextContent("MacBook");
+    expect(screen.getByTestId("account-owned-node-node-app-02")).toHaveTextContent("Mini");
+    expect(screen.queryByTestId("account-owned-node-default-chip-node-app-01")).toBeNull();
 
     await user.clear(displayName);
     await user.type(displayName, "Alex Ops");
-    await user.selectOptions(screen.getByLabelText(/default entry node/i), "node-app-02");
     await user.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => {
@@ -121,7 +123,7 @@ describe("account settings", () => {
       );
       expect(JSON.parse(String((patchCall?.[1] as RequestInit).body))).toEqual({
         display_name: "Alex Ops",
-        default_entry_node_id: "node-app-02",
+        default_entry_node_id: "node-app-01",
         locale: "en"
       });
     });

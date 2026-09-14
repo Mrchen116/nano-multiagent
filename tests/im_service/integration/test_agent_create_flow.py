@@ -25,7 +25,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
         users = UserRepository(app.state.connection)
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
-        human_user = users.create_user(username="alice", display_name="Alice")
+        human_user = owner
         # feat-340-M18 R9-1: align the fixture's pre-seeded users row with the
         # canonical ``agent:<agent_id>`` username so the create-agent route's
         # ``ensure_agent_user`` step finds it instead of minting a duplicate.
@@ -225,6 +225,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             conversation = client.post(
                 "/im/v1/conversations",
                 json={
+                    "type": "direct",
                     "title": "new agent thread",
                     "participant_ids": [human_user.id, agent_user.id],
                 },

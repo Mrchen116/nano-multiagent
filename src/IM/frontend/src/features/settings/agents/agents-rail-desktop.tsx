@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
 import { AgentRow } from "./agent-row";
-import { listAgentSummaries, listNodes } from "./im-agent-config-api";
+import { listPublicAgents } from "./public-agents";
+import { useAuthStore } from "../../auth/auth-store";
 
 interface AgentsRailDesktopProps {
   activeId?: string;
@@ -15,10 +17,11 @@ interface AgentsRailDesktopProps {
 export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgent }: AgentsRailDesktopProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const query = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries, staleTime: 30_000 });
-  const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes, staleTime: 30_000 });
+  const self = useAuthStore(s => s.user?.id);
+  const query = useQuery({ queryKey: ["public-agents", self], queryFn: listPublicAgents, refetchInterval: 3000, staleTime: 30_000 });
+  const [search, setSearch] = useState("");
   const agents = query.data ?? [];
-  const nodes = nodesQuery.data ?? [];
+  const nodes: [] = [];
 
   function selectAgent(agentId: string) {
     if (onSelectAgent) {
@@ -58,13 +61,14 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
           </Link>
         )}
       </div>
+      <input type="search" className="chat-sidebar-search" aria-label={t("agents.search")} placeholder={t("agents.search")} value={search} onChange={e => setSearch(e.target.value)} />
       <nav className="flex-1 overflow-y-auto px-2 py-[6px]" aria-label={t("agents.title")}>
-        {agents.map((agent) => (
+        {agents.filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
           <AgentRow
             key={agent.agent_id}
             agent={agent}
             nodes={nodes}
-            nodesPending={nodesQuery.isPending}
+            nodesPending={false}
             isActive={agent.agent_id === activeId}
             isMobile={false}
             onSelect={selectAgent}

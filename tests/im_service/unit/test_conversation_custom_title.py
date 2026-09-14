@@ -40,15 +40,25 @@ def test_custom_direct_title_survives_sync_but_group_sync_stays_unchanged(
     )
     assert updated.conversation.title == "Updated source"
     repo.update_conversation(
-        conversation_id=original.id, title="My title", is_pinned=None, is_muted=None
+        conversation_id=original.id,
+        user_id=params["creator_id"].removeprefix("user:"),
+        title="My title",
+        is_pinned=None,
+        is_muted=None,
     )
     repo.update_conversation(
-        conversation_id=original.id, title=None, is_pinned=True, is_muted=None
+        conversation_id=original.id,
+        user_id=params["creator_id"].removeprefix("user:"),
+        title=None,
+        is_pinned=True,
+        is_muted=None,
     )
     synced = repo.find_or_create_external_conversation(**params).conversation
     assert synced.id == original.id
     assert synced.title == ("Source title" if is_group else "My title")
-    assert synced.is_pinned
+    assert repo.get_conversation_for_member(
+        conversation_id=original.id, user_id=params["creator_id"].removeprefix("user:")
+    ).is_pinned
 
 
 def test_competing_shadow_insert_retains_a_manual_direct_title(tmp_path):
@@ -59,6 +69,7 @@ def test_competing_shadow_insert_retains_a_manual_direct_title(tmp_path):
         created = competitor.find_or_create_external_conversation(**params).conversation
         competitor.update_conversation(
             conversation_id=created.id,
+            user_id=params["creator_id"].removeprefix("user:"),
             title="Manual title",
             is_pinned=None,
             is_muted=None,

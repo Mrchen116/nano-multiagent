@@ -88,7 +88,13 @@
       "title": "节点",
       "subtitle": "已接入此工作区的 Gateway 节点。",
       "loading": "节点加载中…",
-      "empty": "尚未接入任何节点。",
+      "empty": "还没有绑定设备",
+      "emptyBody": "绑定设备后，就可以在上面运行和管理自己的 Agent。",
+      "bindStart": "在你的设备上启动 Gateway，并连接到此 IM。",
+      "bindConfirm": "打开 Gateway 提供的绑定链接，用当前账号确认绑定。",
+      "refresh": "刷新设备",
+      "refreshing": "正在刷新…",
+      "loadFailed": "设备加载失败，请重试。",
       "aliasLabel": "{{nodeId}} 别名",
       "liveSnapshot": "实时快照",
       "heartbeat": "心跳",
@@ -115,7 +121,7 @@
     },
     "account": {
       "title": "账号",
-      "subtitle": "你的资料和默认网关配置。",
+      "subtitle": "你的个人资料和设备。",
       "identity": {
         "heading": "资料",
         "subtitle": "你在工作区中的身份。",
@@ -125,14 +131,11 @@
         "createdAt": "加入时间"
       },
       "defaults": {
-        "heading": "网关",
-        "subtitle": "决定消息默认走哪个节点路由。",
-        "defaultEntryNode": "默认入口节点",
-        "defaultEntryNodeHint": "从你拥有的节点中选择。",
+        "heading": "设备",
+        "subtitle": "你拥有的设备及连接状态。",
         "selectNode": "— 选择节点 —",
         "ownedNodes": "已拥有节点",
         "ownedNodesEmpty": "尚未绑定任何节点。",
-        "defaultChip": "默认",
         "agentsShort": "agent"
       },
       "preferences": {
@@ -503,6 +506,10 @@
     },
     "create": {
       "title": "新建 Agent",
+      "noDevicesTitle": "创建 Agent 前，请先绑定设备",
+      "noDevicesBody": "创建自己的 Agent，需要先绑定一台运行 Gateway 的设备。",
+      "manageDevices": "管理设备",
+      "backToAgents": "返回 Agents",
       "subtitle": "配置身份、行为与工具访问。",
       "submit": "创建 Agent",
       "submitArrow": "创建 Agent →",
@@ -637,7 +644,15 @@
       "固定": "固定",
       "已停止": "已停止",
       "已终止": "已终止"
-    }
+    },
+    "publicProfile": "资料",
+    "managedBy": "管理员",
+    "device": "设备",
+    "mode": "工作模式",
+    "globalMode": "全局模式",
+    "threadMode": "单 Thread 模式",
+    "mine": "我的",
+    "search": "查找 Agent"
   },
   "chat": {
     "conversationMenu": {
@@ -651,13 +666,15 @@
     },
     "list": {
       "header": "消息",
-      "newGroup": "+ 群聊",
+      "createConversation": "发起会话",
+      "newGroup": "创建群聊",
       "search": "搜索…",
       "filters": {
         "all": "全部",
         "agent": "Agent",
         "group": "群聊",
-        "network": "Agent 网络"
+        "network": "Agent 网络",
+        "people": "人"
       },
       "generateSkill": "生成 skill",
       "distillToSkill": "蒸馏为 skill",
@@ -675,8 +692,8 @@
     },
     "newGroup": {
       "title": "新建群聊",
-      "subtitle": "选择 agent,然后给群起个名字。",
-      "sectionAgents": "Agents",
+      "subtitle": "选择其他人和自己管理的 Agent",
+      "sectionAgents": "人和我的 Agent",
       "groupName": "群名(可选)",
       "groupNamePlaceholder": "默认按参与者名字拼接",
       "create": "创建群聊",
@@ -693,7 +710,7 @@
       "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
       "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",
       "starting": "启动中…",
-      "startError": "启动蒸馏失败。"
+      "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
     "messagePane": {
       "systemNotice": {
@@ -840,14 +857,16 @@
       "add": "添加",
       "addCount": "添加 ({{count}})",
       "addCountMobile": "添加 {{count}} 名成员",
-      "noAddableAgents": "没有可添加的 Agent",
+      "noAddableAgents": "暂无可添加的成员",
       "remove": "移出",
       "removeMember": "移出 {{name}}",
       "removeConfirm": "把该成员移出群聊？",
       "dissolve": "解散群聊",
       "dissolveConfirmTitle": "解散「{{name}}」？",
       "dissolveConfirm": "群聊和聊天记录将被永久删除，无法恢复。",
-      "actionError": "操作失败，请重试。"
+      "actionError": "操作失败，请重试。",
+      "leave": "退出群聊",
+      "memberCount": "{{count}} 位成员"
     },
     "mention": {
       "header": "选择成员",
@@ -868,7 +887,8 @@
       "optionAllowAlways": "总是允许",
       "optionDeny": "拒绝",
       "reasonPlaceholder": "拒绝理由（选填）",
-      "reasonLabel": "拒绝理由（选填）"
+      "reasonLabel": "拒绝理由（选填）",
+      "submitted": "决定已提交，等待设备确认"
     },
     "slash": {
       "header": "选择 slash 命令或 skill",
@@ -880,7 +900,21 @@
       "newGroupDesc": "为群内所有 Agent 开始新会话",
       "compactDesc": "压缩当前会话的上下文",
       "from": "来自 {{agents}}"
-    }
+    },
+    "contacts": {
+      "title": "新聊天",
+      "search": "查找人或 Agent",
+      "empty": "没有找到联系人",
+      "person": "人",
+      "message": "发消息",
+      "failed": "操作失败，请重试"
+    },
+    "preferences": {
+      "title": "聊天设置",
+      "pin": "置顶聊天",
+      "mute": "消息免打扰"
+    },
+    "viewWork": "查看 Work"
   },
   "feature": {
     "memory_curation": {

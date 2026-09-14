@@ -1,9 +1,4 @@
-"""Unit tests for owner-scoped repository read paths (tenant isolation contract).
-
-The IM repository layer must enforce ``WHERE owner_id = ?`` for every list/get
-performed from inside an API route. These tests pin the contract directly at
-the repository level so it cannot be silently broken by callers.
-"""
+"""Chat reads follow membership while Agent and node management follow ownership."""
 
 from __future__ import annotations
 
@@ -40,8 +35,10 @@ def repos(
     return users, conversations, messages, profiles, nodes
 
 
-def test_list_conversations_for_owner_returns_only_owner_rows(repos) -> None:
-    """list_conversations_for_owner must return only conversations owned by the caller."""
+def test_member_chat_reads_include_shared_groups_and_exclude_other_private_chats(
+    repos,
+) -> None:
+    """A shared group is visible across owners; an unrelated private chat stays absent."""
     users, conversations, messages, _, _ = repos
     alice = users.create_user(username="alice", display_name="Alice")
     bob = users.create_user(username="bob", display_name="Bob")
@@ -50,22 +47,29 @@ def test_list_conversations_for_owner_returns_only_owner_rows(repos) -> None:
         title="B-only", participant_ids=[bob.id]
     )
 
-    alice_visible = conversations.list_conversations_for_owner(owner_id=alice.owner_id)
-    bob_visible = conversations.list_conversations_for_owner(owner_id=bob.owner_id)
+    conversations.create_conversation(
+        title="Shared",
+        participant_ids=[alice.id, bob.id],
+        caller_owner_id=alice.id,
+        conversation_type="group",
+    )
 
-    assert {item.title for item in alice_visible} == {"A-only"}
-    assert {item.title for item in bob_visible} == {"B-only"}
+    alice_visible = conversations.list_conversations_for_member(user_id=alice.id)
+    bob_visible = conversations.list_conversations_for_member(user_id=bob.id)
+
+    assert {item.title for item in alice_visible} == {"A-only", "Shared"}
+    assert {item.title for item in bob_visible} == {"B-only", "Shared"}
     assert (
-        conversations.get_conversation_for_owner(
+        conversations.get_conversation_for_member(
             conversation_id=bob_conversation.id,
-            owner_id=alice.owner_id,
+            user_id=alice.id,
         )
         is None
     )
     assert (
-        conversations.get_conversation_for_owner(
+        conversations.get_conversation_for_member(
             conversation_id=bob_conversation.id,
-            owner_id=bob.owner_id,
+            user_id=bob.id,
         )
         is not None
     )

@@ -119,6 +119,18 @@ describe("inline reply images", () => {
     view.unmount();
   });
 
+  it("protects ordinary attachment images and clears an open preview when membership changes", async () => {
+    const attachmentPath = "/im/v1/conversations/c1/attachments/resource-1";
+    render(pane(`![attachment](${attachmentPath})`));
+    await userEvent.click(await screen.findByRole("button", {name:/enlarge/i}));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:404}));
+    act(() => window.dispatchEvent(new CustomEvent("im:conversation-invalidated",{detail:"c1"})));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("img",{name:"attachment"})).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:private-image");
+  });
+
   it("preserves remote images and code while allowing pending only on image sources", () => {
     render(pane(`![remote](https://example.com${imagePath})\n\n![old](/im/uploads/old.png)\n\n![blocked](javascript:alert)\n\n![data](data:image/png;base64,aGVsbG8=)\n\n[not a link](nano-image-pending:0)\n\n\`![example](nano-image-pending:1)\``));
     expect(screen.getByRole("img", { name: "remote" })).toHaveAttribute("src", `https://example.com${imagePath}`);

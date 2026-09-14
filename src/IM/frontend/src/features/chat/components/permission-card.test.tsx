@@ -160,7 +160,7 @@ describe("PermissionCard — submitting state", () => {
     for (const btn of buttons) {
       expect(btn).toBeDisabled();
     }
-    resolvePost(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    resolvePost(new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 }));
   });
 });
 
@@ -171,7 +171,7 @@ describe("PermissionCard — POST success → onResolved callback", () => {
   it("invokes onResolved with the chosen decision after successful POST (no local resolved state)", async () => {
     const user = userEvent.setup();
     const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 })
+      new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 })
     );
     const onResolved = vi.fn();
 
@@ -247,7 +247,7 @@ describe("PermissionCard — M4 auth header (default fetchFn → authFetch)", ()
   it("calls authFetch (not bare fetch) when no fetchFn prop is supplied", async () => {
     const user = userEvent.setup();
     vi.mocked(authFetchModule.authFetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ status: "forwarded" }), { status: 200 })
+      new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 })
     );
     const onResolved = vi.fn();
 
@@ -312,7 +312,7 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     const user = userEvent.setup();
     const mockFetch = vi
       .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      .mockResolvedValue(new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 }));
 
     render(
       <PermissionCard
@@ -337,7 +337,7 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     const user = userEvent.setup();
     const mockFetch = vi
       .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      .mockResolvedValue(new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 }));
 
     render(
       <PermissionCard
@@ -363,7 +363,7 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     const mockFetch = vi
       .fn()
       .mockResolvedValueOnce(new Response("boom", { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "submitted", decision: "allow_once" }), { status: 200 }));
 
     render(
       <PermissionCard

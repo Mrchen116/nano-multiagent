@@ -200,3 +200,54 @@ def test_connect_once_skips_auth_header_when_token_getter_returns_none(
 
     _url, headers = connect_calls[0]
     assert "Authorization" not in headers
+
+
+def test_registration_runtime_token_rotates_and_clears_on_disconnect(
+    tmp_path: Path,
+) -> None:
+    async def scenario():
+        sockets = [
+            _FakeWebSocket(
+                [
+                    json.dumps(
+                        {
+                            "type": "ack",
+                            "payload": {
+                                "message_type": "node.register",
+                                "gateway_access_token": token,
+                            },
+                        }
+                    )
+                ]
+            )
+            for token in ("runtime-first", "runtime-second")
+        ]
+        connect_calls = []
+
+        async def connect(url, headers):
+            connect_calls.append(headers)
+            return sockets.pop(0)
+
+        manager = IMConnectionManager(
+            config=IMConnectionConfig(
+                url="http://im.local", token="owner-token", heartbeat_interval_seconds=0
+            ),
+            reporter=_minimal_reporter(tmp_path),
+            relay_adapter=WebRelayAdapter(),
+            connect=connect,
+        )
+        assert manager.gateway_access_token is None
+        await manager.connect_once()
+        assert manager.gateway_access_token is None
+        await manager._listen_once()
+        assert manager.gateway_access_token == "runtime-first"
+        await manager.close()
+        assert manager.gateway_access_token is None
+        await manager.connect_once()
+        await manager._listen_once()
+        assert manager.gateway_access_token == "runtime-second"
+        assert all(h["Authorization"] == "Bearer owner-token" for h in connect_calls)
+        assert "runtime-first" not in str(manager.event_log())
+        await manager.close()
+
+    asyncio.run(scenario())

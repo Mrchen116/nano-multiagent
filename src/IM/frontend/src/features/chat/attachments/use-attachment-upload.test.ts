@@ -27,7 +27,7 @@ describe("uploadOneAttachment", () => {
     );
     vi.stubGlobal("fetch", fetchSpy);
 
-    const result = await uploadOneAttachment(file);
+    const result = await uploadOneAttachment(file, "conversation-private");
 
     expect(result.url).toBe("http://im.local/im/uploads/abc.png");
     expect(result.content_type).toBe("image/png");
@@ -35,6 +35,7 @@ describe("uploadOneAttachment", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [calledUrl, init] = fetchSpy.mock.calls[0]!;
     expect(calledUrl).toContain("/im/v1/uploads?file_name=hello.png");
+    expect(calledUrl).toContain("conversation_id=conversation-private");
     expect((init as RequestInit).method).toBe("POST");
     const headers = new Headers((init as RequestInit).headers as HeadersInit);
     expect(headers.get("Content-Type")).toBe("image/png");
@@ -47,7 +48,7 @@ describe("uploadOneAttachment", () => {
       vi.fn(async () => new Response(JSON.stringify({ detail: "unsupported" }), { status: 415 }))
     );
 
-    await expect(uploadOneAttachment(file)).rejects.toMatchObject({
+    await expect(uploadOneAttachment(file, "conversation-private")).rejects.toMatchObject({
       code: "unsupportedType",
       status: 415
     });
@@ -60,7 +61,7 @@ describe("uploadOneAttachment", () => {
       vi.fn(async () => new Response(JSON.stringify({ detail: "too big" }), { status: 413 }))
     );
 
-    await expect(uploadOneAttachment(file)).rejects.toMatchObject({
+    await expect(uploadOneAttachment(file, "conversation-private")).rejects.toMatchObject({
       code: "tooLarge",
       status: 413
     });

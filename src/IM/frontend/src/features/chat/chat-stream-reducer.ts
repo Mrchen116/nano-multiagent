@@ -334,6 +334,7 @@ export function applyWsEvent(
         return { ...m, permission_requests: next };
       });
     }
+    case "permission.submitted":
     case "permission.resolved": {
       return patchMessage(state, ev.message_id, (m) => {
         const current = m.permission_requests ?? [];
@@ -341,8 +342,9 @@ export function applyWsEvent(
         if (idx < 0) return m;
         const updated = {
           ...current[idx]!,
-          status: "resolved" as const,
-          decision: ev.decision
+          status: ev.type === "permission.resolved" ? "resolved" as const : "submitted" as const,
+          decision: ev.decision,
+          ...(ev.type === "permission.submitted" ? { decided_by: ev.decided_by } : {})
         };
         const next = current.map((r, i) => (i === idx ? updated : r));
         return { ...m, permission_requests: next };

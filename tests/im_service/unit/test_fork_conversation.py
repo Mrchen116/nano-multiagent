@@ -364,7 +364,7 @@ async def test_fork_offline_agent_rejected_no_conversation_created(
         tmp_path
     )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
-    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    before = len(conversations.list_conversations_for_member(user_id=human.id))
 
     with pytest.raises(AgentOfflineError):
         await service.fork_conversation(
@@ -375,7 +375,7 @@ async def test_fork_offline_agent_rejected_no_conversation_created(
             check_agent_online=_offline(),
             request_fork=_ok_fork([]),
         )
-    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    after = len(conversations.list_conversations_for_member(user_id=human.id))
     assert after == before, "offline fork must not create a conversation"
 
 
@@ -385,7 +385,7 @@ async def test_fork_rpc_failure_rolls_back_new_conversation(tmp_path: Path) -> N
         tmp_path
     )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
-    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    before = len(conversations.list_conversations_for_member(user_id=human.id))
 
     async def _fail_fork(**_kw):
         return {"ok": False, "error": "kernel boom"}
@@ -399,7 +399,7 @@ async def test_fork_rpc_failure_rolls_back_new_conversation(tmp_path: Path) -> N
             check_agent_online=_online(None),
             request_fork=_fail_fork,
         )
-    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    after = len(conversations.list_conversations_for_member(user_id=human.id))
     assert after == before, "failed fork must roll back the created conversation"
 
 
@@ -409,7 +409,7 @@ async def test_fork_timeout_none_result_rolls_back(tmp_path: Path) -> None:
         tmp_path
     )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
-    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    before = len(conversations.list_conversations_for_member(user_id=human.id))
 
     async def _timeout_fork(**_kw):
         return None  # gateway not connected / timed out
@@ -423,7 +423,7 @@ async def test_fork_timeout_none_result_rolls_back(tmp_path: Path) -> None:
             check_agent_online=_online(None),
             request_fork=_timeout_fork,
         )
-    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    after = len(conversations.list_conversations_for_member(user_id=human.id))
     assert after == before
 
 

@@ -24,6 +24,7 @@ export interface GroupSettingsMember {
 /** A candidate agent for the add-members picker (already filtered to non-members). */
 export interface GroupSettingsAgentOption {
   agentId: string;
+  type?: "user" | "agent";
   displayName: string;
   status?: "online" | "offline" | null;
 }
@@ -35,6 +36,9 @@ export interface GroupSettingsProps {
   isMobile: boolean;
   /** True while a write mutation is in flight; disables destructive/primary actions. */
   isBusy?: boolean;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  onPreferenceChange?(patch: { is_pinned?: boolean; is_muted?: boolean }): Promise<unknown>;
   onClose(): void;
   // Write handlers may be async — when they reject, the failure is surfaced
   // inline inside the panel (the global toast sits below the panel's z-index and
@@ -43,6 +47,7 @@ export interface GroupSettingsProps {
   onAddParticipants(agentIds: string[]): void | Promise<unknown>;
   /** Remove by the member's user_id (UUID), never its agent_id (决策 5 / CRITICAL-1). */
   onRemoveParticipant(userId: string): void | Promise<unknown>;
+  onLeave?(): void | Promise<unknown>;
   onDissolve(): void | Promise<unknown>;
   onOpenAgentConfig(agentId: string): void;
 }
@@ -62,11 +67,13 @@ export function GroupSettings(props: GroupSettingsProps) {
     addableAgents,
     isMobile,
     isBusy = false,
+    isPinned, isMuted, onPreferenceChange,
     onClose,
     onRename,
     onAddParticipants,
     onRemoveParticipant,
     onDissolve,
+    onLeave,
     onOpenAgentConfig
   } = props;
 
@@ -79,6 +86,7 @@ export function GroupSettings(props: GroupSettingsProps) {
   const [manageMode, setManageMode] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const isCreator = members.some(member => member.isSelf && member.isCreator);
   const agentMembers = members.filter((m) => m.type === "agent");
   const nameInvalid = nameDraft.trim().length === 0;
 
@@ -231,7 +239,7 @@ export function GroupSettings(props: GroupSettingsProps) {
     const confirming = confirmingRemoveId !== null && confirmingRemoveId === m.userId;
     // userId must be present to remove (the endpoint keys on it). Guard against a
     // null user_id so the ✕ never becomes a silent no-op.
-    const removable = m.type === "agent" && !m.isSelf && m.userId != null;
+    const removable = m.type !== "system" && !m.isCreator && !m.isSelf && m.userId != null;
     // 留出删除控件列的语境：桌面(hover 显 ✕)或移动 manage 态。该列内每行都占等宽前导槽位
     // ——可删的放 ✕，不可删的(本人)放等宽空 spacer——让所有成员头像左缘对齐。
     const showRemoveColumn = !isMobile || manageMode;
@@ -294,7 +302,7 @@ export function GroupSettings(props: GroupSettingsProps) {
     const statusText =
       m.type === "agent"
         ? `${m.status === "online" ? t("chat.groupSettings.online") : t("chat.groupSettings.offline")} · ${t("chat.groupSettings.agentRole")}`
-        : t("chat.groupSettings.self");
+        : m.isSelf ? t("chat.groupSettings.self") : t("chat.contacts.person");
     return (
       <>
         <span
@@ -319,7 +327,9 @@ export function GroupSettings(props: GroupSettingsProps) {
   }
 
   // ─── Dissolve danger zone (shared) ────────────────────────────────────────
-  const dissolveBlock = confirmingDissolve ? (
+  const dissolveBlock = !isCreator ? (
+    <button type="button" className="group-settings-btn-danger-wide" disabled={isBusy} onClick={() => void runAction(() => onLeave?.())}>{t("chat.groupSettings.leave")}</button>
+  ) : confirmingDissolve ? (
     <div className="group-settings-dissolve-confirm" data-testid="group-settings-dissolve-confirm">
       <p>{t("chat.groupSettings.dissolveConfirm")}</p>
       <div className="group-settings-inline-confirm-acts">
@@ -336,6 +346,11 @@ export function GroupSettings(props: GroupSettingsProps) {
       {t("chat.groupSettings.dissolve")}
     </button>
   );
+
+  const preferences = onPreferenceChange ? <div className="group-settings-preferences">
+    <label><input type="checkbox" checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))}/>{t("chat.preferences.pin")}</label>
+    <label><input type="checkbox" checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))}/>{t("chat.preferences.mute")}</label>
+  </div> : null;
 
   // ─── Mobile: full-screen add picker takes over the whole screen ────────────
   if (isMobile && adding) {
@@ -391,7 +406,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           <div className="group-settings-hero">
             {clusterAvatars(52)}
             {renameBlock}
-            <div className="group-settings-meta">{t("chat.groupSettings.createdByYou", { count: members.length })}</div>
+            <div className="group-settings-meta">{t("chat.groupSettings.memberCount", { count: members.length })}</div>
           </div>
           <div className="group-settings-group">
             <div className="group-settings-group-label">
@@ -410,6 +425,7 @@ export function GroupSettings(props: GroupSettingsProps) {
             </ul>
           </div>
           <div className="group-settings-group">
+            {preferences}
             <div className="group-settings-card group-settings-card--danger">{dissolveBlock}</div>
           </div>
         </div>
@@ -433,7 +449,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           </button>
           {clusterAvatars(44)}
           {renameBlock}
-          <div className="group-settings-meta">{t("chat.groupSettings.createdByYou", { count: members.length })}</div>
+          <div className="group-settings-meta">{t("chat.groupSettings.memberCount", { count: members.length })}</div>
         </div>
 
         {errorBanner}
@@ -473,6 +489,7 @@ export function GroupSettings(props: GroupSettingsProps) {
 
         <ul className="group-settings-list">{members.map(memberRow)}</ul>
 
+        {preferences}
         <div className="group-settings-danger-zone">{dissolveBlock}</div>
       </aside>
     </>

@@ -1,6 +1,6 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import sqlite3
 from uuid import uuid4
 
@@ -52,6 +52,8 @@ class ConversationRepository:
         creator_id: str | None = None,
         caller_owner_id: str | None = None,
         target_node_id: str | None = None,
+        conversation_type: str | None = None,
+        reuse_direct: bool = False,
     ) -> Conversation:
         """Create a conversation with participant membership.
 
@@ -60,12 +62,10 @@ class ConversationRepository:
             participant_ids: User IDs that belong to the conversation.
             creator_id: User ID of the creator; defaults to the first participant when omitted.
                 Used for dissolve-permission checks (M234).
-            caller_owner_id: The authenticated caller's owner_id. When participants span
-                multiple owner scopes (e.g., human + ownerless agent), this value is used
-                as the conversation owner_id so the caller can find the conversation via
-                list_conversations_for_owner. Without it the old code fell back to a random
-                UUID, making the conversation invisible to the creator.
+            caller_owner_id: Historical creator/source ownership; does not grant chat access.
             target_node_id: Optional server-owned route pin for a direct conversation.
+            conversation_type: Explicit direct/group kind from the creating workflow.
+            reuse_direct: Reuse the same ordinary contact pair; false for forks and distillation.
 
         Returns:
             Created conversation entity.
@@ -100,15 +100,29 @@ class ConversationRepository:
         owner_ids = {str(row["owner_id"]) for row in ordered_rows}
         created_at = utc_now()
         if caller_owner_id is not None:
-            # When the authenticated caller is known, always use their owner_id so the
-            # conversation is discoverable via list_conversations_for_owner, regardless of
-            # whether participants span owner scopes (e.g. human + ownerless agent).
             owner_id = caller_owner_id
         elif len(owner_ids) == 1:
             owner_id = next(iter(owner_ids))
         else:
             owner_id = uuid4().hex
-        conversation_type = "direct" if len(normalized_participants) == 2 else "group"
+        conversation_type = conversation_type or (
+            "direct" if len(normalized_participants) == 2 else "group"
+        )
+        if conversation_type not in {"direct", "group"}:
+            raise ValueError("type must be direct or group")
+        if conversation_type == "direct" and len(normalized_participants) != 2:
+            raise ValueError("direct conversation requires exactly two participants")
+        direct_key = (
+            "|".join(sorted(normalized_participants))
+            if conversation_type == "direct" and reuse_direct
+            else None
+        )
+        if direct_key is not None:
+            existing = self._connection.execute(
+                "SELECT id FROM conversations WHERE direct_key = ?", (direct_key,)
+            ).fetchone()
+            if existing is not None:
+                return self.get_conversation(conversation_id=str(existing["id"]))
         if creator_id is None:
             resolved_creator_id = normalized_participants[0]
         else:
@@ -134,9 +148,7 @@ class ConversationRepository:
                             type,
                             owner_id,
                             creator_id,
-                            is_pinned,
-                            is_muted,
-                            unread_count,
+                            direct_key,
                             last_message_preview,
                             last_message_at,
                             config_agent_id,
@@ -145,7 +157,7 @@ class ConversationRepository:
                             external_chat_id,
                             target_node_id,
                             created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             conversation_id,
@@ -153,9 +165,7 @@ class ConversationRepository:
                             conversation_type,
                             owner_id,
                             resolved_creator_id,
-                            0,
-                            0,
-                            0,
+                            direct_key,
                             None,
                             None,
                             config_snapshot.agent_id,
@@ -176,6 +186,15 @@ class ConversationRepository:
             except sqlite3.IntegrityError as error:
                 if str(error) == "UNIQUE constraint failed: conversations.id":
                     continue
+                if direct_key is not None and "conversations.direct_key" in str(error):
+                    existing = self._connection.execute(
+                        "SELECT id FROM conversations WHERE direct_key = ?",
+                        (direct_key,),
+                    ).fetchone()
+                    if existing is not None:
+                        return self.get_conversation(
+                            conversation_id=str(existing["id"])
+                        )
                 raise
             break
         return Conversation(
@@ -310,9 +329,6 @@ class ConversationRepository:
                                 type,
                                 owner_id,
                                 creator_id,
-                                is_pinned,
-                                is_muted,
-                                unread_count,
                                 last_message_preview,
                                 last_message_at,
                                 config_agent_id,
@@ -320,7 +336,7 @@ class ConversationRepository:
                                 external_source,
                                 external_chat_id,
                                 created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 conversation_id,
@@ -328,9 +344,6 @@ class ConversationRepository:
                                 conversation_type,
                                 normalized_owner_id,
                                 resolved_creator_id,
-                                0,
-                                0,
-                                0,
                                 None,
                                 None,
                                 normalized_agent_id,
@@ -406,7 +419,7 @@ class ConversationRepository:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, target_node_id, created_at
+            SELECT id, title, type, owner_id, creator_id, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, target_node_id, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -416,85 +429,148 @@ class ConversationRepository:
             return None
         return self._row_to_conversation(row)
 
+    def is_member(self, *, conversation_id: str, user_id: str) -> bool:
+        """Return whether a stable identity currently belongs to the chat."""
+        return (
+            self._connection.execute(
+                "SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+                (conversation_id, user_id),
+            ).fetchone()
+            is not None
+        )
+
+    def get_conversation_for_member(
+        self, *, conversation_id: str, user_id: str
+    ) -> Conversation | None:
+        """Return a member's private preferences alongside shared chat metadata."""
+        state = self._connection.execute(
+            """SELECT p.is_pinned, p.is_muted, p.unread_count, c.direct_key, c.title_is_custom
+            FROM conversation_participants p JOIN conversations c ON c.id = p.conversation_id
+            WHERE p.conversation_id = ? AND p.user_id = ?""",
+            (conversation_id, user_id),
+        ).fetchone()
+        if state is None:
+            return None
+        conversation = self.get_conversation(conversation_id=conversation_id)
+        if conversation is None:
+            return None
+        title = conversation.title
+        if (
+            state["direct_key"]
+            and not state["title_is_custom"]
+            and conversation.direct_kind == "user-user"
+        ):
+            peer = next(
+                actor for actor in conversation.participants if actor.id != user_id
+            )
+            title = peer.display_name or peer.id
+        return replace(
+            conversation,
+            title=title,
+            is_pinned=bool(state["is_pinned"]),
+            is_muted=bool(state["is_muted"]),
+            unread_count=int(state["unread_count"]),
+        )
+
+    def list_conversations_for_member(self, *, user_id: str) -> list[Conversation]:
+        """List current memberships, ordered using only this member's pin state."""
+        rows = self._connection.execute(
+            """SELECT c.id FROM conversations c
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE p.user_id = ?
+            ORDER BY p.is_pinned DESC, COALESCE(c.last_message_at, c.created_at) DESC, c.rowid DESC""",
+            (user_id,),
+        ).fetchall()
+        return [
+            self.get_conversation_for_member(
+                conversation_id=str(row["id"]), user_id=user_id
+            )
+            for row in rows
+        ]
+
     def update_conversation(
         self,
         *,
         conversation_id: str,
+        user_id: str,
         title: str | None,
         is_pinned: bool | None,
         is_muted: bool | None,
     ) -> Conversation:
-        """Update mutable conversation metadata and return the new snapshot."""
-        existing = self.get_conversation(conversation_id=conversation_id)
+        """Update a shared title and only the requesting member's preferences."""
+        existing = self.get_conversation_for_member(
+            conversation_id=conversation_id, user_id=user_id
+        )
         if existing is None:
             raise ValueError("conversation_id not found")
         next_title = existing.title if title is None else title.strip()
         if not next_title:
             raise ValueError("title must be non-empty")
-        next_is_pinned = existing.is_pinned if is_pinned is None else is_pinned
-        next_is_muted = existing.is_muted if is_muted is None else is_muted
         with self._connection:
             self._connection.execute(
-                """
-                UPDATE conversations
-                SET title = ?, is_pinned = ?, is_muted = ?,
-                    title_is_custom = CASE WHEN ? IS NOT NULL AND type = 'direct'
-                        THEN 1 ELSE title_is_custom END
-                WHERE id = ?
-                """,
+                """UPDATE conversations SET title = ?,
+                title_is_custom = CASE WHEN ? IS NOT NULL AND type = 'direct' THEN 1 ELSE title_is_custom END
+                WHERE id = ?""",
+                (next_title, title, conversation_id),
+            )
+            self._connection.execute(
+                "UPDATE conversation_participants SET is_pinned = ?, is_muted = ? WHERE conversation_id = ? AND user_id = ?",
                 (
-                    next_title,
-                    int(next_is_pinned),
-                    int(next_is_muted),
-                    title,
+                    int(existing.is_pinned if is_pinned is None else is_pinned),
+                    int(existing.is_muted if is_muted is None else is_muted),
                     conversation_id,
+                    user_id,
                 ),
             )
-        updated = self.get_conversation(conversation_id=conversation_id)
-        assert updated is not None
-        return updated
+        return self.get_conversation_for_member(
+            conversation_id=conversation_id, user_id=user_id
+        )
+
+    def mark_read(
+        self, *, conversation_id: str, user_id: str, last_read_message_id: str
+    ) -> Conversation:
+        """Monotonically acknowledge displayed messages without clearing later arrivals."""
+        with self._connection:
+            member = self._connection.execute(
+                "SELECT last_read_message_id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+                (conversation_id, user_id),
+            ).fetchone()
+            if member is None:
+                raise ValueError("conversation_id not found")
+            boundary = self._connection.execute(
+                "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
+                (last_read_message_id, conversation_id),
+            ).fetchone()
+            if boundary is None:
+                raise ValueError("last_read_message_id not found")
+            prior = self._connection.execute(
+                "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
+                (member["last_read_message_id"], conversation_id),
+            ).fetchone()
+            if prior is None or boundary["rowid"] > prior["rowid"]:
+                self._connection.execute(
+                    """UPDATE conversation_participants SET last_read_message_id = ?, unread_count = (
+                        SELECT COUNT(*) FROM messages WHERE conversation_id = ? AND rowid > ? AND sender_user_id != ?
+                    ) WHERE conversation_id = ? AND user_id = ?""",
+                    (
+                        last_read_message_id,
+                        conversation_id,
+                        boundary["rowid"],
+                        user_id,
+                        conversation_id,
+                        user_id,
+                    ),
+                )
+        return self.get_conversation_for_member(
+            conversation_id=conversation_id, user_id=user_id
+        )
 
     def list_conversations(self) -> list[Conversation]:
-        """List conversations with participant IDs.
-
-        Returns:
-            Conversations ordered by pinned-first then last activity then creation time.
-        """
-        conversation_rows = self._connection.execute(
-            """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, target_node_id, created_at
-            FROM conversations
-            ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
-            """
+        """List shared conversation metadata for internal consumers."""
+        rows = self._connection.execute(
+            "SELECT * FROM conversations ORDER BY COALESCE(last_message_at, created_at) DESC, rowid DESC"
         ).fetchall()
-        return [self._row_to_conversation(row) for row in conversation_rows]
-
-    def list_conversations_for_owner(self, *, owner_id: str) -> list[Conversation]:
-        """Owner-scoped list — filters at the SQL layer to prevent cross-tenant leakage."""
-        conversation_rows = self._connection.execute(
-            """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, target_node_id, created_at
-            FROM conversations
-            WHERE owner_id = ?
-            ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
-            """,
-            (owner_id,),
-        ).fetchall()
-        return [self._row_to_conversation(row) for row in conversation_rows]
-
-    def get_conversation_for_owner(
-        self, *, conversation_id: str, owner_id: str
-    ) -> Conversation | None:
-        """Return the conversation only when it is owned by ``owner_id``; else None.
-
-        Notes:
-            Returning None (not raising) lets API routes translate the absence to a
-            404 without leaking whether the resource exists under a different owner.
-        """
-        conversation = self.get_conversation(conversation_id=conversation_id)
-        if conversation is None or conversation.owner_id != owner_id:
-            return None
-        return conversation
+        return [self._row_to_conversation(row) for row in rows]
 
     def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
         """Dissolve a conversation and cascade-delete all messages and participants.
@@ -520,7 +596,9 @@ class ConversationRepository:
         if row is None:
             raise ValueError("conversation_id not found")
         # Permission check is enforced here in the service layer, not only in the UI.
-        if str(row["creator_id"]) != requester_id:
+        if str(row["creator_id"]) != requester_id or not self.is_member(
+            conversation_id=conversation_id, user_id=requester_id
+        ):
             raise PermissionError(
                 "only the conversation creator can dissolve this conversation"
             )
@@ -578,8 +656,12 @@ class ConversationRepository:
         if to_insert:
             with self._connection:
                 self._connection.executemany(
-                    "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
-                    [(conversation_id, user_id) for user_id in to_insert],
+                    """INSERT INTO conversation_participants(conversation_id, user_id, last_read_message_id)
+                    VALUES (?, ?, (SELECT id FROM messages WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1))""",
+                    [
+                        (conversation_id, user_id, conversation_id)
+                        for user_id in to_insert
+                    ],
                 )
         updated = self.get_conversation(conversation_id=conversation_id)
         assert updated is not None
@@ -660,9 +742,9 @@ class ConversationRepository:
             type=row["type"],
             owner_id=row["owner_id"],
             creator_id=creator_id,
-            is_pinned=bool(row["is_pinned"]),
-            is_muted=bool(row["is_muted"]),
-            unread_count=int(row["unread_count"]),
+            is_pinned=False,
+            is_muted=False,
+            unread_count=0,
             last_message_preview=row["last_message_preview"]
             if "last_message_preview" in row_keys
             else None,

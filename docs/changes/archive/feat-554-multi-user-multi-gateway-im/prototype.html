@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nano IM · 多人协作原型</title><link rel="icon" href="data:,">
+<style>
+:root{--bg:#f7f9fb;--surface:#fff;--sidebar:#f5f8fa;--text:#243440;--muted:#60717e;--line:#e2e8ed;--accent:#0f766e;--soft:#e5f3ef;--hover:#edf2f5;--shadow:0 18px 48px -16px #1e323c38;font-family:ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);font-size:14px}
+*{box-sizing:border-box}body{margin:0;height:100dvh;background:var(--bg);overflow:hidden}button,input,textarea,select{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:not-allowed;opacity:.45}button,input,textarea,select{outline-offset:3px}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent)}button{border:0;background:transparent}h1,h2,h3,p{margin:0}h1{font-size:20px}h2{font-size:17px}h3{font-size:14px}small,.muted{color:var(--muted)}small{font-size:12px}svg{width:19px;height:19px;flex-shrink:0;vertical-align:middle}a{color:var(--accent)}
+.demo{height:34px;background:#eaf1f4;border-bottom:1px solid #dce5ea;display:flex;align-items:center;padding:0 18px;gap:12px;font-size:11px;color:#526673}.demo strong{color:#324b57;letter-spacing:.06em}.demo select{font-size:11px;border:1px solid #cbd9df;border-radius:5px;background:#fff;padding:2px 6px}.demo .spacer{flex:1}.demo button{font-size:11px;text-decoration:underline;text-underline-offset:3px}.topbar{height:48px;border-bottom:1px solid var(--line);background:#fff;display:flex;align-items:center;gap:32px;padding:0 20px}.brand{font-size:15px;font-weight:750;display:flex;align-items:center;gap:9px}.brand-mark{width:23px;height:23px;border-radius:7px;background:#82b8af;display:grid;place-items:center;color:#193f39}.brand em{font-size:10px;font-style:normal;font-weight:500;color:#74838e;border:1px solid var(--line);padding:1px 5px;border-radius:4px}.tabs{height:100%;display:flex;gap:24px}.tabs button{height:100%;font-weight:600;font-size:13px;border-bottom:2px solid transparent}.tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}.user-btn{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px}.avatar{width:36px;height:36px;flex:0 0 36px;border-radius:11px;display:inline-flex;justify-content:center;align-items:center;font-weight:700;font-size:12px;position:relative;background:#d4e2df;color:#355650}.avatar.agent{background:#dce9f1;color:#3f677c}.avatar.group{background:#35464f;color:#d6e5eb}.avatar.purple{background:#e9e2f3;color:#775b94}.avatar.orange{background:#f5e6d6;color:#95683e}.avatar.mini{width:28px;height:28px;flex-basis:28px;font-size:11px;border-radius:9px}.dot{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:50%;border:2px solid white;background:#20835d}.dot.off{background:#9caab4}.layout{height:calc(100dvh - 82px);display:flex;min-width:0}.sidebar{width:292px;flex:0 0 292px;background:var(--sidebar);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}.sidehead{padding:24px 18px 14px}.side-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.side-title h1{font-size:19px}.icon-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px}.icon-btn:hover{background:var(--hover)}.search{position:relative}.search svg{position:absolute;left:10px;top:10px;width:15px;height:15px;color:#7d8e99}.search input{height:35px;width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 10px 0 32px;font-size:12px}.filters{display:flex;gap:5px;margin-top:13px}.filters button{font-size:11px;border-radius:6px;padding:5px 9px;color:var(--muted)}.filters .active{background:#e2ebe9;color:var(--accent);font-weight:700}.side-list{overflow:auto;flex:1;padding:0 9px 12px}.side-row{width:100%;display:flex;gap:11px;align-items:center;text-align:left;border-radius:9px;padding:14px 10px;margin:3px 0;min-width:0}.side-row:hover{background:var(--hover)}.side-row.active{background:var(--soft)}.row-body{flex:1;min-width:0}.row-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}.row-top strong{font-size:13px;font-weight:650;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-top time{margin-left:auto;font-size:10px;color:#8898a2;white-space:nowrap}.preview{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5}.badge{font-size:10px;border-radius:4px;padding:2px 5px;background:#eaf0f4;color:#627884;font-weight:500;white-space:nowrap}.badge.green{background:var(--soft);color:var(--accent)}.unread{background:var(--accent);color:white;min-width:16px;height:16px;font-size:10px;display:grid;place-items:center;border-radius:8px}.sidefoot{border-top:1px solid var(--line);padding:13px 18px;font-size:11px;display:flex;align-items:center;gap:7px;color:var(--muted)}.sidefoot i{height:6px;width:6px;background:#20835d;border-radius:50%}.content{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:#fff}.chathead{height:76px;flex-shrink:0;padding:0 30px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}.chathead .headtext{flex:1;min-width:0}.headtext h2{margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.headtext p{font-size:11px;color:var(--muted)}.head-actions{display:flex;gap:9px;align-items:center}.btn{border:1px solid var(--line);background:white;border-radius:7px;font-size:12px;padding:8px 13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}.btn:hover{background:var(--hover)}.btn.primary{background:var(--accent);border-color:var(--accent);color:white}.btn.primary:hover{background:#115e59}.btn.soft{background:var(--soft);border-color:#cbe5dc;color:var(--accent)}.btn.danger{color:#ba5252}.conversation{flex:1;min-height:0;display:flex}.messages{flex:1;min-width:0;overflow:auto;padding:22px 36px 30px;scroll-behavior:smooth}.date-line{text-align:center;font-size:10px;letter-spacing:.08em;color:#96a2ac;margin:4px 0 25px}.message{display:flex;gap:10px;margin:21px 0;max-width:850px}.message.self{flex-direction:row-reverse;margin-left:auto}.msg-body{max-width:min(690px,87%);min-width:0}.byline{font-size:11px;color:var(--muted);margin:0 0 6px;display:flex;align-items:center;gap:7px}.byline time{font-size:10px;color:#91a0aa}.self .byline{justify-content:flex-end}.bubble{border:1px solid var(--line);border-radius:0 11px 11px 11px;padding:12px 15px;line-height:1.8;font-size:13px;background:#fff;overflow-wrap:anywhere}.self .bubble{background:var(--soft);border-color:#d9eae4;border-radius:11px 0 11px 11px}.mention{color:var(--accent);font-weight:650}.file{display:flex;gap:10px;align-items:center;margin-top:10px;background:#f6f9fa;border:1px solid var(--line);padding:11px;border-radius:7px}.file svg{color:var(--accent)}.file span{font-size:11px;display:block;color:var(--muted)}.msg-link{display:inline-flex;gap:5px;align-items:center;color:var(--accent);font-size:11px;margin-top:8px;padding:0}.msg-link svg{width:13px;height:13px}.system-message{text-align:center;font-size:11px;color:#8b99a3;margin:18px 0}.composer{padding:15px 30px 19px;border-top:1px solid var(--line);background:white;position:relative}.composebox{border:1px solid #d9e2e7;border-radius:10px;padding:8px 12px 10px;background:#fff}.composebox:focus-within{border-color:#9ebfb7;box-shadow:0 0 0 2px #e5f3ef}.tools{display:flex;gap:6px;height:26px;align-items:center;color:#80909b}.tools button{font-size:17px}.composebox textarea{border:0;resize:none;width:100%;height:60px;padding:7px 0;background:transparent;font-size:13px;line-height:1.5;outline:none}.composebottom{display:flex;align-items:center;justify-content:space-between;gap:12px}.composebottom small{font-size:10px;color:#97a4ad}.composer.disabled{color:var(--muted);text-align:center;font-size:12px;padding:26px}.drawer{width:260px;flex-shrink:0;border-left:1px solid var(--line);background:var(--sidebar);padding:22px 18px;overflow:auto}.drawer h3{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}.person-row{display:flex;align-items:center;gap:10px;padding:10px 0;text-align:left;width:100%}.person-row strong{display:block;font-size:12px;margin-bottom:4px}.person-row small{display:block;font-size:10px}.drawer .btn{width:100%;margin-top:18px}.drawer .section-label{font-size:10px;color:#8b9aa4;margin:18px 0 3px;letter-spacing:.12em}.drawer label{display:flex;align-items:center;justify-content:space-between;margin:18px 0;font-size:12px}.drawer input{accent-color:var(--accent)}.empty{padding:40px 20px;color:var(--muted);text-align:center;line-height:1.8;font-size:12px}.empty svg{width:32px;height:32px;margin-bottom:12px;color:#9eafb9}.empty h2{margin:10px;color:var(--text)}
+.agent-page{padding:28px 34px;overflow:auto;flex:1;background:var(--bg)}.profile-line{display:flex;gap:15px;align-items:center;margin-bottom:24px}.profile-line .avatar{width:48px;height:48px;flex-basis:48px;border-radius:14px;font-size:17px}.profile-line h1{font-size:22px;margin-bottom:5px}.profile-line p{font-size:12px;color:var(--muted)}.profile-line .actions{margin-left:auto;display:flex;gap:8px}.subtabs{display:flex;border-bottom:1px solid var(--line);gap:25px;margin-bottom:24px}.subtabs button{padding:12px 1px;font-size:12px;border-bottom:2px solid transparent}.subtabs .active{border-color:var(--accent);color:var(--accent);font-weight:700}.work-banner{border:1px solid var(--line);border-radius:10px;background:white;padding:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.work-banner p{margin-top:7px;font-size:12px;color:var(--muted)}.status-chip{font-size:11px;background:#e8f5ee;color:#26704a;border:1px solid #d6e9df;padding:5px 9px;border-radius:20px;white-space:nowrap}.stats{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);background:#fff;border-radius:9px;padding:17px 0;margin-bottom:25px}.stat{padding:0 20px;border-right:1px solid var(--line)}.stat:last-child{border:0}.stat small{font-size:10px}.stat strong{font-size:20px;display:block;margin-top:8px;font-weight:600}.stat span{font-size:11px;color:var(--muted);margin-left:5px}.work-grid{display:flex;gap:16px;align-items:flex-start}.work-trace{flex:1;min-width:0}.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}.section-header small{font-size:10px}.turn{border:1px solid var(--line);border-radius:9px;background:white;margin-bottom:13px}.turn-head{padding:16px;display:flex;gap:10px;align-items:center}.turn-head .turn-label{flex:1}.turn-head h3{font-size:12px;margin-bottom:5px}.turn-head small{font-size:10px}.turn-detail{padding:0 16px 16px}.step{padding:11px 0 11px 15px;border-left:1px solid #dfe8e5;margin-left:4px;position:relative}.step:before{content:"";position:absolute;width:7px;height:7px;border-radius:50%;background:#8eb8a9;left:-4px;top:15px;border:1px solid white}.step-title{font-size:11px;display:flex;gap:8px;align-items:center;margin-bottom:8px}.step p{font-size:12px;line-height:1.8;color:#526775}.step blockquote{margin:8px 0;background:#f5f8fa;border-radius:6px;padding:11px 13px;font-size:12px;line-height:1.8;color:#465b67}.step pre{margin:6px 0;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;background:#f5f8fa;padding:12px;border-radius:6px;color:#506875}.child-pane{width:290px;background:white;border:1px solid var(--line);border-radius:9px;padding:16px}.child-pane header{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.permission{border:1px solid #d9dfd9;border-radius:8px;margin-top:12px;padding:13px;background:#fbfcfa;min-width:250px}.permission header{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}.permission code{display:block;font-size:11px;white-space:pre-wrap;margin:10px 0;background:#f0f3ef;padding:8px;border-radius:5px;color:#566b58}.permission .buttons{display:flex;gap:7px;margin-top:12px}.permission .btn{font-size:11px;padding:6px 9px}.card{padding:22px;background:white;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}.card p{font-size:12px;line-height:1.8;color:var(--muted);margin-top:9px}.field{margin:19px 0}.field label{display:block;margin-bottom:8px;font-size:12px}.field input,.field textarea{padding:10px 12px;width:100%;border:1px solid var(--line);border-radius:7px;color:var(--text);background:white}.field textarea{min-height:90px;resize:vertical;line-height:1.7}.device{display:flex;align-items:center;gap:14px;padding:17px 0;border-bottom:1px solid var(--line)}.device:last-child{border:0}.device>svg{width:29px;height:29px;color:#7b989d}.device strong{font-size:13px}.device p{margin-top:5px;font-size:11px;color:var(--muted)}.device .status-chip{margin-left:auto}.modal-backdrop{position:fixed;inset:0;background:#1a2b363d;backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}.modal{background:white;width:530px;max-height:85dvh;border:1px solid #dfe7eb;border-radius:13px;box-shadow:var(--shadow);display:flex;flex-direction:column}.modal>header{padding:21px 23px 17px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start}.modal>header p{font-size:11px;color:var(--muted);margin-top:7px;line-height:1.6}.modal-body{padding:18px 23px;overflow:auto}.modal-footer{border-top:1px solid var(--line);padding:14px 23px;display:flex;justify-content:flex-end;align-items:center;gap:10px}.modal-footer small{margin-right:auto}.contact-list{margin-top:12px;max-height:340px;overflow:auto}.contact{display:flex;align-items:center;gap:12px;width:100%;padding:12px 9px;border-radius:8px;text-align:left;border:1px solid transparent;margin:3px 0}.contact:hover{background:var(--sidebar)}.contact.checked{background:var(--soft);border-color:#c9dfd7}.contact .info{flex:1;min-width:0}.contact .info strong{font-size:13px}.contact .info small{font-size:11px;display:block;margin-top:4px}.contact input{accent-color:var(--accent);width:15px;height:15px}.contact .right{font-size:11px;color:var(--accent)}.segmented{display:flex;gap:6px;margin-top:13px}.segmented button{font-size:12px;padding:6px 13px;border-radius:6px;color:var(--muted)}.segmented .active{background:var(--soft);color:var(--accent);font-weight:600}.hint{font-size:11px;line-height:1.8;background:var(--sidebar);padding:11px 12px;border-radius:7px;margin-top:12px;color:var(--muted)}.toast{position:fixed;bottom:27px;left:50%;transform:translateX(-50%);background:#243d42;color:#fff;padding:11px 20px;border-radius:8px;box-shadow:var(--shadow);font-size:12px;z-index:40;max-width:90vw;text-align:center}.mobile-back{display:none}.bottomnav{display:none}.mention-menu{position:absolute;bottom:145px;left:32px;width:235px;padding:7px;background:white;border:1px solid var(--line);box-shadow:var(--shadow);border-radius:9px;z-index:5}.mention-menu button{display:flex;width:100%;padding:9px;gap:9px;align-items:center;text-align:left;border-radius:6px;font-size:12px}.mention-menu button:hover{background:var(--soft)}
+@media(min-width:1500px){.messages{padding-left:8%;padding-right:8%}.agent-page{padding:32px 5%}}
+@media(max-width:1050px){.sidebar{width:260px;flex-basis:260px}.chathead{padding:0 20px}.messages{padding:20px}.drawer{width:220px}.agent-page{padding:24px}.child-pane{width:245px}.profile-line .actions{flex-direction:column}}
+@media(max-width:767px){.demo{height:36px;padding:0 10px;gap:8px}.demo .demo-explain{display:none}.topbar{display:none}.layout{height:calc(100dvh - 92px - env(safe-area-inset-bottom, 0px))}.sidebar{width:100%;flex-basis:100%;border:0}.sidehead{padding:21px 19px 12px}.side-list{padding:0 10px}.side-row{padding:16px 10px}.content{display:none}.layout.detail .sidebar{display:none}.layout.detail .content{display:flex}.mobile-back{display:inline-flex}.layout.conversation-detail{height:calc(100dvh - 36px)}body:has(.layout.conversation-detail) .bottomnav{display:none}.chathead{height:70px;padding:0 13px;gap:8px}.chathead>.avatar{display:none}.chathead h2{font-size:15px}.head-actions{gap:5px}.head-actions .btn{padding:7px 9px;font-size:11px}.headtext p{font-size:10px}.messages{padding:17px 15px}.message{gap:8px}.message>.avatar{width:29px;height:29px;flex-basis:29px;font-size:10px;border-radius:9px}.msg-body{max-width:calc(100% - 36px)}.bubble{font-size:12px;padding:10px 12px}.byline{font-size:10px;gap:4px;flex-wrap:wrap}.byline .badge{font-size:8px}.composer{padding:10px 13px calc(14px + env(safe-area-inset-bottom, 0px))}.composebox textarea{height:52px;font-size:13px}.composebottom small{font-size:9px}.drawer{position:absolute;inset:36px 0 0 auto;width:285px;z-index:10;box-shadow:-20px 0 40px #24344020}.agent-page{padding:18px 15px}.profile-line{gap:10px;margin-bottom:12px;flex-wrap:wrap}.profile-line h1{font-size:20px}.profile-line p{font-size:10px}.profile-line .actions{margin-left:0;flex-direction:row;width:100%;margin-top:8px}.profile-line .actions .btn{flex:1}.subtabs{margin-bottom:16px}.work-banner{padding:15px;align-items:flex-start;flex-direction:column}.work-banner p{font-size:11px}.stat{padding:0 12px}.stat strong{font-size:18px}.stats{margin-bottom:18px}.work-grid{display:block}.child-pane{width:100%;margin-top:14px}.section-header small{font-size:9px}.turn-head{padding:13px}.turn-detail{padding:0 13px 13px}.modal-backdrop{align-items:flex-end;padding:0}.modal{width:100%;max-height:92dvh;border-radius:16px 16px 0 0}.modal>header{padding:20px}.modal-body{padding:16px 20px}.modal-footer{padding:13px 20px calc(13px + env(safe-area-inset-bottom))}.contact-list{max-height:42dvh}.bottomnav{display:flex;position:fixed;bottom:0;left:0;right:0;height:calc(56px + env(safe-area-inset-bottom, 0px));padding-bottom:env(safe-area-inset-bottom, 0px);border-top:1px solid var(--line);background:white;z-index:3;justify-content:space-around}.bottomnav button{font-size:10px;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;width:33%}.bottomnav .active{color:var(--accent)}.toast{bottom:69px}.card{padding:17px}.device{gap:10px}.mention-menu{left:15px;bottom:137px}}
+.user-menu{position:relative;margin-left:auto}.user-popover{position:absolute;top:calc(100% + 4px);right:0;width:240px;padding:4px;background:white;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);z-index:15}.user-popover>button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:8px}.user-popover>button:hover{background:var(--hover)}.menu-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex-shrink:0}.menu-icon svg{width:18px;height:18px;stroke-width:1.7}.menu-item-body{flex:1;min-width:0;font-size:14px;font-weight:500}.menu-item-body small{display:block;font-size:12px;font-weight:400;margin-top:2px}.menu-chevron{font-size:18px;color:#9aa7b0}.menu-identity{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);margin-bottom:4px}.menu-identity .avatar{width:40px;height:40px;flex:0 0 40px;font-size:14px;border-radius:50%}.menu-identity strong{display:block;font-size:14px}.menu-identity small{font-size:11px}.user-popover .menu-signout{color:#dc3c3c}.language-row{display:flex;align-items:center;gap:10px;padding:10px 12px}.language-label{flex:1;font-size:14px;font-weight:500}.language-options{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}.language-options button{padding:0;border:0;background:transparent;color:var(--muted);font-size:13.6px;font-weight:500}.language-options button:hover{color:var(--text)}.language-options button[aria-checked="true"]{color:var(--text);font-weight:700}.language-divider{color:#a6b1ba;user-select:none}.language-row:not(.menu-language) .language-options{gap:4px;padding:3px;background:#edf0f2;border-radius:999px}.language-row:not(.menu-language) .language-options button{padding:5px 13px;border-radius:999px;font-size:12.5px;font-weight:700}.language-row:not(.menu-language) .language-options button[aria-checked="true"]{background:white;box-shadow:0 1px 3px #23323c15}.permission .buttons{flex-wrap:wrap}
+@media(max-width:767px){.demo{gap:6px}.demo strong,.demo label{display:none}.demo select{max-width:170px}.permission{min-width:0}.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.stat small{display:block}.composebottom small{max-width:65%}.turn-head{flex-wrap:wrap}.modal-footer{flex-wrap:wrap}.contact .right{white-space:nowrap}}
+.distill-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:12px 0}.distill-actions small{font-size:11px}.side-row input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;flex-shrink:0}.side-row.unavailable{opacity:.58}.distill-reason{font-size:10px;color:var(--muted);display:block;margin-top:5px;line-height:1.5}.skill-footer{border-top:1px solid var(--line);padding:13px 18px}.skill-footer button{font-size:12px;color:var(--muted);width:100%;text-align:left;padding:5px 0}.skill-footer button:hover{color:var(--accent)}.distill-sources{margin:12px 0 18px;padding-left:20px;font-size:12px;line-height:1.9}.scope-option{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:8px;cursor:pointer}.scope-option input{accent-color:var(--accent);margin-top:3px}.scope-option small{display:block;margin-top:5px;line-height:1.6}.distill-error{color:#a04439;font-size:12px;line-height:1.7;margin-top:14px}.chat-context{position:fixed;z-index:25;max-width:calc(100vw - 24px);background:white;border:1px solid var(--line);border-radius:8px;padding:6px;box-shadow:var(--shadow)}.chat-context button{padding:10px 14px;font-size:12px}.filters{flex-wrap:wrap}.composebox textarea{max-height:240px}
+.message{position:relative}.msg-toolbar{display:flex;gap:5px;margin-top:6px;opacity:0}.message:hover .msg-toolbar,.message:focus-within .msg-toolbar{opacity:1}.msg-toolbar button{font-size:10px;color:var(--muted);padding:3px 5px}.message-menu{display:flex;flex-direction:column;gap:4px}.message-menu button{text-align:left;padding:12px;border-radius:7px}.message-menu button:hover{background:var(--soft)}.inline-trace{border:1px solid var(--line);border-radius:8px;margin-top:10px;padding:12px;font-size:12px;line-height:1.7}.inline-trace pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}.slash-menu{position:absolute;bottom:calc(100% - 10px);left:30px;right:30px;max-height:230px;overflow:auto;background:white;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:7px;z-index:6}.slash-menu button{display:block;width:100%;padding:9px;text-align:left;border-radius:6px}.slash-menu button:hover,.slash-menu button:focus{background:var(--soft)}.slash-menu strong{display:block;font-size:12px}.slash-menu small{display:block;margin-top:3px;font-size:10px}@media(max-width:767px){.msg-toolbar{display:none}.slash-menu{left:13px;right:13px}}@media(min-width:768px) and (pointer:coarse){.msg-toolbar{opacity:1}}
+.management-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.field select{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:#fff}.subtabs{flex-wrap:wrap}.modal-body p{line-height:1.8}
+.nodes-content{display:flex}.nodes-page{overflow:auto;flex:1;padding:24px 28px;background:var(--bg)}.node-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.node-kpis strong{font-size:24px;display:block}.node-kpis small{display:block;margin-top:7px}.node-title{display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:16px}.node-title>div{flex:1;min-width:0}.node-title h3{overflow-wrap:anywhere;margin-bottom:5px}.node-title small{font-size:11px}.node-fields{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding-top:18px}.node-fields h3{font-size:12px;margin-bottom:9px}.node-snapshot{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:12px}.node-snapshot>div{display:flex;justify-content:space-between;gap:15px;line-height:2}.node-snapshot dt{color:var(--muted)}.node-snapshot dd{margin:0;font-variant-numeric:tabular-nums}.node-error{color:#a84040;font-size:12px;background:#fff0ed;padding:10px;border-radius:7px}.node-footer{border-top:1px solid var(--line);padding-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.node-footer .management-links{margin:0}.node-offline{background:#eef2f4;color:#74848e;border-color:var(--line)}
+@media(max-width:767px){.nodes-page{padding:16px 14px}.node-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.node-kpis .card{padding:14px;margin-bottom:8px}.node-fields{grid-template-columns:1fr;gap:12px}.node-title{flex-wrap:wrap}.node-title>small{width:100%;padding-left:28px}.node-footer>.management-links{width:100%;justify-content:flex-end}}
+.demo .guide-trigger{text-decoration:none;border:1px solid #b8ccd5;background:#fff;border-radius:5px;padding:3px 7px;color:#355565;font-weight:600;white-space:nowrap}.prototype-note{flex-shrink:0;padding:10px 12px;border:1px dashed #b9c9d2;border-radius:7px;background:#f0f5f8;margin:0 0 14px;color:#49616d;font-size:11px;text-align:left}.prototype-note>div{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.prototype-note strong{font-size:11px;font-weight:600}.prototype-note p{font-size:11px;line-height:1.65;margin:6px 0 0;color:#5f727e}.review-kind,.review-simple,.review-inline{font-size:10px;border-radius:4px;padding:2px 5px;line-height:1.4;white-space:nowrap}.review-kind.new,.review-inline{background:#e0eee6;color:#33694f}.review-kind.changed{background:#f4e9d4;color:#82602d}.review-kind.kept{background:#e5ebf0;color:#566c7a}.review-simple{background:#fff5df;color:#8c672b}.review-inline{display:inline-block;margin-left:6px;vertical-align:middle}.sidehead>.prototype-note{margin:14px 0 0}.content>.prototype-note{margin:12px 20px 0}.change-guide{width:min(850px,94vw)}.guide-intro{font-size:12px;line-height:1.8;color:var(--muted);padding:12px;background:var(--bg);border-radius:8px}.review-toggle{display:flex;align-items:center;gap:9px;font-size:12px;margin:18px 0}.review-toggle input{accent-color:var(--accent)}.guide-section{margin-top:22px}.guide-section>h3{margin-bottom:12px}.hide-review-notes #app .prototype-note,.hide-review-notes #app .review-inline,.hide-review-notes #overlay .modal:not(.change-guide) .prototype-note{display:none}
+@media(max-width:767px){.demo .spacer{display:none}.demo select{max-width:128px;min-width:0;flex:1}.demo button{font-size:10px;white-space:nowrap;flex:0 0 auto}.demo .guide-trigger{padding:3px 5px}.content>.prototype-note{margin:10px 13px 0}.prototype-note{padding:9px 10px}.change-guide{width:100%}}
+.account-page>.prototype-note{max-width:640px;margin-left:auto;margin-right:auto}.settings-column{max-width:640px;margin:0 auto}.settings-profile{display:flex;align-items:center;gap:16px;width:100%;padding:22px 18px;text-align:left;border:1px solid var(--line);border-radius:12px;background:white;margin-bottom:20px}.settings-profile .avatar{width:52px;height:52px;flex-basis:52px;border-radius:50%;font-size:19px}.settings-profile .settings-row-body strong{font-size:20px}.settings-profile:hover,.settings-row:hover{background:var(--hover)}.settings-group{border:1px solid var(--line);border-radius:12px;background:white;overflow:hidden;margin-bottom:14px}.settings-row{display:flex;align-items:center;gap:12px;width:100%;min-height:66px;padding:14px 16px;text-align:left}.settings-row+.settings-row{border-top:1px solid var(--line)}.settings-row-body{flex:1;min-width:0}.settings-row-body strong{display:block;font-size:14px;font-weight:600}.settings-row-body small{display:block;font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}.settings-language .language-row{min-height:66px;padding:14px 16px;gap:12px}.settings-language .language-label{font-weight:600}.settings-signout{color:#dc3c3c}.settings-signout .menu-chevron{color:inherit}.settings-row:focus-visible,.settings-profile:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+</style>
+</head>
+<body>
+<div class="demo"><strong>交互原型</strong><span class="demo-explain">示例数据 · 不执行真实任务</span><span class="spacer"></span><label for="identity">查看身份</label><select id="identity" aria-label="查看身份"><option value="chen">小陈 · 两台 Gateway</option><option value="li">小李 · 无 Gateway</option><option value="wang">小王 · 一台 Gateway</option></select><button data-action="offline" id="offline-toggle">设备离线</button><button data-action="reset">重置</button></div>
+<div id="app"></div><div id="overlay"></div><div id="toast" role="status"></div>
+<script>
+const icons={chat:'<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',plus:'<path d="M12 5v14M5 12h14"/>',users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/><circle cx="9" cy="7" r="4"/>',agent:'<rect x="4" y="7" width="16" height="13" rx="4"/><path d="M12 3v4M8 12h.01M16 12h.01M9 16h6"/>',arrow:'<path d="M5 12h14m-5-5 5 5-5 5"/>',back:'<path d="m14 6-6 6 6 6"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',work:'<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3h8v3M3 12h18m-11 0v3h4v-3"/>',monitor:'<rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/>',file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8m-8 4h5"/>',check:'<path d="m5 12 4 4L19 6"/>',chevron:'<path d="m9 5 7 7-7 7"/>',person:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',pin:'<path d="m16 3 5 5-4 1-4 4-1 5-6-6 5-1 4-4zM8 16l-5 5"/>'};
+Object.assign(icons,{policies:'<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',language:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',logout:'<path d="M9 4H4v16h5m4-12 4 4-4 4m-5-4h13"/>'});
+const icon=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[n]||icons.chat}</svg>`;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const people=[{id:'chen',name:'小陈',desc:'产品与开发',kind:'human'},{id:'li',name:'小李',desc:'产品设计',kind:'human'},{id:'wang',name:'小王',desc:'质量与测试',kind:'human'}];
+const agents=[{id:'atlas',name:'Atlas',initial:'At',desc:'开发与技术实现',owner:'chen',node:'MacBook Air',mode:'global',online:true,kind:'agent'},{id:'iris',name:'Iris',initial:'Ir',desc:'资料研究与知识整理',owner:'chen',node:'Mac mini',mode:'global',online:true,kind:'agent',color:'purple'},{id:'muse',name:'Muse',initial:'Mu',desc:'测试与质量检查',owner:'wang',node:'小王的工作站',mode:'single',online:true,kind:'agent',color:'orange'}];
+const all=()=>[...people,...agents];const person=id=>all().find(p=>p.id===id);const name=id=>person(id)?.name||id;
+let me='chen',nav='chat',active='project',filter='all',query='',agentId='atlas',agentTab='work',detail=innerWidth>=768,drawer=false,child=false,modal=null,selected=new Set(),contactFilter='all',contactQuery='',draft='',mentionOpen=false,perm=null,counter=1,turnExpanded=true;
+let distillMode=false,distillIds=new Set(),distillAgent='',distillScope='agent',distillError='',chatContext=null;
+let drafts={},messageMenu=null,expandedMessages=new Set();
+let legacySection='',profileDefaults={},createNode='',showReviewNotes=true;
+const nodeProfiles={
+ 'MacBook Air':{id:'macbook-air',alias:'MacBook Air',heartbeat:'14:38:42',version:'0.1.0'},
+ 'Mac mini':{id:'mac-mini',alias:'Mac mini',heartbeat:'14:38:40',version:'0.1.0'},
+ '小王的工作站':{id:'wang-workstation',alias:'小王的工作站',heartbeat:'14:38:39',version:'0.1.0'}
+};
+let language=localStorage.getItem('feat554_prototype_lang')==='en'?'en':'zh',userMenuOpen=false;
+// Prototype-only copy. Production reuses the existing i18next resources and im_lang key.
+const english={
+  "聊天": "Chats",
+  "我的": "Me",
+  "我的账号": "My account",
+  "用户菜单": "User menu",
+  "语言": "Language",
+  "主导航": "Main navigation",
+  "移动导航": "Mobile navigation",
+  "账号与设备": "Account & devices",
+  "个人资料与设备": "Profile and devices",
+  "查找 Agent": "Find an Agent",
+  "没有找到 Agent": "No Agents found",
+  "设备与配置由各自管理者维护": "Each owner manages their devices and settings",
+  "新聊天": "New chat",
+  "建群": "New group",
+  "搜索我的聊天": "Search my chats",
+  "全部": "All",
+  "人": "People",
+  "群聊": "Groups",
+  "开始新的交流": "Start a conversation",
+  "已免打扰": "Muted",
+  "没有找到聊天": "No chats found",
+  "点击右上角 ＋ 开始交流": "Click + above to start a chat",
+  "消息已同步": "Messages synced",
+  "刚刚": "Just now",
+  "昨天": "Yesterday",
+  "查看 Work": "View Work",
+  "已处理": "Resolved",
+  "需要确认 · 运行项目测试": "Approval needed · Run project tests",
+  "允许一次": "Allow once",
+  "始终允许": "Always allow",
+  "拒绝": "Deny",
+  "开始一次交流": "Start a conversation",
+  "找到同事或 Agent，一起把事情做好。": "Find a colleague or Agent to work together.",
+  "返回聊天列表": "Back to chats",
+  "在线": "Online",
+  "离线": "Offline",
+  "全局模式": "Global mode",
+  "单 Thread 模式": "Single-thread mode",
+  "单 Thread": "Single thread",
+  "聊天信息": "Chat details",
+  "2026 年 9 月 12 日 · 今天": "September 12, 2026 · Today",
+  "新会话已创建，发一条消息开始交流": "Chat created. Send a message to get started.",
+  "Agent 所在设备离线，恢复在线后可继续交办工作。": "This Agent's device is offline. You can assign work when it reconnects.",
+  "聊天中没有 Agent": "No Agents in this chat",
+  "提及 Agent": "Mention an Agent",
+  "添加附件": "Add attachment",
+  "消息": "Message",
+  "发消息，@ Agent 交办工作…": "Send a message, @ an Agent to assign work…",
+  "发送消息…": "Send a message…",
+  "Enter 发送 · Shift + Enter 换行": "Enter to send · Shift + Enter for a new line",
+  "发送": "Send",
+  "关闭聊天信息": "Close chat details",
+  "成员": "Members",
+  "（你）": "(you)",
+  "同事": "Colleague",
+  "＋ 添加成员": "＋ Add members",
+  "个人设置": "Personal settings",
+  "置顶聊天": "Pin chat",
+  "消息免打扰": "Mute notifications",
+  "只影响你的聊天列表": "Only affects your chat list",
+  "返回 Agent 列表": "Back to Agents",
+  "由你管理": "Managed by you",
+  "发消息": "Message",
+  "管理配置": "Manage settings",
+  "资料": "Profile",
+  "配置": "Config",
+  "管理者": "Owner",
+  "Agent 配置": "Agent settings",
+  "名称": "Name",
+  "工作模式": "Work mode",
+  "创建后保持不变": "Cannot be changed after creation",
+  "保存": "Save",
+  "工作": "Work",
+  "全局": "Global",
+  "跨聊天的主工作轨迹及关联执行": "Main work history and related runs across chats",
+  "空闲": "Idle",
+  "节点离线": "Device offline",
+  "当前没有进行中的任务": "No tasks in progress",
+  "已保存的工作记录": "Saved work history",
+  "有新的工作时，Agent 会继续处理。": "The Agent will continue when new work arrives.",
+  "节点恢复在线后继续更新；当前执行状态未知。": "Updates resume when the device reconnects. Current execution status is unknown.",
+  "已完成": "Completed",
+  "查看群内交付": "View delivery in group",
+  "主 Agent · 工作中": "Main Agent · Working",
+  "最近主上下文": "Latest main context",
+  "关联执行": "Related runs",
+  "最近轮次耗时": "Latest turn duration",
+  "项": "runs",
+  "秒": "s",
+  "主 Agent": "Main Agent",
+  "最新轮次在前": "Latest turns first",
+  "执行中": "Running",
+  "展开或收起工作详情": "Expand or collapse work details",
+  "读取 Inbox": "Read Inbox",
+  "已读消息": "Read message",
+  "打开原聊天": "Open source chat",
+  "思考": "Thinking",
+  "委派": "Delegate",
+  "工具 · read": "Tool · read",
+  "已发送": "Sent",
+  "查看群内消息": "View group message",
+  "原聊天": "Source chat",
+  "关闭子执行": "Close related run",
+  "子 Agent · 执行中": "Sub-agent · Running",
+  "任务输入": "Task input",
+  "工具 read": "Tool read",
+  "当前进展": "Current progress",
+  "返回": "Back",
+  "我的 Gateway": "My Gateways",
+  "还没有绑定设备": "No devices connected yet",
+  "你仍然可以聊天、建群，以及与同事的 Agent 协作。": "You can still chat, create groups, and work with colleagues' Agents.",
+  "找人或 Agent 聊聊": "Find a person or Agent",
+  "＋ 绑定新设备": "＋ Connect a device",
+  "无法打开这段聊天": "Cannot open this chat",
+  "你不是这段聊天的参与者。": "You are not a participant in this chat.",
+  "关闭": "Close",
+  "你可以继续在 Work 中查看 Agent 的完整执行详情。": "You can continue viewing the Agent's full execution details in Work.",
+  "返回 Work": "Back to Work",
+  "绑定新设备": "Connect a device",
+  "在新设备上启动 Gateway，打开它提供的绑定链接，用当前账号确认即可。": "Start Gateway on the new device, open its connection link, and confirm with your account.",
+  "原型仅展示既有绑定流程的入口，不创建真实设备。": "This prototype shows the existing connection entry and does not connect real devices.",
+  "知道了": "Got it",
+  "添加群成员": "Add group members",
+  "新建群聊": "New group",
+  "选择同事和你管理的 Agent，一起交流。": "Choose colleagues and Agents you manage.",
+  "找到同事或 Agent，直接开始交流。": "Find a colleague or Agent and start chatting.",
+  "搜索名字或 ID": "Search by name or ID",
+  "搜索联系人": "Search contacts",
+  "我的 Agent": "My Agents",
+  "没有找到匹配的联系人": "No matching contacts",
+  "群名称": "Group name",
+  "例如：新版本研发": "For example: Product development",
+  "取消": "Cancel",
+  "添加成员": "Add members",
+  "创建群聊": "Create group",
+  "发起群聊": "Start a group",
+  "这是你自己": "This is you",
+  "成员已添加": "Members added",
+  "设备离线，暂时无法提交决定": "The device is offline. The decision cannot be submitted.",
+  "附件上传沿用现有功能，此原型不上传文件": "Attachment upload uses the existing feature. This prototype does not upload files.",
+  "请填写 Agent 名称": "Enter an Agent name",
+  "原型配置已保存": "Prototype settings saved",
+  "设备离线": "Take device offline",
+  "恢复设备": "Reconnect device",
+  "小王的工作站已恢复在线": "The workstation is back online",
+  "小王的工作站已离线": "The workstation is offline",
+  "演示已重置": "Demo reset",
+  "决定已同步": "Decision synced"
+};
+Object.assign(english,{
+  "Agent 分区": "Agent sections",
+  "概览": "Overview",
+  "通道": "Channels",
+  "技能": "Skills",
+  "会话": "Sessions",
+  "本期不设计概览页。保持空态，后续单独设计。": "The overview page is not included in this release. It will be designed separately.",
+  "本期不设计会话页。保持空态，后续单独设计。": "The sessions page is not included in this release. It will be designed separately.",
+  "节点总数": "Total nodes",
+  "Agent 总数": "Total agents",
+  "实时快照": "Live Snapshot",
+  "心跳": "Heartbeat",
+  "版本": "Version",
+  "最近错误": "Last Error",
+  "别名": "Alias",
+  "尚未接入任何节点。": "No nodes connected yet.",
+  "已接入此账号的 Gateway 节点。": "Gateway nodes connected to this account.",
+  "设备连接已断开，等待重新连接。": "The device is disconnected. Waiting to reconnect.",
+  "已保存全部更改": "All saved",
+  "有未保存的更改": "Unsaved changes",
+  "在节点上新建 Agent": "New agent on node",
+  "返回我的账号": "Back to my account",
+  "{owner}的 {count} 个会话": "{owner} · {count} chats",
+  "{owner}管理": "Managed by {owner}",
+  "{owner}的 {device}": "{owner} · {device}",
+  "与 {name} 的私聊": "Direct chat with {name}",
+  "{count} 台设备": "{count} devices",
+  "已选择 {count} 位成员": "{count} members selected",
+  "选择 {name}": "Select {name}",
+  "{agent} 将在 {device} 执行。": "{agent} will run on {device}.",
+  "交互原型": "Prototype",
+  "示例数据 · 不执行真实任务": "Sample data · No real tasks",
+  "查看身份": "View as",
+  "重置": "Reset",
+  "两台 Gateway": "2 Gateways",
+  "生成 skill": "Generate skill",
+  "蒸馏为 skill": "Distill to skill",
+  "蒸馏会话": "Distill conversations",
+  "已选择 {count} 段聊天": "{count} chats selected",
+  "选择同一 Gateway 上已结束的聊天": "Select completed chats on the same Gateway",
+  "不同 Gateway": "Different Gateway",
+  "来源不可用": "Source unavailable",
+  "仅支持单 Thread 聊天": "Single-thread chats only",
+  "Agent 已离开群聊，本请求不再接收决定。": "The Agent has left this group. This request no longer accepts decisions.",
+  "消息操作": "Message actions",
+  "新建 Agent": "Create Agent",
+  "设备": "Nodes",
+  "系统策略": "Policies",
+  "退出登录": "Sign out",
+  "返回演示": "Return to prototype",
+  "编辑账号": "Edit account",
+  "显示名称": "Display name",
+  "默认设备": "Default Gateway",
+  "无默认设备": "No default Gateway",
+  "设备管理": "Node management",
+  "运行诊断": "Runtime diagnostics",
+  "编辑设备别名": "Edit node alias",
+  "模型与推理": "Models and reasoning",
+  "技能与工具": "Skills and tools",
+  "定时任务": "Scheduled tasks",
+  "提示词预览": "Prompt preview",
+  "预览": "Preview",
+  "修改聊天名称": "Rename conversation",
+  "移除 {name}": "Remove {name}",
+  "退出群聊": "Leave group",
+  "解散群聊": "Dissolve group",
+  "确认解散群聊": "Confirm dissolve",
+  "群聊已解散": "Group dissolved",
+  "聊天名称": "Conversation name",
+  "请选择在线设备": "Select an online Gateway",
+  "工作目录": "Workspace",
+  "新 Agent": "New Agent",
+  "已保存": "Saved",
+  "此处保留现有管理入口，完整表单和后台操作在正式 IM 中沿用。": "This keeps the existing management entry. The full form and backend actions remain in the actual IM.",
+  "这里演示退出入口；正式 IM 沿用现有账号退出流程。": "This demonstrates the sign-out entry; the actual IM keeps its existing sign-out flow.",
+  "模型、备用模型与推理档位": "Model, fallback models and reasoning level",
+  "Skill 来源分组与工具选择": "Skill source groups and tool selection",
+  "已启用蒸馏 Skill": "Distillation skill enabled",
+  "已启用 skill_view": "skill_view enabled",
+  "技能使用统计": "Skill usage statistics",
+  "调用次数": "Calls",
+  "成功次数": "Succeeded",
+  "全部现有公开配置": "All existing public configuration",
+  "外部通道与连接诊断": "External channels and connection diagnostics",
+  "添加通道": "Add channel",
+  "新建定时任务": "Create scheduled task",
+  "设备别名、连接状态与运行诊断": "Node aliases, connection status and runtime diagnostics",
+  "Gateway 的资源与安全策略": "Gateway resource and security policies",
+  "复制整条消息": "Copy message",
+  "从此处分支": "Branch from here",
+  "已复制": "Copied",
+  "复制失败，请重试": "Copy failed. Try again.",
+  "过程": "Process",
+  "思考过程": "Reasoning",
+  "工具结果": "Tool result",
+  "关闭消息菜单": "Close message menu",
+  "停止当前执行": "Stop the current run",
+  "在当前聊天中开始新会话": "Start a new session in this chat",
+  "为群内所有 Agent 开始新会话": "Start a new session for every Agent in this group",
+  "压缩当前会话": "Compact the current session",
+  "命令与技能": "Commands and skills",
+  "当前 Agent 没有匹配的命令": "No matching commands for this Agent",
+  "新分支 · {name}": "New branch · {name}",
+  "运行中": "Running",
+  "来源 Agent 由{owner}管理": "Source Agent is managed by {owner}",
+  "执行 Agent": "Execution agent",
+  "写入范围": "Target scope",
+  "仅此 Agent": "This Agent only",
+  "写入执行 Agent 的 skills 目录": "Write to the execution Agent's skills directory",
+  "当前 Gateway 全局": "Global on this Gateway",
+  "供这台 Gateway 上的 Agent 使用": "Available to Agents on this Gateway",
+  "新建执行聊天，预填命令后由你发送。": "Create an execution chat with a prefilled command for you to send.",
+  "预填命令": "Prefill command",
+  "请先选择已结束且来源可用的聊天。": "Select completed chats with available sources first.",
+  "Gateway 离线，恢复连接后可重试。": "Gateway offline. Reconnect and try again.",
+  "开始前请先为执行 Agent 启用 conversation-skill-distiller 和 skill_view。": "Enable conversation-skill-distiller and skill_view for the execution Agent first.",
+  "命令已预填，请检查并补充意图后发送。": "Command prefilled. Review it, add your intent, and send.",
+  "本原型只演示选择和预填，不生成或写入真实 Skill。": "This prototype demonstrates selection and prefilling; it does not generate or write a real Skill.",
+  "Skill 蒸馏 · {agent}": "Skill distill · {agent}",
+  "Agent 网络": "Agent network",
+  "聊天操作": "Conversation actions",
+  "已免打扰": "Muted",
+  "无 Gateway": "No Gateway",
+  "一台 Gateway": "1 Gateway"
+});
+function t(key,values={}){let text=language==='en'?(english[key]||key):key;for(const [name,value]of Object.entries(values))text=text.replaceAll('{'+name+'}',value);return text}
+let prefs={},messages={},conversations=[];
+function seed(){conversations=[{id:'project',title:'新版本 · 产品研发',members:['chen','li','wang','atlas','iris','muse'],group:true,creator:'chen',time:'14:38',sourceAgent:'atlas',runState:'running'},{id:'chen-atlas',sourceAgent:'atlas',title:'Atlas',members:['chen','atlas'],time:'14:26'},{id:'chen-iris',sourceAgent:'iris',title:'Iris',members:['chen','iris'],time:'昨天'},{id:'humans',title:'小李',members:['chen','li'],time:'13:48'},{id:'li-atlas',sourceAgent:'atlas',title:'Atlas',members:['li','atlas'],time:'14:29'},{id:'wang-muse',sourceAgent:'muse',title:'Muse',members:['wang','muse'],time:'14:18'} ,{id:'wang-muse-history',title:'Muse · 上周测试复盘',customTitle:true,sourceAgent:'muse',members:['wang','muse'],time:'昨天'}];messages={project:[{from:'chen',text:'这一版先把多人协作跑通。大家在这个群里一起跟进，周五看第一轮结果。',time:'14:30'},{from:'li',text:'@Atlas 我把联系人和建群的交互整理好了。先做最短路径，让第一次进来的同事也能直接用。',time:'14:32'},{from:'atlas',text:'收到。我先实现联系人查找和多人建群，再接上不同 Gateway 的 Agent。今天先交付可体验的版本。',time:'14:33',work:true},{from:'wang',text:'@Muse 同步补一轮测试，重点看三个人的聊天列表、群消息收发和离线状态。',time:'14:34'},{from:'muse',text:'测试用例已准备好。需要运行项目测试，确认后我会继续检查。',time:'14:35',permission:true},{from:'iris',text:'协作场景已经整理成一份检查清单，大家可以直接补充。',time:'14:38',file:true}], 'chen-atlas':[{from:'chen',text:'先把协作能力做好，入口尽量保持简单。',time:'14:24'},{from:'atlas',text:'好。我会沿用现有聊天界面，把联系人查找放在新聊天入口。',time:'14:26',work:true}], 'chen-iris':[{from:'iris',text:'我整理了本周的资料，明天可以一起过一下。',time:'昨天'}],humans:[{from:'li',text:'我下午把原型发到研发群里，我们直接看界面聊。',time:'13:48'},{from:'chen',text:'好，按原型来。',time:'13:49'}], 'li-atlas':[{from:'li',text:'联系人搜索先按名字和 ID 来。移动端用底部弹层，按钮别太多。',time:'14:28'},{from:'atlas',text:'收到。我会把这两个约束带到研发群的实现里。',time:'14:29',work:true}], 'wang-muse':[{from:'wang',text:'新版本重点看多账号同时在线的场景。',time:'14:16'},{from:'muse',kernel:true,trace:true,text:'已加入测试计划，开始前会在群里确认执行。',time:'14:18'}]};messages['wang-muse-history']=[{from:'wang',text:'把这几次测试中稳定可复用的步骤记下来。',time:'昨天'},{from:'muse',kernel:true,trace:true,text:'已整理测试准备、回归验证与交付前检查的共同步骤。',time:'昨天'}];prefs={};drafts={};expandedMessages=new Set();messageMenu=null;perm=null;distillMode=false;distillIds=new Set();distillError='';chatContext=null;for(const a of agents){a.distillSkill=true;a.skillView=true}}
+seed();
+function avatar(id,mini=false){const p=person(id);return `<span class="avatar ${p?.kind==='agent'?'agent':''} ${p?.color||''} ${mini?'mini':''}">${esc(p?.initial||p?.name?.slice(-1)||'群')}${p?.kind==='agent'?`<i class="dot ${p.online?'':'off'}"></i>`:''}</span>`}
+function groupAvatar(){return `<span class="avatar group">${icon('users')}</span>`}
+function pref(id){return prefs[`${me}:${id}`]||(prefs[`${me}:${id}`]={pin:false,mute:false})}
+function conv(){return conversations.find(c=>c.id===active)}
+function title(c){return c.group||c.customTitle?c.title:name(c.members.find(id=>id!==me))}
+function toast(t){const x=document.getElementById('toast');x.className='toast';x.textContent=t;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>{x.className='';x.textContent=''},3000)}
+function saveDraft(){const e=document.getElementById('message-input');if(e){draft=e.value;drafts[me+':'+active]=draft}}
+function languageControl(inMenu=false){return `<div class="language-row ${inMenu?'menu-language':''}"><span class="menu-icon">${icon('language')}</span><span class="language-label">${t("语言")}</span><div class="language-options" role="${inMenu?'group':'radiogroup'}" aria-label="${t("语言")}"><button role="${inMenu?'menuitemradio':'radio'}" aria-checked="${language==='en'}" data-action="language" data-id="en">EN</button>${inMenu?'<span class="language-divider" aria-hidden="true">|</span>':''}<button role="${inMenu?'menuitemradio':'radio'}" aria-checked="${language==='zh'}" data-action="language" data-id="zh">中</button></div></div>`}
+function userPopover(){const nodes=[...new Set(agents.filter(a=>a.owner===me).map(a=>a.node))],online=nodes.filter(n=>agents.some(a=>a.node===n&&a.online)).length;return `<div class="user-popover" role="menu"><div class="menu-identity" role="none">${avatar(me,true)}<div><strong>${name(me)}</strong><small>${esc(me)}</small></div></div><button role="menuitem" data-action="nav" data-nav="account"><span class="menu-icon">${icon('person')}</span><span class="menu-item-body">${t("我的账号")}<small>${t("个人资料与设备")}</small></span></button><button role="menuitem" data-action="legacy" data-id="设备管理"><span class="menu-icon">${icon('monitor')}</span><span class="menu-item-body">${t("设备")}<small>${reviewText([`${nodes.length} 台归属设备 · ${online} 在线`,`${nodes.length} owned · ${online} online`])}</small></span><span class="menu-chevron" aria-hidden="true">›</span></button><button role="menuitem" data-action="legacy" data-id="系统策略"><span class="menu-icon">${icon('policies')}</span><span class="menu-item-body">${t("系统策略")}</span><span class="menu-chevron" aria-hidden="true">›</span></button>${languageControl(true)}<button class="menu-signout" role="menuitem" data-action="signout"><span class="menu-icon">${icon('logout')}</span><span class="menu-item-body">${t("退出登录")}</span></button></div>`}
+const reviewKinds={new:['新增','New'],changed:['调整','Adjusted'],kept:['沿用原有','Existing']};
+const reviewEntries={
+ contacts:{kind:'new',title:['找人和人际私聊','People and direct messages'],body:['新增联系人搜索和人际私聊入口，可直接找同事或同事的 Agent。','Adds contact search and direct messages with colleagues or their Agents.']},
+ public_profile:{kind:'new',title:['他人 Agent 的公开资料','Public Agent profile'],body:['新增可供大家查看的简介、管理者和设备信息；管理表单仍由原管理者使用。','Adds shared descriptions, manager and device details. Management stays with the existing manager.']},
+ work_link:{kind:'new',title:['消息里的“查看 Work”','View Work from a message'],body:['新增从 Agent 回复跳到对应 Work 的入口。','Adds a link from an Agent reply to its Work view.']},
+ directory:{kind:'changed',title:['Agent 列表范围','Agent directory scope'],body:['沿用 Agent 列表；从自己的 Agent 扩展到同一 IM 的全部 Agent，并标出“我的”。','Keeps the Agent list, expands it to all Agents in this IM, and marks those you manage.']},
+ chatlist:{kind:'changed',title:['聊天列表与新聊天','Chat list and new chats'],body:['沿用列表、搜索和原分类；增加人际聊天分类。列表只显示你参与的聊天。','Keeps the list, search and existing filters; adds people. Only chats you participate in appear.']},
+ group:{kind:'changed',title:['多人、人和 Agent 混合群','Groups with people and Agents'],body:['沿用群聊和成员面板；加入真人成员、自己的 Agent、多人发言及退出规则。','Keeps group chat and member panels; adds people, your Agents, shared participation and leaving rules.']},
+ approvals:{kind:'changed',title:['群内批准卡','Shared approval cards'],body:['沿用原批准卡和选项；单 Thread 群内真人都能处理。首个提交的决定锁定，设备确认后更新结果。全局模式不弹卡。','Keeps approval cards and options. Any human member can decide in single-thread chats. The first submitted choice is locked; results update after device confirmation. Global mode has no cards.']},
+ work:{kind:'changed',simple:true,title:['全局 Work 的可见范围','Global Work visibility'],body:['沿用原 Work 页面；开放全局执行详情给登录用户，原聊天仍按成员读取。这里的轨迹与排版为示意。','Keeps the existing Work page; signed-in users can read global execution details. Source chats remain member-only. This trace and layout are illustrative.']},
+ preferences:{kind:'changed',title:['置顶、免打扰和未读','Pins, mute and unread'],body:['这些功能原本就有；本次调整为每个人独立保存，不互相影响。','These features already exist. This change stores them separately for each person.']},
+ chat_base:{kind:'kept',simple:true,title:['消息与输入区','Messages and composer'],body:['消息、附件、复制、分支、草稿、slash 和内联过程沿用原组件；当前示例未完整展开。','Reuse existing messages, attachments, copy, branching, drafts, slash commands and inline traces. This example is abbreviated.']},
+ distill:{kind:'kept',title:['多聊天生成 Skill','Generate a Skill from chats'],body:['沿用单 Thread 多聊天、同 Gateway 选择和两种保存范围。全局 Agent 聊天蒸馏尚未设计。','Keeps single-thread multi-chat selection on one Gateway and both save scopes. Distilling global-Agent chats is not designed yet.']},
+ settings:{kind:'kept',simple:true,title:['Agent 配置','Agent configuration'],body:['正式复用原配置页面全部布局、字段和操作；这里的简化表单不能替代原页面。','Reuse the full existing configuration layout, fields and actions. This abbreviated form is not a replacement design.']},
+ channels:{kind:'kept',simple:true,title:['通道配置与诊断','Channels and diagnostics'],body:['正式复用原通道连接、凭据和诊断页面；当前仅示意入口。','Reuse the existing channel connection, credentials and diagnostics page. Only entry points are shown here.']},
+ skills:{kind:'kept',simple:true,title:['技能配置与使用统计','Skills and usage'],body:['正式复用原 Skill 选择与统计页面；当前列表和数字只是示例。','Reuse existing Skill selection and usage pages. This list and these counts are sample data.']},
+ placeholders:{kind:'kept',title:['概览、会话空态','Overview and Sessions placeholders'],body:['这两个分区原本就是空态，保留原入口与提示，不增加新的功能。','Both sections are already placeholders. Keep their entries and text; no new functionality is added.']},
+ nodes:{kind:'kept',title:['节点管理与 Heartbeat','Nodes and Heartbeat'],body:['字段、连接心跳、别名保存和在线节点创建沿用原 Nodes 页；当前数值为演示数据。','Reuse existing node fields, connection heartbeat, alias saving and online-node creation. Values here are sample data.']},
+ account:{kind:'kept',simple:true,title:['账号、设备与系统策略','Account, devices and policies'],body:['登录、账号、设备绑定、系统策略、语言和退出沿用原页面；菜单图标与语言按钮保留原样式，其余内容未完整展开。','Reuse existing login, account, device binding, policies, language and sign-out pages. Keep the original menu icons and language controls; other content is abbreviated here.']},
+ create_agent:{kind:'kept',simple:true,title:['创建 Agent','Create an Agent'],body:['沿用原在线节点、workspace、模式和完整创建表单；这里仅示意入口，不执行创建。','Reuse the full existing form with its online node, workspace and mode. This example does not create an Agent.']},
+ navigation:{kind:'kept',title:['桌面与手机导航','Desktop and mobile navigation'],body:['沿用桌面顶栏、手机底栏和“我的”；中英文切换保留。具体聊天隐藏手机底栏。','Keep desktop top navigation, mobile bottom navigation and Me, including language switching. Hide the mobile bottom bar inside a chat.']}
+};
+const reviewText=pair=>pair[language==='en'?1:0];
+function reviewNote(key){
+ const entry=reviewEntries[key];if(!entry)return '';
+ return `<aside class="prototype-note" data-review-key="${key}" aria-label="${reviewText(['原型标注','Prototype annotation'])}"><div><span class="review-kind ${entry.kind}">${reviewText(reviewKinds[entry.kind])}</span>${entry.simple?`<span class="review-simple">${reviewText(['简化示意','Abbreviated demo'])}</span>`:''}<strong>${reviewText(entry.title)}</strong></div><p>${reviewText(entry.body)}</p></aside>`;
+}
+function renderReviewNotes(){
+ document.body.classList.toggle('hide-review-notes',!showReviewNotes);
+ const add=(selector,key,position='afterbegin')=>document.querySelector(selector)?.insertAdjacentHTML(position,reviewNote(key));
+ if(nav==='chat'){
+  add('.sidebar .sidehead','chatlist','beforeend');
+  const c=conv(),other=c?.members.find(id=>id!==me);
+  add('.content > .chathead',c?.group?'group':person(other)?.kind==='human'?'contacts':'chat_base','afterend');
+  document.querySelectorAll('.msg-link[data-action="work"]').forEach(button=>button.insertAdjacentHTML('afterend',`<span class="review-inline">${reviewText(['新增入口','New entry'])}</span>`));
+  document.querySelectorAll('.permission').forEach(card=>card.insertAdjacentHTML('beforebegin',reviewNote('approvals')));
+ }else if(nav==='agents'){
+  add('.sidebar .sidehead','directory','beforeend');
+  const a=person(agentId);
+  const key=agentTab==='work'?'work':a?.owner!==me?'public_profile':{settings:'settings',channels:'channels',skills:'skills',about:'placeholders',sessions:'placeholders'}[agentTab];
+  add('.subtabs',key,'afterend');
+ }else if(nav==='nodes')add('.nodes-page','nodes');
+ else add('.agent-page','account');
+}
+function changeGuide(){
+ const intro=reviewText(['这份原型是独立绘制的 HTML，没有直接复用原 IM 组件，所以外观看起来都被重画了。标为“沿用原有”的区域，正式实现仍复用原页面；“简化示意”不能作为删减或替换依据。','This prototype is independently drawn HTML, not the existing IM components. That is why it looks redrawn. Areas marked Existing must reuse the original pages in implementation; an abbreviated demo is not a replacement design.']);
+ return `<div class="modal-backdrop"><section class="modal change-guide" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">${reviewText(['改动说明','What changes'])}</h2><button class="icon-btn" data-action="close-modal" aria-label="${t('关闭')}">${icon('close')}</button></header><div class="modal-body"><p class="guide-intro">${intro}</p><label class="review-toggle"><input id="review-toggle" type="checkbox" ${showReviewNotes?'checked':''}>${reviewText(['显示页面标注（仅供原型评审）','Show page annotations (prototype review only)'])}</label>${['new','changed','kept'].map(kind=>`<section class="guide-section"><h3>${reviewText(reviewKinds[kind])}</h3>${Object.entries(reviewEntries).filter(([,entry])=>entry.kind===kind).map(([key])=>reviewNote(key)).join('')}</section>`).join('')}<p class="guide-intro">${reviewText(['已撤回：常驻“消息已同步”、会话总数和手机上下重复导航。顶部身份切换、设备离线开关、示例回复与这些标注只用于演示，不进入正式产品。','Removed prototype experiments: persistent “Messages synced”, chat totals and duplicate mobile navigation. Identity switching, the offline toggle, sample replies and these annotations are demo controls, not product features.'])}</p></div><footer class="modal-footer"><button class="btn primary" data-action="close-modal">${reviewText(['继续看原型','Back to prototype'])}</button></footer></section></div>`;
+}
+function render(){document.documentElement.lang=language==='zh'?'zh-CN':'en';
+document.title=language==='en'?'Nano IM · Collaborative IM prototype':'Nano IM · 多人协作原型';
+document.querySelector('.demo').innerHTML=`<strong>${t('交互原型')}</strong><span class="demo-explain">${t('示例数据 · 不执行真实任务')}</span><button class="guide-trigger" data-action="change-guide">${reviewText(['改动说明','Changes'])}</button><span class="spacer"></span><label for="identity">${t('查看身份')}</label><select id="identity" aria-label="${t('查看身份')}">${[['chen','两台 Gateway'],['li','无 Gateway'],['wang','一台 Gateway']].map(([id,label])=>`<option value="${id}" ${me===id?'selected':''}>${name(id)} · ${t(label)}</option>`).join('')}</select><button data-action="offline" id="offline-toggle">${t(person('muse').online?'设备离线':'恢复设备')}</button><button data-action="reset">${t('重置')}</button>`;document.getElementById('app').innerHTML=`<header class="topbar"><div class="brand"><span class="brand-mark">${icon('check')}</span>Nano IM <em>internal</em></div><nav class="tabs" aria-label="${t("主导航")}"><button class="${nav==='chat'?'active':''}" data-action="nav" data-nav="chat">${t("聊天")}</button><button class="${nav==='agents'?'active':''}" data-action="nav" data-nav="agents">Agents</button></nav><div class="user-menu"><button class="user-btn" data-action="user-menu" aria-label="${t("用户菜单")}" aria-haspopup="menu" aria-expanded="${userMenuOpen}">${avatar(me,true)}<span>${name(me)} ▾</span></button>${userMenuOpen?userPopover():''}</div></header><main class="layout ${detail?'detail':''} ${detail&&nav==='chat'?'conversation-detail':''}">${sidebar()}${nav==='chat'?chat():nav==='agents'?agentPage():nav==='nodes'?nodesPage():account()}</main><nav class="bottomnav" aria-label="${t("移动导航")}">${[['chat','chat',t("聊天")],['agents','agent','Agents'],['account','person',t("我的")]].map(([n,i,l])=>`<button class="${(nav==='nodes'?'account':nav)===n?'active':''}" data-action="nav" data-nav="${n}">${icon(i)}${l}</button>`).join('')}</nav>`;renderReviewNotes();renderModal();resizeComposer();renderSlash()}
+function sidebar(){if(nav==='nodes')return '';if(nav==='account')return `<aside class="sidebar"><div class="sidehead"><h1>${t("我的账号")}</h1></div><div class="side-list"><button class="side-row active" data-action="account-detail">${avatar(me)}<span class="row-body"><strong>${name(me)}</strong><p class="preview">${t("账号与设备")}</p></span>${icon('chevron')}</button></div></aside>`;
+if(nav==='agents')return `<aside class="sidebar"><div class="sidehead"><div class="side-title"><h1>Agents <small>${agents.length}</small></h1><button class="icon-btn" data-action="agent-create" aria-label="${t("新建 Agent")}" title="${t("新建 Agent")}">${icon("plus")}</button></div><div class="search">${icon('search')}<input id="agent-search" placeholder="${t("查找 Agent")}" aria-label="${t("查找 Agent")}" value="${esc(query)}"></div></div><div class="side-list">${agents.filter(a=>(a.name+a.desc+a.node).toLowerCase().includes(query.toLowerCase())).map(a=>`<button class="side-row ${a.id===agentId?'active':''}" data-action="agent" data-id="${a.id}">${avatar(a.id)}<span class="row-body"><span class="row-top"><strong>${a.name}</strong>${a.owner===me?`<span class="badge green">${t("我的")}</span>`:''}</span><p class="preview">${name(a.owner)} · ${a.node}</p></span></button>`).join('')||`<div class="empty">${t("没有找到 Agent")}</div>`}</div><div class="sidefoot">${icon('monitor')}${t("设备与配置由各自管理者维护")}</div></aside>`;
+let cs=conversations.filter(c=>c.members.includes(me));cs=cs.filter(c=>{const p=c.members.find(id=>id!==me);return (filter==='all'||filter==='group'&&c.group||filter==='network'&&c.network||filter==='human'&&!c.group&&!c.network&&person(p)?.kind==='human'||filter==='agent'&&!c.group&&!c.network&&person(p)?.kind==='agent')&&title(c).toLowerCase().includes(query.toLowerCase())});cs.sort((a,b)=>Number(pref(b.id).pin)-Number(pref(a.id).pin));return `<aside class="sidebar"><div class="sidehead"><div class="side-title"><h1>${t("聊天")}</h1><div><button class="icon-btn" data-action="newchat" title="${t("新聊天")}" aria-label="${t("新聊天")}">${icon('plus')}</button><button class="icon-btn" data-action="newgroup" title="${t("建群")}" aria-label="${t("建群")}">${icon('users')}</button></div></div>${distillMode?`<div class="distill-actions"><button class="btn" data-action="distill-cancel">${t("取消")}</button><small>${t("已选择 {count} 段聊天",{count:distillIds.size})}</small><button class="btn primary" data-action="distill-dialog" ${distillIds.size?'':'disabled'}>${t("蒸馏为 skill")}</button></div><p class="preview">${t("选择同一 Gateway 上已结束的聊天")}</p>`:''}<div class="search">${icon('search')}<input id="chat-search" placeholder="${t("搜索我的聊天")}" aria-label="${t("搜索我的聊天")}" value="${esc(query)}"></div><div class="filters">${[['all',t("全部")],['human',t("人")],['agent','Agent'],['group',t("群聊")],['network',t("Agent 网络")]].map(([id,l])=>`<button class="${filter===id?'active':''}" data-action="filter" data-id="${id}">${l}</button>`).join('')}</div></div><div class="side-list">${cs.map(conversationRow).join('')||`<div class="empty">${t("没有找到聊天")}<br>${t("点击右上角 ＋ 开始交流")}</div>`}</div>${distillMode?'':`<footer class="skill-footer"><button data-action="distill-enter">${t("生成 skill")}</button></footer>`}</aside>`}
+function message(m,index){
+ const p=person(m.from),key=active+':'+index;
+ return `<article class="message ${m.from===me?'self':''}" data-message-index="${index}">${avatar(m.from)}<div class="msg-body"><div class="byline"><span>${name(m.from)}</span>${p?.kind==='agent'?`<span class="badge">${p.node}</span>`:''}<time>${t(m.time||'刚刚')}</time></div><div class="bubble">${esc(m.text).replace(/@(Atlas|Iris|Muse|Echo)/g,'<span class="mention">@$1</span>').replace(/\n/g,'<br>')}${m.file?`<button class="file" data-action="file">${icon('file')}<div style="text-align:left"><strong>多人协作检查清单.md</strong><span>Markdown · 4.2 KB</span></div></button>`:''}${m.permission?permission():''}</div>${m.trace?`<button class="msg-link" data-action="message-trace" data-id="${index}">${t("过程")} · 2.3s · 1.2k tokens ${icon('chevron')}</button>${expandedMessages.has(key)?`<div class="inline-trace"><strong>${t("思考过程")}</strong><p>先核对已有回归记录，再整理可以复用的测试步骤。</p><strong>${t("工具结果")}</strong><pre>read · test-plan.md\n测试范围与检查顺序已核对。</pre></div>`:''}` :''}${m.work?`<button class="msg-link" data-action="work" data-id="${m.from}">${icon('work')}${t("查看 Work")} ${icon('arrow')}</button>`:''}<div class="msg-toolbar"><button data-action="message-copy" data-id="${index}">${t("复制整条消息")}</button>${canFork(m)?`<button data-action="message-fork" data-id="${index}" ${p.online?'':'disabled'}>${t("从此处分支")}</button>`:''}</div></div></article>`;
+}
+// Simulate a node acknowledgement; the prototype never runs a real tool.
+function resizeComposer(){const e=document.getElementById('message-input');if(e){e.style.height='auto';e.style.height=Math.min(240,Math.max(60,e.scrollHeight))+'px'}}
+function canFork(m){return !conv()?.group&&Boolean(m.kernel)&&person(m.from)?.kind==='agent'}
+function openMessageMenu(index){saveDraft();messageMenu=Number(index);modal='message-menu';renderModal()}
+async function copyMessage(index){const m=messages[active]?.[Number(index)];if(!m)return;try{await navigator.clipboard.writeText(m.text);toast(t("已复制"))}catch{toast(t("复制失败，请重试"))}modal=null;renderModal()}
+function branchMessage(index){
+ const source=conv(),m=messages[active]?.[Number(index)];if(!m||!canFork(m)||!person(m.from).online)return;
+ saveDraft();const c={id:'fork-'+counter++,purpose:'fork',customTitle:true,title:t('新分支 · {name}',{name:title(source)}),members:[me,m.from],sourceAgent:m.from,targetNode:person(m.from).node,time:'刚刚'};
+ messages[c.id]=messages[source.id].slice(0,Number(index)+1).map(item=>({...item}));conversations.unshift(c);active=c.id;draft='';modal=null;drawer=false;detail=true;query='';filter='all';render();
+}
+function renderSlash(){
+ document.getElementById('slash-menu')?.remove();
+ const e=document.getElementById('message-input'),c=conv();if(!e||!e.value.startsWith('/')||e.value.includes('\n')||!c?.members.some(id=>person(id)?.kind==='agent'))return;
+ const query=e.value.toLowerCase(),options=[['/stop','停止当前执行'],['/new',c.group?'为群内所有 Agent 开始新会话':'在当前聊天中开始新会话'],['/compact','压缩当前会话']];
+ if(c.sourceAgent&&person(c.sourceAgent)?.mode==='single')options.push(['/skill:conversation-skill-distiller','生成 skill']);
+ const filtered=options.filter(([command])=>command.startsWith(query));
+ if(!filtered.length)return;
+ e.closest('.composer').insertAdjacentHTML('beforeend',`<div class="slash-menu" id="slash-menu" role="group" aria-label="${t("命令与技能")}">${filtered.map(([command,desc])=>`<button data-action="slash-select" data-id="${command}"><strong>${command}</strong><small>${t(desc)}</small></button>`).join('')}</div>`);
+}
+function distillSources(){return conversations.filter(c=>distillIds.has(c.id)&&c.members.includes(me))}
+function distillReason(c){
+  const a=person(c.sourceAgent);
+  if(c.runState==='running')return t("运行中");
+  if(!a)return t("来源不可用");
+  if(a.mode!=='single')return t("仅支持单 Thread 聊天");
+  if(a.owner!==me)return t("来源 Agent 由{owner}管理",{owner:name(a.owner)});
+  const first=distillSources()[0],node=first&&person(first.sourceAgent)?.node;
+  return node&&node!==a.node?t("不同 Gateway"):'';
+}
+function conversationRow(c){
+  const msg=messages[c.id]?.at(-1),other=c.members.find(id=>id!==me),reason=distillMode?distillReason(c):'';
+  const body=`${c.group?groupAvatar():avatar(other)}<span class="row-body"><span class="row-top"><strong>${esc(title(c))}</strong><time>${pref(c.id).pin?'⌁ ':''}${esc(t(c.time))}</time></span><p class="preview">${msg?esc((c.group?name(msg.from)+'：':'')+msg.text):t("开始新的交流")}${pref(c.id).mute?' · '+t("已免打扰"):''}</p>${reason?`<span class="distill-reason">${reason}</span>`:''}</span>`;
+  return distillMode?`<label class="side-row ${reason?'unavailable':''}" data-conversation-id="${c.id}"><input type="checkbox" data-distill-id="${c.id}" aria-label="${esc(t('选择 {name}',{name:title(c)}))}" ${distillIds.has(c.id)?'checked':''} ${reason?'disabled':''}>${body}</label>`:`<button class="side-row ${active===c.id?'active':''}" data-action="chat" data-id="${c.id}">${body}</button>`;
+}
+function enterDistill(id){
+  saveDraft();distillMode=true;distillIds=new Set();distillError='';chatContext=null;modal=null;nav='chat';detail=false;
+  const c=conversations.find(c=>c.id===id);
+  if(c&&!distillReason(c))distillIds.add(c.id);
+  render();
+}
+function distillDialog(){
+  const sources=distillSources(),node=person(sources[0]?.sourceAgent)?.node;
+  const options=agents.filter(a=>a.mode==='single'&&a.owner===me&&a.node===node);
+  return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><h2 id="modal-title">${t("蒸馏会话")}</h2><p>${t("新建执行聊天，预填命令后由你发送。")}</p></div><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body"><span class="badge">${esc(node||'')}</span><ul class="distill-sources">${sources.map(c=>`<li>${esc(title(c))}</li>`).join('')}</ul><div class="field"><label for="distill-agent">${t("执行 Agent")}</label><select id="distill-agent">${options.map(a=>`<option value="${a.id}" ${a.id===distillAgent?'selected':''}>${a.name}</option>`).join('')}</select></div><h3>${t("写入范围")}</h3>${[['agent','仅此 Agent','写入执行 Agent 的 skills 目录'],['global','当前 Gateway 全局','供这台 Gateway 上的 Agent 使用']].map(([id,label,desc])=>`<label class="scope-option"><input type="radio" name="distill-scope" value="${id}" ${distillScope===id?'checked':''}><span>${t(label)}<small>${t(desc)}</small></span></label>`).join('')}<p class="hint">${t("本原型只演示选择和预填，不生成或写入真实 Skill。")}</p>${distillError?`<p class="distill-error" role="alert">${t(distillError)}</p>`:''}</div><footer class="modal-footer"><button class="btn" data-action="close-modal">${t("取消")}</button><button class="btn primary" data-action="distill-prefill" ${options.length?'':'disabled'}>${t("预填命令")}</button></footer></section></div>`;
+}
+function prefillDistill(){
+  const sources=distillSources(),a=person(distillAgent);
+  if(!sources.length||sources.some(c=>distillReason(c))||!a||a.mode!=='single'||a.owner!==me||a.node!==person(sources[0].sourceAgent).node)distillError='请先选择已结束且来源可用的聊天。';
+  else if(!a.online)distillError='Gateway 离线，恢复连接后可重试。';
+  else if(!a.distillSkill||!a.skillView)distillError='开始前请先为执行 Agent 启用 conversation-skill-distiller 和 skill_view。';
+  else{
+    // Example prompt only: the real Gateway resolves its own transcript paths.
+    const prompt=['/skill:conversation-skill-distiller','source_jsonl_paths:',...sources.map(c=>'  /example/gateway/sessions/'+c.id+'.jsonl'),'execution_agent_id: '+a.id,'target_scope: '+distillScope,'','请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 '+distillScope+' 级 skill。重点关注：','- 触发这个 skill 的场景','- 应遵循的步骤/检查点','- 失败或边界情况','如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。'].join('\n');
+    const c={id:'distill-'+counter++,title:t('Skill 蒸馏 · {agent}',{agent:a.name}),purpose:'distill',customTitle:true,members:[me,a.id],time:'刚刚',targetNode:a.node};
+    conversations.unshift(c);messages[c.id]=[];active=c.id;draft=prompt;distillMode=false;distillIds=new Set();modal=null;detail=true;drawer=false;filter='all';query='';render();toast(t("命令已预填，请检查并补充意图后发送。"));return;
+  }
+  renderModal();
+}
+function settlePermission(){const request=perm;if(!request||request.status!=='submitted'||!person('muse').online)return;setTimeout(()=>{if(perm===request&&request.status==='submitted'&&person('muse').online){request.status='resolved';saveDraft();render()}},1500)}
+Object.assign(english,{
+  "Agent 分区": "Agent sections",
+  "概览": "Overview",
+  "通道": "Channels",
+  "技能": "Skills",
+  "会话": "Sessions",
+  "本期不设计概览页。保持空态，后续单独设计。": "The overview page is not included in this release. It will be designed separately.",
+  "本期不设计会话页。保持空态，后续单独设计。": "The sessions page is not included in this release. It will be designed separately.",
+  "节点总数": "Total nodes",
+  "Agent 总数": "Total agents",
+  "实时快照": "Live Snapshot",
+  "心跳": "Heartbeat",
+  "版本": "Version",
+  "最近错误": "Last Error",
+  "别名": "Alias",
+  "尚未接入任何节点。": "No nodes connected yet.",
+  "已接入此账号的 Gateway 节点。": "Gateway nodes connected to this account.",
+  "设备连接已断开，等待重新连接。": "The device is disconnected. Waiting to reconnect.",
+  "已保存全部更改": "All saved",
+  "有未保存的更改": "Unsaved changes",
+  "在节点上新建 Agent": "New agent on node",
+  "返回我的账号": "Back to my account",'已提交 · 等待确认':'Submitted · Awaiting confirmation','决定已接收，等待节点确认':'Decision received. Waiting for the node to confirm.','设备离线，恢复连接后继续等待确认。':'Device offline. Confirmation will continue after reconnecting.','等待节点确认；尚未确认生效。':'Waiting for the node; the decision is not yet confirmed.'});
+function permission(){if(!perm&&!conv()?.members.includes('muse'))return `<div class="permission"><p>${t('Agent 已离开群聊，本请求不再接收决定。')}</p></div>`;return `<div class="permission"><header>${icon(perm?.status==='resolved'?'check':'work')}${perm?t(perm.status==='resolved'?'已处理':'已提交 · 等待确认'):t("需要确认 · 运行项目测试")}</header><code>pytest tests/im_service/ -q</code>${perm?`<small>${name(perm.by)} · ${esc(t(perm.label))} · ${t("刚刚")}</small>${perm.status==='submitted'?`<p style="margin-top:8px;font-size:11px">${t(person('muse').online?'等待节点确认；尚未确认生效。':'设备离线，恢复连接后继续等待确认。')}</p>`:''}`:`<small>${t('{agent} 将在 {device} 执行。',{agent:'Muse',device:person('muse').node})}</small><div class="buttons"><button class="btn primary" data-action="approve" data-choice="允许一次">${t("允许一次")}</button><button class="btn" data-action="approve" data-choice="始终允许">${t("始终允许")}</button><button class="btn" data-action="approve" data-choice="拒绝">${t("拒绝")}</button></div>`}</div>`}
+function chat(){const c=conv();if(!c||!c.members.includes(me))return `<section class="content"><div class="empty" style="margin:auto">${icon('chat')}<h2>${t("开始一次交流")}</h2><p>${t("找到同事或 Agent，一起把事情做好。")}</p><button class="btn primary" style="margin-top:20px" data-action="newchat">${icon('plus')}${t("新聊天")}</button></div></section>`;const a=person(c.members.find(id=>id!==me));return `<section class="content"><header class="chathead"><button class="icon-btn mobile-back" data-action="back" aria-label="${t("返回聊天列表")}">${icon('back')}</button>${c.group?groupAvatar():avatar(a.id)}<div class="headtext"><h2>${esc(title(c))}</h2><p>${c.group?`${c.members.filter(id=>person(id)?.kind==='human').length} ${t("人")} · ${c.members.filter(id=>person(id)?.kind==='agent').length} Agents`:(a.kind==='agent'?`${a.online?t("在线"):t("离线")} · ${a.mode==='global'?t("全局模式"):t("单 Thread")} · ${t('{owner}的 {device}',{owner:name(a.owner),device:a.node})}`:t('与 {name} 的私聊',{name:a.name}))}</p></div><div class="head-actions">${a?.kind==='agent'&&!c.group&&a.mode==='global'?`<button class="btn" data-action="work" data-id="${a.id}">${icon('work')}Work</button>`:''}<button class="icon-btn" data-action="members" aria-label="${t("聊天信息")}" title="${t("聊天信息")}">${icon(c.group?'users':'person')}</button></div></header><div class="conversation"><div class="messages" id="messages"><div class="date-line">${t("2026 年 9 月 12 日 · 今天")}</div>${(messages[c.id]||[]).map(message).join('')||`<div class="system-message">${t("新会话已创建，发一条消息开始交流")}</div>`}</div>${drawer?memberPanel(c):''}</div>${a?.kind==='agent'&&!a.online&&!c.group?`<div class="composer disabled">${t("Agent 所在设备离线，恢复在线后可继续交办工作。")}</div>`:`<div class="composer">${mentionOpen?`<div class="mention-menu">${c.members.filter(id=>person(id)?.kind==='agent').map(id=>`<button data-action="mention" data-id="${id}">${avatar(id,true)}${name(id)}</button>`).join('')||`<div class="empty">${t("聊天中没有 Agent")}</div>`}</div>`:''}<div class="composebox"><div class="tools"><button data-action="mention-menu" aria-label="${t("提及 Agent")}">＠</button><button data-action="attach" aria-label="${t("添加附件")}">${icon('file')}</button></div><textarea id="message-input" aria-label="${t("消息")}" placeholder="${c.group?t("发消息，@ Agent 交办工作…"):t("发送消息…")}">${esc(draft)}</textarea><div class="composebottom"><small>${t("Enter 发送 · Shift + Enter 换行")}</small><button class="btn primary" data-action="send">${t("发送")} ${icon('arrow')}</button></div></div></div>`}</section>`}
+function memberPanel(c){return `<aside class="drawer"><h3>${t("聊天信息")}<button class="icon-btn" data-action="members" aria-label="${t("关闭聊天信息")}">${icon('close')}</button></h3><button class="btn" data-action="rename-chat">${t("修改聊天名称")}</button><div class="section-label">${t("成员")} · ${c.members.length}</div>${c.members.map(id=>`<div style="display:flex;align-items:center;gap:6px"><button class="person-row" data-action="contact-profile" data-id="${id}">${avatar(id,true)}<span><strong>${name(id)}${id===me?t("（你）"):''}</strong><small>${person(id)?.kind==='agent'?`${person(id).node} · ${t('{owner}管理',{owner:name(person(id).owner)})}`:t("同事")}</small></span></button>${c.group&&id!==c.creator&&id!==me?`<button class="icon-btn" data-action="remove-member" data-id="${id}" aria-label="${t('移除 {name}',{name:name(id)})}">${icon('close')}</button>`:''}</div>`).join('')}${c.group?`<button class="btn" data-action="invite">${t("＋ 添加成员")}</button>`:''}<div class="section-label">${t("个人设置")}</div><label>${t("置顶聊天")}<input type="checkbox" data-pref="pin" ${pref(c.id).pin?'checked':''}></label><label>${t("消息免打扰")}<input type="checkbox" data-pref="mute" ${pref(c.id).mute?'checked':''}></label><small>${t("只影响你的聊天列表")}</small>${c.group?`<button class="btn danger" data-action="${c.creator===me?'dissolve-dialog':'leave-group'}">${t(c.creator===me?'解散群聊':'退出群聊')}</button>`:''}</aside>`}
+function agentPage(){
+ const a=person(agentId);if(!a)return '';
+ const owner=a.owner===me;
+ const sectionLabels={Work:'工作',Overview:'概览',Config:'配置',Channels:'通道',Skills:'技能',Sessions:'会话'};
+ const tabs=owner?[...(a.mode==='global'?[['work','Work']]:[]),['about','Overview'],['settings','Config'],['channels','Channels'],['skills','Skills'],['sessions','Sessions']]:[['about',t('资料')],...(a.mode==='global'?[['work','Work']]:[])];
+ const body=agentTab==='work'&&a.mode==='global'?work(a):agentTab==='settings'&&owner?settings(a):owner&&['channels','skills'].includes(agentTab)?managementTab(a):owner&&['about','sessions'].includes(agentTab)?`<div class="card"><h2>${t(agentTab==='about'?'概览':'会话')}</h2><p>${t(agentTab==='about'?'本期不设计概览页。保持空态，后续单独设计。':'本期不设计会话页。保持空态，后续单独设计。')}</p></div>`:about(a);
+ return `<section class="content"><header class="chathead"><button class="icon-btn mobile-back" data-action="back" aria-label="${t('返回 Agent 列表')}">${icon('back')}</button><div class="headtext"><h2>Agent</h2><p>${owner?t('由你管理'):t('{owner}管理',{owner:name(a.owner)})}</p></div></header><div class="agent-page"><div class="profile-line">${avatar(a.id)}<div><h1>${a.name}</h1><p>${a.desc} · ${a.node}</p></div><div class="actions"><button class="btn primary" data-action="direct" data-id="${a.id}">${icon('chat')}${t('发消息')}</button>${owner?`<button class="btn" data-action="agent-tab" data-id="settings">${t('管理配置')}</button>`:''}</div></div><nav class="subtabs" aria-label="${t('Agent 分区')}">${tabs.map(([id,label])=>`<button class="${agentTab===id?'active':''}" data-action="agent-tab" data-id="${id}" aria-pressed="${agentTab===id}">${t(sectionLabels[label]||label)}</button>`).join('')}</nav>${body}</div></section>`;
+}
+function about(a){return `<div class="card"><h2>${a.desc}</h2><p>${a.id==='atlas'?'负责技术实现、代码检查和交付跟进。可以在不同聊天中持续处理工作，需要时委派子 Agent。':a.id==='iris'?'整理资料、归纳讨论、维护项目知识。完成的成果会回到原来的工作聊天。':a.id==='muse'?'执行测试、检查回归并报告结果。每个聊天独立处理任务。':'分析数据并整理结果。'}</p><div class="device">${icon('person')}<div><strong>${t("管理者")}</strong><p>${name(a.owner)}</p></div></div><div class="device">${icon('monitor')}<div><strong>${a.node}</strong><p>${a.mode==='global'?t("全局模式"):t("单 Thread 模式")}</p></div><span class="status-chip" style="${a.online?'':'background:#eef2f4;color:#74848e'}">${a.online?t("在线"):t("离线")}</span></div></div>`}
+function settings(a){return `<div class="card"><h2>${t("Agent 配置")}</h2><div class="field"><label for="agent-name">${t("名称")}</label><input id="agent-name" value="${esc(a.name)}"></div><div class="field"><label for="agent-role">Custom Instructions</label><textarea id="agent-role">${esc(a.instructions||a.desc)}</textarea></div><div class="device">${icon('monitor')}<div><strong>${a.node}</strong><p>${t("工作模式")}：${a.mode==='global'?t("全局"):t("单 Thread")} · ${t("创建后保持不变")}</p></div></div><div class="management-links">${['模型与推理','技能与工具','定时任务','提示词预览'].map(label=>`<button class="btn" data-action="legacy" data-id="${label}">${t(label)} ${icon('chevron')}</button>`).join('')}</div><button class="btn primary" data-action="save-agent" style="margin-top:20px">${t("保存")}</button></div>`}
+function managementTab(a){return agentTab==='channels'?`<div class="card"><h2>${t("通道")}</h2><p>${t("外部通道与连接诊断")}</p><button class="btn" data-action="legacy" data-id="外部通道与连接诊断" style="margin-top:15px">${t("添加通道")}</button></div>`:`<div class="card"><h2>${t("技能")}</h2><p>${t("技能使用统计")}</p><div class="device"><div><strong>conversation-skill-distiller</strong><p>${t("调用次数")} 3 · ${t("成功次数")} 3</p></div></div><button class="btn" data-action="legacy" data-id="技能与工具">${t("技能与工具")}</button></div>`}
+
+function work(a){if(a.id!=='atlas')return `<div class="work-banner"><div><h2>${t("工作")} <span class="badge">${t("全局")}</span></h2><p>${t("跨聊天的主工作轨迹及关联执行")}</p></div><span class="status-chip">${a.online?t("空闲"):t("节点离线")}</span></div><div class="card"><h3>${a.online?t("当前没有进行中的任务"):t("已保存的工作记录")}</h3><p>${a.online?t("有新的工作时，Agent 会继续处理。"):t("节点恢复在线后继续更新；当前执行状态未知。")}</p>${a.id==='iris'?`<div class="step"><div class="step-title">14:38 · ${t("已完成")}</div><p>整理多人协作检查清单，并交付到「新版本 · 产品研发」。</p><button class="msg-link" data-action="source" data-id="project">${t("查看群内交付")} →</button></div>`:''}</div>`;
+return `<div class="work-banner"><div><h2>${t("工作")} <span class="badge">${t("全局")}</span></h2><p>${t("跨聊天的主工作轨迹及关联执行")}</p></div><span class="status-chip">${t("主 Agent · 工作中")}</span></div><div class="stats"><div class="stat"><small>${t("最近主上下文")}</small><strong>24.8k<span>tokens</span></strong></div><div class="stat"><small>${t("关联执行")}</small><strong>2<span>${t("项")}</span></strong></div><div class="stat"><small>${t("最近轮次耗时")}</small><strong>42<span>${t("秒")}</span></strong></div></div><div class="work-grid"><section class="work-trace"><div class="section-header"><h3>${t("主 Agent")}</h3><small>${t("最新轮次在前")}</small></div><article class="turn"><div class="turn-head">${icon('work')}<div class="turn-label"><h3>推进多人协作实现</h3><small>14:33 · 来自 新版本 · 产品研发</small></div><span class="status-chip">${t("执行中")}</span><button class="icon-btn" data-action="turn" aria-label="${t("展开或收起工作详情")}">${icon(turnExpanded?'back':'chevron')}</button></div>${turnExpanded?`<div class="turn-detail"><div class="step"><div class="step-title"><span class="badge">${t("读取 Inbox")}</span><small>14:33:02</small></div><p>读取项目群的新请求，以及小李私聊中补充的交互约束。</p></div><div class="step"><div class="step-title"><span class="badge">小李 ↔ Atlas</span><small>${t("已读消息")}</small></div><blockquote>小李：联系人搜索先按名字和 ID 来。移动端用底部弹层，按钮别太多。</blockquote><button class="msg-link" data-action="source" data-id="li-atlas">${t("打开原聊天")} ${icon('arrow')}</button></div><div class="step"><div class="step-title"><span class="badge">${t("思考")}</span></div><p>沿用现有侧栏和建群弹层。联系人支持人和 Agent 两种身份，聊天列表继续只列本人参与的会话。</p></div><div class="step"><div class="step-title"><span class="badge">${t("委派")}</span><small>14:33:09</small></div><p>交给子 Agent 检查联系人查询与群成员处理。</p><button class="btn" style="margin-top:9px" data-action="child">${icon('agent')}实现联系人查询 ${icon('arrow')}</button></div><div class="step"><div class="step-title"><span class="badge">${t("工具 · read")}</span><small>${t("已完成")}</small></div><pre>src/IM/api/routes/web_im.py\n读取会话创建与成员管理入口。\n结果：现有群成员身份可以复用。</pre></div><div class="step"><div class="step-title"><span class="badge green">${t("已发送")}</span><small>14:33:44</small></div><p>收到。我先实现联系人查找和多人建群，再接上不同 Gateway 的 Agent。</p><button class="msg-link" data-action="source" data-id="project">${t("查看群内消息")} ${icon('arrow')}</button></div></div>`:''}</article><article class="turn"><div class="turn-head">${icon('check')}<div class="turn-label"><h3>对齐新聊天入口</h3><small>14:26 · 小陈 ↔ Atlas · ${t("已完成")}</small></div><button class="btn" data-action="source" data-id="chen-atlas">${t("原聊天")}</button></div></article></section>${child?`<aside class="child-pane"><header><h3>实现联系人查询</h3><button class="icon-btn" data-action="child" aria-label="${t("关闭子执行")}">${icon('close')}</button></header><span class="badge">${t("子 Agent · 执行中")}</span><div class="step"><div class="step-title">14:33:10 · ${t("任务输入")}</div><p>检查联系人查询和群成员处理，复用已有身份。</p></div><div class="step"><div class="step-title">14:33:12 · ${t("工具 read")}</div><pre>src/IM/infra/repositories/users.py</pre><p>已确认人和 Agent 都有稳定用户身份。</p></div><div class="step"><div class="step-title">14:33:20 · ${t("当前进展")}</div><p>正在整理查询入口及返回字段。</p></div></aside>`:''}</div>`}
+function nodesPage(){
+ const owned=agents.filter(a=>a.owner===me),nodes=[...new Set(owned.map(a=>a.node))];
+ const online=nodes.filter(n=>owned.some(a=>a.node===n&&a.online)).length;
+ return `<section class="content nodes-content"><header class="chathead"><button class="icon-btn" data-action="nav" data-nav="account" aria-label="${t('返回我的账号')}">${icon('back')}</button><div class="headtext"><h2>${t('设备管理')}</h2><p>${t('已接入此账号的 Gateway 节点。')}</p></div></header><div class="nodes-page"><div class="node-kpis">${[[nodes.length,'节点总数'],[online,'在线'],[nodes.length-online,'离线'],[owned.length,'Agent 总数']].map(([n,label])=>`<div class="card"><strong>${n}</strong><small>${t(label)}</small></div>`).join('')}</div>${nodes.map(n=>{
+ const info=nodeProfiles[n],members=owned.filter(a=>a.node===n),connected=members.some(a=>a.online);
+ return `<section class="card node-card" data-node-card="${esc(n)}"><div class="node-title">${icon('monitor')}<div><h3>${esc(info.alias)}</h3><small>${info.id}</small></div><span class="status-chip ${connected?'':'node-offline'}">${t(connected?'在线':'离线')}</span><small>${members.length} Agents · v${info.version}</small></div><div class="node-fields"><div class="field"><label for="alias-${info.id}">${t('别名')}</label><input id="alias-${info.id}" data-node-alias="${esc(n)}" value="${esc(info.alias)}"></div><div><h3>${t('实时快照')}</h3><dl class="node-snapshot"><div><dt>${t('心跳')}</dt><dd>${info.heartbeat}</dd></div><div><dt>${t('版本')}</dt><dd>${info.version}</dd></div></dl>${connected?'':`<p class="node-error">${t('最近错误')}：${t('设备连接已断开，等待重新连接。')}</p>`}</div></div><footer class="node-footer"><small data-node-save-status>${t('已保存全部更改')}</small><div class="management-links">${connected?`<button class="btn" data-action="agent-create" data-node="${esc(n)}">${t('在节点上新建 Agent')}</button>`:''}<button class="btn primary" data-action="save-node" data-id="${esc(n)}" disabled>${t('保存')}</button></div></footer></section>`;
+ }).join('')||`<div class="empty">${icon('monitor')}<h2>${t('尚未接入任何节点。')}</h2></div>`}<button class="btn" data-action="bind">${t('＋ 绑定新设备')}</button></div></section>`;
+}
+function account(){
+ const owned=agents.filter(a=>a.owner===me),nodes=[...new Set(owned.map(a=>a.node))];
+ const online=nodes.filter(n=>owned.some(a=>a.node===n&&a.online)).length;
+ const deviceSummary=reviewText([`${nodes.length} 台设备 · ${online} 在线`,`${nodes.length} owned · ${online} online`]);
+ return `<section class="content"><header class="chathead"><div class="headtext"><h2>${t("我的")}</h2></div></header><div class="agent-page account-page"><div class="settings-column">
+ <button class="settings-profile" data-action="legacy" data-id="编辑账号">${avatar(me)}<span class="settings-row-body"><strong>${name(me)}</strong><small>${person(me).desc}</small></span><span class="menu-chevron" aria-hidden="true">›</span></button>
+ <div class="settings-group">
+ <button class="settings-row" data-action="legacy" data-id="设备管理"><span class="menu-icon">${icon('monitor')}</span><span class="settings-row-body"><strong>${t("设备")}</strong><small>${deviceSummary}</small></span><span class="menu-chevron" aria-hidden="true">›</span></button>
+ <button class="settings-row" data-action="legacy" data-id="编辑账号"><span class="menu-icon">${icon('person')}</span><span class="settings-row-body"><strong>${t("我的账号")}</strong><small>${t("个人资料与设备")}</small></span><span class="menu-chevron" aria-hidden="true">›</span></button>
+ <button class="settings-row" data-action="legacy" data-id="系统策略"><span class="menu-icon">${icon('policies')}</span><span class="settings-row-body"><strong>${t("系统策略")}</strong></span><span class="menu-chevron" aria-hidden="true">›</span></button>
+ </div>
+ <div class="settings-group settings-language">${languageControl()}</div>
+ <div class="settings-group"><button class="settings-row settings-signout" data-action="signout"><span class="menu-icon">${icon('logout')}</span><span class="settings-row-body"><strong>${t("退出登录")}</strong></span><span class="menu-chevron" aria-hidden="true">›</span></button></div>
+ </div></div></section>`;
+}
+function openModal(type){saveDraft();modal=type;selected=new Set();contactQuery='';contactFilter='all';renderModal();setTimeout(()=>document.getElementById('contact-search')?.focus(),30)}
+function renderModal(){
+ renderModalContent();
+ if(!modal||modal==='change-guide')return;
+ let key={chat:'contacts',group:'group',invite:'group',distill:'distill',bind:'account','agent-create':'create_agent',signout:'account',denied:'work',file:'chat_base','message-menu':'chat_base','rename-chat':'chat_base',dissolve:'group'}[modal];
+ if(modal==='legacy')key=legacySection==='编辑账号'||legacySection==='系统策略'?'account':legacySection==='外部通道与连接诊断'?'channels':legacySection==='技能与工具'?'skills':'settings';
+ if(key)document.querySelector('#overlay .modal-body')?.insertAdjacentHTML('afterbegin',reviewNote(key));
+}
+function renderModalContent(){const o=document.getElementById('overlay');if(!modal){o.innerHTML='';return}if(modal==='change-guide'){o.innerHTML=changeGuide();return}if(['legacy','agent-create','rename-chat','dissolve','signout'].includes(modal)){o.innerHTML=legacyModal();return}if(modal==='message-menu'){const m=messages[active]?.[messageMenu];if(!m){modal=null;o.innerHTML='';return}o.innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">${t("消息操作")}</h2><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭消息菜单")}">${icon('close')}</button></header><div class="modal-body message-menu"><button data-action="message-copy" data-id="${messageMenu}">${t("复制整条消息")}</button>${canFork(m)?`<button data-action="message-fork" data-id="${messageMenu}" ${person(m.from).online?'':'disabled'}>${t("从此处分支")}</button>`:''}</div></section></div>`;return}if(modal==='distill'){o.innerHTML=distillDialog();return}if(modal==='chat-menu'){o.innerHTML=`<div class="chat-context" role="menu" aria-label="${t("聊天操作")}" style="left:${chatContext.x}px;top:${chatContext.y}px"><button role="menuitem" data-action="distill-enter" data-id="${chatContext.id}">${t("蒸馏为 skill")}</button></div>`;return}if(modal==='denied'){o.innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><h2 id="modal-title">${t("无法打开这段聊天")}</h2><p>${t("你不是这段聊天的参与者。")}</p></div><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body"><p style="line-height:1.8;font-size:13px">${t("你可以继续在 Work 中查看 Agent 的完整执行详情。")}</p></div><footer class="modal-footer"><button class="btn primary" data-action="close-modal">${t("返回 Work")}</button></footer></section></div>`;return}
+if(modal==='file'){o.innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">多人协作检查清单.md</h2><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body" style="line-height:2.4">✓ 没有 Gateway 的人也能参与聊天<br>✓ 不同设备上的 Agent 能在同一个群工作<br>✓ 群内每个人都能交办工作<br>✓ 聊天按成员可见，Work 保留完整详情<br>✓ 离线状态明确显示</div><footer class="modal-footer"><button class="btn" data-action="close-modal">${t("关闭")}</button></footer></section></div>`;return}
+if(modal==='bind'){o.innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">${t("绑定新设备")}</h2><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body"><p style="font-size:13px;line-height:1.8">${t("在新设备上启动 Gateway，打开它提供的绑定链接，用当前账号确认即可。")}</p><div class="hint">${t("原型仅展示既有绑定流程的入口，不创建真实设备。")}</div></div><footer class="modal-footer"><button class="btn primary" data-action="close-modal">${t("知道了")}</button></footer></section></div>`;return}
+const group=modal==='group'||modal==='invite';const heading=modal==='invite'?t("添加群成员"):group?t("新建群聊"):t("新聊天");let contacts=all().filter(p=>p.id!==me);if(group)contacts=contacts.filter(p=>p.kind==='human'||p.owner===me);if(modal==='invite')contacts=contacts.filter(p=>!conv().members.includes(p.id));contacts=contacts.filter(p=>(contactFilter==='all'||p.kind===contactFilter)&&(p.name+p.id+p.desc+(p.node||'')).toLowerCase().includes(contactQuery.toLowerCase()));o.innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><h2 id="modal-title">${heading}</h2><p>${group?t("选择同事和你管理的 Agent，一起交流。"):t("找到同事或 Agent，直接开始交流。")}</p></div><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body"><div class="search">${icon('search')}<input id="contact-search" placeholder="${t("搜索名字或 ID")}" aria-label="${t("搜索联系人")}" value="${esc(contactQuery)}"></div><div class="segmented">${[['all',t("全部")],['human',t("人")],['agent',group?t("我的 Agent"):'Agent']].map(([id,l])=>`<button class="${contactFilter===id?'active':''}" data-action="contact-filter" data-id="${id}">${l}</button>`).join('')}</div><div class="contact-list">${contacts.map(p=>`<button class="contact ${selected.has(p.id)?'checked':''}" data-action="${group?'select-contact':'direct'}" data-id="${p.id}">${group?`<input type="checkbox" tabindex="-1" aria-label="${t('选择 {name}',{name:p.name})}" ${selected.has(p.id)?'checked':''}>`:''}${avatar(p.id)}<span class="info"><strong>${p.name} ${p.kind==='agent'?'<span class="badge">Agent</span>':''}</strong><small>${p.kind==='agent'?`${t('{owner}管理',{owner:name(p.owner)})} · ${p.node} · ${p.mode==='global'?t("全局"):t("单 Thread")}`:p.desc+' · '+p.id}</small></span>${!group?`<span class="right">${t("发消息")} ${icon('arrow')}</span>`:''}</button>`).join('')||`<div class="empty">${t("没有找到匹配的联系人")}</div>`}</div>${modal==='group'?`<div class="field" style="margin-bottom:0"><label for="group-name">${t("群名称")}</label><input id="group-name" placeholder="${t("例如：新版本研发")}" value="${esc(window.groupName||'')}"></div>`:''}</div><footer class="modal-footer">${group?`<small>${t('已选择 {count} 位成员',{count:selected.size})}</small><button class="btn" data-action="close-modal">${t("取消")}</button><button class="btn primary" data-action="create-group" ${selected.size?'':'disabled'}>${modal==='invite'?t("添加成员"):t("创建群聊")}</button>`:'<button class="btn" data-action="newgroup">'+icon('users')+`${t("发起群聊")}</button>`}</footer></section></div>`}
+function legacyModal(){
+ const a=person(agentId),owned=agents.filter(a=>a.owner===me),nodes=[...new Set(owned.map(a=>a.node))];
+ const heading=modal==='agent-create'?'新建 Agent':modal==='rename-chat'?'修改聊天名称':modal==='dissolve'?'解散群聊':modal==='signout'?'退出登录':legacySection;
+ let body='',footer=`<button class="btn" data-action="close-modal">${t("关闭")}</button>`;
+ if(modal==='rename-chat'){body=`<div class="field"><label for="rename-title">${t("聊天名称")}</label><input id="rename-title" value="${esc(title(conv()))}"></div>`;footer=`<button class="btn primary" data-action="save-chat-title">${t("保存")}</button>`}
+ else if(modal==='dissolve'){body=`<p>${esc(title(conv()))}</p>`;footer=`<button class="btn" data-action="close-modal">${t("取消")}</button><button class="btn danger" data-action="dissolve-confirm">${t("确认解散群聊")}</button>`}
+ else if(modal==='signout'){body=`<p>${t("这里演示退出入口；正式 IM 沿用现有账号退出流程。")}</p>`;footer=`<button class="btn primary" data-action="close-modal">${t("返回演示")}</button>`}
+ else if(modal==='agent-create'){body=`<div class="field"><label>${t("名称")}</label><input placeholder="${t("新 Agent")}"></div><div class="field"><label>${t("设备")}</label><select ${nodes.length?'':'disabled'}><option>${t("请选择在线设备")}</option>${nodes.filter(n=>owned.some(a=>a.node===n&&a.online)).map(n=>`<option ${n===createNode?'selected':''}>${esc(n)}</option>`).join('')}</select></div><div class="field"><label>${t("工作模式")}</label><select><option>${t("单 Thread")}</option><option>${t("全局")}</option></select></div><div class="field"><label>${t("工作目录")}</label><input placeholder="/workspace/new-agent"></div><p class="hint">${t("此处保留现有管理入口，完整表单和后台操作在正式 IM 中沿用。")}</p>`}
+ else if(legacySection==='编辑账号'){body=`<div class="field"><label for="profile-name">${t("显示名称")}</label><input id="profile-name" value="${esc(name(me))}"></div><div class="field"><label for="profile-node">${t("默认设备")}</label><select id="profile-node"><option value="">${t("无默认设备")}</option>${nodes.map(n=>`<option ${profileDefaults[me]===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`;footer=`<button class="btn primary" data-action="save-profile">${t("保存")}</button>`}
+ else if(legacySection==='技能与工具'){body=`<p>${t("Skill 来源分组与工具选择")}</p><label class="scope-option"><input type="checkbox" data-agent-option="distillSkill" ${a.distillSkill?'checked':''}><span>${t("已启用蒸馏 Skill")}<small>conversation-skill-distiller</small></span></label><label class="scope-option"><input type="checkbox" data-agent-option="skillView" ${a.skillView?'checked':''}><span>${t("已启用 skill_view")}</span></label>`}
+
+ else if(legacySection==='定时任务'){body=`<h3>HEARTBEAT.md</h3><pre>检查待办与已有工作进展。</pre><div class="management-links"><button class="btn" data-action="legacy" data-id="HEARTBEAT.md">HEARTBEAT.md ${t("预览")}</button><button class="btn" data-action="legacy" data-id="Cron">${t("新建定时任务")}</button></div>`}
+ else {const desc={'系统策略':'Gateway 的资源与安全策略','模型与推理':'模型、备用模型与推理档位','提示词预览':'全部现有公开配置','运行诊断':'设备别名、连接状态与运行诊断'};body=`<p>${t(desc[legacySection]||legacySection)}</p><p class="hint">${t("此处保留现有管理入口，完整表单和后台操作在正式 IM 中沿用。")}</p>`}
+ return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><h2 id="modal-title">${t(heading)}</h2><button class="icon-btn" data-action="close-modal" aria-label="${t("关闭")}">${icon('close')}</button></header><div class="modal-body">${body}</div><footer class="modal-footer">${footer}</footer></section></div>`;
+}
+function removeMember(id){const c=conv();if(!c?.group||id===c.creator)return;c.members=c.members.filter(x=>x!==id);if(c.sourceAgent===id)c.sourceAgent=null;if(id===me){active=conversations.find(x=>x.members.includes(me))?.id;detail=false;drawer=false;draft=''}render()}
+function direct(id){if(id===me){toast(t("这是你自己"));return}let c=conversations.find(c=>!c.group&&!c.purpose&&c.members.length===2&&c.members.includes(me)&&c.members.includes(id));if(!c){c={id:'new-'+counter++,title:name(id),members:[me,id],time:'刚刚'};conversations.unshift(c);messages[c.id]=[]}active=c.id;nav='chat';detail=true;modal=null;drawer=false;draft=drafts[me+':'+c.id]||'';query='';filter='all';render()}
+function send(){let e=document.getElementById('message-input');let text=e?.value.trim();if(!text)return;const c=conv();messages[c.id].push({from:me,text,time:'刚刚'});c.time='刚刚';draft='';drafts[me+':'+active]='';mentionOpen=false;render();document.getElementById('messages')?.scrollTo(0,99999);const target=c.group?agents.find(a=>text.includes('@'+a.name)&&c.members.includes(a.id)):person(c.members.find(id=>id!==me));if(target?.kind==='agent'&&target.online){const cid=c.id;setTimeout(()=>{messages[cid].push({from:target.id,text:'收到，我会把这条要求纳入当前工作。',time:'刚刚',work:target.mode==='global'});if(nav==='chat'&&active===cid){saveDraft();render();document.getElementById('messages')?.scrollTo(0,99999)}},650)}document.getElementById('message-input')?.focus()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action,id=b.dataset.id;switch(a){case'change-guide':saveDraft();userMenuOpen=false;document.querySelector('.user-popover')?.remove();document.querySelector('[data-action="user-menu"]')?.setAttribute('aria-expanded','false');modal='change-guide';renderModal();break;case'legacy':saveDraft();userMenuOpen=false;if(id==='设备管理'){nav='nodes';detail=true;drawer=false;modal=null}else{legacySection=id;modal='legacy'}render();break;case'agent-create':saveDraft();createNode=b.dataset.node||'';modal='agent-create';renderModal();break;case'save-node':{const node=nodeProfiles[id];if(!node||!agents.some(a=>a.owner===me&&a.node===id))break;const value=document.getElementById('alias-'+node.id).value.trim();if(value){node.alias=value;render();toast(t('已保存'))}break}case'signout':userMenuOpen=false;modal='signout';render();break;case'rename-chat':saveDraft();modal='rename-chat';renderModal();break;case'save-chat-title':{const value=document.getElementById('rename-title').value.trim();if(value){conv().title=value;conv().customTitle=true;modal=null;render()}break}case'remove-member':saveDraft();removeMember(id);break;case'leave-group':removeMember(me);break;case'dissolve-dialog':modal='dissolve';renderModal();break;case'dissolve-confirm':{const c=conv();if(c?.creator===me){conversations=conversations.filter(x=>x.id!==c.id);active=conversations.find(x=>x.members.includes(me))?.id;modal=null;drawer=false;detail=false;draft='';render();toast(t('群聊已解散'))}break}case'save-profile':{const value=document.getElementById('profile-name').value.trim();if(value)person(me).name=value;profileDefaults[me]=document.getElementById('profile-node').value;modal=null;render();toast(t('已保存'));break}case'message-copy':copyMessage(id);break;case'message-fork':branchMessage(id);break;case'message-trace':{saveDraft();const key=active+':'+id;expandedMessages.has(key)?expandedMessages.delete(key):expandedMessages.add(key);render();break}case'slash-select':draft=id+' ';drafts[me+':'+active]=draft;render();document.getElementById('slash-menu')?.remove();document.getElementById('message-input')?.focus();break;case'distill-enter':enterDistill(id);break;case'distill-cancel':distillMode=false;distillIds=new Set();modal=null;render();break;case'distill-dialog':if(distillIds.size){distillAgent=distillSources()[0].sourceAgent;distillScope='agent';distillError='';modal='distill';renderModal()}break;case'distill-prefill':prefillDistill();break;case'user-menu':saveDraft();userMenuOpen=!userMenuOpen;render();break;case'language':saveDraft();language=id;localStorage.setItem('feat554_prototype_lang',language);userMenuOpen=false;render();break;case'nav':userMenuOpen=false;saveDraft();nav=b.dataset.nav;detail=['account','nodes'].includes(nav)||innerWidth>=768;query='';drawer=false;render();break;case'back':detail=false;drawer=false;render();break;case'account-detail':detail=true;render();break;case'chat':saveDraft();active=id;nav='chat';detail=true;draft=drafts[me+':'+id]||'';drawer=false;render();break;case'filter':filter=id;render();break;case'newchat':openModal('chat');break;case'newgroup':window.groupName='';openModal('group');break;case'invite':openModal('invite');break;case'close-modal':modal=null;renderModal();break;case'contact-filter':contactFilter=id;renderModal();break;case'select-contact':selected.has(id)?selected.delete(id):selected.add(id);renderModal();break;case'direct':direct(id);break;case'create-group':if(!selected.size)return;if(modal==='invite'){conv().members.push(...selected);toast(t("成员已添加"))}else{let title=window.groupName?.trim()||[me,...selected].map(name).join('、');let c={id:'group-'+counter++,title,members:[me,...selected],group:true,creator:me,time:'刚刚'};conversations.unshift(c);messages[c.id]=[];active=c.id;nav='chat';detail=true;filter='all';query='';draft=''}modal=null;render();break;case'members':saveDraft();drawer=!drawer;render();break;case'contact-profile':if(person(id)?.kind==='agent'){agentId=id;agentTab='about';nav='agents';detail=true;drawer=false;query='';render()}else if(id!==me)direct(id);break;case'agent':agentId=id;agentTab=person(id).mode==='global'?'work':person(id).owner===me?'settings':'about';child=false;detail=true;render();break;case'work':saveDraft();agentId=id;agentTab='work';nav='agents';detail=true;child=false;drawer=false;query='';render();break;case'agent-tab':agentTab=id;render();break;case'child':child=!child;render();if(child&&innerWidth<768)document.querySelector('.child-pane')?.scrollIntoView({behavior:'smooth'});break;case'turn':turnExpanded=!turnExpanded;render();break;case'source':if(conversations.find(c=>c.id===id)?.members.includes(me)){active=id;nav='chat';detail=true;draft=drafts[me+':'+id]||'';render()}else{modal='denied';renderModal()}break;case'approve':if(!perm&&conv()?.members.includes('muse')){perm={by:me,label:b.dataset.choice,status:'submitted'};toast(t('决定已接收，等待节点确认'));saveDraft();render();settlePermission()}break;case'file':modal='file';renderModal();break;case'attach':toast(t("附件上传沿用现有功能，此原型不上传文件"));break;case'mention-menu':saveDraft();mentionOpen=!mentionOpen;render();break;case'mention':draft+='@'+name(id)+' ';mentionOpen=false;render();document.getElementById('message-input')?.focus();break;case'send':send();break;case'bind':modal='bind';renderModal();break;case'save-agent':{let val=document.getElementById('agent-name').value.trim();if(!val){toast(t("请填写 Agent 名称"));break}person(agentId).name=val;person(agentId).instructions=document.getElementById('agent-role').value;toast(t("原型配置已保存"));render();break}case'offline':person('muse').online=!person('muse').online;document.getElementById('offline-toggle').textContent=person('muse').online?t("设备离线"):t("恢复设备");toast(person('muse').online?t("小王的工作站已恢复在线"):t("小王的工作站已离线"));saveDraft();render();settlePermission();break;case'reset':Object.entries(nodeProfiles).forEach(([node,profile])=>profile.alias=node);person('muse').online=true;document.getElementById('offline-toggle').textContent=t("设备离线");seed();me='chen';nav='chat';active='project';filter='all';query='';agentId='atlas';agentTab='work';detail=innerWidth>=768;drawer=false;child=false;modal=null;draft='';document.getElementById('identity').value=me;render();toast(t("演示已重置"));break}});
+document.addEventListener('click',e=>{if(userMenuOpen&&!e.target.closest('.user-menu')){saveDraft();userMenuOpen=false;render()}});
+document.addEventListener('input',e=>{if(e.target.id==='message-input'){draft=e.target.value;drafts[me+':'+active]=draft;resizeComposer();renderSlash()}if(e.target.id==='group-name')window.groupName=e.target.value;if(['chat-search','agent-search'].includes(e.target.id)){query=e.target.value;let id=e.target.id,pos=e.target.selectionStart;render();let input=document.getElementById(id);input.focus();try{input.setSelectionRange(pos,pos)}catch{}}if(e.target.id==='contact-search'){contactQuery=e.target.value;renderModal();document.getElementById('contact-search').focus()}});
+document.addEventListener('input',e=>{const n=e.target.dataset.nodeAlias;if(!n)return;const card=e.target.closest('.node-card'),dirty=e.target.value.trim()!==nodeProfiles[n].alias;card.querySelector('[data-action="save-node"]').disabled=!dirty||!e.target.value.trim();card.querySelector('[data-node-save-status]').textContent=t(dirty?'有未保存的更改':'已保存全部更改')});
+document.addEventListener('change',e=>{if(e.target.id==='review-toggle'){showReviewNotes=e.target.checked;document.body.classList.toggle('hide-review-notes',!showReviewNotes);return}if(e.target.dataset.agentOption){const a=person(agentId);if(a?.owner===me)a[e.target.dataset.agentOption]=e.target.checked;return}if(e.target.dataset.distillId){const c=conversations.find(c=>c.id===e.target.dataset.distillId);if(c&&!distillReason(c)){distillIds.has(c.id)?distillIds.delete(c.id):distillIds.add(c.id);render()}return}if(e.target.id==='distill-agent'){distillAgent=e.target.value;distillError='';renderModal()}if(e.target.name==='distill-scope'){distillScope=e.target.value;distillError='';renderModal()}if(e.target.id==='identity'){saveDraft();distillMode=false;distillIds=new Set();distillError='';me=e.target.value;active='project';nav='chat';query='';filter='all';drawer=false;modal=null;draft=drafts[me+':'+active]||'';detail=innerWidth>=768;render()}if(e.target.dataset.pref){pref(active)[e.target.dataset.pref]=e.target.checked;saveDraft();render()}});
+document.addEventListener('keydown',e=>{if(e.target.id==='message-input'&&e.key==='ArrowDown'&&document.getElementById('slash-menu')){e.preventDefault();document.querySelector('#slash-menu button')?.focus();return}if(e.key==='Escape'){saveDraft();modal=null;mentionOpen=false;userMenuOpen=false;render();return}if(e.target.id==='message-input'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}if(e.key==='Tab'&&modal){let items=[...document.querySelectorAll('.modal button:not(:disabled),.modal input:not([tabindex="-1"]),.modal textarea,.modal select')];if(items.length){let first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}}});
+document.addEventListener('contextmenu',e=>{const row=e.target.closest('[data-action="chat"]');if(!row||distillMode)return;e.preventDefault();saveDraft();chatContext={id:row.dataset.id,x:Math.min(e.clientX,innerWidth-190),y:Math.min(e.clientY,innerHeight-60)};modal='chat-menu';renderModal()});
+function messageGestureTarget(e){return !getSelection()?.toString()&&!e.target.closest('a,button,input,textarea,select,code,pre')?e.target.closest('.bubble')?.closest('[data-message-index]'):null}
+document.addEventListener('contextmenu',e=>{const row=messageGestureTarget(e);if(row){e.preventDefault();openMessageMenu(row.dataset.messageIndex)}});
+let holdTimer=null,holdPoint=null;
+document.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch')return;const row=messageGestureTarget(e);if(!row)return;holdPoint={x:e.clientX,y:e.clientY};holdTimer=setTimeout(()=>{if(!getSelection()?.toString())openMessageMenu(row.dataset.messageIndex);holdTimer=null},500)});
+document.addEventListener('pointermove',e=>{if(holdPoint&&Math.hypot(e.clientX-holdPoint.x,e.clientY-holdPoint.y)>10){clearTimeout(holdTimer);holdTimer=null}});
+for(const event of ['pointerup','pointercancel'])document.addEventListener(event,()=>{clearTimeout(holdTimer);holdTimer=null;holdPoint=null});
+
+document.addEventListener('click',e=>{if(modal==='chat-menu'&&!e.target.closest('.chat-context')){modal=null;renderModal()}});
+
+render();
+</script>
+</body>
+</html>

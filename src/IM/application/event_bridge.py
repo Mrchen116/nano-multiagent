@@ -432,16 +432,33 @@ class EventBridge:
             message_id=message_id,
             permission_data=data,
         )
+        persisted = self.message_repository.get_message(message_id=message_id)
+        data = next(
+            item
+            for item in persisted.permission_requests
+            if item.get("request_id") == data["request_id"]
+        )
+        event_type = (
+            EVENT_PERMISSION_RESOLVED
+            if data.get("status") == "resolved"
+            else "permission.submitted"
+            if data.get("status") == "submitted"
+            else EVENT_PERMISSION_REQUEST
+        )
         self._emit(
             conversation_id=conversation_id,
             message_id=message_id,
-            event_type=EVENT_PERMISSION_REQUEST,
+            event_type=event_type,
             delivery_status="running",
             payload={
                 "conversation_id": conversation_id,
                 "message_id": message_id,
-                "event_type": EVENT_PERMISSION_REQUEST,
+                "event_type": event_type,
                 "permission_request": data,
+                "request_id": data["request_id"],
+                "status": data["status"],
+                "decision": data.get("decision"),
+                "decided_by": data.get("decided_by"),
             },
         )
 

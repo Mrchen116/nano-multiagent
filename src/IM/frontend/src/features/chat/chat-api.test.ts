@@ -10,6 +10,7 @@ import {
   forkConversation,
   listConversations,
   listMessages,
+  markConversationRead,
   removeParticipant,
   updateConversation
 } from "./chat-api";
@@ -62,16 +63,20 @@ describe("chat-api", () => {
     expect(headers.get("Authorization")).toBe("Bearer access-test");
   });
 
-  it("listMessages includes mark_as_read=true and parses items", async () => {
+  it("history reads do not mutate read state; explicit boundary uses its own endpoint", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({ items: [
       { type: "message", message: { id: "m1", conversation_id: "c1", sender: { type: "user", id: "user-1" }, sender_user_id: "user:user-1", sender_type: "user", content: "hi", attachments: [], delivery_status: "completed", created_at: "2026-01-01T00:00:01Z", permission_requests: [] } }
     ], next_before_message_id: null }));
 
-    const out = await listMessages("c1", { markAsRead: true });
+    const out = await listMessages("c1");
     expect(out.items).toHaveLength(1);
     expect(out.items[0]).toMatchObject({ type: "message", message: { content: "hi" } });
-    expect((f.mock.calls[0]![0] as string)).toContain("mark_as_read=true");
+    expect((f.mock.calls[0]![0] as string)).not.toContain("mark_as_read");
+    f.mockResolvedValueOnce(jsonResponse({ id: "c1", unread_count: 1 }));
+    await markConversationRead("c1", "m1");
+    expect(f.mock.calls[1]![0]).toBe("/im/v1/conversations/c1/read");
+    expect(JSON.parse((f.mock.calls[1]![1] as RequestInit).body as string)).toEqual({ last_read_message_id: "m1" });
   });
 
   it("listMessages includes pagination limit and before_message_id when loading older history", async () => {
@@ -81,7 +86,6 @@ describe("chat-api", () => {
     await listMessages("c1", {
       limit: 50,
       beforeMessageId: "m-oldest-loaded",
-      markAsRead: false
     });
 
     const url = f.mock.calls[0]![0] as string;
@@ -120,7 +124,7 @@ describe("chat-api", () => {
       last_message_preview: null, last_message_at: null, created_at: "2026-01-01T00:00:03Z"
     }, 201));
 
-    const conv = await createConversation({ title: "Sprint", agentIds: ["agent-a", "agent-b"] });
+    const conv = await createConversation({ title: "Sprint", type: "group", participants: [{ type: "agent", id: "agent-a" }, { type: "agent", id: "agent-b" }] });
     expect(conv.id).toBe("g1");
     const body = JSON.parse((f.mock.calls[0]![1] as RequestInit).body as string);
     expect(body.title).toBe("Sprint");
@@ -129,6 +133,15 @@ describe("chat-api", () => {
       { type: "agent", id: "agent-a" },
       { type: "agent", id: "agent-b" }
     ]);
+  });
+
+  it("creates a human direct chat with explicit type and stable user actor", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({ id: "human-dm" }));
+    await createConversation({ title: "Bo", type: "direct", participants: [{ type: "user", id: "user-bo" }] });
+    expect(JSON.parse((f.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
+      title: "Bo", type: "direct", participants: [{ type: "user", id: "user-1" }, { type: "user", id: "user-bo" }]
+    });
   });
 
   it("createDistillPrompt sends only source identities to the Gateway-owned prompt endpoint", async () => {
@@ -186,7 +199,7 @@ describe("chat-api", () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse(groupBody()));
 
-    const conv = await addParticipants("g1", ["agent-a", "agent-b"]);
+    const conv = await addParticipants("g1", [{ type: "agent", id: "agent-a" }, { type: "agent", id: "agent-b" }]);
     expect(conv.id).toBe("g1");
     const call = f.mock.calls[0]!;
     expect(call[0]).toMatch(/\/im\/v1\/conversations\/g1\/participants$/);

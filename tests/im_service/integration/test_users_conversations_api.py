@@ -49,6 +49,7 @@ def test_agent_conversation_projects_source_node_and_creates_gateway_prompt(
         conversation_resp = client.post(
             "/im/v1/conversations",
             json={
+                "type": "direct",
                 "title": "Alice & Agent",
                 "participant_ids": [alice.id, "agent-user-1"],
             },
@@ -217,12 +218,17 @@ def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:
         authorize(client, alice)
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "before", "participant_ids": [alice.id]},
+            json={"type": "group", "title": "before", "participant_ids": [alice.id]},
         ).json()
 
         updated_resp = client.patch(
             f"/im/v1/conversations/{conversation['id']}",
-            json={"title": "after", "is_pinned": True, "is_muted": True},
+            json={
+                "type": "group",
+                "title": "after",
+                "is_pinned": True,
+                "is_muted": True,
+            },
         )
 
         assert updated_resp.status_code == 200
@@ -239,15 +245,15 @@ def test_conversation_list_orders_pinned_then_recent_activity(tmp_path: Path) ->
         authorize(client, alice)
         first = client.post(
             "/im/v1/conversations",
-            json={"title": "first", "participant_ids": [alice.id]},
+            json={"type": "group", "title": "first", "participant_ids": [alice.id]},
         ).json()
         second = client.post(
             "/im/v1/conversations",
-            json={"title": "second", "participant_ids": [alice.id]},
+            json={"type": "group", "title": "second", "participant_ids": [alice.id]},
         ).json()
         third = client.post(
             "/im/v1/conversations",
-            json={"title": "third", "participant_ids": [alice.id]},
+            json={"type": "group", "title": "third", "participant_ids": [alice.id]},
         ).json()
 
         pin_resp = client.patch(
@@ -282,6 +288,7 @@ def test_conversations_reject_unknown_participants(tmp_path: Path) -> None:
         response = client.post(
             "/im/v1/conversations",
             json={
+                "type": "group",
                 "title": "invalid",
                 "participant_ids": ["missing-user"],
             },

@@ -41,7 +41,11 @@ def _register_and_create_group(client: TestClient) -> tuple[str, str]:
 
     conv = client.post(
         "/im/v1/conversations",
-        json={"title": "Alice + Bob + Carol", "participant_ids": [alice_id]},
+        json={
+            "type": "group",
+            "title": "Alice + Bob + Carol",
+            "participant_ids": [alice_id],
+        },
         headers=auth,
     )
     assert conv.status_code in (200, 201), f"create conv failed: {conv.text}"
@@ -57,7 +61,7 @@ def test_patch_title_returns_updated_conversation(tmp_path: Path) -> None:
         auth = {"Authorization": f"Bearer {token}"}
         response = client.patch(
             f"/im/v1/conversations/{convo_id}",
-            json={"title": "Team Alpha"},
+            json={"type": "group", "title": "Team Alpha"},
             headers=auth,
         )
 
@@ -76,7 +80,7 @@ def test_patch_empty_title_returns_400(tmp_path: Path) -> None:
         auth = {"Authorization": f"Bearer {token}"}
         response = client.patch(
             f"/im/v1/conversations/{convo_id}",
-            json={"title": "   "},
+            json={"type": "group", "title": "   "},
             headers=auth,
         )
 
@@ -100,7 +104,7 @@ def test_patch_title_nonexistent_returns_404(tmp_path: Path) -> None:
         auth = {"Authorization": f"Bearer {token}"}
         response = client.patch(
             "/im/v1/conversations/does-not-exist",
-            json={"title": "Whatever"},
+            json={"type": "group", "title": "Whatever"},
             headers=auth,
         )
 

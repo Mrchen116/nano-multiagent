@@ -1,5 +1,7 @@
+import type { Conversation } from "../chat-types";
+
 /**
- * Shared Agent palette, seeded by display name: historical message senders carry
+ * Shared person and Agent palette, seeded by display name: historical message senders carry
  * an IM user UUID rather than agent_id, so names keep colors aligned across views.
  */
 const AVATAR_PALETTE = [
@@ -18,7 +20,7 @@ export function colorForAgentSeed(seed: string): string {
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length].background;
 }
 
-/** Soft Agent backgrounds use dark lettering; explicit non-Agent colors retain white. */
+/** Soft palette backgrounds use dark lettering; explicit colors retain white. */
 export function foregroundForAvatar(background: string): string {
   return AVATAR_PALETTE.find((color) => color.background === background)?.foreground ?? "#fff";
 }
@@ -26,6 +28,12 @@ export function foregroundForAvatar(background: string): string {
 /** Avatar color for an agent, seeded by display_name (id fallback). */
 export function colorForAgent(agent: { display_name?: string | null; agent_id?: string | null }): string {
   return colorForAgentSeed(agent.display_name || agent.agent_id || "");
+}
+
+/** A person's avatar follows the other participant, not the editable chat title. */
+export function directPersonAvatarName(conversation: Conversation, selfUserId: string | null): string {
+  const peer = conversation.participants.find(person => person.type === "user" && person.id !== selfUserId);
+  return peer?.display_name || peer?.id || conversation.title;
 }
 
 /** Initials for an agent display name. The same name must render the same

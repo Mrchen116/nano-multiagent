@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.infra.repositories.nodes import NodeRepository
 
 from tests.im_service._auth_helpers import authorize, register_user
 
@@ -19,7 +20,7 @@ def _create_user(client: TestClient, username: str) -> str:
 def _create_conversation(client: TestClient, participant_id: str) -> str:
     response = client.post(
         "/im/v1/conversations",
-        json={"title": "chat", "participant_ids": [participant_id]},
+        json={"type": "group", "title": "chat", "participant_ids": [participant_id]},
     )
     assert response.status_code == 201
     return response.json()["id"]
@@ -73,29 +74,57 @@ def test_message_contract_supports_sender_type_attachments_and_pagination(
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, alice_id)
-        created = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={
-                "sender_user_id": alice_id,
-                "sender_type": "agent",
-                "content": "hello",
-                "attachments": [
-                    {
-                        "url": "file:///tmp/demo.txt",
-                        "content_type": "text/plain",
-                        "file_name": "demo.txt",
-                    }
-                ],
-            },
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-contract", node_name="Contract", owner_id=alice_id
         )
-        assert created.status_code == 201
-        assert created.json()["sender_type"] == "agent"
-        assert created.json()["attachments"][0]["file_name"] == "demo.txt"
+        with client.websocket_connect("/im/ws/gateway") as gateway:
+            gateway.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-contract",
+                        "agents": ["contract-agent"],
+                    },
+                }
+            )
+            registration = gateway.receive_json()
+            assert registration["type"] == "ack"
+            conversation = client.post(
+                "/im/v1/conversations",
+                json={
+                    "type": "direct",
+                    "title": "Agent",
+                    "participants": [{"type": "agent", "id": "contract-agent"}],
+                },
+            )
+            assert conversation.status_code == 201, conversation.text
+            conversation_id = conversation.json()["id"]
+            created = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages?agent_id=contract-agent",
+                headers={
+                    "Authorization": f"Bearer {registration['payload']['gateway_access_token']}"
+                },
+                json={
+                    "sender": {"type": "agent", "id": "contract-agent"},
+                    "content": "hello",
+                    "attachments": [
+                        {
+                            "url": "https://example.test/demo.txt",
+                            "content_type": "text/plain",
+                            "file_name": "demo.txt",
+                        }
+                    ],
+                },
+            )
+            assert created.status_code == 201
+            assert created.json()["sender_type"] == "agent"
+            assert created.json()["attachments"][0]["file_name"] == "demo.txt"
 
-        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages?limit=1")
-        assert listed.status_code == 200
-        payload = listed.json()
-        assert list(payload.keys()) == ["items", "next_before_message_id"]
-        assert payload["items"] == [{"type": "message", "message": created.json()}]
-        assert payload["next_before_message_id"] == created.json()["id"]
+            listed = client.get(
+                f"/im/v1/conversations/{conversation_id}/messages?limit=1"
+            )
+            assert listed.status_code == 200
+            payload = listed.json()
+            assert list(payload.keys()) == ["items", "next_before_message_id"]
+            assert payload["items"] == [{"type": "message", "message": created.json()}]
+            assert payload["next_before_message_id"] == created.json()["id"]

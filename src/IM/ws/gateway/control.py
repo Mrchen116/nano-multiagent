@@ -13,6 +13,7 @@ from .protocol import (
 _logger = logging.getLogger(__name__)
 
 from .sessions import GatewaySessions
+from IM.infra.repositories.messages import MessageRepository
 
 
 def _config_operation_result(
@@ -44,9 +45,16 @@ def _config_operation_result(
 class GatewayControl:
     """Own Gateway control RPC request/result correlation and waiters."""
 
-    def __init__(self, *, sessions: GatewaySessions, lock: asyncio.Lock) -> None:
+    def __init__(
+        self,
+        *,
+        sessions: GatewaySessions,
+        lock: asyncio.Lock,
+        messages: MessageRepository | None = None,
+    ) -> None:
         self._sessions = sessions
         self._lock = lock
+        self._messages = messages
         self._agent_config_waiters = {}
         self._agent_create_waiters = {}
         self._agent_config_apply_waiters = {}
@@ -81,6 +89,19 @@ class GatewayControl:
             message_type="heartbeat.trigger",
             payload={"agent_id": agent_id, "reason": reason},
         )
+
+    async def replay_submitted_permissions(self, *, node_id: str) -> None:
+        """Resend durable, still-unconfirmed decisions after registration or restart."""
+        if self._messages is None:
+            return
+        for item in self._messages.list_submitted_permissions(node_id=node_id):
+            await self.push_permission_response(
+                target_node_id=node_id,
+                message_id=str(item["message_id"]),
+                request_id=str(item["request_id"]),
+                decision=str(item["decision"]),
+                reason=item.get("reason"),
+            )
 
     async def push_permission_response(
         self,
