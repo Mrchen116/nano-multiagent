@@ -500,6 +500,10 @@
     },
     "create": {
       "title": "新建 Agent",
+      "noDevicesTitle": "创建 Agent 前，请先绑定设备",
+      "noDevicesBody": "创建自己的 Agent，需要先绑定一台运行 Gateway 的设备。",
+      "manageDevices": "管理设备",
+      "backToAgents": "返回 Agents",
       "subtitle": "配置身份、行为与工具访问。",
       "submit": "创建 Agent",
       "submitArrow": "创建 Agent →",

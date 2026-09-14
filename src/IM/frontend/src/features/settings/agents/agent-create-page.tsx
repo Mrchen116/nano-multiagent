@@ -602,6 +602,28 @@ export function AgentCreatePage() {
     );
   }
 
+  if (nodesQuery.isSuccess && nodes.length === 0 && !selectedNodeId) {
+    return (
+      <div className="flex h-full min-w-0 flex-1 overflow-hidden">
+        {!isMobile && <AgentsRailDesktop isCreatePage />}
+        <div className="flex min-w-0 flex-1 items-center justify-center overflow-y-auto p-6">
+          <section className="im-agent-card grid w-full max-w-lg gap-4">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--im-accent)"
+              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" />
+            </svg>
+            <h1 className="im-agent-card-title">{t("agents.create.noDevicesTitle")}</h1>
+            <p className="im-agent-card-sub">{t("agents.create.noDevicesBody")}</p>
+            <div className="flex flex-wrap gap-2">
+              <Link className="im-btn im-btn-primary" to="/settings/nodes">{t("agents.create.manageDevices")}</Link>
+              <Link className="im-btn im-btn-muted" to="/settings/agents">{t("agents.create.backToAgents")}</Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   if (!capabilities) {
     return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
   }

@@ -503,6 +503,10 @@
     },
     "create": {
       "title": "New agent",
+      "noDevicesTitle": "Bind a device before creating an Agent",
+      "noDevicesBody": "To create your own Agent, first bind a device running Gateway.",
+      "manageDevices": "Manage devices",
+      "backToAgents": "Back to Agents",
       "subtitle": "Configure identity, behavior, and tool access.",
       "submit": "Create agent",
       "submitArrow": "Create agent →",
