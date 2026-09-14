@@ -143,21 +143,6 @@ export function NodesPage() {
     }
   });
 
-  if (query.isLoading) {
-    return <p className="text-sm text-slate-500">{t("settings.nodes.loading")}</p>;
-  }
-
-  if (rows.length === 0) {
-    return (
-      <div className="flex h-full flex-col gap-3">
-        <h2 className="im-title text-xl font-bold">{t("settings.nodes.title")}</h2>
-        <p data-testid="nodes-empty" className="text-sm text-slate-500">
-          {t("settings.nodes.empty")}
-        </p>
-      </div>
-    );
-  }
-
   // M19/R11-5: prototype `im-extra-pages.jsx::NodesPage` 顶部 4 KPI 卡 — 视觉契约
   // 用 Tailwind utility 直接落 (white card / oklch border / 24px bold 数字 / 12px 灰 label)。
   const totalNodes = rows.length;
@@ -172,7 +157,7 @@ export function NodesPage() {
           <Link
             data-testid="nodes-page-back"
             to="/me"
-            aria-label="Back"
+            aria-label={t("common.back")}
             className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
           >
             ‹
@@ -187,6 +172,36 @@ export function NodesPage() {
         <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.subtitle")}</p>
       </div>
       )}
+      {query.isLoading ? (
+        <p className="text-sm text-[var(--im-text-muted)]">{t("settings.nodes.loading")}</p>
+      ) : query.isError && rows.length === 0 ? (
+        <div className="im-agent-card">
+          <p role="alert">{t("settings.nodes.loadFailed")}</p>
+          <button className="im-btn im-btn-muted justify-self-start" onClick={() => void query.refetch()}>{t("common.retry")}</button>
+        </div>
+      ) : rows.length === 0 ? (
+        <section data-testid="nodes-empty" className="mx-auto my-6 flex w-full max-w-xl flex-col items-center rounded-2xl border border-[var(--im-border)] bg-[var(--im-surface)] px-6 py-8 text-center sm:my-10 sm:px-10 sm:py-10">
+          <span className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--im-accent-soft)] text-[var(--im-accent)]" aria-hidden="true">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="13" rx="2" /><path d="M8 21h8M12 16v5" />
+            </svg>
+          </span>
+          <h2 className="m-0 text-xl font-bold">{t("settings.nodes.empty")}</h2>
+          <p className="mb-6 mt-2 text-sm leading-6 text-[var(--im-text-muted)]">{t("settings.nodes.emptyBody")}</p>
+          <ol className="m-0 grid w-full list-none gap-4 rounded-xl bg-[var(--im-surface-2)] p-5 text-left text-sm leading-6">
+            {["bindStart", "bindConfirm"].map((step, index) => (
+              <li key={step} className="flex items-start gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--im-surface)] text-xs font-semibold text-[var(--im-accent)]" aria-hidden="true">{index + 1}</span>
+                <span>{t(`settings.nodes.${step}`)}</span>
+              </li>
+            ))}
+          </ol>
+          <button type="button" className="im-btn im-btn-primary mt-6 inline-flex items-center gap-2" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9" /></svg>
+            {t(query.isFetching ? "settings.nodes.refreshing" : "settings.nodes.refresh")}
+          </button>
+        </section>
+      ) : <>
       <div
         data-testid="nodes-kpi-grid"
         className="grid grid-cols-2 gap-[10px] md:grid-cols-4"
@@ -339,6 +354,7 @@ export function NodesPage() {
           </section>
         );
       })}
+      </>}
       </div>
     </div>
   );
