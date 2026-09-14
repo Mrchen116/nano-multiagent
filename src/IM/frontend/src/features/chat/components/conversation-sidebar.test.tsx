@@ -90,12 +90,40 @@ describe("ConversationSidebar", () => {
     expect(onSelect).toHaveBeenCalledWith("c1");
   });
 
-  it("invokes onNewGroup when the + Group button is clicked", async () => {
+  it("opens chat or group creation from one menu", async () => {
     const user = userEvent.setup();
     const onNewGroup = vi.fn();
-    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={onNewGroup} />);
-    await user.click(screen.getByRole("button", { name: /\+ Group/ }));
-    expect(onNewGroup).toHaveBeenCalled();
+    const onNewChat = vi.fn();
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}}
+      onNewGroup={onNewGroup} onNewChat={onNewChat} />);
+    const trigger = screen.getByRole("button", { name: "New conversation" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "New chat" }));
+    expect(onNewChat).toHaveBeenCalledOnce();
+    expect(onNewGroup).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Create group" }));
+    expect(onNewGroup).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("supports keyboard navigation and dismisses the creation menu", async () => {
+    const user = userEvent.setup();
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}}
+      onNewGroup={() => {}} onNewChat={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "New conversation" });
+    await user.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Create group" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
+    await user.click(screen.getByRole("searchbox"));
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("does not show run-state labels before skill distill mode", () => {

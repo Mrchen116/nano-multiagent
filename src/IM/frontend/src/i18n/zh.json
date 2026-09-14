@@ -659,7 +659,8 @@
     },
     "list": {
       "header": "消息",
-      "newGroup": "+ 群聊",
+      "createConversation": "发起会话",
+      "newGroup": "创建群聊",
       "search": "搜索…",
       "filters": {
         "all": "全部",

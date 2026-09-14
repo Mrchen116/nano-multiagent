@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
+import { NewConversationMenu } from "./new-conversation-menu";
 import {
   getDistillConversationUnavailableKey,
   isDistillConversationEligible,
@@ -108,10 +109,7 @@ export function ConversationSidebar({
       <header className="chat-sidebar-header">
         <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
-          {onNewChat && <button type="button" className="chat-sidebar-new-group" aria-label={t("chat.contacts.title")} onClick={onNewChat}>＋</button>}
-          <button type="button" className="chat-sidebar-new-group" onClick={onNewGroup}>
-            {t("chat.list.newGroup")}
-          </button>
+          <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} />
         </div>
         {distillMode && (
           <div className="chat-sidebar-distill-actions">

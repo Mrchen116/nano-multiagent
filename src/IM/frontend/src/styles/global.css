@@ -1340,21 +1340,25 @@ body {
   color: var(--im-text-muted);
 }
 
-.chat-sidebar-new-group {
-  background: var(--im-accent-soft);
+.chat-sidebar-create { position: relative; flex-shrink: 0; }
+
+.chat-sidebar-create-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
   border: none;
   border-radius: 8px;
-  height: 36px;
-  padding: 0 12px;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--im-accent);
+  color: var(--im-text);
   cursor: pointer;
 }
 
-.chat-sidebar-new-group:hover {
-  filter: brightness(1.08);
+.chat-sidebar-create-trigger:hover,
+.chat-sidebar-create-trigger[aria-expanded="true"] {
+  background: var(--im-accent-soft);
+  color: var(--im-accent);
 }
 
 .chat-sidebar-distill-actions {
@@ -3092,6 +3096,16 @@ body {
   color: var(--im-text-muted);
 }
 
+.chat-contacts-modal .chat-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.chat-contacts-modal .chat-modal-header h2 { margin: 0; }
+.chat-contacts-modal .chat-modal-agent { width: 100%; text-align: left; }
+.chat-contacts-modal .chat-modal-agent-meta { display: block; overflow-wrap: anywhere; }
+
 .chat-modal-body {
   padding: 0.75rem 1.25rem;
   overflow-y: auto;
@@ -4530,7 +4544,7 @@ body {
 
   .chat-sidebar-header-row {
     position: relative;
-    height: 36px;
+    height: 44px;
     justify-content: center;
   }
 
@@ -4542,15 +4556,12 @@ body {
     text-transform: none;
   }
 
-  .chat-sidebar-new-group {
+  .chat-sidebar-create {
     position: absolute;
     right: 0;
     top: 0;
-    background: var(--im-accent-soft);
-    color: var(--im-accent);
-    border-radius: 10px;
-    padding: 0 14px;
   }
+  .chat-sidebar-create-trigger { width: 44px; height: 44px; }
   .chat-sidebar-search {
     background: var(--im-surface);
     color: var(--im-text);
@@ -5220,13 +5231,13 @@ body {
 }
 .chat-conversation-menu-items button:hover,
 .chat-conversation-menu-items button:focus-visible { background: oklch(0.96 0.005 240); outline: none; }
+.chat-sidebar-create .chat-conversation-menu-items button { display: flex; align-items: center; gap: 10px; }
 .chat-rename-dialog {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
   z-index: 101; width: min(400px, calc(100vw - 32px));
 }
 
 .chat-work-link { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--im-accent); }
-.chat-sidebar-new-group { flex-shrink: 0; }
 
 .im-agent-profile-details { margin: 0; }
 .im-agent-profile-details dt { font-size: 0.78rem; font-weight: 600; }

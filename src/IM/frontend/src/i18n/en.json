@@ -662,7 +662,8 @@
     },
     "list": {
       "header": "Messages",
-      "newGroup": "+ Group",
+      "createConversation": "New conversation",
+      "newGroup": "Create group",
       "search": "Search…",
       "filters": {
         "all": "All",
