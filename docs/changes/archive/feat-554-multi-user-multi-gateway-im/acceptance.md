@@ -311,3 +311,41 @@ U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期�
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 最终源码窄 delta 判定、canonical 归并和迁移 Markdown 与最终接口核对交由 owner／verifier。报告没有改写设计或要求新增旧版本兼容代码。专用服务、浏览器、测试 Agent/Skill 暂按 owner 要求保留到其后续核对完成，再由各自生命周期 owner 清理；恢复过的源 JSONL 已完成哈希核对，Policies 与缺能力前置已复原。没有仍待用户补充才能完成的产品验收项。
+
+## Round 3 — targeted public Agent profile visual revalidation
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 255903e3ef4771cde484d2606decf4d119d444e7`
+>
+> 验收时间：2026-09-14 08:27–08:34（Asia/Shanghai）；mode：full；revalidation_mode：targeted；fix_delta_range：`a7610b283..255903e3e`；prior_acceptance_paths：本报告 Round 1、Round 2。仅重验用户指出的公开 Agent 资料页与原有本人详情风格不一致问题，以及直接受影响的导航、语言、Work 和聊天入口；不重跑原 18 个 Scenario。
+
+### Verdict
+
+**pass**。Highest Required Action：**pass**。本轮发现 0 个 blocking／major、1 个既有共享样式 minor（SF2）；公开页的视觉不一致问题已关闭。范围内没有待复验项。其余场景及真实模型收发、管理 API 拒绝、原聊天成员隔离等证据继承 Round 2；本轮没有把旧证据的实际运行版本改写为当前 HEAD。
+
+### 运行版本与观察边界
+
+- 独立浏览器会话为 `feat554-public-review`，实际入口为 `http://127.0.0.1:54719`。登录 `nano`（小陈，Nova 管理者）和 `xiaoli`（小李，无设备）；不使用原型或实施者浏览器代替真实产品。
+- 开始时确认分支 `unit/feat-554`、HEAD 为上述完整 `validated_at`，无 tracked 源码变更。入口及浏览器加载 `index-BTHZ1Afl.js`、`index-BDySxW--.css`；独立读取 HTTP 产物，与该 worktree 的实际 dist 文件逐字节一致。JS SHA256：`0770d8a5e2da1d8a101d614b2a8dd798dec2c0033e353af715aa35eb0dfbd3fe`；CSS SHA256：`4eb78432a195675d45c0330136eabe5396f7d7d137ee60d9fd3dfe139ee0e9f6`。构建与版本关联由 caller 提供，本轮核实 HEAD、入口和实际所服务产物，没有重建或重启共享体验服务。
+- 按 caller 的现场保留约束，只做登录、页面读取、切语言及进入已有私聊，没有新增消息、配置保存或测试资源。正常打开聊天会按产品机制更新该测试账号已读状态。原模型回复只作为既有历史显示证据，不冒称本轮新发消息或新完成模型任务。
+- 截图位于 `output/playwright/r3-*.png`，全部为真实页面并已目视核对；视口为 1440×960、390×844、767×844、768×844。测试为 Chromium 桌面浏览器的移动视口，不冒称物理手机操作。
+
+### Reference Artifacts Reviewed
+
+用户本轮两张附图分别展示本人 Nova 原详情与 Muse 旧公开页，明确要求统一原产品风格。按 design「本次改动来源与原型标注」「UI 结构」「原型对齐契约」及 spec 的既有能力承接要求，本轮以真实 Nova 管理页作为视觉主对照；公开目录语义仍按 design must-match 5／6／7／9。独立 HTML 原型只继承前轮已经核实的入口及操作资格，不用其重绘风格替代本人原页面。
+
+| 受影响旅程／对应要求 | 实际观察与证据 | 结果 |
+|---|---|---|
+| 桌面公开资料沿用本人详情风格；用户本轮反馈、design 原有页面承接 | 小陈从目录先开 Nova，再开 Muse；小李从目录开 Atlas。公开页均使用同样白色页头、圆头像及在线点、同级标题／ID 与设备副标题、右侧绿色消息按钮、底线标签、灰色正文背景及居中白色圆角卡片。原 Muse 单独大号返回行和散落字段已消失，设备归属不再在同一副标题重复拼接管理员。`r3-owner-nova-desktop.png`、`r3-public-muse-desktop.png`、`r3-public-atlas-desktop-zh.png`。 | pass |
+| 手机详情与返回、主导航；design UI 结构及 runbook 390／767／768 | 390 下公开 Muse／Atlas 与本人 Nova 均有同式页头返回按钮、头像标题和正文卡片；Muse 返回实际进入 Agents 列表。390／767 仅底部主导航；768 改为顶部主导航，详情手机返回消失。未出现上下重复主导航；卡片和按钮可见。`r3-owner-nova-mobile-en.png`、`r3-public-muse-mobile-en.png`、`r3-public-muse-767.png`、`r3-public-muse-768.png`，以及 Atlas Work 两张断点截图。4px 共享横向滚动单列 SF2。 | pass |
+| 中英文与刷新；must-match 7 | 从手机“我”实际切换 EN→中→EN；公开 Profile／资料、Managed by／管理员、Device／设备、工作模式、Message／发消息及 Work／工作均按语言切换，名字和设备内容保留。英文下重载 Atlas Work，语言、已选 Work 与展开记录仍保留。`r3-public-muse-mobile-en.png`、`r3-public-muse-mobile-zh.png`、`r3-public-atlas-mobile-en.png`、`r3-public-atlas-mobile-zh.png`。 | pass |
+| 非管理者公开全局 Work；must-match 5 | 小李的“我”显示 0 已拥有／0 在线；Atlas 资料点击工作，展开真实轮次 `turn_1ee5c6b162bc6217`，看到四次工具、Agent 正文及已记录的原私聊内容。再切回资料，页头和选中标签一致；390、767、768 可继续查看 Work，英文重载仍有真实记录。`r3-public-atlas-work-desktop.png`、`r3-public-atlas-work-mobile.png`、`r3-public-atlas-work-767-en.png`、`r3-public-atlas-work-768-en.png`。 | pass |
+| 公开资料仍可进入普通聊天；跨管理归属交办、must-match 9 | 小陈在 Muse 390px 中文公开资料点击“发消息”，实际进入既有普通私聊 `/chat/c_7wzxrj9d`，标题 Muse、设备小王工作站、历史 Agent 回复及 composer 正常；具体聊天隐藏底栏，浏览器返回恢复公开资料。由于 caller 要求不新增体验数据，本轮未再发送消息；真实交办结果继承 Round 2 R2-J3／J6。 | pass |
+| 风格统一不扩大管理配置可见范围；must-match 6 | 小陈看 Muse 只有资料；小李看 Atlas 只有 Work／资料。两者没有 Config／Channels／Skills／Sessions、配置字段或保存按钮；本人 Nova 保留 Work／Overview／Config／Channels／Skills／Sessions 与原完整表单。公开 Work 展开仍是执行轨迹，没有成为配置入口。管理 API 的服务端拒绝证据继承 Round 1 J2／Round 2 对应行，本轮不把 UI 隐藏冒充重新验证 API 授权。 | pass |
+
+### Side Finding
+
+**SF2 — 390px 详情面板已有 4px 横向滚动（minor；Regression Relation：unrelated-existing/shared-style，经 caller 确认保留；Recommended Action：记录后单独处理）。** 在公开 Muse／Atlas 的 390×844 资料页底栏上方看到横向滚动条；独立 DOM 测量 document/body 宽度均为 390，详情 panel/header 的 clientWidth=390、scrollWidth=394。本轮真实本人 Nova 手机截图也有同样滚动条，因此不是“他人 Agent 独有的另一套风格”。767px Muse 资料 panel/header 无横向溢出。证据：`r3-public-muse-mobile-en.png`、`r3-public-atlas-mobile-en.png`、`r3-owner-nova-mobile-en.png`。内容、返回、语言、标签和消息操作未受阻；caller 明确本轮只收口公开页与原有页一致性，不扩大为共享样式整修。本报告不声称已解决该 minor，也不据此降低任何 blocking／major 门槛。
+
+### 上层同步与收尾
+
+本次只统一呈现，未改变 spec 的成员关系、公开 Work 或管理资格，无需为此新增权限／数据契约。Round 2 的其他 Scenario 结论及迁移由部署 agent 执行的边界保持；本轮没有重新宣称完成正式存量迁移。独立 `feat554-public-review` 浏览器已关闭，现有 IM／Gateway、caller 浏览器及用户体验数据继续保留；未重启／停止服务，未修改源码、测试、配置或设计。仅追加本报告，按 caller 明确分工由 root 统一提交，reviewer 不另 commit。

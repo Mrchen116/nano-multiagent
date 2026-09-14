@@ -50,3 +50,12 @@ Independent finder found one P2: explicit dispatch newly interpreted a protected
 `274ad07bc` preserves a strictly matched current-chat hosted image receipt while continuing to snapshot and upload local images in the same message. Other-chat and malformed references remain rejected; browser resource access still checks membership. External projection does not send IM private URLs and reports a local image failure when no exportable snapshot exists. Stable-call retry and local/provider receipts remain intact. Two SDK regression cases failed before the fix and passed after it; 76 relevant implementation tests passed.
 
 The final test-layout commit `c3046c6a2` splits the external-channel case from the native file to satisfy the repository's new-test-file size contract. All test/helper AST bodies are unchanged; the focused contract and image run passed 14 tests. Independent finder inspected the complete final patch, including discovery/imports after the split, and independently ran 29 tests. Findings: `[]`; the P2 is closed. All earlier full and patch conclusions are retained outside these explicit deltas. This report does not substitute for the separately recorded product and implementation-verifier gates.
+
+
+## Public profile presentation patch, round 6
+
+- `validated_at`: `255903e3ef4771cde484d2606decf4d119d444e7`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch`; `diff_range`: `a7610b283..255903e3e`
+
+Independent finder reviewed the public profile JSX, removal of the separate public CSS layout, the existing owner-page comparison and the updated Work label expectation. Result: `[]`; no candidate required a separate candidate-verification pass. Existing full/patch findings remain closed outside this presentation-only delta. Public identity lookup, ownership decision, message creation and Work access retain their existing implementations; the separate product reviewer owns visual and actual-entrypoint acceptance.
