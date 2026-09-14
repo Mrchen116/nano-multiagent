@@ -68,3 +68,12 @@ Independent finder reviewed the public profile JSX, removal of the separate publ
 - `review_mode`: `patch`; `diff_range`: `0256a531d..320b39c96`
 
 Independent finder reviewed the shared person-peer selection, viewer identity wiring, sidebar/header/message palette use and the rendered cross-surface regressions. Result: `[]`; no candidate required independent confirmation. Earlier full and patch conclusions remain retained outside this frontend presentation delta. Product acceptance is recorded independently; this code verdict is not a browser-verification claim.
+
+
+## Chat creation and contact layout patch, round 8
+
+- `validated_at`: `692e5180e8d0584fbe9b79eb914b3082d78a526a`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch`; `diff_range`: `e8eaf5df7..692e5180e`
+
+Independent finder reviewed the two-action menu, unchanged callback wiring, scoped contact-layout rules, localization and menu interaction regressions: `[]`. No candidate required confirmation; all earlier unaffected gate evidence remains retained. No adjacent-page scan or new full review was performed.

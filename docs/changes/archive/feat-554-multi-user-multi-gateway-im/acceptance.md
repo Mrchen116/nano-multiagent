@@ -372,3 +372,16 @@ U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期�
 ### 收尾
 
 独立 `feat554-avatar-review` 浏览器已关闭；未发送真人／模型消息、未改配置，检查 @ 所用临时草稿已清空；没有重启或停止用户临时服务。仅追加 acceptance.md，由 root 统一提交，无 reviewer 单独 commit。此次颜色统一不改变 spec／API 契约，无需新增上层规则；此前轮次与正式迁移边界保持。
+
+## Round 5 — targeted chat menu and contact layout revalidation
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 692e5180e8d0584fbe9b79eb914b3082d78a526a`；2026-09-14 09:04–09:07（Asia/Shanghai）；mode=full；revalidation_mode=targeted；fix_delta_range=`e8eaf5df7..692e5180e`。
+
+**Verdict：pass；Highest Required Action：pass；本轮新增问题 0；SF3 closed。** 仅复验用户指定的单个 + 菜单、390px 可点击性、联系人排列；Round 1–4 其他证据 retained，不重验完整 IM。
+
+- 版本：独立 `feat554-chat-menu-review` 会话以 nano 登录真实 `http://127.0.0.1:54719`；开始时 HEAD 为上述 SHA、tracked tree clean，HTTP 入口为指定 `index-D5AJQMVg.js`／`index-CMDsh4EW.css`，未重启服务。
+- 桌面 1440×960：列表只有一个 +；实际分别点击带图标的 New chat／Create group，打开原联系人／New group chat 弹窗，两者 Cancel 均返回列表。证据：`output/playwright/r5-menu-desktop.png`、`r5-contacts-desktop.png`。
+- 手机 390×844：从手机列表直接点击 +，两项菜单均可实际点击并打开各自弹层，未借桌面打开来代替手机入口；联系人 Cancel 可返回。原 SF3 的按钮互相遮挡不再出现。证据：`output/playwright/r5-menu-mobile.png`、`r5-contacts-mobile.png`。
+- 联系人：人／Agent 头像排列在同一左列，名称与副标题同一起点左对齐，Cancel 位于右上；浏览器命中测试确认整行左右空白均属于该行按钮（桌面 378px、手机 348px）。当前最长 Nova 副标题完整、无横向溢出，实际样式为 `white-space: normal; overflow-wrap: anywhere; text-align: left`；本轮未改测试数据制造额外超长名称。
+- 四张真实截图均已独立目视核对；参考是用户本轮反馈与 design 的既有聊天入口承接，不以原型替代产品。没有发送消息、创建群或修改配置；手机建群只打开观察，随后关闭测试浏览器，未提交表单。
+- 独立浏览器已关闭，用户临时服务保留。仅追加本报告、无单独 commit；本次未改变 API／身份契约，无需上层 spec 调整。按用户范围收口，不新增相邻扫描。
