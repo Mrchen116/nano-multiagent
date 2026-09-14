@@ -40,7 +40,7 @@ import {
   type Message,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
@@ -562,6 +562,7 @@ export function MessagePane({
 
 
   const kind = classifyConversationKind(conversation);
+  const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
   const isGroup = kind === "group" || kind === "agent-network";
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
@@ -909,8 +910,8 @@ export function MessagePane({
           <GroupAvatar size={34} label={t("chat.list.filters.group")} />
         ) : (
           <Avatar
-            initials={kind === "direct-agent" ? (agentInitials ?? conversation.title.slice(0, 2)) : conversation.title.slice(0, 2)}
-            color={kind === "direct-agent" ? (agentColor ?? "oklch(0.52 0.14 270)") : "oklch(0.52 0.14 270)"}
+            initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
+            color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
             size={34}
             status={kind === "direct-agent" ? nodeStatus : null}
           />
@@ -1458,9 +1459,7 @@ function MessageBubble({
   const isAgent = message.sender.type === "agent";
   const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
   const ts = formatHM(message.created_at);
-  const senderColor = message.sender.type === "agent" && message.sender.display_name
-    ? colorForAgentSeed(message.sender.display_name)
-    : "oklch(0.52 0.14 270)";
+  const senderColor = colorForAgentSeed(message.sender.display_name ?? message.sender.id);
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
@@ -1635,7 +1634,7 @@ function MessageBubble({
       <div className="flex flex-col min-w-0">
         {!isUser && (
           <div className="chat-bubble-meta">
-            <span className="chat-bubble-sender" style={{ color: isAgent && message.sender.display_name ? foregroundForAvatar(senderColor) : senderColor }}>
+            <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
             {nodeName && <small>{nodeName}</small>}

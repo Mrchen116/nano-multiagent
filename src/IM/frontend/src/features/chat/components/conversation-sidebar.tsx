@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import {
   getDistillConversationUnavailableKey,
   isDistillConversationEligible,
@@ -29,6 +29,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 
 export interface ConversationSidebarProps {
   conversations: Conversation[];
+  selfUserId?: string | null;
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
   onNewGroup(): void;
@@ -66,6 +67,7 @@ function formatDate(iso: string | null): string {
 
 export function ConversationSidebar({
   conversations,
+  selfUserId = null,
   activeConversationId,
   onSelect,
   onNewGroup,
@@ -205,14 +207,11 @@ export function ConversationSidebar({
             const agentStatus = kind === "direct-agent" && agentParticipant
               ? (agentRow?.status ?? null)
               : null;
+            const avatarName = kind === "direct-user" ? directPersonAvatarName(c, selfUserId) : c.title;
             const avatarColor =
               kind === "direct-agent" && agentRow
                 ? colorForAgent(agentRow)
-                : kind === "group"
-                  ? "oklch(0.52 0.14 270)"
-                  : kind === "agent-network" || kind === "direct-user"
-                    ? "oklch(0.52 0.14 30)"
-                    : colorForAgentSeed(c.title);
+                : colorForAgentSeed(avatarName);
             return (
               <li key={c.id}>
                 {distillMode ? (
@@ -228,7 +227,7 @@ export function ConversationSidebar({
                       onChange={() => onToggleDistillConversation?.(c.id)}
                     />
                     <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                     </span>
                     <span className="chat-sidebar-row-body">
                       <span className="chat-sidebar-row-title-line">
@@ -262,7 +261,7 @@ export function ConversationSidebar({
                     aria-current={active ? "true" : undefined}
                   >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">

@@ -1100,6 +1100,7 @@ export function ChatWorkspacePage() {
       {showList && (
         <ConversationSidebar
           conversations={sidebarConversations}
+          selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewChat={() => setShowNewChat(true)}
