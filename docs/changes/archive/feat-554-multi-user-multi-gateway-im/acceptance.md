@@ -385,3 +385,14 @@ U4 的纯人群 `c_fkphyq4g` 创建/解散 01:02:24–01:03:23 正式归入期�
 - 联系人：人／Agent 头像排列在同一左列，名称与副标题同一起点左对齐，Cancel 位于右上；浏览器命中测试确认整行左右空白均属于该行按钮（桌面 378px、手机 348px）。当前最长 Nova 副标题完整、无横向溢出，实际样式为 `white-space: normal; overflow-wrap: anywhere; text-align: left`；本轮未改测试数据制造额外超长名称。
 - 四张真实截图均已独立目视核对；参考是用户本轮反馈与 design 的既有聊天入口承接，不以原型替代产品。没有发送消息、创建群或修改配置；手机建群只打开观察，随后关闭测试浏览器，未提交表单。
 - 独立浏览器已关闭，用户临时服务保留。仅追加本报告、无单独 commit；本次未改变 API／身份契约，无需上层 spec 调整。按用户范围收口，不新增相邻扫描。
+
+## Round 6 — targeted account default-node removal
+
+> Validation snapshot: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4 → 7a6a6176a8a95a6ce2add7441fc8fa05f287938b`；2026-09-14 09:31–09:32（Asia/Shanghai）；mode=full；revalidation_mode=targeted；fix_delta_range=`55da199dc..7a6a6176a`。
+
+**Verdict：pass；Highest Required Action：pass；本轮问题 0。** 仅按用户要求查看 `/settings/account`，原资料保存／绑定及 Round 1–5 未影响旅程 retained。
+- 独立 `feat554-account-review` 浏览器以 nano 登录真实 `http://127.0.0.1:54719`；开始时 HEAD 与指定版本一致、tracked tree clean，HTTP 入口为 `index-BwzCX9ZJ.js`／`index-vgx3fc98.css`，未重启服务。
+- 1440×960 桌面及 390×844 手机分别查看 EN／中：均无默认入口节点下拉、路由说明或默认标记；实际 DOM 无 select／combobox，账号正文无 default／routing／默认／路由文案。
+- 两种语言、两种视口均保留用户 ID、显示名、资料卡及两台设备的名称／ID／在线状态／Agent 数、已拥有节点数 2；四张截图已独立目视核对，没有用原型替代产品。
+- 截图：`output/playwright/r6-account-desktop-en.png`、`r6-account-desktop-zh.png`、`r6-account-mobile-en.png`、`r6-account-mobile-zh.png`。语言只通过账号页所在顶栏菜单切换，未测试其他页面或保存任何资料。
+- 独立浏览器已关闭，临时服务保留；未更改账号、绑定或配置。仅追加报告，无单独 commit；本轮不重新宣称保存／绑定通过，不新增上层契约或扩大检查。

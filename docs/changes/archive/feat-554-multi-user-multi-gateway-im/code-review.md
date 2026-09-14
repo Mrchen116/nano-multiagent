@@ -77,3 +77,12 @@ Independent finder reviewed the shared person-peer selection, viewer identity wi
 - `review_mode`: `patch`; `diff_range`: `e8eaf5df7..692e5180e`
 
 Independent finder reviewed the two-action menu, unchanged callback wiring, scoped contact-layout rules, localization and menu interaction regressions: `[]`. No candidate required confirmation; all earlier unaffected gate evidence remains retained. No adjacent-page scan or new full review was performed.
+
+
+## Account default-entry control removal, round 9
+
+- `validated_at`: `7a6a6176a8a95a6ce2add7441fc8fa05f287938b`
+- `executed_base`: `94338a2a7d2e01b7868648895e6cfdcf0f6c53f4`
+- `review_mode`: `patch`; `diff_range`: `55da199dc..7a6a6176a`
+
+Independent finder checked the removed account controls/draft state, retained profile-save payload, device rendering and translation consumers. Result: `[]`; no candidate required confirmation. The node-selector translation still used by Agent creation is preserved. Previous unaffected scope remains retained.
