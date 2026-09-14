@@ -115,7 +115,7 @@
     },
     "account": {
       "title": "账号",
-      "subtitle": "你的资料和默认网关配置。",
+      "subtitle": "你的个人资料和设备。",
       "identity": {
         "heading": "资料",
         "subtitle": "你在工作区中的身份。",
@@ -125,14 +125,11 @@
         "createdAt": "加入时间"
       },
       "defaults": {
-        "heading": "网关",
-        "subtitle": "决定消息默认走哪个节点路由。",
-        "defaultEntryNode": "默认入口节点",
-        "defaultEntryNodeHint": "从你拥有的节点中选择。",
+        "heading": "设备",
+        "subtitle": "你拥有的设备及连接状态。",
         "selectNode": "— 选择节点 —",
         "ownedNodes": "已拥有节点",
         "ownedNodesEmpty": "尚未绑定任何节点。",
-        "defaultChip": "默认",
         "agentsShort": "agent"
       },
       "preferences": {

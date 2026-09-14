@@ -117,7 +117,7 @@
     },
     "account": {
       "title": "Account",
-      "subtitle": "Your profile and default gateway configuration.",
+      "subtitle": "Your profile and devices.",
       "identity": {
         "heading": "Profile",
         "subtitle": "Your identity inside the workspace.",
@@ -127,14 +127,11 @@
         "createdAt": "Member since"
       },
       "defaults": {
-        "heading": "Gateway",
-        "subtitle": "Controls which node routes your messages by default.",
-        "defaultEntryNode": "Default entry node",
-        "defaultEntryNodeHint": "Choose from your owned nodes.",
+        "heading": "Devices",
+        "subtitle": "Devices you own and their connection status.",
         "selectNode": "— Select a node —",
         "ownedNodes": "Owned nodes",
         "ownedNodesEmpty": "No nodes bound yet.",
-        "defaultChip": "Default",
         "agentsShort": "agents"
       },
       "preferences": {
