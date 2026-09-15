@@ -55,7 +55,18 @@ class StreamingDeltaEvent:
     process_seq: int | None
     elapsed_ms: int | None
     background_returns: tuple[BackgroundReturn, ...]
+    reply_process_transition: ReplyProcessTransition | None = None
     reply_process_item: ReplyProcessItem | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyProcessTransition:
+    """Describe Process facts that must follow one replayable bubble transition."""
+
+    run_id: str
+    predecessor_message_id: str | None
+    source_messages: tuple[dict[str, Any], ...]
+    include_handoff: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +155,9 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         agent_user_id=text_for("turn_start", field_name="agent_user_id"),
         shadow_message_id=text_for("turn_start", field_name="shadow_message_id"),
         delta_text=text_for("message_delta", field_name="delta_text"),
-        idempotency_key=text_for("message_delta", field_name="idempotency_key"),
+        idempotency_key=text_for(
+            "message_delta", "turn_start", field_name="idempotency_key"
+        ),
         final_content=text_for("message_completed", field_name="final_content"),
         delivery_status=text_for("message_completed", field_name="delivery_status"),
         token_usage=(
@@ -191,11 +204,47 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
             if kind == "reply_process"
             else None
         ),
+        reply_process_transition=(
+            parse_reply_process_transition(payload.get("reply_process_transition"))
+            if kind == "turn_start"
+            else None
+        ),
         background_returns=(
             parse_background_returns(payload.get("background_returns"))
             if kind == "turn_start"
             else ()
         ),
+    )
+
+
+def parse_reply_process_transition(value: object) -> ReplyProcessTransition | None:
+    """Parse Process facts carried by an idempotent ``turn_start`` frame."""
+    if value is None:
+        return None
+    raw = _require_mapping(value, field_name="reply_process_transition")
+    source_messages = raw.get("source_messages", [])
+    if not isinstance(source_messages, list):
+        raise ValueError("reply_process_transition.source_messages must be an array")
+    parsed_sources: list[dict[str, Any]] = []
+    for index, source in enumerate(source_messages):
+        parsed_sources.append(
+            dict(
+                _require_mapping(
+                    source,
+                    field_name=f"reply_process_transition.source_messages[{index}]",
+                )
+            )
+        )
+    include_handoff = raw.get("include_handoff", False)
+    if not isinstance(include_handoff, bool):
+        raise ValueError("reply_process_transition.include_handoff must be a boolean")
+    return ReplyProcessTransition(
+        run_id=_require_text(
+            raw.get("run_id"), field_name="reply_process_transition.run_id"
+        ),
+        predecessor_message_id=_optional_text(raw.get("predecessor_message_id")),
+        source_messages=tuple(parsed_sources),
+        include_handoff=include_handoff,
     )
 
 
