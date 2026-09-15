@@ -1979,7 +1979,10 @@ def build_kernel_event_observer(
             ctx.record_reply_process(draft=True)
 
             async def _retain_draft() -> None:
-                await manager.send_json_await_ack(
+                # Process items have stable item ids and the IM connection replays
+                # queued native frames after reconnect. Do not make the rest of the
+                # revalidation chain depend on receiving this individual ack.
+                await manager.send_json(
                     "node.streaming_delta",
                     {
                         "kind": "reply_process",
@@ -2066,7 +2069,7 @@ def build_kernel_event_observer(
                         elif revalidating:
                             ctx.record_reply_process()
                             if old_msg_id and had_draft:
-                                await mgr.send_json_await_ack(
+                                await mgr.send_json(
                                     "node.streaming_delta",
                                     {
                                         "kind": "reply_process",
@@ -2080,7 +2083,7 @@ def build_kernel_event_observer(
                                         },
                                     },
                                 )
-                            await mgr.send_json_await_ack(
+                            await mgr.send_json(
                                 "node.streaming_delta",
                                 {
                                     "kind": "reply_process",
