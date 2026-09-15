@@ -45,3 +45,5 @@ Green 与扩展验证：
 - `../../.venv/bin/python -m ruff check`（本次修改的 Python 源码与测试）→ `All checks passed!`。
 - `PYTHON=../../.venv/bin/python ./scripts/docs-check` → `documentation integrity passed: 236 maintained Markdown sources, 73 required routes`。
 - 独立 code review → `Approved`，`0 critical / 0 warning`；仅记录既有两处 root tuple 需依靠测试保持同步的非阻断残余限制。
+- 同步 `origin/main` 到 `e63857a46` 后完成 rebase；主干增量未修改本修复的产品路径或测试 seam，review 结论保留有效，并由最终树全量 CI 复验。
+- 最终树本地 CI：documentation integrity、`ruff check .`、`ruff format --check .` 通过；agent/PA 分片 `1882 passed`，remaining Python 分片 `1977 passed`；前端 `npm audit --audit-level=critical` 通过（无 critical），Vitest `759 passed`。
