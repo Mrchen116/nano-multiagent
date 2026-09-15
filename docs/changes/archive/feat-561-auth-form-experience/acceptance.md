@@ -106,3 +106,61 @@
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新；未修改文档体系。
 
 需要更新的长青契约由本 unit PR 的 canonical merge 提交承载。
+
+---
+
+## Round 2 — Unicode targeted revalidation
+
+> Validation snapshot: `241db5f79b97eee14e660ce6303582e25acf644f → a0cd2225646872ccc1d2569635e9194e1428be40`
+>
+> Review round: 2 · Mode: targeted · Revalidation mode: targeted
+>
+> Prior acceptance: Round 1 above (`57f3c1392e3b73958bac2caa57625f480000528e`)
+
+### Verdict
+
+**pass**
+
+- Highest Required Action: `pass`
+- Issues: 0（blocking 0 / major 0 / minor 0）
+- Needs re-review: `false`
+- 仅重验 code review 后受影响的 Unicode 长度语义；Round 1 的其余 19 个 Scenario 未被该修正影响，沿用上轮独立验收证据与结论。
+- 验收对象确认为 detached `a0cd2225646872ccc1d2569635e9194e1428be40`。该版本前端重新 build 后，以 review worktree 的独立 SQLite/JWT/Gateway/runtime 和高位端口 `51620` 提供真实 `/register` 入口。
+
+### Targeted 用户旅程
+
+在 390×844 中文注册页一次输入 **33 个 😀 用户名 + 4 个 😀 密码**，然后点击“创建账号”：
+
+1. 提交前用户名完整保留为 33 个 Unicode code point（66 个 UTF-16 code unit），浏览器 input `maxLength=-1`，`aria-invalid=false`。
+2. 提交后用户名仍完整保留 33 个 code point，没有被截成 32 个 emoji，也没有出现用户名过长反馈。
+3. 4 个 emoji 密码被判定为 4 个字符，而不是按 8 个 UTF-16 code unit 误判通过；密码字段 `aria-invalid=true`，焦点进入 `password`，显示中文“密码至少需要 8 位。”。
+4. 页面没有出现笼统“创建失败”，`/im/v1/auth/register` 资源请求数保持 **0**。
+
+真实浏览器证据位于本 review worktree：
+
+- snapshot: `output/playwright/feat561-unicode-r2/.playwright-cli/page-2026-09-15T06-15-32-660Z.yml`
+- screenshot: `output/playwright/feat561-unicode-r2/.playwright-cli/page-2026-09-15T06-15-37-278Z.png`
+- 结构化观测：`usernameCodePoints=33`、`usernameCodeUnits=66`、`usernameMaxLength=-1`、`usernameInvalid=false`、`passwordCodePoints=4`、`passwordCodeUnits=8`、`passwordInvalid=true`、`active=password`、`localizedMin8=true`、`genericFailure=false`、`registerRequests=0`
+
+### Reference Artifacts Reviewed
+
+本轮不是视觉调整，原型 must-match 面未受影响；真实页面仍呈现 Round 1 已通过的移动端注册布局。Unicode 字符语义以最终 canonical `docs/specs/im/auth-tenancy.md` 的 “Unicode 输入按服务端字符限制处理” Scenario 和真浏览器字段/请求结果为准。
+
+### 验收标准覆盖
+
+#### Requirement: 可在当前字段修正的问题就地给出反馈 — targeted 结论: pass
+
+| Scenario / focus | 期望来源 | 验证方式 | 实际证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Unicode 用户名按字符语义保留 | `specs/im/auth-tenancy.md` “Unicode 输入按服务端字符限制处理” | 真浏览器 fill 33 个 emoji，提交前后读取完整 value、code point/code unit、maxlength 与字段状态 | 33 code point / 66 code unit；`maxLength=-1`；提交前后均 33；`aria-invalid=false`；无过长反馈 | pass | 限制内输入未被浏览器提前截断 |
+| 4 个 emoji 密码仍不足 8 位 | `spec.md` “密码不足 8 位”；canonical Unicode Scenario | 与上述用户名组合提交，读取焦点、字段状态、中文文案与 register 请求数 | 4 code point / 8 code unit；`active=password`；`aria-invalid=true`；“密码至少需要 8 位。”；requests=0 | pass | 未按 UTF-16 code unit 误判，也无笼统失败 |
+
+### 问题清单
+
+无。
+
+### 清理与上层文档
+
+- 浏览器和隔离 IM/Gateway 已关闭；端口 `51620` 无监听，PID、secret、临时 Gateway config 与 channel credential 已清理。
+- `SPEC.md`、`AGENTS.md` / `CLAUDE.md`、`docs/specs/CONTRIBUTING.md`：无需更新。
+- `docs/specs/im/auth-tenancy.md`：最终归档版本已经包含 Unicode 字符语义，无需进一步同步。
