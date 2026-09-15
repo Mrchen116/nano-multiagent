@@ -61,4 +61,11 @@ Auto Gate 仅在 Auto 已启用、工具返回 `ask` 且原因为 `fallback` 时
 - 真实隔离 IM → Gateway → Global Inbox → 工具 → 聊天回复：DeepSeek `deepseek-v4-flash` 主模型、`gpt-5.6-luna` 审批模型，未替换模型或 HTTP 响应。节点 `wt-unit-bugfix-555-39462`、IM `127.0.0.1:61974`、Agent `webfetch555`；消息 `aef80b06618a4823a8297e69dd3c7408`，聊天 `c_ym8qc8ik`。主会话 `sess_60bc4a0c20b75392` 抓取 `https://example.org/`，子会话 `sess_76ca6a6065943b7b` 抓取 `https://raw.githubusercontent.com/python/cpython/main/README.rst`。两者均经真实 Luna S1 `<block>no</block>` 后执行，HTTP 200，公开工作记录显示 completed 和正文，最终聊天分别收到标题。
 - 上述实际审批请求定位于 LLM_PROXY `logs/session/2026-09-12_22-41-35_353_sess_60bc4a0c20b75392/2026-09-12_22-41-38_858-req-anthropic_messages.json` 与 `logs/session/2026-09-12_22-41-43_572_sess_76ca6a6065943b7b/2026-09-12_22-41-43_572-req-anthropic_messages.json`，配对响应各明确允许。这里只记录可复核定位，不提交原始日志或数据库。
 
+### 2026-09-15 rebase 复验
+
+- `executed_base` / `effective_base` / `effective_through`: `c87439586b7cba60a4b82834ab90aa5bf8c8f4d1`；`validated_at`: `05474c75b3b4cf459a203d6fbaef48308243ca38`（补写本节前的 rebased tree）。
+- 新增的主／子会话回归单独运行 **20 passed**；Auto Gate、WebFetch、审批上下文及 SDK 契约相关测试组重新运行 **218 passed**。
+- 变更文件的 Ruff、格式检查、文档完整性检查及 `git diff --check` 重新通过。
+- 从原基线到该 `main` 的增量没有修改本修复的权限语义或真实入口；2026-09-12 的隔离真实 LLM／HTTP 证据仍适用，本轮未重复生产部署或真实外部模型验收。
+
 本次交付不包含合并或生产部署。
