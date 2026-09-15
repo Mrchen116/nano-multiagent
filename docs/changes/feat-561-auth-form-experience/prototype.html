@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>feat-561 认证入口原型</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap");
+    :root {
+      color-scheme: light;
+      --bg: #f7f9fb;
+      --surface: #fff;
+      --surface-2: #f3f6f8;
+      --text: #243440;
+      --muted: #60717e;
+      --border: #e2e8ed;
+      --border-strong: #c2cfd7;
+      --accent: #0f766e;
+      --accent-2: #115e59;
+      --accent-soft: #e5f3ef;
+      --accent-border: #b9dbd2;
+      --danger: #c44747;
+      --danger-soft: #fff1f0;
+      --brand: #82b8af;
+      --brand-mark: #193f39;
+      --shadow: 0 18px 48px -24px rgb(30 50 60 / 28%);
+      font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; min-width: 320px; overflow: hidden; color: var(--text); background: var(--bg); }
+    button, input { font: inherit; }
+
+    .shell { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; display: flex; flex-direction: column; }
+    .topbar {
+      height: 48px;
+      flex: 0 0 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .01em; }
+    .brand-mark { width: 22px; height: 22px; display: block; }
+    .internal {
+      margin-left: 2px;
+      padding: 2px 6px;
+      color: var(--muted);
+      border-radius: 999px;
+      background: var(--surface-2);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .04em;
+    }
+
+    .locale { display: inline-flex; align-items: center; gap: 7px; color: #8a979f; font-size: 13px; }
+    .locale button { border: 0; padding: 2px; color: var(--muted); background: transparent; cursor: pointer; }
+    .locale button[aria-checked="true"] { color: var(--text); font-weight: 700; }
+    .locale button:focus-visible, .link-button:focus-visible, .password-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    .main {
+      flex: 1 0 auto;
+      min-height: calc(100vh - 48px);
+      width: min(1040px, calc(100% - 48px));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 430px;
+      gap: 80px;
+      align-items: center;
+      padding: 56px 0 72px;
+    }
+
+    .context { max-width: 470px; padding-left: 10px; }
+    .eyebrow { margin: 0 0 14px; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .context h1 { margin: 0; max-width: 450px; color: #20313d; font-size: clamp(34px, 4vw, 50px); line-height: 1.08; letter-spacing: -.045em; }
+    .context > p { margin: 20px 0 28px; max-width: 430px; color: var(--muted); font-size: 16px; line-height: 1.7; }
+    .capabilities { display: grid; gap: 10px; }
+    .capability {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: fit-content;
+      min-width: 260px;
+      padding: 10px 13px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: #314653;
+      background: rgb(255 255 255 / 72%);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .capability svg { width: 18px; height: 18px; color: var(--accent); flex: 0 0 auto; }
+
+    .panel {
+      width: 100%;
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .panel-header { margin-bottom: 25px; }
+    .panel-kicker { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 10px; color: var(--accent); font-size: 12px; font-weight: 700; }
+    .panel-kicker svg { width: 16px; height: 16px; }
+    .panel h2 { margin: 0 0 6px; font-size: 25px; line-height: 1.25; letter-spacing: -.025em; }
+    .panel-subtitle { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+    .form { display: flex; flex-direction: column; gap: 16px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #314653; font-size: 13px; font-weight: 600; }
+    .optional { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .input-shell { position: relative; }
+    .field input {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 9px;
+      outline: none;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+    .field input:hover:not(:disabled) { border-color: #9eb0ba; }
+    .field input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(15 118 110 / 12%); }
+    .field input[aria-invalid="true"] { border-color: var(--danger); background: #fffdfd; }
+    .field input[aria-invalid="true"]:focus-visible { box-shadow: 0 0 0 3px rgb(196 71 71 / 11%); }
+    .field input:disabled { color: var(--muted); background: var(--surface-2); }
+    .field input.with-toggle { padding-right: 43px; }
+    .hint, .field-error { margin: 0; font-size: 12px; line-height: 1.4; }
+    .hint { color: var(--muted); }
+    .field-error { color: var(--danger); font-weight: 500; }
+
+    .password-toggle {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      width: 30px;
+      height: 30px;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+    .password-toggle svg { width: 18px; height: 18px; }
+
+    .alert { display: flex; gap: 9px; margin: 0; padding: 10px 12px; border: 1px solid #e6b9b9; border-radius: 9px; color: #963b3b; background: var(--danger-soft); font-size: 13px; line-height: 1.45; }
+    .alert svg { width: 17px; height: 17px; flex: 0 0 auto; margin-top: 1px; }
+    .submit {
+      min-height: 45px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 2px;
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 16px;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .submit:hover:not(:disabled) { background: var(--accent-2); }
+    .submit:focus-visible { outline: 3px solid rgb(15 118 110 / 18%); outline-offset: 2px; }
+    .submit:disabled { opacity: .62; cursor: wait; }
+    .submit svg { width: 17px; height: 17px; }
+
+    .panel-footer { display: flex; justify-content: center; gap: 7px; margin-top: 20px; color: var(--muted); font-size: 13px; }
+    .link-button { border: 0; padding: 0; color: var(--accent); background: transparent; cursor: pointer; font-weight: 600; }
+    .prototype-note { position: fixed; left: 12px; bottom: 10px; color: #8a979f; font-size: 11px; }
+
+    @media (max-width: 760px) {
+      .topbar { padding: 0 14px; }
+      .main { width: 100%; display: block; padding: 28px 16px 36px; }
+      .context { max-width: none; padding: 0 4px 22px; }
+      .eyebrow { margin-bottom: 8px; font-size: 11px; }
+      .context h1 { max-width: 340px; font-size: 28px; line-height: 1.16; }
+      .context > p { margin: 10px 0 0; max-width: 350px; font-size: 14px; line-height: 1.55; }
+      .capabilities { display: none; }
+      .panel { padding: 24px 20px; border-radius: 14px; box-shadow: 0 12px 36px -26px rgb(30 50 60 / 35%); }
+      .panel-header { margin-bottom: 22px; }
+      .prototype-note { display: none; }
+    }
+
+    @media (max-width: 360px) {
+      .internal { display: none; }
+      .main { padding-inline: 10px; }
+      .panel { padding-inline: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" id="app"></div>
+  <div class="prototype-note">原型交互：用户名 taken 模拟重名，offline 模拟服务异常</div>
+
+  <script>
+    const copy = {
+      zh: {
+        contextEyebrow: "多人 · 多 Agent · 多设备", contextTitle: "让人与 Agent 在一个工作区协作", contextBody: "从聊天开始，在不同设备上连接你的 Agent，一起跟进长期任务。",
+        capabilityPeople: "与团队成员共同使用 Agent", capabilityAgents: "在同一个聊天里协作多个 Agent", capabilityDevices: "在你的设备上管理和运行",
+        registerKicker: "开始使用", loginKicker: "欢迎回来", registerTitle: "创建账号", registerSubtitle: "设置你的 nano IM 身份。", loginTitle: "登录", loginSubtitle: "继续你的对话和 Agent 工作。",
+        username: "用户名", displayName: "显示名", password: "密码", optional: "可选", displayHint: "留空时使用用户名。", passwordHint: "至少 8 位。",
+        showPassword: "显示密码", hidePassword: "隐藏密码", create: "创建账号", creating: "正在创建…", signIn: "登录", signingIn: "正在登录…",
+        haveAccount: "已有账号？", goLogin: "去登录", noAccount: "还没有账号？", goRegister: "创建一个",
+        usernameRequired: "请填写用户名。", passwordRequired: "请填写密码。", short: "密码至少 8 位。", taken: "该用户名已被占用。", reserved: "请更换一个用户名。", invalid: "用户名或密码错误。", unavailable: "认证服务暂时不可用，请稍后重试。", success: "验证成功，即将进入产品。"
+      },
+      en: {
+        contextEyebrow: "People · Agents · Devices", contextTitle: "Bring people and agents into one workspace", contextBody: "Start with chat, connect agents on your devices, and keep long-running work moving together.",
+        capabilityPeople: "Use agents with your team", capabilityAgents: "Collaborate with multiple agents in one chat", capabilityDevices: "Manage and run work on your devices",
+        registerKicker: "Get started", loginKicker: "Welcome back", registerTitle: "Create your account", registerSubtitle: "Set up your nano IM identity.", loginTitle: "Sign in", loginSubtitle: "Continue your conversations and agent work.",
+        username: "Username", displayName: "Display name", password: "Password", optional: "Optional", displayHint: "Uses your username when left blank.", passwordHint: "At least 8 characters.",
+        showPassword: "Show password", hidePassword: "Hide password", create: "Create account", creating: "Creating…", signIn: "Sign in", signingIn: "Signing in…",
+        haveAccount: "Already have an account?", goLogin: "Sign in", noAccount: "No account yet?", goRegister: "Create one",
+        usernameRequired: "Enter your username.", passwordRequired: "Enter your password.", short: "Password must be at least 8 characters.", taken: "That username is already taken.", reserved: "Choose a different username.", invalid: "The username or password is incorrect.", unavailable: "The authentication service is temporarily unavailable. Try again shortly.", success: "Success. Opening the app…"
+      }
+    };
+
+    const state = { locale: localStorage.getItem("feat561_locale") || "zh", page: "register", values: { username: "", displayName: "", password: "" }, errors: {}, formError: "", passwordVisible: false, submitting: false };
+    const icon = (name) => {
+      const paths = {
+        people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+        agents: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="m8 12 2.5 2.5L16 9"/>',
+        devices: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
+        arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+        alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/>',
+        enter: '<path d="M12 5v14m-6-6 6 6 6-6"/>',
+        eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+        eyeOff: '<path d="m3 3 18 18M10.6 6.2A9.9 9.9 0 0 1 12 6c6.5 0 10 6 10 6a16 16 0 0 1-3 3.7M6.4 6.4C3.6 8.2 2 12 2 12s3.5 6 10 6a9.4 9.4 0 0 0 3.2-.5"/>'
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
+    };
+    const t = key => copy[state.locale][key];
+    const esc = value => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+    function field(name, label, options = {}) {
+      const errorCode = state.errors[name];
+      const hintId = options.hint ? `${name}-hint` : "";
+      const errorId = errorCode ? `${name}-error` : "";
+      const describedBy = [hintId, errorId].filter(Boolean).join(" ");
+      const toggle = options.password ? `<button class="password-toggle" type="button" data-action="toggle-password" aria-label="${t(state.passwordVisible ? "hidePassword" : "showPassword")}" ${state.submitting ? "disabled" : ""}>${icon(state.passwordVisible ? "eyeOff" : "eye")}</button>` : "";
+      return `<label class="field" for="${name}">
+        <span class="label-row"><span>${label}</span>${options.optional ? `<span class="optional">${t("optional")}</span>` : ""}</span>
+        <span class="input-shell"><input id="${name}" name="${name}" ${options.password ? `type="${state.passwordVisible ? "text" : "password"}" class="with-toggle"` : 'type="text"'} value="${esc(state.values[name])}" autocomplete="${options.autocomplete || "off"}" ${describedBy ? `aria-describedby="${describedBy}"` : ""} aria-invalid="${Boolean(errorCode)}" ${state.submitting ? "disabled" : ""}>${toggle}</span>
+        ${options.hint ? `<p class="hint" id="${hintId}">${options.hint}</p>` : ""}
+        ${errorCode ? `<p class="field-error" id="${errorId}">${t(errorCode)}</p>` : ""}
+      </label>`;
+    }
+
+    function render(focusName) {
+      document.documentElement.lang = state.locale === "zh" ? "zh-CN" : "en";
+      const register = state.page === "register";
+      document.querySelector("#app").innerHTML = `
+        <header class="topbar">
+          <div class="brand"><svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--brand)"/><path d="M7 12.5 10.5 16 17 9.5" fill="none" stroke="var(--brand-mark)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>nano IM</span><span class="internal">internal</span></div>
+          <div class="locale" role="group" aria-label="Language"><button type="button" data-locale="en" role="radio" aria-checked="${state.locale === "en"}">EN</button><span aria-hidden="true">|</span><button type="button" data-locale="zh" role="radio" aria-checked="${state.locale === "zh"}">中</button></div>
+        </header>
+        <main class="main">
+          <section class="context" aria-labelledby="context-title"><p class="eyebrow">${t("contextEyebrow")}</p><h1 id="context-title">${t("contextTitle")}</h1><p>${t("contextBody")}</p>
+            <div class="capabilities"><div class="capability">${icon("people")}<span>${t("capabilityPeople")}</span></div><div class="capability">${icon("agents")}<span>${t("capabilityAgents")}</span></div><div class="capability">${icon("devices")}<span>${t("capabilityDevices")}</span></div></div>
+          </section>
+          <section class="panel" aria-labelledby="form-title">
+            <header class="panel-header"><div class="panel-kicker">${icon("enter")}<span>${t(register ? "registerKicker" : "loginKicker")}</span></div><h2 id="form-title">${t(register ? "registerTitle" : "loginTitle")}</h2><p class="panel-subtitle">${t(register ? "registerSubtitle" : "loginSubtitle")}</p></header>
+            <form class="form" novalidate>
+              ${field("username", t("username"), { autocomplete: "username" })}
+              ${register ? field("displayName", t("displayName"), { optional: true, hint: t("displayHint"), autocomplete: "name" }) : ""}
+              ${field("password", t("password"), { password: true, hint: register ? t("passwordHint") : "", autocomplete: register ? "new-password" : "current-password" })}
+              ${state.formError ? `<p class="alert" role="alert">${icon("alert")}<span>${t(state.formError)}</span></p>` : ""}
+              <button class="submit" type="submit" ${state.submitting ? "disabled" : ""}><span>${t(state.submitting ? (register ? "creating" : "signingIn") : (register ? "create" : "signIn"))}</span>${!state.submitting ? icon("arrow") : ""}</button>
+            </form>
+            <footer class="panel-footer"><span>${t(register ? "haveAccount" : "noAccount")}</span><button type="button" class="link-button" data-action="switch-page" ${state.submitting ? "disabled" : ""}>${t(register ? "goLogin" : "goRegister")}</button></footer>
+          </section>
+        </main>`;
+      bind();
+      if (focusName) requestAnimationFrame(() => document.getElementById(focusName)?.focus());
+    }
+
+    function bind() {
+      document.querySelectorAll("input").forEach(input => input.addEventListener("input", event => {
+        state.values[event.target.name] = event.target.value;
+        delete state.errors[event.target.name];
+        state.formError = "";
+        render(event.target.name);
+        const next = document.getElementById(event.target.name);
+        next.setSelectionRange(next.value.length, next.value.length);
+      }));
+      document.querySelector("form").addEventListener("submit", submit);
+      document.querySelector("[data-action=toggle-password]").addEventListener("click", () => { state.passwordVisible = !state.passwordVisible; render("password"); });
+      document.querySelector("[data-action=switch-page]").addEventListener("click", () => { state.page = state.page === "register" ? "login" : "register"; state.errors = {}; state.formError = ""; state.passwordVisible = false; state.values.password = ""; render("username"); });
+      document.querySelectorAll("[data-locale]").forEach(button => button.addEventListener("click", () => { state.locale = button.dataset.locale; localStorage.setItem("feat561_locale", state.locale); render(); }));
+    }
+
+    function submit(event) {
+      event.preventDefault();
+      const register = state.page === "register";
+      const errors = {};
+      if (!state.values.username.trim()) errors.username = "usernameRequired";
+      if (register && /^(system|agent:|shadow:)/.test(state.values.username.trim())) errors.username = "reserved";
+      if (!state.values.password) errors.password = "passwordRequired";
+      else if (register && state.values.password.length < 8) errors.password = "short";
+      state.errors = errors;
+      state.formError = "";
+      const firstError = ["username", "displayName", "password"].find(name => errors[name]);
+      if (firstError) return render(firstError);
+      if (register && state.values.username === "taken") { state.errors.username = "taken"; return render("username"); }
+      if (state.values.username === "offline") { state.formError = "unavailable"; return render(); }
+      if (!register) { state.formError = "invalid"; return render("username"); }
+      state.submitting = true;
+      render();
+      setTimeout(() => { state.submitting = false; state.formError = "success"; render(); }, 850);
+    }
+    render();
+  </script>
+</body>
+</html>
