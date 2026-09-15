@@ -63,22 +63,25 @@
 
 ## 修复
 
-- `d2f77ab68`：将 draft、segment handoff 与 revalidation 三类 `reply_process` 帧改为进入 `IMConnectionManager` 已有的可重放 FIFO 队列，不再逐条同步等待业务 ack。气泡 `message_completed` / `turn_start` 仍保留 ack 屏障，因此正文路由和前后气泡身份不变；Process 帧依靠稳定 `item_id` 在 IM 持久化边界幂等 upsert。
-- 同一提交将 withheld reminder 改为已确认的共享上下文说明：紧邻 assistant 文本在新消息到达前形成、发布前撤回且参与者未收到；更早已发布消息仍属于共享对话；模型从更新后的状态按原始回复规则继续，并在需要公开回复时补全对方仍需的信息。
+- `d2f77ab68` 将 withheld reminder 改为已确认的共享上下文说明：紧邻 assistant 文本在新消息到达前形成、发布前撤回且参与者未收到；更早已发布消息仍属于共享对话；模型从更新后的状态按原始回复规则继续，并在需要公开回复时补全对方仍需的信息。该提交还先把 Process 帧改为可重放发送，但独立 code review 发现 handoff / revalidation 仍位于 `turn_start` ack 屏障之后，不能覆盖生产故障。
+- `96dd42754` 将气泡切换改为一个可收敛的协议动作：Gateway 为 `turn_start` 提供稳定幂等键，并把 handoff / revalidation 过渡事实作为 sidecar 一并发送；IM 创建或复用同一气泡后，以稳定 item id 将事实落到前后气泡。若第一次请求已被 IM 接受但 ack 丢失，Gateway 用同一键重试并取回同一气泡 ID，后续正文和收尾继续写入该气泡。
+- draft 仍在收到 `draft_withheld` 时先进入原有 FIFO 重放队列；公开正文仍由 Kernel revision 门禁决定，不依赖 Process 单项 ack。
 - 未改变 global Agent journal、inbox 或 `send_message` 路径。
 
 ## 验证
 
-测试策略：扩展现有最低层 owner 测试；Gateway observer 测试保护 Process 投影不再依赖单条 ack，Kernel 测试保护 reminder 的共享可见性语义。既有理想 ack 顺序测试保留；连接队列和重连测试保留，用于验证本次复用的 FIFO 重放边界。没有新增测试文件或一次性验收脚本。
+测试策略：扩展现有最低层 owner 测试；Gateway observer 真实模拟“IM 已接受 `turn_start`、ack 丢失”，验证重试复用同一气泡且后续正文可投递；IM handler 测试重复提交同一 `turn_start`，验证只创建一个气泡并幂等保留前后 Process。Kernel 测试保护 reminder 的共享可见性语义。没有新增测试文件或一次性验收脚本。
 
-- 修前失败复现：
-  - `pytest -q tests/unit/personal_assistant/test_reply_revalidation_delivery.py::test_reply_process_survives_its_ack_timeout tests/unit/agent/test_output_revalidation.py::test_stale_body_is_withheld_before_exact_consumption_and_same_run_continues`
-  - 结果：2 failed；分别在 Process ack timeout 和缺失新 reminder 语义处失败。
-- 修后最窄复验：同一命令，2 passed。
-- 相关 revalidation / Process 回归：
-  - `pytest -q tests/unit/agent/test_output_revalidation.py tests/unit/personal_assistant/test_reply_revalidation_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/im_service/unit/test_reply_process.py`
-  - 结果：14 passed。
-- 连接重放与 steer 身份回归：
-  - `pytest -q tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py`
-  - 结果：24 passed。
-- 静态检查：受影响的 4 个 Python 文件执行 `ruff check` 与 `ruff format --check`，均通过。
+- 首轮修前失败复现同时覆盖 Process ack timeout 与 reminder 缺失，结果 2 failed；首轮实现后 2 passed。
+- 独立 code review 用生产相同时序复现：`turn_start` 已生效但 ack 丢失时，只留下 draft，handoff / revalidation 未入队，正文也失去新气泡目标；该 P1 阻塞首轮交付。
+- 纠正后的最窄复验：
+  - `pytest -q tests/unit/personal_assistant/test_reply_revalidation_delivery.py::test_reply_process_and_body_survive_accepted_turn_start_ack_loss tests/im_service/unit/test_gateway_handler.py::test_turn_start_replay_persists_reply_process_transition_once`
+  - 结果：2 passed。
+- 相关 Kernel / Gateway / IM 回归：
+  - `pytest -q tests/unit/agent/test_output_revalidation.py tests/unit/personal_assistant/test_reply_revalidation_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/im_service/unit/test_reply_process.py tests/im_service/unit/test_gateway_handler.py`
+  - 结果：49 passed。
+- 连接、持久化与 relay 回归：
+  - `pytest -q tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/im_service/unit/test_event_bridge.py tests/im_service/unit/test_repositories_message.py tests/im_service/unit/test_gateway_reply_fanout.py`
+  - 结果：92 passed。
+- 全量本地非 E2E 门禁：`pytest -q -m 'not e2e'`，结果：3893 passed，35 deselected。
+- 静态检查：受影响的 7 个 Python 文件执行 `ruff check`、`ruff format --check` 与 `git diff --check`，均通过。
