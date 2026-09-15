@@ -130,6 +130,7 @@ def test_node_capabilities_marks_pa_global_skills_default_on(
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
     _write_skill(tmp_path / ".nanoassistant" / "skills", "pa-global")
+    _write_skill(tmp_path / ".agents" / "skills", "compat-agents")
     _write_skill(tmp_path / ".claude" / "skills", "compat-claude")
 
     kernel = _build_test_kernel(tmp_path / "kernel-root")
@@ -137,6 +138,8 @@ def test_node_capabilities_marks_pa_global_skills_default_on(
     by_name = {item["name"]: item for item in payload["skills"]}
 
     assert by_name["pa-global"]["default_on"] is True
+    assert by_name["compat-agents"]["default_on"] is False
+    assert by_name["compat-agents"]["source_group"] == "compatibility"
     assert by_name["compat-claude"]["default_on"] is False
 
 

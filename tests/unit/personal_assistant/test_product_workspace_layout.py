@@ -37,6 +37,7 @@ def test_pa_kernel_passes_product_workspace_and_global_roots(
     )
     assert captured["skill_search_roots"] == (
         Path("~/.nanoassistant/skills"),
+        Path("~/.agents/skills"),
         Path("~/.claude/skills"),
         Path("~/.codex/skills"),
     )

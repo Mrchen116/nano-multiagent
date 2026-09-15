@@ -33,8 +33,11 @@ from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 _log = logging.getLogger("personal_assistant.ws.im_connection")
 
 
+# Keep this usage-report lookup aligned with product.PA_SKILL_SEARCH_ROOTS. These are
+# user-global roots only; workspace usage is read separately from .nanoassistant.
 _PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
     Path("~/.nanoassistant/skills"),
+    Path("~/.agents/skills"),
     Path("~/.claude/skills"),
     Path("~/.codex/skills"),
 )

@@ -46,15 +46,14 @@ from personal_assistant.tools import (
 )
 
 # Deployment-level skill search roots shared across every PA agent (refactor-406-M2).
-# These reproduce the legacy reporter's 4-tier skill search: the per-workspace root
-# (<workspace>/.nanoassistant/skills) is added by the kernel from
-# workspace_config_dirname; these are the global + compat roots passed to
-# build_kernel(skill_search_roots=), in the legacy order (global → compat-claude →
-# compat-codex). Ported verbatim from PERSONAL_ASSISTANT_PROFILE.global_config_home
-# (~/.nanoassistant) + compat_skill_roots (~/.claude/skills, ~/.codex/skills). The PA
-# factory owns these product paths; the kernel only searches the roots it is handed.
+# The kernel prepends PA's declared workspace roots; these are the ordered user-global
+# roots passed to build_kernel(skill_search_roots=): PA native first, then current
+# Codex Agent Skills, followed by legacy Claude/Codex compatibility roots. There is
+# intentionally no <workspace>/.agents/skills root. The PA factory owns these product
+# paths; the kernel only searches the roots it is handed.
 PA_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
     Path("~/.nanoassistant/skills"),
+    Path("~/.agents/skills"),
     Path("~/.claude/skills"),
     Path("~/.codex/skills"),
 )
