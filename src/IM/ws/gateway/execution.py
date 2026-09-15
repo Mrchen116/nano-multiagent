@@ -7,11 +7,13 @@ import logging
 
 from IM.application.event_bridge import EventBridge
 from IM.application.metrics_service import MetricsService
+from IM.domain.models import ReplyProcessItem
 from IM.infra.gateway_persistence import GatewayConversationPersistence
 from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
 from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
 from .protocol import (
+    ReplyProcessTransition,
     _not_registered_error,
     _optional_non_negative_int,
     _optional_text,
@@ -75,10 +77,34 @@ class GatewayExecution:
             if payload.get("agent_user_id") not in (None, actual_user):
                 raise ValueError("agent_user_id does not match source Agent")
             if payload.get("conversation_id") is None:
+                if payload.get("reply_process_transition") is not None:
+                    raise ValueError(
+                        "reply process transition requires conversation_id"
+                    )
                 return
             conversation_id = _require_text(
                 payload.get("conversation_id"), field_name="conversation_id"
             )
+            raw_transition = payload.get("reply_process_transition")
+            if isinstance(raw_transition, dict):
+                predecessor_message_id = raw_transition.get("predecessor_message_id")
+                if predecessor_message_id is not None:
+                    predecessor = self._message_repository.get_message(
+                        message_id=_require_text(
+                            predecessor_message_id,
+                            field_name="reply_process_transition.predecessor_message_id",
+                        )
+                    )
+                    if (
+                        predecessor is None
+                        or predecessor.conversation_id != conversation_id
+                        or predecessor.sender is None
+                        or predecessor.sender.type != "agent"
+                        or predecessor.sender.id != agent_id
+                    ):
+                        raise ValueError(
+                            "reply process predecessor must belong to the source Agent"
+                        )
         else:
             message_id = _require_text(
                 payload.get("message_id"), field_name="message_id"
@@ -298,10 +324,17 @@ class GatewayExecution:
                     turn_start_args["background_returns"] = list(
                         event.background_returns
                     )
-                if event.shadow_message_id is not None:
-                    turn_start_args["caller_idempotency_key"] = event.shadow_message_id
+                caller_idempotency_key = (
+                    event.shadow_message_id or event.idempotency_key
+                )
+                if caller_idempotency_key is not None:
+                    turn_start_args["caller_idempotency_key"] = caller_idempotency_key
                 created_message = self._event_bridge.on_turn_start(
                     **turn_start_args,
+                )
+                self._persist_reply_process_transition(
+                    successor_message_id=created_message.id,
+                    transition=event.reply_process_transition,
                 )
                 # Return both conversation_id and message_id so the gateway can update
                 # run_context_store with the resolved canonical conversation (feat-393 design §接口与数据流).
@@ -342,9 +375,14 @@ class GatewayExecution:
             }
             if event.background_returns:
                 turn_start_args["background_returns"] = list(event.background_returns)
-            if event.shadow_message_id is not None:
-                turn_start_args["caller_idempotency_key"] = event.shadow_message_id
+            caller_idempotency_key = event.shadow_message_id or event.idempotency_key
+            if caller_idempotency_key is not None:
+                turn_start_args["caller_idempotency_key"] = caller_idempotency_key
             created_message = self._event_bridge.on_turn_start(**turn_start_args)
+            self._persist_reply_process_transition(
+                successor_message_id=created_message.id,
+                transition=event.reply_process_transition,
+            )
             # Return message_id in ack so PA observer can update run_context_store;
             # without this, observer keeps empty message_id and delta targets user message.
             return {
@@ -495,6 +533,39 @@ class GatewayExecution:
             "type": "ack",
             "payload": {"message_type": "node.streaming_delta", "kind": kind},
         }
+
+    def _persist_reply_process_transition(
+        self,
+        *,
+        successor_message_id: str,
+        transition: ReplyProcessTransition | None,
+    ) -> None:
+        """Converge replayed turn starts on the same handoff and revalidation facts."""
+        if self._event_bridge is None or transition is None:
+            return
+        run_id = transition.run_id
+        predecessor_message_id = transition.predecessor_message_id
+        if transition.include_handoff and predecessor_message_id:
+            self._event_bridge.on_reply_process(
+                message_id=predecessor_message_id,
+                item=ReplyProcessItem(
+                    item_id=f"handoff:{run_id}:{successor_message_id}",
+                    kind="segment_handoff",
+                    run_id=run_id,
+                    successor_message_id=successor_message_id,
+                ),
+            )
+        self._event_bridge.on_reply_process(
+            message_id=successor_message_id,
+            item=ReplyProcessItem(
+                item_id=f"revalidation:{run_id}:{successor_message_id}",
+                kind="revalidation",
+                run_id=run_id,
+                source_messages=[dict(item) for item in transition.source_messages],
+                predecessor_message_id=predecessor_message_id,
+                status="running",
+            ),
+        )
 
     def _permission_target(self, payload: dict[str, object]) -> dict[str, str]:
         """Bind one card to the message's actual Agent on this registered node."""

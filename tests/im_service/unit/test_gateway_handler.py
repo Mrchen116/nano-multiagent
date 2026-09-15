@@ -9,7 +9,7 @@ import pytest
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.domain.models import Message
+from IM.domain.models import Message, ReplyProcessItem
 from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
@@ -1166,6 +1166,143 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
     messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
     assert len(messages) == 1
     assert messages[0].id == str(msg_id)
+
+
+def test_turn_start_replay_persists_reply_process_transition_once(
+    tmp_path: Path,
+) -> None:
+    """An accepted turn_start replay converges on one bubble and its Process facts."""
+    handler, connection, bridge = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    convs = ConversationRepository(connection)
+    owner = users.create_user(username="chat-owner", display_name="Chat Owner")
+    agent_user = users.create_user(username="agent:delta", display_name="Delta")
+    conv = convs.create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
+    predecessor = bridge.on_turn_start(
+        conversation_id=conv.id,
+        agent_user_id=agent_user.id,
+        agent_id="delta",
+    )
+    bridge.on_reply_process(
+        message_id=predecessor.id,
+        item=ReplyProcessItem(
+            item_id="draft-1",
+            kind="draft",
+            run_id="run-chat-1",
+            text="withheld draft",
+        ),
+    )
+    asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
+        )
+    )
+    payload = {
+        "node_id": "node-1",
+        "kind": "turn_start",
+        "conversation_id": conv.id,
+        "agent_id": "delta",
+        "run_id": "run-chat-1",
+        "idempotency_key": "run-chat-1:bubble:1",
+        "reply_process_transition": {
+            "run_id": "run-chat-1",
+            "predecessor_message_id": predecessor.id,
+            "source_messages": [{"message_id": "input-2", "sender": "Alice"}],
+            "include_handoff": True,
+        },
+    }
+
+    first = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.streaming_delta",
+            payload=payload,
+        )
+    )
+    replay = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.streaming_delta",
+            payload=payload,
+        )
+    )
+
+    successor_id = str(first["payload"]["message_id"])
+    assert replay["payload"]["message_id"] == successor_id
+    messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
+    assert len(messages) == 2
+    previous = next(message for message in messages if message.id == predecessor.id)
+    successor = next(message for message in messages if message.id == successor_id)
+    assert [item.kind for item in previous.reply_process or []] == [
+        "draft",
+        "segment_handoff",
+    ]
+    assert (previous.reply_process or [])[-1].successor_message_id == successor_id
+    assert [item.kind for item in successor.reply_process or []] == ["revalidation"]
+    assert (successor.reply_process or [])[0].source_messages == [
+        {"message_id": "input-2", "sender": "Alice"}
+    ]
+
+
+def test_turn_start_to_user_id_rejects_reply_process_transition(
+    tmp_path: Path,
+) -> None:
+    """Lazy owner-direct creation cannot mutate an unverified predecessor."""
+    handler, connection, bridge = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="chat-owner", display_name="Chat Owner")
+    agent_user = users.create_user(username="agent:delta", display_name="Delta")
+    conv = ConversationRepository(connection).create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
+    predecessor = bridge.on_turn_start(
+        conversation_id=conv.id,
+        agent_user_id=agent_user.id,
+        agent_id="delta",
+    )
+    asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.streaming_delta",
+            payload={
+                "node_id": "node-1",
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "delta",
+                "run_id": "run-chat-1",
+                "reply_process_transition": {
+                    "run_id": "run-chat-1",
+                    "predecessor_message_id": predecessor.id,
+                    "source_messages": [],
+                    "include_handoff": True,
+                },
+            },
+        )
+    )
+
+    assert response["type"] == "error"
+    assert response["payload"]["code"] == "bad_payload"
+    restored = MessageRepository(connection).get_message(message_id=predecessor.id)
+    assert restored is not None and not restored.reply_process
 
 
 def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(

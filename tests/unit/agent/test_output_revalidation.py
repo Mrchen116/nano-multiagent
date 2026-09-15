@@ -77,7 +77,10 @@ async def test_stale_body_is_withheld_before_exact_consumption_and_same_run_cont
     assert events[consumed_index][1]["pending_ids"] == pending_ids
     assert events[consumed_index][1]["context_revision"] == 1
     assert all(data["run_id"] == "run" for _, data in events if "run_id" in data)
-    assert "NOT SENT" in str(requests[1].messages)
+    reminder = str(requests[1].messages)
+    assert "withheld before publication" in reminder
+    assert "participants have not received its content" in reminder
+    assert "Earlier successfully published assistant messages remain" in reminder
     assert "new facts" in str(requests[1].messages)
     assert [
         m.content for m in build_turn_result("session", "turn", messages).messages
@@ -132,7 +135,7 @@ async def test_round_limit_withholds_body_and_leaves_unconsumed_input_for_recove
     history = tuple(m for m in messages if m.role != "turn_meta")
     replay = build_chat_messages(history_messages=history, user_text="continue")
     assert "outdated" in str(replay)
-    assert "NOT SENT" in str(replay)
+    assert "withheld before publication" in str(replay)
 
 
 async def test_tools_finish_before_body_commit_and_keep_real_results_on_revalidation():
@@ -283,11 +286,8 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
         if m.metadata["output_status"]["state"] == "withheld"
     )
     assert "COMMITTED FOR DELIVERY" not in next_context
-    assert "NOT SENT" in next_context
-    assert (
-        "Your previous reply was NOT SENT because new messages arrived. "
-        "Consider the new messages and reply again."
-    ) in next_context
+    assert "was never delivered to the conversation" in next_context
+    assert "withheld draft communicated nothing to them" in next_context
 
     transcript, files, writer, ref = _build_transcript(tmp_path)
     try:
@@ -305,7 +305,7 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
             history_messages=tuple(reloaded), user_text="continue"
         )
         assert "COMMITTED FOR DELIVERY" not in str(replay)
-        assert "NOT SENT" in str(replay)
+        assert "was never delivered to the conversation" in str(replay)
         legacy_history = tuple(
             replace(
                 m, content="<system-reminder>COMMITTED FOR DELIVERY</system-reminder>"

@@ -729,8 +729,15 @@ class AgentLoop:
                                 ""
                                 if committed
                                 else "<system-reminder>\n"
-                                "Your previous reply was NOT SENT because new messages arrived. "
-                                "Consider the new messages and reply again.\n</system-reminder>"
+                                "The immediately preceding assistant text was drafted before "
+                                "the new messages arrived. It was withheld before publication "
+                                "and was never delivered to the conversation, so the participants "
+                                "have not received its content. Earlier successfully published "
+                                "assistant messages remain part of the shared conversation.\n\n"
+                                "Continue from the updated conversation state under the original "
+                                "reply rules. If a public response is warranted, include all "
+                                "information the recipients still need, since the withheld draft "
+                                "communicated nothing to them.\n</system-reminder>"
                             ),
                             metadata={
                                 "context_origin": "system",

@@ -22,7 +22,10 @@ from personal_assistant.gateway.workflow_permission_bindings import (
     WorkflowPermissionDeliveryAnchor,
     WorkflowPermissionDeliveryBindingRegistry,
 )
-from personal_assistant.ws.im_connection import IMConnectionManager
+from personal_assistant.ws.im_connection import (
+    IMConnectionManager,
+    IMFrameRejectedError,
+)
 
 from .background import _invoke_external_reply_sender
 from .context import RunDeliveryContext, RunDeliveryContextStore
@@ -70,6 +73,7 @@ async def roll_bubble(
     new_shadow_message_id: str | None = None,
     old_elapsed_ms: int | None = None,
     background_returns: list[dict[str, Any]] | None = None,
+    reply_process_transition: dict[str, Any] | None = None,
 ) -> str | None:
     """Finalize the current IM bubble and open a fresh one for the same run.
 
@@ -117,13 +121,27 @@ async def roll_bubble(
             "agent_id": agent_id,
             "run_id": run_id,
             "shadow_message_id": new_shadow_message_id,
+            "idempotency_key": f"{run_id}:bubble:{ctx.bubble_ordinal + 1}",
         }
         if background_returns:
             turn_start_payload["background_returns"] = background_returns
-        ack = await manager.send_json_await_ack(
-            "node.streaming_delta",
-            turn_start_payload,
-        )
+        if reply_process_transition is not None:
+            turn_start_payload["reply_process_transition"] = reply_process_transition
+        try:
+            ack = await manager.send_json_await_ack(
+                "node.streaming_delta",
+                turn_start_payload,
+            )
+        except IMFrameRejectedError:
+            raise
+        except (TimeoutError, RuntimeError):
+            # IM may have committed the first request before its ack was lost. The
+            # stable key makes this retry return that same bubble instead of opening
+            # another one, while the transition sidecar is safe to apply again.
+            ack = await manager.send_json_await_ack(
+                "node.streaming_delta",
+                turn_start_payload,
+            )
         new_message_id = extract_ack_message_id(ack)
         live_ctx = _live_context(run_context_store, run_id)
         if new_message_id and live_ctx is not None:
@@ -1979,7 +1997,10 @@ def build_kernel_event_observer(
             ctx.record_reply_process(draft=True)
 
             async def _retain_draft() -> None:
-                await manager.send_json_await_ack(
+                # Process items have stable item ids and the IM connection replays
+                # queued native frames after reconnect. Do not make the rest of the
+                # revalidation chain depend on receiving this individual ack.
+                await manager.send_json(
                     "node.streaming_delta",
                     {
                         "kind": "reply_process",
@@ -2058,6 +2079,16 @@ def build_kernel_event_observer(
                                 else None
                             ),
                             background_returns=consumed_returns,
+                            reply_process_transition=(
+                                {
+                                    "run_id": rid,
+                                    "predecessor_message_id": old_msg_id or None,
+                                    "source_messages": sources,
+                                    "include_handoff": bool(old_msg_id and had_draft),
+                                }
+                                if revalidating
+                                else None
+                            ),
                         )
                         if new_message_id is None:
                             _clear_live_bubble_context(
@@ -2065,37 +2096,6 @@ def build_kernel_event_observer(
                             )
                         elif revalidating:
                             ctx.record_reply_process()
-                            if old_msg_id and had_draft:
-                                await mgr.send_json_await_ack(
-                                    "node.streaming_delta",
-                                    {
-                                        "kind": "reply_process",
-                                        "message_id": old_msg_id,
-                                        "conversation_id": cid,
-                                        "item": {
-                                            "item_id": f"handoff:{rid}:{new_message_id}",
-                                            "kind": "segment_handoff",
-                                            "run_id": rid,
-                                            "successor_message_id": new_message_id,
-                                        },
-                                    },
-                                )
-                            await mgr.send_json_await_ack(
-                                "node.streaming_delta",
-                                {
-                                    "kind": "reply_process",
-                                    "message_id": new_message_id,
-                                    "conversation_id": cid,
-                                    "item": {
-                                        "item_id": f"revalidation:{rid}:{new_message_id}",
-                                        "kind": "revalidation",
-                                        "run_id": rid,
-                                        "source_messages": sources,
-                                        "predecessor_message_id": old_msg_id or None,
-                                        "status": "running",
-                                    },
-                                },
-                            )
                         if (
                             rolled_shadow_snapshot is not None
                             and shadow_bubble_reconcile is not None
