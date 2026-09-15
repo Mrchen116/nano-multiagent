@@ -87,3 +87,11 @@
   - 结果：92 passed。
 - 最终提交上的全量本地非 E2E 门禁：`pytest -q -m 'not e2e'`，结果：3894 passed，35 deselected。
 - 静态检查：受影响的 7 个 Python 文件执行 `ruff check`、`ruff format --check` 与 `git diff --check`，均通过。
+
+## 最终同步与门禁
+
+- `executed_base` / `effective_base`: `6e1d65778`；最终同步时 `origin/main` 未前进。
+- `validated_at`: `99883389b`（最终代码与测试树）；`effective_through`: `04c9d1fa1`，其后仅补写本节并归档 unit。
+- 独立 closure review 已将 ack-loss P1 与 `to_user_id` 授权 finding 均标记为 resolved，无剩余 finding。
+- Current spec 已明确要求 withheld draft 与重校验关系可追溯，本修复恢复既有契约，无需改写 canonical spec。
+- 本次交付不包含合并或生产部署。
