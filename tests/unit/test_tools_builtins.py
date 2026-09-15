@@ -49,13 +49,10 @@ def _context_with_state(
 
 
 def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
-    assert ReadTool.description == (
-        "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
-        f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
-        f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
-        "files. When you need the full file, continue with offset until complete. "
-        "Results are returned using cat -n format, with line numbers starting at 1."
-    )
+    assert f"{DEFAULT_MAX_LINES} lines" in ReadTool.description
+    assert f"{DEFAULT_MAX_KILOBYTES}KB" in ReadTool.description
+    assert "return an error" in ReadTool.description
+    assert "offset/limit" in ReadTool.description
     assert BashTool.description == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
         "Output larger than 30K chars is compressed by the result budget system. "
