@@ -25,4 +25,18 @@ Agent 的后台返回把原始 JSONL 当作进度接口推荐给模型，虽然�
 
 ## 修复
 
+- Read 对所选文本先校验既有行数/字节预算；超限抛出 ToolError，保留实际值、上限与分段/搜索建议，失败不登记到读取状态。预算内的结果结构和图片读取不变。
+- agent 的显式后台与自动后台共用启动返回，按照实测 CC 2.1.268 返回改为内部元数据提示、禁止预测或重复工作、禁止 Read/tail JSONL、等待完成通知。运行中 follow-up 与工具 schema 提示同步纠偏，续传保留 nano API。
+- 当前契约已归并到 kernel tools-hooks / background-tasks。更新已有测试，不新增平行测试文件；移除旧 Read 截断断言，改为超限错误、UTF-8 字节、边界成功、缩小范围重试和失败不缓存的回归保护。
+- 实现：b110a7394220b8e860efab4436ebed31d4d9075f；旧描述测试校正：4faf5bdfbd40bd40e1a3a8191d9c686bb11d5108。
+
 ## 验证
+
+- 修前：针对性回归 8 failed / 43 passed，确认缺失超限错误及后台返回约束。
+- 修后：Read / agent / contract 聚焦 51 passed；全量发现旧描述断言后校正，相关 54 passed。
+- SDK 一次性探针：58,797 字节首行通过真实工具执行器和 Anthropic mapper，在下一轮请求中得到 `File content (57.4KB) exceeds maximum allowed size (50.0KB)` 及分段/搜索建议，无空文件误报。模型客户端为确定性驱动，无新外部 LLM 调用；未改变全局 provider 协议。
+- 全量非 E2E：3866 passed，唯一失败是仍期待旧 Read 描述的测试；已校正且其所属文件与全部聚焦回归再次通过。
+- 最终同步主干 bugfix-558 后相关 103 passed；该增量仅涉及 PA Skill roots，没有修改本次 Read/agent 文件。
+- Ruff check、Ruff format --check、docs-check、git diff --check 通过。
+- 独立 change-code-review finder 完整审查：[]，没有需交独立 verifier 的候选。详见 M1-fix/code-review.md。
+- 前端 CI 等价检查：npm ci、critical audit 通过；全量 757 passed / 2 failed（渲染等待与 5 秒超时），未修改前端，单独复跑两个文件 72 passed。远端 CI 以最终 PR 为准。

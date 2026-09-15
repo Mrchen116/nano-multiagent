@@ -15,6 +15,13 @@
 
 内核内置 `read` / `write` / `edit` / `bash` / `agent` 等基础工具,默认启用工作区安全约束;所有工具执行经工具注册表分发。应用经 `build_kernel(tools=…)` 追加原生工具、`create_session(enabled_tools=…)` 选子集; 每个 session 的 `<workspace_root>/<workspace_config_dirname>/tools` 下的同名工具可 override 内置(replace 语义,不致装配崩溃)。该 session 的 bash permission policy 从同一 `<workspace_root>/<workspace_config_dirname>/policy.toml` 读取；未指定 `workspace_config_dirname` 时该目录为 `.nano`，不把另一目录（包括旧 `.nano`）当作 fallback。
 
+#### Scenario: read 所选文本超过读取预算
+- **GIVEN** 文件所选范围超过配置的读取字节或行数预算（包括单行超过字节预算）
+- **WHEN** 消费者调用 read
+- **THEN** 工具返回明确错误，包含所选内容大小/行数、对应上限，以及用 offset/limit 分段读取或搜索的建议
+- **AND** 不把截断后的空输出报告为文件为空，也不将失败范围记录为已经成功读取
+- **AND** 缩小到预算内的范围后正常返回；真实空文件仍提示文件为空
+
 #### Scenario: bash 工具输出超限被截断且暴露完整输出路径
 - **WHEN** 经内核运行的一次 `bash` 工具产生超过上限的输出
 - **THEN** 工具结果标记 `truncated` 为真,并提供可取完整输出的路径

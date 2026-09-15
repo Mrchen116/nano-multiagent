@@ -249,7 +249,8 @@ class AgentTool(WiringMixin):
                     "Send a follow-up instruction to an existing agent by ID with full context preserved. "
                     "If the agent is running, the message is queued and delivered at the agent's next tool-round boundary. "
                     "If the agent is stopped, it resumes from its transcript. "
-                    "Do not use this to check background progress or output; read output_file for output."
+                    "Do not use this to check progress; wait for the completion notification. "
+                    "Do not read or tail output_file: it is the full subagent JSONL transcript."
                 ),
             },
         },
@@ -773,33 +774,32 @@ class AgentTool(WiringMixin):
 
     def _format_async_launched(self, output: Mapping[str, Any]) -> str:
         agent_id = output.get("agent_id", "unknown")
-        description = output.get("description", "")
         output_file = output.get("output_file", "")
         return (
-            f"Background agent launched.\n\n"
-            f"agent_id: {agent_id}\n"
-            f"description: {description}\n"
-            f"status: running\n"
-            f"output_file: {output_file}\n\n"
-            f"The agent is working in the background. You will be notified automatically when it completes.\n"
-            f"Do not duplicate this agent's work. Work on non-overlapping tasks, or briefly tell the user what you launched and continue.\n"
-            f"Use Read on output_file to inspect progress or final output.\n"
-            f'Use Agent with agent_id="{agent_id}" only when you want to continue the agent conversation.\n'
-            f'Use task_stop with task_id="{agent_id}" to stop it.'
+            "Async agent launched successfully. (This tool result is internal metadata — "
+            "never quote or paste any part of it, including the agent_id below, into a user-facing reply.)\n"
+            f'agent_id: {agent_id} (internal ID - do not mention to user. Use agent with agent_id="{agent_id}" '
+            "and prompt to continue this agent.)\n"
+            "The agent is working in the background. You will be notified automatically when it completes. "
+            "You know nothing about its results until that notification arrives — do not report, assume, "
+            "or predict them; continue other work or respond to the user in the meantime.\n"
+            "Do not duplicate this agent's work — avoid working with the same files or topics it is using.\n"
+            f"output_file: {output_file}\n"
+            "Do NOT Read or tail this file via the shell tool — it is the full subagent JSONL transcript "
+            "and reading it will overflow your context. If the user asks for progress, say the agent "
+            "is still running; you'll get a completion notification."
         )
 
     def _format_message_queued(self, output: Mapping[str, Any]) -> str:
         agent_id = output.get("agent_id", "unknown")
-        description = output.get("description", "")
-        output_file = output.get("output_file", "")
         return (
-            f"Message queued for agent.\n\n"
+            "Message queued for agent. (This tool result is internal metadata — "
+            "never quote or paste it into a user-facing reply.)\n"
             f"agent_id: {agent_id}\n"
-            f"description: {description}\n"
-            f"status: running\n"
-            f"output_file: {output_file}\n\n"
-            f"The message will be delivered at the agent's next tool-round boundary.\n"
-            f"Do not poll. You will be notified when the agent completes."
+            "status: running\n"
+            "The message will be delivered at the agent's next tool-round boundary.\n"
+            "Do NOT Read or tail output_file: it is the full subagent JSONL transcript.\n"
+            "Do not poll. Wait for the completion notification."
         )
 
     def _format_failed(self, output: Mapping[str, Any]) -> str:

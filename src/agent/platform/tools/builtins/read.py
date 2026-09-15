@@ -137,8 +137,8 @@ class ReadTool:
     max_result_size_chars = None  # Infinity — read results are never compressed
     description = (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
-        f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
-        f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
+        f"Images are sent as attachments. For text files, reads exceeding {DEFAULT_MAX_LINES} "
+        f"lines or {DEFAULT_MAX_KILOBYTES}KB return an error. Use offset/limit for large "
         "files. When you need the full file, continue with offset until complete. "
         "Results are returned using cat -n format, with line numbers starting at 1."
     )
@@ -292,7 +292,7 @@ class ReadTool:
         if limit is not None:
             selected = selected[:limit]
 
-        truncation = _truncate_head_lines(
+        truncation = _checked_text_content(
             selected,
             max_lines=ctx.safety.config.read_max_lines,
             max_bytes=ctx.safety.config.read_max_bytes,
@@ -669,7 +669,7 @@ def _format_size(bytes_count: int) -> str:
     return f"{bytes_count / (1024 * 1024):.1f}MB"
 
 
-def _truncate_head_lines(
+def _checked_text_content(
     lines: list[str], *, max_lines: int, max_bytes: int
 ) -> dict[str, Any]:
     max_lines = max(1, max_lines)
@@ -678,42 +678,32 @@ def _truncate_head_lines(
     content = "\n".join(lines)
     total_lines = len(lines)
     total_bytes = len(content.encode("utf-8"))
-    if total_lines <= max_lines and total_bytes <= max_bytes:
-        return {
-            "content": content,
-            "truncated": False,
-            "truncatedBy": None,
-            "totalLines": total_lines,
-            "totalBytes": total_bytes,
-            "outputLines": total_lines,
-            "outputBytes": total_bytes,
-            "maxLines": max_lines,
-            "maxBytes": max_bytes,
-        }
-
-    output_lines: list[str] = []
-    output_bytes = 0
-    truncated_by = "lines"
-    for index, line in enumerate(lines):
-        if index >= max_lines:
-            truncated_by = "lines"
-            break
-        line_bytes = len(line.encode("utf-8")) + (1 if output_lines else 0)
-        if output_bytes + line_bytes > max_bytes:
-            truncated_by = "bytes"
-            break
-        output_lines.append(line)
-        output_bytes += line_bytes
-
-    output_content = "\n".join(output_lines)
+    guidance = (
+        "Use offset and limit parameters to read specific portions of the file, "
+        "or search for specific content instead of reading the whole file."
+    )
+    # Reject the selected range before recording it as read. Dropping an oversized
+    # first JSONL line would turn a live transcript into a misleading empty result.
+    if total_bytes > max_bytes:
+        raise ToolError(
+            f"File content ({_format_size(total_bytes)}) exceeds maximum allowed size "
+            f"({_format_size(max_bytes)}). {guidance}",
+            tool_name="read",
+        )
+    if total_lines > max_lines:
+        raise ToolError(
+            f"File content ({total_lines} lines) exceeds maximum allowed lines "
+            f"({max_lines}). {guidance}",
+            tool_name="read",
+        )
     return {
-        "content": output_content,
-        "truncated": True,
-        "truncatedBy": truncated_by,
+        "content": content,
+        "truncated": False,
+        "truncatedBy": None,
         "totalLines": total_lines,
         "totalBytes": total_bytes,
-        "outputLines": len(output_lines),
-        "outputBytes": len(output_content.encode("utf-8")),
+        "outputLines": total_lines,
+        "outputBytes": total_bytes,
         "maxLines": max_lines,
         "maxBytes": max_bytes,
     }
