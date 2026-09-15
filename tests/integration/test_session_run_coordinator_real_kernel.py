@@ -530,3 +530,82 @@ async def _wait_for_terminal(kernel, run_id: str) -> None:
         if record is not None and record.status in {"completed", "failed", "cancelled"}:
             return
         await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("skills", [[], None])
+async def test_skill_catalog_freezes_until_compaction_and_manual_runtime_refresh(
+    tmp_path: Path, skills: list[str] | None
+) -> None:
+    """SDK requests keep the catalog stable while files and allowlists evolve."""
+    from dataclasses import replace
+    from agent.sdk import PromptSlots, SessionRuntimeConfig
+
+    client = _CountingClient()
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat", model="test-model", base_url="http://127.0.0.1:1"
+        ),
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    runtime = SessionRuntimeConfig(
+        model="test-model",
+        prompt=PromptSlots(),
+        skills=skills,
+        enabled_tools=[],
+        features={},
+    )
+
+    async def turn(session_id: str) -> str:
+        run = kernel.submit(
+            session_id=session_id,
+            workspace_root=tmp_path,
+            parts=[{"type": "text", "text": "Continue."}],
+        )
+        await _wait_for_terminal(kernel, run.run_id)
+        assert kernel.get_run(run.run_id).status == "completed"
+        return str(client.requests[-1].messages[0].content)
+
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path, runtime=runtime)
+        before = await turn(session.session_id)
+        skill = tmp_path / ".nanoassistant/skills/new-review-skill/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\nname: new-review-skill\ndescription: Newly learned workflow.\n---\nUse this workflow.\n"
+        )
+        if skills is not None:
+            runtime = replace(runtime, skills=["new-review-skill"])
+            await kernel.reconfigure_session(
+                session_id=session.session_id,
+                workspace_root=tmp_path,
+                runtime=runtime,
+                defer_skill_prompt_refresh=True,
+            )
+        assert await turn(session.session_id) == before
+        fresh = await kernel.create_session(workspace_root=tmp_path, runtime=runtime)
+        assert "new-review-skill" in await turn(fresh.session_id)
+        await kernel.compact(session.session_id, workspace_root=tmp_path)
+        assert "new-review-skill" in await turn(session.session_id)
+        disabled = replace(runtime, skills=[])
+        await kernel.reconfigure_session(
+            session_id=session.session_id, workspace_root=tmp_path, runtime=disabled
+        )
+        assert "new-review-skill" not in await turn(session.session_id)
+        await kernel.reconfigure_session(
+            session_id=session.session_id,
+            workspace_root=tmp_path,
+            runtime=replace(runtime, skills=["new-review-skill"]),
+        )
+        assert "new-review-skill" in await turn(session.session_id)
+        with pytest.raises(ValueError, match="only skill additions"):
+            await kernel.reconfigure_session(
+                session_id=session.session_id,
+                workspace_root=tmp_path,
+                runtime=replace(runtime, model="another-model"),
+                defer_skill_prompt_refresh=True,
+            )
+    finally:
+        await kernel.aclose()

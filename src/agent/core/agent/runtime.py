@@ -436,6 +436,11 @@ class AgentEngine:
         session_available_tools = self._resolve_session_available_tools_from_config(
             config
         )
+        # Freeze only the catalog shown to the model; skill_view still resolves
+        # current files and the current allowlist on every tool invocation.
+        if state.skill_prompt_snapshot is None:
+            state.skill_prompt_snapshot = session_available_skills
+        session_available_skills = state.skill_prompt_snapshot
         frozen_system_prompt = config.system_prompt
 
         last_user: Message | None = None
@@ -1405,6 +1410,8 @@ class AgentEngine:
         self, config: SessionConfig
     ) -> tuple[SkillMetadata, ...]:
         if config.skills is None:
+            if self._workspace_config_dirname is not None:
+                return self.resolve_available_skills(config.workspace_root)
             return self._loop.available_skills
         if not config.skills:
             return ()
@@ -2190,6 +2197,7 @@ class AgentEngine:
         """
         state = self._state()
         state.memory_snapshot = None
+        state.skill_prompt_snapshot = None
         state.file_state = SessionFileState()
 
     def _commit_threshold_compaction(

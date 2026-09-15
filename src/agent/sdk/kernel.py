@@ -1596,6 +1596,7 @@ class Kernel:
         workspace_root: Path | str,
         runtime: SessionRuntimeConfig,
         only_if_idle: bool = False,
+        defer_skill_prompt_refresh: bool = False,
     ) -> SessionReconfigureResult | None:
         """Durably replace future-turn settings without changing session identity.
 
@@ -1603,6 +1604,9 @@ class Kernel:
             session_id: Existing Session identity.
             workspace_root: Session workspace root.
             runtime: Complete target runtime.
+            defer_skill_prompt_refresh: Preserve the current prompt catalog when
+                only adding skills; all other runtime changes reject this option.
+                The new catalog is shown after the next context rebuild.
             only_if_idle: Reject a changed runtime while any Session carrier is
                 accepted; do not queue or wait for its execution to finish.
 
@@ -1627,6 +1631,22 @@ class Kernel:
                 )
         config, seed = conversation.config_snapshot()
         target_metadata = runtime_metadata(runtime, existing=config.metadata)
+        if defer_skill_prompt_refresh:
+            current = await self.get_session_runtime(
+                session_id=session_id, workspace_root=root
+            )
+            if (
+                current is None
+                or current.runtime.skills is None
+                or runtime.skills is None
+                or not set(current.runtime.skills).issubset(runtime.skills)
+                or identify_runtime(replace(runtime, skills=current.runtime.skills))
+                != current.identity
+            ):
+                raise ValueError("deferred skill refresh requires only skill additions")
+            # Preserve equivalent optional metadata encodings from creation;
+            # replacing skills does not change any other runtime setting.
+            target_metadata = dict(config.metadata)
         target_prompt_seed = _to_prompt_seed(runtime.prompt)
         if (
             config.runtime_model == runtime.model
@@ -1651,6 +1671,7 @@ class Kernel:
         changed = await self._c.executor.replace_runtime(
             conversation,
             only_if_idle=only_if_idle,
+            defer_skill_prompt_refresh=defer_skill_prompt_refresh,
             runtime_model=runtime.model,
             skills=tuple(runtime.skills) if runtime.skills is not None else None,
             tool_allowlist=tuple(runtime.enabled_tools),

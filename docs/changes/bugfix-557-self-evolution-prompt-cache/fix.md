@@ -18,8 +18,16 @@ feat-349 原始要求为后台静默保存并回显，且 review 复用父提示
 
 ## 修复
 
-待实施后回填。
+- 内核以 ConversationState 冻结技能目录快照，压缩/正常 reconfigure/载荷重建时更新；技能读取继续使用当前文件与 allowlist。默认发现改为使用当前 workspace resolver，确保新会话与压缩后的目录包含新技能。
+- SDK `reconfigure_session(..., defer_skill_prompt_refresh=True)` 只允许纯技能扩充；持久更新 allowlist，但保留当前目录与 memory 快照。同时修改模型、工具、权限或其他字段会被拒绝。
+- Gateway catalog 记录自动新增技能；聊天与后台 admission 对纯自动技能扩充延后目录更新且不发送配置 boundary。手动移除清除自动来源，重新启用仍走显式更新。
+- 将技能同步串行锁与配置操作锁分开：原先自动 PATCH 等待 IM 回调配置操作，而回调等待同一锁，真实链路会超时。创建技能更新的来源在正在进行的 PATCH 对应配置首次发布时携带，失败后不留下 pending 来源。
+- 保持现有进程内快照边界，不增加持久 schema；进程重启/会话载荷重建允许吸收当前目录。
+
 
 ## 验证
 
-待实施后回填。
+- 原始 src 基线 f15feb87d + 新真实 E2E 断言：1 failed（21.46s），原会话下一轮 system 仅新增技能目录。
+- 修复后隔离 IM + Gateway + 受控 OpenAI HTTP 服务：1 passed（21.05s），覆盖后台真实 skill_manage 创建/自动启用、原会话 system 字节不变/无 boundary、新会话目录包含技能、手动取消/再启用立即更新并各产生 boundary。
+- SDK/Gateway/contract 相关回归：200 passed；新增失败 PATCH 后手动更新覆盖单独纳入 config-sync 参数化回归。
+- 完整定位、命令、覆盖与限制见 [M1-fix/progress.md](M1-fix/progress.md)。未修改生产配置、部署或重启生产服务。

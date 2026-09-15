@@ -27,7 +27,10 @@ from personal_assistant.config.local_store import (
     resolve_run_model,
 )
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
-from personal_assistant.gateway.session_composition import project_agent_runtime
+from personal_assistant.gateway.session_composition import (
+    project_agent_runtime,
+    is_automatic_skill_extension,
+)
 from personal_assistant.gateway.model_fallback import (
     ModelStickyStore,
     StickyModelOverride,
@@ -2194,10 +2197,17 @@ class SessionRunCoordinator:
                 and current.identity.runtime_fingerprint == desired.runtime_fingerprint
             ):
                 return binding
+        automatic_extension = is_automatic_skill_extension(
+            self._kernel,
+            agent,
+            current.runtime if current is not None else None,
+            runtime,
+        )
         result = await self._kernel.reconfigure_session(
             session_id=binding.kernel_session_id,
             workspace_root=agent.config.workspace_root,
             runtime=runtime,
+            **({"defer_skill_prompt_refresh": True} if automatic_extension else {}),
         )
         boundary = (
             self._boundary_for_runtime_replacement(
@@ -2207,7 +2217,9 @@ class SessionRunCoordinator:
                 fingerprint_schema=result.state.identity.fingerprint_schema,
                 profile_version=profile_version,
             )
-            if replacement_has_known_baseline and result.changed
+            if replacement_has_known_baseline
+            and result.changed
+            and not automatic_extension
             else None
         )
         if boundary is not None:
@@ -2230,7 +2242,9 @@ class SessionRunCoordinator:
                 fingerprint_schema=result.state.identity.fingerprint_schema,
                 profile_version=profile_version,
             )
-            if replacement_has_known_baseline and result.changed
+            if replacement_has_known_baseline
+            and result.changed
+            and not automatic_extension
             else None
         )
         if pending_boundary is not None:

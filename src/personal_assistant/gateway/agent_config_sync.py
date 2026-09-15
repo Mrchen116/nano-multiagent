@@ -257,6 +257,8 @@ class IMAgentConfigSync:
         )
         self._operation_phase_hook = operation_phase_hook
         self._operation_lock = threading.RLock()
+        self._skill_sync_lock = threading.RLock()
+        self._pending_auto_skills: dict[str, tuple[str, ...]] = {}
         self._sticky_store = sticky_store
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
@@ -1065,7 +1067,7 @@ class IMAgentConfigSync:
         # Foreground and persistent session owners may report different Skills for
         # one Agent concurrently. Serialize the whole read/merge/patch/publish
         # transaction so optimistic profile versions cannot discard either update.
-        with self._operation_lock:
+        with self._skill_sync_lock:
             skill_name = event.get("name")
             scope = event.get("scope")
             raw_skill_root = event.get("skill_root")
@@ -1120,7 +1122,7 @@ class IMAgentConfigSync:
         # Feishu activation and self-evolution both perform a full optimistic
         # profile PATCH. This shared seam owns the complete read/merge/mutate
         # transaction; handle_skill_created's wider lock remains safely reentrant.
-        with self._operation_lock:
+        with self._skill_sync_lock:
             self._enable_skills_for_agent_locked(
                 agent,
                 skill_ids,
@@ -1161,12 +1163,22 @@ class IMAgentConfigSync:
             ]
             if missing_skills:
                 next_skills.extend(missing_skills)
-                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
+                if explicit_capability_change:
+                    self._pending_auto_skills[agent.agent_id] = tuple(missing_skills)
+                try:
+                    updated = self._patch_agent_skills(
+                        agent.agent_id, payload, next_skills
+                    )
+                finally:
+                    self._pending_auto_skills.pop(agent.agent_id, None)
                 self._publish_agent_config(
                     self._decode_mirror_agent_config(
                         payload=updated,
                         agent_id=agent.agent_id,
-                    )
+                    ),
+                    auto_enabled_skills=required_skills
+                    if explicit_capability_change
+                    else (),
                 )
             else:
                 self._republish_agent(agent)
@@ -1486,7 +1498,12 @@ class IMAgentConfigSync:
             save_config=save_local_config,
         )
 
-    def _publish_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
+    def _publish_agent_config(
+        self,
+        agent_config: AgentWorkspaceConfig,
+        *,
+        auto_enabled_skills: tuple[str, ...] = (),
+    ) -> None:
         """Converge durable and live owners independently, persisting first."""
 
         local_config = self._config_snapshot()
@@ -1499,6 +1516,18 @@ class IMAgentConfigSync:
             None,
         )
         previous_snapshot = self._agent_catalog.get(agent_config.agent_id)
+        pending_skills = self._pending_auto_skills.get(agent_config.agent_id, ())
+        if (
+            pending_skills
+            and previous_snapshot is not None
+            and replace(previous_snapshot.config, skills=agent_config.skills)
+            == agent_config
+            and set(agent_config.skills) - set(previous_snapshot.config.skills)
+            == set(pending_skills)
+        ):
+            # The config-operation callback publishes before PATCH responds.
+            # Attach provenance to that first publication, not a later echo.
+            auto_enabled_skills = pending_skills
         if local_current != agent_config:
             self._persist_agent_config(agent_config)
         if (
@@ -1508,9 +1537,15 @@ class IMAgentConfigSync:
         ):
             self._sticky_store.clear_agent(agent_config.agent_id)
         current = self._agent_catalog.get(agent_config.agent_id)
-        if current is not None and current.config == agent_config:
+        if (
+            current is not None
+            and current.config == agent_config
+            and not auto_enabled_skills
+        ):
             return
-        self._republish_agent(agent_config)
+        self._agent_catalog.publish(
+            agent_config, auto_enabled_skills=auto_enabled_skills
+        )
 
     def _republish_agent(self, agent_config: AgentWorkspaceConfig) -> None:
         """Publish desired configuration without replacing existing chat sessions."""

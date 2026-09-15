@@ -14,6 +14,7 @@ from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgent
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_composition import (
     project_agent_runtime,
+    is_automatic_skill_extension,
     project_agent_session_capabilities,
 )
 from personal_assistant.gateway.human_message_context import PaTimeContext
@@ -191,6 +192,16 @@ class InProcessKernelClient:
                 session_id=session_id,
                 workspace_root=Path(workspace_root),
                 runtime=runtime,
+                **(
+                    {"defer_skill_prompt_refresh": True}
+                    if is_automatic_skill_extension(
+                        self._kernel,
+                        agent_snapshot,
+                        current.runtime if current is not None else None,
+                        runtime,
+                    )
+                    else {}
+                ),
                 **({"only_if_idle": True} if only_if_idle else {}),
             )
             if only_if_idle and result is None:

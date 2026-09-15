@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from agent.sdk import PromptSlots, SessionRuntimeConfig
+from agent.sdk import Kernel, PromptSlots, SessionRuntimeConfig
 
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
@@ -141,3 +141,22 @@ __all__ = [
     "project_agent_runtime",
     "project_agent_session_capabilities",
 ]
+
+
+def is_automatic_skill_extension(
+    kernel: Kernel,
+    agent: LiveAgentSnapshot,
+    current: SessionRuntimeConfig | None,
+    desired: SessionRuntimeConfig,
+) -> bool:
+    """Identify a pure automatic skill addition eligible for deferred rendering."""
+    if current is None or current.skills is None or desired.skills is None:
+        return False
+    added = set(desired.skills) - set(current.skills)
+    return (
+        bool(added)
+        and added.issubset(agent.auto_enabled_skills)
+        and set(current.skills).issubset(desired.skills)
+        and kernel.identify_runtime(runtime=replace(desired, skills=current.skills))
+        == kernel.identify_runtime(runtime=current)
+    )
