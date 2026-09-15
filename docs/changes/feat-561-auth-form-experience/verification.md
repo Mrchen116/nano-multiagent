@@ -159,25 +159,24 @@ All checks passed. Ready for PR.
 
 ## Corrected Delta Reconciliation
 
-> Mode: corrected-delta · review round 3 · snapshot `241db5f79b97eee14e660ce6303582e25acf644f → babc3acd10bc53971a494f4a670242b8e7c0bbee`
+> Mode: corrected-delta · review round 4 · snapshot `241db5f79b97eee14e660ce6303582e25acf644f → a8110136e9b43d1fc3310baf4636d67950ea944c`
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
 | `specs/im/auth-tenancy.md:9-13` 认证入口延续当前 Web IM 设计语言 | `auth-page-frame.tsx:17-64`；`global.css:394-524,748-809` | milestone desktop/mobile/short-viewport PNG 与 `evidence/README.md:11-17` | aligned |
 | `:15-18` 注册规则、可选显示名、8 位提示与密码显隐 | `register-page.tsx:110-146`；`auth-form-fields.tsx:70-102` | `auth-form-experience.test.tsx:103-116` | aligned |
-| `:20-23` 本地可判定问题原位反馈、首错聚焦、无必然失败请求、编辑清错 | `auth-form-feedback.ts:31-51`；`login-page.tsx:44-51`；`register-page.tsx:51-61` | `auth-form-experience.test.tsx:47-100` | **delta-mismatch**：“包含短密码的认证表单”未限定为注册，会读成登录也执行 8 位下限，但 `validateLogin` 仅校验必填和 256 上限 |
-| `:25-28` 重名、错误凭据与服务异常分层且保留输入 | `auth-form-feedback.ts:54-70`；`login-page.tsx:61-64`；`register-page.tsx:77-86` | `auth-form-experience.test.tsx:118-150,229-251` | aligned |
-| `:30-33` 服务端可修正输入本地化且不泄露 raw detail | `auth-form-feedback.ts:54-70`；`register-page.tsx:77-84` | `auth-form-experience.test.tsx:136-150` | aligned |
-| `:35-38` 未登录语言切换，规则/反馈/pending 即时更新并保值/持久 | feedback-code state `login-page.tsx:23-35` / `register-page.tsx:20-30`；`auth-page-frame.tsx:13-38`；`i18n/index.ts:36-46` | `auth-form-experience.test.tsx:194-209,212-237`；`i18n.test.ts:21-27` | aligned |
-| `:40-43` 辅助技术定位错误与控件可读名 | `auth-form-fields.tsx:30-59,72-112`；两页首错 focus | `auth-form-experience.test.tsx:47-71,118-150,194-209` | aligned |
-| `:45-48` 认证请求处理中明确状态、去重、locale 仍可切 | 两页 `submitting` guard/disabled；`AuthPageFrame` locale 不读 pending | `auth-form-experience.test.tsx:212-237` | aligned |
-| `:50-52` 注册成功保存新 session 并进产品首页 | `register-page.tsx:67-76` | `auth-form-experience.test.tsx:153-192`；`evidence/README.md:19-25` | aligned |
-| `:54-57` 登录成功返回完整 path/query/hash | `require-auth.tsx:26-29`；`login-page.tsx:18-20,57-60` | `auth-gate.test.tsx:132-169`；`evidence/README.md:27-33` | aligned |
+| `:20-23` 本地可判定问题原位反馈、首错聚焦、无必然失败请求、编辑清错 | `auth-form-feedback.ts:31-51`；`login-page.tsx:44-51`；`register-page.tsx:51-61` | `auth-form-experience.test.tsx:47-100` | aligned：WHEN 已把 8 位下限明确限定为注册表单，与 `validateLogin` / `validateRegistration` 分工一致 |
+| `:25-28` Unicode 输入按服务端字符限制处理 | code-point 长度对齐 `auth-form-feedback.ts:27-50`；输入不预截断 `auth-form-fields.tsx:3-14,39-50,81-93` | `auth-form-experience.test.tsx:74-89` | aligned：只描述用户可观察的字符语义、不提前截断和超限反馈，没有泄露 JS/DOM 实现 |
+| `:30-33` 重名、错误凭据与服务异常分层且保留输入 | `auth-form-feedback.ts:54-70`；`login-page.tsx:61-64`；`register-page.tsx:77-86` | `auth-form-experience.test.tsx:118-150,229-251` | aligned |
+| `:35-38` 服务端可修正输入本地化且不泄露 raw detail | `auth-form-feedback.ts:54-70`；`register-page.tsx:77-84` | `auth-form-experience.test.tsx:136-150` | aligned |
+| `:40-43` 未登录语言切换，规则/反馈/pending 即时更新并保值/持久 | feedback-code state `login-page.tsx:23-35` / `register-page.tsx:20-30`；`auth-page-frame.tsx:13-38`；`i18n/index.ts:36-46` | `auth-form-experience.test.tsx:194-209,212-237`；`i18n.test.ts:21-27` | aligned |
+| `:45-48` 辅助技术定位错误与控件可读名 | `auth-form-fields.tsx:30-59,72-112`；两页首错 focus | `auth-form-experience.test.tsx:47-71,118-150,194-209` | aligned |
+| `:50-53` 认证请求处理中明确状态、去重、locale 仍可切 | 两页 `submitting` guard/disabled；`AuthPageFrame` locale 不读 pending | `auth-form-experience.test.tsx:212-237` | aligned |
+| `:55-57` 注册成功保存新 session 并进产品首页 | `register-page.tsx:67-76` | `auth-form-experience.test.tsx:153-192`；`evidence/README.md:19-25` | aligned |
+| `:59-62` 登录成功返回完整 path/query/hash | `require-auth.tsx:26-29`；`login-page.tsx:18-20,57-60` | `auth-gate.test.tsx:132-169`；`evidence/README.md:27-33` | aligned |
 
 ### Uncovered Observable Behavior
 
-1. **认证字段的长度校验与服务端 Unicode 字符语义对齐，并且不在输入阶段提前截断合法值。** 最终实现在 `auth-form-feedback.ts:27-50` 以 code point 计数镜像后端 Python/Pydantic 的 64/128/256 字符上限，并从 `auth-form-fields.tsx:3-14,39-50,81-93` 移除 HTML `maxLength`，避免浏览器按 UTF-16 code unit 把有效 emoji 输入截断。`auth-form-experience.test.tsx:74-89` 保护 33 个 emoji 用户名不被误判/截断，4 个 emoji 密码仍按 4 字符触发注册下限。这是 unit 最终 diff 新增的用户可观察行为，当前 delta 没有任何长度上限、Unicode 计数或不截断语义，无法从 canonical 契约追溯该修正。
+None. Final unit diff 中的认证页视觉/滚动、规则和密码显隐、本地/服务反馈、Unicode 长度语义、locale、a11y、pending、注册成功与登录深链均已落入 delta；未发现过时、未实现或泄露内部机制的条款。
 
-**建议校正：** 在“可本地判定的输入问题原位反馈”中，把短密码明确限定为注册表单，并增加一条消费者可观察结果：字段长度按服务端同一字符语义判定，合法 Unicode 输入不会被浏览器提前截断，超限时才在字段原位反馈。不要把 `Array.from`、UTF-16 或 DOM 属性写入 delta。
-
-Outcome: delta-mismatch
+Outcome: aligned
