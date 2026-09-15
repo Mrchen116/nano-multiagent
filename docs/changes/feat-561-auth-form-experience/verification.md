@@ -99,3 +99,64 @@ requires_full_verification: false
 ## Corrected Delta Reconciliation
 
 N/A（`verification_mode=full`）
+
+# Round 2
+
+> Validation snapshot: `241db5f79b97eee14e660ce6303582e25acf644f → 6fb6bb010d8b01212971315fcf3262d7afbe4399`
+
+## Summary
+
+Mode: targeted-closure
+
+Review round: 2
+
+Fix delta range: `6e645a097ca6721b3f2e7908aa433cbb3742c658..6fb6bb010d8b01212971315fcf3262d7afbe4399`
+
+Focus issues: R1-W1 注册成功的最低层永久测试；R1-W2 已有错误后切语言的回归与 prototype evidence
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 2/2 focus issues 关闭；M1-W2 / M1-W3 的缺失证据已补齐 |
+| Correctness | 新测试从页面可观察 seam 断言冻结 WHEN/THEN，不绑定私有实现步骤 |
+| Coherence | Followed；本轮只增加既有 auth 测试文件和 evidence 记录，未改共享边界 |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- R1-W1 已关闭：`auth-form-experience.test.tsx:136-175` 在真实 `RegisterPage` + memory router 页面 seam mock 201，保护注册请求 payload、auth store/localStorage 持久化和最终 `/chat` 导航。
+- R1-W2 已关闭：`auth-form-experience.test.tsx:177-193` 先产生英文短密码字段错误，再通过认证顶栏切中文，断言已显示错误与显密码可读名立即更新，用户名/密码不被清空。`evidence/README.md:35-41` 已把该 must-match 状态列为可复查的最低层自动化证据。
+- 本轮 delta 仅修改一个已有 auth 测试文件与 milestone evidence；同期 `acceptance.md` 是产品 reviewer 报告，不改代码/spec/design/delta。没有共享责任、路由或 runtime 变化，因此保留 Round 1 的 full 实现结论，无需 full re-verification。
+
+## Correctness
+
+| Focus / Contract | 实现位置 | 新增证据 | 状态 |
+|---|---|---|---|
+| 注册 201 后建立 session 并进产品首页（`spec.md:116-118`；M1-W2） | `register-page.tsx:67-76` | `auth-form-experience.test.tsx:136-175`：断言 POST body、store token、`AUTH_STORAGE_KEY` 与 router `/chat` | closed |
+| 已显示错误后切语言，错误/控件翻译且输入保留（`spec.md:138-141`；prototype must-match `design.md:171`；M1-W3） | feedback-code state `register-page.tsx:20-30`；locale `auth-page-frame.tsx:13-38` | `auth-form-experience.test.tsx:177-193`；evidence 索引 `evidence/README.md:35-41` | closed |
+
+定向执行：`npm test -- src/features/auth/auth-form-experience.test.tsx --reporter=dot` → 1 file / 9 tests passed。`git diff --check 6e645a097..6fb6bb010` 通过。
+
+## Coherence
+
+| 检查 | 结果 |
+|---|---|
+| 最低层测试 seam | 两条都从 `RegisterPage` 的用户操作和 router/store/DOM 可观察结果验证，没有直接测私有 feedback 函数或 React state |
+| 测试归属 | 扩展既有 `auth-form-experience.test.tsx`，未新增 milestone 命名的平行文件，符合 `docs/development/testing.md` |
+| prototype evidence | evidence README 明确记录“已显示反馈翻译且不清输入”的 Claim / Result / Locator，可追到 must-match 状态 |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（提 PR 前必须修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
