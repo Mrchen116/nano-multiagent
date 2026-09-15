@@ -65,6 +65,7 @@
 
 - `d2f77ab68` 将 withheld reminder 改为已确认的共享上下文说明：紧邻 assistant 文本在新消息到达前形成、发布前撤回且参与者未收到；更早已发布消息仍属于共享对话；模型从更新后的状态按原始回复规则继续，并在需要公开回复时补全对方仍需的信息。该提交还先把 Process 帧改为可重放发送，但独立 code review 发现 handoff / revalidation 仍位于 `turn_start` ack 屏障之后，不能覆盖生产故障。
 - `96dd42754` 将气泡切换改为一个可收敛的协议动作：Gateway 为 `turn_start` 提供稳定幂等键，并把 handoff / revalidation 过渡事实作为 sidecar 一并发送；IM 创建或复用同一气泡后，以稳定 item id 将事实落到前后气泡。若第一次请求已被 IM 接受但 ack 丢失，Gateway 用同一键重试并取回同一气泡 ID，后续正文和收尾继续写入该气泡。
+- Closure review 确认原 P1 已解决，同时发现 `to_user_id` 懒建会话可绕过 predecessor 归属校验。该路径不承载单线程重校验，现明确拒绝携带 `reply_process_transition`，保持既有 streaming 授权边界。
 - draft 仍在收到 `draft_withheld` 时先进入原有 FIFO 重放队列；公开正文仍由 Kernel revision 门禁决定，不依赖 Process 单项 ack。
 - 未改变 global Agent journal、inbox 或 `send_message` 路径。
 
@@ -74,12 +75,13 @@
 
 - 首轮修前失败复现同时覆盖 Process ack timeout 与 reminder 缺失，结果 2 failed；首轮实现后 2 passed。
 - 独立 code review 用生产相同时序复现：`turn_start` 已生效但 ack 丢失时，只留下 draft，handoff / revalidation 未入队，正文也失去新气泡目标；该 P1 阻塞首轮交付。
+- Closure review 将原 P1 标记为 resolved；其发现的 `to_user_id` sidecar 授权绕过已补回归测试并修正。
 - 纠正后的最窄复验：
   - `pytest -q tests/unit/personal_assistant/test_reply_revalidation_delivery.py::test_reply_process_and_body_survive_accepted_turn_start_ack_loss tests/im_service/unit/test_gateway_handler.py::test_turn_start_replay_persists_reply_process_transition_once`
   - 结果：2 passed。
 - 相关 Kernel / Gateway / IM 回归：
   - `pytest -q tests/unit/agent/test_output_revalidation.py tests/unit/personal_assistant/test_reply_revalidation_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/im_service/unit/test_reply_process.py tests/im_service/unit/test_gateway_handler.py`
-  - 结果：49 passed。
+  - 结果：50 passed。
 - 连接、持久化与 relay 回归：
   - `pytest -q tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/im_service/unit/test_event_bridge.py tests/im_service/unit/test_repositories_message.py tests/im_service/unit/test_gateway_reply_fanout.py`
   - 结果：92 passed。

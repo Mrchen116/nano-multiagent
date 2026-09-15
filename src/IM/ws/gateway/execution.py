@@ -77,6 +77,10 @@ class GatewayExecution:
             if payload.get("agent_user_id") not in (None, actual_user):
                 raise ValueError("agent_user_id does not match source Agent")
             if payload.get("conversation_id") is None:
+                if payload.get("reply_process_transition") is not None:
+                    raise ValueError(
+                        "reply process transition requires conversation_id"
+                    )
                 return
             conversation_id = _require_text(
                 payload.get("conversation_id"), field_name="conversation_id"

@@ -1252,6 +1252,59 @@ def test_turn_start_replay_persists_reply_process_transition_once(
     ]
 
 
+def test_turn_start_to_user_id_rejects_reply_process_transition(
+    tmp_path: Path,
+) -> None:
+    """Lazy owner-direct creation cannot mutate an unverified predecessor."""
+    handler, connection, bridge = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="chat-owner", display_name="Chat Owner")
+    agent_user = users.create_user(username="agent:delta", display_name="Delta")
+    conv = ConversationRepository(connection).create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
+    predecessor = bridge.on_turn_start(
+        conversation_id=conv.id,
+        agent_user_id=agent_user.id,
+        agent_id="delta",
+    )
+    asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            authenticated_owner_id=owner.owner_id,
+            message_type="node.streaming_delta",
+            payload={
+                "node_id": "node-1",
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "delta",
+                "run_id": "run-chat-1",
+                "reply_process_transition": {
+                    "run_id": "run-chat-1",
+                    "predecessor_message_id": predecessor.id,
+                    "source_messages": [],
+                    "include_handoff": True,
+                },
+            },
+        )
+    )
+
+    assert response["type"] == "error"
+    assert response["payload"]["code"] == "bad_payload"
+    restored = MessageRepository(connection).get_message(message_id=predecessor.id)
+    assert restored is not None and not restored.reply_process
+
+
 def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(
     tmp_path: Path,
 ) -> None:
