@@ -1,29 +1,58 @@
 {
   "auth": {
+    "language": {
+      "label": "Language"
+    },
+    "context": {
+      "eyebrow": "People · Agents · Devices",
+      "title": "Bring people and agents into one workspace",
+      "body": "Start with chat, connect agents on your devices, and keep long-running work moving together.",
+      "people": "Use agents with your team",
+      "agents": "Collaborate with multiple agents in one chat",
+      "devices": "Manage and run work on your devices"
+    },
+    "common": {
+      "optional": "Optional",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password"
+    },
+    "feedback": {
+      "usernameRequired": "Enter your username.",
+      "usernameTooLong": "Use no more than 64 characters.",
+      "displayNameInvalid": "Enter a display name or leave it blank to use your username.",
+      "displayNameTooLong": "Use no more than 128 characters.",
+      "passwordRequired": "Enter your password.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordTooLong": "Use no more than 256 characters.",
+      "reservedUsername": "Choose a different username.",
+      "usernameTaken": "That username is already taken.",
+      "invalidCredentials": "The username or password is incorrect.",
+      "serviceUnavailable": "The authentication service is temporarily unavailable. Try again shortly."
+    },
     "login": {
+      "kicker": "Welcome back",
       "title": "Sign in",
-      "subtitle": "Welcome back to nano IM.",
+      "subtitle": "Continue your conversations and agent work.",
       "username": "Username",
       "password": "Password",
       "submit": "Sign in",
       "submitting": "Signing in…",
       "noAccount": "No account yet?",
-      "registerLink": "Create one",
-      "errorInvalid": "Invalid username or password.",
-      "errorGeneric": "Sign in failed. Please try again."
+      "registerLink": "Create one"
     },
     "register": {
+      "kicker": "Get started",
       "title": "Create your account",
-      "subtitle": "Pick a username and password to get started.",
+      "subtitle": "Set up your nano IM identity.",
       "username": "Username",
       "password": "Password",
       "displayName": "Display name",
+      "displayHint": "Uses your username when left blank.",
+      "passwordHint": "At least 8 characters.",
       "submit": "Create account",
       "submitting": "Creating…",
       "haveAccount": "Already have an account?",
-      "loginLink": "Sign in",
-      "errorUsernameTaken": "That username is taken.",
-      "errorGeneric": "Could not create account."
+      "loginLink": "Sign in"
     },
     "logout": "Sign out"
   },
