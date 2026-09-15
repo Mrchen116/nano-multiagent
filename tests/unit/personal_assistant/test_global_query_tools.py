@@ -130,6 +130,43 @@ def test_queries_reject_non_action_fields_before_transport(tool, args):
         tool().run(args, SimpleNamespace())
 
 
+def test_query_error_identifies_unsupported_and_empty_optional_fields():
+    with pytest.raises(ValueError) as exc_info:
+        InboxTool().run(
+            {"action": "check", "target": "", "cursor": "", "limit": 20},
+            SimpleNamespace(),
+        )
+
+    assert str(exc_info.value) == (
+        "invalid_arguments: inbox action 'check' does not accept fields: target; "
+        "allowed fields: action, cursor, limit; cursor must be non-empty text; "
+        "omit cursor when unused"
+    )
+
+
+def test_query_error_lists_supported_actions():
+    with pytest.raises(ValueError) as exc_info:
+        ConversationsTool().run({"action": "unknown"}, SimpleNamespace())
+
+    assert str(exc_info.value) == (
+        "invalid_arguments: conversations action must be one of: info, list, read"
+    )
+
+
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        (InboxTool, {"action": "read", "target": 123}),
+        (ConversationsTool, {"action": "info", "target": "   "}),
+    ],
+)
+def test_queries_reject_invalid_required_target_text(tool, args):
+    with pytest.raises(
+        ValueError, match="invalid_arguments: target must be non-empty text"
+    ):
+        tool().run(args, SimpleNamespace())
+
+
 @pytest.mark.parametrize("tool", [InboxTool, ConversationsTool])
 def test_transport_uses_live_listener_and_real_session_provenance(tool, monkeypatch):
     captured = []

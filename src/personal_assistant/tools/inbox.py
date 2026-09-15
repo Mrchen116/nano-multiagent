@@ -74,7 +74,7 @@ def serialize_inbox_page(
 def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
     """Reject invalid action fields before any Gateway operation."""
     action = args.get("action")
-    allowed = {
+    fields_by_action = {
         ("inbox", "check"): {"action", "cursor", "limit"},
         ("inbox", "read"): {"action", "target", "cursor", "limit"},
         ("conversations", "list"): {"action", "query", "cursor", "limit"},
@@ -86,9 +86,35 @@ def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
             "cursor",
             "limit",
         },
-    }.get((tool_name, action))
-    if allowed is None or set(args) - allowed:
-        raise ValueError("invalid_arguments: unsupported action or fields")
+    }
+    actions = sorted(
+        candidate_action
+        for candidate_tool, candidate_action in fields_by_action
+        if candidate_tool == tool_name
+    )
+    if action not in actions:
+        raise ValueError(
+            f"invalid_arguments: {tool_name} action must be one of: "
+            f"{', '.join(actions)}"
+        )
+    allowed = fields_by_action[(tool_name, action)]
+    issues = []
+    unexpected = sorted(set(args) - allowed)
+    if unexpected:
+        issues.append(
+            f"{tool_name} action {action!r} does not accept fields: "
+            f"{', '.join(unexpected)}; allowed fields: {', '.join(sorted(allowed))}"
+        )
+    required = {"action", "target"} if action in {"read", "info"} else {"action"}
+    for key in ("target", "cursor", "before_message_id", "query"):
+        if (
+            key in allowed - required
+            and key in args
+            and (not isinstance(args[key], str) or not args[key].strip())
+        ):
+            issues.append(f"{key} must be non-empty text; omit {key} when unused")
+    if issues:
+        raise ValueError(f"invalid_arguments: {'; '.join(issues)}")
     limit = args.get("limit", 20)
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("invalid_arguments: limit must be 1–50")
