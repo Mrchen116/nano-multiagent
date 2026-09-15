@@ -1,12 +1,23 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, MemoryRouter, Navigate, RouterProvider } from "react-router-dom";
 
 import { setLanguage } from "../../i18n";
 import { LoginPage } from "./login-page";
 import { RegisterPage } from "./register-page";
-import { useAuthStore } from "./auth-store";
+import { AUTH_STORAGE_KEY, useAuthStore } from "./auth-store";
+
+const SAMPLE_USER = {
+  id: "user-9",
+  username: "poppy",
+  display_name: "Poppy",
+  owner_id: "user-9",
+  locale: "en",
+  default_entry_node_id: null,
+  owned_node_ids: [],
+  created_at: ""
+};
 
 function renderPage(page: "login" | "register") {
   return render(
@@ -120,6 +131,65 @@ describe("auth form experience", () => {
     expect(password).toHaveAttribute("aria-invalid", "true");
     await waitFor(() => expect(password).toHaveFocus());
     expect(screen.queryByText("password must be at least 8 characters")).not.toBeInTheDocument();
+  });
+
+  it("stores the registration session and enters the product home", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      authResponse(201, {
+        access_token: "tok-new",
+        refresh_token: "r-new",
+        user: SAMPLE_USER
+      })
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/register", element: <RegisterPage /> },
+        { path: "/", element: <Navigate to="/chat" replace /> },
+        { path: "/chat", element: <div>Product home</div> }
+      ],
+      { initialEntries: ["/register"] }
+    );
+    render(<RouterProvider router={router} />);
+
+    await userEvent.type(screen.getByRole("textbox", { name: /username/i }), "poppy");
+    await userEvent.type(screen.getByRole("textbox", { name: /display name/i }), "Poppy");
+    await userEvent.type(screen.getByLabelText(/^password/i), "secret12");
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByText("Product home")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/chat");
+    expect(useAuthStore.getState().accessToken).toBe("tok-new");
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/im/v1/auth/register"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          username: "poppy",
+          password: "secret12",
+          display_name: "Poppy",
+          locale: "en"
+        })
+      })
+    );
+  });
+
+  it("translates an existing field error without clearing the form", async () => {
+    renderPage("register");
+    const username = screen.getByRole("textbox", { name: /username/i });
+    const password = screen.getByLabelText(/^password/i);
+    await userEvent.type(username, "poppy");
+    await userEvent.type(password, "1234");
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
+
+    const language = screen.getByRole("group", { name: "Language" });
+    await userEvent.click(within(language).getByRole("radio", { name: "中" }));
+
+    expect(screen.getByText("密码至少需要 8 位。")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "用户名" })).toHaveValue("poppy");
+    expect(screen.getByLabelText(/^密码/)).toHaveValue("1234");
+    expect(screen.getByRole("button", { name: "显示密码" })).toBeInTheDocument();
   });
 
   it("keeps language available while one request is pending and prevents a duplicate submit", async () => {

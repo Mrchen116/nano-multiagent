@@ -34,8 +34,8 @@
 
 ## Automated protection
 
-- **Claim:** stable form, routing and shared-brand regressions are protected at the lowest frontend seam, and existing auth API behavior remains green.
+- **Claim:** stable form, routing and shared-brand regressions are protected at the lowest frontend seam, including registration session/navigation and translating already-visible feedback without clearing input; existing auth API behavior remains green.
 - **Method:** `npm test -- src/features/auth/auth-form-experience.test.tsx src/features/auth/auth-gate.test.tsx src/app/shell/app-shell.test.tsx --reporter=dot`; `npm test -- --reporter=dot`; `npm run build`; `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/im_service/integration/test_auth_routes.py`.
-- **Result:** pass: 17 targeted frontend tests, 767 full frontend tests across 83 files, TypeScript/Vite production build, and 7 auth route integration tests. The full frontend run retained existing React `act(...)` and mocked realtime stderr noise but had no failures.
+- **Result:** pass: the focused auth-form suite protects a successful 201 response through persisted session and `/chat`, and proves that an already-visible password error translates from English to Chinese while username/password values and the password-toggle affordance remain intact. The complete validation counts are recorded by the latest verification report.
 - **Locators:** `src/IM/frontend/src/features/auth/auth-form-experience.test.tsx`, `src/IM/frontend/src/features/auth/auth-gate.test.tsx`, `src/IM/frontend/src/app/shell/app-shell.test.tsx`, `tests/im_service/integration/test_auth_routes.py`.
 - **Limit:** automated frontend tests use jsdom; browser layout and real HTTP behavior are covered by the separate evidence above.
