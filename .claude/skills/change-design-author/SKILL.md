@@ -26,4 +26,4 @@ Gate 2 只创建一个独立 `change-design-reviewer`，后续复用同一 revie
 
 完成条件：需求与设计覆盖一致、接口和依赖闭合、适用验收资源已落实，最后完整 Round 为 `Approved` 且 `0 CRITICAL / 0 WARNING`，author 判真后无实质问题，受审产物此后未变化。常规修订自主完成；只有推翻用户决定才重新对齐。
 
-在 `main` 只提交并推送本 unit 产物，交给默认 `change-orchestrator` 或用户点名的 simple 流程。
+在 `main` 只提交并推送本 unit 产物，交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator`。
