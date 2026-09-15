@@ -63,8 +63,22 @@
 
 ## 修复
 
-待 M1-fix 完成后回填。
+- `d2f77ab68`：将 draft、segment handoff 与 revalidation 三类 `reply_process` 帧改为进入 `IMConnectionManager` 已有的可重放 FIFO 队列，不再逐条同步等待业务 ack。气泡 `message_completed` / `turn_start` 仍保留 ack 屏障，因此正文路由和前后气泡身份不变；Process 帧依靠稳定 `item_id` 在 IM 持久化边界幂等 upsert。
+- 同一提交将 withheld reminder 改为已确认的共享上下文说明：紧邻 assistant 文本在新消息到达前形成、发布前撤回且参与者未收到；更早已发布消息仍属于共享对话；模型从更新后的状态按原始回复规则继续，并在需要公开回复时补全对方仍需的信息。
+- 未改变 global Agent journal、inbox 或 `send_message` 路径。
 
 ## 验证
 
-待 M1-fix 完成后回填。
+测试策略：扩展现有最低层 owner 测试；Gateway observer 测试保护 Process 投影不再依赖单条 ack，Kernel 测试保护 reminder 的共享可见性语义。既有理想 ack 顺序测试保留；连接队列和重连测试保留，用于验证本次复用的 FIFO 重放边界。没有新增测试文件或一次性验收脚本。
+
+- 修前失败复现：
+  - `pytest -q tests/unit/personal_assistant/test_reply_revalidation_delivery.py::test_reply_process_survives_its_ack_timeout tests/unit/agent/test_output_revalidation.py::test_stale_body_is_withheld_before_exact_consumption_and_same_run_continues`
+  - 结果：2 failed；分别在 Process ack timeout 和缺失新 reminder 语义处失败。
+- 修后最窄复验：同一命令，2 passed。
+- 相关 revalidation / Process 回归：
+  - `pytest -q tests/unit/agent/test_output_revalidation.py tests/unit/personal_assistant/test_reply_revalidation_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/im_service/unit/test_reply_process.py`
+  - 结果：14 passed。
+- 连接重放与 steer 身份回归：
+  - `pytest -q tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py`
+  - 结果：24 passed。
+- 静态检查：受影响的 4 个 Python 文件执行 `ruff check` 与 `ruff format --check`，均通过。
