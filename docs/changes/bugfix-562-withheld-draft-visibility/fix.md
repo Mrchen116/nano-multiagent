@@ -85,5 +85,5 @@
 - 连接、持久化与 relay 回归：
   - `pytest -q tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_session_run_coordinator_steer_identity.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/im_service/unit/test_event_bridge.py tests/im_service/unit/test_repositories_message.py tests/im_service/unit/test_gateway_reply_fanout.py`
   - 结果：92 passed。
-- 全量本地非 E2E 门禁：`pytest -q -m 'not e2e'`，结果：3893 passed，35 deselected。
+- 最终提交上的全量本地非 E2E 门禁：`pytest -q -m 'not e2e'`，结果：3894 passed，35 deselected。
 - 静态检查：受影响的 7 个 Python 文件执行 `ruff check`、`ruff format --check` 与 `git diff --check`，均通过。
