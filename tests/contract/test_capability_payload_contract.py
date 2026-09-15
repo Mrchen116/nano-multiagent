@@ -5,7 +5,8 @@ models, skills, tools, features and defaults. The contract is recorded against:
 
 - the conftest-fixed model registry (deterministic models/default),
 - a controlled ``HOME`` so skill discovery roots (``~/.nanoassistant/skills``,
-  ``~/.claude/skills``, ``~/.codex/skills``) resolve to controlled empty dirs —
+  ``~/.agents/skills``, ``~/.claude/skills``, ``~/.codex/skills``) resolve to
+  controlled directories —
   removing the only environment-dependent input (the operator's real
   ``~/.claude/skills``), and
 - a controlled workspace seeded with two known skills.
@@ -45,12 +46,13 @@ def _seed_workspace_skills(workspace: Path) -> None:
 def _seed_user_level_skills(home: Path) -> None:
     """Seed user-level skills advertised by the current reporter.
 
-    PA skill search roots are four-tier: workspace
-    ``<ws>/.nanoassistant/skills`` + global ``~/.nanoassistant/skills`` + compat
-    ``~/.claude/skills`` + ``~/.codex/skills``. These global/compat user-level skills
-    are part of the advertised capability.
+    PA skill search roots are workspace roots followed by global
+    ``~/.nanoassistant/skills`` and compatibility roots ``~/.agents/skills``,
+    ``~/.claude/skills``, and ``~/.codex/skills``. These user-level skills are part
+    of the advertised capability.
     """
     _write_skill(home / ".nanoassistant" / "skills", "global-pa-skill", "Global PA")
+    _write_skill(home / ".agents" / "skills", "compat-agents-skill", "Compat Agents")
     _write_skill(home / ".claude" / "skills", "compat-claude-skill", "Compat Claude")
     _write_skill(home / ".codex" / "skills", "compat-codex-skill", "Compat Codex")
 
@@ -60,7 +62,7 @@ def controlled_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Yield reporter payload builders under a fully controlled environment.
 
     HOME and CODEX_HOME are redirected to a temporary tree, then the workspace and
-    three user-level roots are seeded explicitly so host state cannot affect output.
+    four user-level roots are seeded explicitly so host state cannot affect output.
     """
     fake_home = tmp_path / "home"
     fake_home.mkdir(parents=True, exist_ok=True)
@@ -206,6 +208,7 @@ GOLDEN_AGENT_FEATURES: list[dict[str, object]] = [
 # User-level skills (global + compat) are advertised on every PA agent regardless
 # of workspace.
 GOLDEN_USER_LEVEL_SKILLS: list[dict[str, str]] = [
+    {"name": "compat-agents-skill", "description": "Compat Agents"},
     {"name": "compat-claude-skill", "description": "Compat Claude"},
     {"name": "compat-codex-skill", "description": "Compat Codex"},
     {"name": "global-pa-skill", "description": "Global PA"},
@@ -252,6 +255,14 @@ def _assert_skills_carry_location(skills: list[dict[str, str]]) -> None:
         ), f"skill {skill['name']!r} missing a valid location: {location!r}"
 
 
+def _assert_agents_skill_is_optional_compatibility(
+    skills: list[dict[str, object]],
+) -> None:
+    item = next(skill for skill in skills if skill["name"] == "compat-agents-skill")
+    assert item["source_group"] == "compatibility"
+    assert item["default_on"] is False
+
+
 # ---------------------------------------------------------------------------
 # Protocol assertions
 # ---------------------------------------------------------------------------
@@ -268,6 +279,7 @@ def test_node_capabilities_payload_matches_contract(controlled_caps) -> None:
     assert list(payload["features"]) == GOLDEN_NODE_FEATURES
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_NODE_SKILLS
     _assert_skills_carry_location(list(payload["skills"]))
+    _assert_agents_skill_is_optional_compatibility(list(payload["skills"]))
     assert payload["relay"] == GOLDEN_FLAGS["relay"]
     assert payload["send_message"] == GOLDEN_FLAGS["send_message"]
     assert payload["config_sync"] == GOLDEN_FLAGS["config_sync"]
@@ -294,6 +306,7 @@ def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:
     assert list(payload["commands"]) == []
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_AGENT_SKILLS
     _assert_skills_carry_location(list(payload["skills"]))
+    _assert_agents_skill_is_optional_compatibility(list(payload["skills"]))
 
 
 def test_node_register_flags_payload_matches_contract(controlled_caps) -> None:

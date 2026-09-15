@@ -1690,21 +1690,18 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
     }
 
 
-def test_im_connection_skills_usage_includes_shared_root_for_agent_sessions(
+def test_im_connection_skills_usage_includes_agents_shared_root_for_agent_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Shared-root skill_view usage is shown only for sessions owned by this agent."""
+    """The ~/.agents root reports usage only for sessions owned by this agent."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
     workspace = tmp_path / "agent-ws"
     session_dir = workspace / ".nanoassistant" / "sessions"
     session_dir.mkdir(parents=True)
     (session_dir / "sess-agent.jsonl").write_text("{}", encoding="utf-8")
-    shared_root = tmp_path / "shared-skills"
-    shared_root.mkdir()
-    monkeypatch.setattr(
-        im_connection_module,
-        "_PA_SHARED_SKILL_ROOTS",
-        (shared_root,),
-    )
+    shared_root = home / ".agents" / "skills"
+    shared_root.mkdir(parents=True)
     (shared_root / ".usage.json").write_text(
         json.dumps(
             {

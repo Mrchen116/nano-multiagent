@@ -366,9 +366,9 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 - **THEN** Agent 可使用内置 Lark event skill 建立独立监听
 - **AND** 普通 Gateway Feishu 对话的入站与回复所有权不转交给该独立监听
 
-### Requirement: PA Agent 从有序的工作区与全局 Claude/Codex 兼容根发现 Skill
+### Requirement: PA Agent 从有序的工作区与用户级兼容根发现 Skill
 
-PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `skill_view` 时，按该 Agent 的真实 Workspace 依次搜索 `<workspace>/.nanoassistant/skills/`、`<workspace>/.claude/skills/`、`<workspace>/.codex/skills/`，再依次搜索 `~/.nanoassistant/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。同名 Skill 只采用最先命中的版本；缺失或空的可选兼容目录不影响其他来源。
+PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `skill_view` 时，按该 Agent 的真实 Workspace 依次搜索 `<workspace>/.nanoassistant/skills/`、`<workspace>/.claude/skills/`、`<workspace>/.codex/skills/`，再依次搜索 `~/.nanoassistant/skills/`、`~/.agents/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。`~/.agents/skills/` 是用户级兼容来源，不新增 `<workspace>/.agents/skills/`。同名 Skill 只采用最先命中的版本；缺失或空的可选兼容目录不影响其他来源。
 
 #### Scenario: 工作区 Claude/Codex Skill 出现在 Agent capability 中
 - **GIVEN** 某 Agent 的真实 Workspace 下 `.claude/skills/` 或 `.codex/skills/` 含有效 Skill
