@@ -834,7 +834,9 @@ class IMAgentConfigSync:
         live = self._agent_catalog.get(candidate_config.agent_id)
         published = live is None or live.config != candidate_config
         if published:
-            self._agent_catalog.publish(candidate_config)
+            # The operation callback can publish before the initiating PATCH
+            # returns. Keep automatic skill provenance on this first snapshot.
+            self._publish_agent_config(candidate_config)
         if self._reporter is not None:
             self._reporter.replace_agents(tuple(self._config_snapshot().agents))
         if (

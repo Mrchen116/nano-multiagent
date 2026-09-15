@@ -22,3 +22,10 @@
 - **SDK/回归**：`pytest -q tests/integration/test_self_evolution_gateway_skill_sync.py tests/integration/test_session_run_coordinator_real_kernel.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/agent/test_runtime_skill_resolution_same_source.py tests/integration/test_kernel_idle_admission.py tests/contract/ --tb=short`，200 passed / 22.68s。SDK 参数化覆盖 explicit-empty/default-discovery、文件写入后冻结、新会话、压缩刷新、手动取消/启用、拒绝混入 model 变更。
 - 追加 config-sync 参数化验证失败 PATCH 后手动同步不继承 automatic 来源，29 passed / 1.70s；Ruff check（src 与所有修改测试/fixture）通过。
 - Limit：使用受控 LLM，证明实际 HTTP 请求前缀不变，不承诺模型供应商的实际缓存命中率；重启可刷新内存快照。
+
+## Review correction — first config-operation publication
+
+- Pre-fix: `650464f74`; independent review confirmed `_resume_config_operation` directly published the candidate before `_publish_agent_config` could attach automatic skill provenance.
+- Correction: route that real `agent.config.apply` publication through the same config publish owner. Durable config is already equal, so it is not written twice; automatic provenance is attached to the first observable snapshot.
+- Regression: `test_config_apply_admission_before_automatic_skill_patch_response` executes the real apply callback inside the automatic PATCH transport, holds its response with an event, and dispatches a second real Kernel turn while the request remains in flight. Pre-fix: 1 failed / 2.64s, final model system gained the skill catalog. Post-fix: system unchanged, no pending boundary, first published snapshot has automatic provenance.
+- Narrow validation: `pytest -q tests/integration/test_session_run_coordinator_real_kernel.py tests/unit/personal_assistant/test_gateway_config_operations.py tests/unit/personal_assistant/test_gateway_im_config_sync.py --tb=short` — 54 passed / 6.37s, including config operation crash recovery and failed PATCH/manual sync. Ruff and diff checks pass. No repeated full-suite run.

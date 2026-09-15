@@ -609,3 +609,158 @@ async def test_skill_catalog_freezes_until_compaction_and_manual_runtime_refresh
             )
     finally:
         await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_config_apply_admission_before_automatic_skill_patch_response(
+    tmp_path: Path,
+) -> None:
+    """The first real config callback publication protects concurrent admission."""
+    import json
+    from dataclasses import replace
+
+    import httpx
+
+    from personal_assistant.channels.base import IMRelayIngress, InboundIngress
+    from personal_assistant.config.local_store import (
+        GatewayLifecycleConfig,
+        HeartbeatConfig,
+        LocalConfig,
+        NodeConfig,
+    )
+    from personal_assistant.gateway.agent_config_sync import (
+        IMAgentConfigSync,
+        agent_operation_fingerprint,
+    )
+    from tests.unit.personal_assistant._config_operation_helpers import (
+        _agent_payload,
+        _llm,
+    )
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a",
+        workspace_root=workspace,
+        workspace_is_default=True,
+        title="agent-a",
+        skills=(),
+        skills_selection_mode="explicit_allowlist",
+        group_reply_policy="manual",
+        default_model="test:model",
+    )
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(agent,),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_llm(),
+        source_path=tmp_path / "gateway.yaml",
+    )
+    client = _CountingClient()
+    kernel = build_kernel(
+        llm=LLMConfig.from_payload(local_config.llm),
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    catalog = LiveAgentCatalog((agent,))
+    store = SessionBindingStore()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        node_id="node-1",
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        group_context_store=GroupContextStore(tmp_path / "group.sqlite3"),
+    )
+    published = threading.Event()
+    release_response = threading.Event()
+    initial_payload = {
+        **_agent_payload(agent),
+        "skills_selection_mode": "explicit_allowlist",
+        "profile_version": 1,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=initial_payload)
+        assert request.method == "PATCH"
+        body = json.loads(request.content)
+        candidate = {**initial_payload, **body, "agent_id": agent.agent_id}
+        result = sync.handle_agent_config_operation(
+            "apply",
+            {
+                "operation_id": "automatic-skill-operation",
+                "candidate_fingerprint": agent_operation_fingerprint(candidate),
+                "expected_previous_fingerprint": agent_operation_fingerprint(
+                    initial_payload
+                ),
+                "agent": candidate,
+            },
+        )
+        assert result["status"] == "applied", result
+        published.set()
+        assert release_response.wait(5), "test did not release PATCH response"
+        return httpx.Response(200, json={**candidate, "profile_version": 2})
+
+    sync = IMAgentConfigSync(
+        base_url="http://im.test",
+        token=None,
+        agent_catalog=catalog,
+        session_binder=binder,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(handler), base_url="http://im.test"
+        ),
+    )
+
+    async def dispatch(message_id: str) -> None:
+        message = replace(
+            inbound(chat_id="conversation-1", text=message_id),
+            ingress=InboundIngress(
+                im_relay=IMRelayIngress(
+                    relay_task_id=message_id,
+                    idempotency_key=message_id,
+                    im_message_id=message_id,
+                ),
+            ),
+        )
+        await coordinator.dispatch(_request(message, catalog))
+
+    sync_task = None
+    try:
+        await dispatch("before")
+        before = client.requests[-1].messages[0].content
+        skill_root = workspace / ".nanoassistant/skills"
+        skill = skill_root / "new-review-skill/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\nname: new-review-skill\ndescription: Newly learned workflow.\n---\nUse this workflow.\n"
+        )
+        sync_task = asyncio.create_task(
+            asyncio.to_thread(
+                sync.handle_skill_created,
+                agent.agent_id,
+                {
+                    "name": "new-review-skill",
+                    "scope": "agent",
+                    "skill_root": str(skill_root),
+                },
+            )
+        )
+        assert await asyncio.to_thread(published.wait, 3)
+        during_patch = catalog.require(agent.agent_id)
+        assert not sync_task.done()
+        await dispatch("during-patch")
+        assert client.requests[-1].messages[0].content == before
+        assert store.pending_boundaries() == ()
+        assert during_patch.auto_enabled_skills == frozenset({"new-review-skill"})
+    finally:
+        release_response.set()
+        if sync_task is not None:
+            await asyncio.wait_for(sync_task, 3)
+        sync.close()
+        await kernel.aclose()
