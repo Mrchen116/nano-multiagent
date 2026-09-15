@@ -1,4 +1,4 @@
-"""Unit tests for ReadTool: segmented reads, truncation, image support, serialize_result, dedup."""
+"""Unit tests for ReadTool: segmented reads, size errors, image support, serialize_result, dedup."""
 
 from pathlib import Path
 import base64
@@ -47,41 +47,30 @@ def test_read_supports_segmented_reads(tmp_path: Path) -> None:
     assert result["next_offset"] is None
 
 
-def test_read_truncates_output_by_lines(tmp_path: Path) -> None:
-    content = "\n".join(f"line-{idx}" for idx in range(1, 7))
+def test_read_rejects_selected_lines_over_budget(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("a\nb\nc", encoding="utf-8")
+    ctx = _context(tmp_path, config=ToolSafetyConfig(read_max_lines=2))
+    with pytest.raises(ToolError, match=r"3 lines.*2") as error:
+        ReadTool().run({"path": "note.txt", "limit": 3}, ctx)
+    assert "offset and limit" in str(error.value)
+    result = ReadTool().run({"path": "note.txt", "offset": 2, "limit": 2}, ctx)
+    assert result["content"][0]["text"] == "b\nc"
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["x" * 58797, "字" * 20000, "short\n" + "x" * 58797],
+    ids=["oversized-first-line", "utf8-bytes", "oversized-later-line"],
+)
+def test_read_rejects_selected_bytes_over_budget(tmp_path: Path, content: str) -> None:
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024),
-    )
-
-    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
-
-    text_part = result["content"][0]
-    assert text_part["type"] == "text"
-    assert text_part["text"] == "line-1\nline-2"
-    assert result["truncated"] is True
-    assert result["next_offset"] is None
-    assert result["details"]["truncation"]["truncatedBy"] == "lines"
-
-
-def test_read_truncates_by_bytes(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text(
-        "1234567890\nabcdefghij\nline-3", encoding="utf-8"
-    )
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(read_max_lines=200, read_max_bytes=16),
-    )
-
-    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 3}, ctx)
-
-    text_part = result["content"][0]
-    assert text_part["type"] == "text"
-    assert text_part["text"] == "1234567890"
-    assert result["truncated"] is True
-    assert result["next_offset"] is None
-    assert result["details"]["truncation"]["truncatedBy"] == "bytes"
+    ctx, _state = _context_with_state(tmp_path)
+    for _ in range(2):
+        with pytest.raises(ToolError, match="exceeds maximum allowed size") as error:
+            ReadTool().run({"path": "note.txt", "offset": 1, "limit": 2}, ctx)
+        assert "offset and limit" in str(error.value)
+        assert "search" in str(error.value)
+        assert "empty" not in str(error.value)
 
 
 def test_read_offset_out_of_range_surfaces_details(tmp_path: Path) -> None:
@@ -150,21 +139,12 @@ def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
     assert image_part["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
-def test_read_truncation_returns_truncated_content(tmp_path: Path) -> None:
-    content = "\n".join(f"line-{idx}" for idx in range(1, 6))
-    (tmp_path / "note.txt").write_text(content, encoding="utf-8")
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024),
-    )
-
-    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
-
-    assert result["truncated"] is True
-    assert result["next_offset"] is None
-    text_part = result["content"][0]
-    assert text_part["type"] == "text"
-    assert text_part["text"] == "line-1\nline-2"
+def test_read_accepts_exact_byte_budget(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("字" * 4, encoding="utf-8")
+    ctx = _context(tmp_path, config=ToolSafetyConfig(read_max_bytes=12))
+    result = ReadTool().run({"path": "note.txt"}, ctx)
+    assert result["content"][0]["text"] == "字" * 4
+    assert result["truncated"] is False
 
 
 def test_read_serialize_result_adds_line_numbers() -> None:

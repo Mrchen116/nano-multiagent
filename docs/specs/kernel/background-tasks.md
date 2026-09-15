@@ -17,6 +17,14 @@
 
 对后台 bash、subagent 与 Workflow，消费者经 `Kernel.stream()` 还能在“哪一轮消费了该 notification”的事件上取得与 XML 同源的结构化后台返回，包含 task 类型/身份、terminal status、实际存在的原始 result 或 error、duration 与 artifact locator；subagent／Workflow 保留实际 usage，bash 保留实际 command／exit_code，不伪造 token。parent 有 active run 时它跟随实际消费该 pending message 的 round boundary；parent idle 时它跟随为该 notification 新建的 BACKGROUND_TASK-origin run。两条路径都不得只保留文本或把返回归到会话中最新的其他回复。这些观察字段不改变既有工具参数、模型可见返回或通知文本。
 
+#### Scenario: 后台 subagent 启动结果引导等待通知而非读取会话
+- **WHEN** agent 显式在后台启动，或前台执行超预算自动转为后台
+- **THEN** 模型收到内部启动元数据、续传身份和 output_file，并被告知不得将内部元数据照抄给用户
+- **AND** 返回明确说明完成通知到达前不得报告、假定或预测结果，不得重复执行子任务
+- **AND** 返回禁止 Read 或 shell tail 完整子会话 JSONL，以免撑爆上下文；用户询问进度时说明任务仍在运行并等待完成通知
+- **AND** 运行中 follow-up 的 queued 返回同样不得引导读取完整会话或轮询
+- **AND** 续传继续使用既有 agent_id 接口，完成结果仍由现有通知通路送达
+
 #### Scenario: 非默认 workspace 下后台任务完成通知送达
 - **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
 - **WHEN** 任务完成

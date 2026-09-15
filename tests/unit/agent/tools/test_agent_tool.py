@@ -505,7 +505,7 @@ def test_type_specific_prompt_seed_is_passed_to_create_subagent(
                 "description": "task",
                 "output_file": "/tmp/out",
             },
-            "Background agent launched",
+            "Async agent launched successfully",
         ),
         (
             {
@@ -524,3 +524,28 @@ def test_type_specific_prompt_seed_is_passed_to_create_subagent(
 )
 def test_result_serialization(output: dict[str, Any], snippet: str) -> None:
     assert snippet in AgentTool().serialize_result(output)
+
+
+@pytest.mark.parametrize("status", ["async_launched", "message_queued"])
+def test_running_agent_result_protects_transcript_and_waits_for_notification(
+    status: str,
+) -> None:
+    text = AgentTool().serialize_result(
+        {
+            "status": status,
+            "agent_id": "a1",
+            "description": "task",
+            "output_file": "/tmp/agent.jsonl",
+        }
+    )
+    assert "internal metadata" in text
+    assert "never quote or paste" in text
+    assert "Do NOT Read or tail" in text
+    assert "full subagent JSONL transcript" in text
+    assert "completion notification" in text
+    assert "Use Read on output_file" not in text
+    assert "SendMessage" not in text
+    if status == "async_launched":
+        assert "do not report, assume, or predict" in text
+        assert 'agent_id="a1"' in text
+        assert "Do not duplicate" in text

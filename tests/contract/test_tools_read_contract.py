@@ -40,23 +40,15 @@ def test_read_image_contract_returns_text_plus_image_parts(tmp_path: Path) -> No
     }
 
 
-def test_read_truncation_contract_returns_truncated_content(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text("a\nb\nc\nd\n", encoding="utf-8")
-    result = ReadTool().run(
-        {"path": "note.txt", "offset": 1, "limit": 4},
-        _context(
-            tmp_path, config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024)
-        ),
-    )
-
-    assert result["truncated"] is True
-    assert result["next_offset"] is None
-    text_part = result["content"][0]
-    assert text_part == {
-        "type": "text",
-        "text": "a\nb",
-    }
-    assert result["details"]["truncation"]["truncatedBy"] == "lines"
+def test_read_over_limit_contract_returns_actionable_error(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("x" * 58797, encoding="utf-8")
+    with pytest.raises(ToolError, match="exceeds maximum allowed size") as error:
+        ReadTool().run(
+            {"path": "note.txt", "offset": 1, "limit": 1}, _context(tmp_path)
+        )
+    assert error.value.details["tool_name"] == "read"
+    assert "offset and limit" in str(error.value)
+    assert "search" in str(error.value)
 
 
 def test_read_offset_out_of_range_contract_includes_details(tmp_path: Path) -> None:
