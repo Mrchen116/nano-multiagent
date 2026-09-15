@@ -42,6 +42,14 @@ function renderAt(initialPath: string) {
             <ProtectedHello />
           </RequireAuth>
         )
+      },
+      {
+        path: "/chat/:conversationId",
+        element: (
+          <RequireAuth>
+            <ProtectedHello />
+          </RequireAuth>
+        )
       }
     ],
     { initialEntries: [initialPath] }
@@ -91,7 +99,7 @@ describe("auth gate", () => {
     renderAt("/login");
 
     await userEvent.type(screen.getByLabelText(/username/i), "alex");
-    await userEvent.type(screen.getByLabelText(/password/i), "secret");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "secret");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => {
@@ -114,10 +122,49 @@ describe("auth gate", () => {
     renderAt("/login");
 
     await userEvent.type(screen.getByLabelText(/username/i), "alex");
-    await userEvent.type(screen.getByLabelText(/password/i), "wrong");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "wrong");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/invalid/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/username or password/i);
     expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it("returns to the full protected path, query, and hash after login", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "tok-new",
+          refresh_token: "r-new",
+          user: SAMPLE_USER
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const router = createMemoryRouter(
+      [
+        { path: "/login", element: <LoginPage /> },
+        {
+          path: "/chat/:conversationId",
+          element: (
+            <RequireAuth>
+              <ProtectedHello />
+            </RequireAuth>
+          )
+        }
+      ],
+      { initialEntries: ["/chat/conversation-1?message_id=message-7#focus"] }
+    );
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("heading", { name: /sign in/i });
+    await userEvent.type(screen.getByLabelText(/username/i), "alex");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "secret12");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByTestId("protected")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/chat/conversation-1");
+    expect(router.state.location.search).toBe("?message_id=message-7");
+    expect(router.state.location.hash).toBe("#focus");
   });
 });

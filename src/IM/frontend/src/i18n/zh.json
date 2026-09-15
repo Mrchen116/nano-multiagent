@@ -1,29 +1,58 @@
 {
   "auth": {
+    "language": {
+      "label": "语言"
+    },
+    "context": {
+      "eyebrow": "多人 · 多 Agent · 多设备",
+      "title": "让人与 Agent 在一个工作区协作",
+      "body": "从聊天开始，在不同设备上连接你的 Agent，一起跟进长期任务。",
+      "people": "与团队成员共同使用 Agent",
+      "agents": "在同一个聊天里协作多个 Agent",
+      "devices": "在你的设备上管理和运行"
+    },
+    "common": {
+      "optional": "可选",
+      "showPassword": "显示密码",
+      "hidePassword": "隐藏密码"
+    },
+    "feedback": {
+      "usernameRequired": "请填写用户名。",
+      "usernameTooLong": "用户名不能超过 64 个字符。",
+      "displayNameInvalid": "请填写显示名，或留空以使用用户名。",
+      "displayNameTooLong": "显示名不能超过 128 个字符。",
+      "passwordRequired": "请填写密码。",
+      "passwordTooShort": "密码至少需要 8 位。",
+      "passwordTooLong": "密码不能超过 256 个字符。",
+      "reservedUsername": "请更换一个用户名。",
+      "usernameTaken": "该用户名已被占用。",
+      "invalidCredentials": "用户名或密码错误。",
+      "serviceUnavailable": "认证服务暂时不可用，请稍后重试。"
+    },
     "login": {
+      "kicker": "欢迎回来",
       "title": "登录",
-      "subtitle": "欢迎回到 nano IM。",
+      "subtitle": "继续你的对话和 Agent 工作。",
       "username": "用户名",
       "password": "密码",
       "submit": "登录",
       "submitting": "登录中…",
       "noAccount": "还没有账号?",
-      "registerLink": "立即注册",
-      "errorInvalid": "用户名或密码错误。",
-      "errorGeneric": "登录失败,请稍后再试。"
+      "registerLink": "创建一个"
     },
     "register": {
+      "kicker": "开始使用",
       "title": "创建账号",
-      "subtitle": "选一个用户名和密码即可开始使用。",
+      "subtitle": "设置你的 nano IM 身份。",
       "username": "用户名",
       "password": "密码",
       "displayName": "显示名",
+      "displayHint": "留空时使用用户名。",
+      "passwordHint": "至少 8 位。",
       "submit": "创建账号",
       "submitting": "创建中…",
       "haveAccount": "已有账号?",
-      "loginLink": "去登录",
-      "errorUsernameTaken": "该用户名已被占用。",
-      "errorGeneric": "创建失败,请重试。"
+      "loginLink": "去登录"
     },
     "logout": "退出登录"
   },

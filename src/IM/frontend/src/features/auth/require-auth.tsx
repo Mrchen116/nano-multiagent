@@ -25,7 +25,7 @@ export function RequireAuth({ children }: PropsWithChildren) {
 
   if (hydrating) return null;
   if (!accessToken || !user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
   return <>{children}</>;
 }

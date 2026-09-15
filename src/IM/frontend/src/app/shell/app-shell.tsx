@@ -8,6 +8,7 @@ import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
 import { AgentsNavIcon, ChatNavIcon, MeNavIcon } from "./mobile-nav-icons";
+import { NanoBrand } from "./nano-brand";
 import { UserMenu } from "./user-menu";
 
 /**
@@ -38,19 +39,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <div className={`im-shell${isMobileConversation ? " im-shell--conversation" : ""}`}>
       {!isMobile && (
         <header role="banner" className="im-shell-topbar">
-          <div className="im-shell-brand">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <rect width="24" height="24" rx="6" fill="var(--im-brand)" />
-              <path d="M7 12.5L10.5 16L17 9.5" stroke="var(--im-brand-mark)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span>{t("shell.appName")}</span>
-            <span
-              data-testid="shell-internal-badge"
-              className="im-shell-internal-badge"
-            >
-              internal
-            </span>
-          </div>
+          <NanoBrand className="im-shell-brand" />
           <nav aria-label="primary" className="im-shell-tabs">
             <NavLink to="/chat" end={false}>
               {t("shell.tabs.chat")}
