@@ -19,6 +19,7 @@ from urllib.parse import urlparse, urlsplit
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
+from agent.platform.config.auto_mode import _parse_auto_mode_config
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.permissions.hostname_rules import HostnameRuleEngine
 from agent.platform.tools.presentation import (
@@ -304,7 +305,7 @@ class WebFetchTool:
 
     def __init__(self, *, default_max_chars: int = _DEFAULT_MAX_CHARS) -> None:
         self._default_max_chars = min(default_max_chars, _HARD_MAX_CHARS)
-        # Injected by platform assembler or tests; None → empty/default config
+        # Optional direct-use config; runtime checks resolve session config below.
         self._auto_mode_config: Any = None
 
     def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
@@ -335,7 +336,8 @@ class WebFetchTool:
 
         Args:
             tool_input: Raw tool arguments dict (expected to contain "url" key).
-            ctx: ToolContext or None (not used; config comes from self._auto_mode_config).
+            ctx: Permission hook context carrying the session's config loader and
+                inherited parent rules, or None for direct use.
 
         Returns:
             PermissionDecision with behavior in {"allow", "deny", "ask"}.
@@ -358,8 +360,17 @@ class WebFetchTool:
         hostname = (parsed.hostname or "").lower()
         pathname = parsed.path or ""
 
-        # Resolve web_fetch config (may be None if no config injected)
-        wf_cfg = getattr(self._auto_mode_config, "web_fetch", None)
+        # Ordinary children must use the same inherited policy snapshot as the gate.
+        metadata = getattr(ctx, "metadata", {}) or {}
+        inherited = metadata.get("inherited_auto_mode_config")
+        loader = metadata.get("_auto_mode_config_loader")
+        if isinstance(inherited, dict):
+            config = _parse_auto_mode_config(inherited)
+        elif callable(loader):
+            config = loader()
+        else:
+            config = self._auto_mode_config
+        wf_cfg = getattr(config, "web_fetch", None)
         extra_preapproved: tuple[str, ...] = getattr(
             wf_cfg, "preapproved_hosts_extra", ()
         )
