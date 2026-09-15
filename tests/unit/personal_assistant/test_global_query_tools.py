@@ -153,6 +153,20 @@ def test_query_error_lists_supported_actions():
     )
 
 
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        (InboxTool, {"action": "read", "target": 123}),
+        (ConversationsTool, {"action": "info", "target": "   "}),
+    ],
+)
+def test_queries_reject_invalid_required_target_text(tool, args):
+    with pytest.raises(
+        ValueError, match="invalid_arguments: target must be non-empty text"
+    ):
+        tool().run(args, SimpleNamespace())
+
+
 @pytest.mark.parametrize("tool", [InboxTool, ConversationsTool])
 def test_transport_uses_live_listener_and_real_session_provenance(tool, monkeypatch):
     captured = []

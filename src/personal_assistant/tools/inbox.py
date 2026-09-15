@@ -120,6 +120,9 @@ def validate_arguments(tool_name: str, args: Mapping[str, Any]) -> None:
         raise ValueError("invalid_arguments: limit must be 1–50")
     if action in {"read", "info"} and not args.get("target"):
         raise ValueError("invalid_arguments: target is required")
+    for key in ("target", "cursor", "before_message_id", "query"):
+        if key in args and (not isinstance(args[key], str) or not args[key].strip()):
+            raise ValueError(f"invalid_arguments: {key} must be non-empty text")
     if args.get("before_message_id") and args.get("cursor"):
         raise ValueError(
             "invalid_arguments: before_message_id and cursor are mutually exclusive"
