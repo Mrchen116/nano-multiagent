@@ -24,13 +24,17 @@ type RegistrationValues = LoginValues & {
   displayName: string;
 };
 
+function codePointLength(value: string) {
+  return Array.from(value).length;
+}
+
 export function validateLogin(values: LoginValues): FieldErrors<"username" | "password"> {
   const errors: FieldErrors<"username" | "password"> = {};
   const username = values.username.trim();
   if (!username) errors.username = "usernameRequired";
-  else if (username.length > 64) errors.username = "usernameTooLong";
+  else if (codePointLength(username) > 64) errors.username = "usernameTooLong";
   if (!values.password) errors.password = "passwordRequired";
-  else if (values.password.length > 256) errors.password = "passwordTooLong";
+  else if (codePointLength(values.password) > 256) errors.password = "passwordTooLong";
   return errors;
 }
 
@@ -42,8 +46,8 @@ export function validateRegistration(
   if (username === "system" || username.startsWith("agent:") || username.startsWith("shadow:")) {
     errors.username = "reservedUsername";
   }
-  if (values.displayName.trim().length > 128) errors.displayName = "displayNameTooLong";
-  if (values.password && values.password.length < 8) errors.password = "passwordTooShort";
+  if (codePointLength(values.displayName.trim()) > 128) errors.displayName = "displayNameTooLong";
+  if (values.password && codePointLength(values.password) < 8) errors.password = "passwordTooShort";
   return errors;
 }
 

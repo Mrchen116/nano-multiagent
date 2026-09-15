@@ -11,7 +11,6 @@ type AuthTextFieldProps = {
   error?: string;
   inputRef?: Ref<HTMLInputElement>;
   disabled?: boolean;
-  maxLength?: number;
   required?: boolean;
 };
 
@@ -26,7 +25,6 @@ export function AuthTextField({
   error,
   inputRef,
   disabled = false,
-  maxLength,
   required = true
 }: AuthTextFieldProps) {
   const hintId = hint ? `${id}-hint` : undefined;
@@ -48,7 +46,6 @@ export function AuthTextField({
         aria-describedby={describedBy}
         aria-invalid={Boolean(error)}
         disabled={disabled}
-        maxLength={maxLength}
         required={required}
       />
       {hint && (
@@ -92,7 +89,6 @@ export function AuthPasswordField({ showLabel, hideLabel, ...props }: AuthPasswo
           aria-describedby={describedBy}
           aria-invalid={Boolean(props.error)}
           disabled={props.disabled}
-          maxLength={props.maxLength}
           required={props.required ?? true}
         />
         <button

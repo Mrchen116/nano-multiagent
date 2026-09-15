@@ -117,7 +117,6 @@ export function RegisterPage() {
           error={feedback(fieldErrors.username)}
           inputRef={usernameRef}
           disabled={submitting}
-          maxLength={64}
         />
         <AuthTextField
           id="displayName"
@@ -130,7 +129,6 @@ export function RegisterPage() {
           error={feedback(fieldErrors.displayName)}
           inputRef={displayNameRef}
           disabled={submitting}
-          maxLength={128}
           required={false}
         />
         <AuthPasswordField
@@ -143,7 +141,6 @@ export function RegisterPage() {
           error={feedback(fieldErrors.password)}
           inputRef={passwordRef}
           disabled={submitting}
-          maxLength={256}
           showLabel={t("auth.common.showPassword")}
           hideLabel={t("auth.common.hidePassword")}
         />

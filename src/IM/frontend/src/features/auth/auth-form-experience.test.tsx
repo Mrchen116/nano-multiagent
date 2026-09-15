@@ -71,6 +71,23 @@ describe("auth form experience", () => {
     expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
   });
 
+  it("uses the server's Unicode character limits without truncating valid input", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    renderPage("register");
+    const username = screen.getByRole("textbox", { name: /username/i });
+    const password = screen.getByLabelText(/^password/i);
+    const emojiUsername = "😀".repeat(33);
+
+    await userEvent.type(username, emojiUsername);
+    await userEvent.type(password, "😀".repeat(4));
+    expect(username).toHaveValue(emojiUsername);
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(password).toHaveFocus();
+    expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
+  });
+
   it("keeps an empty login off the network and explains both required fields", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     renderPage("login");

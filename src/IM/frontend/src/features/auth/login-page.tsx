@@ -95,7 +95,6 @@ export function LoginPage() {
           error={feedback(fieldErrors.username)}
           inputRef={usernameRef}
           disabled={submitting}
-          maxLength={64}
         />
         <AuthPasswordField
           id="password"
@@ -106,7 +105,6 @@ export function LoginPage() {
           error={feedback(fieldErrors.password)}
           inputRef={passwordRef}
           disabled={submitting}
-          maxLength={256}
           showLabel={t("auth.common.showPassword")}
           hideLabel={t("auth.common.hidePassword")}
         />
