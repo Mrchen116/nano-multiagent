@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
+from agent.core.skills.registry import SkillMetadata
 from agent.core.agent.compaction.types import (
     AutomaticCompactionFailureTracker,
     CompactionResult,
@@ -40,6 +41,7 @@ class ConversationState:
     file_state: SessionFileState
     automatic_compaction_failures: AutomaticCompactionFailureTracker
     memory_snapshot: MemorySnapshot | None = None
+    skill_prompt_snapshot: tuple[SkillMetadata, ...] | None = None
     last_prompt_tokens: int | None = None
     partial_turn_id: str | None = None
     partial_messages: list[Message] = field(default_factory=list)
@@ -319,6 +321,7 @@ class ConversationSession:
         tool_allowlist: tuple[str, ...],
         metadata: dict[str, object],
         prompt_seed: PromptSlotSeed,
+        defer_skill_prompt_refresh: bool = False,
     ) -> bool:
         """Replace future-turn configuration after every active turn has finished."""
 
@@ -335,6 +338,18 @@ class ConversationSession:
                         and state.prompt_seed == prompt_seed
                     ):
                         return False
+                    if defer_skill_prompt_refresh and not (
+                        state.config.runtime_model == runtime_model
+                        and state.config.tool_allowlist == tool_allowlist
+                        and state.config.metadata == metadata
+                        and state.prompt_seed == prompt_seed
+                        and state.config.skills is not None
+                        and skills is not None
+                        and set(state.config.skills).issubset(skills)
+                    ):
+                        raise ValueError(
+                            "deferred skill refresh requires only skill additions"
+                        )
                     self._transcript.replace_runtime(
                         runtime_model=runtime_model,
                         skills=skills,
@@ -342,9 +357,14 @@ class ConversationSession:
                         metadata=metadata,
                         prompt_seed=prompt_seed,
                     )
-                    with self._state_guard:
-                        self._state = None
-                        self._loaded_external_epoch = None
+                    if defer_skill_prompt_refresh:
+                        loaded = self._transcript.load()
+                        state.config = loaded.config
+                        self._loaded_external_epoch = loaded.external_epoch
+                    else:
+                        with self._state_guard:
+                            self._state = None
+                            self._loaded_external_epoch = None
                     return True
             finally:
                 self._note_quiescent()

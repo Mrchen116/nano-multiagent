@@ -8,6 +8,7 @@ from pathlib import Path
 import threading
 
 import httpx
+import pytest
 import yaml
 
 from personal_assistant.config.local_store import (
@@ -608,8 +609,10 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     )
 
 
+@pytest.mark.parametrize("patch_succeeds", [True, False])
 def test_skill_created_agent_scope_only_enables_executing_agent(
     tmp_path: Path,
+    patch_succeeds: bool,
 ) -> None:
     ws_a = tmp_path / "agent-a"
     ws_b = tmp_path / "agent-b"
@@ -644,6 +647,8 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
                 },
             )
         if request.method == "PATCH":
+            if not patch_succeeds:
+                return httpx.Response(500)
             assert body is not None
             skills = list(body["skills"])
             version += 1
@@ -699,6 +704,13 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
         },
     )
 
+    if not patch_succeeds:
+        # A later manual update must not inherit a failed automatic PATCH intent.
+        skills = ["old-skill", "agent-skill"]
+        sync.sync_agent(agent_id="agent-a", profile_version=version)
+    assert owners.catalog.require("agent-a").auto_enabled_skills == (
+        frozenset({"agent-skill"}) if patch_succeeds else frozenset()
+    )
     patch_bodies = [
         body for method, _path, body in requests if method == "PATCH" and body
     ]

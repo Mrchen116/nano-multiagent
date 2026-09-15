@@ -164,6 +164,11 @@ class _ScenarioState:
                     routing_basis = "scenario_request_index"
             summary = {
                 "scenario": self.scenario,
+                "system_prompt": [
+                    message.get("content")
+                    for message in body.get("messages", [])
+                    if message.get("role") == "system"
+                ],
                 "kind": kind,
                 "routing_basis": routing_basis,
                 "request_index": request_index,

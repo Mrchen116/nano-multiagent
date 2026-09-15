@@ -21,6 +21,7 @@ class LiveAgentSnapshot:
 
     config: AgentWorkspaceConfig
     revision: int
+    auto_enabled_skills: frozenset[str] = frozenset()
 
     @property
     def agent_id(self) -> str:
@@ -67,11 +68,14 @@ class LiveAgentCatalog:
             raise LookupError(f"unknown agent {agent_id}")
         return snapshot
 
-    def publish(self, agent: AgentWorkspaceConfig) -> LiveAgentSnapshot:
+    def publish(
+        self, agent: AgentWorkspaceConfig, *, auto_enabled_skills: tuple[str, ...] = ()
+    ) -> LiveAgentSnapshot:
         """Atomically publish a detached configuration as the next revision.
 
         Args:
             agent: Complete runtime configuration replacing this Agent's snapshot.
+            auto_enabled_skills: Newly created skills whose prompt refresh is deferred.
 
         Returns:
             The newly published current snapshot.
@@ -83,9 +87,15 @@ class LiveAgentCatalog:
         )
         with self._lock:
             self._revision += 1
+            previous = self._snapshots.get(agent.agent_id)
+            automatic = (
+                previous.auto_enabled_skills if previous is not None else frozenset()
+            )
             snapshot = LiveAgentSnapshot(
                 config=detached,
                 revision=self._revision,
+                auto_enabled_skills=(automatic | frozenset(auto_enabled_skills))
+                & frozenset(agent.skills),
             )
             snapshots = dict(self._snapshots)
             snapshots[agent.agent_id] = snapshot

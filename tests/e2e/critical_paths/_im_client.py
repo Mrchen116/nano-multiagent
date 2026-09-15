@@ -275,6 +275,7 @@ class IMClient:
         return self._create_conversation(
             title=title or f"direct-{agent_id}",
             agent_ids=[agent_id],
+            conversation_type="direct",
         )
 
     def create_group_conversation(
@@ -284,16 +285,23 @@ class IMClient:
         return self._create_conversation(
             title=title or "group-" + "-".join(agent_ids),
             agent_ids=agent_ids,
+            conversation_type="group",
         )
 
-    def _create_conversation(self, *, title: str, agent_ids: list[str]) -> str:
+    def _create_conversation(
+        self, *, title: str, agent_ids: list[str], conversation_type: str
+    ) -> str:
         assert self.user_id is not None, "call register_or_login() first"
         participants = [{"type": "user", "id": self.user_id}]
         participants += [{"type": "agent", "id": aid} for aid in agent_ids]
         resp = self._http.post(
             "/im/v1/conversations",
             headers=self._auth_headers,
-            json={"title": title, "participants": participants},
+            json={
+                "title": title,
+                "type": conversation_type,
+                "participants": participants,
+            },
         )
         resp.raise_for_status()
         return resp.json()["id"]
@@ -333,17 +341,21 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()["id"]
 
-    def list_messages(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
-        """按插入序列出会话中的普通消息，忽略非消息 timeline 项。"""
+    def list_timeline(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
+        """Read the same typed timeline entries as the Web client."""
         resp = self._http.get(
             f"/im/v1/conversations/{conversation_id}/messages",
             headers=self._auth_headers,
             params={"limit": limit},
         )
         resp.raise_for_status()
+        return resp.json()["items"]
+
+    def list_messages(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
+        """按插入序列出会话中的普通消息，忽略非消息 timeline 项。"""
         return [
             item["message"]
-            for item in resp.json()["items"]
+            for item in self.list_timeline(conversation_id, limit=limit)
             if item.get("type") == "message" and isinstance(item.get("message"), dict)
         ]
 

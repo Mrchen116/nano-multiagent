@@ -148,6 +148,11 @@ def test_terminal_late_skill_create_replays_and_activates_in_a_new_session(
     finally:
         ws.close()
 
+    initial_prompt = next(
+        request["system_prompt"]
+        for request in _fixture_state(stub_llm_stack)["requests"]
+        if request["kind"] == "foreground"
+    )
     assert reconciled["skills_selection_mode"] == "explicit_allowlist"
     assert _SKILL_NAME in reconciled["skills"]
     skill_path = (
@@ -181,7 +186,41 @@ def test_terminal_late_skill_create_replays_and_activates_in_a_new_session(
         enabled=False,
     )
     _fixture_control(stub_llm_stack, scenario="verify_skill", reset=True)
-    next_conversation_id = client.create_direct_conversation(agent_id)
+    ws_same = client.connect_ws()
+    try:
+        client.send_message(
+            conversation_id, "Read the new skill without changing our prompt."
+        )
+        ws_same.wait_for_event(
+            "message.completed",
+            lambda frame: (
+                frame.conversation_id == conversation_id
+                and _SKILL_USED in str(frame.data.get("content") or "")
+            ),
+        )
+    finally:
+        ws_same.close()
+    same_state = _fixture_state(stub_llm_stack)
+    same_prompt = next(
+        request["system_prompt"]
+        for request in same_state["requests"]
+        if request["request_index"] == 1
+    )
+    import difflib
+
+    assert same_prompt == initial_prompt, "\n".join(
+        difflib.unified_diff(
+            str(initial_prompt).split("\\n"), str(same_prompt).split("\\n")
+        )
+    )
+    assert not any(
+        item.get("type") != "message" for item in client.list_timeline(conversation_id)
+    )
+
+    _fixture_control(stub_llm_stack, scenario="verify_skill", reset=True)
+    next_conversation_id = client.fork_conversation(
+        conversation_id, client.agent_messages(conversation_id, agent_id)[-1]["id"]
+    )
     ws_next = client.connect_ws()
     try:
         client.send_message(next_conversation_id, "Use the newly activated Skill.")
@@ -197,9 +236,8 @@ def test_terminal_late_skill_create_replays_and_activates_in_a_new_session(
         replies = client.agent_messages(next_conversation_id, agent_id)
     finally:
         ws_next.close()
-        client.close()
 
-    [reply] = replies
+    reply = replies[-1]
     assert _SKILL_USED in str(reply.get("content") or "")
     skill_calls = [
         call for call in reply.get("tool_calls", []) if call.get("name") == "skill_view"
@@ -208,8 +246,49 @@ def test_terminal_late_skill_create_replays_and_activates_in_a_new_session(
     assert skill_calls[0]["status"] == "completed"
 
     state = _fixture_state(stub_llm_stack)
+    new_prompt = next(
+        request["system_prompt"]
+        for request in state["requests"]
+        if request["request_index"] == 1
+    )
+    assert _SKILL_NAME in str(new_prompt)
+    assert new_prompt != initial_prompt
     assert any(
         request.get("routing_basis") == "structural_tool_result"
         for request in state.get("requests", [])
         if isinstance(request, dict)
     )
+
+    # Manual disable/re-enable remains an immediate runtime boundary even after
+    # the same skill was first introduced by automatic self-evolution.
+    for enabled in (False, True):
+        client.update_agent_config(agent_id, skills=[_SKILL_NAME] if enabled else [])
+        _fixture_control(
+            stub_llm_stack, scenario="no_save", reset=True, response_tag=str(enabled)
+        )
+        ws_manual = client.connect_ws()
+        try:
+            client.send_message(conversation_id, f"Manual skill enabled: {enabled}")
+            ws_manual.wait_for_event(
+                "message.completed",
+                lambda frame: (
+                    frame.conversation_id == conversation_id
+                    and f"FOREGROUND-NO-SAVE-SEED [{enabled}]"
+                    in str(frame.data.get("content") or "")
+                ),
+            )
+        finally:
+            ws_manual.close()
+        prompt = next(
+            request["system_prompt"]
+            for request in _fixture_state(stub_llm_stack)["requests"]
+            if request["request_index"] == 1
+        )
+        assert (_SKILL_NAME in str(prompt)) is enabled
+        boundaries = [
+            item
+            for item in client.list_timeline(conversation_id)
+            if item.get("type") != "message"
+        ]
+        assert len(boundaries) == (2 if enabled else 1)
+    client.close()
