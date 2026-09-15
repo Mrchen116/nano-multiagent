@@ -1,6 +1,6 @@
 ---
 name: change-orchestrator-simple
-description: "用户点名 $change-orchestrator-simple，要求实施已完成事前对齐的 Full 或 Bugfix lite change unit 并交付 PR 时使用。"
+description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit 并交付 PR 时默认使用；用户点名 $change-orchestrator 时改用原流程。"
 ---
 
 # Change Unit Delivery

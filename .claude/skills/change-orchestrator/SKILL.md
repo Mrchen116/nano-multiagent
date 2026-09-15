@@ -1,6 +1,6 @@
 ---
 name: change-orchestrator
-description: "已通过 Gate 2 的 Full unit 或首文档已收口的 Bugfix lite 需要实施并交付 PR 时默认使用；simple 流程仅由用户点名选择。"
+description: "用户点名 $change-orchestrator，要求按原流程实施已通过 Gate 2 的 Full unit 或首文档已收口的 Bugfix lite 并交付 PR 时使用；默认实施入口为 change-orchestrator-simple。"
 ---
 
 # Change Orchestrator

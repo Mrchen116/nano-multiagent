@@ -34,8 +34,8 @@ Full
          → R1 创建独立 change-design-reviewer
          → 后续轮次复用同一 reviewer
          → 选择实施方式
-            ├─ 原流程：change-orchestrator → change-impl-worker(s)
-            └─ 用户点名简化流程：change-orchestrator-simple → 自主组织实现
+            ├─ 默认简化流程：change-orchestrator-simple → 自主组织实现
+            └─ 用户点名原流程：change-orchestrator → change-impl-worker(s)
          → 对应 validation gates
          → canonical spec 归并
          → 本地 CI
@@ -45,8 +45,8 @@ Full
 Bugfix lite
   change-spec-author（fix.md 前两段）
     → 选择实施方式
-       ├─ 原流程：change-orchestrator → 单个 change-impl-worker
-       └─ 用户点名简化流程：change-orchestrator-simple → 自主实施单个 M1-fix
+       ├─ 默认简化流程：change-orchestrator-simple → 自主实施单个 M1-fix
+       └─ 用户点名原流程：change-orchestrator → 单个 change-impl-worker
     → change-code-review
     → 必要的 canonical spec 归并
     → 本地 CI
@@ -135,10 +135,10 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 默认 | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
-| 简化流程 | 用户点名 `$change-orchestrator-simple` | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 用户点名 `$change-orchestrator` | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 简化流程 | 默认 | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
-两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。选择简化流程只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
+两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。默认使用简化流程；用户点名 `$change-orchestrator` 时使用原流程。实施方式只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
 
 原流程的每个 milestone：
 

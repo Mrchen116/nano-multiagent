@@ -10,7 +10,7 @@
 2. 与用户交互式澄清模糊点，逐条记录到【澄清记录】。每轮澄清后才继续下一段。
 3. 澄清未完成前，禁止填写"用户场景/验收标准"。
 
-关键：【验收标准】会被 change-orchestrator 逐字透传给 change-reviewer 当验收清单，
+关键：【验收标准】会被所选实施流程逐字透传给 change-reviewer 当验收清单，
 reviewer 的覆盖表逐个 Scenario 验收。Scenario 只能写用户可观察的东西——混进实现 /
 协议 / 接口 / 内部状态会让整轮验收作废。每个 Requirement 至少一个 Scenario。
 
@@ -51,7 +51,7 @@ reviewer 的覆盖表逐个 Scenario 验收。Scenario 只能写用户可观察�
      - 同一能力的正常路径、失败 / 边界 / 空态分别各列一个 Scenario——漏边界态时这里会留出明显空位。
      - 每条 Scenario 都要能追溯到【用户场景】里的某段叙事。
      - 不写实现 / 协议 / 接口 / 内部状态——那些归 design.md。
-     这一段会被 change-orchestrator 逐字透传给 change-reviewer 当覆盖清单：reviewer 的覆盖表
+     这一段会被所选实施流程逐字透传给 change-reviewer 当覆盖清单：reviewer 的覆盖表
      每个 Scenario 一行，逐条判 pass / fail / inconclusive / not-applicable。 -->
 
 ### Requirement: <一句话能力描述>
