@@ -20,4 +20,18 @@ nano 的参数校验从全局 Inbox 首次实现提交 `d6f746c347` 起，把“
 
 ## 修复
 
+- LLM Bridge 提交 `016f32e` 在 Chat/Anthropic 工具转 Responses 时显式传递 `strict`，源请求未指定时使用 `false`，不改写原始 parameters。
+- nano 提交 `025784b2f` 将 action 与字段校验错误拆开：未知 action 列出合法 action；已知 action 的错误列出不接受字段和允许字段；同次调用中的空可选文本提示未使用时省略。
+- code review 发现首版对空可选字段分流时跳过了必填 `target` 的类型与空白校验；提交 `9f557f7cf` 恢复原校验，并增加 Inbox/Conversations 必填 target 回归用例。
+- 未修改工具字段 description、允许字段集合、必填字段、范围限制或 Inbox 消费行为。
+
 ## 验证
+
+- Red：新增两个定向用例后，旧实现均返回 `invalid_arguments: unsupported action or fields`，`2 failed`。
+- Green：`tests/unit/personal_assistant/test_global_query_tools.py`，`22 passed`。
+- 相关 Inbox/Gateway 回归：`test_global_query_tools.py`、`test_global_inbox.py`、`test_global_gateway_runtime.py`，修复 review finding 后 `35 passed`。
+- Bridge 转换与路由回归：`tests/test_proxy_converters.py tests/test_chat_completions_routes.py`，`25 passed`。
+- Ruff check、Ruff format check 与 `git diff --check` 通过。
+- 独立 code review：1 个 confirmed finding；closure finder 与 verifier 均确认 closed，无存活 finding。
+- 本地 CI：文档完整性检查通过（234 个 Markdown source、73 条 required route）；Ruff check / format check 通过（1055 files）；Python 两个非 E2E 分片分别 `1889 passed`、`2002 passed`；前端依赖审计无 critical，首次与 Python 分片并跑出现 3 个无关超时，空闲后完整重跑 `759 passed`。
+- 本次只细化既有 `invalid_arguments` 文案，不改变 current spec 所定义的权限、消费或查询行为，因此无需修改 canonical spec。
