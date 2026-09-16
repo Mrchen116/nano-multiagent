@@ -28,7 +28,7 @@
 - `test_output_revalidation.py` 保留全部原复核行为，并将旧共享模板测试移为真实草稿 reminder 的逐字校验，增加复核/轮结束/新输入消费顺序断言。
 - `tests/unit/test_agent_loop.py` 的事件清单断言纳入两次正常 model_round_end；SDK surface guard 删除已撤回的四个输出类型，保留 PermissionOutcome。
 
-Canonical 契约见 [kernel runs](../../../specs/kernel/runs.md) 与 [kernel 入口](../../../specs/kernel/spec.md)。本记录仅描述 Kernel 实施与验证，不替代产品交付验收。
+Canonical 契约见 [kernel runs](../../../../specs/kernel/runs.md) 与 [kernel 入口](../../../../specs/kernel/spec.md)。本记录仅描述 Kernel 实施与验证，不替代产品交付验收。
 
 
 ## 复核后补充：准备期间的新输入
