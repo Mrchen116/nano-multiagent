@@ -18,9 +18,15 @@
 
 > 要改啊，这就是本unit要解决的其中一个问题
 
+> `change-verifier`、`change-code-review`、`change-spec-reviewer` Terra + High就好了。候选问题二次核验 Sol / medium。然后`change-reviewer`涉及界面操作，多模态，用astra low。`change-design-reviewer`很重要，继承主agent。
+
+> 修复我觉得是不是不用开subagent了，直接主agent干？第一轮有必要就分工多个agent，但是后面发现问题，全部主agent干，可以不
+
+> 好
+
 ## 澄清记录
 
-用户已接受前轮列出的五个 Skill 修改方向与 workflow 同步：simple 默认主 Agent 实施；设计复审按实质变化；代码审查的二次核验按风险与争议；代码和一致性审查可由同一独立 Agent 完成；保留真实产品验收、定向复测与测试证据复用。用户进一步明确模型选择同属本 unit：默认子任务不再继承主模型，由派发方选择适合常规任务的中档模型；不把模型选择放入执行角色 Skill。无需重新对齐相同决定。
+用户已接受前轮列出的五个 Skill 修改方向与 workflow 同步：simple 默认主 Agent 实施；设计复审按实质变化；代码审查的二次核验按风险与争议；代码和一致性审查可由同一独立 Agent 完成；保留真实产品验收、定向复测与测试证据复用。用户进一步明确模型选择同属本 unit：实现、复杂调查和设计审查继承主模型；spec/code/verifier 用 Terra/high，候选核验用 Sol/medium，产品 reviewer 用 Astra/low；由派发方控制，不把模型选择放入执行角色 Skill。后续问题统一由主 Agent 修复，不再派修复 worker。无需重新对齐相同决定。
 
 ## 现状痛点
 
