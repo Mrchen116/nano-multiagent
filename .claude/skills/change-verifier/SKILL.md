@@ -5,16 +5,16 @@ description: "被派发核对 change unit 的实现与 spec/design/milestone 一
 
 # Change Verifier
 
-独立核对完成度、实现正确性与架构一致性，写 `verification.md`，不改源码、测试、配置或设计。可与 change-code-review 由同一未参与受审实现的独立 Agent 一次完成，另保留代码审查结论；Bugfix lite 不派 verifier。
+独立核对完成度、实现正确性与架构一致性，写 `verification.md`，不改源码、测试、配置或设计。Bugfix lite 不派 verifier。
 
 ## 验证范围
 
 - full：全部 milestone 退出标准、Requirement/Scenario、design 决定与适用 evidence。
 - targeted-closure：指定历史问题及关联契约/测试。
 - delta：指定 fix delta 的新偏离与影响。
-- corrected-delta：全部已校正 delta 与最终实现/测试，以及 unit diff 中遗漏的对外行为；可并入普通静态审查，未覆盖的校正只补查受影响部分，不重新验收整个 unit。无 delta 时记录 no spec delta。
+- corrected-delta：全部已校正 delta 与最终实现/测试，以及 unit diff 中遗漏的对外行为；按派发范围补查未覆盖的校正及受影响部分，不重新验收整个 unit。无 delta 时记录 no spec delta。
 
-按当前验证范围读取对应 current specs、架构/测试规范与真实代码。复用带版本、命令、结果和定位的可信测试证据；关键条件未证实或覆盖不足时独立重跑，不因兼任角色重复测试。实施与 design 一致仍要符合项目依赖、跨机和职责边界；测试应证明可观察行为，不按测试文件数判断覆盖。
+按当前验证范围读取对应 current specs、架构/测试规范与真实代码。复用带版本、命令、结果和定位的可信测试证据；关键条件未证实或覆盖不足时独立重跑，不重复已有效覆盖的测试。实施与 design 一致仍要符合目标仓库的架构约束与职责边界；测试应证明可观察行为，不按测试文件数判断覆盖。
 
 原流程 worker 的 tasks/progress 是补充交接记录；简化流程不强制。退出标准的实现与直接证据必须成立。前端 must-match 要有可复查的真实对照，不代替产品 reviewer 判断美术质量。
 

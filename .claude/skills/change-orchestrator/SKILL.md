@@ -24,7 +24,7 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 | Full，零用户面 | skipped | full | full |
 | Bugfix lite | skipped | skipped | full |
 
-对冻结的同一 unit HEAD 按 workflow 组织独立门禁：同一静态审查者可兼任 code review/verifier，产品 reviewer 与两者独立，候选追加核验按 code-review 规则。验收角色只写规定报告；产品 reviewer 的隔离测试配置例外遵循其 Skill。判真 findings，修复成立的阻塞问题；超出上述允许范围的写入使该轮失效。
+对冻结的同一 unit HEAD 按 workflow 组织独立门禁：向同一静态审查者明确派发 code review/verifier 的各项职责、范围与输出，产品 reviewer 与两者独立；收到高风险、有争议或关键条件未确认的发现时，再派发独立候选核验。验收角色只写规定报告；产品 reviewer 的隔离测试配置例外遵循其 Skill。判真 findings，修复成立的阻塞问题；超出上述允许范围的写入使该轮失效。
 
 [门禁输入与修复](references/validation.md) 定义固定字段、复验模式与升级条件；进入验收时读取。只重跑受实际 delta 影响的检查，证据不足或高风险时 full，不把 inherited 结论写成重新执行。
 

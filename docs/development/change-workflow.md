@@ -127,7 +127,7 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 - author 核实所有 findings 和 recommendations 后确认没有实质问题；
 - 最后一轮之后，首文档、design、delta-spec、prototype 和 milestone 骨架没有未经审查的实质变化；非实质变化有 retained 依据。
 
-设计复审按下述上下文选择规则复用或交接，记录旧/新 reviewer、原因及历史报告。替代者核实历史发现、差异与证据后自行决定范围；证据不足时 full，不能只凭上轮 Approved 放行。涉及内核/SDK 的设计需明确业务职责归属，并比较复用既有入口与新增机制，不能只检查 import 边界。
+设计复审按下述上下文选择规则复用或交接，记录旧/新 reviewer、原因及历史报告。替代者核实历史发现、差异与证据后自行决定范围；证据不足时 full，不能只凭上轮 Approved 放行。涉及职责或公共接口的设计需明确责任归属，并比较复用既有能力与新增机制，不能只检查依赖是否合法。
 
 ### 子 Agent 的派发与上下文
 
@@ -171,7 +171,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 | Bugfix lite | 跳过 | 跳过 | 必须 |
 | 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
 
-Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。表格规定检查职责，不规定 Agent 数量：Full 默认由同一位未参与受审实现的独立静态审查者一次执行 `$change-code-review` 与 `$change-verifier`，分别保留代码审查结论和一致性报告；产品 reviewer 与实现、静态审查均独立。高风险或存在争议、关键条件无法确认的代码发现，再按具体问题追加独立候选核验；普通明确问题由静态审查者直接举证。
+Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。表格规定检查职责，不规定 Agent 数量；orchestrator 在派发中明确每项职责、对应 Skill、范围和输出，执行角色不自行增加兼任职责：Full 默认由同一位未参与受审实现的独立静态审查者一次执行 `$change-code-review` 与 `$change-verifier`，分别保留代码审查结论和一致性报告；产品 reviewer 与实现、静态审查均独立。高风险或存在争议、关键条件无法确认的代码发现，再按具体问题追加独立候选核验；普通明确问题由静态审查者直接举证。
 
 - verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程的 worker milestone
   应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；

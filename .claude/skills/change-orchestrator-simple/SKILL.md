@@ -22,7 +22,7 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 - Full 零用户面：verifier 和 code review，不派产品 reviewer。
 - Bugfix lite：只执行 `$change-code-review`，不派 verifier 或产品 reviewer。
 
-默认同一独立静态审查者执行 code review 与 verification，分别给结论；产品 reviewer 独立于实现和静态审查。是否追加候选核验按 code-review 的风险/争议规则。批量修复成立的阻塞问题后冻结版本，一次复验失效范围；证据不足或边界不清时扩大，不以提交号变化机械触发全审。复验字段与 retained 证据见 [validation](../change-orchestrator/references/validation.md)。
+默认向同一独立静态审查者明确派发 code review 与 verification 两项职责、范围及各自输出；产品 reviewer 独立于实现和静态审查。收到需追加核验的发现后，按风险、争议和未确认条件派发独立核验者。批量修复成立的阻塞问题后冻结版本，一次复验失效范围；证据不足或边界不清时扩大，不以提交号变化机械触发全审。复验字段与 retained 证据见 [validation](../change-orchestrator/references/validation.md)。
 
 完成 final sync、门禁有效性判断、delta 校正（可并入静态审查；未覆盖的校正补做 corrected-delta，无 delta 记录 no spec delta）、canonical 归并、本地 CI 和完整 archive，再创建 Ready for review PR，正常交付不得使用 `--draft`。用户明确要求提前查看时可先 Draft，交付前 `gh pr ready` 并等 required CI 全绿。
 

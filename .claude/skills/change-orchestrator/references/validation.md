@@ -7,7 +7,7 @@
 - code review：review_mode=full|patch|closure、diff_range、focus_findings。range 分别为 executed_base...validated_at、pre_fix_head..validated_at、finding_origin_head..validated_at。
 - corrected-delta：可与 code review/verification 同次派发；Full 校正并 push delta 后提供 unit、branch、verify_worktree_dir、validated_at/executed_base、verification_mode=corrected-delta；不要求普通复验字段。
 
-同一独立静态审查者可一次承担 code review 与 verification，保留各自范围、证据与结论；校正后尚未覆盖的 delta 补查，未变已审部分保留，无 delta 记录 no spec delta。
+orchestrator 决定角色组合，在同一次派发中明确每项职责、对应 Skill、范围与输出；审查者不自行增加兼任角色。合并派发 code review 与 verification 时，保留各自证据与结论；校正后尚未覆盖的 delta 补查，未变已审部分保留，无 delta 记录 no spec delta。
 
 等 selected gates 返回再整合报告，确认报告来自本轮 SHA 且没有范围外写入。产品 reviewer 按 Skill 授权调整隔离临时测试配置不属于越界，不能改受版本控制的配置或扩大授权。发现越界使该角色本轮 verdict 失效，保留合法并行工作后移除越界 delta，修复并重验。
 

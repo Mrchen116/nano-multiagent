@@ -1,12 +1,12 @@
 # 设计图谱:按难点选图
 
-设计图的按需参考。根据本次要解释的结构、交互或状态选择图形；下文提供对应的项目词汇与 Mermaid 骨架。
+设计图的按需参考。根据本次要解释的结构、交互或状态选择图形；下文提供通用 Mermaid 示例；节点、接口与约束以目标仓库为准。
 
 ## 目录
 
 - [选图速查表](#选图速查表)
 - [按难点取舍](#按难点取舍)
-- [本项目词汇表(画图前先对齐)](#本项目词汇表画图前先对齐)
+- [对齐目标仓库](#对齐目标仓库)
 - [六类图:何时用 + mermaid 骨架](#六类图何时用--mermaid-骨架)
   - [组件 / 依赖图](#组件--依赖图静态结构)
   - [时序图](#时序图动态流程最高频)
@@ -37,14 +37,9 @@
 
 图应回答一个明确问题。模块关系放架构总览，调用顺序放接口与数据流，状态和数据图就近放在相关决定旁。没有固定图数。
 
-## 本项目词汇表(画图前先对齐)
+## 对齐目标仓库
 
-骨架里的名字直接用项目真实结构,worker 才能照着对上代码。
-
-- **四个顶层包**:`IM`(中心服务/Web IM/配置中心)、`coding_cli`(本地编码 CLI)、`personal_assistant`(Node Gateway 常驻进程)、`agent`(内核库)。
-- **agent 内核四层**:`core`(纯逻辑)→ `platform`(接环境:LLM provider / persistence / safety / bootstrap)→ `products`(产品 profile:local_coding / personal_assistant)→ `sdk`(唯一对外面,`build_kernel() → Kernel`)。
-- **依赖硬规则**:`coding_cli` / `personal_assistant` **只许 import `agent.sdk`**;三个产品包(`coding_cli` / `personal_assistant` / `IM`)互不 import;`core` 不依赖 `platform` / `products`。
-- 画依赖图时**箭头方向 = 依赖方向**,违反上面硬规则的箭头就是设计错误,画出来正好自检。
+从目标仓库的架构文档和实际代码确认模块、接口、依赖与部署边界，再替换示例节点。依赖箭头表示真实依赖方向；不要把下列示例当作架构要求。
 
 ---
 
@@ -52,23 +47,17 @@
 
 ### 组件 / 依赖图(静态结构)
 
-**何时**:本 unit 触及多个模块,或新增模块 / 改了包边界。几乎所有 unit 的打底图。
+**何时**:本 unit 触及多个模块,或新增模块 / 改了包边界。仅在图能帮助理解边界时使用。
 **重点**:画**本 unit 相关的子集**,不是把整个项目画一遍;新增 / 改动的节点用文字标出来(如「(新增)」)。
 
 ```mermaid
 graph TD
-    CLI[coding_cli] --> SDK[agent.sdk]
-    PA[personal_assistant] --> SDK
-    SDK --> Core[agent.core]
-    SDK --> Platform[agent.platform]
-    SDK --> Products[agent.products]
-    Platform --> Core
-    Products --> Core
-    Core -.->|新增: XxxPort 端口| NewPort[「本 unit 新增的抽象」]
-    Platform -.->|新增: XxxAdapter 实现| NewPort
+    Caller[调用方] --> Interface[公开接口]
+    Interface --> Service[业务模块]
+    Service --> Storage[存储接口]
 ```
 
-> before/after 用文字补一句:「现状 core 直接做了 Y;本 unit 把 Y 抽成 XxxPort,实现下沉到 platform」。
+> before/after 用文字补一句:「现状调用方直接访问存储；本 unit 经公开接口访问」。
 
 ### 时序图(动态流程,最高频)
 
@@ -77,40 +66,33 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant IM
-    participant GW as personal_assistant<br/>(Gateway)
-    participant SDK as agent.sdk
-    participant Core as agent.core (loop)
-    participant LLM
-
-    User->>IM: 发消息 / @agent
-    IM->>GW: 中继消息
-    GW->>SDK: kernel.send(...)
-    SDK->>Core: 进入 agent loop
-    Core->>LLM: 请求(工具/思考)
-    LLM-->>Core: 响应
-    Core-->>SDK: 产出 run 结果
-    SDK-->>GW: 回包
-    GW-->>IM: 中继回复
-    IM-->>User: 展示
+    participant User as 用户
+    participant Client as 客户端
+    participant Service as 服务
+    participant Store as 存储
+    User->>Client: 提交操作
+    Client->>Service: 请求
+    Service->>Store: 读取或写入
+    Store-->>Service: 结果
+    Service-->>Client: 响应
+    Client-->>User: 展示结果
 ```
 
 ### 状态机图(生命周期)
 
-**何时**:某个实体有多种状态且迁移规则是设计核心——会话、连接、run、绑定、心跳等。
+**何时**:某个实体有多种状态且迁移规则是设计核心——订单、连接、任务等。
 **重点**:节点=状态,边=触发事件;把"非法迁移 / 终态"标清楚。
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Running: 收到用户消息
-    Running --> WaitingTool: 发起工具调用
-    WaitingTool --> Running: 工具返回
-    Running --> Idle: run 完成
-    Running --> Failed: 上游/工具错误
+    Idle --> Running: 收到任务
+    Running --> WaitingDependency: 等待依赖
+    WaitingDependency --> Running: 依赖就绪
+    Running --> Idle: 任务完成
+    Running --> Failed: 依赖错误
     Failed --> Idle: 重置 / 用户重试
-    Idle --> [*]: 会话关闭
+    Idle --> [*]: 任务关闭
 ```
 
 ### 流程图(分支逻辑)
@@ -119,14 +101,11 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Start([收到请求]) --> Auth{已认证?}
-    Auth -->|否| Reject[拒绝 / 401]
-    Auth -->|是| Bound{节点已绑定?}
-    Bound -->|否| AutoBind{auto-bind?}
-    AutoBind -->|是| DoBind[自动确认绑定]
-    AutoBind -->|否| WaitUser[等用户浏览器确认]
-    Bound -->|是| Proceed[正常处理]
-    DoBind --> Proceed
+    Start([收到请求]) --> Valid{输入有效?}
+    Valid -->|否| Reject[返回校验错误]
+    Valid -->|是| Allowed{满足处理条件?}
+    Allowed -->|否| Explain[说明阻塞原因]
+    Allowed -->|是| Proceed[执行并返回结果]
 ```
 
 ### ER / 数据模型图(数据形状)
@@ -136,43 +115,28 @@ flowchart TD
 
 ```mermaid
 erDiagram
-    USER ||--o{ AGENT : owns
-    AGENT ||--o{ SESSION : has
-    SESSION ||--o{ MESSAGE : contains
-    AGENT {
-        string agent_id
-        string workspace_root
-        string system_prompt
-    }
-    MESSAGE {
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ ORDER_ITEM : contains
+    ORDER {
         string id
-        string role
-        string content
-        int created_at
+        string status
+    }
+    ORDER_ITEM {
+        string product_id
+        int quantity
     }
 ```
 
 ### 部署图(运行时进程)
 
-**何时**:本需求涉及多进程协作、跨机、端口/服务编排(如 e2e 拓扑、Gateway↔IM↔Kernel 进程关系)。
+**何时**:本需求涉及多进程协作、跨机、端口/服务编排（如客户端、服务与存储的连接关系）。
 **重点**:节点=进程/服务,标清谁监听端口、谁只连出、进程内 vs 跨进程。
 
 ```mermaid
 graph LR
-    subgraph Browser
-        Web[Web IM 前端]
-    end
-    subgraph "IM 进程 :8011"
-        IMsvc[IM app uvicorn]
-    end
-    subgraph "Gateway 进程 (不监听端口)"
-        GW[personal_assistant.main]
-        K[内核 Kernel<br/>进程内持有]
-        GW -.进程内.- K
-    end
-    Web -->|HTTP/WS| IMsvc
-    GW -->|连出| IMsvc
-    K -->|HTTP| LLM[(LLM provider<br/>本地代理 :4000)]
+    Client[客户端] -->|请求| Service[服务进程]
+    Service -->|读写| Database[(数据库)]
+    Service -->|请求| External[外部服务]
 ```
 
 ---
@@ -183,4 +147,4 @@ graph LR
 - **图裸奔**:贴个图不配一句话。每张图旁补 1-2 句"它回答什么 / before-after 差在哪",否则读者得自己逆推意图。
 - **时序图塞满异常分支**:主路径 + 一两个关键分支即可;判断逻辑复杂就换流程图。
 - **把整个项目画一遍**:只画本 unit 相关子集。普查式全景图没人看。
-- **依赖箭头违反硬规则还没发现**:画依赖图时若出现 `coding_cli → agent.core` 这种箭头,是设计错了,不是图画错了——正好借图自检。
+- **依赖箭头违反硬规则还没发现**:画依赖图时若出现目标仓库明令禁止的依赖，应修正设计——正好借图自检。
