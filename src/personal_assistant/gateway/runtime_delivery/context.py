@@ -130,6 +130,7 @@ class RunDeliveryContext:
     reply_image_output_key: str = ""
     managed_image_messages: set[str] = field(default_factory=set)
     managed_reply_text: str = ""
+    image_delivery_pending: bool = False
 
     def __post_init__(self) -> None:
         """Start every newly accepted run with a visible delivery lease."""
@@ -176,6 +177,7 @@ class RunDeliveryContext:
         self.kernel_message_id = ""
         self.external_current_text = ""
         self.managed_reply_text = ""
+        self.image_delivery_pending = False
         self.external_intermediate_sent_marker = ""
         self.visible_reply_committed = False
         self.discard_current_bubble = False

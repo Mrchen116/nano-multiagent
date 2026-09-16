@@ -134,6 +134,7 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
         await sync.recover_pending()
         assert len(uploads) == 1
         assert reconciled
+        assert reconciled[-1]["delivery_status"] == "completed"
         assert "http://im.test/im/v1/images/image123" in reconciled[-1]["content"]
         assert str(source) not in reconciled[-1]["content"]
         assert len(adapter.sent) == 1

@@ -827,7 +827,9 @@ def build_kernel_event_observer(
                     )
                     shadow_process_seq = int(persisted["seq"])
             elif event_name == "turn_end":
-                turn_completed = event.get("completed") is not False
+                turn_completed = (
+                    event.get("completed") is not False or ctx.image_delivery_pending
+                )
                 discard = bool(ctx.discard_current_bubble) or (
                     turn_completed
                     and bool(ctx.discard_empty_completion)
@@ -1558,7 +1560,9 @@ def build_kernel_event_observer(
             # Send message_completed with delivery_status="failed" to finalize the bubble
             # (error content was already sent via message_delta; final_content=None preserves it).
             # completed=True = normal success path, delivery_status defaults to "completed".
-            turn_completed = event.get("completed") is not False
+            turn_completed = (
+                event.get("completed") is not False or ctx.image_delivery_pending
+            )
 
             # bugfix-410-fix-r1: turn_end is the normal-completion terminus (no reconcile
             # runs on this path), so reap any leftover per-run in-flight entry here as a

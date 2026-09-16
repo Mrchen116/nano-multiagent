@@ -1005,6 +1005,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     reply_images.record_delivery(key, channel, receipt)
                 receipts.append({"channel": channel, **receipt})
             if not im_online:
+                context.image_delivery_pending = True
                 _notify_shadow_pending()
                 return OutputResult(
                     state="partial" if receipts else "pending",
@@ -1019,6 +1020,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 state="delivered", delivery_id=key, channel_receipts=tuple(receipts)
             )
         except Exception as exc:
+            context.image_delivery_pending = True
             _notify_shadow_pending()
             return OutputResult(
                 state="partial" if receipts else "pending",
