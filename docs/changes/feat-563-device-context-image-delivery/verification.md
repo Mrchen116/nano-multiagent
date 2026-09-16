@@ -131,3 +131,29 @@ None.
 ### Round 2 independent checks
 
 `PYTHONPATH=src .../.venv/bin/python -m pytest -q` 执行 `test_pa_offline_image_shadow.py`、`test_pa_candidate_delivery.py`、`test_global_external_dispatch_images.py`、`test_reply_delivery_recovery.py`、`test_shadow_reply_images.py`、`test_reply_image_delivery_strict.py`：**28 passed**（19.97s，两个既有依赖弃用 warning）。另执行上述未预置 anchor 的一次性反证，失败来源已定位。真实 Web IM / 飞书体验仍由并行产品 reviewer 记录，不在此次 closure 冒认通过。
+
+## Round 3 — targeted closure
+
+- `validated_at: 24bad8b2f`
+- `executed_base: 0014ee0b0`
+- `fix_delta_range: 8ffd1318a..24bad8b2f`
+- `verification_mode: targeted-closure`
+- Focus: V1 pending-anchor；保留 V2/V3 及此前两项 code-review finding 的关闭结论。
+- Verdict: **PASS for implementation verification** — 0 CRITICAL, 0 WARNING, 0 SUGGESTION。
+- `requires_full_verification: false`。真实 Web IM / 飞书产品验收为独立门禁，此处不替代其结论。
+
+### V1 — closed
+
+`composition.py:_reply_destination` 不再仅凭 `delivery_target.kind == none` 排除真实外部目标。IM shadow anchor 未创建时，使用实际 `reply_channel_name` 和 `reply_target_chat_id` 构造权限目标；后续仍走同一候选授权、快照、飞书提交及 shadow alias。global Work 与 subagent 的 callback 排除位于既有 runtime feature / kernel sidechain 边界，本 delta 未改动它们。
+
+独立执行 `test_pa_offline_image_shadow.py` 的两个参数分支（已有 anchor / 尚无 anchor）：均观察一次模型权限分类、一次飞书 prepared publication、源文件删除后从 alias 的不可变快照恢复；后一分支恢复时真实经过 shadow anchor 创建接口，之后上传原始图片，飞书不重复发送。相比 Round 2 的反证，未锚定消息已不再 pass_through。
+
+### Retained closures
+
+- V2：未决正文/目标摘要复用原调用身份的代码与回归测试在此 delta 未修改，保留 Round 2 closed。
+- V3：first_attempt_at 与恢复/provider before_publish 的一小时窗口检查在此 delta 未修改，保留 Round 2 closed。
+- 初次 code-review 的 pending/partial 无消费者与 shadow manifest 重读源文件两项：恢复消费者和 alias 均保留；本次删源后 shadow 恢复测试再次验证 alias 生效，维持 closed。
+
+### Direct validation
+
+独立 detached worktree、指定 `24bad8b2f`：`PYTHONPATH=src .../.venv/bin/python -m pytest -q tests/integration/test_pa_offline_image_shadow.py tests/unit/personal_assistant/test_pa_reply_delivery.py tests/unit/agent/test_output_callback.py` → **11 passed in 4.40s**。同时覆盖普通图片准备失败私有反馈、权限拒绝、stale、FD 绑定、模型多块聚合与 subagent 排除。未重新扩大为完整实施审查；完整测试及产品验收仍由编排者收口。
