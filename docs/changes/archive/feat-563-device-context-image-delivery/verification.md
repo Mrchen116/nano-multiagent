@@ -192,3 +192,31 @@ None.
 None within the unit's implemented public behavior. 一小时 provider 重试边界与新的 target 解析接口是已声明真实状态/目标授权要求的实现细节，无需额外面向用户能力条目。最终 footer 修复兑现离线补齐同一图片历史，不引入新的用户操作。
 
 Outcome: **aligned**。实现 verifier 与 delta code-review 可通过；真实产品验收和最终完整 CI 为各自独立门禁。
+
+## Round 5 — post-PR initial-bubble race delta
+
+- `validated_at: 5a03c6151`
+- `executed_base: 0014ee0b0`
+- `fix_delta_range: 0da448358..5a03c6151`
+- `verification_mode: delta`
+- Scope: PR #306 已定位的 managed candidate 与 running event 两条首气泡路径竞争；仅审此修复及已有 observer/roll 契约，保持 unit 归档。
+- Verdict: **PASS**；0 CRITICAL / 0 WARNING / 0 SUGGESTION；`requires_full_verification: false`。
+
+### Independent code review
+
+Surviving concrete candidates: `[]`。
+
+两条初次创建路径共用 run context 上的 `initial_bubble_lock`。持锁后读取实时 message id，先到路径等待 turn_start ACK 并回填，后到路径复用同一 id；不再由 fallback 先清空另一路已创建的气泡。迟到的 running 在已存在 managed image message 与真实 bubble id 时于 shadow begin 之前退出，因此不覆写候选的 manifest/bubble 关系。现有多轮正文的 roll 路径未改为共用初次创建锁，保持独立气泡语义。Gateway 所有者在同一事件循环使用该锁；此补丁没有把 Kernel 的短提交锁扩大到网络 I/O。
+
+### Direct verification
+
+在独立 detached worktree 签出指定提交，执行：
+
+- `test_pa_candidate_recovery.py`、`test_pa_candidate_delivery.py`、`test_pa_offline_image_shadow.py`：**12 passed in 15.21s**。
+- `test_pipeline_kernel_event_observer.py`、`test_steer_bubble_roll.py`：**6 passed in 0.51s**。
+
+两项新增确定性测试分别延迟 running 到图片发布之后、暂停初始 turn_start ACK 直到候选已准备；两者均断言唯一 turn_start、唯一上传、唯一 completed、完成内容保留受保护图片 URL，且原文件已删除，排除完成阶段重新读取源文件。已有两轮图文、工具结果、恢复与离线 shadow 测试仍通过。
+
+### Contract reconciliation
+
+此修复兑现原定单候选/单气泡、不可变快照、已交付正文不重复公开要求，没有新增产品能力、公开接口或配置，不需新 delta-spec。此前 V1/V2/V3、初次两项 code-review finding 与 corrected-delta `aligned` 结论保留。此处仅确认修复后的独立代码与实现验证通过，完整 CI 状态仍由编排者单独核实。
