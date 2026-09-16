@@ -497,7 +497,7 @@ flowchart LR
 | 入口 | 保护的边界 |
 |---|---|
 | [`../../scripts/docs-check`](../../scripts/docs-check) | Markdown 链接与图片、根入口可达性、retired 路径引用、research metadata、active unit 恢复字段与 ID、`AGENTS.md` 预算、`CLAUDE.md` 适配器 |
-| [`../../tests/contract/test_change_workflow_documentation_contract.py`](../../tests/contract/test_change_workflow_documentation_contract.py) | spec review 仍为可选、Gate 2 复用同一 reviewer、selected validation gates 的现行矩阵 |
+| [`../../tests/contract/test_change_workflow_documentation_contract.py`](../../tests/contract/test_change_workflow_documentation_contract.py) | spec review 仍为可选、selected validation gates 的现行矩阵、简化流程支持 Full 与 Bugfix lite |
 | [`../../tests/contract/`](../../tests/contract/) | 包边界和其他能够确定性判断的仓库不变量 |
 | [CI workflow](../../.github/workflows/ci.yml) | 在 PR 与 main push 上执行文档、格式、测试和前端门禁 |
 
