@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import http.client
+import hashlib
 import io
 import ipaddress
 import json
@@ -394,6 +395,7 @@ class FeishuClient:
         card: Mapping[str, Any] | None = None,
         before_publish: Callable[[], bool] | None = None,
         after_publish: Callable[[], None] | None = None,
+        idempotency_key: str | None = None,
     ) -> Literal["delivered", "suppressed"]:
         """Publish prepared content, checking admission before every attempt.
 
@@ -404,6 +406,7 @@ class FeishuClient:
             card: Optional runtime card instead of an ordinary Post.
             before_publish: Admission callback; missing or failed gates suppress.
             after_publish: Release callback called after every admitted request.
+            idempotency_key: Stable delivery identity reused across uncertain attempts.
 
         Returns:
             Delivered only after provider success, otherwise suppressed by gate.
@@ -424,8 +427,13 @@ class FeishuClient:
             require_admission=True,
             before_publish=before_publish,
             after_publish=after_publish,
+            idempotency_key=idempotency_key,
         )
-        return "suppressed" if result is _PUBLISH_SUPPRESSED else "delivered"
+        return (
+            "suppressed"
+            if result is _PUBLISH_SUPPRESSED
+            else FeishuDeliveryReceipt(result)
+        )
 
     def download_message_image(
         self,
@@ -587,6 +595,7 @@ class FeishuClient:
         require_admission: bool = False,
         before_publish: Callable[[], bool] | None = None,
         after_publish: Callable[[], None] | None = None,
+        idempotency_key: str | None = None,
     ) -> str | None | object:
         """Create a Feishu message with the shared retry/error policy."""
         if self._rest_client is None:
@@ -602,6 +611,8 @@ class FeishuClient:
             .content(content)
             .build()
         )
+        if idempotency_key:
+            body.uuid = hashlib.sha256(idempotency_key.encode()).hexdigest()[:32]
         request = (
             CreateMessageRequest.builder()
             .receive_id_type(receive_id_type)
@@ -1735,3 +1746,12 @@ def _read_value(obj: Any, key: str) -> Any:
     if isinstance(obj, dict):
         return obj.get(key)
     return getattr(obj, key, None)
+
+
+class FeishuDeliveryReceipt(str):
+    """Retain provider message identity while preserving delivery status callers."""
+
+    def __new__(cls, message_id: object):
+        receipt = super().__new__(cls, "delivered")
+        receipt.message_id = message_id if isinstance(message_id, str) else None
+        return receipt

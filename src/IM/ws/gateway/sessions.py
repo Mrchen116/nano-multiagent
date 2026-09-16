@@ -62,10 +62,12 @@ class GatewaySessions:
     def __init__(
         self,
         *,
+        im_user_url: str,
         node_persistence: GatewayNodePersistence | None = None,
         user_stream_registry: UserStreamRegistry | None = None,
         lock: asyncio.Lock | None = None,
     ) -> None:
+        self._im_user_url = im_user_url
         self._node_persistence = node_persistence
         self._user_stream_registry = user_stream_registry
         self._lock = lock or asyncio.Lock()
@@ -405,6 +407,7 @@ class GatewaySessions:
             "type": "ack",
             "payload": {
                 "message_type": "node.register",
+                "im_user_url": self._im_user_url,
                 "node_id": node_id,
                 "gateway_access_token": connection.access_token,
             },

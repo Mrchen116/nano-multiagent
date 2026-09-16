@@ -248,7 +248,7 @@ def test_send_failure_is_visible_and_keeps_ack_reaction(
 
 
 @pytest.mark.parametrize("footer", [False, True])
-def test_prepared_images_publish_partial_results_without_uploading_again(
+def test_prepared_images_reject_partial_results_without_publishing(
     footer: bool,
 ) -> None:
     rest = MagicMock()
@@ -306,24 +306,38 @@ def test_prepared_images_publish_partial_results_without_uploading_again(
         return success
 
     rest.im.v1.message.create.side_effect = create
-    assert adapter.send_prepared(outbound, prepared, before, after) == "delivered"
+    from personal_assistant.gateway.reply_images import ImageDeliveryError
+
+    with pytest.raises(ImageDeliveryError):
+        adapter.send_prepared(outbound, prepared, before, after)
     assert not admitted
     assert rest.im.v1.image.create.call_count == 2
-    request = rest.im.v1.message.create.call_args.args[0]
-    content = json.loads(request.request_body.content)
-    rendered = (
-        content["elements"][0]["content"]
-        if footer
-        else content["zh_cn"]["content"][0][0]["text"]
-    )
-    assert (
-        rendered
-        == "before ![a](img_uploaded) 图片未能展示：上传失败 after ![c](img_existing)"
-    )
-    assert request.request_body.msg_type == ("interactive" if footer else "post")
-    rest.im.v1.message.create.reset_mock()
+    rest.im.v1.message.create.assert_not_called()
     with pytest.raises(ValueError, match="another application"):
         adapter.send_prepared(
             outbound, replace(prepared, app_id="cli_other"), before, after
         )
     rest.im.v1.message.create.assert_not_called()
+
+
+def test_prepared_feishu_retry_keeps_provider_uuid_and_receipt() -> None:
+    rest = MagicMock()
+    response = MagicMock()
+    response.success.return_value = True
+    response.data.message_id = "om_confirmed"
+    rest.im.v1.message.create.return_value = response
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = rest
+    for _ in range(2):
+        receipt = client.send_prepared_message(
+            receive_id="chat",
+            text="prepared",
+            idempotency_key="run:bubble:feishu:chat",
+            before_publish=lambda: True,
+            after_publish=lambda: None,
+        )
+        assert receipt == "delivered"
+        assert receipt.message_id == "om_confirmed"
+    requests = [call.args[0] for call in rest.im.v1.message.create.call_args_list]
+    assert requests[0].request_body.uuid == requests[1].request_body.uuid
+    assert len(requests[0].request_body.uuid) == 32

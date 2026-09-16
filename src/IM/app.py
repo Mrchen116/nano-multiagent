@@ -243,8 +243,36 @@ def _install_frontend_entrypoints(
         return frontend_entry_response(request)
 
 
+def _validate_public_url(value: str | None) -> str:
+    """Require the deployment's explicit user-facing HTTP(S) entry point."""
+    from urllib.parse import urlsplit
+
+    if not value or any(ord(char) < 33 for char in value):
+        raise ValueError(
+            "IM_PUBLIC_URL is required and must be an HTTP(S) absolute URL"
+        )
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "IM_PUBLIC_URL must be an HTTP(S) URL without credentials, query or fragment"
+        )
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("IM_PUBLIC_URL has an invalid port") from exc
+    return value
+
+
 def create_app(
     *,
+    public_url: str | None = None,
     db_path: Path | None = None,
     frontend_dist_dir: Path | None = None,
     frontend_dev_base_url: str | None = None,
@@ -253,6 +281,7 @@ def create_app(
     """Build a standalone IM FastAPI application.
 
     Args:
+        public_url: User-facing HTTP(S) entry, or required IM_PUBLIC_URL environment.
         db_path: Optional SQLite file path used by the IM service.
         frontend_dist_dir: Optional built frontend asset directory served on the IM host.
         frontend_dev_base_url: Optional fallback dev-server base URL used when built assets are absent.
@@ -264,6 +293,9 @@ def create_app(
     Side Effects:
         Creates the SQLite file if missing and initializes schema at startup.
     """
+    resolved_public_url = _validate_public_url(
+        public_url if public_url is not None else os.getenv("IM_PUBLIC_URL")
+    )
     resolved_db_path = db_path or Path(
         os.getenv("IM_DB_PATH", "data/im_service.sqlite3")
     )
@@ -346,6 +378,7 @@ def create_app(
         conversation_persistence = GatewayConversationPersistence(connection)
         gateway_lock = asyncio.Lock()
         gateway_sessions = GatewaySessions(
+            im_user_url=resolved_public_url,
             node_persistence=node_persistence,
             user_stream_registry=registry,
             lock=gateway_lock,

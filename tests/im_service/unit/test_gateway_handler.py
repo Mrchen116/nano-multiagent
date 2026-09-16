@@ -63,6 +63,7 @@ def build_gateway(
     """Assemble the same concrete Gateway graph as the application root."""
     lock = lock or asyncio.Lock()
     sessions = GatewaySessions(
+        im_user_url="http://testserver",
         node_persistence=node_persistence,
         user_stream_registry=user_stream_registry,
         lock=lock,
@@ -164,6 +165,7 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
                 "node_id": "node-1",
                 "agents": ["agent-a"],
                 "capabilities": {"relay": True},
+                "im_user_url": "https://untrusted-node.example",
             },
         )
     )
@@ -187,6 +189,7 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
         "type": "ack",
         "payload": {
             "message_type": "node.register",
+            "im_user_url": "http://testserver",
             "node_id": "node-1",
             "gateway_access_token": ANY,
         },
@@ -354,6 +357,7 @@ def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(
         "type": "ack",
         "payload": {
             "message_type": "node.register",
+            "im_user_url": "http://testserver",
             "node_id": "node-1",
             "gateway_access_token": ANY,
         },

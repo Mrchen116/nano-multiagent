@@ -151,6 +151,7 @@ class NodeConfig:
     """Describe the current gateway node identity.
 
     Args:
+        execution_access_address: Optional execution host/IP shown to the Agent.
         node_id: Stable node identifier reported to upstream services.
         user_id: Optional owning user identifier when the node is bound upstream.
         workspace_base: Optional base directory under which workspaces for
@@ -164,6 +165,24 @@ class NodeConfig:
     node_id: str
     user_id: str | None = None
     workspace_base: str | None = None
+    execution_access_address: str | None = None
+
+    def __post_init__(self) -> None:
+        address = self.execution_access_address
+        if address is None:
+            return
+        import ipaddress
+        import re
+
+        try:
+            ipaddress.ip_address(address)
+        except ValueError:
+            if not re.fullmatch(
+                r"(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", address
+            ):
+                raise ValueError(
+                    "node.execution_access_address must be a hostname or IP address"
+                ) from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -970,6 +989,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     node_dict: dict[str, Any] = {"node_id": config.node.node_id}
     if config.node.user_id is not None:
         node_dict["user_id"] = config.node.user_id
+    if config.node.execution_access_address is not None:
+        node_dict["execution_access_address"] = config.node.execution_access_address
     if config.node.workspace_base is not None:
         node_dict["workspace_base"] = config.node.workspace_base
     data["node"] = node_dict
@@ -1219,7 +1240,15 @@ def _parse_node_config(payload: Any) -> NodeConfig:
     workspace_base = _optional_string(
         payload.get("workspace_base"), field_name="node.workspace_base"
     )
-    return NodeConfig(node_id=node_id, user_id=user_id, workspace_base=workspace_base)
+    return NodeConfig(
+        node_id=node_id,
+        user_id=user_id,
+        workspace_base=workspace_base,
+        execution_access_address=_optional_string(
+            payload.get("execution_access_address"),
+            field_name="node.execution_access_address",
+        ),
+    )
 
 
 def _parse_llm(payload: Any) -> LLMConfigPayload:

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -409,6 +414,7 @@ class SessionRunCoordinator:
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
         readable_input_projection_store: ReadableInputProjectionStore | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         sticky_store: ModelStickyStore | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
@@ -456,6 +462,7 @@ class SessionRunCoordinator:
         self._max_transition_locks = max(1, max_transition_locks)
         self._readable_input_projection_store = readable_input_projection_store
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._sticky_store = sticky_store or ModelStickyStore()
 
     async def observe_background_run(
@@ -1943,6 +1950,19 @@ class SessionRunCoordinator:
                 reply_context=binding.reply_context,
             )
 
+    def _managed_reply_context(self, run_id: str):
+        context = (
+            self._delivery_context_store.get(run_id)
+            if self._delivery_context_store is not None
+            else None
+        )
+        if (
+            context is not None
+            and context.kernel_message_id in context.managed_image_messages
+        ):
+            return context
+        return None
+
     async def _deliver_final_reply(
         self,
         *,
@@ -1959,6 +1979,9 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "superseded_by_new_session"}
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
+        if self._managed_reply_context(run_id) is not None:
+            # The candidate owner already published or journaled this reply.
+            return None, None
         if not reply_text.strip():
             return None, {"suppressed_by": "empty_visible_reply"}
         if self._suppress_reply(reply_text, in_group=request.message.is_group) or (
@@ -2153,6 +2176,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=chain_head is None or model == chain_head,
         )
 
@@ -2645,6 +2669,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=False,
         ).runtime
         result = await self._kernel.reconfigure_session(
@@ -2806,6 +2831,11 @@ class SessionRunCoordinator:
                     event_name == "run_status"
                     and event.get("status") in TERMINAL_RUN_STATUSES
                 ):
+                    managed = self._managed_reply_context(run_id)
+                    if managed is not None:
+                        reply_text = (
+                            managed.managed_reply_text or managed.external_current_text
+                        )
                     run_state = event
                     break
             if run_state is None:
@@ -3153,6 +3183,11 @@ class SessionRunCoordinator:
                 event.get("event") == "run_status"
                 and event.get("status") in TERMINAL_RUN_STATUSES
             ):
+                managed = self._managed_reply_context(claim.run_id)
+                if managed is not None:
+                    reply_text = (
+                        managed.managed_reply_text or managed.external_current_text
+                    )
                 return event, reply_text
 
     async def _complete_recovery_batch(

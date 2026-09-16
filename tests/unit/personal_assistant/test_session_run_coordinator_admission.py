@@ -1101,7 +1101,8 @@ async def test_config_publish_reconfigures_same_session_only_for_next_run(
     assert (await first).kernel_session_id == "sess-1"
     assert kernel.create_runtimes[0] is not None
     assert kernel.create_runtimes[0].features == {
-        "include_session_created_datetime": False
+        "include_session_created_datetime": False,
+        "output_handler_enabled": True,
     }
 
     current = catalog.publish(
@@ -1130,6 +1131,7 @@ async def test_config_publish_reconfigures_same_session_only_for_next_run(
     assert replacement.features == {
         "memory_curation": False,
         "include_session_created_datetime": False,
+        "output_handler_enabled": True,
     }
 
     kernel.finish("run-2", text="v2 done")

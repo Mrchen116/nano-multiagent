@@ -241,3 +241,74 @@ def test_fork_rebinds_image_urls_and_source_deletion_keeps_snapshot(
         assert client.delete(f"/im/v1/conversations/{source_id}").status_code == 204
         assert client.get(source_url).status_code == 404
         assert client.get(target_url).content == PNG
+
+
+def test_image_target_preflight_resolves_user_and_checks_sender_membership(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    with make_app_client(tmp_path) as client:
+        user = register_and_authorize(client)
+        seed_user_under_owner(client, username="agent:writer", owner_id=user.owner_id)
+        AgentProfileRepository(client.app.state.connection).upsert_profile(
+            agent_id="writer",
+            owner_id=user.owner_id,
+            display_name="Writer",
+            description="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="ALWAYS",
+            default_model="test",
+            node_id="node-test",
+            workspace_root=None,
+        )
+        private_group = _conversation(client, user)
+        monkeypatch.setattr(
+            client.app.state.gateway_sessions,
+            "authenticate_access_token",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    node_id="node-test", owner_id=user.owner_id
+                )
+            ),
+        )
+        response = client.post(
+            "/im/v1/image-delivery/target",
+            json={"agent_id": "writer", "target": user.id},
+        )
+        assert response.status_code == 200, response.text
+        conversation_id = response.json()["conversation_id"]
+        retry = client.post(
+            "/im/v1/image-delivery/target",
+            json={"agent_id": "writer", "target": user.id},
+        )
+        assert retry.json() == response.json()
+        assert (
+            MessageRepository(client.app.state.connection).list_all_messages(
+                conversation_id=conversation_id
+            )
+            == []
+        )
+        denied = client.post(
+            "/im/v1/image-delivery/target",
+            json={"agent_id": "writer", "target": private_group},
+        )
+        assert denied.status_code == 404
+        wrong_agent = client.post(
+            "/im/v1/image-delivery/target",
+            json={"agent_id": "unowned", "target": user.id},
+        )
+        assert wrong_agent.status_code == 404
+        monkeypatch.setattr(
+            client.app.state.gateway_sessions,
+            "authenticate_access_token",
+            AsyncMock(return_value=None),
+        )
+        assert (
+            client.post(
+                "/im/v1/image-delivery/target",
+                json={"agent_id": "writer", "target": user.id},
+            ).status_code
+            == 401
+        )

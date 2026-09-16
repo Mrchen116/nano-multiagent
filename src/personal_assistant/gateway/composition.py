@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContext,
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 import logging
 import os
@@ -110,7 +116,12 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchHandler,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter, PreparedOutbound
-from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
+from personal_assistant.gateway.reply_images import (
+    ImageDeliveryError,
+    external_retry_allowed,
+    ReplyImageContext,
+    ReplyImages,
+)
 from personal_assistant.gateway.runtime_delivery.image_connection import (
     ImageReplyConnection,
 )
@@ -156,6 +167,7 @@ def _make_prompt_preview_provider(
     kernel: Any,
     *,
     time_context: PaTimeContext | None = None,
+    access_context_provider: RuntimeAccessContextProvider = offline_access_context,
 ) -> "PromptPreviewProvider":
     """Build a PromptPreviewProvider backed by Kernel.assemble_prompt_preview.
 
@@ -213,6 +225,7 @@ def _make_prompt_preview_provider(
             _PreviewAgent(),
             scenario=prompt_scenario,
             time_context=time_context,
+            access_context=access_context_provider(),
         )
 
         return kernel.assemble_prompt_preview(
@@ -253,6 +266,20 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     llm = LLMConfig.from_payload(config.llm)
     reasoning_catalog = ModelReasoningCatalog(llm)
     time_context = resolve_pa_time_context(tz_env=os.environ.get("TZ"))
+
+    def access_context_provider() -> RuntimeAccessContext:
+        current_config = config_owner.snapshot()
+        if im_connection_manager is None or im_connection_manager.im_user_url is None:
+            if current_config.im_service is not None:
+                raise RuntimeError(
+                    "IM registration is required before PA work can start"
+                )
+            return offline_access_context()
+        return RuntimeAccessContext(
+            im_connection_manager.im_user_url,
+            current_config.node.execution_access_address,
+        )
+
     readable_input_projection_store = ReadableInputProjectionStore()
 
     config_owner = RuntimeConfigOwner(config)
@@ -269,7 +296,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # durable session metadata remains only a standalone/backward-compatible seed.
     _internal_dispatch_endpoint = InternalDispatchEndpoint()
 
+    async def _handle_output(candidate, control):
+        return await reply_delivery(candidate, control)
+
     kernel = build_pa_kernel(
+        output_handler=_handle_output,
         llm=llm,
         tool_approval_model=getattr(config.llm, "tool_approval_model", None),
         cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
@@ -385,6 +416,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        access_context_provider=access_context_provider,
     )
     boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
     # 聊天 / 心跳 / cron 共用一份进程内粘性；配置 apply 也清同一份。
@@ -397,6 +429,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        access_context_provider=access_context_provider,
         sticky_store=sticky_store,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
@@ -568,6 +601,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        access_context_provider=access_context_provider,
     )
 
     async def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
@@ -735,6 +769,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     async def _recover_external_control_and_shadows() -> None:
         """Resume the binder-to-saga handoff before ordinary shadow replay."""
 
+        await reply_delivery_recovery.recover()
         if external_control_delivery is not None:
             await external_control_delivery.drain()
         if shadow_sync is not None:
@@ -773,6 +808,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         shadow_bubble_reconcile=(
             shadow_sync.reconcile_snapshot if shadow_sync is not None else None
         ),
+        shadow_image_bind=reply_images.bind_output,
         shadow_pending_notify=(
             _notify_shadow_pending if shadow_sync is not None else None
         ),
@@ -783,6 +819,223 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         task_tracker=runtime_delivery_tasks,
         workflow_permission_bindings=workflow_permission_bindings,
         workflow_permission_delivery=workflow_permission_delivery,
+    )
+
+    from agent.sdk import OutputResult
+    from personal_assistant.gateway.pa_reply_delivery import (
+        PaReplyDelivery,
+        ReplyDestination,
+    )
+
+    def _reply_destination(candidate):
+        context = run_delivery_contexts.get(candidate.run_id or "")
+        if context is None:
+            return None
+        external_target = (
+            f"local:{context.reply_channel_name}:{context.reply_target_chat_id}"
+            if context.trigger_source != "im"
+            and context.reply_channel_name
+            and context.reply_target_chat_id
+            else ""
+        )
+        target = context.conversation_id or context.owner_user_id or external_target
+        if not target:
+            return None
+        return ReplyDestination(
+            target, agent_catalog.require(context.agent_id).config.workspace_root
+        )
+
+    async def _prepare_candidate(candidate, local_files):
+        context = run_delivery_contexts.get(candidate.run_id or "")
+        if context is None:
+            raise ImageDeliveryError(
+                [{"ordinal": 1, "source": "", "error_code": "inactive_target"}]
+            )
+        external_target = bool(
+            context.trigger_source != "im"
+            and context.reply_channel_name
+            and context.reply_target_chat_id
+        )
+        im_online = (
+            im_connection_manager is not None and im_connection_manager.connected
+        )
+        conversation_id = context.conversation_id
+        if im_online or not external_target:
+            target = context.conversation_id or context.owner_user_id
+            conversation_id = await reply_images.resolve_target(
+                target, agent_id=context.agent_id
+            )
+            context.resolve_conversation(conversation_id)
+        key = f"{candidate.run_id}:candidate:{candidate.candidate_id}"
+        prepared = await asyncio.to_thread(
+            reply_images.prepare,
+            _image_context(
+                context.agent_id, candidate.run_id, candidate.candidate_id, key
+            ),
+            candidate.text,
+            local_files=local_files,
+        )
+        projection = None
+        if im_online or not external_target:
+            projection = await reply_images.project_im(
+                prepared, conversation_id, agent_id=context.agent_id
+            )
+        external = None
+        if external_target:
+            adapter = channel_registry.get(context.reply_channel_name)
+            images = await asyncio.to_thread(
+                reply_images.outbound_images, prepared, adapter.image_account_id
+            )
+            external = await outbound_router.prepare_images_async(
+                text=prepared.markdown_template,
+                reply_context=ReplyContext(
+                    channel_name=context.reply_channel_name,
+                    target_chat_id=context.reply_target_chat_id,
+                    thread_id=context.reply_thread_id or None,
+                    metadata={
+                        "run_id": candidate.run_id,
+                        "output_key": key,
+                        "reply_dedupe_key": key,
+                    },
+                ),
+                images=images,
+                record_provider_receipts=lambda receipt: (
+                    reply_images.record_provider_receipts(key, receipt)
+                ),
+            )
+        return key, projection, external
+
+    from personal_assistant.gateway.reply_delivery_recovery import (
+        ReplyDeliveryRecovery,
+        external_recovery_payload,
+    )
+
+    reply_delivery_recovery = ReplyDeliveryRecovery(
+        images=reply_images,
+        im_connection_manager=im_connection_manager,
+        outbound_router=outbound_router,
+        is_run_active=lambda run_id: run_delivery_contexts.get(run_id) is not None,
+    )
+
+    async def _publish_candidate(candidate, prepared):
+        key, projection, external = prepared
+        context = run_delivery_contexts.get(candidate.run_id or "")
+        receipts = []
+        if context is None or not await _admit_live_reply(candidate.run_id):
+            return OutputResult(
+                state="pending",
+                reason_code="inactive",
+                delivery_id=key,
+                diagnostic="The run is no longer active; this candidate was not published.",
+            )
+        try:
+            manager = _image_connection()
+            im_online = (
+                manager is not None and manager.connected and projection is not None
+            )
+            context.managed_image_messages.add(candidate.candidate_id)
+            if external is not None:
+                outbound, resources = external
+                if reply_images.delivery_receipt(key, outbound.channel_name) is None:
+                    reply_images.record_delivery(
+                        key,
+                        outbound.channel_name,
+                        {
+                            "state": "pending",
+                            "recovery": external_recovery_payload(outbound, resources),
+                        },
+                    )
+            im_receipt = reply_images.delivery_receipt(key, "im")
+            if im_receipt is None or im_receipt.get("state") != "delivered":
+                reply_images.record_delivery(key, "im", {"state": "pending"})
+                if im_online:
+                    manager.prepare_candidate(
+                        candidate.run_id, candidate.candidate_id, key, projection
+                    )
+                event = {
+                    "event": "assistant_message",
+                    "run_id": candidate.run_id,
+                    "turn_id": candidate.turn_id,
+                    "message_id": candidate.candidate_id,
+                    "group_id": candidate.group_id,
+                    "content": candidate.text,
+                    "reasoning_content": "",
+                    "_managed_output": True,
+                    "prepared_output_key": key,
+                    "origin": candidate.metadata.get("run_origin"),
+                    "background_returns": candidate.metadata.get(
+                        "source_background_returns", []
+                    ),
+                }
+                pending = _kernel_event_observer(event)
+                if pending is not None:
+                    await pending
+                im_receipt = reply_images.delivery_receipt(key, "im")
+                if im_online and (
+                    not im_receipt or im_receipt.get("state") != "delivered"
+                ):
+                    raise ConnectionError("IM message receipt was not confirmed")
+            if im_receipt and im_receipt.get("state") == "delivered":
+                receipts.append({"channel": "im", **im_receipt})
+            if external is not None:
+                outbound, resources = external
+                channel = outbound.channel_name
+                receipt = reply_images.delivery_receipt(key, channel)
+                if receipt is None or receipt.get("state") != "delivered":
+                    reply_images.record_delivery(
+                        key,
+                        channel,
+                        {
+                            "state": "pending",
+                            "recovery": external_recovery_payload(outbound, resources),
+                        },
+                    )
+                    attempt = reply_images.delivery_receipt(key, channel)
+                    result = await outbound_router.send_prepared_async(
+                        outbound,
+                        resources,
+                        before_publish=lambda: external_retry_allowed(attempt or {}),
+                    )
+                    if result != "delivered":
+                        raise ConnectionError("External delivery was not confirmed")
+                    receipt = {
+                        "state": "delivered",
+                        "message_id": getattr(result, "message_id", ""),
+                    }
+                    reply_images.record_delivery(key, channel, receipt)
+                receipts.append({"channel": channel, **receipt})
+            if not im_online:
+                context.image_delivery_pending = True
+                _notify_shadow_pending()
+                return OutputResult(
+                    state="partial" if receipts else "pending",
+                    delivery_id=key,
+                    reason_code="im_offline",
+                    diagnostic="The external channel received this image reply; the IM shadow is awaiting synchronization. Do not resend the reply."
+                    if receipts
+                    else "Delivery is awaiting IM synchronization. Do not resend this candidate.",
+                    channel_receipts=tuple(receipts),
+                )
+            return OutputResult(
+                state="delivered", delivery_id=key, channel_receipts=tuple(receipts)
+            )
+        except Exception as exc:
+            context.image_delivery_pending = True
+            _notify_shadow_pending()
+            return OutputResult(
+                state="partial" if receipts else "pending",
+                reason_code="delivery_unconfirmed",
+                diagnostic=f"Image delivery {key} is partially confirmed or awaiting confirmation ({type(exc).__name__}). Do not resend this candidate; preserve its receipts for reconciliation.",
+                delivery_id=key,
+                channel_receipts=tuple(receipts),
+            )
+        finally:
+            runtime_delivery_tasks.release_publication(candidate.run_id)
+
+    reply_delivery = PaReplyDelivery(
+        destination=_reply_destination,
+        prepare=_prepare_candidate,
+        publish=_publish_candidate,
     )
 
     async def _deliver_background_images(
@@ -1045,6 +1298,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         image_resolver=image_resolver,
         readable_input_projection_store=readable_input_projection_store,
         time_context=time_context,
+        access_context_provider=access_context_provider,
         sticky_store=sticky_store,
     )
     global_coordinator = GlobalRunCoordinator(
@@ -1061,6 +1315,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        access_context_provider=access_context_provider,
         relay_lifecycle_callback=relay_lifecycle_callback,
         bg_reply_sender=bg_reply_sender,
     )
@@ -1135,6 +1390,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         reasoning_catalog=reasoning_catalog,
         time_context=time_context,
+        access_context_provider=access_context_provider,
         session_binder=session_binder,
     )
 
@@ -1178,7 +1434,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 ),
             },
             prompt_preview_provider=_make_prompt_preview_provider(
-                kernel, time_context=time_context
+                kernel,
+                time_context=time_context,
+                access_context_provider=access_context_provider,
             ),
             node_prompt_workspace_resolver=lambda mode, agent_id_hint, workspace_root: (
                 im_config_sync_client.resolve_preview_workspace(
@@ -1251,7 +1509,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
-        startup_collaborators=(global_work_runtime, cron_runtime),
+        startup_collaborators=(reply_delivery, global_work_runtime, cron_runtime),
         global_work_runtime=global_work_runtime,
         managed_channel_control=managed_channel_control,
         run_coordinator=run_coordinator,

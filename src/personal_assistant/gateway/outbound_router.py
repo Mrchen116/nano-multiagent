@@ -12,6 +12,7 @@ from threading import Event, Lock
 from personal_assistant.channels.base import (
     OutboundImage,
     OutboundMessage,
+    ProviderImagePreparation,
     ReplyContext,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -49,6 +50,67 @@ class OutboundRouter:
         self._dedupe_lock = Lock()
         self._max_dedupe_keys = max(1, max_dedupe_keys)
         self._prepare_outbound = prepare_outbound
+
+    async def prepare_images_async(
+        self,
+        *,
+        text: str,
+        reply_context: ReplyContext,
+        images: tuple[OutboundImage, ...] = (),
+        record_provider_receipts: Callable[[object], None] | None = None,
+    ) -> tuple[OutboundMessage, ProviderImagePreparation]:
+        """Upload all resources privately and reject any incomplete preparation."""
+        from personal_assistant.gateway.reply_images import ImageDeliveryError
+
+        channel = self._registry.get(reply_context.channel_name)
+        if channel is None:
+            raise LookupError(f"unknown channel adapter: {reply_context.channel_name}")
+        outbound = OutboundMessage(
+            channel_name=reply_context.channel_name,
+            text=text,
+            target_chat_id=reply_context.target_chat_id,
+            thread_id=reply_context.thread_id,
+            metadata=dict(reply_context.metadata),
+            images=images,
+        )
+        preparation = await asyncio.to_thread(channel.prepare_images, outbound)
+        if record_provider_receipts is not None:
+            await asyncio.to_thread(record_provider_receipts, preparation)
+        failures = [
+            {
+                "ordinal": entry.ordinal + 1,
+                "source": "",
+                "error_code": entry.error_code or "upload_failed",
+            }
+            for entry in preparation.entries
+            if not entry.image_key or entry.error_code
+        ]
+        if failures:
+            raise ImageDeliveryError(failures)
+        return outbound, preparation
+
+    async def send_prepared_async(
+        self,
+        outbound: OutboundMessage,
+        preparation: ProviderImagePreparation,
+        *,
+        before_publish: Callable[[], bool],
+        after_publish: Callable[[], None] | None = None,
+    ) -> str:
+        """Commit prepared provider content with its stable destination identity.
+
+        Provider errors propagate so the caller can persist an uncertain result.
+        """
+        channel = self._registry.get(outbound.channel_name)
+        if channel is None:
+            raise LookupError(f"unknown channel adapter: {outbound.channel_name}")
+        return await asyncio.to_thread(
+            channel.send_prepared,
+            outbound,
+            preparation,
+            before_publish=before_publish,
+            after_publish=after_publish or (lambda: None),
+        )
 
     def send_text(
         self, *, text: str, reply_context: ReplyContext

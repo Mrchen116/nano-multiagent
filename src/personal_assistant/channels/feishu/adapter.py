@@ -275,9 +275,17 @@ class FeishuAdapter:
             entry = entries.get(int(ordinal)) if ordinal.isdecimal() else None
             if entry is not None and entry.image_key:
                 return f"![{match.group(1)}]({entry.image_key})"
-            if entry is not None and entry.error_code == "missing":
-                return "图片未能展示：图片快照不可用"
-            return "图片未能展示：上传失败"
+            from personal_assistant.gateway.reply_images import ImageDeliveryError
+
+            raise ImageDeliveryError(
+                [
+                    {
+                        "ordinal": int(ordinal) + 1,
+                        "source": "",
+                        "error_code": entry.error_code if entry else "upload_failed",
+                    }
+                ]
+            )
 
         text = _replace_markdown_images_outside_code(outbound.text, replace_image)
         footer = _runtime_footer_for(outbound)
@@ -292,6 +300,7 @@ class FeishuAdapter:
             else None,
             before_publish=before_publish,
             after_publish=after_publish,
+            idempotency_key=outbound.metadata.get("reply_dedupe_key"),
         )
         if result == "delivered":
             self._remove_ack_after_reply(outbound)

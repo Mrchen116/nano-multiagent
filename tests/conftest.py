@@ -13,6 +13,8 @@ The autouse fixture resets/re-initializes before each test, so tests get a clean
 slate and explicit "not initialized" tests can call _reset_for_tests() safely.
 """
 
+import os
+
 import pytest
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
@@ -46,6 +48,7 @@ _DEFAULT_TEST_PAYLOAD = LLMConfigPayload(
 
 # Module-level init: must run before any test module that imports registry-dependent
 # code (e.g. app.py calls create_app() at module level during collection).
+os.environ.setdefault("IM_PUBLIC_URL", "http://testserver")
 init_model_registry(_DEFAULT_TEST_PAYLOAD)
 
 

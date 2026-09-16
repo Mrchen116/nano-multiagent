@@ -324,3 +324,23 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
         ] == ["1", "4"]
     finally:
         writer.close()
+
+
+def test_shared_reminder_preserves_existing_revalidation_text_exactly():
+    from agent.core.agent.output import withheld_reminder
+
+    assert withheld_reminder(
+        "The immediately preceding assistant text was drafted before the new messages arrived.",
+        "Continue from the updated conversation state under the original reply rules.",
+    ) == (
+        "<system-reminder>\n"
+        "The immediately preceding assistant text was drafted before "
+        "the new messages arrived. It was withheld before publication "
+        "and was never delivered to the conversation, so the participants "
+        "have not received its content. Earlier successfully published "
+        "assistant messages remain part of the shared conversation.\n\n"
+        "Continue from the updated conversation state under the original "
+        "reply rules. If a public response is warranted, include all "
+        "information the recipients still need, since the withheld draft "
+        "communicated nothing to them.\n</system-reminder>"
+    )

@@ -10,6 +10,7 @@ from agent.sdk import Kernel, PromptSlots, SessionRuntimeConfig
 from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.gateway.human_message_context import PaTimeContext
+from personal_assistant.runtime_access import RuntimeAccessContext
 from personal_assistant.product import prompt_for, resolve_enabled_tools
 from personal_assistant.config.skill_selection import (
     EXPLICIT_ALLOWLIST,
@@ -56,6 +57,7 @@ def project_agent_runtime(
     resolved_model: str,
     reasoning_catalog: ModelReasoningCatalog | None = None,
     time_context: PaTimeContext | None = None,
+    access_context: RuntimeAccessContext | None = None,
     apply_saved_reasoning: bool = True,
 ) -> ProjectedAgentRuntime:
     """Project one captured Agent snapshot into all future-turn settings.
@@ -83,10 +85,16 @@ def project_agent_runtime(
     profile_version = scenario.get("config_profile_version")
     features = dict(config.features)
     features["include_session_created_datetime"] = False
+    features["output_handler_enabled"] = scenario.get("pa_work_scope") != "global_main"
     return ProjectedAgentRuntime(
         runtime=SessionRuntimeConfig(
             model=resolved_model,
-            prompt=prompt_for(config, scenario=scenario, time_context=time_context),
+            prompt=prompt_for(
+                config,
+                scenario=scenario,
+                time_context=time_context,
+                access_context=access_context,
+            ),
             skills=_session_skills(config),
             enabled_tools=resolve_enabled_tools(config),
             features=features,
@@ -112,6 +120,7 @@ def project_agent_session_capabilities(
     *,
     scenario: Mapping[str, object],
     time_context: PaTimeContext | None = None,
+    access_context: RuntimeAccessContext | None = None,
 ) -> AgentSessionCapabilities:
     """Project the non-model subset for legacy callers during migration.
 
@@ -127,8 +136,14 @@ def project_agent_session_capabilities(
     config = agent.config
     features = dict(config.features)
     features["include_session_created_datetime"] = False
+    features["output_handler_enabled"] = scenario.get("pa_work_scope") != "global_main"
     return AgentSessionCapabilities(
-        prompt=prompt_for(config, scenario=scenario, time_context=time_context),
+        prompt=prompt_for(
+            config,
+            scenario=scenario,
+            time_context=time_context,
+            access_context=access_context,
+        ),
         skills=_session_skills(config),
         enabled_tools=resolve_enabled_tools(config),
         features=features,

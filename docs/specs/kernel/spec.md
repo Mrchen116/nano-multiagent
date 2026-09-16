@@ -20,7 +20,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型与 Workflow 管理 | 7 |
-| [Runs](runs.md) | create_session、submit/stream、空闲原子提交与收据、持久工具正文证明、Session 观察、steer、权限、中断与运行事件 | 24 |
+| [Runs](runs.md) | create_session、submit/stream、空闲原子提交与收据、持久工具正文证明、Session 观察、steer、权限、中断与运行事件 | 25 |
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、推理强度、模型错误恢复 | 5 |
 | [Background Tasks](background-tasks.md) | 后台完成通知与真实消费归因、subagent follow-up、Workflow、task_stop、派生子 agent 隔离 | 6 |
 | [Workflows](workflows.md) | Python Workflow tool、编排 runtime、子 Agent、后台控制、resume、保存发现、预算与规模 | 8 |

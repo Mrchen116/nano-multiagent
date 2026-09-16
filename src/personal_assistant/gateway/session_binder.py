@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -246,6 +251,7 @@ class GatewaySessionBinder:
         kernel: Any,
         reasoning_catalog: ModelReasoningCatalog | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         global_store: Any | None = None,
         product_default_model: str | None = None,
     ) -> None:
@@ -254,6 +260,7 @@ class GatewaySessionBinder:
         self._kernel = kernel
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._global_store = global_store
         self._product_default_model = product_default_model
         self._global_locks: dict[str, asyncio.Lock] = {}
@@ -295,6 +302,7 @@ class GatewaySessionBinder:
                     resolved_model=model,
                     reasoning_catalog=self._reasoning_catalog,
                     time_context=self._time_context,
+                    access_context=self._access_context_provider(),
                 ).runtime
                 session = await self._kernel.create_session(
                     title=agent.config.title,
@@ -511,6 +519,7 @@ class GatewaySessionBinder:
                 agent,
                 scenario=metadata,
                 time_context=self._time_context,
+                access_context=self._access_context_provider(),
             )
             session = await self._kernel.create_session(
                 title=agent.config.title,
@@ -567,6 +576,7 @@ class GatewaySessionBinder:
             resolved_model=resolved_model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
         )
 
     def persist_applied_runtime(

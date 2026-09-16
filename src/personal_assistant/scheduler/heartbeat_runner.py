@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
@@ -74,6 +79,7 @@ class PollingHeartbeatRunner:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: Any | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         work_recorder: Any | None = None,
     ) -> None:
         self._scheduler = scheduler
@@ -98,6 +104,7 @@ class PollingHeartbeatRunner:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._work_recorder = work_recorder
 
     async def start(self) -> None:
@@ -390,6 +397,7 @@ class PollingHeartbeatRunner:
             product_default=self._product_default_model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context_provider=self._access_context_provider,
             current_model=candidates[0],
             outcome=outcome,
             origin=RunOrigin.HEARTBEAT,

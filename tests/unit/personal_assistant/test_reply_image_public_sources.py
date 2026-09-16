@@ -11,7 +11,11 @@ import pytest
 pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.feishu import client
-from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
+from personal_assistant.gateway.reply_images import (
+    ImageDeliveryError,
+    ReplyImageContext,
+    ReplyImages,
+)
 
 
 _PNG = base64.b64decode(
@@ -54,25 +58,20 @@ def test_public_source_preparation_preserves_snapshot_or_specific_local_failure(
     images = ReplyImages(tmp_path / "state")
     context = ReplyImageContext("run:bubble:0", "owner", "agent", "run", "0", tmp_path)
 
-    prepared = images.prepare(
-        context,
-        f"before ![candidate]({source}) middle ![valid]({_data_url(_PNG)}) after",
-    )
-
+    markdown = f"before ![candidate]({source}) middle ![valid]({_data_url(_PNG)}) after"
+    if outcome != "ready":
+        with pytest.raises(ImageDeliveryError) as error:
+            images.prepare(context, markdown)
+        assert error.value.images[0]["error_code"] == outcome
+        assert images.load(context.output_key) is None
+        return
+    prepared = images.prepare(context, markdown)
     candidate, valid = prepared.images
     assert images.image_bytes(valid) == _PNG
-    assert valid.status == "ready"
-    if outcome == "ready":
-        assert candidate.status == "ready"
-        assert images.image_bytes(candidate) == content
-        candidate_projection = "![candidate](nano-image-pending:0)"
-    else:
-        assert candidate.status == "failed"
-        assert candidate.error_code == outcome
-        reason = "超过图片数量或大小限制" if outcome == "limit" else "图片格式不支持"
-        candidate_projection = f"（图片未能展示：{reason}）"
+    assert images.image_bytes(candidate) == content
+    assert candidate.status == valid.status == "ready"
     assert (
         prepared.markdown_template
-        == f"before {candidate_projection} middle ![valid](nano-image-pending:1) after"
+        == "before ![candidate](nano-image-pending:0) middle ![valid](nano-image-pending:1) after"
     )
     assert images.load(context.output_key) == prepared
