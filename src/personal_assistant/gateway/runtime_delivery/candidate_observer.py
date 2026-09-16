@@ -16,6 +16,7 @@ class _Round:
     chunks: list[str] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
     event: Mapping[str, Any] = field(default_factory=dict)
+    background_returns: list[Mapping[str, Any]] = field(default_factory=list)
 
 
 def _feedback(result: DeliveryResult) -> str:
@@ -78,7 +79,12 @@ def build_candidate_observer(
             event = {**event, "completed": True}
         if name == "assistant_message":
             text = str(event.get("content") or "")
-            if text:
+            sidecars = [
+                item
+                for item in event.get("background_returns", [])
+                if isinstance(item, Mapping)
+            ]
+            if text or sidecars:
                 key = (run_id, group_id)
                 current = rounds.setdefault(key, _Round())
                 identity = str(
@@ -91,9 +97,12 @@ def build_candidate_observer(
                     current.chunks.append(text)
                     current.seen.add(identity)
                     current.event = event
+                    for item in sidecars:
+                        if item not in current.background_returns:
+                            current.background_returns.append(item)
             # Reasoning is process information and may be shown before body admission.
             if event.get("reasoning_content"):
-                await forward({**event, "content": ""})
+                await forward({**event, "content": "", "background_returns": []})
             return
         if name == "model_round_end":
             current = rounds.pop((run_id, group_id), None)
@@ -104,6 +113,14 @@ def build_candidate_observer(
             completed[run_id].add(group_id)
             text = "".join(current.chunks)
             if not text:
+                if current.background_returns:
+                    await forward(
+                        {
+                            **current.event,
+                            "content": "",
+                            "background_returns": current.background_returns,
+                        }
+                    )
                 return
             context.delivery_candidate_seen = True
             source = current.event
@@ -116,7 +133,7 @@ def build_candidate_observer(
                 text=text,
                 metadata={
                     "run_origin": source.get("origin"),
-                    "source_background_returns": source.get("background_returns", []),
+                    "source_background_returns": current.background_returns,
                 },
             )
             result = await deliver(candidate)

@@ -8,7 +8,7 @@
 
 用户已确认交付是产品业务，错误可作为后续消息驱动修正，并授权自主重构/验证。本设计取代未合并 feat-563 的 OutputCandidate/OutputControl/OutputResult 方案，保留其 Runtime、权限和用户体验要求。源码调查基线 `6ee4c71ab`；main 基线 `0014ee0b0`。不重写 Agent 内核、不新增调度平台/消息中间件。
 
-实际可复用能力：SDK `try_steer` / `try_submit_idle` 提供原子运行准入；`InputPart.metadata.context_origin=system` 由 `input_context_metadata` 保存并影响来源投影，已有能力无需新增 SYSTEM 枚举。`append_message` 仅写历史且仅接受 user/assistant，不将其误用成运行触发。已有 SessionRunCoordinator 拥有入口队列、停止/reset代次和模型选择。已有源消息 revision/try_commit_output 继续用于输入过时检查，其本身不含渠道交付状态。
+实际可复用能力：SDK `try_steer` / `try_submit_idle` 提供原子运行准入；输入 part 顶层的 `context_origin=system` 由 `input_context_metadata` 保存并影响来源投影，已有能力无需新增 SYSTEM 枚举。`append_message` 仅写历史且仅接受 user/assistant，不将其误用成运行触发。已有 SessionRunCoordinator 拥有入口队列、停止/reset代次和模型选择。已有源消息 revision/try_commit_output 继续用于输入过时检查，其本身不含渠道交付状态。
 
 ## 所有权
 

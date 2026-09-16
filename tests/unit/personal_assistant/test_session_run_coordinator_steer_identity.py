@@ -203,7 +203,7 @@ async def test_background_group_run_accepts_steer_and_enriches_process(
     assert not await emit(
         event="run_status",
         status="running",
-        origin="background_task",
+        origin="human",
         revalidate_output=False,
     )
     assert await emit(

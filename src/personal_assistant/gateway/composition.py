@@ -88,11 +88,7 @@ from personal_assistant.gateway.readable_input_projection import (
 )
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
-    RunDeliveryContext,
-    RunDeliveryTarget,
-    IMRelayTarget,
 )
-from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime_footer import build_external_final_projection
 from personal_assistant.gateway.runtime_delivery.background import (
     build_bg_reply_sender,
@@ -769,7 +765,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         owner_id=_owner_user_id,
         writer=_kernel_event_observer,
         notify_pending=_notify_shadow_pending,
-        session_store=session_store,
     )
     _kernel_event_observer = build_candidate_observer(
         writer=reply_delivery.observe_process,
@@ -780,7 +775,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     bg_reply_sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
-        assistant_reply_delivery=reply_delivery.deliver_background,
     )
     base_session_event_callback = None
     if config.im_service is not None:
@@ -811,40 +805,17 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 event,
             )
 
-    async def _observe_group_background_run(
+    async def _observe_background_run(
         reply_context: ReplyContext,
         agent_id: str,
         session_id: str,
         event: Mapping[str, Any],
     ) -> bool:
-        if reply_context.channel_name != "web_relay":
-            return False
         binding = session_binder.find_by_kernel_session_id(session_id)
         agent = agent_catalog.get(agent_id)
         if binding is None or agent is None:
             return False
-        if (
-            event.get("event") == "run_status"
-            and event.get("status") == "running"
-            and event.get("origin") == "background_task"
-            and event.get("revalidate_output") is True
-        ):
-            run_delivery_contexts.seed(
-                RunDeliveryContext(
-                    run_id=str(event["run_id"]),
-                    agent_id=agent_id,
-                    kernel_session_id=session_id,
-                    delivery_target=RunDeliveryTarget.for_im_relay(
-                        IMRelayTarget(
-                            conversation_id=reply_context.target_chat_id,
-                            relay_task_id="",
-                        )
-                    ),
-                    visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
-                    discard_empty_completion=True,
-                    revalidate_output=True,
-                )
-            )
+        binding = replace(binding, reply_context=reply_context)
         return await run_coordinator.observe_background_run(
             binding=binding, agent=agent, event=event
         )
@@ -852,8 +823,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     background_subscriptions = BackgroundSubscriptionManager(
         kernel=kernel,
         session_event_callback=session_event_callback,
-        bg_reply_sender=bg_reply_sender,
-        background_run_event_callback=_observe_group_background_run,
+        background_run_event_callback=_observe_background_run,
         skill_created_handler=skill_created_handler,
     )
 

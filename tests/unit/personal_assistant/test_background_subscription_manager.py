@@ -168,18 +168,14 @@ async def test_skill_only_subscription_accepts_first_later_background_reply_rout
     sent: list[tuple[str, str]] = []
     delivered = asyncio.Event()
 
-    async def _send(
-        text: str,
-        reply_context: ReplyContext,
-        _from_session_id: str,
-        _background_returns: tuple[dict[str, object], ...],
-    ) -> None:
-        sent.append((text, reply_context.target_chat_id))
+    async def _observe(reply_context, agent_id, session_id, event):
+        sent.append((event.get("content", ""), reply_context.target_chat_id))
         delivered.set()
+        return True
 
     manager = BackgroundSubscriptionManager(
         kernel=kernel,
-        bg_reply_sender=_send,
+        background_run_event_callback=_observe,
         skill_created_handler=lambda _agent_id, _event: None,
     )
     await manager.ensure(
@@ -210,28 +206,29 @@ async def test_skill_only_subscription_accepts_first_later_background_reply_rout
 
 
 @pytest.mark.asyncio
-async def test_manager_ensures_once_replays_anchor_and_builds_stable_dedupe_key() -> (
-    None
-):
-    """Repeated ensure keeps one stream and replayed output carries one stable IM key."""
+async def test_manager_ensures_once_and_forwards_unchanged_replay_identity() -> None:
+    """Repeated ensure keeps one stream and preserves the source event identity."""
 
     kernel = _QueuedKernel()
     sent: list[tuple[str, str, str, tuple[Mapping[str, Any], ...]]] = []
     two_sent = asyncio.Event()
 
-    async def _send(
-        text: str,
-        reply_context: ReplyContext,
-        from_session_id: str,
-        background_returns: tuple[Mapping[str, Any], ...],
-    ):
+    async def _observe(reply_context, agent_id, session_id, event):
         sent.append(
-            (text, reply_context.target_chat_id, from_session_id, background_returns)
+            (
+                event.get("content", ""),
+                reply_context.target_chat_id,
+                f"{agent_id}:{session_id}:{event['_id']}",
+                (),
+            )
         )
         if len(sent) == 2:
             two_sent.set()
+        return True
 
-    manager = BackgroundSubscriptionManager(kernel=kernel, bg_reply_sender=_send)
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel, background_run_event_callback=_observe
+    )
     await manager.ensure(_request())
     await manager.ensure(_request())
     await asyncio.wait_for(kernel.started.wait(), timeout=1)
@@ -250,7 +247,7 @@ async def test_manager_ensures_once_replays_anchor_and_builds_stable_dedupe_key(
         "conv-original",
         "conv-original",
     ]
-    assert sent[0][2] == sent[1][2] == "agent-a|tool_call:sess-bg:42"
+    assert sent[0][2] == sent[1][2] == "agent-a:sess-bg:42"
 
     manager.seal()
     with pytest.raises(RuntimeError, match="sealed"):
@@ -265,16 +262,16 @@ async def test_sidecar_only_background_output_is_delivered() -> None:
     delivered: list[tuple[str, tuple[Mapping[str, Any], ...]]] = []
     seen = asyncio.Event()
 
-    async def _send(
-        text: str,
-        _reply_context: ReplyContext,
-        _from_session_id: str,
-        background_returns: tuple[Mapping[str, Any], ...],
-    ) -> None:
-        delivered.append((text, background_returns))
+    async def _observe(reply_context, agent_id, session_id, event):
+        delivered.append(
+            (event.get("content", ""), tuple(event.get("background_returns", ())))
+        )
         seen.set()
+        return True
 
-    manager = BackgroundSubscriptionManager(kernel=kernel, bg_reply_sender=_send)
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel, background_run_event_callback=_observe
+    )
     await manager.ensure(_request())
     await kernel.events.put(
         {

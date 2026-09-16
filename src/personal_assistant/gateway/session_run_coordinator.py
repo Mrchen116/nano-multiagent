@@ -75,6 +75,7 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
     RoutedInbound,
+    ShadowConversationRef,
     StopRunRequest,
     WorkflowCommandRequest,
     build_group_context_key,
@@ -92,7 +93,17 @@ from personal_assistant.gateway.effort_commands import (
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
-from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContextStore,
+    RunDeliveryContext,
+    RunDeliveryTarget,
+    IMRelayTarget,
+    ExternalShadowTarget,
+)
+from personal_assistant.gateway.runtime_delivery.background import (
+    reply_context_im_conversation_id,
+    reply_context_external_delivery_metadata,
+)
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
     is_protocol_silence_token,
@@ -342,13 +353,25 @@ def _build_routed_reply_context(routed: RoutedInbound) -> ReplyContext:
 
     reply_context = build_reply_context(routed.message)
     shadow_ref = routed.shadow.ref
-    if shadow_ref is None:
+    if shadow_ref is None and routed.shadow.saga_id is None:
         return reply_context
     return replace(
         reply_context,
         metadata={
             **reply_context.metadata,
-            "shadow_conversation_id": shadow_ref.conversation_id,
+            **(
+                {
+                    "shadow_conversation_id": shadow_ref.conversation_id,
+                    "shadow_message_id": shadow_ref.im_message_id,
+                }
+                if shadow_ref is not None
+                else {}
+            ),
+            **(
+                {"shadow_saga_id": routed.shadow.saga_id}
+                if routed.shadow.saga_id
+                else {}
+            ),
         },
     )
 
@@ -481,7 +504,7 @@ class SessionRunCoordinator:
         agent: LiveAgentSnapshot,
         event: Mapping[str, Any],
     ) -> bool:
-        """Adopt opted-in background output into group delivery and steer admission.
+        """Adopt ordinary background output into candidate delivery and steer admission.
 
         Args:
             binding: Frozen originating session and reply route.
@@ -498,7 +521,6 @@ class SessionRunCoordinator:
             event.get("event") == "run_status"
             and event.get("status") == "running"
             and event.get("origin") == "background_task"
-            and event.get("revalidate_output") is True
         ):
             async with self._transition(binding.session_key):
                 self._background_runs[run_id] = binding
@@ -506,6 +528,12 @@ class SessionRunCoordinator:
                     run_id=run_id, binding=binding, agent=agent
                 )
                 self._register_delivery_session(run_id, binding.session_key)
+                self._seed_background_delivery(
+                    binding=binding,
+                    agent=agent,
+                    run_id=run_id,
+                    revalidate_output=event.get("revalidate_output") is True,
+                )
         if run_id not in self._background_runs:
             return False
         if event.get("event") == "injection_consumed":
@@ -583,11 +611,22 @@ class SessionRunCoordinator:
                     finally:
                         await stream.aclose()
                 else:
+                    if event.get(
+                        "status"
+                    ) == "completed" and await self._admit_background_feedback(
+                        run_id=run_id,
+                        binding=binding,
+                        agent=agent,
+                    ):
+                        return True
+                    delivery_failed = self._delivery_failed(run_id)
                     followers = await self._close_active_run(
                         session_key=binding.session_key,
                         run_id=run_id,
                     )
-                    completed = event.get("status") == "completed"
+                    completed = (
+                        event.get("status") == "completed" and not delivery_failed
+                    )
                     await self._emit_follower_lifecycle(
                         followers,
                         RelayLifecycleUpdate(
@@ -606,7 +645,127 @@ class SessionRunCoordinator:
                     session_key=binding.session_key, run_id=run_id
                 )
                 self._background_runs.pop(run_id, None)
+                if self._delivery_context_store is not None:
+                    self._delivery_context_store.discard(run_id)
         return True
+
+    def _seed_background_delivery(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        run_id: str,
+        revalidate_output: bool,
+        logical_request_id: str | None = None,
+    ) -> None:
+        """Use the originating route for both background runs and their repairs."""
+        if self._delivery_context_store is None:
+            return
+        reply = binding.reply_context
+        conversation_id = reply_context_im_conversation_id(reply) or ""
+        external = reply_context_external_delivery_metadata(
+            reply, from_session_id=run_id
+        )
+        target = (
+            RunDeliveryTarget.for_im_relay(IMRelayTarget(conversation_id, ""))
+            if conversation_id
+            else RunDeliveryTarget.none(reason="external_without_shadow")
+        )
+        if conversation_id and reply.metadata.get("shadow_conversation_id"):
+            target = RunDeliveryTarget.for_external_shadow(
+                ExternalShadowTarget(
+                    ref=ShadowConversationRef(
+                        conversation_id,
+                        str(reply.metadata.get("shadow_message_id") or ""),
+                    ),
+                )
+            )
+        self._delivery_context_store.seed(
+            RunDeliveryContext(
+                run_id=run_id,
+                agent_id=agent.agent_id,
+                kernel_session_id=binding.kernel_session_id,
+                delivery_target=target,
+                model=self._resolve_agent_model(
+                    agent, kernel_session_id=binding.kernel_session_id
+                )
+                or "",
+                trigger_source=str(
+                    reply.metadata.get("trigger_source")
+                    or ("external" if external else "im")
+                ),
+                reply_channel_name=external["channel_name"] if external else "",
+                reply_target_chat_id=external["target_chat_id"] if external else "",
+                reply_thread_id=external.get("reply_thread_id", "") if external else "",
+                feishu_message_id=external.get("feishu_message_id", "")
+                if external
+                else "",
+                shadow_saga_id=str(reply.metadata.get("shadow_saga_id") or ""),
+                visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
+                discard_empty_completion=reply.channel_name == "web_relay",
+                revalidate_output=revalidate_output,
+                logical_request_id=logical_request_id,
+            )
+        )
+
+    async def _admit_background_feedback(
+        self,
+        *,
+        run_id: str,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+    ) -> bool:
+        """Keep a correction on the existing persistent stream and session owner."""
+        context = self._candidate_reply_context(run_id)
+        budget = self._delivery_feedback_budget
+        if context is None or not context.delivery_feedback or budget is None:
+            return False
+        async with self._transition(binding.session_key):
+            if (
+                run_id in self._user_interrupted_runs
+                or run_id in self._reset_suppressed_runs
+                or run_id in self._feedback_superseded_runs
+                or context.suppressed
+                or context.session_generation
+                != self._session_generations.get(binding.session_key, 0)
+                or self._session_binder.is_run_superseded(run_id)
+            ):
+                return False
+            logical_id = context.logical_request_id or run_id
+            submission = budget.next_submission(logical_id)
+            if submission is None:
+                return False
+            submission_id, ordinal = submission
+            record = self._kernel.try_submit_idle(
+                session_id=binding.kernel_session_id,
+                parts=feedback_parts(context.delivery_feedback, ordinal),
+                submission_id=submission_id,
+                workspace_root=agent.config.workspace_root,
+                origin=RunOrigin.USER,
+                revalidate_output=context.revalidate_output,
+            )
+            if record is None:
+                return False
+            budget.record_admitted(logical_id, submission_id)
+            successor_id = record.run_id
+            self._background_runs[successor_id] = binding
+            self._active_runs[binding.session_key] = _ActiveRunHandle(
+                run_id=successor_id,
+                binding=binding,
+                agent=agent,
+            )
+            self._register_delivery_session(successor_id, binding.session_key)
+            self._seed_background_delivery(
+                binding=binding,
+                agent=agent,
+                run_id=successor_id,
+                revalidate_output=context.revalidate_output,
+                logical_request_id=logical_id,
+            )
+            self._steered_requests[successor_id] = self._steered_requests.pop(
+                run_id, []
+            )
+            return True
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
         """Admit one normal message through steer or per-session FIFO.

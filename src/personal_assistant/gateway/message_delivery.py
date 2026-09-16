@@ -2,15 +2,6 @@
 
 from __future__ import annotations
 import asyncio
-import logging
-from personal_assistant.gateway.runtime_delivery.context import (
-    RunDeliveryContext,
-    RunDeliveryTarget,
-)
-from personal_assistant.gateway.runtime_delivery.background import (
-    reply_context_im_conversation_id,
-    reply_context_external_delivery_metadata,
-)
 import httpx
 from personal_assistant.gateway.shadow_sync import build_im_http_headers
 import json
@@ -86,7 +77,6 @@ class MessageDelivery:
         owner_id,
         writer,
         notify_pending,
-        session_store=None,
     ):
         self.images, self.contexts, self.catalog = images, contexts, catalog
         self.registry, self.router, self._connection = registry, router, connection
@@ -101,7 +91,6 @@ class MessageDelivery:
             writer,
             notify_pending,
         )
-        self.session_store = session_store
         self.ledger = DeliveryLedger(images.root)
         self._permission_events = set()
         self._permission = DeliveryPermission(
@@ -765,111 +754,6 @@ class MessageDelivery:
             "im",
             {"state": "delivered", "conversation_id": shadow_ref.conversation_id},
         )
-
-    async def deliver_background(
-        self, text, reply_context, from_session_id, background_returns
-    ):
-        metadata = reply_context.metadata
-        run_id = str(metadata["background_run_id"])
-        agent_id = str(metadata["background_agent_id"])
-        session_id = str(metadata["background_session_id"])
-        output_key = str(metadata["background_output_key"])
-        binding = self.session_store.find_by_kernel_session_id(session_id)
-        if binding is None:
-            return  # The originating session was replaced while the child ran.
-        created = self.contexts.get(run_id) is None
-        if created:
-            self.contexts.register_session(
-                run_id,
-                binding.session_key,
-                self.contexts.current_generation(binding.session_key),
-            )
-            self.contexts.seed(
-                RunDeliveryContext(
-                    run_id,
-                    agent_id,
-                    session_id,
-                    RunDeliveryTarget.none(),
-                    conversation_id=reply_context_im_conversation_id(reply_context),
-                    reply_image_output_key=output_key,
-                )
-            )
-        self.contexts.retain(run_id)
-        try:
-            prepared = await asyncio.to_thread(
-                self.images.prepare,
-                self.image_context(agent_id, run_id, output_key, output_key),
-                text,
-            )
-            external_metadata = reply_context_external_delivery_metadata(
-                reply_context, from_session_id=from_session_id
-            )
-
-            external = None
-            if external_metadata is not None:
-                channel = external_metadata["channel_name"]
-                external = await self.prepare_dispatch_external(
-                    prepared,
-                    {
-                        "channel_name": channel,
-                        "target_chat_id": external_metadata["target_chat_id"],
-                        "thread_id": external_metadata.get("reply_thread_id"),
-                        "metadata": external_metadata,
-                    },
-                    output_key,
-                    channel,
-                )
-            conversation_id = reply_context_im_conversation_id(reply_context)
-            projected = None
-            if (
-                conversation_id
-                and self.connection is not None
-                and self.connection.connected
-            ):
-                projected = await self.images.project_im(
-                    prepared, conversation_id, agent_id=agent_id
-                )
-            if not await self.admit(run_id):
-                return
-            try:
-                operations = []
-                if projected is not None:
-                    payload = {
-                        "text": projected,
-                        "to": conversation_id,
-                        "from_session_id": from_session_id,
-                        "dispatch_request_id": output_key,
-                    }
-                    if background_returns:
-                        payload["background_returns"] = list(background_returns)
-                    operations.append(
-                        self._commit_publication(
-                            output_key,
-                            "im",
-                            {"kind": "explicit_message", "payload": payload},
-                        )
-                    )
-                if external is not None:
-                    operations.append(
-                        self._commit_publication(
-                            output_key,
-                            external_metadata["channel_name"],
-                            external_recovery_payload(*external),
-                        )
-                    )
-                for result in await asyncio.gather(*operations, return_exceptions=True):
-                    if isinstance(result, Exception):
-                        self.notify_pending()
-                        logging.getLogger(__name__).warning(
-                            "background reply delivery awaits recovery: %s",
-                            type(result).__name__,
-                        )
-            finally:
-                self.tracker.release_publication(run_id)
-        finally:
-            if created:
-                self.contexts.discard(run_id)
-            self.contexts.release(run_id)
 
     async def reconcile_shadow_snapshot(self, shadow, snapshot) -> None:
         """Reconcile one terminal rich snapshot into its same-identity IM row."""

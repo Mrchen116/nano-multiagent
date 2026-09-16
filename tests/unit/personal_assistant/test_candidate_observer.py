@@ -97,3 +97,39 @@ async def test_partial_delivery_cannot_trigger_regeneration():
     await observer(event("model_round_end", completed=True))
     assert context.delivery_feedback is None
     assert context.delivery_published_text == "A delivered reply"
+
+
+@pytest.mark.asyncio
+async def test_complete_background_round_preserves_early_chunk_sidecars():
+    observer, _, delivered, _ = setup_observer()
+    sidecar = {"task_id": "task", "status": "completed"}
+    await observer(
+        event(
+            "assistant_message",
+            message_id="m1",
+            content="First ",
+            background_returns=[sidecar],
+        )
+    )
+    await observer(event("assistant_message", message_id="m2", content="second"))
+    await observer(event("model_round_end", completed=True))
+    assert delivered[0].metadata["source_background_returns"] == [sidecar]
+
+
+@pytest.mark.asyncio
+async def test_sidecar_only_round_is_process_information_without_body_candidate():
+    observer, _, delivered, process = setup_observer()
+    sidecar = {"task_id": "task", "status": "completed"}
+    await observer(
+        event(
+            "assistant_message",
+            message_id="m1",
+            content="",
+            background_returns=[sidecar],
+        )
+    )
+    assert not process
+    await observer(event("model_round_end", completed=True))
+    assert not delivered
+    assert process[0]["content"] == ""
+    assert process[0]["background_returns"] == [sidecar]
