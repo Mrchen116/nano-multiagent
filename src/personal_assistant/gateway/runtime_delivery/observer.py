@@ -2314,6 +2314,19 @@ def build_kernel_event_observer(
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         """Dispatch one kernel event to its typed runtime-delivery event family."""
 
+        # Kernel task notifications also include Bash returns. IM has cards only
+        # for subagents/workflows; project once without changing model input or text.
+        returns = event.get("background_returns")
+        if isinstance(returns, list):
+            event = {
+                **event,
+                "background_returns": [
+                    item
+                    for item in returns
+                    if isinstance(item, Mapping)
+                    and item.get("task_type") in {"subagent", "workflow"}
+                ],
+            }
         prepared = _prepare_event(event)
         if prepared.handled:
             return prepared.result

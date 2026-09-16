@@ -105,3 +105,39 @@
 ### Recommendations
 
 无。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/design_review_564`（沿用 Round 1–2）
+- target: `.worktrees/unit-refactor-564`，HEAD `150fbe30d`；design.md 的 Changelog/权限澄清与 specs/kernel/runs.md 的宿主操作 Scenario。
+- review_mode: delta
+- mode_reason: 本次是已批准权限接口的有界、兼容性来源说明扩展；不改变调用方准入、返回值、权限策略、交付 owner 或 milestone。按派发范围核查这项澄清及其来源/权限波及面，源码只用于确认方案接线与可行性，不执行完整代码审查。前轮全局设计结论保留。
+- started_at: 2026-09-16T13:10:25+08:00
+- completed_at: 2026-09-16T13:10:47+08:00
+- duration: 22 秒
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**。宿主操作说明修正了权限分类所观察的动作身份，没有形成权限豁免，也没有把渠道交付状态引回内核。结论仅覆盖本轮设计 delta，不代替代码 review、测试和产品验收。
+
+### Coverage 与证据
+
+- **实际触发与接口落点**：设计 Changelog 明确本次针对普通回复被误判为调用 send_message 的验收问题；`src/personal_assistant/gateway/delivery_permission.py:48-60` 确认 Gateway 仍复用 send_message 策略和真实 target/text，但从宿主接线传入固定普通回复说明。它是对动作事实的纠正，不是从用户正文推断批准。
+- **信任与数据流**：`src/agent/sdk/kernel.py:2214-2250` 将可选 operation_description 作为独立 SDK 参数；`src/agent/core/agent/runtime.py:390-412` 将其写入 typed HookContext 字段，再沿原 registry.evaluate_permission 执行。`src/agent/platform/hooks/builtins/auto_mode_gate.py:318-342` 仅从该字段构建 host_operation，保留 permission_policy 与完整 proposed_action；不会从 arguments 或 session metadata 取同名字段。可选参数为空时维持原投影。SDK 接收消费者描述，未内置普通回复/图片/渠道特判。
+- **权限与消费者契约**：新 kernel delta 的「宿主操作与模型工具调用可区分」锚定既有通用权限 requirement，旧两项 Scenario 保留；说明不是授权、不改变拒绝/审批规则及模型不能伪造的约束明确。对照 `tests/contract/test_sdk_tool_authorization.py` 的受限范围测试定义，可观察的检查点覆盖 classifier allow/deny、target/text/image sources 完整投影、伪造 arguments 不升级及显式 tool policy deny 不被绕过。本 reviewer 未运行这些测试，不以测试定义冒充通过证据。
+- **此前实施澄清的相容性**：design 的 context_revision/pending_ids 说明继续使用内核已提供的输入身份事实，公开准入由 Gateway 决定；权限事件 pump 只呈现同 run 审批、去重并随撤销取消，不成为第二条正文 owner。它们与本次操作说明不改变彼此权责；本轮不重复认证其实现或已报告代码验证。
+- **保留范围**：retained_from: Round 2。单一 MessageDelivery、有限修正、快照/回执恢复、系统来源、完整轮聚合、canonical delta 保留清单、M1 退出标准、真实验收前置及不合并/部署边界未因本次澄清变化。无新增布局、prototype 或跨包业务状态。
+
+### 历史问题闭环
+
+R1-W1、R1-W2、R1-W3 在 Round 2 已关闭；本次未改变其解决决定，保持 closed。Round 2 无开放问题，本轮无新 Author Resolution 待核。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
