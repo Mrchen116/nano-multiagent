@@ -150,6 +150,7 @@ class ImageReplyConnection:
                                 "conversation_id": context.conversation_id,
                             },
                         )
+                        context.managed_reply_text = projected
                         self._prepared.pop(
                             str(payload.get("idempotency_key") or ""), None
                         )

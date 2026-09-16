@@ -1950,6 +1950,19 @@ class SessionRunCoordinator:
                 reply_context=binding.reply_context,
             )
 
+    def _managed_reply_context(self, run_id: str):
+        context = (
+            self._delivery_context_store.get(run_id)
+            if self._delivery_context_store is not None
+            else None
+        )
+        if (
+            context is not None
+            and context.kernel_message_id in context.managed_image_messages
+        ):
+            return context
+        return None
+
     async def _deliver_final_reply(
         self,
         *,
@@ -1966,6 +1979,9 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "superseded_by_new_session"}
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
+        if self._managed_reply_context(run_id) is not None:
+            # The candidate owner already published or journaled this reply.
+            return None, None
         if not reply_text.strip():
             return None, {"suppressed_by": "empty_visible_reply"}
         if self._suppress_reply(reply_text, in_group=request.message.is_group) or (
@@ -2815,6 +2831,11 @@ class SessionRunCoordinator:
                     event_name == "run_status"
                     and event.get("status") in TERMINAL_RUN_STATUSES
                 ):
+                    managed = self._managed_reply_context(run_id)
+                    if managed is not None:
+                        reply_text = (
+                            managed.managed_reply_text or managed.external_current_text
+                        )
                     run_state = event
                     break
             if run_state is None:
@@ -3162,6 +3183,11 @@ class SessionRunCoordinator:
                 event.get("event") == "run_status"
                 and event.get("status") in TERMINAL_RUN_STATUSES
             ):
+                managed = self._managed_reply_context(claim.run_id)
+                if managed is not None:
+                    reply_text = (
+                        managed.managed_reply_text or managed.external_current_text
+                    )
                 return event, reply_text
 
     async def _complete_recovery_batch(

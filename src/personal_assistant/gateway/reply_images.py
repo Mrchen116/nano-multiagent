@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
+import time
 from threading import RLock
 from typing import Any, Callable
 from urllib.parse import quote, urlsplit
@@ -27,6 +28,17 @@ from personal_assistant.gateway.reply_image_stream import (
 )
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def external_retry_allowed(
+    receipt: dict[str, Any], *, now: float | None = None
+) -> bool:
+    """Keep automatic Feishu replay inside its one-hour UUID deduplication window."""
+    first = receipt.get("first_attempt_at")
+    return (
+        isinstance(first, (int, float))
+        and (time.time() if now is None else now) - first < 3600
+    )
 
 
 @dataclass(frozen=True)
@@ -234,6 +246,9 @@ class ReplyImages:
         self._token_getter = token_getter
         with sqlite3.connect(self._db) as conn:
             conn.execute(
+                "CREATE TABLE IF NOT EXISTS reply_dispatch_inputs (input_key TEXT PRIMARY KEY, call_id TEXT NOT NULL, output_key TEXT NOT NULL)"
+            )
+            conn.execute(
                 "CREATE TABLE IF NOT EXISTS reply_image_aliases (alias_key TEXT PRIMARY KEY, output_key TEXT NOT NULL)"
             )
             conn.execute(
@@ -424,6 +439,40 @@ class ReplyImages:
             ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def dispatch_identity(
+        self, *, agent_id: str, session_id: str, target: str, text: str, call_id: str
+    ) -> str:
+        """Reuse an unresolved send identity while allowing later intentional sends."""
+        input_key = hashlib.sha256(
+            json.dumps(
+                [agent_id, session_id, target, text], ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        with self._lock, sqlite3.connect(self._db) as conn:
+            previous = conn.execute(
+                "SELECT call_id, output_key FROM reply_dispatch_inputs WHERE input_key=?",
+                (input_key,),
+            ).fetchone()
+            if previous:
+                receipts = [
+                    json.loads(row[0])
+                    for row in conn.execute(
+                        "SELECT receipt_json FROM reply_deliveries WHERE output_key=?",
+                        (previous[1],),
+                    ).fetchall()
+                ]
+                if receipts and any(
+                    item.get("state", item.get("status")) != "delivered"
+                    for item in receipts
+                ):
+                    return previous[0]
+            output_key = f"dispatch:{agent_id}:{session_id}:{call_id}"
+            conn.execute(
+                "INSERT OR REPLACE INTO reply_dispatch_inputs VALUES (?,?,?)",
+                (input_key, call_id, output_key),
+            )
+            return call_id
+
     def unresolved_deliveries(
         self, *, limit: int = 100
     ) -> list[tuple[str, str, dict[str, Any]]]:
@@ -443,6 +492,16 @@ class ReplyImages:
     ) -> None:
         """Persist confirmed or uncertain delivery before another attempt."""
         with self._lock, sqlite3.connect(self._db) as conn:
+            previous = conn.execute(
+                "SELECT receipt_json FROM reply_deliveries WHERE output_key=? AND channel=?",
+                (output_key, channel),
+            ).fetchone()
+            prior = json.loads(previous[0]) if previous else {}
+            receipt = dict(receipt)
+            if "first_attempt_at" in prior:
+                receipt["first_attempt_at"] = prior["first_attempt_at"]
+            elif receipt.get("recovery", {}).get("kind") == "external_prepared":
+                receipt.setdefault("first_attempt_at", time.time())
             conn.execute(
                 "INSERT OR REPLACE INTO reply_deliveries VALUES (?,?,?)",
                 (output_key, channel, json.dumps(receipt)),

@@ -13,7 +13,7 @@ from personal_assistant.channels.base import (
     ProviderImagePreparation,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.reply_images import ReplyImages
+from personal_assistant.gateway.reply_images import ReplyImages, external_retry_allowed
 
 
 def external_recovery_payload(
@@ -103,6 +103,8 @@ class ReplyDeliveryRecovery:
                         "conversation_id": recovery["payload"].get("conversation_id"),
                     }
                 elif kind == "external_prepared":
+                    if not external_retry_allowed(latest):
+                        continue
                     outbound = OutboundMessage(**recovery["outbound"])
                     saved = recovery["preparation"]
                     preparation = ProviderImagePreparation(
@@ -113,7 +115,9 @@ class ReplyDeliveryRecovery:
                         ),
                     )
                     result = await self._router.send_prepared_async(
-                        outbound, preparation, before_publish=lambda: True
+                        outbound,
+                        preparation,
+                        before_publish=lambda: external_retry_allowed(latest),
                     )
                     if result != "delivered":
                         continue

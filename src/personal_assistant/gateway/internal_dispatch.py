@@ -26,6 +26,7 @@ from personal_assistant.gateway.reply_images import (
     ReplyImages,
     ImageDeliveryError,
     has_image_references,
+    external_retry_allowed,
 )
 from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
@@ -192,8 +193,29 @@ class InternalDispatchHandler:
                 "ok": False,
                 "error": "origin Kernel session provenance is not registered",
             }
+        if (
+            provenance is not None
+            and self._reply_images is not None
+            and has_image_references(text)
+            and isinstance(dispatch_request_id, str)
+        ):
+            stable_id = self._reply_images.dispatch_identity(
+                agent_id=provenance.agent.agent_id,
+                session_id=provenance.kernel_session_id,
+                target=to.strip(),
+                text=text.strip(),
+                call_id=dispatch_request_id,
+            )
+            if stable_id != dispatch_request_id:
+                dispatch_request_id = stable_id
+                payload = {**payload, "dispatch_request_id": stable_id}
+                dispatch_payload["dispatch_request_id"] = stable_id
+                dispatch_payload["from_session_id"] = (
+                    f"{provenance.agent.agent_id}|tool_call:{stable_id}"
+                )
         if provenance is not None and provenance.agent.config.work_mode == "global":
             return await self._dispatch_global(payload, dispatch_payload, provenance)
+        prepared = None
         try:
             prepared = await self._prepare_dispatch(
                 dispatch_payload, payload, provenance
@@ -496,6 +518,15 @@ class InternalDispatchHandler:
                     raise RuntimeError("external delivery router unavailable")
                 if prepared is not None and prepared.images:
                     if external_prepared is not None:
+                        existing_receipt = self._reply_images.delivery_receipt(
+                            prepared.output_key, external_channel
+                        )
+                        if existing_receipt and not external_retry_allowed(
+                            existing_receipt
+                        ):
+                            raise RuntimeError(
+                                "Provider deduplication window expired; delivery remains unknown"
+                            )
                         self._reply_images.record_delivery(
                             prepared.output_key,
                             external_channel,
@@ -508,11 +539,17 @@ class InternalDispatchHandler:
                         )
                         try:
                             outcome = await self._outbound_router.send_prepared_async(
-                                *external_prepared, before_publish=lambda: True
+                                *external_prepared,
+                                before_publish=lambda: external_retry_allowed(
+                                    existing_receipt
+                                ),
                             )
                         except Exception:
                             outcome = await self._outbound_router.send_prepared_async(
-                                *external_prepared, before_publish=lambda: True
+                                *external_prepared,
+                                before_publish=lambda: external_retry_allowed(
+                                    existing_receipt
+                                ),
                             )
                         if outcome != "delivered":
                             raise RuntimeError("external publication suppressed")
@@ -802,7 +839,14 @@ class InternalDispatchHandler:
             result = await self.handle(body)
             status = (
                 200
-                if result.get("ok") or result.get("status") == "held_for_revalidation"
+                if result.get("ok")
+                or result.get("status")
+                in {
+                    "held_for_revalidation",
+                    "delivery_failed",
+                    "delivery_partial",
+                    "delivery_unknown",
+                }
                 else 503
             )
             return Response(

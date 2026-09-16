@@ -25,13 +25,18 @@ class Transport:
 
     def __init__(self, **kwargs):
         self.frames = []
+        self._bubble_count = 0
 
     async def send_json(self, kind, payload):
         self.frames.append((kind, dict(payload)))
 
     async def send_json_await_ack(self, kind, payload):
         self.frames.append((kind, dict(payload)))
-        return {"message_id": payload.get("message_id") or "im-bubble"}
+        if payload.get("kind") == "turn_start":
+            self._bubble_count += 1
+        return {
+            "message_id": payload.get("message_id") or f"im-bubble-{self._bubble_count}"
+        }
 
     def finish_external_shadow_run(self, run_id):
         pass
@@ -58,7 +63,17 @@ class Model:
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
-def build(tmp_path, monkeypatch, texts):
+def build(
+    tmp_path,
+    monkeypatch,
+    texts,
+    *,
+    model=None,
+    transport=Transport,
+    deny_images=False,
+    enabled_tools=(),
+    http_handler=None,
+):
     from personal_assistant import product
     from personal_assistant.gateway import composition
     from personal_assistant.gateway import reply_images
@@ -67,10 +82,11 @@ def build(tmp_path, monkeypatch, texts):
     config = replace(
         config,
         node=replace(config.node, user_id="u_owner"),
+        agents=tuple(replace(a, tool_allowlist=enabled_tools) for a in config.agents),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
         im_service=IMServiceConfig(url="http://im.test"),
     )
-    model = Model(texts)
+    model = model or Model(texts)
     original = product.build_kernel
     permissions = []
 
@@ -89,13 +105,29 @@ def build(tmp_path, monkeypatch, texts):
             tool_search_roots=(),
             hook_search_roots=(),
         )
+        if deny_images:
+
+            async def deny_image(event, context):
+                if event.get("name") == "send_message":
+                    permissions.append((event["name"], event["args"]))
+                    return {"block": True, "reason": "Image publication denied"}
+
+            kwargs["hooks"].append(
+                lambda hooks: hooks.on(
+                    "tool_call", deny_image, mode="intercept", priority=0
+                )
+            )
         return original(**kwargs)
 
     monkeypatch.setattr(product, "build_kernel", kernel)
-    monkeypatch.setattr(composition, "IMConnectionManager", Transport)
+    monkeypatch.setattr(composition, "IMConnectionManager", transport)
     uploads = []
 
     def respond(request):
+        if http_handler is not None:
+            response = http_handler(request)
+            if response is not None:
+                return response
         if request.url.path == "/im/v1/image-delivery/target":
             return httpx.Response(200, json={"conversation_id": "c_chat"})
         if request.url.path.endswith("/images"):
@@ -109,7 +141,9 @@ def build(tmp_path, monkeypatch, texts):
     monkeypatch.setattr(
         reply_images.httpx,
         "AsyncClient",
-        lambda **kwargs: client(**kwargs, transport=httpx.MockTransport(respond)),
+        lambda **kwargs: client(
+            **{**kwargs, "transport": httpx.MockTransport(respond)}
+        ),
     )
     rt = compose_gateway(config)
     # Bind only this test's delivery owner; no listener, scheduler or network loop.
@@ -159,6 +193,11 @@ async def test_composed_image_success_has_one_upload_and_one_observer_publicatio
     try:
         result = await receive(rt)
         assert result.run_id
+        assert result.reply_text.startswith("Here")
+        assert not any(
+            "empty_visible_reply" in str(payload)
+            for _, payload in rt._im_connection_manager.frames
+        )
         assert len(model.requests) == 1
         assert len(uploads) == 1
         assert len(model.permission_requests) == 1

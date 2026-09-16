@@ -132,8 +132,16 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
                 for event in rt.store.read_unacked_events(limit=200)
             )
             client.fail = False
-            result = await rt.handler.handle({**rt.manager.sent[0], "text": text})
+            result = await rt.handler.handle(
+                {
+                    **rt.manager.sent[0],
+                    "text": text,
+                    "dispatch_request_id": "model-fresh-call",
+                }
+            )
             assert result["ok"] is True
+            assert len(rt.manager.sent) == 1
+            assert client.sent[0]["idempotency_key"].endswith(":send-first")
         assert len(requests) == 1
         assert client.uploads == [(data, "image/png")]
         assert len(client.sent) == 1

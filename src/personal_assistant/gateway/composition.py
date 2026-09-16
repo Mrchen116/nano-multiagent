@@ -118,6 +118,7 @@ from personal_assistant.gateway.internal_dispatch import (
 from personal_assistant.gateway.outbound_router import OutboundRouter, PreparedOutbound
 from personal_assistant.gateway.reply_images import (
     ImageDeliveryError,
+    external_retry_allowed,
     ReplyImageContext,
     ReplyImages,
 )
@@ -843,11 +844,21 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             raise ImageDeliveryError(
                 [{"ordinal": 1, "source": "", "error_code": "inactive_target"}]
             )
-        target = context.conversation_id or context.owner_user_id
-        conversation_id = await reply_images.resolve_target(
-            target, agent_id=context.agent_id
+        external_target = bool(
+            context.trigger_source != "im"
+            and context.reply_channel_name
+            and context.reply_target_chat_id
         )
-        context.resolve_conversation(conversation_id)
+        im_online = (
+            im_connection_manager is not None and im_connection_manager.connected
+        )
+        conversation_id = context.conversation_id
+        if im_online or not external_target:
+            target = context.conversation_id or context.owner_user_id
+            conversation_id = await reply_images.resolve_target(
+                target, agent_id=context.agent_id
+            )
+            context.resolve_conversation(conversation_id)
         key = f"{candidate.run_id}:candidate:{candidate.candidate_id}"
         prepared = await asyncio.to_thread(
             reply_images.prepare,
@@ -857,15 +868,13 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             candidate.text,
             local_files=local_files,
         )
-        projection = await reply_images.project_im(
-            prepared, conversation_id, agent_id=context.agent_id
-        )
+        projection = None
+        if im_online or not external_target:
+            projection = await reply_images.project_im(
+                prepared, conversation_id, agent_id=context.agent_id
+            )
         external = None
-        if (
-            context.trigger_source != "im"
-            and context.reply_channel_name
-            and context.reply_target_chat_id
-        ):
+        if external_target:
             adapter = channel_registry.get(context.reply_channel_name)
             images = await asyncio.to_thread(
                 reply_images.outbound_images, prepared, adapter.image_account_id
@@ -914,8 +923,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             )
         try:
             manager = _image_connection()
-            if manager is None or not manager.connected:
-                raise ConnectionError("IM is disconnected")
+            im_online = (
+                manager is not None and manager.connected and projection is not None
+            )
             context.managed_image_messages.add(candidate.candidate_id)
             if external is not None:
                 outbound, resources = external
@@ -931,9 +941,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             im_receipt = reply_images.delivery_receipt(key, "im")
             if im_receipt is None or im_receipt.get("state") != "delivered":
                 reply_images.record_delivery(key, "im", {"state": "pending"})
-                manager.prepare_candidate(
-                    candidate.run_id, candidate.candidate_id, key, projection
-                )
+                if im_online:
+                    manager.prepare_candidate(
+                        candidate.run_id, candidate.candidate_id, key, projection
+                    )
                 event = {
                     "event": "assistant_message",
                     "run_id": candidate.run_id,
@@ -953,9 +964,12 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 if pending is not None:
                     await pending
                 im_receipt = reply_images.delivery_receipt(key, "im")
-                if not im_receipt or im_receipt.get("state") != "delivered":
+                if im_online and (
+                    not im_receipt or im_receipt.get("state") != "delivered"
+                ):
                     raise ConnectionError("IM message receipt was not confirmed")
-            receipts.append({"channel": "im", **im_receipt})
+            if im_receipt and im_receipt.get("state") == "delivered":
+                receipts.append({"channel": "im", **im_receipt})
             if external is not None:
                 outbound, resources = external
                 channel = outbound.channel_name
@@ -969,8 +983,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                             "recovery": external_recovery_payload(outbound, resources),
                         },
                     )
+                    attempt = reply_images.delivery_receipt(key, channel)
                     result = await outbound_router.send_prepared_async(
-                        outbound, resources, before_publish=lambda: True
+                        outbound,
+                        resources,
+                        before_publish=lambda: external_retry_allowed(attempt or {}),
                     )
                     if result != "delivered":
                         raise ConnectionError("External delivery was not confirmed")
@@ -980,6 +997,17 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                     }
                     reply_images.record_delivery(key, channel, receipt)
                 receipts.append({"channel": channel, **receipt})
+            if not im_online:
+                _notify_shadow_pending()
+                return OutputResult(
+                    state="partial" if receipts else "pending",
+                    delivery_id=key,
+                    reason_code="im_offline",
+                    diagnostic="The external channel received this image reply; the IM shadow is awaiting synchronization. Do not resend the reply."
+                    if receipts
+                    else "Delivery is awaiting IM synchronization. Do not resend this candidate.",
+                    channel_receipts=tuple(receipts),
+                )
             return OutputResult(
                 state="delivered", delivery_id=key, channel_receipts=tuple(receipts)
             )

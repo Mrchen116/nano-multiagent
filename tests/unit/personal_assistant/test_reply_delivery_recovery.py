@@ -149,3 +149,68 @@ async def test_concurrent_recovery_does_not_finalize_a_live_run(tmp_path):
     manager.send_json_await_ack.assert_awaited_once_with(
         "node.streaming_delta", payload
     )
+
+
+def test_only_unresolved_committed_sends_reuse_content_identity(tmp_path):
+    images = ReplyImages(tmp_path / "state")
+    args = dict(
+        agent_id="agent",
+        session_id="session",
+        target="c_chat",
+        text="![image](/same.png)",
+    )
+    assert images.dispatch_identity(**args, call_id="first") == "first"
+    # Private preparation/withheld output has no public delivery receipt.
+    assert images.dispatch_identity(**args, call_id="second") == "second"
+    key = "dispatch:agent:session:second"
+    images.record_delivery(key, "im", {"status": "delivered"})
+    images.record_delivery(key, "external", {"status": "unknown"})
+    restarted = ReplyImages(tmp_path / "state")
+    assert restarted.dispatch_identity(**args, call_id="third") == "second"
+    images.record_delivery(key, "external", {"status": "delivered"})
+    assert (
+        restarted.dispatch_identity(**args, call_id="intentional-new")
+        == "intentional-new"
+    )
+    assert (
+        restarted.dispatch_identity(
+            **{**args, "target": "c_other"}, call_id="other-target"
+        )
+        == "other-target"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expired_provider_window_keeps_unknown_without_replaying(tmp_path):
+    import time
+    from personal_assistant.gateway.reply_images import external_retry_allowed
+
+    images = ReplyImages(tmp_path / "state")
+    first = time.time() - 3601
+    recovery = external_recovery_payload(
+        OutboundMessage(
+            "feishu:agent", "saved", "chat", metadata={"reply_dedupe_key": "original"}
+        ),
+        ProviderImagePreparation("app", "app", (ProviderImageEntry(0, "img_saved"),)),
+    )
+    images.record_delivery(
+        "draft",
+        "feishu",
+        {"state": "pending", "first_attempt_at": first, "recovery": recovery},
+    )
+    images.record_delivery(
+        "draft", "feishu", {"state": "pending", "recovery": recovery}
+    )
+    receipt = images.delivery_receipt("draft", "feishu")
+    assert receipt["first_attempt_at"] == first
+    assert not external_retry_allowed(receipt)
+    assert external_retry_allowed(receipt, now=first + 3599)
+    router = SimpleNamespace(send_prepared_async=AsyncMock(return_value="delivered"))
+    service = ReplyDeliveryRecovery(
+        images=ReplyImages(tmp_path / "state"),
+        im_connection_manager=SimpleNamespace(),
+        outbound_router=router,
+    )
+    assert await service.recover() == 0
+    router.send_prepared_async.assert_not_awaited()
+    assert images.delivery_receipt("draft", "feishu")["state"] == "pending"
