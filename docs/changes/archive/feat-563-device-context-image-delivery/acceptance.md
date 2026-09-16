@@ -127,3 +127,17 @@ Scenario 网络或本地来源错误可由 Agent 修正: **pass** (R1 missing fi
 仅保留测试范围说明：第二节点为同物理机隔离执行节点，不证明任意用户设备网络实际可达；代码承诺本身不包含自动打通网络。专用 Feishu 上完成真实普通回复、缺图恢复、IM离线恢复；显式 send_message 在真实 Web IM global入口验证。两入口与两渠道均覆盖，不将未测的笛卡尔积组合夸称逐一走过。
 
 上层文档同步结论沿用 Round1；canonical delta归并和服务清理仍由 caller 拥有。Reviewer未启动服务、未修改源码/配置；仅写本报告。
+
+
+## Round 4 — 初始气泡并发修复的最窄产品复验
+
+Validation snapshot: `5a03c61510d73d76d0ac3272cddbe4966e27e892`。Targeted，2026-09-16 11:37。Caller说明 delta 为普通 managed reply 与 stream running 共享首次气泡创建；本 reviewer 不读实现、不把确定性测试结果当产品证据。范围仅重新验证普通图片完整发布、气泡身份和分轮顺序；Runtime、权限、来源错误恢复、全局发送、飞书和离线补齐沿用 Round1–3 未失效证据。
+
+隔离入口 `http://127.0.0.1:57081`，node `wt-feat563-second-node-33224`，IM33253 / Gateway33283，cwd `/private/tmp/feat563-second-node`。fixture版本证明 `/private/tmp/feat563-second-node/race-fix-validation.json` 对应上述源码HEAD；Gateway cwd另经进程核验。账号nano，ordinary Agent second-e2e，聊天 `c_90rvphxd`。本轮内置浏览器连接不可用，改用 CUA 操作 Chrome 新建临时页；仅看测试页并在验后关闭。
+
+- 单次普通一图：真实模型直接回复 `39e60c6c65114d94bff6e6143a1145a7`，只有一条“单气泡验收”加蓝色原图，图片真实渲染，sidebar显示正常文本摘要，footer正常4.0s，API completed；没有空/重复气泡、占位或failed。
+- 同一运行内跨工具两轮：请求先图一，再执行pwd，再图二。真实结果按顺序为 `b3bd18f9a2924d07bed7617f88d1398f`（蓝色图一）和 `6c5e6c78eab24cc897e1dac3a290461d`（紫色图二与pwd结果），恰好两条完整气泡，每条原图各一次。两条API均completed，浏览器footer正常5.3s与793ms；第一轮Process显示1 tool，未出现内容覆写或重发。
+
+实际截图见本review会话CUA输出（Chrome窗口截图1312×768，站点缩放80%）；API完整记录 `/private/tmp/feat563-acceptance-evidence/race-fix-r4.json`。无新must-match原型。这里只证明真实用户旅程，不声称浏览器这一轮确定性触发了所有线程交错。
+
+**PASS**，新增 blocking/major/minor **0/0/0**。受影响的“从原项目目录发送截图”“普通回复与显式发送跨渠道一致”的普通Web路径复验通过，其余全部Scenario保留Round3结论。无需追加需求/设计变更。服务由fixture owner清理；本reviewer只修改本报告。
