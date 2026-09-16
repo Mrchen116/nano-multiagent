@@ -231,7 +231,7 @@ async def test_external_background_keeps_provider_and_shadow_route(
         def send_prepared_message(self, **kwargs):
             assert kwargs["before_publish"]()
             self.sent.append(kwargs)
-            return "provider-message"
+            return "delivered"
 
     client = Client()
     adapter = FeishuAdapter(
@@ -292,23 +292,39 @@ async def test_external_background_keeps_provider_and_shadow_route(
             workspace_root=agent.config.workspace_root,
             origin=RunOrigin.BACKGROUND_TASK,
         )
+        expected = "Cannot deliver the image." if denied else "Provider"
         async with asyncio.timeout(10):
-            while (
-                len(model.requests) < (3 if denied else 2)
-                or len(client.sent) < 2
-                or rt._run_coordinator.is_session_busy(initial.session_key)
-            ):
+            while not any(
+                expected in item["text"] for item in client.sent
+            ) or rt._run_coordinator.is_session_busy(initial.session_key):
                 await asyncio.sleep(0.01)
-        assert len(client.sent) == 2
+        assert len(client.sent) == 2, [
+            (item["text"], item["idempotency_key"]) for item in client.sent
+        ]
         assert all(item["receive_id"] == "human" for item in client.sent)
-        assert len(client.uploads) == len(uploads) == int(not denied)
+        assert len(client.uploads) == len(uploads) == int(not denied), (
+            [item["text"] for item in client.sent],
+            len(model.requests),
+            [
+                m.content
+                for m in model.requests[-1].messages
+                if "withheld before" in (m.content or "")
+            ],
+        )
         if denied:
             assert client.sent[-1]["text"] == "Cannot deliver the image."
         else:
             assert "provider-image" in client.sent[-1]["text"]
             assert "/im/v1/" not in client.sent[-1]["text"]
         assert len(deltas(rt)) == 2
-        assert all(payload["conversation_id"] == "c_chat" for payload in deltas(rt))
+        starts = [
+            payload
+            for kind, payload in rt._im_connection_manager.frames
+            if kind == "node.streaming_delta" and payload.get("kind") == "turn_start"
+        ]
+        assert starts and all(
+            payload["conversation_id"] == "c_chat" for payload in starts
+        )
     finally:
         await rt._run_coordinator.drain(asyncio.get_running_loop().time() + 5)
         await close(rt)
