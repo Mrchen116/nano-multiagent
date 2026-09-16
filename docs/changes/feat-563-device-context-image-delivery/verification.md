@@ -157,3 +157,38 @@ None.
 ### Direct validation
 
 独立 detached worktree、指定 `24bad8b2f`：`PYTHONPATH=src .../.venv/bin/python -m pytest -q tests/integration/test_pa_offline_image_shadow.py tests/unit/personal_assistant/test_pa_reply_delivery.py tests/unit/agent/test_output_callback.py` → **11 passed in 4.40s**。同时覆盖普通图片准备失败私有反馈、权限拒绝、stale、FD 绑定、模型多块聚合与 subagent 排除。未重新扩大为完整实施审查；完整测试及产品验收仍由编排者收口。
+
+## Round 4 — delta verification and code-review closure
+
+- `validated_at: 8b99f43eb502c03c150d587fe3b0a9220915955d`
+- `executed_base: 0014ee0b0`
+- `fix_delta_range: 270677318..8b99f43eb`
+- `verification_mode: delta`
+- Focus: 产品验收 P2——离线已交付图片在 IM 恢复后不残留 failed footer。
+- Verdict: **PASS**；0 CRITICAL / 0 WARNING / 0 SUGGESTION；`requires_full_verification: false`。
+
+本 delta 将公开气泡的完成状态与内核 pending/partial 审计状态分开：composition 记录 `image_delivery_pending`，observer 对待恢复的图片气泡保存 completed 终结投影；内核 OutputResult、真实渠道 receipts、未确认重放记录均未被改为成功。影子内容只有恢复写入成功才对用户可见，因内部镜像暂不可用而保留的失败脚注不再成为最终历史。字段在 bubble reset 清除，不污染后续气泡。
+
+独立 delta code review 存活候选：`[]`。先前两项 code-review finding（恢复消费者、原快照 alias）与 V1/V2/V3 的关闭结论均保持。
+
+独立运行 `test_pa_offline_image_shadow.py`、`test_pa_candidate_delivery.py`、`test_reply_delivery_recovery.py`、`test_output_callback.py`：**16 passed in 7.83s**。两个离线参数分支均断言恢复的影子 `delivery_status == completed`，同时保持单次飞书交付、原文件删除后恢复原图；内核 partial/pending 未完成语义测试仍通过。
+
+## Corrected Delta Reconciliation
+
+- `verification_mode: corrected-delta`
+- Final implementation snapshot: `8b99f43eb`；审查 unit 全部四份 delta 与最终源码/测试，保留此前完整验证证据，不重做产品体验验收。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| kernel/runs：候选、真实权限、同 run 恢复、stale、partial/pending 与默认关闭 | SDK output API、core loop/control/registry；产品末次 footer 修复不改内核终态 | output_callback、output_permission、output_revalidation | aligned |
+| gateway/relay-protocol：认证注册下发必需 IM 用户入口 | IM_PUBLIC_URL 验证、register ack、Gateway ready 前保存 | public_url_config、gateway_im_connection_behavior | aligned |
+| gateway/routing-delivery：Runtime、消息来源协同与配置下一 admission | product/runtime_access、runtime provider 与 session/preview 投影 | runtime_access_context、prompt integration、已验收的 Runtime 路径 | aligned |
+| gateway/routing-delivery：宽本地路径不新增权限、完整准备、显式短错误、普通私有恢复 | PaReplyDelivery、ReplyImages、send_message/internal_dispatch | strict image、ordinary candidate、global dispatch、permission tests | aligned |
+| gateway/routing-delivery：部分完成原身份对账、offline provider 与 shadow 恢复 | durable recovery、dispatch identity、过期限制、candidate alias、最终 footer 修复 | recovery、global_external_dispatch_images、两种 offline shadow 分支 | aligned |
+| im/web-chat-ux：准备失败不发布占位，成功图文与原有客户端读取边界 | prepublication interception、protected image API、原 frontend 图片状态组件未改 | composed candidate、message_images API、独立产品验收另行收口 | aligned |
+
+### Uncovered Observable Behavior
+
+None within the unit's implemented public behavior. 一小时 provider 重试边界与新的 target 解析接口是已声明真实状态/目标授权要求的实现细节，无需额外面向用户能力条目。最终 footer 修复兑现离线补齐同一图片历史，不引入新的用户操作。
+
+Outcome: **aligned**。实现 verifier 与 delta code-review 可通过；真实产品验收和最终完整 CI 为各自独立门禁。
