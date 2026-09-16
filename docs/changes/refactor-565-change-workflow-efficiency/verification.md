@@ -139,3 +139,31 @@ Corrected Delta Reconciliation 继续为 **no spec delta**，无遗漏产品行�
 冻结 HEAD 已核对，独立 patch `git diff --check` 通过。caller 提供主会话 exec `6735`、chunk `747ef9` 的本轮证据：docs-check **233 sources / 73 routes**；两份相关契约测试 **13 passed in 0.22s**。这是 caller 执行结果，非本 reviewer 重跑。未修改产品、脚本、运行配置或测试；原全量产品测试适用性保留，不重复执行。远端 CI 和 PR 更新仍由 caller 负责。
 
 **no spec delta**：本轮修正开发流程和模板，不新增产品包行为。仅追加两份审查报告，未修改实现、未提交。
+
+## Round 4
+
+- reviewer: `/root/static_terra_565`，未参与受审实现；caller 明确合并派发 code review 与 verification 两项职责。
+- dispatch: `gpt-5.6-terra` / `high`；这是本轮实际派发记录，与静态审查角色表一致，不作为成本或效益判断。
+- verification_mode: `delta`
+- executed_base: `6a368b01e781d11c086683ad515b6891df53a7c5`
+- validated_at: `31257921d9a9574b1b86855fb093f72a705a59eb`
+- fix_delta_range: `4cf12157e979421644375118cad68072c3be283c..31257921d9a9574b1b86855fb093f72a705a59eb`
+- verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`
+
+### Delta 对齐
+
+| Requirement / Scenario | 直接证据 | 状态 |
+|---|---|---|
+| 派发方控制模型；执行角色不得自行合并职责 | `change-orchestrator/references/validation.md:10`；`codex-execution-notes.md:8-29` | covered：角色组合/职责由 orchestrator 明确派发；适配参考独占模型表与参数规则。 |
+| 用户批准的角色映射 | `codex-execution-notes.md:19-25` | covered：实施/复杂调查/设计审查继承主 Agent；spec/code/verifier 为 Terra/high，候选核验为 Sol/medium，产品 reviewer 为 Astra/low。 |
+| 两种流程后续修复均归主 Agent | `change-workflow.md:134,142-145,174-185`；两种 orchestrator 的实施入口；`validation.md:16` | covered：首轮才可按独立交付收益派实施；审查、验收、CI、用户反馈后的问题不新派或唤醒修复 worker。 |
+| workflow 不承载模型路由表和操作细节 | `change-workflow.md:132-145,174-185`；design 决定 10；各派发入口到 `codex-execution-notes.md` 的链接 | covered：workflow 仅说明职责边界与门禁，模型表、`fork_turns`、显式 `model`/`reasoning_effort`、复用不匹配和不可用型号处置均在适配参考。 |
+
+`retained_from: Round 3`：合并静态审查但保留两类 verdict、独立候选核验、通用角色边界、Gate 2 独立性、产品验收、测试证据复用与 no spec delta 均未被本次 delta 改变。设计 Round 3 已独立批准决定 8–10；本轮只核其落地及用户要求的 workflow 精简，无需 full verification。
+
+### 证据与限制
+
+独立执行 `git diff --check 4cf12157e979421644375118cad68072c3be283c..31257921d9a9574b1b86855fb093f72a705a59eb`，通过。caller 提供的 docs-check 为 **238 sources / 73 routes**、两项相关契约测试为 **13 passed / 0.21s**，执行于最后图标签前；本 reviewer 未重跑。末次 delta 只删除 workflow 的模型细节并改写已有适配入口，没有产品、测试、脚本、配置或路由目标变化，故复用该机械证据并记录其版本限制。原 full CI 的适用结论保留，未重复整个套件。
+
+**no spec delta**：开发流程与 Skill 文档变更不新增产品可观察行为；无 uncovered observable behavior。

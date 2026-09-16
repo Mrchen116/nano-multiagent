@@ -59,3 +59,21 @@
 已核对：两种 orchestrator 和 validation 明确派发每项职责/Skill/范围/输出；code-review 不再自行兼任 verifier，追加核验交 caller；verifier/handoff 只按派发范围和报告要求执行。workflow 的角色组合规则与执行层一致，独立性和各自 verdict 未弱化。设计模板与六类图示改为目标仓库的模块/接口，不再预设本项目包名、内核分层、端口与拓扑；图数量按解释需要，与 design-author 主入口一致。未发现具体缺陷。
 
 Round 2 的无关结论 retained，原 R1-W1 仍 closed。独立 patch `git diff --check` 通过；不重复全量测试。报告由 caller 提交。
+
+## Round 4
+
+- reviewer: `/root/static_terra_565`，未参与受审实现；caller 明确合并派发 code review 与 verification 两项职责。
+- dispatch: `gpt-5.6-terra` / `high`；与本次新增的静态审查角色映射一致，作为实际派发记录，不作成本结论。
+- review_mode: `patch`
+- executed_base: `6a368b01e781d11c086683ad515b6891df53a7c5`
+- validated_at: `31257921d9a9574b1b86855fb093f72a705a59eb`
+- diff_range: `4cf12157e979421644375118cad68072c3be283c..31257921d9a9574b1b86855fb093f72a705a59eb`
+- 范围：用户补充的角色模型映射、派发入口、两条流程的后续修复归属，以及末次将 workflow 模型细节移入适配参考的 delta；此前 R3 不受影响的范围 retained。
+
+```json
+[]
+```
+
+已核对 `codex-execution-notes.md:8-29` 是唯一模型表与派发参数入口，固定档显式配置、继承档和复用不匹配的处理均在此处；各派发入口只链接该适配参考。workflow:132-145 与 174-185 只保留职责/门禁：orchestrator 决定角色组合和配置，首轮可按独立收益派实施，审查、验收、CI、用户反馈后的修复均由主 Agent 完成，不新派或唤醒修复 worker。`validation.md:10,16` 与两种 orchestrator 的入口相符，且执行角色不能自行增加兼任职责。模型路由细节不再放入 workflow，未发现具体缺陷。
+
+独立 `git diff --check 4cf12157..31257921` 通过。caller 提供的 docs-check（238 sources / 73 routes）及两项相关契约测试（13 passed / 0.21s）执行于最后图标签前；本轮不重复测试，因末次 delta 仅删除 workflow 的模型细节并改写既有适配入口，未改测试、产品代码或路由目标。
