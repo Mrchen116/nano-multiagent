@@ -617,6 +617,27 @@ def build_kernel_event_observer(
         scope: _DeliveryEventScope | None = None
         result: Coroutine[Any, Any, None] | None = None
 
+    async def _ensure_initial_bubble(
+        manager: IMConnectionManager,
+        ctx: RunDeliveryContext,
+        payload: Mapping[str, Any],
+    ) -> str | None:
+        # Managed output and the event stream can reach first publication together.
+        # Share the start/ACK so neither can replace the other's prepared bubble.
+        async with ctx.initial_bubble_lock:
+            live_ctx = _live_context(run_context_store, ctx.run_id)
+            if live_ctx is None:
+                return None
+            if live_ctx.message_id:
+                return live_ctx.message_id
+            ack = await manager.send_json_await_ack("node.streaming_delta", payload)
+            message_id = extract_ack_message_id(ack)
+            live_ctx = _live_context(run_context_store, ctx.run_id)
+            if message_id and live_ctx is not None:
+                live_ctx.backfill_turn_start_ack(message_id=message_id)
+                return message_id
+            return None
+
     def _prepare_event(event: Mapping[str, Any]) -> _PreparedEvent:
         """Build one typed delivery scope and run shared shadow/offline ordering gates."""
 
@@ -628,6 +649,13 @@ def build_kernel_event_observer(
         if ctx is None:
             return _PreparedEvent(handled=True, result=None)
         event_name = str(event.get("event") or "").strip()
+        if (
+            event_name == "run_status"
+            and event.get("status") == "running"
+            and ctx.managed_image_messages
+            and ctx.message_id
+        ):
+            return _PreparedEvent(handled=True, result=None)
         if isinstance(run_context_store, RunDeliveryContextStore):
             if event_name == "run_reset_discard":
 
@@ -1083,27 +1111,16 @@ def build_kernel_event_observer(
                             turn_start_payload["background_returns"] = (
                                 background_returns
                             )
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            turn_start_payload,
-                        )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
+                        returned_msg_id = await _ensure_initial_bubble(
+                            mgr, ctx, turn_start_payload
                         )
                         live_ctx = _live_context(run_context_store, rid)
-                        if returned_msg_id and live_ctx is not None:
-                            live_ctx.backfill_turn_start_ack(
-                                message_id=str(returned_msg_id)
-                            )
-                            if background_returns:
-                                live_ctx.mark_visible_reply()
+                        if (
+                            returned_msg_id
+                            and live_ctx is not None
+                            and background_returns
+                        ):
+                            live_ctx.mark_visible_reply()
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
@@ -1500,13 +1517,13 @@ def build_kernel_event_observer(
                 ) -> None:
                     live_ctx = _live_context(run_context_store, rid)
                     if live_ctx is not None:
-                        live_ctx.clear_message_id()
                         live_ctx.record_assistant_text(
                             text, kernel_message_id=new_kernel_id
                         )
                     try:
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
+                        returned_msg_id = await _ensure_initial_bubble(
+                            mgr,
+                            ctx,
                             {
                                 "kind": "turn_start",
                                 "conversation_id": cid,
@@ -1515,10 +1532,8 @@ def build_kernel_event_observer(
                                 "shadow_message_id": ctx.shadow_message_id,
                             },
                         )
-                        returned_msg_id = extract_ack_message_id(ack)
                         live_ctx = _live_context(run_context_store, rid)
                         if returned_msg_id and live_ctx is not None:
-                            live_ctx.backfill_turn_start_ack(message_id=returned_msg_id)
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(

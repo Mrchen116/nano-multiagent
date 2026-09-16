@@ -131,6 +131,7 @@ class RunDeliveryContext:
     managed_image_messages: set[str] = field(default_factory=set)
     managed_reply_text: str = ""
     image_delivery_pending: bool = False
+    initial_bubble_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __post_init__(self) -> None:
         """Start every newly accepted run with a visible delivery lease."""

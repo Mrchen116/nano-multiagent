@@ -222,3 +222,105 @@ async def test_two_image_rounds_keep_distinct_prepared_candidates_and_tool_resul
         assert all(receipt["state"] == "delivered" for _, receipt in receipts(tmp_path))
     finally:
         await close(rt)
+
+
+@pytest.mark.asyncio
+async def test_late_running_event_preserves_managed_image_bubble(tmp_path, monkeypatch):
+    import asyncio
+
+    source = tmp_path / "early-candidate.png"
+    source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
+    published = asyncio.Event()
+
+    class EarlyCandidateTransport(RemoveSourceTransport):
+        async def send_json_await_ack(self, kind, payload):
+            result = await super().send_json_await_ack(kind, payload)
+            if payload.get("kind") == "message_delta":
+                published.set()
+            return result
+
+    monkeypatch.setattr(EarlyCandidateTransport, "source", source)
+    rt, _, uploads, _ = build(
+        tmp_path,
+        monkeypatch,
+        [f"![picture](<{source}>)"],
+        transport=EarlyCandidateTransport,
+    )
+    observer = rt._run_coordinator._kernel_event_observer
+
+    async def delayed_running(event):
+        if event.get("event") == "run_status" and event.get("status") == "running":
+            await published.wait()
+        pending = observer(event)
+        if asyncio.iscoroutine(pending):
+            await pending
+
+    monkeypatch.setattr(rt._run_coordinator, "_kernel_event_observer", delayed_running)
+    try:
+        await receive(rt)
+        frames = rt._im_connection_manager.frames
+        assert len([p for _, p in frames if p.get("kind") == "turn_start"]) == 1
+        assert len(uploads) == 1
+        completed = [p for _, p in frames if p.get("kind") == "message_completed"]
+        assert len(completed) == 1
+        assert "http://im.test/im/v1/images/image123" in completed[0]["final_content"]
+        assert not source.exists()
+    finally:
+        await close(rt)
+
+
+@pytest.mark.asyncio
+async def test_managed_image_waits_for_inflight_initial_bubble_ack(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    import threading
+
+    from personal_assistant.gateway.runtime_delivery.image_connection import (
+        ImageReplyConnection,
+    )
+
+    source = tmp_path / "pending-start.png"
+    source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
+    started = threading.Event()
+    prepared = asyncio.Event()
+    prepare = ImageReplyConnection.prepare_candidate
+
+    def notify_prepared(self, *args):
+        prepare(self, *args)
+        prepared.set()
+
+    class WaitingModel(Model):
+        async def generate(self, request):
+            if not request.stop_sequences:
+                assert await asyncio.to_thread(started.wait, 5)
+            async for message in super().generate(request):
+                yield message
+
+    class PendingStartTransport(RemoveSourceTransport):
+        async def send_json_await_ack(self, kind, payload):
+            if payload.get("kind") == "turn_start":
+                started.set()
+                await prepared.wait()
+            return await super().send_json_await_ack(kind, payload)
+
+    monkeypatch.setattr(PendingStartTransport, "source", source)
+    monkeypatch.setattr(ImageReplyConnection, "prepare_candidate", notify_prepared)
+    rt, _, uploads, _ = build(
+        tmp_path,
+        monkeypatch,
+        [],
+        model=WaitingModel([f"![picture](<{source}>)"]),
+        transport=PendingStartTransport,
+    )
+    try:
+        await receive(rt)
+        frames = rt._im_connection_manager.frames
+        assert len([p for _, p in frames if p.get("kind") == "turn_start"]) == 1
+        assert len(uploads) == 1
+        completed = [p for _, p in frames if p.get("kind") == "message_completed"]
+        assert len(completed) == 1
+        assert "http://im.test/im/v1/images/image123" in completed[0]["final_content"]
+        assert not source.exists()
+    finally:
+        await close(rt)
