@@ -517,12 +517,17 @@ SDK 观察器可获得某个工具结果实际持久写入后的证明，含真�
 
 ### Requirement: SDK 消费者可检查工具操作权限而不执行工具
 
-消费者可调用 `await Kernel.authorize_tool(session_id, tool_name, arguments, operation_id, *, workspace_root=None, run_id=None)`，获得 `PermissionOutcome(allowed, reason)`。该接口读取真实会话及其工作区、运行配置与来源，不接受调用方伪造的授权上下文；仅检查操作权限，不执行工具，也不创建模型工具调用或新的模型运行。
+消费者可调用 `await Kernel.authorize_tool(session_id, tool_name, arguments, operation_id, *, workspace_root=None, run_id=None, operation_description=None)`，获得 `PermissionOutcome(allowed, reason)`。该接口读取真实会话及其工作区、运行配置与来源，不接受调用方伪造的授权上下文；仅检查操作权限，不执行工具，也不创建模型工具调用或新的模型运行。
 
 #### Scenario: 真实会话下的产品操作
 - **WHEN** SDK 消费者提供真实 session、workspace、工具参数及稳定操作身份来检查权限
 - **THEN** 检查复用该工作区的工具策略、Auto、intercept hook 与人工批准通路，返回 allow/deny；批准期间不占用模型轮的串行锁，也不发送工具执行观察事件。
 - **AND** 调用方取消等待时，取消传播到所属执行循环中的权限检查和待决人工批准。
+
+#### Scenario: 宿主操作与模型工具调用可区分
+- **WHEN** SDK 消费者提供待执行操作的 `operation_description`
+- **THEN** 权限检查器同时看到宿主操作说明、所复用的工具策略和完整操作参数，不把权限检查投影成模型调用该工具；说明不构成授权，也不改变拒绝或人工审批规则。
+- **AND** 模型参数或会话 metadata 不能设置这一宿主来源说明。
 
 #### Scenario: 模型运行结束后的权限检查
 - **WHEN** 消费者提供一个属于该 session 的已完成 `run_id`

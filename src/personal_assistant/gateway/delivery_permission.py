@@ -53,6 +53,10 @@ class DeliveryPermission:
                 f"delivery:{candidate.run_id}:{candidate.candidate_id}",
                 workspace_root=destination.workspace,
                 run_id=candidate.run_id,
+                operation_description=(
+                    "Publish the assistant's ordinary reply to its current conversation; "
+                    "no send_message tool is invoked."
+                ),
             )
         )
         revoked = asyncio.create_task(self.contexts.await_revoked(candidate.run_id))

@@ -158,6 +158,12 @@ async def test_duplicate_candidate_uses_approved_snapshot_after_source_removed(
     path.unlink()
     assert (await owner.deliver_candidate(intent)).state == "delivered"
     owner.kernel.authorize_tool.assert_awaited_once()
+    permission_call = owner.kernel.authorize_tool.await_args
+    assert permission_call.args[1] == "send_message"
+    assert permission_call.kwargs["operation_description"] == (
+        "Publish the assistant's ordinary reply to its current conversation; "
+        "no send_message tool is invoked."
+    )
     owner.connection.send_json_await_ack.assert_awaited_once()
 
 

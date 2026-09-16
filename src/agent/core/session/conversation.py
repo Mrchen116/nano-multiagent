@@ -90,6 +90,7 @@ class ConversationEngine(Protocol):
         run_id: str | None = None,
         origin: Any = None,
         model: str | None = None,
+        operation_description: str | None = None,
     ) -> dict[str, Any]:
         """Evaluate permissions without running a tool or holding the turn gate."""
 
@@ -258,6 +259,7 @@ class ConversationSession:
         run_id: str | None = None,
         origin: Any = None,
         model: str | None = None,
+        operation_description: str | None = None,
     ) -> dict[str, Any]:
         """Check permission without holding the model turn's serialization gate."""
         self._bind_owner_loop()
@@ -272,6 +274,7 @@ class ConversationSession:
                     run_id=run_id,
                     origin=origin,
                     model=model,
+                    operation_description=operation_description,
                 )
             finally:
                 self._note_quiescent()

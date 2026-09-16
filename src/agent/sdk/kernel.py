@@ -2211,6 +2211,7 @@ class Kernel:
         *,
         workspace_root: str | Path | None = None,
         run_id: str | None = None,
+        operation_description: str | None = None,
     ) -> PermissionOutcome:
         """Evaluate a tool operation's permissions without executing it.
 
@@ -2221,6 +2222,9 @@ class Kernel:
             operation_id: Stable identity for this operation's permission request.
             workspace_root: Session workspace; defaults to the kernel workspace.
             run_id: Optional originating run, including an already completed run.
+            operation_description: Trusted consumer description of the host operation.
+                Keep separate from model-provided arguments; it supplies context to
+                classification without changing the tool's permission policy.
 
         Returns:
             Allow or deny decision from the normal permission chain. Task
@@ -2243,6 +2247,7 @@ class Kernel:
             run_id=run_id,
             origin=record.origin if record is not None else None,
             model=record.model if record is not None else None,
+            operation_description=operation_description,
         )
         return PermissionOutcome(
             allowed=not bool(payload.get("block")), reason=payload.get("reason")

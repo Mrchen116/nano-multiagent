@@ -358,6 +358,7 @@ class AgentEngine:
         run_id: str | None = None,
         origin: Any = None,
         model: str | None = None,
+        operation_description: str | None = None,
     ) -> dict[str, Any]:
         """Check one operation using the conversation's real permission context."""
         # Keep configuration/model selection task-local while an approval waits;
@@ -392,6 +393,7 @@ class AgentEngine:
             )
             context = replace(
                 context,
+                permission_operation_description=operation_description,
                 message_history=build_chat_messages(
                     history_messages=tuple(state.history)
                     + tuple(state.partial_messages),
