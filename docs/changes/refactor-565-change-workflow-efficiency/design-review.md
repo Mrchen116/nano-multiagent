@@ -80,3 +80,39 @@
 ### Recommendations
 
 无新增建议。此结论是设计 Gate 2，不替代实施后的实际 diff、测试与独立静态验收。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/design_matrix_565`
+- review_mode: `delta`
+- mode_reason: 用户补充并定稿模型分配、后续修复归属与派发约束；只复审决定 8–10、对应情景及其对既有角色组合的影响。
+- started_at: `2026-09-16T17:33:01+08:00`
+- completed_at: `2026-09-16T17:33:08+08:00`
+- duration: 7 秒（最终交叉核对；此前已读取受审文档与派发入口）
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+### Coverage 与证据
+
+- retained_from: Round 2（及其保留的 Round 1）。原有门禁独立性、证据复用、旧测试退役、产品边界、no spec delta 与单 M1 范围不变；本轮不重新评审这些已批准部分。
+- `motivation.md` 最新用户原话及澄清记录与 `design.md` 决定 8 和模型情景一致：实施、复杂调查、设计 reviewer 继承主模型及 effort；spec/code/verifier 为 Terra/high，候选核验 Sol/medium，产品 reviewer Astra/low。模型策略归派发方，执行角色不自行升级；设计审查独立上下文与继承模型并不冲突。
+- 决定 9 及后续反馈情景覆盖审查、验收、CI、用户反馈：后续修复均由主 Agent 完成，既不新派也不唤醒 worker；复杂调查不能成为外包修复的通道，独立定向复验仍保留。首轮并行实施的有限授权与该限制可同时执行。
+- 决定 10 补齐实际派发条件：读取当前 harness 和可用模型，固定档显式传参，继承档使用主会话实际配置，复用核对角色与配置，不能覆盖时精简交接，不可用时报告并由用户决定替代。当前工具支持 model/effort，并要求显式覆盖模型时不用完整历史 fork，现有 Codex 适配已提供独立审查的中性事实包方式，具备可执行路径。
+- code review 与 verifier 同属 Terra/high，仍可合并派发；设计 reviewer 与静态角色档位不同时，决定 10 禁止通过合并静默换档，解决既有 workflow 允许静态 reviewer 兼任 Gate 2 的影响。实际入口核对了 `change-workflow.md`、两种 orchestrator、`references/validation.md` 与 `references/codex-execution-notes.md`；其中现行“深入探索时派 worker”、默认继承和兼任文字均属设计已授权的必要引用同步面，实施检查须覆盖。
+- 新情景覆盖固定档、继承档、候选/产品档、后续修复、旧角色不匹配及型号不可用；不引入运行代码、产品接口或新的记录系统，M1 仍能承载该增量。
+
+### 历史问题闭环
+
+- R1-W1、R1-R1 保留 Round 2 的 closed；本次变化未重新触发。
+
+### Issues
+
+无未解决 CRITICAL/WARNING。
+
+### Recommendations
+
+无新增建议。本轮仅批准上述设计增量；实际派发入口的一致性仍由实施后的独立静态审查核实。

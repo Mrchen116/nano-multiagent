@@ -35,7 +35,7 @@ Full
          → 仅实质变化复审，按上下文需要复用或交接
          → 选择实施方式
             ├─ 默认简化流程：change-orchestrator-simple → 自主组织实现
-            └─ 用户点名原流程：change-orchestrator → change-impl-worker(s)
+            └─ 用户点名原流程：change-orchestrator → 按需派发 change-impl-worker(s)
          → 对应 validation gates
          → canonical spec 归并
          → 本地 CI
@@ -46,7 +46,7 @@ Bugfix lite
   change-spec-author（fix.md 前两段）
     → 选择实施方式
        ├─ 默认简化流程：change-orchestrator-simple → 自主实施单个 M1-fix
-       └─ 用户点名原流程：change-orchestrator → 单个 change-impl-worker
+       └─ 用户点名原流程：change-orchestrator → 按需派发单个 change-impl-worker
     → change-code-review
     → 必要的 canonical spec 归并
     → 本地 CI
@@ -131,7 +131,21 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 ### 子 Agent 的派发与上下文
 
-只派发范围明确、可独立完成且收益足够的任务；微小修复、环境命令和格式收尾直接完成。需要历史推理时复用原 Agent；独立新任务或旧上下文过大时可新建，并仅交接目标、范围、版本、历史 findings 和证据位置。保留必要历史而非复制整段会话。缓存失效可能让旧上下文再次产生大量输入，不假定复用一定省 Token，不规定固定 TTL，也不通过保活调用维持缓存。独立审查始终与受审实现/设计作者分离，换上下文不能把作者变成独立 reviewer。
+首轮只派发范围明确、可独立完成且收益足够的实施任务；后续修复、环境命令和格式收尾由主 Agent 直接完成。需要历史推理时复用原 Agent；独立新任务或旧上下文过大时可新建，并仅交接目标、范围、版本、历史 findings 和证据位置。保留必要历史而非复制整段会话。缓存失效可能让旧上下文再次产生大量输入，不假定复用一定省 Token，不规定固定 TTL，也不通过保活调用维持缓存。独立审查始终与受审实现/设计作者分离，换上下文不能把作者变成独立 reviewer。
+
+### 子 Agent 的模型选择
+
+派发方选择模型与 effort，用户明确指定优先；执行角色不自行选型或升级。
+
+| 子任务 | 模型策略 |
+|---|---|
+| 首轮实施、专项架构分析/复杂根因调查、设计审查 | 继承主 Agent 的模型与 effort |
+| 需求审查、代码审查、一致性验证 | 静态审查档；code review 与 verification 合并时仍使用此档 |
+| 候选问题二次核验 | 独立核验档 |
+| 产品验收 | 多模态验收档 |
+| 后续修复、环境命令、格式收尾 | 主 Agent 直接完成，不派子 Agent |
+
+具体型号放在当前 harness 的适配参考中；Codex 使用 [派发适配](../../.claude/skills/change-orchestrator/references/codex-execution-notes.md)。派发前核对可用模型、effort 与工具参数；复用前也核对旧 Agent 配置，不匹配且无法覆盖时精简交接新建。不同档位的角色不得为合并任务而静默改变模型。指定型号不可用时报告差异，由用户决定替代；不得自动继承主模型或自行升级。
 
 ## 阶段 3：实施
 
@@ -139,12 +153,12 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
-| 原流程 | 用户点名 `$change-orchestrator` | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 原流程 | 用户点名 `$change-orchestrator` | `change-orchestrator` 建立 unit worktree；首轮按独立交付收益决定是否将 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker；后续问题由主 Agent 直接修复 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 | 简化流程 | 默认 | 默认主 Agent 在一个 unit worktree 内端到端实施与集成，仅将有独立交付收益的具体任务派给 subagent；不按层机械拆 worker，不强制 milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
 两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。默认使用简化流程；用户点名 `$change-orchestrator` 时使用原流程。实施方式只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
 
-原流程的每个 milestone：
+原流程中已派发给 worker 的 milestone：
 
 - orchestrator 提供精确的 milestone worktree/branch 计划；worker 作为 creator-owner 创建并核对
   自己的现场，完成实现、rebase、unit 集成和清理；
@@ -177,12 +191,9 @@ Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。�
   应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
-- 原流程的门禁发现问题后由 `change-orchestrator` 判断独立 worker 是否会实质提高交付可靠性。范围和
-  验证已经清楚、直接闭环更合适时由 unit 直接修；需要独立 owner、隔离现场或深入实现/验证时才派
-  worker。不要使用固定分类表替代当前上下文判断；两种方式都保留适用的独立 closure；
-- 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
+- 原流程与简化流程的后续修复均由主 Agent 直接完成：审查、产品验收、CI 或用户反馈发现的问题，不新派修复 worker，也不唤醒原实施 Agent 修补；不能借复杂根因调查重新外包修复。修复后的复验仍由独立角色按受影响范围执行；
 - 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
-- 先合并相关修复并冻结版本，再按影响一次复验，避免同一小修反复派给设计、代码和一致性审查；实质设计变化仍须独立设计复审，可由未参与设计/实现的同一静态审查者兼任并记录 Gate 2 结论。修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
+- 先合并相关修复并冻结版本，再按影响一次复验，避免同一小修反复派给设计、代码和一致性审查；实质设计变化仍须独立设计复审，按设计审查的模型策略独立派发并记录 Gate 2 结论。修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
 - 共享带被测版本、命令、结果与证据位置的有效测试结果；独立审查者核对覆盖和可信度，关键复现或证据不足时重跑。先稳定 fixture、完成窄测试，再运行本地全量与 CI；已有通过结果不因角色更换而重复执行。真实产品结果仍由产品 reviewer 独立观察，不能用共享单测结果替代。
 
 所有适用门禁通过后才能收尾。
@@ -215,7 +226,7 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-design-reviewer` | 独立审查设计，按实质变化和证据决定复审范围 | 修改方案或实现 |
 | `change-orchestrator` | sync、调度、判真、直接闭环、门禁、契约归并、归档和 PR/CI | 接管已派发的 implementation milestone |
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
-| `change-impl-worker` | 需要独立 owner 的 milestone/fix 实现、测试和适用证据 | 擅自改写需求或绕过设计 |
+| `change-impl-worker` | 首轮已派发 milestone 的实现、测试和适用证据 | 擅自改写需求或绕过设计 |
 | `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
 | `change-verifier` | 实现与 spec/design/milestone 的一致性 | 写代码、产品体验判断 |
 | `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |

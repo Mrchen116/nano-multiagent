@@ -7,6 +7,8 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 
 为已实现、已获用户实际验收的快速开发结果补齐可追溯 unit。已有 active unit 则沿用，不另起生命周期；没有用户确认时保留 active 状态，不伪造验收。
 
+派发独立审查时遵循 workflow 的角色模型规则；Codex 读取 [派发适配](../change-orchestrator/references/codex-execution-notes.md)。
+
 ## 约束与产物
 
 - 只处理本次 diff/commits，保留其他修改；从用户原话与决定写需求，从代码和证据写实际实现，二者不能倒置。
