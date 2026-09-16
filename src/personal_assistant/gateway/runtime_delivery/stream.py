@@ -7,7 +7,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from agent.sdk import TERMINAL_RUN_STATUSES
+from agent.sdk import TERMINAL_RUN_STATUSES, RunOrigin
+from personal_assistant.gateway.delivery_feedback import (
+    DeliveryFeedbackBudget,
+    feedback_parts,
+)
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
@@ -50,6 +54,9 @@ async def stream_run_to_completion(
     background_subscriptions: BackgroundSubscriptionManager | None = None,
     hold_assistant_events: list[Mapping[str, Any]] | None = None,
     before_assistant_flush: Callable[[], Awaitable[None]] | None = None,
+    delivery_feedback_budget: DeliveryFeedbackBudget | None = None,
+    workspace_root: Any | None = None,
+    logical_request_id: str | None = None,
 ) -> StreamRunOutcome:
     """Deliver one kernel run and return its canonical terminal outcome.
 
@@ -81,6 +88,9 @@ async def stream_run_to_completion(
         owner_user_id=owner_user_id,
     )
 
+    context = run_context_store.get(run_id)
+    if context is not None:
+        context.logical_request_id = logical_request_id or run_id
     final_result_text = ""
     terminal_event: Mapping[str, Any] | None = None
     terminal_delivery: RunDeliveryTerminalProjection | None = None
@@ -100,10 +110,11 @@ async def stream_run_to_completion(
                 content = str(event.get("content") or "").strip()
                 if content:
                     final_result_text = content
-            if (
-                hold_assistant_events is not None
-                and event.get("event") == "assistant_message"
-            ):
+            if hold_assistant_events is not None and event.get("event") in {
+                "assistant_message",
+                "model_round_end",
+                "turn_end",
+            }:
                 hold_assistant_events.append(event)
             elif observer is not None:
                 observation = observer(event)
@@ -156,6 +167,9 @@ async def stream_run_to_completion(
                 observation = observer(held)
                 if asyncio.iscoroutine(observation):
                     await observation
+        context = run_context_store.get(run_id)
+        if context is not None and context.delivery_candidate_seen:
+            final_result_text = context.delivery_published_text
         terminal_delivery = _take_stream_delivery(
             run_context_store=run_context_store, run_id=run_id
         )
@@ -163,11 +177,49 @@ async def stream_run_to_completion(
     if terminal_event is None:
         raise RuntimeError("stream ended without terminal run_status")
     status = str(terminal_event["status"])
+    if (
+        status == "completed"
+        and context is not None
+        and context.delivery_feedback
+        and not context.suppressed
+        and delivery_feedback_budget is not None
+    ):
+        logical_id = context.logical_request_id or run_id
+        submission = delivery_feedback_budget.next_submission(logical_id)
+        if submission is not None:
+            submission_id, ordinal = submission
+            record = kernel.try_submit_idle(
+                session_id=kernel_session_id,
+                parts=feedback_parts(context.delivery_feedback, ordinal),
+                submission_id=submission_id,
+                workspace_root=workspace_root,
+                origin=RunOrigin.USER,
+                revalidate_output=context.revalidate_output,
+            )
+            if record is not None:
+                delivery_feedback_budget.record_admitted(logical_id, submission_id)
+                return await stream_run_to_completion(
+                    run_id=record.run_id,
+                    kernel_session_id=kernel_session_id,
+                    agent_id=agent_id,
+                    owner_user_id=owner_user_id,
+                    kernel=kernel,
+                    run_context_store=run_context_store,
+                    observer=observer,
+                    stream_anchor=record.start_sequence or 0,
+                    background_subscriptions=background_subscriptions,
+                    delivery_feedback_budget=delivery_feedback_budget,
+                    workspace_root=workspace_root,
+                    logical_request_id=logical_id,
+                )
+    delivery_failed = context is not None and context.delivery_failed
     return StreamRunOutcome(
-        status=status,
+        status="failed" if status == "completed" and delivery_failed else status,
         final_text=final_result_text,
         delivery=terminal_delivery,
-        error=_extract_terminal_error(terminal_event, status=status),
+        error="reply_delivery_failed"
+        if delivery_failed
+        else _extract_terminal_error(terminal_event, status=status),
         error_kind=_extract_terminal_kind(terminal_event),
     )
 

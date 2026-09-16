@@ -524,7 +524,7 @@ class ToolRegistry:
             args: Actual proposed tool arguments.
             hook_context: Active run context, including transcript and mode.
             action_id: Correlation id for this permission action.
-            permission_only: Suppress execution observers for output candidates.
+            permission_only: Run interceptors without tool execution observers.
 
         Returns:
             Permission intercept payload, including block and reason.

@@ -71,6 +71,7 @@ def build(
     model=None,
     transport=Transport,
     deny_images=False,
+    manual_approval=False,
     enabled_tools=(),
     http_handler=None,
 ):
@@ -97,7 +98,7 @@ def build(
     def kernel(**kwargs):
         kwargs.update(
             _llm_client_override=model,
-            can_use_tool=allow,
+            can_use_tool=None if manual_approval else allow,
             repo_root=tmp_path,
             global_config_root=tmp_path / "global",
             skill_search_roots=(),
@@ -214,7 +215,7 @@ async def test_composed_image_success_has_one_upload_and_one_observer_publicatio
 
 
 @pytest.mark.asyncio
-async def test_composed_failed_image_is_private_and_model_corrects_same_run(
+async def test_composed_failed_image_is_private_and_model_corrects_same_session(
     tmp_path, monkeypatch
 ):
     missing = tmp_path / "missing.png"
@@ -251,7 +252,7 @@ async def test_composed_text_passes_through_without_image_permissions(
 
 
 @pytest.mark.asyncio
-async def test_composed_restored_session_gains_output_feature_without_rebinding(
+async def test_composed_restored_session_delivers_images_without_rebinding(
     tmp_path, monkeypatch
 ):
     from personal_assistant.channels.base import ReplyContext
@@ -267,7 +268,6 @@ async def test_composed_restored_session_gains_output_feature_without_rebinding(
         session = await rt._kernel.create_session(
             workspace_root=workspace, metadata={"agent_id": "agent-a"}, enabled_tools=[]
         )
-        assert not session.metadata.get("output_handler_enabled")
         binder = rt._run_coordinator._session_binder
         message = inbound(chat_id="c_chat", text="send image")
         binder._repository.bind(
@@ -282,7 +282,7 @@ async def test_composed_restored_session_gains_output_feature_without_rebinding(
         current = await rt._kernel.get_session_runtime(
             session_id=session.session_id, workspace_root=workspace
         )
-        assert current.runtime.features["output_handler_enabled"] is True
+        assert "output_handler_enabled" not in current.runtime.features
         assert len(uploads) == 1
         assert len(deltas(rt)) == 1
         assert "http://im.test/im/v1/images/image123" in deltas(rt)[0]["delta_text"]

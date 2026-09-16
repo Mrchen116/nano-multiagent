@@ -1,6 +1,7 @@
 """Gateway same-group tool commits share the Kernel freshness boundary."""
 
 from __future__ import annotations
+from tests.helpers.message_delivery import message_delivery
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,7 +25,7 @@ from personal_assistant.ws.im_connection import IMDispatchAck
     ],
 )
 async def test_dispatch_only_sends_a_current_same_group_candidate(
-    decision, target, sent
+    decision, target, sent, tmp_path
 ):
     manager = SimpleNamespace(
         connected=True,
@@ -39,6 +40,14 @@ async def test_dispatch_only_sends_a_current_same_group_candidate(
         ),
     )
     binder = MagicMock()
+    binder.capture_session_provenance.return_value = SimpleNamespace(
+        agent=SimpleNamespace(
+            agent_id="agent-a",
+            config=SimpleNamespace(work_mode="session", workspace_root=tmp_path),
+        ),
+        kernel_session_id="session-a",
+        guard=None,
+    )
     binder.find_by_kernel_session_id.return_value = SimpleNamespace(
         reply_context=SimpleNamespace(
             channel_name="web_relay", target_chat_id="c_group001"
@@ -52,7 +61,10 @@ async def test_dispatch_only_sends_a_current_same_group_candidate(
 
     kernel = SimpleNamespace(try_commit_output=commit)
     handler = InternalDispatchHandler(
-        im_connection_manager=manager, kernel=kernel, session_binder=binder
+        im_connection_manager=manager,
+        kernel=kernel,
+        session_binder=binder,
+        message_delivery=message_delivery(connection=manager),
     )
     result = await handler.handle(
         {
@@ -121,7 +133,7 @@ def test_send_tool_returns_held_without_raising_or_claiming_sent():
 async def test_dispatch_http_keeps_held_distinct_from_delivery_failure(
     result, expected_status
 ):
-    handler = InternalDispatchHandler()
+    handler = InternalDispatchHandler(message_delivery=message_delivery())
     handler.handle = AsyncMock(return_value=result)
     request = SimpleNamespace(
         json=AsyncMock(return_value={"text": "draft", "to": "group"})

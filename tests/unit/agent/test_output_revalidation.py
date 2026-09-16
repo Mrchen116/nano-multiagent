@@ -77,6 +77,20 @@ async def test_stale_body_is_withheld_before_exact_consumption_and_same_run_cont
     assert events[consumed_index][1]["pending_ids"] == pending_ids
     assert events[consumed_index][1]["context_revision"] == 1
     assert all(data["run_id"] == "run" for _, data in events if "run_id" in data)
+    assert next(
+        m.content for m in messages if m.metadata.get("withheld_message_ids")
+    ) == (
+        "<system-reminder>\n"
+        "The immediately preceding assistant text was drafted before "
+        "the new messages arrived. It was withheld before publication "
+        "and was never delivered to the conversation, so the participants "
+        "have not received its content. Earlier successfully published "
+        "assistant messages remain part of the shared conversation.\n\n"
+        "Continue from the updated conversation state under the original "
+        "reply rules. If a public response is warranted, include all "
+        "information the recipients still need, since the withheld draft "
+        "communicated nothing to them.\n</system-reminder>"
+    )
     reminder = str(requests[1].messages)
     assert "withheld before publication" in reminder
     assert "participants have not received its content" in reminder
@@ -203,6 +217,13 @@ async def test_tools_finish_before_body_commit_and_keep_real_results_on_revalida
             state, controller=controller, hook_ctx=context, max_turns=3
         )
     ]
+    ordered = [event for event, _ in events]
+    assert ordered.count("model_round_end") == 2
+    assert [
+        data["context_revision"] for event, data in events if event == "model_round_end"
+    ] == [0, 1]
+    assert ordered.index("draft_withheld") < ordered.index("model_round_end")
+    assert ordered.index("model_round_end") < ordered.index("injection_consumed")
     result = build_turn_result("session", "turn", messages)
     assert result.tool_results[0].error is None
     assert "real result" in str(requests[1].messages)
@@ -324,23 +345,3 @@ async def test_identical_committed_and_withheld_candidates_keep_distinct_durable
         ] == ["1", "4"]
     finally:
         writer.close()
-
-
-def test_shared_reminder_preserves_existing_revalidation_text_exactly():
-    from agent.core.agent.output import withheld_reminder
-
-    assert withheld_reminder(
-        "The immediately preceding assistant text was drafted before the new messages arrived.",
-        "Continue from the updated conversation state under the original reply rules.",
-    ) == (
-        "<system-reminder>\n"
-        "The immediately preceding assistant text was drafted before "
-        "the new messages arrived. It was withheld before publication "
-        "and was never delivered to the conversation, so the participants "
-        "have not received its content. Earlier successfully published "
-        "assistant messages remain part of the shared conversation.\n\n"
-        "Continue from the updated conversation state under the original "
-        "reply rules. If a public response is warranted, include all "
-        "information the recipients still need, since the withheld draft "
-        "communicated nothing to them.\n</system-reminder>"
-    )

@@ -4,8 +4,6 @@ from dataclasses import replace
 
 import pytest
 
-from agent.core.agent.output import BoundOutputControl
-from agent.core.agent.run_control import RunController
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
@@ -13,7 +11,6 @@ from agent.core.llm.interfaces import LLMMessage
 from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
-from agent.sdk.output import _OutputControlAdapter
 
 
 @pytest.mark.parametrize("blocked", [False, True])
@@ -57,16 +54,17 @@ async def test_output_authorization_shares_interceptors_without_tool_observers(
         metadata={"run_id": "run", "cwd": str(tmp_path)},
         message_history=(LLMMessage(role="user", content="Send this image"),),
     )
-    control = _OutputControlAdapter(
-        BoundOutputControl(RunController(), 0, registry, context)
+    outcome = await registry.evaluate_permission(
+        "send_message",
+        {"target": "chat", "text": "![x](/tmp/x.png)"},
+        hook_context=context,
+        action_id="operation-1",
+        permission_only=True,
     )
-    outcome = await control.authorize_tool(
-        "send_message", {"target": "chat", "text": "![x](/tmp/x.png)"}
-    )
-    assert outcome.allowed is not blocked
+    assert bool(outcome["block"]) is blocked
     assert len(checked) == 1
     event, actual = checked[0]
-    assert event["call_id"].startswith("output_permission_")
+    assert event["call_id"] == "operation-1"
     assert actual.message_history == context.message_history
     assert actual.metadata["cwd"] == str(tmp_path)
     assert actual.metadata["tool_registry"] is registry
@@ -83,17 +81,6 @@ async def test_output_authorization_shares_interceptors_without_tool_observers(
         assert len(checked) == 2
         assert len(observed) == 1
         assert len(executed) == 1
-
-
-def test_output_commit_rejects_cancelled_or_stale_run():
-    controller = RunController(revalidate_output=True)
-    control = BoundOutputControl(controller, 0, None, HookContext(session_id="session"))
-    published = []
-    controller.accepted_revision = 1
-    assert control.try_commit(lambda: published.append(True)) == "stale"
-    controller.abort()
-    assert control.try_commit(lambda: published.append(True)) == "inactive"
-    assert not published
 
 
 @pytest.mark.parametrize("behavior", ["allow", "deny"])
@@ -131,11 +118,12 @@ async def test_output_uses_real_registered_tool_permission_gate(tmp_path, behavi
         session_id="session",
         metadata={"_auto_mode_config_loader": lambda: AutoModeConfig(enabled=True)},
     )
-    control = _OutputControlAdapter(
-        BoundOutputControl(RunController(), 0, registry, context)
+    outcome = await registry.evaluate_permission(
+        "send_message",
+        {"target": "chat", "text": "image"},
+        hook_context=context,
+        action_id="operation-2",
+        permission_only=True,
     )
-    outcome = await control.authorize_tool(
-        "send_message", {"target": "chat", "text": "image"}
-    )
-    assert outcome.allowed is (behavior == "allow")
+    assert (not outcome["block"]) is (behavior == "allow")
     assert len(checks) == 1

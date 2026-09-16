@@ -17,16 +17,9 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 if TYPE_CHECKING:
     from agent.sdk import Kernel
 
-from personal_assistant.channels.base import ReplyContext
-from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.reply_delivery_recovery import external_recovery_payload
 from personal_assistant.gateway.reply_images import (
-    PreparedReply,
-    ReplyImageContext,
-    ReplyImages,
     ImageDeliveryError,
     has_image_references,
-    external_retry_allowed,
 )
 from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
@@ -94,10 +87,7 @@ class InternalDispatchHandler:
         global_inbox: Any | None = None,
         work_recorder: Any | None = None,
         shadow_sync: Any | None = None,
-        outbound_router: OutboundRouter | None = None,
-        reply_images: ReplyImages | None = None,
-        reply_image_owner_id: str = "",
-        image_account_id_provider: Callable[[str], str] | None = None,
+        message_delivery: Any,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
@@ -107,10 +97,7 @@ class InternalDispatchHandler:
         self._global_inbox = global_inbox
         self._work_recorder = work_recorder
         self._shadow_sync = shadow_sync
-        self._outbound_router = outbound_router
-        self._reply_images = reply_images
-        self._reply_image_owner_id = reply_image_owner_id
-        self._image_account_id_provider = image_account_id_provider
+        self._delivery = message_delivery
         self._sealed = False
 
     def seal(self) -> None:
@@ -195,11 +182,11 @@ class InternalDispatchHandler:
             }
         if (
             provenance is not None
-            and self._reply_images is not None
+            and self._delivery is not None
             and has_image_references(text)
             and isinstance(dispatch_request_id, str)
         ):
-            stable_id = self._reply_images.dispatch_identity(
+            stable_id = self._delivery.ledger.dispatch_identity(
                 agent_id=provenance.agent.agent_id,
                 session_id=provenance.kernel_session_id,
                 target=to.strip(),
@@ -217,7 +204,7 @@ class InternalDispatchHandler:
             return await self._dispatch_global(payload, dispatch_payload, provenance)
         prepared = None
         try:
-            prepared = await self._prepare_dispatch(
+            prepared = await self._delivery.prepare_dispatch(
                 dispatch_payload, payload, provenance
             )
             context_revision = payload.get("context_revision")
@@ -254,7 +241,7 @@ class InternalDispatchHandler:
                     # This callback runs under the Kernel's short acceptance lock.
                     # Only enqueue here; the network and ACK run after lock release.
                     send_task = asyncio.create_task(
-                        self._send_im_dispatch(
+                        self._delivery.send_im_dispatch(
                             dict(dispatch_payload), payload, provenance, prepared
                         )
                     )
@@ -285,7 +272,7 @@ class InternalDispatchHandler:
                 assert send_task is not None
                 ack, _prepared = await send_task
             else:
-                ack, _prepared = await self._send_im_dispatch(
+                ack, _prepared = await self._delivery.send_im_dispatch(
                     dispatch_payload, payload, provenance, prepared
                 )
             await self._sync_direct_session(
@@ -388,54 +375,15 @@ class InternalDispatchHandler:
         external_channel = f"external:{channel_name}:{metadata.get('target_chat_id')}"
         try:
             if not native_group or not inbox.blocking_entries(agent_id, target):
-                prepared = await self._prepare_dispatch(dispatch, payload, provenance)
-            if (
-                prepared is not None
-                and prepared.images
-                and channel_name
-                and channel_name != self._direct_channel_name
-            ):
-                receipt = self._reply_images.delivery_receipt(
-                    prepared.output_key, external_channel
+                prepared = await self._delivery.prepare_dispatch(
+                    dispatch, payload, provenance
                 )
-                if not receipt or receipt.get("status") != "delivered":
-                    if (
-                        self._outbound_router is None
-                        or self._image_account_id_provider is None
-                    ):
-                        raise RuntimeError("external image delivery unavailable")
-                    account_id = self._image_account_id_provider(channel_name)
-                    external_prepared = (
-                        await self._outbound_router.prepare_images_async(
-                            text=prepared.markdown_template,
-                            reply_context=ReplyContext(
-                                channel_name=channel_name,
-                                target_chat_id=metadata["target_chat_id"],
-                                thread_id=metadata.get("thread_id"),
-                                metadata={
-                                    **metadata.get("metadata", {}),
-                                    "reply_dedupe_key": dispatch_event_id,
-                                },
-                            ),
-                            images=await asyncio.to_thread(
-                                self._reply_images.outbound_images, prepared, account_id
-                            ),
-                            record_provider_receipts=lambda value: (
-                                self._reply_images.record_provider_receipts(
-                                    prepared.output_key, value
-                                )
-                            ),
-                        )
-                    )
-            if external_prepared is not None:
-                self._reply_images.record_delivery(
-                    prepared.output_key,
-                    external_channel,
-                    {
-                        "status": "unknown",
-                        "recovery": external_recovery_payload(*external_prepared),
-                    },
-                )
+            external_prepared = await self._delivery.prepare_dispatch_external(
+                prepared,
+                metadata,
+                dispatch_event_id,
+                external_channel,
+            )
             if native_group:
                 async with inbox.target_lock(agent_id, target):
                     blocking = inbox.blocking_entries(agent_id, target)
@@ -467,7 +415,7 @@ class InternalDispatchHandler:
                     def enqueue() -> None:
                         nonlocal send_task
                         send_task = asyncio.create_task(
-                            self._send_im_dispatch(
+                            self._delivery.send_im_dispatch(
                                 dispatch, payload, provenance, prepared
                             )
                         )
@@ -504,7 +452,7 @@ class InternalDispatchHandler:
                         }
                 ack, prepared = await send_task
             else:
-                ack, prepared = await self._send_im_dispatch(
+                ack, prepared = await self._delivery.send_im_dispatch(
                     dispatch, payload, provenance, prepared
                 )
             dispatch_event_id = f"dispatch:{session_id}:{call_id}"
@@ -514,66 +462,14 @@ class InternalDispatchHandler:
                 and channel_name != self._direct_channel_name
                 and recorder.store.get_work_event(dispatch_event_id) is None
             ):
-                if self._outbound_router is None:
-                    raise RuntimeError("external delivery router unavailable")
-                if prepared is not None and prepared.images:
-                    if external_prepared is not None:
-                        existing_receipt = self._reply_images.delivery_receipt(
-                            prepared.output_key, external_channel
-                        )
-                        if existing_receipt and not external_retry_allowed(
-                            existing_receipt
-                        ):
-                            raise RuntimeError(
-                                "Provider deduplication window expired; delivery remains unknown"
-                            )
-                        self._reply_images.record_delivery(
-                            prepared.output_key,
-                            external_channel,
-                            {
-                                "status": "unknown",
-                                "recovery": external_recovery_payload(
-                                    *external_prepared
-                                ),
-                            },
-                        )
-                        try:
-                            outcome = await self._outbound_router.send_prepared_async(
-                                *external_prepared,
-                                before_publish=lambda: external_retry_allowed(
-                                    existing_receipt
-                                ),
-                            )
-                        except Exception:
-                            outcome = await self._outbound_router.send_prepared_async(
-                                *external_prepared,
-                                before_publish=lambda: external_retry_allowed(
-                                    existing_receipt
-                                ),
-                            )
-                        if outcome != "delivered":
-                            raise RuntimeError("external publication suppressed")
-                        self._reply_images.record_delivery(
-                            prepared.output_key,
-                            external_channel,
-                            {
-                                "status": "delivered",
-                                "message_id": getattr(outcome, "message_id", None),
-                            },
-                        )
-                else:
-                    await self._outbound_router.send_text_async(
-                        text=dispatch["text"],
-                        reply_context=ReplyContext(
-                            channel_name=channel_name,
-                            target_chat_id=metadata["target_chat_id"],
-                            thread_id=metadata.get("thread_id"),
-                            metadata={
-                                **metadata.get("metadata", {}),
-                                "reply_dedupe_key": dispatch_event_id,
-                            },
-                        ),
-                    )
+                await self._delivery.publish_dispatch_external(
+                    prepared,
+                    external_prepared,
+                    external_channel,
+                    metadata,
+                    dispatch_event_id,
+                    dispatch["text"],
+                )
             try:
                 recorder.record(
                     agent_id=agent_id,
@@ -605,103 +501,6 @@ class InternalDispatchHandler:
                     "receipts": {"im": ack.as_dict() if ack is not None else None},
                 }
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
-
-    async def _prepare_dispatch(
-        self,
-        dispatch: dict[str, Any],
-        payload: Mapping[str, Any],
-        provenance: SessionProvenance | None,
-    ) -> PreparedReply | None:
-        """Prepare all private image resources before the revision commit check."""
-
-        prepared = None
-        conversation_id = dispatch["to"]
-        if has_image_references(dispatch["text"]) and (
-            self._reply_images is None or provenance is None
-        ):
-            raise ImageDeliveryError(
-                [
-                    {
-                        "ordinal": 1,
-                        "source": "",
-                        "error_code": "delivery_context_unavailable",
-                    }
-                ]
-            )
-        if (
-            has_image_references(dispatch["text"])
-            and self._reply_images is not None
-            and provenance is not None
-        ):
-            conversation_id = await self._reply_images.resolve_target(
-                conversation_id, agent_id=provenance.agent.agent_id
-            )
-        if (
-            self._reply_images is not None
-            and provenance is not None
-            and conversation_id.startswith("c_")
-        ):
-            call_id = payload.get("dispatch_request_id")
-            if not isinstance(call_id, str) or not call_id.strip():
-                raise ValueError("reply images require a stable dispatch_request_id")
-            agent = provenance.agent
-            output_key = (
-                f"dispatch:{agent.agent_id}:{provenance.kernel_session_id}:{call_id}"
-            )
-            prepared = await asyncio.to_thread(
-                self._reply_images.prepare,
-                ReplyImageContext(
-                    output_key=output_key,
-                    owner_id=self._reply_image_owner_id,
-                    agent_id=agent.agent_id,
-                    run_id=str(payload.get("origin_run_id") or ""),
-                    bubble_id=call_id,
-                    workspace=agent.config.workspace_root,
-                ),
-                dispatch["text"],
-                im_conversation_id=conversation_id,
-            )
-            dispatch["text"] = await self._reply_images.project_im(
-                prepared, conversation_id, agent_id=agent.agent_id
-            )
-        return prepared
-
-    async def _send_im_dispatch(
-        self,
-        dispatch: dict[str, Any],
-        payload: Mapping[str, Any],
-        provenance: SessionProvenance | None,
-        prepared: PreparedReply | None = None,
-    ) -> tuple[Any, PreparedReply | None]:
-        """Publish only prepared content after the caller's revision guard."""
-        if prepared is not None and prepared.images:
-            channel = f"im:{dispatch['to']}"
-            receipt = self._reply_images.delivery_receipt(prepared.output_key, channel)
-            if receipt and receipt.get("status") == "delivered":
-                from personal_assistant.ws.im_connection import IMDispatchAck
-
-                return IMDispatchAck.from_payload(receipt["ack"]), prepared
-            self._reply_images.record_delivery(
-                prepared.output_key,
-                channel,
-                {
-                    "status": "unknown",
-                    "recovery": {"kind": "explicit_message", "payload": dict(dispatch)},
-                },
-            )
-            try:
-                ack = await self._im_connection_manager.send_agent_message(dispatch)
-            except Exception:
-                # The same request identity is safe to replay after an ACK loss.
-                ack = await self._im_connection_manager.send_agent_message(dispatch)
-            self._reply_images.record_delivery(
-                prepared.output_key,
-                channel,
-                {"status": "delivered", "ack": ack.as_dict()},
-            )
-        else:
-            ack = await self._im_connection_manager.send_agent_message(dispatch)
-        return ack, prepared
 
     def build_query_handler(self, tool_name: str) -> Callable:
         """Build a loopback query handler with actual Session provenance checks."""

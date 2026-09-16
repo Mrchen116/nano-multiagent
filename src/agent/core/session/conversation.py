@@ -6,7 +6,7 @@ import asyncio
 import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 from agent.core.skills.registry import SkillMetadata
@@ -79,6 +79,19 @@ class ConversationEngine(Protocol):
         self, state: ConversationState, request: TurnRequest
     ) -> TurnResult:
         """Execute one serialized turn without owning session identity or storage."""
+
+    async def authorize_tool(
+        self,
+        state: ConversationState,
+        name: str,
+        arguments: Mapping[str, Any],
+        operation_id: str,
+        *,
+        run_id: str | None = None,
+        origin: Any = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate permissions without running a tool or holding the turn gate."""
 
     async def compact(
         self,
@@ -233,6 +246,33 @@ class ConversationSession:
                         return await self._engine.execute_turn(state, request)
                     finally:
                         state.active_model = None
+            finally:
+                self._note_quiescent()
+
+    async def authorize_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, Any],
+        operation_id: str,
+        *,
+        run_id: str | None = None,
+        origin: Any = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Check permission without holding the model turn's serialization gate."""
+        self._bind_owner_loop()
+        with self._lifecycle.begin_operation():
+            try:
+                state = await self._ensure_loaded()
+                return await self._engine.authorize_tool(
+                    state,
+                    name,
+                    arguments,
+                    operation_id,
+                    run_id=run_id,
+                    origin=origin,
+                    model=model,
+                )
             finally:
                 self._note_quiescent()
 

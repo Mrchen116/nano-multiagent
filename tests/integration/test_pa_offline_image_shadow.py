@@ -126,9 +126,11 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
         assert not uploads
         pending = sync._saga_store.pending_snapshots()
         assert pending
-        canonical = sync._reply_images.load(pending[0].output_key)
+        canonical = rt._startup_collaborators[0].images.load(pending[0].output_key)
         assert canonical is not None
-        assert sync._reply_images.image_bytes(canonical.images[0]) == data
+        assert (
+            rt._startup_collaborators[0].images.image_bytes(canonical.images[0]) == data
+        )
         online = True
         rt._im_connection_manager.connected = True
         await sync.recover_pending()

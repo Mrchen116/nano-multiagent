@@ -450,7 +450,6 @@ def build_pa_kernel(
     repo_root: Path | None = None,
     gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
     readable_input_projection_store: ReadableInputProjectionStore | None = None,
-    output_handler: Any | None = None,
 ) -> Any:
     """Assemble PA's Kernel via the 2-layer SDK surface (决策 1/2/5/9).
 
@@ -473,7 +472,6 @@ def build_pa_kernel(
             by ``send_message`` on every call. ``None`` keeps standalone metadata
             compatibility.
         readable_input_projection_store: Exact PA model/readable input handoff.
-        output_handler: Optional Gateway owner for ordinary image candidates.
 
     Returns:
         A ready-to-use Kernel (can_use_tool=None: IM permission-card flow).
@@ -504,7 +502,6 @@ def build_pa_kernel(
             )
         ],
         can_use_tool=None,
-        output_handler=output_handler,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         workspace_skill_dirnames=PA_WORKSPACE_SKILL_DIRNAMES,
         repo_root=resolved_root,

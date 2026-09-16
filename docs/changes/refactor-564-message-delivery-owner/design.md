@@ -2,6 +2,8 @@
 
 ## Changelog
 
+- 实施核对：完整轮事件附带已有 `context_revision` 事实；普通群候选由 Gateway 记录待消费输入身份，并以既有 `injection_consumed.pending_ids` 收据解除门禁。权限等待期间单独消费同 run 的审批事件，避免正文消费者等待权限时阻塞审批卡。
+
 ## 决策与基线
 
 用户已确认交付是产品业务，错误可作为后续消息驱动修正，并授权自主重构/验证。本设计取代未合并 feat-563 的 OutputCandidate/OutputControl/OutputResult 方案，保留其 Runtime、权限和用户体验要求。源码调查基线 `6ee4c71ab`；main 基线 `0014ee0b0`。不重写 Agent 内核、不新增调度平台/消息中间件。
@@ -39,6 +41,8 @@ await delivery.recover_pending()
 - `observe_process` 只呈现运行/工具/思考及终结事实，使用同一 IM 写入组件，不能自行取得正文、读图或重新发送。运行开始与正文先到都解析到同一气泡，按已有稳定身份幂等。
 - `recover_pending` 使用同一内部提交函数与原 intent/快照，仅补未确认目标；没有另一条“恢复发送实现”。连接恢复定时器只调用该方法。
 
+普通群候选在准备前与公开 I/O 准入前检查待消费输入：coordinator 收到新输入即登记，成功 steer 后绑定真实 pending_id，只有实际 injection_consumed.pending_ids 才解除对应门禁；排队到下一 run 的输入不会解除旧候选门禁。这样后续同 run 的有效回复可以继续发送，无需依赖已终结 Kernel run 的提交回调。
+
 普通入口：收齐一次模型回复 → 构造 intent → await deliver → 若全未发布且可修正，向产品 coordinator 登记反馈。显式入口：现有工具权限先通过 → handler验证真实 provenance/目标 → 调同一 deliver → 简短结果直接回工具。显式错误不额外排内部反馈，避免两次修正。
 
 ## 完整候选与运行状态
@@ -54,6 +58,8 @@ Gateway按group_id收集assistant_message，只在匹配的 `model_round_end(com
 显式 send_message 保持原工具权限链，无二次审批。普通候选通过通用 SDK 权限检查复用同一 tool policy/Auto/hook/user approval；这个窄能力只接收 tool name/arguments、真实session来源与操作身份，返回 allow/deny，不执行工具，也不依赖输出回调。
 
 沿用 feat-563 对 registry 权限逻辑的提取，移除 BoundOutputControl 和输出状态类型。SDK 权限检查必须从真实 session/runtime 构造 HookContext，继承权限来源、人工批准通路、取消、模型配置；不接受伪造授权上下文，不越过包边界。权限检查可发生在模型执行已结束但产品逻辑请求仍有效的阶段，提交资格最终仍由 Gateway 的 admission负责。显式调用依据真实执行路径判断已审批，不暴露可由HTTP控制的跳过标志。
+
+Gateway 在等待通用权限调用时，从当前事件序号订阅同 run 的 permission_request/permission_resolved，只呈现审批过程并按事件身份去重；不消费或提交正文。停止/reset 撤销此等待并取消底层审批。
 
 先取得不跟随符号链接的受限文件描述符，再决定权限，批准后读取形成快照，所有分支关闭。后续恢复使用批准的快照，不重新读取路径或重新审批同一次交付。
 

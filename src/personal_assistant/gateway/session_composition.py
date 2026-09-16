@@ -85,7 +85,6 @@ def project_agent_runtime(
     profile_version = scenario.get("config_profile_version")
     features = dict(config.features)
     features["include_session_created_datetime"] = False
-    features["output_handler_enabled"] = scenario.get("pa_work_scope") != "global_main"
     return ProjectedAgentRuntime(
         runtime=SessionRuntimeConfig(
             model=resolved_model,
@@ -136,7 +135,6 @@ def project_agent_session_capabilities(
     config = agent.config
     features = dict(config.features)
     features["include_session_created_datetime"] = False
-    features["output_handler_enabled"] = scenario.get("pa_work_scope") != "global_main"
     return AgentSessionCapabilities(
         prompt=prompt_for(
             config,

@@ -24,7 +24,7 @@ def test_two_gateway_runtimes_publish_distinct_actual_dispatch_urls(tmp_path) ->
     runtimes = tuple(
         GatewayRuntime(
             make_config(roots[index]),
-            internal_dispatch_handler=InternalDispatchHandler(),
+            internal_dispatch_handler=InternalDispatchHandler(message_delivery=None),
             internal_dispatch_endpoint=endpoint,
             gateway_internal_port=0,
         )
@@ -55,7 +55,7 @@ def test_listener_bind_failure_never_reports_runtime_ready(tmp_path) -> None:
     port = occupied.getsockname()[1]
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        internal_dispatch_handler=InternalDispatchHandler(),
+        internal_dispatch_handler=InternalDispatchHandler(message_delivery=None),
         gateway_internal_port=port,
     )
     thread, outcome = run_in_thread(runtime)

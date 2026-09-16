@@ -11,10 +11,32 @@ from personal_assistant.channels.base import (
     ProviderImagePreparation,
 )
 from personal_assistant.gateway.reply_delivery_recovery import (
-    ReplyDeliveryRecovery,
     external_recovery_payload,
 )
 from personal_assistant.gateway.reply_images import ReplyImageContext, ReplyImages
+from personal_assistant.gateway.message_delivery import MessageDelivery
+from personal_assistant.gateway.delivery_ledger import DeliveryLedger
+
+
+def make_delivery(
+    *, images, im_connection_manager, outbound_router, is_run_active=lambda _: False
+):
+    return MessageDelivery(
+        images=images,
+        connection=im_connection_manager,
+        router=outbound_router,
+        contexts=SimpleNamespace(
+            get=lambda run: object() if is_run_active(run) else None
+        ),
+        catalog=None,
+        registry=None,
+        image_connection=None,
+        tracker=None,
+        kernel=None,
+        owner_id="owner",
+        writer=None,
+        notify_pending=lambda: None,
+    )
 
 
 @pytest.mark.asyncio
@@ -63,10 +85,10 @@ async def test_restart_replays_original_identity_without_reading_source(tmp_path
                 "app", "app", (ProviderImageEntry(0, "img_saved"),)
             ),
         )
-    images.record_delivery(
+    DeliveryLedger(images.root).record_delivery(
         ctx.output_key, kind, {"state": "pending", "recovery": recovery}
     )
-    images.record_delivery(
+    DeliveryLedger(images.root).record_delivery(
         ctx.output_key,
         "already-confirmed",
         {"state": "delivered", "recovery": recovery},
@@ -87,14 +109,14 @@ async def test_restart_replays_original_identity_without_reading_source(tmp_path
             side_effect=[ConnectionError("lost ack"), "delivered"]
         )
     )
-    service = ReplyDeliveryRecovery(
+    service = make_delivery(
         images=restarted, im_connection_manager=manager, outbound_router=router
     )
-    assert await service.recover() == 0
-    assert len(restarted.unresolved_deliveries()) == 1
-    assert await service.recover() == 1
-    assert await service.recover() == 0
-    assert not restarted.unresolved_deliveries()
+    assert await service.recover_pending() == 0
+    assert len(DeliveryLedger(restarted.root).unresolved_deliveries()) == 1
+    assert await service.recover_pending() == 1
+    assert await service.recover_pending() == 0
+    assert not DeliveryLedger(restarted.root).unresolved_deliveries()
     if kind == "explicit_message":
         assert (
             manager.send_agent_message.call_args_list[0]
@@ -126,7 +148,7 @@ async def test_concurrent_recovery_does_not_finalize_a_live_run(tmp_path):
         "message_id": "bubble",
         "idempotency_key": "stable-delta",
     }
-    images.record_delivery(
+    DeliveryLedger(images.root).record_delivery(
         "draft",
         "im",
         {
@@ -139,13 +161,15 @@ async def test_concurrent_recovery_does_not_finalize_a_live_run(tmp_path):
         },
     )
     manager = SimpleNamespace(send_json_await_ack=AsyncMock(return_value={"ok": True}))
-    service = ReplyDeliveryRecovery(
+    service = make_delivery(
         images=images,
         im_connection_manager=manager,
         outbound_router=SimpleNamespace(),
         is_run_active=lambda run: run == "still-running",
     )
-    assert sorted(await asyncio.gather(service.recover(), service.recover())) == [0, 1]
+    assert sorted(
+        await asyncio.gather(service.recover_pending(), service.recover_pending())
+    ) == [0, 1]
     manager.send_json_await_ack.assert_awaited_once_with(
         "node.streaming_delta", payload
     )
@@ -159,21 +183,34 @@ def test_only_unresolved_committed_sends_reuse_content_identity(tmp_path):
         target="c_chat",
         text="![image](/same.png)",
     )
-    assert images.dispatch_identity(**args, call_id="first") == "first"
-    # Private preparation/withheld output has no public delivery receipt.
-    assert images.dispatch_identity(**args, call_id="second") == "second"
-    key = "dispatch:agent:session:second"
-    images.record_delivery(key, "im", {"status": "delivered"})
-    images.record_delivery(key, "external", {"status": "unknown"})
-    restarted = ReplyImages(tmp_path / "state")
-    assert restarted.dispatch_identity(**args, call_id="third") == "second"
-    images.record_delivery(key, "external", {"status": "delivered"})
     assert (
-        restarted.dispatch_identity(**args, call_id="intentional-new")
+        DeliveryLedger(images.root).dispatch_identity(**args, call_id="first")
+        == "first"
+    )
+    # Private preparation/withheld output has no public delivery receipt.
+    assert (
+        DeliveryLedger(images.root).dispatch_identity(**args, call_id="second")
+        == "second"
+    )
+    key = "dispatch:agent:session:second"
+    DeliveryLedger(images.root).record_delivery(key, "im", {"status": "delivered"})
+    DeliveryLedger(images.root).record_delivery(key, "external", {"status": "unknown"})
+    restarted = ReplyImages(tmp_path / "state")
+    assert (
+        DeliveryLedger(restarted.root).dispatch_identity(**args, call_id="third")
+        == "second"
+    )
+    DeliveryLedger(images.root).record_delivery(
+        key, "external", {"status": "delivered"}
+    )
+    assert (
+        DeliveryLedger(restarted.root).dispatch_identity(
+            **args, call_id="intentional-new"
+        )
         == "intentional-new"
     )
     assert (
-        restarted.dispatch_identity(
+        DeliveryLedger(restarted.root).dispatch_identity(
             **{**args, "target": "c_other"}, call_id="other-target"
         )
         == "other-target"
@@ -193,24 +230,27 @@ async def test_expired_provider_window_keeps_unknown_without_replaying(tmp_path)
         ),
         ProviderImagePreparation("app", "app", (ProviderImageEntry(0, "img_saved"),)),
     )
-    images.record_delivery(
+    DeliveryLedger(images.root).record_delivery(
         "draft",
         "feishu",
         {"state": "pending", "first_attempt_at": first, "recovery": recovery},
     )
-    images.record_delivery(
+    DeliveryLedger(images.root).record_delivery(
         "draft", "feishu", {"state": "pending", "recovery": recovery}
     )
-    receipt = images.delivery_receipt("draft", "feishu")
+    receipt = DeliveryLedger(images.root).delivery_receipt("draft", "feishu")
     assert receipt["first_attempt_at"] == first
     assert not external_retry_allowed(receipt)
     assert external_retry_allowed(receipt, now=first + 3599)
     router = SimpleNamespace(send_prepared_async=AsyncMock(return_value="delivered"))
-    service = ReplyDeliveryRecovery(
+    service = make_delivery(
         images=ReplyImages(tmp_path / "state"),
         im_connection_manager=SimpleNamespace(),
         outbound_router=router,
     )
-    assert await service.recover() == 0
+    assert await service.recover_pending() == 0
     router.send_prepared_async.assert_not_awaited()
-    assert images.delivery_receipt("draft", "feishu")["state"] == "pending"
+    assert (
+        DeliveryLedger(images.root).delivery_receipt("draft", "feishu")["state"]
+        == "pending"
+    )

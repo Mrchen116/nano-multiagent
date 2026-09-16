@@ -35,6 +35,7 @@ from personal_assistant.tools.conversations import ConversationsTool
 from personal_assistant.tools.send_message import SendMessageTool
 from personal_assistant.ws.im_connection import IMDispatchAck
 from tests.contract.test_kernel_sdk_behavior_contract import _allow_all, _lc_llm
+from tests.helpers.message_delivery import message_delivery
 
 
 class _Manager:
@@ -131,7 +132,7 @@ async def _runtime(
     outbound_router=None,
     shadow_sync=None,
     reply_images=None,
-    image_account_id_provider=None,
+    channel_registry=None,
 ):
     endpoint = InternalDispatchEndpoint()
     classifier_requests = []
@@ -189,17 +190,20 @@ async def _runtime(
         work_recorder=recorder,
     )
     manager = _Manager()
+    delivery = message_delivery(
+        connection=manager,
+        images=reply_images,
+        registry=channel_registry,
+        router=outbound_router,
+    )
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
         kernel=kernel,
         session_binder=binder,
         global_inbox=inbox,
         work_recorder=recorder,
-        outbound_router=outbound_router,
         shadow_sync=shadow_sync,
-        reply_images=reply_images,
-        reply_image_owner_id="owner",
-        image_account_id_provider=image_account_id_provider,
+        message_delivery=delivery,
     )
     app = web.Application()
     app.router.add_post("/internal/dispatch", handler.build_aiohttp_handler())
@@ -250,6 +254,7 @@ async def _runtime(
         controls=controls,
         receipts=receipts,
         classifier_requests=classifier_requests,
+        delivery=delivery,
     )
 
 

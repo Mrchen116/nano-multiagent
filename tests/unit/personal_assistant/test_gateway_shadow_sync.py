@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.helpers.message_delivery import message_delivery
 from tests.helpers.runtime_delivery import delivery_context_store
 import asyncio
 from dataclasses import replace
@@ -75,7 +76,9 @@ def _build_sync(
     async def token_getter() -> str:
         return "token-a"
 
+    delivery = message_delivery()
     return IMShadowConversationSync(
+        delivery_provider=lambda: delivery,
         base_url="http://im.local",
         token_getter=token_getter,
         gateway_token_getter=token_getter,

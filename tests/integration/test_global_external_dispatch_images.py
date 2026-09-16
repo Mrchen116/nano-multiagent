@@ -73,12 +73,13 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
     )
     channel._client = client
     model = _ImageModel(text)
+    registry = ChannelRegistry([channel])
     rt = await _runtime(
         tmp_path,
         model,
         reply_images=images,
-        outbound_router=OutboundRouter(ChannelRegistry([channel])),
-        image_account_id_provider=lambda name: channel.image_account_id,
+        outbound_router=OutboundRouter(registry),
+        channel_registry=registry,
     )
     try:
         message = replace(

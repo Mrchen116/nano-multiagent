@@ -246,7 +246,7 @@ async def test_loop_compaction_wait_emits_parent_run_liveness(monkeypatch) -> No
         pass
 
     assert observed == [("run-parent", "compaction")]
-    assert events == [
+    assert [event for event in events if event[0] == "run_heartbeat"] == [
         (
             "run_heartbeat",
             {

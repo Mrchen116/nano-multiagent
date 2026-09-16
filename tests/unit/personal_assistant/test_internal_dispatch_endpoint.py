@@ -1,6 +1,7 @@
 """Unit tests: Gateway /internal/dispatch endpoint (M250 R4)."""
 
 from __future__ import annotations
+from tests.helpers.message_delivery import message_delivery
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -46,6 +47,7 @@ def _make_dispatch_handler(
 
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
+        message_delivery=message_delivery(connection=im_manager),
         kernel_client=kernel_client,
         session_binder=binder,
     )
@@ -82,7 +84,9 @@ def test_dispatch_handler_returns_error_when_no_im_manager() -> None:
     import asyncio
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 
-    handler = InternalDispatchHandler(im_connection_manager=None)
+    handler = InternalDispatchHandler(
+        im_connection_manager=None, message_delivery=message_delivery()
+    )
     result = asyncio.run(
         handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"})
     )
@@ -98,7 +102,10 @@ def test_dispatch_handler_returns_error_when_im_manager_disconnected() -> None:
     manager = MagicMock()
     manager.connected = False
 
-    handler = InternalDispatchHandler(im_connection_manager=manager)
+    handler = InternalDispatchHandler(
+        im_connection_manager=manager,
+        message_delivery=message_delivery(connection=manager),
+    )
     result = asyncio.run(
         handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"})
     )
@@ -209,7 +216,9 @@ def test_dispatch_handler_build_aiohttp_handler_returns_callable() -> None:
     """InternalDispatchHandler.build_aiohttp_handler must return a callable."""
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 
-    handler = InternalDispatchHandler(im_connection_manager=None)
+    handler = InternalDispatchHandler(
+        im_connection_manager=None, message_delivery=message_delivery()
+    )
     aiohttp_handler = handler.build_aiohttp_handler()
     assert callable(aiohttp_handler)
 
@@ -270,6 +279,7 @@ async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
     kernel = MagicMock()
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
+        message_delivery=message_delivery(connection=manager),
         kernel_client=kernel,
         session_binder=binder,
     )
@@ -368,6 +378,7 @@ async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish
     )
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
+        message_delivery=message_delivery(connection=manager),
         kernel_client=kernel,
         session_binder=binder,
     )

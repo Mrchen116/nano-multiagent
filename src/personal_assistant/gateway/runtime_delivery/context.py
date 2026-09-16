@@ -122,6 +122,7 @@ class RunDeliveryContext:
     suppressed: bool = False
     visibility_state: Literal["active", "quiescing", "revoked"] = "active"
     visibility_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    revoked: asyncio.Event = field(default_factory=asyncio.Event)
     session_key: str = ""
     session_generation: int = 0
     pending_deliveries: int = 0
@@ -131,6 +132,11 @@ class RunDeliveryContext:
     managed_image_messages: set[str] = field(default_factory=set)
     managed_reply_text: str = ""
     image_delivery_pending: bool = False
+    delivery_candidate_seen: bool = False
+    delivery_published_text: str = ""
+    delivery_feedback: str | None = None
+    delivery_failed: bool = False
+    logical_request_id: str | None = None
     initial_bubble_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __post_init__(self) -> None:
@@ -305,6 +311,28 @@ class RunDeliveryContextStore:
         self._contexts: dict[str, RunDeliveryContext] = {}
         self._registrations: dict[str, tuple[str, int]] = {}
         self._session_generations: dict[str, int] = {}
+        self._unconsumed_inputs: dict[str, set[str]] = {}
+
+    def note_input(self, run_id: str, input_id: str) -> None:
+        """Fence a draft until this newly received input reaches the model."""
+        self._unconsumed_inputs.setdefault(run_id, set()).add(input_id)
+
+    def consume_inputs(self, run_id: str, input_ids: list[str]) -> None:
+        """Release only inputs identified by the actual consumption receipt."""
+        pending = self._unconsumed_inputs.get(run_id)
+        if pending is not None:
+            pending.difference_update(input_ids)
+            if not pending:
+                self._unconsumed_inputs.pop(run_id, None)
+
+    def has_unconsumed_input(self, run_id: str) -> bool:
+        """Return whether a revalidated draft predates a received human input."""
+        context = self._contexts.get(run_id)
+        return bool(
+            context
+            and context.revalidate_output
+            and self._unconsumed_inputs.get(run_id)
+        )
 
     def register_session(self, run_id: str, session_key: str, generation: int) -> None:
         """Bind a run's original generation before lifecycle events can be delayed."""
@@ -382,6 +410,7 @@ class RunDeliveryContextStore:
             context.suppressed = True
             context.visibility_state = "revoked"
             context.visibility_changed.set()
+            context.revoked.set()
 
     def quiesce(self, run_id: str) -> None:
         """Temporarily hold new output while a reset publication is decided."""
@@ -409,6 +438,12 @@ class RunDeliveryContextStore:
             if context.visibility_state == "active":
                 return True
             await context.visibility_changed.wait()
+
+    async def await_revoked(self, run_id: str) -> None:
+        """Wait until stop/reset revokes this run's pending product operations."""
+        context = self._contexts.get(run_id)
+        if context is not None and context.visibility_state != "revoked":
+            await context.revoked.wait()
 
     def is_suppressed(self, run_id: str) -> bool:
         """Return whether a run lost visibility because its chat was reset."""
@@ -453,6 +488,7 @@ class RunDeliveryContextStore:
         """Claim terminal ownership, retaining context while delivery still holds it."""
 
         self._registrations.pop(run_id, None)
+        self._unconsumed_inputs.pop(run_id, None)
         context = self._contexts.get(run_id)
         if context is None or context.execution_finished:
             return None
@@ -463,7 +499,9 @@ class RunDeliveryContextStore:
 
     def discard(self, run_id: str) -> bool:
         """Remove one live context and report whether it was still present."""
-
+        context = self._contexts.get(run_id)
+        if context is not None:
+            context.revoked.set()
         return self.take(run_id) is not None
 
     def seed(self, context: RunDeliveryContext) -> RunDeliveryContext:

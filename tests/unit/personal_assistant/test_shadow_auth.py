@@ -1,5 +1,7 @@
 """Shadow identity checks and machine writes use separate credentials."""
 
+from tests.helpers.message_delivery import message_delivery
+
 import httpx
 import pytest
 
@@ -47,7 +49,9 @@ async def test_shadow_recovery_retains_owner_checks_and_uses_rotated_runtime_tok
         return httpx.Response(201, json={"id": "message"})
 
     store = ExternalShadowSagaStore(db_path=tmp_path / "sagas.sqlite")
+    delivery = message_delivery()
     sync = IMShadowConversationSync(
+        delivery_provider=lambda: delivery,
         base_url="http://im.local",
         token_getter=owner,
         gateway_token_getter=runtime,

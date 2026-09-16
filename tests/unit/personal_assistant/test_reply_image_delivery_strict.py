@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from personal_assistant.gateway.delivery_ledger import DeliveryLedger
 from personal_assistant.gateway.reply_images import (
     ImageDeliveryError,
     ReplyImageContext,
@@ -60,11 +61,11 @@ def test_failure_is_private_and_prevents_entire_message(tmp_path, kind, code):
 
 def test_receipts_survive_restart(tmp_path):
     store = ReplyImages(tmp_path / "state")
-    store.record_delivery(
+    DeliveryLedger(store.root).record_delivery(
         "draft", "feishu:chat", {"status": "delivered", "message_id": "om_known"}
     )
     assert (
-        ReplyImages(tmp_path / "state").delivery_receipt("draft", "feishu:chat")[
+        DeliveryLedger(store.root).delivery_receipt("draft", "feishu:chat")[
             "message_id"
         ]
         == "om_known"

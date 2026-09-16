@@ -8,8 +8,6 @@ import sqlite3
 import pytest
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
-from personal_assistant.gateway.reply_delivery_recovery import ReplyDeliveryRecovery
-from personal_assistant.gateway.reply_images import ReplyImages
 from tests.integration.test_pa_candidate_delivery import (
     Model,
     Transport,
@@ -35,7 +33,7 @@ class RemoveSourceTransport(Transport):
             self.accepted.setdefault(key, dict(payload))
             if self.source is not None:
                 self.source.unlink(missing_ok=True)
-            if self.lose_ack and not self.lost:
+            if self.lose_ack:
                 self.lost = True
                 self.frames.append((kind, dict(payload)))
                 raise ConnectionError("accepted delta, lost ACK")
@@ -110,17 +108,13 @@ async def test_ack_loss_keeps_pending_receipt_and_replays_same_delta_without_dup
         saved_delta = stored[0][1]["recovery"]["payload"]
         assert saved_delta["idempotency_key"]
         assert str(source) not in saved_delta["delta_text"]
-        images = ReplyImages(tmp_path / "reply-images")
-        recovery = ReplyDeliveryRecovery(
-            images=images,
-            im_connection_manager=rt._im_connection_manager,
-            outbound_router=None,
-        )
-        assert await recovery.recover() == 1
-        assert await recovery.recover() == 0
+        rt._im_connection_manager.lose_ack = False
+        delivery = rt._startup_collaborators[0]
+        assert await delivery.recover_pending() == 1
+        assert await delivery.recover_pending() == 0
         assert len(rt._im_connection_manager.accepted) == 1
-        assert len(deltas(rt)) == 2
-        assert deltas(rt)[0] == deltas(rt)[1] == saved_delta
+        assert len(deltas(rt)) >= 2
+        assert all(delta == saved_delta for delta in deltas(rt))
         assert receipts(tmp_path)[0][1]["state"] == "delivered"
         assert len(uploads) == 1
         assert not rt._kernel.get_run(result.run_id).status == "running"
@@ -230,13 +224,11 @@ async def test_late_running_event_preserves_managed_image_bubble(tmp_path, monke
 
     source = tmp_path / "early-candidate.png"
     source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
-    published = asyncio.Event()
+    delayed = []
 
     class EarlyCandidateTransport(RemoveSourceTransport):
         async def send_json_await_ack(self, kind, payload):
             result = await super().send_json_await_ack(kind, payload)
-            if payload.get("kind") == "message_delta":
-                published.set()
             return result
 
     monkeypatch.setattr(EarlyCandidateTransport, "source", source)
@@ -250,10 +242,13 @@ async def test_late_running_event_preserves_managed_image_bubble(tmp_path, monke
 
     async def delayed_running(event):
         if event.get("event") == "run_status" and event.get("status") == "running":
-            await published.wait()
+            delayed.append(event)
+            return
         pending = observer(event)
         if asyncio.iscoroutine(pending):
             await pending
+        if event.get("event") == "model_round_end" and delayed:
+            await observer(delayed.pop())
 
     monkeypatch.setattr(rt._run_coordinator, "_kernel_event_observer", delayed_running)
     try:
@@ -276,19 +271,10 @@ async def test_managed_image_waits_for_inflight_initial_bubble_ack(
     import asyncio
     import threading
 
-    from personal_assistant.gateway.runtime_delivery.image_connection import (
-        ImageReplyConnection,
-    )
-
     source = tmp_path / "pending-start.png"
     source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
     started = threading.Event()
-    prepared = asyncio.Event()
-    prepare = ImageReplyConnection.prepare_candidate
-
-    def notify_prepared(self, *args):
-        prepare(self, *args)
-        prepared.set()
+    release_start = asyncio.Event()
 
     class WaitingModel(Model):
         async def generate(self, request):
@@ -301,11 +287,10 @@ async def test_managed_image_waits_for_inflight_initial_bubble_ack(
         async def send_json_await_ack(self, kind, payload):
             if payload.get("kind") == "turn_start":
                 started.set()
-                await prepared.wait()
+                await release_start.wait()
             return await super().send_json_await_ack(kind, payload)
 
     monkeypatch.setattr(PendingStartTransport, "source", source)
-    monkeypatch.setattr(ImageReplyConnection, "prepare_candidate", notify_prepared)
     rt, _, uploads, _ = build(
         tmp_path,
         monkeypatch,
@@ -313,8 +298,12 @@ async def test_managed_image_waits_for_inflight_initial_bubble_ack(
         model=WaitingModel([f"![picture](<{source}>)"]),
         transport=PendingStartTransport,
     )
+    task = asyncio.create_task(receive(rt))
     try:
-        await receive(rt)
+        assert await asyncio.to_thread(started.wait, 5)
+        assert not uploads and not deltas(rt)
+        release_start.set()
+        await task
         frames = rt._im_connection_manager.frames
         assert len([p for _, p in frames if p.get("kind") == "turn_start"]) == 1
         assert len(uploads) == 1

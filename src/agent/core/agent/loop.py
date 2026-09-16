@@ -50,7 +50,6 @@ from .compaction.types import (
     CompactionSettings,
 )
 from .policies import AgentPolicies
-from .output import BoundOutputControl, withheld_reminder
 from .prompting import (
     build_chat_messages,
     build_system_prompt,
@@ -124,7 +123,6 @@ class AgentLoop:
         build_skill_reinjection: Callable[[str, Path | None, str], Message | None]
         | None = None,
     ) -> None:
-        self._output_handler: Any | None = None
         self._llm_client = llm_client
         # bugfix-429: per-provider client map for routing a run to the client of
         # its model's registered provider (decision 3). None → single-client path
@@ -266,24 +264,6 @@ class AgentLoop:
         active_hook_ctx = hook_ctx or HookContext(
             session_id=state.session_id, turn_id=state.turn_id
         )
-        output_features = active_hook_ctx.metadata.get("agent_features", {})
-        output_handler = (
-            self._output_handler
-            if (
-                active_hook_ctx.metadata.get("output_handler_enabled") is True
-                or (
-                    isinstance(output_features, Mapping)
-                    and output_features.get("output_handler_enabled") is True
-                )
-            )
-            and active_hook_ctx.metadata.get("kind") != "subagent"
-            and not is_fork_sidechain
-            else None
-        )
-        buffer_output = output_handler is not None or (
-            controller is not None and controller.revalidate_output
-        )
-        context_revision = 0
         scope = active_hook_ctx.metadata.get("_workspace_execution_scope")
         registry_token = self._active_tool_registry.set(
             getattr(scope, "tool_registry", None)
@@ -421,6 +401,7 @@ class AgentLoop:
                     if compacted_msg is not None:
                         yield compacted_msg
 
+                    context_revision = 0
                     if controller is not None:
                         round_pending, context_revision = (
                             controller.drain_pending_with_revision()
@@ -578,7 +559,7 @@ class AgentLoop:
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
 
-                        if buffer_output:
+                        if controller is not None and controller.revalidate_output:
                             if assistant_msg.content:
                                 buffered_body.append(assistant_msg)
                             hook_message = replace(assistant_msg, content="")
@@ -672,42 +653,6 @@ class AgentLoop:
                     if callable(add_output_tokens) and latest_usage is not None:
                         add_output_tokens(latest_usage.completion_tokens)
 
-                    output_result = None
-                    if (
-                        output_handler is not None
-                        and buffered_body
-                        and not (controller is not None and controller.is_aborted)
-                    ):
-                        async with liveness_ticker(
-                            publish=session_event_publisher(active_hook_ctx),
-                            run_id=run_id,
-                            source="output_delivery",
-                        ):
-                            output_result = await output_handler(
-                                {
-                                    "session_id": state.session_id,
-                                    "run_id": run_id,
-                                    "candidate_id": buffered_body[0].message_id,
-                                    "context_revision": context_revision,
-                                    "text": "".join(m.content for m in buffered_body),
-                                    "message_ids": tuple(
-                                        m.message_id for m in buffered_body
-                                    ),
-                                    "turn_id": active_hook_ctx.turn_id,
-                                    "group_id": buffered_body[0].group_id,
-                                    "metadata": dict(active_hook_ctx.metadata),
-                                },
-                                BoundOutputControl(
-                                    controller,
-                                    context_revision,
-                                    self._current_tool_registry(),
-                                    replace(
-                                        active_hook_ctx,
-                                        message_history=tuple(llm_messages),
-                                    ),
-                                ),
-                            )
-
                     # After stream ends, flush early results into LLM history in
                     # order, then wait for any remaining tools.
                     for result in early_tool_results:
@@ -737,9 +682,11 @@ class AgentLoop:
                                 result, active_hook_ctx, run_id
                             )
 
-                    retry_output = False
-                    output_incomplete = False
-                    if buffer_output and buffered_body:
+                    if (
+                        controller is not None
+                        and controller.revalidate_output
+                        and buffered_body
+                    ):
                         candidate = "".join(msg.content for msg in buffered_body)
                         publish = (
                             active_hook_ctx.output_event_publisher
@@ -768,20 +715,11 @@ class AgentLoop:
                                     },
                                 )
 
+                        outcome = controller.try_commit_output(
+                            context_revision, publish_candidate
+                        )
                         candidate_id = buffered_body[0].message_id
                         message_ids = [msg.message_id for msg in buffered_body]
-                        control = BoundOutputControl(
-                            controller,
-                            context_revision,
-                            self._current_tool_registry(),
-                            active_hook_ctx,
-                        )
-                        outcome = (
-                            control.try_commit(publish_candidate)
-                            if output_result is None
-                            or output_result.state == "pass_through"
-                            else output_result.state
-                        )
                         if outcome == "stale" and publish is not None:
                             publish(
                                 "draft_withheld",
@@ -794,40 +732,23 @@ class AgentLoop:
                                     "text": candidate,
                                 },
                             )
-                        committed = outcome in {"committed", "delivered"}
-                        retry_output = outcome in {"stale", "withheld"}
-                        output_incomplete = outcome in {
-                            "pending",
-                            "partial",
-                            "inactive",
-                        }
-                        reason = (
-                            output_result.diagnostic
-                            if outcome == "withheld" and output_result is not None
-                            else "The immediately preceding assistant text was drafted before the new messages arrived."
-                        )
-                        continuation = (
-                            output_result.continuation
-                            if outcome == "withheld" and output_result is not None
-                            else "Continue from the updated conversation state under the original reply rules."
-                        )
+                        committed = outcome == "committed"
                         status_message = Message(
                             message_id=make_message_id(),
                             role="user",
                             content=(
-                                withheld_reminder(
-                                    reason
-                                    or "The immediately preceding assistant text could not be delivered.",
-                                    continuation
-                                    or "Correct the delivery problem and continue under the original reply rules.",
-                                )
-                                if retry_output
-                                else (
-                                    output_result.diagnostic
-                                    or f"Output delivery is {outcome}; do not resend this candidate."
-                                    if output_incomplete and output_result is not None
-                                    else ""
-                                )
+                                ""
+                                if committed
+                                else "<system-reminder>\n"
+                                "The immediately preceding assistant text was drafted before "
+                                "the new messages arrived. It was withheld before publication "
+                                "and was never delivered to the conversation, so the participants "
+                                "have not received its content. Earlier successfully published "
+                                "assistant messages remain part of the shared conversation.\n\n"
+                                "Continue from the updated conversation state under the original "
+                                "reply rules. If a public response is warranted, include all "
+                                "information the recipients still need, since the withheld draft "
+                                "communicated nothing to them.\n</system-reminder>"
                             ),
                             metadata={
                                 "context_origin": "system",
@@ -837,19 +758,8 @@ class AgentLoop:
                                     "run_id": run_id,
                                     "context_revision": context_revision,
                                     "state": "committed_for_delivery"
-                                    if outcome == "committed"
-                                    else ("withheld" if retry_output else outcome),
-                                    **(
-                                        {
-                                            "reason_code": output_result.reason_code,
-                                            "delivery_id": output_result.delivery_id,
-                                            "channel_receipts": list(
-                                                output_result.channel_receipts
-                                            ),
-                                        }
-                                        if output_result is not None
-                                        else {}
-                                    ),
+                                    if committed
+                                    else "withheld",
                                 },
                                 **(
                                     {}
@@ -861,7 +771,7 @@ class AgentLoop:
                         # Successful publication is durable audit metadata, not
                         # another instruction to the model. Only a withheld draft
                         # needs a reminder so the model can reconsider it.
-                        if status_message.content:
+                        if not committed:
                             llm_messages.append(
                                 LLMMessage(
                                     role="user",
@@ -879,23 +789,24 @@ class AgentLoop:
                     if on_progress is not None:
                         on_progress(turn_usage, tuple(all_tool_calls))
 
-                    if output_incomplete:
-                        if controller is not None:
-                            controller.commit_terminal()
-                        yield Message(
-                            message_id=make_message_id(),
-                            role="turn_meta",
-                            content="",
-                            metadata={
-                                "stop_reason": outcome,
-                                "completed": False,
-                                "usage": turn_usage,
-                                "tool_iterations": api_round_count,
-                            },
-                        )
-                        return
-                    if retry_output:
-                        continue
+                    # A chunk end is not a round boundary: tools and stale-input
+                    # revalidation must finish before consumers see completion.
+                    if controller is None or not controller.is_aborted:
+                        publish = active_hook_ctx.session_event_publisher
+                        if publish is not None:
+                            publish(
+                                "model_round_end",
+                                {
+                                    "session_id": state.session_id,
+                                    "run_id": run_id,
+                                    "turn_id": active_hook_ctx.turn_id,
+                                    "group_id": turn_assistant_group_id
+                                    or make_message_id(),
+                                    "completed": True,
+                                    "context_revision": context_revision,
+                                },
+                            )
+
                     if not iteration_tool_calls:
                         # Leave pending queued until the next round has passed its
                         # budget/compaction checks; terminal recovery owns hard stops.

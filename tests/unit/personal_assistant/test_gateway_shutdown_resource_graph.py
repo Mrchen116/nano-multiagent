@@ -251,6 +251,7 @@ async def test_active_internal_http_handler_does_not_block_kernel_close(
     tmp_path,
 ) -> None:
     from aiohttp import ClientSession
+    from tests.helpers.message_delivery import message_delivery
 
     manager = _BlockingDispatchManager()
     kernel = _Kernel([])
@@ -258,7 +259,8 @@ async def test_active_internal_http_handler_does_not_block_kernel_close(
     runtime = GatewayRuntime(
         make_config(tmp_path),
         internal_dispatch_handler=InternalDispatchHandler(
-            im_connection_manager=manager
+            im_connection_manager=manager,
+            message_delivery=message_delivery(connection=manager),
         ),
         gateway_internal_port=port,
         kernel=kernel,
