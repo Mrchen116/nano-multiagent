@@ -51,8 +51,9 @@ class Feishu:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_anchor", [True, False])
 async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_source_removal(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, has_anchor
 ):
     source = tmp_path / "feishu.png"
     data = b"\x89PNG\r\n\x1a\nfeishu-original"
@@ -63,6 +64,16 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
     def http_response(request):
         if not online:
             raise httpx.ConnectError("IM offline", request=request)
+        if request.url.path == "/im/v1/me":
+            return httpx.Response(200, json={"id": "u_owner"})
+        if request.url.path == "/im/v1/nodes":
+            return httpx.Response(
+                200, json=[{"node_id": "node-m248", "owner_id": "u_owner"}]
+            )
+        if request.url.path.endswith("/external/find-or-create"):
+            return httpx.Response(200, json={"id": "c_chat"})
+        if request.url.path.endswith("/messages"):
+            return httpx.Response(200, json={"id": "shadow-user"})
         if "/external-agent-messages/" in request.url.path:
             reconciled.append(json.loads(request.content))
             return httpx.Response(200, json={"id": "shadow-ack"})
@@ -95,9 +106,11 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
     saga = sync._saga_store.prepare(
         message=message, agent_id="agent-a", owner_id="u_owner"
     )
-    sync._saga_store.record_anchor(
-        saga_id=saga.saga_id, shadow_ref=ShadowConversationRef("c_chat", "shadow-user")
-    )
+    if has_anchor:
+        sync._saga_store.record_anchor(
+            saga_id=saga.saga_id,
+            shadow_ref=ShadowConversationRef("c_chat", "shadow-user"),
+        )
     try:
         result = await asyncio.wait_for(
             rt._on_inbound._pipeline.handle_inbound(message), 10
@@ -105,6 +118,7 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
         await rt._run_coordinator.drain(asyncio.get_running_loop().time() + 5)
         assert result.run_id
         assert len(model.requests) == 1
+        assert len(model.permission_requests) == 1
         assert len(adapter.sent) == 1
         assert adapter.sent[0][1] is not None
         assert adapter.prepared[0].images[0].data == data

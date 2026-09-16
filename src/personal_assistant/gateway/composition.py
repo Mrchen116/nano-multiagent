@@ -829,9 +829,16 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     def _reply_destination(candidate):
         context = run_delivery_contexts.get(candidate.run_id or "")
-        if context is None or context.delivery_target.kind == "none":
+        if context is None:
             return None
-        target = context.conversation_id or context.owner_user_id
+        external_target = (
+            f"local:{context.reply_channel_name}:{context.reply_target_chat_id}"
+            if context.trigger_source != "im"
+            and context.reply_channel_name
+            and context.reply_target_chat_id
+            else ""
+        )
+        target = context.conversation_id or context.owner_user_id or external_target
         if not target:
             return None
         return ReplyDestination(
