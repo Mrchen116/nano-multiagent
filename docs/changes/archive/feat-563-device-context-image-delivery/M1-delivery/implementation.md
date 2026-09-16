@@ -41,3 +41,11 @@ Primary fixture uses the unit worktree, unique IM ports/node/config/workspaces a
 ## Acceptance and cleanup
 
 Independent product acceptance Round 3 PASS on `8b99f43eb`, with 0 open findings. Primary and second isolated stacks were stopped; ports 51856 and 52318 have no listeners and both owned tmux sessions were removed. Test evidence remains under `/private/tmp/feat563-acceptance-evidence`; no test credential, database, log or image body is committed.
+
+## Post-PR CI correction
+
+Remote Linux CI at `0da448358` exposed four image integration failures despite the local full-suite pass. Managed output can reach the observer before the regular `running` event, creating the first bubble; the delayed eager start then overwrote its message id, causing completion to reread/reupload under a different bubble. A deterministic local delayed-event test reproduced two starts and missing completion after deleting the original source.
+
+`5a03c6151` shares the initial start/ACK through the run context lock, reuses the live message id and skips an already-managed late start. The lock covers only initial bubble allocation, not image preparation or permissions. Regression tests cover both an entirely late running event and an in-flight ACK; both require one start, one upload and source-independent completion. The related 16-test batch passed. Independent delta review, targeted real Web IM revalidation and final CI supersede the earlier source snapshot for this bounded correction; prior unaffected product evidence remains retained.
+
+Final post-PR source verification on `5a03c6151`: **3954 passed, 31 warnings in 112.11s**; Ruff lint/format, documentation integrity and whitespace checks passed. Independent delta review/verification Round 5 PASS (18 relevant tests).
