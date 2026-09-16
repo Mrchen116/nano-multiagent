@@ -23,7 +23,7 @@
 - Final non-E2E Python suite on `8b99f43eb`: **3952 passed, 31 warnings in 110.21s**.
 - Final focused integration/recovery batch: 19 passed; anchored/unanchored offline cases: 2 passed.
 - Frontend: 83 files / 770 tests passed; build passed; critical-level dependency audit passed (no dependency changes).
-- Ruff lint/format and diff whitespace checks passed; documentation integrity is rechecked after canonical merge/archive.
+- Ruff lint/format and diff whitespace checks passed; documentation integrity passed after canonical merge (244 maintained Markdown sources, 73 routes), and is rechecked after archive.
 - Independent [verification](../verification.md): Round 4 PASS, corrected-delta aligned, no remaining critical/warning.
 - Independent [code review](../code-review.md): PASS, no surviving candidates.
 - Real product results and per-scenario evidence are owned by [acceptance](../acceptance.md).
@@ -37,3 +37,7 @@ Primary fixture uses the unit worktree, unique IM ports/node/config/workspaces a
 - `validated_at: 8b99f43eb` (final source); `executed_base: 0014ee0b0`; `effective_base: 0014ee0b0`.
 - Final sync found unchanged origin/main. Later report/canonical/archive edits change documentation only; source validation remains effective through the delivery commit.
 - Independent implementation verification and delta code review PASS; corrected-delta reconciliation aligned. Product evidence remains in the independent acceptance report.
+
+## Acceptance and cleanup
+
+Independent product acceptance Round 3 PASS on `8b99f43eb`, with 0 open findings. Primary and second isolated stacks were stopped; ports 51856 and 52318 have no listeners and both owned tmux sessions were removed. Test evidence remains under `/private/tmp/feat563-acceptance-evidence`; no test credential, database, log or image body is committed.
