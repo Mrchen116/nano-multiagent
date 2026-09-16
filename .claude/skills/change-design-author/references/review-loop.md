@@ -2,7 +2,7 @@
 
 已有 `design-review.md` 时从历史 findings、resolution 和实际差异恢复，确需复审才追加 N+1。没有历史才创建 R1，使用独立上下文（Codex `fork_turns: "none"`）与中性输入。复用或更换 reviewer 按 workflow 的上下文规则，交接范围、版本与证据位置；记录旧/新 target 和原因，新 reviewer 核实证据后选择范围，证据不足才 full。
 
-派发前按 [workflow](../../../../docs/development/change-workflow.md) 的角色模型规则选择配置；Codex 读取 [派发适配](../../change-orchestrator/references/codex-execution-notes.md)。
+模型配置由派发方按当前执行环境的适配规则选择，用户指定优先；Codex 读取 [派发适配](../../change-orchestrator/references/codex-execution-notes.md)。
 
 R1 full；R2+ 的 `closure | delta | full` 由 reviewer 按实际修订选择，author 不指定期望结论或限制其发现范围。派发包含 unit、轮次、修改文件/段落、历史 issue 与 resolution。
 

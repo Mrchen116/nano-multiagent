@@ -15,7 +15,7 @@ description: "需要建立 change unit 并对齐需求、问题或重构目标�
 - 现状、用户点名的参考和根因结论要有依据；相关 current specs 与实现不一致时说明差异，不能把坏现状或外部参考自动当作目标契约。
 - 只修改 `docs/changes/<unit>/` 首文档，不写产品代码、不建实施分支；技术选型与实现保真要求交给 design。
 
-可选的独立首文档审查由 author 派发，按 workflow 的角色模型规则选择配置；Codex 读取 [派发适配](../change-orchestrator/references/codex-execution-notes.md)。
+可选的独立首文档审查由 author 派发，按当前执行环境的适配规则选择模型配置；Codex 读取 [派发适配](../change-orchestrator/references/codex-execution-notes.md)。
 
 ## 产物与完成
 
