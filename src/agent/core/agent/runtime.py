@@ -61,7 +61,7 @@ from .context_fork import AgentContextFork
 from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .run_control import RunController
-from .prompting import build_system_prompt
+from .prompting import build_chat_messages, build_system_prompt
 from .skill_commands import SkillCommand, parse_skill_command, rewrite_skill_command
 from .state import (
     AgentState,
@@ -345,6 +345,72 @@ class AgentEngine:
             raise
         finally:
             self._turn_observation.reset(observation_token)
+            self._active_execution_scope.reset(scope_token)
+            self._active_state.reset(token)
+
+    async def authorize_tool(
+        self,
+        state: ConversationState,
+        name: str,
+        arguments: Mapping[str, Any],
+        operation_id: str,
+        *,
+        run_id: str | None = None,
+        origin: Any = None,
+        model: str | None = None,
+        operation_description: str | None = None,
+    ) -> dict[str, Any]:
+        """Check one operation using the conversation's real permission context."""
+        # Keep configuration/model selection task-local while an approval waits;
+        # the active model turn may progress independently on this same session.
+        snapshot = replace(
+            state,
+            active_model=model or state.active_model or state.config.runtime_model,
+        )
+        token = self._active_state.set(snapshot)
+        scope_token = self._active_execution_scope.set(
+            self._scope_for_workspace(state.config.workspace_root)
+        )
+        try:
+            metadata = dict(state.config.metadata)
+            for message in (*state.history, *state.partial_messages):
+                inherited = message.metadata.get("inherited_approval_context")
+                if isinstance(inherited, Mapping):
+                    metadata.update(inherited)
+            metadata.update(
+                cwd=str(state.config.workspace_root),
+                workspace_root=str(state.config.workspace_root),
+                transcript_path=str(state.transcript.path),
+            )
+            if run_id is not None:
+                metadata["run_id"] = run_id
+            if origin is not None:
+                metadata["run_origin"] = getattr(origin, "value", str(origin))
+            context = self._build_hook_context(
+                session_id=state.ref.session_id,
+                turn_id=state.partial_turn_id,
+                metadata=metadata,
+            )
+            context = replace(
+                context,
+                permission_operation_description=operation_description,
+                message_history=build_chat_messages(
+                    history_messages=tuple(state.history)
+                    + tuple(state.partial_messages),
+                    user_text="",
+                )[:-1],  # Permission checks have no new user input.
+            )
+            registry = self._current_tool_registry()
+            if registry is None:
+                return {"block": True, "reason": "tool registry unavailable"}
+            return await registry.evaluate_permission(
+                name,
+                arguments,
+                hook_context=context,
+                action_id=operation_id,
+                permission_only=True,
+            )
+        finally:
             self._active_execution_scope.reset(scope_token)
             self._active_state.reset(token)
 

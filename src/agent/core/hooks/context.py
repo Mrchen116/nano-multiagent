@@ -167,6 +167,8 @@ class HookContext:
     # Per-turn, session-scoped subagent capability. Kept opaque so hooks/core do
     # not depend on the platform AgentTool implementation.
     subagent_control: Any | None = None
+    # Set only by the SDK permission-only operation, never by model arguments.
+    permission_operation_description: str | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id:

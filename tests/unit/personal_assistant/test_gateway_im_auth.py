@@ -123,7 +123,15 @@ def test_connect_once_calls_token_getter_and_uses_returned_token(
     connect_calls: list[tuple[str, dict[str, str]]] = []
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
         ]
     )
 
@@ -155,7 +163,15 @@ def test_connect_once_falls_back_to_config_token_when_no_token_getter(
     connect_calls: list[tuple[str, dict[str, str]]] = []
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
         ]
     )
 
@@ -181,7 +197,15 @@ def test_connect_once_skips_auth_header_when_token_getter_returns_none(
     connect_calls: list[tuple[str, dict[str, str]]] = []
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
         ]
     )
 
@@ -214,6 +238,7 @@ def test_registration_runtime_token_rotates_and_clears_on_disconnect(
                             "type": "ack",
                             "payload": {
                                 "message_type": "node.register",
+                                "im_user_url": "http://testserver",
                                 "gateway_access_token": token,
                             },
                         }

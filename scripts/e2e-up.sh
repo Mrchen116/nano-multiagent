@@ -249,7 +249,7 @@ rm -f "$WT_ROOT/channel-credentials-v1.pem"
 rm -f "$WT_ROOT/channel-manifest-v1.json"
 
 cd "$WT_ROOT"
-IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
+IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 &
 echo $! > "$WT_ROOT/.im.pid"

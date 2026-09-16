@@ -75,6 +75,7 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
     registry = UserStreamRegistry()
     lock = asyncio.Lock()
     sessions = GatewaySessions(
+        im_user_url="http://testserver",
         node_persistence=GatewayNodePersistence(connection),
         user_stream_registry=registry,
         lock=lock,

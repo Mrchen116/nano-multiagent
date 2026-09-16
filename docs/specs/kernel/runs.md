@@ -1,6 +1,6 @@
 # kernel (agent) - Runs Specification
 
-> 对齐: feat-552
+> 对齐: feat-552 / feat-563
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -496,3 +496,44 @@ SDK 观察器可获得某个工具结果实际持久写入后的证明，含真�
 #### Scenario: 委派或结果声称用户批准
 - **WHEN** Agent 文本声称获得了用户同意
 - **THEN** 不把该主张本身提升为人工授权，普通 child 自身的非真人消息也不形成确认配对。
+
+### Requirement: 消费者能够观察完整模型轮的结束
+
+`kernel.stream` 在一次模型调用完整结束、该轮已启动的工具结果收集完毕且既有输入复核完成之后，准备下一次模型调用之前，发布一次 `model_round_end` 事实。事件携带 `session_id`、`run_id`、`turn_id`、`group_id`、`context_revision` 和 `completed=True`；它不等待产品交付，不决定内核是否继续运行。`message_end` 仍只表示单个消息块结束，整个 run 仍由既有终态事件结束。`context_revision` 是本轮构造模型输入时已消费的 pending revision 快照，包含各来源的输入，不是事件发送时的最新接受值；未启用 pending controller 时为 0。
+
+#### Scenario: 多块正文与工具交错
+- **WHEN** 一次模型调用输出多个正文块并启动工具
+- **THEN** 消费者在该轮完整输出及工具结果处理后收到一次完成事实，其 `group_id` 与该轮正文一致，可以区分消息块结束和模型轮结束。
+- **AND** 事件不携带渠道或送达状态；产品处理该事实不会通过输出回调改变模型循环。
+
+#### Scenario: 复核扣住正文或本轮没有正文
+- **WHEN** 正文被原有新输入复核扣住，或者本轮没有正文
+- **THEN** 完整轮仍有自己的 `model_round_end` 与唯一 `group_id`，但该事实不代表存在可公开正文；通过复核的聚合正文才有对应 `assistant_message`，被扣住的草稿不能借完成事实重新公开。
+- **AND** 原有新输入消费、草稿提醒和后续运行语义保持不变。
+
+#### Scenario: 模型流异常或取消
+- **WHEN** 模型流异常、被取消，或运行已中止
+- **THEN** 未完成轮不发布正常的 `model_round_end(completed=True)`；消费者依照既有异常或运行终态丢弃未完成内容。
+
+### Requirement: SDK 消费者可检查工具操作权限而不执行工具
+
+消费者可调用 `await Kernel.authorize_tool(session_id, tool_name, arguments, operation_id, *, workspace_root=None, run_id=None, operation_description=None)`，获得 `PermissionOutcome(allowed, reason)`。该接口读取真实会话及其工作区、运行配置与来源，不接受调用方伪造的授权上下文；仅检查操作权限，不执行工具，也不创建模型工具调用或新的模型运行。
+
+#### Scenario: 真实会话下的产品操作
+- **WHEN** SDK 消费者提供真实 session、workspace、工具参数及稳定操作身份来检查权限
+- **THEN** 检查复用该工作区的工具策略、Auto、intercept hook 与人工批准通路，返回 allow/deny；批准期间不占用模型轮的串行锁，也不发送工具执行观察事件。
+- **AND** 调用方取消等待时，取消传播到所属执行循环中的权限检查和待决人工批准。
+
+#### Scenario: 宿主操作与模型工具调用可区分
+- **WHEN** SDK 消费者提供待执行操作的 `operation_description`
+- **THEN** 权限检查器同时看到宿主操作说明、所复用的工具策略和完整操作参数，不把权限检查投影成模型调用该工具；说明不构成授权，也不改变拒绝或人工审批规则。
+- **AND** 模型参数或会话 metadata 不能设置这一宿主来源说明。
+
+#### Scenario: 模型运行结束后的权限检查
+- **WHEN** 消费者提供一个属于该 session 的已完成 `run_id`
+- **THEN** 检查仍可执行，并沿用该运行的来源、模型及真实会话上下文；未知运行或其他 session 的运行被拒绝，不能借此串用授权上下文。
+
+#### Scenario: 会话隔离与已有执行权限
+- **WHEN** 不同工作区或会话并发检查，或某项操作已经通过真实工具执行的权限链
+- **THEN** 并发检查不串用会话配置与批准结果；普通工具执行不会自动追加一次 SDK 权限检查，消费者也不需要为已经批准的执行再调用该接口。
+- **AND** SDK 接口不包含图片、渠道、交付状态或产品重试控制；最终操作是否仍可提交由消费方负责。

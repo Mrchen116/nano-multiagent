@@ -93,6 +93,7 @@ from agent.sdk.dto import (
     WorkflowRunInfo,
     WorkflowSaveScope,
 )
+from agent.sdk.permissions import PermissionOutcome
 from agent.sdk.prompt import PromptSlots
 from agent.sdk.runtime import (
     SessionReconfigureResult,
@@ -2200,6 +2201,57 @@ class Kernel:
             # so callers can do event.get("run_id"), event.get("event"), event.get("status")
             # without knowing about the StreamEvent.data nesting.
             yield _flatten_stream_event(ev)
+
+    async def authorize_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: Mapping[str, Any],
+        operation_id: str,
+        *,
+        workspace_root: str | Path | None = None,
+        run_id: str | None = None,
+        operation_description: str | None = None,
+    ) -> PermissionOutcome:
+        """Evaluate a tool operation's permissions without executing it.
+
+        Args:
+            session_id: Existing session supplying runtime and permission policy.
+            tool_name: Registered tool whose policy applies to the operation.
+            arguments: Actual proposed tool arguments.
+            operation_id: Stable identity for this operation's permission request.
+            workspace_root: Session workspace; defaults to the kernel workspace.
+            run_id: Optional originating run, including an already completed run.
+            operation_description: Trusted consumer description of the host operation.
+                Keep separate from model-provided arguments; it supplies context to
+                classification without changing the tool's permission policy.
+
+        Returns:
+            Allow or deny decision from the normal permission chain. Task
+            cancellation propagates through any pending human approval.
+
+        Raises:
+            ValueError: The supplied run does not belong to the session.
+        """
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id, effective_root)
+        record = self._c.runs_registry.get(run_id) if run_id is not None else None
+        if run_id is not None and (record is None or record.session_id != session_id):
+            raise ValueError("permission run does not belong to session")
+        conversation = self._c.directory.open(ref)
+        payload = await self._c.executor.authorize_tool(
+            conversation,
+            tool_name,
+            dict(arguments),
+            operation_id,
+            run_id=run_id,
+            origin=record.origin if record is not None else None,
+            model=record.model if record is not None else None,
+            operation_description=operation_description,
+        )
+        return PermissionOutcome(
+            allowed=not bool(payload.get("block")), reason=payload.get("reason")
+        )
 
     def interrupt(self, session_id: str) -> str | None:
         """Interrupt the active run for a session and cancel pending permissions.

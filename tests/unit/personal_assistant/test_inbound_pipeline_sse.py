@@ -110,6 +110,7 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
     This verifies the session_key serial queue handles background-wake / cron
     events while the user run is in progress.
     """
+    delegated = []
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
@@ -127,6 +128,7 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
     )
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
+        kernel_event_observer=delegated.append,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -145,7 +147,8 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
 
     assert result is not None
     assert result.reply_text == "user reply"
-    assert "background" in [msg.text for msg in channel.sent]
+    assert any(event.get("content") == "background" for event in delegated)
+    assert "background" not in [msg.text for msg in channel.sent]
 
 
 def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(

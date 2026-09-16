@@ -53,7 +53,13 @@ class _HalfOpenWebSocket(_FakeWebSocket):
         if not self._registered:
             self._registered = True
             return json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
             )
         await self._closed.wait()
         raise RuntimeError("socket closed")
@@ -431,7 +437,15 @@ def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> N
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
         ]
     )
 

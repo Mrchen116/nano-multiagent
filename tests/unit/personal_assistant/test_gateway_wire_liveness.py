@@ -31,7 +31,13 @@ class _YieldingSendWebSocket(_FakeWebSocket):
         super().__init__(
             incoming=[
                 json.dumps(
-                    {"type": "ack", "payload": {"message_type": "node.register"}}
+                    {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.register",
+                            "im_user_url": "http://testserver",
+                        },
+                    }
                 )
             ]
         )
@@ -106,7 +112,15 @@ def test_business_send_timeout_disconnects_half_open_socket(tmp_path: Path) -> N
 def test_business_ack_timeout_disconnects_silent_socket(tmp_path: Path) -> None:
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     manager = _manager(
@@ -141,7 +155,15 @@ def test_queued_waiter_ack_budget_starts_only_after_it_owns_wire(
 ) -> None:
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     manager = _manager(
@@ -183,7 +205,15 @@ def test_fire_and_forget_business_frame_has_its_own_ack_timeout(
 ) -> None:
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     manager = _manager(
@@ -220,7 +250,15 @@ def test_external_shadow_live_frame_is_not_replayed_after_send_timeout(
     first_socket.blocked_type = "never-block-turn-start"
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     sockets = iter((first_socket, second_socket))
@@ -485,7 +523,15 @@ def test_register_timeout_does_not_cancel_post_ack_convergence(tmp_path: Path) -
     """The handshake deadline ends at ACK, before slower convergence callbacks."""
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     relay = WebRelayAdapter()

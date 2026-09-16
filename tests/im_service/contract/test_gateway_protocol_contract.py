@@ -480,6 +480,7 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
                 "type": "ack",
                 "payload": {
                     "message_type": "node.register",
+                    "im_user_url": "http://testserver",
                     "node_id": "node-1",
                     "gateway_access_token": ANY,
                 },

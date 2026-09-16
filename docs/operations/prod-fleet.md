@@ -53,3 +53,11 @@ mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`
 ## 飞书
 
 飞书 Bot 只跑在 Mac mini Gateway（`mac-mini`）。本机 `macbook-air` 不承载飞书通道。
+
+## IM 用户访问入口配置
+
+IM 启动必须显式设置 `IM_PUBLIC_URL` 为用户实际打开 Web IM 的 HTTP(S) 绝对 URL；允许部署路径前缀，不允许凭据、query 或 fragment。它与 Gateway 的内部 `im_service.url` 独立。IM 在已认证的 `node.register` ACK 下发 `im_user_url`，Gateway 注册完成前不会启动依赖 IM 的 PA 工作；重连期间保留最近一次认证的入口，下一轮会话 runtime 使用新入口。
+
+Gateway YAML 的 `node.execution_access_address` 可选，填写执行设备供用户访问的主机名或 IP（不含协议、端口、路径或凭据）；缺失时省略提示中的该行。此值仅提供访问事实，不开放监听端口、不授予文件权限，也不保证用户能访问任意服务。
+
+升级前保留原配置并为 IM 增加 `IM_PUBLIC_URL`，先升级 IM 再升级 Gateway。旧 IM 未下发入口时，新 Gateway 报配置/版本不匹配，不采用内部连接地址猜测。回退代码时可保留新增环境变量；此配置说明不授权执行生产部署。

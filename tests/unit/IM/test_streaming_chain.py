@@ -50,7 +50,7 @@ def _make_minimal_execution(
 
     lock = asyncio.Lock()
     return GatewayExecution(
-        sessions=GatewaySessions(lock=lock),
+        sessions=GatewaySessions(im_user_url="http://testserver", lock=lock),
         event_repository=event_repo,
         event_bridge=event_bridge,
         lock=lock,
@@ -345,7 +345,7 @@ class TestRelayReportTokenUsage:
 
         lock = asyncio.Lock()
         handler = GatewayExecution(
-            sessions=GatewaySessions(lock=lock),
+            sessions=GatewaySessions(im_user_url="http://testserver", lock=lock),
             event_repository=event_repo,
             lock=lock,
         )

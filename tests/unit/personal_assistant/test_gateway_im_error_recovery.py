@@ -29,7 +29,15 @@ def test_rejected_agent_message_fails_waiter_and_flushes_next_frame(
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "error",

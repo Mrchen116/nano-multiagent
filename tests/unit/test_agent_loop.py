@@ -682,7 +682,10 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
     )
 
     assert len(result.tool_calls) == 1
-    assert published == [("tool_start", result.tool_calls[0].call_id)]
+    assert [item for item in published if item[0] == "tool_start"] == [
+        ("tool_start", result.tool_calls[0].call_id)
+    ]
+    assert [event for event, _ in published].count("model_round_end") == 2
 
 
 async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None:

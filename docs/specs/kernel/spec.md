@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-555
+> 对齐: refactor-564
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
@@ -11,7 +11,7 @@
 
 它对外**只暴露 `agent.sdk`**——`build_kernel()` 装配出一个进程内 `Kernel`,消费者持有它并 `await` / 调用其方法。内核**不内置任何 HTTP / 网络 API**;呈现为终端软件、常驻 gateway 还是云 API,是产品层决策,内核不持形态偏好(refactor-387)。
 
-**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / heartbeat 调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
+**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / 消息交付与交付失败调度 / heartbeat 调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
 
 ## Canonical Areas
 
@@ -20,7 +20,7 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [SDK Boundary](sdk-boundary.md) | SDK 表面、产品中立装配、扩展协议、能力查询、公开类型与 Workflow 管理 | 7 |
-| [Runs](runs.md) | create_session、submit/stream、空闲原子提交与收据、持久工具正文证明、Session 观察、steer、权限、中断与运行事件 | 24 |
+| [Runs](runs.md) | create_session、submit/stream、空闲原子提交与收据、持久工具正文证明、Session 观察、steer、权限检查、完整模型轮结束、中断与运行事件 | 26 |
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、推理强度、模型错误恢复 | 5 |
 | [Background Tasks](background-tasks.md) | 后台完成通知与真实消费归因、subagent follow-up、Workflow、task_stop、派生子 agent 隔离 | 6 |
 | [Workflows](workflows.md) | Python Workflow tool、编排 runtime、子 Agent、后台控制、resume、保存发现、预算与规模 | 8 |

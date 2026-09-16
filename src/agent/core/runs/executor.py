@@ -75,6 +75,15 @@ class ConversationTarget(Protocol):
     async def submit_turn(self, request: TurnRequest) -> TurnResult:
         """Run one fully-owned conversation turn."""
 
+    async def authorize_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        operation_id: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Evaluate one operation without executing a model turn."""
+
     async def compact(
         self, *, focus: str | None = None, idempotency_key: str | None = None
     ) -> Any:
@@ -217,6 +226,24 @@ class KernelExecutor:
             token=target.token,
             result_future=result_future,
             cleanup_ack=target.cleanup_ack,
+        )
+
+    async def authorize_tool(
+        self,
+        session: ConversationTarget,
+        name: str,
+        arguments: dict[str, Any],
+        operation_id: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Check permissions on the owner loop with cancellable lifecycle ownership."""
+        return await asyncio.wrap_future(
+            self._admit_lifecycle(
+                "authorize_tool",
+                session,
+                lambda: session.authorize_tool(name, arguments, operation_id, **kwargs),
+                cancel_on_cancel=True,
+            )
         )
 
     async def compact(
@@ -404,6 +431,7 @@ class KernelExecutor:
         operation: Callable[[], Awaitable[Any]],
         *,
         only_if_idle: bool = False,
+        cancel_on_cancel: bool = False,
     ) -> concurrent.futures.Future[Any] | None:
         context = contextvars.copy_context()
         token = TargetToken(
@@ -430,6 +458,12 @@ class KernelExecutor:
                 return None
             self._targets[token.token_id] = target
             self._loop.call_soon_threadsafe(self._schedule_lifecycle, target, context)
+        if cancel_on_cancel:
+            future.add_done_callback(
+                lambda done: (
+                    self.request_cancel(token, force=True) if done.cancelled() else None
+                )
+            )
         return future
 
     def _schedule_target(self, target: _Target, context: contextvars.Context) -> None:

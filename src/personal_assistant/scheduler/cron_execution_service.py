@@ -19,6 +19,11 @@ as failed(gateway_restarted) so they never stay permanently "in progress".
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from contextlib import suppress
 import json
@@ -35,6 +40,7 @@ from agent.sdk import RunOrigin
 
 from personal_assistant.config.local_store import resolve_model_candidates
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.delivery_feedback import DeliveryFeedbackBudget
 from personal_assistant.gateway.model_fallback import (
     ModelStickyStore,
     failover_unattended_run,
@@ -387,10 +393,13 @@ class CronRunTerminalConsumer:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: Any | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
+        delivery_feedback_budget: DeliveryFeedbackBudget | None = None,
     ) -> None:
         self._kernel = kernel
         self._owner_user_id = owner_user_id
         self._run_context_store = run_context_store
+        self._delivery_feedback_budget = delivery_feedback_budget
         self._observer = observer
         self._background_subscriptions = background_subscriptions
         self._agent_catalog = agent_catalog
@@ -398,6 +407,7 @@ class CronRunTerminalConsumer:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
 
     async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
@@ -417,6 +427,10 @@ class CronRunTerminalConsumer:
             kernel=self._kernel,
             run_context_store=self._run_context_store,
             observer=observer,
+            delivery_feedback_budget=self._delivery_feedback_budget,
+            workspace_root=snapshot.config.workspace_root
+            if snapshot is not None
+            else None,
             background_subscriptions=None
             if global_mode
             else self._background_subscriptions,
@@ -470,6 +484,8 @@ class CronRunTerminalConsumer:
                 if snapshot.config.work_mode == "global"
                 else self._observer,
                 stream_anchor=stream_anchor,
+                delivery_feedback_budget=self._delivery_feedback_budget,
+                workspace_root=snapshot.config.workspace_root,
                 background_subscriptions=None
                 if snapshot.config.work_mode == "global"
                 else self._background_subscriptions,
@@ -493,7 +509,8 @@ class CronRunTerminalConsumer:
             )
             observation = self._observer(
                 {
-                    "event": "assistant_message",
+                    "event": "gateway_message",
+                    "message_id": notice_run_id,
                     "run_id": notice_run_id,
                     "content": switch_notice(model),
                 }
@@ -511,6 +528,7 @@ class CronRunTerminalConsumer:
             product_default=self._product_default_model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context_provider=self._access_context_provider,
             current_model=candidates[0],
             outcome=outcome,
             origin=RunOrigin.CRON,
@@ -531,32 +549,48 @@ def _final_delivery_observer(
 ) -> Callable[..., Any] | None:
     if observer is None:
         return None
-    latest: Mapping[str, Any] | None = None
+    chunks: list[Mapping[str, Any]] = []
+    latest: tuple[Mapping[str, Any], Mapping[str, Any]] | None = None
 
     async def deliver(event: Mapping[str, Any]) -> None:
         nonlocal latest
         kind = event.get("event")
         if kind == "assistant_message":
-            latest = event
+            chunks.append(event)
+            return
+        if kind == "model_round_end":
+            if event.get("completed") and chunks:
+                body = {
+                    key: value
+                    for key, value in chunks[-1].items()
+                    if key not in {"reasoning_content", "reasoning", "thinking"}
+                }
+                body["content"] = "".join(
+                    str(chunk.get("content") or "") for chunk in chunks
+                )
+                latest = body, event
+            chunks.clear()
             return
         if kind not in {"turn_end", "run_status", "run_terminal_reconcile"}:
             return
-        if latest is not None and (
-            kind == "turn_end"
-            or (kind == "run_status" and event.get("status") == "completed")
-        ):
-            # Only the final body is a scheduled delivery; thinking and tools
-            # already belong to the work recorder's isolated Session timeline.
+        success = (kind == "turn_end" and event.get("completed") is not False) or (
+            kind == "run_status" and event.get("status") == "completed"
+        )
+        if latest is not None and success:
+            # Cron publishes only its final complete model round; intermediate
+            # work remains in the isolated Session timeline.
             if before_final is not None:
                 await before_final()
-            body = {
-                key: value
-                for key, value in latest.items()
-                if key not in {"reasoning_content", "reasoning", "thinking"}
-            }
-            result = observer(body)
-            if asyncio.iscoroutine(result):
-                await result
+            for fact in latest:
+                result = observer(fact)
+                if asyncio.iscoroutine(result):
+                    await result
+            latest = None
+        if kind in {"turn_end", "run_terminal_reconcile"} or (
+            kind == "run_status"
+            and event.get("status") in {"completed", "failed", "cancelled"}
+        ):
+            chunks.clear()
             latest = None
         result = observer(event)
         if asyncio.iscoroutine(result):

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -41,6 +46,7 @@ class GlobalRunCoordinator:
         product_default_model: Product default model.
         reasoning_catalog: Per-model effort catalog.
         time_context: Frozen Gateway timezone context.
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         relay_lifecycle_callback: Existing ingress acceptance reporting.
     """
 
@@ -60,6 +66,7 @@ class GlobalRunCoordinator:
         product_default_model: str,
         reasoning_catalog: Any = None,
         time_context: Any = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         relay_lifecycle_callback: Any = None,
         bg_reply_sender: Any = None,
     ) -> None:
@@ -76,6 +83,7 @@ class GlobalRunCoordinator:
         self.product_default_model = product_default_model
         self.reasoning_catalog = reasoning_catalog
         self.time_context = time_context
+        self.access_context_provider = access_context_provider
         self.relay_lifecycle_callback = relay_lifecycle_callback
         self.bg_reply_sender = bg_reply_sender
         self._locks: dict[str, asyncio.Lock] = {}
@@ -372,6 +380,7 @@ class GlobalRunCoordinator:
                     product_default=self.product_default_model,
                     reasoning_catalog=self.reasoning_catalog,
                     time_context=self.time_context,
+                    access_context_provider=self.access_context_provider,
                     current_model=sticky.model
                     if sticky
                     else resolve_run_model(

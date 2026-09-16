@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 import logging
 from collections.abc import Callable
@@ -12,6 +17,7 @@ from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.human_message_context import PaTimeContext
 from personal_assistant.gateway.model_fallback import ModelStickyStore
+from personal_assistant.gateway.delivery_feedback import DeliveryFeedbackBudget
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.scheduler.cron_execution_service import (
@@ -61,7 +67,10 @@ class GatewayCronRuntime:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         work_recorder: Any | None = None,
+        delivery_feedback_budget_provider: Callable[[], DeliveryFeedbackBudget]
+        | None = None,
     ) -> None:
         self._registry = registry
         self._agent_catalog = agent_catalog
@@ -79,7 +88,9 @@ class GatewayCronRuntime:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._work_recorder = work_recorder
+        self._delivery_feedback_budget_provider = delivery_feedback_budget_provider
 
     def register_agent(
         self,
@@ -106,6 +117,11 @@ class GatewayCronRuntime:
                 ),
             ),
             terminal_consumer=CronRunTerminalConsumer(
+                delivery_feedback_budget=(
+                    self._delivery_feedback_budget_provider()
+                    if self._delivery_feedback_budget_provider is not None
+                    else None
+                ),
                 kernel=self._kernel,
                 owner_user_id=self._owner_user_id,
                 run_context_store=self._run_context_store,
@@ -122,6 +138,7 @@ class GatewayCronRuntime:
                 product_default_model=self._product_default_model,
                 reasoning_catalog=self._reasoning_catalog,
                 time_context=self._time_context,
+                access_context_provider=self._access_context_provider,
             ),
             gateway_loop=gateway_loop,
         )

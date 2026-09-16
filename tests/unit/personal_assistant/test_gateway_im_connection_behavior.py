@@ -35,7 +35,15 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(
     heartbeat_seen: list[tuple[str, str]] = []
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "relay.message",
@@ -90,6 +98,7 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(
 
     asyncio.run(_exercise())
 
+    assert manager.im_user_url == "http://testserver"
     assert manager.connected is True
     sent_register = json.loads(socket.sent[0])
     assert sent_register["type"] == "node.register"
@@ -125,7 +134,15 @@ def test_im_connection_dedupes_replayed_relay_message_frame(tmp_path: Path) -> N
     }
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(relay_frame),
             json.dumps(relay_frame),
         ]
@@ -158,7 +175,15 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "agent.config.get",
@@ -223,7 +248,15 @@ def test_im_connection_dispatches_session_fork_request(tmp_path: Path) -> None:
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "session.fork.request",
@@ -281,7 +314,15 @@ def test_im_connection_dispatches_gateway_owned_distill_prompt_request(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.distill.prompt.request",
@@ -358,7 +399,15 @@ def test_im_connection_dispatches_agent_config_operation(tmp_path: Path) -> None
     }
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps({"type": "agent.config.apply", "payload": request_payload}),
         ]
     )
@@ -420,7 +469,15 @@ def test_im_connection_dispatches_agent_create_operation(tmp_path: Path) -> None
     }
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps({"type": "agent.create", "payload": request_payload}),
         ]
     )
@@ -474,7 +531,15 @@ def test_im_connection_dispatches_agent_config_operation_status(tmp_path: Path) 
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "agent.config.operation.status",
@@ -529,7 +594,15 @@ def test_im_connection_sends_periodic_node_heartbeats_while_connected(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     reporter = UpstreamReporter(
@@ -611,7 +684,13 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
     register_ack = json.dumps(
-        {"type": "ack", "payload": {"message_type": "node.register"}}
+        {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.register",
+                "im_user_url": "http://testserver",
+            },
+        }
     )
     first_socket = _FailOnNthSendWebSocket(
         fail_on_send_number=2, incoming=[register_ack]
@@ -672,12 +751,28 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     relay_adapter.start(lambda _message: None)
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "ack",
@@ -734,7 +829,15 @@ def test_im_connection_bootstraps_cached_managed_channels(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "channels.bootstrap.request",
@@ -830,7 +933,15 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     manager = IMConnectionManager(
@@ -865,7 +976,10 @@ def test_protocol_error_terminally_releases_waiter_and_flushes_next_frame(
             json.dumps(
                 {
                     "type": "ack",
-                    "payload": {"message_type": "node.register"},
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
                 }
             ),
             json.dumps(
@@ -917,7 +1031,10 @@ def test_im_connection_drain_waits_for_every_queued_frame_ack(tmp_path: Path) ->
             json.dumps(
                 {
                     "type": "ack",
-                    "payload": {"message_type": "node.register"},
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
                 }
             ),
             json.dumps(
@@ -1004,7 +1121,15 @@ def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "ack",
@@ -1057,7 +1182,15 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "ack",
@@ -1103,7 +1236,15 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     manager = IMConnectionManager(
@@ -1217,7 +1358,15 @@ def test_im_connection_agent_preview_passes_skill_ids_to_provider(
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "agent.prompt.preview.request",
@@ -1299,7 +1448,15 @@ def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provi
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.prompt.preview.request",
@@ -1364,7 +1521,15 @@ def test_im_connection_does_not_disconnect_on_downstream_error_frame(
     socket = _FakeWebSocket(
         incoming=[
             # 1. 注册 ack
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             # 2. IM 对某个帧回送 error（例如对畸形 heartbeat node.report 的拒绝）
             json.dumps(
                 {
@@ -1443,7 +1608,15 @@ def test_im_connection_handles_heartbeat_md_request(tmp_path: Path) -> None:
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.heartbeat.md.request",
@@ -1494,7 +1667,15 @@ def test_im_connection_heartbeat_md_returns_empty_when_file_missing(
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.heartbeat.md.request",
@@ -1548,7 +1729,15 @@ def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.cron.jobs.request",
@@ -1636,7 +1825,15 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.skills.usage.request",
@@ -1731,7 +1928,15 @@ def test_im_connection_skills_usage_includes_agents_shared_root_for_agent_sessio
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.skills.usage.request",
@@ -1791,7 +1996,15 @@ def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> 
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.cron.delete.request",
@@ -1849,7 +2062,15 @@ def test_im_connection_handles_cron_delete_request_job_not_found(
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.cron.delete.request",
@@ -1884,3 +2105,26 @@ def test_im_connection_handles_cron_delete_request_job_not_found(
     sent_frames = [json.loads(f) for f in socket.sent]
     cd_frame = next(m for m in sent_frames if m.get("type") == "node.cron.delete")
     assert cd_frame["payload"]["deleted"] is False
+
+
+def test_register_ack_missing_user_url_does_not_become_ready(tmp_path):
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.internal", token="secret"),
+        relay_adapter=WebRelayAdapter(),
+        reporter=_minimal_reporter(tmp_path),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise():
+        await manager.connect_once()
+        with pytest.raises(ValueError, match="configuration/version mismatch"):
+            await manager._listen_once()
+        assert manager._registered is False
+        assert manager.im_user_url is None
+
+    asyncio.run(exercise())

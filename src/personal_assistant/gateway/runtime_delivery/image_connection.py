@@ -7,23 +7,15 @@ from dataclasses import dataclass, field
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import httpx
-
-from personal_assistant.gateway.reply_image_stream import ReplyImageStream
-from personal_assistant.gateway.reply_images import (
-    ReplyImageContext,
-    ReplyImages,
-    image_failure,
-)
-from .context import RunDeliveryContext, RunDeliveryContextStore
+from .context import RunDeliveryContextStore
 from .task_tracker import RuntimeDeliveryTaskTracker
 
 
 @dataclass
 class _Bubble:
-    context: ReplyImageContext
     raw: str = ""
-    stream: ReplyImageStream = field(default_factory=ReplyImageStream)
+    output_key: str = ""
+    projected: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -39,17 +31,27 @@ class ImageReplyConnection:
         self,
         connection: Any,
         *,
-        reply_images: ReplyImages,
+        publish_prepared: Callable,
+        is_confirmed: Callable,
         context_store: RunDeliveryContextStore,
         task_tracker: RuntimeDeliveryTaskTracker,
-        image_context_factory: Callable[[RunDeliveryContext, str], ReplyImageContext],
     ) -> None:
         self._connection = connection
-        self._images = reply_images
+        self._publish_prepared = publish_prepared
+        self._is_confirmed = is_confirmed
         self._contexts = context_store
         self._tracker = task_tracker
-        self._context_factory = image_context_factory
         self._bubbles: dict[tuple[str, str], _Bubble] = {}
+        self._prepared: dict[str, tuple[str, str]] = {}
+
+    def prepare_candidate(
+        self, run_id: str, candidate_id: str, output_key: str, text: str
+    ) -> None:
+        """Register the immutable projection for one admitted complete candidate."""
+        self._prepared[f"{run_id}:assistant_message:{candidate_id}"] = (
+            output_key,
+            text,
+        )
 
     @property
     def connected(self) -> bool:
@@ -91,42 +93,47 @@ class ImageReplyConnection:
         bubble = self._bubbles.get(key)
         if kind in {"message_delta", "message_completed"}:
             if bubble is None:
-                bubble = _Bubble(
-                    self._context_factory(context, context.reply_output_key)
-                )
+                bubble = _Bubble()
                 self._bubbles[key] = bubble
             async with bubble.lock:
                 if kind == "message_delta":
-                    text = str(payload.get("delta_text") or "")
-                    bubble.raw += text
-                    outgoing["delta_text"] = bubble.stream.feed(text)
-                    if not outgoing["delta_text"]:
-                        return None
-                else:
-                    raw = payload.get("final_content")
-                    if not isinstance(raw, str):
-                        raw = bubble.raw or context.external_current_text
-                    if raw:
-                        prepared = await asyncio.to_thread(
-                            self._images.prepare, bubble.context, raw
+                    prepared = self._prepared.get(
+                        str(payload.get("idempotency_key") or "")
+                    )
+                    if prepared is not None:
+                        output_key, projected = prepared
+                        bubble.output_key = output_key
+                        bubble.raw = projected
+                        bubble.projected = True
+                        outgoing["delta_text"] = projected
+                        sender = self._connection.send_json_await_ack
+                        result = await self._publish_prepared(
+                            output_key,
+                            message_type,
+                            outgoing,
+                            {
+                                "kind": "message_completed",
+                                "message_id": key[1],
+                                "run_id": run_id,
+                                "final_content": projected,
+                                "delivery_status": "completed",
+                            },
                         )
-                        try:
-                            outgoing["final_content"] = await self._images.project_im(
-                                prepared,
-                                context.conversation_id,
-                                agent_id=context.agent_id,
-                            )
-                        except httpx.HTTPError:
-                            # Native IM has no new crash outbox. A failed resource
-                            # upload still completes text with per-image failure;
-                            # external shadow recovery separately retains the snapshot.
-                            outgoing["final_content"] = self._images.render(
-                                prepared,
-                                {
-                                    item.ordinal: image_failure("upload")
-                                    for item in prepared.images
-                                },
-                            )
+                        context.managed_reply_text = projected
+                        self._prepared.pop(
+                            str(payload.get("idempotency_key") or ""), None
+                        )
+                        return result
+                    raise ValueError(
+                        "Message bodies require a prepared delivery projection"
+                    )
+                else:
+                    if bubble.output_key and not self._is_confirmed(bubble.output_key):
+                        return None
+                    if bubble.projected:
+                        outgoing["final_content"] = bubble.raw
+                    else:
+                        outgoing["final_content"] = bubble.raw
                     self._bubbles.pop(key, None)
                 return await self._publish(sender, message_type, outgoing, run_id)
         if kind == "message_discarded":

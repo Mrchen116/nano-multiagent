@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -30,6 +35,10 @@ from personal_assistant.config.model_reasoning import ModelReasoningCatalog
 from personal_assistant.gateway.session_composition import (
     project_agent_runtime,
     is_automatic_skill_extension,
+)
+from personal_assistant.gateway.delivery_feedback import (
+    DeliveryFeedbackBudget,
+    feedback_parts,
 )
 from personal_assistant.gateway.model_fallback import (
     ModelStickyStore,
@@ -66,6 +75,7 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
     RoutedInbound,
+    ShadowConversationRef,
     StopRunRequest,
     WorkflowCommandRequest,
     build_group_context_key,
@@ -83,7 +93,17 @@ from personal_assistant.gateway.effort_commands import (
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
-from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContextStore,
+    RunDeliveryContext,
+    RunDeliveryTarget,
+    IMRelayTarget,
+    ExternalShadowTarget,
+)
+from personal_assistant.gateway.runtime_delivery.background import (
+    reply_context_im_conversation_id,
+    reply_context_external_delivery_metadata,
+)
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
     is_protocol_silence_token,
@@ -119,7 +139,9 @@ if TYPE_CHECKING:
 # turn_end 会先把空气泡按 empty_visible_reply 丢掉，token 芯片就贴不到
 # 用户看见的那条回复上。run_status=running 也要 hold，避免空占位气泡
 # 出现在切换说明前面。
-_HOLD_FOR_NOTICE_EVENTS = frozenset({"assistant_message", "turn_end"})
+_HOLD_FOR_NOTICE_EVENTS = frozenset(
+    {"assistant_message", "model_round_end", "turn_end"}
+)
 
 
 def _should_hold_for_notice(event: Mapping[str, object]) -> bool:
@@ -331,13 +353,25 @@ def _build_routed_reply_context(routed: RoutedInbound) -> ReplyContext:
 
     reply_context = build_reply_context(routed.message)
     shadow_ref = routed.shadow.ref
-    if shadow_ref is None:
+    if shadow_ref is None and routed.shadow.saga_id is None:
         return reply_context
     return replace(
         reply_context,
         metadata={
             **reply_context.metadata,
-            "shadow_conversation_id": shadow_ref.conversation_id,
+            **(
+                {
+                    "shadow_conversation_id": shadow_ref.conversation_id,
+                    "shadow_message_id": shadow_ref.im_message_id,
+                }
+                if shadow_ref is not None
+                else {}
+            ),
+            **(
+                {"shadow_saga_id": routed.shadow.saga_id}
+                if routed.shadow.saga_id
+                else {}
+            ),
         },
     )
 
@@ -409,7 +443,9 @@ class SessionRunCoordinator:
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
         readable_input_projection_store: ReadableInputProjectionStore | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         sticky_store: ModelStickyStore | None = None,
+        delivery_feedback_budget: DeliveryFeedbackBudget | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -456,7 +492,10 @@ class SessionRunCoordinator:
         self._max_transition_locks = max(1, max_transition_locks)
         self._readable_input_projection_store = readable_input_projection_store
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._sticky_store = sticky_store or ModelStickyStore()
+        self._delivery_feedback_budget = delivery_feedback_budget
+        self._feedback_superseded_runs: set[str] = set()
 
     async def observe_background_run(
         self,
@@ -465,7 +504,7 @@ class SessionRunCoordinator:
         agent: LiveAgentSnapshot,
         event: Mapping[str, Any],
     ) -> bool:
-        """Adopt opted-in background output into group delivery and steer admission.
+        """Adopt ordinary background output into candidate delivery and steer admission.
 
         Args:
             binding: Frozen originating session and reply route.
@@ -482,7 +521,6 @@ class SessionRunCoordinator:
             event.get("event") == "run_status"
             and event.get("status") == "running"
             and event.get("origin") == "background_task"
-            and event.get("revalidate_output") is True
         ):
             async with self._transition(binding.session_key):
                 self._background_runs[run_id] = binding
@@ -490,6 +528,12 @@ class SessionRunCoordinator:
                     run_id=run_id, binding=binding, agent=agent
                 )
                 self._register_delivery_session(run_id, binding.session_key)
+                self._seed_background_delivery(
+                    binding=binding,
+                    agent=agent,
+                    run_id=run_id,
+                    revalidate_output=event.get("revalidate_output") is True,
+                )
         if run_id not in self._background_runs:
             return False
         if event.get("event") == "injection_consumed":
@@ -567,11 +611,22 @@ class SessionRunCoordinator:
                     finally:
                         await stream.aclose()
                 else:
+                    if event.get(
+                        "status"
+                    ) == "completed" and await self._admit_background_feedback(
+                        run_id=run_id,
+                        binding=binding,
+                        agent=agent,
+                    ):
+                        return True
+                    delivery_failed = self._delivery_failed(run_id)
                     followers = await self._close_active_run(
                         session_key=binding.session_key,
                         run_id=run_id,
                     )
-                    completed = event.get("status") == "completed"
+                    completed = (
+                        event.get("status") == "completed" and not delivery_failed
+                    )
                     await self._emit_follower_lifecycle(
                         followers,
                         RelayLifecycleUpdate(
@@ -590,7 +645,127 @@ class SessionRunCoordinator:
                     session_key=binding.session_key, run_id=run_id
                 )
                 self._background_runs.pop(run_id, None)
+                if self._delivery_context_store is not None:
+                    self._delivery_context_store.discard(run_id)
         return True
+
+    def _seed_background_delivery(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        run_id: str,
+        revalidate_output: bool,
+        logical_request_id: str | None = None,
+    ) -> None:
+        """Use the originating route for both background runs and their repairs."""
+        if self._delivery_context_store is None:
+            return
+        reply = binding.reply_context
+        conversation_id = reply_context_im_conversation_id(reply) or ""
+        external = reply_context_external_delivery_metadata(
+            reply, from_session_id=run_id
+        )
+        target = (
+            RunDeliveryTarget.for_im_relay(IMRelayTarget(conversation_id, ""))
+            if conversation_id
+            else RunDeliveryTarget.none(reason="external_without_shadow")
+        )
+        if conversation_id and reply.metadata.get("shadow_conversation_id"):
+            target = RunDeliveryTarget.for_external_shadow(
+                ExternalShadowTarget(
+                    ref=ShadowConversationRef(
+                        conversation_id,
+                        str(reply.metadata.get("shadow_message_id") or ""),
+                    ),
+                )
+            )
+        self._delivery_context_store.seed(
+            RunDeliveryContext(
+                run_id=run_id,
+                agent_id=agent.agent_id,
+                kernel_session_id=binding.kernel_session_id,
+                delivery_target=target,
+                model=self._resolve_agent_model(
+                    agent, kernel_session_id=binding.kernel_session_id
+                )
+                or "",
+                trigger_source=str(
+                    reply.metadata.get("trigger_source")
+                    or ("external" if external else "im")
+                ),
+                reply_channel_name=external["channel_name"] if external else "",
+                reply_target_chat_id=external["target_chat_id"] if external else "",
+                reply_thread_id=external.get("reply_thread_id", "") if external else "",
+                feishu_message_id=external.get("feishu_message_id", "")
+                if external
+                else "",
+                shadow_saga_id=str(reply.metadata.get("shadow_saga_id") or ""),
+                visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
+                discard_empty_completion=reply.channel_name == "web_relay",
+                revalidate_output=revalidate_output,
+                logical_request_id=logical_request_id,
+            )
+        )
+
+    async def _admit_background_feedback(
+        self,
+        *,
+        run_id: str,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+    ) -> bool:
+        """Keep a correction on the existing persistent stream and session owner."""
+        context = self._candidate_reply_context(run_id)
+        budget = self._delivery_feedback_budget
+        if context is None or not context.delivery_feedback or budget is None:
+            return False
+        async with self._transition(binding.session_key):
+            if (
+                run_id in self._user_interrupted_runs
+                or run_id in self._reset_suppressed_runs
+                or run_id in self._feedback_superseded_runs
+                or context.suppressed
+                or context.session_generation
+                != self._session_generations.get(binding.session_key, 0)
+                or self._session_binder.is_run_superseded(run_id)
+            ):
+                return False
+            logical_id = context.logical_request_id or run_id
+            submission = budget.next_submission(logical_id)
+            if submission is None:
+                return False
+            submission_id, ordinal = submission
+            record = self._kernel.try_submit_idle(
+                session_id=binding.kernel_session_id,
+                parts=feedback_parts(context.delivery_feedback, ordinal),
+                submission_id=submission_id,
+                workspace_root=agent.config.workspace_root,
+                origin=RunOrigin.USER,
+                revalidate_output=context.revalidate_output,
+            )
+            if record is None:
+                return False
+            budget.record_admitted(logical_id, submission_id)
+            successor_id = record.run_id
+            self._background_runs[successor_id] = binding
+            self._active_runs[binding.session_key] = _ActiveRunHandle(
+                run_id=successor_id,
+                binding=binding,
+                agent=agent,
+            )
+            self._register_delivery_session(successor_id, binding.session_key)
+            self._seed_background_delivery(
+                binding=binding,
+                agent=agent,
+                run_id=successor_id,
+                revalidate_output=context.revalidate_output,
+                logical_request_id=logical_id,
+            )
+            self._steered_requests[successor_id] = self._steered_requests.pop(
+                run_id, []
+            )
+            return True
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
         """Admit one normal message through steer or per-session FIFO.
@@ -608,18 +783,27 @@ class SessionRunCoordinator:
         fallback_projection: _MessagePartsProjection | None = None
         injected_result: PipelineResult | None = None
         image_failure: tuple[str, SessionBinding] | None = None
+        input_marker = uuid4().hex
         async with self._transition(request.session_key):
             request = replace(
                 request,
                 generation=self._session_generations.get(request.session_key, 0),
             )
             active = self._active_runs.get(request.session_key)
+            if active is not None:
+                self._feedback_superseded_runs.add(active.run_id)
+                if self._delivery_context_store is not None:
+                    self._delivery_context_store.note_input(active.run_id, input_marker)
             if active is not None and not self._queued_compactions.get(
                 request.session_key, 0
             ):
                 binding = active.binding
                 projection, failure_kind = await self._build_message_parts(request)
                 if failure_kind is not None:
+                    if self._delivery_context_store is not None:
+                        self._delivery_context_store.consume_inputs(
+                            active.run_id, [input_marker]
+                        )
                     image_failure = (failure_kind, binding)
                 else:
                     record = self._kernel.try_steer(
@@ -628,6 +812,13 @@ class SessionRunCoordinator:
                         expected_run_id=active.run_id,
                     )
                     if record is not None:
+                        if self._delivery_context_store is not None:
+                            self._delivery_context_store.consume_inputs(
+                                active.run_id, [input_marker]
+                            )
+                            self._delivery_context_store.note_input(
+                                active.run_id, record.pending_id
+                            )
                         if record.run_id != active.run_id:
                             raise RuntimeError(
                                 "Kernel accepted steer for a different active run: "
@@ -1703,6 +1894,23 @@ class SessionRunCoordinator:
                 if hold_initial:
                     await self._flush_held_assistant_events(hold_initial)
                     hold_initial = None
+            (
+                run_state,
+                reply_text,
+                run_id,
+                anchor_sequence,
+                terminal_request,
+                feedback_followers,
+            ) = await self._run_delivery_feedback(
+                run_state=run_state,
+                reply_text=reply_text,
+                request=terminal_request,
+                binding=binding,
+                agent=latest_agent,
+                run_id=str(run_state.get("run_id") or run_id or ""),
+                anchor_sequence=anchor_sequence,
+            )
+            recovery_followers = (*recovery_followers, *feedback_followers)
             final_run_id = str(run_state.get("run_id") or run_id or "")
             closed_followers = await self._close_active_run(
                 session_key=request.session_key,
@@ -1744,8 +1952,10 @@ class SessionRunCoordinator:
                 reply_text=reply_text,
                 outbound=outbound,
             )
+            delivered = not self._delivery_failed(final_run_id)
             completed = RelayLifecycleUpdate(
-                phase="completed",
+                phase="completed" if delivered else "failed",
+                error=None if delivered else "reply_delivery_failed",
                 agent_id=terminal_request.agent.agent_id,
                 session_key=terminal_request.session_key,
                 run_id=final_run_id,
@@ -1849,6 +2059,7 @@ class SessionRunCoordinator:
         self._user_interrupted_runs.discard(run_id)
         self._reset_suppressed_runs.discard(run_id)
         self._consumed_steer_counts.pop(run_id, None)
+        self._feedback_superseded_runs.discard(run_id)
         return tuple(
             follower.request for follower in self._steered_requests.pop(run_id, ())
         )
@@ -1929,19 +2140,126 @@ class SessionRunCoordinator:
             return
         if event.get("origin") in {"user", None, ""}:
             return
-        if event.get("event") != "assistant_message":
-            return
-        content = event.get("content")
-        if (
-            isinstance(content, str)
-            and content.strip()
-            and not self._suppress_reply(content.strip(), in_group=True)
-        ):
-            await asyncio.to_thread(
-                self._outbound_router.send_text,
-                text=content.strip(),
-                reply_context=binding.reply_context,
+        if self._kernel_event_observer is not None:
+            result = self._kernel_event_observer(event)
+            if asyncio.iscoroutine(result):
+                await result
+
+    def _delivery_failed(self, run_id: str) -> bool:
+        context = self._candidate_reply_context(run_id)
+        return context is not None and context.delivery_failed
+
+    async def _run_delivery_feedback(
+        self,
+        *,
+        run_state: Mapping[str, object],
+        reply_text: str,
+        request: InboundRunRequest,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        run_id: str,
+        anchor_sequence: int | None,
+    ) -> tuple[
+        Mapping[str, object],
+        str,
+        str,
+        int | None,
+        InboundRunRequest,
+        tuple[InboundRunRequest, ...],
+    ]:
+        """Repair private candidates only after terminal execution, on the same route."""
+        followers: tuple[InboundRunRequest, ...] = ()
+        initial_context = self._candidate_reply_context(run_id)
+        if initial_context is not None:
+            reply_text = initial_context.delivery_published_text
+        budget = self._delivery_feedback_budget
+        while budget is not None and run_state.get("status") == "completed":
+            context = self._candidate_reply_context(run_id)
+            if context is None or not context.delivery_feedback:
+                break
+            logical_id = context.logical_request_id or run_id
+            async with self._transition(request.session_key):
+                if (
+                    run_id in self._user_interrupted_runs
+                    or run_id in self._reset_suppressed_runs
+                    or run_id in self._feedback_superseded_runs
+                    or context.suppressed
+                    or request.generation
+                    != self._session_generations.get(request.session_key, 0)
+                    or self._session_binder.is_run_superseded(run_id)
+                ):
+                    break
+                submission = budget.next_submission(logical_id)
+                if submission is None:
+                    break
+                submission_id, ordinal = submission
+                record = self._kernel.try_submit_idle(
+                    session_id=binding.kernel_session_id,
+                    parts=feedback_parts(context.delivery_feedback, ordinal),
+                    submission_id=submission_id,
+                    workspace_root=agent.config.workspace_root,
+                    origin=RunOrigin.USER,
+                    revalidate_output=context.revalidate_output,
+                )
+                if record is None:
+                    # Another carrier won idle admission; never queue a stale repair
+                    # behind newer input or consume its persisted correction budget.
+                    break
+                budget.record_admitted(logical_id, submission_id)
+                previous_run_id = run_id
+                run_id = record.run_id
+                anchor_sequence = record.start_sequence
+                self._active_runs[request.session_key] = _ActiveRunHandle(
+                    run_id=run_id,
+                    binding=binding,
+                    agent=agent,
+                )
+                self._register_delivery_session(
+                    run_id, request.session_key, request.generation
+                )
+                followers += tuple(
+                    item.request
+                    for item in self._steered_requests.pop(previous_run_id, ())
+                )
+                self._consumed_steer_counts.pop(previous_run_id, None)
+                context.delivery_feedback = None
+            await self._emit_lifecycle(
+                request.routed,
+                RelayLifecycleUpdate(
+                    phase="accepted",
+                    agent_id=agent.agent_id,
+                    session_key=request.session_key,
+                    run_id=run_id,
+                    kernel_session_id=binding.kernel_session_id,
+                    model=context.model,
+                ),
             )
+            if self._delivery_context_store is not None:
+                successor = self._delivery_context_store.get(run_id)
+                if successor is not None:
+                    successor.logical_request_id = logical_id
+                self._delivery_context_store.discard(previous_run_id)
+            run_state, reply_text, request, recovered = await self._await_terminal_run(
+                kernel_session_id=binding.kernel_session_id,
+                run_id=run_id,
+                anchor_sequence=anchor_sequence,
+                request=request,
+                binding=binding,
+                model=context.model,
+                on_other=lambda event: self._on_other_event(event, binding=binding),
+            )
+            followers += recovered
+        return run_state, reply_text, run_id, anchor_sequence, request, followers
+
+    def _candidate_reply_context(self, run_id: str):
+        context = (
+            self._delivery_context_store.get(run_id)
+            if self._delivery_context_store is not None
+            else None
+        )
+        if context is not None and context.delivery_candidate_seen:
+            return context
+        return None
 
     async def _deliver_final_reply(
         self,
@@ -1959,6 +2277,9 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "superseded_by_new_session"}
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
+        if self._candidate_reply_context(run_id) is not None:
+            # The candidate owner already published or journaled this reply.
+            return None, None
         if not reply_text.strip():
             return None, {"suppressed_by": "empty_visible_reply"}
         if self._suppress_reply(reply_text, in_group=request.message.is_group) or (
@@ -2153,6 +2474,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=chain_head is None or model == chain_head,
         )
 
@@ -2645,6 +2967,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=False,
         ).runtime
         result = await self._kernel.reconfigure_session(
@@ -2806,6 +3129,9 @@ class SessionRunCoordinator:
                     event_name == "run_status"
                     and event.get("status") in TERMINAL_RUN_STATUSES
                 ):
+                    managed = self._candidate_reply_context(run_id)
+                    if managed is not None:
+                        reply_text = managed.delivery_published_text
                     run_state = event
                     break
             if run_state is None:
@@ -3153,6 +3479,9 @@ class SessionRunCoordinator:
                 event.get("event") == "run_status"
                 and event.get("status") in TERMINAL_RUN_STATUSES
             ):
+                managed = self._candidate_reply_context(claim.run_id)
+                if managed is not None:
+                    reply_text = managed.delivery_published_text
                 return event, reply_text
 
     async def _complete_recovery_batch(

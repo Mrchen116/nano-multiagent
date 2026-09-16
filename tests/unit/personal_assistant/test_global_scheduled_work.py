@@ -216,7 +216,12 @@ async def test_global_cron_delivers_only_terminal_body_even_after_fallback(tmp_p
                 }
                 return
             for item in (
-                {"event": "assistant_message", "content": "Investigating"},
+                {
+                    "event": "assistant_message",
+                    "content": "Investigating",
+                    "group_id": "g1",
+                },
+                {"event": "model_round_end", "group_id": "g1", "completed": True},
                 {
                     "event": "tool_start",
                     "name": "bash",
@@ -225,8 +230,10 @@ async def test_global_cron_delivers_only_terminal_body_even_after_fallback(tmp_p
                 {
                     "event": "assistant_message",
                     "content": "Delivered final",
+                    "group_id": "g2",
                     "reasoning_content": "private reasoning",
                 },
+                {"event": "model_round_end", "group_id": "g2", "completed": True},
                 {"event": "turn_end"},
                 {"event": "run_status", "status": "completed"},
             ):
@@ -252,7 +259,11 @@ async def test_global_cron_delivers_only_terminal_body_even_after_fallback(tmp_p
         run_id="failed", kernel_session_id="cron-session", agent_id="global"
     )
     assert outcome.status == "completed"
-    bodies = [event for event in delivered if event["event"] == "assistant_message"]
+    bodies = [
+        event
+        for event in delivered
+        if event["event"] in {"assistant_message", "gateway_message"}
+    ]
     assert bodies[-1]["content"] == "Delivered final"
     assert all("reasoning_content" not in event for event in bodies)
     assert [event["run_id"] for event in bodies] == ["replay"]

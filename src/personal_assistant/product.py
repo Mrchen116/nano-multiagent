@@ -30,6 +30,10 @@ from agent.sdk import (
     build_kernel,
 )
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContext,
+    offline_access_context,
+)
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
 from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.gateway.human_message_context import PaTimeContext
@@ -119,8 +123,6 @@ _PA_IDENTITY_TEXT = (
     "# Nano Personal Assistant\n\n"
     "You are a helpful personal assistant communicating through instant messaging."
 )
-
-_PA_RUNTIME_TEXT = f"## Runtime\nPlatform: {_platform_tag}"
 
 # Provenance: openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection
 # (non-minimal branch). Verbatim text; do NOT reword — K2.6 has a 1-token
@@ -296,6 +298,7 @@ def prompt_for(
     *,
     scenario: Mapping[str, Any] | None = None,
     time_context: PaTimeContext | None = None,
+    access_context: RuntimeAccessContext | None = None,
 ) -> PromptSlots:
     """Build PA's per-session PromptSlots from agent config + conversation scenario (决策 8).
 
@@ -314,6 +317,7 @@ def prompt_for(
             ``participants`` / ``agent_id`` / ``participant_agent_ids``) for the
             group communication-context tail.
         time_context: Gateway-startup timezone snapshot for the stable prompt prefix.
+        access_context: Authenticated IM entry and configured execution access host.
 
     Returns:
         PromptSlots with PA head/body/custom/tail text.
@@ -323,9 +327,18 @@ def prompt_for(
     heartbeat_enabled = bool(getattr(agent, "heartbeat_enabled", False))
     custom_prompt = getattr(agent, "custom_prompt", None)
 
+    access = access_context or offline_access_context()
+    runtime_text = (
+        f"## Runtime\nPlatform: {_platform_tag}\n"
+        "Users may be on another device. Files and local services on your machine may not be directly accessible from the user's device.\n\n"
+        "Each message's channel identifies where the user is communicating with you.\n"
+        f"For Web IM, the user accesses the chat interface at {access.im_user_url}. For other channels, such as Feishu, the user is using that channel's interface."
+    )
+    if access.execution_access_address is not None:
+        runtime_text += f"\n\nExecution environment address for user access: {access.execution_access_address}"
     head = (
         PromptText(name="pa.identity", text=_PA_IDENTITY_TEXT),
-        PromptText(name="pa.runtime", text=_PA_RUNTIME_TEXT),
+        PromptText(name="pa.runtime", text=runtime_text),
         *(
             (
                 PromptText(
@@ -370,34 +383,18 @@ def prompt_for(
                 PromptText(name="pa.global_permissions", text=_PA_GLOBAL_APPROVAL_TEXT),
             )
         )
-    workspace = getattr(agent, "workspace_root", None)
-    # Global main publishes through explicit dispatch, outside reply-image delivery.
-    if workspace is not None and not global_main:
-        exports = (
-            Path(workspace).expanduser().absolute()
-            / WORKSPACE_CONFIG_DIRNAME
-            / "exports"
+    body_pieces.append(
+        PromptText(
+            name="pa.reply_images",
+            text=(
+                "## Reply Images\n"
+                "To include a local PNG, JPEG or WebP image in a message, use "
+                "![description](<absolute image path>) at the intended position in the message text. "
+                "Use the path of an existing image file and enclose the entire path in angle brackets. "
+                "The system checks access and uploads the image for delivery to the target chat."
+            ),
         )
-        body_pieces.append(
-            PromptText(
-                name="pa.reply_images",
-                text=(
-                    "## Reply Images\n"
-                    f"Deliverable image directory: {exports}\n"
-                    "To show a PNG, JPEG or WebP image in this chat, use your existing tools "
-                    "to create or copy the real image into that directory, then include "
-                    "![description](<absolute image path>) in your reply at the intended position. "
-                    "The angle brackets < and > are literal Markdown syntax: always put them "
-                    "around the entire path, especially when the filename contains spaces. "
-                    "Only regular files within this directory can be delivered; symbolic links "
-                    "and other local paths are not accepted. Copy screenshots from elsewhere "
-                    "using the existing permission-controlled tools first. "
-                    "Never invent a file path or output base64. Do not claim an image was sent "
-                    "when its preparation failed. Reply to the current chat directly; "
-                    "do not use send_message for the current reply."
-                ),
-            )
-        )
+    )
 
     custom_pieces: list[PromptText] = []
     custom_text = _user_custom_text(custom_prompt)

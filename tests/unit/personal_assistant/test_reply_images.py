@@ -6,6 +6,7 @@ import pytest
 
 from personal_assistant.gateway.reply_images import (
     MAX_IMAGE_BYTES,
+    ImageDeliveryError,
     ReplyImageContext,
     ReplyImages,
 )
@@ -51,9 +52,8 @@ async def test_hosted_im_image_reference_does_not_grant_another_chat_access(
         await store.project_im(reply, "c_known", agent_id="agent")
         == f"before ![earlier]({url}) after"
     )
-    elsewhere = await store.project_im(reply, "c_elsewhere", agent_id="agent")
-    assert "图片未能展示" in elsewhere
-    assert url not in elsewhere
+    with pytest.raises(ImageDeliveryError):
+        await store.project_im(reply, "c_elsewhere", agent_id="agent")
 
 
 @pytest.mark.parametrize(
@@ -69,13 +69,12 @@ def test_only_exact_current_chat_image_reference_is_reused(
 ):
     url = f"/im/v1/conversations/{conversation_id}/images/{image_id}"
     store = ReplyImages(tmp_path / "state")
-    reply = store.prepare(
-        context(tmp_path),
-        f"before ![earlier]({url}) after",
-        im_conversation_id="c_known",
-    )
-    assert "图片未能展示" in reply.markdown_template
-    assert url not in reply.markdown_template
+    with pytest.raises(ImageDeliveryError):
+        store.prepare(
+            context(tmp_path),
+            f"before ![earlier]({url}) after",
+            im_conversation_id="c_known",
+        )
 
 
 @pytest.mark.parametrize(
@@ -111,16 +110,12 @@ def test_local_size_boundary_preserves_exact_limit_and_fails_only_oversize(
         stream.write(b"x")
 
     store = ReplyImages(tmp_path / "state")
-    reply = store.prepare(
-        ctx, f"before ![exact]({exact}) middle ![large]({oversized}) after"
-    )
-
-    assert "![exact](nano-image-pending:0)" in reply.markdown_template
-    assert "（图片未能展示：超过图片数量或大小限制）" in reply.markdown_template
-    assert reply.markdown_template.startswith("before ")
-    assert reply.markdown_template.endswith(" after")
-    assert len(store.image_bytes(reply.images[0])) == MAX_IMAGE_BYTES
-    assert reply.images[1].error_code == "limit"
+    with pytest.raises(ImageDeliveryError) as caught:
+        store.prepare(
+            ctx, f"before ![exact]({exact}) middle ![large]({oversized}) after"
+        )
+    assert caught.value.images[0]["error_code"] == "image_too_large"
+    assert store.load(ctx.output_key) is None
 
 
 def test_unreadable_file_and_symlinked_parent_are_rejected(tmp_path: Path) -> None:
@@ -135,18 +130,20 @@ def test_unreadable_file_and_symlinked_parent_are_rejected(tmp_path: Path) -> No
     (exports / "linked-parent").symlink_to(outside, target_is_directory=True)
 
     try:
-        reply = ReplyImages(tmp_path / "state").prepare(
-            ctx,
-            f"![unreadable]({unreadable}) ![linked]({exports / 'linked-parent/image.png'})",
-        )
+        with pytest.raises(ImageDeliveryError) as caught:
+            ReplyImages(tmp_path / "state").prepare(
+                ctx,
+                f"![unreadable]({unreadable}) ![linked]({exports / 'linked-parent/image.png'})",
+            )
     finally:
         unreadable.chmod(0o600)
+    assert {item["error_code"] for item in caught.value.images} == {
+        "permission_denied",
+        "symlink_not_allowed",
+    }
 
-    assert reply.markdown_template.count("图片来源不可用") == 2
-    assert all(image.error_code == "source" for image in reply.images)
 
-
-@pytest.mark.parametrize("kind", ["outside", "symlink", "directory", "wrong_type"])
+@pytest.mark.parametrize("kind", ["symlink", "directory", "wrong_type"])
 def test_local_failures_are_private_and_preserve_other_images(
     tmp_path: Path, kind: str
 ) -> None:
@@ -164,14 +161,11 @@ def test_local_failures_are_private_and_preserve_other_images(
         bad.mkdir()
     else:
         bad.write_text("not an image")
-    reply = ReplyImages(tmp_path / "state").prepare(
-        ctx, f"text ![bad]({bad}) ![ok]({good}) end"
-    )
-    assert "图片未能展示" in reply.markdown_template
-    assert str(tmp_path) not in reply.markdown_template
-    assert "![ok](nano-image-pending:1)" in reply.markdown_template
-    assert reply.markdown_template.startswith("text ")
-    assert reply.markdown_template.endswith(" end")
+    with pytest.raises(ImageDeliveryError) as caught:
+        ReplyImages(tmp_path / "state").prepare(
+            ctx, f"text ![bad]({bad}) ![ok]({good}) end"
+        )
+    assert caught.value.images[0]["source"] == str(bad)
 
 
 def test_code_examples_are_untouched_and_sixth_source_fails_locally(
@@ -186,10 +180,10 @@ def test_code_examples_are_untouched_and_sixth_source_fails_locally(
         path = source.with_name(f"{index}.png")
         path.write_bytes(PNG)
         body += f"![{index}]({path})\n"
-    reply = ReplyImages(tmp_path / "state").prepare(ctx, body)
-    assert reply.markdown_template.startswith(code)
-    assert reply.markdown_template.count("nano-image-pending:") == 5
-    assert "图片未能展示" in reply.markdown_template
+    with pytest.raises(ImageDeliveryError) as caught:
+        ReplyImages(tmp_path / "state").prepare(ctx, body)
+    assert caught.value.images[0]["ordinal"] == 6
+    assert caught.value.images[0]["error_code"] == "too_many_images"
 
 
 @pytest.mark.parametrize(
@@ -204,23 +198,18 @@ def test_final_preparation_sanitizes_truncated_image_without_losing_good_image(
     source.write_bytes(PNG)
     code = "`![example](/private/example`\\![escaped](/private/example\n"
     store = ReplyImages(tmp_path / "state")
-    reply = store.prepare(ctx, f"{code}Before ![good]({source}) after {tail}")
-    assert reply.markdown_template.startswith(
-        code + "Before ![good](nano-image-pending:0) after "
-    )
-    assert "图片未能展示" in reply.markdown_template
-    assert "/private/exports" not in reply.markdown_template
-    assert store.load(ctx.output_key) == reply
-    assert len(reply.images) == 1
+    with pytest.raises(ImageDeliveryError) as caught:
+        store.prepare(ctx, f"{code}Before ![good]({source}) after {tail}")
+    assert caught.value.images[0]["error_code"] == "invalid_image_reference"
+    assert store.load(ctx.output_key) is None
 
 
 def test_invalid_closed_image_is_local_failure_and_following_prose_survives(
     tmp_path: Path,
 ) -> None:
-    reply = ReplyImages(tmp_path / "state").prepare(
-        context(tmp_path), "Before ![bad](/private/unquoted image.png) following prose"
-    )
-    assert reply.markdown_template.startswith("Before ")
-    assert reply.markdown_template.endswith(" following prose")
-    assert "图片未能展示" in reply.markdown_template
-    assert "/private" not in reply.markdown_template
+    with pytest.raises(ImageDeliveryError) as caught:
+        ReplyImages(tmp_path / "state").prepare(
+            context(tmp_path),
+            "Before ![bad](/private/unquoted image.png) following prose",
+        )
+    assert caught.value.images[0]["error_code"] == "invalid_image_reference"

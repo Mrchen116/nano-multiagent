@@ -70,6 +70,16 @@ class ToolRegistryLike(Protocol):
 
     def get(self, name: str) -> Any | None: ...
 
+    async def evaluate_permission(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context: HookContext,
+        action_id: str | None,
+        permission_only: bool = False,
+    ) -> dict[str, Any]: ...
+
     async def execute(
         self,
         name: str,
@@ -391,6 +401,7 @@ class AgentLoop:
                     if compacted_msg is not None:
                         yield compacted_msg
 
+                    context_revision = 0
                     if controller is not None:
                         round_pending, context_revision = (
                             controller.drain_pending_with_revision()
@@ -777,6 +788,24 @@ class AgentLoop:
                         last_real_prompt_tokens = turn_usage.prompt_tokens
                     if on_progress is not None:
                         on_progress(turn_usage, tuple(all_tool_calls))
+
+                    # A chunk end is not a round boundary: tools and stale-input
+                    # revalidation must finish before consumers see completion.
+                    if controller is None or not controller.is_aborted:
+                        publish = active_hook_ctx.session_event_publisher
+                        if publish is not None:
+                            publish(
+                                "model_round_end",
+                                {
+                                    "session_id": state.session_id,
+                                    "run_id": run_id,
+                                    "turn_id": active_hook_ctx.turn_id,
+                                    "group_id": turn_assistant_group_id
+                                    or make_message_id(),
+                                    "completed": True,
+                                    "context_revision": context_revision,
+                                },
+                            )
 
                     if not iteration_tool_calls:
                         # Leave pending queued until the next round has passed its

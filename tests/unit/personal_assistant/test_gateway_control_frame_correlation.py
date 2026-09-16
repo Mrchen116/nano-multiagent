@@ -45,7 +45,15 @@ def test_register_error_never_rejects_buffered_business_fifo(tmp_path: Path) -> 
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps({"type": "ack", "payload": {"message_type": "node.report"}}),
             json.dumps(
                 {
@@ -121,7 +129,15 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
     """Heartbeat rejection cannot consume report, status, message, or its waiter."""
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "error",
@@ -135,7 +151,15 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps({"type": "ack", "payload": {"message_type": "node.report"}}),
             json.dumps(
                 {

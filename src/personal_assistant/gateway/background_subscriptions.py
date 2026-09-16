@@ -13,10 +13,7 @@ from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
 )
-from personal_assistant.gateway.reply_visibility import (
-    ReplyVisibilityPolicy,
-    should_suppress_reply,
-)
+
 
 if TYPE_CHECKING:
     from agent.sdk import Kernel
@@ -57,9 +54,8 @@ class BackgroundSubscriptionManager:
     Args:
         kernel: In-process Kernel whose session event stream is subscribed.
         session_event_callback: Optional receiver for session-level events.
-        bg_reply_sender: Optional visible text sender for BACKGROUND_TASK output.
         background_run_event_callback: Optional first receiver for all run events;
-            True claims delivery and suppresses the legacy background sender.
+            True claims ordinary background run delivery.
         skill_created_handler: Optional synchronous config-sync handler for
             source-marked self-evolution skill creation.
     """
@@ -72,11 +68,6 @@ class BackgroundSubscriptionManager:
             [ReplyContext, str, str, Mapping[str, Any]], Awaitable[None]
         ]
         | None = None,
-        bg_reply_sender: Callable[
-            [str, ReplyContext, str, tuple[Mapping[str, Any], ...]],
-            Awaitable[None],
-        ]
-        | None = None,
         background_run_event_callback: Callable[
             [ReplyContext, str, str, Mapping[str, Any]], Awaitable[bool]
         ]
@@ -86,7 +77,6 @@ class BackgroundSubscriptionManager:
     ) -> None:
         self._kernel = kernel
         self._session_event_callback = session_event_callback
-        self._bg_reply_sender = bg_reply_sender
         self._skill_created_handler = skill_created_handler
         self._background_run_event_callback = background_run_event_callback
         self._subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
@@ -254,74 +244,6 @@ class BackgroundSubscriptionManager:
 
             background_run_event_callback = _on_background_run_event
 
-        bg_run_output_callback = None
-        if self._bg_reply_sender is not None:
-            sender = self._bg_reply_sender
-
-            async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
-                reply_context = self._background_reply_contexts.get(request.session_id)
-                if reply_context is None:
-                    return
-                content = event.get("content")
-                text = content.strip() if isinstance(content, str) else ""
-                raw_returns = event.get("background_returns")
-                background_returns = (
-                    tuple(
-                        dict(item) for item in raw_returns if isinstance(item, Mapping)
-                    )
-                    if isinstance(raw_returns, list)
-                    else ()
-                )
-                if not text and not background_returns:
-                    return
-                if text and should_suppress_reply(
-                    text,
-                    policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
-                ):
-                    return
-                sequence = event.get("_id") or event.get("sequence_num")
-                dedupe = (
-                    f"{request.session_id}:{sequence}"
-                    if sequence is not None
-                    else request.session_id
-                )
-                run_id = event.get("run_id")
-                if (
-                    event.get("event") == "assistant_message"
-                    and isinstance(run_id, str)
-                    and run_id.strip()
-                ):
-                    kernel_message_id = event.get("message_id")
-                    output_key = (
-                        f"{run_id}:message:{kernel_message_id}"
-                        if isinstance(kernel_message_id, str) and kernel_message_id
-                        else f"{run_id}:event:{sequence}"
-                        if sequence is not None
-                        else f"{run_id}:bubble:0"
-                    )
-                    # Freeze this event's source identity without mutating the
-                    # persistent route also used by controls and session notices.
-                    reply_context = ReplyContext(
-                        channel_name=reply_context.channel_name,
-                        target_chat_id=reply_context.target_chat_id,
-                        thread_id=reply_context.thread_id,
-                        metadata={
-                            **reply_context.metadata,
-                            "background_agent_id": request.agent_id,
-                            "background_run_id": run_id,
-                            "background_session_id": request.session_id,
-                            "background_output_key": output_key,
-                        },
-                    )
-                await sender(
-                    text,
-                    reply_context,
-                    f"{request.agent_id}|tool_call:{dedupe}",
-                    background_returns,
-                )
-
-            bg_run_output_callback = _relay_bg_run_output
-
         skill_created_callback = None
         if self._skill_created_handler is not None:
             handler = self._skill_created_handler
@@ -336,7 +258,6 @@ class BackgroundSubscriptionManager:
             session_id=request.session_id,
             on_event=_on_session_event,
             after_sequence=request.after_sequence,
-            bg_run_output_callback=bg_run_output_callback,
             background_run_event_callback=background_run_event_callback,
             skill_created_callback=skill_created_callback,
         )
@@ -346,8 +267,7 @@ class BackgroundSubscriptionManager:
 
         has_session_delivery = self._session_event_callback is not None
         has_background_delivery = request.reply_context is not None and (
-            self._bg_reply_sender is not None
-            or self._background_run_event_callback is not None
+            self._background_run_event_callback is not None
         )
         has_skill_sync = self._skill_created_handler is not None
         if (

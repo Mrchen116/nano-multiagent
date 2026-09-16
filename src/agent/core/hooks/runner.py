@@ -87,6 +87,8 @@ class HookRunner:
         event: str,
         payload: Mapping[str, Any],
         ctx: HookContext,
+        *,
+        intercept_only: bool = False,
     ) -> InterceptDispatchResult:
         """Run intercept handlers that may rewrite payload or stop processing.
 
@@ -102,6 +104,8 @@ class HookRunner:
         stopped = False
 
         for registration in self._registry.handlers_for(normalized_event):
+            if intercept_only and registration.mode != HookEventMode.INTERCEPT:
+                continue
             handler_payload = dict(mutable_payload)
             # DISPATCH ISOLATION: each handler receives a copy so failed/mutating
             # handlers cannot corrupt shared payload state for later handlers.

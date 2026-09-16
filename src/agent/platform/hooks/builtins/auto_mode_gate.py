@@ -318,12 +318,25 @@ def _build_transcript_user_message(
         project_tool_result=project_result,
         prior_assistant_context=metadata.get("kind") != "subagent",
     )
-    # The current action has neither an outcome nor host context.
+    # Host permission checks reuse tool policy and its full action projection,
+    # but must not claim the model invoked that tool. The typed field is supplied
+    # by the SDK consumer, never taken from tool arguments or session metadata.
+    operation_description = getattr(ctx, "permission_operation_description", None)
+    if isinstance(operation_description, str) and operation_description.strip():
+        action_name = "host_operation"
+        action_input = {
+            "description": operation_description,
+            "permission_policy": tool_name,
+            "proposed_action": current_projection,
+        }
+    else:
+        action_name = tool_name
+        action_input = current_projection
     entries.append(
         {
             "role": "assistant",
             "content": [
-                {"type": "tool_use", "name": tool_name, "input": current_projection}
+                {"type": "tool_use", "name": action_name, "input": action_input}
             ],
         }
     )

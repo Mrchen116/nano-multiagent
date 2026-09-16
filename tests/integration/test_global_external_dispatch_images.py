@@ -73,12 +73,13 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
     )
     channel._client = client
     model = _ImageModel(text)
+    registry = ChannelRegistry([channel])
     rt = await _runtime(
         tmp_path,
         model,
         reply_images=images,
-        outbound_router=OutboundRouter(ChannelRegistry([channel])),
-        image_account_id_provider=lambda name: channel.image_account_id,
+        outbound_router=OutboundRouter(registry),
+        channel_registry=registry,
     )
     try:
         message = replace(
@@ -106,6 +107,17 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
             should_process=True,
             sender_label="Human",
         )
+        if include_hosted:
+            await _wait(
+                lambda: (
+                    model.requests
+                    and not rt.coordinator._monitors
+                    and not rt.coordinator._drains
+                )
+            )
+            assert not rt.manager.sent
+            assert not client.sent
+            return
         await _wait(client.started.is_set)
         assert not any(
             event["type"] == "dispatch_confirmed"
@@ -121,8 +133,16 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
                 for event in rt.store.read_unacked_events(limit=200)
             )
             client.fail = False
-            result = await rt.handler.handle({**rt.manager.sent[0], "text": text})
+            result = await rt.handler.handle(
+                {
+                    **rt.manager.sent[0],
+                    "text": text,
+                    "dispatch_request_id": "model-fresh-call",
+                }
+            )
             assert result["ok"] is True
+            assert len(rt.manager.sent) == 1
+            assert client.sent[0]["idempotency_key"].endswith(":send-first")
         assert len(requests) == 1
         assert client.uploads == [(data, "image/png")]
         assert len(client.sent) == 1

@@ -40,7 +40,7 @@ class _PreInsertBarrierPersistence(GatewayConversationPersistence):
 def _dispatch_once(*, db_path: Path, barrier: Barrier) -> dict[str, object]:
     persistence = _PreInsertBarrierPersistence(db_path=db_path, barrier=barrier)
     lock = asyncio.Lock()
-    sessions = GatewaySessions(lock=lock)
+    sessions = GatewaySessions(im_user_url="http://testserver", lock=lock)
     execution = GatewayExecution(sessions=sessions, lock=lock)
     relay = GatewayRelay(
         sessions=sessions,

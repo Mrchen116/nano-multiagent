@@ -74,7 +74,7 @@ def test_group_scenario_reaches_the_assembled_pa_prompt(tmp_path: Path) -> None:
     ("work_mode", "work_scope", "reply_images"),
     [
         ("single_thread", None, True),
-        ("global", "global_main", False),
+        ("global", "global_main", True),
         ("global", "cron", True),
     ],
 )
@@ -90,7 +90,8 @@ def test_reply_image_guidance_matches_the_publication_mode(
     )
     exports = workspace / ".nanoassistant/exports"
     assert exports.is_dir()
-    assert (str(exports) in prompt) is reply_images
+    assert str(exports) not in prompt
+    assert ("## Reply Images" in prompt) is reply_images
     if reply_images:
         assert "![" in prompt
         assert "PNG" in prompt and "JPEG" in prompt and "WebP" in prompt

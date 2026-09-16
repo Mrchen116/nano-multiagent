@@ -1496,10 +1496,12 @@ def _run_group_fanout(
     on what was delivered."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
+    channel.delegated = []
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     pipeline = build_inbound_pipeline(
         kernel=kernel_client,
+        kernel_event_observer=channel.delegated.append,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -1554,7 +1556,7 @@ def test_group_fanout_other_origin_no_reply_token_is_suppressed(
     assert "NO_REPLY" not in [m.text for m in channel.sent]
 
 
-def test_group_fanout_other_origin_non_sentinel_still_delivered(
+def test_group_fanout_other_origin_is_delegated_to_delivery_owner(
     tmp_path: Path,
 ) -> None:
     """bugfix-416 #107 guard: the suppression must not mute genuine fan-out content —
@@ -1565,7 +1567,11 @@ def test_group_fanout_other_origin_non_sentinel_still_delivered(
 
     assert result is not None
     sent = [m.text for m in channel.sent]
-    assert "Here is the markdown table." in sent
+    assert any(
+        event.get("content") == "Here is the markdown table."
+        for event in channel.delegated
+    )
+    assert "Here is the markdown table." not in sent
     assert "reply:demo" in sent
 
 

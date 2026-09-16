@@ -367,6 +367,7 @@ class IMConnectionManager:
         self._external_shadow_run_ids: set[str] = set()
         self._wire_frame_owner: WireFrameOwner | None = None
         self._registered = False
+        self._im_user_url: str | None = None
         self._gateway_access_token: str | None = None
         self._connection_epoch = 0
         self._registration_deadline: float | None = None
@@ -392,6 +393,11 @@ class IMConnectionManager:
         """Report whether the IM websocket is currently connected."""
 
         return self._connected
+
+    @property
+    def im_user_url(self) -> str | None:
+        """Return the last user entry supplied by authenticated IM registration."""
+        return self._im_user_url
 
     @property
     def gateway_access_token(self) -> str | None:
@@ -935,6 +941,12 @@ class IMConnectionManager:
         if message_type == "ack":
             released = self._ack_pending_frame(body)
             if released is not None and released.message_type == "node.register":
+                im_user_url = body.get("im_user_url")
+                if not isinstance(im_user_url, str) or not im_user_url:
+                    raise ValueError(
+                        "IM registration configuration/version mismatch: im_user_url is required"
+                    )
+                self._im_user_url = im_user_url
                 token = body.get("gateway_access_token")
                 self._gateway_access_token = (
                     token if isinstance(token, str) and token else None

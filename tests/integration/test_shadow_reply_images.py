@@ -1,3 +1,5 @@
+from personal_assistant.gateway.reply_images import ImageDeliveryError
+
 """Shadow recovery projects the already-frozen reply rather than rereading sources."""
 
 import asyncio
@@ -27,6 +29,7 @@ from personal_assistant.gateway.shadow_saga import (
 )
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from tests.helpers.runtime_delivery import delivery_context_store
+from tests.helpers.message_delivery import message_delivery
 
 
 class _ConnectedIM:
@@ -232,18 +235,18 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
         actions.append("release")
 
     reopened = ExternalShadowSagaStore(db_path=tmp_path / "sagas.db")
+    owner = message_delivery(images=images)
     sync = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=token,
         gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=reopened,
-        reply_images=images,
-        image_context_factory=factory,
+        delivery_provider=lambda: owner,
         before_publish=before,
         after_publish=after,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ImageDeliveryError):
         asyncio.run(sync.recover_pending())
     assert actions == ["upload"]
     fail[0] = False
@@ -260,8 +263,7 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
         gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=ExternalShadowSagaStore(db_path=tmp_path / "sagas.db"),
-        reply_images=images,
-        image_context_factory=factory,
+        delivery_provider=lambda: owner,
     )
     asyncio.run(restarted.recover_pending())
     assert actions == expected

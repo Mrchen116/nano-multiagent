@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
@@ -14,6 +19,7 @@ from personal_assistant.config.local_store import (
     resolve_model_candidates,
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.delivery_feedback import DeliveryFeedbackBudget
 from personal_assistant.gateway.model_fallback import (
     failover_unattended_run,
     switch_notice,
@@ -74,7 +80,9 @@ class PollingHeartbeatRunner:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: Any | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         work_recorder: Any | None = None,
+        delivery_feedback_budget: DeliveryFeedbackBudget | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -98,7 +106,9 @@ class PollingHeartbeatRunner:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._work_recorder = work_recorder
+        self._delivery_feedback_budget = delivery_feedback_budget
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -262,6 +272,12 @@ class PollingHeartbeatRunner:
                 kernel=self._kernel,
                 run_context_store=self._run_context_store,
                 observer=self._kernel_event_observer,
+                delivery_feedback_budget=self._delivery_feedback_budget,
+                workspace_root=(
+                    self._agent_catalog.require(record.agent_id).config.workspace_root
+                    if self._agent_catalog is not None
+                    else None
+                ),
                 stream_anchor=record.stream_anchor,
                 background_subscriptions=self._background_subscriptions,
             )
@@ -345,6 +361,12 @@ class PollingHeartbeatRunner:
                 kernel=self._kernel,
                 run_context_store=self._run_context_store,
                 observer=self._kernel_event_observer,
+                delivery_feedback_budget=self._delivery_feedback_budget,
+                workspace_root=(
+                    self._agent_catalog.require(record.agent_id).config.workspace_root
+                    if self._agent_catalog is not None
+                    else None
+                ),
                 stream_anchor=stream_anchor,
                 background_subscriptions=self._background_subscriptions,
                 hold_assistant_events=held,
@@ -372,7 +394,8 @@ class PollingHeartbeatRunner:
             )
             observation = self._kernel_event_observer(
                 {
-                    "event": "assistant_message",
+                    "event": "gateway_message",
+                    "message_id": notice_run_id,
                     "run_id": notice_run_id,
                     "content": switch_notice(model),
                 }
@@ -390,6 +413,7 @@ class PollingHeartbeatRunner:
             product_default=self._product_default_model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context_provider=self._access_context_provider,
             current_model=candidates[0],
             outcome=outcome,
             origin=RunOrigin.HEARTBEAT,

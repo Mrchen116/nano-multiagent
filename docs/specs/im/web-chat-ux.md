@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: feat-551-agent-reply-images / feat-554
+> 对齐: feat-551-agent-reply-images / feat-554 / feat-563
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -20,12 +20,14 @@ Web IM MUST 保持 Agent 回复的图文顺序，内联图片保持原比例、�
 - **THEN** 图片按引用位置显示，可放大查看，纯图片回复不额外合成无意义正文。
 
 #### Scenario: 图片准备与加载
-- **WHEN** 图片尚未就绪
-- **THEN** 图片位置显示加载状态，已到达正文可读，不闪现本地路径或破图图标。
+- **WHEN** Agent 正在准备尚未发布的图文
+- **THEN** 不提前展示本地图片路径或不完整成品正文，既有运行和工具状态仍可见
+- **AND** 已交付图片在客户端读取期间可以显示加载状态。
 
 #### Scenario: 图片失败
-- **WHEN** 图片无法准备或读取
-- **THEN** 原位置显示明确失败说明，不无限加载；下载失败可在原位置重试读取。
+- **WHEN** 图片在发送前无法准备或上传
+- **THEN** 内部失败反馈给 Agent，不作为消息正文展示；Agent 修正后才交付完整图文，最终未完成时由 Agent 如实说明
+- **AND** 已交付图片的客户端读取失败仍显示可重试状态，不无限加载，不把客户端断网等同于 Agent 未发送。
 
 #### Scenario: 登出和切换账号
 - **WHEN** 用户登出或切换到无权查看该会话的账号

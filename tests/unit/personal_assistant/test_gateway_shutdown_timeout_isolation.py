@@ -183,7 +183,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
         on_inbound=_Dispatcher(pipeline, events, deadlines),
         heartbeat_runner=_Heartbeat(events, deadlines),
         cron_dispatcher=_Cron(events, deadlines),
-        internal_dispatch_handler=InternalDispatchHandler(),
+        internal_dispatch_handler=InternalDispatchHandler(message_delivery=None),
         gateway_internal_port=port,
         kernel=_Kernel(events),
         im_connection_manager=im,

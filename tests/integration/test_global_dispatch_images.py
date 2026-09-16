@@ -45,6 +45,8 @@ def _images(tmp_path, monkeypatch, *, status=201):
     requests = []
 
     def upload(request):
+        if request.url.path == "/im/v1/image-delivery/target":
+            return httpx.Response(200, json={"conversation_id": "c_group001"})
         requests.append(request)
         assert request.method == "POST"
         assert request.url.path == "/im/v1/conversations/c_group001/images"
@@ -135,7 +137,7 @@ async def test_global_direct_image_retry_reuses_snapshot_and_upload_receipt(
         result = await rt.handler.handle({**original, "text": text})
         assert result["ok"] is True
         assert len(requests) == 1
-        assert rt.manager.sent[1] == original
+        assert rt.manager.sent == [original]
         with sqlite3.connect(images._db) as db:
             assert (
                 db.execute("select count(*) from reply_image_outputs").fetchone()[0]
@@ -189,7 +191,7 @@ async def test_global_reply_preserves_current_chat_image_reference_on_retry(
         source.unlink()
         result = await rt.handler.handle({**rt.manager.sent[0], "text": text})
         assert result["ok"] is True
-        assert rt.manager.sent[1]["text"] == expected
+        assert len(rt.manager.sent) == 1
         assert len(requests) == int(mixed)
     finally:
         await _close(rt)
@@ -234,7 +236,7 @@ async def test_global_group_withheld_image_has_no_snapshot_until_new_input_is_re
 
 
 @pytest.mark.asyncio
-async def test_global_group_stale_commit_does_not_prepare_or_upload_image(
+async def test_global_group_stale_commit_does_not_publish_prepared_image(
     tmp_path, monkeypatch
 ):
     images, _source, text, requests = _images(tmp_path, monkeypatch)
@@ -257,11 +259,11 @@ async def test_global_group_stale_commit_does_not_prepare_or_upload_image(
             )
         )
         assert len(commits) == 1 and commits[0]["draft"]["source"] == "send_message"
-        assert not requests and not rt.manager.sent
+        assert len(requests) == 1 and not rt.manager.sent
         with sqlite3.connect(images._db) as db:
             assert (
                 db.execute("select count(*) from reply_image_outputs").fetchone()[0]
-                == 0
+                == 1
             )
         assert any(
             event["type"] == "draft_withheld"
@@ -272,9 +274,7 @@ async def test_global_group_stale_commit_does_not_prepare_or_upload_image(
 
 
 @pytest.mark.asyncio
-async def test_global_image_upload_failure_keeps_text_without_exposing_source(
-    tmp_path, monkeypatch
-):
+async def test_global_image_upload_failure_withholds_entire_text(tmp_path, monkeypatch):
     images, source, text, requests = _images(tmp_path, monkeypatch, status=503)
     model = _ImageModel(text)
     rt = await _runtime(tmp_path, model, reply_images=images)
@@ -290,9 +290,41 @@ async def test_global_image_upload_failure_keeps_text_without_exposing_source(
             )
         )
         assert len(requests) == 1
-        assert (
-            rt.manager.sent[0]["text"] == "before （图片未能展示：图片上传失败） after"
+        assert not rt.manager.sent
+    finally:
+        await _close(rt)
+
+
+@pytest.mark.asyncio
+async def test_explicit_user_image_target_is_resolved_before_reading(
+    tmp_path, monkeypatch
+):
+    images, source, text, requests = _images(tmp_path, monkeypatch)
+    model = _ImageModel(text)
+    rt = await _runtime(tmp_path, model, reply_images=images)
+    try:
+        await _receive(
+            rt, replace(_message("request", "Show your image"), is_group=False)
         )
-        assert str(source) not in rt.manager.sent[0]["text"]
+        await _wait(
+            lambda: (
+                model.requests
+                and not rt.coordinator._monitors
+                and not rt.coordinator._drains
+            )
+        )
+        original = rt.manager.sent[0]
+        result = await rt.handler.handle(
+            {
+                **original,
+                "dispatch_request_id": "user-image",
+                "to": "u_target01",
+                "text": text,
+            }
+        )
+        assert result["ok"] is True
+        assert rt.manager.sent[-1]["to"] == "u_target01"
+        assert "/im/v1/conversations/c_group001/images/" in rt.manager.sent[-1]["text"]
+        assert len(requests) == 2
     finally:
         await _close(rt)

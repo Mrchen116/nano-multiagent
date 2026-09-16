@@ -76,7 +76,15 @@ def _status(request_id: str, sequence: int) -> dict[str, object]:
 
 
 def _register_ack() -> str:
-    return json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+    return json.dumps(
+        {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.register",
+                "im_user_url": "http://testserver",
+            },
+        }
+    )
 
 
 def test_status_result_releases_fifo_before_terminal_handler_runs(
