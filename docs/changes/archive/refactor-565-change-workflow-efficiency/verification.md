@@ -112,3 +112,30 @@ N/A。
 caller 报告在 `ba91ecba36a9f9cee12c5a1fc5825f7d35f0a51d` 执行的本地检查：Ruff check 通过；format 检查 1080 文件；`pytest -m 'not e2e' -n4 --dist worksteal -q` 为 **3987 passed / 27 warnings / 135.19s**（主会话 exec session `19444`，final chunk `6d37b4`）；`npm ci --ignore-scripts`、`npm audit --audit-level=critical` 退出 0，`npm run test` 为 **83 files / 770 passed**（exec session `82626`，final chunk `faf8cf`）。这些是 caller 提供结果，不是 reviewer 重跑；本轮唯一规则外改动为一行文档摘要与报告收录，不影响上述被测产品和测试文件，保留适用结论。远端 CI / 最终归档交付仍由 caller 负责。
 
 Corrected Delta Reconciliation 继续为 **no spec delta**，无遗漏产品行为变更。
+
+## Round 3
+
+- reviewer: `/root/static_review_565`；本轮两项职责由 caller 明确派发。
+- verification_mode: `delta`
+- executed_base: `6a368b01e781d11c086683ad515b6891df53a7c5`
+- validated_at: `4cf12157e979421644375118cad68072c3be283c`
+- fix_delta_range: `9d050cb2a..4cf12157e979421644375118cad68072c3be283c`
+- verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`
+
+### 用户修正与实现核对
+
+| 本轮要求 | 直接证据与结果 |
+|---|---|
+| 角色组合仅由 orchestrator 决定，执行角色不自行兼任 | `change-orchestrator/references/validation.md:10`、两种 orchestrator 主入口及 workflow:174 明确派发每项职责；code-review:8、15 和 verifier/handoff:9 删除自主兼任入口，追加候选核验交 caller。符合。 |
+| 通用 change Skills 不预设本仓架构 | design-reviewer:19、verifier:17 改为目标仓库职责/架构；design 模板的领域列表和 diagrams 的包、接口、状态、部署示例全部通用化。职责归属、依赖与复用审查仍保留。符合。 |
+
+完整核对 10 文件 patch，并检索 change-* 与 workflow 的相关角色/项目架构引用。图示明确要求以目标仓库替换示例，未引入新的强制架构。已有基础设施锁/ID 目录命名不在本次架构假设修正范围，不启动无关迁移。
+
+`retained_from: Round 2`：原九情景中的职责/复用检查现以用户批准的通用表述实现；合并静态检查能力保留，但必须由 caller 显式派发。其余独立性、定向复验、证据复用、授权、PR/CI 和人工 merge 要求均未改变，R1-W1 仍 closed。本轮以用户明确修正为当前范围依据，不重新启动设计生命周期。
+
+### 证据与限制
+
+冻结 HEAD 已核对，独立 patch `git diff --check` 通过。caller 提供主会话 exec `6735`、chunk `747ef9` 的本轮证据：docs-check **233 sources / 73 routes**；两份相关契约测试 **13 passed in 0.22s**。这是 caller 执行结果，非本 reviewer 重跑。未修改产品、脚本、运行配置或测试；原全量产品测试适用性保留，不重复执行。远端 CI 和 PR 更新仍由 caller 负责。
+
+**no spec delta**：本轮修正开发流程和模板，不新增产品包行为。仅追加两份审查报告，未修改实现、未提交。
