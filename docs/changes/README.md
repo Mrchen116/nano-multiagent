@@ -107,7 +107,7 @@ docs/changes/<unit-dir>/
 
 `spec-review.md` 不是 Full 的必备文件。按需调用 `change-spec-reviewer` 且发现问题时才落盘；Approved 可以只保留在对话中。
 
-`design-review.md` 按 `## Round N` 追加整个 Gate 2 的历史。同一 reviewer 写每轮审查，design author 在对应 Round 追加 Author Resolutions；不得覆盖旧 Round。
+`design-review.md` 按 `## Round N` 追加整个 Gate 2 的历史。各轮独立 reviewer 写明身份与证据，design author 在对应 Round 追加 Author Resolutions；不得覆盖旧 Round。
 
 ### Bugfix lite
 
@@ -150,7 +150,7 @@ docs/changes/<unit-dir>/
 | 快速开发 `analysis.md`（可选） | `change-fast-close` / 当前实施会话 | 实现前后的取证、样本口径、观察与推论；不替代首文档或 as-built design |
 | `verification.md` | `change-verifier` | 实现与 spec/design/milestone 的一致性 |
 | `acceptance.md` / `regression.md` | `change-reviewer` | 用户旅程与产品可用性 |
-| `code-review.md` | `change-fast-close` | 快速开发 diff 的 review 范围、findings、修复和最终结论 |
+| `code-review.md` | `change-code-review`；快速开发由 `change-fast-close` 归集 | diff 的 review 范围、findings、修复和最终结论；可与 verification 同次产出 |
 
 模板由各 skill 的 `assets/` 提供，本文不复制模板正文。
 

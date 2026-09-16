@@ -22,8 +22,8 @@ description: "Full unit 首文档已定稿，需要对齐技术方案、delta-sp
 
 ## Gate 2 与交付
 
-Gate 2 只创建一个独立 `change-design-reviewer`，后续复用同一 reviewer；审查期间冻结首文档、design、delta-spec、prototype 和骨架。具体派发、恢复和追加报告契约见 [设计审查闭环](references/review-loop.md)。
+Gate 2 首轮创建独立 `change-design-reviewer`，仅实质变化复审，后续按 workflow 的上下文规则复用或交接；审查期间冻结首文档、design、delta-spec、prototype 和骨架。具体派发、恢复和追加报告契约见 [设计审查闭环](references/review-loop.md)。
 
-完成条件：需求与设计覆盖一致、接口和依赖闭合、适用验收资源已落实，最后完整 Round 为 `Approved` 且 `0 CRITICAL / 0 WARNING`，author 判真后无实质问题，受审产物此后未变化。常规修订自主完成；只有推翻用户决定才重新对齐。
+完成条件：需求与设计覆盖一致、接口和依赖闭合、适用验收资源已落实，最后完整 Round 为 `Approved` 且 `0 CRITICAL / 0 WARNING`，author 判真后无实质问题，受审产物此后无未经审查的实质变化；纯格式或归档变化记录 diff 与 retained 依据即可。常规修订自主完成；只有推翻用户决定才重新对齐。
 
 在 `main` 只提交并推送本 unit 产物，交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator`。

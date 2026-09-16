@@ -32,7 +32,7 @@ Full
     ├─ change-spec-reviewer（可选）
     └─ change-design-author
          → R1 创建独立 change-design-reviewer
-         → 后续轮次复用同一 reviewer
+         → 仅实质变化复审，按上下文需要复用或交接
          → 选择实施方式
             ├─ 默认简化流程：change-orchestrator-simple → 自主组织实现
             └─ 用户点名原流程：change-orchestrator → change-impl-worker(s)
@@ -113,11 +113,11 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 ### 门禁 2：独立设计审查闭环
 
-一个 unit 的 Gate 2 使用同一个独立 `change-design-reviewer`：
+一个 unit 的 Gate 2 由独立 `change-design-reviewer` 审查，历史保留在同一报告：
 
 1. 没有历史 Round 时创建独立 reviewer，R1 必须做 `full` review。
 2. author 核实 findings、记录 Author Resolutions 并修订受审内容。
-3. 后续轮次唤醒同一 reviewer，由 reviewer 根据实际改动选择 `closure`、`delta` 或 `full`。
+3. 实质设计变化由 reviewer 根据实际影响选择 `closure`、`delta` 或 `full`；纯格式、路径归档等不改变设计语义的变化，由 author 记录 diff 与 retained 依据，不新增审查 Round。
 4. 所有轮次按时间追加到同一个 `design-review.md`，不得覆盖旧 Round。
 
 门禁 2 通过必须同时满足：
@@ -125,9 +125,13 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 - 最后一个完整 Round 为 `Approved`；
 - `0 CRITICAL / 0 WARNING`；
 - author 核实所有 findings 和 recommendations 后确认没有实质问题；
-- 最后一轮结束后，首文档、design、delta-spec、prototype 和 milestone 骨架没有再变化。
+- 最后一轮之后，首文档、design、delta-spec、prototype 和 milestone 骨架没有未经审查的实质变化；非实质变化有 retained 依据。
 
-历史 reviewer 只有在客观无法恢复时才允许 failover；替代 reviewer 的首轮必须重新做 `full` review，并记录原因和 reviewer 标识。
+设计复审按下述上下文选择规则复用或交接，记录旧/新 reviewer、原因及历史报告。替代者核实历史发现、差异与证据后自行决定范围；证据不足时 full，不能只凭上轮 Approved 放行。涉及内核/SDK 的设计需明确业务职责归属，并比较复用既有入口与新增机制，不能只检查 import 边界。
+
+### 子 Agent 的派发与上下文
+
+只派发范围明确、可独立完成且收益足够的任务；微小修复、环境命令和格式收尾直接完成。需要历史推理时复用原 Agent；独立新任务或旧上下文过大时可新建，并仅交接目标、范围、版本、历史 findings 和证据位置。保留必要历史而非复制整段会话。缓存失效可能让旧上下文再次产生大量输入，不假定复用一定省 Token，不规定固定 TTL，也不通过保活调用维持缓存。独立审查始终与受审实现/设计作者分离，换上下文不能把作者变成独立 reviewer。
 
 ## 阶段 3：实施
 
@@ -136,7 +140,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 | 实施方式 | 触发条件 | 实施组织 | 固定交付要求 |
 |---|---|---|---|
 | 原流程 | 用户点名 `$change-orchestrator` | `change-orchestrator` 建立 unit worktree；design 已拆出的独立 milestone（包括 Bugfix lite 的 `M1-fix`）派 worker。未形成 milestone 的自包含小闭环，才按独立 owner 的实际收益决定直接完成或派 worker | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
-| 简化流程 | 默认 | 在一个 unit worktree 内端到端负责，自主决定直接实现或使用 subagent，不强制 worker、milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
+| 简化流程 | 默认 | 默认主 Agent 在一个 unit worktree 内端到端实施与集成，仅将有独立交付收益的具体任务派给 subagent；不按层机械拆 worker，不强制 milestone worktree、roadpoint 或过程台账 | 完成全部 milestone、适用门禁、契约归并、归档和 PR/CI |
 
 两种方式共享各自已经确认的首文档、milestone 目标和工程质量底线；Full 额外共享已通过 Gate 2 的 design。默认使用简化流程；用户点名 `$change-orchestrator` 时使用原流程。实施方式只改变实施组织，不改变需求、设计和交付标准。Bugfix lite 在两种方式下都保持唯一的 `M1-fix`。
 
@@ -167,7 +171,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 | Bugfix lite | 跳过 | 跳过 | 必须 |
 | 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
 
-Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
+Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。表格规定检查职责，不规定 Agent 数量：Full 默认由同一位未参与受审实现的独立静态审查者一次执行 `$change-code-review` 与 `$change-verifier`，分别保留代码审查结论和一致性报告；产品 reviewer 与实现、静态审查均独立。高风险或存在争议、关键条件无法确认的代码发现，再按具体问题追加独立候选核验；普通明确问题由静态审查者直接举证。
 
 - verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程的 worker milestone
   应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；
@@ -178,7 +182,8 @@ Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
   worker。不要使用固定分类表替代当前上下文判断；两种方式都保留适用的独立 closure；
 - 简化流程的门禁发现问题后由 `change-orchestrator-simple` 判真并自主组织修复；
 - 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
-- 修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
+- 先合并相关修复并冻结版本，再按影响一次复验，避免同一小修反复派给设计、代码和一致性审查；实质设计变化仍须独立设计复审，可由未参与设计/实现的同一静态审查者兼任并记录 Gate 2 结论。修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
+- 共享带被测版本、命令、结果与证据位置的有效测试结果；独立审查者核对覆盖和可信度，关键复现或证据不足时重跑。先稳定 fixture、完成窄测试，再运行本地全量与 CI；已有通过结果不因角色更换而重复执行。真实产品结果仍由产品 reviewer 独立观察，不能用共享单测结果替代。
 
 所有适用门禁通过后才能收尾。
 
@@ -187,7 +192,7 @@ Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。
 原流程由 `change-orchestrator` 收尾，简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
 
 1. 同步最新 `origin/main`，比较 main 增量对 reviewer、verifier 和 code review 验证范围的影响；每道闸必须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
-2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
+2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，可并入同一独立静态审查任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
 3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和 main 推进是否使结论失效。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
 5. 创建 PR 并等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
@@ -207,7 +212,7 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-spec-author` | 用户意图、范围、验收标准、RCA | 技术方案、代码 |
 | `change-spec-reviewer` | 按需独立复核首文档质量 | 修改首文档、审实现、充当默认门禁 |
 | `change-design-author` | 现状 grounding、方案、delta-spec、milestone | 产品代码 |
-| `change-design-reviewer` | 独立审查设计，并在同一上下文中完成后续轮次 | 修改方案或实现 |
+| `change-design-reviewer` | 独立审查设计，按实质变化和证据决定复审范围 | 修改方案或实现 |
 | `change-orchestrator` | sync、调度、判真、直接闭环、门禁、契约归并、归档和 PR/CI | 接管已派发的 implementation milestone |
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
 | `change-impl-worker` | 需要独立 owner 的 milestone/fix 实现、测试和适用证据 | 擅自改写需求或绕过设计 |
