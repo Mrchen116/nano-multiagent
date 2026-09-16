@@ -42,10 +42,10 @@ Agent 解读：本 unit 包含两项相互配合的能力：可信设备/访问�
 - 聊天消息 `7648fc68ac2843f08877b0d1ee343e9c`（2026-09-16 09:06:22，Asia/Shanghai）持久正文已包含五条“图片未能展示：图片来源不可用”。因此并非仅浏览器图片加载失败。
 - 五张图片的交付记录均引用 `http://127.0.0.1:4176/output/playwright/…png`，状态为失败，原因为 source，未形成图片快照和 IM 上传回执。
 - mini 的 `/Users/czj/repos_tyj/auction-style-demos/output/playwright/` 下五张 PNG 均存在。首张 HTTP 读取返回 `200 image/png`；生产图片读取函数对同一 URL 返回 `ValueError: feishu Markdown image URL must resolve to a public host`。直接原因是网络来源限制，不是图片缺失。
-- 当前 [本地图片读取](../../../src/personal_assistant/gateway/reply_images.py) 仅接受工作区 `.nanoassistant/exports/` 内的普通文件；[网络图片读取](../../../src/personal_assistant/channels/feishu/client.py) 拒绝非公网 IP。失败会被替换为用户可见正文。
-- 当前 [Agent 提示构建](../../../src/personal_assistant/product.py) 在 `global_main` 路径不注入普通回复的图片交付指引。该故障来自显式发送；已确认存在交付指引覆盖缺口，但不能据此宣称已证明模型选择错误 URL 的全部因果。
-- 当前 [Gateway 图片契约](../../specs/gateway/routing-delivery.md) 和 [Web IM 图片契约](../../specs/im/web-chat-ux.md) 明确允许图片准备失败在原位置显示失败说明。本需求主动改变这一行为；实施完成前不改写 current specs。
-- [生产拓扑](../../operations/prod-fleet.md) 已记录 mini、另一台 Gateway 和 IM 的关系，但操作文档不能代替 Agent 当轮实际获得的运行上下文。
+- 当前 [本地图片读取](../../../../src/personal_assistant/gateway/reply_images.py) 仅接受工作区 `.nanoassistant/exports/` 内的普通文件；[网络图片读取](../../../../src/personal_assistant/channels/feishu/client.py) 拒绝非公网 IP。失败会被替换为用户可见正文。
+- 当前 [Agent 提示构建](../../../../src/personal_assistant/product.py) 在 `global_main` 路径不注入普通回复的图片交付指引。该故障来自显式发送；已确认存在交付指引覆盖缺口，但不能据此宣称已证明模型选择错误 URL 的全部因果。
+- 当前 [Gateway 图片契约](../../../specs/gateway/routing-delivery.md) 和 [Web IM 图片契约](../../../specs/im/web-chat-ux.md) 明确允许图片准备失败在原位置显示失败说明。本需求主动改变这一行为；实施完成前不改写 current specs。
+- [生产拓扑](../../../operations/prod-fleet.md) 已记录 mini、另一台 Gateway 和 IM 的关系，但操作文档不能代替 Agent 当轮实际获得的运行上下文。
 
 ## 用户场景
 
