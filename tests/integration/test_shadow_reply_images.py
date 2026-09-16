@@ -1,3 +1,5 @@
+from personal_assistant.gateway.reply_images import ImageDeliveryError
+
 """Shadow recovery projects the already-frozen reply rather than rereading sources."""
 
 import asyncio
@@ -243,7 +245,7 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
         before_publish=before,
         after_publish=after,
     )
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ImageDeliveryError):
         asyncio.run(sync.recover_pending())
     assert actions == ["upload"]
     fail[0] = False

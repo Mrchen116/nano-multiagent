@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +50,7 @@ class InProcessKernelClient:
         product_default_model: str | None = None,
         reasoning_catalog: ModelReasoningCatalog | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         sticky_store: ModelStickyStore | None = None,
         work_recorder: Any | None = None,
     ) -> None:
@@ -60,6 +66,7 @@ class InProcessKernelClient:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._sticky_store = sticky_store or ModelStickyStore()
         self._work_recorder = work_recorder
 
@@ -97,6 +104,7 @@ class InProcessKernelClient:
                     resolved_model=model,
                     reasoning_catalog=self._reasoning_catalog,
                     time_context=self._time_context,
+                    access_context=self._access_context_provider(),
                     apply_saved_reasoning=chain_head is None or model == chain_head,
                 ).runtime
             else:
@@ -104,6 +112,7 @@ class InProcessKernelClient:
                     snapshot,
                     scenario=metadata or {},
                     time_context=self._time_context,
+                    access_context=self._access_context_provider(),
                 )
                 prompt = capabilities.prompt
                 enabled_tools = capabilities.enabled_tools
@@ -176,6 +185,7 @@ class InProcessKernelClient:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=chain_head is None or model == chain_head,
         ).runtime
         desired = self._kernel.identify_runtime(runtime=runtime)

@@ -21,6 +21,13 @@ Public API:
 
 from .kernel import CanUseToolFn, Kernel, ReplayLastUserRejected, build_kernel
 from .contracts import HookAPI, Tool, ToolContext
+from .output import (
+    OutputCandidate,
+    OutputControl,
+    OutputHandler,
+    OutputResult,
+    PermissionOutcome,
+)
 from .content import tool_content_digest
 from .dto import (
     FeatureInfo,
@@ -57,6 +64,11 @@ from agent.platform.permissions.broker import PermissionDecision
 
 __all__ = [
     # Core kernel assembly
+    "OutputCandidate",
+    "OutputControl",
+    "OutputHandler",
+    "OutputResult",
+    "PermissionOutcome",
     "CanUseToolFn",
     "Kernel",
     "ReplayLastUserRejected",

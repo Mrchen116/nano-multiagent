@@ -29,7 +29,15 @@ def test_agent_create_rejection_is_returned_as_structured_outcome(
     }
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "agent.create",
@@ -96,7 +104,15 @@ def test_node_preview_resolves_draft_workspace_on_gateway(
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.prompt.preview.request",
@@ -152,7 +168,15 @@ def test_invalid_custom_preview_returns_correlated_validation_without_disconnect
 
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "node.prompt.preview.request",

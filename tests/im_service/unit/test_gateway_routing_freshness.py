@@ -60,7 +60,9 @@ def _build_runtime(
     event_bridge: EventBridge | None = None,
 ) -> GatewayRuntime:
     lock = asyncio.Lock()
-    sessions = GatewaySessions(node_persistence=node_persistence, lock=lock)
+    sessions = GatewaySessions(
+        im_user_url="http://testserver", node_persistence=node_persistence, lock=lock
+    )
     execution = GatewayExecution(
         sessions=sessions,
         conversation_persistence=conversation_persistence,

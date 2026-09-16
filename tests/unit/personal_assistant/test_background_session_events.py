@@ -426,7 +426,7 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     )
 
     lock = asyncio.Lock()
-    sessions = GatewaySessions(lock=lock)
+    sessions = GatewaySessions(im_user_url="http://testserver", lock=lock)
     handler = GatewayRelay(
         sessions=sessions,
         execution=GatewayExecution(sessions=sessions, lock=lock),
@@ -500,7 +500,7 @@ async def test_gateway_handler_structured_system_message_is_attributed_and_idemp
         workspace_root="/work/product",
     )
     lock = asyncio.Lock()
-    sessions = GatewaySessions(lock=lock)
+    sessions = GatewaySessions(im_user_url="http://testserver", lock=lock)
     handler = GatewayRelay(
         sessions=sessions,
         execution=GatewayExecution(sessions=sessions, lock=lock),
@@ -611,7 +611,7 @@ async def test_gateway_handler_rejects_untrusted_notice_without_side_effects(
         )
     emitted: list[object] = []
     lock = asyncio.Lock()
-    sessions = GatewaySessions(lock=lock)
+    sessions = GatewaySessions(im_user_url="http://testserver", lock=lock)
     handler = GatewayRelay(
         sessions=sessions,
         execution=GatewayExecution(sessions=sessions, lock=lock),

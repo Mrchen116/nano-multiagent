@@ -19,6 +19,11 @@ as failed(gateway_restarted) so they never stay permanently "in progress".
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from contextlib import suppress
 import json
@@ -387,6 +392,7 @@ class CronRunTerminalConsumer:
         product_default_model: str | None = None,
         reasoning_catalog: Any | None = None,
         time_context: Any | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
     ) -> None:
         self._kernel = kernel
         self._owner_user_id = owner_user_id
@@ -398,6 +404,7 @@ class CronRunTerminalConsumer:
         self._product_default_model = product_default_model
         self._reasoning_catalog = reasoning_catalog
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
 
     async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
@@ -511,6 +518,7 @@ class CronRunTerminalConsumer:
             product_default=self._product_default_model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context_provider=self._access_context_provider,
             current_model=candidates[0],
             outcome=outcome,
             origin=RunOrigin.CRON,

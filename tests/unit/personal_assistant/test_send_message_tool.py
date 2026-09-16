@@ -220,3 +220,17 @@ def test_send_message_tool_validates_text_field() -> None:
 
     with pytest.raises(ValueError, match="text must be a non-empty string"):
         tool.run({"text": "  ", "target": "u_bbbbbbbb"}, ctx)
+
+
+def test_classifier_explains_image_bytes_are_read_and_sent() -> None:
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    tool = SendMessageTool()
+    result = json.loads(
+        tool.to_auto_classifier_input(
+            {"target": "c_abcdefgh", "text": "![report](</private/report.png>)"}
+        )
+    )
+    assert result["image_delivery"]["sources"] == ["/private/report.png"]
+    assert result["image_delivery"]["target"] == "c_abcdefgh"
+    assert "Read" in result["image_delivery"]["operation"]

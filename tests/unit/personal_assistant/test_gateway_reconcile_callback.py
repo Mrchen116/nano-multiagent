@@ -99,7 +99,15 @@ def test_reconcile_callback_invoked_after_connect_once(tmp_path: Path) -> None:
     connect_calls: list[tuple[str, dict[str, str]]] = []
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
         ]
     )
 
@@ -310,7 +318,13 @@ def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) ->
         return _FakeWebSocket(
             incoming=[
                 json.dumps(
-                    {"type": "ack", "payload": {"message_type": "node.register"}}
+                    {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.register",
+                            "im_user_url": "http://testserver",
+                        },
+                    }
                 ),
             ]
         )

@@ -130,13 +130,15 @@ async def test_reset_discard_does_not_wait_for_image_preparation(tmp_path: Path)
             key, "owner", "agent", "run", "0", tmp_path
         ),
     )
+    source = tmp_path / "image.png"
+    source.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     await wrapped.send_json(
         "node.streaming_delta",
         {
             "kind": "message_delta",
             "run_id": "run",
             "message_id": "message",
-            "delta_text": "![image](missing.png)",
+            "delta_text": f"![image](<{source}>)",
         },
     )
     completing = asyncio.create_task(

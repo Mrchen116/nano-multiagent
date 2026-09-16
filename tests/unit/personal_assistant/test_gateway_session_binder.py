@@ -168,6 +168,7 @@ async def test_resolve_creates_session_from_one_snapshot_and_persists_binding(
     assert kernel.create_calls[0]["features"] == {
         "heartbeat": True,
         "include_session_created_datetime": False,
+        "output_handler_enabled": True,
     }
     assert kernel.create_calls[0]["metadata"]["agent_id"] == "agent-a"
     assert kernel.create_calls[0]["metadata"]["conversation_id"] == "conv-create"

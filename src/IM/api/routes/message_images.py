@@ -4,16 +4,20 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from IM.api.deps import (
     GatewayPrincipal,
     current_data_principal,
+    current_gateway,
     require_conversation_access,
 )
 from IM.api.routes.messages import AttachmentPayload
 from IM.domain.models import User
 from IM.infra.repositories.message_images import ImageConflictError
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.gateway_persistence import GatewayConversationPersistence
 
 router = APIRouter(tags=["message-images"])
 _MAX_BYTES = 10 * 1024 * 1024
@@ -138,3 +142,44 @@ def get_attachment(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+class ImageDeliveryTarget(BaseModel):
+    """Identify a node-owned sender and its intended image recipient."""
+
+    agent_id: str = Field(min_length=1)
+    target: str = Field(min_length=1)
+
+
+@router.post("/im/v1/image-delivery/target")
+def resolve_image_delivery_target(
+    payload: ImageDeliveryTarget,
+    request: Request,
+    principal: GatewayPrincipal = Depends(current_gateway),
+) -> dict[str, str]:
+    """Resolve the private image destination before Gateway reads any local bytes."""
+    profile = AgentProfileRepository(request.app.state.connection).get_profile(
+        agent_id=payload.agent_id
+    )
+    if (
+        profile is None
+        or profile.is_stale
+        or profile.node_id != principal.node_id
+        or profile.owner_id != principal.owner_id
+    ):
+        raise HTTPException(404, "target not accessible")
+    try:
+        resolution = GatewayConversationPersistence(
+            request.app.state.connection
+        ).resolve_send_target(
+            source_agent_id=payload.agent_id,
+            target=payload.target,
+            # Match the existing agent.message route's direct-chat ownership policy.
+            caller_owner_id=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, "target not accessible") from exc
+    require_conversation_access(
+        request, principal, resolution.conversation_id, payload.agent_id
+    )
+    return {"conversation_id": resolution.conversation_id}

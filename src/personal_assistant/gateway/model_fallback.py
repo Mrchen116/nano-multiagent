@@ -157,6 +157,7 @@ async def failover_unattended_run(
     product_default: str | None,
     reasoning_catalog: Any,
     time_context: Any,
+    access_context_provider: Any = None,
     current_model: str,
     outcome: StreamRunOutcome,
     origin: RunOrigin,
@@ -197,6 +198,9 @@ async def failover_unattended_run(
                 resolved_model=nxt,
                 reasoning_catalog=reasoning_catalog,
                 time_context=time_context,
+                access_context=access_context_provider()
+                if access_context_provider
+                else None,
                 apply_saved_reasoning=False,
             ).runtime
             await kernel.reconfigure_session(

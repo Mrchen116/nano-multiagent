@@ -242,27 +242,11 @@ class ToolRegistry:
             # observe handler（realtime_stream.on_tool_call）拿到与原 loop.py 触发时
             # 相同的字段。registry 是 tool_call hook 唯一的触发点，gate 通过后
             # observe handler 才会运行，前端因此只在真正开始执行时看到 "运行中"。
-            _run_id_meta = (
-                active_hook_context.metadata.get("run_id")
-                if isinstance(active_hook_context.metadata, Mapping)
-                else None
-            )
-            tool_call_payload, _ = await self._dispatch_intercept(
-                "tool_call",
-                {
-                    "session_id": active_hook_context.session_id,
-                    "turn_id": active_hook_context.turn_id,
-                    "name": name,
-                    "args": dict(args),
-                    "arguments": dict(args),
-                    "call_id": tool_call_id,
-                    "run_id": _run_id_meta
-                    if isinstance(_run_id_meta, str) and _run_id_meta
-                    else None,
-                    "block": False,
-                    "reason": None,
-                },
-                active_hook_context,
+            tool_call_payload = await self.evaluate_permission(
+                name,
+                args,
+                hook_context=active_hook_context,
+                action_id=tool_call_id,
             )
             permission_context = {
                 key: tool_call_payload[key]
@@ -524,11 +508,64 @@ class ToolRegistry:
                 return dict(rewritten_output)
             return {"result": rewritten_output}
 
+    async def evaluate_permission(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context: HookContext,
+        action_id: str | None,
+        permission_only: bool = False,
+    ) -> dict[str, Any]:
+        """Share real tool permission semantics without executing the tool.
+
+        Args:
+            name: Registered tool name, independent of model visibility.
+            args: Actual proposed tool arguments.
+            hook_context: Active run context, including transcript and mode.
+            action_id: Correlation id for this permission action.
+            permission_only: Suppress execution observers for output candidates.
+
+        Returns:
+            Permission intercept payload, including block and reason.
+        """
+        from dataclasses import replace
+
+        if self.get(name) is None:
+            return {"block": True, "reason": f"unknown tool: {name}"}
+        context = replace(
+            hook_context,
+            metadata={
+                **hook_context.metadata,
+                "tool_registry": self,
+                "tool_call_id": action_id,
+            },
+        )
+        payload, _ = await self._dispatch_intercept(
+            "tool_call",
+            {
+                "session_id": context.session_id,
+                "turn_id": context.turn_id,
+                "name": name,
+                "args": dict(args),
+                "arguments": dict(args),
+                "call_id": action_id,
+                "run_id": context.metadata.get("run_id"),
+                "block": False,
+                "reason": None,
+            },
+            context,
+            intercept_only=permission_only,
+        )
+        return payload
+
     async def _dispatch_intercept(
         self,
         event: str,
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
+        *,
+        intercept_only: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         """Dispatch intercept hook event and return rewritten payload."""
 
@@ -539,6 +576,7 @@ class ToolRegistry:
                 event,
                 payload,
                 hook_ctx,
+                **({"intercept_only": True} if intercept_only else {}),
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warning(

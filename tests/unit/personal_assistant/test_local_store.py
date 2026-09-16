@@ -1486,3 +1486,16 @@ def test_save_local_config_round_trips_node_workspace_base(tmp_path: Path) -> No
     reloaded = load_local_config(config_path)
 
     assert reloaded.node.workspace_base == str(tmp_path / "iso")
+
+
+def test_execution_access_address_survives_config_save(tmp_path):
+    (tmp_path / "workspace").mkdir()
+    path = tmp_path / "gateway.yaml"
+    path.write_text(
+        f"node:\n  node_id: node-1\n  execution_access_address: worker.example\nagents:\n  - agent_id: test-agent\n    workspace_root: {tmp_path / 'workspace'}\n"
+        + _LLM_YAML
+    )
+    config = load_local_config(path)
+    assert config.node.execution_access_address == "worker.example"
+    save_local_config(config, path)
+    assert load_local_config(path).node.execution_access_address == "worker.example"

@@ -332,6 +332,9 @@ class _SessionSubagentControl:
         }
 
 
+from .output import OutputHandler, adapt_output_handler
+
+
 def build_kernel(
     *,
     # 2-layer surface (refactor-406 决策 1/2/5) — the sole composition entry.
@@ -343,6 +346,7 @@ def build_kernel(
     workspace_skill_dirnames: Sequence[str] | None = None,
     global_config_root: Path | None = None,
     can_use_tool: CanUseToolFn | None = None,
+    output_handler: OutputHandler | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
     global_skill_root: Path | None = None,
@@ -381,6 +385,7 @@ def build_kernel(
         global_config_root: Optional consumer-owned global auto-mode config root.
             Omitted means auto-mode reads no deployment-level global config.
         can_use_tool: Optional async permission callback; None → IM card flow.
+        output_handler: Optional publication callback for explicitly enabled sessions.
         repo_root: Repository/workspace root for tool/hook discovery.
         skill_search_roots: Deployment-level skill directories shared across every
             workspace (e.g. a product's global ``~/.<product>/skills`` and compat
@@ -428,6 +433,7 @@ def build_kernel(
         ),
         global_config_root=global_config_root,
         can_use_tool=can_use_tool,
+        output_handler=output_handler,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
         global_skill_root=global_skill_root or pa_skill_root,
@@ -800,6 +806,7 @@ def _build_kernel_base(
     workspace_skill_dirnames: tuple[str, ...] | None,
     global_config_root: Path | None,
     can_use_tool: CanUseToolFn | None,
+    output_handler: OutputHandler | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
     global_skill_root: Path | None = None,
@@ -951,6 +958,9 @@ def _build_kernel_base(
         )
         engine._llm_config = factory_config  # type: ignore[attr-defined]
         engine._can_use_tool = can_use_tool  # type: ignore[attr-defined]
+        engine._loop._output_handler = (
+            adapt_output_handler(output_handler) if output_handler is not None else None
+        )
         return engine
 
     # AgentEngine is task-local through ConversationState/TurnContext and owns no

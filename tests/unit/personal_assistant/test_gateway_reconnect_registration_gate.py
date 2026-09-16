@@ -15,7 +15,7 @@ def test_slow_on_connected_does_not_start_heartbeat_before_receive_loop(
 ) -> None:
     """A buffered register ack cannot be consumed while on_connected owns connect_once."""
 
-    register_ack = '{"type":"ack","payload":{"message_type":"node.register"}}'
+    register_ack = '{"type":"ack","payload":{"message_type":"node.register","im_user_url":"http://testserver"}}'
     socket = _FakeWebSocket([register_ack])
     relay = WebRelayAdapter()
     relay.start(lambda _message: None)

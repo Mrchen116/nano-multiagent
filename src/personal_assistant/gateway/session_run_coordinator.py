@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from personal_assistant.runtime_access import (
+    RuntimeAccessContextProvider,
+    offline_access_context,
+)
+
 import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -409,6 +414,7 @@ class SessionRunCoordinator:
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
         readable_input_projection_store: ReadableInputProjectionStore | None = None,
         time_context: PaTimeContext | None = None,
+        access_context_provider: RuntimeAccessContextProvider = offline_access_context,
         sticky_store: ModelStickyStore | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
@@ -456,6 +462,7 @@ class SessionRunCoordinator:
         self._max_transition_locks = max(1, max_transition_locks)
         self._readable_input_projection_store = readable_input_projection_store
         self._time_context = time_context
+        self._access_context_provider = access_context_provider
         self._sticky_store = sticky_store or ModelStickyStore()
 
     async def observe_background_run(
@@ -2153,6 +2160,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=chain_head is None or model == chain_head,
         )
 
@@ -2645,6 +2653,7 @@ class SessionRunCoordinator:
             resolved_model=model,
             reasoning_catalog=self._reasoning_catalog,
             time_context=self._time_context,
+            access_context=self._access_context_provider(),
             apply_saved_reasoning=False,
         ).runtime
         result = await self._kernel.reconfigure_session(

@@ -42,6 +42,7 @@ def _build(tmp_path: Path):  # noqa: ANN202
     registry = UserStreamRegistry()
     nodes = NodeRepository(connection)
     sessions = GatewaySessions(
+        im_user_url="http://testserver",
         node_persistence=GatewayNodePersistence(connection),
         user_stream_registry=registry,
         lock=asyncio.Lock(),

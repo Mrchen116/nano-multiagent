@@ -44,7 +44,13 @@ class _YieldingStatusWebSocket(_FakeWebSocket):
         super().__init__(
             incoming=[
                 json.dumps(
-                    {"type": "ack", "payload": {"message_type": "node.register"}}
+                    {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.register",
+                            "im_user_url": "http://testserver",
+                        },
+                    }
                 )
             ]
         )
@@ -147,7 +153,15 @@ def test_fatal_status_directive_closes_before_later_business_frame_flushes(
     """A fatal status result closes in the receive stack before FIFO advances."""
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "channel.status.result",
@@ -215,7 +229,15 @@ def test_pre_register_managed_emission_is_not_retained_in_wire_fifo(
     """A pre-register provider wake-up is discarded before it can enter the FIFO."""
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     relay = WebRelayAdapter()
@@ -257,12 +279,28 @@ def test_disconnected_managed_emission_is_not_retained_in_wire_fifo(
     """A durable status is replayed after registration, never from a stale FIFO."""
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     sockets = [first_socket, second_socket]
@@ -325,12 +363,28 @@ def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
     """Reconnect replays only the current runtime status and preserves other FIFO."""
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            )
         ]
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "http://testserver",
+                    },
+                }
+            ),
             json.dumps(
                 {
                     "type": "channel.status.result",

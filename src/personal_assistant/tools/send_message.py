@@ -123,7 +123,17 @@ class SendMessageTool:
 
     def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
         """Expose the complete destination and message before dispatch."""
-        return json.dumps(dict(tool_input), ensure_ascii=False, separators=(",", ":"))
+        from personal_assistant.gateway.reply_images import image_sources
+
+        operation = dict(tool_input)
+        sources = image_sources(str(tool_input.get("text", "")))
+        if sources:
+            operation["image_delivery"] = {
+                "operation": "Read the referenced images and deliver their contents to this target chat.",
+                "sources": list(sources),
+                "target": tool_input.get("target"),
+            }
+        return json.dumps(operation, ensure_ascii=False, separators=(",", ":"))
 
     def __init__(
         self,
@@ -230,6 +240,16 @@ class SendMessageTool:
                 "target": target,
                 "message": "This draft was not sent because new input arrived. Read the new input and continue under the existing reply rules.",
             }
+        if body.get("status") in {
+            "delivery_failed",
+            "delivery_partial",
+            "delivery_unknown",
+        }:
+            return {
+                key: body[key]
+                for key in ("ok", "status", "draft_id", "images", "message", "receipts")
+                if key in body
+            } | {"target": target}
         if response.status_code >= 400 or body.get("ok") is not True:
             error = body.get("error")
             if isinstance(error, str) and error.strip():

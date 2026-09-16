@@ -128,6 +128,7 @@ class RunDeliveryContext:
     execution_finished: bool = False
     bubble_ordinal: int = 0
     reply_image_output_key: str = ""
+    managed_image_messages: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         """Start every newly accepted run with a visible delivery lease."""

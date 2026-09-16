@@ -106,6 +106,17 @@ async def test_global_external_image_uses_provider_projection_and_saved_receipt(
             should_process=True,
             sender_label="Human",
         )
+        if include_hosted:
+            await _wait(
+                lambda: (
+                    model.requests
+                    and not rt.coordinator._monitors
+                    and not rt.coordinator._drains
+                )
+            )
+            assert not rt.manager.sent
+            assert not client.sent
+            return
         await _wait(client.started.is_set)
         assert not any(
             event["type"] == "dispatch_confirmed"

@@ -2092,6 +2092,7 @@ def test_compose_gateway_wires_prompt_preview_provider_when_im_service_configure
 
     class _RecordingManager:
         connected = True
+        im_user_url = "https://chat.example/app"
 
         def __init__(self, **kwargs: object) -> None:
             captured_kwargs.update(kwargs)
@@ -2103,6 +2104,19 @@ def test_compose_gateway_wires_prompt_preview_provider_when_im_service_configure
         "personal_assistant.gateway.composition.IMConnectionManager", _RecordingManager
     )
 
+    from dataclasses import replace
+    from personal_assistant.config.local_store import RuntimeConfigOwner
+
+    owners = []
+
+    def capture_owner(config):
+        owner = RuntimeConfigOwner(config)
+        owners.append(owner)
+        return owner
+
+    monkeypatch.setattr(
+        "personal_assistant.gateway.composition.RuntimeConfigOwner", capture_owner
+    )
     compose_gateway(config)
 
     provider = captured_kwargs.get("prompt_preview_provider")
@@ -2144,6 +2158,22 @@ def test_compose_gateway_wires_prompt_preview_provider_when_im_service_configure
         f"provider result must contain 'section_count', got {list(result)}"
     )
     assert result["prompt"], "prompt_preview_provider must return non-empty prompt"
+    assert "https://chat.example/app" in result["prompt"]
+    assert "http://im.local" not in result["prompt"]
+    owners[0].replace(
+        replace(
+            config, node=replace(config.node, execution_access_address="worker.example")
+        )
+    )
+    _RecordingManager.im_user_url = "https://chat.example/new"
+    refreshed = provider("agent-a", str(workspace_root), {}, None, [], "direct", [])
+    assert (
+        "Execution environment address for user access: worker.example"
+        in refreshed["prompt"]
+    )
+    assert "https://chat.example/new" in refreshed["prompt"]
+    assert "worker.example" not in result["prompt"]
+
     assert isinstance(result["section_count"], int) and result["section_count"] > 0, (
         f"section_count must be positive int, got {result['section_count']!r}"
     )
