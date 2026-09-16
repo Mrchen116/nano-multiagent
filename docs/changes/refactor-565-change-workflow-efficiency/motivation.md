@@ -34,7 +34,7 @@ feat-563 / refactor-564 的轨迹显示 EOF 空行变更重新审设计、同一
 
 ## 影响范围
 
-五个目标 Skill、change-workflow，以及存在冲突的 author/orchestrator 引用和 handoff 文档。仅做必要同步，不扩展原流程的 worker 实施组织。
+五个目标 Skill、change-workflow，以及存在冲突的 author/orchestrator 引用和 handoff 文档。同步退役受影响的旧规则文本测试；仅做必要同步，不扩展原流程的 worker 实施组织。
 
 ## 迁移与回滚策略
 

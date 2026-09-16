@@ -6,11 +6,11 @@
 
 ### 涉及范围
 
-五个目标 SKILL.md 与 docs/development/change-workflow.md；设计 author/review-loop、原 orchestrator validation 和必要 handoff 是交叉引用同步面。
+五个目标 SKILL.md 与 docs/development/change-workflow.md；tests/contract/test_change_workflow_documentation_contract.py 中强制固定 reviewer 身份的旧文本断言退役（其余 gate 矩阵检查保留），不新增逐句文本断言；设计 author/review-loop、原 orchestrator validation 和必要 handoff 是交叉引用同步面。
 
 ### 既有约束
 
-需求已确认；只修改流程文档。保留独立 gate、真实旅程、权限授权、隔离现场、PR/CI、归档与人工 merge。旧实施 worker 流程仍可点名使用。
+需求已确认；只修改流程文档及因规则退役而失效的既有文档契约测试。保留独立 gate、真实旅程、权限授权、隔离现场、PR/CI、归档与人工 merge。旧实施 worker 流程仍可点名使用。
 
 ### 可复用能力
 
@@ -54,7 +54,7 @@ no spec delta：产品包行为不变。开发流程权威文档与 Skill 同步
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | 精简编排与复审 | 无 | 无 | 五个目标 Skill、workflow 及必要引用 | [reviewer] 无产品用户面；[worker] 下列矩阵全部可执行，docs-check、相关现有契约检查通过，无相互冲突规则 |
+| M1 | 精简编排与复审 | 无 | 无 | 五个目标 Skill、workflow、必要引用及受影响旧测试 | [reviewer] 无产品用户面；[worker] 下列矩阵全部可执行，docs-check、相关现有契约检查通过，无相互冲突规则 |
 
 ## 验证矩阵
 
