@@ -100,3 +100,34 @@ None.
 命令前缀为 `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q`；执行目录为独立 detached verification worktree。报告仅验证指定快照，不将编排者后续修复或未完成真实验收计为通过。
 
 第二组独立执行 core/platform 依赖边界、IM 图片成员权限 API、Gateway 注册/重连、send_message、ReplyImages 套件，结果 **72 passed**（5.56s）。两组共 **151 passed**。这不覆盖上面的 V1/V2/V3 场景，不能据测试全绿关闭它们。
+
+## Round 2 — targeted closure
+
+- `validated_at: 8ffd1318a`
+- `executed_base: 0014ee0b0`
+- `fix_delta_range: c8586a429..8ffd1318a`
+- `verification_mode: targeted-closure`
+- Focus: V1/V2/V3，以及此前 pending recovery / immutable shadow manifest 修复保留。
+- Verdict: **FAIL — V1 still open; V2/V3 closed.** 1 CRITICAL, 0 WARNING, 0 SUGGESTION。
+- `requires_full_verification: false`。剩余问题属于已指定的普通飞书离线入口；无需扩大为全量重验。
+
+### Closure evidence
+
+| Finding | Result | Evidence |
+|---|---|---|
+| V1 普通飞书离线 | **partially fixed / still open** | composition 在 IM disconnected 时跳过 resolve/upload 并独立发送飞书；新增 composed offline test 证明已存在 shadow anchor 的分支可发送、删源后恢复原图。但没有 shadow anchor 的原有合法入口被 `_reply_destination` 排除，仍绕过候选图片授权与失败续轮，详见下文 |
+| V2 未决新调用对账 | **closed** | `ReplyImages.dispatch_identity` 对 agent/session/target/text 做摘要并在未决回执存在时复用原 call id；handler 替换真实发送身份；全部渠道完成后新有意发送可用新 id。集成测试使用 `model-fresh-call` 重试，断言 IM 只发送一次并保留原 provider idempotency key |
+| V3 provider 重放期限 | **closed** | `record_delivery` 保留 first_attempt_at；`external_retry_allowed` 检查一小时边界；恢复入口及 provider before_publish 均检查；过期保留 pending、不发请求，测试覆盖跨 restart 保留时间与到期不发送 |
+| 原 pending recovery | retained | durable recovery payload 和原身份重放测试继续通过 |
+| 原 immutable shadow manifest | retained | alias 接线未移除；已锚定 offline composed test 删除原文件后恢复原字节成功 |
+
+### V1 remaining: pending shadow anchor skips ordinary image authorization
+
+- Source: `src/personal_assistant/gateway/runtime_delivery/context.py:520` 在外部消息尚无 IM anchor 时产生 `RunDeliveryTarget.none(reason="external_without_shadow")`，但保留真实 `reply_channel_name`、`reply_target_chat_id` 与 saga；`src/personal_assistant/gateway/composition.py:832` 因 kind none 返回无 destination；`PaReplyDelivery.__call__` 随后返回 pass_through。
+- Direct reproduction: 在独立 detached worktree 执行 `tests/integration/test_pa_offline_image_shadow.py` 的现有测试函数，仅在内存删除其 `record_anchor(...)` 预置，不修改仓库文件；给 callback 增加只读 trace。真实 composed pipeline 输出 `external shadow anchor pending ... IM offline`、`CANDIDATE_DESTINATION None`、`CANDIDATE_RESULT pass_through`。后续走旧外部发送路径；测试 adapter 首次发送后删除源文件，final fallback 再读原路径，抛出 `ImageDeliveryError`。
+- Consequence: 第一次飞书消息在 IM 离线时仍是有真实外发目标的顶层 PA，但含图候选未进入新增 permission-only 检查和同 run 私有失败恢复；旧路径可以先发图、再因重复读取失败。不能只凭已有 shadow 的新测试关闭 V1。
+- Required closure: 使用真实外部通道/聊天作为候选 target，即便 IM shadow anchor 尚未建立；保持 global Work/subagent 排除。新增未锚定 composed 场景断言一次普通图片授权、一次飞书发送、删源后同一快照补 IM；缺图场景必须私有反馈并由下一模型轮修正。
+
+### Round 2 independent checks
+
+`PYTHONPATH=src .../.venv/bin/python -m pytest -q` 执行 `test_pa_offline_image_shadow.py`、`test_pa_candidate_delivery.py`、`test_global_external_dispatch_images.py`、`test_reply_delivery_recovery.py`、`test_shadow_reply_images.py`、`test_reply_image_delivery_strict.py`：**28 passed**（19.97s，两个既有依赖弃用 warning）。另执行上述未预置 anchor 的一次性反证，失败来源已定位。真实 Web IM / 飞书体验仍由并行产品 reviewer 记录，不在此次 closure 冒认通过。
