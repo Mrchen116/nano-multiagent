@@ -76,7 +76,11 @@ class PaReplyDelivery:
                 prepared = await self._on_gateway(self._prepare(candidate, files))
         except ImageDeliveryError as exc:
             # JSON quotes diagnostic values, so a source filename is visibly data.
-            diagnostic = json.dumps(exc.images, ensure_ascii=True)
+            diagnostic = (
+                json.dumps(exc.images, ensure_ascii=True)
+                .replace("<", "\\u003c")
+                .replace(">", "\\u003e")
+            )
             return OutputResult(
                 state="withheld",
                 reason_code="image_preparation_failed",

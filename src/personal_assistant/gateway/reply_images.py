@@ -82,7 +82,9 @@ class ImageDeliveryError(ValueError):
     """Report private preparation failures without publishing any draft text."""
 
     def __init__(self, images: list[dict[str, Any]]) -> None:
-        self.images = images
+        self.images = [
+            {**item, "source": str(item.get("source", ""))[:512]} for item in images[:6]
+        ]
         super().__init__("Image preparation failed")
 
     def as_result(self, *, target: str, draft_id: str) -> dict[str, Any]:
