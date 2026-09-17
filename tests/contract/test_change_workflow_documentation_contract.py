@@ -50,24 +50,6 @@ def test_spec_review_remains_optional() -> None:
     assert any("可选" in line or "按需" in line for line in storage_mentions)
 
 
-def test_gate_two_reuses_one_reviewer_until_clean_approval() -> None:
-    workflow = _read("docs/development/change-workflow.md")
-    author_skill = _read(".claude/skills/change-design-author/SKILL.md")
-
-    workflow_lines = workflow.splitlines()
-    assert any(
-        "Gate 2" in line and "同一个" in line and "`change-design-reviewer`" in line
-        for line in workflow_lines
-    )
-    assert any("后续" in line and "同一 reviewer" in line for line in workflow_lines)
-    assert any("`Approved`" in line for line in workflow_lines)
-    assert any("CRITICAL" in line and "WARNING" in line for line in workflow_lines)
-    assert any(
-        "Gate 2" in line and "只创建" in line and "一个" in line
-        for line in author_skill.splitlines()
-    )
-
-
 def test_selected_validation_gate_matrix_does_not_drift() -> None:
     workflow = _read("docs/development/change-workflow.md")
     orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")

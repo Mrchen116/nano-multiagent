@@ -8,7 +8,7 @@
 - 只影响当前 milestone：由 design owner 直接改本文。
 - 影响后续 milestone：必须在下方 Changelog 追加一条，否则后续 milestone 启动时只读 design 会漏掉。
 
-配图原则：先定位本需求的难点（结构乱 / 流程跨模块 / 状态复杂 / 数据为核心…），据此选图，不要每类都画。默认打底＝一张静态结构图 + 一张主流程时序图，再按最尖锐的难点加一张专门图。难点→选哪张图、各类图的本项目 mermaid 骨架见 skill 的 references/diagrams.md。图配 1-2 句话点出它回答什么。骨架是地板不是天花板。
+配图原则：先定位本需求的难点（结构乱 / 流程跨模块 / 状态复杂 / 数据为核心…），据此选图，不要每类都画。只画能解释本次难点的图，简单变更可不画。选图参考见 skill 的 references/diagrams.md；节点与边界取自目标仓库，图配 1-2 句话点出它回答什么。
 -->
 
 # <type-id>: <短描述> — 技术方案
@@ -90,10 +90,7 @@
      有对外行为变化 → 按最窄落点产 docs/changes/<unit_dir>/specs/<包>/<target>.md，这里列出全部 target；
      纯内部无变化 → 写 "no spec delta"。规范见 docs/specs/CONTRIBUTING.md「契约层增量」。 -->
 
-- kernel: <specs/kernel/<target>.md[, ...] | no spec delta>
-- im:     <specs/im/<target>.md[, ...] | no spec delta>
-- gateway: <specs/gateway/<target>.md[, ...] | no spec delta>
-- cli:    <specs/cli/<target>.md[, ...] | no spec delta>
+- <受影响领域>: <目标仓库的 canonical spec 路径与对应 delta | no spec delta>
 
 ## 风险与回退
 

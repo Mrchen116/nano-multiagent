@@ -10,10 +10,10 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 ## 实施边界
 
 - 在专属 unit worktree 操作，保留主仓 branch、dirty/untracked；唯一解析 active/archive/retired 中的 unit。依赖未完成、准入缺失、来源不明现场或 retired unit 不启动。
-- Full 要求 Gate 2 通过且受审产物未变；lite 保持唯一 `M1-fix`，超出小范围或需要独立设计时升级 Full。
-- 已设计的 milestone 派发 `change-impl-worker`；给 assignment、退出标准、unit 与 milestone 路径和精确 worktree/branch 计划。worker 自建并拥有现场，不设置 harness 自动 worktree isolation，不接管已派出的实施。
-- 仅在无依赖和写冲突时并行。自包含小闭环按独立 owner 的实际收益选择直接完成或派 worker；直接修复仍需适用的独立验收。
-- 复用原 worker/reviewer 上下文；等待完成或 attention 通知，不轮询催进度。收到 blocker 后处理授权范围内问题，已确认需求或关键设计变化交回 author。
+- Full 要求 Gate 2 通过且无未经审查的实质变化；lite 保持唯一 `M1-fix`，超出小范围或需要独立设计时升级 Full。
+- 首轮仅在独立交付收益明确时将 milestone 派发 `change-impl-worker`；给 assignment、退出标准、unit 与 milestone 路径和精确 worktree/branch 计划。worker 自建并拥有现场，不设置 harness 自动 worktree isolation，不接管已派出的实施。
+- 仅在无依赖和写冲突时并行。后续审查、验收、CI 或用户反馈发现的问题由主 Agent 修复，不新派或唤醒修复 worker；修复后仍需适用的独立复验。
+- 派发与复用遵循 workflow 的职责边界与下述派发适配；Codex 派发前读取 [适配表](references/codex-execution-notes.md)；等待完成或 attention 通知，不轮询催进度。收到 blocker 后处理授权范围内问题，已确认需求或关键设计变化交回 author。
 - 签收以最终 unit tree 的退出标准证据为准。worker 的两份短记录、commits 和适用真实入口/prototype 对照证据必须可达；假入口、未完成验证和口头 DONE 不足以签收。
 
 ## 独立门禁
@@ -24,13 +24,13 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 | Full，零用户面 | skipped | full | full |
 | Bugfix lite | skipped | skipped | full |
 
-对冻结的同一 unit HEAD 派独立 reviewer/verifier；主会话调用 code-review 组织独立发现与验证。验收角色只写规定报告。判真 findings，修复成立的阻塞问题；报告之外的写入使该轮失效。
+对冻结的同一 unit HEAD 按 workflow 组织独立门禁：向同一静态审查者明确派发 code review/verifier 的各项职责、范围与输出，产品 reviewer 与两者独立；收到高风险、有争议或关键条件未确认的发现时，再派发独立候选核验。验收角色只写规定报告；产品 reviewer 的隔离测试配置例外遵循其 Skill。判真 findings，修复成立的阻塞问题；超出上述允许范围的写入使该轮失效。
 
 [门禁输入与修复](references/validation.md) 定义固定字段、复验模式与升级条件；进入验收时读取。只重跑受实际 delta 影响的检查，证据不足或高风险时 full，不把 inherited 结论写成重新执行。
 
 ## 交付与恢复
 
-按 change-workflow 完成 final sync 与门禁有效性判断、delta 校正及 Full corrected-delta 核对、canonical 归并、本地 CI、完整 archive、PR 和 required CI。组装 PR 时读 [PR 模板](references/pr-body-templates.md)。有真实 Promotion Candidates 才归并到唯一权威位置，不强制生产新知识。
+按 change-workflow 完成 final sync 与门禁有效性判断、delta 校正及适用的 corrected-delta 核对（可并入静态审查，无 delta 不空跑）、canonical 归并、本地 CI、完整 archive、PR 和 required CI。组装 PR 时读 [PR 模板](references/pr-body-templates.md)。有真实 Promotion Candidates 才归并到唯一权威位置，不强制生产新知识。
 
 正常完成清理本 unit 进程与创建/接管的 worktree，按实际路径核对；不通配清理他人现场。用户要求保留时报告路径、原因和清理触发；阻塞时保留恢复证据并停掉自己启动的进程。未经授权不 merge。
 
