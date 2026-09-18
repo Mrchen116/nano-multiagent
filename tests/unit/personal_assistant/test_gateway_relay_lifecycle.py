@@ -49,11 +49,7 @@ from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer as _build_kernel_event_observer,
     roll_bubble,
 )
-from personal_assistant.gateway.runtime_delivery.task_tracker import (
-    RuntimeDeliveryTaskTracker,
-)
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
-from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.gateway.composition import (
@@ -883,132 +879,6 @@ def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() 
     assert context.conversation_id == "shadow-conv-1"
     assert context.owner_user_id == ""
     assert context.trigger_source == "im"
-
-
-def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> None:
-    class _Manager:
-        connected = True
-
-        def __init__(self) -> None:
-            self.sent_frames: list[tuple[str, dict[str, object]]] = []
-            self._counter = 0
-
-        async def send_json_await_ack(
-            self, message_type: str, payload: dict[str, object]
-        ) -> dict[str, object]:
-            self.sent_frames.append((message_type, payload))
-            self._counter += 1
-            return {
-                "payload": {
-                    "message_id": f"im-msg-{self._counter}",
-                    "conversation_id": payload.get("conversation_id"),
-                }
-            }
-
-        async def send_json(
-            self, message_type: str, payload: dict[str, object]
-        ) -> None:
-            self.sent_frames.append((message_type, payload))
-
-    manager = _Manager()
-    mirrored: list[tuple[str, dict[str, str]]] = []
-    shadowed: list[str] = []
-    run_context_store = delivery_context_store(
-        {
-            "run-1": {
-                "conversation_id": "shadow-conv",
-                "message_id": "",
-                "agent_id": "agent-a",
-                "kernel_session_id": "sess-1",
-                "to_user_id": "",
-                "trigger_source": "feishu",
-                "reply_channel_name": "feishu:agent-a",
-                "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
-                "feishu_message_id": "om_msg_1",
-                "model": "provider/path/gpt-5.4",
-                "shadow_saga_id": "saga-1",
-            }
-        }
-    )
-    tracker = RuntimeDeliveryTaskTracker()
-    observer = _build_kernel_event_observer(
-        im_connection_manager_factory=lambda: manager,
-        run_context_store=run_context_store,
-        external_reply_sender=lambda text, metadata: mirrored.append(
-            (text, dict(metadata))
-        ),
-        external_final_projection_builder=lambda text, _channel_name, facts: (
-            ExternalFinalProjection(
-                text=text,
-                runtime_footer=f"{facts.model} · ctx 42%",
-            )
-        ),
-        shadow_output_prepare=lambda _saga, _run, _phase, _kernel, text: (
-            shadowed.append(text)
-        ),
-        task_tracker=tracker,
-    )
-
-    async def _exercise() -> None:
-        result = observer(
-            {"event": "run_status", "run_id": "run-1", "status": "running"}
-        )
-        assert asyncio.iscoroutine(result)
-        await result
-        observer(
-            {
-                "event": "assistant_message",
-                "run_id": "run-1",
-                "message_id": "kernel-msg-a",
-                "content": "I will check.",
-                "reasoning_content": "private chain of thought A",
-            }
-        )
-        await asyncio.sleep(0)
-        roll = observer(
-            {
-                "event": "assistant_message",
-                "run_id": "run-1",
-                "message_id": "kernel-msg-b",
-                "content": "Final answer.",
-                "reasoning_content": "private chain of thought B",
-            }
-        )
-        assert asyncio.iscoroutine(roll)
-        await roll
-        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
-        await tracker.close_and_drain(asyncio.get_running_loop().time() + 1)
-
-    asyncio.run(_exercise())
-
-    assert mirrored == [
-        (
-            "I will check.",
-            {
-                "reply_phase": "intermediate",
-                "reply_dedupe_key": "run-1:bubble:kernel-msg-a",
-                "run_id": "run-1",
-                "output_key": "run-1:bubble:0",
-                "channel_name": "feishu:agent-a",
-                "target_chat_id": "feishu:cli_a:dm:ou_user",
-                "feishu_message_id": "om_msg_1",
-            },
-        ),
-        (
-            "Final answer.",
-            {
-                "reply_phase": "final",
-                "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
-                "run_id": "run-1",
-                "output_key": "run-1:bubble:1",
-                "channel_name": "feishu:agent-a",
-                "target_chat_id": "feishu:cli_a:dm:ou_user",
-                "feishu_message_id": "om_msg_1",
-                "runtime_footer": "provider/path/gpt-5.4 · ctx 42%",
-            },
-        ),
-    ]
-    assert shadowed == ["I will check.", "Final answer."]
 
 
 def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:

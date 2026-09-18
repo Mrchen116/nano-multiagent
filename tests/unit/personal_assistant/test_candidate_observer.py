@@ -7,6 +7,7 @@ from personal_assistant.gateway.runtime_delivery.candidate_observer import (
     build_candidate_observer,
 )
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_footer import ExternalFinalProjection
 
 
 def setup_observer(result=None):
@@ -95,6 +96,7 @@ async def test_partial_delivery_cannot_trigger_regeneration():
         event("assistant_message", message_id="m", content="A delivered reply")
     )
     await observer(event("model_round_end", completed=True))
+    await observer(event("turn_end", completed=True))
     assert context.delivery_feedback is None
     assert context.delivery_published_text == "A delivered reply"
 
@@ -113,7 +115,69 @@ async def test_complete_background_round_preserves_early_chunk_sidecars():
     )
     await observer(event("assistant_message", message_id="m2", content="second"))
     await observer(event("model_round_end", completed=True))
+    await observer(event("turn_end", completed=True))
     assert delivered[0].metadata["source_background_returns"] == [sidecar]
+
+
+@pytest.mark.asyncio
+async def test_only_terminal_candidate_receives_external_final_projection():
+    contexts = RunDeliveryContextStore()
+    context = contexts.seed_owner_direct_run(
+        run_id="r", agent_id="a", kernel_session_id="s", owner_user_id="u"
+    )
+    context.reply_channel_name = "feishu:a"
+    context.model = "provider/model"
+    delivered = []
+
+    async def deliver(candidate):
+        delivered.append((candidate.text, context.external_final_projection))
+        return DeliveryResult(state="delivered")
+
+    observer = build_candidate_observer(
+        writer=lambda _: None,
+        context_store=contexts,
+        deliver=deliver,
+        external_final_projection_builder=lambda text, _channel, _facts: (
+            ExternalFinalProjection(text=text, runtime_footer="model · ctx 25%")
+        ),
+    )
+
+    await observer(
+        event("assistant_message", group_id="g1", message_id="m1", content="First")
+    )
+    await observer(event("model_round_end", group_id="g1", completed=True))
+    assert not delivered
+
+    await observer(
+        event("assistant_message", group_id="g2", message_id="m2", content="Final")
+    )
+    assert delivered == [("First", None)]
+    await observer(event("model_round_end", group_id="g2", completed=True))
+    await observer(
+        event(
+            "turn_end",
+            group_id="g2",
+            completed=True,
+            usage={"prompt_tokens": 25},
+            context_window=100,
+        )
+    )
+
+    assert delivered[1] == (
+        "Final",
+        ExternalFinalProjection(text="Final", runtime_footer="model · ctx 25%"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_run_status_publishes_pending_final_candidate():
+    observer, _, delivered, _ = setup_observer()
+    await observer(event("assistant_message", message_id="m", content="Final"))
+    await observer(event("model_round_end", completed=True))
+
+    await observer(event("run_status", status="completed"))
+
+    assert [candidate.text for candidate in delivered] == ["Final"]
 
 
 @pytest.mark.asyncio

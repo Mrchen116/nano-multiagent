@@ -251,17 +251,33 @@ class MessageDelivery:
             images = await asyncio.to_thread(
                 self.images.outbound_images, prepared, adapter.image_account_id
             )
+            external_text = prepared.markdown_template
+            external_metadata = {
+                "run_id": candidate.run_id,
+                "output_key": key,
+                "reply_dedupe_key": key,
+            }
+            final_projection = context.external_final_projection
+            if final_projection is not None:
+                if final_projection.text.startswith(candidate.text):
+                    external_text = (
+                        prepared.markdown_template
+                        + final_projection.text[len(candidate.text) :]
+                    )
+                else:
+                    external_text = final_projection.text
+                external_metadata["reply_phase"] = "final"
+                if final_projection.runtime_footer:
+                    external_metadata["runtime_footer"] = (
+                        final_projection.runtime_footer
+                    )
             external = await self.router.prepare_images_async(
-                text=prepared.markdown_template,
+                text=external_text,
                 reply_context=ReplyContext(
                     channel_name=context.reply_channel_name,
                     target_chat_id=context.reply_target_chat_id,
                     thread_id=context.reply_thread_id or None,
-                    metadata={
-                        "run_id": candidate.run_id,
-                        "output_key": key,
-                        "reply_dedupe_key": key,
-                    },
+                    metadata=external_metadata,
                 ),
                 images=images,
                 record_provider_receipts=lambda receipt: (
