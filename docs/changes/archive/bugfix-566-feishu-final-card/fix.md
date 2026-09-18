@@ -78,3 +78,5 @@
 保留 runtime footer 配置/事实投影、Feishu final card 与 non-final plain transport、candidate 终态划分、完整真实组合链路等各自拥有独立失败原因的覆盖。
 
 删除后相关策略、adapter、candidate、真实组合与剩余 relay lifecycle 聚焦套件共 `68 passed`，Ruff 与 diff check 通过。
+
+独立 patch code review 核对 `5bcf1c200..2f90d675c` 后返回 `[]`；本地等价 CI 的 agent + PA 分片 `1945 passed`、remaining 分片 `2043 passed`，documentation integrity 与全仓 Ruff check/format 通过。前端未变化，保留同一 PR 前一 head 的 `770 passed` 证据。
