@@ -67,3 +67,14 @@
 - 独立 code review：full review `215416a41..b22e017db` 确认上述工具候选问题，并将 `run_status=completed` 缺口列为 plausible；closure review `b22e017db..1778f80c1` 返回 `[]`，两项 focus finding 均 closed。`validated_at=1778f80c1`，`executed_base=215416a41`。
 - 本地 CI：documentation integrity、全仓 Ruff check/format 通过；agent + PA 非 E2E 分片 `1946 passed`，remaining 非 E2E 分片在最终修正后 `2044 passed`；前端 critical audit 通过（现有 2 high / 3 moderate / 2 low），Vitest `83 files / 770 tests passed`。
 - Final sync：`origin/main=215416a41`，相对 `1778f80c1` 为 ahead 2 / behind 0，没有 main 增量使上述门禁失效；`effective_base=215416a41`，`effective_through=1778f80c1`。远端 PR CI 在归档并推送后核对。
+
+### Post-PR 测试维护
+
+用户要求继续在同一 unit / PR 清理低价值旧测试。按当前唯一正文交付边界复核后删除两条：
+
+- 删除直接构造旧 kernel observer 并断言其自行镜像正文/footer 的大段测试。`refactor-564` 已明确 `MessageDelivery` 是唯一正文 owner，真实 composition 会在其外层安装 `CandidateObserver`；该测试绕过新入口，既保护了不再属于 observer 的职责，又正是本次回归中“旧组件测试绿、真实产品仍坏”的误导覆盖。替代保护是本 unit 新增的 compose → candidate → delivery → Feishu provider 组合测试。
+- 删除“超长模型名 projection + card builder”机械组合测试。超长模型标签的 512 字符边界由 `test_runtime_footer.py` 直接保护，卡片 payload/正文截断及 footer 保留由相邻 adapter 单测直接保护；该测试没有第三种独立失败原因。
+
+保留 runtime footer 配置/事实投影、Feishu final card 与 non-final plain transport、candidate 终态划分、完整真实组合链路等各自拥有独立失败原因的覆盖。
+
+删除后相关策略、adapter、candidate、真实组合与剩余 relay lifecycle 聚焦套件共 `68 passed`，Ruff 与 diff check 通过。
