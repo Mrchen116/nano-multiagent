@@ -64,4 +64,6 @@
 - 相邻回归：candidate delivery、runtime footer、Feishu adapter 共 `31 passed`；external visible delivery、relay lifecycle、runtime delivery stream、terminal coordinator 共 `70 passed`。
 - 全量门禁首次发现带工具中间图片候选被过度延迟，`test_new_group_input_during_upload_rejects_old_draft[True]` 因上传无法开始而超时；修正为“已进入工具调用的候选立即按中间态发布”后，该输入竞争场景重新通过。
 - 首轮独立 code review 还指出 cron final-only observer 允许以 `run_status=completed` 作为成功终态；当上游没有重放 `turn_end` 时，暂存候选不能被清理掉。修复把该事件作为缺少 usage/context facts 时的终态兜底，并增加永久单元回归。
-- 格式与静态检查、全量本地 CI、独立 code review 和远端 CI 在收尾阶段追加。
+- 独立 code review：full review `215416a41..b22e017db` 确认上述工具候选问题，并将 `run_status=completed` 缺口列为 plausible；closure review `b22e017db..1778f80c1` 返回 `[]`，两项 focus finding 均 closed。`validated_at=1778f80c1`，`executed_base=215416a41`。
+- 本地 CI：documentation integrity、全仓 Ruff check/format 通过；agent + PA 非 E2E 分片 `1946 passed`，remaining 非 E2E 分片在最终修正后 `2044 passed`；前端 critical audit 通过（现有 2 high / 3 moderate / 2 low），Vitest `83 files / 770 tests passed`。
+- Final sync：`origin/main=215416a41`，相对 `1778f80c1` 为 ahead 2 / behind 0，没有 main 增量使上述门禁失效；`effective_base=215416a41`，`effective_through=1778f80c1`。远端 PR CI 在归档并推送后核对。
