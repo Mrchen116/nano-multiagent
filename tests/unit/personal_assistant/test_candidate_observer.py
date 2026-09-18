@@ -52,8 +52,6 @@ async def test_fragmented_image_waits_for_complete_round_and_deduplicates_replay
     )
     await observer(event("model_round_end", completed=True))
     await observer(event("model_round_end", completed=True))
-    assert not delivered
-    await observer(event("turn_end", completed=True))
     assert [item.text for item in delivered] == ["Here ![shot](</tmp/screen.png>)"]
     assert delivered[0].candidate_id == "g"
 
@@ -169,6 +167,17 @@ async def test_only_terminal_candidate_receives_external_final_projection():
         "Final",
         ExternalFinalProjection(text="Final", runtime_footer="model · ctx 25%"),
     )
+
+
+@pytest.mark.asyncio
+async def test_completed_run_status_publishes_pending_final_candidate():
+    observer, _, delivered, _ = setup_observer()
+    await observer(event("assistant_message", message_id="m", content="Final"))
+    await observer(event("model_round_end", completed=True))
+
+    await observer(event("run_status", status="completed"))
+
+    assert [candidate.text for candidate in delivered] == ["Final"]
 
 
 @pytest.mark.asyncio

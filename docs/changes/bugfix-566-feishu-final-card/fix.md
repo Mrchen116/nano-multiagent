@@ -49,7 +49,7 @@
 
 ## 修复
 
-`CandidateObserver` 不再在无法判断终态的 `model_round_end` 直接把最后一个正文候选发布出去，而是暂存它：出现下一组 assistant 正文或同一 run 消费新注入时，上一候选按中间回复发布；成功 `turn_end` 到达时，最后候选才结合该 run 的模型、usage 和 context window 构造 `ExternalFinalProjection`。完整的产品通知仍按原路径立即投递，失败或取消的 run 丢弃未发布候选。
+`CandidateObserver` 不再在无法判断终态的 `model_round_end` 直接把最后一个无工具正文候选发布出去，而是暂存它：同轮已进入工具调用的候选是确定的中间态，仍在该 round 完成时立即发布；出现下一组 assistant 正文或同一 run 消费新注入时，上一无工具候选也按中间回复发布；成功 `turn_end` 到达时，最后候选才结合该 run 的模型、usage 和 context window 构造 `ExternalFinalProjection`。完整的产品通知仍按原路径立即投递，失败或取消的 run 丢弃未发布候选。
 
 `MessageDelivery` 继续是唯一正文交付 owner。它在准备外部消息时读取上述 run-owned final projection，把 `reply_phase=final` 与非空 `runtime_footer` 写入同一个 `ReplyContext`，并在图片占位符准备后的正文上保留非飞书渠道所需的 footer 后缀。飞书适配器的职责不变：只有已批准的最终态且 footer 非空时才渲染原生卡片；中间候选没有 final projection，因此仍走普通消息。
 
@@ -62,4 +62,6 @@
 - Red：`PYTHONPATH=src .venv/bin/pytest -q tests/integration/test_pa_candidate_delivery.py::test_composed_feishu_final_candidate_uses_runtime_card`，修复前稳定失败于 `client.sent[0]["card"] is not None`，实际为 `None`。
 - Green：同一真实组合链路修复后通过，且断言只发送一条 `Final answer`、card 非空并包含配置模型标签。
 - 相邻回归：candidate delivery、runtime footer、Feishu adapter 共 `31 passed`；external visible delivery、relay lifecycle、runtime delivery stream、terminal coordinator 共 `70 passed`。
+- 全量门禁首次发现带工具中间图片候选被过度延迟，`test_new_group_input_during_upload_rejects_old_draft[True]` 因上传无法开始而超时；修正为“已进入工具调用的候选立即按中间态发布”后，该输入竞争场景重新通过。
+- 首轮独立 code review 还指出 cron final-only observer 允许以 `run_status=completed` 作为成功终态；当上游没有重放 `turn_end` 时，暂存候选不能被清理掉。修复把该事件作为缺少 usage/context facts 时的终态兜底，并增加永久单元回归。
 - 格式与静态检查、全量本地 CI、独立 code review 和远端 CI 在收尾阶段追加。

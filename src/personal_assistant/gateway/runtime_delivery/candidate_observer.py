@@ -61,6 +61,7 @@ def build_candidate_observer(
     rounds: dict[tuple[str, str], _Round] = {}
     completed: dict[str, set[str]] = {}
     pending: dict[str, ReplyCandidate] = {}
+    tool_activity: set[str] = set()
 
     async def forward(event: Mapping[str, Any]) -> None:
         result = writer(event)
@@ -168,8 +169,12 @@ def build_candidate_observer(
             if event.get("reasoning_content"):
                 await forward({**event, "content": "", "background_returns": []})
             return
+        if name == "tool_start":
+            tool_activity.add(run_id)
         if name == "model_round_end":
             current = rounds.pop((run_id, group_id), None)
+            had_tool_activity = run_id in tool_activity
+            tool_activity.discard(run_id)
             if not event.get("completed") or current is None:
                 return
             if group_id in completed.setdefault(run_id, set()):
@@ -203,6 +208,9 @@ def build_candidate_observer(
             if source.get("event") == "gateway_message":
                 await publish(candidate)
                 return
+            if had_tool_activity:
+                await publish(candidate)
+                return
             previous = pending.get(run_id)
             if previous is not None:
                 await publish(previous)
@@ -212,7 +220,10 @@ def build_candidate_observer(
             name == "run_status"
             and event.get("status") in {"completed", "failed", "cancelled"}
         ):
-            if name == "turn_end" and event.get("completed") is not False:
+            successful_terminal = (
+                name == "turn_end" and event.get("completed") is not False
+            ) or (name == "run_status" and event.get("status") == "completed")
+            if successful_terminal:
                 await publish_pending(run_id, terminal_event=event)
             else:
                 pending.pop(run_id, None)
@@ -220,6 +231,7 @@ def build_candidate_observer(
                 if key[0] == run_id:
                     rounds.pop(key, None)
             completed.pop(run_id, None)
+            tool_activity.discard(run_id)
             if name == "turn_end" and context.delivery_failed:
                 await forward(
                     {
