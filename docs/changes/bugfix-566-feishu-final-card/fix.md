@@ -49,8 +49,17 @@
 
 ## 修复
 
-待 M1-fix 实施后回填。
+`CandidateObserver` 不再在无法判断终态的 `model_round_end` 直接把最后一个正文候选发布出去，而是暂存它：出现下一组 assistant 正文或同一 run 消费新注入时，上一候选按中间回复发布；成功 `turn_end` 到达时，最后候选才结合该 run 的模型、usage 和 context window 构造 `ExternalFinalProjection`。完整的产品通知仍按原路径立即投递，失败或取消的 run 丢弃未发布候选。
+
+`MessageDelivery` 继续是唯一正文交付 owner。它在准备外部消息时读取上述 run-owned final projection，把 `reply_phase=final` 与非空 `runtime_footer` 写入同一个 `ReplyContext`，并在图片占位符准备后的正文上保留非飞书渠道所需的 footer 后缀。飞书适配器的职责不变：只有已批准的最终态且 footer 非空时才渲染原生卡片；中间候选没有 final projection，因此仍走普通消息。
+
+本次不修改 canonical spec：`docs/specs/gateway/external-channels.md` 已准确要求启用后的飞书最终回复卡片及中间回复普通消息，修复只是让 `refactor-564` 后的新唯一交付路径重新满足该契约。
 
 ## 验证
 
-待 M1-fix 实施后回填。
+测试策略：扩展既有 `tests/integration/test_pa_candidate_delivery.py`，从真实 compose 入口穿过 kernel、candidate observer、`MessageDelivery`、outbound router 和 `FeishuAdapter`，直接断言 provider 最终只收到一条、正文正确且 card 非空的消息。该 integration seam 是本次“跨边界 metadata 丢失”最低可观察层；既有 formatter 与 adapter 单元测试继续保留，不再重复其纯逻辑断言。`tests/unit/personal_assistant/test_candidate_observer.py` 只补充该 owner 自身的稳定阶段边界：前一候选按中间态发布，只有 terminal candidate 获得 final projection。
+
+- Red：`PYTHONPATH=src .venv/bin/pytest -q tests/integration/test_pa_candidate_delivery.py::test_composed_feishu_final_candidate_uses_runtime_card`，修复前稳定失败于 `client.sent[0]["card"] is not None`，实际为 `None`。
+- Green：同一真实组合链路修复后通过，且断言只发送一条 `Final answer`、card 非空并包含配置模型标签。
+- 相邻回归：candidate delivery、runtime footer、Feishu adapter 共 `31 passed`；external visible delivery、relay lifecycle、runtime delivery stream、terminal coordinator 共 `70 passed`。
+- 格式与静态检查、全量本地 CI、独立 code review 和远端 CI 在收尾阶段追加。

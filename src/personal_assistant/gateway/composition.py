@@ -770,6 +770,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         writer=reply_delivery.observe_process,
         context_store=run_delivery_contexts,
         deliver=reply_delivery.deliver_candidate,
+        external_final_projection_builder=_build_external_final_projection,
     )
 
     bg_reply_sender = build_bg_reply_sender(

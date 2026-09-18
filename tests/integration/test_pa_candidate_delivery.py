@@ -12,7 +12,11 @@ import pytest
 from agent.core.llm.interfaces import LLMMessage
 from agent.sdk import PermissionDecision
 from personal_assistant.channels.base import IMRelayIngress, InboundIngress
-from personal_assistant.config.local_store import ChannelConfig, IMServiceConfig
+from personal_assistant.config.local_store import (
+    ChannelConfig,
+    DisplayConfig,
+    IMServiceConfig,
+)
 from personal_assistant.gateway.composition import compose_gateway
 from tests.unit.personal_assistant._main_helpers import make_minimal_config
 from tests.unit.personal_assistant._session_run_coordinator_helpers import inbound
@@ -74,6 +78,7 @@ def build(
     manual_approval=False,
     enabled_tools=(),
     http_handler=None,
+    runtime_footer_enabled=False,
 ):
     from personal_assistant import product
     from personal_assistant.gateway import composition
@@ -86,6 +91,7 @@ def build(
         agents=tuple(replace(a, tool_allowlist=enabled_tools) for a in config.agents),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
         im_service=IMServiceConfig(url="http://im.test"),
+        display=DisplayConfig(runtime_footer_enabled=runtime_footer_enabled),
     )
     model = model or Model(texts)
     original = product.build_kernel
@@ -247,6 +253,106 @@ async def test_composed_text_passes_through_without_image_permissions(
         assert len(model.requests) == 1
         assert not permissions and not uploads and not model.permission_requests
         assert [p["delta_text"] for p in deltas(rt)] == ["Plain reply"]
+    finally:
+        await close(rt)
+
+
+@pytest.mark.asyncio
+async def test_composed_feishu_final_candidate_uses_runtime_card(tmp_path, monkeypatch):
+    from personal_assistant.channels.base import (
+        ExternalConversationIdentity,
+        ExternalInboundEventIdentity,
+    )
+    from personal_assistant.channels.feishu.adapter import FeishuAdapter
+    from personal_assistant.gateway.group_context_store import GroupContextStore
+    from personal_assistant.gateway.inbound_models import (
+        GatewayShadowState,
+        InboundRunRequest,
+        RoutedInbound,
+        ShadowConversationRef,
+    )
+    from personal_assistant.gateway.session_keys import build_session_key
+
+    rt, _, _, _ = build(
+        tmp_path,
+        monkeypatch,
+        ["Final answer"],
+        runtime_footer_enabled=True,
+    )
+
+    class Client:
+        def __init__(self):
+            self.sent = []
+
+        def add_reaction(self, **kwargs):
+            return "reaction"
+
+        def remove_reaction(self, **kwargs):
+            pass
+
+        def send_prepared_message(self, **kwargs):
+            assert kwargs["before_publish"]()
+            self.sent.append(kwargs)
+            return "delivered"
+
+    client = Client()
+    adapter = FeishuAdapter(
+        name="feishu:agent-a",
+        app_id="app",
+        app_secret="secret",
+        group_context_store=GroupContextStore(tmp_path / "external-groups.sqlite3"),
+    )
+    adapter._client = client
+    rt._channel_registry.register(adapter)
+    try:
+        message = replace(
+            inbound(chat_id="feishu:app:dm:human", text="question"),
+            channel_name=adapter.name,
+            metadata={
+                "trigger_source": "feishu",
+                "external_source": "feishu",
+                "feishu_message_id": "external-input",
+            },
+            ingress=InboundIngress(
+                external_event=ExternalInboundEventIdentity("app", "event"),
+                external_conversation=ExternalConversationIdentity(
+                    "feishu",
+                    "feishu:app:dm:human",
+                    "agent-a",
+                    "direct",
+                    "external",
+                ),
+            ),
+        )
+        agent = rt._run_coordinator._session_binder.current_agent("agent-a")
+        saga_store = rt._on_inbound._pipeline._shadow_sync._saga_store
+        saga = saga_store.prepare(
+            message=message, agent_id=agent.agent_id, owner_id="u_owner"
+        )
+        saga_store.record_anchor(
+            saga_id=saga.saga_id,
+            shadow_ref=ShadowConversationRef("c_chat", "shadow-input"),
+        )
+        request = InboundRunRequest(
+            routed=RoutedInbound(
+                message=message,
+                shadow=GatewayShadowState(
+                    saga_id=saga.saga_id,
+                    ref=ShadowConversationRef("c_chat", "shadow-input"),
+                ),
+            ),
+            agent=agent,
+            session_key=build_session_key(message, agent_id=agent.agent_id),
+            sender_label="Human",
+        )
+
+        await rt._run_coordinator.dispatch(request)
+        await rt._run_coordinator.drain(asyncio.get_running_loop().time() + 5)
+
+        assert len(client.sent) == 1
+        assert client.sent[0]["text"] == "Final answer"
+        assert client.sent[0]["card"] is not None
+        assert "K2.6" in str(client.sent[0]["card"])
     finally:
         await close(rt)
 

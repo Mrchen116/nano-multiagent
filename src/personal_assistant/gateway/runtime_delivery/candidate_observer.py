@@ -8,6 +8,10 @@ import inspect
 from typing import Any
 
 from personal_assistant.gateway.message_delivery import DeliveryResult, ReplyCandidate
+from personal_assistant.gateway.runtime_footer import (
+    ExternalFinalProjection,
+    TerminalFooterFacts,
+)
 from .context import RunDeliveryContextStore
 
 
@@ -39,6 +43,9 @@ def build_candidate_observer(
     writer: Callable[[Mapping[str, Any]], Any],
     context_store: RunDeliveryContextStore,
     deliver: Callable[[ReplyCandidate], Awaitable[DeliveryResult]],
+    external_final_projection_builder: (
+        Callable[[str, str, TerminalFooterFacts], ExternalFinalProjection] | None
+    ) = None,
 ) -> Callable[[Mapping[str, Any]], Awaitable[None]]:
     """Separate model facts from complete, privately prepared delivery intents.
 
@@ -46,17 +53,70 @@ def build_candidate_observer(
         writer: Delivery owner's process event sink.
         context_store: Actual accepted run routing and lifecycle contexts.
         deliver: Sole Gateway entry point for complete automatic replies.
+        external_final_projection_builder: Optional final external display policy.
 
     Returns:
         An awaited event consumer; chunk endings never authorize publication.
     """
     rounds: dict[tuple[str, str], _Round] = {}
     completed: dict[str, set[str]] = {}
+    pending: dict[str, ReplyCandidate] = {}
 
     async def forward(event: Mapping[str, Any]) -> None:
         result = writer(event)
         if inspect.isawaitable(result):
             await result
+
+    async def publish(candidate: ReplyCandidate) -> None:
+        context = context_store.get(candidate.run_id)
+        if context is None:
+            return
+        result = await deliver(candidate)
+        if result.state == "withheld":
+            context.delivery_failed = True
+            context.delivery_feedback = _feedback(result)
+        elif result.state == "pending":
+            context.delivery_failed = True
+        elif result.state in {"delivered", "partial"}:
+            context.delivery_published_text = (
+                context.managed_reply_text or candidate.text
+            )
+
+    async def publish_pending(
+        run_id: str, *, terminal_event: Mapping[str, Any] | None = None
+    ) -> None:
+        candidate = pending.pop(run_id, None)
+        context = context_store.get(run_id)
+        if candidate is None or context is None:
+            return
+        if terminal_event is not None:
+            usage = terminal_event.get("usage")
+            prompt_tokens = (
+                usage.get("prompt_tokens") if isinstance(usage, Mapping) else None
+            )
+            if not isinstance(prompt_tokens, int):
+                prompt_tokens = (
+                    usage.get("input_tokens") if isinstance(usage, Mapping) else None
+                )
+            context_window = terminal_event.get("context_window")
+            facts = TerminalFooterFacts(
+                model=context.model or None,
+                prompt_tokens=(
+                    prompt_tokens if isinstance(prompt_tokens, int) else None
+                ),
+                context_window=(
+                    context_window if isinstance(context_window, int) else None
+                ),
+            )
+            context.terminal_footer_facts = facts
+            context.external_final_projection = (
+                external_final_projection_builder(
+                    candidate.text, context.reply_channel_name, facts
+                )
+                if external_final_projection_builder is not None
+                else ExternalFinalProjection(text=candidate.text)
+            )
+        await publish(candidate)
 
     async def observe(event: Mapping[str, Any]) -> None:
         run_id = str(event.get("run_id") or "")
@@ -68,6 +128,7 @@ def build_candidate_observer(
             return
         if name == "injection_consumed":
             context_store.consume_inputs(run_id, list(event.get("pending_ids") or []))
+            await publish_pending(run_id)
         if name == "gateway_message":
             # Product notices already have a complete body and stable identity.
             identity = str(event["message_id"])
@@ -78,6 +139,9 @@ def build_candidate_observer(
             name = "model_round_end"
             event = {**event, "completed": True}
         if name == "assistant_message":
+            pending_candidate = pending.get(run_id)
+            if pending_candidate is not None and pending_candidate.group_id != group_id:
+                await publish_pending(run_id)
             text = str(event.get("content") or "")
             sidecars = [
                 item
@@ -136,19 +200,22 @@ def build_candidate_observer(
                     "source_background_returns": current.background_returns,
                 },
             )
-            result = await deliver(candidate)
-            if result.state == "withheld":
-                context.delivery_failed = True
-                context.delivery_feedback = _feedback(result)
-            elif result.state == "pending":
-                context.delivery_failed = True
-            elif result.state in {"delivered", "partial"}:
-                context.delivery_published_text = context.managed_reply_text or text
+            if source.get("event") == "gateway_message":
+                await publish(candidate)
+                return
+            previous = pending.get(run_id)
+            if previous is not None:
+                await publish(previous)
+            pending[run_id] = candidate
             return
         if name in {"turn_end", "run_terminal_reconcile", "run_reset_discard"} or (
             name == "run_status"
             and event.get("status") in {"completed", "failed", "cancelled"}
         ):
+            if name == "turn_end" and event.get("completed") is not False:
+                await publish_pending(run_id, terminal_event=event)
+            else:
+                pending.pop(run_id, None)
             for key in tuple(rounds):
                 if key[0] == run_id:
                     rounds.pop(key, None)
