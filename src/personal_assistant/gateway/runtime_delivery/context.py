@@ -120,6 +120,7 @@ class RunDeliveryContext:
     visible_reply_committed: bool = False
     discard_current_bubble: bool = False
     suppressed: bool = False
+    terminal_cleanup_allowed: bool = False
     visibility_state: Literal["active", "quiescing", "revoked"] = "active"
     visibility_changed: asyncio.Event = field(default_factory=asyncio.Event)
     revoked: asyncio.Event = field(default_factory=asyncio.Event)
@@ -402,11 +403,26 @@ class RunDeliveryContextStore:
 
         return self._contexts.get(run_id)
 
-    def suppress(self, run_id: str) -> None:
-        """Fence a reset-superseded run before it creates further visible output."""
+    def suppress(self, run_id: str, *, terminal_cleanup: bool = False) -> None:
+        """Revoke output, optionally retaining user-stop cleanup of the old bubble.
+
+        Args:
+            run_id: Run whose new output must be fenced.
+            terminal_cleanup: Keep terminal cleanup for a user stop; reset callers
+                leave this false so a later cancelled event cannot reauthorize it.
+        """
 
         context = self._contexts.get(run_id)
         if context is not None:
+            context.terminal_cleanup_allowed = (
+                terminal_cleanup
+                and (
+                    context.visibility_state == "active"
+                    or context.terminal_cleanup_allowed
+                )
+                and context.session_generation
+                >= self.current_generation(context.session_key)
+            )
             context.suppressed = True
             context.visibility_state = "revoked"
             context.visibility_changed.set()

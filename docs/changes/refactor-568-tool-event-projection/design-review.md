@@ -42,3 +42,85 @@
 
 - 接受 R1 Approved；核实无实质未决项。采纳 R1-R1：真实验收另查同一聊天持久化工具记录。
 - 实施将接口具体化为 `project(event)` 与 `for_live(projection, context)`，对应设计已允许的“轻量 owner 方法应用 live-only detail”；没有新增职责或行为，保留 Gate 2。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/design_review`（同一独立 reviewer）
+- review_mode: delta
+- mode_reason: A1 将既有 stop 终态不收口纳入有界修复；复审新的 cleanup 准入与其调用链，未变化的 projector 设计 retained_from: Round 1。
+- started_at: 2026-09-19T13:43:21+08:00（本轮显式时钟记录起点）
+- completed_at: 2026-09-19T13:43:43+08:00
+- duration: 显式计时 22 秒，不含此前阅读及报告写入。
+- baseline: worktree `/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-568`；HEAD `3b4ff2ad945b49bc8a41ea8674b8be2af4b91812`；design/motivation dirty，code-review/verification 未跟踪；本轮未修改产品代码。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING**
+
+### Coverage 与证据
+
+- 已读 A1 真实验收报告、motivation current drift、新增设计段。stop 应答成功但在飞工具不收口违反既有 tool-timeline，中断收口仍是原 M1 用户侧退出标准；no spec delta 合理。当前设计 A1 对文件范围的补充与单 milestone 可共同阅读；无需扩展产品协议或 UI。
+- 生产路径沿用 Round 1 已核实的 composition → MessageDelivery → observer，并核实 `ImageReplyConnection._send/_publish` 当前在 message_completed 分支从 `_Bubble.raw` 填充正文，随后调用 await_visibility；因此仅放行 observer 不足，新增的 bodyless 清理旁路必须在正文回填之前，并且保持 message identity 限制。设计已覆盖此点。
+- observer 当前 `is_suppressed` 门控确实在 projector/reconcile 之前。`SessionRunCoordinator.stop:1317-1323` 确实先标记 user interrupted、suppress，再 interrupt。新 terminal_cleanup_allowed 状态由 context store 拥有，observer 只分发已授权异常终态，image connection 在最终出口限制失败工具与 bodyless terminal，职责合理；不需要新通道或重新开放普通发布。
+- reset 的 `advance_generation:350-360`、register/seed generation fence 和普通 suppress 必须撤销 stop cleanup 授权；本轮设计已明确 reset 覆盖语义。但从 stop 到 reconcile 的完整 cancelled 事件链还有一个重复 suppress，见 R2-W1。这个调用是当前正常生产链的一部分，不是推测竞态。
+- 原 projector 的 shadow/live schema 差异、状态 owner、依赖边界、正常回看及离线恢复 retained_from: Round 1：A1 不修改这些决定。新增验收已要求真实 stop、保留已完成工具、晚到正文拒绝和 reset 反例；补齐 R2-W1 后应在同一组回归验证真实 cancelled event 顺序，而非只直接调用 observer。
+
+### 历史问题闭环
+
+- Round 1 无阻断问题；R1-R1 的历史字段检查已在 acceptance.md 正常/失败 read 旅程中落实。
+- 产品 A1 仍未闭环：本轮审设计，不以提出修复代替实施与真实复验。
+
+### Issues
+
+#### R2-W1 — cancelled 事件再次 suppress 会撤销刚授予的 stop cleanup 权限
+
+- 位置：`design.md`「A1: 停止后的终态清理归属」中“默认 false / 普通 suppress 覆盖旧授权 / coordinator.stop 的单处授权调用”。
+- 证据：`session_run_coordinator.py:3101-3107` 在 `_await_terminal_run` 消费 `run_status(status=cancelled)` 时无条件执行 `self._delivery_context_store.suppress(run_id)`；随后 `3150-3154` 调用 `_emit_terminal_reconcile`。按本设计，仅在 `stop` 授予 true，但这个普通 suppress 会先覆盖为 false，observer 仍丢弃 reconcile。`_fence_recovery_for_control:3539-3544` 也存在对未完成 successor 的 suppress，设计修订时应明确其既有 stop/reset 区分。
+- 后果：只按当前“stop 单处授权”的改动范围实施，正常 `/stop` cancelled 路径仍可复现 A1；直接给 context 授权再调用 observer 的窄测试会漏掉。
+- 所需修正：明确同一次 user stop 的 cancelled 事件如何保留已经授予的 cleanup，且 reset/generation revoke 始终清除、不被迟到 cancelled 重新授权；把涉及的 coordinator 调用点纳入设计范围。无需增加通用机制，沿已有 user-interrupted/reset 事实或明确的 context 操作语义即可。回归包含 stop → cancelled run_status → reconcile，以及 stop → reset → cancelled/reconcile 的反例。
+
+### Recommendations
+
+无额外建议。
+
+## Author Resolutions R2
+
+- R2-W1 accepted：A1 设计补齐 cancelled 分支传递同次 user-stop 事实；store 根据既有授权/active 状态及 generation 限制授权，reset 默认 false 撤销后不能由迟到 cancelled 恢复。补充两条完整生命周期回归。未开始 A1 产品代码修改。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/design_review`（同一独立 reviewer）
+- review_mode: closure
+- mode_reason: 仅核实 R2-W1 的 Author Resolution 与修订后的 A1 授权链；其余设计无实质变化，retained_from: Round 1 / Round 2。
+- started_at: 2026-09-19T13:45:00+08:00
+- completed_at: 2026-09-19T13:45:35+08:00
+- duration: 显式计时 35 秒；不包含最初阅读。
+- baseline: 同 unit worktree，HEAD `3b4ff2ad945b49bc8a41ea8674b8be2af4b91812`；审阅未提交的 design A1 与 Author Resolutions R2；A1 产品代码尚未修改。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+### 历史问题闭环
+
+- **R2-W1 — closed（设计层）**。
+- Author Resolution：cancelled 分支根据既有 `_user_interrupted_runs` 传入同次 stop 事实；store 限定 active 或已有 cleanup 授权，并要求 generation 未失效；普通 suppress 清除授权，revoked+false 不得因迟到 cancelled 重新授权。
+- 本轮证据：`design.md` A1 修订段已明确 coordinator 的 stop 与 cancelled 两处调用，最后新增完整生命周期正反两条回归。与现有 `session_run_coordinator.py:3101-3107,3150-3154` 调用顺序对照后，stop 首次授予、cancelled 保留、reconcile 使用的链路已闭合。
+- reset 反例：reset/generation advance 以普通 suppress 撤销授权后，context 为 revoked+false；迟到 cancelled 即使还携带 user-interrupted 事实，也不满足授权前态。generation 条件另外阻止旧代次获准。因此不依赖清空标记集合的时机来防止旧回复恢复。
+- 普通正文准入仍是 revoked；observer 例外仅为 terminal reconcile，最终 image connection 例外仍限定现存 message identity、failed tool 和 final_content=None。R2 已审的正文缓存不回填约束保持。
+
+### Retained coverage
+
+Round 1 的 projector ownership、shadow/live schema、生产接线与 canonical 无变更结论保留；Round 2 除 R2-W1 外的 A1 出口限制、职责与真实复验要求保留。此结论只解除设计门禁，不宣称 A1 产品验收通过；实施后仍须执行新增生命周期回归与真实 stop 复验。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。

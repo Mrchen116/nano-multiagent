@@ -693,7 +693,9 @@ def build_kernel_event_observer(
                         await deferred
 
                 return _PreparedEvent(handled=True, result=_defer_until_reset_decides())
-            if run_context_store.is_suppressed(run_id):
+            if run_context_store.is_suppressed(run_id) and not (
+                event_name == "run_terminal_reconcile" and ctx.terminal_cleanup_allowed
+            ):
                 return _PreparedEvent(handled=True, result=None)
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)

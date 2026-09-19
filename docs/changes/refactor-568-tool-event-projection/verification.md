@@ -1,0 +1,79 @@
+# Verification Report: refactor-568-tool-event-projection
+
+> Validation snapshot: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75 → 151928fed7d894114b89c851cce8b621872e64d7`
+
+## Round 1
+
+- reviewer: `/root/static_review`，未参与受审实现；caller 明确合并派发静态 code review 与 verifier，两份报告分别给出结论。
+- verification_mode: `full`
+- verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`
+- 范围：完整 frozen diff、M1 退出标准、motivation/design、相关 current specs 与测试证据；no spec delta。只写报告，不启动服务或改动被审对象。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M1 的静态实现、回归保护和 no-spec-delta 检查完整 |
+| Correctness | 3/3 不变性场景有实现与直接测试/代码证据 |
+| Coherence | 4/4 design 决策遵守 |
+
+## Completeness
+
+- M1 实现把 start/end 解析、in-flight 状态、正常 `finish` 与异常 `reconcile` 收敛到 `tool_projection.py`；observer 保留 shadow 写入顺序、门控、Workflow binding、任务命名和调度。
+- `implementation.md` 的基线 89 项既有回归及新增 4 项目的地投影证据可复用；本次独立复跑的 21 项覆盖新增文件、reconcile input/presentation 和 presenter 字段透传。
+- diff 仅含 runtime_delivery 内部职责迁移、测试及 unit 记录；不含 `docs/specs/`、协议、存储、Kernel、IM 或 UI 修改，因此 `no spec delta` 成立。Prototype / Reference：N/A。
+- design 要求的真实产品观察（实际 IM/Gateway/LLM 路径与持久化工具历史）由 caller 同时派发的独立 product reviewer 验收；本静态 verifier 未将该未完成的独立职责声称为已执行。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 正常与失败工具的名称、参数、detail、emoji、完成/失败和 verdict 保持 | `tool_projection.py:26-86`; `observer.py:788-799, 1674-1754` | `test_tool_delivery_projections.py:89-131`; `test_tool_end_detail_passthrough.py` | covered |
+| 中断中工具关闭且保留原参数/展示，已完成工具不改写 | `tool_projection.py:116-163`; `observer.py:733-734, 843-859, 1971-2003` | `test_reconcile_preserves_tool_input.py:66-303` | covered |
+| IM 离线时 shadow 恢复语义和实时/历史字段省略规则不变 | `observer.py:723-799, 951-962`; `tool_projection.py:78-114` | `test_tool_delivery_projections.py:134-181`; implementation.md 的 shadow 回归记录 | covered |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 一个状态 owner，保留两种历史 wire schema | 是 | `tool_projection.py:12-17, 78-89` 明确返回 shadow/live 两份 payload；`observer.py:788-799, 1690-1745` 分别写入/发送。 |
+| 每个 admitted 事件最多一次状态转换；未走 shadow 者在既有 live gate 后投影 | 是 | `observer.py:788-792` 将 shadow 投影放进 scope；`observer.py:1690, 1734` 只在缺少 scope 投影时调用 project；离线分支在 `951-962` 前不再调用 live handler。 |
+| 保持 shadow-before-live 和 live-only revalidation | 是 | `observer.py:735-859` 先持久化，`1674-1710` 后发送；`tool_projection.py:92-114` 仅在 live path 更新 pending detail。 |
+| 保持工厂注入接口和异常 bare-name fallback | 是 | `observer.py:172, 245-247`; `tool_projection.py:127-153`。 |
+
+## Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+无。
+
+### SUGGESTION
+
+无。
+
+## Corrected Delta Reconciliation
+
+**no spec delta**：完整 diff 未引入未被 current specs 覆盖的可观察行为；两份历史 schema、顺序与 gate 均保留。无 uncovered observable behavior。
+
+独立验证命令：
+
+```sh
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q \
+  tests/unit/personal_assistant/test_tool_delivery_projections.py \
+  tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py \
+  tests/unit/personal_assistant/test_tool_end_detail_passthrough.py
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check \
+  src/personal_assistant/gateway/runtime_delivery/observer.py \
+  src/personal_assistant/gateway/runtime_delivery/tool_projection.py \
+  tests/unit/personal_assistant/test_tool_delivery_projections.py
+git diff --check 4394ad424..151928fed7d894114b89c851cce8b621872e64d7
+```
+
+结果：`21 passed in 1.38s`；Ruff 通过；diff check 通过。
+
+caller 提供并在同一 `validated_at` 上执行的可复用验证：`PYTHONPATH=src pytest -m 'not e2e' -n 4 --dist worksteal` 为 **3992 passed / 178.84s**（`/tmp/refactor568-pytest.log`）；frontend 的 `npm ci`、`npm audit --audit-level=critical`、`npm test -- --maxWorkers=2` 全部通过，结果为 **83 files / 770 tests / 125.46s**（`/tmp/refactor568-frontend.log`）；`docs-check` 为 **242 maintained Markdown sources / 73 routes**，`ruff check .` 与 format check（1082 files）通过。我已读取两份日志末尾确认上述两个测试汇总；其余命令结果按 caller 提供证据复用。独立 product reviewer 的真实用户旅程结论仍应由其专属报告给出，未被表述为本 verifier 的执行结果。

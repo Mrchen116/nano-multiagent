@@ -1317,7 +1317,9 @@ class SessionRunCoordinator:
                 # stream consumer performs reconcile after Kernel interruption.
                 self._user_interrupted_runs.add(active_run_id)
                 if self._delivery_context_store is not None:
-                    self._delivery_context_store.suppress(active_run_id)
+                    self._delivery_context_store.suppress(
+                        active_run_id, terminal_cleanup=True
+                    )
                 self._fence_recovery_for_control(active_run_id, reset=False)
                 self._kernel.interrupt(binding.kernel_session_id)
                 self._kernel.append_message(
@@ -3104,7 +3106,9 @@ class SessionRunCoordinator:
                     and event.get("status") == "cancelled"
                     and self._delivery_context_store is not None
                 ):
-                    self._delivery_context_store.suppress(run_id)
+                    self._delivery_context_store.suppress(
+                        run_id, terminal_cleanup=run_id in self._user_interrupted_runs
+                    )
                 if self._kernel_event_observer is not None:
                     if held_assistant_events is not None and _should_hold_for_notice(
                         event
