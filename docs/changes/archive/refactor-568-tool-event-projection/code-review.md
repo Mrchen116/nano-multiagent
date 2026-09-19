@@ -40,3 +40,42 @@ caller 在同一冻结版本提供的可复用 CI 证据：`pytest -m 'not e2e' 
 ```
 
 其余 A1 接线与设计一致：`context.py:406-429` 只在 active/已有授权且 generation 未失效时保留 cleanup；observer `696-699` 仅为该授权的 reconcile 穿过 revoked gate；`image_connection.py:92-104` 要求同一非空 message_id、failed tool 或 `final_content is None`，并在 completion 前清除缓存 bubble，故不会回填正文或创建新气泡。`stop:1319-1322` 与 cancelled `3109-3111` 的实际调用也都传入设计规定的事实；上述问题是缺少把二者连到可观察结果的长期回归保护。此前 R1 projector ownership、双 schema、离线/顺序结论 retained。独立执行相关 19 项回归与 A1 文件 Ruff 通过，`git diff --check` 通过；caller 的 60 项窄套件和 Python 全量运行不改变此覆盖缺口。
+
+## Round 3
+
+- reviewer: `/root/static_review`，未参与修正实现。
+- review_mode: `closure`
+- executed_base: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75`
+- validated_at: `a2a86e7308b746638bf987d4fc4c69434a379336`
+- fix_delta_range: `34ff1a2cedfac2224ec88661bc19b54d4dded4c0..a2a86e7308b746638bf987d4fc4c69434a379336`
+- focus_findings: Round 2 R2-W1。
+
+```json
+[
+  {
+    "file": "tests/unit/personal_assistant/test_session_run_coordinator_terminal.py",
+    "line": 264,
+    "summary": "[P2] Reset closure only rejects a tool terminal, not bubble completion",
+    "failure_scenario": "The reset branch filters only tool_call_completed into terminal and asserts terminal == [] at lines 264-267. It never asserts that message_completed is absent. A regression that incorrectly reauthorizes only the final bubble closure after stop→reset/generation advance→cancelled would emit message_completed, satisfy this test, and violate A1's requirement that an old reset bubble cannot publish any terminal cleanup. Assert neither tool_call_completed nor message_completed is sent in the reset branch, or assert the full frame kinds remain only the pre-stop tool_call_upserted.",
+    "review_mode": "closure",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+R2-W1 is closed for the normal stop chain: the amended test injects real ContextStore, observer and ImageReplyConnection, creates an in-flight tool, drives SessionRunCoordinator.stop and cancelled, then observes failed tool plus message completion. The reset counterexample remains partially open because the bubble-terminal half lacks the negative assertion above. `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py` passes 11 tests and Ruff/diff checks pass, but that does not prove the missing negative condition.
+
+## Round 4
+
+- reviewer: `/root/static_review`，未参与修正实现。
+- review_mode: `closure`
+- executed_base: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75`
+- validated_at: `995f6724b43fe640c5f47e381ab20b7a42509d85`
+- fix_delta_range: `a2a86e7308b746638bf987d4fc4c69434a379336..995f6724b43fe640c5f47e381ab20b7a42509d85`
+- focus_findings: Round 2 R2-W1 and Round 3 R3-W1.
+
+```json
+[]
+```
+
+R3-W1 is closed. The reset branch now asserts the complete observed sequence is exactly `["tool_call_upserted"]`, so neither `tool_call_completed` nor `message_completed` may pass after actual `stop → generation advance → cancelled → reconcile`. The non-reset parameter still proves the two coordinator authorization handoffs by observing failed-tool cleanup and the existing bubble completion through the real ContextStore, observer and ImageReplyConnection. This one-line test-only delta does not change the retained R1 projector conclusion or the A1 runtime implementation. Independent execution of the terminal file reports `11 passed in 0.58s`; its Ruff check and `git diff --check` pass.

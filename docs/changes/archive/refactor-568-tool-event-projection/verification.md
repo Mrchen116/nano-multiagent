@@ -116,3 +116,71 @@ caller 提供并在同一 `validated_at` 上执行的可复用验证：`PYTHONPA
 **no spec delta**：A1 修复 current `tool-timeline` 已有的中断收口约束，未增加协议字段、网络接口、存储或新的可观察权限。唯一 delta-mismatch 是 R2-W1 的自动化接线证据缺口，不是通过修改 spec 可以消除的实现偏离。
 
 独立执行：`PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/personal_assistant/test_im_reply_image_delivery.py tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py tests/unit/personal_assistant/test_tool_delivery_projections.py`，结果 **19 passed**；A1 涉及源文件和测试的 Ruff 通过，`git diff --check` 通过。caller 的窄套件 60 passed 和正在运行的全量 Python CI 可在修正测试后继续复用，但当前不能替代 R2-W1 要求的生命周期接线断言。
+
+## Round 3
+
+- reviewer: `/root/static_review`，未参与修正实现。
+- verification_mode: `targeted-closure`
+- executed_base: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75`
+- validated_at: `a2a86e7308b746638bf987d4fc4c69434a379336`
+- fix_delta_range: `34ff1a2cedfac2224ec88661bc19b54d4dded4c0..a2a86e7308b746638bf987d4fc4c69434a379336`
+- focus_issues: R2-W1。
+- verdict: **fail — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`；一条 reset 负断言即可 targeted closure。
+
+### R2-W1 reconciliation
+
+| Focus issue | Evidence | Outcome |
+|---|---|---|
+| coordinator stop→cancelled→reconcile must preserve cleanup to original bubble | `test_session_run_coordinator_terminal.py:190-271` injects ContextStore, observer and ImageReplyConnection; starts a tool, calls real `coordinator.stop`, delivers cancelled, and asserts failed tool plus `message_completed` | closed for non-reset |
+| stop→reset/generation advance→late cancelled must not publish any terminal | reset branch at `test_session_run_coordinator_terminal.py:259-267` advances generation and sees cancelled, but only asserts no `tool_call_completed` | still_open |
+
+### Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+- **R3-W1 — reset 反例漏断言 `message_completed`。** 当前测试将 frames 中的 `tool_call_completed` 单独筛出并在 reset 分支断言空，却没有检查 `message_completed`。A1 的 reset 契约禁止旧 bubble 的整个 cleanup terminal，不只禁止工具 terminal；错误地放行 bodyless bubble completion 仍会改变已 reset 的历史，而该测试会通过。建议在 reset 分支断言两类 terminal 均不存在或完整 frame kinds 仅为起始 `tool_call_upserted`。
+
+### SUGGESTION
+
+无。
+
+`test_session_run_coordinator_terminal.py` 独立结果为 **11 passed**；该文件 Ruff 与 fix-delta `git diff --check` 均通过。产品 Round 2 和 34ff1 的全量 CI 是未变化实现的有效证据，但不覆盖本次新测试遗漏的负断言。
+
+## Round 4
+
+- reviewer: `/root/static_review`，未参与修正实现。
+- verification_mode: `targeted-closure`
+- executed_base: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75`
+- validated_at: `995f6724b43fe640c5f47e381ab20b7a42509d85`
+- fix_delta_range: `a2a86e7308b746638bf987d4fc4c69434a379336..995f6724b43fe640c5f47e381ab20b7a42509d85`
+- focus_issues: R2-W1, R3-W1.
+- verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`；本冻结版本仅补强已审 lifecycle 回归断言，无产品或实现变化。
+
+### Closure reconciliation
+
+| Focus issue | Evidence | Outcome |
+|---|---|---|
+| R2-W1 coordinator stop→cancelled lifecycle propagation | The existing parameterized test drives the actual coordinator with ContextStore, observer and ImageReplyConnection, and the non-reset case observes failed `tool_call_completed` plus `message_completed` on the existing bubble | closed |
+| R3-W1 reset must reject every terminal frame | After actual `stop → advance_generation → cancelled`, the reset case asserts full frame kinds equal only `["tool_call_upserted"]`; this excludes both tool completion and bubble completion | closed |
+
+### Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+无。
+
+### SUGGESTION
+
+无。
+
+**no spec delta**：此次仅把测试的负断言从单类 tool terminal 扩展为完整 frame 序列，恢复并保护既有 current `/stop` 收口规定，不新增可观察行为或接口。独立执行 `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/personal_assistant/test_session_run_coordinator_terminal.py` 得到 **11 passed in 0.58s**；该文件 Ruff 和 `git diff --check` 均通过。34ff1 的 3998 项 Python 全量、格式/文档检查，以及产品 Round 2 pass 为未变化实现保留的调用方证据；本次冻结只增加上述断言。
