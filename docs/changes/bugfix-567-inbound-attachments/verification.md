@@ -67,3 +67,37 @@ None.
 - Global Feishu mixed input is not represented by the Web-shaped global integration fixture.
 
 Outcome: implementation-mismatch
+
+## Round 2 — Corrected Delta Reconciliation
+
+> Validation snapshot: `c5f1d5620c6323821a430fc3d53feefeb180fd89 → 800f4dfe3ef818dbbf4db0fd2e1ca322dbdf8089`
+>
+> verification_mode: corrected-delta; `fix_delta_range`: `30dac3b37..800f4dfe3`
+
+R1 remains above as the full-verification record. This bounded reconciliation covers its two WARNINGs and the associated delta behavior; the snapshot/admission, later-arrival and steer-fallback conclusions are unchanged because this fix delta does not alter those paths.
+
+| R1 issue / delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| Historical unavailable `data:image` must record only unread source/failure facts | `inbound_attachments.py:57-72` replaces every `data:` URL with `[内联附件，内容省略]` before JSON text projection; `session_run_coordinator.py:2399-2425` continues to keep a historical failure non-blocking | `test_gateway_image_inbound.py:308-350` runs the public pipeline with a 6,990,658-character oversized inline image and asserts valid text/image retention plus submitted text below 2,000 characters | aligned |
+| Global mixed file/image input, including Feishu `attachment_index`, must reach Inbox/model in provider text/image order | `global_run_coordinator.py:558-625` resolves indexed descriptors into Inbox sources once, retains ordered provider text, and adds unread ordinary-file descriptions | `test_global_gateway_runtime.py:283-400` parameterizes Web and Feishu shapes, checks the post-image text and an actual image block in SDK LLM tool content | aligned |
+| Group snapshot admission and steer/FIFO consumption behavior | No production change in this delta | R1 evidence retained: `test_group_context_admission.py:32-126`; `test_session_run_coordinator_admission.py:693-730` | aligned |
+
+### Uncovered Observable Behavior
+
+None within this corrected-delta scope. The recorded product-review global mixed-image journey remains separate from this static verifier result.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+Outcome: aligned

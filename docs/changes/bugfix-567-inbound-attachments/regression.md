@@ -9,7 +9,7 @@ Mode: full。独立 reviewer 通过真实 Web IM 同一 HTTP API 登录、上传
 
 ### Verdict
 
-Pending（global 旅程仍在等待真实模型终态）。本报告不为后续修改后的版本背书。
+fail。global 混合有效图片旅程的最终答案与实际图像不符，major 1，highest_required_action=fix-implementation，needs_re_review=true。本报告不为后续修改后的版本背书。完整消息证据见 [product-round1.json](M1-fix/evidence/product-round1.json)。
 
 ### 复现验证与回归旅程
 
@@ -22,8 +22,13 @@ Pending（global 旅程仍在等待真实模型终态）。本报告不为后续
 | 当前异常图片明确停止 / incident | 同群先缓冲背景口令海鸥568（`779b21294a4d4f14a5824a1b64f555e0`），再 mention 并附坏 PNG（`7d1104af67fd42b0809c5e1c518faf46`）。回复 `6eae2ab2b4464da09352c3a4387a5741`：“这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。”没有假装看过图片。 | pass |
 | 解析失败后的缓冲保留与恢复 / incident | 紧接 `74db32747ac345b08de1990dc33285fd` 请求不再看坏图、回复上一条背景口令；`513f4379cafb4ea8848b1b148f0b8af9` 回“海鸥568。正常恢复。” | pass |
 | 普通文件 global / incident | `c_3rm0dek3`，输入 `4a5ed65a056546c39ec212878b3e1ff7` 与同样 TXT；约52秒后 `0aff18ba2d7242b9bcaa2947823308a1` 仅回复 TEXT_567_OK 代码块。 | pass |
-| 混合有效图片与普通文件 global / incident | 待终态记录。 | pending |
+| 混合有效图片与普通文件 global / incident | 两条输入 `b9343a40a6864f05824df486109a6a13` / `0bfe4b552dce49359049ad030abe4ca0` 均是320×200白底红矩形 PNG + TXT；终态 `6de24c39c7734c4bb59a3af272c09545` 却分别说“红色正方形”“蓝色圆形”，与实际图像不符。 | fail |
+| 历史局部失败保留有效图片 / incident | 群 `c_33v0s3d3` 背景 `de8b60e82d20434aab0fa5d696a22c0b` 同含蓝色正方形 PNG、坏 PNG、TXT与熊猫569；提问 `cedc0c434eb24ad793bf72c08f37ca78` 后回复 `6a2025cf585844788eb4397a043cc390` 准确指出熊猫569、蓝色正方形，坏图与TXT均未读。 | pass |
 | 内核拒绝接收、后来消息保留、已接受内容不重复 / incident | 公共 API 不提供确定性内核拒绝/精确 admission 时点控制。核对下列窄自动化证据；真实群旅程独立覆盖图片准备失败后的保留。 | pass（自动化补充） |
+
+### Issues
+
+- R1-P1：Severity=major；Regression Relation=direct；Recommended Action=fix-implementation。global 混合图/文件请求虽收到回答，但两个实际相同的红矩形被说成红色正方形、蓝色圆形，不满足“有效图片进入模型并可基于内容作答”。复现及消息ID见上表/JSON；single_thread相同生成图片回答正确。此为用户结果判断，未读实现定位原因。需要用单条独立global旅程复验并由owner调查。
 
 ### 自动化测试增量与边界
 
@@ -31,7 +36,7 @@ Pending（global 旅程仍在等待真实模型终态）。本报告不为后续
 
 普通文件类型矩阵 CSV/PDF/Office/archive 用自动化补充，真人旅程使用 TXT。没有客户端界面改动或 must-match 原型；未做视觉 UI 验收。真实代理没有 mock。TXT正文 sentinel 从未要求被读取；该验收证明用户可观察的未读取说明，不以模型自述证明底层无读取副作用。
 
-测试驱动第一版曾把空 running 气泡当稳定结果提前前进；其后重新 GET 终态确认三条 single_thread 回复 completed，报告只引用终态快照。首次群 mention 用错属性（`type=agent id`），未触发回复，不计为产品失败；按现有测试 helper 的 `type=user target_id` 在新群重跑成功。
+测试驱动第一版曾把空 running 气泡当稳定结果提前前进；其后重新 GET 终态确认三条 single_thread 回复 completed，报告只引用终态快照。global第二条文件说明最终约144秒后正确返回；混合请求曾并发到达，驱动一度把另一条user消息当新增结果，已以最终agent快照纠正，未作为成功证据。首次群 mention 用错属性（`type=agent id`），未触发回复，不计为产品失败；按现有测试 helper 的 `type=user target_id` 在新群重跑成功。
 
 ### Reference Artifacts Reviewed
 
@@ -47,3 +52,18 @@ Pending（global 旅程仍在等待真实模型终态）。本报告不为后续
 - [x] docs/specs/gateway/relay-protocol.md：需由 orchestrator 在收尾归并本 unit delta。
 - [x] AGENTS.md / CLAUDE.md：无需更新。
 - [x] docs/specs/CONTRIBUTING.md：无需更新。
+
+## Round 2 — targeted，2026-09-19
+
+Validation snapshot: `30dac3b37 → 800f4dfe3ef818dbbf4db0fd2e1ca322dbdf8089`。caller 仅重启隔离 Gateway 到 PID13964，启动于05:24:52Z；IM6493未变。reviewer 核对 HEAD、进程命令与 node 在线心跳05:24:55.492352Z晚于 caller 的 generation floor。新建 `review567-r2-global` 和 `review567-r2-single_thread`，同真实视觉模型。
+
+受影响项为历史 inline 失败描述与 global 混合附件；Round1 single_thread TXT/来源说明、普通上传坏图错误及恢复、确定性 admission/消费验收继续引用原证据。Feishu indexed图文由自动化补充，本轮未声称外部Feishu真人验收。
+
+- 历史 inline 坏图 targeted：`c_aiqhtew5`，背景 `0956e2a8aca64f71a5aa0215ceac41fd` 含熊猫569、蓝色正方形PNG、坏 inline data:image PNG 与 TXT；请求 `3ec7701b67d1432f8dfcb9b5a7620891`；终态 `0112f3c37fcd43a0a4aeec0e088db09c` 正确回答熊猫569、蓝色正方形，明确坏图未读且内容损坏、TXT未读且入口未自动解析。**pass**。未在此真人旅程制造巨型payload；省略巨型inline说明由新窄红绿测试证明。
+- 全新 global 单条混合：`c_lheq3l87`，输入 `4f49220c1907450380ff41a8fe09e4d5` 只发一次红矩形PNG+TXT，约46.2秒后终态 `73b6ebd71c6a4ddcb870bcc622694215`：“我当前只收到图片占位信息，无法可靠判断中央的颜色和形状。普通文件名是 review.txt；其正文尚未读取。MIX567”。**fail**。单条请求排除了前轮并发驱动干扰，有效图像用户结果仍未出现。
+
+### Round 2 Verdict
+
+**fail**；R1-P1 未解决，major 1；Regression Relation=direct；Recommended Action=fix-implementation；Highest Required Action=fix-implementation；needs_re_review=true。本轮新回复明确承认只收到占位信息，尚不能凭此确定源码根因；由 owner 追查真实模型payload。完整输入输出见 [product-round2.json](M1-fix/evidence/product-round2.json)。已通知 caller，没有自行重启或改产品。
+
+报告由 caller 统一提交；report_commit 在本轮写完时未生成。没有对外创建 issue。
