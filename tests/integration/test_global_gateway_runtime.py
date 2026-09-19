@@ -1,6 +1,7 @@
 """Exercise global admission and committed Inbox reads through the real SDK loop."""
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -279,11 +280,34 @@ async def _close(runtime):
 
 
 @pytest.mark.asyncio
-async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tmp_path):
+@pytest.mark.parametrize("with_attachments", [False, True])
+async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(
+    tmp_path, with_attachments
+):
     model = _Model()
     rt = await _runtime(tmp_path, model)
     try:
-        result = await _receive(rt, _message("m1", "请确认这个请求"))
+        message = _message("m1", "请确认这个请求")
+        if with_attachments:
+            png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            message = replace(
+                message,
+                metadata={
+                    **message.metadata,
+                    "attachments": [
+                        {
+                            "url": "https://im.invalid/notes.txt",
+                            "content_type": "text/plain",
+                            "file_name": "notes.txt",
+                        },
+                        {
+                            "url": "data:image/png;base64," + png,
+                            "content_type": " IMAGE/PNG ",
+                        },
+                    ],
+                },
+            )
+        result = await _receive(rt, message)
         await _wait(
             lambda: (
                 rt.manager.sent
@@ -347,6 +371,10 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(tm
             if m.role == "tool" and "请确认这个请求" in str(m.content)
         ]
         assert read_outputs
+        if with_attachments:
+            assert "notes.txt" in str(read_outputs)
+            assert "未读取" in str(read_outputs)
+            assert "image" in str(read_outputs)
         assert all(
             "receipt_id" not in output
             and "part_key" not in output

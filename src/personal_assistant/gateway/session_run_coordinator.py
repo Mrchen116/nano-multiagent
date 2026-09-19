@@ -65,6 +65,10 @@ from personal_assistant.gateway.human_message_context import (
     PaTimeContext,
     apply_frozen_header,
 )
+from personal_assistant.gateway.inbound_attachments import (
+    is_image_attachment,
+    unread_attachment_text,
+)
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
     CompactSessionRequest,
@@ -182,6 +186,8 @@ class _MessagePartsProjection:
     model_fallback: str
     readable_fallback: str
     source_messages: tuple[Mapping[str, str], ...] = ()
+    group_buffer_key: str = ""
+    group_buffer_through: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -824,6 +830,7 @@ class SessionRunCoordinator:
                                 "Kernel accepted steer for a different active run: "
                                 f"expected={active.run_id}, actual={record.run_id}"
                             )
+                        self._consume_group_context(projection)
                         self._steered_requests.setdefault(active.run_id, []).append(
                             AcceptedRecoveryFollower(
                                 pending_id=record.pending_id,
@@ -840,7 +847,9 @@ class SessionRunCoordinator:
                             outbound=None,
                         )
                     else:
-                        fallback_projection = projection
+                        # A queued group request must see what remains after intervening admissions.
+                        if not request.message.is_group:
+                            fallback_projection = projection
         if image_failure is not None:
             failure_kind, binding = image_failure
             return await self._reply_image_failure(
@@ -1815,6 +1824,7 @@ class SessionRunCoordinator:
                                 trace_id
                             )
                         raise
+                    self._consume_group_context(projection)
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence
                     if run_id:
@@ -2345,13 +2355,13 @@ class SessionRunCoordinator:
         self, request: InboundRunRequest
     ) -> tuple[_MessagePartsProjection, str | None]:
         message = request.message
-        buffered = (
-            self._group_context_store.drain_with_metadata(
-                build_group_context_key(message, request.agent.agent_id)
-            )
+        buffer_key = build_group_context_key(message, request.agent.agent_id)
+        snapshot = (
+            self._group_context_store.snapshot_with_metadata(buffer_key)
             if message.is_group and self._group_context_store is not None
             else []
         )
+        buffered = [(sender, text, metadata) for _, sender, text, metadata in snapshot]
         model_parts: list[dict[str, Any]] = []
         readable_parts: list[dict[str, Any]] = []
         source_messages = [
@@ -2367,30 +2377,52 @@ class SessionRunCoordinator:
             (request.sender_label, message.text, message.metadata),
         ]
         for index, (sender, text, metadata) in enumerate(projected_messages):
+            is_current_message = index == len(projected_messages) - 1
             failure = _metadata_image_failure(metadata)
-            if failure is not None:
+            if failure is not None and is_current_message:
                 return _empty_message_parts_projection(), failure
             raw_attachments = metadata.get("attachments")
-            image_parts: tuple[dict[str, Any], ...] = ()
-            is_current_message = index == len(projected_messages) - 1
-            if is_current_message or (
-                isinstance(raw_attachments, list) and raw_attachments
+            attachment_parts: dict[int, tuple[dict[str, Any], ...]] = {}
+            file_parts: list[dict[str, Any]] = []
+            for attachment_index, attachment in enumerate(
+                raw_attachments if isinstance(raw_attachments, list) else []
             ):
+                if not isinstance(attachment, Mapping) or not isinstance(
+                    attachment.get("url"), str
+                ):
+                    continue
+                if not is_image_attachment(attachment):
+                    part = unread_attachment_text(attachment)
+                    attachment_parts[attachment_index] = (part,)
+                    file_parts.append(part)
+                    continue
                 resolution = await self._image_resolver.resolve(
-                    raw_attachments, agent_id=request.agent.agent_id
+                    [dict(attachment)], agent_id=request.agent.agent_id
                 )
                 if resolution.failure is not None:
-                    return _empty_message_parts_projection(), resolution.failure
-                image_parts = resolution.parts
+                    if is_current_message:
+                        return _empty_message_parts_projection(), resolution.failure
+                    attachment_parts[attachment_index] = (
+                        unread_attachment_text(
+                            attachment, image_failure=resolution.failure
+                        ),
+                    )
+                else:
+                    attachment_parts[attachment_index] = resolution.parts
             message_parts = _ordered_kernel_input_parts(
                 metadata,
-                image_parts=image_parts,
+                image_parts=attachment_parts,
             )
             if message_parts is None:
                 message_parts = []
                 if text:
                     message_parts.append({"type": "text", "text": text})
-                message_parts.extend(image_parts)
+                for parts in attachment_parts.values():
+                    message_parts.extend(parts)
+            else:
+                message_parts.extend(file_parts)
+            if failure is not None:
+                message_parts.append(unread_attachment_text({}, image_failure=failure))
             if message.is_group:
                 message_parts = _prefix_sender_parts(message_parts, sender=sender)
             readable_parts.extend(dict(part) for part in message_parts)
@@ -2416,7 +2448,15 @@ class SessionRunCoordinator:
             model_fallback=_render_parts_fallback(model_parts),
             readable_fallback=_render_parts_fallback(readable_parts),
             source_messages=tuple(source_messages),
+            group_buffer_key=buffer_key if snapshot else "",
+            group_buffer_through=snapshot[-1][0] if snapshot else 0,
         ), None
+
+    def _consume_group_context(self, projection: _MessagePartsProjection) -> None:
+        if projection.group_buffer_key and self._group_context_store is not None:
+            self._group_context_store.consume_through(
+                projection.group_buffer_key, projection.group_buffer_through
+            )
 
     async def _ensure_binding(
         self,
@@ -3867,7 +3907,7 @@ def _render_parts_fallback(parts: list[dict[str, Any]]) -> str:
 def _ordered_kernel_input_parts(
     metadata: Mapping[str, Any],
     *,
-    image_parts: tuple[dict[str, Any], ...],
+    image_parts: Mapping[int, tuple[dict[str, Any], ...]],
 ) -> list[dict[str, Any]] | None:
     raw_parts = metadata.get("kernel_input_parts")
     if not isinstance(raw_parts, list):
@@ -3888,9 +3928,9 @@ def _ordered_kernel_input_parts(
         if (
             isinstance(attachment_index, int)
             and not isinstance(attachment_index, bool)
-            and 0 <= attachment_index < len(image_parts)
+            and attachment_index in image_parts
         ):
-            parts.append(dict(image_parts[attachment_index]))
+            parts.extend(dict(part) for part in image_parts[attachment_index])
     return parts
 
 

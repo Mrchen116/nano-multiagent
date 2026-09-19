@@ -17,6 +17,11 @@ from uuid import NAMESPACE_URL, uuid5
 from agent.sdk import RunOrigin, TERMINAL_RUN_STATUSES
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.gateway.inbound_attachments import (
+    is_image_attachment,
+    unread_attachment_text,
+)
+
 from personal_assistant.gateway.inbound_models import (
     PipelineResult,
     RelayLifecycleUpdate,
@@ -561,8 +566,7 @@ class GlobalRunCoordinator:
             for attachment in message.metadata.get("attachments") or []:
                 if not isinstance(attachment, Mapping):
                     continue
-                mime = str(attachment.get("content_type") or "")
-                if not mime.startswith("image/"):
+                if not is_image_attachment(attachment):
                     continue
                 resolution = await self.image_resolver.resolve(
                     [dict(attachment)], agent_id=agent_id
@@ -597,10 +601,15 @@ class GlobalRunCoordinator:
             elif url:
                 parts.append({"type": "image", "source": {"type": "url", "url": url}})
         for attachment in message.metadata.get("attachments") or []:
-            if isinstance(attachment, Mapping) and not str(
-                attachment.get("content_type") or ""
-            ).startswith("image/"):
-                parts.append({"type": "attachment", **dict(attachment)})
+            if isinstance(attachment, Mapping) and not is_image_attachment(attachment):
+                parts.append(
+                    {
+                        "type": "attachment",
+                        **dict(attachment),
+                        "read_status": "unread",
+                        "description": unread_attachment_text(attachment)["text"],
+                    }
+                )
         return parts
 
     async def _control(
