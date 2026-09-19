@@ -37,3 +37,8 @@
 ### Recommendations
 
 - R1-R1（可选验收记录提醒）：现有真实关键路径测试只断言最终回复含 sentinel、不含内部 markup；其本身未断言持久化 tool row。产品验收应按设计 Runbook 另外查询同一会话的工具历史字段并记录证据，避免仅凭该用例通过宣称完整展示不变性。
+
+## Author Resolutions
+
+- 接受 R1 Approved；核实无实质未决项。采纳 R1-R1：真实验收另查同一聊天持久化工具记录。
+- 实施将接口具体化为 `project(event)` 与 `for_live(projection, context)`，对应设计已允许的“轻量 owner 方法应用 live-only detail”；没有新增职责或行为，保留 Gate 2。
