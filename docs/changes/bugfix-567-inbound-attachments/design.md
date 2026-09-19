@@ -1,0 +1,65 @@
+# bugfix-567: 入站附件修复 — 技术方案
+
+对齐：[incident.md](incident.md)。Full，单 M1，无客户端界面变更。
+
+## Changelog
+
+## 现状分析
+
+### 涉及范围
+
+WebRelay 仅传递描述；ImageAttachmentResolver 拥有受保护下载、大小和图片字节校验；SessionRunCoordinator 拥有单会话输入投影及 submit/steer；GlobalRunCoordinator 拥有全局 Inbox 输入；GroupContextStore 拥有群背景消息 SQLite 缓冲。
+
+### 既有约束
+
+PA 仅使用 agent.sdk；不新增内核 block 类型。图片下载沿用原 node credential + agent_id 权限检查。当前消息异常图片停止本轮，不能静默让模型回答图片问题。普通文件不自动下载/解析，不把来源引用当作授权或保证可读取的链接。
+
+### 可复用能力
+
+沿用 ImageAttachmentResolver 校验/下载器、单会话 transition 锁、GlobalRunCoordinator 现有普通 attachment 描述和 Inbox 消费协议。GroupContextStore 增加无损 snapshot 和按快照上界消费；不加通用队列、lease、重试后台或表结构迁移。现有 drain 接口供原调用兼容，生产投影改用 snapshot。
+
+### 相关历史
+
+#298 来自 feat-554 验收且旧基线已存在。全局 Agent 的附件描述与单会话图文处理已经分化。本次以 main `09cd75bd5` 为实现调查基线，不改近期 bugfix-566 飞书输出交付。
+
+## 架构总览与关键决策
+
+1. **共享附件分类，不扩展文件解析能力。** Gateway 内新增窄的附件语义 helper，统一 MIME 去空白/小写处理。明确 image/* 或 data:image 为图片；明确非图片 MIME 为普通文件；缺失/通用 octet-stream MIME 时按已知图片扩展名或既有 IM /images/ 入口识别，其余为普通文件。文件内容未读取是显式事实。类型判断不代替字节校验。
+2. **单会话附件逐项投影，保留原附件索引。** ImageAttachmentResolver 仅接收图片，下载与大小/内容校验不变。普通文件变为 text 描述（文件名、类型、来源、内容尚未读取），不送 SDK 未支持的 attachment block。按原索引映射图片结果，Feishu kernel_input_parts 的图文顺序不得因筛掉文件发生错位。global 沿用其 attachment block，只共享分类，不迁移 Inbox 协议。
+3. **当前与历史失败分开。** 当前消息任何图片失败仍返回现有本轮错误；全组缓冲不消费。历史图片逐项失败只投影为未读取说明（含来源与原因），保留同条文字和其他有效图片，允许新请求正常处理。该历史描述被接受仅表示失败事实已传入，不声称图片内容被读取；不引入自动重试，用户重发/查历史遵循既有入口。全局模式原有失败图片可重读语义保留。
+4. **接收成功才消费缓冲。** snapshot 返回有序行及最后 row id；投影携带 buf_key 和上界。submit 返回有效接收记录或 try_steer 接受且确认 run identity 后，在同一 transition 临界区消费该 buf_key 的 id <= 上界；任何准备/接收异常不消费。后来 append 的 id 更大，不受影响。不声称跨 SQLite 与内核事务的崩溃 exactly-once。
+5. **群 steer 退回 FIFO 时重新取快照。** 拒绝 steer 不拥有输入，群请求不复用包含尚未消费背景的 prebuilt projection；真正出队时重建，避免其间被另一已接受输入消费的历史再次进入。非群路径保留原 prebuilt 优化。重复下载的取舍优先于重复上下文，不新增缓存/租约。
+
+## 接口与数据流
+
+- Gateway 附件 helper：`is_image_attachment(descriptor)`；普通文件/失败历史图片生成明确未读取的 text 描述。作用仅为共享类型语义与投影，不持有网络/存储状态。
+- GroupContextStore：`snapshot_with_metadata(buf_key)` 返回带 row id 的行；`consume_through(buf_key, row_id)` 删除该 key 已接受快照范围。现有 append 不变，利用 SQLite 自增 id，无迁移。
+- `_MessagePartsProjection` 增加默认空的缓冲消费 receipt；_build_message_parts 只准备输入，成功 admission 后消费。正常群 snapshot、current 失败、submit 异常、steer 成功、steer 退回 FIFO 均有公开 seam 测试。
+- 图片逐项解析与索引映射由 SessionRunCoordinator 的输入投影负责；resolver 保持图片职责。不在渠道层偷放文件下载，避免绕过 Agent 身份。
+
+## 契约层增量
+
+[specs/gateway/relay-protocol.md](specs/gateway/relay-protocol.md) → `docs/specs/gateway/relay-protocol.md`。global 基本普通文件契约已有，保留其图片重读/持久消费语义，无需改 global-agent canonical。
+
+## 风险与回退
+
+- MIME 缺失/通用类型识别可能影响旧描述：用 data URL、已有图片 URL 和缺失 MIME 样例保护；未知文件不猜测为损坏图片。
+- Feishu 索引、排队、steer 与 buffer 交叉：保留真实 SDK seam 输入断言，更新旧调用次数断言为用户输入不重复。
+- 普通文件不会自动被读取，描述明确这一限制且不嵌入认证信息。
+- 回退为 revert 本 unit 产品代码；无数据库迁移。回退重新暴露 #298，因此需说明。
+
+## Runbook for Reviewer
+
+| 服务 | 停止命令 | 启动命令 | 健康检查 |
+|---|---|---|---|
+| 隔离 IM + Gateway | `./scripts/e2e-down.sh --wt "$PWD"` | `./scripts/e2e-up.sh --wt "$PWD"` | source `.e2e-ports.env` 后访问 `$IM_URL/openapi.json`，确认 Gateway 注册 |
+
+**Review 驱动方式**：端到端真栈；不改客户端，使用 Web IM 客户端同一登录、上传、聊天、消息查询 HTTP API。运行配置、数据、端口、node 和 workspace 按 worktree-runtime 隔离；用仓库默认真实 LLM 代理，若默认模型无视觉能力，仅在隔离配置选择现有视觉模型。不得用 fake LLM 替代验收。
+
+**验收前置**：本机 `.venv` 依赖、可用 localhost:4000 LLM proxy（不输出凭据）；default config 提供测试 Agent，按需在隔离副本配置 single_thread 与 global。停止和端口释放由服务创建者确认。产品 reviewer 独立观察 TXT+文字、混合图片+文件、群历史文件/失败图片、新请求与当前坏图片错误/随后恢复；权限与超大图片沿用自动化保护并核对覆盖。无法访问真实代理时记录具体 blocker，不以单测签产品通过。
+
+## Milestones
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| M1-fix | 附件投影与消费修复 | 无 | 串行 | Gateway 附件/两个 coordinator/group store；相关 tests；delta | [reviewer] incident 的文件、混合、群历史、当前坏图片旅程与恢复在真实入口成立。[worker] 类型参数化、索引保真、当前/历史错误、拒绝提交保留、后到消息、steer/FIFO 不重复和 global 基本类型回归通过；图片校验/成员保护原测试仍通过。 |
