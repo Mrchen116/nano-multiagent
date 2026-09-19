@@ -1,3 +1,12 @@
+# Code Review: bugfix-567-inbound-attachments
+
+## Round 1 — full
+
+- `executed_base`: `c5f1d5620c6323821a430fc3d53feefeb180fd89`
+- `validated_at`: `30dac3b37a5f8a4c28059f003299f119f661c859`
+- `review_mode`: `full`; `diff_range`: `origin/main..30dac3b37`
+
+```json
 [
   {
     "file": "src/personal_assistant/gateway/inbound_attachments.py",
@@ -16,3 +25,20 @@
     "status": "CONFIRMED"
   }
 ]
+```
+
+## Round 2 — closure
+
+- `executed_base`: `c5f1d5620c6323821a430fc3d53feefeb180fd89`
+- `validated_at`: `800f4dfe3ef818dbbf4db0fd2e1ca322dbdf8089`
+- `review_mode`: `closure`; `fix_delta_range`: `30dac3b37..800f4dfe3`
+
+The inline-data description now replaces any `data:` source with a bounded inline-source marker before it becomes a history failure text part (`inbound_attachments.py:57-72`). The public pipeline regression uses a 6,990,658-character oversized data URL and verifies that the submitted text remains below 2,000 characters (`test_gateway_image_inbound.py:308-350`).
+
+Global input projection now resolves each valid `attachment_index` exactly once into an Inbox image source at its ordered location, preserves neighbouring provider text, and still emits ordinary-file descriptions (`global_run_coordinator.py:558-625`). The global integration regression supplies the actual Feishu-shaped ordered parts and asserts an image block in the LLM tool content (`test_global_gateway_runtime.py:283-400`).
+
+Both Round 1 findings are closed. The independent closure result is:
+
+```json
+[]
+```

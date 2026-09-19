@@ -21,3 +21,11 @@ Image download/size/corruption, Feishu order and global Inbox commit tests kept.
 - Full remaining Python shard: 2044 passed, 27 warnings, 174.06s (log `/tmp/bugfix567-tests-rest.log` during this run).
 - Frontend initial run: 769 passed / 1 timeout in unchanged agent-detail-page skills usage test (5s limit) while Python suites were concurrent. No frontend diff. Targeted file: 20 passed in 4.98s. Full rerun performed separately, result recorded below. This is timing sensitivity evidence, not a proven root cause.
 - Ruff check/format and documentation integrity passed with repository venv. Initial docs-check used system Python lacking yaml; rerun with venv PATH passed (238 maintained Markdown, 73 routes).
+
+## Final local checks at 800f4dfe3
+
+- PA/agent shard: 1965 passed in 29.57s, `/tmp/bugfix567-tests-pa-final.log`.
+- Remaining shard retained except changed global integration already rerun: 2044 passed; correction integration included in 22 passed.
+- Frontend full rerun: 83 files / 770 tests passed in 61.61s; `/tmp/bugfix567-frontend-rerun.log`. No frontend modifications; initial isolated timeout did not reproduce in targeted or full reruns.
+- Static R2: both findings closed, code review `[]`, corrected delta aligned; independent correction suite 22 passed.
+- Product R2 remains FAIL due to external LLM_PROXY nested tool-image loss. See regression.md and evidence/proxy-image-boundary.md. Unit stays active; no archive/Ready PR before product gate closes. Cross-repository scope clarification requested from user.
