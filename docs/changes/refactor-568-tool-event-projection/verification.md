@@ -77,3 +77,42 @@ git diff --check 4394ad424..151928fed7d894114b89c851cce8b621872e64d7
 结果：`21 passed in 1.38s`；Ruff 通过；diff check 通过。
 
 caller 提供并在同一 `validated_at` 上执行的可复用验证：`PYTHONPATH=src pytest -m 'not e2e' -n 4 --dist worksteal` 为 **3992 passed / 178.84s**（`/tmp/refactor568-pytest.log`）；frontend 的 `npm ci`、`npm audit --audit-level=critical`、`npm test -- --maxWorkers=2` 全部通过，结果为 **83 files / 770 tests / 125.46s**（`/tmp/refactor568-frontend.log`）；`docs-check` 为 **242 maintained Markdown sources / 73 routes**，`ruff check .` 与 format check（1082 files）通过。我已读取两份日志末尾确认上述两个测试汇总；其余命令结果按 caller 提供证据复用。独立 product reviewer 的真实用户旅程结论仍应由其专属报告给出，未被表述为本 verifier 的执行结果。
+
+## Round 2
+
+- reviewer: `/root/static_review`，未参与 A1 实现；caller 明确派发 patch code review 与 delta verification。
+- verification_mode: `delta`
+- executed_base: `4394ad4246b2ec3324e2c8aa219212dc0ec2ff75`
+- validated_at: `34ff1a2cedfac2224ec88661bc19b54d4dded4c0`
+- fix_delta_range: `151928fed7d894114b89c851cce8b621872e64d7..34ff1a2cedfac2224ec88661bc19b54d4dded4c0`
+- verdict: **fail — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**
+- requires_full_verification: `false`；该测试接线缺口修复后只需 targeted closure。
+
+### Delta 对齐
+
+| A1 contract | 实际证据 | 状态 |
+|---|---|---|
+| 明确 user stop 授权，cancelled 保留同次授权 | `context.py:406-429`; `session_run_coordinator.py:1319-1322,3109-3111` | 实现 aligned；回归保护不足，见 R2-W1 |
+| reset/generation revoke 不能恢复 cleanup | `context.py:353-361,417-425`; `test_im_reply_image_delivery.py:156-185` 的 reset 参数分支 | covered：revoked+false 与旧 generation 都不能重新授权 |
+| revoked observer 仅继续 reconcile | `observer.py:696-699` | covered：正文和 tool_end 仍被 gate 丢弃 |
+| 已有 bubble 的 failed tool/bodyless completion 可收口，无正文/新 bubble | `image_connection.py:92-104`; `test_im_reply_image_delivery.py:188-203` | covered |
+
+### Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+- **R2-W1 — 实现 A1 核心 coordinator 传播没有可观察回归保护。** `tests/unit/personal_assistant/test_im_reply_image_delivery.py:128-203` 的六个新增 case 手动调用 `RunDeliveryContextStore.suppress(..., terminal_cleanup=True)`，没有执行 `SessionRunCoordinator.stop` 或其 cancelled 分支。`tests/unit/personal_assistant/test_session_run_coordinator_terminal.py:175-206` 真实驱动 stop/cancelled/reconcile，却未注入 `delivery_context_store`，所以也不会执行新授权契约。若 `session_run_coordinator.py:1319-1322` 或 `3109-3111` 回退为普通 suppress，现有新旧测试仍可通过，真实 `/stop` 会重新吞掉 reconcile，正是设计 R2-W1 曾发现的生产链。建议扩展该 coordinator terminal 测试，接入真实 context store、observer 和 writer，验证 stop→cancelled→reconcile 的原 bubble 收口；并加入 reset/generation advance 后迟到 cancelled 的拒绝路径。此问题直接由 diff 和测试构造确认，无需追加核验。
+
+### SUGGESTION
+
+无。
+
+### Corrected Delta Reconciliation
+
+**no spec delta**：A1 修复 current `tool-timeline` 已有的中断收口约束，未增加协议字段、网络接口、存储或新的可观察权限。唯一 delta-mismatch 是 R2-W1 的自动化接线证据缺口，不是通过修改 spec 可以消除的实现偏离。
+
+独立执行：`PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/personal_assistant/test_im_reply_image_delivery.py tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py tests/unit/personal_assistant/test_tool_delivery_projections.py`，结果 **19 passed**；A1 涉及源文件和测试的 Ruff 通过，`git diff --check` 通过。caller 的窄套件 60 passed 和正在运行的全量 Python CI 可在修正测试后继续复用，但当前不能替代 R2-W1 要求的生命周期接线断言。

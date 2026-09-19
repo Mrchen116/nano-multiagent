@@ -77,3 +77,54 @@ N/A。motivation/design 未引用前端原型或 must-match 视觉合同；本�
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 需 owner 处理 A1 并复验。此轮未创建外部 issue；服务由 caller 保持与清理。
+
+---
+
+## Round 2 — targeted A1 复验
+
+> Validation snapshot: `151928fed7d894114b89c851cce8b621872e64d7 → 34ff1a2cedfac2224ec88661bc19b54d4dded4c0`。
+> 2026-09-19；保留 Round 1 全部记录，不覆盖失败历史。
+
+### Verdict
+
+**pass**。A1 已关闭，未发现新阻塞项。Highest Required Action: **pass**；open issues: 0；needs_re_review: false。
+
+### 实际环境与范围
+
+caller 重启的同一专用临时栈：IM `http://127.0.0.1:59005`，Gateway PID `28264`，owner `u_8n1sm0d0`、Agent `e2e`。已独立核实 HEAD 为本轮 validated_at、开验时源码 clean，运行 Gateway 的 `PYTHONPATH` 指向该 worktree `src`。复用既有 IMClient，真实 HTTP/WS + Gateway + LLM + bash。仅写隔离测试资源，没有真实飞书外发；caller 负责清理。
+
+targeted 范围为 A1 中断收口以及新增清理准入带来的晚到正文/reset 风险。正常/失败 read 与 shadow 字段投影复用 Round 1 有效证据；没有将旧版本运行证据伪称本轮重跑。
+
+### 用户旅程与 A1 关闭证据
+
+会话 `c_j8fvget5`，气泡 `4bdd5f71d083425aaaa68c4eda44a8c0`。让 Agent 先独立完成 `echo REF568_R2_READY`，再调用 `sleep 30`，要求全部完成后才回复随机 `LATE_...` token。实际历史中确认具体 sleep 工具 `call_00_ET_2r4IgkO8rVCWEBJwJuko5066` 为 running，随后发送 `/stop` 并收到固定「已停止当前操作。」应答。
+
+| 观察项 | stop 前 | stop 后 |
+|---|---|---|
+| 原气泡 delivery_status/content | running / 空 | completed / 空 |
+| sleep 工具 status/reason | running / null | failed / interrupted |
+| sleep input | `{command:"sleep 30",description:"等待30秒验收中断",timeout:60000}` | 逐字段不变 |
+| sleep detail | `{command:"sleep 30"}` | 逐字段不变 |
+| sleep output | 等待30秒验收中断 | `[Request interrupted by user for tool use]`，既有停止文案 |
+| 已完成 echo | completed，exit_code=0，stdout=REF568_R2_READY，duration_ms=37 | 整个工具记录字典相等，未被改写 |
+
+停止后持续检查 **35 秒**（超过原 sleep 30 秒时长），历史未出现 Agent 的晚到随机 token 正文。原气泡已收口且 content 为空，没有补出虚假最终正文。显式 stop 的气泡合法终态是 completed，工具为 failed/interrupted；验收不要求把整个气泡改成 failed。
+
+原始证据：`/tmp/nano-refactor568-acceptance/product-evidence-r2/stop-before.json`、`stop-after.json`、`stop-late-window.json`；探针 `/tmp/ref568-round2-probe.py`；执行日志 `round2-probe.log` 最终明确 `PASS stop fields preserved, completed calls unchanged, no late body through 35 seconds`。首个本轮探针曾过严地要求气泡 failed，修正为验证合法非 running 终态后重新走完整实际旅程；这不是产品失败。
+
+独立辅助验证：`test_im_reply_image_delivery.py`、`test_reconcile_preserves_tool_input.py`、`test_session_reset_delivery.py` 共 **21 passed**。其中 stop→reset/generation advance→late cancelled→reconcile 的确定性 seam 场景仅保留原 tool_start，无新增 cleanup/body，且不能重新发布；另覆盖错误气泡、非空晚到正文、新成功工具结果与 turn_start 均不得借清理通路发布。**此 reset 证据为 transport seam，不宣称真实 UI `/reset` 旅程或网络竞态覆盖**。
+
+### 场景覆盖与问题继承
+
+| Scenario | 来源 | 本轮方式与证据 | 结果 |
+|---|---|---|---|
+| 正常与失败工具 | motivation.md | retained：Round 1 真实 read 成功/失败历史与字段证据；本轮未改变投影合同 | pass |
+| 运行中工具被终结 | motivation.md；Round 1 A1 | 本轮真实运行工具→stop→原历史收口；原参数/detail、已完成工具逐字段比对；35 秒晚到正文窗口 | pass |
+| IM 离线与恢复 | motivation.md；design runbook | retained：Round 1 真实 SQLite + HTTP seam 的旧/新恢复字段比对；本轮不改变 shadow schema | pass |
+| stop 清理不得绕过 reset 或发布晚到正文 | design A1 补充约束 | 本轮真实 stop 35 秒正文观察 + 21 项回归中的 reset/late-cancelled seam 反例 | pass |
+
+| 问题 | 上轮结论 | 本轮处置 |
+|---|---|---|
+| A1 / major blocking | stop 应答后工具和原气泡仍 running | closed：真实 sleep 变 failed/interrupted，原气泡 completed；字段保留、已完成工具不变 |
+
+Reference Artifacts Reviewed: N/A，未新增视觉原型。上层文档检查保持 Round 1 结论：SPEC/current specs/AGENTS/文档规范均无需修改现有行为合同。本轮仅追加验收报告，未修改实现、测试或受控配置；依 caller 指示报告不单独提交，由 root 统一交付。

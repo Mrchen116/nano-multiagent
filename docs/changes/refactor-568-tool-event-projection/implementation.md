@@ -23,3 +23,9 @@ M1-tool-projection：新增同步 ToolCallProjector，集中 start/end presentat
 新增六项回归先失败（API 未实现，另有上述基线行为复现），修复后包含真实 coordinator integration 的窄套件 60 passed。扩展现有 image writer 文件，覆盖 stop→cancelled、stop→reset→late cancelled 以及错误目标/正文/新气泡反例。既有 tests 保留。
 
 首版完整本地 CI（151928fed）：3992 Python /770 frontend passed，docs-check、ruff check、format check 通过。A1 后重跑受影响 Python 全量；前端与依赖未变，770 项保留。
+
+## 最终验证与测试接线补强
+
+- 34ff1a2ce：Python 全量 3998 passed /121.61s；docs-check 245 maintained/73 routes，ruff check 与 format --check 通过。
+- 产品 Round 2 pass：真实 stop 中 interrupted/气泡 completed、原字段保留、35 秒无晚到正文，A1 closed。
+- 静态 R2 要求防止 coordinator 两处授权调用回退。改写既有 `test_user_stop_reconciles_on_original_consumer_and_cleans_marker`，接入真实 ContextStore、observer、ImageReplyConnection，参数化 reset 后迟到 cancelled；保留原事件/idle断言，增加 wire 终态断言。对应 terminal 文件 11 passed。该测试调整没有产品代码变化，3998 项全量与产品验收结论保留。

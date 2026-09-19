@@ -5,6 +5,19 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from tests.helpers.runtime_delivery import delivery_context_store
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
+from personal_assistant.gateway.runtime_delivery.image_connection import (
+    ImageReplyConnection,
+)
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
 
 import pytest
 
@@ -165,24 +178,76 @@ async def test_real_stall_fails_and_releases_next_same_session_turn(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reset", [False, True])
 async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
     tmp_path: Path,
+    reset: bool,
 ) -> None:
     """Stop attribution survives until original stream reconcile, then is cleared."""
 
     kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     observed: list[dict[str, object]] = []
+    contexts = delivery_context_store(
+        {
+            "run-1": {
+                "agent_id": "agent-a",
+                "conversation_id": "conversation",
+                "message_id": "bubble",
+            }
+        }
+    )
+    connection = SimpleNamespace(
+        connected=True,
+        send_json=AsyncMock(),
+        send_json_await_ack=AsyncMock(return_value={"message_id": "bubble"}),
+        finish_external_shadow_run=lambda _run_id: None,
+    )
+    tracker = RuntimeDeliveryTaskTracker(context_store=contexts)
+    writer = ImageReplyConnection(
+        connection,
+        publish_prepared=AsyncMock(),
+        is_confirmed=lambda _: True,
+        context_store=contexts,
+        task_tracker=tracker,
+    )
+    delivery_observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: writer,
+        run_context_store=contexts,
+        task_tracker=tracker,
+    )
+    tool_started = asyncio.Event()
+
+    async def observe(event):
+        observed.append(dict(event))
+        pending = delivery_observer(event)
+        if asyncio.iscoroutine(pending):
+            await pending
+        if event.get("event") == "tool_start":
+            await tracker.drain_run("run-1")
+            tool_started.set()
+
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
         outbound_router=router,
         group_context_store=group_store,
-        kernel_event_observer=lambda event: observed.append(dict(event)),
+        kernel_event_observer=observe,
+        delivery_context_store=contexts,
     )
     message = inbound(chat_id="stop", text="work")
     request = _request(message, catalog)
     running = asyncio.create_task(coordinator.dispatch(request))
     await kernel.wait_stream("run-1")
+    kernel.push(
+        "run-1",
+        {
+            "event": "tool_start",
+            "call_id": "call",
+            "name": "bash",
+            "arguments": {"command": "sleep 45"},
+        },
+    )
+    await asyncio.wait_for(tool_started.wait(), timeout=1)
 
     stopped = await coordinator.stop(
         StopRunRequest(
@@ -191,8 +256,19 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
             session_key=request.session_key,
         )
     )
+    if reset:
+        contexts.advance_generation(request.session_key, 1)
     kernel.finish("run-1", status="cancelled", text="")
     completed = await running
+    await tracker.drain_run("run-1")
+    frames = [call.args[1] for call in connection.send_json.call_args_list]
+    terminal = [frame for frame in frames if frame.get("kind") == "tool_call_completed"]
+    if reset:
+        assert terminal == []
+    else:
+        assert terminal[0]["tool_call"]["status"] == "failed"
+        assert terminal[0]["tool_call"]["input"] == {"command": "sleep 45"}
+        assert any(frame.get("kind") == "message_completed" for frame in frames)
 
     assert stopped.reply_text == "已停止当前操作。"
     assert completed.outbound is None
