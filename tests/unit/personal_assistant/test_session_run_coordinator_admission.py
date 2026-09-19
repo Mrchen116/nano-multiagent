@@ -38,7 +38,6 @@ from personal_assistant.gateway.readable_input_projection import (
 )
 
 from ._session_run_coordinator_helpers import (
-    CountingImageResolver,
     build_dependencies,
     inbound,
 )
@@ -691,19 +690,17 @@ async def test_fallback_uses_inject_only_sdk_before_single_normal_submit(
 
 
 @pytest.mark.asyncio
-async def test_steer_race_reuses_group_and_image_parts_exactly_once(
+async def test_steer_race_rebuilds_group_input_without_repeating_context(
     tmp_path: Path,
 ) -> None:
-    """Fallback reuses prepared parts instead of a second drain or download."""
+    """FIFO admits the pending group context exactly once after rejected steer."""
 
     kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
-    images = CountingImageResolver()
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
         outbound_router=router,
         group_context_store=group_store,
-        image_resolver=images,
     )
     first_message = inbound(chat_id="room", text="first", is_group=True)
     second_message = inbound(chat_id="room", text="second", is_group=True)
@@ -724,7 +721,6 @@ async def test_steer_race_reuses_group_and_image_parts_exactly_once(
     kernel.finish("run-2")
     await fallback
 
-    assert images.calls == 2  # first message + second message, not fallback again
     assert steer_parts == fallback_parts
     assert [part["text"] for part in fallback_parts] == [
         "[Bob] background once",
@@ -836,8 +832,13 @@ async def test_bounded_lock_registry_cannot_evict_pre_submit_session_owner(
         image_resolver=images,
         max_transition_locks=1,
     )
-    message_a = inbound(chat_id="chat-a", text="first")
-    message_b = inbound(chat_id="chat-b", text="second")
+    image = {
+        "attachments": [
+            {"url": "https://im.invalid/a.png", "content_type": "image/png"}
+        ]
+    }
+    message_a = replace(inbound(chat_id="chat-a", text="first"), metadata=image)
+    message_b = replace(inbound(chat_id="chat-b", text="second"), metadata=image)
 
     running_a = asyncio.create_task(coordinator.dispatch(_request(message_a, catalog)))
     await asyncio.wait_for(images.entered[0].wait(), timeout=1)
