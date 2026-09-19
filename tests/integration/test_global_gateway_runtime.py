@@ -280,15 +280,15 @@ async def _close(runtime):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("with_attachments", [False, True])
+@pytest.mark.parametrize("attachment_shape", ["none", "web", "feishu"])
 async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(
-    tmp_path, with_attachments
+    tmp_path, attachment_shape
 ):
     model = _Model()
     rt = await _runtime(tmp_path, model)
     try:
         message = _message("m1", "请确认这个请求")
-        if with_attachments:
+        if attachment_shape != "none":
             png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
             message = replace(
                 message,
@@ -304,6 +304,18 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(
                             "url": "data:image/png;base64," + png,
                             "content_type": " IMAGE/PNG ",
                         },
+                    ],
+                },
+            )
+        if attachment_shape == "feishu":
+            message = replace(
+                message,
+                metadata={
+                    **message.metadata,
+                    "kernel_input_parts": [
+                        {"type": "text", "text": "请确认这个请求"},
+                        {"type": "image", "attachment_index": 1},
+                        {"type": "text", "text": "图片后文"},
                     ],
                 },
             )
@@ -371,10 +383,21 @@ async def test_actual_loop_reads_commits_then_sends_without_default_chat_body(
             if m.role == "tool" and "请确认这个请求" in str(m.content)
         ]
         assert read_outputs
-        if with_attachments:
+        if attachment_shape != "none":
             assert "notes.txt" in str(read_outputs)
             assert "未读取" in str(read_outputs)
             assert "image" in str(read_outputs)
+            tool_images = [
+                image
+                for r in model.requests
+                for m in r.messages
+                if m.role == "tool" and isinstance(m.content, list)
+                for image in m.content
+                if image.get("type") == "image"
+            ]
+            assert tool_images, "the image must reach the actual SDK model request"
+            if attachment_shape == "feishu":
+                assert "图片后文" in str(read_outputs)
         assert all(
             "receipt_id" not in output
             and "part_key" not in output

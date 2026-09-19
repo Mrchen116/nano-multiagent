@@ -50,3 +50,51 @@
 ### Author Resolutions
 
 2026-09-19：核实 R1 证据与结论，无 findings 或待处理建议；接受 Approved。首文档补录用户确认原话，与已审策略相同，无语义增量，R1 retained。
+
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/design_review`（沿用 R1 独立 reviewer，未参与实现或设计修订）
+- review_mode: delta
+- mode_reason: 决定 2 补齐 global 既有附件索引及图文顺序投影，决定 3 约束失败描述的内联 payload；变化有界，无需求、公共接口、持久协议、milestone 或依赖边界变化，因此核对这两项及其消费路径，不重开 full。
+- started_at: 2026-09-19T13:21:01+08:00
+- completed_at: 2026-09-19T13:21:45+08:00
+- duration: 44 秒（工具时间可核实区间）
+- reviewed baseline: `codex/bugfix-567` / `30dac3b37a5f8a4c28059f003299f119f661c859`；worktree `/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-567`，受审为冻结的 design.md Changelog 与关键决定 2/3 增量。
+- retained_from: Round 1；原需求和 delta 未变，snapshot/admission、steer/FIFO、下载凭据、current/global 失败语义、真实组装、M1 与真栈验收要求保持原判断。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+两项设计修订足以指导修复已确认的实现缺口。code-review / verification 的两项实现 finding 仍须修复后由相应门禁核实，不能据此设计 Approved 关闭。
+
+### Coverage 与证据
+
+1. **global 原附件索引投影。** 独立核对 `channels/feishu/adapter.py:670` 起把资源封装为 data URL 并记录原附件索引，`:682` 的 `_kernel_input_parts` 生成 text 与 `image attachment_index` 有序序列。当前 `global_run_coordinator.py:559` 把占位图片收进 images、跳过 resolver，而后仅处理 source/image_url，因此占位确会消失。修订决定 2 明确在 global 按原索引解析为 Inbox image source、保持 text/image 顺序，且无 ordered parts 才使用正文与附件顺序；既有自包含图片沿用并避免重复。这直接封闭缺口，没有把索引重新解释为分类后列表索引，也没有要求复用 single_thread 的 SDK block 格式。
+2. **失败 data URL 描述。** `inbound_attachments.py:57` 当前从 descriptor 原样取 url 并 JSON 序列化；`session_run_coordinator.py:2403` 起把历史 resolution failure 交给该 helper。因此历史失败内联图片的 payload 确可进入模型文本。决定 3 现在明确 data URL 仅保留内联来源标记、绝不包含 Base64 payload，仍保留失败原因及未读取事实，能满足原历史失败隔离要求；不影响有效图片作为 image 内容进入模型，也不改变当前坏图本轮提示。
+3. **消费与权限波及范围。** global 图片物化继续复用已有 image_resolver 和 agent_id，结果保留 Inbox 所需 source/失败 attachment 描述；global 的失败可重读与 durable 消费协议继续有效。文本来源脱离 Base64 payload 仅改变未读取说明，不删除 store 原始附件，既有身份和下载保护不变化。没有新增公共接口或要求修改内核。
+4. **需求、delta 与 M1。** 修订只落实 incident 及 delta 中“两种模式有效图片进入上下文”“历史图片失败不阻断新请求”的既定结果，无新增用户行为要求，无需扩写 canonical delta。M1 原有索引保真、global 基本类型及历史错误回归足以容纳这两项；验收时应使用真实 Feishu-shaped attachment_index 输入和历史失败 data URL 样例，而不能只以 Web-shaped 附件通过代替。测试是否已经通过不属于本轮设计结论。
+
+### 架构判断
+
+原索引到 Inbox image source 的适配应由 GlobalRunCoordinator 的输入投影承担；单会话已有索引处理可作为语义参照，但不需要把两个不同消费协议抽象为通用新框架。内联来源文本省略 payload 由现有 `unread_attachment_text` 负责，复用现有描述 helper 即可，不需要存储迁移、图片缓存或新限流机制。修订与现有职责一致，复杂度与已复现故障匹配。
+
+### 历史问题闭环
+
+- Round 1 无设计 issue；其 Author Resolutions 接受 Approved 并补录用户原话，本轮核实与当前策略一致，retained。
+- 本轮触发材料为 code-review.md 的两个 CONFIRMED finding 及 verification.md 的两个 WARNING，并非 R1 遗留设计 issue：修订设计已覆盖其纠正方向；实现状态仍 open，留待代码审查和一致性复验关闭。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
+
+### Author Resolutions (R2)
+
+2026-09-19：接受 R2 Approved。两项修订均对应静态审查确认的实现缺口，未改变用户已确认的失败策略、文件读取范围或 Inbox 消费协议。无未决设计问题。

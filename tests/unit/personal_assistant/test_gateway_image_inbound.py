@@ -305,14 +305,21 @@ def test_file_and_image_preserve_text_image_and_unread_file_description(
     assert file["url"] in str(call["texts"])
 
 
+@pytest.mark.parametrize("inline_oversize", [False, True])
 def test_buffered_bad_image_keeps_text_valid_image_and_new_request(
-    tmp_path: Path,
+    tmp_path: Path, inline_oversize: bool
 ) -> None:
     from dataclasses import replace
 
     async def fetch(url: str, agent_id: str) -> bytes:
         return _PNG_BYTES if url.endswith("a.png") else b"not an image"
 
+    bad_url = (
+        "data:image/png;base64,"
+        + base64.b64encode(b"x" * (5 * 1024 * 1024 + 1)).decode()
+        if inline_oversize
+        else "http://im.local/bad.png"
+    )
     store = GroupContextStore(tmp_path / "group.sqlite3")
     pipeline, kernel, _ = _make_pipeline(
         tmp_path, fetcher=fetch, group_context_store=store
@@ -325,7 +332,7 @@ def test_buffered_bad_image_keeps_text_valid_image_and_new_request(
         metadata={
             "mentioned_agent_ids": [],
             "attachments": [
-                {"url": "http://im.local/bad.png", "content_type": "image/png"},
+                {"url": bad_url, "content_type": "image/png"},
                 {"url": "http://im.local/a.png", "content_type": "image/png"},
             ],
         },
@@ -339,4 +346,5 @@ def test_buffered_bad_image_keeps_text_valid_image_and_new_request(
     call = kernel.send_calls[0]
     assert "old text" in str(call["texts"]) and "new request" in str(call["texts"])
     assert "未读取" in str(call["texts"])
+    assert len(str(call["texts"])) < 2000
     assert len(call["image_urls"]) == 1

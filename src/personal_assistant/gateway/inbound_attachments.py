@@ -59,6 +59,9 @@ def unread_attachment_text(
         for key in ("file_name", "content_type", "url")
         if attachment.get(key)
     }
+    if str(descriptor.get("url") or "").lower().startswith("data:"):
+        # A failure notice must not turn the rejected binary payload into model text.
+        descriptor["url"] = "[内联附件，内容省略]"
     status = (
         f"历史图片内容未读取（{image_failure}）；不可据此推断图片内容，可重新发送。"
         if image_failure
