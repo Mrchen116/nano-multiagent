@@ -264,7 +264,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
     frames = [call.args[1] for call in connection.send_json.call_args_list]
     terminal = [frame for frame in frames if frame.get("kind") == "tool_call_completed"]
     if reset:
-        assert terminal == []
+        assert [frame["kind"] for frame in frames] == ["tool_call_upserted"]
     else:
         assert terminal[0]["tool_call"]["status"] == "failed"
         assert terminal[0]["tool_call"]["input"] == {"command": "sleep 45"}
