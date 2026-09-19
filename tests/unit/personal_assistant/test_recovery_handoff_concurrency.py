@@ -119,7 +119,21 @@ async def test_lock_held_accepted_follower_is_terminalized_at_failed_successor_c
     resolver.block = True
     racing = asyncio.create_task(
         coordinator.dispatch(
-            _request(replace(message, text="racing follower"), catalog)
+            _request(
+                replace(
+                    message,
+                    text="racing follower",
+                    metadata={
+                        "attachments": [
+                            {
+                                "url": "https://im.invalid/race.png",
+                                "content_type": "image/png",
+                            }
+                        ]
+                    },
+                ),
+                catalog,
+            )
         )
     )
     await asyncio.wait_for(resolver.entered.wait(), timeout=1)

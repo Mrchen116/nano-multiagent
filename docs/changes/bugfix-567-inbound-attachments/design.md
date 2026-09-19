@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-09-19 (M1): 静态审查确认 global 会把 Feishu attachment_index 占位当作已解析图片并丢弃；补齐 global 索引解析/图文顺序。历史失败描述不得包含 data URL payload。交 R2 审查。
+
 ## 现状分析
 
 ### 涉及范围
@@ -25,8 +27,8 @@ PA 仅使用 agent.sdk；不新增内核 block 类型。图片下载沿用原 no
 ## 架构总览与关键决策
 
 1. **共享附件分类，不扩展文件解析能力。** Gateway 内新增窄的附件语义 helper，统一 MIME 去空白/小写处理。明确 image/* 或 data:image 为图片；明确非图片 MIME 为普通文件；缺失/通用 octet-stream MIME 时按已知图片扩展名或既有 IM /images/ 入口识别，其余为普通文件。文件内容未读取是显式事实。类型判断不代替字节校验。
-2. **单会话附件逐项投影，保留原附件索引。** ImageAttachmentResolver 仅接收图片，下载与大小/内容校验不变。普通文件变为 text 描述（文件名、类型、来源、内容尚未读取），不送 SDK 未支持的 attachment block。按原索引映射图片结果，Feishu kernel_input_parts 的图文顺序不得因筛掉文件发生错位。global 沿用其 attachment block，只共享分类，不迁移 Inbox 协议。
-3. **当前与历史失败分开。** 当前消息任何图片失败仍返回现有本轮错误；全组缓冲不消费。历史图片逐项失败只投影为未读取说明（含来源与原因），保留同条文字和其他有效图片，允许新请求正常处理。该历史描述被接受仅表示失败事实已传入，不声称图片内容被读取；不引入自动重试，用户重发/查历史遵循既有入口。全局模式原有失败图片可重读语义保留。
+2. **单会话附件逐项投影，保留原附件索引。** ImageAttachmentResolver 仅接收图片，下载与大小/内容校验不变。普通文件变为 text 描述（文件名、类型、来源、内容尚未读取），不送 SDK 未支持的 attachment block。按原索引映射图片结果，Feishu kernel_input_parts 的图文顺序不得因筛掉文件发生错位。global 沿用其 attachment block，不迁移 Inbox 协议；其 kernel_input_parts 的 image attachment_index 必须按原附件索引解析成 Inbox image source，text/image 顺序保留。已有自包含 image source/image_url 沿用，避免重复追加同一图片。无 ordered parts 时按正文和附件顺序投影。普通文件描述追加且明确未读取。
+3. **当前与历史失败分开。** 当前消息任何图片失败仍返回现有本轮错误；全组缓冲不消费。历史图片逐项失败只投影为未读取说明（含来源与原因），保留同条文字和其他有效图片，允许新请求正常处理。失败描述对 data URL 只保留内联来源标记，绝不把 Base64 payload 作为文字传入。该历史描述被接受仅表示失败事实已传入，不声称图片内容被读取；不引入自动重试，用户重发/查历史遵循既有入口。全局模式原有失败图片可重读语义保留。
 4. **接收成功才消费缓冲。** snapshot 返回有序行及最后 row id；投影携带 buf_key 和上界。submit 返回有效接收记录或 try_steer 接受且确认 run identity 后，在同一 transition 临界区消费该 buf_key 的 id <= 上界；任何准备/接收异常不消费。后来 append 的 id 更大，不受影响。不声称跨 SQLite 与内核事务的崩溃 exactly-once。
 5. **群 steer 退回 FIFO 时重新取快照。** 拒绝 steer 不拥有输入，群请求不复用包含尚未消费背景的 prebuilt projection；真正出队时重建，避免其间被另一已接受输入消费的历史再次进入。非群路径保留原 prebuilt 优化。重复下载的取舍优先于重复上下文，不新增缓存/租约。
 
