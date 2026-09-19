@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Architecture review — nano-multiagent</title><script src="https://cdn.tailwindcss.com"></script><style>body{background:#fafaf9;color:#0f172a;font-family:system-ui;margin:50px auto;max-width:1080px}h1{font-size:32px}h2{font-size:24px}article{margin:48px 0;border-top:1px solid #ccc;padding-top:24px}pre{white-space:pre-wrap;font-size:12px}p{margin:16px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}.pair>div{border:2px solid #64748b;padding:28px;min-height:180px}.deep{background:#0f172a;color:white;border-width:5px!important}.warning{background:#fef3c7;padding:18px}</style><h1>nano-multiagent architecture review</h1><p>2026-09-19T13:30:16.113317+08:00 · branch main</p><pre>/Users/czj/Repos/nano-multiagent
+c5f1d5620c6323821a430fc3d53feefeb180fd89</pre><div class="warning">Working tree: dirty. Tracked and untracked state are included in this inventory; commit alone does not reproduce the complete snapshot.</div><details><summary>Tracked / untracked inventory</summary><pre> M docs/changes/feat-397-spec-design-agent-team/README.md
+ M docs/changes/feat-532-spec-memory-loop/spec.md
+ M docs/research/studies/README.md
+ M &quot;docs/research/studies/claude-code-dynamic-workflows-2026-08-08/Claude Code Dynamic Workflows \350\277\220\350\241\214\346\234\272\345\210\266.md&quot;
+ M docs/research/studies/claude-code-dynamic-workflows-2026-08-08/research.md
+?? .agents/
+?? .claude/skills/.usage.json
+?? .claude/skills/change-impl-worker/references/codex-execution-notes.md
+?? .claude/skills/conversation-skill-distiller/
+?? .codex_oauth.json
+?? .gateway-state.json
+?? .worktrees/
+?? LOCAL_INFRA.md
+?? data/
+?? docs/changes/bugfix-448-web-fetch-cancel/design-review.md
+?? docs/changes/bugfix-545-group-agent-machine-label/
+?? docs/changes/feat-397-spec-design-agent-team/agent-workflow-design.md
+?? docs/changes/feat-397-spec-design-agent-team/design.md
+?? docs/changes/feat-397-spec-design-agent-team/user-journey.md
+?? docs/changes/feat-397-spec-design-agent-team/user-profile-draft.md
+?? docs/changes/feat-504-im-tool-detail-redaction/
+?? docs/changes/feat-530-message-context-envelope/
+?? docs/changes/feat-531-social-content-plugins/
+?? docs/changes/feat-532-spec-memory-loop/M0-pilot/
+?? docs/changes/feat-532-spec-memory-loop/M1-benchmark-freeze/
+?? docs/changes/feat-532-spec-memory-loop/M2-memory-loop/
+?? docs/changes/feat-532-spec-memory-loop/design-review.md
+?? docs/changes/feat-532-spec-memory-loop/design.md
+?? docs/changes/feat-539-claude-auto-permission-migration/
+?? docs/changes/feat-554-multi-user-multi-gateway-im/
+?? docs/changes/refactor-476-permission-transaction-owner/
+?? docs/changes/refactor-478-gateway-control-rpc-boundary/
+?? docs/changes/refactor-482-web-chat-runtime-ownership/
+?? docs/changes/refactor-564-message-delivery-owner/
+?? docs/research/architecture-reviews/architecture-review-20260816-172127-0b64a64.html
+?? docs/research/studies/claude-code-auto-mode-classifier-2026-08-13/
+?? docs/research/studies/llm-user-simulator-agent-evaluation-2026-08-10/
+?? lark-auth-qr.png
+?? node_modules/
+?? output/
+?? package-lock.json
+</pre></details><p>Scope: source inventory across 594 Python/TypeScript files (~174k lines including bundled skills and frontend tests); targeted reading of all four packages, major composition roots, event paths and current specs. This is architectural triage, not a line-by-line correctness audit. No production claims.</p><p>Solid box = module · seam separates projections · dark box = deep module. All candidate diagrams are conceptual.</p><article id="tool-owner"><h2>Gateway tool lifecycle: one projection owner</h2><b>Strong · in-process</b><pre>runtime_delivery/observer.py:780-858,1749-1949,2170-2235</pre><div class="pair"><div><h3>Before</h3><p>Shadow tool parser + tracking → shadow saga | Live tool parser + tracking → IM frames</p></div><div class="deep"><h3>After</h3><p>Tool lifecycle module → shadow projection + live projection</p></div></div><p><b>Problem:</b> Shadow and live handlers interpret the same tool events and mutate the same in-flight map twice.</p><p><b>Change:</b> Introduce one tool lifecycle module; retain destination-specific serialization at its interface.</p><p>One transition per event; one abnormal cleanup owner; preserved wire formats</p></article><article id="admission"><h2>Gateway session admission and recovery</h2><b>Worth exploring · in-process</b><pre>gateway/session_run_coordinator.py:406-498,1717-2038,3179-3661</pre><div class="pair"><div><h3>Before</h3><p>Admission ↔ recovery ↔ fallback ↔ control</p></div><div class="deep"><h3>After</h3><p>Coordinator → recovery handoff module</p></div></div><p><b>Problem:</b> Session admission, recovery handoff, model fallback and control commands share coordinator state.</p><p><b>Change:</b> Explore a recovery-handoff module after the active attachment-admission repair lands.</p><p>Local recovery invariants; smaller coordinator interface</p></article><article id="kernel"><h2>Kernel assembly and session capabilities</h2><b>Worth exploring · in-process</b><pre>agent/sdk/kernel.py:794-1208,1372-1691,2952-3083; agent/core/agent/runtime.py:1560-1913</pre><div class="pair"><div><h3>Before</h3><p>Factory + Kernel session methods + preview → engine graph</p></div><div class="deep"><h3>After</h3><p>Kernel → capability resolution module → engine</p></div></div><p><b>Problem:</b> Assembly, session configuration and prompt preview depend on a broad shared engine graph.</p><p><b>Change:</b> Explore a capability-resolution module while preserving the SDK-only product seam.</p><p>Capability locality; narrower internal interface</p></article><article id="frontend"><h2>Chat history and live-event reconciliation</h2><b>Worth exploring · in-process</b><pre>IM/frontend/src/features/chat/chat-workspace-page.tsx:1-160; chat-stream-reducer.ts; components/message-pane.tsx</pre><div class="pair"><div><h3>Before</h3><p>History query + workspace merge + stream reducer → MessagePane</p></div><div class="deep"><h3>After</h3><p>History + stream → chat state module → MessagePane</p></div></div><p><b>Problem:</b> The workspace page combines history merge policy with query state, subscriptions and navigation.</p><p><b>Change:</b> Explore moving history reconciliation behind the existing chat state module.</p><p>One reconciliation interface; isolated state tests</p></article><article id="cli"><h2>Coding CLI command orchestration</h2><b>Speculative · in-process</b><pre>coding_cli/commands.py:624-1068,1283-1632,1708-1998</pre><div class="pair"><div><h3>Before</h3><p>REPL + commands + workflow rendering</p></div><div class="deep"><h3>After</h3><p>REPL → command handler → workflow view</p></div></div><p><b>Problem:</b> REPL lifecycle and workflow rendering share a large command module; file size alone does not establish a harmful seam.</p><p><b>Change:</b> Defer until a concrete independent caller or regression justifies extraction.</p><p>Potential locality; evidence weaker</p></article><aside class="warning">Decision records: refactor-480 keeps observer dispatch and task ownership; refactor-564 keeps delivery policy in Gateway. Both remain intact. bugfix-567 actively edits session admission and is excluded from implementation.</aside><article><h2>Best-supported recommendation</h2><a href="#tool-owner">Gateway tool lifecycle: one projection owner</a><p>Repeated state transitions and duplicated payload interpretation are concrete friction at the live/history seam; this bounded refactor removes them without redesigning transport or the kernel.</p></article></html>
