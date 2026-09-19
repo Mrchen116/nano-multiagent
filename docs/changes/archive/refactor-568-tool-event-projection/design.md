@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-09-19 (M1): 真实验收 A1 发现 stop 的终态清理被正文 suppression 阻断；补充仅限已存在气泡的终态清理准入，修复 current drift。
+
 ## 现状分析
 ### 涉及范围
 `src/personal_assistant/gateway/runtime_delivery/observer.py` 的 shadow tool 分支、live process 分支和 abnormal reconcile 分支。shadow 在离线门控前落盘；live 在门控后发送。相同的 start/end 在线 shadow 路径目前转换并更新在途表两次。
@@ -40,3 +42,13 @@ no spec delta。`docs/specs/im/tool-timeline.md`、`docs/specs/gateway/routing-d
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-tool-projection | 工具投影单一归属 | 无 | 单组 | runtime_delivery tool projector、observer、相关测试 | [worker] start/end/reconcile 的解析与 in-flight mutation 只有 projector owner；无 wire schema 和执行时序变化；窄回归和本地 CI 通过。[reviewer] 正常/失败工具可回看、中断收口、离线 shadow 不变性证据完整。 |
+
+## A1: 停止后的终态清理归属
+
+根因：`SessionRunCoordinator.stop` 先 suppress，再 interrupt；observer 对 revoked context 丢弃所有事件，导致后续 `run_terminal_reconcile` 不执行。即使允许该事件，ImageReplyConnection 的普通 `_publish` 仍会因 await_visibility=False 拒绝工具和气泡终态帧。两者均存在于基线。
+
+修正：RunDeliveryContext 增加 `terminal_cleanup_allowed`，默认 false；`suppress(run_id, terminal_cleanup=True)` 由明确 user stop 授权；coordinator 收到 cancelled run_status 时传入 `terminal_cleanup=(run_id in _user_interrupted_runs)` 保留同次 stop。store 只在 context 原为 active 或已有 cleanup 授权且 session_generation 未失效时授予/保留 true；普通 reset/generation revoke 的 suppress 保持 false 并覆盖旧授权。迟到 cancelled 不能从 reset 后 revoked+false 重新授权。observer 只允许带该 context 授权的 `run_terminal_reconcile` 越过 revoked gate，其它正文/tool_start/turn_end 仍丢弃。ImageReplyConnection 在同一 context 授权、message_id 非空且等于当前 context.message_id 时，仅允许 `tool_call_completed` 和 `message_completed` 清理旧记录。工具必须 failed（不接纳新的成功结果），message_completed 只允许 `final_content is None` 且发送时保持 None，不从缓存填回正文，不创建 turn_start、不发布新候选；其它帧仍走原 admission。新 session reset 清除此授权，旧 cleanup 不能重新创建消息。
+
+该窄清理是既有 stop 生命周期的终结，不恢复公开正文准入，不改变 message_delivery、图像上传或权限策略。无 wire 新字段/无新网络接口/无数据库迁移；current spec 已要求中断收口，因此 no spec delta。文件范围追加 context.py、image_connection.py 与 coordinator.stop 和 cancelled 分支的两处授权调用（不触及 bugfix-567 入站附件区）。在既有 image delivery 测试文件验证 stop cleanup 与 reset 反例，在既有 reconcile 文件验证 suppressed stop 的 terminal event；产品 reviewer 重跑真实 stop 并检查原字段、已完成工具和晚到正文隔离。
+
+R2-W1 回归：stop→cancelled→reconcile 必须关闭原工具和气泡；stop→reset/generation advance→late cancelled 不得恢复 cleanup 或任何正文发布。

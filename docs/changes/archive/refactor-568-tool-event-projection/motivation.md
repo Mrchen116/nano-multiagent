@@ -11,7 +11,11 @@
 无待决用户问题；以下是 Agent 基于扫描证据选择的内部重构范围。
 
 ## 现状痛点
-来源报告：[architecture snapshot](../../research/architecture-reviews/architecture-review-20260919-133016-c5f1d5620.html)，基线 `c5f1d5620c6323821a430fc3d53feefeb180fd89`（dirty，报告记录完整清单）。observer 的 shadow 和 live 分支分别构建工具 start/end payload，重复写入/删除 running_tool_calls；异常终结又分别重建失败投影。修改 presenter 透传或终态规则时必须跨分支核对，实时和持久化可能漂移。
+来源报告：[architecture snapshot](../../../research/architecture-reviews/architecture-review-20260919-133016-c5f1d5620.html)，基线 `c5f1d5620c6323821a430fc3d53feefeb180fd89`（dirty，报告记录完整清单）。observer 的 shadow 和 live 分支分别构建工具 start/end payload，重复写入/删除 running_tool_calls；异常终结又分别重建失败投影。修改 presenter 透传或终态规则时必须跨分支核对，实时和持久化可能漂移。
+
+## 验收发现的 current drift
+
+真实 `/stop` 在已开始的 bash 工具运行期间返回已停止，但历史工具/气泡维持 running。基线代码也在 stop 时 suppress context，observer 将 terminal reconcile 与新正文一并过滤，ImageReplyConnection 的 publication gate 又拒绝 revoked context；不是本次 projector 引入。该行为违反本 unit 中断不变性及 current tool-timeline 的终态契约，纳入同一工具生命周期闭环修正。
 
 ## 目标状态
 工具事件解释、在途状态和异常清理由同一内部 module 负责；observer 继续负责路由、shadow 写入顺序和 await/detach。不是按文件大小机械拆分。不修改 Kernel、IM 协议、数据库或 UI。
