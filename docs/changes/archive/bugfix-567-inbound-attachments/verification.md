@@ -101,3 +101,39 @@ None.
 None.
 
 Outcome: aligned
+
+## Round 3 — Corrected Delta Reconciliation (final rebase)
+
+> Validation snapshot: Nano `600fe19968f50ec9d820eaf4ab145acf8430934a → 1120f52bf`; LLM_PROXY `016f32eb7c44f58d8429d833f8973c8cc43ba337 → 514cd964bb6289d426ddbdbaa7a93200ad67e988`
+>
+> verification_mode: corrected-delta; verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**; `requires_full_verification: false`
+
+This reconciliation covers the final Nano rebase, both previously corrected Nano findings, and the cross-repository provider delta required by the incident and M1 exit criterion. The canonical relay requirements are present unchanged in the final tree (`docs/specs/gateway/relay-protocol.md:87-111`) and match the unit delta. `git diff --check` passes for both frozen ranges.
+
+| Delta item | Implementation evidence | Test / product evidence | Outcome |
+|---|---|---|---|
+| Ordinary files and mixed valid image/file input retain text, order, and an explicit unread-file description in both modes | `inbound_attachments.py:25-72`; `session_run_coordinator.py:2386-2427,3911-3938`; `global_run_coordinator.py:558-625` classify once, resolve indexed images, and preserve ordered provider parts | Rebased focused Nano suite passed: `72 passed in 5.94s`, including the Web/Feishu real-kernel global fixture that observes an actual SDK tool-content image block | aligned |
+| Historical unavailable images are non-blocking, do not expose inline data payloads, and current failures still stop before admission | `inbound_attachments.py:57-72` replaces a `data:` source with a bounded marker; `session_run_coordinator.py:2381-2413` separates current from historical resolution | The same focused suite includes the 6,990,658-character inline-image regression and passed; existing correction evidence records the public-pipeline bound | aligned |
+| Group snapshots are consumed only after accepted submit/steer; later arrivals survive and rejected group steer rebuilds FIFO input | `group_context_store.py:138-179`; `session_run_coordinator.py:807-852,1804-1829,2457-2461` | Rebased focused Nano suite includes the admission, later-arrival, and steer-fallback seams and passed | aligned |
+| Nested Anthropic `tool_result` base64/URL images reach Codex while ordinary Chat and text-only tool outputs retain their prior shapes | LLM_PROXY `messages.py:405-409` enables preservation only for `codex_oauth`; `proxy_converters.py:85-110,477-487,686-695` maps sources and emits call text followed by the corresponding user image | `pytest -q tests/test_proxy_converters.py tests/test_messages_routes.py`: `28 passed in 1.07s`; coverage includes base64, URL, normal Chat string fallback, structured output, and route selection. Final-rebase Product Round 6 observed the red rectangle through the isolated proxy and recorded all four matching raw-request hosts (`regression.md:136-156`; `product-round6.json`) | aligned |
+| Rebase against refactor-568 tool-event projection / terminal cleanup | Final-versus-pre-rebase attachment diff contains only refactor-568's two `delivery_context_store.suppress(... terminal_cleanup=...)` call changes in `session_run_coordinator.py`; it has no attachment, snapshot, resolver, Inbox, or provider-payload interaction | refactor-568's archived final verifier closes its terminal cleanup gate; the rebase-specific 72-test attachment suite passed | aligned |
+
+### Uncovered Observable Behavior
+
+None within this corrected-delta scope. Product Round 6 directly exercises the final rebase snapshot `1120f52bf` with Proxy `514cd964`, observes the image and unread-file behavior, and records all four raw requests at `127.0.0.1:4010`.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+Outcome: aligned

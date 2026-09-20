@@ -29,3 +29,15 @@ Image download/size/corruption, Feishu order and global Inbox commit tests kept.
 - Frontend full rerun: 83 files / 770 tests passed in 61.61s; `/tmp/bugfix567-frontend-rerun.log`. No frontend modifications; initial isolated timeout did not reproduce in targeted or full reruns.
 - Static R2: both findings closed, code review `[]`, corrected delta aligned; independent correction suite 22 passed.
 - Product R2 remains FAIL due to external LLM_PROXY nested tool-image loss. See regression.md and evidence/proxy-image-boundary.md. Unit stays active; no archive/Ready PR before product gate closes. Cross-repository scope clarification requested from user.
+
+## Final sync and cross-repository closure
+
+- Nano was rebased onto `origin/main` at `600fe1996` (including refactor-568). The effective attachment implementation through `1120f52bf` retained a clean static review; independent corrected-delta verification found the new main change limited to terminal delivery-context cleanup and unrelated to attachment classification, snapshot admission, Inbox conversion, or provider payloads.
+- Rebase-focused attachment suite: 72 passed in 5.90s.
+- CI-equivalent PA/agent shard: 1976 passed in 19.60s.
+- CI-equivalent remaining Python shard: 2045 passed, 27 warnings, in 65.84s.
+- Frontend: 83 files / 770 tests passed in 22.11s. `npm audit --audit-level=critical` returned success with no critical vulnerabilities; the existing report contains lower-severity dependency advisories.
+- Ruff check and format: passed, 1085 files formatted.
+- Documentation integrity after canonical delta merge: passed, 242 maintained Markdown sources and 73 required routes.
+- LLM_PROXY `514cd964`: 133 passed, 24 skipped for the full proxy suite; independent conversion/routing review suite 28 passed. Codex OAuth now receives nested Anthropic `tool_result` images through a Responses-supported user `input_image` projection while ordinary OpenAI Chat tool content remains text.
+- Product Round 5 passed only after the generated Gateway configuration explicitly selected the repaired proxy at `127.0.0.1:4010`; raw proxy request headers and the successful red-rectangle answer prove the full product journey used that process. The post-rebase product rerun is recorded separately in `regression.md`.

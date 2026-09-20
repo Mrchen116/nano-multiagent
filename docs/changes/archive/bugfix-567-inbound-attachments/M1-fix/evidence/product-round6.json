@@ -1,0 +1,122 @@
+{
+  "im_url": "http://127.0.0.1:61615",
+  "node": {
+    "node_id": "wt-unit-bugfix-567-31475",
+    "owner_id": "u_fhth53sk",
+    "node_name": "wt-unit-bugfix-567-31475",
+    "status": "online",
+    "last_heartbeat_at": "2026-09-20T10:36:10.014467Z",
+    "agent_count": 2,
+    "version": "",
+    "relay_enabled": true,
+    "reporting_enabled": true,
+    "alias": null,
+    "last_error": null
+  },
+  "agent": {
+    "agent_id": "review567-final-global",
+    "work_mode": "global",
+    "model": "codexOAuth:gpt-5.6-sol"
+  },
+  "conversation_id": "c_gaqaadyz",
+  "input": {
+    "id": "bc470a1380354ee684cfcfb9a9ce3e2f",
+    "conversation_id": "c_gaqaadyz",
+    "sender": {
+      "type": "user",
+      "id": "u_fhth53sk",
+      "display_name": "Test User"
+    },
+    "sender_user_id": "u_fhth53sk",
+    "sender_type": "user",
+    "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567-FINAL。",
+    "attachments": [
+      {
+        "url": "/im/v1/conversations/c_gaqaadyz/attachments/4e25796fd34a4ee49aa7b31e242f1270",
+        "content_type": "image/png",
+        "file_name": "visual.png"
+      },
+      {
+        "url": "/im/v1/conversations/c_gaqaadyz/attachments/5152ef363c47436d9bfe797eff238f61",
+        "content_type": "text/plain",
+        "file_name": "review.txt"
+      }
+    ],
+    "delivery_status": "sent",
+    "created_at": "2026-09-20T10:36:39.319834Z",
+    "tool_calls": [],
+    "thinking": [],
+    "background_returns": [],
+    "reply_process": [],
+    "token_usage": null,
+    "elapsed_ms": null,
+    "kernel_message_id": null,
+    "permission_requests": [],
+    "system_notice": null
+  },
+  "image": {
+    "width": 320,
+    "height": 200,
+    "background": "white",
+    "shape": "red rectangle x40..280 y30..170",
+    "sha256": "9633971832d60fbcfb65405ac59d0ed1134b921a5fe76269fb78a0e3b62aa800"
+  },
+  "txt_body": "FILE_BODY_HIDDEN_567_FINAL",
+  "outputs": [
+    {
+      "id": "941f24777ed7439badb107febd4e4f4b",
+      "conversation_id": "c_gaqaadyz",
+      "sender": {
+        "type": "agent",
+        "id": "review567-final-global",
+        "display_name": "review567-final-global"
+      },
+      "sender_user_id": "u_rgc34nju",
+      "sender_type": "agent",
+      "content": "图片中央是红色的长方形。普通文件名是 `review.txt`，正文尚未读取。\n\nMIX567-FINAL",
+      "attachments": [],
+      "delivery_status": "completed",
+      "created_at": "2026-09-20T10:37:09.038419Z",
+      "tool_calls": [],
+      "thinking": [],
+      "background_returns": [],
+      "reply_process": [],
+      "token_usage": null,
+      "elapsed_ms": null,
+      "kernel_message_id": null,
+      "permission_requests": [],
+      "system_notice": null
+    }
+  ],
+  "elapsed_seconds": 30.1,
+  "validated_at": {
+    "nano": "1120f52bfc512e50b39329bf5fba1ed2730282bc",
+    "proxy": "514cd964bb6289d426ddbdbaa7a93200ad67e988"
+  },
+  "proxy_route_evidence": [
+    {
+      "request_file": "2026-09-20_18-36-51_783-req-anthropic_messages.json",
+      "headers_file": "2026-09-20_18-36-51_783-headers-anthropic_messages.json",
+      "marker": "MIX567-FINAL",
+      "client_headers.host": "127.0.0.1:4010"
+    },
+    {
+      "request_file": "2026-09-20_18-36-56_874-req-anthropic_messages.json",
+      "headers_file": "2026-09-20_18-36-56_874-headers-anthropic_messages.json",
+      "marker": "MIX567-FINAL",
+      "client_headers.host": "127.0.0.1:4010"
+    },
+    {
+      "request_file": "2026-09-20_18-37-03_464-req-anthropic_messages.json",
+      "headers_file": "2026-09-20_18-37-03_464-headers-anthropic_messages.json",
+      "marker": "MIX567-FINAL",
+      "client_headers.host": "127.0.0.1:4010"
+    },
+    {
+      "request_file": "2026-09-20_18-37-09_054-req-anthropic_messages.json",
+      "headers_file": "2026-09-20_18-37-09_054-headers-anthropic_messages.json",
+      "marker": "MIX567-FINAL",
+      "client_headers.host": "127.0.0.1:4010"
+    }
+  ]
+}

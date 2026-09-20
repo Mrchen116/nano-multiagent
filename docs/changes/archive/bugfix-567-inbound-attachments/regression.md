@@ -132,3 +132,27 @@ Validation snapshot：Nano `fbfa77dfef2c4c3b2eeb6667916ccace8ae3bbd6` + LLM_PROX
 **Verdict: pass**。图片中央颜色及形状识别正确；普通文件名与未读取状态正确；用户文字标记保留。R1-P1关闭，open issues=0；Highest Required Action=pass；needs_re_review=false（针对本轮指定版本与运行配置）。其他既有通过场景继续引用Round1/2；Round3/4失败和配置原因保留，不覆盖历史。
 
 本轮无产品实现/配置改动、无外部issue；报告与证据由caller统一提交，report_commit未生成。服务由caller清理。
+
+## Round 6 — final rebase targeted，2026-09-20
+
+Validation snapshot：Nano `1120f52bfc512e50b39329bf5fba1ed2730282bc`（caller交接基于origin/main `600fe1996`）+ LLM_PROXY `514cd964bb6289d426ddbdbaa7a93200ad67e988`。本轮重验rebase后的global单条混合附件，其他未失效场景引用Round1/2/5。
+
+独立核对IM `http://127.0.0.1:61615` PID31504，启动18:35:36+08:00；Gateway PID31625，启动18:35:50，命令明确指定本unit `.gateway-config.yaml`，配置base_url为 `http://127.0.0.1:4010`。Proxy PID31449，18:35:26启动，cwd为修复worktree，晚于commit514cd964的18:14:44。node `wt-unit-bugfix-567-31475` 在线心跳10:36:10.014467Z。
+
+新建 `review567-final-global`，global模式、真实 `codexOAuth:gpt-5.6-sol`；新会话 `c_gaqaadyz`。仅一条消息 `bc470a1380354ee684cfcfb9a9ce3e2f`（10:36:39.319834Z），同条上传320×200白底红色长方形PNG（中央区域x40..280/y30..170，SHA256与Round5一致）与 `review.txt`（text/plain，正文`FILE_BODY_HIDDEN_567_FINAL`）；文字询问颜色形状、文件名/正文读取状态并要求MIX567-FINAL，没有泄露正确图形答案。所有写入经公开登录/建Agent/建会话/上传/发消息API；终态从公开消息查询获取。没有修改产品、测试或配置。
+
+完整证据：[product-round6.json](M1-fix/evidence/product-round6.json)。
+
+### Round 6 结果与最终 Verdict
+
+30.1秒内取得终态 `941f24777ed7439badb107febd4e4f4b`（10:37:09.038419Z，completed）：
+
+> 图片中央是红色的长方形。普通文件名是 `review.txt`，正文尚未读取。
+>
+> MIX567-FINAL
+
+独立关联代理raw日志中包含MIX567-FINAL的四个请求：`2026-09-20_18-36-51_783`、`18-36-56_874`、`18-37-03_464`、`18-37-09_054`；对应headers文件的 **client_headers.host全部为127.0.0.1:4010**。文件名与安全提取的Host已存入product-round6.json；没有提交其他headers或secret。
+
+**最终 Verdict: pass**（指定Nano1120f52bf + Proxy514cd964组合）。实际颜色、形状、普通文件名、未读状态和用户标记全部满足预期；R1-P1保持关闭，open issues=0；Highest Required Action=pass；needs_re_review=false。本结论对应实际rebase后的运行树，没有把旧版本结果冒充新版本。无新副作用；其他场景引用前轮有效证据，不扩充为本轮全量验收。
+
+报告/evidence由caller统一提交；未自行提交或操作服务，清理由caller负责。无外部issue。
