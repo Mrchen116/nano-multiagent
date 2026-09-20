@@ -12,6 +12,7 @@
 > https://github.com/Mrchen116/nano-multiagent/issues/298 这个问题还存在不
 > 更 general 地看，它是不是涉及一大类问题？
 > 好，我们把这些问题一个unit一并修复
+> 好，一并修了
 
 Issue #298 报告普通 TXT 被当作图片，图片损坏错误阻断同条文字；群中未消费的 TXT 也影响后续请求。上传、下载、历史与 fork 的文件字节正常。
 
@@ -20,6 +21,8 @@ Issue #298 报告普通 TXT 被当作图片，图片损坏错误阻断同条文�
 用户明确确认图片失败策略：“保留当前图片失败提示，隔离群历史失败（推荐）”。
 
 Agent 解读：一个 Full bugfix 覆盖普通文件类型分流、混合消息保真、失败范围、群缓冲消费和模式间基本类型语义一致性。普通文件只保证描述与来源进入上下文并明确未读取，不承诺自动解析文件内容。保留既有图片校验和成员访问保护；不改变上传、存储、下载、历史、fork、内核多模态协议或新增文件解析工具。
+
+真实 global 验收进一步证明 Nano 已把有效图片放入 Anthropic `tool_result.content`，但当前 LLM_PROXY 在 Anthropic → OpenAI Chat 转换时只抽取其中的文字，导致后续 Codex Responses 转换看不到图片。用户确认将该 provider bridge 缺口纳入同一 unit；实现位于 LLM_PROXY 独立仓库和 PR，Nano unit 以跨仓真实链路通过作为关闭条件。
 
 沿用现有当前消息图片失败契约。历史缓冲图片失败作为未读取事实进入上下文，不阻断新请求；不是把失败图片标记成已读取。用户可提供文件文本或重发图片。
 
@@ -35,6 +38,7 @@ Web IM single_thread Agent 收到文字加 `text/plain` 附件。以真实 Image
 2. resolver 和消息投影采用整体失败语义，一项错误丢弃同条文字及其他有效输入。真正异常图片的本轮停止有现行契约依据，但不应套用到普通文件或扩散到后来新请求。
 3. 群上下文通过 `drain_with_metadata` 在解析/内核接收前删除。后续解析或提交失败时待处理上下文已经移除。IM 历史不受此删除影响。
 4. GlobalRunCoordinator 已按 MIME 分流并保留普通附件描述；single_thread 缺少同等类型区分。需共享类型判断，保留两种模式各自会话/Inbox 消费机制。
+5. LLM_PROXY 已支持顶层 Anthropic user 图片，也能生成官方 Responses schema 允许的结构化 `function_call_output.output`；但 Anthropic `tool_result` 先调用纯文本提取器，使嵌套图片在转换前丢失。补通后真实 Codex OAuth 请求虽接受该结构，模型仍表示看不到图片；同图作为后续 user input image 时能正确识别。这是共享转换缺口叠加 Codex OAuth 实际兼容差异，不是 Responses 公共 schema 禁止图片。
 
 证据：`web_relay_adapter.py` 附件映射；`image_attachments.py` 的 resolve；`session_run_coordinator.py` 的 _build_message_parts、dispatch、_run_one；`group_context_store.py` 的 drain_with_metadata；`global_run_coordinator.py` 的 _content。当前约束见 `docs/specs/gateway/relay-protocol.md` 与 `global-agent.md`。
 
@@ -51,6 +55,7 @@ Web IM single_thread Agent 收到文字加 `text/plain` 附件。以真实 Image
 - **WHEN** 同条消息包含文字、有效图片和普通文件
 - **THEN** 文字和有效图片均进入模型，普通文件保留描述，不被误认成图片
 - **AND** single_thread 与 global 模式均满足该基本语义
+- **AND** 经真实 LLM_PROXY/Codex Responses 链路后，嵌套在工具结果中的有效图片仍可被模型读取
 
 ### Requirement: 失败不扩散到无关的新请求
 

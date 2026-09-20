@@ -42,3 +42,21 @@ Both Round 1 findings are closed. The independent closure result is:
 ```json
 []
 ```
+
+## Round 3 — cross-repository closure/full
+
+- `executed_base`: Nano `c5f1d5620c6323821a430fc3d53feefeb180fd89`; LLM_PROXY `016f32e`
+- `validated_at`: Nano `fbfa77dfe`; LLM_PROXY `514cd964`
+- `review_mode`: `full`; Nano product range `c5f1d5620..800f4dfe3` (the later Nano commit is documentation/evidence only); LLM_PROXY range `016f32e..514cd964`
+
+Round 3 rechecked the R2 Nano product path together with the proxy conversion that finally delivers nested tool-result images to the model. `messages._build_openai_bridge_payload` opts into structured tool-result image preservation only when `auth_type == "codex_oauth"`; ordinary OpenAI-compatible routes retain the existing string `tool` content. The direct Anthropic-to-Codex adapter also opts in only while constructing a Codex payload.
+
+For the Codex path, both Anthropic `base64` and `url` image sources become OpenAI `image_url` parts. The Codex builder emits the accompanying text as that call's `function_call_output`, then emits its images in the immediately following `user` input item. It processes each tool message serially, so two image-bearing tool calls retain their distinct call IDs and image items without cross-call or cross-message pairing. Text-only and existing structured tool outputs keep their prior function-output representations when there are no images.
+
+Focused proxy tests passed: `pytest -q tests/test_proxy_converters.py tests/test_messages_routes.py` — `28 passed`. A separate two-call in-memory reproduction also verified base64/URL pairing and the normal OpenAI string fallback.
+
+The independent Round 3 result is:
+
+```json
+[]
+```

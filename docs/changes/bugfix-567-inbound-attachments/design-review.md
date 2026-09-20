@@ -98,3 +98,95 @@
 ### Author Resolutions (R2)
 
 2026-09-19：接受 R2 Approved。两项修订均对应静态审查确认的实现缺口，未改变用户已确认的失败策略、文件读取范围或 Inbox 消费协议。无未决设计问题。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/design_review`（沿用独立 reviewer；未参与本次跨仓设计或实现）
+- review_mode: full
+- mode_reason: 派发建议 delta，但实际新增 LLM_PROXY 仓库、共享 provider 转换边界、incident 的真实链路要求及 M1 范围/退出条件；按 skill 对需求、核心边界或 milestone 变化采用 full。保留 R1/R2 未受影响的源码证据，同时完整核对新增边界与整体覆盖。
+- started_at: 2026-09-20T18:07:05+08:00
+- completed_at: 2026-09-20T18:09:43+08:00
+- duration: 158 秒
+- reviewed baseline: Nano `codex/bugfix-567` / `fbfa77dfef2c4c3b2eeb6667916ccace8ae3bbd6` 的冻结 incident/design 增量；LLM_PROXY `016f32eb7c44f58d8429d833f8973c8cc43ba337`。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+Responses 支持结构化图片工具输出的前提成立；跨仓职责划分与真实模型验收方向合理。但共享 Anthropic → Chat 转换器也用于真正的 Chat Completions 上游，设计尚未区分其 wire 契约与 Codex 中间形态，直接按当前决定实施会带来非 Codex 路径的协议回归。
+
+### Coverage 与证据
+
+1. **原范围与用户约束。** incident 保留普通文件仅描述、当前图片失败提示、历史失败隔离、成员保护与接收后消费，新增范围有用户“一并修了”的确认。决定 1–5 未修改，原模块职责、索引、snapshot/consume、steer fallback 及 current/global 消费差异继续沿用 R1/R2 的证据；本轮没有把 provider 修复下沉到 Nano 内核，也未新增文件解析能力。
+2. **真实 provider 入口。** LLM_PROXY `proxy_converters.py:178–183` 对 tool_result 调用纯文本提取器；`:167–177` 已支持顶层 base64/URL 图片；`:639–643` 已把结构化 tool 内容交给 `_tool_content_to_function_output`。`tests/test_proxy_converters.py:100` 现有回归覆盖 image_url → function_call_output 的 input_image，支持复用而非新造转换协议。实际请求入口是 `src/handlers/messages.py:_build_openai_bridge_payload`，`:405` 共用 Anthropic converter 后再按 auth_type 分支，并非仅检查独立 bridge wrapper。
+3. **官方能力前提。** 2026-09-20 核对 [OpenAI 官方 SDK Responses input schema](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_input_param.py)：FunctionCallOutput.output 接受字符串或结构化内容列表，并明确包含 text/image/file；因此不能把本次丢图归因为 Responses 一律不支持工具图片。实际 Codex 上游和模型仍需设计要求的真栈识图验收，官方 schema 本身不替代该验收。
+4. **消费者和 delta。** Gateway delta 继续表述文字/有效图片正常进入上下文、普通文件未读取、历史失败和接收后消费；无需让 Nano canonical 暴露代理专用 payload。incident 新增 provider 链路验证是该结果的实现闭环，独立 LLM_PROXY PR 和 Nano unit 联合关闭的安排合理。
+5. **测试与验收。** M1 已纳入 base64/URL 嵌套工具图片、纯文本原形态和真实 Nano → 代理 → Codex global 识图。验收明确使用独立代理 worktree/端口、隔离 Gateway 指向该代理、真实视觉模型及创建者清理，不能单测代签。尚缺共享转换器非 Codex 分支的协议保护和对应回归，见 R3-W1。
+6. **回退。** 两仓独立 revert、无迁移、任一侧回退会重现对应缺口的说明准确。跨仓版本和 PR 应按最终交付实际记录；本轮不把合并或设计通过当作部署/识图已通过。
+
+### 架构判断
+
+Nano 负责有效图片进入既有 Anthropic 工具结果，LLM_PROXY 负责 provider 适配，Codex converter 负责 Responses 输出，是正确分工。复用顶层图片转换与既有 `_tool_content_to_function_output` 足够，无需新增内核块、文件解析工具或通用多模态框架。
+
+但该 converter 是共享 wire 边界。内部暂存 `role=tool/content=image_url` 可以服务 Responses 转换，不能据此宣称其为 OpenAI Chat API 可接受的工具消息；能力选择应在已知目标的代理组装边界明确收口，而不是由 Nano 感知 auth_type。这里有实际既有消费者，属于必须处理的协议边界，不是假想兼容需求。
+
+### 历史问题闭环
+
+R1/R2 无未关闭设计 finding。R2 Author Resolutions 已记录接受；其实现缺口是否通过代码/产品门禁不由本轮设计报告重签。R3 是新增跨仓范围审查。
+
+### Issues
+
+#### R3-W1 — 区分 Codex 中间图片工具消息与真正 Chat Completions wire 输出
+
+- 位置：`design.md` 决定 6、接口与数据流最后一项、M1 provider 回归范围。
+- 证据：LLM_PROXY `src/handlers/messages.py:405` 无条件调用同一 converter，`:435–436` 在 `auth_type != "codex_oauth"` 时直接返回该 Chat payload；Codex 分支才继续转换成 Responses。设计目前统一要求工具 content 转 text/image_url blocks，未限定这只是 Codex 的内部中间形态。[OpenAI Chat Completions 官方 schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 的 ChatCompletionToolMessageParam.content 只接受 string 或 text blocks，不接受 image_url。Responses 支持图片不能证明 Chat 工具消息也支持。
+- 未修后果：普通 OpenAI Chat 目标收到同样的 Anthropic 含图 tool_result 时，原本合法的文字工具消息会变成非法多模态工具消息并被上游拒绝；“不扩大其他消息协议”无法兑现。
+- 收口要求：明确目标能力分流和非 Codex 行为。最小范围可让嵌套工具图片保真仅在现有 Codex/Responses 转换链启用，普通 Chat 保持原有效 wire 行为；无需本 unit 额外开发普通 Chat 工具图片能力。增加实际 `_build_openai_bridge_payload` seam 的双分支回归，断言 Codex 最终 function_call_output 含有序 input_text/input_image、普通 Chat 不收到非法 image_url tool blocks，同时保留纯文本形态与 call_id。
+
+### Recommendations
+
+无。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer target: `/root/design_review`（原独立 reviewer）
+- review_mode: delta
+- mode_reason: 派发建议 closure，但除 R3-W1 的目标能力隔离外，还新增 Codex 将工具图片移到紧随其后的 user input_image 这一有界适配决定，故扩大为 delta 检查；未改变 Nano 消费协议或跨仓范围。
+- started_at: 2026-09-20T18:12:06+08:00
+- completed_at: 2026-09-20T18:13:32+08:00
+- duration: 86 秒
+- reviewed baseline: Nano worktree 冻结的 incident/design 决定 6 和接口增量；LLM_PROXY `.worktrees/bugfix-tool-result-images` 基于 `016f32eb7c44f58d8429d833f8973c8cc43ba337` 的 converter/bridge/tests 工作区 diff。
+- retained_from: Round 3；原附件分类、snapshot/admission、群失败范围、权限、M1 其他验收及跨仓回退要求不变。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING（设计门禁）。**
+
+R3-W1 的设计问题关闭。新 Codex 图片投影在 Responses schema 中合法，职责仍在代理内；但实际 handler 接线与 handler 双分支回归在本次读取的实现中尚未闭环，本结论不批准实现或产品验收。具体事实已发送主会话，见下述验证边界。
+
+### Coverage 与证据
+
+1. **普通 Chat 隔离已在设计中明确。** 决定 6 和接口段规定共享 converter 默认仅提取文字、仅 Anthropic→Codex 显式开启图片内部结构；M1 增加普通 Chat 保持字符串。工作区 `anthropic_messages_to_openai(..., preserve_tool_result_images=False)`、`anthropic_request_to_openai_chat_body` 默认 false 与 `anthropic_request_to_codex_payload` 显式 true，证明该窄能力参数可以落实，无需新增通用路由体系。
+2. **Responses 合法性。** [官方 Responses Message schema](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_input_param.py) 允许 user message，[其 content union](https://raw.githubusercontent.com/openai/openai-python/main/src/openai/types/responses/response_input_message_content_list_param.py) 包含 input image。保留 call_id 对应的文字 function_call_output，再放紧随其后的 user image message，未把 image_url tool blocks 发到真正 Chat endpoint。公共 schema 允许图片工具输出，与特定 Codex OAuth 模型链路实测看不到该图并不矛盾；后者是本次兼容处理依据，不能泛化成所有 Responses 模型的限制。
+3. **语义与职责。** 文字及来源元数据留在原工具结果，call_id 不变，仅图片以 provider 可见通道紧随该结果，每个工具结果的图片次序应保持；不是把工具文字转成真人指令。Nano 持久上下文、Inbox receipt 和用户权限协议不变。图文交错在 provider 层拆为文字结果和图片序列，是为实际可见性作出的显式取舍；现有 Inbox 输出本身采用文本元数据/image_index 与图片块对应，应在多图回归中保持该对应关系。
+4. **回归覆盖与真实验收。** 已读新增 tests 的 base64/URL 双路径断言，普通 Chat wrapper 保持文字、Codex wrapper 保留 call_id 并输出后续 user image；纯文本原形态有回归。设计继续要求隔离代理真实 global 识图，故不将 schema 合法或 wrapper 测试通过当作真实请求成功。本轮未重跑产品旅程，也未独立重放主会话报告的同图对照实验。
+5. **验证边界：真实 handler 尚需实现复验。** 本轮读取时 `src/handlers/messages.py:_build_openai_bridge_payload` 仍无参数调用共享 converter，之后直接调用 `openai_chat_body_to_codex_payload`，不经过已开启 opt-in 的 `anthropic_request_to_codex_payload`；新增测试只测 wrapper。故仅有 wrapper 修改不能证明真实 `/v1/messages` 已修复。实现者必须在真实 handler 的 Codex 分支落实设计规定的显式开启，并按 R3-W1 验收要求增加 handler 双分支测试；普通 Chat 同一输入仍须为合法文字工具消息。这是当前实现与已收口设计的差距，交代码/一致性门禁关闭，不因本轮设计 Approved 消失。
+
+### 历史问题闭环
+
+- **R3-W1：closed（设计）。** Author Resolution 由本轮派发说明及 design 决定 6/接口/M1 的修订提供；已明确普通 Chat 默认文字、Codex 显式启用。R3 所建议的最终 input_image 位于 function_call_output 的测试形态，被本轮审过的后续 user image 形态替代，call_id 和普通 Chat 隔离要求保留。
+- R1/R2 未受影响判断 retained。本轮不关闭任何未完成的实现或真实验收 finding。
+
+### Issues
+
+无未解决设计 issue。
+
+### Recommendations
+
+无。
