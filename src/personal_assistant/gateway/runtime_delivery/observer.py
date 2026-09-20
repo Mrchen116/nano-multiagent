@@ -31,6 +31,7 @@ from .background import _invoke_external_reply_sender
 from .context import RunDeliveryContext, RunDeliveryContextStore
 from ..runtime_footer import ExternalFinalProjection, TerminalFooterFacts
 from .task_tracker import RuntimeDeliveryTaskTracker
+from .tool_projection import ToolCallProjection, ToolCallProjector
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
 _SELF_EVOLUTION_SOURCE = "self_evolution"
@@ -243,6 +244,7 @@ def build_kernel_event_observer(
     # reconcile), so this never grows unbounded on a long-lived Gateway.
     if running_tool_calls is None:
         running_tool_calls = {}
+    tool_projector = ToolCallProjector(running_tool_calls)
     if task_tracker is None:
         # Direct observer tests and library callers keep a local owner. Production
         # always injects the composition-root singleton so GatewayRuntime can drain it.
@@ -607,7 +609,8 @@ def build_kernel_event_observer(
         rolled_shadow_snapshot: ExternalShadowBubble | None
         shadow_snapshot: ExternalShadowBubble | None
         shadow_process_seq: int | None
-        abnormal_inflight: dict[str, dict[str, Any]]
+        tool_projection: ToolCallProjection | None
+        abnormal_inflight: dict[str, ToolCallProjection]
 
     @dataclass(slots=True)
     class _PreparedEvent:
@@ -690,7 +693,9 @@ def build_kernel_event_observer(
                         await deferred
 
                 return _PreparedEvent(handled=True, result=_defer_until_reset_decides())
-            if run_context_store.is_suppressed(run_id):
+            if run_context_store.is_suppressed(run_id) and not (
+                event_name == "run_terminal_reconcile" and ctx.terminal_cleanup_allowed
+            ):
                 return _PreparedEvent(handled=True, result=None)
         if event_name in {"turn_end", "run_terminal_reconcile"}:
             _clear_run_visible_reasoning(run_id)
@@ -725,9 +730,10 @@ def build_kernel_event_observer(
         shadow_snapshot: ExternalShadowBubble | None = None
         shadow_process_seq: int | None = None
         consumed_shadow_anchor_pending = False
-        abnormal_inflight: dict[str, dict[str, Any]] = {}
+        tool_projection: ToolCallProjection | None = None
+        abnormal_inflight: dict[str, ToolCallProjection] = {}
         if event_name == "run_terminal_reconcile":
-            abnormal_inflight = running_tool_calls.pop(run_id, {})
+            abnormal_inflight = tool_projector.reconcile(event)
         if ctx.shadow_saga_id and shadow_bubble_record is not None:
             if event_name == "run_status" and event.get("status") == "running":
                 shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
@@ -781,80 +787,16 @@ def build_kernel_event_observer(
                         and shadow_image_bind is not None
                     ):
                         shadow_image_bind(shadow_snapshot.output_key, str(prepared_key))
-            elif event_name == "tool_start":
-                call_id = str(event.get("call_id") or "").strip() or run_id
-                presentation = event.get("presentation")
-                tool_call: dict[str, Any] = {
-                    "id": call_id,
-                    "name": str(event.get("name") or ""),
-                    "status": "running",
-                    "input": event.get("arguments")
-                    if isinstance(event.get("arguments"), dict)
-                    else {},
-                }
-                if isinstance(presentation, Mapping):
-                    if presentation.get("summary"):
-                        tool_call["output"] = str(presentation["summary"])
-                    if presentation.get("detail") is not None:
-                        tool_call["detail"] = presentation["detail"]
-                    if presentation.get("emoji"):
-                        tool_call["emoji"] = str(presentation["emoji"])
+            elif event_name in {"tool_start", "tool_end"}:
+                tool_projection = tool_projector.project(event)
                 shadow_snapshot = _record_shadow(
-                    rid=run_id, ctx=ctx, kind="tool", tool_call=tool_call
+                    rid=run_id, ctx=ctx, kind="tool", tool_call=tool_projection.shadow
                 )
-                running_call = {
-                    key: tool_call[key]
-                    for key in ("name", "input", "output", "detail", "emoji")
-                    if key in tool_call
-                }
-                running_tool_calls.setdefault(run_id, {})[call_id] = running_call
                 if shadow_snapshot:
                     persisted = next(
                         item
                         for item in shadow_snapshot.tool_calls
-                        if item.get("id") == call_id
-                    )
-                    shadow_process_seq = int(persisted["seq"])
-            elif event_name == "tool_end":
-                call_id = str(event.get("call_id") or "").strip() or run_id
-                presentation = event.get("presentation")
-                tool_call = {
-                    "id": call_id,
-                    "name": str(event.get("name") or ""),
-                    "status": "failed" if event.get("error") else "completed",
-                    "input": event.get("arguments")
-                    if isinstance(event.get("arguments"), dict)
-                    else {},
-                }
-                duration_ms = event.get("duration_ms")
-                if isinstance(duration_ms, (int, float)):
-                    tool_call["duration_ms"] = int(duration_ms)
-                reason = event.get("reason_code")
-                if isinstance(reason, str) and reason:
-                    tool_call["reason"] = reason
-                approval = event.get("approval")
-                if isinstance(approval, str) and approval:
-                    tool_call["approval"] = approval
-                if isinstance(presentation, Mapping):
-                    if presentation.get("summary"):
-                        tool_call["output"] = str(presentation["summary"])
-                    if presentation.get("detail") is not None:
-                        tool_call["detail"] = presentation["detail"]
-                    if presentation.get("emoji"):
-                        tool_call["emoji"] = str(presentation["emoji"])
-                shadow_snapshot = _record_shadow(
-                    rid=run_id, ctx=ctx, kind="tool", tool_call=tool_call
-                )
-                inner = running_tool_calls.get(run_id)
-                if inner is not None:
-                    inner.pop(call_id, None)
-                    if not inner:
-                        running_tool_calls.pop(run_id, None)
-                if shadow_snapshot:
-                    persisted = next(
-                        item
-                        for item in shadow_snapshot.tool_calls
-                        if item.get("id") == call_id
+                        if item.get("id") == tool_projection.shadow["id"]
                     )
                     shadow_process_seq = int(persisted["seq"])
             elif event_name == "turn_end":
@@ -901,26 +843,10 @@ def build_kernel_event_observer(
                 )
                 shadow_snapshot = _record_shadow(rid=run_id, ctx=ctx, kind="begin")
             elif event_name == "run_terminal_reconcile":
-                reason = str(event.get("reason") or "interrupted").strip()
-                terminal_output = event.get("content")
-                for call_id, running_call in abnormal_inflight.items():
-                    call = (
-                        dict(running_call) if isinstance(running_call, Mapping) else {}
+                for projection in abnormal_inflight.values():
+                    _record_shadow(
+                        rid=run_id, ctx=ctx, kind="tool", tool_call=projection.shadow
                     )
-                    call.update(
-                        {
-                            "id": call_id,
-                            "name": str(call.get("name") or running_call),
-                            "status": "failed",
-                            "reason": reason,
-                            "input": call.get("input")
-                            if isinstance(call.get("input"), dict)
-                            else {},
-                        }
-                    )
-                    if isinstance(terminal_output, str) and terminal_output:
-                        call["output"] = terminal_output
-                    _record_shadow(rid=run_id, ctx=ctx, kind="tool", tool_call=call)
                 terminal_status = event.get("delivery_status")
                 if terminal_status not in {"completed", "failed"}:
                     terminal_status = (
@@ -1029,7 +955,7 @@ def build_kernel_event_observer(
                 if event_name == "tool_start":
                     return _PreparedEvent(handled=True, result=None)
             elif event_name == "turn_end":
-                running_tool_calls.pop(run_id, None)
+                tool_projector.finish(run_id)
                 _finish_shadow_live_run(manager, rid=run_id)
                 return _PreparedEvent(handled=True, result=None)
             elif event_name != "permission_resolved":
@@ -1052,6 +978,7 @@ def build_kernel_event_observer(
                 rolled_shadow_snapshot=rolled_shadow_snapshot,
                 shadow_snapshot=shadow_snapshot,
                 shadow_process_seq=shadow_process_seq,
+                tool_projection=tool_projection,
                 abnormal_inflight=abnormal_inflight,
             ),
         )
@@ -1583,7 +1510,7 @@ def build_kernel_event_observer(
             # backstop. tool_end already drops entries as calls close; this catches the
             # empty-dict residue and guarantees the map can't grow unbounded on a long
             # Gateway. reconcile owns the abnormal path and pops there.
-            running_tool_calls.pop(run_id, None)
+            tool_projector.finish(run_id)
 
             discard_reason = None
             if ctx.discard_current_bubble:
@@ -1749,7 +1676,6 @@ def build_kernel_event_observer(
         elif event_name == "tool_start":
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
-            arguments = event.get("arguments") or {}
             if tool_name == "Workflow":
                 ctx.mark_visible_reply()
                 if workflow_permission_bindings is not None and ctx.kernel_session_id:
@@ -1763,57 +1689,9 @@ def build_kernel_event_observer(
                             external_metadata=_external_context_metadata(ctx) or {},
                         )
                     )
-            # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
-            # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
-            # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
-            start_pres = event.get("presentation")
-            start_emoji: str | None = None
-            start_output: str | None = None
-            start_detail: Any = None
-            if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
-                start_emoji = str(start_pres["emoji"])
-            if isinstance(start_pres, Mapping):
-                if start_pres.get("summary"):
-                    start_output = str(start_pres["summary"])
-                start_detail = start_pres.get("detail")
-            if (
-                ctx.revalidate_output
-                and tool_name == "send_message"
-                and isinstance(arguments, Mapping)
-                and arguments.get("target") == ctx.conversation_id
-            ):
-                start_detail = {
-                    **(start_detail or {}),
-                    "status": "pending_revalidation",
-                }
-            # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
-            # bugfix-416 #111 stores the original input; bugfix-441-M2 stores the
-            # parameter-side presentation too, so abnormal reconcile can re-emit the
-            # same refresh/historical payload the running row already showed.
-            running_call: dict[str, Any] = {
-                "name": tool_name,
-                "input": arguments if isinstance(arguments, dict) else {},
-            }
-            if start_output is not None:
-                running_call["output"] = start_output
-            if start_detail is not None:
-                running_call["detail"] = start_detail
-            if start_emoji is not None:
-                running_call["emoji"] = start_emoji
-            running_tool_calls.setdefault(run_id, {})[call_id] = running_call
+            projection = scope.tool_projection or tool_projector.project(event)
+            start_tool_call = tool_projector.for_live(projection, ctx)
             if message_id:
-                start_tool_call: dict[str, Any] = {
-                    "id": call_id,
-                    "name": tool_name,
-                    "status": "running",
-                    "input": arguments if isinstance(arguments, dict) else {},
-                }
-                if start_output is not None:
-                    start_tool_call["output"] = start_output
-                if start_detail is not None:
-                    start_tool_call["detail"] = start_detail
-                if start_emoji is not None:
-                    start_tool_call["emoji"] = start_emoji
                 start_payload = {
                     "kind": "tool_call_upserted",
                     "message_id": message_id,
@@ -1836,7 +1714,6 @@ def build_kernel_event_observer(
         elif event_name == "tool_end":
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
-            arguments = event.get("arguments") or {}
             if tool_name == "Workflow":
                 ctx.mark_visible_reply()
                 event_metadata = event.get("event_metadata")
@@ -1856,72 +1733,8 @@ def build_kernel_event_observer(
                         workflow_run_id=workflow_run_id,
                     )
                     _dispatch_workflow_permission_deliveries(deliveries)
-            # bugfix-410-M2 R3: this call closed normally — drop it from in-flight.
-            # bugfix-410-fix-r1: also drop the run_id entry once its last in-flight call
-            # closes, so the per-run dict can't accumulate empty leftovers on a long-lived
-            # Gateway (turn_end finalizes the bubble but never re-touches this map).
-            inner = running_tool_calls.get(run_id)
-            if inner is not None:
-                inner.pop(call_id, None)
-                if not inner:
-                    running_tool_calls.pop(run_id, None)
-            duration_ms = event.get("duration_ms")
-            status = "failed" if event.get("error") else "completed"
-            # bugfix-410-M2 R4 (#97): forward the badge classification (e.g. "denied"
-            # for a hook-blocked tool) so the IM badge can render the right label.
-            reason_code = event.get("reason_code")
-            reason = str(reason_code).strip() if isinstance(reason_code, str) else None
-            # feat-434-M1: forward the user-decision verdict (user_allow/user_deny)
-            # the same way as reason — top-level kernel field, pure passthrough. None
-            # for auto-allowed /普通工具 (gate region stays hidden downstream).
-            approval_raw = event.get("approval")
-            approval = (
-                str(approval_raw).strip()
-                if isinstance(approval_raw, str) and approval_raw
-                else None
-            )
-            # feat-409 failalign: output(折叠行文案)只放 presenter 的干净 summary。
-            # 不再前缀原始 event.error——presenter 失败态 summary 已是干净主参数,error
-            # 只透传在 detail 里供展开卡渲染一次。早先把 error 也 append 进 output_parts
-            # 并 `|` 拼接,导致折叠行重复出现 error(用户实测:read 失败 error 现两次)。
-            pres = event.get("presentation")
-            output: str | None = None
-            detail: Any = None
-            emoji: str | None = None
-            if isinstance(pres, Mapping):
-                if pres.get("summary"):
-                    output = str(pres["summary"])
-                # feat-409 决策 1: forward the presenter-produced structured detail
-                # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
-                # pure passthrough pipe — no re-truncation, no per-tool restructuring.
-                detail = pres.get("detail")
-                # feat-425 决策 1/2: 原样转发 presenter 自带的 emoji(纯透传,不加工)。
-                # 空串 = 工具未声明,沿用 detail 的省略未设约定,前端按名表兜底。
-                if pres.get("emoji"):
-                    emoji = str(pres["emoji"])
-            tool_call_payload: dict[str, Any] = {
-                "id": call_id,
-                "name": tool_name,
-                "status": status,
-                # bugfix-410-M2 R4 (#97): forward the badge classification alongside
-                # feat-409's structured detail — both ride the same tool_call payload.
-                "reason": reason,
-                "input": arguments if isinstance(arguments, dict) else {},
-                "output": output,
-                "duration_ms": int(duration_ms)
-                if isinstance(duration_ms, (int, float))
-                else None,
-            }
-            if detail is not None:
-                tool_call_payload["detail"] = detail
-            if emoji is not None:
-                tool_call_payload["emoji"] = emoji
-            # feat-434-M1 (F3): conditional write mirroring the emoji template —
-            # only user-decided calls carry approval, so普通工具的 WS delta 不再带
-            # `"approval": null`. Keeps both ends (Gateway forward / IM serialize)
-            # consistent on the `if approval is not None` convention.
-            if approval is not None:
-                tool_call_payload["approval"] = approval
+            projection = scope.tool_projection or tool_projector.project(event)
+            tool_call_payload = tool_projector.for_live(projection, ctx)
             if message_id:
                 terminal_payload = {
                     "kind": "tool_call_completed",
@@ -2165,52 +1978,10 @@ def build_kernel_event_observer(
             # were popped on tool_end, so they are untouched. reason ∈ {stalled
             # (watchdog liveness reap → 已中断), interrupted (other abnormal
             # termination → 已中断), tool_timeout (tool's own deadline → 执行超时)}.
-            reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
-            # bugfix-417-M5 (#114): a user /stop attaches the CC-identical
-            # user-attribution content so the in-flight tool card displays the same
-            # body the model sees in the transcript. Absent (system reap) → no body.
-            reconcile_content = event.get("content")
-            reconcile_output = (
-                str(reconcile_content)
-                if isinstance(reconcile_content, str) and reconcile_content
-                else None
-            )
             terminal_frames: list[dict[str, Any]] = []
             if message_id and abnormal_inflight:
-                for stuck_call_id, stuck_call in abnormal_inflight.items():
-                    # bugfix-416 #111: re-emit the original input recorded at tool_start
-                    # so command/description survive the reconcile; only status + reason
-                    # change. (Entries pre-bugfix-416 stored a bare name string — tolerate
-                    # that shape so an in-flight call across a deploy still closes cleanly.)
-                    if isinstance(stuck_call, Mapping):
-                        stuck_name = str(stuck_call.get("name") or "")
-                        stuck_input = stuck_call.get("input") or {}
-                        stuck_output = stuck_call.get("output")
-                        stuck_detail = stuck_call.get("detail")
-                        stuck_emoji = stuck_call.get("emoji")
-                    else:
-                        stuck_name = str(stuck_call)
-                        stuck_input = {}
-                        stuck_output = None
-                        stuck_detail = None
-                        stuck_emoji = None
-                    stuck_tool_call: dict[str, Any] = {
-                        "id": stuck_call_id,
-                        "name": stuck_name,
-                        "status": "failed",
-                        "reason": reason,
-                        # stuck_input is already a dict: the Mapping branch
-                        # uses `or {}`, and the bare-name branch sets {}.
-                        "input": stuck_input,
-                    }
-                    if stuck_output is not None:
-                        stuck_tool_call["output"] = stuck_output
-                    if stuck_detail is not None:
-                        stuck_tool_call["detail"] = stuck_detail
-                    if stuck_emoji is not None:
-                        stuck_tool_call["emoji"] = stuck_emoji
-                    if reconcile_output is not None:
-                        stuck_tool_call["output"] = reconcile_output
+                for stuck_call_id, projection in abnormal_inflight.items():
+                    stuck_tool_call = projection.live
                     process_seq = None
                     if shadow_snapshot is not None:
                         stored_call = next(

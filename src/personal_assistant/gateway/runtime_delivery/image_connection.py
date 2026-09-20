@@ -89,6 +89,19 @@ class ImageReplyConnection:
         context = self._contexts.get(run_id)
         if context is None:
             return None
+        if context.terminal_cleanup_allowed and key[1] and key[1] == context.message_id:
+            tool = payload.get("tool_call")
+            if (
+                kind == "tool_call_completed"
+                and isinstance(tool, Mapping)
+                and tool.get("status") == "failed"
+            ):
+                return await sender(message_type, payload)
+            if kind == "message_completed" and payload.get("final_content") is None:
+                # Stop revokes new body publication, not closure of the old bubble.
+                # Never refill final_content from a cached prepared reply here.
+                self._bubbles.pop(key, None)
+                return await sender(message_type, payload)
         outgoing = dict(payload)
         bubble = self._bubbles.get(key)
         if kind in {"message_delta", "message_completed"}:

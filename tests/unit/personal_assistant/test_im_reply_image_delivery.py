@@ -121,3 +121,83 @@ async def test_reset_discard_does_not_wait_for_body_admission():
         "node.streaming_delta", frame("message_discarded", reason="new_session")
     )
     assert connection.send_json.call_args.args[1]["kind"] == "message_discarded"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reset", [False, True])
+async def test_stopped_run_closes_existing_tools_without_reopening_output(reset):
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
+
+    contexts, connection, _, writer = setup_writer()
+    context = contexts.get("run")
+    context.message_id = "message"
+    context.conversation_id = "conversation"
+    contexts.register_session("run", "chat", 0)
+    connection.finish_external_shadow_run = lambda _run_id: None
+    tracker = RuntimeDeliveryTaskTracker(context_store=contexts)
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: writer,
+        run_context_store=contexts,
+        task_tracker=tracker,
+    )
+    observer(
+        {
+            "event": "tool_start",
+            "run_id": "run",
+            "call_id": "call",
+            "name": "bash",
+            "arguments": {"command": "sleep 45"},
+            "presentation": {"summary": "wait", "detail": {"command": "sleep 45"}},
+        }
+    )
+    await tracker.drain_run("run")
+    contexts.suppress("run", terminal_cleanup=True)  # user stop
+    if reset:
+        contexts.advance_generation("chat", 1)
+    contexts.suppress("run", terminal_cleanup=True)  # later cancelled event
+    observer({"event": "assistant_message", "run_id": "run", "content": "late text"})
+    observer({"event": "tool_end", "run_id": "run", "call_id": "call", "name": "bash"})
+    observer(
+        {
+            "event": "run_terminal_reconcile",
+            "run_id": "run",
+            "reason": "interrupted",
+            "finalize_bubble": True,
+            "delivery_status": "completed",
+        }
+    )
+    await tracker.drain_run("run")
+    frames = [call.args[1] for call in connection.send_json.call_args_list]
+    if reset:
+        assert [f["kind"] for f in frames] == ["tool_call_upserted"]
+    else:
+        assert [f["kind"] for f in frames] == [
+            "tool_call_upserted",
+            "tool_call_completed",
+            "message_completed",
+        ]
+        assert frames[1]["tool_call"]["input"] == {"command": "sleep 45"}
+        assert frames[1]["tool_call"]["detail"] == {"command": "sleep 45"}
+        assert frames[1]["tool_call"]["status"] == "failed"
+        assert frames[2]["final_content"] is None
+    assert not contexts.can_publish("run")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cleanup",
+    [
+        frame("message_completed", final_content="late text"),
+        frame("message_completed", final_content=None, message_id="different"),
+        frame("tool_call_completed", tool_call={"id": "call", "status": "completed"}),
+        frame("turn_start", conversation_id="conversation"),
+    ],
+)
+async def test_stop_cleanup_cannot_publish_content_or_target_another_bubble(cleanup):
+    contexts, connection, _, writer = setup_writer()
+    contexts.get("run").message_id = "message"
+    contexts.suppress("run", terminal_cleanup=True)
+    await writer.send_json("node.streaming_delta", cleanup)
+    connection.send_json.assert_not_awaited()
