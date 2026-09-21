@@ -190,3 +190,46 @@ R3-W1 的设计问题关闭。新 Codex 图片投影在 Responses schema 中合�
 ### Recommendations
 
 无。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer target: `/root/design_review`（原独立 reviewer，未修改产品或受审设计）
+- review_mode: delta
+- mode_reason: provider 输出恢复为原生 function_call_output 内容数组，撤销 R4 的后续 user 图片方案；范围为决定 6、跨仓接口及对应证据，不改变其他需求、模块边界或 M1。
+- started_at: 2026-09-21T09:14:40+08:00
+- completed_at: 2026-09-21T09:16:12+08:00
+- duration: 92 秒
+- reviewed baseline: Nano `codex/bugfix-567` / `51f10e4e3` 工作区归档设计增量；LLM_PROXY `dc39109`；本地 Codex `968835997714baaff199cfed5f89a2c65d8ca77d`。
+- retained_from: Round 3/4 中普通 Chat 隔离及 R1/2 的 Nano 附件、缓冲、索引、权限结论；R4 关于 Codex OAuth 需要后续 user 图片的判断不保留。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本地 Codex 对 API-key 与 ChatGPT OAuth 共用 Responses 请求/工具输出模型；原生图片形态为 `function_call_output.output` 数组中的 `input_image`。最新设计和 LLM_PROXY `dc39109` 已撤销额外 user 图片投影，恢复工具结果归因和文字/图片顺序。此判断针对受审源码基线，不把源码契约扩大为所有远端模型识图结果的保证。
+
+### Coverage 与证据
+
+1. **原生输出类型与序列化。** Codex `protocol/src/models.rs:1096` 明确 function_call_output.output 可为字符串或结构化数组；`:2074` 的 FunctionCallOutputContentItem 同时含 InputText 与 InputImage，后者字段为 image_url 和可选 detail；`:2162` 定义 ContentItems，`:2228` 的 Serialize 实现直接把 items 序列化为数组。这里没有按 auth 类型改变图片表示的分支。
+2. **实际工具输出。** `core/src/tools/handlers/view_image.rs:238` 的 ViewImageOutput::to_response_item 直接生成 ContentItems(InputImage)，`:249` 返回带原 call_id 的 FunctionCallOutput。并未创建后续 user message，支持把图片留在其工具身份内。
+3. **客户端与认证边界。** `core/src/client.rs:784` 的 build_responses_request 从同一 prompt 构造 ResponsesApiRequest；`:946` 附近的认证解析承担 API auth/identity，不在工具输出内容中搬动图片。`core/tests/suite/client.rs:1214` 起构造含图片的历史 FunctionCallOutput，`:1285` 起断言实际请求 output 为 input_image 数组；`:1622` 的 API-key 与 `:1654` 的 ChatGPT-auth 请求测试说明两类身份使用同一 Responses 客户端路径，OAuth 差异体现在端点和认证头。这些证据合起来支持“共享图片请求形态”；并不声称这些测试单独运行了每一种远端身份/模型的真实识图矩阵。
+4. **最新代理与实际 handler。** LLM_PROXY `proxy_converters.py:674` 起对 tool content 使用 `_tool_content_to_function_output`，直接形成原 call_id 的 function_call_output，不再拆出 user image；`src/handlers/messages.py:408` 已按 codex_oauth 显式开启 preserve_tool_result_images，普通 Chat 默认 false。R4 记录的真实 handler 未接入问题在所读版本中已修正。`tests/test_messages_routes.py:55` 的 bearer/codex_oauth 双分支测试断言普通 Chat 字符串、Codex 同一 output 中 input_text/input_image，且 input 仅两项，排除合成后续 user 图片。converter 回归继续覆盖 base64/URL 和纯文本工具结果。
+5. **设计与证据校正。** design Changelog、决定 6、接口段均明确撤销后续 user 方案；incident 与 `M1-fix/evidence/proxy-image-boundary.md` 区分了两个事实：最初转换器确实丢图，但后续失败轮次仍指向旧代理 :4000，因此不足以证明 OAuth 原生工具图片不可见。`evidence/validation.md` 记录正确 :4010 下的原生 output payload 及红色长方形识别。这些运行记录为已读的主流程证据；本轮没有自行重放真实请求，也未用其替代对源码契约的独立检查。
+6. **语义、验收与回退。** 恢复同一工具结果的有序内容可保留 call_id、图片与文字的对应及工具来源，省去额外用户消息机制；普通 Chat wire 契约继续受隔离。原 M1 的双路径回归、真实 global 识图、隔离代理版本/端口和分别 revert 两仓要求仍适用。没有新增存储或内核协议，既有 canonical delta 不需因 provider 内部表示变化扩写。
+
+### 历史问题闭环与纠错
+
+- **R3-W1：保持 closed。** 普通 Chat 与 Codex 内部结构的能力分流在设计、handler 和双分支测试中一致。
+- **Round 4 判断纠正：撤销其将“OAuth 图片不可见”视为已建立兼容性依据的结论。** R4 虽正确指出 schema 允许 user 图片，但这不足以证明需改写工具身份；当时没有独立确认失败请求使用修复后的代理。当前源码和校正运行证据支持直接使用原生 function_call_output 图片数组。保留 R4 历史原文，仅由本轮追加纠正。
+- **R4 handler 实现差距：本轮源码证据确认已接线。** 不再只依赖独立 wrapper，仍由最终代码/产品门禁负责完整实施结论。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。

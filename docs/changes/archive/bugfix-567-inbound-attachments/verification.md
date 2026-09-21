@@ -115,12 +115,48 @@ This reconciliation covers the final Nano rebase, both previously corrected Nano
 | Ordinary files and mixed valid image/file input retain text, order, and an explicit unread-file description in both modes | `inbound_attachments.py:25-72`; `session_run_coordinator.py:2386-2427,3911-3938`; `global_run_coordinator.py:558-625` classify once, resolve indexed images, and preserve ordered provider parts | Rebased focused Nano suite passed: `72 passed in 5.94s`, including the Web/Feishu real-kernel global fixture that observes an actual SDK tool-content image block | aligned |
 | Historical unavailable images are non-blocking, do not expose inline data payloads, and current failures still stop before admission | `inbound_attachments.py:57-72` replaces a `data:` source with a bounded marker; `session_run_coordinator.py:2381-2413` separates current from historical resolution | The same focused suite includes the 6,990,658-character inline-image regression and passed; existing correction evidence records the public-pipeline bound | aligned |
 | Group snapshots are consumed only after accepted submit/steer; later arrivals survive and rejected group steer rebuilds FIFO input | `group_context_store.py:138-179`; `session_run_coordinator.py:807-852,1804-1829,2457-2461` | Rebased focused Nano suite includes the admission, later-arrival, and steer-fallback seams and passed | aligned |
-| Nested Anthropic `tool_result` base64/URL images reach Codex while ordinary Chat and text-only tool outputs retain their prior shapes | LLM_PROXY `messages.py:405-409` enables preservation only for `codex_oauth`; `proxy_converters.py:85-110,477-487,686-695` maps sources and emits call text followed by the corresponding user image | `pytest -q tests/test_proxy_converters.py tests/test_messages_routes.py`: `28 passed in 1.07s`; coverage includes base64, URL, normal Chat string fallback, structured output, and route selection. Final-rebase Product Round 6 observed the red rectangle through the isolated proxy and recorded all four matching raw-request hosts (`regression.md:136-156`; `product-round6.json`) | aligned |
+| Nested Anthropic `tool_result` base64/URL images reach Codex while ordinary Chat and text-only tool outputs retain their prior shapes | LLM_PROXY `messages.py:405-409` enables preservation only for `codex_oauth`; `proxy_converters.py` maps sources and emits ordered `input_text`/`input_image` content inside the corresponding `function_call_output.output`. Local Codex `models.rs`, `view_image.rs`, `client.rs`, and its request test confirm API-key/OAuth share this Responses shape | `pytest -q tests/test_proxy_converters.py tests/test_messages_routes.py`: `28 passed`; full proxy suite: `133 passed, 24 skipped`. A saved real-request replay through `:4010` returned HTTP 200 and identified the red rectangle; the raw upstream request kept the image in the function output with no synthetic user image. Product Round 7 records the final full journey | aligned |
 | Rebase against refactor-568 tool-event projection / terminal cleanup | Final-versus-pre-rebase attachment diff contains only refactor-568's two `delivery_context_store.suppress(... terminal_cleanup=...)` call changes in `session_run_coordinator.py`; it has no attachment, snapshot, resolver, Inbox, or provider-payload interaction | refactor-568's archived final verifier closes its terminal cleanup gate; the rebase-specific 72-test attachment suite passed | aligned |
 
 ### Uncovered Observable Behavior
 
 None within this corrected-delta scope. Product Round 6 directly exercises the final rebase snapshot `1120f52bf` with Proxy `514cd964`, observes the image and unread-file behavior, and records all four raw requests at `127.0.0.1:4010`.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+Outcome: aligned
+
+## Round 4 — Corrected Delta Reconciliation (provider contract correction)
+
+> Validation snapshot: Nano documentation `51f10e4e30d042bec8d5a582c836176f49df8f26`; LLM_PROXY `016f32eb7c44f58d8429d833f8973c8cc43ba337 → dc39109c48567980a5bf55ba4904075bd1ee23ef`
+>
+> verification_mode: corrected-delta; verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**; `requires_full_verification: false`
+
+This delta corrects the provider representation, not Nano's attachment, admission, storage, or canonical relay behavior. The incident/M1 condition remains that valid nested tool-result images reach the model; the native Codex representation retains that image under its original tool call instead of manufacturing a user message.
+
+| Delta item | Implementation evidence | Test / contract evidence | Outcome |
+|---|---|---|---|
+| Nested Anthropic base64/URL tool-result images remain ordered in the original function-call output | `proxy_converters.py:85-110,208-235,674-678` maps image sources to `input_image` and passes the full structured output to the matching `call_id` | `test_proxy_converters.py:100-280` covers base64, URL, direct structured content, and JSON-wrapped content; focused suite: `28 passed` | aligned |
+| No synthetic following user image is emitted; ordinary OpenAI Chat still uses string tool content | `proxy_converters.py:674-678` appends only the function output; `messages.py:405-409` enables preservation only for `codex_oauth` | `test_messages_routes.py:55-92` asserts bearer string output, Codex array output, and exactly two input items | aligned |
+| Native Codex Responses contract accepts image content inside tool output for both request identities | Local Codex `ViewImageOutput::to_response_item` creates `ContentItems(InputImage)` and `ResponsesApiRequest` receives formatted input before auth routing | Local Codex `resume_replays_image_tool_outputs_with_detail` asserts outbound `function_call_output.output` equals an `input_image` array; full proxy suite: `133 passed, 24 skipped`; saved real-request replay returned HTTP 200 and recognized the red rectangle with no following user image | aligned |
+
+### Uncovered Observable Behavior
+
+None within this corrected-delta scope. The provider correction is directly exercised by the saved real request and Product Round 7: the matching raw requests retain `[input_text, input_image]` in `function_call_output.output`, contain no synthetic user image, route through `:4010`, and yield the expected recognition result.
+
+The Round 3 follow-up-user-image conclusion is superseded by this native request-contract evidence. It is retained as historical review context only.
 
 ## Issues
 

@@ -1,0 +1,247 @@
+{
+  "im_url": "http://127.0.0.1:57452",
+  "node": {
+    "node_id": "wt-unit-bugfix-567-41703",
+    "owner_id": "u_mccyh1a3",
+    "node_name": "wt-unit-bugfix-567-41703",
+    "status": "online",
+    "last_heartbeat_at": "2026-09-21T01:16:23.581472Z",
+    "agent_count": 2,
+    "version": "",
+    "relay_enabled": true,
+    "reporting_enabled": true,
+    "alias": null,
+    "last_error": null
+  },
+  "agent": {
+    "agent_id": "review567-r7-global",
+    "work_mode": "global",
+    "model": "codexOAuth:gpt-5.6-sol"
+  },
+  "conversation_id": "c_01vhhn2q",
+  "input": {
+    "id": "92eb9d3a80f54dac816cdd095c1c2839",
+    "conversation_id": "c_01vhhn2q",
+    "sender": {
+      "type": "user",
+      "id": "u_mccyh1a3",
+      "display_name": "Test User"
+    },
+    "sender_user_id": "u_mccyh1a3",
+    "sender_type": "user",
+    "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567-FCO。",
+    "attachments": [
+      {
+        "url": "/im/v1/conversations/c_01vhhn2q/attachments/c84d21fb8963433a8d90d2585dfa161f",
+        "content_type": "image/png",
+        "file_name": "visual.png"
+      },
+      {
+        "url": "/im/v1/conversations/c_01vhhn2q/attachments/aa37a8379c10451d98ace55c5d91eae6",
+        "content_type": "text/plain",
+        "file_name": "review.txt"
+      }
+    ],
+    "delivery_status": "sent",
+    "created_at": "2026-09-21T01:16:47.059571Z",
+    "tool_calls": [],
+    "thinking": [],
+    "background_returns": [],
+    "reply_process": [],
+    "token_usage": null,
+    "elapsed_ms": null,
+    "kernel_message_id": null,
+    "permission_requests": [],
+    "system_notice": null
+  },
+  "image": {
+    "width": 320,
+    "height": 200,
+    "background": "white",
+    "shape": "red rectangle x40..280 y30..170",
+    "sha256": "9633971832d60fbcfb65405ac59d0ed1134b921a5fe76269fb78a0e3b62aa800"
+  },
+  "txt_body": "FILE_BODY_HIDDEN_567_R7",
+  "outputs": [
+    {
+      "id": "270ea84877e14968b965d41d9d88cc75",
+      "conversation_id": "c_01vhhn2q",
+      "sender": {
+        "type": "agent",
+        "id": "review567-r7-global",
+        "display_name": "review567-r7-global"
+      },
+      "sender_user_id": "u_y4ejzeu2",
+      "sender_type": "agent",
+      "content": "图片中央是红色长方形。普通文件名是 `review.txt`；正文尚未读取。MIX567-FCO",
+      "attachments": [],
+      "delivery_status": "completed",
+      "created_at": "2026-09-21T01:17:11.419882Z",
+      "tool_calls": [],
+      "thinking": [],
+      "background_returns": [],
+      "reply_process": [],
+      "token_usage": null,
+      "elapsed_ms": null,
+      "kernel_message_id": null,
+      "permission_requests": [],
+      "system_notice": null
+    }
+  ],
+  "elapsed_seconds": 27.1,
+  "validated_at": {
+    "nano": "51f10e4e30d042bec8d5a582c836176f49df8f26",
+    "proxy": "dc39109c48567980a5bf55ba4904075bd1ee23ef"
+  },
+  "proxy_route_and_image_boundary": [
+    {
+      "upstream_file": "2026-09-21_09-16-59_422-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-16-59_422-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-03_775-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-03_775-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-08_112-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-08_112-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-11_454-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-11_454-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-13_863-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-13_863-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-18_388-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-18_388-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-23_084-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-23_084-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-17-27_421-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-17-27_421-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    },
+    {
+      "upstream_file": "2026-09-21_09-18-01_204-upstream-req-anthropic_messages.json",
+      "headers_file": "2026-09-21_09-18-01_204-headers-anthropic_messages.json",
+      "client_headers.host": "127.0.0.1:4010",
+      "marker": "MIX567-FCO",
+      "fco_image_outputs": [
+        {
+          "input_index": 6,
+          "image_count": 1,
+          "output_is_array": true,
+          "output_types": [
+            "input_text",
+            "input_image"
+          ],
+          "following_user_image_count": 0
+        }
+      ],
+      "all_user_input_image_count": 0
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 
 ## Changelog
 
+- 2026-09-21 (M1): 依据本地 Codex 源码和真实请求校正 provider 契约：工具图片保留在 `function_call_output.output` 内容数组；撤销额外 user 图片消息的误判设计。
 - 2026-09-20 (M1): 真实 global 验收定位到 LLM_PROXY 将 Anthropic `tool_result.content` 扁平化为文字；补入跨仓 provider 转换修复和真实链路复验，交 R3 delta 审查。
 - 2026-09-19 (M1): 静态审查确认 global 会把 Feishu attachment_index 占位当作已解析图片并丢弃；补齐 global 索引解析/图文顺序。历史失败描述不得包含 data URL payload。交 R2 审查。
 
@@ -32,7 +33,7 @@ PA 仅使用 agent.sdk；不新增内核 block 类型。图片下载沿用原 no
 3. **当前与历史失败分开。** 当前消息任何图片失败仍返回现有本轮错误；全组缓冲不消费。历史图片逐项失败只投影为未读取说明（含来源与原因），保留同条文字和其他有效图片，允许新请求正常处理。失败描述对 data URL 只保留内联来源标记，绝不把 Base64 payload 作为文字传入。该历史描述被接受仅表示失败事实已传入，不声称图片内容被读取；不引入自动重试，用户重发/查历史遵循既有入口。全局模式原有失败图片可重读语义保留。
 4. **接收成功才消费缓冲。** snapshot 返回有序行及最后 row id；投影携带 buf_key 和上界。submit 返回有效接收记录或 try_steer 接受且确认 run identity 后，在同一 transition 临界区消费该 buf_key 的 id <= 上界；任何准备/接收异常不消费。后来 append 的 id 更大，不受影响。不声称跨 SQLite 与内核事务的崩溃 exactly-once。
 5. **群 steer 退回 FIFO 时重新取快照。** 拒绝 steer 不拥有输入，群请求不复用包含尚未消费背景的 prebuilt projection；真正出队时重建，避免其间被另一已接受输入消费的历史再次进入。非群路径保留原 prebuilt 优化。重复下载的取舍优先于重复上下文，不新增缓存/租约。
-6. **仅在 Codex Responses 路径保留嵌套工具图片。** LLM_PROXY 的 Anthropic → OpenAI Chat 共享转换器也服务普通 Chat 上游，而 Chat `tool` 消息没有图片内容契约，因此默认继续抽取文字。只有 Anthropic → Codex Responses 适配显式启用结构保真：先把 `tool_result.content` 的 text/image 按序变为内部 OpenAI-shaped text/image_url blocks。Codex builder 将文字保留为 `function_call_output.output`，并把图片紧随其后投影为官方支持的 user `input_image`；实测 Codex OAuth 虽接受 `function_call_output` 内图片却不向模型暴露，而该 user image 路径可见。base64 与 URL 图片均覆盖；普通 Chat 和纯文本工具结果保持原字符串形态。
+6. **仅在 Codex Responses 路径保留嵌套工具图片。** LLM_PROXY 的 Anthropic → OpenAI Chat 共享转换器也服务普通 Chat 上游，而 Chat `tool` 消息没有图片内容契约，因此默认继续抽取文字。只有 Anthropic → Codex Responses 适配显式启用结构保真：先把 `tool_result.content` 的 text/image 按序变为内部 OpenAI-shaped text/image_url blocks，再把它们按序转换为同一个 `function_call_output.output` 中的 `input_text`/`input_image`。本地 Codex 的 `ViewImageOutput`、Responses 请求模型和请求回归测试均使用这一形态，API key 与 ChatGPT OAuth 无图片表示差异。base64 与 URL 图片均覆盖；普通 Chat 和纯文本工具结果保持原字符串形态。
 
 ## 接口与数据流
 
@@ -40,7 +41,7 @@ PA 仅使用 agent.sdk；不新增内核 block 类型。图片下载沿用原 no
 - GroupContextStore：`snapshot_with_metadata(buf_key)` 返回带 row id 的行；`consume_through(buf_key, row_id)` 删除该 key 已接受快照范围。现有 append 不变，利用 SQLite 自增 id，无迁移。
 - `_MessagePartsProjection` 增加默认空的缓冲消费 receipt；_build_message_parts 只准备输入，成功 admission 后消费。正常群 snapshot、current 失败、submit 异常、steer 成功、steer 退回 FIFO 均有公开 seam 测试。
 - 图片逐项解析与索引映射由 SessionRunCoordinator 的输入投影负责；resolver 保持图片职责。不在渠道层偷放文件下载，避免绕过 Agent 身份。
-- LLM_PROXY 的 Anthropic → Codex 调用显式要求共享 Anthropic → OpenAI-shaped 边界保留嵌套 image source；OpenAI Chat → Codex Responses 边界拆出文字工具结果与紧随其后的 user input_image。普通 OpenAI Chat 调用不启用该内部结构，Nano 不感知 provider 专用 payload。
+- LLM_PROXY 的 Anthropic → Codex 调用显式要求共享 Anthropic → OpenAI-shaped 边界保留嵌套 image source；OpenAI Chat → Codex Responses 边界把有序文字和图片写入同一个 `function_call_output.output` 内容数组。普通 OpenAI Chat 调用不启用该内部结构，Nano 不感知 provider 专用 payload。
 
 ## 契约层增量
 

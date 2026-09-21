@@ -38,7 +38,7 @@ Web IM single_thread Agent 收到文字加 `text/plain` 附件。以真实 Image
 2. resolver 和消息投影采用整体失败语义，一项错误丢弃同条文字及其他有效输入。真正异常图片的本轮停止有现行契约依据，但不应套用到普通文件或扩散到后来新请求。
 3. 群上下文通过 `drain_with_metadata` 在解析/内核接收前删除。后续解析或提交失败时待处理上下文已经移除。IM 历史不受此删除影响。
 4. GlobalRunCoordinator 已按 MIME 分流并保留普通附件描述；single_thread 缺少同等类型区分。需共享类型判断，保留两种模式各自会话/Inbox 消费机制。
-5. LLM_PROXY 已支持顶层 Anthropic user 图片，也能生成官方 Responses schema 允许的结构化 `function_call_output.output`；但 Anthropic `tool_result` 先调用纯文本提取器，使嵌套图片在转换前丢失。补通后真实 Codex OAuth 请求虽接受该结构，模型仍表示看不到图片；同图作为后续 user input image 时能正确识别。这是共享转换缺口叠加 Codex OAuth 实际兼容差异，不是 Responses 公共 schema 禁止图片。
+5. LLM_PROXY 已支持顶层 Anthropic user 图片，也能生成结构化 `function_call_output.output`；但 Anthropic `tool_result` 先调用纯文本提取器，使嵌套图片在 Responses 转换前丢失。Codex 源码把 `input_image` 直接放在该 output 内容数组中，API key 与 ChatGPT OAuth 共用同一个 Responses 请求结构；修复后的真实请求和模型识图也验证了这一原生形态。此前把后续产品失败解释为 Codex OAuth 看不到工具结果图片属于误判，实际失败轮次命中了旧代理端口。
 
 证据：`web_relay_adapter.py` 附件映射；`image_attachments.py` 的 resolve；`session_run_coordinator.py` 的 _build_message_parts、dispatch、_run_one；`group_context_store.py` 的 drain_with_metadata；`global_run_coordinator.py` 的 _content。当前约束见 `docs/specs/gateway/relay-protocol.md` 与 `global-agent.md`。
 

@@ -156,3 +156,21 @@ Validation snapshot：Nano `1120f52bfc512e50b39329bf5fba1ed2730282bc`（caller�
 **最终 Verdict: pass**（指定Nano1120f52bf + Proxy514cd964组合）。实际颜色、形状、普通文件名、未读状态和用户标记全部满足预期；R1-P1保持关闭，open issues=0；Highest Required Action=pass；needs_re_review=false。本结论对应实际rebase后的运行树，没有把旧版本结果冒充新版本。无新副作用；其他场景引用前轮有效证据，不扩充为本轮全量验收。
 
 报告/evidence由caller统一提交；未自行提交或操作服务，清理由caller负责。无外部issue。
+
+## Round 7 — corrected function-call-output boundary，2026-09-21
+
+Validation snapshot：Nano `51f10e4e30d042bec8d5a582c836176f49df8f26` + LLM_PROXY `dc39109c48567980a5bf55ba4904075bd1ee23ef`。本轮按修正后的design验证图片保留在工具结果内容数组；前轮合成user图片路径的通过不作为本契约的证据，旧记录原样保留。
+
+最初交接的57359端口无监听，公开登录connection refused；通知caller后由caller在tmux恢复。本轮实际隔离IM `http://127.0.0.1:57452` PID41748，09:15:50+08:00启动；Gateway PID41895，09:16:04启动，命令使用本unit `.gateway-config.yaml`，配置base_url4010。Proxy PID41012，09:14:39启动，晚于dc39109提交09:13:22；node `wt-unit-bugfix-567-41703`在线心跳01:16:23.581472Z。
+
+公开Web IM API新建 `review567-r7-global`（global、codexOAuth:gpt-5.6-sol）与会话 `c_01vhhn2q`，仅发送一次 `92eb9d3a80f54dac816cdd095c1c2839`（01:16:47.059571Z）。同条上传320×200白底红长方形PNG（x40..280/y30..170，SHA256 `9633971832d60fbcfb65405ac59d0ed1134b921a5fe76269fb78a0e3b62aa800`）与review.txt（text/plain；正文FILE_BODY_HIDDEN_567_R7）；文字询问颜色形状、文件名/正文是否读取，并要求MIX567-FCO，没有在提示中告知正确图片答案。
+
+27.1秒内取得公开消息终态 `270ea84877e14968b965d41d9d88cc75`（01:17:11.419882Z，completed）：
+
+> 图片中央是红色长方形。普通文件名是 `review.txt`；正文尚未读取。MIX567-FCO
+
+安全提取proxy raw实际请求：包含MIX567-FCO的匹配请求及完整文件清单记录在product-round7.json，对应headers的 `client_headers.host` 全部为 **127.0.0.1:4010**。首个请求 `2026-09-21_09-16-59_422` 已直接证明 upstream input[6] 是 `function_call_output`，其output为数组，类型顺序为 `[input_text, input_image]`，包含1张图片；紧随其后的user图片数为0；所有匹配请求中的user input_image总数均为0。证据分别记录带图片与不带图片的请求，未把无图片请求冒充图像证据；仅保留类型、计数、位置、Host与文件名，没有输出图片Base64或凭据。
+
+原始公开I/O与安全结构提取见 [product-round7.json](M1-fix/evidence/product-round7.json)。
+
+**Verdict: pass**。最终修正组合满足实际图像识别、普通文件未读说明及文字标记；图片确实处于 `function_call_output.output` 的 `input_image` 中，无合成user图片消息。open issues=0；Highest Required Action=pass；needs_re_review=false（本轮指定组合）。未受影响旅程引用既有证据；本轮没有改产品/测试/配置或读取实现定位。报告/证据由caller统一提交，服务由caller清理，无外部issue。

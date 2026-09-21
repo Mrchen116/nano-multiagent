@@ -60,3 +60,21 @@ The independent Round 3 result is:
 ```json
 []
 ```
+
+## Round 4 — provider contract correction
+
+- `executed_base`: LLM_PROXY `016f32eb7c44f58d8429d833f8973c8cc43ba337`
+- `validated_at`: LLM_PROXY `dc39109c48567980a5bf55ba4904075bd1ee23ef`; Nano documentation snapshot `51f10e4e30d042bec8d5a582c836176f49df8f26`
+- `review_mode`: `full`; `diff_range`: `016f32e..dc39109`
+
+The prior Round 3 conclusion that Codex required a synthetic following `user` image is superseded. The final builder creates one `function_call_output` per tool message and leaves its ordered `input_text` / `input_image` content array in `output` (`LLM_PROXY/proxy_converters.py:674-678`); it creates no following user item. Nested Anthropic images are preserved only on the `codex_oauth` bridge path (`src/handlers/messages.py:405-409`), while ordinary OpenAI Chat retains the existing string tool content (`proxy_converters.py:208-235`). Base64 and URL sources, structured JSON tool output, route scoping, and the absence of the synthetic item are covered by the focused converter and handler tests.
+
+The local Codex source at `968835997714baaff199cfed5f89a2c65d8ca77d` independently matches this wire contract: `ViewImageOutput::to_response_item` produces `FunctionCallOutputBody::ContentItems(InputImage)` (`core/src/tools/handlers/view_image.rs:238-249`); `FunctionCallOutputPayload` serializes such items directly as `function_call_output.output` (`protocol/src/models.rs:2150-2236`); and `resume_replays_image_tool_outputs_with_detail` asserts that outbound `/responses` output array (`core/tests/suite/client.rs:1172-1305`). `ResponsesApiRequest` is built from the same formatted input before provider-specific API-key/OAuth routing (`core/src/client.rs:784-889`).
+
+Focused conversion/routing tests (`28 passed`), the full proxy suite (`133 passed, 24 skipped`), and the saved-request replay (HTTP 200 with correct red-rectangle recognition) are credible evidence for this frozen tree.
+
+The independent Round 4 result is:
+
+```json
+[]
+```

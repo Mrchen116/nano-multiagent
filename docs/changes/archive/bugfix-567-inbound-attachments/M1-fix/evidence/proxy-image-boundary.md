@@ -9,3 +9,7 @@
 - Actual converter at `proxy_converters.py:178-183` reduces `tool_result.content` through `_extract_text_from_blocks`, discarding nested image blocks. Replayed the saved request with that repo's `.venv/bin/python` and real converter: inbox read result `call_YjWfPGkFCDNDaFdxcx6zYgkP` becomes a string containing `image_index` and no image payload. The preceding inbox check likewise remains expected text.
 - Conclusion: the observed global Web IM real-model failure occurs after the nano provider boundary, in external Anthropic→Codex conversion. The newly corrected Feishu attachment_index bug is separate. Do not claim R2 product pass or attribute this external loss to the indexed-image fix.
 - No secrets or full payloads are copied here. No external code or shared proxy process was modified during diagnosis. Cross-repository repair scope is awaiting user clarification.
+
+## 2026-09-21 contract correction
+
+The loss boundary above remains correct: the original converter discarded the nested image before building a Responses item. The later claim that Codex OAuth required moving that image into a following user message was incorrect. Local Codex source and corrected proxy replay show the native contract is a structured `function_call_output.output` containing ordered `input_text`/`input_image` items; API-key and OAuth routes share that request model. Product Rounds 3/4 had reached the old proxy at `:4000`, so their failures did not establish a Codex tool-output limitation.
