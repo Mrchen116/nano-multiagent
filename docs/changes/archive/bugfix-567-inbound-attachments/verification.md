@@ -173,3 +173,37 @@ None.
 None.
 
 Outcome: aligned
+
+## Round 5 — Corrected Delta Reconciliation (provider protocol-boundary closure)
+
+> Validation snapshot: Nano documentation `ccb07178f6f80ce6309eddb9d1b5db43a1367868`; LLM_PROXY `dc39109c48567980a5bf55ba4904075bd1ee23ef → c18d7c2b6ff2a76bfb28bbf212604f1f4d127024`
+>
+> verification_mode: corrected-delta; verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**; `requires_full_verification: false`
+
+This closure does not change Nano attachment, snapshot-admission, unread-file, or canonical relay semantics. It makes the already corrected provider representation depend on an explicit provider-to-upstream-protocol contract throughout the `/v1/messages` bridge.
+
+| Corrected-delta item | Implementation evidence | Test / product evidence | Outcome |
+|---|---|---|---|
+| P1: payload/URL/model-suffix selection no longer depends on an openai-compatible profile's auth type | `upstream_config.py:54-69` rejects `auth.type=codex_oauth` outside `provider=codex_oauth`; `resolve_upstream_protocol` and `build_upstream_url` map provider plus ingress to the wire protocol | Protocol and invalid-mixed-profile coverage passed in the focused `45`-test set | aligned |
+| P2: response parsing uses the same protocol as request construction | `messages.py` passes one resolved `upstream_protocol` to the adapter, non-stream handler, and streaming handler; `messages_stream.py` selects the Responses collector/parser on `PROTOCOL_OPENAI_RESPONSES` | Focused response/converter set: `51 passed`; full proxy suite: `143 passed, 24 skipped` | aligned |
+| Chat and Responses retain their distinct tool-result contracts | Chat adapter uses text-only tool messages; Responses adapter retains nested base64/URL images as ordered content in the original `function_call_output.output` with no synthetic user image | Saved real-request replay returned HTTP 200, recognized the red rectangle, and recorded `[input_text, input_image]` in the function output with zero user images | aligned |
+
+### Uncovered Observable Behavior
+
+None within this corrected-delta scope. The saved request replay directly verifies the provider boundary that had blocked M1, while the prior full product journey establishes the inbound attachment and unread-file behavior. This refactor changes the ownership of the provider protocol decision, not those Nano behaviors.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+Outcome: aligned

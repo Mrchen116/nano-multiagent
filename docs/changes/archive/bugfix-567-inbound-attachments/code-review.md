@@ -78,3 +78,19 @@ The independent Round 4 result is:
 ```json
 []
 ```
+
+## Round 5 — provider protocol-boundary closure
+
+- `executed_base`: LLM_PROXY `dc39109c48567980a5bf55ba4904075bd1ee23ef`
+- `validated_at`: LLM_PROXY `c18d7c2b6ff2a76bfb28bbf212604f1f4d127024`; Nano documentation snapshot `ccb07178f6f80ce6309eddb9d1b5db43a1367868`
+- `review_mode`: `closure`; `diff_range`: `dc39109..c18d7c2`
+
+Round 5 closes two independent findings from the protocol-boundary review. P1 found that a valid `openai_compatible` profile with `auth.type=codex_oauth` still selected the Responses payload through authentication. P2 found that the non-stream and stream handlers still selected their Responses response collector/parser by `auth_type`. The closure rejects that mixed configuration (`auth.type=codex_oauth` now requires `provider=codex_oauth`) and resolves the wire protocol from the provider plus ingress. `build_upstream_url`, request adaptation, model-suffix handling, and both response paths consume the same `upstream_protocol`; remaining handler uses of `auth_type` are limited to headers, account-pool retry/failover, and raw-log bucket selection.
+
+The Chat adapter always calls the text-only tool-message conversion, while the Responses adapter alone preserves nested Anthropic tool-result images. Its final payload keeps ordered `input_text` / `input_image` content inside the matching `function_call_output.output`, with no following user image. Focused response/converter coverage passed (`51 passed`; earlier protocol-only set `45 passed`); the full proxy suite passed (`143 passed, 24 skipped`). The saved real-request replay returned HTTP 200 and identified the red rectangle; its upstream output has `[input_text, input_image]` and zero user images.
+
+The independent Round 5 result is:
+
+```json
+[]
+```

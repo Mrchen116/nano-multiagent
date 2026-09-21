@@ -233,3 +233,41 @@ R3-W1 的设计问题关闭。新 Codex 图片投影在 Responses schema 中合�
 ### Recommendations
 
 无。
+
+
+## Round 6
+
+### Metadata
+
+- reviewer target: `/root/design_review`（独立 reviewer）
+- review_mode: delta，包含 W1 closure
+- mode_reason: 将 provider 协议选择与认证职责分离；记录此前独立 diff 审查发现及复审闭环，并核对最终提交。
+- started_at: 2026-09-21T09:57:12+08:00
+- completed_at: 2026-09-21T09:57:56+08:00
+- duration: 44 秒（最终提交核对与记录区间；此前 diff 审查及测试不计入）
+- reviewed baseline: LLM_PROXY `dc39109` → `c18d7c2b6ff2a76bfb28bbf212604f1f4d127024`。
+- retained_from: Round 5；原生 function_call_output 图片数组、普通 Chat 文字形态、Nano 附件与消费协议不变。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R6-W1 已关闭。**
+
+### Coverage 与架构判断
+
+provider 显式拥有 upstream wire protocol；`resolve_upstream_protocol` 统一目标协议，URL 组装及 target-specific Chat/Responses adapters 使用同一选择。图片保真开关留在内部 Responses 转换边界，不暴露给普通 Chat adapter。相比通过 auth_type 猜测图片能力，职责更清晰且未引入额外框架。
+
+最终提交中 `messages.py` 的请求构造、非流式响应适配及 model suffix 按 upstream_protocol 分支，`messages_stream.py:169` 的流式响应形态也按该协议选择。auth 保留凭据、认证头、OAuth 账号重试等职责，不再决定 payload/response shape。
+
+### 历史问题闭环
+
+- **R6-W1（首次 diff 审查的 W1）：closed。** 初版允许 `provider=openai_compatible + auth.type=codex_oauth`，但 protocol resolver 返回 Chat、URL builder 指向 Codex Responses，形成真实请求协议错配。该配置已由 `_resolve_auth_type_for_profile` 明确拒绝，提示改用 `provider=codex_oauth`；`build_upstream_url` 与 resolver 同按 provider/protocol 选择，因此原冲突入口不再可用。这是显式配置迁移，不是静默丢弃图片。
+- 此前 closure 独立运行 `tests/test_start_proxy.py tests/test_messages_routes.py tests/test_proxy_converters.py`：**45 passed**，覆盖协议映射、错误组合、普通 Chat 与 Responses 实际 handler 及图片转换。本次另行静态核对最终提交的流式/非流式响应分支；不把前述 45 passed 冒称最终提交新增响应改动的独立重跑。
+- Round 5 原生工具图片结论 retained；本轮未修改产品代码或其他文档。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无。
