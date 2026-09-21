@@ -1,0 +1,96 @@
+{
+  "im_url": "http://127.0.0.1:59643",
+  "node": {
+    "node_id": "wt-unit-bugfix-567-24615",
+    "owner_id": "u_xc0gyggg",
+    "node_name": "wt-unit-bugfix-567-24615",
+    "status": "online",
+    "last_heartbeat_at": "2026-09-20T10:15:36.502656Z",
+    "agent_count": 2,
+    "version": "",
+    "relay_enabled": true,
+    "reporting_enabled": true,
+    "alias": null,
+    "last_error": null
+  },
+  "agent": {
+    "agent_id": "review567-r3-global",
+    "work_mode": "global",
+    "model": "codexOAuth:gpt-5.6-sol"
+  },
+  "conversation_id": "c_go2vcc3x",
+  "input": {
+    "id": "fc5ed2df3bb547f39facc6121eb9d862",
+    "conversation_id": "c_go2vcc3x",
+    "sender": {
+      "type": "user",
+      "id": "u_xc0gyggg",
+      "display_name": "Test User"
+    },
+    "sender_user_id": "u_xc0gyggg",
+    "sender_type": "user",
+    "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567-R3。",
+    "attachments": [
+      {
+        "url": "/im/v1/conversations/c_go2vcc3x/attachments/8ecf0e2a0cef4c0991cc9bf33fac0d53",
+        "content_type": "image/png",
+        "file_name": "visual.png"
+      },
+      {
+        "url": "/im/v1/conversations/c_go2vcc3x/attachments/7c8973624c4b41b79866d0cf74a91dbf",
+        "content_type": "text/plain",
+        "file_name": "review.txt"
+      }
+    ],
+    "delivery_status": "sent",
+    "created_at": "2026-09-20T10:15:55.260612Z",
+    "tool_calls": [],
+    "thinking": [],
+    "background_returns": [],
+    "reply_process": [],
+    "token_usage": null,
+    "elapsed_ms": null,
+    "kernel_message_id": null,
+    "permission_requests": [],
+    "system_notice": null
+  },
+  "image": {
+    "width": 320,
+    "height": 200,
+    "background": "white",
+    "shape": "red rectangle x40..280 y30..170",
+    "sha256": "9633971832d60fbcfb65405ac59d0ed1134b921a5fe76269fb78a0e3b62aa800"
+  },
+  "txt_body": "FILE_BODY_HIDDEN_567_R3",
+  "outputs": [
+    {
+      "id": "85b9f0362f2747aa97b72801d237fb90",
+      "conversation_id": "c_go2vcc3x",
+      "sender": {
+        "type": "agent",
+        "id": "review567-r3-global",
+        "display_name": "review567-r3-global"
+      },
+      "sender_user_id": "u_4o27qdi5",
+      "sender_type": "agent",
+      "content": "当前消息转录里只显示了图片占位符，我无法可靠判断中央的颜色和形状。普通文件名是 `review.txt`；正文尚未读取（并且我不会读取普通附件）。MIX567-R3",
+      "attachments": [],
+      "delivery_status": "completed",
+      "created_at": "2026-09-20T10:16:17.658928Z",
+      "tool_calls": [],
+      "thinking": [],
+      "background_returns": [],
+      "reply_process": [],
+      "token_usage": null,
+      "elapsed_ms": null,
+      "kernel_message_id": null,
+      "permission_requests": [],
+      "system_notice": null
+    }
+  ],
+  "elapsed_seconds": 24.1,
+  "validated_at": {
+    "nano": "fbfa77dfef2c4c3b2eeb6667916ccace8ae3bbd6",
+    "proxy": "514cd964bb6289d426ddbdbaa7a93200ad67e988"
+  }
+}

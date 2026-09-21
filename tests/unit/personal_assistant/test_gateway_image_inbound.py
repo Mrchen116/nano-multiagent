@@ -251,3 +251,100 @@ def test_corrupt_image_does_not_poison_following_text_turn(tmp_path: Path) -> No
     assert len(kernel.send_calls) == 1
     assert kernel.send_calls[0]["texts"] == ["never mind, just text: what is 1+1?"]
     assert "image_urls" not in kernel.send_calls[0]
+
+
+@pytest.mark.parametrize(
+    ("file_name", "content_type"),
+    [
+        ("notes.txt", "text/plain"),
+        ("table.csv", "text/csv"),
+        ("document.pdf", "application/pdf"),
+        (
+            "document.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        ("archive.zip", "application/zip"),
+        ("unknown.bin", None),
+    ],
+)
+def test_file_and_image_preserve_text_image_and_unread_file_description(
+    tmp_path: Path, file_name: str, content_type: str | None
+) -> None:
+    from dataclasses import replace
+
+    async def fetch(url: str, agent_id: str) -> bytes:
+        assert url.endswith("a.png"), "ordinary files must not be downloaded as images"
+        return _PNG_BYTES
+
+    pipeline, kernel, delivered = _make_pipeline(tmp_path, fetcher=fetch)
+    message = _image_inbound()
+    file = {
+        "url": "http://im.local/files/one",
+        "file_name": file_name,
+        "content_type": content_type,
+    }
+    message = replace(
+        message,
+        metadata={
+            "attachments": [file, *message.metadata["attachments"]],
+            "kernel_input_parts": [
+                {"type": "text", "text": "before"},
+                {"type": "image", "attachment_index": 1},
+                {"type": "text", "text": "after"},
+            ],
+        },
+    )
+    asyncio.run(pipeline.handle_inbound(message))
+    assert delivered == []
+    assert len(kernel.send_calls) == 1
+    call = kernel.send_calls[0]
+    assert len(call["image_urls"]) == 1
+    assert call["texts"][:2] == ["before", "after"]
+    assert file_name in str(call["texts"])
+    assert "未读取" in str(call["texts"])
+    assert file["url"] in str(call["texts"])
+
+
+@pytest.mark.parametrize("inline_oversize", [False, True])
+def test_buffered_bad_image_keeps_text_valid_image_and_new_request(
+    tmp_path: Path, inline_oversize: bool
+) -> None:
+    from dataclasses import replace
+
+    async def fetch(url: str, agent_id: str) -> bytes:
+        return _PNG_BYTES if url.endswith("a.png") else b"not an image"
+
+    bad_url = (
+        "data:image/png;base64,"
+        + base64.b64encode(b"x" * (5 * 1024 * 1024 + 1)).decode()
+        if inline_oversize
+        else "http://im.local/bad.png"
+    )
+    store = GroupContextStore(tmp_path / "group.sqlite3")
+    pipeline, kernel, _ = _make_pipeline(
+        tmp_path, fetcher=fetch, group_context_store=store
+    )
+    message = replace(
+        _image_inbound(),
+        is_group=True,
+        agent_id="agent-a",
+        text="old text",
+        metadata={
+            "mentioned_agent_ids": [],
+            "attachments": [
+                {"url": bad_url, "content_type": "image/png"},
+                {"url": "http://im.local/a.png", "content_type": "image/png"},
+            ],
+        },
+    )
+    trigger = replace(
+        message, text="new request", metadata={"mentioned_agent_ids": ["agent-a"]}
+    )
+    asyncio.run(pipeline.handle_inbound(message))
+    asyncio.run(pipeline.handle_inbound(trigger))
+    assert len(kernel.send_calls) == 1
+    call = kernel.send_calls[0]
+    assert "old text" in str(call["texts"]) and "new request" in str(call["texts"])
+    assert "未读取" in str(call["texts"])
+    assert len(str(call["texts"])) < 2000
+    assert len(call["image_urls"]) == 1

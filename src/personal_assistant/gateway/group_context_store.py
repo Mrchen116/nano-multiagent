@@ -135,6 +135,49 @@ class GroupContextStore:
             finally:
                 conn.close()
 
+    def snapshot_with_metadata(
+        self, buf_key: str
+    ) -> list[tuple[int, str, str, dict[str, Any]]]:
+        """Read a stable ordered batch without consuming unaccepted input.
+
+        Args:
+            buf_key: Group context partition to read.
+
+        Returns:
+            Row identity, sender, text and metadata in insertion order.
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT id, sender, text, metadata_json FROM group_context_buffer "
+                    "WHERE buf_key = ? ORDER BY id",
+                    (buf_key,),
+                ).fetchall()
+                return [
+                    (row[0], row[1], row[2], _decode_metadata(row[3])) for row in rows
+                ]
+            finally:
+                conn.close()
+
+    def consume_through(self, buf_key: str, row_id: int) -> None:
+        """Consume only the snapshot accepted by the session admission owner.
+
+        Args:
+            buf_key: Group context partition whose snapshot was accepted.
+            row_id: Last row identity in that snapshot; later appends remain pending.
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    conn.execute(
+                        "DELETE FROM group_context_buffer WHERE buf_key = ? AND id <= ?",
+                        (buf_key, row_id),
+                    )
+            finally:
+                conn.close()
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

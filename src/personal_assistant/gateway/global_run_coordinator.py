@@ -17,6 +17,11 @@ from uuid import NAMESPACE_URL, uuid5
 from agent.sdk import RunOrigin, TERMINAL_RUN_STATUSES
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.gateway.inbound_attachments import (
+    is_image_attachment,
+    unread_attachment_text,
+)
+
 from personal_assistant.gateway.inbound_models import (
     PipelineResult,
     RelayLifecycleUpdate,
@@ -550,57 +555,73 @@ class GlobalRunCoordinator:
     async def _content(
         self, message: InboundMessage, *, agent_id: str
     ) -> list[dict[str, Any]]:
-        parts = [{"type": "text", "text": message.text}]
+        attachments = message.metadata.get("attachments") or []
         input_parts = message.metadata.get("kernel_input_parts")
-        images = [
-            dict(part)
-            for part in input_parts or []
-            if isinstance(part, Mapping) and part.get("type") == "image"
-        ]
-        if not images:
-            for attachment in message.metadata.get("attachments") or []:
-                if not isinstance(attachment, Mapping):
-                    continue
-                mime = str(attachment.get("content_type") or "")
-                if not mime.startswith("image/"):
-                    continue
-                resolution = await self.image_resolver.resolve(
-                    [dict(attachment)], agent_id=agent_id
-                )
-                if resolution.failure:
-                    parts.append(
-                        {
-                            "type": "image",
-                            "attachment": dict(attachment),
-                            "error": resolution.failure,
-                        }
-                    )
-                else:
-                    images.extend(resolution.parts)
-        for part in images:
-            if part.get("source"):
-                parts.append(part)
-                continue
-            url = str(part.get("image_url") or "")
-            if url.startswith("data:"):
-                header, _, data = url.partition(",")
-                parts.append(
+        ordered = input_parts if isinstance(input_parts, list) else None
+        resolved: dict[int, list[dict[str, Any]]] = {}
+
+        async def resolve(index: int) -> list[dict[str, Any]]:
+            if index in resolved:
+                return resolved[index]
+            attachment = attachments[index]
+            if not isinstance(attachment, Mapping) or not is_image_attachment(
+                attachment
+            ):
+                return []
+            resolution = await self.image_resolver.resolve(
+                [dict(attachment)], agent_id=agent_id
+            )
+            if resolution.failure:
+                resolved[index] = [
                     {
                         "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": header[5:].split(";")[0],
-                            "data": data,
-                        },
+                        "attachment": dict(attachment),
+                        "error": resolution.failure,
+                    }
+                ]
+            else:
+                resolved[index] = [_inbox_image(part) for part in resolution.parts]
+            return resolved[index]
+
+        parts: list[dict[str, Any]] = []
+        has_self_contained_images = False
+        if ordered is None:
+            if message.text:
+                parts.append({"type": "text", "text": message.text})
+        else:
+            for part in ordered:
+                if not isinstance(part, Mapping):
+                    continue
+                if part.get("type") == "text":
+                    parts.append(dict(part))
+                elif part.get("type") == "image":
+                    index = part.get("attachment_index")
+                    if (
+                        isinstance(index, int)
+                        and not isinstance(index, bool)
+                        and 0 <= index < len(attachments)
+                    ):
+                        parts.extend(await resolve(index))
+                    elif part.get("source") or part.get("image_url"):
+                        parts.append(_inbox_image(part))
+                        has_self_contained_images = True
+        for index, attachment in enumerate(attachments):
+            if not isinstance(attachment, Mapping):
+                continue
+            if is_image_attachment(attachment):
+                # Already materialized provider parts own their images; indexed parts
+                # instead refer to descriptors and must be resolved before Inbox sees them.
+                if index not in resolved and not has_self_contained_images:
+                    parts.extend(await resolve(index))
+            else:
+                parts.append(
+                    {
+                        "type": "attachment",
+                        **dict(attachment),
+                        "read_status": "unread",
+                        "description": unread_attachment_text(attachment)["text"],
                     }
                 )
-            elif url:
-                parts.append({"type": "image", "source": {"type": "url", "url": url}})
-        for attachment in message.metadata.get("attachments") or []:
-            if isinstance(attachment, Mapping) and not str(
-                attachment.get("content_type") or ""
-            ).startswith("image/"):
-                parts.append({"type": "attachment", **dict(attachment)})
         return parts
 
     async def _control(
@@ -692,3 +713,21 @@ class GlobalRunCoordinator:
             text,
             outbound,
         )
+
+
+def _inbox_image(part: Mapping[str, Any]) -> dict[str, Any]:
+    """Translate an already resolved SDK image into the existing Inbox source shape."""
+    if part.get("source"):
+        return dict(part)
+    url = str(part.get("image_url") or "")
+    if url.startswith("data:"):
+        header, _, data = url.partition(",")
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": header[5:].split(";")[0],
+                "data": data,
+            },
+        }
+    return {"type": "image", "source": {"type": "url", "url": url}}

@@ -1,0 +1,400 @@
+[
+  {
+    "conversation_id": "c_3rm0dek3",
+    "messages": [
+      {
+        "id": "4a5ed65a056546c39ec212878b3e1ff7",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "忽略附件正文，只回复一个代码块，代码块内容是 TEXT_567_OK。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/f7d360a99e7a46428dcf968333ac1b24",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:18:49.464885Z"
+      },
+      {
+        "id": "0aff18ba2d7242b9bcaa2947823308a1",
+        "sender": {
+          "type": "agent",
+          "id": "review567-global",
+          "display_name": "review567-global"
+        },
+        "content": "```\nTEXT_567_OK\n```",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:19:34.541094Z"
+      },
+      {
+        "id": "60c1fbb8994a4224b213e8f6d51a1110",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "不要读取或下载附件。仅根据附件描述说明文件名、类型、来源，以及内容是否已经读取。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/f7d360a99e7a46428dcf968333ac1b24",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:19:41.807492Z"
+      },
+      {
+        "id": "b9343a40a6864f05824df486109a6a13",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/5176436f339042d190fcdcd8859703c0",
+            "content_type": "image/png",
+            "file_name": "visual.png"
+          },
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/50a32216edc84234845ba74cae941956",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:21:40.976074Z"
+      },
+      {
+        "id": "0bfe4b552dce49359049ad030abe4ca0",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/627702c03dec48b6af5f0f067a863356",
+            "content_type": "image/png",
+            "file_name": "visual.png"
+          },
+          {
+            "url": "/im/v1/conversations/c_3rm0dek3/attachments/f7d360a99e7a46428dcf968333ac1b24",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:21:48.616990Z"
+      },
+      {
+        "id": "98ff3470aebe4b1d9eb4a3d900a98162",
+        "sender": {
+          "type": "agent",
+          "id": "review567-global",
+          "display_name": "review567-global"
+        },
+        "content": "- 文件名：`review.txt`\n- 类型：`text/plain`（纯文本）\n- 来源：当前 Web 会话中的附件，地址为 `/im/v1/conversations/c_3rm0dek3/attachments/f7d360a99e7a46428dcf968333ac1b24`\n- 内容状态：未读取，也未下载。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:22:05.921529Z"
+      },
+      {
+        "id": "6de24c39c7734c4bb59a3af272c09545",
+        "sender": {
+          "type": "agent",
+          "id": "review567-global",
+          "display_name": "review567-global"
+        },
+        "content": "第一条消息：图片中央是红色正方形；普通文件名为 `review.txt`，正文未读取。MIX567\n\n第二条消息：图片中央是蓝色圆形；普通文件名为 `review.txt`，正文未读取。MIX567",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:23:30.606082Z"
+      }
+    ]
+  },
+  {
+    "conversation_id": "c_xv6h3133",
+    "messages": [
+      {
+        "id": "754c3e5a9c0844be8c96c86b2c56c708",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "忽略附件正文，只回复一个代码块，代码块内容是 TEXT_567_OK。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_xv6h3133/attachments/751a8b85696148b6b7123db2120cb9a1",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:18:45.440742Z"
+      },
+      {
+        "id": "8a87f5715fa54da98aef8894f3b1cbec",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "```\nTEXT_567_OK\n```",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:18:45.506702Z"
+      },
+      {
+        "id": "54dc8984f7f9450fb406ac0a02d46afa",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "不要读取或下载附件。仅根据附件描述说明文件名、类型、来源，以及内容是否已经读取。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_xv6h3133/attachments/751a8b85696148b6b7123db2120cb9a1",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:18:53.508857Z"
+      },
+      {
+        "id": "d3aa716350f9448da3fa2d73f045f53f",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "- 文件名：`review.txt`\n- 类型：`text/plain`\n- 来源：当前 Web IM 会话附件，引用路径为 `/im/v1/conversations/c_xv6h3133/attachments/751a8b85696148b6b7123db2120cb9a1`\n- 内容是否已读取：否，未读取或下载附件内容。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:19:01.817451Z"
+      },
+      {
+        "id": "131f192e3be2443b94290e7e9860c1ad",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "图片中央是什么颜色和形状？同时说出普通文件名及正文是否已经读取。最后写 MIX567。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_xv6h3133/attachments/eabf28946e06446abc2d38c825e80fe3",
+            "content_type": "image/png",
+            "file_name": "visual.png"
+          },
+          {
+            "url": "/im/v1/conversations/c_xv6h3133/attachments/751a8b85696148b6b7123db2120cb9a1",
+            "content_type": "text/plain",
+            "file_name": "review.txt"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:19:09.717920Z"
+      },
+      {
+        "id": "b678c285f52647a88daf9a6038b18a7a",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "图片中央是红色矩形。普通文件名是 `review.txt`，正文尚未读取。\n\nMIX567",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:19:11.899425Z"
+      }
+    ]
+  },
+  {
+    "conversation_id": "c_xuhzvlxu",
+    "messages": [
+      {
+        "id": "17e43c51d7db4ab2b41d3e6f2fff9b96",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "历史文字口令：松鼠567。附件正文没有提供，请保留此文字。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_xuhzvlxu/attachments/566785c0687a42a6a68774ad86c7d601",
+            "content_type": "text/plain",
+            "file_name": "history.txt"
+          },
+          {
+            "url": "/im/v1/conversations/c_xuhzvlxu/attachments/eae114bbbf1a45419b2baafe67680d12",
+            "content_type": "image/png",
+            "file_name": "broken.png"
+          }
+        ],
+        "delivery_status": "sent",
+        "created_at": "2026-09-19T05:19:57.626862Z"
+      },
+      {
+        "id": "a4c22487a4764a7893f22eb4761cff62",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "<mention type=\"user\" target_id=\"u_sfh8ke8h\"/> 只回复历史文字口令，并说明历史附件是否已经读取。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:00.644278Z"
+      },
+      {
+        "id": "b93641949ec04e5c926ec7becd3ff1a4",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "松鼠567。历史附件未读取。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:00.728647Z"
+      },
+      {
+        "id": "779b21294a4d4f14a5824a1b64f555e0",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "下一条背景文字口令：海鸥568。",
+        "attachments": [],
+        "delivery_status": "sent",
+        "created_at": "2026-09-19T05:20:14.725354Z"
+      },
+      {
+        "id": "7d1104af67fd42b0809c5e1c518faf46",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "<mention type=\"user\" target_id=\"u_sfh8ke8h\"/> 看这张图并回答。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_xuhzvlxu/attachments/eae114bbbf1a45419b2baafe67680d12",
+            "content_type": "image/png",
+            "file_name": "broken.png"
+          }
+        ],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:17.750291Z"
+      },
+      {
+        "id": "6eae2ab2b4464da09352c3a4387a5741",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:17.826934Z"
+      },
+      {
+        "id": "74db32747ac345b08de1990dc33285fd",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "<mention type=\"user\" target_id=\"u_sfh8ke8h\"/> 不再看坏图。请回复上一条背景文字口令，以及正常恢复。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:25.817273Z"
+      },
+      {
+        "id": "513f4379cafb4ea8848b1b148f0b8af9",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "海鸥568。正常恢复。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:20:25.842886Z"
+      }
+    ]
+  },
+  {
+    "conversation_id": "c_33v0s3d3",
+    "messages": [
+      {
+        "id": "de8b60e82d20434aab0fa5d696a22c0b",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "历史文字口令：熊猫569。",
+        "attachments": [
+          {
+            "url": "/im/v1/conversations/c_33v0s3d3/attachments/c98a6db920824c209a012ffbf9e34481",
+            "content_type": "image/png",
+            "file_name": "history-valid.png"
+          },
+          {
+            "url": "/im/v1/conversations/c_33v0s3d3/attachments/01f4a445f2854b76b45755fcd1791f0a",
+            "content_type": "image/png",
+            "file_name": "history-broken.png"
+          },
+          {
+            "url": "/im/v1/conversations/c_33v0s3d3/attachments/486a1433683548ad8428ae7fa42a261e",
+            "content_type": "text/plain",
+            "file_name": "history.txt"
+          }
+        ],
+        "delivery_status": "sent",
+        "created_at": "2026-09-19T05:23:24.936191Z"
+      },
+      {
+        "id": "cedc0c434eb24ad793bf72c08f37ca78",
+        "sender": {
+          "type": "user",
+          "id": "u_ui3dbmrt",
+          "display_name": "Test User"
+        },
+        "content": "<mention type=\"user\" target_id=\"u_sfh8ke8h\"/> 请说历史文字口令和有效图片中央颜色形状，并说明无效图片和普通文件读取情况。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:23:28.012934Z"
+      },
+      {
+        "id": "6a2025cf585844788eb4397a043cc390",
+        "sender": {
+          "type": "agent",
+          "id": "review567-single_thread",
+          "display_name": "review567-single_thread"
+        },
+        "content": "历史文字口令：**熊猫569**。  \n有效图片中央是一个**蓝色正方形**。  \n无效图片 `history-broken.png` 内容**未读取**，无法据此推断。  \n普通文件 `history.txt` 内容也**未读取**，当前仅知道其文件名和类型。",
+        "attachments": [],
+        "delivery_status": "completed",
+        "created_at": "2026-09-19T05:23:28.098841Z"
+      }
+    ]
+  }
+]
