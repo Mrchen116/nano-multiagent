@@ -90,3 +90,21 @@ Verdict: **WARNING — source implementation passes targeted review; canonical g
 Supplementary supplied evidence is clean: equivalent Python CI partitions report 1,986 and 2,066 passed; repository Ruff check/format report 1,096 checks passing; and docs validation reports 238 sources / 75 routes. This closure does not claim the separate product review.
 
 Verdict: **PASS — Round 4 implementation and canonical gateway-contract reconciliation are complete.**
+
+## Round 5: targeted short graph-ID revalidation
+
+> Review mode: `targeted` · patch: `5f667ba71..7de35e397` · executed base: `2e9c83df9` · reviewed snapshot: `7de35e397`
+
+### Findings
+
+```json
+[]
+```
+
+Creation now chooses `tg_` plus the first eight hexadecimal characters from the existing UUID source, then checks the authoritative `task_graphs` key and retries while a row exists (`src/IM/application/task_graphs.py:171`). That check and the later upsert live under the pre-existing `BEGIN IMMEDIATE` reservation. A pre-existing graph therefore cannot be overwritten by a shortened-ID collision, and concurrent creates cannot pass the check simultaneously. Receipt lookup remains before generation, so an exact same-key retry returns its original graph without consuming or replacing an ID (`src/IM/application/task_graphs.py:152`). The global collision check is reached only after the original Agent identity and home-conversation membership checks; it exposes no graph data and introduces no access path.
+
+The HTTP/WS regression forces two full UUIDs with the same eight-character prefix. It verifies that the second create retries to a different `tg_` ID, both returned links resolve to their own graph, and the same create request replays its original receipt (`tests/im_service/integration/test_task_graph_api.py:210`). The supplied focused task-graph command passes 32 tests. Node-ID source, frontend, PA tool shape, authorization and prior product evidence are unchanged by this one application-level generation change.
+
+The new requirement is identical in the archived gateway delta and current gateway specification (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:12`; `docs/specs/gateway/task-graphs.md:19`). It accurately states stable short graph references, collision non-overwrite, and the shared tool/Web link ID.
+
+Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**

@@ -186,3 +186,33 @@ Round 4 static verifier verdict: **WARNING — implementation/source tests align
 The supplied completion evidence is consistent with the retained targeted result: Python CI partitions report **1,986 passed** and **2,066 passed**; repository Ruff check/format reports **1,096** checks passing; docs validation reports **238 sources / 75 routes**. The reported isolated old-test-graph re-numbering is local test-data maintenance, with no committed migration, alias, or compatibility product path.
 
 Round 4 static verifier verdict: **PASS**. `requires_full_verification: false`. The independent product reviewer remains responsible for live product-journey evidence.
+
+## Round 5: targeted short graph-ID revalidation
+
+> Revalidation mode: `targeted` · patch: `5f667ba71..7de35e397` · executed base: `2e9c83df9` · reviewed snapshot: `7de35e397`
+
+### Retained evidence
+
+Round 4's graph-local node IDs, all relation semantics, Agent/tool provenance, current-member authorization, atomic receipt behavior, and the independently reviewed node journeys remain valid. This patch changes only generated `graph_id` selection in the authorized IM create path; it changes no frontend, PA, schema, action, or permission code.
+
+### Source and corrected-delta verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| A graph has one short stable ID used by tool result and Web route | `src/IM/application/task_graphs.py:171` generates `tg_` plus eight hex characters; existing summary derives `relative_url` from the same saved ID | collision test asserts each returned `relative_url` and its independent HTTP read | aligned |
+| A shortened-ID collision cannot overwrite an existing graph | `repository.get` retries inside the existing `BEGIN IMMEDIATE` transaction before the existing upsert | forced shared-prefix UUIDs produce `tg_12345678` then `tg_abcdef01`; both first and second graph titles remain readable | aligned |
+| Request replay remains idempotent and cannot allocate a replacement graph | receipt lookup precedes ID allocation at `src/IM/application/task_graphs.py:152` | collision test repeats the first create with the same key and asserts the exact original result | aligned |
+| Short graph IDs do not widen access | actor and current membership validation precede receipt lookup and graph allocation | retained ACL/revoked-replay coverage; no access-path code changed | aligned |
+| Corrected gateway delta is authoritative and reconciled | archived delta and canonical spec contain the same new graph-ID clause | direct line comparison; no canonical omission remains | aligned |
+
+The supplied focused task-graph suite completed with **32 passed**. The remaining Python full suite is running separately and is not claimed as complete here; prior Agent/PA 1,986-pass and frontend 779-pass evidence remains unaffected.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+Round 5 static verifier verdict: **PASS**. `requires_full_verification: false`. The separate product reviewer owns the added live short-graph-ID journey evidence.
