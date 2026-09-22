@@ -63,3 +63,73 @@ N/A。无前端变更或 must-match 原型；验收依据是 motivation 场景�
 ## 资源交接
 
 reviewer 启动的替代隔离 IM 为 PID 5132，exec session 10735；已交回 caller 按本轮统一清理职责关闭。Gateway 与其余环境仍由 caller 统一清理。未启动永久测试、未修改源码/受审设计/受版本控制的配置。
+
+## Round 2 — 2026-09-22：真实飞书补充验收
+
+- mode: full（以真实飞书补齐 Round 1 的合成 provider 边界）。
+- executed_base: `2e9c83df9`；validated_at: `b8c621245ae4bf14c71694892f92686aa8068c1d`（本轮运行 worktree HEAD；本 unit 源码与 Round 1 的 `a3c6e819c` 等同）。
+- Verdict: **fail**；highest_required_action: **fix-implementation**；issues_count: **1 major**；needs_re_review: **true**；gh_issues_filed: 0。
+- Round 1 的观察继续保留，但真实飞书补测发现 `/stop` 未停止正在执行的任务，不能以 Round 1 的合成入口通过结果覆盖本轮失败。
+
+### 真实运行边界
+
+使用 `lark-im` / `lark-shared` skill，所有消息发送和历史/资源读取固定专用 profile `e2e-feishu-testagent`，发送身份 `--as user`。执行前独立校验 profile verified、App 和 Bot 与专用 env 相符，未输出或提交凭据及用户/Bot 身份 IDs。只向专用测试 Bot 发常规验收消息，无生产 Bot 操作。
+
+隔离栈 `/private/tmp/refactor-570-feishu` 为真实 `--feishu` 栈，Gateway PID 14421 的 cwd、PYTHONPATH 已核对指向隔离环境与受审 worktree。真实飞书 WebSocket 入站、真实 Bot API 出站、真实内核/LLM/IM，无合成 adapter。IM `http://127.0.0.1:49724`，专用 nano 身份。故障注入只停止隔离 IM PID 14380；保留数据库和签名环境，以同 cwd、同源码重启为 PID 15250（session 53695）。
+
+结果来自飞书用户身份历史、消息资源下载和 IM 用户 REST history/图片 GET；不以 saga、API 返回成功或单测作为交付证明。没有做 GUI 像素或客户端交互验收，不声称实测 GUI 显示。临时原始证据在 `/tmp/refactor-570-feishu/reviewer-*.json`；关键直接证据如下，测试身份历史中的旧消息没有计为本次成功。
+
+### Requirement: Shadow 对话内容与回复状态保持一致 — pass
+
+**Scenario: 回复与更新可见 — pass（真实飞书）**
+
+用户消息 `om_x100b64114b16c0a4b3e05f64942a8a7` 要求 bash `printf FEISHU570_TOOL_OK` 后回复 `FEISHU570_NORMAL_DONE`。真实飞书收到唯一对应 interactive 消息 `om_x100b641148d490b8b1a0ca650e0c62f`，历史内容为：
+
+```text
+FEISHU570_NORMAL_DONE
+---
+📝 deepseek:deepseek-v4-flash · ctx 4%
+```
+
+IM 会话 `c_9tr53sne` 的 Agent 气泡 `7acf86d0c109401199d3293321c1ebab` 正文严格为 `FEISHU570_NORMAL_DONE`，没有运行信息 footer；delivery_status=completed，同一气泡含 bash completed、exit_code=0、stdout=`FEISHU570_TOOL_OK`。随后图片与停止旅程后仍未出现正常回复的重复气泡。
+
+证据：`reviewer-normal-feishu.json`、`reviewer-normal-im.json`、`reviewer-final-im.json`，以及只保留本轮消息字段的 `reviewer-round2-feishu-evidence.json`。
+
+### Requirement: 已接受回复可以恢复 — pass
+
+**Scenario: 暂时失败后重试 — pass（真实飞书图文，含真实图片资源）**
+
+1. 在真实路径 `/private/tmp/refactor-570-feishu/.gateway-workspace/e2e/.nanoassistant/exports/feishu570.png` 准备 64×64 RGB PNG，179 bytes。发用户消息 `om_x100b6411479080a0b2a654e88d0e11c`，要求 sleep 10 后回复 `FEISHU570_RECOVER_IMAGE` 和该图片。
+2. IM history 确认前台工具 running 后停止隔离 IM。IM 离线期间，真实飞书已收到 interactive 消息 `om_x100b641144a4a884b2562e13abfd138`，包含标记、`img_v3_0215p_cbb527e2-7cf6-4c5f-abd3-a094c5fd874g` 图片资源和运行信息 footer。
+3. 在 IM 恢复前删除源 PNG，随后用原数据库/签名环境重启 IM。原气泡 `29f21b2619d24e3a9de70a54d5c2cb76` 补齐 completed 正文与图片链接；恢复前后该会话全部 message IDs 相同，没有创建另一个图片回复。最终停止旅程结束后再次读取，两端均只有一个对应图文回复。
+4. 以真实飞书用户身份，从上述消息下载 image 资源，实际获得 PNG 179 bytes；以 IM 登录身份 GET `/im/v1/conversations/c_9tr53sne/images/f8551c52fa0d4c02aec7b2a1ce0633d2`，实际获得 200、image/png、179 bytes。两个下载文件与删除前原图 SHA-256 均为 `97781656d41f8c2391e0d1002c8ba25776cf150d895d2bf054a45df4d0ec5e28`。由源文件已不存在而两端仍获得完全相同图片，证明恢复没有依赖重读原文件。
+
+证据：`reviewer-image-source.json`、`reviewer-recover-before-im.json`、`reviewer-recover-offline-feishu.json`、`reviewer-feishu-image-proof.json`、`reviewer-im-image-proof.json`、`reviewer-recover-after-im.json`、`reviewer-final-feishu.json`、`reviewer-final-im.json`。本轮实际覆盖真实飞书出口，不再只保留 Round 1 的合成 provider 恢复证据。图片资源下载发生于恢复后，飞书卡片及 image key 在 IM 离线期间已直接观察到。
+
+### Requirement: 已失效 run 不晚发正文 — fail
+
+**Scenario: 取消后的旧回复 — fail（真实飞书）**
+
+用户消息 `om_x100b641141bb9090b3c262fc5d08c4b` 要求执行 `sleep 40; printf FEISHU570_OLD_RESULT`，工具返回后只回复 `FEISHU570_OLD_BODY`。IM 原气泡 `907a54ff803f40a2a9df360149f626fb` 已显示 bash running 后，以相同真实用户身份发送 `/stop`（`om_x100b6411410668acb1aab51a9941a0f`）。
+
+本次真实飞书新增回复 `om_x100b6411412bf8a4b2e90ee9f24bd03` 却为 `当前没有正在执行的操作。`，IM 工具仍为 running。停止发送后等待 46 秒（超过原任务 40 秒）：
+
+- 飞书新增 interactive `om_x100b64115c9f34a8b494f58630f99ba`，正文为 `FEISHU570_OLD_BODY`，说明旧任务继续完成并发送。
+- IM 原气泡变为 completed，正文同样为 `FEISHU570_OLD_BODY`。
+- bash 工具实际 duration_ms=40070、exit_code=0、stdout=`FEISHU570_OLD_RESULT`、status=completed，没有 interrupted 清理。
+
+证据：`reviewer-stop-before-im.json`、`reviewer-stop-new-feishu.json`、`reviewer-final-feishu.json`、`reviewer-final-im.json`、`reviewer-round2-feishu-evidence.json`。采集早期曾匹配到同一专用测试会话的历史停止确认，已通过本轮前 message ID 集合排除，未将历史消息当作本次停止成功。
+
+### 问题清单
+
+| ID | Severity | Regression Relation | 期望 / 实际 | Recommended Action | Action Rationale |
+|---|---|---|---|---|---|
+| R2-1 | major | unclear | 运行中 `/stop` 应停止任务、清理工具且无旧正文；真实飞书回复“当前没有正在执行的操作。”，40 秒工具完成后两端仍收到旧正文 | fix-implementation（交 owner 定位并决定 unit 归属） | 违反必验场景，阻塞本轮产品验收。reviewer 未读实现定位，不能据此断言由本 refactor 引入，也不能将未知原因降为非阻塞 |
+
+### Reference Artifacts Reviewed / 上层文档
+
+无 GUI must-match 原型；本轮验证真实飞书消息结构和资源、IM 用户可见历史。`SPEC.md`、`docs/specs/gateway/`、`AGENTS.md`/`CLAUDE.md`、`docs/specs/CONTRIBUTING.md` 无新增预期行为待写回；不能把本轮观察到的取消失败改写成新契约。待 owner 完成定位/处置后，以真实飞书重验 R2-1，继承本轮失败项。
+
+### 资源交接
+
+新隔离 IM PID 15250，exec session 53695；无额外 keepalive，shell 直接等待该 IM 子进程。已交回 caller 统一清理。reviewer 只追加本报告，不改受审源码/配置/设计，不创建永久测试，不独立 push。
