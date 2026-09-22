@@ -194,3 +194,30 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 本轮仅更新S01/S04/S09/S11–S13/S19的ID影响面证据。其他S场景、ACL、外部渠道、冲突/失败、持久化、草稿及Round 3 DAG布局证据明确retained；没有重发Feishu消息或重跑全量场景。旧UUID节点深链接按用户明确决策不保留，前轮截图作为当时行为证据，不再作为当前节点URL。caller交接的窄测试30及全量1986+2066通过仅为辅助，不冒充本轮产品结果。
 
 只追加提交本报告并关闭自己的feat569short浏览器；IM/Gateway、原三图和新短ID书签图保留供用户体验。不停止服务、不push。
+
+## Round 5 — targeted（短graph_id）
+
+- `validated_at=7de35e397443add6f0ea7c06af9831f53cb1d647`；`executed_base=2e9c83df9`；`fix_delta_range=5f667ba71..7de35e397`。开始时独立核对HEAD一致，caller已重启IM加载该版本；Gateway/前端未变。验收时间2026-09-22 19:03–19:04 Asia/Shanghai。
+- 新决策只把graph_id改为`tg_`加8位随机hex（11字符），节点短ID机制不变；用户明确开发态不保留旧链接兼容。caller对四张旧测试图的一次性ID重置是环境准备，不作为产品迁移能力验收。
+
+### Verdict与真实旅程
+
+**pass**。`highest_required_action=pass`；0 blocking /0 major /0 minor；`needs_re_review=false`。
+
+在自己的Playwright会话，以nano登录隔离`/chat/c_xsu9vkwq`，向e2e-peer发送一条提示：仅新建“短图号便签569”DAG、添加一个待办子节点“检查便签”，不改旧图、不执行，真实依次create→get→apply→get，并报告ID/revision/Web链接。没有外发飞书消息。
+
+本人展开本次Chat Process的四个工具项，直接核对参数和回执：
+
+1. `create`（request_key=`note-569-create-20260922T1903`）返回`graph_id=tg_f8f65a76`、root_node_id=`n1`、revision1。图号实际符合`^tg_[0-9a-f]{8}$`，长度11。
+2. 首次`get`以同一`tg_f8f65a76`读取到根n1、revision1。
+3. `apply`以同一图号、base_revision1、`container_id=n1`添加“检查便签”；返回client_refs=`{A:n2}`、changed_ids=`[n1,n2]`、revision2。
+4. 最后`get`仍为同一图号，根n1和子节点n2均todo，n2的container_id=n1，revision2；Web回执为`http://127.0.0.1:56231/tasks/tg_f8f65a76`。
+5. 点击Agent最终回复中的真实链接，浏览器URL实际进入`/tasks/tg_f8f65a76`，显示“短图号便签569”、revision2、n2检查便签卡片和根n1详情。不是只验证API成功或Agent口述。
+
+工具UI原始本地快照`/tmp/feat569-r5-tools.txt`含旧会话上下文，不提交。视觉证据为`/tmp/feat569-short-graph-review/desktop-short-graph-link.png`，1440×960、100%缩放；已本人打开核对，可由caller筛选提升到[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)。
+
+### 范围与清理
+
+S01/S11/S12的图号跨调用影响面与Web链接均pass。Round 4的两轮节点身份稳定、标题/状态/order更新、依赖、短节点深链接和嵌套证据明确retained；更早的DAG视觉、ACL、外部渠道、草稿及其他未影响场景同样retained。没有重复全量旅程，也没有测试旧长图号兼容。真实随机碰撞未在产品旅程制造；caller交接的32项相关测试为补充，不冒充本轮真实碰撞E2E或尚未交接的全量结果。
+
+仅追加提交本报告，关闭自己的feat569graphid浏览器；新图tg_f8f65a76及所有原数据、IM/Gateway保留供用户体验，不push。
