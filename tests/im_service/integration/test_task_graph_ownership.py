@@ -104,6 +104,26 @@ def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
             dict(title="Independent", mode="dag", request_key="no-chat"),
         )
     assert denied.value.code == "not_found_or_forbidden"
+    with pytest.raises(TaskGraphError) as denied_write:
+        client.app.state.task_graphs.execute(
+            TaskGraphActor("agent", "nano", "node"),
+            "apply",
+            dict(
+                graph_id=graph_id,
+                base_revision=2,
+                request_key="other-owner-edit",
+                change_note="Attempted cross-account edit",
+                operations=[
+                    {
+                        "op": "update_task",
+                        "node_id": "n1",
+                        "patch": {"title": "Foreign"},
+                    }
+                ],
+            ),
+        )
+    assert denied_write.value.code == "not_found_or_forbidden"
+    assert client.get(f"/im/v1/task-graphs/{graph_id}").json()["title"] == "Together"
 
 
 def test_each_changed_node_records_its_last_chat_without_retries_moving_it(task_stack):

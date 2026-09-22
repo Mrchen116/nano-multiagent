@@ -251,3 +251,49 @@ S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21�
 已恢复e2e-peer任务图开启及原白名单：本轮始终未点击任何白名单/技能选项；保存后reload确认task_graph仍pressed，其余配置未改。测试浏览器语言回EN。两轮prompt只读取原图，revision仍2；未新建图。聊天额外出现“后台自进化：记忆已更新”运行提示，是既有开启能力的后台行为，没有由验收另行操作。
 
 只追加本acceptance.md（包含本轮证据索引），不暂存、不commit、不push。关闭自己的feat569toggle浏览器；保留IM/Gateway、测试会话和图供用户继续体验。
+
+## Round 7 — targeted（S22 账号目标与 S23 节点最后聊天）
+
+- `validated_at=a4bd167de`，`effective_through=19e590747`（后者仅报告/canonical 文档）；先观察 b94e157c7/44af01688，发现真实 Agent 身份准入缺陷后，在 a4bd167de 重启的隔离 IM 上重试通过。时间为 2026-09-23 00:21–00:30 Asia/Shanghai。
+- 依据最新 spec S22/S23 与 design；独立 Playwright 浏览器，IM `http://127.0.0.1:56231`，nano 及专用测试身份。未阅读实现定位，未操作用户 a/AA、其图 tg_8f14210f 或用户 IAB。所有写入来自正常测试聊天的真实 Agent/native task_graph，未造数据库来源。
+
+### Verdict
+
+**pass**。S22/S23 本轮影响面通过；`highest_required_action=pass`，0 open blocking / 0 open major / 0 open minor；`needs_re_review=false`。本轮发现的 I2（major）经产品修复及真实同 request_key 重试关闭。
+
+### 实际产品旅程
+
+| 检查点 | 实际操作和观察 | 结果与边界 |
+|---|---|---|
+| 无来源旧目标与复制引用 | 原图 tg_f8f65a76 revision2 的根/子节点均无回聊按钮，详情可读。点击 n2 的 Copy reference 出现成功提示，实际用剪贴板粘贴到另一测试聊天，得到含 graph_id/scope/node 的引用；未发送。 | pass；不凭旧历史推断来源。 |
+| 真实身份准入与修复 | 在 e2e-peer 的 c_xsu9vkwq 创建“双聊天来源569”，实际 create（request_key `dualchat-569-create-20260923T0021`）及 list 均返回 not_found_or_forbidden，参数没有 target。a4bd 修复后原聊天、原 key 重试成功。 | I2 major closed；不是环境身份数据修补。Agent 后来的自然语言误称前次传了 target，报告以展开的实际参数为准。 |
+| chat1 创建与 chat2 更新 A | chat1 真实 create→apply→get 创建 tg_be33bc23：根 n1、A 收集 n2、B 整理 n3，revision2，三者来源均 c_xsu9vkwq。新测试群 S23-chat2-569（c_bx430dtz）真实 mention e2e-peer，get→apply→get 只更新 n2 为 doing/“第二聊天已核对”，revision3；n2 来源变为 c_bx430dtz，n1/n3 仍 chat1。写参数均省略 target/last_chat。 | pass；真实运行自动来源，不是直接传入 last_chat 的模拟。 |
+| 同 owner 跨 Agent/聊天共享 | 不属于上述源聊天的专用 Global Agent task-graphs-global-569，在 c_4e0dxooj 实际 list 匹配该图，再 get→apply→get 仅更新 n3 为 doing/“跨Agent无来源已核对”，revision4。没有分派动作。 | pass；同 human owner 可以跨 Agent 查询、修改。Global 的 get 中来源均被投影为 null，因为它不是源聊天成员；不误称所有持久来源都被清空。 |
+| 更新 B 不移动 A，且无来源更新清空 B 回聊 | nano 浏览器在 revision4 查看 A，仍显示 Last updated in S23-chat2-569，Back to chat 实际进入 c_bx430dtz；B 显示 Global 更新结果，只有 Copy reference，没有回聊按钮。根仍指向 chat1。 | pass；按节点记录，Global 无来源更新只清除 B 的来源。 |
+| 桌面与手机草稿 | 在 c_bx430dtz 留下“桌面来源草稿569”、从成员菜单选出的真实 @e2e-peer token、待发 source-draft-569.txt。点击真实回复中的任务链接进入 A，再点 Discuss，返回 chat2：正文、mention、附件保留并追加 A 引用，无自动发送。390×844 重复链接→A 详情→Discuss，原草稿字段仍在。 | pass；1440×960 与 390×844 均实际视觉核对。测试后清理自己的未发草稿/附件。 |
+| 外账号虽同群仍不能访问目标 | 专用 task-review-nonmember569 是 c_bx430dtz 成员，可见群内实际讨论；其 Goals 为 0。点击群消息中的 tg_be33bc23 链接，显示不存在或无访问权限；直接访问旧 tg_f8f65a76 同样拒绝。 | pass；聊天可见性不授予目标权限。浏览器未伪造写请求；外 owner 写拒绝另有边界补证。 |
+| 无来源新目标仍可创建、修改、读取 | Global 真实 create→apply→get 创建“无来源验收569” tg_edc1a174，根 n1、revision2、result“无来源可更新”，last_chat_id/title 均 null。Web 显示结果，只有复制引用，无回聊。 | pass；初次测试误用 root mode none 被正常拒绝，改为有效 dag 后成功，不计产品缺陷。 |
+| create 本身记录根来源 | chat1 另作 create→get，明确不执行 apply：“根来源直验569” tg_11d5b4c2 revision1，唯一 n1 的来源为 c_xsu9vkwq/e2e-peer。点击回复链接及顶部 Back to chat，实际返回 chat1。 | pass；避免后续 apply 覆盖来源、掩盖创建根来源问题。 |
+
+### 证据与补证范围
+
+真实工具展开快照保留本地：`/tmp/feat569-owner-create-fail.txt`、`/tmp/feat569-owner-create-tools.txt`、`/tmp/feat569-owner-group-tools.txt`、`/tmp/feat569-owner-work-tools.txt`、`/tmp/feat569-owner-nosource-tools.txt`、`/tmp/feat569-owner-root-tools.txt`。这些记录实际 create/list/get/apply 参数及回执；原始运行资料不提交。
+
+截图目录 `/tmp/feat569-owner-review/`。以下通过本人打开图片核对，桌面均 1440×960，手机均 390×844：
+
+| 文件 | 可复查的实际结果 |
+|---|---|
+| no-source-copy.png、copied-to-other-chat.png | 无来源隐藏回聊、复制成功和跨聊天粘贴 |
+| a-last-chat2.png、b-source-cleared.png | revision4 的 A 保持 chat2，B 更新后无来源 |
+| desktop-draft-preserved.png | 桌面正文、真实 mention、待发附件及任务引用同在 |
+| mobile-last-chat2.png、mobile-draft-preserved.png | 手机详情来源与返回后完整未发草稿 |
+| new-no-source-readable.png | 新无来源目标的更新结果可读、无回聊 |
+| group-member-graph-denied.png | 外账号从共同群链接进入仍拒绝 |
+
+补充自动证据见 [integration.md](M1-task-graphs/evidence/integration.md)，不替代上述真实产品旅程：caller 交接 a4bd 同产品树 `/tmp/feat569-agent-principal-green.log` 27 passed；最终 `/tmp/feat569-owner-final-boundaries.log` 19 passed（ownership integration + task_graph_bridge）。`test_goals_belong_to_account_with_optional_source_and_no_agent_assignment` 覆盖删除源聊天后保图、伪造 owner 拒绝、跨 owner 读写拒绝、owner 转移后原回执拒绝；最新追加的 foreign-owner apply 断言同时确认旧标题 Together 不变。`test_each_changed_node_records_its_last_chat_without_retries_moving_it` 覆盖跨聊天重放不移动来源。`test_native_tool_uses_real_listener_with_same_agent_rules` 的真实 loopback 矩阵覆盖 Web/Feishu × global/single_thread 及同 Kernel session 多聊天 binding，由实际 run context 选择来源；focused 日志 `/tmp/feat569-owner-focused.log` 33 passed。本轮没有删除测试群、伪造 owner 或制造重放，也没有重新外发 Feishu，故这些是明确的专项边界补证。
+
+### Retained 与交付状态
+
+此前 DAG 布局、短图/节点 ID、feature toggle、外部渠道 native 链路和未受影响数据一致性证据 retained。旧 S18“聊天成员即可访问图”的准入结论已被 S22 账号归属契约替代，不能作为当前 ACL 证据；来源与回聊部分以本轮为准。caller 的 Python 2072 + 1998、UI 782 全量结果属于补充检查；本 reviewer 未重复执行，不把测试数量当作真实 UI 验收。
+
+保留新测试群 c_bx430dtz 及三个新图 tg_be33bc23、tg_edc1a174、tg_11d5b4c2，所有原图与主服务保持运行，便于用户继续体验。已关闭自己创建的 feat569owner、feat569owneracl 浏览器。按本轮要求仅追加此报告，不暂存、不 commit、不 push，不修改代码或用户数据。
