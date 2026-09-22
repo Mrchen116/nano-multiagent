@@ -9,6 +9,7 @@ import { useTranslation } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT, writeComposerSnapshot } from "../chat/components/composer-draft-store";
 import { layoutTaskScope } from "./task-graph-layout";
+import { TaskGraphLink } from "./task-graph-link";
 import { taskGraphUrl, useTaskGraph, useTaskGraphList, type TaskGraph, type TaskNode, type TaskStatus } from "./task-graphs-api";
 import "./task-graphs.css";
 
@@ -142,14 +143,14 @@ function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss }: { graph: 
   return <>
     <div className="tasks-detail-id">{t("tasks.nodeDetails")} · <span>{node.id}</span></div>
     <section><h2>{node.title}</h2><div className="tasks-tags"><span className="tasks-mode">{t(`tasks.mode.${node.mode}`)}</span><TaskStatusBadge status={node.status} /></div></section>
-    <section><h3>{t("tasks.description")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{node.description || t("tasks.noDescription")}</ReactMarkdown></div></section>
-    <section><h3>{t("tasks.result")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{node.result || t("tasks.noResult")}</ReactMarkdown></div></section>
+    <section><h3>{t("tasks.description")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{node.description || t("tasks.noDescription")}</ReactMarkdown></div></section>
+    <section><h3>{t("tasks.result")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{node.result || t("tasks.noResult")}</ReactMarkdown></div></section>
     {node.change_note && <section><h3>{t("tasks.changeNote")}</h3><p className="tasks-prose">{node.change_note}</p></section>}
     {parent?.mode === "dag" && <><section><h3>{t("tasks.predecessors")}</h3>{relationList(graph.dependencies.filter(edge => edge.to === node.id).map(edge => edge.from))}</section>
       <section><h3>{t("tasks.successors")}</h3>{relationList(graph.dependencies.filter(edge => edge.from === node.id).map(edge => edge.to))}</section></>}
     {node.derived_from_id && <section><h3>{t("tasks.derivedFrom")}</h3>{relationList([node.derived_from_id])}</section>}
     {node.selected_candidate_id && <section><h3>{t("tasks.currentChoice")}</h3>{relationList([node.selected_candidate_id])}<p>{node.selection_reason || t("tasks.noReason")}</p></section>}
-    {node.links.length > 0 && <section><h3>{t("tasks.links")}</h3><ul>{node.links.map((link, index) => <li key={index}><ReactMarkdown>{`[${link.replace(/[\[\]]/g, "\\$&")}](${link})`}</ReactMarkdown></li>)}</ul></section>}
+    {node.links.length > 0 && <section><h3>{t("tasks.links")}</h3><ul>{node.links.map((link, index) => <li key={index}><ReactMarkdown components={{ a: TaskGraphLink }}>{`[${link.replace(/[\[\]]/g, "\\$&")}](${link})`}</ReactMarkdown></li>)}</ul></section>}
     <section className="tasks-detail-facts"><dl><div><dt>{t("tasks.structure")}</dt><dd>{children.length ? t("tasks.nodeCount", { count: children.length }) : t("tasks.mode.none")}</dd></div>
       <div><dt>{t("tasks.updatedBy")}</dt><dd>{node.updated_by}</dd></div><div><dt>{t("tasks.updatedAt")}</dt><dd>{new Date(node.updated_at).toLocaleString(i18n.language)}</dd></div>
       <div><dt>{t("tasks.revision")}</dt><dd>{graph.revision}</dd></div></dl><p className="tasks-detail-note">{t("tasks.recordedHint")}</p></section>

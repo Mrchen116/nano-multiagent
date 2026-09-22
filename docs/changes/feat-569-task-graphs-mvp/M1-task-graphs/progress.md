@@ -16,3 +16,10 @@
 - 真实 HTTP/WS 测试先取得缺失端点 404，再实现 IM 单一存储、原子批量、revision 冲突、请求去重、当前成员授权与只读浏览 API。
 - `PYTHONPATH=src .venv/bin/python -m pytest tests/im_service/unit/test_task_graph_rules.py tests/im_service/integration/test_task_graph_api.py -q`（使用主仓 .venv）：20 passed。覆盖 global/single_thread 同权、并发只成功一次、重启后数据保持、撤权后不能重放历史成功回执。
 - 对本增量全部 Python 文件执行 Ruff check：通过。
+
+## P5 修复：从 Agent 正文和 Work 返回时保留草稿
+
+- 独立真实浏览器验收复现：聊天/Work 的任务 Markdown 链接触发完整页面导航，清空内存中的聊天 composer；顶部 Tasks 的 SPA 跳转正常。根因在跳转边界。
+- 同源任务链接统一走现有 Router，在聊天正文、Work 和任务详情的 Markdown 中复用；原有外链分类与普通链接行为保持。
+- 先补真实 MessagePane 链接路径和 Work 路由断言得到红测，再修复：140 项相关测试通过，TypeScript/Vite build 通过。任务往返断言包含正文、mentions、待发附件及不自动发送。
+- 产品 Round 1 的其余场景和原型对照保留；I1 交给独立 reviewer 做针对性复验。

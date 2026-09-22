@@ -9,7 +9,7 @@ import { TEST_ACCESS_TOKEN, TEST_AUTH_USER } from "../../test/render-router";
 import { useAuthStore } from "../auth/auth-store";
 import { composerStoreFor, writeComposerSnapshot } from "../chat/components/composer-draft-store";
 import { MessagePane } from "../chat/components/message-pane";
-import type { Conversation } from "../chat/chat-types";
+import type { Conversation, Message } from "../chat/chat-types";
 import type { TaskGraph, TaskGraphList, TaskNode } from "./task-graphs-api";
 import { ConversationTasksLink, TaskGraphsPage } from "./task-graphs-page";
 
@@ -39,12 +39,12 @@ let graphStatus: number;
 let list: TaskGraphList;
 let fetchMock: ReturnType<typeof vi.fn>;
 
-function renderTasks(path: string) {
+function renderTasks(path: string, messages: Message[] = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const onSend = vi.fn();
   const router = createMemoryRouter([
     { path: "/tasks", element: <TaskGraphsPage /> }, { path: "/tasks/:graphId", element: <TaskGraphsPage /> },
-    { path: "/chat/home", element: <MessagePane conversation={home} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} headerActions={<ConversationTasksLink conversationId="home" />} /> }
+    { path: "/chat/home", element: <MessagePane conversation={home} messages={messages} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} headerActions={<ConversationTasksLink conversationId="home" />} /> }
   ], { initialEntries: [path] });
   const result = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   return { ...result, router, client, onSend };
@@ -113,10 +113,15 @@ describe("task graph browsing", () => {
     expect(client.getQueriesData({ queryKey: ["task-graphs"] }).every(([, value]) => value === null)).toBe(true);
   });
 
-  it("adds a stable task reference to the home composer while preserving mentions and attachments without sending", async () => {
+  it("opens an Agent task link and returns a reference while preserving the full composer without sending", async () => {
     const pending = [{ url: "/im/uploads/design.pdf", file_name: "design.pdf", content_type: "application/pdf" }];
     writeComposerSnapshot(composerStoreFor("user-1"), "home", { draft: "@Nano Please check", draftMentions: [{ label: "@Nano", type: "agent", target_id: "nano" }], pending, slashDismissed: true });
-    const { router, onSend } = renderTasks("/tasks/tg-1?scope=A&node=Z");
+    const { router, onSend } = renderTasks("/chat/home", [{
+      id: "saved-plan", conversation_id: "home", sender: { type: "agent", id: "nano", display_name: "Nano" },
+      sender_user_id: "nano", sender_type: "agent", content: `[Saved plan](${window.location.origin}/tasks/tg-1?scope=A&node=Z)`,
+      attachments: [], delivery_status: "completed", created_at: "2026-01-01T00:00:00Z", permission_requests: [],
+    }]);
+    await userEvent.click(screen.getByRole("link", { name: "Saved plan" }));
     await screen.findByRole("button", { name: "Discuss this task in chat" });
     await userEvent.click(screen.getByRole("button", { name: "Discuss this task in chat" }));
     expect(router.state.location.pathname).toBe("/chat/home");
