@@ -93,6 +93,7 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     assert created["ok"], created
     graph = created["result"]
     graph_id, root = graph["graph_id"], graph["root_node_id"]
+    assert root == "n1"
     assert command(ws, "create", **creation)["result"] == graph
     assert client.get("/im/v1/task-graphs").json()["total"] == 1
     operations = [
@@ -153,6 +154,7 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     assert result["ok"], result
     assert command(ws, "apply", **mutation)["result"] == result["result"]
     ids = result["result"]["client_refs"]
+    assert ids == {"A": "n2", "B": "n3", "X": "n4", "Y": "n5", "Z": "n6", "P": "n7"}
     full = client.get(f"/im/v1/task-graphs/{graph_id}", params={"view": "all"}).json()
     assert full["revision"] == 2 and len(full["nodes"]) == 7
     nodes = {n["id"]: n for n in full["nodes"]}
@@ -274,6 +276,7 @@ def test_list_pagination_preserves_membership_and_request_keys_cannot_change_mea
             request_key=f"list-{index}",
         )
         assert result["ok"]
+        assert result["result"]["root_node_id"] == "n1"
     first = client.get(
         "/im/v1/task-graphs", params={"query": "Plan", "limit": 2}
     ).json()

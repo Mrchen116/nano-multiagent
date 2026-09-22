@@ -5,7 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
 
 MAX_NODES = 500
 MAX_DEPENDENCIES = 1000
@@ -287,7 +286,8 @@ def apply_operations(
                         "client_ref must be unique within the batch and not start with @"
                     )
                 parent = resolve(operation.get("container_id"))
-                node_id = "tn_" + uuid4().hex
+                # Nodes are never deleted or renumbered; allocation is graph-local.
+                node_id = f"n{len(nodes) + 1}"
                 fields = {
                     key: value
                     for key, value in operation.items()

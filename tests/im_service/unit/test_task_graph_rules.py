@@ -41,6 +41,71 @@ def apply(document, operations, note="Recorded from discussion"):
     )[0]
 
 
+def test_short_node_ids_stay_stable_across_batches_and_reordering():
+    root = "n1"
+    document = {
+        "schema_version": 1,
+        "root_node_id": root,
+        "revision": 1,
+        "nodes": [
+            new_node(
+                node_id=root,
+                container_id=None,
+                title="Goal",
+                mode="dag",
+                actor="Nano",
+                now="now",
+            )
+        ],
+        "dependencies": [],
+    }
+    added = apply(
+        document,
+        [
+            {
+                "op": "add_task",
+                "client_ref": "A",
+                "container_id": root,
+                "title": "Research",
+            },
+            {
+                "op": "add_task",
+                "client_ref": "B",
+                "container_id": root,
+                "title": "Build",
+            },
+            {"op": "add_dependency", "from": "@A", "to": "@B"},
+        ],
+    )
+    assert [node["id"] for node in added["nodes"]] == [root, "n2", "n3"]
+    updated = apply(
+        added,
+        [
+            {
+                "op": "update_task",
+                "node_id": "n2",
+                "patch": {"title": "Research finished", "status": "done", "order": 10},
+            },
+            {"op": "update_task", "node_id": root, "patch": {"title": "Existing goal"}},
+            {
+                "op": "add_task",
+                "client_ref": "C",
+                "container_id": root,
+                "title": "Release",
+            },
+            {"op": "add_dependency", "from": "n3", "to": "@C"},
+        ],
+    )
+    assert [node["id"] for node in updated["nodes"]] == [root, "n2", "n3", "n4"]
+    assert updated["root_node_id"] == root
+    assert updated["nodes"][1]["title"] == "Research finished"
+    assert updated["nodes"][1]["status"] == "done"
+    assert updated["dependencies"] == [
+        {"from": "n2", "to": "n3"},
+        {"from": "n3", "to": "n4"},
+    ]
+
+
 def test_exploration_source_and_selection_do_not_reparent_or_complete_work():
     document = plan()
     updated = apply(

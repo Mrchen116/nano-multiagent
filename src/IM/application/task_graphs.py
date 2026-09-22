@@ -168,7 +168,7 @@ class TaskGraphService:
                     raise TaskGraphError(
                         "invalid_arguments", "Root mode must be dag or explore"
                     )
-                graph_id, root = "tg_" + uuid4().hex, "tn_" + uuid4().hex
+                graph_id, root = "tg_" + uuid4().hex, "n1"
                 document = {
                     "schema_version": 1,
                     "graph_id": graph_id,

@@ -71,6 +71,7 @@ class TaskGraphTool:
         "create requires target, title, mode and a unique request_key. Get the explicit existing chat target from Inbox/conversations or runtime context; never guess the last chat. "
         "list without target searches every graph this Agent can access; get/apply use a known graph_id regardless of prompt channel. "
         "get defaults to root scope; use scope_id for nested children or view=all for the bounded full document. "
+        "Node IDs are stable within their graph (e.g. n1); reuse the returned IDs. "
         "dag orders direct children by prerequisites; explore records alternative siblings and one selected candidate. "
         "Container nesting and derivation are different: X-derived Z remains X's sibling. Each node can contain a nested dag/explore. "
         "A negative result can be done; selecting a candidate does not finish its parent or other candidates. "
@@ -117,7 +118,7 @@ class TaskGraphTool:
                     "set_derivation: node_id,derived_from_id (sibling in explore, or null). "
                     "select_candidate: scope_id,node_id (direct child or null),reason. "
                     "Modes none/dag/explore; statuses todo/doing/done/paused/dropped. Links are http(s) URLs or protected IM attachment paths. "
-                    'Example: [{"op":"add_task","client_ref":"A","container_id":"tn_root","title":"Choose a direction","mode":"explore"}].'
+                    'Example: [{"op":"add_task","client_ref":"A","container_id":"n1","title":"Choose a direction","mode":"explore"}].'
                 ),
                 "items": {
                     "type": "object",
