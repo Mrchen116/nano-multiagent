@@ -161,3 +161,36 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 - **S01–S03、S05–S08、S10–S18、S20及P1/P5/P6**：保留Round 1/2有效证据；本次仅布局坐标/边通道变化，数据写入、持久化、成员权限、外部Bot、错误语义和草稿导航证据未失效。P3相关探索呈现本轮再次实看，没有发现需要扩大到新写入旅程的副作用。
 - I1仍按Round 2关闭，未发现关联回归。本轮没有新增问题或降低验收门槛。
 - 仅提交本报告；关闭自己的`feat569layout`浏览器。按用户明确要求保留IM/Gateway及既有测试数据供继续体验，不执行e2e-down或其他服务清理。
+
+## Round 4 — targeted（图内稳定短节点ID）
+
+- `validated_at=5f667ba71`；`executed_base=2e9c83df9`；`fix_delta_range=4cb266658..5f667ba71`；验收时间2026-09-22 18:56–18:59 Asia/Shanghai。开始HEAD为158ff52d4，caller确认其后仅报告/归并文档，IM/Gateway已从5f667ba71重启；前端无变化，沿用与当前前端一致的24bb6faad构建。
+- 依据用户要求减少Agent节点UUID读写token及明确无需开发态后向兼容的决策：节点采用图内稳定`n1..n500`，graph_id仍全局UUID，无永久别名。本轮验证正常创建、读取、就地修改、依赖引用和短ID深链接；不把一次性测试数据重编号声称为产品迁移，不验旧UUID节点URL兼容。
+
+### Verdict
+
+**pass**。`highest_required_action=pass`；0 blocking /0 major /0 minor；`needs_re_review=false`。
+
+### 真实入口与工具边界证据
+
+在隔离nano的`/chat/c_xsu9vkwq`向e2e-peer发送两条必要提示。均通过Chat的Process展开真实task_graph参数及结果核对，没有只采信Agent最终文字，没有读取实现。工具面板本地快照为`/tmp/feat569-r4-create-tools.txt`和`/tmp/feat569-r4-update-tools.txt`，含原会话记录，不提交。未读取或提交原始模型日志，UI内实际工具边界足以验证本轮结果。
+
+| 路径 / 来源 | 实际prompt及结果 | 结论 |
+|---|---|---|
+| S01创建、S11读取的短ID影响面 | 18:56提示创建新图“短ID书签569”，根DAG、整理素材→发布书签，两节点待办，仅记录；明确真实create/apply/get，不修改旧图。create回执`graph_id=tg_e141700ba7d241898cea137db75a1e14`、`root_node_id=n1`、revision1。apply参数以`container_id=n1`添加两节点，批内`client_ref=A/B`及`@A→@B`是一次调用引用；回执映射`A:n2/B:n3`、changed_ids为n1/n2/n3、revision2。get all实际返回n1根、n2整理素材、n3发布书签，依赖`[{from:n2,to:n3}]`。没有永久UUID节点或双ID别名。 | pass |
+| S12/S13就地更新的短ID影响面 | 18:57提示先get同新图，只把n2标题改“精选素材”、status=doing、order=7，不删除重建，不改n3/依赖，随后get复核。实际链get→apply→get；apply是`update_task,node_id=n2,patch={order:7,status:doing,title:精选素材}`，request_key=`bookmark-569-n2-update-20260922T1857`，回执revision3、changed_ids仅n2。get中n2创建时间仍为10:56:44.860142Z，n3仍todo/order2，依赖仍n2→n3。排序字段变化不重分配ID。 | pass |
+| P2/P5、S04/S19；Web与深链接 | 点击Agent真实回复链接`/tasks/tg_e141700ba7d241898cea137db75a1e14?scope=n1&node=n2`。1440×960显示n2精选素材In progress→n3发布书签To do，右侧Node details·n2和直接后续发布书签，revision3。改390×844并整页刷新同短ID深链接，自动打开n2详情抽屉，标题/状态/更新说明/直接后续完整可读。 | pass |
+| P3/P4、S09；已有图重编号后的嵌套读取 | 直接打开营销图`tg_8f989d6cf6f3469e8d0d96420661bdd5?scope=n2`，revision4，显示选择方向的n7生成视频Done、n8模板Paused、n9混合方案Current choice，n7→n9的Derived虚线和理由保持。实际点击混合方案进入`scope=n9`，原型n10→评估n11→决定n12；面包屑返回n2正常。只读取，没有修改既有图。 | pass |
+
+### 视觉证据与retained范围
+
+本人已打开截图视觉核对；选定两张无敏感内容图片供caller提升到[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)：
+
+- `/tmp/feat569-short-id-review/desktop-short-id-update.png`：1440×960，100%，新图revision3，短ID卡片、依赖及n2详情。
+- `/tmp/feat569-short-id-review/mobile-short-id-deeplink.png`：390×844，刷新短ID深链接后的n2详情。
+
+营销探索返回另有本地观察截图`/tmp/feat569-r4-nested-observation.png`和两份nested快照；无需全部归档。P2/P5的结构、详情must-match仍满足，短ID代替截断UUID；P3/P4的嵌套与探索语义保持。
+
+本轮仅更新S01/S04/S09/S11–S13/S19的ID影响面证据。其他S场景、ACL、外部渠道、冲突/失败、持久化、草稿及Round 3 DAG布局证据明确retained；没有重发Feishu消息或重跑全量场景。旧UUID节点深链接按用户明确决策不保留，前轮截图作为当时行为证据，不再作为当前节点URL。caller交接的窄测试30及全量1986+2066通过仅为辅助，不冒充本轮产品结果。
+
+只追加提交本报告并关闭自己的feat569short浏览器；IM/Gateway、原三图和新短ID书签图保留供用户体验。不停止服务、不push。
