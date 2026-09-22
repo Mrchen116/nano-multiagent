@@ -31,3 +31,21 @@ This round verifies the product-review I1 correction only. `TaskGraphLink` conve
 The revised Chat path starts from an actual Agent Markdown link, visits the graph, uses Discuss, and verifies draft text, mentions, pending attachment, appended task reference, and no send (`src/IM/frontend/src/features/tasks/task-graphs.test.tsx:117`). The Work route assertion covers its real Markdown consumer (`src/IM/frontend/src/features/settings/agents/agent-work-panel.test.tsx:28`). Credible supplied validation is 140 focused frontend tests and the TypeScript/Vite build, both passing. Earlier static evidence remains valid because this patch changes only the affected frontend navigation boundary and its tests.
 
 Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**
+
+## Round 3: targeted layout revalidation
+
+> Review mode: `targeted` · patch: `1ef600438..24bb6faad` · executed base: `2e9c83df9` · reviewed snapshot: `24bb6faad`
+
+### Findings
+
+```json
+[]
+```
+
+This round covers the user-requested DAG layout correction. `layoutTaskScope` gives Dagre only reversed layout edges under `rankdir: "RL"` and `ranker: "longest-path"`; it reverses the routed points back before rendering and retains each stored `from`/`to` pair (`src/IM/frontend/src/features/tasks/task-graph-layout.ts:29`). Thus neither the displayed arrow direction nor the graph's direct-dependency data is reversed. The canvas renders the derived-mode relationship separately, keeps its dashed styling, and leaves cards and interaction unchanged (`src/IM/frontend/src/features/tasks/task-graphs-page.tsx:90`).
+
+The regression coverage first demonstrates the old independent-branch crossing, then asserts stable branch order, left-to-right prerequisites, direct skip-edge retention, nested-scope exclusion, and unchanged task records (`src/IM/frontend/src/features/tasks/task-graphs.test.tsx:178`). Layer/parallel labels are limited to DAG scopes and the accompanying copy explicitly says that parallelism does not automatically start work (`src/IM/frontend/src/features/tasks/task-graphs-page.tsx:106`; `src/IM/frontend/src/i18n/en.json:999`). `@dagrejs/dagre@3.1.1` is a declared runtime dependency with its exact package-lock resolution; the library was expressly authorized for this correction.
+
+Supplied evidence shows the focused task-graph suite (8 tests), TypeScript/Vite build, full frontend suite (84 files / 779 tests), docs-check, and diff-check passing. `npm audit --audit-level=critical` exits successfully; its seven reported low/moderate/high advisories predate this two-package addition. The separate product reviewer remains responsible for actual UI evaluation.
+
+Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**

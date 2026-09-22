@@ -109,3 +109,37 @@ SUGGESTION: None.
 No semantic delta changed in `2126ccab0..21f79e3d8`. Round 1's two corrected-delta outcomes remain **aligned**; the P5 navigation fix does not change their list-total or latest-`change_note` contracts.
 
 Round 2 static verifier verdict: **PASS**. `requires_full_verification: false`.
+
+## Round 3: targeted layout revalidation
+
+> Revalidation mode: `targeted` · patch: `1ef600438..24bb6faad` · executed base: `2e9c83df9` · reviewed snapshot: `24bb6faad`
+
+### Retained evidence
+
+The layout-only frontend change introduces no IM/PA/API/schema/permission/tool behavior. Round 1's source/test-verifiable document, provenance, corrected-delta, and no-automatic-execution conclusions, plus Round 2's P5 router/draft-preservation conclusion, remain valid. The target requirement is now explicit in both the archived delta and canonical IM specification (`docs/changes/archive/feat-569-task-graphs-mvp/specs/im/task-graphs.md:27`; `docs/specs/im/task-graphs.md:27`): dependencies flow left to right at the earliest column whose prerequisites are satisfied; a same-column relation means it may be handled in parallel and neither starts work automatically nor waits for the entire preceding column.
+
+### P2 layout and semantic verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| P2 / R2: direct DAG dependencies retain their recorded orientation while nodes occupy earliest prerequisite columns | Dagre receives only reversed *layout input* and route points are reversed back; returned edges retain `from`/`to` in `src/IM/frontend/src/features/tasks/task-graph-layout.ts:29` | `task-graphs.test.tsx:191` asserts increasing prerequisite columns and retains the `A → C` direct skip edge | aligned |
+| P2 / R2: independent branches follow their connections rather than input-row ordering | Dagre calculates coordinates and edge corridors per scope in `task-graph-layout.ts:32` | `task-graphs.test.tsx:179` asserts shared source/sink columns, matching branch order, and the exact two direct edges | aligned |
+| P2 / R2: the browser communicates layers/parallelism without changing execution semantics | DAG-only stage overlays in `task-graphs-page.tsx:106`; localized hint states that work does not auto-start | focused browser suite includes the Layer/Parallel assertions; the static copy/delta both retain no automatic execution | aligned |
+| P3 / P4: exploration derivation and nested-scope isolation remain distinct | derivation still derives only scoped children and uses dashed render mode in `task-graph-layout.ts:29`, `task-graphs-page.tsx:91` | existing nested browser journey plus `task-graphs.test.tsx:191` excludes `Z1` from root scope | aligned |
+| Dependency integrity | `package.json` declares `@dagrejs/dagre@^3.1.1`; lockfile resolves Dagre 3.1.1 and graphlib 4.0.5 | focused suite, TypeScript/Vite build, full frontend 84 files / 779 tests; critical audit exit 0 | aligned |
+
+The archived design appends an as-built correction rather than changing historical Gate 2 rounds: the authorized Dagre choice replaces the prior hand layout while P2's edge semantics remain must-match and spacing/curves/order are may-adapt (`docs/changes/archive/feat-569-task-graphs-mvp/design.md:378`). This is coherent with the delta and does not reopen the approved design.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+### Corrected Delta Reconciliation
+
+The two earlier corrected-delta items (`total` and latest `change_note`) are untouched and remain **aligned**. The new layout sentence is implemented and covered as shown above: it preserves direct dependencies and nested-scope isolation, places prerequisites before dependents, identifies parallel columns, and explicitly retains no automatic execution.
+
+Round 3 static verifier verdict: **PASS**. `requires_full_verification: false`. Actual desktop/mobile layout usability and the associated product journeys remain evidence for the independent product reviewer; this static report does not claim that review.
