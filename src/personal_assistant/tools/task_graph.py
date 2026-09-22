@@ -68,7 +68,7 @@ class TaskGraphTool:
     description = (
         "Record user-approved plans and progress in durable task graphs, then return the Web IM link. "
         "These records never schedule or execute tasks. Discuss first; create only when the user asks to save a plan. "
-        "create needs an explicit existing chat target from Inbox/conversations or runtime context; never guess the last chat. "
+        "create requires target, title, mode and a unique request_key. Get the explicit existing chat target from Inbox/conversations or runtime context; never guess the last chat. "
         "list without target searches every graph this Agent can access; get/apply use a known graph_id regardless of prompt channel. "
         "get defaults to root scope; use scope_id for nested children or view=all for the bounded full document. "
         "dag orders direct children by prerequisites; explore records alternative siblings and one selected candidate. "
@@ -99,7 +99,11 @@ class TaskGraphTool:
             "cursor": {"type": "string"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
             "base_revision": {"type": "integer", "minimum": 1},
-            "request_key": {"type": "string", "maxLength": 128},
+            "request_key": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "Required for BOTH create and apply. Choose a unique key for each new mutation; preserve the same key and arguments on uncertain retries.",
+            },
             "change_note": {"type": "string", "maxLength": 8000},
             "operations": {
                 "type": "array",
