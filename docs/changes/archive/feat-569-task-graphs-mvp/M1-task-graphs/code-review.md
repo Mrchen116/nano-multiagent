@@ -76,3 +76,17 @@ The new domain and HTTP/WS assertions cover n1 roots, n2–n7 references, exact 
 The remaining finding is documentary: the archived gateway delta adds the observable short-ID requirement (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11`), while the canonical gateway spec ends the corresponding scenario at its prior no-scheduling clause (`docs/specs/gateway/task-graphs.md:17`). The current spec needs that same one-line requirement before archival reconciliation is complete.
 
 Verdict: **WARNING — source implementation passes targeted review; canonical gateway-contract reconciliation remains open.**
+
+### Round 4 closure: canonical gateway contract
+
+> Closure snapshot: `c23c19a53` · implementation retained: `5f667ba71`
+
+```json
+[]
+```
+
+`c23c19a53` adds only the missing canonical clause at `docs/specs/gateway/task-graphs.md:18`. It is textually the same short, graph-local stable-ID requirement already present in the archived gateway delta (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11`), including the no-renumbering and no-UUID-passing semantics. The confirmed Round 4 documentation finding is closed; no implementation behavior changed, so the earlier source review remains retained.
+
+Supplementary supplied evidence is clean: equivalent Python CI partitions report 1,986 and 2,066 passed; repository Ruff check/format report 1,096 checks passing; and docs validation reports 238 sources / 75 routes. This closure does not claim the separate product review.
+
+Verdict: **PASS — Round 4 implementation and canonical gateway-contract reconciliation are complete.**

@@ -176,3 +176,13 @@ WARNING: Update the canonical gateway task-graphs specification with the same st
 SUGGESTION: None.
 
 Round 4 static verifier verdict: **WARNING — implementation/source tests aligned, canonical gateway spec reconciliation incomplete.** `requires_full_verification: false`.
+
+### Round 4 closure: canonical gateway contract
+
+> Closure snapshot: `c23c19a53` · implementation retained: `5f667ba71`
+
+`c23c19a53` changes only `docs/specs/gateway/task-graphs.md`, adding the same short stable graph-local ID sentence as the archived gateway delta. The canonical clause now covers `n1`/`n2` reads and updates, stability through title/order/status changes, and the removal of any UUID-passing expectation. It resolves the sole Round 4 WARNING without changing source, schema, API, tool actions, tests, or product behavior.
+
+The supplied completion evidence is consistent with the retained targeted result: Python CI partitions report **1,986 passed** and **2,066 passed**; repository Ruff check/format reports **1,096** checks passing; docs validation reports **238 sources / 75 routes**. The reported isolated old-test-graph re-numbering is local test-data maintenance, with no committed migration, alias, or compatibility product path.
+
+Round 4 static verifier verdict: **PASS**. `requires_full_verification: false`. The independent product reviewer remains responsible for live product-journey evidence.
