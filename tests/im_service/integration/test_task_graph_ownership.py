@@ -94,9 +94,6 @@ def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
         (stranger.owner_id,),
     )
     db.execute("UPDATE nodes SET owner_id=? WHERE node_id='node'", (stranger.owner_id,))
-    db.execute(
-        "UPDATE users SET owner_id=? WHERE id=?", (stranger.owner_id, agent_user)
-    )
     db.commit()
     # The old WebSocket has a different owner after transfer, so exercise the
     # service receipt check with the newly resolved Agent identity directly.

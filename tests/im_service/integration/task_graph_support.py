@@ -4,10 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.application.config_service import ConfigService
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.nodes import NodeRepository
-from .conftest import authorize, register_user, seed_user_under_owner
+from IM.infra.repositories.users import UserRepository
+from .conftest import authorize, register_user
 
 
 @pytest.fixture(params=["global", "single_thread"])
@@ -21,8 +23,13 @@ def task_stack(tmp_path, request):
         NodeRepository(db).upsert_node(
             node_id="node", node_name="Node", owner_id=owner.owner_id
         )
+        config = ConfigService(
+            profiles=AgentProfileRepository(db),
+            nodes=NodeRepository(db),
+            users=UserRepository(db),
+        )
         for agent_id in ("nano", "peer"):
-            AgentProfileRepository(db).create_profile(
+            config.create_profile(
                 agent_id=agent_id,
                 owner_id=owner.owner_id,
                 node_id="node",
@@ -35,10 +42,7 @@ def task_stack(tmp_path, request):
                 workspace_root=None,
                 work_mode=request.param,
             )
-        agent_user = seed_user_under_owner(
-            client, username="agent:nano", owner_id=owner.owner_id
-        )
-        seed_user_under_owner(client, username="agent:peer", owner_id=owner.owner_id)
+        agent_user = UserRepository(db).get_user_by_username(username="agent:nano").id
         chat = ConversationRepository(db).create_conversation(
             title="Project chat",
             participant_ids=[owner.id, agent_user],

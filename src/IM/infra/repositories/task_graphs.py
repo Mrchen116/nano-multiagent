@@ -20,9 +20,11 @@ class TaskGraphRepository:
             return self.db.execute(
                 "SELECT id, owner_id, display_name FROM users WHERE id=?", (actor_id,)
             ).fetchone()
+        # The synthetic chat user has its own identity; human ownership is
+        # authoritative on the registered Agent profile, not that users row.
         return self.db.execute(
             """SELECT u.id, p.owner_id, p.display_name FROM agent_profiles p
-            JOIN users u ON u.username='agent:' || p.agent_id AND u.owner_id=p.owner_id
+            JOIN users u ON u.username='agent:' || p.agent_id
             JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id
             WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0""",
             (actor_id, node_id),
