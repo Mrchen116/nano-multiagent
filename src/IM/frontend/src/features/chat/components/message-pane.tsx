@@ -101,6 +101,7 @@ export interface MessagePaneProps {
   isMobile?: boolean;
   onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
+  headerActions?: React.ReactNode;
   onOpenConfig?(): void;
   onRename?(title: string): Promise<unknown>;
   /** Send mutation error message, shown as an in-app toast. */
@@ -215,6 +216,7 @@ export function MessagePane({
   isMobile = false,
   onSend,
   onBack,
+  headerActions,
   onOpenConfig,
   onRename,
   sendError,
@@ -936,6 +938,7 @@ export function MessagePane({
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
           </div>
         </div>
+        {headerActions}
         {!isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}

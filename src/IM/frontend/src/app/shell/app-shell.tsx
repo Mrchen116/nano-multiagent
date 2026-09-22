@@ -7,14 +7,14 @@ import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
-import { AgentsNavIcon, ChatNavIcon, MeNavIcon } from "./mobile-nav-icons";
+import { AgentsNavIcon, ChatNavIcon, MeNavIcon, TasksNavIcon } from "./mobile-nav-icons";
 import { NanoBrand } from "./nano-brand";
 import { UserMenu } from "./user-menu";
 
 /**
  * Top-level app chrome: 48px top banner with brand + internal badge +
- * Chat/Agents tabs + UserMenu on desktop; collapses to a status spacer with
- * a bottom 3-tab nav with product icons and unread feedback on mobile list pages.
+ * Chat/Tasks/Agents tabs + UserMenu on desktop; collapses to a status spacer with
+ * a bottom 4-tab nav with product icons and unread feedback on mobile list pages.
  * Mobile conversations hide global navigation to give messages the full height.
  *
  * Children are rendered inside the content area; routing is the caller's concern.
@@ -44,6 +44,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <NavLink to="/chat" end={false}>
               {t("shell.tabs.chat")}
             </NavLink>
+            <NavLink to="/tasks">{t("shell.tabs.tasks")}</NavLink>
             <NavLink to="/settings/agents">{t("shell.tabs.agents")}</NavLink>
           </nav>
           <UserMenu />
@@ -62,6 +63,10 @@ export function AppShell({ children }: PropsWithChildren) {
                 {totalUnread}
               </span>
             )}
+          </NavLink>
+          <NavLink to="/tasks" className="im-shell-bottomtab">
+            <span aria-hidden className="im-shell-bottomtab-icon"><TasksNavIcon /></span>
+            <span>{t("shell.tabs.tasks")}</span>
           </NavLink>
           <NavLink to="/settings/agents" className="im-shell-bottomtab">
             <span aria-hidden className="im-shell-bottomtab-icon">
