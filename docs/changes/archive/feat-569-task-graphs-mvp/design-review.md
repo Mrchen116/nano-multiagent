@@ -326,3 +326,100 @@ R1-R3 继续作为可选演示改进保留。实施时按 design 已明确的职
 - 受审实质内容已提交为 `f296b7cb6`。本轮完成后仅将 spec 顶部的“Gate 2 仍待完成”和 design 顶部的“待审”状态改为指向本报告 Round 3 的已通过状态；无需求、接口、权限、原型、delta 或 milestone 变化，retained from Round 3，不触发新一轮复审。
 - 最终窄验证：unit 内 Markdown 链接与空白检查通过，prototype JavaScript 语法通过；8 Requirements / 20 Scenarios，IM delta 6 Requirements，Gateway delta 4 Requirements，唯一 M1 骨架未预填。原有五个 dirty tracked 文件及源 zip 的六个哈希保持不变。
 - 交付范围为设计文档和原型；产品尚未实施或验收，没有部署，也没有发送外部消息。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；独立于补充设计作者、实现者和静态实现 reviewer。本轮仅追加本报告。
+- reviewer_handoff: 新 reviewer 接收同一未合并 PR #313 的有界补充；已读 Round 1–3 及 Author Resolutions，并独立核对本次 commit 差异与实际产品组装路径，没有仅凭旧 Approved 放行。
+- review_mode: delta
+- mode_reason: `46238f91f..3eb239b54` 只增加 S21、任务图 feature 投影/有效工具门控设计及对应 Gateway delta；沿用既有 UI、配置存储、runtime 投影与唯一 M1，不改变图接口、DAG、存储或 ID。本轮覆盖新增开关及其配置/运行接缝；发现的在途语义问题在该影响面内。
+- retained_from: Round 3；图结构、目标聊天与成员权限、Work 副本可见性、输入渠道解耦、原型 P1–P6 和原 M1 的设计结论保持。之后既有 DAG/短 ID 实施与验收历史不在本轮重新审查范围；本轮不为它们补造新结论。
+- started_at: 2026-09-22T23:17:57+08:00（范围、历史与接线核验计时点）
+- completed_at: 2026-09-22T23:19:51+08:00
+- duration: 1m54s
+- validated_at: `3eb239b54419a6ee34649b2786f3d9152c0bb922`，产品代码仍为 `46238f91f`；审查期间作者开始修改两份测试以准备 red，不作为本轮设计结论依据。
+- executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`；本轮未 fetch、切分支或改动服务。
+- verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
+- approval_boundary: 新增任务图特性开关的 Gate 2 尚未通过；已有未受影响设计结论保留。没有实施、产品验收、服务操作或提交。
+
+### 受审版本
+
+| 文件 | SHA-256 |
+|---|---|
+| spec.md | `d53591f0e633404d925c8b63dc13be6acbf40323b40b4628e21022b71644dbf3` |
+| design.md | `da8d74a65e8eba2da1e6fd0e8a5110f44660c8732c9a407a47266011d4f934a1` |
+| specs/gateway/task-graphs.md | `21caf69dcc00cdce3762ef9073e21aa34544dda4489bf90c8bcffec0ffe54363` |
+| specs/gateway/agent-capabilities.md | `1c4af0cf202f24e403f72889d09ce9733f1d0a36534bcb84ae8e1e574e495c72` |
+
+### Coverage 与架构判断
+
+- **能力列表与 UI：**`reporter/capability_projection.py:82–115,157–193` 是 Gateway 持有的产品 feature 投影；`gateway/composition.py:1036–1062` 为运行中的 Agent/node capability 与 preview provider 接线；IM `api/routes/agents.py:689–723` 按字段透传，不硬编码 feature key。编辑页 `agent-detail-page.tsx:82–90,221–250,1747–1764,1878–1890` 和新建页 `agent-create-page.tsx:88–96,954–964` 已实现默认值、动态文案、开启加入 required tool、关闭保留 tool、移除 tool 关闭 feature。设计复用这些 owner 合理；无须增加新表单、独立配置字段或 kernel 产品 feature。
+- **保存与下一轮投影：**IM `api/routes/agents.py:572–595` 把 features 和 tool_allowlist 交既有 config coordinator；Gateway `agent_config_sync.py:1386–1393,1468,1541–1550` 保留布尔 features 并发布完整快照。`session_composition.py:78–100,135–147` 从同一 captured config 组装 prompt、features 和 `resolve_enabled_tools`。因此在该函数中只排除显式关闭的 task_graph，既不授权未列出的工具，也不改变 global 固定基础四项或其他 feature 的语义。
+- **预览同源：**当前 `composition.py:197–228` 只在 global 下解析有效工具，临时 Agent 尚未携带 features。design:406 明确要求两模式都使用同一解析器且传入同一 features，准确覆盖这个落点。`product.py:415–419` 的 task_graph 专用聊天保存提示也被纳入关闭范围，避免工具已消失而 prompt 仍要求使用它。
+- **Bridge 与资源授权：**`gateway/task_graphs.py:35–69,94–103` 有真实 PA session 归属、当前 provenance、工具检查和统一 IM transport；新增 effective-tool 检查应在这里复用产品解析器，IM 继续持有成员 ACL，浏览器读取不需要依赖 Agent feature。工具能力不按 channel/global 模式授予，职责保持清楚。当前 provenance 的“版本仍为最新”检查与新增下一轮生效承诺存在 R4-W1，不能仅由共享解析器解决。
+- **需求、delta 与 M1：**S21 包含显示、保存重读、下一轮关闭、恢复与既有图可看；design:404–410 将默认/开/关×工具白名单、global/single_thread、preview/runtime/Bridge 和浏览器实测归入原 M1。新增 `agent-capabilities` MODIFIED delta 锚定正确 canonical area；逐字比较确认除有限例外段外，原 Requirement 及全部五个 Scenario 完整保留。任务图 delta 保留原场景并加入配置场景，仍是本未合并 unit 的新 area。无须增加 IM/kernel 契约或再复制通用 feature UI 原型；现有布局/联动及新增中英文文案是本次 UI 必须匹配项。
+- **必要门禁：**实施后静态 review/verifier 应核对本次投影、门控、预览及保存链；独立产品 reviewer 复验 S21 和受影响的下一轮行为，原 DAG/ID 旅程可沿用已记录的有效证据。必须补入“旧轮仍执行时保存关闭，再发下一轮”的验证，不能只用重新注册 provenance 的新会话测试代替。未启动真实服务，本轮不宣称这些门禁已通过。
+
+### 历史问题闭环
+
+R1-W1/W2/W3 在 Round 2–3 已关闭，本次没有更改其权限、来源或图展示决定，保持 closed。R1-R3 仍为非阻断的可选演示建议。R4-W1 为本轮新增，与历史图展示/ID问题无关。
+
+### Issues
+
+#### R4-W1：沿用最新 catalog 校验会让开关在当前回复中途提前生效
+
+- **位置：**`design.md:402,407,409`；`specs/gateway/task-graphs.md:17–19` 的“当前正在回复的一轮不切换”。
+- **证据：**Bridge 在工具配置检查之前调用 `session_provenance_is_current`（`gateway/task_graphs.py:54–61`）；该方法经 `session_binder.py:760–765,805–813` 要求 `catalog.is_current(provenance.agent)`。`agent_catalog.py:84–109` 每次 publish 生成新 snapshot，旧 snapshot 立即不是 current；保存 features 确实走 `agent_config_sync.py:1548–1550` 的 publish。旧轮仍持有 session 注册的旧快照，因此即使它的 SDK runtime 按承诺尚未改变，后续任务工具也会在 Bridge 被拒。
+- **独立最小复现：**使用主仓 `.venv/bin/python`、`PYTHONPATH=src`，构造真实 `LiveAgentCatalog`、`GatewaySessionBinder`（内存 `SessionBindingStore`）和 `TaskGraphBridge`，transport 仅为 AsyncMock。注册已开启 feature 的 session，首次 get 成功；仅发布 `replace(config, features={'task_graph': False})` 后，不重新 admission，同 session 再 get 返回 `unsupported_context / Agent runtime provenance is no longer current.`，transport 次数仍为 1。没有启动服务、发网络请求或写数据库。该检查发生在待修改的有效工具检查之前，故只复用 `resolve_enabled_tools` 无法补足。
+- **未修后果：**用户在回复中保存关闭，已开始的回复仍看见原工具却突然无法调用，违背新增 Scenario 与 current 完整配置按轮生效契约；同时基于静态配置组合的测试可以全部通过而漏掉真实交界行为。
+- **闭环要求：**在设计中明确 Bridge 对在途调用使用哪一份已采纳配置，以及如何在保持真实 session 归属、失效来源拒绝和下一轮禁止调用的同时处理 catalog 换代；指定复用的既有 owner/状态，不笼统写“保留 provenance”。将旧轮保存关闭后仍按旧能力完成、下一轮采用关闭配置，以及真实失效来源仍被拒纳入该 M1 的窄验证。无需借此新建通用配置平台或改动不相关工具。
+
+### Recommendations
+
+- `agent-capabilities` delta 存在末尾多余空行，`git diff 46238f91f 3eb239b54 --check` 已报告；随 author 下一次文档修改清理即可，不作为设计阻断项。
+
+### Author Resolutions — Round 4
+
+- R4-W1：接受。已核对catalog publication立即使旧对象失效；该检查与下一轮应用契约冲突。设计补充以会话已应用快照授权，删除Bridge独有的catalog新鲜度检查，保留session归属和IM成员权限。全局resolve仅初始化登记，成功ensure runtime后才更新；busy不替换，以免异步通知提前改变在途配置。新增跨配置发布/下一轮应用及global busy边界验证。未改变semantic bind/reset所用guard。请求独立closure复核。
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；延续 Round 4 独立 reviewer，未参与方案或实现修改。
+- review_mode: closure
+- mode_reason: 本轮受审差异只有 design 在任务图 feature 段追加的 R4-W1 闭合方案及 Author Resolutions，明确已登记会话快照的更新时点；需求、工具集合规则、UI、delta、原 M1 和图模型未变化。已沿实际 global/single_thread admission 核对，无需重复上一轮完整 feature 覆盖。
+- retained_from: Round 4 中未受 R4-W1 影响的 capability/UI、存储同步、有效工具解析、preview、delta 与 M1 判断；Round 3 保留项不变。
+- started_at: 2026-09-22T23:22:56+08:00
+- completed_at: 2026-09-22T23:23:31+08:00
+- duration: 35s
+- validated_at: `3eb239b54419a6ee34649b2786f3d9152c0bb922` 加受审 working-tree design 修订；design SHA-256 为 `af1a3ce90466df1fffedb12617210d7b1a8f7d0bfe38eeb63932ec4596c7e55c`。spec 与两份 Gateway delta 的内容与 Round 4 相同。
+- executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`。产品实现仍未修改，作者准备中的测试不作为实现通过证据。
+- verdict: **Approved — 0 CRITICAL / 0 WARNING**。
+- approval_boundary: R4-W1 设计闭环，任务图特性开关 Gate 2 通过；实现与配置切换行为仍须完成本轮要求的窄验证及 S21 产品复验。仅追加报告，未改源码、运行服务或提交。
+
+### 历史问题闭环
+
+#### R4-W1 — closed
+
+**Author Resolution：**接受 Round 4 的实际复现，Bridge 使用会话已经采纳的 Agent 快照授权，不再把普通配置 publication 当作在途调用失效；global 地址解析不提前覆盖快照，SDK runtime 成功接受后才更新登记，busy 拒绝保持旧登记。原 semantic bind/reset guard 不变。
+
+**独立核对证据：**
+
+1. `session_binder.py:734–758` 已有 session→不可变 Agent 快照登记及 expected_agent_id 匹配；`task_graphs.py:35–53` 在调用前使用该归属，IM transport 后仍由任务服务检查资源成员权限。`session_provenance_is_current` 的唯一生产调用者正是任务 Bridge；删除该方法及调用不会改动 `bind_conversation`/reset 的 `_write_guard_is_current`，也不会授权未登记 child 或身份不匹配的请求。有效 task_graph 集合仍由被采纳快照的 feature 与 tool_allowlist 共同决定。
+2. 当前 `resolve_global` 的 `session_binder.py:329` 每次解析地址都会登记调用者携带的最新配置；`global_run_coordinator.py:208–225` 在判断已有 monitor 前会调用它，heartbeat 的 `heartbeat_scheduler.py:452–460` 以及 cron awareness 的 `cron_runner.py:261–267` 也会走同一路径。因此设计新增“仅尚未登记时初始化”覆盖了实际提前替换入口，不能只删 freshness 检查而保留原无条件登记。
+3. `global_run_coordinator.py:230–238` 使用 `ensure_agent_runtime(..., only_if_idle=True)`，busy 返回后不 submit；heartbeat `heartbeat_scheduler.py:512–529` 同样处理 global busy。`kernel_client.py:191–218` 比较完整 runtime identity、调用公开 SDK 并在 idle-only 拒绝时返回 False；设计把登记更新放在成功路径，已有 runtime 相同也可采用等价配置快照。SDK `kernel.py:1593–1615,1623–1632,1672–1683` 明确区分已应用/相同与 busy 返回 None，具备无需新增状态机即可承载的真实接缝。
+4. 普通 single_thread 的插话分支在 `session_run_coordinator.py:798–869` 复用 active binding 并直接 steer，不重新 resolve；新轮经 `run_queue.submit`（`:1706–1715`）串行进入 `_run_turn`，在 transition 内从最新配置 project、resolve、admit（`:1743–1783`）。`session_binder.py:582–647` 的已应用 runtime 持久化会同步登记快照。设计继续复用该路径，未引入与在途轮次竞争的第二个配置 owner。
+5. 修订 design:408 已把配置发布后旧轮仍可调用、成功 runtime 应用后关闭、global busy/接受两条边界写入验证要求，与 S21 和 Gateway delta 的下一轮契约一致。原身份不匹配/未登记拒绝与 IM 成员 ACL 仍由 Round 4 保留的边界测试及原 M1 权限验证覆盖。
+
+**架构判断：**catalog 持有待采纳配置，Kernel runtime 持有已经采纳的整轮配置，Binder 复用既有会话登记向 Bridge 提供对应快照；三者职责在设计中已分清。相比添加独立 feature 状态、按渠道权限或新的运行资格表，本方案只修正现有登记时点并移除语义不适用的 freshness 检查，足以实现本次契约，没有要求无关工具改造。此为可实现性判断，不把源码尚未修改的状态说成已经修复。
+
+### Issues
+
+无未解决 CRITICAL / WARNING。R4-W1 已关闭；R1 历史问题继续 closed。
+
+### Recommendations
+
+无新增建议。Round 4 的 delta 末尾空行清理仍为非阻断格式事项，不改变本轮通过结论。

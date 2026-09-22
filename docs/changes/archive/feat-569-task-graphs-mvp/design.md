@@ -405,6 +405,7 @@ npm --prefix src/IM/frontend run build
 - 开关沿用现有UI规则：开启时把required tool加入草稿白名单；关闭保留工具选择；手工移除工具会同步关掉feature。能力实际启用条件为 `features.get('task_graph', True)` 且白名单含 `task_graph`。这一任务图专属门控不更改 memory/skill/cron 的既有语义。默认值保持现有已授权工具的可用性，未配置工具的Agent不会因此获得它。
 - `personal_assistant.product.resolve_enabled_tools` 在既有工具选择结果里去掉被关闭的task_graph。运行投影、TaskGraphBridge和预览共用该函数；预览的临时Agent带同一features，single_thread/global均走有效工具解析。关闭时不渲染task_graph专用的当前聊天保存提示；不添加新的自动规划提示。
 - Bridge保留真实provenance、成员权限及不按输入渠道授权的规则，使用同一有效工具集拒绝feature关闭的旁路调用。普通模型调用仍由已有Kernel工具白名单执行检查。只改变下一轮采纳的完整配置，不中断在途回复。
+- R4-W1闭合：任务工具使用会话已登记的配置快照，不能把catalog最新revision作为在途调用资格。删除仅供此Bridge使用的`session_provenance_is_current`检查与方法；真实session/Agent匹配、有效工具集及IM成员校验保留。普通配置发布不撤销正在运行的整轮。全局会话地址解析只在尚无登记时登记快照，避免新Inbox/heartbeat/cron通知提前替换在途配置；`KernelClient.ensure_agent_runtime`仅在SDK接受runtime后更新登记，busy拒绝保持旧快照。single_thread继续由已有串行new-run admission应用并登记配置；不修改用于语义绑定/reset写回的catalog/generation guard。测试覆盖配置发布后旧轮仍可调用、成功应用后关闭生效，以及global busy/接受两条边界。
 - current `agent-capabilities` 的通用工具白名单规则补一个链接到任务图契约的有限例外：显式关闭任务图特性时，task_graph从有效工具集排除；配置白名单和其他工具规则不变。
 - 测试扩展现有能力payload golden以及task_graph边界测试，覆盖默认/开/关与白名单组合、global/single_thread、预览和runtime同源、关闭时不进入IM transport。前端既有动态feature联动测试保留，真浏览器确认中英文案、新建/编辑显示、保存关闭和恢复，并通过实际Agent下一轮验证。
 - 这是既有M1中有界的能力配置补充；原DAG/存储/短ID等结论保留。因增加了运行门控语义，在实现前补独立Gate2 delta审查；实施后仅复验该影响面。

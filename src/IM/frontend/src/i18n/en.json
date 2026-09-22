@@ -955,6 +955,10 @@
     "viewWork": "View Work"
   },
   "feature": {
+    "task_graph": {
+      "label": "Task Graphs",
+      "help": "Allow the agent to save plans, exploration branches and progress for the Tasks page. Turning this off keeps existing records."
+    },
     "memory_curation": {
       "label": "Memory Curation",
       "help": "Maintain a persistent MEMORY.md that the agent reads and updates across sessions."

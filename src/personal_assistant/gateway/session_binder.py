@@ -326,7 +326,10 @@ class GatewaySessionBinder:
             if row["workspace_root"] != root:
                 raise ValueError("global Agent workspace is immutable")
             self._kernel.get_session(row["session_id"], workspace_root=Path(root))
-            self.register_session_provenance(agent, kernel_session_id=row["session_id"])
+            # Inbox and scheduler notifications also resolve busy sessions. Only
+            # successful runtime admission may replace their applied snapshot.
+            with self._lock:
+                self._session_agents.setdefault(row["session_id"], agent)
             return GlobalSessionBinding(
                 agent.agent_id,
                 row["session_id"],
@@ -755,13 +758,6 @@ class GatewaySessionBinder:
                 kernel_session_id=kernel_session_id,
                 agent=agent,
                 guard=self._guard_for(agent),
-            )
-
-    def session_provenance_is_current(self, provenance: SessionProvenance) -> bool:
-        """Check the existing catalog/generation guard before a tool write begins."""
-        with self._lock:
-            return self._write_guard_is_current(
-                agent=provenance.agent, generation=provenance.guard.generation
             )
 
     def capture_binding_provenance(

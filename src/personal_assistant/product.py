@@ -413,7 +413,12 @@ def prompt_for(
         else _group_tail_text(scenario)
     )
     target = scenario.get("conversation_id")
-    if not global_main and isinstance(target, str) and target.strip():
+    if (
+        not global_main
+        and isinstance(target, str)
+        and target.strip()
+        and "task_graph" in resolve_enabled_tools(agent)
+    ):
         tail_text = (tail_text + "\n" if tail_text else "") + (
             f"Current bound chat target: {target}. Use this explicit target when saving a task graph to this chat."
         )
@@ -429,17 +434,19 @@ def prompt_for(
 def resolve_enabled_tools(agent: Any) -> list[str]:
     """Resolve a session's enabled-tool whitelist from agent config.
 
-    ``tool_allowlist`` is a TRUE whitelist: empty means no tools, non-empty means
-    exactly those tools. ``cron`` is appended when the agent has cron enabled
-    (gated capability materialised into the session toolset).
+    Start from the explicit whitelist, apply PA cron/global capabilities, and
+    remove task_graph when its product feature is disabled. Enabling that feature
+    alone does not grant the tool.
 
     Args:
-        agent: Agent config exposing ``tool_allowlist`` / ``cron_enabled``.
+        agent: Agent config exposing tools, feature flags and PA work mode.
 
     Returns:
         Explicit tool-name list (may be empty).
     """
     raw = list(getattr(agent, "tool_allowlist", None) or [])
+    if not (getattr(agent, "features", None) or {}).get("task_graph", True):
+        raw = [name for name in raw if name != "task_graph"]
     if bool(getattr(agent, "cron_enabled", False)) and "cron" not in raw:
         raw.append("cron")
     if getattr(agent, "work_mode", "single_thread") == "global":

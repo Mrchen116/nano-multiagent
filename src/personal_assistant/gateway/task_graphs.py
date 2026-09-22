@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urljoin
 from uuid import uuid4
 
+from personal_assistant.product import resolve_enabled_tools
 from personal_assistant.tools.task_graph import unavailable_result, validate_arguments
 
 
@@ -51,15 +52,9 @@ class TaskGraphBridge:
                     "message": "This session has no registered PA Agent provenance. Return child results to the PA Agent to record.",
                 },
             }
-        if not self._binder.session_provenance_is_current(provenance):
-            return {
-                "ok": False,
-                "error": {
-                    "code": "unsupported_context",
-                    "message": "Agent runtime provenance is no longer current.",
-                },
-            }
-        if "task_graph" not in provenance.agent.config.tool_allowlist:
+        # A saved profile takes effect at the next runtime admission. Authorize
+        # against this session's applied snapshot throughout the current turn.
+        if "task_graph" not in resolve_enabled_tools(provenance.agent.config):
             return {
                 "ok": False,
                 "error": {

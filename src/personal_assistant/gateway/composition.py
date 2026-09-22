@@ -192,7 +192,7 @@ def _make_prompt_preview_provider(
         # carrying the preview's feature flags / custom prompt.  Preview-seen ==
         # runtime-run; one byte-identity golden guards both.  Group scenario maps
         # to the prompt_for tail.
-        from personal_assistant.product import prompt_for  # noqa: PLC0415
+        from personal_assistant.product import prompt_for, resolve_enabled_tools  # noqa: PLC0415
 
         feat = dict(features or {})
         feat["include_session_created_datetime"] = False
@@ -202,14 +202,13 @@ def _make_prompt_preview_provider(
             heartbeat_enabled = bool(feat.get("heartbeat", False))
             cron_enabled = bool(feat.get("cron_scheduling", False))
 
+        _PreviewAgent.features = feat
         _PreviewAgent.work_mode = work_mode
         _PreviewAgent.tool_allowlist = tuple(tool_ids)
         _PreviewAgent.custom_prompt = custom_prompt  # type: ignore[attr-defined]
+        tool_ids = resolve_enabled_tools(_PreviewAgent())
         prompt_scenario: dict = {"conversation_type": scen_type}
         if work_mode == "global":
-            from personal_assistant.product import resolve_enabled_tools
-
-            tool_ids = resolve_enabled_tools(_PreviewAgent())
             prompt_scenario["pa_work_scope"] = "global_main"
         prompt = prompt_for(
             _PreviewAgent(),
@@ -225,7 +224,7 @@ def _make_prompt_preview_provider(
             scenario=scen_type,
             skill_ids=list(skill_ids) if skill_ids else [],
             prompt=prompt,
-            enabled_tools=list(tool_ids) if tool_ids else None,
+            enabled_tools=list(tool_ids),
         )
 
     return _provider  # type: ignore[return-value]

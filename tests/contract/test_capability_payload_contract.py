@@ -134,6 +134,14 @@ GOLDEN_TOOLS: list[dict[str, object]] = [
 # FEATURE_REGISTRY declaration order, with full i18n keys (Gateway-owned text).
 GOLDEN_NODE_FEATURES: list[dict[str, object]] = [
     {
+        "key": "task_graph",
+        "label_i18n": "feature.task_graph.label",
+        "help_i18n": "feature.task_graph.help",
+        "default_on": True,
+        "available": True,
+        "requires_tool": "task_graph",
+    },
+    {
         "key": "memory_curation",
         "label_i18n": "feature.memory_curation.label",
         "help_i18n": "feature.memory_curation.help",
@@ -172,6 +180,14 @@ GOLDEN_NODE_FEATURES: list[dict[str, object]] = [
 # unavailable (skill_manage not in allowlist), heartbeat available (no tool).
 GOLDEN_AGENT_FEATURES_ALLOWLIST = ("memory", "cron")
 GOLDEN_AGENT_FEATURES: list[dict[str, object]] = [
+    {
+        "key": "task_graph",
+        "label_i18n": "feature.task_graph.label",
+        "help_i18n": "feature.task_graph.help",
+        "default_on": True,
+        "available": False,
+        "requires_tool": "task_graph",
+    },
     {
         "key": "memory_curation",
         "label_i18n": "feature.memory_curation.label",

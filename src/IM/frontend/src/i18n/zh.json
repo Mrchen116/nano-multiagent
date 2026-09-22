@@ -947,6 +947,10 @@
     "viewWork": "查看 Work"
   },
   "feature": {
+    "task_graph": {
+      "label": "任务图",
+      "help": "允许 Agent 记录计划、探索分支和进度，在任务页查看。关闭不删除已有记录。"
+    },
     "memory_curation": {
       "label": "记忆整理",
       "help": "跨会话维护持久化 MEMORY.md，让 agent 能跨对话记忆重要信息。"
