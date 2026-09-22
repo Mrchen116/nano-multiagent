@@ -168,7 +168,10 @@ class TaskGraphService:
                     raise TaskGraphError(
                         "invalid_arguments", "Root mode must be dag or explore"
                     )
-                graph_id, root = "tg_" + uuid4().hex, "n1"
+                graph_id, root = "tg_" + uuid4().hex[:8], "n1"
+                # The write reservation keeps this check and insertion atomic.
+                while repository.get(graph_id) is not None:
+                    graph_id = "tg_" + uuid4().hex[:8]
                 document = {
                     "schema_version": 1,
                     "graph_id": graph_id,

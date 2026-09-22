@@ -207,6 +207,43 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     assert client.get(f"/im/v1/task-graphs/{graph_id}").status_code == 200
 
 
+def test_short_graph_ids_retry_collisions_without_overwriting_an_existing_graph(
+    task_stack, monkeypatch
+):
+    from types import SimpleNamespace
+
+    client, ws, owner, stranger, chat, agent_user = task_stack
+    candidates = iter(
+        ["12345678" + "0" * 24, "12345678" + "f" * 24, "abcdef01" + "0" * 24]
+    )
+    monkeypatch.setattr(
+        "IM.application.task_graphs.uuid4",
+        lambda: SimpleNamespace(hex=next(candidates)),
+    )
+
+    def create(title):
+        result = command(
+            ws,
+            "create",
+            conversation_id=chat.id,
+            title=title,
+            mode="dag",
+            request_key=title,
+        )
+        assert result["ok"], result
+        return result["result"]
+
+    first = create("First graph")
+    second = create("Second graph")
+    assert [first["graph_id"], second["graph_id"]] == ["tg_12345678", "tg_abcdef01"]
+    assert create("First graph") == first
+    for result in (first, second):
+        assert result["relative_url"] == f"/tasks/{result['graph_id']}"
+        read = client.get(f"/im/v1/task-graphs/{result['graph_id']}").json()
+        assert read["title"] == result["title"]
+        assert read["root_node_id"] == "n1"
+
+
 def test_write_conflict_is_atomic_across_connections_and_survives_reopen(task_stack):
     from concurrent.futures import ThreadPoolExecutor
     from IM.application.task_graphs import TaskGraphActor
