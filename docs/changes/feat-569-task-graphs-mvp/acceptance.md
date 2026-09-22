@@ -99,3 +99,37 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 只提交本文件。本人临时原型server和Playwright会话在报告完成时清理；IM/Gateway、测试资源和主栈tmux由caller统一按runbook清理。没有执行e2e-up重置数据，没有修改实现/测试/设计/受控配置。原型/浏览器运行缓存均在/tmp。
 
 后续 Round 必须追加，至少复验I1两个正文入口与顶部Tasks对照，覆盖原文字/mentions/引用保留和不自动发送；受影响的P1/P5、S01/S11–S13/S19/S20继承本轮证据或针对失效证据重验，不以自动降低门槛结束。
+
+## Round 2 — targeted（I1 / P5）
+
+- `validated_at=21f79e3d88d0e3e7d3197d737e4779074e82fdb7`；开始前独立核对HEAD一致，caller已用该代码重建前端；未重启Python服务、未替换DB。验收时间2026-09-22 18:00–18:07 Asia/Shanghai。
+- `executed_base=99f6e16339a95b94cdb3cb6d5dabd6b301a4b813`；prior report为本文件Round 1。验收期间caller同步到`d9e289f7c`，仅另一unit设计文档，明确无产品代码差异；不把这个机械同步冒充新验过的产品版本。
+- 范围仅Chat、Global Work及任务链接导航影响面：验证原草稿、真实待发附件、真实mention token、追加引用与不自动发送。继续使用隔离nano身份与Playwright真实浏览器，没有阅读实现定位，没有发送模型/Feishu消息，没有重跑无关全量场景。
+
+### Verdict
+
+**pass**。`highest_required_action=pass`；I1关闭；0 blocking /0 major /0 minor；`needs_re_review=false`；未外发GitHub issue。
+
+### I1复验与新增证据
+
+截图目录仍为`/tmp/feat569-product-evidence/`。Round 1已提升的正式截图见[浏览器证据索引](M1-task-graphs/evidence/browser/README.md)；本轮截图由caller筛选提升，原始缓存不提交。
+
+| 路径 | 实际操作、结果 | 证据 / viewport | 结论 |
+|---|---|---|---|
+| Chat正文任务链接（原失败路径） | `/chat/c_xsu9vkwq`输入“修复后Chat草稿569 @”，正常文件drop附加`draft-569.txt`（UI显示文件名与Remove按钮）。点击既有Agent正文摄影图链接→选择A→Discuss this task in chat。返回同聊天，正文原样保留，文件仍待发；只追加A的Task引用。最后消息仍为17:46旧版本保护回执，未自动发送。DM中的尾部@只是普通文字，不冒充mention token。 | `r2-desktop-chat-before.png`、`r2-desktop-chat-preserved.png`；1440×960 | pass |
+| Global Work正文任务链接（原失败路径） | `/chat/c_4e0dxooj`输入“修复后Work草稿569”，正常drop附加`work-draft-569.txt`。View Work→展开17:44:30回合→正文Global图链接→打开根详情→Discuss。返回原聊天，原正文和附件保留、追加Global根引用；消息仍为原17:44一问一答，没有发送新消息。手机详情和返回操作未被裁掉。 | `r2-mobile-work-before.png`、`r2-mobile-work-preserved.png`；390×844 | pass |
+| 真实mention跨任务链接保留补证 | 预置`c_effntspv`实际为Agent单聊，不具备mention菜单，因此在专用身份内正常新建仅nano/e2e/e2e-peer的群`c_6dsfj2lw`（R2-mention-569），没有发送消息。输入“真实mention草稿569 @”，从成员菜单选e2e-peer，UI出现高亮mark `@e2e-peer`。经Agents→Global Work→真实正文任务链接进入图，再从Chat切回该群；原文字和高亮mention token仍在，群仍No messages yet。该补证验证跨页面完整composer保留，不声称它验证了群home图的Discuss引用；引用追加由上述两条原失败路径独立验证。 | `r2-desktop-mention-before.png`、`r2-desktop-mention-preserved.png`；1440×960 | pass |
+
+以上三组修复后截图均已本人读取视觉核对：附件条、正文、引用、mention高亮和发送按钮在真实UI可见。原型P5要求的“保留文字与mentions、追加引用而不自动发送”现已满足；附件保留是同一完整草稿的补充核对。Round 1顶部Tasks入口控制的有效证据继续保留，本轮没有发现该入口关联回归。
+
+### Reference / Scenario retained范围
+
+- **P5**：Round 1的详情、长文本、手机抽屉证据保留；I1两个失败证据由本轮同路径修复后证据关闭，P5结果更新为**match/pass**。原型契约未改，不重新运行离线演示充当产品验收。
+- **P1–P4、P6**：Round 1全部有效；本次只改变任务链接导航，未改变图布局、节点/连线语义、数据读写、持久化、ACL或错误状态。Chat/Work真实入口在本轮再次经过，未发现关联问题。
+- **S01、S11、S12、S13、S19、S20**：Round 1主功能证据继续有效，本轮以两个链接往返和手机/mention补证复核其受影响导航面；全部**pass**。
+- **S02、S03、S04、S05、S06、S07、S08、S09、S10、S14、S15、S16、S17、S18**：保留Round 1逐Scenario的真实证据与必要边界补证，全部**pass**。未因targeted省略而将未知项自动判通过；这些项已有Round 1有效证据，且未在本次差异中失效。
+- 全部S01–S20与P1–P6现均通过，无遗留fail/inconclusive，未降低验收门槛。
+
+### 上层文档与清理
+
+产品修复未改变spec/design目标，无需修订需求或原型。Round 1所列canonical归并与索引更新仍由caller收尾，不由reviewer改写。本人只追加并提交acceptance.md，浏览器关闭；本轮专用群/文件及IM/Gateway仍由caller统一清理，不触碰生产或运行e2e-up重置数据。
