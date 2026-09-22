@@ -423,3 +423,68 @@ R1-W1/W2/W3 在 Round 2–3 已关闭，本次没有更改其权限、来源或�
 ### Recommendations
 
 无新增建议。Round 4 的 delta 末尾空行清理仍为非阻断格式事项，不改变本轮通过结论。
+
+## Round 6
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；独立于账号归属设计作者、实现者与静态 reviewer，延续前轮上下文。
+- review_mode: delta
+- mode_reason: 按本次有界复审范围，完整重核 S22–S23 波及的图归属、来源生命周期、四个工具动作及 HTTP/WS/UI 消费者接缝。账号授权是实质变化，不继承旧聊天成员授权结论；图结构、短 ID、执行非目标及 S21 配置按轮采纳不变，引用已有证据而不重跑无关旅程。
+- retained_from: Round 3 的图结构/展示及不自动执行决定，Round 5 的 S21 会话快照门控；已有布局、短 ID 与 S21 实施验收仍以各自报告为准。本轮仅推演新设计，不声称重新实施或验收它们。
+- started_at: 2026-09-22T23:53:34+08:00
+- completed_at: 2026-09-22T23:55:18+08:00
+- duration: 1m44s
+- validated_at: `c24cc3e0d119e107f4274f6c0d25126116518848`，产品基线为父提交 `4058e38ad`；审查期间作者新增三份测试修改用于 red，不作为本轮实现通过证据。
+- executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`；未 fetch、修改源码、操作运行环境或提交。
+- verdict: **Approved — 0 CRITICAL / 0 WARNING**。
+- approval_boundary: S22–S23 的 Gate 2 通过；账号隔离、删除来源、回执与新 UI 行为仍须在实现后接受相应独立验证。
+
+### 受审版本
+
+| 文件 | SHA-256 |
+|---|---|
+| spec.md | `ac1371c98e4198ccebec1e20c1a9343367bd8108bf08afb34ec411f26574c86c` |
+| design.md | `48f392026e62a59a6ac6c3f595f7cd75038f53621237109456659ef0b817366a` |
+| specs/im/task-graphs.md | `e86221a468ee2addff457fa9d677b1a450006537f18ad87b842cd30920bc720f` |
+| specs/gateway/task-graphs.md | `7e430b282c6bcfda676d5f8a238d93497fe18089f0ab7c7fa97ca2bc504c76d2` |
+
+### Coverage 与实际接线
+
+**用户约束与职责。** spec:192–208 保留用户“目标按人来分、名下 Agent 可操作”的决定，明确不做负责人/分派；design:413–424 说明替代旧聊天成员授权与级联删除设计。IM 继续持有目标数据与授权，Gateway 只持有已注册 PA 身份、有效任务工具能力和可选 target 翻译，浏览器只读与生成讨论引用。复用现有 owner 身份比新增图成员、Agent 授权表或分派关系更直接；没有引入 kernel 产品业务或跨包 import。
+
+**账号推导真实可用。** `api/routes/task_graphs.py:15–19` 从 `current_user` 得到 user.id，服务可在 `repositories/task_graphs.py:15–29` 的 existing principal 查询中取得 `users.owner_id`；Agent 分支已有 profile→node 归属一致与 `is_stale=0` 检查，设计明确从 profile 取 owner。注册表 `db.py:35–43,74–77` 有这两套 owner 字段；真人创建 `repositories/users.py:140–155` 将账号 owner 设为自己的 user ID。真实 WS 入口是 `app.py:431–433,534` → `ws/gateway/runtime.py:154–175`，其 `sessions.py:420–459` 校验 token、已注册连接和 durable node owner；业务 args 不能选择 owner。这里的 IM `profile.is_stale` 与 Round 5 已删除的 Gateway catalog freshness 不是同一检查，不会重新引入 S21 的在途配置问题。
+
+**解除聊天绑定覆盖到存储与查询。** 当前 `db.py:14–32` 将图和回执通过 home conversation 的 CASCADE 串在一起；`repositories/task_graphs.py:42–47,68–82,107–125` 又从 JSON 与成员 JOIN 读取该归属。design:417–420 同时替换为固定 owner 列、nullable source 列、SET NULL、owner 查询及独立来源投影，覆盖了四处绑定，而非只改入口权限。`db.py:384` 开启 FK，`repositories/conversations.py:605–608` 直接删除 conversation，所以 SET NULL 有真实执行落点。JSON 不再保留来源权威值，避免删聊天后重读旧 JSON 又显示失效链接；图/receipt 不再随聊天被删除。
+
+**四动作与回执边界闭合。** `application/task_graphs.py:111–159` 当前在同一事务内先解析 principal/成员再查 receipt，创建强制要求 conversation；design 明确改为可信 owner 决定图权、create 来源可省略、get/apply 不再检查来源成员，并要求 receipt 关联目标重新验证当前 owner。当前回执表已有 graph_id（`db.py:29`），可沿原图核对固定归属，无需新权限数据。design:419 要求回执按当前来源访问权重新投影，解决现有 `:159` 直接返回历史 result_json 的标题/链接泄露途径；也使删来源后的重试不再依赖原聊天存在。operation hash、actor/request key、revision 与原子写入继续归 service/repository，未增加隐式重试或跨 Agent 共享 request key 的新语义。
+
+**来源是单独的可选参考。** `repositories/task_graphs.py:31–40` 已有真实 principal 的聊天成员查询，可继续用于显式来源创建与 source metadata 投影；同 owner 的其他 Agent 获得图，不自动获得另一聊天的标题/跳转。`tools/task_graph.py:17–26,68–93` 的 required target、说明和 schema 是必须同步修改的现有入口；`gateway/task_graphs.py:68–87` 仅在实际存在 target 时做已有映射，天然支持省略来源。design:420 将当前聊天提示改为可选来源，并保留 S21 关闭时不提示/不提供工具。默认列表改按 owner，显式 target 仅是过滤，映射故障不再阻断无来源创建和已知 graph_id 操作。
+
+**UI 和引用旅程有明确落点。** `task-graphs-page.tsx:21–26` 当前聊天按钮按 conversation 查询总数并写入 URL，`:39–69` 列表继续该筛选且必显 home title，`:201–218` 将引用直接写回 home composer。design:421 分别指定账号总数与 `/tasks`、nullable source 展示、所有图/节点复制引用、有权来源才显示回源。原 `composerStoreFor`/`writeComposerSnapshot` 的完整草稿追加可保留，不需要聊天选择器或第二套草稿状态。新增 must-match 已写明文案、无来源空位、copy 状态与按钮条件，原 P1–P6 结构仍有适用部分；无来源及不同 Agent 继续讨论须用真浏览器验证，不能用旧原型的强制回 home 路径替代。
+
+**长期契约与开发数据边界。** IM/Gateway delta 直接更新本未合并 unit 的 task-graphs 新 area：账号内共享、跨账号隔离、可选来源、独立生命周期、默认列表与复制引用均有消费者 Scenario；旧成员决定图权的 Requirement 已被替换，其他图结构/写入失败场景保留。current `im/auth-tenancy.md` 已区分聊天成员权限与 owner 管理归属，新图规则可由 task-graphs area 持有，不需重写账号体系。current `im/agent-work.md:28–35` 的 Work 已有内容登录可读规则仍未改变；IM delta 明确保留 Work 副本不授予原图访问权，不承诺撤回既有副本。`origin/main` 的 db.py 没有任务表，开发态不保留旧 schema 兼容分支与本次决定一致；隔离图的一次性转换必须按 design 先备份、确认账号并保留 ID/revision/内容，尚未执行。
+
+### Milestone 与必要验证
+
+design:423–424 将受影响实现与验收归入原 M1，范围与需求相称，不需要新增生命周期。实施后的静态 code review/verifier 应覆盖 trusted owner 推导、所有 list/get/create/apply/receipt 路径、来源投影及 corrected-delta；产品 reviewer 应覆盖以下新的用户旅程，并保留未变化结构/短 ID/S21 的有效证据：
+
+- 同账号非来源成员的第二 Agent 读取并修改同一图，跨账号但来源聊天成员的调用和浏览器读取被拒；包含列表摘要、搜索、分页与旧 receipt。
+- 无来源创建可重读；删除来源后同图内容/ID/revision 保留，旧写入可核实/重试且不重新暴露来源标题或链接；owner 改变或 registration 失效不重放旧账号回执。
+- 同账号且无来源聊天权限时图仍可看，source metadata/回源入口隐藏；账号聊天入口、复制引用到另一聊天、可访问来源的原草稿追加与 mentions 保留，不自动发送。
+- S21 关闭的 Agent 仍不能调用；其他账号身份与普通 Work/原聊天权限不因目标共享而扩大。原图原子性、revision 冲突与同库重启窄验证继续保留。
+
+本轮仅静态推演这些接缝与验证充分性；没有调用模型、操作浏览器/服务或转换数据，也没有宣称新行为已通过测试。
+
+### 历史问题闭环
+
+R4-W1 保持 closed：本次仍复用会话已采纳配置控制工具能力。R1-W1 的原聊天成员图权限方案已由 S22 明确替代，本轮按新 owner 规则重新核对，Work 副本可见性解释仍有效；R1-W2 的来源不参与工具授予、R1-W3 的图展示结论继续保留。无继承未关闭 finding。
+
+### Issues
+
+无未解决 CRITICAL / WARNING。
+
+### Recommendations
+
+- **R6-R1：归并时清理残留“Web 成员访问权”措辞。** Gateway delta 的 S21 场景及 spec 的 S21 旧摘要仍使用“成员”一词；S22–S23 与新 Requirement 已明确其实际含义为账号归属，不构成设计歧义，建议改为“按账号归属的 Web 访问权”，避免长期 current 文档留有旧术语。
+- **R6-R2：一次性转换沿用已确认的账号归属证据。** 不要从来源 conversation.owner_id 自动推断旧图 owner：`repositories/conversations.py:100–107` 对混合 owner 的聊天可能生成独立 UUID。design 已要求“已确认所属账号”，实施时按该前置执行即可，无需为开发测试数据新增通用迁移机制。
