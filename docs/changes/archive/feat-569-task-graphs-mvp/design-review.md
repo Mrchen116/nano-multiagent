@@ -488,3 +488,88 @@ R4-W1 保持 closed：本次仍复用会话已采纳配置控制工具能力。R
 
 - **R6-R1：归并时清理残留“Web 成员访问权”措辞。** Gateway delta 的 S21 场景及 spec 的 S21 旧摘要仍使用“成员”一词；S22–S23 与新 Requirement 已明确其实际含义为账号归属，不构成设计歧义，建议改为“按账号归属的 Web 访问权”，避免长期 current 文档留有旧术语。
 - **R6-R2：一次性转换沿用已确认的账号归属证据。** 不要从来源 conversation.owner_id 自动推断旧图 owner：`repositories/conversations.py:100–107` 对混合 owner 的聊天可能生成独立 UUID。design 已要求“已确认所属账号”，实施时按该前置执行即可，无需为开发测试数据新增通用迁移机制。
+
+## Round 7
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；延续独立 reviewer，未修改方案或产品实现。
+- review_mode: delta
+- mode_reason: 用户将固定建图来源改为逐节点最后更新聊天；本轮重核来源捕获、changed_ids、软引用投影、回执 hash/replay、工具协议与回聊 UI。账号归属及无负责人/分派决定未变，保留 Round 6 的有效身份与账号边界证据。
+- retained_from: Round 6 的 owner 推导、跨账号拒绝、事务/回执 owner 检查、账号列表与开发数据保留；其图级 source 列、SET NULL、list target 与固定回源结论已失效，不在本轮继承。Round 5 的 S21 配置快照门控和既有图结构/短 ID 结论继续保留。
+- started_at: 2026-09-23T00:00:23+08:00
+- completed_at: 2026-09-23T00:01:32+08:00
+- duration: 1m09s
+- validated_at: `e583673a12b315ccc714c27d4dcbf15acf890e0f`；产品实现仍为此前完成的版本，作者准备的三个 red 测试文件不构成实施证据。
+- executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`。
+- verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
+- approval_boundary: Round 6 的 Approved 只覆盖旧账号/单一来源方案，本轮最新逐节点回聊设计尚未通过 Gate 2。仅追加报告；未修改源码、操作服务或数据、提交。
+
+### 受审版本
+
+| 文件 | SHA-256 |
+|---|---|
+| spec.md | `ef69a3bdd393d27deadbfb9843c430c33ca6c664e824f35b5721a64384f9860f` |
+| design.md | `740d74b794314eef2b931ac7b6acc6f07fb7d62f06bd68cfb67f2477d113278c` |
+| specs/im/task-graphs.md | `5d4380c10ab6f34b22ac0f1c47aa778800d77f5ca3c7aee7474a82ec96aedfb0` |
+| specs/gateway/task-graphs.md | `3c7d97a3662235fee8c288db3207cdca5b9caebd7f68e9f7100a0248fdd1cde8` |
+
+### Coverage 与架构判断
+
+- **替代范围明确。** design:426–436 明确取消图级来源列、按聊天筛选和固定回建图聊天。账号仍从可信 user/profile 得到，来源仍不授予图权；不新增分派、目标成员、多聊天历史或自动执行。soft reference 保留在节点 JSON，由 IM 读取时验证真实聊天存在和当前成员权限，比额外来源历史表或删除聊天时遍历改图更符合本次单值需求。
+- **变更节点集合有实际 owner。** `domain/task_graphs.py:248–259,310,337,352,363–384` 已统一返回 changed_ids，并用同一集合更新节点时间/操作者；父节点新增孩子、依赖边端点、探索选项 scope 都有现存含义。design:431 复用该集合记录 last_chat_id，保持未变节点的回聊位置；无聊天写 null、禁止公开业务 patch 修改元数据，避免沿用过时聊天或再实现第二套变更检测。
+- **查询与回执语义闭合。** design:433 将 conversation_id 从 operation_hash 排除，并要求 owner 检查后先重放原回执、不重验已删除来源、不搬动节点来源。当前 hash/replay 位于 `application/task_graphs.py:142–159`，changed_ids 与保存位于 `:214–237`，可在原事务 owner 内完成。list/get 不写来源、list 不再接受 target；创建/修改才有可选来源。图摘要不含固定聊天字段，写回执无须保留用户不可见的聊天标题；节点各层 get 投影需同样做成员过滤。没有增加重放副作用或静默创建聊天。
+- **UI 有逐节点落点。** 现有 `task-graphs-page.tsx:201–218` 已把 selected/scope/root 传给 discuss，详情也传入自己的 node；将目的地切为该节点已投影的 last_chat_id 即可复用完整 composer snapshot 追加。无聊天/无权隐藏按钮、copy 对所有节点存在且显示成功/失败、最近更新聊天文案，均已写入 must-match 和测试要求；不需新增页面骨架或聊天选择器。
+- **delta、数据保留与门禁。** spec 保留新增原话并明确修改其他节点不挪动本节点；IM/Gateway delta 加入逐节点、无来源、重试不改来源与聊天失效的消费者场景，旧来源过滤契约已撤换。design:435 接受 R6-R2，要求从真实创建 Agent/profile 核实 owner，历史未知 last_chat_id 为 null，不伪造旧建图聊天为最后更新。原 owner 安全、冲突和重启验证继续；新 M1 复验覆盖跨聊天不同节点、清空、重试、删除/退群、普通/全局来源及浏览器草稿/copy。尚缺 R7-W1 所指的普通外部会话实际来源传递设计。
+
+### 历史问题闭环
+
+R4-W1 保持 closed，S21 不受本轮改变。R6-R2 已在 design:435 明确纳入；R6-R1 的旧“成员访问权”措辞仍为非阻断文字清理。上一轮固定 source 方案因新需求被替代，不作为本轮通过依据。
+
+### Issues
+
+#### R7-W1：普通外部会话的 canonical 聊天不在设计所读取的 ToolContext 字段里
+
+- **位置：**`design.md:432,436`；Gateway delta“记录更新发生的聊天”的普通绑定会话自动来源承诺。
+- **证据：**Web relay 在 `channels/web_relay_adapter.py:308` 提供 metadata.conversation_id，故该路径可以直接复用。但 Feishu adapter `:503–530,550–587` 生成的是外部会话身份；IM canonical 映射由 `inbound_pipeline.py:161–163` 的 shadow sync 得到，并在 `:207` 与原 message 分开装入 RoutedInbound。`session_run_coordinator.py:357–374` 仅将其写入 reply_context.shadow_conversation_id；`_ensure_binding` 的 `:2474–2478` 仍把原 message 传给 Binder，而 `session_binder.py:917–919` 只从 message.metadata.conversation_id 构造 session metadata。Kernel `tools/registry.py:343–357` 只传递已有 hook metadata，不会自行推导外部聊天映射。
+- **现有可核验证据：**`test_inbound_pipeline_session.py:638–729` 构造真实外部 ingress，message.metadata 无 conversation_id，shadow sync 先返回 shadow-conv-1，第二轮更新为 shadow-conv-2；断言只覆盖 binding.reply_context 的相应 canonical 聊天。说明现有系统确实有来源，但来源所在 owner 与本设计假定字段不同，复用 session 时也可能更新。
+- **未修后果：**依设计只在工具中读取 ToolContext.session_metadata.conversation_id，外部 single_thread 的真实聊天更新会写 last_chat_id=null，清除已有回聊位置；测试若仅构造含该字段的 ToolContext 会漏掉此问题。按输入渠道提供不同的“最后更新聊天”结果违背当前新场景。
+- **闭环要求：**明确复用现有 canonical bound-chat owner 将来源交给 tool/Bridge 的路径，同时覆盖 Web relay 与已映射外部 single_thread、复用 session 后来源刷新，以及真实没有映射时留空。不能把外部 provider chat id 当 IM conversation_id，也不应从最近消息猜测；global 显式 target/无来源规则继续保持。给 M1 增加经实际 admission/binding 到工具调用的窄验证，不能只用手填 ToolContext metadata 的单测证明接通。
+
+### Recommendations
+
+无新增可选设计建议；先闭合 R7-W1，再按实际改动进行 closure 或 delta 复核。
+
+## Round 8
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；同一独立 reviewer，仅追加本报告。
+- review_mode: closure
+- mode_reason: `420edf56c` 只修订 R7-W1 的普通会话来源路径，未改变账号归属、逐节点语义或 UI；本轮只核查所复用的 Gateway binding 是否确实代表本次执行聊天。
+- retained_from: Round 7 的 changed_ids、软引用、owner/receipt、UI、delta 与数据保留判断全部有效；Round 5 的 S21 快照门控继续保留。
+- started_at: 2026-09-23T00:03:03+08:00
+- completed_at: 2026-09-23T00:05:56+08:00
+- duration: 2m53s
+- validated_at: `420edf56c11474908b5bebf62fe1369cf1bea8c7`；受审 design SHA-256 为 `72e29945c7e0a6c0d47cb465a28530fd25b104657239033d71d47e4a2691fe5a`，其他受审文档同 Round 7。作者的未提交 red 测试不作为产品实现证据。
+- verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
+- approval_boundary: 尚未通过逐节点回聊方案的 Gate 2；未修改方案、源码或运行环境，未提交。
+
+### 历史问题闭环与证据
+
+- **R7-W1：still-open，字段来源已修复，当前执行绑定的选择仍未闭合。** Author Resolution 将 ToolContext metadata 改为 Bridge 读取 Binder 的 durable reply_context，并限定 single_thread、无显式 target 的写入；`session_run_coordinator.py:357–374,2474–2478` 确实把 shadow canonical ID 写到该上下文，`session_binder.py:366–385` 也会在复用同一 session key 时刷新它。因此 Web/Feishu 字段差异、单绑定刷新和 global 无唯一来源的问题得到正确处理，不需要增加 Kernel 字段。剩余问题是所选 `find_by_kernel_session_id` 并不提供“本次执行绑定”，详见 R8-W1。
+- **职责判断保持有界。** canonical 来源应由掌握 admission/reply binding 的 Gateway 提供，IM 负责成员投影和新写入校验。修复不要求历史聊天列表或持久化新索引；但必须携带本次已选中的绑定身份，不能把一个多对一索引的首条结果当作执行来源。该区别影响明确用户要求的回聊目的地，不是通用路由清理要求。
+
+### Issues
+
+#### R8-W1：Kernel session 反查可能选中另一个真实聊天，仍会记录错误的最后更新聊天
+
+- **位置：**`design.md:432,438` 的 `binder.find_by_kernel_session_id` 与“当前真实绑定”断言；这是 R7-W1 闭环后的剩余来源接线问题，计为一个 WARNING。
+- **实际产品路径：**`internal_dispatch.py:203–204` 已将 global 分流；普通路径 `:278–285` 调用 `_sync_direct_session`。后者在 `:591–616` 对 `user_id` 目标调用 `binder.bind_conversation`，将返回的私聊 B 指向原 Kernel session K。`session_binder.py:697–735` 新增 B 的 session key，不移除原聊天 A。因此 A、B 同指 K 是现存受支持路径，而非假设性脏数据；`test_internal_dispatch_endpoint.py:149–196` 也明确验证了私聊绑定复用 origin session。
+- **选择行为证据：**`session_binder.py:782–788` 原样委托 repository。内存 store 在 `session_keys.py:437–454` 返回第一条匹配；生产 SQLite 在 `:1485–1494` 使用无排序的 `WHERE kernel_session_id = ? LIMIT 1`。随后 B 入站的 Binder resolve 只刷新 B 的 reply_context，并不会移除 A 或改变反查语义。使用现有 `SessionBindingStore` 在纯内存中按 A→B→刷新 B 绑定同一 K，结果为：精确 get(B) 返回 `conversation_id=chat-b`，反查 K 返回 `conversation_id=chat-a`。本次未启动服务或改动任何数据文件。
+- **未修后果：**在 B 聊天更新节点会写入 A，按钮回到错误聊天；若 A 已不可访问则隐藏本来应存在的 B 回聊。仅验证一条 binding 的 metadata 刷新，或 Web/Feishu × work_mode 矩阵，不能覆盖该情形。
+- **闭环要求：**明确 Bridge 如何获得本次实际 admission/run 选中的 binding 或其 canonical chat，保留 single_thread 隐式/global 显式规则。不要通过“取最新更新时间”猜来源，因为发送目标绑定本身也会更新；也不要求修改其他现有反查消费者。为现有链路增加同一 Kernel session 有 A、B 两条绑定、由 B 入站实际执行工具时记录 B 的窄验证，并确保仅向 B 发送消息不会把仍在 A 执行的工具来源搬走。
+
+### Recommendations
+
+无新增可选建议。其余未失效内容继续沿用 Round 7，不要求重复复审。
