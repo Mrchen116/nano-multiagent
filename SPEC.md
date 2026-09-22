@@ -139,7 +139,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ### IM — 独立中心服务
 
-提供内置 Web IM + 用户/Agent 配置中心 + 可选消息中继。
+提供内置 Web IM + 用户/Agent 配置中心 + 可选消息中继。IM 也持有[协作任务图](docs/specs/im/task-graphs.md)的唯一持久记录；PA 经现有 HTTP/WS 边界提供 Agent 工具，浏览器负责读取和展示。
 
 **不直接调用 agent 内核**，只与用户浏览器和各机器上的 `personal_assistant` 交互。IM 可离线，Node Gateway 仍可本地自治。
 
