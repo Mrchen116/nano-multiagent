@@ -39,3 +39,10 @@
 - 测试处置：扩展既有 `test_task_graph_rules.py` 的稳定引用行为和 `test_task_graph_api.py` 的真实 HTTP/WS 接线、跨图和回执链。首次红测为5 failed/16 passed（原实现仍生成 UUID）；随后验证短编号跨批更新、关系保持和不随排序重编号。保留其余原子性/权限/重启与 PA 工具桥接测试，不增平行测试文件。
 
 - 同轮用户补充 graph_id 同样过长：直接从35字符缩为 `tg_`+8位随机码（11字符）。沿用既有写事务查询全局重名并重试，避免save upsert覆盖已有图；无新依赖/表/字段。扩展既有HTTP/WS文件，用实际UUID前缀碰撞保护短图ID、旧图不覆盖与回执重放；原长ID实现先取得2failed，再实现。独立产品Round4的节点两轮证据保留，追加图ID创建/入口验证。
+
+## Open-PR follow-up: Agent task-graph feature
+
+- User requested a task feature alongside memory/skill/cron/heartbeat. Gate2 Round4 found catalog freshness prematurely revoked in-flight tool calls; author resolution and independent Round5 approve session-applied configuration ownership.
+- Implementation `a34bb2bd3`: dynamic capability plus zh/en text, one effective-tool resolver for runtime/preview/Bridge, task-only prompt hint removal when disabled, global address lookup preserves the running snapshot and SDK-accepted runtime updates it. Default on still requires explicit tool allowlist; closing preserves graph data and current membership.
+- Existing bridge test was rewritten from immediate catalog revocation to next-runtime behavior; added mode/feature/allowlist matrix and real binder/global-store/adapter busy boundary. Existing payload goldens extended. Generic frontend linkage tests retained. No new test files or migration layer.
+- Red: 8 failed,10 passed; focused green40passed. Full local shards1995+2068passed, frontend779passed, build/Ruff pass. Logs and limits in integration evidence. Independent static/product delta reviews cover only the new configuration behavior; previous graph/DAG/short-ID evidence retained.

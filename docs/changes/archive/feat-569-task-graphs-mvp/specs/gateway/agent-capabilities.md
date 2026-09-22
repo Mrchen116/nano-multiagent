@@ -35,4 +35,3 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **WHEN** Gateway 向 IM 上报当前节点可配置工具
 - **THEN** 工具列表包含 `skill_view`
 - **AND** `skill_view` 的 `default_on` 为 true
-

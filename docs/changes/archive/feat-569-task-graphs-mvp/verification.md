@@ -216,3 +216,37 @@ WARNING: None.
 SUGGESTION: None.
 
 Round 5 static verifier verdict: **PASS**. `requires_full_verification: false`. The separate product reviewer owns the added live short-graph-ID journey evidence.
+
+## Round 6: targeted task-graph feature-switch revalidation
+
+> Revalidation mode: `targeted` · patch: `46238f91f..a34bb2bd3` · reviewed snapshot: `a34bb2bd3`
+
+### Retained evidence
+
+The earlier IM-only durable store, current-member authorization, PA provenance, channel-neutral tool access, no-automatic-execution, DAG layout, compact node/graph ID, and read-only Web behavior are unchanged. This patch introduces only an Agent configuration gate around the existing `task_graph` tool and its capability projection; it changes no task document, graph operation, schema, route, mutation API, or Web membership decision.
+
+### S21 / effective-tool verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| Default-on feature remains bounded by the explicit allowlist | `FEATURE_PROJECTIONS` defines default-on `task_graph` with `requires_tool`; `resolve_enabled_tools` starts from `tool_allowlist` and only removes the tool for an explicit feature-off value | capability-payload golden plus feature/allowlist matrix in `tests/unit/personal_assistant/test_task_graph_bridge.py` | aligned |
+| Runtime and preview use one effective set | session projection and preview both call `resolve_enabled_tools`; prompt guidance is absent when the tool is ineffective | same matrix compares preview `enabled_tools` to runtime and asserts disabled dispatch does not enter IM transport | aligned |
+| Saved configuration applies on the next admitted turn | Bridge reads the registered applied snapshot; `ensure_agent_runtime` replaces it only after accepted reconfiguration | `test_config_save_applies_to_task_tools_on_next_session_runtime` retains the old turn then rejects after the new snapshot is applied | aligned |
+| Busy global address resolution cannot prematurely revoke the current turn | global resolution retains an existing snapshot; an idle-only rejected reconfiguration returns before provenance replacement | `test_global_notifications_keep_task_tools_until_runtime_is_applied` proves old-tool success while busy and rejection after runtime acceptance | aligned |
+| Closing does not delete or newly authorize graph access | only effective PA tool selection/prompt/provenance is changed; IM graph storage and Web member checks are untouched | retained task-graph persistence and ACL suites; no affected source path changes them | aligned |
+
+The supplied targeted test log reports **40 passed** (`/tmp/feat569-feature-green.log`); its red predecessor contains the expected eight pre-implementation failures. These results are retained evidence, not a rerun by this verifier. Full-suite, build, and live feature-switch review are owned by parallel work and are not claimed here.
+
+### Corrected Delta Reconciliation
+
+The archived task-graphs S21 delta and the agent-capabilities effective-set exception are coherent with each other and with the canonical rule that an Agent's complete saved runtime applies at the next reply. The delta is semantically **ready to merge** into canonical specifications. Before the integrator runs the final diff check, it must remove the one final blank line reported at `docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/agent-capabilities.md:38`; that mechanical cleanup has no implementation or contract effect.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: Remove the final blank line in the archived agent-capabilities delta before final merge hygiene checks.
+
+Round 6 static verifier verdict: **PASS**. `requires_full_verification: false`. The independent product reviewer remains responsible for actual feature-switch UI and live journey evidence.

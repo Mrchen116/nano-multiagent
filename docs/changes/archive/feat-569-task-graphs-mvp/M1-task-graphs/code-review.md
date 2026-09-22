@@ -108,3 +108,23 @@ The HTTP/WS regression forces two full UUIDs with the same eight-character prefi
 The new requirement is identical in the archived gateway delta and current gateway specification (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:12`; `docs/specs/gateway/task-graphs.md:19`). It accurately states stable short graph references, collision non-overwrite, and the shared tool/Web link ID.
 
 Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**
+
+## Round 6: targeted task-graph feature-switch revalidation
+
+> Review mode: `targeted` · patch: `46238f91f..a34bb2bd3` · reviewed snapshot: `a34bb2bd3`
+
+### Findings
+
+```json
+[]
+```
+
+This round covers only the new per-Agent task-graph feature. `resolve_enabled_tools` remains the single effective-tool resolver for the session runtime, prompt preview, and task-graph Bridge. It treats an absent `features.task_graph` value as enabled, never adds `task_graph` when the explicit allowlist omits it, and removes it when the feature is explicitly false (`src/personal_assistant/product.py:434`). The capability projection advertises the feature as default-on with `requires_tool="task_graph"`, while the existing Agent create/edit linkage adds that required tool when the user explicitly enables the feature (`src/personal_assistant/reporter/capability_projection.py:67`; `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:1747`).
+
+Runtime and preview both call the same resolver, so disabled task graphs are neither offered to the model nor represented in preview. The Bridge authorizes against the session's applied snapshot, not a newer catalog publication (`src/personal_assistant/gateway/task_graphs.py:55`). `ensure_agent_runtime` writes new provenance only after the Kernel accepts the updated runtime; an idle-only global reconfiguration rejected for a busy session returns before that write (`src/personal_assistant/gateway/kernel_client.py:201`). The global resolver also preserves an existing session snapshot during address resolution. Thus a save affects the next admitted reply while an in-flight global turn continues with the already-adopted capability set.
+
+The supplied targeted evidence is `40 passed` in `/tmp/feat569-feature-green.log`; the supplied red phase records the expected eight failures before implementation. This review did not rerun those tests or claim the separate real-product feature-switch journey. Earlier DAG layout, graph/node short-ID, persistence, authorization, channel-neutral tool, and no-automatic-execution evidence is unchanged by this configuration-only patch.
+
+The archived task-graphs delta adds S21 and the new agent-capabilities delta makes the limited effective-tool exception explicit. They match the existing canonical next-turn full-runtime rule and are semantically ready for corrected-delta reconciliation. `git diff --check` reported only the final blank line in `specs/gateway/agent-capabilities.md`; its mechanical cleanup is owned by the integrator and does not change this verdict.
+
+Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**
