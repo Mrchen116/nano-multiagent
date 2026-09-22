@@ -143,3 +143,16 @@ IM 会话 `c_9tr53sne` 的 Agent 气泡 `7acf86d0c109401199d3293321c1ebab` 正�
 - **Round 2 最终 Verdict 仍为 fail（环境无法证明必验停止场景）**；已确认产品问题数 0、环境阻塞数 1；highest_required_action 改为 **out-of-unit（caller 隔离 listener 后复验）**，needs_re_review=true。撤销上方对实现修复的要求，不能依据本轮证据要求修改本 refactor。
 - 正常回复及图片恢复证据仍有效：它们在本次 IM 会话中观察到完整对应内容和工具结果，图片冻结恢复由本次栈实际完成。
 - 已停止继续发验收消息，等待 caller 获得他人 task 服务操作授权并提供唯一 listener 前置。reviewer 不自行停止或恢复其他 task 的 Gateway。
+
+### 用户暂停决定与最终交接
+
+用户明确选择保留 feat-569 运行、暂停本项真实飞书复测。**当前验收状态：inconclusive / paused；门禁未通过，不是实现已证实失败，也不是全项 pass。** reviewer 已停止一切测试发送；caller 清理本轮 Gateway PID 14421 与 IM PID 15250，不动 feat-569 Gateway PID 90293。
+
+caller 提供的两库事件归属（只读检查）为：
+
+| 本次 `/stop` provider event | 数据库 | 命中结果 |
+|---|---|---|
+| `om_x100b6411410668acb1aab51a9941a0f` | `/tmp/refactor-570-feishu/external_shadow_sagas.sqlite3` | 无此事件；本轮仅 normal/image/long 三条入站 |
+| `om_x100b6411410668acb1aab51a9941a0f` | `/Users/czj/.codex/worktrees/unit-feat-569/nano-multiagent/external_shadow_sagas.sqlite3` | 1 条，text=`/stop` |
+
+飞书实际出现“当前没有正在执行的操作。”及旧正文，是保留的直接产品观察；`/stop` 被另一个 Gateway 消费，是 caller 据两库事件作出的归属结论。两者不能合并成“受审 Gateway 收到停止却未取消”的错误断言。恢复复测时须先提供唯一专用 Bot listener，再重新执行真实 `/stop`、等待超过任务执行时间并核对飞书和 IM；本次正常卡片与冻结图片恢复 pass 证据 retained。
