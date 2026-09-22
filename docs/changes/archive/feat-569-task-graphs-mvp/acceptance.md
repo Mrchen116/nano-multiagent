@@ -221,3 +221,33 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 S01/S11/S12的图号跨调用影响面与Web链接均pass。Round 4的两轮节点身份稳定、标题/状态/order更新、依赖、短节点深链接和嵌套证据明确retained；更早的DAG视觉、ACL、外部渠道、草稿及其他未影响场景同样retained。没有重复全量旅程，也没有测试旧长图号兼容。真实随机碰撞未在产品旅程制造；caller交接的32项相关测试为补充，不冒充本轮真实碰撞E2E或尚未交接的全量结果。
 
 仅追加提交本报告，关闭自己的feat569graphid浏览器；新图tg_f8f65a76及所有原数据、IM/Gateway保留供用户体验，不push。
+
+## Round 6 — targeted（S21任务图特性开关）
+
+- `validated_at=a34bb2bd3df3afc44e44fe7d98a2e0a78964d8ce`，开始时HEAD独立核对一致。caller已build前端并重启Gateway，同一隔离IM `http://127.0.0.1:56231`及数据；验收时间2026-09-22 23:27–23:31 Asia/Shanghai。
+- 来源为spec新增S21；只使用自己的Playwright会话、nano身份和e2e-peer测试Agent。没有操作用户a/AA、用户IAB、外部Bot、图归属或既有图数据。本轮按caller要求只回填报告，不commit/push，不停止服务。
+
+### Verdict
+
+**pass**。S21通过；`highest_required_action=pass`；0 blocking /0 major /0 minor；`needs_re_review=false`。
+
+### 实际旅程与证据
+
+所有截图为1440×960，均已本人打开视觉核对，目录`/tmp/feat569-toggle-review/`；原始快照留/tmp，不提交运行缓存。
+
+| S21检查点 | 实际操作与观察 | 证据 / 结果 |
+|---|---|---|
+| 新建与编辑显示、默认值 | 从e2e-peer编辑页正常进入+New，不提交新建；英文新建表单Task Graphs默认checked。菜单切换中文立即显示“任务图”，说明关闭不删除已有记录；回e2e-peer编辑页也显示中文任务图。后续切回英文编辑页显示Task Graphs。 | `new-zh.png`、`edit-en-off.png`；pass |
+| 保存关闭并重读 | 初始e2e-peer任务图checked、工具白名单task_graph pressed。只取消任务图feature，保存成功，profile v1→v2；整页reload后feature仍未选中，白名单task_graph仍pressed。没有更改其他feature、技能、白名单、模型或工作模式。 | `/tmp/feat569-toggle-reload.txt`、`edit-en-off.png`；pass |
+| 关闭后的真实下一轮 | 在既有`/chat/c_xsu9vkwq`发“S21关闭验收”，要求真实task_graph get `tg_f8f65a76`，不可用则如实说明、不用替代工具、不猜历史。出现配置更新分隔线。Agent实际尝试get，Process显示失败0ms；返回`tool 'task_graph' is not enabled in this session`，未返回成功读取、未使用替代工具。历史schema/skill描述使模型仍可能尝试已关闭工具，执行层确实拒绝；不声称模型完全不会发起尝试。 | `off-tool-denied.png`、`/tmp/feat569-toggle-off-reply.txt`；pass |
+| 关闭不删除、不限制成员Web阅读 | 在feature关闭时打开`/tasks/tg_f8f65a76`，仍为“短图号便签569”、revision2、根n1/子n2检查便签，详情与更新说明可读。聊天内原19:03创建回复和历史工具记录仍可查看。 | `off-existing-graph.png`、`off-tool-denied.png`；pass |
+| 重新开启及下一轮生效 | 正常勾选Task Graphs并保存，profile v3；reload确认checked且task_graph白名单pressed。发送“S21重新开启验收”要求真实get同图，Process实际成功992ms；展开参数为get/graph_id=tg_f8f65a76/view=all，回执标题短图号便签569、revision2、n1/n2、无依赖，未修改图。 | `on-tool-get.png`、`/tmp/feat569-toggle-on-tool.txt`；pass |
+| 稳定提示词预览 | 关闭保存/reload与重新开启保存/reload后均实际展开预览并生成文本。两份稳定prompt文本相同；它不是工具schema列表，唯一task_graph字符串来自既有task-graph-planning技能摘要，未因feature移除。caller确认当前契约不要求预览新增工具schema展示。因此页面证据只证明预览可生成，实际工具可用性由上述拒绝/成功调用独立证明；不把“文本无task_graph字符串”作为已实现结果。 | `/tmp/feat569-toggle-preview-off.txt`、`/tmp/feat569-toggle-preview-on.txt`；pass（按当前预览契约） |
+
+### Retained与恢复
+
+S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21，不重做外部渠道、DAG布局、短ID稳定性、图归属或ACL全量旅程。caller交接40项窄测试保护有效配置接线，属于辅助，不代替上述真实产品行为。
+
+已恢复e2e-peer任务图开启及原白名单：本轮始终未点击任何白名单/技能选项；保存后reload确认task_graph仍pressed，其余配置未改。测试浏览器语言回EN。两轮prompt只读取原图，revision仍2；未新建图。聊天额外出现“后台自进化：记忆已更新”运行提示，是既有开启能力的后台行为，没有由验收另行操作。
+
+只追加本acceptance.md（包含本轮证据索引），不暂存、不commit、不push。关闭自己的feat569toggle浏览器；保留IM/Gateway、测试会话和图供用户继续体验。
