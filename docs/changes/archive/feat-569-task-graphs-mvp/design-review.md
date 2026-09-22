@@ -70,7 +70,7 @@ P1–P6 均已阅读：本轮实际体验了计划/探索/嵌套、节点详情�
 #### R1-W1：成员可见性承诺未说明公开 Work 中的任务副本
 
 - **位置：** [spec.md](spec.md) S18（148–150）；[design.md](design.md) D5（92–95）、调用路径第6项（220）、风险（285）；[IM delta](specs/im/task-graphs.md) 第5–14行。
-- **证据：** 当前 [Work 契约](../../specs/im/agent-work.md) 第28–43行明确规定，任何登录用户可看包含原聊天内容的完整 Work，工具参数和已有结果不按聊天成员过滤。真实 `src/IM/api/routes/agent_work.py:73–89` 只要求登录及可用 global profile；`src/IM/infra/repositories/agent_work.py:342–355` 将真实工具参数/结果投影到 Work；`src/personal_assistant/gateway/global_work.py:219–227` 记录实际事件。
+- **证据：** 当前 [Work 契约](../../../specs/im/agent-work.md) 第28–43行明确规定，任何登录用户可看包含原聊天内容的完整 Work，工具参数和已有结果不按聊天成员过滤。真实 `src/IM/api/routes/agent_work.py:73–89` 只要求登录及可用 global profile；`src/IM/infra/repositories/agent_work.py:342–355` 将真实工具参数/结果投影到 Work；`src/personal_assistant/gateway/global_work.py:219–227` 记录实际事件。
 - **具体场景：** 全局 Agent 在有权限时 `task_graph.get` 私聊任务，或用 `apply` 提交任务名称与结果。另一个并非该私聊成员的登录用户不能打开任务 API，却能从该 Agent 的 Work 看到调用中的内容。普通 assistant 正文也可能复述结果，因此只隐藏一个工具卡片不足以实现端到端保密。
 - **问题性质：** 这不是“TaskGraphService 的 ACL 必然会被绕过”的断言，而是文档没有区分受保护任务资源与沿用公开 Work 规则的转录副本。两种理解会导向完全不同的实现与 S18 验收。
 - **最小修正：** 若保持当前 Work 契约，在 spec/design/delta 明确“成员限制约束任务查询/图页面及原聊天入口；已进入 Work 的内容遵循现有 Work 可见性”，加入一项区分这两个入口的场景。若用户希望任务内容在 Work 也保密，则必须另行对齐该变化，并补 Work 的设计与 delta，不能只在任务 endpoint 加 ACL 后声称满足。
@@ -174,7 +174,7 @@ P1–P6 均已阅读：本轮实际体验了计划/探索/嵌套、节点详情�
 
 **current 契约与实际接线证据：**
 
-1. [Work current spec](../../specs/im/agent-work.md) 的“Work 内容完整可见，原聊天仍按成员访问”及执行明细场景明确允许登录用户查看已有跨聊天内容、工具参数和结果。
+1. [Work current spec](../../../specs/im/agent-work.md) 的“Work 内容完整可见，原聊天仍按成员访问”及执行明细场景明确允许登录用户查看已有跨聊天内容、工具参数和结果。
 2. 真实 PA composition 在 `src/personal_assistant/gateway/composition.py:362` 装配 `GlobalWorkRecorder`，第 945–950 行连接现有 relay/runtime；`global_work.py:40–44` 订阅 SDK 事件，第 219–227 行保存真实事件 payload，第 350–352 行通过现有 IM connection 发送 `agent.work.append`。
 3. 真实 IM app 在 `src/IM/app.py:416–427` 装配 repository、GatewayWork 与 GatewayRuntime，并在第 489 行挂载 Work router。`src/IM/infra/repositories/agent_work.py:342–376` 保存工具输入、presenter 结果与普通正文；`src/IM/api/routes/agent_work.py:73–89` 的明细读取要求登录和有效 global profile，不要求来源聊天成员身份。
 4. 浏览器 `src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx:181–189` 将真实 payload 交给 WorkTool；`agent-work-presenters.tsx:58–65` 继续展示工具细节，没有另加来源聊天过滤。
@@ -259,12 +259,12 @@ P1–P6 均已阅读：本轮实际体验了计划/探索/嵌套、节点详情�
 - `session_binder.py:278–329,745–758` 与 `kernel_client.py:121–135` 证明现有 PA session→Agent provenance 可复用。新的任务 handler 明确不调用带 global-main 限制的 Inbox execute 路径；`global_inbox.py:555–556` 和 `composition.py:310–312` 确实有该限制，不能整段照搬为任务准入。
 - 内核 child 通过 `agent/platform/tools/builtins/agent.py:687–704` 写入自己的 agent_id，并由 `agent/sdk/kernel.py:262–289` 创建/关联 session；这不是 PA kernel_client 的注册路径。D4 保留“无法核实 PA 身份则明确失败、子结果交回 PA Agent 更新”，没有把用户关于输入渠道的决定扩成新的代父身份继承。这里只读取内核实现取证，PA 实施仍只能 import `agent.sdk`。
 - `global_inbox.py:363–385` 持有 agent-scoped opaque target 的已有路由数据，第 575–593 行已有映射到 conversation_id 的用法。新工具的 create/list 在 PA 归一化业务 target，IM 只接收自己的会话 ID；get/apply 以 graph_id 定位 home，省去无关的输入来源判断。
-- 外部映射不是任务系统新建的机制：[current conversations spec](../../specs/im/conversations-messages.md) 的四元组契约与 `shadow_sync.py:188–240` 对齐。`inbound_pipeline.py:161–178,207` 在 global/single_thread 分流前已有 shadow 结果；`session_run_coordinator.py:357–374` 将真实 shadow conversation 保存到 reply context。design 第 173 行要求 single_thread 把已绑定引用提供给模型，有现存来源可用，无需创建第二套映射或从最近 prompt 猜目标。
+- 外部映射不是任务系统新建的机制：[current conversations spec](../../../specs/im/conversations-messages.md) 的四元组契约与 `shadow_sync.py:188–240` 对齐。`inbound_pipeline.py:161–178,207` 在 global/single_thread 分流前已有 shadow 结果；`session_run_coordinator.py:357–374` 将真实 shadow conversation 保存到 reply context。design 第 173 行要求 single_thread 把已绑定引用提供给模型，有现存来源可用，无需创建第二套映射或从最近 prompt 猜目标。
 - `composition.py:292–295` 已将 listener provider 注入 PA 工具组装；`internal_dispatch.py:505–538` 展示实际 loopback 归属检查方式；`im_connection.py:604–625` 有统一 pending/ACK owner。design 第 229–234 行为新 command/result 指明增量落点，复用该 owner，而不是另建连接或队列。`im_connection.py:966` 的既有 result 分派仍需在实施时增加任务结果分支；设计没有声称只注册工具便已接通。
 - `im_connection.py:398–400` 与 `composition.py:260–270` 确认公开用户入口来自已认证 IM 注册。design 第 175 行据此组装 web_url，分别陈述保存结果和链接可用性，避免把 Gateway 本机 URL 发到外部聊天。
 - IM service 持有图校验、成员检查、revision 与持久化；PA 持有工具接入及私有 target 翻译；浏览器只读并展示。删除没有消费者的 HTTP POST 接口后，没有重复写入口。D1/D2 的 container、dependency、derived_from 各有明确语义；D3 不根据执行终态自动改图；D6/D8 的中心存储、事务与小型幂等回执足够解决本版问题，不需要任务执行引擎或事件溯源。
 
-本轮未发现与 `SPEC.md`、[SDK boundary](../../specs/kernel/sdk-boundary.md) 或 current IM/Gateway 职责相冲突的新依赖。保留一个端到端 M1 合理，不要求按数据库、API、前端机械拆分。
+本轮未发现与 `SPEC.md`、[SDK boundary](../../../specs/kernel/sdk-boundary.md) 或 current IM/Gateway 职责相冲突的新依赖。保留一个端到端 M1 合理，不要求按数据库、API、前端机械拆分。
 
 ### 需求、delta 与 milestone 覆盖
 
@@ -308,7 +308,7 @@ IM delta 仍是 6 条 ADDED Requirements，Gateway delta 仍是 4 条 ADDED Requ
 
 Runbook 将依赖可用、模型资源探测、测试 profile 身份核对与产品验收分开，口径准确。本轮接收 author 记录的 HTTP 200/OK/end_turn、私有文件 0600/必需键齐全和专用 profile verified/App 匹配作为资源可用证据，没有重复读取凭据或调用模型；浏览器可用性由本轮直接确认。
 
-[worktree-runtime](../../development/worktree-runtime.md) 第 30–37 行仍要求真实 Feishu 验收核实专用 App/Bot/User，并通过 `--feishu` 验证 Bot 与 listener lock。design 第 313 行保留该前置，没有把现有只读 auth 结果冒充已经完成 Bot 收发或产品 E2E；资源失效时只应如实阻塞相应产品场景。隔离端口、保留同一 DB 的重启和清理责任也已写明。
+[worktree-runtime](../../../development/worktree-runtime.md) 第 30–37 行仍要求真实 Feishu 验收核实专用 App/Bot/User，并通过 `--feishu` 验证 Bot 与 listener lock。design 第 313 行保留该前置，没有把现有只读 auth 结果冒充已经完成 Bot 收发或产品 E2E；资源失效时只应如实阻塞相应产品场景。隔离端口、保留同一 DB 的重启和清理责任也已写明。
 
 ### Issues
 

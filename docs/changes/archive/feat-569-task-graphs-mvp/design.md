@@ -96,11 +96,11 @@ Gateway 只核实 ToolContext 对应的真实 Agent 身份及其有效运行时�
 ### D5 **图的归属独立于输入来源；一张图关联一个既有 IM conversation。**
 同一聊天可有多张图；每张图只有一个 home conversation，全部内层共享它的 ACL。用户是当前成员即可查看；Agent 是该聊天当前成员且来自匹配的已注册 node，才可按现有权限调用读写。Agent 可以从任一输入上下文引用同一 graph_id；最终权威访问检查只看图的 home conversation。
 
-home conversation 可以是 Web IM 原生聊天，也可以是既有外部聊天映射。复用 [外部会话 current 契约](../../specs/im/conversations-messages.md)：`(external_source, external_chat_id, agent_id, owner_id)` 对应的既有 IM 会话，不能用一个外部群原始 ID 合并多个 Agent/owner 的图。创建时解析目标；get/apply 一旦给定 graph_id，无须输入聊天与 home 相同，也无须该输入聊天已映射。
+home conversation 可以是 Web IM 原生聊天，也可以是既有外部聊天映射。复用 [外部会话 current 契约](../../../specs/im/conversations-messages.md)：`(external_source, external_chat_id, agent_id, owner_id)` 对应的既有 IM 会话，不能用一个外部群原始 ID 合并多个 Agent/owner 的图。创建时解析目标；get/apply 一旦给定 graph_id，无须输入聊天与 home 相同，也无须该输入聊天已映射。
 
 不授予模型“代某个用户写”的参数，不把已登录或能看 Work 当作图访问权；成员移除后 list/get/apply 都失效。暂不做图跨聊天迁移、额外共享、管理员角色 UI。MVP UI 不提供图形/表单编辑器，人在聊天要求 Agent 修改。
 
-任务资源与 Work 中的副本沿用各自既有边界：TaskGraphService 校验图的成员权限；已进入全局 Work 的工具参数、结果和 Agent 正文继续遵循 [Work 当前可见性](../../specs/im/agent-work.md)，不新增按图 ACL 过滤、脱敏或撤回副本。登录的非成员可以看到 Work 已记录的任务内容，但从 Work 打开原图或原聊天仍被成员检查拒绝。此处落实用户“怎么简单怎么来，自洽就行”的权限决定，不承诺任务内容在所有转录副本中保密。
+任务资源与 Work 中的副本沿用各自既有边界：TaskGraphService 校验图的成员权限；已进入全局 Work 的工具参数、结果和 Agent 正文继续遵循 [Work 当前可见性](../../../specs/im/agent-work.md)，不新增按图 ACL 过滤、脱敏或撤回副本。登录的非成员可以看到 Work 已记录的任务内容，但从 Work 打开原图或原聊天仍被成员检查拒绝。此处落实用户“怎么简单怎么来，自洽就行”的权限决定，不承诺任务内容在所有转录副本中保密。
 
 ### D6 **IM 作为唯一存储；离线明确失败，避免双向同步。**
 本功能是 IM 协作记录，不是 Gateway 长期任务运行责任层。选择中心存储使刷新、多聊天访问与同一图更新简单。之前长程方案中的“Gateway 负责目标的唯一写入点”不在此 MVP 中实施。
@@ -310,7 +310,7 @@ create 后一次 apply 可完成全部初始拆分。创建空根成功但第二
 
 **验收前置：**使用仓库 `.venv`、前端依赖和真实浏览器；`config/e2e/gateway.yaml` 与 `scripts/e2e-up.sh` 创建隔离用户/节点，不使用生产账号。2026-09-22 本地已核实 Python yaml/httpx、Node/npm 和前端依赖可用，Chromium 原型在 1440×960、390×844 可驱动；配置中的模型 `deepseek:deepseek-v4-flash` 经 `http://127.0.0.1:4000/v1/messages` 返回 HTTP 200、文本 OK、end_turn。此项仅证明模型资源可用，不是产品 Agent/任务工具验收；实施后的真实 Agent 回合仍必须在隔离栈运行。
 
-S20 通过现有消息入口构造内部/外部 prompt，并覆盖真实 tool→loopback→WS→service，随后在真实 Web IM 查看同一图。输入 channel 不作为任务工具字段或准入条件；本 unit 不修改外部客户端或 channel adapter。专用 Feishu 联调沿用 [worktree-runtime](../../development/worktree-runtime.md) 的 `--feishu` 与测试 profile；本机私有 E2E 文件存在、权限0600、四项必需键齐全，专用非 default CLI profile 已只读验证 `verified=true`，App 与私有测试配置一致；未启动或占用 Bot。需要覆盖真实飞书收发的产品验收前必须按该 runbook 验证测试 App/Bot/User，资源失效时如实阻塞该场景，不用生产账号或原型代替。
+S20 通过现有消息入口构造内部/外部 prompt，并覆盖真实 tool→loopback→WS→service，随后在真实 Web IM 查看同一图。输入 channel 不作为任务工具字段或准入条件；本 unit 不修改外部客户端或 channel adapter。专用 Feishu 联调沿用 [worktree-runtime](../../../development/worktree-runtime.md) 的 `--feishu` 与测试 profile；本机私有 E2E 文件存在、权限0600、四项必需键齐全，专用非 default CLI profile 已只读验证 `verified=true`，App 与私有测试配置一致；未启动或占用 Bot。需要覆盖真实飞书收发的产品验收前必须按该 runbook 验证测试 App/Bot/User，资源失效时如实阻塞该场景，不用生产账号或原型代替。
 
 在正确 unit worktree 中执行，不触碰主实例8011/5173，不改用户 ~/.nanoassistant：
 
