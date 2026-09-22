@@ -72,11 +72,11 @@ def new_node(
         "selection_reason": "",
         "links": [],
         "order": 0,
+        "last_chat_id": None,
         **fields,
         "created_at": now,
         "updated_at": now,
         "updated_by": actor,
-        "last_chat_id": None,
     }
 
 

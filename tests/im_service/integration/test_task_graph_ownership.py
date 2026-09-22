@@ -56,6 +56,9 @@ def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
         request_key="source",
     )["result"]
     source_id = sourced["graph_id"]
+    own_read = client.get(f"/im/v1/task-graphs/{source_id}").json()
+    assert own_read["root"]["last_chat_id"] == chat.id
+    assert own_read["root"]["last_chat_title"] == chat.title
     peer_read = command(ws, "get", agent_id="peer", graph_id=source_id)["result"]
     assert peer_read["root"]["last_chat_id"] is None
     assert peer_read["root"]["last_chat_title"] is None
