@@ -50,6 +50,7 @@
 .tasks-graph-scroll { overflow:auto; flex:1; min-height:160px; padding:24px 21px; background-image:radial-gradient(var(--im-border) .8px,transparent .8px); background-size:17px 17px; }
 .tasks-graph-viewport { position:relative; }
 .tasks-graph { transform-origin:top left; position:relative; }
+.tasks-stage { position:absolute; top:8px; padding:4px 8px; display:flex; justify-content:space-between; align-items:flex-start; border-radius:8px; background:#edf3f64d; color:var(--im-text-muted); font-size:10px; pointer-events:none; }
 .tasks-graph>svg { position:absolute; inset:0; overflow:visible; pointer-events:none; }
 .tasks-node { position:absolute; width:204px; height:136px; border:1px solid var(--im-border-strong); border-radius:9px; background:var(--im-surface); box-shadow:0 3px 9px #264c4310; overflow:hidden; }
 .tasks-node.is-selected { border-color:var(--im-accent); box-shadow:0 0 0 2px var(--im-accent-soft); }

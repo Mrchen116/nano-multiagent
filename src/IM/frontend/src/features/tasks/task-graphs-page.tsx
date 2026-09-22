@@ -103,10 +103,15 @@ function TaskGraphCanvas({ graph, scope, selectedId, onSelect, onEnter, onDiscus
     {layout.nodes.length > 0 ? <div className="tasks-graph-scroll" tabIndex={0} aria-label={t("tasks.graphCanvas")}>
       <div className="tasks-graph-viewport" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
         <div className="tasks-graph" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
+          {!derive && layout.columns.map((column, index) => <div key={column.x} className="tasks-stage"
+            style={{ left: column.x - 8, width: 220, height: layout.height - 16 }}>
+            <span>{t("tasks.dependencyLayer", { count: index + 1 })}</span>
+            {column.count > 1 && <span>{t("tasks.parallel")}</span>}
+          </div>)}
           <svg width={layout.width} height={layout.height} aria-label={t(derive ? "tasks.derivation" : "tasks.dependencies")} role="img">
             <defs><marker id={marker} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={derive ? "#5a9c8e" : "#97aab5"} /></marker></defs>
             {layout.routes.map(edge => <g key={`${edge.from}:${edge.to}`}>
-              <path data-edge={`${edge.from}:${edge.to}`} d={edge.path} fill="none" stroke={derive ? "#5a9c8e" : "#97aab5"} strokeWidth="1.5" strokeDasharray={derive ? "5 4" : undefined} markerEnd={`url(#${marker})`}>
+              <path data-edge={`${edge.from}:${edge.to}`} d={edge.path} fill="none" stroke={derive ? "#5a9c8e" : "#97aab5"} strokeWidth="1.7" strokeLinejoin="round" strokeDasharray={derive ? "5 4" : undefined} markerEnd={`url(#${marker})`}>
                 <title>{graph.nodes.find(node => node.id === edge.from)?.title} → {graph.nodes.find(node => node.id === edge.to)?.title}</title>
               </path>
               {derive && <text x={edge.labelX} y={edge.labelY} textAnchor="middle" className="tasks-edge-label">{t("tasks.derived")}</text>}

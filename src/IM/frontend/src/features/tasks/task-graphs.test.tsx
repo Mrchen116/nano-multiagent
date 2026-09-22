@@ -12,6 +12,7 @@ import { MessagePane } from "../chat/components/message-pane";
 import type { Conversation, Message } from "../chat/chat-types";
 import type { TaskGraph, TaskGraphList, TaskNode } from "./task-graphs-api";
 import { ConversationTasksLink, TaskGraphsPage } from "./task-graphs-page";
+import { layoutTaskScope } from "./task-graph-layout";
 
 const node = (id: string, title: string, container: string | null = "root", overrides: Partial<TaskNode> = {}): TaskNode => ({
   id, title, container_id: container, description: "Purpose", mode: "none", status: "todo", result: "",
@@ -73,6 +74,8 @@ describe("task graph browsing", () => {
     expect(within(detail).getByRole("button", { name: "A Choose direction" })).toBeInTheDocument();
     expect(within(detail).getByRole("button", { name: "E Launch" })).toBeInTheDocument();
     expect(container.querySelectorAll("path[data-edge]")).toHaveLength(6);
+    expect(screen.getByText("Layer 2")).toBeInTheDocument();
+    expect(screen.getByText("Parallel")).toBeInTheDocument();
     expect(container.querySelector('[data-edge="A:C"]')).toHaveTextContent("A Choose direction → C Test");
     const scroll = screen.getByLabelText("Task graph canvas, scroll to explore");
     scroll.scrollLeft = 150;
@@ -168,5 +171,32 @@ describe("task graph browsing", () => {
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByText("No matching goals.");
     expect(router.state.location.search).toContain("query=other");
+  });
+});
+
+
+describe("task graph layout", () => {
+  it("orders independent branches by their connections instead of crossing them by input order", () => {
+    const graph = { ...sampleGraph, nodes: [sampleGraph.nodes[0], node("A", "A"), node("B", "B"), node("C", "C"), node("D", "D")],
+      dependencies: [{ from: "A", to: "D" }, { from: "B", to: "C" }] };
+    const { positions, routes } = layoutTaskScope(graph, graph.nodes[0]);
+    expect(positions.get("A")!.x).toBe(positions.get("B")!.x);
+    expect(positions.get("C")!.x).toBe(positions.get("D")!.x);
+    expect(positions.get("A")!.x).toBeLessThan(positions.get("D")!.x);
+    const sourceOrder = Math.sign(positions.get("A")!.y - positions.get("B")!.y);
+    expect(Math.sign(positions.get("D")!.y - positions.get("C")!.y)).toBe(sourceOrder);
+    expect(routes.map(({ from, to }) => `${from}:${to}`).sort()).toEqual(["A:D", "B:C"]);
+  });
+
+  it("keeps tasks in their earliest dependency column, retaining direct skip edges and nested scope isolation", () => {
+    const { positions, routes } = layoutTaskScope(sampleGraph, sampleGraph.nodes[0]);
+    expect(positions.get("B")!.x).toBe(positions.get("D")!.x);
+    for (const [from, to] of [["A", "B"], ["B", "C"], ["C", "E"]]) {
+      expect(positions.get(from)!.x).toBeLessThan(positions.get(to)!.x);
+    }
+    expect(routes).toHaveLength(6);
+    expect(routes.some(edge => edge.from === "A" && edge.to === "C")).toBe(true);
+    expect(positions.has("Z1")).toBe(false);
+    expect(sampleGraph.nodes[1].status).toBe("todo");
   });
 });

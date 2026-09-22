@@ -1,10 +1,27 @@
+import { Graph, layout, type Point } from "@dagrejs/dagre";
 import type { TaskDependency, TaskGraph, TaskNode } from "./task-graphs-api";
 
 const CARD_WIDTH = 204;
-const COLUMN = 272;
-const ROW = 174;
+const CARD_HEIGHT = 136;
 
-/** Lay out one scope; direct edges retain distinct ports and skip edges travel above cards. */
+/** Round only the bends chosen by the layout, keeping each edge in its own corridor. */
+function roundedPath(points: Point[]) {
+  let path = `M${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length - 1; index++) {
+    const previous = points[index - 1], current = points[index], next = points[index + 1];
+    const before = Math.hypot(current.x - previous.x, current.y - previous.y);
+    const after = Math.hypot(next.x - current.x, next.y - current.y);
+    if (!before || !after) continue;
+    const radius = Math.min(12, before / 2, after / 2);
+    const start = { x: current.x + (previous.x - current.x) * radius / before, y: current.y + (previous.y - current.y) * radius / before };
+    const end = { x: current.x + (next.x - current.x) * radius / after, y: current.y + (next.y - current.y) * radius / after };
+    path += ` L${start.x} ${start.y} Q${current.x} ${current.y} ${end.x} ${end.y}`;
+  }
+  const last = points[points.length - 1];
+  return `${path} L${last.x} ${last.y}`;
+}
+
+/** Arrange one scope in dependency columns, reducing crossings without changing any recorded edge. */
 export function layoutTaskScope(graph: TaskGraph, scope: TaskNode) {
   const nodes = graph.nodes.filter(node => node.container_id === scope.id)
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
@@ -12,55 +29,28 @@ export function layoutTaskScope(graph: TaskGraph, scope: TaskNode) {
   const edges: TaskDependency[] = scope.mode === "dag"
     ? graph.dependencies.filter(edge => ids.has(edge.from) && ids.has(edge.to))
     : nodes.filter(node => node.derived_from_id).map(node => ({ from: node.derived_from_id!, to: node.id }));
-  const depth = new Map(nodes.map(node => [node.id, 0]));
-  // The service guarantees acyclicity; topological traversal also handles the 500-node bound cheaply.
-  const incoming = new Map(nodes.map(node => [node.id, 0]));
-  const outgoing = new Map<string, TaskDependency[]>();
-  edges.forEach(edge => {
-    incoming.set(edge.to, incoming.get(edge.to)! + 1);
-    outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge]);
+  const drawing = new Graph().setGraph({
+    rankdir: "RL", ranker: "longest-path", nodesep: 38, edgesep: 24, ranksep: 80, marginx: 16, marginy: 48
   });
-  const queue = nodes.filter(node => incoming.get(node.id) === 0).map(node => node.id);
-  for (let index = 0; index < queue.length; index++) {
-    const id = queue[index];
-    for (const edge of outgoing.get(id) ?? []) {
-      depth.set(edge.to, Math.max(depth.get(edge.to)!, depth.get(id)! + 1));
-      incoming.set(edge.to, incoming.get(edge.to)! - 1);
-      if (incoming.get(edge.to) === 0) queue.push(edge.to);
-    }
-  }
-  const columns = new Map<number, TaskNode[]>();
-  nodes.forEach(node => columns.set(depth.get(node.id)!, [...(columns.get(depth.get(node.id)!) ?? []), node]));
-  const longEdges = edges.filter(edge => depth.get(edge.to)! - depth.get(edge.from)! > 1);
-  const extraTop = longEdges.length ? longEdges.length * 18 + 24 : 0;
-  const maxRows = Math.max(1, ...[...columns.values()].map(column => column.length));
-  const positions = new Map<string, { x: number; y: number }>();
-  columns.forEach((column, level) => column.forEach((node, row) => positions.set(node.id, {
-    x: 16 + level * COLUMN,
-    y: 32 + extraTop + row * ROW + (maxRows - column.length) * ROW / 2
-  })));
-  function port(edge: TaskDependency, end: "from" | "to") {
-    const siblings = edges.filter(candidate => candidate[end] === edge[end]);
-    return siblings.length === 1 ? 67 : 28 + 78 * siblings.indexOf(edge) / (siblings.length - 1);
-  }
+  nodes.forEach(node => drawing.setNode(node.id, { width: CARD_WIDTH, height: CARD_HEIGHT }));
+  // Dagre ranks longest paths from sinks. Reverse only its layout input so every task
+  // stays in its earliest prerequisite column, including disconnected tasks.
+  edges.forEach(edge => drawing.setEdge(edge.to, edge.from, {}));
+  if (nodes.length) layout(drawing);
+  const positions = new Map(nodes.map(node => {
+    const placed = drawing.node(node.id);
+    return [node.id, { x: placed.x - CARD_WIDTH / 2, y: placed.y - CARD_HEIGHT / 2 }] as const;
+  }));
   const routes = edges.map(edge => {
-    const from = positions.get(edge.from)!;
-    const to = positions.get(edge.to)!;
-    const sy = from.y + port(edge, "from");
-    const ty = to.y + port(edge, "to");
-    const lane = longEdges.indexOf(edge);
-    return {
-      ...edge,
-      path: lane < 0
-        ? `M${from.x + CARD_WIDTH} ${sy} C${from.x + 240} ${sy},${to.x - 36} ${ty},${to.x - 5} ${ty}`
-        : `M${from.x + CARD_WIDTH} ${sy} H${from.x + 220} V${18 + lane * 18} H${to.x - 20} V${ty} H${to.x - 5}`,
-      labelX: (from.x + CARD_WIDTH + to.x) / 2,
-      labelY: lane < 0 ? (sy + ty) / 2 - 14 : 10 + lane * 18
-    };
+    const points: Point[] = [...drawing.edge(edge.to, edge.from).points].reverse();
+    const middle = points[Math.floor(points.length / 2)];
+    return { ...edge, path: roundedPath(points), labelX: middle.x, labelY: middle.y - 12 };
   });
+  const columns = [...new Set([...positions.values()].map(position => position.x))].sort((a, b) => a - b)
+    .map(x => ({ x, count: [...positions.values()].filter(position => position.x === x).length }));
   return {
-    nodes, routes, positions,
-    width: Math.max(500, (Math.max(0, ...depth.values()) + 1) * COLUMN - 36),
-    height: Math.max(300, maxRows * ROW + 62 + extraTop)
+    nodes, routes, positions, columns,
+    width: Math.max(500, drawing.graph().width ?? 0),
+    height: Math.max(300, drawing.graph().height ?? 0)
   };
 }
