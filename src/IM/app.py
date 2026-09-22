@@ -28,6 +28,9 @@ from IM.application.relay_service import RelayService
 from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
+from IM.application.task_graphs import TaskGraphService
+from IM.api.routes.task_graphs import router as task_graph_router
+from IM.ws.gateway.task_graphs import GatewayTaskGraphs
 from IM.infra.channel_control_store import ChannelControlStore
 from IM.infra.binding_store import BindingStore
 from IM.infra.gateway_persistence import (
@@ -208,6 +211,8 @@ def _install_frontend_entrypoints(
         """Serve or forward the discoverable Web IM root entry."""
         return frontend_entry_response(request)
 
+    @app.get("/tasks", include_in_schema=False)
+    @app.get("/tasks/{task_path:path}", include_in_schema=False)
     @app.get("/chat", include_in_schema=False)
     @app.get("/chat/{conversation_path:path}", include_in_schema=False)
     async def frontend_chat_entry(request: Request, conversation_path: str = ""):
@@ -423,7 +428,9 @@ def create_app(
         )
         app_instance.state.work_repository = work_repository
         app_instance.state.gateway_work = gateway_work
+        app_instance.state.task_graphs = TaskGraphService(resolved_db_path)
         gateway_runtime = GatewayRuntime(
+            task_graphs=GatewayTaskGraphs(app_instance.state.task_graphs),
             work=gateway_work,
             sessions=gateway_sessions,
             control=gateway_control,
@@ -487,6 +494,7 @@ def create_app(
     app.include_router(account_router)
     app.include_router(agent_router)
     app.include_router(agent_work_router)
+    app.include_router(task_graph_router)
     app.include_router(agent_channels_router)
     app.include_router(web_im_router)
     app.include_router(conversation_commands_router)

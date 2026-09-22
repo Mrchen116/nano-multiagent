@@ -17,6 +17,7 @@ from .protocol import (
 from .relay import GatewayRelay
 from .sessions import GatewaySessions
 from .work import GatewayWork
+from .task_graphs import GatewayTaskGraphs
 
 
 class GatewayRuntime:
@@ -27,6 +28,7 @@ class GatewayRuntime:
             "node.heartbeat",
             "agent.work.append",
             "conversation.query",
+            "task_graph.command",
             "agent.work.permission.result",
             "node.report",
             "node.delivery_receipt",
@@ -64,6 +66,7 @@ class GatewayRuntime:
         relay: GatewayRelay,
         execution: GatewayExecution,
         work: GatewayWork | None = None,
+        task_graphs: GatewayTaskGraphs | None = None,
     ) -> None:
         self._sessions = sessions
         self._control = control
@@ -71,6 +74,7 @@ class GatewayRuntime:
         self._relay = relay
         self._execution = execution
         self._work = work
+        self._task_graphs = task_graphs
 
     async def serve(
         self, websocket: WebSocket, *, authenticated_owner_id: str = ""
@@ -160,6 +164,12 @@ class GatewayRuntime:
                 payload=payload,
                 authenticated_owner_id=authenticated_owner_id,
             )
+        if message_type == "task_graph.command":
+            if self._task_graphs is None or not await self._sessions.is_registered_sender(
+                websocket=websocket, node_id=str(payload.get("node_id", ""))
+            ):
+                return {"type": "error", "payload": {"code": "node_not_registered"}}
+            return await self._task_graphs.command(payload=payload)
         if message_type in {
             "agent.work.append",
             "conversation.query",
