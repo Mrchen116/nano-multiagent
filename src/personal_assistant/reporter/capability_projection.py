@@ -49,6 +49,7 @@ PA_DEFAULT_TOOL_IDS: tuple[str, ...] = (
     "skill_manage",
     "skill_view",
     "memory",
+    "task_graph",
 )
 
 PA_OPTIONAL_TOOL_IDS: tuple[str, ...] = (

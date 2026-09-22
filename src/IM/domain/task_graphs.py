@@ -377,7 +377,7 @@ def apply_operations(
             raise
     validate_document(candidate)
     for node_id in changed:
-        nodes[node_id].update(updated_at=now, updated_by=actor)
+        nodes[node_id].update(updated_at=now, updated_by=actor, change_note=change_note)
     candidate.update(
         revision=document["revision"] + 1, updated_at=now, updated_by=actor
     )

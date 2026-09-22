@@ -144,6 +144,7 @@ function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss }: { graph: 
     <section><h2>{node.title}</h2><div className="tasks-tags"><span className="tasks-mode">{t(`tasks.mode.${node.mode}`)}</span><TaskStatusBadge status={node.status} /></div></section>
     <section><h3>{t("tasks.description")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{node.description || t("tasks.noDescription")}</ReactMarkdown></div></section>
     <section><h3>{t("tasks.result")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{node.result || t("tasks.noResult")}</ReactMarkdown></div></section>
+    {node.change_note && <section><h3>{t("tasks.changeNote")}</h3><p className="tasks-prose">{node.change_note}</p></section>}
     {parent?.mode === "dag" && <><section><h3>{t("tasks.predecessors")}</h3>{relationList(graph.dependencies.filter(edge => edge.to === node.id).map(edge => edge.from))}</section>
       <section><h3>{t("tasks.successors")}</h3>{relationList(graph.dependencies.filter(edge => edge.from === node.id).map(edge => edge.to))}</section></>}
     {node.derived_from_id && <section><h3>{t("tasks.derivedFrom")}</h3>{relationList([node.derived_from_id])}</section>}

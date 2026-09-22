@@ -963,12 +963,13 @@ class IMConnectionManager:
                 self._start_heartbeat_loop()
             await self._flush_pending_frames()
             return
-        if message_type in {"agent.work.ack", "conversation.query.result"}:
-            request_type = (
-                "agent.work.append"
-                if message_type == "agent.work.ack"
-                else "conversation.query"
-            )
+        result_types = {
+            "agent.work.ack": "agent.work.append",
+            "conversation.query.result": "conversation.query",
+            "task_graph.result": "task_graph.command",
+        }
+        if message_type in result_types:
+            request_type = result_types[message_type]
             owner = self._wire_frame_owner
             key = "journal_id" if message_type == "agent.work.ack" else "request_id"
             if (

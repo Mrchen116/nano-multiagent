@@ -165,8 +165,11 @@ class GatewayRuntime:
                 authenticated_owner_id=authenticated_owner_id,
             )
         if message_type == "task_graph.command":
-            if self._task_graphs is None or not await self._sessions.is_registered_sender(
-                websocket=websocket, node_id=str(payload.get("node_id", ""))
+            if (
+                self._task_graphs is None
+                or not await self._sessions.is_registered_sender(
+                    websocket=websocket, node_id=str(payload.get("node_id", ""))
+                )
             ):
                 return {"type": "error", "payload": {"code": "node_not_registered"}}
             return await self._task_graphs.command(payload=payload)

@@ -13,6 +13,7 @@ export type TaskNode = {
   mode: TaskMode;
   status: TaskStatus;
   result: string;
+  change_note?: string;
   derived_from_id: string | null;
   selected_candidate_id: string | null;
   selection_reason: string;

@@ -757,6 +757,13 @@ class GatewaySessionBinder:
                 guard=self._guard_for(agent),
             )
 
+    def session_provenance_is_current(self, provenance: SessionProvenance) -> bool:
+        """Check the existing catalog/generation guard before a tool write begins."""
+        with self._lock:
+            return self._write_guard_is_current(
+                agent=provenance.agent, generation=provenance.guard.generation
+            )
+
     def capture_binding_provenance(
         self, session_key: str, *, expected_agent_id: str
     ) -> BindingProvenance | None:

@@ -973,6 +973,7 @@
     }
   },
   "tasks": {
+    "changeNote": "Latest change",
     "subtitle": "Goals, structure and results saved from your discussions",
     "targets": "Goals",
     "search": "Search goal names",

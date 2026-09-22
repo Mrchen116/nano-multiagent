@@ -206,7 +206,7 @@ class TaskGraphService:
                         current_revision=document["revision"],
                     )
                 note = require_text(
-                    args.get("change_note", ""), "change_note", limit=4000, empty=True
+                    args.get("change_note"), "change_note", limit=8000, empty=True
                 )
                 document, refs, changed = apply_operations(
                     document,

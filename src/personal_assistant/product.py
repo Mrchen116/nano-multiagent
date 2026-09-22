@@ -43,6 +43,7 @@ from personal_assistant.gateway.readable_input_projection import (
 from personal_assistant.tools.inbox import InboxTool
 from personal_assistant.tools.inbox_result import INBOX_SOURCE_INSTRUCTIONS
 from personal_assistant.tools.conversations import ConversationsTool
+from personal_assistant.tools.task_graph import TaskGraphTool
 from personal_assistant.tools import (
     SendMessageTool,
     WebSearchTool,
@@ -90,6 +91,7 @@ DEFAULT_TOOL_IDS = [
     "skill_manage",
     "skill_view",
     "memory",
+    "task_graph",
 ]
 
 
@@ -410,6 +412,11 @@ def prompt_for(
         if global_main
         else _group_tail_text(scenario)
     )
+    target = scenario.get("conversation_id")
+    if not global_main and isinstance(target, str) and target.strip():
+        tail_text = (tail_text + "\n" if tail_text else "") + (
+            f"Current bound chat target: {target}. Use this explicit target when saving a task graph to this chat."
+        )
     tail = (
         (PromptText(name="pa.communication_context", text=tail_text),)
         if tail_text is not None
@@ -485,6 +492,7 @@ def build_pa_kernel(
         WebSearchTool(),
         InboxTool(gateway_dispatch_url_provider=gateway_dispatch_url_provider),
         ConversationsTool(gateway_dispatch_url_provider=gateway_dispatch_url_provider),
+        TaskGraphTool(gateway_dispatch_url_provider=gateway_dispatch_url_provider),
     ]
     # refactor-406-M2: PA hooks supplied via build_kernel(hooks=…) (决策 2). chat_history
     # persists each turn to <workspace>/.nanoassistant/chat_history/<session_id>.jsonl.

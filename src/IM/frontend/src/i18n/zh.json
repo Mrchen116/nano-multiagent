@@ -965,6 +965,7 @@
     }
   },
   "tasks": {
+    "changeNote": "最近变更说明",
     "subtitle": "讨论后保存的目标、结构与结果",
     "targets": "目标",
     "search": "搜索目标名称",

@@ -259,7 +259,9 @@ class GatewayRuntime:
             if callable(build_dispatch_handler):
                 from aiohttp import web as _aiohttp_web
 
-                _dispatch_app = _aiohttp_web.Application()
+                _dispatch_app = _aiohttp_web.Application(
+                    client_max_size=2 * 1024 * 1024
+                )
                 _dispatch_app.router.add_post(
                     "/internal/dispatch",
                     build_dispatch_handler(),
@@ -272,6 +274,13 @@ class GatewayRuntime:
                         _dispatch_app.router.add_post(
                             f"/internal/{tool_name}", query_handler(tool_name)
                         )
+                task_graph_handler = getattr(
+                    self._internal_dispatch_handler, "build_task_graph_handler", None
+                )
+                if callable(task_graph_handler):
+                    _dispatch_app.router.add_post(
+                        "/internal/task-graph", task_graph_handler()
+                    )
                 dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
                 await dispatch_runner.setup()
                 dispatch_site = _aiohttp_web.TCPSite(

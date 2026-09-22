@@ -502,6 +502,46 @@ class InternalDispatchHandler:
                 }
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
 
+    def build_task_graph_handler(self) -> Callable:
+        """Build the channel-independent task endpoint on this listener lifecycle."""
+        from aiohttp import web
+        from personal_assistant.gateway.task_graphs import TaskGraphBridge
+
+        bridge = TaskGraphBridge(
+            manager=self._im_connection_manager,
+            binder=self._session_binder,
+            inbox=self._global_inbox,
+        )
+
+        async def handle(request: Any) -> Any:
+            if self._sealed:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "source_unavailable",
+                            "message": "Gateway is shutting down.",
+                        },
+                    },
+                    status=503,
+                )
+            try:
+                payload = await request.json()
+                if not isinstance(payload, dict):
+                    raise ValueError("expected an object")
+                result = await bridge.execute(payload)
+                return web.json_response(result)
+            except (ValueError, TypeError) as exc:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": {"code": "invalid_arguments", "message": str(exc)},
+                    },
+                    status=400,
+                )
+
+        return handle
+
     def build_query_handler(self, tool_name: str) -> Callable:
         """Build a loopback query handler with actual Session provenance checks."""
         from aiohttp import web
