@@ -128,3 +128,66 @@ The supplied targeted evidence is `40 passed` in `/tmp/feat569-feature-green.log
 The archived task-graphs delta adds S21 and the new agent-capabilities delta makes the limited effective-tool exception explicit. They match the existing canonical next-turn full-runtime rule and are semantically ready for corrected-delta reconciliation. `git diff --check` reported only the final blank line in `specs/gateway/agent-capabilities.md`; its mechanical cleanup is owned by the integrator and does not change this verdict.
 
 Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**
+
+## Round 7: targeted account-ownership and per-node-chat revalidation
+
+> Review mode: `targeted` · patch: `4058e38ad..b94e157c7` · reviewed snapshot: `b94e157c7`
+
+### Findings
+
+```json
+[
+  {
+    "file": "src/IM/domain/task_graphs.py",
+    "line": 72,
+    "summary": "Root creation drops the supplied last-update chat",
+    "failure_scenario": "An Agent creates a graph from an accessible chat. TaskGraphService passes that conversation to new_node, but new_node writes last_chat_id=None after expanding fields. The root has no return-to-chat button or update-chat title until a later apply happens to modify it, contrary to S23's requirement that creation records the current chat.",
+    "review_mode": "targeted",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+The account boundary itself is correctly derived from the authenticated user or registered non-stale Agent profile. Owner-scoped list/get/write and receipt replay all compare the current trusted `owner_id`; no model argument can select an owner. Same-account enabled Agents therefore share graphs without an Agent-assignment path, while a different account cannot obtain a graph or an old receipt merely through source-chat membership. Optional source validation remains a separate current-conversation membership check, and read projection independently clears inaccessible/deleted node chat IDs and titles.
+
+The Bridge carries the trusted `ToolContext.run_id`; for a single-thread write without explicit target it consults the shared `RunDeliveryContextStore` and verifies both Agent and Kernel session before using that run's canonical chat. Global and missing/mismatched-context paths retain no inferred source. `conversation_id` is removed from the receipt hash and a matching replay returns before source validation or node mutation, preserving the initial update source.
+
+However, `TaskGraphService.create` passes `last_chat_id=conversation_id` to `new_node` (`src/IM/application/task_graphs.py:194`), while `new_node` assigns its default `last_chat_id` after `**fields` (`src/IM/domain/task_graphs.py:72`). Python therefore overwrites the supplied chat with `None`. The existing ownership test exercises a source create only through a peer that cannot read the source, and later changes the root through apply, so it misses the creation case. Move the default before `**fields` (or otherwise preserve a supplied value) and add an owner HTTP/WS assertion that create with `conversation_id` returns the root's ID/title; retain the existing no-source null assertion.
+
+Supplied narrow evidence is Python `33 passed`, UI `11 passed`, plus build and Ruff. This review did not rerun those commands or claim the separate product journey. Earlier DAG, compact-ID, S21, persistence, provenance, and no-automatic-execution conclusions remain valid outside the failed root-source write.
+
+Verdict: **WARNING — S22 owner sharing and most S23 paths align, but source-chat creation of the root is incorrect.**
+
+### Round 7 closure: root creation source retention
+
+> Closure snapshot: `44af01688` · targeted repair range: `b94e157c7..44af01688`
+
+### Findings
+
+```json
+[]
+```
+
+`new_node` now establishes its `last_chat_id` default before expanding caller fields (`src/IM/domain/task_graphs.py:72`). The explicit source passed by graph creation therefore persists on the root. The focused owner HTTP read now asserts both the root `last_chat_id` and the independently ACL-projected `last_chat_title` immediately after source-backed creation (`tests/im_service/integration/test_task_graph_ownership.py:59`).
+
+The supplied red phase records the original failure in both global and single-thread cases (`2 failed`); the repair phase reports `27 passed` in `/tmp/feat569-create-source-green.log`. This was a static targeted revalidation; it does not claim the separate product journey or rerun the parallel full suites. The mechanical S21 wording update from Web-membership language to account access is consistent with the implemented owner boundary and changes no behavior.
+
+Verdict: **PASS — the confirmed Round 7 root-source finding is closed; no remaining targeted code-review finding.**
+
+## Round 8: targeted real-Agent principal repair
+
+> Review mode: `targeted` · repair snapshot: `a4bd167de` · repair range: `44af01688..a4bd167de`
+
+### Findings
+
+```json
+[]
+```
+
+The removed `u.owner_id=p.owner_id` predicate was an identity-model error: `ConfigService.ensure_agent_user` creates the unique synthetic `agent:<agent_id>` chat user with its own `owner_id`, while the authoritative human account is the registered, non-stale profile owner. The retained profile-to-node owner join establishes that account before any graph or receipt lookup; the synthetic `users` join now supplies only the real participant ID required for source-chat membership. The `users.username` uniqueness constraint keeps this correspondence singular.
+
+The integration fixture now creates profiles through `ConfigService`, then resolves the synthetic participant through `UserRepository`, matching the production construction path. Its existing transfer regression intentionally changes only profile/node ownership and still denies the old receipt, which proves authorization does not accidentally fall back to the synthetic user's self-owner value.
+
+The supplied red phase has the expected four actual-Agent command failures; the focused API, owner, and domain repair phase reports `27 passed` in `/tmp/feat569-agent-principal-green.log`. This review did not rerun full suites or claim the independent product revalidation. The only implementation change is this principal-resolution repair; all earlier DAG, short-ID, feature-gate, source-chat, persistence, provenance, and no-automatic-execution conclusions remain retained.
+
+Verdict: **PASS — real registered Agents resolve to their profile/node human owner without weakening cross-account isolation.**

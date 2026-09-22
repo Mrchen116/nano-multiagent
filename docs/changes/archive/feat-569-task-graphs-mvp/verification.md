@@ -250,3 +250,87 @@ WARNING: None.
 SUGGESTION: Remove the final blank line in the archived agent-capabilities delta before final merge hygiene checks.
 
 Round 6 static verifier verdict: **PASS**. `requires_full_verification: false`. The independent product reviewer remains responsible for actual feature-switch UI and live journey evidence.
+
+## Round 7: targeted account-ownership and per-node-chat revalidation
+
+> Revalidation mode: `targeted` · patch: `4058e38ad..b94e157c7` · reviewed snapshot: `b94e157c7`
+
+### Retained evidence
+
+The DAG/exploration semantics, IM-only durable store, short graph and node IDs, S21 feature gate, PA provenance, no automatic execution, and read-only browser remain unchanged. This patch replaces chat-membership graph authorization with trusted human-account ownership and adds per-node source-chat metadata; it does not add Agent assignment, node ownership, a scheduler, a write browser API, or a new source-of-truth outside IM.
+
+### S22/S23 verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| Same-account Agents share goals; cross-account access remains denied | `actor_user` resolves `owner_id` from the user/profile and node registration; service checks it before document or receipt use | `test_goals_belong_to_account_with_optional_source_and_no_agent_assignment` exercises peer Agent read/write, cross-account browser denial, forged owner rejection, stale profile and transferred-owner replay denial | aligned |
+| Graph scope is account-wide, independent of source-chat lifecycle | owner-indexed list/get/write and no graph-level conversation FK; source is only a per-node soft reference | ownership test covers no-source create, source-chat deletion, persisted graph read and replay | aligned |
+| A source chat never expands graph access and is hidden when independently inaccessible | write validates explicit source membership; `_project_chats` only emits node ID/title under the reader's current chat membership | peer read hides source metadata; delete hides it while account graph remains readable | aligned |
+| Single-thread auto-source follows the executing run; global remains explicit | Bridge reads `RunDeliveryContextStore` by `origin_run_id` and checks Agent/session; real listener matrix covers Web/Feishu and single/global | `test_native_tool_uses_real_listener_with_same_agent_rules` records run-specific context and verifies no implicit global source | aligned |
+| Each changed node records its own last source and replay does not move it | `apply_operations` returns changed IDs; service sets only those IDs after a successful mutation; receipt replay is before source validation and mutation | ownership test covers different nodes/chats, replay under another source, and no-source clearing | aligned |
+| Creating a graph from a source chat records the root's last-update chat | create passes its source to `new_node` | missing owner-visible create assertion; implementation overwrites supplied value with `None` | **not aligned** |
+
+The source failure is concrete: `new_node` expands caller fields, then unconditionally writes `last_chat_id=None` (`src/IM/domain/task_graphs.py:72`). It overrides `TaskGraphService.create`'s explicit `last_chat_id=conversation_id` (`src/IM/application/task_graphs.py:194–203`), so S23's initial root source is absent until another mutation modifies the root. Fix the default ordering or equivalent merge semantics, then add a focused HTTP/WS owner read assertion for source-backed creation.
+
+### Corrected Delta Reconciliation
+
+The IM and Gateway deltas correctly describe owner-scoped graphs, per-node independently ACL-projected last chats, explicit/global and run-derived single-thread source behavior, and source-free writes. They cannot yet be reconciled into canonical specifications because the implemented create path violates the delta's update-chat scenario. No canonical merge should claim this S23 behavior until the confirmed source write is closed.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: Source-backed graph creation clears the root's `last_chat_id`, preventing its required return-to-chat context.
+
+SUGGESTION: None.
+
+Round 7 static verifier verdict: **WARNING**. `requires_full_verification: false`; a focused repair and regression proof are required before delta reconciliation. The independent product reviewer remains responsible for live account-sharing/source-chat journeys.
+
+### Round 7 closure: source-backed root creation
+
+> Closure snapshot: `44af01688` · targeted repair range: `b94e157c7..44af01688`
+
+| Contract | Implementation evidence | Focused regression evidence | Result |
+|---|---|---|---|
+| Creating from an authorized source chat records the root's update chat | `new_node` sets its fallback before `**fields`, preserving `TaskGraphService.create`'s supplied `last_chat_id` | the owner HTTP read immediately asserts root ID and projected title; red `2 failed` becomes green `27 passed` in `/tmp/feat569-create-source-{red,green}.log` | aligned |
+
+The change is limited to the default-field precedence that caused the confirmed S23 gap and its direct regression assertion. Owner identity, account-wide graph authorization, independent chat ACL projection, source-free writes, receipt behavior, run-derived single-thread source, and explicit-global behavior are unchanged and retain the Round 7 evidence. The mechanical S21 delta wording now says account access instead of Web member access; it accurately describes the same owner-scoped behavior.
+
+### Corrected Delta Reconciliation
+
+The IM and Gateway corrected deltas are now semantically **ready to merge** into canonical specifications: source-backed creation records the root update chat, while source metadata remains independently read-projected and does not authorize graph access. No further implementation delta is required for this closure.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+Round 7 closure static verifier verdict: **PASS**. `requires_full_verification: false`. The independent product reviewer remains responsible for live account-sharing/source-chat journeys.
+
+## Round 8: targeted real-Agent principal repair
+
+> Revalidation mode: `targeted` · repair snapshot: `a4bd167de` · repair range: `44af01688..a4bd167de`
+
+| Contract | Implementation evidence | Focused regression evidence | Result |
+|---|---|---|---|
+| Registered Agent operations use the profile's human owner | `actor_user` resolves the synthetic user by unique `agent:<agent_id>` while taking ownership from the non-stale profile joined to its same-owner node | fixture builds through `ConfigService`; red `4 failed` becomes green `27 passed` in `/tmp/feat569-agent-principal-{red,green}.log` | aligned |
+| Synthetic chat identity cannot preserve access after an account transfer | profile/node owner remains the authorization principal; receipt access is checked after that resolution | existing transfer test changes only profile/node owner and rejects replay | aligned |
+
+The original `users.owner_id` equality incorrectly treated a synthetic chat participant as the authority and rejected production-created Agents whose synthetic user self-owns its row. Removing that predicate restores the documented profile/node authority without accepting an unregistered, stale, or node-owner-mismatched Agent. The fixture change exercises the actual `ConfigService.ensure_agent_user` construction rather than a test-only owner rewrite.
+
+### Canonical Requirement Reconciliation
+
+The dirty canonical merge mechanically retains all six IM and four Gateway task-graph requirements. Its account-owner, optional-source, independently projected node-chat, single-thread run-context, and explicit-global statements match this repaired principal boundary. `git diff --check` on those four canonical files is clean. No delta semantic change is needed for this repair.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+Round 8 static verifier verdict: **PASS**. `requires_full_verification: false`. Earlier gates remain retained; independent product revalidation remains separate.
