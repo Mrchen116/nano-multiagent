@@ -49,3 +49,30 @@ The regression coverage first demonstrates the old independent-branch crossing, 
 Supplied evidence shows the focused task-graph suite (8 tests), TypeScript/Vite build, full frontend suite (84 files / 779 tests), docs-check, and diff-check passing. `npm audit --audit-level=critical` exits successfully; its seven reported low/moderate/high advisories predate this two-package addition. The separate product reviewer remains responsible for actual UI evaluation.
 
 Verdict: **PASS — no remaining confirmed or plausible targeted code-review findings.**
+
+## Round 4: targeted short-ID revalidation
+
+> Review mode: `targeted` · patch: `4cb266658..5f667ba71` · executed base: `2e9c83df9` · reviewed snapshot: `5f667ba71`
+
+### Findings
+
+```json
+[
+  {
+    "file": "docs/specs/gateway/task-graphs.md",
+    "line": 17,
+    "summary": "Current gateway specification omits the new short node-ID contract",
+    "failure_scenario": "After this archived unit is merged, a tool consumer consulting the canonical gateway specification is not told that IDs are graph-local stable n1/n2 values and may still assume the prior unspecified long-ID behavior.",
+    "review_mode": "targeted",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+The implementation itself is coherent in the stated development-only scope. Creation persists `n1` (`src/IM/application/task_graphs.py:171`); each atomic add allocates `n{len(nodes)+1}` after copying the one graph document, then validates all relationship references before save (`src/IM/domain/task_graphs.py:282`). The existing `BEGIN IMMEDIATE` transaction continues to serialize receipt lookup, revision validation, document mutation and receipt save (`src/IM/application/task_graphs.py:111`). Thus same-batch `@client_ref`, later-batch concrete IDs, retry receipts, and separate graphs that each start at `n1` retain their original scoping/atomicity behavior. No deleted-node or imported-document fallback is required by the authorized scope.
+
+The new domain and HTTP/WS assertions cover n1 roots, n2–n7 references, exact replay, cross-batch relationships, reordering without renumbering, and multiple graphs independently rooted at n1 (`tests/im_service/unit/test_task_graph_rules.py:44`; `tests/im_service/integration/test_task_graph_api.py:80`). The supplied focused command passes 30 tests. The original Gate 2 contract requires service-generated IDs and stable returned references but does not constrain a UUID format, so the as-built design correction is a permitted implementation choice.
+
+The remaining finding is documentary: the archived gateway delta adds the observable short-ID requirement (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11`), while the canonical gateway spec ends the corresponding scenario at its prior no-scheduling clause (`docs/specs/gateway/task-graphs.md:17`). The current spec needs that same one-line requirement before archival reconciliation is complete.
+
+Verdict: **WARNING — source implementation passes targeted review; canonical gateway-contract reconciliation remains open.**

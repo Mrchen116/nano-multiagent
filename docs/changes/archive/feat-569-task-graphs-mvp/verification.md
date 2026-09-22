@@ -143,3 +143,36 @@ SUGGESTION: None.
 The two earlier corrected-delta items (`total` and latest `change_note`) are untouched and remain **aligned**. The new layout sentence is implemented and covered as shown above: it preserves direct dependencies and nested-scope isolation, places prerequisites before dependents, identifies parallel columns, and explicitly retains no automatic execution.
 
 Round 3 static verifier verdict: **PASS**. `requires_full_verification: false`. Actual desktop/mobile layout usability and the associated product journeys remain evidence for the independent product reviewer; this static report does not claim that review.
+
+## Round 4: targeted short-ID revalidation
+
+> Revalidation mode: `targeted` · patch: `4cb266658..5f667ba71` · executed base: `2e9c83df9` · reviewed snapshot: `5f667ba71`
+
+### Retained Gate 2 assessment
+
+The approved design requires service-generated node IDs, graph-local stable references, atomic batches, and the same four tool actions. Its `tn_*` example identifiers are explicitly proposed document shape/examples rather than an ID-format requirement. Therefore switching the generated representation to `n1…n500` does not change the approved product, authorization, storage ownership, or tool-action contract. The appended design decision correctly limits the approach to the current development state: no deletion/re-numbering operation, no migration, alias, or compatibility layer is claimed.
+
+### Source and regression verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| Root and additions have short, graph-local stable IDs | create persists root `n1` in `src/IM/application/task_graphs.py:171`; add_task allocates by the current document cardinality in `src/IM/domain/task_graphs.py:282` | HTTP/WS test asserts root `n1` and n2–n7 client refs; multiple created graphs independently report `n1` | aligned |
+| Cross-batch references and relations remain stable through ordinary changes | nodes are keyed by the persisted ID and all relationship operations resolve in the candidate document before validation | `test_short_node_ids_stay_stable_across_batches_and_reordering` retains n2/n3 relations while changing title/status/order and adds n4 | aligned |
+| Same-batch references, replay, revision conflicts, and atomic write behavior retain their protection | `@client_ref` map stays request-local; existing receipt/revision sequence runs inside `BEGIN IMMEDIATE` before `repository.save` | existing HTTP/WS test replays the exact batch and asserts its complete n2–n7 map; existing integration conflict/rollback coverage remains in the reported focused suite | aligned |
+| Tool guidance tells the Agent to reuse actual returned IDs | `src/personal_assistant/tools/task_graph.py:74` documents graph-local `n1` reuse and updates its operation example | tool surface remains unchanged; focused suite reports 30 passed | aligned |
+
+The supplied focused validation (`tests/im_service/unit/test_task_graph_rules.py` and `tests/im_service/integration/test_task_graph_api.py`) completed with **30 passed**. No frontend source changed. The separately running service and full-suite work remains external evidence and is not claimed here.
+
+### Corrected Delta Reconciliation
+
+The new archived gateway delta is implemented: IDs returned by create/apply are short and stable within a graph, ordinary mutations do not renumber them, and no execution semantics change. However, this observable delta has not been copied to the current authoritative gateway specification: `docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11` adds the clause, but the equivalent canonical scenario in `docs/specs/gateway/task-graphs.md:14` stops at line 17. This is a confirmed documentation reconciliation gap; it does not invalidate the source behavior or earlier corrected `total`/`change_note` outcomes.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: Update the canonical gateway task-graphs specification with the same stable graph-local short-ID clause before final archive/contract closure.
+
+SUGGESTION: None.
+
+Round 4 static verifier verdict: **WARNING — implementation/source tests aligned, canonical gateway spec reconciliation incomplete.** `requires_full_verification: false`.
