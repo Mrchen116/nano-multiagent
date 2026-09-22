@@ -1,0 +1,125 @@
+{
+  "bundle": "nano-task-graphs-mvp",
+  "baseline_commit": "c0313d9c62891d4d452162d7f1d30a2680556885",
+  "read_date": "2026-09-22",
+  "official_unit_reserved": true,
+  "independent_gate2": "see design-review.md",
+  "production_implementation": "not_started",
+  "sources": [
+    {
+      "path": ".claude/skills/change-spec-author/SKILL.md",
+      "purpose": "首文档范围、原话、编号与角色边界",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-spec-author/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/change-spec-author/assets/spec.md",
+      "purpose": "spec 模板",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-spec-author/assets/spec.md"
+    },
+    {
+      "path": ".claude/skills/change-spec-author/references/authoring.md",
+      "purpose": "首文档用户可观察边界",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-spec-author/references/authoring.md"
+    },
+    {
+      "path": ".claude/skills/change-spec-author/scripts/next_unit_id.py",
+      "purpose": "本地原子领号，打印 feat-N",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-spec-author/scripts/next_unit_id.py"
+    },
+    {
+      "path": ".claude/skills/change-design-author/SKILL.md",
+      "purpose": "design、delta、原型、单M1与独立Gate2",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-design-author/SKILL.md"
+    },
+    {
+      "path": ".claude/skills/change-design-author/assets/design.md",
+      "purpose": "design 模板",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-design-author/assets/design.md"
+    },
+    {
+      "path": ".claude/skills/change-design-author/references/prototype-and-runbook.md",
+      "purpose": "must-match与真栈验收",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-design-author/references/prototype-and-runbook.md"
+    },
+    {
+      "path": ".claude/skills/change-design-author/references/review-loop.md",
+      "purpose": "没有独立reviewer不可自签Gate2",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/.claude/skills/change-design-author/references/review-loop.md"
+    },
+    {
+      "path": "docs/changes/README.md",
+      "purpose": "目录和编号、骨架不预填",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/docs/changes/README.md"
+    },
+    {
+      "path": "docs/development/change-workflow.md",
+      "purpose": "Full/设计门禁/默认简化实施",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/docs/development/change-workflow.md"
+    },
+    {
+      "path": "docs/specs/CONTRIBUTING.md",
+      "purpose": "ADDED delta与canonical归并",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/docs/specs/CONTRIBUTING.md"
+    },
+    {
+      "path": "AGENTS.md",
+      "purpose": "包边界与主实例保护",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/AGENTS.md"
+    },
+    {
+      "path": "docs/specs/im/spec.md",
+      "purpose": "现有area与IM权限职责",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/docs/specs/im/spec.md"
+    },
+    {
+      "path": "docs/development/worktree-runtime.md",
+      "purpose": "隔离真栈起停、凭据和重启边界",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/docs/development/worktree-runtime.md"
+    },
+    {
+      "path": "src/IM/app.py",
+      "purpose": "路由/静态入口/SQLite/WS装配",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/IM/app.py"
+    },
+    {
+      "path": "src/IM/ws/gateway/runtime.py",
+      "purpose": "已认证注册Gateway分派",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/IM/ws/gateway/runtime.py"
+    },
+    {
+      "path": "src/IM/frontend/package.json",
+      "purpose": "现有依赖和构建测试命令",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/IM/frontend/package.json"
+    },
+    {
+      "path": "src/IM/frontend/src/app/shell/app-shell.tsx",
+      "purpose": "桌面48px与手机导航",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/IM/frontend/src/app/shell/app-shell.tsx"
+    },
+    {
+      "path": "src/personal_assistant/gateway/internal_dispatch.py",
+      "purpose": "loopback listener、provenance和handler",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/personal_assistant/gateway/internal_dispatch.py"
+    },
+    {
+      "path": "src/personal_assistant/gateway/composition.py",
+      "purpose": "实际装配与IMConnectionManager位置",
+      "url": "https://github.com/Mrchen116/nano-multiagent/blob/c0313d9c62891d4d452162d7f1d30a2680556885/src/personal_assistant/gateway/composition.py"
+    }
+  ],
+  "prior_context_sources": [
+    "src/IM/frontend/src/styles/global.css",
+    "src/IM/frontend/src/features/chat/chat-workspace-page.tsx",
+    "src/personal_assistant/product.py",
+    "src/personal_assistant/tools/inbox.py",
+    "docs/specs/kernel/sdk-boundary.md"
+  ],
+  "limitations": [
+    "未运行目标仓库或访问本地LLM凭据",
+    "未创建仓库branch/commit/PR",
+    "不提供虚构的独立审查或产品验收报告"
+  ],
+  "unit_id": "feat-569",
+  "import_head": "4394ad4246b2ec3324e2c8aa219212dc0ec2ff75",
+  "sources_record_scope": "Original imported package sources; local revision and review evidence are appended in design-review.md."
+}
