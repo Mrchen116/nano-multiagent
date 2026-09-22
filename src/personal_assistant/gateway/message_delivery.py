@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 import asyncio
-import httpx
-from personal_assistant.gateway.shadow_sync import build_im_http_headers
 import json
 import inspect
+from personal_assistant.gateway.shadow_reply_publisher import ShadowReplyPublisher
+from personal_assistant.gateway.shadow_saga import (
+    ExternalShadowBubble,
+    ExternalShadowOutput,
+    ExternalShadowSaga,
+)
 from personal_assistant.gateway.delivery_permission import DeliveryPermission
 from personal_assistant.gateway.reply_visibility import should_suppress_reply
 from dataclasses import dataclass, field, replace
@@ -77,6 +81,7 @@ class MessageDelivery:
         owner_id,
         writer,
         notify_pending,
+        shadow_publisher: ShadowReplyPublisher | None = None,
     ):
         self.images, self.contexts, self.catalog = images, contexts, catalog
         self.registry, self.router, self._connection = registry, router, connection
@@ -91,6 +96,7 @@ class MessageDelivery:
             writer,
             notify_pending,
         )
+        self._shadow_publisher = shadow_publisher
         self.ledger = DeliveryLedger(images.root)
         self._permission_events = set()
         self._permission = DeliveryPermission(
@@ -722,127 +728,56 @@ class MessageDelivery:
             prepared, conversation_id, agent_id=agent_id
         )
 
-    async def mirror_shadow_output(self, shadow, saga, output) -> None:
+    async def mirror_shadow_output(
+        self, saga: ExternalShadowSaga, output: ExternalShadowOutput
+    ) -> None:
+        """Project a prepared output, publish it, and record successful delivery.
+
+        Args:
+            saga: External conversation with its confirmed user anchor.
+            output: Durable output to publish using its saved image snapshot.
+        """
         shadow_ref = saga.shadow_ref
         if shadow_ref is None:
             raise ValueError("shadow output requires a confirmed user anchor")
+        publisher = self._shadow_publisher
+        if publisher is None:
+            raise RuntimeError("shadow publication is not configured")
         content = await self.project_saved_shadow(
             output.output_key, shadow_ref.conversation_id, saga.agent_id, output.content
         )
-        token = await shadow._require_gateway_token()
-        async with httpx.AsyncClient(
-            base_url=shadow._base_url,
-            headers=build_im_http_headers(token),
-            timeout=shadow._timeout_seconds,
-            trust_env=False,
-            transport=shadow._transport,
-        ) as client:
-            if shadow._before_publish is not None and not await shadow._before_publish(
-                output.run_id
-            ):
-                assert shadow._saga_store is not None
-                shadow._saga_store.discard_output(output)
-                return
-            try:
-                response = await client.post(
-                    f"/im/v1/conversations/{shadow_ref.conversation_id}/messages",
-                    params={"agent_id": saga.agent_id},
-                    headers={"Idempotency-Key": output.caller_idempotency_key},
-                    json={
-                        "sender": {"type": "agent", "id": saga.agent_id},
-                        "content": content,
-                        "suppress_relay": True,
-                    },
-                )
-                response.raise_for_status()
-            finally:
-                if shadow._after_publish is not None:
-                    shadow._after_publish(output.run_id)
-            message_id = str(response.json().get("id") or "").strip()
-            if not message_id:
-                raise ValueError("external shadow agent message response missing id")
-        saga_store = shadow._saga_store
-        assert saga_store is not None
-        saga_store.record_output_anchor(output=output, im_message_id=message_id)
-
+        if await publisher.publish_output(saga, output, content) is None:
+            return
         self.ledger.record_delivery(
             output.output_key,
             "im",
             {"state": "delivered", "conversation_id": shadow_ref.conversation_id},
         )
 
-    async def reconcile_shadow_snapshot(self, shadow, snapshot) -> None:
-        """Reconcile one terminal rich snapshot into its same-identity IM row."""
+    async def reconcile_shadow_snapshot(
+        self, saga: ExternalShadowSaga, snapshot: ExternalShadowBubble
+    ) -> None:
+        """Project and reconcile one rich snapshot without changing its identity.
 
-        saga_store = shadow._saga_store
-        if saga_store is None:
-            raise RuntimeError("external shadow bubble requires durable saga storage")
-        saga = saga_store.require(snapshot.saga_id)
+        Args:
+            saga: External conversation owning the bubble.
+            snapshot: Durable rich snapshot and saved reply output key.
+        """
         shadow_ref = saga.shadow_ref
         if shadow_ref is None:
             return
+        publisher = self._shadow_publisher
+        if publisher is None:
+            raise RuntimeError("shadow publication is not configured")
         content = await self.project_saved_shadow(
             snapshot.output_key,
             shadow_ref.conversation_id,
             saga.agent_id,
             snapshot.content,
         )
-        token = await shadow._require_gateway_token()
-        token_usage = snapshot.token_usage
-        token_payload = None
-        if token_usage is not None:
-            prompt = int(token_usage.get("prompt") or 0)
-            completion = int(token_usage.get("completion") or 0)
-            token_payload = {
-                "output": completion,
-                "context_used": prompt,
-                "context_window": int(token_usage.get("context_window") or 0),
-                "total": int(token_usage.get("total") or prompt + completion),
-                "cache_read_tokens": int(token_usage.get("cache_read") or 0),
-                "cache_total_input_tokens": int(
-                    token_usage.get("cache_total_input") or 0
-                ),
-            }
-        async with httpx.AsyncClient(
-            base_url=shadow._base_url,
-            headers=build_im_http_headers(token),
-            timeout=shadow._timeout_seconds,
-            trust_env=False,
-            transport=shadow._transport,
-        ) as client:
-            if shadow._before_publish is not None and not await shadow._before_publish(
-                snapshot.run_id
-            ):
-                saga_store.discard_snapshot(snapshot.shadow_message_id)
-                return
-            try:
-                response = await client.put(
-                    f"/im/v1/conversations/{shadow_ref.conversation_id}/external-agent-messages/"
-                    f"{snapshot.shadow_message_id}",
-                    params={"agent_id": saga.agent_id},
-                    json={
-                        "agent_id": saga.agent_id,
-                        "content": content,
-                        "thinking": list(snapshot.thinking),
-                        "tool_calls": list(snapshot.tool_calls),
-                        "token_usage": token_payload,
-                        "elapsed_ms": snapshot.elapsed_ms or 0,
-                        "delivery_status": snapshot.delivery_status,
-                        "kernel_message_id": snapshot.kernel_message_id,
-                    },
-                )
-                response.raise_for_status()
-            finally:
-                if shadow._after_publish is not None:
-                    shadow._after_publish(snapshot.run_id)
-            message_id = str(response.json().get("id") or "").strip()
-            if not message_id:
-                raise ValueError("external shadow reconcile response missing id")
-        saga_store.acknowledge(
-            shadow_message_id=snapshot.shadow_message_id,
-            im_message_id=message_id,
-        )
-
+        message_id = await publisher.publish_snapshot(saga, snapshot, content)
+        if message_id is None:
+            return
         self.ledger.record_delivery(
             snapshot.output_key,
             "im",
