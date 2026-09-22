@@ -160,6 +160,7 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     assert nodes[ids["Z"]]["derived_from_id"] == ids["X"]
     assert nodes[ids["A"]]["status"] == nodes[ids["B"]]["status"] == "todo"
     assert nodes[ids["A"]]["selected_candidate_id"] == ids["Z"]
+    assert nodes[ids["A"]]["change_note"] == "User approved"
     scope = command(ws, "get", graph_id=graph_id, scope_id=ids["A"])["result"]
     assert [n["id"] for n in scope["children"]] == [ids["X"], ids["Y"], ids["Z"]]
     assert [n["id"] for n in scope["breadcrumbs"]] == [root, ids["A"]]

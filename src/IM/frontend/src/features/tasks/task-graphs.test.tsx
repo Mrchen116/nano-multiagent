@@ -25,7 +25,7 @@ const sampleGraph: TaskGraph = {
     node("A", "A Choose direction", "root", { mode: "explore", selected_candidate_id: "Z", selection_reason: "Lower cost" }),
     node("B", "B Implement"), node("C", "C Test"), node("D", "D Documentation"), node("E", "E Launch"),
     node("X", "X Generated video", "A", { status: "done", result: "Too expensive" }),
-    node("Y", "Y Templates", "A", { status: "dropped", result: "Does not meet the quality target" }),
+    node("Y", "Y Templates", "A", { status: "dropped", result: "Does not meet the quality target", change_note: "User chose to stop this direction" }),
     node("Z", "Z Hybrid", "A", { derived_from_id: "X", mode: "dag" }),
     node("Z1", "Z1 Prototype", "Z"), node("Z2", "Z2 Evaluate", "Z"), node("Z3", "Z3 Decide", "Z")],
   dependencies: [{ from: "A", to: "B" }, { from: "B", to: "C" }, { from: "A", to: "C" }, { from: "A", to: "D" }, { from: "C", to: "E" }, { from: "D", to: "E" }, { from: "Z1", to: "Z2" }, { from: "Z2", to: "Z3" }]
@@ -94,6 +94,8 @@ describe("task graph browsing", () => {
     await userEvent.click(within(crumbs).getByRole("button", { name: "A Choose direction" }));
     await userEvent.click(screen.getByRole("button", { name: "View Y Templates" }));
     expect(screen.getByText("Does not meet the quality target")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Latest change" })).toBeInTheDocument();
+    expect(screen.getByText("User chose to stop this direction")).toBeInTheDocument();
   });
 
   it("retains old records with a stale warning but removes protected cached content after access is revoked", async () => {
