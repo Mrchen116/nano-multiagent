@@ -396,3 +396,15 @@ npm --prefix src/IM/frontend run build
 用户继续指出 `graph_id` 仍过长，明确要求同时缩短；这补充并替代上文保留长图 ID 的选择。图 ID 为 `tg_` 加8位随机十六进制（共11字符），节点仍为图内 `n1…n500`。图要跨聊天、跨图全局唯一且聊天删除可级联删图，不能像节点一样用当前行数分配而重新命中另一张图，也不值得新增全局计数器表。复用原 UUID 随机来源取8位，在已有 `BEGIN IMMEDIATE` 写事务内通过 repository.get 查询全局重名，重名则重新生成，直到未占用后保存。检查与插入同一事务避免并发竞争；必须先查重，避免现有 save 的 upsert 覆盖另一图。回执命中仍在分配之前返回原结果。
 
 这是持久 ID 的直接缩短，无额外表、别名、重定向或参数变化；可猜测的图 ID 不能绕过既有成员校验。开发测试图统一换成短图 ID，不兼容旧图链接/回执，任务内容和短节点关系保留。一条真实 HTTP/WS 测试强制两个UUID具有相同8位前缀，验证重试得到另一短 ID、第一张图内容保持且重复请求返回原图；产品复验只补短图的创建/读取/更新和Web入口，已完成的节点稳定性旅程保留。
+
+## 开放 PR 补充：任务图特性开关
+
+用户要求 Agent 设置的特性列表提供“任务图”。界面当前只依赖 Gateway 投影列表渲染；`task_graph` 已是默认工具，但尚无对应 feature。复用现有 capability→features 草稿→profile保存→Gateway同步→下一轮完整runtime重配置链，不加内核产品feature、新端点或并行配置存储。
+
+- Gateway `FEATURE_PROJECTIONS` 增加 `task_graph`，`default_on=True`、`requires_tool=task_graph`。IM原样透传；前端用动态列表在新建/编辑页显示，中英文label/help说明记录计划、探索与进度，关闭不删除记录。
+- 开关沿用现有UI规则：开启时把required tool加入草稿白名单；关闭保留工具选择；手工移除工具会同步关掉feature。能力实际启用条件为 `features.get('task_graph', True)` 且白名单含 `task_graph`。这一任务图专属门控不更改 memory/skill/cron 的既有语义。默认值保持现有已授权工具的可用性，未配置工具的Agent不会因此获得它。
+- `personal_assistant.product.resolve_enabled_tools` 在既有工具选择结果里去掉被关闭的task_graph。运行投影、TaskGraphBridge和预览共用该函数；预览的临时Agent带同一features，single_thread/global均走有效工具解析。关闭时不渲染task_graph专用的当前聊天保存提示；不添加新的自动规划提示。
+- Bridge保留真实provenance、成员权限及不按输入渠道授权的规则，使用同一有效工具集拒绝feature关闭的旁路调用。普通模型调用仍由已有Kernel工具白名单执行检查。只改变下一轮采纳的完整配置，不中断在途回复。
+- current `agent-capabilities` 的通用工具白名单规则补一个链接到任务图契约的有限例外：显式关闭任务图特性时，task_graph从有效工具集排除；配置白名单和其他工具规则不变。
+- 测试扩展现有能力payload golden以及task_graph边界测试，覆盖默认/开/关与白名单组合、global/single_thread、预览和runtime同源、关闭时不进入IM transport。前端既有动态feature联动测试保留，真浏览器确认中英文案、新建/编辑显示、保存关闭和恢复，并通过实际Agent下一轮验证。
+- 这是既有M1中有界的能力配置补充；原DAG/存储/短ID等结论保留。因增加了运行门控语义，在实现前补独立Gate2 delta审查；实施后仅复验该影响面。
