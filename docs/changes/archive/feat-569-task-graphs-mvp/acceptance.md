@@ -133,3 +133,31 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 ### 上层文档与清理
 
 产品修复未改变spec/design目标，无需修订需求或原型。Round 1所列canonical归并与索引更新仍由caller收尾，不由reviewer改写。本人只追加并提交acceptance.md，浏览器关闭；本轮专用群/文件及IM/Gateway仍由caller统一清理，不触碰生产或运行e2e-up重置数据。
+
+## Round 3 — targeted（依赖分列布局）
+
+- `validated_at=24bb6faad681c859f60388dcee1cd585e4575739`；`fix_delta_range=1ef600438..24bb6faad`；`executed_base=2e9c83df9`。开始前核对HEAD一致，caller确认前端dist由此版本构建；2026-09-22独立浏览器验收，原隔离IM/Gateway端口56231及nano身份，营销图revision3。
+- 来源为用户新增的“从左到右按依赖分列，同列可并行”要求、design末尾2026-09-22布局决策补充，以及原P2/P3/P4、spec S04/S09/S19。原型的节点/边关系、嵌套与详情must-match保留；列内排序、曲线和间距依新决策适配，不要求复刻旧手工坐标。
+- 只经自己的Playwright真实浏览器查看既有营销图，没有读取实现、发送模型/飞书消息、新增fixture、修改数据或重启服务。未操作用户IAB标签页。
+
+### Verdict
+
+**pass**。`highest_required_action=pass`；0 blocking /0 major /0 minor；`needs_re_review=false`。本轮受影响的P2/P3/P4及S04/S09/S19均通过。
+
+### 实际旅程与原型对照
+
+以下截图均已本人打开视觉核对，目录为`/tmp/feat569-layout-review/`；caller可筛选无敏感内容的图提升至[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)，不提交原始浏览器缓存。
+
+| 来源 / 受影响面 | 实际观察 | 截图 / viewport | 结果 |
+|---|---|---|---|
+| P2、S04；根DAG分叉、汇合、直接长边 | 打开`/tasks/tg_8f989d6cf6f3469e8d0d96420661bdd5`。根图明确四列：A选择方向→B开发/D文档同列→C测试→E发布；第二列标Parallel，说明文字明确依赖从左到右、不会自动开工。100%横向画布可滚动，降至80%后六条边全部可见：A→B、B→C、A→C、A→D、C→E、D→E。A→C和D→E沿卡片外留白跨列，未穿卡片或隐藏直接边；发布详情实际列出测试、文档两项直接前置。 | `desktop-root-100.png`、`desktop-root-edges-detail.png`；1440×960，100%/80% | match/pass |
+| P3；探索语义和结果 | 点击A的Enter subgraph。X生成视频Done、Y模板Paused、Z混合方案Current choice均保留；X→Z仍为带Derived标签的绿色虚线，与根图实线依赖有明确区别。选中Y后详情显示“质量不足，暂缓”；底部选择理由“成本和质量更平衡”，没有要求全部探索分支完成。 | `desktop-explore.png`；1440×960，100% | match/pass |
+| P4、S09；计划→探索→计划与返回 | 从A进入Z，局部图为原型→评估→决定三列实线DAG；选择评估后直接前置为原型、直接后续为决定，面包屑为营销视频产品→选择方向→混合方案。点击根面包屑返回原根图。手机又独立走根→A→Z、打开决定详情、关闭、逐级返回A及根，scope与结构切换正确。 | `desktop-nested-plan.png`（1440×960，100%）、`mobile-nested-plan.png`、`mobile-return-parallel.png`（390×844，60%） | match/pass |
+| S19；手机分列与详情 | 390×844根图100%可读A和分叉；缩放下限60%仍需横向滚动，不声称全图能在手机单屏容纳。实际向右查看C/E及两路汇合，打开发布详情并滚动至直接前置，测试/文档均可见。返回根后左侧A→B/D并行列及跨列A→C清楚。探索页有X→Z虚线、Y和选择理由；可横向滚动触达Z的进入按钮。布局控制、面包屑、详情关闭均可操作。 | `mobile-root.png`（100%）、`mobile-root-right.png`（60%）、`mobile-release-detail.png`、`mobile-explore.png`（80%）、`mobile-return-parallel.png`（60%）；390×844 | match/pass |
+
+### Retained范围与清理
+
+- **S04、S09、S19**：上述实际浏览器证据更新其布局/导航部分，其他先前有效行为保留。**P2/P3/P4**的关系语义保持，新的分列结果满足本轮用户要求；不以元素存在或单测通过代替视觉结论。
+- **S01–S03、S05–S08、S10–S18、S20及P1/P5/P6**：保留Round 1/2有效证据；本次仅布局坐标/边通道变化，数据写入、持久化、成员权限、外部Bot、错误语义和草稿导航证据未失效。P3相关探索呈现本轮再次实看，没有发现需要扩大到新写入旅程的副作用。
+- I1仍按Round 2关闭，未发现关联回归。本轮没有新增问题或降低验收门槛。
+- 仅提交本报告；关闭自己的`feat569layout`浏览器。按用户明确要求保留IM/Gateway及既有测试数据供继续体验，不执行e2e-down或其他服务清理。
