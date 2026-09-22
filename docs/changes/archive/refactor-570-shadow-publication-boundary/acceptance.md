@@ -133,3 +133,13 @@ IM 会话 `c_9tr53sne` 的 Agent 气泡 `7acf86d0c109401199d3293321c1ebab` 正�
 ### 资源交接
 
 新隔离 IM PID 15250，exec session 53695；无额外 keepalive，shell 直接等待该 IM 子进程。已交回 caller 统一清理。reviewer 只追加本报告，不改受审源码/配置/设计，不创建永久测试，不独立 push。
+
+### Round 2 补充裁决 — 专用 Bot 存在第二个 listener
+
+在上述报告提交后，caller 提供了运行归属证据：同机另一个 task 的 Gateway PID 90293 使用相同专用飞书 App；其 readonly 入站记录命中了本次 `/stop` 消息 `om_x100b6411410668acb1aab51a9941a0f`，而本次隔离栈仅收到 normal/image/long 三条消息，没有收到该 `/stop`。这解释了本次任务持续运行、另一个 Gateway 却返回“当前没有正在执行的操作。”的观察。此处归属证据来自 caller 的只读调查，reviewer 未读取实现定位或修改其他 task。
+
+- 原始飞书/IM 观察和上方 R2-1 保留，不覆写历史证据。
+- **R2-1 状态改为环境阻塞、产品结论 inconclusive**；不是已证实的 PR 回归。`取消后的旧回复` 场景当前结果为 **inconclusive**，需唯一 listener 环境重新执行。
+- **Round 2 最终 Verdict 仍为 fail（环境无法证明必验停止场景）**；已确认产品问题数 0、环境阻塞数 1；highest_required_action 改为 **out-of-unit（caller 隔离 listener 后复验）**，needs_re_review=true。撤销上方对实现修复的要求，不能依据本轮证据要求修改本 refactor。
+- 正常回复及图片恢复证据仍有效：它们在本次 IM 会话中观察到完整对应内容和工具结果，图片冻结恢复由本次栈实际完成。
+- 已停止继续发验收消息，等待 caller 获得他人 task 服务操作授权并提供唯一 listener 前置。reviewer 不自行停止或恢复其他 task 的 Gateway。
