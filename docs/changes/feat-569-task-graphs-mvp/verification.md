@@ -77,3 +77,35 @@ None.
 None in the corrected-delta scope. Live desktop/mobile rendering and all S01–S20 are covered by the separately running product-review task, rather than being claimed from static evidence here.
 
 Outcome: **aligned**
+
+## Round 2: targeted revalidation
+
+> Revalidation mode: `targeted` · patch: `2126ccab0..21f79e3d8` · reviewed snapshot: `21f79e3d8`
+
+### Retained evidence
+
+Round 1's IM document, Gateway/PA tool, authorization, corrected-delta, and non-P5 browser-component conclusions remain valid: this patch changes only the frontend transition from same-origin task Markdown links to the existing Router. It adds no task-data mutation, API, schema, permission, tool, or delta-spec behavior.
+
+### I1 / P5 verification
+
+| Contract | Implementation evidence | Durable test evidence | Result |
+|---|---|---|---|
+| P5 / R5: visiting a same-origin task link from Agent Chat preserves the existing home-chat composer when Discuss returns | `src/IM/frontend/src/features/tasks/task-graph-link.tsx:5`; `src/IM/frontend/src/features/chat/components/message-pane.tsx:1830` | `src/IM/frontend/src/features/tasks/task-graphs.test.tsx:117` visits the actual Agent Markdown link, returns through Discuss, and asserts draft text, mentions, pending attachment, appended reference, and no send | aligned |
+| P5 / R5: the same Markdown transition in Agent Work stays within the application | `src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx:193` | `src/IM/frontend/src/features/settings/agents/agent-work-panel.test.tsx:28` asserts `/tasks/:id` plus query navigation from rendered Work prose | aligned |
+| Existing ordinary/external Markdown behavior remains intact | `src/IM/frontend/src/features/tasks/task-graph-link.tsx:6`; `src/IM/frontend/src/features/chat/components/message-pane.tsx:1819` | `src/IM/frontend/src/features/chat/components/message-content-policy.test.ts` is included in the reported 140 focused passing tests | aligned |
+
+The supplied focused command completed with **4 files / 140 tests passed** (`task-graphs`, `agent-work-panel`, `message-pane`, and `message-content-policy`); TypeScript/Vite build also passed. The independent product reviewer retains responsibility for the real-browser recheck of I1 and does not have its evidence pre-claimed here.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+### Corrected Delta Reconciliation
+
+No semantic delta changed in `2126ccab0..21f79e3d8`. Round 1's two corrected-delta outcomes remain **aligned**; the P5 navigation fix does not change their list-total or latest-`change_note` contracts.
+
+Round 2 static verifier verdict: **PASS**. `requires_full_verification: false`.
