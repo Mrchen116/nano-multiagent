@@ -76,6 +76,7 @@ def new_node(
         "created_at": now,
         "updated_at": now,
         "updated_by": actor,
+        "last_chat_id": None,
     }
 
 

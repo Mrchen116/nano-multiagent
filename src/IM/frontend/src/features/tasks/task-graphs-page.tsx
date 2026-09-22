@@ -18,11 +18,11 @@ function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return <span className={`tasks-status tasks-status--${status}`}><i aria-hidden />{t(`tasks.status.${status}`)}</span>;
 }
 
-export function ConversationTasksLink({ conversationId }: { conversationId: string }) {
+export function ConversationTasksLink() {
   const { t } = useTranslation();
-  const query = useTaskGraphList({ conversationId, limit: 1 });
-  return <Link className="chat-pane-tasks" to={`/tasks?conversation_id=${encodeURIComponent(conversationId)}`}>
-    {t("shell.tabs.tasks")} <span>{query.data?.total ?? "—"}</span>
+  const query = useTaskGraphList({ limit: 1 });
+  return <Link className="chat-pane-tasks" to="/tasks">
+    {t("tasks.targets")} <span>{query.data?.total ?? "—"}</span>
   </Link>;
 }
 
@@ -36,12 +36,11 @@ function ReadNotice({ stale, onRefresh }: { stale: boolean; onRefresh: () => voi
 function TaskGraphListPanel({ graphId, onChoose }: { graphId?: string; onChoose?: () => void }) {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const conversationId = params.get("conversation_id") ?? undefined;
   const queryText = params.get("query") ?? "";
   const [search, setSearch] = useState(queryText);
   const [cursors, setCursors] = useState<string[]>([]);
-  const query = useTaskGraphList({ conversationId, query: queryText, cursor: cursors.at(-1) });
-  useEffect(() => { setSearch(queryText); setCursors([]); }, [queryText, conversationId]);
+  const query = useTaskGraphList({ query: queryText, cursor: cursors.at(-1) });
+  useEffect(() => { setSearch(queryText); setCursors([]); }, [queryText]);
   return <section className="tasks-list" aria-label={t("tasks.targets")}>
     <div className="tasks-list-heading"><h2>{t("tasks.targets")}</h2><span>{query.data?.total ?? ""}</span></div>
     <form className="tasks-search" onSubmit={event => {
@@ -53,20 +52,18 @@ function TaskGraphListPanel({ graphId, onChoose }: { graphId?: string; onChoose?
       <input aria-label={t("tasks.search")} placeholder={t("tasks.search")} value={search} onChange={event => setSearch(event.target.value)} />
       <button type="submit" className="tasks-button">{t("tasks.searchButton")}</button>
     </form>
-    {conversationId && <Link className="tasks-all" to="/tasks" onClick={onChoose}>{t("tasks.allTargets")}</Link>}
     <div className="tasks-list-items">
       {query.isPending && <p className="tasks-list-message" role="status">{t("tasks.loading")}</p>}
       {query.isError && <ReadNotice stale={Boolean(query.data)} onRefresh={() => void query.refetch()} />}
       {query.data === null && <p className="tasks-list-message" role="alert">{t("tasks.unavailable")}</p>}
       {query.data?.items.map(graph => {
         const to = new URLSearchParams();
-        if (conversationId) to.set("conversation_id", conversationId);
         if (queryText) to.set("query", queryText);
         return <Link key={graph.graph_id} className={`tasks-list-item${graphId === graph.graph_id ? " is-active" : ""}`}
           to={`${taskGraphUrl(graph.graph_id)}${to.size ? `?${to}` : ""}`} onClick={onChoose}>
           <strong>{graph.title}</strong>
           <span>{t(`tasks.mode.${graph.mode}`)} · <TaskStatusBadge status={graph.status} /></span>
-          <small>{graph.home_conversation_title}</small>
+          <small>{graph.updated_by}</small>
         </Link>;
       })}
       {query.data?.items.length === 0 && <p className="tasks-list-message">{t(queryText ? "tasks.noMatches" : "tasks.noGraphsHint")}</p>}
@@ -79,9 +76,9 @@ function TaskGraphListPanel({ graphId, onChoose }: { graphId?: string; onChoose?
   </section>;
 }
 
-type GraphActions = { onSelect: (node: TaskNode) => void; onEnter: (node: TaskNode) => void; onDiscuss: (node: TaskNode) => void };
+type GraphActions = { onSelect: (node: TaskNode) => void; onEnter: (node: TaskNode) => void; onDiscuss: (node: TaskNode) => void; onCopy: (node: TaskNode) => void };
 
-function TaskGraphCanvas({ graph, scope, selectedId, onSelect, onEnter, onDiscuss }: {
+function TaskGraphCanvas({ graph, scope, selectedId, onSelect, onEnter, onDiscuss, onCopy }: {
   graph: TaskGraph; scope: TaskNode; selectedId?: string;
 } & GraphActions) {
   const { t } = useTranslation();
@@ -131,13 +128,15 @@ function TaskGraphCanvas({ graph, scope, selectedId, onSelect, onEnter, onDiscus
           </article>)}
         </div>
       </div>
-    </div> : <div className="tasks-empty"><h2>{t("tasks.emptyScope")}</h2><p>{t("tasks.emptyScopeHint")}</p><button className="tasks-button" onClick={() => onDiscuss(scope)}>{t("tasks.discuss")}</button></div>}
+    </div> : <div className="tasks-empty"><h2>{t("tasks.emptyScope")}</h2><p>{t("tasks.emptyScopeHint")}</p>
+      {scope.last_chat_id && <button className="tasks-button" onClick={() => onDiscuss(scope)}>{t("tasks.discuss")}</button>}
+      <button className="tasks-button" onClick={() => onCopy(scope)}>{t("tasks.copyReference")}</button></div>}
     {selectedCandidate && <div className="tasks-selection"><strong>{t("tasks.currentChoice")} {selectedCandidate.title}</strong><p>{scope.selection_reason || t("tasks.noReason")}</p><span>{t("tasks.selectionHint")}</span></div>}
     <div className="tasks-legend"><span><i className={derive ? "is-derived" : ""} />{t(derive ? "tasks.derivation" : "tasks.dependencies")}</span><span>{t(derive ? "tasks.droppedHint" : "tasks.statusHint")}</span><span>{t("tasks.canvasHint")}</span></div>
   </div>;
 }
 
-function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss }: { graph: TaskGraph; node: TaskNode } & GraphActions) {
+function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss, onCopy }: { graph: TaskGraph; node: TaskNode } & GraphActions) {
   const { t, i18n } = useTranslation();
   const parent = graph.nodes.find(candidate => candidate.id === node.container_id);
   const children = graph.nodes.filter(candidate => candidate.container_id === node.id);
@@ -158,9 +157,11 @@ function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss }: { graph: 
     {node.links.length > 0 && <section><h3>{t("tasks.links")}</h3><ul>{node.links.map((link, index) => <li key={index}><ReactMarkdown components={{ a: TaskGraphLink }}>{`[${link.replace(/[\[\]]/g, "\\$&")}](${link})`}</ReactMarkdown></li>)}</ul></section>}
     <section className="tasks-detail-facts"><dl><div><dt>{t("tasks.structure")}</dt><dd>{children.length ? t("tasks.nodeCount", { count: children.length }) : t("tasks.mode.none")}</dd></div>
       <div><dt>{t("tasks.updatedBy")}</dt><dd>{node.updated_by}</dd></div><div><dt>{t("tasks.updatedAt")}</dt><dd>{new Date(node.updated_at).toLocaleString(i18n.language)}</dd></div>
+      {node.last_chat_title && <div><dt>{t("tasks.updateChat")}</dt><dd>{node.last_chat_title}</dd></div>}
       <div><dt>{t("tasks.revision")}</dt><dd>{graph.revision}</dd></div></dl><p className="tasks-detail-note">{t("tasks.recordedHint")}</p></section>
     <div className="tasks-detail-actions">{node.mode !== "none" && <button className="tasks-button tasks-button--primary" onClick={() => onEnter(node)}>{t("tasks.enter")} · {t(`tasks.mode.${node.mode}`)} →</button>}
-      <button className="tasks-button" onClick={() => onDiscuss(node)}>{t("tasks.discussNode")}</button></div>
+      {node.last_chat_id && <button className="tasks-button" onClick={() => onDiscuss(node)}>{t("tasks.discussNode")}</button>}
+      <button className="tasks-button" onClick={() => onCopy(node)}>{t("tasks.copyReference")}</button></div>
   </>;
 }
 
@@ -171,12 +172,15 @@ export function TaskGraphsPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [listOpen, setListOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "copyFailed" | null>(null);
   const query = useTaskGraph(graphId);
   const graph = query.data;
   const root = graph?.nodes.find(node => node.id === graph.root_node_id);
   const selected = graph?.nodes.find(node => node.id === params.get("node"));
   const scopeId = params.get("scope") ?? selected?.container_id ?? graph?.root_node_id;
   const scope = graph?.nodes.find(node => node.id === scopeId);
+  const currentNode = selected ?? scope ?? root;
+  useEffect(() => setCopyStatus(null), [graphId, currentNode?.id]);
   const invalidLocation = Boolean(graph && (!root || !scope || (params.has("node") && (!selected || (selected.id !== scope.id && selected.container_id !== scope.id)))));
   const breadcrumbs: TaskNode[] = [];
   for (let current = scope; current; current = graph?.nodes.find(node => node.id === current?.container_id)) breadcrumbs.unshift(current);
@@ -199,24 +203,37 @@ export function TaskGraphsPage() {
     setParams(next, { replace: true });
   }
   function discuss(node: TaskNode) {
-    if (!graph) return;
+    if (!graph || !node.last_chat_id) return;
     const store = composerStoreFor(useAuthStore.getState().user?.id ?? null);
-    const current = store.get(graph.home_conversation_id) ?? EMPTY_COMPOSER_SNAPSHOT;
+    const current = store.get(node.last_chat_id) ?? EMPTY_COMPOSER_SNAPSHOT;
     const title = node.title.replace(/([\\[\]])/g, "\\$1");
     const reference = `[${t("tasks.taskReference")}: ${title}](${taskGraphUrl(graph.graph_id, node.container_id ?? node.id, node.id)})`;
-    writeComposerSnapshot(store, graph.home_conversation_id, { ...current, draft: `${current.draft}${current.draft ? "\n\n" : ""}${reference}\n` });
-    navigate(`/chat/${encodeURIComponent(graph.home_conversation_id)}`);
+    writeComposerSnapshot(store, node.last_chat_id, { ...current, draft: `${current.draft}${current.draft ? "\n\n" : ""}${reference}\n` });
+    navigate(`/chat/${encodeURIComponent(node.last_chat_id)}`);
   }
-  const actions = { onSelect: select, onEnter: enter, onDiscuss: discuss };
+  async function copyReference(node: TaskNode) {
+    if (!graph) return;
+    const title = node.title.replace(/([\\\[\]])/g, "\\$1");
+    const url = new URL(taskGraphUrl(graph.graph_id, node.container_id ?? node.id, node.id), window.location.origin);
+    try {
+      await navigator.clipboard.writeText(`[${t("tasks.taskReference")}: ${title}](${url})`);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("copyFailed");
+    }
+  }
+  const actions = { onSelect: select, onEnter: enter, onDiscuss: discuss, onCopy: copyReference };
   return <div className="tasks-workspace">
     <aside className={`tasks-sidebar${!graphId ? " tasks-sidebar--index" : ""}`}><TaskGraphListPanel graphId={graphId} /></aside>
     <main className={`tasks-main${!graphId ? " tasks-main--index" : ""}`}>
       <header className="tasks-header"><div><h1>{root?.title ?? t("shell.tabs.tasks")}</h1>
-        <p>{graph ? `${graph.home_conversation_title} · ${t("tasks.revision")} ${graph.revision}` : t("tasks.subtitle")}</p></div>
+        <p>{graph ? `${graph.updated_by} · ${t("tasks.revision")} ${graph.revision}` : t("tasks.subtitle")}</p></div>
         <div className="tasks-header-actions"><button className="tasks-button tasks-targets-button" onClick={() => setListOpen(true)}>{t("tasks.targets")}</button>
           {graphId && <button className="tasks-button" aria-label={t("tasks.refresh")} disabled={query.isFetching} onClick={() => void query.refetch()}>↻ <span className="tasks-refresh-label">{t("tasks.refresh")}</span></button>}
-          {graph && root && <button className="tasks-button tasks-return" onClick={() => discuss(selected ?? scope ?? root)}>{t("tasks.discuss")}</button>}</div>
+          {currentNode?.last_chat_id && <button className="tasks-button tasks-return" onClick={() => discuss(currentNode)}>{t("tasks.discuss")}</button>}
+          {currentNode && <button className="tasks-button" onClick={() => void copyReference(currentNode)}>{t("tasks.copyReference")}</button>}</div>
       </header>
+      {copyStatus && <p className="tasks-notice" role={copyStatus === "copied" ? "status" : "alert"}>{t(`tasks.${copyStatus}`)}</p>}
       {!graphId ? <div className="tasks-empty"><h2>{t("tasks.chooseGraph")}</h2><p>{t("tasks.listHint")}</p><Link className="tasks-button" to="/chat">{t("tasks.goChat")}</Link></div>
         : query.isPending ? <div className="tasks-empty" role="status">{t("tasks.loading")}</div>
         : graph === null ? <div className="tasks-empty" role="alert"><h2>{t("tasks.unavailable")}</h2><Link className="tasks-button" to="/tasks">{t("tasks.allTargets")}</Link></div>

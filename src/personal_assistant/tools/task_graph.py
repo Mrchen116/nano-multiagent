@@ -15,15 +15,28 @@ from personal_assistant.tools.inbox import QueryPresenter
 
 ACTION_FIELDS = {
     "create": {"target", "title", "description", "mode", "request_key"},
-    "list": {"target", "query", "cursor", "limit"},
+    "list": {"query", "cursor", "limit"},
     "get": {"graph_id", "scope_id", "view"},
-    "apply": {"graph_id", "base_revision", "request_key", "operations", "change_note"},
+    "apply": {
+        "graph_id",
+        "base_revision",
+        "request_key",
+        "operations",
+        "change_note",
+        "target",
+    },
 }
 REQUIRED_FIELDS = {
-    "create": {"target", "title", "mode", "request_key"},
+    "create": {"title", "mode", "request_key"},
     "list": set(),
     "get": {"graph_id"},
-    "apply": {"graph_id", "base_revision", "request_key", "operations", "change_note"},
+    "apply": {
+        "graph_id",
+        "base_revision",
+        "request_key",
+        "operations",
+        "change_note",
+    },
 }
 
 
@@ -68,8 +81,11 @@ class TaskGraphTool:
     description = (
         "Record user-approved plans and progress in durable task graphs, then return the Web IM link. "
         "These records never schedule or execute tasks. Discuss first; create only when the user asks to save a plan. "
-        "create requires target, title, mode and a unique request_key. Get the explicit existing chat target from Inbox/conversations or runtime context; never guess the last chat. "
-        "list without target searches every graph this Agent can access; get/apply use a known graph_id regardless of prompt channel. "
+        "Goals belong to your account and are shared with its other enabled Agents; no Agent assignment is needed. "
+        "create requires title, mode and a unique request_key, with no required chat. "
+        "For create/apply, target optionally records the discussion where changed nodes were last updated. Bound single-thread runs record their actual chat automatically. "
+        "Global or unbound runs must explicitly supply the relevant Inbox/conversations target to record a chat; otherwise no chat is recorded. Never guess the last chat. "
+        "list searches all account goals by title, returning paginated summaries ordered by latest update; get/apply use a known graph_id regardless of prompt channel. "
         "get defaults to root scope; use scope_id for nested children or view=all for the bounded full document. "
         "Node IDs are stable within their graph (e.g. n1); reuse the returned IDs. "
         "dag orders direct children by prerequisites; explore records alternative siblings and one selected candidate. "
@@ -88,7 +104,7 @@ class TaskGraphTool:
             "action": {"type": "string", "enum": list(ACTION_FIELDS)},
             "target": {
                 "type": "string",
-                "description": "Existing IM conversation_id or opaque Inbox/conversations target. Required for create; optional list filter.",
+                "description": "Optional discussion source for create/apply: existing IM conversation_id or Inbox/conversations target. Only changed nodes receive this last-update chat.",
             },
             "title": {"type": "string", "maxLength": 240},
             "description": {"type": "string", "maxLength": 32000},
@@ -196,6 +212,7 @@ class TaskGraphTool:
                 json={
                     "source_agent_id": ctx.session_metadata.get("agent_id"),
                     "origin_kernel_session_id": ctx.session_id,
+                    "origin_run_id": ctx.run_id,
                     "tool_call_id": ctx.tool_call_id,
                     "args": dict(args),
                 },

@@ -13,7 +13,7 @@ from IM.infra._helpers import (
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS task_graphs (
     graph_id TEXT PRIMARY KEY,
-    home_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    owner_id TEXT NOT NULL,
     root_title TEXT NOT NULL,
     revision INTEGER NOT NULL,
     document_json TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS task_graphs (
     updated_at TEXT NOT NULL,
     updated_by TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS task_graphs_home ON task_graphs(home_conversation_id);
+CREATE INDEX IF NOT EXISTS task_graphs_owner ON task_graphs(owner_id,updated_at DESC,graph_id DESC);
 CREATE TABLE IF NOT EXISTS task_graph_mutation_receipts (
     actor_key TEXT NOT NULL,
     request_key TEXT NOT NULL,

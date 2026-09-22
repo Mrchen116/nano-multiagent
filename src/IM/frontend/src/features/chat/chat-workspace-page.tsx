@@ -1122,7 +1122,7 @@ export function ChatWorkspacePage() {
         activeConversation ? (
           <MessagePane
             conversation={activeConversation}
-            headerActions={<ConversationTasksLink conversationId={activeConversation.id} />}
+            headerActions={<ConversationTasksLink />}
             timeline={visibleTimeline}
             onReadMessage={(messageId) => {
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);

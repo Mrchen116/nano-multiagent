@@ -22,13 +22,13 @@ export type TaskNode = {
   created_at: string;
   updated_at: string;
   updated_by: string;
+  last_chat_id: string | null;
+  last_chat_title: string | null;
 };
 export type TaskDependency = { from: string; to: string };
 export type TaskGraph = {
   schema_version: 1;
   graph_id: string;
-  home_conversation_id: string;
-  home_conversation_title: string;
   root_node_id: string;
   revision: number;
   nodes: TaskNode[];
@@ -39,7 +39,7 @@ export type TaskGraph = {
   relative_url: string;
 };
 export type TaskGraphSummary = Pick<TaskGraph,
-  "graph_id" | "root_node_id" | "home_conversation_id" | "home_conversation_title" |
+  "graph_id" | "root_node_id" |
   "revision" | "updated_at" | "updated_by" | "relative_url"
 > & { title: string; mode: TaskMode; status: TaskStatus };
 export type TaskGraphList = { items: TaskGraphSummary[]; next_cursor: string | null; total: number };
@@ -61,9 +61,8 @@ async function read<T>(path: string, signal?: AbortSignal): Promise<T | null> {
   return response.json() as Promise<T>;
 }
 
-export function listTaskGraphs(options: { conversationId?: string; query?: string; cursor?: string; limit?: number }, signal?: AbortSignal) {
+export function listTaskGraphs(options: { query?: string; cursor?: string; limit?: number }, signal?: AbortSignal) {
   const params = new URLSearchParams();
-  if (options.conversationId) params.set("conversation_id", options.conversationId);
   if (options.query) params.set("query", options.query);
   if (options.cursor) params.set("cursor", options.cursor);
   params.set("limit", String(options.limit ?? 20));
@@ -85,7 +84,7 @@ const refreshOptions = {
   retry: false
 };
 
-export function useTaskGraphList(options: { conversationId?: string; query?: string; cursor?: string; limit?: number }) {
+export function useTaskGraphList(options: { query?: string; cursor?: string; limit?: number }) {
   const userId = useAuthStore(state => state.user?.id);
   const client = useQueryClient();
   return useQuery({

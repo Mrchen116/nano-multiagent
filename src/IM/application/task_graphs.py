@@ -34,10 +34,17 @@ class TaskGraphActor:
 
 
 _ACTION_FIELDS = {
-    "list": {"conversation_id", "query", "cursor", "limit"},
+    "list": {"query", "cursor", "limit"},
     "get": {"graph_id", "scope_id", "view"},
     "create": {"conversation_id", "title", "description", "mode", "request_key"},
-    "apply": {"graph_id", "base_revision", "request_key", "operations", "change_note"},
+    "apply": {
+        "graph_id",
+        "base_revision",
+        "request_key",
+        "operations",
+        "change_note",
+        "conversation_id",
+    },
 }
 
 
@@ -47,7 +54,7 @@ def _forbidden() -> None:
     )
 
 
-def _summary(document: dict, home_title: str) -> dict:
+def _summary(document: dict) -> dict:
     root = next(n for n in document["nodes"] if n["id"] == document["root_node_id"])
     return {
         **{
@@ -55,7 +62,6 @@ def _summary(document: dict, home_title: str) -> dict:
             for k in (
                 "graph_id",
                 "root_node_id",
-                "home_conversation_id",
                 "revision",
                 "created_at",
                 "updated_at",
@@ -63,7 +69,6 @@ def _summary(document: dict, home_title: str) -> dict:
             )
         },
         **{k: root[k] for k in ("title", "mode", "status")},
-        "home_conversation_title": home_title,
         "relative_url": "/tasks/" + document["graph_id"],
     }
 
@@ -109,41 +114,41 @@ class TaskGraphService:
         if write and actor.kind != "agent":
             _forbidden()
         with closing(connect(self.db_path)) as db, db:
-            # The write reservation covers membership, receipt lookup and revision.
+            # The write reservation covers account authorization, receipts and revision.
             db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             repository = TaskGraphRepository(db)
             principal = repository.actor_user(actor.kind, actor.id, actor.node_id)
             if principal is None:
                 _forbidden()
             user_id = principal["id"]
+            owner_id = principal["owner_id"]
             actor_name = f"{principal['display_name']} ({actor.id})"
             if action == "list":
-                return self._list(repository, user_id, args)
-            if action == "create":
-                conversation_id = require_text(
-                    args.get("conversation_id"), "conversation_id"
-                )
-                document = None
-            else:
+                return self._list(repository, owner_id, args)
+            document = None
+            if action != "create":
                 graph_id = require_text(args.get("graph_id"), "graph_id")
                 document = repository.get(graph_id)
-                if document is None:
+                if document is None or document["owner_id"] != owner_id:
                     _forbidden()
-                conversation_id = document["home_conversation_id"]
-            conversation = repository.member_conversation(conversation_id, user_id)
-            if conversation is None:
-                _forbidden()
             if document is not None and document.get("schema_version") != 1:
                 raise TaskGraphError(
                     "invalid_graph", "Unsupported task graph schema_version"
                 )
             if action == "get":
-                return self._get(document, conversation["title"], args)
+                return self._get(
+                    self._project_chats(repository, document, user_id), args
+                )
             key = require_text(args.get("request_key"), "request_key")
             actor_key = f"{actor.kind}:{actor.id}"
             operation_hash = hashlib.sha256(
                 json.dumps(
-                    {"action": action, "args": args},
+                    {
+                        "action": action,
+                        "args": {
+                            k: v for k, v in args.items() if k != "conversation_id"
+                        },
+                    },
                     sort_keys=True,
                     separators=(",", ":"),
                     ensure_ascii=False,
@@ -151,12 +156,19 @@ class TaskGraphService:
             ).hexdigest()
             receipt = repository.receipt(actor_key, key)
             if receipt is not None:
+                if receipt["owner_id"] != owner_id:
+                    _forbidden()
                 if receipt["operation_hash"] != operation_hash:
                     raise TaskGraphError(
                         "request_key_reused",
                         "Use the original parameters with this request_key",
                     )
                 return json.loads(receipt["result_json"])
+            conversation_id = args.get("conversation_id")
+            if conversation_id is not None:
+                require_text(conversation_id, "conversation_id")
+                if repository.member_conversation(conversation_id, user_id) is None:
+                    _forbidden()
             now = utc_now()
             if action == "create":
                 title = require_text(args.get("title"), "title", limit=240)
@@ -175,7 +187,7 @@ class TaskGraphService:
                 document = {
                     "schema_version": 1,
                     "graph_id": graph_id,
-                    "home_conversation_id": conversation_id,
+                    "owner_id": owner_id,
                     "root_node_id": root,
                     "revision": 1,
                     "nodes": [
@@ -187,6 +199,7 @@ class TaskGraphService:
                             mode=mode,
                             actor=actor_name,
                             now=now,
+                            last_chat_id=conversation_id,
                         )
                     ],
                     "dependencies": [],
@@ -195,7 +208,7 @@ class TaskGraphService:
                     "updated_by": actor_name,
                 }
                 validate_document(document)
-                result = _summary(document, conversation["title"])
+                result = _summary(document)
             else:
                 revision = args.get("base_revision")
                 if type(revision) is not int or revision < 1:
@@ -218,8 +231,11 @@ class TaskGraphService:
                     now=now,
                     change_note=note,
                 )
+                for node in document["nodes"]:
+                    if node["id"] in changed:
+                        node["last_chat_id"] = conversation_id
                 result = {
-                    **_summary(document, conversation["title"]),
+                    **_summary(document),
                     "client_refs": refs,
                     "changed_ids": changed,
                 }
@@ -237,12 +253,7 @@ class TaskGraphService:
             )
             return result
 
-    def _list(self, repository: TaskGraphRepository, user_id: str, args: dict) -> dict:
-        conversation = args.get("conversation_id")
-        if conversation is not None:
-            require_text(conversation, "conversation_id")
-            if repository.member_conversation(conversation, user_id) is None:
-                _forbidden()
+    def _list(self, repository: TaskGraphRepository, owner_id: str, args: dict) -> dict:
         query = require_text(
             args.get("query", ""), "query", limit=240, empty=True
         ).strip()
@@ -256,31 +267,23 @@ class TaskGraphService:
             cursor = require_text(args["cursor"], "cursor", limit=2048)
             try:
                 saved = json.loads(base64.urlsafe_b64decode(cursor))
-                if (
-                    saved["query"] != query
-                    or saved["conversation_id"] != conversation
-                    or saved["user_id"] != user_id
-                ):
+                if saved["query"] != query or saved["owner_id"] != owner_id:
                     raise ValueError()
                 after = (
-                    require_text(saved["created_at"], "cursor time"),
+                    require_text(saved["updated_at"], "cursor time"),
                     require_text(saved["graph_id"], "cursor graph"),
                 )
             except (ValueError, KeyError, TypeError):
                 raise TaskGraphError(
                     "invalid_arguments", "Invalid cursor for this query"
                 ) from None
-        rows, total = repository.list_for_member(
-            user_id=user_id,
-            conversation_id=conversation,
+        rows, total = repository.list_for_owner(
+            owner_id=owner_id,
             query=query,
             after=after,
             limit=limit,
         )
-        items = [
-            _summary(json.loads(row["document_json"]), row["home_title"])
-            for row in rows[:limit]
-        ]
+        items = [_summary(json.loads(row["document_json"])) for row in rows[:limit]]
         cursor = None
         if len(rows) > limit:
             last = items[-1]
@@ -288,16 +291,36 @@ class TaskGraphService:
                 json.dumps(
                     {
                         "query": query,
-                        "conversation_id": conversation,
-                        "user_id": user_id,
-                        "created_at": last["created_at"],
+                        "owner_id": owner_id,
+                        "updated_at": last["updated_at"],
                         "graph_id": last["graph_id"],
                     }
                 ).encode()
             ).decode()
         return {"items": items, "next_cursor": cursor, "total": total}
 
-    def _get(self, document: dict, home_title: str, args: dict) -> dict:
+    def _project_chats(
+        self, repository: TaskGraphRepository, document: dict, user_id: str
+    ) -> dict:
+        """Expose update-chat links only under their independent current chat ACL."""
+        projected = {key: value for key, value in document.items() if key != "owner_id"}
+        chats = {}
+        projected["nodes"] = []
+        for node in document["nodes"]:
+            chat_id = node.get("last_chat_id")
+            if chat_id and chat_id not in chats:
+                chats[chat_id] = repository.member_conversation(chat_id, user_id)
+            chat = chats.get(chat_id)
+            projected["nodes"].append(
+                {
+                    **node,
+                    "last_chat_id": chat["id"] if chat is not None else None,
+                    "last_chat_title": chat["title"] if chat is not None else None,
+                }
+            )
+        return projected
+
+    def _get(self, document: dict, args: dict) -> dict:
         view = args.get("view", "scope")
         if view not in ("scope", "all"):
             raise TaskGraphError("invalid_arguments", "view must be scope or all")
@@ -309,11 +332,10 @@ class TaskGraphService:
             raise TaskGraphError(
                 "invalid_arguments", "scope_id is not a node in this graph"
             )
-        common = _summary(document, home_title)
+        common = _summary(document)
         if view == "all":
             return {
                 **document,
-                "home_conversation_title": home_title,
                 "relative_url": common["relative_url"],
             }
         scope = nodes[scope_id]

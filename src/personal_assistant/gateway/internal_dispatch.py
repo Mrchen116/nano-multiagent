@@ -88,6 +88,7 @@ class InternalDispatchHandler:
         work_recorder: Any | None = None,
         shadow_sync: Any | None = None,
         message_delivery: Any,
+        run_context_store: Any | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
@@ -98,6 +99,7 @@ class InternalDispatchHandler:
         self._work_recorder = work_recorder
         self._shadow_sync = shadow_sync
         self._delivery = message_delivery
+        self._run_context_store = run_context_store
         self._sealed = False
 
     def seal(self) -> None:
@@ -511,6 +513,7 @@ class InternalDispatchHandler:
             manager=self._im_connection_manager,
             binder=self._session_binder,
             inbox=self._global_inbox,
+            run_context_store=self._run_context_store,
         )
 
         async def handle(request: Any) -> Any:

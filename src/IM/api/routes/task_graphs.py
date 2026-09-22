@@ -1,4 +1,4 @@
-"""Read-only task graph endpoints authenticated by current conversation membership."""
+"""Read-only task graph endpoints authenticated by account ownership."""
 
 import sqlite3
 
@@ -34,16 +34,13 @@ def _read(request: Request, user: User, action: str, args: dict) -> dict:
 @router.get("/im/v1/task-graphs")
 def list_task_graphs(
     request: Request,
-    conversation_id: str | None = None,
     query: str = "",
     cursor: str | None = None,
     limit: int = Query(20, ge=1, le=50),
     user: User = Depends(current_user),
 ) -> dict:
-    """List only the current member's task summaries without consuming chat state."""
+    """List only the current account's task summaries without consuming chat state."""
     args = {"query": query, "limit": limit}
-    if conversation_id is not None:
-        args["conversation_id"] = conversation_id
     if cursor is not None:
         args["cursor"] = cursor
     return _read(request, user, "list", args)
@@ -57,7 +54,7 @@ def get_task_graph(
     view: str = "scope",
     user: User = Depends(current_user),
 ) -> dict:
-    """Return a current graph or local scope after checking its home membership."""
+    """Return a current graph or local scope after checking its account ownership."""
     args = {"graph_id": graph_id, "view": view}
     if scope_id is not None:
         args["scope_id"] = scope_id

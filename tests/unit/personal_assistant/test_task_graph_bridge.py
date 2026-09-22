@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from personal_assistant.channels.base import ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.composition import _make_prompt_preview_provider
@@ -17,6 +18,14 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchHandler,
 )
 from personal_assistant.gateway.runtime import GatewayRuntime
+from personal_assistant.gateway.inbound_models import ShadowConversationRef
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContext,
+    RunDeliveryContextStore,
+    RunDeliveryTarget,
+    IMRelayTarget,
+    ExternalShadowTarget,
+)
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.gateway.session_composition import project_agent_runtime
@@ -28,13 +37,13 @@ from personal_assistant.tools.task_graph import TaskGraphTool
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 
 
-def stack(tmp_path, mode="single_thread", allowlist=("task_graph",)):
+def stack(tmp_path, mode="single_thread", allowlist=("task_graph",), repository=None):
     config = AgentWorkspaceConfig(
         agent_id="pa", workspace_root=tmp_path, work_mode=mode, tool_allowlist=allowlist
     )
     catalog = LiveAgentCatalog((config,))
     binder = GatewaySessionBinder(
-        catalog=catalog, repository=SessionBindingStore(), kernel=None
+        catalog=catalog, repository=repository or SessionBindingStore(), kernel=None
     )
     binder.register_session_provenance(
         catalog.require("pa"), kernel_session_id="session"
@@ -64,13 +73,34 @@ def stack(tmp_path, mode="single_thread", allowlist=("task_graph",)):
 @pytest.mark.parametrize("mode", ["global", "single_thread"])
 @pytest.mark.parametrize("channel", ["web_relay", "feishu"])
 def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, channel):
-    config, catalog, binder, manager, inbox = stack(tmp_path, mode)
+    repository = SessionBindingStore()
+    source_field = (
+        "shadow_conversation_id" if channel == "feishu" else "conversation_id"
+    )
+
+    def bind(chat):
+        repository.bind(
+            session_key=f"{channel}:home:pa",
+            kernel_session_id="session",
+            reply_context=ReplyContext(
+                channel_name=channel,
+                target_chat_id="external-home",
+                metadata={source_field: chat},
+            ),
+        )
+
+    bind("c_first")
+    contexts = RunDeliveryContextStore()
+    config, catalog, binder, manager, inbox = stack(
+        tmp_path, mode, repository=repository
+    )
     endpoint = InternalDispatchEndpoint()
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
         session_binder=binder,
         global_inbox=inbox,
         message_delivery=None,
+        run_context_store=contexts,
     )
     runtime = GatewayRuntime(
         make_config(tmp_path),
@@ -84,6 +114,7 @@ def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, ch
         tool = TaskGraphTool(gateway_dispatch_url_provider=endpoint.current_url)
         ctx = SimpleNamespace(
             session_id="session",
+            run_id="run",
             tool_call_id="call",
             session_metadata={"agent_id": "pa", "channel": channel},
         )
@@ -109,10 +140,51 @@ def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, ch
         assert manager.send_json_await_ack.call_args.args[1]["args"] == {
             "graph_id": "tg_known"
         }
+        for chat in ("c_first", "c_updated"):
+            # An alias can bind another chat to the same Kernel session; source
+            # must follow this run, not the repository's first reverse match.
+            repository.bind(
+                session_key=f"{channel}:{chat}:pa",
+                kernel_session_id="session",
+                reply_context=ReplyContext(
+                    channel_name=channel,
+                    target_chat_id=chat,
+                    metadata={source_field: chat},
+                ),
+            )
+            ctx.run_id = f"run-{chat}"
+            target = (
+                RunDeliveryTarget.for_external_shadow(
+                    ExternalShadowTarget(ShadowConversationRef(chat, "message"))
+                )
+                if channel == "feishu"
+                else RunDeliveryTarget.for_im_relay(IMRelayTarget(chat, "relay"))
+            )
+            contexts.seed(
+                RunDeliveryContext(
+                    run_id=ctx.run_id,
+                    agent_id="pa",
+                    kernel_session_id="session",
+                    delivery_target=target,
+                )
+            )
+            tool.run(
+                {
+                    "action": "create",
+                    "title": "Bound source",
+                    "mode": "dag",
+                    "request_key": chat,
+                },
+                ctx,
+            )
+            sent_args = manager.send_json_await_ack.call_args.args[1]["args"]
+            assert sent_args.get("conversation_id") == (
+                chat if mode == "single_thread" else None
+            )
         ctx.session_metadata["agent_id"] = "ephemeral-child"
         with pytest.raises(RuntimeError, match="unsupported_context"):
             tool.run({"action": "get", "graph_id": "tg_known"}, ctx)
-        assert manager.send_json_await_ack.call_count == 3
+        assert manager.send_json_await_ack.call_count == 5
     finally:
         runtime.request_shutdown()
         thread.join(timeout=3)
@@ -168,9 +240,7 @@ async def test_task_feature_controls_runtime_preview_and_dispatch_without_granti
     ).runtime
     assert ("task_graph" in runtime.enabled_tools) is enabled
     if not enabled:
-        assert all(
-            "saving a task graph" not in piece.text for piece in runtime.prompt.tail
-        )
+        assert all("c_home" not in piece.text for piece in runtime.prompt.tail)
     preview = _make_prompt_preview_provider(
         SimpleNamespace(assemble_prompt_preview=lambda **kwargs: kwargs)
     )(

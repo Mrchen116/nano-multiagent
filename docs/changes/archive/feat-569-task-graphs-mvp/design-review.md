@@ -573,3 +573,35 @@ R4-W1 保持 closed，S21 不受本轮改变。R6-R2 已在 design:435 明确纳
 ### Recommendations
 
 无新增可选建议。其余未失效内容继续沿用 Round 7，不要求重复复审。
+
+## Round 9
+
+### Metadata
+
+- reviewer_target: Codex `/root/task_graph_feature_design_review`；同一独立 reviewer，仅追加本报告。
+- review_mode: closure
+- mode_reason: `a43e2a4c0` 将 R8-W1 的首条 session binding 反查替换为已有 run delivery context；本轮核实真实初始化时序、run 身份与 composition 注入路径，没有其他设计变化。
+- retained_from: Round 7 的账号归属、changed_ids、逐节点软引用/投影、receipt、UI、delta、数据保留与验收范围；Round 5 的 S21 快照门控。Round 8 的多绑定事实继续成立，其反查方案已由本轮替代。
+- started_at: 2026-09-23T00:07:38+08:00
+- completed_at: 2026-09-23T00:08:31+08:00
+- duration: 53s
+- validated_at: `a43e2a4c05b4f8dc30049aaab8f5185c4ab46aca`；受审 design SHA-256 为 `4356c83081d2eee6d153881913faff0b5009911547d347adbffb5e563e71e252`，其他受审规范与 Round 7 相同。
+- verdict: **Approved — 0 CRITICAL / 0 WARNING**。
+- approval_boundary: 通过本次账号归属及逐节点最后更新聊天修订的 Gate 2，可进入已定义的实施和验收；这不是对尚未实施代码或运行数据转换的验收。未修改设计、源码或运行环境，未提交。
+
+### 历史问题闭环与证据
+
+- **R7-W1 / R8-W1：closed。** design:432,440 明确从真实 `ToolContext.run_id` 传内部 `origin_run_id`，仅 single_thread 且省略显式 target 的写入读取本次 run context；同时匹配 agent_id 与 kernel_session_id。global/无 context 不推断，显式 target 继续复用现有翻译。该决定既消除了外部聊天缺少 session metadata 的问题，也不再把同一 session 的第一条聊天绑定当作本轮来源。
+- **身份是既有 SDK 合同。** `agent/sdk/contracts.py:24–45` 已公开 ToolContext.run_id；`agent/core/tools/registry.py:343–357` 在每次工具执行时从实际 hook context 注入 run_id。`personal_assistant/tools/task_graph.py:208–220` 已将 trusted Agent/session/call 身份与业务 args 分开发送，本次只补同样来源的 run_id，不新增模型可填身份字段，也不突破 PA 只依赖 agent.sdk 的包边界。
+- **真实普通入站会建立对应 context。** `session_run_coordinator.py:1805–1862` 同步 submit 后，持有实际 record.run_id 与 binding.kernel_session_id，并立即发 accepted lifecycle；`runtime_delivery/lifecycle.py:32–44` 在任何网络 await 前 seed context。`runtime_delivery/context.py:548–617` 从当次 RoutedInbound 的 confirmed shadow ref 或 Web relay 建立目标，并使用 lifecycle 的 Agent/session/run 身份。`seed` 的 `:523–536` 调用 `ensure_initial_runtime_state`，后者 `:148–159` 立即从 Web 或 shadow 目标得到 canonical conversation_id。因此工具 HTTP 请求被 listener 处理时，正常入站的来源已在现有共享 store 中，不依赖首个回复气泡或另一次网络查询。
+- **同 session 多 run 不互相覆盖来源。** context 由 run_id 索引，`get` 位于 `context.py:401–404`，`seed` 不覆盖已存在的同一 run；后台有来源的执行也在 `session_run_coordinator.py:658–713` 从实际持有的 binding seed。纯内存核验同一 `shared-session` 的 external-shadow run-b 与 Web run-a，分别返回 chat-b 和 chat-a；未创建服务或数据文件。向 B 发送消息所新增的 session binding 不会改变 run-a 的 context，正好关闭 R8 指出的实际别名路径。无来源背景执行留空已在设计中明确。
+- **产品组装有单一现成 owner。** `composition.py:431` 创建唯一 RunDeliveryContextStore，`:678–684` 交给 lifecycle，`:895–910` 交给普通 coordinator。`:1108–1117` 已组装 InternalDispatchHandler，后者 `internal_dispatch.py:505–514` 负责创建 TaskGraphBridge；设计明确沿这两处构造参数传入同一 store，增量落点完整，不需新 session 来源表、反向索引或修改其他反查消费者。
+- **职责与必要门禁。** run delivery owner 提供本次已确认聊天，Bridge 只读取并核对身份，IM 保持账号授权、来源成员检查和读时投影；没有把图权限交给聊天或投递状态。设计已要求 A/B 共用 session、B run 后 A run、Web/外部、global 与缺失/不匹配 context 的窄验证；作者正在扩展的真实 listener 测试能承载内部 payload 与依赖注入接线。上述测试仍须在实施后通过，既有 owner/receipt/changed_ids/UI 验收保持有效，无需复审未变化的 DAG 或短 ID 设计。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议。

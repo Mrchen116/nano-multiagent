@@ -1106,6 +1106,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
+        run_context_store=run_delivery_contexts,
         message_delivery=reply_delivery,
         global_inbox=global_inbox,
         work_recorder=work_recorder,

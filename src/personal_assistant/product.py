@@ -420,7 +420,7 @@ def prompt_for(
         and "task_graph" in resolve_enabled_tools(agent)
     ):
         tail_text = (tail_text + "\n" if tail_text else "") + (
-            f"Current bound chat target: {target}. Use this explicit target when saving a task graph to this chat."
+            f"Current bound chat target: {target}. Task graph updates automatically record this discussion; an explicit target is optional."
         )
     tail = (
         (PromptText(name="pa.communication_context", text=tail_text),)

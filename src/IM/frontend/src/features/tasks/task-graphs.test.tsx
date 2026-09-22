@@ -15,12 +15,12 @@ import { ConversationTasksLink, TaskGraphsPage } from "./task-graphs-page";
 import { layoutTaskScope } from "./task-graph-layout";
 
 const node = (id: string, title: string, container: string | null = "root", overrides: Partial<TaskNode> = {}): TaskNode => ({
-  id, title, container_id: container, description: "Purpose", mode: "none", status: "todo", result: "",
+  id, title, last_chat_id: "home", last_chat_title: "Startup group", container_id: container, description: "Purpose", mode: "none", status: "todo", result: "",
   derived_from_id: null, selected_candidate_id: null, selection_reason: "", links: [], order: 0,
   created_at: "2026-09-22T01:00:00Z", updated_at: "2026-09-22T01:00:00Z", updated_by: "Nano", ...overrides
 });
 const sampleGraph: TaskGraph = {
-  schema_version: 1, graph_id: "tg-1", root_node_id: "root", home_conversation_id: "home", home_conversation_title: "Startup group",
+  schema_version: 1, graph_id: "tg-1", root_node_id: "root",
   revision: 9, relative_url: "/tasks/tg-1", created_at: "2026-09-22T01:00:00Z", updated_at: "2026-09-22T01:00:00Z", updated_by: "Nano",
   nodes: [node("root", "Video product", null, { mode: "dag" }),
     node("A", "A Choose direction", "root", { mode: "explore", selected_candidate_id: "Z", selection_reason: "Lower cost" }),
@@ -44,8 +44,9 @@ function renderTasks(path: string, messages: Message[] = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const onSend = vi.fn();
   const router = createMemoryRouter([
+    { path: "/chat/other", element: <div>Other discussion</div> },
     { path: "/tasks", element: <TaskGraphsPage /> }, { path: "/tasks/:graphId", element: <TaskGraphsPage /> },
-    { path: "/chat/home", element: <MessagePane conversation={home} messages={messages} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} headerActions={<ConversationTasksLink conversationId="home" />} /> }
+    { path: "/chat/home", element: <MessagePane conversation={home} messages={messages} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} headerActions={<ConversationTasksLink />} /> }
   ], { initialEntries: [path] });
   const result = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   return { ...result, router, client, onSend };
@@ -67,6 +68,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("task graph browsing", () => {
+  it("returns a selected node to its own latest update chat", async () => {
+    currentGraph.nodes.find(node => node.id === "C")!.last_chat_id = "other";
+    currentGraph.nodes.find(node => node.id === "C")!.last_chat_title = "Other discussion";
+    const { router } = renderTasks("/tasks/tg-1?node=C");
+    const detail = await screen.findByRole("complementary", { name: "Node details" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Discuss this task in chat" }));
+    expect(router.state.location.pathname).toBe("/chat/other");
+    expect(composerStoreFor("user-1").get("other")?.draft).toContain("C Test");
+  });
+
+  it("opens account goals from chat without imposing a conversation filter", async () => {
+    const { router } = renderTasks("/chat/home");
+    await userEvent.click(await screen.findByRole("link", { name: "Goals 1" }));
+    expect(router.state.location.pathname).toBe("/tasks");
+    expect(router.state.location.search).toBe("");
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes("task-graphs")).every(([url]) => !url.includes("conversation_id="))).toBe(true);
+  });
+
+  it("keeps a goal without an accessible source usable and copies a node reference", async () => {
+    currentGraph.nodes.forEach(node => { node.last_chat_id = null; node.last_chat_title = null; });
+    const user = userEvent.setup();
+    renderTasks("/tasks/tg-1?node=C");
+    const detail = await screen.findByRole("complementary", { name: "Node details" });
+    expect(screen.queryByRole("button", { name: "Back to chat" })).not.toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "Discuss this task in chat" })).not.toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "Copy reference" }));
+    expect(await navigator.clipboard.readText()).toContain("/tasks/tg-1?scope=root&node=C");
+    expect(await screen.findByText("Copied. Paste this reference into any chat to discuss it.")).toHaveAttribute("role", "status");
+  });
+
   it("shows all direct DAG edges and relationships, preserves view on reread, and navigates both nesting modes", async () => {
     const { container, router } = renderTasks("/tasks/tg-1?scope=root&node=C");
     const detail = await screen.findByRole("complementary", { name: "Node details" });
@@ -132,7 +163,7 @@ describe("task graph browsing", () => {
     expect(screen.getByText("design.pdf")).toBeInTheDocument();
     expect(composerStoreFor("user-1").get("home")?.draftMentions).toEqual([{ label: "@Nano", type: "agent", target_id: "nano" }]);
     expect(onSend).not.toHaveBeenCalled();
-    expect(await screen.findByRole("link", { name: "Tasks 1" })).toHaveAttribute("href", "/tasks?conversation_id=home");
+    expect(await screen.findByRole("link", { name: "Goals 1" })).toHaveAttribute("href", "/tasks");
   });
 
   it("restores a mobile nested deep link and closes the detail drawer without moving the graph", async () => {
@@ -158,14 +189,14 @@ describe("task graph browsing", () => {
     expect(screen.getByRole("button", { name: "View A Choose direction" })).toBeInTheDocument();
   });
 
-  it("filters conversation lists, supports search and pagination, and shows genuine empty results", async () => {
+  it("lists account goals, supports search and pagination, and shows genuine empty results", async () => {
     list.next_cursor = "next-page";
     list.total = 21;
-    const { router } = renderTasks("/tasks?conversation_id=home");
+    const { router } = renderTasks("/tasks");
     await screen.findByRole("link", { name: /Video product/ });
     list = { items: [], next_cursor: null, total: 21 };
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes("cursor=next-page") && url.includes("conversation_id=home"))).toBe(true));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes("cursor=next-page") && !url.includes("conversation_id="))).toBe(true));
     await screen.findByText(/No task graphs yet/);
     await userEvent.type(screen.getByRole("textbox", { name: "Search goal names" }), "other");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));

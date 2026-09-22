@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urljoin
 from uuid import uuid4
 
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
 from personal_assistant.product import resolve_enabled_tools
 from personal_assistant.tools.task_graph import unavailable_result, validate_arguments
 
@@ -14,10 +15,18 @@ from personal_assistant.tools.task_graph import unavailable_result, validate_arg
 class TaskGraphBridge:
     """Translate explicit chat targets without treating prompt sources as scopes."""
 
-    def __init__(self, *, manager: Any, binder: Any, inbox: Any) -> None:
+    def __init__(
+        self,
+        *,
+        manager: Any,
+        binder: Any,
+        inbox: Any,
+        run_context_store: RunDeliveryContextStore | None = None,
+    ) -> None:
         self._manager = manager
         self._binder = binder
         self._inbox = inbox
+        self._run_context_store = run_context_store
 
     async def execute(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Authorize one live PA session and await its correlated IM result.
@@ -85,6 +94,25 @@ class TaskGraphBridge:
                     },
                 }
             business["conversation_id"] = conversation_id
+        elif (
+            action in {"create", "apply"}
+            and provenance.agent.config.work_mode == "single_thread"
+        ):
+            run_id = payload.get("origin_run_id")
+            context = (
+                self._run_context_store.get(run_id)
+                if self._run_context_store is not None and isinstance(run_id, str)
+                else None
+            )
+            # Several chats can alias one session. Only this executing run owns
+            # the exact Web or external-shadow discussion source.
+            if (
+                context is not None
+                and context.agent_id == agent_id
+                and context.kernel_session_id == session_id
+                and context.conversation_id
+            ):
+                business["conversation_id"] = context.conversation_id
         try:
             async with asyncio.timeout(40):
                 response = await manager.send_json_await_ack(
