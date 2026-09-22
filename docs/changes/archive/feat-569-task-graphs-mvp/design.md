@@ -409,3 +409,16 @@ npm --prefix src/IM/frontend run build
 - current `agent-capabilities` 的通用工具白名单规则补一个链接到任务图契约的有限例外：显式关闭任务图特性时，task_graph从有效工具集排除；配置白名单和其他工具规则不变。
 - 测试扩展现有能力payload golden以及task_graph边界测试，覆盖默认/开/关与白名单组合、global/single_thread、预览和runtime同源、关闭时不进入IM transport。前端既有动态feature联动测试保留，真浏览器确认中英文案、新建/编辑显示、保存关闭和恢复，并通过实际Agent下一轮验证。
 - 这是既有M1中有界的能力配置补充；原DAG/存储/短ID等结论保留。因增加了运行门控语义，在实现前补独立Gate2 delta审查；实施后仅复验该影响面。
+
+## 开放 PR 补充：账号所有的目标（S22–S23）
+
+用户确认目标按人归属、名下Agent可操作，并明确排除负责人/分派。本节取代原D1/D2/W2等聊天成员授权与删除聊天级联删图的设计。采用已有`users.owner_id` / `agent_profiles.owner_id`租户边界，不新增workspace/项目/目标成员体系。相比给每图维护Agent成员或继承群成员，账号归属直接复用身份事实并允许跨聊天Agent协作。
+
+- IM schema：`task_graphs.owner_id NOT NULL`；`source_conversation_id`可空，FK `ON DELETE SET NULL`；索引owner及更新时间。不再存`home_conversation_id`。归属/来源由独立列权威保存，JSON只存图文档，repository读取时合成，避免来源聊天删除后JSON残留旧绑定。图短ID/节点编号及revision算法保持。
+- Principal：浏览器身份从users取owner；WS Agent仍先验证真实profile/node归属及非stale，由profile取owner，不接受业务参数owner。list/get/apply及幂等回执都检查当前owner。图的owner在创建时由当前Agent固定，apply不可更改。显式owner伪造被参数校验拒绝。同账号Agent无论是否来源聊天成员都能读写；其他账号即使加入来源聊天也不能访问目标。登记失效/转移归属不重放原账号回执。
+- 来源：create的`target`/IM `conversation_id`改为可选，只记录一处来源；提供时沿用既有映射与真实成员检查，省略即可创建独立目标。可选list target仍是明确的来源筛选，不是默认范围；默认只按owner查询。输出改为nullable `source_conversation_id/title`，仅调用者仍是该聊天成员时显示，其他同账号Agent仍能读图但不获得私有聊天标题/跳转。重放回执重新验证owner，并按当前来源访问权投影链接，旧结果不能绕过权限。聊天删除只去掉来源，回执/图内容/ID保留。
+- 工具：create不再要求target，说明账号共享与可选来源；list默认本账号分页摘要（20，最大50），名称搜索及更新时间倒序。get/apply保持已知graph_id。来源映射未就绪只影响明确提供的target；无来源create和已知图读写不依赖聊天。调整task专用当前聊天提示为可选来源，维持S21关闭不提示该工具。
+- UI：聊天入口显示“目标”及账号图总数，跳`/tasks`；列表/标题不再强制渲染聊天名。有权访问来源时保留“回来源聊天”追加引用且不自动发送；所有图/节点提供“复制引用”以便粘贴到任意聊天，无来源/无权时不显示回源按钮。不新增聊天选择器、多聊天管理或负责人UI。沿用现有卡片/布局/详情原型；新must-match为上述文案、无来源空位与copy状态，现有P1–P6结构保留。
+- 开发态：源代码仅定义新schema/协议，不写旧设计迁移、双读或兼容别名。隔离环境停服并备份后，一次性把已确认所属账号的现有测试图转换到新schema/来源列，保留所有图ID、revision和内容；不提交运行数据/脚本。与未合并feat-569无关的主线库没有任务表数据，正常新建由现有初始化处理。
+- 验证：扩展现有HTTP/WS测试承担owner边界、同owner第二Agent非成员读写、别owner即使聊天成员仍拒绝、owner伪造/失效/回执重放、无来源创建、删聊天保图、source metadata成员隔离、分页/冲突/重启。替换已失效的“退群失去图权限”断言，保留真实provenance/S21和结构用例。前端测试覆盖无来源copy、账号级聊天入口、来源按钮条件及原草稿续写；不为新schema字段单独造镜像测试。
+- M1范围追加IM task service/repository/schema/API、PA task tool/prompt、Tasks UI/i18n及所属测试；[reviewer]真Agent跨聊天/Agent共用图、无来源与删来源后查看、其他账号不可见；[worker]owner由可信身份推导，mutation/receipt原子边界保持，全部新语义窄测及全量通过，corrected-delta归并。Gate2 delta通过再实施。
