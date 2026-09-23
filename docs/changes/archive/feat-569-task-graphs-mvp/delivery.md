@@ -64,3 +64,7 @@ The retained stack remains at `http://127.0.0.1:56231`, same worktree/node/confi
 ## Open-PR follow-up: simplify chat navigation
 
 The user identified the chat title bar's “目标 N” shortcut as a duplicate of the persistent “任务” navigation. `e57a327a9` removes that control, its count request and styles; `4d09f5d02` removes its unused MessagePane action slot. Desktop top and mobile bottom task tabs, Agent message graph links, node return links and the account goal list remain. The removed shortcut test was retired; AppShell and graph-link journeys still protect the surviving paths. The current IM serves the rebuilt assets without a service restart. Focused15 and full frontend781tests plus TypeScript/Vite build pass; no IM/Gateway schema or tool path changed.
+
+## Open-PR follow-up: merged-main Feishu validation
+
+The branch merged `origin/main=07857d0a8` (including PR #312's ShadowReplyPublisher refactor) at `9067daca5`. The retained isolated IM and test-Bot Gateway then passed a real Feishu inbound/final-card probe; two Feishu user prompts created and updated `tg_304dc31f` through native `task_graph` calls, with matching persisted IM state. A separate `/stop` arrived while a 45-second `bash` tool was running: the tool ended `interrupted`, Feishu received the stop acknowledgement, and no old answer appeared after 52 seconds. [Acceptance Round 9](acceptance.md) records the exact scope and message evidence. The same isolated services and test graph remain available for user inspection; production was not touched.

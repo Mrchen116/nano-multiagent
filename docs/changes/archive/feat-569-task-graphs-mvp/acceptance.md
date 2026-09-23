@@ -311,3 +311,18 @@ S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21�
 | 手机底栏 | 390×844，从聊天详情 Back 返回 `/chat`，底栏“任务”可见；实际点击进入 `/tasks`，账号目标列表正常显示、底栏任务选中。聊天详情自身隐藏底栏是既有布局，未把它误判为入口丢失。 | `mobile-chat-list.png`、`mobile-tasks.png`（390×844） |
 
 本轮只验证入口精简的页面影响，不以 UI 结果声称已独立验证网络 count 查询删除。S22/S23、Agent 真实写图、ACL、来源、草稿、DAG 和短 ID 等既有有效证据 retained，不重复运行。没有发消息、修改图或操作用户 a/AA；未使用用户 IAB。关闭自己创建的浏览器，服务和数据保留。仅追加报告，不暂存、commit 或 push。
+
+## Round 9 — targeted（合并 main #312 后的真实飞书链路）
+
+- `validated_at=9067daca588f190b64276b8587ad16fa9aec0cb9`，已合并 `origin/main=07857d0a8afc6e2625d315b0ad1ab20e7d009077`（含 ShadowReplyPublisher 重构）。2026-09-23 16:35–16:43 Asia/Shanghai。
+- 保留原隔离 IM 数据与端口 `127.0.0.1:56231`（PID 63271），只将同一隔离 Gateway 重启到合并后代码（PID 15775）。使用专用 `e2e-feishu-testagent` 飞书测试机器人/用户及独占 listener，未操作生产机器人、用户 Agent a/AA 或其目标。
+- **pass**。飞书入站、原生任务图工具、IM 持久化、飞书最终回复，以及运行中 `/stop` 后无迟到回复均经真实消息验证。证据留在隔离运行数据及本地 `/tmp/feat569-feishu-link-validation.json`；不提交凭据、日志、数据库或截图。
+
+| 旅程 | 实际观察 |
+|---|---|
+| 常规飞书回复 | `scripts/e2e-feishu-probe.py --timeout 60` 通过：测试用户消息由此 Gateway 消费，飞书收到一次最终交互卡，IM 留有同一回复的纯文本 shadow。 |
+| 飞书创建目标 | 测试用户消息 `om_x100b640ca3c7ecdcb1b1ce058cc08b1` 令 Agent 真实 `create→apply→get`，在飞书得到图号 `tg_304dc31f` 与 Web 链接。IM 中图为 revision 2，根 n1、子 n2“收集素材”、n3“整理结果”，依赖 n2→n3；节点来源为飞书对应的 IM 聊天 `c_f8bhbnvp`。 |
+| 飞书更新同一目标 | 第二条测试用户消息 `om_x100b640cbd741ca4b28d421d2d2b2fd` 令 Agent 真实 `get→apply→get`。飞书最终卡与 IM 图均显示 revision 3，只有 n2 变为 doing 并记录“飞书第二轮更新 f5ac54”；n1/n3 状态与依赖保持不变。 |
+| 运行中停止 | 第一轮 `sleep 25` 的停止消息晚于命令完成，不作为中断证据。自动重试时，观察到 IM 的 `bash` 工具处于 running 后 0.71 秒，测试用户发送 `/stop`（`om_x100b640d4b40cc80b22b1ac67041ac5`）；原工具转为 `failed/interrupted`，IM 与飞书均出现“已停止当前操作。”。飞书确认是普通 post 消息，不是交互卡。等待 52 秒（超过原命令 45 秒）后，旧命令结果和旧 Agent 正文在 IM、飞书都未出现。 |
+
+这轮专门覆盖 feat-569 与新 main 的飞书交叉面；不重复宣称图片链路、生产部署或所有历史 S01–S23 旅程重新执行。测试图 `tg_304dc31f` 与隔离服务保留，供用户在 `/tasks` 查看。
