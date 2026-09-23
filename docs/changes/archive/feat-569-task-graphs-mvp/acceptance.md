@@ -297,3 +297,17 @@ S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21�
 此前 DAG 布局、短图/节点 ID、feature toggle、外部渠道 native 链路和未受影响数据一致性证据 retained。旧 S18“聊天成员即可访问图”的准入结论已被 S22 账号归属契约替代，不能作为当前 ACL 证据；来源与回聊部分以本轮为准。caller 的 Python 2072 + 1998、UI 782 全量结果属于补充检查；本 reviewer 未重复执行，不把测试数量当作真实 UI 验收。
 
 保留新测试群 c_bx430dtz 及三个新图 tg_be33bc23、tg_edc1a174、tg_11d5b4c2，所有原图与主服务保持运行，便于用户继续体验。已关闭自己创建的 feat569owner、feat569owneracl 浏览器。按本轮要求仅追加此报告，不暂存、不 commit、不 push，不修改代码或用户数据。
+
+## Round 8 — targeted（去除重复聊天目标入口）
+
+- `validated_at=d248135e2`；caller 随后交接 `e820450d9` 仅删除已无 caller 的 headerActions 空插槽，行为不变，本轮证据 retained。2026-09-23 14:31–14:33 Asia/Shanghai，在同一隔离栈用独立 Playwright 会话 feat569entry / nano，只作浏览器阅读与导航。
+- **pass**；`highest_required_action=pass`，0 open issues，`needs_re_review=false`。
+
+| 真实页面检查 | 观察 | 截图（均已打开视觉核对） |
+|---|---|---|
+| 桌面聊天头部 | 1440×960，中文 `/chat/c_xsu9vkwq` 的 e2e-peer 头部只保留身份、Agent 标记和会话菜单，无“目标 N”按钮；全局顶部“任务”仍可见。 | `/tmp/feat569-entry-review/desktop-chat.png` |
+| 顶部任务入口 | 实际点击“任务”进入 `/tasks`，显示账号目标列表（9 个），包括不同测试 Agent 更新的目标。目标列表本身的计数仍正常。 | `desktop-list.png`（同目录，1440×960） |
+| 消息图链接 | 返回测试聊天，点击既有回复中的 tg_11d5b4c2 链接，实际进入同图，显示“根来源直验569”、revision1、n1 详情。 | `message-link-graph.png`（1440×960） |
+| 手机底栏 | 390×844，从聊天详情 Back 返回 `/chat`，底栏“任务”可见；实际点击进入 `/tasks`，账号目标列表正常显示、底栏任务选中。聊天详情自身隐藏底栏是既有布局，未把它误判为入口丢失。 | `mobile-chat-list.png`、`mobile-tasks.png`（390×844） |
+
+本轮只验证入口精简的页面影响，不以 UI 结果声称已独立验证网络 count 查询删除。S22/S23、Agent 真实写图、ACL、来源、草稿、DAG 和短 ID 等既有有效证据 retained，不重复运行。没有发消息、修改图或操作用户 a/AA；未使用用户 IAB。关闭自己创建的浏览器，服务和数据保留。仅追加报告，不暂存、commit 或 push。
