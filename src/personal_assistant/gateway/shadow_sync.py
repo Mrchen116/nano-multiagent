@@ -6,7 +6,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -29,9 +29,12 @@ from personal_assistant.gateway.shadow_saga import (
     ExternalShadowBubble,
     ExternalShadowBubbleEvent,
     ExternalShadowOutput,
-    ExternalShadowSaga,
     ExternalShadowSagaStore,
 )
+
+
+if TYPE_CHECKING:
+    from personal_assistant.gateway.message_delivery import MessageDelivery
 
 
 def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
@@ -63,9 +66,7 @@ class IMShadowConversationSync:
         timeout_seconds: float = 3.0,
         transport: httpx.AsyncBaseTransport | None = None,
         saga_store: ExternalShadowSagaStore | None = None,
-        delivery_provider: Callable | None = None,
-        before_publish: Callable[[str], Awaitable[bool]] | None = None,
-        after_publish: Callable[[str], None] | None = None,
+        delivery_provider: Callable[[], MessageDelivery] | None = None,
         promote_pending_boundary: (
             Callable[[str, ShadowConversationRef], object] | None
         ) = None,
@@ -79,8 +80,6 @@ class IMShadowConversationSync:
         self._transport = transport
         self._saga_store = saga_store
         self._delivery_provider = delivery_provider
-        self._before_publish = before_publish
-        self._after_publish = after_publish
         self._promote_pending_boundary = promote_pending_boundary
         self._resolved_owner_user_id: str | None = None
         self._resolved_owner_scope_id: str | None = None
@@ -327,7 +326,13 @@ class IMShadowConversationSync:
 
     async def reconcile_snapshot(self, snapshot: ExternalShadowBubble) -> None:
         """Delegate Agent body reconciliation to its delivery owner."""
-        await self._delivery_provider().reconcile_shadow_snapshot(self, snapshot)
+        saga_store = self._saga_store
+        if saga_store is None:
+            raise RuntimeError("external shadow bubble requires durable saga storage")
+        saga = saga_store.require(snapshot.saga_id)
+        if saga.shadow_ref is None:
+            return
+        await self._delivery_provider().reconcile_shadow_snapshot(saga, snapshot)
 
     async def mirror_prepared_agent_output(self, output: ExternalShadowOutput) -> None:
         """Mirror an already durable Agent output without blocking external delivery.
@@ -344,7 +349,7 @@ class IMShadowConversationSync:
         saga = saga_store.require(output.saga_id)
         if saga.shadow_ref is None:
             return
-        await self._delivery_provider().mirror_shadow_output(self, saga, output)
+        await self._delivery_provider().mirror_shadow_output(saga, output)
 
     async def mirror_agent_output(
         self,
@@ -372,25 +377,6 @@ class IMShadowConversationSync:
             output_key=output_key,
         )
         await self.mirror_prepared_agent_output(output)
-
-    async def _project_images(
-        self,
-        *,
-        saga: ExternalShadowSaga,
-        run_id: str,
-        bubble_id: str,
-        output_key: str,
-        content: str,
-    ) -> str:
-        if self._delivery_provider is None:
-            return content
-        assert saga.shadow_ref is not None
-        return await self._delivery_provider().project_saved_shadow(
-            output_key,
-            saga.shadow_ref.conversation_id,
-            saga.agent_id,
-            content,
-        )
 
     def _promote_boundary(
         self, *, saga_id: str, shadow_ref: ShadowConversationRef
@@ -462,7 +448,7 @@ class IMShadowConversationSync:
             saga = saga_store.require(output.saga_id)
             if saga.shadow_ref is None:
                 continue
-            await self._delivery_provider().mirror_shadow_output(self, saga, output)
+            await self._delivery_provider().mirror_shadow_output(saga, output)
 
     @staticmethod
     def _report_recovery_failure(task: asyncio.Task[None]) -> None:

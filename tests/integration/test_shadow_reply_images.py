@@ -29,7 +29,7 @@ from personal_assistant.gateway.shadow_saga import (
 )
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from tests.helpers.runtime_delivery import delivery_context_store
-from tests.helpers.message_delivery import message_delivery
+from tests.helpers.message_delivery import shadow_sync_with_delivery
 
 
 class _ConnectedIM:
@@ -235,14 +235,13 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
         actions.append("release")
 
     reopened = ExternalShadowSagaStore(db_path=tmp_path / "sagas.db")
-    owner = message_delivery(images=images)
-    sync = IMShadowConversationSync(
+    sync = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=token,
         gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=reopened,
-        delivery_provider=lambda: owner,
+        images=images,
         before_publish=before,
         after_publish=after,
     )
@@ -257,13 +256,13 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
     assert actions == expected
     # A restart has no live context gate. Durable revocation must still prevent
     # the old image reply from becoming an eligible recovery output again.
-    restarted = IMShadowConversationSync(
+    restarted = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=token,
         gateway_token_getter=token,
         owner_user_id="owner",
         saga_store=ExternalShadowSagaStore(db_path=tmp_path / "sagas.db"),
-        delivery_provider=lambda: owner,
+        images=images,
     )
     asyncio.run(restarted.recover_pending())
     assert actions == expected

@@ -129,6 +129,7 @@ from personal_assistant.gateway.distill_prompt import build_distill_prompt_handl
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.model_fallback import ModelStickyStore
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
+from personal_assistant.gateway.shadow_reply_publisher import ShadowReplyPublisher
 from personal_assistant.gateway.workflow_permission_bindings import (
     WorkflowPermissionDeliveryBindingRegistry,
 )
@@ -503,6 +504,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
 
     _gateway_internal_port = 0
     shadow_sync: IMShadowConversationSync | None = None
+    shadow_publisher: ShadowReplyPublisher | None = None
     external_control_delivery: ExternalControlDeliveryMaterializer | None = None
     connection_ready_coordinator: connection_ready.ConnectionReadyCoordinator | None = (
         None
@@ -639,6 +641,16 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         token_provider.add_token_listener(im_config_sync_client.update_token)
         token_getter = token_provider.get_token
 
+        shadow_saga_store = ExternalShadowSagaStore(
+            db_path=runtime_dir / "external_shadow_sagas.sqlite3"
+        )
+        shadow_publisher = ShadowReplyPublisher(
+            base_url=config.im_service.url,
+            gateway_token_getter=gateway_token_getter,
+            saga_store=shadow_saga_store,
+            before_publish=_admit_shadow,
+            after_publish=_release_shadow,
+        )
         shadow_sync = IMShadowConversationSync(
             base_url=config.im_service.url,
             token_getter=token_getter,
@@ -646,11 +658,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             owner_user_id=_owner_user_id,
             node_id=config.node.node_id,
             delivery_provider=lambda: reply_delivery,
-            before_publish=_admit_shadow,
-            after_publish=_release_shadow,
-            saga_store=ExternalShadowSagaStore(
-                db_path=runtime_dir / "external_shadow_sagas.sqlite3"
-            ),
+            saga_store=shadow_saga_store,
             promote_pending_boundary=lambda saga_id, shadow_ref: (
                 session_store.promote_pending_boundary(
                     shadow_saga_id=saga_id,
@@ -764,6 +772,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         owner_id=_owner_user_id,
         writer=_kernel_event_observer,
         notify_pending=_notify_shadow_pending,
+        shadow_publisher=shadow_publisher,
     )
     _kernel_event_observer = build_candidate_observer(
         writer=reply_delivery.observe_process,
