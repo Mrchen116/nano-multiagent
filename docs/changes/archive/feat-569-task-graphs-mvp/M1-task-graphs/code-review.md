@@ -191,3 +191,21 @@ The integration fixture now creates profiles through `ConfigService`, then resol
 The supplied red phase has the expected four actual-Agent command failures; the focused API, owner, and domain repair phase reports `27 passed` in `/tmp/feat569-agent-principal-green.log`. This review did not rerun full suites or claim the independent product revalidation. The only implementation change is this principal-resolution repair; all earlier DAG, short-ID, feature-gate, source-chat, persistence, provenance, and no-automatic-execution conclusions remain retained.
 
 Verdict: **PASS — real registered Agents resolve to their profile/node human owner without weakening cross-account isolation.**
+
+## Round 9: targeted redundant chat-header task entry removal
+
+> Review mode: `targeted` · patch: `6cec792e7..d248135e2` · reviewed snapshot: `d248135e2`
+
+### Findings
+
+```json
+[]
+```
+
+`ConversationTasksLink` was the only removed behavior: it independently queried the same account-wide task list and routed the chat header to `/tasks`. The desktop shell navigation and mobile bottom navigation still route to `/tasks` (`src/IM/frontend/src/app/shell/app-shell.tsx`), while message Markdown still routes same-origin task URLs through `TaskGraphLink` (`src/IM/frontend/src/features/chat/components/message-pane.tsx`, `src/IM/frontend/src/features/tasks/task-graph-link.tsx`). Thus the removed duplicate does not remove the account-level browsing entry or a direct graph-link path that preserves composer snapshots.
+
+The deleted assertions covered only the removed header link and its no-conversation-filter fetch. The retained message-link journey verifies the actual direct-link and draft-preservation behavior. Removing the component also removes its isolated list-count query; no live task-page query, graph rendering, node discussion, or access path is changed. The supplied targeted UI/shell result is `15 passed`, with TypeScript/Vite build, docs-check, Ruff, and diff checks passing; this review did not rerun the in-progress full frontend suite.
+
+Verdict: **PASS — no targeted code-review finding; prior implementation, authorization, DAG, compact-ID, feature-gate, and source-chat gates remain valid.**
+
+Round 9 targeted closure: `headerActions` had no remaining frontend caller after the duplicate task entry was removed; `e820450d9` deletes only that unused prop, destructure, and JSX slot. The Round 9 PASS is validated at and effective through `e820450d9`.

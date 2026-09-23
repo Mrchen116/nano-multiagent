@@ -57,3 +57,9 @@
 - Full checks: remaining Python2072passed, frontend782passed; Agent/PA1998passed on recheck after an unrelated40ms heartbeat test failed under simultaneous full-suite load. That test file independently passed11tests. No timing code or unrelated tests changed.
 - The retained stack was backed up and its6existing development graphs converted once without changing IDs, revisions, content or dependencies. Unknown old per-node source history is null. This is local setup, not a shipped migration; services remain available for user testing.
 - Live Agent acceptance exposed an extra synthetic-user owner equality check that rejected actual registrations. ConfigService provisions a chat user whose own identity differs from the profile's human owner. `a4bd167de` removes that incorrect equality while retaining registered profile/node ownership and stale checks. The integration fixture now uses ConfigService.create_profile; it reproduces4failures before the fix and API/ownership/domain27pass afterward. No runtime user records were rewritten to make the check pass.
+
+## Open-PR follow-up: remove duplicate chat goal button
+
+- User observed that the chat header's “目标 N” and the app's “任务” tab open the same account goal list. Removed the header button and its extra list/count request, associated CSS, and the now-unused MessagePane header action slot in `d248135e2` and `e820450d9`.
+- Retired the two obsolete CTA assertions/test paths. Existing AppShell tests retain desktop/mobile Tasks navigation; existing task graph journey retains the Agent message link, node return and draft preservation.
+- Targeted task graph + shell tests15passed; frontend full84files/781passed; TypeScript/Vite build, docs integrity, Ruff and diff check passed. No backend, goal ownership or per-node update behavior changed. The isolated service continues serving this worktree's rebuilt frontend.

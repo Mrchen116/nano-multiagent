@@ -334,3 +334,27 @@ WARNING: None.
 SUGGESTION: None.
 
 Round 8 static verifier verdict: **PASS**. `requires_full_verification: false`. Earlier gates remain retained; independent product revalidation remains separate.
+
+## Round 9: targeted redundant chat-header task entry removal
+
+> Revalidation mode: `targeted` · patch: `6cec792e7..d248135e2` · reviewed snapshot: `d248135e2`
+
+| Contract | Implementation and test evidence | Result |
+|---|---|---|
+| Account task browsing has one non-duplicated primary entry | chat-header `ConversationTasksLink` and its separate count query are removed; shell desktop and mobile `/tasks` navigation remain | aligned |
+| Agent-provided task links still reach the selected graph without losing chat drafts | message rendering retains `TaskGraphLink`; retained journey covers opening a graph link, returning to discussion, references, mentions, attachment, and no send | aligned |
+| Task browsing remains account-wide | both the surviving shell entry and removed header target `/tasks`; no conversation filter or task API behavior changed | aligned |
+
+The updated design, archived IM delta, unit requirement, and canonical IM specification consistently replace the former chat-header entry with the top task entry while explicitly retaining message graph links and node discussion. This is a presentation and redundant-query removal only; it does not alter owner authorization, source projection, persistence, DAG/exploration semantics, or tool behavior. The supplied focused UI/shell run reports `15 passed`; TypeScript/Vite build, docs-check, Ruff, and diff check are also supplied as passing. Full frontend verification remains in parallel and is not claimed here.
+
+### Issues
+
+CRITICAL: None.
+
+WARNING: None.
+
+SUGGESTION: None.
+
+Round 9 static verifier verdict: **PASS**. `requires_full_verification: false`; all prior passing gates remain retained.
+
+Round 9 targeted closure: no frontend caller remains for `MessagePaneProps.headerActions`; `e820450d9` removes only the dead interface, destructure, and render slot. The Round 9 verifier PASS is validated at and effective through `e820450d9`.
