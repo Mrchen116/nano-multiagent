@@ -1,7 +1,7 @@
 """Authenticated shadow-sync identity test."""
 
 from __future__ import annotations
-from tests.helpers.message_delivery import message_delivery
+from tests.helpers.message_delivery import shadow_sync_with_delivery
 
 import asyncio
 import json
@@ -68,9 +68,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
         raise AssertionError(f"unexpected request: {request.url.path}")
 
     saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
-    delivery = message_delivery()
-    client = IMShadowConversationSync(
-        delivery_provider=lambda: delivery,
+    client = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
@@ -103,9 +101,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
         "/im/v1/conversations/conv-shadow/messages",
     ]
 
-    delivery = message_delivery()
-    corrected_config_client = IMShadowConversationSync(
-        delivery_provider=lambda: delivery,
+    corrected_config_client = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
@@ -166,9 +162,7 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
         content="done",
     )
     promoted_saga_ids: list[str] = []
-    delivery = message_delivery()
-    client = IMShadowConversationSync(
-        delivery_provider=lambda: delivery,
+    client = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
@@ -231,9 +225,7 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
         owner_id="alice-user",
     )
     assert stale_saga is not None
-    delivery = message_delivery()
-    client = IMShadowConversationSync(
-        delivery_provider=lambda: delivery,
+    client = shadow_sync_with_delivery(
         base_url="http://im.local",
         token_getter=lambda: _async_value("bob-token"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
