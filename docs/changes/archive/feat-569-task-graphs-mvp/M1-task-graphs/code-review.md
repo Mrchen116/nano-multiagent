@@ -34,7 +34,7 @@ Verdict: **PASS — no remaining confirmed or plausible targeted code-review fin
 
 ## Round 3: targeted layout revalidation
 
-> Review mode: `targeted` · patch: `1ef600438..24bb6faad` · executed base: `2e9c83df9` · reviewed snapshot: `24bb6faad`
+> Review mode: `targeted` · patch: `56b6c96bf..3f4f78d36` · executed base: `2e9c83df9` · reviewed snapshot: `3f4f78d36`
 
 ### Findings
 
@@ -52,7 +52,7 @@ Verdict: **PASS — no remaining confirmed or plausible targeted code-review fin
 
 ## Round 4: targeted short-ID revalidation
 
-> Review mode: `targeted` · patch: `4cb266658..5f667ba71` · executed base: `2e9c83df9` · reviewed snapshot: `5f667ba71`
+> Review mode: `targeted` · patch: `912ae2fd5..3c121fd3f` · executed base: `2e9c83df9` · reviewed snapshot: `3c121fd3f`
 
 ### Findings
 
@@ -79,13 +79,13 @@ Verdict: **WARNING — source implementation passes targeted review; canonical g
 
 ### Round 4 closure: canonical gateway contract
 
-> Closure snapshot: `c23c19a53` · implementation retained: `5f667ba71`
+> Closure snapshot: `9d41ae12b` · implementation retained: `3c121fd3f`
 
 ```json
 []
 ```
 
-`c23c19a53` adds only the missing canonical clause at `docs/specs/gateway/task-graphs.md:18`. It is textually the same short, graph-local stable-ID requirement already present in the archived gateway delta (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11`), including the no-renumbering and no-UUID-passing semantics. The confirmed Round 4 documentation finding is closed; no implementation behavior changed, so the earlier source review remains retained.
+`9d41ae12b` adds only the missing canonical clause at `docs/specs/gateway/task-graphs.md:18`. It is textually the same short, graph-local stable-ID requirement already present in the archived gateway delta (`docs/changes/archive/feat-569-task-graphs-mvp/specs/gateway/task-graphs.md:11`), including the no-renumbering and no-UUID-passing semantics. The confirmed Round 4 documentation finding is closed; no implementation behavior changed, so the earlier source review remains retained.
 
 Supplementary supplied evidence is clean: equivalent Python CI partitions report 1,986 and 2,066 passed; repository Ruff check/format report 1,096 checks passing; and docs validation reports 238 sources / 75 routes. This closure does not claim the separate product review.
 
@@ -93,7 +93,7 @@ Verdict: **PASS — Round 4 implementation and canonical gateway-contract reconc
 
 ## Round 5: targeted short graph-ID revalidation
 
-> Review mode: `targeted` · patch: `5f667ba71..7de35e397` · executed base: `2e9c83df9` · reviewed snapshot: `7de35e397`
+> Review mode: `targeted` · patch: `3c121fd3f..12fc67fdd` · executed base: `2e9c83df9` · reviewed snapshot: `12fc67fdd`
 
 ### Findings
 
@@ -111,7 +111,7 @@ Verdict: **PASS — no remaining confirmed or plausible targeted code-review fin
 
 ## Round 6: targeted task-graph feature-switch revalidation
 
-> Review mode: `targeted` · patch: `46238f91f..a34bb2bd3` · reviewed snapshot: `a34bb2bd3`
+> Review mode: `targeted` · patch: `951a00e87..9892cd39c` · reviewed snapshot: `9892cd39c`
 
 ### Findings
 
@@ -131,7 +131,7 @@ Verdict: **PASS — no remaining confirmed or plausible targeted code-review fin
 
 ## Round 7: targeted account-ownership and per-node-chat revalidation
 
-> Review mode: `targeted` · patch: `4058e38ad..b94e157c7` · reviewed snapshot: `b94e157c7`
+> Review mode: `targeted` · patch: `0bc3fe903..b383419bc` · reviewed snapshot: `b383419bc`
 
 ### Findings
 
@@ -160,7 +160,7 @@ Verdict: **WARNING — S22 owner sharing and most S23 paths align, but source-ch
 
 ### Round 7 closure: root creation source retention
 
-> Closure snapshot: `44af01688` · targeted repair range: `b94e157c7..44af01688`
+> Closure snapshot: `99a22fb80` · targeted repair range: `b383419bc..99a22fb80`
 
 ### Findings
 
@@ -176,7 +176,7 @@ Verdict: **PASS — the confirmed Round 7 root-source finding is closed; no rema
 
 ## Round 8: targeted real-Agent principal repair
 
-> Review mode: `targeted` · repair snapshot: `a4bd167de` · repair range: `44af01688..a4bd167de`
+> Review mode: `targeted` · repair snapshot: `c4266e886` · repair range: `99a22fb80..c4266e886`
 
 ### Findings
 
@@ -194,7 +194,7 @@ Verdict: **PASS — real registered Agents resolve to their profile/node human o
 
 ## Round 9: targeted redundant chat-header task entry removal
 
-> Review mode: `targeted` · patch: `6cec792e7..d248135e2` · reviewed snapshot: `d248135e2`
+> Review mode: `targeted` · patch: `78d66c052..2a4b88423` · reviewed snapshot: `2a4b88423`
 
 ### Findings
 
@@ -208,4 +208,4 @@ The deleted assertions covered only the removed header link and its no-conversat
 
 Verdict: **PASS — no targeted code-review finding; prior implementation, authorization, DAG, compact-ID, feature-gate, and source-chat gates remain valid.**
 
-Round 9 targeted closure: `headerActions` had no remaining frontend caller after the duplicate task entry was removed; `e820450d9` deletes only that unused prop, destructure, and JSX slot. The Round 9 PASS is validated at and effective through `e820450d9`.
+Round 9 targeted closure: `headerActions` had no remaining frontend caller after the duplicate task entry was removed; `f86b898b0` deletes only that unused prop, destructure, and JSX slot. The Round 9 PASS is validated at and effective through `f86b898b0`.

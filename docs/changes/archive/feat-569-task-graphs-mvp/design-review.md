@@ -334,12 +334,12 @@ R1-R3 继续作为可选演示改进保留。实施时按 design 已明确的职
 - reviewer_target: Codex `/root/task_graph_feature_design_review`；独立于补充设计作者、实现者和静态实现 reviewer。本轮仅追加本报告。
 - reviewer_handoff: 新 reviewer 接收同一未合并 PR #313 的有界补充；已读 Round 1–3 及 Author Resolutions，并独立核对本次 commit 差异与实际产品组装路径，没有仅凭旧 Approved 放行。
 - review_mode: delta
-- mode_reason: `46238f91f..3eb239b54` 只增加 S21、任务图 feature 投影/有效工具门控设计及对应 Gateway delta；沿用既有 UI、配置存储、runtime 投影与唯一 M1，不改变图接口、DAG、存储或 ID。本轮覆盖新增开关及其配置/运行接缝；发现的在途语义问题在该影响面内。
+- mode_reason: `951a00e87..d6c0580e8` 只增加 S21、任务图 feature 投影/有效工具门控设计及对应 Gateway delta；沿用既有 UI、配置存储、runtime 投影与唯一 M1，不改变图接口、DAG、存储或 ID。本轮覆盖新增开关及其配置/运行接缝；发现的在途语义问题在该影响面内。
 - retained_from: Round 3；图结构、目标聊天与成员权限、Work 副本可见性、输入渠道解耦、原型 P1–P6 和原 M1 的设计结论保持。之后既有 DAG/短 ID 实施与验收历史不在本轮重新审查范围；本轮不为它们补造新结论。
 - started_at: 2026-09-22T23:17:57+08:00（范围、历史与接线核验计时点）
 - completed_at: 2026-09-22T23:19:51+08:00
 - duration: 1m54s
-- validated_at: `3eb239b54419a6ee34649b2786f3d9152c0bb922`，产品代码仍为 `46238f91f`；审查期间作者开始修改两份测试以准备 red，不作为本轮设计结论依据。
+- validated_at: `d6c0580e86a6d1438a11211d4ea0b49e58a48661`，产品代码仍为 `951a00e87`；审查期间作者开始修改两份测试以准备 red，不作为本轮设计结论依据。
 - executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`；本轮未 fetch、切分支或改动服务。
 - verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
 - approval_boundary: 新增任务图特性开关的 Gate 2 尚未通过；已有未受影响设计结论保留。没有实施、产品验收、服务操作或提交。
@@ -378,7 +378,7 @@ R1-W1/W2/W3 在 Round 2–3 已关闭，本次没有更改其权限、来源或�
 
 ### Recommendations
 
-- `agent-capabilities` delta 存在末尾多余空行，`git diff 46238f91f 3eb239b54 --check` 已报告；随 author 下一次文档修改清理即可，不作为设计阻断项。
+- `agent-capabilities` delta 存在末尾多余空行，`git diff 951a00e87 d6c0580e8 --check` 已报告；随 author 下一次文档修改清理即可，不作为设计阻断项。
 
 ### Author Resolutions — Round 4
 
@@ -395,7 +395,7 @@ R1-W1/W2/W3 在 Round 2–3 已关闭，本次没有更改其权限、来源或�
 - started_at: 2026-09-22T23:22:56+08:00
 - completed_at: 2026-09-22T23:23:31+08:00
 - duration: 35s
-- validated_at: `3eb239b54419a6ee34649b2786f3d9152c0bb922` 加受审 working-tree design 修订；design SHA-256 为 `af1a3ce90466df1fffedb12617210d7b1a8f7d0bfe38eeb63932ec4596c7e55c`。spec 与两份 Gateway delta 的内容与 Round 4 相同。
+- validated_at: `d6c0580e86a6d1438a11211d4ea0b49e58a48661` 加受审 working-tree design 修订；design SHA-256 为 `af1a3ce90466df1fffedb12617210d7b1a8f7d0bfe38eeb63932ec4596c7e55c`。spec 与两份 Gateway delta 的内容与 Round 4 相同。
 - executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`。产品实现仍未修改，作者准备中的测试不作为实现通过证据。
 - verdict: **Approved — 0 CRITICAL / 0 WARNING**。
 - approval_boundary: R4-W1 设计闭环，任务图特性开关 Gate 2 通过；实现与配置切换行为仍须完成本轮要求的窄验证及 S21 产品复验。仅追加报告，未改源码、运行服务或提交。
@@ -435,7 +435,7 @@ R1-W1/W2/W3 在 Round 2–3 已关闭，本次没有更改其权限、来源或�
 - started_at: 2026-09-22T23:53:34+08:00
 - completed_at: 2026-09-22T23:55:18+08:00
 - duration: 1m44s
-- validated_at: `c24cc3e0d119e107f4274f6c0d25126116518848`，产品基线为父提交 `4058e38ad`；审查期间作者新增三份测试修改用于 red，不作为本轮实现通过证据。
+- validated_at: `0e912c80afa13d268a1359feb497ce4552256d32`，产品基线为父提交 `0bc3fe903`；审查期间作者新增三份测试修改用于 red，不作为本轮实现通过证据。
 - executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`；未 fetch、修改源码、操作运行环境或提交。
 - verdict: **Approved — 0 CRITICAL / 0 WARNING**。
 - approval_boundary: S22–S23 的 Gate 2 通过；账号隔离、删除来源、回执与新 UI 行为仍须在实现后接受相应独立验证。
@@ -500,7 +500,7 @@ R4-W1 保持 closed：本次仍复用会话已采纳配置控制工具能力。R
 - started_at: 2026-09-23T00:00:23+08:00
 - completed_at: 2026-09-23T00:01:32+08:00
 - duration: 1m09s
-- validated_at: `e583673a12b315ccc714c27d4dcbf15acf890e0f`；产品实现仍为此前完成的版本，作者准备的三个 red 测试文件不构成实施证据。
+- validated_at: `f533c565790d6ea47c51f9d76f7a3525227f36ef`；产品实现仍为此前完成的版本，作者准备的三个 red 测试文件不构成实施证据。
 - executed_base: 本地 `origin/main@2e9c83df99ba1b9313dbea7c449ed43635e7ee59`。
 - verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
 - approval_boundary: Round 6 的 Approved 只覆盖旧账号/单一来源方案，本轮最新逐节点回聊设计尚未通过 Gate 2。仅追加报告；未修改源码、操作服务或数据、提交。
@@ -546,12 +546,12 @@ R4-W1 保持 closed，S21 不受本轮改变。R6-R2 已在 design:435 明确纳
 
 - reviewer_target: Codex `/root/task_graph_feature_design_review`；同一独立 reviewer，仅追加本报告。
 - review_mode: closure
-- mode_reason: `420edf56c` 只修订 R7-W1 的普通会话来源路径，未改变账号归属、逐节点语义或 UI；本轮只核查所复用的 Gateway binding 是否确实代表本次执行聊天。
+- mode_reason: `657b91d52` 只修订 R7-W1 的普通会话来源路径，未改变账号归属、逐节点语义或 UI；本轮只核查所复用的 Gateway binding 是否确实代表本次执行聊天。
 - retained_from: Round 7 的 changed_ids、软引用、owner/receipt、UI、delta 与数据保留判断全部有效；Round 5 的 S21 快照门控继续保留。
 - started_at: 2026-09-23T00:03:03+08:00
 - completed_at: 2026-09-23T00:05:56+08:00
 - duration: 2m53s
-- validated_at: `420edf56c11474908b5bebf62fe1369cf1bea8c7`；受审 design SHA-256 为 `72e29945c7e0a6c0d47cb465a28530fd25b104657239033d71d47e4a2691fe5a`，其他受审文档同 Round 7。作者的未提交 red 测试不作为产品实现证据。
+- validated_at: `657b91d52a7bcbbfe4ab82097480f7c0cfa3b1f0`；受审 design SHA-256 为 `72e29945c7e0a6c0d47cb465a28530fd25b104657239033d71d47e4a2691fe5a`，其他受审文档同 Round 7。作者的未提交 red 测试不作为产品实现证据。
 - verdict: **Issues Found — 0 CRITICAL / 1 WARNING**。
 - approval_boundary: 尚未通过逐节点回聊方案的 Gate 2；未修改方案、源码或运行环境，未提交。
 
@@ -580,12 +580,12 @@ R4-W1 保持 closed，S21 不受本轮改变。R6-R2 已在 design:435 明确纳
 
 - reviewer_target: Codex `/root/task_graph_feature_design_review`；同一独立 reviewer，仅追加本报告。
 - review_mode: closure
-- mode_reason: `a43e2a4c0` 将 R8-W1 的首条 session binding 反查替换为已有 run delivery context；本轮核实真实初始化时序、run 身份与 composition 注入路径，没有其他设计变化。
+- mode_reason: `93fd0c0b1` 将 R8-W1 的首条 session binding 反查替换为已有 run delivery context；本轮核实真实初始化时序、run 身份与 composition 注入路径，没有其他设计变化。
 - retained_from: Round 7 的账号归属、changed_ids、逐节点软引用/投影、receipt、UI、delta、数据保留与验收范围；Round 5 的 S21 快照门控。Round 8 的多绑定事实继续成立，其反查方案已由本轮替代。
 - started_at: 2026-09-23T00:07:38+08:00
 - completed_at: 2026-09-23T00:08:31+08:00
 - duration: 53s
-- validated_at: `a43e2a4c05b4f8dc30049aaab8f5185c4ab46aca`；受审 design SHA-256 为 `4356c83081d2eee6d153881913faff0b5009911547d347adbffb5e563e71e252`，其他受审规范与 Round 7 相同。
+- validated_at: `93fd0c0b1f7d25fd0b04fcc6ad3eda002ea0e98f`；受审 design SHA-256 为 `4356c83081d2eee6d153881913faff0b5009911547d347adbffb5e563e71e252`，其他受审规范与 Round 7 相同。
 - verdict: **Approved — 0 CRITICAL / 0 WARNING**。
 - approval_boundary: 通过本次账号归属及逐节点最后更新聊天修订的 Gate 2，可进入已定义的实施和验收；这不是对尚未实施代码或运行数据转换的验收。未修改设计、源码或运行环境，未提交。
 

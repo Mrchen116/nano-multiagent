@@ -112,7 +112,7 @@ Round 2 static verifier verdict: **PASS**. `requires_full_verification: false`.
 
 ## Round 3: targeted layout revalidation
 
-> Revalidation mode: `targeted` · patch: `1ef600438..24bb6faad` · executed base: `2e9c83df9` · reviewed snapshot: `24bb6faad`
+> Revalidation mode: `targeted` · patch: `56b6c96bf..3f4f78d36` · executed base: `2e9c83df9` · reviewed snapshot: `3f4f78d36`
 
 ### Retained evidence
 
@@ -146,7 +146,7 @@ Round 3 static verifier verdict: **PASS**. `requires_full_verification: false`. 
 
 ## Round 4: targeted short-ID revalidation
 
-> Revalidation mode: `targeted` · patch: `4cb266658..5f667ba71` · executed base: `2e9c83df9` · reviewed snapshot: `5f667ba71`
+> Revalidation mode: `targeted` · patch: `912ae2fd5..3c121fd3f` · executed base: `2e9c83df9` · reviewed snapshot: `3c121fd3f`
 
 ### Retained Gate 2 assessment
 
@@ -179,9 +179,9 @@ Round 4 static verifier verdict: **WARNING — implementation/source tests align
 
 ### Round 4 closure: canonical gateway contract
 
-> Closure snapshot: `c23c19a53` · implementation retained: `5f667ba71`
+> Closure snapshot: `9d41ae12b` · implementation retained: `3c121fd3f`
 
-`c23c19a53` changes only `docs/specs/gateway/task-graphs.md`, adding the same short stable graph-local ID sentence as the archived gateway delta. The canonical clause now covers `n1`/`n2` reads and updates, stability through title/order/status changes, and the removal of any UUID-passing expectation. It resolves the sole Round 4 WARNING without changing source, schema, API, tool actions, tests, or product behavior.
+`9d41ae12b` changes only `docs/specs/gateway/task-graphs.md`, adding the same short stable graph-local ID sentence as the archived gateway delta. The canonical clause now covers `n1`/`n2` reads and updates, stability through title/order/status changes, and the removal of any UUID-passing expectation. It resolves the sole Round 4 WARNING without changing source, schema, API, tool actions, tests, or product behavior.
 
 The supplied completion evidence is consistent with the retained targeted result: Python CI partitions report **1,986 passed** and **2,066 passed**; repository Ruff check/format reports **1,096** checks passing; docs validation reports **238 sources / 75 routes**. The reported isolated old-test-graph re-numbering is local test-data maintenance, with no committed migration, alias, or compatibility product path.
 
@@ -189,7 +189,7 @@ Round 4 static verifier verdict: **PASS**. `requires_full_verification: false`. 
 
 ## Round 5: targeted short graph-ID revalidation
 
-> Revalidation mode: `targeted` · patch: `5f667ba71..7de35e397` · executed base: `2e9c83df9` · reviewed snapshot: `7de35e397`
+> Revalidation mode: `targeted` · patch: `3c121fd3f..12fc67fdd` · executed base: `2e9c83df9` · reviewed snapshot: `12fc67fdd`
 
 ### Retained evidence
 
@@ -219,7 +219,7 @@ Round 5 static verifier verdict: **PASS**. `requires_full_verification: false`. 
 
 ## Round 6: targeted task-graph feature-switch revalidation
 
-> Revalidation mode: `targeted` · patch: `46238f91f..a34bb2bd3` · reviewed snapshot: `a34bb2bd3`
+> Revalidation mode: `targeted` · patch: `951a00e87..9892cd39c` · reviewed snapshot: `9892cd39c`
 
 ### Retained evidence
 
@@ -253,7 +253,7 @@ Round 6 static verifier verdict: **PASS**. `requires_full_verification: false`. 
 
 ## Round 7: targeted account-ownership and per-node-chat revalidation
 
-> Revalidation mode: `targeted` · patch: `4058e38ad..b94e157c7` · reviewed snapshot: `b94e157c7`
+> Revalidation mode: `targeted` · patch: `0bc3fe903..b383419bc` · reviewed snapshot: `b383419bc`
 
 ### Retained evidence
 
@@ -288,7 +288,7 @@ Round 7 static verifier verdict: **WARNING**. `requires_full_verification: false
 
 ### Round 7 closure: source-backed root creation
 
-> Closure snapshot: `44af01688` · targeted repair range: `b94e157c7..44af01688`
+> Closure snapshot: `99a22fb80` · targeted repair range: `b383419bc..99a22fb80`
 
 | Contract | Implementation evidence | Focused regression evidence | Result |
 |---|---|---|---|
@@ -312,7 +312,7 @@ Round 7 closure static verifier verdict: **PASS**. `requires_full_verification: 
 
 ## Round 8: targeted real-Agent principal repair
 
-> Revalidation mode: `targeted` · repair snapshot: `a4bd167de` · repair range: `44af01688..a4bd167de`
+> Revalidation mode: `targeted` · repair snapshot: `c4266e886` · repair range: `99a22fb80..c4266e886`
 
 | Contract | Implementation evidence | Focused regression evidence | Result |
 |---|---|---|---|
@@ -337,7 +337,7 @@ Round 8 static verifier verdict: **PASS**. `requires_full_verification: false`. 
 
 ## Round 9: targeted redundant chat-header task entry removal
 
-> Revalidation mode: `targeted` · patch: `6cec792e7..d248135e2` · reviewed snapshot: `d248135e2`
+> Revalidation mode: `targeted` · patch: `78d66c052..2a4b88423` · reviewed snapshot: `2a4b88423`
 
 | Contract | Implementation and test evidence | Result |
 |---|---|---|
@@ -357,4 +357,4 @@ SUGGESTION: None.
 
 Round 9 static verifier verdict: **PASS**. `requires_full_verification: false`; all prior passing gates remain retained.
 
-Round 9 targeted closure: no frontend caller remains for `MessagePaneProps.headerActions`; `e820450d9` removes only the dead interface, destructure, and render slot. The Round 9 verifier PASS is validated at and effective through `e820450d9`.
+Round 9 targeted closure: no frontend caller remains for `MessagePaneProps.headerActions`; `f86b898b0` removes only the dead interface, destructure, and render slot. The Round 9 verifier PASS is validated at and effective through `f86b898b0`.
