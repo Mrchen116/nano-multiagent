@@ -103,7 +103,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 ## Round 2 — targeted（I1 / P5）
 
 - `validated_at=21f79e3d88d0e3e7d3197d737e4779074e82fdb7`；开始前独立核对HEAD一致，caller已用该代码重建前端；未重启Python服务、未替换DB。验收时间2026-09-22 18:00–18:07 Asia/Shanghai。
-- `executed_base=99f6e16339a95b94cdb3cb6d5dabd6b301a4b813`；prior report为本文件Round 1。验收期间caller同步到`d9e289f7c`，仅另一unit设计文档，明确无产品代码差异；不把这个机械同步冒充新验过的产品版本。
+- `executed_base=99f6e16339a95b94cdb3cb6d5dabd6b301a4b813`；prior report为本文件Round 1。验收期间caller同步到`94a4dc5aa`，仅另一unit设计文档，明确无产品代码差异；不把这个机械同步冒充新验过的产品版本。
 - 范围仅Chat、Global Work及任务链接导航影响面：验证原草稿、真实待发附件、真实mention token、追加引用与不自动发送。继续使用隔离nano身份与Playwright真实浏览器，没有阅读实现定位，没有发送模型/Feishu消息，没有重跑无关全量场景。
 
 ### Verdict
@@ -136,7 +136,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ## Round 3 — targeted（依赖分列布局）
 
-- `validated_at=3f4f78d363d9d898f31855592e3e2dff590b0565`；`fix_delta_range=56b6c96bf..3f4f78d36`；`executed_base=2e9c83df9`。开始前核对HEAD一致，caller确认前端dist由此版本构建；2026-09-22独立浏览器验收，原隔离IM/Gateway端口56231及nano身份，营销图revision3。
+- `validated_at=9ae644c762e5e2311d389ecbfaac1a401f3cbcb0`；`fix_delta_range=387483c0d..9ae644c76`；`executed_base=2e9c83df9`。开始前核对HEAD一致，caller确认前端dist由此版本构建；2026-09-22独立浏览器验收，原隔离IM/Gateway端口56231及nano身份，营销图revision3。
 - 来源为用户新增的“从左到右按依赖分列，同列可并行”要求、design末尾2026-09-22布局决策补充，以及原P2/P3/P4、spec S04/S09/S19。原型的节点/边关系、嵌套与详情must-match保留；列内排序、曲线和间距依新决策适配，不要求复刻旧手工坐标。
 - 只经自己的Playwright真实浏览器查看既有营销图，没有读取实现、发送模型/飞书消息、新增fixture、修改数据或重启服务。未操作用户IAB标签页。
 
@@ -164,7 +164,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ## Round 4 — targeted（图内稳定短节点ID）
 
-- `validated_at=3c121fd3f`；`executed_base=2e9c83df9`；`fix_delta_range=912ae2fd5..3c121fd3f`；验收时间2026-09-22 18:56–18:59 Asia/Shanghai。开始HEAD为78a93aadc，caller确认其后仅报告/归并文档，IM/Gateway已从3c121fd3f重启；前端无变化，沿用与当前前端一致的3f4f78d36构建。
+- `validated_at=604cc91d0`；`executed_base=2e9c83df9`；`fix_delta_range=cfdefe774..604cc91d0`；验收时间2026-09-22 18:56–18:59 Asia/Shanghai。开始HEAD为f085566e9，caller确认其后仅报告/归并文档，IM/Gateway已从604cc91d0重启；前端无变化，沿用与当前前端一致的9ae644c76构建。
 - 依据用户要求减少Agent节点UUID读写token及明确无需开发态后向兼容的决策：节点采用图内稳定`n1..n500`，graph_id仍全局UUID，无永久别名。本轮验证正常创建、读取、就地修改、依赖引用和短ID深链接；不把一次性测试数据重编号声称为产品迁移，不验旧UUID节点URL兼容。
 
 ### Verdict
@@ -197,7 +197,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ## Round 5 — targeted（短graph_id）
 
-- `validated_at=12fc67fdd9c7d353fb9906a969ee6104fde34a00`；`executed_base=2e9c83df9`；`fix_delta_range=3c121fd3f..12fc67fdd`。开始时独立核对HEAD一致，caller已重启IM加载该版本；Gateway/前端未变。验收时间2026-09-22 19:03–19:04 Asia/Shanghai。
+- `validated_at=e76429653176c9ec7c314fa9fa8cc6adec2d3a8a`；`executed_base=2e9c83df9`；`fix_delta_range=604cc91d0..e76429653`。开始时独立核对HEAD一致，caller已重启IM加载该版本；Gateway/前端未变。验收时间2026-09-22 19:03–19:04 Asia/Shanghai。
 - 新决策只把graph_id改为`tg_`加8位随机hex（11字符），节点短ID机制不变；用户明确开发态不保留旧链接兼容。caller对四张旧测试图的一次性ID重置是环境准备，不作为产品迁移能力验收。
 
 ### Verdict与真实旅程
@@ -224,7 +224,7 @@ S01/S11/S12的图号跨调用影响面与Web链接均pass。Round 4的两轮节�
 
 ## Round 6 — targeted（S21任务图特性开关）
 
-- `validated_at=9892cd39c6f3b0165d7240b75c6a49cb20e9e19d`，开始时HEAD独立核对一致。caller已build前端并重启Gateway，同一隔离IM `http://127.0.0.1:56231`及数据；验收时间2026-09-22 23:27–23:31 Asia/Shanghai。
+- `validated_at=9b7c3eb03bb8ce9e0344ede7dde904405613b2bd`，开始时HEAD独立核对一致。caller已build前端并重启Gateway，同一隔离IM `http://127.0.0.1:56231`及数据；验收时间2026-09-22 23:27–23:31 Asia/Shanghai。
 - 来源为spec新增S21；只使用自己的Playwright会话、nano身份和e2e-peer测试Agent。没有操作用户a/AA、用户IAB、外部Bot、图归属或既有图数据。本轮按caller要求只回填报告，不commit/push，不停止服务。
 
 ### Verdict
@@ -254,7 +254,7 @@ S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21�
 
 ## Round 7 — targeted（S22 账号目标与 S23 节点最后聊天）
 
-- `validated_at=c4266e886`，`effective_through=147cc6dde`（后者仅报告/canonical 文档）；先观察 b383419bc/99a22fb80，发现真实 Agent 身份准入缺陷后，在 c4266e886 重启的隔离 IM 上重试通过。时间为 2026-09-23 00:21–00:30 Asia/Shanghai。
+- `validated_at=62af6c25d`，`effective_through=2e96cf3ff`（后者仅报告/canonical 文档）；先观察 debffd2d0/53cfed6f6，发现真实 Agent 身份准入缺陷后，在 62af6c25d 重启的隔离 IM 上重试通过。时间为 2026-09-23 00:21–00:30 Asia/Shanghai。
 - 依据最新 spec S22/S23 与 design；独立 Playwright 浏览器，IM `http://127.0.0.1:56231`，nano 及专用测试身份。未阅读实现定位，未操作用户 a/AA、其图 tg_8f14210f 或用户 IAB。所有写入来自正常测试聊天的真实 Agent/native task_graph，未造数据库来源。
 
 ### Verdict
@@ -300,7 +300,7 @@ S01–S20及Round 1–5未受影响的有效证据retained；本轮只增加S21�
 
 ## Round 8 — targeted（去除重复聊天目标入口）
 
-- `validated_at=2a4b88423`；caller 随后交接 `f86b898b0` 仅删除已无 caller 的 headerActions 空插槽，行为不变，本轮证据 retained。2026-09-23 14:31–14:33 Asia/Shanghai，在同一隔离栈用独立 Playwright 会话 feat569entry / nano，只作浏览器阅读与导航。
+- `validated_at=e57a327a9`；caller 随后交接 `4d09f5d02` 仅删除已无 caller 的 headerActions 空插槽，行为不变，本轮证据 retained。2026-09-23 14:31–14:33 Asia/Shanghai，在同一隔离栈用独立 Playwright 会话 feat569entry / nano，只作浏览器阅读与导航。
 - **pass**；`highest_required_action=pass`，0 open issues，`needs_re_review=false`。
 
 | 真实页面检查 | 观察 | 截图（均已打开视觉核对） |
