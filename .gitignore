@@ -239,6 +239,8 @@ data/*.sqlite3
 
 # Local screenshots / scratch artifacts
 Snipaste_*.png
+# feat-569 browser acceptance captures stay local; the written review is the PR evidence.
+docs/changes/archive/feat-569-task-graphs-mvp/M1-task-graphs/evidence/browser/
 
 # IM 前端（Vite）：构建产物不入库；需要时在 src/IM/frontend 执行 npm run build
 # （全局 dist/ 已覆盖；下列路径显式写出以免以后再被 ! 规则误放行）

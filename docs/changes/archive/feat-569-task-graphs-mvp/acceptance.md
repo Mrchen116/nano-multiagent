@@ -112,7 +112,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ### I1复验与新增证据
 
-截图目录仍为`/tmp/feat569-product-evidence/`。Round 1已提升的正式截图见[浏览器证据索引](M1-task-graphs/evidence/browser/README.md)；本轮截图由caller筛选提升，原始缓存不提交。
+截图目录仍为`/tmp/feat569-product-evidence/`。各轮截图仅作本机复核，PR 保留操作、观察与结论，不提交图片。
 
 | 路径 | 实际操作、结果 | 证据 / viewport | 结论 |
 |---|---|---|---|
@@ -146,7 +146,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ### 实际旅程与原型对照
 
-以下截图均已本人打开视觉核对，目录为`/tmp/feat569-layout-review/`；caller可筛选无敏感内容的图提升至[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)，不提交原始浏览器缓存。
+以下截图均已本人打开视觉核对，目录为`/tmp/feat569-layout-review/`；图片仅留本机，PR 记录核对结论。
 
 | 来源 / 受影响面 | 实际观察 | 截图 / viewport | 结果 |
 |---|---|---|---|
@@ -184,7 +184,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 
 ### 视觉证据与retained范围
 
-本人已打开截图视觉核对；选定两张无敏感内容图片供caller提升到[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)：
+本人已打开以下截图视觉核对；图片仅留本机：
 
 - `/tmp/feat569-short-id-review/desktop-short-id-update.png`：1440×960，100%，新图revision3，短ID卡片、依赖及n2详情。
 - `/tmp/feat569-short-id-review/mobile-short-id-deeplink.png`：390×844，刷新短ID深链接后的n2详情。
@@ -214,7 +214,7 @@ S01–S20 的首文档用户结果均有对应通过证据，但 **P5 must-match
 4. 最后`get`仍为同一图号，根n1和子节点n2均todo，n2的container_id=n1，revision2；Web回执为`http://127.0.0.1:56231/tasks/tg_f8f65a76`。
 5. 点击Agent最终回复中的真实链接，浏览器URL实际进入`/tasks/tg_f8f65a76`，显示“短图号便签569”、revision2、n2检查便签卡片和根n1详情。不是只验证API成功或Agent口述。
 
-工具UI原始本地快照`/tmp/feat569-r5-tools.txt`含旧会话上下文，不提交。视觉证据为`/tmp/feat569-short-graph-review/desktop-short-graph-link.png`，1440×960、100%缩放；已本人打开核对，可由caller筛选提升到[正式浏览器证据索引](M1-task-graphs/evidence/browser/README.md)。
+工具UI原始本地快照`/tmp/feat569-r5-tools.txt`含旧会话上下文，不提交。视觉证据为`/tmp/feat569-short-graph-review/desktop-short-graph-link.png`，1440×960、100%缩放；已本人打开核对，图片仅留本机。
 
 ### 范围与清理
 

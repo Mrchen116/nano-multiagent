@@ -371,7 +371,7 @@ npm --prefix src/IM/frontend run build
 - **W3**：原生tool完整接到真实Gateway listener与IM WS；失联、未知回执、重试去重、实际permission classifier行为可测。无私有内核import。
 - **W4**：同一 DB 重开保留文档；初始化兼容旧库，schema未知不覆盖；GET无消费副作用。
 - **W5**：无自动执行依赖；done/选择/建图不调用Kernel.submit、agent、Workflow、调度器或预算组件（工具本身所在正常模型回合除外）。
-- **W6**：P1–P6逐条留下桌面1440×960、手机390×844的真实浏览器截图/必要录屏与原型对照结论，放 M1/evidence；may-adapt的偏差有解释；out-of-scope控件不进入产品。
+- **W6**：P1–P6逐条使用桌面1440×960、手机390×844的真实浏览器截图/必要录屏核对原型，图片留在本机，M1/evidence与验收报告记录观察、路径和结论；may-adapt的偏差有解释；out-of-scope控件不进入产品。
 - **W7**：前端get重读不重置视图、错误保留明确stale、无权后清缓存、构建/类型/相关测试通过；/tasks深链接由IM正确提供。
 - **W8**：两个delta按已实现行为归并，canonical索引Requirement计数正确；运行清理符合仓库规范；无secret/dist/生产配置提交。Gate 2独立评审通过后才进入正式实施。
 
