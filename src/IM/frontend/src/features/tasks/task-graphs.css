@@ -22,13 +22,11 @@
 .tasks-header h1 { margin:0; font-size:20px; font-weight:650; line-height:1.5; overflow-wrap:anywhere; }
 .tasks-header p { font-size:11px; color:var(--im-text-muted); margin:7px 0 0; }
 .tasks-header-actions { display:flex; gap:8px; align-items:center; flex-shrink:0; }
-.tasks-button,.chat-pane-tasks { border:1px solid var(--im-border-strong); border-radius:7px; background:var(--im-surface); color:var(--im-text); padding:8px 11px; font-size:12px; line-height:1.4; white-space:nowrap; display:inline-flex; justify-content:center; align-items:center; gap:5px; text-decoration:none; cursor:pointer; }
-.tasks-button:hover,.chat-pane-tasks:hover { color:var(--im-accent); border-color:var(--im-accent-border); background:var(--im-accent-soft); }
+.tasks-button { border:1px solid var(--im-border-strong); border-radius:7px; background:var(--im-surface); color:var(--im-text); padding:8px 11px; font-size:12px; line-height:1.4; white-space:nowrap; display:inline-flex; justify-content:center; align-items:center; gap:5px; text-decoration:none; cursor:pointer; }
+.tasks-button:hover { color:var(--im-accent); border-color:var(--im-accent-border); background:var(--im-accent-soft); }
 .tasks-button:disabled { opacity:.45; cursor:default; }
 .tasks-button--primary { color:var(--im-accent-fg); background:var(--im-accent); border-color:var(--im-accent); }
 .tasks-button--primary:hover { color:var(--im-accent-fg); background:var(--im-accent-2); }
-.chat-pane-tasks { font-size:11px; padding:6px 9px; flex-shrink:0; }
-.chat-pane-tasks span { color:var(--im-text-muted); }
 .tasks-targets-button { display:none; }
 .tasks-breadcrumbs { display:flex; align-items:center; flex-shrink:0; overflow-x:auto; padding:11px 20px; gap:9px; min-height:44px; border-bottom:1px solid var(--im-border); color:var(--im-text-muted); font-size:12px; }
 .tasks-breadcrumbs>span { display:flex; gap:9px; align-items:center; white-space:nowrap; }
@@ -135,5 +133,4 @@
   .tasks-detail--mobile { position:fixed; z-index:101; bottom:0; left:0; right:0; width:100%; min-width:0; max-height:75dvh; border:0; border-radius:15px 15px 0 0; box-shadow:var(--im-shadow-strong); padding:18px 20px max(22px,env(safe-area-inset-bottom)); }
   .tasks-detail--mobile .tasks-dialog-heading { padding:0 0 12px; }
   .tasks-targets-dialog { height:80dvh; }
-  .chat-pane-tasks { font-size:10px; padding:5px 7px; }
 }

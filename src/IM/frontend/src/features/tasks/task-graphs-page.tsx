@@ -18,14 +18,6 @@ function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return <span className={`tasks-status tasks-status--${status}`}><i aria-hidden />{t(`tasks.status.${status}`)}</span>;
 }
 
-export function ConversationTasksLink() {
-  const { t } = useTranslation();
-  const query = useTaskGraphList({ limit: 1 });
-  return <Link className="chat-pane-tasks" to="/tasks">
-    {t("tasks.targets")} <span>{query.data?.total ?? "—"}</span>
-  </Link>;
-}
-
 function ReadNotice({ stale, onRefresh }: { stale: boolean; onRefresh: () => void }) {
   const { t } = useTranslation();
   return <div className="tasks-notice" role="alert"><span>{t(stale ? "tasks.stale" : "tasks.readFailed")}</span>

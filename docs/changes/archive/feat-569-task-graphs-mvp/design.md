@@ -438,3 +438,7 @@ npm --prefix src/IM/frontend run build
 R7 Author Resolution：接受外部single_thread缺少ToolContext conversation_id的发现。自动来源改为Bridge读取当前durable绑定的reply_context，只用于single_thread且未显式target的写入。global不从任意绑定猜来源。扩展既有真实listener矩阵，覆盖Web/Feishu、global/single_thread及复用绑定刷新，不新增内核字段。
 
 R8 Author Resolution：接受session首条绑定不等于实际本轮聊天。上条R7来源选择改由既有RunDeliveryContextStore按真实run_id解析，复用与回复相同的当次目标；不新增或同步另一份session来源表。当前context同时携带agent/session与已确认conversation（外部从external_shadow.ref初始化）。工具ctx.run_id已由SDK提供，只有内部payload/PA composition接线增量。验证同session有A/B两个binding且当次run投向B时记录B；之后新run投向A则记录A，其他agent/session的context不得用作来源。global、缺少context和明确target规则保持。
+
+### 聊天入口去重
+
+聊天标题栏的“目标（数量）”与既有顶栏“任务”指向同一账号列表。按用户反馈删除该按钮、专属列表计数查询和样式；保留顶栏及手机底栏任务入口、Agent 消息内图链接和任务页节点回聊。

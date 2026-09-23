@@ -69,7 +69,6 @@ import {
 import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
 import { NewChatModal } from "./components/new-chat-modal";
-import { ConversationTasksLink } from "../tasks/task-graphs-page";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
@@ -1122,7 +1121,6 @@ export function ChatWorkspacePage() {
         activeConversation ? (
           <MessagePane
             conversation={activeConversation}
-            headerActions={<ConversationTasksLink />}
             timeline={visibleTimeline}
             onReadMessage={(messageId) => {
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);

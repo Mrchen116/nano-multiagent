@@ -11,7 +11,7 @@ import { composerStoreFor, writeComposerSnapshot } from "../chat/components/comp
 import { MessagePane } from "../chat/components/message-pane";
 import type { Conversation, Message } from "../chat/chat-types";
 import type { TaskGraph, TaskGraphList, TaskNode } from "./task-graphs-api";
-import { ConversationTasksLink, TaskGraphsPage } from "./task-graphs-page";
+import { TaskGraphsPage } from "./task-graphs-page";
 import { layoutTaskScope } from "./task-graph-layout";
 
 const node = (id: string, title: string, container: string | null = "root", overrides: Partial<TaskNode> = {}): TaskNode => ({
@@ -46,7 +46,7 @@ function renderTasks(path: string, messages: Message[] = []) {
   const router = createMemoryRouter([
     { path: "/chat/other", element: <div>Other discussion</div> },
     { path: "/tasks", element: <TaskGraphsPage /> }, { path: "/tasks/:graphId", element: <TaskGraphsPage /> },
-    { path: "/chat/home", element: <MessagePane conversation={home} messages={messages} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} headerActions={<ConversationTasksLink />} /> }
+    { path: "/chat/home", element: <MessagePane conversation={home} messages={messages} mentionCandidates={[]} onSend={onSend} selfUserId="user-1" composerStore={composerStoreFor("user-1")} /> }
   ], { initialEntries: [path] });
   const result = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
   return { ...result, router, client, onSend };
@@ -76,14 +76,6 @@ describe("task graph browsing", () => {
     await userEvent.click(within(detail).getByRole("button", { name: "Discuss this task in chat" }));
     expect(router.state.location.pathname).toBe("/chat/other");
     expect(composerStoreFor("user-1").get("other")?.draft).toContain("C Test");
-  });
-
-  it("opens account goals from chat without imposing a conversation filter", async () => {
-    const { router } = renderTasks("/chat/home");
-    await userEvent.click(await screen.findByRole("link", { name: "Goals 1" }));
-    expect(router.state.location.pathname).toBe("/tasks");
-    expect(router.state.location.search).toBe("");
-    expect(fetchMock.mock.calls.filter(([url]) => url.includes("task-graphs")).every(([url]) => !url.includes("conversation_id="))).toBe(true);
   });
 
   it("keeps a goal without an accessible source usable and copies a node reference", async () => {
@@ -163,7 +155,6 @@ describe("task graph browsing", () => {
     expect(screen.getByText("design.pdf")).toBeInTheDocument();
     expect(composerStoreFor("user-1").get("home")?.draftMentions).toEqual([{ label: "@Nano", type: "agent", target_id: "nano" }]);
     expect(onSend).not.toHaveBeenCalled();
-    expect(await screen.findByRole("link", { name: "Goals 1" })).toHaveAttribute("href", "/tasks");
   });
 
   it("restores a mobile nested deep link and closes the detail drawer without moving the graph", async () => {
