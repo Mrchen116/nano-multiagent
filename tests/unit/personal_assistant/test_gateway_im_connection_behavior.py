@@ -25,6 +25,72 @@ from ._im_connection_helpers import (
 )
 
 
+@pytest.mark.asyncio
+async def test_task_result_correlates_and_releases_existing_business_lane(tmp_path):
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.register",
+                        "im_user_url": "https://im.example/chat",
+                    },
+                }
+            )
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(
+            url="http://im.local:9000", heartbeat_interval_seconds=0
+        ),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=WebRelayAdapter(),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+    pending = None
+    try:
+        await manager.connect_once()
+        await manager._listen_once()
+        pending = asyncio.create_task(
+            manager.send_json_await_ack(
+                "task_graph.command",
+                {
+                    "request_id": "one",
+                    "agent_id": "agent-a",
+                    "action": "apply",
+                    "args": {"request_key": "stable-key"},
+                },
+            )
+        )
+        await asyncio.sleep(0)
+        wire = json.loads(socket.sent[-1])
+        assert wire["payload"]["node_id"] == "n1"
+        for request_id in ("unrelated", "one"):
+            socket.incoming.append(
+                json.dumps(
+                    {
+                        "type": "task_graph.result",
+                        "payload": {
+                            "request_id": request_id,
+                            "ok": True,
+                            "result": {"revision": 2},
+                        },
+                    }
+                )
+            )
+            await manager._listen_once()
+            if request_id == "unrelated":
+                assert not pending.done()
+        assert (await asyncio.wait_for(pending, 1))["result"] == {"revision": 2}
+        await manager.send_json("node.report", {"status": "idle"})
+        assert json.loads(socket.sent[-1])["type"] == "node.report"
+    finally:
+        if pending and not pending.done():
+            pending.cancel()
+        await manager.close()
+
+
 def test_im_connection_connects_registers_and_handles_downstream_frames(
     tmp_path: Path,
 ) -> None:

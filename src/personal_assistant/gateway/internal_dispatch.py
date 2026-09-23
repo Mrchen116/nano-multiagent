@@ -88,6 +88,7 @@ class InternalDispatchHandler:
         work_recorder: Any | None = None,
         shadow_sync: Any | None = None,
         message_delivery: Any,
+        run_context_store: Any | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
@@ -98,6 +99,7 @@ class InternalDispatchHandler:
         self._work_recorder = work_recorder
         self._shadow_sync = shadow_sync
         self._delivery = message_delivery
+        self._run_context_store = run_context_store
         self._sealed = False
 
     def seal(self) -> None:
@@ -501,6 +503,47 @@ class InternalDispatchHandler:
                     "receipts": {"im": ack.as_dict() if ack is not None else None},
                 }
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
+
+    def build_task_graph_handler(self) -> Callable:
+        """Build the channel-independent task endpoint on this listener lifecycle."""
+        from aiohttp import web
+        from personal_assistant.gateway.task_graphs import TaskGraphBridge
+
+        bridge = TaskGraphBridge(
+            manager=self._im_connection_manager,
+            binder=self._session_binder,
+            inbox=self._global_inbox,
+            run_context_store=self._run_context_store,
+        )
+
+        async def handle(request: Any) -> Any:
+            if self._sealed:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "source_unavailable",
+                            "message": "Gateway is shutting down.",
+                        },
+                    },
+                    status=503,
+                )
+            try:
+                payload = await request.json()
+                if not isinstance(payload, dict):
+                    raise ValueError("expected an object")
+                result = await bridge.execute(payload)
+                return web.json_response(result)
+            except (ValueError, TypeError) as exc:
+                return web.json_response(
+                    {
+                        "ok": False,
+                        "error": {"code": "invalid_arguments", "message": str(exc)},
+                    },
+                    status=400,
+                )
+
+        return handle
 
     def build_query_handler(self, tool_name: str) -> Callable:
         """Build a loopback query handler with actual Session provenance checks."""

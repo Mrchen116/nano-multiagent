@@ -13,7 +13,7 @@ let view: WorkView;
 function ChatTarget() { const location = useLocation(); const navigate = useNavigate(); return <div><p>Real chat route</p><button onClick={() => navigate(location.state.workReturnUrl)}>Return to work</button></div>; }
 function renderWork() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <AgentWorkPanel agentId="global" /> }, { path: "/chat/:id", element: <ChatTarget /> }], { initialEntries: ["/settings/agents/global?view=work"] });
+  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <AgentWorkPanel agentId="global" /> }, { path: "/chat/:id", element: <ChatTarget /> }, { path: "/tasks/:id", element: <p>Task graph route</p> }], { initialEntries: ["/settings/agents/global?view=work"] });
   return { ...render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>), router };
 }
 beforeEach(() => {
@@ -25,6 +25,15 @@ beforeEach(() => {
 });
 
 describe("Agent work view", () => {
+  it("opens a task link from Agent prose within the current application", async () => {
+    view = { ...view, turns: [{ ...view.turns[0], items: [{ item_id: "graph-reply", seq: 1, kind: "assistant_message", payload: { content: `[Saved task](${window.location.origin}/tasks/tg_one?scope=root&node=A)` } }] }] };
+    const { router } = renderWork();
+    fireEvent.click(await screen.findByText("Inbox 唤醒"));
+    fireEvent.click(screen.getByRole("link", { name: "Saved task" }));
+    expect(await screen.findByText("Task graph route")).toBeVisible();
+    expect(router.state.location.search).toBe("?scope=root&node=A");
+  });
+
   it("distinguishes child execution from receiving a background result", async () => {
     view = { ...view, turns: [
       { ...view.turns[0], turn_id: "child-execution", description: "Explain the joke", scope: "subagent", origin: "background_task", trigger: undefined, items: [] },

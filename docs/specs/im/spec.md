@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561
+> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -27,6 +27,7 @@
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
 | [Agents and Nodes](agents-nodes.md) | Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注与 Workflow tool pill | 29 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 12 |
+| [Task Graphs](task-graphs.md) | 账号及名下 Agent 共享目标、逐节点更新聊天、依赖与衍生、只读浏览 | 6 |
 
 ## Maintenance Rule
 

@@ -16,6 +16,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
+import { TaskGraphLink } from "../../tasks/task-graph-link";
 import {
   classifyChatLink,
   extractCodeText,
@@ -1823,7 +1824,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
       const isExternal = disposition === "external";
       const isNamedExternal = isExternal && !isLabelJustUrl(label, href ?? "", window.location.href);
       return (
-        <a
+        <TaskGraphLink
           {...rest}
           href={href}
           target={isExternal ? "_blank" : undefined}
@@ -1837,7 +1838,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
         >
           {children}
           {isNamedExternal && <span className="im-md-link-indicator" aria-hidden="true" />}
-        </a>
+        </TaskGraphLink>
       );
     },
     pre: (props: any) => {

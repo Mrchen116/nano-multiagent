@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
 import { App } from "./App";
+import { TaskGraphsPage } from "../features/tasks/task-graphs-page";
 import { BindConfirmPage } from "../features/chat/bind-confirm-page";
 import { ChatWorkspacePage as ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { LoginPage } from "../features/auth/login-page";
@@ -31,6 +32,8 @@ export const appRoutes: RouteObject[] = [
       { path: "chat", element: <ChatWorkspacePage /> },
       { path: "chat/:conversationId", element: <ChatWorkspacePage /> },
       { path: "me", element: <MePage /> },
+      { path: "tasks", element: <TaskGraphsPage /> },
+      { path: "tasks/:graphId", element: <TaskGraphsPage /> },
       {
         path: "settings",
         element: <SettingsPageShell />,

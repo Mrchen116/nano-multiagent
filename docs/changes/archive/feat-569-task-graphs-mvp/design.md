@@ -96,11 +96,11 @@ Gateway 只核实 ToolContext 对应的真实 Agent 身份及其有效运行时�
 ### D5 **图的归属独立于输入来源；一张图关联一个既有 IM conversation。**
 同一聊天可有多张图；每张图只有一个 home conversation，全部内层共享它的 ACL。用户是当前成员即可查看；Agent 是该聊天当前成员且来自匹配的已注册 node，才可按现有权限调用读写。Agent 可以从任一输入上下文引用同一 graph_id；最终权威访问检查只看图的 home conversation。
 
-home conversation 可以是 Web IM 原生聊天，也可以是既有外部聊天映射。复用 [外部会话 current 契约](../../specs/im/conversations-messages.md)：`(external_source, external_chat_id, agent_id, owner_id)` 对应的既有 IM 会话，不能用一个外部群原始 ID 合并多个 Agent/owner 的图。创建时解析目标；get/apply 一旦给定 graph_id，无须输入聊天与 home 相同，也无须该输入聊天已映射。
+home conversation 可以是 Web IM 原生聊天，也可以是既有外部聊天映射。复用 [外部会话 current 契约](../../../specs/im/conversations-messages.md)：`(external_source, external_chat_id, agent_id, owner_id)` 对应的既有 IM 会话，不能用一个外部群原始 ID 合并多个 Agent/owner 的图。创建时解析目标；get/apply 一旦给定 graph_id，无须输入聊天与 home 相同，也无须该输入聊天已映射。
 
 不授予模型“代某个用户写”的参数，不把已登录或能看 Work 当作图访问权；成员移除后 list/get/apply 都失效。暂不做图跨聊天迁移、额外共享、管理员角色 UI。MVP UI 不提供图形/表单编辑器，人在聊天要求 Agent 修改。
 
-任务资源与 Work 中的副本沿用各自既有边界：TaskGraphService 校验图的成员权限；已进入全局 Work 的工具参数、结果和 Agent 正文继续遵循 [Work 当前可见性](../../specs/im/agent-work.md)，不新增按图 ACL 过滤、脱敏或撤回副本。登录的非成员可以看到 Work 已记录的任务内容，但从 Work 打开原图或原聊天仍被成员检查拒绝。此处落实用户“怎么简单怎么来，自洽就行”的权限决定，不承诺任务内容在所有转录副本中保密。
+任务资源与 Work 中的副本沿用各自既有边界：TaskGraphService 校验图的成员权限；已进入全局 Work 的工具参数、结果和 Agent 正文继续遵循 [Work 当前可见性](../../../specs/im/agent-work.md)，不新增按图 ACL 过滤、脱敏或撤回副本。登录的非成员可以看到 Work 已记录的任务内容，但从 Work 打开原图或原聊天仍被成员检查拒绝。此处落实用户“怎么简单怎么来，自洽就行”的权限决定，不承诺任务内容在所有转录副本中保密。
 
 ### D6 **IM 作为唯一存储；离线明确失败，避免双向同步。**
 本功能是 IM 协作记录，不是 Gateway 长期任务运行责任层。选择中心存储使刷新、多聊天访问与同一图更新简单。之前长程方案中的“Gateway 负责目标的唯一写入点”不在此 MVP 中实施。
@@ -310,7 +310,7 @@ create 后一次 apply 可完成全部初始拆分。创建空根成功但第二
 
 **验收前置：**使用仓库 `.venv`、前端依赖和真实浏览器；`config/e2e/gateway.yaml` 与 `scripts/e2e-up.sh` 创建隔离用户/节点，不使用生产账号。2026-09-22 本地已核实 Python yaml/httpx、Node/npm 和前端依赖可用，Chromium 原型在 1440×960、390×844 可驱动；配置中的模型 `deepseek:deepseek-v4-flash` 经 `http://127.0.0.1:4000/v1/messages` 返回 HTTP 200、文本 OK、end_turn。此项仅证明模型资源可用，不是产品 Agent/任务工具验收；实施后的真实 Agent 回合仍必须在隔离栈运行。
 
-S20 通过现有消息入口构造内部/外部 prompt，并覆盖真实 tool→loopback→WS→service，随后在真实 Web IM 查看同一图。输入 channel 不作为任务工具字段或准入条件；本 unit 不修改外部客户端或 channel adapter。专用 Feishu 联调沿用 [worktree-runtime](../../development/worktree-runtime.md) 的 `--feishu` 与测试 profile；本机私有 E2E 文件存在、权限0600、四项必需键齐全，专用非 default CLI profile 已只读验证 `verified=true`，App 与私有测试配置一致；未启动或占用 Bot。需要覆盖真实飞书收发的产品验收前必须按该 runbook 验证测试 App/Bot/User，资源失效时如实阻塞该场景，不用生产账号或原型代替。
+S20 通过现有消息入口构造内部/外部 prompt，并覆盖真实 tool→loopback→WS→service，随后在真实 Web IM 查看同一图。输入 channel 不作为任务工具字段或准入条件；本 unit 不修改外部客户端或 channel adapter。专用 Feishu 联调沿用 [worktree-runtime](../../../development/worktree-runtime.md) 的 `--feishu` 与测试 profile；本机私有 E2E 文件存在、权限0600、四项必需键齐全，专用非 default CLI profile 已只读验证 `verified=true`，App 与私有测试配置一致；未启动或占用 Bot。需要覆盖真实飞书收发的产品验收前必须按该 runbook 验证测试 App/Bot/User，资源失效时如实阻塞该场景，不用生产账号或原型代替。
 
 在正确 unit worktree 中执行，不触碰主实例8011/5173，不改用户 ~/.nanoassistant：
 
@@ -371,6 +371,74 @@ npm --prefix src/IM/frontend run build
 - **W3**：原生tool完整接到真实Gateway listener与IM WS；失联、未知回执、重试去重、实际permission classifier行为可测。无私有内核import。
 - **W4**：同一 DB 重开保留文档；初始化兼容旧库，schema未知不覆盖；GET无消费副作用。
 - **W5**：无自动执行依赖；done/选择/建图不调用Kernel.submit、agent、Workflow、调度器或预算组件（工具本身所在正常模型回合除外）。
-- **W6**：P1–P6逐条留下桌面1440×960、手机390×844的真实浏览器截图/必要录屏与原型对照结论，放 M1/evidence；may-adapt的偏差有解释；out-of-scope控件不进入产品。
+- **W6**：P1–P6逐条使用桌面1440×960、手机390×844的真实浏览器截图/必要录屏核对原型，图片留在本机，M1/evidence与验收报告记录观察、路径和结论；may-adapt的偏差有解释；out-of-scope控件不进入产品。
 - **W7**：前端get重读不重置视图、错误保留明确stale、无权后清缓存、构建/类型/相关测试通过；/tasks深链接由IM正确提供。
 - **W8**：两个delta按已实现行为归并，canonical索引Requirement计数正确；运行清理符合仓库规范；无secret/dist/生产配置提交。Gate 2独立评审通过后才进入正式实施。
+
+## 开放 PR 的布局修正（用户实测反馈）
+
+2026-09-22 用户要求 DAG 从左到右分层、同列可并行，并明确允许开源画图库。实施以 Dagre 替代原手工布局，覆盖本设计先前“不引入图布局依赖”的实现选择；既有 HTML 卡片/SVG 渲染与浏览交互保留。Dagre 仅计算每个 scope 的坐标及边通道，任务业务/持久化/权限/工具契约不变。按最早前置列分层，保留全部直接边，P2 的拓扑语义不变；节点间距、曲线与列内排序按 may-adapt 调整。独立复验见验收及静态报告后续 Round。
+
+## 开放 PR 的节点短编号（Agent token 成本）
+
+2026-09-22 用户指出节点 UUID 在工具读取、更新和关系引用中反复占用 token，授权选择最简单合理的方案，并明确开发态不考虑后向兼容。采用图内稳定编号 `n1、n2…`，直接作为存储与所有工具/HTTP/前端引用中的节点 ID，不增加 alias 或长短 ID 转换层。
+
+- 比较：截短随机 UUID 虽改动少，但仍需考虑图内碰撞；稳定递增编号更短且无随机碰撞。长 UUID 加短 alias 则需要多一套持久身份和读写转换，不采用。
+- 现有身份已经由 `graph_id + node_id` 定位，节点存储在单图 JSON 内；无需全局唯一节点号。`graph_id` 保留原全局唯一值，权限仍只依据关联聊天成员关系，不能把可猜测性当权限。
+- 根节点为 `n1`。当前操作只新增或更新节点，不删除、不重编号，因此在原有 IM 写事务内用当前节点数加一分配下一个编号即可；不新增计数器字段、表或接口。最多500节点，对应 `n1` 至 `n500`。任务改名、改排序、改状态不改变编号。
+- 调用示例：`get(graph_id=G)` 返回节点 `n2`，后续 `apply(graph_id=G, operations=[{"op":"update_task","node_id":"n2","patch":{"status":"done"}}], ...)`。同批 `@client_ref` 继续只用于引用本批尚未取得返回 ID 的新节点，跨调用直接复用返回的短 ID。
+- 不提供旧 UUID 别名、重定向、自动迁移或双制式策略。现有隔离测试图由一次性本地操作统一编号，保留任务内容和关系；旧节点 URL 与旧写回执不保留。该操作不是上线迁移机制。
+- 原 Gate 2 的服务生成 ID、图内稳定引用、原子写入、权限与四个工具动作契约保持，改变的是此前未约束的具体编号分配方式；无需新增 milestone、schema 字段或公共动作。独立静态复核应检查此 retained 判断及下述 delta。
+- 验证扩展现有领域与 HTTP/WS 测试：跨批短 ID 更新及关系保持、重排不重编号、同批引用、重试回执及不同图可分别含 `n1`。既有原子并发和权限保护继续有效；真实隔离 Agent 创建/读取/更新与 Web 链接完成一次针对性复验。
+
+### 同轮补齐图 ID
+
+用户继续指出 `graph_id` 仍过长，明确要求同时缩短；这补充并替代上文保留长图 ID 的选择。图 ID 为 `tg_` 加8位随机十六进制（共11字符），节点仍为图内 `n1…n500`。图要跨聊天、跨图全局唯一且聊天删除可级联删图，不能像节点一样用当前行数分配而重新命中另一张图，也不值得新增全局计数器表。复用原 UUID 随机来源取8位，在已有 `BEGIN IMMEDIATE` 写事务内通过 repository.get 查询全局重名，重名则重新生成，直到未占用后保存。检查与插入同一事务避免并发竞争；必须先查重，避免现有 save 的 upsert 覆盖另一图。回执命中仍在分配之前返回原结果。
+
+这是持久 ID 的直接缩短，无额外表、别名、重定向或参数变化；可猜测的图 ID 不能绕过既有成员校验。开发测试图统一换成短图 ID，不兼容旧图链接/回执，任务内容和短节点关系保留。一条真实 HTTP/WS 测试强制两个UUID具有相同8位前缀，验证重试得到另一短 ID、第一张图内容保持且重复请求返回原图；产品复验只补短图的创建/读取/更新和Web入口，已完成的节点稳定性旅程保留。
+
+## 开放 PR 补充：任务图特性开关
+
+用户要求 Agent 设置的特性列表提供“任务图”。界面当前只依赖 Gateway 投影列表渲染；`task_graph` 已是默认工具，但尚无对应 feature。复用现有 capability→features 草稿→profile保存→Gateway同步→下一轮完整runtime重配置链，不加内核产品feature、新端点或并行配置存储。
+
+- Gateway `FEATURE_PROJECTIONS` 增加 `task_graph`，`default_on=True`、`requires_tool=task_graph`。IM原样透传；前端用动态列表在新建/编辑页显示，中英文label/help说明记录计划、探索与进度，关闭不删除记录。
+- 开关沿用现有UI规则：开启时把required tool加入草稿白名单；关闭保留工具选择；手工移除工具会同步关掉feature。能力实际启用条件为 `features.get('task_graph', True)` 且白名单含 `task_graph`。这一任务图专属门控不更改 memory/skill/cron 的既有语义。默认值保持现有已授权工具的可用性，未配置工具的Agent不会因此获得它。
+- `personal_assistant.product.resolve_enabled_tools` 在既有工具选择结果里去掉被关闭的task_graph。运行投影、TaskGraphBridge和预览共用该函数；预览的临时Agent带同一features，single_thread/global均走有效工具解析。关闭时不渲染task_graph专用的当前聊天保存提示；不添加新的自动规划提示。
+- Bridge保留真实provenance、成员权限及不按输入渠道授权的规则，使用同一有效工具集拒绝feature关闭的旁路调用。普通模型调用仍由已有Kernel工具白名单执行检查。只改变下一轮采纳的完整配置，不中断在途回复。
+- R4-W1闭合：任务工具使用会话已登记的配置快照，不能把catalog最新revision作为在途调用资格。删除仅供此Bridge使用的`session_provenance_is_current`检查与方法；真实session/Agent匹配、有效工具集及IM成员校验保留。普通配置发布不撤销正在运行的整轮。全局会话地址解析只在尚无登记时登记快照，避免新Inbox/heartbeat/cron通知提前替换在途配置；`KernelClient.ensure_agent_runtime`仅在SDK接受runtime后更新登记，busy拒绝保持旧快照。single_thread继续由已有串行new-run admission应用并登记配置；不修改用于语义绑定/reset写回的catalog/generation guard。测试覆盖配置发布后旧轮仍可调用、成功应用后关闭生效，以及global busy/接受两条边界。
+- current `agent-capabilities` 的通用工具白名单规则补一个链接到任务图契约的有限例外：显式关闭任务图特性时，task_graph从有效工具集排除；配置白名单和其他工具规则不变。
+- 测试扩展现有能力payload golden以及task_graph边界测试，覆盖默认/开/关与白名单组合、global/single_thread、预览和runtime同源、关闭时不进入IM transport。前端既有动态feature联动测试保留，真浏览器确认中英文案、新建/编辑显示、保存关闭和恢复，并通过实际Agent下一轮验证。
+- 这是既有M1中有界的能力配置补充；原DAG/存储/短ID等结论保留。因增加了运行门控语义，在实现前补独立Gate2 delta审查；实施后仅复验该影响面。
+
+## 开放 PR 补充：账号所有的目标（S22–S23）
+
+用户确认目标按人归属、名下Agent可操作，并明确排除负责人/分派。本节取代原D1/D2/W2等聊天成员授权与删除聊天级联删图的设计。采用已有`users.owner_id` / `agent_profiles.owner_id`租户边界，不新增workspace/项目/目标成员体系。相比给每图维护Agent成员或继承群成员，账号归属直接复用身份事实并允许跨聊天Agent协作。
+
+- IM schema：`task_graphs.owner_id NOT NULL`；`source_conversation_id`可空，FK `ON DELETE SET NULL`；索引owner及更新时间。不再存`home_conversation_id`。归属/来源由独立列权威保存，JSON只存图文档，repository读取时合成，避免来源聊天删除后JSON残留旧绑定。图短ID/节点编号及revision算法保持。
+- Principal：浏览器身份从users取owner；WS Agent仍先验证真实profile/node归属及非stale，由profile取owner，不接受业务参数owner。list/get/apply及幂等回执都检查当前owner。图的owner在创建时由当前Agent固定，apply不可更改。显式owner伪造被参数校验拒绝。同账号Agent无论是否来源聊天成员都能读写；其他账号即使加入来源聊天也不能访问目标。登记失效/转移归属不重放原账号回执。
+- 来源：create的`target`/IM `conversation_id`改为可选，只记录一处来源；提供时沿用既有映射与真实成员检查，省略即可创建独立目标。可选list target仍是明确的来源筛选，不是默认范围；默认只按owner查询。输出改为nullable `source_conversation_id/title`，仅调用者仍是该聊天成员时显示，其他同账号Agent仍能读图但不获得私有聊天标题/跳转。重放回执重新验证owner，并按当前来源访问权投影链接，旧结果不能绕过权限。聊天删除只去掉来源，回执/图内容/ID保留。
+- 工具：create不再要求target，说明账号共享与可选来源；list默认本账号分页摘要（20，最大50），名称搜索及更新时间倒序。get/apply保持已知graph_id。来源映射未就绪只影响明确提供的target；无来源create和已知图读写不依赖聊天。调整task专用当前聊天提示为可选来源，维持S21关闭不提示该工具。
+- UI：聊天入口显示“目标”及账号图总数，跳`/tasks`；列表/标题不再强制渲染聊天名。有权访问来源时保留“回来源聊天”追加引用且不自动发送；所有图/节点提供“复制引用”以便粘贴到任意聊天，无来源/无权时不显示回源按钮。不新增聊天选择器、多聊天管理或负责人UI。沿用现有卡片/布局/详情原型；新must-match为上述文案、无来源空位与copy状态，现有P1–P6结构保留。
+- 开发态：源代码仅定义新schema/协议，不写旧设计迁移、双读或兼容别名。隔离环境停服并备份后，一次性把已确认所属账号的现有测试图转换到新schema/来源列，保留所有图ID、revision和内容；不提交运行数据/脚本。与未合并feat-569无关的主线库没有任务表数据，正常新建由现有初始化处理。
+- 验证：扩展现有HTTP/WS测试承担owner边界、同owner第二Agent非成员读写、别owner即使聊天成员仍拒绝、owner伪造/失效/回执重放、无来源创建、删聊天保图、source metadata成员隔离、分页/冲突/重启。替换已失效的“退群失去图权限”断言，保留真实provenance/S21和结构用例。前端测试覆盖无来源copy、账号级聊天入口、来源按钮条件及原草稿续写；不为新schema字段单独造镜像测试。
+- M1范围追加IM task service/repository/schema/API、PA task tool/prompt、Tasks UI/i18n及所属测试；[reviewer]真Agent跨聊天/Agent共用图、无来源与删来源后查看、其他账号不可见；[worker]owner由可信身份推导，mutation/receipt原子边界保持，全部新语义窄测及全量通过，corrected-delta归并。Gate2 delta通过再实施。
+
+### 最新修订：逐节点回到最后更新聊天（替代上节来源方案）
+
+用户追加要求：“那现在，回聊天讨论，应该就是回的是更新这个节点的最后一次聊天”。上节账号归属不变，以下完整替代单一建图来源、source_conversation_id列、按聊天筛选与固定回源按钮的设计；R6只批准旧方案，本修订另做Gate2。
+
+- schema只增加owner_id、移除home_conversation_id及其FK；不新增图级来源列。每个节点JSON保存可空last_chat_id，IM在读时投影last_chat_title。聊天是软引用，仅返回仍存在且调用者有聊天成员权限的id/title，否则两项null；删除聊天无需扫写图，也不会删除图。
+- create为根记录本次聊天；apply只为domain返回的changed_ids记录本次聊天，包含已按updated_at规则计为变更的父节点/边端点，其他节点不动。没有聊天的更新写null，不回到更早的聊天。业务patch不允许直接修改last_chat_id。
+- create/apply的target均可选。原生工具将真实ToolContext.run_id作为origin_run_id传给Bridge（不开放为业务参数）；composition把已有RunDeliveryContextStore经InternalDispatchHandler注入Bridge。普通single_thread省略target时，按本次run_id查context，核对其agent_id/kernel_session_id与provenance一致后读取conversation_id；这是当次实际admission/delivery的Web或external shadow聊天，不能反查session的首条binding。global主会话无唯一聊天，Agent可显式提供本次讨论target，没有明确来源则留空。无run context的独立后台会话也留空，不猜来源。Gateway翻译既有映射，IM在新写入前检查成员权限；来源不参与目标授权。
+- conversation_id属于调用来源，不参与业务operation_hash。同key重试先检查当前owner与原回执图owner，再重放原结果，不重新验证已删除的原聊天、不改写节点last_chat_id；业务参数不同仍拒绝。不能从重试所在新聊天搬动原来源。list移除target/按聊天筛选，默认账号分页摘要、名称搜索、updated_at倒序。get/list没有记录来源副作用。
+- 图/摘要不输出owner或固定聊天字段；节点返回当前可访问的last_chat_id/title。列表/标题展示最近更新者与版本。回聊按钮按当前selected或scope节点，详情/空scope按自身节点跳最后更新聊天；不可访问/没有聊天就不显示。保留草稿追加且不自动发送，所有节点可复制引用并显示成功/失败。详情可见“最近更新聊天”。不增加聊天选择器、负责人或多聊天历史管理。
+- 隔离数据转换时owner必须由真实创建Agent/profile核实，不能从conversation.owner_id推导。既有节点无可靠逐次修改来源历史，last_chat_id置null，后续真实修改再记录，不能将旧建图聊天伪装为最后修改来源。备份保留全部内容/ID/revision，未确认归属不转换。
+- 验证扩展跨聊天仅改变受影响节点回聊、无聊天更新清空、重试不改来源、删除聊天/退群只隐藏回聊而保图、节点各自回不同聊天、普通会话自动来源/global显式来源。原owner安全边界、冲突与持久化仍验；上一方案的图级source列和list来源过滤测试撤换。本次UI以原P1–P6布局为基底，新增must-match为上述逐节点按钮/文案/copy状态，无新的页面骨架。
+
+R7 Author Resolution：接受外部single_thread缺少ToolContext conversation_id的发现。自动来源改为Bridge读取当前durable绑定的reply_context，只用于single_thread且未显式target的写入。global不从任意绑定猜来源。扩展既有真实listener矩阵，覆盖Web/Feishu、global/single_thread及复用绑定刷新，不新增内核字段。
+
+R8 Author Resolution：接受session首条绑定不等于实际本轮聊天。上条R7来源选择改由既有RunDeliveryContextStore按真实run_id解析，复用与回复相同的当次目标；不新增或同步另一份session来源表。当前context同时携带agent/session与已确认conversation（外部从external_shadow.ref初始化）。工具ctx.run_id已由SDK提供，只有内部payload/PA composition接线增量。验证同session有A/B两个binding且当次run投向B时记录B；之后新run投向A则记录A，其他agent/session的context不得用作来源。global、缺少context和明确target规则保持。
+
+### 聊天入口去重
+
+聊天标题栏的“目标（数量）”与既有顶栏“任务”指向同一账号列表。按用户反馈删除该按钮、专属列表计数查询和样式；保留顶栏及手机底栏任务入口、Agent 消息内图链接和任务页节点回聊。

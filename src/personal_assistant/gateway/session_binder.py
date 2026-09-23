@@ -326,7 +326,10 @@ class GatewaySessionBinder:
             if row["workspace_root"] != root:
                 raise ValueError("global Agent workspace is immutable")
             self._kernel.get_session(row["session_id"], workspace_root=Path(root))
-            self.register_session_provenance(agent, kernel_session_id=row["session_id"])
+            # Inbox and scheduler notifications also resolve busy sessions. Only
+            # successful runtime admission may replace their applied snapshot.
+            with self._lock:
+                self._session_agents.setdefault(row["session_id"], agent)
             return GlobalSessionBinding(
                 agent.agent_id,
                 row["session_id"],

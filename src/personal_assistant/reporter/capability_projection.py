@@ -8,22 +8,10 @@ the default-vs-optional tool split, the heartbeat/cron product toggles, and the
 kernel (the kernel stays product-neutral: it holds no display text and no
 product-specific feature).
 
-These constants are the single source of truth after ``agent/products/`` is
-dissolved. They are ported verbatim from the pre-refactor data:
-
-- ``PA_DEFAULT_TOOL_IDS`` / ``PA_OPTIONAL_TOOL_IDS`` ← ``PERSONAL_ASSISTANT_PROFILE``
-  ``default_tool_ids`` / ``optional_tool_ids`` (the default_on split the IM frontend
-  uses to pre-select tool pills).
-- ``FEATURE_PROJECTIONS`` ← the four user-facing FEATURE_REGISTRY entries (memory_curation,
-  skill_creation, cron_scheduling, heartbeat) with their i18n keys, default_on,
-  requires_tool, in declaration order. The kernel reports the first two and its
-  internal runtime policies as neutral facts via ``list_features``; this layer
-  projects i18n text for the first two plus the PA toggles (cron/heartbeat), while
-  intentionally omitting internal runtime policies from the user-facing payload.
-
-The capability payload (node.register flags + node.capabilities +
-agent.capabilities.resolve) must stay byte-for-byte identical to the pre-refactor
-baseline (design 风险 2); these constants reproduce its product-semantic fields.
+These constants own the PA default/optional tool split and user-facing feature
+catalog. Kernel guidance (memory and skills) and PA capabilities (task graphs,
+cron and heartbeat) share one display projection; kernel runtime policies remain
+product-neutral and are not exposed as product toggles.
 """
 
 from __future__ import annotations
@@ -49,6 +37,7 @@ PA_DEFAULT_TOOL_IDS: tuple[str, ...] = (
     "skill_manage",
     "skill_view",
     "memory",
+    "task_graph",
 )
 
 PA_OPTIONAL_TOOL_IDS: tuple[str, ...] = (
@@ -74,11 +63,16 @@ class FeatureProjection(TypedDict):
     requires_any_tool: tuple[str, ...] | None
 
 
-# Ported verbatim from FEATURE_REGISTRY (declaration order preserved). The kernel's
-# list_features() reports neutral kernel guidance and runtime policies. This table
-# supplies i18n text for the two user-facing kernel guidance features and the two PA
-# product toggles (cron/heartbeat); internal runtime policies stay out of the UI.
+# Product capability toggles belong here, not in the neutral kernel registry.
 FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
+    FeatureProjection(
+        key="task_graph",
+        label_i18n="feature.task_graph.label",
+        help_i18n="feature.task_graph.help",
+        default_on=True,
+        requires_tool="task_graph",
+        requires_any_tool=None,
+    ),
     FeatureProjection(
         key="memory_curation",
         label_i18n="feature.memory_curation.label",

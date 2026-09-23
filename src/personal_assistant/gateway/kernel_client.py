@@ -216,6 +216,10 @@ class InProcessKernelClient:
             )
             if only_if_idle and result is None:
                 return False
+        if self._session_binder is not None:
+            self._session_binder.register_session_provenance(
+                agent_snapshot, kernel_session_id=session_id
+            )
         if global_main and self._work_recorder is not None:
             self._work_recorder.runtime_applied(
                 agent_id=agent_snapshot.agent_id,
