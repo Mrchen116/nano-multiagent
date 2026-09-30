@@ -4,6 +4,8 @@
 
 本次真实域名 `im.nanoim.win` 仅指向隔离测试 IM `127.0.0.1:18572`，不指向生产 `:8011`。测试管理员为独立 `reviewnano`，与生产账号无关。Cloudflare Access 的 `Nano IM` 应用登录前置已按用户明确要求撤回，保留 IM 自身的身份与公司准入；没有以另一个域名绕开该配置问题。正式切换前关闭本次测试隧道，再按受审生产配置发布。
 
+独立公网及恢复验收已通过，见 [acceptance Round 6](M1-company-public-baseline/acceptance.md)。测试IM、Gateway和Tunnel已关闭，隔离快照保留供复核；DNS仍保留目标域名，当前没有正式生产公网服务。
+
 ## 先准备数据与准入
 
 1. 记录当前 commit、IM 进程 cwd/PID、数据库、数据库旁 `message-images/` 私有附件目录及旧 uploads 绝对路径；暂停隧道并停止 IM，保持原目录可恢复。
