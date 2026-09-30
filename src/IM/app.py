@@ -332,6 +332,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
+        from IM.infra.logging import redact_server_credentials
+
+        redact_server_credentials()
         """Manage app-level SQLite connection lifecycle."""
         connection = connect(resolved_db_path)
         initialize_schema(connection)

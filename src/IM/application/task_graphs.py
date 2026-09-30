@@ -310,7 +310,7 @@ class TaskGraphService:
                     if not authorized:
                         raise TaskGraphError(
                             "confirmation_required",
-                            "Ask the user to explicitly request deletion of this graph or subtree by title or ID.",
+                            f'Ask the user to reply with exactly "删除 {names[1]}" or "delete {names[1]}" to confirm this scope. Do not claim a different chat or Web deletion is required.',
                         )
                     document, removed = delete_subtree(
                         document, node_id, actor=actor_name, now=now

@@ -10,7 +10,7 @@
 
 运行位置：本 unit worktree。Python 使用主仓 .venv，PYTHONPATH=src。
 
-- `pytest -q`：4090 passed，27 warnings，98.25 s（/tmp/feat572-python-final2.log）。随后仅 PA 绑定轮询改为 2 s、备份恢复测试隔离目录修正、群提及删除解析窄修复；相关绑定 11 passed、独立目录恢复 1 passed、公司任务/PA bridge 18 passed。
+- `pytest -m 'not e2e' -n 4 --dist worksteal -q`：4090 passed，27 warnings，98.25 s（/tmp/feat572-python-final2.log）。随后仅 PA 绑定轮询改为 2 s、备份恢复测试隔离目录修正、群提及删除解析窄修复；相关绑定 11 passed、独立目录恢复 1 passed、公司任务/PA bridge 18 passed。
 - frontend `npm test -- --run`：788 passed / 85 files（/tmp/feat572-ui-final.log）；后续新增容量错误翻译测试后 chat-workspace 54 passed、bind 2 passed，`npm run build` 通过。
 - Ruff check/format、git diff --check 通过；contract + company + public launcher 167 passed；docs_check 246 maintained / 75 routes 通过。
 - `npm audit --audit-level=critical` exit 0，已有 2 low / 3 moderate / 2 high，无 critical；未升级依赖。
@@ -34,3 +34,13 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 - 实时连接共享现有 transport 状态，显示重连/冷却倒计时和重新登录入口；429 遵守 Retry-After，1013 使用冷却。认证错误改为关联表单的简短红字，与原型一致。
 
 窄验证：公司网络/绑定9 passed；删除回执/公钥登记13 passed；global Inbox/bridge/company tasks31 passed；实时流/App/认证30 passed。全量与独立 targeted 复验结果待下节记录。
+
+## 复审追加的真实回归
+
+- 停用后附件后续分块：200000-byte ASGI 下载，首块65536后停用，旧响应不再发送剩余134464；先red后green。
+- 同连接FIFO：先排队heartbeat，再到达HTTP所需config回执，原接收循环timeout；有界串行worker与继续读回执后43窄测通过，实际配置更新跨进程旅程通过。ASGI取消时回收两个owned任务并注销连接，15项断开/任务测试通过。
+- 自演化技能：真实stub旅程暴露旧机器凭据PATCH真人配置401。收窄成仅本机Agent技能追加入口，跨节点/真人/吊销/并发版本及原工作模式回归45 passed，真实自演化Skill创建、启用及新会话使用1 passed（20.58s）。
+- 既有压缩旅程失败：当前实现与本 unit 开始基线7340a7805独立源码快照均复现summary_records=0；请求记录显示摘要调用得到空的末尾user文本。本unit未改kernel，保留该side finding，不称完整E2E全绿，不扩展内核修复。基线日志/tmp/feat572-compaction-baseline.log，当前/tmp/feat572-gateway-e2e-closure.log。
+- 前端全量792 passed/1原测试选择器歧义，收窄查询后Agent edit5 passed；已搬迁超过400行的新测试，测试规范及搬迁用例4 passed。
+
+最终受影响区域回归：IM service + IM unit + contract 763 passed（32.09s），Ruff 与 docs_check 251 maintained/75 routes 通过。其余 Python 基础批次4095 passed，唯一行数规则失败已经搬迁测试并4项复验；未机械重跑未受影响区域。

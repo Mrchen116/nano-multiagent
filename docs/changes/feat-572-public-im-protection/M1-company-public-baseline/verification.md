@@ -1,5 +1,7 @@
 # Verification Report: feat-572-public-im-protection
 
+> 最新结论见末尾 Round 2：固定生产实现 `bf9fde9e3` targeted closure，C1 still_open；W1–W4 closed；P1 全局删除来源修复 covered。R6/R7 与完整 prototype 对照仍未验收。Round 1 保留历史基线，不能将其旧问题数当作当前存活问题数。
+
 > Round 1 · verification_mode: full · executed_base: `7340a7805` · validated_at: `d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96` · branch: `codex/feat-572-public-im-protection`
 > 固定版本独立审查；审查者未实施该版本，只写本报告与 code-review/evidence。工作目录为 `.worktrees/unit-feat-572`。后续工作区修复不改变本报告基线。
 
@@ -114,3 +116,44 @@ C4 不要求机械逐像素相同；要求已有明确 must-match 在两个 view
 4. 读代码覆盖全部生产差异与新增/改写fixture；六份delta与对应current规则、SPEC架构、testing规范逐项核对。内核和coding_cli **no spec delta**。没有发现通过canonical未归并掩盖的额外实现要求。
 
 本审查自建隔离runtime目录已清理；没有启动进程、改生产、共享50620或另一unit。报告/JSON/脱敏结果交caller提交，`report_commit`由caller记录；本报告validated_at保持固定原受审HEAD。
+
+## Round 2: targeted closure
+
+> verification_mode: closure · finding_origin_head: `d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96` · validated_at: `bf9fde9e31848bbd290586ab5e7633e7e180d20c` · report_commit: caller 待记录。
+> `ce0c557c4` 为测试收尾，受审生产实现仍为 bf9fde；未实施被审代码，未提交本轮报告。复用 Round 1 未失效的身份/授权/附件/架构/运行证据；不重复全量。
+
+**Verdict: fail。当前 4 CRITICAL、0 WARNING、0 SUGGESTION。代码 JSON 存活 1 CONFIRMED。** C1 有剩余实现缺陷；C2/C3 是 R6/R7 外部资源依赖的 inconclusive；C4 等待独立产品 Round 2 完整 must-match 对照。本轮未扩大共享主体或包边界，不要求再跑完整 full 静态审查；后续可按明确修复及失败旅程继续 closure。
+
+| Focus / 契约 | 结论 | 实现与证据 |
+|---|---|---|
+| C1 慢 HTTP 网络等待、停用提交后尚未发送数据 | **still_open**（锁阻塞已关闭；响应撤销缺口仍存活） | `public_boundary.py:112–119` headers 前释放 gate、每次 send 5s timeout，管理员不再等慢下载；但其后没有资格复核。真实 FileResponse 分块隔离复现见下文和 `closure-results.json`。 |
+| W1 公网 bindURL | **closed** | `routes/device_binding.py` 使用 `app.state.public_url`；HTTP Tunnel / HTTPS public_url 专门用例独立通过。此 W1 是原 WARNING，不等同 milestone W1 prototype 验收。 |
+| W2 删除回执七天窗口 | **closed** | `repositories/task_graphs.py:receipt` 在查询中排除过期 delete，按索引有界删除每次最多100条；create/apply 原重试语义保持。七天内幂等与过期 delete 不重放用例有效；独立到期用例通过。 |
+| W3 旧设备跨主机公钥登记 | **closed** | `IM/cli/enroll_device.py` 仅接受公钥和独立核对 key_id，校验 raw X25519 与 SHA256，拒绝替换不同旧公钥；`public-rollout.md:13–37` Gateway 本机导出、IM 停止时只公钥导入、再持有证明/账号接受/本机确认。明确不复制私钥、不远程抢占。登记窄测13证据复用。 |
+| W4 共享 user stream 可行动恢复/冷却 | **closed** | 原 shared runtime 保持一个socket；状态广播共享订阅者、连接成功清除；ticket429尊重 Retry-After、1013等待30s，指数重试及 Notice 倒计时/重新登录。UI30、build证据复用；不把原型完整视觉对照视为已经 pass。 |
+| 产品 P1 全局 delete 的 Inbox committed run 来源与真人命名确认 | **covered，未发现新增 confirmed 缺陷** | `global_run_coordinator` 保存 ingress-owned IM message_id；`global_inbox.committed_human_sources` 按当前 agent/session/run durable committed tool-read，要求 attention 真人且全文parts都读完，拒绝历史/部分读取/其他run；bridge 从可信 tool ctx run_id 取来源，IM 从已持久真人消息与聊天成员资格核实当前图/节点明确命名，不信模型 confirmed。独立 global bridge 与 IM source 用例通过；真实产品结果留给 reviewer Round 2。 |
+| C2 R6 / C3 R7 | **inconclusive，still_open 验收标准** | 当次上线授权尚缺；真实专用Feishu Bot由另一unit占用。保持原要求与隔离，不降为本地模拟 pass。 |
+| C4 milestone W1 prototype完整对照 | **still_open / 等产品 Round 2** | 本轮没有冒称已有原型/局部截图已补齐所有 must-match 双视口实测结论。 |
+
+### Remaining confirmed C1
+
+`response_send` 解除 headers 前 gate 后，后续 body 仅转发到 bounded_send。使用本unit独立临时目录和真实 FastAPI app（无监听端口），注册/fixture激活两个真人、创建群并上传200000字节文本附件；首个65536字节 body 已交给 ASGI client 后让该 send 暂不返回，此时并发 suspend。管理员200，新 GET401；允许旧send返回后，FileResponse继续读文件并新发送65536、65536、3392字节，合计 **134464字节**。这些不是停用前已交给客户端的首块，设计“停用返回前清空尚未发送的数据”不成立。当前新增慢下载回归仅证明锁可释放，并允许失效旧响应最终完整返回；不能证明撤销要求。
+
+建议保持 network send 有界、避免占全局锁，另在公司数据响应后续分块写出遵守当前撤销资格，中止已失效响应。只修该明确路径即可，无需通用新平台或假设边界。
+
+### Validation and limits
+
+独立窄测：在本unit临时 `output/review-targeted-*` 中设置 import app 的独立 IM_DB_PATH，执行 repo venv `python -m pytest -q` 以下4用例，**4 passed in 0.41s**：
+
+- `tests/unit/personal_assistant/test_global_task_authorization.py`
+- `tests/im_service/integration/test_company_task_graphs.py::test_expired_delete_receipt_is_not_replayed_or_retained`
+- `tests/im_service/integration/test_company_task_graphs.py::test_global_consumed_sources_require_explicit_human_request_and_chat_access`
+- `tests/im_service/integration/test_device_binding_protocol.py::test_device_link_uses_configured_https_origin_behind_http_tunnel`
+
+另独立执行上述200000字节 ASGI 分块撤销复现，保存脱敏结果。所有自建临时DB/上传文件已随临时目录清理，无服务启动、无共享50620请求、无公网/生产/其他unit操作。
+
+复用caller修复批次证据：global/inbox/bridge/company31 passed，网络绑定9 passed，TTL/登记13 passed，UI30 passed，build pass。后续全量not-e2e 4095 passed + 1测试行数contract失败；仅测试拆分后contract及搬迁测试4 passed。前端全量792 passed + 1旧 `getByRole(status)` 歧义；选择器限定确认文本后Agent edit5 passed。这些修正不改受审生产实现，不能把失败原始全量标成全绿。
+
+最新额外 stub E2E `/tmp/feat572-review-e2e-updated.log` 为 **3 passed / 3 failed**（config PATCH503/重连、compaction摘要0、skill allowlist未更新），caller正在核实根因，尚未构成独立 confirmed finding，但收尾不能忽略。Round 1 live config RPC直接回包白名单的 REFUTED 仅排除“响应本身等gate”假说，**不排除 WS顺序recv先读普通帧等gate、后续RPC响应因此读不到**的不同FIFO路径；这个新候选须用caller确定性复现/修复证据闭合。
+
+当前 `code-review.json` 是本轮存活数组；Round 1原问题与原full证据保留在上文和已提交历史，本轮 `closure-results.json` 只保存非敏感数字与用例名。报告与JSON交caller提交。

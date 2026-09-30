@@ -121,7 +121,7 @@ def test_deletion_requires_human_scope_and_preserves_receipts_and_ids(company_ta
         ),
     )
     args = dict(graph_id=gid, node_id="n2", base_revision=2, request_key="delete")
-    with pytest.raises(TaskGraphError, match="explicitly request"):
+    with pytest.raises(TaskGraphError, match="reply with exactly"):
         service.execute(agent, "delete", args)
     db.execute(
         "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('request','A','a','删除 Child','sent','now')"
@@ -130,7 +130,7 @@ def test_deletion_requires_human_scope_and_preserves_receipts_and_ids(company_ta
     sourced = TaskGraphActor("agent", "nano", "node", "request")
     db.execute("UPDATE messages SET content='Do not delete Child' WHERE id='request'")
     db.commit()
-    with pytest.raises(TaskGraphError, match="explicitly request"):
+    with pytest.raises(TaskGraphError, match="reply with exactly"):
         service.execute(sourced, "delete", args)
     db.execute(
         "UPDATE messages SET content=? WHERE id='request'",

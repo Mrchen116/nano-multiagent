@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+
+from anyio import CancelScope
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 from .channel_control import GatewayChannelControl
@@ -82,76 +86,107 @@ class GatewayRuntime:
         """Run one authenticated WebSocket until its current registration disconnects."""
         await websocket.accept()
         node_id: str | None = None
-        try:
+        gate = getattr(
+            getattr(websocket.scope.get("app"), "state", None), "company_gate", None
+        )
+        # An HTTP request can own the gate while waiting for an RPC response.
+        # Keep reading those responses even when an earlier mutation is queued.
+        rpc_results = {
+            "agent.config",
+            "agent.created",
+            "agent.config.apply.result",
+            "agent.config.operation.status.result",
+            "agent.capabilities",
+            "node.capabilities",
+            "agent.prompt.preview",
+            "node.prompt.preview",
+            "node.heartbeat.md",
+            "node.cron.jobs",
+            "node.cron.delete",
+            "node.skills.usage",
+            "session.fork.result",
+            "node.distill.prompt",
+            "agent.work.permission.result",
+        }
+        pending = asyncio.Queue(maxsize=256)
+        pending_bytes = 0
+
+        async def dispatch(message_type, body):
+            nonlocal node_id
+            response = await self.handle_message(
+                websocket=websocket,
+                message_type=message_type,
+                payload=body,
+                authenticated_owner_id=authenticated_owner_id,
+            )
+            if response is not None:
+                if response.get("type") == "error" and isinstance(
+                    response.get("payload"), dict
+                ):
+                    response["payload"].setdefault("message_type", message_type)
+                await websocket.send_json(response)
+            if (
+                message_type == "node.register"
+                and response is not None
+                and response.get("type") == "ack"
+            ):
+                node_id = str(body["node_id"])
+                await self._channel_control.initialize_channel_control(node_id=node_id)
+                await self._control.replay_submitted_permissions(node_id=node_id)
+
+        async def read_frames():
+            nonlocal pending_bytes
             while True:
                 raw_message = await websocket.receive_text()
                 payload = _decode_message(raw_message)
                 message_type = _require_message_type(payload)
                 body = _require_dict(payload.get("payload"), field_name="payload")
-
-                async def dispatch():
-                    return await self.handle_message(
-                        websocket=websocket,
-                        message_type=message_type,
-                        payload=body,
-                        authenticated_owner_id=authenticated_owner_id,
-                    )
-
-                gate = getattr(
-                    getattr(websocket.scope.get("app"), "state", None),
-                    "company_gate",
-                    None,
-                )
-                # These frames only resolve an existing HTTP RPC waiter. The
-                # initiating HTTP request already owns the admission gate; waiting
-                # for it here would deadlock the response needed to release it.
-                rpc_results = {
-                    "agent.config",
-                    "agent.created",
-                    "agent.config.apply.result",
-                    "agent.config.operation.status.result",
-                    "agent.capabilities",
-                    "node.capabilities",
-                    "agent.prompt.preview",
-                    "node.prompt.preview",
-                    "node.heartbeat.md",
-                    "node.cron.jobs",
-                    "node.cron.delete",
-                    "node.skills.usage",
-                    "session.fork.result",
-                    "node.distill.prompt",
-                    "agent.work.permission.result",
-                }
                 if gate is None or message_type in rpc_results:
-                    response = await dispatch()
-                else:
+                    await dispatch(message_type, body)
+                elif message_type == "node.register":
                     async with gate:
-                        # Authority may have changed while this frame waited for a
-                        # concurrent member suspension or device handoff to commit.
-                        response = await dispatch()
-                if response is not None:
-                    if response.get("type") == "error" and isinstance(
-                        response.get("payload"), dict
-                    ):
-                        response["payload"].setdefault("message_type", message_type)
-                    await websocket.send_json(response)
-                if (
-                    message_type == "node.register"
-                    and response is not None
-                    and response.get("type") == "ack"
-                ):
-                    node_id = str(body["node_id"])
-                    await self._channel_control.initialize_channel_control(
-                        node_id=node_id
-                    )
-                    await self._control.replay_submitted_permissions(node_id=node_id)
-        except WebSocketDisconnect:
+                        await dispatch(message_type, body)
+                else:
+                    size = len(raw_message.encode("utf-8"))
+                    if pending.full() or pending_bytes + size > 4 * 1024 * 1024:
+                        await websocket.close(code=1013, reason="Gateway input backlog")
+                        return
+                    pending_bytes += size
+                    pending.put_nowait((message_type, body, size))
+
+        async def apply_frames():
+            nonlocal pending_bytes
+            while True:
+                message_type, body, size = await pending.get()
+                try:
+                    async with gate:
+                        # handle_message rechecks current authority after queueing.
+                        await dispatch(message_type, body)
+                finally:
+                    pending_bytes -= size
+                    pending.task_done()
+
+        tasks = [
+            asyncio.create_task(read_frames()),
+            asyncio.create_task(apply_frames()),
+        ]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        except (WebSocketDisconnect, asyncio.CancelledError):
             pass
         finally:
-            if node_id is not None:
-                await self._sessions.disconnect(
-                    node_id=node_id, expected_websocket=websocket
-                )
+            # ASGI disconnect cancels the endpoint scope; finish both owned tasks
+            # and registration cleanup before returning to that scope.
+            with CancelScope(shield=True):
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                if node_id is not None:
+                    await self._sessions.disconnect(
+                        node_id=node_id, expected_websocket=websocket
+                    )
 
     async def handle_message(
         self,

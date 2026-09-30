@@ -280,3 +280,9 @@ IM 入口先验证会话成员，再保存/返回附件引用；`attachment_id` 
 - **M1-W2 [worker]** 身份入口矩阵、refresh 并发/重启、停用与事务/WS竞争、绑定挑战重放/修订冲突/凭据迁移/恢复的最窄契约和集成测试通过。
 - **M1-W3 [worker]** 跨 owner task API、群节点关联、protected-source 投影、明确删除/回执、限流共享来源、流式字节/配额并发及 SSRF 生产接线测试通过；真实 Agent 工具往返有证据。
 - **M1-W4 [worker]** docs_check、Ruff、架构 contract 与相关测试通过；既有不相关失败单列证据。迁移/备份/恢复和部署配置检查可复现；只提交本 unit 范围，记录实际版本与运行来源，不把 merge 当部署。
+
+### 复审实施补充：机器技能激活与同连接回执
+
+保留既有自演化创建 Skill 后激活行为，使用仅当前节点可调用的 `POST /im/v1/agents/{agent_id}/skills/enable`，只接受版本和追加技能；完整配置仍由既有 apply/乐观锁持久化，真人管理 API 不接受机器凭据。详见本 unit gateway-relay delta。
+
+HTTP 等待 Gateway 回执期间，同一个 WS 的普通帧不能阻止继续读取纯 RPC 回执。普通帧在 256 条/4 MiB 有界队列内按序、持公司资格锁执行并重验身份；超限关闭，不创建无界任务。HTTP 下载在每个后续分块发送前重验资格，停用后不发送尚未交付的分块。凭据日志过滤同时覆盖公开 launcher 和本地直接 ASGI 启动。

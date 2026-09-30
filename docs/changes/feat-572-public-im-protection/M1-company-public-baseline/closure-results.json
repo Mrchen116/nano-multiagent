@@ -1,0 +1,38 @@
+{
+  "validated_at": "bf9fde9e31848bbd290586ab5e7633e7e180d20c",
+  "mode": "closure",
+  "isolated_asgi_download": {
+    "attachment_bytes": 200000,
+    "suspend_status": 200,
+    "new_request_after_suspend_status": 401,
+    "chunks": [
+      {
+        "bytes": 65536,
+        "after_suspend": false
+      },
+      {
+        "bytes": 65536,
+        "after_suspend": true
+      },
+      {
+        "bytes": 65536,
+        "after_suspend": true
+      },
+      {
+        "bytes": 3392,
+        "after_suspend": true
+      }
+    ],
+    "bytes_emitted_after_suspend": 134464
+  },
+  "independent_targeted_tests": {
+    "passed": 4,
+    "duration_seconds": 0.41,
+    "tests": [
+      "test_global_delete_forwards_only_actual_current_run_inbox_sources",
+      "test_expired_delete_receipt_is_not_replayed_or_retained",
+      "test_global_consumed_sources_require_explicit_human_request_and_chat_access",
+      "test_device_link_uses_configured_https_origin_behind_http_tunnel"
+    ]
+  }
+}

@@ -24,3 +24,22 @@ def test_websocket_accept_and_reject_logs_never_retain_query_credentials():
     assert "private-token" not in logged
     assert "WebSocket /im/ws/user?ticket=[redacted]&token=[redacted]" in logged
     assert "[accepted]" in logged and "403" in logged
+
+
+def test_direct_uvicorn_startup_also_redacts_ticket_queries(tmp_path):
+    from fastapi.testclient import TestClient
+    from IM.app import create_app
+    import io
+    import logging
+
+    output = io.StringIO()
+    handler = logging.StreamHandler(output)
+    logger = logging.getLogger("uvicorn.error")
+    logger.addHandler(handler)
+    try:
+        with TestClient(create_app(db_path=tmp_path / "logs.db")):
+            logger.warning("WebSocket /im/ws/user?ticket=%s", "private-ticket")
+        assert "private-ticket" not in output.getvalue()
+        assert "ticket=[redacted]" in output.getvalue()
+    finally:
+        logger.removeHandler(handler)

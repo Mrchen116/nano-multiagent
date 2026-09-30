@@ -2,24 +2,11 @@
 
 import os
 import copy
-import logging
-import re
 from urllib.parse import urlsplit
 
 import uvicorn
 
-
-class RedactCredentials(logging.Filter):
-    """Remove query credentials from Uvicorn's WebSocket handshake messages."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = re.sub(
-            r"([?&](?:ticket|token|access_token|refresh_token)=)[^&\s\"']+",
-            r"\1[redacted]",
-            record.getMessage(),
-        )
-        record.args = ()
-        return True
+from IM.infra.logging import RedactCredentials
 
 
 def main() -> None:

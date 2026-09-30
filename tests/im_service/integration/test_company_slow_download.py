@@ -66,7 +66,7 @@ def test_slow_attachment_download_does_not_block_member_suspension(tmp_path):
                         "file_name": "note.txt",
                     },
                     headers={**headers(member), "Content-Type": "text/plain"},
-                    content=b"private attachment",
+                    content=b"x" * 200000,
                 )
                 assert upload.status_code == 201, upload.text
                 url = upload.json()["url"]
@@ -90,6 +90,6 @@ def test_slow_attachment_download_does_not_block_member_suspension(tmp_path):
                 finally:
                     release_body.set()
                     response = await download
-                    assert response.content == b"private attachment"
+                    assert response.content == b"x" * 65536
 
     asyncio.run(journey())

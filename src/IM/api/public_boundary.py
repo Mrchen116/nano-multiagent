@@ -40,6 +40,10 @@ def browser_origin_allowed(scope: dict, public_url: str) -> bool:
     return origin in allowed
 
 
+class _ResponseRevoked(Exception):
+    """Stop a response whose principal lost access after headers were sent."""
+
+
 class CompanyBoundary:
     """Serialize admitted API effects with membership revocation in one IM worker.
 
@@ -108,6 +112,7 @@ class CompanyBoundary:
         state = scope["app"].state
         await state.company_gate.acquire()
         gate_held = True
+        protected_response = False
 
         async def response_send(message):
             nonlocal gate_held
@@ -116,6 +121,15 @@ class CompanyBoundary:
                 # must not prevent another request from revoking membership.
                 state.company_gate.release()
                 gate_held = False
+            if protected_response and message["type"] == "http.response.body":
+                try:
+                    async with state.company_gate:
+                        await current_data_principal(Request(scope, receive=receive))
+                except HTTPException:
+                    await bounded_send(
+                        {"type": "http.response.body", "body": b"", "more_body": False}
+                    )
+                    raise _ResponseRevoked
             await bounded_send(message)
 
         send = response_send
@@ -146,7 +160,10 @@ class CompanyBoundary:
                     from IM.api.deps import current_data_principal
 
                     await current_data_principal(request)
+                    protected_response = True
                 await self.app(scope, receive, send)
+            except _ResponseRevoked:
+                return
             except RateLimited as exc:
                 await JSONResponse(
                     {

@@ -1198,49 +1198,12 @@ class IMAgentConfigSync:
         payload: Mapping[str, object],
         skills: list[str],
     ) -> dict[str, object]:
-        raw_tools = payload.get("tool_allowlist")
-        raw_features = payload.get("features")
-        patch_payload: dict[str, object] = {
-            "profile_version": int(payload.get("profile_version", 1)),
-            "display_name": str(payload.get("display_name") or agent_id),
-            "description": str(payload.get("description") or ""),
-            "skills": skills,
-            "skills_selection_mode": str(
-                payload.get("skills_selection_mode")
-                or effective_skills_selection_mode(
-                    None,
-                    tuple(
-                        item.strip()
-                        for item in payload.get("skills", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
-                )
-            ),
-            "tool_allowlist": [
-                item.strip()
-                for item in (raw_tools if isinstance(raw_tools, list) else [])
-                if isinstance(item, str) and item.strip()
-            ],
-            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
-            "default_model": payload.get("default_model")
-            if isinstance(payload.get("default_model"), str)
-            else None,
-            "reasoning_effort": payload.get("reasoning_effort")
-            if isinstance(payload.get("reasoning_effort"), str)
-            else None,
-            "features": raw_features if isinstance(raw_features, dict) else {},
-            "custom_prompt": payload.get("custom_prompt")
-            if isinstance(payload.get("custom_prompt"), str)
-            else None,
-            "heartbeat_json": payload.get("heartbeat_json")
-            if isinstance(payload.get("heartbeat_json"), str)
-            else None,
-        }
-        if "work_mode" in payload:
-            patch_payload["work_mode"] = payload["work_mode"]
-        response = self._get_client().patch(
-            f"/im/v1/agents/{agent_id}/config",
-            json=patch_payload,
+        response = self._get_client().post(
+            f"/im/v1/agents/{agent_id}/skills/enable",
+            json={
+                "profile_version": int(payload.get("profile_version", 1)),
+                "skills": skills,
+            },
         )
         response.raise_for_status()
         updated = response.json()
