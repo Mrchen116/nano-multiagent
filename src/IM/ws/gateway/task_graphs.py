@@ -21,6 +21,9 @@ class GatewayTaskGraphs:
                 "agent",
                 require_text(payload.get("agent_id"), "agent_id"),
                 require_text(payload.get("node_id"), "node_id"),
+                require_text(payload["source_message_id"], "source_message_id")
+                if payload.get("source_message_id") is not None
+                else None,
             )
             result = self.service.execute(
                 actor, payload.get("action"), payload.get("args")

@@ -8,6 +8,8 @@ channels FastAPI/Starlette exposes uniformly).
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import browser_socket
+
 import json
 from pathlib import Path
 
@@ -53,9 +55,7 @@ def test_user_stream_accepts_valid_token_and_replays_owners_events(
             json={"sender_user_id": alice.id, "content": "first"},
         )
 
-        with client.websocket_connect(
-            f"/im/ws/user?token={alice.access_token}"
-        ) as websocket:
+        with browser_socket(client, alice.access_token) as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[str] = []
             for _ in range(6):

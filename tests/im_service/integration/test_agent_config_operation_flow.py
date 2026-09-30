@@ -1,5 +1,7 @@
 """Integration coverage for durable Gateway-first Agent configuration operations."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 
@@ -226,7 +228,7 @@ def test_apply_websocket_frame_correlates_terminal_result(tmp_path: Path) -> Non
         authorize(client, owner)
         _seed_agent(app, owner_id=owner.owner_id)
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

@@ -1,5 +1,7 @@
 """Contract tests for message delivery status fields."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -77,7 +79,7 @@ def test_message_contract_supports_sender_type_attachments_and_pagination(
         NodeRepository(app.state.connection).upsert_node(
             node_id="node-contract", node_name="Contract", owner_id=alice_id
         )
-        with client.websocket_connect("/im/ws/gateway") as gateway:
+        with gateway_socket(client) as gateway:
             gateway.send_json(
                 {
                     "type": "node.register",

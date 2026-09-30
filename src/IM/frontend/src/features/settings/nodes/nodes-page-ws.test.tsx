@@ -62,6 +62,8 @@ describe("nodes page — node.status_changed WS subscription", () => {
         username: "alice",
         display_name: "Alice",
         owner_id: "owner-1",
+        membership_status: "active" as const,
+        is_company_admin: true,
         owned_node_ids: ["node-a"],
         default_entry_node_id: "node-a",
         locale: "en",

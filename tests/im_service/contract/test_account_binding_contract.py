@@ -38,16 +38,8 @@ def test_me_and_bind_contract_shapes(tmp_path: Path) -> None:
         bind_response = client.post(
             "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
         )
-        assert bind_response.status_code == 201
-        assert set(bind_response.json()) == {
-            "bind_id",
-            "node_id",
-            "user_id",
-            "status",
-            "bind_url",
-            "created_at",
-            "confirmed_at",
-        }
+        assert bind_response.status_code == 400
+        assert "device proof required" in bind_response.json()["detail"]
 
 
 def test_bind_contract_requires_action_specific_fields(tmp_path: Path) -> None:

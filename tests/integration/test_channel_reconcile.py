@@ -19,7 +19,7 @@ from personal_assistant.channels.channel_credentials import (
 )
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
-from tests.im_service._auth_helpers import authorize, register_user
+from tests.im_service._auth_helpers import gateway_socket, authorize, register_user
 
 
 def _seed_agent(client: TestClient, *, owner_id: str) -> None:
@@ -95,7 +95,7 @@ def test_online_http_save_pushes_manifest_and_status_projects_connected(
         authorize(client, owner)
         _seed_agent(client, owner_id=owner.owner_id)
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

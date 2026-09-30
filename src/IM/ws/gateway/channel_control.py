@@ -72,7 +72,6 @@ class GatewayChannelControl:
                 return False
             durable_owner = store.current_owner_for_node(node_id=node_id)
             if durable_owner and durable_owner != connection.owner_id:
-                store.remove_node_public_key(node_id=node_id)
                 await self._sessions.disconnect(
                     node_id=node_id, expected_websocket=connection.websocket
                 )

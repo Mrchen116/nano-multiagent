@@ -33,6 +33,18 @@ def _store_with_channel(tmp_path: Path) -> tuple[ChannelControlStore, str]:
     )
     connection.close()
     pair = generate_channel_key_pair(private_seed=b"s" * 32)
+    # This fixture represents a key already admitted by the device proof protocol.
+    with connect(db_path) as enrolled:
+        enrolled.execute(
+            "INSERT INTO node_credential_keys VALUES(?,?,?,?,?,datetime('now'))",
+            (
+                "node-a",
+                "owner-a",
+                pair.key_id,
+                "X25519-HKDF-SHA256-AES-256-GCM",
+                pair.public_key,
+            ),
+        )
     store = ChannelControlStore(db_path)
     store.register_node_public_key(
         owner_id="owner-a",

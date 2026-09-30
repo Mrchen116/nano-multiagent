@@ -265,7 +265,7 @@ def seed_node_and_profiles(
 ) -> None:
     """Register node-1 and upsert agent profiles with default group_reply_policy=manual."""
     nodes = NodeRepository(app.state.connection)
-    nodes.upsert_node(node_id="node-1", node_name="MacBook")
+    nodes.upsert_node(node_id="node-1", node_name="MacBook", owner_id=owner_id)
     profiles = AgentProfileRepository(app.state.connection)
     for agent_id in agent_ids:
         profiles.upsert_profile(

@@ -287,8 +287,21 @@ def apply_operations(
                         "client_ref must be unique within the batch and not start with @"
                     )
                 parent = resolve(operation.get("container_id"))
-                # Nodes are never deleted or renumbered; allocation is graph-local.
-                node_id = f"n{len(nodes) + 1}"
+                # A deleted short ID must never point to a different future node.
+                ordinal = candidate.get(
+                    "next_node_number",
+                    max(
+                        (
+                            int(key[1:])
+                            for key in nodes
+                            if key.startswith("n") and key[1:].isdigit()
+                        ),
+                        default=len(nodes),
+                    )
+                    + 1,
+                )
+                node_id = f"n{ordinal}"
+                candidate["next_node_number"] = ordinal + 1
                 fields = {
                     key: value
                     for key, value in operation.items()
@@ -383,3 +396,49 @@ def apply_operations(
         revision=document["revision"] + 1, updated_at=now, updated_by=actor
     )
     return candidate, refs, sorted(changed)
+
+
+def delete_subtree(
+    document: dict, node_id: str, *, actor: str, now: str
+) -> tuple[dict, list[str]]:
+    """Remove a bounded subtree and references to it without changing other records."""
+    result = deepcopy(document)
+    by_id = {node["id"]: node for node in result["nodes"]}
+    if node_id not in by_id:
+        raise TaskGraphError("invalid_arguments", "node_id is not in this graph")
+    result["next_node_number"] = document.get(
+        "next_node_number",
+        max(
+            (
+                int(key[1:])
+                for key in by_id
+                if key.startswith("n") and key[1:].isdigit()
+            ),
+            default=len(by_id),
+        )
+        + 1,
+    )
+    removed = {node_id}
+    while True:
+        expanded = removed | {
+            n["id"] for n in result["nodes"] if n["container_id"] in removed
+        }
+        if expanded == removed:
+            break
+        removed = expanded
+    result["nodes"] = [n for n in result["nodes"] if n["id"] not in removed]
+    result["dependencies"] = [
+        e
+        for e in result["dependencies"]
+        if e["from"] not in removed and e["to"] not in removed
+    ]
+    for node in result["nodes"]:
+        if node["derived_from_id"] in removed:
+            node["derived_from_id"] = None
+        if node["selected_candidate_id"] in removed:
+            node["selected_candidate_id"] = None
+            node["selection_reason"] = ""
+    result.update(revision=document["revision"] + 1, updated_at=now, updated_by=actor)
+    if result["nodes"]:
+        validate_document(result)
+    return result, sorted(removed)

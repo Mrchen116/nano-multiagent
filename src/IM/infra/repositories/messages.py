@@ -1145,6 +1145,11 @@ class MessageRepository:
         ).fetchone()
         if row is None:
             raise ValueError(f"message_id not found: {message_id}")
+        epoch = self._connection.execute(
+            "SELECT node_epoch FROM node_binding_state WHERE node_id=?",
+            (permission_data.get("node_id"),),
+        ).fetchone()
+        permission_data = {**permission_data, "node_epoch": epoch[0] if epoch else 0}
         existing = _load_permission_requests(row["permission_request_json"])
         replaced = False
         for index, entry in enumerate(existing):
@@ -1206,6 +1211,14 @@ class MessageRepository:
             )
             if target is None:
                 raise ValueError("request_id not found")
+            epoch = self._connection.execute(
+                "SELECT node_epoch FROM node_binding_state WHERE node_id=?",
+                (target.get("node_id"),),
+            ).fetchone()
+            if target.get("node_epoch", 0) != (epoch[0] if epoch else 0):
+                raise ValueError(
+                    "permission execution belongs to a revoked device session"
+                )
             if target.get("status") in {"submitted", "resolved"}:
                 return dict(target)
             if target.get("status") != "pending":
@@ -1255,11 +1268,15 @@ class MessageRepository:
             "SELECT id, conversation_id, permission_request_json FROM messages WHERE permission_request_json LIKE '%submitted%'"
         ).fetchall()
         results: list[dict[str, object]] = []
+        epoch = self._connection.execute(
+            "SELECT node_epoch FROM node_binding_state WHERE node_id=?", (node_id,)
+        ).fetchone()
         for row in rows:
             for entry in _load_permission_requests(row["permission_request_json"]):
                 if (
                     entry.get("status") != "submitted"
                     or entry.get("node_id") != node_id
+                    or entry.get("node_epoch", 0) != (epoch[0] if epoch else 0)
                 ):
                     continue
                 member = self._connection.execute(

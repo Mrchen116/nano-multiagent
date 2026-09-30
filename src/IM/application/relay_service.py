@@ -109,6 +109,11 @@ class RelayService:
             metadata.update(extra_metadata)
         if agent_snapshot.profile_version is not None:
             metadata["config_profile_version"] = agent_snapshot.profile_version
+        epoch = self._connection.execute(
+            "SELECT node_epoch FROM node_binding_state WHERE node_id=?",
+            (target_node_id,),
+        ).fetchone()
+        metadata["node_epoch"] = epoch[0] if epoch else 0
         payload = {
             "idempotency_key": idempotency_key,
             "conversation_id": message.conversation_id,

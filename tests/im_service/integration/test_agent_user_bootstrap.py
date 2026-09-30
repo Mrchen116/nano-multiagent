@@ -11,6 +11,8 @@ These tests pin the contract: agent creation **and** legacy reads must surface
 a usable ``user_id`` for every agent.
 """
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 
@@ -39,7 +41,7 @@ def test_create_node_agent_provisions_im_user_row_atomically(tmp_path: Path) -> 
             owner_id=owner.owner_id,
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

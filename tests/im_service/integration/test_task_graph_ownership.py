@@ -1,15 +1,12 @@
-"""Protect account ownership and independent last-update chats per node."""
-
-import pytest
+"""Protect company visibility and independent last-update chats per node."""
 
 from IM.application.task_graphs import TaskGraphActor
-from IM.domain.task_graphs import TaskGraphError
 from IM.infra.repositories.conversations import ConversationRepository
 from .conftest import authorize
 from .task_graph_support import command, task_stack as task_stack
 
 
-def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
+def test_company_goals_have_optional_source_and_no_agent_assignment(
     task_stack,
 ):
     client, ws, owner, stranger, chat, agent_user = task_stack
@@ -69,8 +66,8 @@ def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
     )
     db.commit()
     authorize(client, stranger)
-    assert client.get("/im/v1/task-graphs").json()["total"] == 0
-    assert client.get(f"/im/v1/task-graphs/{source_id}").status_code == 404
+    assert client.get("/im/v1/task-graphs").json()["total"] == 2
+    assert client.get(f"/im/v1/task-graphs/{source_id}").status_code == 200
     authorize(client, owner)
     db.execute("DELETE FROM conversations WHERE id=?", (chat.id,))
     db.commit()
@@ -88,42 +85,17 @@ def test_goals_belong_to_account_with_optional_source_and_no_agent_assignment(
         request_key="source",
     )
     assert replay["ok"] and replay["result"]["graph_id"] == source_id
-    # A profile transferred to another owner cannot replay its old creation receipt.
+    # Ownership transfer keeps company tasks accessible to the new active owner.
     db.execute(
         "UPDATE agent_profiles SET owner_id=? WHERE agent_id='nano'",
         (stranger.owner_id,),
     )
     db.execute("UPDATE nodes SET owner_id=? WHERE node_id='node'", (stranger.owner_id,))
     db.commit()
-    # The old WebSocket has a different owner after transfer, so exercise the
-    # service receipt check with the newly resolved Agent identity directly.
-    with pytest.raises(TaskGraphError) as denied:
-        client.app.state.task_graphs.execute(
-            TaskGraphActor("agent", "nano", "node"),
-            "create",
-            dict(title="Independent", mode="dag", request_key="no-chat"),
-        )
-    assert denied.value.code == "not_found_or_forbidden"
-    with pytest.raises(TaskGraphError) as denied_write:
-        client.app.state.task_graphs.execute(
-            TaskGraphActor("agent", "nano", "node"),
-            "apply",
-            dict(
-                graph_id=graph_id,
-                base_revision=2,
-                request_key="other-owner-edit",
-                change_note="Attempted cross-account edit",
-                operations=[
-                    {
-                        "op": "update_task",
-                        "node_id": "n1",
-                        "patch": {"title": "Foreign"},
-                    }
-                ],
-            ),
-        )
-    assert denied_write.value.code == "not_found_or_forbidden"
-    assert client.get(f"/im/v1/task-graphs/{graph_id}").json()["title"] == "Together"
+    result = client.app.state.task_graphs.execute(
+        TaskGraphActor("agent", "nano", "node"), "get", {"graph_id": graph_id}
+    )
+    assert result["title"] == "Together"
 
 
 def test_each_changed_node_records_its_last_chat_without_retries_moving_it(task_stack):

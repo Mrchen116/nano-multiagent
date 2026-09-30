@@ -33,8 +33,7 @@ export function MePage() {
   const offlineCount = ownedNodes.length - onlineCount;
 
   const handleSignOut = () => {
-    useAuthStore.getState().clear();
-    navigate("/login", { replace: true });
+    navigate("/login", { replace: true, state: { signOut: true } });
   };
 
   const handleLanguageChange = (next: Locale) => {
@@ -143,6 +142,7 @@ export function MePage() {
         </Link>
       </div>
 
+      {user?.is_company_admin && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden>👥</span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-language"

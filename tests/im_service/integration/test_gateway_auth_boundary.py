@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 import time
@@ -25,17 +27,35 @@ def test_runtime_token_rotates_with_connection_and_never_grants_human_access(
         alice = register_user(client, username="runtime-alice")
         authorize(client, alice)
         registration = _registration(node_id="runtime-node", key_seed=b"r" * 32)
-        with client.websocket_connect("/im/ws/gateway") as first:
+        with gateway_socket(client) as first:
             first.send_json(registration)
             token = first.receive_json()["payload"]["gateway_access_token"]
             machine = {"Authorization": f"Bearer {token}"}
             for route in ("me", "nodes", "policies", "agents"):
                 assert client.get(f"/im/v1/{route}", headers=machine).status_code == 401
+            own_mirror = "/im/v1/agents/agent-runtime-node/config?source=mirror"
+            assert client.get(own_mirror, headers=machine).status_code == 200
+            assert (
+                client.get(
+                    own_mirror.replace("mirror", "live"), headers=machine
+                ).status_code
+                == 401
+            )
+            with gateway_socket(client) as other:
+                other.send_json(_registration(node_id="other-node", key_seed=b"z" * 32))
+                assert other.receive_json()["type"] == "ack"
+                assert (
+                    client.get(
+                        "/im/v1/agents/agent-other-node/config?source=mirror",
+                        headers=machine,
+                    ).status_code
+                    == 404
+                )
             missing = (
                 "/im/v1/conversations/missing/images/missing?agent_id=agent-secure"
             )
             assert client.get(missing, headers=machine).status_code == 404
-            with client.websocket_connect("/im/ws/gateway") as replacement:
+            with gateway_socket(client) as replacement:
                 replacement.send_json(registration)
                 fresh = replacement.receive_json()["payload"]["gateway_access_token"]
                 assert fresh != token
@@ -54,15 +74,6 @@ def test_runtime_token_rotates_with_connection_and_never_grants_human_access(
             )
 
 
-def _bind(client, *, node_id: str) -> None:
-    started = client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
-    confirmed = client.post(
-        "/im/v1/bind",
-        json={"action": "confirm", "bind_id": started.json()["bind_id"]},
-    )
-    assert confirmed.status_code == 201
-
-
 def _registration(*, node_id: str, key_seed: bytes) -> dict[str, object]:
     pair = generate_channel_key_pair(private_seed=key_seed)
     return {
@@ -71,7 +82,7 @@ def _registration(*, node_id: str, key_seed: bytes) -> dict[str, object]:
             "node_id": node_id,
             "node_name": node_id,
             "agents": [f"agent-{node_id}"],
-            "capabilities": {"channel_bootstrap": True},
+            "capabilities": {},
             "credential_key_id": pair.key_id,
             "credential_algorithm": "X25519-HKDF-SHA256-AES-256-GCM",
             "credential_public_key": pair.public_key,
@@ -87,12 +98,11 @@ def test_registration_cannot_rebind_another_nodes_agent(tmp_path: Path) -> None:
         authorize(client, alice)
         original = _registration(node_id="original", key_seed=b"e" * 32)
         original["payload"]["capabilities"] = {}
-        with client.websocket_connect("/im/ws/gateway") as owner_socket:
+        with gateway_socket(client) as owner_socket:
             owner_socket.send_json(original)
             assert owner_socket.receive_json()["type"] == "ack"
-            _bind(client, node_id="original")
             authorize(client, bob)
-            with client.websocket_connect("/im/ws/gateway") as attacker:
+            with gateway_socket(client) as attacker:
                 stolen = _registration(node_id="attacker", key_seed=b"f" * 32)
                 stolen["payload"]["agents"] = original["payload"]["agents"]
                 attacker.send_json(stolen)
@@ -136,18 +146,9 @@ def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
         authorize(client, alice)
         original = _registration(node_id="node-owned", key_seed=b"o" * 32)
 
-        with client.websocket_connect("/im/ws/gateway") as owner_socket:
+        with gateway_socket(client) as owner_socket:
             owner_socket.send_json(original)
             assert owner_socket.receive_json()["type"] == "ack"
-            start = client.post(
-                "/im/v1/bind", json={"action": "start", "node_id": "node-owned"}
-            )
-            confirmed = client.post(
-                "/im/v1/bind",
-                json={"action": "confirm", "bind_id": start.json()["bind_id"]},
-            )
-            assert confirmed.status_code == 201
-
             expected_key_id = original["payload"]["credential_key_id"]
             for _ in range(50):
                 row = client.app.state.connection.execute(
@@ -158,24 +159,14 @@ def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
                     break
                 time.sleep(0.01)
             assert row is not None and row["key_id"] == expected_key_id
-            assert owner_socket.receive_json()["type"] == "channels.bootstrap.request"
 
             authorize(client, bob)
-            with client.websocket_connect("/im/ws/gateway") as attacker_socket:
-                attacker_socket.send_json(
-                    _registration(node_id="node-owned", key_seed=b"x" * 32)
-                )
-                rejection = attacker_socket.receive_json()
-                assert rejection == {
-                    "type": "error",
-                    "payload": {
-                        "code": "gateway_owner_mismatch",
-                        "message": "node is bound to another owner",
-                    },
-                }
-                with pytest.raises(WebSocketDisconnect) as caught:
-                    attacker_socket.receive_json()
-                assert caught.value.code == 1008
+            # Another human's token is never a device credential, even with a
+            # valid company account and knowledge of this node id/public key.
+            with pytest.raises(WebSocketDisconnect) as caught:
+                with client.websocket_connect("/im/ws/gateway"):
+                    pass
+            assert caught.value.code == 1008
 
             authorize(client, alice)
             owner_socket.send_json(
@@ -206,20 +197,18 @@ def test_registered_socket_cannot_mutate_another_owners_node(
         alice = register_user(client, username="frame-alice")
         bob = register_user(client, username="frame-bob")
         authorize(client, alice)
-        with client.websocket_connect("/im/ws/gateway") as alice_socket:
+        with gateway_socket(client) as alice_socket:
             alice_registration = _registration(node_id="node-alice", key_seed=b"a" * 32)
             alice_registration["payload"]["capabilities"] = {}
             alice_socket.send_json(alice_registration)
             assert alice_socket.receive_json()["type"] == "ack"
-            _bind(client, node_id="node-alice")
 
             authorize(client, bob)
-            with client.websocket_connect("/im/ws/gateway") as bob_socket:
+            with gateway_socket(client) as bob_socket:
                 bob_registration = _registration(node_id="node-bob", key_seed=b"b" * 32)
                 bob_registration["payload"]["capabilities"] = {}
                 bob_socket.send_json(bob_registration)
                 assert bob_socket.receive_json()["type"] == "ack"
-                _bind(client, node_id="node-bob")
                 alice_socket.send_json(
                     {
                         "type": "node.heartbeat",
@@ -251,14 +240,14 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
         alice = register_user(client, username="waiter-alice")
         bob = register_user(client, username="waiter-bob")
         authorize(client, alice)
-        with client.websocket_connect("/im/ws/gateway") as alice_socket:
+        with gateway_socket(client) as alice_socket:
             alice_socket.send_json(
                 _registration(node_id="waiter-a", key_seed=b"c" * 32)
             )
             assert alice_socket.receive_json()["type"] == "ack"
 
             authorize(client, bob)
-            with client.websocket_connect("/im/ws/gateway") as bob_socket:
+            with gateway_socket(client) as bob_socket:
                 bob_socket.send_json(
                     _registration(node_id="waiter-b", key_seed=b"d" * 32)
                 )
@@ -336,29 +325,54 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 assert creation_result["response"].status_code == 201
 
 
-def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
-    tmp_path: Path,
-) -> None:
-    """Post-bind initialization must not bless the pre-bind registrant's channel key."""
+def test_local_device_transfer_evicts_old_owner_socket(tmp_path: Path) -> None:
+    """A complete local proof transfers the device, preserving its immutable key."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    from tests.im_service.device_binding_helpers import complete_binding
+
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="bind-alice")
         bob = register_user(client, username="bind-bob")
         authorize(client, bob)
         registration = _registration(node_id="node-prebound", key_seed=b"p" * 32)
-        with client.websocket_connect("/im/ws/gateway") as bob_socket:
+        registration["payload"]["capabilities"] = {}
+        with gateway_socket(client) as bob_socket:
             bob_socket.send_json(registration)
             assert bob_socket.receive_json()["type"] == "ack"
-
+            (tmp_path / "node-prebound.pem").write_bytes(
+                X25519PrivateKey.from_private_bytes(b"p" * 32).private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+            )
             authorize(client, alice)
-            _bind(client, node_id="node-prebound")
+            result = complete_binding(client, tmp_path, node_id="node-prebound")
             with pytest.raises(WebSocketDisconnect):
                 bob_socket.receive_json()
-            assert [node["node_id"] for node in client.get("/im/v1/nodes").json()] == [
-                "node-prebound"
-            ]
-            assert (
-                client.app.state.connection.execute(
-                    "SELECT 1 FROM node_credential_keys WHERE node_id = 'node-prebound'"
-                ).fetchone()
-                is None
+            assert result["owner_id"] == alice.id
+            row = client.app.state.connection.execute(
+                "SELECT owner_id,key_id FROM node_credential_keys WHERE node_id='node-prebound'"
+            ).fetchone()
+            assert tuple(row) == (
+                alice.id,
+                registration["payload"]["credential_key_id"],
             )
+            with client.websocket_connect(
+                "/im/ws/gateway",
+                headers={"Authorization": f"Bearer {result['runtime_token']}"},
+            ) as replacement:
+                replacement.send_json(registration)
+                assert replacement.receive_json()["type"] == "ack"
+                # A pre-transfer queued relay may never reach the new owner's node.
+                assert (
+                    client.portal.call(
+                        lambda: client.app.state.gateway_relay.push_relay_message(
+                            relay_task_id="old-owner-queued",
+                            target_node_id="node-prebound",
+                            payload={"metadata": {"node_epoch": 1}},
+                        )
+                    )
+                    is False
+                )

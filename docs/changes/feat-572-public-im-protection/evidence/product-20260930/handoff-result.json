@@ -1,0 +1,15 @@
+{
+  "node": {
+    "node_id": "feat572-peer-node",
+    "owner_id": "u_nkj2zqff",
+    "status": "online"
+  },
+  "agent": {
+    "agent_id": "feat572-peer",
+    "owner_id": "u_nkj2zqff",
+    "node_id": "feat572-peer-node"
+  },
+  "old_owner_membership": "suspended",
+  "task_graph_count": 1,
+  "source_chat_preserved": 1
+}

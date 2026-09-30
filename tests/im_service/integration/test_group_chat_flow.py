@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 import json
 from pathlib import Path
@@ -77,7 +79,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
             for item in listed_items
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -173,6 +175,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
     ]
     assert first_frame["payload"]["agent_id"] == "agent-a"
     assert first_frame["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],
@@ -180,6 +183,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
     }
     assert second_frame["payload"]["agent_id"] == "agent-b"
     assert second_frame["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-b"],
         "participant_agent_ids": ["agent-a", "agent-b"],
@@ -192,6 +196,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
+                "node_epoch": 1,
                 "relay_task_id": first_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-group-a:agent-a",
                 "message_id": first_frame["payload"]["message"]["id"],
@@ -225,6 +230,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
+                "node_epoch": 1,
                 "relay_task_id": second_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-group-b:agent-b",
                 "message_id": second_frame["payload"]["message"]["id"],

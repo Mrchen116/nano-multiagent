@@ -1,5 +1,7 @@
 """Integration coverage for creating agent profiles and using them in relay flows."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 
@@ -48,7 +50,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             node_id="node-1", node_name="MacBook"
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -264,6 +266,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
             == created_message.json()["created_at"]
         )
         assert relay_frame["payload"]["metadata"] == {
+            "node_epoch": 1,
             "conversation_type": "direct",
             "mentioned_agent_ids": [],
             "config_profile_version": 1,
@@ -290,7 +293,7 @@ def test_create_agent_commits_after_gateway_terminal_result(tmp_path: Path) -> N
             node_id="node-1", node_name="MacBook"
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

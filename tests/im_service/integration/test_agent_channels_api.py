@@ -34,6 +34,11 @@ def _seed_agent(client: TestClient, *, owner_id: str) -> None:
         workspace_root=None,
     )
     pair = generate_channel_key_pair(private_seed=b"e" * 32)
+    client.app.state.connection.execute(
+        "INSERT INTO node_credential_keys VALUES (?,?,?,'X25519-HKDF-SHA256-AES-256-GCM',?,datetime('now'))",
+        ("node-a", owner_id, pair.key_id, pair.public_key),
+    )
+    client.app.state.connection.commit()
     client.app.state.channel_control_store.register_node_public_key(
         owner_id=owner_id,
         node_id="node-a",

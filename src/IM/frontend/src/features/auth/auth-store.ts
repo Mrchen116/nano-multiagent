@@ -3,6 +3,8 @@ import { create } from "zustand";
 export const AUTH_STORAGE_KEY = "im_auth_v1";
 
 export interface AuthUser {
+  membership_status: "pending" | "active" | "suspended";
+  is_company_admin: boolean;
   id: string;
   username: string;
   display_name: string;

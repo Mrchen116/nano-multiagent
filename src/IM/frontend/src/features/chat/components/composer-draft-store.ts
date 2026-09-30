@@ -6,10 +6,13 @@ export type ComposerDraftMention = {
   target_id: string;
 };
 
+export type FailedAttachment = { id: string; file: File; code: string; retryAt: number };
+
 export type ComposerSnapshot = {
   draft: string;
   draftMentions: ComposerDraftMention[];
   pending: Attachment[];
+  failed?: FailedAttachment[];
   slashDismissed: boolean;
 };
 
@@ -17,6 +20,7 @@ export const EMPTY_COMPOSER_SNAPSHOT: ComposerSnapshot = {
   draft: "",
   draftMentions: [],
   pending: [],
+  failed: [],
   slashDismissed: false
 };
 
@@ -25,6 +29,7 @@ export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot 
     draft: live.draft,
     draftMentions: [...live.draftMentions],
     pending: [...live.pending],
+    failed: [...(live.failed ?? [])],
     slashDismissed: live.slashDismissed
   };
 }
@@ -98,4 +103,12 @@ export function forgetComposerConversation(store: Map<string, ComposerSnapshot>,
 
 export function restoreComposerMembership(store: Map<string, ComposerSnapshot>, conversationIds: Iterable<string>): void {
   for (const id of conversationIds) revokedConversations.get(store)?.delete(id);
+}
+
+/** Remove server-backed and local drafts on sign-out without allowing late writes to resurrect them. */
+export function forgetComposerUser(userId: string): void {
+  const store = stores.get(userId);
+  if (!store) return;
+  for (const id of store.keys()) forgetComposerConversation(store, id);
+  stores.delete(userId);
 }

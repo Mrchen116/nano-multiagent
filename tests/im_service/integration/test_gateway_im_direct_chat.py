@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 import json
 from pathlib import Path
@@ -86,7 +88,7 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
             )(),
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -184,7 +186,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         assert old_conversation.config_profile_version == 1
         old_conversation_id = old_conversation.id
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -424,16 +426,19 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert old_after_relay["payload"]["agent_id"] == "agent-a"
     assert new_after_relay["payload"]["agent_id"] == "agent-a"
     assert first_relay["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
     }
     assert old_after_relay["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
     }
     assert new_after_relay["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,
@@ -443,6 +448,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[1].target_chat_id == old_conversation_id
     assert relay_adapter.sent[2].target_chat_id == new_conversation_id
     assert relay_adapter.sent[0].metadata == {
+        "node_epoch": 1,
         "sender_display_name": "Owner",
         "participants": first_relay["payload"]["participants"],
         "relay_task_id": first_relay["payload"]["relay_task_id"],
@@ -455,6 +461,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[1].metadata == {
+        "node_epoch": 1,
         "sender_display_name": "Owner",
         "participants": old_after_relay["payload"]["participants"],
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
@@ -467,6 +474,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[2].metadata == {
+        "node_epoch": 1,
         "sender_display_name": "Owner",
         "participants": new_after_relay["payload"]["participants"],
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],

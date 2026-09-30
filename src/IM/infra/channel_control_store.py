@@ -199,27 +199,22 @@ class ChannelControlStore:
         public_key: str,
     ) -> None:
         """Persist the public half advertised by an already owner-bound node."""
-        now = _utc_now()
         with closing(self._connect()) as connection:
             node = connection.execute(
                 "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
             ).fetchone()
             if node is None or str(node["owner_id"] or "") != owner_id:
                 raise ChannelControlError("channel_not_found", status_code=404)
-            connection.execute(
-                """
-                INSERT INTO node_credential_keys(
-                    node_id, owner_id, key_id, algorithm, public_key, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(node_id) DO UPDATE SET
-                    owner_id = excluded.owner_id,
-                    key_id = excluded.key_id,
-                    algorithm = excluded.algorithm,
-                    public_key = excluded.public_key,
-                    updated_at = excluded.updated_at
-                """,
-                (node_id, owner_id, key_id, algorithm, public_key, now),
-            )
+            registered = connection.execute(
+                "SELECT key_id, public_key FROM node_credential_keys WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            if (
+                registered is None
+                or registered["key_id"] != key_id
+                or registered["public_key"] != public_key
+            ):
+                raise ChannelControlError("device_key_not_enrolled", status_code=403)
 
     def agent_exists_for_owner(self, *, owner_id: str, agent_id: str) -> bool:
         """Return whether one active agent belongs to an authenticated owner."""

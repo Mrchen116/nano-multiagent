@@ -1,0 +1,8 @@
+{
+  "launcher": "IM.cli.public_server",
+  "bound": "127.0.0.1:18574",
+  "http_ready": true,
+  "invalid_ticket_status": 403,
+  "ticket_log_redacted": true,
+  "process_cleaned": true
+}

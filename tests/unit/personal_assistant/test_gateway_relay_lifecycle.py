@@ -1818,7 +1818,7 @@ def test_compose_gateway_wires_web_relay_dedup_db_under_config_dir(
     assert relay_adapter._dedup_store._db_path == tmp_path / "relay_dedup.sqlite3"  # noqa: SLF001
 
 
-def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
+def test_im_bootstrap_client_does_not_bind_after_runtime_admission() -> None:
     import httpx
 
     opened: list[tuple[str, int, bool]] = []
@@ -1848,8 +1848,8 @@ def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
 
     bind_url = bootstrap.ensure_node_binding(node_id="node-local")
 
-    assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=t-1"
-    assert opened == [("http://127.0.0.1:4173/bind/confirm?token=t-1", 2, True)]
+    assert bind_url is None
+    assert opened == []
 
 
 def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
@@ -1882,7 +1882,7 @@ def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
     bind_url = bootstrap.ensure_node_binding(node_id="node-local")
 
     assert bind_url is None
-    assert calls == ["GET /im/v1/nodes"]
+    assert calls == []
 
 
 def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
@@ -1910,12 +1910,8 @@ def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
         sleep=lambda _seconds: None,
     )
 
-    with pytest.raises(
-        GatewayStartupError, match="node node-local did not appear in IM bootstrap"
-    ):
-        bootstrap.ensure_node_binding(node_id="node-local")
-
-    assert requests == [("http://127.0.0.1:8021", "/im/v1/nodes")]
+    assert bootstrap.ensure_node_binding(node_id="node-local") is None
+    assert requests == []
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,251 @@
+{
+  "nano": {
+    "graph": {
+      "schema_version": 1,
+      "graph_id": "tg_c1d2b5b5",
+      "root_node_id": "n1",
+      "revision": 3,
+      "nodes": [
+        {
+          "id": "n1",
+          "container_id": null,
+          "title": "572跨群发布计划",
+          "description": "572 跨群发布计划：根节点下包含“准备发布说明”与“验证回退步骤”两个子任务。",
+          "mode": "dag",
+          "status": "todo",
+          "result": "",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": "c_dvfebl1m",
+          "created_at": "2026-09-30T13:38:55.151339Z",
+          "updated_at": "2026-09-30T13:38:57.600918Z",
+          "updated_by": "e2e (e2e)",
+          "provenance": {
+            "agent_id": "e2e",
+            "source_message_id": "e59b793e052644728829cbdb6f69f4b8",
+            "initiator_id": "u_nkj2zqff",
+            "channel": null,
+            "source_chat_id": "c_dvfebl1m"
+          },
+          "change_note": "在根节点下新增两个子任务：准备发布说明、验证回退步骤。",
+          "last_chat_title": "572 Planning A"
+        },
+        {
+          "id": "n2",
+          "container_id": "n1",
+          "title": "准备发布说明",
+          "description": "",
+          "mode": "none",
+          "status": "done",
+          "result": "B群已核对发布说明",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": null,
+          "created_at": "2026-09-30T13:38:57.600918Z",
+          "updated_at": "2026-09-30T13:41:10.840580Z",
+          "updated_by": "feat572-peer (feat572-peer)",
+          "change_note": "B群同步：n2 准备发布说明 标记完成（B群已核对发布说明）；n3 验证回退步骤 补充描述（由B群执行恢复演练）。",
+          "provenance": {
+            "agent_id": "feat572-peer",
+            "source_message_id": null,
+            "initiator_id": null,
+            "channel": null,
+            "source_chat_id": null
+          },
+          "last_chat_title": null
+        },
+        {
+          "id": "n3",
+          "container_id": "n1",
+          "title": "验证回退步骤",
+          "description": "由B群执行恢复演练",
+          "mode": "none",
+          "status": "todo",
+          "result": "",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": null,
+          "created_at": "2026-09-30T13:38:57.600918Z",
+          "updated_at": "2026-09-30T13:41:10.840580Z",
+          "updated_by": "feat572-peer (feat572-peer)",
+          "change_note": "B群同步：n2 准备发布说明 标记完成（B群已核对发布说明）；n3 验证回退步骤 补充描述（由B群执行恢复演练）。",
+          "provenance": {
+            "agent_id": "feat572-peer",
+            "source_message_id": null,
+            "initiator_id": null,
+            "channel": null,
+            "source_chat_id": null
+          },
+          "last_chat_title": null
+        }
+      ],
+      "dependencies": [],
+      "created_at": "2026-09-30T13:38:55.151339Z",
+      "updated_at": "2026-09-30T13:41:10.840580Z",
+      "updated_by": "feat572-peer (feat572-peer)",
+      "next_node_number": 4,
+      "relative_url": "/tasks/tg_c1d2b5b5"
+    },
+    "activity": {
+      "items": [
+        {
+          "graph_id": "tg_c1d2b5b5",
+          "node_id": "n1",
+          "scope_id": null,
+          "title": "572跨群发布计划",
+          "root_title": "572跨群发布计划",
+          "status": "todo",
+          "updated_at": "2026-09-30T13:38:57.600918Z"
+        },
+        {
+          "graph_id": "tg_c1d2b5b5",
+          "node_id": "n2",
+          "scope_id": "n1",
+          "title": "准备发布说明",
+          "root_title": "572跨群发布计划",
+          "status": "done",
+          "updated_at": "2026-09-30T13:38:57.600918Z"
+        },
+        {
+          "graph_id": "tg_c1d2b5b5",
+          "node_id": "n3",
+          "scope_id": "n1",
+          "title": "验证回退步骤",
+          "root_title": "572跨群发布计划",
+          "status": "todo",
+          "updated_at": "2026-09-30T13:38:57.600918Z"
+        }
+      ]
+    },
+    "foreign_chat_status": 404
+  },
+  "colleague572": {
+    "graph": {
+      "schema_version": 1,
+      "graph_id": "tg_c1d2b5b5",
+      "root_node_id": "n1",
+      "revision": 3,
+      "nodes": [
+        {
+          "id": "n1",
+          "container_id": null,
+          "title": "572跨群发布计划",
+          "description": "572 跨群发布计划：根节点下包含“准备发布说明”与“验证回退步骤”两个子任务。",
+          "mode": "dag",
+          "status": "todo",
+          "result": "",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": null,
+          "created_at": "2026-09-30T13:38:55.151339Z",
+          "updated_at": "2026-09-30T13:38:57.600918Z",
+          "updated_by": "e2e (e2e)",
+          "provenance": {
+            "agent_id": "e2e",
+            "source_message_id": null,
+            "initiator_id": null,
+            "channel": null,
+            "source_chat_id": null
+          },
+          "change_note": "在根节点下新增两个子任务：准备发布说明、验证回退步骤。",
+          "last_chat_title": null
+        },
+        {
+          "id": "n2",
+          "container_id": "n1",
+          "title": "准备发布说明",
+          "description": "",
+          "mode": "none",
+          "status": "done",
+          "result": "B群已核对发布说明",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": "c_tbr34try",
+          "created_at": "2026-09-30T13:38:57.600918Z",
+          "updated_at": "2026-09-30T13:41:10.840580Z",
+          "updated_by": "feat572-peer (feat572-peer)",
+          "change_note": "B群同步：n2 准备发布说明 标记完成（B群已核对发布说明）；n3 验证回退步骤 补充描述（由B群执行恢复演练）。",
+          "provenance": {
+            "agent_id": "feat572-peer",
+            "source_message_id": "1e8d97267c3044a49583e183e436942e",
+            "initiator_id": "u_uy3j8jur",
+            "channel": null,
+            "source_chat_id": "c_tbr34try"
+          },
+          "last_chat_title": "572 Delivery B"
+        },
+        {
+          "id": "n3",
+          "container_id": "n1",
+          "title": "验证回退步骤",
+          "description": "由B群执行恢复演练",
+          "mode": "none",
+          "status": "todo",
+          "result": "",
+          "derived_from_id": null,
+          "selected_candidate_id": null,
+          "selection_reason": "",
+          "links": [],
+          "order": 0,
+          "last_chat_id": "c_tbr34try",
+          "created_at": "2026-09-30T13:38:57.600918Z",
+          "updated_at": "2026-09-30T13:41:10.840580Z",
+          "updated_by": "feat572-peer (feat572-peer)",
+          "change_note": "B群同步：n2 准备发布说明 标记完成（B群已核对发布说明）；n3 验证回退步骤 补充描述（由B群执行恢复演练）。",
+          "provenance": {
+            "agent_id": "feat572-peer",
+            "source_message_id": "1e8d97267c3044a49583e183e436942e",
+            "initiator_id": "u_uy3j8jur",
+            "channel": null,
+            "source_chat_id": "c_tbr34try"
+          },
+          "last_chat_title": "572 Delivery B"
+        }
+      ],
+      "dependencies": [],
+      "created_at": "2026-09-30T13:38:55.151339Z",
+      "updated_at": "2026-09-30T13:41:10.840580Z",
+      "updated_by": "feat572-peer (feat572-peer)",
+      "next_node_number": 4,
+      "relative_url": "/tasks/tg_c1d2b5b5"
+    },
+    "activity": {
+      "items": [
+        {
+          "graph_id": "tg_c1d2b5b5",
+          "node_id": "n2",
+          "scope_id": "n1",
+          "title": "准备发布说明",
+          "root_title": "572跨群发布计划",
+          "status": "done",
+          "updated_at": "2026-09-30T13:41:10.840580Z"
+        },
+        {
+          "graph_id": "tg_c1d2b5b5",
+          "node_id": "n3",
+          "scope_id": "n1",
+          "title": "验证回退步骤",
+          "root_title": "572跨群发布计划",
+          "status": "todo",
+          "updated_at": "2026-09-30T13:41:10.840580Z"
+        }
+      ]
+    },
+    "foreign_chat_status": 404
+  }
+}

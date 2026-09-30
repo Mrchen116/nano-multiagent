@@ -41,7 +41,8 @@ export interface UserStreamRuntimeDependencies {
   writeCursor(userId: string, cursor: number): void;
   sync(): Promise<{ maxEventId: number }>;
   reportError(error: unknown): void;
-  resolveUrl(accessToken: string): string;
+  resolveUrl(accessToken: string): string | Promise<string>;
+  onMembershipChanged?(): void;
 }
 
 export interface UserStreamRuntime {
@@ -217,6 +218,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if (!frame || typeof frame !== "object" || Array.isArray(frame)) return;
     const record = frame as Record<string, unknown>;
     if (record.op === "pong") return;
+    if (record.op === "membership_changed") {
+      dependencies.onMembershipChanged?.();
+      invalidateConnection();
+      return;
+    }
     if (record.op === "resync_required") {
       const reason = typeof record.reason === "string" ? record.reason : undefined;
       void handleResync(currentGeneration, userId, reason);
@@ -316,7 +322,13 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
 
     activeUserId = readiness.userId;
     activeToken = readiness.accessToken;
-    const nextSocket = dependencies.createSocket(dependencies.resolveUrl(readiness.accessToken));
+    let url: string;
+    try { url = await dependencies.resolveUrl(readiness.accessToken); } catch (error) {
+      if (currentGeneration === generation) { dependencies.reportError(error); scheduleReconnect(); }
+      return;
+    }
+    if (currentGeneration !== generation || subscribers.size === 0) return;
+    const nextSocket = dependencies.createSocket(url);
     socket = nextSocket;
     nextSocket.onopen = () => {
       if (currentGeneration !== generation || socket !== nextSocket) return;

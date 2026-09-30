@@ -103,6 +103,9 @@ def test_images_are_private_immutable_and_persist_after_restart(tmp_path: Path):
         again = _upload(client, conversation_id)
         assert again.status_code == 200
         assert again.json() == image
+        assert client.app.state.message_image_repository.capacity()["service"][
+            "used_bytes"
+        ] == len(PNG)
         assert (
             _upload(client, conversation_id, data=PNG + b"changed").status_code == 409
         )
@@ -312,3 +315,132 @@ def test_image_target_preflight_resolves_user_and_checks_sender_membership(
             ).status_code
             == 401
         )
+
+
+def test_attachment_capacity_is_atomic_and_admin_only(tmp_path, monkeypatch):
+    """Quota rejection retains accepted files and never exposes owner usage to members."""
+    from IM.infra import attachment_quota
+
+    monkeypatch.setattr(attachment_quota, "OWNER_LIMIT_BYTES", 8)
+    monkeypatch.setattr(attachment_quota, "SERVICE_LIMIT_BYTES", 12)
+    with make_app_client(tmp_path) as client:
+        user = register_user(client, username="member", admin=False)
+        authorize(client, user)
+        cid = _conversation(client, user)
+        params = {"conversation_id": cid, "file_name": "notes.txt"}
+        first = client.post(
+            "/im/v1/uploads",
+            params=params,
+            content=b"12345678",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert first.status_code == 201
+        rejected = client.post(
+            "/im/v1/uploads",
+            params=params,
+            content=b"x",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert rejected.status_code == 507
+        assert rejected.json() == {"detail": "attachment upload unavailable"}
+        assert client.get(first.json()["url"]).content == b"12345678"
+        assert client.get("/im/v1/attachments/capacity").status_code == 403
+        with client.app.state.connection:
+            client.app.state.connection.execute(
+                "UPDATE users SET is_company_admin = 1 WHERE id = ?", (user.id,)
+            )
+        capacity = client.get("/im/v1/attachments/capacity")
+        assert capacity.status_code == 200
+        assert capacity.json()["owners"] == [
+            {
+                "owner_id": user.id,
+                "used_bytes": 8,
+                "reserved_bytes": 0,
+                "limit_bytes": 8,
+                "full": True,
+            }
+        ]
+        second = register_user(client, username="second", admin=False)
+        authorize(client, second)
+        second_cid = _conversation(client, second)
+        rejected = client.post(
+            "/im/v1/uploads",
+            params={"conversation_id": second_cid, "file_name": "second.txt"},
+            content=b"12345",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert (
+            rejected.status_code == 507
+        )  # service total, although this owner has room
+        authorize(client, user)
+        repository = client.app.state.message_image_repository
+        assert not list(repository.directory.glob(".*.tmp"))
+        assert client.delete(f"/im/v1/conversations/{cid}").status_code == 204
+        assert repository.capacity()["service"]["used_bytes"] == 0
+
+
+def test_streamed_upload_concurrency_failure_and_restart_reclaim(tmp_path, monkeypatch):
+    """Blocked streams consume owner slots; interruption and restart reclaim reservations."""
+    import asyncio
+    from IM.infra import attachment_quota
+    from IM.infra.repositories.message_images import (
+        AttachmentBusyError,
+        AttachmentCapacityError,
+    )
+
+    monkeypatch.setattr(attachment_quota, "OWNER_LIMIT_BYTES", 8)
+    monkeypatch.setattr(attachment_quota, "SERVICE_LIMIT_BYTES", 8)
+    with make_app_client(tmp_path) as client:
+        user = register_and_authorize(client)
+        cid = _conversation(client, user)
+        repository = client.app.state.message_image_repository
+
+        async def exercise():
+            proceed = asyncio.Event()
+            both_started = asyncio.Event()
+            started = 0
+
+            async def chunks():
+                nonlocal started
+                yield b"1234"
+                started += 1
+                if started == 2:
+                    both_started.set()
+                await proceed.wait()
+                yield b"x"
+
+            async def upload(key):
+                return await repository.put_stream(
+                    conversation_id=cid,
+                    source_key=key,
+                    chunks=chunks(),
+                    owner_id=user.id,
+                    content_type="text/plain",
+                    file_name="x.txt",
+                    max_bytes=10,
+                )
+
+            first = asyncio.create_task(upload("first"))
+            second = asyncio.create_task(upload("second"))
+            await both_started.wait()
+            assert repository.capacity()["service"]["reserved_bytes"] == 8
+            with pytest.raises(AttachmentBusyError):
+                await upload("third")
+            proceed.set()
+            results = await asyncio.gather(first, second, return_exceptions=True)
+            assert any(
+                isinstance(result, AttachmentCapacityError) for result in results
+            )
+            assert repository.capacity()["service"]["reserved_bytes"] == 0
+            assert not list(repository.directory.glob(".*.tmp"))
+
+        asyncio.run(exercise())
+        with client.app.state.connection:
+            client.app.state.connection.execute(
+                "INSERT INTO attachment_storage VALUES ('interrupted', ?, 3, 'reserved')",
+                (user.id,),
+            )
+        (repository.directory / ".interrupted.tmp").write_bytes(b"abc")
+        repository.reconcile_storage()
+        assert repository.capacity()["service"]["reserved_bytes"] == 0
+        assert not list(repository.directory.glob(".*.tmp"))

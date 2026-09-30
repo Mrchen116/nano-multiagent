@@ -1,5 +1,7 @@
 """Real HTTP/WS member decisions, original-node routing and restart replay."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from contextlib import contextmanager
 
 import pytest
@@ -15,8 +17,8 @@ def _gateway(client, owner, *, node="worker-node", agent="worker"):
     NodeRepository(client.app.state.connection).upsert_node(
         node_id=node, node_name=node, owner_id=owner.id
     )
-    with client.websocket_connect(
-        "/im/ws/gateway", headers={"Authorization": f"Bearer {owner.access_token}"}
+    with gateway_socket(
+        client, headers={"Authorization": f"Bearer {owner.access_token}"}
     ) as ws:
         ws.send_json(
             {

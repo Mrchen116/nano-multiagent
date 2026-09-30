@@ -5,6 +5,11 @@ import hashlib
 from pathlib import Path
 import re
 import sqlite3
+import threading
+from collections.abc import AsyncIterable, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, nullcontext
+
+from IM.infra import attachment_quota
 from uuid import uuid4
 
 
@@ -38,6 +43,18 @@ class ImageConflictError(ValueError):
     """The caller reused a source identity for different snapshot bytes."""
 
 
+class AttachmentCapacityError(ValueError):
+    """The service cannot currently accept more attachment bytes."""
+
+
+class AttachmentBusyError(ValueError):
+    """An owner already has two uploads in progress."""
+
+
+class AttachmentTooLargeError(ValueError):
+    """A stream exceeded its per-file size bound."""
+
+
 class MessageImageRepository:
     """Store snapshots separately from the legacy public upload directory."""
 
@@ -45,6 +62,190 @@ class MessageImageRepository:
         """Bind metadata and private immutable file storage."""
         self._connection = connection
         self.directory = directory
+        self._quota_lock = threading.RLock()
+
+    def reconcile_storage(self) -> None:
+        """Reclaim interrupted uploads at startup before accepting new traffic."""
+        self.directory.mkdir(parents=True, exist_ok=True)
+        for path in self.directory.glob(".*.tmp"):
+            path.unlink(missing_ok=True)
+        with self._connection:
+            rows = self._connection.execute(
+                "SELECT storage_name FROM attachment_storage WHERE state = 'reserved'"
+            ).fetchall()
+            for row in rows:
+                (self.directory / row["storage_name"]).unlink(missing_ok=True)
+            self._connection.execute(
+                "DELETE FROM attachment_storage WHERE state = 'reserved'"
+            )
+        self.collect_unreferenced()
+
+    def collect_unreferenced(self) -> None:
+        """Release billing only after the last reference's physical file is deleted."""
+        with self._quota_lock, self._connection:
+            rows = self._connection.execute(
+                "SELECT storage_name FROM attachment_storage WHERE state = 'stored' "
+                "AND storage_name NOT IN (SELECT storage_name FROM message_images)"
+            ).fetchall()
+            for row in rows:
+                (self.directory / row["storage_name"]).unlink(missing_ok=True)
+                self._connection.execute(
+                    "DELETE FROM attachment_storage WHERE storage_name = ?",
+                    (row["storage_name"],),
+                )
+
+    def capacity(self) -> dict:
+        """Return current service usage and owner capacity warnings for administrators."""
+        rows = self._connection.execute(
+            "SELECT owner_id, state, SUM(byte_size) AS size FROM attachment_storage GROUP BY owner_id, state"
+        ).fetchall()
+        service = {
+            "used_bytes": 0,
+            "reserved_bytes": 0,
+            "limit_bytes": attachment_quota.SERVICE_LIMIT_BYTES,
+        }
+        owners: dict[str, dict] = {}
+        for row in rows:
+            key = "used_bytes" if row["state"] == "stored" else "reserved_bytes"
+            service[key] += row["size"]
+            if row["owner_id"] is not None:
+                owner = owners.setdefault(
+                    row["owner_id"],
+                    {
+                        "owner_id": row["owner_id"],
+                        "used_bytes": 0,
+                        "reserved_bytes": 0,
+                        "limit_bytes": attachment_quota.OWNER_LIMIT_BYTES,
+                    },
+                )
+                owner[key] += row["size"]
+        for item in [service, *owners.values()]:
+            item["full"] = (
+                item["used_bytes"] + item["reserved_bytes"] >= item["limit_bytes"]
+            )
+        return {"service": service, "owners": list(owners.values())}
+
+    def _reserve(self, storage_name: str, owner_id: str, size: int) -> None:
+        # BEGIN IMMEDIATE serializes the check and reservation across connections.
+        with self._quota_lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if size == 0:
+                count = self._connection.execute(
+                    "SELECT COUNT(*) FROM attachment_storage WHERE owner_id = ? AND state = 'reserved'",
+                    (owner_id,),
+                ).fetchone()[0]
+                if count >= 2:
+                    raise AttachmentBusyError("attachment upload busy")
+                self._connection.execute(
+                    "INSERT INTO attachment_storage VALUES (?, ?, 0, 'reserved')",
+                    (storage_name, owner_id),
+                )
+            totals = self._connection.execute(
+                "SELECT COALESCE(SUM(byte_size), 0), COALESCE(SUM(CASE WHEN owner_id = ? THEN byte_size ELSE 0 END), 0) FROM attachment_storage",
+                (owner_id,),
+            ).fetchone()
+            if (
+                totals[0] + size > attachment_quota.SERVICE_LIMIT_BYTES
+                or totals[1] + size > attachment_quota.OWNER_LIMIT_BYTES
+            ):
+                raise AttachmentCapacityError("attachment upload unavailable")
+            self._connection.execute(
+                "UPDATE attachment_storage SET byte_size = byte_size + ? WHERE storage_name = ?",
+                (size, storage_name),
+            )
+
+    async def put_stream(
+        self,
+        *,
+        conversation_id: str,
+        source_key: str,
+        chunks: AsyncIterable[bytes],
+        owner_id: str,
+        content_type: str,
+        file_name: str,
+        max_bytes: int,
+        validate: Callable[[bytes], None] | None = None,
+        authorize: Callable[[], Awaitable[object]] | None = None,
+        commit_guard: AbstractAsyncContextManager | None = None,
+    ) -> tuple[MessageImage, bool]:
+        """Reserve each chunk before writing and atomically publish a bounded upload.
+
+        Args:
+            conversation_id: Authorized destination conversation.
+            source_key: Idempotency identity within that conversation.
+            chunks: Incoming request stream.
+            owner_id: Authenticated human or machine administrator to bill.
+            content_type: Validated declared media type.
+            file_name: Safe display filename.
+            max_bytes: Inclusive single-file size limit.
+            validate: Optional validator for the bounded file prefix.
+            authorize: Recheck access immediately before publication.
+            commit_guard: Serialize final publication with company revocation.
+
+        Returns:
+            Completed reference and whether it was newly created.
+        """
+        storage_name = uuid4().hex
+        self._reserve(storage_name, owner_id, 0)
+        retrying = self._by_source(conversation_id, source_key) is not None
+        temporary = self.directory / f".{storage_name}.tmp"
+        destination = self.directory / storage_name
+        digest = hashlib.sha256()
+        size = 0
+        prefix = bytearray()
+        try:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("wb") as handle:
+                async for chunk in chunks:
+                    if not chunk:
+                        continue
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise AttachmentTooLargeError("attachment exceeds 10 MiB")
+                    if not retrying:
+                        self._reserve(storage_name, owner_id, len(chunk))
+                    handle.write(chunk)
+                    digest.update(chunk)
+                    prefix.extend(chunk[: max(0, 32 - len(prefix))])
+            async with commit_guard or nullcontext():
+                if validate:
+                    validate(bytes(prefix))
+                if authorize:
+                    await authorize()
+                with self._quota_lock, self._connection:
+                    existing = self._by_source(conversation_id, source_key)
+                    if existing:
+                        return self._same_snapshot(existing, digest.hexdigest()), False
+                    image = MessageImage(
+                        uuid4().hex,
+                        conversation_id,
+                        source_key,
+                        digest.hexdigest(),
+                        content_type,
+                        file_name,
+                        size,
+                        storage_name,
+                    )
+                    temporary.replace(destination)
+                    self._insert(image)
+                    self._connection.execute(
+                        "UPDATE attachment_storage SET state = 'stored' WHERE storage_name = ?",
+                        (storage_name,),
+                    )
+                return image, True
+        finally:
+            temporary.unlink(missing_ok=True)
+            with self._quota_lock, self._connection:
+                row = self._connection.execute(
+                    "SELECT state FROM attachment_storage WHERE storage_name = ?",
+                    (storage_name,),
+                ).fetchone()
+                if row is not None and row["state"] == "reserved":
+                    destination.unlink(missing_ok=True)
+                    self._connection.execute(
+                        "DELETE FROM attachment_storage WHERE storage_name = ?",
+                        (storage_name,),
+                    )
 
     def get(self, *, conversation_id: str, image_id: str) -> MessageImage | None:
         """Return a completed reference in this conversation, or None."""
@@ -101,6 +302,10 @@ class MessageImageRepository:
             temporary.replace(destination)
             with self._connection:
                 self._insert(image)
+                self._connection.execute(
+                    "INSERT INTO attachment_storage VALUES (?, NULL, ?, 'stored')",
+                    (image.storage_name, image.byte_size),
+                )
         except BaseException as exc:
             temporary.unlink(missing_ok=True)
             destination.unlink(missing_ok=True)

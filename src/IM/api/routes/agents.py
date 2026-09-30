@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from IM.api.deps import (
+    GatewayPrincipal,
+    current_data_principal,
     current_user,
     get_agent_config_operation_repository,
     get_config_service,
@@ -425,7 +427,7 @@ def list_agents(
 async def get_agent_config(
     agent_id: str,
     source: str = Query(default="live"),
-    user: User = Depends(current_user),
+    user: User | GatewayPrincipal = Depends(current_data_principal),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
     operations: AgentConfigOperationRepository = Depends(
@@ -437,6 +439,18 @@ async def get_agent_config(
     `source=live` prefers a live Gateway snapshot when available.
     `source=mirror` forces the IM-stored mirror row so Gateway config.sync fetches do not reflect stale local state back to themselves.
     """
+    if isinstance(user, GatewayPrincipal):
+        if source != "mirror":
+            raise HTTPException(status_code=401, detail="human identity required")
+        profile = service.get_profile_for_owner(
+            agent_id=agent_id, owner_id=user.owner_id
+        )
+        if profile is None or profile.node_id != user.node_id:
+            raise HTTPException(status_code=404, detail="agent_id not found")
+        # A config.sync fetch must not initiate another RPC to the fetching node.
+        return to_agent_config_response(
+            profile, service=service, preserve_raw_selection_mode=True
+        )
     coordinator = AgentConfigOperationCoordinator(
         service=service, operations=operations, gateway=gateway_handler
     )

@@ -11,6 +11,8 @@ const USER_A: AuthUser = {
   owner_id: "user-a",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };

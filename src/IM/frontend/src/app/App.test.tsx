@@ -15,6 +15,8 @@ const SAMPLE_USER = {
   owner_id: "user-1",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };

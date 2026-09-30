@@ -5,6 +5,7 @@ import { createMemoryRouter, MemoryRouter, Navigate, RouterProvider } from "reac
 
 import { setLanguage } from "../../i18n";
 import { LoginPage } from "./login-page";
+import { MembershipPage } from "./membership-page";
 import { RegisterPage } from "./register-page";
 import { AUTH_STORAGE_KEY, useAuthStore } from "./auth-store";
 
@@ -15,6 +16,8 @@ const SAMPLE_USER = {
   owner_id: "user-9",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };
@@ -150,7 +153,7 @@ describe("auth form experience", () => {
     expect(screen.queryByText("password must be at least 8 characters")).not.toBeInTheDocument();
   });
 
-  it("stores the registration session and enters the product home", async () => {
+  it("stores registration and waits outside the company workspace", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       authResponse(201, {
         access_token: "tok-new",
@@ -161,6 +164,7 @@ describe("auth form experience", () => {
     const router = createMemoryRouter(
       [
         { path: "/register", element: <RegisterPage /> },
+        { path: "/membership", element: <MembershipPage /> },
         { path: "/", element: <Navigate to="/chat" replace /> },
         { path: "/chat", element: <div>Product home</div> }
       ],
@@ -173,8 +177,9 @@ describe("auth form experience", () => {
     await userEvent.type(screen.getByLabelText(/^password/i), "secret12");
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(await screen.findByText("Product home")).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/chat");
+    expect(await screen.findByRole("heading", { name: "Waiting for approval" })).toBeInTheDocument();
+    expect(screen.queryByText("Product home")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/membership");
     expect(useAuthStore.getState().accessToken).toBe("tok-new");
     expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");
     expect(fetchMock).toHaveBeenCalledWith(

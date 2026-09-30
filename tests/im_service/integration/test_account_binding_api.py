@@ -8,6 +8,7 @@ from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
 
 from .conftest import authorize, make_app_client, register_user
+from tests.im_service.device_binding_helpers import complete_binding
 
 
 def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
@@ -48,26 +49,8 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         assert patch_resp.status_code == 200
         assert patch_resp.json()["display_name"] == "Alice Cooper"
 
-        start_resp = client.post(
-            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
-        )
-        assert start_resp.status_code == 201
-        start_body = start_resp.json()
-        assert start_body["status"] == "pending"
-        assert start_body["bind_url"].startswith(
-            "http://testserver/bind/confirm?token="
-        )
-
-        confirm_resp = client.post(
-            "/im/v1/bind",
-            json={
-                "action": "confirm",
-                "bind_token": start_body["bind_url"].split("token=", 1)[1],
-            },
-        )
-        assert confirm_resp.status_code == 201
-        assert confirm_resp.json()["status"] == "confirmed"
-        assert confirm_resp.json()["user_id"] == owner.id
+        bound = complete_binding(client, tmp_path, node_id="node-1")
+        assert bound["owner_id"] == owner.owner_id
 
         me_after_resp = client.get("/im/v1/me")
         assert me_after_resp.status_code == 200
@@ -116,30 +99,15 @@ def test_bind_is_same_owner_idempotent_and_rejects_cross_owner_takeover(
             workspace_root=None,
         )
 
-        same_start = client.post(
-            "/im/v1/bind", json={"action": "start", "node_id": "node-guarded"}
-        )
-        token = same_start.json()["bind_url"].split("token=", 1)[1]
-        first = client.post(
-            "/im/v1/bind", json={"action": "confirm", "bind_token": token}
-        )
-        repeated = client.post(
-            "/im/v1/bind", json={"action": "confirm", "bind_token": token}
-        )
-        assert first.status_code == repeated.status_code == 201
-        assert first.json() == repeated.json()
+        bound = complete_binding(client, tmp_path, node_id="node-guarded")
+        assert bound["owner_id"] == alice.owner_id
 
         authorize(client, bob)
-        takeover_start = client.post(
+        takeover = client.post(
             "/im/v1/bind", json={"action": "start", "node_id": "node-guarded"}
         )
-        takeover_token = takeover_start.json()["bind_url"].split("token=", 1)[1]
-        takeover = client.post(
-            "/im/v1/bind",
-            json={"action": "confirm", "bind_token": takeover_token},
-        )
-        assert takeover.status_code == 409
-        assert takeover.json()["detail"] == "node already bound to another owner"
+        assert takeover.status_code == 400
+        assert "device proof required" in takeover.json()["detail"]
         assert nodes.get_node(node_id="node-guarded").owner_id == alice.owner_id
         assert profiles.get_profile(agent_id="agent-guarded").owner_id == alice.owner_id
         assert client.get("/im/v1/agents/agent-guarded/config").status_code == 404

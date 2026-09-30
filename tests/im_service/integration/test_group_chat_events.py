@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import json
 from pathlib import Path
 
@@ -43,7 +45,7 @@ def test_dual_mention_keeps_per_agent_identity_across_realtime_and_completion_ev
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

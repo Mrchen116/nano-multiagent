@@ -289,7 +289,7 @@ def _extract_bearer_token(request: Request) -> str:
     return token
 
 
-def current_user(
+def authenticated_user(
     request: Request,
     service: AuthService = Depends(get_auth_service),
 ) -> User:
@@ -316,6 +316,29 @@ def current_user(
             detail="token subject no longer exists",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    return user
+
+
+def current_user(
+    request: Request, service: AuthService = Depends(get_auth_service)
+) -> User:
+    """Require an active human for company routes; auth/me uses identity only."""
+    user = authenticated_user(request, service)
+    if user.membership_status != "active":
+        raise HTTPException(
+            403,
+            detail={
+                "code": "company_membership_required",
+                "membership_status": user.membership_status,
+            },
+        )
+    return user
+
+
+def current_company_admin(request: Request, user: User = Depends(current_user)) -> User:
+    """Require the explicit company administrator role in addition to membership."""
+    if not user.is_company_admin:
+        raise HTTPException(403, "company administrator required")
     return user
 
 

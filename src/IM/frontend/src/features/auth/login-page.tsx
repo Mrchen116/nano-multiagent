@@ -2,11 +2,14 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../i18n";
-import { AuthApiError, login } from "./auth-api";
+import { AuthApiError, login, logoutApi } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, validateLogin } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
 import { useAuthStore } from "./auth-store";
+
+import { safeReturnPath } from "./membership-page";
+import { useAuthCooldown } from "./use-auth-cooldown";
 
 type LoginField = "username" | "password";
 
@@ -16,7 +19,8 @@ export function LoginPage() {
   const location = useLocation();
   const setSession = useAuthStore((s) => s.setSession);
   const signOut = Boolean((location.state as { signOut?: boolean } | null)?.signOut);
-  const from = (location.state as { from?: string } | null)?.from ?? "/";
+  const from = safeReturnPath((location.state as { from?: string } | null)?.from);
+  const cooldown = useAuthCooldown();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +31,11 @@ export function LoginPage() {
   const passwordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (signOut) useAuthStore.getState().clear();
+    if (signOut) {
+      const token = useAuthStore.getState().refreshToken;
+      useAuthStore.getState().clear();
+      if (token) void logoutApi(token).catch(() => setFormError("serviceUnavailable"));
+    }
   }, [signOut]);
 
   function feedback(code?: AuthFeedbackCode) {
@@ -43,7 +51,7 @@ export function LoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || cooldown.remaining > 0) return;
     const errors = validateLogin({ username, password });
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -57,8 +65,9 @@ export function LoginPage() {
     try {
       const pair = await login({ username: username.trim(), password });
       setSession(pair);
-      navigate(from, { replace: true });
+      navigate(pair.user.membership_status === "active" ? from : "/membership", { replace: true, state: { from } });
     } catch (error) {
+      if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }
       setFormError(error instanceof AuthApiError && error.status === 401 ? "invalidCredentials" : "serviceUnavailable");
     } finally {
       setSubmitting(false);
@@ -79,6 +88,7 @@ export function LoginPage() {
             tabIndex={submitting ? -1 : undefined}
             onClick={(event) => submitting && event.preventDefault()}
             to="/register"
+            state={{ from }}
           >
             {t("auth.login.registerLink")}
           </Link>
@@ -108,8 +118,9 @@ export function LoginPage() {
           showLabel={t("auth.common.showPassword")}
           hideLabel={t("auth.common.hidePassword")}
         />
+        {cooldown.remaining > 0 && <AuthAlert>{t("company.cooldown", { seconds: cooldown.remaining })}</AuthAlert>}
         {formError && <AuthAlert>{feedback(formError)}</AuthAlert>}
-        <button type="submit" className="im-auth-submit" disabled={submitting}>
+        <button type="submit" className="im-auth-submit" disabled={submitting || cooldown.remaining > 0}>
           <span>{submitting ? t("auth.login.submitting") : t("auth.login.submit")}</span>
           {!submitting && <SubmitArrow />}
         </button>

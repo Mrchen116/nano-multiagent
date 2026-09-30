@@ -51,16 +51,10 @@ class BindService:
 
     def start_bind(self, *, node_id: str) -> DeviceBindRequest:
         """Create one pending bind request and browser URL for a node."""
-        if self._nodes.get_node(node_id=node_id) is None:
-            raise ValueError("node_id not found")
-        return self._binds.create_bind_request(
-            node_id=node_id, bind_base_url=self._bind_base_url
-        )
+        raise ValueError("device proof required; use local Gateway binding")
 
     def confirm_bind(
         self, *, bind_id: str | None = None, bind_token: str | None = None, user_id: str
     ) -> DeviceBindRequest:
         """Confirm a pending bind request and reassign node-local agents."""
-        return self._binding_store.confirm(
-            bind_id=bind_id, bind_token=bind_token, user_id=user_id
-        )
+        raise ValueError("device proof required; use local Gateway binding")

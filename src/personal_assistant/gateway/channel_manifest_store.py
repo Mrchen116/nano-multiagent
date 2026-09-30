@@ -252,6 +252,20 @@ class ChannelManifestStore:
             )
             self._write_state(state)
 
+    def install_handoff(self, manifest: ChannelManifest) -> None:
+        """Install the new owner's ciphertext and discard old-epoch outboxes.
+
+        Called while the local runtime is stopped, before its owner config is
+        atomically replaced. The operation recovery credential makes retries safe.
+        """
+        if manifest.node_id != self._node_id:
+            raise ChannelManifestStoreError("node_id mismatch")
+        with self._state_lock:
+            state = self._empty_state()
+            state["manifest"] = self._encode_manifest(manifest)
+            state["last_seen_manifest_revision"] = manifest.manifest_revision
+            self._write_state(state)
+
     def record_reconcile_result(
         self,
         *,

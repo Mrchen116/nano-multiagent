@@ -167,6 +167,7 @@ export function UserMenu() {
             </div>
             <span className="im-user-menu-chevron-right" aria-hidden>›</span>
           </Link>
+          {user.is_company_admin && <Link role="menuitem" to="/settings/company" onClick={() => setOpen(false)} className="im-user-menu-item"><span className="im-user-menu-icon"><MenuIcon kind="account" /></span><span>{t("company.title")}</span></Link>}
           <div role="group" className="im-user-menu-language">
             <span className="im-user-menu-icon"><MenuIcon kind="language" /></span>
             <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>{t("shell.userMenu.language")}</span>

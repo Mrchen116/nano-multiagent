@@ -1,3 +1,4 @@
+import { GroupTaskPanel } from "../tasks/group-task-panel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -85,10 +86,14 @@ const ATTACHMENT_ERROR_KEYS: Record<
   "chat.messagePane.attachmentUnsupportedType"
   | "chat.messagePane.attachmentTooLarge"
   | "chat.messagePane.attachmentNetwork"
+  | "chat.messagePane.attachmentCapacity"
+  | "chat.messagePane.attachmentCooldown"
 > = {
   unsupportedType: "chat.messagePane.attachmentUnsupportedType",
   tooLarge: "chat.messagePane.attachmentTooLarge",
-  network: "chat.messagePane.attachmentNetwork"
+  network: "chat.messagePane.attachmentNetwork",
+  capacity: "chat.messagePane.attachmentCapacity",
+  cooldown: "chat.messagePane.attachmentCooldown"
 };
 
 function attachmentErrorKey(error: unknown) {
@@ -465,6 +470,7 @@ export function ChatWorkspacePage() {
   const conversationKind = activeConversation
     ? classifyConversationKind(activeConversation)
     : null;
+  const [showTasks, setShowTasks] = useState(false);
   const isGroupKind = conversationKind === "group" || conversationKind === "agent-network";
 
   // Pre-resolve members + addable agents for GroupSettings so the component stays
@@ -1120,6 +1126,7 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
+            onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
             timeline={visibleTimeline}
             onReadMessage={(messageId) => {
@@ -1183,6 +1190,7 @@ export function ChatWorkspacePage() {
           )
         )
       )}
+      {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} onClose={() => setShowTasks(false)} />}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
         const chat = await createConversation({ title: contact.display_name, type: "direct", participants: [contactActor(contact)] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });

@@ -8,20 +8,21 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
-import http.client
 import hashlib
 import io
-import ipaddress
 import json
 import logging
 import re
-import socket
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
-from urllib.parse import SplitResult, urlsplit
+
+import httpx
+from urllib.parse import quote
+from lark_oapi.core.model import RequestOption
+from lark_oapi.core.token import verify
 
 import lark_oapi as lark
 from lark_oapi.api.application.v6 import ListScopeRequest
@@ -245,6 +246,7 @@ class FeishuClient:
             .app_id(self._app_id)
             .app_secret(self._app_secret)
             .domain(self._domain)
+            .timeout(10)
             .build()
         )
         self._diagnostics = self.probe_capabilities()
@@ -451,38 +453,53 @@ class FeishuClient:
             .type("image")
             .build()
         )
-        response = self._rest_client.im.v1.message_resource.get(request)
-        if not response.success():
-            _raise_api_error(response, action="downloading message image")
-
-        stream = getattr(response, "file", None)
-        data = (
-            stream.read(_MAX_INBOUND_IMAGE_BYTES + 1)
-            if hasattr(stream, "read")
-            else stream
-        )
-        if not isinstance(data, (bytes, bytearray)) or not data:
-            raise FeishuAPIError(
-                "feishu returned an empty message image",
-                code=0,
-            )
-        if len(data) > _MAX_INBOUND_IMAGE_BYTES:
-            raise FeishuImageTooLargeError(
-                "feishu message image exceeds the 5 MiB inbound limit",
-                code=0,
-            )
-        content_type = _response_content_type(response) or _detect_image_content_type(
-            bytes(data)
-        )
-        file_name = getattr(response, "file_name", None)
+        option = RequestOption()
+        verify(self._rest_client.im.v1.message_resource.config, request, option)
+        # The SDK materializes response.content before returning file; use its
+        # resource authorization but stream the fixed provider endpoint ourselves.
+        url = f"{self._domain.rstrip('/')}/open-apis/im/v1/messages/{quote(message_id, safe='')}/resources/{quote(image_key, safe='')}"
+        deadline = time.monotonic() + 30
+        with httpx.Client(
+            timeout=10.0, trust_env=False, follow_redirects=False
+        ) as transport:
+            with transport.stream(
+                "GET",
+                url,
+                params={"type": "image"},
+                headers={"Authorization": f"Bearer {option.tenant_access_token}"},
+            ) as response:
+                if response.status_code != 200:
+                    raise FeishuAPIError(
+                        "feishu image download failed", code=response.status_code
+                    )
+                declared = (
+                    response.headers.get("content-type", "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
+                length = response.headers.get("content-length")
+                if length and int(length) > _MAX_INBOUND_IMAGE_BYTES:
+                    raise FeishuImageTooLargeError(
+                        "feishu message image exceeds the 5 MiB inbound limit", code=0
+                    )
+                data = bytearray()
+                for chunk in response.iter_bytes(64 * 1024):
+                    if time.monotonic() >= deadline:
+                        raise FeishuAPIError("feishu image download timed out", code=0)
+                    if len(data) + len(chunk) > _MAX_INBOUND_IMAGE_BYTES:
+                        raise FeishuImageTooLargeError(
+                            "feishu message image exceeds the 5 MiB inbound limit",
+                            code=0,
+                        )
+                    data.extend(chunk)
+        content_type = _detect_image_content_type(bytes(data))
+        if content_type is None or declared != content_type:
+            raise FeishuAPIError("feishu returned invalid image content", code=0)
         return FeishuImageResource(
             data=bytes(data),
-            content_type=content_type or "image/jpeg",
-            file_name=(
-                str(file_name).strip()
-                if isinstance(file_name, str) and file_name.strip()
-                else None
-            ),
+            content_type=content_type,
+            file_name=f"{image_key}.{_image_extension(content_type)}",
         )
 
     def _resolve_outbound_markdown_images(self, text: str) -> str:
@@ -492,7 +509,7 @@ class FeishuClient:
 
         def collect_image(match: re.Match[str]) -> str:
             source = match.group(2)
-            if not source.startswith("img_") and source not in sources:
+            if source.startswith("data:image/") and source not in sources:
                 if len(sources) >= _MAX_OUTBOUND_IMAGE_SOURCES:
                     raise ValueError(
                         "one Feishu message supports at most five uploaded image sources"
@@ -517,7 +534,11 @@ class FeishuClient:
         def replace_image(match: re.Match[str]) -> str:
             image_key = uploaded.get(match.group(2))
             if image_key is None:
-                return match.group(0)
+                return (
+                    match.group(0)
+                    if match.group(2).startswith("img_")
+                    else match.group(0)[1:]
+                )
             return f"![{match.group(1)}]({image_key})"
 
         return _replace_markdown_images_outside_code(text, replace_image)
@@ -966,18 +987,6 @@ def _raise_api_error(response: Any, *, action: str) -> None:
     )
 
 
-def _response_content_type(response: Any) -> str | None:
-    raw = getattr(response, "raw", None)
-    headers = getattr(raw, "headers", None)
-    if not isinstance(headers, Mapping):
-        return None
-    value = headers.get("Content-Type") or headers.get("content-type")
-    if not isinstance(value, str):
-        return None
-    normalized = value.split(";", 1)[0].strip().lower()
-    return normalized if normalized.startswith("image/") else None
-
-
 def _replace_markdown_images_outside_code(
     text: str,
     replacer: Callable[[re.Match[str]], str],
@@ -1031,10 +1040,10 @@ class OutboundImageReadError(ValueError):
 
 
 def read_outbound_image(source: str) -> tuple[bytes, str]:
-    """Read a public HTTP(S) or data image using the bounded safe downloader.
+    """Read a validated, bounded data image for automatic Markdown upload.
 
     Args:
-        source: Public image URL or base64 image data URL; never a local path.
+        source: Base64 image data URL; remote links are never fetched automatically.
 
     Returns:
         Bounded image bytes and detected raster media type.
@@ -1050,26 +1059,19 @@ def _read_outbound_image(source: str) -> tuple[bytes, str]:
     if source.startswith("data:image/"):
         return _decode_image_data_url(source)
 
-    parsed = urlsplit(source)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("feishu Markdown images require a public HTTP(S) or data URL")
-    if parsed.username or parsed.password:
-        raise ValueError("feishu Markdown image URLs must not contain credentials")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    addresses = _resolve_public_addresses(parsed.hostname, port)
-    data = _download_from_pinned_public_address(parsed, addresses, port=port)
-    content_type = _detect_image_content_type(data)
-    if content_type is None:
-        raise OutboundImageReadError(
-            "feishu outbound image is not a supported raster image", error_code="type"
-        )
-    return data, content_type
+    raise ValueError("automatic Markdown images require a validated data image")
 
 
 def _decode_image_data_url(source: str) -> tuple[bytes, str]:
     header, separator, encoded = source.partition(",")
-    if not separator or ";base64" not in header.lower():
+    if not separator or not re.fullmatch(
+        r"data:image/(?:png|jpeg|gif|webp);base64", header
+    ):
         raise ValueError("feishu image data URLs must use base64 encoding")
+    if len(encoded) > ((_MAX_OUTBOUND_IMAGE_BYTES + 2) // 3) * 4:
+        raise OutboundImageReadError(
+            "feishu outbound image exceeds 10 MB", error_code="limit"
+        )
     try:
         data = base64.b64decode(encoded, validate=True)
     except ValueError as exc:
@@ -1079,98 +1081,11 @@ def _decode_image_data_url(source: str) -> tuple[bytes, str]:
             "feishu outbound image exceeds 10 MB", error_code="limit"
         )
     content_type = _detect_image_content_type(data)
-    if content_type is None:
+    if content_type is None or header.partition(";")[0] != f"data:{content_type}":
         raise OutboundImageReadError(
             "feishu outbound image is not a supported raster image", error_code="type"
         )
     return data, content_type
-
-
-def _resolve_public_addresses(host: str, port: int) -> tuple[str, ...]:
-    try:
-        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise ValueError("feishu Markdown image host could not be resolved") from exc
-    public_addresses: list[str] = []
-    for address in addresses:
-        raw_ip = address[4][0]
-        ip = ipaddress.ip_address(raw_ip)
-        if not ip.is_global:
-            raise ValueError("feishu Markdown image URL must resolve to a public host")
-        if raw_ip not in public_addresses:
-            public_addresses.append(raw_ip)
-    if not public_addresses:
-        raise ValueError("feishu Markdown image host could not be resolved")
-    return tuple(public_addresses)
-
-
-def _download_from_pinned_public_address(
-    parsed: SplitResult,
-    addresses: tuple[str, ...],
-    *,
-    port: int,
-) -> bytes:
-    """Download through a validated IP while preserving HTTP Host and TLS SNI."""
-
-    target = parsed.path or "/"
-    if parsed.query:
-        target = f"{target}?{parsed.query}"
-    last_error: Exception | None = None
-    deadline = time.monotonic() + 15.0
-    for address in addresses:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        connection_type = (
-            http.client.HTTPSConnection
-            if parsed.scheme == "https"
-            else http.client.HTTPConnection
-        )
-        connection = connection_type(parsed.hostname, port=port, timeout=remaining)
-
-        def create_pinned_connection(
-            _address: tuple[str, int],
-            timeout: float | object = socket._GLOBAL_DEFAULT_TIMEOUT,
-            source_address: tuple[str, int] | None = None,
-            *,
-            all_errors: bool = False,
-        ) -> socket.socket:
-            return socket.create_connection(
-                (address, port),
-                timeout,
-                source_address,
-                all_errors=all_errors,
-            )
-
-        # HTTPConnection uses this hook before HTTPS wraps the socket with the
-        # original hostname, so the validated address is pinned without losing SNI.
-        connection._create_connection = create_pinned_connection  # type: ignore[attr-defined]
-        try:
-            connection.request(
-                "GET",
-                target,
-                headers={"User-Agent": "nano-multiagent/1.0"},
-            )
-            response = connection.getresponse()
-            if response.status >= 400:
-                raise ValueError(
-                    f"feishu outbound image request failed with HTTP {response.status}"
-                )
-            chunks: list[bytes] = []
-            size = 0
-            while chunk := response.read(64 * 1024):
-                size += len(chunk)
-                if size > _MAX_OUTBOUND_IMAGE_BYTES:
-                    raise OutboundImageReadError(
-                        "feishu outbound image exceeds 10 MB", error_code="limit"
-                    )
-                chunks.append(chunk)
-            return b"".join(chunks)
-        except (OSError, http.client.HTTPException) as exc:
-            last_error = exc
-        finally:
-            connection.close()
-    raise ValueError("feishu outbound image could not be downloaded") from last_error
 
 
 def _detect_image_content_type(data: bytes) -> str | None:

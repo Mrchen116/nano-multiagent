@@ -1,5 +1,7 @@
 """End-to-end WS correlation for recoverable workspace creation errors."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 
@@ -21,7 +23,7 @@ def test_gateway_workspace_error_reaches_http_as_structured_conflict(
             node_id="node-1", node_name="MacBook", owner_id=owner.owner_id
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

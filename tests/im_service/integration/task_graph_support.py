@@ -1,5 +1,7 @@
 """Shared real HTTP/WebSocket fixture for task graph integration journeys."""
 
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,6 +22,8 @@ def task_stack(tmp_path, request):
         stranger = register_user(client, username="stranger")
         authorize(client, owner)
         db = app.state.connection
+        db.execute("UPDATE users SET membership_status='active'")
+        db.commit()
         NodeRepository(db).upsert_node(
             node_id="node", node_name="Node", owner_id=owner.owner_id
         )
@@ -36,7 +40,7 @@ def task_stack(tmp_path, request):
                 display_name="Nano",
                 description="",
                 skills=[],
-                tool_allowlist=[],
+                tool_allowlist=["task_graph"],
                 group_reply_policy="ALWAYS",
                 default_model=None,
                 workspace_root=None,
@@ -48,7 +52,22 @@ def task_stack(tmp_path, request):
             participant_ids=[owner.id, agent_user],
             caller_owner_id=owner.owner_id,
         )
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        # The task suite starts after device enrollment; exercise the real runtime
+        # authentication with a persisted node credential, not browser credentials.
+        runtime_token = "task-fixture-runtime"
+        db.execute(
+            "INSERT INTO node_binding_state(node_id,node_epoch,runtime_token_hash,owner_id) VALUES (?,?,?,?)",
+            (
+                "node",
+                1,
+                hashlib.sha256(runtime_token.encode()).hexdigest(),
+                owner.owner_id,
+            ),
+        )
+        db.commit()
+        with client.websocket_connect(
+            "/im/ws/gateway", headers={"Authorization": f"Bearer {runtime_token}"}
+        ) as ws:
             ws.send_json(
                 {
                     "type": "node.register",
@@ -60,7 +79,8 @@ def task_stack(tmp_path, request):
                     },
                 }
             )
-            assert ws.receive_json()["type"] == "ack"
+            response = ws.receive_json()
+            assert response["type"] == "ack", response
             yield client, ws, owner, stranger, chat, agent_user
 
 

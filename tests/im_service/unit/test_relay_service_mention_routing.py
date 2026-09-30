@@ -80,6 +80,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
 
     assert created.relay_task.payload["agent_id"] == "agent-b"
     assert created.relay_task.payload["metadata"] == {
+        "node_epoch": 0,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-b"],
         "participant_agent_ids": ["agent-a", "agent-b"],
@@ -156,6 +157,7 @@ def test_enqueue_message_relay_advances_group_profile_version(
 
     assert created.relay_task.payload["agent_id"] == "agent-a"
     assert created.relay_task.payload["metadata"] == {
+        "node_epoch": 0,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],
@@ -226,6 +228,7 @@ def test_enqueue_message_relay_uses_live_group_profile_version(
 
     assert created.relay_task.payload["agent_id"] == "agent-a"
     assert created.relay_task.payload["metadata"] == {
+        "node_epoch": 0,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],

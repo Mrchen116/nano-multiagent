@@ -14,6 +14,7 @@ from personal_assistant.tools.inbox import QueryPresenter
 
 
 ACTION_FIELDS = {
+    "delete": {"graph_id", "node_id", "base_revision", "request_key", "target"},
     "create": {"target", "title", "description", "mode", "request_key"},
     "list": {"query", "cursor", "limit"},
     "get": {"graph_id", "scope_id", "view"},
@@ -27,6 +28,7 @@ ACTION_FIELDS = {
     },
 }
 REQUIRED_FIELDS = {
+    "delete": {"graph_id", "base_revision", "request_key"},
     "create": {"title", "mode", "request_key"},
     "list": set(),
     "get": {"graph_id"},
@@ -46,7 +48,9 @@ def validate_arguments(args: Mapping[str, Any]) -> str:
         raise ValueError("invalid_arguments: expected an object")
     action = args.get("action")
     if not isinstance(action, str) or action not in ACTION_FIELDS:
-        raise ValueError("invalid_arguments: action must be create/list/get/apply")
+        raise ValueError(
+            "invalid_arguments: action must be create/list/get/apply/delete"
+        )
     unexpected = set(args) - ACTION_FIELDS[action] - {"action"}
     missing = REQUIRED_FIELDS[action] - set(args)
     if unexpected or missing:
@@ -62,7 +66,7 @@ def validate_arguments(args: Mapping[str, Any]) -> str:
 
 def unavailable_result(args: Mapping[str, Any], *, uncertain: bool) -> dict[str, Any]:
     """Keep the original mutation identity when its result cannot be confirmed."""
-    if uncertain and args.get("action") in {"create", "apply"}:
+    if uncertain and args.get("action") in {"create", "apply", "delete"}:
         return {
             "code": "write_outcome_unknown",
             "request_key": args.get("request_key"),
@@ -81,11 +85,11 @@ class TaskGraphTool:
     description = (
         "Record user-approved plans and progress in durable task graphs, then return the Web IM link. "
         "These records never schedule or execute tasks. Discuss first; create only when the user asks to save a plan. "
-        "Goals belong to your account and are shared with its other enabled Agents; no Agent assignment is needed. "
+        "Goals are shared throughout the company with its active members and enabled Agents; no Agent assignment is needed. "
         "create requires title, mode and a unique request_key, with no required chat. "
         "For create/apply, target optionally records the discussion where changed nodes were last updated. Bound single-thread runs record their actual chat automatically. "
         "Global or unbound runs must explicitly supply the relevant Inbox/conversations target to record a chat; otherwise no chat is recorded. Never guess the last chat. "
-        "list searches all account goals by title, returning paginated summaries ordered by latest update; get/apply use a known graph_id regardless of prompt channel. "
+        "list searches all company goals by title, returning paginated summaries ordered by latest update; get/apply use a known graph_id regardless of prompt channel. "
         "get defaults to root scope; use scope_id for nested children or view=all for the bounded full document. "
         "Node IDs are stable within their graph (e.g. n1); reuse the returned IDs. "
         "dag orders direct children by prerequisites; explore records alternative siblings and one selected candidate. "
@@ -93,7 +97,7 @@ class TaskGraphTool:
         "A negative result can be done; selecting a candidate does not finish its parent or other candidates. "
         "For apply, read the current revision, supply a unique request_key and an ordinary change_note (including any done-to-doing reason). "
         "On version_conflict, reread and reconcile before a new mutation. On write_outcome_unknown, retry the EXACT same arguments/key. "
-        "Never claim a write succeeded without confirmation. No deletion, reparenting or nonempty mode conversion."
+        "Never claim a write succeeded without confirmation. delete removes the graph, or the subtree at optional node_id. It requires an explicit current human request naming the title or ID and deletion; if needed ask the user to state that request. Never infer deletion from cleanup or chat removal. No reparenting or nonempty mode conversion."
     )
     presenter = QueryPresenter("Task graph")
     max_result_size_chars = None
@@ -110,6 +114,10 @@ class TaskGraphTool:
             "description": {"type": "string", "maxLength": 32000},
             "mode": {"type": "string", "enum": ["dag", "explore"]},
             "graph_id": {"type": "string"},
+            "node_id": {
+                "type": "string",
+                "description": "Optional subtree root for delete; omit to delete the graph.",
+            },
             "scope_id": {"type": "string"},
             "view": {"type": "string", "enum": ["scope", "all"]},
             "query": {"type": "string"},

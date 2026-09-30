@@ -158,7 +158,9 @@ def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, ch
                     ExternalShadowTarget(ShadowConversationRef(chat, "message"))
                 )
                 if channel == "feishu"
-                else RunDeliveryTarget.for_im_relay(IMRelayTarget(chat, "relay"))
+                else RunDeliveryTarget.for_im_relay(
+                    IMRelayTarget(chat, "relay", "message")
+                )
             )
             contexts.seed(
                 RunDeliveryContext(
@@ -176,6 +178,10 @@ def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, ch
                     "request_key": chat,
                 },
                 ctx,
+            )
+            assert (
+                manager.send_json_await_ack.call_args.args[1]["source_message_id"]
+                == "message"
             )
             sent_args = manager.send_json_await_ack.call_args.args[1]["args"]
             assert sent_args.get("conversation_id") == (

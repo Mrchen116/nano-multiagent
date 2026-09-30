@@ -399,6 +399,9 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     if not had_delta_idempotency:
         _backfill_message_delta_idempotency(connection)
     _migrate_users_owner_id(connection)
+    from IM.infra.company_schema import initialize_company_schema
+
+    initialize_company_schema(connection)
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
     _migrate_agent_profile_tables(connection)
@@ -409,6 +412,13 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_settings_policies(connection)
     _migrate_boundary_provenance_nullable(connection)
     _reconcile_conversation_summary_previews(connection)
+    from IM.infra.task_graph_schema import migrate_task_graph_company
+    from IM.infra.device_binding import migrate_device_binding
+    from IM.infra.attachment_quota import initialize_attachment_quota
+
+    migrate_task_graph_company(connection)
+    migrate_device_binding(connection)
+    initialize_attachment_quota(connection)
     connection.commit()
 
 

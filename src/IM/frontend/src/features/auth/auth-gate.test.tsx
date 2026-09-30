@@ -15,6 +15,8 @@ const SAMPLE_USER = {
   owner_id: "user-7",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };
@@ -61,6 +63,7 @@ describe("auth gate", () => {
   beforeEach(() => {
     localStorage.clear();
     useAuthStore.getState().clear();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(SAMPLE_USER), { status: 200 }));
   });
 
   afterEach(() => {
@@ -105,7 +108,7 @@ describe("auth gate", () => {
     await waitFor(() => {
       expect(useAuthStore.getState().accessToken).toBe("tok-new");
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/login"))).toHaveLength(1);
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain("/im/v1/auth/login");
     expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");

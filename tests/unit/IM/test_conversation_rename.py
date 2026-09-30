@@ -35,6 +35,11 @@ def _register_and_create_group(client: TestClient) -> tuple[str, str]:
         json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
     )
     assert reg.status_code in (200, 201), f"register failed: {reg.text}"
+    client.app.state.connection.execute(
+        "UPDATE users SET membership_status='active' WHERE id=?",
+        (reg.json()["user"]["id"],),
+    )
+    client.app.state.connection.commit()
     token = reg.json()["access_token"]
     alice_id = reg.json()["user"]["id"]
     auth = {"Authorization": f"Bearer {token}"}
@@ -100,6 +105,11 @@ def test_patch_title_nonexistent_returns_404(tmp_path: Path) -> None:
                 "display_name": "Alice",
             },
         )
+        client.app.state.connection.execute(
+            "UPDATE users SET membership_status='active' WHERE id=?",
+            (reg.json()["user"]["id"],),
+        )
+        client.app.state.connection.commit()
         token = reg.json()["access_token"]
         auth = {"Authorization": f"Bearer {token}"}
         response = client.patch(

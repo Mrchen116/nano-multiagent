@@ -5,34 +5,22 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
 
 from IM.api.deps import (
     GatewayPrincipal,
     current_data_principal,
     current_gateway,
+    current_company_admin,
     require_conversation_access,
 )
 from IM.api.routes.messages import AttachmentPayload
 from IM.domain.models import User
-from IM.infra.repositories.message_images import ImageConflictError
+from IM.api.attachment_upload import image_content_type, upload_chunks, upload_error
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.gateway_persistence import GatewayConversationPersistence
 
 router = APIRouter(tags=["message-images"])
 _MAX_BYTES = 10 * 1024 * 1024
-
-
-def _content_type(data: bytes) -> str | None:
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 @router.post(
@@ -65,26 +53,30 @@ async def create_image(
     mime = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
         raise HTTPException(415, "unsupported image type")
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > _MAX_BYTES:
-            raise HTTPException(413, "image exceeds 10 MiB")
-        body.extend(chunk)
-    data = bytes(body)
-    if _content_type(data) != mime:
-        raise HTTPException(415, "image content does not match content type")
-    require_conversation_access(request, user, conversation_id, agent_id)
+
+    def validate(data: bytes) -> None:
+        if image_content_type(data) != mime:
+            raise HTTPException(415, "image content does not match content type")
+
+    async def reauthorize() -> None:
+        fresh = await current_data_principal(request)
+        require_conversation_access(request, fresh, conversation_id, agent_id)
+
     try:
-        image, created = await run_in_threadpool(
-            request.app.state.message_image_repository.put,
+        image, created = await request.app.state.message_image_repository.put_stream(
             conversation_id=conversation_id,
             source_key=idempotency_key,
-            data=data,
+            chunks=upload_chunks(request),
+            owner_id=user.owner_id if isinstance(user, GatewayPrincipal) else user.id,
             content_type=mime,
             file_name=safe_name,
+            max_bytes=_MAX_BYTES,
+            validate=validate,
+            authorize=reauthorize,
+            commit_guard=request.app.state.company_gate,
         )
-    except ImageConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise upload_error(exc) from exc
     response.status_code = 201 if created else 200
     return AttachmentPayload(
         url=image.url, content_type=image.content_type, file_name=image.file_name
@@ -183,3 +175,12 @@ def resolve_image_delivery_target(
         request, principal, resolution.conversation_id, payload.agent_id
     )
     return {"conversation_id": resolution.conversation_id}
+
+
+@router.get("/im/v1/attachments/capacity")
+def attachment_capacity(
+    request: Request,
+    user: User = Depends(current_company_admin),
+) -> dict:
+    """Expose current storage capacity only to company administrators."""
+    return request.app.state.message_image_repository.capacity()

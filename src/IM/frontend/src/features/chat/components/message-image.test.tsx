@@ -9,7 +9,7 @@ import { MessagePane } from "./message-pane";
 
 const user = {
   id: "owner-a", username: "a", display_name: "A", owner_id: "owner-a", locale: "en",
-  default_entry_node_id: null, owned_node_ids: [], created_at: ""
+  default_entry_node_id: null, membership_status: "active" as const, is_company_admin: true, owned_node_ids: [], created_at: ""
 };
 const imagePath = "/im/v1/conversations/c1/images/image-1";
 const conversation = {

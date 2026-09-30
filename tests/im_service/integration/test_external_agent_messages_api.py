@@ -1,5 +1,7 @@
 """Integration coverage for terminal external Agent snapshot reconciliation."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 from contextlib import contextmanager
 from collections.abc import Iterator
@@ -35,7 +37,7 @@ def _external_conversation(
         workspace_root="",
         node_id="node-1",
     )
-    with client.websocket_connect("/im/ws/gateway") as websocket:
+    with gateway_socket(client) as websocket:
         websocket.send_json(
             {
                 "type": "node.register",

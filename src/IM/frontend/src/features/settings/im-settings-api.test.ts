@@ -10,6 +10,8 @@ const SAMPLE_USER = {
   owner_id: "user-1",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };
@@ -41,6 +43,8 @@ describe("im-settings-api", () => {
         username: "alex",
         display_name: "Alex",
         owner_id: "user-1",
+        membership_status: "active" as const,
+        is_company_admin: true,
         owned_node_ids: [],
         default_entry_node_id: null,
         created_at: ""
@@ -83,6 +87,8 @@ describe("im-settings-api", () => {
         username: "alex",
         display_name: "Alex 2",
         owner_id: "user-1",
+        membership_status: "active" as const,
+        is_company_admin: true,
         owned_node_ids: [],
         default_entry_node_id: "node-1",
         created_at: ""

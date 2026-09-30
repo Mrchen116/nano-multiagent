@@ -1,5 +1,7 @@
 """用户流与 /im/v1/sync 的契约测试（替代按会话 SSE）。"""
 
+from tests.im_service._auth_helpers import browser_socket, gateway_socket
+
 import json
 from pathlib import Path
 
@@ -54,9 +56,7 @@ def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
             json={"sender_user_id": alice.id, "content": "hello"},
         )
         assert posted.status_code == 201
-        with client.websocket_connect(
-            f"/im/ws/user?token={alice.access_token}"
-        ) as websocket:
+        with browser_socket(client, alice.access_token) as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[dict[str, object]] = []
             for _ in range(4):
@@ -115,7 +115,7 @@ def test_user_stream_replays_boundary_without_runtime_provenance(
         )
         assert anchor.status_code == 201, anchor.text
 
-        with client.websocket_connect("/im/ws/gateway") as gateway:
+        with gateway_socket(client) as gateway:
             gateway.send_json(
                 {
                     "type": "node.register",
@@ -143,9 +143,7 @@ def test_user_stream_replays_boundary_without_runtime_provenance(
             assert acknowledged["type"] == "ack"
 
         boundary_event_id = acknowledged["payload"]["event_id"]
-        with client.websocket_connect(
-            f"/im/ws/user?token={alice.access_token}"
-        ) as user_stream:
+        with browser_socket(client, alice.access_token) as user_stream:
             user_stream.send_text(
                 json.dumps({"op": "resume", "after_event_id": boundary_event_id - 1})
             )

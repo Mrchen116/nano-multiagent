@@ -88,12 +88,47 @@ class GatewayRuntime:
                 payload = _decode_message(raw_message)
                 message_type = _require_message_type(payload)
                 body = _require_dict(payload.get("payload"), field_name="payload")
-                response = await self.handle_message(
-                    websocket=websocket,
-                    message_type=message_type,
-                    payload=body,
-                    authenticated_owner_id=authenticated_owner_id,
+
+                async def dispatch():
+                    return await self.handle_message(
+                        websocket=websocket,
+                        message_type=message_type,
+                        payload=body,
+                        authenticated_owner_id=authenticated_owner_id,
+                    )
+
+                gate = getattr(
+                    getattr(websocket.scope.get("app"), "state", None),
+                    "company_gate",
+                    None,
                 )
+                # These frames only resolve an existing HTTP RPC waiter. The
+                # initiating HTTP request already owns the admission gate; waiting
+                # for it here would deadlock the response needed to release it.
+                rpc_results = {
+                    "agent.config",
+                    "agent.created",
+                    "agent.config.apply.result",
+                    "agent.config.operation.status.result",
+                    "agent.capabilities",
+                    "node.capabilities",
+                    "agent.prompt.preview",
+                    "node.prompt.preview",
+                    "node.heartbeat.md",
+                    "node.cron.jobs",
+                    "node.cron.delete",
+                    "node.skills.usage",
+                    "session.fork.result",
+                    "node.distill.prompt",
+                    "agent.work.permission.result",
+                }
+                if gate is None or message_type in rpc_results:
+                    response = await dispatch()
+                else:
+                    async with gate:
+                        # Authority may have changed while this frame waited for a
+                        # concurrent member suspension or device handoff to commit.
+                        response = await dispatch()
                 if response is not None:
                     if response.get("type") == "error" and isinstance(
                         response.get("payload"), dict
