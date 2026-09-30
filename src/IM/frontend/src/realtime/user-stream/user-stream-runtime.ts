@@ -12,9 +12,16 @@ export interface UserStreamEvent {
   eventId?: number;
 }
 
+export type UserStreamConnectionStatus = { kind: "reconnecting" | "cooldown"; retryAt: number } | null;
+
+export class UserStreamCooldownError extends Error {
+  constructor(readonly retryAfter: number) { super("Real-time updates temporarily rate limited"); }
+}
+
 export interface UserStreamSubscriber {
   onEvent(event: UserStreamEvent): void;
   onRecovery?(): void | Promise<void>;
+  onConnectionStatus?(status: UserStreamConnectionStatus): void;
 }
 
 interface SessionSnapshot {
@@ -26,7 +33,7 @@ export interface UserStreamSocket {
   readyState: number;
   onopen: (() => void) | null;
   onmessage: ((event: { data: string }) => void) | null;
-  onclose: (() => void) | null;
+  onclose: ((event?: { code: number }) => void) | null;
   onerror: (() => void) | null;
   send(value: string): void;
   close(): void;
@@ -59,6 +66,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   const baselinedCursorUsers = new Set<string>();
   const storageWriteDisabledUsers = new Set<string>();
   let socket: UserStreamSocket | null = null;
+  let connectionStatus: UserStreamConnectionStatus = null;
   let sessionUnsubscribe: (() => void) | null = null;
   let retryTimer: number | null = null;
   let pingTimer: number | null = null;
@@ -69,6 +77,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   let recoveryInFlight: Promise<void> | null = null;
   let resyncInFlightGeneration: number | null = null;
   let resyncHandledGeneration: number | null = null;
+
+  function setConnectionStatus(status: UserStreamConnectionStatus): void {
+    connectionStatus = status;
+    for (const subscriber of subscribers) subscriber.onConnectionStatus?.(status);
+  }
 
   function clearTimers(): void {
     if (retryTimer !== null) {
@@ -82,6 +95,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   }
 
   function invalidateConnection(): void {
+    setConnectionStatus(null);
     generation += 1;
     clearTimers();
     const previous = socket;
@@ -259,10 +273,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     }
   }
 
-  function scheduleReconnect(): void {
+  function scheduleReconnect(minimumDelay = 0, kind: "reconnecting" | "cooldown" = "reconnecting"): void {
     if (subscribers.size === 0) return;
     clearTimers();
-    const delay = Math.min(30_000, 1000 * 2 ** Math.min(reconnectAttempt, MAX_BACKOFF_EXPONENT));
+    const delay = Math.max(minimumDelay, Math.min(30_000, 1000 * 2 ** Math.min(reconnectAttempt, MAX_BACKOFF_EXPONENT)));
+    setConnectionStatus({ kind, retryAt: Date.now() + delay });
     reconnectAttempt += 1;
     retryTimer = window.setTimeout(() => {
       retryTimer = null;
@@ -324,7 +339,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     activeToken = readiness.accessToken;
     let url: string;
     try { url = await dependencies.resolveUrl(readiness.accessToken); } catch (error) {
-      if (currentGeneration === generation) { dependencies.reportError(error); scheduleReconnect(); }
+      if (currentGeneration === generation) {
+        dependencies.reportError(error);
+        scheduleReconnect(error instanceof UserStreamCooldownError ? error.retryAfter * 1000 : 0,
+          error instanceof UserStreamCooldownError ? "cooldown" : "reconnecting");
+      }
       return;
     }
     if (currentGeneration !== generation || subscribers.size === 0) return;
@@ -333,6 +352,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     nextSocket.onopen = () => {
       if (currentGeneration !== generation || socket !== nextSocket) return;
       reconnectAttempt = 0;
+      setConnectionStatus(null);
       nextSocket.send(
         JSON.stringify({ op: "resume", after_event_id: readCursor(readiness.userId) })
       );
@@ -344,11 +364,11 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     };
     nextSocket.onmessage = (event) => dispatchFrame(event.data, currentGeneration, readiness.userId);
     nextSocket.onerror = () => dependencies.reportError(new Error("user stream socket error"));
-    nextSocket.onclose = () => {
+    nextSocket.onclose = (event) => {
       if (currentGeneration !== generation || socket !== nextSocket) return;
       clearTimers();
       socket = null;
-      scheduleReconnect();
+      scheduleReconnect(event?.code === 1013 ? 30_000 : 0, event?.code === 1013 ? "cooldown" : "reconnecting");
     };
   }
 
@@ -366,6 +386,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   return {
     subscribe(subscriber) {
       subscribers.add(subscriber);
+      subscriber.onConnectionStatus?.(connectionStatus);
       if (subscribers.size === 1) {
         sessionUnsubscribe = dependencies.subscribeSession(reconcileSession);
         void beginConnection();

@@ -1097,5 +1097,11 @@
       "chat": "Continue to chat",
       "error": "The link has expired, or this account cannot receive the device."
     }
+  },
+  "realtime": {
+    "reconnecting": "Real-time updates disconnected. Check your network; retrying in {{seconds}}s.",
+    "cooldown": "Real-time updates are busy. Retrying automatically in {{seconds}}s.",
+    "retrying": "Reconnecting real-time updates… Check your network if this continues.",
+    "signInAgain": "Sign in again"
   }
 }

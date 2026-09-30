@@ -230,3 +230,73 @@ def test_task_capability_and_protected_provenance(company_tasks):
             dict(graph_id=gid, base_revision=2, request_key="forged", confirmed=True),
         )
     assert invalid.value.code == "invalid_arguments"
+
+
+def test_expired_delete_receipt_is_not_replayed_or_retained(company_tasks):
+    db, service, agent = company_tasks
+    graph = service.execute(
+        agent, "create", dict(title="Disposable", mode="dag", request_key="old-create")
+    )
+    db.execute(
+        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('delete-old','A','a','删除 Disposable','sent','now')"
+    )
+    db.commit()
+    sourced = TaskGraphActor("agent", "nano", "node", "delete-old")
+    args = dict(graph_id=graph["graph_id"], base_revision=1, request_key="old-delete")
+    removed = service.execute(sourced, "delete", args)
+    assert service.execute(sourced, "delete", args) == removed
+    db.execute(
+        "UPDATE task_graph_mutation_receipts SET created_at='2000-01-01T00:00:00Z' WHERE request_key='old-delete'"
+    )
+    db.commit()
+    with pytest.raises(TaskGraphError, match="not accessible"):
+        service.execute(sourced, "delete", args)
+    service.execute(
+        agent, "create", dict(title="New", mode="dag", request_key="new-create")
+    )
+    assert (
+        db.execute(
+            "SELECT 1 FROM task_graph_mutation_receipts WHERE request_key='old-delete'"
+        ).fetchone()
+        is None
+    )
+    assert (
+        service.execute(
+            agent,
+            "create",
+            dict(title="Disposable", mode="dag", request_key="old-create"),
+        )
+        == graph
+    )
+
+
+def test_global_consumed_sources_require_explicit_human_request_and_chat_access(
+    company_tasks,
+):
+    db, service, agent = company_tasks
+    graph = service.execute(
+        agent,
+        "create",
+        dict(title="Global plan", mode="dag", request_key="global-create"),
+    )
+    args = dict(
+        graph_id=graph["graph_id"], base_revision=1, request_key="global-delete"
+    )
+    db.execute(
+        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('global-no','A','a','Do not delete Global plan','sent','now')"
+    )
+    db.execute(
+        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('global-yes','A','a','删除 Global plan','sent','now')"
+    )
+    db.commit()
+    from dataclasses import replace
+
+    with pytest.raises(TaskGraphError) as exc:
+        service.execute(
+            replace(agent, source_message_ids=("global-no", "missing")), "delete", args
+        )
+    assert exc.value.code == "confirmation_required"
+    result = service.execute(
+        replace(agent, source_message_ids=("global-no", "global-yes")), "delete", args
+    )
+    assert result["deleted"]

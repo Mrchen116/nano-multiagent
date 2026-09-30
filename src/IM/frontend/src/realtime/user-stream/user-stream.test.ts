@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createUserStreamRuntime,
   UserStreamRecoveryError,
+  UserStreamCooldownError,
   type UserStreamRuntimeDependencies
 } from "./user-stream-runtime";
 
@@ -17,7 +18,7 @@ class FakeSocket {
   closed = false;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(url: string) {
@@ -106,6 +107,35 @@ describe("user stream runtime", () => {
   afterEach(() => {
     vi.useRealTimers();
     sessionStorage.clear();
+  });
+
+  it("announces ticket cooldown and honors Retry-After before reconnecting", async () => {
+    const resolveUrl = vi.fn().mockRejectedValueOnce(new UserStreamCooldownError(12)).mockResolvedValue("ws://im.test/stream");
+    const onConnectionStatus = vi.fn();
+    const { runtime } = setup({ resolveUrl });
+    runtime.subscribe({ onEvent: vi.fn(), onConnectionStatus });
+    await settle();
+    expect(onConnectionStatus).toHaveBeenLastCalledWith({ kind: "cooldown", retryAt: Date.now() + 12_000 });
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(resolveUrl).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.instances).toHaveLength(1);
+    FakeSocket.instances[0]!.open();
+    expect(onConnectionStatus).toHaveBeenLastCalledWith(null);
+  });
+
+  it("announces a bounded wait when a slow consumer is disconnected", async () => {
+    const onConnectionStatus = vi.fn();
+    const { runtime } = setup();
+    runtime.subscribe({ onEvent: vi.fn(), onConnectionStatus });
+    await settle();
+    FakeSocket.instances[0]!.open();
+    FakeSocket.instances[0]!.onclose?.({ code: 1013 });
+    expect(onConnectionStatus).toHaveBeenLastCalledWith({ kind: "cooldown", retryAt: Date.now() + 30_000 });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(FakeSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.instances).toHaveLength(2);
   });
 
   it("shares one socket across subscribers, resumes from the user cursor, and stops after the last idempotent dispose", async () => {

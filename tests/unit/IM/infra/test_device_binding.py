@@ -333,7 +333,15 @@ def test_offline_local_enrollment_allows_proven_runtime_recovery(tmp_path):
     )
     c.commit()
     db = tmp_path / "db"
-    enroll_device(db_path=db, node_id="node", device_key_path=tmp_path / "key.pem")
+    # The maintenance host imports only public material, without the device file.
+    (tmp_path / "key.pem").unlink()
+    with pytest.raises(ValueError, match="key_id"):
+        enroll_device(
+            db_path=db, node_id="node", public_key=key.public_key, key_id="sha256:wrong"
+        )
+    enroll_device(
+        db_path=db, node_id="node", public_key=key.public_key, key_id=key.key_id
+    )
     local = store.start(
         node_id="node", node_name="node", public_key=key.public_key, key_id=key.key_id
     )

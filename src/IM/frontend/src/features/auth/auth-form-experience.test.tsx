@@ -253,7 +253,10 @@ describe("auth form experience", () => {
     await userEvent.type(username, "alex");
     await userEvent.type(password, "wrongpass");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("username or password is incorrect");
+    const invalid = await screen.findByRole("alert");
+    expect(invalid).toHaveTextContent("username or password is incorrect");
+    expect(username.closest("form")).toHaveAttribute("aria-describedby", invalid.id);
+    expect(invalid.id).toBe("auth-feedback");
 
     await userEvent.type(password, "2");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));

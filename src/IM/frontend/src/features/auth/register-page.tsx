@@ -114,7 +114,7 @@ export function RegisterPage() {
         </>
       }
     >
-      <form className="im-auth-form" onSubmit={handleSubmit} noValidate>
+      <form className="im-auth-form" onSubmit={handleSubmit} noValidate aria-describedby={cooldown.remaining > 0 || formError ? "auth-feedback" : undefined}>
         <AuthTextField
           id="username"
           label={t("auth.register.username")}
@@ -151,8 +151,8 @@ export function RegisterPage() {
           showLabel={t("auth.common.showPassword")}
           hideLabel={t("auth.common.hidePassword")}
         />
-        {cooldown.remaining > 0 && <AuthAlert>{t("company.cooldown", { seconds: cooldown.remaining })}</AuthAlert>}
-        {formError && <AuthAlert>{feedback(formError)}</AuthAlert>}
+        {cooldown.remaining > 0 && <AuthAlert id="auth-feedback">{t("company.cooldown", { seconds: cooldown.remaining })}</AuthAlert>}
+        {formError && <AuthAlert id="auth-feedback">{feedback(formError)}</AuthAlert>}
         <button type="submit" className="im-auth-submit" disabled={submitting || cooldown.remaining > 0}>
           <span>{submitting ? t("auth.register.submitting") : t("auth.register.submit")}</span>
           {!submitting && <SubmitArrow />}

@@ -54,6 +54,13 @@ class CompanyBoundary:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not scope["path"].startswith("/im/v1/"):
             return await self.app(scope, receive, send)
+        transport_send = send
+
+        async def bounded_send(message):
+            async with asyncio.timeout(5):
+                await transport_send(message)
+
+        send = bounded_send
         path = scope["path"]
         method = scope["method"]
         streaming = method == "POST" and (
@@ -99,7 +106,20 @@ class CompanyBoundary:
             # the company gate only when the completed file is published.
             return await self.app(scope, receive, send)
         state = scope["app"].state
-        async with state.company_gate:
+        await state.company_gate.acquire()
+        gate_held = True
+
+        async def response_send(message):
+            nonlocal gate_held
+            if message["type"] == "http.response.start" and gate_held:
+                # Route effects are committed before headers. Slow socket writes
+                # must not prevent another request from revoking membership.
+                state.company_gate.release()
+                gate_held = False
+            await bounded_send(message)
+
+        send = response_send
+        try:
             request = Request(scope, receive=receive)
             try:
                 source = client_source(scope)
@@ -142,3 +162,6 @@ class CompanyBoundary:
                     status_code=exc.status_code,
                     headers=exc.headers,
                 )(scope, receive, send)
+        finally:
+            if gate_held:
+                state.company_gate.release()

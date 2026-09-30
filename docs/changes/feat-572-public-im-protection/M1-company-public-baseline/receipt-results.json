@@ -1,0 +1,6 @@
+{
+  "baseline": "d5de5f9f7",
+  "old_receipts_after_startup": 2,
+  "receipt_age_fixture": "2000-01-01T00:00:00Z",
+  "expired_delete_still_replayed": true
+}

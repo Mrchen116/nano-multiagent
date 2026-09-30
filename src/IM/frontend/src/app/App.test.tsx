@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
@@ -47,6 +47,20 @@ describe("App shell", () => {
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it("shows shared-stream recovery and clears it when the connection returns", () => {
+    const spy = vi.spyOn(streamModule, "subscribeUserStream").mockImplementation(() => () => undefined);
+    render(<AppProviders><MemoryRouter><App /></MemoryRouter></AppProviders>);
+    act(() => {
+      for (const [subscriber] of spy.mock.calls) subscriber.onConnectionStatus?.({ kind: "cooldown", retryAt: Date.now() + 30000 });
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("30");
+    expect(screen.getByRole("link", { name: /sign in again/i })).toHaveAttribute("href", "/login");
+    act(() => {
+      for (const [subscriber] of spy.mock.calls) subscriber.onConnectionStatus?.(null);
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
 
   it("clears inaccessible chat data after membership changes even off the chat route", async () => {
     const fake = vi.fn(() => ({ onclick: null, close: vi.fn() })) as unknown as typeof Notification & {

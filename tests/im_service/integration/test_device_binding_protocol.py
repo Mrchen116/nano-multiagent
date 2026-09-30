@@ -92,3 +92,25 @@ def test_real_binding_routes_admit_only_proven_node_runtime(tmp_path):
             ).status_code
             == 400
         )
+
+
+def test_device_link_uses_configured_https_origin_behind_http_tunnel(tmp_path):
+    from fastapi.testclient import TestClient
+    from IM.app import create_app
+
+    app = create_app(db_path=tmp_path / "db", public_url="https://im.nanoim.win")
+    key = GatewayChannelKeyStore(tmp_path / "private.pem").load_or_create()
+    with TestClient(app, base_url="http://im.nanoim.win") as client:
+        response = client.post(
+            "/im/v1/device-binding/start",
+            json={
+                "node_id": "device",
+                "node_name": "Device",
+                "public_key": key.public_key,
+                "key_id": key.key_id,
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["bind_url"].startswith(
+        "https://im.nanoim.win/bind/confirm#token="
+    )

@@ -44,7 +44,7 @@ def call(request: Request, method: str, payload: dict) -> dict:
 def start(payload: Start, request: Request) -> dict:
     result = call(request, "start", payload.model_dump())
     result["bind_url"] = (
-        str(request.base_url).rstrip("/")
+        request.app.state.public_url.rstrip("/")
         + "/bind/confirm#token="
         + result["browser_token"]
     )

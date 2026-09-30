@@ -22,7 +22,8 @@ def prepare_binding(client, tmp_path, *, node_id):
         enroll_device(
             db_path=db_path,
             node_id=node_id,
-            device_key_path=tmp_path / f"{node_id}.pem",
+            public_key=key.public_key,
+            key_id=key.key_id,
         )
     response = client.post(
         "/im/v1/device-binding/start",

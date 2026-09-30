@@ -1,0 +1,26 @@
+[
+  {
+    "file": "src/IM/api/public_boundary.py",
+    "line": 129,
+    "summary": "[P1] 不要在向慢 HTTP 客户端写响应时持有公司全局锁",
+    "failure_scenario": "active 成员下载自己的附件且客户端停止读取时，FileResponse 的 await send 一直处于 CompanyBoundary.company_gate 内；管理员 suspend、其他 HTTP 请求和需 gate 的 Gateway 帧都等待这次传输。隔离 ASGI 复现中 body send 阻塞后 suspend 300ms 未完成、成员仍 active，释放 send 后才返回200。上传例外只覆盖 POST，无法保护 GET 下载；public launcher 的 keep-alive timeout 也不限制响应发送。应把准入/副作用提交与网络写出分开，并保持撤销后不再发送公司数据。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/api/routes/device_binding.py",
+    "line": 47,
+    "summary": "[P2] 用已配置的公网 URL 生成设备确认链接",
+    "failure_scenario": "按本 unit public launcher（proxy_headers=False）和 runbook 的 HTTP loopback Tunnel 接线，IM_PUBLIC_URL=https://im.nanoim.win，但 request.base_url 为 http://im.nanoim.win，start 返回 HTTP bind_url。PA bind_local_device 直接打印/打开该地址；若边缘没有另设 HTTPS 强制跳转，确认页及账号登录走 HTTP，且浏览器用户 WS 的 HTTPS Origin 校验不能通过。隔离 TestClient/ASGI 已确认 https 配置仍返回 http 链接。应使用 app.state.public_url，不依赖另一个未声明的边缘重定向。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/infra/repositories/task_graphs.py",
+    "line": 205,
+    "summary": "[P2] 对脱离任务生命周期的回执实施约定的七天清理",
+    "failure_scenario": "该 diff 移除回执的 graph 级联外键，但只有插入/查询，没有删除或到期判断；用户反复创建并删除任务后，所有历史 mutation receipts 永久留存，与 design.md:125 的有界七天窗口不符。把回执 created_at 设为2000年、重新 initialize_schema 后仍保留两行且 delete 原回执可重放，已独立复现。应在适当现有生命周期点做有界到期清理，并保留窗口内的幂等行为。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]

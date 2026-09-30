@@ -35,6 +35,7 @@ class TaskGraphActor:
     id: str
     node_id: str | None = None
     source_message_id: str | None = None
+    source_message_ids: tuple[str, ...] = ()
 
 
 _ACTION_FIELDS = {
@@ -264,31 +265,48 @@ class TaskGraphService:
                             "invalid_arguments", "node_id is not in this graph"
                         )
                     # Authorization comes from persisted human input, never tool arguments.
-                    text = source["content"] if source else ""
-                    # Group messages address the Agent with structured leading mentions.
-                    text = re.sub(
-                        r'^(?:\s*<mention\s+type="user"\s+target_id="[^"]+"\s*/>)+',
-                        "",
-                        text,
-                    )
                     names = [
                         node["title"],
                         document["graph_id"]
                         if node_id == document["root_node_id"]
                         else f"{document['graph_id']}/{node_id}",
                     ]
-                    authorized = any(
-                        re.fullmatch(
-                            r"(?:请|确认|请确认)?(?:删除|删掉|移除)\s*[‘“\"']?"
-                            + re.escape(name)
-                            + r"[’”\"']?[。！!]?|(?:please\s+|confirm\s+)?(?:delete|remove)\s+[\"']?"
-                            + re.escape(name)
-                            + r"[\"']?[.!]?",
-                            text.strip(),
-                            re.I,
+                    source_ids = tuple(
+                        dict.fromkeys(
+                            (
+                                *(
+                                    (actor.source_message_id,)
+                                    if actor.source_message_id
+                                    else ()
+                                ),
+                                *actor.source_message_ids,
+                            )
                         )
-                        for name in names
                     )
+                    authorized = False
+                    for source_id in source_ids:
+                        candidate = repository.source_message(source_id, user_id)
+                        if candidate is None:
+                            continue
+                        text = re.sub(
+                            r'^(?:\s*<mention\s+type="user"\s+target_id="[^"]+"\s*/>)+',
+                            "",
+                            candidate["content"],
+                        )
+                        authorized = any(
+                            re.fullmatch(
+                                r"(?:请|确认|请确认)?(?:删除|删掉|移除)\s*[‘“\"']?"
+                                + re.escape(name)
+                                + r"[’”\"']?[。！!]?|(?:please\s+|confirm\s+)?(?:delete|remove)\s+[\"']?"
+                                + re.escape(name)
+                                + r"[\"']?[.!]?",
+                                text.strip(),
+                                re.I,
+                            )
+                            for name in names
+                        )
+                        if authorized:
+                            break
                     if not authorized:
                         raise TaskGraphError(
                             "confirmation_required",

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
+
+from IM.infra._timestamps import format_utc
 
 
 class TaskGraphRepository:
@@ -59,10 +62,20 @@ class TaskGraphRepository:
         )
 
     def receipt(self, actor_key: str, request_key: str) -> sqlite3.Row | None:
-        """Read a prior write result after the service has checked current access."""
+        """Read a current result and collect a bounded batch of expired deletions."""
+        cutoff = format_utc(datetime.now(timezone.utc) - timedelta(days=7))
+        self.db.execute(
+            """DELETE FROM task_graph_mutation_receipts WHERE rowid IN (
+                SELECT rowid FROM task_graph_mutation_receipts
+                WHERE created_at < ? AND json_type(result_json,'$.deleted_ids')='array'
+                ORDER BY created_at LIMIT 100)""",
+            (cutoff,),
+        )
         return self.db.execute(
-            "SELECT operation_hash,result_json FROM task_graph_mutation_receipts WHERE actor_key=? AND request_key=?",
-            (actor_key, request_key),
+            """SELECT operation_hash,result_json FROM task_graph_mutation_receipts
+                WHERE actor_key=? AND request_key=? AND NOT (
+                    created_at < ? AND json_type(result_json,'$.deleted_ids') IS 'array')""",
+            (actor_key, request_key, cutoff),
         ).fetchone()
 
     def save(

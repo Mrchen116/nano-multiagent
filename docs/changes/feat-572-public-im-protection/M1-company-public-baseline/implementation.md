@@ -24,3 +24,13 @@
 R6 真实公网域名、免费配置、真实恢复发布现场：需要设计明确要求的当次上线授权；尚未操作 Cloudflare 或生产部署。
 R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他任务或抢占长连接。
 独立 reviewer 应逐项记录 pass/fail/inconclusive，不把自动化覆盖当作真实旅程通过；必须保留这两个缺口。不能据此归档或创建 Ready PR。
+
+## 复审修复批次
+
+- 慢附件响应在发送 response headers 前释放公司准入锁，网络 send 限时；慢消费者不再阻塞停用提交。实际 ASGI 背压与并发停用回归通过。
+- 设备确认链接统一使用配置的 public URL；跨主机存量节点登记只接收 Gateway 导出的公钥与指纹，不搬运私钥，操作已补入发布文档。
+- 删除回执查询忽略七天前结果，写入时有界清理到期删除回执；create/apply 重试行为保留。
+- 全局 Agent 删除从同 agent/session/run 的 `inbox_read_committed` 收集完整读取的人类消息；入口持久化 IM 消息身份，provider ID 仍用于模型来源展示。历史同步、其他运行、未提交或只读部分消息不授予删除资格。IM 仍逐条核对真实人类消息、聊天权限和明确命名范围，模型参数不增加确认字段。
+- 实时连接共享现有 transport 状态，显示重连/冷却倒计时和重新登录入口；429 遵守 Retry-After，1013 使用冷却。认证错误改为关联表单的简短红字，与原型一致。
+
+窄验证：公司网络/绑定9 passed；删除回执/公钥登记13 passed；global Inbox/bridge/company tasks31 passed；实时流/App/认证30 passed。全量与独立 targeted 复验结果待下节记录。

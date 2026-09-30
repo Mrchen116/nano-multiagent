@@ -3,35 +3,30 @@
 from __future__ import annotations
 
 import argparse
-from base64 import b64encode
+from base64 import b64decode
 from contextlib import closing
 import hashlib
 from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
 from IM.infra.db import connect
 
 
-def enroll_device(*, db_path: Path, node_id: str, device_key_path: Path) -> None:
+def enroll_device(*, db_path: Path, node_id: str, public_key: str, key_id: str) -> None:
     """Record only the public half of a locally inspected existing device key.
 
     Args:
         db_path: IM database on the maintenance host.
         node_id: Existing node selected by the local operator.
-        device_key_path: Gateway's local channel-credentials-v1.pem file.
+        public_key: Base64 raw X25519 public key exported on the Gateway host.
+        key_id: SHA-256 fingerprint independently checked against that device.
     """
-    private = serialization.load_pem_private_key(
-        device_key_path.read_bytes(), password=None
-    )
-    if not isinstance(private, X25519PrivateKey):
-        raise ValueError("device key must be X25519")
-    public = private.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    )
-    public_text = b64encode(public).decode()
-    key_id = "sha256:" + hashlib.sha256(public).hexdigest()
+    public = b64decode(public_key, validate=True)
+    X25519PublicKey.from_public_bytes(public)
+    if key_id != "sha256:" + hashlib.sha256(public).hexdigest():
+        raise ValueError("key_id does not match the public key")
+    public_text = public_key
     with closing(connect(db_path)) as c, c:
         c.execute("BEGIN IMMEDIATE")
         node = c.execute(
@@ -60,10 +55,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--node-id", required=True)
-    parser.add_argument("--device-key", type=Path, required=True)
+    parser.add_argument("--public-key", required=True)
+    parser.add_argument("--key-id", required=True)
     args = parser.parse_args()
     enroll_device(
-        db_path=args.db, node_id=args.node_id, device_key_path=args.device_key
+        db_path=args.db,
+        node_id=args.node_id,
+        public_key=args.public_key,
+        key_id=args.key_id,
     )
     print(
         "Device public key enrolled. Run Gateway --recover-device locally to issue its runtime session."

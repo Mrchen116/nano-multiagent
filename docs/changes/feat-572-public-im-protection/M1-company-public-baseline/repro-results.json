@@ -1,0 +1,8 @@
+{
+  "baseline": "d5de5f9f7",
+  "binding_url_scheme": "http",
+  "configured_public_scheme": "https",
+  "slow_send_holds_company_gate": true,
+  "membership_before_release": "active",
+  "suspend_status_after_release": 200
+}

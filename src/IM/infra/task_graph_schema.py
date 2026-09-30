@@ -20,6 +20,9 @@ def migrate_task_graph_company(connection: sqlite3.Connection) -> None:
             "INSERT INTO task_graph_mutation_receipts SELECT * FROM task_graph_receipts_old"
         )
         connection.execute("DROP TABLE task_graph_receipts_old")
+    connection.execute("""CREATE INDEX IF NOT EXISTS task_graph_delete_receipt_expiry
+        ON task_graph_mutation_receipts(created_at)
+        WHERE json_type(result_json,'$.deleted_ids')='array'""")
     connection.execute("""CREATE TABLE IF NOT EXISTS task_node_chat_activity (
         graph_id TEXT NOT NULL REFERENCES task_graphs(graph_id) ON DELETE CASCADE,
         node_id TEXT NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

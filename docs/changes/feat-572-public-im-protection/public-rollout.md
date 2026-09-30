@@ -7,7 +7,34 @@
 1. 记录当前 commit、IM 进程 cwd/PID、数据库、数据库旁 `message-images/` 私有附件目录及旧 uploads 绝对路径；暂停隧道并停止 IM，保持原目录可恢复。
 2. 将 SQLite 文件、完整 `message-images/` 与旧 uploads 目录作为同一次停写快照备份；若存在 WAL，使用 SQLite backup API 或正常关闭后 checkpoint，不只复制仍在写入的主库。备份连同运行配置、JWT secret 和隧道凭据放在访问受限目录，不能入 Git。
 3. 新代码首次启动会迁移表结构。历史真人默认 pending；只选择确认的真人 ID 执行 `PYTHONPATH=src python -m IM.cli initialize_company --db-path "$IM_DB_PATH" --admin-id <真人ID> --active-id <另一个真人ID>`。只选管理员时省略 active-id；同一完整清单重跑幂等，另一清单拒绝。不要凭用户名、Gateway 存在或历史 owner 推断准入。
-4. 已有 Gateway 需要在各自本机执行 `python -m personal_assistant.main --config <实际配置> bind`，用有效成员接受网页链接，再在本机明确确认。私钥保持本机，交接会保留节点/Agent ID；运行凭据取代账号密码。中断时沿用本机操作文件恢复，不能生成新私钥覆盖既有身份。
+4. 先核对既有节点的 `node_credential_keys` 登记。缺少登记时保持 Tunnel 与 IM 停止，按下方“旧设备公钥导入”完成离线登记；不能用远程 bind 抢占旧节点，也不能将 Gateway 私钥复制到 IM 主机。
+5. 已有 Gateway 需要在各自本机执行 `python -m personal_assistant.main --config <实际配置> bind`，用有效成员接受网页链接，再在本机明确确认。私钥保持本机，交接会保留节点/Agent ID；运行凭据取代账号密码。中断时沿用本机操作文件恢复，不能生成新私钥覆盖既有身份。
+
+## 旧设备公钥导入
+
+在对应 Gateway 本机核实实际 node_id 与已有 `channel-credentials-v1.pem` 路径；使用该节点原私钥导出公开登记字段。私钥不存在或与已有登记不同应停止迁移，不能创建替代私钥覆盖设备身份。
+
+```sh
+PYTHONPATH=src python - /实际Gateway目录/channel-credentials-v1.pem <<'PYKEY'
+import json, sys
+from pathlib import Path
+from personal_assistant.channels.channel_credentials import GatewayChannelKeyStore
+path = Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit("Existing device key is missing")
+print(json.dumps(GatewayChannelKeyStore(path).load_or_create().registration_payload()))
+PYKEY
+```
+
+只把上述公钥输出交给 IM 维护主机，核对 node_id 和 `credential_key_id` 指纹，然后在已迁移、停止服务的 IM 数据库上执行：
+
+```sh
+PYTHONPATH=src python -m IM.cli.enroll_device --db "$IM_DB_PATH" \
+  --node-id '<实际节点ID>' --public-key '<credential_public_key>' \
+  --key-id '<credential_key_id>'
+```
+
+此命令校验公钥指纹，只登记已有节点的公开身份，不替换不同的既有公钥。完成后再启动 loopback IM，并回到各 Gateway 本机执行 bind 的持有证明、账号接受和本机确认流程。
 
 ## 源站与免费隧道
 
