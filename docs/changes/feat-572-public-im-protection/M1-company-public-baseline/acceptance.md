@@ -437,3 +437,42 @@ caller最终只读复核通知：飞书原锁仍指向unit-feat-569，相关PID1
 ## 最终清理
 
 完成只读核验并通知caller后，reviewer仅向独立auth PID43433发送TERM；已确认该进程退出且其专用端口无listener。先前4个验收浏览器均已关闭；8572原型继续保留。无生产服务、配置、数据或源码变更。报告/脱敏证据以外文件不stage，远端同步由caller统一完成。
+
+---
+
+# 独立产品验收 Round 5 — R7真实飞书定向复验
+
+> 2026-10-01；targeted=R7。最终实际运行产品版本 `821ff6ce1a53c8046b9c37d5d350470527ed0b30`。沿用现有专用飞书 Bot 和原 ownerOpenId；用户已明确授权接管原569专用E2E。只停止确认属于旧569的测试栈，未操作Mini生产。新IM、Gateway、数据库、workspace与node identity均为本轮隔离资源。
+
+## 结论与覆盖更新
+
+**R7三条均pass；合并完整验收仍fail：48 pass / 4 inconclusive。** Highest Required Action为**pass**：本轮发现的机器身份查询阻断已由caller修复并经真实外部回复复验，未留下新增实现修复要求。剩余4条仅R6公网实际域名、端口范围、停止公开访问/恢复及免费范围；本轮不替caller宣称已上线或已通过R6。Round2 UX1及前轮未失效证据继续保留。
+
+| Scenario | 期望来源 | 实际结果 | 结论 |
+|---|---|---|---|
+|飞书沿用现有主人识别与 Agent 公司资格|spec.md同名Scenario|原ownerOpenId和同Bot不变，真实私聊创建/get公司任务、群内get/apply；没有账号关联页或确认码。pending成员接受设备绑定403，批准后真实换绑成功；停用该管理者后飞书普通回复继续、任务get/create均失败。关闭task_graph工具时实际PermissionDenied。|pass|
+|外部渠道任务写入按 Agent 资格判定|spec.md同名Scenario|飞书创建图revision1，新增子节点revision2，群内改标题revision3，明确短指令删除全图revision4并get不可用。provenance为feishu+真实外部发言人，不是IM管理者；停用后新图未产生，既有图revision不变。|pass|
+|正常上传与 Agent 图片理解保持|spec.md同名Scenario；Web部分沿用R1/R2|以原生image消息上传测试PNG，实际模型回复正确指出左橙色三角形、右蓝色圆形及白背景；不是发送图片URL或文字描述替代。|pass|
+
+## 实际用户旅程与证据
+
+1. 修复前，专用Bot真实DM发送成功但无回复，标准probe在60秒内无运行卡/镜像；Gateway记录机器凭据请求真人`/me`遭401。caller提交821ff6ce1后，reviewer有序重启自己的IM/Gateway，保留原数据库/JWT/机器凭据且没有再次auto-bind。相同Bot收到`R7-572-FIXED-01`实际interactive回复卡，IM出现对应私聊和消息镜像。此处以真实回复证明恢复，不以caller单测替代。
+2. DM创建`tg_e04a3fc6`，标题`R7-572飞书共同任务`；工具先create再apply添加n2，最终revision2且n2保持todo。群内发送无@背景“松果42”后无Bot回复；随后@交办正确复述背景并在原群回复，get/apply/get把n2标题改成“检查图像已验证”，revision3，状态仍todo。DM与群的provenance.source_chat_id不同，仍操作同一图。
+3. 独立读取IM任务数据，provenance.channel=feishu，initiator_id等于原外部ownerOpenId且不等于IM管理者ID；群编辑记录真实来源。图创建、修改没有要求发言人额外关联IM账号。
+4. 在管理API移除task_graph后，真实DM工具调用被拒`tool 'task_graph' is not enabled in this session`；回复清楚区分历史数据与当前失败，独立get核对图仍revision3、标题不变。恢复工具后停止**本轮隔离IM**：真实飞书普通文字回复仍交付，实时get返回`source_unavailable`，没有伪造读取成功。IM恢复后节点重新online，离线及后续消息都进入镜像。
+5. 恢复后第一条长删除请求进入恢复窗口，实际delete两次被`confirmation_required`拒绝，图未变化；不能据此声称首次请求成功，也不把该错误直接归因为R2 UX1。确认节点online、镜像恢复、会话idle后发精确`删除 tg_e04a3fc6`，真实卡报告revision4、deleted_ids=[n1,n2]；随后get返回`not_found_or_forbidden`。本轮以这条明确人类指令验证删除成功，不扩大推论为任意长句都支持。
+6. 新测试成员pending时，真实`device-binding/accept`为403/company_membership_required；nano管理员批准后同入口200，再经公开本机bind CLI与本机yes完成同node/key/Bot换绑，原ownerOpenId复核不变。获批成员下的同Bot创建`tg_e704c9e2` revision1。管理员停用该成员后，实际飞书仍回复“普通飞书仍能对话”，但task_graph get与create均返回source_unavailable；独立公司任务列表仍只有上述一张revision1图，没有“不应创建”图。
+7. 原生PNG内容没有在提示中透露，首张image到达后Bot已自主正确描述两图形；后续文字追问再次正确回答。仅以颜色类别、形状与左右位置验收，不把模型估计的hex色值当精确像素结果。
+
+脱敏证据：[feishu-evidence.json](../evidence/reviewer-round5-r7-20261001/feishu-evidence.json)。包含真实飞书读取的测试消息/卡内容、消息ID哈希、原始结果文件哈希、图与来源核对布尔值；不提交外部OpenId、AppId、chat token、凭据、原始日志/数据库或运行配置。
+
+## 覆盖边界
+
+- 本轮**真实飞书请求**覆盖有效成员、停用管理者、未启用任务能力和IM不可达；pending是同设备绑定入口的真实拒绝，未伪造“pending Gateway已接入”。
+- 未接入/失效机器身份的通用任务边界沿用R1/R2未失效矩阵；本轮确认飞书走同一公司IM服务及真实机器/管理者链路。没有声称每一种无效身份都另发过真实飞书消息。
+- 停用管理者后的任务反馈为source_unavailable，符合当前不可用语义；它没有解释“管理者被停用”，但未误报操作成功。
+- bind CLI两次完成归属迁移后尝试macOS autostart超时退出；其临时detached进程均已退出。reviewer用原隔离foreground入口继续第一轮验证；最后归属已恢复nano。此为隔离测试运维现象，不作为本轮未验证的生产autostart成功。
+
+## 清理
+
+通过本机bind恢复隔离node/Agent至原nano账号，复核原ownerOpenId不变；之后使用e2e-down停止自己的IM/Gateway、释放专用Bot锁并关闭本轮tmux。569旧测试栈不自动重启。56920已无listener，无本轮Gateway残留，LaunchAgents未发现本轮runtime路径；未改生产服务。测试数据和私有证据保留在隔离output目录，不提交。既有8572原型服务保持。
