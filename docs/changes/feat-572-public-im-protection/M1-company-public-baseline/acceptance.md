@@ -362,3 +362,32 @@ IM由caller从33315/Gateway33655统一更新至IM41358/Gateway41369；同隔离5
 peer已交回nano，Task Graphs恢复开启，随后用官方stop清理本轮自己启动的后台服务；第一Gateway/IM/原型继续由caller管理。A/B保持suspended、C为active测试成员。tg_5508fe90已删除；原协作图tg_c1d2b5b5 revision5保持。容量fixture未再添加；过期fixture仅本轮自建binding操作（现终态），无活动上传预留。所有浏览器网络故障拦截已撤销；测试WS全部关闭。代码、测试、受控配置、spec/design均未由reviewer改动。报告仍需caller随最终交付push，不把本地commit当远端已同步。
 
 caller最终清理通知：本轮现场复验完成后已停止其第一Gateway41369与IM41358，50620无listener；运行DB/config保留，8572原型继续HTTP200。此为caller收尾记录，不冒称reviewer另做现场复验。
+
+
+---
+
+# 独立产品验收 Round 3 — C6真实模型输入定向复验
+
+> 2026-09-30；targeted=C6。产品冻结 `7df455679`。本轮只读核对指定隔离真实会话的既有请求，未重启服务，未运行新Agent。历史请求跨R1/R2及最终重启，不宣称94个请求均发生在最终commit。
+
+## Verdict与覆盖更新
+
+**完整验收仍fail**，Highest Required Action仍为**pass**（无新增实施修复要求，缺失验收不是发布许可）。C6由inconclusive改为**pass（有界实际会话证据）**；合并覆盖为**43 pass / 9 inconclusive**。Round2其余结果及UX1说明保持；C5尚未完成，不能因caller正在测试而补pass。
+
+| Scenario | 期望来源 | 独立观察与证据 | 结果 |
+|---|---|---|---|
+|Agent 按需读取而非自动摄取全部任务|spec.md同名Scenario|读取指定review572-global会话的全部94个实际上游请求文件；现存图先于会话创建，前69个完整输入未含图ID、标题或正文片段；首次ID来自人类指定图的inbox结果，正文随后才来自明确task_graph get；所有94个system均无两张验收图的ID/标题或既有图正文片段；查询后无新agent委派，图仍revision5。|pass|
+
+## C6证据链
+
+- 独立读取 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-09-30_22-24-55_971_sess_5c56f53a24a4b57e` 内94个 `*-req-anthropic_messages.json`，没有只采信caller摘要。只读运行DB再次核对 `tg_c1d2b5b5` / `572跨群发布计划` 的创建时间为13:38:55 UTC，早于该会话首请求14:24:55 UTC。
+- 首3个完整请求实际配置 `task_graph` 工具且messages分别1/3/5条；从system、工具schema和全部messages整体检查，均没有现存图ID/标题/正文片段。扩展到首次引用前的69个完整请求，结论相同。因此本会话不是因关闭工具而“看不到任务”，也没有在处理其他工作时自动摄取现存公司图。
+- 首次ID位于 `22-57-05_133` 请求的 `inbox read` 工具结果，内容为本reviewer此前实际发送的版本冲突验收消息。该消息由人类明确点名图ID并交办操作。
+- 首次标题/正文位于 `22-57-08_114` 请求的 `task_graph get` 工具结果，调用参数是指定图与scope=n3；返回revision5、根节点和指定scope。此后图内容留在普通会话工具历史里，是按需读取结果的上下文保留，不能误判成每轮system自动注入全部公司任务。
+- 全部94个请求system都没有测试图ID/标题/现存图正文片段；首次查询后无`agent`新委派。后续apply均有上述显式人类交办且被参数/版本校验拒绝，实际图保持revision5。查询没有替用户自动接单或唤醒另一Agent。
+
+脱敏证据：[model-input-evidence.json](../evidence/reviewer-round3-c6-20260930/model-input-evidence.json)。仅提交文件名、SHA-256、计数、布尔marker和消息块位置；**未提交完整system、工具schema、用户/模型消息或完整请求**。证据范围严格限这一隔离真实会话，不推广为所有provider/channel的穷举证明。
+
+## 清理
+
+已关闭本reviewer持有的4个浏览器会话：feat572-review、feat572-review-admin、feat572-review-auth、feat572-prototype-review。仅关闭浏览器，不停止8572原型服务；其HTTP200仍保留。生产代码、测试、配置和C5环境均未触碰。
