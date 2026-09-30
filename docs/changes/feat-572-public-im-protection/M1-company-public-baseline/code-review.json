@@ -1,10 +1,1 @@
-[
-  {
-    "file": "src/IM/api/public_boundary.py",
-    "line": 119,
-    "summary": "[P1] 释放响应锁后，后续附件分块仍需遵守停用边界",
-    "failure_scenario": "bf9fde 在 http.response.start 释放 company_gate，但 response_send 对后续 http.response.body 仅做5秒发送超时，不核对当前资格。隔离 ASGI 经真实200000字节附件GET，首块65536字节已发送后暂停其返回；管理员 suspend 返回200，新成员请求401；恢复旧GET后仍新发送65536、65536、3392共134464字节。首块之外的这些数据在停用提交时尚未发送，违反 design 决策2/成员撤销的清空尚未发送数据要求。原慢下载锁阻塞已修复，但C1撤销要求尚未闭合；需在HTTP后续写出复核撤销并中止失效响应，不能重新长时间持全局锁。",
-    "review_mode": "closure",
-    "status": "CONFIRMED"
-  }
-]
+[]

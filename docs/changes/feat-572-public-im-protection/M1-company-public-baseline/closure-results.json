@@ -34,5 +34,75 @@
       "test_global_consumed_sources_require_explicit_human_request_and_chat_access",
       "test_device_link_uses_configured_https_origin_behind_http_tunnel"
     ]
+  },
+  "round3": {
+    "validated_at": "7df4556795567602333771351fc4bd75ec322e94",
+    "mode": "closure",
+    "code_review": "pass",
+    "isolated_asgi_download": {
+      "attachment_bytes": 200000,
+      "suspend_status": 200,
+      "new_request_after_suspend_status": 401,
+      "chunks": [
+        {
+          "bytes": 65536,
+          "after_suspend": false
+        },
+        {
+          "bytes": 0,
+          "after_suspend": true
+        }
+      ],
+      "bytes_emitted_after_suspend": 0
+    },
+    "independent_targeted_tests": {
+      "passed": 5,
+      "duration_seconds": 0.93,
+      "files": [
+        "tests/im_service/integration/test_company_slow_download.py",
+        "tests/im_service/unit/test_gateway_rpc_gate.py",
+        "tests/im_service/integration/test_gateway_skill_activation.py",
+        "tests/unit/IM/test_public_server.py"
+      ]
+    }
+  },
+  "final_evidence_closure": {
+    "evidence_validated_at": "f695942d9892eb7af6814b48577d8620e5e26048",
+    "production_implementation": "7df4556795567602333771351fc4bd75ec322e94",
+    "fixture_review": "cfbd481a456e692a611d834fc7a1aa2b9c141fab",
+    "C4": "closed",
+    "C5": "closed",
+    "C6": "closed",
+    "code_review": "pass",
+    "findings": [],
+    "verification": "fail: R6/R7 inconclusive; not Ready PR",
+    "product_scenarios": {
+      "pass": 45,
+      "inconclusive": 7
+    },
+    "auth_sources": {
+      "actual_tcp_sources": 2,
+      "observed_requests": 48,
+      "natural_recovery_seconds": [
+        301.85,
+        901.34,
+        902.61
+      ]
+    },
+    "model_inputs": {
+      "requests": 94,
+      "complete_inputs_before_first_human_requested_graph": 69,
+      "system_graph_markers": 0
+    },
+    "final_regression": {
+      "backend_passed": 4099,
+      "backend_warnings": 27,
+      "backend_seconds": 84.53,
+      "frontend_passed": 793,
+      "frontend_files": 85,
+      "docs_maintained": 252,
+      "docs_required_routes": 75
+    },
+    "review_action": "consumed independent evidence and reviewed two fixture diffs; no all-suite rerun or implementation change"
   }
 }

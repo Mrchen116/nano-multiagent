@@ -1,6 +1,6 @@
 # Verification Report: feat-572-public-im-protection
 
-> 最新结论见末尾 Round 2：固定生产实现 `bf9fde9e3` targeted closure，C1 still_open；W1–W4 closed；P1 全局删除来源修复 covered。R6/R7 与完整 prototype 对照仍未验收。Round 1 保留历史基线，不能将其旧问题数当作当前存活问题数。
+> 最新结论见末尾 Round 5：生产实现仍固定 `7df455679`，消费最终证据HEAD `f695942d9` 与两fixture提交 `cfbd481a4`；代码审查 pass（`[]`），C4/C5/C6均closed。Verification仅剩R6/R7两组外部门槛，45 pass / 7 inconclusive；完整验收仍fail，不可Ready PR。前几轮保留历史基线，旧问题数不代表当前状态。
 
 > Round 1 · verification_mode: full · executed_base: `7340a7805` · validated_at: `d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96` · branch: `codex/feat-572-public-im-protection`
 > 固定版本独立审查；审查者未实施该版本，只写本报告与 code-review/evidence。工作目录为 `.worktrees/unit-feat-572`。后续工作区修复不改变本报告基线。
@@ -157,3 +157,89 @@ C4 不要求机械逐像素相同；要求已有明确 must-match 在两个 view
 最新额外 stub E2E `/tmp/feat572-review-e2e-updated.log` 为 **3 passed / 3 failed**（config PATCH503/重连、compaction摘要0、skill allowlist未更新），caller正在核实根因，尚未构成独立 confirmed finding，但收尾不能忽略。Round 1 live config RPC直接回包白名单的 REFUTED 仅排除“响应本身等gate”假说，**不排除 WS顺序recv先读普通帧等gate、后续RPC响应因此读不到**的不同FIFO路径；这个新候选须用caller确定性复现/修复证据闭合。
 
 当前 `code-review.json` 是本轮存活数组；Round 1原问题与原full证据保留在上文和已提交历史，本轮 `closure-results.json` 只保存非敏感数字与用例名。报告与JSON交caller提交。
+
+## Round 3: final targeted closure
+
+> verification_mode: closure · executed_base: `bf9fde9e31848bbd290586ab5e7633e7e180d20c` · validated_at: `7df4556795567602333771351fc4bd75ec322e94` · report_commit: caller 待记录。
+> 只核派发的修复和新增 delta；复用前两轮未失效证据。未修实现、未提交报告、未重跑完整全量或操作共享产品服务。
+
+**Code review: pass，存活 CONFIRMED/PLAUSIBLE finding 为0，`code-review.json = []`。Verification: fail / 外部门槛阻塞。当前3 CRITICAL（C2 R6、C3 R7、C4完整prototype对照证据待补）、0 WARNING、0 SUGGESTION。** R6/R7保持 inconclusive；不能据本地代码 pass 宣称M1完成或Ready PR。若独立产品Round2随后提供全部 must-match对照，C4可由对应证据闭合，本报告不预支结论。
+
+| Focus | Closure / 实现与证据 |
+|---|---|
+| HTTP C1后续分块撤销 | **closed**。`public_boundary.py:response_send` 对受保护body在短gate范围内重新核对current_data_principal，失效发空终结body并停止该响应；网络send仍5s有界、在锁外，不恢复慢下载阻塞。独立重复Round2相同200000-byte/首块65536/停用竞争：suspend200、新GET401，之后仅空body，**未发送剩余134464字节**，见closure-results.round3。 |
+| 同WS普通帧等gate挡住后续RPC（Round2新候选） | **closed / 原候选已被caller证实并修复**。`ws/gateway/runtime.py:serve` reader继续分发明确RPC回执；其他业务帧进入256条/4MiB有界队列，单worker顺序消费时在gate中重验连接授权。先heartbeat等gate、后config.apply.result的确定性用例独立通过；43窄测与实际config更新E2E pass证据复用。Round1直接回包白名单反证仍只针对原假说，不能覆盖此FIFO问题；本轮才闭合FIFO。 |
+| ASGI取消时两个owned任务与连接回收 | **covered**。serve FIRST_COMPLETED后取结果，finally shield中取消/await gather两个owned任务，再按expected_websocket注销；没有遗留reader/worker持续消费。断开/取消15项证据复用，最终IM/contract763覆盖。 |
+| 机器自演化Skill创建后激活 | **closed**。PA `agent_config_sync._patch_agent_skills` 改 POST追加入口，IM `agents.enable_agent_skills` 仅 current_gateway+相同owner/node Agent，输入extra=forbid、版本乐观锁，合并原skills、从candidate_from_profile保留完整其余字段，走已有Gateway apply事务。真人完整PATCH仍current_user，机器不能因此取得真人管理能力。边界/版本/保留配置测试独立通过；相关45项和真实Skill创建/启用/新会话使用20.58s pass复用。 |
+| 直接ASGI与public launcher日志脱敏 | **covered**。共享 `IM.infra.logging.RedactCredentials`，直接app lifespan安装实际uvicorn.access/error logger过滤；public launcher仍handler过滤。两启动入口测试独立通过，保留握手诊断但去ticket/token等值。 |
+| 新delta与design一致性 | **covered**。新增 `specs/im/gateway-relay.md` 对应current gateway-relay consumers，场景覆盖本机机器HTTP数据、失效身份/错node、shadow真实来源、不授予真人管理、仅本机Skill追加；design“复审实施补充”明确队列有界/纯RPC继续读、逐块撤销及两启动脱敏，与实现和测试吻合。current spec保持不动，pending归并不当缺陷。 |
+| 全局exact delete/认证两视口 | caller交接 **实际产品pass**；静态授权边界沿用Round2 covered（真实human/current run/完整committed parts/命名匹配）。其余must-match产品对照尚在独立补证，完整C4保持未关闭。 |
+
+### Evidence and limits
+
+独立执行本unit隔离import数据库路径（临时output目录）下 repo venv `python -m pytest -q`：`test_company_slow_download.py`、`test_gateway_rpc_gate.py`、`test_gateway_skill_activation.py`、`tests/unit/IM/test_public_server.py`，**5 passed in 0.93s**。随后独立重放Round2先发首块再暂停return的ASGI harness，结果200000-byte文件仅返回65536，停用之后body bytes为0。自建临时目录全部回收，无端口服务/公网/生产/其他unit操作。
+
+复用且直接核日志末尾：`/tmp/feat572-review-im-final.log` **763 passed / 32.09s**；`/tmp/feat572-machine-skills-e2e.log` **1 passed / 20.58s**；`/tmp/feat572-final-docs.log` **251 maintained /75 routes**。43 FIFO与15断开、45技能相关、Ruff及实际config更新E2E按implementation/caller交接复用；无需角色交接重复全量。前两轮4090/4095基础和前端792+窄修证据保持各自原始状态，不冒称所有历史E2E全绿。
+
+压缩stub E2E `summary_records=0` 在本unit前 `7340a7805` 独立gitarchive源码亦失败，`/tmp/feat572-compaction-baseline.log`末尾同断言0==1、1 failed/7.26s；本unit未改kernel。此项记录为**已证实基线sidefinding**，不作为本unit回归/新code-review finding，不扩展内核修复。
+
+R6真实公网/免费项/真实恢复需要当次授权，R7专用Feishu Bot仍被另一unit占用，均未验收；保持设计要求，不以模拟、本地服务或机器E2E替代。完整原型对照仍等独立产品Round2。报告与最新JSON交caller提交；受审实现固定7df455679。
+
+## Round 4: product evidence closure only
+
+> evidence_snapshot: `ccb75e104c164fe0dba62231898be374e358f3f4` · implementation_validated_at remains `7df4556795567602333771351fc4bd75ec322e94`。
+> 本轮仅消费新独立产品报告/必要证据，不重审源码、不改实现、不提交报告。
+
+**C4（M1-W1完整must-match双视口对照）：closed。代码审查仍pass，`code-review.json=[]`。Verification仍fail / 必验门槛阻塞，当前4 CRITICAL证据缺口组、0 WARNING、0 SUGGESTION。** 这里新增列出的两组本地缺口来自独立产品验收的inconclusive，不推定实现错误；它们不能由已有单测或实施陈述升级为产品pass。
+
+### C4 closure basis
+
+`acceptance.md` Round2“必需原型对照补齐”按八个区域列出真实1440×900/390×844状态与match结论，继承Round1未失效的已验主流程，并补齐曾缺的登录错误、成员批准失败、任务搜索空/错、绑定取消/失效/过期、附件格式/网络/冷却、策略保存失败草稿/重试、双语Me及实时恢复。Round1完整交接/本机中断恢复、群任务/回聊草稿、管理员容量/普通只读有效证据仍适用。产品Round2明确区分浏览器故障注入、后端限额实测与fixture，不把注入当成真实自然冷却或实际GiB上传。
+
+必要证据核查：`reviewer-round2-20260930` **36张PNG**的IHDR尺寸全部为其命名声明的1440×900或390×844；独立查看 `login-error-390.png`（对齐输入简短红字/输入保留）、`attachment-network-1440.png`（对应文件chip可Retry、正文和仅文字入口保留）、`policy-failed-390.png`（六字段双卡、Unsaved changes、保存控件）、`bind-expired-390.png`（接收影响/账号与不可接受旧链接状态）。它们与产品报告结论一致。原C4是产品证据链不足，现已补足；无需对已验全部页面机械再执行旅程。
+
+### Current required gates
+
+| ID | 未完成标准 / 当前证据 | 状态与下一步 |
+|---|---|---|
+| C2 / R6 | 真实域名HTTP/WS、公网仅IM、免费项、真实停入口/恢复发布现场，缺当次授权及CF/源站窗口 | **inconclusive / blocked by external prerequisites**。保持原标准，取得授权后真实验收；本地服务不能替代。 |
+| C3 / R7 | 真实Feishu主人识别/外部图片理解/任务读写资格/离线普通对话，专用Bot被另一unit占用 | **inconclusive / blocked by external prerequisites**。独占窗口后验证，不能抢占或mock补pass。 |
+| C5 / 本地认证滥用保护的完整旅程 | product Round2“单一来源反复尝试被节流”“同一账号的分散密码猜测受到限制”仍inconclusive；已见账号自然恢复与伪造头不能绕过，但注册/来源自然完整冷却、多真实TCP来源同账号证据仍缺 | **inconclusive / evidence pending**。caller正在补限定隔离证据，交产品reviewer定点验收后再闭合，不提前pass。对应spec认证滥用保护、M1-R1/W2。 |
+| C6 / 按需读取而非自动摄取全部任务 | product Round2真实get/search及不自动执行已见，尚缺该测试真实轮次发送给模型的完整输入 | **inconclusive / evidence pending**。caller补限定会话模型输入证据，产品reviewer核对后闭合；无工具调用不等于未注入正文。对应spec任务读取Scenario、M1-R3/W3。 |
+
+独立产品Round2合并结果为 **42 pass / 10 inconclusive**，无新major实施失败，P1真实global精确短指令删除、P2认证视觉、最终启动ticket日志均closed。UX1长自然语言仍需精确短确认保留为报告中的minor确认体验限制；最终错误提示话术未单独再次造图重验，按原报告保留此事实，不擅自升级成新实施阻塞或已闭合证据。
+
+当前四组缺口覆盖产品10个未决Scenario；不降低要求、不预支caller正在补的证据。产品场景通过、代码pass、M1完整验收/发布是不同结论。生产实现7df455679与Round3代码证据保持不变；本轮只更新verification当前门槛。git diff --check通过，交caller提交。
+
+## Round 5: final evidence and two-fixture closure
+
+> final_evidence_head: `f695942d9892eb7af6814b48577d8620e5e26048` · production_implementation: `7df4556795567602333771351fc4bd75ec322e94` · fixture_delta: `cfbd481a456e692a611d834fc7a1aa2b9c141fab`。
+> 本轮仅消费独立产品Round3/4与脱敏证据，审两个已审机器技能入口对应的旧测试桩差异；没有全量重跑/源码全审、没有实施修改。三份既有报告由本审查者按caller授权直接提交，实际report_commit可查本文件git历史。
+
+**Code review: pass，`code-review.json=[]`。Verification: fail / 2 CRITICAL（C2 R6、C3 R7必验未完成）、0 WARNING、0 SUGGESTION。独立产品最终合并45 pass / 7 inconclusive，剩余7条全部属于R6/R7。不可Ready PR，不可宣称M1完成、归档或已部署。**
+
+| Focus | 最终结论与足够证据 |
+|---|---|
+| C5 来源限流、跨来源账号节流、完整自然冷却 | **closed（限定本机真实TCP双源）**。产品Round4 `f695942d9` 独立读完整隔离server/qualify/results/peer日志并只读DB；脱敏 `reviewer-round4-c5-20260930/auth-source-evidence.json` 有48条HTTP、两OS绑定源、proxy_headers=False、无伪造来源头、未改时钟/限额/DB计数。A注册5次201后429而B201；A来源登录上限429而B200；两个源同账号交替10次错密后正确密码也429。相应自然301.85/901.34/902.61秒后原来源登录/注册/账号均恢复。7用户35会话与成功请求计数吻合。不是两台Internet客户端，不代替R6域名/代理来源验证。 |
+| C6 模型按需读取而非自动摄取全部任务 | **closed（限定真实隔离会话）**。产品Round3 `332d6a93f` 独立读94个实际上游请求，脱敏manifest94条；现存图早于会话存在，首次引用前69个完整输入均无该图ID/标题/正文片段，首3请求task_graph启用，全部94个system图标记0。首次ID来自人类点名的inbox结果，正文随后来自显式task_graph get并留在普通工具历史，之后无Agent新委派，图保持revision5。证据 `reviewer-round3-c6-20260930/model-input-evidence.json` 不导出完整system/工具schema/消息，只保留哈希、计数、布尔和块位置。不推广成所有provider/channel穷举结论。 |
+| C4 原型对照 | 保持Round4 **closed**，没有失效实现变化。 |
+| 两个旧测试桩适配 | **pass，未发现实质问题**。`test_session_run_coordinator_real_kernel.py` 模拟请求从PATCH改POST，断言确切 `/agents/agent-a/skills/enable` 和仅profile_version/skills；仍构造完整候选送真实apply，验证响应尚阻塞时运行admission使用原system、无pending边界、自动技能已持久登记。`test_gateway_reconcile_callback.py` 对静态Agent技能POST返回503，config只允许GET，仍断言失败静态Agent保持原memory且另一个Agent成功对账。未弱化原应用时序/失败隔离语义；相关6项及最终全量绿证据复用，不重复跑。 |
+
+### Final validation evidence
+
+直接读取日志末尾并核implementation新增记录：
+
+- `/tmp/feat572-final-all-backend-green.log`：not-e2e **4099 passed / 27 warnings / 84.53s**。
+- `/tmp/feat572-final-all-frontend.log`：**793 passed /85 files**。
+- `/tmp/feat572-final-docs-closure.log`：**252 maintained Markdown /75 required routes**。
+
+以上是caller最终冻结回归，本审查者没有重跑。源码生产保持7df455679；cfbd仅2个测试桩与implementation记录，332d/f695仅独立报告和脱敏证据。前几轮HTTP撤销/FIFO/机器技能/日志入口独立closure证据仍有效。compaction stub同7340基线失败的sidefinding保持原边界，不称所有E2E全绿、不扩展kernel。
+
+### Only remaining required gates
+
+| ID | 尚未验收Scenario | 状态 |
+|---|---|---|
+| C2 / R6 | 实际域名访问/实时；公网仅IM；真实停止公开访问与恢复；实际免费项核对 | **inconclusive**。真实公网未获当次授权、未部署；localhost、测试全绿与报告提交不能替代。 |
+| C3 / R7 | 飞书主人识别/Agent公司资格；外部渠道任务写入资格；正常上传与Agent图片理解（Web已验，外部飞书仍缺） | **inconclusive**。原专用Bot锁仍unit-feat-569/PID15775存活；不抢占、不mock补pass。 |
+
+本地验收服务均由各owner清理，8572原型保留；本轮未再启动或操作服务。UX1确认体验限制保持原产品报告记录，不扩大要求、不放宽人工授权。三份报告范围之外dirty/untracked保留，提交报告不等于Ready PR、远端同步、上线或M1归档。
