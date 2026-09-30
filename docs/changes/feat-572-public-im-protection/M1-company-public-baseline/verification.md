@@ -1,6 +1,6 @@
 # Verification Report: feat-572-public-im-protection
 
-> 最新结论见末尾 Round 6：定向审查 `00a7f05e4 → 821ff6ce1` 的真实R7 shadow机器identity修复，code-review pass（`[]`）。此前未失效证据保持；公网部署/专用Bot接管已获授权，但R6实际公网验收、R7真实复验尚未通过，Verification仍fail / 不可Ready PR。旧轮次缺授权/Bot占用只作为历史原因，不代表当前前置状态。
+> 最终结论见末尾 Round 7：实际产品/实现固定 `821ff6ce1`；R7/R6独立报告均已落盘，产品52 pass /0 fail /0 inconclusive。Verification **pass**，corrected-delta **aligned**，CRITICAL/WARNING为0；code-review沿用pass（`[]`）。正式生产切换不属于本次隔离验收，不将文档/evidence SHA冒充运行版本。前轮失败与问题数保留历史，不代表当前门槛。
 
 > Round 1 · verification_mode: full · executed_base: `7340a7805` · validated_at: `d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96` · branch: `codex/feat-572-public-im-protection`
 > 固定版本独立审查；审查者未实施该版本，只写本报告与 code-review/evidence。工作目录为 `.worktrees/unit-feat-572`。后续工作区修复不改变本报告基线。
@@ -267,3 +267,39 @@ R6真实公网/免费项/真实恢复需要当次授权，R7专用Feishu Bot仍�
 - **R7 / C3仍未验收。** 用户已授权接管569原专用Bot，原资源占用已由caller处理；独立reviewer首次实测发现真实消息无回复并定位本次shadow身份回归。正在重启复验修复。**原“不能接管Bot”仅是历史状态**，当前缺口是修复后真实飞书全部必验旅程结果，不能提前pass。
 
 C4/C5/C6前轮已闭合并未因这批窄身份查询变化失效；产品45 pass/7 inconclusive仅作为上一轮合并历史，待新R7报告按实际结果更新。无新增推测要求、无全量源码重新审查。三份报告中code-review.json保持有效空数组无需制造格式差异，closure-results追加本轮元数据；无secret/完整日志/本地配置提交。
+
+## Round 7: final verification closure and corrected-delta
+
+> verification_mode: targeted-closure + corrected-delta · implementation/product_validated_at: `821ff6ce1a53c8046b9c37d5d350470527ed0b30`。
+> R7 evidence: `1fc64aa24`；R6 evidence: `b106af9b6819a7ac2d6afd229f6c5b6736ed61f9`；corrected Work/directory delta: `0c24484eba53081afb787487ba266d01858c0ec3`；scope/cleanup document snapshot: `84c8d168b2e227b4077025de98f7bb82eeabd477`。
+> final sync origin/main `1519ebb82`只增加bugfix-574首文档，无src/tests变化。上述文档/evidence提交不冒充真实产品执行版本。前轮代码审查pass和未失效测试/产品证据复用，不机械重审实现、不重跑全量或再次操作现场。
+
+**Verdict: pass。0 CRITICAL、0 WARNING、0 SUGGESTION。corrected-delta: aligned。requires_full_verification: false。code-review pass（`code-review.json=[]`）。独立产品最终52 pass /0 fail /0 inconclusive，Highest Required Action pass，新增blocking/major为0。** 当前实施/验收/校正delta门槛已完成，可继续canonical归并、归档及PR/CI流程；本报告不代替合并授权、CI结果或正式生产切换。
+
+### Completeness / final external closure
+
+| 历史门槛 | 最终证据与结果 |
+|---|---|
+| C3 / M1-R7真实Feishu | **closed**。acceptance Round5为真实原专用Bot、原ownerOpenId、独立新IM/Gateway/node/数据。821修复后真实DM交付卡与shadow镜像恢复；原生PNG实际辨认橙色三角形/蓝色圆；群无@背景不回复、@读取背景并改同图revision2→3；短明确删除revision4/get拒绝；provenance是feishu真实发言人而非IM管理者。关闭工具真实PermissionDenied；IM不可达/owner停用普通飞书继续但任务如实失败且无新图；pending binding403、批准后真实整体换绑。通用失效机器矩阵复用有效前轮证据，没有声称每个身份又独立发真实飞书。`reviewer-round5-r7-20261001/feishu-evidence.json`保存脱敏消息/卡、哈希与事实核对。 |
+| C2 / M1-R6真实域名、限定公网、免费配置、停止/恢复 | **closed**。acceptance Round6在`https://im.nanoim.win`实际独立测试部署：TLS正确、无Cloudflare Access额外登录；浏览器登录/聊天/LLM/图片/任务/Work可见。真实en0物理出口HTTPS200和WSS101/resume成员事件，cloudflared公网上游；仅127.0.0.1:18572源站与指定域名Tunnel ingress+末尾404，无Gateway公网映射。停止测试Tunnel实得502。停写同次SQLite backup+data快照恢复独立副本，旧access/refresh/runtime401，未使用ticket在1.07秒（寿命30秒）403；freshlogin/bind后旧runtime仍401、新runtime200，排除仅离线造成的假验证。历史聊天/图响应exact equal、3330-byte附件SHA一致，真实恢复后get/回复成功。官方Dashboard Free/Active、Zero Trust Free/0美元月费已独立核对，免费范围不含域名/硬件/LLM。 |
+| C4/C5/C6及其余R1–R5/W1–W4 | **保持closed/covered**。全must-match双视口、真实TCP来源自然冷却、完整真实模型输入及原身份/对象ACL/任务/交接/容量/SSRF/架构证据未失效；不重复整个unit验收。 |
+
+必要最终证据消费：直接读取R7/R6独立报告和脱敏JSON；R6结构化证据的5张PNG SHA全部匹配、尺寸全部1200×731，抽查真实Work与恢复聊天画面符合产品报告。未读取/输出无关私聊、完整凭据或生产配置，不把HTTP健康替代实际回复。Round2 UX1长自然语言仍需精确短确认保留为非阻塞minor体验记录，不放宽人工授权、不新增实施要求。
+
+### Corrected-delta / coherence
+
+| 最终delta | 核对结论 |
+|---|---|
+| 新 `specs/im/agent-work.md` MODIFIED | **aligned**。与current同名Requirement逐块比较，恰好仅两处“登录用户”前提改为有效公司成员；全部原Work完整共享、子执行、持续更新与原聊天/附件ACL语义不变。实际`agent_work.py:get_work/get_turns/get_items`依赖current_user（active），不添加owner过滤；批准spec“既有共享Work保持”及pending/suspended拒绝直接成立。 |
+| `specs/im/agents-nodes.md`追加目录MODIFIED | **aligned**。保持current同名Requirement和所有Scenario，唯一目录准入WHEN改为已登录有效公司成员。实际`web_im.py:list_contacts/get_contact`依赖current_user，不放开完整配置管理；和已批准公司共享联系人要求吻合。 |
+| 其余七份已审delta / 最终八份合计 | **aligned**。既有auth-tenancy、agents-nodes其余块、IM/gateway task-graphs、conversations-messages、external-channels、gateway-relay（含821 machine identity）按前轮已审生产实现/证据保持有效。独立校验八份delta中全部MODIFIED/REMOVED标题在对应current文档存在；ADDED、REMOVED任务owner范围与active公司目标一致。最终没有发现缺少的受影响对外行为或需要文档修订的差异。 |
+| current与active归并时机 | current尚未覆盖是正确active阶段，**不列缺陷**。caller下一步按已aligned delta归并canonical/归档；本审查者未提前修改current或实现。 |
+| 用户确认的部署/验收边界 | design M1-R6补充、public-rollout与implementation明确：全部验收独立测试部署，用新账号/数据/密钥/node，不复制生产数据；PR+CI后用户合入，再正式生产切换。真实域名只映射隔离18572，撤回错误Access登录前置而非换域名绕过。此边界已授权，不把生产迁移追加为PR门槛。 |
+
+### Validation / cleanup / residuals
+
+- 直接核 `/tmp/feat572-r7-identity-full.log`末尾：修复后backend **4100 passed /27 warnings /122.45s**。frontend **793 passed /85 files**原有效证据复用；tracked Python Ruff/checkformat1126按caller交接复用。基线compaction stub E2E sidefinding保留既有证据范围，不扩展kernel。
+- 独立追加仅文档完整性：repo venv `python scripts/docs_check.py` → **254 maintained Markdown sources /75 required routes passed**。工作和目录delta逐块比对True，八份MODIFIED/REMOVED current标题映射均存在，五张公网截图哈希/尺寸一致。git diff --check通过。
+- 审查者未创建新现场。R7已e2e-down释放Bot测试锁/关闭本轮进程；84c8 cleanup记录官方stop已停止本机测试PID78527、Mini测试IM1973和testTunnel，18572/51636无listener、相关tmux无会话，8572原型保留HTTP200。隔离原目录/快照保留，正式生产8011和生产数据未触碰；这是caller收尾记录，不冒称审查者再次现场复验。
+
+**无剩余verification/code-review阻塞。** 全部结论限定到受审821实现、有效基线和明确隔离真实平台证据；不宣称零漏洞、全provider穷举或正式生产已切换。只有verification报告发生本轮必要更新，空code-review无需无意义改动；报告提交与后续PR/CI/合入/生产切换各自保持可辨。
