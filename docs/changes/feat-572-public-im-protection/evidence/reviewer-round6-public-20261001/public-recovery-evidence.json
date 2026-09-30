@@ -1,0 +1,163 @@
+{
+  "validated_at": "821ff6ce1a53c8046b9c37d5d350470527ed0b30",
+  "environment": "Dedicated test company, test DB and test gateways. Production service and data untouched.",
+  "domain": "https://im.nanoim.win",
+  "scope": "R6 four remaining scenarios; earlier unaffected R1-R7 evidence reused.",
+  "messages": [
+    {
+      "sender_type": "user",
+      "content": "R6-572-PUBLIC-02：请回复“公网真实聊天已到达”，使用task_graph创建一张标题R6公网恢复验收的公司任务图，根描述含恢复标记松果772。只创建一次并get确认，回复图ID和revision，结束本次工作。",
+      "attachment_count": 0
+    },
+    {
+      "sender_type": "agent",
+      "content": "公网真实聊天已到达\n\n任务图已创建（仅一次）并已 get 确认：\n- 图ID：tg_1ec04d89\n- 标题：R6公网恢复验收\n- revision：1\n- 根描述含恢复标记：松果772\n- 链接：https://im.nanoim.win/tasks/tg_1ec04d89\n\n本次工作结束。",
+      "attachment_count": 0
+    },
+    {
+      "sender_type": "user",
+      "content": "R6-572-IMAGE：请实际看这张图，简短描述颜色、形状和左右位置。",
+      "attachment_count": 1
+    },
+    {
+      "sender_type": "agent",
+      "content": "图片内容：白色背景上有两个图形。\n- 左侧：橙色实心三角形（尖朝上，底边水平）。\n- 右侧：蓝色实心圆形。\n两者高度大致相当，横向排列，中间有一定间距，三角形整体略大、位置稍偏上。",
+      "attachment_count": 0
+    },
+    {
+      "sender_type": "user",
+      "content": "R6-572-RECOVERED：请实时get tg_1ec04d89，回复其恢复标记与revision，并明确说“恢复后真实聊天可用”。只读，不修改任务。",
+      "attachment_count": 0
+    },
+    {
+      "sender_type": "agent",
+      "content": "实时 get tg_1ec04d89 结果（只读，未做任何修改）：\n- 恢复标记：松果772\n- revision：1\n- 标题：R6公网恢复验收\n- 根节点：n1，mode=dag，status=todo\n\n恢复后真实聊天可用。",
+      "attachment_count": 0
+    }
+  ],
+  "network": {
+    "http_login_en0": 200,
+    "tls_valid": true,
+    "ws_en0": 101,
+    "ws_peer_public_ipv4": "172.67.198.30",
+    "source_interface": "en0",
+    "proxy": "disabled",
+    "tailscale_not_modified": true,
+    "without_origin_ws": 403
+  },
+  "ws_after_restore": {
+    "ws_http": 101,
+    "source_interface": "en0",
+    "public_peer": "104.21.42.14",
+    "proxy": "disabled",
+    "resume_frames": [
+      {
+        "op": "event",
+        "event_type": "message.sent",
+        "event_id": 1
+      },
+      {
+        "op": "event",
+        "event_type": "relay.accepted",
+        "event_id": 2
+      },
+      {
+        "op": "event",
+        "event_type": "message.sent",
+        "event_id": 3
+      }
+    ]
+  },
+  "attachment": {
+    "url": "/im/v1/conversations/c_9aifjv8r/attachments/9876f6d61e034d3d813b507b1e998c91",
+    "sha256": "e0dd422c704a29f3a3a5cf6c4857b86fbbeed687bd7f275db806cf98092ba4b7",
+    "bytes": 3330,
+    "same_as_upload": true
+  },
+  "restore": {
+    "access_status": 401,
+    "refresh_status": 401,
+    "runtime_identity_status": 401,
+    "ticket_status": 403,
+    "ticket_age_seconds": 1.07,
+    "ticket_expires_in": 30,
+    "fresh_login": 200,
+    "messages_status": 200,
+    "graph_status": 200,
+    "integrity_check": "ok",
+    "attachment_files": 2,
+    "attachment_files_sha_preserved": true,
+    "node_epochs_incremented": true,
+    "new_jwt_secret": true,
+    "source_data_untouched": true
+  },
+  "restored_public": {
+    "graph_exact_equal": true,
+    "messages_exact_equal": true,
+    "attachment_sha_equal": true,
+    "fresh_browser_login_restored_task": true
+  },
+  "observations": {
+    "public_after_tunnel_stop": 502,
+    "old_browser_after_restore": "redirected to /login",
+    "new_browser_login": "returned to preserved task page",
+    "old_runtime_after_fresh_bind": 401,
+    "new_runtime_after_fresh_bind": 200,
+    "same_node_after_bind": true,
+    "pending_public_data": 403,
+    "active_public_data": 200,
+    "source_listener": "127.0.0.1:18572",
+    "ingress": [
+      {
+        "hostname": "im.nanoim.win",
+        "service": "http://127.0.0.1:18572"
+      },
+      {
+        "service": "http_status:404"
+      }
+    ],
+    "tunnel_ingress_validate": "OK",
+    "tunnel_protocol": "http2",
+    "tunnel_upstream_public": "198.41.x.x:7844",
+    "cloudflare_zone_plan": "Free",
+    "cloudflare_zone_status": "Active",
+    "cloudflare_one_plan": "Zero Trust Free",
+    "cloudflare_one_price": "0 USD/month",
+    "free_scope": "Cloudflare plan/tunnel only; domain registration, hardware, electricity, connectivity and LLM usage are not claimed free.",
+    "work_ui": "Global work, two completed turns, actual tool rows visible",
+    "unavailable_fixture": "Initial Mini-only LLM localhost4000 refused connections; substituted separately bound local test gateway without touching production.",
+    "gateway_listener": "127.0.0.1:51636 local control only, no tunnel mapping",
+    "retained_test_stack": {
+      "im_pid": 1973,
+      "local_gateway_pid": 78527,
+      "production_touched": false
+    }
+  },
+  "screenshots": [
+    {
+      "file": "public-chat.png",
+      "sha256": "0e5d1dc72cdc2025e7295fee9eceeaed177e9f01c2d9164779a330eb476424ee",
+      "viewport": "1200x731"
+    },
+    {
+      "file": "public-work.png",
+      "sha256": "91ddf3d8f3ad784f0fe27e28fc4ad330f5326cfe8e1c68a1e1ebb58bba3da1e5",
+      "viewport": "1200x731"
+    },
+    {
+      "file": "public-task.png",
+      "sha256": "ab3216da61e724330d7a8f6d69f6bf606b212acbcabbfc9507ef26d571190490",
+      "viewport": "1200x731"
+    },
+    {
+      "file": "restored-task.png",
+      "sha256": "ab3216da61e724330d7a8f6d69f6bf606b212acbcabbfc9507ef26d571190490",
+      "viewport": "1200x731"
+    },
+    {
+      "file": "restored-chat.png",
+      "sha256": "db018a2df6f2f9a7be0563805124b902f2c3d4b3f9ac28cf87c712f0f9216b3e",
+      "viewport": "1200x731"
+    }
+  ]
+}

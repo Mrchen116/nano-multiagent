@@ -476,3 +476,56 @@ caller最终只读复核通知：飞书原锁仍指向unit-feat-569，相关PID1
 ## 清理
 
 通过本机bind恢复隔离node/Agent至原nano账号，复核原ownerOpenId不变；之后使用e2e-down停止自己的IM/Gateway、释放专用Bot锁并关闭本轮tmux。569旧测试栈不自动重启。56920已无listener，无本轮Gateway残留，LaunchAgents未发现本轮runtime路径；未改生产服务。测试数据和私有证据保留在隔离output目录，不提交。既有8572原型服务保持。
+
+---
+
+# 独立产品验收 Round 6 — R6真实公网与隔离恢复收口
+
+> 2026-10-01；targeted=R6四条。实际测试产品版本 `821ff6ce1a53c8046b9c37d5d350470527ed0b30`；本轮期间分支后续只同步文档，不把它冒充已运行产品版本。用户明确所有公网与恢复验收使用独立测试环境，PR/CI后由用户合入再决定正式生产切换。因此本轮的真实域名指向**独立测试IM**，不是生产部署验收，未接触生产8011、生产数据库或生产Gateway配置。
+
+## 最终产品验收结论
+
+**pass：52 pass / 0 fail / 0 inconclusive。Highest Required Action：pass。** R1–R5未失效证据沿用，最后4条R6已完成。新增blocking/major为0；Round2 UX1既有minor限制保留，不自动提升为任意长自然语言删除均可用。本结论覆盖受审实现与明确隔离范围，不授权合并或正式生产切换，也不将公司成员正式准入清单视为已确定。
+
+| Scenario | 来源 | 独立实际结果 | 结论 |
+|---|---|---|---|
+|本机通过实际域名访问与实时使用|spec.md同名Scenario；public-rollout.md源站与免费隧道|真实`https://im.nanoim.win`浏览器登录、聊天/LLM回复、图片理解、Work、任务页成功；独立en0物理出口HTTPS登录200、WSS101并resume收到成员事件，未关闭全局Tailscale。|pass|
+|公网仅开放预定 IM 服务|spec.md同名Scenario|实际源站仅127.0.0.1:18572监听；named tunnel配置只有im.nanoim.win→该loopback端口及最后404，ingress validate通过；Gateway仅有本机控制用loopback监听，未映射公网，cloudflared出口为198.41.*:7844公网端点。|pass|
+|故障时可停止公开访问并恢复|spec.md同名Scenario；public-rollout.md回退和旧凭据失效|停止本测试Tunnel后公网502；同次停写快照恢复到独立副本，轮换测试secret/epochs，旧access/refresh/runtime拒绝、未过期ticket拒绝；freshlogin/bind后历史与附件一致，真实聊天/get恢复。|pass|
+|免费部署范围可核对|spec.md同名Scenario|reviewer在已登录官方Dashboard独立只读看到nanoim.win有效订阅免费套餐/活动，以及Zero Trust Free、0美元/月。未选择或启用付费项；区分域名/机器/LLM等非套餐成本。|pass|
+
+## 环境与公网实证
+
+- 初始Mini测试目录为`output/public-review-20261001`，全新测试公司、账号和数据，source checkout HEAD实际为821ff6ce1；IM PID1305的cwd为该目录，仅监听`127.0.0.1:18572`。这与生产8011严格分开。
+- 域名正常TLS验证通过，普通浏览器直接进入产品登录页，没有Cloudflare Access中间登录。以测试管理员完成登录。经公网注册新测试成员后，pending读取业务403；批准后读取200。
+- 原Mini测试Gateway模板的localhost4000不可达，首条请求最终出现明确transport error；该fixture未冒充成功。caller准备独立本机`review572-local`（新key、public-global/public-session）后，reviewer以同真实域名完成全部LLM旅程。Mini测试Gateway已停止，不启动或修改生产LLM代理。
+- **不依赖Tailscale的实测边界：** HTTPS请求使用`curl --interface en0 --noproxy '*'`，TLS校验结果0，远端为Cloudflare公网IPv6；该目的地址的系统路由为物理en0。另用绑定en0本地IPv4的socket、禁用代理建立真实域名WSS，101成功；发送resume后收到message.sent、relay.accepted等实际成员事件。恢复后重复成功。Mini cloudflared的4条上游TCP连接实际通向198.41.*:7844，未走Tailscale。没有全局断开用户网络，也没有通过hosts或临时域名替代正式域名。
+- 隧道配置只包含`im.nanoim.win → http://127.0.0.1:18572`与末尾`http_status:404`，protocol=http2，实际ingress validate为OK。这里证明的是**本次测试发布入口**未映射其他服务；没有宣称扫描过用户所有无关公网资产。
+
+## 浏览器真实用户旅程
+
+1. 通过Agents选择在线public-global并打开聊天，发送R6-572-PUBLIC-02；实际回复“公网真实聊天已到达”，task_graph create/get生成`tg_1ec04d89`、revision1，根描述包含“松果772”。浏览器任务页显示同标题、描述、修改者、revision及回到聊天入口。
+2. 在聊天编辑器粘贴实际PNG后正常发送，浏览器出现可查看的图片，Agent回复左侧橙色实心三角形、右侧蓝色实心圆形。通过公网受保护附件地址下载3330字节，与上传文件SHA-256相同。
+3. 点击真实回复中的View Work，Work页显示主Agent Idle、Node online、两个Completed回合以及展开后的实际工具行，不以HTTP200或隐藏数据代替可见结果。
+4. 还原后旧浏览器刷新被导向/login；重新输入原测试账号凭据后回到历史任务页。重新绑定同测试node后，浏览器再次交办只读get，真实回复“恢复标记：松果772、revision：1、恢复后真实聊天可用”。
+
+截图均为真实浏览器1200×731输出并经reviewer视觉检查：[聊天与图片](../evidence/reviewer-round6-public-20261001/public-chat.png)、[Work](../evidence/reviewer-round6-public-20261001/public-work.png)、[公网任务](../evidence/reviewer-round6-public-20261001/public-task.png)、[恢复后任务](../evidence/reviewer-round6-public-20261001/restored-task.png)、[恢复后真实回复](../evidence/reviewer-round6-public-20261001/restored-chat.png)。本轮没有重做已完成的原型must-match对照，沿用R1/R2。
+
+## 停止公开访问、快照恢复与凭据失效
+
+- reviewer先停本测试Tunnel，物理en0外部请求实得502；再停止本测试Gateway和IM。仅操作指定测试进程，未停止用户Tailscale或生产服务。
+- 在停写状态下将SQLite及完整data目录（含数据库旁message-images、uploads）形成同次快照；使用SQLite backup API保存数据库，连同测试JWT与启动脚本存入受限`public-review-backup-20261001`。恢复目标为另一个`public-review-restored-20261001`目录，保留原目录，不覆盖原测试快照。
+- 按操作单事务递增真人auth_epoch与node_epoch、撤销auth_sessions、删除auth_ws_tickets/未完成binding operations、清空runtime_token_hash，再生成新测试JWT secret。SQLite integrity_check=ok，两个附件相关文件的字节哈希完全一致，所有已存在node epochs递增1。
+- 恢复前新鲜签发的access→401、refresh→401；未使用ticket→403，检查时仅签发后**1.07秒**，有效期30秒，故不是等待自然过期。恢复前已验证可用的机器credential在恢复后identity→401；freshbind同node后旧credential仍401、新credential200，排除仅因node离线造成的假验证。
+- loopback freshlogin200，历史消息与任务可读后才重新打开原测试Tunnel。公网freshlogin后，整份历史聊天响应与整份任务响应逐项等于恢复前基线，附件再次下载3330字节、SHA-256完全相同。附件元数据使用storage_name，恢复副本保留数据库旁真实文件；没有把新上传替代为“历史附件恢复”。
+- 在Gateway原本机以原私钥发起公开bind流程，freshlogin接受后本机yes确认，保持review572-local及其两个Agent ID，未复制私钥到IM。CLI明确autostart disabled，随后同node online；真实LLM只读get成功。管理员与已批准测试成员来自快照，没有自动批准额外账号。
+
+## 免费范围与保留事项
+
+reviewer从官方Cloudflare页面独立读取：nanoim.win概述显示free/有效订阅“免费套餐”、注册状态活动；Cloudflare One Settings显示Zero Trust Free、0美元/月。本轮没有购买、升级或启用付费产品。**这里的免费范围是已核对的Cloudflare套餐/隧道，不包含域名注册续费、已有硬件、电力/网络和LLM用量。** 不推论未来所有功能或所有流量无限免费。
+
+脱敏结构化证据：[public-recovery-evidence.json](../evidence/reviewer-round6-public-20261001/public-recovery-evidence.json)。仅提交测试消息、结果、公开端点、哈希和截图；密码、JWT、refresh/ticket/runtime、Cloudflare账号资料、隧道凭据、完整日志/数据库和备份均留在受限output，未入Git。
+
+## 清理与交接
+
+独立验收浏览器已关闭，无另增测试节点遗留。经caller要求，恢复后的既有测试栈暂留待收口：Mini IM现从恢复副本运行（PID1973、tmux feat572-public-im），原测试Tunnel继续只映射18572；本机review572-local由公开bind启动为autostart disabled的detached PID78527。Mini旧测试Gateway已停止。caller可在收口后关闭这些**测试**进程；备份与原目录保留供复核。没有正式生产切换，生产8011与生产数据未触碰。
