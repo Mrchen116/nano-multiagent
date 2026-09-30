@@ -687,8 +687,10 @@ async def test_config_apply_admission_before_automatic_skill_patch_response(
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(200, json=initial_payload)
-        assert request.method == "PATCH"
+        assert request.method == "POST"
+        assert request.url.path == "/im/v1/agents/agent-a/skills/enable"
         body = json.loads(request.content)
+        assert set(body) == {"profile_version", "skills"}
         candidate = {**initial_payload, **body, "agent_id": agent.agent_id}
         result = sync.handle_agent_config_operation(
             "apply",
@@ -703,7 +705,7 @@ async def test_config_apply_admission_before_automatic_skill_patch_response(
         )
         assert result["status"] == "applied", result
         published.set()
-        assert release_response.wait(5), "test did not release PATCH response"
+        assert release_response.wait(5), "test did not release skill response"
         return httpx.Response(200, json={**candidate, "profile_version": 2})
 
     sync = IMAgentConfigSync(

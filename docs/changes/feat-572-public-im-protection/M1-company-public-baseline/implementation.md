@@ -1,6 +1,6 @@
 # M1 实施交接
 
-状态：本地实施与集成完成，待独立 code review、verification 和产品验收；未归并 canonical spec、未归档、未上线。
+状态：本地实施与集成完成，独立 code review 已通过；产品与 verification 仍有必验现场缺口，详见同目录最新 acceptance/verification 轮次。未归并 canonical spec、未归档、未上线。
 
 ## 实现
 
@@ -44,3 +44,11 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 - 前端全量792 passed/1原测试选择器歧义，收窄查询后Agent edit5 passed；已搬迁超过400行的新测试，测试规范及搬迁用例4 passed。
 
 最终受影响区域回归：IM service + IM unit + contract 763 passed（32.09s），Ruff 与 docs_check 251 maintained/75 routes 通过。其余 Python 基础批次4095 passed，唯一行数规则失败已经搬迁测试并4项复验；未机械重跑未受影响区域。
+
+## 最终冻结版本回归
+
+生产实现保持 `7df455679`。最后全量发现两个旧测试桩仍预期机器 PATCH 完整配置；已对齐本机技能追加 POST 路由，明确仅 `profile_version`/`skills` 两字段，保留静态 Agent 失败隔离和运行中配置边界断言。相关6项通过，无新增生产修改。
+
+- 后端 `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal -q`：**4099 passed / 27 warnings / 84.53s**，日志 `/tmp/feat572-final-all-backend-green.log`。
+- 前端 `npm test -- --run`：**793 passed / 85 files / 35.59s**，日志 `/tmp/feat572-final-all-frontend.log`。
+- 以上不包含尚未完成的真实公网/飞书验收，也不覆盖已记录的基线压缩 stub E2E 失败。
