@@ -61,6 +61,8 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 
 先由真实 API 入口测试和拒绝真人接口的 shadow 恢复测试取得2项 red，再修复。影子、图片离线恢复、入口管线、机器身份与授权边界共 **80 passed / 8.46s**（`/tmp/feat572-shadow-identity-batch-green.log`），Ruff/diff检查通过。需由产品 reviewer 复验真实飞书；此前全量4099/793只作为未失效基线，不能预支修复后现场通过。
 
-修复版本 `821ff6ce1` 后端全量 **4100 passed / 27 warnings / 122.45s**（`/tmp/feat572-r7-identity-full.log`），前端无改动，复用793项通过结果。独立静态审查见本目录 code-review.json；真实 R7 仍由产品 reviewer 收口。
+修复版本 `821ff6ce1` 后端全量 **4100 passed / 27 warnings / 122.45s**（`/tmp/feat572-r7-identity-full.log`），前端无改动，复用793项通过结果。独立静态审查见本目录 code-review.json；真实 R7 已由产品 reviewer 在 acceptance Round 5 关闭，合并48 pass / 4 inconclusive，仅R6未完成。
 
-公网准备已完成域名免费计划核对、专用 Tunnel 与 DNS 路由、受保护 IM 启动配置和迁移副本检查。尚未启动 Tunnel、停止原生产 IM 或初始化生产公司；首次成员名单待用户明确选择。公网部署和飞书 Bot 接管授权已经取得，无需再次申请同项授权。R6 仍须以真实公网与恢复现场证据关闭。
+用户明确纠正执行范围：全部验收与交付收尾均在独立测试环境，用户合入 PR 后才进行正式生产切换。当前测试部署使用全新账号、数据库、附件目录、JWT、设备私钥及节点 `review572-mini`；真实域名仅路由到测试端口18572，生产8011未迁移。此前误用生产副本的迁移预检不作为验收证据；短暂停止的生产Gateway已恢复，不继续操作生产。
+
+公网已完成域名免费计划核对、专用 Tunnel 与 DNS 路由、受保护 IM 启动配置。发现 Access 登录前置后，已按用户要求撤回该错误配置并恢复原定 `im.nanoim.win`，独立测试页面HTTP200。R6仍须由独立reviewer完成浏览器、恢复及旧凭据失效现场验证；不把首页200当作完整通过。
