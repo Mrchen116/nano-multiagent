@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nano IM · 公网保护交互原型</title>
+<style>
+/* Current IM tokens, copied from frontend/src/styles/global.css. */
+:root {
+  --im-bg: #f7f9fb;
+  --im-surface: #ffffff;
+  --im-surface-2: #f3f6f8;
+  --im-topbar: #ffffff;
+  --im-topbar-fg: #21313c;
+  --im-accent: #0f766e;
+  --im-accent-fg: #ffffff;
+  --im-accent-2: #115e59;
+  --im-text: #243440;
+  --im-text-muted: #60717e;
+  --im-border: #e2e8ed;
+  --im-border-strong: #c2cfd7;
+  --im-danger: #c44747;
+  --im-warning: #aa6b1d;
+  --im-success: #20835d;
+  --im-shadow: 0 8px 24px -12px rgb(30 50 60 / 0.16);
+  --im-shadow-strong: 0 18px 48px -16px rgb(30 50 60 / 0.22);
+
+  --im-sidebar: #f5f8fa;
+  --im-hover: #edf2f5;
+  --im-accent-soft: #e5f3ef;
+  --im-accent-border: #b9dbd2;
+  --im-text-sub: #60717e;
+  --im-overlay: rgb(26 43 54 / 0.24);
+  --im-success-soft: #e7f5ec;
+  --im-success-text: #286744;
+  --im-user-bubble: #e5f3ef;
+  --im-user-bubble-text: #23473e;
+  --im-brand: #82b8af;
+  --im-brand-mark: #193f39;
+  --im-user-avatar: #d4e2df;
+  --im-user-avatar-text: #355650;
+  --im-group-avatar: #35464f;
+  --im-group-avatar-text: #c5d8df;
+
+  --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root {
+  --accent:var(--im-accent); --soft:var(--im-accent-soft); --line:var(--im-border); --muted:var(--im-text-muted);
+  --bg:var(--im-surface-2); --text:var(--im-text); --red:var(--im-danger);
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:20px; --space-6:24px; --space-8:32px;
+}
+* { box-sizing:border-box }
+body { margin:0; color:var(--text); font:14px/1.6 var(--im-font-sans); background:#fff }
+button,input,select,textarea { font:inherit; color:inherit }
+button { cursor:pointer; min-height:36px; padding:.55rem .85rem; white-space:nowrap; flex-shrink:0; font-weight:600; border:1px solid var(--line); border-radius:8px; background:white; line-height:20px; transition:background .12s,border-color .12s }
+button:hover { background:var(--bg); border-color:#bbcbd1 }
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible { outline:2px solid var(--accent); outline-offset:3px }
+button:disabled { opacity:.45; cursor:not-allowed }
+.primary { background:var(--accent); border-color:var(--accent); color:white; font-weight:500 }
+.primary:hover { background:#096e67; border-color:#096e67 }
+.danger { color:var(--red) }
+.muted,small { color:var(--muted) }
+h1,h2,h3,p { margin:0 }
+h1 { font-size:24px; line-height:1.4; font-weight:650; letter-spacing:-.4px }
+h2 { font-size:18px; line-height:1.5; font-weight:650 }
+h3 { font-size:14px; line-height:1.5; font-weight:600 }
+p+p { margin-top:12px }
+small { font-size:12px; line-height:1.5 }
+input,textarea,select { min-width:0; border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:white }
+input { min-height:42px }
+textarea { resize:vertical; min-height:80px; width:100%; display:block }
+.hidden { display:none!important }.full { width:100% }.grow { flex:1; min-width:0 }
+/* Prototype controls are separate from the product surface. */
+.demo { padding:8px 16px; background:#fff8e9; border-bottom:1px solid #eee2c4; display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:12px }
+.demo select { padding:4px 7px; max-width:220px; min-height:30px }
+.demo button { min-height:30px; padding:4px 8px; font-size:12px; background:transparent; border-color:#e1d8c2 }
+.demo small { margin-left:auto }.demo-state { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.top { height:58px; padding:0 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:36px }
+.brand { font-size:20px; font-weight:750; letter-spacing:-.5px }.brand em { color:var(--accent); font-style:normal }
+.nav { display:flex; gap:8px }.nav button { border:0; background:transparent; padding:8px 14px }
+.nav .selected { color:var(--accent); font-weight:600 }
+.account-wrap { position:relative; margin-left:auto }.account-wrap>button { border:0; background:transparent }
+.bottom { display:none }main { min-height:calc(100dvh - var(--chrome-height,112px)) }
+.workspace { display:flex; height:calc(100dvh - var(--chrome-height,112px)); min-height:540px; position:relative }
+.rail { width:242px; flex:none; border-right:1px solid var(--line); background:var(--bg); padding:20px 12px; overflow:auto }
+.rail h2 { padding:0 8px; margin-bottom:16px }.rail>p { padding:0 8px; margin-bottom:12px }.rail input { width:100%; margin-bottom:12px }
+.row-button { display:block; width:100%; text-align:left; margin:4px 0; padding:12px; border-color:transparent; background:transparent }
+.row-button.active { background:var(--soft); border-color:#b8ded4 }.row-button strong,.row-button small { display:block }.row-button small { margin-top:4px }
+.chat-main { flex:1; min-width:0; display:flex; flex-direction:column }
+.pane-head { display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); padding:16px 24px; min-height:76px }
+.pane-head h1 { font-size:17px; margin:0; letter-spacing:0 }.pane-head small { display:block; margin-top:4px }.pane-head .push { margin-left:auto }
+.messages { flex:1; overflow:auto; padding:28px; background:#fcfdfd }
+.message { display:flex; gap:12px; margin-bottom:24px; max-width:720px }.message:last-child { margin-bottom:0 }
+.avatar { display:grid; place-items:center; flex:none; width:34px; height:34px; border-radius:10px; background:#e7eef1; font-size:12px }
+.avatar.agent { background:var(--soft); color:var(--accent) }
+.bubble { border:1px solid var(--line); border-radius:4px 12px 12px; padding:12px 16px; background:white; overflow-wrap:anywhere }
+.self { margin-left:auto; flex-direction:row-reverse }.self .bubble { background:var(--soft); border-color:#c8e9df }.message small { display:block; margin-bottom:6px }
+.file-in-message { border:1px solid var(--line); padding:12px; border-radius:8px; margin-top:12px }
+.composer { padding:16px 24px 20px; border-top:1px solid var(--line); background:white }.composer p { font-size:12px }
+.composer-actions { display:flex; align-items:center; gap:12px; margin-top:12px }.composer-actions small { flex:1 }.composer .actions { margin-top:12px; align-items:center }
+.chips { display:flex; gap:8px; flex-wrap:wrap }.chips:not(:empty) { margin-bottom:12px }
+.file-chip { border:1px solid var(--line); background:var(--bg); border-radius:10px; padding:12px; max-width:100%; min-width:200px }
+.file-chip.failed { background:#fffaf9; border-color:#eed4cf }.file-chip small { display:block; margin-top:4px }.file-chip p { margin-top:8px; color:var(--red) }.file-chip>button { margin-top:12px }
+.chip-top { display:flex; gap:16px; align-items:center }.chip-top strong { font-size:13px; font-weight:500; overflow-wrap:anywhere }
+.chip-top button { margin-left:auto; border:0; background:transparent; padding:0; min-height:28px; width:28px; flex:none; color:var(--muted) }
+.inline-error { color:var(--red); font-size:13px; line-height:20px; margin:16px 0; padding:0; border:0; background:transparent }
+.composer>.inline-error { margin:0 0 12px }
+.notice { padding:12px 16px; background:var(--bg); border-radius:8px; margin:20px 0; font-size:13px; color:#546975 }
+.warning { padding:14px 16px; background:#fff8e9; border:1px solid #f1e3c6; border-radius:8px; margin:20px 0; font-size:13px; line-height:1.7; color:#80602d }
+.card>.notice:last-child,.card>.warning:last-child { margin-bottom:0 }
+/* Lists use alignment and hierarchy, not a card around every item. */
+.drawer { width:344px; flex:none; border-left:1px solid var(--line); background:#fff; display:flex; flex-direction:column; min-height:0 }
+.drawer-head { display:flex; gap:16px; align-items:center; padding:12px 12px 12px 20px; min-height:60px; border-bottom:1px solid var(--line) }
+.drawer-head h2 { font-size:16px; line-height:24px; flex:1 }
+.icon-button { width:36px; height:36px; padding:0; border:0; background:transparent; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); flex:none }
+.icon-button:hover { background:var(--bg); color:var(--text) }
+.group-task-list { padding:4px 12px; overflow:auto }
+.task-item { display:block; width:100%; text-align:left; margin:0; padding:16px 8px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:transparent; line-height:1.5 }
+.task-item:last-child { border-bottom-color:transparent }.task-item:hover { background:var(--bg); border-color:var(--line) }
+.task-row-heading { display:flex; align-items:center; gap:12px }.task-row-heading strong { font-size:14px; font-weight:600; line-height:22px; flex:1; min-width:0; overflow-wrap:anywhere }
+.task-row-chevron { flex:none; color:#9aabb4 }.task-row-parent { display:block; font-size:12px; color:var(--muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.task-row-meta { display:flex; gap:12px; align-items:center; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:8px }
+.task-status { display:inline-flex; align-items:center; gap:6px }.task-status::before { content:''; width:6px; height:6px; border-radius:50%; background:#9aa9b3 }.task-status.in-progress::before { background:var(--accent) }
+.tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:5px; background:var(--soft); color:var(--accent) }
+.settings { display:flex; min-height:calc(100dvh - var(--chrome-height,112px)) }.settings-content { padding:32px; max-width:1000px; width:100%; min-width:0 }
+.settings-content>h1 { margin-bottom:8px }.settings-content>p { margin-bottom:24px }.settings-content>.card:first-of-type { margin-top:24px }
+.actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:24px }
+.card { border:1px solid var(--line); padding:24px; border-radius:14px; background:white; margin-bottom:20px }
+.card>h2 { margin-bottom:16px }.card>p+.primary,.card>p+button { margin-top:20px }
+.card>p+.actions { margin-top:24px }.card>p+.card { margin-top:20px }
+.member { display:flex; gap:12px; align-items:center; padding:16px 0; border-bottom:1px solid var(--line) }.member:last-child { border:0; padding-bottom:0 }.member small { display:block; margin-top:4px }
+.foot { font-size:12px; color:var(--muted); padding-top:20px; border-top:1px solid var(--line); margin-top:24px }
+.menu-row { display:flex; align-items:center; justify-content:space-between; width:100%; padding:16px; text-align:left; margin:8px 0; min-height:64px }.menu-row small { margin-top:4px }
+.link-button { color:var(--accent); border:0; padding:0; background:transparent; min-height:32px }.link-button:hover { background:transparent; text-decoration:underline }
+/* Auth fields, feedback and actions have their own explicit spacing. */
+.auth { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:64px; max-width:1000px; margin:64px auto; padding:24px; align-items:center }
+.auth-intro h1 { font-size:34px; line-height:1.35; margin-bottom:20px }.auth-intro>p { margin-bottom:20px }.auth-intro>button { margin-top:12px }
+.eyebrow { font-size:12px; color:var(--accent); letter-spacing:.8px }.badge { display:inline-block; background:var(--soft); color:var(--accent); padding:3px 9px; border-radius:5px; margin-bottom:16px; font-size:12px }
+.auth>.card { padding:32px; margin-bottom:0 }.auth>.card>h2 { font-size:22px; margin-bottom:24px; line-height:1.4 }
+#auth-form { display:flex; flex-direction:column; gap:20px }.form-field { display:flex; flex-direction:column; gap:8px }
+.form-field label { font-size:13px; font-weight:500; line-height:20px }.form-field input { width:100%; min-height:44px; padding:11px 12px }
+.form-feedback { font-size:13px; line-height:20px; margin:0; overflow-wrap:anywhere }.form-error { color:var(--red) }.form-cooldown { color:#80602d }
+#auth-form>.primary { width:100%; min-height:44px; margin-top:4px }.auth-switch { text-align:center; margin-top:24px }.auth-switch button { font-size:13px }
+.auth .actions { gap:12px }.auth .actions .primary { flex:0 0 auto }.auth .actions>button { min-height:40px }
+.task-main { flex:1; min-width:0; display:flex; flex-direction:column }.task-body { display:flex; flex:1; min-height:0 }
+.canvas { flex:1; min-width:0; overflow:auto; padding:28px; background-color:#fafcfd; background-image:radial-gradient(#dce5ea .8px,transparent .8px); background-size:18px 18px }
+.graph { min-width:470px; display:flex; align-items:center; gap:28px; min-height:300px }.node { background:#fff; width:210px; padding:16px; text-align:left; box-shadow:0 3px 10px #1b4d3f08 }
+.node.active { border:2px solid var(--accent) }.node strong,.node small { display:block }.node strong { margin:12px 0 }.branch { display:grid; gap:28px }
+.detail { width:275px; padding:24px; border-left:1px solid var(--line); overflow:auto }.detail h2 { margin:12px 0 }.detail h3 { color:var(--muted); font-size:12px; margin:24px 0 8px }.detail p { font-size:13px }.detail .actions { margin-top:24px }
+.empty { padding:56px 20px; text-align:center; color:var(--muted) }.empty h2,.empty h3 { margin-bottom:8px; color:var(--text) }.empty p { font-size:13px }.empty button { margin-top:20px }
+.drawer .empty { padding:56px 8px }.drawer .empty h3 { font-size:14px; font-weight:500 }.drawer .empty p { font-size:12px }
+.terminal { background:#172830; color:#ddf4e9; border-radius:10px; padding:16px; margin:16px 0; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.8 ui-monospace,monospace }
+.step { display:flex; gap:12px; margin:20px 0 }.step b { background:var(--soft); color:var(--accent); border-radius:50%; width:28px; height:28px; display:grid; place-items:center; flex:none }.step p { padding-top:2px }
+.mobile-back { display:none }.toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#243a40; color:white; z-index:50; padding:12px 20px; border-radius:8px; max-width:90vw }
+.modal-backdrop { position:fixed; inset:0; background:#1b303c66; z-index:40; display:grid; place-items:center; padding:20px }.modal { background:#fff; border-radius:16px; padding:28px; max-width:460px; width:100% }
+.modal>h2 { margin-bottom:16px }.modal>button { margin-top:24px }.modal .actions { justify-content:flex-end; margin-top:28px }.modal .actions>button { min-width:80px }.modal input { margin:4px 0 12px }
+@media(max-width:1000px) and (min-width:768px) { .workspace>.rail { width:200px }.drawer { width:300px }.messages { padding:20px }.composer { padding:16px }.composer-actions small { display:none }.detail { width:240px } }
+@media(max-width:767px) {
+  .demo { padding:8px 10px; gap:8px }.demo small { display:none }.demo select { max-width:165px }.demo-state { width:100%; gap:8px }
+  .top { height:52px; padding:0 16px }.nav { display:none }.account-wrap>button { font-size:12px }
+  .bottom { display:flex; position:fixed; bottom:0; left:0; right:0; z-index:25; border-top:1px solid var(--line); background:white; justify-content:space-around; padding:8px 8px max(8px,env(safe-area-inset-bottom)) }.bottom button { border:0; font-size:12px; min-height:40px; flex:1 }
+  .workspace { height:calc(100dvh - var(--chrome-height,112px)); min-height:440px }.workspace>.rail { display:none }.workspace.chat-list>.rail { display:block; width:100%; border:0; padding-bottom:64px }.workspace.chat-list>.chat-main { display:none }
+  .mobile-back { display:block; margin:0; border:0 }.pane-head { padding:12px; gap:8px; min-height:72px }.pane-head h1 { font-size:16px }.pane-head button { min-height:40px; padding:8px }
+  .messages { padding:20px 16px }.message { max-width:100%; gap:8px }.bubble { padding:10px 12px }.composer { padding:12px 16px 16px }.composer-actions { gap:8px }.composer-actions small { display:none }.composer-actions .primary { margin-left:auto; min-width:64px }.composer .actions { gap:8px }.composer .actions small { display:block; width:100% }
+  .drawer { position:absolute; inset:0; width:100%; height:100%; z-index:28 }.drawer-head { padding:8px 12px 8px 20px }.icon-button { width:44px; height:44px }.task-item { padding:17px 8px }
+  .auth { display:block; margin:24px auto; padding:0 20px; max-width:440px }.auth-intro { margin-bottom:28px }.auth-intro h1 { font-size:25px; margin-bottom:12px }.auth-intro .eyebrow { margin-bottom:12px }.auth-intro>p:not(.eyebrow) { display:none }.auth>.card { padding:24px }.auth>.card>h2 { font-size:21px; margin-bottom:24px }.auth .actions { flex-direction:column }.auth .actions>button { width:100%; min-height:44px }
+  .settings { display:block; padding-bottom:80px }.settings>.rail { display:none }.settings-content { padding:24px 16px }.settings-content>.mobile-back { margin:0 0 16px -8px; width:auto }.settings-content>.card { padding:20px }.member { gap:10px; align-items:center }.member button { padding:8px; flex:none; min-height:40px }
+  .workspace.tasks { height:auto; min-height:0; padding-bottom:72px; display:block }.workspace.tasks>.rail { display:block; width:100%; border-right:0; border-bottom:1px solid var(--line); padding:16px }.workspace.tasks>.rail .row-button { display:inline-block; width:auto; margin:4px 4px 0 0; vertical-align:top }.workspace.tasks>.rail input { margin-bottom:8px }.workspace.tasks .pane-head { flex-wrap:wrap; padding:16px; gap:12px }.workspace.tasks .pane-head .push { margin-left:0 }
+  .task-body { display:block }.canvas { padding:16px; min-height:320px }.detail { width:100%; border-left:0; border-top:1px solid var(--line); padding:24px 20px }.file-chip { width:100% }.toast { bottom:80px }.modal { padding:24px }.modal .actions { gap:12px }.modal .actions>button { min-height:44px; flex:1 }main { min-height:calc(100dvh - var(--chrome-height,112px)) }
+}
+
+/* Grounding: AppShell, NanoBrand, SettingsPageShell, BindConfirmPage and task-graphs.css. */
+body { background:var(--im-bg) }
+.top { height:48px; gap:24px; padding:0 16px; background:var(--im-topbar); color:var(--im-topbar-fg) }
+.brand { display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:700; letter-spacing:.01em; white-space:nowrap }
+.internal-badge { font-size:10px; font-weight:600; background:var(--im-surface-2); color:var(--im-text-muted); padding:2px 6px; border-radius:99px; letter-spacing:.04em }
+.nav { flex:1; justify-content:center; gap:8px }.nav button { color:var(--im-text-muted); padding:4px 12px; min-height:30px; font-size:14px }.nav .selected { background:var(--im-accent-soft); color:var(--im-accent) }
+.account-wrap { margin-left:0 }.primary { border:0 }.primary:hover { background:var(--im-accent-2) }
+.card { background:var(--im-surface); border-radius:14px; box-shadow:var(--im-shadow) }
+.settings { display:block; background:var(--im-bg) }.settings-content { margin:0 auto; max-width:1120px; padding:28px 24px }
+.prototype-notes { background:#fffaf0; padding:8px 16px; border-bottom:1px solid #eee2c4; font-size:12px; color:#756345 }.prototype-notes summary { cursor:pointer; line-height:20px }.prototype-notes>div { max-width:1000px; margin-top:8px; line-height:1.8 }
+.auth { grid-template-columns:minmax(0,1fr) 430px; width:min(1040px,calc(100% - 48px)); max-width:none; gap:80px; margin:0 auto; padding:56px 0 72px; min-height:calc(100dvh - var(--chrome-height,140px)) }
+.auth>.card { padding:30px; border-radius:16px; box-shadow:var(--im-shadow-strong) }.auth-intro h1 { font-size:clamp(34px,4vw,50px); line-height:1.08; letter-spacing:-.045em }.auth .actions { flex-direction:column }.auth .actions>button { width:100%; min-height:40px }
+.bind-page { width:min(576px,calc(100% - 40px)); margin:40px auto; padding:0 }
+.bind-card { padding:28px; margin:0 }.bind-card h1 { font-size:24px; margin-bottom:24px; letter-spacing:-.4px }.bind-copy { color:var(--muted); line-height:1.8 }
+.bind-device { display:flex; align-items:center; gap:12px; padding:16px; background:var(--im-surface-2); border-radius:10px; margin:20px 0 }.bind-device small { display:block; margin-top:4px }.bind-device strong { font-size:14px }
+.bind-account { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:20px 0 }.bind-account strong,.bind-account small { display:block }.bind-account strong { margin-top:4px; overflow-wrap:anywhere; font-size:14px }.bind-account .link-button { flex:none; font-size:12px }
+.bind-actions { display:flex; flex-direction:column; gap:8px; margin-top:24px }.bind-actions button { width:100%; min-height:44px; white-space:nowrap }.bind-actions .link-button { font-size:13px; font-weight:400 }
+.device-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:24px 0 20px }.device-kpis>div { border:1px solid var(--im-border); border-radius:10px; background:var(--im-surface); padding:12px 14px }.device-kpis strong { display:block; font-size:24px }.device-kpis small { display:block; margin-top:4px }
+.device-card { border:1px solid var(--im-border); border-radius:14px; background:var(--im-surface); overflow:hidden }.device-card>header { display:flex; gap:12px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--im-border) }.device-card h2 { font-size:14px }.device-card header small { font-family:var(--im-font-mono); font-size:11px }.device-facts { display:grid; grid-template-columns:1fr 1fr; gap:20px; padding:18px }.device-facts strong,.device-facts small { display:block }.device-facts strong { font-size:13px; font-weight:500; margin-top:4px }
+.tasks>.rail { width:224px; background:var(--im-sidebar) }.tasks .pane-head { min-height:91px; padding:18px 24px }.tasks .pane-head h1 { font-size:20px }.tasks .detail { width:294px }.tasks .detail h2 { font-size:17px }.tasks .detail p { font-size:12px; line-height:1.8 }.tasks .node { width:204px; border-radius:9px }.tasks .node strong { font-size:13px }.tasks .node small { font-size:10px }.tasks .detail .actions { flex-direction:column; gap:8px }.tasks .detail .actions button { width:100%; font-size:12px }
+.row-button,.task-item,.node { white-space:normal }.member>.grow { overflow-wrap:anywhere }.member>button { white-space:nowrap }.pane-head>div { min-width:0 }.pane-head h1 { overflow-wrap:anywhere }
+@media(max-width:1000px) { .auth { grid-template-columns:minmax(0,1fr) 400px; gap:32px } }
+@media(max-width:900px) { .auth { display:block; width:min(430px,calc(100% - 40px)); padding:32px 0; min-height:0 }.auth-intro { margin-bottom:24px }.auth-intro h1 { font-size:30px }.auth-intro>p:not(.eyebrow) { display:none } }
+@media(max-width:767px) {
+  body[data-screen="app"]>.top { display:none }.top { height:48px }.internal-badge { display:none }
+  .prototype-notes { padding:8px 12px }.prototype-notes summary { overflow-wrap:anywhere }
+  .settings-content { padding:20px 16px }.bind-page { width:calc(100% - 32px); margin:24px auto }.bind-card { padding:24px }.bind-card h1 { font-size:22px }.bind-account { gap:12px }.bind-account strong { font-size:13px }
+  .device-kpis { grid-template-columns:repeat(2,minmax(0,1fr)) }.device-facts { grid-template-columns:1fr }
+  .tasks>.rail { width:100% }.tasks .detail { width:100% }.tasks .pane-head { padding:16px; min-height:auto; gap:12px }.tasks .pane-head h1 { font-size:18px }
+}
+
+.bottom svg { width:22px; height:22px }.bottom button { display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--im-text-muted); font-size:10px }.bottom button.selected { color:var(--im-accent) }
+@media(max-width:767px){.auth>.card { padding:24px }.bottom { min-height:62px }}
+
+/* Existing UserMenu selectors and settings card geometry, copied from the IM. */
+.im-user-menu-chevron {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+
+/* User menu */
+.im-user-menu {
+  position: relative;
+}
+
+.im-user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: 0;
+  color: var(--im-topbar-fg);
+  font: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+}
+
+.im-user-menu-trigger:hover {
+  background: var(--im-hover);
+}
+
+.im-user-menu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--im-user-avatar);
+  color: var(--im-user-avatar-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.im-user-menu-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 220px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  box-shadow: var(--im-shadow-strong);
+  padding: 0.25rem;
+  z-index: 50;
+  color: var(--im-text);
+}
+
+.im-user-menu-popover a,
+.im-user-menu-popover button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--im-text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.im-user-menu-popover a:hover,
+.im-user-menu-popover button:hover {
+  background: var(--im-surface-2);
+}
+
+.im-user-menu-language {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.im-user-menu-item {
+  display: flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem !important;
+}
+
+.im-user-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.im-user-menu-item-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.im-user-menu-chevron-right {
+  font-size: 18px;
+  font-weight: 300;
+  color: oklch(0.7 0.01 240);
+  flex-shrink: 0;
+}
+
+.im-user-menu-language {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.im-user-menu-lang-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.im-user-menu-language button {
+  padding: 0;
+  width: auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: oklch(0.55 0.01 240);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.im-user-menu-language button:hover {
+  color: var(--im-text);
+  background: transparent;
+}
+
+.im-user-menu-language button[aria-checked="true"] {
+  background: transparent;
+  color: var(--im-text);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.im-user-menu-language-divider {
+  color: oklch(0.75 0.01 240);
+  user-select: none;
+}
+
+.im-user-menu-signout {
+  color: var(--im-danger) !important;
+}
+
+
+.im-user-menu-trigger { min-height:0; line-height:normal; white-space:normal }
+.im-user-menu-popover button { min-height:0; line-height:normal; white-space:normal; transition:none; flex-shrink:1 }
+.im-user-menu-identity { display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--im-border); margin-bottom:4px }
+.im-user-menu-identity>.im-user-menu-avatar { width:40px; height:40px; font-size:14px; flex:none }
+.im-user-menu-identity strong { display:block; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis }
+.im-user-menu-identity small { display:block; margin-top:2px; font:11px var(--im-font-mono) }
+.im-user-menu-label { font-size:14px; font-weight:500 }
+.im-user-menu-item-body small { font-size:12px; margin-top:1px }
+.im-policies-screen { min-height:calc(100dvh - var(--chrome-height,112px)); background:oklch(0.95 0.005 240) }
+.im-policies-page { display:grid; gap:16px; width:100%; max-width:620px; margin:auto; padding:24px 28px }
+.im-policies-page>header h1 { font-size:22px; font-weight:800; color:oklch(0.14 0.01 240) }
+.im-policies-page>header p { font-size:13px; margin-top:4px; color:oklch(0.55 0.01 240) }
+.policy-card { border:1px solid oklch(0.87 0.006 240); border-radius:14px; background:white; padding:18px; display:grid; gap:14px }
+.policy-card label { display:grid; gap:4px; font-size:13px; font-weight:600; color:oklch(0.30 0.01 240) }
+.policy-card .im-input { width:100%; min-height:0; border:1px solid var(--im-border); border-radius:.625rem; padding:.55rem .75rem; font:inherit; font-weight:400; color:var(--im-text) }
+.policy-card input[readonly],.policy-card select:disabled { background:var(--im-surface-2); opacity:1; color:var(--im-text-muted) }
+.policy-runtime { grid-template-columns:1fr 1fr; gap:12px }
+.policy-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; border:1px solid oklch(0.87 0.006 240); border-radius:12px; background:white; padding:14px 16px }
+.policy-footer>span { font-size:12.5px; color:oklch(0.50 0.15 60); font-weight:700 }
+.policy-footer>div { display:flex; gap:8px }
+.im-btn { min-height:0; border:0; border-radius:.5rem; padding:.55rem .85rem; font:inherit; font-weight:600 }
+.im-btn-primary { background:var(--im-accent); color:var(--im-accent-fg) }.im-btn-primary:hover { background:var(--im-accent-2) }
+.im-btn-muted { background:var(--im-surface-2); color:var(--im-text); border:1px solid var(--im-border) }
+.im-btn:disabled { opacity:.6; cursor:not-allowed }
+.policy-readonly { font-size:12px; color:var(--im-text-muted) }
+.policy-error { padding:12px 16px; border-radius:12px; border:1px solid oklch(0.78 0.15 25); background:oklch(0.97 0.03 25); color:oklch(0.45 0.14 25) }
+.policy-mobile-head { display:none }
+.im-policies-page>.card { margin:0; padding:18px; box-shadow:none; border-color:oklch(0.87 0.006 240) }.im-policies-page>.card h2 { font-size:15px }
+@media(max-width:767px) {
+ .im-policies-page { padding:16px 14px 80px }.im-policies-page>header { display:none }.policy-runtime { grid-template-columns:1fr }
+ .policy-mobile-head { display:flex; align-items:center; gap:8px; height:48px; padding:0 4px; background:oklch(0.97 0.004 240); border-bottom:1px solid oklch(0.91 0.005 240) }
+ .policy-mobile-head button { border:0; background:transparent; padding:0; width:40px; height:40px; font-size:24px }.policy-mobile-head h1 { font-size:16px; font-weight:700 }
+ .policy-footer { flex-wrap:wrap }.policy-footer>div { margin-left:auto }
+}
+
+.im-me-page { min-height:calc(100dvh - var(--chrome-height,112px)); padding-bottom:80px; background:oklch(0.95 0.005 240) }
+.im-me-identity { display:flex; width:100%; align-items:center; gap:16px; padding:26px 18px 24px; background:white; border:0; border-bottom:1px solid oklch(0.91 0.005 240); border-radius:0; text-align:left }
+.profile-avatar { display:grid; place-items:center; flex:none; width:54px; height:54px; border-radius:50%; background:oklch(0.52 0.14 270); color:white; font-size:20px; font-weight:800 }
+.im-me-identity .profile-avatar { width:62px; height:62px; font-size:22px }.im-me-identity strong { display:block; font-size:20px; font-weight:800 }.im-me-identity small { display:block; margin-top:5px; font:13px var(--im-font-mono) }
+.im-me-group { margin-top:14px; background:white; border-block:1px solid oklch(0.91 0.005 240) }
+.im-me-group .im-user-menu-item { width:100%; border:0; border-radius:0; background:transparent; min-height:60px; gap:14px; padding:14px 18px!important; text-align:left }
+.im-me-group .im-user-menu-label { font-size:15px }.im-me-group .im-user-menu-item-body small { margin-top:2px }.im-me-group .im-user-menu-language { min-height:60px; padding:14px 18px }
+.profile-identity { display:flex; align-items:center; gap:16px; padding-bottom:4px }.profile-identity strong { font-size:16px }.profile-identity small { display:block; font:11px var(--im-font-mono) }
+.profile-card-title { font-size:15px; font-weight:800 }.profile-card-subtitle { font-size:12.5px; color:var(--im-text-muted); margin-top:4px }
+.profile-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px }.profile-device { display:flex; align-items:center; gap:8px; border:1px solid oklch(0.87 0.006 240); background:oklch(0.96 0.005 240); border-radius:10px; padding:10px 12px }.profile-device strong { font-size:13px }.profile-device small { display:block; font:11px var(--im-font-mono) }.profile-count { display:flex; justify-content:space-between; font-size:12px; padding:8px 12px; border:1px solid oklch(0.87 0.006 240); background:oklch(0.96 0.005 240); border-radius:8px }
+@media(max-width:767px){.profile-grid { grid-template-columns:1fr }}
+</style></head>
+<body><div class="demo"><b>交互原型</b><label for="journey">旅程</label><select id="journey"><option value="chat">聊天与本群任务</option><option value="tasks">Tasks · 公司全部任务</option><option value="members">成员管理</option><option value="devices">节点 · 现有页面</option><option value="policies">策略 · 现有页面</option><option value="me">我 · 现有页面</option><option value="bind">设备交接 · 新流程</option><option value="login">登录 / 注册</option><option value="pending">等待批准</option><option value="suspended">账号停用</option></select><span id="demo-state" class="demo-state"></span><small>演示控制 · 使用示例文件与数据</small></div><details class="prototype-notes" id="prototype-notes"><summary id="scope-summary"></summary><div id="scope-detail"></div></details><header class="top"><div class="brand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--im-brand)"/><path d="M7 12.5L10.5 16L17 9.5" stroke="var(--im-brand-mark)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>nano IM</span><span class="internal-badge">internal</span></div><nav id="nav" class="nav" aria-label="主导航"></nav><div class="account-wrap" id="account"></div></header><main id="app"></main><nav class="bottom" id="bottom" aria-label="手机导航"></nav><div id="modal"></div><script>
+const $=s=>document.querySelector(s),app=$('#app');
+const state={page:'chat',role:'member',menu:false,chat:'delivery',mobileList:false,drawer:false,attachmentMode:'success',storageAlert:null,files:[],drafts:{delivery:'@开发 Agent 请检查这份接口说明，继续推进联调。',planning:'',design:''},messages:{delivery:[],planning:[],design:[]},sendFailures:{},graph:'service',node:'n2',taskOrigin:null,taskState:'loaded',search:'',approved:false,stopped:false,memberError:false,loginMode:'normal',username:'xiaolin',password:'',bind:'account',bindingCommitted:false};
+const chats={delivery:{title:'交付协作群',subtitle:'小林 · 小王 · 开发 Agent',text:'这轮先完成鉴权和附件接口联调，有问题在这里同步。',tasks:['n2']},planning:{title:'项目规划群',subtitle:'小林 · 负责人 · 规划 Agent',text:'交付计划已拆好：先接口联调，再验收发布。',tasks:['n1','n3']},design:{title:'设计讨论群',subtitle:'小林 · 设计 Agent',text:'我们先看看这版界面，重点讨论信息层级。',tasks:[]}};
+const nodes={n1:{title:'上线客户服务系统',status:'进行中',body:'完成客户服务系统的交付，包含接口联调与验收发布。',source:'planning',agent:'规划 Agent'},n2:{title:'接口联调',status:'进行中',body:'完成鉴权、消息和附件的联合验证。',source:'delivery',agent:'开发 Agent'},n3:{title:'验收与发布',status:'待开始',body:'确认联调结果后完成验收，再安排发布。',source:'planning',agent:'规划 Agent'}};
+const mobileIcons={"chat": "<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\"><path\n        d=\"M6.75 5.25h10.5A2.75 2.75 0 0 1 20 8v6a2.75 2.75 0 0 1-2.75 2.75h-5.4L7 20v-3.25h-.25A2.75 2.75 0 0 1 4 14V8a2.75 2.75 0 0 1 2.75-2.75Z\"\n        stroke=\"currentColor\"\n        stroke-linejoin=\"round\"\n        stroke-width=\"1.8\"\n      />\n      <path d=\"M8.25 11h7.5\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-width=\"1.8\" /></svg>", "tasks": "<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3\" y=\"4\" width=\"6\" height=\"5\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"1.8\" />\n    <rect x=\"15\" y=\"15\" width=\"6\" height=\"5\" rx=\"1\" stroke=\"currentColor\" stroke-width=\"1.8\" />\n    <path d=\"M9 6.5h5a4 4 0 0 1 4 4V15M6 9v8.5h9\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\" /></svg>", "agents": "<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\"><path\n        d=\"M6.3 14.9V9.7A2.6 2.6 0 0 1 7.6 7.45l3.1-1.8a2.6 2.6 0 0 1 2.6 0l3.15 1.82\"\n        stroke=\"currentColor\"\n        stroke-linecap=\"round\"\n        stroke-linejoin=\"round\"\n        stroke-width=\"1.8\"\n      />\n      <path\n        d=\"M17.7 9.1v5.2a2.6 2.6 0 0 1-1.3 2.25l-3.1 1.8a2.6 2.6 0 0 1-2.6 0l-3.15-1.82\"\n        stroke=\"currentColor\"\n        stroke-linecap=\"round\"\n        stroke-linejoin=\"round\"\n        stroke-width=\"1.8\"\n      />\n      <path\n        d=\"m12 8.7 2.85 1.65v3.3L12 15.3l-2.85-1.65v-3.3L12 8.7Z\"\n        fill=\"currentColor\"\n      />\n      <circle cx=\"17.75\" cy=\"7.55\" r=\"1.45\" fill=\"currentColor\" />\n      <circle cx=\"6.25\" cy=\"16.45\" r=\"1.45\" fill=\"currentColor\" /></svg>", "me": "<svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\"><circle cx=\"12\" cy=\"8\" r=\"3\" stroke=\"currentColor\" stroke-width=\"1.8\" />\n      <path\n        d=\"M5.75 19.25v-1.1C5.75 15.15 8.55 13 12 13s6.25 2.15 6.25 5.15v1.1\"\n        stroke=\"currentColor\"\n        stroke-linecap=\"round\"\n        stroke-linejoin=\"round\"\n        stroke-width=\"1.8\"\n      /></svg>"};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const btn=(text,action,cls='',extra='')=>`<button class="${cls}" data-action="${action}" ${extra}>${text}</button>`;
+function toast(text){$('.toast')?.remove();const el=document.createElement('div');el.className='toast';el.role='status';el.textContent=text;document.body.append(el);setTimeout(()=>el.remove(),3200)}
+function go(page){state.page=page;state.menu=false;state.drawer=false;state.mobileList=false;render()}
+function options(items,value){return items.map(([v,t])=>`<option value="${v}" ${v===value?'selected':''}>${t}</option>`).join('')}
+const currentStrings={"zh":{"shell":{"appName":"nano IM","tabs":{"chat":"聊天","agents":"智能体","me":"我","tasks":"任务"},"userMenu":{"newAgent":"新建 Agent","nodes":"节点","account":"账号","policies":"策略","language":"语言","signOut":"退出登录"}},"me":{"title":"我","sections":{"account":"账号","accountSubtitle":"个人资料与网关","nodes":"节点","nodesSubtitle":"资料与网关","language":"语言","notifications":"通知","signOut":"退出登录"},"language":{"en":"English","zh":"中文"},"notifications":{"toggle":"启用桌面通知","hint":"标签未激活时,Agent 回复完成会弹出系统通知。"}},"common":{"loading":"加载中…","save":"保存","saving":"保存中…","discard":"放弃","cancel":"取消","create":"创建","delete":"删除","back":"返回","retry":"重试","empty":"暂无内容。","owned":"已拥有","online":"在线","offline":"离线"},"settings":{"policies":{"title":"策略","subtitle":"全局运行时限制与安全配置。","loading":"加载策略中…","fields":{"defaultModel":"默认模型","defaultModelHint":"未设置 agent 级覆盖时使用的模型。","auditLevel":"审计级别","auditLevelOff":"关闭","auditLevelBasic":"基础","auditLevelStrict":"严格","maxTurnPerRun":"每轮最大轮次","maxTurnPerRunHint":"单次运行允许的最大 agent 轮次数。","rateLimitPerMin":"每分钟限流","rateLimitPerMinHint":"每用户每分钟最大消息数。","maxAttachmentSizeMb":"附件最大体积（MB）","maxAttachmentSizeMbHint":"超过此大小的文件将被拒绝。","retentionDays":"消息留存天数","retentionDaysHint":"消息历史记录的保留时长。"},"actions":{"save":"保存策略","saving":"保存中…","discard":"放弃","unsavedChanges":"有未保存改动","saveFailed":"保存失败:{{detail}}"}},"account":{"title":"账号","subtitle":"你的个人资料和设备。","identity":{"heading":"资料","subtitle":"你在工作区中的身份。","displayName":"显示名","username":"用户名","userId":"用户 ID","createdAt":"加入时间"},"defaults":{"heading":"设备","subtitle":"你拥有的设备及连接状态。","selectNode":"— 选择节点 —","ownedNodes":"已拥有节点","ownedNodesEmpty":"尚未绑定任何节点。","agentsShort":"agent"},"preferences":{"heading":"偏好","subtitle":"界面语言与桌面通知。","language":"语言","notifications":"启用桌面通知","notificationsHint":"标签未激活时,Agent 回复完成会弹出系统通知。"},"actions":{"save":"保存","saveAccount":"保存账户","saving":"保存中…","discard":"放弃","savedJustNow":"已保存。","unsavedChanges":"有未保存改动","saveFailed":"保存失败:{{detail}}"}}}},"en":{"shell":{"appName":"nano IM","tabs":{"chat":"Chat","agents":"Agents","me":"Me","tasks":"Tasks"},"userMenu":{"newAgent":"New agent","nodes":"Nodes","account":"Account","policies":"Policies","language":"Language","signOut":"Sign out"}},"me":{"title":"Me","sections":{"account":"Account","accountSubtitle":"Profile and gateway","nodes":"Nodes","nodesSubtitle":"Nodes and gateway","language":"Language","notifications":"Notifications","signOut":"Sign out"},"language":{"en":"English","zh":"中文"},"notifications":{"toggle":"Enable desktop notifications","hint":"Show a system banner when an agent reply arrives while this tab is in the background."}},"common":{"loading":"Loading…","save":"Save","saving":"Saving…","discard":"Discard","cancel":"Cancel","create":"Create","delete":"Delete","back":"Back","retry":"Retry","empty":"Nothing here yet.","owned":"owned","online":"online","offline":"offline"},"settings":{"policies":{"title":"Policies","subtitle":"Global runtime limits and safety configuration.","loading":"Loading policies…","fields":{"defaultModel":"Default Model","defaultModelHint":"Model used when no agent-level override is set.","auditLevel":"Audit Level","auditLevelOff":"off","auditLevelBasic":"basic","auditLevelStrict":"strict","maxTurnPerRun":"Max Turn Per Run","maxTurnPerRunHint":"Maximum agentic turns allowed in a single run.","rateLimitPerMin":"Rate Limit / Min","rateLimitPerMinHint":"Maximum messages per minute per user.","maxAttachmentSizeMb":"Max Attachment Size (MB)","maxAttachmentSizeMbHint":"Files larger than this are rejected.","retentionDays":"Retention Days","retentionDaysHint":"How long message history is stored."},"actions":{"save":"Save Policies","saving":"Saving…","discard":"Discard","unsavedChanges":"Unsaved changes","saveFailed":"Save failed: {{detail}}"}},"account":{"title":"Account","subtitle":"Your profile and devices.","identity":{"heading":"Profile","subtitle":"Your identity inside the workspace.","displayName":"Display name","username":"Username","userId":"User ID","createdAt":"Member since"},"defaults":{"heading":"Devices","subtitle":"Devices you own and their connection status.","selectNode":"— Select a node —","ownedNodes":"Owned nodes","ownedNodesEmpty":"No nodes bound yet.","agentsShort":"agents"},"preferences":{"heading":"Preferences","subtitle":"Language and desktop notifications.","language":"Language","notifications":"Enable desktop notifications","notificationsHint":"Show a system banner when an agent reply arrives while this tab is in the background."},"actions":{"save":"Save","saveAccount":"Save account","saving":"Saving…","discard":"Discard","savedJustNow":"Saved.","unsavedChanges":"Unsaved changes","saveFailed":"Save failed: {{detail}}"}}}}};
+state.locale='zh';
+const t=key=>key.split('.').reduce((v,k)=>v?.[k],currentStrings[state.locale])||key;
+const menuPaths={account:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',nodes:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',policies:'<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',language:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',logout:'<path d="M9 4H4v16h5m4-12 4 4-4 4m-5-4h13"/>'};
+function menuIcon(name){return `<span class="im-user-menu-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${menuPaths[name]}</svg></span>`}
+function identity(){const name=state.role==='admin'?(state.adminDisplayName||'小陈'):(state.displayName|| (state.username==='xiaolin'?'小林':state.username));return {name,initials:name.slice(0,2).toUpperCase(),id:state.role==='admin'?'u_demo_admin':'u_demo_member'}}
+function languageOptions(){return `<div class="im-user-menu-language">${menuIcon('language')}<span class="im-user-menu-label grow">${t('shell.userMenu.language')}</span><span class="im-user-menu-lang-options">${btn('EN','language','',`data-locale="en" role="menuitemradio" aria-checked="${state.locale==='en'}"`)}<span class="im-user-menu-language-divider">|</span>${btn('中','language','',`data-locale="zh" role="menuitemradio" aria-checked="${state.locale==='zh'}"`)}</span></div>`}
+function menuRow(page,icon,title,subtitle='',chevron=true){return btn(menuIcon(icon)+`<span class="im-user-menu-item-body"><span class="im-user-menu-label">${title}</span>${subtitle?`<small>${subtitle}</small>`:''}</span>${chevron?'<span class="im-user-menu-chevron-right" aria-hidden="true">›</span>':''}`,'nav','im-user-menu-item',`role="menuitem" data-page="${page}"`)}
+function userMenu(){const u=identity();return btn(`<span class="im-user-menu-avatar">${esc(u.initials)}</span><span>${esc(u.name)}</span><span class="im-user-menu-chevron">▾</span>`,'menu','im-user-menu-trigger',`aria-haspopup="menu" aria-expanded="${state.menu}"`)+(state.menu?`<div class="im-user-menu-popover" role="menu"><div class="im-user-menu-identity"><span class="im-user-menu-avatar">${esc(u.initials)}</span><div class="grow"><strong>${esc(u.name)}</strong><small>${u.id}</small></div></div>${menuRow('account','account',t('shell.userMenu.account'),t('me.sections.accountSubtitle'),false)}${menuRow('devices','nodes',t('shell.userMenu.nodes'),`1 ${t('common.owned')} · 1 ${t('common.online')}`)}${menuRow('policies','policies',t('shell.userMenu.policies'))}${state.role==='admin'?menuRow('members','account',state.locale==='zh'?'公司成员':'Company members'):''}${languageOptions()}${btn(menuIcon('logout')+`<span class="grow">${t('shell.userMenu.signOut')}</span>`,'logout','im-user-menu-item im-user-menu-signout','role="menuitem"')}</div>`:'')}
+// Example values only; this document never reads or updates the running IM.
+state.policySaved={default_model:'codex_oauth:gpt-5.5',audit_level:'basic',max_turn_per_run:20,rate_limit_per_min:60,max_attachment_size_mb:20,retention_days:30};
+state.policyDraft={...state.policySaved};state.policyError=false;
+const policyFields=[['default_model','defaultModel'],['audit_level','auditLevel'],['max_turn_per_run','maxTurnPerRun'],['rate_limit_per_min','rateLimitPerMin'],['max_attachment_size_mb','maxAttachmentSizeMb'],['retention_days','retentionDays']];
+function policyDirty(){return policyFields.some(([key])=>state.policySaved[key]!==state.policyDraft[key])}
+function policyField([key,label]){const read=state.role!=='admin';return `<label>${t('settings.policies.fields.'+label)}${key==='audit_level'?`<select class="im-input" name="${key}" ${read?'disabled':''}>${options(['off','basic','strict'].map(v=>[v,t('settings.policies.fields.auditLevel'+v[0].toUpperCase()+v.slice(1))]),state.policyDraft[key])}</select>`:`<input class="im-input" name="${key}" type="${key==='default_model'?'text':'number'}" value="${esc(state.policyDraft[key])}" ${read?'readonly':''}>`}</label>`}
+function policyFooter(){return state.role==='admin'?`<div class="policy-footer"><span id="policy-dirty">${policyDirty()?'● '+t('settings.policies.actions.unsavedChanges'):''}</span><div>${btn(t('settings.policies.actions.discard'),'policy-discard','im-btn im-btn-muted',`type="button" ${policyDirty()?'':'disabled'}`)}<button type="submit" class="im-btn im-btn-primary" id="policy-save" ${policyDirty()?'':'disabled'}>${t('settings.policies.actions.save')}</button></div></div>`:''}
+function policies(){return `<section class="im-policies-screen"><header class="policy-mobile-head">${btn('‹','nav','','data-page="me" aria-label="Back"')}<h1>${t('settings.policies.title')}</h1></header><form class="im-policies-page" id="policy-form"><header><h1>${t('settings.policies.title')}</h1><p>${t('settings.policies.subtitle')}</p></header>${state.role==='admin'?'':`<p class="policy-readonly">${state.locale==='zh'?'只读 · 由公司管理员修改':'Read only · Managed by company administrators'}</p>`}${state.policyError?`<div class="policy-error" role="alert">${t('settings.policies.actions.saveFailed').replace('{{detail}}',state.locale==='zh'?'网络连接失败，请重试。':'Connection failed. Please retry.')}</div>`:''}<section class="policy-card">${policyFields.slice(0,2).map(policyField).join('')}</section><section class="policy-card policy-runtime">${policyFields.slice(2).map(policyField).join('')}</section>${policyFooter()}${storageStatus()}</form></section>`}
+function wirePolicy(){const form=$('#policy-form');if(!form)return;form.addEventListener('input',e=>{if(state.role!=='admin'||!e.target.name)return;state.policyDraft[e.target.name]=e.target.type==='number'?Number(e.target.value):e.target.value;$('#policy-dirty').textContent=policyDirty()?'● '+t('settings.policies.actions.unsavedChanges'):'';form.querySelectorAll('.policy-footer button').forEach(b=>b.disabled=!policyDirty())});form.addEventListener('submit',e=>{e.preventDefault();if(state.role!=='admin'||!policyDirty())return;if(state.failNextPolicy){state.failNextPolicy=false;state.policyError=true}else{state.policySaved={...state.policyDraft};state.policyError=false}render()})}
+
+function chrome(){const auth=['login','register','pending','suspended'].includes(state.page);$('#nav').innerHTML=auth?'':['chat','tasks','agents'].map((p,i)=>btn(['Chat','Tasks','Agents'][i],'nav',state.page===p?'selected':'',`data-page="${p}"`)).join('');$('#bottom').innerHTML=auth||state.page==='chat'&&!state.mobileList?'':['chat','tasks','agents','me'].map((p,i)=>btn(mobileIcons[p]+'<span>'+['Chat','Tasks','Agents','Me'][i]+'</span>','nav',state.page===p?'selected':'',`data-page="${p}"`)).join('');$('#bottom').classList.toggle('hidden',auth||state.page==='chat'&&!state.mobileList);$('#account').innerHTML=auth?'<small>中文</small>':userMenu();
+let controls='';if(state.page==='chat')controls=`<label for="upload-mode">上传结果</label><select id="upload-mode">${options([['quota','账号空间已满'],['service','服务存储已满'],['large','单文件过大'],['network','网络失败'],['rate','上传频率限制'],['type','格式不支持'],['success','正常上传']],state.attachmentMode)}</select>${btn('演示：消息发送失败','simulate-send-failure')+btn('演示：上传冷却结束','end-upload-cooldown')}`;
+else if(['me','account','members','devices','policies','agents'].includes(state.page))controls=`<label for="role">演示身份</label><select id="role">${options([['member','普通成员'],['admin','公司管理员']],state.role)}</select>${state.page==='members'?btn('演示：下一次操作失败','member-error'):state.page==='policies'&&state.role==='admin'?btn('演示：保存失败','policy-error'):''}`;
+else if(state.page==='tasks')controls=`<label for="task-state">列表状态</label><select id="task-state">${options([['loaded','正常'],['empty','空列表'],['error','加载失败']],state.taskState)}</select>`;
+else if(['login','register'].includes(state.page))controls=`<label for="login-mode">提交结果</label><select id="login-mode">${options([['normal','正常'],['cooldown','暂时冷却'],['invalid','凭据错误']],state.loginMode)}</select>`;
+else if(state.page==='pending')controls=btn('演示：管理员已批准','grant');
+else if(state.page==='bind')controls=`<label for="bind-state">状态</label><select id="bind-state">${options([['account','网页接收'],['local','等待本机'],['done','交接完成'],['expired','链接过期'],['interrupted','本机中断']],state.bind)}</select>${state.bind==='local'?btn('模拟本机确认','bind-complete'):state.bind==='interrupted'?btn('模拟本机恢复','bind-resume'):''}`;
+if(state.page==='policies'&&state.role==='admin')controls+=`<label for="storage-state">容量状态</label><select id="storage-state">${options([['normal','正常'],['quota','账号额度已满'],['service','服务容量已满']],state.storageAlert||'normal')}</select>`;
+$('#demo-state').innerHTML=controls;$('#journey').value=['chat','tasks','members','devices','policies','me','bind','login','pending','suspended'].includes(state.page)?state.page:state.page==='register'?'login':state.page==='bind'?'devices':'chat'}
+function fileCard(file){const failures={quota:'暂时无法上传附件。',service:'暂时无法上传附件。',large:'文件超过当前单文件上限。请选择较小的文件。',network:'网络中断，文件未上传。可以重试。',rate:file.cooldownDone?'现在可以重试上传。':'上传过于频繁，请在 30 秒后重试。',type:'不支持此文件格式。请更换文件。'};const fail=file.status!=='success';return `<div class="file-chip ${fail?'failed':''}" data-file="${file.id}"><div class="chip-top"><strong>▧ ${esc(file.name)}</strong>${btn('×','remove-file','',`data-id="${file.id}" aria-label="移除 ${esc(file.name)}"`)}</div><small>${fail?'未上传':'已上传 · 待发送'}</small>${fail?`<p role="alert">${failures[file.status]}</p>`:''}${file.status==='network'?btn('重试上传','retry-file','',`data-id="${file.id}"`):file.status==='rate'?btn(file.cooldownDone?'重试上传':'30 秒后可重试','retry-file','',`data-id="${file.id}" ${file.cooldownDone?'':'disabled'}`):''}</div>`}
+function chat(){const c=chats[state.chat];const history=state.messages[state.chat].map(m=>`<div class="message self"><span class="avatar">林</span><div><small>小林 · 刚刚</small><div class="bubble">${esc(m.text)}${m.files.map(f=>`<div class="file-in-message">▧ ${esc(f.name)}<small>已发送</small></div>`).join('')}</div></div></div>`).join('');return `<div class="workspace ${state.mobileList?'chat-list':''}"><aside class="rail"><h2>Chat</h2><p class="muted">群聊</p>${Object.entries(chats).map(([id,g])=>btn(`<strong>${g.title}</strong><small>${g.subtitle}</small>`,'open-chat',`row-button ${state.chat===id?'active':''}`,`data-chat="${id}"`)).join('')}</aside><section class="chat-main"><header class="pane-head">${btn('‹','chat-list','mobile-back','aria-label="返回聊天列表"')}<div><h1>${c.title}</h1><small>${c.subtitle}</small></div>${btn('任务','group-tasks','push','aria-label="查看本群任务"')}${btn('•••','group-info','', 'aria-label="群信息"')}</header><div class="messages"><div class="message"><span class="avatar">林</span><div><small>小林 · 14:12</small><div class="bubble">${c.text}</div></div></div><div class="message"><span class="avatar agent">Agent</span><div><small>${state.chat==='design'?'设计':'开发'} Agent · 14:13</small><div class="bubble">${state.chat==='delivery'?'收到，我先检查鉴权和附件接口，再更新联调进展。':state.chat==='planning'?'计划已记录，我会先跟进接口联调。':'好的，我们先把思路讨论清楚。'}</div></div></div>${history}</div><section class="composer" aria-label="消息输入区">${state.sendFailures[state.chat]?`<p class="inline-error" role="alert">发送失败，请重试。</p>`:''}<div class="chips">${state.files.filter(f=>f.chat===state.chat).map(fileCard).join('')}</div><textarea id="draft" aria-label="消息草稿" placeholder="发送消息，@ Agent 交办任务">${esc(state.drafts[state.chat])}</textarea><div class="composer-actions">${btn('＋ 附件','add-file','', 'aria-label="添加示例附件"')}<small>拖入或粘贴文件</small>${btn(state.sendFailures[state.chat]?'重试发送':'发送','send','primary',state.files.some(f=>f.chat===state.chat&&f.status!=='success')?'disabled':'')}</div>${state.files.some(f=>f.chat===state.chat&&f.status!=='success')?`<div class="actions">${btn('仅发送文字','send-text','',state.drafts[state.chat].trim()?'':'disabled')}<small>附件保留在草稿中，不随本次文字发送。</small></div>`:''}</section></section>${state.drawer?groupTasks():''}</div>`}
+function groupTasks(){const c=chats[state.chat];const closeIcon='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';return `<aside class="drawer" aria-label="本群任务"><div class="drawer-head"><h2>任务</h2>${btn(closeIcon,'close-drawer','icon-button','aria-label="关闭任务面板" title="关闭"')}</div><div class="group-task-list">${c.tasks.length?c.tasks.map(id=>btn(`<span class="task-row-heading"><strong>${nodes[id].title}</strong><svg class="task-row-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span>${id==='n1'?'':'<span class="task-row-parent">上线客户服务系统</span>'}<span class="task-row-meta"><span class="task-status ${nodes[id].status==='进行中'?'in-progress':''}">${nodes[id].status}</span><span>今天 14:20</span></span>`,'open-group-task','task-item',`data-node="${id}"`)).join(''):'<div class="empty"><h3>暂无任务</h3><p>在群里请 Agent 创建或更新任务。</p></div>'}</div></aside>`}
+
+function taskPage(){const graph=state.graph==='service',n=nodes[state.node];const graphs=[['service','上线客户服务系统','进行中 · 3 个节点'],['private','整理客户访谈','待开始 · 1 个节点']].filter(([,title])=>title.includes(state.search));return `<div class="workspace tasks"><aside class="rail"><h2>Tasks</h2><p class="muted">公司全部任务</p><input id="task-search" aria-label="搜索公司任务" placeholder="搜索目标名称" value="${esc(state.search)}">${state.taskState==='loaded'?graphs.map(([id,title,sub])=>btn(`<strong>${title}</strong><small>${sub}</small>`,'select-graph',`row-button ${state.graph===id?'active':''}`,`data-graph="${id}"`)).join(''):''}${!graphs.length&&state.taskState==='loaded'?'<p>没有匹配的任务</p>':''}</aside><section class="task-main"><header class="pane-head"><div><h1>${state.taskState==='loaded'?(graph?'上线客户服务系统':'整理客户访谈'):'Tasks'}</h1></div>${state.taskOrigin?btn(`返回${chats[state.taskOrigin].title}`,'return-origin','push'):''}</header>${state.taskState!=='loaded'?`<div class="empty"><h2>${state.taskState==='error'?'暂时无法加载任务':'公司还没有任务'}</h2><p>${state.taskState==='error'?'请稍后重试。':'在任意聊天中请 Agent 创建任务后，可在这里查看。'}</p>${btn(state.taskState==='error'?'重新加载':'去聊天',state.taskState==='error'?'retry-tasks':'nav','',state.taskState==='error'?'':'data-page="chat"')}</div>`:`<div class="task-body"><div class="canvas"><p class="muted">${graph?'总目标 / 交付计划':'总目标'}</p><div class="graph">${graph?`${nodeButton('n1')}<div class="branch">${nodeButton('n2')}${nodeButton('n3')}</div>`:'<div class="node active"><small>n1 · 待开始</small><strong>整理客户访谈</strong><small>公司共享</small></div>'}</div></div><aside class="detail"><span class="tag">${graph?state.node:'n1'} · ${graph?n.status:'待开始'}</span><h2 style="margin-top:14px">${graph?n.title:'整理客户访谈'}</h2><p>${graph?n.body:'汇总访谈结论，整理下一步改进方向。'}</p><h3>最近修改</h3><p>${graph?n.agent:'研究 Agent'} · 今天 14:20</p><h3>来源聊天</h3>${graph?`${btn(chats[n.source].title+' ↗','source-chat','link-button',`data-chat="${n.source}"`)}`:'<p class="muted">受保护的来源聊天</p>'}<div class="actions">${btn('复制任务引用','copy-reference')}${graph?btn('回聊天讨论','discuss','primary'):''}</div></aside></div>`}</section></div>`}
+function nodeButton(id){const n=nodes[id];return btn(`<small>${id} · ${n.status}</small><strong>${n.title}</strong><small>${state.taskOrigin&&chats[state.taskOrigin].tasks.includes(id)?'来自刚才群聊的任务活动':'公司共享'}</small>`,'select-node',`node ${state.node===id?'active':''}`,`data-node="${id}"`)}
+function settings(content){return `<div class="settings"><section class="settings-content">${state.page==='me'?'':btn('‹ 返回','nav','mobile-back','data-page="me"')}${content}</section></div>`}
+
+function me(){const u=identity();return `<section class="im-me-page">${btn(`<span class="profile-avatar">${esc(u.initials)}</span><span class="grow"><strong>${esc(u.name)}</strong><small>${u.id}</small></span><span class="im-user-menu-chevron-right">›</span>`,'nav','im-me-identity','data-page="account"')}<div class="im-me-group">${menuRow('devices','nodes',t('shell.userMenu.nodes'),`1 ${t('common.owned')} · 1 ${t('common.online')}`)}</div><div class="im-me-group">${menuRow('account','account',t('shell.userMenu.account'),t('me.sections.accountSubtitle'))}</div><div class="im-me-group">${menuRow('policies','policies',t('shell.userMenu.policies'))}</div>${state.role==='admin'?`<div class="im-me-group">${menuRow('members','account',state.locale==='zh'?'公司成员':'Company members')}</div>`:''}<div class="im-me-group">${languageOptions()}</div><div class="im-me-group">${btn(menuIcon('logout')+t('shell.userMenu.signOut'),'logout','im-user-menu-item im-user-menu-signout')}</div></section>`}
+function account(){const u=identity();return `<section class="im-policies-screen"><header class="policy-mobile-head">${btn('‹','nav','','data-page="me" aria-label="Back"')}<h1>${t('settings.account.title')}</h1></header><form class="im-policies-page" id="account-form"><header><h1>${t('settings.account.title')}</h1><p>${t('settings.account.subtitle')}</p></header><section class="policy-card"><header><h2 class="profile-card-title">${t('settings.account.identity.heading')}</h2><p class="profile-card-subtitle">${t('settings.account.identity.subtitle')}</p></header><div class="profile-identity"><span class="profile-avatar">${esc(u.initials)}</span><div><strong>${esc(u.name)}</strong><small>${u.id}</small></div></div><div class="profile-grid"><label>${t('settings.account.identity.userId')}<input class="im-input" value="${u.id}" disabled></label><label>${t('settings.account.identity.displayName')}<input id="display-name" class="im-input" value="${esc(u.name)}" required minlength="1"></label></div></section><section class="policy-card"><header><h2 class="profile-card-title">${t('settings.account.defaults.heading')}</h2><p class="profile-card-subtitle">${t('settings.account.defaults.subtitle')}</p></header><div class="profile-device"><span class="tag">online</span><span class="grow"><strong>小林的笔记本</strong><small>node_demo</small></span><small>1 agent<br>v0.1.0</small></div><div class="profile-count"><span>${t('settings.account.defaults.ownedNodes')}</span><strong>1</strong></div></section><div class="policy-footer"><span id="account-dirty"></span><div>${btn(t('settings.account.actions.discard'),'account-discard','im-btn im-btn-muted','type="button" disabled')}<button class="im-btn im-btn-primary" type="submit" disabled>${t('settings.account.actions.saveAccount')}</button></div></div></form></section>`}
+function wireAccount(){const form=$('#account-form');if(!form)return;$('#display-name').addEventListener('input',e=>{const dirty=e.target.value!==identity().name;$('#account-dirty').textContent=dirty?'● '+t('settings.account.actions.unsavedChanges'):'';form.querySelectorAll('.policy-footer button').forEach(b=>b.disabled=!dirty)});form.addEventListener('submit',e=>{e.preventDefault();const name=$('#display-name').value.trim();if(!name)return;if(state.role==='admin')state.adminDisplayName=name;else state.displayName=name;render()})}
+
+function members(){if(state.role!=='admin')return settings('<h1>公司成员管理</h1><div class="notice">仅公司管理员可使用此入口。</div>');return settings(`<h1>公司成员</h1><p class="muted">批准同事加入，或停止其公司访问。</p>${state.memberError?'<div class="inline-error" role="alert">操作未成功，请重试。</div>':''}<section class="card"><h2>待批准 <span class="tag">${state.approved?0:1}</span></h2>${state.approved?'<p class="muted">暂时没有待批准的成员。</p>':`<div class="member"><span class="avatar">林</span><div class="grow"><strong>小林</strong><small>xiaolin · 刚刚注册</small></div>${btn('批准加入','approve','primary')}</div>`}</section><section class="card"><h2>公司成员</h2><div class="member"><span class="avatar">陈</span><div class="grow"><strong>你</strong><small>公司管理员</small></div><span class="tag">正常</span></div><div class="member"><span class="avatar">王</span><div class="grow"><strong>小王</strong><small>设计室共享电脑 · 2 个 Agent</small></div>${state.stopped?'<span class="tag">已停用</span>':btn('停用','suspend-dialog','danger')}</div>${state.approved?'<div class="member"><span class="avatar">林</span><div class="grow"><strong>小林</strong><small>公司成员</small></div><span class="tag">正常</span></div>':''}</section>`)}
+function devices(){return settings(`<h1>设备</h1><div class="device-kpis">${[['1','设备'],['1','在线'],['0','离线'],[state.bindingCommitted?'2':'1','Agent']].map(([n,t])=>`<div><strong>${n}</strong><small>${t}</small></div>`).join('')}</div><section class="device-card"><header><span class="avatar">▣</span><div class="grow"><h2>${state.bindingCommitted?'设计室共享电脑':'小林的笔记本'}</h2><small>${state.bindingCommitted?'node_studio':'node_laptop'}</small></div><span class="tag">在线</span></header><div class="device-facts"><div><small>管理者</small><strong>${esc(state.username)}</strong></div><div><small>Agent</small><strong>${state.bindingCommitted?'开发 Agent、设计 Agent':'助手 Agent'}</strong></div></div></section>`)}
+function bind(){const receiver=esc(state.username==='xiaolin'?'小林 · xiaolin':state.username);const pages={account:{title:'接收设备',body:`<div class="bind-device"><span class="avatar">▣</span><div><strong>设计室共享电脑</strong><small>开发 Agent · 设计 Agent</small></div></div><div class="bind-account"><div><small>接收账号</small><strong>${receiver}</strong></div>${btn('切换账号','bind-login','link-button')}</div><div class="warning">确认后，小王将失去此设备及全部 Agent 的管理权。配置和工作记录保留，私人聊天权限不移交。</div><div class="bind-actions">${btn('确认接收','bind-accept','primary')}${btn('取消','bind-cancel','link-button')}</div>`},local:{title:'等待电脑确认',body:`<p class="bind-copy">请回到设计室共享电脑，在终端核对并确认交接。</p><div class="bind-device"><span class="avatar">▣</span><div><strong>设计室共享电脑</strong><small>接收账号：${receiver}</small></div></div><p class="muted">完成后此页会自动更新。</p><div class="bind-actions">${btn('取消交接','bind-cancel','link-button')}</div>`},done:{title:'交接完成',body:`<p class="bind-copy">你现在可以管理这台设备及其全部 Agent。</p><div class="bind-device"><span class="avatar">▣</span><div><strong>设计室共享电脑</strong><small>管理者：${receiver}</small></div></div><div class="bind-actions">${btn('查看设备','nav','primary','data-page="devices"')}</div>`},expired:{title:'链接已过期',body:`<p class="bind-copy">请在原电脑重新发起交接，使用新的确认链接。</p><div class="bind-actions">${btn('返回设备','nav','','data-page="devices"')}</div>`},interrupted:{title:'等待电脑恢复连接',body:`<p class="bind-copy">请在原电脑恢复这次交接。连接恢复后，此页会继续更新结果。</p><div class="notice">当前结果尚未确认，请勿重复发起交接。</div>`}};const current=pages[state.bind]||pages.account;return `<section class="bind-page"><div class="card bind-card"><h1>${current.title}</h1>${current.body}</div></section>`}
+
+function auth(){const page=state.page;const stopped=page==='suspended',pending=page==='pending',reg=page==='register';return `<div class="auth"><section class="auth-intro"><p class="eyebrow">PEOPLE · AGENTS · DEVICES</p><h1>让人与 Agent<br>在一起工作。</h1><p class="muted">连接团队、任务与每个人的电脑。</p></section><section class="card">${pending||stopped?`<span class="badge">${stopped?'公司访问已停止':'注册成功'}</span><h2>${stopped?'账号已停用':'等待管理员批准'}</h2><p>${stopped?'请联系公司管理员了解情况。':'管理员批准加入后，即可与同事和 Agent 一起工作。'}</p>${stopped?'<div class="warning">你管理的 Gateway 和 Agent 也已停止接入公司。记录与配置保留。</div>':''}<p class="muted">当前账号：${esc(state.username)}</p><div class="actions">${btn('刷新状态','refresh-membership','primary')}${btn('退出登录','logout')}</div>`:`<h2>${reg?'创建 Nano IM 账号':'登录 Nano IM'}</h2>${state.returnToBind?'<p class="notice">登录有效公司账号后继续设备交接。</p>':''}<form id="auth-form" ${state.loginMode!=='normal'?'aria-describedby="auth-feedback"':''}><div class="form-field"><label for="username">用户名</label><input id="username" autocomplete="username" required value="${esc(state.username)}"></div><div class="form-field"><label for="password">密码</label><input id="password" type="password" autocomplete="${reg?'new-password':'current-password'}" required value="${esc(state.password)}"></div>${state.loginMode==='cooldown'?'<p id="auth-feedback" class="form-feedback form-cooldown" role="alert">尝试次数较多，请在 3 分钟后重试。</p>':state.loginMode==='invalid'?'<p id="auth-feedback" class="form-feedback form-error" role="alert">用户名或密码不正确。</p>':''}<button type="submit" class="primary" ${state.loginMode==='cooldown'?'disabled':''}>${state.loginMode==='cooldown'?'稍后重试':reg?'注册':'登录'}</button></form><div class="auth-switch">${btn(reg?'已有账号，去登录':'没有账号？注册','nav','link-button',`data-page="${reg?'login':'register'}"`)}</div>${reg?'<p class="foot">注册后需要公司管理员批准。</p>':''}`}</section></div>`}
+function renderScope(){const scope={
+chat:['沿用聊天页；新增群内任务入口与附件异常反馈。','聊天布局和发送能力沿用现有 IM。示例群、消息和文件只是演示数据；黄色区域可模拟上传结果，不会进入产品。'],
+tasks:['沿用 Tasks；仅扩大公司可见范围并承接群内跳转。','保留现有图层级、节点详情、搜索与引用。此处简化示例图，不要求据此重做整个任务页。'],
+devices:['设备页沿用现有产品，不新增交接教程卡片。','此处只示意设备归属结果；现有别名编辑、状态、保存和创建 Agent 功能继续保留。交接从目标电脑本机发起；请在黄色旅程菜单选择“设备交接”查看新增网页，不把演示菜单当产品入口。'],
+bind:['本次新增：接收账号确认、等待本机、交接结果。','真实前置路径：在目标电脑发起换绑 → 打开一次性链接 → 登录接收账号 → 网页确认 → 回原电脑终端确认。黄色状态菜单和模拟本机按钮仅用于演示；产品里没有远程“本机确认”按钮。'],
+members:['本次新增：管理员批准及停用成员。','入口沿用桌面头像菜单、手机 Me；普通成员不显示该入口。页面复用现有独立设置页风格，不新建二级设置侧栏。'],
+login:['沿用现有登录页；增量为冷却反馈。','品牌、认证框架与表单采用当前 IM 的样式基准；演示身份和提交结果不进入产品。'],
+register:['沿用注册页；新增注册后的等待批准状态。','注册正常开放，不引入邀请制或外部账号登录。'],
+pending:['本次新增：等待批准状态。','只显示本人状态，批准后进入原目标；模拟批准按钮属于演示控制。'],
+suspended:['本次新增：停用状态。','只显示本人状态与接入影响，不泄漏公司内容。'],
+policies:['保留现有策略表单；增加编辑权限与管理员容量告警。','六个字段、两张配置卡片、保存与放弃均沿用当前 PoliciesPage。这里显示演示数值，保存只影响原型。普通成员只读；新增存储状态仅管理员可见。'],
+agents:['沿用 Agents，当前仅示意协作入口。','保留现有 Agent 列表、配置和 Work；此示例卡片不是整页替换方案。'],
+account:['保留现有账号页。','沿用 AccountPage 的资料、设备卡片与保存操作；示例账号和设备仅用于演示。'],
+me:['沿用账号 / Me 入口；管理员增加公司成员项。','桌面使用现有头像菜单，手机使用 Me，不新增设置二级导航。']};const [summary,detail]=scope[state.page]||scope.chat;$('#scope-summary').textContent='实施范围 · '+summary;$('#scope-detail').textContent=detail;}
+function render(){document.body.dataset.screen=['login','register','pending','suspended'].includes(state.page)?'auth':'app';chrome();renderScope();app.innerHTML=state.page==='chat'?chat():state.page==='tasks'?taskPage():state.page==='me'?me():state.page==='account'?account():state.page==='members'?members():state.page==='devices'?devices():state.page==='bind'?bind():state.page==='agents'?settings(`<h1>Agents</h1><div class="card"><h2>开发 Agent</h2><p>设计室共享电脑 · 管理者：${state.bindingCommitted?esc(state.username):'小王'}</p>${btn('进入协作群','open-chat','','data-chat="delivery"')}</div>`):state.page==='policies'?policies():auth();wireInputs()}
+function modal(body){$('#modal').innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="操作确认">${body}</section></div>`;$('#modal button')?.focus()}
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if($('#modal').textContent){$('#modal').innerHTML='';return}if(state.drawer){state.drawer=false;render();document.querySelector('[data-action="group-tasks"]')?.focus()}else if(state.menu){state.menu=false;render();document.querySelector('[data-action="menu"]')?.focus()}});
+let fileSeq=0;
+function recordStorageAlert(status){if(['quota','service'].includes(status))state.storageAlert=status}
+function storageStatus(){return state.role==='admin'?`<div class="card"><h2>附件存储状态</h2>${state.storageAlert?`<div class="warning" role="alert">${state.storageAlert==='service'?'服务附件容量已达上限':'小林的附件累计额度已达上限'}，相关新上传已暂停。文字聊天可继续。</div><p class="muted">${state.storageAlert==='service'?'服务附件用量：10 GiB / 10 GiB':'小林（xiaolin）附件用量：1 GiB / 1 GiB'}</p><p>请检查附件存储用量并处理容量限制。恢复容量后，上传自动恢复。</p>`:'<p>容量正常，没有待处理的容量告警。</p>'}</div>`:''}
+function action(a,el){if(a==='nav'){if(el.dataset.page==='tasks'){state.taskOrigin=null;state.taskState='loaded'}go(el.dataset.page)}
+else if(a==='account-discard'){render()}
+else if(a==='language'){state.locale=el.dataset.locale;document.documentElement.lang=state.locale;state.menu=false;render()}
+else if(a==='policy-discard'){state.policyDraft={...state.policySaved};state.policyError=false;render()}
+else if(a==='policy-error'){state.failNextPolicy=true;toast('演示已设置：下一次保存失败，保留修改')}
+else if(a==='menu'){state.menu=!state.menu;render()}else if(a==='logout'){state.returnToBind=false;state.password='';go('login')}
+else if(a==='open-chat'){state.chat=el.dataset.chat;go('chat')}else if(a==='chat-list'){state.mobileList=true;render()}else if(a==='group-tasks'){state.drawer=true;render()}else if(a==='close-drawer'){state.drawer=false;render()}
+else if(a==='group-info')modal(`<h2>${chats[state.chat].title}</h2><p>${chats[state.chat].subtitle}</p>${btn('关闭','close-modal')}`)
+else if(a==='add-file'){recordStorageAlert(state.attachmentMode);state.files.push({id:++fileSeq,name:'接口说明.pdf',status:state.attachmentMode,chat:state.chat});render()}
+else if(a==='remove-file'){state.files=state.files.filter(f=>f.id!==Number(el.dataset.id));render()}
+else if(a==='retry-file'){recordStorageAlert(state.attachmentMode);state.files.find(f=>f.id===Number(el.dataset.id)).status=state.attachmentMode;render()}
+else if(a==='end-upload-cooldown'){state.files.forEach(f=>{if(f.status==='rate')f.cooldownDone=true});render()}
+else if(a==='simulate-send-failure'){state.failNextSend=true;toast('演示已设置：下一次发送失败，草稿将保留')}
+else if(a==='send'||a==='send-text'){const textOnly=a==='send-text';if(textOnly&&!state.drafts[state.chat].trim())return;if(!textOnly&&state.files.some(f=>f.chat===state.chat&&f.status!=='success'))return;if(!state.drafts[state.chat].trim()&&!state.files.some(f=>f.chat===state.chat))return;if(state.failNextSend){state.failNextSend=false;state.sendFailures[state.chat]=true;render();return}state.messages[state.chat].push({text:state.drafts[state.chat],files:textOnly?[]:state.files.filter(f=>f.chat===state.chat)});if(!textOnly)state.files=state.files.filter(f=>f.chat!==state.chat);state.drafts[state.chat]='';state.sendFailures[state.chat]=false;render()}
+else if(a==='open-group-task'){state.taskOrigin=state.chat;state.node=el.dataset.node;state.graph='service';state.taskState='loaded';go('tasks')}
+else if(a==='return-origin'){state.chat=state.taskOrigin;go('chat');state.drawer=true;render()}
+else if(a==='select-node'){state.node=el.dataset.node;render()}else if(a==='select-graph'){state.graph=el.dataset.graph;state.node='n1';render()}else if(a==='retry-tasks'){state.taskState='loaded';render()}
+else if(a==='source-chat'||a==='discuss'){const c=a==='source-chat'?el.dataset.chat:nodes[state.node].source;if(a==='discuss')state.drafts[c]+=`${state.drafts[c]?'\n':''}[任务：${nodes[state.node].title}](tg_demo#${state.node})\n`;state.chat=c;go('chat')}
+else if(a==='copy-reference'){modal(`<h2>任务引用</h2><input class="full" aria-label="任务引用" readonly value="${state.graph==='service'?'tg_demo#'+state.node:'tg_research#n1'}"><p class="muted">在聊天中发送给 Agent，继续讨论。</p>${btn('关闭','close-modal')}`);$('#modal input').select()}
+else if(a==='member-error'){state.failNextMember=true;toast('演示已设置：下一次成员操作失败')}
+else if(a==='approve'||a==='suspend-confirm'){if(state.failNextMember){state.failNextMember=false;state.memberError=true;$('#modal').innerHTML='';render();return}state.memberError=false;if(a==='approve')state.approved=true;else state.stopped=true;$('#modal').innerHTML='';render();toast(a==='approve'?'已批准小林加入公司':'小王及其设备已停止公司接入')}
+else if(a==='suspend-dialog')modal(`<h2>停用小王？</h2><p>小王将不能进入公司 IM，其管理的设备和 Agent 也会停止接入公司。</p><div class="warning">设计室共享电脑 · 开发 Agent、设计 Agent<br>其他同事也将暂时无法使用这些 Agent。</div><p>历史、任务与配置保留，不会关闭电脑。</p><div class="actions">${btn('取消','close-modal')}${btn('确认停用','suspend-confirm','danger')}</div>`)
+else if(a==='close-modal')$('#modal').innerHTML='';
+else if(a==='transfer-guide'){state.bind='account';go('bind')}else if(a==='bind-account'){state.bind='account';render()}else if(a==='bind-accept'){state.bind='local';render()}else if(a==='bind-login'){state.returnToBind=true;state.loginMode='normal';state.password='';go('login')}
+else if(a==='bind-cancel'){state.bind='account';state.returnToBind=false;go('devices');toast('已取消交接，原归属保持')}
+else if(a==='bind-complete'||a==='bind-resume'){state.bind='done';state.bindingCommitted=true;state.returnToBind=false;render()}else if(a==='bind-expire'){state.bind='expired';render()}else if(a==='bind-interrupt'){state.bind='interrupted';render()}
+else if(a==='grant'){state.approved=true;toast('演示：管理员已批准，点击刷新状态继续')}
+else if(a==='refresh-membership'){if(state.page==='pending'&&state.approved){if(state.returnToBind){state.bind='account';go('bind')}else go('chat')}else toast(state.page==='pending'?'仍在等待批准':'账号仍处于停用状态')}
+}
+document.addEventListener('click',e=>{if(state.menu&&!e.target.closest('.account-wrap')){state.menu=false;render()}const el=e.target.closest('[data-action]');if(el&&!el.disabled)action(el.dataset.action,el)});
+function wireInputs(){wirePolicy();wireAccount();$('#storage-state')?.addEventListener('change',e=>{state.storageAlert=e.target.value==='normal'?null:e.target.value;render()});$('#bind-state')?.addEventListener('change',e=>{state.bind=e.target.value;render()});$('#draft')?.addEventListener('input',e=>{state.drafts[state.chat]=e.target.value;const sendText=document.querySelector('[data-action="send-text"]');if(sendText)sendText.disabled=!e.target.value.trim()});$('#task-search')?.addEventListener('change',e=>{state.search=e.target.value;render()});$('#username')?.addEventListener('input',e=>state.username=e.target.value);$('#password')?.addEventListener('input',e=>state.password=e.target.value);$('#auth-form')?.addEventListener('submit',e=>{e.preventDefault();if(state.loginMode!=='normal')return;state.role='member';if(state.page==='register'){state.approved=false;go('pending')}else if(state.returnToBind){state.bind='account';go('bind')}else go('chat')});$('#upload-mode')?.addEventListener('change',e=>state.attachmentMode=e.target.value);$('#role')?.addEventListener('change',e=>{state.role=e.target.value;state.policyDraft={...state.policySaved};state.policyError=false;if(state.role==='member'&&state.page==='members')go('me');else render()});$('#task-state')?.addEventListener('change',e=>{state.taskState=e.target.value;render()});$('#login-mode')?.addEventListener('change',e=>{state.loginMode=e.target.value;render()})}
+$('#journey').addEventListener('change',e=>{if(e.target.value==='members')state.role='admin';if(e.target.value==='bind')state.bind='account';if(e.target.value==='tasks'){state.taskOrigin=null;state.taskState='loaded'}go(e.target.value)});
+render();
+function measureChrome(){const height=Array.from(document.querySelectorAll('.demo,.prototype-notes,.top')).reduce((sum,e)=>sum+e.getBoundingClientRect().height,0);document.documentElement.style.setProperty('--chrome-height',height+'px')}
+if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(measureChrome);document.querySelectorAll('.demo,.prototype-notes,.top').forEach(e=>observer.observe(e))}
+</script></body></html>
