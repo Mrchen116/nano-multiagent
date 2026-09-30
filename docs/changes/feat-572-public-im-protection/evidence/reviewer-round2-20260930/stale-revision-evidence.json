@@ -1,0 +1,95 @@
+[
+  {
+    "arguments": {
+      "action": "apply",
+      "base_revision": 1,
+      "change_note": "Review572 stale rejected\uff08\u9a8c\u6536\uff1a\u4f7f\u7528\u8fc7\u65f6\u4f46\u5408\u6cd5\u7684 base_revision=1\uff0c\u9884\u671f version_conflict\uff09",
+      "graph_id": "tg_c1d2b5b5",
+      "operations": [
+        {
+          "node_id": "n3",
+          "op": "update_task",
+          "patch": {
+            "description": "Review572 stale rejected"
+          }
+        }
+      ],
+      "request_key": "review572-stale-20260930-2",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "apply",
+      "base_revision": 1,
+      "change_note": "Review572 stale rejected\uff08\u9a8c\u6536\uff1a\u4f7f\u7528\u8fc7\u65f6\u4f46\u5408\u6cd5\u7684 base_revision=1\uff0c\u9884\u671f version_conflict\uff09",
+      "error": "tool execution failed: {\"code\": \"version_conflict\", \"message\": \"Read the current graph before adjusting this change\", \"current_revision\": 5}",
+      "graph_id": "tg_c1d2b5b5",
+      "operations": [
+        {
+          "node_id": "n3",
+          "op": "update_task",
+          "patch": {
+            "description": "Review572 stale rejected"
+          }
+        }
+      ],
+      "request_key": "review572-stale-20260930-2",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  },
+  {
+    "arguments": {
+      "action": "apply",
+      "base_revision": 1,
+      "change_note": "\u4e3a\u9a8c\u6536\u8865\u5145\u4e00\u4e2a\u5b50\u4efb\u52a1\u8282\u70b9\uff08\u4ec5\u521b\u5efa\uff0c\u4e0d\u6267\u884c\uff09",
+      "graph_id": "tg_5508fe90",
+      "operations": [
+        {
+          "client_ref": "S",
+          "container_id": "n1",
+          "op": "add_task",
+          "status": "todo",
+          "title": "Review572\u5b50\u4efb\u52a1\uff1a\u5360\u4f4d\u9a8c\u6536\u5b50\u4efb\u52a1\uff08\u4e0d\u6267\u884c\uff09"
+        }
+      ],
+      "request_key": "review572-create-20260930-2",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "apply",
+      "base_revision": 1,
+      "change_note": "\u4e3a\u9a8c\u6536\u8865\u5145\u4e00\u4e2a\u5b50\u4efb\u52a1\u8282\u70b9\uff08\u4ec5\u521b\u5efa\uff0c\u4e0d\u6267\u884c\uff09",
+      "changed_ids": [
+        "n1",
+        "n2"
+      ],
+      "client_refs": {
+        "S": "n2"
+      },
+      "created_at": "2026-09-30T14:26:12.036322Z",
+      "graph_id": "tg_5508fe90",
+      "mode": "dag",
+      "operations": [
+        {
+          "client_ref": "S",
+          "container_id": "n1",
+          "op": "add_task",
+          "status": "todo",
+          "title": "Review572\u5b50\u4efb\u52a1\uff1a\u5360\u4f4d\u9a8c\u6536\u5b50\u4efb\u52a1\uff08\u4e0d\u6267\u884c\uff09"
+        }
+      ],
+      "relative_url": "/tasks/tg_5508fe90",
+      "request_key": "review572-create-20260930-2",
+      "revision": 2,
+      "root_node_id": "n1",
+      "status": "completed",
+      "target": "c_ga10oz1b",
+      "title": "Review572\u4e34\u65f6\u5220\u9664\u9a8c\u6536",
+      "updated_at": "2026-09-30T14:26:14.477467Z",
+      "updated_by": "Review572Global (review572-global)",
+      "web_url": "http://127.0.0.1:50620/tasks/tg_5508fe90"
+    },
+    "status": "completed"
+  }
+]

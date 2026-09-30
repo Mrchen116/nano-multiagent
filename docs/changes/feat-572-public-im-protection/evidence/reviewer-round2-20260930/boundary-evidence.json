@@ -1,0 +1,87 @@
+[
+  {
+    "check": "forged-registration",
+    "status": 201,
+    "user": {
+      "id": "u_fotna4sd",
+      "username": "reviewer572c",
+      "display_name": "Reviewer 572 C",
+      "owner_id": "u_fotna4sd",
+      "locale": "en",
+      "default_entry_node_id": null,
+      "owned_node_ids": [],
+      "created_at": "2026-09-30T14:54:06.187092Z",
+      "membership_status": "pending",
+      "is_company_admin": false
+    }
+  },
+  {
+    "check": "pending-bind-accept",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "suspended-bind-accept",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "ws-ticket-1",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-2",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-3",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-4",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-5",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-6",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-7",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-8",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-9",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-10",
+    "status": 200
+  },
+  {
+    "check": "ws-ticket-11",
+    "status": 429
+  },
+  {
+    "check": "oversized-message-2.2MB",
+    "status": 413,
+    "detail": "request body too large"
+  },
+  {
+    "check": "ws-ticket-natural-cooldown-recovery",
+    "status": 200
+  }
+]

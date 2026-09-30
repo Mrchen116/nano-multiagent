@@ -1,0 +1,52 @@
+[
+  {
+    "identity": "pre-handoff",
+    "path": "/im/v1/nodes",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "pre-handoff",
+    "path": "/im/v1/task-graphs",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "pre-handoff",
+    "path": "/im/v1/agents/feat572-peer/work",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "pre-handoff",
+    "gateway_websocket": {
+      "rejected": "InvalidStatus",
+      "detail": "server rejected WebSocket connection: HTTP 403"
+    }
+  },
+  {
+    "identity": "current",
+    "path": "/im/v1/nodes",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "current",
+    "path": "/im/v1/task-graphs",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "current",
+    "path": "/im/v1/agents/feat572-peer/work",
+    "status": 401,
+    "detail": "invalid token"
+  },
+  {
+    "identity": "current",
+    "gateway_websocket": {
+      "rejected": "InvalidStatus",
+      "detail": "server rejected WebSocket connection: HTTP 403"
+    }
+  }
+]

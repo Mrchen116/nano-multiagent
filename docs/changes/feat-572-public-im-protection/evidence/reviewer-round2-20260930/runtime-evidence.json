@@ -1,0 +1,18 @@
+{
+  "validated_at": "ce0c557c41542e3d7774d739e3b69603ab2f4093",
+  "production_commit": "bf9fde9e3",
+  "im_pid": 33315,
+  "gateway_pid": 33655,
+  "assets": [
+    {
+      "asset": "/assets/index-zvqrm-dg.js",
+      "sha256": "33b289ecacb8538984ec6353161f5b6d20971c95fa976fcd7d3d075595a19a8c",
+      "matches_dist": true
+    },
+    {
+      "asset": "/assets/index-D2RrbE_A.css",
+      "sha256": "0dfe899220794f4148f5b60ad418245c51d443045e50e8bc83f4bdcd3fa5c70d",
+      "matches_dist": true
+    }
+  ]
+}

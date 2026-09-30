@@ -180,3 +180,185 @@
 ## 收尾与复验范围
 
 仅报告及脱敏证据可提交；未触碰源码/测试/受控配置。保留reviewer572a suspended、reviewer572b active、review572-global与失败图供targeted复验。容量fixture已清理；peer已停止（caller如需重启须确保仅一实例）。R6/R7及本表所有inconclusive在后续Round继续继承；不能因P1/P2修复就自动提升完整验收为pass。
+
+
+---
+
+# 独立产品验收 Round 2（targeted + 本地未决补验）
+
+> 2026-09-30 22:41–23:04 Asia/Shanghai。主体验证 `ce0c557c41542e3d7774d739e3b69603ab2f4093`（产品改动 `bf9fde9e3`）；最终增量验证 `7df455679`。前端仍为bf9fde批次dist，HTTP资源哈希与本地dist相同。先前有效证据继承，不冒充全部在最终HEAD重跑。
+
+## Verdict
+
+**fail**。Highest Required Action: **pass**（仅指当前无新增必须实施的修复；完整验收仍fail，须补足缺失证据，不代表交付/发布通过）。本轮未留已复现的major实现失败；Round1 P1真实global来源与P2认证视觉均收口。保留1项minor UX限制记录UX1。必验inconclusive仍存在，故不能给完整pass或发布许可。
+
+IM由caller从33315/Gateway33655统一更新至IM41358/Gateway41369；同隔离50620、DB和配置。最终ticket脱敏及真实global重启恢复在7df455679上验证。无生产变更、无飞书占用抢夺、未停第一Gateway/IM/8572原型。只提交本报告与脱敏证据。
+
+本轮证据：[reviewer-round2-20260930](../evidence/reviewer-round2-20260930/)。本节所列png均同时有1440×900及390×844版本，除另有说明。前端故障注入与真实后端边界证据明确区分。
+
+## 新增真实旅程
+
+- **R2-J1 global删除**：长句明确要求删除仍需确认；随后在同聊天真实发送精确“删除 tg_5508fe90”，global工具deleted=true、deleted_ids=n1/n2、revision3，get拒绝，其他成员Tasks列表移除。global-delete-tool-evidence与global-delete-success双视口证明；P1 closed。认证错误同样实际错误密码触发，现为与输入框对齐的简短红字，输入保留；login-error双视口与原型对照match，P2 closed。
+- **R2-J2失败不丢输入**：管理员策略14→15保存，刷新仍15；拦截该浏览器PATCH制造网络中断，14草稿与Unsaved changes保留；恢复真实网络后重试保存回14。批准C时单浏览器断网，仍pending，恢复后Approve成功。Task search无结果/失败/恢复双视口已补。原型信息层级与主要控件可用，英文和中文Me身份/节点数量/菜单保持。
+- **R2-J3附件**：真实坏PNG被拒为Unsupported format，正文和文件chip保持；单浏览器中止上传请求产生网络失败，可Retry；显式注入429/Retry-After测试冷却UI，恢复真实上传后成功。两种注入只作为UI故障反馈证据。另通过真实后端发送2.2MB JSON与16MiB chunked上传分别413，上传预留回到0。未重复写GiB容量fixture，继承R1真实额度拒绝。
+- **R2-J4交接/停用**：peer本机bind→B网页Cancel，CLI退出，旧链接失效且归属不变；另建操作，仅将本次操作expires_at置过去以观察过期双视口（明确fixture，非自然等待）。新操作正常交给B，bind自动启动唯一peer PID38019，不另开实例。管理员刷新后确认1node/1agent影响，停用B，B打开页面即时membership、peer离线且重连403。nano向peer发消息得到503未连接且草稿保留。旧owner凭据和停用机器凭据在真实gateway端点403；机器HTTP凭据本就不能访问人类API，HTTP401不单独作为撤销证明。随后本机合法交回nano，IDs保持，B仍suspended；旧身份仍403。
+- **R2-J5任务边界**：global用合法但过时base_revision1对n3写入，真实version_conflict current_revision5；只读复核原描述和时间戳未变。peer Task Graphs UI关闭并保存，后续真实群内请求读写时Agent明确无task_graph、无工具调用、没有绕行；图仍revision5。验后UI重新开启并保存。代码/权限结构未由reviewer阅读或修改。
+- **R2-J6资源与来源**：普通新注册携带伪造admin/active字段，真实结果仍pending/member；有效bind挑战对pending和suspended403。C批准后对nano私聊读写、Agent/节点管理数据和配置负向拒绝，而global Work正常共享。临时本机HTTP canary收到0请求、global附件明确unavailable；没有用一句模型“下载失败”替代目标监听证据。
+- **R2-J7实时与日志**：新会话真实10张ticket成功，第11张429，自然冷却后200；C已有浏览器加4条测试WS接入，再多2条拒绝，70KB帧1009，关闭测试连接后浏览器可用。另单浏览器注入429验证倒计时与重新登录入口，解除后自动恢复。发现旧启动方式原始ticket日志后caller修正，最终新日志ticket全部[redacted]。最终真实global回复“已恢复”，不是只看HTTP健康。
+
+## 必需原型对照补齐
+
+| must-match区域 | 本轮新增状态/证据前缀 | 实际双视口结论 |
+|---|---|---|
+|认证|login-error|简短红字、无大块红卡、输入保留；P2修复match|
+|公司成员|member-approve-failure|失败仍pending、操作可重试；恢复Approve成功，停用1node1agent影响继承R1/R2真实行为|
+|公司Tasks|task-search-empty / task-search-failure|无结果、失败与重试清晰；共享图/受保护来源继承R1|
+|群任务回聊|继承R1 group-a/b/empty/return-draft|本轮未改相关前端，原match仍有效|
+|设备交接|bind-cancel / bind-cancel-invalid / bind-expired|取消返回聊天；旧/过期链接不可接受，主按钮不会窄屏断字；正常完整交接真实通过|
+|附件|attachment-format / attachment-network / attachment-cooldown|逐文件错误、正文保留、恢复重试；原型容量/仅文字继承R1|
+|容量管理|继承R1 capacity/service-capacity|未重复制造大额fixture；原权限与视觉证据有效|
+|既有Me/策略/实时反馈|me-zh / policy-failed / ws-cooldown / restart-recovered|六字段双卡、只读/可写层级保持，故障草稿与冷却清晰；重启正常往返|
+
+## 问题与关闭记录
+
+| ID | Severity / relation | 结论与行动 |
+|---|---|---|
+|R1-P1|major / direct|closed：短明确确认后真实global删除闭环成功；无绕过人工授权。|
+|R1-P2|minor / direct|closed：真实双视口与认证原型match。|
+|R2-LOG|major / operational|closed on7df455679：实际最终IM日志所有ticket值脱敏，旧原始日志只留隔离本机，不提交。|
+|UX1|minor / direct|长自然语言即使明确提图名/ID仍要求精确短指令。旧批次Agent错误建议换会话/从Web删除；caller随后更新工具错误为可回复“删除 <graph_id>”。最终新话术未单独再次造图重验，不冒称已闭合；核心短指令删除已通过。建议保留为确认体验限制，不放宽成字符串包含或模型自报授权。|
+
+## Round 2合并覆盖
+
+每行期望来源仍为spec.md同名Scenario；Round1 pass保留，新增结果仅以本轮实际证据更新。inconclusive不能以worker测试/实现叙述补成pass。
+
+
+### Requirement: 正常用户只需 Nano IM 账号即可从公网访问
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|本机通过实际域名访问与实时使用|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|朋友公开注册|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|待批准账号不能进入公司内部协作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|管理员批准后进入公司协作空间|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|普通用户不能批准自己或他人加入|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|匿名访客只能进入公开认证入口|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 管理员可停用成员并保留协作记录
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|停用后既有登录与实时连接不再提供公司访问|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|停用不删除历史协作记录|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|普通成员不能停用他人|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|停用成员同步撤销名下机器接入资格|pass|R2-J4：单peer进程，B停用后即时offline、重连403；旧/停用机器身份gateway WS403，普通人发消息503且保留草稿。|
+|停用接入保留资源记录且不改变机器归属|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 注册与认证具有实际生效且可恢复的滥用防护
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|单一来源反复尝试被节流|inconclusive|R1登录错误第11次429，R2约22:47同账号正常UI登录证明自然恢复；尚未独立完成注册来源限额和来源级登录限额的完整冷却旅程。|
+|同一账号的分散密码猜测受到限制|inconclusive|R1修改声明头不能绕过、R2同账号自然恢复已见；仍缺多个真实来源同时对同账号尝试的独立证据。|
+|客户端不能伪造来源绕过防护|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|合理少量用户与会话恢复可用|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 刷新凭据吊销在并发和服务重启后仍可靠
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|刷新轮换后旧凭据保持失效|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|并发刷新不能重复恢复会话|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|退出后失效状态跨重启保留|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 系统级管理与既有协作权限有明确边界
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|系统策略仅管理员可写|pass|R1普通成员403；R2-J2管理员14→15保存刷新保留，断网保存14失败保留草稿，恢复后保存回14。|
+|新注册不能自动获得系统管理权|pass|R2 boundary-evidence：注册携带active/admin字段仍201 pending/is_company_admin=false。|
+|既有共享 Work 保持|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|成员和 owner 边界保持|pass|R1成员/非成员附件与群；R2 owner-boundary：C对nano私聊读写404、Agent config读写404、node配置/管理数据404，而global Work200。|
+|共用 Gateway 统一管理、共同使用|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: Gateway 可由本机确认整体换绑给有效公司成员
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|有效成员自行接入或换绑 Gateway|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|仅知道节点标识不能远程抢绑|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|不能换绑给尚无有效公司资格的账号|pass|R2-J4 pending真实bind深链返回membership；同有效挑战pending/suspended accept均403。|
+|原管理者停用后设备可合法交接|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 有效公司成员与具备任务能力的有效 Agent 可查看全部任务
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|公司任务跨账号与聊天可见|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|任务可见不授予原聊天与附件访问权|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|跨 Gateway 和账号的 Agent 可读取同一任务图|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|任务读取仍要求有效身份和已授予的工具能力|pass|R1有效两Agent读取；R2关闭peer Task Graphs实际无工具，停用机器/旧身份gateway拒绝、不能发起读写。|
+|Agent 按需读取而非自动摄取全部任务|inconclusive|真实按需get/search和不自动执行已见；本reviewer没有每轮实际发送给模型的完整输入证据，不能从无工具调用推定不注入任务正文。|
+|飞书沿用现有主人识别与 Agent 公司资格|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 公司成员通过 Agent 共同维护任务且变更可辨认
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|跨账号和 Gateway 新建与修改任务|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|删除任务需要明确要求或确认|pass|R2-J1：精确“删除 tg_5508fe90”真实global delete返回deleted=true,n1/n2删除，其他成员原图不存在。长句需要确认，见UX1。|
+|修改者与来源真实可辨认|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|并发修改不能静默覆盖|pass|R2-J5：真实global apply base_revision=1返回version_conflict,current_revision=5，回读n3原描述/updated_at不变。未以base_revision=0参数错误替代冲突。|
+|任务写入保持有效身份与工具边界|pass|R2-J4/J5：停用机器WS拒绝；关闭工具后真实peer无task_graph且不绕过，图仍revision5。|
+|外部渠道任务写入按 Agent 资格判定|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 群内便捷查看本群新建或编辑过的任务
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|群任务入口展示本群工作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|总任务与子任务跨群持续协作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 任务独立于群成员与群聊生命周期
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|退群不撤销公司任务读取资格|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|解散群不删除公司任务|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 自动附件处理不能访问任意服务端目标
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|正常上传与 Agent 图片理解保持|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|伪造地址和附件引用被拒绝|pass|R1非成员附件404/伪造file与metadata下载失败；R2本机临时HTTP canary提交伪造附件，真实global inbox attachment_unavailable，10秒listener 0 hits，聊天明确无法读取；普通任务URL文字链接仍可展示。此pass限所验入口，不声称穷尽全部SSRF编码。|
+
+### Requirement: 公网滥用不能无界消耗服务的有限资源
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|超限上传和请求有明确拒绝|pass|R1大小/累计限额；R2 2.2MB JSON413，16MiB chunked无Content-Length上传413，结束uploading预留0。|
+|附件空间不足不阻断文字聊天|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|实时连接受控且可恢复|pass|R2真实第11张ticket429，自然冷却后200；C原浏览器+4测试WS可用，额外2拒403，70KB帧1009。释放后浏览器恢复、重启后真实聊天“已恢复”。冷却UI用显式429注入单独验证，不冒充后端限流证据。|
+
+### Requirement: 发布与恢复可验收，凭据不随运维证据公开
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|公网仅开放预定 IM 服务|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|运维证据不包含可复用凭据|pass|R2发现直启日志原始ticket后caller修复。7df455679新进程.im-final.log所有用户WS票据[redacted]；报告不含secret。历史私有日志不提交、旧ticket已消费/过期；完整生产日志仍归R6。|
+|故障时可停止公开访问并恢复|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|免费部署范围可核对|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+## 尚需资源与剩余证明
+
+1. **R6实际域名/发布恢复**：当次生产上线授权、Cloudflare/源站控制窗口以及实际域名验证仍缺；含公网只开放IM、生产日志/备份恢复、免费项核对。localhost不能替代。
+2. **R7真实飞书**：原专用Bot被unit-feat-569使用；需要caller安排独占窗口。未抢占、未使用新Bot或mock冒充。包括外部图片理解与任务读写资格。
+3. **认证完整冷却**：登录用户名限额自然恢复已见，注册/来源限额完整自然冷却与多真实来源同账号攻击仍缺独立旅程；可以安排多来源测试窗口，不能把伪造头当真实来源。
+4. **模型实际输入**：缺对应真实轮次的完整发送输入，不能单从工具轨迹推定未自动注入全部任务；需限定该测试会话的请求证据，避免读取/提交无关私聊。
+
+## 清理与交接
+
+peer已交回nano，Task Graphs恢复开启，随后用官方stop清理本轮自己启动的后台服务；第一Gateway/IM/原型继续由caller管理。A/B保持suspended、C为active测试成员。tg_5508fe90已删除；原协作图tg_c1d2b5b5 revision5保持。容量fixture未再添加；过期fixture仅本轮自建binding操作（现终态），无活动上传预留。所有浏览器网络故障拦截已撤销；测试WS全部关闭。代码、测试、受控配置、spec/design均未由reviewer改动。报告仍需caller随最终交付push，不把本地commit当远端已同步。
+
+caller最终清理通知：本轮现场复验完成后已停止其第一Gateway41369与IM41358，50620无listener；运行DB/config保留，8572原型继续HTTP200。此为caller收尾记录，不冒称reviewer另做现场复验。
