@@ -391,3 +391,49 @@ caller最终清理通知：本轮现场复验完成后已停止其第一Gateway4
 ## 清理
 
 已关闭本reviewer持有的4个浏览器会话：feat572-review、feat572-review-admin、feat572-review-auth、feat572-prototype-review。仅关闭浏览器，不停止8572原型服务；其HTTP200仍保留。生产代码、测试、配置和C5环境均未触碰。
+
+
+---
+
+# 独立产品验收 Round 4 — C5来源限流与自然冷却定向复验
+
+> target=C5；生产代码冻结 `7df4556795567602333771351fc4bd75ec322e94`。后续`cfbd481a4`仅caller测试桩接口/全量验证记录，不混作本轮产品变更。未扩大到公网或飞书。
+
+## 最终合并结论
+
+**完整验收仍fail**：**45 pass / 7 inconclusive**。C5两条Scenario由inconclusive改为pass；C6沿用Round3有界pass。Highest Required Action仍为**pass**（没有新增实施修复要求；不是完整验收/上线许可）。剩余7条均是R6/R7实际外部验收缺口。Round2 UX1作为minor确认体验限制保留，不要求放宽人类授权边界。
+
+| Scenario | 期望来源 | 独立复核证据 | 结果 |
+|---|---|---|---|
+|单一来源反复尝试被节流|spec.md同名Scenario|真实源A注册5次201、第6次429，源B注册201；A累计30次登录尝试后429，B对同账号200。301.85秒A登录200，901.34秒A注册201。|pass|
+|同一账号的分散密码猜测受到限制|spec.md同名Scenario|两个真实TCP源轮流对同账号10次错密均401；之后B正确密码仍429；自然902.61秒后B正确密码200。R1/R2认证UI错误采用不区分未知账号/错密的通用反馈。|pass|
+
+## 独立核对与范围
+
+读取caller提供的完整隔离`server.py`、`qualify.py`、`results.json`和实际`peers.jsonl`，并只读核对`auth.db`。没有只采信`complete=true`摘要，也没有修改业务数据或重跑消耗计数的请求。
+
+- 服务入口仍是生产`IM.app:app`，外层只记ASGI `scope.client`与时间；Uvicorn `proxy_headers=False`。客户端使用`HTTPTransport(local_address=...)`绑定两个本机真实TCP源，`trust_env=False`，无来源声明头伪装。
+- 独立按started/finished时间筛选48条实际HTTP记录：A注册7、B注册1、A登录32、B登录8；与脚本请求次数、相邻阶段时间和恢复请求来源完全对应。额外两条不在测试时间窗内，未计入。
+- 脚本根据真实Retry-After计算deadline并自然sleep；没有修改时钟、常数或SQLite计数。注册/账号冷却分别899/898秒，来源登录剩余292秒；实际恢复时间为301.85、901.34、902.61秒。三个恢复请求都由相应真实源发送，而非换源冒充恢复。
+- 只读DB有7用户、35认证会话，与7次注册创建会话加28次成功登录一致。进程PID43433的命令/cwd属于本unit独立auth实例；没有复用生产数据库。
+- 这是**单机loopback与LAN源地址的真实TCP双源验证**，不是两台Internet客户端，也不证明Cloudflare/真实域名上的来源识别。该外部路径仍属R6，绝不据此补pass。
+
+脱敏证据：[auth-source-evidence.json](../evidence/reviewer-round4-c5-20260930/auth-source-evidence.json)。仅发布source_A/source_B、计数、相对时间、结果、脚本/记录哈希；不发布原始IP、测试密码、凭据、数据库、完整服务日志或脚本。
+
+## 仍未验收的全部7条
+
+| Scenario | 归属 | 状态/前置 |
+|---|---|---|
+|本机通过实际域名访问与实时使用|R6|inconclusive；缺当次上线授权与域名实测窗口|
+|公网仅开放预定 IM 服务|R6|inconclusive；未上线，不以本机监听替代|
+|故障时可停止公开访问并恢复|R6|inconclusive；缺真实发布/恢复演练窗口|
+|免费部署范围可核对|R6|inconclusive；缺Cloudflare账号/实际部署免费项核对|
+|飞书沿用现有主人识别与 Agent 公司资格|R7|inconclusive；原专用Bot仍被unit-feat-569占用|
+|外部渠道任务写入按 Agent 资格判定|R7|inconclusive；未抢占专用Bot，未以mock替代|
+|正常上传与 Agent 图片理解保持|R7关联|Web真实理解已pass；Scenario含外部渠道附件，飞书部分尚缺，整行仍inconclusive|
+
+caller最终只读复核通知：飞书原锁仍指向unit-feat-569，相关PID15775存活；8572原型HTTP200。reviewer未操作该Bot或进程。
+
+## 最终清理
+
+完成只读核验并通知caller后，reviewer仅向独立auth PID43433发送TERM；已确认该进程退出且其专用端口无listener。先前4个验收浏览器均已关闭；8572原型继续保留。无生产服务、配置、数据或源码变更。报告/脱敏证据以外文件不stage，远端同步由caller统一完成。
