@@ -1,7 +1,11 @@
 # feat-572: 公司协作与公网保护 — 技术方案
 
-> 状态：Q16/Q18 与既有交互问题已复核；R6 后用户指出头像菜单和策略页仍未忠实保留 current UI，本轮已按组件源码补回，先前复核不能作为视觉对齐通过证据。保留飞书验收资源 WARNING，Gate 2 尚未通过。尚未实施或发布。
+> 状态：Round 8 closure 已通过，0 CRITICAL / 0 WARNING；R7-W1 实际画面走查与 current 对照已关闭，Gate 2 通过。进入实施准备；尚未完成产品实现或公网发布。
 > 对齐：[spec.md](spec.md)。外部渠道复用现有 ownerOpenId；任务工具授权主体为 Agent/Gateway 及其管理者，按 Q16 不逐发言人关联 IM 账号。历史审查见 [design-review.md](design-review.md)。
+
+2026-09-30 继续推进：按用户指定使用 Playwright CLI，独立会话 `feat572-visual` 打开本地原型时返回 `Access to "file:" protocol is blocked`，未取得渲染画面。该会话已关闭；未改用其他路径规避协议限制。R7-W1 保持 open，本次工具尝试不构成视觉验证或用户替代确认。
+
+2026-09-30 HTTP 走查补证：用户明确要求启动 HTTP 原型并继续推进后，已通过 Playwright CLI 实际查看桌面、390 窄屏及 820 中间宽度，取得当前产品菜单/策略/登录的真实本地渲染基线，完成群任务往返、附件仅发文字、认证错误和策略保存检查。证据见 [原型实际画面走查](evidence/prototype-visual-20260930/README.md)。此更新补充上文历史工具失败之后的新证据；Round 8 已独立复核并通过；详见 design-review.md。
 
 ## Changelog
 
@@ -198,7 +202,7 @@ IM 入口先验证会话成员，再保存/返回附件引用；`attachment_id` 
 
 **容量告警归属（Q18）：** 正常上传是原型默认状态。累计限制仍由 IM 上传事务执行，账号额度和服务容量拒绝均向普通用户返回稳定、简短的上传不可用反馈；详细原因不作为普通用户的清理任务。沿用全局策略页面增加管理员专属只读存储状态区，IM 从附件配额账本计算当前告警（触顶维度、相关账号及用量/上限），仅管理员可查询，不能混入普通成员可读的策略配置响应。告警按当前状态聚合，容量恢复即解除，不逐失败请求刷屏、不新增通知渠道或附件清理平台；原型可在策略页顶部演示区直接切换正常、账号额度已满、服务容量已满，也保留通过聊天上传失败触发告警的联动路径。容量状态选择器仅用于演示，不是产品控件。管理员处理容量限制，普通文字消息不受上传配额门禁影响。
 
-**原型自检边界：** 已用本仓 jsdom 执行原型真实 DOM 点击、输入和状态转换，覆盖群间切换/同图返回/草稿保留、逐文件失败/移除/重试/发送、身份入口、成员失败/取消/成功、设备本机链路及登录准入；脚本与文档链接校验通过。这不是产品后端验收。当前浏览器工具拒绝访问 `file://` 原型，因此尚无新版浏览器截图和真实视口验收证据；1440×900、390×844 的产品对照仍由 M1 验收完成，不以 DOM 检查宣称视觉通过。
+**原型自检边界：** 已用本仓 jsdom 执行原型真实 DOM 点击、输入和状态转换，覆盖群间切换/同图返回/草稿保留、逐文件失败/移除/重试/发送、身份入口、成员失败/取消/成功、设备本机链路及登录准入；脚本与文档链接校验通过。这不是产品后端验收。当前浏览器工具拒绝访问 `file://` 原型，因此尚无新版浏览器截图和真实视口验收证据；设计阶段的原型实际渲染走查仍缺证据，不能直接推迟至 M1 并视为设计通过；M1 的真实产品桌面/窄屏验收另行保留，不以 DOM 检查宣称视觉通过。
 
 ### 原型对 current IM 的纠偏
 
@@ -236,7 +240,7 @@ IM 入口先验证会话成员，再保存/返回附件引用；`attachment_id` 
 
 **Review 驱动方式：端到端真栈，必须真驱动 Web 客户端。** 桌面与手机 viewport 检查注册状态、批准/停用、公司任务/群活动、只读策略、绑定页面及错误反馈；跨 Gateway 工具经真实 Agent 交办。API 用于负面权限与并发探测，不能代替 UI 旅程。
 
-本设计阶段不启动服务。实施在仓库内独立 worktree，以下 `--wt` 必须指向实施 checkout，不能指主仓或生产目录。`e2e-up.sh` 本 unit 需要增加显式本机管理员初始化，并保持 auto-bind 使用真实设备证明协议；当前脚本不是新方案已可运行的证据。
+本设计阶段仅启动本地隔离 IM/前端作 current 画面对照，未启动 Gateway 或公网服务。实施在仓库内独立 worktree，以下 `--wt` 必须指向实施 checkout，不能指主仓或生产目录。`e2e-up.sh` 本 unit 需要增加显式本机管理员初始化，并保持 auto-bind 使用真实设备证明协议；当前脚本不是新方案已可运行的证据。
 
 | 服务 | 停止 | 启动 | 健康检查 |
 | --- | --- | --- | --- |
@@ -253,11 +257,11 @@ IM 入口先验证会话成员，再保存/返回附件引用；`attachment_id` 
 | --- | --- | --- |
 | 隔离管理员、active/pending/suspended 用户，两个不同 owner Gateway | E2E fixture 本机创建；检查无生产 node/config/工作目录复用 | 可由实施生成，尚未执行。 |
 | 真实模型代理 | 既有 E2E 配置，最小实际 turn 验证工具调用 | 本轮 `127.0.0.1:4000/health` 返回 200，配置存在；实际模型 turn/工具调用尚未验证。 |
-| 飞书测试租户 / Bot / 外部身份 | 用户确认复用本机飞书及成熟流程：`e2e-up.sh --feishu` + `e2e-feishu-probe.py`，规范见 `docs/development/worktree-runtime.md` 专用 Feishu E2E profile；复用现有 channel 主人识别，顺序验证 Agent 管理者 pending→active→suspended 的 IM 任务读写及正常飞书对话 | 专用非 default profile 的 App/Bot 与 fixture 匹配、Bot verified=true；只读 `auth status --json --verify` 返回用户 status=missing、tokenStatus=expired。需要沿用该 profile 恢复用户授权后才能实际发送验收探针，不转用生产/default profile。 |
+| 飞书测试租户 / Bot / 外部身份 | 用户确认复用本机飞书及成熟流程：`e2e-up.sh --feishu` + `e2e-feishu-probe.py`，规范见 `docs/development/worktree-runtime.md` 专用 Feishu E2E profile；复用现有 channel 主人识别，顺序验证 Agent 管理者 pending→active→suspended 的 IM 任务读写及正常飞书对话 | 2026-09-30 用户完成授权后，原专用非 default profile 的 App/Bot 与 fixture 匹配；只读 `auth status --json --verify` 确认 Bot verified=true，用户 status=ready / verified=true / available=true / tokenStatus=valid，既有探针所需消息发送与读取权限具备。未发消息、未启动验收栈，授权恢复不等同真实飞书往返已通过。 |
 | 域名、Cloudflare 账号、Mini 源站 | 先前已购域名 `nanoim.win`，计划 `im.nanoim.win`；发布前只读核对免费项、账号权限和回退权 | 用户先前已确认购买/登录；本轮读取 Chrome tab 列表失败，未核实当前权限/免费项，不据旧登录状态宣称已落实。 |
-| 本机域名浏览器验收 | 用户 Q15 明确用本机经实际域名验证，真实 iPhone 本期不测 | 本机浏览器可用，已对原型做 1440×900 / 390×844 检查；当前 `https://im.nanoim.win` 探测未成功建立 HTTPS，记录为未上线状态，必须发布后重验真实链路，不以原型或 hosts 指向 localhost 代替。 |
+| 本机域名浏览器验收 | 用户 Q15 明确用本机经实际域名验证，真实 iPhone 本期不测 | 本机浏览器可用；原型 1440×900 / 390×844 与中间宽度已完成实际渲染走查，证据见本 unit 的 prototype-visual-20260930；这不代表真实公网产品验收。此前 `https://im.nanoim.win` 探测未成功建立 HTTPS，记录为未上线状态，必须发布后重验真实链路，不以原型或 hosts 指向 localhost 代替。 |
 
-本次硬件与测试路径已按用户 Q15 收口，真实 iPhone 从本次验收移除；真实飞书与本机实际域名验证保留。Gate 2 不把过期 CLI 用户授权或未核实的公网控制权限写成可用。后续复用原专用 profile 完成授权恢复，发布前再核对 Cloudflare 权限/免费项并取得当次上线授权；运行授权和成功域名验收属于真实发布门槛，设计通过本身不替代它们。
+本次硬件与测试路径已按用户 Q15 收口，真实 iPhone 从本次验收移除；真实飞书与本机实际域名验证保留。Gate 2 不把过期 CLI 用户授权或未核实的公网控制权限写成可用。原专用 profile 已恢复授权，实际飞书验收开始前仍须即时复核；发布前再核对 Cloudflare 权限/免费项并取得当次上线授权；运行授权和成功域名验收属于真实发布门槛，设计通过本身不替代它们。
 
 ## Milestones
 

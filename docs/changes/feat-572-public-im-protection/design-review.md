@@ -418,3 +418,104 @@ R6 grounding/scope findings accepted. Fixed the non-blocking Me self-return butt
 用户继续指出 UserMenu 与 PoliciesPage 未忠实保留 current UI。作者已按实际组件补回头像身份条、图标、原有菜单名称/说明/语言/退出，账号独立进入 AccountPage；补回策略六字段、双卡布局、保存/放弃及失败保留草稿，权限仅按已审设计限定管理员写。新增策略页外部演示控件直接查看正常、账号满、服务满，告警补齐已审设计要求的相关账号及用量/上限；不新增产品控件、策略字段或权限语义。示例数据不来自生产。
 
 定向 DOM 检查覆盖菜单、账号/Me 路径、六字段、成员只读、管理员保存/放弃/失败重试、容量三状态及管理员专属可见，并回归群任务往返/草稿和聊天容量失败时仅发文字。属于现有契约的呈现纠偏，R6 架构与权限结论 retained；不得再将早先的源码样式对照表述为视觉验收。浏览器 file URL 限制及 R1-W3 飞书测试用户授权缺口仍保留，Gate 2 未通过。本次按用户要求仅提交 unit 设计快照，不代表实施、发布或验收完成。
+
+
+### Author Resource Update — 专用飞书授权恢复
+
+2026-09-30，用户完成原专用 profile 的设备授权；作者回收授权后再次执行只读 `auth status --json --verify`，并在内存中核对私有 fixture：非 default profile、App/Bot 匹配，Bot verified=true；用户 status=ready、available=true、verified=true、tokenStatus=valid；消息发送与探针读取 scopes 具备。无消息发送、无生产配置变更、无提前启动后端。R1-W3 授权缺口已有关闭证据，待 reviewer 独立判断。
+
+同步修正 design 资源表中遗留的“已对原型做两种 viewport 检查”不准确表述；实际仅 DOM/CSS 已检查，原型视觉走查仍缺证据，不能将设计阶段必要走查自动延后实施。已向用户说明技能要求与工具限制，请其决定是否以用户亲自查看的原型确认替代设计阶段作者走查；尚未收到该决定，不视为批准。
+
+## Round 7
+
+### Metadata
+
+- reviewer target：`/root/public_im_design_review`，独立 reviewer，未参与受审修订。
+- review_mode：`delta`；mode_reason：本轮实际变化是飞书资源恢复与视觉证据边界纠正。核实R1-W3闭环，并依据当前reviewer技能检查设计阶段视觉门槛；不重扫未变化权限架构，不重复DOM检查。由于发现仍缺必要视觉证据，范围从资源closure扩展为有界delta。
+- started_at：`2026-09-30T11:42:31+00:00`；completed_at：`2026-09-30T11:44:06+00:00`；duration：`PT1M35S`。
+- executed_base / validated_at：`main` HEAD `07e40ac4f0d1912b5d32377751a53d27863d0ec4`，加冻结未提交design；spec blob `817777b10b3f527d242df8fe187d5cc7e6eace2e`、design `0e8e49d94a06908dd347534a7ecf0b905a1f08ed`、prototype `a83de66ba416fb9bb6d5b672d9c0095a8c857117`。提交后的菜单/Account/Me/六字段策略与容量三状态已由作者记录，但没有独立视觉通过证据。
+- 重新读取当前 `.claude/skills/change-design-reviewer/SKILL.md` 及引用的原型标准；本轮执行实际只读 `auth status --json --verify`，状态JSON与fixture仅在内存中比对，输出脱敏布尔/状态，不输出密钥、App/Bot或用户标识。不发消息、不登录、不启动服务、不操作生产、不提交，只追加本报告，保留其他dirty/untracked。
+- 本轮作者转达的直接官方CUA读取既有原型标签页再次失败：URL策略只允许http/https，并禁止间接执行、raw CDP、其他浏览器等规避。没有新增截图；reviewer不重复尝试受禁路径或启动本地HTTP绕过。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。R1-W3 已关闭；新增 R7-W1，Gate 2仍未通过。**
+
+专用飞书授权资源已真实恢复，不能继续以expired作为阻断。剩余阻断是设计阶段必要的原型实际渲染走查与current画面对照证据缺失，既有DOM/CSS/source grounding不足以放行该部分。用户未授权豁免或替代视觉检查；要求直接查看已打开的原型，也不等于同意以亲自查看确认替代reviewer/author走查。本轮没有对未看到的画面推断具体拥挤、遮挡或视觉缺陷。
+
+### Delta Coverage 与独立证据
+
+- **飞书身份可用性**：沿 `docs/development/worktree-runtime.md:30–37` 与 `scripts/e2e-feishu-probe.py:26–67` 的既有专用路径执行只读核验，非default、overall verified=true；App/Bot与私有fixture匹配、Bot verified=true；user status=ready、available=true、verified=true、tokenStatus=valid。与 `design.md:256,260` 和Author Resource Update一致。
+- **成熟探针的权限条件**：独立核实实际probe在118–150通过 `--as user`发送与读取。当前用户scope包含 `im:message.send_as_user`、`im:message:readonly`、`im:message.p2p_msg:get_as_user`、`im:message.group_msg:get_as_user`，发送/读回所需资格具备。本轮没有调用send/list聊天内容，不把授权恢复当真实平台往返成功；实际验收前即时复核仍合理。
+- **视觉断言纠正**：`design.md:201,207,213,258`明确仅完成DOM/CSS，删除遗留“两种viewport已检查”断言，并将设计阶段原型走查与M1真实产品验收区分。这纠正了证据表达，但实际画面/代表性截图仍没有补齐；更正文字本身不关闭视觉门槛。
+- **当前门禁标准**：reviewer skill:19明确实际渲染/current画面对照，并写“必要视觉证据缺失时明确未验证，不将该部分放行”；引用的 `change-design-author/references/prototype-and-runbook.md:20,34–38`要求设计阶段实际渲染、关键状态与适用宽度走查，包含易挤压的中间宽度及代表性截图，DOM不能替代；工具不可用只能保留视觉未验证草稿，不能自动推迟实施后放行。
+- **无替代授权**：本轮作者两次明确转达用户没有授权豁免；用户要求官方CUA直接查看既有原型，实际被策略拒绝。没有把历史“ok”、提交设计快照、用户购买域名或未回复解释为调整视觉验收范围的授权。工具限制保留，不扩展新上传、发布或浏览器绕过路径。
+
+### 历史问题闭环与 Retained
+
+| Issue ID/范围 | 本轮证据与判断 | 状态 |
+| --- | --- | --- |
+| R1-W3 | 用户重新授权；reviewer实际只读核验专用profile、App/Bot内存比对、ready/valid/available/verified及probe所需scope。 | **closed** |
+| R3-W1及Q16/Q18技术结论 | 既有群任务、附件文字路径及中心权限未因资源更新改变；源码/DOM证据仍可用，但不代表当前原型视觉已通过。 | **retained from Round 4–6** |
+| R6原型grounding/后续呈现纠偏 | 保留源码和DOM范围的结论；历史“留到M1”的视觉安排按当前skill与design纠正，不能用来豁免设计阶段走查。 | **source/DOM retained；视觉未放行** |
+| R6-R1 | 作者已记录Me自身返回按钮小修；与本轮资源/视觉缺口无关，不重开架构范围。 | **非阻断，retained** |
+
+### Issues
+
+#### R7-W1 — 设计阶段必要原型视觉走查缺少实际画面证据
+
+- **位置**：`design.md:181–201,205–213,258`；`.claude/skills/change-design-reviewer/SKILL.md:19,22,24`；`.claude/skills/change-design-author/references/prototype-and-runbook.md:20,34–38`。
+- **证据**：冻结原型及current页面尚无本轮可核实的实际渲染/current画面对照与代表性截图；文件标签页再次被官方工具URL策略拒绝，作者承认仅DOM/CSS验证。按当前skill，源码变量相同或DOM路径通过不能证明信息层级、操作主次、文字按钮挤压、反馈间距与适用宽度均可用。用户还曾连续指出菜单/策略等current UX遗漏，源码纠偏不能反推画面已经一致。
+- **实际后果**：此时Approved会将原型视觉未验证当作已就绪实施依据，下游可能据仍未看过的页面布局/操作主次实施，并在实施或用户实际使用后再次返工。缺的是当前设计成果的评审证据，不是要求提前验收尚未实现的后端或公网，也没有声称存在已确认具体视觉bug。
+- **关闭条件**：在安全策略允许的官方能力下完成所选范围的实际渲染走查/current参照，记录必要关键状态、桌面/窄屏及易挤压中间宽度的代表性画面与结论；或由用户明确调整标准/授权具体替代验证，并留下相应实际确认。不能将未回复/历史提交认可当替代授权，不能以本地HTTP、其他浏览器或native/间接执行绕过已知禁令。工具继续不可用且无替代授权时保持视觉未验证草稿及Gate 2未通过。
+- **状态**：open，计1 WARNING。
+
+### Recommendations 与结论边界
+
+无新增可选润色建议，不要求重新设计已关闭的权限协议或另建飞书流程。R1-W3的授权资源已闭环；R7-W1是唯一当前设计门槛缺口。没有实际平台往返、视觉验收、产品实现或公网发布完成结论。
+
+## Round 8
+
+### Metadata
+
+- reviewer target：`/root/design_review_572`，本轮独立 reviewer，未参与设计、原型或作者证据编写。
+- reviewer handoff：旧 reviewer `/root/public_im_design_review` 不在当前会话；本轮接收 unit、Round 1–7 历史 findings、冻结版本、唯一 open 的 R7-W1 及 R1-W3 已关闭证据，重新阅读当前 reviewer skill、报告标准、原型标准与 workflow 交接要求。未仅依据历史结论放行。
+- review_mode：`closure`；mode_reason：本轮受审原型与 spec 均未变，设计只补 HTTP 实际走查/current 基线证据，目标为关闭 R7-W1；没有需求、接口、责任或 milestone 变化。独立完成原型实际屏幕走查并核对作者新增证据后，证据足以维持 closure，无需重开 full 架构审查。
+- started_at：`2026-09-30T20:06:31+08:00`；completed_at：`2026-09-30T20:14:00+08:00`；duration：`PT7M29S`。计时从首次显式时间采集开始，此前 checkout/skill/历史材料读取未计入。
+- executed_base：`main` HEAD `c236a539ecd118c988c308f25f240a8ca8e1013a`；冻结 spec `817777b10b3f527d242df8fe187d5cc7e6eace2e`、design `795b80c0e8e95d80f37403075ed22d8ce9b4e9b5`、prototype `a83de66ba416fb9bb6d5b672d9c0095a8c857117`。原型 hash 与 Round 7 一致。
+- 工具与授权：用户本轮明确要求启动 HTTP 原型并继续推进；本轮 Playwright CLI 独立会话 `feat572-review` 直接访问已授权的 `http://127.0.0.1:8572/prototype.html`，并登录作者新建的本地隔离 current 前端 `127.0.0.1:18573`（IM `18572`）核对真实画面。未恢复 file URL、未操作生产、Gateway 或外部消息。本轮只追加本报告；独立截图保存在 `output/playwright/feat572-review-*.png`，未改受审文件或提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R7-W1 closed，Gate 2 通过。**
+
+本轮实际画面和交互证据补齐了设计阶段视觉门槛；不是以 DOM/CSS、作者声明或用户未回复替代看图。结论仅表示设计可以作为实施依据，不表示权限后端、设备真实交接、飞书往返或公网发布已经完成。
+
+### Closure Coverage 与独立证据
+
+作者归档证据见 [原型实际画面走查](evidence/prototype-visual-20260930/README.md) 及该目录中的 18 张代表性截图；reviewer 实际阅读记录并查看对应代表画面，同时另行操作浏览器和看独立截图。范围沿用 design 的局部增量与背景边界，不要求重建既有全产品。
+
+| 检查范围 | 本轮实际检查与结论 |
+| --- | --- |
+| current 对照、菜单与策略 | 独立登录隔离 current，通过真实头像菜单进入 PoliciesPage，查看 `feat572-review-current-menu.png`、`feat572-review-current-policies.png`，对照原型桌面 `feat572-review-menu.png` 与 `feat572-review-820-policies.png`。头像身份、账号说明、节点统计、策略/语言/退出层级、六字段双卡与放弃/保存均对应；管理员容量状态是明确增量。普通成员状态没有成员入口或管理员容量区；切管理员后可编辑。实际修改模型、模拟保存失败、点击保存后修改保留，再次保存成功。 |
+| 桌面、窄屏及中间宽度 | 原型 1440×900 的聊天与菜单、820×900 的策略与 Tasks、390×844 的成员/确认/交接/任务面板/附件/认证均实际渲染并看图。内容层级和操作主次可辨，没有确认到文字按钮挤压或操作遮挡。390 策略页真实 wheel 滚动至 scrollY=348 后，保存按钮位于 y437–479，容量卡末尾至 y763，底栏从 y764 开始；`feat572-review-mobile-policies-bottom.png` 证明可触达，并非首屏看不见即不可操作。820 Tasks 图画布实际横向 wheel 后完整显示 n2/n3，前后图为 `feat572-review-820-tasks.png` / `feat572-review-820-tasks-scroll.png`，无需将全部节点缩小到一屏。 |
+| 成员与设备交接 | 390 直接批准成员，待批准数量从 1 变 0；停用弹窗展示设备/Agent及同事影响和历史保留，Escape 取消后状态未变。`feat572-review-mobile-members.png` / `feat572-review-mobile-suspend.png` 实际可读。设备接收页身份、整机影响、独占主确认及轻量取消清楚；点击确认进入等待本机，再用产品外的模拟控件进入完成状态。见 `feat572-review-mobile-handoff.png`。没有把模拟终端动作当成真实交接证明。 |
+| 群任务和附件反馈 | 390 从群标题打开全宽任务面板、点击接口联调进入同一图、返回交付协作群，草稿保持，再关闭面板。`feat572-review-mobile-tasks.png` 显示紧凑任务层级及关闭入口。模拟账号容量失败后，文件 chip 显示未上传和简短错误，点击仅发送文字后新增纯文字气泡、清空已发送文字，失败附件仍留草稿且仅文字按钮禁用，未冒充附件发送。见 `feat572-review-mobile-attachment.png` 及作者归档的容量失败/文字发送前后图。 |
+| 认证与背景边界 | 390 实际填写演示密码并提交凭据错误，输入保留，红色简短反馈与输入框、提交按钮间有清楚留白，见 `feat572-review-mobile-auth.png`；另查看作者 pending/suspended 图，新增状态主次清楚。对照真实登录手机图后确认原型省略了介绍文案、语言按钮和密码显隐等背景内容；证据记录明确继续复用 AuthPageFrame/AuthPasswordField 保留功能，独立核对 `login-page.tsx:69,99`、`auth-page-frame.tsx:13–64` 和 `auth-form-fields.tsx:70–98` 的真实调用与控件，因此不能按简化演示替换认证整页。 |
+| 证据与异常边界 | 原型控制台唯一错误为 `/favicon.ico` 404，未观察到脚本异常；不据无关图标请求失败追加产品变更。演示区、逐页范围说明与产品区域可区分。作者证据已在签署前就绪并冻结，未把等待证据作为最终阻断。 |
+
+### 历史问题闭环与 Retained
+
+| Issue ID / 范围 | Author Resolution 与本轮证据 | 状态 |
+| --- | --- | --- |
+| R7-W1 | 作者补齐 current 菜单/策略/认证真实本地画面与原型三种宽度、关键旅程截图，归档到 unit；本轮独立打开已授权 HTTP、操作关键路径、实际看图并对照 current。先前 file URL 失败是历史事实，不再代表当前缺少视觉证据。 | **closed** |
+| R1-W3 | `retained_from: Round 7`：原专用飞书 profile 已独立核验 ready/valid/available/verified 及所需 scopes；本轮未改变该资源或外部协议，不重复登录或发探针。真正验收前即时复核仍保留。 | **closed** |
+| R3-W1、Q16/Q18 与架构/协议/delta/M1 | `retained_from: Round 4–7`：本轮原型/spec未变，新增材料只补视觉证据与说明 current 背景不应替换。中心资格/权限、Gateway 本机职责、任务/附件契约、验收资源和发布门槛无变动；原有模块职责与复用判断保持。 | **retained** |
+
+### Issues / Recommendations 与结论边界
+
+无新增 CRITICAL、WARNING 或必须追加的视觉润色。已说明的简化背景仍需保留真实客户端能力；M1 继续验收真实客户端、权限及数据持久、模型工具、飞书和实际域名链路。设计阶段截图只关闭设计视觉证据缺口，不取代这些实施与发布验收。
+
+### Author Resolutions — R8
+
+R7-W1 accepted/closed：核对独立画面与交互证据，无实质异议；无新增 findings 或必须处理的 recommendations。Round 8 后只将 design 的当前状态、资源表及“设计期不启动服务”历史说明更新为本轮实际已发生的本地基线检查，未改需求、协议、prototype、delta 或 milestone。此为证据状态同步，Round 8 retained，不追加设计复审。进入默认简化实施流程；发布仍需独立授权。
