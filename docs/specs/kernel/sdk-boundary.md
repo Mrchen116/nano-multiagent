@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-552
+> 对齐: bugfix-574
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -130,12 +130,20 @@
 
 ### Requirement: Kernel 提供单项中立能力查询
 
+`list_tools()` 不带工作区时只返回共享注册目录；`list_tools(workspace_root)` 返回该工作区的执行能力快照中的完整注册目录，包括共享工具及其工作区扩展/同名覆盖，不按会话 enabled_tools 过滤，也不混入其他工作区。首次指定工作区的查询与 session 创建复用同一首次使用快照；本接口不承诺热更新插件。
+
 `kernel.list_models()` / `list_tools()` / `list_features()` / `list_skills(workspace_root)` 返回 SDK-owned 不可变数据，与已装配 Kernel 实际能力一致；内核不做产品语义聚合（payload 拼装 / available 计算归应用）。`list_features()` 同时投影需要 built-in tool 的通用 guidance feature 与 `requires_tool=None` 的通用 runtime policy；消费者仍经现有 complete-runtime `features` map 选择它们，不增加单独方法或 DTO。消费者可在 `build_kernel(workspace_skill_dirnames=…)` 声明有序 workspace Skill 目录名；`list_skills(workspace_root)` 先按该布局从真实 Workspace 派生 roots，再叠加 `build_kernel(skill_search_roots=…)` 传入的部署级共享 roots，按“workspace 布局顺序 → 共享根传入顺序”去重保序。未传入 `workspace_skill_dirnames` 时保持既有单一 `workspace_config_dirname/skills` 行为。`list_shared_skills()` 只查询已声明的共享 roots，用于尚无真实 Workspace 的候选场景，不借用 build-time repo root。
 
 #### Scenario: 能力查询与运行时事实一致
 - **GIVEN** 已装配的 Kernel
 - **WHEN** 调四个 `list_*` 查询
 - **THEN** models 含目录模型 + 默认、tools 含工具目录事实、features 含内核通用 guidance 与 runtime policy、skills 为指定 workspace 的完整有序布局解析结果
+
+#### Scenario: 工具候选查询遵循工作区执行目录
+- **GIVEN** Kernel 共享注册工具 G，工作区 A 有工具 X 和同名 G 的覆盖，工作区 B 有工具 Y
+- **WHEN** 消费者分别调用 `list_tools()`、`list_tools(A)` 与 `list_tools(B)`
+- **THEN** 共享查询只有共享工具；A 查询包含 X 和 A 覆盖后的 G，B 查询包含 Y 和共享 G，各项携带对应注册描述
+- **AND** A 不含 Y，B 不含 X；查询候选不创建会话或授权工具
 
 #### Scenario: session 创建时间 policy 可发现且默认开启
 - **WHEN** 消费者调用 `Kernel.list_features()`
