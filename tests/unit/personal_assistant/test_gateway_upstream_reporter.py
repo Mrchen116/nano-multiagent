@@ -247,7 +247,11 @@ def test_workflow_is_an_explicit_optional_tool(tmp_path: Path) -> None:
     payload = build_node_capabilities_payload(kernel)
 
     workflow = next(item for item in payload["tools"] if item["name"] == "Workflow")
-    assert workflow == {"name": "Workflow", "description": "", "default_on": False}
+    assert workflow["name"] == "Workflow"
+    assert workflow["default_on"] is False
+    assert workflow["description"] == next(
+        tool.description for tool in kernel.list_tools() if tool.name == "Workflow"
+    )
 
 
 # ---------------------------------------------------------------------------

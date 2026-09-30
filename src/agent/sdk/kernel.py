@@ -2618,18 +2618,28 @@ class Kernel:
             )
         ]
 
-    def list_tools(self) -> list:
+    def list_tools(self, workspace_root: Path | None = None) -> list:
         """Return the kernel tool catalog as ``ToolInfo`` DTOs (决策 4).
 
-        Lists the tools registered in the shared base (name + description),
-        independent of any per-session ``enabled_tools`` subset — the application
-        computes per-session ``available`` itself.
+        Lists the shared catalog, or the existing execution-scope snapshot for
+        one workspace, independent of per-session ``enabled_tools`` subsets.
+
+        Args:
+            workspace_root: Include this workspace's extensions and overrides.
+                None returns only shared tools, without discovering a workspace.
 
         Returns:
-            List of ToolInfo(name, description).
+            Registered ToolInfo(name, description) entries in registry order.
+
+        Side Effects:
+            First workspace query initializes its cached execution scope, just
+            as session creation does; subsequent queries reuse that snapshot.
         """
 
-        tool_registry = self._c.tool_registry
+        scope = self._scope_for(workspace_root) if workspace_root is not None else None
+        tool_registry = (
+            scope.tool_registry if scope is not None else self._c.tool_registry
+        )
         if tool_registry is None:
             return []
         list_specs = getattr(tool_registry, "list_specs", None)
