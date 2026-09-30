@@ -1,0 +1,69 @@
+[
+  {
+    "check": "ordinary-approve",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "check": "ordinary-suspend",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "check": "ordinary-policy-write",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "check": "ordinary-capacity",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "check": "other-node-config",
+    "status": 404,
+    "detail": "node_id not found"
+  },
+  {
+    "check": "removed-chat",
+    "status": 404,
+    "detail": "conversation_id not found"
+  },
+  {
+    "check": "shared-task",
+    "status": 200,
+    "detail": null
+  },
+  {
+    "check": "shared-work",
+    "status": 404,
+    "detail": "agent_not_accessible"
+  },
+  {
+    "check": "anonymous /im/v1/task-graphs",
+    "status": 401
+  },
+  {
+    "check": "anonymous /im/v1/conversations",
+    "status": 401
+  },
+  {
+    "check": "anonymous /im/v1/agents/e2e/work",
+    "status": 401
+  },
+  {
+    "check": "anonymous /im/v1/nodes",
+    "status": 401
+  },
+  {
+    "check": "concurrent-refresh",
+    "statuses": [
+      401,
+      200
+    ]
+  },
+  {
+    "check": "old-refresh-reuse",
+    "status": 401
+  }
+]
