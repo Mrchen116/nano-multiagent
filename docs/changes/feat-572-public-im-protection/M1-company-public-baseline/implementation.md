@@ -19,7 +19,7 @@
 
 真实本地产品证据见 [evidence](../evidence/product-20260930/README.md)，发布/恢复草案见 [public-rollout](../public-rollout.md)。有效证据可复用，无需为角色交接重复全量。
 
-## 未完成退出标准
+## 授权前的退出标准记录
 
 R6 真实公网域名、免费配置、真实恢复发布现场：需要设计明确要求的当次上线授权；尚未操作 Cloudflare 或生产部署。
 R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他任务或抢占长连接。
@@ -60,3 +60,7 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 影子同步改用 `GET /im/v1/gateway/identity`，仅返回经 current_gateway 验证的当前 node_id/owner_id；本机核对 node 后使用真实 owner 调和旧 saga。移除真人 token_getter、`/me` 和全节点列表依赖，写入仍使用当前机器凭据。真人管理接口保持原限制，没有凭本地配置授予权限。
 
 先由真实 API 入口测试和拒绝真人接口的 shadow 恢复测试取得2项 red，再修复。影子、图片离线恢复、入口管线、机器身份与授权边界共 **80 passed / 8.46s**（`/tmp/feat572-shadow-identity-batch-green.log`），Ruff/diff检查通过。需由产品 reviewer 复验真实飞书；此前全量4099/793只作为未失效基线，不能预支修复后现场通过。
+
+修复版本 `821ff6ce1` 后端全量 **4100 passed / 27 warnings / 122.45s**（`/tmp/feat572-r7-identity-full.log`），前端无改动，复用793项通过结果。独立静态审查见本目录 code-review.json；真实 R7 仍由产品 reviewer 收口。
+
+公网准备已完成域名免费计划核对、专用 Tunnel 与 DNS 路由、受保护 IM 启动配置和迁移副本检查。尚未启动 Tunnel、停止原生产 IM 或初始化生产公司；首次成员名单待用户明确选择。公网部署和飞书 Bot 接管授权已经取得，无需再次申请同项授权。R6 仍须以真实公网与恢复现场证据关闭。
