@@ -108,7 +108,7 @@
 
 ### Requirement: 数据面按登录身份、聊天成员与资源管理归属确定访问
 
-普通真人请求中，除 `/im/v1/auth/*` 外,所有公司数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token 和有效公司成员资格;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录向有效公司成员开放；全局 Agent Work 的完整读取以 [agent-work](../../../../specs/im/agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](../../../../specs/im/gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
+普通真人请求中，除 `/im/v1/auth/*` 外,所有公司数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token 和有效公司成员资格;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录向有效公司成员开放；全局 Agent Work 的完整读取以 [agent-work](../../../../../specs/im/agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](../../../../../specs/im/gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
 
 #### Scenario: 无 token 的数据面请求返回 401
 - **WHEN** 浏览器前端未带 Bearer 调 `GET /im/v1/me` / `/im/v1/conversations` / `/im/v1/agents` / `/im/v1/nodes` / `/im/v1/metrics/usage`

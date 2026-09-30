@@ -8,7 +8,7 @@
 
 运行：same-origin `http://127.0.0.1:50620`，初始IM PID21201 cwd本unit、HEAD固定；caller在测试中用 `git archive d5de5f9f7` 的 `output/feat572-review-baseline/src/IM` 重启为PID27203，同DB/端口/原env。浏览器JS/CSS与本unit既有dist字节一致（runtime-evidence.json）。后续工作区实现修复不属于本报告受审版本。模型deepseek:deepseek-v4-flash。浏览器独立sessions feat572-review / feat572-review-admin / feat572-review-auth；原型8572未停止。
 
-所有下述 evidence 相对路径位于 [`../evidence/reviewer-round1-20260930/`](../evidence/reviewer-round1-20260930/)。截图不含地址栏绑定token；private日志、会话token、测试脚本不提交。
+所有下述 evidence 相对路径位于 [`../evidence/reviewer-round1-20260930/`](../evidence/reviewer-round1-20260930)。截图不含地址栏绑定token；private日志、会话token、测试脚本不提交。
 
 ## 用户旅程体验
 
@@ -194,7 +194,7 @@
 
 IM由caller从33315/Gateway33655统一更新至IM41358/Gateway41369；同隔离50620、DB和配置。最终ticket脱敏及真实global重启恢复在7df455679上验证。无生产变更、无飞书占用抢夺、未停第一Gateway/IM/8572原型。只提交本报告与脱敏证据。
 
-本轮证据：[reviewer-round2-20260930](../evidence/reviewer-round2-20260930/)。本节所列png均同时有1440×900及390×844版本，除另有说明。前端故障注入与真实后端边界证据明确区分。
+本轮证据：[reviewer-round2-20260930](../evidence/reviewer-round2-20260930)。本节所列png均同时有1440×900及390×844版本，除另有说明。前端故障注入与真实后端边界证据明确区分。
 
 ## 新增真实旅程
 
