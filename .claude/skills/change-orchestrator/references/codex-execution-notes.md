@@ -18,11 +18,11 @@
 |---|---|---|
 | 首轮实施、专项架构分析/复杂根因调查 | 继承主 Agent | 继承 |
 | `change-design-reviewer` | 继承主 Agent | 继承 |
-| `change-spec-reviewer`、`change-code-review`、`change-verifier` | `gpt-5.6-terra` | `high` |
-| 候选问题二次核验 | `gpt-5.6-sol` | `medium` |
+| `change-spec-reviewer`、`change-code-review`、`change-verifier` | `gpt-6.1-sol` | `high` |
+| 候选问题二次核验 | `gpt-6.1-sol` | `medium` |
 | `change-reviewer` | `gpt-6-astra` | `low` |
 
-后续修复由主 Agent 直接完成，不派修复子任务。代码审查与一致性验证合并派发时仍使用 Terra/high；不同档位的职责分开派发。
+后续修复由主 Agent 直接完成，不派修复子任务。代码审查与一致性验证合并派发时仍使用 `gpt-6.1-sol/high`；不同档位的职责分开派发。
 
 派发前核对工具支持的型号和 effort。继承档可省略覆盖字段；固定档使用 `fork_turns: "none"` 或工具允许的有限历史，不能用禁止模型覆盖的完整历史 fork。指定型号不可用时报告差异，由用户决定替代，不静默换型或升级。
 
