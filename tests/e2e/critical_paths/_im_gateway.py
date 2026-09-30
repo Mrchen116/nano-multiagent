@@ -122,7 +122,6 @@ def restart_gateway(
                 "--im-service-url",
                 f"http://127.0.0.1:{im_port}",
                 "--foreground",
-                "--auto-bind",
             ],
             cwd=repo_root,
             env=env,
