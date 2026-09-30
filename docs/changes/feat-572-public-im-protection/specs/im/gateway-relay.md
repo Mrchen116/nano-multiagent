@@ -21,6 +21,11 @@
 - **WHEN** 用运行凭据提交外部真人消息或 Agent 富消息
 - **THEN** 沿用原来源身份、幂等及调和语义；普通真人 JWT 不能用同一机器入口冒充 Agent、system 或外部真人。
 
+#### Scenario: 外部镜像核实当前机器管理者
+- **WHEN** Gateway 准备或恢复外部消息镜像
+- **THEN** 通过当前机器运行凭据查询 `GET /im/v1/gateway/identity`，只取得当前 node_id 与 owner_id，校验节点一致后沿用已有 owner 调和与写入路径。
+- **AND** 不使用真人 `/me` 或节点管理列表、不信任本地旧 owner 作为授权证据；真人凭据或失效机器身份不能使用此查询。
+
 #### Scenario: 机器凭据仅限机器数据入口
 - **WHEN** 用 Gateway 运行凭据请求账号、策略、设备绑定、完整配置管理或真人用户流
 - **THEN** 请求被拒；正常 owner JWT 的管理能力保持不变。

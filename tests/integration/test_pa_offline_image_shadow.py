@@ -64,11 +64,9 @@ async def test_offline_feishu_image_delivers_then_shadow_reuses_snapshot_after_s
     def http_response(request):
         if not online:
             raise httpx.ConnectError("IM offline", request=request)
-        if request.url.path == "/im/v1/me":
-            return httpx.Response(200, json={"id": "u_owner"})
-        if request.url.path == "/im/v1/nodes":
+        if request.url.path == "/im/v1/gateway/identity":
             return httpx.Response(
-                200, json=[{"node_id": "node-m248", "owner_id": "u_owner"}]
+                200, json={"node_id": "node-m248", "owner_id": "u_owner"}
             )
         if request.url.path.endswith("/external/find-or-create"):
             return httpx.Response(200, json={"id": "c_chat"})

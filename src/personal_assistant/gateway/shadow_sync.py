@@ -59,7 +59,6 @@ class IMShadowConversationSync:
         self,
         *,
         base_url: str,
-        token_getter: Callable[[], Awaitable[str | None]],
         gateway_token_getter: Callable[[], Awaitable[str | None]],
         owner_user_id: str,
         node_id: str = "",
@@ -72,7 +71,6 @@ class IMShadowConversationSync:
         ) = None,
     ) -> None:
         self._base_url = normalize_im_http_base_url(base_url)
-        self._token_getter = token_getter
         self._gateway_token_getter = gateway_token_getter
         self._owner_user_id = owner_user_id.strip()
         self._node_id = node_id.strip()
@@ -82,7 +80,6 @@ class IMShadowConversationSync:
         self._delivery_provider = delivery_provider
         self._promote_pending_boundary = promote_pending_boundary
         self._resolved_owner_user_id: str | None = None
-        self._resolved_owner_scope_id: str | None = None
         self._resolved_owner_token: str | None = None
 
     async def sync_user_message(
@@ -112,7 +109,7 @@ class IMShadowConversationSync:
         external_chat_id = identity.external_chat_id
         saga_store = self._saga_store
         # The configured node owner is sufficient to identify the durable source fact.
-        # Persist it before any IM request so an unavailable /me endpoint cannot erase an
+        # Persist it before any IM request so unavailable identity lookup cannot erase an
         # external event that must later recover its user anchor and divider.
         saga = (
             saga_store.prepare(
@@ -127,7 +124,7 @@ class IMShadowConversationSync:
             self._promote_boundary(saga_id=saga.saga_id, shadow_ref=saga.shadow_ref)
             return GatewayShadowState(saga_id=saga.saga_id, ref=saga.shadow_ref)
         try:
-            token = await self._token_getter()
+            token = await self._require_gateway_token()
             headers = build_im_http_headers(token)
             async with httpx.AsyncClient(
                 base_url=self._base_url,
@@ -136,17 +133,7 @@ class IMShadowConversationSync:
                 trust_env=False,
                 transport=self._transport,
             ) as client:
-                owner_user_id, owner_scope_id = await self._resolve_owner_identity(
-                    client, token=token
-                )
-                if (
-                    saga_store is not None
-                    and message.ingress.external_event is not None
-                ):
-                    await self._require_authenticated_node_owner(
-                        client,
-                        authenticated_owner_id=owner_scope_id,
-                    )
+                owner_user_id = await self._resolve_owner_identity(client, token=token)
                 if (
                     saga is None
                     and saga_store is not None
@@ -468,54 +455,25 @@ class IMShadowConversationSync:
         return token
 
     async def _resolve_owner_identity(
-        self, client: httpx.AsyncClient, *, token: str | None
-    ) -> tuple[str, str]:
-        if (
-            self._resolved_owner_token == token
-            and self._resolved_owner_user_id
-            and self._resolved_owner_scope_id
-        ):
-            return self._resolved_owner_user_id, self._resolved_owner_scope_id
-        response = await client.get("/im/v1/me")
-        response.raise_for_status()
-        payload = response.json()
-        user_id = payload.get("id") or payload.get("user_id")
-        if not isinstance(user_id, str) or not user_id.strip():
-            raise ValueError("IM /me response missing user id")
-        owner_id = payload.get("owner_id") or user_id
-        if not isinstance(owner_id, str) or not owner_id.strip():
-            raise ValueError("IM /me response missing owner id")
-        self._resolved_owner_token = token
-        self._resolved_owner_user_id = user_id.strip()
-        self._resolved_owner_scope_id = owner_id.strip()
-        return self._resolved_owner_user_id, self._resolved_owner_scope_id
-
-    async def _require_authenticated_node_owner(
-        self,
-        client: httpx.AsyncClient,
-        *,
-        authenticated_owner_id: str,
-    ) -> None:
+        self, client: httpx.AsyncClient, *, token: str
+    ) -> str:
+        if self._resolved_owner_token == token and self._resolved_owner_user_id:
+            return self._resolved_owner_user_id
         if not self._node_id:
             raise ValueError("external shadow sync requires a node id")
-        response = await client.get("/im/v1/nodes")
+        response = await client.get("/im/v1/gateway/identity")
         response.raise_for_status()
         payload = response.json()
-        if not isinstance(payload, list):
-            raise ValueError("IM nodes response must be a list")
-        for item in payload:
-            if not isinstance(item, Mapping) or item.get("node_id") != self._node_id:
-                continue
-            node_owner_id = item.get("owner_id")
-            if (
-                isinstance(node_owner_id, str)
-                and node_owner_id.strip() == authenticated_owner_id
-            ):
-                return
-            break
-        raise PermissionError(
-            "authenticated IM owner is not authorized for the Gateway node"
-        )
+        if payload.get("node_id") != self._node_id:
+            raise PermissionError(
+                "authenticated Gateway identity belongs to another node"
+            )
+        owner_id = payload.get("owner_id")
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ValueError("IM gateway identity response missing owner id")
+        self._resolved_owner_token = token
+        self._resolved_owner_user_id = owner_id.strip()
+        return self._resolved_owner_user_id
 
 
 def _shadow_attachments(metadata: Mapping[str, object]) -> list[dict[str, str]]:

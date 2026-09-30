@@ -52,3 +52,11 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 - 后端 `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal -q`：**4099 passed / 27 warnings / 84.53s**，日志 `/tmp/feat572-final-all-backend-green.log`。
 - 前端 `npm test -- --run`：**793 passed / 85 files / 35.59s**，日志 `/tmp/feat572-final-all-frontend.log`。
 - 以上不包含尚未完成的真实公网/飞书验收，也不覆盖已记录的基线压缩 stub E2E 失败。
+
+## 2026-10-01 授权后的真实飞书修复
+
+用户已授权公网部署并接管原专用飞书 Bot。独立 R7 实测发现外部消息进入后无回复，shadow 恢复以新机器凭据调用真人 `/me` 返回401；这是旧身份查询接线未随机器凭据迁移的真实回归，生产尚未切换。
+
+影子同步改用 `GET /im/v1/gateway/identity`，仅返回经 current_gateway 验证的当前 node_id/owner_id；本机核对 node 后使用真实 owner 调和旧 saga。移除真人 token_getter、`/me` 和全节点列表依赖，写入仍使用当前机器凭据。真人管理接口保持原限制，没有凭本地配置授予权限。
+
+先由真实 API 入口测试和拒绝真人接口的 shadow 恢复测试取得2项 red，再修复。影子、图片离线恢复、入口管线、机器身份与授权边界共 **80 passed / 8.46s**（`/tmp/feat572-shadow-identity-batch-green.log`），Ruff/diff检查通过。需由产品 reviewer 复验真实飞书；此前全量4099/793只作为未失效基线，不能预支修复后现场通过。

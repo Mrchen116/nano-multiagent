@@ -237,9 +237,9 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
     reopened = ExternalShadowSagaStore(db_path=tmp_path / "sagas.db")
     sync = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=token,
         gateway_token_getter=token,
         owner_user_id="owner",
+        node_id="node-a",
         saga_store=reopened,
         images=images,
         before_publish=before,
@@ -258,9 +258,9 @@ def test_shadow_recovery_uploads_original_snapshot_before_public_write(
     # the old image reply from becoming an eligible recovery output again.
     restarted = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=token,
         gateway_token_getter=token,
         owner_user_id="owner",
+        node_id="node-a",
         saga_store=ExternalShadowSagaStore(db_path=tmp_path / "sagas.db"),
         images=images,
     )
