@@ -104,5 +104,28 @@
       "docs_required_routes": 75
     },
     "review_action": "consumed independent evidence and reviewed two fixture diffs; no all-suite rerun or implementation change"
+  },
+  "round6_shadow_identity": {
+    "review_mode": "patch",
+    "executed_base": "00a7f05e49fd953e47a675089c8097c20efff467",
+    "validated_at": "821ff6ce1a53c8046b9c37d5d350470527ed0b30",
+    "code_review": "pass",
+    "findings": [],
+    "verified_scope": [
+      "GET gateway/identity machine-only current node/owner",
+      "shadow current gateway credentials and node match",
+      "stale-owner saga reconciliation and immutable source/replay ordering",
+      "human management routes still reject machines",
+      "gateway-relay delta and composition wiring"
+    ],
+    "test_evidence": {
+      "passed": 80,
+      "seconds": 8.46,
+      "log": "/tmp/feat572-shadow-identity-batch-green.log",
+      "reused": true
+    },
+    "verification": "fail: R6 actual public acceptance and R7 real qualification pending",
+    "authorization_update": "User authorized public deployment and dedicated Bot takeover; prior missing authorization/occupied Bot condition no longer current",
+    "external_status": "Public not started; preparation done and initial active-member selection pending. R7 product restart/retest ongoing, no pass preclaimed."
   }
 }

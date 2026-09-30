@@ -1,6 +1,6 @@
 # Verification Report: feat-572-public-im-protection
 
-> 最新结论见末尾 Round 5：生产实现仍固定 `7df455679`，消费最终证据HEAD `f695942d9` 与两fixture提交 `cfbd481a4`；代码审查 pass（`[]`），C4/C5/C6均closed。Verification仅剩R6/R7两组外部门槛，45 pass / 7 inconclusive；完整验收仍fail，不可Ready PR。前几轮保留历史基线，旧问题数不代表当前状态。
+> 最新结论见末尾 Round 6：定向审查 `00a7f05e4 → 821ff6ce1` 的真实R7 shadow机器identity修复，code-review pass（`[]`）。此前未失效证据保持；公网部署/专用Bot接管已获授权，但R6实际公网验收、R7真实复验尚未通过，Verification仍fail / 不可Ready PR。旧轮次缺授权/Bot占用只作为历史原因，不代表当前前置状态。
 
 > Round 1 · verification_mode: full · executed_base: `7340a7805` · validated_at: `d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96` · branch: `codex/feat-572-public-im-protection`
 > 固定版本独立审查；审查者未实施该版本，只写本报告与 code-review/evidence。工作目录为 `.worktrees/unit-feat-572`。后续工作区修复不改变本报告基线。
@@ -243,3 +243,27 @@ R6真实公网/免费项/真实恢复需要当次授权，R7专用Feishu Bot仍�
 | C3 / R7 | 飞书主人识别/Agent公司资格；外部渠道任务写入资格；正常上传与Agent图片理解（Web已验，外部飞书仍缺） | **inconclusive**。原专用Bot锁仍unit-feat-569/PID15775存活；不抢占、不mock补pass。 |
 
 本地验收服务均由各owner清理，8572原型保留；本轮未再启动或操作服务。UX1确认体验限制保持原产品报告记录，不扩大要求、不放宽人工授权。三份报告范围之外dirty/untracked保留，提交报告不等于Ready PR、远端同步、上线或M1归档。
+
+## Round 6: real R7 shadow identity patch review
+
+> review_mode: patch · executed_base: `00a7f05e49fd953e47a675089c8097c20efff467` · validated_at: `821ff6ce1a53c8046b9c37d5d350470527ed0b30`。
+> 仅审此批12文件中的机器identity接口、shadow生产接线、相应测试与gateway-relay delta；复用其余独立代码/产品证据，没有全量重跑、实现修改或现场服务操作。报告由审查者按caller授权提交。
+
+**Code review: pass，CONFIRMED/PLAUSIBLE存活数组仍 `[]`。Verification: fail，2 CRITICAL外部验收门槛（C2 R6、C3 R7）、0 WARNING、0 SUGGESTION。不能Ready PR、宣称M1完成或已完成部署。** 新真实R7发现的机器token访问真人/me401回归已在本批实现修复并有窄证据，真实飞书回复/外部图片/任务资格结果仍等独立产品reviewer，不用80项模拟/集成绿预支R7 pass。
+
+| 定向核对 | 结论及证据 |
+|---|---|
+| 新机器identity查询 | **covered**。`IM/api/routes/account.py:get_gateway_identity` 依赖既有current_gateway，不收模型owner/node参数，只返回被当前已注册运行token证明的node_id/owner_id。current_gateway及HTTP公司门禁沿用现有连接/owner资格验证，真人JWT不能用此入口，也不扩大机器读取真人/me或/nodes管理能力。新增真实API用例要求正常返回exact两字段、真人默认会话401、机器访问/me/nodes401、owner停用后identity401。 |
+| shadow身份与生产构造点 | **covered**。composition只给IMShadowConversationSync传gateway_token_getter和本node。sync_user_message先持久准备外部源事实，再require当前机器token，GET gateway/identity；严格匹配本node并验证非空owner，按token缓存真实owner。没有真人token_getter或/me、全节点列表依赖，离线先保存durable事实、不丢后续恢复。写数据再取当前机器token，沿用原机器Agent/聊天权限入口。 |
+| 旧owner saga/回放与错node拒绝 | **covered**。确认真实本node owner后，保留原recover_owner、shadow用户/输出幂等键、anchor与divider promotion、恢复顺序和原sender_source_id。测试将旧本地owner调和到已认证owner并复核未决output与boundary一次完成；另一个node身份只产生identity请求、保留旧saga owner且不写外部会话。既有已确认anchor复用语义未改，不将本地owner当远程授权证据。 |
+| 当前token/吊销与外部普通行为 | **covered**。shadow-auth测试不提供token时无HTTP请求且saga留存；有效runtime-one恢复；输出使用runtime-two；无token时输出保持pending。原回放/离线图片/入口管线测试只改身份stub与请求序号，保持原源身份/顺序/交付断言。不新增外部真人IM登录前置。 |
+| delta/current spec | **covered**。gateway-relay delta新增“外部镜像核实当前机器管理者”，描述current machine identity、node一致、旧owner调和、拒绝真人/失效机器，与实现吻合；current spec未提前覆盖。接口仍是PA↔IM机器协议，无包import越界或新真人管理旁路。 |
+
+复用本批red→green证据：实际API入口与禁止/me/nodes的shadow恢复先2项red；`/tmp/feat572-shadow-identity-batch-green.log`末尾独立读取确认为 **80 passed /8.46s**，范围包括机器identity/授权、shadow saga、离线图片与入口管线；Ruff/diff按implementation交接通过。本审查者未重复全量或已有效的80项测试。4099/793全量仍只是此前未失效基线，不代表新真实R7已验收。
+
+### Updated external prerequisites and verdict
+
+- **R6 / C2仍未验收。** 用户已明确授权公网部署，CF域名Free/Active、专用Tunnel/DNS已准备；公网尚未启动，当前待用户选择首次成员名单。**原“尚缺当次授权”原因已失效**，但实际域名HTTP/WS、仅IM公开、真实停止公开入口/恢复、实际免费项仍需独立实测，不能以准备就绪补pass。
+- **R7 / C3仍未验收。** 用户已授权接管569原专用Bot，原资源占用已由caller处理；独立reviewer首次实测发现真实消息无回复并定位本次shadow身份回归。正在重启复验修复。**原“不能接管Bot”仅是历史状态**，当前缺口是修复后真实飞书全部必验旅程结果，不能提前pass。
+
+C4/C5/C6前轮已闭合并未因这批窄身份查询变化失效；产品45 pass/7 inconclusive仅作为上一轮合并历史，待新R7报告按实际结果更新。无新增推测要求、无全量源码重新审查。三份报告中code-review.json保持有效空数组无需制造格式差异，closure-results追加本轮元数据；无secret/完整日志/本地配置提交。
