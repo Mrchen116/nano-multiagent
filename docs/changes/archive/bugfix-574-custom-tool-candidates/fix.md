@@ -42,4 +42,15 @@ Agent 解读：在新 unit 中补齐用户工具从运行目录到配置候选�
 
 ## 修复
 
+实施提交 `e8f61810a`：SDK 的中立工具查询增加可选工作区，复用已有 execution scope，不另建加载、缓存或执行机制；Gateway 将 PA 声明与真实注册目录合并，保留默认值/顺序并提供真实描述。Agent 级能力用其自身工作区目录，节点级保持共享目录。未修改配置同步、白名单执行、前端选择或第三方插件。
+
+保留已有能力协议测试的名称/顺序/default_on，改写其空描述假设；Workflow 可选工具测试保留、改为核对真实注册描述。新增 `test_tool_candidate_projection.py` 守住“缺失 runtime 也保留声明”这一纯投影风险；新增 `test_gateway_tool_candidates.py` 从真实加载器和公开能力 payload 守住全局/工作区接线、覆盖与隔离，未重复永久浏览器测试。
+
+Bugfix lite 直接将验证后的场景归并到 `docs/specs/im/agents-nodes.md` 与 `docs/specs/kernel/sdk-boundary.md`，不建立独立 design/verifier/reviewer 或伪造 worker 台账。
+
 ## 验证
+
+- Red：共享插件已经注册但能力 payload 中不存在，新增集成测试以 `KeyError: shared_reader` 失败。
+- Green：窄测试 28 passed；最终测试夹具改为鸭子类型后，相关 2 项重跑通过。独立代码审查复跑相关 21 项通过、返回 `[]`，报告见 `code-review.md`。
+- 本地 CI 等价：agent/PA 分片 1999 passed，remaining 分片 2073 passed；Vitest 84 文件 / 781 tests passed；Ruff check/format、docs-check、critical 级 npm audit 通过。npm audit 仍报告既有 2 low / 3 moderate / 2 high，不在本 unit 修改依赖。
+- 真实隔离 IM/Gateway/Vite 与 Playwright 创建/编辑页、勾选保存重开、取消保存、描述/默认值和工作区隔离验证见 `M1-fix/evidence/acceptance.md`。使用真实代理完成无第三方副作用的工作区工具调用；不将该结果当作 X/小红书/抖音业务验证。
