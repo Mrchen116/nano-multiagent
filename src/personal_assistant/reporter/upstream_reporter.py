@@ -111,13 +111,17 @@ def _platform_default_model_from_kernel(kernel: "Kernel") -> str | None:
     return None
 
 
-def _tools_from_kernel(kernel: "Kernel") -> tuple[dict[str, object], ...]:
+def _tools_from_kernel(
+    kernel: "Kernel", workspace_root: Path | None = None
+) -> tuple[dict[str, object], ...]:
     """Project ``kernel.list_tools()`` into IM tool pills with ``default_on``.
 
     The kernel reports name/description (neutral fact); the Gateway projection
     (``project_tools``) adds the PA default/optional ``default_on`` split.
     """
-    tool_infos = tuple((t.name, t.description) for t in kernel.list_tools())
+    tool_infos = tuple(
+        (t.name, t.description) for t in kernel.list_tools(workspace_root)
+    )
     return project_tools(tool_infos)
 
 
@@ -237,6 +241,7 @@ def build_agent_capabilities_payload(
         kernel, reasoning_catalog=reasoning_catalog
     ).as_payload()
     base["skills"] = _skills_from_kernel(kernel, workspace_root=workspace_root)
+    base["tools"] = list(_tools_from_kernel(kernel, Path(workspace_root)))
     base["features"] = project_features(tool_allowlist=tool_allowlist)
     base["commands"] = _session_commands_from_kernel(
         kernel,

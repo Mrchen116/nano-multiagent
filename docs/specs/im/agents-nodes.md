@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-546 / feat-554 / feat-572
+> 对齐: feat-546 / feat-554 / feat-572 / bugfix-574
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -357,12 +357,29 @@ Gateway 和其全部 Agent 由同一个有效公司成员管理；绑定与整�
 
 ### Requirement: 节点 runtime 能力按需向在线网关解析,不入库快照
 
+工具候选合并 Gateway 的 PA 内置声明与对应上下文中已注册的工具：内置声明保持既有顺序及 default_on，其他注册工具去重追加、default_on=false；已有注册项携带真实描述，缺失 runtime 实例的内置声明仍保留。节点创建页使用共享目录，Agent 编辑页还包含其工作区工具并采用该工作区的同名覆盖。候选可见不代表已启用；选中状态和保存值仍由用户配置决定，不因新增候选而扩大已有白名单（含显式空集），global 固定基础工具规则不变。
+
 新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由 IM **当场**经 gateway WS 向在线节点解析后返回，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
 
 #### Scenario: 节点能力含 features 列表供创建页渲染
 - **GIVEN** 一个已知节点,网关在线
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities`
 - **THEN** 200 返回 `{node_id, skills:[{name,description}], tools:[{name,description}], models:[...], platform_default_model, default_workspace_template?, features:[...]}`；网关 payload 无 features 时 IM 返回空 `features` 列表（优雅降级）
+
+#### Scenario: 用户发现并启用新安装的共享工具
+- **GIVEN** 在线 Gateway 已成功注册共享用户工具 T
+- **WHEN** 用户打开该节点的新建页或其 Agent 的编辑页
+- **THEN** 工具候选包含 T 及其注册描述，新建默认不选中 T；已有 Agent 未启用 T 时仍保持未选中
+- **WHEN** 用户主动勾选 T 并保存
+- **THEN** T 加入该 Agent 工具白名单，重新打开页面仍为选中，并按既有配置下一轮生效契约可用
+- **WHEN** 用户取消 T 并保存
+- **THEN** T 仍是候选但不在保存的白名单，后续会话按既有执行层权限契约拒绝未授权调用
+
+#### Scenario: 工作区候选不跨 Agent 混入
+- **GIVEN** Agent A 与 B 使用不同工作区，各有各自的用户工具
+- **WHEN** 用户分别编辑 A 与 B，或打开其节点的新建页
+- **THEN** 各编辑页只包含共享目录及自身工作区工具；节点新建页不借用 A/B 的工作区目录
+- **AND** 同名工具只显示一次，其描述与该 Agent 的实际工作区覆盖一致
 
 #### Scenario: agent 能力透传 features 五元字段
 - **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`

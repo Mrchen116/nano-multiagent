@@ -111,7 +111,7 @@ GOLDEN_MODELS: list[dict[str, str]] = [
 GOLDEN_PLATFORM_DEFAULT_MODEL = "kimiCoding:K2.6"
 
 # tools: PERSONAL_ASSISTANT_PROFILE default_tool_ids (default_on=True) then
-# optional_tool_ids (default_on=False), in declaration order, description="".
+# optional_tool_ids then other registered tools (default_on=False).
 GOLDEN_TOOLS: list[dict[str, object]] = [
     {"name": "read", "description": "", "default_on": True},
     {"name": "write", "description": "", "default_on": True},
@@ -128,6 +128,8 @@ GOLDEN_TOOLS: list[dict[str, object]] = [
     {"name": "send_message", "description": "", "default_on": False},
     {"name": "cron", "description": "", "default_on": False},
     {"name": "Workflow", "description": "", "default_on": False},
+    {"name": "inbox", "description": "", "default_on": False},
+    {"name": "conversations", "description": "", "default_on": False},
 ]
 
 # node-level features: every entry available=True (no per-agent allowlist), in
@@ -254,6 +256,13 @@ GOLDEN_FLAGS = {
 }
 
 
+def _assert_tools_match_contract(tools, kernel) -> None:
+    # Pin product order/defaults, not implementation documentation text.
+    assert [{**tool, "description": ""} for tool in tools] == GOLDEN_TOOLS
+    descriptions = {tool.name: tool.description for tool in kernel.list_tools()}
+    assert all(tool["description"] == descriptions[tool["name"]] for tool in tools)
+
+
 def _sorted_skills(skills: list[dict[str, str]]) -> list[dict[str, str]]:
     # Absolute SKILL.md prefixes vary by host, so location has a separate structural
     # assertion while stable protocol fields remain exact.
@@ -292,7 +301,7 @@ def test_node_capabilities_payload_matches_contract(controlled_caps) -> None:
 
     assert list(payload["models"]) == GOLDEN_MODELS
     assert payload["platform_default_model"] == GOLDEN_PLATFORM_DEFAULT_MODEL
-    assert list(payload["tools"]) == GOLDEN_TOOLS
+    _assert_tools_match_contract(payload["tools"], kernel)
     assert list(payload["features"]) == GOLDEN_NODE_FEATURES
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_NODE_SKILLS
     _assert_skills_carry_location(list(payload["skills"]))
@@ -318,7 +327,7 @@ def test_agent_capabilities_payload_matches_contract(controlled_caps) -> None:
 
     assert list(payload["models"]) == GOLDEN_MODELS
     assert payload["platform_default_model"] == GOLDEN_PLATFORM_DEFAULT_MODEL
-    assert list(payload["tools"]) == GOLDEN_TOOLS
+    _assert_tools_match_contract(payload["tools"], kernel)
     assert list(payload["features"]) == GOLDEN_AGENT_FEATURES
     assert list(payload["commands"]) == []
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_AGENT_SKILLS

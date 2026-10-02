@@ -72,3 +72,9 @@ R7 真实飞书：专用 E2E Bot 正由 unit-feat-569 使用，未停止其他�
 独立验收 acceptance Round 6 已收口：**52 pass / 0 fail / 0 inconclusive**，产品版本为 `821ff6ce1`。真实公网浏览器聊天、图片、任务、Work及物理en0直连HTTPS/WSS通过；停测试隧道后入口不可用，独立副本恢复、四类旧凭据失效、原附件哈希及历史一致、同设备重新绑定和恢复后真实回复全部通过。Cloudflare官方页面免费配置已独立核对。此前R7全部真实飞书场景亦通过。
 
 收口已停止本次Mini测试IM/Tunnel和本机测试Gateway，核对18572/51636无监听、目标PID退出、测试tmux退出；保留隔离原始数据和备份供复核。用户要求的8572原型服务继续HTTP200。正式生产未切换，等待用户合入PR后另行执行生产操作。既有R2 UX1 minor与基线压缩stub E2E限制仍按验收报告保留，不宣称所有无关E2E通过。
+
+## 2026-10-02 上游同步
+
+- 合入 `origin/main` 的 `e4ce08c97`（PR #316 / bugfix-574，自定义工具候选列表）。产品代码自动合并；唯一冲突是 `docs/specs/im/agents-nodes.md` 的对齐编号，保留双方编号及契约正文。
+- 合并后工具候选集成、capability payload、SDK behavior、上报器、候选投影及 task graph tool/bridge 相关测试：68 passed / 3.79s；docs-check：235 sources / 75 routes；git diff --check 通过。
+- 未手改产品实现；既有独立验收保留，以上游相关测试及本次 PR CI 补充集成验证；不将既有公网验收冒充新合并版本重新实测。未执行生产部署。

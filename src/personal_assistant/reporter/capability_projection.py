@@ -111,39 +111,32 @@ FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
 def project_tools(
     tool_infos: tuple[tuple[str, str], ...],
 ) -> tuple[dict[str, object], ...]:
-    """Project the IM tool pills with ``default_on`` from the PA tool split.
+    """Merge declared PA tools and registered candidates into IM tool pills.
 
-    The output order follows PA_DEFAULT_TOOL_IDS then PA_OPTIONAL_TOOL_IDS — matching
-    the pre-refactor payload which took names directly from the profile (not the live
-    registry), guaranteeing the full declared surface is advertised regardless of
-    which tools the live kernel happened to register.
-
-    ``description`` is held at ``""`` to reproduce the pre-refactor payload byte-for-
-    byte (design 风险 2 — capability payload is a migration invariant). The kernel's
-    ``list_tools`` *does* report real descriptions, but the IM tool-pill payload has
-    always advertised empty descriptions; surfacing real text is a payload change out
-    of scope for this behavior-preserving refactor.
+    Keep declared tools first, even when a runtime-dependent built-in is absent.
+    Additional registered tools are optional; discovery never grants permission.
 
     Args:
-        tool_infos: ``(name, description)`` pairs from ``kernel.list_tools()`` —
-            accepted for forward compatibility; currently only used to keep the
-            signature kernel-driven (descriptions are intentionally dropped).
+        tool_infos: Name/description pairs from the relevant kernel tool catalog.
 
     Returns:
-        Ordered tuple of ``{name, description, default_on}`` dicts.
+        Deduplicated pills in PA declaration order then registry order, with
+        registered descriptions and ``default_on`` only for PA default tools.
     """
     result: list[dict[str, object]] = []
     seen: set[str] = set()
-    for tool_id in PA_DEFAULT_TOOL_IDS:
+    descriptions = dict(tool_infos)
+    for tool_id in (*PA_DEFAULT_TOOL_IDS, *PA_OPTIONAL_TOOL_IDS, *descriptions):
         if tool_id in seen:
             continue
         seen.add(tool_id)
-        result.append({"name": tool_id, "description": "", "default_on": True})
-    for tool_id in PA_OPTIONAL_TOOL_IDS:
-        if tool_id in seen:
-            continue
-        seen.add(tool_id)
-        result.append({"name": tool_id, "description": "", "default_on": False})
+        result.append(
+            {
+                "name": tool_id,
+                "description": descriptions.get(tool_id, ""),
+                "default_on": tool_id in PA_DEFAULT_TOOL_IDS,
+            }
+        )
     return tuple(result)
 
 
