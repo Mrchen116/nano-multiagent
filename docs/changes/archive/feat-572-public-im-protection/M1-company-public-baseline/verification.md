@@ -310,3 +310,7 @@ C4/C5/C6前轮已闭合并未因这批窄身份查询变化失效；产品45 pas
 - 相关前端 14 项、附件接口 14 项通过，TypeScript/Vite、Ruff、diff-check 通过；源代码提交 `79dfcbfa4` 的四项 PR CI 全部通过。
 - 独立产品复验 8 项通过，0 个确认问题，覆盖三项 UI 反馈及准入/批准/取消停用/旧会话拒绝；实际桌面和手机截图见 acceptance Round 7。原有其他验收场景未在本轮重跑。
 - docs-check：235 maintained Markdown sources / 75 required routes 通过。仅隔离测试站更新，生产未部署。
+
+## 2026-10-02 成员页视觉精修补充
+
+独立静态审查固定 `409413b36..0ba0fa64a`，findings `[]`。刷新保留 refetch/disabled 与当前语言可访问名称；表头/行共享列定义，桌面姓名52px缩进与38px头像+14px间隔一致，手机46px与34px头像+12px间隔一致；767px媒体查询与既有mobile判断一致。权限、分页、成功/失败反馈、Radix确认与mutation语义保留。无 spec delta。复用8项交互测试与build，源代码提交的四项远端CI全部通过。视觉证据与执行者范围见 acceptance Round 8。

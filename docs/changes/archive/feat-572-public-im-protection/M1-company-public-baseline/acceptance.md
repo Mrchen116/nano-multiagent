@@ -557,3 +557,13 @@ This is targeted feedback verification, not a repetition of full public security
 Only this round's accounts qa572ui1002a / qa572ui1002b and their self-only QA groups/uploads were created; both accounts were suspended after testing. reviewnano and public572member remained Active. Existing user Agents were not edited. Test data remains for traceability. Reviewer restored the IAB administrator session, EN language, and default viewport; no processes were started or stopped. Credentials/tokens remain in ignored output only and are absent from this evidence directory. No commit was made, as explicitly requested by caller.
 
 Highest Required Action: pass. needs_re_review: false. gh_issues_filed: 0. report_commit: none (caller instruction).
+
+
+# 独立视觉审阅 Round 8 — 成员页呈现再调整
+
+- validated_at: `0ba0fa64af86f961de17f7c8a44b7f4722fe4bbf`; base `409413b36`。
+- 结论：所提供1440×1000 EN/ZH、390×844 EN/ZH及手机确认框的独立视觉审阅通过，0个确认的布局缺陷；不代表用户美观认可。
+- root执行真实公网浏览器与截图，审阅者独立看五图及geometry。审阅者IAB不可用，一次重新发现/reset未恢复，因此本轮不是独立实操验收。
+- 刷新34px且可访问名称“刷新”；成员姓名、角色、状态与操作对齐；桌面/手机无观察到的溢出，层次清晰。root报告Refresh的disabled→可用及Suspend打开后Cancel返回Active，未执行Confirm或成员写入。
+- 其它Round7准入/权限/容量/旧会话场景retained，未重跑；无源代码/服务修改，无commit。
+- 详细证据及边界：[reviewer-ui-polish-20261002](../evidence/reviewer-ui-polish-20261002/README.md)，用户预览：[中文桌面](../evidence/reviewer-ui-polish-20261002/desktop-zh.png)。
