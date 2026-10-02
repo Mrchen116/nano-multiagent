@@ -1,3 +1,5 @@
+import "./company-members-page.css";
+
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,9 +22,9 @@ type Member = {
 type MemberPage = { members: Member[]; next_cursor: string | null };
 
 const statusStyles = {
-  active: "bg-[var(--im-success-soft)] text-[var(--im-success-text)]",
-  pending: "bg-amber-50 text-amber-800",
-  suspended: "bg-im-surface-2 text-im-text-muted"
+  active: "company-status--active",
+  pending: "company-status--pending",
+  suspended: "company-status--suspended"
 };
 
 export function CompanyMembersPage() {
@@ -57,50 +59,52 @@ export function CompanyMembersPage() {
   const closeDialog = () => { if (!change.isPending) { setTarget(null); change.reset(); } };
 
   return (
-    <section className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]" aria-label={t("company.title")}>
+    <section className="company-page" aria-label={t("company.title")}>
       {isMobile && (
         <div className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-im-border bg-[oklch(0.97_0.004_240)] px-1">
           <Link to="/me" aria-label={t("common.back")} className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] hover:bg-im-surface-2">‹</Link>
           <h1 className="m-0 text-[16px] font-bold tracking-tight">{t("company.title")}</h1>
         </div>
       )}
-      <div className="mx-auto grid w-full max-w-[880px] gap-4" style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}>
-        <header className="flex items-start justify-between gap-4">
+      <div className="company-content">
+        <header className="company-heading">
           <div>
-            {!isMobile && <h1 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{t("company.title")}</h1>}
-            <p className="m-0 mt-1 text-[13px] leading-5 text-im-text-muted">{t("company.subtitle")}</p>
+            {!isMobile && <h1 className="company-title">{t("company.title")}</h1>}
+            <p className="company-description">{t("company.subtitle")}</p>
           </div>
-          <button type="button" className="im-btn im-btn-muted shrink-0" disabled={query.isFetching} onClick={() => void query.refetch()}>{t("company.refreshList")}</button>
+          <button type="button" className="company-refresh" aria-label={t("company.refreshList")} title={t("company.refreshList")} disabled={query.isFetching} onClick={() => void query.refetch()}>
+            <svg className={query.isFetching ? "animate-spin" : ""} aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7v5h-5" /><path d="M19.2 12a7.5 7.5 0 1 0-2 5.3M20 12l-3.4-4" /></svg>
+          </button>
         </header>
         {feedback && <p role="status" className="m-0 rounded-[10px] bg-[var(--im-success-soft)] px-4 py-3 text-[13px] text-[var(--im-success-text)]">{feedback}</p>}
         {change.isError && !target && <p role="alert" className="m-0 text-[13px] text-im-danger">{mutationError}</p>}
-        <div className="overflow-hidden rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white">
-          <div className="hidden grid-cols-[minmax(0,1fr)_100px_130px_108px] gap-4 border-b border-im-border bg-im-surface-2 px-5 py-3 text-[12px] font-medium text-im-text-muted md:grid" aria-hidden="true">
-            <span>{t("company.member")}</span><span>{t("company.role")}</span><span>{t("company.status")}</span><span className="text-right">{t("company.actions")}</span>
+        <div className="company-directory">
+          <div className="company-columns company-column-headings" aria-hidden="true">
+            <span className="company-member-heading">{t("company.member")}</span><span>{t("company.role")}</span><span>{t("company.status")}</span><span className="company-actions-heading">{t("company.actions")}</span>
           </div>
           {query.isLoading && <p role="status" className="m-0 px-5 py-8 text-[13px] text-im-text-muted">{t("common.loading")}</p>}
           {query.isError && <div className="px-5 py-6"><p role="alert" className="text-[13px] text-im-danger">{t("company.loadFailed")}</p><button className="im-btn im-btn-muted" onClick={() => void query.refetch()}>{t("common.retry")}</button></div>}
           {!query.isLoading && !query.isError && members.length === 0 && <p className="m-0 px-5 py-8 text-[13px] text-im-text-muted">{t("company.empty")}</p>}
-          <ul className="m-0 list-none divide-y divide-im-border p-0">
+          <ul className="company-member-list">
             {members.map(member => {
               const name = member.display_name || member.username;
               return (
-                <li key={member.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-4 md:grid-cols-[minmax(0,1fr)_100px_130px_108px] md:gap-4 md:px-5">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--im-user-avatar)] text-[14px] font-semibold text-[var(--im-user-avatar-text)]">{name.trim().slice(0, 2).toUpperCase()}</span>
+                <li key={member.id} className="company-columns company-member-row">
+                  <div className="company-identity">
+                    <span aria-hidden="true" className="company-avatar">{name.trim().slice(0, 2).toUpperCase()}</span>
                     <div className="min-w-0">
-                      <p className="m-0 break-words text-[14px] font-semibold leading-5">{name}{member.id === currentUser.id && <span className="ml-2 text-[11px] font-normal text-im-text-muted">{t("company.you")}</span>}</p>
-                      <p className="m-0 mt-0.5 break-all text-[12px] leading-4 text-im-text-muted">@{member.username}</p>
+                      <p className="company-member-name">{name}{member.id === currentUser.id && <span className="ml-2 text-[11px] font-normal text-im-text-muted">{t("company.you")}</span>}</p>
+                      <p className="company-username">@{member.username}</p>
                     </div>
                   </div>
-                  <span className="hidden text-[12px] text-im-text-muted md:block">{t(member.is_company_admin ? "company.admin" : "company.member")}</span>
-                  <div className="col-start-1 row-start-2 flex flex-wrap items-center gap-2 pl-[52px] md:col-auto md:row-auto md:pl-0">
-                    <span className={`inline-flex rounded-md px-2 py-1 text-[11px] font-medium leading-4 ${statusStyles[member.membership_status]}`}>{t(`company.statusLabel.${member.membership_status}`)}</span>
-                    <span className="text-[11px] text-im-text-muted md:hidden">{t(member.is_company_admin ? "company.admin" : "company.member")}</span>
+                  <span className="company-role">{t(member.is_company_admin ? "company.admin" : "company.member")}</span>
+                  <div className="company-member-status">
+                    <span className={`company-status ${statusStyles[member.membership_status]}`}>{t(`company.statusLabel.${member.membership_status}`)}</span>
+                    <span className="company-mobile-role">{t(member.is_company_admin ? "company.admin" : "company.member")}</span>
                   </div>
-                  <div className="col-start-2 row-span-2 row-start-1 justify-self-end md:col-auto md:row-span-1 md:row-auto">
-                    {member.membership_status === "pending" && <button className="im-btn im-btn-primary" disabled={change.isPending} onClick={() => { setFeedback(null); change.mutate({ id: member.id, action: "approve", name }); }}>{t("company.approve")}</button>}
-                    {member.membership_status === "active" && <button aria-label={t("company.suspend")} className="whitespace-nowrap rounded-lg px-3 py-2 text-[12px] font-medium text-im-danger hover:bg-red-50 disabled:opacity-50" disabled={change.isPending} onClick={() => { change.reset(); setFeedback(null); setTarget(member); }}>{t("company.suspendAction")}</button>}
+                  <div className="company-member-actions">
+                    {member.membership_status === "pending" && <button className="company-action company-action--approve" disabled={change.isPending} onClick={() => { setFeedback(null); change.mutate({ id: member.id, action: "approve", name }); }}>{t("company.approve")}</button>}
+                    {member.membership_status === "active" && <button aria-label={t("company.suspend")} className="company-action company-action--suspend" disabled={change.isPending} onClick={() => { change.reset(); setFeedback(null); setTarget(member); }}>{t("company.suspendAction")}</button>}
                   </div>
                 </li>
               );
