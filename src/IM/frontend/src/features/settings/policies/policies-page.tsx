@@ -28,7 +28,7 @@ export function PoliciesPage() {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const admin = useAuthStore(s => Boolean(s.user?.is_company_admin));
-  const capacity = useQuery({ queryKey: ["settings", "attachment-capacity"], enabled: admin, queryFn: () => authFetchJson<{ service: { used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }; owners: Array<{ owner_id: string; used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }> }>("/im/v1/attachments/capacity") });
+  const capacity = useQuery({ queryKey: ["settings", "attachment-capacity"], enabled: admin, queryFn: () => authFetchJson<{ service: { used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }; owners: Array<{ owner_id: string; username: string | null; display_name: string | null; used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }> }>("/im/v1/attachments/capacity") });
 
   const query = useQuery({
     queryKey: ["settings", "policies"],
@@ -215,7 +215,27 @@ export function PoliciesPage() {
             </button>
           </div>
         </div>)}
-        {admin && <section className="rounded-[14px] border bg-white p-[18px] grid gap-2"><h3>{t("company.capacity")}</h3><p className="text-sm">{t("company.capacityHint")}</p>{capacity.isError && <p role="alert">{t("auth.feedback.serviceUnavailable")}</p>}{capacity.data && [ { ...capacity.data.service, owner_id: t("company.service") }, ...capacity.data.owners ].map(row => <div key={row.owner_id} className="text-sm break-all"><strong>{row.owner_id}</strong><p>{t("company.used")}: {(row.used_bytes / 1048576).toFixed(1)} MiB · {t("company.reserved")}: {(row.reserved_bytes / 1048576).toFixed(1)} MiB · {t("company.limit")}: {(row.limit_bytes / 1048576).toFixed(0)} MiB {row.full && `· ${t("company.full")}`}</p></div>)}</section>}
+        {admin && (
+          <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
+            <h3 className="m-0 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">{t("company.capacity")}</h3>
+            <p className="m-0 text-[13px] text-[oklch(0.55_0.01_240)]">{t("company.capacityHint")}</p>
+            {capacity.isError && <p role="alert">{t("auth.feedback.serviceUnavailable")}</p>}
+            {capacity.data && [
+              { ...capacity.data.service, owner_id: "service", display_name: t("company.service"), username: null },
+              ...capacity.data.owners
+            ].map(row => (
+              <div key={row.owner_id} className="min-w-0 text-[13px]">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <strong className="break-words">{row.display_name || row.username || row.owner_id}</strong>
+                  {row.username && <span className="break-all text-[12px] text-[oklch(0.55_0.01_240)]">@{row.username}</span>}
+                </div>
+                <p className="m-0 mt-1 text-[oklch(0.55_0.01_240)]">
+                  {t("company.used")}: {(row.used_bytes / 1048576).toFixed(1)} MiB · {t("company.reserved")}: {(row.reserved_bytes / 1048576).toFixed(1)} MiB · {t("company.limit")}: {(row.limit_bytes / 1048576).toFixed(0)} MiB {row.full && `· ${t("company.full")}`}
+                </p>
+              </div>
+            ))}
+          </section>
+        )}
       </form>
     </div>
   );

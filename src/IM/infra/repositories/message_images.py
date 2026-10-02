@@ -97,7 +97,10 @@ class MessageImageRepository:
     def capacity(self) -> dict:
         """Return current service usage and owner capacity warnings for administrators."""
         rows = self._connection.execute(
-            "SELECT owner_id, state, SUM(byte_size) AS size FROM attachment_storage GROUP BY owner_id, state"
+            "SELECT a.owner_id, a.state, SUM(a.byte_size) AS size, "
+            "u.username, u.display_name FROM attachment_storage a "
+            "LEFT JOIN users u ON u.id = a.owner_id "
+            "GROUP BY a.owner_id, a.state"
         ).fetchall()
         service = {
             "used_bytes": 0,
@@ -113,6 +116,8 @@ class MessageImageRepository:
                     row["owner_id"],
                     {
                         "owner_id": row["owner_id"],
+                        "username": row["username"],
+                        "display_name": row["display_name"],
                         "used_bytes": 0,
                         "reserved_bytes": 0,
                         "limit_bytes": attachment_quota.OWNER_LIMIT_BYTES,

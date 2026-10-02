@@ -354,6 +354,8 @@ def test_attachment_capacity_is_atomic_and_admin_only(tmp_path, monkeypatch):
         assert capacity.json()["owners"] == [
             {
                 "owner_id": user.id,
+                "username": user.username,
+                "display_name": user.display_name,
                 "used_bytes": 8,
                 "reserved_bytes": 0,
                 "limit_bytes": 8,

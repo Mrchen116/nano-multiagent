@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -80,5 +80,57 @@ describe("company access", () => {
     for (const field of [...screen.getAllByRole("spinbutton"), screen.getByRole("textbox"), screen.getByRole("combobox")]) expect(field).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  });
+
+  it("identifies storage owners by display name and username, including duplicate names", async () => {
+    useAuthStore.getState().replaceUser({ ...TEST_AUTH_USER, is_company_admin: true });
+    const usage = { used_bytes: 1048576, reserved_bytes: 0, limit_bytes: 10485760, full: false };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => response(String(input).includes("/attachments/capacity") ? {
+      service: usage,
+      owners: [
+        { ...usage, owner_id: "u_first", display_name: "Alex", username: "alex.design" },
+        { ...usage, owner_id: "u_second", display_name: "Alex", username: "alex.engineering" }
+      ]
+    } : { default_model: "model", audit_level: "basic", max_turn_per_run: 10, rate_limit_per_min: 60, max_attachment_size_mb: 10, retention_days: 30 }));
+    mount("/settings/policies");
+    expect(await screen.findByText("@alex.design")).toBeInTheDocument();
+    expect(screen.getByText("@alex.engineering")).toBeInTheDocument();
+    expect(screen.getAllByText("Alex")).toHaveLength(2);
+    expect(screen.queryByText("u_first")).not.toBeInTheDocument();
+    expect(screen.queryByText("u_second")).not.toBeInTheDocument();
+  });
+
+  it("updates admission visibly and allows cancelling suspension without changing access", async () => {
+    useAuthStore.getState().replaceUser({ ...TEST_AUTH_USER, is_company_admin: true });
+    let member = { id: "member-1", username: "alex", display_name: "Alex", membership_status: "pending", is_company_admin: false, node_count: 2, agent_count: 3 };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST") {
+        member = { ...member, membership_status: "active" };
+        return response(member);
+      }
+      return response({ members: [member], next_cursor: null });
+    });
+    mount("/settings/company");
+    await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Alex can now access the company workspace.");
+    await userEvent.click(await screen.findByRole("button", { name: "Suspend member" }));
+    const dialog = screen.getByRole("dialog", { name: "Suspend Alex?" });
+    expect(dialog).toHaveTextContent("2 nodes and 3 agents");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("explains why the last administrator cannot be suspended", async () => {
+    useAuthStore.getState().replaceUser({ ...TEST_AUTH_USER, is_company_admin: true });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_, init) => init?.method === "POST"
+      ? response({ detail: "cannot suspend the last active administrator" }, 409)
+      : response({ members: [{ ...TEST_AUTH_USER, is_company_admin: true, node_count: 1, agent_count: 2 }], next_cursor: null }));
+    mount("/settings/company");
+    await userEvent.click(await screen.findByRole("button", { name: "Suspend member" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm suspension" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The company must keep at least one active administrator.");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
