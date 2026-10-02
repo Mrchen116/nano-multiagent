@@ -2668,6 +2668,19 @@ body {
   padding-left: 1.1rem;
 }
 
+/* Restore Markdown markers cleared by Preflight without changing app lists. */
+.im-md ol {
+  list-style-type: decimal;
+}
+
+.im-md ul {
+  list-style-type: disc;
+}
+
+.im-md .task-list-item {
+  list-style-type: none;
+}
+
 .im-md code {
   border-radius: 0.3rem;
   background: var(--im-hover);
