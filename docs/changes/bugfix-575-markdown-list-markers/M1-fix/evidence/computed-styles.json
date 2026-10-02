@@ -1,0 +1,25 @@
+{
+  "lists": [
+    {
+      "start": "7",
+      "style": "decimal",
+      "tag": "OL"
+    },
+    {
+      "start": null,
+      "style": "disc",
+      "tag": "UL"
+    },
+    {
+      "start": null,
+      "style": "disc",
+      "tag": "UL"
+    }
+  ],
+  "outside": "none",
+  "overflow": false,
+  "tasks": [
+    "none",
+    "none"
+  ]
+}
