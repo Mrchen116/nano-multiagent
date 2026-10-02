@@ -100,7 +100,7 @@ export function CompanyMembersPage() {
                   </div>
                   <div className="col-start-2 row-span-2 row-start-1 justify-self-end md:col-auto md:row-span-1 md:row-auto">
                     {member.membership_status === "pending" && <button className="im-btn im-btn-primary" disabled={change.isPending} onClick={() => { setFeedback(null); change.mutate({ id: member.id, action: "approve", name }); }}>{t("company.approve")}</button>}
-                    {member.membership_status === "active" && <button className="rounded-lg px-3 py-2 text-[12px] font-medium text-im-danger hover:bg-red-50 disabled:opacity-50" disabled={change.isPending} onClick={() => { change.reset(); setFeedback(null); setTarget(member); }}>{t("company.suspend")}</button>}
+                    {member.membership_status === "active" && <button aria-label={t("company.suspend")} className="whitespace-nowrap rounded-lg px-3 py-2 text-[12px] font-medium text-im-danger hover:bg-red-50 disabled:opacity-50" disabled={change.isPending} onClick={() => { change.reset(); setFeedback(null); setTarget(member); }}>{t("company.suspendAction")}</button>}
                   </div>
                 </li>
               );

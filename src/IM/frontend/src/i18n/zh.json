@@ -1053,6 +1053,7 @@
     }
   },
   "company": {
+    "suspendAction": "停用",
     "subtitle": "审核新成员加入，管理公司工作区的访问权限。",
     "refreshList": "刷新",
     "member": "成员",

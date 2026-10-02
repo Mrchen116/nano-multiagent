@@ -1061,6 +1061,7 @@
     }
   },
   "company": {
+    "suspendAction": "Suspend",
     "subtitle": "Approve new members and manage access to the company workspace.",
     "refreshList": "Refresh",
     "member": "Member",
