@@ -4,13 +4,13 @@
 
 ## 部署前
 
-1. 确认用户授权范围、目标 `origin/main` 精确 SHA、CI、两机 checkout/status 和 live PID/cwd。Mini 主仓只安全 fast-forward；本机主仓只 fetch，保留全部无关 dirty/untracked。
+1. 确认用户授权范围、目标 `origin/main` 精确 SHA、CI、两机 checkout/status 和 live PID/cwd。Mini 主仓只安全 fast-forward；MacBook Air 主仓只 fetch，保留全部无关 dirty/untracked。
 2. 记录现有 IM/Tunnel/Gateway 的 LaunchAgent、launcher、数据库及附件绝对路径、节点 ID、owner、凭据文件位置和通道归属；不输出密钥/token。不要从历史部署记录猜当前 PID，也不按端口批量 kill。
 3. 常规更新复用持久 JWT signing key、公司准入、Gateway 私钥及节点运行凭据；缺失或身份不匹配先查原因。不要例行 `initialize_company`、重新 bind、重新批准成员、创建新 Tunnel 或迁移飞书。
 4. 涉及数据库迁移或运行配置修改时先备份。SQLite 使用 backup API，或正常停写后复制完整快照；不要只复制仍在写入的主库。数据库旁 `message-images/`、旧 uploads、配置及密钥一并备份到权限受限目录，不入 Git。
 5. 若仍使用旧 PA 目录，先执行 [无覆盖迁移](../../../../docs/operations/pa-workspace-layout-migration.md)。完成迁移后不重复执行。
 
-本机 Gateway 用目标 `prod-main-<short-sha>` detached worktree，共用主仓 `.venv`。新版本健康后才回收干净且无进程使用的旧 `prod-main-*`；不 force、不动其他 worktree。
+MacBook Air Gateway 用目标 `prod-main-<short-sha>` detached worktree，共用主仓 `.venv`。新版本健康后才回收干净且无进程使用的旧 `prod-main-*`；不 force、不动其他 worktree。
 
 ## 更新 Mini 代码和前端
 
@@ -30,7 +30,7 @@ ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent/src/IM/frontend && npm ci && npm r
 使用 [生产舰队](../../../../docs/operations/prod-fleet.md#源站与隧道) 中的现有 LaunchAgent。部署前读取实际 plist/launcher 并核对：
 
 - IM launcher 从 Mini 目标主仓启动 `.venv/bin/python -m IM.cli.public_server`，保持 `IM_PUBLIC_URL` 为官网 HTTPS origin、`WEB_CONCURRENCY=1`，`IM_DB_PATH`/`IM_UPLOAD_DIR` 指向原生产数据。
-- 从 `~/.nanoassistant/im-jwt-secret` 读取非空持久密钥；不打印值，不临时生成。public_server 设置公网模式、loopback 监听、可信本机 tunnel 及请求边界；不得绕过它直接裸起 uvicorn。
+- 从 `~/.nanoassistant/im-jwt-secret` 读取非空持久密钥；不打印值，不临时生成。public_server 设置公网模式、loopback 监听、可信 loopback tunnel 及请求边界；不得绕过它直接裸起 uvicorn。
 - Tunnel ingress 只将官网主机映射到 Mini loopback 源站，最后兜底 `http_status:404`；保留 Tunnel 身份、凭据、DNS 和边缘 HTTPS 规则。
 
 ```bash
@@ -46,22 +46,22 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 
 普通代码发布不必重启 Tunnel。若它未加载或配置确需更新，先校验原 plist 和 ingress，再在已有配置上使用 `launchctl bootstrap` / `kickstart`；不要重建 DNS/Tunnel。KeepAlive 服务不能只 kill PID，否则 launchd 会重新拉起；需要保持停写时先 bootout 对应服务，恢复时 bootstrap 原 plist。停公网维护时先停 Tunnel，恢复时先验证 loopback IM，再启动 Tunnel。
 
-不要把 loopback 源站改成 HTTPS 来解决公网 HTTPS；TLS 在 Cloudflare 边缘终止，Tunnel 到本机源站仍用 HTTP。公网重定向由 Cloudflare 规则负责；常规代码发布应验证它仍有效。
+不要把 loopback 源站改成 HTTPS 来解决公网 HTTPS；TLS 在 Cloudflare 边缘终止，Tunnel 到Mini loopback 源站仍用 HTTP。公网重定向由 Cloudflare 规则负责；常规代码发布应验证它仍有效。
 
 ## Gateway 与代理
 
 顺序：IM 健康 → 需要更新的 LLM 代理 → 受影响 Gateway。两机各用自己的 `~/.nanoassistant/config.yaml`，Gateway CLI 裸跑是 start，显式子命令是 `stop` / `restart`。
 
 - 修改 Gateway config 必须先 stop，避免运行态回写覆盖；稳定环境写入 `gateway.environment`。保留节点身份、设备密钥、已绑定的机器运行凭据；不把人类账号密码写回 config 作为常规恢复方式。
-- Mini Gateway 的 IM URL 是本机 loopback；本机 Gateway 使用官网 HTTPS URL，具体值见拓扑文档。人类登录 token 与 Gateway 运行凭据不可互换。
+- Mini Gateway 的 IM URL 是 Mini loopback；MacBook Air Gateway 使用官网 HTTPS URL，具体值见拓扑文档。人类登录 token 与 Gateway 运行凭据不可互换。
 - 代理仅在本次授权范围需要时更新或重启。先核对实际 base_url、监听、进程 cwd/PID 与管理方式；不要根据旧端口示例杀服务，也不要为符合旧文档擅改可用配置。SearXNG 稳定地址继续写各机 config。
-- `ssh mini 'zsh -lc "…"'` 可取得 npm/docker 的 login PATH；Python 使用相应 repo `.venv/bin/python`，本机 production worktree 显式共用主仓解释器。
+- `ssh mini 'zsh -lc "…"'` 可取得 npm/docker 的 login PATH；Python 使用相应 repo `.venv/bin/python`，MacBook Air production worktree 显式共用主仓解释器。
 
 ```bash
 # Mini Gateway
 ssh mini 'cd ~/Repos/nano-multiagent && PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart'
 
-# 本机：仅 fetch；将 target 固定为本次已确认、与 Mini 相同的 SHA。
+# MacBook Air：仅 fetch；将 target 固定为本次已确认、与 Mini 相同的 SHA。
 cd ~/Repos/nano-multiagent
 git fetch origin
 repo_root=$PWD
@@ -90,7 +90,7 @@ PYTHONPATH=src "$repo_root/.venv/bin/python" -m personal_assistant.main restart
 
 必须从官网验证，不能只用源站 200 或节点绿灯代替：
 
-1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；本机没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。
+1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；MacBook Air 没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。
 2. 官网 HTTPS 首页返回 200，TLS 验证开启；不使用 `curl -k`。HTTP 首页、带 query 的路径及假凭据登录 POST 返回到同主机 HTTPS 的 308，路径/query 保留。HTTP POST 不应返回应用登录结果。
 3. 官网实际静态资源属于本次 build；从真实浏览器检查本次变更相关页面和行为。使用现有真实账号验证登录、历史数据和实时连接；相关附件/聊天功能变更按授权范围做真实验收，保留脱敏证据。不得拿测试账号、测试数据库或隔离端口充当生产。
 4. 经官网认证读取 `/im/v1/me`、`/im/v1/nodes`：两生产节点均 online、心跳新鲜，owner 与 config 中真人 UUID 对齐。取人类有效会话用于这些 API，不使用机器凭据冒充用户；不打印 token，不在命令历史中拼接真实密码。

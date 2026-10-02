@@ -1,25 +1,54 @@
 # 生产舰队（IM@mini + 双 Gateway）
 
-本文描述个人生产拓扑：Mac mini 跑唯一 IM，本机与 mini 各跑一个常驻 Gateway，均连同一 IM。Agent 执行部署/重启时的逐步命令与局部动作表见 [`.claude/skills/prod-fleet-deploy/SKILL.md`](../../.claude/skills/prod-fleet-deploy/SKILL.md)。纯本机一次性主链路见 [`local-stack.md`](local-stack.md)；worktree 隔离见 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
+本文描述个人生产拓扑：Mac mini 跑唯一 IM，MacBook Air 与 Mac mini 各跑一个常驻 Gateway，均连同一 IM。Agent 执行部署/重启时的逐步命令与局部动作表见 [`.claude/skills/prod-fleet-deploy/SKILL.md`](../../.claude/skills/prod-fleet-deploy/SKILL.md)。单机开发的一次性主链路见 [`local-stack.md`](local-stack.md)；worktree 隔离见 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
 
 ## 拓扑
 
 ```text
-浏览器 / 本机 Gateway ── HTTPS/WSS im.nanoim.win ── Cloudflare
-                                                        │ 加密 Tunnel
-Mac mini (ssh: mini)                                     ▼
-  cloudflared nano-im-public ── HTTP loopback ── IM 127.0.0.1:8011
-  Gateway mac-mini ────────────────────────────┘
-  LLM_Bridge :4000 / SearXNG :8888
-本机：Gateway macbook-air / LLM_PROXY :4000；不运行 IM
+                           任意设备的浏览器
+                                  │ HTTPS / WSS
+                                  ▼
+                     Cloudflare · im.nanoim.win
+                     HTTPS 入口；HTTP → HTTPS 308
+                         ▲                 │
+                   HTTPS / WSS        加密 Tunnel
+                         │                 │
+┌────────────────────────┴──────────┐      │
+│ MacBook Air · jmacbook-air        │      │
+│ Tailscale: 100.92.244.68          │      │
+│                                   │      │
+│ Gateway · node_id=macbook-air     │      │
+│   │ HTTP → 127.0.0.1:4000         │      │
+│   ▼                               │      │
+│ LLM_PROXY :4000                   │      │
+│                                   │      │
+│ No IM on this host                │      │
+└───────────────────────────────────┘      │
+                                           ▼
+┌────────────────────────────────────────────────────────────┐
+│ Mac mini · Tailscale: 100.88.34.122 · ssh: mini            │
+│                                                            │
+│ cloudflared · nano-im-public                               │
+│   │ HTTP → 127.0.0.1:8011                                  │
+│   ▼                                                        │
+│ IM :8011 (only IM; loopback only)                          │
+│   ▲ HTTP / WS → 127.0.0.1:8011                             │
+│   │                                                        │
+│ Gateway · node_id=mac-mini ── HTTP ──▶ LLM_Bridge :4000    │
+│   │                                  127.0.0.1:4000        │
+│   └── Search → 127.0.0.1:8888 ──▶ SearXNG :8888            │
+│                                      ▲                     │
+└──────────────────────────────────────┼─────────────────────┘
+                                       │ Tailscale / :8888
+                          macbook-air Gateway 的搜索请求
 ```
 
 约束：
 
-- 本机**禁止**再起 IM `:8011`；正式 Web IM 入口为 `https://im.nanoim.win/`；源站只监听 Mini loopback，不以 Tailscale `:8011` 作为用户入口。
+- MacBook Air **禁止**再起 IM `:8011`；正式 Web IM 入口为 `https://im.nanoim.win/`；源站只监听 Mini loopback，不以 Tailscale `:8011` 作为用户入口。
 - 两边 `node_id` 必须不同；后连同名会踢掉先连。
 - 两边 Gateway 使用同一个 IM owner；`node.user_id` 必须是该用户的 **IM UUID**（`GET /im/v1/me`），不能是用户名或占位符。错了会出现飞书能回、内部 IM 看不到影子会话。
-- mini 上 LLM 走 `LLM_Bridge`；本机 Gateway 走本机 `LLM_PROXY`。两边 SearXNG 都指向 mini `:8888`。
+- mini 上 LLM 走 `LLM_Bridge`；MacBook Air Gateway 走 MacBook Air 的 `LLM_PROXY`。两边 SearXNG 都指向 mini `:8888`。
 - 两边 Gateway 的 `gateway.autostart` 保持默认开启，稳定的 SearXNG 地址写入各机 `gateway.environment.SEARXNG_URL`；不要依赖一次重启命令前的 inline 环境。
 
 ## 节点身份
@@ -27,7 +56,7 @@ Mac mini (ssh: mini)                                     ▼
 | 机器 | `node_id` | `im_service.url` | LLM 代理 |
 |---|---|---|---|
 | Mac mini | `mac-mini` | `http://127.0.0.1:8011` | `~/Repos/LLM_Bridge` → `:4000` |
-| 本机 | `macbook-air` | `https://im.nanoim.win` | `~/Repos/LLM_PROXY` → `:4000` |
+| MacBook Air | `macbook-air` | `https://im.nanoim.win` | `~/Repos/LLM_PROXY` → `:4000` |
 
 各机使用各自的 `~/.nanoassistant/config.yaml`，保留独立设备密钥与已绑定的节点运行凭据。普通发布不重新 bind，也不恢复旧账号密码认证方式。`node.user_id` 对齐与飞书影子会话验收步骤见 skill 验证清单。
 
@@ -70,13 +99,13 @@ mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`
 
 1. `https://im.nanoim.win/` TLS 验证通过并返回 200，本次前端资源及相关真实页面正确；HTTP 首页与登录 POST 均 308 跳转至同主机 HTTPS，保留路径/query。
 2. 经官网认证的 `GET /im/v1/nodes` 中两个生产节点均为 `online` 且心跳新鲜；真实浏览器实时连接正常。
-3. IM/Tunnel LaunchAgent 正常、源站只监听 Mini `127.0.0.1:8011`；本机无 IM `:8011`。
+3. IM/Tunnel LaunchAgent 正常、源站只监听 Mini `127.0.0.1:8011`；MacBook Air 无 IM `:8011`。
 4. 两边 `node.user_id` 等于 `GET /im/v1/me` 的用户 id；gateway 日志无持续的 `configured node owner differs`。
-5. 两边 LaunchAgent 均已加载；plist、live process 与 `.gateway-state.json` 都指向本次部署的 checkout 和同一 PID/process birth。本机旧 production worktree 只能在这些证据成立后清理。
+5. 两边 LaunchAgent 均已加载；plist、live process 与 `.gateway-state.json` 都指向本次部署的 checkout 和同一 PID/process birth。MacBook Air 旧 production worktree 只能在这些证据成立后清理。
 
 ## 飞书
 
-保持现有节点的通道归属，不在常规部署中自动迁移或删除。2026-10-02 正式切换时 Mini 和本机都存在既有飞书通道；后续以 IM desired state 和实际节点注册为准，不能再按旧“仅 Mini”假设修改生产配置。
+保持现有节点的通道归属，不在常规部署中自动迁移或删除。2026-10-02 正式切换时 Mini 和 MacBook Air 都存在既有飞书通道；后续以 IM desired state 和实际节点注册为准，不能再按旧“仅 Mini”假设修改生产配置。
 
 ## IM 用户访问入口配置
 
