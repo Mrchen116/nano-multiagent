@@ -1,0 +1,83 @@
+[
+  {
+    "identity": "active",
+    "path": "conversations",
+    "status": 200,
+    "detail": null
+  },
+  {
+    "identity": "active",
+    "path": "company/members",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "identity": "active",
+    "path": "attachments/capacity",
+    "status": 403,
+    "detail": "company administrator required"
+  },
+  {
+    "identity": "pending",
+    "path": "conversations",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "identity": "pending",
+    "path": "company/members",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "identity": "pending",
+    "path": "attachments/capacity",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "identity": "suspended-a-old-session",
+    "path": "conversations",
+    "status": 401,
+    "detail": "session revoked or expired"
+  },
+  {
+    "identity": "suspended-a-old-session",
+    "path": "company/members",
+    "status": 401,
+    "detail": "session revoked or expired"
+  },
+  {
+    "identity": "suspended-a-old-session",
+    "path": "attachments/capacity",
+    "status": 401,
+    "detail": "session revoked or expired"
+  },
+  {
+    "identity": "suspended-b-old-session",
+    "path": "conversations",
+    "status": 401,
+    "detail": "session revoked or expired"
+  },
+  {
+    "identity": "suspended-b-old-session",
+    "path": "company/members",
+    "status": 401,
+    "detail": "session revoked or expired"
+  },
+  {
+    "identity": "suspended-b-old-session",
+    "path": "attachments/capacity",
+    "status": 401,
+    "detail": "session revoked or expired"
+  }
+]

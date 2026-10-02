@@ -303,3 +303,10 @@ C4/C5/C6前轮已闭合并未因这批窄身份查询变化失效；产品45 pas
 - 审查者未创建新现场。R7已e2e-down释放Bot测试锁/关闭本轮进程；84c8 cleanup记录官方stop已停止本机测试PID78527、Mini测试IM1973和testTunnel，18572/51636无listener、相关tmux无会话，8572原型保留HTTP200。隔离原目录/快照保留，正式生产8011和生产数据未触碰；这是caller收尾记录，不冒称审查者再次现场复验。
 
 **无剩余verification/code-review阻塞。** 全部结论限定到受审821实现、有效基线和明确隔离真实平台证据；不宣称零漏洞、全provider穷举或正式生产已切换。只有verification报告发生本轮必要更新，空code-review无需无意义改动；报告提交与后续PR/CI/合入/生产切换各自保持可辨。
+
+## 2026-10-02 用户 UI 反馈修复补充
+
+- 独立 code-review 范围 `fb31ccf9e..64b4b0b57`，结果 `[]`；`79dfcbfa4` 仅精简行内 Suspend 文案并禁止换行，辅助名称保留，无权限或数据逻辑变更。
+- 相关前端 14 项、附件接口 14 项通过，TypeScript/Vite、Ruff、diff-check 通过；源代码提交 `79dfcbfa4` 的四项 PR CI 全部通过。
+- 独立产品复验 8 项通过，0 个确认问题，覆盖三项 UI 反馈及准入/批准/取消停用/旧会话拒绝；实际桌面和手机截图见 acceptance Round 7。原有其他验收场景未在本轮重跑。
+- docs-check：235 maintained Markdown sources / 75 required routes 通过。仅隔离测试站更新，生产未部署。
