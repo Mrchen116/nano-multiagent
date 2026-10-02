@@ -50,6 +50,9 @@ class User:
     created_at: str = ""
     password_hash: str | None = None
     locale: str = "en"
+    membership_status: str = "pending"
+    is_company_admin: bool = False
+    auth_epoch: int = 0
 
 
 @dataclass(frozen=True, slots=True)

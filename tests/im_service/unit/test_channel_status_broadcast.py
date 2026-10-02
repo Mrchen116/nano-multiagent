@@ -17,7 +17,7 @@ from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.execution import GatewayExecution
 from IM.ws.gateway.relay import GatewayRelay
 from IM.ws.gateway.runtime import GatewayRuntime
-from IM.ws.gateway.sessions import GatewaySessions
+from tests.im_service._auth_helpers import EnrolledGatewaySessions as GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
 
 
@@ -57,6 +57,11 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
     )
     pair = generate_channel_key_pair(private_seed=b"b" * 32)
     store = ChannelControlStore(db_path)
+    connection.execute(
+        "INSERT INTO node_credential_keys VALUES (?,?,?,'X25519-HKDF-SHA256-AES-256-GCM',?,datetime('now'))",
+        ("node-a", "owner-a", pair.key_id, pair.public_key),
+    )
+    connection.commit()
     store.register_node_public_key(
         owner_id="owner-a",
         node_id="node-a",

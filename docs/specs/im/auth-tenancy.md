@@ -1,13 +1,13 @@
 # IM - Auth and Tenancy Specification
 
-> 对齐: feat-447 / feat-554 / feat-561
+> 对齐: feat-447 / feat-554 / feat-561 / feat-572
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
-账号鉴权、聊天成员可见性、资源管理归属和系统策略的 IM 契约。
+账号鉴权、公司准入与停用、认证限流、聊天成员可见性、资源管理归属和系统策略的 IM 契约。
 
 ## Requirements
 
@@ -30,6 +30,14 @@
 #### Scenario: 保留运行身份不可用于真人注册
 - **WHEN** 用户注册时，用户名去除首尾空白后等于 `system`，或以 `agent:`、`shadow:` 开头
 - **THEN** 注册被拒且不创建账号，不能通过注册取得系统、Agent 或外部影子发送者身份；普通用户名继续按原注册规则处理。
+
+#### Scenario: 注册不等于取得公司资格
+- **WHEN** 新真人账号注册成功
+- **THEN** 返回令牌和 pending 状态，只可查看本人状态；系统、Agent 和 shadow 身份不经真人公开注册取得公司资格。
+
+#### Scenario: refresh 并发、登出与重启
+- **WHEN** 同一 refresh 并发消费、登出后使用或服务正常重启后重试已消费令牌
+- **THEN** 至多一次轮换成功，已消费或吊销状态持久保持；登出后的对应会话不能继续读公司数据。
 
 ### Requirement: Web 认证入口在提交前说清规则并给出可行动反馈
 
@@ -81,27 +89,32 @@
 - **THEN** 页面清晰告知处理状态，并阻止重复提交
 - **AND** 用户仍可切换语言，处理状态立即使用新语言
 
-#### Scenario: 注册成功进入产品首页
+#### Scenario: 注册成功进入待批准状态
 - **WHEN** 服务成功创建账号
-- **THEN** 页面保存新会话并进入已登录的产品首页，无需再次输入凭据
+- **THEN** 页面保存新会话并进入待批准页，无需再次输入凭据；管理员批准后可继续进入公司
 
 #### Scenario: 登录成功返回原始深链
 - **GIVEN** 用户因访问带查询条件或页内锚点的受保护位置而进入登录页
 - **WHEN** 用户成功登录
-- **THEN** 用户返回完整的原始位置，路径、查询条件与页内锚点都保留
+- **THEN** 有效公司成员返回完整的安全站内原始位置，路径、查询条件与页内锚点都保留；待批准或停用账号先显示本人状态，不提前显示公司缓存
+
+#### Scenario: 暂时冷却可以恢复
+- **WHEN** 认证请求被限流
+- **THEN** 当前语言告知等待时间和重试方法，保留已填写的非敏感表单状态，不伪装成密码错误或永久禁用。
 
 ### Requirement: 系统级策略(policies)可读可改,字段集稳定
 
-前端设置页经 `/im/v1/policies` 读写系统级策略(默认模型 / 每 run 最大轮数 / 附件大小上限 / 留存天数 / 审计级别 / 限流);PATCH 整体回写并回显。
+有效公司成员可读取 `/im/v1/policies`；仅有效公司管理员可 PATCH。字段集合与既有语义保持。
 
-#### Scenario: 读写 policies 字段集稳定
-- **WHEN** 前端 `GET /im/v1/policies`
-- **THEN** 200 响应键恰为 `{default_model, max_turn_per_run, max_attachment_size_mb, retention_days,
-  audit_level, rate_limit_per_min}`;`PATCH` 同结构写入并原样回显
+#### Scenario: 字段及管理权限
+- **WHEN** active 成员 GET policies
+- **THEN** 响应键为 `{default_model,max_turn_per_run,max_attachment_size_mb,retention_days,audit_level,rate_limit_per_min}`。
+- **WHEN** 普通成员尝试 PATCH
+- **THEN** 拒绝且原策略不变；管理员使用同结构 PATCH 可保存并回显。
 
 ### Requirement: 数据面按登录身份、聊天成员与资源管理归属确定访问
 
-普通真人请求中，除 `/im/v1/auth/*` 外,所有数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录向登录用户开放；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
+普通真人请求中，除 `/im/v1/auth/*` 外,所有公司数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token 和有效公司成员资格;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录向有效公司成员开放；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
 
 #### Scenario: 无 token 的数据面请求返回 401
 - **WHEN** 浏览器前端未带 Bearer 调 `GET /im/v1/me` / `/im/v1/conversations` / `/im/v1/agents` / `/im/v1/nodes` / `/im/v1/metrics/usage`
@@ -113,7 +126,7 @@
 - **THEN** 返回/更新的恒是 token 主体 alice 自己
 
 #### Scenario: 聊天列表按成员关系过滤,非成员读写 404
-- **GIVEN** alice 与 bob 各自注册、各建一个会话
+- **GIVEN** alice 与 bob 各自注册并获准加入公司、各建一个会话
 - **WHEN** alice `GET /im/v1/conversations`
 - **THEN** 只见 alice 参与的会话；若 bob 不在 alice 的会话中，bob `GET /im/v1/conversations/{alice 的会话 id}` 返回 404, 向其发消息也 404
 
@@ -125,3 +138,26 @@
 - **GIVEN** alice 与 bob 是同一群的成员
 - **WHEN** 两人分别用自己的 token 打开群
 - **THEN** 都能读取同一群并发言，未入群用户不能访问。
+
+#### Scenario: 公司资格不扩大对象权限
+- **WHEN** 已登录但 pending 或 suspended 的真人访问公司数据，或失去资格的 owner 名下机器继续请求
+- **THEN** 被拒绝；批准成为 active 后仍按原聊天成员及配置 owner 判断，管理员也不自动取得他人私聊与设备管理权。
+
+### Requirement: 公司成员资格由管理员批准和停用
+
+#### Scenario: 准入与管理边界
+- **WHEN** 真人完成普通公开注册
+- **THEN** 等待公司管理员批准，不能读取公司联系人、Work、任务或绑定设备；不要求邀请或 Cloudflare 登录。
+- **WHEN** active 管理员批准 pending 成员
+- **THEN** 成员取得公司资格；普通成员不能批准或停用他人。
+
+#### Scenario: 停用立即覆盖真人与机器
+- **WHEN** 管理员停用成员
+- **THEN** 撤销其后续公司请求、现有实时连接与名下全部 Gateway/Agent 接入，旧令牌、重放、重连不能恢复访问。
+- **AND** 保留历史记录和配置，不关机、不自动接管资源；共用设备上的 Agent 暂不可用，已授权的其他公司成员可继续查看历史共享记录。
+
+### Requirement: 公网认证限制来源与目标账号滥用
+
+#### Scenario: 分散尝试与共享网络
+- **WHEN** 同一来源大量注册/认证，或多个来源持续猜测同一账号
+- **THEN** 相应来源和账号维度均能触发有界冷却；不因伪造代理头绕过，不以无限计数内存消耗服务；普通共享网络有明确重试路径。

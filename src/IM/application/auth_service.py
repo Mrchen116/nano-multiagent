@@ -1,12 +1,4 @@
-"""Authentication application service: register, login, refresh, logout, verify.
-
-Notes:
-    The service is the single source of truth for JWT signing and refresh-token rotation.
-    Refresh-token reuse (after a successful refresh or an explicit logout) is rejected via
-    an in-memory blacklist keyed by JWT id (``jti``). The blacklist is intentionally process-local:
-    the IM service runs as a single FastAPI app instance, and a restart invalidates all outstanding
-    refresh tokens — acceptable for the development-stage scope of feat-340.
-"""
+"""Human authentication with durable session rotation and epoch revocation."""
 
 from __future__ import annotations
 
@@ -14,11 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
 import secrets
-from threading import Lock
 
 import bcrypt
 import jwt
 
+from IM.infra.auth_sessions import AuthSessions
 from IM.domain.models import User
 from IM.infra.repositories.users import UserAlreadyExistsError
 from IM.infra.repositories.users import UserRepository
@@ -83,6 +75,7 @@ class AuthService:
         *,
         users: UserRepository,
         jwt_secret: str,
+        sessions: AuthSessions,
         access_ttl_seconds: int = _ACCESS_TTL_DEFAULT_SECONDS,
         refresh_ttl_seconds: int = _REFRESH_TTL_DEFAULT_SECONDS,
     ) -> None:
@@ -92,9 +85,7 @@ class AuthService:
         self._jwt_secret = jwt_secret
         self._access_ttl = access_ttl_seconds
         self._refresh_ttl = refresh_ttl_seconds
-        # Blacklist of revoked refresh-token jti values; in-memory, process-local.
-        self._revoked_jti: set[str] = set()
-        self._lock = Lock()
+        self.sessions = sessions
 
     def register(
         self,
@@ -147,43 +138,63 @@ class AuthService:
         return self._issue_token_pair(user)
 
     def refresh(self, refresh_token: str) -> TokenPair:
-        """Rotate a refresh token: mint new pair, revoke old refresh token."""
+        """Consume one persisted refresh and mint its replacement in the same session."""
         payload = self._decode(refresh_token, expected_type="refresh")
-        user_id = str(payload["sub"])
-        user = self._users.get_user(user_id=user_id)
+        user = self._users.get_user(user_id=str(payload["sub"]))
         if user is None:
             raise InvalidTokenError("token subject no longer exists")
-        # Atomically revoke the old jti before issuing the new pair so a parallel
-        # refresh cannot reuse the same token twice.
-        jti = str(payload["jti"])
-        with self._lock:
-            if jti in self._revoked_jti:
-                raise InvalidTokenError("refresh token already used")
-            self._revoked_jti.add(jti)
-        return self._issue_token_pair(user)
+        return self._issue_token_pair(
+            user, session_id=payload["sid"], old_jti=payload["jti"]
+        )
 
-    def logout(self, refresh_token: str) -> None:
-        """Revoke a refresh token without minting a new pair."""
+    def logout(self, refresh_token: str) -> str:
+        """Revoke the entire session and return its identity for socket cleanup."""
         payload = self._decode(refresh_token, expected_type="refresh")
-        with self._lock:
-            self._revoked_jti.add(str(payload["jti"]))
+        self.sessions.revoke(payload["sid"])
+        return payload["sid"]
+
+    def access_session(self, token: str) -> dict:
+        """Validate an access token against the persistent session and human epoch."""
+        return self._decode(token, expected_type="access")
 
     def verify_access_token(self, token: str) -> str:
-        """Decode and validate an access token; return the user id."""
-        payload = self._decode(token, expected_type="access")
-        return str(payload["sub"])
+        """Validate an access token and return its current human identity."""
+        return str(self.access_session(token)["sub"])
 
     def get_user(self, *, user_id: str) -> User | None:
         """Return a user snapshot (used by deps to populate ``current_user``)."""
         return self._users.get_user(user_id=user_id)
 
-    def _issue_token_pair(self, user: User) -> TokenPair:
+    def _issue_token_pair(
+        self, user: User, *, session_id: str | None = None, old_jti: str | None = None
+    ) -> TokenPair:
         now = datetime.now(timezone.utc)
+        expires_at = int((now + timedelta(seconds=self._refresh_ttl)).timestamp())
+        refresh_jti = secrets.token_hex(24)
+        if session_id is None:
+            session_id = self.sessions.create(
+                user_id=user.id,
+                epoch=user.auth_epoch,
+                refresh_jti=refresh_jti,
+                expires_at=expires_at,
+            )
+        elif not self.sessions.rotate(
+            session_id=session_id,
+            old_jti=old_jti or "",
+            new_jti=refresh_jti,
+            expires_at=expires_at,
+        ):
+            raise InvalidTokenError("refresh token already used")
+        common = {
+            "sub": user.id,
+            "sid": session_id,
+            "epoch": user.auth_epoch,
+            "iat": int(now.timestamp()),
+        }
         access_token = jwt.encode(
             {
-                "sub": user.id,
+                **common,
                 "type": "access",
-                "iat": int(now.timestamp()),
                 "exp": int((now + timedelta(seconds=self._access_ttl)).timestamp()),
                 "jti": secrets.token_hex(16),
             },
@@ -191,13 +202,7 @@ class AuthService:
             algorithm=_JWT_ALG,
         )
         refresh_token = jwt.encode(
-            {
-                "sub": user.id,
-                "type": "refresh",
-                "iat": int(now.timestamp()),
-                "exp": int((now + timedelta(seconds=self._refresh_ttl)).timestamp()),
-                "jti": secrets.token_hex(16),
-            },
+            {**common, "type": "refresh", "exp": expires_at, "jti": refresh_jti},
             self._jwt_secret,
             algorithm=_JWT_ALG,
         )
@@ -217,10 +222,18 @@ class AuthService:
         jti = payload.get("jti")
         if not isinstance(jti, str):
             raise InvalidTokenError("token missing jti")
+        session_id = payload.get("sid")
+        epoch = payload.get("epoch")
+        if not isinstance(session_id, str) or not isinstance(epoch, int):
+            raise InvalidTokenError("token missing session")
+        row = self.sessions.valid(session_id, user_id=payload.get("sub"), epoch=epoch)
+        if row is None:
+            raise InvalidTokenError("session revoked or expired")
         if expected_type == "refresh":
-            with self._lock:
-                if jti in self._revoked_jti:
-                    raise InvalidTokenError("refresh token revoked")
+            from IM.infra.auth_sessions import token_digest
+
+            if not secrets.compare_digest(row["refresh_hash"], token_digest(jti)):
+                raise InvalidTokenError("refresh token revoked")
         return payload
 
 
@@ -232,6 +245,10 @@ def resolve_jwt_secret() -> str:
         random secret (development convenience — production deployments must set the env).
     """
     configured = os.getenv("IM_JWT_SECRET", "").strip()
+    if os.getenv("IM_PUBLIC_MODE") == "1" and len(configured) < 32:
+        raise ValueError(
+            "public mode requires IM_JWT_SECRET with at least 32 characters"
+        )
     if configured:
         return configured
     return secrets.token_urlsafe(32)

@@ -45,6 +45,7 @@ class GatewayConnection:
     reports: list[dict[str, object]]
     heartbeats: list[dict[str, object]]
     access_token: str = field(default="", repr=False)
+    node_epoch: int = 0
     credential_key_id: str | None = None
     credential_algorithm: str | None = None
     credential_public_key: str | None = None
@@ -74,6 +75,25 @@ class GatewaySessions:
         self._status_seq_by_owner: dict[str, int] = {}
         self._status_seq_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
+
+    async def revoke_node(self, *, node_id: str) -> None:
+        """Remove an old device socket before closing its transport."""
+        async with self._lock:
+            connection = self._connections.pop(node_id, None)
+        if connection is not None:
+            try:
+                await connection.websocket.close(code=4003)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
+    async def revoke_owner(self, *, owner_id: str) -> None:
+        """Invalidate all live sockets managed by a revoked company member."""
+        async with self._lock:
+            nodes = [
+                c.node_id for c in self._connections.values() if c.owner_id == owner_id
+            ]
+        for node_id in nodes:
+            await self.revoke_node(node_id=node_id)
 
     async def disconnect(
         self,
@@ -254,12 +274,26 @@ class GatewaySessions:
 
     async def authenticate_access_token(self, token: str) -> GatewayConnection | None:
         """Resolve a machine token only while its registered connection is current."""
+        durable = (
+            self._node_persistence.runtime_token_identity(token)
+            if self._node_persistence is not None
+            else None
+        )
         async with self._lock:
             for connection in self._connections.values():
-                if connection.access_token and secrets.compare_digest(
-                    connection.access_token, token
+                if (
+                    connection.access_token
+                    and secrets.compare_digest(connection.access_token, token)
+                ) or durable == (
+                    connection.owner_id,
+                    connection.node_id,
+                    connection.node_epoch,
                 ):
                     if self._node_persistence is not None:
+                        if self._node_persistence.runtime_identity(
+                            node_id=connection.node_id
+                        ) != (connection.owner_id, connection.node_epoch):
+                            return None
                         owner = self._node_persistence.owner_for_node(
                             node_id=connection.node_id
                         )
@@ -276,6 +310,19 @@ class GatewaySessions:
         authenticated_owner_id: str,
     ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        node_epoch = 0
+        if self._node_persistence is not None:
+            node_epoch = getattr(websocket.state, "authenticated_node_epoch", -1)
+            if getattr(websocket.state, "authenticated_node_id", None) != node_id:
+                raise GatewayAuthorizationError(
+                    "runtime credential is scoped to another node"
+                )
+            if self._node_persistence.runtime_identity(node_id=node_id) != (
+                authenticated_owner_id,
+                node_epoch,
+            ):
+                raise GatewayAuthorizationError("device runtime epoch revoked")
+
         async with self._lock:
             registered_node_ids = [
                 registered_node_id
@@ -369,6 +416,7 @@ class GatewaySessions:
             reports=[],
             heartbeats=[],
             access_token=secrets.token_urlsafe(32),
+            node_epoch=node_epoch,
             credential_key_id=_optional_text(payload.get("credential_key_id")),
             credential_algorithm=_optional_text(payload.get("credential_algorithm")),
             credential_public_key=_optional_text(payload.get("credential_public_key")),
@@ -456,6 +504,12 @@ class GatewaySessions:
             raise GatewayAuthorizationError(
                 "durable node owner does not match the registered connection"
             )
+        if (
+            self._node_persistence is not None
+            and self._node_persistence.runtime_identity(node_id=connection.node_id)
+            != (connection.owner_id, connection.node_epoch)
+        ):
+            raise GatewayAuthorizationError("device runtime epoch revoked")
         payload["node_id"] = connection.node_id
         return connection
 
@@ -496,12 +550,20 @@ class GatewaySessions:
         }
 
     async def send(
-        self, *, target_node_id: str, message_type: str, payload: dict[str, object]
+        self,
+        *,
+        target_node_id: str,
+        message_type: str,
+        payload: dict[str, object],
+        expected_node_epoch: int | None = None,
     ) -> bool:
         """Send one downstream frame and remove only its failing current socket."""
         async with self._lock:
             connection = self._connections.get(target_node_id)
-        if connection is None:
+        if connection is None or (
+            expected_node_epoch is not None
+            and connection.node_epoch != expected_node_epoch
+        ):
             return False
         try:
             await connection.websocket.send_json(

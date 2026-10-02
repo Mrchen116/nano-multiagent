@@ -17,10 +17,19 @@ class GatewayTaskGraphs:
         body = {"request_id": payload.get("request_id")}
         try:
             require_text(payload.get("request_id"), "request_id")
+            source_ids = payload.get("source_message_ids", [])
+            if not isinstance(source_ids, list):
+                raise TaskGraphError(
+                    "invalid_arguments", "source_message_ids must be a list"
+                )
             actor = TaskGraphActor(
                 "agent",
                 require_text(payload.get("agent_id"), "agent_id"),
                 require_text(payload.get("node_id"), "node_id"),
+                require_text(payload["source_message_id"], "source_message_id")
+                if payload.get("source_message_id") is not None
+                else None,
+                tuple(require_text(item, "source_message_ids") for item in source_ids),
             )
             result = self.service.execute(
                 actor, payload.get("action"), payload.get("args")

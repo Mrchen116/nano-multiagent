@@ -1,0 +1,569 @@
+# feat-572 — 独立产品验收 Round 1
+
+> Validation snapshot: `7340a7805 → d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96`；mode=full；2026-09-30 22:05–22:33 Asia/Shanghai。
+
+## Verdict
+
+**fail**。Highest Required Action: **fix-implementation**。1 major 产品失败、1 minor 原型偏差；另有未完成真实验收项。未读源码定位/修改实现，未复用 implementation.md 成功叙述。公网与飞书必须保留 inconclusive。
+
+运行：same-origin `http://127.0.0.1:50620`，初始IM PID21201 cwd本unit、HEAD固定；caller在测试中用 `git archive d5de5f9f7` 的 `output/feat572-review-baseline/src/IM` 重启为PID27203，同DB/端口/原env。浏览器JS/CSS与本unit既有dist字节一致（runtime-evidence.json）。后续工作区实现修复不属于本报告受审版本。模型deepseek:deepseek-v4-flash。浏览器独立sessions feat572-review / feat572-review-admin / feat572-review-auth；原型8572未停止。
+
+所有下述 evidence 相对路径位于 [`../evidence/reviewer-round1-20260930/`](../evidence/reviewer-round1-20260930)。截图不含地址栏绑定token；private日志、会话token、测试脚本不提交。
+
+## 用户旅程体验
+
+- J1：UI新建reviewer572a，pending访问Tasks退回membership；管理员批准，刷新继续原Tasks深链。第二用户reviewer572b重复UI注册批准。普通成员无公司成员入口、策略六字段只读；直接API负向见api/qualification证据。
+- J2：peer整机交给reviewer572a后，在Review572B(c_lh8o0qse)由feat572-peer把tg_c1d2b5b5.n3描述追加独立验收标记，rev3→4。nano在Review572A(c_ojo75qof)用另一个Gateway的e2e更新n2结果，rev4→5。两群任务入口分别保留节点；手机回聊保留草稿并追加引用而不发送。第三个Review572 Empty(c_8ubil5a1)显示空态。
+- J3：从A群移除reviewer572a后原群拒绝，Tasks仍可打开同图；admin解散A群后任务与结构保留。
+- J4：本机bind链接→网页接受→本机yes，peer归属reviewer572a，Me显示1台在线。中断bind后重新执行可继续确认。管理员停用弹窗准确提示1node/1agent；取消保持active，再确认使已打开聊天立即变suspended。之后本机将同peer交回nano，node/Agent IDs保留，reviewer572a仍停用。旧机器身份拒绝矩阵没有完整独立证据。
+- J5：新增隔离global Agent review572-global（workspace为本unit/output/feat572-review-global）。nano交办17×19子任务；普通成员reviewer572b查看主Work、工具轨迹和子执行323，只有Profile/Work无Config。global新建tg_5508fe90；同一聊天两次明确要求删除均失败（问题P1）。保留该图/Agent供复验。
+- J6：粘贴有效PNG，e2e识别REVIEW与红方块。16MiB附件保留文件错误chip和正文；仅发送文字后失败附件仍在。经caller授权用两条明确review572-*账本fixture分别触发owner1GiB/service10GiB，真实上传API拒绝、普通UI简短提示、仅文字发送与真实回复成功、管理员容量告警可见。不是实际上传GiB的负载测试。两fixture已精确清理，剩余0。
+- J7：同refresh并发200/401，旧refresh401；同版本重启后已轮换/已退出refresh401，仍有效refresh200。登录第11次错误429，Retry-After898秒，伪造来源头不能绕过，UI保留输入；自然冷却恢复未完成。
+
+## Reference Artifacts Reviewed
+
+已读spec/design的全部Scenario与must-match表、prototype.html真实浏览器，以及prototype-visual-20260930中login-error/pending/members/bind/group-tasks/policies截图。下表关键状态均为真实客户端截图；未拍全的异常状态不推定通过。
+
+| Reference/契约 | 实际证据（png） | viewport/状态 | 对照结论 |
+|---|---|---|---|
+| 认证/pending/suspended | login-error-1440/390；pending-1440/390；suspended-1440/390；login-cooldown-1440/390 |1440×900、390×844|准入状态/输入保留match；错误红色卡片deviation P2|
+| 成员入口、批准、停用影响 |members-1440/390；suspend-impact-1440/390；member-me-390|双视口|功能层级/取消/影响说明match；批准失败分支未测|
+| 公司Tasks |shared-task-390；task-after-dissolve-390；global-delete-still-present-1440|双视口加载/受保护来源|公司可见/图节点保留match；搜索错误/无结果未覆盖|
+| 当前群任务完整路径 |group-a-task-1440；group-b-task-390；group-empty-1440/390；return-draft-390|双视口有活动/空态/回聊|紧凑任务名→总目标→状态时间、手机全宽、桌面侧栏match；同图/草稿match|
+| 完整设备交接 |bind-receive-1440/390；bind-await-local-1440/390；member-me-390|双视口接受/等待本机/归属结果|整机说明/目标账号/本机确认match；过期/取消状态未覆盖|
+| 聊天附件反馈 |attachment-error-1440；attachment-too-large-390；attachment-text-only-390；capacity-error-1440/390|双视口失败/仅文字|文件级chip保留/仅文字match；另有顶部toast不作为唯一反馈。格式/网络/冷却逐分支未覆盖|
+| 管理员容量 |capacity-admin-1440/390；service-capacity-admin-390；policies-member-1440/390|双视口，账本fixture|仅管理员见用量告警、普通聊天不要求清理match；用fixture触发，不冒称真实GiB上传|
+| 既有菜单/Me/策略 |member-me-390；policies-admin-1440/390；policies-member-1440/390|双视口只读/可编辑|六字段双卡/身份节点数量保留match；双语全菜单与保存失败重试未完整覆盖|
+
+## 问题清单
+
+|#|Severity|Regression Relation|现象/复现与期望|Recommended Action / Action Rationale|
+|---|---|---|---|---|
+|P1|major|direct|global Agent在c_ga10oz1b成功创建tg_5508fe90。22:27与22:29两次真实人类明确要求删除指定整图，5次实际delete工具记录均confirmation_required，图仍可打开。期望明确交办可删除。证据global-delete-tool-evidence.json、global-delete-failed-1440/390、global-delete-reconfirm-failed-1440、global-delete-still-present-1440。|fix-implementation；打通有效global来源的人类删除授权，保留无明确授权时拒绝；不得用模型自报confirmed绕过。需真实global targeted复验。|
+|P2|minor|direct|登录错误双视口仍为带红背景/边框/图标alert卡片。design全局规则明确要求对齐输入框的简短红字，不用大块红色卡片。证据login-error-1440/390，reference prototype-visual/login-error-390。|fix-implementation；落实must-match错误呈现与关联表单的可访问反馈，再双视口对照。|
+
+### Side Findings / 环境限制
+
+- peer第一次bind会自动后台启动，reviewer随后额外前台启动同config，造成重复实例污染；之后出现旧placeholder在成功答复后relay idle120s。**不作为单实例产品回归**。证据late-relay-error-1440仅供环境记录；caller已确认该干扰。后续停止我启动的peer PID26362，第一Gateway、IM、原型未停。
+- suspended退出跳登录时短暂出现authentication service unavailable；不阻断退出，未单独重验，记录minor side finding。
+- R6缺当次实际上线授权；R7专用Bot被其他unit占用。需要caller准备授权后的真实域名部署、可独占的原专用飞书窗口。严禁以localhost或mock补pass。
+
+## 验收标准覆盖
+
+表中pass仅限所述真实旅程；inconclusive不是产品失败断言，也不是通过。首文档每个Scenario均列出。
+
+
+### Requirement: 正常用户只需 Nano IM 账号即可从公网访问
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|本机通过实际域名访问与实时使用|spec.md同名Scenario|R6缺当次上线授权；未访问生产，不能以localhost替代。|inconclusive|
+|朋友公开注册|spec.md同名Scenario|J1；pending-390/1440.png|pass|
+|待批准账号不能进入公司内部协作|spec.md同名Scenario|J1；qualification-evidence.json（聊天/任务/Agent/节点/Work直接请求403）|pass|
+|管理员批准后进入公司协作空间|spec.md同名Scenario|J1/J5；批准后原Tasks深链与共享联系人、真实Agent、Work可用|pass|
+|普通用户不能批准自己或他人加入|spec.md同名Scenario|api-evidence.json：普通成员approve403；pending无公司入口|pass|
+|匿名访客只能进入公开认证入口|spec.md同名Scenario|J1；api-evidence.json：匿名聊天/任务/Work/nodes401|pass|
+
+### Requirement: 管理员可停用成员并保留协作记录
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|停用后既有登录与实时连接不再提供公司访问|spec.md同名Scenario|J4；suspended-1440/390.png；qualification-evidence.json|pass|
+|停用不删除历史协作记录|spec.md同名Scenario|J4；停用后admin仍见Review572B历史，tg_c1d2b5b5保留|pass|
+|普通成员不能停用他人|spec.md同名Scenario|api-evidence.json：ordinary-suspend403|pass|
+|停用成员同步撤销名下机器接入资格|spec.md同名Scenario|人类会话已实时撤销；停用后机器实际拒绝/其他同事不可用反馈未独立充分捕获，且早期peer双实例污染。|inconclusive|
+|停用接入保留资源记录且不改变机器归属|spec.md同名Scenario|J4；停用后本机交回nano时仍显示同node/Agent ID|pass|
+
+### Requirement: 注册与认证具有实际生效且可恢复的滥用防护
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|单一来源反复尝试被节流|spec.md同名Scenario|第11次429与表单冷却已见；完整898秒自然恢复未等待完，未覆盖注册限流恢复。|inconclusive|
+|同一账号的分散密码猜测受到限制|spec.md同名Scenario|自报来源变化仍限流；没有多个真实公网来源，完整冷却恢复未覆盖。|inconclusive|
+|客户端不能伪造来源绕过防护|spec.md同名Scenario|rate-evidence.json：逐次改变X-Forwarded-For和CF-Connecting-IP仍第11次429；公网真实来源另属R6|pass|
+|合理少量用户与会话恢复可用|spec.md同名Scenario|J1；两账号UI注册/批准、并发refresh与重启有效refresh200；冷却输入保留|pass|
+
+### Requirement: 刷新凭据吊销在并发和服务重启后仍可靠
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|刷新轮换后旧凭据保持失效|spec.md同名Scenario|api-evidence.json + refresh-restart-evidence.json：旧401、有效200|pass|
+|并发刷新不能重复恢复会话|spec.md同名Scenario|api-evidence.json：并发200/401|pass|
+|退出后失效状态跨重启保留|spec.md同名Scenario|refresh-restart-evidence.json：logged_out401、valid200|pass|
+
+### Requirement: 系统级管理与既有协作权限有明确边界
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|系统策略仅管理员可写|spec.md同名Scenario|普通成员PATCH403与只读UI通过；本轮未完成管理员修改保存/失败重试的完整UI往返。|inconclusive|
+|新注册不能自动获得系统管理权|spec.md同名Scenario|普通注册角色member与无管理入口已见；携带伪造管理员字段注册未独立探测。|inconclusive|
+|既有共享 Work 保持|spec.md同名Scenario|J5；shared-work-child-1440/390.png；普通成员可展开其他owner主轨迹与子执行323|pass|
+|成员和 owner 边界保持|spec.md同名Scenario|私聊/附件/他人node负向已见；完整所有Agent管理数据矩阵未展开。|inconclusive|
+|共用 Gateway 统一管理、共同使用|spec.md同名Scenario|J5；普通成员reviewer572b使用nano的e2e识图成功，Profile无Config|pass|
+
+### Requirement: Gateway 可由本机确认整体换绑给有效公司成员
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|有效成员自行接入或换绑 Gateway|spec.md同名Scenario|J4；本机bind→网页接受→本机yes→Me设备在线；bind-receive/await-local双视口|pass|
+|仅知道节点标识不能远程抢绑|spec.md同名Scenario|attachment-boundary-evidence.json：仅node_id请求422；J4接受网页后仍须本机确认|pass|
+|不能换绑给尚无有效公司资格的账号|spec.md同名Scenario|pending/suspended公司API拒绝已见；未执行真实网页接收挑战的两种失败状态。|inconclusive|
+|原管理者停用后设备可合法交接|spec.md同名Scenario|J4；reviewer572a停用后peer换回nano，IDs保留，原账号仍suspended403|pass|
+
+### Requirement: 有效公司成员与具备任务能力的有效 Agent 可查看全部任务
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|公司任务跨账号与聊天可见|spec.md同名Scenario|J2/J5；初次批准即看其他owner图；private-origin-company-task-390.png|pass|
+|任务可见不授予原聊天与附件访问权|spec.md同名Scenario|J2/J3/J5；非成员任务无回原聊入口；移出群原聊天拒绝；nonmember附件404|pass|
+|跨 Gateway 和账号的 Agent 可读取同一任务图|spec.md同名Scenario|J2；nano/e2e与reviewer572a/feat572-peer实际读写同tg_c1d2b5b5|pass|
+|任务读取仍要求有效身份和已授予的工具能力|spec.md同名Scenario|两个有效Agent成功；pending/suspended人类拒绝；未独立覆盖未配置工具/失效机器矩阵。|inconclusive|
+|Agent 按需读取而非自动摄取全部任务|spec.md同名Scenario|按需工具调用、没有自动执行已见；每轮上下文摄取是实现层，未读取源码推断。|inconclusive|
+|飞书沿用现有主人识别与 Agent 公司资格|spec.md同名Scenario|R7专用Bot被unit-feat-569占用，不抢占/不绕锁；未用mock替代。|inconclusive|
+
+### Requirement: 公司成员通过 Agent 共同维护任务且变更可辨认
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|跨账号和 Gateway 新建与修改任务|spec.md同名Scenario|J2/J5；两个owner两Gateway同图rev3→4→5；global实际新建tg_5508fe90|pass|
+|删除任务需要明确要求或确认|spec.md同名Scenario|J5/P1；两次明确删除仍confirmation_required，图存在|fail|
+|修改者与来源真实可辨认|spec.md同名Scenario|J2；节点详情Last updated by feat572-peer/Last updated in Review572B；另一节点由e2e更新|pass|
+|并发修改不能静默覆盖|spec.md同名Scenario|两Agent顺序更新通过；本轮未制造真实过时revision提交。|inconclusive|
+|任务写入保持有效身份与工具边界|spec.md同名Scenario|有效写入与人类资格拒绝通过；未独立覆盖机器失效和关闭任务工具后的写入。|inconclusive|
+|外部渠道任务写入按 Agent 资格判定|spec.md同名Scenario|R7资源占用，真实飞书待验。|inconclusive|
+
+### Requirement: 群内便捷查看本群新建或编辑过的任务
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|群任务入口展示本群工作|spec.md同名Scenario|J2；group-a-task-1440/group-b-task-390/group-empty双视口，链接指向同图真实节点|pass|
+|总任务与子任务跨群持续协作|spec.md同名Scenario|J2；A/B群分别保留n2/n3，第二次更新不丢B关联；同图revision5|pass|
+
+### Requirement: 任务独立于群成员与群聊生命周期
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|退群不撤销公司任务读取资格|spec.md同名Scenario|J3；task-after-removal-390.png，原群导航退回/chat|pass|
+|解散群不删除公司任务|spec.md同名Scenario|J3；task-after-dissolve-390.png，图仍存在且两个子节点保持|pass|
+
+### Requirement: 自动附件处理不能访问任意服务端目标
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|正常上传与 Agent 图片理解保持|spec.md同名Scenario|Web实际识图REVIEW/红方块通过；外部频道附件属于R7，未完成。|inconclusive|
+|伪造地址和附件引用被拒绝|spec.md同名Scenario|非成员附件404；三个伪造URL消息201后Agent明确下载失败；未设置目标监听器证明没有网络触达，不把失败回复等同SSRF全面通过。|inconclusive|
+
+### Requirement: 公网滥用不能无界消耗服务的有限资源
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|超限上传和请求有明确拒绝|spec.md同名Scenario|16MiB附件错误chip、owner/service累计拒绝通过；超长消息/流式超限对象完整性未独立覆盖。|inconclusive|
+|附件空间不足不阻断文字聊天|spec.md同名Scenario|J6；capacity-error/text-only/admin与service-capacity截图；账本fixture+真实UI/API，非GiB实际上传|pass|
+|实时连接受控且可恢复|spec.md同名Scenario|正常Web实时往返与停用撤销通过；过量连接与限流恢复未独立覆盖。|inconclusive|
+
+### Requirement: 发布与恢复可验收，凭据不随运维证据公开
+
+| Scenario | 期望来源 | 验证/证据 | 结果 |
+|---|---|---|---|
+|公网仅开放预定 IM 服务|spec.md同名Scenario|R6缺上线授权，未上线。|inconclusive|
+|运维证据不包含可复用凭据|spec.md同名Scenario|本报告/截图/JSON脱敏；未全面审阅运行访问/错误日志，不宣称所有日志无泄露。|inconclusive|
+|故障时可停止公开访问并恢复|spec.md同名Scenario|R6未发布；只完成同版本重启凭据复验，不等于生产备份恢复演练。|inconclusive|
+|免费部署范围可核对|spec.md同名Scenario|R6未上线，未核对Cloudflare账号与域名续费。|inconclusive|
+
+## 上层文档同步
+
+- [x] SPEC.md：本unit公司资格/整机交接改变长期边界，需由orchestrator核对最终归并；本reviewer不修改。
+- [x] docs/specs/im 与 gateway：需要按最终实现归并unit的6份delta；本轮仍见current auth文档旧契约，不能视为完成。
+- [x] AGENTS.md / CLAUDE.md：无需本次验收补充。
+- [x] docs/specs/CONTRIBUTING.md：无需更新。
+
+## 收尾与复验范围
+
+仅报告及脱敏证据可提交；未触碰源码/测试/受控配置。保留reviewer572a suspended、reviewer572b active、review572-global与失败图供targeted复验。容量fixture已清理；peer已停止（caller如需重启须确保仅一实例）。R6/R7及本表所有inconclusive在后续Round继续继承；不能因P1/P2修复就自动提升完整验收为pass。
+
+
+---
+
+# 独立产品验收 Round 2（targeted + 本地未决补验）
+
+> 2026-09-30 22:41–23:04 Asia/Shanghai。主体验证 `ce0c557c41542e3d7774d739e3b69603ab2f4093`（产品改动 `bf9fde9e3`）；最终增量验证 `7df455679`。前端仍为bf9fde批次dist，HTTP资源哈希与本地dist相同。先前有效证据继承，不冒充全部在最终HEAD重跑。
+
+## Verdict
+
+**fail**。Highest Required Action: **pass**（仅指当前无新增必须实施的修复；完整验收仍fail，须补足缺失证据，不代表交付/发布通过）。本轮未留已复现的major实现失败；Round1 P1真实global来源与P2认证视觉均收口。保留1项minor UX限制记录UX1。必验inconclusive仍存在，故不能给完整pass或发布许可。
+
+IM由caller从33315/Gateway33655统一更新至IM41358/Gateway41369；同隔离50620、DB和配置。最终ticket脱敏及真实global重启恢复在7df455679上验证。无生产变更、无飞书占用抢夺、未停第一Gateway/IM/8572原型。只提交本报告与脱敏证据。
+
+本轮证据：[reviewer-round2-20260930](../evidence/reviewer-round2-20260930)。本节所列png均同时有1440×900及390×844版本，除另有说明。前端故障注入与真实后端边界证据明确区分。
+
+## 新增真实旅程
+
+- **R2-J1 global删除**：长句明确要求删除仍需确认；随后在同聊天真实发送精确“删除 tg_5508fe90”，global工具deleted=true、deleted_ids=n1/n2、revision3，get拒绝，其他成员Tasks列表移除。global-delete-tool-evidence与global-delete-success双视口证明；P1 closed。认证错误同样实际错误密码触发，现为与输入框对齐的简短红字，输入保留；login-error双视口与原型对照match，P2 closed。
+- **R2-J2失败不丢输入**：管理员策略14→15保存，刷新仍15；拦截该浏览器PATCH制造网络中断，14草稿与Unsaved changes保留；恢复真实网络后重试保存回14。批准C时单浏览器断网，仍pending，恢复后Approve成功。Task search无结果/失败/恢复双视口已补。原型信息层级与主要控件可用，英文和中文Me身份/节点数量/菜单保持。
+- **R2-J3附件**：真实坏PNG被拒为Unsupported format，正文和文件chip保持；单浏览器中止上传请求产生网络失败，可Retry；显式注入429/Retry-After测试冷却UI，恢复真实上传后成功。两种注入只作为UI故障反馈证据。另通过真实后端发送2.2MB JSON与16MiB chunked上传分别413，上传预留回到0。未重复写GiB容量fixture，继承R1真实额度拒绝。
+- **R2-J4交接/停用**：peer本机bind→B网页Cancel，CLI退出，旧链接失效且归属不变；另建操作，仅将本次操作expires_at置过去以观察过期双视口（明确fixture，非自然等待）。新操作正常交给B，bind自动启动唯一peer PID38019，不另开实例。管理员刷新后确认1node/1agent影响，停用B，B打开页面即时membership、peer离线且重连403。nano向peer发消息得到503未连接且草稿保留。旧owner凭据和停用机器凭据在真实gateway端点403；机器HTTP凭据本就不能访问人类API，HTTP401不单独作为撤销证明。随后本机合法交回nano，IDs保持，B仍suspended；旧身份仍403。
+- **R2-J5任务边界**：global用合法但过时base_revision1对n3写入，真实version_conflict current_revision5；只读复核原描述和时间戳未变。peer Task Graphs UI关闭并保存，后续真实群内请求读写时Agent明确无task_graph、无工具调用、没有绕行；图仍revision5。验后UI重新开启并保存。代码/权限结构未由reviewer阅读或修改。
+- **R2-J6资源与来源**：普通新注册携带伪造admin/active字段，真实结果仍pending/member；有效bind挑战对pending和suspended403。C批准后对nano私聊读写、Agent/节点管理数据和配置负向拒绝，而global Work正常共享。临时本机HTTP canary收到0请求、global附件明确unavailable；没有用一句模型“下载失败”替代目标监听证据。
+- **R2-J7实时与日志**：新会话真实10张ticket成功，第11张429，自然冷却后200；C已有浏览器加4条测试WS接入，再多2条拒绝，70KB帧1009，关闭测试连接后浏览器可用。另单浏览器注入429验证倒计时与重新登录入口，解除后自动恢复。发现旧启动方式原始ticket日志后caller修正，最终新日志ticket全部[redacted]。最终真实global回复“已恢复”，不是只看HTTP健康。
+
+## 必需原型对照补齐
+
+| must-match区域 | 本轮新增状态/证据前缀 | 实际双视口结论 |
+|---|---|---|
+|认证|login-error|简短红字、无大块红卡、输入保留；P2修复match|
+|公司成员|member-approve-failure|失败仍pending、操作可重试；恢复Approve成功，停用1node1agent影响继承R1/R2真实行为|
+|公司Tasks|task-search-empty / task-search-failure|无结果、失败与重试清晰；共享图/受保护来源继承R1|
+|群任务回聊|继承R1 group-a/b/empty/return-draft|本轮未改相关前端，原match仍有效|
+|设备交接|bind-cancel / bind-cancel-invalid / bind-expired|取消返回聊天；旧/过期链接不可接受，主按钮不会窄屏断字；正常完整交接真实通过|
+|附件|attachment-format / attachment-network / attachment-cooldown|逐文件错误、正文保留、恢复重试；原型容量/仅文字继承R1|
+|容量管理|继承R1 capacity/service-capacity|未重复制造大额fixture；原权限与视觉证据有效|
+|既有Me/策略/实时反馈|me-zh / policy-failed / ws-cooldown / restart-recovered|六字段双卡、只读/可写层级保持，故障草稿与冷却清晰；重启正常往返|
+
+## 问题与关闭记录
+
+| ID | Severity / relation | 结论与行动 |
+|---|---|---|
+|R1-P1|major / direct|closed：短明确确认后真实global删除闭环成功；无绕过人工授权。|
+|R1-P2|minor / direct|closed：真实双视口与认证原型match。|
+|R2-LOG|major / operational|closed on7df455679：实际最终IM日志所有ticket值脱敏，旧原始日志只留隔离本机，不提交。|
+|UX1|minor / direct|长自然语言即使明确提图名/ID仍要求精确短指令。旧批次Agent错误建议换会话/从Web删除；caller随后更新工具错误为可回复“删除 <graph_id>”。最终新话术未单独再次造图重验，不冒称已闭合；核心短指令删除已通过。建议保留为确认体验限制，不放宽成字符串包含或模型自报授权。|
+
+## Round 2合并覆盖
+
+每行期望来源仍为spec.md同名Scenario；Round1 pass保留，新增结果仅以本轮实际证据更新。inconclusive不能以worker测试/实现叙述补成pass。
+
+
+### Requirement: 正常用户只需 Nano IM 账号即可从公网访问
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|本机通过实际域名访问与实时使用|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|朋友公开注册|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|待批准账号不能进入公司内部协作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|管理员批准后进入公司协作空间|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|普通用户不能批准自己或他人加入|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|匿名访客只能进入公开认证入口|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 管理员可停用成员并保留协作记录
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|停用后既有登录与实时连接不再提供公司访问|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|停用不删除历史协作记录|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|普通成员不能停用他人|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|停用成员同步撤销名下机器接入资格|pass|R2-J4：单peer进程，B停用后即时offline、重连403；旧/停用机器身份gateway WS403，普通人发消息503且保留草稿。|
+|停用接入保留资源记录且不改变机器归属|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 注册与认证具有实际生效且可恢复的滥用防护
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|单一来源反复尝试被节流|inconclusive|R1登录错误第11次429，R2约22:47同账号正常UI登录证明自然恢复；尚未独立完成注册来源限额和来源级登录限额的完整冷却旅程。|
+|同一账号的分散密码猜测受到限制|inconclusive|R1修改声明头不能绕过、R2同账号自然恢复已见；仍缺多个真实来源同时对同账号尝试的独立证据。|
+|客户端不能伪造来源绕过防护|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|合理少量用户与会话恢复可用|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 刷新凭据吊销在并发和服务重启后仍可靠
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|刷新轮换后旧凭据保持失效|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|并发刷新不能重复恢复会话|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|退出后失效状态跨重启保留|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 系统级管理与既有协作权限有明确边界
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|系统策略仅管理员可写|pass|R1普通成员403；R2-J2管理员14→15保存刷新保留，断网保存14失败保留草稿，恢复后保存回14。|
+|新注册不能自动获得系统管理权|pass|R2 boundary-evidence：注册携带active/admin字段仍201 pending/is_company_admin=false。|
+|既有共享 Work 保持|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|成员和 owner 边界保持|pass|R1成员/非成员附件与群；R2 owner-boundary：C对nano私聊读写404、Agent config读写404、node配置/管理数据404，而global Work200。|
+|共用 Gateway 统一管理、共同使用|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: Gateway 可由本机确认整体换绑给有效公司成员
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|有效成员自行接入或换绑 Gateway|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|仅知道节点标识不能远程抢绑|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|不能换绑给尚无有效公司资格的账号|pass|R2-J4 pending真实bind深链返回membership；同有效挑战pending/suspended accept均403。|
+|原管理者停用后设备可合法交接|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 有效公司成员与具备任务能力的有效 Agent 可查看全部任务
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|公司任务跨账号与聊天可见|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|任务可见不授予原聊天与附件访问权|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|跨 Gateway 和账号的 Agent 可读取同一任务图|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|任务读取仍要求有效身份和已授予的工具能力|pass|R1有效两Agent读取；R2关闭peer Task Graphs实际无工具，停用机器/旧身份gateway拒绝、不能发起读写。|
+|Agent 按需读取而非自动摄取全部任务|inconclusive|真实按需get/search和不自动执行已见；本reviewer没有每轮实际发送给模型的完整输入证据，不能从无工具调用推定不注入任务正文。|
+|飞书沿用现有主人识别与 Agent 公司资格|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 公司成员通过 Agent 共同维护任务且变更可辨认
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|跨账号和 Gateway 新建与修改任务|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|删除任务需要明确要求或确认|pass|R2-J1：精确“删除 tg_5508fe90”真实global delete返回deleted=true,n1/n2删除，其他成员原图不存在。长句需要确认，见UX1。|
+|修改者与来源真实可辨认|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|并发修改不能静默覆盖|pass|R2-J5：真实global apply base_revision=1返回version_conflict,current_revision=5，回读n3原描述/updated_at不变。未以base_revision=0参数错误替代冲突。|
+|任务写入保持有效身份与工具边界|pass|R2-J4/J5：停用机器WS拒绝；关闭工具后真实peer无task_graph且不绕过，图仍revision5。|
+|外部渠道任务写入按 Agent 资格判定|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 群内便捷查看本群新建或编辑过的任务
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|群任务入口展示本群工作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|总任务与子任务跨群持续协作|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 任务独立于群成员与群聊生命周期
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|退群不撤销公司任务读取资格|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|解散群不删除公司任务|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+### Requirement: 自动附件处理不能访问任意服务端目标
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|正常上传与 Agent 图片理解保持|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|伪造地址和附件引用被拒绝|pass|R1非成员附件404/伪造file与metadata下载失败；R2本机临时HTTP canary提交伪造附件，真实global inbox attachment_unavailable，10秒listener 0 hits，聊天明确无法读取；普通任务URL文字链接仍可展示。此pass限所验入口，不声称穷尽全部SSRF编码。|
+
+### Requirement: 公网滥用不能无界消耗服务的有限资源
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|超限上传和请求有明确拒绝|pass|R1大小/累计限额；R2 2.2MB JSON413，16MiB chunked无Content-Length上传413，结束uploading预留0。|
+|附件空间不足不阻断文字聊天|pass|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|实时连接受控且可恢复|pass|R2真实第11张ticket429，自然冷却后200；C原浏览器+4测试WS可用，额外2拒403，70KB帧1009。释放后浏览器恢复、重启后真实聊天“已恢复”。冷却UI用显式429注入单独验证，不冒充后端限流证据。|
+
+### Requirement: 发布与恢复可验收，凭据不随运维证据公开
+
+| Scenario | 结果 | 本轮证据/继承依据 |
+|---|---|---|
+|公网仅开放预定 IM 服务|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|运维证据不包含可复用凭据|pass|R2发现直启日志原始ticket后caller修复。7df455679新进程.im-final.log所有用户WS票据[redacted]；报告不含secret。历史私有日志不提交、旧ticket已消费/过期；完整生产日志仍归R6。|
+|故障时可停止公开访问并恢复|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+|免费部署范围可核对|inconclusive|继承Round1同名Scenario及其证据；本轮未使该证据失效。|
+
+## 尚需资源与剩余证明
+
+1. **R6实际域名/发布恢复**：当次生产上线授权、Cloudflare/源站控制窗口以及实际域名验证仍缺；含公网只开放IM、生产日志/备份恢复、免费项核对。localhost不能替代。
+2. **R7真实飞书**：原专用Bot被unit-feat-569使用；需要caller安排独占窗口。未抢占、未使用新Bot或mock冒充。包括外部图片理解与任务读写资格。
+3. **认证完整冷却**：登录用户名限额自然恢复已见，注册/来源限额完整自然冷却与多真实来源同账号攻击仍缺独立旅程；可以安排多来源测试窗口，不能把伪造头当真实来源。
+4. **模型实际输入**：缺对应真实轮次的完整发送输入，不能单从工具轨迹推定未自动注入全部任务；需限定该测试会话的请求证据，避免读取/提交无关私聊。
+
+## 清理与交接
+
+peer已交回nano，Task Graphs恢复开启，随后用官方stop清理本轮自己启动的后台服务；第一Gateway/IM/原型继续由caller管理。A/B保持suspended、C为active测试成员。tg_5508fe90已删除；原协作图tg_c1d2b5b5 revision5保持。容量fixture未再添加；过期fixture仅本轮自建binding操作（现终态），无活动上传预留。所有浏览器网络故障拦截已撤销；测试WS全部关闭。代码、测试、受控配置、spec/design均未由reviewer改动。报告仍需caller随最终交付push，不把本地commit当远端已同步。
+
+caller最终清理通知：本轮现场复验完成后已停止其第一Gateway41369与IM41358，50620无listener；运行DB/config保留，8572原型继续HTTP200。此为caller收尾记录，不冒称reviewer另做现场复验。
+
+
+---
+
+# 独立产品验收 Round 3 — C6真实模型输入定向复验
+
+> 2026-09-30；targeted=C6。产品冻结 `7df455679`。本轮只读核对指定隔离真实会话的既有请求，未重启服务，未运行新Agent。历史请求跨R1/R2及最终重启，不宣称94个请求均发生在最终commit。
+
+## Verdict与覆盖更新
+
+**完整验收仍fail**，Highest Required Action仍为**pass**（无新增实施修复要求，缺失验收不是发布许可）。C6由inconclusive改为**pass（有界实际会话证据）**；合并覆盖为**43 pass / 9 inconclusive**。Round2其余结果及UX1说明保持；C5尚未完成，不能因caller正在测试而补pass。
+
+| Scenario | 期望来源 | 独立观察与证据 | 结果 |
+|---|---|---|---|
+|Agent 按需读取而非自动摄取全部任务|spec.md同名Scenario|读取指定review572-global会话的全部94个实际上游请求文件；现存图先于会话创建，前69个完整输入未含图ID、标题或正文片段；首次ID来自人类指定图的inbox结果，正文随后才来自明确task_graph get；所有94个system均无两张验收图的ID/标题或既有图正文片段；查询后无新agent委派，图仍revision5。|pass|
+
+## C6证据链
+
+- 独立读取 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-09-30_22-24-55_971_sess_5c56f53a24a4b57e` 内94个 `*-req-anthropic_messages.json`，没有只采信caller摘要。只读运行DB再次核对 `tg_c1d2b5b5` / `572跨群发布计划` 的创建时间为13:38:55 UTC，早于该会话首请求14:24:55 UTC。
+- 首3个完整请求实际配置 `task_graph` 工具且messages分别1/3/5条；从system、工具schema和全部messages整体检查，均没有现存图ID/标题/正文片段。扩展到首次引用前的69个完整请求，结论相同。因此本会话不是因关闭工具而“看不到任务”，也没有在处理其他工作时自动摄取现存公司图。
+- 首次ID位于 `22-57-05_133` 请求的 `inbox read` 工具结果，内容为本reviewer此前实际发送的版本冲突验收消息。该消息由人类明确点名图ID并交办操作。
+- 首次标题/正文位于 `22-57-08_114` 请求的 `task_graph get` 工具结果，调用参数是指定图与scope=n3；返回revision5、根节点和指定scope。此后图内容留在普通会话工具历史里，是按需读取结果的上下文保留，不能误判成每轮system自动注入全部公司任务。
+- 全部94个请求system都没有测试图ID/标题/现存图正文片段；首次查询后无`agent`新委派。后续apply均有上述显式人类交办且被参数/版本校验拒绝，实际图保持revision5。查询没有替用户自动接单或唤醒另一Agent。
+
+脱敏证据：[model-input-evidence.json](../evidence/reviewer-round3-c6-20260930/model-input-evidence.json)。仅提交文件名、SHA-256、计数、布尔marker和消息块位置；**未提交完整system、工具schema、用户/模型消息或完整请求**。证据范围严格限这一隔离真实会话，不推广为所有provider/channel的穷举证明。
+
+## 清理
+
+已关闭本reviewer持有的4个浏览器会话：feat572-review、feat572-review-admin、feat572-review-auth、feat572-prototype-review。仅关闭浏览器，不停止8572原型服务；其HTTP200仍保留。生产代码、测试、配置和C5环境均未触碰。
+
+
+---
+
+# 独立产品验收 Round 4 — C5来源限流与自然冷却定向复验
+
+> target=C5；生产代码冻结 `7df4556795567602333771351fc4bd75ec322e94`。后续`cfbd481a4`仅caller测试桩接口/全量验证记录，不混作本轮产品变更。未扩大到公网或飞书。
+
+## 最终合并结论
+
+**完整验收仍fail**：**45 pass / 7 inconclusive**。C5两条Scenario由inconclusive改为pass；C6沿用Round3有界pass。Highest Required Action仍为**pass**（没有新增实施修复要求；不是完整验收/上线许可）。剩余7条均是R6/R7实际外部验收缺口。Round2 UX1作为minor确认体验限制保留，不要求放宽人类授权边界。
+
+| Scenario | 期望来源 | 独立复核证据 | 结果 |
+|---|---|---|---|
+|单一来源反复尝试被节流|spec.md同名Scenario|真实源A注册5次201、第6次429，源B注册201；A累计30次登录尝试后429，B对同账号200。301.85秒A登录200，901.34秒A注册201。|pass|
+|同一账号的分散密码猜测受到限制|spec.md同名Scenario|两个真实TCP源轮流对同账号10次错密均401；之后B正确密码仍429；自然902.61秒后B正确密码200。R1/R2认证UI错误采用不区分未知账号/错密的通用反馈。|pass|
+
+## 独立核对与范围
+
+读取caller提供的完整隔离`server.py`、`qualify.py`、`results.json`和实际`peers.jsonl`，并只读核对`auth.db`。没有只采信`complete=true`摘要，也没有修改业务数据或重跑消耗计数的请求。
+
+- 服务入口仍是生产`IM.app:app`，外层只记ASGI `scope.client`与时间；Uvicorn `proxy_headers=False`。客户端使用`HTTPTransport(local_address=...)`绑定两个本机真实TCP源，`trust_env=False`，无来源声明头伪装。
+- 独立按started/finished时间筛选48条实际HTTP记录：A注册7、B注册1、A登录32、B登录8；与脚本请求次数、相邻阶段时间和恢复请求来源完全对应。额外两条不在测试时间窗内，未计入。
+- 脚本根据真实Retry-After计算deadline并自然sleep；没有修改时钟、常数或SQLite计数。注册/账号冷却分别899/898秒，来源登录剩余292秒；实际恢复时间为301.85、901.34、902.61秒。三个恢复请求都由相应真实源发送，而非换源冒充恢复。
+- 只读DB有7用户、35认证会话，与7次注册创建会话加28次成功登录一致。进程PID43433的命令/cwd属于本unit独立auth实例；没有复用生产数据库。
+- 这是**单机loopback与LAN源地址的真实TCP双源验证**，不是两台Internet客户端，也不证明Cloudflare/真实域名上的来源识别。该外部路径仍属R6，绝不据此补pass。
+
+脱敏证据：[auth-source-evidence.json](../evidence/reviewer-round4-c5-20260930/auth-source-evidence.json)。仅发布source_A/source_B、计数、相对时间、结果、脚本/记录哈希；不发布原始IP、测试密码、凭据、数据库、完整服务日志或脚本。
+
+## 仍未验收的全部7条
+
+| Scenario | 归属 | 状态/前置 |
+|---|---|---|
+|本机通过实际域名访问与实时使用|R6|inconclusive；缺当次上线授权与域名实测窗口|
+|公网仅开放预定 IM 服务|R6|inconclusive；未上线，不以本机监听替代|
+|故障时可停止公开访问并恢复|R6|inconclusive；缺真实发布/恢复演练窗口|
+|免费部署范围可核对|R6|inconclusive；缺Cloudflare账号/实际部署免费项核对|
+|飞书沿用现有主人识别与 Agent 公司资格|R7|inconclusive；原专用Bot仍被unit-feat-569占用|
+|外部渠道任务写入按 Agent 资格判定|R7|inconclusive；未抢占专用Bot，未以mock替代|
+|正常上传与 Agent 图片理解保持|R7关联|Web真实理解已pass；Scenario含外部渠道附件，飞书部分尚缺，整行仍inconclusive|
+
+caller最终只读复核通知：飞书原锁仍指向unit-feat-569，相关PID15775存活；8572原型HTTP200。reviewer未操作该Bot或进程。
+
+## 最终清理
+
+完成只读核验并通知caller后，reviewer仅向独立auth PID43433发送TERM；已确认该进程退出且其专用端口无listener。先前4个验收浏览器均已关闭；8572原型继续保留。无生产服务、配置、数据或源码变更。报告/脱敏证据以外文件不stage，远端同步由caller统一完成。
+
+---
+
+# 独立产品验收 Round 5 — R7真实飞书定向复验
+
+> 2026-10-01；targeted=R7。最终实际运行产品版本 `821ff6ce1a53c8046b9c37d5d350470527ed0b30`。沿用现有专用飞书 Bot 和原 ownerOpenId；用户已明确授权接管原569专用E2E。只停止确认属于旧569的测试栈，未操作Mini生产。新IM、Gateway、数据库、workspace与node identity均为本轮隔离资源。
+
+## 结论与覆盖更新
+
+**R7三条均pass；合并完整验收仍fail：48 pass / 4 inconclusive。** Highest Required Action为**pass**：本轮发现的机器身份查询阻断已由caller修复并经真实外部回复复验，未留下新增实现修复要求。剩余4条仅R6公网实际域名、端口范围、停止公开访问/恢复及免费范围；本轮不替caller宣称已上线或已通过R6。Round2 UX1及前轮未失效证据继续保留。
+
+| Scenario | 期望来源 | 实际结果 | 结论 |
+|---|---|---|---|
+|飞书沿用现有主人识别与 Agent 公司资格|spec.md同名Scenario|原ownerOpenId和同Bot不变，真实私聊创建/get公司任务、群内get/apply；没有账号关联页或确认码。pending成员接受设备绑定403，批准后真实换绑成功；停用该管理者后飞书普通回复继续、任务get/create均失败。关闭task_graph工具时实际PermissionDenied。|pass|
+|外部渠道任务写入按 Agent 资格判定|spec.md同名Scenario|飞书创建图revision1，新增子节点revision2，群内改标题revision3，明确短指令删除全图revision4并get不可用。provenance为feishu+真实外部发言人，不是IM管理者；停用后新图未产生，既有图revision不变。|pass|
+|正常上传与 Agent 图片理解保持|spec.md同名Scenario；Web部分沿用R1/R2|以原生image消息上传测试PNG，实际模型回复正确指出左橙色三角形、右蓝色圆形及白背景；不是发送图片URL或文字描述替代。|pass|
+
+## 实际用户旅程与证据
+
+1. 修复前，专用Bot真实DM发送成功但无回复，标准probe在60秒内无运行卡/镜像；Gateway记录机器凭据请求真人`/me`遭401。caller提交821ff6ce1后，reviewer有序重启自己的IM/Gateway，保留原数据库/JWT/机器凭据且没有再次auto-bind。相同Bot收到`R7-572-FIXED-01`实际interactive回复卡，IM出现对应私聊和消息镜像。此处以真实回复证明恢复，不以caller单测替代。
+2. DM创建`tg_e04a3fc6`，标题`R7-572飞书共同任务`；工具先create再apply添加n2，最终revision2且n2保持todo。群内发送无@背景“松果42”后无Bot回复；随后@交办正确复述背景并在原群回复，get/apply/get把n2标题改成“检查图像已验证”，revision3，状态仍todo。DM与群的provenance.source_chat_id不同，仍操作同一图。
+3. 独立读取IM任务数据，provenance.channel=feishu，initiator_id等于原外部ownerOpenId且不等于IM管理者ID；群编辑记录真实来源。图创建、修改没有要求发言人额外关联IM账号。
+4. 在管理API移除task_graph后，真实DM工具调用被拒`tool 'task_graph' is not enabled in this session`；回复清楚区分历史数据与当前失败，独立get核对图仍revision3、标题不变。恢复工具后停止**本轮隔离IM**：真实飞书普通文字回复仍交付，实时get返回`source_unavailable`，没有伪造读取成功。IM恢复后节点重新online，离线及后续消息都进入镜像。
+5. 恢复后第一条长删除请求进入恢复窗口，实际delete两次被`confirmation_required`拒绝，图未变化；不能据此声称首次请求成功，也不把该错误直接归因为R2 UX1。确认节点online、镜像恢复、会话idle后发精确`删除 tg_e04a3fc6`，真实卡报告revision4、deleted_ids=[n1,n2]；随后get返回`not_found_or_forbidden`。本轮以这条明确人类指令验证删除成功，不扩大推论为任意长句都支持。
+6. 新测试成员pending时，真实`device-binding/accept`为403/company_membership_required；nano管理员批准后同入口200，再经公开本机bind CLI与本机yes完成同node/key/Bot换绑，原ownerOpenId复核不变。获批成员下的同Bot创建`tg_e704c9e2` revision1。管理员停用该成员后，实际飞书仍回复“普通飞书仍能对话”，但task_graph get与create均返回source_unavailable；独立公司任务列表仍只有上述一张revision1图，没有“不应创建”图。
+7. 原生PNG内容没有在提示中透露，首张image到达后Bot已自主正确描述两图形；后续文字追问再次正确回答。仅以颜色类别、形状与左右位置验收，不把模型估计的hex色值当精确像素结果。
+
+脱敏证据：[feishu-evidence.json](../evidence/reviewer-round5-r7-20261001/feishu-evidence.json)。包含真实飞书读取的测试消息/卡内容、消息ID哈希、原始结果文件哈希、图与来源核对布尔值；不提交外部OpenId、AppId、chat token、凭据、原始日志/数据库或运行配置。
+
+## 覆盖边界
+
+- 本轮**真实飞书请求**覆盖有效成员、停用管理者、未启用任务能力和IM不可达；pending是同设备绑定入口的真实拒绝，未伪造“pending Gateway已接入”。
+- 未接入/失效机器身份的通用任务边界沿用R1/R2未失效矩阵；本轮确认飞书走同一公司IM服务及真实机器/管理者链路。没有声称每一种无效身份都另发过真实飞书消息。
+- 停用管理者后的任务反馈为source_unavailable，符合当前不可用语义；它没有解释“管理者被停用”，但未误报操作成功。
+- bind CLI两次完成归属迁移后尝试macOS autostart超时退出；其临时detached进程均已退出。reviewer用原隔离foreground入口继续第一轮验证；最后归属已恢复nano。此为隔离测试运维现象，不作为本轮未验证的生产autostart成功。
+
+## 清理
+
+通过本机bind恢复隔离node/Agent至原nano账号，复核原ownerOpenId不变；之后使用e2e-down停止自己的IM/Gateway、释放专用Bot锁并关闭本轮tmux。569旧测试栈不自动重启。56920已无listener，无本轮Gateway残留，LaunchAgents未发现本轮runtime路径；未改生产服务。测试数据和私有证据保留在隔离output目录，不提交。既有8572原型服务保持。
+
+---
+
+# 独立产品验收 Round 6 — R6真实公网与隔离恢复收口
+
+> 2026-10-01；targeted=R6四条。实际测试产品版本 `821ff6ce1a53c8046b9c37d5d350470527ed0b30`；本轮期间分支后续只同步文档，不把它冒充已运行产品版本。用户明确所有公网与恢复验收使用独立测试环境，PR/CI后由用户合入再决定正式生产切换。因此本轮的真实域名指向**独立测试IM**，不是生产部署验收，未接触生产8011、生产数据库或生产Gateway配置。
+
+## 最终产品验收结论
+
+**pass：52 pass / 0 fail / 0 inconclusive。Highest Required Action：pass。** R1–R5未失效证据沿用，最后4条R6已完成。新增blocking/major为0；Round2 UX1既有minor限制保留，不自动提升为任意长自然语言删除均可用。本结论覆盖受审实现与明确隔离范围，不授权合并或正式生产切换，也不将测试成员准入视为生产公司已经初始化。
+
+| Scenario | 来源 | 独立实际结果 | 结论 |
+|---|---|---|---|
+|本机通过实际域名访问与实时使用|spec.md同名Scenario；public-rollout.md源站与免费隧道|真实`https://im.nanoim.win`浏览器登录、聊天/LLM回复、图片理解、Work、任务页成功；独立en0物理出口HTTPS登录200、WSS101并resume收到成员事件，未关闭全局Tailscale。|pass|
+|公网仅开放预定 IM 服务|spec.md同名Scenario|实际源站仅127.0.0.1:18572监听；named tunnel配置只有im.nanoim.win→该loopback端口及最后404，ingress validate通过；Gateway仅有本机控制用loopback监听，未映射公网，cloudflared出口为198.41.*:7844公网端点。|pass|
+|故障时可停止公开访问并恢复|spec.md同名Scenario；public-rollout.md回退和旧凭据失效|停止本测试Tunnel后公网502；同次停写快照恢复到独立副本，轮换测试secret/epochs，旧access/refresh/runtime拒绝、未过期ticket拒绝；freshlogin/bind后历史与附件一致，真实聊天/get恢复。|pass|
+|免费部署范围可核对|spec.md同名Scenario|reviewer在已登录官方Dashboard独立只读看到nanoim.win有效订阅免费套餐/活动，以及Zero Trust Free、0美元/月。未选择或启用付费项；区分域名/机器/LLM等非套餐成本。|pass|
+
+## 环境与公网实证
+
+- 初始Mini测试目录为`output/public-review-20261001`，全新测试公司、账号和数据，source checkout HEAD实际为821ff6ce1；IM PID1305的cwd为该目录，仅监听`127.0.0.1:18572`。这与生产8011严格分开。
+- 域名正常TLS验证通过，普通浏览器直接进入产品登录页，没有Cloudflare Access中间登录。以测试管理员完成登录。经公网注册新测试成员后，pending读取业务403；批准后读取200。
+- 原Mini测试Gateway模板的localhost4000不可达，首条请求最终出现明确transport error；该fixture未冒充成功。caller准备独立本机`review572-local`（新key、public-global/public-session）后，reviewer以同真实域名完成全部LLM旅程。Mini测试Gateway已停止，不启动或修改生产LLM代理。
+- **不依赖Tailscale的实测边界：** HTTPS请求使用`curl --interface en0 --noproxy '*'`，TLS校验结果0，远端为Cloudflare公网IPv6；该目的地址的系统路由为物理en0。另用绑定en0本地IPv4的socket、禁用代理建立真实域名WSS，101成功；发送resume后收到message.sent、relay.accepted等实际成员事件。恢复后重复成功。Mini cloudflared的4条上游TCP连接实际通向198.41.*:7844，未走Tailscale。没有全局断开用户网络，也没有通过hosts或临时域名替代正式域名。
+- 隧道配置只包含`im.nanoim.win → http://127.0.0.1:18572`与末尾`http_status:404`，protocol=http2，实际ingress validate为OK。这里证明的是**本次测试发布入口**未映射其他服务；没有宣称扫描过用户所有无关公网资产。
+
+## 浏览器真实用户旅程
+
+1. 通过Agents选择在线public-global并打开聊天，发送R6-572-PUBLIC-02；实际回复“公网真实聊天已到达”，task_graph create/get生成`tg_1ec04d89`、revision1，根描述包含“松果772”。浏览器任务页显示同标题、描述、修改者、revision及回到聊天入口。
+2. 在聊天编辑器粘贴实际PNG后正常发送，浏览器出现可查看的图片，Agent回复左侧橙色实心三角形、右侧蓝色实心圆形。通过公网受保护附件地址下载3330字节，与上传文件SHA-256相同。
+3. 点击真实回复中的View Work，Work页显示主Agent Idle、Node online、两个Completed回合以及展开后的实际工具行，不以HTTP200或隐藏数据代替可见结果。
+4. 还原后旧浏览器刷新被导向/login；重新输入原测试账号凭据后回到历史任务页。重新绑定同测试node后，浏览器再次交办只读get，真实回复“恢复标记：松果772、revision：1、恢复后真实聊天可用”。
+
+截图均为真实浏览器1200×731输出并经reviewer视觉检查：[聊天与图片](../evidence/reviewer-round6-public-20261001/public-chat.png)、[Work](../evidence/reviewer-round6-public-20261001/public-work.png)、[公网任务](../evidence/reviewer-round6-public-20261001/public-task.png)、[恢复后任务](../evidence/reviewer-round6-public-20261001/restored-task.png)、[恢复后真实回复](../evidence/reviewer-round6-public-20261001/restored-chat.png)。本轮没有重做已完成的原型must-match对照，沿用R1/R2。
+
+## 停止公开访问、快照恢复与凭据失效
+
+- reviewer先停本测试Tunnel，物理en0外部请求实得502；再停止本测试Gateway和IM。仅操作指定测试进程，未停止用户Tailscale或生产服务。
+- 在停写状态下将SQLite及完整data目录（含数据库旁message-images、uploads）形成同次快照；使用SQLite backup API保存数据库，连同测试JWT与启动脚本存入受限`public-review-backup-20261001`。恢复目标为另一个`public-review-restored-20261001`目录，保留原目录，不覆盖原测试快照。
+- 按操作单事务递增真人auth_epoch与node_epoch、撤销auth_sessions、删除auth_ws_tickets/未完成binding operations、清空runtime_token_hash，再生成新测试JWT secret。SQLite integrity_check=ok，两个附件相关文件的字节哈希完全一致，所有已存在node epochs递增1。
+- 恢复前新鲜签发的access→401、refresh→401；未使用ticket→403，检查时仅签发后**1.07秒**，有效期30秒，故不是等待自然过期。恢复前已验证可用的机器credential在恢复后identity→401；freshbind同node后旧credential仍401、新credential200，排除仅因node离线造成的假验证。
+- loopback freshlogin200，历史消息与任务可读后才重新打开原测试Tunnel。公网freshlogin后，整份历史聊天响应与整份任务响应逐项等于恢复前基线，附件再次下载3330字节、SHA-256完全相同。附件元数据使用storage_name，恢复副本保留数据库旁真实文件；没有把新上传替代为“历史附件恢复”。
+- 在Gateway原本机以原私钥发起公开bind流程，freshlogin接受后本机yes确认，保持review572-local及其两个Agent ID，未复制私钥到IM。CLI明确autostart disabled，随后同node online；真实LLM只读get成功。管理员与已批准测试成员来自快照，没有自动批准额外账号。
+
+## 免费范围与保留事项
+
+reviewer从官方Cloudflare页面独立读取：nanoim.win概述显示free/有效订阅“免费套餐”、注册状态活动；Cloudflare One Settings显示Zero Trust Free、0美元/月。本轮没有购买、升级或启用付费产品。**这里的免费范围是已核对的Cloudflare套餐/隧道，不包含域名注册续费、已有硬件、电力/网络和LLM用量。** 不推论未来所有功能或所有流量无限免费。
+
+脱敏结构化证据：[public-recovery-evidence.json](../evidence/reviewer-round6-public-20261001/public-recovery-evidence.json)。仅提交测试消息、结果、公开端点、哈希和截图；密码、JWT、refresh/ticket/runtime、Cloudflare账号资料、隧道凭据、完整日志/数据库和备份均留在受限output，未入Git。
+
+## 清理与交接
+
+独立验收浏览器已关闭，无另增测试节点遗留。经caller要求，恢复后的既有测试栈暂留待收口：Mini IM现从恢复副本运行（PID1973、tmux feat572-public-im），原测试Tunnel继续只映射18572；本机review572-local由公开bind启动为autostart disabled的detached PID78527。Mini旧测试Gateway已停止。caller可在收口后关闭这些**测试**进程；备份与原目录保留供复核。没有正式生产切换，生产8011与生产数据未触碰。
+
+
+# 独立产品验收 Round 7 — 成员管理与容量身份 UI targeted 复验
+
+
+- Verdict: **pass**; 0 blocking / 0 major / 0 minor confirmed issues in the assigned scope.
+- validated_at: `79dfcbfa4008a2dd9a373a3af8218b395237c713` (final frontend); executed_base: backend `64b4b0b57501f91c453edcb4419f89fbb2d1eb81`, per caller runtime handoff. Reviewer verified local HEAD and actual public DOM asset URLs `index-BgYhm9is.js` / `index-spjZCBmR.css`. No backend restart or production operation was performed.
+- Entry: https://im.nanoim.win ; isolated Mini 18572 per caller. Browser: dedicated Codex IAB tab; Chrome connector failed before interaction. Desktop 1440×1000, mobile 390×844. EN and Chinese.
+- Reference Artifacts Reviewed: unit spec scenarios for pending membership, approval/suspension and policy privileges; design UI must-match contract and existing policies page; current IM auth-tenancy spec. Implementation was not inspected.
+
+| Scenario / source | Actual result | Evidence | Verdict |
+|---|---|---|---|
+| Member page follows existing settings style; assigned feedback | Centered heading, muted description, rounded white surface and same font/color hierarchy as real Policies. Desktop columns and mobile identity cards are legible; Suspend stays one line. Mobile bottom navigation and header match existing settings shell. | members-desktop-en.png, members-mobile-zh.png, policies-desktop-en.png, policies-mobile-zh.png | pass |
+| Company members menu matches Policies; assigned feedback | Same visual font, weight, icon sizing and navigation row alignment in the live menu. | menu-desktop-en.png | pass |
+| Capacity identity is recognizable and unambiguous; assigned feedback | Two newly created users both named QA UI 572 appear separately as @qa572ui1002a and @qa572ui1002b, with display name + username. Names remain readable at 390 width. Prepared one tiny text upload per isolated self-only QA group through API (201). | capacity-duplicate-mobile-zh.png, capacity-duplicate-desktop-zh.png, capacity-duplicate-desktop-en.png | pass |
+| Registration/pending cannot access company; unit spec | Browser registered qa572ui1002a, immediately showed Waiting for approval. Direct /tasks returned /membership. Second new pending account API requests to conversations, members and capacity all returned 403 membership-required. | pending-desktop.png, api-checks.json | pass |
+| Approval restores access; unit spec | Admin clicked Approve for this round's QA account, success text and Active shown. QA account subsequently logged in through UI and reached chat. API conversations returned 200. | members-desktop-en.png (pre-approval), active-mobile-zh.png, api-checks.json | pass |
+| Cancel suspension writes nothing; design must-match | Clicked own QA row Suspend, inspected impact dialog, clicked Cancel. Row remained Active; subsequent QA login and conversations 200 confirmed retained access. | suspend-confirm.png, active-mobile-zh.png, api-checks.json | pass |
+| Active ordinary member cannot manage members/capacity; unit spec | No Company members item in mobile Me. Direct member page returned chat. Policies page showed admin-only explanation, disabled fields and no capacity section. API members/capacity each 403 administrator-required. | member-admin-denied.png, member-policies-readonly.png, api-checks.json | pass |
+| Suspension revokes prior sessions; unit spec | Admin UI suspended only qa572ui1002a and qa572ui1002b, both changed to Suspended. Pre-existing independent API access tokens for both then returned 401 session-revoked on conversations/members/capacity. | suspended-mobile-zh.png, api-checks.json | pass |
+
+## Boundaries and cleanup
+
+This is targeted feedback verification, not a repetition of full public security, external Feishu, recovery, Gateway disconnection or live WebSocket revocation acceptance. No claims about those paths are added; prior rounds remain their evidence. API old-session rejection supplements actual UI actions and does not claim an independently live second browser socket.
+
+Only this round's accounts qa572ui1002a / qa572ui1002b and their self-only QA groups/uploads were created; both accounts were suspended after testing. reviewnano and public572member remained Active. Existing user Agents were not edited. Test data remains for traceability. Reviewer restored the IAB administrator session, EN language, and default viewport; no processes were started or stopped. Credentials/tokens remain in ignored output only and are absent from this evidence directory. No commit was made, as explicitly requested by caller.
+
+Highest Required Action: pass. needs_re_review: false. gh_issues_filed: 0. report_commit: none (caller instruction).
+
+
+# 独立视觉审阅 Round 8 — 成员页呈现再调整
+
+- validated_at: `0ba0fa64af86f961de17f7c8a44b7f4722fe4bbf`; base `409413b36`。
+- 结论：所提供1440×1000 EN/ZH、390×844 EN/ZH及手机确认框的独立视觉审阅通过，0个确认的布局缺陷；不代表用户美观认可。
+- root执行真实公网浏览器与截图，审阅者独立看五图及geometry。审阅者IAB不可用，一次重新发现/reset未恢复，因此本轮不是独立实操验收。
+- 刷新34px且可访问名称“刷新”；成员姓名、角色、状态与操作对齐；桌面/手机无观察到的溢出，层次清晰。root报告Refresh的disabled→可用及Suspend打开后Cancel返回Active，未执行Confirm或成员写入。
+- 其它Round7准入/权限/容量/旧会话场景retained，未重跑；无源代码/服务修改，无commit。
+- 详细证据及边界：[reviewer-ui-polish-20261002](../evidence/reviewer-ui-polish-20261002/README.md)，用户预览：[中文桌面](../evidence/reviewer-ui-polish-20261002/desktop-zh.png)。

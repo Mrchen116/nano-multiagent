@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../i18n";
 import { TEST_ACCESS_TOKEN, TEST_AUTH_USER } from "../../test/render-router";
 import { useAuthStore } from "../auth/auth-store";
-import { composerStoreFor, writeComposerSnapshot } from "../chat/components/composer-draft-store";
+import { composerStoreFor, writeComposerSnapshot, EMPTY_COMPOSER_SNAPSHOT } from "../chat/components/composer-draft-store";
 import { MessagePane } from "../chat/components/message-pane";
 import type { Conversation, Message } from "../chat/chat-types";
 import type { TaskGraph, TaskGraphList, TaskNode } from "./task-graphs-api";
@@ -221,4 +221,25 @@ describe("task graph layout", () => {
     expect(positions.has("Z1")).toBe(false);
     expect(sampleGraph.nodes[1].status).toBe("todo");
   });
+});
+
+it("opens group activity in the same graph and returns without changing the chat draft", async () => {
+  const { GroupTaskPanel } = await import("./group-task-panel");
+  const originalFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string) => url.includes("/task-activity")
+    ? new Response(JSON.stringify({ items: [{ graph_id: "tg-1", node_id: "C", scope_id: "root", title: "C Test", root_title: "Video product", status: "todo", updated_at: "2026-09-30T01:00:00Z" }] }))
+    : originalFetch(url));
+  writeComposerSnapshot(composerStoreFor("user-1"), "home", { ...EMPTY_COMPOSER_SNAPSHOT, draft: "Keep my draft" });
+  const router = createMemoryRouter([
+    { path: "/chat/home", element: <GroupTaskPanel conversationId="home" onClose={() => undefined} /> },
+    { path: "/tasks/:graphId", element: <TaskGraphsPage /> }
+  ], { initialEntries: ["/chat/home"] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+  await userEvent.click(await screen.findByRole("link", { name: /C Test/ }));
+  expect(router.state.location.pathname).toBe("/tasks/tg-1");
+  expect(router.state.location.search).toContain("return_chat=home");
+  await userEvent.click(await screen.findByRole("link", { name: "Discuss in chat" }));
+  expect(router.state.location.pathname).toBe("/chat/home");
+  expect(composerStoreFor("user-1").get("home")?.draft).toBe("Keep my draft");
 });

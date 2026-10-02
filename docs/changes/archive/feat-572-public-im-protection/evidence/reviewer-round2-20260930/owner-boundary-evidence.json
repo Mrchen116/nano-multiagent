@@ -1,0 +1,58 @@
+[
+  {
+    "method": "GET",
+    "path": "/im/v1/conversations/c_ga10oz1b",
+    "status": 404,
+    "detail": "conversation_id not found"
+  },
+  {
+    "method": "POST",
+    "path": "/im/v1/conversations/c_ga10oz1b/messages",
+    "status": 404,
+    "detail": "conversation_id not found"
+  },
+  {
+    "method": "GET",
+    "path": "/im/v1/nodes/wt-unit-feat-572-12882/capabilities",
+    "status": 404,
+    "detail": "node_id not found"
+  },
+  {
+    "method": "PATCH",
+    "path": "/im/v1/nodes/wt-unit-feat-572-12882/config",
+    "status": 404,
+    "detail": "node_id not found"
+  },
+  {
+    "method": "GET",
+    "path": "/im/v1/agents/e2e/config",
+    "status": 404,
+    "detail": "agent_id not found"
+  },
+  {
+    "method": "GET",
+    "path": "/im/v1/agents/e2e/heartbeat-md",
+    "status": 404,
+    "detail": "agent_id not found"
+  },
+  {
+    "method": "GET",
+    "path": "/im/v1/agents/e2e/channels",
+    "status": 404,
+    "detail": {
+      "code": "channel_not_found"
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/im/v1/agents/review572-global/work",
+    "status": 200,
+    "detail": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/im/v1/agents/e2e/config",
+    "status": 404,
+    "detail": "agent_id not found"
+  }
+]

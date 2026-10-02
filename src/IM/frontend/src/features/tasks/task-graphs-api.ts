@@ -119,3 +119,11 @@ export function taskGraphUrl(graphId: string, scope?: string | null, node?: stri
   if (node) params.set("node", node);
   return `/tasks/${encodeURIComponent(graphId)}${params.size ? `?${params}` : ""}`;
 }
+
+export type TaskActivity = { graph_id: string; node_id: string; scope_id: string | null; title: string; root_title: string; status: TaskStatus; updated_at: string };
+export function useTaskActivity(conversationId: string) {
+  const userId = useAuthStore(state => state.user?.id);
+  return useQuery({ queryKey: ["task-graphs", userId, "activity", conversationId],
+    queryFn: ({ signal }) => read<{ items: TaskActivity[] }>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/task-activity`, signal),
+    ...refreshOptions });
+}

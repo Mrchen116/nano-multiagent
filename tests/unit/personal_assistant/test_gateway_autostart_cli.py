@@ -10,6 +10,23 @@ from personal_assistant.gateway.process_lifecycle import GatewayLaunchResult
 from personal_assistant.main import main
 
 
+@pytest.fixture(autouse=True)
+def isolate_device_binding(monkeypatch, tmp_path):
+    """CLI lifecycle assertions never contact or stop a personal Gateway."""
+    monkeypatch.setattr(
+        "personal_assistant.main.default_local_config_path",
+        lambda: tmp_path / "config.yaml",
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.stop_gateway",
+        lambda **kwargs: "stopped",
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.device_binding.bind_local_device",
+        lambda *args, **kwargs: None,
+    )
+
+
 def test_main_reports_enabled_autostart_and_forwards_auto_bind(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
@@ -31,7 +48,7 @@ def test_main_reports_enabled_autostart_and_forwards_auto_bind(
     exit_code = main(["--config", str(tmp_path / "config.yaml"), "--auto-bind"])
 
     assert exit_code == 0
-    assert seen["auto_bind"] is True
+    assert seen["auto_bind"] is False
     assert "Autostart:       enabled" in capsys.readouterr().out
 
 
@@ -62,7 +79,7 @@ def test_restart_accepts_auto_bind_on_either_side_of_subcommand(
     exit_code = main(argv)
 
     assert exit_code == 0
-    assert seen["auto_bind"] is True
+    assert seen["auto_bind"] is False
     assert "Autostart:       enabled" in capsys.readouterr().out
 
 

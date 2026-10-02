@@ -11,7 +11,7 @@ from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway.sessions import GatewaySessions
+from tests.im_service._auth_helpers import EnrolledGatewaySessions as GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry, scan_and_flip_stale_nodes
 
 

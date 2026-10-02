@@ -1,0 +1,108 @@
+[
+  {
+    "check": "reviewer572a login",
+    "status": 200,
+    "membership": "suspended"
+  },
+  {
+    "check": "reviewer572a /im/v1/task-graphs",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572a /im/v1/conversations",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572a /im/v1/agents",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572a /im/v1/nodes",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572a /im/v1/agents/e2e/work",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572a /im/v1/company/members",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "suspended"
+    }
+  },
+  {
+    "check": "reviewer572b login",
+    "status": 200,
+    "membership": "pending"
+  },
+  {
+    "check": "reviewer572b /im/v1/task-graphs",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "reviewer572b /im/v1/conversations",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "reviewer572b /im/v1/agents",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "reviewer572b /im/v1/nodes",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "reviewer572b /im/v1/agents/e2e/work",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  },
+  {
+    "check": "reviewer572b /im/v1/company/members",
+    "status": 403,
+    "detail": {
+      "code": "company_membership_required",
+      "membership_status": "pending"
+    }
+  }
+]

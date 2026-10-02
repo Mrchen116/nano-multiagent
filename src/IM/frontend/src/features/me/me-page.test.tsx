@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { useAuthStore } from "../auth/auth-store";
 import { I18N_STORAGE_KEY, setLanguage } from "../../i18n";
+import { LoginPage } from "../auth/login-page";
 import { MePage } from "./me-page";
 
 vi.mock("../settings/im-settings-api", () => ({
@@ -19,6 +20,8 @@ const SAMPLE_USER = {
   owner_id: "user-1",
   locale: "en",
   default_entry_node_id: null,
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: [],
   created_at: ""
 };
@@ -32,7 +35,7 @@ function renderMe() {
       <MemoryRouter initialEntries={["/me"]}>
         <Routes>
           <Route path="/me" element={<MePage />} />
-          <Route path="/login" element={<div data-testid="login-page" />} />
+          <Route path="/login" element={<LoginPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -76,7 +79,7 @@ describe("MePage", () => {
     renderMe();
     await userEvent.click(screen.getByRole("button", { name: /sign out/i }));
     expect(useAuthStore.getState().user).toBeNull();
-    expect(screen.getByTestId("login-page")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
   });
 
 });

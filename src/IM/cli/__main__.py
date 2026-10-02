@@ -26,7 +26,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     init_admin.add_argument("--locale", default="en")
 
+    company = sub.add_parser(
+        "initialize_company",
+        help="Locally select existing active members and the first administrator",
+    )
+    company.add_argument("--db-path", required=True)
+    company.add_argument("--admin-id", required=True)
+    company.add_argument("--active-id", action="append", default=[])
+
     args = parser.parse_args(argv)
+    if args.command == "initialize_company":
+        from IM.application.company_service import CompanyService
+        from IM.infra.db import connect, initialize_schema
+
+        path = Path(args.db_path)
+        connection = connect(path)
+        initialize_schema(connection)
+        connection.close()
+        try:
+            CompanyService(path).initialize(
+                admin_id=args.admin_id, active_ids=args.active_id
+            )
+        except ValueError as exc:
+            print(f"initialize_company failed: {exc}", file=sys.stderr)
+            return 2
+        print("Company initialization complete")
+        return 0
 
     if args.command == "init_admin":
         from IM.cli.init_admin import run_init_admin

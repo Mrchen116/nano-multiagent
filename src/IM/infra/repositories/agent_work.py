@@ -364,6 +364,11 @@ class AgentWorkRepository:
                 payload.setdefault("work_facts", []).append({"type": kind, **p})
         elif item_kind == "permission":
             payload.update(p.get("permission_request", p))
+            epoch = self.db.execute(
+                "SELECT b.node_epoch FROM node_binding_state b JOIN agent_work_sessions s ON s.node_id=b.node_id WHERE s.session_id=?",
+                (session,),
+            ).fetchone()
+            payload["node_epoch"] = epoch[0] if epoch else 0
             payload["status"] = (
                 "resolved" if kind == "permission_resolved" else "pending"
             )
@@ -555,7 +560,7 @@ class AgentWorkRepository:
     def pending_permission(self, root: str, request: str) -> dict:
         """Resolve a browser request through persisted root and Session ownership."""
         rows = self.db.execute(
-            "SELECT i.session_id,i.turn_id,i.payload FROM agent_work_items i JOIN agent_work_sessions s USING(session_id) WHERE s.root_agent_id=? AND i.item_id=?",
+            "SELECT i.session_id,i.turn_id,i.payload,s.node_id FROM agent_work_items i JOIN agent_work_sessions s USING(session_id) WHERE s.root_agent_id=? AND i.item_id=?",
             (root, f"permission:{request}"),
         ).fetchall()
         for row in rows:
@@ -564,8 +569,13 @@ class AgentWorkRepository:
                 "SELECT payload FROM agent_work_turns WHERE session_id=? AND turn_id=?",
                 (row["session_id"], row["turn_id"]),
             ).fetchone()
+            epoch = self.db.execute(
+                "SELECT node_epoch FROM node_binding_state WHERE node_id=?",
+                (row["node_id"],),
+            ).fetchone()
             if (
                 payload.get("status") == "pending"
+                and payload.get("node_epoch", 0) == (epoch[0] if epoch else 0)
                 and turn
                 and json.loads(turn[0]).get("status")
                 in {"running", "waiting_permission", "unknown"}

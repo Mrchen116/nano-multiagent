@@ -25,8 +25,8 @@
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义与全局主/独立执行归属 | 3 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传 | 18 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、SDK 查询控制、权限路由与投递 | 5 |
-| [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离 | 15 |
-| [Task Graphs](task-graphs.md) | 账号共享任务工具、真实 Agent 授权、逐节点聊天来源、原子修改与未知回执 | 4 |
+| [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离、限定附件来源 | 16 |
+| [Task Graphs](task-graphs.md) | 公司共享任务工具、真实 Agent 授权、逐节点聊天来源、明确删除、原子修改与未知回执 | 5 |
 
 ## Maintenance Rule
 

@@ -1,0 +1,32 @@
+[
+  {
+    "connection": 0,
+    "accepted": true
+  },
+  {
+    "connection": 1,
+    "accepted": true
+  },
+  {
+    "connection": 2,
+    "accepted": true
+  },
+  {
+    "connection": 3,
+    "accepted": true
+  },
+  {
+    "connection": 4,
+    "rejected": "InvalidStatus",
+    "detail": "server rejected WebSocket connection: HTTP 403"
+  },
+  {
+    "connection": 5,
+    "rejected": "InvalidStatus",
+    "detail": "server rejected WebSocket connection: HTTP 403"
+  },
+  {
+    "oversized_frame": "ConnectionClosedError",
+    "detail": "received 1009 (message too big); then sent 1009 (message too big)"
+  }
+]

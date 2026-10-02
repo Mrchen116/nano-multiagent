@@ -134,3 +134,13 @@
   .tasks-detail--mobile .tasks-dialog-heading { padding:0 0 12px; }
   .tasks-targets-dialog { height:80dvh; }
 }
+
+.group-task-panel { width: 320px; flex-shrink: 0; overflow: auto; padding: 16px; border-left: 1px solid var(--im-border); background: var(--im-surface); }
+.group-task-panel header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.group-task-panel h2 { margin: 0; font-size: 16px; }
+.group-task-panel header button { border: 0; background: transparent; font-size: 24px; width: 36px; height: 36px; }
+.group-task-panel ul { list-style: none; padding: 0; }
+.group-task-panel li { border-bottom: 1px solid var(--im-border); }
+.group-task-panel a { display: flex; flex-direction: column; gap: 8px; padding: 16px 0; color: inherit; text-decoration: none; }
+.group-task-panel span, .group-task-panel small { color: var(--im-text-muted); }
+@media(max-width: 767px) { .group-task-panel { position: fixed; inset: 48px 0 0; z-index: 40; width: auto; background: var(--im-surface); } .group-task-panel header button { width: 44px; height: 44px; } }

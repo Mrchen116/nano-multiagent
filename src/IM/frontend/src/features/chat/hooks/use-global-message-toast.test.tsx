@@ -125,7 +125,7 @@ describe("useGlobalMessageToast", () => {
       refresh_token: "refresh",
       user: {
         id: "self-user", username: "self", display_name: "Self", owner_id: "self-user", locale: "en",
-        default_entry_node_id: null, owned_node_ids: [], created_at: ""
+        default_entry_node_id: null, membership_status: "active" as const, is_company_admin: true, owned_node_ids: [], created_at: ""
       }
     });
   });

@@ -1,0 +1,170 @@
+[
+  {
+    "turn": "turn_83d6bad4a3b5e5dc",
+    "started_at": "2026-09-30T14:43:46.499539+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-7",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "deleted": true,
+      "deleted_ids": [
+        "n1",
+        "n2"
+      ],
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-7",
+      "revision": 3,
+      "status": "completed",
+      "target": "c_ga10oz1b",
+      "updated_by": "Review572Global (review572-global)"
+    },
+    "status": "completed"
+  },
+  {
+    "turn": "turn_67cb7c0a6c00f200",
+    "started_at": "2026-09-30T14:42:07.388118+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-5",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Ask the user to explicitly request deletion of this graph or subtree by title or ID.\"}",
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-5",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_67cb7c0a6c00f200",
+    "started_at": "2026-09-30T14:42:07.388118+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "node_id": "n1",
+      "request_key": "review572-delete-20260930-6",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Ask the user to explicitly request deletion of this graph or subtree by title or ID.\"}",
+      "graph_id": "tg_5508fe90",
+      "node_id": "n1",
+      "request_key": "review572-delete-20260930-6",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_c4aa38b84a59161b",
+    "started_at": "2026-09-30T14:29:50.819555+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-4",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-4",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "started_at": "2026-09-30T14:27:23.506373+00:00",
+    "arguments": {
+      "action": "delete",
+      "graph_id": "tg_5508fe90"
+    },
+    "detail": {
+      "action": "delete",
+      "error": "tool execution failed: invalid_arguments: unexpected=[], missing=['base_revision', 'request_key']",
+      "graph_id": "tg_5508fe90",
+      "status": "failed"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "started_at": "2026-09-30T14:27:23.506373+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-1"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-1",
+      "status": "failed"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "started_at": "2026-09-30T14:27:23.506373+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-2",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-2",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "started_at": "2026-09-30T14:27:23.506373+00:00",
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-3",
+      "target": "c_ga10oz1b"
+    },
+    "detail": {
+      "action": "delete",
+      "base_revision": 2,
+      "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-3",
+      "status": "failed",
+      "target": "c_ga10oz1b"
+    },
+    "status": "failed"
+  }
+]

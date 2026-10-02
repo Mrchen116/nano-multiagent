@@ -1,0 +1,388 @@
+{
+  "review": "Independent reviewer read full server and qualification scripts, actual peer log, results and read-only DB; no production source changes",
+  "validated_at": "7df4556795567602333771351fc4bd75ec322e94",
+  "scope": "One host; actual OS-bound loopback and LAN TCP source addresses. Not forwarded-header spoofing and not two Internet clients. Domain/proxy behavior remains R6.",
+  "server_contract": {
+    "entrypoint": "IM.app:app wrapped only to record scope client and timestamp",
+    "uvicorn_proxy_headers": false,
+    "isolated_auth_db": true
+  },
+  "qualification_contract": {
+    "http_transport": "httpx HTTPTransport(local_address=source); trust_env=False",
+    "clock_modified": false,
+    "limits_modified": false,
+    "db_counters_modified": false,
+    "cooldown": "real time.time deadlines plus bounded sleeps, using received Retry-After"
+  },
+  "complete": true,
+  "started_at": 1790781100.679382,
+  "finished_at": 1790782003.287283,
+  "qualification_http_requests": 48,
+  "observed_source_count": 2,
+  "phases": [
+    {
+      "name": "registration_source_limited",
+      "at": 1790781101.974709,
+      "first_five": [
+        201,
+        201,
+        201,
+        201,
+        201
+      ],
+      "next_status": 429,
+      "retry_after": 899
+    },
+    {
+      "name": "account_limited_across_two_socket_sources",
+      "at": 1790781104.053966,
+      "attempts": [
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401
+      ],
+      "correct_password_status": 429,
+      "retry_after": 898
+    },
+    {
+      "name": "login_source_limited",
+      "at": 1790781109.4762409,
+      "successes_after_prior_five": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "next_status": 429,
+      "retry_after": 292,
+      "other_source_status": 200
+    },
+    {
+      "name": "login_source_recovered",
+      "at": 1790781402.5320268,
+      "status": 200,
+      "natural_elapsed_seconds": 301.85
+    },
+    {
+      "name": "registration_source_recovered",
+      "at": 1790782002.022507,
+      "status": 201,
+      "natural_elapsed_seconds": 901.34
+    },
+    {
+      "name": "distributed_account_recovered",
+      "at": 1790782003.285239,
+      "status": 200,
+      "natural_elapsed_seconds": 902.61
+    }
+  ],
+  "db_crosscheck": {
+    "users": 7,
+    "auth_sessions": 35,
+    "interpretation": "7 successful registrations create 7 sessions; 28 successful logins create another 28, total35."
+  },
+  "source_request_counts": [
+    {
+      "source": "source_A",
+      "path": "/im/v1/auth/login",
+      "count": 32
+    },
+    {
+      "source": "source_A",
+      "path": "/im/v1/auth/register",
+      "count": 7
+    },
+    {
+      "source": "source_B",
+      "path": "/im/v1/auth/login",
+      "count": 8
+    },
+    {
+      "source": "source_B",
+      "path": "/im/v1/auth/register",
+      "count": 1
+    }
+  ],
+  "actual_peer_events": [
+    {
+      "elapsed_seconds": 0.006,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 0.237,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 0.446,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 0.655,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 0.877,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 1.085,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 1.087,
+      "source": "source_B",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 1.298,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 1.505,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 1.713,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 1.92,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 2.128,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 2.337,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 2.544,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 2.752,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 2.959,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 3.166,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 3.373,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 3.376,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 3.584,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 3.793,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 4.0,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 4.209,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 4.417,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 4.625,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 4.834,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 5.041,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 5.249,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 5.458,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 5.668,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 5.876,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 6.083,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 6.291,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 6.501,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 6.709,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 6.922,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 7.13,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 7.339,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 7.546,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 7.755,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 7.963,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 8.17,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 8.379,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 8.587,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 8.59,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 301.609,
+      "source": "source_A",
+      "path": "/im/v1/auth/login"
+    },
+    {
+      "elapsed_seconds": 901.106,
+      "source": "source_A",
+      "path": "/im/v1/auth/register"
+    },
+    {
+      "elapsed_seconds": 902.386,
+      "source": "source_B",
+      "path": "/im/v1/auth/login"
+    }
+  ],
+  "input_sha256": {
+    "server.py": "6847391a26a479a1c40c859e4635b672aaee2b92b95e42fcbf21ebdc700559fc",
+    "qualify.py": "4cec9b2399216fd34dda269945bacb1bae8a99712a10f5be396b5ed0aecf1923",
+    "results.json": "79f8112c9c24639f7a215e3c12317cf5911ba9739b57872279782b935c6dcd2c",
+    "peers.jsonl": "3da4a40e95a4da86ebe71354c9b433821a1275c26427416d74524260fc62cd38"
+  },
+  "excluded": "Raw source addresses, passwords, reusable credentials, DB, server logs and scripts not exported.",
+  "cleanup": {
+    "isolated_pid_exited": true,
+    "isolated_port_not_listening": true,
+    "prototype_server_untouched": true
+  }
+}

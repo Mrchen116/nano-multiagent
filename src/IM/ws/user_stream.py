@@ -92,6 +92,38 @@ class UserStreamRegistry:
         async with self._lock:
             self._by_user[user_id][websocket] = delivered_through
 
+    async def close_user(
+        self, user_id: str, *, membership_status: str | None = None
+    ) -> None:
+        """Remove sockets before closing them so queued live broadcasts cannot reuse them."""
+        async with self._lock:
+            sockets = list(self._by_user.pop(user_id, {}))
+        for websocket in sockets:
+            try:
+                if hasattr(websocket, "revoke"):
+                    await websocket.revoke(membership_status)
+                else:
+                    await websocket.close(code=4003)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
+    async def close_session(self, session_id: str) -> None:
+        """Close only the tabs authenticated by the logged-out session."""
+        async with self._lock:
+            targets = [
+                (uid, ws)
+                for uid, sockets in self._by_user.items()
+                for ws in sockets
+                if getattr(getattr(ws, "state", None), "auth_session_id", None)
+                == session_id
+            ]
+        for uid, websocket in targets:
+            await self.remove(uid, websocket)
+            try:
+                await websocket.close(code=4003)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
     async def advance_delivered_through(
         self,
         user_id: str,
@@ -208,7 +240,27 @@ def build_notify_enqueue(
         if not users:
             return
         text = encode_user_stream_event_frame(out)
-        loop.call_soon_threadsafe(outbound_queue.put_nowait, (users, text))
+
+        def enqueue():
+            if outbound_queue.full():
+                # Persisted events remain the replay authority; a resync notice
+                # replaces stale in-memory backlog rather than retaining it forever.
+                affected = set(users)
+                while not outbound_queue.empty():
+                    queued_users, _ = outbound_queue.get_nowait()
+                    affected.update(queued_users)
+                outbound_queue.put_nowait(
+                    (
+                        frozenset(affected),
+                        json.dumps(
+                            {"op": "resync_required", "reason": "outbound_overflow"}
+                        ),
+                    )
+                )
+            else:
+                outbound_queue.put_nowait((users, text))
+
+        loop.call_soon_threadsafe(enqueue)
 
     return notify
 
@@ -266,12 +318,13 @@ async def pump_user_stream_outbound(
     """后台任务：从队列取出并广播到用户连接。"""
     while True:
         user_ids, text = await outbound_queue.get()
-        conversation_id = json.loads(text)["conversation_id"]
+        conversation_id = json.loads(text).get("conversation_id")
         await registry.broadcast_to_users(
             user_ids,
             text,
             recipient_check=lambda uid: (
-                uid in event_repository.recipient_user_ids(conversation_id)
+                conversation_id is None
+                or uid in event_repository.recipient_user_ids(conversation_id)
             ),
         )
 

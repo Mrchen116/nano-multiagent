@@ -61,6 +61,11 @@ def _register_owner(client: TestClient) -> tuple[dict, str]:
         json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
     )
     assert reg.status_code in (200, 201), f"register failed: {reg.text}"
+    client.app.state.connection.execute(
+        "UPDATE users SET membership_status='active' WHERE id=?",
+        (reg.json()["user"]["id"],),
+    )
+    client.app.state.connection.commit()
     token = reg.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}, reg.json()["user"]["id"]
 
@@ -196,6 +201,11 @@ def test_post_participants_cross_tenant_returns_404(tmp_path: Path) -> None:
             "/im/v1/auth/register",
             json={"username": "bob", "password": "pw12345678", "display_name": "Bob"},
         )
+        client.app.state.connection.execute(
+            "UPDATE users SET membership_status='active' WHERE id=?",
+            (reg_bob.json()["user"]["id"],),
+        )
+        client.app.state.connection.commit()
         auth_bob = {"Authorization": f"Bearer {reg_bob.json()['access_token']}"}
         resp = client.post(
             f"/im/v1/conversations/{convo_id}/participants",

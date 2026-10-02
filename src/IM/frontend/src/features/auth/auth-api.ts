@@ -11,11 +11,13 @@ export function withBase(path: string) {
 export class AuthApiError extends Error {
   status: number;
   detail: string;
-  constructor(status: number, detail: string) {
+  retryAfter: number;
+  constructor(status: number, detail: string, retryAfter = 0) {
     super(`auth request failed: ${status} (${detail})`);
     this.name = "AuthApiError";
     this.status = status;
     this.detail = detail;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -34,7 +36,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     } catch {
       // ignore json parse failure; raw text is the detail
     }
-    throw new AuthApiError(res.status, detail);
+    throw new AuthApiError(res.status, detail, Number(res.headers.get("Retry-After")) || 0);
   }
   return (await res.json()) as T;
 }

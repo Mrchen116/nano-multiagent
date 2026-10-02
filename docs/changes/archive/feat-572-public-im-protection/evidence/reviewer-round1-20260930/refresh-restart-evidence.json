@@ -1,0 +1,14 @@
+[
+  {
+    "check": "post-restart rotated",
+    "status": 401
+  },
+  {
+    "check": "post-restart logged_out",
+    "status": 401
+  },
+  {
+    "check": "post-restart valid",
+    "status": 200
+  }
+]

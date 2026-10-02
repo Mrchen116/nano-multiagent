@@ -1,0 +1,154 @@
+[
+  {
+    "turn": "turn_c4aa38b84a59161b",
+    "source_refs": [
+      {
+        "conversation_id": "c_ga10oz1b",
+        "message_id": "bad20178e0fb4552a2b184a3e03eeeb0",
+        "target": "c_ga10oz1b"
+      }
+    ],
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-4",
+      "target": "c_ga10oz1b"
+    },
+    "presentation": {
+      "detail": {
+        "action": "delete",
+        "base_revision": 2,
+        "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+        "graph_id": "tg_5508fe90",
+        "request_key": "review572-delete-20260930-4",
+        "status": "failed",
+        "target": "c_ga10oz1b"
+      },
+      "emoji": "",
+      "label": "Task graph",
+      "summary": "delete",
+      "visible": true
+    }
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "source_refs": [
+      {
+        "conversation_id": "c_ga10oz1b",
+        "message_id": "0c47135b5a614697a8c34ecf882c996a",
+        "target": "c_ga10oz1b"
+      }
+    ],
+    "arguments": {
+      "action": "delete",
+      "graph_id": "tg_5508fe90"
+    },
+    "presentation": {
+      "detail": {
+        "action": "delete",
+        "error": "tool execution failed: invalid_arguments: unexpected=[], missing=['base_revision', 'request_key']",
+        "graph_id": "tg_5508fe90",
+        "status": "failed"
+      },
+      "emoji": "",
+      "label": "Task graph",
+      "summary": "delete",
+      "visible": true
+    }
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "source_refs": [
+      {
+        "conversation_id": "c_ga10oz1b",
+        "message_id": "0c47135b5a614697a8c34ecf882c996a",
+        "target": "c_ga10oz1b"
+      }
+    ],
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-1"
+    },
+    "presentation": {
+      "detail": {
+        "action": "delete",
+        "base_revision": 2,
+        "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+        "graph_id": "tg_5508fe90",
+        "request_key": "review572-delete-20260930-1",
+        "status": "failed"
+      },
+      "emoji": "",
+      "label": "Task graph",
+      "summary": "delete",
+      "visible": true
+    }
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "source_refs": [
+      {
+        "conversation_id": "c_ga10oz1b",
+        "message_id": "0c47135b5a614697a8c34ecf882c996a",
+        "target": "c_ga10oz1b"
+      }
+    ],
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-2",
+      "target": "c_ga10oz1b"
+    },
+    "presentation": {
+      "detail": {
+        "action": "delete",
+        "base_revision": 2,
+        "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+        "graph_id": "tg_5508fe90",
+        "request_key": "review572-delete-20260930-2",
+        "status": "failed",
+        "target": "c_ga10oz1b"
+      },
+      "emoji": "",
+      "label": "Task graph",
+      "summary": "delete",
+      "visible": true
+    }
+  },
+  {
+    "turn": "turn_59e837cf25585c5c",
+    "source_refs": [
+      {
+        "conversation_id": "c_ga10oz1b",
+        "message_id": "0c47135b5a614697a8c34ecf882c996a",
+        "target": "c_ga10oz1b"
+      }
+    ],
+    "arguments": {
+      "action": "delete",
+      "base_revision": 2,
+      "graph_id": "tg_5508fe90",
+      "request_key": "review572-delete-20260930-3",
+      "target": "c_ga10oz1b"
+    },
+    "presentation": {
+      "detail": {
+        "action": "delete",
+        "base_revision": 2,
+        "error": "tool execution failed: {\"code\": \"confirmation_required\", \"message\": \"Deletion requires an explicit human message in the current conversation.\"}",
+        "graph_id": "tg_5508fe90",
+        "request_key": "review572-delete-20260930-3",
+        "status": "failed",
+        "target": "c_ga10oz1b"
+      },
+      "emoji": "",
+      "label": "Task graph",
+      "summary": "delete",
+      "visible": true
+    }
+  }
+]

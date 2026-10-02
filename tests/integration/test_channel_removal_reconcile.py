@@ -11,7 +11,7 @@ from IM.app import create_app
 from IM.infra.channel_credentials import generate_channel_key_pair
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
-from tests.im_service._auth_helpers import authorize, register_user
+from tests.im_service._auth_helpers import gateway_socket, authorize, register_user
 
 
 def _seed_agent(client: TestClient, *, owner_id: str) -> dict[str, str]:
@@ -51,7 +51,7 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
         authorize(client, owner)
         registration = _seed_agent(client, owner_id=owner.owner_id)
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

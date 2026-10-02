@@ -1,5 +1,7 @@
 """Integration tests for IM gateway websocket and relay delivery."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 import json
 from pathlib import Path
@@ -67,8 +69,16 @@ class FailingGatewaySocket:
 
 
 async def _register_failing_gateway(app, *, node_id: str, owner_id: str) -> None:  # noqa: ANN001
+    from types import SimpleNamespace
+    from tests.im_service._auth_helpers import seed_runtime_credential
+
+    seed_runtime_credential(app.state.connection, node_id=node_id, owner_id=owner_id)
+    socket = FailingGatewaySocket()
+    socket.state = SimpleNamespace(
+        authenticated_node_id=node_id, authenticated_node_epoch=1
+    )
     await app.state.gateway_runtime.handle_message(
-        websocket=FailingGatewaySocket(),
+        websocket=socket,
         message_type="node.register",
         authenticated_owner_id=owner_id,
         payload={
@@ -94,7 +104,7 @@ def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receip
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -232,7 +242,7 @@ def test_gateway_websocket_exposes_actionable_last_error_in_node_board(
     with TestClient(app) as client:
         viewer = register_user(client, username="viewer", display_name="Viewer")
         authorize(client, viewer)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -318,7 +328,7 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(
         conversation_id = _create_conversation(client, owner_id)
         message_id = _seed_agent_message(client, conversation_id, "agent-a")
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -382,7 +392,7 @@ def test_gateway_websocket_malformed_node_report_does_not_close_connection(
         conversation_id = _create_conversation(client, owner_id, agent_id="agent-b")
         message_id = _seed_agent_message(client, conversation_id, "agent-b")
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

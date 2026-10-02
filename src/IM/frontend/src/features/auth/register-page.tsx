@@ -1,18 +1,24 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { getCurrentLanguage, useTranslation } from "../../i18n";
-import { register } from "./auth-api";
+import { AuthApiError, register } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, registrationFeedbackForApiError, validateRegistration } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
 import { useAuthStore } from "./auth-store";
+
+import { safeReturnPath } from "./membership-page";
+import { useAuthCooldown } from "./use-auth-cooldown";
 
 type RegistrationField = "username" | "displayName" | "password";
 
 export function RegisterPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = safeReturnPath((location.state as { from?: string } | null)?.from);
+  const cooldown = useAuthCooldown();
   const setSession = useAuthStore((s) => s.setSession);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +56,7 @@ export function RegisterPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || cooldown.remaining > 0) return;
     const errors = validateRegistration({ username, displayName, password });
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -73,8 +79,9 @@ export function RegisterPage() {
         locale: getCurrentLanguage()
       });
       setSession(pair);
-      navigate("/", { replace: true });
+      navigate("/membership", { replace: true, state: { from } });
     } catch (error) {
+      if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }
       const fieldFeedback = registrationFeedbackForApiError(error);
       if (fieldFeedback) {
         setFieldErrors({ [fieldFeedback.field]: fieldFeedback.code });
@@ -107,7 +114,7 @@ export function RegisterPage() {
         </>
       }
     >
-      <form className="im-auth-form" onSubmit={handleSubmit} noValidate>
+      <form className="im-auth-form" onSubmit={handleSubmit} noValidate aria-describedby={cooldown.remaining > 0 || formError ? "auth-feedback" : undefined}>
         <AuthTextField
           id="username"
           label={t("auth.register.username")}
@@ -144,8 +151,9 @@ export function RegisterPage() {
           showLabel={t("auth.common.showPassword")}
           hideLabel={t("auth.common.hidePassword")}
         />
-        {formError && <AuthAlert>{feedback(formError)}</AuthAlert>}
-        <button type="submit" className="im-auth-submit" disabled={submitting}>
+        {cooldown.remaining > 0 && <AuthAlert id="auth-feedback">{t("company.cooldown", { seconds: cooldown.remaining })}</AuthAlert>}
+        {formError && <AuthAlert id="auth-feedback">{feedback(formError)}</AuthAlert>}
+        <button type="submit" className="im-auth-submit" disabled={submitting || cooldown.remaining > 0}>
           <span>{submitting ? t("auth.register.submitting") : t("auth.register.submit")}</span>
           {!submitting && <SubmitArrow />}
         </button>

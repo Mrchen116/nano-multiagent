@@ -170,12 +170,14 @@ def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_use
 
     assert old_created.relay_task.payload["agent_id"] == "agent-a"
     assert old_created.relay_task.payload["metadata"] == {
+        "node_epoch": 0,
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
     }
     assert new_created.relay_task.payload["agent_id"] == "agent-a"
     assert new_created.relay_task.payload["metadata"] == {
+        "node_epoch": 0,
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,

@@ -502,6 +502,13 @@ class GlobalRunCoordinator:
                     target=target,
                     ingress_key=ingress_key,
                     source_message_id=source_id,
+                    im_message_id=(
+                        shadow.ref.im_message_id
+                        if shadow.ref
+                        else relay.im_message_id
+                        if relay
+                        else None
+                    ),
                     sender={
                         "id": message.metadata.get("sender_agent_id")
                         or message.external_user_id,

@@ -1,5 +1,7 @@
 """Contract tests for IM gateway websocket protocol envelopes."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import json
 from pathlib import Path
 from unittest.mock import ANY
@@ -176,7 +178,7 @@ def test_gateway_websocket_rejects_invalid_message_shape(tmp_path: Path) -> None
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         register_and_authorize(client)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_text("not-json")
             response = websocket.receive_json()
 
@@ -191,7 +193,7 @@ def test_gateway_websocket_rejects_unsupported_message_types(tmp_path: Path) -> 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         register_and_authorize(client)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json({"type": "unknown.type", "payload": {}})
             response = websocket.receive_json()
 
@@ -234,7 +236,7 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
         )
         anchor_id = anchor.id
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -330,7 +332,7 @@ def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
                 "applied_at": "2026-07-22T00:00:00Z",
             },
         }
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -344,7 +346,7 @@ def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
     restarted_app = create_app(db_path=db_path)
     with TestClient(restarted_app) as client:
         client.headers["Authorization"] = authorization
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -399,7 +401,7 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
             content="second",
         )
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -469,7 +471,7 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         register_and_authorize(client)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -548,7 +550,7 @@ def test_agent_private_dispatch_is_only_readable_by_agent_members(
                 caller_owner_id=owner.owner_id,
             )
             assert client.get(f"/im/v1/conversations/{old.id}").status_code == 404
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

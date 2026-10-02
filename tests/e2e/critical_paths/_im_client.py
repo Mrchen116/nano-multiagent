@@ -439,7 +439,11 @@ class IMClient:
         """
         assert self.token is not None, "call register_or_login() first"
         ws_url = self.im_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws = _ws_connect(f"{ws_url}/im/ws/user?token={self.token}")
+        ticket = self._http.post("/im/v1/auth/ws-ticket", headers=self._auth_headers)
+        ticket.raise_for_status()
+        ws = _ws_connect(
+            f"{ws_url}/im/ws/user?ticket={ticket.json()['ticket']}", origin=self.im_url
+        )
         ws.send(json.dumps({"op": "resume", "after_event_id": after_event_id}))
         return IMUserWebSocket(ws)
 

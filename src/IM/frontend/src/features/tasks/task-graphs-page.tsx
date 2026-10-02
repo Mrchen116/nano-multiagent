@@ -220,7 +220,7 @@ export function TaskGraphsPage() {
     <main className={`tasks-main${!graphId ? " tasks-main--index" : ""}`}>
       <header className="tasks-header"><div><h1>{root?.title ?? t("shell.tabs.tasks")}</h1>
         <p>{graph ? `${graph.updated_by} · ${t("tasks.revision")} ${graph.revision}` : t("tasks.subtitle")}</p></div>
-        <div className="tasks-header-actions"><button className="tasks-button tasks-targets-button" onClick={() => setListOpen(true)}>{t("tasks.targets")}</button>
+        <div className="tasks-header-actions">{params.get("return_chat") && <Link className="tasks-button" to={`/chat/${encodeURIComponent(params.get("return_chat")!)}`}>{t("tasks.goChat")}</Link>}<button className="tasks-button tasks-targets-button" onClick={() => setListOpen(true)}>{t("tasks.targets")}</button>
           {graphId && <button className="tasks-button" aria-label={t("tasks.refresh")} disabled={query.isFetching} onClick={() => void query.refetch()}>↻ <span className="tasks-refresh-label">{t("tasks.refresh")}</span></button>}
           {currentNode?.last_chat_id && <button className="tasks-button tasks-return" onClick={() => discuss(currentNode)}>{t("tasks.discuss")}</button>}
           {currentNode && <button className="tasks-button" onClick={() => void copyReference(currentNode)}>{t("tasks.copyReference")}</button>}</div>

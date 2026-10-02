@@ -9,6 +9,8 @@ Verifies:
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -43,7 +45,7 @@ def test_gateway_registration_hides_removed_agent_and_revives_it(
         user = register_user(client, username="alice", display_name="Alice")
         authorize(client, user)
 
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             # First register: A + X
             ack = _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
             assert ack["payload"]["message_type"] == "node.register"
@@ -64,7 +66,7 @@ def test_gateway_registration_hides_removed_agent_and_revives_it(
         assert "agent-a" in agent_ids2
         assert "agent-x" not in agent_ids2
 
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
 
         revived_agents = client.get("/im/v1/agents").json()
@@ -78,17 +80,8 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         user = register_user(client, username="alice", display_name="Alice")
         authorize(client, user)
 
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
-
-        binding = client.post(
-            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
-        )
-        bound = client.post(
-            "/im/v1/bind",
-            json={"action": "confirm", "bind_id": binding.json()["bind_id"]},
-        )
-        assert bound.status_code == 201
 
         # Seed the agent user rows so conversation participants can resolve them.
         # ws register writes agent_profiles but not users; we seed users manually.
@@ -112,7 +105,7 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         conv_id = conv_resp.json()["id"]
 
         # Mark agent-x stale via re-register without X
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a"])
 
         # Fetch conversation – agent-x participant should have is_stale=True

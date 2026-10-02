@@ -399,6 +399,7 @@ class GlobalInboxService:
         conversation_id: str | None = None,
         reply_context: Mapping[str, Any] | None = None,
         source_time: str | None = None,
+        im_message_id: str | None = None,
         attention_reasons: Sequence[str] = (),
         should_process: bool = True,
         normal_live_input: bool = True,
@@ -471,6 +472,7 @@ class GlobalInboxService:
                 "seq": seq,
                 "target": target,
                 "message_id": source_message_id,
+                "im_message_id": im_message_id,
                 "sender": dict(sender),
                 "source_time": source_time,
                 "received_at": now,
@@ -1251,6 +1253,7 @@ class GlobalInboxService:
                 turn_id=proof.get("turn_id"),
                 event_type="inbox_read_committed",
                 payload={
+                    "run_id": proof.get("run_id"),
                     "receipt_id": row["receipt_id"],
                     "tool_call_id": row["tool_call_id"],
                     "entries_and_parts": selected,
@@ -1266,3 +1269,40 @@ class GlobalInboxService:
                 },
             )
             return True
+
+    def committed_human_sources(
+        self, agent_id: str, session_id: str, run_id: str
+    ) -> list[str]:
+        """Return IM messages fully consumed by this global run's committed reads.
+
+        Provider message IDs stay model-facing; only the ingress-owned IM identity
+        crosses the task authorization boundary. History queries cannot grant consent.
+        """
+        with self.store._lock:
+            rows = self.store._db.execute(
+                """SELECT payload FROM work_events WHERE root_agent_id=?
+                AND session_id=? AND event_type='inbox_read_committed'
+                AND json_extract(payload,'$.run_id')=?""",
+                (agent_id, session_id, run_id),
+            ).fetchall()
+            selected: dict[int, set[str]] = {}
+            for row in rows:
+                for seq, part in json.loads(row[0])["entries_and_parts"]:
+                    selected.setdefault(seq, set()).add(part)
+            result = []
+            for seq, parts in selected.items():
+                row = self.store._db.execute(
+                    "SELECT data FROM inbox_entries WHERE agent_id=? AND seq=?",
+                    (agent_id, seq),
+                ).fetchone()
+                if row is None:
+                    continue
+                entry = json.loads(row[0])
+                if (
+                    entry["sender"].get("kind") == "user"
+                    and entry["requires_attention"]
+                    and entry.get("im_message_id")
+                    and {part["part_key"] for part in entry["parts"]} <= parts
+                ):
+                    result.append(entry["im_message_id"])
+            return list(dict.fromkeys(result))

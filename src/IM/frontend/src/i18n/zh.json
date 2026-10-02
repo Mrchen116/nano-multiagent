@@ -859,7 +859,9 @@
         "truncatedAtSource": "输出过长，已在源头截断"
       },
       "selectConversationTitle": "选择一个会话",
-      "selectConversationSubtitle": "挑一条会话开始与 agent 协作。"
+      "selectConversationSubtitle": "挑一条会话开始与 agent 协作。",
+      "attachmentCapacity": "暂时无法上传附件。",
+      "attachmentCooldown": "上传暂时受限，请等待重试倒计时结束。"
     },
     "groupSettings": {
       "title": "群聊信息",
@@ -1049,5 +1051,69 @@
       "paused": "暂缓",
       "dropped": "已放弃"
     }
+  },
+  "company": {
+    "suspendAction": "停用",
+    "subtitle": "审核新成员加入，管理公司工作区的访问权限。",
+    "refreshList": "刷新",
+    "member": "成员",
+    "role": "角色",
+    "status": "状态",
+    "actions": "操作",
+    "you": "你",
+    "empty": "暂无成员。新注册的账号会显示在这里。",
+    "loadFailed": "暂时无法加载成员列表，请重试。",
+    "updateFailed": "成员状态更新失败，请刷新列表后重试。",
+    "lastAdminError": "公司至少需要一位有效管理员，不能停用这位成员。",
+    "approvedFeedback": "已批准 {{name}} 加入公司。",
+    "suspendedFeedback": "已停用 {{name}} 的公司访问权限。",
+    "suspendTitle": "停用 {{name}}？",
+    "statusLabel": {
+      "pending": "待批准",
+      "active": "已加入",
+      "suspended": "已停用"
+    },
+    "title": "公司成员",
+    "pending": "等待管理员批准",
+    "pendingHint": "注册成功。管理员批准后即可进入公司工作区。",
+    "suspended": "成员资格已停用",
+    "suspendedHint": "你已无法访问公司内容。请联系管理员了解详情。",
+    "refresh": "刷新状态",
+    "cooldown": "请求过于频繁，请在 {{seconds}} 秒后重试。",
+    "approve": "批准加入",
+    "suspend": "停用成员",
+    "confirm": "确认停用",
+    "cancel": "取消",
+    "impact": "将立即关闭该成员的公司访问与实时连接，并停止其 {{nodes}} 个节点、{{agents}} 个 Agent 的公司接入。历史内容保留。",
+    "active": "已加入",
+    "admin": "管理员",
+    "more": "加载更多",
+    "readOnly": "仅公司管理员可修改策略。",
+    "capacity": "附件容量",
+    "capacityHint": "查看全服务及各成员的附件存储用量。达到上限后，附件上传将暂停，文字聊天仍可使用。",
+    "service": "全服务",
+    "used": "已用",
+    "reserved": "上传中",
+    "limit": "上限",
+    "full": "已满",
+    "bind": {
+      "title": "接收这台 Gateway",
+      "description": "整台设备、全部 Agent 和托管渠道设置将一起转移，现有历史保持不变。",
+      "account": "接收账号",
+      "switch": "切换账号",
+      "missing": "缺少设备链接，请在本机 Gateway 终端重新发起绑定。",
+      "complete": "设备交接已完成。",
+      "localConfirm": "已接收，请回到本机 Gateway 终端核对接收账号并确认。",
+      "accepting": "正在接收…",
+      "accept": "接收整台设备",
+      "chat": "进入聊天",
+      "error": "链接已过期，或当前账号无法接收这台设备。"
+    }
+  },
+  "realtime": {
+    "reconnecting": "实时连接已断开，请检查网络；将在 {{seconds}} 秒后自动重试。",
+    "cooldown": "实时更新暂时繁忙，将在 {{seconds}} 秒后自动重试。",
+    "retrying": "正在恢复实时连接；若持续未恢复，请检查网络。",
+    "signInAgain": "重新登录"
   }
 }

@@ -3,10 +3,8 @@
 Operator workflow:
     PYTHONPATH=src python -m IM.cli init_admin --username root --password $PASSWORD --display-name Root
 
-Once the admin user exists, additional users self-register via /im/v1/auth/register.
-The admin row is identical to any other registered user (same password hashing,
-same single-user tenant ``owner_id``); the only distinction is it was created by
-the operator instead of by the public register flow.
+This local bootstrap makes the selected account active and a company administrator.
+Public registration always remains pending.
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ import os
 import sys
 from pathlib import Path
 
+from IM.infra.auth_sessions import AuthSessions
 from IM.application.auth_service import (
     AuthService,
     RegistrationError,
@@ -42,7 +41,9 @@ def run_init_admin(
     initialize_schema(connection)
     try:
         service = AuthService(
-            users=UserRepository(connection), jwt_secret=resolve_jwt_secret()
+            users=UserRepository(connection),
+            sessions=AuthSessions(connection),
+            jwt_secret=resolve_jwt_secret(),
         )
         try:
             pair = service.register(
@@ -55,6 +56,11 @@ def run_init_admin(
             detail = str(exc)
             print(f"init_admin failed: {detail}", file=sys.stderr)
             return 1 if "already exists" in detail else 2
+        from IM.application.company_service import CompanyService
+
+        CompanyService(resolved_db_path).initialize(
+            admin_id=pair.user.id, active_ids=[]
+        )
         print(
             f"init_admin: created user {pair.user.id} (owner_id={pair.user.owner_id})"
         )

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from IM.infra.auth_sessions import AuthSessions
 from IM.application.auth_service import (
     AuthService,
     InvalidCredentialsError,
@@ -26,6 +27,7 @@ def auth_service(tmp_path: Path) -> AuthService:
     initialize_schema(connection)
     return AuthService(
         users=UserRepository(connection),
+        sessions=AuthSessions(connection),
         jwt_secret="test-secret-do-not-use-in-prod",
         access_ttl_seconds=2,
         refresh_ttl_seconds=10,

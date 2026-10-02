@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 from pathlib import Path
 import threading
@@ -182,7 +184,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
         )
 
         # Connect a gateway WS to IM
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

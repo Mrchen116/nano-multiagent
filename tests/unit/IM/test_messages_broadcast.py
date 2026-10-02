@@ -47,6 +47,11 @@ def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, Mag
             },
         )
         assert reg.status_code in (200, 201), f"register failed: {reg.text}"
+        client.app.state.connection.execute(
+            "UPDATE users SET membership_status='active' WHERE id=?",
+            (reg.json()["user"]["id"],),
+        )
+        client.app.state.connection.commit()
         token = reg.json()["access_token"]
         alice_id = reg.json()["user"]["id"]
         owner_id = reg.json()["user"]["owner_id"]

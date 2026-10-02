@@ -173,6 +173,8 @@ def test_skill_patch_preserves_omitted_work_mode(tmp_path: Path) -> None:
     sent = []
 
     def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/im/v1/agents/agent/skills/enable"
         sent.append(json.loads(request.content))
         return httpx.Response(200, json={"agent_id": "agent"})
 
@@ -184,5 +186,4 @@ def test_skill_patch_preserves_omitted_work_mode(tmp_path: Path) -> None:
         sync._patch_agent_skills(
             "agent", {"skills": [], "work_mode": "global"}, ["plan"]
         )
-    assert "work_mode" not in sent[0]
-    assert sent[1]["work_mode"] == "global"
+    assert sent == [{"profile_version": 1, "skills": ["plan"]}] * 2

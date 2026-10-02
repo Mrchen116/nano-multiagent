@@ -1,5 +1,7 @@
 """Integration tests for conversation messages APIs."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -126,7 +128,7 @@ def test_external_find_or_create_and_message_display_name_roundtrip(
             workspace_root="",
         )
 
-        with client.websocket_connect("/im/ws/gateway") as gateway:
+        with gateway_socket(client) as gateway:
             gateway.send_json(
                 {
                     "type": "node.register",
@@ -347,7 +349,7 @@ def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
         ]
         anchor_id = posted[-1].id
 
-        with client.websocket_connect("/im/ws/gateway") as gateway:
+        with gateway_socket(client) as gateway:
             gateway.send_json(
                 {
                     "type": "node.register",

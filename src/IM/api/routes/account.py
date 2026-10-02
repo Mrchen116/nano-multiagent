@@ -6,7 +6,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_bind_service
+from IM.api.deps import (
+    GatewayPrincipal,
+    current_gateway,
+    current_user,
+    get_bind_service,
+)
 from IM.application.bind_service import BindService
 from IM.domain.models import DeviceBindRequest, User
 
@@ -108,6 +113,14 @@ def to_bind_response(bind: DeviceBindRequest, *, request: Request) -> BindRespon
         created_at=bind.created_at,
         confirmed_at=bind.confirmed_at,
     )
+
+
+@router.get("/im/v1/gateway/identity")
+async def get_gateway_identity(
+    gateway: GatewayPrincipal = Depends(current_gateway),
+) -> dict[str, str]:
+    """Return only the authenticated machine's node and owner identity."""
+    return {"node_id": gateway.node_id, "owner_id": gateway.owner_id}
 
 
 @router.get("/im/v1/me", response_model=MeResponse)

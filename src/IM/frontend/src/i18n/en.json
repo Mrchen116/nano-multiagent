@@ -867,7 +867,9 @@
         "truncatedAtSource": "Output too long — truncated at source"
       },
       "selectConversationTitle": "Select a conversation",
-      "selectConversationSubtitle": "Pick a thread to chat with your agents."
+      "selectConversationSubtitle": "Pick a thread to chat with your agents.",
+      "attachmentCapacity": "Attachments temporarily unavailable.",
+      "attachmentCooldown": "Uploads are temporarily limited. Wait for the retry countdown."
     },
     "groupSettings": {
       "title": "Group settings",
@@ -1057,5 +1059,69 @@
       "paused": "Paused",
       "dropped": "Dropped"
     }
+  },
+  "company": {
+    "suspendAction": "Suspend",
+    "subtitle": "Approve new members and manage access to the company workspace.",
+    "refreshList": "Refresh",
+    "member": "Member",
+    "role": "Role",
+    "status": "Status",
+    "actions": "Actions",
+    "you": "You",
+    "empty": "No members yet. New registrations will appear here.",
+    "loadFailed": "Unable to load members. Please try again.",
+    "updateFailed": "Unable to update this member. Refresh the list and try again.",
+    "lastAdminError": "The company must keep at least one active administrator. This member cannot be suspended.",
+    "approvedFeedback": "{{name}} can now access the company workspace.",
+    "suspendedFeedback": "Company access has been suspended for {{name}}.",
+    "suspendTitle": "Suspend {{name}}?",
+    "statusLabel": {
+      "pending": "Pending approval",
+      "active": "Active",
+      "suspended": "Suspended"
+    },
+    "title": "Company members",
+    "pending": "Waiting for approval",
+    "pendingHint": "Your account is ready. An administrator must approve access to the company workspace.",
+    "suspended": "Membership suspended",
+    "suspendedHint": "Company access has been suspended. Contact an administrator for details.",
+    "refresh": "Refresh status",
+    "cooldown": "Too many requests. Try again in {{seconds}} seconds.",
+    "approve": "Approve",
+    "suspend": "Suspend member",
+    "confirm": "Confirm suspension",
+    "cancel": "Cancel",
+    "impact": "This closes company access and live connections, including {{nodes}} nodes and {{agents}} agents. History is preserved.",
+    "active": "Active",
+    "admin": "Administrator",
+    "more": "Load more",
+    "readOnly": "Only company administrators can edit policies.",
+    "capacity": "Attachment capacity",
+    "capacityHint": "Review attachment storage across the service and its members. Uploads pause at the limit; text chat remains available.",
+    "service": "Service",
+    "used": "Used",
+    "reserved": "Uploading",
+    "limit": "Limit",
+    "full": "Full",
+    "bind": {
+      "title": "Receive this Gateway",
+      "description": "This transfers the complete device, all its Agents and managed channel settings. Existing history stays unchanged.",
+      "account": "Receiving account",
+      "switch": "Switch account",
+      "missing": "Missing device link. Start a new binding from the local Gateway terminal.",
+      "complete": "Device transfer complete.",
+      "localConfirm": "Accepted. Confirm the receiving account in the local Gateway terminal to finish.",
+      "accepting": "Accepting...",
+      "accept": "Accept complete device",
+      "chat": "Continue to chat",
+      "error": "The link has expired, or this account cannot receive the device."
+    }
+  },
+  "realtime": {
+    "reconnecting": "Real-time updates disconnected. Check your network; retrying in {{seconds}}s.",
+    "cooldown": "Real-time updates are busy. Retrying automatically in {{seconds}}s.",
+    "retrying": "Reconnecting real-time updates… Check your network if this continues.",
+    "signInAgain": "Sign in again"
   }
 }

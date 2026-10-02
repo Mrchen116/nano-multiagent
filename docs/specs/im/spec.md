@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569
+> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569 / feat-572
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -8,7 +8,7 @@
 
 `IM` 是多人协作的即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心, 并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
 
-它对外承担的可观察职责:① 用户注册/登录后可查找人和 Agent，聊天按成员关系可见，全局 Agent Work 详情对登录用户完整开放;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
+它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天按成员关系可见，全局 Agent Work 详情对有效公司成员完整开放;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
 
 **显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
 
@@ -18,16 +18,16 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Auth and Tenancy](auth-tenancy.md) | JWT、认证入口体验、成员可见性、资源管理归属、系统 policies | 4 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、稳定短身份、受保护聊天附件、个人偏好与已读、shadow conversation、配置边界、outbox、群聊、分页、fork | 23 |
+| [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、系统 policies | 6 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口 | 25 |
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 20 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
-| [Agent Work](agent-work.md) | 登录可读的全局主工作轨迹、关联子执行、明细与持久回看 | 2 |
+| [Agent Work](agent-work.md) | 有效公司成员可读的全局主工作轨迹、关联子执行、明细与持久回看 | 2 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
 | [Agents and Nodes](agents-nodes.md) | Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注与 Workflow tool pill | 29 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 12 |
-| [Task Graphs](task-graphs.md) | 账号及名下 Agent 共享目标、逐节点更新聊天、依赖与衍生、只读浏览 | 6 |
+| [Task Graphs](task-graphs.md) | 公司共享目标、真实主体维护与明确删除、跨群活动、逐节点回聊、依赖与衍生 | 8 |
 
 ## Maintenance Rule
 

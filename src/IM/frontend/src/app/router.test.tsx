@@ -51,10 +51,10 @@ describe("app routes", () => {
   });
 
   it("renders the bind confirmation route", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/bind/confirm?token=test-token"] });
+    renderRouter({ routes: appRoutes, initialEntries: ["/bind/confirm#token=test-token"] });
 
-    expect(await screen.findByText("Bind this Gateway")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue to chat" })).toBeEnabled();
+    expect(await screen.findByRole("heading", { name: "Receive this Gateway" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept complete device" })).toBeDisabled();
   });
 
   it("renders the settings agents entry", async () => {

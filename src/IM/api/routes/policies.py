@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_policy_service
+from IM.api.deps import current_user, current_company_admin, get_policy_service
 from IM.application.policy_service import PolicyService
 from IM.domain.models import SettingsPolicy
 
@@ -52,7 +52,11 @@ def get_policies(
     return to_policy_response(service.get_policies())
 
 
-@router.patch("/im/v1/policies", response_model=PolicyResponse)
+@router.patch(
+    "/im/v1/policies",
+    response_model=PolicyResponse,
+    dependencies=[Depends(current_company_admin)],
+)
 def update_policies(
     payload: UpdatePolicyRequest,
     service: PolicyService = Depends(get_policy_service),

@@ -67,3 +67,9 @@ describe("uploadOneAttachment", () => {
     });
   });
 });
+
+
+test.each([[507, "capacity"], [429, "cooldown"]])("maps quota and cooldown response %i", async (status, code) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: status as number, headers: { "Retry-After": "3" } })));
+  await expect(uploadOneAttachment(makeFile("a.png", "image/png", 1), "chat")).rejects.toMatchObject({ code, status });
+});

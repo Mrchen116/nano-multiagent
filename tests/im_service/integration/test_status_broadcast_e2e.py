@@ -7,6 +7,8 @@ assertion that node + agent status frames land only in the right owner's queue.
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import browser_socket, gateway_socket
+
 import json
 from pathlib import Path
 
@@ -67,13 +69,11 @@ def test_register_broadcasts_agents_in_advertisement_order_via_real_ws(
         authorize(client, owner)
         _bind_node_to_owner(client, node_id="node-1", owner_id=owner.owner_id)
 
-        with client.websocket_connect(
-            f"/im/ws/user?token={owner.access_token}"
-        ) as user_ws:
+        with browser_socket(client, owner.access_token) as user_ws:
             # Skip the resume reply (an empty/initial frame may or may not arrive).
             user_ws.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
 
-            with client.websocket_connect("/im/ws/gateway") as gateway_ws:
+            with gateway_socket(client) as gateway_ws:
                 gateway_ws.send_text(
                     json.dumps(
                         {
@@ -119,18 +119,13 @@ def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
         owner_b = register_user(client, username="owner-b")
         _bind_node_to_owner(client, node_id="node-a", owner_id=owner_a.owner_id)
 
-        with client.websocket_connect(
-            f"/im/ws/user?token={owner_a.access_token}"
-        ) as ws_a:
-            with client.websocket_connect(
-                f"/im/ws/user?token={owner_b.access_token}"
-            ) as ws_b:
+        with browser_socket(client, owner_a.access_token) as ws_a:
+            with browser_socket(client, owner_b.access_token) as ws_b:
                 ws_a.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
                 ws_b.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
 
-                with client.websocket_connect(
-                    "/im/ws/gateway",
-                    headers={"Authorization": f"Bearer {owner_a.access_token}"},
+                with gateway_socket(
+                    client, headers={"Authorization": f"Bearer {owner_a.access_token}"}
                 ) as gateway_ws:
                     gateway_ws.send_text(
                         json.dumps(

@@ -22,7 +22,7 @@ from IM.ws.gateway.control import GatewayControl
 from IM.ws.gateway.execution import GatewayExecution
 from IM.ws.gateway.relay import GatewayRelay
 from IM.ws.gateway.runtime import GatewayRuntime
-from IM.ws.gateway.sessions import GatewaySessions
+from tests.im_service._auth_helpers import EnrolledGatewaySessions as GatewaySessions
 
 
 class _RecordingWebSocket:

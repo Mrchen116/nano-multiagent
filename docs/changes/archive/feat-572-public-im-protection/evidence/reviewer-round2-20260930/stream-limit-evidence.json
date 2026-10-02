@@ -1,0 +1,7 @@
+{
+  "status": 413,
+  "body": "{\"detail\":\"attachment exceeds 10 MiB\"}",
+  "transfer_encoding": "chunked",
+  "sent_bytes": 16777216,
+  "upload_reservations_after": 0
+}

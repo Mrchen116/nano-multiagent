@@ -1,0 +1,193 @@
+{
+  "validated_at": "821ff6ce1a53c8046b9c37d5d350470527ed0b30",
+  "scope": "Real dedicated Feishu bot plus isolated company IM and gateway. No production deployment.",
+  "source_files": [
+    {
+      "file": "010935-history-dm-private.json",
+      "sha256": "b960bdf671bd0345a67e57c2bbdea853e1aefd18c5191d6211aab9868c55d5a9",
+      "messages": 24
+    },
+    {
+      "file": "010100-history-group-private.json",
+      "sha256": "fb34b2287eb88a566527edcf369d067a80ca0afb5cff73f90622b4c879254e4e",
+      "messages": 5
+    }
+  ],
+  "messages": [
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "a4fa1e7b9a39b69769289dd7976051d8dabb8c4e6758b2e475a18d00b70894fa",
+      "content": "R7-572-HELLO-20261001：请只回复这个完整标记 R7-572-HELLO-20261001，用于真实飞书验收。"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "5af2e48bdce2b9b71bc56a884f6d2d20a03efcda7b8aeaad0c362371156ab628",
+      "content": "R7-572-FIXED-01：请只回复 R7-572-FIXED-01 收到。"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "4e6303d55a2d00957cd763782a19d859671d4b203bc74b1924a7543b03c9a30a",
+      "content": "<card>\nR7-572-FIXED-01 收到\n---\n📝 deepseek:deepseek-v4-flash · ctx 5%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "800891217d14f18ca5ec793765c37bd46be99be1a1cebf36aa5c695a90c0d762",
+      "content": "验收任务 R7-572-TASK-01：请使用 task_graph 创建一张标题为 R7-572飞书共同任务 的公司任务图，根目标是验证飞书任务链路，包含一个待办子任务“检查图像”。先查看工具用法；创建后 get 确认，回复图ID、revision和标题。只创建这一张，不执行子任务。"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "67646b0590d06ca351830d9a19481e3c29a69a55ac256896de3396645503cc9a",
+      "content": "<card>\n任务图已创建并核对完成：\n- **图 ID**：`tg_e04a3fc6`\n- **revision**：`2`\n- **标题**：R7-572飞书共同任务\n- **根节点** `n1`：R7-572飞书共同任务（描述：根目标：验证飞书任务链路，mode=dag，status=todo）\n- **子节点** `n2`：检查图像（container=n1，status=todo，未执行）链接：[[isolated IM]/tasks/tg_e04a3fc6]([isolated IM]/tasks/tg_e04a3fc6)\n\n两点说明：一是在 `create` 时携带 `operations` 会被拒（invalid_arguments），所以先建图拿到 `n1`，再用 `apply`（base_revision=1）新增子任务，因此当前 revision 为 2；二是只建了这一张图，子任务保持待办未执行。\n---\n📝 deepseek:deepseek-v4-flash · ctx 6%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "image",
+      "message_sha256": "6235cff77e9b2525425e81bc7dd21bf50add28c2c2d3bb6857ea028a6c16eb85",
+      "content": "[Image: [native image]]"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "8c38bab4890d6359ef35d243f05d20b0135624094c429b4b764cdc40cff1f28c",
+      "content": "<card>\n图像已收到，内容如下：\n- 背景：纯白色，无文字、无水印。\n- 左侧：一个正放的等腰三角形，纯橙色（约 #F08A24），居中偏左。\n- 右侧：一个实心圆形，纯蓝色（约 #1667E0），直径与三角形高度相近，位置略低于三角形顶点高度。\n- 整体是两个独立色块并排，无重叠、无阴影、无渐变。这正是任务图 `tg_e04a3fc6` 中子节点 `n2`「检查图像」对应的验收图片。按之前的要求我没有执行该子任务，需要我把它标记为 done 吗？\n---\n📝 deepseek:deepseek-v4-flash · ctx 6%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "bc239e53fdf1500dc29ea0b92c5eb67b142e1f7631a00d54249a19af705aae62",
+      "content": "R7-572-IMAGE-01：请描述刚才这张原生图片的两个图形，各自颜色与左右位置。必须实际看图，不要读取本机文件。"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "caec8c5c985347f0b43f9f6a4cb6b74069855b19c29c56d2481076f5ab523d2d",
+      "content": "<card>\n看图结论（直接来自你发的原生图片，未读本机任何文件）：\n- **左**：橙色实心三角形，正立（顶点朝上、底边水平），颜色为橙色调，目测接近 #F08A24。\n- **右**：蓝色实心圆形，纯色，颜色为蓝色调，目测接近 #1667E0。\n- 两者左右并排、互不重叠，背景为纯白，图内无任何文字。其中色值是我按肉眼观察给出的近似值，颜色命名（橙、蓝）是确定的；若要精确 hex 需要像素采样。\n---\n📝 deepseek:deepseek-v4-flash · ctx 7%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "8ab0365f6dc82ea56247ade2145af6bb43be99f5878b156b789945b6ae5b088e",
+      "content": "R7-572-DENIED-01：当前任务能力已由管理端关闭。请尝试用 task_graph 读取 tg_e04a3fc6，并尝试把根标题改为“不应生效”；不能使用 bash/curl 或其他方式绕过权限。没有工具或被拒绝就如实说明，不要把历史内容当成新读取。"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "f61cd98c73e3da0de13bda38a675fd1e8df088b0ab518260cd057b688180d39f",
+      "content": "<card>\n如实说明：\n\n**1. 读取 tg_e04a3fc6：失败**\n我调用了 `task_graph`（action=get, view=all），返回的是权限拒绝：\n\n> Permission for this action has been denied. Reason: tool 'task_graph' is not enabled in this session.\n\n**2. 修改根标题为“不应生效”：未能尝试成功**\n拒绝原因是整个 `task_graph` 工具在本会话未启用，属于工具级禁用，而不是某一次调用的参数问题。因此重命名（apply 更新标题）在同一会话里同样无法执行——不是“改失败了”，而是根本没有可用的执行通道。\n\n**3. 没有绕过**\n我没有使用 bash、curl 或其他任何方式访问任务图；全程只发起了一次被拒的 `task_graph` 调用。\n\n**4. 不要误认**\n上一条消息里我报出的 graph_id / revision / 标题，是权限关闭**之前**那次创建与 get 的结果，属于历史内容；它不能代表现在的实时读取结果。当前该图对我而言处于不可读、不可写状态。\n\n需要恢复该能力的话，请在管理端重新启用本会话的 `task_graph` 工具，之后我再重新 get 一次给你真实的 revision。\n---\n📝 deepseek:deepseek-v4-flash · ctx 6%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "ac2e52eba82fe9e245785ce4fdd5cb908d8ffb9e6d92a0f6a8b20edc59b88429",
+      "content": "R7-572-OFFLINE-01：先原样回复“离线普通聊天可用”；再通过 task_graph 尝试实时 get tg_e04a3fc6，若服务不可用请明确说失败，不要把缓存说成实时。不要绕过 task_graph。"
+    },
+    {
+      "channel": "dm",
+      "type": "post",
+      "message_sha256": "eeda99b56adcc8c892021fc3f86850036d64c83b374f314fc280cb2722c4ba39",
+      "content": "离线普通聊天可用"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "abee04bcce51c1d44095821a2c82c993788a5e9509f925d21df86d448ff982b5",
+      "content": "<card>\n离线普通聊天可用\n\n**实时 get 失败。** `task_graph`(action=get, graph_id=tg_e04a3fc6) 返回：\n```plain_text\n{\"code\":\"source_unavailable\",\"message\":\"IM task graph service is unavailable; try again after reconnection.\"}```\n即任务图服务不可用（source_unavailable），不是读取成功后的空结果。我没有任何实时数据可报：`tg_e04a3fc6` 当前的 revision、标题都无法确认，此前那些字段只是历史记录，不能当作本次实时读取结果。全程未使用任何绕过方式（无 bash/curl），仅发起了这一次 `task_graph` 调用。\n---\n📝 deepseek:deepseek-v4-flash · ctx 7%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "b6973e0f52946915bea76eb59ccea237fafb418f80eb8a3b0569d6b05eaedebc",
+      "content": "R7-572-DELETE-01：IM已恢复。我明确要求删除验收图 tg_e04a3fc6（标题 R7-572飞书共同任务）及其全部节点，只删除这一张。请先get确认对象，再delete，最后get确认已不可用，如实报告。"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "246c9cd9606918f9056383a66991d7534bdc9277747f38ff49ab74d6685958c8",
+      "content": "删除 tg_e04a3fc6"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "62575c11ce76a8f60a1ed58a0ea98e206179a1fd8e94b9d4ac7f4451bfca5a96",
+      "content": "<card>\n删除已完成，并已复检：\n- **delete 结果**：`{\"graph_id\":\"tg_e04a3fc6\",\"revision\":4,\"deleted_ids\":[\"n1\",\"n2\"],\"deleted\":true}` — 整图及其全部节点（n1、n2）一并删除，仅这一张。\n- **删除后 get**：返回 `{\"code\":\"not_found_or_forbidden\",\"message\":\"Task graph or conversation is not accessible\"}`，即该图已不可读，符合预期。\n- 全程只用 `task_graph`，未使用 bash/curl 等任何绕过方式。之前失败的原因是工具的“人类显式删除请求”校验需要你本人直接发出（我已转述不算），你这条「删除 tg_e04a3fc6」满足条件后即成功执行。\n---\n📝 deepseek:deepseek-v4-flash · ctx 9%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "20d1c77b6b37ceb8aef304d463574b5b924f7f28899301c9fde2c833687bdcd2",
+      "content": "R7-572-MEMBER-01：请用 task_graph 创建唯一一张测试图，标题 R7-572停用验证，创建后回复ID；不添加节点、不做其他事。"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "8f22d7d387a2527ff1f2703606eea6b29df7a61bc043c415b7584ab6c3a61177",
+      "content": "<card>\n已创建，仅此一张，未添加任何节点、未做其他操作。\n- **图 ID**：`tg_e704c9e2`\n- 标题：R7-572停用验证\n- mode=dag，revision=1，根节点 n1\n- 链接：[[isolated IM]/tasks/tg_e704c9e2]([isolated IM]/tasks/tg_e704c9e2)\n---\n📝 deepseek:deepseek-v4-flash · ctx 9%\n</card>"
+    },
+    {
+      "channel": "dm",
+      "type": "text",
+      "message_sha256": "19b06fcdae5aba8c29c7c68f9b5c9940ab3984f42e90422187175009a60a5554",
+      "content": "R7-572-SUSPENDED-01：先回复“普通飞书仍能对话”；然后用 task_graph 实时读取 tg_e704c9e2，并尝试create标题 R7-572不应创建 的图。只用task_graph，不用bash/curl绕过；失败如实报告，不用历史代替实时。"
+    },
+    {
+      "channel": "dm",
+      "type": "post",
+      "message_sha256": "f495968fcd8d561fb49753d925fd04c73dcae58254555325f8e8085222670aaf",
+      "content": "普通飞书仍能对话"
+    },
+    {
+      "channel": "dm",
+      "type": "interactive",
+      "message_sha256": "d805f130e4a28485c6c042545785d3422d8b059efcb824c5238a0af9deec09f9",
+      "content": "<card>\n普通飞书仍能对话\n\n两项 task_graph 操作均失败，如实报告：\n1. **实时读取 tg_e704c9e2** — 失败：```plain_text\n{\"code\":\"source_unavailable\",\"message\":\"IM task graph service is unavailable; try again after reconnection.\"}```2. **create「R7-572不应创建」** — 同样失败，返回完全相同的 `source_unavailable`，未创建任何新图。因此：本会话当前没有任何实时任务图数据，`tg_e704c9e2` 的当前 revision/内容都无法确认；先前那条创建回执只是历史记录，不能代替本次实时读取。全程只用 `task_graph`，未使用 bash/curl 等绕过方式。服务恢复后我可以重试读取并复核是否有新图被创建。\n---\n📝 deepseek:deepseek-v4-flash · ctx 10%\n</card>"
+    },
+    {
+      "channel": "group",
+      "type": "text",
+      "message_sha256": "751e7c501500e6e9d708950a65494a99a9efd64e7acc682bb802b2d094e8f21f",
+      "content": "R7-572-BG-01 背景记录：验收代号是松果42。此条无需回复。"
+    },
+    {
+      "channel": "group",
+      "type": "text",
+      "message_sha256": "69699bc79f22ed04dda5390b4349d340b47edbbb1231a8203df0c88165b6c817",
+      "content": "@测试agent R7-572-GROUP-01：请先回答刚才背景记录中的验收代号，然后用 task_graph get 读取 tg_e04a3fc6，并把子节点 n2 标题改为“检查图像已验证”；不要改状态。完成后 get 验证并在本群回复图ID、revision和新标题。"
+    },
+    {
+      "channel": "group",
+      "type": "interactive",
+      "message_sha256": "918ab98205a24c2f06c9b6fdb527f8d00076d94bc810a8b00d2718c43b4d216d",
+      "content": "<card>\n验收代号：松果42\n\ntg_e04a3fc6 操作完成并已验证：\n- 图ID：tg_e04a3fc6\n- revision：2 → 3\n- n2 新标题：检查图像已验证（状态仍为 todo，未改动）附：本次 get 显示的 n2 updated_by 为 e2e (e2e)，change_note 已记录本次改动。\n---\n📝 deepseek:deepseek-v4-flash · ctx 6%\n</card>"
+    }
+  ],
+  "checks": {
+    "original_ownerOpenId_preserved_before_cleanup": true,
+    "im_owner_restored_before_cleanup": true,
+    "graph_revision_after_group_edit": 3,
+    "group_edit_title": "检查图像已验证",
+    "group_edit_status": "todo",
+    "provenance_channel": "feishu",
+    "initiator_is_external_owner": true,
+    "initiator_is_not_im_owner": true,
+    "dm_and_group_source_chat_differ": true,
+    "tool_disabled_graph_revision_unchanged": 3,
+    "pending_bind_accept_http": 403,
+    "pending_bind_accept_code": "company_membership_required",
+    "approved_bind_accept_http": 200,
+    "suspend_http": 200,
+    "graphs_after_suspended_requests": 1,
+    "only_graph_after_suspended_requests": {
+      "graph_id": "tg_e704c9e2",
+      "revision": 1,
+      "title": "R7-572停用验证"
+    },
+    "image_fixture_sha256": "e0dd422c704a29f3a3a5cf6c4857b86fbbeed687bd7f275db806cf98092ba4b7",
+    "image_expected": "left orange triangle, right blue circle"
+  },
+  "coverage_boundary": "Pending acceptance is real API; suspended manager and disabled task tool are actual Feishu requests. Unbound and expired-machine general rejection reuses unchanged Round 1/2 evidence, not claimed as separate Feishu sends."
+}

@@ -6,6 +6,9 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { PolicyProfile, getPolicies, updatePolicies } from "../im-settings-api";
 
+import { useAuthStore } from "../../auth/auth-store";
+import { authFetchJson } from "../../auth/auth-fetch";
+
 // M2 restyle: 以 account-page.tsx 为 house-style 参考重写呈现层。
 // 字段集、getPolicies/updatePolicies 调用、保存语义全部不动。
 
@@ -24,6 +27,8 @@ export function PoliciesPage() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  const admin = useAuthStore(s => Boolean(s.user?.is_company_admin));
+  const capacity = useQuery({ queryKey: ["settings", "attachment-capacity"], enabled: admin, queryFn: () => authFetchJson<{ service: { used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }; owners: Array<{ owner_id: string; username: string | null; display_name: string | null; used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }> }>("/im/v1/attachments/capacity") });
 
   const query = useQuery({
     queryKey: ["settings", "policies"],
@@ -67,7 +72,7 @@ export function PoliciesPage() {
 
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!dirty || mutation.isPending) return;
+    if (!admin || !dirty || mutation.isPending) return;
     mutation.mutate(draft);
   };
 
@@ -110,6 +115,8 @@ export function PoliciesPage() {
           </div>
         )}
 
+        {!admin && <p>{t("company.readOnly")}</p>}
+        <fieldset disabled={!admin} className="contents">
         {/* 模型与审计卡 */}
         <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
           <div className="grid gap-[14px]">
@@ -178,7 +185,9 @@ export function PoliciesPage() {
           </label>
         </section>
 
+        </fieldset>
         {/* 保存区 */}
+        {admin && (
         <div
           data-testid="policies-save-footer"
           className="flex items-center justify-between gap-3 rounded-[12px] border border-[oklch(0.87_0.006_240)] bg-white px-4 py-[14px]"
@@ -205,7 +214,28 @@ export function PoliciesPage() {
               {mutation.isPending ? t("settings.policies.actions.saving") : t("settings.policies.actions.save")}
             </button>
           </div>
-        </div>
+        </div>)}
+        {admin && (
+          <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
+            <h3 className="m-0 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">{t("company.capacity")}</h3>
+            <p className="m-0 text-[13px] text-[oklch(0.55_0.01_240)]">{t("company.capacityHint")}</p>
+            {capacity.isError && <p role="alert">{t("auth.feedback.serviceUnavailable")}</p>}
+            {capacity.data && [
+              { ...capacity.data.service, owner_id: "service", display_name: t("company.service"), username: null },
+              ...capacity.data.owners
+            ].map(row => (
+              <div key={row.owner_id} className="min-w-0 text-[13px]">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <strong className="break-words">{row.display_name || row.username || row.owner_id}</strong>
+                  {row.username && <span className="break-all text-[12px] text-[oklch(0.55_0.01_240)]">@{row.username}</span>}
+                </div>
+                <p className="m-0 mt-1 text-[oklch(0.55_0.01_240)]">
+                  {t("company.used")}: {(row.used_bytes / 1048576).toFixed(1)} MiB · {t("company.reserved")}: {(row.reserved_bytes / 1048576).toFixed(1)} MiB · {t("company.limit")}: {(row.limit_bytes / 1048576).toFixed(0)} MiB {row.full && `· ${t("company.full")}`}
+                </p>
+              </div>
+            ))}
+          </section>
+        )}
       </form>
     </div>
   );

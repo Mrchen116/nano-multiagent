@@ -314,6 +314,8 @@ class ReplyImages:
 
             def replace(match: re.Match[str]) -> str:
                 source = match.group(2) or match.group(3)
+                if urlsplit(source).scheme in {"http", "https"}:
+                    return f"[{match.group(1)}]({source})"
                 resource = by_source.get(source)
                 if resource is None:
                     resource = ReplyImage(len(images), source)

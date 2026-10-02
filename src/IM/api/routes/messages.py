@@ -16,6 +16,7 @@ from IM.api.deps import (
     get_web_im_service,
     require_conversation_access,
 )
+from IM.api.attachment_upload import image_content_type, upload_chunks, upload_error
 from IM.api.resource_access import authorize_resource_references
 from IM.application.web_im_service import WebIMService
 from IM.api.deps import get_gateway_control, get_gateway_relay
@@ -41,7 +42,7 @@ router = APIRouter(tags=["messages"])
 # PDFs, and a handful of plaintext-style documents the agent can read with
 # the existing tool surface. Anything else returns 415 so an agent can never
 # be coerced into running an arbitrary blob downloaded by the user.
-_UPLOAD_ALLOWED_PREFIXES = ("image/",)
+_UPLOAD_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 _UPLOAD_ALLOWED_EXACT = frozenset(
     {
         "application/pdf",
@@ -57,7 +58,7 @@ _MESSAGE_MAX_ATTACHMENTS = 5
 def _is_allowed_upload_content_type(content_type: str) -> bool:
     if content_type in _UPLOAD_ALLOWED_EXACT:
         return True
-    return any(content_type.startswith(prefix) for prefix in _UPLOAD_ALLOWED_PREFIXES)
+    return content_type in _UPLOAD_IMAGE_TYPES
 
 
 class AttachmentPayload(BaseModel):
@@ -396,19 +397,33 @@ async def create_upload(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"unsupported content_type: {content_type}",
         )
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > _UPLOAD_MAX_BYTES:
-            raise HTTPException(413, f"upload exceeds {_UPLOAD_MAX_BYTES} bytes")
-        body.extend(chunk)
-    require_conversation_access(request, user, conversation_id, agent_id)
-    resource, _ = request.app.state.message_image_repository.put(
-        conversation_id=conversation_id,
-        source_key=f"upload:{uuid4().hex}",
-        data=bytes(body),
-        content_type=content_type,
-        file_name=safe_name,
-    )
+
+    def validate(data: bytes) -> None:
+        if (
+            content_type in _UPLOAD_IMAGE_TYPES
+            and image_content_type(data) != content_type
+        ):
+            raise HTTPException(415, "image content does not match content type")
+
+    async def reauthorize() -> None:
+        fresh = await current_data_principal(request)
+        require_conversation_access(request, fresh, conversation_id, agent_id)
+
+    try:
+        resource, _ = await request.app.state.message_image_repository.put_stream(
+            conversation_id=conversation_id,
+            source_key=f"upload:{uuid4().hex}",
+            chunks=upload_chunks(request),
+            owner_id=user.owner_id if isinstance(user, GatewayPrincipal) else user.id,
+            content_type=content_type,
+            file_name=safe_name,
+            max_bytes=_UPLOAD_MAX_BYTES,
+            validate=validate,
+            authorize=reauthorize,
+            commit_guard=request.app.state.company_gate,
+        )
+    except ValueError as exc:
+        raise upload_error(exc) from exc
     return AttachmentPayload(
         url=resource.attachment_url,
         content_type=content_type,

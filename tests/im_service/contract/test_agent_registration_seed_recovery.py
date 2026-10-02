@@ -1,5 +1,7 @@
 """Recovery contracts for durable Gateway-first Agent create operations."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -15,7 +17,7 @@ def _register_seed(
     agent_id: str,
     workspace_root: str,
 ) -> None:
-    with client.websocket_connect("/im/ws/gateway") as websocket:
+    with gateway_socket(client) as websocket:
         websocket.send_json(
             {
                 "type": "node.register",

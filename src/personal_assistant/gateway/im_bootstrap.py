@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 import webbrowser
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Protocol
-from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -121,69 +119,12 @@ class IMBootstrapClient:
                 client.headers.update(self._base_headers)
 
     def ensure_node_binding(self, *, node_id: str) -> str | None:
-        """Open the bind URL when the upstream node still has no owner.
+        """A registered runtime already completed the local device proof protocol.
 
-        Args:
-            node_id: Gateway node id that was just registered over IM websocket.
-
-        Returns:
-            The opened bind URL for unbound nodes, or `None` when the node is already owned.
-
-        Raises:
-            GatewayStartupError: When IM bootstrap APIs do not expose the registered
-                node or binding cannot be started/confirmed.
+        Initial binding and handoff run in ``gateway bind`` before any company
+        websocket is admitted; reconnect never starts browser ownership changes.
         """
-        self._refresh_token()
-        owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
-        if owner_id:
-            return None
-        client = self._get_client(resolved_base_url)
-        try:
-            response = client.post(
-                "/im/v1/bind", json={"action": "start", "node_id": node_id}
-            )
-            response.raise_for_status()
-        except Exception as exc:  # noqa: BLE001
-            raise GatewayStartupError(
-                summary=f"node {node_id} could not start IM binding",
-                next_step=f"Verify {resolved_base_url}/im/v1/bind is reachable, then rerun gateway.",
-            ) from exc
-        payload = response.json()
-        bind_url = require_text(payload.get("bind_url"), field_name="bind_url")
-        if os.environ.get("NANO_MULTIAGENT_AUTO_BIND") == "1":
-            bind_token = extract_bind_token(bind_url)
-            if not bind_token:
-                raise GatewayStartupError(
-                    summary=f"node {node_id} auto-bind failed: bind_url missing token",
-                    next_step=f"Inspect {bind_url} or unset NANO_MULTIAGENT_AUTO_BIND.",
-                )
-            try:
-                confirm_resp = client.post(
-                    "/im/v1/bind",
-                    json={"action": "confirm", "bind_token": bind_token},
-                )
-                confirm_resp.raise_for_status()
-            except Exception as exc:  # noqa: BLE001
-                raise GatewayStartupError(
-                    summary=f"node {node_id} auto-bind confirm failed",
-                    next_step=(
-                        f"POST {resolved_base_url}/im/v1/bind with action=confirm + bind_token failed. "
-                        "Verify the IM Bearer token has confirm permission, then rerun."
-                    ),
-                ) from exc
-            self._feedback_sink(
-                "INFO",
-                f"node {node_id} auto-bound to IM",
-                f"NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for {resolved_base_url}.",
-            )
-            return None
-        self._browser_opener(bind_url, new=2, autoraise=True)
-        self._feedback_sink(
-            "ACTION",
-            f"node {node_id} is waiting for IM binding",
-            f"Open {bind_url} to finish binding this node.",
-        )
-        return bind_url
+        return None
 
     def close(self) -> None:
         """Release the owned HTTP client."""
@@ -257,14 +198,6 @@ def require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RuntimeError(f"{field_name} must be a non-empty string")
     return value.strip()
-
-
-def extract_bind_token(bind_url: str) -> str | None:
-    """Pull the canonical bind token from an IM bind URL."""
-    parsed = urlparse(bind_url)
-    query = parse_qs(parsed.query)
-    tokens = query.get("token") or query.get("bind_token") or []
-    return tokens[0] if tokens else None
 
 
 def im_bootstrap_base_urls(url: str) -> tuple[str, ...]:

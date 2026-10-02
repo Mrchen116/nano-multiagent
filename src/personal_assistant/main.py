@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -69,9 +70,15 @@ def main(argv: list[str] | None = None) -> int:
             "Intended for worktree e2e scripts where no human can click the bind URL."
         ),
     )
+    parser.add_argument(
+        "--recover-device",
+        action="store_true",
+        help="Recover the current owner's device session using the local private key",
+    )
     subparsers = parser.add_subparsers(dest="command")
     for command, help_text in (
         ("stop", "Stop the current background gateway for one config"),
+        ("bind", "Locally confirm or recover a complete device handoff"),
         (
             "restart",
             "Stop then start the background gateway (equivalent to stop + start)",
@@ -102,8 +109,33 @@ def main(argv: list[str] | None = None) -> int:
         if args.config
         else str(default_local_config_path())
     )
-    auto_bind = bool(getattr(args, "auto_bind", False))
+    auto_bind = (
+        bool(getattr(args, "auto_bind", False))
+        or os.getenv("NANO_MULTIAGENT_AUTO_BIND") == "1"
+    )
     try:
+        initial_binding = False
+        if command == "start" and Path(resolved_config_path).is_file():
+            from personal_assistant.config.local_store import load_local_config
+
+            startup_config = load_local_config(resolved_config_path)
+            initial_binding = (
+                startup_config.im_service is not None
+                and not startup_config.node.user_id
+            )
+        if command == "bind" or auto_bind or args.recover_device or initial_binding:
+            from personal_assistant.gateway.device_binding import bind_local_device
+
+            process_lifecycle.stop_gateway(config_path=resolved_config_path)
+            bind_local_device(
+                resolved_config_path,
+                auto_bind=auto_bind,
+                recover_device=args.recover_device,
+            )
+            auto_bind = False
+            os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
+            if command == "bind":
+                command = "start"
         if command == "stop":
             print(process_lifecycle.stop_gateway(config_path=resolved_config_path))
             return 0

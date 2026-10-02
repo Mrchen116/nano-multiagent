@@ -16,7 +16,7 @@ afterEach(() => {
 
 it("moves the original-message highlight when another work source opens in the same chat", async () => {
   await act(async () => setLanguage("en"));
-  useAuthStore.getState().setSession({access_token:"token",refresh_token:"refresh",user:{id:"u-self",username:"self",display_name:"You",owner_id:"owner",locale:"en",default_entry_node_id:null,owned_node_ids:[],created_at:"2026-09-09T00:00:00Z"}});
+  useAuthStore.getState().setSession({access_token:"token",refresh_token:"refresh",user:{id:"u-self",membership_status:"active" as const,is_company_admin:true,username:"self",display_name:"You",owner_id:"owner",locale:"en",default_entry_node_id:null,owned_node_ids:[],created_at:"2026-09-09T00:00:00Z"}});
   const conversation = {id:"room",title:"Team",participants:[{id:"u-self",type:"user",display_name:"You"},{id:"u-other",type:"user",display_name:"Other"}],participant_ids:["u-self","u-other"],type:"group",direct_kind:null,owner_id:"owner",creator_id:"u-self",is_pinned:false,is_muted:false,unread_count:0,last_message_preview:null,last_message_at:null,created_at:"2026-09-09T00:00:00Z",run_state:"idle"};
   const messages = ["m1","m2"].map(id => ({id,conversation_id:"room",sender:{id:"u-other",type:"user",display_name:"Other"},sender_user_id:"u-other",sender_type:"user",content:`Message ${id}`,attachments:[],delivery_status:"completed",created_at:"2026-09-09T00:00:00Z"}));
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {

@@ -1,4 +1,4 @@
-"""Shadow identity checks and machine writes use separate credentials."""
+"""Shadow identity checks and writes use only current machine credentials."""
 
 from tests.helpers.message_delivery import shadow_sync_with_delivery
 
@@ -25,24 +25,19 @@ async def test_shadow_recovery_retains_owner_checks_and_uses_rotated_runtime_tok
     runtime_token = None
     seen = []
 
-    async def owner():
-        return "owner-jwt"
-
     async def runtime():
         return runtime_token
 
     def respond(request):
         seen.append(request)
         if request.url.path in {"/im/v1/me", "/im/v1/nodes"}:
-            assert request.headers["Authorization"] == "Bearer owner-jwt"
-            payload = (
-                {"id": "real-owner"}
-                if request.url.path.endswith("/me")
-                else [{"node_id": "node", "owner_id": "real-owner"}]
-            )
-            return httpx.Response(200, json=payload)
+            return httpx.Response(401, json={"detail": "human session required"})
         assert request.headers["Authorization"] == f"Bearer {runtime_token}"
         assert runtime_token is not None
+        if request.url.path == "/im/v1/gateway/identity":
+            return httpx.Response(
+                200, json={"node_id": "node", "owner_id": "real-owner"}
+            )
         if request.url.path.endswith("find-or-create"):
             return httpx.Response(201, json={"id": "shadow"})
         assert request.url.params["agent_id"] == "agent"
@@ -51,7 +46,6 @@ async def test_shadow_recovery_retains_owner_checks_and_uses_rotated_runtime_tok
     store = ExternalShadowSagaStore(db_path=tmp_path / "sagas.sqlite")
     sync = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=owner,
         gateway_token_getter=runtime,
         owner_user_id="stale-config-owner",
         node_id="node",
@@ -81,7 +75,7 @@ async def test_shadow_recovery_retains_owner_checks_and_uses_rotated_runtime_tok
     with pytest.raises(ShadowSyncPendingError) as pending:
         await sync.sync_user_message(message, agent_id="agent")
     assert store.require(pending.value.saga_id).shadow_ref is None
-    assert all(request.url.path in {"/im/v1/me", "/im/v1/nodes"} for request in seen)
+    assert seen == []
     runtime_token = "runtime-one"
     recovered = await sync.sync_user_message(message, agent_id="agent")
     assert recovered.ref.conversation_id == "shadow"
@@ -105,4 +99,4 @@ async def test_shadow_recovery_retains_owner_checks_and_uses_rotated_runtime_tok
             content="later",
         )
     assert len(store.pending_outputs()) == 1
-    assert sum(request.url.path == "/im/v1/me" for request in seen) == 1
+    assert sum(request.url.path == "/im/v1/gateway/identity" for request in seen) == 1

@@ -1,0 +1,18 @@
+{
+  "validated_at": "d5de5f9f7abeb33a3ba2959d8ef602ea0b222b96",
+  "initial_im_pid": 21201,
+  "restart_im_pid": 27203,
+  "restart_source": "output/feat572-review-baseline/src/IM (caller git archive d5de5f9f7)",
+  "assets": [
+    {
+      "asset": "/assets/index-cBiWgWEt.js",
+      "sha256": "a33a1d5de5476efc6b7274f0c510e5ce1cbf433af70bbf3bbfd47bedb81afc0b",
+      "matches_local_dist": true
+    },
+    {
+      "asset": "/assets/index-nMhGLXOi.css",
+      "sha256": "afffc4dadb750db9eab8ca0b50bfbf962cd7d2ef1d48afa3a85606d774da1818",
+      "matches_local_dist": true
+    }
+  ]
+}

@@ -292,3 +292,28 @@ it("does not restore a removed conversation's draft after unmount or a late uplo
   render(pane(CONV_A, {composerStore:store}));
   expect(screen.getByRole("textbox")).toHaveValue("");
 });
+
+it("keeps failed files across chats and sends only text without consuming attachments", async () => {
+  const user = userEvent.setup();
+  const uploadAttachment = vi.fn().mockRejectedValue(new Error("offline"));
+  const onSend = vi.fn().mockResolvedValue(undefined);
+  const view = render(pane(CONV_A, { uploadAttachment, onSend }));
+  await user.type(screen.getByRole("textbox"), "keep my text");
+  fireEvent.drop(screen.getByRole("textbox").closest("[data-dragging]") as HTMLElement, {
+    dataTransfer: { files: [new File(["img"], "failed.png", { type: "image/png" })], types: ["Files"] }
+  });
+  expect(await screen.findByRole("button", { name: "Remove failed.png" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+  view.rerender(pane(CONV_B, { uploadAttachment, onSend }));
+  expect(screen.queryByText("failed.png")).not.toBeInTheDocument();
+  view.rerender(pane(CONV_A, { uploadAttachment, onSend }));
+  await user.click(screen.getByRole("button", { name: "Send text only" }));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith("keep my text", []));
+  expect(screen.getByRole("button", { name: "Remove failed.png" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Send text only" })).toBeDisabled();
+  expect(screen.getByRole("textbox")).toHaveValue("");
+  uploadAttachment.mockResolvedValue({ url: "/im/v1/conversations/c1/attachments/file", content_type: "image/png", file_name: "failed.png" });
+  await user.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: /^Send$/ })).toBeEnabled();
+});

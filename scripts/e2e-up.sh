@@ -247,6 +247,7 @@ rm -f "$WT_ROOT/global_agent.sqlite3" "$WT_ROOT/global_agent.sqlite3-wal" "$WT_R
 # encrypted manifest must be fresh as one isolation pair as well.
 rm -f "$WT_ROOT/channel-credentials-v1.pem"
 rm -f "$WT_ROOT/channel-manifest-v1.json"
+rm -f "$WT_ROOT/device-binding-operation.json"
 
 cd "$WT_ROOT"
 IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
@@ -277,11 +278,10 @@ while true; do
   sleep "$IM_READINESS_POLL_SECONDS"
 done
 
-# Register nano user in the ephemeral IM (fresh DB, no users yet).
-curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"nano","password":"nano1234","display_name":"Test User"}' \
-  >/dev/null 2>&1 || true  # ignore if already registered
+# Explicit local admission; public registration intentionally stays pending.
+IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" python -m IM.cli init_admin \
+  --username nano --password nano1234 --display-name "Test User" \
+  --db-path "$WT_ROOT/data/im_service.sqlite3"
 
 # Resolve the nano user's real id in this ephemeral IM and patch config.node.user_id.
 # feat-393 fix-r1: the main config carries a stale user_id from a prior persistent IM
@@ -289,28 +289,19 @@ curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
 # heartbeat to pass a nonexistent to_user_id and never deliver messages to the owner.
 # We login to obtain the authenticated profile which includes the real id, then update
 # the worktree config copy so Gateway uses the correct owner for heartbeat delivery.
-NANO_USER_ID="$(
-  curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/login" \
-    -H "Content-Type: application/json" \
-    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
-)" || true
-if [[ -n "$NANO_USER_ID" ]]; then
-  if command -v yq >/dev/null 2>&1; then
-    yq -i ".node.user_id = \"$NANO_USER_ID\"" "$WT_CFG"
-  else
-    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" python3 - <<'PY'
-import os, yaml
+# Store this isolated browser credential only for the one-launch device acceptance.
+# bind_local_device replaces it with the node-scoped runtime credential after proof.
+WT_CFG_PY="$WT_CFG" IM_E2E_URL="http://127.0.0.1:$IM_PORT" python - <<'PYBIND'
+import os, httpx, yaml
+response = httpx.post(os.environ["IM_E2E_URL"] + "/im/v1/auth/login", json={"username": "nano", "password": "nano1234"}, trust_env=False)
+response.raise_for_status()
+pair = response.json()
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
-cfg.setdefault("node", {})["user_id"] = os.environ["NANO_USER_ID"]
+cfg.setdefault("node", {})["user_id"] = pair["user"]["id"]
+cfg.setdefault("im_service", {})["token"] = pair["access_token"]
 with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-PY
-  fi
-  echo "e2e config: node.user_id synced to ephemeral IM user $NANO_USER_ID"
-else
-  echo "WARNING: could not resolve nano user id from ephemeral IM; heartbeat delivery may fail" >&2
-fi
+PYBIND
 
 # ─── validate llm config before starting Gateway ─────────────────────────────
 # The kernel runs in-process inside Gateway; there is no separate Kernel service.
@@ -337,25 +328,25 @@ PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
   > "$WT_ROOT/.gateway.log" 2>&1 &
 echo $! > "$WT_ROOT/.gateway.pid"
 
-# Wait for Gateway readiness. Probe the internal health port written into the
-# log; absent a health line within 20s, abort.
-GW_READY=0
-for _ in $(seq 1 60); do
-  if grep -q "INFO node .* auto-bound to IM\|Gateway started\|node_id=\|INFO im_connection" "$WT_ROOT/.gateway.log" 2>/dev/null; then
-    GW_READY=1; break
-  fi
-  if ! kill -0 "$(cat "$WT_ROOT/.gateway.pid")" 2>/dev/null; then
-    echo "Gateway process died during startup; see $WT_ROOT/.gateway.log" >&2
-    tail -30 "$WT_ROOT/.gateway.log" >&2 || true
-    exit 1
-  fi
-  sleep 0.5
-done
-if [[ $GW_READY -eq 0 ]]; then
-  echo "Gateway did not signal readiness within 30s; see $WT_ROOT/.gateway.log" >&2
-  tail -30 "$WT_ROOT/.gateway.log" >&2 || true
-  exit 1
-fi
+# Readiness requires the expected node to be online under the admitted owner.
+# A successful proof alone is insufficient: registration and config sync follow it.
+IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" python - <<'PYREADY'
+import os, time, httpx
+with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
+    login = client.post("/im/v1/auth/login", json={"username": "nano", "password": "nano1234"})
+    login.raise_for_status()
+    pair = login.json()
+    client.headers["Authorization"] = "Bearer " + pair["access_token"]
+    for _ in range(60):
+        os.kill(int(os.environ["E2E_GATEWAY_PID"]), 0)
+        response = client.get("/im/v1/nodes")
+        response.raise_for_status()
+        if any(node["node_id"] == os.environ["E2E_NODE_ID"] and node["owner_id"] == pair["user"]["owner_id"] and node["status"] == "online" for node in response.json()):
+            break
+        time.sleep(0.5)
+    else:
+        raise SystemExit("Gateway did not register online within 30s; inspect .gateway.log")
+PYREADY
 
 if [[ $FEISHU_LOCK_HELD -eq 1 ]]; then
   printf 'worktree=%s\npid=%s\n' "$WT_ROOT" "$(cat "$WT_ROOT/.gateway.pid")" > "$FEISHU_LOCK_DIR/owner"

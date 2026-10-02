@@ -1,0 +1,68 @@
+.company-page {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--im-bg);
+}
+
+.company-content {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 48px 40px;
+}
+
+.company-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.company-title { margin: 0; color: var(--im-text); font-size: 28px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.3; }
+.company-description { margin: 9px 0 0; color: var(--im-text-muted); font-size: 13px; line-height: 1.7; }
+.company-refresh { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 34px; height: 34px; border: 1px solid var(--im-border); border-radius: 10px; background: var(--im-surface); color: var(--im-text-muted); cursor: pointer; transition: background 150ms, color 150ms; }
+.company-refresh:hover { background: var(--im-hover); color: var(--im-text); }
+.company-refresh:disabled, .company-action:disabled { opacity: 0.5; cursor: default; }
+.company-refresh:focus-visible, .company-action:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 3px; }
+.company-directory { overflow: hidden; background: var(--im-surface); border: 1px solid var(--im-border); border-radius: 16px; box-shadow: 0 2px 4px rgb(30 50 60 / 0.02); }
+
+/* Header and rows share column geometry; identity labels align after the avatar. */
+.company-columns { display: grid; grid-template-columns: minmax(0, 1fr) 140px 120px 92px; align-items: center; gap: 20px; padding-inline: 24px; }
+.company-column-headings { min-height: 48px; color: var(--im-text-muted); font-size: 11px; font-weight: 500; border-bottom: 1px solid var(--im-border); }
+.company-member-heading { padding-left: 52px; }
+.company-actions-heading { text-align: center; }
+.company-member-list { list-style: none; padding: 0; margin: 0; }
+.company-member-row { min-height: 86px; padding-block: 18px; transition: background 150ms; }
+.company-member-row + .company-member-row { border-top: 1px solid var(--im-surface-2); }
+.company-member-row:hover { background: #fafcfc; }
+.company-identity { display: flex; align-items: center; min-width: 0; gap: 14px; }
+.company-avatar { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; flex-shrink: 0; border: 1px solid #dce8e4; border-radius: 12px; background: #eef5f2; color: #56736b; font-size: 12px; font-weight: 500; }
+.company-member-name { margin: 0; overflow-wrap: anywhere; color: var(--im-text); font-size: 14px; font-weight: 500; line-height: 1.5; }
+.company-username { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; color: var(--im-text-muted); }
+.company-role { font-size: 12px; color: var(--im-text-muted); }
+.company-member-status { display: flex; align-items: center; gap: 10px; }
+.company-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; line-height: 20px; color: var(--im-text-muted); white-space: nowrap; }
+.company-status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #a9b3bb; }
+.company-status--active::before { background: var(--im-success); }
+.company-status--pending::before { background: var(--im-warning); }
+.company-mobile-role { display: none; }
+.company-member-actions { display: flex; justify-content: center; }
+.company-action { border: 0; border-radius: 8px; padding: 7px 12px; font-size: 12px; line-height: 18px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background 150ms, color 150ms; }
+.company-action--suspend { background: transparent; color: var(--im-text-muted); }
+.company-action--suspend:hover { background: #fff1f1; color: var(--im-danger); }
+.company-action--approve { background: var(--im-accent-soft); color: var(--im-accent); }
+.company-action--approve:hover { background: var(--im-accent-border); }
+
+@media (max-width: 767px) {
+  .company-content { padding: 22px 16px; }
+  .company-heading { gap: 16px; margin-bottom: 20px; }
+  .company-description { margin: 0; font-size: 12px; line-height: 1.7; }
+  .company-refresh { flex-basis: 32px; height: 32px; }
+  .company-directory { border-radius: 14px; }
+  .company-column-headings, .company-role { display: none; }
+  .company-member-row { grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 7px; padding: 18px 16px; }
+  .company-identity { grid-column: 1; grid-row: 1; gap: 12px; }
+  .company-avatar { width: 34px; height: 34px; border-radius: 11px; font-size: 11px; }
+  .company-member-name { font-size: 13px; }
+  .company-username { font-size: 11px; }
+  .company-member-status { grid-column: 1; grid-row: 2; padding-left: 46px; flex-wrap: wrap; gap: 8px; }
+  .company-status { font-size: 11px; }
+  .company-mobile-role { display: inline; color: var(--im-text-muted); font-size: 11px; }
+  .company-mobile-role::before { content: "·"; margin-right: 8px; color: var(--im-border-strong); }
+  .company-member-actions { grid-column: 2; grid-row: 1 / span 2; }
+  .company-action { padding: 10px 8px; }
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -32,7 +34,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
         user = _UserShim()
         assert user.status_code == 201
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -118,19 +120,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 "/gateway/first-beta",
             ]
 
-            bind_start = client.post(
-                "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
-            )
-            assert bind_start.status_code == 201
-            bind_confirm = client.post(
-                "/im/v1/bind",
-                json={
-                    "action": "confirm",
-                    "bind_id": bind_start.json()["bind_id"],
-                },
-            )
-            assert bind_confirm.status_code == 201
-
+            # This fixture is already device-enrolled before node.register.
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
             assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
@@ -151,7 +141,7 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
     with TestClient(app) as client:
         viewer = register_user(client, username="viewer", display_name="Viewer")
         authorize(client, viewer)
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -185,7 +175,7 @@ def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(
         )
         app.state.connection.commit()
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -220,7 +210,7 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(
     with TestClient(app) as client:
         user_id = seed_user(client, "alice")
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -292,10 +282,10 @@ def test_registration_rejects_mode_conflict_without_false_online_and_can_recover
             "agents": ["worker"],
             "agent_work_modes": {"worker": "global"},
         }
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             ws.send_json({"type": "node.register", "payload": payload})
             assert ws.receive_json()["type"] == "ack"
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             ws.send_json(
                 {
                     "type": "node.register",

@@ -1,5 +1,7 @@
 """Integration tests for IM agent configuration APIs."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 from pathlib import Path
 import threading
 
@@ -59,7 +61,7 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
         )
         app.state.connection.commit()
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -180,7 +182,7 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
         )
         app.state.connection.commit()
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -373,26 +375,16 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
         )
         app.state.connection.commit()
 
-        start_resp = client.post(
-            "/im/v1/bind", json={"action": "start", "node_id": "node-fresh"}
-        )
-        assert start_resp.status_code == 201
-        confirm_resp = client.post(
-            "/im/v1/bind",
-            json={
-                "action": "confirm",
-                "bind_token": start_resp.json()["bind_url"].split("token=", 1)[1],
-                "user_id": owner.id,
-            },
-        )
-        assert confirm_resp.status_code == 201
+        from tests.im_service.device_binding_helpers import complete_binding
+
+        complete_binding(client, tmp_path, node_id="node-fresh")
 
         bound_profile = client.get("/im/v1/agents/agent-m170-alpha/config")
         assert bound_profile.status_code == 200
         assert bound_profile.json()["owner_id"] == owner.owner_id
         assert bound_profile.json()["profile_version"] == 1
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",

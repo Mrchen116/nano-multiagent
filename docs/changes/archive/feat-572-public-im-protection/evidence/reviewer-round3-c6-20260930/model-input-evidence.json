@@ -1,0 +1,168 @@
+{
+  "review": "Independent reviewer read complete designated session requests; no source-code inference",
+  "acceptance_snapshot": "7df455679",
+  "historical_run_versions": "R1 d5de5f9f7; R2 bf9fde9e3; final restart 7df455679. No claim that all 94 requests were executed on final commit.",
+  "session_id": "sess_5c56f53a24a4b57e",
+  "agent_id": "review572-global",
+  "request_count": 94,
+  "existing_graph": {
+    "graph_id": "tg_c1d2b5b5",
+    "title": "572跨群发布计划",
+    "created_at": "2026-09-30T13:38:55.151339Z",
+    "current_revision": 5
+  },
+  "requests_before_first_existing_id": 69,
+  "first_existing_id_request": "2026-09-30_22-57-05_133-req-anthropic_messages.json",
+  "first_existing_title_request": "2026-09-30_22-57-08_114-req-anthropic_messages.json",
+  "first_id_source": "inbox read tool_result containing actual explicit human graph-ID request",
+  "first_title_and_body_source": "task_graph get tool_result, graph_id tg_c1d2b5b5, scope_id n3, revision5",
+  "requests_with_graph_markers_in_system": 0,
+  "first_three_requests_have_task_graph_tool": true,
+  "requests_with_task_graph_tool": 64,
+  "agent_delegations_after_first_existing_graph_reference": 0,
+  "task_status_effect": "The requested outdated apply returned version_conflict; graph retained revision5 and original node description. Earlier/later get did not create a task claim or start another Agent.",
+  "bounded_conclusion": "pass for C6 in this isolated real session; graph content enters model messages via human-directed tools and retained conversation history, not an automatic company-wide system injection. Not a universal claim about every provider/channel.",
+  "raw_inputs_exported": false,
+  "first_occurrence_locations": {
+    "existing_id": {
+      "request": "2026-09-30_22-57-05_133-req-anthropic_messages.json",
+      "locations": [
+        {
+          "message_index": 88,
+          "role": "user",
+          "block_types": [
+            "tool_result"
+          ]
+        }
+      ]
+    },
+    "existing_title": {
+      "request": "2026-09-30_22-57-08_114-req-anthropic_messages.json",
+      "locations": [
+        {
+          "message_index": 90,
+          "role": "user",
+          "block_types": [
+            "tool_result"
+          ]
+        }
+      ]
+    },
+    "existing_body_fragment": {
+      "request": "2026-09-30_22-57-08_114-req-anthropic_messages.json",
+      "locations": [
+        {
+          "message_index": 90,
+          "role": "user",
+          "block_types": [
+            "tool_result"
+          ]
+        }
+      ]
+    }
+  },
+  "manifest_columns": [
+    "filename",
+    "sha256",
+    "message_count",
+    "task_graph_tool_enabled",
+    "existing_graph_id_in_complete_input",
+    "graph_marker_in_system"
+  ],
+  "request_manifest": [
+    ["2026-09-30_22-24-55_971-req-anthropic_messages.json", "27c16ca4cf585ac044976ab13bf2483e796b1445cc0a927b4a4949144cd8b831", 1, true, false, false],
+    ["2026-09-30_22-24-57_082-req-anthropic_messages.json", "ccb5e2e39a63724d75670ecf8f44ad3b585ac74ae301f41fb3096b6ef27497a4", 3, true, false, false],
+    ["2026-09-30_22-24-57_888-req-anthropic_messages.json", "0f7058ae23b0a8f8803ac825cc479952c147ca2ab99e2494269aa7d1e6b9a57b", 5, true, false, false],
+    ["2026-09-30_22-24-59_201-req-anthropic_messages.json", "85f630cddd4b476bdd3333a0a9f85bef8ab2d0b17feaf28b348ae2712ecdde7d", 1, true, false, false],
+    ["2026-09-30_22-25-00_437-req-anthropic_messages.json", "532d82fea5c164a92480a9a67fa801d1d21f083c5e2456021078ba29dc6a2b3b", 7, true, false, false],
+    ["2026-09-30_22-25-01_671-req-anthropic_messages.json", "8af57fa05c765aa755af6c6c45d77488aaab89c3c9be492c3735e7713770195e", 1, false, false, false],
+    ["2026-09-30_22-25-02_857-req-anthropic_messages.json", "8ae787ed78a52bba9612fd7f3781918908518c6865a1a42dcc95300172e52c99", 9, true, false, false],
+    ["2026-09-30_22-26-02_940-req-anthropic_messages.json", "9d5906b71d996a9fb56dd59cf1cee5a2e2a285294becff3ca1ee49797d3cc4cc", 11, true, false, false],
+    ["2026-09-30_22-26-04_244-req-anthropic_messages.json", "cbc3a558298b4d5681fbe7327ccfbe62122be1035e6a604be4e7dff683c32b21", 13, true, false, false],
+    ["2026-09-30_22-26-05_254-req-anthropic_messages.json", "b6c524fbf2da4f63320e2bec11674ab0d1b43ac14b66a29cdadd9e0d00ba3424", 15, true, false, false],
+    ["2026-09-30_22-26-08_007-req-anthropic_messages.json", "a54b39df5ce6e4e8e40cf5077090598ecc50fb57db3982e093bd802884d204de", 1, false, false, false],
+    ["2026-09-30_22-26-08_704-req-anthropic_messages.json", "8e77c71726ef63cdb01d2709e77de4d0239d4116967729e92f18de2f2bdb3c1a", 17, true, false, false],
+    ["2026-09-30_22-26-11_267-req-anthropic_messages.json", "050f6375d1883a428fb7b30b2d94f50016a20fe3ea00dab0300704f04a83cb34", 1, false, false, false],
+    ["2026-09-30_22-26-12_040-req-anthropic_messages.json", "4a447f557094ce38e67b39c96ef2f4bba46026098a55701231dd53c88d79ca8d", 19, true, false, false],
+    ["2026-09-30_22-26-13_916-req-anthropic_messages.json", "73e195064c8deeb2591b8602b0c35adcc9dfd345d117f4152370a9bc1e44746e", 1, false, false, false],
+    ["2026-09-30_22-26-14_482-req-anthropic_messages.json", "037f00dd7a675002e33940e362298ca1fd4d7a1d42efda7c72641098fa2dc7fe", 21, true, false, false],
+    ["2026-09-30_22-26-15_340-req-anthropic_messages.json", "6b6697eb51ba33e2c02725e8c07893830bee4f8e0515c5056fe8fd4dc020912c", 1, false, false, false],
+    ["2026-09-30_22-26-15_907-req-anthropic_messages.json", "7619a77e808d6f8ea827dd0fcc754c8e78ae6f6e824cd613b81b8d7d4783fa2c", 23, true, false, false],
+    ["2026-09-30_22-26-16_872-req-anthropic_messages.json", "6e696c951f7c5f0d24eb5fa47db45aff297732b3b2e2841538d047f5246e38cf", 1, false, false, false],
+    ["2026-09-30_22-26-17_862-req-anthropic_messages.json", "9c0e43d45b5626ac20840c8daabbdbb5f60e9bf49c0b73d9355dc1a609206f4a", 25, true, false, false],
+    ["2026-09-30_22-27-23_513-req-anthropic_messages.json", "c91a80235bda7154cd5d3c28b2fdc04cd7c903b13e2b2bdd33c9e64f11247d5d", 27, true, false, false],
+    ["2026-09-30_22-27-24_455-req-anthropic_messages.json", "8fda6d44561dc7e5b03891812526be3a3355aecc45e59f3f53f06dbeb48b3f9c", 29, true, false, false],
+    ["2026-09-30_22-27-25_380-req-anthropic_messages.json", "c03e8d193b1c3c6f7012601fd4b4e92a932476729927b00d5f4c0d27f31bb160", 1, false, false, false],
+    ["2026-09-30_22-27-26_207-req-anthropic_messages.json", "5491befc7cdac5232bae013c7d5008a16f7b62ee7a37b33daf8af5e88997102b", 31, true, false, false],
+    ["2026-09-30_22-27-27_406-req-anthropic_messages.json", "f2fdd122ae000382f511712596c6442859befb8266cd94ad504dd0a5541588ee", 1, false, false, false],
+    ["2026-09-30_22-27-28_371-req-anthropic_messages.json", "efc6e605d80dfccd8b79291eee0c40e9d563d3debed960e179dbe7e035c1ee57", 33, true, false, false],
+    ["2026-09-30_22-27-30_051-req-anthropic_messages.json", "ee3049283a6abb8bc5ca1aeb6e3d4e7ce4d74080647fe3047fe9ba1f3e137812", 1, false, false, false],
+    ["2026-09-30_22-27-30_969-req-anthropic_messages.json", "f8e2f127886e94cca4067e19c1dcb5e5d450c29533549a2abdeff2b424dda067", 35, true, false, false],
+    ["2026-09-30_22-27-33_708-req-anthropic_messages.json", "de16f62e5bb9420ec17442ce1676bcbcf07aba2f99f49fc4eb8d5de2487fbfa7", 37, true, false, false],
+    ["2026-09-30_22-27-34_970-req-anthropic_messages.json", "a02706d684dc915e50b7f973a25fc916d97974db6640acdf4a0cf98b7fcf0226", 1, false, false, false],
+    ["2026-09-30_22-27-35_774-req-anthropic_messages.json", "699e478a2ea7bb35e83bc28e2abc6e40a84814878bb7c9bf510e260de846803d", 39, true, false, false],
+    ["2026-09-30_22-27-39_556-req-anthropic_messages.json", "77f4d00dc4f0c12eeed20dfd67ba1b0e952516d0c3d7536440965117d6a9403f", 1, false, false, false],
+    ["2026-09-30_22-27-40_447-req-anthropic_messages.json", "e08c958b511e5f0b9d35b53961ebe671779ed12680e77b8103493a0abe1a9fca", 41, true, false, false],
+    ["2026-09-30_22-29-50_837-req-anthropic_messages.json", "c50a79fec29d2a2b352f9fa05129d35bbe87cddd24b902e600c6456be74605a5", 43, true, false, false],
+    ["2026-09-30_22-29-51_500-req-anthropic_messages.json", "4565a7c91f1a2b87e47c5a88f4207dc28444e988fd045e675b0917dd053c5ebe", 45, true, false, false],
+    ["2026-09-30_22-29-52_897-req-anthropic_messages.json", "7e27ba0e342a582c07f386460fc6458335f7f657f10d4b332e3761b91fffcb67", 1, false, false, false],
+    ["2026-09-30_22-29-54_259-req-anthropic_messages.json", "3dbce040cfd621bf7bb82731e555f0f41fc3b59196eb5a49c61b048d828ad3a0", 47, true, false, false],
+    ["2026-09-30_22-29-55_781-req-anthropic_messages.json", "c5343d00fe48db69c1c6441c425f0201283c13185c45f344be7455330c98201e", 1, false, false, false],
+    ["2026-09-30_22-29-56_703-req-anthropic_messages.json", "f89205e0cf016168fdf0e38ffcc5d18c414d543ae5ecb74dfb4d20e7dd194658", 49, true, false, false],
+    ["2026-09-30_22-29-58_807-req-anthropic_messages.json", "14f4db08bd93315edd0f7a7857431eceea8ce0e02f5e7b17d126340b86fa8056", 1, false, false, false],
+    ["2026-09-30_22-29-59_815-req-anthropic_messages.json", "b414c8073397412891d89ad94074f86bd81bcb43978f9e2d5e734ad9b68e9499", 51, true, false, false],
+    ["2026-09-30_22-42-07_404-req-anthropic_messages.json", "1b74a9c0a8d64b9a14306522449c5fcc7ca7484303e3f663d933c73b466a82b6", 53, true, false, false],
+    ["2026-09-30_22-42-08_447-req-anthropic_messages.json", "bbe359edabecded2174f0639150c3c4847b9dd102505fd0f0ab6f0a36d310e25", 55, true, false, false],
+    ["2026-09-30_22-42-10_106-req-anthropic_messages.json", "fdd4feeee29d3315de61e0328392b3f1044ae9fdb6482a5f8e01a54ad04d35e7", 1, false, false, false],
+    ["2026-09-30_22-42-10_875-req-anthropic_messages.json", "4d1a7ecf26c610d4e39aba8346a2dc42d5945b7143b0568c1f9e397ddbb6ee32", 57, true, false, false],
+    ["2026-09-30_22-42-13_100-req-anthropic_messages.json", "8cad72043682a4f872210bb45fe58841824c8f2bc1140dea419290f750d379df", 1, false, false, false],
+    ["2026-09-30_22-42-13_757-req-anthropic_messages.json", "56347712c48cd59c7081b26b5ac2cf3fdb4011f51f9456ecee33d181c48a2a3f", 59, true, false, false],
+    ["2026-09-30_22-42-15_135-req-anthropic_messages.json", "2c0984b09be509f442df984022f619e5ac9280309de683cefcdcac6078e7bd11", 1, false, false, false],
+    ["2026-09-30_22-42-15_933-req-anthropic_messages.json", "15ce28c60744620f5b67e8672d854d895d49f8449f191961a1ea4a52625f34ed", 61, true, false, false],
+    ["2026-09-30_22-42-17_984-req-anthropic_messages.json", "e29965f35176d03b89e7a8df4c0c58d69134d5abc97a1a73578d864aa5b861e3", 1, false, false, false],
+    ["2026-09-30_22-42-18_952-req-anthropic_messages.json", "cb519a50770c65316d565ba54af4a4a7d778b025cb1c4ef17fe3e683e5cdb2bb", 63, true, false, false],
+    ["2026-09-30_22-43-46_509-req-anthropic_messages.json", "adce746f9a10607835dc36083d32c62754327ac7ce2981345db59c7b4c6b98a4", 65, true, false, false],
+    ["2026-09-30_22-43-47_403-req-anthropic_messages.json", "c5d5e7a54d57fde3b5fd6e17dfb21aef2b82437a2657b7854f08e73cb8feb350", 67, true, false, false],
+    ["2026-09-30_22-43-48_733-req-anthropic_messages.json", "c6d7a585028009c94e73ec69f3eb41f6dff57fc710ce6e9130745fccbfe74d19", 1, false, false, false],
+    ["2026-09-30_22-43-49_586-req-anthropic_messages.json", "7d7793ba8e8d016da6f34ab1c7423d8efe1b34e6fb1e7d60b6990cbeb7ded681", 69, true, false, false],
+    ["2026-09-30_22-43-50_490-req-anthropic_messages.json", "ff8c3c32aac603bd481d3468748562929986a96a35227f630d6e3b318ce81413", 1, false, false, false],
+    ["2026-09-30_22-43-51_619-req-anthropic_messages.json", "f087d7f8dc5ecac6da9d04afe06992fdf33405952bb3c620d5e6032fc0d5c4e8", 71, true, false, false],
+    ["2026-09-30_22-43-53_232-req-anthropic_messages.json", "aa17dcfcf23fdbf76024882e82380ef56e033b2a977d8f8159de606f34ff5f35", 1, false, false, false],
+    ["2026-09-30_22-43-54_501-req-anthropic_messages.json", "ff8c7107ca70074f1d92c98172301b25bebf973a561721a934672775e18a3829", 73, true, false, false],
+    ["2026-09-30_22-43-55_547-req-anthropic_messages.json", "c7e0c3ad13acd551ea509da0aa0a10e3dfaaae0df8b8ecfdbb98902f5b453673", 75, true, false, false],
+    ["2026-09-30_22-43-59_289-req-anthropic_messages.json", "d20a3185648fd31a59cae0f9a303ceb5b95a40e99edc0e33358c630049d99f18", 77, true, false, false],
+    ["2026-09-30_22-56-32_292-req-anthropic_messages.json", "3bb85d3fa51bae125b1bb6dd9195b2262397204c5e11fd3aefc512c3c5e4fa62", 75, true, false, false],
+    ["2026-09-30_22-56-33_293-req-anthropic_messages.json", "28ee282f309a81174347f958cf297f48fa22d8b71b6a3ab375c8b50952748132", 77, true, false, false],
+    ["2026-09-30_22-56-34_534-req-anthropic_messages.json", "f36fa84de7d7ec304516875a66952ed99a02e5607f397c0fe1fa545258593f1f", 79, true, false, false],
+    ["2026-09-30_22-56-35_355-req-anthropic_messages.json", "23409a6f295503693d52e6971fe808820c323d27d88d5fcc0b68990f43cb00b2", 81, true, false, false],
+    ["2026-09-30_22-56-36_787-req-anthropic_messages.json", "853f11dad7de662f9c09cc40e7a08dea03ee23ef912c73f5a863636686d76943", 83, true, false, false],
+    ["2026-09-30_22-56-38_710-req-anthropic_messages.json", "1d1667f927bc2db3c4f809d8ad2a93709e16b08b4b313090a064d21d5653f7d9", 1, false, false, false],
+    ["2026-09-30_22-56-39_577-req-anthropic_messages.json", "31a33e141d0b1ea5309fe5f8bcc3b19035480a49c90abd389a4eb3ac4d5696dd", 85, true, false, false],
+    ["2026-09-30_22-57-04_310-req-anthropic_messages.json", "a228a19b353ecfce430c9df7f7c48ebfe49a137b6fa6f585ca6c3daadb2c54d8", 87, true, false, false],
+    ["2026-09-30_22-57-05_133-req-anthropic_messages.json", "f648431d503a0ef96d2099facf7a479887ed27faf2dd2cc278e5a104f2a9fb62", 89, true, true, false],
+    ["2026-09-30_22-57-07_093-req-anthropic_messages.json", "41ba310db0acbd8e1a69f4cd437428cb96f7e558d6ad0ab7166e538630445c57", 1, false, true, false],
+    ["2026-09-30_22-57-08_114-req-anthropic_messages.json", "c731d6b1dfe918523407ec4fd6595cbba1d485d625b1c9cac78aad01e3fcbbc6", 91, true, true, false],
+    ["2026-09-30_22-57-09_928-req-anthropic_messages.json", "0c50422a7baeee5775a0cd9d92c8bd310961efe15d367ada51e0aed0b06181cb", 1, false, true, false],
+    ["2026-09-30_22-57-10_791-req-anthropic_messages.json", "f3680a7ce8e049a845f774ae171c6c7d4e900a570a90fa880f8c62ff6c368322", 93, true, true, false],
+    ["2026-09-30_22-57-12_248-req-anthropic_messages.json", "a5e592ea98a53a31be1a55da5b565930a7ac47216a30bf1ebb43f5ce4f8ef969", 1, false, true, false],
+    ["2026-09-30_22-57-13_020-req-anthropic_messages.json", "d5dd69033a735c78e6fc3e5198f2d9f13e2675ec65ab939f297b8cacb5b4e056", 95, true, true, false],
+    ["2026-09-30_22-57-15_235-req-anthropic_messages.json", "69f6af28db9b6a7905f533777b36193bf3ba52fef9c6cb7df3b076a647aac337", 1, false, true, false],
+    ["2026-09-30_22-57-16_057-req-anthropic_messages.json", "a52e87da4910cbf128023e1616129fdd6f426470657637d6ca24ecdac93fe583", 97, true, true, false],
+    ["2026-09-30_22-57-51_623-req-anthropic_messages.json", "b7103b3700be180b116761fb65acf8e4a555034d50b448792b30ba3bb6f5f443", 99, true, true, false],
+    ["2026-09-30_22-57-52_396-req-anthropic_messages.json", "31397f177b549bdb66a47fe6771fdc9ca05074d5f92d45dbc6ddf5a016a44f74", 101, true, true, false],
+    ["2026-09-30_22-57-53_726-req-anthropic_messages.json", "82aa8c42c67a4accea64ddd524ab1ac59cf03e74fa20e4c25628850245c4c6d3", 1, false, true, false],
+    ["2026-09-30_22-57-54_685-req-anthropic_messages.json", "ca4433aece5bc9ca18f85948df8a5fd60d19ae914376ae968123683f5fc8e81e", 103, true, true, false],
+    ["2026-09-30_22-57-55_658-req-anthropic_messages.json", "9e49ac3929d922cb69b62ec966f4a903a691f49336eb58a8f0ec7ed72951e162", 1, false, true, false],
+    ["2026-09-30_22-57-56_648-req-anthropic_messages.json", "1808f4609c677055832bcab40eb58df8ea9ef3ebe5e9a7232856b185d2a6bd54", 105, true, true, false],
+    ["2026-09-30_22-57-58_787-req-anthropic_messages.json", "dcb4b9184724989594f3614f3c9437abe788f9772e6b92b2695d14053ac68b6e", 1, false, true, false],
+    ["2026-09-30_22-57-59_704-req-anthropic_messages.json", "2fcf873284e7f4e5fef68c1b9e18daddb4a8f38e47f59eff2282515b9365f3ab", 107, true, true, false],
+    ["2026-09-30_23-01-25_847-req-anthropic_messages.json", "66be650f6bc62e491727859da7ee289db2e5379b59f9fb1b3a6344b8faf61873", 109, true, true, false],
+    ["2026-09-30_23-01-26_518-req-anthropic_messages.json", "6fe0ec3000fbc8bb7a0125737205a25c1be7420ed7c1e89ca4b5a16f28f92d45", 111, true, true, false],
+    ["2026-09-30_23-01-27_605-req-anthropic_messages.json", "ff69863f4054076959601befe06aef81ef18d9377b1eaae524012a5c3d3fb2d6", 1, false, true, false],
+    ["2026-09-30_23-01-28_096-req-anthropic_messages.json", "c2c68a14468a63087350fdb25c78e0f85e4fa29e0f3d7bdc7800565d78df1578", 113, true, true, false],
+    ["2026-09-30_23-01-28_995-req-anthropic_messages.json", "8f94d5a2f124d3c4cf4bce57573d540b2b79baeaa8d6d4be5bd3457f8c403592", 115, true, true, false],
+    ["2026-09-30_23-01-34_516-req-anthropic_messages.json", "ae95c5b238877d40dce6687e3056e1d630ed3af95af7401fa77da09bcd26308d", 117, true, true, false],
+    ["2026-09-30_23-01-36_067-req-anthropic_messages.json", "41933ea8dfb581a0f8f0aa6ca3ac76a68c4ecf1f2e41ccabee0ff6e093280c3a", 119, true, true, false],
+    ["2026-09-30_23-01-39_239-req-anthropic_messages.json", "095d4ffc19ac9a22030039d6f6ef7986a86887a94265d089051edfb2e264f107", 121, true, true, false]
+  ]
+}

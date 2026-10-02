@@ -722,6 +722,7 @@ async def delete_conversation(
             status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
         ) from exc
 
+    request.app.state.message_image_repository.collect_unreferenced()
     await notify_conversation_membership(
         request, conversation_id, conversation.participant_ids, deleted=True
     )

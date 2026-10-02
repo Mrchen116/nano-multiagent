@@ -108,16 +108,8 @@ function EnterIcon() {
   );
 }
 
-export function AuthAlert({ children }: PropsWithChildren) {
-  return (
-    <div role="alert" className="im-auth-alert">
-      <LineIcon>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 8v5m0 3h.01" />
-      </LineIcon>
-      <span>{children}</span>
-    </div>
-  );
+export function AuthAlert({ children, id }: PropsWithChildren<{ id?: string }>) {
+  return <p id={id} role="alert" className="im-auth-alert">{children}</p>;
 }
 
 export function SubmitArrow() {

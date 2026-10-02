@@ -1,0 +1,30 @@
+[
+  {
+    "check": "untrusted attachment http://127.0.0.1:50620/openapi.json",
+    "status": 201,
+    "detail": null
+  },
+  {
+    "check": "untrusted attachment http://169.254.169.254/latest/meta-data/",
+    "status": 201,
+    "detail": null
+  },
+  {
+    "check": "untrusted attachment file:///etc/hosts",
+    "status": 201,
+    "detail": null
+  },
+  {
+    "check": "nonmember attachment read",
+    "status": 404
+  },
+  {
+    "check": "nonmember attachment reuse",
+    "status": 404,
+    "detail": "conversation_id not found"
+  },
+  {
+    "check": "node-id-only bind",
+    "status": 422
+  }
+]

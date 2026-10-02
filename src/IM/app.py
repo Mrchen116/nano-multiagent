@@ -20,6 +20,16 @@ from IM.api.routes.metrics import router as metrics_router
 from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
 from IM.api.routes.web_im import router as web_im_router
+from IM.api.routes.company import router as company_router
+from IM.api.routes.device_binding import router as device_binding_router
+from IM.infra.device_binding import DeviceBindingStore
+from IM.api.public_boundary import (
+    CompanyBoundary,
+    browser_origin_allowed,
+    client_source,
+)
+from IM.infra.auth_limits import AuthLimits, RateLimited
+from IM.infra.auth_sessions import AuthSessions
 from IM.application.auth_service import AuthService, resolve_jwt_secret
 from IM.application.event_bridge import EventBridge
 from IM.application.event_service import EventService
@@ -31,6 +41,8 @@ from IM.infra.db import connect, initialize_schema
 from IM.application.task_graphs import TaskGraphService
 from IM.api.routes.task_graphs import router as task_graph_router
 from IM.ws.gateway.task_graphs import GatewayTaskGraphs
+from IM.ws.bounded_socket import BoundedSocket
+from collections import Counter
 from IM.infra.channel_control_store import ChannelControlStore
 from IM.infra.binding_store import BindingStore
 from IM.infra.gateway_persistence import (
@@ -242,6 +254,7 @@ def _install_frontend_entrypoints(
         """Serve or forward the SPA register route shell."""
         return frontend_entry_response(request)
 
+    @app.get("/membership", include_in_schema=False)
     @app.get("/me", include_in_schema=False)
     async def frontend_me_entry(request: Request):
         """Serve or forward the SPA mobile Me page shell."""
@@ -312,31 +325,45 @@ def create_app(
         upload_dir=upload_dir, db_path=resolved_db_path
     )
     resolved_upload_dir.mkdir(parents=True, exist_ok=True)
-    # One AuthService per FastAPI app instance so each TestClient gets an isolated
-    # refresh-token blacklist; production runs as a single instance.
+    # Session revocation is durable; one worker owns the live connection registry.
+    if os.getenv("IM_PUBLIC_MODE") == "1" and os.getenv("WEB_CONCURRENCY", "1") != "1":
+        raise ValueError("public mode supports exactly one IM worker")
     resolved_jwt_secret = resolve_jwt_secret()
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
+        from IM.infra.logging import redact_server_credentials
+
+        redact_server_credentials()
         """Manage app-level SQLite connection lifecycle."""
         connection = connect(resolved_db_path)
         initialize_schema(connection)
         app_instance.state.connection = connection
+        app_instance.state.company_gate = asyncio.Lock()
+        app_instance.state.public_url = resolved_public_url
+        app_instance.state.auth_limits = AuthLimits(connection)
         app_instance.state.db_path = resolved_db_path
         app_instance.state.binding_store = BindingStore(resolved_db_path)
+        app_instance.state.device_binding_store = DeviceBindingStore(resolved_db_path)
         app_instance.state.channel_control_store = ChannelControlStore(resolved_db_path)
         app_instance.state.upload_dir = resolved_upload_dir
         app_instance.state.message_image_repository = MessageImageRepository(
             connection, resolved_db_path.parent / "message-images"
         )
+        app_instance.state.message_image_repository.reconcile_storage()
         app_instance.state.auth_service = AuthService(
             users=UserRepository(connection),
+            sessions=AuthSessions(connection),
             jwt_secret=resolved_jwt_secret,
         )
         app_instance.state.command_key_secret = resolved_jwt_secret
 
         registry = UserStreamRegistry()
-        outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue()
+        outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue(
+            maxsize=256
+        )
+        app_instance.state.browser_connections = Counter()
+        app_instance.state.source_connections = Counter()
         loop = asyncio.get_running_loop()
         # feat-394 bugfix: save main event loop for thread-safe coroutine submission.
         # Sync routes run in a thread pool and cannot use asyncio.get_running_loop();
@@ -490,6 +517,9 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(CompanyBoundary)
+    app.include_router(device_binding_router)
+    app.include_router(company_router)
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)
@@ -512,26 +542,33 @@ def create_app(
     @app.websocket("/im/ws/gateway")
     async def gateway_websocket(websocket: WebSocket) -> None:
         """Serve the Gateway websocket protocol used by IM relay delivery."""
-        from IM.application.auth_service import InvalidTokenError
-        from IM.infra.repositories.users import UserRepository
 
         authorization = websocket.headers.get("authorization", "")
         scheme, _, raw_token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not raw_token.strip():
             await websocket.close(code=1008)
             return
-        try:
-            user_id = app.state.auth_service.verify_access_token(raw_token.strip())
-        except InvalidTokenError:
+        identity = app.state.device_binding_store.authenticate_runtime(
+            raw_token.strip()
+        )
+        if identity is None:
             await websocket.close(code=1008)
             return
-        user = UserRepository(app.state.connection).get_user(user_id=user_id)
-        if user is None:
-            await websocket.close(code=1008)
-            return
+        owner_id, node_id, node_epoch = identity
+        websocket.state.authenticated_node_id = node_id
+        websocket.state.authenticated_node_epoch = node_epoch
+        protected = BoundedSocket(
+            websocket,
+            authorized=lambda: (
+                app.state.device_binding_store.authenticate_runtime(raw_token.strip())
+                == identity
+            ),
+            frame_limit=2 * 1024 * 1024,
+            frames_per_minute=3000,
+        )
         try:
             await app.state.gateway_runtime.serve(
-                websocket, authenticated_owner_id=user.owner_id
+                protected, authenticated_owner_id=owner_id
             )
         except GatewayAuthorizationError as exc:
             await websocket.send_json(
@@ -552,29 +589,61 @@ def create_app(
 
     @app.websocket("/im/ws/user")
     async def user_stream_websocket(websocket: WebSocket) -> None:
-        """浏览器用户实时事件流（每用户一条或多标签多条连接）。
-
-        Auth(feat-340-M1 R5): user identity is derived from the bearer token passed
-        as ``?token=<jwt>`` (FastAPI/Starlette WS hooks do not expose
-        ``Authorization`` headers reliably). Invalid or missing tokens close 1008.
-        """
-        from IM.application.auth_service import InvalidTokenError
-
-        raw_token = (websocket.query_params.get("token") or "").strip()
-        if not raw_token:
+        """Accept a single-use, origin-bound browser ticket; never a query JWT."""
+        if not browser_origin_allowed(websocket.scope, resolved_public_url):
             await websocket.close(code=1008)
             return
-        try:
-            user_id = app.state.auth_service.verify_access_token(raw_token)
-        except InvalidTokenError:
-            await websocket.close(code=1008)
-            return
-        await serve_user_websocket(
-            websocket=websocket,
-            event_repository=app.state.event_repository,
-            registry=app.state.user_stream_registry,
-            user_id=user_id,
+        source = client_source(websocket.scope)
+        async with app.state.company_gate:
+            try:
+                app.state.auth_limits.check("ws:source:" + source, limit=30, window=60)
+            except RateLimited:
+                await websocket.close(code=1013)
+                return
+            ticket = websocket.query_params.get("ticket", "")
+            session = app.state.auth_service.sessions.consume_ticket(ticket)
+            if session is None:
+                await websocket.close(code=1008)
+                return
+            user_id, session_id = session["user_id"], session["session_id"]
+
+            def authorized():
+                user = app.state.auth_service.get_user(user_id=user_id)
+                return bool(
+                    user
+                    and user.membership_status == "active"
+                    and app.state.auth_service.sessions.valid(session_id)
+                )
+
+            if not authorized():
+                await websocket.close(code=1008)
+                return
+            if (
+                app.state.browser_connections[user_id] >= 5
+                or app.state.source_connections[source] >= 30
+            ):
+                await websocket.close(code=1013)
+                return
+            app.state.browser_connections[user_id] += 1
+            app.state.source_connections[source] += 1
+        websocket.state.auth_session_id = session_id
+        protected = BoundedSocket(
+            websocket, authorized=authorized, frame_limit=64 * 1024
         )
+        try:
+            await serve_user_websocket(
+                websocket=protected,
+                event_repository=app.state.event_repository,
+                registry=app.state.user_stream_registry,
+                user_id=user_id,
+            )
+        finally:
+            app.state.browser_connections[user_id] -= 1
+            app.state.source_connections[source] -= 1
+            if not app.state.browser_connections[user_id]:
+                del app.state.browser_connections[user_id]
+            if not app.state.source_connections[source]:
+                del app.state.source_connections[source]
 
     return app
 

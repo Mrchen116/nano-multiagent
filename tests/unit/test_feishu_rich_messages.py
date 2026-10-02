@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -229,125 +228,85 @@ def test_send_message_skips_markdown_image_examples_and_reuses_upload() -> None:
     assert "![first](img_uploaded_1) ![second](img_uploaded_1)" in rendered
 
 
-def test_download_message_image_reads_provider_binary_and_content_type() -> None:
-    rest = MagicMock()
-    response = _response()
-    response.file.read.return_value = b"image-bytes"
-    response.file_name = "photo.png"
-    response.raw.headers = {"Content-Type": "image/png"}
-    rest.im.v1.message_resource.get.return_value = response
-    client = FeishuClient(app_id="cli_a", app_secret="secret")
-    client._rest_client = rest
+def _provider_client(monkeypatch, response):
+    import httpx
 
+    client = FeishuClient(app_id="cli_a", app_secret="secret")
+    client._rest_client = MagicMock()
+
+    def authorize(config, request, option):
+        option.tenant_access_token = "provider-token"
+
+    monkeypatch.setattr("personal_assistant.channels.feishu.client.verify", authorize)
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return response
+
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: real_client(**kwargs, transport=httpx.MockTransport(handle)),
+    )
+    return client, requests
+
+
+def test_download_message_image_reads_only_provider_resource(monkeypatch):
+    import httpx
+
+    data = b"\x89PNG\r\n\x1a\nimage"
+    client, requests = _provider_client(
+        monkeypatch,
+        httpx.Response(200, content=data, headers={"Content-Type": "image/png"}),
+    )
     image = client.download_message_image(message_id="message-1", image_key="img_1")
-
-    request = rest.im.v1.message_resource.get.call_args.args[0]
-    assert request.message_id == "message-1"
-    assert request.file_key == "img_1"
-    assert request.type == "image"
-    assert image.data == b"image-bytes"
+    assert image.data == data
     assert image.content_type == "image/png"
-    assert image.file_name == "photo.png"
+    assert (
+        str(requests[0].url)
+        == "https://open.feishu.cn/open-apis/im/v1/messages/message-1/resources/img_1?type=image"
+    )
+    assert requests[0].headers["Authorization"] == "Bearer provider-token"
 
 
-def test_download_message_image_rejects_oversize_before_projection() -> None:
-    rest = MagicMock()
-    response = _response()
-    response.file.read.return_value = b"x" * (5 * 1024 * 1024 + 1)
-    rest.im.v1.message_resource.get.return_value = response
-    client = FeishuClient(app_id="cli_a", app_secret="secret")
-    client._rest_client = rest
+@pytest.mark.parametrize(
+    "headers,content",
+    [
+        (
+            {"Content-Type": "image/png", "Content-Length": str(5 * 1024 * 1024 + 1)},
+            b"",
+        ),
+        ({"Content-Type": "image/png"}, b"x" * (5 * 1024 * 1024 + 1)),
+    ],
+)
+def test_download_message_image_rejects_oversize_before_projection(
+    monkeypatch, headers, content
+):
+    import httpx
 
+    client, _ = _provider_client(
+        monkeypatch, httpx.Response(200, headers=headers, content=content)
+    )
     with pytest.raises(FeishuImageTooLargeError):
         client.download_message_image(message_id="message-1", image_key="img_1")
 
-    response.file.read.assert_called_once_with(5 * 1024 * 1024 + 1)
 
-
-@patch("personal_assistant.channels.feishu.client.socket.getaddrinfo")
-def test_remote_image_resolution_rejects_any_private_address(
-    getaddrinfo: MagicMock,
-) -> None:
-    getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443)),
-    ]
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://images.example/a.png",
+        "http://127.0.0.1/secret",
+        "http://user:pass@localhost/secret",
+    ],
+)
+def test_remote_markdown_images_are_text_links_without_fetch(source):
     client, rest = _client_with_response(_response())
-
-    with pytest.raises(ValueError, match="public host"):
-        client.send_message(
-            receive_id="oc_group",
-            text="![diagram](https://images.example/a.png)",
-        )
-
+    client.send_message(receive_id="oc_group", text=f"![diagram]({source})")
     rest.im.v1.image.create.assert_not_called()
-    rest.im.v1.message.create.assert_not_called()
-
-
-def test_remote_image_connection_uses_validated_ip_not_second_dns_lookup() -> None:
-    class Response:
-        status = 200
-
-        def __init__(self) -> None:
-            self._chunks = iter((b"\x89PNG\r\n\x1a\nimage", b""))
-
-        def read(self, _size: int) -> bytes:
-            return next(self._chunks)
-
-    class Connection:
-        def __init__(self, host: str, *, port: int, timeout: float) -> None:
-            del host, port, timeout
-            self._create_connection = None
-
-        def request(self, _method: str, _target: str, *, headers) -> None:  # noqa: ANN001
-            del headers
-            assert self._create_connection is not None
-            self._create_connection(("rebound.invalid", 443), 1.0)
-
-        def getresponse(self) -> Response:
-            return Response()
-
-        def close(self) -> None:
-            return None
-
-    connected: list[tuple[str, int]] = []
-
-    def create_connection(address, *_args, **_kwargs):  # noqa: ANN001, ANN202
-        connected.append(address)
-        return MagicMock()
-
-    client, rest = _client_with_response(_response())
-    upload_response = _response()
-    upload_response.data.image_key = "img_uploaded_1"
-    rest.im.v1.image.create.return_value = upload_response
-
-    with (
-        patch(
-            "personal_assistant.channels.feishu.client.socket.getaddrinfo",
-            return_value=[
-                (
-                    socket.AF_INET,
-                    socket.SOCK_STREAM,
-                    6,
-                    "",
-                    ("93.184.216.34", 443),
-                )
-            ],
-        ),
-        patch(
-            "personal_assistant.channels.feishu.client.http.client.HTTPSConnection",
-            Connection,
-        ),
-        patch(
-            "personal_assistant.channels.feishu.client.socket.create_connection",
-            create_connection,
-        ),
-    ):
-        client.send_message(
-            receive_id="oc_group",
-            text="![diagram](https://images.example/a.png)",
-        )
-
-    assert connected == [("93.184.216.34", 443)]
     request = rest.im.v1.message.create.call_args.args[0]
-    assert "![diagram](img_uploaded_1)" in request.request_body.content
+    rendered = json.loads(request.request_body.content)["zh_cn"]["content"][0][0][
+        "text"
+    ]
+    assert rendered == f"[diagram]({source})"

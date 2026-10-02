@@ -427,6 +427,8 @@ describe("ChatWorkspacePage — integration", () => {
         owner_id: "u-self",
         locale: "en",
         default_entry_node_id: null,
+        membership_status: "active" as const,
+        is_company_admin: true,
         owned_node_ids: [],
         created_at: "2026-05-01T00:00:00Z"
       }
@@ -1482,6 +1484,20 @@ describe("ChatWorkspacePage — integration", () => {
 
   it.each([
     {
+      label: "capacity reached",
+      locale: "en" as const,
+      outcome: { status: 507, body: "capacity" },
+      expected: "Attachments temporarily unavailable.",
+      dismiss: "Dismiss attachment error"
+    },
+    {
+      label: "upload cooldown",
+      locale: "zh" as const,
+      outcome: { status: 429, body: "cooldown" },
+      expected: "上传暂时受限，请等待重试倒计时结束。",
+      dismiss: "关闭附件错误"
+    },
+    {
       label: "unsupported type",
       locale: "en" as const,
       outcome: { status: 415, body: "unsupported" },
@@ -1556,7 +1572,7 @@ describe("ChatWorkspacePage — integration", () => {
     expect(within(composerForm).queryByRole("img", { name: "too-large.png" })).not.toBeInTheDocument();
   });
 
-  it("keeps an attachment error visible when a concurrent message send succeeds", async () => {
+  it("blocks an incomplete attachment send and preserves its failure after sending text only", async () => {
     const user = userEvent.setup();
     const upload = deferredResponse();
     const send = deferredResponse();
@@ -1579,18 +1595,15 @@ describe("ChatWorkspacePage — integration", () => {
       )).toBe(true);
     });
     await user.type(composer, "send while upload is pending");
-    await user.click(screen.getByRole("button", { name: /Send/i }));
-    await waitFor(() => {
-      expect(fetchSpy.mock.calls.some(([input, init]) =>
-        /\/im\/v1\/conversations\/c1\/messages$/.test(input.toString()) && init?.method === "POST"
-      )).toBe(true);
-    });
-
+    expect(screen.getByRole("button", { name: /^Send$/i })).toBeDisabled();
+    expect(fetchSpy.mock.calls.some(([input, init]) => /\/im\/v1\/conversations\/c1\/messages$/.test(input.toString()) && init?.method === "POST")).toBe(false);
     await act(async () => {
       upload.resolve(new Response("too large", { status: 413 }));
       await upload.promise;
     });
     expect(await screen.findByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send text only" }));
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([input, init]) => /\/im\/v1\/conversations\/c1\/messages$/.test(input.toString()) && init?.method === "POST")).toBe(true));
 
     await act(async () => {
       send.resolve(jsonResponse({

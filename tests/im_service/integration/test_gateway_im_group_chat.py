@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import asyncio
 import json
 from pathlib import Path
@@ -72,7 +74,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         assert group_conversation.json()["config_profile_version"] == 1
         conversation_id = group_conversation.json()["id"]
 
-        with client.websocket_connect("/im/ws/gateway") as websocket:
+        with gateway_socket(client) as websocket:
             websocket.send_json(
                 {
                     "type": "node.register",
@@ -281,12 +283,14 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         "sess-1",
     ]
     assert first_relay["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 1,
     }
     assert second_relay["payload"]["metadata"] == {
+        "node_epoch": 1,
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],

@@ -13,7 +13,7 @@ from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway.sessions import GatewaySessions
+from tests.im_service._auth_helpers import EnrolledGatewaySessions as GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
 
 
@@ -278,12 +278,25 @@ def test_orphan_node_without_owner_does_not_broadcast(tmp_path: Path) -> None:
     browser = _RecordingUserWebSocket()
     asyncio.run(registry.add(owner.owner_id, browser))
 
-    asyncio.run(
-        handler.register(
-            websocket=_StubGatewayWebSocket(),
-            payload={"node_id": "orphan", "agents": [], "capabilities": {}},
-            authenticated_owner_id="",
-        )
+    # A node without an authenticated device owner cannot register publicly.
+    from IM.ws.gateway.sessions import (
+        GatewaySessions as ProductionSessions,
+        GatewayAuthorizationError,
     )
+    from types import SimpleNamespace
+
+    socket = _StubGatewayWebSocket()
+    socket.state = SimpleNamespace(
+        authenticated_node_id="orphan", authenticated_node_epoch=0
+    )
+    with pytest.raises(GatewayAuthorizationError):
+        asyncio.run(
+            ProductionSessions.register(
+                handler,
+                websocket=socket,
+                payload={"node_id": "orphan", "agents": [], "capabilities": {}},
+                authenticated_owner_id="",
+            )
+        )
 
     assert browser.frames == []

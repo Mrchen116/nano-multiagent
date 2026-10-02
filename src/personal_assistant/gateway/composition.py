@@ -653,7 +653,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         )
         shadow_sync = IMShadowConversationSync(
             base_url=config.im_service.url,
-            token_getter=token_getter,
             gateway_token_getter=gateway_token_getter,
             owner_user_id=_owner_user_id,
             node_id=config.node.node_id,

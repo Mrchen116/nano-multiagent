@@ -74,21 +74,12 @@ async def test_resolve_accepts_self_contained_data_url_without_http_fetch() -> N
 
 
 @pytest.mark.asyncio
-async def test_resolve_without_fetcher_preserves_raw_url() -> None:
-    """Product-agnostic wiring keeps the original URL and supplied MIME."""
-
+async def test_resolve_without_fetcher_rejects_untrusted_raw_url() -> None:
     result = await ImageAttachmentResolver().resolve(
         _attachments(content_type="image/png")
     )
-
-    assert result.failure is None
-    assert result.parts == (
-        {
-            "type": "image",
-            "image_url": "http://im.local/im/uploads/a.png",
-            "mime_type": "image/png",
-        },
-    )
+    assert result.failure == "download"
+    assert result.parts == ()
 
 
 @pytest.mark.asyncio
@@ -161,7 +152,9 @@ async def test_im_fetcher_scopes_credentials_to_protected_origin_and_current_age
 
     def handler(request):
         seen.append(request)
-        return httpx.Response(200, content=_PNG_BYTES)
+        return httpx.Response(
+            200, content=_PNG_BYTES, headers={"Content-Type": "image/png"}
+        )
 
     client_class = httpx.AsyncClient
     monkeypatch.setattr(
@@ -173,24 +166,70 @@ async def test_im_fetcher_scopes_credentials_to_protected_origin_and_current_age
         base_url="http://im.local", token_getter=current_token
     )
     resolver = ImageAttachmentResolver(fetcher=fetch)
-    for url in (
-        "/im/v1/conversations/chat/images/image",
-        "https://external.example/photo.png",
-        "http://im.local/public.png",
-    ):
-        result = await resolver.resolve([{"url": url}], agent_id="agent-a")
-        assert result.failure is None
+    path = "/im/v1/conversations/chat/images/" + "a" * 32
+    result = await resolver.resolve([{"url": path}], agent_id="agent-a")
+    assert result.failure is None
     assert seen[0].headers["Authorization"] == "Bearer runtime-first"
     assert seen[0].url.params["agent_id"] == "agent-a"
-    assert all("Authorization" not in req.headers for req in seen[1:])
-    assert all("agent_id" not in req.url.params for req in seen[1:])
+    for url in (
+        "https://external.example/photo.png",
+        "http://im.local/public.png",
+        "http://user:pass@im.local" + path,
+        "http://im.local.evil" + path,
+        path + "?secret=hidden",
+        path + "/../file",
+        path.replace("/chat/", "/%63hat/"),
+        "http://127.0.0.1/secret",
+        "//im.local" + path,
+    ):
+        result = await resolver.resolve([{"url": url}], agent_id="agent-a")
+        assert result.failure == "download"
+    assert len(seen) == 1
     token = "runtime-next"
-    await fetch("/im/v1/conversations/chat/attachments/file", "agent-b")
+    await fetch(path, "agent-b")
     assert seen[-1].headers["Authorization"] == "Bearer runtime-next"
     assert seen[-1].url.params["agent_id"] == "agent-b"
     token = None
-    result = await resolver.resolve(
-        [{"url": "/im/v1/conversations/chat/images/image"}], agent_id="agent-a"
+    assert (
+        await resolver.resolve([{"url": path}], agent_id="agent-a")
+    ).failure == "download"
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,headers,body",
+    [
+        (302, {"Location": "http://127.0.0.1/secret"}, b""),
+        (200, {"Content-Type": "text/html"}, _PNG_BYTES),
+        (200, {"Content-Type": "image/jpeg"}, _PNG_BYTES),
+        (200, {"Content-Type": "image/png", "Content-Length": "99999999"}, _PNG_BYTES),
+        (200, {"Content-Type": "image/png"}, _PNG_BYTES * 10),
+    ],
+)
+async def test_im_fetcher_rejects_redirect_mime_and_stream_limits(
+    monkeypatch, status, headers, body
+):
+    import httpx
+    from personal_assistant.gateway.image_attachments import build_im_attachment_fetcher
+
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: client_class(
+            **kwargs,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(status, headers=headers, content=body)
+            ),
+        ),
     )
-    assert result.failure == "download"
-    assert len(seen) == 4
+
+    async def token():
+        return "machine"
+
+    fetch = build_im_attachment_fetcher(
+        base_url="http://im.local", token_getter=token, max_image_bytes=len(_PNG_BYTES)
+    )
+    with pytest.raises(ValueError):
+        await fetch("/im/v1/conversations/chat/images/" + "a" * 32, "agent-a")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import sqlite3
 
 from IM.domain.models import NodeStatus
@@ -97,6 +98,28 @@ class GatewayNodePersistence:
         self._nodes = NodeRepository(connection)
         self._profiles = AgentProfileRepository(connection)
         self._users = UserRepository(connection)
+
+    def runtime_token_identity(self, token: str) -> tuple[str, str, int] | None:
+        """Validate a durable device token for matching against a live connection."""
+        row = self._connection.execute(
+            "SELECT node_id FROM node_binding_state WHERE runtime_token_hash=?",
+            (hashlib.sha256(token.encode()).hexdigest(),),
+        ).fetchone()
+        if row is None:
+            return None
+        identity = self.runtime_identity(node_id=row["node_id"])
+        return (identity[0], row["node_id"], identity[1]) if identity else None
+
+    def runtime_identity(self, *, node_id: str) -> tuple[str, int] | None:
+        """Return only an active owner's current device epoch."""
+        row = self._connection.execute(
+            "SELECT s.owner_id,s.node_epoch FROM node_binding_state s "
+            "JOIN nodes n ON n.node_id=s.node_id AND n.owner_id=s.owner_id "
+            "JOIN users u ON u.owner_id=s.owner_id AND u.membership_status='active' "
+            "WHERE s.node_id=?",
+            (node_id,),
+        ).fetchone()
+        return (row["owner_id"], row["node_epoch"]) if row else None
 
     def validate_agent_bindings(
         self, *, node_id: str, owner_id: str, agent_ids: list[str]

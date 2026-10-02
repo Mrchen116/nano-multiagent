@@ -120,10 +120,10 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     conflict = command(ws, "apply", **{**mutation, "request_key": "old-revision"})
     assert conflict["error"]["code"] == "version_conflict"
     assert conflict["error"]["current_revision"] == 2
-    # Work visibility does not grant the stranger access to the graph or its summaries.
+    # Active company members read the same graph without source-chat access.
     authorize(client, stranger)
-    assert client.get("/im/v1/task-graphs").json()["items"] == []
-    assert client.get(f"/im/v1/task-graphs/{graph_id}").status_code == 404
+    assert client.get("/im/v1/task-graphs").json()["total"] == 1
+    assert client.get(f"/im/v1/task-graphs/{graph_id}").status_code == 200
     authorize(client, owner)
     # Leaving the source chat does not revoke account-owned graph access.
     db = client.app.state.connection
@@ -274,7 +274,7 @@ def test_list_pagination_preserves_owner_scope_and_request_keys_cannot_change_me
     )
     assert changed["error"]["code"] == "request_key_reused"
     authorize(client, stranger)
-    assert client.get("/im/v1/task-graphs").json()["total"] == 0
+    assert client.get("/im/v1/task-graphs").json()["total"] == 3
     assert (
         client.get(
             "/im/v1/task-graphs",

@@ -1,6 +1,6 @@
 # IM - Agent Work Specification
 
-> 对齐: feat-546 / feat-554
+> 对齐: feat-546 / feat-554 / feat-572
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -17,7 +17,7 @@
 - **AND** 不附带与该聊天无关的整段全局执行轨迹
 
 #### Scenario: 查看员工整体工作
-- **WHEN** 已登录用户进入全局 Agent 的工作视图
+- **WHEN** 已登录的有效公司成员进入全局 Agent 的工作视图
 - **THEN** 可以查看主 Agent 跨聊天的连续工作轨迹，辨认其读取、执行及委派过程
 
 #### Scenario: 深入查看 subagent 工作
@@ -27,7 +27,7 @@
 
 #### Scenario: Work 内容完整可见，原聊天仍按成员访问
 - **GIVEN** 主执行和子执行记录包含查看者未参与的聊天内容
-- **WHEN** 登录用户查看 Work，或从中点击来源聊天及受保护附件
+- **WHEN** 有效公司成员查看 Work，或从中点击来源聊天及受保护附件
 - **THEN** Work 的已有内容不按来源聊天过滤或遮盖；原聊天和受保护附件仍按成员关系判定，非成员无法读取。
 
 #### Scenario: 非管理者持续查看工作进度

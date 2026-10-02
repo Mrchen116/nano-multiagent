@@ -215,7 +215,7 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
 def test_reconcile_bundle_patch_failure_skips_only_static_agent(
     tmp_path: Path,
 ) -> None:
-    """A static bundle PATCH failure does not block other reconnect convergence."""
+    """A static bundle enable failure does not block other reconnect convergence."""
     local_config = LocalConfig(
         node=NodeConfig(node_id="test-node"),
         agents=(
@@ -245,9 +245,11 @@ def test_reconcile_bundle_patch_failure_skips_only_static_agent(
     owners = build_config_sync_test_owners(local_config)
 
     def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("agent-static/skills/enable"):
+            assert request.method == "POST"
+            return httpx.Response(503, json={"detail": "try again"})
         if request.url.path.endswith("agent-static/config"):
-            if request.method == "PATCH":
-                return httpx.Response(503, json={"detail": "try again"})
+            assert request.method == "GET"
             return httpx.Response(
                 200,
                 json={

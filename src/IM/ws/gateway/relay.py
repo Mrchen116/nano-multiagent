@@ -57,6 +57,7 @@ class GatewayRelay:
             target_node_id=target_node_id,
             message_type="relay.message",
             payload={**payload, "relay_task_id": relay_task_id},
+            expected_node_epoch=payload.get("metadata", {}).get("node_epoch", 0),
         )
         if not sent:
             return False

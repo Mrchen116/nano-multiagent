@@ -98,7 +98,7 @@ beforeEach(() => {
     refresh_token: "refresh-a",
     user: {
       id: "user-a", username: "alice", display_name: "Alice", owner_id: "user-a", locale: "en",
-      default_entry_node_id: null, owned_node_ids: [], created_at: ""
+      default_entry_node_id: null, membership_status: "active" as const, is_company_admin: true, owned_node_ids: [], created_at: ""
     }
   });
 });

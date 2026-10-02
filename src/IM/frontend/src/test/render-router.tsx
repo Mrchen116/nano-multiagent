@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { vi } from "vitest";
 import { render } from "@testing-library/react";
 import { createMemoryRouter, RouteObject, RouterProvider } from "react-router-dom";
 
@@ -11,6 +12,8 @@ export const TEST_AUTH_USER: AuthUser = {
   owner_id: "user-1",
   locale: "en",
   default_entry_node_id: "node-1",
+  membership_status: "active" as const,
+  is_company_admin: true,
   owned_node_ids: ["node-1"],
   created_at: ""
 };
@@ -40,6 +43,16 @@ export function renderRouter(options: {
     });
   } else {
     useAuthStore.getState().clear();
+  }
+
+  if (!vi.isMockFunction(globalThis.fetch)) vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 404 }));
+  const fetchMock = vi.mocked(globalThis.fetch);
+  if (vi.isMockFunction(fetchMock)) {
+    const original = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input, init) => {
+      if (String(input).endsWith("/im/v1/auth/me")) return Promise.resolve(new Response(JSON.stringify(useAuthStore.getState().user), { status: 200 }));
+      return original ? original(input, init) : Promise.resolve(new Response(null, { status: 404 }));
+    });
   }
 
   const queryClient = new QueryClient({

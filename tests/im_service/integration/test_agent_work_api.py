@@ -1,5 +1,7 @@
 """Protect authenticated work transport, conversation scope and live permission routing."""
 
+from tests.im_service._auth_helpers import gateway_socket
+
 import threading
 import pytest
 from fastapi.testclient import TestClient
@@ -72,7 +74,7 @@ def test_work_http_journal_query_and_permission_share_real_ownership(
                 payload=payload,
             )
 
-        with client.websocket_connect("/im/ws/gateway") as ws:
+        with gateway_socket(client) as ws:
             ws.send_json(
                 {
                     "type": "node.register",

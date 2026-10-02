@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from IM.api.deps import (
+    GatewayPrincipal,
+    current_data_principal,
+    current_gateway,
     current_user,
     get_agent_config_operation_repository,
     get_config_service,
@@ -425,7 +428,7 @@ def list_agents(
 async def get_agent_config(
     agent_id: str,
     source: str = Query(default="live"),
-    user: User = Depends(current_user),
+    user: User | GatewayPrincipal = Depends(current_data_principal),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayControl = Depends(get_gateway_control),
     operations: AgentConfigOperationRepository = Depends(
@@ -437,6 +440,18 @@ async def get_agent_config(
     `source=live` prefers a live Gateway snapshot when available.
     `source=mirror` forces the IM-stored mirror row so Gateway config.sync fetches do not reflect stale local state back to themselves.
     """
+    if isinstance(user, GatewayPrincipal):
+        if source != "mirror":
+            raise HTTPException(status_code=401, detail="human identity required")
+        profile = service.get_profile_for_owner(
+            agent_id=agent_id, owner_id=user.owner_id
+        )
+        if profile is None or profile.node_id != user.node_id:
+            raise HTTPException(status_code=404, detail="agent_id not found")
+        # A config.sync fetch must not initiate another RPC to the fetching node.
+        return to_agent_config_response(
+            profile, service=service, preserve_raw_selection_mode=True
+        )
     coordinator = AgentConfigOperationCoordinator(
         service=service, operations=operations, gateway=gateway_handler
     )
@@ -521,6 +536,56 @@ async def get_agent_capabilities(
         platform_default_model=platform_default,
         features=features,
     )
+
+
+class EnableAgentSkillsRequest(BaseModel):
+    """Allow a registered node to add its own locally created skills only."""
+
+    model_config = {"extra": "forbid"}
+    profile_version: int = Field(ge=1)
+    skills: list[str]
+
+
+@router.post(
+    "/im/v1/agents/{agent_id}/skills/enable", response_model=AgentConfigResponse
+)
+async def enable_agent_skills(
+    agent_id: str,
+    payload: EnableAgentSkillsRequest,
+    principal: GatewayPrincipal = Depends(current_gateway),
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
+    operations: AgentConfigOperationRepository = Depends(
+        get_agent_config_operation_repository
+    ),
+) -> AgentConfigResponse:
+    """Preserve runtime skill activation without granting machine browser management."""
+    profile = service.get_profile_for_owner(
+        agent_id=agent_id, owner_id=principal.owner_id
+    )
+    if profile is None or profile.node_id != principal.node_id:
+        raise HTTPException(404, "agent_id not found")
+    if profile.profile_version != payload.profile_version:
+        raise HTTPException(409, "profile_version conflict")
+    if any(not skill.strip() for skill in payload.skills):
+        raise HTTPException(422, "skill IDs must not be empty")
+    candidate = candidate_from_profile(profile, service=service)
+    candidate["skills"] = list(dict.fromkeys([*candidate["skills"], *payload.skills]))
+    coordinator = AgentConfigOperationCoordinator(
+        service=service, operations=operations, gateway=gateway_handler
+    )
+    try:
+        updated = await coordinator.update_agent(
+            profile=profile, owner_id=principal.owner_id, candidate=candidate
+        )
+    except (
+        AgentConfigOperationPendingError,
+        ConfigApplyPendingError,
+        ConfigApplyRejectedError,
+        ConfigApplyProfileConflictError,
+    ) as exc:
+        _raise_operation_http_error(exc)
+    return to_agent_config_response(updated, service=service)
 
 
 @router.patch("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)

@@ -35,25 +35,9 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
         if request.content:
             payload = dict(json.loads(request.content.decode("utf-8")))
         requests.append({"path": request.url.path, "payload": payload})
-        if request.url.path == "/im/v1/me":
+        if request.url.path == "/im/v1/gateway/identity":
             return httpx.Response(
-                200,
-                json={
-                    "id": "actual-user",
-                    "user_id": "actual-user",
-                    "username": "nano",
-                    "display_name": "Nano",
-                    "owner_id": "actual-user",
-                    "owned_node_ids": [],
-                    "default_entry_node_id": None,
-                    "locale": "en",
-                    "created_at": "2026-07-02T00:00:00Z",
-                },
-            )
-        if request.url.path == "/im/v1/nodes":
-            return httpx.Response(
-                200,
-                json=[{"node_id": "node-a", "owner_id": "actual-user"}],
+                200, json={"node_id": "node-a", "owner_id": "actual-user"}
             )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             assert payload["participant_ids"] == [
@@ -70,7 +54,6 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
     client = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="stale-config-user",
         node_id="node-a",
@@ -95,15 +78,13 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     )
     assert "recovered stale configured owner" in caplog.text
     assert [item["path"] for item in requests] == [
-        "/im/v1/me",
-        "/im/v1/nodes",
+        "/im/v1/gateway/identity",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/conv-shadow/messages",
     ]
 
     corrected_config_client = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="actual-user",
         node_id="node-a",
@@ -115,7 +96,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user(
     )
 
     assert corrected_replay == shadow_ref
-    assert len(requests) == 4
+    assert len(requests) == 3
 
 
 def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
@@ -132,12 +113,9 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
                 "idempotency_key": request.headers.get("Idempotency-Key"),
             }
         )
-        if request.url.path == "/im/v1/me":
-            return httpx.Response(200, json={"id": "actual-user"})
-        if request.url.path == "/im/v1/nodes":
+        if request.url.path == "/im/v1/gateway/identity":
             return httpx.Response(
-                200,
-                json=[{"node_id": "node-a", "owner_id": "actual-user"}],
+                200, json={"node_id": "node-a", "owner_id": "actual-user"}
             )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             return httpx.Response(201, json={"id": "conv-shadow"})
@@ -164,7 +142,6 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
     promoted_saga_ids: list[str] = []
     client = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=lambda: _async_value("token-1"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="stale-config-user",
         node_id="node-a",
@@ -185,14 +162,13 @@ def test_stale_owner_pending_saga_recovers_user_output_and_boundary(
     assert saga_store.pending_outputs() == ()
     assert promoted_saga_ids == [stale_saga.saga_id]
     assert [request["path"] for request in requests] == [
-        "/im/v1/me",
-        "/im/v1/nodes",
+        "/im/v1/gateway/identity",
         "/im/v1/conversations/external/find-or-create",
         "/im/v1/conversations/conv-shadow/messages",
         "/im/v1/conversations/conv-shadow/messages",
     ]
-    assert requests[3]["idempotency_key"] == stale_saga.shadow_user_idempotency_key
-    assert requests[4]["idempotency_key"] == pending_output.caller_idempotency_key
+    assert requests[2]["idempotency_key"] == stale_saga.shadow_user_idempotency_key
+    assert requests[3]["idempotency_key"] == pending_output.caller_idempotency_key
 
 
 def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -> None:
@@ -202,15 +178,9 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
-        if request.url.path == "/im/v1/me":
+        if request.url.path == "/im/v1/gateway/identity":
             return httpx.Response(
-                200,
-                json={"id": "bob-user", "owner_id": "bob-owner"},
-            )
-        if request.url.path == "/im/v1/nodes":
-            return httpx.Response(
-                200,
-                json=[{"node_id": "alice-node", "owner_id": ""}],
+                200, json={"node_id": "bob-node", "owner_id": "bob-owner"}
             )
         if request.url.path == "/im/v1/conversations/external/find-or-create":
             return httpx.Response(201, json={"id": "bob-shadow"})
@@ -227,7 +197,6 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
     assert stale_saga is not None
     client = shadow_sync_with_delivery(
         base_url="http://im.local",
-        token_getter=lambda: _async_value("bob-token"),
         gateway_token_getter=lambda: _async_value("gateway-1"),
         owner_user_id="alice-user",
         node_id="alice-node",
@@ -240,7 +209,7 @@ def test_cross_owner_token_cannot_reassign_pending_shadow_saga(tmp_path: Path) -
 
     assert saga_store.require(stale_saga.saga_id).owner_id == "alice-user"
     assert saga_store.diagnostic_reasons() == ()
-    assert requests == ["/im/v1/me", "/im/v1/nodes"]
+    assert requests == ["/im/v1/gateway/identity"]
 
 
 def _external_inbound() -> InboundMessage:

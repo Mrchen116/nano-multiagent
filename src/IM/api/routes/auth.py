@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_auth_service
+from IM.api.deps import (
+    authenticated_user,
+    current_user,
+    get_auth_service,
+    _extract_bearer_token,
+)
 from IM.application.auth_service import (
     AuthService,
     InvalidCredentialsError,
@@ -30,6 +35,8 @@ class AuthUserResponse(BaseModel):
     default_entry_node_id: str | None = None
     owned_node_ids: list[str] = Field(default_factory=list)
     created_at: str = ""
+    membership_status: str
+    is_company_admin: bool
 
 
 class TokenPairResponse(BaseModel):
@@ -75,6 +82,8 @@ def _to_user_response(user: User) -> AuthUserResponse:
         default_entry_node_id=user.default_entry_node_id,
         owned_node_ids=user.owned_node_ids,
         created_at=user.created_at,
+        membership_status=user.membership_status,
+        is_company_admin=user.is_company_admin,
     )
 
 
@@ -115,14 +124,20 @@ def register(
 @router.post("/login", response_model=TokenPairResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
 ) -> TokenPairResponse:
     """Verify credentials and return a fresh token pair."""
+    account_key = "login:account:" + payload.username.strip().casefold()
+    request.app.state.auth_limits.check(
+        account_key, limit=10, window=900, consume=False
+    )
     try:
         pair = service.login(
             username=payload.username.strip(), password=payload.password
         )
     except InvalidCredentialsError as exc:
+        request.app.state.auth_limits.check(account_key, limit=10, window=900)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
         ) from exc
@@ -132,9 +147,13 @@ def login(
 @router.post("/refresh", response_model=TokenPairResponse)
 def refresh(
     payload: RefreshRequest,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
 ) -> TokenPairResponse:
     """Rotate the refresh token: mint a new pair and revoke the prior refresh jti."""
+    request.app.state.auth_limits.check(
+        "refresh:credential:" + payload.refresh_token, limit=20, window=60
+    )
     try:
         pair = service.refresh(payload.refresh_token)
     except InvalidTokenError as exc:
@@ -145,13 +164,15 @@ def refresh(
 
 
 @router.post("/logout", response_model=LogoutResponse)
-def logout(
+async def logout(
     payload: LogoutRequest,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
 ) -> LogoutResponse:
     """Revoke the supplied refresh token."""
     try:
-        service.logout(payload.refresh_token)
+        session_id = service.logout(payload.refresh_token)
+        await request.app.state.user_stream_registry.close_session(session_id)
     except InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
@@ -160,6 +181,20 @@ def logout(
 
 
 @router.get("/me", response_model=AuthUserResponse)
-def get_me(user: User = Depends(current_user)) -> AuthUserResponse:
+def get_me(user: User = Depends(authenticated_user)) -> AuthUserResponse:
     """Return the currently authenticated user from the Bearer token."""
     return _to_user_response(user)
+
+
+@router.post("/ws-ticket")
+def websocket_ticket(
+    request: Request,
+    user: User = Depends(current_user),
+    service: AuthService = Depends(get_auth_service),
+) -> dict:
+    """Exchange Bearer authentication for a short-lived single-use browser ticket."""
+    session = service.access_session(_extract_bearer_token(request))
+    request.app.state.auth_limits.check(
+        "ws-ticket:" + session["sid"], limit=10, window=60
+    )
+    return {"ticket": service.sessions.issue_ticket(session["sid"]), "expires_in": 30}

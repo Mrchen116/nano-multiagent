@@ -11,7 +11,7 @@ import { setLanguage } from "../../../i18n";
 
 vi.mock("../../../realtime/user-stream", () => ({ subscribeUserStream: () => () => {} }));
 
-const visitor = {id:"visitor",username:"visitor",display_name:"Visitor",owner_id:"visitor",locale:"en",default_entry_node_id:null,owned_node_ids:[],created_at:""};
+const visitor = {id:"visitor",membership_status:"active" as const,is_company_admin:true,username:"visitor",display_name:"Visitor",owner_id:"visitor",locale:"en",default_entry_node_id:null,owned_node_ids:[],created_at:""};
 const contact = {user_id:"agent-user",kind:"agent",agent_id:"colleague-agent",owner_id:"colleague",owner_display_name:"Colleague",display_name:"Muse",node_name:"Workstation",status:"online",work_mode:"global"};
 function response(data: unknown) { return new Response(JSON.stringify(data), {headers:{"Content-Type":"application/json"}}); }
 function view(element: React.ReactNode, path = "/settings/agents/colleague-agent") {

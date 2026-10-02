@@ -40,7 +40,7 @@ class UserRepository:
 
     _USER_SELECT_COLUMNS = (
         "id, username, display_name, owner_id, default_entry_node_id, "
-        "password_hash, locale, created_at"
+        "password_hash, locale, created_at, membership_status, is_company_admin, auth_epoch"
     )
 
     _CONTACT_SELECT = """SELECT u.id AS user_id,
@@ -280,4 +280,7 @@ class UserRepository:
             created_at=row["created_at"],
             password_hash=password_hash,
             locale=locale,
+            membership_status=row["membership_status"],
+            is_company_admin=bool(row["is_company_admin"]),
+            auth_epoch=row["auth_epoch"],
         )

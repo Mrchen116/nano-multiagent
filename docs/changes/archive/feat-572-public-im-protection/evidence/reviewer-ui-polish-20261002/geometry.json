@@ -1,0 +1,51 @@
+{
+  "assets": [
+    "https://im.nanoim.win/assets/index-CA5UoF_O.js",
+    "https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495"
+  ],
+  "headerColumns": [
+    {
+      "width": 458,
+      "x": 285
+    },
+    {
+      "width": 140,
+      "x": 763
+    },
+    {
+      "width": 120,
+      "x": 923
+    },
+    {
+      "width": 92,
+      "x": 1063
+    }
+  ],
+  "name": {
+    "width": 161.078125,
+    "x": 337
+  },
+  "overflow": false,
+  "refresh": {
+    "width": 34,
+    "x": 1146
+  },
+  "rowColumns": [
+    {
+      "width": 458,
+      "x": 285
+    },
+    {
+      "width": 140,
+      "x": 763
+    },
+    {
+      "width": 120,
+      "x": 923
+    },
+    {
+      "width": 92,
+      "x": 1063
+    }
+  ]
+}

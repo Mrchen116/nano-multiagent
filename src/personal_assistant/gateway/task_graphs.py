@@ -74,6 +74,43 @@ class TaskGraphBridge:
         manager = self._manager
         if manager is None or not manager.connected:
             return {"ok": False, "error": unavailable_result(args, uncertain=False)}
+        run_id = payload.get("origin_run_id")
+        context = (
+            self._run_context_store.get(run_id)
+            if self._run_context_store is not None and isinstance(run_id, str)
+            else None
+        )
+        if context is not None and (
+            context.agent_id != agent_id or context.kernel_session_id != session_id
+        ):
+            context = None
+        source_message_id = None
+        if context is not None:
+            target = context.delivery_target
+            if target.im_relay is not None:
+                source_message_id = target.im_relay.im_message_id
+            elif target.external_shadow is not None:
+                source_message_id = target.external_shadow.ref.im_message_id
+        source_message_ids = []
+        if (
+            action == "delete"
+            and source_message_id is None
+            and provenance.agent.config.work_mode == "global"
+            and self._inbox is not None
+            and isinstance(run_id, str)
+            and run_id
+        ):
+            source_message_ids = self._inbox.committed_human_sources(
+                agent_id, session_id, run_id
+            )
+        if action == "delete" and source_message_id is None and not source_message_ids:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "confirmation_required",
+                    "message": "Deletion requires an explicit human message in the current conversation.",
+                },
+            }
         business = {key: value for key, value in args.items() if key != "action"}
         if "target" in business:
             target = business.pop("target")
@@ -95,7 +132,7 @@ class TaskGraphBridge:
                 }
             business["conversation_id"] = conversation_id
         elif (
-            action in {"create", "apply"}
+            action in {"create", "apply", "delete"}
             and provenance.agent.config.work_mode == "single_thread"
         ):
             run_id = payload.get("origin_run_id")
@@ -121,6 +158,8 @@ class TaskGraphBridge:
                         "request_id": uuid4().hex,
                         "agent_id": provenance.agent.agent_id,
                         "action": action,
+                        "source_message_id": source_message_id,
+                        "source_message_ids": source_message_ids,
                         "args": business,
                     },
                 )

@@ -671,24 +671,26 @@ body {
 }
 
 .im-auth-alert {
-  display: flex;
-  gap: 0.5625rem;
   margin: 0;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid oklch(0.8 0.08 25);
-  border-radius: 0.5625rem;
-  color: oklch(0.48 0.15 25);
-  background: oklch(0.97 0.035 25);
+  color: var(--im-danger);
   font-size: 0.8125rem;
   line-height: 1.45;
 }
 
-.im-auth-alert svg {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-  margin-top: 1px;
+.im-stream-notice {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--im-fg);
+  background: var(--im-accent-soft);
+  border-bottom: 1px solid var(--im-border);
+  font-size: 0.8125rem;
 }
+
+.im-stream-notice a { color: var(--im-accent); text-decoration: underline; }
+
 
 .im-auth-submit {
   min-height: 45px;

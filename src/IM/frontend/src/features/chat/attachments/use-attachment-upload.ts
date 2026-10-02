@@ -7,18 +7,20 @@
 import { authFetch } from "../../auth/auth-fetch";
 import type { Attachment } from "../chat-types";
 
-export type AttachmentUploadErrorCode = "unsupportedType" | "tooLarge" | "network";
+export type AttachmentUploadErrorCode = "unsupportedType" | "tooLarge" | "network" | "capacity" | "cooldown";
 
 export class AttachmentUploadError extends Error {
   readonly code: AttachmentUploadErrorCode;
   readonly status: number;
   readonly detail: string;
+  readonly retryAt: number;
 
-  constructor(code: AttachmentUploadErrorCode, status: number, detail: string) {
+  constructor(code: AttachmentUploadErrorCode, status: number, detail: string, retryAfter = 0) {
     super(`${code}: ${detail}`);
     this.code = code;
     this.status = status;
     this.detail = detail;
+    this.retryAt = Date.now() + retryAfter * 1000;
   }
 }
 
@@ -31,6 +33,8 @@ export async function uploadOneAttachment(file: File, conversationId: string): P
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    if (res.status === 507) throw new AttachmentUploadError("capacity", 507, detail);
+    if (res.status === 429) throw new AttachmentUploadError("cooldown", 429, detail, Number(res.headers.get("Retry-After") || 2));
     if (res.status === 415) throw new AttachmentUploadError("unsupportedType", 415, detail);
     if (res.status === 413) throw new AttachmentUploadError("tooLarge", 413, detail);
     throw new AttachmentUploadError("network", res.status, detail);

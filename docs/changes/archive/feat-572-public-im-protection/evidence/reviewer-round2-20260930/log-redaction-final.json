@@ -1,0 +1,11 @@
+{
+  "source": ".im-final.log",
+  "validated_at": "7df455679",
+  "ws_lines": 11,
+  "sample_lines": [
+    "INFO:     127.0.0.1:63611 - \"WebSocket /im/ws/user?ticket=[redacted]\" 403",
+    "INFO:     127.0.0.1:63613 - \"WebSocket /im/ws/user?ticket=[redacted]\" 403",
+    "INFO:     127.0.0.1:63647 - \"WebSocket /im/ws/user?ticket=[redacted]\" [accepted]"
+  ],
+  "all_ticket_values_redacted": true
+}

@@ -510,7 +510,7 @@ describe("agent edit page", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByText(/Confirming the previous save/i, { selector: '[role="status"]' })).toHaveAttribute("role", "status");
     expect(reasoning).toHaveValue("high");
     expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /^Saving…$/ })).toBeDisabled();
@@ -518,7 +518,7 @@ describe("agent edit page", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Confirming the previous save/i, { selector: '[role="status"]' })).not.toBeInTheDocument();
     expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
   });
 });

@@ -518,7 +518,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
                 200,
                 json=_profile(agent_id, versions[agent_id], skills_by_agent[agent_id]),
             )
-        if request.method == "PATCH":
+        if request.method == "POST":
             assert body is not None
             skills_by_agent[agent_id] = list(body["skills"])
             versions[agent_id] += 1
@@ -596,7 +596,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     )
 
     patch_bodies = [
-        body for method, _path, body in requests if method == "PATCH" and body
+        body for method, _path, body in requests if method == "POST" and body
     ]
     assert [body["skills"] for body in patch_bodies] == [
         ["old-skill", "new-skill"],
@@ -646,7 +646,7 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
                     "custom_prompt": None,
                 },
             )
-        if request.method == "PATCH":
+        if request.method == "POST":
             if not patch_succeeds:
                 return httpx.Response(500)
             assert body is not None
@@ -705,14 +705,14 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
     )
 
     if not patch_succeeds:
-        # A later manual update must not inherit a failed automatic PATCH intent.
+        # A later manual update must not inherit a failed automatic activation intent.
         skills = ["old-skill", "agent-skill"]
         sync.sync_agent(agent_id="agent-a", profile_version=version)
     assert owners.catalog.require("agent-a").auto_enabled_skills == (
         frozenset({"agent-skill"}) if patch_succeeds else frozenset()
     )
     patch_bodies = [
-        body for method, _path, body in requests if method == "PATCH" and body
+        body for method, _path, body in requests if method == "POST" and body
     ]
     assert [body["skills"] for body in patch_bodies] == [["old-skill", "agent-skill"]]
     assert owners.catalog.require("agent-a").config.skills == (
@@ -763,7 +763,7 @@ def test_concurrent_skill_created_events_merge_into_one_explicit_allowlist(
                 assert release_first_get.wait(timeout=5)
             return httpx.Response(200, json=snapshot)
 
-        assert request.method == "PATCH"
+        assert request.method == "POST"
         body = dict(json.loads(request.content.decode("utf-8")))
         with state_lock:
             if body["profile_version"] != profile_version:
@@ -867,7 +867,7 @@ def test_concurrent_feishu_activation_and_skill_created_preserve_both_updates(
                 assert release_first_get.wait(timeout=5)
             return httpx.Response(200, json=snapshot)
 
-        assert request.method == "PATCH"
+        assert request.method == "POST"
         body = dict(json.loads(request.content.decode("utf-8")))
         with state_lock:
             if body["profile_version"] != profile_version:
@@ -963,7 +963,7 @@ def test_ensure_agent_skills_enabled_updates_explicit_local_allowlist_once(
                     "custom_prompt": None,
                 },
             )
-        assert request.method == "PATCH"
+        assert request.method == "POST"
         patch_count += 1
         assert body is not None
         skills = list(body["skills"])

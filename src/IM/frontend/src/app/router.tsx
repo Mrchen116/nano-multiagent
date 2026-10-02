@@ -6,6 +6,8 @@ import { BindConfirmPage } from "../features/chat/bind-confirm-page";
 import { ChatWorkspacePage as ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { LoginPage } from "../features/auth/login-page";
 import { RegisterPage } from "../features/auth/register-page";
+import { MembershipPage } from "../features/auth/membership-page";
+import { CompanyMembersPage } from "../features/settings/company/company-members-page";
 import { RequireAuth } from "../features/auth/require-auth";
 import { MePage } from "../features/me/me-page";
 import { AccountPage } from "../features/settings/account/account-page";
@@ -17,6 +19,7 @@ import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
 export const appRoutes: RouteObject[] = [
+  { path: "/membership", element: <MembershipPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
   {
@@ -72,6 +75,7 @@ export const appRoutes: RouteObject[] = [
               }
             ]
           },
+          { path: "company", element: <CompanyMembersPage /> },
           {
             path: "policies",
             element: <PoliciesPage />
