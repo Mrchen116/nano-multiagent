@@ -239,3 +239,55 @@ async def test_revoked_wait_only_removes_its_empty_fork_scaffold(tmp_path, outco
     assert [item.id for item in remaining] == [conv.id]
     assert messages.list_messages(conversation_id=conv.id)[0].content == "original"
     assert branch and branch[0] != conv.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["timeout", "copy-error"])
+async def test_fork_cleanup_preserves_content_received_during_wait(tmp_path, outcome):
+    """Timeouts and copy failures cannot delete content predating the copy step."""
+    service, conversations, messages, human, agent_user, conv, _ = _setup(tmp_path)
+    original_create = messages.create_message
+    message = original_create(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="original",
+        sender_type="agent",
+        kernel_message_id="kernel-original",
+        allow_empty=True,
+    )
+    branch = []
+
+    async def request(**kwargs):
+        target = kwargs["new_conversation_id"]
+        branch.append(target)
+        original_create(
+            conversation_id=target,
+            sender_user_id=human.id,
+            content="keep me",
+            sender_type="user",
+        )
+        if outcome == "timeout":
+            return None
+
+        def failed_copy(**kwargs):
+            raise RuntimeError("copy failed")
+
+        messages.create_message = failed_copy
+        return {"ok": True, "new_session_id": "remote-created", "id_map": {}}
+
+    with pytest.raises(ForkDelegationError if outcome == "timeout" else RuntimeError):
+        await service.fork_conversation(
+            source_conversation_id=conv.id,
+            fork_message_id=message.id,
+            owner_id=human.owner_id,
+            actor_user_id=human.id,
+            check_agent_online=_online(),
+            request_fork=request,
+        )
+    assert any(
+        item.id == branch[0]
+        for item in conversations.list_conversations_for_member(user_id=human.id)
+    )
+    assert [
+        item.content for item in messages.list_messages(conversation_id=branch[0])
+    ] == ["keep me"]

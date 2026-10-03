@@ -417,12 +417,8 @@ class WebIMService:
         if not await check_agent_online(agent_id):
             raise AgentOfflineError("agent offline, cannot fork")
 
-        # feat-445-M2 #4: create the branch conversation EMPTY and bind the kernel session
-        # (request_fork) BEFORE copying any display history. So message.created broadcasts
-        # — and the window in which a user could open the half-built conversation and send
-        # into it — only begin once a binding exists; an RPC failure then rolls back an
-        # *empty* conversation, never a user-authored message (the old order copied N rows
-        # first, broadcast them, then could roll the user's message away on RPC timeout).
+        # Copy history only after the remote fork succeeds. The scaffold is visible
+        # while waiting, so failure cleanup must preserve any newly written content.
         new_conversation = self._conversations.create_conversation(
             title=agent.display_name or agent_id,
             participant_ids=[f"user:{actor_user_id}", f"agent:{agent_id}"],
@@ -453,7 +449,10 @@ class WebIMService:
                 self._rollback_fork(new_conversation.id, actor_user_id)
             raise
         if not result or not result.get("ok"):
-            self._rollback_fork(new_conversation.id, actor_user_id)
+            if not self._messages.list_messages(
+                conversation_id=new_conversation.id, limit=1
+            ):
+                self._rollback_fork(new_conversation.id, actor_user_id)
             error = (result or {}).get("error") if result else None
             raise ForkDelegationError(str(error) if error else "fork delegation failed")
 
@@ -472,9 +471,11 @@ class WebIMService:
                 result.get("new_session_id"),
             )
         id_map = result.get("id_map") or {}
-        # feat-445-M3 清理-2: copy runs AFTER binding (#4 reorder); a mid-copy failure would
-        # otherwise leave the branch half-copied with the kernel session already bound (no
-        # unbind RPC). Roll the branch back and flag the now-orphaned kernel session.
+        # The copy is synchronous under admission. Roll back our own partial copy
+        # only when no user content arrived while the remote fork was pending.
+        branch_was_empty = not self._messages.list_messages(
+            conversation_id=new_conversation.id, limit=1
+        )
         try:
             target_message_ids: dict[str, str] = {}
             copied_history = history[: fork_index + 1]
@@ -586,10 +587,12 @@ class WebIMService:
                             before_message_id=target_anchor_id,
                         )
         except BaseException:
-            self._rollback_fork(new_conversation.id, actor_user_id)
+            if branch_was_empty:
+                self._rollback_fork(new_conversation.id, actor_user_id)
             _log.warning(
-                "fork: display-history copy failed after binding; rolled back branch "
-                "conversation %s; kernel session %s is now an unreferenced orphan",
+                "fork: display-history copy failed after binding; %s branch "
+                "conversation %s; remote kernel session %s may remain",
+                "rolled back" if branch_was_empty else "retained nonempty",
                 new_conversation.id,
                 result.get("new_session_id"),
             )
@@ -600,8 +603,8 @@ class WebIMService:
         """Best-effort delete of a half-built fork conversation (feat-445-M2 #6).
 
         Protected: a delete failure here is logged, never raised, so it cannot overwrite
-        the original fork error (which the route maps to 409/502). After the #4 reorder the
-        conversation is empty at rollback time, so CASCADE removes nothing user-authored.
+        the original fork error (which the route maps to 409/502). Callers establish
+        under admission that the branch contains no independently authored content.
         """
         try:
             self._conversations.delete_conversation(

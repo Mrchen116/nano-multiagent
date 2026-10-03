@@ -8,6 +8,7 @@ export type AuthFeedbackCode =
   | "passwordRequired"
   | "passwordTooShort"
   | "passwordTooLong"
+  | "passwordBytesTooLong"
   | "reservedUsername"
   | "usernameTaken"
   | "invalidCredentials"
@@ -48,6 +49,7 @@ export function validateRegistration(
   }
   if (codePointLength(values.displayName.trim()) > 128) errors.displayName = "displayNameTooLong";
   if (values.password && codePointLength(values.password) < 8) errors.password = "passwordTooShort";
+  else if (new TextEncoder().encode(values.password).length > 72) errors.password = "passwordBytesTooLong";
   return errors;
 }
 
@@ -66,6 +68,9 @@ export function registrationFeedbackForApiError(
   }
   if (error.detail.startsWith("password must be at least")) {
     return { field: "password", code: "passwordTooShort" };
+  }
+  if (error.detail === "password must be at most 72 UTF-8 bytes") {
+    return { field: "password", code: "passwordBytesTooLong" };
   }
   return null;
 }

@@ -74,3 +74,82 @@ def test_same_agent_wait_and_logout_do_not_block_control_result(tmp_path, revoke
             assert profile.profile_version == (1 if revoke else 2)
             assert not app.state.company_gate.locked()
             assert not app.state.connection.in_transaction
+
+
+def test_failed_fork_keeps_message_written_while_gateway_waits(tmp_path):
+    """A publicly visible pending branch cannot roll back a new user's message."""
+    from tests.im_service._auth_helpers import seed_user_under_owner
+
+    app = create_app(db_path=tmp_path / "fork.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner")
+        authorize(client, owner)
+        _seed_agent(app, owner_id=owner.owner_id)
+        agent_user_id = seed_user_under_owner(
+            client, username="agent:agent-1", owner_id=owner.owner_id
+        )
+        created = client.post(
+            "/im/v1/conversations",
+            json={
+                "type": "direct",
+                "title": "Original",
+                "participant_ids": [f"user:{owner.id}", "agent:agent-1"],
+            },
+        )
+        assert created.status_code == 201
+        source = created.json()["id"]
+        message = app.state.message_repository.create_message(
+            conversation_id=source,
+            sender_user_id=agent_user_id,
+            sender_type="agent",
+            content="Original reply",
+            kernel_message_id="kernel-original",
+        )
+        with gateway_socket(client) as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "Test",
+                        "version": "1.0.0",
+                        "agents": ["agent-1"],
+                        "capabilities": {},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                fork = pool.submit(
+                    client.post,
+                    f"/im/v1/conversations/{source}/fork",
+                    json={"fork_message_id": message.id},
+                )
+                request = websocket.receive_json()
+                assert request["type"] == "session.fork.request"
+                branch = request["payload"]["new_conversation_id"]
+                written = client.post(
+                    f"/im/v1/conversations/{branch}/messages",
+                    json={
+                        "sender": {"type": "user", "id": owner.id},
+                        "content": "Keep this new message",
+                    },
+                )
+                assert written.status_code == 201, written.text
+                websocket.send_json(
+                    {
+                        "type": "session.fork.result",
+                        "payload": {
+                            "request_id": request["payload"]["request_id"],
+                            "node_id": "node-1",
+                            "ok": False,
+                            "error": "fork rejected",
+                        },
+                    }
+                )
+                assert fork.result(timeout=2).status_code == 502
+                assert client.get(f"/im/v1/conversations/{branch}").status_code == 200
+                content = app.state.message_repository.list_messages(
+                    conversation_id=branch
+                )
+                assert any(item.content == "Keep this new message" for item in content)

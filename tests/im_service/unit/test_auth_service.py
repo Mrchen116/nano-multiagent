@@ -34,11 +34,14 @@ def auth_service(tmp_path: Path) -> AuthService:
     )
 
 
-def test_register_creates_user_with_hashed_password(auth_service: AuthService) -> None:
+@pytest.mark.parametrize("password", ["hunter2-strong", "x" * 72, "中" * 24])
+def test_register_creates_user_with_hashed_password(
+    auth_service: AuthService, password: str
+) -> None:
     """Registration must hash the password and return a token pair plus the new user."""
     pair = auth_service.register(
         username="alice",
-        password="hunter2-strong",
+        password=password,
         display_name="Alice",
     )
 
@@ -51,7 +54,7 @@ def test_register_creates_user_with_hashed_password(auth_service: AuthService) -
     assert (
         getattr(pair.user, "password_hash", None) is None
         or pair.user.password_hash is None
-        or pair.user.password_hash != "hunter2-strong"
+        or pair.user.password_hash != password
     )
 
 
@@ -79,10 +82,13 @@ def test_register_rejects_duplicate_username(auth_service: AuthService) -> None:
         )
 
 
-def test_register_rejects_weak_password(auth_service: AuthService) -> None:
-    """Password shorter than the floor must be rejected loudly."""
+@pytest.mark.parametrize("password", ["short", "x" * 73, "中" * 25])
+def test_register_rejects_invalid_password_size(
+    auth_service: AuthService, password: str
+) -> None:
+    """Reject the character floor and UTF-8 byte ceiling before creating a user."""
     with pytest.raises(RegistrationError):
-        auth_service.register(username="alice", password="short", display_name="Alice")
+        auth_service.register(username="alice", password=password, display_name="Alice")
 
 
 def test_login_succeeds_with_correct_password(auth_service: AuthService) -> None:
