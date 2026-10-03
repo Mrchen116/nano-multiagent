@@ -53,3 +53,41 @@
 - R1-W1 — accepted。选择有限内部清理例外：仅在 company gate 内清除本请求预建、尚未绑定且仍无消息的 fork 半成品，非空则保留。同步 design 关键决策 1 / 风险与回退、incident Gateway 撤销场景与 delta 等待撤销场景；补充成功、错误、取消三种确定性回归。保持原失败清理意图，无通用补偿框架。
 - R1-R1 — accepted as evidence boundary。严格 CAS 已完成而响应丢失可能要求重新登录；验收报告须明确，不引入重放宽限。
 - R1-R2 — accepted。取消回归断言 gate 与真实计算名额生命周期，不依赖固定延迟作为正确性依据。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/design_review_576`（同一独立 reviewer）
+- review_mode: closure
+- mode_reason: 仅 R1-W1 的有限清理决定及对应 incident/delta/验证发生局部修订；完整 diff 未含产品代码或其他设计变更。
+- started_at: 2026-10-04T01:16:52+08:00
+- completed_at: 2026-10-04T01:17:49+08:00
+- duration: 约 1 分钟。
+- validated_at: `34e9a6598bb2db38bfeb1497bc7adf0cfae7b246` 的 unit tree，受审文件无本地修改。
+- executed_base: `main@34e9a6598bb2db38bfeb1497bc7adf0cfae7b246`
+- retained_from: Round 1；限流、Cookie/CSRF、前端、SQLite/锁方案和 M1 范围均未改变，沿用其覆盖证据。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。** R1-W1 的清理例外已明确，但新增的“尚未绑定”条件与真实 Gateway 顺序及成功分支验收仍冲突，尚未完全闭环。
+
+### 历史问题闭环与本轮证据
+
+- **R1-W1 — still-open（范围缩小）。** Author Resolution 接受有限内部清理例外，并同步 incident/design/delta，消除了原本“所有写入均禁止”的矛盾；已补挂起 RPC 后撤销、成功/错误/取消的确定性要求。
+- 进一步核对实际绑定入口 `src/personal_assistant/gateway/session_binder.py:1062-1081`：Gateway 在返回 `{ok: True, new_session_id, id_map}` **之前**完成 `bind_conversation`。IM 的 `ws/gateway/control.py:420-434` 仅把结果交给 waiter；`application/web_im_service.py:444-476` 则在收到结果后才复制显示历史。它并没有一个独立的“IM 尚未绑定”阶段状态可用来满足新增条件。
+- 因此撤销与成功结果交错时，空 IM 分支可能已经在 Gateway 绑定；取消/超时时更无法从 IM 判断远端是否已绑定。设计一方面只允许删除“尚未绑定”的空分支，另一方面要求成功结果恢复后空半成品被清除，无法同时落实。
+- 最小闭环方式：把例外按 IM 可观测状态限定为本请求预建、仍无消息且未完成历史复制的半成品，并明确删除 IM 半成品不撤回远端 fork/binding；不新增查询或补偿。也可保留未绑定条件，但明确远端状态未知/成功时保留空分支并调整测试预期。选定一种即可，无需扩大平台能力。
+- **R1-R1 / R1-R2：accepted。** 作者在 resolutions 接受响应丢失边界及受控并发证据约束，无需增加会话宽限或测试基础设施。
+
+### Issues
+
+无独立新问题编号；唯一 WARNING 为上述 R1-W1 剩余的绑定条件消歧。
+
+### Recommendations
+
+无新增建议。没有实施、运行验收或视觉验收结论；未修改产品、设计或其他 dirty 文件。
+
+### Author Resolutions
+
+- R1-W1 (R2) — accepted。移除 IM 不可观察的“尚未绑定”条件，design/incident/delta 统一使用“本请求预建、仍无消息且尚未完成历史复制”的 IM 条件；design 明确远端 fork/binding 可能已完成，不查询或自动补偿。成功结果、错误与取消的退出断言仍适用，已有用户内容不删除。
