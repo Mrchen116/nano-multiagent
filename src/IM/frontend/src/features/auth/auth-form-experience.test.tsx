@@ -91,6 +91,28 @@ describe("auth form experience", () => {
     expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
   });
 
+  it.each(["x".repeat(73), "中".repeat(25)])("rejects oversized UTF-8 registration passwords locally: %s", async (value) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    renderPage("register");
+    await userEvent.type(screen.getByRole("textbox", { name: /username/i }), "poppy");
+    const password = screen.getByLabelText(/^password/i);
+    await userEvent.type(password, value);
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(password).toHaveFocus();
+    expect(password).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/Shorten it to at most 72 bytes/)).toBeInTheDocument();
+  });
+
+  it.each(["x".repeat(72), "中".repeat(24)])("allows registration at the UTF-8 limit: %s", async (value) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(authResponse(201, { access_token: "new", user: SAMPLE_USER }));
+    renderPage("register");
+    await userEvent.type(screen.getByRole("textbox", { name: /username/i }), "poppy");
+    await userEvent.type(screen.getByLabelText(/^password/i), value);
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
   it("keeps an empty login off the network and explains both required fields", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     renderPage("login");
@@ -136,9 +158,12 @@ describe("auth form experience", () => {
     expect(screen.getByRole("textbox", { name: /display name/i })).toHaveValue("Poppy");
   });
 
-  it("projects a correctable server rejection onto its field without exposing raw detail", async () => {
+  it.each([
+    ["password must be at least 8 characters", "Password must be at least 8 characters."],
+    ["password must be at most 72 UTF-8 bytes", "Password is too long. Shorten it to at most 72 bytes; non-English characters can use several bytes."]
+  ])("projects a correctable server rejection onto its field: %s", async (detail, feedback) => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      authResponse(422, { detail: "password must be at least 8 characters" })
+      authResponse(422, { detail })
     );
     renderPage("register");
 
@@ -147,17 +172,16 @@ describe("auth form experience", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
 
     const password = screen.getByLabelText(/^password/i);
-    expect(await screen.findByText("Password must be at least 8 characters.")).toBeInTheDocument();
+    expect(await screen.findByText(feedback)).toBeInTheDocument();
     expect(password).toHaveAttribute("aria-invalid", "true");
     await waitFor(() => expect(password).toHaveFocus());
-    expect(screen.queryByText("password must be at least 8 characters")).not.toBeInTheDocument();
+    expect(screen.queryByText(detail)).not.toBeInTheDocument();
   });
 
   it("stores registration and waits outside the company workspace", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       authResponse(201, {
         access_token: "tok-new",
-        refresh_token: "r-new",
         user: SAMPLE_USER
       })
     );
@@ -181,7 +205,7 @@ describe("auth form experience", () => {
     expect(screen.queryByText("Product home")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/membership");
     expect(useAuthStore.getState().accessToken).toBe("tok-new");
-    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/im/v1/auth/register"),
       expect.objectContaining({

@@ -18,7 +18,6 @@ import {
 function seedAuth() {
   useAuthStore.getState().setSession({
     access_token: "access-test",
-    refresh_token: "refresh-test",
     user: {
       id: "user-1",
       username: "alex",

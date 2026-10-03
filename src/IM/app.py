@@ -29,6 +29,9 @@ from IM.api.public_boundary import (
     client_source,
 )
 from IM.infra.auth_limits import AuthLimits, RateLimited
+from IM.infra.password_work import PasswordWork
+from IM.api.security_headers import SecurityHeaders
+from IM.api.public_boundary import browser_origins
 from IM.infra.auth_sessions import AuthSessions
 from IM.application.auth_service import AuthService, resolve_jwt_secret
 from IM.application.event_bridge import EventBridge
@@ -341,7 +344,9 @@ def create_app(
         app_instance.state.connection = connection
         app_instance.state.company_gate = asyncio.Lock()
         app_instance.state.public_url = resolved_public_url
-        app_instance.state.auth_limits = AuthLimits(connection)
+        limits_connection = connect(resolved_db_path)
+        app_instance.state.auth_limits = AuthLimits(limits_connection)
+        app_instance.state.password_work = PasswordWork()
         app_instance.state.db_path = resolved_db_path
         app_instance.state.binding_store = BindingStore(resolved_db_path)
         app_instance.state.device_binding_store = DeviceBindingStore(resolved_db_path)
@@ -504,6 +509,7 @@ def create_app(
                     await task
                 except asyncio.CancelledError:
                     pass
+            limits_connection.close()
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
@@ -512,12 +518,13 @@ def create_app(
     app.state.frontend_dist_dirs = resolved_frontend_dist_dirs
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_credentials=False,
+        allow_origins=browser_origins(resolved_public_url),
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.add_middleware(CompanyBoundary)
+    app.add_middleware(SecurityHeaders, public_url=resolved_public_url)
     app.include_router(device_binding_router)
     app.include_router(company_router)
     app.include_router(auth_router)

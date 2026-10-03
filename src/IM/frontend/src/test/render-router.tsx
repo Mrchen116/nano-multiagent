@@ -38,7 +38,6 @@ export function renderRouter(options: {
   if (auth) {
     useAuthStore.getState().setSession({
       access_token: TEST_ACCESS_TOKEN,
-      refresh_token: "test-refresh",
       user: auth
     });
   } else {

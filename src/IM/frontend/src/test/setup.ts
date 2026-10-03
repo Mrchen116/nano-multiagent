@@ -83,3 +83,27 @@ if (typeof window !== "undefined" && typeof globalThis.Request === "function") {
 beforeEach(() => {
   resetComposerStores();
 });
+
+// jsdom has no Web Locks; serialize callbacks like the browser's exclusive lock.
+if (typeof window !== "undefined") {
+  let sessionLockTail: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(window.navigator, "locks", { configurable: true, value: {
+    request(_name: string, operation: () => Promise<unknown>) {
+      const result = sessionLockTail.then(operation);
+      sessionLockTail = result.catch(() => undefined);
+      return result;
+    }
+  } });
+}
+class TestBroadcastChannel {
+  static channels = new Set<TestBroadcastChannel>();
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  constructor(readonly name: string) { TestBroadcastChannel.channels.add(this); }
+  postMessage(data: unknown) {
+    for (const channel of TestBroadcastChannel.channels) {
+      if (channel !== this && channel.name === this.name) channel.onmessage?.({ data });
+    }
+  }
+  close() { TestBroadcastChannel.channels.delete(this); }
+}
+Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, value: TestBroadcastChannel });

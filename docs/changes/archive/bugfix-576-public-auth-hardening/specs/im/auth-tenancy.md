@@ -8,7 +8,7 @@
 
 #### Scenario: 注册返回令牌对且密码经哈希,弱口令/重名被拒
 - **WHEN** 终端用户 `POST /im/v1/auth/register {username,password,display_name,locale?}`
-- **THEN** 201 返回 `{access_token, refresh_token, user}`,`user` 含 `id/username/display_name/owner_id`且不泄漏密码哈希;口令短于下限或用户名重复时注册失败(不创建用户)
+- **THEN** 201 返回 `{access_token, refresh_token, user}`,`user` 含 `id/username/display_name/owner_id`且不泄漏密码哈希;注册密码至少 8 个字符且最多 72 UTF-8 字节，超出边界或用户名重复时注册失败(不创建用户)；浏览器在本地阻止可判定的无效输入，服务端相同拒绝映射为密码字段的本地化修正提示，不误报服务故障
 
 #### Scenario: 登录凭证错误返回 401 且不区分"用户不存在"与"密码错"
 - **WHEN** 终端用户以错误密码或未知用户名 `POST /im/v1/auth/login`

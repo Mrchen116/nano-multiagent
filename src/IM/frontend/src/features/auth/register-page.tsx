@@ -2,11 +2,11 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { getCurrentLanguage, useTranslation } from "../../i18n";
-import { AuthApiError, register } from "./auth-api";
+import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, registrationFeedbackForApiError, validateRegistration } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
-import { useAuthStore } from "./auth-store";
+import { register } from "./auth-session";
 
 import { safeReturnPath } from "./membership-page";
 import { useAuthCooldown } from "./use-auth-cooldown";
@@ -19,7 +19,6 @@ export function RegisterPage() {
   const location = useLocation();
   const from = safeReturnPath((location.state as { from?: string } | null)?.from);
   const cooldown = useAuthCooldown();
-  const setSession = useAuthStore((s) => s.setSession);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -72,13 +71,12 @@ export function RegisterPage() {
     setSubmitting(true);
     try {
       const normalizedUsername = username.trim();
-      const pair = await register({
+      await register({
         username: normalizedUsername,
         password,
         display_name: displayName.trim() || normalizedUsername,
         locale: getCurrentLanguage()
       });
-      setSession(pair);
       navigate("/membership", { replace: true, state: { from } });
     } catch (error) {
       if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }

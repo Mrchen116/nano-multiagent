@@ -3,7 +3,7 @@
 ## Relations
 
 - Related: feat-572-public-im-protection、feat-447、feat-554、feat-561
-- Current: [认证与公司准入](../../specs/im/auth-tenancy.md)
+- Current: [认证与公司准入](../../../specs/im/auth-tenancy.md)
 - 路径：Full bugfix；跨认证、请求串行边界与浏览器会话，需要独立的并发和会话回归矩阵。
 
 ## 原始报告

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export const AUTH_STORAGE_KEY = "im_auth_v1";
+if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_STORAGE_KEY);
 
 export interface AuthUser {
   membership_status: "pending" | "active" | "suspended";
@@ -15,134 +16,52 @@ export interface AuthUser {
   created_at: string;
 }
 
-export interface TokenPair {
+export interface BrowserSession {
   access_token: string;
-  refresh_token: string;
-  user: AuthUser;
-}
-
-interface PersistedAuth {
-  access_token: string;
-  refresh_token: string;
   user: AuthUser;
 }
 
 interface AuthState {
   accessToken: string | null;
-  refreshToken: string | null;
   user: AuthUser | null;
   hydrated: boolean;
-
+  hydrationError: boolean;
+  revision: number;
   isAuthenticated(): boolean;
-  setSession(pair: TokenPair): void;
-  setTokens(tokens: { access_token: string; refresh_token: string }): void;
-  /** Replace the current user's server snapshot without changing session tokens. */
+  setSession(session: BrowserSession): void;
+  setTokens(tokens: { access_token: string }): void;
   replaceUser(user: AuthUser): boolean;
   clear(): void;
-  hydrate(): void;
-}
-
-function readPersisted(): PersistedAuth | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<PersistedAuth>;
-    if (
-      typeof parsed.access_token === "string" &&
-      typeof parsed.refresh_token === "string" &&
-      parsed.user &&
-      typeof parsed.user.id === "string"
-    ) {
-      return parsed as PersistedAuth;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function writePersisted(value: PersistedAuth | null) {
-  if (typeof window === "undefined") return;
-  if (value === null) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-  } else {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(value));
-  }
+  hydrate(): Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
-  refreshToken: null,
   user: null,
   hydrated: false,
-
-  isAuthenticated() {
-    return Boolean(get().accessToken && get().user);
+  hydrationError: false,
+  revision: 0,
+  isAuthenticated() { return Boolean(get().accessToken && get().user); },
+  setSession(session) {
+    set({ accessToken: session.access_token, user: session.user, hydrated: true,
+      hydrationError: false, revision: get().revision + 1 });
   },
-
-  setSession(pair) {
-    writePersisted({
-      access_token: pair.access_token,
-      refresh_token: pair.refresh_token,
-      user: pair.user
-    });
-    set({
-      accessToken: pair.access_token,
-      refreshToken: pair.refresh_token,
-      user: pair.user,
-      hydrated: true
-    });
-  },
-
   setTokens(tokens) {
-    const current = get();
-    if (!current.user) return;
-    writePersisted({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      user: current.user
-    });
-    set({
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token
-    });
+    if (get().user) set({ accessToken: tokens.access_token });
   },
-
   replaceUser(user) {
-    const current = get();
-    if (
-      current.user?.id !== user.id ||
-      current.accessToken === null ||
-      current.refreshToken === null
-    ) {
-      return false;
-    }
-    writePersisted({
-      access_token: current.accessToken,
-      refresh_token: current.refreshToken,
-      user
-    });
+    if (get().user?.id !== user.id || !get().accessToken) return false;
     set({ user });
     return true;
   },
-
   clear() {
-    writePersisted(null);
-    set({ accessToken: null, refreshToken: null, user: null, hydrated: true });
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    set({ accessToken: null, user: null, hydrated: true, hydrationError: false, revision: get().revision + 1 });
   },
-
-  hydrate() {
-    const persisted = readPersisted();
-    if (persisted) {
-      set({
-        accessToken: persisted.access_token,
-        refreshToken: persisted.refresh_token,
-        user: persisted.user,
-        hydrated: true
-      });
-    } else {
-      set({ hydrated: true });
-    }
+  async hydrate() {
+    // Old script-readable credentials are deliberately discarded, never exchanged.
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    const { restoreSession } = await import("./auth-session");
+    await restoreSession();
   }
 }));
