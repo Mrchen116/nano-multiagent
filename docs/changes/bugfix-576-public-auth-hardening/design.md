@@ -50,7 +50,7 @@ feat-572 建立公司撤销、公网来源边界和设备身份；本次保留�
 
 新增 IM 内部 `infra/company_gate.py`，提供请求级 lease、`await_outside_gate` 和 gate-aware 的局部锁上下文。CompanyBoundary 创建 lease，注入当前数据 principal 的重验证回调；ContextVar 避免把 HTTP Request 传入全部 RPC 层，但 lease 只可由创建它的当前 asyncio task 使用，继承 context 的后台 task 不得释放其锁。
 
-lease 统一持锁状态，响应头释放和 finally 使用它。成功、超时、异常和取消都先重取 gate，再允许调用者继续或处理异常；撤销复核失败则拒绝，不进入受保护提交。异常清理可能写库（fork 删除空分支），不能在 gate 外把异常直接抛给路由。取消中的重取要完成，不泄露 gate 或让已取消请求继续正常提交。
+lease 统一持锁状态，响应头释放和 finally 使用它。成功、超时、异常和取消都先重取 gate，再允许调用者继续或处理异常；撤销复核失败则拒绝，不进入受保护提交。异常清理可能写库（fork 删除空分支），不能在 gate 外把异常直接抛给路由。撤销后唯一允许的服务内部清理，是在 gate 内删除本请求刚预建、尚未绑定且仍无消息的空 fork 分支；不复制历史、不删除已有分支或用户消息、不发送新的远端命令。此有限清理不是继续执行用户操作；其他受保护提交仍拒绝。若半成品已非空则保留，不引入补偿或后台清理框架。取消中的重取要完成，不泄露 gate 或让已取消请求继续正常提交。
 
 GatewayControl 所有结果 Future 等待及 GatewayWork permission 等待调用同一 helper。保留 waiter 注册和命令发送在 gate 内；只放开等待结果的部分，既有发送超时仍有界。本次不承诺慢 socket write 完全无影响。返回后的复核拒绝旧 session、suspended owner 和失效机器连接。
 
@@ -114,6 +114,8 @@ auth-session 保留同标签 single-flight 与失败分类，通过会话版本�
 - 无 agent / Gateway 协议或公司数据结构 delta；机器身份与 RPC 消息不变。
 
 ## 风险与回退
+
+确定性回归须挂起 fork 结果、撤销身份，再分别释放成功结果、错误或取消；断言旧请求拒绝、受 gate 保护的本请求空半成品被清除、已有分支与用户内容不变，且 gate 不泄漏。正常授权下失败/取消沿用原清理。
 
 取消期间必须保持名额与 gate 生命周期完整；Agent 锁和公司锁的顺序纳入确定性回归。旧 Cookie 轮换的并发用浏览器锁解决，不削弱持久 CAS。CSP 允许现有字体/图片/样式，实际浏览器检查无功能阻断。
 
