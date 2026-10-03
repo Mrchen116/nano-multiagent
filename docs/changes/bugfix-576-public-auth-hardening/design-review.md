@@ -91,3 +91,41 @@
 ### Author Resolutions
 
 - R1-W1 (R2) — accepted。移除 IM 不可观察的“尚未绑定”条件，design/incident/delta 统一使用“本请求预建、仍无消息且尚未完成历史复制”的 IM 条件；design 明确远端 fork/binding 可能已完成，不查询或自动补偿。成功结果、错误与取消的退出断言仍适用，已有用户内容不删除。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/design_review_576`（同一独立 reviewer）
+- review_mode: closure
+- mode_reason: 仅消除 R1-W1 在 R2 指出的远端绑定条件歧义；完整 diff 只含相应 design/incident/delta 和审查记录，未改其他设计或产品代码。
+- started_at: 2026-10-04T01:18:23+08:00
+- completed_at: 2026-10-04T01:18:49+08:00
+- duration: 不足 1 分钟。
+- validated_at: `4533d50842a89c720606911abfa7091d291de175` 的 unit tree，受审文件无本地修改。
+- executed_base: `main@4533d50842a89c720606911abfa7091d291de175`
+- retained_from: Round 1 完整覆盖与 Round 2 真实绑定路径证据；未受影响范围和运行代码未变，无须重做 full review。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 设计审查通过。**
+
+### 历史问题闭环
+
+- **R1-W1 — closed。** Author Resolution 已被实际修订支持：`design.md:53`、incident 的 Gateway 撤销 Scenario 和 delta 的等待撤销 Scenario 统一为“本请求预建、仍无消息且尚未完成历史复制”的 IM 空半成品。design 明确非空保留、只能持 gate 清理、不复制历史、不删已有内容、不发新远端命令，且远端 fork/binding 可能已经完成、不查询或自动补偿。此条件可由 IM 当前请求与数据库状态判断，不再依赖 R2 核实的不可观察远端状态。
+- **验证闭合。** `design.md:118` 保留成功、错误、取消三种撤销交错，断言拒绝旧请求、有限清理、已有用户内容不变与 gate 不泄漏；成功结果时远端绑定已经完成不再与本地空分支清理矛盾。非空保留要求明确，不允许直接沿用无条件 cascade delete 作为修复结果。
+- **R1-R1 / R1-R2 — accepted，保留。** CAS 响应丢失的重新登录边界和受控取消证据由此前 Author Resolutions 明确承接；没有增加重放宽限、远端状态协议或补偿机制。
+
+### Coverage 与架构判断
+
+本轮只核对上述闭环和三个受审文件一致性；沿用 Round 1 的来源/目标限流、共享 SQLite、lease/局部锁、Cookie/CSRF、多标签、响应头、原生接口兼容、canonical delta 和 M1/runbook 证据。有限清理归属现有 IM fork 服务，统一 gate 仍负责提交串行及身份复核，不扩展到 Gateway 业务补偿，符合低复杂性约束。
+
+设计批准不代表实现、测试、浏览器或部署验收通过。实施须兑现上述条件及原 M1 退出标准；本轮仅追加本报告，保留此前历史和其他 dirty 状态。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增。
