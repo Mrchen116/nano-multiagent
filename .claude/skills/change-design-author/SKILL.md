@@ -15,7 +15,7 @@ description: "Full unit 首文档已定稿，需要对齐技术方案、delta-sp
 - 使用 [design 模板](assets/design.md)：上层写整体思路、关键取舍，下层写接口、数据流、退出标准。图只用于解释难懂的结构/交互，选型可查 [diagrams](references/diagrams.md)。设计期 Changelog 留空。
 - 默认单 M1。只有可独立交付、真实无冲突并行或分阶段验证/容量需要时拆分；不按数据层/API/UI/测试横切，不用固定行数、文件数或小时数决定。
 - milestone 表包含 ID、依赖、并行组、文件范围和两轨退出标准：`[reviewer]` 用户可观察结果，`[worker]` 实现与验证证据。骨架只放 `.gitkeep`，不预填 tasks/progress。
-- 有前端变化时按 [原型与验收前置](references/prototype-and-runbook.md) 形成 `prototype.html` 与 must-match 契约；无前端变化不生成。
+- 有前端变化时按 [原型与验收前置](references/prototype-and-runbook.md) 先选择能支持本次判断的最小呈现范围，再形成 `prototype.html` 与 must-match 契约。默认继承现有产品，只呈现必要增量；交付前实际渲染并走查受影响界面，不能以 DOM 检查代替视觉检查。无前端变化不生成。
 - 有对外行为增量时按 [specs/CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 target 的 delta-spec；纯内部变化注明 `no spec delta`，不提前覆盖 current spec。
 
 模块接口、职责或测试边界需要设计时可用 [codebase-design](../codebase-design/SKILL.md)；普通配置、文案或局部实现不必调用。
