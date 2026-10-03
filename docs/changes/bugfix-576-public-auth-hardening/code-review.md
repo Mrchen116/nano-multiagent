@@ -56,3 +56,33 @@
 复用冻结版本已有可信验证，未重复全量：Python `pytest -m 'not e2e' -n4 --dist worksteal` 4112 passed / 27 warnings / 85.35s；前端 85 files / 799 tests passed / 17.42s。独立读取 `/tmp/bugfix-576-full-tests.log` 与 `/tmp/bugfix-576-frontend-tests.log` 末尾摘要确认；窄回归、build、Ruff、docs-check 结果由 progress/主 Agent 回报提供。全量通过没有覆盖上述新增触发场景，不能作为它们的反证。
 
 产品 HTTPS 真浏览器 full 验收已交付 `M1-hardening/regression.md`（report commit `4f008a8bd`，源实现仍为 `9b9478ebe`）。其主链、两标签、真实 TLS/头、图片和 WS 均通过；唯一 R1-01 major 为密码字节上限服务故障反馈，与本轮 R1-C2 是同一根因。复用其真实浏览器证据，没有将本静态审查冒充视觉或部署验收。
+
+## Round 2
+
+- reviewer: `/root/static_review_576`，同一独立 reviewer。
+- review_mode: closure；focus: R1-C1/P1 与 R1-C2/P2。
+- executed_base: `d357729af19d5860db79ae5617eaee5b44ada0d7`。
+- finding_origin_head: `9b9478ebe0c1075ccc9b166afae80f3190a604fb`。
+- validated_at: `c2d36427d1c442204fda3d87ae509aeaae901fc3`。
+- scope: `9b9478ebe..c2d36427d` 的两项 finding 关联实现、回归与 delta；中间 `4f008a8bd` / `4d9ff1d85` 只为报告，不作为源码变化。未受影响的 Round 1 full 覆盖结论 retain，未重做 full review。
+- verdict: **Approved**；无存活 CONFIRMED / PLAUSIBLE finding。
+
+### Finding closure
+
+| Focus finding | Outcome | 源码与回归证据 |
+|---|---|---|
+| R1-C1 / P1 fork 非空清理 | closed | `web_im_service.py` RPC exception 与 normal None/ok:false 都先检查分支消息；成功重取 gate 后记录 `branch_was_empty`，同步 copy 段没有 await，仅复制前仍空才失败回滚。既有用户内容不被 cascade。公开 HTTP+真实 WS `test_failed_fork_keeps_message_written_while_gateway_waits` 断言真人消息201、fork502、branch仍200及消息保留；既有 fork owner 的 timeout/copy-error 参数保护新增，原空分支 copy-error/撤销三 outcome 保护保留。 |
+| R1-C2 / P2 密码字节反馈 | closed | 服务原72 UTF-8字节 guard保留；`validateRegistration` 用 TextEncoder 判断字节数，422相同detail映射passwordBytesTooLong；en/zh给可行动字段反馈，现有注册页负责aria-invalid/焦点和编辑清旧错误。ASCII73/中文25本地不发请求，ASCII72/中文24正常发注册；服务层同字节边界保留哈希/拒绝覆盖。 |
+
+### Findings
+
+```json
+[]
+```
+
+### Evidence and limits
+
+- 复用该版本已完成的修复窄回归 fork/auth/control 48 passed、前端 auth-form 15 passed、build、Ruff check/format、docs-check（244 Markdown / 75 routes）。检查永久保护位于原风险 owner，公开HTTP/WS覆盖接线，unit仅补不同timeout/copy-error分支，无一次性 runtime 测试入库。
+- 独立只读 final frontend 日志 `/tmp/bugfix-576-frontend-tests-final.log` 确认 85 files / 804 tests passed / 23.17s。
+- 独立只读 `/tmp/bugfix-576-full-tests-final.log` 确认固定版本完整 Python `pytest -m 'not e2e' -n4 --dist worksteal` 为4119 passed /29 warnings /92.65s。
+- 独立产品 Round 2 targeted报告（`regression.md`，report commit `dccb875fc`）已核对：同源码版本c2d36427d的英文桌面73ASCII/中文窄屏75字节本地阻止请求，真实服务端422映射字段错误，两种72字节合法注册201，桌面/窄屏可操作，R1-01 closed且无新问题；其余产品主链证据retain。仅追加报告，不改实现、测试、spec、环境或生产。

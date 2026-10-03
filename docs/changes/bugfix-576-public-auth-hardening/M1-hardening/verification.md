@@ -89,3 +89,54 @@
 - 无生产、系统钥匙串或用户 Chrome 操作；无自建常驻服务。仅 stage/commit本报告和对应 code-review 记录。
 
 1 critical issue, 1 warning found. Fix before PR; then close final delta and product evidence.
+
+## Round 2 — Targeted Closure
+
+> Validation snapshot: `d357729af19d5860db79ae5617eaee5b44ada0d7 → c2d36427d1c442204fda3d87ae509aeaae901fc3`
+
+- verification_mode: targeted-closure；review_round: 2。
+- retained_from: Round 1 full 的未受影响覆盖、同版本产品主链及前述架构结论。
+- fix_delta_range: `9b9478ebe..c2d36427d`；`4f008a8bd` / `4d9ff1d85` 仅报告变化。
+- focus_issues: C1 fork 非空分支/用户内容清理；W1 注册72 UTF-8字节字段反馈及对应 delta。
+- requires_full_verification: false。修复局限两条已确定风险，没有扩大协议、跨包职责或共享边界影响。
+- verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**。
+
+### Historical Issue Closure
+
+| Issue | Outcome | Contract / Implementation / Test |
+|---|---|---|
+| C1 — fork失败清理丢用户消息 | closed | design非空保留与最终conversation delta一致；异常和正常None/false均限空，复制前在重取gate后保存branch_was_empty且复制无await；copyerror仅回滚原空分支。公开HTTP+真实WS `test_company_control_waits.py::test_failed_fork_keeps_message_written_while_gateway_waits` 证明201用户消息在502fork后仍可读；原 `test_fork_edge_cleanups.py` 保护timeout/copyerror既有内容、原空copy失败与撤销三种outcome。 |
+| W1 — 密码字节反馈/契约遗漏 | closed | `auth_service.py:132-133` 与 `auth-form-feedback.ts` TextEncoder均按72UTF8边界；后端422映射本地化密码字段，en/zh清楚可修正；auth-form-experience的ASCII/Unicode73/75字节拒绝、72字节接受及服务422映射，原auth_service注册哈希/大小回归扩充参数。auth canonical delta注册scenario与as-built design已记录字节规则及输入反馈。 |
+
+### Validation and Evidence
+
+- 复用 caller 在固定 `c2d36427d` 的 fork/auth/control 48 passed、auth-form 15 passed、build、Ruff check/format 与 docs-check244 Markdown /75 routes；不重复可信全量或产品任务。
+- 独立只读 `/tmp/bugfix-576-frontend-tests-final.log` 确认完整前端85files /804tests passed /23.17s。
+- 独立只读 `/tmp/bugfix-576-full-tests-final.log` 确认最终固定版本完整Python `pytest -m 'not e2e' -n4 --dist worksteal` 为4119 passed /29 warnings /92.65s。
+- 独立产品R2 targeted报告（`regression.md`，report commit `dccb875fc`）已核对并pass：同源码版本英文桌面73ASCII/中文窄屏75字节本地不发请求，真实服务端422字段映射，两种72字节合法注册201，桌面/窄屏视觉与可操作性pass，R1-01 closed/open issues0。产品未变旅程沿用R1。没有把两个finding的修复当成生产部署或真实LLM能力验收。
+- 本轮仅追加/提交verification与code-review报告；没有新建runtime服务、改源码/spec或操作用户Chrome。
+
+## Corrected Delta Reconciliation
+
+- verification_mode: corrected-delta。
+- validated_at: `c2d36427d1c442204fda3d87ae509aeaae901fc3`；executed_base: `d357729af19d5860db79ae5617eaee5b44ada0d7`。
+- 已逐项核对最终两份 canonical delta；未修改 spec。auth既有未变条目retain R1实现与测试证据，新增及修正条目对应本轮closure。
+
+| Delta item | Implementation evidence | Test / durable evidence | Outcome |
+|---|---|---|---|
+| auth注册令牌、密码8字符/72UTF8与字段修正 | `auth_service.prepare_registration`、`routes/auth.register`、`auth-form-feedback.validateRegistration/registrationFeedbackForApiError`与en/zh | auth_service哈希/拒绝边界参数；auth-form-experience本地拒绝/边界提交/422字段化 | aligned |
+| auth原生login、保留身份、pending、持久refresh/登出/并发重启 | R1服务/会话及native JSON机制未变 | R1全量与auth/browser回归retain | aligned |
+| auth浏览器Cookie/存储恢复、CSRF与native边界 | `auth.py` browser transport、CompanyBoundary Origin与前端memory store/locks/revision未变 | R1 HTTP/真实HTTPS浏览器存储、多标签、退出、深链、重放retain | aligned |
+| auth来源/组合/短目标预算与跨来源失败隔离 | separate AuthLimits连接、固定窗口、source/account/target与PasswordWork未变 | R1确定性来源/线程取消回归及真实HTTPS预算证据retain | aligned |
+| auth慢密码/RPC等待、撤销与有限空fork例外 | lease成功/错误/取消重取复核不变；fork所有失败分支按既有内容限清理 | R1 control及撤销三outcome retain；R2非空公开HTTP/WS及timeout/copyerror回归 | aligned |
+| auth生产安全头/附件/WS/显式开发origin | SecurityHeaders、精确CORS/public_url/WS origin未变 | R1 servedHTML、真实TLS CSP/iframe/wss/图片及build证据retain | aligned |
+| conversation带历史fork requirement中的配置变化失败 | 正常fork历史复制/系统提示/源分支独立机制未变；返回失败时限空清理 | 完整MODIFIED保留全部其他旧scenario；R1及既有fork保护retain，R2正常失败保留用户内容 | aligned |
+| conversation离线与中途失败requirement | online check仍在创建前；normalNone/false与exception限空；复制前空快照保证只删除本次复制内容；远端不补偿 | offline/empty rollback既有保护；R2公开HTTP/WS与timeout/copyerror保留内容，branch未伪装成功 | aligned |
+
+### Uncovered Observable Behavior
+
+None。R1指出的明确72UTF8注册拒绝已进入auth delta；正常fork失败保留等待期用户内容及复制失败的有限回滚已进入conversation delta，两个相邻requirements全量保留，消除了旧“所有失败不留分支”的绝对表述。没有借修正spec掩盖用户内容丢失；修复后的实现兑现design既定非空保留。
+
+Outcome: **aligned**。
+
+All checks passed. Ready for PR after caller performs final canonical merge/archive and delivery.
