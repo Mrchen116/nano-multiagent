@@ -21,3 +21,13 @@
 ## Evidence limits
 
 No production mutations, real user accounts or user Chrome profile. Strict one-time refresh may require re-login if rotation commits and its response is lost; the temporary network retry guarantee does not create a token replay grace window. Product browser/TLS acceptance and independent static review remain separate gates.
+
+## Final gates and retained evidence
+
+- Final runtime source: `c2d36427d`. Full Python: **4119 passed / 29 warnings / 92.65s**; full frontend: **804 passed / 85 files / 23.17s**. Build, Ruff check/format, docs-check and critical dependency audit pass. Dependencies were not changed.
+- R1 findings were accepted and fixed in one batch: public HTTP/WS fork rejection now preserves waiting-period user content; timeout and copy-error also preserve it. Registration UTF-8 bounds now have local and server-projected field feedback. Existing tests were extended at their risk owners.
+- Product R2 (`dccb875fc`) pass, static closure and corrected-delta (`035e48f2e`) pass with zero findings / CRITICAL / WARNING. R1 product evidence retains validity for unaffected Cookie, multi-tab, membership, network, attachment and WSS journeys; R2 directly verifies password field feedback and valid ASCII/Unicode boundaries.
+- `validated_at`: product/static final `c2d36427d`; unaffected full-review evidence `9b9478ebe`. `executed_base` and final `effective_base`: `d357729af`. Final HTTPS fetch confirms origin/main has not advanced. No merge/rebase source delta exists.
+- Remaining changes are mechanical canonical merge, complete unit archive and this delivery record; no source behavior changed after final validation. All gates are retained through the final PR head (recorded as `effective_through` in the PR body). Archive path correction changes only the relative current-spec link.
+- Temporary acceptance scripts were kept outside the lint tree. Screenshots and sanitized CI logs are retained locally outside the worktree; credentials, databases, certificates and runtime files are not committed. The isolated server is stopped before delivery.
+- Existing `infra/logging.py` is unchanged from main. The first isolated server exposed its pre-existing Uvicorn access-formatter incompatibility; targeted UI revalidation used `--no-access-log`, preserving authentication and browser behavior. No logging redesign is included.
