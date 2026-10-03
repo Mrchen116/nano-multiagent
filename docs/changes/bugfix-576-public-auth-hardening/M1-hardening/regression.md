@@ -55,3 +55,34 @@ Reviewer 未新增或修改测试。单独执行既有 `test_auth_concurrency.py
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 仅保存报告；未改动或停止 caller 的服务，未提交截图、账号密码、Cookie、令牌、运行库或临时配置。
+
+## Round 2 — targeted 复验
+
+> Verdict: **pass**；Highest Required Action: **pass**；open issues=0；R1-01 closed；needs_re_review=false（本报告产品验收范围）。
+> Validation snapshot: `d357729af → c2d36427d1c442204fda3d87ae509aeaae901fc3`。
+> fix_delta_range: `9b9478ebe..c2d36427d`；prior_acceptance: 本报告 Round 1；focus: R1-01 和相邻密码边界。
+
+### 元数据澄清与证据继承
+
+调用方澄清：executed_base 应为 `origin/main` 的 `d357729af`；R1 交接误将实现 HEAD 同时作为 executed_base。本追加纠正该元数据，不改写 R1 实际执行事实：其浏览器及回归执行版本始终是 `9b9478ebe`。本轮开始确认 HEAD=`c2d36427d1c442204fda3d87ae509aeaae901fc3`，调用方已在同一隔离 HTTPS origin 重建前端并启动新 PID 44204；未重启服务。
+
+范围只覆盖注册上限字段反馈及边界。R1 的会话、Cookie、多标签、退出/停用、深链、请求发送前网络失败恢复、安全头、正常 WSS 和附件证据仍保留，并未因报告提交而重跑。此次 fork 清理变更不属于本次 UI 旅程，继续由独立 verification 门禁裁决。未读取实现定位根因；只追加本报告。
+
+### 真实 Chromium 复验
+
+| 检查 | 实际结果 | 结论 |
+|---|---|---|
+| EN 桌面，73 ASCII 字节 | UI 输入73个ASCII字符并提交，注册网络请求数0；密码字段 aria-invalid=true，显示“Password is too long. Shorten it to at most 72 bytes; non-English characters can use several bytes.” | pass |
+| 中文窄屏，25个中文字符/75字节 | 输入25个“密”并提交，注册网络请求数0；显示“密码过长，请缩短至 72 字节以内；中文或表情会占多个字节。”，无服务异常误报，无水平溢出 | pass |
+| Unicode 合法边界 | 同字段改为24个“密”/72字节，旧错误立即消失；真实注册201，响应只有access_token,user，进入等待管理员批准页，测试用户review-boundary576a | pass |
+| 服务端422字段映射 | 表单填合法72ASCII字节，通过Playwright request route仅将发往真实服务端的password改为73ASCII字节，未模拟响应；真实422/detail=“password must be at most 72 UTF-8 bytes”，UI映射为对应密码字段提示且aria-invalid=true | pass |
+| ASCII 合法边界 | 撤销上述request route，表单填72ASCII字节，真实注册201，进入Waiting for approval，测试用户review-boundary576b | pass |
+| 桌面/窄屏视觉 | 1440×1000和390×844截图均已实际打开审阅；提示位于密码输入框下、换行正常，创建账号按钮与页脚可操作，pending页正常 | pass |
+
+本轮仅3次真实注册提交（两个成功边界账号、一次故意触发服务端422）；前端两次超界验证不消耗注册请求。没有修改系统配置或访问生产。
+
+### 本地视觉证据
+
+位于 `output/security-hardening/reviewer/`：`r2-ascii-desktop.png`、`r2-unicode-mobile.png`、`r2-server-field.png`、`r2-ascii-boundary.png`、`r2-unicode-boundary.png`。均已人工查看，不提交截图缓存。未创建临时Python脚本；结束仅关闭本次Chromium会话，保留caller服务。
+
+R1-01 的期望用户结果现已出现，不再阻塞产品验收。上层文档同步要求沿用R1，等待orchestrator按最终门禁归并。
