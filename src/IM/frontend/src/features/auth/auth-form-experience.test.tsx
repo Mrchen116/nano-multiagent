@@ -157,7 +157,6 @@ describe("auth form experience", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       authResponse(201, {
         access_token: "tok-new",
-        refresh_token: "r-new",
         user: SAMPLE_USER
       })
     );
@@ -181,7 +180,7 @@ describe("auth form experience", () => {
     expect(screen.queryByText("Product home")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/membership");
     expect(useAuthStore.getState().accessToken).toBe("tok-new");
-    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/im/v1/auth/register"),
       expect.objectContaining({

@@ -80,11 +80,24 @@ describe("auth gate", () => {
   it("renders protected children when authenticated", async () => {
     useAuthStore.getState().setSession({
       access_token: "tok",
-      refresh_token: "r",
       user: SAMPLE_USER
     });
     renderAt("/chat");
     expect(await screen.findByTestId("protected")).toBeInTheDocument();
+  });
+
+  it("keeps a failed cookie restore retryable without losing the protected deep link", async () => {
+    useAuthStore.setState({ hydrated: false });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "restored", user: SAMPLE_USER })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(SAMPLE_USER)));
+    renderAt("/chat/conversation-1?focus=yes#message");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /sign in/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /refresh/i }));
+    expect(await screen.findByTestId("protected")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/refresh"))).toHaveLength(2);
   });
 
   it("logs in via POST /im/v1/auth/login and stores session", async () => {
@@ -92,7 +105,6 @@ describe("auth gate", () => {
       new Response(
         JSON.stringify({
           access_token: "tok-new",
-          refresh_token: "r-new",
           user: SAMPLE_USER
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -111,7 +123,7 @@ describe("auth gate", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/login"))).toHaveLength(1);
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain("/im/v1/auth/login");
-    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toContain("tok-new");
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 
   it("shows inline error on 401 login response", async () => {
@@ -137,7 +149,6 @@ describe("auth gate", () => {
       new Response(
         JSON.stringify({
           access_token: "tok-new",
-          refresh_token: "r-new",
           user: SAMPLE_USER
         }),
         { status: 200, headers: { "content-type": "application/json" } }

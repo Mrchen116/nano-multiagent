@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from IM.infra.company_gate import await_outside_gate
+
 import asyncio
 import json
 import sqlite3
@@ -125,7 +127,7 @@ class GatewayWork:
             if not sent:
                 raise ValueError("node_offline")
             try:
-                return await asyncio.wait_for(waiter, 10)
+                return await await_outside_gate(asyncio.wait_for(waiter, 10))
             except asyncio.TimeoutError:
                 # The frame was sent, so the broker may already have applied it.
                 # Its durable permission_resolved event reconciles late success.

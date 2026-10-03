@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from urllib.parse import urlsplit
+
+from IM.api.public_boundary import client_source
 from pydantic import BaseModel, Field
 
 from IM.api.deps import (
@@ -17,6 +20,8 @@ from IM.application.auth_service import (
     InvalidTokenError,
     RegistrationError,
     TokenPair,
+    hash_password,
+    verify_password,
 )
 from IM.domain.models import User
 
@@ -47,6 +52,13 @@ class TokenPairResponse(BaseModel):
     user: AuthUserResponse
 
 
+class BrowserSessionResponse(BaseModel):
+    """Browser-readable session; the refresh credential travels only by Cookie."""
+
+    access_token: str
+    user: AuthUserResponse
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
@@ -60,11 +72,11 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str = Field(min_length=1)
+    refresh_token: str | None = Field(default=None, min_length=1)
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str = Field(min_length=1)
+    refresh_token: str | None = Field(default=None, min_length=1)
 
 
 class LogoutResponse(BaseModel):
@@ -95,88 +107,150 @@ def _to_pair_response(pair: TokenPair) -> TokenPairResponse:
     )
 
 
+def _browser(request: Request) -> bool:
+    return request.headers.get("X-IM-Session") == "browser"
+
+
+def _session_response(
+    pair: TokenPair, request: Request, response: Response, service: AuthService
+):
+    response.headers["Cache-Control"] = "no-store"
+    if not _browser(request):
+        return _to_pair_response(pair)
+    response.set_cookie(
+        "im_refresh",
+        pair.refresh_token,
+        max_age=service.refresh_ttl_seconds,
+        httponly=True,
+        secure=urlsplit(request.app.state.public_url).scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return BrowserSessionResponse(
+        access_token=pair.access_token, user=_to_user_response(pair.user)
+    )
+
+
+def _refresh_credential(
+    request: Request, payload: RefreshRequest | LogoutRequest
+) -> str | None:
+    if _browser(request):
+        if payload.refresh_token is not None:
+            raise HTTPException(
+                status_code=422, detail="browser session uses Cookie only"
+            )
+        return request.cookies.get("im_refresh")
+    if not payload.refresh_token:
+        raise HTTPException(status_code=422, detail="refresh_token is required")
+    return payload.refresh_token
+
+
 @router.post(
-    "/register", response_model=TokenPairResponse, status_code=status.HTTP_201_CREATED
+    "/register",
+    response_model=TokenPairResponse | BrowserSessionResponse,
+    status_code=status.HTTP_201_CREATED,
 )
-def register(
+async def register(
     payload: RegisterRequest,
+    request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
-) -> TokenPairResponse:
-    """Create a new user with credentials and return an initial token pair."""
+):
+    """Create a new user with credentials and return the selected session transport."""
+    username, display_name = payload.username.strip(), payload.display_name.strip()
     try:
-        pair = service.register(
-            username=payload.username.strip(),
-            password=payload.password,
-            display_name=payload.display_name.strip(),
+        service.prepare_registration(
+            username=username, password=payload.password, display_name=display_name
+        )
+        hashed = await request.app.state.password_work.run(
+            hash_password, payload.password
+        )
+        pair = service.complete_registration(
+            username=username,
+            password_hash=hashed,
+            display_name=display_name,
             locale=payload.locale.strip() or "en",
         )
     except RegistrationError as exc:
         detail = str(exc)
-        code = (
-            status.HTTP_409_CONFLICT
-            if "exists" in detail
-            else status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
-        raise HTTPException(status_code=code, detail=detail) from exc
-    return _to_pair_response(pair)
+        raise HTTPException(
+            status_code=409 if "exists" in detail else 422, detail=detail
+        ) from exc
+    return _session_response(pair, request, response, service)
 
 
-@router.post("/login", response_model=TokenPairResponse)
-def login(
+@router.post("/login", response_model=TokenPairResponse | BrowserSessionResponse)
+async def login(
     payload: LoginRequest,
     request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
-) -> TokenPairResponse:
-    """Verify credentials and return a fresh token pair."""
-    account_key = "login:account:" + payload.username.strip().casefold()
-    request.app.state.auth_limits.check(
-        account_key, limit=10, window=900, consume=False
+):
+    """Verify credentials with bounded CPU work and source/account failure isolation."""
+    account = payload.username.strip().casefold()
+    source_account = "login:failure:" + client_source(request.scope) + ":" + account
+    limits = request.app.state.auth_limits
+    limits.check(source_account, limit=10, window=900, consume=False)
+    limits.check("login:target:" + account, limit=1, window=1)
+    user = service.prepare_login(username=payload.username.strip())
+    verified = await request.app.state.password_work.run(
+        verify_password, payload.password, user.password_hash if user else None
     )
     try:
-        pair = service.login(
-            username=payload.username.strip(), password=payload.password
-        )
+        pair = service.complete_login(user=user, verified=verified)
     except InvalidCredentialsError as exc:
-        request.app.state.auth_limits.check(account_key, limit=10, window=900)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
-        ) from exc
-    return _to_pair_response(pair)
+        limits.check(source_account, limit=10, window=900)
+        raise HTTPException(status_code=401, detail="invalid credentials") from exc
+    limits.clear(source_account)
+    return _session_response(pair, request, response, service)
 
 
-@router.post("/refresh", response_model=TokenPairResponse)
-def refresh(
+@router.post("/refresh", response_model=TokenPairResponse | BrowserSessionResponse)
+async def refresh(
     payload: RefreshRequest,
     request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
-) -> TokenPairResponse:
-    """Rotate the refresh token: mint a new pair and revoke the prior refresh jti."""
+):
+    """Rotate the explicit program credential or an Origin-checked browser Cookie."""
+    credential = _refresh_credential(request, payload)
+    if not credential:
+        raise HTTPException(status_code=401, detail="missing refresh cookie")
     request.app.state.auth_limits.check(
-        "refresh:credential:" + payload.refresh_token, limit=20, window=60
+        "refresh:credential:" + credential, limit=20, window=60
     )
     try:
-        pair = service.refresh(payload.refresh_token)
+        pair = service.refresh(credential)
     except InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
-        ) from exc
-    return _to_pair_response(pair)
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return _session_response(pair, request, response, service)
 
 
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(
     payload: LogoutRequest,
     request: Request,
+    response: Response,
     service: AuthService = Depends(get_auth_service),
 ) -> LogoutResponse:
-    """Revoke the supplied refresh token."""
+    """Revoke a session; browser logout also expires its HttpOnly Cookie."""
+    credential = _refresh_credential(request, payload)
     try:
-        session_id = service.logout(payload.refresh_token)
-        await request.app.state.user_stream_registry.close_session(session_id)
+        if credential:
+            session_id = service.logout(credential)
+            await request.app.state.user_stream_registry.close_session(session_id)
     except InvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
-        ) from exc
+        if not _browser(request):
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "no-store"
+    if _browser(request):
+        response.delete_cookie(
+            "im_refresh",
+            path="/",
+            httponly=True,
+            samesite="strict",
+            secure=urlsplit(request.app.state.public_url).scheme == "https",
+        )
     return LogoutResponse(ok=True)
 
 

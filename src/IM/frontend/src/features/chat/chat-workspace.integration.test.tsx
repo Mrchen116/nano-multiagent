@@ -419,7 +419,6 @@ describe("ChatWorkspacePage — integration", () => {
     vi.stubGlobal("fetch", fetchSpy);
     useAuthStore.getState().setSession({
       access_token: "tk",
-      refresh_token: "rk",
       user: {
         id: "u-self",
         username: "self",

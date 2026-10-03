@@ -48,7 +48,6 @@ describe("MePage", () => {
     setLanguage("en");
     useAuthStore.getState().setSession({
       access_token: "t",
-      refresh_token: "r",
       user: SAMPLE_USER
     });
   });

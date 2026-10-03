@@ -39,7 +39,6 @@ describe("authFetch", () => {
   it("injects Authorization header from the auth store", async () => {
     useAuthStore.getState().setSession({
       access_token: "tok-1",
-      refresh_token: "r-1",
       user: SAMPLE_USER
     });
 
@@ -55,7 +54,6 @@ describe("authFetch", () => {
   it("on 401 calls /im/v1/auth/refresh once and retries the original request with the new token", async () => {
     useAuthStore.getState().setSession({
       access_token: "expired",
-      refresh_token: "r-1",
       user: SAMPLE_USER
     });
 
@@ -65,7 +63,6 @@ describe("authFetch", () => {
       .mockResolvedValueOnce(
         makeResponse(200, {
           access_token: "fresh",
-          refresh_token: "r-2",
           user: SAMPLE_USER
         })
       )
@@ -82,7 +79,7 @@ describe("authFetch", () => {
     const retryHeaders = new Headers((fetchMock.mock.calls[2][1] as RequestInit).headers);
     expect(retryHeaders.get("Authorization")).toBe("Bearer fresh");
     expect(useAuthStore.getState().accessToken).toBe("fresh");
-    expect(useAuthStore.getState().refreshToken).toBe("r-2");
+    expect(refreshCall[1]).toMatchObject({ credentials: "include", body: "{}" });
   });
 
   it("force-refreshes a locally fresh access token after the server rejects it", async () => {
@@ -90,7 +87,6 @@ describe("authFetch", () => {
     const fresh = accessToken(600);
     useAuthStore.getState().setSession({
       access_token: rejected,
-      refresh_token: "r-1",
       user: SAMPLE_USER
     });
     const fetchMock = vi
@@ -99,7 +95,6 @@ describe("authFetch", () => {
       .mockResolvedValueOnce(
         makeResponse(200, {
           access_token: fresh,
-          refresh_token: "r-2",
           user: SAMPLE_USER
         })
       )
@@ -117,7 +112,6 @@ describe("authFetch", () => {
   it("clears the session if refresh fails", async () => {
     useAuthStore.getState().setSession({
       access_token: "expired",
-      refresh_token: "stale",
       user: SAMPLE_USER
     });
 
@@ -131,7 +125,7 @@ describe("authFetch", () => {
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 
-  it("does not attempt refresh when no refresh_token is present", async () => {
+  it("does not attempt refresh when there is no active session", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(makeResponse(401, { detail: "unauth" }));
 
     const res = await authFetch("/im/v1/agents");

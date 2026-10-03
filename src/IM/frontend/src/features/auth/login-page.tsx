@@ -2,11 +2,11 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../i18n";
-import { AuthApiError, login, logoutApi } from "./auth-api";
+import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, validateLogin } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
-import { useAuthStore } from "./auth-store";
+import { login, logout } from "./auth-session";
 
 import { safeReturnPath } from "./membership-page";
 import { useAuthCooldown } from "./use-auth-cooldown";
@@ -17,7 +17,6 @@ export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const setSession = useAuthStore((s) => s.setSession);
   const signOut = Boolean((location.state as { signOut?: boolean } | null)?.signOut);
   const from = safeReturnPath((location.state as { from?: string } | null)?.from);
   const cooldown = useAuthCooldown();
@@ -32,9 +31,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (signOut) {
-      const token = useAuthStore.getState().refreshToken;
-      useAuthStore.getState().clear();
-      if (token) void logoutApi(token).catch(() => setFormError("serviceUnavailable"));
+      void logout().catch(() => setFormError("serviceUnavailable"));
     }
   }, [signOut]);
 
@@ -64,7 +61,6 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const pair = await login({ username: username.trim(), password });
-      setSession(pair);
       navigate(pair.user.membership_status === "active" ? from : "/membership", { replace: true, state: { from } });
     } catch (error) {
       if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }

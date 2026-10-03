@@ -28,7 +28,7 @@ const response = (value: unknown, status = 200, headers = {}) => new Response(JS
 describe("company access", () => {
   beforeEach(() => {
     localStorage.clear(); setLanguage("en");
-    useAuthStore.getState().setSession({ access_token: "active-token", refresh_token: "refresh", user: TEST_AUTH_USER });
+    useAuthStore.getState().setSession({ access_token: "active-token", user: TEST_AUTH_USER });
   });
   afterEach(() => vi.restoreAllMocks());
 

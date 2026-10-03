@@ -1,4 +1,4 @@
-import type { TokenPair } from "./auth-store";
+import type { BrowserSession } from "./auth-store";
 
 function apiBase() {
   return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -24,7 +24,8 @@ export class AuthApiError extends Error {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(withBase(path), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-IM-Session": "browser" },
+    credentials: "include",
     body: JSON.stringify(body)
   });
   if (!res.ok) {
@@ -42,11 +43,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export function login(input: { username: string; password: string }) {
-  return postJson<TokenPair>("/im/v1/auth/login", input);
+  return postJson<BrowserSession>("/im/v1/auth/login", input);
 }
 
 export function register(input: { username: string; password: string; display_name: string; locale?: string }) {
-  return postJson<TokenPair>("/im/v1/auth/register", {
+  return postJson<BrowserSession>("/im/v1/auth/register", {
     username: input.username,
     password: input.password,
     display_name: input.display_name,
@@ -54,10 +55,10 @@ export function register(input: { username: string; password: string; display_na
   });
 }
 
-export function refreshTokens(refresh_token: string) {
-  return postJson<TokenPair>("/im/v1/auth/refresh", { refresh_token });
+export function refreshTokens() {
+  return postJson<BrowserSession>("/im/v1/auth/refresh", {});
 }
 
-export function logoutApi(refresh_token: string) {
-  return postJson<{ ok: boolean }>("/im/v1/auth/logout", { refresh_token });
+export function logoutApi() {
+  return postJson<{ ok: boolean }>("/im/v1/auth/logout", {});
 }

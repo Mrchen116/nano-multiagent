@@ -445,7 +445,12 @@ class WebIMService:
         except BaseException:
             # #6: BaseException (incl. asyncio.CancelledError) so a cancelled RPC task can't
             # leak a ghost conversation; rollback is protected and never masks this error.
-            self._rollback_fork(new_conversation.id, actor_user_id)
+            # Admission is reacquired even on revocation/cancellation. Only our
+            # still-empty IM scaffold is disposable; remote binding may be done.
+            if not self._messages.list_messages(
+                conversation_id=new_conversation.id, limit=1
+            ):
+                self._rollback_fork(new_conversation.id, actor_user_id)
             raise
         if not result or not result.get("ok"):
             self._rollback_fork(new_conversation.id, actor_user_id)

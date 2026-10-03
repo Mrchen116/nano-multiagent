@@ -13,11 +13,13 @@ export function MembershipPage() {
   const { t } = useTranslation();
   const user = useAuthStore(s => s.user);
   const hydrated = useAuthStore(s => s.hydrated);
+  const hydrationError = useAuthStore(s => s.hydrationError);
   useEffect(() => { if (!hydrated) useAuthStore.getState().hydrate(); }, [hydrated]);
   const location = useLocation();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  if (!hydrated && hydrationError) return <div role="alert">{t("auth.feedback.serviceUnavailable")} <button onClick={() => void useAuthStore.getState().hydrate()}>{t("company.refresh")}</button></div>;
   if (!hydrated) return null;
   if (!user) return <Navigate to="/login" replace />;
   const from = safeReturnPath((location.state as { from?: string } | null)?.from);

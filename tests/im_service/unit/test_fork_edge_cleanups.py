@@ -166,3 +166,76 @@ async def test_rollback_swallows_base_exception_from_delete(tmp_path: Path) -> N
             check_agent_online=_online(),
             request_fork=_fail,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+async def test_revoked_wait_only_removes_its_empty_fork_scaffold(tmp_path, outcome):
+    """Revocation rejects resumed work; exception cleanup still owns admission."""
+    import asyncio
+    from fastapi import HTTPException
+    from IM.infra.company_gate import company_lease, await_outside_gate
+
+    service, conversations, messages, human, agent_user, conv, _ = _setup(tmp_path)
+    message = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="original",
+        sender_type="agent",
+        kernel_message_id="kernel-original",
+        allow_empty=True,
+    )
+    gate = asyncio.Lock()
+    waiting = asyncio.Event()
+    result = asyncio.get_running_loop().create_future()
+    revoked = False
+    branch = []
+
+    async def revalidate():
+        if revoked:
+            raise HTTPException(status_code=401, detail="session revoked")
+
+    async def request(**kwargs):
+        branch.append(kwargs["new_conversation_id"])
+        waiting.set()
+        return await await_outside_gate(result)
+
+    original_delete = conversations.delete_conversation
+
+    def delete_under_admission(**kwargs):
+        assert gate.locked()
+        return original_delete(**kwargs)
+
+    conversations.delete_conversation = delete_under_admission
+
+    async def fork():
+        async with company_lease(gate, revalidate):
+            return await service.fork_conversation(
+                source_conversation_id=conv.id,
+                fork_message_id=message.id,
+                owner_id=human.owner_id,
+                actor_user_id=human.id,
+                check_agent_online=_online(),
+                request_fork=request,
+            )
+
+    task = asyncio.create_task(fork())
+    await asyncio.wait_for(waiting.wait(), 1)
+    async with gate:
+        revoked = True
+        if outcome == "cancel":
+            task.cancel()
+        elif outcome == "error":
+            result.set_exception(RuntimeError("gateway failed"))
+        else:
+            result.set_result(
+                {"ok": True, "new_session_id": "remote-already-created", "id_map": {}}
+            )
+    with pytest.raises(HTTPException) as error:
+        await asyncio.wait_for(task, 1)
+    assert error.value.status_code == 401
+    assert not gate.locked()
+    remaining = conversations.list_conversations_for_member(user_id=human.id)
+    assert [item.id for item in remaining] == [conv.id]
+    assert messages.list_messages(conversation_id=conv.id)[0].content == "original"
+    assert branch and branch[0] != conv.id

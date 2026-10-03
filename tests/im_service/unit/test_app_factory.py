@@ -29,10 +29,12 @@ def test_resolve_frontend_dist_candidates_keeps_repo_dist_as_runtime_fallback(
     )
 
 
-def test_create_app_allows_local_browser_origins_for_real_im_frontend(
+def test_create_app_allows_explicit_browser_origin_for_real_im_frontend(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
-    """Accept browser preflight requests from localhost/127.0.0.1 frontend origins."""
+    """Accept only an explicitly configured development origin with credentials."""
+    monkeypatch.setenv("IM_BROWSER_ORIGINS", "http://127.0.0.1:4173")
     app = create_app(db_path=tmp_path / "im.db")
 
     with TestClient(app) as client:
@@ -47,6 +49,16 @@ def test_create_app_allows_local_browser_origins_for_real_im_frontend(
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:4173"
     assert "GET" in response.headers["access-control-allow-methods"]
+    assert response.headers["access-control-allow-credentials"] == "true"
+    with TestClient(app) as client:
+        rejected = client.options(
+            "/im/v1/auth/register",
+            headers={
+                "Origin": "http://127.0.0.1:4174",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert rejected.status_code == 400
 
 
 def test_create_app_redirects_frontend_routes_to_dev_server_when_dist_is_missing(

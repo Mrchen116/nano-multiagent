@@ -25,7 +25,6 @@ describe("im-settings-api", () => {
     localStorage.clear();
     useAuthStore.getState().setSession({
       access_token: "tok-1",
-      refresh_token: "r-1",
       user: SAMPLE_USER
     });
   });
