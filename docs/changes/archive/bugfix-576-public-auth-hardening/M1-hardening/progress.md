@@ -31,3 +31,10 @@ No production mutations, real user accounts or user Chrome profile. Strict one-t
 - Remaining changes are mechanical canonical merge, complete unit archive and this delivery record; no source behavior changed after final validation. All gates are retained through the final PR head (recorded as `effective_through` in the PR body). Archive path correction changes only the relative current-spec link.
 - Temporary acceptance scripts were kept outside the lint tree. Screenshots and sanitized CI logs are retained locally outside the worktree; credentials, databases, certificates and runtime files are not committed. The isolated server is stopped before delivery.
 - Existing `infra/logging.py` is unchanged from main. The first isolated server exposed its pre-existing Uvicorn access-formatter incompatibility; targeted UI revalidation used `--no-access-log`, preserving authentication and browser behavior. No logging redesign is included.
+
+## CI environment correction
+
+- Initial GitHub CI passed both Python suites and Python checks, but the Node-environment Vite proxy test failed during shared setup: its Node version does not expose `navigator`. Browser tests passed (803 assertions).
+- Scope the jsdom Web Locks substitute to `window.navigator` only when `window` exists. No runtime code changed; product, code-review and verification conclusions are retained.
+- Explicitly disabling Node's global navigator locally passes the Node proxy test and all 11 browser auth-session tests (12 total); the same environment is used for the complete frontend rerun.
+- Complete frontend rerun with `NODE_OPTIONS=--no-experimental-global-navigator`: **85 files / 804 passed / 15.90s**.

@@ -85,14 +85,16 @@ beforeEach(() => {
 });
 
 // jsdom has no Web Locks; serialize callbacks like the browser's exclusive lock.
-let sessionLockTail: Promise<unknown> = Promise.resolve();
-Object.defineProperty(navigator, "locks", { configurable: true, value: {
-  request(_name: string, operation: () => Promise<unknown>) {
-    const result = sessionLockTail.then(operation);
-    sessionLockTail = result.catch(() => undefined);
-    return result;
-  }
-} });
+if (typeof window !== "undefined") {
+  let sessionLockTail: Promise<unknown> = Promise.resolve();
+  Object.defineProperty(window.navigator, "locks", { configurable: true, value: {
+    request(_name: string, operation: () => Promise<unknown>) {
+      const result = sessionLockTail.then(operation);
+      sessionLockTail = result.catch(() => undefined);
+      return result;
+    }
+  } });
+}
 class TestBroadcastChannel {
   static channels = new Set<TestBroadcastChannel>();
   onmessage: ((event: { data: unknown }) => void) | null = null;
