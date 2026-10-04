@@ -7,6 +7,7 @@ struct ConversationView: View {
     let conversationID: String
     let openChat: (String) -> Void
     @State private var photo: PhotosPickerItem?
+    @State private var pickingPhoto = false
     @State private var importing = false
     @State private var uploading = false
     @State private var commands: [ChatCommandSet] = []
@@ -77,6 +78,7 @@ struct ConversationView: View {
         }
         .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
+        .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in Task { await uploadFiles(result) } }
         .confirmationDialog(L("从这条回复创建新分支？", "Create a new branch from this reply?"), isPresented: Binding(get: { confirmFork != nil }, set: { if !$0 { confirmFork = nil } }), titleVisibility: .visible) {
             Button(L("创建分支", "Create branch")) { if let message = confirmFork { Task { await fork(message) } } }
@@ -95,7 +97,7 @@ struct ConversationView: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 Menu {
-                    PhotosPicker(selection: $photo, matching: .images) { Label(L("照片", "Photos"), systemImage: "photo") }
+                    Button(L("照片", "Photos"), systemImage: "photo") { pickingPhoto = true }
                     Button(L("文件", "Files"), systemImage: "doc") { importing = true }
                     if conversation?.type == "group" {
                         Menu(L("提及 Agent", "Mention agent")) { ForEach(conversation?.participants.filter { $0.type == "agent" } ?? [], id: \.id) { actor in
