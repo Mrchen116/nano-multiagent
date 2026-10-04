@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- M1 review closure：将既定“非空分支不删除”覆盖到普通失败结果、超时和成功后的复制异常；复制前记录是否已有用户内容。补明 bcrypt 注册密码 72 UTF-8 字节上限与既有字段反馈接线，并投影到 auth / conversation delta。没有新增协议、基础设施或补偿机制。
+
 ## 现状分析
 
 ### 涉及范围
@@ -58,7 +60,7 @@ GatewayControl 所有结果 Future 等待及 GatewayWork permission 等待调用
 
 ### 2. 密码计算与数据库操作分离，认证不排长队
 
-AuthService 拆出准备和完成接口：gate 内校验字段/读取用户快照；gate 外仅执行 bcrypt；gate 内重新读取用户后建立 session。保留原 `register/login` 服务接口供既有直接调用者，复用相同校验与签发逻辑，不保留两份业务规则。
+AuthService 拆出准备和完成接口：gate 内校验字段/读取用户快照（注册密码至少 8 个字符且最多 72 UTF-8 字节，浏览器本地校验与字段反馈一致）；gate 外仅执行 bcrypt；gate 内重新读取用户后建立 session。保留原 `register/login` 服务接口供既有直接调用者，复用相同校验与签发逻辑，不保留两份业务规则。
 
 应用级两个密码计算名额；满额立即 429，Retry-After=1，不等待无界 semaphore 队列。用工作线程执行 bcrypt，名额直到线程真正结束才归还，HTTP 取消不能提前释放计算预算。未知用户也走固定的无效密码 hash 验证，保持有限计算与相同错误语义。登录完成重新核验用户身份、密码 hash 与 epoch；不为校验期间已失效的用户快照签发有效会话。
 
@@ -111,6 +113,7 @@ auth-session 保留同标签 single-flight 与失败分类，通过会话版本�
 ## 契约层增量
 
 - [specs/im/auth-tenancy.md](specs/im/auth-tenancy.md)：浏览器 Cookie 会话、来源/目标短节流、等待期间撤销与不阻塞、响应头。
+- [specs/im/conversations-messages.md](specs/im/conversations-messages.md)：fork 等待期间已接收的用户内容不得被失败清理删除，校正原绝对回滚表述。
 - 无 agent / Gateway 协议或公司数据结构 delta；机器身份与 RPC 消息不变。
 
 ## 风险与回退

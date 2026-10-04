@@ -29,7 +29,7 @@ function pane(content: string) {
 
 describe("inline reply images", () => {
   beforeEach(() => {
-    useAuthStore.getState().setSession({ user, access_token: "token-a", refresh_token: "refresh-a" });
+    useAuthStore.getState().setSession({ user, access_token: "token-a", });
     vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["image"], { type: "image/png" }))));
     const NativeURL = URL;
     vi.stubGlobal("URL", class extends NativeURL {
@@ -63,7 +63,7 @@ describe("inline reply images", () => {
   it("refreshes an expired token through the existing auth flow and retries failed image GET in place", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ user, access_token: "fresh", refresh_token: "refresh-b" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user, access_token: "fresh", })))
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockResolvedValueOnce(new Response(new Blob(["image"], { type: "image/png" })));
     render(pane(`![screenshot](${imagePath})`));
@@ -97,7 +97,7 @@ describe("inline reply images", () => {
     expect(screen.queryByRole("img", { name: "screenshot" })).not.toBeInTheDocument();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:private-image");
     view.unmount();
-    act(() => useAuthStore.getState().setSession({ user, access_token: "a", refresh_token: "a" }));
+    act(() => useAuthStore.getState().setSession({ user, access_token: "a", }));
     let resolve!: (response: Response) => void;
     vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; }));
     const pending = render(pane(`![screenshot](${imagePath})`));
@@ -113,7 +113,7 @@ describe("inline reply images", () => {
     const view = render(pane(`![screenshot](${imagePath})`));
     await screen.findByRole("img", { name: "screenshot" });
     vi.mocked(fetch).mockImplementationOnce(() => new Promise(() => {}));
-    act(() => useAuthStore.getState().setSession({ user: { ...user, id: "owner-b" }, access_token: "b", refresh_token: "b" }));
+    act(() => useAuthStore.getState().setSession({ user: { ...user, id: "owner-b" }, access_token: "b", }));
     expect(screen.queryByRole("img", { name: "screenshot" })).not.toBeInTheDocument();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:private-image");
     view.unmount();

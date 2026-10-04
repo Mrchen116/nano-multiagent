@@ -20,6 +20,8 @@ _ACCESS_TTL_DEFAULT_SECONDS = 15 * 60
 _REFRESH_TTL_DEFAULT_SECONDS = 7 * 24 * 60 * 60
 _PASSWORD_MIN_LENGTH = 8
 _JWT_ALG = "HS256"
+# Fixed valid bcrypt input makes an unknown user consume the same bounded work.
+_DUMMY_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxaT4eLQiYxL6vO9eCzH8K9vAWe"
 
 
 class AuthError(ValueError):
@@ -60,7 +62,7 @@ def verify_password(plain: str, hashed: str | None) -> bool:
     failed (avoid existence-oracle leakage between unknown-user and wrong-password).
     """
     if not hashed:
-        return False
+        hashed = _DUMMY_HASH
     try:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except ValueError:
@@ -101,6 +103,20 @@ class AuthService:
             RegistrationError: when username already exists, fields are blank,
                 or password fails the minimum-length check.
         """
+        self.prepare_registration(
+            username=username, password=password, display_name=display_name
+        )
+        return self.complete_registration(
+            username=username,
+            password_hash=hash_password(password),
+            display_name=display_name,
+            locale=locale,
+        )
+
+    def prepare_registration(
+        self, *, username: str, password: str, display_name: str
+    ) -> None:
+        """Validate registration before spending password computation capacity."""
         if not username.strip():
             raise RegistrationError("username must be non-empty")
         if username.strip() == "system" or username.strip().startswith(
@@ -113,7 +129,18 @@ class AuthService:
             raise RegistrationError(
                 f"password must be at least {_PASSWORD_MIN_LENGTH} characters"
             )
-        password_hash = hash_password(password)
+        if len(password.encode("utf-8")) > 72:
+            raise RegistrationError("password must be at most 72 UTF-8 bytes")
+
+    def complete_registration(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        display_name: str,
+        locale: str = "en",
+    ) -> TokenPair:
+        """Persist a prepared registration and mint its initial session under admission."""
         try:
             user = self._users.create_user(
                 username=username,
@@ -132,10 +159,35 @@ class AuthService:
             InvalidCredentialsError: for unknown username or wrong password
                 — same error type for both to avoid leaking which side failed.
         """
-        user = self._users.get_user_by_username(username=username)
-        if user is None or not verify_password(password, user.password_hash):
+        user = self.prepare_login(username=username)
+        verified = verify_password(
+            password, user.password_hash if user else _DUMMY_HASH
+        )
+        return self.complete_login(user=user, verified=verified)
+
+    def prepare_login(self, *, username: str) -> User | None:
+        """Read the immutable identity/password snapshot before leaving admission."""
+        return self._users.get_user_by_username(username=username)
+
+    def complete_login(self, *, user: User | None, verified: bool) -> TokenPair:
+        """Recheck the snapshot before issuing a session after password work."""
+        fresh = self._users.get_user(user_id=user.id) if user else None
+        if (
+            not verified
+            or user is None
+            or fresh is None
+            or (
+                fresh.password_hash != user.password_hash
+                or fresh.auth_epoch != user.auth_epoch
+            )
+        ):
             raise InvalidCredentialsError("invalid username or password")
-        return self._issue_token_pair(user)
+        return self._issue_token_pair(fresh)
+
+    @property
+    def refresh_ttl_seconds(self) -> int:
+        """Return the Cookie lifetime matching persisted refresh expiry."""
+        return self._refresh_ttl
 
     def refresh(self, refresh_token: str) -> TokenPair:
         """Consume one persisted refresh and mint its replacement in the same session."""

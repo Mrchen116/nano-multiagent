@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from IM.infra.company_gate import await_outside_gate
+
 import asyncio
 import logging
 from uuid import uuid4
@@ -172,7 +174,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -218,7 +222,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -259,7 +265,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -292,7 +300,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -325,7 +335,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -375,7 +387,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -410,7 +424,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -487,7 +503,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -551,7 +569,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -607,7 +627,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -650,7 +672,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -692,7 +716,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -736,7 +762,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:
@@ -774,7 +802,9 @@ class GatewayControl:
             )
             if not pushed:
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+            return await await_outside_gate(
+                asyncio.wait_for(waiter, timeout=timeout_seconds)
+            )
         except asyncio.TimeoutError:
             return None
         finally:

@@ -20,7 +20,7 @@ function view(element: React.ReactNode, path = "/settings/agents/colleague-agent
 }
 beforeEach(async () => {
   await act(async () => setLanguage("en"));
-  useAuthStore.getState().setSession({user:visitor,access_token:"visitor-token",refresh_token:"refresh"});
+  useAuthStore.getState().setSession({user:visitor,access_token:"visitor-token",});
 });
 afterEach(() => { vi.unstubAllGlobals(); useAuthStore.getState().clear(); });
 

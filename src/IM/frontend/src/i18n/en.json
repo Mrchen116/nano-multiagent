@@ -24,6 +24,7 @@
       "passwordRequired": "Enter your password.",
       "passwordTooShort": "Password must be at least 8 characters.",
       "passwordTooLong": "Use no more than 256 characters.",
+      "passwordBytesTooLong": "Password is too long. Shorten it to at most 72 bytes; non-English characters can use several bytes.",
       "reservedUsername": "Choose a different username.",
       "usernameTaken": "That username is already taken.",
       "invalidCredentials": "The username or password is incorrect.",

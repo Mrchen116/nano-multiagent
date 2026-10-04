@@ -46,7 +46,7 @@ afterEach(() => {
   fetchMock.mockReset();
   FakeWebSocket.instances = [];
   // Reset store user so subsequent tests don't share session state.
-  useAuthStore.setState({ accessToken: null, refreshToken: null, user: null });
+  useAuthStore.setState({ accessToken: null, user: null });
 });
 
 describe("nodes page — node.status_changed WS subscription", () => {
@@ -56,7 +56,6 @@ describe("nodes page — node.status_changed WS subscription", () => {
     // Seed an authenticated user so the user-stream WS auto-attaches with our selfUserId.
     useAuthStore.setState({
       accessToken: `${btoa('{"alg":"HS256"}')}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120 }))}.sig`,
-      refreshToken: "rtok",
       user: {
         id: "user-1",
         username: "alice",
@@ -79,7 +78,6 @@ describe("nodes page — node.status_changed WS subscription", () => {
           new Response(
             JSON.stringify({
               access_token: `${btoa('{"alg":"HS256"}')}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120 }))}.sig`,
-              refresh_token: "test-refresh-2",
               user: useAuthStore.getState().user
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }

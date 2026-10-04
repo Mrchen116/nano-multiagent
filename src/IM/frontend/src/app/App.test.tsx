@@ -40,7 +40,6 @@ describe("App shell", () => {
     localStorage.clear();
     useAuthStore.getState().setSession({
       access_token: "t",
-      refresh_token: "r",
       user: SAMPLE_USER
     });
     Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1280 });
@@ -98,13 +97,12 @@ describe("App shell", () => {
     );
     capturedQueryClient!.setQueryData(["chat", "conversations"], ["cached"]);
 
-    act(() => useAuthStore.getState().setTokens({ access_token: "t-2", refresh_token: "r-2" }));
+    act(() => useAuthStore.getState().setTokens({ access_token: "t-2", }));
     expect(capturedQueryClient!.getQueryData(["chat", "conversations"])).toEqual(["cached"]);
 
     capturedQueryClient!.setQueryData(["settings", "nodes"], ["user-a-node"]);
     act(() => useAuthStore.getState().setSession({
       access_token: "user-b-token",
-      refresh_token: "user-b-refresh",
       user: { ...SAMPLE_USER, id: "user-2", username: "other", owner_id: "user-2" }
     }));
 

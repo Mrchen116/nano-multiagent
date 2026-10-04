@@ -1,26 +1,32 @@
-import { AuthApiError, refreshTokens } from "./auth-api";
-import { useAuthStore } from "./auth-store";
+import { AuthApiError, refreshTokens, login as loginApi, register as registerApi, logoutApi } from "./auth-api";
+import { useAuthStore, type BrowserSession } from "./auth-store";
 
 const FRESHNESS_WINDOW_SECONDS = 30;
-
 export type SessionReadiness =
   | { status: "ready"; userId: string; accessToken: string }
   | { status: "retry" }
   | { status: "signed_out" };
+const refreshFlights = new Map<number, Promise<SessionReadiness>>();
+let channel: BroadcastChannel | undefined;
 
-interface RefreshSnapshot {
-  userId: string;
-  refreshToken: string;
+function sessionChannel() {
+  if (!channel) {
+    channel = new BroadcastChannel("im-session");
+    channel.onmessage = ({ data }) => {
+      if (data !== "login" && data !== "logout") return;
+      useAuthStore.getState().clear();
+      if (data === "login") {
+        useAuthStore.setState({ hydrated: false });
+        void useAuthStore.getState().hydrate();
+      }
+    };
+  }
+  return channel;
 }
 
-interface RefreshFlight {
-  promise: Promise<SessionReadiness> | null;
-}
-
-const refreshFlights = new Map<string, RefreshFlight>();
-
-function refreshFlightKey(snapshot: RefreshSnapshot): string {
-  return `${snapshot.userId}\0${snapshot.refreshToken}`;
+async function withSessionLock<T>(operation: () => Promise<T>): Promise<T> {
+  sessionChannel();
+  return navigator.locks.request("im-session", operation);
 }
 
 function decodeJwtExpiry(token: string): number | null {
@@ -41,69 +47,74 @@ function isFresh(token: string): boolean {
   return expiry !== null && expiry - Date.now() / 1000 > FRESHNESS_WINDOW_SECONDS;
 }
 
-function stillMatches(snapshot: RefreshSnapshot): boolean {
-  const current = useAuthStore.getState();
-  return current.user?.id === snapshot.userId && current.refreshToken === snapshot.refreshToken;
-}
-
-function clearMatchingSession(snapshot: RefreshSnapshot): void {
-  if (stillMatches(snapshot)) useAuthStore.getState().clear();
-}
-
-function startRefresh(snapshot: RefreshSnapshot): Promise<SessionReadiness> {
-  const key = refreshFlightKey(snapshot);
-  const existing = refreshFlights.get(key);
-  if (existing?.promise) return existing.promise;
-  const flight: RefreshFlight = { promise: null };
-  flight.promise = (async () => {
+function startRefresh(revision: number): Promise<SessionReadiness> {
+  const existing = refreshFlights.get(revision);
+  if (existing) return existing;
+  const flight = withSessionLock(async (): Promise<SessionReadiness> => {
+    if (useAuthStore.getState().revision !== revision) return { status: "retry" };
     try {
-      const pair = await refreshTokens(snapshot.refreshToken);
-      if (pair.user.id !== snapshot.userId) {
-        throw new Error("refresh response user does not match the active session");
-      }
-      if (!stillMatches(snapshot)) return { status: "retry" } as const;
-      useAuthStore.getState().setSession(pair);
-      return { status: "ready", userId: snapshot.userId, accessToken: pair.access_token } as const;
+      const session = await refreshTokens();
+      if (useAuthStore.getState().revision !== revision) return { status: "retry" };
+      useAuthStore.getState().setSession(session);
+      return { status: "ready", userId: session.user.id, accessToken: session.access_token };
     } catch (error) {
+      if (useAuthStore.getState().revision !== revision) return { status: "retry" };
       if (error instanceof AuthApiError && error.status === 401) {
-        clearMatchingSession(snapshot);
-        return { status: "signed_out" } as const;
+        useAuthStore.getState().clear();
+        return { status: "signed_out" };
       }
-      if (error instanceof AuthApiError && error.status >= 500) return { status: "retry" } as const;
-      if (error instanceof TypeError) return { status: "retry" } as const;
-      throw error;
-    } finally {
-      if (refreshFlights.get(key) === flight) refreshFlights.delete(key);
+      return { status: "retry" };
     }
-  })();
-  refreshFlights.set(key, flight);
-  return flight.promise;
+  }).finally(() => refreshFlights.delete(revision));
+  refreshFlights.set(revision, flight);
+  return flight;
 }
 
-/**
- * Returns a session whose access token is safe to use for a new transport.
- * HTTP and WebSocket callers share the same refresh flight within this tab.
- */
+export async function restoreSession(): Promise<void> {
+  const revision = useAuthStore.getState().revision;
+  const result = await startRefresh(revision);
+  if (result.status === "retry" && useAuthStore.getState().revision === revision) {
+    useAuthStore.setState({ hydrationError: true });
+  }
+}
+
+/** HTTP and WebSocket transports share a single refresh within this tab. */
 export async function ensureFreshSession(): Promise<SessionReadiness> {
   const current = useAuthStore.getState();
-  const userId = current.user?.id;
-  const accessToken = current.accessToken;
-  if (!userId || !accessToken) return { status: "signed_out" };
-  if (isFresh(accessToken)) return { status: "ready", userId, accessToken };
-
+  if (!current.user || !current.accessToken) return { status: "signed_out" };
+  if (isFresh(current.accessToken)) return { status: "ready", userId: current.user.id, accessToken: current.accessToken };
   return forceRefreshSession();
 }
 
-/** Refreshes the active session even when its access-token expiry is still distant. */
-export async function forceRefreshSession(): Promise<SessionReadiness> {
+export function forceRefreshSession(): Promise<SessionReadiness> {
   const current = useAuthStore.getState();
-  const userId = current.user?.id;
-  if (!userId || !current.accessToken) return { status: "signed_out" };
-  const refreshToken = current.refreshToken;
-  if (!refreshToken) {
-    useAuthStore.getState().clear();
-    return { status: "signed_out" };
-  }
-  const snapshot = { userId, refreshToken };
-  return startRefresh(snapshot);
+  if (!current.user || !current.accessToken) return Promise.resolve({ status: "signed_out" });
+  return startRefresh(current.revision);
+}
+
+async function establishSession(operation: () => Promise<BrowserSession>): Promise<BrowserSession> {
+  useAuthStore.getState().clear();
+  const revision = useAuthStore.getState().revision;
+  return withSessionLock(async () => {
+    if (useAuthStore.getState().revision !== revision) throw new Error("Session changed");
+    const session = await operation();
+    if (useAuthStore.getState().revision !== revision) throw new Error("Session changed");
+    useAuthStore.getState().setSession(session);
+    sessionChannel().postMessage("login");
+    return session;
+  });
+}
+
+export function login(input: Parameters<typeof loginApi>[0]) {
+  return establishSession(() => loginApi(input));
+}
+export function register(input: Parameters<typeof registerApi>[0]) {
+  return establishSession(() => registerApi(input));
+}
+export function logout(): Promise<void> {
+  useAuthStore.getState().clear();
+  return withSessionLock(async () => {
+    await logoutApi();
+    sessionChannel().postMessage("logout");
+  });
 }

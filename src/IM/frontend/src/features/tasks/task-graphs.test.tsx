@@ -55,7 +55,7 @@ function renderTasks(path: string, messages: Message[] = []) {
 beforeEach(() => {
   setLanguage("en");
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
-  useAuthStore.getState().setSession({ access_token: TEST_ACCESS_TOKEN, refresh_token: "test-refresh", user: TEST_AUTH_USER });
+  useAuthStore.getState().setSession({ access_token: TEST_ACCESS_TOKEN, user: TEST_AUTH_USER });
   currentGraph = structuredClone(sampleGraph);
   graphStatus = 200;
   list = { items: [{ ...sampleGraph, title: "Video product", mode: "dag", status: "todo" }], next_cursor: null, total: 1 };
