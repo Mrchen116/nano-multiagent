@@ -112,19 +112,60 @@ Round1描述已更正：实际反例是镜像硬件输入触发的iOS输入辅�
 
 消费者delta文件没有变更；新增offset只落实原“标题返回、输入与发送保持可见”要求，没有新增业务/路由/认证或独立对外行为。统一height/offset临时覆盖由批准设计描述，providers CSS seam测试保护；当前静态实现和最终测试方向aligned。唯一Corrected Delta Reconciliation段暂保留其标注的Round1快照结果，收到Round2产品证据后更新为当前快照最终outcome，不提前把产品未验场景标通过。
 
+## Round 3 — delta / targeted-closure，当前静态核对完成
+
+- reviewer: `/root/review_577_static`，独立；仅写本报告及code-review，未改受审源码/测试/设计，未操作UI或服务。
+- verification_mode: `delta` / `targeted-closure`；同次 `corrected-delta`。
+- executed_base: `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`
+- validated_at: `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`；HEAD已独立核实一致。
+- fix_delta_range: `71c6ec84c1df79a3d3dcd38b039d0fac800aa99f..fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`
+- focus: 用户实体IMG_9428.PNG反馈的白带/手机换行发送语义、相应incident/design/M1与delta，以及旧I1/I2关联闭环。
+- retained_from: Round1全范围静态验证，Round2 offset修复核对；新增main仅独立feat-578文档，对577/source/tests旧结论无影响。旧手机Enter发送不再作为保留约束，由用户新决定和明确REMOVED退役。
+- requires_full_verification: `false`。消费者输入语义变化已按批准的full design覆盖，但实现/验证delta仍仅MessagePane输入事件与原viewport/CSS生命周期；无跨包、消息传输或草稿模型扩展。旧full范围结论可保留，新增行为在本轮完整核对。
+- 当前full verdict: **pending**，不可提作产品门禁通过。静态代码/契约无新偏离；R3实体软件键盘、中文IME与缩放同版本复查尚未交接，最终front全量已由caller完成，独立读取日志确认86 files/808 passed/145.72s。
+
+### Completeness / Correctness / Coherence
+
+| 范围 | 契约 / 决策 | 代码与测试证据 | 结论 |
+|---|---|---|---|
+| 手机Enter换行、草稿保留、按钮多行发送 | incident新增手机键盘需求、design第6决定、delta新增手机换行Requirement、M1 R3 | `message-pane.tsx:663` 手机Enter最前stopPropagation/return；不preventDefault/commit；`message-pane.test.tsx:610` 真textarea原生多行后按钮onSend完整草稿 | aligned，实体IME未代验 |
+| 手机slash/mention候选不抢Enter，候选点击仍可用 | 同上明确包括候选前缀 | 本地slash分支被手机Enter提前避开；mention/slash `window.addEventListener("keydown")`均冒泡阶段；两项手机候选Enter测试；现有pointer选择回调未变 | aligned；设备候选点击/中文确认需产品/用户证据 |
+| 桌面Enter、Shift+Enter、候选及IME保持 | incident桌面Scenario；delta MODIFIED完整条目 | 手机条件为false时原handler原样执行；已有桌面快捷键、组合输入和picker测试保留 | aligned |
+| 键盘/辅助条收缩时只移除重复Home安全区 | design第5决定；delta新增安全区Scenario | `hooks/use-mobile-viewport.ts:17`实际vv与documentElement.clientHeight比较，容差1px；`global.css:5558`变量fallback为原env；正常9.6pxdropzone内边距未改 | aligned，实际软件键盘画面待齐 |
+| 键盘收起但焦点仍在恢复 | delta明确不要求失焦；M1 R3 | providers `:39`保持焦点令vv从420恢复780，触发resize并观察安全区覆盖清除；hook其他条件及卸载同清理 | aligned |
+| 原header offset问题 | 旧I1与手机可视区域要求 | offset hook及mobile root relative top未改；独立regression Round2已确认聚焦、多行、返回、草稿等I1 resolved | closed（原已测硬件辅助条路径）；新增实体状态仍待R3 |
+| 实体软件键盘与手动缩放 | 原I2和更新后M1 R3，incident要求不得镜像代验 | 用户原图/反馈证明修前问题，不能证明修后pass；独立产品Round3进行中 | 未关闭，full pending |
+
+复用证据：progress列出的红4fail/93pass、绿97targeted tests/build及assets `index-DXqgLd_B.js` / `index-C9hmrQPD.css`；设计Round3 full Approved0/0并独立实走原型多行→箭头发送。源码未改Python/manifest服务，4119passed仍适用，不因新SHA重跑无效重复全量。独立读取`output/bugfix-577/input-r3-full.log`末尾：最终单worker全量86 files/808 passed/145.72s，与caller新增progress一致。
+
+测试规范：替换既有两项旧输入语义测试并补同owner的mention冒泡风险；既有viewport-to-CSS seam扩展同生命周期恢复证据，无重复文件、隐藏失败或永久一次性脚本。当前仅布局与事件变化，无SPEC跨包依赖/REST/WS/数据库变化。
+
+### Prototype / Reference evidence
+
+原型新增Enter原生多行与箭头发送已在design-review Round3通过独立真实Chrome操作复查；未变的登录/列表/375/430/600/1440布局沿用原证据。本轮explicit must-match增加键盘期正常内边距及多行发送，投影M1 R3/W1/W2，由MessagePane/viewport实现与97窄测试承担低层证据，产品Round3及用户实体同版本复查承担真实画面/输入法证据。verifier不以原型或镜像辅助条代软件键盘。
+
+### Current issues / actions
+
+- CRITICAL：**1个未完成退出条件（I2）**。契约位置为incident实体输入要求及design M1 R3；需要独立产品Round3和同构建实体软件键盘/中文候选确认/收起恢复/手动缩放证据，不能以jsdom或修前用户截图关闭。待caller转交结果再更新最终full verdict；该项是验收缺口，不是新增已确认代码缺陷。
+- WARNING：0。
+- SUGGESTION：0。
+
 ## Corrected Delta Reconciliation
 
-此段当前保留Round1快照，Round2最终证据待齐后更新。本轮delta未变；按 `executed_base...validated_at` 全部diff核对，未因当前实现错误静默调整spec。
+- snapshot: `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87 → fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`
+- 独立核对全部最新delta与最终静态实现/测试，并检查完整unit diff遗漏的对外行为。此处aligned代表契约内容与当前实现/回归保护对应；不是尚缺实体证据的产品full pass。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| 手机输入保持比例、镜像及主动缩放 | 手机16px统一规则；scale门控及清理 | providers三项；真实浏览器字号测量；完整设备跨页待齐 | 静态 aligned，最终产品证据待齐 |
-| 可用高度随浏览器栏/键盘变化，标题返回可用 | dvh/CSS统一高度和单hook/safe-area | lifecycle测试有覆盖；实际standalone header重叠反例 | **implementation-mismatch** |
-| 主屏未登录安装、站内登录导航、原目标 | manifest整站scope/start/id、JSON MIME路由；auth unchanged | app-factory HTTP、产品reviewer主屏四入口观察 | 静态 aligned，完整矩阵待齐 |
-| 已登录再次启动、详情刷新返回 | 同一manifest/root/router及既有Cookie恢复 | full frontend pass；设备完整regression待齐 | 静态 aligned，最终产品证据待齐 |
+| ADDED手机输入比例、镜像、主动缩放与可用高度 | 手机16px、统一dvh/height、scale门控、实际offset与安全区生命周期 | providers/Shell及既有布局；regression Round2 I1已closed；实体软件键盘/缩放同版本待齐 | aligned |
+| ADDED主屏登录/站内导航、再启动刷新 | manifest整站id/start/scope、standalone及IM JSON分发，auth/router unchanged | HTTP factory tests；regression Round1/2新安装/四入口/再启动/Safari刷新记录 | aligned |
+| ADDED手机多行/按钮发送/候选不抢Enter | 手机keydown最前stopPropagation+原生编辑，enterKeyHint；按钮原submit/commit | message-pane测试手机普通/slash/mention Enter与多行按钮发送；实体中文IME仍待 | aligned |
+| ADDED编辑期不重复安全区，收起且有焦点也恢复 | vv.height < documentElement.clientHeight-1时safe-bottom=0；恢复及其他生命周期移除；CSS env默认 | providers既有生命周期测试含收缩/有焦点恢复 | aligned |
+| REMOVED旧“Web IM 移动端输入法回车发送消息” | 不再手机Enter commit；明确用户新意图，未静默改spec掩盖旧问题 | 旧发送测试按新意图改为多行/按钮，发送仍完整 | aligned |
+| MODIFIED桌面/移动共同体验完整替换 | 桌面旧快捷键，手机新换行/按钮发送；历史分页、增长、复制/fork均未改 | 三个旧Scenario（手机分页、长按fork、相同消息动作资格）完整保留；既有相应测试保留 | aligned |
 
 ### Uncovered Observable Behavior
 
-None。统一移动字号覆盖认证/搜索/表单，安全区覆盖导航/认证和聊天，上述delta已覆盖这些消费者行为；新增manifest静态资产是主屏导航契约的接线，不改变业务API。没有遗漏的独立对外行为。
+None。移动候选Enter行为、composer键盘期安全区与无失焦恢复均明确进入新delta；原manifest/字号/offset行为由原手机可用性条目覆盖。旧current另一条共同体验里的“相同Enter发送”已通过完整MODIFIED替换消除冲突，三个无关原Scenario未丢失。enterKeyHint是新输入语义提示，不另造模式或协议；桌面未改。
 
-Outcome: **implementation-mismatch**（初轮已转交的R3直接反例；待固定修复版本及regression后重新核对，不将本记录称为最终通过）。
+Outcome: **aligned**。full门禁仍pending上述I2及最终产品证据。

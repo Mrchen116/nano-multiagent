@@ -79,3 +79,15 @@
 - 红测：修改现有MessagePane手机发送/slash Enter测试，补mention前缀用例；扩展现有AppProviders高度测试覆盖底部留白及keyboard关闭焦点保留。结果4 failed / 93 passed，失败准确对应旧行为，日志`input-r3-red.log`。
 
 R3设计审查full Approved0/0并完成Author Resolutions；实现范围为MessagePane Enter原生编辑、原hook安全区条件、既有CSS变量消费。修后97 targeted tests passed；build通过（测试中误用Playwright的exact选项被tsc发现，已删除该多余选项）。当前assets `index-DXqgLd_B.js` / `index-C9hmrQPD.css`，诊断脚本随build移除。docs-check252 sources/75routes和diff检查通过。准备按同一冻结版本独立产品和静态复验，实体输入法反馈仍须补齐。
+
+### R3 完整前端检查
+
+- 冻结源码 `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`。单 worker 完整运行：86 test files / 808 passed，145.72s；日志 `output/bugfix-577/input-r3-full.log`。
+- 手机冷启动后，隔离 IM 日志确认 `100.83.160.61` 请求本轮 JS `index-DXqgLd_B.js` 与 CSS `index-C9hmrQPD.css` 均为200。独立产品复验继续，尚未将此构建加载证据当作实体软件键盘通过。
+
+### R3 独立复验后状态
+
+- 独立 patch code review：`[]`；静态 delta / corrected-delta aligned。docs-check 使用主 checkout 的 `.venv` 通过，252 sources/75 routes。
+- 产品镜像实测确认重复底部间距减少约34 CSS px，header保持；普通、mention、slash前缀下Return实际换行，箭头发送多行收到OK，草稿往返保留。实体软键盘/中文IME/手动缩放尚未补齐。
+- 产品新增 I3：点击slash候选后只有失焦和关闭弹层、草稿仍为`/`。caller在同一构建点击可见`/new`行也复现，尚未判断事件归因，不能把它写成镜像误差或已通过。
+- 为定位I3，仅在隔离dist加入临时只读DOM事件目标采样，不包含消息/凭据。重新启动入口时镜像工具报告无可交互窗口，重新绑定/恢复窗口后仍未恢复；已请用户恢复镜像窗口。正式build将移除临时采样，源码未因此改变。
