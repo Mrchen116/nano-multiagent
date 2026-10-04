@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { authFetch } from "./auth-fetch";
-import { ensureFreshSession } from "./auth-session";
+import { ensureFreshSession, logout, login } from "./auth-session";
 import { useAuthStore, type AuthUser } from "./auth-store";
 
 const USER_A: AuthUser = {
@@ -29,8 +29,8 @@ function response(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function session(user: AuthUser, access: string, refresh: string): void {
-  useAuthStore.getState().setSession({ access_token: access, refresh_token: refresh, user });
+function session(user: AuthUser, access: string, _refresh: string): void {
+  useAuthStore.getState().setSession({ access_token: access, user });
 }
 
 describe("auth session readiness", () => {
@@ -57,7 +57,7 @@ describe("auth session readiness", () => {
     session(USER_A, accessToken(10), "refresh-a");
     const fresh = accessToken(120);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      response(200, { access_token: fresh, refresh_token: "refresh-a2", user: USER_A })
+      response(200, { access_token: fresh, user: USER_A })
     );
 
     const [left, right] = await Promise.all([ensureFreshSession(), ensureFreshSession()]);
@@ -75,7 +75,7 @@ describe("auth session readiness", () => {
       const url = String(input);
       if (url.includes("/auth/refresh")) {
         refreshCalls += 1;
-        return response(200, { access_token: fresh, refresh_token: "refresh-a2", user: USER_A });
+        return response(200, { access_token: fresh, user: USER_A });
       }
       const authorization = new Headers(init?.headers).get("Authorization");
       return authorization === `Bearer ${fresh}` ? response(200, { ok: true }) : response(401, { detail: "expired" });
@@ -116,59 +116,76 @@ describe("auth session readiness", () => {
     expect(useAuthStore.getState().user).toBeNull();
   });
 
-  it("does not let user A's delayed refresh overwrite user B", async () => {
+  it.each([200, 401])("does not let user A's delayed %s refresh overwrite user B", async (status) => {
     session(USER_A, accessToken(-1), "refresh-a");
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       await gate;
-      return response(200, {
+      return response(status, {
         access_token: accessToken(120),
-        refresh_token: "refresh-a2",
         user: USER_A
       });
     });
 
     const pending = ensureFreshSession();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     session(USER_B, accessToken(120), "refresh-b");
     release();
 
     await expect(pending).resolves.toEqual({ status: "retry" });
     expect(useAuthStore.getState().user?.id).toBe("user-b");
-    expect(useAuthStore.getState().refreshToken).toBe("refresh-b");
+
   });
 
-  it("does not share user A's rejected refresh flight with user B", async () => {
-    session(USER_A, accessToken(-1), "refresh-a");
-    let releaseA!: () => void;
-    const gateA = new Promise<void>((resolve) => {
-      releaseA = resolve;
-    });
-    const freshB = accessToken(120);
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const refreshToken = JSON.parse(String(init?.body)) as { refresh_token: string };
-      if (refreshToken.refresh_token === "refresh-a") {
-        await gateA;
-        return response(401, { detail: "invalid refresh" });
+  it("serializes logout after an in-flight refresh and ignores its stale result", async () => {
+    session(USER_A, accessToken(-1), "unused");
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      if (String(input).endsWith("/refresh")) {
+        await gate;
+        return response(200, { access_token: "stale", user: USER_A });
       }
-      return response(200, {
-        access_token: freshB,
-        refresh_token: "refresh-b2",
-        user: USER_B
-      });
+      return response(200, { ok: true });
     });
+    const pending = ensureFreshSession();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const signingOut = logout();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    release();
+    await expect(pending).resolves.toEqual({ status: "retry" });
+    await signingOut;
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/logout");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
 
-    const pendingA = ensureFreshSession();
-    session(USER_B, accessToken(-1), "refresh-b");
-    const pendingB = ensureFreshSession();
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    releaseA();
+  it("broadcasts only explicit session changes without credentials", async () => {
+    const observer = new BroadcastChannel("im-session");
+    const messages: unknown[] = [];
+    observer.onmessage = event => messages.push(event.data);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => response(200, { access_token: "fresh", user: USER_A }));
+    await login({ username: "alice", password: "password" });
+    await ensureFreshSession();
+    expect(messages).toEqual(["login"]);
+    await logout();
+    expect(messages).toEqual(["login", "logout"]);
+    observer.close();
+  });
 
-    await expect(pendingA).resolves.toEqual({ status: "signed_out" });
-    await expect(pendingB).resolves.toEqual({ status: "ready", userId: "user-b", accessToken: freshB });
-    expect(useAuthStore.getState().user?.id).toBe("user-b");
-    expect(useAuthStore.getState().refreshToken).toBe("refresh-b2");
+  it("drops the previous identity on another tab's login and restores the new cookie session", async () => {
+    session(USER_A, accessToken(120), "unused");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(200, { access_token: "b", user: USER_B }));
+    const other = new BroadcastChannel("im-session");
+    other.postMessage("login");
+    expect(useAuthStore.getState().user).toBeNull();
+    await vi.waitFor(() => expect(useAuthStore.getState().user?.id).toBe(USER_B.id));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    other.postMessage("logout");
+    expect(useAuthStore.getState().user).toBeNull();
+    other.close();
   });
 });

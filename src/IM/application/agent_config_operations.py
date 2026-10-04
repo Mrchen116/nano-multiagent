@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from uuid import uuid4
 
+from IM.infra.company_gate import outside_gate_lock
 from IM.application.config_service import ConfigService
 from IM.domain.models import AgentProfile
 from IM.domain.skill_selection import (
@@ -96,7 +97,7 @@ class AgentConfigOperationCoordinator:
     ) -> AgentProfile | None:
         """Recover one active operation, returning its committed profile when known."""
         lock = await self._gateway.config_operation_lock(agent_id=agent_id)
-        async with lock:
+        async with outside_gate_lock(lock):
             operation = self._operations.get_active(
                 agent_id=agent_id, owner_id=owner_id
             )
@@ -132,7 +133,11 @@ class AgentConfigOperationCoordinator:
         """Submit and commit one Gateway-first Agent creation operation."""
         agent_id = _required_candidate_text(candidate, "agent_id")
         lock = await self._gateway.config_operation_lock(agent_id=agent_id)
-        async with lock:
+        async with outside_gate_lock(lock):
+            # The HTTP existence check may predate a capability/RPC wait.
+            # Recheck under the same resource lock that dispatches creation.
+            if self._service.get_profile(agent_id=agent_id) is not None:
+                raise ValueError("agent_id already exists")
             operation = self._operations.create(
                 operation_id=uuid4().hex,
                 agent_id=agent_id,
@@ -170,7 +175,7 @@ class AgentConfigOperationCoordinator:
         if candidate.get("work_mode", profile.work_mode) != profile.work_mode:
             raise ValueError("work_mode is immutable")
         lock = await self._gateway.config_operation_lock(agent_id=profile.agent_id)
-        async with lock:
+        async with outside_gate_lock(lock):
             previous_candidate = candidate_from_profile(profile, service=self._service)
             operation = self._operations.create(
                 operation_id=uuid4().hex,

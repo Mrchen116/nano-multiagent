@@ -270,10 +270,10 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 - **WHEN** 用户直接从 M fork，未先在源会话发起采用新配置的回复
 - **THEN** fork 正常完成并保留截至 M 的历史；分支第一次新回复使用当前完整运行配置
 
-#### Scenario: fork 执行期间配置再次更新时原子失败
+#### Scenario: fork 执行期间配置再次更新时明确失败
 - **GIVEN** fork 已开始但尚未完成目标分支绑定
 - **WHEN** 该 Agent 的配置在此期间发布新版本
-- **THEN** 本次 fork 不留下分支单聊，并明确提示配置刚刚更新、请重试
+- **THEN** 本次 fork 明确失败并提示配置刚刚更新、请重试；未有独立用户内容的半成品会清除，等待期间已经接收的新用户内容必须保留
 
 #### Scenario: fork 保留自进化 system 提示语义
 - **GIVEN** fork 点以前存在一条结构化自进化 system 提示
@@ -297,7 +297,7 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 
 ### Requirement: agent 离线时 fork 不可用且给出明确提示
 
-被 fork 的 agent 当前离线 / 不可用时，fork 操作不执行，用户得到明确反馈；系统不会建出一个 agent 不记得历史的空壳单聊（fork 过程中任一步失败均原子回滚，不留孤儿会话）。
+被 fork 的 agent 当前离线 / 不可用时，fork 操作不执行，用户得到明确反馈；正常失败清除本请求的空半成品或仅包含本次复制内容的分支；若等待期间已经接收独立用户内容，则保留该分支和内容，不能通过失败清理丢弃用户消息。已派发的远端 fork/binding 不由 IM 自动补偿。
 
 #### Scenario: agent 离线时 fork 被拒并明确提示
 - **GIVEN** 某 agent 当前离线
@@ -307,7 +307,7 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 #### Scenario: fork 中途失败不留孤儿会话
 - **GIVEN** 校验通过、agent 在线、新会话已建并已委托内核侧 fork，但其后某一步（内核 fork 或展示历史复制）失败
 - **WHEN** fork 流程结束
-- **THEN** 已建的新会话被回滚删除，用户看到 fork 失败提示；不留下一个有历史显示但 agent 不记得的单聊
+- **THEN** 用户看到 fork 失败提示；本请求的空半成品或仅包含本次复制内容的分支被回滚删除。等待期间已有新用户内容时保留分支及内容，不把未完成的 fork 声称为成功
 
 ### Requirement: 私聊提供会话菜单
 

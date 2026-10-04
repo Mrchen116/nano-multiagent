@@ -42,3 +42,11 @@ class AuthLimits:
                        expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END""",
                     (key, now + window, now, now),
                 )
+
+    def clear(self, key: str) -> None:
+        """Clear a successful source/account pair without resetting other budgets."""
+        with self._lock, self.connection:
+            self.connection.execute(
+                "DELETE FROM auth_rate_limits WHERE bucket=?",
+                (hashlib.sha256(key.encode()).hexdigest(),),
+            )

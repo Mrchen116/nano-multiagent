@@ -10,6 +10,7 @@ export function RequireAuth({ children }: PropsWithChildren) {
   const accessToken = useAuthStore(s => s.accessToken);
   const user = useAuthStore(s => s.user);
   const hydrated = useAuthStore(s => s.hydrated);
+  const hydrationError = useAuthStore(s => s.hydrationError);
   const [verified, setVerified] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -25,6 +26,7 @@ export function RequireAuth({ children }: PropsWithChildren) {
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; };
   }, [hydrated, userId, attempt]);
+  if (!hydrated && hydrationError) return <div role="alert">{t("auth.feedback.serviceUnavailable")} <button onClick={() => void useAuthStore.getState().hydrate()}>{t("company.refresh")}</button></div>;
   if (!hydrated) return null;
   if (!accessToken || !user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   if (failed) return <div role="alert">{t("auth.feedback.serviceUnavailable")} <button onClick={() => setAttempt(x => x + 1)}>{t("company.refresh")}</button></div>;

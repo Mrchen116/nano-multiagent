@@ -59,11 +59,7 @@ export function AccountPage() {
     onSuccess: async (updated) => {
       const auth = useAuthStore.getState();
       if (auth.user) {
-        auth.setSession({
-          access_token: auth.accessToken ?? "",
-          refresh_token: auth.refreshToken ?? "",
-          user: { ...auth.user, display_name: updated.display_name, locale: updated.locale }
-        });
+        auth.replaceUser({ ...auth.user, display_name: updated.display_name, locale: updated.locale });
       }
       setErrorDetail(null);
       await queryClient.invalidateQueries({ queryKey: ["settings", "account"] });

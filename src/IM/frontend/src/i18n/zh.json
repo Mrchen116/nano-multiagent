@@ -24,6 +24,7 @@
       "passwordRequired": "请填写密码。",
       "passwordTooShort": "密码至少需要 8 位。",
       "passwordTooLong": "密码不能超过 256 个字符。",
+      "passwordBytesTooLong": "密码过长，请缩短至 72 字节以内；中文或表情会占多个字节。",
       "reservedUsername": "请更换一个用户名。",
       "usernameTaken": "该用户名已被占用。",
       "invalidCredentials": "用户名或密码错误。",

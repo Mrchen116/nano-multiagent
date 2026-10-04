@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from starlette.responses import JSONResponse
 
 from IM.infra.auth_limits import RateLimited
+from IM.infra.company_gate import company_lease
 
 JSON_LIMIT = 2 * 1024 * 1024
 
@@ -30,6 +31,11 @@ def client_source(scope: dict) -> str:
 def browser_origin_allowed(scope: dict, public_url: str) -> bool:
     """Compare exact configured origins; no prefix or substring acceptance."""
     origin = dict(scope.get("headers", [])).get(b"origin", b"").decode()
+    return origin in browser_origins(public_url)
+
+
+def browser_origins(public_url: str) -> list[str]:
+    """Return the explicitly trusted public and development origins."""
     parsed = urlsplit(public_url)
     allowed = {f"{parsed.scheme}://{parsed.netloc}"}
     allowed.update(
@@ -37,7 +43,7 @@ def browser_origin_allowed(scope: dict, public_url: str) -> bool:
         for value in os.getenv("IM_BROWSER_ORIGINS", "").split(",")
         if value.strip()
     )
-    return origin in allowed
+    return sorted(allowed)
 
 
 class _ResponseRevoked(Exception):
@@ -110,21 +116,22 @@ class CompanyBoundary:
             # the company gate only when the completed file is published.
             return await self.app(scope, receive, send)
         state = scope["app"].state
-        await state.company_gate.acquire()
-        gate_held = True
         protected_response = False
+        request = Request(scope, receive=receive)
+
+        async def revalidate():
+            if protected_response:
+                from IM.api.deps import current_data_principal
+
+                await current_data_principal(request)
 
         async def response_send(message):
-            nonlocal gate_held
-            if message["type"] == "http.response.start" and gate_held:
-                # Route effects are committed before headers. Slow socket writes
-                # must not prevent another request from revoking membership.
-                state.company_gate.release()
-                gate_held = False
+            if message["type"] == "http.response.start":
+                lease.release()
             if protected_response and message["type"] == "http.response.body":
                 try:
                     async with state.company_gate:
-                        await current_data_principal(Request(scope, receive=receive))
+                        await revalidate()
                 except HTTPException:
                     await bounded_send(
                         {"type": "http.response.body", "body": b"", "more_body": False}
@@ -132,21 +139,35 @@ class CompanyBoundary:
                     raise _ResponseRevoked
             await bounded_send(message)
 
-        send = response_send
         try:
-            request = Request(scope, receive=receive)
-            try:
-                source = client_source(scope)
-                limits = state.auth_limits
-                if path == "/im/v1/auth/register":
-                    limits.check("register:source:" + source, limit=5, window=900)
-                    limits.check("register:service", limit=100, window=3600)
-                elif path == "/im/v1/auth/login":
-                    limits.check("login:source:" + source, limit=30, window=300)
-                elif path == "/im/v1/auth/refresh":
-                    limits.check("refresh:source:" + source, limit=60, window=60)
-                elif path.startswith("/im/v1/device-binding/"):
-                    limits.check("bind:source:" + source, limit=60, window=60)
+            # These counters own a separate connection: admission must not delay
+            # abuse rejection or commit a route's shared SQLite transaction.
+            source = client_source(scope)
+            limits = state.auth_limits
+            if path == "/im/v1/auth/register":
+                limits.check("register:source:" + source, limit=5, window=900)
+                limits.check("register:service", limit=100, window=3600)
+            elif path == "/im/v1/auth/login":
+                limits.check("login:source:" + source, limit=30, window=300)
+            elif path == "/im/v1/auth/refresh":
+                limits.check("refresh:source:" + source, limit=60, window=60)
+            elif path.startswith("/im/v1/device-binding/"):
+                limits.check("bind:source:" + source, limit=60, window=60)
+            if (
+                request.headers.get("X-IM-Session") == "browser"
+                and path
+                in {
+                    "/im/v1/auth/register",
+                    "/im/v1/auth/login",
+                    "/im/v1/auth/refresh",
+                    "/im/v1/auth/logout",
+                }
+                and not browser_origin_allowed(scope, state.public_url)
+            ):
+                raise HTTPException(
+                    status_code=403, detail="browser origin not allowed"
+                )
+            async with company_lease(state.company_gate, revalidate) as lease:
                 public_identity = path in {
                     "/im/v1/auth/register",
                     "/im/v1/auth/login",
@@ -157,28 +178,20 @@ class CompanyBoundary:
                 if not public_identity and not path.startswith(
                     "/im/v1/device-binding/"
                 ):
-                    from IM.api.deps import current_data_principal
-
-                    await current_data_principal(request)
                     protected_response = True
-                await self.app(scope, receive, send)
-            except _ResponseRevoked:
-                return
-            except RateLimited as exc:
-                await JSONResponse(
-                    {
-                        "detail": "temporarily rate limited",
-                        "retry_after": exc.retry_after,
-                    },
-                    status_code=429,
-                    headers={"Retry-After": str(exc.retry_after)},
-                )(scope, receive, send)
-            except HTTPException as exc:
-                await JSONResponse(
-                    {"detail": exc.detail},
-                    status_code=exc.status_code,
-                    headers=exc.headers,
-                )(scope, receive, send)
-        finally:
-            if gate_held:
-                state.company_gate.release()
+                    await revalidate()
+                await self.app(scope, receive, response_send)
+        except _ResponseRevoked:
+            return
+        except RateLimited as exc:
+            await JSONResponse(
+                {"detail": "temporarily rate limited", "retry_after": exc.retry_after},
+                status_code=429,
+                headers={"Retry-After": str(exc.retry_after)},
+            )(scope, receive, bounded_send)
+        except HTTPException as exc:
+            await JSONResponse(
+                {"detail": exc.detail},
+                status_code=exc.status_code,
+                headers=exc.headers,
+            )(scope, receive, bounded_send)
