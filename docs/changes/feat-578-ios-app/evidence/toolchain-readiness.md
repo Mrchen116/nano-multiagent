@@ -11,6 +11,6 @@
 - Xcode Components 下载并安装 iOS 26.4 runtime（26.4.1 / 23E254a）；iPhone 17 Pro simulator `1CE31893-672F-495A-B2B5-3ACF39A7A257` 已启动并运行 Nano IM。
 - 安装后磁盘当次约 35 GiB 可用。未删除用户文件，保留官方 XIP。
 
-实际构建与测试：`build.sh test` 通过 21 项测试，`build.sh archive` 输出 arm64 IPA；实现 revision `b970e20a6`。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外。归档日志 `/tmp/nano-feat578-archive-r3.log`，本地产物 `output/feat578/NanoIM-b970e20a6-unsigned.ipa`，SHA-256 `c7652da3095a92843bb801c8f85137375a38b58e7837ecb9e1954546654439aa`。未签名 IPA 需 AltStore 重签，不能直接安装。
+最新构建与测试：`build.sh test` 通过 22 项测试，`build.sh archive` 输出 arm64 IPA；实现 revision `1708bdd74`。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外。归档日志 `/tmp/nano-feat578-archive-r5.log`，本地产物 `output/feat578/NanoIM-1708bdd74-unsigned.ipa`，SHA-256 `e168bafe3d7e2373e7f9177985485a6198f38c62e02f8e3d785476bf8426ab0b`。未签名 IPA 需 AltStore 重签，不能直接安装。旧 `b970e20a6` 产物和截图保留用于对应已执行的 R1 验收；最新 UI 尚待解锁后复验。
 
 尚待完整模拟器产品验收、Mini 可达和 AltServer、iPhone 时段/配对/免费签名及专用 Bot 独占试验。用户已明确真机准备后置到有可安装版本后；Gate 2 R2 已通过，此时序不降低最终验收标准。

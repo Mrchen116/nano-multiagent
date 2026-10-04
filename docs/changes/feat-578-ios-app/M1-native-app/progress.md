@@ -1,6 +1,6 @@
 # M1 progress
 
-Status: native implementation and review fixes integrated; simulator tests and real chat work. Independent simulator acceptance is in progress. Final product acceptance remains open.
+Status: native implementation and review fixes integrated; 22 native tests and device archive pass. Independent product R1 remains fail/inconclusive; Mac lock blocks remaining UI checks. Final product acceptance remains open.
 
 ## Implementation
 
@@ -53,3 +53,20 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Existing Web suite: **85 files / 804 tests passed**, 34.75 seconds (`/tmp/nano-feat578-vitest.log`). `npm ci` and critical-level dependency audit passed; audit reports seven existing lower-severity advisories (two high, three moderate, two low). No dependency manifest changed.
 - Documentation integrity: **251 maintained sources / 75 required routes passed**. Ruff check passed; format check reports **1134 files already formatted**. Logs `/tmp/nano-feat578-docs.log`, `/tmp/nano-feat578-ruff.log`, `/tmp/nano-feat578-format.log`.
 - These checks cover build/regression boundaries, not missing device or user-journey evidence. Final remote CI remains pending an eligible delivery PR.
+
+## Product R1 and follow-up fixes
+
+- Independent [acceptance R1](acceptance-r1.md) at `b970e20a6` records real chat, Agent creation, global Work, task-graph reference, admin and configuration-conflict journeys. S1/S28 pass; S10 fails because Photos did not open; the other scenarios retain explicit incomplete branches. This is not complete product acceptance.
+- `8b30e2361` restores the inherited response-metrics behavior: running Agent timer, fixed final wall clock, collapsed inline token details and cache count/percentage including zero. It also adds the HTTPTransport regression for a persisted message whose response is lost: history refresh and normal send do not retransmit; explicit retry retains the caller key and a single canonical history item.
+- `1708bdd74` moves PhotosPicker presentation from the transient menu into the stable Conversation view, driven by a menu button. Root build passes; actual UI closure still requires unlocking the Mac and re-testing selection/upload/preview/share.
+- Actual simulator suite after both fixes: **22 passed** (12 XCTest + 10 Swift Testing), log `/tmp/nano-feat578-xctest-r5.log`, xcresult `/tmp/nano-ios-build/Logs/Test/Test-NanoIM-2026.10.05_02-18-15-+0800.xcresult`. Release archive passes at `/tmp/nano-feat578-archive-r5.log`; current unsigned IPA and hash are in toolchain readiness.
+- [Static closure R2](closureverification-r2.md) and `code-review-r4.json` retain no new code finding. Source metric omission and uncertain-send regression are closed; metric rendering, Photos UI, delayed config confirmation and final gates remain open. Real UI 409 conflict recovery is independently evidenced by product R1.
+- Synced main `d87ffa3d1` via merge `7cdb515c9`. Incoming Web viewport/manifest changes did not change native source or API contracts used by the App. Retained prior full-suite evidence; affected checks passed (6 app-factory tests, 97 Web tests, docs integrity 248 sources/75 routes).
+
+## Locked-desktop checkpoint
+
+- CUA reported the Mac locked; user has been asked to unlock manually. No attempt to bypass the lock. No phone, Mini or production operation was performed.
+- Stopped own isolated IM/Gateway and design HTTP preview; loopback ports 62008/58781 are released. Retained local test DB/workspaces and scoped configuration under a private 0700 resume directory with 0600 files. None is tracked or committed.
+- Resume without wiping the prepared test objects: `tmux new-session -d -s feat578-ios 'bash /tmp/nano-feat578-resume.sh'`. This local-only helper restores the scoped config and starts the same IM/Gateway; it has passed shell syntax validation but has not yet been executed. Verify live API, owner/node and process cwd on resume. Do not use the fresh-bootstrap e2e-up path against this retained DB, because it recreates the database.
+- Reinstall the current Debug build after manual unlock, then resume product R2 from the explicit IDs/actions in acceptance R1. Prior installed UI was `b970e20a6`; current source is `1708bdd74`. Do not label the older UI screenshots as the fixed version.
+- No PR, current-spec merge, unit archive or completed delivery claim yet. Phone/Mini/free-signing and actual renewal remain the later stage once simulator acceptance is ready.

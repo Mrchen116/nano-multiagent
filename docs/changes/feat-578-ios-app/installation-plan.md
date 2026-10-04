@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态：已完成模拟器构建、21 项原生测试及 Release arm64 IPA；模拟器独立产品验收进行中，尚未签名安装到真机或续签。用户已确定当前 Mac 构建、Mac mini 运行 AltServer。无需购买 Apple Developer Program，不使用 AltStore PAL。
+状态：已完成模拟器构建、22 项原生测试及 Release arm64 IPA；模拟器独立 R1 未通过，修复后 UI 复验与未完成分支被 Mac 锁屏阻塞。尚未签名安装到真机或续签。用户已确定当前 Mac 构建、Mac mini 运行 AltServer。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
 ## 官方约束与选择
 
