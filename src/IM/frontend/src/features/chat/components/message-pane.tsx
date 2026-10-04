@@ -192,7 +192,7 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  * kind badge / ⚙) + messages list + composer (with @mention picker for groups).
  *
  * The component is fully controlled by the caller for `messages` and the
- * `onSend` callback fires when the user hits Send / Enter. The composer holds
+ * `onSend` callback fires when the user hits Send or desktop Enter. The composer holds
  * draft text + pending attachments locally, keyed by conversation so switching
  * chats restores that chat's unsent content instead of leaking it. On send it
  * returns the trimmed string + attachment snapshot, clearing those values only
@@ -660,6 +660,11 @@ export function MessagePane({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isMobile && e.key === "Enter") {
+      // Preserve the keyboard's native newline/IME action, including with pickers open.
+      e.stopPropagation();
+      return;
+    }
     if (mentionQuery !== null && e.key === "Escape") {
       e.preventDefault();
       setDraft((d) => d.replace(MENTION_RE, ""));
@@ -1117,6 +1122,7 @@ export function MessagePane({
                 value={draft}
                 onChange={(e) => changeDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                enterKeyHint={isMobile ? "enter" : undefined}
                 onPaste={handlePaste}
                 disabled={composerBusy}
                 onScroll={() => {

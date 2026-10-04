@@ -607,7 +607,7 @@ describe("MessagePane", () => {
       expect(scroller.scrollTop).toBe(1400);
     });
 
-    it("sends on Enter on mobile and clears the composer", async () => {
+    it("inserts a newline on mobile Enter and sends the complete draft only with the button", async () => {
       const user = userEvent.setup();
       const onSend = vi.fn();
       render(
@@ -620,9 +620,13 @@ describe("MessagePane", () => {
         />
       );
       const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
-      await user.type(composer, "mobile send");
+      await user.type(composer, "first line");
       await user.keyboard("{Enter}");
-      expect(onSend).toHaveBeenCalledWith("mobile send", []);
+      await user.type(composer, "second line");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("first line\nsecond line");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      expect(onSend).toHaveBeenCalledWith("first line\nsecond line", []);
       expect(composer.value).toBe("");
     });
 
@@ -825,7 +829,7 @@ describe("MessagePane", () => {
       expect(composer.value).toBe("line one\nline two");
     });
 
-    it("lets the slash picker own mobile Enter instead of sending raw slash text", async () => {
+    it("keeps mobile Enter as newline while slash candidates are open", async () => {
       const user = userEvent.setup();
       const onSend = vi.fn();
       render(
@@ -843,7 +847,18 @@ describe("MessagePane", () => {
       expect(await screen.findByText("/stop")).toBeInTheDocument();
       await user.keyboard("{Enter}");
       expect(onSend).not.toHaveBeenCalled();
-      expect(composer.value).toBe("/stop ");
+      expect(composer.value).toBe("/\n");
+    });
+
+    it("keeps mobile Enter as newline while mention candidates are open", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(<MessagePane conversation={GROUP_CONV} messages={[]} mentionCandidates={MENTION_CANDIDATES} isMobile onSend={onSend} />);
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "@Pla");
+      await user.keyboard("{Enter}");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("@Pla\n");
     });
 
     it("auto-grows the mobile composer up to four rows", async () => {

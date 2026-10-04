@@ -26,3 +26,41 @@ Web IM 在手机浏览器与主屏 Web App 中 SHALL 保持输入、导航和页
 #### Scenario: 已登录再次启动
 - **WHEN** 用户已登录后重新打开主屏应用，或刷新详情并返回列表
 - **THEN** 页面保持可用宽度与高度，登录及路由语义保持，不需要反复重新安装才能继续使用
+
+### Requirement: Web IM 手机换行与发送使用明确分开的操作
+
+手机聊天输入框的键盘换行 SHALL 插入新行，发送箭头 SHALL 发送当前完整内容；不让标为换行的按键直接发送。
+
+#### Scenario: 手机键盘编辑多行消息
+- **WHEN** 用户在手机输入框按换行键，包括提及或斜杠前缀正在显示候选时
+- **THEN** 输入框保留多行草稿，不自动发送或选取候选；候选仍可点击选取
+- **AND** 点击发送箭头发送包含换行的完整消息，中文输入法确认候选不触发发送
+
+#### Scenario: 编辑期间不重复保留底部安全区
+- **WHEN** 手机键盘或输入辅助条使可视高度收缩
+- **THEN** composer仅保留正常内边距，不额外重复Home指示条留白
+- **AND** 收起后恢复正常底部安全区，不要求失焦才能恢复
+
+## REMOVED Requirements
+
+### Requirement: Web IM 移动端输入法回车发送消息
+
+## MODIFIED Requirements
+
+### Requirement: Web IM 桌面与移动端在聊天页保持一致的滚动与交互体验
+
+桌面浏览器与移动浏览器进入同一聊天页，均具备分页加载、composer自动增高、正文可选择、整条复制和eligible fork能力。输入快捷键符合设备输入方式：桌面Enter发送、Shift+Enter换行；手机键盘换行、点击发送箭头发送，候选点击选择。
+
+#### Scenario: 在手机端向上滚动加载历史
+- **WHEN** 终端用户在移动设备上打开同一聊天并向上滚动
+- **THEN** 同样触发加载更早消息,且阅读位置保持稳定
+
+#### Scenario: 在手机端长按 Agent 回复 fork
+- **GIVEN** 当前消息是符合既有 fork 资格的 Agent 回复
+- **WHEN** 终端用户长按该消息的普通区域并选择“从此处分支”
+- **THEN** 触发既有 fork 流程并给出明确反馈
+- **AND** 长按该消息正文仍保留系统文本选择能力
+
+#### Scenario: desktop 与 mobile 使用同一消息动作资格
+- **WHEN** 同一条消息分别显示在 desktop toolbar/context menu 与 mobile context menu
+- **THEN** 整条复制和 fork 的出现、enabled、disabled 与 in-flight 状态一致

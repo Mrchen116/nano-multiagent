@@ -13,9 +13,16 @@ export function useMobileViewport() {
         root.style.setProperty("--im-viewport-height", `${viewport.height}px`);
         // Standalone Safari can also pan the page when focusing a bottom input.
         root.style.setProperty("--im-viewport-offset", `${viewport.offsetTop}px`);
+        // The keyboard/accessory already separates the composer from the home indicator.
+        if (viewport.height < root.clientHeight - 1) {
+          root.style.setProperty("--im-composer-safe-bottom", "0px");
+        } else {
+          root.style.removeProperty("--im-composer-safe-bottom");
+        }
       } else {
         root.style.removeProperty("--im-viewport-height");
         root.style.removeProperty("--im-viewport-offset");
+        root.style.removeProperty("--im-composer-safe-bottom");
       }
     };
     document.addEventListener("focusin", update);
@@ -34,6 +41,7 @@ export function useMobileViewport() {
       window.removeEventListener("pageshow", update);
       root.style.removeProperty("--im-viewport-height");
       root.style.removeProperty("--im-viewport-offset");
+      root.style.removeProperty("--im-composer-safe-bottom");
     };
   }, []);
 }

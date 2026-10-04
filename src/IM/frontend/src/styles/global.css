@@ -5555,7 +5555,7 @@ body {
 }
 
 .im-shell--conversation .chat-pane-composer {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--im-composer-safe-bottom, env(safe-area-inset-bottom, 0px));
 }
 
 .im-work-message-target { outline: 2px solid var(--im-accent); outline-offset: 4px; border-radius: 12px; }

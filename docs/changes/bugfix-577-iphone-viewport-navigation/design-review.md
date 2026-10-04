@@ -125,3 +125,73 @@
 ### Author Resolutions（Round 2）
 
 作者核实0 CRITICAL / 0 WARNING；接受编辑期间实际offsetTop补偿，范围未扩大。接口摘要同步height/offset文字，与本轮已审决定同义；不新增Round。真正软件键盘、I1/I2产品复验仍为实施退出条件，未将设计批准代替产品通过。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/review_577_design`，沿用独立 reviewer，未参与本轮设计修订或实现。
+- review_mode: `full`
+- mode_reason: 用户明确改变手机 Enter 的对外语义，delta 退役旧 Requirement，M1 R3 退出条件同步增加，因此按 skill 扩大为完整需求/决定/契约覆盖；未受影响机制沿用前两轮证据，不机械重跑旧页面或手机旅程。
+- started_at: `2026-10-05T01:01:26+08:00`
+- completed_at: `2026-10-05T01:05:57+08:00`
+- duration: `PT4M31S`
+- checkout: `/Users/czj/.codex/worktrees/unit-bugfix-577/nano-multiagent`
+- branch: `codex/bugfix-577-iphone-viewport-navigation`
+- executed_base: `main 76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`
+- validated_at: `71c6ec84c1df79a3d3dcd38b039d0fac800aa99f` 加以下未提交设计材料；未审查或批准尚未形成的本轮实现。
+- effective_base / effective_through: 上述 base 与下表设计快照。
+- 收口前核对 author 将 MessagePane 补入 M1 范围列的摘要同步；与已审第6决定相同，最终 design 摘要已更新在下表，不另开 Round。
+
+| 受审文件 | SHA-256 |
+| --- | --- |
+| incident.md | `1f3695c1da047b77e52495714f29f417ad28db7278cb79002d0872f328d85154` |
+| design.md | `7d006d1e02b1edefae571001cafee1aee17a9499b66c8ed830b488bbb85796ae` |
+| prototype.html | `31b88d8b080bb36895d2d355597d115f1df76e2d329064c2ad2768df165b5802` |
+| specs/im/web-chat-ux.md | `8e0a9baaaad6fcc1294fb45880da8d662ce575a8e374eddda1ed707cbb03fb7e` |
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING.**
+
+两项修订均有直接用户反馈及当前实现依据；手机换行与显式发送的选择已收口，底部修正限定为移除重复安全区。没有新增模式设置、键盘高度常量或第二套视口监听。需要按更新后的 R3 实现并复验，不能以本轮原型或镜像测量替代实体输入法通过。
+
+### Coverage 与证据
+
+**用户约束与实际基线。** 已独立查看用户原图 `/Users/czj/Downloads/IMG_9428.PNG`：中文软件键盘的按键明确标为“换行”，输入行下有白带，之后才是 iOS 字段辅助条及键盘。incident 末节保存原话并说明旧行为原本受 current 契约支持，随后由本次用户决定替换，没有把需求变化伪装成原实现违约。图像本身只能证明可见白带与键帽，Enter 导致发送的依据来自用户反馈及当前 `MessagePane.handleKeyDown`；不把静态图当成交互录像。
+
+**底部空白的机制与边界。** 读取 `output/bugfix-577/gap-samples.log`，初始 clientHeight/visual height=873；辅助条出现后 clientHeight 仍为873、visual height=805、scale=1，root/header.top 已为0；composer.bottom=805、row.bottom=761.40625，差43.59375px。composer padding-bottom=34px，dropzone padding-bottom=9.6px，与空白来源吻合。截图是实体软键盘，日志是镜像辅助条状态；二者没有被当作同一时刻或同一种键盘测量。设计只移除重复34px对应的 env inset，保留正常组件内边距与系统辅助条，不承诺隐藏系统 UI。
+
+比较 visualViewport.height 与 documentElement.clientHeight 使用同机已稳定的布局高度，避免使用本样本中已经变成805的 innerHeight 作基准；1px 是舍入容差，并非特定键盘阈值。手机/编辑/scale≈1 条件成立且视口收缩才发布 `--im-composer-safe-bottom: 0px`，否则清理并由 env 恢复，包含“收起但仍 focus”的 resize 路径。相比 focus 即取消所有安全区，这个范围与用户报告一致；相比缓存基准或增加平台探测，它复用既有测量和监听即可。不改变列表全局底栏的安全区。
+
+**真实入口与职责归属。** 当前 `use-mobile-viewport.ts` 已由 AppProviders 挂载，并统一拥有 height/offset 的 focus、resize、scroll、pageshow 与卸载清理；新增 composer inset 覆盖可加入同一生命周期，CSS 继续承担布局。当前 `chat-workspace-page.tsx:1128-1173` 真实组装 MessagePane 并传入 isMobile，不是仅测试启用的分支。发送策略属于 MessagePane 的输入事件，留白策略属于 hook/CSS；不让 viewport hook 读取草稿、触发发送或持有路由状态，也不把键盘语义下沉到 Gateway/消息协议。无需增加 React context、移动组件副本或通用键盘服务。
+
+**Enter 与候选菜单的数据流闭合。** 当前 `message-pane.tsx:662-681` 在 slash 打开时 preventDefault，并在普通非组合 Enter 时 commit；当前 mention/slash picker 均把 keydown 注册在 window 冒泡阶段，Enter 分支 preventDefault 并选择候选。故“手机 Enter 只不 commit”不足以兑现新需求。修订要求 textarea handler 最前识别手机 Enter，stopPropagation 后 return，既不 preventDefault、也不调用 commit，能同时避开本地 slash 截获与 window 候选选择，将原生换行/IME确认留给浏览器。桌面继续进入原有 handler；手机候选使用既有按钮的指针选择入口，发送箭头仍经表单 handleSubmit → commit(draft) 发送完整草稿，无第二条消息提交路径。
+
+这是保持浏览器默认编辑行为的设计判断，不是对所有实体输入法事件序列的已测承诺；尤其中文候选确认、斜杠/mention 打开时换行与候选点击仍须通过更新后的真实产品测试。设计不改变桌面既有候选键盘逻辑，也没有要求修复与本次改动无关的历史菜单行为。
+
+**delta、milestone 与兼容面。** 独立对照 current `docs/specs/im/web-chat-ux.md`：REMOVED 名称准确命中旧“Web IM 移动端输入法回车发送消息”；新增条目覆盖多行草稿、候选不被 Enter 选取、箭头发送及收起恢复安全区。MODIFIED 的桌面/移动一致性 Requirement 写出完整替换内容，并保留原有手机历史分页、长按 fork、桌面/移动消息动作资格三个 Scenario；只改设备输入差异，不丢失未改场景。canonical target 仍正确，current 尚未提前归并。M1 R3 同步增加手机 Enter/按钮多行发送和编辑期留白恢复，W1/W2 仍承接最低层验证及真实原型/设备对照；单 milestone 足够，不需要把两处小改拆成并行交付。
+
+**原型的独立交互复查。** 查看 prototype diff，新增仅为 enterkeyhint、气泡保留换行、键盘占位说明和本地箭头发送演示；整体布局、短高度、键盘占位与导航结构未改。本轮 IAB/Chrome 浏览器连接 API 不可用后，改用受支持的 CUA 原生 Chrome 操作，在独立新窗口打开 `http://127.0.0.1:18781/prototype.html`：开启短高度与键盘占位，输入第一行，实际按 Return，再输入第二行，截图确认两行仍在 composer，消息区尚未生成新气泡；点击 Send 后输入清空，滚动消息区确认生成包含两行的气泡。返回、输入、箭头均完整，composer 与占位区之间仅正常内边距。该窗口沿用现有80%浏览器缩放，本轮不把它声称为精确375px或真机模拟。关闭本轮新窗口，保留用户原有窗口及页面，未操作手机。
+
+作者记录的375/1440走查是补充证据；本轮独立实走新增交互，并用真实画面观察其结果。未修改的窄屏容器/导航布局沿用 Round 1 已看过的375/430/600/1440证据，不为仅新增换行保留样式重跑无关登录和列表。原型不含实际候选菜单或真实IME，因此对应实现验收仍以代码事件测试与实体手机为准。
+
+**retained_from: Round 1 / Round 2。** Manifest/站内路由、手机16px及镜像、统一高度、实际offset补偿、手动缩放保护、认证/消息/草稿边界及独立feat-578责任均未被本轮diff改变；沿用前两轮已审决定和真实入口依据。Round 1 中“保留旧手机回车发送”的历史结论已由本轮用户新需求及明确REMOVED替换，不作为继续阻止换行的约束。原runbook的隔离测试身份、可用真机、用户实体配合和最终真实键盘门禁继续适用；本轮实测仍不能替代最终修后验收。
+
+### 历史问题闭环
+
+- R2-R1：**closed**。Author Resolutions 已接受，当前接口摘要列出 height/offset，并随本轮新增 safe-bottom；与实际设计决定一致。
+- Round 1/2 设计 Issues：无遗留阻断项。
+- 产品回归与本次用户反馈：交由实施和产品验收按最终构建复核；本报告不将其标记为已修复。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增可选重设计要求。
+
+### Author Resolutions（Round 3）
+
+作者核实Approved、0 CRITICAL / 0 WARNING；无待修设计finding。按用户实体反馈落实手机Enter原生编辑和键盘期间取消重复safe area；本轮批准不代替修后实体输入法与收起恢复验收。

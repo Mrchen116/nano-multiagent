@@ -37,12 +37,14 @@ feat-340 建立移动单栏及底栏，feat-451 确立 composer 自动增高与�
 2. **手机可编辑文字至少 16px，保持镜像排版一致。** 覆盖登录/注册、搜索、表单 input、textarea、select；针对已有 inline 小字号控件使用限定于移动断点的统一规则，必要的优先级仅用于这个平台约束。composer 镜像跟随同一值，line-height/padding/wrapping 保持匹配。不加 `user-scalable=no` 或最大缩放限制。
 3. **CSS 默认用 100dvh，安全区由布局容器负责。** body/root/shell 不再各自锁死100vh，使用统一可用高度变量，兼容基线值为100vh、支持时100dvh。移动 shell 顶部留安全区、底栏高度包含 bottom inset且不收缩；具体会话沿用 composer bottom inset。认证页保持可滚动，主内容最小高度与同一高度来源一致。检查现有 header 局部 safe-area，避免重复计入。
 4. **软件键盘高度只在手机编辑期间跟随 visualViewport。** 统一 hook 在 AppProviders 挂载，监听 focusin/focusout、visualViewport resize/scroll、window resize和pageshow；仅当 `<768px`、有可编辑焦点、scale 约为1时发布可视高度变量。失焦/桌面/缩放时移除覆盖，回归CSS高度；卸载移除监听。更新可以合并到 requestAnimationFrame。同时将编辑期间实际 visualViewport.offsetTop 发布为根容器的相对 top 偏移，失焦/缩放/桌面时与高度覆盖一起移除；CSS默认偏移0。此补偿来自R1真机直接证据：输入辅助条使可视高度873→805，offsetTop/scrollY为68，header top为-68；只有高度收缩不能恢复标题位置。根容器使用relative top，保留内部滚动和fixed浮层原有定位语义。不做全局 touch 禁用、固定机型键盘高度、周期性强制scrollTo或根节点position:fixed。
-5. **Web 修复与原生 App 独立推进。** 输入字号、100dvh及显式manifest已取得同机有效对照，577 继续修复现有 Web 入口。用户明确要求即使没有新增特性也要 iOS App，已另开 feat-578 与独立 chat；免费签名、Mac mini AltServer 续签和通知能力由该 unit 决策，不成为 577 的前置依赖。
+5. **键盘占用底部时不叠加Home安全区。** 沿用同一hook，在既有手机/编辑/scale≈1条件下比较visualViewport.height与documentElement.clientHeight；前者小于后者超过1px舍入容差时发布`--im-composer-safe-bottom: 0px`，否则移除，失焦/缩放/桌面/卸载同样清理。composer底部padding读取此变量，缺省仍为env(safe-area-inset-bottom)。不按机型或键盘高度猜测，不只凭focus取消安全区；键盘收起但焦点仍在也恢复。真机测得clientHeight在输入辅助条开关前后保持873，visual高度缩到805，composer重复34px安全区；只消除这34px，保留dropzone原9.6px内边距与系统辅助条。
+6. **手机回车换行，发送由显式按钮触发。** MessagePane沿用传入isMobile，在textarea keydown最前处理手机Enter：仅stopPropagation，保留浏览器原生编辑与IME确认，不preventDefault也不commit；阻止冒泡到mention/slash全局候选键盘处理。候选在手机用点击选择，textarea的enterKeyHint为enter；桌面既有Enter/Shift+Enter与候选选择不变。不增加发送模式设置或另一个快捷键。
+7. **Web 修复与原生 App 独立推进。** 输入字号、100dvh及显式manifest已取得同机有效对照，577 继续修复现有 Web 入口。用户明确要求即使没有新增特性也要 iOS App，已另开 feat-578 与独立 chat；免费签名、Mac mini AltServer 续签和通知能力由该 unit 决策，不成为 577 的前置依赖。
 
 ## 接口与数据流
 
 - `public/manifest.webmanifest` 由 `index.html` link 同源引用；无需任何登录令牌，正常 JSON 类型，不缓存旧 HTML。
-- `useMobileViewport`（命名可依项目惯例）无外部参数，唯一作用是维护根元素 `--im-viewport-height` 与 `--im-viewport-offset` 的临时覆盖。CSS使用高度变量（默认100dvh，旧浏览器100vh）及编辑偏移变量（默认0）；不读取或保存表单内容、身份、消息。
+- `useMobileViewport`（命名可依项目惯例）无外部参数，唯一作用是维护根元素 `--im-viewport-height`、`--im-viewport-offset` 与 `--im-composer-safe-bottom` 的临时覆盖。CSS使用高度变量（默认100dvh，旧浏览器100vh）、编辑偏移变量（默认0）及composer底部变量（默认系统safe area）；不读取或保存表单内容、身份、消息。
 - 页面加载 → CSS决定视口/安全区 → 聚焦手机可编辑控件 → visualViewport改变 → CSS高度同步、flex内容区缩小 → blur → 清理覆盖、恢复正常高度。
 - 带缩放的 visualViewport 不用于缩小 app shell；正常用户缩放由浏览器负责。
 - 无 REST/WS/schema 变化。测试组件应覆盖挂载接线、焦点生命周期、无VisualViewport、手动缩放和清理，CSS/native机制依真机与真实浏览器验证。
@@ -103,8 +105,14 @@ feat-340 建立移动单栏及底栏，feat-451 确立 composer 自动增高与�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 | --- | --- | --- | --- | --- | --- |
-| M1-mobile-viewport | 恢复iPhone输入与站内导航可用性 | 无 | 无 | frontend index/public/global.css/AppProviders/hooks及最低层测试；IM静态manifest接线（如需）；unit证据 | [reviewer] R1 登录/搜索/输入无自动放大且跨页不裁切；R2 主屏登录、四入口、详情刷新/重新打开无系统栏侵入；R3 真机软件键盘开关时输入/发送可见，返回可用且草稿保持；R4 Safari工具栏、375/430/600px及桌面1440px不回归；[worker] W1 focused tests/build、manifest真实HTTP接线、手机字号及viewport测量；W2真实截图/原型must-match对照和设备/构建记录；W3 final窄测试、相关CI等价、独立review/verifier完整闭环 |
+| M1-mobile-viewport | 恢复iPhone输入与站内导航可用性 | 无 | 无 | frontend index/public/global.css/AppProviders/hooks、MessagePane及既有最低层测试；IM静态manifest接线（如需）；unit证据 | [reviewer] R1 登录/搜索/输入无自动放大且跨页不裁切；R2 主屏登录、四入口、详情刷新/重新打开无系统栏侵入；R3 真机软件键盘开关时输入/发送可见，返回可用且草稿保持；手机Enter真正换行、按钮发送多行，编辑期无重复底部安全区且收起恢复；R4 Safari工具栏、375/430/600px及桌面1440px不回归；[worker] W1 focused tests/build、manifest真实HTTP接线、手机字号及viewport测量；W2真实截图/原型must-match对照和设备/构建记录；W3 final窄测试、相关CI等价、独立review/verifier完整闭环 |
 
 ## R1 验收后的有界修订（2026-10-05）
 
 独立产品验收发现主屏composer聚焦后header与状态栏重叠，失焦恢复。caller在同一e6b202cb8构建仅加入不含消息内容的本地只读视口记录，证实scale始终1、字号未变；873px→805px高度收缩之外，浏览器将文档滚动68px且visualViewport.offsetTop=68，header.getBoundingClientRect().top=-68。本轮仅补偿这个已复现的视口偏移，不改需求、路由、消息或prototype外观目标。R3仍必须包含实体软件键盘实测。诊断脚本与原始日志只留本机output，交付构建移除。
+
+## 用户实体反馈后的有界修订（2026-10-05）
+
+按incident末节新增反馈收口手机回车语义与重复底部留白。旧current移动回车发送条目将由delta明确退役并替换；桌面不变，消息传输/草稿模型不变。原型已有键盘开启时压缩底部留白，本轮补全可操作的“Enter换行、按钮发送”演示及多行气泡。原型与镜像均不能代替最终实体输入法复验。
+
+原型新增行为作者走查：`http://127.0.0.1:18781/prototype.html`，1440×900及375×812；开启键盘占位后实际输入第一行、按Enter、输入第二行，保留多行草稿，点击箭头后多行气泡出现、输入清空。窄屏截图中返回/输入/箭头完整，composer与键盘占位之间仅正常内边距。仅证明交互表达，不替代产品与真实输入法。

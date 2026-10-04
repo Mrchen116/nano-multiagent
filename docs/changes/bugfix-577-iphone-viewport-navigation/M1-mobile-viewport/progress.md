@@ -67,3 +67,15 @@
 ### Final sync 有效性判断（等待实体结果期间）
 
 同步origin/main `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`，仅增加feat-578独立iOS设计文档，无577/src/tests增量；merge `559ae8d07d46757cc50661efc25ea6e995624e0d`。R2源码与`bd170820b`相同，代码review与已执行产品子项retained；design R2批准仍有效；I2及verification仍pending。原executed_base/validated_at保持原值，当前effective_base为76fe1d7e7，已执行结论effective_through到559ae8d07；尚未宣称整体门禁通过。
+
+## 用户实体键盘反馈：底部重复留白与换行语义
+
+用户已完成实体软键盘操作并给出截图IMG_9428.PNG，报告白带与“换行”实际发送；不能据此关闭I2。用户随后明确已重新开启镜像，caller继续诊断。
+
+- pre_fix_head：`71c6ec84c1df79a3d3dcd38b039d0fac800aa99f`，源码同bd170820b。
+- 实测留白：clientHeight873保持，viewport805，composer paddingBottom34、dropzone9.6，row bottom761.40625、composer805。多余34px来自keyboard/input accessory出现后仍保留Home safe area。原始样本`output/bugfix-577/gap-samples.log`；系统辅助条本身不属于可删页面白带。
+- Enter根因：MessagePane的旧统一Enter commit规则与current旧mobile发送契约一致；按本次用户反馈明确改成手机原生换行、按钮发送，桌面快捷键保留；候选弹层不得吞手机Enter。
+- 首文档/设计/delta/原型同步这两项范围，已走1440/375真实原型，独立Gate 2 R3审查中；不先覆盖current spec。
+- 红测：修改现有MessagePane手机发送/slash Enter测试，补mention前缀用例；扩展现有AppProviders高度测试覆盖底部留白及keyboard关闭焦点保留。结果4 failed / 93 passed，失败准确对应旧行为，日志`input-r3-red.log`。
+
+R3设计审查full Approved0/0并完成Author Resolutions；实现范围为MessagePane Enter原生编辑、原hook安全区条件、既有CSS变量消费。修后97 targeted tests passed；build通过（测试中误用Playwright的exact选项被tsc发现，已删除该多余选项）。当前assets `index-DXqgLd_B.js` / `index-C9hmrQPD.css`，诊断脚本随build移除。docs-check252 sources/75routes和diff检查通过。准备按同一冻结版本独立产品和静态复验，实体输入法反馈仍须补齐。
