@@ -3,6 +3,7 @@
 
 /* Shared light palette: white content, cool navigation, restrained teal actions. */
 :root {
+  --im-viewport-height: 100vh;
   --im-bg: #f7f9fb;
   --im-surface: #ffffff;
   --im-surface-2: #f3f6f8;
@@ -68,24 +69,28 @@
   box-sizing: border-box;
 }
 
+@supports (height: 100dvh) {
+  :root { --im-viewport-height: 100dvh; }
+}
+
 body {
   margin: 0;
   font-family: var(--im-font-sans);
   color: var(--im-text);
   background: var(--im-bg);
-  height: 100vh;
+  height: var(--im-viewport-height);
   overflow: hidden;
 }
 
 #root {
-  height: 100vh;
+  height: var(--im-viewport-height);
 }
 
 /* App shell */
 .im-shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: var(--im-viewport-height);
   background: var(--im-bg);
 }
 
@@ -446,7 +451,7 @@ body {
 
 .im-auth-main {
   flex: 1 0 auto;
-  min-height: calc(100vh - 48px);
+  min-height: calc(var(--im-viewport-height) - 48px);
   width: min(1040px, calc(100% - 48px));
   margin: 0 auto;
   display: grid;
@@ -4923,7 +4928,7 @@ body {
     color: var(--im-text-muted);
   }
   .chat-pane-header {
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+    padding: 10px 14px;
     background: var(--im-surface);
   }
   .chat-pane-messages {
@@ -5584,3 +5589,34 @@ body {
 
 .group-settings-preferences { display: grid; gap: 12px; padding: 16px 0; }
 .group-settings-preferences label { display: flex; gap: 10px; align-items: center; }
+
+/* iOS auto-zooms smaller editable text; the mention mirror must use the same metrics. */
+@media (max-width: 767px) {
+  input, textarea, select, [contenteditable="true"], .chat-composer-highlight-mirror {
+    font-size: 16px !important;
+  }
+
+  .im-shell {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .im-shell-bottombar {
+    flex-shrink: 0;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .im-auth-screen {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .im-auth-topbar {
+    height: calc(48px + env(safe-area-inset-top, 0px));
+    flex-basis: calc(48px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .im-auth-main {
+    min-height: calc(var(--im-viewport-height) - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}

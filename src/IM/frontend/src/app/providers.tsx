@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PropsWithChildren, useEffect, useState } from "react";
+import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { useAuthStore } from "../features/auth/auth-store";
 
 import { forgetComposerUser } from "../features/chat/components/composer-draft-store";
 
 export function AppProviders({ children }: PropsWithChildren) {
+  useMobileViewport();
   const [queryClient] = useState(
     () =>
       new QueryClient({
