@@ -129,6 +129,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
+				"ONLY_ACTIVE_ARCH" = "YES";
 				"IPHONEOS_DEPLOYMENT_TARGET" = "26.0";
 				"SDKROOT" = "iphoneos";
 				"SWIFT_VERSION" = "5.0";

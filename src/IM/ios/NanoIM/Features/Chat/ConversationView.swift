@@ -32,7 +32,7 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, refreshed: { Task { await store.loadChat(conversationID) } })
+                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], refreshed: { Task { await store.loadChat(conversationID) } })
                                     .id(item.id).contextMenu {
                                         Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content }
                                         if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
@@ -58,7 +58,7 @@ struct ConversationView: View {
                 .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+        .safeAreaInset(edge: .bottom, spacing: 0) { composer.disabled(conversation == nil) }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
@@ -100,8 +100,8 @@ struct ConversationView: View {
                     }
                     Menu(L("命令", "Commands")) { ForEach(commands) { group in
                         Section(group.display_name) {
-                            ForEach(group.commands) { command in Button("/" + command.name) { draft.wrappedValue = "/" + command.name + " " } }
-                            ForEach(group.skills) { skill in Button("/" + skill.name) { draft.wrappedValue = "/" + skill.skill_key + " " } }
+                            ForEach(group.commands) { command in Button("/" + command.name) { draft.wrappedValue = ChatText.command(command.name, agentID: conversation?.type == "group" ? group.agent_id : nil) } }
+                            ForEach(group.skills) { skill in Button("/skill:" + skill.name) { draft.wrappedValue = ChatText.skill(skill.name) } }
                         }
                     } }
                 } label: { Image(systemName: uploading ? "hourglass" : "plus.circle").font(.title2).padding(.vertical, 7) }
@@ -139,6 +139,7 @@ struct ConversationView: View {
         uploading = true; operationError = nil; defer { uploading = false }
         do {
             let attachment = try await store.client.upload(data, fileName: name, contentType: type, conversationID: conversationID)
+            guard store.conversations.contains(where: { $0.id == conversationID }) else { return }
             store.attachments[conversationID, default: []].append(attachment)
         } catch { operationError = error.localizedDescription }
     }

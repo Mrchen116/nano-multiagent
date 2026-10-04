@@ -153,8 +153,8 @@ private struct RootTabs: View {
         }
         .overlay(alignment: .top) {
             if let banner = chat.banner {
-                Button { chat.banner = nil } label: { Label(banner, systemImage: "bubble.left.fill").padding().background(.regularMaterial, in: Capsule()) }
-                    .padding(.top, 8).task(id: banner) { try? await Task.sleep(for: .seconds(3)); chat.banner = nil }
+                Button { chat.banner = nil; openChat(banner.conversationID) } label: { Label(L("收到新消息", "New message"), systemImage: "bubble.left.fill").padding().background(.regularMaterial, in: Capsule()) }
+                    .padding(.top, 8).task(id: banner.id) { try? await Task.sleep(for: .seconds(3)); if !Task.isCancelled, chat.banner?.id == banner.id { chat.banner = nil } }
             }
         }
         .task(id: scenePhase) { if scenePhase == .active { await chat.run() } }

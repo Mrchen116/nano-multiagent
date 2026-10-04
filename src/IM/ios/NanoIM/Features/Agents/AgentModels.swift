@@ -99,6 +99,8 @@ struct AgentDraft: Equatable, Sendable {
     func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool) -> [String: JSONValue] {
         let skillIDs = skills_selection_mode == "default_discovery" ? capabilities?.skills.map(\.name) ?? [] : skills
         var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "custom_prompt": .string(custom_prompt), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "work_mode": .string(work_mode)]
+        body["heartbeat_enabled"] = .bool(features["heartbeat"] ?? false)
+        body["cron_enabled"] = .bool(features["cron_scheduling"] ?? false)
         if creating {
             body["agent_id_hint"] = .string(agent_id)
             body["workspace_mode"] = .string(customWorkspace ? "custom" : "default")

@@ -19,4 +19,3 @@ struct AgentChannel: Codable, Identifiable, Sendable {
         struct Required: Codable, Sendable { var accepted_scope_sets: [[String]]; var recommended_scopes: [String] }
     }
 }
-

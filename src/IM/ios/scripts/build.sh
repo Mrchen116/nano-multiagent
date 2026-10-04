@@ -6,7 +6,7 @@ MODE="${1:-build}"
 BUILD_ROOT="${NANO_IOS_BUILD_ROOT:-/tmp/nano-ios-build}"
 case "$MODE" in
   build)
-    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM -destination 'generic/platform=iOS Simulator' -derivedDataPath "$BUILD_ROOT" CODE_SIGNING_ALLOWED=NO build
+    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM -destination 'generic/platform=iOS Simulator' -derivedDataPath "$BUILD_ROOT" build
     ;;
   test)
     DEVICE_ID="${NANO_IOS_SIMULATOR_ID:?Set NANO_IOS_SIMULATOR_ID to an available iPhone simulator UDID}"

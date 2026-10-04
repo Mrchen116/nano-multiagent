@@ -86,3 +86,11 @@ struct AgentContractsTests {
     }
 
 }
+
+@Test func previewUsesUnsavedHeartbeatAndCronSwitches() {
+    var draft = AgentDraft()
+    draft.features = ["heartbeat": false, "cron_scheduling": true]
+    let preview = draft.previewPayload(capabilities: nil, creating: false, customWorkspace: false)
+    #expect(preview["heartbeat_enabled"] == .bool(false))
+    #expect(preview["cron_enabled"] == .bool(true))
+}

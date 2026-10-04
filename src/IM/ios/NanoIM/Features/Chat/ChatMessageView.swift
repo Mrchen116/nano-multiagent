@@ -4,6 +4,7 @@ struct ChatMessageView: View {
     let client: IMClient
     let message: ChatMessage
     let selfID: String
+    var participants: [ActorRef] = []
     let refreshed: () -> Void
     @State private var showProcess = false
     var body: some View {
@@ -18,7 +19,7 @@ struct ChatMessageView: View {
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
-            if !message.content.isEmpty { MarkdownView(text: message.content, client: client) }
+            if !message.content.isEmpty { MarkdownView(text: ChatText.display(message.content, participants: participants), client: client) }
             ForEach(message.attachments) { AttachmentView(client: client, attachment: $0) }
             if hasProcess {
                 DisclosureGroup(isExpanded: $showProcess) {

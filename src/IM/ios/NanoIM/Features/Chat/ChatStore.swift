@@ -16,11 +16,12 @@ final class ChatStore {
     var selectedID: String?
     var connectionText = ""
     var listError: String?
-    var banner: String?
+    var banner: ChatBanner?
     private var cursor: Int?
     private var epoch = UUID()
     private var stream: UserStream
     private var discarded: Set<String> = []
+    private var revokedChats: Set<String> = []
     private var dirtyChats: Set<String> = []
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
@@ -34,7 +35,7 @@ final class ChatStore {
     }
     func clear() {
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; pending = [:]; conversations = []
-        discarded = []; selectedID = nil; banner = nil
+        discarded = []; revokedChats = []; selectedID = nil; banner = nil
     }
     func run() async {
         let token = epoch
@@ -75,14 +76,22 @@ final class ChatStore {
             }
         }
     }
-    private func consume(_ event: UserEvent) {
-        guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }
-        cursor = eventID
+    func consume(_ event: UserEvent) {
         let data = event.data ?? .null
         let chat = data["conversation_id"].stringValue
         if event.event_type == "conversation.membership_changed" || event.event_type == "conversation.deleted" {
-            if let chat { timelines[chat] = nil; attachments[chat] = nil; drafts[chat] = nil; pending[chat] = nil }
+            // Revocation is a control frame without a replay cursor.
+            if let chat {
+                revokedChats.insert(chat)
+                timelines[chat] = nil; before[chat] = nil; attachments[chat] = nil; drafts[chat] = nil; pending[chat] = nil
+                conversations.removeAll { $0.id == chat }
+                errors[chat] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+                if banner?.conversationID == chat { banner = nil }
+            }
+            return
         }
+        guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }
+        cursor = eventID
         if event.event_type == "message.discarded", let id = data["message_id"].stringValue {
             discarded.insert(id)
             if let chat { timelines[chat]?.removeAll { $0.id == id } }
@@ -93,7 +102,7 @@ final class ChatStore {
            let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
            data["sender_user_id"].stringValue != user.id,
            UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
-            banner = L("收到新消息", "New message")
+            banner = ChatBanner(conversationID: chat)
         }
         scheduleRefresh()
     }
@@ -115,6 +124,7 @@ final class ChatStore {
     }
     private func reconcile(_ values: [Conversation]) {
         let allowed = Set(values.map(\.id))
+        revokedChats.subtract(allowed)
         for id in timelines.keys where !allowed.contains(id) { timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; pending[id] = nil }
         conversations = values
         listError = nil
@@ -127,10 +137,19 @@ final class ChatStore {
         } catch { if token == epoch, !(error is CancellationError) { listError = error.localizedDescription } }
     }
     func loadChat(_ id: String, older: Bool = false) async {
+        guard !revokedChats.contains(id) else { return }
         let token = epoch
         do {
-            let page = try await client.messages(id, before: older ? before[id] : nil)
-            guard token == epoch, !Task.isCancelled else { return }
+            var page = try await client.messages(id, before: older ? before[id] : nil)
+            let existing = Set((timelines[id] ?? []).map(\.id))
+            // Walk back to the cached boundary when a disconnect exceeded one page.
+            while !older, !existing.isEmpty, !page.items.contains(where: { existing.contains($0.id) }), let next = page.next_before_message_id {
+                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id) else { return }
+                let previous = try await client.messages(id, before: next)
+                page.items = TimelineMerge.merge(current: page.items, page: previous.items, older: true, discarded: discarded)
+                page.next_before_message_id = previous.next_before_message_id
+            }
+            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id) else { return }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             errors[id] = nil
@@ -160,8 +179,8 @@ final class ChatStore {
         sending.insert(id); errors[id] = nil
         defer { sending.remove(id) }
         do {
-            let message = try await client.sendMessage(id, draft: draft, userID: user.id)
-            guard token == epoch else { return }
+            let message = try await client.sendMessage(id, draft: draft, userID: user.id, participants: conversations.first { $0.id == id }?.participants ?? [])
+            guard token == epoch, !revokedChats.contains(id) else { return }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: [TimelineItem(type: "message", message: message)], older: false, discarded: discarded)
             pending[id] = nil
             if drafts[id] == draft.content { drafts[id] = "" }
