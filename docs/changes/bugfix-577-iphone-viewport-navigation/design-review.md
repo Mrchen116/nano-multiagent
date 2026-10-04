@@ -73,3 +73,55 @@
 ### Author Resolutions
 
 2026-10-05，author 核实本轮无 Issues，无实质异议；四个受审文件与上述内容摘要一致。manifest 显式静态路由按设计已允许分支实施。Gate 2 有效，交由 change-orchestrator-simple 推进；新增本段不改变受审设计。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/review_577_design`，复用 Round 1 独立 reviewer；未参与设计修订或产品实现。
+- review_mode: `delta`
+- mode_reason: 新增编辑期间 visualViewport.offsetTop 补偿，属于有界实质设计变化；不是旧文档问题的 closure。需求、模块职责、milestone、delta-spec 和原型目标未变，无需 full 重审。
+- started_at: `2026-10-05T00:36:32+08:00`
+- completed_at: `2026-10-05T00:37:21+08:00`
+- duration: `PT49S`
+- checkout: `/Users/czj/.codex/worktrees/unit-bugfix-577/nano-multiagent`
+- branch: `codex/bugfix-577-iphone-viewport-navigation`
+- executed_base: `main 1daf6676debe129088d9bd0612b489d1eba0301a`
+- validated_at: `e6b202cb87c4deb4e9f9763d5c78e59d28576dba` 加本地 `design.md` 第 4 决定及末节修订。
+- design SHA-256: `119ce27fe77ee66977738e2add9505a4a525a02078a2ac7434fc53af1b53a3b1`
+- effective_base / effective_through: 上述 executed_base 与受审设计摘要；不包含尚未形成的 offset 实现及修后产品结论。
+- retained_from: `Round 1`。独立重算 incident、prototype、delta-spec 的 SHA-256，分别仍为 `66058421…0056`、`60b9d48f…d9b2`、`68ba28a5…52b7`，与 Round 1 完全一致；milestone 行未修改。保留 Round 1 的范围、manifest、字号、原型呈现与职责判断，不把旧源码现状断言当作当前实现状态。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING.**
+
+这次补偿回应已实测的编辑期视口平移，仍由原有 hook/CSS 承担，无需新的全局滚动控制或平台框架。批准的是修订方向；产品回归 I1/I2 均不因设计批准而关闭。
+
+### Coverage 与证据
+
+**必要性与证据边界。** 独立阅读 `M1-mobile-viewport/regression.md` Round 1 的 I1：主屏聊天在 composer 聚焦后标题/返回进入状态栏，Done 后恢复，发送与草稿仍可用。继而读取本机 `output/bugfix-577/viewport-samples.log` 三个 JSON 样本及 `viewport-observer.js`：pageshow 时 height=873、scale=1、offsetTop=0、scrollY=0、root.top=0；focusin 时 visual height 已变 805；稳定 scroll 样本中 innerHeight/visual height 都为 805、scale=1、offsetTop=68、scrollY=68，root/shell/header.top 均为 -68，header.bottom=-3。高度覆盖已发生但顶部仍被移出，支持“现有高度调整不足”的判断。记录脚本只读 DOM/样式与视口值并向同源诊断 URL 报样本，不写 DOM 样式、不调用 scrollTo、不读取输入文本。composer 选择器在这些样本中未命中，均为 null；因此不从该日志推导发送区的修后位置。失焦恢复的证据来自独立产品报告，日志本身没有失焦样本。
+
+**实际接线和责任。** 重新读取当前 `app/providers.tsx`、`hooks/use-mobile-viewport.ts` 及 `styles/global.css`。AppProviders 已在真实入口调用 useMobileViewport；该 hook 已拥有 focusin/out、visualViewport resize/scroll、window resize/pageshow 及清理，当前只发布 height。`#root` 当前只有统一高度，移动 shell/header 仍处理安全区。新增 offset 应与 height 由同一条件和生命周期发布/移除，由移动 `#root` 的 relative top 消费；不需要第二组监听器、各页面补丁或保存额外业务状态。这里的根容器指 `#root`，不是把 body 或 documentElement 整体设为 fixed。
+
+**偏移、缩放与滚动。** 对当前稳定样本，既有 root/header.top=-68，加实际 offsetTop=68 能表达将内容上缘恢复到原点的目标；68 只用于说明证据，不成为实现常量。设计继续要求手机断点、可编辑焦点和 scale≈1，失焦/缩放/桌面及卸载清理覆盖，CSS 默认偏移 0。这把作用域限制在既有输入生命周期，不借浏览器 offset 改写消息列表 scrollTop、认证页内部滚动、路由或草稿。relative top 不使用 transform，也不把根节点变为 fixed，因此不会因新 transform 改变既有 fixed 浮层的包含块。补偿对浏览器后续自动滚动的最终影响仍须真机回归证明，现有日志不是修后 A/B；当前没有证据要求增加轮询、强制 scrollTo 或另一层补偿。
+
+**未变的产品目标与验证投影。** 修订恢复原有 must-match 的标题/返回位置，没有新增产品交互或新的视觉目标；保留 Round 1 原型与当前回归报告已有的真实渲染证据，本轮按 caller 边界不操作手机、不重绘或重跑未变原型。M1 R3/W1/W2 已涵盖该偏移的生命周期测量、关键操作及真实画面对照；修后至少重走已失败的 standalone focus → 多行输入 → Done，并核对 header/发送可达、内部滚动与草稿，同时按原矩阵完成真实软件键盘、手动缩放及恢复。无需为了此实现细节修改消费者 delta-spec，也不扩展 feat-578。设计末节明确诊断注入在交付构建移除。
+
+### 历史问题闭环
+
+- Round 1 设计 Issues：无；Author Resolutions 已确认原设计，本轮没有追溯改写旧结论。
+- 产品回归 I1：设计修订已覆盖其已测原因；**仍待实现及独立产品复验**，本轮不标 closed。
+- 产品回归 I2：真实软件键盘、手动缩放等证据缺口不在本轮设计审查中关闭；原验收要求继续有效。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R2-R1（可选，文档一致性）**：`design.md:45-46` 的接口摘要仍写“唯一作用”是发布 height，数据流也只列高度。第 4 决定已明确新增 offset 的范围和生命周期，不妨碍正确实施；可在 author resolution 时将摘要同步为 height/offset 两项，避免单独阅读接口节时遗漏已批准内容。这是已批准决定的摘要同步，不要求再次实质复审。
+
+### Author Resolutions（Round 2）
+
+作者核实0 CRITICAL / 0 WARNING；接受编辑期间实际offsetTop补偿，范围未扩大。接口摘要同步height/offset文字，与本轮已审决定同义；不新增Round。真正软件键盘、I1/I2产品复验仍为实施退出条件，未将设计批准代替产品通过。

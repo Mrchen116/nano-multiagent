@@ -5592,6 +5592,11 @@ body {
 
 /* iOS auto-zooms smaller editable text; the mention mirror must use the same metrics. */
 @media (max-width: 767px) {
+  #root {
+    position: relative;
+    top: var(--im-viewport-offset, 0px);
+  }
+
   input, textarea, select, [contenteditable="true"], .chat-composer-highlight-mirror {
     font-size: 16px !important;
   }

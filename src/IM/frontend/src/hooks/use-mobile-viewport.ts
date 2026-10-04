@@ -11,8 +11,11 @@ export function useMobileViewport() {
       // iOS keyboards shrink the visual viewport, while dvh still tracks browser chrome.
       if (window.innerWidth < 768 && editing && Math.abs(viewport.scale - 1) < 0.01) {
         root.style.setProperty("--im-viewport-height", `${viewport.height}px`);
+        // Standalone Safari can also pan the page when focusing a bottom input.
+        root.style.setProperty("--im-viewport-offset", `${viewport.offsetTop}px`);
       } else {
         root.style.removeProperty("--im-viewport-height");
+        root.style.removeProperty("--im-viewport-offset");
       }
     };
     document.addEventListener("focusin", update);
@@ -30,6 +33,7 @@ export function useMobileViewport() {
       window.removeEventListener("resize", update);
       window.removeEventListener("pageshow", update);
       root.style.removeProperty("--im-viewport-height");
+      root.style.removeProperty("--im-viewport-offset");
     };
   }, []);
 }

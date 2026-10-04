@@ -6,7 +6,7 @@ import { AppProviders } from "./providers";
 // AppProviders owns the viewport-to-CSS bridge for auth and protected routes.
 function mountViewport(width = 430) {
   vi.stubGlobal("innerWidth", width);
-  const viewport = Object.assign(new EventTarget(), { height: 780, scale: 1 });
+  const viewport = Object.assign(new EventTarget(), { height: 780, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
   const view = render(<AppProviders><input aria-label="Message" /><button>Done</button></AppProviders>);
   return { ...view, viewport, input: screen.getByRole("textbox") };
@@ -28,8 +28,14 @@ describe("mobile input viewport", () => {
       viewport.dispatchEvent(new Event("resize"));
     });
     expect(height()).toBe("420px");
+    act(() => {
+      viewport.offsetTop = 68;
+      viewport.dispatchEvent(new Event("scroll"));
+    });
+    expect(document.documentElement.style.getPropertyValue("--im-viewport-offset")).toBe("68px");
     act(() => screen.getByRole("button").focus());
     expect(height()).toBe("");
+    expect(document.documentElement.style.getPropertyValue("--im-viewport-offset")).toBe("");
     act(() => input.focus());
     expect(height()).toBe("420px");
     unmount();

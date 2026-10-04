@@ -36,13 +36,13 @@ feat-340 建立移动单栏及底栏，feat-451 确立 composer 自动增高与�
 1. **声明一个覆盖整站的主屏应用。** Manifest 固定 `id: /`、`start_url: /`、`scope: /`、`display: standalone`，名称沿用 `IM Frontend`，复用现有 favicon；此 unit 不改品牌。`/` 仍由当前 router/auth gate 分流，登录 return-to 行为保持。范围外链接继续遵守 current 外链行为。已按旧入口安装的图标可能需要一次重新添加才能获得安装配置；不得假装远端 HTML 能可靠改写旧安装记录。
 2. **手机可编辑文字至少 16px，保持镜像排版一致。** 覆盖登录/注册、搜索、表单 input、textarea、select；针对已有 inline 小字号控件使用限定于移动断点的统一规则，必要的优先级仅用于这个平台约束。composer 镜像跟随同一值，line-height/padding/wrapping 保持匹配。不加 `user-scalable=no` 或最大缩放限制。
 3. **CSS 默认用 100dvh，安全区由布局容器负责。** body/root/shell 不再各自锁死100vh，使用统一可用高度变量，兼容基线值为100vh、支持时100dvh。移动 shell 顶部留安全区、底栏高度包含 bottom inset且不收缩；具体会话沿用 composer bottom inset。认证页保持可滚动，主内容最小高度与同一高度来源一致。检查现有 header 局部 safe-area，避免重复计入。
-4. **软件键盘高度只在手机编辑期间跟随 visualViewport。** 统一 hook 在 AppProviders 挂载，监听 focusin/focusout、visualViewport resize/scroll、window resize和pageshow；仅当 `<768px`、有可编辑焦点、scale 约为1时发布可视高度变量。失焦/桌面/缩放时移除覆盖，回归CSS高度；卸载移除监听。更新可以合并到 requestAnimationFrame。只调整高度，不做全局 touch 禁用、固定机型键盘高度、周期性强制scrollTo或根节点position:fixed。真机若出现独立可复现的 viewport offset 问题，再按证据修订；不先堆多层补偿。
+4. **软件键盘高度只在手机编辑期间跟随 visualViewport。** 统一 hook 在 AppProviders 挂载，监听 focusin/focusout、visualViewport resize/scroll、window resize和pageshow；仅当 `<768px`、有可编辑焦点、scale 约为1时发布可视高度变量。失焦/桌面/缩放时移除覆盖，回归CSS高度；卸载移除监听。更新可以合并到 requestAnimationFrame。同时将编辑期间实际 visualViewport.offsetTop 发布为根容器的相对 top 偏移，失焦/缩放/桌面时与高度覆盖一起移除；CSS默认偏移0。此补偿来自R1真机直接证据：输入辅助条使可视高度873→805，offsetTop/scrollY为68，header top为-68；只有高度收缩不能恢复标题位置。根容器使用relative top，保留内部滚动和fixed浮层原有定位语义。不做全局 touch 禁用、固定机型键盘高度、周期性强制scrollTo或根节点position:fixed。
 5. **Web 修复与原生 App 独立推进。** 输入字号、100dvh及显式manifest已取得同机有效对照，577 继续修复现有 Web 入口。用户明确要求即使没有新增特性也要 iOS App，已另开 feat-578 与独立 chat；免费签名、Mac mini AltServer 续签和通知能力由该 unit 决策，不成为 577 的前置依赖。
 
 ## 接口与数据流
 
 - `public/manifest.webmanifest` 由 `index.html` link 同源引用；无需任何登录令牌，正常 JSON 类型，不缓存旧 HTML。
-- `useMobileViewport`（命名可依项目惯例）无外部参数，唯一作用是维护根元素 `--im-viewport-height` 临时覆盖。CSS 通过 `var(--im-viewport-height, 100dvh)` 使用；不读取或保存表单内容、身份、消息。
+- `useMobileViewport`（命名可依项目惯例）无外部参数，唯一作用是维护根元素 `--im-viewport-height` 与 `--im-viewport-offset` 的临时覆盖。CSS使用高度变量（默认100dvh，旧浏览器100vh）及编辑偏移变量（默认0）；不读取或保存表单内容、身份、消息。
 - 页面加载 → CSS决定视口/安全区 → 聚焦手机可编辑控件 → visualViewport改变 → CSS高度同步、flex内容区缩小 → blur → 清理覆盖、恢复正常高度。
 - 带缩放的 visualViewport 不用于缩小 app shell；正常用户缩放由浏览器负责。
 - 无 REST/WS/schema 变化。测试组件应覆盖挂载接线、焦点生命周期、无VisualViewport、手动缩放和清理，CSS/native机制依真机与真实浏览器验证。
@@ -104,3 +104,7 @@ feat-340 建立移动单栏及底栏，feat-451 确立 composer 自动增高与�
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 | --- | --- | --- | --- | --- | --- |
 | M1-mobile-viewport | 恢复iPhone输入与站内导航可用性 | 无 | 无 | frontend index/public/global.css/AppProviders/hooks及最低层测试；IM静态manifest接线（如需）；unit证据 | [reviewer] R1 登录/搜索/输入无自动放大且跨页不裁切；R2 主屏登录、四入口、详情刷新/重新打开无系统栏侵入；R3 真机软件键盘开关时输入/发送可见，返回可用且草稿保持；R4 Safari工具栏、375/430/600px及桌面1440px不回归；[worker] W1 focused tests/build、manifest真实HTTP接线、手机字号及viewport测量；W2真实截图/原型must-match对照和设备/构建记录；W3 final窄测试、相关CI等价、独立review/verifier完整闭环 |
+
+## R1 验收后的有界修订（2026-10-05）
+
+独立产品验收发现主屏composer聚焦后header与状态栏重叠，失焦恢复。caller在同一e6b202cb8构建仅加入不含消息内容的本地只读视口记录，证实scale始终1、字号未变；873px→805px高度收缩之外，浏览器将文档滚动68px且visualViewport.offsetTop=68，header.getBoundingClientRect().top=-68。本轮仅补偿这个已复现的视口偏移，不改需求、路由、消息或prototype外观目标。R3仍必须包含实体软件键盘实测。诊断脚本与原始日志只留本机output，交付构建移除。

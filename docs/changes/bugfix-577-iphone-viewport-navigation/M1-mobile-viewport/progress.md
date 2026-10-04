@@ -16,6 +16,7 @@
 - `npm run build`：tsc和Vite通过；产物`index-BQ9vVzWe.js` / `index-C57yOulR.css`。
 - `PYTHONPATH=src <main>/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal -q`：4119 passed，294.47s。
 - `npm run test -- --maxWorkers=2`：806 passed / 1 timeout（既有agent-detail-page skills usage测试5000ms超时）。该文件独立复跑20 passed，原超时用例569ms；不将首轮全量描述为全绿，不因一次超时修改产品/测试超时阈值。
+- 串行环境重跑完整前端 `npm run test -- --maxWorkers=2`：86 test files / 807 passed，102.73s；证据`output/bugfix-577/frontend-final.log`，被测代码仍为`e6b202cb8`。
 - Python变更Ruff check/format与`git diff --check`通过。
 - 真实IM `GET /manifest.webmanifest`：200，`application/manifest+json`，id/start_url/scope均`/`；HTTPS入口亦返回同一构建manifest。
 
@@ -27,7 +28,7 @@
 - 同一iPhone Safari的登录框聚焦/结束输入：相对聚焦前画面无额外放大或横向裁切。镜像使用硬件输入，**不替代软件键盘验收**。
 - 已从未登录页创建独立`577 fixed`主屏测试图标；添加界面显示manifest指定根启动URL和既有favicon，Open as Web App开启。
 - 完整产品使用当前认证的Web Locks，手机明文LAN HTTP不是secure context，主屏根入口无法完成认证初始化。没有给产品加临时认证fallback；改用受信任HTTPS继续验收。此点补充design runbook的真实环境前置，不改变产品设计或Gate 2结论。
-- HTTPS只在本机Tailscale私网Serve提供：`https://jmacbook-air.tailbf614e.ts.net:8443/`→隔离IM56142的构建产物；无Funnel/公网发布。手机Tailscale连接由用户配合，尚未完成主屏登录与真实软键盘验收。
+- HTTPS只在本机Tailscale私网Serve提供：`https://jmacbook-air.tailbf614e.ts.net:8443/`→隔离IM56142的构建产物；无Funnel/公网发布。用户授权直接操作后caller已连接手机Tailscale，独立产品reviewer正在此HTTPS入口完成主屏与输入验收。
 
 ## 隔离服务与清理
 
@@ -39,3 +40,17 @@
 ## 当前退出状态
 
 实施与窄测试完成，待独立产品回归（含真实软键盘）、code review、verification、最终CI和归档；不声称修后真机验收或生产发布完成。
+
+### 后续环境与静态检查
+
+- docs-check：241 maintained sources / 75 required routes通过；全仓Ruff check/format（1134 files）通过；npm critical audit退出0（现有7项非critical依赖告警，未升级依赖）。
+- code review在`e6b202cb8`完成，独立审查返回`[]`；详见code-review.md。
+- 用户授权直接操作后，caller已通过iPhone Tailscale Connect操作连接现有私网，Mac端确认该iOS peer online。继续通过HTTPS构建入口真机验证。
+
+## R1 实测发现与修复前证据
+
+- pre_fix_head: `e6b202cb87c4deb4e9f9763d5c78e59d28576dba`。产品reviewer明确发现主屏composer硬件焦点令header侵入状态栏；失焦恢复，不是软件键盘已验证。初轮regression fail，静态verification待收口。
+- caller在同一隔离构建dist临时加入只读视口采样（不改源码，无消息/凭据内容；GET manifest query留本机日志）。主屏冷启动873px、scale1、offsetTop0、scrollY0；composer焦点稳定后805px、scale1、offsetTop68/pageTop68/scrollY68、header/root top=-68。证据`output/bugfix-577/viewport-samples.log`。明确根因：高度适配之外仍有浏览器焦点平移。
+- 修复范围：同一hook在既有编辑条件下发布实际offsetTop，手机根容器relative top跟随；blur/缩放/desktop/unmount清理。design有界修订已交原独立reviewer复核，prototype/需求/milestone不变。
+- 定向红测：既有providers可视区域测试增加68px scroll偏移与blur恢复断言，3项中1项因CSS偏移为空失败。
+- 本地诊断脚本将在最终build移除；不提交dist/日志。
