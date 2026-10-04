@@ -1,0 +1,101 @@
+# M1 — 实施与验证记录
+
+## 2026-10-05 首轮实现
+
+- 基线：`1daf6676d`；在独立 managed worktree `/Users/czj/.codex/worktrees/unit-bugfix-577/nano-multiagent` 实施，分支 `codex/bugfix-577-iphone-viewport-navigation`。
+- 使用既有 AppProviders 挂载单一 viewport hook；CSS 默认100dvh（100vh基线），输入时仅手机且无手动缩放才覆盖可视高度；统一16px手机编辑文字和composer mirror，安全区由shell/认证header/既有composer分别拥有。
+- manifest覆盖整站，沿用产品名称和favicon；IM增加单独静态路由，没有增加通用文件服务器、Service Worker或认证兼容路径。
+- 测试归属：既有`test_app_factory.py`扩展静态HTTP分发风险，保留其它已有覆盖；新增`app/providers.test.tsx`保护全路由接线到CSS的viewport生命周期（原先没有该风险owner）。既有AppShell测试keep。
+
+## 自动验证
+
+修前红测：providers 3项中2项失败（输入resize未发布高度），静态manifest HTTP返回404。实现后：
+
+- `npm run test -- src/app/providers.test.tsx src/app/shell/app-shell.test.tsx`：8 passed。
+- `PYTHONPATH=src <main>/.venv/bin/pytest -q tests/im_service/unit/test_app_factory.py`：6 passed。
+- `npm run build`：tsc和Vite通过；产物`index-BQ9vVzWe.js` / `index-C57yOulR.css`。
+- `PYTHONPATH=src <main>/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal -q`：4119 passed，294.47s。
+- `npm run test -- --maxWorkers=2`：806 passed / 1 timeout（既有agent-detail-page skills usage测试5000ms超时）。该文件独立复跑20 passed，原超时用例569ms；不将首轮全量描述为全绿，不因一次超时修改产品/测试超时阈值。
+- 串行环境重跑完整前端 `npm run test -- --maxWorkers=2`：86 test files / 807 passed，102.73s；证据`output/bugfix-577/frontend-final.log`，被测代码仍为`e6b202cb8`。
+- Python变更Ruff check/format与`git diff --check`通过。
+- 真实IM `GET /manifest.webmanifest`：200，`application/manifest+json`，id/start_url/scope均`/`；HTTPS入口亦返回同一构建manifest。
+
+原始本机日志在`output/bugfix-577/`；不提交运行日志、数据库或截图缓存。
+
+## 真实入口与证据边界
+
+- caller真实浏览器375×812：登录字段/按钮完整；聊天详情textarea与mirror computed font均16px、无横向overflow。430×430短视口中两行草稿、返回、发送完整；600×960 Agent列表和四导航完整。截图在本聊天工具结果。
+- 同一iPhone Safari的登录框聚焦/结束输入：相对聚焦前画面无额外放大或横向裁切。镜像使用硬件输入，**不替代软件键盘验收**。
+- 已从未登录页创建独立`577 fixed`主屏测试图标；添加界面显示manifest指定根启动URL和既有favicon，Open as Web App开启。
+- 完整产品使用当前认证的Web Locks，手机明文LAN HTTP不是secure context，主屏根入口无法完成认证初始化。没有给产品加临时认证fallback；改用受信任HTTPS继续验收。此点补充design runbook的真实环境前置，不改变产品设计或Gate 2结论。
+- HTTPS只在本机Tailscale私网Serve提供：`https://jmacbook-air.tailbf614e.ts.net:8443/`→隔离IM56142的构建产物；无Funnel/公网发布。用户授权直接操作后caller已连接手机Tailscale，独立产品reviewer正在此HTTPS入口完成主屏与输入验收。
+
+## 隔离服务与清理
+
+- IM56142、Gateway使用本worktree独立DB/config/workspace/node；E2E身份nano/nano1234；Vite18779为辅助入口，prototype18778及RCA18777由caller持有。
+- 原`e2e-up`两次连续登录触发现有限流；仅本地临时`scripts/.web577-e2e-up.sh`在readiness登录429时按Retry-After重试。原脚本不改、不提交临时副本。
+- HTTPS认证使用当前`IM_PUBLIC_URL`指向上述HTTPS域名；允许的辅助origin限本次本机/LAN测试入口。临时配置不提交。
+- 清理：停止本次Serve前台session、Vite session；`./scripts/e2e-down.sh --wt <本worktree>`；停止`web577-e2e`tmux，移除临时启动副本；核实端口与PID释放。尚在验收，当前保持运行。
+
+## 当前退出状态
+
+实施与窄测试完成，待独立产品回归（含真实软键盘）、code review、verification、最终CI和归档；不声称修后真机验收或生产发布完成。
+
+### 后续环境与静态检查
+
+- docs-check：241 maintained sources / 75 required routes通过；全仓Ruff check/format（1134 files）通过；npm critical audit退出0（现有7项非critical依赖告警，未升级依赖）。
+- code review在`e6b202cb8`完成，独立审查返回`[]`；详见code-review.md。
+- 用户授权直接操作后，caller已通过iPhone Tailscale Connect操作连接现有私网，Mac端确认该iOS peer online。继续通过HTTPS构建入口真机验证。
+
+## R1 实测发现与修复前证据
+
+- pre_fix_head: `e6b202cb87c4deb4e9f9763d5c78e59d28576dba`。产品reviewer明确发现主屏composer硬件焦点令header侵入状态栏；失焦恢复，不是软件键盘已验证。初轮regression fail，静态verification待收口。
+- caller在同一隔离构建dist临时加入只读视口采样（不改源码，无消息/凭据内容；GET manifest query留本机日志）。主屏冷启动873px、scale1、offsetTop0、scrollY0；composer焦点稳定后805px、scale1、offsetTop68/pageTop68/scrollY68、header/root top=-68。证据`output/bugfix-577/viewport-samples.log`。明确根因：高度适配之外仍有浏览器焦点平移。
+- 修复范围：同一hook在既有编辑条件下发布实际offsetTop，手机根容器relative top跟随；blur/缩放/desktop/unmount清理。design有界修订已交原独立reviewer复核，prototype/需求/milestone不变。
+- 定向红测：既有providers可视区域测试增加68px scroll偏移与blur恢复断言，3项中1项因CSS偏移为空失败。
+- 本地诊断脚本将在最终build移除；不提交dist/日志。
+
+## R2 冻结与复验
+
+- 冻结`bd170820be5f17f17093189d36290c377b0463ff`；Gate 2有界delta R2 Approved0/0，caller完成Author Resolutions。仅同hook/CSS的实际offsetTop补偿及既有测试增量。
+- focused providers+AppShell：8 passed；build通过，新assets `index-B4S4bvwT.js` / `index-D5kI87rP.css`。build已移除本地诊断注入。IM访问日志确认iPhone冷启加载该新构建；caller原焦点复现中header/返回保持在状态栏下。
+- R2前端全量：806 passed / 1 failed（既有nodes-page-ws异步元素等待未及时出现，非本unit断言）；独立重跑失败文件1 passed，184ms，`output/bugfix-577/frontend-offset-retry.log`。保留完整首轮失败输出`frontend-offset-final.log`，不修改无关测试。最终远端CI仍须通过。
+- docs-check：244 sources / 75 routes通过；git diff --check通过。Python源码在R2未变，复用R1 4119 passed及Ruff证据。
+- 独立patch code review返回`[]`；独立产品R2已观察I1关闭，主屏冷启、Safari刷新、群聊mention/设置、草稿/返回通过；软件键盘与双指缩放不能由镜像代测。已将设备交还并向用户发出具体实机短测请求，收到结果后才能关闭I2和verification。
+- 为群设置/mention准备隔离API fixture `577 viewport group` (`c_t8c198ge`，nano+e2e)。不把API建群称为手机创建菜单已通过；reviewer提到创建菜单未打开作为独立side finding保留。
+
+### Final sync 有效性判断（等待实体结果期间）
+
+同步origin/main `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`，仅增加feat-578独立iOS设计文档，无577/src/tests增量；merge `559ae8d07d46757cc50661efc25ea6e995624e0d`。R2源码与`bd170820b`相同，代码review与已执行产品子项retained；design R2批准仍有效；I2及verification仍pending。原executed_base/validated_at保持原值，当前effective_base为76fe1d7e7，已执行结论effective_through到559ae8d07；尚未宣称整体门禁通过。
+
+## 用户实体键盘反馈：底部重复留白与换行语义
+
+用户已完成实体软键盘操作并给出截图IMG_9428.PNG，报告白带与“换行”实际发送；不能据此关闭I2。用户随后明确已重新开启镜像，caller继续诊断。
+
+- pre_fix_head：`71c6ec84c1df79a3d3dcd38b039d0fac800aa99f`，源码同bd170820b。
+- 实测留白：clientHeight873保持，viewport805，composer paddingBottom34、dropzone9.6，row bottom761.40625、composer805。多余34px来自keyboard/input accessory出现后仍保留Home safe area。原始样本`output/bugfix-577/gap-samples.log`；系统辅助条本身不属于可删页面白带。
+- Enter根因：MessagePane的旧统一Enter commit规则与current旧mobile发送契约一致；按本次用户反馈明确改成手机原生换行、按钮发送，桌面快捷键保留；候选弹层不得吞手机Enter。
+- 首文档/设计/delta/原型同步这两项范围，已走1440/375真实原型，独立Gate 2 R3审查中；不先覆盖current spec。
+- 红测：修改现有MessagePane手机发送/slash Enter测试，补mention前缀用例；扩展现有AppProviders高度测试覆盖底部留白及keyboard关闭焦点保留。结果4 failed / 93 passed，失败准确对应旧行为，日志`input-r3-red.log`。
+
+R3设计审查full Approved0/0并完成Author Resolutions；实现范围为MessagePane Enter原生编辑、原hook安全区条件、既有CSS变量消费。修后97 targeted tests passed；build通过（测试中误用Playwright的exact选项被tsc发现，已删除该多余选项）。当前assets `index-DXqgLd_B.js` / `index-C9hmrQPD.css`，诊断脚本随build移除。docs-check252 sources/75routes和diff检查通过。准备按同一冻结版本独立产品和静态复验，实体输入法反馈仍须补齐。
+
+### R3 完整前端检查
+
+- 冻结源码 `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`。单 worker 完整运行：86 test files / 808 passed，145.72s；日志 `output/bugfix-577/input-r3-full.log`。
+- 手机冷启动后，隔离 IM 日志确认 `100.83.160.61` 请求本轮 JS `index-DXqgLd_B.js` 与 CSS `index-C9hmrQPD.css` 均为200。独立产品复验继续，尚未将此构建加载证据当作实体软件键盘通过。
+
+### R3 独立复验后状态
+
+- 独立 patch code review：`[]`；静态 delta / corrected-delta aligned。docs-check 使用主 checkout 的 `.venv` 通过，252 sources/75 routes。
+- 产品镜像实测确认重复底部间距减少约34 CSS px，header保持；普通、mention、slash前缀下Return实际换行，箭头发送多行收到OK，草稿往返保留。实体软键盘/中文IME/手动缩放尚未补齐。
+- 产品新增 I3：点击slash候选后只有失焦和关闭弹层、草稿仍为`/`。caller在同一构建点击可见`/new`行也复现，尚未判断事件归因，不能把它写成镜像误差或已通过。
+- 为定位I3，仅在隔离dist加入临时只读DOM事件目标采样，不包含消息/凭据。重新启动入口时镜像工具报告无可交互窗口，重新绑定/恢复窗口后仍未恢复；已请用户恢复镜像窗口。正式build将移除临时采样，源码未因此改变。
+
+## 最终交付收口（2026-10-05）
+
+- 用户对实体中文多行/箭头发送、白带、slash点击、收起键盘及缩放恢复清单回复“没问题，提pr了吗”。独立产品最终pass；I2以用户确认证据关闭，I3实体未复现解除阻塞，镜像失败及根因未确证保留。静态full pass、0 CRITICAL/0 WARNING，corrected-delta aligned；不把用户确认写成reviewer实体亲测。
+- 最终sync：origin/main仍为`76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`；源码从`fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`未变，至`cbb4d4af8`只有报告更新。最终归并既审ADDED/REMOVED/MODIFIED delta并整体归档，属于文档路径/状态变化，Gate2、产品、代码与verification retained；最终effective_through以PR列出的交付head为准。
+- 重新生产build通过，JS/CSS hash与实体确认版本相同；临时DOM观察脚本及引用已移除。808前端、4119 Python、全仓Ruff、critical audit有效证据复用，不为文档归档重复全量。
+- 已停止本unit的隔离Gateway/IM、Vite、HTTPS Serve及两个原型/RCA服务，核实测试端口无监听；临时启动副本已移除。其他chat的服务及Tailscale全局连接保持。
+- 后续仅等待远端CI和人工审查合并；归档不等于合并或部署。

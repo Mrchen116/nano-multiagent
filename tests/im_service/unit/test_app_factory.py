@@ -163,6 +163,9 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
         "<!doctype html><title>IM shell</title>", encoding="utf-8"
     )
     (dist_dir / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
+    (dist_dir / "manifest.webmanifest").write_text(
+        '{"scope":"/","display":"standalone"}', encoding="utf-8"
+    )
     (assets_dir / "app.js").write_text("console.log('IM shell');", encoding="utf-8")
 
     app = create_app(
@@ -175,6 +178,7 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
         root_response = client.get("/")
         chat_response = client.get("/chat")
         settings_response = client.get("/settings/agents")
+        manifest_response = client.get("/manifest.webmanifest")
         bind_response = client.get("/bind/confirm?token=test-token")
         favicon_response = client.get("/favicon.svg")
         asset_response = client.get("/assets/app.js")
@@ -183,6 +187,11 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
     assert root_response.text == "<!doctype html><title>IM shell</title>"
     assert chat_response.status_code == 200
     assert chat_response.text == "<!doctype html><title>IM shell</title>"
+    assert manifest_response.status_code == 200
+    assert manifest_response.headers["content-type"].startswith(
+        "application/manifest+json"
+    )
+    assert manifest_response.json() == {"scope": "/", "display": "standalone"}
     assert settings_response.status_code == 200
     assert settings_response.text == "<!doctype html><title>IM shell</title>"
     assert bind_response.status_code == 200
