@@ -66,9 +66,56 @@ final class ChatStateTests: XCTestCase {
         store.clear()
     }
 
+    func testLostSendResponseRequiresExplicitRetryWithSameKeyAndNoDuplicateHistory() async throws {
+        let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
+        let received = try message(1)
+        let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
+        let transport = LostSendTransport(pair: try JSONEncoder().encode(pair), message: try JSONEncoder().encode(received.message!), page: try JSONEncoder().encode(MessagePage(items: [received])), list: list)
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        _ = try await session.login(username: "user", password: "test")
+        let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+        store.drafts["chat"] = "message 1"
+        await store.send("chat")
+        XCTAssertNotNil(store.pending["chat"])
+        XCTAssertNotNil(store.errors["chat"])
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+
+        // History recovery and the normal send action must not silently resend.
+        await store.loadChat("chat")
+        await store.send("chat")
+        let initialKeys = await transport.keys
+        XCTAssertEqual(initialKeys.count, 1)
+        XCTAssertFalse(initialKeys[0].isEmpty)
+        await store.send("chat", retry: true)
+        let retryKeys = await transport.keys
+        XCTAssertEqual(retryKeys, [initialKeys[0], initialKeys[0]])
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertEqual(store.drafts["chat"], "")
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+        store.clear()
+    }
+
     private func message(_ n: Int) throws -> TimelineItem {
         let payload: [String: Any] = ["type":"message", "message":["id":"m\(n)","conversation_id":"chat","sender":["type":"agent","id":"agent"],"sender_user_id":"agent-user","sender_type":"agent","content":"message \(n)","attachments":[],"delivery_status":"completed","created_at":"2026-01-01"]]
         return try JSONDecoder().decode(TimelineItem.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+}
+
+private actor LostSendTransport: HTTPTransport {
+    let pair: Data; let message: Data; let page: Data; let list: Data
+    var keys: [String] = []
+    init(pair: Data, message: Data, page: Data, list: Data) { self.pair = pair; self.message = message; self.page = page; self.list = list }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let url = request.url!
+        let body: Data
+        if url.path.contains("/auth/") { body = pair }
+        else if request.httpMethod == "POST", url.path.hasSuffix("/messages") {
+            keys.append(request.value(forHTTPHeaderField: "Idempotency-Key") ?? "")
+            if keys.count == 1 { throw URLError(.networkConnectionLost) }
+            body = message
+        } else if url.path == "/im/v1/conversations" { body = list }
+        else { body = page }
+        return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!)
     }
 }
 private struct ChatTestCredentials: CredentialStore {

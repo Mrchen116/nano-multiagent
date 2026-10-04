@@ -41,14 +41,14 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, refreshed: refreshed)
             }
-            if message.token_usage != nil || message.elapsed_ms != nil {
+            if message.sender_type == "agent" {
                 HStack {
-                    if let usage = message.token_usage {
-                        Text("↑ \(usage["output"].intValue ?? 0) · \(usage["context_used"].intValue ?? 0)/\(usage["context_window"].intValue ?? 0)")
-                        if let cached = usage["cache_read_tokens"].intValue, let total = usage["cache_total_input_tokens"].intValue, total > 0 { Text(L("缓存 ", "Cache ") + "\(cached * 100 / total)%") }
-                    }
+                    if let usage = message.token_usage { ChatUsageView(usage: usage) }
                     Spacer()
                     if let ms = message.elapsed_ms { Text(String(format: "%.1fs", ms / 1000)) }
+                    else if message.delivery_status == "running", let start = startedAt {
+                        Text(start, style: .timer).monospacedDigit().accessibilityLabel(L("本轮耗时", "Turn duration"))
+                    }
                 }.font(.caption2).foregroundStyle(.secondary)
             }
         }.padding(14).background(message.sender.id == selfID ? Color.teal.opacity(0.10) : Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
@@ -56,6 +56,13 @@ struct ChatMessageView: View {
     }
     private var status: String {
         switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return L("已完成", "Completed"); default: return L("已发送", "Sent") }
+    }
+    private var startedAt: Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: message.created_at) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: message.created_at)
     }
     private var hasProcess: Bool { !(message.tool_calls ?? []).isEmpty || !(message.thinking ?? []).isEmpty || !(message.background_returns ?? []).isEmpty || !(message.reply_process ?? []).isEmpty }
     private struct ProcessItem: Identifiable {
@@ -80,6 +87,31 @@ struct ChatMessageView: View {
             }
         } label: { HStack { Text((tool.emoji ?? "🔧") + " " + tool.name); Spacer(); Text(tool.status).font(.caption); if let ms = tool.duration_ms { Text(String(format: "%.1fs", ms / 1000)).font(.caption) } } }
     }
+}
+
+private struct ChatUsageView: View {
+    let usage: JSONValue
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent(L("本轮输出", "Turn output"), value: count("output"))
+                LabeledContent(L("本轮总用量", "Turn total"), value: count("total"))
+                LabeledContent(L("已用上下文", "Context used"), value: count("context_used") + " / " + count("context_window"))
+                let cached = usage["cache_read_tokens"].intValue ?? 0
+                let input = usage["cache_total_input_tokens"].intValue ?? 0
+                let rate = input > 0 ? Double(cached) / Double(input) * 100 : 0
+                LabeledContent(L("缓存命中", "Cache hits"), value: "\(cached.formatted()) (\(Int(rate.rounded()))%)")
+                if let used = usage["context_used"].intValue, let window = usage["context_window"].intValue, window > 0 {
+                    let fraction = Double(used) / Double(window)
+                    ProgressView(value: min(1, fraction)).tint(fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .teal)
+                        .accessibilityLabel(L("上下文占用", "Context utilization"))
+                    Text(String(format: "%.0f%%", fraction * 100))
+                    if fraction >= 0.7 { Text(L("上下文接近上限，可压缩上下文或新建会话。", "Context is approaching its limit. Compact it or start a new conversation.")) }
+                }
+            }.padding(10).background(.teal.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        } label: { Text(count("total") + " tokens") }
+    }
+    private func count(_ key: String) -> String { usage[key].intValue?.formatted() ?? L("未报告", "Unreported") }
 }
 
 struct ChatPermissionCard: View {
