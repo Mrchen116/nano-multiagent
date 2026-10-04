@@ -213,6 +213,16 @@ def _install_frontend_entrypoints(
             raise HTTPException(status_code=404, detail="frontend asset not found")
         return FileResponse(asset_file_path)
 
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def frontend_manifest() -> FileResponse:
+        """Serve the Web App navigation manifest from the IM service host."""
+        manifest_path = _resolve_frontend_file(
+            frontend_dist_dirs, Path("manifest.webmanifest")
+        )
+        if manifest_path is None:
+            raise HTTPException(status_code=404, detail="frontend manifest not found")
+        return FileResponse(manifest_path, media_type="application/manifest+json")
+
     @app.get("/favicon.svg", include_in_schema=False)
     async def frontend_favicon() -> FileResponse:
         """Serve the built frontend favicon from the IM service host."""

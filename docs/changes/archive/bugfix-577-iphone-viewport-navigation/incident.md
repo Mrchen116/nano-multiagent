@@ -1,6 +1,6 @@
 # bugfix-577: iPhone 输入缩放与主屏 Web App 导航遮挡
 
-状态：active，首文档定稿；2026-10-04 通过同设备隔离对照收口 RCA，Gate 1 通过。尚未实施或生产验收。
+状态：completed，2026-10-05 用户实体确认与独立门禁完成；canonical 已归并，待 PR 审查及合并，未生产发布。
 
 路径：Full Bugfix。需要独立覆盖 Safari / 主屏 Web App、未登录安装 / 已登录启动、聚焦 / 收起输入 / 页面切换的回归矩阵；桌面窄视口测试不能覆盖系统导航栏与真实输入行为。
 
@@ -102,7 +102,7 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 
 `git blame` 将 composer `0.9rem` 追溯到 `f7a57e3c67`，登录样式后续经过 `5db91abfcf`；这些是样式历史线索，不等于已经证明的回归引入点。未定位平台版本或导航改变造成的首个坏版本，不编造导致漏检的流程责任。
 
-权威 current 契约见 [Web Chat UX](../../specs/im/web-chat-ux.md)、[认证与租户](../../specs/im/auth-tenancy.md)、[任务图](../../specs/im/task-graphs.md)。现有窄屏单列、底栏可用、聊天详情保留安全区的意图与本次实机结果存在差距；本 unit 的目标尚未归并为 current。
+权威 current 契约见 [Web Chat UX](../../../specs/im/web-chat-ux.md)、[认证与租户](../../../specs/im/auth-tenancy.md)、[任务图](../../../specs/im/task-graphs.md)。修前窄屏单列、底栏可用、聊天详情保留安全区的意图与实机结果存在差距；本 unit 的已验收目标现已归并为 current。
 
 ## 验收标准
 
@@ -167,3 +167,32 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 > 你要自己衡量是否要做一个ios app
 
 本次 Web 机制已有同机有效对照，577 继续修复。用户随后明确要求无论 Web 修复结果、是否有新增特性，都另做 iOS App，并提出 Mac mini 上 AltServer 同 Wi-Fi 刷新；已建立独立 feat-578 和并行 chat 承接。免费原生分发的 7 天 provisioning profile 续签与安装维护，参考 [Apple 官方限制](https://developer.apple.com/help/account/basics/about-your-developer-account)和 [AltServer 同网刷新条件](https://faq.altstore.io/altstore-classic/altserver)，由 feat-578 收口；本 unit 不扩展 iOS App 或续签服务。
+
+## 2026-10-05 用户实体键盘反馈与范围补充
+
+用户原话：
+
+> 我真机测了，两个问题：
+>
+> 1. 输入框下方的白色为啥这么多，浪费了纵向空间
+> 2. 没法真正换行，下面写的是换行实际是发送，这个可能要思考下怎么设计呢？
+
+附件`IMG_9428.PNG`显示同一隔离e2e会话、00:51真实中文九宫格软件键盘：键帽为“换行”；composer下方白色留白，之后才是iOS上下字段/完成辅助条及键盘。本机原图`/Users/czj/Downloads/IMG_9428.PNG`不入仓。用户授权本unit继续修复这两项实际输入体验，不将实体键盘“已操作”误记为验收通过。
+
+RCA补充：现行MessagePane无设备区分地截获Enter并commit；current契约与旧测试本来要求手机Enter发送，但与本次明确要求可真正换行冲突，现以新用户反馈修订。原composer外层无条件保留safe-area-inset-bottom。caller在同一iPhone镜像的输入辅助条状态实测：clientHeight=873、visualViewport.height=805、scale=1；composer padding-bottom=34px，dropzone padding-bottom=9.6px，输入行bottom=761.40625而composer bottom=805，实际空白43.59px。与附件可见白带一致；辅助条本身属于iOS系统界面，不承诺隐藏。
+
+### Requirement: 手机键盘语义与可用空间符合输入意图
+
+#### Scenario: 手机换行与发送分开
+- **WHEN** 用户在手机输入消息并按键盘“换行”，包括输入提及或斜杠前缀时
+- **THEN** 编辑区插入新行，保留草稿，不立即发送或自动选择候选
+- **AND** 点击候选可插入提及/命令，点击发送箭头才发送完整多行文字；中文候选确认不被劫持
+
+#### Scenario: 键盘占用底部时不重复留安全区
+- **WHEN** 手机编辑期间键盘或输入辅助条缩小可视高度
+- **THEN** 输入框下方只保留正常组件内边距，不再叠加为Home指示条预留的整段空白
+- **AND** 键盘收起后恢复底部安全区，标题返回、滚动及草稿不回归
+
+#### Scenario: 桌面键盘保留既有快捷键
+- **WHEN** 桌面用户编辑消息
+- **THEN** Enter发送、Shift+Enter换行，中文输入法候选确认与候选菜单原有键盘选择保持
