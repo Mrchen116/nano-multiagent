@@ -16,7 +16,7 @@
 | 维度 | 结果 |
 |---|---|
 | Completeness | W1 已有证据；R1/R2/R4/W2 部分证据已到，等待完整 regression；R3 未完成，W3 门禁待关闭 |
-| Correctness | 两项 delta 均有实现；真机软件键盘场景出现实际偏离，不能据静态实现判全部 covered |
+| Correctness | 两项 delta 均有实现；真机镜像硬件输入辅助条场景出现实际偏离（实体软件键盘未测），不能据静态实现判全部 covered |
 | Coherence | 5 项 design 决策遵守，架构和测试责任未迁移 |
 
 ### Completeness
@@ -27,7 +27,7 @@
 |---|---|---|
 | R1 登录/搜索/聊天输入及跨页比例 | progress 记录 Safari 登录聚焦/结束输入无额外放大；caller 转交产品 reviewer 主屏登录及搜索无裁切；完整跨页矩阵待 regression | 待完整证据 |
 | R2 未登录安装、登录、四入口、详情刷新/重新打开 | caller 转交 HTTPS 未登录安装→登录→四入口无系统栏；刷新/再次启动等由产品 reviewer 继续记录 | 待完整证据 |
-| R3 真机软件键盘开关、返回、草稿、输入/发送 | caller 转交独立实际发现：standalone composer 聚焦粘贴两行后 header 上移并与状态栏重叠，输入/发送仍完整 | **未通过** |
+| R3 真机软件键盘开关、返回、草稿、输入/发送 | caller 转交独立实际发现：standalone composer 经镜像硬件输入聚焦粘贴两行、出现iOS输入辅助条后 header 上移并与状态栏重叠，输入/发送仍完整 | **未通过** |
 | R4 Safari 浏览器栏、375/430/600px、桌面1440px | progress 有 375×812、430×430、600×960 真实浏览器渲染/测量摘要；完整 Safari 和桌面证据等待 regression | 待完整证据 |
 | W1 focused tests/build、manifest HTTP、字号/viewport | progress 的 8 frontend/6 HTTP tests、build 及真实 HTTP manifest 证据；直接核读实现和测试，完整前端最终日志807 passed | covered |
 | W2 must-match 对照、设备/构建记录 | progress 有浏览器截图及构建资产定位；不把镜像硬件输入冒充软键盘，真机最终报告未完成 | 待 regression |
@@ -75,7 +75,7 @@ verifier只核显式契约与证据链，不替代产品reviewer的视觉判断�
 
 #### CRITICAL
 
-- **R3 未满足，暂不允许full pass。** 契约：`specs/im/web-chat-ux.md` 的“可用高度随浏览器栏和键盘变化”及 `design.md` M1 R3；实现路径：`src/IM/frontend/src/hooks/use-mobile-viewport.ts:13` 只发布height，`global.css:5599` shell顶部安全区。caller转交独立产品reviewer发现：真实iPhone standalone聚焦composer并粘贴两行后，header上移与状态栏重叠；输入/发送可见不抵消标题返回要求。建议按该实际offset证据修复，冻结新版本，再让产品reviewer复验软键盘开关、标题返回、草稿及跨页恢复；把完整设备/操作/构建/证据定位写入regression后由verifier核对。该条是已观察未完成退出标准，不以静态推测认定某个具体offset补偿算法。
+- **R3 未满足，暂不允许full pass。** 契约：`specs/im/web-chat-ux.md` 的“可用高度随浏览器栏和键盘变化”及 `design.md` M1 R3；实现路径：`src/IM/frontend/src/hooks/use-mobile-viewport.ts:13` 只发布height，`global.css:5599` shell顶部安全区。caller转交独立产品reviewer发现：真实iPhone standalone经镜像硬件输入聚焦composer并粘贴两行、出现iOS输入辅助条后，header上移与状态栏重叠；输入/发送可见不抵消标题返回要求。建议按该实际offset证据修复，冻结新版本，再让产品reviewer复验软键盘开关、标题返回、草稿及跨页恢复；把完整设备/操作/构建/证据定位写入regression后由verifier核对。此复现不含实体软件键盘证据；该条是已观察未完成退出标准，不以静态推测认定某个具体offset补偿算法。
 
 #### WARNING
 
@@ -85,9 +85,36 @@ verifier只核显式契约与证据链，不替代产品reviewer的视觉判断�
 
 - 无。
 
+## Round 2 — targeted-closure，静态核对完成、等待产品复验
+
+- reviewer: `/root/review_577_static`；未参与修复。
+- verification_mode: `targeted-closure`；同次继续 `corrected-delta`。
+- executed_base: `1daf6676debe129088d9bd0612b489d1eba0301a`
+- validated_at: `bd170820be5f17f17093189d36290c377b0463ff`；HEAD已独立核实一致。
+- fix_delta_range: `e6b202cb87c4deb4e9f9763d5c78e59d28576dba..bd170820be5f17f17093189d36290c377b0463ff`
+- focus: 产品Round1 I1 / verifier Round1标题返回偏移问题及批准的design offset修订；产品I2缺口仍有效。
+- prior_verification: 本文件Round1；未受影响的manifest、字号、架构/测试责任核对保留。
+- requires_full_verification: `false`；offset变更有界，未扩大共享边界或破坏此前静态结论。
+- 当前 verdict: **pending**。patch code review `[]`、静态closure aligned；完整产品复验及最终前端检查未交接，不标full pass。
+
+### 问题闭环与实现证据
+
+| Focus | 冻结版本证据 | 状态 |
+|---|---|---|
+| I1 / header因编辑平移侵入状态栏 | `hooks/use-mobile-viewport.ts:15` 发布实际offsetTop；`global.css:5595` mobile根容器relative top；scroll监听已有；聚焦、缩放/桌面/blur和卸载与height同步清理 | 静态fix覆盖；独立产品Round2尚待 |
+| design第4决定有界修订 | 单hook/CSS职责不变，无68px常量、强制scrollTo、全局touch禁用、根fixed或transform；design-review Round2 Approved 0/0，已读受审差异及author摘要同步 | aligned |
+| 回归保护 | `app/providers.test.tsx:31` 同一最低层测试驱动offsetTop=68及scroll、观察CSS offset=68px、blur清除；其余焦点/桌面/scale/无VisualViewport保护保留；caller提供1项红测及修后providers+shell 8passed/build | aligned，复用可信结果 |
+| I2 / 实体软件键盘与主动缩放等设备必验缺口 | 仍由产品reviewer负责；caller冷启及聚焦观察只作补充，不能代替独立regression | 未关闭 |
+
+Round1描述已更正：实际反例是镜像硬件输入触发的iOS输入辅助条与自动平移，实体软件键盘当时未测。verifier此前final摘要把它称为软键盘不准确，以regression Round1 I1及本次更正为准。
+
+### Corrected-delta静态补查
+
+消费者delta文件没有变更；新增offset只落实原“标题返回、输入与发送保持可见”要求，没有新增业务/路由/认证或独立对外行为。统一height/offset临时覆盖由批准设计描述，providers CSS seam测试保护；当前静态实现和最终测试方向aligned。唯一Corrected Delta Reconciliation段暂保留其标注的Round1快照结果，收到Round2产品证据后更新为当前快照最终outcome，不提前把产品未验场景标通过。
+
 ## Corrected Delta Reconciliation
 
-本轮delta未变；按 `executed_base...validated_at` 全部diff核对，未因当前实现错误静默调整spec。
+此段当前保留Round1快照，Round2最终证据待齐后更新。本轮delta未变；按 `executed_base...validated_at` 全部diff核对，未因当前实现错误静默调整spec。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|

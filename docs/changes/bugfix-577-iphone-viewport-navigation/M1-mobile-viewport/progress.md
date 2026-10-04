@@ -54,3 +54,12 @@
 - 修复范围：同一hook在既有编辑条件下发布实际offsetTop，手机根容器relative top跟随；blur/缩放/desktop/unmount清理。design有界修订已交原独立reviewer复核，prototype/需求/milestone不变。
 - 定向红测：既有providers可视区域测试增加68px scroll偏移与blur恢复断言，3项中1项因CSS偏移为空失败。
 - 本地诊断脚本将在最终build移除；不提交dist/日志。
+
+## R2 冻结与复验
+
+- 冻结`bd170820be5f17f17093189d36290c377b0463ff`；Gate 2有界delta R2 Approved0/0，caller完成Author Resolutions。仅同hook/CSS的实际offsetTop补偿及既有测试增量。
+- focused providers+AppShell：8 passed；build通过，新assets `index-B4S4bvwT.js` / `index-D5kI87rP.css`。build已移除本地诊断注入。IM访问日志确认iPhone冷启加载该新构建；caller原焦点复现中header/返回保持在状态栏下。
+- R2前端全量：806 passed / 1 failed（既有nodes-page-ws异步元素等待未及时出现，非本unit断言）；独立重跑失败文件1 passed，184ms，`output/bugfix-577/frontend-offset-retry.log`。保留完整首轮失败输出`frontend-offset-final.log`，不修改无关测试。最终远端CI仍须通过。
+- docs-check：244 sources / 75 routes通过；git diff --check通过。Python源码在R2未变，复用R1 4119 passed及Ruff证据。
+- 独立patch code review返回`[]`；独立产品R2已观察I1关闭，主屏冷启、Safari刷新、群聊mention/设置、草稿/返回通过；软件键盘与双指缩放不能由镜像代测。已将设备交还并向用户发出具体实机短测请求，收到结果后才能关闭I2和verification。
+- 为群设置/mention准备隔离API fixture `577 viewport group` (`c_t8c198ge`，nano+e2e)。不把API建群称为手机创建菜单已通过；reviewer提到创建菜单未打开作为独立side finding保留。
