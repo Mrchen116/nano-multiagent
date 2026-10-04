@@ -1,6 +1,6 @@
 # bugfix-577: iPhone 输入缩放与主屏 Web App 导航遮挡
 
-状态：active，首文档定稿；2026-10-04 通过同设备隔离对照收口 RCA，Gate 1 通过。已实施并进入真机复验；2026-10-05继续按用户实机反馈修正输入体验，未生产发布。
+状态：completed，2026-10-05 用户实体确认与独立门禁完成；canonical 已归并，待 PR 审查及合并，未生产发布。
 
 路径：Full Bugfix。需要独立覆盖 Safari / 主屏 Web App、未登录安装 / 已登录启动、聚焦 / 收起输入 / 页面切换的回归矩阵；桌面窄视口测试不能覆盖系统导航栏与真实输入行为。
 
@@ -102,7 +102,7 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 
 `git blame` 将 composer `0.9rem` 追溯到 `f7a57e3c67`，登录样式后续经过 `5db91abfcf`；这些是样式历史线索，不等于已经证明的回归引入点。未定位平台版本或导航改变造成的首个坏版本，不编造导致漏检的流程责任。
 
-权威 current 契约见 [Web Chat UX](../../specs/im/web-chat-ux.md)、[认证与租户](../../specs/im/auth-tenancy.md)、[任务图](../../specs/im/task-graphs.md)。现有窄屏单列、底栏可用、聊天详情保留安全区的意图与本次实机结果存在差距；本 unit 的目标尚未归并为 current。
+权威 current 契约见 [Web Chat UX](../../../specs/im/web-chat-ux.md)、[认证与租户](../../../specs/im/auth-tenancy.md)、[任务图](../../../specs/im/task-graphs.md)。修前窄屏单列、底栏可用、聊天详情保留安全区的意图与实机结果存在差距；本 unit 的已验收目标现已归并为 current。
 
 ## 验收标准
 

@@ -14,7 +14,7 @@
 - 独立 HTTP 读取入口确认 assets 为 `index-BQ9vVzWe.js` / `index-C57yOulR.css`，与 caller 冻结构建交接一致。桌面用 caller 允许的 `http://127.0.0.1:18779/` Vite 入口，同一冻结源码及隔离 IM；它不是手机 HTTPS 构建 URL。
 - Reference Artifacts Reviewed：incident、design（含原型对齐契约/runbook）、prototype.html 真实渲染、current `web-chat-ux.md`、`auth-tenancy.md`、`task-graphs.md`、worktree-runtime。
 
-## Verdict
+## Round 1 Verdict（历史，最终判定见文末）
 
 **fail**。Highest Required Action：**fix-implementation**。1 个 major 产品问题，1 个 blocking 验收证据缺口；needs_re_review=true。未创建外部 GitHub issue。
 
@@ -121,7 +121,7 @@
 - 01:09 在应用切换器上划关闭 577 HTTPS 卡片并确认消失，再经 Spotlight 图标冷启动进入登录态 Chat。caller 从其拥有的 `.im.log` 提供本次手机请求证据：新 JS `index-DXqgLd_B.js`、CSS `index-C9hmrQPD.css` 均 HTTP 200；此为明确标注来源的服务端佐证。reviewer 本机 curl HTTPS 返回 SSL_ERROR_SYSCALL，手机真实加载正常，未为此修改网络或产品。
 - 相同 iPhone/隔离账号/HTTPS 入口。直接 CUA 截图时间01:09–01:14；未注入诊断、未定位实现、未改产品或测试。
 
-### 当前 verdict
+### Round 3 实体确认前 verdict（历史，最终判定见文末）
 
 **fail**，needs_re_review=true。两项用户反馈在镜像硬件输入路径中得到正向验证；新增 slash 候选点击路径未通过，另仍缺同版实体软键盘/中文输入法和手动缩放证据。Highest Required Action：由 owner 有界复现候选点击问题并作实现/证据裁决，随后补实体复验；不因缺实体证据而臆造代码缺陷。
 
@@ -162,3 +162,22 @@
 - 键盘占位开启时，输入框底到灰色占位区域仅正常一圈内边距（截图约16px），无额外大块白带；与 R3 产品镜像辅助条上方约15px的可见效果方向一致。原型外框、键盘占位高度、示例消息为演示，不能当作真实iOS键盘或精确CSS尺寸等同。
 - 新多行语义与键盘占位内边距：**match（独立实际渲染及操作）**。真实产品软键盘/中文候选/缩放仍未由此替代；I3 slash点击fail仍保留。
 - 本节仅操作原生 Chrome，没有操作手机或 TextEdit。验完关闭自己新建的原型标签，保留原有用户标签；未改实现、未提交。
+
+
+## 最终 Verdict — 用户实体复查收口
+
+**pass**；needs_re_review=false；Highest Required Action: none（本次产品验收范围内）。产品源码 validated_at 仍为 `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`；caller 交接当前 `cbb4d4af8` 为后续仅文档 HEAD，本次没有重跑 UI 或全量验收。此最终判定取代各轮中间 fail，不删除其原始观察。
+
+### 最终实体证据及来源
+
+来源是用户本人对 caller 上一轮实体复查清单的直接回复：**“没问题，提pr了吗”**。由 caller 转交给独立 reviewer；reviewer 没有亲自执行这些实体操作，也没有将该句扩写成逐项测量日志。被确认清单包含中文两行输入、换行不立即发送、箭头发送、键盘上方白带、slash 候选点击填入，以及收键盘与双指缩放恢复。结合本轮已确认加载的新资源和期间源码未变，该回复构成同版实体复查的用户验收确认。
+
+- **I1 closed**：Round 2 与 Round 3 reviewer 实机镜像均确认 header/Back 不再进入状态栏。
+- **I2 closed — user accepted**：原必验软键盘/中文输入与正常缩放证据缺口，以此次用户实体确认补齐；不再用镜像辅助条替代。
+- **I3 closed as product blocker; retained as test-channel limitation**：用户实体确认 slash 候选点击可填入，未复现镜像失败，因此不再要求产品修复或阻塞本 unit。01:12–01:14 镜像点击失败原始事实完整保留，根因未确证。caller 临时 DOM 采样看到镜像点击前额外 `mousedown` 在 HTML 的 `(-1,-1)`，只是可能触发 outside dismissal 的线索；未取得候选实际点击采样，不能据此认定因果或声称已修复镜像通道。
+
+### retained 范围与证据边界
+
+继承 Round 1 未变的桌面/375/430/600 布局与草稿收发证据，Round 2 主屏冷启动、Safari 刷新、群设置/Tasks 往返证据，Round 3 reviewer 硬件 Return、候选不吞 Enter、多行箭头发送、间距截图，以及原生 Chrome 原型实际比较；本轮用户实体确认补齐最后的软键盘与手势缺口。未宣称每个历史矩阵在最终源码上全部重跑，未把一次用户确认解释为所有输入法/设备穷举通过。
+
+创建群菜单的既有附带发现继续由 owner 单列处理，未确证属于本 unit；镜像 slash 点击差异作为测试通道局限保留，不修改产品来迎合未确证的工具行为。无需新增实现或复审轮次即可进入本 unit PR 收口；此结论不等于已提交、合并或部署。仅更新本报告，未操作 UI、未改实现、未提交。

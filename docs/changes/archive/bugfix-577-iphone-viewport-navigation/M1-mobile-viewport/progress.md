@@ -91,3 +91,11 @@ R3设计审查full Approved0/0并完成Author Resolutions；实现范围为Messa
 - 产品镜像实测确认重复底部间距减少约34 CSS px，header保持；普通、mention、slash前缀下Return实际换行，箭头发送多行收到OK，草稿往返保留。实体软键盘/中文IME/手动缩放尚未补齐。
 - 产品新增 I3：点击slash候选后只有失焦和关闭弹层、草稿仍为`/`。caller在同一构建点击可见`/new`行也复现，尚未判断事件归因，不能把它写成镜像误差或已通过。
 - 为定位I3，仅在隔离dist加入临时只读DOM事件目标采样，不包含消息/凭据。重新启动入口时镜像工具报告无可交互窗口，重新绑定/恢复窗口后仍未恢复；已请用户恢复镜像窗口。正式build将移除临时采样，源码未因此改变。
+
+## 最终交付收口（2026-10-05）
+
+- 用户对实体中文多行/箭头发送、白带、slash点击、收起键盘及缩放恢复清单回复“没问题，提pr了吗”。独立产品最终pass；I2以用户确认证据关闭，I3实体未复现解除阻塞，镜像失败及根因未确证保留。静态full pass、0 CRITICAL/0 WARNING，corrected-delta aligned；不把用户确认写成reviewer实体亲测。
+- 最终sync：origin/main仍为`76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`；源码从`fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`未变，至`cbb4d4af8`只有报告更新。最终归并既审ADDED/REMOVED/MODIFIED delta并整体归档，属于文档路径/状态变化，Gate2、产品、代码与verification retained；最终effective_through以PR列出的交付head为准。
+- 重新生产build通过，JS/CSS hash与实体确认版本相同；临时DOM观察脚本及引用已移除。808前端、4119 Python、全仓Ruff、critical audit有效证据复用，不为文档归档重复全量。
+- 已停止本unit的隔离Gateway/IM、Vite、HTTPS Serve及两个原型/RCA服务，核实测试端口无监听；临时启动副本已移除。其他chat的服务及Tailscale全局连接保持。
+- 后续仅等待远端CI和人工审查合并；归档不等于合并或部署。

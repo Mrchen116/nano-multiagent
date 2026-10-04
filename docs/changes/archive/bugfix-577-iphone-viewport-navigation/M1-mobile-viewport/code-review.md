@@ -37,3 +37,8 @@
 - composer底部覆盖：同一viewport hook条件内比较visualViewport.height与documentElement.clientHeight-1，收缩时发布0px，等高且仍有焦点时移除；blur/缩放/桌面/卸载同样移除。CSS只改变具体会话composer安全区，默认env保持，正常dropzone padding和列表导航安全区未改。没有第二套事件监听或固定机型键盘阈值。
 - 测试：旧手机Enter/slash行为测试按新契约改写、补mention冒泡风险用例，原providers覆盖增加键盘恢复但不失焦的行为；不重复新建风险owner。复用caller记录红4fail/93pass、修后97pass及build；既有Python代码未变，复用4119pass。最终front全量由caller运行，本review独立读取`input-r3-full.log`末尾确认86 files/808 passed/145.72s，未重复运行。
 - 限制：静态与jsdom证据不证明实体中文输入法或软件键盘布局；独立产品及用户同版本复查仍必须完成。
+
+
+## 最终有效性标注
+
+产品源码仍为 `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`；`cbb4d4af881377d50644b0fdcbcae80d3acec6fd` 是后续文档HEAD。独立核实二者`src/tests`无diff，因此Round1 full与后续patch结论仍覆盖最终源码，findings保持`[]`，没有因文档更新重复代码审查。产品最终pass及用户实体确认见regression，full verification最终pass/corrected-delta aligned见verification；code review不冒称亲测实体键盘或修复未确证镜像点击差异。
