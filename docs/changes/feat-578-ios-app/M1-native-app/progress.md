@@ -24,7 +24,6 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 
 ## Remaining gates
 
-- Updated Release archive and CI integration.
 - Simulator rendered journeys, keyboard/scrolling, API mutations and real LLM chat/Work/task evidence.
 - Independent static review/verification and independent product review.
 - Installable version then physical device/Mini/free-signing/renewal scenarios, final canonical merge and archive, CI-green PR. Not complete and no PR created yet.
@@ -46,3 +45,11 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Native UI opened the peer conversation, sent the numeric prompt `123+456=?`, received `579` from the real Gateway/LLM, and displayed Completed. UI rename to `iOS Peer Check` retained history and composer. Safe local screenshot: `output/feat578/native-peer-reply-r3.png`.
 - Independent code-review closure R3 has no remaining findings. Simulator product review is separately in progress; these checks do not close physical-device or free-signing scenarios.
 - Added the native test and device archive job to CI using Xcode 26.4.1 on macOS 26; official runner inventory lists that installed toolchain and its default simulator runtime. Remote execution is pending PR creation.
+
+## Local integration checks
+
+- Release archive for implementation `b970e20a6` passed; generated IPA contains the arm64 executable and no Release ATS exception. Version/hash and artifact locator are in [toolchain readiness](../evidence/toolchain-readiness.md).
+- Full Python non-E2E suite: **4119 passed**, 29 warnings, 108.75 seconds (`/tmp/nano-feat578-pytest-full.log`). Used repository `.venv` with worktree `src` via pytest's configured pythonpath.
+- Existing Web suite: **85 files / 804 tests passed**, 34.75 seconds (`/tmp/nano-feat578-vitest.log`). `npm ci` and critical-level dependency audit passed; audit reports seven existing lower-severity advisories (two high, three moderate, two low). No dependency manifest changed.
+- Documentation integrity: **251 maintained sources / 75 required routes passed**. Ruff check passed; format check reports **1134 files already formatted**. Logs `/tmp/nano-feat578-docs.log`, `/tmp/nano-feat578-ruff.log`, `/tmp/nano-feat578-format.log`.
+- These checks cover build/regression boundaries, not missing device or user-journey evidence. Final remote CI remains pending an eligible delivery PR.

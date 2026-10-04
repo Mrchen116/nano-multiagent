@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态：安装准备中；不是已经安装或续签成功的证明。用户已确定当前 Mac 构建、Mac mini 运行 AltServer。无需购买 Apple Developer Program，不使用 AltStore PAL。
+状态：已完成模拟器构建、21 项原生测试及 Release arm64 IPA；模拟器独立产品验收进行中，尚未签名安装到真机或续签。用户已确定当前 Mac 构建、Mac mini 运行 AltServer。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
 ## 官方约束与选择
 
@@ -38,8 +38,8 @@
 
 | 项目 | 已知结果 | 尚待落实 |
 |---|---|---|
-| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）安装完成，签名校验通过；协议已获用户同意，iOS 26.4 SDK 可用 | 独立 iOS simulator runtime 下载中；尚未运行模拟器或构建产品 |
-| 磁盘 | 安装后当次检查约 35 GiB 可用 | runtime 安装后重查；不删除用户文件 |
+| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试和设备归档通过 | 完整模拟器产品验收与真机签名 |
+| 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
 | Mini | 原已授权 AltServer 部署位置；本轮 SSH 连接超时 | 实际可达、AltServer版本/进程/GUI会话 |
 | iPhone | 用户给定 15 Pro Max / 26.4 | 本 chat 使用时段、配对/签名/开发者模式 |
 | Feishu E2E | 本机专用 env 文件存在且 0600；只读身份校验 verified=true、App ID 匹配、bot ready | 真实通道试验独占 Bot 仍待确认 |
