@@ -63,3 +63,7 @@
 - docs-check：244 sources / 75 routes通过；git diff --check通过。Python源码在R2未变，复用R1 4119 passed及Ruff证据。
 - 独立patch code review返回`[]`；独立产品R2已观察I1关闭，主屏冷启、Safari刷新、群聊mention/设置、草稿/返回通过；软件键盘与双指缩放不能由镜像代测。已将设备交还并向用户发出具体实机短测请求，收到结果后才能关闭I2和verification。
 - 为群设置/mention准备隔离API fixture `577 viewport group` (`c_t8c198ge`，nano+e2e)。不把API建群称为手机创建菜单已通过；reviewer提到创建菜单未打开作为独立side finding保留。
+
+### Final sync 有效性判断（等待实体结果期间）
+
+同步origin/main `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`，仅增加feat-578独立iOS设计文档，无577/src/tests增量；merge `559ae8d07d46757cc50661efc25ea6e995624e0d`。R2源码与`bd170820b`相同，代码review与已执行产品子项retained；design R2批准仍有效；I2及verification仍pending。原executed_base/validated_at保持原值，当前effective_base为76fe1d7e7，已执行结论effective_through到559ae8d07；尚未宣称整体门禁通过。
