@@ -5,8 +5,8 @@ import XCTest
 final class ChatStateTests: XCTestCase {
     private let user = AuthUser(id: "user", username: "user", display_name: "User", owner_id: "user", locale: "en", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
 
-    func testMembershipControlWithoutCursorRemovesCachedContentAndDraft() throws {
-        let store = ChatStore(client: IMClient(baseURL: URL(string: "https://im.example.test")!), user: user)
+    func testMembershipControlWithoutCursorRemovesCachedContentAndDraft() async throws {
+        let store = try await makeStore()
         store.timelines["chat"] = [try message(1)]
         store.drafts["chat"] = "private draft"
         store.attachments["chat"] = [ChatAttachment(url: "/im/v1/uploads/private")]
@@ -14,10 +14,38 @@ final class ChatStateTests: XCTestCase {
         let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.membership_changed","data":{"conversation_id":"chat"}}"#.utf8))
         store.consume(event)
         XCTAssertNil(store.timelines["chat"])
+        await store.loadConversations()
+        XCTAssertNil(store.timelines["chat"])
         XCTAssertNil(store.drafts["chat"])
         XCTAssertNil(store.attachments["chat"])
         XCTAssertNil(store.pending["chat"])
         store.clear()
+    }
+
+    func testMembershipRenameKeepsDraftAndRestoresAuthorizedConversation() async throws {
+        let list = Data(#"{"items":[{"id":"chat","title":"Renamed","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
+        let store = try await makeStore(list: list)
+        store.timelines["chat"] = [try message(1)]
+        store.drafts["chat"] = "keep this draft"
+        store.attachments["chat"] = [ChatAttachment(url: "/im/v1/uploads/own")]
+        let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.membership_changed","data":{"conversation_id":"chat"}}"#.utf8))
+        store.consume(event)
+        await store.loadConversations()
+        XCTAssertEqual(store.drafts["chat"], "keep this draft")
+        XCTAssertEqual(store.attachments["chat"]?.count, 1)
+        XCTAssertEqual(store.conversations.first?.title, "Renamed")
+        await store.loadChat("chat")
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+        store.clear()
+    }
+
+    private func makeStore(list: Data = Data(#"{"items":[]}"#.utf8)) async throws -> ChatStore {
+        let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
+        let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
+        let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page, list: list)
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        _ = try await session.login(username: "user", password: "test")
+        return ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
     }
 
     func testReconnectFillsMoreThanOnePageGapBeforeKeepingOlderCursor() async throws {
@@ -49,13 +77,14 @@ private struct ChatTestCredentials: CredentialStore {
     func remove() throws {}
 }
 private actor HistoryTransport: HTTPTransport {
-    let pair: Data; let latest: Data; let bridge: Data
+    let pair: Data; let latest: Data; let bridge: Data; let list: Data
     var cursors: [String?] = []
-    init(pair: Data, latest: Data, bridge: Data) { self.pair = pair; self.latest = latest; self.bridge = bridge }
+    init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8)) { self.pair = pair; self.latest = latest; self.bridge = bridge; self.list = list }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
         let body: Data
         if url.path.contains("/auth/") { body = pair }
+        else if url.path == "/im/v1/conversations" { body = list }
         else {
             let cursor = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
             cursors.append(cursor); body = cursor == nil ? latest : bridge

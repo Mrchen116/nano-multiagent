@@ -17,6 +17,7 @@ final class ChatStore {
     var connectionText = ""
     var listError: String?
     var banner: ChatBanner?
+    var checkingAccess: Set<String> = []
     private var cursor: Int?
     private var epoch = UUID()
     private var stream: UserStream
@@ -35,7 +36,7 @@ final class ChatStore {
     }
     func clear() {
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; pending = [:]; conversations = []
-        discarded = []; revokedChats = []; selectedID = nil; banner = nil
+        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil
     }
     func run() async {
         let token = epoch
@@ -80,14 +81,14 @@ final class ChatStore {
         let data = event.data ?? .null
         let chat = data["conversation_id"].stringValue
         if event.event_type == "conversation.membership_changed" || event.event_type == "conversation.deleted" {
-            // Revocation is a control frame without a replay cursor.
+            // The cursor-free frame also covers creation, rename and member addition.
+            // Hide private history until the membership-filtered list confirms access.
             if let chat {
-                revokedChats.insert(chat)
-                timelines[chat] = nil; before[chat] = nil; attachments[chat] = nil; drafts[chat] = nil; pending[chat] = nil
-                conversations.removeAll { $0.id == chat }
-                errors[chat] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+                checkingAccess.insert(chat); timelines[chat] = nil; before[chat] = nil
                 if banner?.conversationID == chat { banner = nil }
+                dirtyChats.insert(chat)
             }
+            needsList = true; scheduleRefresh()
             return
         }
         guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }
@@ -124,8 +125,13 @@ final class ChatStore {
     }
     private func reconcile(_ values: [Conversation]) {
         let allowed = Set(values.map(\.id))
+        revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in timelines.keys where !allowed.contains(id) { timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; pending[id] = nil }
+        for id in Set(timelines.keys).union(checkingAccess) where !allowed.contains(id) {
+            timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; pending[id] = nil
+            errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+        }
+        checkingAccess = []
         conversations = values
         listError = nil
     }
@@ -134,22 +140,22 @@ final class ChatStore {
         do {
             let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
             guard token == epoch, !Task.isCancelled else { return }; reconcile(page.items)
-        } catch { if token == epoch, !(error is CancellationError) { listError = error.localizedDescription } }
+        } catch { if token == epoch, !(error is CancellationError) { listError = error.localizedDescription; for id in checkingAccess { errors[id] = error.localizedDescription } } }
     }
     func loadChat(_ id: String, older: Bool = false) async {
-        guard !revokedChats.contains(id) else { return }
+        guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
         let token = epoch
         do {
             var page = try await client.messages(id, before: older ? before[id] : nil)
             let existing = Set((timelines[id] ?? []).map(\.id))
             // Walk back to the cached boundary when a disconnect exceeded one page.
             while !older, !existing.isEmpty, !page.items.contains(where: { existing.contains($0.id) }), let next = page.next_before_message_id {
-                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id) else { return }
+                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
                 let previous = try await client.messages(id, before: next)
                 page.items = TimelineMerge.merge(current: page.items, page: previous.items, older: true, discarded: discarded)
                 page.next_before_message_id = previous.next_before_message_id
             }
-            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id) else { return }
+            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             errors[id] = nil
@@ -167,7 +173,7 @@ final class ChatStore {
         } catch { /* Reading stays usable; the next visible message retries the boundary. */ }
     }
     func send(_ id: String, retry: Bool = false) async {
-        guard !sending.contains(id) else { return }
+        guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
         if !retry {
             guard pending[id] == nil else { return }
             let content = drafts[id] ?? "", files = attachments[id] ?? []

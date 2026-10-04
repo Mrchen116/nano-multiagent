@@ -58,7 +58,11 @@ struct ConversationView: View {
                 .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer.disabled(conversation == nil) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if store.checkingAccess.contains(conversationID) {
+                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+            } else { composer.disabled(conversation == nil) }
+        }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
