@@ -1,6 +1,6 @@
 # bugfix-577: iPhone 输入缩放与主屏 Web App 导航遮挡
 
-状态：active，首文档草案；范围已确认，RCA 尚未闭环，Gate 1 未通过。本文不是修复完成或生产验收记录。
+状态：active，首文档定稿；2026-10-04 通过同设备隔离对照收口 RCA，Gate 1 通过。尚未实施或生产验收。
 
 路径：Full Bugfix。需要独立覆盖 Safari / 主屏 Web App、未登录安装 / 已登录启动、聚焦 / 收起输入 / 页面切换的回归矩阵；桌面窄视口测试不能覆盖系统导航栏与真实输入行为。
 
@@ -33,7 +33,7 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 - 当次线上静态资源：`index-D9aTLu4x.js`、`index-DVUR9I21.css`。本地源码参考为 `main` 的 `d357729af`，不将它冒充线上部署 revision。
 - 完整本机体验记录：`output/iphone-im-review-20261004/review.md`；线上 CSS 样本：同目录 `live.css`。关键事实已写入本文；这些本机产物不提交，也不是接手此 unit 的必需文件。
 - 实机截图保留在本聊天工具结果中；本次未形成仓库内图片证据。实施验收须新采修前/修后的真实渲染证据。
-- 尚未记录 iPhone 型号与精确 iOS 版本；RCA 实验需补记，不能据当前日期推定版本。
+- 系统设置实读：iPhone 15 Pro Max，iOS 26.4。隔离实验使用同一设备与浏览器。
 
 ## 现象与复现
 
@@ -71,12 +71,30 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 3. 线上首页及本地 `src/IM/frontend/index.html` 包含 `width=device-width, initial-scale=1.0, viewport-fit=cover`，没有 manifest 声明。部分聊天区域已有安全区处理，因此不能笼统声称全站没有 safe-area 适配。
 4. 本地 `login-page.tsx` 登录成功使用路由 `navigate(..., { replace: true })`。尚无真实设备导航轨迹证明此动作为何触发系统栏，也不能据源码单独排除其他导航环节。
 
-### 当前判断与尚未闭环的因果链
+### 同设备单变量对照与根因结论
 
-- 输入控件字号是问题 A 的优先验证假设：现象与聚焦一致、线上字号偏小；须在同设备以只改变控件字号的对照验证，并覆盖搜索和 composer 高亮层对齐。
-- 问题 B 要分开验证“系统栏为什么出现”和“出现时布局为什么遮挡”。安装入口、站内导航范围与视口高度是调查方向，不把缺 manifest、scope 或 `100vh` 中任一项直接写成唯一根因。
-- [WebKit 的 Safari 26 官方说明](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/#every-site-can-be-a-web-app-on-ios-and-ipados)明确支持未配置 manifest 的网站通过 Open as Web App 添加为主屏应用。因此缺 manifest 本身不足以证明未进入 Web App 模式；此平台事实也不能替代当前设备的版本核对。
-- 尚无修前/修后对照，不能宣称 RCA 达到根因。Gate 1 闭环需记录设备版本、安装/启动路径、触发系统栏的最小导航序列，以及字号/视口/导航配置各自对症状的影响。
+2026-10-04 23:35–23:42，在同一 iPhone 上打开局域网静态实验页；没有 IM 后端、登录、令牌或 React 依赖。实验脚本与原始测量在本机 `output/bugfix-577-rca/probe.py`、`probe.log`。以下为可独立理解的证据摘要，页面截图保存在本聊天工具结果。
+
+| 对照 | 操作与实测 | 结论 |
+| --- | --- | --- |
+| 16px / 13px 输入 | 16px 聚焦及 blur 后 scale=1，宽度 430px；13px 聚焦后 scale=1.2302326，宽度约 350px，blur 后仍保留 | 过小输入字号触发 iOS 自动聚焦缩放；失焦不会恢复，SPA 路由继续复用该视口 |
+| Safari 100vh / 100dvh | 可视高度 775px，100vh shell=815px，底部与浏览器栏重叠；仅改为 100dvh 后 shell=775px、底部完整露出 | 固定大视口高度不能代表浏览器控件显示时的可用高度 |
+| 无 manifest 主屏安装 | `/raw/login` 启动为 standalone；仅 `history.pushState` 到 `/raw/chat` 就出现顶部域名栏和底部工具栏，visual height 从 873 降至 743px，shell 仍为 848px | 无明确应用导航契约时，该 iOS 版本在入口路径以外的 SPA 导航引入系统浏览器控件；不依赖账号或 IM 业务代码 |
+| 显式 manifest 主屏安装 | 同页面、同设备，声明 `display: standalone`、`start_url: /scoped/login`、`scope: /`；`/scoped/login → /scoped/chat` 无系统栏，visual height 保持 873px | 明确应用启动和导航范围可消除该最小复现的系统栏切换；不把结果推广为所有 iOS 版本的内部 scope 算法 |
+| 主屏 100vh / 100dvh | scoped 应用中 100vh shell=932px、visual height=873px，底部不可用；切为 100dvh 后 shell=873px、底部文字露出 | 去除系统栏仍需独立修复可用高度与安全区，不应只加 manifest |
+
+**根因 A**：前端沿用桌面偏小字号作为手机输入字号，未与 iOS 聚焦放大行为适配。只调整容器宽度不消除自动缩放来源。
+
+**根因 B**：未声明 Web App 的启动/站内导航范围，iOS 26.4 对当前安装路径后的 SPA 导航显示系统控件；同时 shell 以 `100vh` 作为可用高度，移动底栏缺少统一安全区占位，导致系统控件或设备底部侵入关键操作区。导航模式与布局高度是两个都要修的环节。
+
+这些隔离实验收口的是故障机制与修复方向，不是 IM 修后产品验收；完整登录、路由、消息和软件键盘仍按下方矩阵验证。实验通过镜像硬件输入，不能冒充软件键盘证据。
+
+### 官方与社区实践的适用边界
+
+- [WebKit Safari 26](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/#every-site-can-be-a-web-app-on-ios-and-ipados)：无 manifest 也能安装为 Web App；因此不能说缺 manifest 导致“根本不是 Web App”。本机实验定位到的是后续导航行为。
+- [Apple WWDC23 Web Apps](https://developer.apple.com/videos/play/wwdc2023/10120/)：manifest 的 scope 定义站内导航边界，iOS 范围外链接使用 Safari View Controller。它支持显式导航配置的选择，不替代本机复现。
+- [浏览器工程师的 viewport/keyboard 行为说明](https://github.com/bramus/viewport-resize-behavior/blob/main/explainer.md)：iOS 软件键盘调整 visual viewport，不能把 dvh 视为键盘高度方案。
+- [piclaw 的 iOS PWA 实践](https://github.com/rcarmo/piclaw/blob/main/docs/PWA.md)：提供真实聊天应用的高度、安全区和焦点经验；其机型特定补偿、延时重置等只作线索，不整套引入本项目。
 
 ### 原始意图、历史与必须保住的不变量
 
@@ -134,6 +152,18 @@ Agent 解读：本 unit 只修复这两项及必要的共同视口、导航适�
 
 ## 修复方向与下一阶段
 
-先完成上述两个因果链的隔离验证，再定稿 RCA 和进入设计。高层方向是让输入可读字号、应用可视高度和站内启动/导航范围协调一致；不以禁用用户缩放、隐藏必要入口或强迫刷新来消除表象。
+隔离验证已完成，进入设计。高层方向是让手机输入可读字号、应用可视高度和站内启动/导航范围协调一致；不以禁用用户缩放、隐藏必要入口或强迫刷新来消除表象。软件键盘的 visual viewport 处理只覆盖当前产品需要的输入场景。
 
 设计只包含支撑这两项的必要改动。实现完成后按 Full 门禁执行独立一致性、产品回归与代码审查；部署及生产验收另行按实际授权执行，不把文档提交或测试通过称为已上线修复。
+
+## 补充用户指示与客户端路线判断
+
+用户原话：
+
+> 这类问题可能也比较常见，你如果不太懂，你可以上网搜索社区的优秀实践方案。
+
+> 如果没有合适方案可能要考虑做一个ios app，但是我不会给付费，所以可能要做一个同一个内网内定期更新凭证的方案。
+>
+> 你要自己衡量是否要做一个ios app
+
+本次 Web 机制已有同机有效对照，577 继续修复。用户随后明确要求无论 Web 修复结果、是否有新增特性，都另做 iOS App，并提出 Mac mini 上 AltServer 同 Wi-Fi 刷新；已建立独立 feat-578 和并行 chat 承接。免费原生分发的 7 天 provisioning profile 续签与安装维护，参考 [Apple 官方限制](https://developer.apple.com/help/account/basics/about-your-developer-account)和 [AltServer 同网刷新条件](https://faq.altstore.io/altstore-classic/altserver)，由 feat-578 收口；本 unit 不扩展 iOS App 或续签服务。
