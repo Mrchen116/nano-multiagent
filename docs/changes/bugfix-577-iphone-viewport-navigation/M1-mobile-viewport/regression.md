@@ -111,3 +111,54 @@
 ### 交接
 
 00:47 停在主屏 577 HTTPS → e2e 详情，composer 未聚焦、历史消息可见，明确交还设备 lease。建议实体操作：输入两行、键盘打开时滚动历史并检查标题/输入/发送，收键盘、返回再进入检查草稿，发送测试与查看回复，双指缩放后恢复；Safari 补同样键盘和缩放操作。尚未收到该证据，不提前 final pass。只追加本报告；无产品/测试/配置修改，无服务生命周期操作，report_commit=none。
+
+## Round 3 — 2026-10-05（手机换行与底部留白定向复验）
+
+- mode: full；revalidation_mode: targeted；review_round: 3。
+- executed_base: `76fe1d7e7c2a4d07da06453fd2b4658749bb6f87`；validated_at: `fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`，已实读 HEAD。
+- fix_delta_range: `71c6ec84c1df79a3d3dcd38b039d0fac800aa99f..fbb77fe83e1132c57b9ad9af4c8a5a0ffbb4f162`。
+- 已读取 incident/design 新增手机 Enter、候选与 safe-area 契约，并实际查看用户附件 `/Users/czj/Downloads/IMG_9428.PNG`：真实软件键盘上方白带清楚可见，键帽标注换行。附件证明旧状态，不证明新构建通过。
+- 01:09 在应用切换器上划关闭 577 HTTPS 卡片并确认消失，再经 Spotlight 图标冷启动进入登录态 Chat。caller 从其拥有的 `.im.log` 提供本次手机请求证据：新 JS `index-DXqgLd_B.js`、CSS `index-C9hmrQPD.css` 均 HTTP 200；此为明确标注来源的服务端佐证。reviewer 本机 curl HTTPS 返回 SSL_ERROR_SYSCALL，手机真实加载正常，未为此修改网络或产品。
+- 相同 iPhone/隔离账号/HTTPS 入口。直接 CUA 截图时间01:09–01:14；未注入诊断、未定位实现、未改产品或测试。
+
+### 当前 verdict
+
+**fail**，needs_re_review=true。两项用户反馈在镜像硬件输入路径中得到正向验证；新增 slash 候选点击路径未通过，另仍缺同版实体软键盘/中文输入法和手动缩放证据。Highest Required Action：由 owner 有界复现候选点击问题并作实现/证据裁决，随后补实体复验；不因缺实体证据而臆造代码缺陷。
+
+| 复验项 | 直接观察 | 结果 |
+|---|---|---|
+| 手机 Return 原生换行 | 输入一行后实际按硬件 Return，再粘贴第二行；两行留在输入框，无新消息气泡。不是仅粘贴含换行字符串。 | pass（硬件路径） |
+| 草稿返回与箭头发送 | Done→Back→重进，两行完整；点击箭头后产生一个两行气泡，输入清空，真实 Agent 回复 OK。 | pass |
+| 辅助条占用时底部间距 | 新构建输入行底约 y=1396，应用内容底/辅助条起点约 y=1411，仅约15镜像px；旧轮同画布输入行底约1343到内容底1411约68px。差约53镜像px，与34CSSpx修复目标一致。此为截图估测，不冒称新DOM精密测量。 | pass（可见间距） |
+| 收起后恢复/顶部 | 点击 Done 后输入行底约1448，应用底约1515，恢复约67镜像px安全区；header/Back始终约217，未侵入状态栏。Done使输入失焦，不能证明“保持焦点仅隐藏键盘”状态。 | pass（已测）；保持焦点隐藏 inconclusive |
+| mention 候选打开时 Return | 群聊输入 @，候选实际显示；Return 后光标到第二行，保留原始 @，未选择或发送。 | pass |
+| mention 点击 | 再次触发候选后点击，输入得到蓝色 @Test User token，未发送；命中结果按实际记录，不冒称选择了 e2e。 | pass（点击填入能力） |
+| slash 候选打开时 Return | 单聊空输入粘贴 /，实际出现 /stop、/new、/compact、/effort 等；Return 后只保留 / 和新行，未选候选或执行命令。 | pass |
+| slash 点击 | 两次重新触发候选并基于新截图点击可见命令行，菜单关闭、输入失焦，草稿仍是 /，没有填入命令。见下项 I3。 | fail |
+| 新版真实软键盘/中文候选确认/双指缩放 | 未由 reviewer 执行。实体输入法不能用镜像硬件辅助条代替。 | inconclusive |
+
+### I3 — 手机 slash 候选点击未填入命令
+
+- Severity: major；Regression Relation: unclear（新规则要求点击仍可用；未证明引入提交或根因）。
+- Recommended Action: fix-implementation / owner 先做有界复现裁决；不自行 debug。
+- 路径：577 HTTPS 冷启动→e2e→空 composer 粘贴 `/`→候选完整显示→点击可见命令行。分别对 /stop 行、/effort 行进行了截图后点击，均关闭菜单并失焦，文本仍 `/`。没有发送或执行命令。
+- 证据：01:12–01:14 CUA「确认slash候选菜单出现」「定位命令菜单首项」「确认命令已填入而未执行」等连续截图。第二次结果仍仅 `/`；报告不把现象预先归因镜像坐标或实现失焦。
+- 已即时交接 caller；caller 明确将在收到设备 lease 后有界复现，不将定位工作推给用户。
+
+### 原型与范围
+
+旧轮原型 must-match 及未变桌面证据沿用，但本轮新交互原型 `http://127.0.0.1:18781/prototype.html` 未取得独立实际渲染：创建 IAB tab 返回 `Browser is not available: iab`，复用已有 browser 3 同样 unavailable；因此不把作者走查当成本 reviewer 原型通过。R3 间距/换行对照仅以已读设计目标、用户旧截图和新产品真机截图说明，新增原型独立对照 inconclusive。未重复未变整套布局，未重测建群副问题，未重跑 worker 自动化。
+
+### 交接与清理
+
+01:14 通过选择/剪切清掉 reviewer 单聊 `/` 草稿，点击 Done，截图确认 e2e 未聚焦、空输入、R3 多行消息与 OK 可见，明确交回手机 lease。群聊仍保留 reviewer 的 `@` 与 @Test User 两行未发送草稿，不涉及用户既有内容。没有启动停止服务、没有提交；仅追加本报告，report_commit=none。候选问题裁决及实体新构建证据未到达前，不提前 final pass。
+
+### Round 3 原型证据补齐（原生 Chrome）
+
+在 caller 指示可使用原生 Chrome 后，reviewer 使用 `/Applications/Google Chrome.app` 新建临时标签打开 `http://127.0.0.1:18781/prototype.html`。IAB provider 不可用不等同于原生应用不可用；本节取代上文“新增原型独立对照 inconclusive”这一项，其他问题与 verdict 保留。
+
+- 实际打开键盘占位，点击 Message 输入 `R3 prototype first`，按 Return，再输入 `second line`；AX 和真实截图共同显示两行仍在草稿，未先生成气泡。点击箭头 Send 后，一个两行气泡出现，Message 清空。
+- 实际截图画布2940×1716，Chrome沿用既有80%页面缩放，未宣称这是375px viewport或重新完成窄屏矩阵。常规和“较短可用区域”两种原型状态均已切换并截图；右侧详情的 Back、输入与箭头完整。
+- 键盘占位开启时，输入框底到灰色占位区域仅正常一圈内边距（截图约16px），无额外大块白带；与 R3 产品镜像辅助条上方约15px的可见效果方向一致。原型外框、键盘占位高度、示例消息为演示，不能当作真实iOS键盘或精确CSS尺寸等同。
+- 新多行语义与键盘占位内边距：**match（独立实际渲染及操作）**。真实产品软键盘/中文候选/缩放仍未由此替代；I3 slash点击fail仍保留。
+- 本节仅操作原生 Chrome，没有操作手机或 TextEdit。验完关闭自己新建的原型标签，保留原有用户标签；未改实现、未提交。
