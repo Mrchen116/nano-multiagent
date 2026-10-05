@@ -166,3 +166,4 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 独立静态R15确认一个P2：后台停止实时流会轮换epoch，使在途上传响应被忽略，保留的行一直uploading。新gated-upload测试对成功/失败两分支均实际失败（4断言），日志`/tmp/nano-feat578-upload-background-red.log`。最小修复移除上传对stream epoch的依赖；已有单次upload UUID存在性同时隔离clear/撤权后的迟到响应，不增加另一套代际计数。
 - 修复后全26项原生测试通过（16 XCTest+10 Swift Testing），日志`/tmp/nano-feat578-upload-background-green.log`，xcresult `Test-NanoIM-2026.10.05_14-09-50-+0800.xcresult`；后台完成与账号清理两种生命周期分别验证。R15 source closure与原生S11实际操作仍待完成。
 - root只读辅助核实R7的TXT完成消息唯一，附件为83 bytes，授权GET200且SHA-256与本次夹具原字节一致。为解锁后窄复验新增12MiB合法文件与各一小型重试/冷却合成文件，独立夹具容器未改变产品。62009代理仅更新单次精确uploads路径处理，普通401转发已验证，当前未启用任何fault；两台隔离节点保持online。
+- `2505c9772`独立R16为`[]`、R15 finding closed；verification保留not_pass，只待已列出的实际产品门禁，不机械重审已留存范围。Release archive R9成功，最新unsigned IPA及hash见[工具链记录](../evidence/toolchain-readiness.md)。390旧候选及未确认的分享现场保留，解锁后先核实状态再安排安全安装；没有把构建成功或锁屏归档计作产品通过。
