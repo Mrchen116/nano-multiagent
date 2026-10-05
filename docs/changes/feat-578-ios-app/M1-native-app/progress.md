@@ -199,3 +199,20 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - R12-01 major：原生唯一多行bash算数请求发送后界面停在旧M2/M3与发送spinner；API请求已持久、peer真实bash调用1次并completed500500，App2067 CPU99.0%。2秒sample保存为`/tmp/nano-feat578-native-send-sample-r12.txt`，1267主线程样本中1257处于SwiftUI GraphHost.flushTransactions，持续更新布局；没有先重启、重复发送或将服务完成冒充UI完成。
 - 窄候选移除LazyVStack底部行的onAppear/onDisappear状态写入，使用滚动geometry的实际visibleRect计算底部可见性；build-r13成功。此为待实测候选，采样不单独证明具体回调根因；同多行发送、历史保持与Latest需要真实UI复验。
 - `f77b34633`设备归档成功，hash及准确限制见工具链记录；它仍含R12-01，不能作为已验收安装候选。Mini只读SSH再次8秒超时，未修改该机器或生产服务。用户真机后置约定保持。
+
+### R13 发送与后台闭环、冻结候选
+
+- [产品R13](acceptance-r13.md)关闭R12-01：同类唯一多行请求立即清空composer、Latest直接见真实bash进行中及0:09–0:10，按Simulator Home后从主屏图标恢复唯一500500 completed、17.1s，过程/结果详情可见exit0/stdout500500/13383ms；Back响应正常。root实际API唯一性及工具状态一致，App4396 CPU0.0%。长历史02完整/03顶部→Latest10/11/12完整可见且AX正常，滚动影响范围闭环。
+- S27计划人类消息唯一201，但reviewer收到明确观察时刻的控制消息时已晚于3秒banner窗口，未捕捉点击；准确保留inconclusive，不再用该时序方式追加消息。后台真实恢复/去重通过子范围保留，短banner点击由真机补齐。独立R19 code `[]`，verification保留未完成门禁。
+- `5de8ffdb4`冻结源码27项原生测试、4120项Python及808项Web全部通过，Ruff及文档完整性通过；Release最新IPA成功且校验arm64/bundle/最低iOS/无ATS例外，具体hash见工具链记录。未推送或创建PR，产品门禁/签名安装/同网续签仍未完成。
+- 已以具体App/最新IPA向用户询问本chat iPhone时段与Mini桌面/同网状态，尚待答复。Mini Tailscale探测经DERP(nue) pong 3.594s；实际SSH无ProxyCommand/ProxyJump且8秒超时，直连HTTP8011拒绝连接。环境代理下curl502未作为Mini服务证据；没有修改网络、节点选择或生产进程。
+- R14只补可完成的Company/Work分页。Company当前51人（45个额外受控pending fixture：5经HTTP注册、触发既有5/900秒限流后停止；40由现有UserRepository种子创建，不是注册入口证据），真实API50+1无重叠。Work仅578001的临时loopback条件使用实际API合法limit1获得1+1真实轮次；初始39真实过程项按3项/实际seq游标呈现，更多过程仍读取真实items API。条件减小与真实执行数据分开记录，不声称自然100项以上历史。临时控制由root收回后清除；无产品源码修改或认证限制关闭。
+
+### R14 分页闭环与 R15 补充前置
+
+- [产品R14](acceptance-r14.md)完成公司成员首50→末页1追加、旧页保留和末页无更多；Work在受控分页条件下完成1→2真实轮次、3→39真实过程、顺序/归属/详情与刷新保页。记录实际页首下拉后两轮仍在，未独立捕捉手动spinner；caller真实refresh请求包含首/旧页重读，不能区分手动与前台3秒自动刷新。S15按此限定范围通过，不扩展为自然大历史。
+- root在安全handoff后清除唯一work_paging控制；直连62008与经62009正常Work均2轮、39/38过程项、cursor=nil，实际执行数据未改。目录初次定位只是Agent ID578001当前展示名578002未对齐，真实contacts有6个Agent且无下页，原生目录分页已有实现；没有目录缺失finding。
+- R15只补S14明确关系字段/失效聊天关联和S25机器资格。全新隔离群c_82otvgr8由真实e2e-peer/LLM调用task_graph生成tg_b839513e revision2；探索选择/派生、嵌套DAG前后依赖、结果/选择理由/变更说明是明确记录的合成比较，不声称任务被实际执行。未碰旧私聊，未删除任务图。
+- 为S25在R9一次性普通测试成员iosr9late下真实绑定第三个隔离Gateway wt-feat578-owner-revoke-r15，独立配置/workspace/数据、autostart=false、heartbeat=false、无飞书。实际owner节点online/1Agent、旧runtime WS握手HTTP101与浏览器active已记录；原生停用及机器拒绝结果待独立验收。两个原测试Gateway和生产不变；caller清理新增进程。
+- R15实测发现嵌套TaskNodeView回聊只pop一层，连续点击会积累多份引用到草稿，但没有自动发送；根scope有子节点时也缺根详情入口。root确认同一modal owner未关闭及入口缺失，最小修由TaskGraphView在引用时清selected关闭整张sheet、子层不再dismiss，并增加当前scope的详情按钮复用既有字段页。构建`/tmp/nano-feat578-task-reference-build-r16.log`成功；实际新包闭环及独立delta审查待验。既有R15失败不改写为通过。
+- S25原生仅确认停用一次性iosr9late，随后caller真实旧runtime WS握手101→403、旧browser访问401、持久节点offline/owner suspended/node_epoch2/机器credential清除；两个原节点仍online。新增第三Gateway PID9311已请求正常退出，未更改生产或旧节点。

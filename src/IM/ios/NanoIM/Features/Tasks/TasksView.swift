@@ -77,7 +77,12 @@ struct TaskGraphView: View {
             if let graph, let scope = graph.nodes.first(where: { $0.id == (scopeID ?? graph.root_node_id) }) {
                 let layout = NativeTaskLayout(graph: graph, scopeID: scope.id, cardWidth: cardWidth, cardHeight: cardHeight)
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack { Text(scope.title).font(.title3.bold()); Spacer(); Text("r\(graph.revision)").font(.caption).foregroundStyle(.secondary) }.padding(.horizontal)
+                    HStack {
+                        Text(scope.title).font(.title3.bold())
+                        Spacer()
+                        Text("r\(graph.revision)").font(.caption).foregroundStyle(.secondary)
+                        Button(L("详情", "Details")) { selected = scope }
+                    }.padding(.horizontal)
                     Picker(L("视图", "View"), selection: $listMode) { Text(L("关系图", "Graph")).tag(false); Text(L("列表", "List")).tag(true) }.pickerStyle(.segmented).padding(.horizontal)
                     if let error { ErrorNotice(message: error).padding(.horizontal) }
                     if layout.nodes.isEmpty { ScrollView { nodeSummary(scope, graph: graph).padding() } }
@@ -113,7 +118,12 @@ struct TaskGraphView: View {
         }.navigationTitle(L("任务图", "Task graph")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
             .task(id: "\(phase == .active)-\(visible)") { guard phase == .active, visible else { return }; while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(3)) } }
             .onAppear { visible = true }.onDisappear { visible = false }
-            .sheet(item: $selected) { node in if let graph { NavigationStack { TaskNodeView(client: client, graph: graph, nodeID: node.id, onReference: onReference) } } }
+            .sheet(item: $selected) { node in if let graph {
+                NavigationStack { TaskNodeView(client: client, graph: graph, nodeID: node.id, onReference: { chatID, text in
+                    selected = nil
+                    onReference(chatID, text)
+                }) }
+            } }
     }
     private func nodeSummary(_ node: TaskNode, graph: TaskGraph) -> some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -166,7 +176,7 @@ struct TaskNodeView: View {
                 }
                 if !node.links.isEmpty { Section(L("链接", "Links")) { ForEach(node.links, id: \.self) { text in if let url = URL(string: text), ["http","https"].contains(url.scheme ?? "") { Link(text, destination: url) } } } }
                 Section {
-                    if let chat = node.last_chat_id { Button(L("回到聊天并引用", "Reference in chat")) { onReference(chat, referenceText(node, graph: graph, base: client.baseURL)); dismiss() } }
+                    if let chat = node.last_chat_id { Button(L("回到聊天并引用", "Reference in chat")) { onReference(chat, referenceText(node, graph: graph, base: client.baseURL)) } }
                     else { Text(L("尚未关联聊天，可以复制引用到聊天继续讨论。", "No conversation is linked. Copy the reference to continue in chat.")).foregroundStyle(.secondary) }
                     Button(L("复制引用", "Copy reference")) { UIPasteboard.general.string = referenceText(node, graph: graph, base: client.baseURL) }
                 }
