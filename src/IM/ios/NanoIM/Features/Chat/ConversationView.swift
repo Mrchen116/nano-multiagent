@@ -52,7 +52,7 @@ struct ConversationView: View {
                     }.padding()
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !bottomVisible { Button { withAnimation { scroll.scrollTo("bottom", anchor: .bottom) } } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
+                    if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
                 }
                 .onChange(of: items.count) { _, _ in
                     if bottomVisible || !firstLoaded { scroll.scrollTo("bottom", anchor: .bottom); firstLoaded = true }
