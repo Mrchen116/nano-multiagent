@@ -18,6 +18,7 @@ struct AgentConfigView: View {
     private var dirty: Bool { config != nil && draft != config!.draft }
 
     var body: some View {
+        ScrollViewReader { proxy in
         Form {
             if let config {
                 AgentEditorFields(draft: $draft, capabilities: capabilities).disabled(pending || busy || conflicted)
@@ -69,10 +70,13 @@ struct AgentConfigView: View {
                         Button(L("提示词预览", "Preview prompt")) { Task { await loadPreview() } }.disabled(capabilities == nil || busy)
                     }
                     if busy { ProgressView() }
-                }
+                }.id("configuration-status")
             } else {
                 if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } } else { ProgressView() }
             }
+        }
+        .onChange(of: error) { _, value in if value != nil { proxy.scrollTo("configuration-status", anchor: .top) } }
+        .onChange(of: saved) { _, value in if value { proxy.scrollTo("configuration-status", anchor: .top) } }
         }
         .contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
         .navigationTitle(L("Agent 配置", "Agent configuration")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)

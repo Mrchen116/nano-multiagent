@@ -128,3 +128,10 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - [产品续验 R3](acceptance-r3.md) 已落盘：搜索清除、Cron删除、配置pending分支通过；心跳回显原生复验未完成，整体仍fail。用户未批准降低最终门槛。
 - Mac再次锁屏，已请求手动解锁，未绕过。停在e2e添加飞书通道表单，输入可能部分执行但从未点击保存；reviewer清除了CUA凭据变量。root实际API确认通道列表为空后释放自己尚未使用的Bot listener lock，避免占用其他测试；续验前需重新执行专用profile/identity/lock准备。
 - 保留本次隔离IM/Gateway与第二绑定node用于续验；当前没有暂停进程或Feishu listener。源head `c4794acef`，原生binary仍 `051abdcf8`，最新IPA也为051。没有生产变更、手机操作、PR或最终完成声明。
+
+### 2026-10-05 解锁续验：空心跳配置的冲突与反馈位置
+
+- 用户回复“开了”后恢复；主IM69765/Gateway45904均正常运行。专用测试Bot重新完成App/Bot/user验证及listener锁准备，reviewer开始e2e的原生通道生命周期。
+- 心跳续存实际被operation_conflict拒绝，节点online且未暂停。对比最后committed candidate与Gateway本地配置规范化快照，仅heartbeat_json不同：持久化`{}`，运行时未配置为null。两者节律相同却导致指纹不同。
+- 仅在IM与Gateway的fingerprint入口等价化空对象与null；wire仍保留`{}`，避免破坏显式清空（持久化层null代表保留）的语义。跨两端回归先红，修复后配置操作单元/恢复/集成/契约50项通过，窄Ruff/diff通过，日志`/tmp/nano-feat578-heartbeat-empty-{red,green}.log`。
+- reviewer还观察到顶部保存后字段禁用，结果提示位于长表单底部而不可见。原生改为错误或确认结果出现时滚到已有状态/恢复操作区；不新增保存状态或改变草稿逻辑。functional-build-r6成功，仍待安装及实际冲突/成功窄复验。
