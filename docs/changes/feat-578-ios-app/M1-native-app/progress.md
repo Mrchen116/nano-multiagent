@@ -79,3 +79,10 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Actual CLI device binding completed through the native account confirmation and subsequent terminal confirmation. Started that separately isolated node for node-switching journeys. Both runtimes are owned test resources and must be stopped at the next handoff.
 - Prepared an active ordinary test member, actual global-agent child execution/exploration graph, and a real far-future cron entry for the remaining native journeys. These preparations alone are not product acceptance.
 - Dedicated Feishu test App/Bot identity matches by the existing credential lookup, and the test user verifies. CLI Bot verification currently fails with an OAuth endpoint EOF, so real channel connection testing remains unstarted pending the repository profile prerequisite. No production Bot or service was touched.
+
+## User visual rejection and design reopen
+
+- User inspected actual login and chat screens and rejected the UI/UX. Functional coverage and prior semantic prototype matching do not establish visual acceptance. Stopped product reviewer clicks and received `acceptance-r2.md` with overall fail.
+- Last installed binary is `28ba862fc`; it closes image aspect ratio and localized invalid-credentials feedback by real UI evidence. No new feature acceptance is being counted while visual design is reopened.
+- Root is revising the existing design/prototype from current Web source and rendered 390-wide pages, with explicit typography, palette, content density, action placement and real SwiftUI screenshot requirements. Function/API/permission/install scope remains unchanged.
+- Pending uncommitted code folds tool descriptions after the reviewer encountered multi-screen descriptions. This is not a completed redesign. New visual implementation follows the limited independent design review.
