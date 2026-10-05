@@ -188,18 +188,18 @@ final class ChatStore {
               let index = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }),
               let item = uploadDrafts[id]?[index], let data = item.data,
               item.retryable, !item.uploading, (item.retryAt ?? .distantPast) <= Date() else { return }
-        let token = epoch
         uploadDrafts[id]?[index].uploading = true
         uploadDrafts[id]?[index].error = nil
         do {
             // The server applies its current policy; a fixed client limit would reject valid files.
             let attachment = try await client.upload(data, fileName: item.fileName, contentType: item.contentType, conversationID: id)
-            guard token == epoch, !revokedChats.contains(id), conversations.contains(where: { $0.id == id }),
+            // Stream suspension keeps uploads alive; clear/revoke remove this UUID before a late reply.
+            guard !revokedChats.contains(id), conversations.contains(where: { $0.id == id }),
                   uploadDrafts[id]?.contains(where: { $0.id == uploadID }) == true else { return }
             uploadDrafts[id]?.removeAll { $0.id == uploadID }
             attachments[id, default: []].append(attachment)
         } catch {
-            guard token == epoch, let current = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }) else { return }
+            guard let current = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }) else { return }
             let api = error as? APIError
             if [403,404].contains(api?.status ?? 0) {
                 timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil

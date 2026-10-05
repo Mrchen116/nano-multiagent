@@ -152,6 +152,25 @@ final class ChatStateTests: XCTestCase {
         XCTAssertTrue(store.conversations.isEmpty)
     }
 
+    func testUploadCompletesWhenRealtimeStopsForBackground() async throws {
+        for status in [200, 503] {
+            let (store, transport) = try await makeUploadStore(statuses: [status], gated: true)
+            let task = Task { await store.addUpload("chat", data: Data("background".utf8), name: "background.txt", type: "text/plain") }
+            await transport.waitForUpload()
+            store.stop()
+            await transport.releaseUpload()
+            await task.value
+            if status == 200 {
+                XCTAssertTrue(store.uploadDrafts["chat"]?.isEmpty == true)
+                XCTAssertEqual(store.attachments["chat"]?.count, 1)
+            } else {
+                XCTAssertEqual(store.uploadDrafts["chat"]?.first?.uploading, false)
+                XCTAssertNotNil(store.uploadDrafts["chat"]?.first?.error)
+            }
+            store.clear()
+        }
+    }
+
     private func makeUploadStore(statuses: [Int], gated: Bool = false) async throws -> (ChatStore, UploadTransport) {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
