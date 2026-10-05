@@ -40,7 +40,9 @@ struct APIError: Error, LocalizedError, Sendable {
     var detail: String
     var retryAfter: TimeInterval = 0
     var code: String? = nil
-    var errorDescription: String? { detail }
+    var errorDescription: String? {
+        detail == "invalid credentials" ? L("用户名或密码不正确。", "Incorrect username or password.") : detail
+    }
 }
 
 struct TokenPair: Codable, Sendable {
