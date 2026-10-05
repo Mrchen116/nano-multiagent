@@ -1,6 +1,6 @@
 # M1 progress
 
-Status: native implementation and review fixes integrated; 22 native tests and device archive pass. Independent product R1 remains fail/inconclusive; Mac lock blocks remaining UI checks. Final product acceptance remains open.
+Status: native implementation and observed review fixes integrated at product revision `107290abe`; 27 native tests and the latest arm64 device archive pass. Independent R16 closes the task-reference/root-detail failures; [R17](acceptance-r17.md) is the latest product scenario matrix. Remaining product branches and physical iPhone/Mini signing and renewal keep final acceptance open. No PR or production deployment.
 
 ## Implementation
 
@@ -216,3 +216,11 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 为S25在R9一次性普通测试成员iosr9late下真实绑定第三个隔离Gateway wt-feat578-owner-revoke-r15，独立配置/workspace/数据、autostart=false、heartbeat=false、无飞书。实际owner节点online/1Agent、旧runtime WS握手HTTP101与浏览器active已记录；原生停用及机器拒绝结果待独立验收。两个原测试Gateway和生产不变；caller清理新增进程。
 - R15实测发现嵌套TaskNodeView回聊只pop一层，连续点击会积累多份引用到草稿，但没有自动发送；根scope有子节点时也缺根详情入口。root确认同一modal owner未关闭及入口缺失，最小修由TaskGraphView在引用时清selected关闭整张sheet、子层不再dismiss，并增加当前scope的详情按钮复用既有字段页。构建`/tmp/nano-feat578-task-reference-build-r16.log`成功；实际新包闭环及独立delta审查待验。既有R15失败不改写为通过。
 - S25原生仅确认停用一次性iosr9late，随后caller真实旧runtime WS握手101→403、旧browser访问401、持久节点offline/owner suspended/node_epoch2/机器credential清除；两个原节点仍online。新增第三Gateway PID9311已请求正常退出，未更改生产或旧节点。
+
+### R16 任务闭环与 R17 工作记录补验
+
+- [独立 R16](acceptance-r16.md)在新候选 `107290abe` 直接关闭 R15-01/02：根 Details 可读 todo、记录结果、选择 A、理由和 change_note；最深 Check 一次引用直接关闭整张详情进入正确新群，唯一草稿可编辑且未自动发送，随后已清空。真实删除本次新群后重新读取，B/A 显示未关联并移除回聊入口，五节点与 Prepare→Check 依赖保持；S14 pass。合成比较记录不代表任务实际执行。
+- 原生27项测试及 Release archive 在新候选重新通过；独立 R20 code `[]`，其[verification closure](verification-task-reference-r1.md)保留原失败事实并关闭 TR-C1。IPA 版本与哈希只在[工具链记录](../evidence/toolchain-readiness.md)维护。Python/Web 源码未变，保留 `5de8ffdb4` 全量证据；未机械重跑全量。
+- 一次性第三 Gateway PID9311 已正常退出且进程消失，未创建 autostart。两个原 owned 节点仍 online；真实停用后的机器资格撤销证据保留，不改生产或原节点。
+- [独立 R17](acceptance-r17.md)补验 S12：只对578001 Work的本机 HTTP 响应暂时移除最近主usage、保留各轮原output，其余真实数据不变。原生主/本轮缺字段显示“未报告”，保留output3330和26.50s，不伪造0或0%进度；真实后台subagent completed1641、父/子归属、工具调用完成与实际聊天投递分别可读。结论限定本次真实执行和受控缺失metadata，不冒充自然provider缺报或全部子任务类型。
+- reviewer安全交还UI后清除唯一 `work_missing_usage` 控制。实际62008/62009均200，最近主usage恢复11 keys、两轮usage恢复8 keys，两个原节点online；私有恢复回执 `/tmp/nano-feat578-r17-restoration.json`。没有新源码、LLM执行或平台消息。整体 Full 门禁仍未通过，真机/Mini资源问题仍待用户答复。
