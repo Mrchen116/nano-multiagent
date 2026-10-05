@@ -78,7 +78,14 @@ final class AppModel {
             UserDefaults.standard.set(origin.absoluteString, forKey: "nano.server")
             user = try await client.session.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password,
                 displayName: displayName, locale: UserDefaults.standard.string(forKey: "nano.locale") ?? "zh")
-        } catch { self.error = error.localizedDescription; if let e = error as? APIError, e.retryAfter > 0 { retryUntil = Date().addingTimeInterval(e.retryAfter) } }
+        } catch {
+            switch (error as? APIError)?.status {
+            case 429: self.error = L("请求过于频繁，请稍后重试。", "Too many requests. Wait before retrying.")
+            case 503: self.error = L("服务暂时不可用，请稍后重试。", "The service is temporarily unavailable. Please retry.")
+            default: self.error = error.localizedDescription
+            }
+            if let e = error as? APIError, e.retryAfter > 0 { retryUntil = Date().addingTimeInterval(e.retryAfter) }
+        }
     }
     func refreshUser() async {
         do { user = try await client.session.updateUser(); error = nil }
