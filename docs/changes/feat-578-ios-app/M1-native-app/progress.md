@@ -149,3 +149,5 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 继续生成时暴露目标聊天标题为空且输入禁用：蒸馏响应创建了聊天，但客户端列表未重读。`6155e1b86`在写草稿/导航前调用既有loadConversations，与fork入口一致；build-r8成功、独立R13为[]。390原地安装PID78253，产品确认正确标题、可编辑/删除草稿和发送按钮状态，未自动执行Skill，R6-01关闭。
 - 以上是实际失败→最小UI接线修复→真实原生复验；未为Picker样式或回调顺序添加重复实现的单测。既有22项原生测试保留，服务端50项相关测试保留；本次Python窄Ruff与diff-check通过，docs-check通过264份维护文档/75条必需路由。
 - 当前产品功能续验仍进行中；最新Release IPA仍是工具链记录中的`ba202f5d3`，需在候选稳定后重新归档。真机安装、Mini续签和完整S1–S30门禁未完成，未创建PR/部署生产。
+
+- `6155e1b86` Release archive R6成功，已保存对应unsigned IPA并核实bundle ID、版本、最低iOS与Release ATS限制，hash见工具链记录。产品R6仍在续验；此归档不等同免费签名/真机通过。
