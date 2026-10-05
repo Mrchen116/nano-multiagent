@@ -20,3 +20,11 @@
 6. 测试结束停止该 Foreground Serve 进程，比较 `serve status --json`：本次端口消失、此前其他配置保持；然后执行本次 `e2e-down.sh` 并关闭自己的 Vite。**禁止 `serve reset`、杀全部 tailscale 进程或清其他任务配置。**
 
 这补齐了接入方案，尚不是手机可达的实测证据。用户已明确将真机准备安排在有可安装版本后；实际手机 HTTPS/WSS 访问、签名/配对和 Mini AltServer 同网条件留在 M1 对应验收前落实，不作为设计/开始实施的阻断。方案本身不证明连通成功。
+
+## 当前本机预验与恢复约束
+
+2026-10-05按上述独占端口执行：[R19](../M1-native-app/acceptance-r19.md)记录原生TLS登录失败；同期native日志显示经本机7895代理、SSL-9816在服务器握手前关闭，而Mac标准证书校验直连成功。保存原Wi-Fi八条proxy bypass，仅临时追加本次精确Self DNS域名后，[R20](../M1-native-app/acceptance-r20.md)同binary原生HTTPS登录、新群唯一请求/真实peer完成42通过；同期19443连接经utun2 ready，无7895。没有放宽ATS、TLS验证、Origin、tailnet ACL或改代理节点。
+
+辅助协议预验经WSS握手101、`resume`后`ping`收到`pong`，未获信任的Origin仍403。当前user-stream协议不发送`ready`帧，不应把等待该帧超时误判为产品失败。两次前期探针等待不存在的初始帧而超时，不计为通过；正确协议探针与原生旅程分别记录其证据层级。
+
+测试后App已恢复loopback62008，精确临时bypass已移除、原八条恢复，Foreground19443已停止且Serve JSON与测试前baseline相同。重启本次隔离IM时需继续保存fixture DB，沿既有resume路径追加精确HTTPS origin；不要重新用fresh-bootstrap清空这些验收对象。iPhone物理接入仍未测，Mini准备见[AltServer记录](mini-altserver-readiness.md)。

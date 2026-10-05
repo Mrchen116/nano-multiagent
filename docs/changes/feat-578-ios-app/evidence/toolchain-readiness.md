@@ -21,6 +21,8 @@ R15 在旧 `5de8ffdb4` 实际发现任务嵌套引用逐层返回、根任务详
 
 保留的自动化证据：原生视觉第一轮 `visual-tests-r1` 通过 22 项测试（12 XCTest + 10 Swift Testing）；其后的搜索提交、布局调整均重新编译，最终归档成功。独立静态 R7/R8 未留下具体 finding。这些结果不代替真实屏幕与交互验收；独立 P6 检查使用同一 `5ab02fd65` Debug binary，已覆盖专用 iPhone 14（390）及 iPhone 14 Pro Max（430）模拟器。普通和大字体独立视觉已限定通过，见 acceptance-visual-r3；`051abdcf8` 仅新增清空搜索刷新，已做独立窄复验。旧产物和截图仅对应其记录的 revision。
 
-专用 Bot 已通过本次独占的原生添加、保留/替换密钥、连接、停用与删除旅程，见 `M1-native-app/acceptance-r4.md`。尚待其余模拟器产品验收、Mini 可达和 AltServer、iPhone 时段/配对/免费签名。用户已明确真机准备后置到有可安装版本后；Gate 2 R2 已通过，此时序不降低最终验收标准。
+专用 Bot 已通过本次独占的原生添加、保留/替换密钥、连接、停用与删除旅程，见 `M1-native-app/acceptance-r4.md`；R18进一步补齐重连、真实节点离线最后已知状态、离线待删除到恢复确认的分支，未触发的停止异常和权限受限范围仍保留。Mini现已可达且官方AltServer1.8已安装运行，见[Mini准备记录](mini-altserver-readiness.md)。仍待其余精确验收分支、iPhone时段/配对/免费签名与同网续签。用户已明确真机准备后置到有可安装版本后；Gate 2 R2 已通过，此时序不降低最终验收标准。
+
+HTTPS接入实际预验见[R19失败](../M1-native-app/acceptance-r19.md)及[R20闭环](../M1-native-app/acceptance-r20.md)。本次独占Tailscale Foreground HTTPS19443、标准证书验证与exact IM Origin下，原生登录、新群唯一请求和真实peer完成42通过。原失败由同期日志指向本机7895代理在TLS服务器握手前关闭；临时仅追加该精确tailnet域名的Wi-Fi直连豁免后，同一原生binary直接成功，日志显示19443经utun2 ready且窗口内无7895。App/证书/ATS未改；完成后已恢复原8条豁免及Serve原baseline，本次入口已关闭。此为本机Simulator证据，不代替iPhone接入和免费签名。
 
 `ba202f5d3` 的IM/Gateway空cadence指纹修复经过50项相关Python测试；同时包含前轮live读取保留heartbeat_json修复。当前只载入本次隔离服务，未部署生产。原生产品R5已完成心跳值保存/重开、空配置再保存和真实版本冲突反馈的窄复验；其它旅程继续记录在 acceptance-r5，不能用这些构建/测试代替全部S1–S30。

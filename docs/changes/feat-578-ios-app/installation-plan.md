@@ -40,7 +40,7 @@
 |---|---|---|
 | 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试和设备归档通过 | 完整模拟器产品验收与真机签名 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
-| Mini | 原已授权 AltServer 部署位置；本轮 SSH 连接超时 | 实际可达、AltServer版本/进程/GUI会话 |
+| Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、手机USB配对、同网发现与刷新 |
 | iPhone | 用户给定 15 Pro Max / 26.4 | 本 chat 使用时段、配对/签名/开发者模式 |
 | Feishu E2E | 专用 Bot 已在独占 listener 条件下完成原生新增/凭据保留替换/connected/停用/删除；见[R4](M1-native-app/acceptance-r4.md) | 剩余离线、重连、失败及历史保留分支需续验前重新核实身份与独占 listener |
 

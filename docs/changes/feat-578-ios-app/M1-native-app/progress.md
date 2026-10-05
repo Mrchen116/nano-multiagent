@@ -1,6 +1,6 @@
 # M1 progress
 
-Status: native implementation and observed review fixes integrated at product revision `107290abe`; 27 native tests and the latest arm64 device archive pass. Independent R16 closes the task-reference/root-detail failures; [R17](acceptance-r17.md) is the latest product scenario matrix. Remaining product branches and physical iPhone/Mini signing and renewal keep final acceptance open. No PR or production deployment.
+Status: native implementation and observed review fixes integrated at product revision `107290abe`; 27 native tests and the latest arm64 device archive pass. Independent R16 closes the task-reference/root-detail failures; [R20](acceptance-r20.md) is the latest product scenario matrix, including local native HTTPS. Mini now runs official AltServer1.8. Remaining product branches and physical iPhone signing/renewal keep final acceptance open. No PR or production deployment.
 
 ## Implementation
 
@@ -224,3 +224,12 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 一次性第三 Gateway PID9311 已正常退出且进程消失，未创建 autostart。两个原 owned 节点仍 online；真实停用后的机器资格撤销证据保留，不改生产或原节点。
 - [独立 R17](acceptance-r17.md)补验 S12：只对578001 Work的本机 HTTP 响应暂时移除最近主usage、保留各轮原output，其余真实数据不变。原生主/本轮缺字段显示“未报告”，保留output3330和26.50s，不伪造0或0%进度；真实后台subagent completed1641、父/子归属、工具调用完成与实际聊天投递分别可读。结论限定本次真实执行和受控缺失metadata，不冒充自然provider缺报或全部子任务类型。
 - reviewer安全交还UI后清除唯一 `work_missing_usage` 控制。实际62008/62009均200，最近主usage恢复11 keys、两轮usage恢复8 keys，两个原节点online；私有恢复回执 `/tmp/nano-feat578-r17-restoration.json`。没有新源码、LLM执行或平台消息。整体 Full 门禁仍未通过，真机/Mini资源问题仍待用户答复。
+
+### R18 通道补验、R19/R20 HTTPS与Mini准备
+
+- [R18](acceptance-r18.md)重新验证专用Bot身份/独占listener后，原生添加→真实connected→一次重连。仅暂停自有Gateway72564，实际node offline/status_stale后，原生显示最后已知与不可作为当前确认的说明；确认删除保持pending/等待实际停止，一次Retry收到真实conflict，恢复同PID后真实GET200[]且原生记录消失。已释放本次listener锁，两owned节点恢复online。保留陈旧conflict提示minor和未触发的stop异常/unknown或missing权限/平台shadow历史；S21整体仍inconclusive。
+- [R19](acceptance-r19.md)原生HTTPS真实登录失败，未发请求或建群；恢复62008成功。root捕捉同期nativeTLS经过7895代理被提前关闭的实际日志，保存Wi-Fi bypass原值，只临时加入该exact tailnet host。[R20](acceptance-r20.md)同binary/证书/ATS下实际HTTPS登录成功，新群单次mention请求→真实peer completed42；实际GET仅唯一human/reply两条、2046ms，native日志19443经utun2 ready且该窗口无7895。没有将Mac探针成功替代原生，更没有替代iPhone。
+- R20安全交还后已移除本次exact bypass，原八条与Serve baseline完整恢复，Foreground19443进程/入口已关闭；App恢复62008，证书/Origin校验保持。具体接入与恢复约束只在[设备访问记录](../evidence/device-access-plan.md)维护。
+- Mini SSH已真实恢复，可达系统26.5.2；已从官方CDN取得签名/notarized AltServer1.8 /97，在Mini核对同SHA和签名/Gatekeeper后复制到此前不存在的精确target，安装后签名复核及真实运行来源通过。仅为软件准备，详细证据见[Mini记录](../evidence/mini-altserver-readiness.md)；未做手机配对/账号/侧载/登录启动或Wi-Fi续签。
+- 源码和Release产物仍 `107290abe`，27native/R20静态/Python4120/Web808证据沿有效范围保留；这些后续旅程没有source修改。不新增机械审查或全测；S2/S6/S9/S10/S21/S27/S29/S30精确剩余见R20表，Full门禁仍开，未推送、建PR或部署生产。
+- 完成本地可测旅程后，保存600配置/credential/manifest及fixture DB供后续真机恢复；已正常停止两个原隔离Gateway、IM、本机fault/origin代理和bounded caffeinate，移除本次绑定节点的精确LaunchAgent并关闭自有tmux。实际自有PID全部消失、62008/62009/62010无listener，唯一control不存在；本次HTTPS19443与临时proxy bypass此前已恢复baseline。用户指定的Mini AltServer保留运行，其它主仓dirty内容保持。没有fresh-bootstrap、reset或清空验收数据。
