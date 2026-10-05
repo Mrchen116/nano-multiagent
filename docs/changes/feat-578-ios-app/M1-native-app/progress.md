@@ -184,3 +184,11 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - [产品R10](acceptance-r10.md) 确认major R10-01：专用真人历史的02/03处收到新11后保持位置，权威未读为1；点击“最新消息”后停在08/09，11未实际可见、AX无法读取正文。native进程92311持续约99% CPU，2秒采样主线程持续在SwiftUI/AttributeGraph事务与LazyStack布局；没有crash，采样不单独证明具体触发代码。
 - 点击后权威未读变0，只记录为异常现场，不据此关闭可见域验收。R10独立裁决S6及整体fail，已暂停其余功能旅程并保存安全安装断点。
 - 最小候选仅移除Latest按钮的显式滚动动画，沿用自动跟随/分页已有的不动画scrollTo路径，不改已读、消息合并、API或数据。build-r10成功；同一长历史从早期内容回到11的原生复验仍待完成，不先把候选或根因假设标为修复通过。
+
+### R11 Latest闭环与配置分界窄修
+
+- [产品R11](acceptance-r11.md)在同一长历史从02/03点击Latest后实际看见10及11完整正文，返回/重入仍响应；root随后只读CPU为0.0%，R10-01关闭。独立静态R17无finding，仍保留其它未完成产品门禁。
+- 原生新群有效提及e2e-peer，两轮真实Gateway/LLM均由该Agent完成42；custom_prompt从空改为精确`578-R11`、保存获节点确认，再清空保存获确认。root核对恢复version11，除版本/更新时间外全部配置与version9 baseline一致。
+- R11-01 major直接复现：API的配置标记锚定M2请求且位于M2前，原生两次显示在M2后。TimelineMerge保留先缓存M2，再追加迟到标记，是此顺序的实际原因。新增原生回归测试在旧实现失败，日志`/tmp/nano-feat578-timeline-red-r12.log`；测试包含已缓存请求、后续配置标记、最终回复和重复刷新。
+- 修复按服务与Web的created_at/id顺序排列消息，按before_message_id把标记紧邻对应请求之前；尚未载入锚消息的标记保留在内存但暂不渲染。现有分页测试原将121条消息设为相同日期却期待数字ID顺序，已改为各条实际递增时间，保留跨两页恢复及旧cursor断言。
+- 全27项原生测试通过（17 XCTest+10 Swift Testing），日志`/tmp/nano-feat578-timeline-green-r12b.log`，xcresult `Test-NanoIM-2026.10.05_15-55-51-+0800.xcresult`。第一次全量的同日期fixture失败完整保留在`timeline-green-r12.log`，未当作通过。实际新包M2顺序和下一轮迟到标记仍需独立UI复验；未先关闭R11-01或整体Full门禁。

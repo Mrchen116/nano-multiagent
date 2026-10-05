@@ -183,7 +183,8 @@ final class ChatStateTests: XCTestCase {
     }
 
     private func message(_ n: Int) throws -> TimelineItem {
-        let payload: [String: Any] = ["type":"message", "message":["id":"m\(n)","conversation_id":"chat","sender":["type":"agent","id":"agent"],"sender_user_id":"agent-user","sender_type":"agent","content":"message \(n)","attachments":[],"delivery_status":"completed","created_at":"2026-01-01"]]
+        let createdAt = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: TimeInterval(n)))
+        let payload: [String: Any] = ["type":"message", "message":["id":"m\(n)","conversation_id":"chat","sender":["type":"agent","id":"agent"],"sender_user_id":"agent-user","sender_type":"agent","content":"message \(n)","attachments":[],"delivery_status":"completed","created_at":createdAt]]
         return try JSONDecoder().decode(TimelineItem.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 }

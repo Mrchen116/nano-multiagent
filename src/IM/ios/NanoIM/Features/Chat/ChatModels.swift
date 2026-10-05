@@ -122,10 +122,17 @@ struct PendingSend: Sendable {
 /// Merge authoritative pages by stable identity; replay never appends a delta twice.
 enum TimelineMerge {
     static func merge(current: [TimelineItem], page: [TimelineItem], older: Bool, discarded: Set<String>) -> [TimelineItem] {
-        let incoming = Dictionary(page.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-        let existing = Set(current.map(\.id))
-        let retained = current.map { incoming[$0.id] ?? $0 }.filter { !discarded.contains($0.id) }
-        let added = page.filter { !existing.contains($0.id) && !discarded.contains($0.id) }
-        return older ? added + retained : retained + added
+        let byID = Dictionary((current + page).map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let retained = byID.values.filter { !discarded.contains($0.id) }
+        let messages = retained.filter { $0.message != nil }.sorted {
+            ($0.message?.created_at ?? "", $0.id) < ($1.message?.created_at ?? "", $1.id)
+        }
+        // Adoption happens after the request is cached; its marker still explains that request.
+        let boundaries = Dictionary(grouping: retained.filter { $0.message == nil }, by: { $0.before_message_id ?? "" })
+        let messageIDs = Set(messages.map(\.id))
+        let unanchored = boundaries.filter { !messageIDs.contains($0.key) }.values.flatMap { $0 }.sorted { $0.id < $1.id }
+        return unanchored + messages.flatMap { message in
+            (boundaries[message.id] ?? []).sorted { $0.id < $1.id } + [message]
+        }
     }
 }

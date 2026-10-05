@@ -15,7 +15,11 @@ struct ConversationView: View {
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
     private var conversation: Conversation? { store.conversations.first { $0.id == conversationID } }
-    private var items: [TimelineItem] { store.timelines[conversationID] ?? [] }
+    private var items: [TimelineItem] {
+        let timeline = store.timelines[conversationID] ?? []
+        let messageIDs = Set(timeline.compactMap { $0.message?.id })
+        return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
+    }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
