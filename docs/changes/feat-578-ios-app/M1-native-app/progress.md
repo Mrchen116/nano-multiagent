@@ -97,3 +97,4 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Mac 锁屏使 CUA 无法继续，已请求用户手动解锁；不绕过锁屏，不恢复功能旅程或真机门槛。六条新会话为真实隔离服务的测试 fixture，未硬编码到 App。
 - 本轮最终提交 `c8eafc360` Release archive 成功（`/tmp/nano-feat578-visual-archive-r1.log`），覆盖最后配置 onChange 调整；产物为 `output/feat578/NanoIM-c8eafc360-unsigned.ipa`，仅供后续重签安装，不声明真机已安装或视觉通过。
 - 独立静态 R6 发现普通 TextField 仍监听 `.search` submit trigger，键盘搜索不会即时查询；root 已改为普通 `.onSubmit`，保留现有 load()/分页逻辑。静态 verifier 明确 P6 尚未通过；该缺口不以 archive/tests 掩盖。
+- R7 限定静态 closure 为 `[]`，关闭普通 TextField 提交事件问题；键盘现场验证仍待解锁，P6 未通过。`3691c0f8b` 最终 Release archive 成功，日志 `/tmp/nano-feat578-visual-archive-r2.log`，最新产物 `output/feat578/NanoIM-3691c0f8b-unsigned.ipa`。
