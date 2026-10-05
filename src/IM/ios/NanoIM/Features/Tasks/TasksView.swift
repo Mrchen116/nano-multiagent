@@ -13,15 +13,24 @@ struct TasksView: View {
     @State private var visible = true
     var body: some View {
         List {
+            NanoSearchField(text: $query, prompt: L("搜索任务", "Search tasks"))
+                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
             ForEach(items) { item in NavigationLink {
                 TaskGraphView(client: client, graphID: item.graph_id, onReference: onReference)
-            } label: { VStack(alignment: .leading, spacing: 6) {
-                Text(item.title).font(.headline); Text(taskStatus(item.status) + " · " + (item.mode == "explore" ? L("探索", "Exploration") : L("计划", "Plan"))).font(.caption).foregroundStyle(.secondary)
-            }.padding(.vertical, 4) } }
+            } label: { VStack(alignment: .leading, spacing: 12) {
+                Text(item.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink)
+                HStack(spacing: 8) {
+                    Text(taskStatus(item.status)).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.accent)
+                        .padding(.horizontal, 8).padding(.vertical, 4).background(NanoTheme.softAccent, in: Capsule())
+                    Text(item.mode == "explore" ? L("探索", "Exploration") : L("计划", "Plan")).font(.caption).foregroundStyle(NanoTheme.muted)
+                    Spacer()
+                    NanoTimestamp(value: item.updated_at)
+                }
+            }.padding(.vertical, 10) }.listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20)) }
             if cursor != nil { Button(L("加载更多", "Load more")) { Task { await load(more: true) } }.disabled(loading) }
             if items.isEmpty, error == nil, !loading { ContentUnavailableView(L("暂无任务", "No tasks"), systemImage: "point.3.connected.trianglepath.dotted", description: Text(L("在聊天中让 Agent 建立计划。", "Ask an agent to create a plan in chat."))) }
-        }.navigationTitle(L("任务", "Tasks")).searchable(text: $query, prompt: L("搜索任务", "Search tasks"))
+        }.nanoList().nanoRootTitle(L("任务", "Tasks"))
             .refreshable { await load() }
             .onSubmit(of: .search) { Task { await load() } }
             .task(id: "\(phase == .active)-\(visible)") { guard phase == .active, visible else { return }; while !Task.isCancelled { await load(preservePages: true); try? await Task.sleep(for: .seconds(3)) } }
@@ -88,12 +97,13 @@ struct TaskGraphView: View {
                                         Text(node.title).font(.headline).lineLimit(3).foregroundStyle(.primary)
                                         Text(taskStatus(node.status)).font(.caption).foregroundStyle(.teal)
                                         if !node.description.isEmpty { Text(node.description).font(.caption).lineLimit(2).foregroundStyle(.secondary) }
-                                    }.padding(12).frame(width: 210, height: 134, alignment: .topLeading).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.teal.opacity(0.3))) }
+                                    }.padding(12).frame(width: 210, height: 134, alignment: .topLeading).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border)) }.buttonStyle(.plain)
                                         .offset(x: layout.positions[node.id]?.x ?? 0, y: layout.positions[node.id]?.y ?? 0)
                                         .accessibilityLabel(node.title + ", " + taskStatus(node.status))
                                 }
-                            }.frame(width: layout.size.width, height: layout.size.height)
-                        }.background(Color(.systemGroupedBackground))
+                            }.frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
+                        }.defaultScrollAnchor(.topLeading, for: .alignment)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(NanoTheme.canvas)
                     }
                 }
             } else if let error { ContentUnavailableView { Label(L("任务不可用", "Task unavailable"), systemImage: "exclamationmark.circle") } description: { Text(error) } actions: { Button(L("重试", "Retry")) { Task { await load() } } } }

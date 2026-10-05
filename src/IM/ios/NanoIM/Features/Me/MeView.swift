@@ -12,12 +12,11 @@ struct MeView: View {
         List {
             Section {
                 HStack(spacing: 16) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 48)).foregroundStyle(.tint).accessibilityHidden(true)
+                    AvatarView(name: user.display_name)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(user.display_name).font(.title3.bold())
-                        Text("@" + user.username).foregroundStyle(.secondary)
-                        Text(settingsStatus(user.membership_status)).font(.caption).foregroundStyle(.secondary)
+                        Text("@" + user.username).font(.subheadline).foregroundStyle(NanoTheme.muted)
+                        Text(user.is_company_admin ? L("管理员", "Administrator") : settingsStatus(user.membership_status)).font(.caption).foregroundStyle(NanoTheme.accent)
                     }
                 }.padding(.vertical, 8)
             }
@@ -51,7 +50,8 @@ struct MeView: View {
                 }
             }
         }
-        .navigationTitle(L("我的", "Me"))
+        .listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
+        .nanoRootTitle(L("我的", "Me"))
         .confirmationDialog(L("退出当前账号？", "Sign out of this account?"), isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button(L("退出登录", "Sign out"), role: .destructive) { onSignOut() }
             Button(L("取消", "Cancel"), role: .cancel) {}
@@ -113,7 +113,7 @@ struct SettingsAccountView: View {
             } else { SettingsLoading(retry: { Task { await load() } }, error: error) }
         }
         .navigationTitle(L("个人资料与语言", "Profile and language"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }
     }
 
@@ -174,6 +174,6 @@ struct SettingsHelpView: View {
             }
         }
         .navigationTitle(L("提醒与安装", "Reminders and installation"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
     }
 }

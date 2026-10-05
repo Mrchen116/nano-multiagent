@@ -51,7 +51,7 @@ struct SettingsCompanyView: View {
             }
         }
         .navigationTitle(L("公司成员", "Company members"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { if user.is_company_admin { await load() } }
         .refreshable { if user.is_company_admin { await load() } }
         .confirmationDialog(L("停用成员？", "Suspend member?"), isPresented: Binding(get: { suspendTarget != nil }, set: { if !$0 { suspendTarget = nil } }), titleVisibility: .visible, presenting: suspendTarget) { target in

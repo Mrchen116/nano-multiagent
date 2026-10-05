@@ -20,15 +20,17 @@ struct AgentConfigView: View {
     var body: some View {
         Form {
             if let config {
-                Section(L("配置归属", "Configuration")) {
-                    LabeledContent("Agent ID", value: agentID)
-                    LabeledContent(L("版本", "Version"), value: String(config.profile_version))
-                    LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单 Thread", "Single Thread"))
-                    Text(config.workspace_root ?? L("等待节点确认 workspace", "Waiting for the node to confirm the workspace")).textSelection(.enabled)
-                    Text(L("模式和 workspace 创建后不可改。", "Mode and workspace are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
-                }
                 AgentEditorFields(draft: $draft, capabilities: capabilities).disabled(pending || busy || conflicted)
                 AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID, capabilities: capabilities).disabled(pending || busy || conflicted)
+                Section {
+                    DisclosureGroup(L("配置归属", "Configuration")) {
+                        LabeledContent("Agent ID", value: agentID)
+                        LabeledContent(L("版本", "Version"), value: String(config.profile_version))
+                        LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单 Thread", "Single Thread"))
+                        Text(config.workspace_root ?? L("等待节点确认 workspace", "Waiting for the node to confirm the workspace")).textSelection(.enabled)
+                        Text(L("模式和 workspace 创建后不可改。", "Mode and workspace are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Section { NavigationLink(L("现有定时任务", "Existing scheduled jobs")) { AgentCronView(client: client, agentID: agentID) } }
                 if let capabilityError {
                     Section { ErrorNotice(message: capabilityError); Text(L("能力目录不可用，保留已有配置。重新连接设备后再更改能力。", "Capabilities are unavailable. Existing selections are preserved; reconnect the device to change them.")); Button(L("重读能力", "Reload capabilities")) { Task { await loadCapabilities() } } }
@@ -65,7 +67,6 @@ struct AgentConfigView: View {
                         }
                     } else {
                         Button(L("提示词预览", "Preview prompt")) { Task { await loadPreview() } }.disabled(capabilities == nil || busy)
-                        Button(L("保存配置", "Save configuration")) { Task { await save() } }.disabled(busy || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     if busy { ProgressView() }
                 }
@@ -73,7 +74,12 @@ struct AgentConfigView: View {
                 if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } } else { ProgressView() }
             }
         }
-        .navigationTitle(L("Agent 配置", "Agent configuration")).toolbar(.hidden, for: .tabBar)
+        .contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
+        .navigationTitle(L("Agent 配置", "Agent configuration")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .toolbar { ToolbarItem(placement: .confirmationAction) {
+            Button(busy ? L("保存中", "Saving") : L("保存", "Save")) { Task { await save() } }
+                .fontWeight(.semibold).disabled(config == nil || busy || pending || conflicted || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } }
         .navigationBarBackButtonHidden(dirty || pending)
         .toolbar { if dirty || pending { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
         .confirmationDialog(L("离开并放弃未保存草稿？", "Leave and discard unsaved draft?"), isPresented: $confirmLeave, titleVisibility: .visible) { Button(L("离开", "Leave"), role: .destructive) { dismiss() } }
@@ -120,8 +126,14 @@ struct AgentEditorFields: View {
     private var reasoning: AgentModelOption.Reasoning? { models.first { $0.name == (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) }?.reasoning }
     var body: some View {
         Section(L("基本资料", "Profile")) {
-            TextField(L("名称", "Name"), text: $draft.display_name)
-            TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
+                TextField(L("名称", "Name"), text: $draft.display_name)
+            }.padding(.vertical, 4)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(L("描述", "Description")).font(.caption).foregroundStyle(NanoTheme.muted)
+                TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
+            }.padding(.vertical, 4)
             Picker(L("群回复策略", "Group reply policy"), selection: $draft.group_reply_policy) {
                 Text(L("仅被提及", "When mentioned")).tag("MENTION")
                 Text(L("始终回复", "Always reply")).tag("ALWAYS")
@@ -155,50 +167,65 @@ struct AgentEditorFields: View {
             }.disabled(capabilities == nil)
             .onChange(of: addingFallback) { _, value in if !value.isEmpty { draft.model_fallbacks.append(value); addingFallback = "" } }
         }
-        Section(L("自定义指令", "Custom instructions")) {
-            TextEditor(text: $draft.custom_prompt).frame(minHeight: 160).accessibilityLabel(L("自定义指令", "Custom instructions"))
-        }
-        Section(L("工具", "Tools")) {
-            if let capabilities {
-                ForEach(capabilities.tools) { option in
-                    let fixed = draft.work_mode == "global" && ["inbox", "conversations", "send_message", "agent"].contains(option.name)
-                    Toggle(isOn: selection(option.name, keyPath: \.tool_allowlist, fixed: fixed)) { VStack(alignment: .leading) { Text(option.name); if let description = option.description, !description.isEmpty { Text(description).font(.caption).foregroundStyle(.secondary) } } }.disabled(fixed)
-                }
-                if draft.work_mode == "global" { Text(L("全局模式固定保留 inbox、conversations、send_message、agent。", "Global mode always retains inbox, conversations, send_message, and agent.")).font(.caption).foregroundStyle(.secondary) }
+        Section(L("指令与能力", "Instructions and capabilities")) {
+            DisclosureGroup(L("自定义指令", "Custom instructions")) {
+                TextEditor(text: $draft.custom_prompt).frame(minHeight: 160).accessibilityLabel(L("自定义指令", "Custom instructions"))
             }
-            ForEach(draft.tool_allowlist.filter { tool in !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
         }
-        Section("Skills") {
-            Picker(L("选择方式", "Selection mode"), selection: $draft.skills_selection_mode) {
-                Text(L("默认发现", "Default discovery")).tag("default_discovery")
-                Text(L("显式名单（可为空）", "Explicit allowlist (may be empty)")).tag("explicit_allowlist")
-            }.disabled(capabilities == nil)
-            if draft.skills_selection_mode == "explicit_allowlist", let capabilities {
-                ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
-                    let options = capabilities.skills.filter { ($0.source_group ?? "unknown") == group }
-                    if !options.isEmpty {
-                        DisclosureGroup(agentSkillGroupName(group)) {
-                            ForEach(options) { option in
-                                Toggle(isOn: selection(option.name, keyPath: \.skills)) {
-                                    VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
+        Section {
+            DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.count)") {
+                if let capabilities {
+                    ForEach(capabilities.tools) { option in
+                        let fixed = draft.work_mode == "global" && ["inbox", "conversations", "send_message", "agent"].contains(option.name)
+                        VStack(alignment: .leading) {
+                            Toggle(option.name, isOn: selection(option.name, keyPath: \.tool_allowlist, fixed: fixed)).disabled(fixed)
+                            if let description = option.description, !description.isEmpty {
+                                DisclosureGroup(L("工具说明", "Tool description")) {
+                                    Text(description).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                }.font(.caption)
+                            }
+                        }
+                    }
+                    if draft.work_mode == "global" { Text(L("全局模式固定保留 inbox、conversations、send_message、agent。", "Global mode always retains inbox, conversations, send_message, and agent.")).font(.caption).foregroundStyle(.secondary) }
+                }
+                ForEach(draft.tool_allowlist.filter { tool in !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+            }
+        }
+        Section {
+            DisclosureGroup("Skills") {
+                Picker(L("选择方式", "Selection mode"), selection: $draft.skills_selection_mode) {
+                    Text(L("默认发现", "Default discovery")).tag("default_discovery")
+                    Text(L("显式名单（可为空）", "Explicit allowlist (may be empty)")).tag("explicit_allowlist")
+                }.disabled(capabilities == nil)
+                if draft.skills_selection_mode == "explicit_allowlist", let capabilities {
+                    ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
+                        let options = capabilities.skills.filter { ($0.source_group ?? "unknown") == group }
+                        if !options.isEmpty {
+                            DisclosureGroup(agentSkillGroupName(group)) {
+                                ForEach(options) { option in
+                                    Toggle(isOn: selection(option.name, keyPath: \.skills)) {
+                                        VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                ForEach(draft.skills.filter { skill in !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
-            ForEach(draft.skills.filter { skill in !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
         }
-        Section(L("运行特性", "Runtime features")) {
-            ForEach(capabilities?.features ?? []) { feature in
-                let available = feature.requires_tool.map { required in capabilities?.tools.contains { $0.name == required } ?? false } ?? true
-                Toggle(isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { draft.setFeature(feature, enabled: $0) })) {
-                    VStack(alignment: .leading) {
-                        Text(agentFeatureName(feature.key))
-                        if let tool = feature.requires_tool { Text(L("需要工具：", "Requires tool: ") + tool).font(.caption).foregroundStyle(.secondary) }
-                        if !available { Text(L("当前不可用，保留已存选择", "Unavailable; stored selection is preserved")).font(.caption).foregroundStyle(.secondary) }
-                    }
-                }.disabled(!available)
+        Section {
+            DisclosureGroup(L("运行特性", "Runtime features")) {
+                ForEach(capabilities?.features ?? []) { feature in
+                    let available = feature.requires_tool.map { required in capabilities?.tools.contains { $0.name == required } ?? false } ?? true
+                    Toggle(isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { draft.setFeature(feature, enabled: $0) })) {
+                        VStack(alignment: .leading) {
+                            Text(agentFeatureName(feature.key))
+                            if let tool = feature.requires_tool { Text(L("需要工具：", "Requires tool: ") + tool).font(.caption).foregroundStyle(.secondary) }
+                            if !available { Text(L("当前不可用，保留已存选择", "Unavailable; stored selection is preserved")).font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }.disabled(!available)
+                }
             }
         }
         .onChange(of: draft.default_model) { _, _ in

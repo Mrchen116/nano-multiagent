@@ -57,7 +57,7 @@ struct SettingsPoliciesView: View {
             }
         }
         .navigationTitle(L("系统策略", "System policies"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }
         .task { if isAdmin { await loadCapacity() } }
     }

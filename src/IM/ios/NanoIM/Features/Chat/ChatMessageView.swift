@@ -7,8 +7,11 @@ struct ChatMessageView: View {
     var participants: [ActorRef] = []
     let refreshed: () -> Void
     @State private var showProcess = false
+    private var mine: Bool { message.sender.id == selfID }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .top, spacing: 0) {
+            if mine { Spacer(minLength: 28) }
+            VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(message.sender.display_name ?? message.sender.id).font(.caption.bold()).foregroundStyle(.secondary)
                 Spacer()
@@ -51,8 +54,11 @@ struct ChatMessageView: View {
                     }
                 }.font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(14).background(message.sender.id == selfID ? Color.teal.opacity(0.10) : Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-            .textSelection(.enabled)
+            }.padding(14).background(mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine ? Color.clear : NanoTheme.border, lineWidth: 1))
+                .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
+            if !mine { Spacer(minLength: 14) }
+        }
     }
     private var status: String {
         switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return L("已完成", "Completed"); default: return L("已发送", "Sent") }

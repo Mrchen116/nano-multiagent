@@ -64,7 +64,7 @@ struct ConversationView: View {
                 VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
             } else { composer.disabled(conversation == nil) }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(NanoTheme.canvas)
         .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
@@ -113,14 +113,16 @@ struct ConversationView: View {
                 } label: { Image(systemName: uploading ? "hourglass" : "plus.circle").font(.title2).padding(.vertical, 7) }
                     .disabled(uploading || store.pending[conversationID] != nil).accessibilityLabel(L("附件、提及和命令", "Attachments, mentions and commands"))
                 ComposerTextView(text: draft, enabled: store.pending[conversationID] == nil, pastedImage: { image in Task { await uploadImage(image) } })
-                    .frame(minHeight: 40, maxHeight: 130).padding(.horizontal, 6).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .frame(minHeight: 40, maxHeight: 130).padding(.horizontal, 8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(NanoTheme.border))
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
                 }.disabled(uploading || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
                     .accessibilityLabel(L("发送", "Send"))
             }
             if uploading { ProgressView(L("正在上传…", "Uploading…")) }
-        }.padding(.horizontal, 12).padding(.vertical, 8).background(.bar)
+        }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)
+            .overlay(alignment: .top) { Rectangle().fill(NanoTheme.border).frame(height: 0.5) }
     }
     private func uploadPhoto(_ selected: PhotosPickerItem?) async {
         guard let selected else { return }; photo = nil
@@ -165,7 +167,7 @@ struct ComposerTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> PasteTextView {
         let view = PasteTextView(); view.delegate = context.coordinator
         view.font = .preferredFont(forTextStyle: .body); view.adjustsFontForContentSizeCategory = true
-        view.backgroundColor = .clear; view.textContainerInset = UIEdgeInsets(top: 9, left: 0, bottom: 9, right: 0)
+        view.backgroundColor = .clear; view.textColor = UIColor(named: "Ink"); view.textContainerInset = UIEdgeInsets(top: 9, left: 0, bottom: 9, right: 0)
         view.accessibilityLabel = L("消息", "Message"); view.imagePasted = pastedImage
         return view
     }

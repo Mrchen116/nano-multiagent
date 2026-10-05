@@ -13,35 +13,45 @@ struct ChatListView: View {
     }
     var body: some View {
         List {
+            NanoSearchField(text: $search, prompt: L("搜索聊天", "Search conversations"))
+                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary) }
             if let error = store.listError { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.loadConversations() } } }
-            Section {
+            Group {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
+                    HStack(spacing: 8) {
                         categoryButton("all", L("全部", "All")); categoryButton("people", L("真人", "People"))
                         categoryButton("agent", "Agent"); categoryButton("group", L("群聊", "Groups")); categoryButton("network", L("协作网", "Network"))
-                    }.padding(.vertical, 4)
+                    }.padding(.vertical, 2)
                 }
-            }.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)).listRowBackground(Color.clear)
+            }.listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 10, trailing: 20)).listRowSeparator(.hidden)
             ForEach(filtered) { chat in
                 Button { open(chat.id) } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: chat.title)
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack { Text(chat.title).font(.headline).foregroundStyle(.primary); if chat.is_pinned { Image(systemName: "pin.fill").font(.caption) }; if chat.is_muted { Image(systemName: "bell.slash").font(.caption) } }
-                            Text(chat.last_message_preview ?? L("开始聊天", "Start a conversation")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        AvatarView(name: chat.title, kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person")
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).lineLimit(1)
+                                if chat.is_pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(NanoTheme.muted) }
+                                if chat.is_muted { Image(systemName: "bell.slash").font(.caption2).foregroundStyle(NanoTheme.muted) }
+                                Spacer(minLength: 4)
+                                NanoTimestamp(value: chat.last_message_at ?? chat.created_at)
+                            }
+                            HStack(spacing: 8) {
+                                Text(chat.last_message_preview ?? L("开始聊天", "Start a conversation"))
+                                    .font(.subheadline).foregroundStyle(NanoTheme.muted).lineLimit(1)
+                                Spacer(minLength: 0)
+                                if chat.unread_count > 0 { Text(chat.unread_count > 99 ? "99+" : "\(chat.unread_count)").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 3).foregroundStyle(.white).background(NanoTheme.accent, in: Capsule()) }
+                            }
                         }
-                        Spacer(minLength: 4)
-                        if chat.unread_count > 0 { Text("\(chat.unread_count)").font(.caption.bold()).padding(6).foregroundStyle(.white).background(.teal, in: Capsule()) }
-                    }.padding(.vertical, 4)
-                }.contextMenu {
+                    }.padding(.vertical, 8)
+                }.buttonStyle(.plain).listRowInsets(EdgeInsets(top: 3, leading: 20, bottom: 3, trailing: 20)).contextMenu {
                     Button(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")) { patch(chat, "is_pinned", !chat.is_pinned) }
                     Button(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute")) { patch(chat, "is_muted", !chat.is_muted) }
                 }
             }
             if filtered.isEmpty, store.listError == nil { ContentUnavailableView(L("暂无聊天", "No conversations"), systemImage: "bubble.left.and.bubble.right", description: Text(L("使用右上角 + 创建聊天。", "Use + to start a conversation."))) }
-        }.navigationTitle(L("聊天", "Chats"))
-            .searchable(text: $search, prompt: L("搜索聊天", "Search conversations"))
+        }.nanoList().nanoRootTitle(L("聊天", "Chats"))
             .refreshable { await store.loadConversations() }
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Menu {
                 Button(L("新建聊天", "New conversation"), systemImage: "plus") { newChat = true }
@@ -51,7 +61,12 @@ struct ChatListView: View {
             .sheet(isPresented: $distill) { DistillView(store: store) { id, text in store.drafts[id] = text; distill = false; open(id) } }
     }
     private func categoryButton(_ value: String, _ title: String) -> some View {
-        Button(title) { category = value }.buttonStyle(.bordered).tint(category == value ? .teal : .gray).accessibilityAddTraits(category == value ? .isSelected : [])
+        Button { category = value } label: {
+            Text(title).font(.subheadline.weight(category == value ? .semibold : .regular))
+                .foregroundStyle(category == value ? NanoTheme.accent : NanoTheme.muted)
+                .padding(.horizontal, 13).padding(.vertical, 9)
+                .background(category == value ? NanoTheme.softAccent : Color.clear, in: Capsule())
+        }.buttonStyle(.plain).accessibilityAddTraits(category == value ? .isSelected : [])
     }
     private func patch(_ chat: Conversation, _ key: String, _ value: Bool) {
         Task { do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(chat.id.pathComponent)", method: "PATCH", body: [key: value]); await store.loadConversations() } catch { store.listError = error.localizedDescription } }

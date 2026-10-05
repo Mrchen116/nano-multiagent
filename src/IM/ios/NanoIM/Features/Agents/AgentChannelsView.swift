@@ -23,7 +23,7 @@ struct AgentChannelsView: View {
             }
             Section { Text(L("每个 Agent 每种 provider 仅一个通道。凭据由节点安全存储；删除通道保留聊天历史。", "One channel per provider per Agent. Credentials use node secure storage. Removing a channel preserves chat history.")).font(.caption).foregroundStyle(.secondary) }
         }
-        .navigationTitle(L("外部通道", "Channels")).toolbar(.hidden, for: .tabBar)
+        .navigationTitle(L("外部通道", "Channels")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { Button { adding = true } label: { Label(L("添加通道", "Add channel"), systemImage: "plus") }.disabled(channels.contains { $0.provider == "feishu" }) }
         .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) { NavigationStack { AgentChannelEditor(client: client, agentID: agentID) } }
         .sheet(item: $editing, onDismiss: { Task { await load() } }) { channel in NavigationStack { AgentChannelEditor(client: client, agentID: agentID, existing: channel) } }

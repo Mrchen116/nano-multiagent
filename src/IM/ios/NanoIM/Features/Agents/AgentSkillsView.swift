@@ -40,7 +40,7 @@ struct AgentSkillsView: View {
                 }
                 if usage.skills.isEmpty && usage.node_online { Text(L("暂无 Skill 使用记录", "No Skill usage records")) }
             } else if error == nil { ProgressView() }
-        }.navigationTitle(L("Skills 使用情况", "Skill usage")).toolbar(.hidden, for: .tabBar)
+        }.navigationTitle(L("Skills 使用情况", "Skill usage")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }.refreshable { await load() }
     }
     @ViewBuilder private func skillRow(_ skill: AgentSkillUsage.Skill) -> some View {
@@ -112,7 +112,7 @@ struct AgentCronView: View {
             }
             if loaded && jobs.isEmpty && online == true { Text(L("暂无返回的任务（节点读取超时也可能返回空列表）。", "No jobs returned (a node read timeout can also return an empty list).")) }
             Text(L("此页仅查看和删除现有任务；通过 Agent 对话安排任务。", "View and delete existing jobs here. Arrange jobs through the Agent conversation.")).font(.caption).foregroundStyle(.secondary)
-        }.navigationTitle(L("定时任务", "Scheduled jobs")).toolbar(.hidden, for: .tabBar)
+        }.navigationTitle(L("定时任务", "Scheduled jobs")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }.refreshable { await load() }
         .confirmationDialog(L("确认删除所选定时任务？", "Delete the selected scheduled job?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             if let deleting { Button(deleting.name, role: .destructive) { Task { await remove(deleting) } } }

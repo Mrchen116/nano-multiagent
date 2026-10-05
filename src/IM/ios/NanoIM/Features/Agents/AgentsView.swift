@@ -14,6 +14,8 @@ struct AgentsView: View {
 
     var body: some View {
         List {
+            NanoSearchField(text: $search, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
+                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
             if !loaded { ProgressView() }
             ForEach(contacts.filter { search.isEmpty || ($0.display_name + ($0.agent_id ?? "") + ($0.node_name ?? "")).localizedCaseInsensitiveContains(search) }) { contact in
@@ -21,18 +23,21 @@ struct AgentsView: View {
                     AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "person.crop.square.fill").font(.title2).foregroundStyle(.teal)
-                            .overlay(alignment: .bottomTrailing) { Circle().fill(contact.status == "online" ? .green : .gray).frame(width: 9, height: 9) }
-                        VStack(alignment: .leading) { Text(contact.display_name).font(.headline); Text(contact.agent_id ?? contact.user_id).font(.caption).foregroundStyle(.secondary) }
-                        Spacer()
-                        Text(contact.node_name ?? L("未知设备", "Unknown device")).font(.caption).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 110, alignment: .trailing)
+                        AvatarView(name: contact.display_name, online: contact.status == "online", kind: "agent")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(contact.display_name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).lineLimit(1)
+                            Text((contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")))
+                                .font(.caption).foregroundStyle(NanoTheme.muted).lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Text(contact.status == "online" ? L("在线", "Online") : L("离线", "Offline"))
+                            .font(.caption).foregroundStyle(contact.status == "online" ? NanoTheme.accent : NanoTheme.muted)
                     }.accessibilityElement(children: .combine).accessibilityLabel("\(contact.display_name), \(contact.status ?? "unknown"), \(contact.node_name ?? "")")
-                }
+                }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
             }
             if loaded && contacts.isEmpty { ContentUnavailableView(L("暂无 Agent", "No Agents"), systemImage: "person.crop.square") }
         }
-        .navigationTitle(L("Agent", "Agents"))
-        .searchable(text: $search, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
+        .nanoList().nanoRootTitle(L("Agent", "Agents"))
         .toolbar { Button { creating = true } label: { Label(L("新建 Agent", "New Agent"), systemImage: "plus") } }
         .sheet(isPresented: $creating, onDismiss: { Task { await load() } }) { NavigationStack { AgentCreateView(client: client) } }
         .refreshable { await load() }
@@ -65,27 +70,44 @@ struct AgentProfileView: View {
     var body: some View {
         List {
             Section {
-                LabeledContent(L("名称", "Name"), value: contact.display_name)
-                LabeledContent("Agent ID", value: agentID)
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 14) {
+                        AvatarView(name: contact.display_name, online: contact.status == "online", kind: "agent")
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(contact.display_name).font(.title3.bold())
+                            Text(agentID).font(.caption).foregroundStyle(NanoTheme.muted)
+                        }
+                    }
+                    HStack(spacing: 7) {
+                        Circle().fill(contact.status == "online" ? NanoTheme.accent : NanoTheme.muted).frame(width: 6, height: 6)
+                        Text((contact.status == "online" ? L("在线", "Online") : L("离线", "Offline")) + " · " + (contact.node_name ?? L("未知设备", "Unknown device")))
+                            .font(.subheadline).foregroundStyle(NanoTheme.muted)
+                    }
+                    Button { Task { await openChat() } } label: {
+                        Label(L("发消息", "Message"), systemImage: "bubble.left").font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 5)
+                    }.buttonStyle(.borderedProminent).disabled(openingChat)
+                    if let error { ErrorNotice(message: error) }
+                }.padding(.vertical, 8)
+            }
+            Section(L("概览", "Overview")) {
                 LabeledContent(L("管理者", "Owner"), value: contact.owner_display_name ?? contact.owner_id ?? "—")
-                LabeledContent(L("设备", "Device"), value: contact.node_name ?? "—")
-                LabeledContent(L("状态", "Status"), value: contact.status ?? L("未知", "Unknown"))
                 LabeledContent(L("工作模式", "Work mode"), value: contact.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单 Thread", "Single Thread"))
-                Button(L("发消息", "Message")) { Task { await openChat() } }.disabled(openingChat)
-                if let error { ErrorNotice(message: error) }
             }
             if contact.work_mode == "global" {
-                NavigationLink(L("工作轨迹", "Work")) { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat) }
+                Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat) } label: { Label(L("工作轨迹", "Work"), systemImage: "point.3.connected.trianglepath.dotted") } }
             }
             if owned {
-                NavigationLink(L("配置", "Configuration")) { AgentConfigView(client: client, agentID: agentID) }
-                NavigationLink(L("外部通道", "Channels")) { AgentChannelsView(client: client, agentID: agentID) }
-                NavigationLink(L("Skills 使用情况", "Skill usage")) { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: contact.work_mode == "global", onOpenChat: onOpenChat) }
-                Section(L("会话", "Sessions")) { Text(L("会话管理尚未开放。聊天请从聊天入口查看；全局执行请进入工作轨迹。", "Session management is not available yet. Open Chats for conversations, or Work for global executions.")).foregroundStyle(.secondary) }
+                Section(L("管理", "Manage")) {
+                    NavigationLink { AgentConfigView(client: client, agentID: agentID) } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
+                    NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
+                    NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: contact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
+                }
+                Section { Text(L("会话管理尚未开放。聊天请从聊天入口查看；全局执行请进入工作轨迹。", "Session management is not available yet. Open Chats for conversations, or Work for global executions.")).font(.caption).foregroundStyle(NanoTheme.muted) }
             } else {
-                Text(L("这是公开资料，配置由管理者维护。", "This is a public profile. Configuration is managed by its owner.")).foregroundStyle(.secondary)
+                Text(L("这是公开资料，配置由管理者维护。", "This is a public profile. Configuration is managed by its owner.")).font(.caption).foregroundStyle(NanoTheme.muted)
             }
-        }.navigationTitle(contact.display_name).toolbar(.hidden, for: .tabBar)
+        }.listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
+            .navigationTitle(L("Agent 详情", "Agent profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
     }
     private func openChat() async {
         openingChat = true; defer { openingChat = false }
@@ -153,7 +175,7 @@ struct AgentCreateView: View {
             }
         }
         .disabled(busy)
-        .navigationTitle(L("新建 Agent", "New Agent")).toolbar(.hidden, for: .tabBar)
+        .navigationTitle(L("新建 Agent", "New Agent")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .navigationBarBackButtonHidden(created == nil)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { if created == nil && draft != AgentDraft() { confirmLeave = true } else { dismiss() } } } }
         .interactiveDismissDisabled(created == nil && draft != AgentDraft())

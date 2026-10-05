@@ -31,7 +31,7 @@ struct SettingsNodesView: View {
             }
         }
         .navigationTitle(L("我的设备", "My devices"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -102,7 +102,7 @@ struct SettingsNodeView: View {
             }
         }
         .navigationTitle(node.name)
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: visible && scenePhase == .active) {

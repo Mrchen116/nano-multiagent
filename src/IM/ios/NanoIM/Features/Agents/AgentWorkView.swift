@@ -54,7 +54,7 @@ struct AgentWorkView: View {
                 }
             }
         }.navigationTitle(sessionID == nil ? L("工作轨迹", "Work") : L("关联执行", "Related execution"))
-        .toolbar(.hidden, for: .tabBar).refreshable { await refresh() }
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar).refreshable { await refresh() }
         .task(id: scenePhase) { guard scenePhase == .active else { return }; repeat { await refresh(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
     private func refresh() async {

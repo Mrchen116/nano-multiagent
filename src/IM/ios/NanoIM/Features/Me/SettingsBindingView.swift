@@ -63,7 +63,7 @@ struct SettingsBindingView: View {
             }
         }
         .navigationTitle(L("绑定设备", "Bind a device"))
-        .toolbar(.hidden, for: .tabBar)
+        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .onAppear { visible = true }
         .onDisappear { visible = false; link = ""; token = ""; binding = nil }
         .task(id: waiting && visible && scenePhase == .active) {

@@ -47,7 +47,7 @@ struct ChatInfoView: View {
                 }
             } else { ProgressView() }
             if let error { ErrorNotice(message: error) }
-        }.navigationTitle(L("聊天详情", "Conversation details")).toolbar(.hidden, for: .tabBar)
+        }.navigationTitle(L("聊天详情", "Conversation details")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
             .task { await load(); contacts = (try? await store.client.contacts()) ?? [] }
             .confirmationDialog(L("解散此群聊？", "Dissolve this group?"), isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button(L("解散群聊", "Dissolve group"), role: .destructive) { Task { await deleteGroup() } }

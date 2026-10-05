@@ -16,7 +16,7 @@ struct NanoIMApp: App {
                     } else { MembershipView(model: model, user: user) }
                 } else { AuthView(model: model) }
             }
-            .tint(Color(red: 0.20, green: 0.50, blue: 0.51))
+            .tint(NanoTheme.accent)
             .environment(\.locale, Locale(identifier: locale == "zh" ? "zh-Hans" : "en"))
             .task { await model.restore() }
         }
