@@ -106,3 +106,6 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 发现空 UITextView 外层 min/max frame 总取最大高度，改为使用已有 sizeThatFits 的固有高度，并添加消息占位提示。真实 UI 验证空白 1 行、数字草稿 3 行随内容增高、清空后缩回；未发送检查草稿。
 - 依赖图改为按原 ranks 纵向排列，同层兄弟保持横向；连线从下到上对应依赖方向，节点高度随 Dynamic Type 缩放。真实两节点计划首屏完整可见，点击第一个节点仍打开正确详情。图只展示标题/状态，完整描述仍在节点详情，关系/API 不变。
 - 统一管理页滚动背景为语义 canvas。visual-build-r4 编译通过并安装于 390 模拟器。两种宽度/大字体仍待独立 P6 验收，不能用 root 自检替代。
+- `5ab02fd65` 独立静态 R8 无具体 finding，报告由 `440093403` 提交；该提交只增加报告，未改变当前模拟器 binary。Release archive R3 成功，产物版本与哈希见 [工具链记录](../evidence/toolchain-readiness.md)。
+- 独立 P6 正在同一 binary 上检查 390/430 普通字体、大字体及直接布局交互；root 已释放 Simulator 控制。整体功能及安装验收仍未通过。
+- 专用 `e2e-feishu-testagent` profile 重新验证成功：bot/user ready、token valid。仅恢复前置条件，没有启动通道 listener，也未将此计为 S20/S21 通过。

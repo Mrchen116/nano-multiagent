@@ -11,8 +11,8 @@
 - Xcode Components 下载并安装 iOS 26.4 runtime（26.4.1 / 23E254a）；iPhone 17 Pro simulator `1CE31893-672F-495A-B2B5-3ACF39A7A257` 已启动并运行 Nano IM。
 - 安装后磁盘当次约 35 GiB 可用。未删除用户文件，保留官方 XIP。
 
-最新设备归档：`build.sh archive` 在实现 revision `8ab2b2b85`（含图片预览宽度修复）通过，输出 arm64 IPA。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外。归档日志 `/tmp/nano-feat578-archive-r6.log`，本地产物 `output/feat578/NanoIM-8ab2b2b85-unsigned.ipa`，SHA-256 `ab3d463baf4e7085d80b402ff20e5446110daa04fc35df1ee0939a4b10881eef`。未签名 IPA 需 AltStore 重签，不能直接安装。
+最新设备归档：`build.sh archive` 在产品 revision `5ab02fd65`（含原生视觉修订、搜索提交、输入框高度及任务图布局修复）通过，输出 arm64 IPA。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外。归档日志 `/tmp/nano-feat578-visual-archive-r3.log`，本地产物 `output/feat578/NanoIM-5ab02fd65-unsigned.ipa`，SHA-256 `f3862701fc7e66b112c49907681df84ca7cf1a530e752de57a1390b87d8cb4c7`。未签名 IPA 需 AltStore 重签，不能直接安装。
 
-保留的自动化证据：revision `1708bdd74` 的 `build.sh test` 通过 22 项测试；后续唯一产品改动是图片 sheet 的滚动轴调整，已重新编译与归档，视觉复验待安装后完成。R2 已在真实模拟器复验 Photos 选择、发送、Quick Look 与分享以及运行/完成指标；具体结果以独立 acceptance 报告为准。旧产物和截图仅对应其记录的 revision。
+保留的自动化证据：原生视觉第一轮 `visual-tests-r1` 通过 22 项测试（12 XCTest + 10 Swift Testing）；其后的搜索提交、布局调整均重新编译，最终归档成功。独立静态 R7/R8 未留下具体 finding。这些结果不代替真实屏幕与交互验收；当前独立 P6 检查使用同一 `5ab02fd65` Debug binary，覆盖专用 iPhone 14（390）及 iPhone 14 Pro Max（430）模拟器。普通和大字体结果以独立 acceptance 报告为准。旧产物和截图仅对应其记录的 revision。
 
 尚待完整模拟器产品验收、Mini 可达和 AltServer、iPhone 时段/配对/免费签名及专用 Bot 独占试验。用户已明确真机准备后置到有可安装版本后；Gate 2 R2 已通过，此时序不降低最终验收标准。
