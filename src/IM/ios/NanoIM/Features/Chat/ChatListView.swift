@@ -162,6 +162,7 @@ struct DistillView: View {
         busy = true; defer { busy = false }
         do {
             let response: Result = try await store.client.send("/im/v1/conversations/distill-prompt", body: Body(sources: sources.map { Source(conversation_id: $0.id, source_agent_id: $0.source_agent_id!) }, execution_agent_id: execution, target_scope: scope))
+            await store.loadConversations()
             completed(response.conversation.id, response.prompt)
         } catch { self.error = error.localizedDescription }
     }
