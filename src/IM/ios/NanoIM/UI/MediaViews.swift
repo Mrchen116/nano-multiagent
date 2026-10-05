@@ -16,7 +16,7 @@ struct ProtectedImageView: View {
             } else if let error { ErrorNotice(message: error) }
             else { ProgressView().frame(minHeight: 70) }
         }.task(id: source) { await load() }
-            .sheet(isPresented: $preview) { NavigationStack { ScrollView([.horizontal, .vertical]) { if let image { Image(uiImage: image).resizable().scaledToFit().padding() } }.navigationTitle(L("图片", "Image")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { preview = false } } } } }
+            .sheet(isPresented: $preview) { NavigationStack { ScrollView { if let image { Image(uiImage: image).resizable().scaledToFit().padding() } }.navigationTitle(L("图片", "Image")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { preview = false } } } } }
     }
     private func load() async {
         do {
