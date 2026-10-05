@@ -151,3 +151,5 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 当前产品功能续验仍进行中；最新Release IPA仍是工具链记录中的`ba202f5d3`，需在候选稳定后重新归档。真机安装、Mini续签和完整S1–S30门禁未完成，未创建PR/部署生产。
 
 - `6155e1b86` Release archive R6成功，已保存对应unsigned IPA并核实bundle ID、版本、最低iOS与Release ATS限制，hash见工具链记录。产品R6仍在续验；此归档不等同免费签名/真机通过。
+
+- [产品R6与S1–S30当前合并表](acceptance-r6.md)已完成：已观察major均关闭，仍为inconclusive。12:48 CUA再次明确Mac locked后停止；用户手动解锁前不重试。停在未提交的578 Group R6新群草稿，原生6155e1b86；保留隔离服务与现场用于恢复。
