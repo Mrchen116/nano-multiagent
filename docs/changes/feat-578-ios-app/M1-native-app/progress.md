@@ -124,3 +124,7 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 只读核对同一真实operation：candidate与Gateway applied result均保存完整cadence；问题在既有IM live读取合并重新构造AgentProfile时漏传heartbeat_json，默认为null。不是原生绑定或写入丢失；Web使用同一路径也受影响。
 - 服务端修复只保留既有persisted heartbeat_json，不新增接口或管理能力。扩展已有live配置契约测试，修复前复现NoneType失败；补字段后配置契约、API集成及operation flow共32项通过（`/tmp/nano-feat578-heartbeat-{red,green}.log`），窄Ruff/diff检查通过。
 - 本次自有IM需协调重启载入修复，再由reviewer窄复验；生产、Gateway与DB保持原状。此处不将尚未完成的原生复验记作通过。
+- 独立静态 R10 为 `[]`；本次IM已协调重启载入 `c4794acef`，新PID69765（Gateway45904未重启）。实际mirror/live均返回heartbeat_json `{}`、enabled=false、profile_version4；非空cadence的原生重读仍需窄复验。
+- [产品续验 R3](acceptance-r3.md) 已落盘：搜索清除、Cron删除、配置pending分支通过；心跳回显原生复验未完成，整体仍fail。用户未批准降低最终门槛。
+- Mac再次锁屏，已请求手动解锁，未绕过。停在e2e添加飞书通道表单，输入可能部分执行但从未点击保存；reviewer清除了CUA凭据变量。root实际API确认通道列表为空后释放自己尚未使用的Bot listener lock，避免占用其他测试；续验前需重新执行专用profile/identity/lock准备。
+- 保留本次隔离IM/Gateway与第二绑定node用于续验；当前没有暂停进程或Feishu listener。源head `c4794acef`，原生binary仍 `051abdcf8`，最新IPA也为051。没有生产变更、手机操作、PR或最终完成声明。
