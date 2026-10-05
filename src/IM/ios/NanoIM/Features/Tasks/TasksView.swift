@@ -33,6 +33,7 @@ struct TasksView: View {
         }.nanoList().nanoRootTitle(L("任务", "Tasks"))
             .refreshable { await load() }
             .onSubmit { Task { await load() } }
+            .onChange(of: query) { _, value in if value.isEmpty { Task { await load() } } }
             .task(id: "\(phase == .active)-\(visible)") { guard phase == .active, visible else { return }; while !Task.isCancelled { await load(preservePages: true); try? await Task.sleep(for: .seconds(3)) } }
             .onAppear { visible = true }.onDisappear { visible = false }
     }
