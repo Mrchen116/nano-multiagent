@@ -46,13 +46,13 @@ struct TaskActivity: Decodable, Identifiable, Sendable {
     var id: String { graph_id + ":" + node_id }
 }
 
-/// Places each task in its earliest prerequisite column without changing recorded edges.
+/// Places each task in its earliest prerequisite row without changing recorded edges.
 struct NativeTaskLayout {
     let nodes: [TaskNode]
     let edges: [TaskDependency]
     let positions: [String: CGPoint]
     let size: CGSize
-    init(graph: TaskGraph, scopeID: String) {
+    init(graph: TaskGraph, scopeID: String, cardWidth: CGFloat = 320, cardHeight: CGFloat = 124) {
         nodes = graph.nodes.filter { $0.container_id == scopeID }.sorted { ($0.order, $0.id) < ($1.order, $1.id) }
         let ids = Set(nodes.map(\.id))
         if graph.nodes.first(where: { $0.id == scopeID })?.mode == "explore" {
@@ -73,11 +73,11 @@ struct NativeTaskLayout {
         var rows: [Int: Int] = [:], points: [String: CGPoint] = [:]
         for node in nodes {
             let rank = ranks[node.id] ?? 0, row = rows[rank, default: 0]
-            points[node.id] = CGPoint(x: 16 + rank * 270, y: 32 + row * 180)
+            points[node.id] = CGPoint(x: 16 + CGFloat(row) * (cardWidth + 32), y: 24 + CGFloat(rank) * (cardHeight + 44))
             rows[rank] = row + 1
         }
         positions = points
-        size = CGSize(width: max(400, (ranks.values.max() ?? 0) * 270 + 252), height: max(280, (rows.values.max() ?? 1) * 180 + 50))
+        size = CGSize(width: CGFloat(rows.values.max() ?? 1) * (cardWidth + 32), height: CGFloat(ranks.values.max() ?? 0) * (cardHeight + 44) + cardHeight + 48)
     }
 }
 

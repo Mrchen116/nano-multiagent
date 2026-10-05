@@ -98,3 +98,11 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 本轮最终提交 `c8eafc360` Release archive 成功（`/tmp/nano-feat578-visual-archive-r1.log`），覆盖最后配置 onChange 调整；产物为 `output/feat578/NanoIM-c8eafc360-unsigned.ipa`，仅供后续重签安装，不声明真机已安装或视觉通过。
 - 独立静态 R6 发现普通 TextField 仍监听 `.search` submit trigger，键盘搜索不会即时查询；root 已改为普通 `.onSubmit`，保留现有 load()/分页逻辑。静态 verifier 明确 P6 尚未通过；该缺口不以 archive/tests 掩盖。
 - R7 限定静态 closure 为 `[]`，关闭普通 TextField 提交事件问题；键盘现场验证仍待解锁，P6 未通过。`3691c0f8b` 最终 Release archive 成功，日志 `/tmp/nano-feat578-visual-archive-r2.log`，最新产物 `output/feat578/NanoIM-3691c0f8b-unsigned.ipa`。
+
+### 2026-10-05 窄屏逐页目视与输入/任务布局修正
+
+- 用户“继续”后 Mac 解锁；构建 visual-build-r3 成功，新建专用 iPhone 14（390）和 iPhone 14 Pro Max（430）模拟器，原 iPhone 17 Pro 保留但关闭。
+- root 逐页实际查看 390 普通字体下登录、聊天、对话、任务、关系图、Agent/详情、配置、我的及设备代表页；本地截图 `output/feat578/native-visual-r3/390-*.png`，不提交缓存。
+- 发现空 UITextView 外层 min/max frame 总取最大高度，改为使用已有 sizeThatFits 的固有高度，并添加消息占位提示。真实 UI 验证空白 1 行、数字草稿 3 行随内容增高、清空后缩回；未发送检查草稿。
+- 依赖图改为按原 ranks 纵向排列，同层兄弟保持横向；连线从下到上对应依赖方向，节点高度随 Dynamic Type 缩放。真实两节点计划首屏完整可见，点击第一个节点仍打开正确详情。图只展示标题/状态，完整描述仍在节点详情，关系/API 不变。
+- 统一管理页滚动背景为语义 canvas。visual-build-r4 编译通过并安装于 390 模拟器。两种宽度/大字体仍待独立 P6 验收，不能用 root 自检替代。

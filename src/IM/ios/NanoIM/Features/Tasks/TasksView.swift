@@ -69,10 +69,12 @@ struct TaskGraphView: View {
     @State private var listMode = false
     @State private var visible = true
     @Environment(\.scenePhase) private var phase
+    @ScaledMetric(relativeTo: .body) private var cardHeight = 124.0
+    private let cardWidth = 320.0
     var body: some View {
         Group {
             if let graph, let scope = graph.nodes.first(where: { $0.id == (scopeID ?? graph.root_node_id) }) {
-                let layout = NativeTaskLayout(graph: graph, scopeID: scope.id)
+                let layout = NativeTaskLayout(graph: graph, scopeID: scope.id, cardWidth: cardWidth, cardHeight: cardHeight)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack { Text(scope.title).font(.title3.bold()); Spacer(); Text("r\(graph.revision)").font(.caption).foregroundStyle(.secondary) }.padding(.horizontal)
                     Picker(L("视图", "View"), selection: $listMode) { Text(L("关系图", "Graph")).tag(false); Text(L("列表", "List")).tag(true) }.pickerStyle(.segmented).padding(.horizontal)
@@ -86,18 +88,17 @@ struct TaskGraphView: View {
                                 Canvas { context, _ in
                                     for edge in layout.edges {
                                         guard let from = layout.positions[edge.from], let to = layout.positions[edge.to] else { continue }
-                                        let start = CGPoint(x: from.x + 210, y: from.y + 67), end = CGPoint(x: to.x, y: to.y + 67)
-                                        var line = Path(); line.move(to: start); line.addCurve(to: end, control1: CGPoint(x: start.x + 30, y: start.y), control2: CGPoint(x: end.x - 30, y: end.y))
-                                        context.stroke(line, with: .color(.teal.opacity(0.6)), lineWidth: 2)
-                                        var arrow = Path(); arrow.move(to: CGPoint(x: end.x - 8, y: end.y - 5)); arrow.addLine(to: end); arrow.addLine(to: CGPoint(x: end.x - 8, y: end.y + 5)); context.stroke(arrow, with: .color(.teal), lineWidth: 2)
+                                        let start = CGPoint(x: from.x + cardWidth / 2, y: from.y + cardHeight), end = CGPoint(x: to.x + cardWidth / 2, y: to.y)
+                                        var line = Path(); line.move(to: start); line.addCurve(to: end, control1: CGPoint(x: start.x, y: start.y + 22), control2: CGPoint(x: end.x, y: end.y - 22))
+                                        context.stroke(line, with: .color(NanoTheme.accent.opacity(0.5)), lineWidth: 2)
+                                        var arrow = Path(); arrow.move(to: CGPoint(x: end.x - 5, y: end.y - 8)); arrow.addLine(to: end); arrow.addLine(to: CGPoint(x: end.x + 5, y: end.y - 8)); context.stroke(arrow, with: .color(NanoTheme.accent), lineWidth: 2)
                                     }
                                 }.accessibilityHidden(true)
                                 ForEach(layout.nodes) { node in
                                     Button { selected = node } label: { VStack(alignment: .leading, spacing: 9) {
                                         Text(node.title).font(.headline).lineLimit(3).foregroundStyle(.primary)
                                         Text(taskStatus(node.status)).font(.caption).foregroundStyle(.teal)
-                                        if !node.description.isEmpty { Text(node.description).font(.caption).lineLimit(2).foregroundStyle(.secondary) }
-                                    }.padding(12).frame(width: 210, height: 134, alignment: .topLeading).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border)) }.buttonStyle(.plain)
+                                    }.padding(16).frame(width: cardWidth, height: cardHeight, alignment: .topLeading).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border)) }.buttonStyle(.plain)
                                         .offset(x: layout.positions[node.id]?.x ?? 0, y: layout.positions[node.id]?.y ?? 0)
                                         .accessibilityLabel(node.title + ", " + taskStatus(node.status))
                                 }

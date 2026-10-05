@@ -113,8 +113,11 @@ struct ConversationView: View {
                 } label: { Image(systemName: uploading ? "hourglass" : "plus.circle").font(.title2).padding(.vertical, 7) }
                     .disabled(uploading || store.pending[conversationID] != nil).accessibilityLabel(L("附件、提及和命令", "Attachments, mentions and commands"))
                 ComposerTextView(text: draft, enabled: store.pending[conversationID] == nil, pastedImage: { image in Task { await uploadImage(image) } })
-                    .frame(minHeight: 40, maxHeight: 130).padding(.horizontal, 8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
                     .overlay(RoundedRectangle(cornerRadius: 13).stroke(NanoTheme.border))
+                    .overlay(alignment: .topLeading) {
+                        if draft.wrappedValue.isEmpty { Text(L("输入消息…", "Message…")).foregroundStyle(NanoTheme.muted).padding(.leading, 13).padding(.top, 9).allowsHitTesting(false) }
+                    }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
                 }.disabled(uploading || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
