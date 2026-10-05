@@ -109,3 +109,11 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - `5ab02fd65` 独立静态 R8 无具体 finding，报告由 `440093403` 提交；该提交只增加报告，未改变当前模拟器 binary。Release archive R3 成功，产物版本与哈希见 [工具链记录](../evidence/toolchain-readiness.md)。
 - 独立 P6 正在同一 binary 上检查 390/430 普通字体、大字体及直接布局交互；root 已释放 Simulator 控制。整体功能及安装验收仍未通过。
 - 专用 `e2e-feishu-testagent` profile 重新验证成功：bot/user ready、token valid。仅恢复前置条件，没有启动通道 listener，也未将此计为 S20/S21 通过。
+
+### 2026-10-05 独立 P6 完成与功能续验
+
+- [原生视觉独立 R3](acceptance-visual-r3.md)：九页 × 390/430 × 普通/大字体共 36 必需画面，另 8 交互/滚动截图；P6 scoped PASS，0 major/blocking，2 minor。已向用户展示新版登录、聊天与对话实际截图；reviewer 结论不替代用户本人后续视觉意见。
+- 清空任务搜索的立即反馈作为小修落实于 `051abdcf8`：空 query 显式 reload。visual-build-r5 成功；独立 reviewer 窄复验清空后一次观察已恢复两条任务，无再次 Return。节点内部留白保留为非阻塞 minor，不为其扩大实现循环。
+- `051abdcf8` Release archive R4 成功，版本/hash 见工具链记录。当前仅390安装此版；430保留上一版且已关闭。P6 未变页面证据 retained。
+- 恢复 `acceptance-r2` 未完成功能旅程；真实2099测试Cron已从App明确删除，后端 GET jobs 200 [] 辅助确认。整体 S1–S30 和物理安装/续签仍未通过。
+- 专用 Feishu profile 曾一次临时验证失败，随后 live App/Bot/user 全部验证通过且凭据lookup匹配；取得专用Bot listener lock，owner为本次Gateway，登记在本次e2e-down环境中。尚未把准备工作计作通道连接验收。
