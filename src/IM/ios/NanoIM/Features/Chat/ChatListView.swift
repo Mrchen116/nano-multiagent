@@ -140,8 +140,8 @@ struct DistillView: View {
                     Picker(L("执行 Agent", "Execution agent"), selection: $execution) {
                         Text(L("请选择", "Select")).tag("")
                         ForEach(executionCandidates, id: \.self) { agent in Text(agent).tag(agent) }
-                    }
-                    Picker(L("目标范围", "Target scope"), selection: $scope) { Text("Agent").tag("agent"); Text(L("全局", "Global")).tag("global") }
+                    }.pickerStyle(.navigationLink)
+                    Picker(L("目标范围", "Target scope"), selection: $scope) { Text("Agent").tag("agent"); Text(L("全局", "Global")).tag("global") }.pickerStyle(.navigationLink)
                 }
                 if let error { ErrorNotice(message: error) }
                 Button(L("生成待发草稿", "Generate draft")) { Task { await create() } }.disabled(busy || selected.isEmpty || execution.isEmpty)
