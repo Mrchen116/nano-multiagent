@@ -10,6 +10,7 @@ final class ChatStore {
     var before: [String: String] = [:]
     var drafts: [String: String] = [:]
     var attachments: [String: [ChatAttachment]] = [:]
+    var uploadDrafts: [String: [AttachmentUpload]] = [:]
     var pending: [String: PendingSend] = [:]
     var sending: Set<String> = []
     var errors: [String: String] = [:]
@@ -35,7 +36,7 @@ final class ChatStore {
         Task { await stream.stop() }
     }
     func clear() {
-        stop(); timelines = [:]; drafts = [:]; attachments = [:]; pending = [:]; conversations = []
+        stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil
     }
     func run() async {
@@ -127,8 +128,8 @@ final class ChatStore {
         let allowed = Set(values.map(\.id))
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(checkingAccess) where !allowed.contains(id) {
-            timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; pending[id] = nil
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess) where !allowed.contains(id) {
+            timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
         }
         checkingAccess = []
@@ -161,7 +162,7 @@ final class ChatStore {
             errors[id] = nil
         } catch {
             guard token == epoch, !(error is CancellationError) else { return }
-            if [403,404].contains((error as? APIError)?.status ?? 0) { timelines[id] = nil; attachments[id] = nil; drafts[id] = nil }
+            if [403,404].contains((error as? APIError)?.status ?? 0) { timelines[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; drafts[id] = nil }
             errors[id] = error.localizedDescription
         }
     }
@@ -172,11 +173,61 @@ final class ChatStore {
             if let i = conversations.firstIndex(where: { $0.id == id }) { conversations[i] = updated }
         } catch { /* Reading stays usable; the next visible message retries the boundary. */ }
     }
-    func send(_ id: String, retry: Bool = false) async {
+    func addUpload(_ id: String, data: Data?, name: String, type: String, error: String? = nil) async {
+        guard pending[id] == nil, !checkingAccess.contains(id), !revokedChats.contains(id), conversations.contains(where: { $0.id == id }) else { return }
+        let item = AttachmentUpload(data: data, fileName: name, contentType: type, error: error, retryable: data != nil)
+        uploadDrafts[id, default: []].append(item)
+        if data != nil { await retryUpload(id, uploadID: item.id) }
+    }
+    func removeUpload(_ id: String, uploadID: UUID) {
+        guard pending[id] == nil else { return }
+        uploadDrafts[id]?.removeAll { $0.id == uploadID && !$0.uploading }
+    }
+    func retryUpload(_ id: String, uploadID: UUID) async {
+        guard pending[id] == nil, !checkingAccess.contains(id), !revokedChats.contains(id),
+              let index = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }),
+              let item = uploadDrafts[id]?[index], let data = item.data,
+              item.retryable, !item.uploading, (item.retryAt ?? .distantPast) <= Date() else { return }
+        let token = epoch
+        uploadDrafts[id]?[index].uploading = true
+        uploadDrafts[id]?[index].error = nil
+        do {
+            // The server applies its current policy; a fixed client limit would reject valid files.
+            let attachment = try await client.upload(data, fileName: item.fileName, contentType: item.contentType, conversationID: id)
+            guard token == epoch, !revokedChats.contains(id), conversations.contains(where: { $0.id == id }),
+                  uploadDrafts[id]?.contains(where: { $0.id == uploadID }) == true else { return }
+            uploadDrafts[id]?.removeAll { $0.id == uploadID }
+            attachments[id, default: []].append(attachment)
+        } catch {
+            guard token == epoch, let current = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }) else { return }
+            let api = error as? APIError
+            if [403,404].contains(api?.status ?? 0) {
+                timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+                errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+                await loadConversations()
+                return
+            }
+            let reason: String
+            switch api?.status {
+            case 413: reason = L("文件超过服务允许的大小。", "The file exceeds the server's size limit.")
+            case 415: reason = L("不支持此文件格式。", "This file format is not supported.")
+            case 507: reason = L("暂时无法上传附件。", "Attachments cannot be uploaded right now.")
+            case 429: reason = L("上传过于频繁，请稍后重试。", "Uploads are temporarily rate limited. Try again later.")
+            default: reason = L("上传失败，请重试。", "Upload failed. Please retry.")
+            }
+            uploadDrafts[id]?[current].uploading = false
+            uploadDrafts[id]?[current].error = reason
+            uploadDrafts[id]?[current].retryable = ![413,415].contains(api?.status ?? 0)
+            let delay = max(api?.retryAfter ?? 0, api?.status == 429 ? 2 : 0)
+            uploadDrafts[id]?[current].retryAt = delay > 0 ? Date().addingTimeInterval(delay) : nil
+        }
+    }
+    func send(_ id: String, retry: Bool = false, textOnly: Bool = false) async {
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
         if !retry {
-            guard pending[id] == nil else { return }
-            let content = drafts[id] ?? "", files = attachments[id] ?? []
+            guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),
+                  textOnly || (uploadDrafts[id] ?? []).isEmpty else { return }
+            let content = drafts[id] ?? "", files = textOnly ? [] : attachments[id] ?? []
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return }
             pending[id] = PendingSend(content: content, attachments: files)
         }
@@ -190,7 +241,8 @@ final class ChatStore {
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: [TimelineItem(type: "message", message: message)], older: false, discarded: discarded)
             pending[id] = nil
             if drafts[id] == draft.content { drafts[id] = "" }
-            attachments[id] = []
+            let sentIDs = Set(draft.attachments.map(\.id))
+            attachments[id]?.removeAll { sentIDs.contains($0.id) }
             await loadConversations()
         } catch {
             guard token == epoch, !(error is CancellationError) else { return }

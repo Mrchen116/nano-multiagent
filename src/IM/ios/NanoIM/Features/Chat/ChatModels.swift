@@ -31,6 +31,16 @@ struct ChatAttachment: Codable, Sendable, Hashable, Identifiable {
     var file_name: String?
     var id: String { url }
 }
+struct AttachmentUpload: Identifiable, Sendable {
+    let id = UUID()
+    let data: Data?
+    let fileName: String
+    let contentType: String
+    var uploading = false
+    var error: String?
+    var retryAt: Date?
+    var retryable = true
+}
 struct ChatToolCall: Codable, Sendable, Identifiable {
     var id: String
     var name: String

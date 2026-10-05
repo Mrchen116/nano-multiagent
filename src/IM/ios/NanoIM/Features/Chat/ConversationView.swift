@@ -9,7 +9,6 @@ struct ConversationView: View {
     @State private var photo: PhotosPickerItem?
     @State private var pickingPhoto = false
     @State private var importing = false
-    @State private var uploading = false
     @State private var commands: [ChatCommandSet] = []
     @State private var bottomVisible = true
     @State private var firstLoaded = false
@@ -17,6 +16,8 @@ struct ConversationView: View {
     @State private var operationError: String?
     private var conversation: Conversation? { store.conversations.first { $0.id == conversationID } }
     private var items: [TimelineItem] { store.timelines[conversationID] ?? [] }
+    private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
+    private var uploading: Bool { uploads.contains(where: \.uploading) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
     var body: some View {
         VStack(spacing: 0) {
@@ -95,6 +96,36 @@ struct ConversationView: View {
                     HStack { Image(systemName: "paperclip"); Text(item.file_name ?? L("附件", "Attachment")).lineLimit(1); Button { store.attachments[conversationID]?.removeAll { $0.id == item.id } } label: { Image(systemName: "xmark.circle.fill") } }.font(.caption).padding(8).background(.quaternary, in: Capsule())
                 } } }.disabled(store.pending[conversationID] != nil)
             }
+            if !uploads.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(uploads) { item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(item.fileName).lineLimit(1)
+                                    Spacer()
+                                    if item.uploading { ProgressView() }
+                                    else {
+                                        Button(L("移除", "Remove")) { store.removeUpload(conversationID, uploadID: item.id) }
+                                        if item.retryable {
+                                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                                let seconds = max(0, Int(ceil((item.retryAt ?? .distantPast).timeIntervalSince(context.date))))
+                                                Button(seconds > 0 ? L("等待 \(seconds) 秒", "Wait \(seconds)s") : L("重试", "Retry")) {
+                                                    Task { await store.retryUpload(conversationID, uploadID: item.id) }
+                                                }.disabled(seconds > 0)
+                                            }
+                                        }
+                                    }
+                                }
+                                if let error = item.error { Text(error).foregroundStyle(.red) }
+                            }.font(.caption).padding(8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }.frame(maxHeight: 140).disabled(store.pending[conversationID] != nil)
+                Button(L("仅发送文字，保留附件", "Send text only; keep attachments")) {
+                    Task { await store.send(conversationID, textOnly: true) }
+                }.font(.caption).disabled(uploading || store.pending[conversationID] != nil || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
             HStack(alignment: .bottom, spacing: 8) {
                 Menu {
                     Button(L("照片", "Photos"), systemImage: "photo") { pickingPhoto = true }
@@ -120,10 +151,9 @@ struct ConversationView: View {
                     }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
-                }.disabled(uploading || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
+                }.disabled(!uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
                     .accessibilityLabel(L("发送", "Send"))
             }
-            if uploading { ProgressView(L("正在上传…", "Uploading…")) }
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)
             .overlay(alignment: .top) { Rectangle().fill(NanoTheme.border).frame(height: 0.5) }
     }
@@ -140,19 +170,15 @@ struct ConversationView: View {
         do {
             for url in try result.get() {
                 let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let values = try url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
-                guard (values.fileSize ?? 0) <= 10 * 1024 * 1024 else { operationError = L("单个文件不能超过 10 MB。", "Each file must be no larger than 10 MB."); continue }
-                await upload(try Data(contentsOf: url), name: url.lastPathComponent, type: values.contentType?.preferredMIMEType ?? "application/octet-stream")
+                let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.preferredMIMEType ?? "application/octet-stream"
+                do { await upload(try Data(contentsOf: url), name: url.lastPathComponent, type: type) }
+                catch { await store.addUpload(conversationID, data: nil, name: url.lastPathComponent, type: type, error: L("无法读取此文件，请重新选择。", "This file could not be read. Please select it again.")) }
             }
         } catch { operationError = error.localizedDescription }
     }
     private func upload(_ data: Data, name: String, type: String) async {
-        uploading = true; operationError = nil; defer { uploading = false }
-        do {
-            let attachment = try await store.client.upload(data, fileName: name, contentType: type, conversationID: conversationID)
-            guard store.conversations.contains(where: { $0.id == conversationID }) else { return }
-            store.attachments[conversationID, default: []].append(attachment)
-        } catch { operationError = error.localizedDescription }
+        operationError = nil
+        await store.addUpload(conversationID, data: data, name: name, type: type)
     }
     private func fork(_ message: ChatMessage) async {
         do {

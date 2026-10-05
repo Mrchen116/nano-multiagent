@@ -153,3 +153,12 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - `6155e1b86` Release archive R6成功，已保存对应unsigned IPA并核实bundle ID、版本、最低iOS与Release ATS限制，hash见工具链记录。产品R6仍在续验；此归档不等同免费签名/真机通过。
 
 - [产品R6与S1–S30当前合并表](acceptance-r6.md)已完成：已观察major均关闭，仍为inconclusive。12:48 CUA再次明确Mac locked后停止；用户手动解锁前不重试。停在未提交的578 Group R6新群草稿，原生6155e1b86；保留隔离服务与现场用于恢复。
+
+### 2026-10-05 R7 续验与附件失败处理补齐
+
+- [产品R7与最新S1–S30合并表](acceptance-r7.md)新增通过注册准入、群管理、无设备/路径、配置能力、Skills/Cron/心跳、绑定拒绝/过期、节点离线恢复与策略失败草稿旅程。单次loopback 429/503夹具仅对本次明确请求返回故障，不转发或记录密码；`b8f9a9bc6` 中文提示经原生窄复验通过，下一次真实登录恢复成功。R14独立静态无finding。
+- 单实例恢复第二节点自启动服务并核实两个节点online；没有留下SIGSTOP。策略失败后全字段仍等于原baseline。临时绑定拒绝/过期operation及其链接、非法目录夹具均已清理。
+- 仅为390 Simulator创建独立`578 Test Files`容器，提供新命名的83-byte TXT、两页PDF和16-MiB文件，无私人内容/产品配置变化。TXT经原生选择、带文字发送给专用测试真人、Quick Look显示正确标记已证明；分享入口存在，但13:55 Mac锁屏使导出点击/保存结果无法验证，立即停止UI。
+- root核对S11发现硬编码10MiB违反当前服务15MiB策略，且失败文件未逐项保留。移除客户端固定阈值，由当前服务限制裁决；失败数据按聊天保留，显示移除/适用重试和Retry-After倒计时，普通发送在失败项存在时禁用。显式“仅发送文字，保留附件”保留失败文件及所有已上传未发送附件；撤权/账号清理销毁本次失败数据，迟到上传不能恢复旧账号内容。
+- 原生25项测试通过（15 XCTest+10 Swift Testing），新增状态契约验证失败阻止普通发送、仅文字保留全部附件、重试使用原字节、遵守Retry-After，以及clear后迟到上传不回填。日志`/tmp/nano-feat578-attachment-tests-r10.log`，xcresult为`Test-NanoIM-2026.10.05_14-00-20-+0800.xcresult`。此处实现缺口依据源码与当前契约核对，未宣称16MiB或故障UI已复现/修复通过。
+- 锁屏后不尝试绕过，已请求用户手动解锁。S11新候选仍需独立静态审查、重新归档及实际失败/冷却/仅文字/删除复验；整体Full门禁、Mini与真机安装续签仍未收口，无PR/生产部署。
