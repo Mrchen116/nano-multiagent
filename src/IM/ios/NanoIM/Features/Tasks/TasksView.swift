@@ -32,7 +32,7 @@ struct TasksView: View {
             if items.isEmpty, error == nil, !loading { ContentUnavailableView(L("暂无任务", "No tasks"), systemImage: "point.3.connected.trianglepath.dotted", description: Text(L("在聊天中让 Agent 建立计划。", "Ask an agent to create a plan in chat."))) }
         }.nanoList().nanoRootTitle(L("任务", "Tasks"))
             .refreshable { await load() }
-            .onSubmit(of: .search) { Task { await load() } }
+            .onSubmit { Task { await load() } }
             .task(id: "\(phase == .active)-\(visible)") { guard phase == .active, visible else { return }; while !Task.isCancelled { await load(preservePages: true); try? await Task.sleep(for: .seconds(3)) } }
             .onAppear { visible = true }.onDisappear { visible = false }
     }

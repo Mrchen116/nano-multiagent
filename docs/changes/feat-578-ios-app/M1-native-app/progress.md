@@ -95,3 +95,5 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 已目视并保存 `output/feat578/native-visual-{login,chats,tasks}.png`（本地缓存不提交）。Agent 列表/详情与配置已目视 R1；R2 修改后的这些页面、聊天详情、任务图、管理代表页、390/430 及 Dynamic Type 尚待完成，不能宣称 P6 通过。
 - `visual-build-r1/r2` 构建成功；`/tmp/nano-feat578-visual-tests-r1.log` XCTest 12 + Swift Testing 10，共 22 tests passed。无 API/权限范围调整。最后配置 DisclosureGroup onChange 的闭合位置恢复到外层 Section，需最终编译覆盖。
 - Mac 锁屏使 CUA 无法继续，已请求用户手动解锁；不绕过锁屏，不恢复功能旅程或真机门槛。六条新会话为真实隔离服务的测试 fixture，未硬编码到 App。
+- 本轮最终提交 `c8eafc360` Release archive 成功（`/tmp/nano-feat578-visual-archive-r1.log`），覆盖最后配置 onChange 调整；产物为 `output/feat578/NanoIM-c8eafc360-unsigned.ipa`，仅供后续重签安装，不声明真机已安装或视觉通过。
+- 独立静态 R6 发现普通 TextField 仍监听 `.search` submit trigger，键盘搜索不会即时查询；root 已改为普通 `.onSubmit`，保留现有 load()/分页逻辑。静态 verifier 明确 P6 尚未通过；该缺口不以 archive/tests 掩盖。
