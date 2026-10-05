@@ -192,3 +192,10 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - R11-01 major直接复现：API的配置标记锚定M2请求且位于M2前，原生两次显示在M2后。TimelineMerge保留先缓存M2，再追加迟到标记，是此顺序的实际原因。新增原生回归测试在旧实现失败，日志`/tmp/nano-feat578-timeline-red-r12.log`；测试包含已缓存请求、后续配置标记、最终回复和重复刷新。
 - 修复按服务与Web的created_at/id顺序排列消息，按before_message_id把标记紧邻对应请求之前；尚未载入锚消息的标记保留在内存但暂不渲染。现有分页测试原将121条消息设为相同日期却期待数字ID顺序，已改为各条实际递增时间，保留跨两页恢复及旧cursor断言。
 - 全27项原生测试通过（17 XCTest+10 Swift Testing），日志`/tmp/nano-feat578-timeline-green-r12b.log`，xcresult `Test-NanoIM-2026.10.05_15-55-51-+0800.xcresult`。第一次全量的同日期fixture失败完整保留在`timeline-green-r12.log`，未当作通过。实际新包M2顺序和下一轮迟到标记仍需独立UI复验；未先关闭R11-01或整体Full门禁。
+
+### R12 分界闭环与发送布局现场
+
+- [产品R12](acceptance-r12.md)直接核实已有M2与唯一实时M3分界均紧邻对应请求前，R11-01关闭。root实际API核对M3请求、peer completed回复和唯一新标记；profile_version11、custom_prompt空，除版本/更新时间外与v9 baseline全部字段一致。独立静态R18无finding，旧有效范围保留。
+- R12-01 major：原生唯一多行bash算数请求发送后界面停在旧M2/M3与发送spinner；API请求已持久、peer真实bash调用1次并completed500500，App2067 CPU99.0%。2秒sample保存为`/tmp/nano-feat578-native-send-sample-r12.txt`，1267主线程样本中1257处于SwiftUI GraphHost.flushTransactions，持续更新布局；没有先重启、重复发送或将服务完成冒充UI完成。
+- 窄候选移除LazyVStack底部行的onAppear/onDisappear状态写入，使用滚动geometry的实际visibleRect计算底部可见性；build-r13成功。此为待实测候选，采样不单独证明具体回调根因；同多行发送、历史保持与Latest需要真实UI复验。
+- `f77b34633`设备归档成功，hash及准确限制见工具链记录；它仍含R12-01，不能作为已验收安装候选。Mini只读SSH再次8秒超时，未修改该机器或生产服务。用户真机后置约定保持。

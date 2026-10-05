@@ -51,9 +51,13 @@ struct ConversationView: View {
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")
-                            .onAppear { bottomVisible = true }
-                            .onDisappear { bottomVisible = false }
                     }.padding()
+                }
+                // Lazy row recycling is not viewport visibility, especially while the composer resizes.
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.visibleRect.maxY >= geometry.contentSize.height - 24
+                } action: { _, visible in
+                    bottomVisible = visible
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
