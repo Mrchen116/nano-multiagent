@@ -135,3 +135,6 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 心跳续存实际被operation_conflict拒绝，节点online且未暂停。对比最后committed candidate与Gateway本地配置规范化快照，仅heartbeat_json不同：持久化`{}`，运行时未配置为null。两者节律相同却导致指纹不同。
 - 仅在IM与Gateway的fingerprint入口等价化空对象与null；wire仍保留`{}`，避免破坏显式清空（持久化层null代表保留）的语义。跨两端回归先红，修复后配置操作单元/恢复/集成/契约50项通过，窄Ruff/diff通过，日志`/tmp/nano-feat578-heartbeat-empty-{red,green}.log`。
 - reviewer还观察到顶部保存后字段禁用，结果提示位于长表单底部而不可见。原生改为错误或确认结果出现时滚到已有状态/恢复操作区；不新增保存状态或改变草稿逻辑。functional-build-r6成功，仍待安装及实际冲突/成功窄复验。
+- 独立静态 R11 无具体 finding，保留wire显式清空语义与既有保存状态分支，实际滚动/保存交由产品窄复验。
+- [产品 R4](acceptance-r4.md) 已完成e2e专用飞书通道：v1新增并实际连接、v2保留密钥、v3替换为同一测试密钥并连接、v4停用并实际停用、确认删除后列表为空。未外发消息/改平台权限；root实际API核实删除后释放listener锁。S20本轮凭据旅程通过，S21未完分支仍inconclusive。
+- reviewer交还UI后，正常终止本次旧IM/Gateway并从`ba202f5d3`启动：新IM72554、Gateway72564，两node均online，DB/config不重建；第二绑定node保持原进程。390安装functional-build-r6，AppPID72595。只更新本次隔离资源。
