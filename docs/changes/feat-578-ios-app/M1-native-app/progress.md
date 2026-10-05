@@ -117,3 +117,10 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - `051abdcf8` Release archive R4 成功，版本/hash 见工具链记录。当前仅390安装此版；430保留上一版且已关闭。P6 未变页面证据 retained。
 - 恢复 `acceptance-r2` 未完成功能旅程；真实2099测试Cron已从App明确删除，后端 GET jobs 200 [] 辅助确认。整体 S1–S30 和物理安装/续签仍未通过。
 - 专用 Feishu profile 曾一次临时验证失败，随后 live App/Bot/user 全部验证通过且凭据lookup匹配；取得专用Bot listener lock，owner为本次Gateway，登记在本次e2e-down环境中。尚未把准备工作计作通道连接验收。
+
+### 功能续验发现：心跳保存后读回缺字段
+
+- 独立产品 R3 用真实键盘输入24h、03:00–03:01，暂停节点提交后出现pending，恢复节点重读显示已确认但字段为空。已将临时心跳关闭，当前实际feature为false。
+- 只读核对同一真实operation：candidate与Gateway applied result均保存完整cadence；问题在既有IM live读取合并重新构造AgentProfile时漏传heartbeat_json，默认为null。不是原生绑定或写入丢失；Web使用同一路径也受影响。
+- 服务端修复只保留既有persisted heartbeat_json，不新增接口或管理能力。扩展已有live配置契约测试，修复前复现NoneType失败；补字段后配置契约、API集成及operation flow共32项通过（`/tmp/nano-feat578-heartbeat-{red,green}.log`），窄Ruff/diff检查通过。
+- 本次自有IM需协调重启载入修复，再由reviewer窄复验；生产、Gateway与DB保持原状。此处不将尚未完成的原生复验记作通过。
