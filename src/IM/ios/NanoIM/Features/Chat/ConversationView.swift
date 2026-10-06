@@ -338,6 +338,10 @@ struct ComposerTextView: UIViewRepresentable {
     }
     final class PasteTextView: UITextView {
         var imagePasted: ((UIImage) -> Void)?
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            if action == #selector(paste(_:)), UIPasteboard.general.hasImages { return isEditable }
+            return super.canPerformAction(action, withSender: sender)
+        }
         override func paste(_ sender: Any?) {
             if isEditable, let image = UIPasteboard.general.image { imagePasted?(image) }
             else { super.paste(sender) }

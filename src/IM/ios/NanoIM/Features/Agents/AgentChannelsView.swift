@@ -39,7 +39,7 @@ struct AgentChannelsView: View {
         LabeledContent(L("配置版本 / 同步", "Revision / sync"), value: "\(channel.channel_revision ?? 0) · \(channel.sync_state ?? "unknown")")
         if let observed = channel.observed {
             LabeledContent(observed.status_stale == true ? L("最后已知连接状态", "Last known connection state") : L("实际连接状态", "Observed connection state"), value: connectionLabel(observed.connection_state))
-            Text(observed.status_updated_at).font(.caption).foregroundStyle(.secondary)
+            NanoDateTime(value: observed.status_updated_at).font(.caption).foregroundStyle(.secondary)
             if observed.status_stale == true { Text(L("节点离线或状态已过期；此状态并非当前连接确认。", "Node offline or status stale; this is not a current connection confirmation.")).font(.caption) }
             if let message = observed.status_message, !message.isEmpty { Text(message) }
             if let code = observed.status_code, !code.isEmpty { Text(code).font(.caption).textSelection(.enabled) }
@@ -76,7 +76,7 @@ struct AgentChannelsView: View {
         switch state { case "connected": return L("已连接", "Connected"); case "limited": return L("连接受限", "Limited"); case "connecting": return L("连接中", "Connecting"); case "failed": return L("连接失败", "Failed"); case "disabled": return L("已停用", "Disabled"); default: return state }
     }
     private func load() async {
-        do { let value: [AgentChannel] = try await client.get(base); guard !Task.isCancelled else { return }; channels = value; loaded = true }
+        do { let value: [AgentChannel] = try await client.get(base); guard !Task.isCancelled else { return }; channels = value; loaded = true; error = nil }
         catch { if !Task.isCancelled { self.error = agentError(error); loaded = true; if let api = error as? APIError, [401, 403, 404].contains(api.status) { channels = [] } } }
     }
     private func toggle(_ channel: AgentChannel) async {
@@ -93,6 +93,8 @@ struct AgentChannelsView: View {
             let path = removal ? agentPath(agentID) + "/channel-removals/" + agentSegment(channel.id) + "/actions/retry" : base + "/" + agentSegment(channel.id) + "/actions/reconnect"
             let _: AgentChannel = try await client.send(path, body: [String: String]())
             await load()
+        } catch let failure as APIError where failure.status == 409 {
+            error = L("通道操作与当前状态冲突，请重读通道状态后重试。", "The channel state changed. Reload its status before retrying.")
         } catch { self.error = agentError(error) }
     }
     private func remove(_ channel: AgentChannel) async {

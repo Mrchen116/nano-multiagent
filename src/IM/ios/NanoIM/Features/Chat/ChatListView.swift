@@ -170,7 +170,7 @@ struct DistillView: View {
         struct Source: Encodable, Sendable { let conversation_id: String; let source_agent_id: String }
         struct Body: Encodable, Sendable { let sources: [Source]; let execution_agent_id: String; let target_scope: String }
         struct Result: Decodable, Sendable { let conversation: Conversation; let prompt: String }
-        busy = true; defer { busy = false }
+        busy = true; error = nil; defer { busy = false }
         do {
             let nodes: [AgentNode] = try await store.client.get("/im/v1/nodes")
             if let node = nodes.first(where: { $0.id == sources.first?.source_node_id }), node.status == "offline" {
@@ -180,6 +180,8 @@ struct DistillView: View {
             let response: Result = try await store.client.send("/im/v1/conversations/distill-prompt", body: Body(sources: sources.map { Source(conversation_id: $0.id, source_agent_id: $0.source_agent_id!) }, execution_agent_id: execution, target_scope: scope))
             await store.loadConversations()
             completed(response.conversation.id, response.prompt)
+        } catch let failure as APIError where ["source session binding is unavailable", "source session file is unavailable"].contains(failure.detail) {
+            error = L("来源会话暂无可整理的执行记录。请选择已有 Agent 回复的会话，或先在该会话完成一轮对话。", "No execution history is available for this source. Select a conversation with an Agent reply, or complete a turn there first.")
         } catch { self.error = error.localizedDescription }
     }
 }

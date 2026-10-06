@@ -69,3 +69,10 @@ R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题�
 剩余受影响实际范围为eligible direct的fork取消/确认历史、已知离线来源的新提示、修复后真人提醒及点击。reviewer与root各自fresh截图后的Back坐标均被操作工具 `noWindowsAvailable` 拒绝；AX读取和Raise后截图可用，导航没有发生，不能将环境阻碍判成产品Back失败。双方停止重复操作，本轮没有新的banner marker、fork或蒸馏draft。当前无草稿/附件/表单的阅读断点已保留；主动图片paste、模拟器无VoiceOver入口、真实Work pending前置及外部通道余项仍按报告保留未验，真机按用户要求后置，整体仍未完整通过。
 
 收尾再次核对远端main仍为PR #323/`d87ffa3d1`且已是本分支祖先，没有待合入提交。已正常停止本次隔离IM/Gateway及恢复helper，自有PID与62008 listener均消失、Tailscale Serve为 `{}`；0600恢复配置与fixture保留，未清空App/数据、改变主仓或生产。文档检查通过310份维护Markdown/75条必需路由，未推送、建PR或宣布Full accepted。后续恢复隔离服务与操作工具后只继续明确余项，不机械重跑已有效范围。
+## 模拟器继续验收 R3 后的小批修正
+
+[R3](acceptance-simulator-r3.md) 已实际关闭 fork 取消/确认、正常整理草稿、离线中文和真人提醒点击；旧操作器失败保留。current global Work 人工 pending 前置按独立现行契约核对为不适用，不伪造审批。完整 VoiceOver 和安装/续签按用户安排后置物理设备。
+
+图片专用剪贴板在独立430实际 hasImages=true、hasStrings=false 时，旧 PasteTextView 的系统 Paste 能力断言失败。最小修正 canPerformAction，仅可编辑输入框开放图片 Paste；实际 paste(_:)、草稿保持和上传通路复用。初次读取旧剪贴板的测试 fixture 卡在系统隐私拦截，未记为红测；修正后红测见 /tmp/nano-feat578-image-paste-red2.log。全36项原生测试已绿 /tmp/nano-feat578-image-paste-green.log；独立390实际 Photos Copy→Paste→待发预览仍需复验。
+
+同时修实际已报告的无来源执行记录裸英文、心跳/通道原始UTC时间、通道409的配置草稿用语及重读遗留错误。只使用既有本地日期组件和明确API错误，不增加兼容/兜底路径。新的 source 批次冻结后进行独立静态和受影响产品复验；S21继续真实隔离 Gateway 故障条件，未宣称 Full accepted 或 PR ready。

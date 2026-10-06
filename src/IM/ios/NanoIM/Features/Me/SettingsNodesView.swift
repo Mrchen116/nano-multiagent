@@ -79,7 +79,7 @@ struct SettingsNodeView: View {
                 LabeledContent(L("设备名称", "Device name"), value: node.node_name)
                 LabeledContent(L("设备 ID", "Device ID"), value: node.node_id).textSelection(.enabled)
                 LabeledContent(L("状态", "Status"), value: settingsStatus(node.status))
-                LabeledContent(L("最近心跳", "Last heartbeat"), value: node.last_heartbeat_at)
+                LabeledContent(L("最近心跳", "Last heartbeat")) { NanoDateTime(value: node.last_heartbeat_at) }
                 LabeledContent(L("版本", "Version"), value: node.version)
                 LabeledContent("Agent", value: String(node.agent_count))
                 if let message = node.last_error, !message.isEmpty { Text(message).foregroundStyle(.secondary).textSelection(.enabled) }

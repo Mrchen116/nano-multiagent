@@ -268,3 +268,10 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - [独立模拟器R2](acceptance-simulator-r2.md)已完成有界报告：短/长正文实际clipboard与“已复制正文”反馈、统计子控件通过；fork、离线新提示及真人提醒点击未复验。root自己的fresh截图后可见Back坐标也被 `-10005 noWindowsAvailable` 拒绝，双方停止重复UI；窗口截图恢复不等于坐标恢复，没有证据认定本次Mac锁屏或产品返回故障。安全断点为 `c_zia690ag` 阅读页/统计展开、空草稿、Send禁用、无附件或sheet，未回Chats，也无本轮新marker/fork/蒸馏draft。
 - 收尾再次fetch远端main，`origin/main`/`FETCH_HEAD`仍为 `d87ffa3d19160d45d309f281b0ace4ff92f55a38`（PR #323，2026-10-05 01:46:41 +08:00）；ancestor检查通过，无遗漏的新主线提交。没有改生产、手机或主仓dirty内容；静态/契约通过与实际产品未验严格分开，完整模拟器及Full仍未accepted。
 - 22:54后正常停止本次精确tmux pane的恢复helper，30429/30438/30445全部退出，62008及19443无listener、自有tmux消失，Tailscale Serve仍为 `{}`。0600恢复配置及原fixture数据保留，390阅读断点未清空；测试入口暂停期间的连接失败不能算产品故障。后续需操作工具恢复后续验明确余项，未推送、建PR或部署生产。
+### 2026-10-07 继续模拟器验收 R3 与图片粘贴修复
+
+- 用户只要求跳过真机，模拟器继续。恢复原隔离 IM62008/Gateway、DB/config；操作器实际返回与导航成功，旧 noWindowsAvailable 不再作为停止原因。远端 main 仍 d87ffa3d1、已在本分支中。
+- [模拟器 R3](acceptance-simulator-r3.md) 实际关闭 fork 取消/确认前缀、离线中文、正常蒸馏待发草稿和真人 banner 点击/精确已读。新 fork/草稿保留，不发送蒸馏。 [独立范围核对](verification-simulator-scope-r1.md) 确认 current global Work 不生成人工 pending；不伪造审批。完整 VoiceOver 需物理设备，随用户安排后置。
+- Photos 主动拷贝后原生无 Paste。独立430的图片专用剪贴板测试实际复现 canPerformAction(paste) 为 false；修正仅为图片粘贴开放系统菜单能力，仍仅在用户实际 Paste 时读取图片。第一次测试读取旧剪贴板被系统拦截，保留 sample/log，不当产品红测；修正 fixture 后真实红测日志 /tmp/nano-feat578-image-paste-red2.log，唯一 Paste 能力断言失败。
+- 同批处理实际已报告的三个小问题：无来源执行记录时中文解释恢复路径、心跳/通道更新时间使用已有本地格式、通道409反馈符合通道状态且重读成功清旧错误。没有改变权限、API、数据或原生粘贴交互模式。
+- 全36项原生测试通过（26 XCTest + 10 Swift Testing）；/tmp/nano-feat578-image-paste-green.log，xcresult Test-NanoIM-2026.10.07_01-13-53-+0800.xcresult。独立产品 Paste/上述显示复验和 S21 受控停止失败链路继续，未将自动测试视为实际产品通过；物理手机保持8e03b3e78不触碰。
