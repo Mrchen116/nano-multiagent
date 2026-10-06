@@ -277,3 +277,6 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 全36项原生测试通过（26 XCTest + 10 Swift Testing）；/tmp/nano-feat578-image-paste-green.log，xcresult Test-NanoIM-2026.10.07_01-13-53-+0800.xcresult。独立产品 Paste/上述显示复验和 S21 受控停止失败链路继续，未将自动测试视为实际产品通过；物理手机保持8e03b3e78不触碰。
 
 - [静态 R2](code-review-simulator-r2.md) 确认通道409仍须区分实际 channel_node_offline；root按已保留APIError.code显示节点恢复在线后重试，其余409保留通道状态反馈。仅该中文恢复指引窄修，Simulator build通过 /tmp/nano-feat578-channel-offline-build.log；36项原生测试前述有效范围保留，实际离线操作仍需独立UI闭环。
+
+- e99实际通道续验已观察unknown、受控group_missing及恢复真实平台8项satisfied；旧mouse wheel/drag未滚动的工具阻碍由fresh AX明确Scroll Down/Up辅助操作解锁，不当产品故障。短暂暂停68秒未捕捉offline，已恢复并保留失败fixture；随后正常退出own Gateway、真实WS断开及权威offline确认，不伪造节点状态。
+- 独立S21离线重连实际两次409、无副作用；新中文反馈在即时1秒观察及Scroll Up后均未保留。根因是3秒自动load成功无条件清本地action error。最小修正显式load/操作成功仍清旧错误，自动poll保留失败原因；通道真正消失时自动清旧横幅。另把实际已见reconnecting映射为正在重连。构建日志 /tmp/nano-feat578-channel-feedback-build.log；独立新包反馈、删除失败/真实重试/受控历史继续，不先宣布S21通过。

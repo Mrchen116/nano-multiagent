@@ -31,7 +31,7 @@ struct AgentChannelsView: View {
             if let deleting { Button(L("删除通道", "Delete channel"), role: .destructive) { Task { await remove(deleting) } } }
         }
         .refreshable { await load() }
-        .task(id: scenePhase) { guard scenePhase == .active else { return }; repeat { await load(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
+        .task(id: scenePhase) { guard scenePhase == .active else { return }; var firstLoad = true; repeat { await load(clearError: firstLoad); firstLoad = false; try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
     @ViewBuilder private func active(_ channel: AgentChannel) -> some View {
         LabeledContent("App ID", value: channel.config?["app_id"] ?? "—")
@@ -73,10 +73,10 @@ struct AgentChannelsView: View {
         Button(L("重试停止与删除", "Retry stop and removal")) { Task { await action(channel, removal: true) } }.disabled(busy)
     }
     private func connectionLabel(_ state: String) -> String {
-        switch state { case "connected": return L("已连接", "Connected"); case "limited": return L("连接受限", "Limited"); case "connecting": return L("连接中", "Connecting"); case "failed": return L("连接失败", "Failed"); case "disabled": return L("已停用", "Disabled"); default: return state }
+        switch state { case "connected": return L("已连接", "Connected"); case "limited": return L("连接受限", "Limited"); case "connecting": return L("连接中", "Connecting"); case "reconnecting": return L("正在重连", "Reconnecting"); case "failed": return L("连接失败", "Failed"); case "disabled": return L("已停用", "Disabled"); default: return state }
     }
-    private func load() async {
-        do { let value: [AgentChannel] = try await client.get(base); guard !Task.isCancelled else { return }; channels = value; loaded = true; error = nil }
+    private func load(clearError: Bool = true) async {
+        do { let value: [AgentChannel] = try await client.get(base); guard !Task.isCancelled else { return }; channels = value; loaded = true; if clearError || channels.isEmpty { error = nil } }
         catch { if !Task.isCancelled { self.error = agentError(error); loaded = true; if let api = error as? APIError, [401, 403, 404].contains(api.status) { channels = [] } } }
     }
     private func toggle(_ channel: AgentChannel) async {
