@@ -8,12 +8,15 @@ struct ChatMessageView: View {
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
+    private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
+            else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
             VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(message.sender.display_name ?? message.sender.id).font(.caption.bold()).foregroundStyle(.secondary)
+                Text(senderName).font(.caption.bold()).foregroundStyle(.secondary)
+                NanoTimestamp(value: message.created_at)
                 Spacer()
                 Text(status).font(.caption2).foregroundStyle(message.delivery_status == "failed" ? .red : .secondary)
             }
@@ -58,10 +61,11 @@ struct ChatMessageView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine ? Color.clear : NanoTheme.border, lineWidth: 1))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
             if !mine { Spacer(minLength: 14) }
+            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
         }
     }
     private var status: String {
-        switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return L("已完成", "Completed"); default: return L("已发送", "Sent") }
+        switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return message.sender_type == "agent" ? L("已完成", "Completed") : L("已发送", "Sent"); default: return L("已发送", "Sent") }
     }
     private var startedAt: Date? {
         let formatter = ISO8601DateFormatter()

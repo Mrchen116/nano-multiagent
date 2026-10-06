@@ -161,7 +161,15 @@ private struct RootTabs: View {
         }
         .overlay(alignment: .top) {
             if let banner = chat.banner {
-                Button { chat.banner = nil; openChat(banner.conversationID) } label: { Label(L("收到新消息", "New message"), systemImage: "bubble.left.fill").padding().background(.regularMaterial, in: Capsule()) }
+                Button { chat.banner = nil; openChat(banner.conversationID) } label: {
+                    HStack(spacing: 10) {
+                        if let conversation = chat.conversations.first(where: { $0.id == banner.conversationID }) {
+                            AvatarView(name: conversation.avatarName(selfID: user.id), kind: conversation.type == "group" ? "group" : conversation.category == "agent" ? "agent" : "person", size: 32)
+                            Text(conversation.title).font(.callout.weight(.semibold)).lineLimit(1)
+                        }
+                        Text(L("新消息", "New message")).font(.caption).foregroundStyle(NanoTheme.muted)
+                    }.padding(12).background(.regularMaterial, in: Capsule())
+                }
                     .padding(.top, 8).task(id: banner.id) { try? await Task.sleep(for: .seconds(3)); if !Task.isCancelled, chat.banner?.id == banner.id { chat.banner = nil } }
             }
         }

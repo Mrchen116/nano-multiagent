@@ -37,17 +37,32 @@ struct AvatarView: View {
     let name: String
     var online: Bool = false
     var kind: String = "person"
+    var size: CGFloat = 44
+    private var initials: String {
+        let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
+        return value.isEmpty ? "AG" : value
+    }
+    private var palette: (background: Color, foreground: Color) {
+        if kind == "group" { return (color(0x35464f), color(0xc5d8df)) }
+        // Same name seed, 32-bit hash and palette as Web's shared avatar.tsx.
+        let colors: [(UInt32, UInt32)] = [(0xe4dbcf, 0x6b5945), (0xd9dfd1, 0x506345), (0xdfd8e8, 0x69567b), (0xe7d7dc, 0x79525f), (0xcbdedb, 0x2f5954), (0xd5ddea, 0x485c7d)]
+        let hash = name.utf16.reduce(UInt32(0)) { ($0 &* 31) &+ UInt32($1) }
+        let pair = colors[Int(abs(Int64(Int32(bitPattern: hash)))) % colors.count]
+        return (color(pair.0), color(pair.1))
+    }
+    private func color(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
+    }
     var body: some View {
         Group {
             if kind == "group" { Image(systemName: "person.2.fill") }
-            else if kind == "agent" { Image(systemName: "sparkle") }
-            else { Text(String(name.prefix(1))).fontWeight(.semibold) }
+            else { Text(initials) }
         }
-        .font(.system(size: 18, weight: .medium)).foregroundStyle(kind == "person" ? NanoTheme.ink : NanoTheme.accent)
-        .frame(width: 44, height: 44)
-        .background(kind == "person" ? NanoTheme.canvas : NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 14))
+        .font(.system(size: size * 0.35, weight: .semibold)).foregroundStyle(palette.foreground)
+        .frame(width: size, height: size)
+        .background(palette.background, in: RoundedRectangle(cornerRadius: kind == "group" ? size * 0.275 : size / 2))
         .overlay(alignment: .bottomTrailing) {
-            if online { Circle().fill(NanoTheme.accent).frame(width: 9, height: 9).overlay(Circle().stroke(NanoTheme.surface, lineWidth: 2)) }
+            if online { Circle().fill(NanoTheme.accent).frame(width: size * 0.23, height: size * 0.23).overlay(Circle().stroke(NanoTheme.surface, lineWidth: 2)) }
         }.accessibilityHidden(true)
     }
 }
@@ -83,6 +98,20 @@ extension View {
             .environment(\.defaultMinListRowHeight, 60)
             .listRowSeparatorTint(NanoTheme.border)
     }
+    func nanoUnsavedChanges(_ dirty: Bool) -> some View { modifier(NanoUnsavedChanges(dirty: dirty)) }
+}
+
+private struct NanoUnsavedChanges: ViewModifier {
+    let dirty: Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmLeave = false
+    func body(content: Content) -> some View {
+        content.navigationBarBackButtonHidden(dirty)
+            .toolbar { if dirty { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
+            .confirmationDialog(L("放弃未保存的修改？", "Discard unsaved changes?"), isPresented: $confirmLeave, titleVisibility: .visible) {
+                Button(L("放弃并返回", "Discard and go back"), role: .destructive) { dismiss() }
+            }
+    }
 }
 
 func nanoDate(_ value: String) -> Date? {
@@ -100,6 +129,14 @@ struct NanoTimestamp: View {
             Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.month(.twoDigits).day())
                 .font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1)
         }
+    }
+}
+
+struct NanoDateTime: View {
+    let value: String
+    var body: some View {
+        if let date = nanoDate(value) { Text(date, format: .dateTime.year().month().day().hour().minute()).foregroundStyle(NanoTheme.muted) }
+        else { Text(value).foregroundStyle(NanoTheme.muted) }
     }
 }
 

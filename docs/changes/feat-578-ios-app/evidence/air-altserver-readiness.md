@@ -46,3 +46,15 @@ Xcode登录页仍停在空的 Email or Phone Number 输入框，尚无签名账�
 这次Xcode USB签名安装不证明AltStore导入、无线续签、Mini异地维护或自然过期恢复；S29仍缺实际运行旅程，S30继续未通过。
 
 暂停本轮手机验证前已终止本次临时Tailscale前台HTTPS Serve，`serve status --json`回到原有`{}`；正常退出本次隔离IM/Gateway，62008监听消失、原PID均退出，fixture SQLite及恢复配置保留。没有改生产或现有用户网络配置；恢复本次fixture即可继续。
+
+## 信任授权后的镜像恢复
+
+用户明确回复“我允许”，授权完成此前提出的开发者证书信任动作，不再重复索取相同确认。重新绑定镜像后坐标滚动曾返回成功但画面未移动，不能记为已到设备管理页；通过正常退出再打开iPhone Mirroring恢复会话，实际出现“iPhone镜像已锁定，输入本机Mac登录信息继续”的安全密码栏。该本机身份认证交给用户在原生窗口完成，未读取或在聊天索取Mac密码。当前仍未点击证书信任、未启动Nano IM；授权缺口已关闭，剩余直接门槛为镜像本机解锁及实际控制恢复。
+
+## 实际信任、运行与聊天
+
+2026-10-06，用户完成本机镜像解锁后，root通过Settings搜索VPN进入VPN与设备管理，在明确授权范围点击本次个人开发者证书Trust/Allow；系统显示trusted，Nano IM为Verified。手机Spotlight启动Nano IM后进入登录页，隔离Tailscale HTTPS登录成功，并在原生UI新建“578 Phone 1006”（合成Test User及owned e2e-peer）。未改生产、清理手机或启动备份。
+
+root原生键入 `@e2e-peer 23+19=? Reply only number.`，自动发送点击遇到`noWindowsAvailable`，当时API仍0条。随后用户操作现场显示已发送与回复42，API核对唯一human请求及唯一peer completed42。root未通过API代发，不能把控制失败写成root成功点击发送。物理登录、消息呈现与真实请求/回复成立，完整S29不由这两条消息证明。设备标识、token及个人签名配置继续仅存本机私有记录。
+
+用户随后否定真机的层层提及菜单、头像及整体UX，要求subagent发散对照Web和商业体验；相关P6重新打开。三份独立审视与修正范围见[本轮UX记录](../M1-native-app/ux-correction-r1.md)。实际运行不关闭AltStore、Mini异地维护、无线刷新或自然到期恢复。

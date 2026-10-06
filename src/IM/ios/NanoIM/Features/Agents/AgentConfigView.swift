@@ -157,6 +157,7 @@ struct AgentEditorFields: View {
                     ForEach(reasoning?.levels ?? [], id: \.self) { Text($0).tag($0) }
                 }
             } else { LabeledContent(L("推理强度", "Reasoning effort"), value: draft.reasoning_effort.isEmpty ? L("模型固定或未报告", "Fixed or unreported") : draft.reasoning_effort) }
+            DisclosureGroup(L("备用模型", "Fallback models") + " · \(draft.model_fallbacks.count)") {
             ForEach(Array(draft.model_fallbacks.enumerated()), id: \.offset) { index, model in
                 HStack {
                     Text("\(index + 1). \(model)")
@@ -170,6 +171,7 @@ struct AgentEditorFields: View {
                 ForEach(models.filter { $0.name != (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) && !draft.model_fallbacks.contains($0.name) }) { Text($0.name).tag($0.name) }
             }.disabled(capabilities == nil)
             .onChange(of: addingFallback) { _, value in if !value.isEmpty { draft.model_fallbacks.append(value); addingFallback = "" } }
+            }
         }
         Section(L("指令与能力", "Instructions and capabilities")) {
             DisclosureGroup(L("自定义指令", "Custom instructions")) {

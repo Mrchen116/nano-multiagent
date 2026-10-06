@@ -10,6 +10,17 @@ struct AgentWorkTurn: Codable, Identifiable, Sendable {
     var started_at: String?; var finished_at: String?; var elapsed_ms: Double?; var usage: JSONValue?
     var items: [AgentWorkItem]; var next_items_cursor: String?
     var id: String { session_id + ":" + turn_id }
+    var title: String {
+        let kind = trigger?["kind"]?.agentString ?? (origin?.agentString.isEmpty == false ? origin?.agentString : origin?["kind"].stringValue) ?? ""
+        switch kind {
+        case "inbox", "global_inbox": return L("收到新消息", "New messages")
+        case "heartbeat": return L("主动检查", "Proactive check")
+        case "cron": return (trigger?["source"]?.agentString == "manual" ? L("手动运行定时任务", "Scheduled task run manually") : L("定时任务", "Scheduled task")) + (job_id.map { " · " + $0 } ?? "")
+        case "human", "user": return L("用户输入", "User input")
+        case "background_task": return description ?? (scope == "subagent" ? L("子 Agent 执行", "Child Agent execution") : L("后台结果返回", "Background result"))
+        default: return description ?? agentScopeName(scope)
+        }
+    }
 }
 struct AgentWorkSession: Codable, Identifiable, Sendable, Hashable {
     var session_id: String; var scope: String; var job_id: String?; var trigger: String?; var parent_session_id: String?
@@ -23,6 +34,10 @@ struct AgentWorkPage: Codable, Sendable {
     var turns: [AgentWorkTurn]; var next_cursor: String?
 }
 struct AgentWorkItemPage: Codable, Sendable { var items: [AgentWorkItem]; var next_cursor: String? }
+
+func agentScopeName(_ scope: String?) -> String {
+    switch scope?.lowercased() { case "main", "global_main": return L("主执行", "Main execution"); case "subagent", "child": return L("子执行", "Child execution"); case "cron", "job": return L("定时任务", "Scheduled task"); case "heartbeat": return L("主动检查", "Proactive check"); case "workflow": return L("Workflow 执行", "Workflow execution"); default: return L("执行轮次", "Execution turn") }
+}
 
 
 /// Avoid repeated reasoning snapshots and background sidecars within one reported turn.

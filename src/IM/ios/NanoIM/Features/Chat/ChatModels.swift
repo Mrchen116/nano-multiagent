@@ -24,6 +24,11 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
         if type == "direct" { return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
     }
+    func avatarName(selfID: String) -> String {
+        guard type != "group" else { return title }
+        let peer = participants.first { category == "agent" ? $0.type == "agent" : $0.type == "user" && ($0.user_id ?? $0.id) != selfID }
+        return peer?.display_name ?? peer?.id ?? title
+    }
 }
 struct ChatAttachment: Codable, Sendable, Hashable, Identifiable {
     var url: String

@@ -83,9 +83,11 @@ struct SettingsAccountView: View {
                 SettingsFeedback(error: error, success: success)
                 Section(L("个人资料", "Profile")) {
                     LabeledContent(L("用户名", "Username"), value: profile.username)
-                    LabeledContent(L("账号 ID", "Account ID"), value: profile.user_id).textSelection(.enabled)
-                    TextField(L("显示名称", "Display name"), text: $name)
-                    LabeledContent(L("创建时间", "Created"), value: profile.created_at)
+                    VStack(alignment: .leading, spacing: 6) { Text(L("显示名称", "Display name")).font(.caption).foregroundStyle(NanoTheme.muted); TextField(L("显示名称", "Display name"), text: $name) }.padding(.vertical, 4)
+                    DisclosureGroup(L("账号信息", "Account information")) {
+                        LabeledContent(L("账号 ID", "Account ID"), value: profile.user_id).textSelection(.enabled)
+                        LabeledContent(L("创建时间", "Created")) { NanoDateTime(value: profile.created_at) }
+                    }
                 }
                 Section {
                     Picker(L("默认入口设备", "Default entry device"), selection: $defaultNode) {
@@ -114,6 +116,8 @@ struct SettingsAccountView: View {
         }
         .navigationTitle(L("个人资料与语言", "Profile and language"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .nanoUnsavedChanges(dirty)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(busy || !dirty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
         .task { await load() }
     }
 

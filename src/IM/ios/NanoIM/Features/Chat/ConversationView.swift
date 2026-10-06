@@ -14,6 +14,16 @@ struct ConversationView: View {
     @State private var firstLoaded = false
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
+    @State private var selection = NSRange(location: 0, length: 0)
+    @State private var editing = false
+    @State private var composing = false
+    @State private var focusRequest: ComposerFocusRequest?
+    @State private var dismissedCompletion = false
+    @State private var copied = false
+    @State private var loadingHistory = false
+    @State private var viewport = CGRect.zero
+    @ScaledMetric(relativeTo: .body) private var mentionRowHeight = 48.0
+    @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
     private var conversation: Conversation? { store.conversations.first { $0.id == conversationID } }
     private var items: [TimelineItem] {
         let timeline = store.timelines[conversationID] ?? []
@@ -33,19 +43,29 @@ struct ConversationView: View {
                         if store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
                                 let anchor = items.first?.id
-                                Task { await store.loadChat(conversationID, older: true); if let anchor { scroll.scrollTo(anchor, anchor: .top) } }
-                            }.frame(maxWidth: .infinity)
+                                loadingHistory = true
+                                Task { await store.loadChat(conversationID, older: true); if let anchor { scroll.scrollTo(anchor, anchor: .top) }; loadingHistory = false }
+                            }.disabled(loadingHistory).frame(maxWidth: .infinity)
+                            if loadingHistory { ProgressView(L("正在加载历史…", "Loading history…")).frame(maxWidth: .infinity) }
                         }
                         ForEach(items) { item in
                             if let message = item.message {
                                 ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], refreshed: { Task { await store.loadChat(conversationID) } })
                                     .id(item.id).contextMenu {
-                                        Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content }
+                                        Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
+                                            UIPasteboard.general.string = MarkdownContent.copy(ChatText.display(message.content, participants: conversation?.participants ?? []))
+                                            copied = true
+                                        }
                                         if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
                                             Button(L("从这里分支", "Fork from here"), systemImage: "arrow.triangle.branch") { confirmFork = message }
                                         }
                                     }
-                                    .onAppear { Task { await store.markRead(conversationID, messageID: message.id) } }
+                                    .onGeometryChange(for: Bool.self) { geometry in
+                                        let frame = geometry.frame(in: .global)
+                                        return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
+                                    } action: { _, visible in
+                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
+                                    }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
                             }
@@ -53,6 +73,7 @@ struct ConversationView: View {
                         Color.clear.frame(height: 1).id("bottom")
                     }.padding()
                 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in viewport = frame }
                 // Lazy row recycling is not viewport visibility, especially while the composer resizes.
                 .onScrollGeometryChange(for: Bool.self) { geometry in
                     geometry.visibleRect.maxY >= geometry.contentSize.height - 24
@@ -74,6 +95,8 @@ struct ConversationView: View {
             } else { composer.disabled(conversation == nil) }
         }
         .background(NanoTheme.canvas)
+        .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
+        .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
         .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
@@ -87,6 +110,7 @@ struct ConversationView: View {
         }
         .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
+        .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }
         .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in Task { await uploadFiles(result) } }
         .confirmationDialog(L("从这条回复创建新分支？", "Create a new branch from this reply?"), isPresented: Binding(get: { confirmFork != nil }, set: { if !$0 { confirmFork = nil } }), titleVisibility: .visible) {
@@ -101,7 +125,11 @@ struct ConversationView: View {
             }
             if !(store.attachments[conversationID] ?? []).isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(store.attachments[conversationID] ?? []) { item in
-                    HStack { Image(systemName: "paperclip"); Text(item.file_name ?? L("附件", "Attachment")).lineLimit(1); Button { store.attachments[conversationID]?.removeAll { $0.id == item.id } } label: { Image(systemName: "xmark.circle.fill") } }.font(.caption).padding(8).background(.quaternary, in: Capsule())
+                    HStack {
+                        if item.content_type?.hasPrefix("image/") == true { ProtectedImageView(client: store.client, source: item.url, label: item.file_name ?? L("待发图片", "Image to send")).frame(width: 64, height: 64) }
+                        else { Image(systemName: "paperclip"); Text(item.file_name ?? L("附件", "Attachment")).lineLimit(1) }
+                        Button { store.attachments[conversationID]?.removeAll { $0.id == item.id } } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel(L("移除附件", "Remove attachment"))
+                    }.font(.caption).padding(8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
                 } } }.disabled(store.pending[conversationID] != nil)
             }
             if !uploads.isEmpty {
@@ -111,6 +139,7 @@ struct ConversationView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(item.fileName).lineLimit(1)
+                                    if item.contentType.hasPrefix("image/"), let data = item.data, let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit().frame(width: 44, height: 44) }
                                     Spacer()
                                     if item.uploading { ProgressView() }
                                     else {
@@ -134,28 +163,18 @@ struct ConversationView: View {
                     Task { await store.send(conversationID, textOnly: true) }
                 }.font(.caption).disabled(uploading || store.pending[conversationID] != nil || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if let completion { completionPanel(completion) }
             HStack(alignment: .bottom, spacing: 8) {
                 Menu {
                     Button(L("照片", "Photos"), systemImage: "photo") { pickingPhoto = true }
                     Button(L("文件", "Files"), systemImage: "doc") { importing = true }
-                    if conversation?.type == "group" {
-                        Menu(L("提及 Agent", "Mention agent")) { ForEach(conversation?.participants.filter { $0.type == "agent" } ?? [], id: \.id) { actor in
-                            Button(actor.display_name ?? actor.id) { draft.wrappedValue += "@\(actor.id) " }
-                        } }
-                    }
-                    Menu(L("命令", "Commands")) { ForEach(commands) { group in
-                        Section(group.display_name) {
-                            ForEach(group.commands) { command in Button("/" + command.name) { draft.wrappedValue = ChatText.command(command.name, agentID: conversation?.type == "group" ? group.agent_id : nil) } }
-                            ForEach(group.skills) { skill in Button("/skill:" + skill.name) { draft.wrappedValue = ChatText.skill(skill.name) } }
-                        }
-                    } }
                 } label: { Image(systemName: uploading ? "hourglass" : "plus.circle").font(.title2).padding(.vertical, 7) }
-                    .disabled(uploading || store.pending[conversationID] != nil).accessibilityLabel(L("附件、提及和命令", "Attachments, mentions and commands"))
-                ComposerTextView(text: draft, enabled: store.pending[conversationID] == nil, pastedImage: { image in Task { await uploadImage(image) } })
+                    .disabled(uploading || store.pending[conversationID] != nil).accessibilityLabel(L("添加附件", "Add attachment"))
+                ComposerTextView(text: draft, selection: $selection, editing: $editing, composing: $composing, focusRequest: focusRequest, enabled: store.pending[conversationID] == nil, pastedImage: { image in Task { await uploadImage(image) } })
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
                     .overlay(RoundedRectangle(cornerRadius: 13).stroke(NanoTheme.border))
                     .overlay(alignment: .topLeading) {
-                        if draft.wrappedValue.isEmpty { Text(L("输入消息…", "Message…")).foregroundStyle(NanoTheme.muted).padding(.leading, 13).padding(.top, 9).allowsHitTesting(false) }
+                        if draft.wrappedValue.isEmpty { Text(conversation?.type == "group" ? L("消息，@ 提及成员", "Message, @ to mention") : L("输入消息…", "Message…")).foregroundStyle(NanoTheme.muted).padding(.leading, 13).padding(.top, 9).allowsHitTesting(false) }
                     }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
@@ -164,6 +183,73 @@ struct ConversationView: View {
             }
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)
             .overlay(alignment: .top) { Rectangle().fill(NanoTheme.border).frame(height: 0.5) }
+    }
+    private var completion: ChatText.Completion? {
+        guard editing, !composing, !dismissedCompletion, store.pending[conversationID] == nil else { return nil }
+        return ChatText.completion(draft.wrappedValue, selection: selection, mentions: conversation?.type == "group")
+    }
+    private struct CommandChoice: Identifiable {
+        let id: String
+        let label: String
+        let source: String
+        let description: String
+        let insertion: String
+    }
+    private func commandChoices(_ query: String) -> [CommandChoice] {
+        commands.flatMap { group in
+            group.commands.map { command in
+                CommandChoice(id: "\(group.agent_id)/\(command.name)", label: "/" + command.name, source: group.display_name, description: command.description, insertion: ChatText.command(command.name, agentID: conversation?.type == "group" ? group.agent_id : nil).trimmingCharacters(in: .whitespaces))
+            } + group.skills.map { skill in
+                CommandChoice(id: "\(group.agent_id)/skill:\(skill.skill_key)", label: "/skill:" + skill.name, source: group.display_name, description: skill.description, insertion: ChatText.skill(skill.name).trimmingCharacters(in: .whitespaces))
+            }
+        }.filter { query.isEmpty || $0.label.dropFirst().lowercased().hasPrefix(query.lowercased()) }
+    }
+    private func selectCompletion(_ completion: ChatText.Completion, value: String) {
+        let result = ChatText.replacing(draft.wrappedValue, completion: completion, with: value)
+        draft.wrappedValue = result.text; selection = result.selection
+        focusRequest = ComposerFocusRequest(selection: result.selection)
+    }
+    private func completionPanel(_ completion: ChatText.Completion) -> some View {
+        let members = (conversation?.participants ?? []).filter {
+            ($0.user_id ?? $0.id) != store.user.id && (completion.query.isEmpty || ($0.display_name ?? $0.id).localizedCaseInsensitiveContains(completion.query) || $0.id.localizedCaseInsensitiveContains(completion.query))
+        }
+        let choices = commandChoices(completion.query)
+        let height = min(220, max(1, Double(completion.kind == .mention ? members.count : choices.count)) * (completion.kind == .mention ? mentionRowHeight : commandRowHeight))
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(completion.kind == .mention ? L("提及成员", "Mention a member") : L("命令", "Commands")).font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.muted)
+                Spacer()
+                Button { dismissedCompletion = true } label: { Image(systemName: "xmark").padding(10) }.accessibilityLabel(L("关闭候选", "Dismiss suggestions"))
+            }.padding(.leading, 12)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if completion.kind == .mention {
+                        ForEach(members, id: \.id) { actor in
+                            Button { selectCompletion(completion, value: ChatText.mention(actor, participants: conversation?.participants ?? [])) } label: {
+                                HStack(spacing: 10) {
+                                    AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 32)
+                                    Text(actor.display_name ?? actor.id).foregroundStyle(NanoTheme.ink)
+                                    Spacer()
+                                    Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(NanoTheme.muted)
+                                }.padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                        if members.isEmpty { Text(L("没有匹配的成员", "No matching members")).font(.callout).foregroundStyle(NanoTheme.muted).padding(12) }
+                    } else {
+                        ForEach(choices) { choice in
+                            Button { selectCompletion(completion, value: choice.insertion) } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack { Text(choice.label).font(.body.weight(.medium)).foregroundStyle(NanoTheme.ink); Spacer(); Text(choice.source).font(.caption).foregroundStyle(NanoTheme.muted) }
+                                    if !choice.description.isEmpty { Text(choice.description).font(.caption).foregroundStyle(NanoTheme.muted).lineLimit(2) }
+                                }.padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                        if choices.isEmpty { Text(L("暂无匹配的命令", "No matching commands")).font(.callout).foregroundStyle(NanoTheme.muted).padding(12) }
+                    }
+                }
+            }.frame(height: height)
+        }.background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border))
     }
     private func uploadPhoto(_ selected: PhotosPickerItem?) async {
         guard let selected else { return }; photo = nil
@@ -196,8 +282,17 @@ struct ConversationView: View {
     }
 }
 
+struct ComposerFocusRequest {
+    let id = UUID()
+    let selection: NSRange
+}
+
 struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String
+    @Binding var selection: NSRange
+    @Binding var editing: Bool
+    @Binding var composing: Bool
+    let focusRequest: ComposerFocusRequest?
     let enabled: Bool
     let pastedImage: (UIImage) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -210,7 +305,14 @@ struct ComposerTextView: UIViewRepresentable {
     }
     func updateUIView(_ view: PasteTextView, context: Context) {
         context.coordinator.parent = self; view.isEditable = enabled; view.imagePasted = pastedImage
+        context.coordinator.updating = true
+        defer { context.coordinator.updating = false }
         if view.markedTextRange == nil && view.text != text { view.text = text }
+        if let request = focusRequest, context.coordinator.lastFocusRequest != request.id {
+            context.coordinator.lastFocusRequest = request.id
+            view.selectedRange = request.selection
+            view.becomeFirstResponder()
+        }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: PasteTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
@@ -219,8 +321,17 @@ struct ComposerTextView: UIViewRepresentable {
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
+        var updating = false
+        var lastFocusRequest: UUID?
         init(_ parent: ComposerTextView) { self.parent = parent }
-        func textViewDidChange(_ textView: UITextView) { parent.text = textView.text }
+        func textViewDidChange(_ textView: UITextView) {
+            guard !updating else { return }
+            parent.text = textView.text; updateSelection(textView)
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) { if !updating { updateSelection(textView) } }
+        func textViewDidBeginEditing(_ textView: UITextView) { if !updating { parent.editing = true; updateSelection(textView) } }
+        func textViewDidEndEditing(_ textView: UITextView) { if !updating { parent.editing = false } }
+        private func updateSelection(_ textView: UITextView) { parent.selection = textView.selectedRange; parent.composing = textView.markedTextRange != nil }
     }
     final class PasteTextView: UITextView {
         var imagePasted: ((UIImage) -> Void)?

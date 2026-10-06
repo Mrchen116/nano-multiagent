@@ -14,6 +14,71 @@ struct MarkdownView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
     }
 }
+
+enum MarkdownContent {
+    enum Piece { case text(AttributedString), image(source: String, label: String) }
+    /// Splits at images before rendering, keeping text and nested linked images in source order.
+    static func pieces(_ node: any Markup, baseURL: URL) -> [Piece] {
+        if let image = node as? Markdown.Image { return image.source.map { [.image(source: $0, label: image.plainText)] } ?? [] }
+        if node.childCount == 0 { return [.text(inline(node, baseURL: baseURL))] }
+        var result: [Piece] = []
+        for child in node.children {
+            for piece in pieces(child, baseURL: baseURL) {
+                if case .text(let text) = piece {
+                    let styled = style(text, node: node, baseURL: baseURL)
+                    if case .text(let previous) = result.last { result[result.count - 1] = .text(previous + styled) }
+                    else { result.append(.text(styled)) }
+                } else { result.append(piece) }
+            }
+        }
+        return result
+    }
+    static func inline(_ node: any Markup, baseURL: URL) -> AttributedString {
+        if let text = node as? Markdown.Text { return AttributedString(text.string) }
+        if let code = node as? InlineCode { var text = AttributedString(code.code); text.font = .system(.body, design: .monospaced); text.backgroundColor = .gray.opacity(0.12); return text }
+        if node is SoftBreak || node is LineBreak { return AttributedString("\n") }
+        if let html = node as? InlineHTML { return AttributedString(html.rawHTML) }
+        if node is Markdown.Image { return AttributedString("") }
+        return style(node.children.reduce(AttributedString()) { $0 + inline($1, baseURL: baseURL) }, node: node, baseURL: baseURL)
+    }
+    private static func style(_ original: AttributedString, node: any Markup, baseURL: URL) -> AttributedString {
+        var text = original
+        if node is Strong { text.inlinePresentationIntent = (text.inlinePresentationIntent ?? []).union(.stronglyEmphasized) }
+        if node is Emphasis { text.inlinePresentationIntent = (text.inlinePresentationIntent ?? []).union(.emphasized) }
+        if node is Strikethrough { text.strikethroughStyle = .single }
+        if let link = node as? Markdown.Link, let destination = link.destination,
+           let url = URL(string: destination, relativeTo: baseURL)?.absoluteURL,
+           ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") { text.link = url }
+        return text
+    }
+    static func copy(_ text: String) -> String { plain(Document(parsing: text)) }
+    private static func plain(_ node: any Markup, depth: Int = 0) -> String {
+        if let code = node as? CodeBlock { return code.code.hasSuffix("\n") ? String(code.code.dropLast()) : code.code }
+        if node is Markdown.Image { return "" }
+        if let link = node as? Markdown.Link {
+            let label = link.children.map { plain($0, depth: depth) }.joined()
+            guard !label.isEmpty, let destination = link.destination else { return label }
+            return label == destination ? label : label + " (" + destination + ")"
+        }
+        if node is SoftBreak || node is LineBreak { return "\n" }
+        if let table = node as? Markdown.Table {
+            return ([Array(table.head.cells)] + table.body.rows.map { Array($0.cells) }).map { $0.map { plain($0) }.joined(separator: "\t") }.joined(separator: "\n")
+        }
+        if node is UnorderedList || node is OrderedList {
+            let start = (node as? OrderedList)?.startIndex ?? 1
+            return node.children.enumerated().map { index, item in
+                let bullet = node is OrderedList ? "\(Int(start) + index). " : "- "
+                let check = (item as? ListItem)?.checkbox.map { $0 == .checked ? "[x] " : "[ ] " } ?? ""
+                return String(repeating: "  ", count: depth) + bullet + check + item.children.map { child in plain(child, depth: child is UnorderedList || child is OrderedList ? depth + 1 : depth) }.joined(separator: "\n")
+            }.joined(separator: "\n")
+        }
+        if let text = node as? Markdown.Text { return text.string }
+        if let code = node as? InlineCode { return code.code }
+        if let html = node as? InlineHTML { return html.rawHTML }
+        if let html = node as? HTMLBlock { return html.rawHTML }
+        return node.children.map { plain($0, depth: depth) }.joined(separator: node is Document || node is BlockQuote ? "\n\n" : "")
+    }
+}
 private struct MarkdownBlockView: View {
     let node: any Markup
     let client: IMClient
@@ -58,11 +123,12 @@ private struct MarkdownBlockView: View {
             }.background(.gray.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)))
         }
         if let html = node as? HTMLBlock { return AnyView(SwiftUI.Text(html.rawHTML).font(.body)) }
-        let images = node.children.compactMap { $0 as? Markdown.Image }
         return AnyView(VStack(alignment: .leading, spacing: 8) {
-            SwiftUI.Text(inline(node)).font(.body).tint(.teal)
-            ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                if let source = image.source { ProtectedImageView(client: client, source: source, label: image.plainText) }
+            ForEach(Array(MarkdownContent.pieces(node, baseURL: client.baseURL).enumerated()), id: \.offset) { _, piece in
+                switch piece {
+                case .text(let text): SwiftUI.Text(text).font(.body).tint(.teal)
+                case .image(let source, let label): ProtectedImageView(client: client, source: source, label: label)
+                }
             }
         })
     }
@@ -70,19 +136,6 @@ private struct MarkdownBlockView: View {
         VStack(alignment: .leading, spacing: 8) { ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in MarkdownBlockView(node: child, client: client) } }
     }
     private func inline(_ node: any Markup) -> AttributedString {
-        if let text = node as? Markdown.Text { return AttributedString(text.string) }
-        if let code = node as? InlineCode { var text = AttributedString(code.code); text.font = .system(.body, design: .monospaced); text.backgroundColor = .gray.opacity(0.12); return text }
-        if node is SoftBreak { return AttributedString("\n") }
-        if node is LineBreak { return AttributedString("\n") }
-        if let html = node as? InlineHTML { return AttributedString(html.rawHTML) }
-        if node is Markdown.Image { return AttributedString("") }
-        var text = node.children.reduce(AttributedString()) { $0 + inline($1) }
-        if node is Strong { text.inlinePresentationIntent = (text.inlinePresentationIntent ?? []).union(.stronglyEmphasized) }
-        if node is Emphasis { text.inlinePresentationIntent = (text.inlinePresentationIntent ?? []).union(.emphasized) }
-        if node is Strikethrough { text.strikethroughStyle = .single }
-        if let link = node as? Markdown.Link, let destination = link.destination,
-           let url = URL(string: destination, relativeTo: client.baseURL)?.absoluteURL,
-           ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") { text.link = url }
-        return text
+        MarkdownContent.inline(node, baseURL: client.baseURL)
     }
 }

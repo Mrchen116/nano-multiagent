@@ -17,6 +17,7 @@ final class ChatStore {
     var selectedID: String?
     var connectionText = ""
     var listError: String?
+    var listLoaded = false
     var banner: ChatBanner?
     var checkingAccess: Set<String> = []
     private var cursor: Int?
@@ -37,7 +38,7 @@ final class ChatStore {
     }
     func clear() {
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
-        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil
+        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil; listLoaded = false
     }
     func run() async {
         let token = epoch
@@ -134,6 +135,7 @@ final class ChatStore {
         }
         checkingAccess = []
         conversations = values
+        listLoaded = true
         listError = nil
     }
     func loadConversations() async {

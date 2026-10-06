@@ -58,6 +58,8 @@ struct SettingsPoliciesView: View {
         }
         .navigationTitle(L("系统策略", "System policies"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .nanoUnsavedChanges(isAdmin && draft != saved)
+        .toolbar { if isAdmin { ToolbarItem(placement: .confirmationAction) { Button(saving ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(saving || draft == saved || draft?.valid != true) } } }
         .task { await load() }
         .task { if isAdmin { await loadCapacity() } }
     }

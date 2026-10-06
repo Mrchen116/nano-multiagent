@@ -2,9 +2,9 @@
 
 状态：已完成原生 App、本地回归检查及 Release arm64 IPA，最新产品 revision `107290abe`，产物及哈希见[工具链记录](evidence/toolchain-readiness.md)。后台真实工具回复恢复、长历史、管理/媒体和Work分页已有实测；R15发现的任务嵌套引用及根详情入口已由[R16](M1-native-app/acceptance-r16.md)独立复验关闭并更新归档。2026-10-06已通过Air Xcode免费Personal Team签名并实际USB安装到物理iPhone，尚待开发者信任、首次运行及续签。其余明确验收分支仍待完成，未创建PR或完成最终验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
-2026-10-06 拓扑修正：用户补充 Mini 与手机异地，手机与当前 Air 在一起，并授权本 chat 接管已连接的 iPhone Mirroring。首次安装改在 Air 推进，Air AltServer 已安装并确认运行；当前 USB 无接入设备、Finder/Xcode 未发现 iPhone，首次配对仍待。下方 Mini 同网维护步骤保留为原方案，不能按现有异地条件直接执行或视为已验收。最新观察及 Remote AltServers 官方能力边界见[Air 准备记录](evidence/air-altserver-readiness.md)。
+2026-10-06 拓扑修正：用户补充 Mini 与手机异地，手机与当前 Air 在一起，并授权本 chat 接管已连接的 iPhone Mirroring。首次安装改在 Air 推进，Air AltServer 已安装并确认运行；当时USB尚未接入，后续配对与安装事实见下一段。下方 Mini 同网维护步骤保留为原方案，不能按现有异地条件执行或视为已验收。Remote AltServers边界见[Air 准备记录](evidence/air-altserver-readiness.md)。
 
-随后用户已接USB、开启Developer Mode并登录Xcode。已在私有临时项目完成免费签名，实际profile到期为2026-10-13 19:31:19（Asia/Shanghai），安装返回success；物理手机点击Nano IM图标显示Untrusted Developer，当前仍待证书信任及实际启动。下方AltStore/Mini维护方案尚未实施，不能由这次Xcode USB成功替代。
+随后用户已接USB、开启Developer Mode并登录Xcode。私有临时项目完成免费签名，实际profile到期2026-10-13 19:31:19（Asia/Shanghai），安装success。之后经授权完成证书信任，实际启动、隔离HTTPS登录、原生建群和真实peer回复42呈现已观察；用户否定聊天UX，正在按[本轮记录](M1-native-app/ux-correction-r1.md)修正。下方AltStore/Mini维护尚未实施，不能由Xcode USB成功替代。
 
 ## 官方约束与选择
 
@@ -45,7 +45,7 @@
 | 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试和设备归档通过 | 完整模拟器产品验收与真机签名 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
 | Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、手机USB配对、同网发现与刷新 |
-| iPhone | 用户给定 15 Pro Max / 26.4 | 本 chat 使用时段、配对/签名/开发者模式 |
+| iPhone | 实际15 Pro Max /26.4，配对、Developer Mode、免费USB安装/信任、HTTPS登录与聊天呈现已观察 | 更新后UX、中文与辅助访问及完整物理旅程；无线续签/自然到期恢复 |
 | Feishu E2E | 专用 Bot 已在独占 listener 条件下完成原生新增/凭据保留替换/connected/停用/删除；见[R4](M1-native-app/acceptance-r4.md) | 剩余离线、重连、失败及历史保留分支需续验前重新核实身份与独占 listener |
 
 验收不伪造过期或改系统时间。S30 的自然过期恢复需到期后的实际过程，或由用户明确授权等价验证后按调整的标准记录；提前手动刷新不能证明自然过期恢复。

@@ -117,7 +117,9 @@ struct AgentChannelEditor: View {
     @State private var conflict = false
     @State private var latest: AgentChannel?
     @State private var saved = false
+    @State private var confirmCancel = false
     private var baseline: AgentChannel? { latest ?? existing }
+    private var dirty: Bool { !saved && (appID != (existing?.config?["app_id"] ?? "") || enabled != (existing?.enabled ?? true) || !secret.isEmpty || (existing != nil && replace)) }
     private var needsSecret: Bool { existing == nil || replace || appID != baseline?.config?["app_id"] }
     var body: some View {
         Form {
@@ -150,7 +152,12 @@ struct AgentChannelEditor: View {
                 if busy { ProgressView() }
             }
         }.navigationTitle(existing == nil ? L("添加通道", "Add channel") : L("编辑通道", "Edit channel"))
-        .toolbar { Button(L("取消", "Cancel")) { secret = ""; dismiss() } }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { if dirty { confirmCancel = true } else { secret = ""; dismiss() } } }
+            ToolbarItem(placement: .confirmationAction) { if !saved && !conflict { Button(L("保存", "Save")) { Task { await save() } }.disabled(busy || appID.trimmingCharacters(in: .whitespaces).isEmpty || (needsSecret && secret.isEmpty)) } }
+        }
+        .interactiveDismissDisabled(dirty || busy)
+        .confirmationDialog(L("放弃未保存的通道配置？", "Discard unsaved channel settings?"), isPresented: $confirmCancel, titleVisibility: .visible) { Button(L("放弃", "Discard"), role: .destructive) { secret = ""; dismiss() } }
         .onAppear { appID = existing?.config?["app_id"] ?? ""; enabled = existing?.enabled ?? true; replace = existing == nil }
         .onDisappear { secret = "" }
         .onChange(of: scenePhase) { _, phase in if phase != .active { secret = "" } }

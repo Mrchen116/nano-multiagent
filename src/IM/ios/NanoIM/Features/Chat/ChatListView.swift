@@ -17,6 +17,7 @@ struct ChatListView: View {
                 .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary) }
             if let error = store.listError { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.loadConversations() } } }
+            if !store.listLoaded && store.listError == nil { ProgressView(L("正在加载聊天…", "Loading conversations…")) }
             Group {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -28,12 +29,13 @@ struct ChatListView: View {
             ForEach(filtered) { chat in
                 Button { open(chat.id) } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: chat.title, kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person")
+                        AvatarView(name: chat.avatarName(selfID: store.user.id), kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person")
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).lineLimit(1)
                                 if chat.is_pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(NanoTheme.muted) }
                                 if chat.is_muted { Image(systemName: "bell.slash").font(.caption2).foregroundStyle(NanoTheme.muted) }
+                                if chat.run_state == "running" { Label(L("进行中", "Running"), systemImage: "ellipsis.circle").font(.caption2).foregroundStyle(NanoTheme.accent) }
                                 Spacer(minLength: 4)
                                 NanoTimestamp(value: chat.last_message_at ?? chat.created_at)
                             }
@@ -49,14 +51,18 @@ struct ChatListView: View {
                     Button(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")) { patch(chat, "is_pinned", !chat.is_pinned) }
                     Button(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute")) { patch(chat, "is_muted", !chat.is_muted) }
                 }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) }
             }
-            if filtered.isEmpty, store.listError == nil { ContentUnavailableView(L("暂无聊天", "No conversations"), systemImage: "bubble.left.and.bubble.right", description: Text(L("使用右上角 + 创建聊天。", "Use + to start a conversation."))) }
+            if filtered.isEmpty, store.listError == nil, store.listLoaded {
+                ContentUnavailableView(search.isEmpty ? L("暂无聊天", "No conversations") : L("没有找到聊天", "No matching conversations"), systemImage: search.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass", description: Text(search.isEmpty ? L("使用右上角 + 创建聊天。", "Use + to start a conversation.") : L("试试其他名称或关键词。", "Try another name or keyword.")))
+            }
         }.nanoList().nanoRootTitle(L("聊天", "Chats"))
             .refreshable { await store.loadConversations() }
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Menu {
-                Button(L("新建聊天", "New conversation"), systemImage: "plus") { newChat = true }
-                Button(L("整理会话知识", "Distill conversations"), systemImage: "sparkles") { distill = true }
-            } label: { Image(systemName: "plus") }.accessibilityLabel(L("新建与整理", "Create or distill")) } }
+            .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu { Button(L("整理会话知识", "Distill conversations"), systemImage: "sparkles") { distill = true } } label: { Image(systemName: "ellipsis") }.accessibilityLabel(L("更多聊天操作", "More conversation actions"))
+                Button { newChat = true } label: { Image(systemName: "plus") }.accessibilityLabel(L("新建聊天", "New conversation"))
+            } }
             .sheet(isPresented: $newChat) { NewChatView(client: store.client, userID: store.user.id) { chat in newChat = false; Task { await store.loadConversations() }; open(chat.id) } }
             .sheet(isPresented: $distill) { DistillView(store: store) { id, text in store.drafts[id] = text; distill = false; open(id) } }
     }
@@ -85,18 +91,22 @@ struct NewChatView: View {
     @State private var search = ""
     @State private var error: String?
     @State private var busy = false
+    @State private var loaded = false
+    private var filtered: [Contact] { contacts.filter { $0.user_id != userID && (search.isEmpty || ($0.display_name + " " + ($0.agent_id ?? "") + " " + $0.user_id + " " + ($0.node_name ?? "")).localizedCaseInsensitiveContains(search)) } }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Toggle(L("创建群聊", "Create group"), isOn: $group).onChange(of: group) { _, value in if !value { selection = Set(selection.prefix(1)) } }
-                    if group { TextField(L("群名称", "Group name"), text: $title) }
+                    if group { TextField(L("群名称（可选）", "Group name (optional)"), text: $title) }
                 }
                 if let error { Section { ErrorNotice(message: error) } }
                 Section(L("联系人", "Contacts")) {
-                    ForEach(contacts.filter { $0.user_id != userID && (search.isEmpty || $0.display_name.localizedCaseInsensitiveContains(search)) }) { contact in
+                    if !loaded && error == nil { ProgressView(L("正在加载联系人…", "Loading contacts…")) }
+                    if loaded && filtered.isEmpty && error == nil { Text(search.isEmpty ? L("暂无联系人", "No contacts") : L("没有匹配的联系人", "No matching contacts")).foregroundStyle(.secondary) }
+                    ForEach(filtered) { contact in
                         Button { if selection.contains(contact.id) { selection.remove(contact.id) } else if group { selection.insert(contact.id) } else { selection = [contact.id] } } label: {
-                            HStack { AvatarView(name: contact.display_name, online: contact.status == "online"); VStack(alignment: .leading) {
+                            HStack { AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person"); VStack(alignment: .leading) {
                                 Text(contact.display_name).foregroundStyle(.primary)
                                 Text([contact.kind == "agent" ? "Agent" : L("真人", "Person"), contact.owner_display_name, contact.node_name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                             }; Spacer(); Image(systemName: selection.contains(contact.id) ? "checkmark.circle.fill" : "circle") }
@@ -107,14 +117,15 @@ struct NewChatView: View {
                 .searchable(text: $search, prompt: L("搜索联系人", "Search contacts"))
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button(L("创建", "Create")) { Task { await create() } }.disabled(busy || selection.isEmpty || (group && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)) }
-                }.task { do { contacts = try await client.contacts() } catch { self.error = error.localizedDescription } }
+                    ToolbarItem(placement: .confirmationAction) { Button(L("创建", "Create")) { Task { await create() } }.disabled(busy || selection.isEmpty) }
+                }.task { do { contacts = try await client.contacts(); loaded = true } catch { self.error = error.localizedDescription } }
         }
     }
     private func create() async {
         busy = true; error = nil; defer { busy = false }
         let selected = contacts.filter { selection.contains($0.id) }
-        do { let chat = try await client.createConversation(title: group ? title : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID); completed(chat) }
+        let groupTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selected.map(\.display_name).joined(separator: "、") : title
+        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID); completed(chat) }
         catch { self.error = error.localizedDescription }
     }
 }

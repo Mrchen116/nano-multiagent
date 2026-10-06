@@ -12,6 +12,8 @@ Signing follow-up: user completed the official Xcode login; the actual account i
 
 Coordinate clicks/scrolling remain unavailable after recovery attempts, although screenshots, keyboard and semantic Mac menu actions work. Last verified phone page is General. Own temporary HTTPS Serve and isolated IM/Gateway were shut down cleanly, Serve baseline restored and fixture data preserved. No native login/chat evidence is inferred from installation.
 
+Trust authorization follow-up: user explicitly allowed the developer trust action. Normal quit/reopen of iPhone Mirroring now presents native Mac authentication; user must unlock that local secure field. No repeated trust permission request, credential retrieval or unverified first-run claim. Signed app and isolated fixture remain preserved.
+
 ## Implementation
 
 - Added independent native SwiftUI client under `src/IM/ios`, including four tabs and all management areas in coverage C01-C34.
@@ -243,3 +245,9 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Mini SSH已真实恢复，可达系统26.5.2；已从官方CDN取得签名/notarized AltServer1.8 /97，在Mini核对同SHA和签名/Gatekeeper后复制到此前不存在的精确target，安装后签名复核及真实运行来源通过。仅为软件准备，详细证据见[Mini记录](../evidence/mini-altserver-readiness.md)；未做手机配对/账号/侧载/登录启动或Wi-Fi续签。
 - 源码和Release产物仍 `107290abe`，27native/R20静态/Python4120/Web808证据沿有效范围保留；这些后续旅程没有source修改。不新增机械审查或全测；S2/S6/S9/S10/S21/S27/S29/S30精确剩余见R20表，Full门禁仍开，未推送、建PR或部署生产。
 - 完成本地可测旅程后，保存600配置/credential/manifest及fixture DB供后续真机恢复；已正常停止两个原隔离Gateway、IM、本机fault/origin代理和bounded caffeinate，移除本次绑定节点的精确LaunchAgent并关闭自有tmux。实际自有PID全部消失、62008/62009/62010无listener，唯一control不存在；本次HTTPS19443与临时proxy bypass此前已恢复baseline。用户指定的Mini AltServer保留运行，其它主仓dirty内容保持。没有fresh-bootstrap、reset或清空验收数据。
+
+### 2026-10-06 物理运行与整体UX重新审视
+
+- 用户解锁镜像后已完成授权证书信任，物理启动、隔离HTTPS登录及原生建群成功；真实唯一群提及/peer completed42已核对。root自动发送点击先失败，后续用户操作现场显示成功，未通过API代发。准确边界见Air记录。
+- 用户否定提及菜单、头像及整个UI/UX，明确要求subagent发散从Web和商业软件角度审视。三个独立Sol审视者提交[Web](ux-audit-web-r1.md)、[商业](ux-audit-commercial-r1.md)及[实际原生](ux-audit-native-r1.md)报告。原P6不覆盖本次否定范围，旧R20表不改写成新结论。
+- root直接修正输入、身份、阅读、附件、建聊/群、任务层级、Work及表单保护，具体范围与33项原生通过证据见[修正记录](ux-correction-r1.md)。20:24早期候选实际直接@/slash、选后软件键盘保持和头像通过；后续新包必须窄复验。Full与自然到期维护仍开放，未推送、建PR或部署生产。

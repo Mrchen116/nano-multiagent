@@ -23,7 +23,7 @@ struct AgentWorkView: View {
             if let root {
                 Section(L("执行归属", "Execution ownership")) {
                     LabeledContent("Agent", value: agentID)
-                    if let sessionID { Text(sessionID).font(.caption).textSelection(.enabled) }
+                    if let sessionID { DisclosureGroup(L("执行信息", "Execution information")) { Text(sessionID).font(.caption).textSelection(.enabled) } }
                     LabeledContent(L("节点", "Node"), value: online ? L("在线", "Online") : L("离线 · 活动状态未知", "Offline · active status unknown"))
                     LabeledContent(L("主执行", "Main execution"), value: agentWorkStatus(root.main_execution ?? "unknown"))
                     if !online { Text(L("显示已保存的记录，授权暂不可处理。", "Showing saved records. Permissions cannot be processed while offline.")).font(.caption) }
@@ -35,7 +35,7 @@ struct AgentWorkView: View {
                             if session.id != sessionID {
                                 NavigationLink {
                                     AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
-                                } label: { VStack(alignment: .leading) { Text(session.label); Text(session.scope + " · " + session.id).font(.caption).foregroundStyle(.secondary); if let parent = session.parent_session_id { Text(L("父会话：", "Parent session: ") + parent).font(.caption) } } }
+                                } label: { VStack(alignment: .leading) { Text(session.label); Text(agentScopeName(session.scope)).font(.caption).foregroundStyle(.secondary) } }
                             }
                         }
                     }
@@ -104,10 +104,14 @@ struct AgentWorkTurnView: View {
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(turn.turn_id).font(.caption).textSelection(.enabled)
-                Text(turn.model_id ?? L("模型未报告", "Model unreported")).font(.caption)
-                if let origin = turn.origin { Text(L("触发来源：", "Origin: ") + (origin.agentString.isEmpty ? origin.prettyPrinted : origin.agentString)).font(.caption) }
-                if let trigger = turn.trigger { DisclosureGroup(L("触发详情", "Trigger details")) { JSONDetailView(value: .object(trigger)) } }
+                DisclosureGroup(L("执行信息", "Execution information")) {
+                    Text(turn.turn_id).font(.caption).textSelection(.enabled)
+                    Text(turn.model_id ?? L("模型未报告", "Model unreported")).font(.caption)
+                    if let origin = turn.origin { JSONDetailView(value: origin) }
+                    if let trigger = turn.trigger { JSONDetailView(value: .object(trigger)) }
+                    if let start = turn.started_at { NanoDateTime(value: start) }
+                    if let finish = turn.finished_at { NanoDateTime(value: finish) }
+                }
                 ForEach(items) { item in
                     AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat)
                     Divider()
@@ -119,11 +123,11 @@ struct AgentWorkTurnView: View {
             }.padding(.vertical, 8)
         } label: {
             VStack(alignment: .leading) {
-                Text(turn.description ?? turn.scope ?? L("执行轮次", "Execution turn")).font(.headline)
-                Text(agentWorkStatus(state) + " · " + (turn.started_at ?? L("时间未报告", "Time unreported"))).font(.caption).foregroundStyle(.secondary)
-                if let finish = turn.finished_at { Text(finish).font(.caption).foregroundStyle(.secondary) }
+                Text(turn.title).font(.headline)
+                HStack { Text(agentWorkStatus(state)).font(.caption).foregroundStyle(.secondary); if let start = turn.started_at { NanoTimestamp(value: start) } }
+                if let finish = turn.finished_at { HStack { Text(L("结束", "Finished")).font(.caption).foregroundStyle(.secondary); NanoTimestamp(value: finish) } }
             }
-        }
+        }.onChange(of: state, initial: true) { _, value in if value == "waiting_permission" { expanded = true } }
     }
     private func loadMore() async {
         busy = true; defer { busy = false }
@@ -181,7 +185,7 @@ struct AgentWorkItemView: View {
                 DisclosureGroup(item.kind) { JSONDetailView(value: .object(p)) }
                 if !text("conversation_id").isEmpty { chatLink(text("conversation_id")) }
             }
-            if let observed = item.observed_at { Text(observed).font(.caption2).foregroundStyle(.secondary) }
+            if let observed = item.observed_at { NanoTimestamp(value: observed) }
             if let navigationError { ErrorNotice(message: navigationError) }
         }
     }

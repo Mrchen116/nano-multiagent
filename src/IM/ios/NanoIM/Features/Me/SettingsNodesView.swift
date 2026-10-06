@@ -103,6 +103,8 @@ struct SettingsNodeView: View {
         }
         .navigationTitle(node.name)
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .nanoUnsavedChanges(dirty)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(!canManage || busy || !dirty) } }
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: visible && scenePhase == .active) {
