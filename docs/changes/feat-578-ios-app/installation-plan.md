@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态：原生 App 正在修正用户否定的整体UX，当前产品源码 `8e03b3e78`。本轮34项原生测试在 `2992200b9` 通过，后续Task/Work纯显示窄修构建及独立静态闭环通过，证据保留各自范围。此前 unsigned IPA `107290abe` 的产物及哈希仅代表其原版本，见[工具链记录](evidence/toolchain-readiness.md)；不要与新签名安装包混同。后台真实工具回复恢复、长历史、管理/媒体和Work分页已有各自实测；R15任务引用/根详情缺口已由[R16](M1-native-app/acceptance-r16.md)关闭。2026-10-06已完成Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天，并先后原地更新本轮修正版。Simulator本轮受影响范围另有独立复验；新手机镜像页仍待本机身份验证。准确安装事实见[Air记录](evidence/air-altserver-readiness.md)。其余明确验收分支及无线续签/自然到期恢复仍未完成，未创建PR或最终验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
+状态：原生 App 正在修正用户否定的整体UX，当前产品源码 `aa7876fa9`，35项原生测试及 Simulator 构建通过；[独立模拟器R2](M1-native-app/acceptance-simulator-r2.md)已实测正文复制及统计展开，fork、离线新说明及提醒点击因操作工具阻挡仍未验，模拟器未完整通过。准确范围见[本轮UX记录](M1-native-app/ux-correction-r1.md)。物理iPhone最新已安装版本仍为 `8e03b3e78`，本轮按用户要求跳过真机，不混同模拟器新包。此前 unsigned IPA `107290abe` 的产物及哈希仅代表其原版本，见[工具链记录](evidence/toolchain-readiness.md)。2026-10-06已完成Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天，准确安装事实见[Air记录](evidence/air-altserver-readiness.md)。剩余模拟器分支、后置的手机体验及无线续签/自然到期恢复仍未全部完成，未创建PR或最终验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
 2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。
 

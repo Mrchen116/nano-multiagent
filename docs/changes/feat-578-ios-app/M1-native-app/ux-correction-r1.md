@@ -63,3 +63,9 @@ R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题�
 提醒缺口不是仅凭 AX 未见推断：本次唯一合法真人消息的实际持久事件为 `message.sent`/`message.delivered`，原生只监听 `message.created`，Web 已处理真人 sent。新增回归通过既有 `ChatStateTests` 的真实解码/事件消费 seam 观察提醒目标、真人重复创建、Agent、自己发送、静音、当前会话和重放；旧实现实际两断言失败，日志 `/tmp/nano-feat578-human-reminder-red.log`。正文辅助操作和离线文案属于本轮实际 UI 复验，不添加镜像布局/文案的永久测试。早期 S27 fixture 422 是 caller 漏传 sender，未投递；修正后唯一201与实际消息分开保存，不把 fixture 错误当产品失败。
 
 修正后35项原生测试通过（25 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-human-reminder-green.log`，xcresult `Test-NanoIM-2026.10.06_22-36-55-+0800.xcresult`；同轮 Simulator 构建成功。静态门禁与实际新包辅助操作、离线说明和提醒点击仍需独立窄复验；不以自动化通过代替这些 UI 证据。Python/Web 未改，不机械重跑旧有效范围。
+
+`aa7876fa9` 的[代码审查](code-review-simulator-r1.md)/[契约核对](verification-simulator-r1.md)有限pass、0 findings。[独立模拟器R2](acceptance-simulator-r2.md)在实际新包完成短/长正文辅助复制、准确clipboard及toast反馈，统计子控件仍可展开。原长按菜单保留；本轮辅助动作通过不扩大为VoiceOver完整运行或fork确认通过。模拟器R1真正中文组合和跨设备拒绝证据保留。
+
+剩余受影响实际范围为eligible direct的fork取消/确认历史、已知离线来源的新提示、修复后真人提醒及点击。reviewer与root各自fresh截图后的Back坐标均被操作工具 `noWindowsAvailable` 拒绝；AX读取和Raise后截图可用，导航没有发生，不能将环境阻碍判成产品Back失败。双方停止重复操作，本轮没有新的banner marker、fork或蒸馏draft。当前无草稿/附件/表单的阅读断点已保留；主动图片paste、模拟器无VoiceOver入口、真实Work pending前置及外部通道余项仍按报告保留未验，真机按用户要求后置，整体仍未完整通过。
+
+收尾再次核对远端main仍为PR #323/`d87ffa3d1`且已是本分支祖先，没有待合入提交。已正常停止本次隔离IM/Gateway及恢复helper，自有PID与62008 listener均消失、Tailscale Serve为 `{}`；0600恢复配置与fixture保留，未清空App/数据、改变主仓或生产。文档检查通过310份维护Markdown/75条必需路由，未推送、建PR或宣布Full accepted。后续恢复隔离服务与操作工具后只继续明确余项，不机械重跑已有效范围。

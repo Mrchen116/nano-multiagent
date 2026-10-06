@@ -262,3 +262,9 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 用户原话：『模拟环境上完整测完了吗，真机先跳过』。本轮仅补模拟器可完成的未验分支；S29/S30 真机安装、同网续签按用户要求后置，不删除原要求，也不作为本轮模拟器失败原因。
 - 复用实际 `8e03b3e78` 产品安装及原有有效证据，不重跑已通过范围；恢复原隔离 IM/Gateway 和数据库，未启动手机 HTTPS 入口、外部通道或第二 Gateway。独立原生 reviewer 继续一次有界补验，操作工具限制与真实外部平台前置单独记录。
 - 用户追加要求考虑远端新合并代码。22:21 +08:00 执行 fetch，并用远端 `HEAD`/`refs/heads/main` 核对，均为 `d87ffa3d19160d45d309f281b0ace4ff92f55a38`（PR #323）；该提交已是本分支祖先，`HEAD...origin/main` 计数为51/0，未合入提交为空。本轮没有重做 merge，也不把既有原生证据扩大为后来未知主线；收尾时再次核对远端。
+- [独立模拟器R1](acceptance-simulator-r1.md)在原8e实际补证中文软件拼音组合和跨设备蒸馏限制；离线来源的含混英文回执为新增minor。正文/fork操作器限制、Work实际pending前置和banner未见准确保留；未把模拟器结果扩大为物理设备。
+- root在 `aa7876fa9` 修正具名消息辅助操作、真实离线来源说明及真人 `message.sent` 提醒接线，具体TDD和35项原生通过见[UX记录](ux-correction-r1.md)。[独立静态](code-review-simulator-r1.md)/[verification](verification-simulator-r1.md)有限pass，0 findings；原P6、34项与Python/Web保留未失效范围，不重跑所有旧场景。
+- 新包390原地安装、实际binary/dylib由独立reviewer核对；正文辅助复制已实测准确并有toast，统计子控件仍可展开。复验期间AX仍可读而截图/坐标出现 `noWindowsAvailable`；root只用已暴露窗口 `Raise` 动作恢复实际截图，没有重启或解锁，后续沿同一安全阅读断点继续，不把环境错误算产品失败。
+- [独立模拟器R2](acceptance-simulator-r2.md)已完成有界报告：短/长正文实际clipboard与“已复制正文”反馈、统计子控件通过；fork、离线新提示及真人提醒点击未复验。root自己的fresh截图后可见Back坐标也被 `-10005 noWindowsAvailable` 拒绝，双方停止重复UI；窗口截图恢复不等于坐标恢复，没有证据认定本次Mac锁屏或产品返回故障。安全断点为 `c_zia690ag` 阅读页/统计展开、空草稿、Send禁用、无附件或sheet，未回Chats，也无本轮新marker/fork/蒸馏draft。
+- 收尾再次fetch远端main，`origin/main`/`FETCH_HEAD`仍为 `d87ffa3d19160d45d309f281b0ace4ff92f55a38`（PR #323，2026-10-05 01:46:41 +08:00）；ancestor检查通过，无遗漏的新主线提交。没有改生产、手机或主仓dirty内容；静态/契约通过与实际产品未验严格分开，完整模拟器及Full仍未accepted。
+- 22:54后正常停止本次精确tmux pane的恢复helper，30429/30438/30445全部退出，62008及19443无listener、自有tmux消失，Tailscale Serve仍为 `{}`。0600恢复配置及原fixture数据保留，390阅读断点未清空；测试入口暂停期间的连接失败不能算产品故障。后续需操作工具恢复后续验明确余项，未推送、建PR或部署生产。
