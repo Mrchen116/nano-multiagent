@@ -32,3 +32,17 @@ Xcode Apple Accounts 页面没有已登录账号；已打开官方登录输入�
 用户核对风险与付费分发区别后自行完成开启，并回复“开好了”。随后直接读取设备详情确认 `pairingState=paired`、`ddiServicesAvailable=true`、`developerModeStatus=enabled`，因此此前开发者模式资源缺口已关闭；未把用户一句回复单独当作运行证据。设备详情原始JSON仅存本机私有临时文件。
 
 Xcode登录页仍停在空的 Email or Phone Number 输入框，尚无签名账号。下一实际门槛为用户在已打开的本机Apple登录界面完成一次普通账号登录；没有向聊天索取密码、读取其他账号凭据或购买开发者会员。S29仍待签名、安装及物理设备启动，S30不变。
+
+## 免费签名与首次安装
+
+用户回复“done”后，Xcode实际账户页显示已登录的免费 Personal Team。为避免将个人签名配置写入仓库，root将产品 revision `107290abe` 的完整 iOS 源码复制到0700私有临时目录，在该临时项目选择实际 Personal Team。Xcode完成 provisioning，面向这台物理iPhone的 Release arm64构建成功，`codesign --verify --deep --strict`通过。该包是同一产品源码重新构建并签名的产物，不宣称与既有unsigned IPA字节相同。
+
+实际嵌入的development profile包含该设备，创建时间为2026-10-06 19:31:19、到期为2026-10-13 19:31:19（Asia/Shanghai）；App bundle为`win.nanoim.ios`，版本0.1.0/build1、最低iOS26.0，Release无ATS exception。账号邮箱、设备标识、个人Team ID与原始profile仅保留在本机私有记录，不提交仓库。
+
+19:33实际`devicectl device install app`返回success，并返回已安装bundle `win.nanoim.ios`。随后在物理iPhone的Spotlight找到图标“Nano IM”，点击后iOS弹出Untrusted Developer，明确要求在设备管理中信任本次Apple Development证书。因此安装已证实，首次运行及登录聊天尚未通过。root未点击信任；已按电脑操作工具的安全权限更改要求提出具体行动确认。
+
+之后镜像的坐标点击与滚动持续返回`noWindowsAvailable`，inventory也曾timeout。重新绑定/重置后截图、键盘及Mac菜单语义操作仍可用，键盘Spotlight打开Settings后实际画面为General；未到达开发者信任页。镜像窗口缩小再恢复原大小未恢复坐标操作；无效PageDown未计作滚动成功。故不笼统声称镜像断连，也不将失败的导航动作记为完成。
+
+这次Xcode USB签名安装不证明AltStore导入、无线续签、Mini异地维护或自然过期恢复；S29仍缺实际运行旅程，S30继续未通过。
+
+暂停本轮手机验证前已终止本次临时Tailscale前台HTTPS Serve，`serve status --json`回到原有`{}`；正常退出本次隔离IM/Gateway，62008监听消失、原PID均退出，fixture SQLite及恢复配置保留。没有改生产或现有用户网络配置；恢复本次fixture即可继续。
