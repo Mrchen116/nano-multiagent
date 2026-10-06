@@ -58,3 +58,11 @@ Xcode登录页仍停在空的 Email or Phone Number 输入框，尚无签名账�
 root原生键入 `@e2e-peer 23+19=? Reply only number.`，自动发送点击遇到`noWindowsAvailable`，当时API仍0条。随后用户操作现场显示已发送与回复42，API核对唯一human请求及唯一peer completed42。root未通过API代发，不能把控制失败写成root成功点击发送。物理登录、消息呈现与真实请求/回复成立，完整S29不由这两条消息证明。设备标识、token及个人签名配置继续仅存本机私有记录。
 
 用户随后否定真机的层层提及菜单、头像及整体UX，要求subagent发散对照Web和商业体验；相关P6重新打开。三份独立审视与修正范围见[本轮UX记录](../M1-native-app/ux-correction-r1.md)。实际运行不关闭AltStore、Mini异地维护、无线刷新或自然到期恢复。
+
+## UX 修正版原地更新
+
+2026-10-06 20:58，产品源码 `2992200b9` 在既有0700私有Personal Team项目重新构建Release。47个App源码/资源文件与冻结worktree逐文件SHA完全一致，源码manifest SHA-256 `313b57e32fd99f3046376b0e5d45d402959e09817a3c70cecc49b5f2922d9350`；构建成功、codesign深度严格校验通过。签名包可执行文件SHA-256 `620855c44806292b617ce5d2de9de2484d556151b1e91edda0e81ff2aef28dac`；这是送装包身份，不冒称从手机容器回读binary。
+
+`devicectl`原地安装返回success及原bundle `win.nanoim.ios` 的新安装URL；没有卸载/清数据。20:59经同一工具启动返回success。profile仍为此前创建的免费development profile，到期2026-10-13 19:31:19（Asia/Shanghai），此次更新不证明续签延期。个人Team/设备/原始receipt仍只存本机私有目录。
+
+更新后镜像页面未实测：产品reviewer的CUA在20:51实际遇Mac锁屏且自动解锁失败，已请求用户解锁，未绕过；安装/启动receipt不能替代新包中文输入、头像、图文/复制或viewport已读验收。390独立产品R2仍为 `ba261e12f`，准确范围见[报告](../M1-native-app/acceptance-ux-r2.md)。

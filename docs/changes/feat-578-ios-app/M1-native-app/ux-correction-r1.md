@@ -29,3 +29,7 @@
 root 将名称保留统一到详情 reload，添加/移除成员共用，不增加持久草稿层；头像按 Web UTF-16 和仅移位 Int32 的算术修正。新头像测试取实际 JavaScript 运算的七组名称，包括 Personal Assistant、My Assistant、中文和 emoji，保护已确认的差异。最新34项原生测试通过（24 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-ux-final-tests4.log`，xcresult `Test-NanoIM-2026.10.06_20-55-23-+0800.xcresult`；测试使用独立430 Simulator，不更换产品 reviewer 当前390候选。
 
 实际 R2 已在 `ba261e12f` 观察到直接提及、选后键盘保持、短候选面板、成员搜索/多选取消、无匹配提示和空名称建群；尚未作为最终独立裁决。20:50 后 CUA 明确返回 Mac 锁屏且自动解锁失败，已请求用户解锁；不绕过。图文混排已通过受控测试接口准备到 reviewer 本轮新群，只作为阅读素材，不冒充 UI 发送或 LLM 输出；长历史新 marker 和 owned 节点暂停仍等待 reviewer READY。真实 global Work 当前两轮 completed、idle，没有 waiting_permission，不种伪审批或声称分支通过。
+
+`2992200b9` 的[代码复审](code-review-ux-r2.md)/[契约闭环](verification-ux-r2.md)已有限pass，findings为空；不等同实际群成员移除路径或整个产品接受。[实际 R2](acceptance-ux-r2.md)已保存安全断点并关闭N1/N2/N6/U03/U08/U09及群名draft/偏好组合，其余受影响旅程因锁屏为inconclusive、整体fail。root只读核对reviewer专用群恰好一条 `578 UX R2` 结构提及请求及一条真实peer completed42；另有一条明确API准备的阅读素材，未混入UI发送数。
+
+20:58已把修正版原地更新到物理iPhone，20:59启动工具返回success，源码/签名/安装边界见[Air记录](../evidence/air-altserver-readiness.md)。新包镜像页面仍未实测，个人免费profile到期时间未延后。恢复后从本轮安全断点核验新包受影响阅读、图片、任务、Work、管理草稿、状态/提醒与实际viewport，不需要重跑仍有效的未变Python/Web或旧Full通过范围。
