@@ -33,3 +33,11 @@ root 将名称保留统一到详情 reload，添加/移除成员共用，不增�
 `2992200b9` 的[代码复审](code-review-ux-r2.md)/[契约闭环](verification-ux-r2.md)已有限pass，findings为空；不等同实际群成员移除路径或整个产品接受。[实际 R2](acceptance-ux-r2.md)已保存安全断点并关闭N1/N2/N6/U03/U08/U09及群名draft/偏好组合，其余受影响旅程因锁屏为inconclusive、整体fail。root只读核对reviewer专用群恰好一条 `578 UX R2` 结构提及请求及一条真实peer completed42；另有一条明确API准备的阅读素材，未混入UI发送数。
 
 20:58已把修正版原地更新到物理iPhone，20:59启动工具返回success，源码/签名/安装边界见[Air记录](../evidence/air-altserver-readiness.md)。新包镜像页面仍未实测，个人免费profile到期时间未延后。恢复后从本轮安全断点核验新包受影响阅读、图片、任务、Work、管理草稿、状态/提醒与实际viewport，不需要重跑仍有效的未变Python/Web或旧Full通过范围。
+
+## 解锁后复验与最后显示窄修
+
+用户回复Air解锁后，恢复原fixture DB/config，并把390原地更新为 `2992200b9`，实际安装binary/dylib hash单独交接。独立R3继续本轮余项，不把新包安装视为验收。已实际报告图文顺序、代码复制、待发图片预览/移除、添加后移除成员保名称草稿、任务祖先跳转、管理continue/discard，以及同页公开状态在线→离线→在线；准确裁决以其最终报告为准。
+
+R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题、没有描述的图卡占位过高；Work两条旧轮次摘要只有同一天日期，无法分辨时间。root仅修该显示范围：详情导航显示真实节点名并用inline；没有描述的scope卡使用96 scaled高度、有描述保持124 scaled，布局/连线端点/卡共用同一高度、padding12；Work开始/结束摘要使用已有本地日期时间组件。没有改变任务数据、关系、权限、API或Work执行状态。旧34项原生测试保留其原范围，本次纯显示修改需构建和实际窄复验，不增加镜像实现的测试。
+
+旧长历史对方 `iosr9late` 已在R15停用，本轮查证后没有恢复该账号。通过隔离服务正常注册/合成管理员批准新测试reader，另建纯真人群及70条明确API准备的阅读历史，用于真实分页/viewport；同一全新reader的专用direct用于私聊改名身份。两者不读取未知旧聊天，不冒充UI发送/LLM输出。owned Gateway暂停状态测试已及时恢复同一PID，90秒安全guard同样确认恢复；生产和旧停用状态保持。

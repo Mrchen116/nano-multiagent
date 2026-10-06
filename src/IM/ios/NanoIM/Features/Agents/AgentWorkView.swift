@@ -124,8 +124,8 @@ struct AgentWorkTurnView: View {
         } label: {
             VStack(alignment: .leading) {
                 Text(turn.title).font(.headline)
-                HStack { Text(agentWorkStatus(state)).font(.caption).foregroundStyle(.secondary); if let start = turn.started_at { NanoTimestamp(value: start) } }
-                if let finish = turn.finished_at { HStack { Text(L("结束", "Finished")).font(.caption).foregroundStyle(.secondary); NanoTimestamp(value: finish) } }
+                HStack { Text(agentWorkStatus(state)).font(.caption).foregroundStyle(.secondary); if let start = turn.started_at { NanoDateTime(value: start).font(.caption2) } }
+                if let finish = turn.finished_at { HStack { Text(L("结束", "Finished")).font(.caption).foregroundStyle(.secondary); NanoDateTime(value: finish).font(.caption2) } }
             }
         }.onChange(of: state, initial: true) { _, value in if value == "waiting_permission" { expanded = true } }
     }

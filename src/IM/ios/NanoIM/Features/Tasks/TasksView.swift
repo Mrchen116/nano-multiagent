@@ -74,11 +74,13 @@ struct TaskGraphView: View {
     @State private var browsingScopeID: String?
     @Environment(\.scenePhase) private var phase
     @ScaledMetric(relativeTo: .body) private var cardHeight = 124.0
+    @ScaledMetric(relativeTo: .body) private var compactCardHeight = 96.0
     private let cardWidth = 320.0
     var body: some View {
         Group {
             if let graph, let scope = graph.nodes.first(where: { $0.id == (browsingScopeID ?? scopeID ?? graph.root_node_id) }) {
-                let layout = NativeTaskLayout(graph: graph, scopeID: scope.id, cardWidth: cardWidth, cardHeight: cardHeight)
+                let height = graph.nodes.contains { $0.container_id == scope.id && !$0.description.isEmpty } ? cardHeight : compactCardHeight
+                let layout = NativeTaskLayout(graph: graph, scopeID: scope.id, cardWidth: cardWidth, cardHeight: height)
                 VStack(alignment: .leading, spacing: 10) {
                     ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) {
                         ForEach(ancestorPath(scope, graph: graph)) { node in
@@ -104,7 +106,7 @@ struct TaskGraphView: View {
                                 Canvas { context, _ in
                                     for edge in layout.edges {
                                         guard let from = layout.positions[edge.from], let to = layout.positions[edge.to] else { continue }
-                                        let start = CGPoint(x: from.x + cardWidth / 2, y: from.y + cardHeight), end = CGPoint(x: to.x + cardWidth / 2, y: to.y)
+                                        let start = CGPoint(x: from.x + cardWidth / 2, y: from.y + height), end = CGPoint(x: to.x + cardWidth / 2, y: to.y)
                                         var line = Path(); line.move(to: start); line.addCurve(to: end, control1: CGPoint(x: start.x, y: start.y + 22), control2: CGPoint(x: end.x, y: end.y - 22))
                                         context.stroke(line, with: .color(NanoTheme.accent.opacity(0.5)), lineWidth: 2)
                                         var arrow = Path(); arrow.move(to: CGPoint(x: end.x - 5, y: end.y - 8)); arrow.addLine(to: end); arrow.addLine(to: CGPoint(x: end.x + 5, y: end.y - 8)); context.stroke(arrow, with: .color(NanoTheme.accent), lineWidth: 2)
@@ -115,7 +117,7 @@ struct TaskGraphView: View {
                                         Text(node.title).font(.headline).lineLimit(2).foregroundStyle(.primary)
                                         HStack { Text(taskStatus(node.status)).font(.caption).foregroundStyle(.teal); if scope.selected_candidate_id == node.id { Label(L("已选方案", "Selected candidate"), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(NanoTheme.accent) } }
                                         if !node.description.isEmpty { Text(node.description).font(.caption).foregroundStyle(NanoTheme.muted).lineLimit(1) }
-                                    }.padding(16).frame(width: cardWidth, height: cardHeight, alignment: .topLeading).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border)) }.buttonStyle(.plain)
+                                    }.padding(12).frame(width: cardWidth, height: height, alignment: .topLeading).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border)) }.buttonStyle(.plain)
                                         .offset(x: layout.positions[node.id]?.x ?? 0, y: layout.positions[node.id]?.y ?? 0)
                                         .accessibilityLabel(node.title + ", " + taskStatus(node.status))
                                 }
@@ -196,7 +198,7 @@ struct TaskNodeView: View {
                     else { Text(L("尚未关联聊天，可以复制引用到聊天继续讨论。", "No conversation is linked. Copy the reference to continue in chat.")).foregroundStyle(.secondary) }
                     Button(L("复制引用", "Copy reference")) { UIPasteboard.general.string = referenceText(node, graph: graph, base: client.baseURL) }
                 }
-            }.navigationTitle(L("任务详情", "Task details")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { dismiss() } } }
+            }.navigationTitle(node.title).navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { dismiss() } } }
         }
     }
     private func related(_ nodes: [TaskNode], title: String) -> some View {
