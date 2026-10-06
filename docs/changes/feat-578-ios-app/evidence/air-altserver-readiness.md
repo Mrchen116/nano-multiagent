@@ -66,3 +66,11 @@ root原生键入 `@e2e-peer 23+19=? Reply only number.`，自动发送点击遇�
 `devicectl`原地安装返回success及原bundle `win.nanoim.ios` 的新安装URL；没有卸载/清数据。20:59经同一工具启动返回success。profile仍为此前创建的免费development profile，到期2026-10-13 19:31:19（Asia/Shanghai），此次更新不证明续签延期。个人Team/设备/原始receipt仍只存本机私有目录。
 
 更新后镜像页面未实测：产品reviewer的CUA在20:51实际遇Mac锁屏且自动解锁失败，已请求用户解锁，未绕过；安装/启动receipt不能替代新包中文输入、头像、图文/复制或viewport已读验收。390独立产品R2仍为 `ba261e12f`，准确范围见[报告](../M1-native-app/acceptance-ux-r2.md)。
+
+### 最后显示窄修包
+
+用户明确回复Air解锁后，Simulator继续 `2992200b9` 的R3受影响旅程。实际仍发现TaskNode通用巨标题/空描述卡偏高和Work同日摘要只显日期，root最小修正为 `8e03b3e78`。新Release构建/codesign严格校验通过，47个App源码/资源与冻结源逐文件一致，manifest SHA-256 `a1240d04031e8f7b3a26ae46a760a4229c060d552790f31b7deea641ec0b5142`；送装包可执行文件SHA-256 `e022349d4c6a603e12764a24f5240abdff0fde91f295745e6ea2af9b83affb4c`。原地安装再次success，21:26启动receipt success；无卸载/清数据，个人profile创建/到期时间仍不变。
+
+Air桌面解锁没有解除iPhone Mirroring的独立本机验证：实际AX/截图仍显示“iPhone镜像已锁定，输入Mac登录信息继续”的安全输入栏。已请用户在该原生窗口完成验证，未索取/读取Mac密码或绕过。故手机新页面与中文输入仍不由Simulator、更新或启动receipt替代。
+
+本轮实际窄复验安全交还后，root已正常停止自有HTTPS19443/隔离IM及Gateway，实际Serve回`{}`、62008/19443无listener、原owned PID消失。恢复配置/DB保留，手机App仍是已安装新版；暂停的测试入口暂不可连，后续物理复验先恢复同一入口。没有停生产、改用户Tailscale常驻配置或删除App数据。
