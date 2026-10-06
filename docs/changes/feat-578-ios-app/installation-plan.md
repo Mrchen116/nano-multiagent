@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态：原生 App 正在修正用户否定的整体UX，当前产品源码 `aa7876fa9`，35项原生测试及 Simulator 构建通过；[独立模拟器R2](M1-native-app/acceptance-simulator-r2.md)已实测正文复制及统计展开，fork、离线新说明及提醒点击因操作工具阻挡仍未验，模拟器未完整通过。准确范围见[本轮UX记录](M1-native-app/ux-correction-r1.md)。物理iPhone最新已安装版本仍为 `8e03b3e78`，本轮按用户要求跳过真机，不混同模拟器新包。此前 unsigned IPA `107290abe` 的产物及哈希仅代表其原版本，见[工具链记录](evidence/toolchain-readiness.md)。2026-10-06已完成Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天，准确安装事实见[Air记录](evidence/air-altserver-readiness.md)。剩余模拟器分支、后置的手机体验及无线续签/自然到期恢复仍未全部完成，未创建PR或最终验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
+状态（2026-10-07）：当前产品源码 `383a5a9b1`，36项原生测试、Simulator 构建及 arm64 Release archive 通过。模拟器可测范围已完成，完整场景范围见[独立R5矩阵](M1-native-app/acceptance-simulator-r5.md)及[R6通道闭环](M1-native-app/acceptance-simulator-r6.md)；整体UX修正见[本轮记录](M1-native-app/ux-correction-r1.md)。最新 unsigned IPA、哈希和版本只在[工具链记录](evidence/toolchain-readiness.md)维护。物理iPhone仍为 `8e03b3e78`，本轮按用户要求跳过真机；完整VoiceOver、更新后手机体验、无线续签/自然到期恢复后置，Full最终验收、canonical归并及归档仍未完成，当前交付只供草稿评审。2026-10-06 Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天事实见[Air记录](evidence/air-altserver-readiness.md)，不能替代新版真机验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
 2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。
 
@@ -44,10 +44,10 @@
 
 | 项目 | 已知结果 | 尚待落实 |
 |---|---|---|
-| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试、设备归档与免费签名已完成 | 剩余模拟器产品分支；真机体验按用户安排后置 |
+| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器可测范围、36项原生测试及最新设备归档完成 | 真机体验按用户安排后置 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
 | Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、手机USB配对、同网发现与刷新 |
 | iPhone | 实际15 Pro Max /26.4，配对、Developer Mode、免费USB安装/信任、HTTPS登录与聊天呈现已观察 | 更新后UX、中文与辅助访问及完整物理旅程；无线续签/自然到期恢复 |
-| Feishu E2E | 专用 Bot 已在独占 listener 条件下完成原生新增/凭据保留替换/connected/停用/删除；见[R4](M1-native-app/acceptance-r4.md) | 剩余离线、重连、失败及历史保留分支需续验前重新核实身份与独占 listener |
+| Feishu E2E | 专用 Bot 独占 listener；原生新增/凭据保留替换/connected/停用证据保留。离线、unknown/受限诊断、实际权限更新、受控停止失败及原生重试真实停止、隔离历史保留已闭环，见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md) | 本轮历史为真实IM repository种子，不代表平台收发；故障为明确受控条件，不改真实平台权限 |
 
 验收不伪造过期或改系统时间。S30 的自然过期恢复需到期后的实际过程，或由用户明确授权等价验证后按调整的标准记录；提前手动刷新不能证明自然过期恢复。

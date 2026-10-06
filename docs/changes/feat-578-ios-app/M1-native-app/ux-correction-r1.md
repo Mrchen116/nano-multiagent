@@ -76,3 +76,9 @@ R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题�
 图片专用剪贴板在独立430实际 hasImages=true、hasStrings=false 时，旧 PasteTextView 的系统 Paste 能力断言失败。最小修正 canPerformAction，仅可编辑输入框开放图片 Paste；实际 paste(_:)、草稿保持和上传通路复用。初次读取旧剪贴板的测试 fixture 卡在系统隐私拦截，未记为红测；修正后红测见 /tmp/nano-feat578-image-paste-red2.log。全36项原生测试已绿 /tmp/nano-feat578-image-paste-green.log；独立390实际 Photos Copy→Paste→待发预览仍需复验。
 
 同时修实际已报告的无来源执行记录裸英文、心跳/通道原始UTC时间、通道409的配置草稿用语及重读遗留错误。只使用既有本地日期组件和明确API错误，不增加兼容/兜底路径。新的 source 批次冻结后进行独立静态和受影响产品复验；S21继续真实隔离 Gateway 故障条件，未宣称 Full accepted 或 PR ready。
+
+## 2026-10-07 模拟器最终闭环
+
+[R4](acceptance-simulator-r4.md)实际完成 Photos Copy→原生 Paste→待发缩略图→同图完整预览→移除；草稿保留，没有发送。无来源执行记录中文和本地心跳时间也实测关闭。[R5](acceptance-simulator-r5.md)记录全部30场景的合并范围，通道unknown/受限原因与恢复方向、真实权限更新及本地时间均通过；同时保留新发现的离线操作错误被后台刷新清掉的原失败事实。
+
+最终 `383a5a9b1` 只修自动轮询保留操作错误和实际重连中文，独立[静态R4](code-review-simulator-r4.md)/[delta R4](verification-simulator-r4.md)无存活finding。[实际R6](acceptance-simulator-r6.md)关闭跨轮询可读、明确重读清除、持续停止失败及一次原生Retry真实停止、删除后历史保留。模拟器可测范围由R5矩阵+R6闭环完成；全36项原生测试有效范围、最终构建/归档及清理证据见[progress](progress.md)与[工具链记录](../evidence/toolchain-readiness.md)。完整VoiceOver、更新后真机及安装维护仍按用户安排后置；当前只供草稿评审，Full最终接受/canonical归并/归档保持开放。

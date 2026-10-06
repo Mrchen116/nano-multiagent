@@ -1,6 +1,12 @@
 # 当前 Mac 工具链准备记录
 
-记录日期：2026-10-05（Asia/Shanghai）。包含工具链准备及实际构建结果；不代替完整产品或真机验收。
+更新日期：2026-10-07（Asia/Shanghai）。包含工具链准备及实际构建结果；不代替完整产品或真机验收。
+
+最新设备归档：产品 `383a5a9b1` 的 Release archive 通过，日志 `/tmp/nano-feat578-release-sim6.log`。本地产物 `output/feat578/NanoIM-383a5a9b1-unsigned.ipa`，2,510,845 bytes，SHA-256 `8c0eea77493879b53dd113ab0ec57173f37803ba95286088a4f3ceb0a8a1c242`；arm64、bundle `win.nanoim.ios`、版本0.1.0、最低iOS26.0，无ATS例外/embedded profile。未签名，需现有免费签名流程重签；本轮不安装到真机。
+
+原生全36项测试通过（26 XCTest + 10 Swift Testing），`/tmp/nano-feat578-image-paste-green.log`，xcresult `Test-NanoIM-2026.10.07_01-13-53-+0800.xcresult`。后续仅节点离线409中文原因、实际重连标签和自动刷新保留错误窄修，构建通过 `/tmp/nano-feat578-channel-feedback-build.log`，上述测试保留其有效范围；[独立静态R4](../M1-native-app/code-review-simulator-r4.md) finding为空。390最新安装 `383a5a9b1`，模拟器可测范围以[R5全矩阵](../M1-native-app/acceptance-simulator-r5.md)+[R6最终闭环](../M1-native-app/acceptance-simulator-r6.md)为准；430仅自动测试。物理iPhone仍8e03b3e78，完整VoiceOver及安装维护体验按用户安排后置，不能混同。此为草稿评审候选，Full最终门槛保持开放。
+
+以下记录保留各旧版本的原范围，旧IPA不作为最新安装候选。
 
 - 主机 macOS 26.5.2，Apple Silicon。App Store 最新 Xcode 因要求 macOS 26.6 无法安装；未升级系统。
 - 用户在 Chrome 登录 Apple Developer 后下载官方 `Xcode_26.4.1_Apple_silicon.xip`，解包至本次临时目录，`codesign --verify --deep --strict` 成功，再移动至此前不存在的 `/Applications/Xcode.app`。
@@ -11,7 +17,7 @@
 - Xcode Components 下载并安装 iOS 26.4 runtime（26.4.1 / 23E254a）；iPhone 17 Pro simulator `1CE31893-672F-495A-B2B5-3ACF39A7A257` 已启动并运行 Nano IM。
 - 安装后磁盘当次约 35 GiB 可用。未删除用户文件，保留官方 XIP。
 
-最新设备归档：`build.sh archive` 在产品 revision `107290abe`（保留管理/媒体、配置分界及滚动修复，补齐根任务详情入口和深层引用返回）通过，输出 arm64 IPA。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外或 embedded provisioning profile。归档日志 `/tmp/nano-feat578-task-reference-archive-r16.log`，本地产物 `output/feat578/NanoIM-107290abe-unsigned.ipa`，2,339,620 bytes，SHA-256 `740cb5215440249d14eb50e02d32a653fb9bb6745a157278a575c62313819650`。未签名 IPA 需 AltStore 重签，不能直接安装。
+历史设备归档：`build.sh archive` 在产品 revision `107290abe`（保留管理/媒体、配置分界及滚动修复，补齐根任务详情入口和深层引用返回）通过，输出 arm64 IPA。Release Info.plist 为 `win.nanoim.ios`、版本 0.1.0、最低 iOS 26.0，无 ATS 任意加载例外或 embedded provisioning profile。归档日志 `/tmp/nano-feat578-task-reference-archive-r16.log`，本地产物 `output/feat578/NanoIM-107290abe-unsigned.ipa`，2,339,620 bytes，SHA-256 `740cb5215440249d14eb50e02d32a653fb9bb6745a157278a575c62313819650`。未签名 IPA 需 AltStore 重签，不能直接安装。
 
 此版全27项原生测试通过（17 XCTest+10 Swift Testing），日志 `/tmp/nano-feat578-task-reference-tests-r16.log`，xcresult `Test-NanoIM-2026.10.05_17-05-48-+0800.xcresult`；独立 R20 无存活 code finding。390 Simulator 保留数据原地安装此版，PID10990。独立 R12 关闭既有 M2 与实时 M3 分界顺序问题，R13 关闭多行发送布局挂起：composer 立即清空、真实 bash 运行中可见、Home 后从主屏恢复唯一完成结果和工具详情，长历史02→Latest最终消息正常可见且返回响应；root 当次 CPU0.0%。附件/管理此前有效范围保留。完整范围及限制见各报告，整体产品门禁与物理安装续签仍未通过。
 
