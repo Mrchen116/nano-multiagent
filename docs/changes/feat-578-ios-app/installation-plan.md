@@ -2,6 +2,8 @@
 
 状态：已完成原生 App、完整本地CI及 Release arm64 IPA，最新产品 revision `107290abe`，产物及哈希见[工具链记录](evidence/toolchain-readiness.md)。后台真实工具回复恢复、长历史、管理/媒体和Work分页已有实测；R15发现的任务嵌套引用及根详情入口已由[R16](M1-native-app/acceptance-r16.md)独立复验关闭并更新归档。其余明确验收分支和真机专属操作仍待完成，尚未签名安装到真机或续签。用户已确定当前 Mac 构建、Mac mini 运行 AltServer。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
+2026-10-06 拓扑修正：用户补充 Mini 与手机异地，手机与当前 Air 在一起，并授权本 chat 接管已连接的 iPhone Mirroring。首次安装改在 Air 推进，Air AltServer 已安装并确认运行；当前 USB 无接入设备、Finder/Xcode 未发现 iPhone，首次配对仍待。下方 Mini 同网维护步骤保留为原方案，不能按现有异地条件直接执行或视为已验收。最新观察及 Remote AltServers 官方能力边界见[Air 准备记录](evidence/air-altserver-readiness.md)。
+
 ## 官方约束与选择
 
 核实日期：2026-10-05。

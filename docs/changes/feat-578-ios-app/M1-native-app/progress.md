@@ -2,6 +2,12 @@
 
 Status: native implementation and observed review fixes integrated at product revision `107290abe`; 27 native tests and the latest arm64 device archive pass. Independent R16 closes the task-reference/root-detail failures; [R20](acceptance-r20.md) is the latest product scenario matrix, including local native HTTPS. Mini now runs official AltServer1.8. Remaining product branches and physical iPhone signing/renewal keep final acceptance open. No PR or production deployment.
 
+2026-10-06: user clarified the iPhone is with Air and Mini is in another city, and authorized this chat to operate the connected iPhone Mirroring. Official AltServer1.8 is installed and its Air process verified. Mirroring works; Spotlight did not find AltStore, Finder/Xcode show no iPhone, and the USB tree shows no connected device. First installation moves to Air and currently needs physical USB pairing. Ordinary Mini Wi-Fi refresh is not established by Tailscale reachability; official Remote AltServers are a separately documented capability, not device acceptance. See [Air readiness](../evidence/air-altserver-readiness.md). S29/S30 remain open.
+
+USB follow-up: user connected the phone; USB/Finder/Xcode now identify iPhone15ProMax /iOS26.4, with Developer Mode disabled. Finder entered a backup warning during the connection inspection; root did not choose a backup/encryption action and subsequently verified no active sync/backup, last local backup never, and unchanged encryption/automatic-sync options. Trigger remains unconfirmed. Xcode has no signed-in Apple Account. Official login and phone Developer Mode pages are prepared; the security change awaits action-time confirmation. App is still unsigned/uninstalled.
+
+Developer Mode follow-up: after risk/cost clarification, user enabled it. Direct device details now confirm paired, DDI services available, and developerModeStatus enabled. The remaining immediate signing prerequisite is Apple Account login; Xcode's prepared official login still has an empty account field. No paid membership purchase or private credential retrieval. S29/S30 remain open.
+
 ## Implementation
 
 - Added independent native SwiftUI client under `src/IM/ios`, including four tabs and all management areas in coverage C01-C34.
