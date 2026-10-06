@@ -44,11 +44,17 @@ struct AvatarView: View {
     }
     private var palette: (background: Color, foreground: Color) {
         if kind == "group" { return (color(0x35464f), color(0xc5d8df)) }
-        // Same name seed, 32-bit hash and palette as Web's shared avatar.tsx.
         let colors: [(UInt32, UInt32)] = [(0xe4dbcf, 0x6b5945), (0xd9dfd1, 0x506345), (0xdfd8e8, 0x69567b), (0xe7d7dc, 0x79525f), (0xcbdedb, 0x2f5954), (0xd5ddea, 0x485c7d)]
-        let hash = name.utf16.reduce(UInt32(0)) { ($0 &* 31) &+ UInt32($1) }
-        let pair = colors[Int(abs(Int64(Int32(bitPattern: hash)))) % colors.count]
+        let pair = colors[Self.paletteIndex(for: name)]
         return (color(pair.0), color(pair.1))
+    }
+    static func paletteIndex(for name: String) -> Int {
+        // Web coerces only the left shift to Int32; subtraction retains the wider value.
+        var hash: Int64 = 0
+        for codeUnit in name.utf16 {
+            hash = Int64(Int32(truncatingIfNeeded: hash) &<< 5) - hash + Int64(codeUnit)
+        }
+        return Int(abs(hash) % 6)
     }
     private func color(_ hex: UInt32) -> Color {
         Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)

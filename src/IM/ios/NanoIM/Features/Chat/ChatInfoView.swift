@@ -91,7 +91,8 @@ struct ChatInfoView: View {
             }
     }
     private func load() async {
-        do { let value: Conversation = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)"); chat = value; title = value.title; error = nil }
+        let unsavedTitle = dirtyTitle ? title : nil
+        do { let value: Conversation = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)"); chat = value; title = unsavedTitle ?? value.title; error = nil }
         catch { self.error = error.localizedDescription }
     }
     private func mutate(_ patch: [String: JSONValue]) {
@@ -105,7 +106,7 @@ struct ChatInfoView: View {
         guard !members.isEmpty else { return }
         struct Body: Encodable, Sendable { let participants: [ActorRef] }
         busy = true; defer { busy = false }
-        do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/participants", body: Body(participants: members.map(\.actor))); selected = []; addingMembers = false; let unsavedTitle = dirtyTitle ? title : nil; await load(); if let unsavedTitle { title = unsavedTitle } }
+        do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/participants", body: Body(participants: members.map(\.actor))); selected = []; addingMembers = false; await load() }
         catch { self.error = error.localizedDescription }
     }
     private func removeMember(_ actor: ActorRef) async {

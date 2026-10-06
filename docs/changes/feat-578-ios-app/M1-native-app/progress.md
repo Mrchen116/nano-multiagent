@@ -251,3 +251,4 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - 用户解锁镜像后已完成授权证书信任，物理启动、隔离HTTPS登录及原生建群成功；真实唯一群提及/peer completed42已核对。root自动发送点击先失败，后续用户操作现场显示成功，未通过API代发。准确边界见Air记录。
 - 用户否定提及菜单、头像及整个UI/UX，明确要求subagent发散从Web和商业软件角度审视。三个独立Sol审视者提交[Web](ux-audit-web-r1.md)、[商业](ux-audit-commercial-r1.md)及[实际原生](ux-audit-native-r1.md)报告。原P6不覆盖本次否定范围，旧R20表不改写成新结论。
 - root直接修正输入、身份、阅读、附件、建聊/群、任务层级、Work及表单保护，具体范围与33项原生通过证据见[修正记录](ux-correction-r1.md)。20:24早期候选实际直接@/slash、选后软件键盘保持和头像通过；后续新包必须窄复验。Full与自然到期维护仍开放，未推送、建PR或部署生产。
+- 冻结 `ba261e12f` 的[独立代码审查](code-review-ux-r1.md)/[verification](verification-ux-r1.md)确认移除成员冲掉群名草稿及头像算术偏离；root已具体修正，新增七组跨Web名称配色回归。最新34项原生通过及 R2 实际进展/锁屏断点见同一修正记录。旧失败记录保留，后续独立复审只看这两处及受影响路径，不机械扩大为整个Full重跑。
