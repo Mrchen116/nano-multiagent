@@ -51,15 +51,9 @@ struct ConversationView: View {
                         ForEach(items) { item in
                             if let message = item.message {
                                 ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], refreshed: { Task { await store.loadChat(conversationID) } })
-                                    .id(item.id).contextMenu {
-                                        Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
-                                            UIPasteboard.general.string = MarkdownContent.copy(ChatText.display(message.content, participants: conversation?.participants ?? []))
-                                            copied = true
-                                        }
-                                        if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
-                                            Button(L("从这里分支", "Fork from here"), systemImage: "arrow.triangle.branch") { confirmFork = message }
-                                        }
-                                    }
+                                    .id(item.id).contextMenu { messageActions(message) }
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityActions { messageActions(message) }
                                     .onGeometryChange(for: Bool.self) { geometry in
                                         let frame = geometry.frame(in: .global)
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
@@ -273,6 +267,15 @@ struct ConversationView: View {
     private func upload(_ data: Data, name: String, type: String) async {
         operationError = nil
         await store.addUpload(conversationID, data: data, name: name, type: type)
+    }
+    @ViewBuilder private func messageActions(_ message: ChatMessage) -> some View {
+        Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
+            UIPasteboard.general.string = MarkdownContent.copy(ChatText.display(message.content, participants: conversation?.participants ?? []))
+            copied = true
+        }
+        if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
+            Button(L("从这里分支", "Fork from here"), systemImage: "arrow.triangle.branch") { confirmFork = message }
+        }
     }
     private func fork(_ message: ChatMessage) async {
         do {

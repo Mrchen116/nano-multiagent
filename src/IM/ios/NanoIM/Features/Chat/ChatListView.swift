@@ -172,6 +172,11 @@ struct DistillView: View {
         struct Result: Decodable, Sendable { let conversation: Conversation; let prompt: String }
         busy = true; defer { busy = false }
         do {
+            let nodes: [AgentNode] = try await store.client.get("/im/v1/nodes")
+            if let node = nodes.first(where: { $0.id == sources.first?.source_node_id }), node.status == "offline" {
+                error = L("来源设备离线，请在设备恢复在线后重试。", "The source device is offline. Reconnect it before trying again.")
+                return
+            }
             let response: Result = try await store.client.send("/im/v1/conversations/distill-prompt", body: Body(sources: sources.map { Source(conversation_id: $0.id, source_agent_id: $0.source_agent_id!) }, execution_agent_id: execution, target_scope: scope))
             await store.loadConversations()
             completed(response.conversation.id, response.prompt)

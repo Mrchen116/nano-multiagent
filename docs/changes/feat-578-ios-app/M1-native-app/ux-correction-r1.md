@@ -53,3 +53,13 @@ R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题�
 仍未完成的实际范围：正文长按复制/fork/反馈、真正中文IME与VoiceOver、主动图片粘贴、真实pending Work默认展开、前台banner点击、更新后手机页面及无线续签/自然到期。本轮独立banner控制消息只发一次且已实际送达/读过；观察未记录起点，不能证明覆盖3秒窗口，不判产品失败也不称通过。新增设备心跳仍原始UTC微秒显示为R3 side finding，自动顶部历史、完整高频工具目标摘要、pending下一条草稿及任务跨入口返回仍是后续设计/实施候选，不混称本轮已完成。完整Full门禁继续开放，无Ready PR、merge或生产部署。
 
 本轮安全交还后已正常停止root自有Foreground HTTPS19443和隔离IM/Gateway；Tailscale Serve回原`{}`、owned PID21695/21704消失、62008/19443无listener、tmux已退出。fixture DB、0600恢复配置和本轮测试账号/阅读证据保留，未动生产或旧账号状态。手机App保留最新安装；测试入口已停止，后续物理复验须先恢复该隔离入口，不能将此暂停期间连接失败判产品故障。
+
+## 模拟器剩余分支补验与消息操作窄修
+
+用户要求先跳过真机，并核对远端新合并代码。最新主线 `d87ffa3d1` 已包含在本分支，没有待合入提交。独立[模拟器 R1](acceptance-simulator-r1.md)在原 `8e03b3e78` 产品实际完成软件拼音组合/选字/换行/再次组合，未自动发送，及不同来源设备的蒸馏拒绝。其余操作工具限制、真实 pending 前置和外部平台分支原样保留，不把本轮范围称为完整 Full。
+
+本轮仅修三处：消息复制/可用分支显式提供辅助操作，复用长按菜单动作且保留子控件；蒸馏生成前读取真实设备状态，已知离线时中文说明恢复后重试；真人消息提醒处理实际 `message.sent` 事件，同一真人的可选 `message.created` 不再重复提醒，Agent 创建提醒及已读/静音/自己发送过滤保持。
+
+提醒缺口不是仅凭 AX 未见推断：本次唯一合法真人消息的实际持久事件为 `message.sent`/`message.delivered`，原生只监听 `message.created`，Web 已处理真人 sent。新增回归通过既有 `ChatStateTests` 的真实解码/事件消费 seam 观察提醒目标、真人重复创建、Agent、自己发送、静音、当前会话和重放；旧实现实际两断言失败，日志 `/tmp/nano-feat578-human-reminder-red.log`。正文辅助操作和离线文案属于本轮实际 UI 复验，不添加镜像布局/文案的永久测试。早期 S27 fixture 422 是 caller 漏传 sender，未投递；修正后唯一201与实际消息分开保存，不把 fixture 错误当产品失败。
+
+修正后35项原生测试通过（25 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-human-reminder-green.log`，xcresult `Test-NanoIM-2026.10.06_22-36-55-+0800.xcresult`；同轮 Simulator 构建成功。静态门禁与实际新包辅助操作、离线说明和提醒点击仍需独立窄复验；不以自动化通过代替这些 UI 证据。Python/Web 未改，不机械重跑旧有效范围。

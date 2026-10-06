@@ -5,6 +5,41 @@ import XCTest
 final class ChatStateTests: XCTestCase {
     private let user = AuthUser(id: "user", username: "user", display_name: "User", owner_id: "user", locale: "en", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
 
+    func testForegroundRemindersHandleHumanSentWithoutRepeatingCreation() async throws {
+        let key = "nano.foregroundReminders"
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer { if let previous { UserDefaults.standard.set(previous, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+        let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
+        let store = try await makeStore(list: list)
+        await store.loadConversations()
+        func event(_ type: String, _ id: Int, sender: String = "peer", kind: String = "user") throws -> UserEvent {
+            let data: [String: Any] = ["op": "event", "event_type": type, "event_id": id, "data": ["conversation_id": "chat", "message_id": "message", "sender_user_id": sender, "sender_type": kind]]
+            return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: data))
+        }
+        store.consume(try event("message.sent", 1))
+        XCTAssertEqual(store.banner?.conversationID, "chat")
+        store.banner = nil
+        store.consume(try event("message.created", 2))
+        XCTAssertNil(store.banner)
+        store.consume(try event("message.created", 3, kind: "agent"))
+        XCTAssertEqual(store.banner?.conversationID, "chat")
+        store.banner = nil
+        store.consume(try event("message.sent", 4, kind: "agent"))
+        store.consume(try event("message.sent", 5, sender: "user"))
+        XCTAssertNil(store.banner)
+        store.conversations[0].is_muted = true
+        store.consume(try event("message.sent", 6))
+        XCTAssertNil(store.banner)
+        store.conversations[0].is_muted = false; store.selectedID = "chat"
+        store.consume(try event("message.sent", 7))
+        XCTAssertNil(store.banner)
+        store.selectedID = nil
+        store.consume(try event("message.sent", 7))
+        XCTAssertNil(store.banner)
+        store.clear()
+    }
+
     func testMembershipControlWithoutCursorRemovesCachedContentAndDraft() async throws {
         let store = try await makeStore()
         store.timelines["chat"] = [try message(1)]

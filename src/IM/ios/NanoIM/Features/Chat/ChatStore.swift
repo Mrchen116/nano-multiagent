@@ -101,7 +101,10 @@ final class ChatStore {
         }
         if let chat { dirtyChats.insert(chat) }
         needsList = true
-        if event.event_type == "message.created", eventID > notificationFloor,
+        // Human writes emit message.sent; their optional creation event must not remind twice.
+        let newMessage = (event.event_type == "message.sent" && data["sender_type"].stringValue == "user")
+            || (event.event_type == "message.created" && data["sender_type"].stringValue != "user")
+        if newMessage, eventID > notificationFloor,
            let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
            data["sender_user_id"].stringValue != user.id,
            UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {

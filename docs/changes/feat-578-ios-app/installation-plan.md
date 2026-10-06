@@ -2,6 +2,8 @@
 
 状态：原生 App 正在修正用户否定的整体UX，当前产品源码 `8e03b3e78`。本轮34项原生测试在 `2992200b9` 通过，后续Task/Work纯显示窄修构建及独立静态闭环通过，证据保留各自范围。此前 unsigned IPA `107290abe` 的产物及哈希仅代表其原版本，见[工具链记录](evidence/toolchain-readiness.md)；不要与新签名安装包混同。后台真实工具回复恢复、长历史、管理/媒体和Work分页已有各自实测；R15任务引用/根详情缺口已由[R16](M1-native-app/acceptance-r16.md)关闭。2026-10-06已完成Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天，并先后原地更新本轮修正版。Simulator本轮受影响范围另有独立复验；新手机镜像页仍待本机身份验证。准确安装事实见[Air记录](evidence/air-altserver-readiness.md)。其余明确验收分支及无线续签/自然到期恢复仍未完成，未创建PR或最终验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
 
+2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。
+
 2026-10-06 拓扑修正：用户补充 Mini 与手机异地，手机与当前 Air 在一起，并授权本 chat 接管已连接的 iPhone Mirroring。首次安装改在 Air 推进，Air AltServer 已安装并确认运行；当时USB尚未接入，后续配对与安装事实见下一段。下方 Mini 同网维护步骤保留为原方案，不能按现有异地条件执行或视为已验收。Remote AltServers边界见[Air 准备记录](evidence/air-altserver-readiness.md)。
 
 随后用户已接USB、开启Developer Mode并登录Xcode。私有临时项目完成免费签名，实际profile到期2026-10-13 19:31:19（Asia/Shanghai），安装success。之后经授权完成证书信任，实际启动、隔离HTTPS登录、原生建群和真实peer回复42呈现已观察；用户否定聊天UX，正在按[本轮记录](M1-native-app/ux-correction-r1.md)修正。下方AltStore/Mini维护尚未实施，不能由Xcode USB成功替代。
@@ -42,7 +44,7 @@
 
 | 项目 | 已知结果 | 尚待落实 |
 |---|---|---|
-| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试和设备归档通过 | 完整模拟器产品验收与真机签名 |
+| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器运行、原生测试、设备归档与免费签名已完成 | 剩余模拟器产品分支；真机体验按用户安排后置 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
 | Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、手机USB配对、同网发现与刷新 |
 | iPhone | 实际15 Pro Max /26.4，配对、Developer Mode、免费USB安装/信任、HTTPS登录与聊天呈现已观察 | 更新后UX、中文与辅助访问及完整物理旅程；无线续签/自然到期恢复 |

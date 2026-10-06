@@ -256,3 +256,9 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Air解锁后[实际R3](acceptance-ux-r3.md)完成图文/代码copy/照片预览、群移除保draft、管理continue/discard、任务祖先、公开状态与专用direct改名身份；70条历史唯一离屏marker77秒保持unread1，单次Latest见完整正文后权威0/newcursor，实际viewport闭环。独立报告保留原3minor、未捕获banner点击与其它未验，不扩大Full通过。
 - 最后Task/Work显示窄修 `8e03b3e78` 构建及[静态审查](code-review-ux-r3.md)/[verification](verification-ux-r3.md)有限pass，实际Reviewer已确认inline真实节点名、compact/带描述卡与箭头可读、两条Work具体本地时间可区分。手机同源新包原地安装/21:26启动receipt成功；镜像独立Mac安全验证仍待用户完成，未读密码/绕过。所有完成/剩余/后续建议以[本轮记录](ux-correction-r1.md)集中维护。
 - [实际R4](acceptance-ux-r4.md)最后显示范围pass、0新增finding，原R3 N8/日期失败保留并在8e关闭；390当前System font，不扩大大字/真机/Full。安全交还后root正常退出本次21695/21704和Foreground19443，实际PID/listener均消失、Serve恢复`{}`、tmux关闭；fixture及私有恢复配置保留，不动生产。后续手机复验先恢复隔离入口，再通过本机镜像认证继续；未推送、建PR或最终验收。
+
+### 2026-10-06 模拟器剩余分支补验，真机后置
+
+- 用户原话：『模拟环境上完整测完了吗，真机先跳过』。本轮仅补模拟器可完成的未验分支；S29/S30 真机安装、同网续签按用户要求后置，不删除原要求，也不作为本轮模拟器失败原因。
+- 复用实际 `8e03b3e78` 产品安装及原有有效证据，不重跑已通过范围；恢复原隔离 IM/Gateway 和数据库，未启动手机 HTTPS 入口、外部通道或第二 Gateway。独立原生 reviewer 继续一次有界补验，操作工具限制与真实外部平台前置单独记录。
+- 用户追加要求考虑远端新合并代码。22:21 +08:00 执行 fetch，并用远端 `HEAD`/`refs/heads/main` 核对，均为 `d87ffa3d19160d45d309f281b0ace4ff92f55a38`（PR #323）；该提交已是本分支祖先，`HEAD...origin/main` 计数为51/0，未合入提交为空。本轮没有重做 merge，也不把既有原生证据扩大为后来未知主线；收尾时再次核对远端。
