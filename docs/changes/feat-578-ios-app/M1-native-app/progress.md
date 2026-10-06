@@ -275,3 +275,5 @@ Backend message snapshots persist text/tool deltas. The client coalesces relevan
 - Photos 主动拷贝后原生无 Paste。独立430的图片专用剪贴板测试实际复现 canPerformAction(paste) 为 false；修正仅为图片粘贴开放系统菜单能力，仍仅在用户实际 Paste 时读取图片。第一次测试读取旧剪贴板被系统拦截，保留 sample/log，不当产品红测；修正 fixture 后真实红测日志 /tmp/nano-feat578-image-paste-red2.log，唯一 Paste 能力断言失败。
 - 同批处理实际已报告的三个小问题：无来源执行记录时中文解释恢复路径、心跳/通道更新时间使用已有本地格式、通道409反馈符合通道状态且重读成功清旧错误。没有改变权限、API、数据或原生粘贴交互模式。
 - 全36项原生测试通过（26 XCTest + 10 Swift Testing）；/tmp/nano-feat578-image-paste-green.log，xcresult Test-NanoIM-2026.10.07_01-13-53-+0800.xcresult。独立产品 Paste/上述显示复验和 S21 受控停止失败链路继续，未将自动测试视为实际产品通过；物理手机保持8e03b3e78不触碰。
+
+- [静态 R2](code-review-simulator-r2.md) 确认通道409仍须区分实际 channel_node_offline；root按已保留APIError.code显示节点恢复在线后重试，其余409保留通道状态反馈。仅该中文恢复指引窄修，Simulator build通过 /tmp/nano-feat578-channel-offline-build.log；36项原生测试前述有效范围保留，实际离线操作仍需独立UI闭环。

@@ -94,7 +94,9 @@ struct AgentChannelsView: View {
             let _: AgentChannel = try await client.send(path, body: [String: String]())
             await load()
         } catch let failure as APIError where failure.status == 409 {
-            error = L("通道操作与当前状态冲突，请重读通道状态后重试。", "The channel state changed. Reload its status before retrying.")
+            error = failure.code == "channel_node_offline"
+                ? L("节点离线，恢复在线后请重试通道操作。", "The node is offline. Retry the channel action after it reconnects.")
+                : L("通道操作与当前状态冲突，请重读通道状态后重试。", "The channel state changed. Reload its status before retrying.")
         } catch { self.error = agentError(error) }
     }
     private func remove(_ channel: AgentChannel) async {
