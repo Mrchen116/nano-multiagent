@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态（2026-10-07）：当前产品源码 `383a5a9b1`，36项原生测试、Simulator 构建及 arm64 Release archive 通过。模拟器可测范围已完成，完整场景范围见[独立R5矩阵](M1-native-app/acceptance-simulator-r5.md)及[R6通道闭环](M1-native-app/acceptance-simulator-r6.md)；整体UX修正见[本轮记录](M1-native-app/ux-correction-r1.md)。最新 unsigned IPA、哈希和版本只在[工具链记录](evidence/toolchain-readiness.md)维护。物理iPhone仍为 `8e03b3e78`，本轮按用户要求跳过真机；完整VoiceOver、更新后手机体验、无线续签/自然到期恢复后置，Full最终验收、canonical归并及归档仍未完成，当前交付只供草稿评审。2026-10-06 Air免费Personal Team签名、物理USB安装/信任、实际启动及隔离HTTPS聊天事实见[Air记录](evidence/air-altserver-readiness.md)，不能替代新版真机验收。无需购买 Apple Developer Program，不使用 AltStore PAL。
+状态（2026-10-08）：当前产品源码 `383a5a9b1` 保持冻结，Simulator可测范围及五项required CI已完成。用户现已将两台电脑和手机置于同一Wi-Fi，并重新授权真机验收；最新版免费Personal Team Release已通过Air无线原地安装，实际新版图标启动由[真机R1](M1-native-app/acceptance-device-r1.md)独立记录。手机Tailscale已由本人重新登录并显示Connected。完整物理交互、VoiceOver、Mini无线续签与自然到期恢复尚未通过，Full最终验收、canonical归并及归档仍未完成，PR仍为草稿。当前签名profile到期仍为2026-10-13 19:31:19（Asia/Shanghai）；原地更新不等于延长有效期。签名包身份和无线安装证据见[Air记录](evidence/air-altserver-readiness.md)，Simulator范围见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md)。无需购买Apple Developer Program，不使用AltStore PAL。
 
 2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。
 
@@ -28,7 +28,7 @@
 3. Release device archive 使用 `CODE_SIGNING_ALLOWED=NO`；构建脚本从 archive 的真实 app 建 `Payload/NanoIM.app` IPA，校验 arm64、Info.plist 与 entitlements。这个 IPA 仍需侧载工具签名才能运行。
 4. Mini 从 [AltStore 官方](https://altstore.io/) 安装 AltServer，用户 GUI 登录会话持续运行。只检查/安装 AltServer，不触碰现有 IM/Gateway。设置开机登录启动需在已授权安装维护范围内完成。
 5. 获得本 chat 真机操作时段后 USB 配对，Finder 开启 Wi-Fi 同步，完成设备信任和 Developer Mode。用户自行处理账号/验证码与设备安全确认，不争用其他 chat 的 iPhone Mirroring。
-6. AltServer 安装 AltStore Classic；在 AltStore 导入本次 IPA 并重新签名。保持同一个 Apple Account、Bundle identity 与 AltStore app mapping，记录实际 profile 到期与 IPA commit（不记录账号密码）。
+6. AltServer 安装 AltStore Classic；在 AltStore 导入本次 IPA 并重新签名。先核对真实安装标识：首次AltStore导入不能被当作对当前Xcode安装的直接接管（见下方身份边界）。保留既有App及数据；在AltStore建立稳定mapping后，后续更新/续签维持同一个Apple Account和mapping，记录实际profile到期与IPA commit（不记录账号密码）。
 7. 从 iPhone 图标启动，登录实际可访问的 IM；完成中文输入、图片文件、前后台恢复及管理动作。测试对象使用 [Tailscale HTTPS 隔离入口](evidence/device-access-plan.md)，不改变真实生产公司成员/通道/策略。
 8. 拔掉 USB，手机与 Mini 同网，AltStore 刷新 Nano；记录刷新前后真实到期/刷新结果和重新启动成功。自动刷新若未发生，实际执行手动刷新；不能把 USB 成功称作 Wi-Fi 成功。
 
@@ -44,10 +44,17 @@
 
 | 项目 | 已知结果 | 尚待落实 |
 |---|---|---|
-| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器可测范围、36项原生测试及最新设备归档完成 | 真机体验按用户安排后置 |
+| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器可测范围、36项原生测试及最新设备归档完成 | 用户已恢复真机验收，交互与辅助访问尚待实际结果 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
-| Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、手机USB配对、同网发现与刷新 |
+| Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、目标手机配对、同网发现与刷新 |
 | iPhone | 实际15 Pro Max /26.4，配对、Developer Mode、免费USB安装/信任、HTTPS登录与聊天呈现已观察 | 更新后UX、中文与辅助访问及完整物理旅程；无线续签/自然到期恢复 |
 | Feishu E2E | 专用 Bot 独占 listener；原生新增/凭据保留替换/connected/停用证据保留。离线、unknown/受限诊断、实际权限更新、受控停止失败及原生重试真实停止、隔离历史保留已闭环，见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md) | 本轮历史为真实IM repository种子，不代表平台收发；故障为明确受控条件，不改真实平台权限 |
 
 验收不伪造过期或改系统时间。S30 的自然过期恢复需到期后的实际过程，或由用户明确授权等价验证后按调整的标准记录；提前手动刷新不能证明自然过期恢复。
+
+
+## Xcode 安装到 AltStore 的身份边界
+
+2026-10-08按[官方Classic源码](https://github.com/altstoreio/AltStore/blob/fafd76ee1a8a19c723146de278660aacce9ded5d/AltStore/Operations/FetchProvisioningProfilesOperation.swift#L177)核对：首次普通App导入时使用原bundle加Team后缀；只有此前由AltStore建立、且Team匹配的mapping才沿用它的resigned bundle。随后[重签流程](https://github.com/altstoreio/AltStore/blob/fafd76ee1a8a19c723146de278660aacce9ded5d/AltStore/Operations/ResignAppOperation.swift#L118)实际把CFBundleIdentifier替换为profile标识。当前Xcode安装是 `win.nanoim.ios`，不能推断首次AltStore导入会原地续签这个安装或继承它的本机容器。
+
+因此保留当前安装，不以卸载/随机ID绕过。若建立AltStore管理的安装，必须把首次mapping、是否出现第二App及本机登录/设置边界如实记录；随后使用同一Nano账号证明原服务端历史可读，再实测该稳定mapping的无线刷新。新安装成功、原安装无线更新或文档建议均不能替代Mini S30刷新/到期恢复。当前尚未安装或导入AltStore，亦未证明Mini已与目标手机配对。

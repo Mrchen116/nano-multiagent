@@ -8,8 +8,8 @@
 
 ## 验收环境与证据边界
 
-- 设备：caller交接 iPhone 15 Pro Max / iOS26.4、`A34CE3C5-AFD4-5900-AFDF-7D758E27EC91`，配对、Developer Mode enabled、无线 localNetwork。reviewer独占 `com.apple.ScreenContinuity` 时段；只用该App操作手机。其AX只暴露Mac镜像容器，无手机产品控件，因此本轮坐标从fresh截图推导，动作后观察AX/实图。
-- 私有包receipt独立只读：47项源/资源manifest SHA256 `4539caaede19a8d71c36a1c81250fe8e895a01cb15af0fd11218abf95d002b47`；发送的Release executable SHA256 `f408d045a30deba2c70447f320563a39d873bf9a5d8b58aaf52ad4f11612da74`；bundle `win.nanoim.ios`、免费profile到期 `2026-10-13T11:31:19Z`，原profile UUID保持。`device-install-r1.json`实际 outcome success，安装URL新bundle目录 `E6BAB200-6874-445B-ADA7-DF2AE2D582F4`。这是发送包与安装回执证据，**不是手机二进制读回哈希**。
+- 设备：caller交接 iPhone 15 Pro Max / iOS26.4（设备标识仅保存在本机私有回执），配对、Developer Mode enabled、无线 localNetwork。reviewer独占 `com.apple.ScreenContinuity` 时段；只用该App操作手机。其AX只暴露Mac镜像容器，无手机产品控件，因此本轮坐标从fresh截图推导，动作后观察AX/实图。
+- 私有包receipt独立只读：47项源/资源manifest SHA256 `4539caaede19a8d71c36a1c81250fe8e895a01cb15af0fd11218abf95d002b47`；发送的Release executable SHA256 `f408d045a30deba2c70447f320563a39d873bf9a5d8b58aaf52ad4f11612da74`；bundle `win.nanoim.ios`、免费profile到期 `2026-10-13T11:31:19Z`，原profile UUID保持。`device-install-r1.json`实际 outcome success，安装URL指向新的bundle目录（原始路径只保留私有回执）。这是发送包与安装回执证据，**不是手机二进制读回哈希**。
 - caller集中准备持久隔离runtime `runtime-phone-r1`、IM loopback54184、可信 tailnet HTTPS19443、本轮owner `u_fsqbhkuc`、online专用节点及 `e2e`/`e2e-peer` Agents。reviewer实际确认App连接设置为交接精确origin，未忽略TLS证书或改ATS。私有token、密码、数据库和截图缓存不入repo。
 - 只操作已授权合成账号及本轮资源；未打开未知旧 `c_81nb7o3h`、私人聊天、照片/联系人/个人文件，未外发真人平台。旧恢复会话TLS提示发生于先前Tailscale disconnected背景，不作为本轮新版业务bug证据。
 - Mirror可证明物理设备正在运行的原生UI与通过镜像输入后的结果；不能证明实体触屏/实体键盘流程、屏幕阅读器发声或完整VoiceOver。S30由caller推进，reviewer不操作AltServer、Mini或签名安装。
@@ -68,7 +68,7 @@ caller另已集中准备合成媒体前置，私有 `device-private/media-fixtur
 ## 上层文档同步
 
 - [x] `SPEC.md`：无需更新，本轮验收不改跨包架构。
-- [x] `docs/specs/IM/`：待orchestrator按最终验收/实现归并；reviewer不写canonical。
+- [x] `docs/specs/im/`：待orchestrator按最终验收/实现归并；reviewer不写canonical。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 

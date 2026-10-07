@@ -74,3 +74,14 @@ root原生键入 `@e2e-peer 23+19=? Reply only number.`，自动发送点击遇�
 Air桌面解锁没有解除iPhone Mirroring的独立本机验证：实际AX/截图仍显示“iPhone镜像已锁定，输入Mac登录信息继续”的安全输入栏。已请用户在该原生窗口完成验证，未索取/读取Mac密码或绕过。故手机新页面与中文输入仍不由Simulator、更新或启动receipt替代。
 
 本轮实际窄复验安全交还后，root已正常停止自有HTTPS19443/隔离IM及Gateway，实际Serve回`{}`、62008/19443无listener、原owned PID消失。恢复配置/DB保留，手机App仍是已安装新版；暂停的测试入口暂不可连，后续物理复验先恢复同一入口。没有停生产、改用户Tailscale常驻配置或删除App数据。
+
+
+## 同网后的最新免费签名与无线原地安装
+
+2026-10-08，用户将Air/Mini/iPhone置于同一Wi-Fi，解锁镜像并重新授权继续真机。Air已重启，早先临时目录消失；本轮改用仓库外0700持久私有目录保存签名项目、配置及fresh隔离runtime，不声称此前临时IM DB历史仍在。手机原App容器保留。
+
+当前HEAD `d4d8be38c7789ec3334063c257f79a14c9285159` 的原生源码与 `383a5a9b15694af404ecb0ca0ddab8ff45bb62fd` 完全一致，47个App源/资源逐文件SHA校验一致，manifest SHA-256 `4539caaede19a8d71c36a1c81250fe8e895a01cb15af0fd11218abf95d002b47`。私有Personal Team自动签名Release构建成功，codesign深度严格校验通过；送装可执行文件SHA-256 `f408d045a30deba2c70447f320563a39d873bf9a5d8b58aaf52ad4f11612da74`。最初手工指定Xcode-managed profile的构建失败保留在私有log，随后恢复正确Automatic配置，未改仓库签名设置。
+
+设备实际为Air paired、Developer Mode enabled、`localNetwork`。`devicectl`无线原地安装返回success，bundle仍为 `win.nanoim.ios`；无卸载/恢复/清App数据。相同profile实际到期仍为2026-10-13 19:31:19 Asia/Shanghai，不能把更新称为续签延期。命令启动在Mirroring占用期间被设备Locked拒绝；独立reviewer随后从实际手机图标打开新版，命令拒绝不等同App无法运行。完整产品结果见[真机R1](../M1-native-app/acceptance-device-r1.md)，安装receipt只证明送装。
+
+本轮Foreground19443代理到私有隔离IM，标准TLS验证与已认证owned-node读回正常。手机起初Tailscale disconnected/needs authentication，用户完成登录后原生页面显示Connected，Air同时报告该iOS peer Online；尚未以此代替Nano登录成功。当前secure框的镜像键入/标准粘贴前置未解决，Save Password已Not Now，合成账号不存入系统密码。AltStore首次mapping与当前Xcode安装边界见[安装方案](../installation-plan.md#xcode-安装到-altstore-的身份边界)。

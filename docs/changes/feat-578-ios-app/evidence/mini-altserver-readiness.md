@@ -11,3 +11,8 @@
 仍待实际 GUI/设备过程：检查菜单和登录启动设置、USB信任与Finder Wi-Fi sync、用户在本地输入Apple账号/验证码、安装AltStore/Nano、同网拔线刷新及自然过期恢复。没有凭进程存在宣称这些已完成；没有操作本 chat 尚未获使用时段的 iPhone。
 
 完整步骤及最终标准见[安装方案](../installation-plan.md)，产物版本见[工具链记录](toolchain-readiness.md)。
+
+
+## 同网后的只读复核
+
+2026-10-08，用户确认两台电脑和手机同Wi-Fi。既定Mini SSH可达，实际AltServer进程仍来自 `/Applications/AltServer.app/Contents/MacOS/AltServer`。按当前已识别目标手机UDID只检查其精确 `/var/db/lockdown/` 配对文件，未找到；目录具有可遍历权限，因此不是仅由目录无法列出得出的判断。未读取或迁移任何配对密钥。该检查不是实际AltServer设备菜单、USB信任或刷新结果；目标设备的Mini配对仍待官方流程验证。Air的CoreDevice无线安装成功不替代Mini的legacy Wi-Fi同步发现。没有改Mini生产IM/Gateway、现有节点或用户网络设置。
