@@ -84,4 +84,12 @@ Air桌面解锁没有解除iPhone Mirroring的独立本机验证：实际AX/截�
 
 设备实际为Air paired、Developer Mode enabled、`localNetwork`。`devicectl`无线原地安装返回success，bundle仍为 `win.nanoim.ios`；无卸载/恢复/清App数据。相同profile实际到期仍为2026-10-13 19:31:19 Asia/Shanghai，不能把更新称为续签延期。命令启动在Mirroring占用期间被设备Locked拒绝；独立reviewer随后从实际手机图标打开新版，命令拒绝不等同App无法运行。完整产品结果见[真机R1](../M1-native-app/acceptance-device-r1.md)，安装receipt只证明送装。
 
-本轮Foreground19443代理到私有隔离IM，标准TLS验证与已认证owned-node读回正常。手机起初Tailscale disconnected/needs authentication，用户完成登录后原生页面显示Connected，Air同时报告该iOS peer Online；尚未以此代替Nano登录成功。当前secure框的镜像键入/标准粘贴前置未解决，Save Password已Not Now，合成账号不存入系统密码。AltStore首次mapping与当前Xcode安装边界见[安装方案](../installation-plan.md#xcode-安装到-altstore-的身份边界)。
+本轮Foreground19443代理到私有隔离IM，标准TLS验证与已认证owned-node读回正常。手机起初Tailscale disconnected/needs authentication，用户完成登录后原生页面显示Connected，Air同时报告该iOS peer Online。初次secure框镜像输入失败保留于R1；root随后使用标准窗口Raise、清空并输入完整合成密码，单次提交后实际进入Chats。没有源码修改，也不将Raise后的成功归因为此前失败的唯一原因。Save Password已Not Now，合成账号不存入系统密码。登录已实证，其余交互由独立R2继续。AltStore首次mapping与当前Xcode安装边界见[安装方案](../installation-plan.md#xcode-安装到-altstore-的身份边界)。
+
+## 照片权限修正包与续签前置复核
+
+01:37，`d17e70c4f1b9ca87dddea963711bb6648011ee79` 的两份照片purpose修正已另建私有Personal Team Release，实际Info.plist只有Add key，无read/write key，严格codesign通过。47个App源/资源保持原版；私有receipt另列2份Config hashes。送装executable SHA-256 `e1e854a81ab8e13019fb895cdeb3605bfedc5c9805bee598bcdd2acd16605e3a`；无线原地安装实际outcome success。root从手机图标打开后经历Restoring session并回到A账号三项Chats，未卸载/清数据或要求再次登录。此为root安装/入口观察，独立媒体复验另记；profile仍到期2026-10-13 19:31:19 Asia/Shanghai，不算续期。
+
+独立[物理R3](../M1-native-app/acceptance-device-r3.md)随后完成实际仅添加照片授权、合成图保存后重新选取、取消/移除、原生单次发送、再次Image/QuickLook预览与系统分享，DEV2-01关闭、新增问题0。系统PhotosPicker只向App提供所选项目；没有把先前read/full拒绝改为允许。原生照片路径返回JPEG，解码尺寸仍480×320、合成青绿/金色图一致；不声称与原PNG逐字节相同。R2普通Files原字节保持证据另保留。手机最终交回A English Chats、空输入及无sheet/选择器。
+
+Air AltServer实际进程仍在；当前电脑操作器绑定其menu-only App超时，inventory也未提供可操作窗口，因此没有实际安装/刷新菜单证据。Finder实际侧边栏未显示手机；只读打开设置确认“CD、DVD和iOS设备”原本已勾选，随后关闭设置，无选项变更、Sync/Backup动作。这个观察不能推断手机的Wi-Fi sync开关值，亦不能代替Mini配对。Mini实际屏幕共享和菜单现已可操作，具体设备前置见[准备记录](mini-altserver-readiness.md)。

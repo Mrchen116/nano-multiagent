@@ -1,8 +1,10 @@
 # 当前 Mac 工具链准备记录
 
-更新日期：2026-10-07（Asia/Shanghai）。包含工具链准备及实际构建结果；不代替完整产品或真机验收。
+更新日期：2026-10-08（Asia/Shanghai）。包含工具链准备及实际构建结果；不代替完整产品或真机验收。
 
-最新设备归档：产品 `383a5a9b1` 的 Release archive 通过，日志 `/tmp/nano-feat578-release-sim6.log`。本地产物 `output/feat578/NanoIM-383a5a9b1-unsigned.ipa`，2,510,845 bytes，SHA-256 `8c0eea77493879b53dd113ab0ec57173f37803ba95286088a4f3ceb0a8a1c242`；arm64、bundle `win.nanoim.ios`、版本0.1.0、最低iOS26.0，无ATS例外/embedded profile。未签名，需现有免费签名流程重签；本轮不安装到真机。
+最新设备归档：`d17e70c4f1b9ca87dddea963711bb6648011ee79` 仅修正照片保存的两份purpose配置，App源码保持383版本。用仓库 `build.sh archive` 的真实 Release archive成功，仓库外持久产物 `artifacts-phone-r2/NanoIM-unsigned.ipa`，2,510,933 bytes，SHA-256 `96ca727ee78d9cfd04241cd61f9c0d879515cae39756f84e2076f243b5440ea8`。实际arm64、bundle `win.nanoim.ios`、最低iOS26.0，仅Add照片purpose、没有read/write purpose、ATS例外、embedded profile或CodeSignature；需现有免费签名流程重签。私有archive日志和receipt不提交。同源Personal Team Release包另经严格签名检查、无线原地安装及[物理R3媒体复验](../M1-native-app/acceptance-device-r3.md)，只关闭其实际媒体范围；unsigned归档或原地安装不是续签证明。
+
+历史383设备归档：Release archive通过，日志 `/tmp/nano-feat578-release-sim6.log`。本地产物 `output/feat578/NanoIM-383a5a9b1-unsigned.ipa`，2,510,845 bytes，SHA-256 `8c0eea77493879b53dd113ab0ec57173f37803ba95286088a4f3ceb0a8a1c242`；arm64、bundle `win.nanoim.ios`、版本0.1.0、最低iOS26.0，无ATS例外/embedded profile。此为2026-10-07模拟器阶段产物，以下该阶段真机状态保留其当时范围；2026-10-08的无线原地安装与登录见[Air记录](air-altserver-readiness.md)和M1真机报告，不沿用旧手机版本为当前状态。
 
 原生全36项测试通过（26 XCTest + 10 Swift Testing），`/tmp/nano-feat578-image-paste-green.log`，xcresult `Test-NanoIM-2026.10.07_01-13-53-+0800.xcresult`。后续仅节点离线409中文原因、实际重连标签和自动刷新保留错误窄修，构建通过 `/tmp/nano-feat578-channel-feedback-build.log`，上述测试保留其有效范围；[独立静态R4](../M1-native-app/code-review-simulator-r4.md) finding为空。390最新安装 `383a5a9b1`，模拟器可测范围以[R5全矩阵](../M1-native-app/acceptance-simulator-r5.md)+[R6最终闭环](../M1-native-app/acceptance-simulator-r6.md)为准；430仅自动测试。物理iPhone仍8e03b3e78，完整VoiceOver及安装维护体验按用户安排后置，不能混同。此为草稿评审候选，Full最终门槛保持开放。
 

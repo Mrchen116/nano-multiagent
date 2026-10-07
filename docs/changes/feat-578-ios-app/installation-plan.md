@@ -1,6 +1,6 @@
 # 免费安装与维护方案
 
-状态（2026-10-08）：当前产品源码 `383a5a9b1` 保持冻结，Simulator可测范围及五项required CI已完成。用户现已将两台电脑和手机置于同一Wi-Fi，并重新授权真机验收；最新版免费Personal Team Release已通过Air无线原地安装，实际新版图标启动由[真机R1](M1-native-app/acceptance-device-r1.md)独立记录。手机Tailscale已由本人重新登录并显示Connected。完整物理交互、VoiceOver、Mini无线续签与自然到期恢复尚未通过，Full最终验收、canonical归并及归档仍未完成，PR仍为草稿。当前签名profile到期仍为2026-10-13 19:31:19（Asia/Shanghai）；原地更新不等于延长有效期。签名包身份和无线安装证据见[Air记录](evidence/air-altserver-readiness.md)，Simulator范围见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md)。无需购买Apple Developer Program，不使用AltStore PAL。
+状态（2026-10-08）：App源码 `383a5a9b1` 保持冻结，最新原生变更 `d17e70c4f1` 仅改两份照片用途声明。免费Personal Team Release已通过Air无线原地安装；独立[真机R2](M1-native-app/acceptance-device-r2.md)完成登录、账号隔离、聊天、Files及代表管理旅程，[真机R3](M1-native-app/acceptance-device-r3.md)完成仅添加授权后的实际照片保存/选择/发送/再开，关闭DEV2-01且新增问题0。Simulator可测范围与旧公开head的五项required CI完成，新变更发布后须观察其自己的远端CI。手机Tailscale实际Connected；Mini原有屏幕共享已接通，其真实AltServer显示没有连接设备、Finder也无手机，设备侧栏显示已启用，仍需用户直接USB接Mini完成首次配对前置。完整物理中文IME/软件键盘/VoiceOver/剪贴板内容、Mini无线续签与自然到期恢复尚未通过，Full最终验收、canonical归并及归档未完成，PR仍为草稿。当前profile到期仍为2026-10-13 19:31:19（Asia/Shanghai）；原地更新不等于延长有效期。包身份和无线安装见[Air记录](evidence/air-altserver-readiness.md)，Mini实际菜单见[Mini记录](evidence/mini-altserver-readiness.md)，Simulator范围见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md)。无需购买Apple Developer Program，不使用AltStore PAL。
 
 2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。
 
@@ -44,10 +44,10 @@
 
 | 项目 | 已知结果 | 尚待落实 |
 |---|---|---|
-| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime 已安装；模拟器可测范围、36项原生测试及最新设备归档完成 | 用户已恢复真机验收，交互与辅助访问尚待实际结果 |
+| 当前 Mac | macOS 26.5.2，Apple Silicon；官方 Xcode 26.4.1（17E202）及 iOS 26.4 runtime；36项原生测试、最新归档、无线原地安装与物理R2/R3范围已证 | 完整物理输入、辅助访问及手机剪贴板内容 |
 | 磁盘 | 安装、runtime 和产物均保存在本机；未删除用户文件 | 后续下载前按实际空间检查 |
-| Mini | SSH现已可达，macOS26.5.2；官方AltServer1.8 /97安装、签名/notarization与实际进程来源已核实，见[准备记录](evidence/mini-altserver-readiness.md) | 实际菜单/登录启动、目标手机配对、同网发现与刷新 |
-| iPhone | 实际15 Pro Max /26.4，配对、Developer Mode、免费USB安装/信任、HTTPS登录与聊天呈现已观察 | 更新后UX、中文与辅助访问及完整物理旅程；无线续签/自然到期恢复 |
+| Mini | SSH与既有Screen Sharing可操作，macOS26.5.2；官方AltServer1.8 /97运行，实际菜单为No Connected Devices，Finder无手机且设备显示已勾选，见[准备记录](evidence/mini-altserver-readiness.md) | 用户直接USB连接、首次信任/配对、Wi-Fi sync、登录启动与拔线刷新 |
+| iPhone | 实际15 Pro Max /26.4；Air配对/Developer Mode/免费安装/信任、HTTPS登录及物理R2/R3范围已证 | 完整中文与辅助访问/剪贴板物理范围；Mini无线续签/自然到期恢复 |
 | Feishu E2E | 专用 Bot 独占 listener；原生新增/凭据保留替换/connected/停用证据保留。离线、unknown/受限诊断、实际权限更新、受控停止失败及原生重试真实停止、隔离历史保留已闭环，见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md) | 本轮历史为真实IM repository种子，不代表平台收发；故障为明确受控条件，不改真实平台权限 |
 
 验收不伪造过期或改系统时间。S30 的自然过期恢复需到期后的实际过程，或由用户明确授权等价验证后按调整的标准记录；提前手动刷新不能证明自然过期恢复。

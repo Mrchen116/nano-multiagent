@@ -16,3 +16,9 @@
 ## 同网后的只读复核
 
 2026-10-08，用户确认两台电脑和手机同Wi-Fi。既定Mini SSH可达，实际AltServer进程仍来自 `/Applications/AltServer.app/Contents/MacOS/AltServer`。按当前已识别目标手机UDID只检查其精确 `/var/db/lockdown/` 配对文件，未找到；目录具有可遍历权限，因此不是仅由目录无法列出得出的判断。未读取或迁移任何配对密钥。该检查不是实际AltServer设备菜单、USB信任或刷新结果；目标设备的Mini配对仍待官方流程验证。Air的CoreDevice无线安装成功不替代Mini的legacy Wi-Fi同步发现。没有改Mini生产IM/Gateway、现有节点或用户网络设置。
+
+本轮窄只读USB树检查未观察到iPhone/Apple Mobile设备；未提权的listener检查未返回5900条目，这不能证明Screen Sharing关闭。随后对既定Mini的5900实际TCP连接成功，Air原有Screen Sharing连接正常打开已认证的Mini桌面；没有启用新的远程访问、读取凭据或传递Air配对密钥。
+
+01:57–02:00通过该实际桌面检查AltServer菜单，Install AltStore子菜单明确显示 `No Connected Devices`。Finder位置列表也没有目标手机；只读打开Finder设置，`CD、DVD和iOS设备`原本已经勾选，关闭设置且不改变选项。既有软件更新提示仅Cancel，未升级或重启Mini；没有触发Sync/Backup，也没有操作用户文件或生产服务。屏幕共享可操作与目标手机尚未配对是分别观察到的结果，不由SSH进程推断菜单状态。
+
+普通AltServer路径当前仍需Mini首次USB连接/信任与Finder Wi-Fi sync前置；已向用户提出把解锁手机直接接Mini这一无法由软件完成的物理动作，后续电脑步骤由root继续。同Wi-Fi、手机Tailscale已登录和Air原地无线安装不关闭S30。当前没有安装AltStore、建立其App mapping或完成刷新，自然签名到期仍未发生。
