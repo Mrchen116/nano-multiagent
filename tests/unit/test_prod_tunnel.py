@@ -24,6 +24,7 @@ def tunnel(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "TUNNEL_CONFIG", config)
     monkeypatch.setattr(module, "CHILD_PID", pid)
     state = {
+        "mode": "rule",
         "tun": {
             "enable": True,
             "auto-route": True,
@@ -50,7 +51,7 @@ def tunnel(tmp_path, monkeypatch):
 
     def api(request):
         value = {
-            "/configs": {"tun": state["tun"]},
+            "/configs": {"tun": state["tun"], "mode": state["mode"]},
             "/rules": {"rules": state["rules"]},
             "/connections": {"connections": state["connections"]},
         }
@@ -86,7 +87,9 @@ def tunnel(tmp_path, monkeypatch):
     return module, state
 
 
-@pytest.mark.parametrize("failure", [None, "direct", "other_pid", "wrong_node"])
+@pytest.mark.parametrize(
+    "failure", [None, "direct", "other_pid", "wrong_node", "mode_direct", "mode_global"]
+)
 def test_deploy_gate_checks_actual_production_pid_and_fixed_exit(
     tunnel, failure, capsys
 ):
@@ -98,6 +101,8 @@ def test_deploy_gate_checks_actual_production_pid_and_fixed_exit(
             flow["metadata"]["sourcePort"] = "9999"
     elif failure == "wrong_node":
         state["connections"][0]["chains"] = ["different proxy"]
+    elif failure in ["mode_direct", "mode_global"]:
+        state["mode"] = failure.removeprefix("mode_")
     assert module.main() == (1 if failure else 0)
     assert ("FAIL:" in capsys.readouterr().out) == bool(failure)
 

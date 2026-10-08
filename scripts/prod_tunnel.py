@@ -44,7 +44,12 @@ def _check_path(client: httpx.Client) -> None:
         raise RuntimeError(
             "Tunnel must use QUIC and IPv4 through the verified proxy path"
         )
-    tun = client.get("/configs").raise_for_status().json()["tun"]
+    runtime = client.get("/configs").raise_for_status().json()
+    if runtime["mode"] != "rule":
+        raise RuntimeError(
+            "Clash must use rule mode; Direct/Global bypass the fixed path"
+        )
+    tun = runtime["tun"]
     if (
         not tun["enable"]
         or not tun["auto-route"]
