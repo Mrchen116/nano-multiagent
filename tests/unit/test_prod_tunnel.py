@@ -18,93 +18,100 @@ def tunnel(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     config = tmp_path / "tunnel.yml"
-    config.write_text(yaml.safe_dump({"protocol": "quic", "edge-ip-version": "4"}))
+    config.write_text(
+        yaml.safe_dump(
+            {"protocol": "quic", "edge-ip-version": "6", "metrics": "127.0.0.1:20241"}
+        )
+    )
     pid = tmp_path / "child.pid"
     pid.write_text("123")
     monkeypatch.setattr(module, "TUNNEL_CONFIG", config)
     monkeypatch.setattr(module, "CHILD_PID", pid)
     state = {
-        "mode": "rule",
-        "tun": {
-            "enable": True,
-            "auto-route": True,
-            "route-address": module.NETWORKS,
-            "device": "utun9",
-        },
-        "rules": [
-            {"type": "IPCIDR", "payload": n, "proxy": module.NODE}
-            for n in module.NETWORKS
-        ],
-        "connections": [
-            {
-                "metadata": {
-                    "network": "udp",
-                    "destinationPort": "7844",
-                    "sourcePort": str(5000 + i),
-                },
-                "chains": [module.NODE],
-                "download": 100,
-            }
-            for i in range(4)
-        ],
+        "interface": "en0",
+        "listener": "n127.0.0.1:20241\n",
+        "sockets": 4,
+        "ha": 4,
+        "received": 100,
+        "closed": 0,
     }
-
-    def api(request):
-        value = {
-            "/configs": {"tun": state["tun"], "mode": state["mode"]},
-            "/rules": {"rules": state["rules"]},
-            "/connections": {"connections": state["connections"]},
-        }
-        return httpx.Response(200, json=value[request.url.path])
-
-    monkeypatch.setattr(
-        module,
-        "_proxy_client",
-        lambda: httpx.Client(
-            transport=httpx.MockTransport(api), base_url="http://localhost"
-        ),
-    )
 
     def command(args, **kwargs):
         if args[0] == "ps":
             return "/opt/homebrew/bin/cloudflared\n"
         if args[0] == "lsof":
-            return "\n".join(f"n*:{5000 + i}" for i in range(4))
-        return "interface: utun9\n"
+            if "-iTCP:20241" in args:
+                return state["listener"]
+            return "\n".join(f"n*:{5000 + i}" for i in range(state["sockets"]))
+        return f"interface: {state['interface']}\n"
 
     monkeypatch.setattr(module.subprocess, "check_output", command)
     monkeypatch.setattr(module, "_ready", lambda: True)
-    monkeypatch.setattr(
-        module.httpx,
-        "get",
-        lambda url, **kwargs: httpx.Response(
-            200,
-            text="cloudflared_tunnel_ha_connections 4\n",
-            request=httpx.Request("GET", url),
-        ),
-    )
+
+    def response(url, **kwargs):
+        metrics = f"cloudflared_tunnel_ha_connections {state['ha']}\n"
+        metrics += f"quic_client_closed_connections {state['closed']}\n"
+        for i in range(4):
+            metrics += f'quic_client_sent_bytes{{conn_index="{i}"}} 100\n'
+            metrics += (
+                f'quic_client_receive_bytes{{conn_index="{i}"}} {state["received"]}\n'
+            )
+        return httpx.Response(200, text=metrics, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(module.httpx, "get", response)
     monkeypatch.setattr("sys.argv", ["prod_tunnel.py"])
     return module, state
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "direct", "other_pid", "wrong_node", "mode_direct", "mode_global"]
+    "failure",
+    [
+        None,
+        "tun",
+        "other_pid",
+        "wrong_family",
+        "no_traffic",
+        "missing_ha",
+        "tcp",
+        "ipv4",
+    ],
 )
-def test_deploy_gate_checks_actual_production_pid_and_fixed_exit(
+def test_deploy_gate_checks_actual_production_pid_and_ipv6_exit(
     tunnel, failure, capsys
 ):
     module, state = tunnel
-    if failure == "direct":
-        state["rules"][0]["proxy"] = "DIRECT"
+    if failure == "tun":
+        state["interface"] = "utun9"
     elif failure == "other_pid":
-        for flow in state["connections"]:
-            flow["metadata"]["sourcePort"] = "9999"
-    elif failure == "wrong_node":
-        state["connections"][0]["chains"] = ["different proxy"]
-    elif failure in ["mode_direct", "mode_global"]:
-        state["mode"] = failure.removeprefix("mode_")
+        state["listener"] = ""
+    elif failure == "wrong_family":
+        state["sockets"] = 0
+    elif failure == "no_traffic":
+        state["received"] = 0
+    elif failure == "missing_ha":
+        state["ha"] = 3
+    elif failure in ["tcp", "ipv4"]:
+        config = yaml.safe_load(module.TUNNEL_CONFIG.read_text())
+        config["protocol" if failure == "tcp" else "edge-ip-version"] = (
+            "http2" if failure == "tcp" else "4"
+        )
+        module.TUNNEL_CONFIG.write_text(yaml.safe_dump(config))
     assert module.main() == (1 if failure else 0)
     assert ("FAIL:" in capsys.readouterr().out) == bool(failure)
+
+
+def test_continuous_gate_rejects_reconnection_between_samples(tunnel, monkeypatch):
+    module, state = tunnel
+    clock = [0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+
+    def advance(seconds):
+        clock[0] += seconds
+        state["closed"] += 1
+
+    monkeypatch.setattr(module.time, "sleep", advance)
+    monkeypatch.setattr("sys.argv", ["prod_tunnel.py", "--seconds", "20"])
+    assert module.main() == 1
 
 
 def test_supervisor_replaces_live_child_after_sustained_readiness_failure(

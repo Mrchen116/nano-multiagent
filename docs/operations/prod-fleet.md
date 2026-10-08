@@ -75,19 +75,17 @@
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
 | Tunnel supervisor | Mini `~/.nanoassistant/bin/prod-tunnel.py`，来自 [`scripts/prod_tunnel.py`](../../scripts/prod_tunnel.py)，由原 Tunnel LaunchAgent 使用主仓 `.venv/bin/python --supervise` 启动 |
-| Tunnel 出站 | `protocol: quic`、`edge-ip-version: "4"`，UDP `7844` → Clash 限定 TUN → 固定 `🇯🇵 日本Z03 \| IEPL` → Cloudflare；不自动换节点或退回直连 HTTP2 |
-| TUN 路由范围 | 仅 `198.41.192.0/24`、`198.41.200.0/24`；不接管默认路由与系统 DNS |
-| Clash 持久配置 | Mini Clash Verge `config.yaml` 的 TUN 参数、`verge.yaml` 的 `enable_tun_mode: true`；`profiles/Merge.yaml` 保留限定路由，当前 profile 的 rules prepend 将两网段直接固定到 Z03 |
-| 代理登录自启 | Mini `io.github.mrchen116.nano-multiagent.tunnel-proxy` LaunchAgent 启动 `/Applications/Clash Verge.app`；代理未就绪时 supervisor 等待，不先起直连 Tunnel |
-| 健康恢复 | supervisor 每 5 秒检查代理配置与实际路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
-| Tunnel gate | `scripts/prod_tunnel.py --ready` 检查启动条件；无该参数时对齐 live 子 PID 的 UDP 端口与四条固定节点双向代理流，并验证 `/ready`、HA 连接和公网 TLS/200 |
+| Tunnel 出站 | `protocol: quic`、`edge-ip-version: "6"`，IPv6 UDP `7844` 经 Mini `en0` 直连 Cloudflare；不依赖系统代理或 Clash TUN，不自动切回 HTTP2/IPv4 |
+| metrics | `127.0.0.1:20241`，由同一受管 cloudflared 子 PID 监听；不对公网开放 |
+| 健康恢复 | supervisor 每 5 秒检查配置和 IPv6 en0 路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
+| Tunnel gate | `scripts/prod_tunnel.py --ready` 检查启动条件；无该参数时核对 live 子 PID、metrics listener、四个 IPv6 UDP socket、HA 连接与双向 QUIC 计数，并验证公网 TLS/200 |
 | ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 404 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |
 
 两个 plist 均位于 Mini `~/Library/LaunchAgents/`，启用 RunAtLoad/KeepAlive。常规发布复用 launcher、plist、Tunnel 凭据和 DNS；不得用旧 `nohup uvicorn --host 0.0.0.0` 替换。TLS 在边缘终止，源站 loopback HTTP 是预期拓扑。
 
-Tunnel 稳定性以路径门禁和连续采样为准：完整部署前检查代理路径，完成后运行 `scripts/prod_tunnel.py --seconds 600`。修改出口或 supervisor 时额外验证代理重启后的配置保留、路径中断后的自动重连及存活但不健康进程的自动重建。进程存在、TCP 端口可连或其他临时 connector 健康，均不能替代生产 PID 的门禁结果。
+Tunnel 稳定性以路径门禁和连续采样为准：完整部署前检查 QUIC/IPv6 en0 路径，完成后运行 `scripts/prod_tunnel.py --seconds 600`。窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败；其他临时 connector 不能替代生产 PID 的门禁。修改出口或 supervisor 时额外验证子进程退出、存活但不健康后的自动恢复。IPv6 地址和外部网络仍可能变化，每次部署都重新验收，不把一次成功当作永久保证。
 
 公网规则不随 Git 代码发布而重建，但每次完整发布必须验证仍有效。308 不是 HSTS；当前未配置 HSTS，不得在验收中把二者混为一谈。账号准入、签名密钥、设备身份及数据库恢复是独立操作，普通 Feature 发布不重复首次迁移。
 

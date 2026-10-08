@@ -19,7 +19,7 @@
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
-| 生产 Tunnel 固定代理出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
+| 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |

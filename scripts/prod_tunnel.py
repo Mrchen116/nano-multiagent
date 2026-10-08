@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supervise and verify the Mini's production Cloudflare proxy path."""
+"""Supervise and verify the Mini's production Cloudflare QUIC/IPv6 path."""
 
 from __future__ import annotations
 
@@ -15,66 +15,31 @@ import httpx
 import yaml
 
 HOME_DIR = Path.home()
-CLASH_DIR = (
-    HOME_DIR / "Library/Application Support/io.github.clash-verge-rev.clash-verge-rev"
-)
 TUNNEL_CONFIG = HOME_DIR / ".cloudflared/nano-im-public.yml"
 CHILD_PID = HOME_DIR / ".nanoassistant/public-tunnel-child.pid"
-NODE = "🇯🇵 日本Z03 | IEPL"
-NETWORKS = ["198.41.192.0/24", "198.41.200.0/24"]
+EDGE_ADDRESSES = ["2606:4700:a0::1", "2606:4700:a8::1"]
+INTERFACE = "en0"
 METRICS = "http://127.0.0.1:20241"
 PUBLIC_URL = "https://im.nanoim.win/"
 RECOVERY_SECONDS = 30
 POLL_SECONDS = 5
 
 
-def _proxy_client() -> httpx.Client:
-    config = yaml.safe_load((CLASH_DIR / "clash-verge.yaml").read_text())
-    return httpx.Client(
-        transport=httpx.HTTPTransport(uds=config["external-controller-unix"]),
-        base_url="http://localhost",
-        headers={"Authorization": "Bearer " + config["secret"]},
-        timeout=3,
-    )
-
-
-def _check_path(client: httpx.Client) -> None:
+def _check_path() -> None:
     config = yaml.safe_load(TUNNEL_CONFIG.read_text())
-    if config.get("protocol") != "quic" or str(config.get("edge-ip-version")) != "4":
-        raise RuntimeError(
-            "Tunnel must use QUIC and IPv4 through the verified proxy path"
-        )
-    runtime = client.get("/configs").raise_for_status().json()
-    if runtime["mode"] != "rule":
-        raise RuntimeError(
-            "Clash must use rule mode; Direct/Global bypass the fixed path"
-        )
-    tun = runtime["tun"]
     if (
-        not tun["enable"]
-        or not tun["auto-route"]
-        or sorted(tun.get("route-address", [])) != sorted(NETWORKS)
+        config.get("protocol") != "quic"
+        or str(config.get("edge-ip-version")) != "6"
+        or config.get("metrics") != "127.0.0.1:20241"
     ):
-        raise RuntimeError(
-            "Clash must route only the two Tunnel IPv4 networks through TUN"
-        )
-    rules = client.get("/rules").raise_for_status().json()["rules"]
-    if len(rules) < len(NETWORKS):
-        raise RuntimeError("Fixed Tunnel rules are missing")
-    for index, network in enumerate(NETWORKS):
-        rule = rules[index]
-        if (
-            rule["type"] != "IPCIDR"
-            or rule["payload"] != network
-            or rule["proxy"] != NODE
-        ):
-            raise RuntimeError("Tunnel network must use the fixed Z03 proxy")
+        raise RuntimeError("Tunnel must use QUIC/IPv6 and the managed metrics endpoint")
+    for address in EDGE_ADDRESSES:
         route = subprocess.check_output(
-            ["/sbin/route", "-n", "get", network.split("/")[0]], text=True
+            ["/sbin/route", "-n", "get", "-inet6", address], text=True
         )
         interface = re.search(r"interface:\s*(\S+)", route)
-        if interface is None or interface[1] != tun["device"]:
-            raise RuntimeError("Tunnel destination bypasses the expected TUN interface")
+        if interface is None or interface[1] != INTERFACE:
+            raise RuntimeError("Tunnel IPv6 destination must use Mini's en0 route")
 
 
 def _ready() -> bool:
@@ -86,34 +51,27 @@ def _ready() -> bool:
         return False
 
 
-def _snapshot(client: httpx.Client) -> dict:
-    _check_path(client)
-    if not _ready():
-        raise RuntimeError("Tunnel /ready is not 200")
+def _snapshot() -> dict:
+    _check_path()
     pid = int(CHILD_PID.read_text())
     command = subprocess.check_output(
         ["ps", "-p", str(pid), "-o", "comm="], text=True
     ).strip()
     if Path(command).name != "cloudflared":
         raise RuntimeError("Recorded child PID is not cloudflared")
-    sockets = subprocess.check_output(
-        ["lsof", "-nP", "-a", "-p", str(pid), "-iUDP", "-Fn"], text=True
+    listeners = subprocess.check_output(
+        ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP:20241", "-sTCP:LISTEN", "-Fn"],
+        text=True,
     )
-    ports = set(re.findall(r"^n[^\n]*?:(\d+)(?:->|$)", sockets, re.MULTILINE))
-    connections = client.get("/connections").raise_for_status().json()["connections"]
-    flows = [
-        c
-        for c in connections
-        if c["metadata"].get("network") == "udp"
-        and str(c["metadata"].get("destinationPort")) == "7844"
-        and str(c["metadata"].get("sourcePort")) in ports
-    ]
-    if len(flows) != 4 or any(
-        c["chains"] != [NODE] or not c["download"] for c in flows
-    ):
-        raise RuntimeError(
-            "Production PID must have four bidirectional QUIC flows through fixed Z03"
-        )
+    if "n127.0.0.1:20241\n" not in listeners:
+        raise RuntimeError("Production child does not own the metrics listener")
+    sockets = subprocess.check_output(
+        ["lsof", "-nP", "-a", "-p", str(pid), "-i6UDP", "-Fn"], text=True
+    )
+    if len(re.findall(r"^n.*$", sockets, re.MULTILINE)) != 4:
+        raise RuntimeError("Production child must have four IPv6 QUIC sockets")
+    if not _ready():
+        raise RuntimeError("Tunnel /ready is not 200")
     metrics = (
         httpx.get(METRICS + "/metrics", trust_env=False, timeout=3)
         .raise_for_status()
@@ -121,14 +79,26 @@ def _snapshot(client: httpx.Client) -> dict:
     )
     if "cloudflared_tunnel_ha_connections 4\n" not in metrics:
         raise RuntimeError("Tunnel does not have four HA connections")
+    for direction in ["sent", "receive"]:
+        values = re.findall(
+            rf"^quic_client_{direction}_bytes\{{[^\n]+\}} (\d+)$", metrics, re.MULTILINE
+        )
+        if len(values) != 4 or any(int(value) == 0 for value in values):
+            raise RuntimeError(
+                "Four production QUIC connections must have bidirectional traffic"
+            )
+    closed = re.search(r"^quic_client_closed_connections (\d+)$", metrics, re.MULTILINE)
+    if closed is None:
+        raise RuntimeError("Tunnel QUIC connection counter is missing")
     public = httpx.get(PUBLIC_URL, trust_env=False, timeout=10)
     if public.status_code != 200:
         raise RuntimeError(f"Public HTTPS returned {public.status_code}")
     return {
         "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "pid": pid,
-        "flows": 4,
-        "proxy": NODE,
+        "ipv6_quic_ha": 4,
+        "interface": INTERFACE,
+        "closed_connections": int(closed[1]),
         "https": 200,
     }
 
@@ -157,8 +127,7 @@ def _supervise() -> None:
     try:
         while not stopping:
             try:
-                with _proxy_client() as client:
-                    _check_path(client)
+                _check_path()
                 path_ok = True
             except (
                 OSError,
@@ -175,11 +144,11 @@ def _supervise() -> None:
                 unhealthy_since = None
             if not path_ok:
                 if not waiting:
-                    print("Waiting for verified fixed proxy path", flush=True)
+                    print("Waiting for verified QUIC/IPv6 path", flush=True)
                 waiting = True
                 if child is not None:
                     print(
-                        "Proxy path unavailable; stopping Tunnel to prevent direct fallback",
+                        "IPv6 path unavailable; stopping Tunnel until the route recovers",
                         flush=True,
                     )
                     _stop(child)
@@ -228,7 +197,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--supervise", action="store_true")
     parser.add_argument(
-        "--ready", action="store_true", help="Check proxy path before starting Tunnel"
+        "--ready", action="store_true", help="Check IPv6 path before starting Tunnel"
     )
     parser.add_argument(
         "--seconds", type=int, default=0, help="Require continuous healthy samples"
@@ -238,17 +207,25 @@ def main() -> int:
         _supervise()
         return 0
     deadline = time.monotonic() + args.seconds
+    baseline = None
     try:
-        with _proxy_client() as client:
-            while True:
-                if args.ready:
-                    _check_path(client)
-                    print("Verified fixed Z03 TUN path")
-                else:
-                    print(json.dumps(_snapshot(client), ensure_ascii=False), flush=True)
-                if time.monotonic() >= deadline:
-                    return 0
-                time.sleep(min(10, max(0, deadline - time.monotonic())))
+        while True:
+            if args.ready:
+                _check_path()
+                print("Verified QUIC/IPv6 en0 path")
+            else:
+                snapshot = _snapshot()
+                identity = (snapshot["pid"], snapshot["closed_connections"])
+                if baseline is None:
+                    baseline = identity
+                elif identity != baseline:
+                    raise RuntimeError(
+                        "Tunnel restarted or lost a QUIC connection during sampling"
+                    )
+                print(json.dumps(snapshot, ensure_ascii=False), flush=True)
+            if time.monotonic() >= deadline:
+                return 0
+            time.sleep(min(10, max(0, deadline - time.monotonic())))
     except (
         OSError,
         ValueError,
