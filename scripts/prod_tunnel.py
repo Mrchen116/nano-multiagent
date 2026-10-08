@@ -81,13 +81,13 @@ def _snapshot() -> dict:
         raise RuntimeError("Tunnel does not have four HA connections")
     for direction in ["sent", "receive"]:
         values = re.findall(
-            rf"^quic_client_{direction}_bytes\{{[^\n]+\}} (\d+)$", metrics, re.MULTILINE
+            rf"^quic_client_{direction}_bytes\{{[^\n]+\}} (\S+)$", metrics, re.MULTILINE
         )
-        if len(values) != 4 or any(int(value) == 0 for value in values):
+        if len(values) != 4 or any(float(value) <= 0 for value in values):
             raise RuntimeError(
                 "Four production QUIC connections must have bidirectional traffic"
             )
-    closed = re.search(r"^quic_client_closed_connections (\d+)$", metrics, re.MULTILINE)
+    closed = re.search(r"^quic_client_closed_connections (\S+)$", metrics, re.MULTILINE)
     if closed is None:
         raise RuntimeError("Tunnel QUIC connection counter is missing")
     public = httpx.get(PUBLIC_URL, trust_env=False, timeout=10)
@@ -98,7 +98,7 @@ def _snapshot() -> dict:
         "pid": pid,
         "ipv6_quic_ha": 4,
         "interface": INTERFACE,
-        "closed_connections": int(closed[1]),
+        "closed_connections": int(float(closed[1])),
         "https": 200,
     }
 

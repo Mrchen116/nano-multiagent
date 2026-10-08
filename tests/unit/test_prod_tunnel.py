@@ -100,6 +100,12 @@ def test_deploy_gate_checks_actual_production_pid_and_ipv6_exit(
     assert ("FAIL:" in capsys.readouterr().out) == bool(failure)
 
 
+def test_gate_accepts_prometheus_scientific_notation_for_byte_counters(tunnel):
+    module, state = tunnel
+    state["received"] = "1e+06"
+    assert module.main() == 0
+
+
 def test_continuous_gate_rejects_reconnection_between_samples(tunnel, monkeypatch):
     module, state = tunnel
     clock = [0]
