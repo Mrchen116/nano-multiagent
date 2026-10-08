@@ -35,7 +35,19 @@
 
 ## 验证
 
-- QUIC/IPv6 版本聚焦测试 10 项通过；全量及独立审查在冻结版本后执行。
+- `a187723a4` 全量非 E2E Python：`pytest -m "not e2e" -n 4 --dist worksteal -q`，4,129 passed（92.84 秒）。指标格式修复 `510ffb2e4` 的 11 项聚焦测试通过；该后续变更由最低层 CLI 回归与 closure 复审保护，保留全量证据。
 - 代理 QUIC 的 600 秒 gate 在公网 502 时失败，未按稳定路径交付。
-- 原代理 supervisor 的现场演练验证了暂停进程后自动替换、TUN 丢失时停子进程；最终 IPv6 路径仍须单独演练。
-- IPv6 QUIC 连续观察、最终受管服务 600 秒采样、独立 code review 与远端 CI 为交付门禁；结果在执行后记录。
+- 最终 QUIC/IPv6 现场演练：00:24 暂停正式子 PID 25974，自动替换为 26218，56.55 秒后完整 gate / HTTPS 200 恢复；00:25 结束子 PID 26218，7.98 秒自动恢复为 26262。源站未重启。
+- 候选 en0 IPv6 QUIC 在 00:12–00:22 连续观察 600 秒通过：四条 HA、无重注册/错误、公网全 200；随后清理候选，最终受管 PID 26262 于 00:26:04–00:36:03 通过 `--seconds 600`（退出码 0）：54 次采样全 HTTPS 200、HA=4、en0、closed_connections=0、PID 未变化。原始 JSONL 留在 Mini `~/.nanoassistant/tunnel-579-final-acceptance.jsonl`。
+- 源/runtime SHA256 均为 `73bad73df9683598a40ad2579f52a58628f59a61b8923f7d91557bfd6d4d278d`；原 LaunchAgent 已加载该 supervisor，Mini 只留一个 cloudflared，Clash TUN 已关闭并恢复本次字段，既有代理选择保留。公网 HTTP GET/POST 均 308 保留路径/query，源站首页 200，两节点 owner 一致且持续 online。
+- 本地 Ruff check/format、docs-check 与 diff-check 通过；完整前端 86 文件 / 808 测试通过。交付所需 `npm audit --audit-level=critical` 实际被旧 Tinypool 的两项 critical 阻塞，因此仅对 Vitest 的 Tinypool 固定 2.1.2 并更新该锁文件叶子，随后再次 808 passed，audit 0 critical。Vitest 主版本与 CI Node20 不变；依赖变更不部署到 Mini，本次生产 runtime 不受影响。
+- 远端 CI 是最后交付门禁，创建 PR 后核对实际结果。
+
+## 独立 code review
+
+- executed_base：`d87ffa3d19160d45d309f281b0ace4ff92f55a38`。
+- Round 1 full `e0996ffa1`：Clash Direct/Global 可绕过规则，CONFIRMED；代理路径被实际连续验收拒绝，最终实现移除该依赖，因此 finding superseded。
+- Round 2 full `a187723a4`：Prometheus 科学计数法被整数 regex 误拒绝，CONFIRMED；`510ffb2e4` 修复并增加 CLI 回归。
+- Round 3 closure `a187723a4..510ffb2e4`：metric finding closed，存活 findings `[]`。
+- Round 4 patch `510ffb2e4..befe62119`：Tinypool override / lock / Node 要求与 Vitest 接口核对通过，findings `[]`；runtime full 与 closure 保留。
+- validated_at：`befe6211994ab47d9bdff97680034a8dcb0196ab`；后续仅澄清首次更新前先检查已安装 runtime、目标代码到位后再查 source 的文档命令顺序，记录最终现场结果并归档；runtime 未变，无 spec delta。

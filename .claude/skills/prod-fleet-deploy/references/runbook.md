@@ -14,7 +14,7 @@ MacBook Air Gateway 用目标 `prod-main-<short-sha>` detached worktree，共用
 
 ## 更新 Mini 代码和前端
 
-停止 IM 或更新服务前，先在 Mini 使用本次目标代码执行 `.venv/bin/python scripts/prod_tunnel.py --ready`；它核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 实际路由，失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准；不能把系统代理、TUN 出口或 HTTP2 当作等价路径。
+更新代码前，先在 Mini 执行 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready`，验证已安装的 runtime 路径。安全 fast-forward 到目标代码后、停止 IM 或更新运行服务前，再执行 `.venv/bin/python scripts/prod_tunnel.py --ready`；它核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 实际路由，失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准；不能把系统代理、TUN 出口或 HTTP2 当作等价路径。
 
 以下是按需执行的命令，不是整段盲跑脚本。首先确认 Mini 当前分支为 main、已跟踪改动不会被覆盖，并确认远端目标 SHA 是本次授权版本。
 
