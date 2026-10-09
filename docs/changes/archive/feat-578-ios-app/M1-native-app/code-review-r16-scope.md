@@ -1,0 +1,9 @@
+# R16 bounded R15 upload lifecycle closure
+
+Closure only of R15 P2 / verification A-W1. Finding origin `8488f8adf`; reviewed `8488f8adf..2505c9772420f8910b9a82789dc2703d5ca6fbc9`, restricted to `ChatStore.retryUpload` and its gated regression/direct clear/revoke context. **closed**. No surviving concrete finding: `code-review-r16.json` is `[]`. R15's other conclusions and all earlier unaffected scopes remain retained.
+
+`retryUpload` no longer ties its result to the stream epoch. A scene-triggered `stop()` therefore keeps the same upload UUID alive until its success converts the row into a pending attachment or its failure sets uploading=false and a retryable error. Clear and access reconciliation still remove the UUID; success requires that same row, an authorized conversation in the local list and absence of revocation, while catch requires that same row. Late responses cannot repopulate a removed UUID after clear/revoke. No new generation counter or compatibility path is introduced.
+
+The new `testUploadCompletesWhenRealtimeStopsForBackground` gates the actual HTTPTransport on both 200 and 503, stops realtime, releases the response and checks success promotion or actionable failure. `/tmp/nano-feat578-upload-background-red.log` proves all four branch assertions fail on the pre-fix implementation; `/tmp/nano-feat578-upload-background-green.log` records this test passing along with the existing late-clear isolation test, 16 XCTest + 10 Swift Testing successes and `** TEST SUCCEEDED **`. This reviewer read source and logs, and ran no UI/services/tests.
+
+The red/green state regression closes the code finding. New S11 failure/cooldown/text-only UI remains pending safe installation and independent operation, and overall verification remains not_pass. No implementation changes or commit by this reviewer.

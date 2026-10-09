@@ -150,6 +150,9 @@ def canonical_agent_operation_payload(
 def agent_operation_fingerprint(payload: Mapping[str, object]) -> str:
     """Fingerprint one canonical Gateway-owned Agent configuration."""
     canonical = canonical_agent_operation_payload(payload)
+    # Match the empty runtime snapshot without changing explicit clear payloads.
+    if canonical["heartbeat_json"] == "{}":
+        canonical["heartbeat_json"] = None
     encoded = json.dumps(
         canonical, ensure_ascii=True, sort_keys=True, separators=(",", ":")
     )

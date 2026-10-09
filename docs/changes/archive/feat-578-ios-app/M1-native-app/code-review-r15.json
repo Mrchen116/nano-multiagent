@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ChatStore.swift",
+    "line": 197,
+    "summary": "[P2] Release the retained upload row when scene stop invalidates its epoch",
+    "failure_scenario": "Start an upload, then switch away from the App before its response arrives. RootTabs calls chat.stop() for non-active scenePhase (NanoIMApp.swift:169); stop changes epoch but retains uploadDrafts. Both the success guard here and the catch guard at line 202 return when that upload completes, leaving the same row uploading=true. Returning active only refreshes chat/list/stream and never resets this row. The row has no Remove or Retry action while uploading, and both normal send and textOnly send are blocked, so this conversation cannot recover its retained draft without clearing the store. Separate stream suspension from upload/account invalidation, or settle the retained upload on that lifecycle transition while preserving clear/revoke isolation; cover gated upload -> stop -> response -> recovery.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]

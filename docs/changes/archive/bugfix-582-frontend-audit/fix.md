@@ -61,3 +61,11 @@ CI 仅更新 Vitest 版本说明注释，Node 20、完整依赖审计与测试�
 - Final sync：origin/main 仍为上述基线，无 main 增量；审查后只有验证文档补充与 unit 归档，代码与依赖树未改变，审查及测试结论 retained。no spec delta。
 
 本机证据位于 `/tmp/bugfix-582-audit-before.json`、`/tmp/bugfix-582-audit-after.json`、`/tmp/bugfix-582-validation.log`、`/tmp/bugfix-582-build-focused.log`、`/tmp/bugfix-582-python.log`，不提交日志或构建产物。远端 CI 的结果记录在本 PR；归档不表示合并或部署。
+
+## 同步 main 后的冲突处理
+
+2026-10-09，main 推进到 `4c2502a1d9658b3e7e9647d218703ea6856108ee`，合入 feat-578 原生 iOS 及其 CI。该分支曾通过 `overrides.tinypool=2.1.2` 修复同一 critical 阻塞，因此与本 PR 已移除 tinypool 的 manifest/lockfile 产生冲突。
+
+保留 Vitest 4.1.11 及已审计依赖树，移除已无依赖使用的 tinypool override/锁条目；其他 main 变更全部保留。原始 9 项审计失败属于本 unit 初始基线；同步后的 main 已用 override 消除 critical，本 PR 继续完成上游升级与其余漏洞清理，不声称最新 main 仍存在原始 critical。
+
+失效判断：整个 `src/IM/frontend` 与审查通过的 `e45e0ff98` 完全一致，依赖/业务/测试没有新改动，Round 1 code review retained；新引入的 iOS、后端和对应测试与 main 完全一致。重新 clean install、完整 audit（0 vulnerabilities）、86 files / 808 tests、生产 build 均通过；main 涉及的 agent config 三个测试文件共 27 passed。Ruff check/format、docs-check、diff check 通过。新增 iOS CI 原样保留，并由新 PR head 的远端全部检查验证。
