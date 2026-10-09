@@ -65,6 +65,7 @@ export class NodeConfiguration {
         return { provider: provider.name, model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
       }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
+      workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
       approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
         memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),
         skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },

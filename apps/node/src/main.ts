@@ -4,7 +4,7 @@ import { NodeConfiguration } from './configuration.js';
 import { providerProfiles } from './providers.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -30,6 +30,7 @@ let external: ExternalChannels;
 let managed: ManagedChannels;
 let knowledge: KnowledgeUpdates;
 let history: ConversationHistory;
+let workflows: WorkflowResults;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
@@ -37,7 +38,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); } },
+  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); } },
   onError: reportError,
 });
 const relay = new WebRelayConnection({
@@ -116,7 +117,7 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); } },
+  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); } },
   onError: reportError,
 });
 async function downloadImage(url: string, agentId: string) {
@@ -176,6 +177,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (previous) Object.assign(previous, next); else agents.push(next);
   },
 });
+workflows = new WorkflowResults({agents,store,runtime,receive: (sessionId,input)=>product.background(sessionId,input),onError:reportError});
 history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
@@ -195,7 +197,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
 }
 process.once('SIGTERM', () => { void stop(); });

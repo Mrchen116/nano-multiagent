@@ -13,6 +13,19 @@ export class ApprovalSources {
   recordInbox(sessionId: string, callId: string) { let calls = this.live.get(sessionId); if (!calls) { calls = new Set(); this.live.set(sessionId, calls); } calls.add(callId); }
   isLiveInbox(sessionId: string, callId: string) { return this.live.get(sessionId)?.has(callId) ?? false; }
   release(sessionId: string) { this.live.delete(sessionId); }
+  humanText(agent: Agent): string { return this.humanInputs(agent).map(input=>input.text).join('\n'); }
+  humanInputs(agent: Agent): {id:string;text:string}[] {
+    const events=agent.session.snapshotEvents();const start=events.findLast(event=>event.type==='turn/start')?.seq??-1;const content:{id:string;text:string}[]=[];
+    for(const event of events){
+      if(event.seq<=start)continue;
+      if(event.type==='user/message'&&event.data.source.kind==='nano-human')content.push({id:event.data.id,text:text(event.data.content)});
+      if(event.type==='tool/result'&&!event.data.message.isError&&this.isLiveInbox(agent.id,event.data.message.toolCallId)){
+        const body=event.data.message.content.filter(block=>block.type==='text').map(block=>block.text).join('\n');
+        try {for(const message of (JSON.parse(body) as {messages?:{id:string;sender?:{type?:string};partial?:boolean;content?:{type:string;text?:string}[]}[]}).messages??[])if(message.sender?.type==='user'&&!message.partial)content.push({id:message.id,text:(message.content??[]).filter(part=>part.type==='text').map(part=>part.text??'').join('\n')});}catch{ /* Only a structured, observed Inbox result contributes human text. */ }
+      }
+    }
+    return content;
+  }
   async transcript(agent: Agent, exec: ToolExecution, inherited: unknown[]) {
     const lines = [...inherited, ...await this.history(agent)];
     lines.push({ pending_action: { name: exec.name, arguments: exec.arguments, mode: exec.parent ? 'ptc-inner' : 'native' } });

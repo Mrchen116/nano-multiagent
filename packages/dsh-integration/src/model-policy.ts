@@ -9,12 +9,12 @@ import { ModelFallback } from './model-fallback.js';
 import type NanoCompaction from './compaction.js';
 
 export interface ModelRoute { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }
-interface Selection { revision: string; chain?: string; selected?: ModelRoute; effort?: string; sticky?: ModelRoute }
+interface Selection { revision: string; chain?: string; selected?: ModelRoute; effort?: string; ultracode?: boolean; sticky?: ModelRoute }
 interface Command { sessionId: string; action: string; argument: string; status: 'pending' | 'completed'; text?: string; success?: boolean }
 interface ModelDomain extends DomainSpec { tables: { sessions: DomainTableSpec<string, Selection>; commands: DomainTableSpec<string, Command> } }
 const routeSchema = z.object({ provider: z.string(), model: z.string(), reasoningEffort: z.string().optional(), maxTokens: z.number().optional() });
 const domain: ModelDomain = defineDomain({ name: 'nano_model', version: 1, layout: 'per-record', tables: {
-  sessions: domainTable(z.object({ revision: z.string(), chain: z.string().optional(), selected: routeSchema.optional(), effort: z.string().optional(), sticky: routeSchema.optional() })),
+  sessions: domainTable(z.object({ revision: z.string(), chain: z.string().optional(), selected: routeSchema.optional(), effort: z.string().optional(), ultracode: z.boolean().optional(), sticky: routeSchema.optional() })),
   commands: domainTable(z.object({ sessionId: z.string(), action: z.string(), argument: z.string(), status: z.enum(['pending', 'completed']), text: z.string().optional(), success: z.boolean().optional() })),
 } });
 const chain = (config: AgentConfiguration) => JSON.stringify([config.provider, config.model, config.modelFallbacks ?? []]);
@@ -23,7 +23,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoModels: ModelPoli
 
 /** One model authority couples prompt assembly, requests and session commands. */
 export class ModelPolicy extends Service {
-  static inject = ['llm', 'storageDomain', 'systemPrompt', 'compaction', 'sessions'];
+  static inject = ['llm', 'storageDomain', 'systemPrompt', 'compaction', 'sessions', 'tools'];
   readonly fallback: ModelFallback;
   private readonly state: Promise<Domain<ModelDomain>>;
   private readonly selections = new Map<string, Selection>();
@@ -71,12 +71,13 @@ export class ModelPolicy extends Service {
     }, { prepend: true });
     agent.ctx.effect(() => () => { this.configs.delete(agent.id); this.selections.delete(agent.id); });
   }
+  ultracode(agent: Agent) { return !!this.selections.get(agent.id)?.ultracode && !!this.host.tools.get('workflow',agent); }
   route(agent: Agent): ModelRoute {
     const config = this.configs.get(agent.id)!;
     let selection = this.selections.get(agent.id)!;
     if (selection.revision !== config.revision) { selection = { revision: config.revision, effort: selection.effort }; this.selections.set(agent.id, selection); }
     const parent = agent.session.header.origin === 'subagent' && agent.session.header.parentSession;
-    const inherited = parent && this.host.agents.get(parent);
+    const inherited = !config.modelRouteFrozen && parent && this.host.agents.get(parent);
     const route = selection.selected ?? selection.sticky ?? (inherited && this.configs.has(inherited.id) ? this.route(inherited) : config);
     return { provider: route.provider, model: route.model, reasoningEffort: selection.selected ? route.reasoningEffort : selection.effort ?? route.reasoningEffort, maxTokens: route.maxTokens };
   }
@@ -85,7 +86,7 @@ export class ModelPolicy extends Service {
     const route = sticky ?? config;
     const info = await this.host.llm.resolveModelInfo(route.provider, route.model);
     const effort = info.reasoning?.efforts.some(effort => effort.id === selection.effort) ? selection.effort : undefined;
-    return { revision: config.revision, chain: chain(config), ...(sticky ? { sticky } : {}), ...(effort ? { effort } : {}) };
+    return { revision: config.revision, chain: chain(config), ...(sticky ? { sticky } : {}), ...(effort ? { effort } : {}), ...(selection.ultracode && effort === 'xhigh' ? {ultracode:true} : {}) };
   }
   async changed(config: AgentConfiguration) {
     for (const [id, previous] of this.configs) if (previous.agentId === config.agentId) {
@@ -121,13 +122,14 @@ export class ModelPolicy extends Service {
         if (request.action === 'effort') {
           const info = await this.host.llm.resolveModelInfo(route.provider, route.model, signal);
           const efforts = info.reasoning?.efforts.map(effort => effort.id as string) ?? [];
-          const effort = argument === 'none' ? 'off' : argument;
+          const ultracode = argument === 'ultracode' && efforts.includes('xhigh') && !!this.host.tools.get('workflow',agent);
+          const effort = ultracode ? 'xhigh' : argument === 'none' ? 'off' : argument;
           if (!efforts.length) return complete('当前模型未提供可调整的推理强度。', false);
           if (!efforts.includes(effort)) return complete(`可用推理强度：${efforts.join(', ')}；当前为 ${route.reasoningEffort ?? info.reasoning?.defaultEffort ?? '默认'}。`, false);
-          selection.effort = effort;
+          selection.effort = effort; selection.ultracode = ultracode;
         } else throw new Error('Unknown session command');
         await (await this.state).table('sessions').put(key(agent.id), selection);
-        return complete(`当前会话推理强度已设为 ${selection.effort}。`, true);
+        return complete(selection.ultracode ? 'Ultracode 已开启。' : `当前会话推理强度已设为 ${selection.effort}。`, true);
       });
     } catch (error) { return complete(signal.aborted ? '本次控制操作未执行：已取消。' : `控制操作失败：${String(error)}`, false); }
   }

@@ -73,7 +73,7 @@ export class GlobalAgent {
     }
     const control = sessionControl(input, config);
     if (control) { const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return; }
-    const unaddressedControl = /^\/(compact|effort)(?:\s|$)/.test(command);
+    const unaddressedControl = /^\/(compact|effort|workflows)(?:\s|$)/.test(command);
     const attention = !unaddressedControl && needsAttention(input, config);
     this.options.inbox.receive(input, attention);
     await this.receipt(input, 'sent');
@@ -268,11 +268,11 @@ export class GlobalAgent {
     }
   }
   private async projectChildren(root: SessionBinding): Promise<void> {
-    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[] }[];
+    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[] }[];
     for (const child of children) {
       if (child.kind !== 'child') continue;
       const binding = { ...root, sessionId: child.id };
-      this.append(binding, 'registered', 'session_registered', { scope: 'subagent', parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label });
+      this.append(binding, 'registered', 'session_registered', { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label });
       this.modelNotices(binding, child.modelRuns ?? []);
       const events = logicalEvents(child.events ?? [], child.modelRuns ?? []);
       for (const event of events) {

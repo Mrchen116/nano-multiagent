@@ -48,7 +48,7 @@ export class SingleThread {
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
     const control = sessionControl(input, config);
-    const unaddressedControl = /^\/(compact|effort)(?:\s|$)/.test(input.message.content.trim()) && !control;
+    const unaddressedControl = /^\/(compact|effort|workflows)(?:\s|$)/.test(input.message.content.trim()) && !control;
     if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(input.message.content.trim())) {
       store.bufferGroup(input);
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
@@ -91,6 +91,13 @@ export class SingleThread {
     await runtime.request('session.ensure', runtimeBinding(binding));
     for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
+  }
+
+  async background(sessionId: string, input: RelayInput): Promise<void> {
+    const binding=this.binding(sessionId);
+    if(binding.agentId!==input.agent_id||binding.conversationId!==input.conversation_id)throw new Error('Background result belongs to another conversation');
+    this.options.store.receive(sessionId,input);await this.options.runtime.request('session.ensure',runtimeBinding(binding));
+    await this.submit(binding,input);await this.reconcile(sessionId);
   }
 
   private async submit(binding: SessionBinding, input: RelayInput) {
@@ -205,6 +212,7 @@ export class SingleThread {
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
+          background_returns: input.input.metadata.background_returns,
           external_reply: store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply });
         const messageId = ack.payload.message_id;
         if (typeof messageId !== 'string') throw new Error('IM did not acknowledge the output message identity');
@@ -303,7 +311,7 @@ export class SingleThread {
     this.pendingApprovals.set(request.requestId, pending);
     await this.reconcile(request.sessionId);
     if (pending.outcome) { this.pendingApprovals.delete(request.requestId); return; }
-    const input = this.options.store.inputs(request.sessionId).find(input => input.turn !== null && input.terminal === null);
+    const input = this.options.store.inputs(request.sessionId).find(input => request.inputIds?.includes(input.id) || !request.childSessionId && input.turn !== null && input.terminal === null);
     const delivery = input?.turn === undefined || input.turn === null ? undefined : this.options.store.delivery(request.sessionId, input.turn);
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
@@ -311,7 +319,7 @@ export class SingleThread {
     await this.delta({ kind: 'permission_request', message_id: delivery.messageId, session_id: request.sessionId,
       agent_id: this.binding(request.sessionId).agentId, run_id: request.sessionId,
       permission_request: { request_id: request.requestId, tool_name: request.toolName, reason: request.reason, call_id: request.callId,
-        tool_input: argumentsObject(call?.data.arguments ?? '{}'), question: request.reason ?? 'Allow this action?', status: 'pending',
+        tool_input: argumentsObject(request.toolInput?.arguments ?? call?.data.arguments ?? '{}'), question: request.reason ?? 'Allow this action?', status: 'pending',
         options: [{ id: 'allow_once', label: 'Allow once', description: '' }, { id: 'deny', label: 'Deny', description: '' }],
       },
     });
@@ -366,7 +374,7 @@ export class SingleThread {
   }
   async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
 }
-interface Approval { requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
+interface Approval { childSessionId?:string;inputIds?:string[];toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }
 function runtimeBinding(binding: SessionBinding) {
   const { conversationId: _conversation, ...runtime } = binding;

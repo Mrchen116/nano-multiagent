@@ -20,15 +20,15 @@ describe("Workflow tool detail", () => {
         toolCalls={[
           {
             id: "workflow-running",
-            name: "Workflow",
+            name: "workflow",
             status: "running",
             input: {},
             output: "review changes",
             detail: {
               description: "review changes",
-              source: "inline Python",
+              source: "inline JavaScript",
               guideline: "medium",
-              script_preview: "async def main():\n    return await parallel([...])",
+              script_preview: "return await parallel([...]);",
             },
           },
         ]}
@@ -37,7 +37,7 @@ describe("Workflow tool detail", () => {
 
     await openProcess();
     await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
-    expect(screen.getByText(/async def main/)).toBeInTheDocument();
+    expect(screen.getByText(/return await parallel/)).toBeInTheDocument();
     expect(screen.getByText(/medium/)).toBeInTheDocument();
     expect(container.querySelector(".chat-tool-detail-workflow-input")).not.toBeNull();
     expect(container.querySelector(".chat-tool-detail-workflow-result")).toBeNull();
@@ -49,20 +49,20 @@ describe("Workflow tool detail", () => {
         toolCalls={[
           {
             id: "workflow-launched",
-            name: "Workflow",
+            name: "workflow",
             status: "completed",
             input: {},
             output: "review changes",
             detail: {
               description: "review changes",
-              source: "inline Python",
+              source: "inline JavaScript",
               guideline: "medium",
-              script_preview: "async def main():\n    return await parallel([...])",
+              script_preview: "return await parallel([...]);",
               status: "async_launched",
               name: "review-changes",
               runId: "wf-1",
               taskId: "task-1",
-              scriptPath: "/workspace/workflows/review.py",
+              scriptPath: "/workspace/workflows/review.js",
               transcriptDir: "/workspace/workflows/runs/wf-1",
             },
           },
@@ -79,7 +79,7 @@ describe("Workflow tool detail", () => {
     expect(result).toHaveTextContent("review-changes");
     expect(result).toHaveTextContent("wf-1");
     expect(result).toHaveTextContent("task-1");
-    expect(result).toHaveTextContent("/workspace/workflows/review.py");
+    expect(result).toHaveTextContent("/workspace/workflows/review.js");
     expect(result).toHaveTextContent("/workspace/workflows/runs/wf-1");
   });
 
@@ -89,7 +89,7 @@ describe("Workflow tool detail", () => {
         toolCalls={[
           {
             id: "workflow-denied",
-            name: "Workflow",
+            name: "workflow",
             status: "failed",
             input: {},
             output: "review changes",
@@ -97,7 +97,7 @@ describe("Workflow tool detail", () => {
             approval: "user_deny",
             detail: {
               description: "review changes",
-              source: "inline Python",
+              source: "inline JavaScript",
               guideline: "medium",
               script_preview: "async def main(): pass",
             },
@@ -122,13 +122,13 @@ describe("Workflow tool detail", () => {
         toolCalls={[
           {
             id: "workflow-failed",
-            name: "Workflow",
+            name: "workflow",
             status: "failed",
             input: {},
             output: "review changes",
             detail: {
               description: "review changes",
-              source: "/workspace/workflows/review.py",
+              source: "/workspace/workflows/review.js",
               guideline: "small",
               script_preview: "",
               status: "failed",
@@ -148,7 +148,7 @@ describe("Workflow tool detail", () => {
     await userEvent.click(document.querySelector<HTMLButtonElement>(".chat-tool-call-row")!);
     const input = container.querySelector(".chat-tool-detail-workflow-input")!;
     const result = container.querySelector(".chat-tool-detail-workflow-result")!;
-    expect(input).toHaveTextContent("/workspace/workflows/review.py");
+    expect(input).toHaveTextContent("/workspace/workflows/review.js");
     expect(input).toHaveTextContent("small");
     expect(result).toHaveTextContent("failed");
     expect(result).toHaveTextContent("Workflow metadata is invalid");

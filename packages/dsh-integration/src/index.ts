@@ -26,6 +26,8 @@ import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
 import { NanoApproval } from './policy/approval.js';
 import * as NanoWeb from './web.js';
+import { NanoWorkflowEngine } from './workflow/engine.js';
+import { registerWorkflowTool } from './workflow/tool.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -35,6 +37,9 @@ export interface AgentConfiguration {
   model: string;
   reasoningEffort?: string;
   maxTokens?: number;
+  modelRouteFrozen?: boolean;
+  workflowParent?: {sessionId:string;inputIds:string[];interactive:boolean};
+  workflow?: { outputTokenTarget?: number; sizeGuideline?: string };
   modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
   features?: Record<string, boolean>;
@@ -91,6 +96,8 @@ export default class NanoRuntime {
     ctx.plugin(ConfigurationScopes, this.configurations);
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { let session = ctx.sessions.get(SessionId(sessionId)); while (session?.header.parentSession) session = ctx.sessions.get(session.header.parentSession); this.peer.notify('model.changed', { sessionId, rootSessionId: session?.id }); } });
     const webFiber = ctx.plugin(NanoWeb);
+    const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
+    const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
@@ -109,7 +116,7 @@ export default class NanoRuntime {
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
-      const config = await history.configuration(agent, desired, parent ? scopes.forAgent(parent) : undefined);
+      const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
@@ -130,7 +137,9 @@ export default class NanoRuntime {
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
       const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
-      if (config?.mode === 'global' || !human) return 'rejected';
+      if (config?.mode === 'global' || !human && !config?.workflowParent?.interactive) return 'rejected';
+      const approvalSessionId = config?.workflowParent?.sessionId ?? request.agent.id;
+      if(!this.bindings.has(approvalSessionId)) return 'rejected';
       const requestId = randomUUID();
       return new Promise<ApprovalOutcome>(resolve => {
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -142,7 +151,7 @@ export default class NanoRuntime {
           if (answer === 'rejected' && reason?.trim()) request.agent.inject(freezeMessage({ id: MessageId(randomUUID()), role: 'user' as const, content: [{ type: 'text', text: `The human rejected ${request.toolName} (${request.callId ?? requestId}). Their reason: ${reason}` }],
             source: { kind: 'user-approval', form: 'notice', summary: 'The human rejected this tool call with a reason.' } }));
           resolve(answer);
-          this.peer.notify('approval.resolved', { requestId, sessionId: request.agent.id, outcome: answer });
+          this.peer.notify('approval.resolved', { requestId, sessionId: approvalSessionId, outcome: answer });
         };
         const cancel = () => finish('cancelled');
         this.approvals.set(requestId, finish);
@@ -150,7 +159,8 @@ export default class NanoRuntime {
         timer = setTimeout(() => finish('unavailable'), Math.max(0, (config?.approval?.askTimeoutSec ?? 600) * 1000));
         request.signal?.addEventListener('abort', cancel, { once: true });
         this.peer.notify('approval.request', {
-          requestId, sessionId: request.agent.id, toolName: request.toolName,
+          requestId, sessionId: approvalSessionId, childSessionId: approvalSessionId === request.agent.id ? undefined : request.agent.id, inputIds: config?.workflowParent?.inputIds, toolName: request.toolName,
+          toolInput: history.findLast(event=>event.type==='tool/call'&&event.data.callId===request.callId)?.data,
           callId: request.callId, reason: request.reason,
         });
       });
@@ -163,6 +173,8 @@ export default class NanoRuntime {
       await approvalFiber.await();
       await modelFiber.await();
       await webFiber.await();
+      await workflowFiber.await();
+      await workflow;
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
@@ -208,7 +220,7 @@ export default class NanoRuntime {
           setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, preset); } });
         try {
           const scopes = await configuration; const scoped = scopes.forAgent(handle.agent)!;
-          const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd) };
+          const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd), workflows: (await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description})) };
           if (catalogOnly) return catalog;
           const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
           return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
@@ -271,16 +283,24 @@ export default class NanoRuntime {
       const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
       const root = await this.agent(sessionId); await this.flush(root);
       const children = await ctx.subagents.listDescendants(root.id);
+      const workflowRuns = await (await workflow).read(root);
       return Promise.all(children.map(async child => {
         if (child.kind !== 'child') return child;
         const live = ctx.sessions.get(child.id);
         if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
         using observation = await ctx.sessionQuery.observeSession(child.id);
-        return { ...child, throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: observation.events };
+        const workflowRun = workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===child.id)));
+        return { ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: observation.events };
       }));
     });
+    this.peer.handle('workflow.pending', async () => (await workflow).pending());
+    this.peer.handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
+    this.peer.handle('workflow.read', async value => { const {sessionId,runId} = value as {sessionId:string;runId?:string}; return (await workflow).read(await this.agent(sessionId),runId); });
+    this.peer.handle('workflow.control', async value => { const {sessionId,runId,action,ordinal} = value as {sessionId:string;runId:string;action:string;ordinal?:number}; return (await workflow).control(await this.agent(sessionId),runId,action,ordinal); });
+    this.peer.handle('workflow.catalog', async value => (await workflow).catalog(await this.agent((value as {sessionId:string}).sessionId)).list());
     this.peer.handle('session.command', async value => {
       const request = value as { sessionId: string; id: string; action: string; argument?: string };
+      if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
       return (await models).command(await this.agent(request.sessionId), request);
     });
     this.peer.handle('session.cancel', async value => {
@@ -288,7 +308,8 @@ export default class NanoRuntime {
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
       (await models).fallback.interrupt(agent);
-      const wasRunning = agent.status === 'running';
+      const workflowCount = await (await workflow).stopSession(sessionId);
+      const wasRunning = agent.status === 'running' || workflowCount > 0;
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
       await this.flush(agent);
@@ -372,6 +393,7 @@ export default class NanoRuntime {
       for (const id of this.bindings.keys()) ctx.agents.get(SessionId(id))?.cancel({ kind: 'user' }, { keepInbox: true });
       await (await models).stop();
       await (await knowledge).stop();
+      await (await workflow).stop();
       await Promise.allSettled([...this.inputs.values()]);
       const agents = [...this.bindings.keys()].map(id => ctx.agents.get(SessionId(id))).filter((agent): agent is Agent => !!agent);
       for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true });

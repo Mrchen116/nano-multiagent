@@ -568,6 +568,7 @@ const BESPOKE: Record<string, (p: ToolDetailCardProps) => ReactNode> = {
   web_search: WebSearchCard,
   agent: AgentCard,
   Workflow: WorkflowCard,
+  workflow: WorkflowCard,
   memory: MemoryCard,
   skill_manage: SkillCard,
   skill_view: SkillViewCard,
@@ -603,6 +604,7 @@ function hasTerminalDetail(name: string, detail: ToolDetail): boolean {
       return Object.prototype.hasOwnProperty.call(detail, "results") || hasAnyValue(detail, ["error", "message"]);
     case "agent":
       return hasAnyValue(detail, ["status", "content", "output_file", "error", "agent_id"]);
+    case "workflow":
     case "Workflow":
       return hasAnyValue(detail, ["status", "name", "runId", "taskId", "scriptPath", "transcriptDir", "error"]);
     case "memory":

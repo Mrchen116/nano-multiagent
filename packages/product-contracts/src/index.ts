@@ -9,6 +9,7 @@ export interface AgentConfiguration {
   model: string;
   reasoningEffort?: string;
   maxTokens?: number;
+  workflow?: {outputTokenTarget?:number;sizeGuideline?:string};
   modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
   features?: Record<string, boolean>;

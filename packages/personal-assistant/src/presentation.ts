@@ -22,7 +22,7 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
   const data = event.data;
   if (event.type === 'tool/call') return {
-    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running',
+    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
@@ -31,9 +31,16 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
       status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
       output: message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join(''),
+      ...workflowDetail(call.data.name,argumentsObject(call.data.arguments),message.content.filter(block=>block.type==='text').map(block=>block.text??'').join(''),message.isError),
     };
   }
   return undefined;
+}
+function workflowDetail(name:unknown,input:Record<string,unknown>,output?:string,error?:boolean) {
+  if(name!=='workflow')return {};
+  const description=String((input.meta as {description?:string}|undefined)?.description??input.name??input.action??'Workflow');
+  let result:Record<string,unknown>={};if(output)try{result=JSON.parse(output);}catch{result={error:output};}
+  return {output:description,detail:{...result,description,script_preview:input.script??'',source:input.scriptPath??input.name??'inline',...(error?{error:output}:{} )}};
 }
 export function argumentsObject(raw: unknown): Record<string, unknown> {
   try { return JSON.parse(String(raw)) as Record<string, unknown>; }

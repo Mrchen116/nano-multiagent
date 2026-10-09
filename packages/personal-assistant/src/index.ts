@@ -11,3 +11,5 @@ export { ManagedChannels, type ManagedChannel, type ChannelManifest } from './ma
 export { KnowledgeUpdates } from './knowledge.js';
 export { ConversationHistory } from './history.js';
 export { installBuiltinSkills, builtinSkillsRoot } from './builtin-skills.js';
+
+export { WorkflowResults } from './workflows.js';
