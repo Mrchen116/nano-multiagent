@@ -93,7 +93,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # vitest 3.x + jsdom 27 require Node >= 20
+          # Vitest 4 + jsdom 27 run on Node 20
           node-version: "20"
           cache: npm
           cache-dependency-path: src/IM/frontend/package-lock.json
