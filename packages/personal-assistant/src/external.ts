@@ -31,6 +31,10 @@ export class ExternalChannels {
   private flushing?: Promise<void>;
   private flushAgain = false;
   constructor(path: string, private readonly options: Options) { this.state = new ExternalStore(path); }
+  historyConversation(agentId: string, source: string, chatId: string): string | undefined {
+    if (source !== 'feishu') return;
+    return this.state.chats().find(chat => chat.agentId === agentId && chat.sourceId === chatId)?.id;
+  }
   get ready() { return this.options.relay.ready; }
   add(agentId: string, connection: Connection): void { this.connections.set(agentId, connection); }
   remove(agentId: string): void { this.connections.delete(agentId); }

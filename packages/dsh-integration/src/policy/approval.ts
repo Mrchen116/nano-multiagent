@@ -21,7 +21,7 @@ export class NanoApproval extends Service {
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
   readonly sources = new ApprovalSources();
-  constructor(ctx: Context, private readonly configs: Map<string, AgentConfiguration>) {
+  constructor(ctx: Context, private readonly configOf: (agent: Agent) => AgentConfiguration | undefined) {
     super(ctx, 'nanoApproval');
     this.audit = ctx.storageDomain.open(approvalDomain);
     ctx.effect(() => async () => { await (await this.audit).close(); });
@@ -51,9 +51,9 @@ export class NanoApproval extends Service {
       await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent)] });
     }
     if (config.approval.enabled || config.approval.dangerouslySkipPermissions) this.ctx.permissionPresets.set(agent.session, 'auto');
-    if (!agent.session.header.parentSession && this.ctx.approval.overrideOf(agent.session) !== 'ask') setApprovalPolicy(agent.session, 'ask');
+    if (agent.session.header.origin !== 'subagent' && this.ctx.approval.overrideOf(agent.session) !== 'ask') setApprovalPolicy(agent.session, 'ask');
   }
-  private config(agent: Agent) { return this.configs.get(agent.session.header.agentPreset ?? ''); }
+  private config(agent: Agent) { return this.configOf(agent); }
   private async inherited(sessionId: string): Promise<unknown[]> {
     const saved = (await this.audit).table('delegated').get(sessionId);
     if (!saved) return [];
@@ -71,7 +71,7 @@ export class NanoApproval extends Service {
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
     const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as { source?: { kind?: string; channel?: string } });
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
-    if (config.mode === 'global' || agent.session.header.parentSession) return 'return_to_agent';
+    if (config.mode === 'global' || agent.session.header.origin === 'subagent') return 'return_to_agent';
     return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
   }
   private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage'>> = {}) {

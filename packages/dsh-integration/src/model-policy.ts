@@ -54,7 +54,7 @@ export class ModelPolicy extends Service {
       const { reasoningEffort: _, maxTokens: priorCap, ...request } = await next();
       return { ...request, provider: route.provider, model: route.model,
         ...(route.reasoningEffort ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
-        ...(agent.session.header.parentSession && priorCap !== undefined ? { maxTokens: priorCap } : route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }),
+        ...(agent.session.header.origin === 'subagent' && priorCap !== undefined ? { maxTokens: priorCap } : route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }),
       };
     }, { prepend: true });
     agent.ctx.on('agent/pre-step', async (_payload, next) => {
@@ -75,7 +75,7 @@ export class ModelPolicy extends Service {
     const config = this.configs.get(agent.id)!;
     let selection = this.selections.get(agent.id)!;
     if (selection.revision !== config.revision) { selection = { revision: config.revision, effort: selection.effort }; this.selections.set(agent.id, selection); }
-    const parent = agent.session.header.parentSession;
+    const parent = agent.session.header.origin === 'subagent' && agent.session.header.parentSession;
     const inherited = parent && this.host.agents.get(parent);
     const route = selection.selected ?? selection.sticky ?? (inherited && this.configs.has(inherited.id) ? this.route(inherited) : config);
     return { provider: route.provider, model: route.model, reasoningEffort: selection.selected ? route.reasoningEffort : selection.effort ?? route.reasoningEffort, maxTokens: route.maxTokens };

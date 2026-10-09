@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -29,6 +29,7 @@ for (const [index, provider] of config.llm.providers.entries()) {
     })),
   };
 }
+await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
 await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers } }]);
 const store = new NodeStore(join(home, 'node.sqlite3'), config.node.user_id);
@@ -40,6 +41,7 @@ let heartbeat: Heartbeat;
 let external: ExternalChannels;
 let managed: ManagedChannels;
 let knowledge: KnowledgeUpdates;
+let history: ConversationHistory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
@@ -65,6 +67,9 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
+    if (frame.type === 'node.distill.prompt.request') await relay.request('node.distill.prompt', { request_id: payload.request_id, node_id: config.node.node_id,
+      ...await history.distill(payload).catch(error => ({ error_code: 'runtime_unavailable', message: String(error) })) });
     if (['agent.capabilities.resolve', 'node.capabilities.resolve', 'agent.prompt.preview.request', 'node.prompt.preview.request'].includes(frame.type)) {
       const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : undefined;
       const current = config.agents.find(agent => agent.agent_id === agentId);
@@ -183,6 +188,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (previous) Object.assign(previous, next); else agents.push(next);
   },
 });
+history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
   settings: agentId => (config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}) as HeartbeatSettings,

@@ -24,7 +24,7 @@ export interface NodeConfigurationFile {
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
   private readonly policies = new Map<string, AgentConfiguration['approval']>();
-  private readonly ownerRoot = process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant');
+  readonly ownerRoot = process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant');
   private persistence: Promise<void> = Promise.resolve();
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) { return new NodeConfiguration(path, load(await readFile(path, 'utf8')) as NodeConfigurationFile); }

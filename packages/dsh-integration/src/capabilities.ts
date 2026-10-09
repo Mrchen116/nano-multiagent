@@ -25,6 +25,12 @@ export class ToolSelection {
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
     this.update(config.agentId);
   }
+  catalog(agent: Agent) {
+    const state = this.agents.get(agent)!;
+    this.changing = true;
+    try { state.dispose?.(); state.dispose = undefined; return agent.ctx.tools.schemas(agent); }
+    finally { this.refresh(agent, state); this.changing = false; }
+  }
   update(agentId: string) {
     this.changing = true;
     try { for (const [agent, state] of this.agents) if (state.config.agentId === agentId) this.refresh(agent, state); }
@@ -33,12 +39,13 @@ export class ToolSelection {
   private refresh(agent: Agent, state: { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }) {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
-    if (state.config.toolAllowlist === undefined) return;
+    const disabled = Object.entries({ task_graph: 'task_graph', memory: 'memory_curation', skill_manage: 'skill_creation' }).filter(([, feature]) => state.config.features?.[feature] === false).map(([tool]) => tool);
+    if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
-    if (!state.config.toolAllowlist.length) state.presentation = agent.ctx.tools.presentAs('native');
+    if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
-    state.dispose = agent.ctx.tools.restrict({ allow: state.config.toolAllowlist.filter(name => known.has(name) && name !== 'run_code') });
+    state.dispose = agent.ctx.tools.restrict({ allow: (state.config.toolAllowlist ?? [...known]).filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
   }
 }
 

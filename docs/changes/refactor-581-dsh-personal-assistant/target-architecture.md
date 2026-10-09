@@ -331,6 +331,11 @@ UI 工作视图允许延迟，由 DSH durable events 增量投影并按 cursor �
 
 新历史分支统一使用公开`sessionController.fork({sessionId, atSeq})`，它承担事件前缀、preset composition与Agent创建；不直接调用底层`sessions.fork`后遗漏配置。Nano先校验业务消息锚点与历史配置，在受信任fork operation中供preset装配取得对应快照，成功后提交新conversation绑定；失败清理暂存绑定并通知IM回滚。
 
+实施接线进一步固定为两个小接口：`ConfigurationScopes.attachAgent(agent, config)`在Controller已完成setup的、被await的`agent/created`阶段挂载每个Agent自己的persona、Skill与选择限制，`forAgent(agent)`提供同一有效配置。DSH原生restriction只约束继承工具，因此workspace扩展与独立Feature工具贡献仍由named preset层持有；历史分支需要的Feature保留至对应配置不再需要，按会话的原生restriction和prompt过滤精确限定其可见贡献，不能把工具注册在同一Agent层后误以为allowlist仍能过滤。候选catalog通过不接收输入的短生命周期诊断Agent读取，执行名单仍是该Agent的原生限制。`NativeHistory`保存原生turn的配置快照、受信任fork operation与可读导出；fork期间通过进程内异步上下文把该次快照交给新Agent装配，成功与冷恢复均按持久记录取值，普通子Agent继承其真实parent配置。之后显式配置变更仍按既定安全边界更新这些实例。没有临时重注册全局preset、跨会话配置换指针或对seeded历史调用blank-only recompose。
+
+这两个模块各自隐藏scope/disposer顺序和历史操作恢复；Node仍只提交可信来源/消息锚点并在成功后绑定conversation。验证通过真实官方profile的分支RPC、压缩后消息点、两次不同配置、源/分支隔离、子Agent继承和冷恢复完成；产品协议用现有IM control request验证，不为其另造通用执行后端。
+
+
 蒸馏可读文件由integration历史导出器生产：监听成功持久化后的事件边界，通过公开session query读取新DSH事件并原子更新受控本机JSONL导出及其seq清单，不把默认压缩存储路径直接交给distiller。prompt RPC只校验binding、清单与可读路径，不在该RPC读取transcript；导出未追到所需持久边界时返回未就绪，不能返回过期/部分prompt。后续普通distiller会话才读导出内容；这不增加旧历史转换器。
 
 schedule绑定原始runtimeSessionId；single_thread用户`/new`后不自动把旧安排迁到新上下文，沿用DSH原会话语义。产品保留安排所属聊天关联以便管理和投递；新触发有独立身份，旧普通运行的迟到事件仍按原规则隔离。global仍绑定数字人主会话，不因聊天重置改变主上下文。

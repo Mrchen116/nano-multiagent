@@ -192,6 +192,13 @@ importers:
       '@nano/product-contracts':
         specifier: workspace:*
         version: link:../product-contracts
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
+    devDependencies:
+      '@types/proper-lockfile':
+        specifier: 4.1.4
+        version: 4.1.4
 
   packages/product-contracts: {}
 

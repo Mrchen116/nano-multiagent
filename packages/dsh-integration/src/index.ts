@@ -19,8 +19,11 @@ import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
+import * as SelectedSkills from './capabilities.js';
+import { createScope } from '@deepseek-ai/dsh-scope';
 import { KnowledgeRuntime } from './knowledge/runtime.js';
 import { ModelPolicy } from './model-policy.js';
+import { NativeHistory } from './history.js';
 import { NanoApproval } from './policy/approval.js';
 
 export interface AgentConfiguration {
@@ -67,7 +70,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'storageDomain', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -81,15 +84,17 @@ export default class NanoRuntime {
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    let configurationService: ConfigurationScopes;
+    const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { let session = ctx.sessions.get(SessionId(sessionId)); while (session?.header.parentSession) session = ctx.sessions.get(session.header.parentSession); this.peer.notify('model.changed', { sessionId, rootSessionId: session?.id }); } });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
-    const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
+    const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
-    const approvalFiber = ctx.plugin(NanoApproval, this.configurations);
+    const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
-    const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { resolve(child.nanoConfiguration); }); });
+    const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.controller = ctx.plugin(SessionController, { nativeOpen: false });
     this.sessionController = new Promise(resolve => {
@@ -98,11 +103,15 @@ export default class NanoRuntime {
     ctx.on('agent/created', async ({ agent }) => {
       const preset = agent.session.header.agentPreset;
       if (!preset?.startsWith('nano:')) return;
-      const config = this.configurations.get(preset);
-      if (!config) throw new Error(`Missing Nano configuration for ${preset}`);
-      (await configuration).attachAgent(agent, config);
+      const desired = this.configurations.get(preset);
+      if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
+      const scopes = await configuration;
+      const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
+      const config = await history.configuration(agent, desired, parent ? scopes.forAgent(parent) : undefined);
+      await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
-      await (await models).attach(agent, config);
+      const modelPolicy = await models; await modelPolicy.attach(agent, config);
+      history.attach(agent, config, () => modelPolicy.route(agent));
     });
     ctx.on('session/event', (session, event) => {
       let root = session;
@@ -115,7 +124,7 @@ export default class NanoRuntime {
     ctx.on('agent/assistant-stream', ({ agent, frame }) => this.peer.notify('session.stream', { sessionId: agent.id, frame }));
     ctx.on('agent/error', ({ agent, error }) => this.peer.notify('session.error', { sessionId: agent.id, message: String(error) }));
     ctx.on('approval/request', async request => {
-      const config = this.configurations.get(request.agent.session.header.agentPreset ?? '');
+      const config = configurationService.forAgent(request.agent);
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
       const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
@@ -162,12 +171,11 @@ export default class NanoRuntime {
         for (const revision of revisions) {
         const id = `nano:${agent.agentId}:${revision}`;
         this.configurations.set(id, agent);
-        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [
-          { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } },
-        ] }));
+        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } }] }));
         }
       }
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
+      await history.recoverExports(config.bindings.map(binding => binding.sessionId));
       this.accepting = true;
       for (const agent of config.agents) { await this.cron.setEnabled(agent.agentId, agent.features?.cron_scheduling === true); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1' };
@@ -186,33 +194,59 @@ export default class NanoRuntime {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
     });
-    this.peer.handle('configuration.catalog', async value => {
-      const { agentId, cwd } = value as { agentId: string; cwd: string };
-      const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
-      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
-      await using scope = await ctx.agentPresets.acquireScope(entry[0]);
-      return { tools: ctx.tools.schemas(scope.key), skills: await skillCatalog(entry[1], cwd) };
-    });
-    this.peer.handle('configuration.preview', async value => {
-      const { config: requested, cwd } = value as { config: AgentConfiguration; cwd: string };
+    const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false) => {
       const previewId = `preview-${randomUUID()}`;
       const config = { ...requested, agentId: previewId };
       const preset = `nano:${previewId}:preview`;
       this.configurations.set(preset, config);
-      const unregister = await ctx.agentPresets.register({ id: preset, plugins: [
-        { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } },
-      ] });
+      const unregister = await ctx.agentPresets.register({ id: preset, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } }] });
       try {
         const handle = await ctx.agents.create({ sessionId: SessionId(previewId), meta: { cwd, agentPreset: preset },
           setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, preset); } });
         try {
+          const scopes = await configuration; const scoped = scopes.forAgent(handle.agent)!;
+          const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd) };
+          if (catalogOnly) return catalog;
           const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
-          await using scope = await ctx.agentPresets.acquireScope(preset);
           return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
-            tools: assembly.tools.map(tool => tool.name), skills: await ctx.skills.list({ scope: handle.agent, cwd }),
-            catalog: { tools: ctx.tools.schemas(scope.key), skills: await skillCatalog(config, cwd) } };
+            tools: assembly.tools.map(tool => tool.name), skills: await ctx.skills.list({ scope: handle.agent, cwd }), catalog };
         } finally { await handle.dispose(); }
       } finally { await unregister(); this.configurations.delete(preset); }
+    };
+    this.peer.handle('configuration.catalog', async value => {
+      const { agentId, cwd } = value as { agentId: string; cwd: string };
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config) throw new RpcError(-32004, 'Unknown product Agent');
+      return preview(config, cwd, true);
+    });
+    this.peer.handle('configuration.selection', async value => {
+      const { agentId, cwd } = value as { agentId: string; cwd: string };
+      const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
+      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
+      await using preset = await ctx.agentPresets.acquireScope(entry[0]);
+      const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
+      try {
+        await diagnostic.ctx.plugin(SelectedSkills, entry[1]).await();
+        return { tools: ctx.tools.schemas(key).map(tool => tool.name).filter(name => entry[1].toolAllowlist === undefined || entry[1].toolAllowlist.includes(name)),
+          skills: await ctx.skills.list({ scope: key, cwd }) };
+      } finally { await diagnostic.dispose(); }
+    });
+    this.peer.handle('configuration.preview', value => {
+      const { config, cwd } = value as { config: AgentConfiguration; cwd: string };
+      return preview(config, cwd);
+    });
+    this.peer.handle('session.fork', async value => {
+      const { sessionId, messageId, operationId } = value as { sessionId: string; messageId: string; operationId: string };
+      const source = await this.agent(sessionId); const binding = this.bindings.get(sessionId)!;
+      const desired = this.configurations.get(source.session.header.agentPreset!)!;
+      const result = await history.fork(source, messageId, operationId, desired, await this.sessionController);
+      this.bindings.set(result.sessionId, { ...binding, sessionId: result.sessionId });
+      return { ...result, revision: binding.revision };
+    });
+    this.peer.handle('session.export', async value => {
+      const { sessionId } = value as { sessionId: string };
+      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
+      return { path: await history.path(sessionId) };
     });
     this.peer.handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
     this.peer.handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
@@ -276,18 +310,14 @@ export default class NanoRuntime {
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
         await (await configuration).setFeatures(next.agentId, restricted);
         if (!next.features?.cron_scheduling) await this.cron.setEnabled(next.agentId, false);
-        const active = [...this.bindings.values()].filter(binding => binding.agentId === next.agentId)
-          .map(binding => ctx.agents.get(SessionId(binding.sessionId))).filter((agent): agent is Agent => !!agent);
-        await Promise.all(active.map(agent => agent.whenIdle()));
+        await (await configuration).whenIdle(next.agentId);
         await (await models).changed(next);
         await (await configuration).setConfiguration(next);
       }
       const id = `nano:${next.agentId}:${next.revision}`;
       if (!this.configurations.has(id)) {
         this.configurations.set(id, previous ?? next);
-        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [
-          { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: next.agentId } },
-        ] }));
+        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: next.agentId } }] }));
       }
       await this.cron.setEnabled(next.agentId, next.features?.cron_scheduling === true);
       this.peer.notify('heartbeat.subscription', { agentId: next.agentId, enabled: next.features?.heartbeat === true });
@@ -343,6 +373,7 @@ export default class NanoRuntime {
       const agents = [...this.bindings.keys()].map(id => ctx.agents.get(SessionId(id))).filter((agent): agent is Agent => !!agent);
       for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true });
       await Promise.all(agents.map(async agent => { await agent.whenIdle(); await this.flush(agent); }));
+      await history.stop();
       await this.controller.dispose();
       for (const unregister of this.unregisterPresets) await unregister();
       return { stopped: true };

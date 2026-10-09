@@ -14,7 +14,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@nano/channels": "workspace:*",
     "@nano/product-contracts": "workspace:*",
-    "@nano/channels": "workspace:*"
+    "proper-lockfile": "4.1.2"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "4.1.4"
   }
 }

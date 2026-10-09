@@ -16,7 +16,7 @@ import { knowledgeDomain, type KnowledgeDomain, type KnowledgeFact, type Knowled
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
-interface Options { configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void }
+interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void }
 const storageKey = (value: string) => Buffer.from(value).toString('base64url');
 interface Active { controller: AbortController; task: Promise<void>; agentId: string; rootSessionId: string; kind: KnowledgeKind; source: 'F3' | 'F4'; turn: number }
 
@@ -62,7 +62,7 @@ export class KnowledgeRuntime extends Service {
   private track(task: Promise<unknown>) {
     this.tasks.add(task); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
   }
-  config(agent: Agent) { return this.options.configs.get(agent.session.header.agentPreset ?? ''); }
+  config(agent: Agent) { return this.options.configOf(agent); }
   files(agent: Agent) { return new KnowledgeFiles(agent.session.header.cwd!, this.config(agent)?.knowledge?.globalSkillRoot); }
   private root(agent: Agent) {
     let current = agent;
