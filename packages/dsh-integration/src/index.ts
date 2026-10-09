@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
+import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -10,7 +11,11 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import type {} from '@deepseek-ai/dsh-system-prompt';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { RpcError, RpcPeer } from './rpc.js';
+import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
+import { CronOwners } from './cron-owners.js';
+import { ConfigurationScopes } from './agent-config.js';
+import { ProductBridge } from './product-bridge.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -20,6 +25,8 @@ export interface AgentConfiguration {
   reasoningEffort?: string;
   maxTokens?: number;
   systemPrompt?: string;
+  features?: Record<string, boolean>;
+  mode?: 'single_thread' | 'global';
 }
 export interface SessionBinding {
   sessionId: string;
@@ -32,11 +39,13 @@ interface Submit {
   sessionId: string;
   inputId: string;
   mode: 'followup' | 'steer' | 'inject';
+  onlyIfIdle?: boolean;
   content: PromptContentPart[];
   source: { kind: 'human' | 'system'; actorId: string; channel: string; messageId: string };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
+    schedule: { kind: 'schedule'; scheduleId?: string; triggerKind?: 'manual' };
     'nano-human': { kind: 'nano-human'; actorId: string; channel: string; messageId: string };
     'nano-system': { kind: 'nano-system'; actorId: string; channel: string; messageId: string };
   }
@@ -44,7 +53,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'systemPrompt', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -53,9 +62,14 @@ export default class NanoRuntime {
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
   private readonly controller;
+  private readonly cron: CronOwners;
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
+    ctx.plugin(ConfigurationScopes, this.configurations);
+    const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { resolve(child.nanoConfiguration); }); });
+    ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.controller = ctx.plugin(SessionController, { nativeOpen: false });
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -84,6 +98,11 @@ export default class NanoRuntime {
     ctx.on('agent/assistant-stream', ({ agent, frame }) => this.peer.notify('session.stream', { sessionId: agent.id, frame }));
     ctx.on('agent/error', ({ agent, error }) => this.peer.notify('session.error', { sessionId: agent.id, message: String(error) }));
     ctx.on('approval/request', async request => {
+      const config = this.configurations.get(request.agent.session.header.agentPreset ?? '');
+      const history = request.agent.session.snapshotEvents();
+      const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
+      const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
+      if (config?.mode === 'global' || !human) return 'rejected';
       const requestId = randomUUID();
       return new Promise<ApprovalOutcome>(resolve => {
         const finish = (answer: ApprovalOutcome) => {
@@ -110,14 +129,20 @@ export default class NanoRuntime {
       await ctx.loader.await();
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
-        const id = `nano:${agent.agentId}:${agent.revision}`;
+        const revisions = new Set([agent.revision, ...config.bindings.filter(binding => binding.agentId === agent.agentId).map(binding => binding.revision)]);
+        // Existing Sessions retain their native preset identity while receiving
+        // the node's current Agent configuration after a cold restart.
+        for (const revision of revisions) {
+        const id = `nano:${agent.agentId}:${revision}`;
         this.configurations.set(id, agent);
-        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: agent.systemPrompt ? [
-          { id: 'nano-persona', name: '@deepseek-ai/dsh-persona', config: { prefix: agent.systemPrompt } },
-        ] : [] }));
+        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [
+          { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } },
+        ] }));
+        }
       }
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       this.accepting = true;
+      for (const agent of config.agents) { await this.cron.setEnabled(agent.agentId, agent.features?.cron_scheduling === true); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1' };
     });
     this.peer.handle('session.ensure', value => this.ensure(value as SessionBinding));
@@ -130,6 +155,10 @@ export default class NanoRuntime {
       this.inputs.set(key, task);
       return task;
     });
+    this.peer.handle('session.capabilities', async value => {
+      const agent = await this.agent((value as { sessionId: string }).sessionId);
+      return { tools: ctx.tools.schemas(agent).map(tool => tool.name), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
+    });
     this.peer.handle('session.lookup', async value => {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
@@ -141,7 +170,7 @@ export default class NanoRuntime {
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => event.seq > afterSeq);
       await this.flush(agent);
-      return { events, throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+      return { status: agent.status, events, throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
     this.peer.handle('session.cancel', async value => {
       const { sessionId } = value as { sessionId: string };
@@ -160,8 +189,75 @@ export default class NanoRuntime {
       answer(decision);
       return { answered: true };
     });
+    this.peer.handle('configuration.apply', async value => {
+      const next = value as AgentConfiguration;
+      await ctx.llm.resolveModelInfo(next.provider, next.model);
+      const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
+      if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
+      if (previous) {
+        const restricted = { ...previous.features };
+        for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
+        await (await configuration).setFeatures(next.agentId, restricted);
+        if (!next.features?.cron_scheduling) await this.cron.setEnabled(next.agentId, false);
+        const active = [...this.bindings.values()].filter(binding => binding.agentId === next.agentId)
+          .map(binding => ctx.agents.get(SessionId(binding.sessionId))).filter((agent): agent is Agent => !!agent);
+        await Promise.all(active.map(agent => agent.whenIdle()));
+        await (await configuration).setConfiguration(next);
+      }
+      const id = `nano:${next.agentId}:${next.revision}`;
+      if (!this.configurations.has(id)) {
+        this.configurations.set(id, previous ?? next);
+        this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [
+          { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: next.agentId } },
+        ] }));
+      }
+      await this.cron.setEnabled(next.agentId, next.features?.cron_scheduling === true);
+      this.peer.notify('heartbeat.subscription', { agentId: next.agentId, enabled: next.features?.heartbeat === true });
+      return { effective: true, revision: next.revision };
+    });
+    this.peer.handle('configuration.features', async value => {
+      const { agentId, features } = value as { agentId: string; features: Record<string, boolean> };
+      if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
+      await (await configuration).setFeatures(agentId, features);
+      await this.cron.setEnabled(agentId, features.cron_scheduling === true);
+      this.peer.notify('heartbeat.subscription', { agentId, enabled: features.heartbeat === true });
+      return { effective: true, features };
+    });
+    this.peer.handle('schedule.enabled', async value => {
+      const { agentId, enabled } = value as { agentId: string; enabled: boolean };
+      if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
+      await this.cron.setEnabled(agentId, enabled);
+      for (const config of this.configurations.values()) if (config.agentId === agentId) config.features = { ...config.features, cron_scheduling: enabled };
+      return { effective: true, enabled };
+    });
+    this.peer.handle('schedule.evidence', async value => {
+      const agent = await this.agent((value as { sessionId: string }).sessionId); await this.flush(agent);
+      return scheduleEvidence(agent.session.snapshotEvents());
+    });
+    this.peer.handle('schedule.command', async value => {
+      const { agentId, sessionId, action, args = {} } = value as { agentId: string; sessionId?: string; action: string; args?: Record<string, unknown> };
+      if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
+      if (sessionId && this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
+      if (action === 'run') {
+        const config = [...this.configurations.values()].find(config => config.agentId === agentId)!;
+        if (!config.features?.cron_scheduling) throw new RpcError(-32002, 'Cron Feature is disabled');
+        const tasks = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
+        const task = tasks.find(task => task.id === args.id && task.sessionId === sessionId);
+        if (!task || task.status !== 'active') throw new RpcError(-32602, 'Schedule does not exist or is inactive');
+        if (typeof args.inputId !== 'string' || !args.inputId.startsWith('manual-schedule:')) throw new RpcError(-32602, 'Manual schedule input identity is required');
+        const agent = await this.agent(sessionId!);
+        if (!inputEvidence(agent.session.snapshotEvents(), args.inputId).accepted) {
+          agent.followup(freezeMessage({ id: MessageId(args.inputId), role: 'user' as const,
+            content: [{ type: 'text', text: `Manual run of an existing schedule. This is configured work, not live human permission.\nTitle: ${task.title}\nSaved instructions:\n${task.prompt}` }],
+            source: { kind: 'schedule' as const, scheduleId: task.id, triggerKind: 'manual' } }));
+        }
+        await this.flush(agent); return { inputId: args.inputId, ...inputEvidence(agent.session.snapshotEvents(), args.inputId) };
+      }
+      return this.cron.command(agentId, sessionId, action, args);
+    });
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
+      await this.cron.dispose();
       await Promise.allSettled([...this.inputs.values()]);
       const agents = [...this.bindings.keys()].map(id => ctx.agents.get(SessionId(id))).filter((agent): agent is Agent => !!agent);
       for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true });
@@ -200,6 +296,7 @@ export default class NanoRuntime {
     if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
+      if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: { ...input.source, kind: input.source.kind === 'human' ? 'nano-human' as const : 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);

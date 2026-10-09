@@ -77,6 +77,7 @@ export class RuntimeSupervisor {
   private recovery?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private wakeTimer?: () => void;
+  private readonly handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   constructor(private readonly options: SupervisorOptions) {}
   get process() { return this.client?.process; }
@@ -91,10 +92,15 @@ export class RuntimeSupervisor {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
+  handle(method: string, handler: (params: unknown) => unknown | Promise<unknown>): void {
+    this.handlers.set(method, handler);
+    this.client?.rpc.handle(method, handler);
+  }
   async start(): Promise<void> { await this.launch(); }
   private async launch(): Promise<void> {
     const client = new RuntimeClient(this.options);
     this.client = client;
+    for (const [method, handler] of this.handlers) client.rpc.handle(method, handler);
     client.rpc.onNotification((method, params) => { for (const listener of this.listeners) listener(method, params); });
     try {
       await this.options.initialize(client.rpc);

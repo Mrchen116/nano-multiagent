@@ -4,11 +4,13 @@ export interface AgentConfiguration {
   revision: string;
   workspace: string;
   mode: 'single_thread' | 'global';
+  groupReplyPolicy?: 'always' | 'mention_only';
   provider: string;
   model: string;
   reasoningEffort?: string;
   maxTokens?: number;
   systemPrompt?: string;
+  features?: Record<string, boolean>;
 }
 export interface SessionBinding {
   sessionId: string;
@@ -43,3 +45,5 @@ export interface RuntimePort {
   onNotification(listener: (method: string, params: unknown) => void): () => void;
 }
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed';
+
+export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';

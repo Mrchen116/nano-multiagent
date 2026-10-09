@@ -110,11 +110,10 @@ test('registration timeout never releases business traffic and stop ends pending
   const s = await server(() => {});
   const relay = connection(s.url, { ackTimeoutMs: 20 });
   const started = relay.start();
-  const stopped = expect(started).rejects.toMatchObject({ delivery: 'not-sent' });
-  await pause(65);
-  expect(s.frames.length).toBeGreaterThanOrEqual(2);
+  const stopped = started.catch(error => error as RelayDeliveryError);
+  await expect.poll(() => s.frames.length, { interval: 5, timeout: 1000 }).toBeGreaterThanOrEqual(2);
   expect(s.frames.every(frame => frame.type === 'node.register')).toBe(true);
-  await relay.stop(); await stopped;
+  await relay.stop(); expect(await stopped).toMatchObject({ delivery: 'not-sent' });
 });
 
 test('replacement authority error is terminal and errors never expose credentials', async () => {

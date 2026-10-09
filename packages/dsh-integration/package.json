@@ -5,7 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./lib/index.js",
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./global-mode": "./lib/global-mode.js",
+    "./features/task-graphs": "./lib/features/task-graphs.js",
+    "./features/cron": "./lib/features/cron.js",
+    "./agent-config": "./lib/agent-config.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -29,7 +33,13 @@
     "@deepseek-ai/dsh-client-file-upload": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.1",
     "@deepseek-ai/dsh": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-persona": "0.2.1-alpha.1"
+    "@deepseek-ai/dsh-persona": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-schedule": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tool-schedule": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-storage": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-storage-json": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-alpha.1"
   },
   "dsh": {
     "bundle": {

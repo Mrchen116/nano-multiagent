@@ -38,3 +38,16 @@ it('adds cache buckets to uncached input once and keeps unknown cache fields abs
   ], 1)).toEqual({ prompt: 35, completion: 3, total: 38, cache_read: 20, cache_total_input: 35, context_window: 1000 });
   expect(tokenUsage([event(0, 'assistant/message', { turn: 2, usage: { inputTokens: 10, outputTokens: 3 } })], 2)).toEqual({ prompt: 10, completion: 3 });
 });
+
+it('projects native schedule admission with its original message identity across replay', () => {
+  const store = new NodeStore(':memory:', 'o');
+  store.bind({ sessionId: 's', conversationId: 'chat', agentId: 'a', ownerId: 'o', cwd: '/tmp', revision: '1' });
+  const message = { id: 'native-schedule-id', content: [{ type: 'text', text: 'reminder' }], source: { kind: 'schedule' } };
+  const events = [{ seq: 1, time: 1, type: 'agent/inbox/spliced', data: { inserted: [message] } }];
+  try {
+    store.recordEvents('s', events); store.recordEvents('s', events);
+    expect(store.inputs('s')).toHaveLength(1);
+    expect(store.inputs('s')[0]).toMatchObject({ id: message.id, accepted: true,
+      input: { conversation_id: 'chat', metadata: { runtime_input_id: message.id, origin: 'schedule' } } });
+  } finally { store.close(); }
+});

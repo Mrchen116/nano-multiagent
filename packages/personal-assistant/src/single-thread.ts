@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
+import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
 import { argumentsObject, tokenUsage, toolPresentation } from './presentation.js';
 
@@ -27,6 +28,8 @@ export class SingleThread {
   constructor(private readonly options: Options) {
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
+      const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
+      if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
       if (method === 'session.event' && data.event) this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
@@ -39,44 +42,78 @@ export class SingleThread {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
-    const binding = store.bindingFor(config.agentId, input.conversation_id) ?? store.bind({
+    if (!needsAttention(input, config) && input.message.content.trim() !== '/stop') {
+      store.bufferGroup(input);
+      await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
+      return;
+    }
+    const ownerDirect = input.metadata.conversation_type === 'direct' && input.message.sender_type === 'user' && (input.message.sender_user_id === this.options.ownerId || input.metadata.owner_user_id === this.options.ownerId);
+    const canonical = ownerDirect ? store.canonical(config.agentId) : undefined;
+    const binding = store.bindingFor(config.agentId, input.conversation_id)
+      ?? (canonical?.conversationId.startsWith('owner:') ? store.adoptConversation(canonical, input.conversation_id) : undefined) ?? store.bind({
       sessionId: randomUUID(), conversationId: input.conversation_id, agentId: config.agentId,
       ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
     });
+    if (ownerDirect) store.markCanonical(binding);
     if (input.message.content.trim() === '/stop') {
       await runtime.request('session.ensure', runtimeBinding(binding));
       const result = await runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
       await this.reconcile(binding.sessionId);
       const ack = await this.delta({ kind: 'turn_start', conversation_id: binding.conversationId, agent_id: binding.agentId,
-        idempotency_key: `command:${input.message.id}` });
+        idempotency_key: `command:${input.message.id}`, external_reply: input.metadata.external_reply });
       await this.delta({ kind: 'message_completed', message_id: ack.payload.message_id,
         final_content: result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。', delivery_status: 'completed' });
       await this.receipt(input, 'completed');
       return;
     }
-    const inputId = store.receive(binding.sessionId, input);
+    store.takeGroup(binding);
+    store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
+    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted) await this.submit(binding, pending.input);
+    await this.reconcile(binding.sessionId);
+  }
+
+  private async submit(binding: SessionBinding, input: RelayInput) {
+    const { store, runtime } = this.options;
+    const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const content: Record<string, unknown>[] = [{ type: 'text', text: input.message.content }];
-      for (const attachment of input.message.attachments) {
-        if (!attachment.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
+      const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${input.message.content}` : input.message.content;
+      const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
+      const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
+      const content: Record<string, unknown>[] = [];
+      if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
+      for (const part of parts) {
+        if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
+        const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
+        if (!attachment?.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
         content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
       }
-      await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: 'followup', content,
-        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: 'web_relay', messageId: input.message.id },
+      await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
+        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id },
       });
     }
     store.accepted(inputId);
     if (!store.inputs(binding.sessionId).find(item => item.id === inputId)?.terminal) await this.receipt(input, 'sent');
-    await this.reconcile(binding.sessionId);
+  }
+
+  /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
+  async heartbeatBinding(config: AgentConfiguration): Promise<SessionBinding> {
+    const { store, runtime } = this.options;
+    const binding = store.canonical(config.agentId) ?? store.bind({ sessionId: randomUUID(), agentId: config.agentId,
+      conversationId: `owner:${this.options.ownerId}`, ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision });
+    store.markCanonical(binding);
+    await runtime.request('session.ensure', runtimeBinding(binding));
+    return binding;
   }
 
   /** Durable history is replayed on reconnect; display notifications are just hints. */
-  async recover(): Promise<void> {
+  async recover(externalOnly = false): Promise<void> {
     for (const binding of this.options.store.bindings()) {
+      if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
+      if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
-      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted) await this.receive(input.input);
+      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
     }
   }
@@ -122,13 +159,27 @@ export class SingleThread {
         await this.receipt(input.input, delivery.state === 'confirmed' ? 'completed' : 'failed');
         continue;
       }
+      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
+      const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
+      const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => item.input.metadata.origin === 'heartbeat');
+      if (heartbeatOnly || group) {
+        if (!end && heartbeatOnly) continue;
+        const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as { content: { type: string; text?: string }[] } | undefined;
+        const text = last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim();
+        if (end && ((heartbeatOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
+          if (delivery.messageId) await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'silent_reply' });
+          store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
+        }
+      }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
-        const ack = await this.delta({ kind: 'turn_start', conversation_id: binding.conversationId,
-          agent_id: binding.agentId, idempotency_key: delivery.operationId });
+        const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
+          agent_id: binding.agentId, idempotency_key: delivery.operationId,
+          external_reply: store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply });
         const messageId = ack.payload.message_id;
         if (typeof messageId !== 'string') throw new Error('IM did not acknowledge the output message identity');
+        if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
         store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
         delivery = store.delivery(sessionId, turn)!;
       }
@@ -144,7 +195,6 @@ export class SingleThread {
         }
         store.confirmEvent(delivery.operationId, event.seq);
       }
-      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
       if (!end) continue;
       const answers = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn);
       const final = answers.at(-1);
@@ -157,6 +207,7 @@ export class SingleThread {
         final_content: text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
+        resolved_model: events.filter(event => event.type === 'request/context' && event.seq <= end.seq).at(-1)?.data.model,
       });
       store.updateDelivery(delivery.operationId, completed ? 'confirmed' : 'failed', delivery.messageId, text);
       await this.receipt(input.input, completed ? 'completed' : 'failed');
@@ -202,13 +253,14 @@ export class SingleThread {
   }
   private delta(payload: Record<string, unknown>) { return this.options.relay.request('node.streaming_delta', { node_id: this.options.nodeId, ...payload }); }
   private async receipt(input: RelayInput, status: string) {
-    const inputId = `${input.agent_id}:${input.message.id}`;
+    const inputId = String(input.metadata.runtime_input_id ?? `${input.agent_id}:${input.message.id}`);
     if (this.options.store.receipt(inputId) === status) return;
-    await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
+    if (!input.metadata.runtime_input_id) await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
     // /stop has no model input, so it has no input receipt row.
     if (input.message.content.trim() !== '/stop') this.options.store.confirmReceipt(inputId, status);
   }
   private stream({ sessionId, frame }: Stream) {
+    if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
     if (frame.type === 'start') {
       this.streams.set(frame.attemptId, { turn: frame.turn!, chain: this.reconcile(sessionId) });
       return;

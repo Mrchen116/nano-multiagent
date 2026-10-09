@@ -264,3 +264,5 @@ export class WebRelayConnection {
     try { this.options.onError?.(error); } catch { /* Diagnostics must not interrupt protocol cleanup. */ }
   }
 }
+
+export { FeishuConnection, parseFeishuMessage, type FeishuConfiguration, type FeishuMessage } from './feishu.js';
