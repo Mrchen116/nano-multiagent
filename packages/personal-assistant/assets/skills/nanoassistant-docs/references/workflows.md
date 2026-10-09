@@ -6,7 +6,7 @@ Workflow 会消耗比单次聊天更多的模型资源。因此 Agent 只会在�
 
 ## 启用与启动
 
-1. 在 Agent 的设置中启用 `Workflow` 工具并保存。它从该 Agent 下一轮新回复开始生效；未启用时，Workflow 命令和 `ultracode` 都不会出现。
+1. 在 Agent 的设置中启用 `workflow` 工具并保存。它从该 Agent 下一轮新回复开始生效；未启用时，Workflow 命令和 `ultracode` 都不会出现。
 2. 在聊天中直接说明意图，例如“用 Workflow 研究这个问题”“让多个 Agent 并行审查这组改动”或“用子 Agent 编排完成”。这让 Agent 可以据此规划并启动 Workflow。
 3. 人工输入中包含 `ultracode` 也只为**当前请求**明确 opt-in；下一条任务仍按默认的逐次确认规则处理。自动 heartbeat、cron、webhook 或后台通知里的同一个词不会启动 Workflow。
 4. 在输入框输入 `/` 可查看当前 Agent 提供的 Workflow 命令。`/deep-research <问题>` 是内置的深度调研 Workflow；已保存、对当前 Agent 可用的 Workflow 也会显示为各自的 slash 命令。实际列表以面板为准。
@@ -19,7 +19,7 @@ Workflow 在后台运行。启动消息里的工具行显示“已启动”只�
 
 - 输入 `/workflows` 查看当前会话的运行列表。
 - 输入 `/workflows <run-id>` 查看一个运行的阶段、子 Agent、结果、错误、耗时、资源使用和诊断信息。
-- 需要控制时使用 `/workflows <run-id> pause`、`resume` 或 `stop`；可以用 `/workflows <run-id> restart <agent-call-id>` 重启一个子 Agent。
+- 需要控制时使用 `/workflows <run-id> pause`、`resume` 或 `stop`；可以用 `/workflows <run-id> restart <ordinal>` 重启一个子 Agent；ordinal 是查询结果中稳定的逻辑调用序号。
 - 完成、失败或停止时，Agent 会在原聊天发送一次普通总结。Web IM 的同一消息“过程”区域可展开查看原始结果、错误、run/task 标识、资源使用和恢复提示。
 
 Workflow 不会为每一个中间子 Agent 消息刷屏；运行中想了解进度时，使用 `/workflows` 查询即可。页面也不会新增独立的 Workflow 面板，所有信息仍在原聊天、工具行和权限卡中。
@@ -44,3 +44,9 @@ Web IM 与已配置的外部聊天入口使用相同的启动、批准、查询�
 - `/config workflowSizeGuideline <unrestricted|small|medium|large>` 可设置 Agent 后续 Workflow 的规模提示，未设置时为 `medium`。它是对编排规模的引导，不会替代你的明确 Workflow 授权。
 
 群聊中从 slash 面板选择某个 Agent 的 `/effort ultracode` 候选时，选择显示该 Agent 来源的一项；输入框会保留对应的 @Agent 指向，避免把这一会话设置发送给群内其他 Agent。
+
+## 脚本格式与预算
+
+保存脚本使用 JavaScript `.js`，首行为 `// nano-workflow: {"name":"example","description":"说明"}`。主体可顶层 `await` 和 `return`，通过 `agent`、`parallel`、`pipeline`、`phase`、`log` 调用原生子 Agent；`workflow(name,args)` 允许一层嵌套并共享限额。脚本运行使用原生 PTC 和所选 sandbox；它不是网络安全隔离边界。
+
+真人当前请求中的 `+500k`、`+2m` 为同一轮父子任务设置共享输出 token 目标，`budget.spent()` 与 `budget.remaining()` 查询结算用量。没有目标时不人为设置 token 上限。暂停只阻止新子任务派发，已运行的子任务可继续；重启某个 ordinal 会先收拢旧 attempt。终态 `resume` 创建新 run，按相同输入和有效配置复用连续完成前缀，不撤回已经完成的副作用。进程中断后不会自动重跑脚本。

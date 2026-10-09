@@ -4,7 +4,7 @@
 
 ## 1. 准备环境和 Gateway 配置
 
-项目要求 Python 3.11+。默认 Gateway 配置位于 `~/.nanoassistant/config.yaml`。最小结构如下：
+项目要求 Node.js 22.19+（或 24+）和仓库锁定的 pnpm。先执行 `pnpm install --frozen-lockfile && pnpm build`；Web 静态资源在 `src/IM/frontend` 执行 `npm ci && npm run build`。默认 Gateway 配置位于 `~/.nanoassistant/config.yaml`。最小结构如下：
 
 ```yaml
 node:
@@ -48,7 +48,7 @@ llm:
 在项目 checkout 中运行：
 
 ```bash
-PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011
+pnpm im --host 0.0.0.0 --port 8011
 ```
 
 访问：
@@ -56,20 +56,20 @@ PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011
 - `http://127.0.0.1:8011/`
 - `http://127.0.0.1:8011/chat`
 
-先用 `http://127.0.0.1:8011/openapi.json` 判断 HTTP 是否可达。若 OpenAPI 可达但页面不存在，检查当前安装或 checkout 是否包含已经构建的 Web IM 静态资源。
+先用 `http://127.0.0.1:8011/health` 判断 HTTP 是否可达。若健康检查可达但页面不存在，检查当前安装或 checkout 是否包含已经构建的 Web IM 静态资源。
 
 ## 3. 启动 Gateway
 
 ```bash
-PYTHONPATH=src python -m personal_assistant.main
+pnpm pa
 ```
 
 常用生命周期命令：
 
 ```bash
-PYTHONPATH=src python -m personal_assistant.main stop
-PYTHONPATH=src python -m personal_assistant.main restart
-PYTHONPATH=src python -m personal_assistant.main --foreground
+pnpm pa stop
+pnpm pa restart
+pnpm pa --foreground
 ```
 
 使用非默认配置时，start、stop、restart 都传同一 `--config /absolute/path/to/config.yaml`。`--im-service-url` 只覆盖本次连接的 IM 地址；`--auto-bind` 用于自动化，日常使用通过浏览器确认绑定。
@@ -80,7 +80,7 @@ macOS 默认使用当前用户的 LaunchAgent，登录后启动并在异常退�
 
 ## 4. 绑定并聊天
 
-- 首次连接未绑定节点时，按 `gateway.log` 中的 `ACTION` / `NEXT` 打开绑定页并确认。
+- 首次连接未绑定节点时，按终端显示的链接打开绑定页，并在本机终端确认设备及 Agent 移交。
 - 节点已绑定且 online 后，打开 `/chat` 发送消息。
 - 输入区显示 `Chat unavailable` 时，按卡片提示先完成绑定或恢复 Gateway online。
 - 发送瞬间节点失效时，Web IM 保留草稿并显示失败，不要求重新输入。

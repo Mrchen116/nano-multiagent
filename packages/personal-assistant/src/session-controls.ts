@@ -7,7 +7,7 @@ export interface ControlIntent { id: string; binding: SessionBinding; input: Rel
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
-  const match = /^\/(compact|effort|workflows)(?:\s+([\s\S]*))?$/.exec(input.message.content.trim());
+  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(input.message.content.trim());
   if (!match || !needsAttention(input, { ...config, groupReplyPolicy: 'mention_only' })) return;
   return { action: match[1]!, argument: match[2]?.trim() ?? '' };
 }

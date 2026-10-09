@@ -5,11 +5,11 @@
 Gateway 是本地常驻进程，同一 config 同一时刻只允许一个实例。start、stop、restart 由 config-scoped lock 串行化。
 
 - 后台状态写入 config 同目录的 `.gateway-state.json`，日志写入 `gateway.log`。
-- `STOPPED` 表示目标实例已关闭；`NOT RUNNING` 表示没有可管理实例；`STALE` 表示旧进程身份失效且状态已清理。
+- `STOPPED` 表示目标实例已关闭；`NOT RUNNING` 表示没有可管理实例；PID 身份冲突会保留证据并报错，不向无关进程发信号。
 - Gateway 主动连接 IM；IM 暂时不可达时会指数退避重连。
 - IM 离线期间，已经接入的外部渠道尽可能保持本地自治；Web IM 要等连接和节点 online 恢复。
 - 判断 Gateway 可用性时，同时核对存活进程、process birth、当前日志、节点 online 和一次真实消息往返。旧 PID、历史日志或“start 没报错”都不能单独证明可用。
-- 节点首次绑定到 owner 后，其他 owner 不能直接改绑；需要迁移时不要假设重新点确认会转移所有权。
+- 设备移交需先停节点，再执行 `pnpm pa bind --config <path>`；目标账号在浏览器接受，本机终端确认后才生效。中断可凭同目录操作记录恢复。旧 owner 的运行数据原样归档，不把未决外发操作交给新 owner 自动重发。
 
 ## 飞书渠道
 

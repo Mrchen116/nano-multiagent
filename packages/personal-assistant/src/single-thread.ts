@@ -48,7 +48,7 @@ export class SingleThread {
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
     const control = sessionControl(input, config);
-    const unaddressedControl = /^\/(compact|effort|workflows)(?:\s|$)/.test(input.message.content.trim()) && !control;
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(input.message.content.trim()) && !control;
     if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(input.message.content.trim())) {
       store.bufferGroup(input);
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });

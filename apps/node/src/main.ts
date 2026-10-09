@@ -1,6 +1,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
+import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
@@ -13,6 +14,9 @@ if (configIndex < 0 || !process.argv[configIndex + 1]) throw new Error('Usage: n
 const configPath = resolve(process.argv[configIndex + 1]!);
 const configuration = await NodeConfiguration.read(configPath);
 const config = configuration.value;
+applyGatewayEnvironment(config);
+const imOverride=process.argv.indexOf('--im-service-url');if(imOverride>=0)config.im_service.url=process.argv[imOverride+1]!;
+const lifecycle=await claimGateway(configPath);
 if (!config.node.user_id || !config.im_service.token) throw new Error('Bind this node before starting its runtime');
 const home = join(dirname(configPath), '.dsh-runtime', config.node.node_id);
 await mkdir(home, { recursive: true });
@@ -164,6 +168,13 @@ product = new SingleThread({
   image: downloadImage,
 });
 globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError });
+runtime.handle('configuration.workflow', async value => {
+  const {agentId, guideline} = value as {agentId: string; guideline: string};
+  const next = await configuration.setWorkflowGuideline(agentId, guideline);
+  await runtime.request('configuration.apply', next);
+  Object.assign(agents.find(agent => agent.agentId === agentId)!, next);
+  return {effective: true};
+});
 runtime.handle('model.check', value => product.modelCheck(value as { sessionId: string; turn: number }));
 runtime.handle('product.call', call => globalProduct.call(call as ProductCall));
 operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
@@ -192,6 +203,7 @@ await external.recover();
 await product.recover(true);
 void relay.start().catch(reportError);
 heartbeat.start();
+await lifecycle.ready(runtime.process!.pid!);
 process.stdout.write(`Node ${config.node.node_id} ready; DSH pid=${runtime.process!.pid}\n`);
 let stopping = false;
 async function stop() {
@@ -199,6 +211,7 @@ async function stop() {
   stopping = true;
   try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
+  finally {await lifecycle.close();}
 }
 process.once('SIGTERM', () => { void stop(); });
 process.once('SIGINT', () => { void stop(); });

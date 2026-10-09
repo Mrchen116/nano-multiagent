@@ -98,6 +98,7 @@ export function projectCapabilities(
               name: "workflows",
               description: "Inspect and control background workflows",
             },
+            {name: "config", description: "Set workflowSizeGuideline: unrestricted, small, medium, large"},
             ...(catalog.workflows ?? []),
           ]
         : []),

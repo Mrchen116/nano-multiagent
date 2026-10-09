@@ -5,22 +5,22 @@
 按以下顺序排查：
 
 1. 确认当前命令属于哪个安装或 checkout，Gateway 使用哪份 config，浏览器访问哪个 IM 地址。
-2. 用 OpenAPI 检查 IM HTTP；再确认 Web IM 静态页面是否存在。
+2. 用 健康检查 检查 IM HTTP；再确认 Web IM 静态页面是否存在。
 3. 交叉核对 `.gateway-state.json`、live process 和 `gateway.log` 是否属于同一 config 与同一次启动。
 4. 查看节点是否已绑定、是否 online，以及日志中的 `ACTION`、`NEXT` 或第一个启动错误。
 5. 最后走一次真实路径：登录、打开会话、发送消息、收到回复。
 
 | 症状 | 优先检查与处理 |
 |---|---|
-| `/` 或 `/chat` 打不开 | 检查 IM 进程、8011 监听和 `/openapi.json`；端口占用时先确认占用者。 |
-| OpenAPI 可达但页面不存在 | 检查 Web IM 静态构建是否随当前安装提供。 |
+| `/` 或 `/chat` 打不开 | 检查 IM 进程、8011 监听和 `/health`；端口占用时先确认占用者。 |
+| 健康检查 可达但页面不存在 | 检查 Web IM 静态构建是否随当前安装提供。 |
 | Gateway 启动后立刻退出 | 阅读 `gateway.log` 第一个错误；检查必填 `llm`、provider 协议、web_relay 和 IM 地址。 |
 | `gateway already running` | 使用同一 config 的 `restart`，不要再启动第二实例。 |
 | `NOT RUNNING` / `STALE` | 确认 stop 使用与 start 相同的 `--config`；保留旧日志后重新启动。 |
-| 浏览器要求绑定 | 按 `gateway.log` 的 `NEXT Open ...`，用当前登录 owner 完成确认。 |
+| 浏览器要求绑定 | 按 终端显示的设备绑定链接，用当前登录 owner 完成确认。 |
 | Web IM 显示 Gateway offline | 检查 Gateway 进程、IM WebSocket、节点页 `last_error`；恢复后验证消息往返。 |
 | Agent 能力为空或接口 503 | 检查是否有旧 Gateway、重复 node_id 或目标 Gateway 尚未完成注册。 |
-| 看不到 `/workflows`、`/deep-research` 或 `ultracode` | 确认该 Agent 已在工具选择中启用 `Workflow` 并成功保存，再在下一轮新回复打开 slash 面板；`ultracode` 还要求当前有效模型支持 `xhigh`。 |
+| 看不到 `/workflows`、`/deep-research` 或 `ultracode` | 确认该 Agent 已在工具选择中启用 `workflow` 并成功保存，再在下一轮新回复打开 slash 面板；`ultracode` 还要求当前有效模型支持 `xhigh`。 |
 | `workspace_root does not exist` | 创建 config 中的准确目录，或移除显式路径使用默认 workspace。 |
 | Agent 不回复或 LLM 报错 | 核对实际 `default_model`、provider 协议、上游健康和本次 LLM 日志。 |
 | 飞书保存后未连接 | 查看通道 runtime diagnostics、节点 online、App 凭据、Bot/长连接设置和权限；修正后重连。 |

@@ -15,8 +15,9 @@ export interface LocalAgent extends Record<string, unknown> {
 }
 export interface NodeConfigurationFile {
   node: { node_id: string; user_id: string; workspace_base?: string };
-  im_service: { url: string; token: string };
+  im_service: { url: string; token: string;username?:string;password?:string;refresh_token?:string };
   agents: LocalAgent[];
+  gateway?: {autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
   llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; extra_request_body?: Record<string, unknown>; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
@@ -28,7 +29,11 @@ export class NodeConfiguration {
   readonly ownerRoot = process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant');
   private persistence: Promise<void> = Promise.resolve();
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
-  static async read(path: string) { return new NodeConfiguration(path, load(await readFile(path, 'utf8')) as NodeConfigurationFile); }
+  static async read(path: string) {
+    const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
+    for(const agent of value.agents){agent.workspace_root=resolve(agent.workspace_root??join(config.ownerRoot,'workspaces',agent.agent_id));await mkdir(agent.workspace_root,{recursive:true});}
+    return config;
+  }
   current(agentId: string): CanonicalAgentConfiguration | undefined {
     const agent = this.value.agents.find(agent => agent.agent_id === agentId);
     return agent ? canonicalAgentConfiguration({ ...agent, display_name: agent.title ?? agent.display_name ?? agent.agent_id,
@@ -96,9 +101,19 @@ export class NodeConfiguration {
     const task = this.persistence.then(() => this.write(candidate));
     this.persistence = task.catch(() => {}); return task;
   }
-  private async write(candidate: CanonicalAgentConfiguration): Promise<void> {
+  async setWorkflowGuideline(agentId: string, guideline: string): Promise<AgentConfiguration> {
+    if (!['unrestricted', 'small', 'medium', 'large'].includes(guideline)) throw new Error('Invalid Workflow size guideline');
+    const task = this.persistence.then(async () => {
+      const agent = this.value.agents.find(item => item.agent_id === agentId);
+      if (!agent) throw new Error('Unknown Agent');
+      await this.write(this.current(agentId)!, {workflow_size_guideline: guideline});
+    });
+    this.persistence = task.catch(() => {}); await task;
+    return this.runtime(this.value.agents.find(item => item.agent_id === agentId)!);
+  }
+  private async write(candidate: CanonicalAgentConfiguration, local: Record<string, unknown> = {}): Promise<void> {
     const previous = this.value.agents.find(agent => agent.agent_id === candidate.agent_id);
-    const agent: LocalAgent = { ...previous, ...candidate, work_mode: candidate.work_mode as LocalAgent['work_mode'],
+    const agent: LocalAgent = { ...previous, ...candidate, ...local, work_mode: candidate.work_mode as LocalAgent['work_mode'],
       workspace_root: candidate.workspace_root!, title: candidate.display_name, default_model: candidate.default_model ?? undefined,
       custom_prompt: candidate.custom_prompt ?? undefined, reasoning_effort: candidate.reasoning_effort ?? undefined,
       heartbeat: candidate.heartbeat_json ? JSON.parse(candidate.heartbeat_json) as Record<string, unknown> : undefined };

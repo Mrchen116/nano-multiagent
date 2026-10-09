@@ -10,7 +10,9 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "test": "vitest run",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "pa": "node apps/node/lib/cli.js",
+    "im": "node apps/im-server/lib/main.js"
   },
   "devDependencies": {
     "@types/node": "24.10.0",

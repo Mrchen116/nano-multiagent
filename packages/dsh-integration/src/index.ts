@@ -300,6 +300,14 @@ export default class NanoRuntime {
     this.peer.handle('workflow.catalog', async value => (await workflow).catalog(await this.agent((value as {sessionId:string}).sessionId)).list());
     this.peer.handle('session.command', async value => {
       const request = value as { sessionId: string; id: string; action: string; argument?: string };
+      if (request.action === 'config') {
+        const match = /^workflowSizeGuideline\s+(unrestricted|small|medium|large)$/.exec(request.argument ?? '');
+        if (!match) return {text: '用法: /config workflowSizeGuideline <unrestricted|small|medium|large>'};
+        const agent = await this.agent(request.sessionId);
+        const config = (await configuration).forAgent(agent)!;
+        await this.peer.request('configuration.workflow', {agentId: config.agentId, guideline: match[1]});
+        return {text: `Workflow size guideline: ${match[1]}`};
+      }
       if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
       return (await models).command(await this.agent(request.sessionId), request);
     });

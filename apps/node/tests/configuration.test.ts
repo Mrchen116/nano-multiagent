@@ -21,3 +21,16 @@ it('preserves default versus empty selections and ordered local/global Skill roo
     ]);
   } finally { await rm(home, { recursive: true, force: true }); }
 });
+
+it('persists the local Workflow guideline without losing other Agent fields', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-guideline-'));
+  try {
+    const path = join(home, 'node.json');
+    await writeFile(path, JSON.stringify({node: {}, agents: [{agent_id: 'a', workspace_root: home, custom_local: 'keep'}], llm: {default_model: 'test', providers: [{name: 'test', models: [{name: 'test'}]}]}}));
+    const config = await NodeConfiguration.read(path);
+    expect((await config.setWorkflowGuideline('a', 'large')).workflow?.sizeGuideline).toBe('large');
+    const restored = await NodeConfiguration.read(path);
+    expect(restored.value.agents[0]?.custom_local).toBe('keep');
+    expect(restored.runtime(restored.value.agents[0]!).workflow?.sizeGuideline).toBe('large');
+  } finally { await rm(home, {recursive: true, force: true}); }
+});

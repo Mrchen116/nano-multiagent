@@ -73,7 +73,7 @@ export class GlobalAgent {
     }
     const control = sessionControl(input, config);
     if (control) { const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return; }
-    const unaddressedControl = /^\/(compact|effort|workflows)(?:\s|$)/.test(command);
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const attention = !unaddressedControl && needsAttention(input, config);
     this.options.inbox.receive(input, attention);
     await this.receipt(input, 'sent');

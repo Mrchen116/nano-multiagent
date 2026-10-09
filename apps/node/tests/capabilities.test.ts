@@ -32,6 +32,7 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
     "compact",
     "effort",
     "workflows",
+    "config",
     "saved",
   ]);
   expect(

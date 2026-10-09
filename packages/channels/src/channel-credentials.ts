@@ -29,6 +29,16 @@ export class ChannelKey {
     const raw = publicBytes(this.key);
     return { credential_key_id: `sha256:${createHash('sha256').update(raw).digest('hex')}`, credential_algorithm: algorithm, credential_public_key: raw.toString('base64') };
   }
+  /** Decrypt only the independent device-binding challenge purpose. */
+  openBinding(envelope: CredentialEnvelope & {aad:{purpose:string}}):string {
+    if(envelope.aad.purpose!=='device-binding')throw new Error('Invalid binding challenge purpose');
+    const remote=createPublicKey({key:{kty:'OKP',crv:'X25519',x:Buffer.from(envelope.ephemeral_public_key,'base64').toString('base64url')},format:'jwk'});
+    const shared=diffieHellman({privateKey:this.key,publicKey:remote});
+    const key=Buffer.from(hkdfSync('sha256',shared,Buffer.from(envelope.salt,'base64'),'nano-multiagent/device-binding-v1',32));
+    const ciphertext=Buffer.from(envelope.ciphertext,'base64');const decipher=createDecipheriv('aes-256-gcm',key,Buffer.from(envelope.nonce,'base64'));
+    decipher.setAAD(canonical(envelope.aad));decipher.setAuthTag(ciphertext.subarray(-16));
+    return Buffer.concat([decipher.update(ciphertext.subarray(0,-16)),decipher.final()]).toString('utf8');
+  }
   seal(secret: Record<string, string>, aad: ChannelAad): CredentialEnvelope {
     const ephemeral = generateKeyPairSync('x25519'); const salt = randomBytes(32); const nonce = randomBytes(12);
     const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: createPublicKey(this.key) });
