@@ -1,4 +1,6 @@
 # Only this plugin writes protocol frames to stdout. Official CLI owns the host.
+- id: compaction-basic
+  disabled: true
 - id: session-title-llm
   disabled: true
 - id: skill-filesystem
@@ -12,6 +14,8 @@
 - id: session-telemetry-otel
   disabled: true
 - insert:
+    - id: nano-compaction
+      name: '@nano/dsh-integration/compaction'
     - id: nano-workspace
       name: '@deepseek-ai/dsh-workspace'
     - id: nano-connection

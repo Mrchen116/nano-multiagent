@@ -1,3 +1,4 @@
+import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
@@ -18,6 +19,7 @@ export interface ProductCall {
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
 export class GlobalAgent {
+  private readonly controls: SessionControls;
   private readonly waking = new Map<string, Promise<void>>();
   private readonly drains = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
@@ -26,6 +28,7 @@ export class GlobalAgent {
   private readonly childCursors: Record<string, number> = {};
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
+    this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
       const data = params as { sessionId: string; rootSessionId?: string; status?: string };
@@ -36,12 +39,15 @@ export class GlobalAgent {
       if (method === 'session.status' && data.status === 'idle') this.wake(config, binding).catch(options.onError);
     });
   }
-  private async main(config: AgentConfiguration): Promise<SessionBinding> {
-    const { store, runtime } = this.options;
-    const binding = store.bindingFor(config.agentId, `global:${config.agentId}`) ?? store.bind({
+  private binding(config: AgentConfiguration): SessionBinding {
+    const { store } = this.options;
+    return store.bindingFor(config.agentId, `global:${config.agentId}`) ?? store.bind({
       agentId: config.agentId, conversationId: `global:${config.agentId}`, sessionId: randomUUID(),
       ownerId: this.options.ownerId, revision: config.revision, cwd: config.workspace,
     });
+  }
+  private async main(config: AgentConfiguration): Promise<SessionBinding> {
+    const { runtime } = this.options; const binding = this.binding(config);
     const { conversationId: _, ...runtimeBinding } = binding;
     await runtime.request('session.ensure', runtimeBinding);
     this.append(binding, 'registered', 'session_registered', { scope: 'global_main', title: config.agentId });
@@ -53,7 +59,7 @@ export class GlobalAgent {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
     const command = input.message.content.trim();
-    if (command === '/new' || command === '/stop') {
+    if (input.message.sender_type === 'user' && (command === '/new' || command === '/stop')) {
       const binding = await this.main(config);
       let text = '全局模式不支持按聊天重置';
       if (command === '/stop') {
@@ -64,7 +70,10 @@ export class GlobalAgent {
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
       await this.receipt(input, 'completed'); return;
     }
-    const attention = needsAttention(input, config);
+    const control = sessionControl(input, config);
+    if (control) { const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return; }
+    const unaddressedControl = /^\/(compact|effort)(?:\s|$)/.test(command);
+    const attention = !unaddressedControl && needsAttention(input, config);
     this.options.inbox.receive(input, attention);
     await this.receipt(input, 'sent');
     const binding = await this.main(config);
@@ -74,6 +83,7 @@ export class GlobalAgent {
     const active = this.waking.get(config.agentId);
     if (active) return active;
     const task = (async () => {
+      await this.controls.wait(binding.sessionId);
       const watermark = this.options.inbox.wakePending(config.agentId);
       if (watermark === undefined) return;
       const state = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { status: string };
@@ -89,7 +99,7 @@ export class GlobalAgent {
   }
   async recover(): Promise<void> {
     for (const config of this.options.agents.filter(agent => agent.mode === 'global')) {
-      const binding = await this.main(config); await this.reconcile(binding); await this.wake(config, binding);
+      const binding = await this.main(config); await this.controls.recover(config.agentId); await this.reconcile(binding); await this.wake(config, binding);
     }
   }
   async call(call: ProductCall): Promise<unknown> {
@@ -279,5 +289,6 @@ export class GlobalAgent {
     this.workFlush = task; return task;
   }
   private async receipt(input: RelayInput, status: string) { await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status }); }
-  async stop(): Promise<void> { this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.workFlush; }
+  async stop(): Promise<void> {
+    await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.workFlush; }
 }

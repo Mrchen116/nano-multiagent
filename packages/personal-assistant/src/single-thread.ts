@@ -3,6 +3,7 @@ import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, Session
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
+import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
 import { argumentsObject, tokenUsage, toolPresentation } from './presentation.js';
 
@@ -21,12 +22,14 @@ interface Options {
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
 export class SingleThread {
+  private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
   private readonly pendingApprovals = new Map<string, { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, { turn: number; chain: Promise<unknown> }>();
   constructor(private readonly options: Options) {
+    this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
       const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
@@ -43,7 +46,9 @@ export class SingleThread {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
-    if (!needsAttention(input, config) && input.message.content.trim() !== '/stop') {
+    const control = sessionControl(input, config);
+    const unaddressedControl = /^\/(compact|effort)(?:\s|$)/.test(input.message.content.trim()) && !control;
+    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(input.message.content.trim())) {
       store.bufferGroup(input);
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
@@ -56,7 +61,7 @@ export class SingleThread {
       ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
     });
     if (ownerDirect) store.markCanonical(binding);
-    if (['/stop', '/new'].includes(input.message.content.trim())) {
+    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(input.message.content.trim())) {
       const commandId = `${input.agent_id}:${input.message.id}`;
       let text = store.command(commandId);
       if (!text) {
@@ -78,6 +83,8 @@ export class SingleThread {
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'completed' });
       return;
     }
+    if (control) { await this.controls.run(binding, input, control.action, control.argument); return; }
+    await this.controls.wait(binding.sessionId);
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
@@ -125,6 +132,7 @@ export class SingleThread {
       if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
       if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
+      await this.controls.recover(binding.agentId);
       for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
     }
@@ -303,7 +311,7 @@ export class SingleThread {
         idempotency_key: `${frame.attemptId}:${frame.index}` });
     }).catch(this.options.onError);
   }
-  async stop(): Promise<void> { this.unsubscribe(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
+  async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
 }
 interface Approval { requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }

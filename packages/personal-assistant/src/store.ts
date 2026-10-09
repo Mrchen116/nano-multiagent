@@ -1,3 +1,4 @@
+import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@nano/product-contracts';
 
@@ -38,6 +39,7 @@ export class NodeStore {
         operation_id TEXT NOT NULL REFERENCES deliveries(operation_id), seq INTEGER NOT NULL,
         PRIMARY KEY(operation_id,seq)
       );
+      CREATE TABLE IF NOT EXISTS control_intents(id TEXT PRIMARY KEY, intent TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
     `);
@@ -88,6 +90,11 @@ export class NodeStore {
     return updated;
   }
 
+  control(id: string): ControlIntent | undefined {
+    const row = this.db.prepare('SELECT intent FROM control_intents WHERE id=?').get(id) as { intent: string } | undefined; return row ? JSON.parse(row.intent) : undefined;
+  }
+  controls(): ControlIntent[] { return (this.db.prepare('SELECT intent FROM control_intents ORDER BY rowid').all() as { intent: string }[]).map(row => JSON.parse(row.intent)); }
+  saveControl(intent: ControlIntent) { this.db.prepare('INSERT INTO control_intents VALUES(?,?) ON CONFLICT(id) DO UPDATE SET intent=excluded.intent').run(intent.id, JSON.stringify(intent)); }
   command(id: string): string | undefined {
     return (this.db.prepare('SELECT result FROM command_results WHERE id=?').get(id) as { result: string } | undefined)?.result;
   }

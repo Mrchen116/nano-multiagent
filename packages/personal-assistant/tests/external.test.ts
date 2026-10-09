@@ -34,6 +34,8 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(store.bindingFor('a', 'shadow-chat')?.sessionId).toBe('session');
     expect(mirrored.filter(frame => frame.kind === 'turn_start')).toHaveLength(2);
     expect(mirrored.filter(frame => frame.kind === 'message_completed')).toHaveLength(2);
+    await external.request('node.system_message', { ...notice, conversation_id: 'shadow-chat', idempotency_key: 'internal-review' });
+    expect(sends).toBe(2);
     expect(requests).toContainEqual(expect.objectContaining({ sender_source_id: 'human', suppress_relay: true }));
   } finally { await external.stop(); store.close(); }
 });

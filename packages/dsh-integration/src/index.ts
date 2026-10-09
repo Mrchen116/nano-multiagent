@@ -4,7 +4,7 @@ import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
 import { SessionId } from '@deepseek-ai/dsh-session';
-import { freezeMessage, MessageId, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm';
+import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
@@ -20,6 +20,7 @@ import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
 import { KnowledgeRuntime } from './knowledge/runtime.js';
+import { ModelPolicy } from './model-policy.js';
 import { NanoApproval } from './policy/approval.js';
 
 export interface AgentConfiguration {
@@ -80,6 +81,8 @@ export default class NanoRuntime {
   constructor(private readonly ctx: Context) {
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
+    const modelFiber = ctx.plugin(ModelPolicy);
+    const models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
     const approvalFiber = ctx.plugin(NanoApproval, this.configurations);
@@ -97,17 +100,7 @@ export default class NanoRuntime {
       if (!config) throw new Error(`Missing Nano configuration for ${preset}`);
       (await configuration).attachAgent(agent, config);
       await (await approval).attach(agent, config);
-      agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const assembled = await next();
-        return { ...assembled, variables: { ...assembled.variables, provider: config.provider, model: config.model } };
-      }, { prepend: true });
-      agent.ctx.on('agent/request', async (_payload, next) => {
-        const { reasoningEffort: _effort, maxTokens: _maxTokens, ...request } = await next();
-        return { ...request, provider: config.provider, model: config.model,
-          ...(config.reasoningEffort ? { reasoningEffort: ReasoningEffortId(config.reasoningEffort) } : {}),
-          ...(agent.session.header.parentSession && _maxTokens !== undefined ? { maxTokens: _maxTokens } : config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
-        };
-      }, { prepend: true });
+      await (await models).attach(agent, config);
     });
     ctx.on('session/event', (session, event) => {
       let root = session;
@@ -155,6 +148,7 @@ export default class NanoRuntime {
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
+      await modelFiber.await();
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
@@ -246,9 +240,14 @@ export default class NanoRuntime {
         return { ...child, throughSeq: observation.cursor, events: observation.cursor > (cursors[child.id] ?? -1) ? observation.events : [] };
       }));
     });
+    this.peer.handle('session.command', async value => {
+      const request = value as { sessionId: string; id: string; action: string; argument?: string };
+      return (await models).command(await this.agent(request.sessionId), request);
+    });
     this.peer.handle('session.cancel', async value => {
       const { sessionId } = value as { sessionId: string };
       const agent = await this.agent(sessionId);
+      (await models).cancelCommands(sessionId);
       const wasRunning = agent.status === 'running';
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
@@ -277,6 +276,7 @@ export default class NanoRuntime {
         const active = [...this.bindings.values()].filter(binding => binding.agentId === next.agentId)
           .map(binding => ctx.agents.get(SessionId(binding.sessionId))).filter((agent): agent is Agent => !!agent);
         await Promise.all(active.map(agent => agent.whenIdle()));
+        await (await models).changed(next);
         await (await configuration).setConfiguration(next);
       }
       const id = `nano:${next.agentId}:${next.revision}`;
@@ -333,6 +333,8 @@ export default class NanoRuntime {
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
       await this.cron.dispose();
+      for (const id of this.bindings.keys()) ctx.agents.get(SessionId(id))?.cancel({ kind: 'user' }, { keepInbox: true });
+      await (await models).stop();
       await (await knowledge).stop();
       await Promise.allSettled([...this.inputs.values()]);
       const agents = [...this.bindings.keys()].map(id => ctx.agents.get(SessionId(id))).filter((agent): agent is Agent => !!agent);

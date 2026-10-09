@@ -90,3 +90,24 @@ it('starts a fresh context for /new without submitting the command as a model pr
     expect(frames.some(frame => frame.final_content === '已开始新会话。')).toBe(true);
   } finally { await product.stop(); store.close(); }
 });
+
+it('holds later input behind a compact command and never treats the focus as model input', async () => {
+  const store = new NodeStore(':memory:', 'owner'); const calls: { method: string; args: Record<string, unknown> }[] = [];
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  const product = new SingleThread({ nodeId:'node',ownerId:'owner',store,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'p',model:'m',workspace:'/tmp'}],
+    runtime:{onNotification:()=>()=>{},request:async(method,value)=>{const args=value as Record<string,unknown>;calls.push({method,args});if(method==='session.command'){await gate;return{text:'已压缩原会话。'};}if(method==='session.lookup')return{accepted:false};return{durable:true,events:[]};}},
+    relay:{request:async()=>({type:'ack',payload:{message_id:'control'}})},image:async()=>'',onError:()=>{},
+  });
+  const input=(id:string,content:string):RelayInput=>({agent_id:'a',conversation_id:'chat',relay_task_id:id,idempotency_key:id,metadata:{conversation_type:'direct'},message:{id,content,sender_type:'user',sender_user_id:'owner',attachments:[]}});
+  try{
+    const compact=product.receive(input('compact','/compact 保留认证方案'));
+    const later=product.receive(input('later','Continue after compaction'));
+    await expect.poll(()=>calls.filter(call=>call.method==='session.command').length).toBe(1);
+    expect(calls.some(call=>call.method==='session.submit')).toBe(false);
+    release();await compact;await later;
+    expect(calls.filter(call=>call.method==='session.submit').map(call=>call.args.inputId)).toEqual(['a:later']);
+    expect(calls.find(call=>call.method==='session.command')?.args.argument).toBe('保留认证方案');
+    await product.receive(input('compact','/compact 保留认证方案'));
+    expect(calls.filter(call=>call.method==='session.command')).toHaveLength(1);
+  }finally{release();await product.stop();store.close();}
+});

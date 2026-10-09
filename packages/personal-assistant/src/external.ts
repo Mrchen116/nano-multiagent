@@ -90,7 +90,8 @@ export class ExternalChannels {
       return ack(type);
     }
     if (type === 'node.system_message') {
-      const chat = this.state.chat(String(payload.conversation_id));
+      const target = String(payload.conversation_id);
+      const chat = target.startsWith('external:') ? this.state.chat(target) : undefined;
       if (chat) {
         const notice = payload.system_notice as { source_agent_id: string };
         if (notice.source_agent_id !== chat.agentId) throw new Error('Knowledge notice belongs to another Agent');

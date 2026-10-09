@@ -50,7 +50,7 @@ export class KnowledgeUpdates {
         if (first.reviewId) {
           const agent = this.options.agents.find(agent => agent.agentId === first.agentId); if (!agent) continue;
           const targets = agent.mode === 'global' ? this.options.inbox.reviewTargets(first.rootSessionId, first.turn)
-            : [this.options.store.bindings().find(binding => binding.sessionId === first.rootSessionId)?.conversationId].filter((value): value is string => !!value);
+            : [this.options.store.inputForTurn(first.rootSessionId, first.turn)?.input.conversation_id ?? this.options.store.bindings().find(binding => binding.sessionId === first.rootSessionId)?.conversationId].filter((value): value is string => !!value);
           const updated = ['skills', 'memory'].filter(kind => group.some(fact => fact.kind === kind));
           if (agent.mode === 'global') this.options.inbox.append({ event_id: `knowledge:${id}`, type: 'self_evolution_review', root_agent_id: first.agentId,
             session_id: first.rootSessionId, turn_id: String(first.turn), payload: { review_id: id, updated_targets: updated }, observed_at: new Date().toISOString() });
