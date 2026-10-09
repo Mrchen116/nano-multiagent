@@ -87,6 +87,8 @@ Nano自有主插件按11种装配单元组织：4种基础接入/策略、global
 | 新历史 | [gateway/relay-protocol](specs/gateway/relay-protocol.md) | 新DSH历史的分支/蒸馏，排除旧历史兼容 |
 | 运行生命周期 | [gateway/service-lifecycle](specs/gateway/service-lifecycle.md) | 产品节点及受管执行运行时的就绪/停止边界 |
 | 回复用量 | [im/response-metrics](specs/im/response-metrics.md) | 按能力映射 L3 保留未知计数，缺失计数不补零，使用 `—` 或省略未知详情；修复阶段显式记录客户端缺失值语义 |
+| 聊天路由与运行存活 | [gateway/routing-delivery](specs/gateway/routing-delivery.md) | DSH 会话术语与统一 liveness 判据，审批等待依赖实际心跳；不保留旧永久豁免 |
+| Agent Cron 管理 API | [im/agents-nodes](specs/im/agents-nodes.md) | 纠正既有文档路径为客户端实际使用的 `/cron/jobs`；保持任务列表与删除行为 |
 | IM、Web、iOS其他产品协议 | no spec delta | 保留既有HTTP/WS与业务行为；实现不能擅自改变schema或UI交互 |
 | 旧Kernel/CLI与顶层依赖 | 退役计划见下文 | 不再发布旧库/CLI；`SPEC.md`/AGENTS依赖约束在最终退役提交更新，旧kernel/cli current文档整体移入历史并更新领域入口 |
 

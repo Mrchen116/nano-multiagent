@@ -1,4 +1,4 @@
-# gateway relay-protocol Specification (delta for refactor-581)
+# gateway/relay-protocol Specification (delta for refactor-581)
 
 ## MODIFIED Requirements
 

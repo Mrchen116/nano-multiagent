@@ -21,7 +21,7 @@ PA 不等同于终端 Coding CLI。本手册只覆盖个人助手所需的 Web I
 | Workspace | Agent 在 Node 上的本地目录，保存会话、memory、任务和 Agent 自有资源。 |
 | Conversation | 用户、Agent 或群组之间的连续聊天。历史与实时事件最终汇成同一条时间线。 |
 | Channel | Web IM 或飞书等消息入口。回复通常回到触发它的原通道和原目标。 |
-| Skill | 按需加载的专业说明或工作流；模型先看到名称与描述，命中后用 `skill_view` 读取入口，再按入口指引读取所需资料。 |
+| Skill | 按需加载的专业说明或工作流；模型先看到名称与描述，命中后用 `skill` 读取入口，再按入口指引读取所需资料。 |
 | Tool | Agent 可实际调用的操作能力。每个 Agent 的 tool allowlist 决定本轮能执行哪些工具。 |
 | Workflow | 可选的多 Agent 编排工具。仅在 Agent 启用且用户明确 opt-in 后运行；详细用法见 [Workflow 手册](workflows.md)。 |
 | Memory | 跨会话保留的稳定用户偏好和环境事实，不等同于当前任务进度或聊天历史。 |

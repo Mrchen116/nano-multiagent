@@ -1,21 +1,4 @@
-# gateway workflows Specification (delta for refactor-581)
-
-## MODIFIED Requirements
-
-### Requirement: Gateway 从 Workflow 运行真源响应查询与控制
-
-#### Scenario: 显式查询运行状态
-- **WHEN** Web IM、原生iOS或外部IM的人工用户执行`/workflows`查询
-- **THEN** Gateway返回查询时新Workflow运行真源的当前run状态，并以该channel的普通回复返回；中断或未知如实显示。
-
-#### Scenario: 断线后重新查询
-- **GIVEN** Gateway或channel在Workflow运行期间断线
-- **WHEN** 连接恢复后用户再次执行`/workflows`
-- **THEN** 返回新Workflow运行真源中的当前状态，不依赖断线期间的实时事件补发。
-
-#### Scenario: 命令控制同一运行
-- **WHEN** 人工用户通过`/workflows`对run或Agent发起pause、resume、stop、restart或save
-- **THEN** Gateway操作指定run，并把结果或稳定错误作为原channel的普通回复返回，不影响其他run或误操作普通对话回合。
+# gateway/workflows Specification (delta for refactor-581)
 
 ## ADDED Requirements
 
@@ -62,3 +45,63 @@
 #### Scenario: 后台结果和审批仍归原启动会话
 - **WHEN** Workflow前台启动回复已结束，而子任务请求人工批准或运行完成
 - **THEN** 仍通过原启动消息/聊天处理对应审批和最终结果；只有成功持久的结果才可报告跨重启可恢复，取消请求的迟答不执行工具。
+
+## MODIFIED Requirements
+
+### Requirement: Gateway 在 Agent 启用 Workflow 时为其所有人工对话入口提供相同运行语义
+
+#### Scenario: Web IM 发起 Workflow
+- **GIVEN** Agent 已启用 `workflow`
+- **WHEN** Web IM 用户亲自明确要求运行 Workflow
+- **THEN** Gateway 以可信人工来源把消息交给 Agent，并把 async launch、显式状态查询结果和终态完成消息送回该会话
+
+#### Scenario: 外部 IM 发起 Workflow
+- **GIVEN** 同一 Agent 已启用 `workflow`
+- **WHEN** 飞书等外部 IM 的已认证用户亲自明确要求运行 Workflow
+- **THEN** 使用与 Web IM 相同的 tool、审批、运行、控制、resume 和完成语义
+
+#### Scenario: 非人工自动消息不触发关键词 opt-in
+- **WHEN** heartbeat、cron、后台通知、webhook 或 Agent 转发包含 `ultracode`
+- **THEN** Gateway 保留其非人工来源，关键词本身不激活 Workflow
+
+### Requirement: Gateway 只在当前 Agent 运行配置启用 Workflow 时提供专属 prompt 和命令
+
+#### Scenario: 启用后的下一轮完整出现
+- **GIVEN** Agent 配置已成功加入 `workflow`
+- **WHEN** 该 Agent 的既有聊天开始下一轮新回复
+- **THEN** Gateway 采用含 Workflow tool 的完整新配置，并允许 `/workflows`、ultracode 与命名 Workflow
+
+#### Scenario: 取消后的下一轮完整消失
+- **GIVEN** Agent 配置已成功移除 `workflow`
+- **WHEN** 该 Agent 的既有聊天开始下一轮新回复
+- **THEN** Gateway 不再提供 Workflow tool、reminder、ultracode mode/command、命名 Workflow 或新运行管理入口
+- **AND** 当前有效模型声明 selectable reasoning 时，普通 `/effort <level>` 继续作为 session 命令处理，不启动 Workflow
+- **AND** 旧 run 只保留通用终态消息，用户仅可对已知 task id 使用原生任务控制；Workflow 专属 query/control/saved discovery 一并消失
+
+#### Scenario: session effort 从有效模型能力解析
+- **GIVEN** 人工用户当前会话的有效模型声明 selectable reasoning levels
+- **WHEN** 用户输入 `/effort <level>`
+- **THEN** Gateway 只接受该模型声明的 level，并把它作为不回写 Agent 配置的 session override 用于后续请求
+- **AND** 无效值或不支持 selectable reasoning 的模型得到可理解回复，不改变既有 session runtime
+- **AND** 只有 Workflow 已启用且模型支持 `xhigh` 时，Gateway 才额外接受 `ultracode` 并开启 standing Workflow mode
+
+#### Scenario: 通过 Workflow config 命令调整规模 guideline
+- **GIVEN** Agent 已启用 `workflow`
+- **WHEN** 人工用户执行 `/config workflowSizeGuideline` 并选择 unrestricted、small、medium 或 large
+- **THEN** Gateway 保存该值，并从下一轮起用于 Workflow tool description 与运行反馈
+- **AND** 未设置时使用 medium
+
+### Requirement: Gateway 从 Workflow 运行真源响应查询与控制
+
+#### Scenario: 显式查询运行状态
+- **WHEN** Web IM、原生iOS或外部IM的人工用户执行`/workflows`查询
+- **THEN** Gateway返回查询时新Workflow运行真源的当前run状态，并以该channel的普通回复返回；中断或未知如实显示。
+
+#### Scenario: 断线后重新查询
+- **GIVEN** Gateway或channel在Workflow运行期间断线
+- **WHEN** 连接恢复后用户再次执行`/workflows`
+- **THEN** 返回新Workflow运行真源中的当前状态，不依赖断线期间的实时事件补发。
+
+#### Scenario: 命令控制同一运行
+- **WHEN** 人工用户通过`/workflows`对run或Agent发起pause、resume、stop、restart或save
+- **THEN** Gateway操作指定run，并把结果或稳定错误作为原channel的普通回复返回，不影响其他run或误操作普通对话回合。

@@ -1,4 +1,4 @@
-# gateway heartbeat-cron Specification (delta for refactor-581)
+# gateway/heartbeat-cron Specification (delta for refactor-581)
 
 ## MODIFIED Requirements
 

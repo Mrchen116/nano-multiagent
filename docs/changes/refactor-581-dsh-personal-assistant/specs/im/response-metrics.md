@@ -1,4 +1,4 @@
-# IM response-metrics Specification (delta for refactor-581)
+# im/response-metrics Specification (delta for refactor-581)
 
 ## MODIFIED Requirements
 
