@@ -3,7 +3,7 @@ import type { ModelRunProjection, RelayInput, RuntimeEvent } from '@nano/product
 import { SingleThread } from '../src/single-thread.js';
 import { NodeStore } from '../src/store.js';
 
-it('keeps a failed native attempt pending, orders notices before the backup body, and aggregates usage', async () => {
+it.each(['chat', 'owner:owner'])('keeps a failed attempt pending and delivers fallback notices/body to %s', async conversation => {
   const store = new NodeStore(':memory:', 'owner');
   const frames: Record<string, unknown>[] = [];
   let accepted = false;
@@ -29,8 +29,10 @@ it('keeps a failed native attempt pending, orders notices before the backup body
     },
     relay: {
       async request(_type, payload) {
+        if (payload.kind === 'turn_start' && conversation.startsWith('owner:') && !frames.some(frame => frame.kind === 'turn_start')) { expect(payload).toHaveProperty('to_user_id', 'owner'); expect(payload).not.toHaveProperty('conversation_id'); }
+        if (payload.kind === 'turn_start') expect(payload.conversation_id ?? `owner:${payload.to_user_id}`).toBe(frames.some(frame => frame.kind === 'turn_start') ? 'chat' : conversation);
         frames.push(payload);
-        return { type: 'ack', payload: { message_id: payload.idempotency_key } };
+        return { type: 'ack', payload: { message_id: payload.idempotency_key, conversation_id: 'chat' } };
       },
     },
     image: async () => '',
@@ -40,15 +42,18 @@ it('keeps a failed native attempt pending, orders notices before the backup body
   });
   const input: RelayInput = {
     agent_id: 'a',
-    conversation_id: 'chat',
+    conversation_id: conversation,
     relay_task_id: 'relay',
     idempotency_key: 'input',
     metadata: { conversation_type: 'direct' },
     message: { id: 'input', content: 'Do the task', sender_type: 'user', sender_user_id: 'owner', attachments: [] },
   };
   try {
-    await product.receive(input);
-    const sessionId = store.bindingFor('a', 'chat')!.sessionId;
+    if (conversation.startsWith('owner:')) {
+      const binding = await product.heartbeatBinding({agentId:'a',revision:'1',mode:'single_thread',provider:'p',model:'primary',workspace:'/tmp'});
+      input.metadata.origin = 'heartbeat'; input.metadata.runtime_input_id = 'a:input'; store.receive(binding.sessionId, input); accepted = true;
+    } else await product.receive(input);
+    const sessionId = store.bindingFor('a', conversation)!.sessionId;
     runs.push({
       id: 'logical',
       sessionId,
@@ -75,9 +80,7 @@ it('keeps a failed native attempt pending, orders notices before the backup body
     expect(frames.filter((frame) => frame.delivery_status === 'failed').map((frame) => frame.kind)).toEqual([
       'message_completed',
     ]);
-    expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual([
-      'sent',
-    ]);
+    expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual(conversation === 'chat' ? ['sent'] : []);
     runs[0]!.attempts.push({ turn: 2, route: { provider: 'p', model: 'backup' } });
     runs[0]!.state = 'completed';
     runs[0]!.terminal = { kind: 'completed' };
@@ -110,10 +113,7 @@ it('keeps a failed native attempt pending, orders notices before the backup body
       cache_read_tokens: 12,
       cache_total_input_tokens: 42,
     });
-    expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual([
-      'sent',
-      'completed',
-    ]);
+    expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual(conversation === 'chat' ? ['sent', 'completed'] : []);
   } finally {
     await product.stop();
     store.close();

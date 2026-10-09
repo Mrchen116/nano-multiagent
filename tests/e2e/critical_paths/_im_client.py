@@ -187,6 +187,9 @@ class IMClient:
             "tool_allowlist": current.get("tool_allowlist", []),
             "group_reply_policy": current["group_reply_policy"],
             "default_model": current.get("default_model"),
+            "model_fallbacks": current.get("model_fallbacks", []),
+            "reasoning_effort": current.get("reasoning_effort"),
+            "skills_selection_mode": current.get("skills_selection_mode"),
             "features": dict(current.get("features") or {}),
             "custom_prompt": current.get("custom_prompt"),
         }

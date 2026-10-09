@@ -158,7 +158,7 @@ it("serves auth, live node relay, idempotent streaming, private media, task grap
   browser.send(JSON.stringify({ op: "resume", after_event_id: cursor - 1 }));
   expect((await events.next((p) => p.event_id === cursor)).data.content).toBe("answer");
 }, 20000);
-it("keeps first approval choice and revokes user and machine access at company suspension", async () => {
+it("keeps first approval choice, revokes suspended user access and expires disconnected gateway access", async () => {
   const f = await start(),
     g = await bind(f);
   const c = await f.http(
@@ -231,9 +231,10 @@ it("keeps first approval choice and revokes user and machine access at company s
   expect((await f.http("GET", `/im/v1/conversations/${id}`, undefined, f.tokens.bob)).status).toBe(
     401,
   );
+  const machineClosed = once(g.socket, "close");
   g.socket.close();
-  await once(g.socket, "close");
-  expect((await f.http("GET", "/im/v1/gateway/identity", undefined, g.token)).status).toBe(401);
+  await machineClosed;
+  await expect.poll(async () => (await f.http("GET", "/im/v1/gateway/identity", undefined, g.token)).status).toBe(401);
 }, 20000);
 
 

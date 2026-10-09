@@ -302,8 +302,9 @@ export class SingleThread {
     }
     for (const notice of notices) {
       if (this.options.store.command(notice.id)) continue;
-      const start = await this.delta({ kind: 'turn_start', conversation_id: input.conversation_id, agent_id: binding.agentId,
+      const start = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }), agent_id: binding.agentId,
         idempotency_key: notice.id, external_reply: input.metadata.external_reply });
+      if (binding.conversationId.startsWith('owner:') && typeof start.payload.conversation_id === 'string') Object.assign(binding, this.options.store.adoptConversation(binding, start.payload.conversation_id));
       await this.delta({ kind: 'message_completed', message_id: start.payload.message_id, final_content: notice.text, delivery_status: notice.failed ? 'failed' : 'completed' });
       this.options.store.saveCommand(notice.id, 'delivered');
     }
