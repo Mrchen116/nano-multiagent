@@ -193,7 +193,8 @@ export class GlobalAgent {
     return response.payload.result as Record<string, unknown>;
   }
   private async send(binding: SessionBinding, call: ProductCall, signal: AbortSignal): Promise<unknown> {
-    const { inbox } = this.options;
+    const { inbox, store, runtime } = this.options;
+    const global = this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode === 'global';
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
     const previous = inbox.publication(call.operationId);
@@ -201,17 +202,32 @@ export class GlobalAgent {
       if (previous.target !== target || previous.body !== text) throw new Error('Publication identity conflict');
       if (previous.result) return JSON.parse(previous.result) as unknown;
     }
-    const conversation = target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
-    await this.reconcile(binding);
+    const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
+    if (global) await this.reconcile(binding);
+    else {
+      const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
+      if (!read.durable) throw new Error('No durable source evidence');
+      store.recordEvents(binding.sessionId, read.events);
+    }
     const info = conversation ? await this.query(binding, { action: 'info', target: conversation }) : undefined;
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
+    let correction = false;
+    if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
+      for (const input of store.inputs(binding.sessionId)) {
+        const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: input.id }) as { accepted: boolean; turn?: number; terminal?: unknown };
+        store.inputEvidence(input.id, evidence);
+      }
+      const inputs = store.inputs(binding.sessionId);
+      const position = inputs.findLastIndex(input => input.turn === turn);
+      correction = inputs.slice(position + 1).some(input => !input.input.metadata.context_only);
+    }
     signal.throwIfAborted();
     // Receive and dispatch admission are synchronous in this node's event loop.
     inbox.preparePublication(call.operationId, target, text);
-    if (info?.type === 'group' && info.channel === 'web' && inbox.blocking(binding.agentId, conversation!)) {
+    if (info?.type === 'group' && info.channel === 'web' && (global ? inbox.blocking(binding.agentId, conversation!) : correction)) {
       const result = { status: 'held_for_revalidation', target, message: 'Read the new messages in this conversation and reconsider before sending.' };
       inbox.settlePublication(call.operationId, 'held', result);
-      this.append(binding, `publication:${call.operationId}`, 'draft_withheld', { call_id: call.callId, target, text }, turn);
+      if (global) this.append(binding, `publication:${call.operationId}`, 'draft_withheld', { call_id: call.callId, target, text }, turn);
       return result;
     }
     inbox.settlePublication(call.operationId, 'sending');
@@ -220,7 +236,7 @@ export class GlobalAgent {
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       const result = { status: 'sent', target, message_id: response.payload.message_id, conversation_id: response.payload.conversation_id };
       inbox.settlePublication(call.operationId, 'confirmed', result);
-      this.append(binding, `publication:${call.operationId}`, 'message_sent', { call_id: call.callId, text, ...result }, turn);
+      if (global) this.append(binding, `publication:${call.operationId}`, 'message_sent', { call_id: call.callId, text, ...result }, turn);
       return result;
     } catch (error) {
       inbox.settlePublication(call.operationId, 'unknown');

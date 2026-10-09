@@ -55,3 +55,29 @@ it('projects durable native child lineage and drafts into Work without a public 
     expect(events.some(event => event.type === 'message_sent')).toBe(false); expect(sends).toBe(0);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
+
+it('holds a single-thread same-group tool send until the accepted correction is consumed', async () => {
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  const binding=store.bind({agentId:'a',sessionId:'chat',conversationId:'c_group',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const input=(id:string):RelayInput=>({agent_id:'a',conversation_id:'c_group',relay_task_id:id,idempotency_key:id,metadata:{conversation_type:'group'},message:{id,content:id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
+  store.receive('chat',input('original'));store.inputEvidence('a:original',{accepted:true,turn:1});
+  let corrected=false,sends=0;
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'single_thread'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},async request(method,value){
+      if(method==='session.descendants')return [];
+      if(method==='session.lookup')return {accepted:true,...((value as any).inputId==='a:original'?{turn:1}:corrected?{turn:2}:{})};
+      return {durable:true,events:[{seq:corrected?2:1,time:1,type:'tool/call',data:{turn:corrected?2:1,callId:corrected?'new':'old'}}],status:'running'};
+    }},relay:{async request(type,payload){
+      if(type==='conversation.query'){if(!corrected)store.receive('chat',input('correction'));return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web'}}};}
+      if(type==='agent.work.append')return {type:'agent.work.ack',payload:{through_seq:(payload.events as any[]).at(-1).seq}};
+      if(type==='agent.message'){sends++;expect(payload.to).toBe('conversation:c_group');}
+      return {type:'ack',payload:{message_id:'sent',conversation_id:'c_group'}};
+    }},image:async()=>'',onError:()=>{}});
+  const call:ProductCall={method:'send_message',args:{target:'current',text:'old'},operationId:'chat:old',callId:'old',sessionId:'chat',rootSessionId:'chat',agentId:'a',ownerId:'owner'};
+  try{
+    expect(await product.call(call)).toMatchObject({status:'held_for_revalidation'});expect(sends).toBe(0);
+    corrected=true;
+    expect(await product.call({...call,args:{target:'current',text:'new'},operationId:'chat:new',callId:'new'})).toMatchObject({status:'sent'});expect(sends).toBe(1);
+    expect(await product.call(call)).toMatchObject({status:'held_for_revalidation'});expect(sends).toBe(1);
+  }finally{await product.stop();inbox.close();store.close();}
+});

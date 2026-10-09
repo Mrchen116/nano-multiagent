@@ -45,7 +45,7 @@ export class ConfigurationScopes extends Service {
     await mountExtensions(ctx, config.extensions?.workspace);
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
-    if (config.mode === 'global') await ctx.plugin(GlobalMode).await();
+    await ctx.plugin(GlobalMode, { mode: config.mode }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
