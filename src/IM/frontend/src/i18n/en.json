@@ -492,7 +492,7 @@
       },
       "cron": {
         "title": "Cron Jobs",
-        "sub": "Scheduled tasks that run without conversation context.",
+        "sub": "Scheduled tasks that return to their original conversation and retain its context.",
         "enabledLabel": "Enable cron",
         "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation).",
         "loadError": "Could not load scheduled tasks.",

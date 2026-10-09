@@ -55,13 +55,13 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 #### Scenario: 非 PA 真人入口保持现状
 - **WHEN** Coding CLI、heartbeat、cron、subagent 或内部通知继续产生消息
 - **THEN** 它们不获得本 requirement 的 time/Channel envelope
-- **AND** Coding CLI 的 system prompt 与消息行为保持既有 bytes/semantics；heartbeat、cron、subagent 与内部通知保留各自已有的 message source/time 格式
+- **AND** 退役 Coding CLI 不再参与消息处理；heartbeat、cron、subagent 与内部通知保留各自的可信 message source/time 格式
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
-本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 Agent 身份解析与未知 Agent 拒绝适用于两种模式；global 的入站持久接受后交 Inbox，不预建等待主模型回复的聊天消息。
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](../../../../../docs/specs/gateway/global-agent.md) 为准。 Agent 身份解析与未知 Agent 拒绝适用于两种模式；global 的入站持久接受后交 Inbox，不预建等待主模型回复的聊天消息。
 
-任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策的窗口则完全豁免于 idle 看门狗超时。只有该轮收到 `permission_resolved` 或判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾。
+任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策同样依赖持续 liveness。只有判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾；`permission_resolved` 是审批结束事件，不是运行失活。
 
 #### Scenario: 直聊消息被默认 Agent 处理并把回复发回原通道
 - **GIVEN** 一个配置了至少一个 Agent 的 Gateway,且消息未显式指定 `agent_id`
@@ -111,7 +111,7 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 ### Requirement: Gateway 为已接收的普通消息维持可见恢复交付
 
-本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 未摄取正文留在持久 Inbox，恢复其信号与主上下文，不创建按原聊天自动投递的恢复 batch。
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](../../../../../docs/specs/gateway/global-agent.md) 为准。 global 未摄取正文留在持久 Inbox，恢复其信号与主上下文，不创建按原聊天自动投递的恢复 batch。
 
 Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通消息，必须在 执行运行时给出可验证的恢复 batch 后继续由原聊天交付；恢复的最终文本一次发送，已接受消息各自只收到一次 terminal delivery status。
 
@@ -135,7 +135,7 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 
 ### Requirement: 群聊只在被 @提及 / 回复 Agent / 明确的全群控制命令时触发 Agent
 
-MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buffer 自动带入、按群创建 Session、普通正文/过程气泡和 `/new` 重开的 Scenario 适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buffer 自动带入、按群创建 Session、普通正文/过程气泡和 `/new` 重开的 Scenario 适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](../../../../../docs/specs/gateway/global-agent.md) 为准。
 
 群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍必须以 mention 或 reply 明确指向 Agent，且不因该 Agent 或其他 Agent 的 `ALWAYS` 策略扩大成群组控制。
 
@@ -179,7 +179,7 @@ MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buff
 
 ### Requirement: 用户可用文本命令切换当前 Agent 会话
 
-本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 命令路由与入站幂等仍通用；global 的 `/new` 拒绝不重置主上下文。
+本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](../../../../../docs/specs/gateway/global-agent.md) 为准。 命令路由与入站幂等仍通用；global 的 `/new` 拒绝不重置主上下文。
 
 Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中，把精确的 `/new` 作为当前 Gateway session 的新会话命令。命令确认留在原聊天，既有可见历史不删除；后续普通消息使用新的 DSH session。若原 session 正在执行，Gateway 先撤销并收敛旧 run 的所有尚未完成用户可见输出，再中断它；已排队但尚未提交的旧输入不能在新会话执行，旧 run 的 stream、final reply 或 external mirror 也不得在新会话确认之后抵达。`/new` 之外带有额外文本的 slash 消息按普通用户消息处理。
 
@@ -211,7 +211,7 @@ Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中�
 
 ### Requirement: 用户可安全地手动压缩当前 Agent 会话
 
-以下按聊天寻址及 `/new` 切换的 Scenario 适用于 `single_thread`；global 将相同 focus、幂等、FIFO 预留、失败不改上下文和来源反馈作用于主 Session。消息被读入/提交的执行不得越过压缩预留边界，接收 Inbox 本身不被阻塞。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+以下按聊天寻址及 `/new` 切换的 Scenario 适用于 `single_thread`；global 将相同 focus、幂等、FIFO 预留、失败不改上下文和来源反馈作用于主 Session。消息被读入/提交的执行不得越过压缩预留边界，接收 Inbox 本身不被阻塞。全局模式对应行为以 [global-agent](../../../../../docs/specs/gateway/global-agent.md) 为准。
 
 Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 DSH session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。无论当前 session 是否有 active 或 queued work，Gateway 都接受该命令并立即预留其 FIFO 位置：在此前工作完成后执行压缩，且后续普通消息不得越过该压缩边界。若 `/new` 在已排队的压缩执行前切换会话，Gateway 不在新会话上执行该旧压缩，并在同一聊天说明其未执行。Gateway 在同一聊天明确区分成功、无需压缩、未执行和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
 

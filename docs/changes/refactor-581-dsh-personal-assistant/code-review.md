@@ -1,6 +1,6 @@
 # Code Review: refactor-581-dsh-personal-assistant
 
-**Latest: Round 2 closure at `3014fe8cd76df81f34fb756eaebefe205b4051ad` — all three focus findings CLOSED; surviving findings `[]`.** The historical full-review result below applies only to its original frozen snapshot. This is code-review approval for the repair scope, not completion of independent product or physical-device acceptance.
+**Latest: Round 3 closure at `05036c240307fef56adf2ed1aa55e9af241cf58f` — prior findings remain CLOSED; surviving findings `[]`.** The historical full-review result below applies only to its original frozen snapshot. This is code-review approval for the repair scope, not completion of independent product or physical-device acceptance.
 
 Round 1 · full · **Changes required**
 
@@ -42,3 +42,11 @@ Independent command: `pnpm exec vitest run apps/node/tests/lifecycle.test.ts app
 Latest machine-readable findings are [code-review.json](code-review.json): `[]`. Historical findings remain available in the committed Round 1 report/JSON at `bbbaee580` and the narrative above.
 
 The precise `3014fe8cd` addition also closes persisted partial-usage display: optional `context_used/output` fields cannot produce NaN or an expansion TypeError; absent counters render `—` and unsupported percentages are suppressed. This uses the canonical field names without aliases for the former erroneous payload. Independently reran the updated TokenChip file: **8 tests passed**. The 16 backend checks above remain applicable because this addition changes only three frontend files and the two reviewed unit documents.
+
+## Round 3 — native Cron product projection
+
+Mode: `closure` with accompanying narrow patch review. Retained implementation baseline: `3014fe8cd76df81f34fb756eaebefe205b4051ad`; latest frozen source/docs snapshot: `05036c240307fef56adf2ed1aa55e9af241cf58f`. The source addition in `7690ae4ae` maps native catalog `title/prompt/status` into existing Web/Swift jobs fields `name/instruction/enabled`, preserves session identity for deletion, and forwards `result.deleted === true` rather than the truthiness of a native response object. Reviewed the unchanged IM `/cron/jobs` routes and actual client consumers. **No new surviving code finding; JSON remains `[]`.**
+
+Independently executed `pnpm exec vitest run packages/dsh-integration/tests/cron.test.ts`: **1 file / 2 tests passed (6.21s)**, including the real native catalog-to-product jobs view and existing Agent isolation/cold-recovery cases. Parent's build/typecheck results are retained. Product reviewer owns actual Web list/delete confirmation and its acceptance report; a passing runtime regression does not substitute for that UI observation.
+
+Also inspected the eight-area corrected delta and two parent-owned precise documentation corrections after the frozen commit: routing prose now uses unified approval liveness; Cron capability prose uses `schedule_create` and still restricts other `schedule_*` tools to the allowlist. The accompanying two Cron subtitle strings describe the already approved original-conversation context behavior and add no execution semantics. Canonical preparation remains a local plan, not completed merge/archive. Reports only were edited; no commit or implementation edit was made by this reviewer.
