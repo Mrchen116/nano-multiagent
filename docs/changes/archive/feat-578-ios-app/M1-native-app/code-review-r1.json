@@ -1,0 +1,66 @@
+[
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ChatStore.swift",
+    "line": 79,
+    "summary": "[P1] 先处理无 replay cursor 的成员撤销与删除帧",
+    "failure_scenario": "固定 head 7987f40bc。用户保持群聊连接时被 creator 移除，或群被删除。src/IM/api/deps.py:409-433 的 notify_conversation_membership 明确发送 op=event / conversation.membership_changed 或 conversation.deleted，且不含 event_id。本行 guard 在第83行撤销处理之前直接 return，既不移除 timelines/drafts/attachments/pending，也不刷新会话列表；服务端不再向已移除成员发送普通聊天事件，所以页面与已准备好的 AttachmentView ShareLink 可持续显示/分享原缓存直到重连。应在 cursor 去重前处理此类控制帧，并触发权限缓存清理。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ConversationView.swift",
+    "line": 103,
+    "summary": "[P1] 群命令选择必须保留所选 Agent 目标",
+    "failure_scenario": "固定 head 7987f40bc。群有 A/B 两个 Agent，在菜单 A 的命令分组选择 /new。代码无视 group.agent_id 并覆盖草稿为单独 '/new '；personal_assistant/gateway/inbound_pipeline.py:360-372 对未指定目标的精确 /new 明确执行 group-wide reset，因此原本选择 A 的动作会同时重置 B。选择 /compact 或 /effort 同样失去目标，不能按菜单选择作用于 A。现有 Web message-pane.tsx:683-696 为群命令预填结构化目标 mention；原生应保留等价身份。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ChatStore.swift",
+    "line": 134,
+    "summary": "[P2] 重连时补齐新旧历史之间的整页空档",
+    "failure_scenario": "固定 head 7987f40bc。已读入 m1...m60 且 before[id]=m1，App 后台/断线期间新增 m61...m121。run 仅调用最新60条的 loadChat，TimelineMerge 将 m62...m121 追加到旧数组，m61 永久缺失；第135行保留已有 before=m1，点更早消息只能加载 m1 之前，无法补齐空档。WS replay只触发相同最新页重读，resync_required 也仅清 cursor，因此不修复此缺口。需要在恢复时沿分页补到旧边界，或重新建立连续历史及对应游标，保持阅读位置。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift",
+    "line": 95,
+    "summary": "[P2] 用 APIError.code 识别配置确认中",
+    "failure_scenario": "固定 head 7987f40bc。Gateway 尚未确认保存/创建，agents.py:724-733 返回503 detail={code:'config_apply_pending',message:'The previous configuration save is still being confirmed.'}。Session.perform 将 message 放入 APIError.detail、code 放入 APIError.code，本行却查 detail.contains('config_apply_pending')，得到false，仍允许编辑/重复保存，且不出现重读确认按钮。AgentsView.swift:185 与 agentError 的相同判断导致创建流程也无法进入已有的 pending/reconcile 分支。应检查结构化 code；普通503仍保留普通失败语义。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ConversationView.swift",
+    "line": 104,
+    "summary": "[P2] Skill 菜单应填入 /skill:name 而非 opaque key",
+    "failure_scenario": "固定 head 7987f40bc。在任意有 Skill 的单聊菜单选中某 Skill，草稿变为 '/'+skill.skill_key。conversation_commands.py:47-57 的 skill_key 是64位HMAC，仅用于候选去重；实际快捷指令是 /skill:<name>（Web message-pane.tsx:684、agent/core/agent/skill_commands.py:15-18）。发送此草稿只把不可解释的hash当普通消息交给Agent，不会触发所选 Skill。按钮标签也缺失 /skill: 命名空间，应保留 key 作 identity、name 作命令。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ConversationView.swift",
+    "line": 98,
+    "summary": "[P2] 提及应使用成员 user_id 的结构化 wire 身份",
+    "failure_scenario": "固定 head 7987f40bc。群内存在合法 Agent ID planner 与 planner2，用户从菜单仅提及 planner2。草稿直接发送 '@planner2 '，relay_service.py:336-352 无法得到结构化 mentioned_agent_ids；Gateway inbound_pipeline.py:378-388 保留 f'@{agent_id}' in message.text 兼容，planner 也因前缀子串命中而回复。正常提及并非完全不可用，但该具体命名组合会误唤醒未选 Agent。使用 <mention type=\"user\" target_id=\"成员真实user_id\"/> 并将显示名与 wire 身份分开；收到的结构化 mentions 也需按成员名呈现而非原始HTML。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/Features/Agents/AgentModels.swift",
+    "line": 101,
+    "summary": "[P2] 预览需显式传入心跳和 cron 草稿开关",
+    "failure_scenario": "固定 head 7987f40bc。owner 打开已有Agent，在尚未保存的草稿关闭心跳或切换cron，然后点击提示词预览。previewPayload只有 features，不含 heartbeat_enabled / cron_enabled；agents.py:921-947 在这两个字段缺省时从已保存 profile.features 取值并传给Gateway，覆盖本次草稿开关。因此预览的心跳/cron提示词段与表单草稿不一致，S17/C19的当前草稿预览不成立。节点创建预览也复用此payload，应按该endpoint语义发送显式布尔值。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/ios/NanoIM/App/NanoIMApp.swift",
+    "line": 156,
+    "summary": "[P2] 前台新消息提示需保留目标并打开对应聊天",
+    "failure_scenario": "固定 head 7987f40bc。App 前台收到其他未静音聊天的新消息，ChatStore.consume只存储字符串banner，丢弃conversation_id；本行提示按钮唯一动作是置nil。用户点击提示无法进入对应聊天，与已收口S27的可跳到对应聊天不符。这是当前按钮处理缺失，非未执行真机验收的推断。保存banner对应会话身份并由此调用openChat，继续保持不显示正文与历史重放不提醒。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]

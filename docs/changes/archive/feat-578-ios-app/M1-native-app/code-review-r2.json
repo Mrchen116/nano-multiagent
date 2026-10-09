@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/IM/ios/NanoIM/Features/Chat/ChatStore.swift",
+    "line": 82,
+    "summary": "[P1] 成员变更控制帧须重新核实权限，不能一律永久撤销聊天",
+    "failure_scenario": "Closure：finding_origin_head=7987f40bc；固定受审head=55defc67096df2255bf54be421619496d869c3f0。本项由R1第1项修复引入。成员仍有权限时在任意客户端修改聊天名称、添加成员，或另一成员创建包含本人的新群。后端web_im.py:685-688、816-820及336调用同一notify_conversation_membership，向现有/新增合法成员发送conversation.membership_changed无cursor控制帧；该事件表示需要重新核实，而非必然撤权。本分支现在一律将聊天加入revokedChats并清除timelines/before/drafts/attachments/pending、移出conversations，标为无权；第91行return之前不设置needsList或调用scheduleRefresh。没有后续普通事件时，聊天持续隐藏且ConversationView因conversation=nil禁用输入；改名/加成员还丢失合法成员待发内容。现有回归仅验证移除后的清理，没有覆盖仍有权成员重读。应立即隔离受保护缓存并读取权威列表/详情，确认撤权后清除待发数据；仍有权时恢复聊天与正常更新语义，不把合法的改名/成员增减视为永久撤权。",
+    "review_mode": "closure",
+    "status": "CONFIRMED"
+  }
+]

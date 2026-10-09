@@ -10,6 +10,25 @@ on:
   pull_request:
 
 jobs:
+  ios:
+    name: iOS build and tests
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl create 'NanoIM CI' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-26-4)
+          echo "NANO_IOS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+
+      - name: Native regression tests
+        run: ./src/IM/ios/scripts/build.sh test
+
+      - name: Release device archive
+        run: ./src/IM/ios/scripts/build.sh archive
+
   python:
     name: Python checks
     runs-on: ubuntu-latest

@@ -352,6 +352,7 @@ def _merge_live_agent_profile(
         # user-configured feature overrides or custom_prompt.
         features=profile.features,
         custom_prompt=profile.custom_prompt,
+        heartbeat_json=profile.heartbeat_json,
     )
 
 

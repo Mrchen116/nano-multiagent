@@ -1,5 +1,7 @@
 # nano-multiagent
 
+原生 iPhone 客户端位于 [`src/IM/ios/`](src/IM/ios/README.md)，提供聊天、任务、Agent 和账号管理；构建、免费个人签名及后台能力边界见该入口，行为契约见 [`iOS Client`](docs/specs/im/ios-client.md)。
+
 ## 快速开始
 
 ```bash

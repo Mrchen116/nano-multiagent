@@ -1,0 +1,84 @@
+# 用户反馈后的整体 UX 修正 R1
+
+2026-10-06。用户要求整个 App 从成熟商业软件角度审视，Web 是已有能力基线，原生应改善操作成本、身份、信息层级、状态与草稿保护。三份独立报告分别记录事实、判断与版本；主执行者修正并冻结后做静态/实际 UI 复验，不以功能 coverage 代替 UX。
+
+| 范围 | 本轮实现 | 审视与复验重点 |
+|---|---|---|
+| 输入 | @/slash 光标处直接候选、筛选、保留正文/焦点；+只附件；单项面板缩短、上限滚动 | 用户反馈、N1；软件键盘与中文组合输入分别验证 |
+| 身份与时间 | Web 六色名称 hash 与缩写跨列表/消息/成员/Agent 一致；私聊按对方；消息时间、user 已发送 | 用户头像反馈、U03；改名不改身份，目标正确 |
+| 内容 | 交错和链接内图片按 AST 顺序；复制去格式，保留列表/表格/代码/链接和可读提及，给反馈 | U01/U04；原生测试及实际阅读/复制 |
+| 附件 | 上传中/失败图片及已准备图片缩略预览，准备图片可查看与移除 | U02；选择/取消/失败保留及移除 |
+| 列表/建聊 | +直接建聊；置顶/静音 swipe；运行状态；加载/无结果区分；联系人按名称/ID/设备搜索；空群名按成员生成 | U08、N3/N6、商业3/6；列表及创建权限不变 |
+| 群 | 搜索/排序/身份归属、多选一次提交；偏好回执不覆盖名称草稿；离开保护 | U09、N2、商业1；添加/取消、名称与偏好组合 |
+| 任务 | 关系说明、已选候选和描述；真实祖先路径可跳父层；查询无结果提示 | U06/U07、N3/N8；嵌套、深链及引用不变 |
+| Work | 语义轮次标题/本地时间；ID/模型/触发收进执行信息；待授权轮次展开 | U10、N4、商业3；真实主/子/cron和权限 |
+| 管理 | 账号/设备/策略 dirty 返回保护和顶部保存；通道取消保护/顶部保存；创建顶部主操作、备用模型折叠 | N5/N7、商业2/4；继续编辑/明确放弃、字段及秘密生命周期 |
+| 状态/提醒 | Agent详情重读公开状态，失败注明最后已知；前台提醒有授权聊天名/头像，无正文 | 商业7/9；状态切换与正确聊天 |
+| 已读 | 消息与真实 viewport 交集，排除 Lazy 预加载行，不按 onAppear 推断读过 | 既有S6及审视风险3；长历史、Latest与权威未读 |
+
+三份原报告见 [Web](ux-audit-web-r1.md)、[商业审视](ux-audit-commercial-r1.md)、[实际原生 R1](ux-audit-native-r1.md)。R1 实际走查仅代表 20:24 已装 dirty 候选；构建目录 20:32 的 hash 不作为那份安装 binary 身份。直接 @/slash、选后软件键盘保持和跨页头像已在该候选实际观察，后续面板/成员选择/草稿等须新包复验。
+
+可读提及回归在旧实现实际失败；第一次查询测试还发现 `$` 允许末尾换行，已改真正字符串末尾。首次 Markdown 测试为 test Sequence 编译错误，保留失败；修正后最新 33 项原生测试通过（23 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-ux-batch-tests3.log`，xcresult `Test-NanoIM-2026.10.06_20-41-10-+0800.xcresult`。源码未改 Python/Web，保留已有4120/808证据。
+
+聊天审批结果不确定、pending发送模型、任务跨入口原路返回等设计建议仍需独立核实，不从风险报告直接宣称已复现或引入通用队列。旧 Full 未完成分支与自然到期恢复继续开放；本轮不是最终产品接受，不建 Ready PR、不部署生产。主仓 dirty/untracked 保持。
+
+## 冻结后独立审查与窄修
+
+`ba261e12f` 的[独立代码审查](code-review-ux-r1.md)和[契约核对](verification-ux-r1.md)发现两个明确遗漏：移除成员的 reload 仍覆盖未保存群名；原生每步32位回绕与 Web 仅移位回绕的实际名称 hash 不等价。这些原失败事实保留。
+
+root 将名称保留统一到详情 reload，添加/移除成员共用，不增加持久草稿层；头像按 Web UTF-16 和仅移位 Int32 的算术修正。新头像测试取实际 JavaScript 运算的七组名称，包括 Personal Assistant、My Assistant、中文和 emoji，保护已确认的差异。最新34项原生测试通过（24 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-ux-final-tests4.log`，xcresult `Test-NanoIM-2026.10.06_20-55-23-+0800.xcresult`；测试使用独立430 Simulator，不更换产品 reviewer 当前390候选。
+
+实际 R2 已在 `ba261e12f` 观察到直接提及、选后键盘保持、短候选面板、成员搜索/多选取消、无匹配提示和空名称建群；尚未作为最终独立裁决。20:50 后 CUA 明确返回 Mac 锁屏且自动解锁失败，已请求用户解锁；不绕过。图文混排已通过受控测试接口准备到 reviewer 本轮新群，只作为阅读素材，不冒充 UI 发送或 LLM 输出；长历史新 marker 和 owned 节点暂停仍等待 reviewer READY。真实 global Work 当前两轮 completed、idle，没有 waiting_permission，不种伪审批或声称分支通过。
+
+`2992200b9` 的[代码复审](code-review-ux-r2.md)/[契约闭环](verification-ux-r2.md)已有限pass，findings为空；不等同实际群成员移除路径或整个产品接受。[实际 R2](acceptance-ux-r2.md)已保存安全断点并关闭N1/N2/N6/U03/U08/U09及群名draft/偏好组合，其余受影响旅程因锁屏为inconclusive、整体fail。root只读核对reviewer专用群恰好一条 `578 UX R2` 结构提及请求及一条真实peer completed42；另有一条明确API准备的阅读素材，未混入UI发送数。
+
+20:58已把修正版原地更新到物理iPhone，20:59启动工具返回success，源码/签名/安装边界见[Air记录](../evidence/air-altserver-readiness.md)。新包镜像页面仍未实测，个人免费profile到期时间未延后。恢复后从本轮安全断点核验新包受影响阅读、图片、任务、Work、管理草稿、状态/提醒与实际viewport，不需要重跑仍有效的未变Python/Web或旧Full通过范围。
+
+## 解锁后复验与最后显示窄修
+
+用户回复Air解锁后，恢复原fixture DB/config，并把390原地更新为 `2992200b9`，实际安装binary/dylib hash单独交接。独立R3继续本轮余项，不把新包安装视为验收。已实际报告图文顺序、代码复制、待发图片预览/移除、添加后移除成员保名称草稿、任务祖先跳转、管理continue/discard，以及同页公开状态在线→离线→在线；准确裁决以其最终报告为准。
+
+R3实际发现两个轻微显示问题：TaskNode详情仍为巨大通用标题、没有描述的图卡占位过高；Work两条旧轮次摘要只有同一天日期，无法分辨时间。root仅修该显示范围：详情导航显示真实节点名并用inline；没有描述的scope卡使用96 scaled高度、有描述保持124 scaled，布局/连线端点/卡共用同一高度、padding12；Work开始/结束摘要使用已有本地日期时间组件。没有改变任务数据、关系、权限、API或Work执行状态。旧34项原生测试保留其原范围，本次纯显示修改需构建和实际窄复验，不增加镜像实现的测试。
+
+旧长历史对方 `iosr9late` 已在R15停用，本轮查证后没有恢复该账号。通过隔离服务正常注册/合成管理员批准新测试reader，另建纯真人群及70条明确API准备的阅读历史，用于真实分页/viewport；同一全新reader的专用direct用于私聊改名身份。两者不读取未知旧聊天，不冒充UI发送/LLM输出。owned Gateway暂停状态测试已及时恢复同一PID，90秒安全guard同样确认恢复；生产和旧停用状态保持。
+
+## 本轮收口边界
+
+[独立R3](acceptance-ux-r3.md)已实际确认交错图文顺序、代码复制的准确字节、待发照片取消/缩略/预览/移除、群新增后移除保名称草稿、账号/设备/策略continue/discard、任务关系说明/已选与祖先跳转、同页Agent在线→离线→在线、配置/创建顶部主操作、通道普通草稿取消保护，以及专用direct改名仍保对方头像。纯真人70条历史中，单次新marker到达后保持旧03–05阅读位置；77秒后权威unread仍1/旧cursor，单次Latest实际见完整marker后才变0/新cursor，App CPU0.0%。该真实viewport分支闭环，不冒充手势滚动或物理手机。
+
+最后显示批 `8e03b3e78` 的[代码审查](code-review-ux-r3.md)/[verification](verification-ux-r3.md)有限pass、findings为空；独立实际窄复验已报告TaskNode真实名称inline、96/124卡片及箭头/状态可读、Work两条本地具体时间可直接区分。精确版本和实际范围以独立最终报告为准，旧R3的minor历史不改写。
+
+[独立R4最终报告](acceptance-ux-r4.md)已保存并在最后显示受影响范围pass、0新增问题，N8/Work日期实测关闭；只代表390当前System font，不扩大为所有大字号/物理手机或整个Full。余项保留上次报告的确切边界，原审批已通过与本轮新增默认展开未验分开记录。
+
+仍未完成的实际范围：正文长按复制/fork/反馈、真正中文IME与VoiceOver、主动图片粘贴、真实pending Work默认展开、前台banner点击、更新后手机页面及无线续签/自然到期。本轮独立banner控制消息只发一次且已实际送达/读过；观察未记录起点，不能证明覆盖3秒窗口，不判产品失败也不称通过。新增设备心跳仍原始UTC微秒显示为R3 side finding，自动顶部历史、完整高频工具目标摘要、pending下一条草稿及任务跨入口返回仍是后续设计/实施候选，不混称本轮已完成。完整Full门禁继续开放，无Ready PR、merge或生产部署。
+
+本轮安全交还后已正常停止root自有Foreground HTTPS19443和隔离IM/Gateway；Tailscale Serve回原`{}`、owned PID21695/21704消失、62008/19443无listener、tmux已退出。fixture DB、0600恢复配置和本轮测试账号/阅读证据保留，未动生产或旧账号状态。手机App保留最新安装；测试入口已停止，后续物理复验须先恢复该隔离入口，不能将此暂停期间连接失败判产品故障。
+
+## 模拟器剩余分支补验与消息操作窄修
+
+用户要求先跳过真机，并核对远端新合并代码。最新主线 `d87ffa3d1` 已包含在本分支，没有待合入提交。独立[模拟器 R1](acceptance-simulator-r1.md)在原 `8e03b3e78` 产品实际完成软件拼音组合/选字/换行/再次组合，未自动发送，及不同来源设备的蒸馏拒绝。其余操作工具限制、真实 pending 前置和外部平台分支原样保留，不把本轮范围称为完整 Full。
+
+本轮仅修三处：消息复制/可用分支显式提供辅助操作，复用长按菜单动作且保留子控件；蒸馏生成前读取真实设备状态，已知离线时中文说明恢复后重试；真人消息提醒处理实际 `message.sent` 事件，同一真人的可选 `message.created` 不再重复提醒，Agent 创建提醒及已读/静音/自己发送过滤保持。
+
+提醒缺口不是仅凭 AX 未见推断：本次唯一合法真人消息的实际持久事件为 `message.sent`/`message.delivered`，原生只监听 `message.created`，Web 已处理真人 sent。新增回归通过既有 `ChatStateTests` 的真实解码/事件消费 seam 观察提醒目标、真人重复创建、Agent、自己发送、静音、当前会话和重放；旧实现实际两断言失败，日志 `/tmp/nano-feat578-human-reminder-red.log`。正文辅助操作和离线文案属于本轮实际 UI 复验，不添加镜像布局/文案的永久测试。早期 S27 fixture 422 是 caller 漏传 sender，未投递；修正后唯一201与实际消息分开保存，不把 fixture 错误当产品失败。
+
+修正后35项原生测试通过（25 XCTest、10 Swift Testing），日志 `/tmp/nano-feat578-human-reminder-green.log`，xcresult `Test-NanoIM-2026.10.06_22-36-55-+0800.xcresult`；同轮 Simulator 构建成功。静态门禁与实际新包辅助操作、离线说明和提醒点击仍需独立窄复验；不以自动化通过代替这些 UI 证据。Python/Web 未改，不机械重跑旧有效范围。
+
+`aa7876fa9` 的[代码审查](code-review-simulator-r1.md)/[契约核对](verification-simulator-r1.md)有限pass、0 findings。[独立模拟器R2](acceptance-simulator-r2.md)在实际新包完成短/长正文辅助复制、准确clipboard及toast反馈，统计子控件仍可展开。原长按菜单保留；本轮辅助动作通过不扩大为VoiceOver完整运行或fork确认通过。模拟器R1真正中文组合和跨设备拒绝证据保留。
+
+剩余受影响实际范围为eligible direct的fork取消/确认历史、已知离线来源的新提示、修复后真人提醒及点击。reviewer与root各自fresh截图后的Back坐标均被操作工具 `noWindowsAvailable` 拒绝；AX读取和Raise后截图可用，导航没有发生，不能将环境阻碍判成产品Back失败。双方停止重复操作，本轮没有新的banner marker、fork或蒸馏draft。当前无草稿/附件/表单的阅读断点已保留；主动图片paste、模拟器无VoiceOver入口、真实Work pending前置及外部通道余项仍按报告保留未验，真机按用户要求后置，整体仍未完整通过。
+
+收尾再次核对远端main仍为PR #323/`d87ffa3d1`且已是本分支祖先，没有待合入提交。已正常停止本次隔离IM/Gateway及恢复helper，自有PID与62008 listener均消失、Tailscale Serve为 `{}`；0600恢复配置与fixture保留，未清空App/数据、改变主仓或生产。文档检查通过310份维护Markdown/75条必需路由，未推送、建PR或宣布Full accepted。后续恢复隔离服务与操作工具后只继续明确余项，不机械重跑已有效范围。
+## 模拟器继续验收 R3 后的小批修正
+
+[R3](acceptance-simulator-r3.md) 已实际关闭 fork 取消/确认、正常整理草稿、离线中文和真人提醒点击；旧操作器失败保留。current global Work 人工 pending 前置按独立现行契约核对为不适用，不伪造审批。完整 VoiceOver 和安装/续签按用户安排后置物理设备。
+
+图片专用剪贴板在独立430实际 hasImages=true、hasStrings=false 时，旧 PasteTextView 的系统 Paste 能力断言失败。最小修正 canPerformAction，仅可编辑输入框开放图片 Paste；实际 paste(_:)、草稿保持和上传通路复用。初次读取旧剪贴板的测试 fixture 卡在系统隐私拦截，未记为红测；修正后红测见 /tmp/nano-feat578-image-paste-red2.log。全36项原生测试已绿 /tmp/nano-feat578-image-paste-green.log；独立390实际 Photos Copy→Paste→待发预览仍需复验。
+
+同时修实际已报告的无来源执行记录裸英文、心跳/通道原始UTC时间、通道409的配置草稿用语及重读遗留错误。只使用既有本地日期组件和明确API错误，不增加兼容/兜底路径。新的 source 批次冻结后进行独立静态和受影响产品复验；S21继续真实隔离 Gateway 故障条件，未宣称 Full accepted 或 PR ready。
+
+## 2026-10-07 模拟器最终闭环
+
+[R4](acceptance-simulator-r4.md)实际完成 Photos Copy→原生 Paste→待发缩略图→同图完整预览→移除；草稿保留，没有发送。无来源执行记录中文和本地心跳时间也实测关闭。[R5](acceptance-simulator-r5.md)记录全部30场景的合并范围，通道unknown/受限原因与恢复方向、真实权限更新及本地时间均通过；同时保留新发现的离线操作错误被后台刷新清掉的原失败事实。
+
+最终 `383a5a9b1` 只修自动轮询保留操作错误和实际重连中文，独立[静态R4](code-review-simulator-r4.md)/[delta R4](verification-simulator-r4.md)无存活finding。[实际R6](acceptance-simulator-r6.md)关闭跨轮询可读、明确重读清除、持续停止失败及一次原生Retry真实停止、删除后历史保留。模拟器可测范围由R5矩阵+R6闭环完成；全36项原生测试有效范围、最终构建/归档及清理证据见[progress](progress.md)与[工具链记录](../evidence/toolchain-readiness.md)。完整VoiceOver、更新后真机及安装维护仍按用户安排后置；当前只供草稿评审，Full最终接受/canonical归并/归档保持开放。

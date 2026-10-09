@@ -1,5 +1,6 @@
 """Contract tests for IM agent configuration endpoints."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -335,15 +336,10 @@ def test_node_capabilities_includes_features_list(
 # ---------------------------------------------------------------------------
 
 
-def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
+def test_get_agent_config_live_merge_preserves_persisted_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /im/v1/agents/{id}/config?source=live must not overwrite features/custom_prompt.
-
-    ISSUE-2 root cause: _merge_live_agent_profile built a new AgentProfile without
-    passing features/custom_prompt, so those fields reverted to their dataclass defaults
-    ({} and None) whenever the gateway was online and source=live was used.
-    """
+    """Live config reads retain persisted features, prompt and heartbeat cadence."""
 
     async def _fake_agent_config(self, *, target_node_id: str, agent_id: str):  # noqa: ARG001, ARG002
         # Live snapshot from Gateway — intentionally omits features/custom_prompt,
@@ -378,6 +374,14 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
             features={"memory_curation": False},
             custom_prompt="You are my legal advisor.",
         )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET heartbeat_json = ? WHERE agent_id = ?",
+            (
+                '{"every":"24h","active_hours":{"start":"03:00","end":"03:01"}}',
+                "agent-live",
+            ),
+        )
+        app.state.connection.commit()
 
         # source=live will call _fake_agent_config and then _merge_live_agent_profile
         resp = client.get("/im/v1/agents/agent-live/config?source=live")
@@ -390,6 +394,13 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
         assert body["custom_prompt"] == "You are my legal advisor.", (
             "_merge_live_agent_profile must preserve custom_prompt from the persisted profile (ISSUE-2)"
         )
+        assert json.loads(body["heartbeat_json"]) == {
+            "every": "24h",
+            "active_hours": {"start": "03:00", "end": "03:01"},
+        }
+        mirror = client.get("/im/v1/agents/agent-live/config?source=mirror")
+        assert mirror.status_code == 200
+        assert body["heartbeat_json"] == mirror.json()["heartbeat_json"]
 
 
 def test_agent_prompt_preview_proxy_contract(
