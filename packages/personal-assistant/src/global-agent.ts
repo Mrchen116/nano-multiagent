@@ -243,7 +243,13 @@ export class GlobalAgent {
           const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
           if (event.type === 'tool/result') {
             const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
-            inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn);
+            if (inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) {
+              const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {messages: {id: string; target: string; partial?: boolean}[]};
+              this.append(binding, `inbox-read:${message.toolCallId}`, 'inbox_read_committed', {
+                call_id: message.toolCallId,
+                source_refs: body.messages.map(item => ({conversation_id: item.target, message_id: item.id, complete_message: !item.partial})),
+              }, turn, event.time);
+            }
           }
           const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
           if (event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {

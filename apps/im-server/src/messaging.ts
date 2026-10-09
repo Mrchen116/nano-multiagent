@@ -13,6 +13,13 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
+/** Derive human approval badges from the durable request/decision identity. */
+export function withHumanApproval(call: Row, permissions: Row[]): Row {
+  const decision = permissions.findLast(item => item.call_id === call.id && item.status === "resolved" && item.decided_by)?.decision;
+  if (!["allow_once", "deny"].includes(decision)) return call;
+  return {...call, approval: decision === "allow_once" ? "user_allow" : "user_deny", ...(decision === "deny" ? {reason: "denied"} : {})};
+}
+
 export class Messaging {
   constructor(readonly ctx: ImContext) {}
   get db() {
@@ -53,6 +60,11 @@ export class Messaging {
       `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
+  }
+  /** Resolve the same XML mention format used by Web and native clients. */
+  mentionedAgents(conversationId: string, content: string): string[] {
+    const targets = new Set([...content.matchAll(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g)].map(match => match[1]));
+    return this.members(conversationId).filter(user => user.username.startsWith("agent:") && targets.has(user.id)).map(user => user.username.slice(6));
   }
   access(principal: Row, id: string, agentId?: string): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id);
@@ -171,7 +183,8 @@ export class Messaging {
       const u = one(this.db, "SELECT * FROM users WHERE id=?", id);
       if (!u || (!u.username.startsWith("agent:") && u.membership_status !== "active"))
         fail(400, "participant not found");
-      if (group && u.username.startsWith("agent:") && u.owner_id !== principal.owner_id)
+      if (group && u.username.startsWith("agent:") && !one(this.db,
+        "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id))
         fail(404, "agent not accessible");
     }
     return result;
@@ -264,6 +277,7 @@ export class Messaging {
       result[key] = JSON.parse(
         m[key === "permission_requests" ? "permission_request_json" : `${key}_json`] ?? "[]",
       );
+    result.tool_calls = result.tool_calls.map((call: Row) => withHumanApproval(call, result.permission_requests));
     for (const key of ["token_usage", "system_notice"])
       result[key] = JSON.parse(m[`${key}_json`] ?? "null");
     for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
@@ -483,9 +497,7 @@ export class Messaging {
           participants: this.conversation(id, sender).participants,
           metadata: {
             conversation_type: c.type,
-            mentioned_agent_ids: agents
-              .filter((a) => m.content.includes(`<@${this.agentUser(a.agent_id).id}>`))
-              .map((a) => a.agent_id),
+            mentioned_agent_ids: this.mentionedAgents(id, m.content),
             participant_agent_ids: agents.map((a) => a.agent_id),
             config_profile_version: a.profile_version,
             node_epoch:

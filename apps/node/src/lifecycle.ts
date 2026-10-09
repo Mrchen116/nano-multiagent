@@ -59,9 +59,10 @@ export async function processBirth(pid: number): Promise<string | undefined> {
       "-p",
       String(pid),
       "-o",
-      "lstart=",
+      "stat=,lstart=",
     ]);
-    return stdout.trim() || undefined;
+    const match = stdout.trim().match(/^(\S+)\s+(.+)$/);
+    return match && !match[1]!.includes("Z") ? match[2] : undefined;
   } catch {
     return undefined;
   }

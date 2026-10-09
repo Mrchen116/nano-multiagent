@@ -56,7 +56,7 @@ export class NodeConfiguration {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (this.value.llm.tool_approval_model) {
       const reviewer = this.value.llm.providers.find(provider => provider.models.some(model => model.name === this.value.llm.tool_approval_model));
-      if (!reviewer) throw new Error('Tool approval model is not registered');
+      if (!reviewer) throw new Error(`llm.tool_approval_model is not registered: ${this.value.llm.tool_approval_model}`);
       approval.reviewer = { provider: reviewer.name, model: this.value.llm.tool_approval_model };
     }
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',

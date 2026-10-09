@@ -109,6 +109,9 @@ export class SingleThread {
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
       const content: Record<string, unknown>[] = [];
+      if (input.metadata.conversation_type === 'group' && input.participants?.length) {
+        content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
+      }
       if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
       for (const part of parts) {
         if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }

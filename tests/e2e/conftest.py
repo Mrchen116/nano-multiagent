@@ -20,7 +20,7 @@ import pytest
 
 # 只追 Gateway 入口进程。其它 cmdline 命中 pytest tmpdir 的进程不在追杀范围，
 # 避免误杀测试 runner 或无关工具。
-_LEAK_NEEDLES = ("personal_assistant.main",)
+_LEAK_NEEDLES = ("apps/node/lib/cli.js",)
 
 
 def _scan_leaked_pids(

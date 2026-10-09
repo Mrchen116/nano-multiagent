@@ -214,33 +214,36 @@ export async function bindDevice(
   }
   await mkdir(home, { recursive: true });
   const snapshot = result.snapshot;
-  const manifest = {
-    request_id: randomUUID(),
-    owner_id: result.owner_id,
-    node_id: result.node_id,
-    manifest_revision:
-      snapshot.channel_manifest_heads[0]?.manifest_revision ?? 0,
-    channels: snapshot.agent_channels.map((row) => ({
-      ...row,
-      enabled: !!row.enabled,
-      config: JSON.parse(String(row.config_json)),
-      provider_runtime: JSON.parse(String(row.provider_runtime_json)),
-      credential_envelope: JSON.parse(String(row.credential_envelope_json)),
-    })),
-    removals: snapshot.agent_channel_removals.filter(
-      (row) => row.apply_state !== "applied",
-    ),
-  };
-  const db = new DatabaseSync(join(home, "channels.sqlite3"));
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,payload TEXT NOT NULL);",
-    );
-    db.prepare(
-      "INSERT INTO state VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-    ).run("manifest", JSON.stringify(manifest));
-  } finally {
-    db.close();
+  // An absent center manifest is a first binding; local channel seed still owns bootstrap.
+  if (snapshot.channel_manifest_heads.length > 0) {
+    const manifest = {
+      request_id: randomUUID(),
+      owner_id: result.owner_id,
+      node_id: result.node_id,
+      manifest_revision:
+        snapshot.channel_manifest_heads[0]?.manifest_revision ?? 0,
+      channels: snapshot.agent_channels.map((row) => ({
+        ...row,
+        enabled: !!row.enabled,
+        config: JSON.parse(String(row.config_json)),
+        provider_runtime: JSON.parse(String(row.provider_runtime_json)),
+        credential_envelope: JSON.parse(String(row.credential_envelope_json)),
+      })),
+      removals: snapshot.agent_channel_removals.filter(
+        (row) => row.apply_state !== "applied",
+      ),
+    };
+    const db = new DatabaseSync(join(home, "channels.sqlite3"));
+    try {
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox(seq INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,payload TEXT NOT NULL);",
+      );
+      db.prepare(
+        "INSERT INTO state VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      ).run("manifest", JSON.stringify(manifest));
+    } finally {
+      db.close();
+    }
   }
   config.node.user_id = result.owner_id;
   config.im_service.token = result.runtime_token;

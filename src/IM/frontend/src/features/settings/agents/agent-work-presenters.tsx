@@ -39,7 +39,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   let summary = text(call.output);
   if (call.name === "inbox") summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
   if (call.name === "conversations") summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
-  if (call.name === "send_message") summary = `${tr("发送到")} ${target}`;
+  if (call.name === "send_message" && !input.agent_id) summary = `${tr("发送到")} ${target}`;
   const sendError = call.name === "send_message" && text(detail.status) && !["ok", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
@@ -62,7 +62,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
       {!pending && <p><span className="im-work-status-label">{tr(labels[business] || (error ? "失败" : "已完成"))}</span> {text(detail.agent_id)}</p>}
       {text(detail.content) && <pre>{text(detail.content)}</pre>}
       {text(detail.output_file) && <p className="im-work-muted">{tr("结果文件")}：<code>{text(detail.output_file)}</code></p>}
-    </> : call.name === "send_message" ? <><p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p><pre>{text(detail.text) || text(input.text)}</pre>{(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}</> : call.name === "inbox" ? <ConversationToolCard call={call} compact /> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
+    </> : call.name === "send_message" && !input.agent_id ? <><p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p><pre>{text(detail.text) || text(input.text)}</pre>{(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}</> : call.name === "inbox" ? <ConversationToolCard call={call} compact /> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
   </li>;
 }
 

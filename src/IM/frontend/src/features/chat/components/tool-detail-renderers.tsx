@@ -1,3 +1,4 @@
+import { NativeToolDetail } from "./native-tool-detail";
 import { ConversationToolCard } from "./conversation-tool-card";
 // feat-409-M2: per-tool expanded-body renderers.
 //
@@ -634,6 +635,7 @@ function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
  */
 export function ToolDetailBody({ call }: { call: ToolCall }) {
   const detail = call.detail;
+  if (detail?.native_view) return <NativeToolDetail call={call} />;
   if (call.name === "inbox" || call.name === "conversations") return <ConversationToolCard call={call} />;
   if (call.name === "send_message" && (detail?.status === "pending_revalidation" || detail?.status === "held_for_revalidation")) {
     return <div><p>{detail.status === "pending_revalidation" ? "待发送 · 正文尚未提交" : "未发送 · 已保留为草稿"}</p>

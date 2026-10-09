@@ -7,6 +7,7 @@ import {
   generateKeyPairSync,
   hkdfSync,
 } from "node:crypto";
+import { Messaging } from "../src/messaging.js";
 import { TaskGraphService, canonicalJson } from "../src/task-graphs.js";
 import { ChannelService, sealChannelSecret } from "../src/channels.js";
 import { ConfigOperations, candidateFingerprint, registerControlRoutes } from "../src/control.js";
@@ -247,6 +248,13 @@ describe("recoverable config operations and HTTP boundary", () => {
       statusCode: 409,
     });
     expect(creates).toBe(1);
+    ctx.gateway.broadcast = () => {};
+    const messaging = new Messaging(ctx);
+    const group = {title: "Own group", type: "group", participants: [{type: "agent", id: "new-agent"}]};
+    const createdGroup = messaging.createConversation({id: "u1", owner_id: "o1"}, group);
+    expect(createdGroup.type).toBe("group");
+    expect(messaging.mentionedAgents(createdGroup.id, `<mention type="user" target_id="${messaging.agentUser("new-agent").id}"/> ping`)).toEqual(["new-agent"]);
+    expect(() => messaging.createConversation({id: "u2", owner_id: "o2"}, group)).toThrow("agent not accessible");
   });
   it("keeps pending durable after lost ACK and commits canonical result on recovery", async () => {
     const { db, ctx } = fixture(),

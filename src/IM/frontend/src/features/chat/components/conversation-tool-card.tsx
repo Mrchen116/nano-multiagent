@@ -38,10 +38,10 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
       {messages.map((item, index) => {
         const source = object(item.source); const sender = object(item.sender);
         const senderName = text(sender.name) || people[text(sender.id)] || (compact ? "" : text(sender.id));
-        return <div className="im-work-read-message" key={`${text(item.message_id)}:${text(item.part_key) || index}`}>
-          <small>{senderName && <>{senderName} · </>}{text(item.source_time) && <>{new Date(text(item.source_time)).toLocaleString()} · </>}<WorkThreadLink conversationId={text(source.conversation_id) || target} messageId={text(item.message_id)}>{tr("原消息")}</WorkThreadLink></small>
+        return <div className="im-work-read-message" key={`${(text(item.message_id) || text(item.id))}:${text(item.part_key) || index}`}>
+          <small>{senderName && <>{senderName} · </>}{(text(item.source_time) || text(item.time)) && <>{new Date((text(item.source_time) || text(item.time))).toLocaleString()} · </>}<WorkThreadLink conversationId={text(source.conversation_id) || text(item.target) || target} messageId={(text(item.message_id) || text(item.id))}>{tr("原消息")}</WorkThreadLink></small>
           {entries(item.content).map((content, i) => content.type === "text" ? <LongOutput key={i} text={text(content.text)} truncatedAtSource={detail.truncated === true} render={shown => <p className="whitespace-pre-wrap">{parseMentions(shown).map((segment, index) => segment.kind === "mention" ? <span key={index} className="chat-mention-chip" data-target-id={segment.target_id}>@{mentionDisplayName(segment.target_id, mentionNames)}</span> : segment.text)}</p>} /> : content.type === "image" && text(content.url) ? <a href={text(content.url)} key={i} target="_blank" rel="noreferrer"><img className="max-h-48 max-w-full" alt={text(content.file_name) || tr("消息图片")} src={text(content.url)} /></a> : <a href={text(content.url)} key={i} target="_blank" rel="noreferrer">{text(content.file_name) || tr("附件")}</a>)}
-          {item.complete_message === false && <small>{tr("此条消息的一部分")}</small>}
+          {(item.complete_message === false || item.partial === true) && <small>{tr("此条消息的一部分")}</small>}
         </div>;
       })}
       {(Array.isArray(detail.messages) || Array.isArray(detail.conversations)) && messages.length === 0 && conversations.length === 0 && <p>{tr("没有匹配记录")}</p>}

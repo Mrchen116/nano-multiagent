@@ -40,6 +40,8 @@ if (values.help) {
       values.config ?? join(homedir(), ".nanoassistant/config.yaml"),
     );
     const config = await NodeConfiguration.read(configPath);
+    if (["start", "restart"].includes(action))
+      for (const agent of config.value.agents) config.runtime(agent);
     if (values["im-service-url"])
       config.value.im_service.url = values["im-service-url"];
     if (

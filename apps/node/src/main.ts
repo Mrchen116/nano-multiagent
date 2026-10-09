@@ -167,7 +167,8 @@ managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.n
     external.add(channel.agent_id, connection); return connection;
   },
 });
-managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:')).map(channel => ({
+// Disabled local placeholders have no provider identity to enroll.
+managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
   agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
 })));
 product = new SingleThread({

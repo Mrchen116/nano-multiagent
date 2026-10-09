@@ -24,6 +24,7 @@ from ._im_client import IMClient
 def test_foreground_subagent_carries_back_output(im_user: IMClient) -> None:
     """派前台子 agent,父 agent 回复带回子 agent 产出的哨兵。"""
     agent_id = im_user.first_agent_id()
+    im_user.update_agent_config(agent_id, tool_allowlist=["subagent"])
     conversation_id = im_user.create_direct_conversation(agent_id)
 
     ws = im_user.connect_ws()
@@ -32,7 +33,7 @@ def test_foreground_subagent_carries_back_output(im_user: IMClient) -> None:
         # 显式要求派一个子 agent,并让子 agent 回出哨兵——强制走子 agent 链路而非父直接答。
         im_user.send_message(
             conversation_id,
-            "请用 agent 工具派一个前台子 agent 去完成这件小事："
+            "请用 subagent 工具并设置 run_in_background=false 派一个前台子 agent 去完成这件小事："
             f"让那个子 agent 把这个 token 原样返回：{sentinel}。"
             "等子 agent 完成后，把它返回的 token 原样转达给我。",
         )

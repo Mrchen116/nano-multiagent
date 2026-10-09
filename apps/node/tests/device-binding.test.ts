@@ -169,6 +169,7 @@ it("recovers a committed binding after a lost response and preserves the prior o
       nodeId: "device",
       ownerId: "new-owner",
     });
+    expect(await readdir(runtime)).not.toContain("channels.sqlite3");
     expect(commits).toBe(1);
     expect(requests.filter((action) => action === "start")).toHaveLength(1);
     const archive = (await readdir(join(home, ".dsh-runtime"))).find((name) =>

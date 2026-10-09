@@ -620,7 +620,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         { code, message: r.error.detail },
       );
     }
-    return previewResponse(r);
+    return previewResponse(r.preview);
   });
   app.post("/im/v1/nodes/:node_id/agents", async (req, reply) => {
     const u = await user(req),
@@ -813,7 +813,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       heartbeat_enabled: b.heartbeat_enabled ?? !!features.heartbeat,
       cron_enabled: b.cron_enabled ?? !!features.cron_scheduling,
     });
-    return previewResponse(r);
+    return previewResponse(r.preview);
   });
   app.get("/im/v1/agents/:agent_id/heartbeat-md", async (req) => {
     const u = await user(req),

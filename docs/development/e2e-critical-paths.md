@@ -7,7 +7,7 @@
 这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程），把测试当成一个真实 IM 用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复。按是否需要真模型分成两类：
 
 - **真 LLM proxy**（默认多数路径）：断言用户在 IM 上能否观察到预期结果；依赖 `:4000`。
-- **fake / recording LLM**（如 #14、#15、#16、#17）：Gateway 的 `llm.providers[].base_url` 指向仓库内对应 recording fixture，断言上游请求体、持久化档案或 Gateway 可观察日志是否守住架构不变量；**不门控 / 不调用**真 proxy。
+- **fake / recording LLM**（如 #14、#15、#16）：Gateway 的 `llm.providers[].base_url` 指向仓库内对应 recording fixture，断言上游请求体、持久化档案或 Gateway 可观察日志是否守住架构不变量；**不门控 / 不调用**真 proxy。
 
 真 LLM 路径平时不跑（烧 token），**想测时一条命令全跑**：
 
@@ -17,7 +17,7 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 NANO_MULTIAGENT_E2E_MODEL=deepseek:deepseek-v4-flash scripts/e2e-critical.sh
 # 只跑 fake-LLM 路径（无需 :4000）:
 PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py
-# 确定性 self-evolution 真栈验收（no-save + Skill/replay）:
+# 原生 DSH profile + 产品知识事实交接回归（不等于完整 IM E2E）:
 scripts/e2e-self-evolution.sh
 ```
 
@@ -31,7 +31,7 @@ scripts/e2e-self-evolution.sh
 
 ## v1 必保活路径
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，运行方式与验证状态按各行说明记录。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 18 条。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数。当前必保活为 18 条；运行方式与证据按各行记录。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -41,16 +41,16 @@ scripts/e2e-self-evolution.sh
 | 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` + `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
 | 5 | **/stop**——对正在跑的 run 发 `/stop`，运行被中止、状态可见为已停 | `test_stop_run_critical_path.py::test_stop_aborts_active_run` | gateway + kernel | feat-421 |
 | 6 | **cron**（slow）——到点的定时任务自动推一条消息到 IM 对话 | `test_cron_push_critical_path.py::test_cron_job_auto_pushes_message`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
+| 7 | **Heartbeat 主动冒泡**（slow）——已建立聊天的 Agent 按 `.nanoassistant/HEARTBEAT.md` 指令，在 cadence 到点主动交付；真实模型与原生运行时 | `test_heartbeat_bubble_critical_path.py::test_heartbeat_bubbles_actionable_message`（`@pytest.mark.slow`） | runtime + gateway + im | refactor-581 |
 | 8 | **群聊双向定向 @**——用户 `@A` 让 A 去 `@B` 办事：用户先看到 A 应答且 A 定向 @了 B，再看到 B 因被点名而应答；未被点名者不抢话 | `test_group_chat_directed_mention_critical_path.py::test_human_mentions_a_then_a_mentions_b` + `::test_unmentioned_agent_stays_silent` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
-| 9 | **权限审批 approve/deny**——agent 要调需许可的工具，用户在 IM 收到等待批准提示；批准则 run 继续产出结果，拒绝则该工具不执行且 run 据此收口 | `test_permission_approval_critical_path.py::test_permission_approve_lets_tool_run` + `::test_permission_deny_blocks_tool` | gateway + kernel + im | feat-421 |
+| 9 | **权限审批 approve/deny**——审批模型返回无法解析的判定后，用户在 IM 收到等待批准提示（recording provider + 真 Node/IM）；批准则 run 继续产出结果，拒绝则该工具不执行且 run 据此收口 | `test_permission_approval_critical_path.py::test_permission_approve_lets_tool_run` + `::test_permission_deny_blocks_tool` | gateway + kernel + im | feat-421 |
 | 10 | **进程重启后会话续接**——发消息建立上下文后**重启 Gateway 进程**，再发消息 agent 仍记得重启前的上文 | `test_restart_session_continuity_critical_path.py::test_context_survives_gateway_restart` | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
 | 11 | **经 IM 创建 agent 并落地可聊**——在 IM 配置中心新建一个 agent，它在节点落地 workspace 并上线，随后能跟它聊出回复 | `test_create_agent_via_im_critical_path.py::test_agent_created_via_im_lands_and_replies` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
 | 12 | **从消息 fork 出分支单聊**——在一条已完成 agent 回复上 fork，进入同 agent 的新分支单聊，分支带着到 fork 点的记忆（基于历史追问答得对）、不含 fork 点之后的消息，原会话保持不变（两线独立） | `test_message_fork_critical_path.py::test_fork_branch_carries_memory_and_leaves_source_intact` | im（`docs/specs/im/spec.md`）+ gateway + kernel | feat-445 |
 | 13 | **Gateway-IM 连接韧性**——节点 online 后 kill IM 再重启，**无需手动重启 Gateway**节点自动回 online；先起 Gateway（IM 未起）Gateway 不崩、IM 起后节点变 online（覆盖断网/休眠/IM 重启/启动早于 IM 四类瞬态故障，经 `/im/v1/nodes` 观察） | `test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults`（驱动 `scripts/e2e-resilience.sh`；**不门控 LLM proxy**，连接韧性不调模型） | gateway（`docs/specs/gateway/spec.md`） | bugfix-446 |
 | 14 | **Agent 配置更新后上下文连续**——既有直聊先形成历史，再改 tools 等运行配置，回到同一聊天继续；Agent 仍带着改配置前的上文（不因换配置开空 session）。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub，断言最后一次上游请求 messages 同时含配置变更前后用户句；**不门控 / 不调用** `:4000` 真 proxy | `test_agent_config_context_continuity_critical_path.py::test_agent_config_update_keeps_chat_context_with_stub_llm` | gateway + kernel + im | bugfix-471 |
-| 15 | **高成本低 prompt cache 命中告警**——一次模型调用明确返回超过 30K 输入且低于 80% 缓存命中时，Gateway 记录可用 `agent_id + session_id` 定位 JSONL 的 warning，且不泄露用户 prompt。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub 以真实 `message_start`/`message_delta` usage 分帧返回；**不门控 / 不调用** `:4000` 真 proxy | `test_prompt_cache_alert_critical_path.py::test_gateway_logs_low_prompt_cache_hit_with_session_jsonl` | gateway + kernel + im | feat-516 |
-| 16 | **含工具历史的上下文压缩与重启连续**——短会话真执行一次工具后，以受控 usage/context window 触发 threshold 压缩；压缩后继续任务、再重启 Gateway 追问，回复都保留原目标。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub 校验 summary request 中 tool use/result 配对，并核对隔离 session JSONL 的有效 boundary；**不门控 / 不调用** `:4000` 真 proxy | `test_context_compaction_continuity_critical_path.py::test_tool_history_compacts_and_survives_gateway_restart` | gateway + kernel + im | bugfix-520 |
-| 17 | **self-evolution 私有 review 与 Skill 激活**——经真 IM + production Gateway 完成前台回复后，受控 no-save review 的 raw 回复不进入聊天；真实 `skill_manage(create)` 在前台 terminal 后即使 persistent stream 断线重放，仍恰好一次生成 structured notice、同步 explicit allowlist，并在新会话实际调用新 Skill。**fake LLM**：fixture 只按请求状态、role 与 tool-call/result 结构驱动；**不门控 / 不调用** `:4000` 真 proxy | `test_self_evolution_visibility_critical_path.py::test_no_save_review_stays_private_after_foreground_completion` + `test_self_evolution_skill_activation_critical_path.py::test_terminal_late_skill_create_replays_and_activates_in_a_new_session` | gateway + kernel + im | bugfix-525 |
+| 15 | **原生 token 用量**——供应商的独立 input、cache input 和 output 经真实 Node/IM，到聊天气泡和 owner-scoped 统计一致；缺失计数不编造为零。**fake LLM** | `test_token_usage_critical_path.py::test_native_token_usage_reaches_bubble_and_metrics` | runtime + gateway + im | refactor-581 |
+| 16 | **含工具历史的压缩与重启连续**——真实执行 read 后，经公开 `/compact <focus>` 生成摘要；随后追问与进程重启均保留原目标。recording fixture 核对配对工具和摘要后的实际请求。**fake LLM** | `test_context_compaction_continuity_critical_path.py::test_tool_history_compacts_and_survives_gateway_restart` | runtime + gateway + im | refactor-581 |
 | 18 | **macOS Gateway 常驻**——默认启动安装用户 LaunchAgent；crash 后 PID 更新并重新 online；人工 stop 本登录不重拉但稳定定义可再次 bootstrap；配置关闭后只运行 detached 且定义消失。**不调用真 LLM**，使用隔离 IM/config，显式开关 `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1` | `test_gateway_autostart_critical_path.py::test_macos_gateway_autostart_crash_stop_login_and_disable`（驱动 `scripts/e2e-gateway-autostart.sh`；仅 macOS） | gateway（`docs/specs/gateway/service-lifecycle.md`） | feat-542 |
 | 19 | **Global Agent 跨聊天持续统筹（J2）**——A 的任务真实委派后台子 Agent；B 修订正文经 Inbox 摄取后跟进同一子 Agent；工作区标记释放后仅显式投递修订结果到 A，主 Session 不变且内部过程不进入聊天。**真 LLM**：沿用 live proxy 双门控和 `e2e_stack`；feat-546 已完成真实模型验收，含同一子 Agent 跟进与目标 ACK 断言 | `test_global_agent_inbox_critical_path.py::test_global_agent_reads_cross_chat_amendment_and_follows_same_child` | gateway + kernel + im | feat-546 |
 
@@ -60,7 +60,6 @@ scripts/e2e-self-evolution.sh
 
 | 关键路径 | 为什么暂缺 | 归属子系统 | 计划 |
 |---|---|---|---|
-| **heartbeat 主动冒泡**（slow，原 v1 #7） | 默认 model K2.6 下端到端不冒泡（真实产品 bug，见 **#126**）：心跳 prompt 末句 HEARTBEAT_OK 触发句压过 HEARTBEAT.md 指令，model 回 HEARTBEAT_OK、投递被 observer 抑制。已穷尽 K2.6/doubao/gpt-5.5 三组确认非 model 选型可解。e2e 旅程已写（`test_heartbeat_bubble_critical_path.py`）并标 `@pytest.mark.xfail(strict=True, #126)`（真跑 XFAIL 作活复现资产）；bugfix 修复后转 XPASS → 去 xfail、移回 v1 | gateway（`docs/specs/gateway/spec.md`） | **bugfix #126**（修复后回 v1 必保活） |
 | **前端 UI smoke**（Playwright，稳定/桩后端、无真 LLM） | 本套件走 API 级（IM HTTP/WS），不驱动浏览器；真 LLM × 全 UI × 多路径是测试反模式（design 决策 7）。前端是被动薄客户端，但其自身回归本 unit 不覆盖 | im/frontend | **独立 unit**（稳定后端 + 桩 LLM 的 UI 冒烟） |
 | **断线重连补发** | 用户流 WS 断后 resume 补发事件的端到端时序，本 unit 未覆盖 | im（`docs/specs/im/spec.md`） | 后续 unit |
 | **附件透传** | 用户上传附件 → agent 读到 → 回复引用，端到端链路 | im + gateway + kernel | 后续 unit |
@@ -72,3 +71,5 @@ scripts/e2e-self-evolution.sh
 | **Feishu 1:1 外部 channel 主路径**（feat-447） | 第三方平台真 app / 真 WebSocket / 真 LLM 组合依赖专用凭据与网络，不纳入默认 `e2e-critical`；使用 `e2e-up.sh --feishu` + `e2e-feishu-probe.py` 运行隔离真实入口，凭据和命名 CLI profile 见 [`worktree-runtime.md`](worktree-runtime.md#专用-feishu-e2e-profile) | gateway + im（`docs/specs/gateway/spec.md`, `docs/specs/im/spec.md`） | 后续 unit：把稳定的外部 fixture 接入默认 critical suite |
 | **Feishu 群聊背景上下文与 @Bot 触发**（feat-447） | 普通群消息投递依赖 Feishu app scope `im:message.group_msg`；缺 scope 时只能诊断而不能强制平台投递。本 unit 已覆盖解析、scope warning、history catch-up 和 live 验收，未落稳定 e2e-critical | gateway + im | 后续 unit：external-channel 群聊 fixture / 真 app 凭据矩阵 |
 | **Feishu 原生权限审批卡片**（feat-447） | 飞书 interactive card 点击回调需要真平台回调/长连接事件；当前由 Gateway 权限管线单测覆盖，未有真 Gateway e2e 自动化 | gateway + kernel + im | 后续 unit：外部 channel approval e2e |
+
+原 Python self-evolution replay fixture 随旧内核退役。原生 DSH profile 与 product handoff 的覆盖见 `packages/dsh-integration/tests/knowledge.test.ts`、`packages/personal-assistant/tests/knowledge.test.ts`；完整 IM journey 目前仅保留 change 内实际运行证据，尚未登记为永久自动 E2E。

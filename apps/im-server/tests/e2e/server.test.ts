@@ -191,6 +191,7 @@ it("keeps first approval choice and revokes user and machine access at company s
     run_id: "run",
     permission_request: {
       request_id: "ask",
+      call_id: "write-call",
       options: [{ id: "allow_once" }, { id: "deny" }],
     },
   });
@@ -220,6 +221,10 @@ it("keeps first approval choice and revokes user and machine access at company s
     f.tokens.alice,
   );
   expect(late.body.decision).toBe("allow_once");
+  await g.frames.send("node.streaming_delta", {node_id:g.node, kind:"permission_resolved", message_id:mid, request_id:"ask", decision:"allow_once"});
+  await g.frames.send("node.streaming_delta", {node_id:g.node, kind:"tool_call_completed", message_id:mid, tool_call:{id:"write-call",name:"write",status:"completed",output:"written"}});
+  const history = await f.http("GET", `/im/v1/conversations/${id}/messages`, undefined, f.tokens.alice);
+  expect(history.body.items.find((item: any) => item.message?.id === mid).message.tool_calls[0].approval).toBe("user_allow");
   expect(
     (await f.http("POST", "/im/v1/company/members/bob/suspend", {}, f.tokens.alice)).status,
   ).toBe(200);

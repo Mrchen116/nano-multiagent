@@ -34,6 +34,7 @@ export interface RelayInput {
   conversation_id: string;
   idempotency_key: string;
   metadata: Record<string, unknown>;
+  participants?: { type: string; id: string; user_id: string; display_name: string }[];
   message: {
     id: string;
     content: string;

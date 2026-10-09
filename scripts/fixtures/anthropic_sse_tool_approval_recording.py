@@ -25,7 +25,11 @@ def _message_start() -> dict[str, Any]:
         "event": "message_start",
         "data": {
             "type": "message_start",
-            "message": {"role": "assistant", "content": []},
+            "message": {
+                "role": "assistant",
+                "content": [],
+                "usage": {"input_tokens": 1, "output_tokens": 0},
+            },
         },
     }
 
@@ -75,7 +79,7 @@ def _sse_text(text: str) -> bytes:
 def _sse_tool_call(sequence: int) -> bytes:
     arguments = json.dumps(
         {
-            "path": f"approval-route-{sequence}.txt",
+            "file_path": f"approval-route-{sequence}.txt",
             "content": f"approval-route-{sequence}",
         }
     )
@@ -115,10 +119,7 @@ def _sse_tool_call(sequence: int) -> bytes:
 
 
 def _is_classifier(body: dict[str, Any]) -> bool:
-    return (
-        "automated security classifier"
-        in json.dumps(body.get("system", ""), ensure_ascii=False).lower()
-    )
+    return not body.get("tools")
 
 
 def _last_message_has_tool_result(body: dict[str, Any]) -> bool:

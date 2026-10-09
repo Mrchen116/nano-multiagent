@@ -28,9 +28,14 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
     const call = events.find(item => item.type === 'tool/call' && item.data.callId === message.toolCallId);
     if (!call) return undefined;
+    const output = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('');
+    const view = data.nanoToolView as {call?: unknown; result?: unknown; childSessionId?: string} | undefined;
+    let detail: Record<string, unknown> | undefined;
+    try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed; } catch { /* Plain native output remains displayable as text. */ }
+    if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId};
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
       status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
-      output: message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join(''),
+      output, ...(detail ? {detail} : {}),
       ...workflowDetail(call.data.name,argumentsObject(call.data.arguments),message.content.filter(block=>block.type==='text').map(block=>block.text??'').join(''),message.isError),
     };
   }

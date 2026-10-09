@@ -50,3 +50,13 @@ it("keeps the compact inbox focused on messages and actionable pagination", () =
   result.rerender(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail:{...detail,has_more:true}}} compact /></MemoryRouter>);
   expect(screen.getByText("还有后续页面")).toBeInTheDocument();
 });
+
+it("renders native Inbox identifiers and presenter output without a per-tool renderer", () => {
+  const result = render(<MemoryRouter><ToolDetailBody call={{...call,status:"completed",detail:{messages:[{id:"native-message",target:"native-chat",sender:{name:"Alice"},time:"2026-10-10",content:[{type:"text",text:"Native constraint"}]}]}}}/></MemoryRouter>);
+  expect(screen.getByText("Native constraint")).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"原消息"})).toHaveAttribute("href","/chat/native-chat?message_id=native-message");
+  result.rerender(<MemoryRouter><ToolDetailBody call={{id:"native",name:"owner_tool",input:{},status:"completed",detail:{native_call:{card:"generic",title:"Read sample",rawInput:"sample.txt"},native_view:{card:"generic",content:[{type:"text",text:"Frozen native result"}]}}}}/></MemoryRouter>);
+  expect(screen.getByText("Read sample")).toBeInTheDocument();
+  expect(screen.getByText("sample.txt")).toBeInTheDocument();
+  expect(screen.getByText("Frozen native result")).toBeInTheDocument();
+});

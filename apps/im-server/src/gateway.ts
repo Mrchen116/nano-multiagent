@@ -1,3 +1,4 @@
+import { withHumanApproval } from "./messaging.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
@@ -748,10 +749,10 @@ export class Gateway {
       data = { segment: item, ...item };
     } else if (["tool_call_upserted", "tool_call_completed"].includes(p.kind)) {
       const items = m.tool_calls,
-        item = {
+        item = withHumanApproval({
           ...p.tool_call,
           ...(p.process_seq !== undefined ? { seq: p.process_seq } : {}),
-        };
+        }, m.permission_requests);
       const i = items.findIndex((x: Row) => x.id === item.id);
       if (i < 0) items.push(item);
       else items[i] = { ...items[i], ...item };
@@ -837,7 +838,7 @@ export class Gateway {
           participant_agent_ids: c.participants
             .filter((p: Row) => p.type === "agent")
             .map((p: Row) => p.id),
-          mentioned_agent_ids: [],
+          mentioned_agent_ids: s.mentionedAgents(m.conversation_id, m.content),
           node_epoch:
             one(db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", a.node_id)
               ?.node_epoch ?? 0,
