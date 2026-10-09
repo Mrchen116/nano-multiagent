@@ -34,6 +34,7 @@ export class ExternalChannels {
   get ready() { return this.options.relay.ready; }
   add(agentId: string, connection: Connection): void { this.connections.set(agentId, connection); }
   remove(agentId: string): void { this.connections.delete(agentId); }
+  available(agentId: string): boolean { return this.connections.has(agentId); }
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {
     const connection = this.connections.get(agentId); if (!connection) throw new Error('No channel for Agent');

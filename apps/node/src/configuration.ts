@@ -20,6 +20,7 @@ export interface NodeConfigurationFile {
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
+  private persistence: Promise<void> = Promise.resolve();
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) { return new NodeConfiguration(path, load(await readFile(path, 'utf8')) as NodeConfigurationFile); }
   current(agentId: string): CanonicalAgentConfiguration | undefined {
@@ -53,7 +54,11 @@ export class NodeConfiguration {
     this.runtime(resolved);
     return resolved;
   }
-  async persist(candidate: CanonicalAgentConfiguration): Promise<void> {
+  persist(candidate: CanonicalAgentConfiguration): Promise<void> {
+    const task = this.persistence.then(() => this.write(candidate));
+    this.persistence = task.catch(() => {}); return task;
+  }
+  private async write(candidate: CanonicalAgentConfiguration): Promise<void> {
     const previous = this.value.agents.find(agent => agent.agent_id === candidate.agent_id);
     const agent: LocalAgent = { ...previous, ...candidate, work_mode: candidate.work_mode as LocalAgent['work_mode'],
       workspace_root: candidate.workspace_root!, title: candidate.display_name, default_model: candidate.default_model ?? undefined,

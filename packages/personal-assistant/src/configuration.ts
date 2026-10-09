@@ -12,7 +12,7 @@ interface Options {
 /** Write-ahead operation receipts reconcile durable node configuration with runtime scopes. */
 export class ConfigurationOperations {
   private readonly db: DatabaseSync;
-  private chain: Promise<unknown> = Promise.resolve();
+  private readonly chains = new Map<string, Promise<unknown>>();
   constructor(path: string, private readonly options: Options) {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, receipt TEXT NOT NULL)');
@@ -29,7 +29,11 @@ export class ConfigurationOperations {
   }
   status(id: string): Record<string, unknown> { const receipt = this.get(id); return receipt ? this.result(receipt) : { operation_id: id, status: 'pending' }; }
   handle(kind: 'create' | 'apply', intent: Intent): Promise<Record<string, unknown>> {
-    const task = this.chain.then(() => this.perform(kind, intent)); this.chain = task.catch(() => {}); return task;
+    const key = String(intent.agent?.agent_id ?? intent.operation_id);
+    const task = (this.chains.get(key) ?? Promise.resolve()).then(() => this.perform(kind, intent));
+    const settled = task.catch(() => {}); this.chains.set(key, settled);
+    void settled.then(() => { if (this.chains.get(key) === settled) this.chains.delete(key); });
+    return task;
   }
   private async perform(kind: string, intent: Intent): Promise<Record<string, unknown>> {
     const reject = (code: string, message: string) => ({ operation_id: intent.operation_id, candidate_fingerprint: intent.candidate_fingerprint, status: 'rejected', error_code: code, message });
@@ -64,5 +68,5 @@ export class ConfigurationOperations {
       if (receipt.status === 'pending') await this.handle(receipt.kind as 'apply' | 'create', receipt.intent);
     }
   }
-  async close(): Promise<void> { await this.chain; this.db.close(); }
+  async close(): Promise<void> { await Promise.all(this.chains.values()); this.db.close(); }
 }

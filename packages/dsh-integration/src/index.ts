@@ -9,6 +9,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import type {} from '@deepseek-ai/dsh-system-prompt';
+import type {} from '@deepseek-ai/dsh-subagent';
+import type {} from '@deepseek-ai/dsh-session-query';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { RpcError, RpcPeer } from './rpc.js';
 import { scheduleEvidence } from './schedule-evidence.js';
@@ -53,7 +55,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'systemPrompt', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'systemPrompt', 'subagents', 'sessionQuery', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -92,7 +94,11 @@ export default class NanoRuntime {
       }, { prepend: true });
     });
     ctx.on('session/event', (session, event) => {
-      this.peer.notify('session.event', { sessionId: session.id, event });
+      let root = session;
+      while (!this.bindings.has(root.id) && root.header.parentSession) {
+        const parent = ctx.sessions.get(root.header.parentSession); if (!parent) break; root = parent;
+      }
+      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : undefined, event });
     });
     ctx.on('agent/status', ({ agent, status }) => this.peer.notify('session.status', { sessionId: agent.id, status }));
     ctx.on('agent/assistant-stream', ({ agent, frame }) => this.peer.notify('session.stream', { sessionId: agent.id, frame }));
@@ -171,6 +177,18 @@ export default class NanoRuntime {
       const events = agent.session.snapshotEvents().filter(event => event.seq > afterSeq);
       await this.flush(agent);
       return { status: agent.status, events, throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+    });
+    this.peer.handle('session.descendants', async value => {
+      const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
+      const root = await this.agent(sessionId); await this.flush(root);
+      const children = await ctx.subagents.listDescendants(root.id);
+      return Promise.all(children.map(async child => {
+        if (child.kind !== 'child') return child;
+        const live = ctx.sessions.get(child.id);
+        if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
+        using observation = await ctx.sessionQuery.observeSession(child.id);
+        return { ...child, throughSeq: observation.cursor, events: observation.cursor > (cursors[child.id] ?? -1) ? observation.events : [] };
+      }));
     });
     this.peer.handle('session.cancel', async value => {
       const { sessionId } = value as { sessionId: string };

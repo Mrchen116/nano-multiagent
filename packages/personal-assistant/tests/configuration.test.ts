@@ -37,3 +37,25 @@ it('preserves explicit empty selections and heartbeat clearing while matching ca
   expect(value.heartbeat_json).toBe('{}');
   expect(agentConfigurationFingerprint(value)).toBe(agentConfigurationFingerprint({ ...value, heartbeat_json: null }));
 });
+
+it('applies another Agent configuration while one Agent waits for its running turn', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nano-config-independent-'));
+  const records = new Map<string, ReturnType<typeof canonicalAgentConfiguration>>();
+  let release!: () => void; const busy = new Promise<void>(resolve => { release = resolve; });
+  let entered!: () => void; const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), {
+    current: id => records.get(id), resolve: async candidate => candidate,
+    persist: async candidate => { records.set(candidate.agent_id, candidate); },
+    apply: async candidate => { if (candidate.agent_id === 'a') { entered(); await busy; } },
+  });
+  const create = (id: string) => { const agent = canonicalAgentConfiguration({ agent_id: id }); return operations.handle('create', {
+    operation_id: id, agent, candidate_fingerprint: agentConfigurationFingerprint(agent), expected_previous_fingerprint: null,
+  }); };
+  const a = create('a');
+  try {
+    await waiting;
+    const b = create('b');
+    const state = await Promise.race([b, new Promise(resolve => setTimeout(() => resolve({ status: 'blocked' }), 100))]);
+    expect(state).toMatchObject({ status: 'applied' });
+  } finally { release(); await a; await operations.close(); await rm(directory, { recursive: true, force: true }); }
+});

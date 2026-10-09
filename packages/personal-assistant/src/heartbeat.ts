@@ -9,7 +9,7 @@ interface Options {
   agents: AgentConfiguration[]; runtime: RuntimePort;
   settings(agentId: string): HeartbeatSettings;
   binding(agent: AgentConfiguration): Promise<SessionBinding>;
-  available(): boolean; onError(error: unknown): void;
+  available(agentId: string): boolean; onError(error: unknown): void;
 }
 interface Intent { agentId: string; task: string; due: number; sessionId: string; inputId: string; content: { type: 'text'; text: string }[]; source: { kind: 'system'; actorId: string; channel: 'heartbeat'; messageId: string }; mode: 'followup'; onlyIfIdle: true }
 
@@ -35,9 +35,9 @@ export class Heartbeat {
     const task = this.evaluate(agentId, manual, now).finally(() => { this.active = undefined; }); this.active = task; return task;
   }
   private async evaluate(agentId: string | undefined, manual: boolean, now: number) {
-    if (!this.options.available()) return;
     for (const agent of this.options.agents) {
       if (agentId && agent.agentId !== agentId) continue;
+      if (!this.options.available(agent.agentId)) continue;
       if (!agent.features?.heartbeat || !this.subscriptions.has(agent.agentId)) { if (manual) throw new Error('Heartbeat Feature is disabled'); continue; }
       const settings = this.options.settings(agent.agentId);
       if (!withinActiveHours(now, settings)) continue;

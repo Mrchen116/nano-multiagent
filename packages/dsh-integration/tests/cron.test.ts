@@ -68,3 +68,40 @@ it('isolates native schedule owners, preserves disabled jobs across restart, and
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
 }, 20_000);
+
+it('recovers admitted schedule identity when the process dies before the timer receipt commits', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-cron-gap-'));
+  let client: RuntimeClient | undefined;
+  const agent = { agentId: 'gap', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', features: { cron_scheduling: true } };
+  const binding = { sessionId: 'gap-session', agentId: 'gap', revision: '1', ownerId: 'owner', cwd: home };
+  try {
+    const { writeFile } = await import('node:fs/promises');
+    const fault = join(home, 'flush-fault.mjs');
+    // Hold one public flush participant so the native timer cannot commit its
+    // receipt. The real persistence listener runs independently; cold recovery
+    // below proves that the actual schedule input reached its durable log.
+    await writeFile(fault, `export const name='flush-fault'; export function apply(ctx) {
+      ctx.on('session/flush', session => {
+        if (!session.snapshotEvents().some(event => event.type==='agent/inbox/spliced' && event.data.inserted.some(message => message.source?.kind==='schedule'))) return;
+        return new Promise(() => setTimeout(() => process.kill(process.pid, 'SIGKILL'), 100));
+      });
+    }`);
+    await prepareProfile(home, [{ insert: [{ id: 'flush-fault', name: fault }] }]);
+    client = new RuntimeClient({ home, cwd: home });
+    await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
+    await client.rpc.request('session.ensure', binding);
+    const task = await client.rpc.request('schedule.command', { agentId: 'gap', sessionId: binding.sessionId, action: 'create', args: { title: 'gap', prompt: 'gap', after_seconds: 1 } }) as { id: string };
+    expect((await client.exited).signal).toBe('SIGKILL'); client = undefined;
+    await prepareProfile(home); agent.features.cron_scheduling = false;
+    client = new RuntimeClient({ home, cwd: home });
+    await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
+    await client.rpc.request('session.ensure', binding);
+    const catalog = await client.rpc.request('schedule.command', { agentId: 'gap', action: 'catalog' });
+    expect(catalog).toMatchObject([{ id: task.id, status: 'active' }]);
+    expect((catalog as { lastDelivery?: unknown }[])[0]!.lastDelivery).toBeUndefined();
+    const evidence = await client.rpc.request('schedule.evidence', { sessionId: binding.sessionId });
+    expect(evidence).toMatchObject([{ scheduleId: task.id, trigger: 'timed', accepted: true }]);
+    expect((evidence as { messageId: string }[])[0]!.messageId).toBeTruthy();
+    await client.shutdown(); client = undefined;
+  } finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
+}, 20_000);

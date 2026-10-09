@@ -4,7 +4,7 @@ import type { ProtocolFrame } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
-import { tokenUsage, toolPresentation } from './presentation.js';
+import { projectWorkEvent } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
@@ -23,12 +23,13 @@ export class GlobalAgent {
   private readonly dirty = new Set<string>();
   private readonly calls = new Map<string, AbortController>();
   private workFlush?: Promise<void>;
+  private readonly childCursors: Record<string, number> = {};
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
-      const data = params as { sessionId: string; status?: string };
-      const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
+      const data = params as { sessionId: string; rootSessionId?: string; status?: string };
+      const binding = options.store.bindings().find(binding => binding.sessionId === (data.rootSessionId ?? data.sessionId));
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
       if (method === 'session.event') this.reconcile(binding).catch(options.onError);
@@ -227,40 +228,36 @@ export class GlobalAgent {
         // Replay is safe and fills a product projection interrupted after the cursor commit.
         const events = store.events(binding.sessionId);
         for (const event of events) {
-          let kind = ''; let payload: Record<string, unknown> = {};
           const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
-          if (event.type === 'turn/start') {
-            const nextEnd = events.find(candidate => candidate.seq > event.seq && candidate.type === 'turn/end')?.seq ?? Infinity;
-            const source = events.find(candidate => candidate.seq > event.seq && candidate.seq < nextEnd && candidate.type === 'user/message')?.data.source as { kind: string; channel?: string } | undefined;
-            if (!source) continue;
-            kind = 'turn_started'; payload = { run_id: `${binding.sessionId}:${turn}`, origin: 'system', trigger: { kind: source?.kind === 'schedule' ? 'cron' : source?.channel ?? 'inbox' } };
+          if (event.type === 'tool/result') {
+            const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
+            inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn);
           }
-          if (event.type === 'tool/call' || event.type === 'tool/result') {
-            const tool = toolPresentation(event, events);
-            if (tool) { kind = event.type === 'tool/call' ? 'tool_start' : 'tool_end'; payload = {
-              call_id: tool.id, tool_name: tool.name, arguments: tool.input, is_error: tool.status === 'failed', presentation: { summary: tool.output ?? '' },
-            }; }
-            if (event.type === 'tool/result') {
-              const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
-              inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn);
-            }
+          if (event.type === 'turn/end') for (const entry of inbox.completedInputs(binding.sessionId, turn!)) {
+            const status = (event.data.reason as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
+            await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
           }
-          if (event.type === 'assistant/message') {
-            const message = event.data.message as { id: string; content: { type: string; text?: string }[] };
-            kind = 'message'; payload = { message_id: message.id, role: 'assistant', text: message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('') };
-          }
-          if (event.type === 'turn/end') {
-            for (const entry of inbox.completedInputs(binding.sessionId, turn!)) {
-              const status = (event.data.reason as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
-              await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
-            }
-            const reason = event.data.reason as { kind: string }; kind = 'turn_end'; payload = { status: reason.kind === 'completed' ? 'completed' : reason.kind === 'cancelled' ? 'interrupted' : 'failed', stop_reason: reason.kind, usage: workUsage(events, turn!) }; }
-          if (kind) this.append(binding, `runtime:${event.seq}`, kind, payload, turn, event.time);
+          const projected = projectWorkEvent(binding.sessionId, event, events);
+          if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
         }
+        await this.projectChildren(binding);
         await this.flushWork();
       }
     })().finally(() => this.drains.delete(binding.sessionId));
     this.drains.set(binding.sessionId, task); return task;
+  }
+  private async projectChildren(root: SessionBinding): Promise<void> {
+    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; label?: string; events?: RuntimeEvent[]; throughSeq?: number }[];
+    for (const child of children) {
+      if (child.kind !== 'child') continue;
+      const binding = { ...root, sessionId: child.id };
+      this.append(binding, 'registered', 'session_registered', { scope: 'subagent', parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label });
+      for (const event of child.events ?? []) {
+        const projected = projectWorkEvent(child.id, event, child.events!, true);
+        if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
+      }
+      if (child.throughSeq !== undefined) this.childCursors[child.id] = child.throughSeq;
+    }
   }
   private append(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()): void {
     this.options.inbox.append({ event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
@@ -285,7 +282,3 @@ export class GlobalAgent {
   async stop(): Promise<void> { this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.workFlush; }
 }
 
-function workUsage(events: RuntimeEvent[], turn: number) {
-  const usage = tokenUsage(events, turn);
-  return usage ? { prompt_tokens: usage.prompt, completion_tokens: usage.completion, total_tokens: usage.total, context_used: usage.prompt, output: usage.completion, context_window: usage.context_window, cache_read_input_tokens: usage.cache_read } : undefined;
-}
