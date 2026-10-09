@@ -24,9 +24,13 @@ it('keeps external execution and confirmed sends available offline and does not 
     const imStart = await external.request('node.streaming_delta', { kind: 'turn_start', agent_id: 'a', conversation_id: input.conversation_id, idempotency_key: 'im-triggered' });
     await external.request('node.streaming_delta', { ...complete, message_id: imStart.payload.message_id });
     expect(sends).toBe(1);
+    const notice = { conversation_id: input.conversation_id, idempotency_key: 'knowledge-review', text: 'skills updated', system_notice: { source_agent_id: 'a', kind: 'self_evolution_review', updated_targets: ['skills'] } };
+    await external.request('node.system_message', notice); await external.request('node.system_message', notice);
+    expect(sends).toBe(2);
     store.bind({ agentId: 'a', sessionId: 'session', conversationId: input.conversation_id, ownerId: 'owner', cwd: '/tmp', revision: '1' });
     online = true; await external.recover(); await external.recover();
-    expect(sends).toBe(1);
+    expect(sends).toBe(2);
+    expect(mirrored.filter(frame => frame.system_notice)).toHaveLength(1);
     expect(store.bindingFor('a', 'shadow-chat')?.sessionId).toBe('session');
     expect(mirrored.filter(frame => frame.kind === 'turn_start')).toHaveLength(2);
     expect(mirrored.filter(frame => frame.kind === 'message_completed')).toHaveLength(2);

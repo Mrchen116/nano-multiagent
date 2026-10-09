@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -39,6 +39,7 @@ let operations: ConfigurationOperations;
 let heartbeat: Heartbeat;
 let external: ExternalChannels;
 let managed: ManagedChannels;
+let knowledge: KnowledgeUpdates;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
@@ -46,7 +47,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); } },
+  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); } },
   onError: reportError,
 });
 const relay = new WebRelayConnection({
@@ -86,6 +87,11 @@ const relay = new WebRelayConnection({
       }
     }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
+    if (frame.type === 'node.skills.usage.request') {
+      const agentId = String(payload.agent_id);
+      const usage = await runtime.request('knowledge.usage', { agentId }) as Record<string, unknown>;
+      await relay.request('node.skills.usage', { request_id: payload.request_id, node_id: config.node.node_id, usage: { agent_id: agentId, node_id: config.node.node_id, ...usage } });
+    }
     if (frame.type === 'heartbeat.trigger') await heartbeat.tick(String(payload.agent_id), true);
     if (frame.type === 'node.heartbeat.md.request') {
       const agent = agents.find(agent => agent.agentId === payload.agent_id || !payload.agent_id && agent.workspace === payload.workspace_root);
@@ -117,7 +123,7 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); } },
+  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); } },
   onError: reportError,
 });
 async function downloadImage(url: string, agentId: string) {
@@ -130,17 +136,19 @@ async function downloadImage(url: string, agentId: string) {
     return Buffer.from(await response.arrayBuffer()).toString('base64');
 }
 
+async function im(path: string, options?: RequestInit): Promise<unknown> {
+    const url = new URL(path, config.im_service.url); url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
+    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(10000), headers: { ...options?.headers, Authorization: `Bearer ${relay.registration?.gateway_access_token ?? config.im_service.token}` } });
+    if (!response.ok) throw new Error(`IM external projection failed: ${response.status}`);
+    return response.json();
+}
+
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   onError: reportError, runtimeFooter: config.display?.platforms?.feishu?.runtime_footer?.enabled ?? config.display?.runtime_footer?.enabled,
   attention: input => needsAttention(input, agents.find(agent => agent.agentId === input.agent_id)!),
   receive: input => agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global' ? globalProduct.receive(input) : product.receive(input),
   permission: payload => product.permission(payload),
-  im: async (path, options) => {
-    const url = new URL(path, config.im_service.url); url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
-    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(10000), headers: { ...options?.headers, Authorization: `Bearer ${relay.registration?.gateway_access_token ?? config.im_service.token}` } });
-    if (!response.ok) throw new Error(`IM external projection failed: ${response.status}`);
-    return response.json();
-  },
+  im,
 });
 managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, key: channelKey, relay,
   hasAgent: id => agents.some(agent => agent.agentId === id), onError: reportError,
@@ -174,6 +182,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (previous) Object.assign(previous, next); else agents.push(next);
   },
 });
+knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
   settings: agentId => (config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
@@ -191,7 +200,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  try { await managed.stop(); await heartbeat.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
 }
 process.once('SIGTERM', () => { void stop(); });

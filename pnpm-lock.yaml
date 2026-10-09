@@ -95,6 +95,9 @@ importers:
       '@deepseek-ai/dsh-client-file-upload':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)
+      '@deepseek-ai/dsh-compaction':
+        specifier: 0.2.1-alpha.1
+        version: 0.2.1-alpha.1(e97c258581e3a21f43736e0fe69c7c37)
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)
@@ -140,6 +143,9 @@ importers:
       '@deepseek-ai/dsh-tool-schedule':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-schedule@0.2.1-alpha.1(1483e8af16593fb46bded664de8f1cf7))(@deepseek-ai/dsh-subagent@0.2.1-alpha.1(bae771969584ed3cbfa1bcb28998d965))(@deepseek-ai/dsh-tools@0.2.1-alpha.1(6990646b5580becf37a10a1fe3d5469e))
+      '@deepseek-ai/dsh-tool-skill':
+        specifier: 0.2.1-alpha.1
+        version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-agent@0.2.1-alpha.1(bc8e1a234d16d0329e7a818df1caf030))(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-skill@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)))(@deepseek-ai/dsh-tools@0.2.1-alpha.1(6990646b5580becf37a10a1fe3d5469e))
       '@deepseek-ai/dsh-tools':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(6990646b5580becf37a10a1fe3d5469e)
@@ -155,9 +161,22 @@ importers:
       '@nano/product-contracts':
         specifier: workspace:*
         version: link:../product-contracts
+      js-yaml:
+        specifier: 4.1.0
+        version: 4.1.0
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
       zod:
         specifier: 4.6.5
         version: 4.6.5
+    devDependencies:
+      '@types/js-yaml':
+        specifier: 4.0.9
+        version: 4.0.9
+      '@types/proper-lockfile':
+        specifier: 4.1.4
+        version: 4.1.4
 
   packages/personal-assistant:
     dependencies:
@@ -3401,6 +3420,9 @@ packages:
   '@types/node@24.10.0':
     resolution: {integrity: sha512-qzQZRBqkFsYyaSWXuEHc2WR9c0a0CXwiE5FWUvn7ZM+vdy1uZLfCunD38UzhuB7YN/J11ndbDBcTmOdxJo9Q7A==}
 
+  '@types/proper-lockfile@4.1.4':
+    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
+
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
 
@@ -3850,6 +3872,9 @@ packages:
     resolution: {integrity: sha512-QLV1qeYSo5l13mQzWgP/y0LbMr5Plr5fJilgAIwgnwseproEbtNym8xpLsDzeZ6MWXgNE6kdWGBjdh3zT/Qerg==}
     engines: {node: '>=20'}
 
+  graceful-fs@4.2.11:
+    resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
+
   has-symbols@1.1.0:
     resolution: {integrity: sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ==}
     engines: {node: '>= 0.4'}
@@ -3939,12 +3964,12 @@ packages:
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
-  js-yaml@4.2.0:
-    resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
+  js-yaml@4.1.0:
+    resolution: {integrity: sha512-wpxZs9NoxZaJESJGIZTyDEaYpl0FKSA+FB9aJiyemKhMwkxQg63h4T1KJgUGHpTqPDNRcmmYLugrRjJlBtWvRA==}
     hasBin: true
 
-  js-yaml@4.3.2:
-    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
+  js-yaml@4.2.0:
+    resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
     hasBin: true
 
   jsbi@4.3.2:
@@ -4284,6 +4309,9 @@ packages:
     resolution: {integrity: sha512-HzMy3Geq23nVALD/M2LliU+F+M+gVNsvkQWWqeBZ8HDiCgzo6YPJ/Omrmtq24EFrIsk0a3EkQGEd7bDOo+IhGA==}
     engines: {node: '>=18'}
 
+  proper-lockfile@4.1.2:
+    resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
+
   protobufjs@7.6.6:
     resolution: {integrity: sha512-dYDWdjSl5RNb7SgPxGQcRU+GtvP7s2fpkrY0r432PcOIaZ0/rBcxEZnQN67iJhFuQiVw754JDoPruPCNdGsbjg==}
     engines: {node: '>=12.0.0'}
@@ -4338,6 +4366,10 @@ packages:
 
   restructure@3.0.2:
     resolution: {integrity: sha512-gSfoiOEA0VPE6Tukkrr7I0RBdE0s7H1eFCDBk05l1KIQT1UIKNc5JZy6jdyW6eYH3aR3g5b3PuL77rq0hvwtAw==}
+
+  retry@0.12.0:
+    resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
+    engines: {node: '>= 4'}
 
   retry@0.13.1:
     resolution: {integrity: sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==}
@@ -4443,6 +4475,9 @@ packages:
 
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
+
+  signal-exit@3.0.7:
+    resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
 
   signal-exit@4.1.0:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
@@ -7877,7 +7912,7 @@ snapshots:
       '@deepseek-ai/dsh-workflow-ptc': 0.2.1-alpha.1(24a47ea5013517d3bb49fb708d8a1a94)
       '@deepseek-ai/schemastery': 3.18.5-alpha.1
       commander: 15.0.0
-      js-yaml: 4.3.2
+      js-yaml: 4.2.0
       node-addon-require-builtin: 0.1.7
     transitivePeerDependencies:
       - '@deepseek-ai/cordis-plugin-group'
@@ -8551,6 +8586,10 @@ snapshots:
     dependencies:
       undici-types: 7.16.0
 
+  '@types/proper-lockfile@4.1.4':
+    dependencies:
+      '@types/retry': 0.12.0
+
   '@types/retry@0.12.0': {}
 
   '@types/ws@8.18.1':
@@ -9028,6 +9067,8 @@ snapshots:
       responselike: 4.0.2
       type-fest: 4.41.0
 
+  graceful-fs@4.2.11: {}
+
   has-symbols@1.1.0: {}
 
   has-tostringtag@1.0.2:
@@ -9115,11 +9156,11 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.2.0:
+  js-yaml@4.1.0:
     dependencies:
       argparse: 2.0.1
 
-  js-yaml@4.3.2:
+  js-yaml@4.2.0:
     dependencies:
       argparse: 2.0.1
 
@@ -9405,6 +9446,12 @@ snapshots:
     dependencies:
       parse-ms: 4.0.0
 
+  proper-lockfile@4.1.2:
+    dependencies:
+      graceful-fs: 4.2.11
+      retry: 0.12.0
+      signal-exit: 3.0.7
+
   protobufjs@7.6.6:
     dependencies:
       '@protobufjs/aspromise': 1.1.2
@@ -9447,6 +9494,8 @@ snapshots:
       lowercase-keys: 3.0.0
 
   restructure@3.0.2: {}
+
+  retry@0.12.0: {}
 
   retry@0.13.1: {}
 
@@ -9603,6 +9652,8 @@ snapshots:
       side-channel-weakmap: 1.0.2
 
   siginfo@2.0.0: {}
+
+  signal-exit@3.0.7: {}
 
   signal-exit@4.1.0: {}
 

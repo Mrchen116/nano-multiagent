@@ -19,10 +19,12 @@ import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
+import { KnowledgeRuntime } from './knowledge/runtime.js';
 import { NanoApproval } from './policy/approval.js';
 
 export interface AgentConfiguration {
   agentId: string;
+  workspace?: string;
   revision: string;
   provider: string;
   model: string;
@@ -34,6 +36,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
+  knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };
   approval?: import('@nano/product-contracts').ApprovalConfiguration;
   mode?: 'single_thread' | 'global';
 }
@@ -77,6 +80,8 @@ export default class NanoRuntime {
   constructor(private readonly ctx: Context) {
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
+    const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
+    const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
     const approvalFiber = ctx.plugin(NanoApproval, this.configurations);
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { resolve(child.nanoConfiguration); }); });
@@ -100,7 +105,7 @@ export default class NanoRuntime {
         const { reasoningEffort: _effort, maxTokens: _maxTokens, ...request } = await next();
         return { ...request, provider: config.provider, model: config.model,
           ...(config.reasoningEffort ? { reasoningEffort: ReasoningEffortId(config.reasoningEffort) } : {}),
-          ...(config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
+          ...(agent.session.header.parentSession && _maxTokens !== undefined ? { maxTokens: _maxTokens } : config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
         };
       }, { prepend: true });
     });
@@ -150,6 +155,8 @@ export default class NanoRuntime {
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
+      await knowledgeFiber.await();
+      await (await knowledge).recover();
       await ctx.loader.await();
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
@@ -211,6 +218,9 @@ export default class NanoRuntime {
         } finally { await handle.dispose(); }
       } finally { await unregister(); this.configurations.delete(preset); }
     });
+    this.peer.handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
+    this.peer.handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
+    this.peer.handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
     this.peer.handle('session.lookup', async value => {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
@@ -323,6 +333,7 @@ export default class NanoRuntime {
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
       await this.cron.dispose();
+      await (await knowledge).stop();
       await Promise.allSettled([...this.inputs.values()]);
       const agents = [...this.bindings.keys()].map(id => ctx.agents.get(SessionId(id))).filter((agent): agent is Agent => !!agent);
       for (const agent of agents) agent.cancel({ kind: 'user' }, { keepInbox: true });

@@ -7,6 +7,8 @@ import * as Persona from '@deepseek-ai/dsh-persona';
 import * as GlobalMode from './global-mode.js';
 import * as TaskGraphs from './features/task-graphs.js';
 import * as Heartbeat from './features/heartbeat.js';
+import * as MemoryCuration from './features/memory-curation.js';
+import * as SkillCreation from './features/skill-creation.js';
 import * as Cron from './features/cron.js';
 import type { AgentConfiguration } from './index.js';
 
@@ -77,6 +79,11 @@ export class ConfigurationScopes extends Service {
     this.tools.update(next.agentId);
   }
   private async features(scope: Scope, features: Record<string, boolean>) {
+    for (const [key, plugin] of [['memory_curation', MemoryCuration], ['skill_creation', SkillCreation]] as const) {
+      const existing = scope.features.get(key);
+      if (features[key] === false && existing) { await existing.dispose(); scope.features.delete(key); }
+      if (features[key] !== false && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId }); await fiber.await(); scope.features.set(key, fiber); }
+    }
     const heartbeat = scope.features.get('heartbeat');
     if (!features.heartbeat && heartbeat) { await heartbeat.dispose(); scope.features.delete('heartbeat'); }
     if (features.heartbeat && !heartbeat) { const fiber = scope.ctx.plugin(Heartbeat); await fiber.await(); scope.features.set('heartbeat', fiber); }

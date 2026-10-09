@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -23,6 +24,7 @@ export interface NodeConfigurationFile {
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
   private readonly policies = new Map<string, AgentConfiguration['approval']>();
+  private readonly ownerRoot = process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant');
   private persistence: Promise<void> = Promise.resolve();
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) { return new NodeConfiguration(path, load(await readFile(path, 'utf8')) as NodeConfigurationFile); }
@@ -41,8 +43,11 @@ export class NodeConfiguration {
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
     const workspace = agent.workspace_root!;
-    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(join(homedir(), '.nanoassistant'), workspace));
+    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
     const approval = { ...this.policies.get(workspace)! };
+    let evolution: Record<string, unknown> = {};
+    try { evolution = (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as { self_evolution?: Record<string, unknown> })?.self_evolution ?? {}; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (this.value.llm.tool_approval_model) {
       const reviewer = this.value.llm.providers.find(provider => provider.models.some(model => model.name === this.value.llm.tool_approval_model));
       if (!reviewer) throw new Error('Tool approval model is not registered');
@@ -52,13 +57,16 @@ export class NodeConfiguration {
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
-      approval,
+      approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
+        memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),
+        skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
-      extensions: { global: join(homedir(), '.nanoassistant', 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
+      extensions: { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
       skillRoots: [
         ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
-        ...['.nanoassistant', '.agents'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'global' })),
+        { path: join(this.ownerRoot, 'skills'), source: 'global' },
+        { path: join(homedir(), '.agents', 'skills'), source: 'global' },
         ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
       ],
     };

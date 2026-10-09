@@ -8,3 +8,4 @@ export { heartbeatTasks, heartbeatDue, withinActiveHours, type HeartbeatSettings
 export { ExternalChannels } from './external.js';
 export { needsAttention } from './attention.js';
 export { ManagedChannels, type ManagedChannel, type ChannelManifest } from './managed-channels.js';
+export { KnowledgeUpdates } from './knowledge.js';

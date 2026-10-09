@@ -26,6 +26,7 @@
     "@deepseek-ai/dsh-base": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-client-file-upload": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-compaction": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-llm": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-permission-presets": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-persona": "0.2.1-alpha.1",
@@ -41,16 +42,23 @@
     "@deepseek-ai/dsh-subagent": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-system-prompt": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-tool-schedule": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tool-skill": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-user-approval": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-workspace": "0.2.1-alpha.1",
     "@deepseek-ai/schemastery": "3.18.5-alpha.1",
     "@nano/product-contracts": "workspace:*",
+    "js-yaml": "4.1.0",
+    "proper-lockfile": "4.1.2",
     "zod": "4.6.5"
   },
   "dsh": {
     "bundle": {
       "patch": "cordis.patch.yml"
     }
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9",
+    "@types/proper-lockfile": "4.1.4"
   }
 }

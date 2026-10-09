@@ -89,6 +89,18 @@ export class ExternalChannels {
       if (['completed', 'failed'].includes(String(payload.delivery_status))) await this.removeReaction(String(payload.relay_task_id));
       return ack(type);
     }
+    if (type === 'node.system_message') {
+      const chat = this.state.chat(String(payload.conversation_id));
+      if (chat) {
+        const notice = payload.system_notice as { source_agent_id: string };
+        if (notice.source_agent_id !== chat.agentId) throw new Error('Knowledge notice belongs to another Agent');
+        const output = this.state.prepare(chat.id, String(payload.idempotency_key), 'explicit');
+        await this.publish(output, String(payload.text));
+        this.state.frame(output.id, { ...payload, kind: 'system_notice' });
+        void this.flush().catch(this.options.onError);
+        return ack(type, { message_id: this.state.output(output.id)!.platformId });
+      }
+    }
     if (type === 'conversation.query') {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
     }
@@ -195,7 +207,12 @@ export class ExternalChannels {
       for (const frame of this.state.pendingFrames()) {
         const output = this.state.output(frame.outputId)!; const chat = this.state.chat(output.chatId)!;
         if (!chat.shadowId) continue;
-        if (frame.body.kind === 'turn_start') {
+        if (frame.body.kind === 'system_notice') {
+          const { kind: _, ...payload } = frame.body;
+          const response = await this.options.relay.request('node.system_message', { ...payload, node_id: this.options.nodeId, conversation_id: chat.shadowId });
+          if (typeof response.payload.message_id !== 'string') throw new Error('Knowledge projection has no message identity');
+          this.state.mirrorOutput(output.id, response.payload.message_id);
+        } else if (frame.body.kind === 'turn_start') {
           const response = await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, conversation_id: chat.shadowId });
           if (typeof response.payload.message_id !== 'string') throw new Error('IM mirror has no message identity');
           this.state.mirrorOutput(output.id, response.payload.message_id);

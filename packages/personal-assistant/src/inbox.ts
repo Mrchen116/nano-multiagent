@@ -116,6 +116,9 @@ export class InboxStore {
     return (this.db.prepare(`SELECT i.message_id FROM inbox i JOIN ingestions g ON g.seq=i.seq
       WHERE g.session_id=? AND g.turn=? AND i.consumed=1 AND json_extract(i.payload,'$.message.sender_type')='user'`).all(session, turn) as { message_id: string }[]).map(row => row.message_id);
   }
+  reviewTargets(session: string, turn: number): string[] {
+    return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
+  }
   completedInputs(session: string, turn: number): { seq: number; input: RelayInput }[] {
     return (this.db.prepare('SELECT i.seq,i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq LEFT JOIN receipts r ON r.seq=i.seq WHERE g.session_id=? AND g.turn=? AND r.seq IS NULL').all(session, turn) as { seq: number; payload: string }[]).map(row => ({ seq: row.seq, input: JSON.parse(row.payload) as RelayInput }));
   }

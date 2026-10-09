@@ -1,3 +1,7 @@
+import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
+import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
+import type {} from '@deepseek-ai/dsh-tool-skill';
+import type {} from './policy/approval.js';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem';
@@ -39,7 +43,7 @@ export class ToolSelection {
 }
 
 export const name = 'nano-selected-skills';
-export const inject = ['skills'];
+export const inject = ['skills', 'nanoApproval'];
 const providers = new WeakMap<AgentConfiguration, Set<{ native: FileSystemSkillProvider; control: SkillProviderControl; index: number; source: string }>>();
 export function invalidateSkills(config: AgentConfiguration) { for (const provider of providers.get(config) ?? []) provider.control.invalidate(); }
 /** Unselected candidates for settings, using the same native discovery and precedence. */
@@ -54,6 +58,34 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
 }
 /** Native file parsing and resource loading with one selected provider surface. */
 export function apply(ctx: Context, config: AgentConfiguration) {
+  // Native explicit invocation only scans its own user source. Preserve Nano's
+  // human attribution and adapt the gesture through the same selected registry.
+  ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+    const decision = await next(); if (decision.kind === 'reject') return decision;
+    const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
+    const inputs = messages.filter(message => message.source.kind === 'nano-human').map(message => ({ id: message.id as string, content: message.content }));
+    // Only successful, host-observed live Inbox reads can supply explicit gestures.
+    // Historical conversations and quoted commands never become fresh invocations.
+    for (const message of agent.session.deriveMessages()) {
+      if (message.role !== 'tool' || message.isError || !ctx.nanoApproval.sources.isLiveInbox(agent.id, message.toolCallId)) continue;
+      const body = JSON.parse(message.content.filter(block => block.type === 'text').map(block => block.text).join('')) as {
+        messages?: { id: string; sender: { type: string }; partial?: boolean; content: { type: string; text?: string }[] }[];
+      };
+      for (const input of body.messages ?? []) if (input.sender.type === 'user' && !input.partial) inputs.push({ id: input.id, content: input.content as UserMessage['content'] });
+    }
+    const additions: UserMessage[] = [];
+    for (const input of inputs) for (const block of input.content) {
+      if (block.type !== 'text') continue;
+      const name = /^(?:\[[^\]]*\]\s*)*\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s|$)/.exec(block.text)?.[1];
+      if (!name) continue;
+      const id = `nano-skill:${input.id}:${name}`; if (invoked.has(id)) continue;
+      const skill = await ctx.skills.get(name, { scope: agent, cwd: agent.session.header.cwd, signal });
+      if (skill && isUserInvocable(skill)) {
+        invoked.add(id); additions.push(freezeMessage({ id: MessageId(id), role: 'user', content: [{ type: 'text', text: renderSkillContent(skill) }], source: { kind: 'skill-invocation', name, form: 'instructions' } }));
+      }
+    }
+    return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
+  });
   const allowed = (name: string) => config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
   for (const [index, root] of (config.skillRoots ?? []).entries()) {
     let native!: FileSystemSkillProvider;

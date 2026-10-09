@@ -11,6 +11,7 @@ const safeJson = (value: unknown) => JSON.stringify(value).replace(/[<>\u2028\u2
 export class ApprovalSources {
   private readonly live = new Map<string, Set<string>>();
   recordInbox(sessionId: string, callId: string) { let calls = this.live.get(sessionId); if (!calls) { calls = new Set(); this.live.set(sessionId, calls); } calls.add(callId); }
+  isLiveInbox(sessionId: string, callId: string) { return this.live.get(sessionId)?.has(callId) ?? false; }
   release(sessionId: string) { this.live.delete(sessionId); }
   async transcript(agent: Agent, exec: ToolExecution, inherited: unknown[]) {
     const lines = [...inherited, ...await this.history(agent)];
