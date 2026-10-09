@@ -38,4 +38,4 @@ NANO_IOS_SIMULATOR_ID=<设备UDID> ./src/IM/ios/scripts/build.sh test
 - `UI/`：原生 Markdown、受保护媒体、Quick Look 和系统分享。
 - `Tests/`：会话轮换/退出竞态、消息合并、管理请求与返回模型契约。
 
-真实服务必须按仓库 [worktree runtime](../../../docs/development/worktree-runtime.md) 隔离。模拟器 UI 与 API 验证不代替真机的输入、文件分享、免费签名和 Mini 自动续签验收。实施范围与证据见 [feat-578](../../../docs/changes/feat-578-ios-app/spec.md)。
+真实服务必须按仓库 [worktree runtime](../../../docs/development/worktree-runtime.md) 隔离。行为契约见 [iOS Client](../../../docs/specs/im/ios-client.md)，本版交付范围与证据见 [feat-578](../../../docs/changes/archive/feat-578-ios-app/release-acceptance.md)。模拟器 UI 与 API 验证不代替真机的中文输入、VoiceOver、免费续签和到期恢复；这些剩余实证跟进 [#327](https://github.com/Mrchen116/nano-multiagent/issues/327)。

@@ -1,6 +1,6 @@
 # feat-578: 完整原生 iOS App 与免费安装维护
 
-状态：active；Gate 1 首文档收口（2026-10-04），待设计及独立 Gate 2。首版覆盖 Web 全部管理功能，不代表实现、安装或真机验收已完成。
+状态（2026-10-09）：用户接受先合入当前原生版本；按 [本版交付决定](release-acceptance.md) 收尾归档。原始 Full 验收标准与历史 verdict 保留，中文 IME、VoiceOver 及免费维护的剩余实证转入 [后续验收 #327](https://github.com/Mrchen116/nano-multiagent/issues/327)，不改写成通过。
 
 ## Relations
 

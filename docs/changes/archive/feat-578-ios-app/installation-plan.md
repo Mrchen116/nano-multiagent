@@ -1,5 +1,7 @@
 # 免费安装与维护方案
 
+本版交付更新（2026-10-09）：用户接受先合入当前版本，见 [交付决定](release-acceptance.md)。手机实际剪贴板/大字号补测及临时状态还原见 [R4](M1-native-app/acceptance-device-r4.md)，Tailscale 已恢复测试前 Not Connected。中文 IME、VoiceOver 和下文 Mini 无线续签/自然到期实证由 [#327](https://github.com/Mrchen116/nano-multiagent/issues/327) 后续跟进；以下日期段保留当时状态，不代表维护已完成。
+
 状态（2026-10-08）：App源码 `383a5a9b1` 保持冻结，最新原生变更 `d17e70c4f1` 仅改两份照片用途声明。免费Personal Team Release已通过Air无线原地安装；独立[真机R2](M1-native-app/acceptance-device-r2.md)完成登录、账号隔离、聊天、Files及代表管理旅程，[真机R3](M1-native-app/acceptance-device-r3.md)完成仅添加授权后的实际照片保存/选择/发送/再开，关闭DEV2-01且新增问题0。Simulator可测范围与旧公开head的五项required CI完成，新变更发布后须观察其自己的远端CI。手机Tailscale实际Connected；Mini原有屏幕共享已接通，其真实AltServer显示没有连接设备、Finder也无手机，设备侧栏显示已启用，仍需用户直接USB接Mini完成首次配对前置。完整物理中文IME/软件键盘/VoiceOver/剪贴板内容、Mini无线续签与自然到期恢复尚未通过，Full最终验收、canonical归并及归档未完成，PR仍为草稿。当前profile到期仍为2026-10-13 19:31:19（Asia/Shanghai）；原地更新不等于延长有效期。包身份和无线安装见[Air记录](evidence/air-altserver-readiness.md)，Mini实际菜单见[Mini记录](evidence/mini-altserver-readiness.md)，Simulator范围见[R5](M1-native-app/acceptance-simulator-r5.md)/[R6](M1-native-app/acceptance-simulator-r6.md)。无需购买Apple Developer Program，不使用AltStore PAL。
 
 2026-10-06 最新安排：用户要求『模拟环境上完整测完了吗，真机先跳过』。当前只补模拟器剩余分支；更新后的真机体验、无线续签和自然到期恢复后置，不要求用户为本轮解锁镜像，也不把这些后置项目算作模拟器失败。原安装事实及最终要求保留。

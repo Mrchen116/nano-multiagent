@@ -1,8 +1,8 @@
 # IM Specification
 
-> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569 / feat-572
+> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569 / feat-572 / feat-578
 >
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -21,6 +21,7 @@
 | [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、系统 policies | 8 |
 | [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口 | 25 |
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 22 |
+| [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 5 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
 | [Agent Work](agent-work.md) | 有效公司成员可读的全局主工作轨迹、关联子执行、明细与持久回看 | 2 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
