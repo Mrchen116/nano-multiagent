@@ -30,6 +30,14 @@ it('parks group background without starting runtime, admits it on mention, and s
     expect(submitted.map(input => [input.inputId, input.mode])).toEqual([['a:background', 'inject'], ['a:mention', 'followup']]);
     await product.receive(input('mention', true)); expect(submitted).toHaveLength(2);
     const sessionId = store.bindingFor('a', 'group')!.sessionId;
+    const live = store.prepareDelivery(sessionId, 1);
+    store.updateDelivery(live.operationId, 'sending', 'bubble', '');
+    notify('session.liveness', {sessionId});
+    expect(frames.filter(frame => frame.kind === 'run_heartbeat')).toEqual([expect.objectContaining({message_id:'bubble',source:'dsh-agent'})]);
+    store.updateDelivery(live.operationId, 'confirmed', 'bubble', '');
+    notify('session.liveness', {sessionId});
+    expect(frames.filter(frame => frame.kind === 'run_heartbeat')).toHaveLength(1);
+    store.updateDelivery(live.operationId, 'sending', 'bubble', '');
     notify('session.stream', { sessionId, frame: { type: 'start', attemptId: 'attempt', turn: 1 } });
     notify('session.stream', { sessionId, frame: { type: 'chunk', attemptId: 'attempt', chunk: { type: 'text-delta', text: 'NO_' } } });
     events = [{ seq: 1, time: 1, type: 'assistant/message', data: { turn: 1, message: { id: 'answer', content: [{ type: 'text', text: 'NO_REPLY' }] } } },

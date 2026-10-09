@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -51,3 +51,25 @@ it('launches the official profile and cold-recovers a durably accepted input', a
     await rm(home, { recursive: true, force: true });
   }
 }, 30_000);
+
+
+it('emits liveness from a real running native Agent while the model is silent', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-liveness-'));
+  let client: RuntimeClient | undefined;
+  try {
+    await writeFile(join(home, 'quiet.mjs'), `export const name='quiet'; export const inject=['llm']; export function apply(ctx){ctx.on('llm/stream',async function*(o){await new Promise(resolve=>{const timer=setTimeout(resolve,60000);o.signal.addEventListener('abort',()=>{clearTimeout(timer);resolve();},{once:true});});o.signal.throwIfAborted();yield{type:'finish',reason:{kind:'stop'}};});}`);
+    await prepareProfile(home, [{insert:[{id:'quiet',name:join(home,'quiet.mjs')}]}]);
+    client = new RuntimeClient({home,cwd:home});
+    const notifications: {method: string; data: unknown}[] = [];
+    client.rpc.onNotification((method,data)=>notifications.push({method,data}));
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});
+    await client.rpc.request('session.ensure',{sessionId:'quiet',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
+    await client.rpc.request('session.submit',{sessionId:'quiet',inputId:'input',mode:'followup',content:[{type:'text',text:'Wait'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'input'}});
+    await expect.poll(()=>notifications.filter(item=>item.method==='session.liveness'),{timeout:20000}).toEqual([{method:'session.liveness',data:{sessionId:'quiet'}}]);
+    expect(await client.rpc.request('session.observe',{sessionId:'quiet'})).toMatchObject({status:'running'});
+    await client.shutdown(); client=undefined;
+  } finally {
+    if(client){client.process.kill('SIGKILL');await client.exited;}
+    await rm(home,{recursive:true,force:true});
+  }
+},30000);

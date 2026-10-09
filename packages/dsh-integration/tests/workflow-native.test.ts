@@ -37,6 +37,7 @@ export function apply(ctx) {
      yield {type:'finish',reason:{kind:o.tools?.some(tool=>tool.name==='structured_output')?'tool-calls':'stop'}}; return;
    }
    if(text==='launch'&&!seen.has(input.id)) { seen.add(input.id); yield {type:'block-end',index:0,block:{type:'tool-call',id:'workflow-call',name:'workflow',arguments:JSON.stringify({script:${JSON.stringify(script)},meta:${JSON.stringify(meta)}})}}; yield {type:'usage',usage:{inputTokens:0,outputTokens:2,cacheReadTokens:0,cacheWriteTokens:0}}; yield {type:'finish',reason:{kind:'tool-calls'}}; return; }
+   if(text==='launch'&&!seen.has('read')){seen.add('read');yield {type:'block-end',index:0,block:{type:'tool-call',id:'workflow-read',name:'workflow',arguments:JSON.stringify({action:'read'})}};yield{type:'usage',usage:{inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
    yield {type:'block-end',index:0,block:{type:'text',text:'Started'}}; yield {type:'usage',usage:{inputTokens:0,outputTokens:1,cacheReadTokens:0,cacheWriteTokens:0}};yield {type:'finish',reason:{kind:'stop'}};
  });
 }`,
@@ -97,6 +98,7 @@ export function apply(ctx) {
     const parentObservation = (await client!.rpc.request("session.observe", {
       sessionId: "workflow",
     })) as { events: import("@deepseek-ai/dsh-session").SessionEvent[] };
+    expect(parentObservation.events.find((event: any) => event.type === 'tool/result' && event.data.message.toolCallId === 'workflow-read')).toMatchObject({data:{message:{isError:false}}});
     expect(
       deriveTurnTokenUsage(
         parentObservation.events.slice(

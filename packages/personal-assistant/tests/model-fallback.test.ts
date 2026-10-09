@@ -104,11 +104,11 @@ it('keeps a failed native attempt pending, orders notices before the backup body
       'Completed original task',
     ]);
     expect(completed.at(-1)?.token_usage).toMatchObject({
-      prompt: 27,
-      completion: 3,
+      context_used: 27,
+      output: 3,
       total: 45,
-      cache_read: 12,
-      cache_total_input: 42,
+      cache_read_tokens: 12,
+      cache_total_input_tokens: 42,
     });
     expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual([
       'sent',

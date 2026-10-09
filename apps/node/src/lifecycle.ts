@@ -179,6 +179,11 @@ export async function claimGateway(config: string) {
       state.runtime_pid = runtimePid;
       await atomicPrivate(statePath(config), state);
     },
+    async unavailable() {
+      state.ready = false;
+      delete state.runtime_pid;
+      await atomicPrivate(statePath(config), state);
+    },
     async close() {
       const current = await gatewayState(config);
       if (

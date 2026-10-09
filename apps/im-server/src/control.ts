@@ -584,7 +584,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req),
       id = params(req).node_id;
     requireNode(ctx, id, u.owner_id);
-    const r = await rpc(id, "node.capabilities.resolve", {});
+    const {capabilities: r} = await rpc(id, "node.capabilities.resolve", {});
     return {
       node_id: id,
       models: modelOptions(r.models),
@@ -784,7 +784,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/capabilities", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const r = await rpc(p.node_id, "agent.capabilities.resolve", {
+    const {capabilities: r} = await rpc(p.node_id, "agent.capabilities.resolve", {
       agent_id: p.agent_id,
       workspace_root: requiredWorkspace(p),
     });

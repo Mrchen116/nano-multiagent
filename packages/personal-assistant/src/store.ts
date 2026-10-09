@@ -203,6 +203,9 @@ export class NodeStore {
   delivery(sessionId: string, turn: number): Delivery | undefined {
     return this.db.prepare('SELECT operation_id AS operationId,state,message_id AS messageId,content FROM deliveries WHERE session_id=? AND turn=?').get(sessionId, turn) as Delivery | undefined;
   }
+  activeDeliveries(sessionId: string): Delivery[] {
+    return this.db.prepare("SELECT operation_id AS operationId,state,message_id AS messageId,content FROM deliveries WHERE session_id=? AND state='sending' AND message_id IS NOT NULL").all(sessionId) as unknown as Delivery[];
+  }
   updateDelivery(operationId: string, state: DeliveryState, messageId: string | null, content: string): void {
     this.db.prepare('UPDATE deliveries SET state=?,message_id=?,content=? WHERE operation_id=?').run(state, messageId, content, operationId);
   }

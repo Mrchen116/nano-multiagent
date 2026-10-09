@@ -65,6 +65,7 @@ interface SupervisorOptions {
   onLog?: (text: string) => void;
   initialize: (rpc: RpcPeer) => Promise<void>;
   onReady: () => Promise<void>;
+  onUnavailable?: () => Promise<void>;
   onError: (error: unknown) => void;
 }
 
@@ -109,16 +110,18 @@ export class RuntimeSupervisor {
       await this.options.onReady();
     } catch (error) {
       this.ready = false;
+      await this.options.onUnavailable?.();
       client.process.kill('SIGTERM');
       await client.exited;
       throw error;
     }
-    void client.exited.then(() => {
+    void client.exited.then(async () => {
       if (this.stopping || this.client !== client) return;
       this.ready = false;
+      await this.options.onUnavailable?.();
       this.options.onError(new Error('DSH runtime exited; recovering persisted sessions'));
       this.recovery = this.recover();
-    });
+    }).catch(this.options.onError);
   }
   private async recover(): Promise<void> {
     // Three automatic attempts per node lifetime; repeated crashes remain visibly unavailable.
@@ -135,6 +138,7 @@ export class RuntimeSupervisor {
   async shutdown(): Promise<void> {
     this.stopping = true;
     this.ready = false;
+    await this.options.onUnavailable?.();
     if (this.timer) clearTimeout(this.timer);
     this.wakeTimer?.();
     await this.recovery;

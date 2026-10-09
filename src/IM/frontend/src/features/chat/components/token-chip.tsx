@@ -22,22 +22,16 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
   const [open, setOpen] = useState(false);
   if (!usage) return null;
 
-  const hasWindow = usage.context_window > 0;
-  const pct = hasWindow ? usage.context_used / usage.context_window : 0;
+  const contextWindow = usage.context_window ?? 0;
+  const hasWindow = contextWindow > 0;
+  const pct = hasWindow ? usage.context_used / contextWindow : 0;
   const variant = hasWindow && pct >= 0.9 ? "critical" : hasWindow && pct >= 0.7 ? "warn" : "normal";
-  // R4 intent (f1cc8881): show total tokens consumed this turn — context+output.
-  // Backend guarantees total is always present via server-side fallback on both WS
-  // (event_types.py:67) and REST (messages.py); `!` asserts the backend contract.
-  // Do NOT fall back to output — it severely underestimates real cost (bugfix-390 decision 1).
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const displayed = usage.total!
   const pctInt = Math.round(pct * 100);
-
-  // feat-439-M1: 整轮缓存命中率(spec Q1=B) = 命中读取 input / 总 input。
-  // 旧行 / 不带缓存的 provider 字段缺省 → 0，行仍显示「缓存命中 0 (0%)」(空态不隐藏)。
-  const cacheRead = usage.cache_read_tokens ?? 0;
-  const cacheTotalInput = usage.cache_total_input_tokens ?? 0;
-  const cachePct = cacheTotalInput > 0 ? Math.round((cacheRead / cacheTotalInput) * 100) : 0;
+  // Native providers may omit counters. Absence remains unknown, distinct from a reported zero.
+  const cacheRead = usage.cache_read_tokens;
+  const cacheTotalInput = usage.cache_total_input_tokens;
+  const cacheKnown = cacheRead !== undefined && cacheTotalInput !== undefined;
+  const cachePct = cacheKnown && cacheTotalInput > 0 ? Math.round((cacheRead / cacheTotalInput) * 100) : 0;
 
   const barColor =
     pct >= 0.9
@@ -58,7 +52,7 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
         data-testid={dataTestId}
       >
         <span className="chat-token-chip-arrow">{open ? "▾" : "▸"}</span>
-        <span>{fmtK(displayed)} {t("chat.messagePane.tokenSuffix")}</span>
+        <span>{usage.total === undefined ? "—" : fmtK(usage.total)} {t("chat.messagePane.tokenSuffix")}</span>
         <span className="chat-token-chip-dot">·</span>
         {hasWindow && (
           <span
@@ -91,14 +85,14 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenContextUsed")}</span>
             <span className="chat-token-chip-detail-value">
               {hasWindow
-                ? `${usage.context_used.toLocaleString()} / ${(usage.context_window / 1000).toFixed(0)}k`
+                ? `${usage.context_used.toLocaleString()} / ${(contextWindow / 1000).toFixed(0)}k`
                 : usage.context_used.toLocaleString()}
             </span>
           </div>
           <div className="chat-token-chip-detail-row">
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenCacheHit")}</span>
             <span className="chat-token-chip-detail-value">
-              {`${cacheRead.toLocaleString()} (${cachePct}%)`}
+              {cacheKnown ? `${cacheRead.toLocaleString()} (${cachePct}%)` : "—"}
             </span>
           </div>
           {hasWindow && (

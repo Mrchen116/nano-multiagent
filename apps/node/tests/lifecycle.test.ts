@@ -39,7 +39,7 @@ it("manages one real node, preserves its environment, and refuses a reused PID",
       }),
     );
     expect((await cli("start")).stdout).toContain("Gateway started");
-    const state = JSON.parse(
+    let state = JSON.parse(
       await readFile(join(home, ".gateway-state.json"), "utf8"),
     );
     expect(state.ready).toBe(true);
@@ -54,6 +54,14 @@ it("manages one real node, preserves its environment, and refuses a reused PID",
     expect(environment.stdout.includes("NANO_TEST_ENV=configured")).toBe(true);
     expect((await cli("status")).stdout).toContain("RUNNING");
     await expect(cli("start")).rejects.toThrow("already running");
+    const oldRuntime = state.runtime_pid;
+    process.kill(oldRuntime, "SIGKILL");
+    await expect.poll(async () => JSON.parse(await readFile(join(home, ".gateway-state.json"), "utf8")).ready, {interval: 10, timeout: 3000}).toBe(false);
+    await expect.poll(async () => {
+      state = JSON.parse(await readFile(join(home, ".gateway-state.json"), "utf8"));
+      return state.ready && state.runtime_pid !== oldRuntime;
+    }, {timeout: 15000}).toBe(true);
+    expect((await cli("status")).stdout).toContain(String(state.runtime_pid));
     expect((await cli("stop")).stdout).toContain("STOPPED");
     await expect
       .poll(

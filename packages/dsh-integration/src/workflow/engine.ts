@@ -188,7 +188,8 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       const budget = this.budgets.get(budgetId);
       if (budget) await this.spent(budget);
     }
-    return structuredClone(records.map((record) => this.project(record)));
+    // Public tool outputs must omit optional undefined fields, just like persisted JSON.
+    return JSON.parse(JSON.stringify(records.map((record) => this.project(record)))) as ReturnType<NanoWorkflowEngine["project"]>[];
   }
   private project(record: WorkflowRecord) {
     const budget = this.budgets.get(record.budgetId);
@@ -461,6 +462,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
               );
               return {
                 success: result.stopReason === "completed",
+                ...(result.diagnostic ? {error: result.diagnostic} : {}),
                 value:
                   result.structured ??
                   result.output

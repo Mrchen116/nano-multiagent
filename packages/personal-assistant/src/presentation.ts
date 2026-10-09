@@ -7,11 +7,11 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
   const last = usage.at(-1);
   if (!last) return undefined;
   const prompt = last.inputTokens! + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0);
-  const result: Record<string, number> = { prompt, completion: usage.reduce((sum, item) => sum + item.outputTokens!, 0) };
+  const result: Record<string, number> = { context_used: prompt, output: usage.reduce((sum, item) => sum + item.outputTokens!, 0) };
   if (usage.every(item => item.totalTokens !== undefined)) result.total = usage.reduce((sum, item) => sum + item.totalTokens!, 0);
   if (usage.every(item => item.cacheReadTokens !== undefined)) {
-    result.cache_read = usage.reduce((sum, item) => sum + item.cacheReadTokens!, 0);
-    result.cache_total_input = usage.reduce((sum, item) => sum + item.inputTokens! + item.cacheReadTokens! + (item.cacheWriteTokens ?? 0), 0);
+    result.cache_read_tokens = usage.reduce((sum, item) => sum + item.cacheReadTokens!, 0);
+    result.cache_total_input_tokens = usage.reduce((sum, item) => sum + item.inputTokens! + item.cacheReadTokens! + (item.cacheWriteTokens ?? 0), 0);
   }
   const context = events.filter(event => event.type === 'request/context' && event.seq <= answers.at(-1)!.seq).at(-1);
   if (typeof context?.data.contextWindow === 'number') result.context_window = context.data.contextWindow;

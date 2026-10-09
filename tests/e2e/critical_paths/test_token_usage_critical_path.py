@@ -38,9 +38,9 @@ def test_native_token_usage_reaches_bubble_and_metrics(
         conversation_id = client.create_direct_conversation(agent_id)
         client.send_message(conversation_id, "USAGE-PROBE")
         reply = client.wait_for_agent_reply_with(conversation_id, "ACK-1", timeout=90)
-        assert reply["token_usage"]["prompt"] == 31_001
-        assert reply["token_usage"]["completion"] == 1
-        assert reply["token_usage"]["cache_read"] == 1_000
+        assert reply["token_usage"]["context_used"] == 31_001
+        assert reply["token_usage"]["output"] == 1
+        assert reply["token_usage"]["cache_read_tokens"] == 1_000
         with httpx.Client(
             base_url=client.im_url,
             headers={"Authorization": f"Bearer {client.token}"},

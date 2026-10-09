@@ -235,3 +235,20 @@ it("keeps first approval choice and revokes user and machine access at company s
   await once(g.socket, "close");
   expect((await f.http("GET", "/im/v1/gateway/identity", undefined, g.token)).status).toBe(401);
 }, 20000);
+
+
+it('keeps quiet execution and permission waits alive only while native liveness arrives', async () => {
+  const f=await start(undefined,{IM_RELAY_WATCHDOG_TIMEOUT_SECONDS:'1',IM_RELAY_WATCHDOG_INTERVAL_SECONDS:'0.1'}), g=await bind(f);
+  const conversation=await f.http('POST','/im/v1/conversations',{title:'quiet',type:'direct',participants:[{type:'agent',id:'assistant'}]},f.tokens.alice);
+  const started=await g.frames.send('node.streaming_delta',{node_id:g.node,kind:'turn_start',conversation_id:conversation.body.id,agent_id:'assistant',idempotency_key:'quiet'});
+  const message=started.payload.message_id;
+  const status=async()=> (await f.http('GET',`/im/v1/conversations/${conversation.body.id}/messages`,undefined,f.tokens.alice)).body.items.find((item:any)=>item.message.id===message).message.delivery_status;
+  await g.frames.send('node.streaming_delta',{node_id:g.node,kind:'permission_request',message_id:message,request_id:'wait',tool_name:'bash',call_id:'quiet-call'});
+  for(let step=0;step<12;step++){
+    await g.frames.send('node.streaming_delta',{node_id:g.node,kind:'run_heartbeat',message_id:message,source:'dsh-agent'});
+    await new Promise(resolve=>setTimeout(resolve,150));
+  }
+  expect(await status()).toBe('running');
+  // A dead execution owner must still be recovered even if it last waited for approval.
+  await expect.poll(status,{timeout:3000}).toBe('failed');
+});

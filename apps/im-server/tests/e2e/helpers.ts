@@ -68,7 +68,7 @@ export class Frames {
     );
   }
 }
-export async function start(existingDbPath?: string) {
+export async function start(existingDbPath?: string, environment: NodeJS.ProcessEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), "im-process-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const dbPath = existingDbPath ?? join(dir, "im.sqlite3"),
@@ -86,6 +86,7 @@ export async function start(existingDbPath?: string) {
       cwd: resolve("."),
       env: {
         ...process.env,
+        ...environment,
         IM_DB_PATH: dbPath,
         IM_PUBLIC_URL: "http://127.0.0.1:8011",
         IM_JWT_SECRET: "isolated-real-process-secret-at-least-32",

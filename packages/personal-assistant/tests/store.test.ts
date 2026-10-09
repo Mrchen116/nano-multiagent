@@ -35,8 +35,8 @@ it('adds cache buckets to uncached input once and keeps unknown cache fields abs
     event(0, 'request/context', { contextWindow: 1000 }),
     event(1, 'assistant/message', { turn: 1, usage: { inputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 5, outputTokens: 3, totalTokens: 38 } }),
     event(2, 'request/context', { contextWindow: 2000 }),
-  ], 1)).toEqual({ prompt: 35, completion: 3, total: 38, cache_read: 20, cache_total_input: 35, context_window: 1000 });
-  expect(tokenUsage([event(0, 'assistant/message', { turn: 2, usage: { inputTokens: 10, outputTokens: 3 } })], 2)).toEqual({ prompt: 10, completion: 3 });
+  ], 1)).toEqual({ context_used: 35, output: 3, total: 38, cache_read_tokens: 20, cache_total_input_tokens: 35, context_window: 1000 });
+  expect(tokenUsage([event(0, 'assistant/message', { turn: 2, usage: { inputTokens: 10, outputTokens: 3 } })], 2)).toEqual({ context_used: 10, output: 3 });
 });
 
 it('projects native schedule admission with its original message identity across replay', () => {

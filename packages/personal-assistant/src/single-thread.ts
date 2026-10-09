@@ -38,6 +38,7 @@ export class SingleThread {
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
+      if (method === 'session.liveness') Promise.all(options.store.activeDeliveries(data.sessionId).map(delivery => this.delta({kind: 'run_heartbeat', message_id: delivery.messageId, source: 'dsh-agent'}))).catch(options.onError);
       if (method === 'session.stream') this.stream(value as Stream);
     });
   }

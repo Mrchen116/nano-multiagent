@@ -132,6 +132,14 @@ export default class NanoRuntime {
       }
       this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : undefined, event });
     });
+    const liveness = setInterval(() => {
+      for (const sessionId of this.bindings.keys()) {
+        const agent = ctx.agents.get(SessionId(sessionId));
+        if (agent?.status === 'running') this.peer.notify('session.liveness', { sessionId });
+      }
+    }, 15000);
+    liveness.unref();
+    ctx.effect(() => () => clearInterval(liveness));
     ctx.on('agent/status', ({ agent, status }) => this.peer.notify('session.status', { sessionId: agent.id, status }));
     ctx.on('agent/assistant-stream', ({ agent, frame }) => this.peer.notify('session.stream', { sessionId: agent.id, frame }));
     ctx.on('agent/error', ({ agent, error }) => this.peer.notify('session.error', { sessionId: agent.id, message: String(error) }));

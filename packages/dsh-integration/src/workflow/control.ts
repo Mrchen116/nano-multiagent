@@ -23,7 +23,7 @@ export interface WorkflowCall {
 }
 interface Child {
   id: string;
-  result: Promise<{ value: unknown; success: boolean }>;
+  result: Promise<{ value: unknown; success: boolean; error?: string }>;
   dispose(): Promise<void>;
 }
 interface Configuration {
@@ -207,7 +207,7 @@ export class WorkflowControl {
           entry.settle = resolve;
         });
         let child: Child | undefined;
-        let outcome: { value: unknown; success: boolean } | undefined;
+        let outcome: { value: unknown; success: boolean; error?: string } | undefined;
         let failure: unknown;
         try {
           child = await this.config.start(
@@ -242,6 +242,7 @@ export class WorkflowControl {
           : outcome!.success
             ? "completed"
             : "failed";
+        if (outcome?.error) call.error = outcome.error;
         call.value = call.state === "completed" ? outcome!.value : null;
         call.completion = ++this.completion;
         await this.persist();

@@ -277,9 +277,9 @@ function approvalCard(id: string, request: Record<string, unknown>, group: boole
 
 function runtimeCard(text: string, metadata: Record<string, unknown>): Record<string, unknown> | undefined {
   const model = typeof metadata.resolved_model === 'string' ? metadata.resolved_model : '';
-  const usage = metadata.token_usage as { prompt?: number; context_window?: number } | undefined;
+  const usage = metadata.token_usage as { context_used?: number; context_window?: number } | undefined;
   const parts = [model.length > 512 ? `${model.slice(0, 512)}...` : model];
-  if (usage?.prompt !== undefined && usage.context_window) parts.push(`ctx ${Math.round(100 * usage.prompt / usage.context_window)}%`);
+  if (usage?.context_used !== undefined && usage.context_window) parts.push(`ctx ${Math.round(100 * usage.context_used / usage.context_window)}%`);
   const footer = parts.filter(Boolean).join(' · '); if (!footer) return;
   return { config: { wide_screen_mode: true }, elements: [{ tag: 'markdown', content: text }, { tag: 'hr' }, { tag: 'note', elements: [{ tag: 'plain_text', content: footer }] }] };
 }
