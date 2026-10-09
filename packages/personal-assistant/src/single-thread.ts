@@ -56,15 +56,26 @@ export class SingleThread {
       ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
     });
     if (ownerDirect) store.markCanonical(binding);
-    if (input.message.content.trim() === '/stop') {
-      await runtime.request('session.ensure', runtimeBinding(binding));
-      const result = await runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
-      await this.reconcile(binding.sessionId);
+    if (['/stop', '/new'].includes(input.message.content.trim())) {
+      const commandId = `${input.agent_id}:${input.message.id}`;
+      let text = store.command(commandId);
+      if (!text) {
+        await runtime.request('session.ensure', runtimeBinding(binding));
+        const result = await runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
+        await this.reconcile(binding.sessionId);
+        if (input.message.content.trim() === '/new') {
+          store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
+          text = store.command(commandId)!;
+        } else {
+          text = result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
+          store.saveCommand(commandId, text);
+        }
+      }
       const ack = await this.delta({ kind: 'turn_start', conversation_id: binding.conversationId, agent_id: binding.agentId,
         idempotency_key: `command:${input.message.id}`, external_reply: input.metadata.external_reply });
       await this.delta({ kind: 'message_completed', message_id: ack.payload.message_id,
-        final_content: result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。', delivery_status: 'completed' });
-      await this.receipt(input, 'completed');
+        final_content: text, delivery_status: 'completed' });
+      await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'completed' });
       return;
     }
     store.takeGroup(binding);

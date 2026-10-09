@@ -281,4 +281,3 @@ export class GlobalAgent {
   private async receipt(input: RelayInput, status: string) { await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status }); }
   async stop(): Promise<void> { this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.workFlush; }
 }
-

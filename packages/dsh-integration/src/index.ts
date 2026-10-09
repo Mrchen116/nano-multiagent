@@ -8,7 +8,7 @@ import { freezeMessage, MessageId, ReasoningEffortId, type UserMessage } from '@
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
-import type {} from '@deepseek-ai/dsh-system-prompt';
+import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
 import type {} from '@deepseek-ai/dsh-subagent';
 import type {} from '@deepseek-ai/dsh-session-query';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
@@ -18,6 +18,7 @@ import { inputEvidence } from './input-evidence.js';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
+import { skillCatalog } from './capabilities.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -28,6 +29,10 @@ export interface AgentConfiguration {
   maxTokens?: number;
   systemPrompt?: string;
   features?: Record<string, boolean>;
+  toolAllowlist?: string[];
+  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
+  skillRoots?: { path: string; source: string }[];
+  extensions?: { global?: string; workspace?: string };
   mode?: 'single_thread' | 'global';
 }
 export interface SessionBinding {
@@ -55,7 +60,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'systemPrompt', 'subagents', 'sessionQuery', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -76,11 +81,12 @@ export default class NanoRuntime {
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
     });
-    ctx.on('agent/created', ({ agent }) => {
+    ctx.on('agent/created', async ({ agent }) => {
       const preset = agent.session.header.agentPreset;
       if (!preset?.startsWith('nano:')) return;
       const config = this.configurations.get(preset);
       if (!config) throw new Error(`Missing Nano configuration for ${preset}`);
+      (await configuration).attachAgent(agent, config);
       agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
         const assembled = await next();
         return { ...assembled, variables: { ...assembled.variables, provider: config.provider, model: config.model } };
@@ -163,7 +169,35 @@ export default class NanoRuntime {
     });
     this.peer.handle('session.capabilities', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
-      return { tools: ctx.tools.schemas(agent).map(tool => tool.name), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
+      return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
+    });
+    this.peer.handle('configuration.catalog', async value => {
+      const { agentId, cwd } = value as { agentId: string; cwd: string };
+      const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
+      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
+      await using scope = await ctx.agentPresets.acquireScope(entry[0]);
+      return { tools: ctx.tools.schemas(scope.key), skills: await skillCatalog(entry[1], cwd) };
+    });
+    this.peer.handle('configuration.preview', async value => {
+      const { config: requested, cwd } = value as { config: AgentConfiguration; cwd: string };
+      const previewId = `preview-${randomUUID()}`;
+      const config = { ...requested, agentId: previewId };
+      const preset = `nano:${previewId}:preview`;
+      this.configurations.set(preset, config);
+      const unregister = await ctx.agentPresets.register({ id: preset, plugins: [
+        { id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } },
+      ] });
+      try {
+        const handle = await ctx.agents.create({ sessionId: SessionId(previewId), meta: { cwd, agentPreset: preset },
+          setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, preset); } });
+        try {
+          const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
+          await using scope = await ctx.agentPresets.acquireScope(preset);
+          return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
+            tools: assembly.tools.map(tool => tool.name), skills: await ctx.skills.list({ scope: handle.agent, cwd }),
+            catalog: { tools: ctx.tools.schemas(scope.key), skills: await skillCatalog(config, cwd) } };
+        } finally { await handle.dispose(); }
+      } finally { await unregister(); this.configurations.delete(preset); }
     });
     this.peer.handle('session.lookup', async value => {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
@@ -213,6 +247,7 @@ export default class NanoRuntime {
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
       if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
       if (previous) {
+        (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
         await (await configuration).setFeatures(next.agentId, restricted);

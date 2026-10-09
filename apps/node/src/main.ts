@@ -1,6 +1,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
+import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
@@ -63,6 +64,27 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (['agent.capabilities.resolve', 'node.capabilities.resolve', 'agent.prompt.preview.request', 'node.prompt.preview.request'].includes(frame.type)) {
+      const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : undefined;
+      const current = config.agents.find(agent => agent.agent_id === agentId);
+      if (agentId && !current) throw new Error('Capability request has no Agent on this node');
+      const preview = frame.type.endsWith('preview.request');
+      const workspace = current?.workspace_root ?? (typeof payload.workspace_root === 'string' && payload.workspace_root
+        ? payload.workspace_root : join(config.node.workspace_base ?? join(home, 'workspaces'), String(payload.agent_id_hint ?? 'preview')));
+      const candidate = configuration.runtime({ ...current, agent_id: agentId ?? 'preview', workspace_root: workspace,
+        ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
+          tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: 'explicit_allowlist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
+      });
+      if (preview || !current) {
+        const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number; catalog: Parameters<typeof projectCapabilities>[0] };
+        await relay.request(preview ? frame.type.replace('.request', '') : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
+          ...(preview ? { preview: { prompt: result.prompt, section_count: result.section_count } } : { capabilities: projectCapabilities(result.catalog, config) }) });
+      } else {
+        const catalog = await runtime.request('configuration.catalog', { agentId, cwd: workspace }) as Parameters<typeof projectCapabilities>[0];
+        await relay.request('agent.capabilities', { request_id: payload.request_id, node_id: config.node.node_id, agent_id: agentId, workspace_root: workspace,
+          capabilities: projectCapabilities(catalog, config, candidate) });
+      }
+    }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
     if (frame.type === 'heartbeat.trigger') await heartbeat.tick(String(payload.agent_id), true);
     if (frame.type === 'node.heartbeat.md.request') {

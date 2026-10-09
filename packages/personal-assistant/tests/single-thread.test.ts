@@ -66,3 +66,27 @@ it('withholds an internal group draft when an accepted correction is waiting and
     expect(frames.some(frame => frame.kind === 'message_completed' && frame.final_content === 'Friday')).toBe(true);
   } finally { await product.stop(); store.close(); }
 });
+
+it('starts a fresh context for /new without submitting the command as a model prompt or resetting twice', async () => {
+  const store = new NodeStore(':memory:', 'owner'); const submitted: string[] = []; const frames: Record<string, unknown>[] = [];
+  const product = new SingleThread({ nodeId: 'node', ownerId: 'owner', store,
+    agents: [{ agentId: 'a', revision: '2', mode: 'single_thread', provider: 'p', model: 'm', workspace: '/tmp' }],
+    runtime: { onNotification: () => () => {}, async request(method, value) {
+      if (method === 'session.submit') submitted.push((value as { inputId: string }).inputId);
+      if (method === 'session.lookup') return { accepted: false };
+      return { durable: true, events: [], wasRunning: false };
+    } }, relay: { async request(_type, payload) { frames.push(payload); return { type: 'ack', payload: { message_id: 'reply' } }; } }, image: async () => '', onError: () => {},
+  });
+  const input = (id: string, content: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
+  try {
+    await product.receive(input('before', 'remember old context')); const before = store.bindingFor('a', 'c')!;
+    await product.receive(input('new', '/new')); const after = store.bindingFor('a', 'c')!;
+    expect(after.sessionId).not.toBe(before.sessionId);
+    expect(store.bindings().find(row => row.sessionId === before.sessionId)?.conversationId).toBe('c');
+    await product.receive(input('new', '/new'));
+    expect(store.bindingFor('a', 'c')?.sessionId).toBe(after.sessionId);
+    expect(store.canonical('a')?.sessionId).toBe(after.sessionId);
+    expect(submitted).toEqual(['a:before']);
+    expect(frames.some(frame => frame.final_content === '已开始新会话。')).toBe(true);
+  } finally { await product.stop(); store.close(); }
+});

@@ -1,6 +1,8 @@
 # Only this plugin writes protocol frames to stdout. Official CLI owns the host.
 - id: session-title-llm
   disabled: true
+- id: skill-filesystem
+  disabled: true
 - id: tool-plugin-manager
   disabled: true
 - id: tool-workflow

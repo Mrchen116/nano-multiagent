@@ -11,6 +11,10 @@ export interface AgentConfiguration {
   maxTokens?: number;
   systemPrompt?: string;
   features?: Record<string, boolean>;
+  toolAllowlist?: string[];
+  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
+  skillRoots?: { path: string; source: string }[];
+  extensions?: { global?: string; workspace?: string };
 }
 export interface SessionBinding {
   sessionId: string;

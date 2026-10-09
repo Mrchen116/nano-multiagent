@@ -38,6 +38,7 @@ export class NodeStore {
         operation_id TEXT NOT NULL REFERENCES deliveries(operation_id), seq INTEGER NOT NULL,
         PRIMARY KEY(operation_id,seq)
       );
+      CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
     `);
     this.db.prepare('INSERT INTO node_owner(owner_id) SELECT ? WHERE NOT EXISTS(SELECT 1 FROM node_owner)').run(ownerId);
@@ -85,6 +86,21 @@ export class NodeStore {
     const updated = { ...binding, conversationId };
     this.db.prepare('UPDATE sessions SET conversation_id=?,binding=? WHERE session_id=?').run(conversationId, JSON.stringify(updated), binding.sessionId);
     return updated;
+  }
+
+  command(id: string): string | undefined {
+    return (this.db.prepare('SELECT result FROM command_results WHERE id=?').get(id) as { result: string } | undefined)?.result;
+  }
+  saveCommand(id: string, text: string): void { this.db.prepare('INSERT OR IGNORE INTO command_results VALUES(?,?)').run(id, text); }
+  /** Replace only the active lookup; historical sessions retain their delivery target. */
+  reset(binding: SessionBinding, next: SessionBinding, commandId: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE sessions SET conversation_id=? WHERE session_id=?').run(`history:${binding.sessionId}`, binding.sessionId);
+      this.bind(next);
+      this.db.prepare('UPDATE canonical_sessions SET session_id=? WHERE agent_id=? AND session_id=?').run(next.sessionId, binding.agentId, binding.sessionId);
+      this.saveCommand(commandId, '已开始新会话。'); this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   bufferGroup(input: RelayInput): void {

@@ -1,6 +1,7 @@
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
 
@@ -36,10 +37,19 @@ export class NodeConfiguration {
     const effort = agent.reasoning_effort || (typeof selected.reasoning === 'object' ? selected.reasoning.default : undefined);
     if (effort && typeof selected.reasoning === 'object' && selected.reasoning.levels && !selected.reasoning.levels.includes(effort)) throw new Error(`Unsupported reasoning effort for ${model}`);
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
+    const canonical = canonicalAgentConfiguration(agent);
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
+      toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
+      extensions: { global: join(homedir(), '.nanoassistant', 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
+      skillSelection: { mode: canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
+      skillRoots: [
+        ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
+        ...['.nanoassistant', '.agents'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'global' })),
+        ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
+      ],
     };
   }
   async resolve(candidate: CanonicalAgentConfiguration, creating: boolean): Promise<CanonicalAgentConfiguration> {
