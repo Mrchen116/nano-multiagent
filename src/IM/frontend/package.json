@@ -41,5 +41,10 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "vitest": {
+      "tinypool": "2.1.2"
+    }
   }
 }

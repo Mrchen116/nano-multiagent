@@ -74,11 +74,29 @@
 | 附件 | 数据库旁 `message-images/` 与 `data/uploads/`，保留原目录及元数据 |
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
+| Tunnel supervisor | Mini `~/.nanoassistant/bin/prod-tunnel.py`，来自 [`scripts/prod_tunnel.py`](../../scripts/prod_tunnel.py)，由原 Tunnel LaunchAgent 使用主仓 `.venv/bin/python --supervise` 启动 |
+| Tunnel 出站 | `protocol: quic`、`edge-ip-version: "6"`，IPv6 UDP `7844` 经 Mini `en0` 直连 Cloudflare；不依赖系统代理或 Clash TUN，不自动切回 HTTP2/IPv4 |
+| metrics | `127.0.0.1:20241`，由同一受管 cloudflared 子 PID 监听；不对公网开放 |
+| 健康恢复 | supervisor 每 5 秒检查配置和 IPv6 en0 路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
+| Tunnel gate | `scripts/prod_tunnel.py --ready` 检查启动条件；无该参数时核对 live 子 PID、metrics listener、四个 IPv6 UDP socket、HA 连接与双向 QUIC 计数，并验证公网 TLS/200 |
 | ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 404 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |
 
 两个 plist 均位于 Mini `~/Library/LaunchAgents/`，启用 RunAtLoad/KeepAlive。常规发布复用 launcher、plist、Tunnel 凭据和 DNS；不得用旧 `nohup uvicorn --host 0.0.0.0` 替换。TLS 在边缘终止，源站 loopback HTTP 是预期拓扑。
+
+### Tunnel 验收分级
+
+按实际运行变更选择验收，不把每次发布都当作隧道稳定性修复：
+
+| 本次变更 | 验收要求 |
+|---|---|
+| 纯文档，不改变运行服务 | 文档与链接检查；不重启服务、不做运行验收 |
+| 普通 IM、前端或完整舰队部署，Tunnel 出口、协议、cloudflared 版本及 supervisor 不变 | 部署前检查 QUIC/IPv6 en0 路径；完成后 `scripts/prod_tunnel.py --seconds 30`，并验证 HTTPS/API、实时连接及本次受影响功能 |
+| 只更新 Gateway 或 LLM 代理，Tunnel 不变 | 验证受影响服务、节点连接及真实调用；无需例行 Tunnel 连续采样 |
+| 修改 Tunnel 出口路由、协议/IP 家族、cloudflared 版本或 supervisor/恢复机制，或恢复已观察到的 Tunnel 故障 | 完成后 `scripts/prod_tunnel.py --seconds 600`；恢复机制变更还需受控暂停与退出演练，随后开始连续采样 |
+
+30 秒用于发布后短时间健康核对；600 秒用于本次曾观察到间歇断连的隧道变更或故障恢复观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败。生产 PID 必须持有 metrics listener 和四个 IPv6 UDP socket，四条 QUIC 连接有双向计数；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
 
 公网规则不随 Git 代码发布而重建，但每次完整发布必须验证仍有效。308 不是 HSTS；当前未配置 HSTS，不得在验收中把二者混为一谈。账号准入、签名密钥、设备身份及数据库恢复是独立操作，普通 Feature 发布不重复首次迁移。
 

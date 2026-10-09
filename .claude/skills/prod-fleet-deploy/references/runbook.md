@@ -14,6 +14,8 @@ MacBook Air Gateway 用目标 `prod-main-<short-sha>` detached worktree，共用
 
 ## 更新 Mini 代码和前端
 
+需要更新公网 IM 或 Tunnel 运行服务时，更新代码前，先在 Mini 执行 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready`，验证已安装的 runtime 路径。安全 fast-forward 到目标代码后、停止 IM 或更新运行服务前，再执行 `.venv/bin/python scripts/prod_tunnel.py --ready`；它核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 实际路由，失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准；不能把系统代理、TUN 出口或 HTTP2 当作等价路径。
+
 以下是按需执行的命令，不是整段盲跑脚本。首先确认 Mini 当前分支为 main、已跟踪改动不会被覆盖，并确认远端目标 SHA 是本次授权版本。
 
 ```bash
@@ -49,6 +51,24 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 不要把 loopback 源站改成 HTTPS 来解决公网 HTTPS；TLS 在 Cloudflare 边缘终止，Tunnel 到Mini loopback 源站仍用 HTTP。公网重定向由 Cloudflare 规则负责；常规代码发布应验证它仍有效。
 
 ## Gateway 与代理
+
+### Tunnel QUIC/IPv6 路径与 supervisor
+
+复用原 Tunnel 身份和 LaunchAgent。变更前备份 Tunnel YAML 与 plist，权限和配置中的密钥不得入 Git。使用生产舰队记录的 QUIC/IPv6 en0 路径；保持 `edge-ip-version` 为字符串。修改配置后先执行 ingress validate 和路径门禁，不能依赖系统代理设置、端口可连或未经验收的自动切换。常规部署不修改 Clash 配置。
+
+Mini 将本次已验证的 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 Tunnel plist 的 `ProgramArguments` 使用主仓 `.venv/bin/python`、该脚本、`--supervise`；保留原日志与 RunAtLoad/KeepAlive。用 SHA256 核对源文件与 runtime copy，更新脚本后重启原服务加载新代码。`bootout` 后需等原服务完全卸载，再 `bootstrap`；不能启动第二个长期 connector 来掩盖失败。
+
+```bash
+# 仅需更新 Tunnel supervisor 时在 Mini 执行；先备份 runtime copy，只复制本次已审查版本。
+.venv/bin/python scripts/prod_tunnel.py --ready
+install -m 600 scripts/prod_tunnel.py ~/.nanoassistant/bin/prod-tunnel.py
+shasum -a 256 scripts/prod_tunnel.py ~/.nanoassistant/bin/prod-tunnel.py
+# 核对既有 plist 已指向 supervisor 后，再按需要 kickstart 原 Tunnel 服务。
+launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiagent.public-tunnel"
+.venv/bin/python scripts/prod_tunnel.py --seconds 600
+```
+
+仅在 supervisor 或恢复机制变更时做受控恢复演练：暂停已核对的 Tunnel 子 PID，确认 supervisor 自动替换存活但不健康的进程；再结束已核对的子 PID，确认自动重建并恢复公网。演练会短暂影响公网，保持源站和数据不变；演练应在上面的最终连续采样命令之前完成。出口、协议、cloudflared 版本变更及 Tunnel 故障恢复的采样要求见 [Tunnel 验收分级](../../../../docs/operations/prod-fleet.md#tunnel-验收分级)。清理自己的临时 connector 后开始验收，并复核双 Gateway 心跳。故障恢复时间包含每 5 秒的检查、30 秒不健康判定、最多 10 秒的终止等待与重新握手，不能把 30 秒当作可用性承诺。
 
 顺序：IM 健康 → 需要更新的 LLM 代理 → 受影响 Gateway。两机各用自己的 `~/.nanoassistant/config.yaml`，Gateway CLI 裸跑是 start，显式子命令是 `stop` / `restart`。
 
@@ -88,9 +108,10 @@ PYTHONPATH=src "$repo_root/.venv/bin/python" -m personal_assistant.main restart
 
 ## 部署完成验收
 
-必须从官网验证，不能只用源站 200 或节点绿灯代替：
+以下适用于完整舰队部署；局部动作只验证受影响服务及连接，纯文档只做文档检查。公网服务必须从官网验证，不能只用源站 200 或节点绿灯代替：
 
 1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；MacBook Air 没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。
+   按 [Tunnel 验收分级](../../../../docs/operations/prod-fleet.md#tunnel-验收分级) 执行采样：Tunnel 未变的普通部署运行 `.venv/bin/python scripts/prod_tunnel.py --seconds 30`；Tunnel 变更或其故障恢复才用 `--seconds 600`。门禁核对正式子进程、路由、连接与公网，采样窗口内 PID 和断连计数不变。
 2. 官网 HTTPS 首页返回 200，TLS 验证开启；不使用 `curl -k`。HTTP 首页、带 query 的路径及假凭据登录 POST 返回到同主机 HTTPS 的 308，路径/query 保留。HTTP POST 不应返回应用登录结果。
 3. 官网实际静态资源属于本次 build；从真实浏览器检查本次变更相关页面和行为。使用现有真实账号验证登录、历史数据和实时连接；相关附件/聊天功能变更按授权范围做真实验收，保留脱敏证据。不得拿测试账号、测试数据库或隔离端口充当生产。
 4. 经官网认证读取 `/im/v1/me`、`/im/v1/nodes`：两生产节点均 online、心跳新鲜，owner 与 config 中真人 UUID 对齐。取人类有效会话用于这些 API，不使用机器凭据冒充用户；不打印 token，不在命令历史中拼接真实密码。
@@ -124,6 +145,7 @@ curl --noproxy '*' --max-time 15 -sS -D - -o /dev/null \
 ## 恢复与故障定位
 
 - 官网失败、loopback 正常：检查 Tunnel LaunchAgent、ingress、DNS/边缘规则及 `public-tunnel.log`，不要改回 Tailscale HTTP 当作恢复官网。
+- Tunnel 进程存在但 `/ready` 503：检查 supervisor 的恢复记录、IPv6 en0 路由与 UDP 7844 的实际握手。2026-10-09 的对比中，IPv4 代理 QUIC 有断连/502，TCP/HTTP2 有握手失败；不要未经连续验收改协议、IP 家族或引入代理。门禁失败即恢复工作未完成。
 - 两端都失败：核对 `public-im.log`、launcher 的环境和路径、持久密钥、目标代码和依赖，不退回旧裸 uvicorn 命令。
 - 官网旧前端：核对 Mini dist 是否重建、官网 HTML 的资源名和浏览器缓存；不能只看 Git SHA。
 - Gateway 不在线：检查配置 URL、设备运行凭据、active owner、Gateway state/live process 及新日志。不要为了恢复在线自动换设备密钥或重新 bind。
