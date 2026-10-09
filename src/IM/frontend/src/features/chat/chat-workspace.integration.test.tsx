@@ -183,7 +183,7 @@ function mockFetch(opts: {
   skillViewDefaultOn?: boolean;
   distillPromptError?: string;
   uploadOutcomes?: UploadOutcome[];
-} = {}): ReturnType<typeof vi.fn> {
+} = {}) {
   const distillerVisible = opts.distillerVisible ?? true;
   const skillsSelectionMode = opts.skillsSelectionMode;
   const toolAllowlist = opts.toolAllowlist ?? ["skill_view"];
