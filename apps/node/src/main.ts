@@ -1,6 +1,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
+import { providerProfiles } from './providers.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
@@ -15,20 +16,7 @@ const config = configuration.value;
 if (!config.node.user_id || !config.im_service.token) throw new Error('Bind this node before starting its runtime');
 const home = join(dirname(configPath), '.dsh-runtime', config.node.node_id);
 await mkdir(home, { recursive: true });
-const providers: Record<string, unknown> = {};
-const env: NodeJS.ProcessEnv = {};
-for (const [index, provider] of config.llm.providers.entries()) {
-  const credential = `NANO_PROVIDER_${index}_KEY`;
-  if (provider.api_key) env[credential] = provider.api_key;
-  else if (['127.0.0.1', 'localhost', '[::1]'].includes(new URL(provider.base_url).hostname)) env[credential] = 'nano-local-proxy';
-  providers[provider.name] = { api: provider.name === 'anthropic' ? 'anthropic-messages' : 'openai-completions', baseURL: provider.base_url,
-    defaultInput: ['text', 'image'],
-    ...(env[credential] ? { apiKeyEnv: credential } : {}),
-    models: provider.models.map(model => ({ id: model.name, contextWindow: model.context_window,
-      ...(typeof model.reasoning === 'object' && model.reasoning.levels ? { reasoningEfforts: Object.fromEntries(model.reasoning.levels.map(level => [level === 'none' ? 'off' : level, level === 'none' ? null : level])) } : {}),
-    })),
-  };
-}
+const { providers, env } = providerProfiles(config.llm);
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
 await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers } }]);

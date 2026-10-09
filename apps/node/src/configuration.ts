@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
+import { defaultReasoning } from './providers.js';
 import { readApproval } from './approval.js';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
 
@@ -18,7 +19,7 @@ export interface NodeConfigurationFile {
   agents: LocalAgent[];
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
-  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
+  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; extra_request_body?: Record<string, unknown>; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
 }
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
@@ -38,7 +39,7 @@ export class NodeConfiguration {
     const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
     if (!provider) throw new Error(`No configured provider for ${model}`);
     const selected = provider.models.find(candidate => candidate.name === model)!;
-    const effort = agent.reasoning_effort || (typeof selected.reasoning === 'object' ? selected.reasoning.default : undefined);
+    const effort = agent.reasoning_effort || defaultReasoning(selected);
     if (effort && typeof selected.reasoning === 'object' && selected.reasoning.levels && !selected.reasoning.levels.includes(effort)) throw new Error(`Unsupported reasoning effort for ${model}`);
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
@@ -60,7 +61,7 @@ export class NodeConfiguration {
         const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
         if (!provider) throw new Error(`No configured provider for fallback ${model}`);
         const selected = provider.models.find(candidate => candidate.name === model)!;
-        const effort = typeof selected.reasoning === 'object' ? selected.reasoning.default : undefined;
+        const effort = defaultReasoning(selected);
         return { provider: provider.name, model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
       }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',

@@ -21,7 +21,7 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@nano/dsh-integration'] } },
   }, null, 2));
   // JSON is a YAML subset, so runtime configuration needs no custom serializer.
-  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify(providerPatch, null, 2));
+  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch], null, 2));
 }
 
 async function link(target: string, path: string) {

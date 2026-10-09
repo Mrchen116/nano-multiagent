@@ -25,6 +25,7 @@ import { KnowledgeRuntime } from './knowledge/runtime.js';
 import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
 import { NanoApproval } from './policy/approval.js';
+import * as NanoWeb from './web.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -89,6 +90,7 @@ export default class NanoRuntime {
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { let session = ctx.sessions.get(SessionId(sessionId)); while (session?.header.parentSession) session = ctx.sessions.get(session.header.parentSession); this.peer.notify('model.changed', { sessionId, rootSessionId: session?.id }); } });
+    const webFiber = ctx.plugin(NanoWeb);
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
@@ -160,6 +162,7 @@ export default class NanoRuntime {
       await this.sessionController;
       await approvalFiber.await();
       await modelFiber.await();
+      await webFiber.await();
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
