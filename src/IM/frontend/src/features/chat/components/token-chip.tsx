@@ -23,8 +23,8 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
   if (!usage) return null;
 
   const contextWindow = usage.context_window ?? 0;
-  const hasWindow = contextWindow > 0;
-  const pct = hasWindow ? usage.context_used / contextWindow : 0;
+  const hasWindow = contextWindow > 0 && usage.context_used !== undefined;
+  const pct = hasWindow ? (usage.context_used ?? 0) / contextWindow : 0;
   const variant = hasWindow && pct >= 0.9 ? "critical" : hasWindow && pct >= 0.7 ? "warn" : "normal";
   const pctInt = Math.round(pct * 100);
   // Native providers may omit counters. Absence remains unknown, distinct from a reported zero.
@@ -73,7 +73,7 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
         <div className="chat-token-chip-detail">
           <div className="chat-token-chip-detail-row">
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenOutput")}</span>
-            <span className="chat-token-chip-detail-value">{usage.output.toLocaleString()}</span>
+            <span className="chat-token-chip-detail-value">{usage.output?.toLocaleString() ?? "—"}</span>
           </div>
           {usage.total !== undefined && usage.total > 0 && (
             <div className="chat-token-chip-detail-row">
@@ -85,8 +85,8 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
             <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenContextUsed")}</span>
             <span className="chat-token-chip-detail-value">
               {hasWindow
-                ? `${usage.context_used.toLocaleString()} / ${(contextWindow / 1000).toFixed(0)}k`
-                : usage.context_used.toLocaleString()}
+                ? `${usage.context_used?.toLocaleString() ?? "—"} / ${(contextWindow / 1000).toFixed(0)}k`
+                : usage.context_used?.toLocaleString() ?? "—"}
             </span>
           </div>
           <div className="chat-token-chip-detail-row">

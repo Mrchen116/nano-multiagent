@@ -5,6 +5,13 @@ import "../../../i18n";
 import { TokenChip } from "./token-chip";
 
 describe("TokenChip", () => {
+  it("keeps partially reported usage readable in persisted messages", () => {
+    render(<TokenChip usage={{context_window: 200_000}} />);
+    expect(screen.getByRole("button").textContent).not.toMatch(/NaN|undefined|ctx/);
+    fireEvent.click(screen.getByRole("button"));
+    expect(document.querySelector(".chat-token-chip-detail")!.textContent).toContain("—");
+    expect(document.querySelector(".chat-token-chip-detail")!.textContent).not.toMatch(/NaN|undefined/);
+  });
   it("renders low usage as the default variant", () => {
     // bugfix-390: total is backend-contract-guaranteed; fixtures must include it.
     render(<TokenChip usage={{ output: 312, context_used: 14_800, context_window: 200_000, total: 15_112 }} />);

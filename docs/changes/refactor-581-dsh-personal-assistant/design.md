@@ -86,7 +86,8 @@ Nano自有主插件按11种装配单元组织：4种基础接入/策略、global
 | Workflow | [gateway/workflows](specs/gateway/workflows.md) | JavaScript及已确认控制/前缀/预算/命名嵌套成为产品层契约；运行真源替换旧SDK表述 |
 | 新历史 | [gateway/relay-protocol](specs/gateway/relay-protocol.md) | 新DSH历史的分支/蒸馏，排除旧历史兼容 |
 | 运行生命周期 | [gateway/service-lifecycle](specs/gateway/service-lifecycle.md) | 产品节点及受管执行运行时的就绪/停止边界 |
-| IM、Web、iOS产品协议 | no spec delta | 本次保留既有HTTP/WS与业务行为；实现不能擅自改变schema或UI交互 |
+| 回复用量 | [im/response-metrics](specs/im/response-metrics.md) | 按能力映射 L3 保留未知计数，缺失计数不补零，使用 `—` 或省略未知详情；修复阶段显式记录客户端缺失值语义 |
+| IM、Web、iOS其他产品协议 | no spec delta | 保留既有HTTP/WS与业务行为；实现不能擅自改变schema或UI交互 |
 | 旧Kernel/CLI与顶层依赖 | 退役计划见下文 | 不再发布旧库/CLI；`SPEC.md`/AGENTS依赖约束在最终退役提交更新，旧kernel/cli current文档整体移入历史并更新领域入口 |
 
 旧Kernel能力中仍属产品的部分已投影到R3—R7/R10及上述gateway delta；不把旧`agent.sdk`契约改写成新DSH内部API。迁移期间旧路径仍受原契约保护，只有所有consumer迁走才能删它。新current依赖契约验证IM/产品不import DSH、integration仅使用公开包入口。
