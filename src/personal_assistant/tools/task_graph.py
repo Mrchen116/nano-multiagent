@@ -97,7 +97,7 @@ class TaskGraphTool:
         "A negative result can be done; selecting a candidate does not finish its parent or other candidates. "
         "For apply, read the current revision, supply a unique request_key and an ordinary change_note (including any done-to-doing reason). "
         "On version_conflict, reread and reconcile before a new mutation. On write_outcome_unknown, retry the EXACT same arguments/key. "
-        "Never claim a write succeeded without confirmation. delete removes the graph, or the subtree at optional node_id. It requires an explicit current human request naming the title or ID and deletion; if needed ask the user to state that request. Never infer deletion from cleanup or chat removal. No reparenting or nonempty mode conversion."
+        "Never claim a write succeeded without confirmation. delete removes the graph, or the subtree at optional node_id. Honor the user-authorized deletion scope using conversation context; ask only if the scope or authorization is unclear. Deletion uses the ordinary tool approval policy, without requiring the user to repeat a title, ID or fixed confirmation phrase. Never infer deletion from cleanup or chat removal. No reparenting or nonempty mode conversion."
     )
     presenter = QueryPresenter("Task graph")
     max_result_size_chars = None

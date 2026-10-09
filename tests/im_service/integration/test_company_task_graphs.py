@@ -99,7 +99,10 @@ def test_company_activity_and_active_membership(company_tasks):
         service.execute(agent, "get", dict(graph_id=gid))
 
 
-def test_deletion_requires_human_scope_and_preserves_receipts_and_ids(company_tasks):
+@pytest.mark.parametrize("source_text", [None, "对", "直接删！"])
+def test_authorized_deletion_preserves_scope_receipts_and_ids(
+    company_tasks, source_text
+):
     db, service, agent = company_tasks
     graph = service.execute(
         agent, "create", dict(title="Goal", mode="dag", request_key="create")
@@ -121,22 +124,17 @@ def test_deletion_requires_human_scope_and_preserves_receipts_and_ids(company_ta
         ),
     )
     args = dict(graph_id=gid, node_id="n2", base_revision=2, request_key="delete")
-    with pytest.raises(TaskGraphError, match="reply with exactly"):
-        service.execute(agent, "delete", args)
-    db.execute(
-        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('request','A','a','删除 Child','sent','now')"
-    )
-    db.commit()
-    sourced = TaskGraphActor("agent", "nano", "node", "request")
-    db.execute("UPDATE messages SET content='Do not delete Child' WHERE id='request'")
-    db.commit()
-    with pytest.raises(TaskGraphError, match="reply with exactly"):
-        service.execute(sourced, "delete", args)
-    db.execute(
-        "UPDATE messages SET content=? WHERE id='request'",
-        ('<mention type="user" target_id="nano"/> 确认删除 Child',),
-    )
-    db.commit()
+    sourced = agent
+    if source_text is not None:
+        db.execute(
+            "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('request','A','a',?,'sent','now')",
+            (source_text,),
+        )
+        db.commit()
+        sourced = TaskGraphActor("agent", "nano", "node", "request")
+    with pytest.raises(TaskGraphError) as conflict:
+        service.execute(sourced, "delete", {**args, "base_revision": 1})
+    assert conflict.value.code == "version_conflict"
     removed = service.execute(sourced, "delete", args)
     assert removed["deleted_ids"] == ["n2"]
     assert service.execute(sourced, "delete", args) == removed
@@ -156,8 +154,6 @@ def test_deletion_requires_human_scope_and_preserves_receipts_and_ids(company_ta
         ),
     )
     assert added["client_refs"]["another"] == "n3"
-    db.execute("UPDATE messages SET content='删除 Goal' WHERE id='request'")
-    db.commit()
     delete_graph = dict(graph_id=gid, base_revision=4, request_key="delete-graph")
     receipt = service.execute(sourced, "delete", delete_graph)
     assert receipt["deleted"]
@@ -268,35 +264,3 @@ def test_expired_delete_receipt_is_not_replayed_or_retained(company_tasks):
         )
         == graph
     )
-
-
-def test_global_consumed_sources_require_explicit_human_request_and_chat_access(
-    company_tasks,
-):
-    db, service, agent = company_tasks
-    graph = service.execute(
-        agent,
-        "create",
-        dict(title="Global plan", mode="dag", request_key="global-create"),
-    )
-    args = dict(
-        graph_id=graph["graph_id"], base_revision=1, request_key="global-delete"
-    )
-    db.execute(
-        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('global-no','A','a','Do not delete Global plan','sent','now')"
-    )
-    db.execute(
-        "INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at) VALUES ('global-yes','A','a','删除 Global plan','sent','now')"
-    )
-    db.commit()
-    from dataclasses import replace
-
-    with pytest.raises(TaskGraphError) as exc:
-        service.execute(
-            replace(agent, source_message_ids=("global-no", "missing")), "delete", args
-        )
-    assert exc.value.code == "confirmation_required"
-    result = service.execute(
-        replace(agent, source_message_ids=("global-no", "global-yes")), "delete", args
-    )
-    assert result["deleted"]

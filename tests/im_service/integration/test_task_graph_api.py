@@ -138,6 +138,18 @@ def test_agent_writes_browser_reads_same_graph_and_atomic_replay(task_stack):
     db.commit()
     assert command(ws, "apply", **mutation)["error"]["code"] == "not_found_or_forbidden"
     assert client.get(f"/im/v1/task-graphs/{graph_id}").status_code == 200
+    deletion = dict(graph_id=graph_id, base_revision=2, request_key="delete")
+    assert (
+        command(ws, "delete", **deletion)["error"]["code"] == "not_found_or_forbidden"
+    )
+    db.execute("UPDATE agent_profiles SET is_stale=0 WHERE agent_id='nano'")
+    db.commit()
+    deleted = command(ws, "delete", **deletion)
+    assert deleted["ok"] and deleted["result"]["deleted"]
+    assert set(deleted["result"]["deleted_ids"]) == set(nodes)
+    assert command(ws, "delete", **deletion)["result"] == deleted["result"]
+    assert client.get(f"/im/v1/task-graphs/{graph_id}").status_code == 404
+    assert client.get("/im/v1/task-graphs").json()["total"] == 0
 
 
 def test_short_graph_ids_retry_collisions_without_overwriting_an_existing_graph(
