@@ -1,4 +1,5 @@
 import type { FeishuConfiguration, FeishuMessage, ProtocolFrame } from '@nano/channels';
+import { RelayDeliveryError } from '@nano/channels';
 import type { RelayInput } from '@nano/product-contracts';
 import { NodeStore } from './store.js';
 import { ExternalStore, type ExternalChat, type ExternalOutput } from './external-store.js';
@@ -32,6 +33,7 @@ export class ExternalChannels {
   constructor(path: string, private readonly options: Options) { this.state = new ExternalStore(path); }
   get ready() { return this.options.relay.ready; }
   add(agentId: string, connection: Connection): void { this.connections.set(agentId, connection); }
+  remove(agentId: string): void { this.connections.delete(agentId); }
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {
     const connection = this.connections.get(agentId); if (!connection) throw new Error('No channel for Agent');
@@ -39,12 +41,14 @@ export class ExternalChannels {
     const sourceId = `feishu:${appId}:${message.isGroup ? `group:${message.chatId}` : `dm:${message.senderId}`}`;
     const id = `external:${agentId}:${sourceId}`; const eventId = `external:${agentId}:${appId}:${message.messageId}`;
     const active = this.admissions.get(eventId); if (active) return active;
-    if (!this.state.chat(id)) this.state.saveChat({ id, agentId, appId, chatId: message.chatId, sourceId, isGroup: message.isGroup });
+    const previous = this.state.chat(id);
+    this.state.saveChat({ id, agentId, appId, chatId: message.chatId, sourceId, isGroup: message.isGroup, ...previous, ...(message.chatName ? { name: message.chatName } : {}) });
     const text = message.parts.filter(part => part.type === 'text').map(part => part.text).join('');
     const attachments = message.parts.filter(part => part.type === 'image').map(part => ({ url: `${eventId}:${part.key}`, content_type: 'image/png', file_name: part.key }));
     const input: RelayInput = { relay_task_id: eventId, idempotency_key: eventId, agent_id: agentId, conversation_id: id,
       metadata: { conversation_type: message.isGroup ? 'group' : 'direct', mentioned_agent_ids: message.mentioned ? [agentId] : [],
         external_reply: eventId, source_timestamp: message.time, channel: 'feishu',
+        sender_display_name: message.senderName, ...(message.contextOnly ? { context_only: true } : {}),
         ...(message.senderId === connection.config.ownerOpenId ? { owner_user_id: this.options.ownerId } : {}),
         content_parts: message.parts.map(part => part.type === 'text' ? part : { type: 'image', url: `${eventId}:${part.key}` }),
       }, message: { id: eventId, content: text, sender_type: 'user', sender_user_id: message.senderId, attachments } };
@@ -95,7 +99,7 @@ export class ExternalChannels {
         const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
         this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
         const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, delivery_status: 'completed' };
-        this.state.frame(output.id, complete); await this.publish(output, String(payload.text));
+        await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
     }
@@ -109,26 +113,38 @@ export class ExternalChannels {
     }
     const output = this.state.output(String(payload.message_id));
     if (!output) return this.options.relay.request(type, payload);
-    this.state.frame(output.id, payload);
     if (payload.kind === 'message_completed') {
-      if (output.reply && String(payload.final_content ?? '').trim()) await this.publish(output, String(payload.final_content), payload);
+      await this.finish(output, payload);
       if (output.reply) await this.removeReaction(output.reply);
-    }
+    } else this.state.frame(output.id, payload);
     if (payload.kind === 'permission_request' && output.reply) await this.approval(output, payload);
     if (payload.kind === 'permission_resolved') await this.resolveApproval(String(payload.request_id), String(payload.decision));
     void this.flush().catch(this.options.onError); return ack(type);
+  }
+  private async finish(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
+    try {
+      if (output.reply && String(payload.final_content ?? '').trim()) await this.publish(output, String(payload.final_content), payload);
+      this.state.frame(output.id, payload);
+    } catch (error) {
+      if (error instanceof RelayDeliveryError && error.delivery === 'unknown') {
+        this.state.frame(output.id, { ...payload, delivery_status: 'failed', external_delivery_status: 'unknown', final_content: `${payload.final_content ?? ''}\n\n飞书发送结果未知，未自动重发。` });
+        if (output.reply) await this.removeReaction(output.reply);
+        void this.flush().catch(this.options.onError);
+      }
+      throw error;
+    }
   }
   private async publish(output: ExternalOutput, text: string, metadata?: Record<string, unknown>): Promise<void> {
     const active = this.dispatches.get(output.id); if (active) return active;
     const task = (async () => {
       const current = this.state.output(output.id)!;
       if (current.state === 'confirmed') return;
-      if (current.state === 'unknown') throw new Error('External send outcome is unknown; it will not be automatically repeated');
+      if (current.state === 'unknown') throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown');
       const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId);
       if (!connection || connection.config.appId !== chat.appId) throw new Error('External app is unavailable');
       this.state.settle(output.id, 'sending');
       try { const messageId = await connection.send(chat.chatId, text, output.operationId, this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined); this.state.settle(output.id, 'confirmed', messageId); }
-      catch (error) { this.state.settle(output.id, 'unknown'); throw error; }
+      catch { this.state.settle(output.id, 'unknown'); throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown'); }
     })().finally(() => this.dispatches.delete(output.id));
     this.dispatches.set(output.id, task); return task;
   }
@@ -139,7 +155,7 @@ export class ExternalChannels {
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
     const chats = this.state.chats().filter(chat => chat.agentId === payload.agent_id);
-    const describe = (chat: ExternalChat) => ({ target: chat.id, id: chat.id, name: `${chat.agentId} · feishu`, type: chat.isGroup ? 'group' : 'direct', channel: 'feishu' });
+    const describe = (chat: ExternalChat) => ({ target: chat.id, id: chat.id, name: chatTitle(chat), type: chat.isGroup ? 'group' : 'direct', channel: 'feishu' });
     if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.filter(chat => (payload.targets as string[]).includes(chat.id) || (payload.targets as string[]).includes(chat.shadowId!)).map(describe) };
     const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
     if (!chat) return;
@@ -159,7 +175,7 @@ export class ExternalChannels {
         const chat = this.state.chat(row.chatId)!;
         if (!chat.shadowId) {
           const result = await this.options.im('/im/v1/conversations/external/find-or-create', json({ external_source: 'feishu', external_chat_id: chat.sourceId, agent_id: chat.agentId,
-            title: `${chat.agentId} · feishu`, is_group: chat.isGroup, participant_ids: [`user:${this.options.ownerId}`, `agent:${chat.agentId}`] })) as { id: string };
+            title: chatTitle(chat), is_group: chat.isGroup, participant_ids: [`user:${this.options.ownerId}`, `agent:${chat.agentId}`] })) as { id: string };
           chat.shadowId = result.id; this.state.saveChat(chat); this.options.store.aliasConversation(chat.agentId, result.id, chat.id);
         }
         const attachments = [];
@@ -171,7 +187,7 @@ export class ExternalChannels {
             this.state.uploaded(attachment.url, uploaded); attachments.push(uploaded);
           }
         }
-        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/messages?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId,
+        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/messages?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
           content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
       }
@@ -206,24 +222,25 @@ export class ExternalChannels {
     const requestId = event.action?.value?.request_id; const decision = event.action?.value?.decision;
     const pending = this.state.approvals().find(row => row.requestId === requestId);
     const connection = this.connections.get(agentId);
-    if (!pending || pending.settled || !connection?.config.ownerOpenId || event.operator?.open_id !== connection.config.ownerOpenId || pending.platformId !== event.context?.open_message_id) return { toast: { type: 'error', content: '此审批不可用或无权操作' } };
+    if (pending?.settled) return { toast: { type: 'info', content: '审批已结束' }, card: { type: 'raw', data: approvalStatus('已处理') } };
+    if (!pending || !connection?.config.ownerOpenId || event.operator?.open_id !== connection.config.ownerOpenId || pending.platformId !== event.context?.open_message_id) return { toast: { type: 'error', content: '此审批不可用或无权操作' } };
     const output = this.state.output(pending.outputId)!; if (this.state.chat(output.chatId)!.agentId !== agentId || !['allow_once', 'deny'].includes(decision ?? '')) return { toast: { type: 'error', content: '无效审批' } };
     await this.options.permission({ request_id: requestId, decision });
-    this.state.settleApproval(requestId!); return { toast: { type: 'success', content: '已提交审批决定' } };
+    this.state.settleApproval(requestId!); return { toast: { type: 'success', content: '已提交审批决定' }, card: { type: 'raw', data: approvalStatus(decision!) } };
   }
   private async resolveApproval(requestId: string, decision: string): Promise<void> {
     const pending = this.state.approvals().find(row => row.requestId === requestId); if (!pending) return;
     this.state.settleApproval(requestId);
     if (!pending.platformId) return;
     const output = this.state.output(pending.outputId)!; const chat = this.state.chat(output.chatId)!;
-    await this.connections.get(chat.agentId)!.updateCard(pending.platformId, { elements: [{ tag: 'markdown', content: `审批已结束：${decision}` }] });
+    await this.connections.get(chat.agentId)!.updateCard(pending.platformId, approvalStatus(decision));
   }
   async stop(): Promise<void> { await Promise.allSettled([...this.admissions.values(), ...this.dispatches.values(), this.flushing]); this.state.close(); }
 }
 function ack(type: string, payload: Record<string, unknown> = {}): ProtocolFrame { return { type: 'ack', payload: { message_type: type, ...payload } }; }
 function json(body: unknown, headers: Record<string, string> = {}): RequestInit { return { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }; }
 function approvalCard(id: string, request: Record<string, unknown>, group: boolean): Record<string, unknown> {
-  const elements: unknown[] = [{ tag: 'markdown', content: `**${request.tool_name}**\n${request.reason ?? '需要审批'}` }];
+  const elements: unknown[] = [{ tag: 'markdown', content: `**${request.tool_name}**\n${group ? '需要 owner 审批；请在内部 IM 查看完整输入' : request.reason ?? '需要审批'}` }];
   for (const [key, value] of Object.entries((request.tool_input ?? {}) as Record<string, unknown>)) {
     const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); const lines = text.split('\n').length;
     if (group) elements.push({ tag: 'markdown', content: `**${key}**：请在内部 IM 查看完整输入` });
@@ -232,7 +249,7 @@ function approvalCard(id: string, request: Record<string, unknown>, group: boole
     else elements.push({ tag: 'column_set', background_style: 'grey-50', columns: [{ tag: 'column', width: 'weighted', weight: 1, elements: [{ tag: 'div', text: { tag: 'plain_text', content: `${key} · ${lines} 行\n${text}` } }] }] });
   }
   elements.push({ tag: 'action', actions: [{ tag: 'button', text: { tag: 'plain_text', content: '允许一次' }, type: 'primary', value: { request_id: id, decision: 'allow_once' } }, { tag: 'button', text: { tag: 'plain_text', content: '拒绝' }, value: { request_id: id, decision: 'deny' } }] });
-  return { config: { wide_screen_mode: true }, elements };
+  return { config: { wide_screen_mode: true, update_multi: true }, elements };
 }
 
 function runtimeCard(text: string, metadata: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -243,3 +260,6 @@ function runtimeCard(text: string, metadata: Record<string, unknown>): Record<st
   const footer = parts.filter(Boolean).join(' · '); if (!footer) return;
   return { config: { wide_screen_mode: true }, elements: [{ tag: 'markdown', content: text }, { tag: 'hr' }, { tag: 'note', elements: [{ tag: 'plain_text', content: footer }] }] };
 }
+
+function approvalStatus(decision: string): Record<string, unknown> { return { config: { update_multi: true }, elements: [{ tag: 'markdown', content: `审批已结束：${decision}` }] }; }
+function chatTitle(chat: ExternalChat): string { return [chat.agentId, ...(chat.isGroup && chat.name ? [chat.name] : []), 'feishu'].join(' · '); }

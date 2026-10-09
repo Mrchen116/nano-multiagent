@@ -20,7 +20,7 @@ Status: in progress. These checks do not complete M2 or authorize deployment.
 
 ## Remaining M2 scope
 
-IM configuration and management end-to-end integration is being validated. Heartbeat policy and silent delivery, complete group revalidation, native child identity/Work projection, Feishu and channel configuration, manual schedule runs and execution history attribution, and the remaining M2 scenarios are not yet accepted. M3–M5 and final independent gates remain open.
+Native child identity/Work projection, remaining Task Graphs and native schedule fault-boundary checks, and full channel control/media combinations remain open. Built-in commands and complete history/configuration capabilities will be integrated with M3. M3–M5 and final independent gates remain open.
 
 ## Additional product checks
 
@@ -36,5 +36,16 @@ IM configuration and management end-to-end integration is being validated. Heart
 - Dedicated `--feishu` test profile and its single-listener lock were used. The verified `e2e-feishu-testagent` user sent a nonce to the dedicated test Bot. DSH replied through the real platform; the exact returned platform message ID was read back with the matching nonce. IM received one user anchor and one output, and all 13 projected frames were acknowledged. Evidence: ignored `.dsh-runtime/feishu-smoke-evidence.json`.
 - Focused transport tests cover duplicate external admission, confirmed-send replay, internal-only replies, and reconnect projection using the same Session through its shadow alias. Rich post parsing preserves text/image order and distinguishes the Bot's open ID from @all.
 
-Remaining: hosted channel configuration/reconciliation, full Feishu media/control/approval and real offline acceptance, native child identity/Work projection, remaining Task Graphs and native schedule fault-boundary checks, then M3–M5 and independent final gates. These are not yet a completed M2.
+The remaining scope above still prevents declaring M2 complete.
 - Real offline acceptance passed after stopping only the isolated IM process: Feishu replied with the new nonce and the preceding Session's code while projection remained pending. Restarting the same IM database drained the pending projection to zero. The reply used the configured native runtime-footer card. Evidence: ignored `.dsh-runtime/feishu-offline-evidence.json`.
+
+## Hosted channels and delivery boundaries
+
+- Node reuses the enrolled `channel-credentials-v1.pem` identity. Envelopes use the existing X25519/HKDF/AES-GCM wire format and authenticated owner/node/Agent/channel/revision scope. One-time Node↔Python encryption interoperability passed in both directions; secret material remains in ignored fixtures.
+- `ManagedChannels` persists encrypted full desired state and FIFO control receipts. It validates all envelopes before any listener switch, ignores stale manifests, avoids restarting unchanged successful generations, retries failed starts on replay, preserves removal receipts, and starts cached listeners while IM is unavailable. Status incarnation/sequence and provider metadata are generation-scoped.
+- Real HTTP acceptance against the isolated IM passed bootstrap, enabled→disabled (observed stopped), disabled→enabled (observed connected), and reconnect dispatch. The same enrolled device key was retained. Evidence: ignored `.dsh-runtime/channel-control-evidence.json`.
+- Real native Feishu approval was clicked and the allowed tool ran. A later stale click returned a closed card without another execution. Group field values and reasons are hidden; only the bound owner and actual card identity can answer, with first-wins behavior. Evidence: ignored `.dsh-runtime/feishu-approval-evidence.json` and `feishu-approval-completed.png`.
+- External completion enters the IM outbox only after platform confirmation. A lost platform result records `unknown`, projects an explicit failure notice, and never automatically resends after restart. Node delivery history preserves that uncertainty. Focused tests observe the pending-send boundary and cold replay.
+- Internal single-thread group drafts are retained in Process when a newer accepted input has not been incorporated. The next native turn receives a system note that the prior draft was not sent. External groups and MENTION-only background do not acquire a new wake rule. The regression first failed by publishing Thursday before the correction, then passed by retaining Thursday as a draft and publishing Friday.
+- Feishu input enrichment uses platform sender/chat names and group history including pure images. Data-URL Markdown images upload as platform resources; remote links and code examples remain inert. Real media acceptance is in progress.
+- Latest validation: `pnpm build` passed; `pnpm test` passed 16 files / 35 tests. Two registration/heartbeat tests were made event-driven after full-suite CPU scheduling exposed fixed-sleep assumptions; transport code was unchanged for those test fixes.

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { FeishuMessage } from '@nano/channels';
 import type { RelayInput } from '@nano/product-contracts';
 
-export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string }
+export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
 /** Separate facts for platform delivery and IM projection; one can succeed without the other. */

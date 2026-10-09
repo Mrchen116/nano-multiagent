@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
+import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
 import { argumentsObject, tokenUsage, toolPresentation } from './presentation.js';
@@ -155,8 +156,9 @@ export class SingleThread {
       if (input.turn === null) continue;
       const turn = input.turn;
       let delivery = store.prepareDelivery(sessionId, turn);
-      if (delivery.state === 'confirmed' || delivery.state === 'failed') {
-        await this.receipt(input.input, delivery.state === 'confirmed' ? 'completed' : 'failed');
+      if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
+      if (delivery.state === 'confirmed' || delivery.state === 'failed' || delivery.state === 'withheld') {
+        await this.receipt(input.input, delivery.state === 'failed' ? 'failed' : 'completed');
         continue;
       }
       const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
@@ -202,13 +204,27 @@ export class SingleThread {
       const text = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') ?? '';
       const reason = end.data.reason as { kind: string };
       const completed = reason.kind === 'completed';
+      const inputs = store.inputs(sessionId);
+      const position = inputs.findLastIndex(item => item.turn === turn);
+      const correction = group && !binding.conversationId.startsWith('external:') && inputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+      if (completed && correction && text && delivery.state !== 'completing') {
+        const identity = `revalidation:${delivery.operationId}`;
+        await runtime.request('session.submit', { sessionId, inputId: identity, mode: 'inject', content: [{ type: 'text', text: 'Your previous draft has NOT been sent because newer messages were accepted in this group. Consider the newer messages before publishing the revised answer.' }], source: { kind: 'system', actorId: binding.agentId, channel: 'revalidation', messageId: identity } });
+        await this.delta({ kind: 'reply_process', message_id: delivery.messageId, item: { item_id: identity, kind: 'draft', run_id: delivery.operationId, draft_id: identity, text, source: 'assistant' } });
+        await this.delta({ kind: 'message_completed', message_id: delivery.messageId, final_content: '', delivery_status: 'completed' });
+        store.updateDelivery(delivery.operationId, 'withheld', delivery.messageId, text); await this.receipt(input.input, 'completed'); continue;
+      }
       store.updateDelivery(delivery.operationId, 'completing', delivery.messageId, text);
-      await this.delta({ kind: 'message_completed', message_id: delivery.messageId,
+      try { await this.delta({ kind: 'message_completed', message_id: delivery.messageId,
         final_content: text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
         resolved_model: events.filter(event => event.type === 'request/context' && event.seq <= end.seq).at(-1)?.data.model,
-      });
+      }); } catch (error) {
+        // The external adapter has already persisted and projected its uncertain platform result.
+        if (delivery.messageId?.startsWith('external:') && error instanceof RelayDeliveryError && error.delivery === 'unknown') store.updateDelivery(delivery.operationId, 'unknown', delivery.messageId, text);
+        throw error;
+      }
       store.updateDelivery(delivery.operationId, completed ? 'confirmed' : 'failed', delivery.messageId, text);
       await this.receipt(input.input, completed ? 'completed' : 'failed');
     }

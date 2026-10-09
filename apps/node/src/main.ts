@@ -1,8 +1,8 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
-import { WebRelayConnection, FeishuConnection } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
+import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -37,7 +37,8 @@ let globalProduct: GlobalAgent;
 let operations: ConfigurationOperations;
 let heartbeat: Heartbeat;
 let external: ExternalChannels;
-const feishu = new Map<string, FeishuConnection>();
+let managed: ManagedChannels;
+const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
   initialize: async rpc => {
@@ -57,11 +58,12 @@ const relay = new WebRelayConnection({
     agent_skills: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.skills ?? []])),
     agent_skills_selection_modes: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)?.skills_selection_mode])),
     agent_tool_allowlist: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.tool_allowlist ?? []])),
-    capabilities: {},
+    ...channelKey.registration, capabilities: { channel_bootstrap: true },
   } }),
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
     if (frame.type === 'heartbeat.trigger') await heartbeat.tick(String(payload.agent_id), true);
     if (frame.type === 'node.heartbeat.md.request') {
       const agent = agents.find(agent => agent.agentId === payload.agent_id || !payload.agent_id && agent.workspace === payload.workspace_root);
@@ -93,7 +95,7 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state === 'ready') { await external.recover(); await product.recover(); await globalProduct.recover(); } },
+  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); } },
   onError: reportError,
 });
 async function downloadImage(url: string, agentId: string) {
@@ -118,16 +120,21 @@ external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config
     return response.json();
   },
 });
-for (const channel of config.channels ?? []) {
-  if (channel.enabled === false || !channel.name.startsWith('feishu:')) continue;
-  const agentId = channel.name.slice(7); const settings = channel.settings;
-  if (!agents.some(agent => agent.agentId === agentId)) throw new Error('Feishu channel has no Agent');
-  const connection = new FeishuConnection({ appId: settings.appId!, appSecret: settings.appSecret!, botOpenId: settings.botOpenId!, ownerOpenId: settings.ownerOpenId, domain: settings.domain }, {
-    receive: message => external.receive(agentId, message), card: value => external.card(agentId, value), onError: reportError,
-    status: state => process.stderr.write(`Feishu ${agentId}: ${state}\n`),
-  });
-  feishu.set(agentId, connection); external.add(agentId, connection);
-}
+managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, key: channelKey, relay,
+  hasAgent: id => agents.some(agent => agent.agentId === id), onError: reportError,
+  remove: agentId => external.remove(agentId),
+  create: (channel, secret, callbacks) => {
+    const connection = new FeishuConnection({ appId: channel.config.app_id, appSecret: secret.app_secret!, botOpenId: channel.provider_runtime.bot_open_id, ownerOpenId: channel.provider_runtime.owner_open_id }, {
+      receive: message => external.receive(channel.agent_id, message), card: value => external.card(channel.agent_id, value), onError: reportError,
+      metadata: callbacks.metadata,
+      status: state => { callbacks.status(state); process.stderr.write(`Feishu ${channel.agent_id}: ${state}\n`); },
+    });
+    external.add(channel.agent_id, connection); return connection;
+  },
+});
+managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:')).map(channel => ({
+  agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
+})));
 product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
   image: downloadImage,
@@ -152,7 +159,9 @@ heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, on
 });
 runtime.onNotification((method, value) => { if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
 await runtime.start();
-await Promise.all([...feishu.values()].map(connection => connection.start()));
+await managed.start();
+await external.recover();
+await product.recover(true);
 void relay.start().catch(reportError);
 heartbeat.start();
 process.stdout.write(`Node ${config.node.node_id} ready; DSH pid=${runtime.process!.pid}\n`);
@@ -160,7 +169,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  try { for (const connection of feishu.values()) connection.stop(); await heartbeat.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await managed.stop(); await heartbeat.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
 }
 process.once('SIGTERM', () => { void stop(); });

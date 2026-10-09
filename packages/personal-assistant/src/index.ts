@@ -7,3 +7,4 @@ export { Heartbeat } from './heartbeat.js';
 export { heartbeatTasks, heartbeatDue, withinActiveHours, type HeartbeatSettings } from './heartbeat-policy.js';
 export { ExternalChannels } from './external.js';
 export { needsAttention } from './attention.js';
+export { ManagedChannels, type ManagedChannel, type ChannelManifest } from './managed-channels.js';

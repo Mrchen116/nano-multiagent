@@ -44,6 +44,6 @@ export interface RuntimePort {
   request(method: string, params: unknown): Promise<unknown>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
 }
-export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed';
+export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';

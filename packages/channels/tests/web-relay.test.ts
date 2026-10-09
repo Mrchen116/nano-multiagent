@@ -39,11 +39,10 @@ test('registration gates business sends and blocked inbound handlers do not bloc
     socket.send(JSON.stringify({ type: 'agent.work.permission', payload: {} }));
     ack(socket, frame);
   });
-  const relay = connection(s.url, { onFrame: async frame => { received.push(frame.type); await new Promise(() => {}); } });
+  const relay = connection(s.url, { ackTimeoutMs: 2000, onFrame: async frame => { received.push(frame.type); await new Promise(() => {}); } });
   const started = relay.start();
   await expect(relay.request('node.report', {})).rejects.toMatchObject({ delivery: 'not-sent' });
-  await pause(20);
-  expect(s.frames.map(f => f.type)).toEqual(['node.register']);
+  await expect.poll(() => s.frames.map(f => f.type), { timeout: 1000 }).toEqual(['node.register']);
   ack(s.connections[0]!, register, { gateway_access_token: 'gateway', node_epoch: 4 });
   expect(await started).toMatchObject({ gateway_access_token: 'gateway', node_epoch: 4 });
   expect(s.headers).toEqual(['Bearer secret']);
@@ -76,20 +75,18 @@ test('reconnect refreshes auth and registration without replaying uncertain or q
   const queued = relay.request('agent.message', {});
   await expect(sent).rejects.toMatchObject({ delivery: 'unknown' });
   await expect(queued).rejects.toMatchObject({ delivery: 'not-sent' });
-  await pause(60);
+  await expect.poll(() => relay.ready && s.headers.length === 2, { timeout: 1000 }).toBe(true);
   expect(s.headers).toEqual(['Bearer token-1', 'Bearer token-2']);
   expect(s.frames.map(f => f.type)).toEqual(['node.register', 'node.report', 'node.register']);
   expect(relay.ready).toBe(true);
 });
 
 test('heartbeat timeout reconnects; revoked identity stops automatic reconnect', async () => {
-  const s = await server((socket, frame) => { if (frame.type === 'node.register') ack(socket, frame); });
+  const s = await server((socket, frame) => { if (frame.type === 'node.register') { ack(socket, frame); if (s.connections.length === 2) socket.close(4003, 'revoked'); } });
   const relay = connection(s.url, { heartbeatIntervalMs: 15, ackTimeoutMs: 30 });
-  await relay.start(); await pause(70);
-  expect(s.connections.length).toBeGreaterThanOrEqual(2);
-  s.connections.at(-1)!.close(4003, 'revoked');
-  await pause(20);
-  expect(relay.state).toBe('revoked');
+  await relay.start();
+  await expect.poll(() => relay.state, { timeout: 1000 }).toBe('revoked');
+  expect(s.connections.length).toBe(2);
   const count = s.connections.length;
   await pause(60); expect(s.connections).toHaveLength(count);
   await expect(relay.request('node.report', {})).rejects.toBeInstanceOf(RelayDeliveryError);
