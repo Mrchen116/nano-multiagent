@@ -851,7 +851,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/skills/usage", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id),
-      r = await rpc(p.node_id, "node.skills.usage.request", {
+      { usage: r } = await rpc(p.node_id, "node.skills.usage.request", {
         agent_id: p.agent_id,
         workspace_root: requiredWorkspace(p),
       });

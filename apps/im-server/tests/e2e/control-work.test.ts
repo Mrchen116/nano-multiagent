@@ -267,3 +267,19 @@ it("keeps external shadow identity stable and forks an acknowledged kernel messa
   expect(history.body.items[0].message.content).toBe("external answer");
   expect(history.body.items[0].message.kernel_message_id).toBe("kernel-2");
 });
+
+it("returns the node's actual Skill usage envelope through the public endpoint", async () => {
+  const f = await start(), g = await bind(f);
+  const pending = f.http("GET", "/im/v1/agents/assistant/skills/usage", undefined, f.tokens.alice);
+  const request = await g.frames.next(frame => frame.type === "node.skills.usage.request");
+  const usage = {
+    agent_id: "assistant", node_id: g.node,
+    skills: [{ name: "reviewed", source: "F3", state: "archived", use_count: 20 }],
+    heatmap_data: Array.from({ length: 30 }, (_, i) => i === 29 ? 1 : 0),
+    health: { created_auto_total: 1, active_auto_total: 0, used_auto_total: 1 },
+  };
+  await g.frames.send("node.skills.usage", { node_id: g.node, request_id: request.payload.request_id, usage });
+  const response = await pending;
+  expect(response.status, response.body).toBe(200);
+  expect(response.body).toEqual({ ...usage, node_online: true });
+});
