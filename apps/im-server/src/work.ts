@@ -462,10 +462,15 @@ export class Work {
         "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0",
         p.agent_id,
         c.node_id,
-      ),
-      session = this.session(p.agent_id, p.session_id);
-    if (!agent || session.node_id !== c.node_id || session.scope !== "global_main")
-      fail(403, "scope_not_allowed");
+      );
+    if (!agent) fail(403, "scope_not_allowed");
+    // Single-thread sessions live on their node, not in the global Work journal.
+    // Both modes remain limited below to conversations containing this Agent.
+    if (agent.work_mode === "global") {
+      const session = this.session(p.agent_id, p.session_id);
+      if (session.node_id !== c.node_id || session.scope !== "global_main")
+        fail(403, "scope_not_allowed");
+    }
     const limit = p.limit ?? 20;
     if (
       !Number.isInteger(limit) ||

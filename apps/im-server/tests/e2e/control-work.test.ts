@@ -165,6 +165,11 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     f.tokens.alice,
   );
   expect(sent.status, sent.body).toBe(201);
+  const singleChat = await f.http("POST", "/im/v1/conversations", { title: "Single chat", type: "direct", participants: [{ type: "agent", id: "assistant" }] }, f.tokens.alice);
+  const singleInfo = await g.frames.send("conversation.query", { node_id: g.node, request_id: "single-info", agent_id: "assistant", session_id: "single-session", action: "info", target: singleChat.body.id });
+  expect(singleInfo.payload, JSON.stringify(singleInfo.payload)).toMatchObject({ ok: true, result: { target: singleChat.body.id, type: "direct", channel: "web" } });
+  const inaccessible = await g.frames.send("conversation.query", { node_id: g.node, request_id: "single-private", agent_id: "assistant", session_id: "single-session", action: "info", target: chat.body.id });
+  expect(inaccessible.payload).toMatchObject({ ok: false, error: "target_not_accessible" });
   const listing = await g.frames.send("conversation.query", {
     node_id: g.node,
     request_id: "q1",
