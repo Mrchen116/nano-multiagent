@@ -1,9 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
-import { all, one, now, fail, type Row, type ImContext } from "./context.js";
+import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
+import {canonicalAgentConfiguration} from "@nano/product-contracts";
 type Connection = {
   socket: WebSocket;
   owner_id: string;
@@ -243,6 +244,7 @@ export class Gateway {
       c.node_id,
     );
     for (const id of p.agents) {
+      const existed = one(db, "SELECT 1 FROM agent_profiles WHERE agent_id=?", id);
       db.prepare(
         `INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,skills_json,skills_selection_mode,tool_allowlist_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET is_stale=0,staled_at=NULL,workspace_root=COALESCE(excluded.workspace_root,workspace_root),updated_at=excluded.updated_at`,
       ).run(
@@ -258,6 +260,12 @@ export class Gateway {
         now(),
         now(),
       );
+      // Only a first registration seeds local configuration. Reconnect must not
+      // replace an existing IM desired revision or a pending configuration operation.
+      if (!existed && p.agent_configurations?.[id]) {
+        const seed=canonicalAgentConfiguration({...p.agent_configurations[id],agent_id:id,workspace_root:p.agent_workspaces?.[id],work_mode:p.agent_work_modes?.[id]??'single_thread'});
+        db.prepare('UPDATE agent_profiles SET display_name=?,group_reply_policy=?,default_model=?,reasoning_effort=?,custom_prompt=?,heartbeat_json=?,features_json=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,model_fallbacks_json=? WHERE agent_id=?').run(seed.display_name,seed.group_reply_policy,seed.default_model,seed.reasoning_effort,seed.custom_prompt,seed.heartbeat_json,JSON.stringify(seed.features),JSON.stringify(seed.skills),seed.skills_selection_mode,JSON.stringify(seed.tool_allowlist),JSON.stringify(seed.model_fallbacks),id);
+      }
       const advertised = p.agent_create_operations?.[id];
       const operation = advertised
         ? one(
@@ -593,29 +601,20 @@ export class Gateway {
       return ack({ request_id: p.request_id, boundary_id: b.boundary_id });
     }
     if (type === "node.report") {
-      if (p.message_id) {
-        const m = s.message(p.message_id);
-        s.access({ ...c, kind: "gateway" }, m.conversation_id, p.agent_id);
-        s.event(
-          m.conversation_id,
-          m.id,
-          ["failed", "error"].includes(p.status) ? "relay.failed" : "relay.processing",
-          p,
-          p.status,
-        );
-        if (p.usage)
-          db.prepare(
+      this.requireAgent(c, p.agent_id);
+      const conversation = p.conversation_id ?? (p.message_id ? s.message(p.message_id).conversation_id : undefined);
+      if (conversation) s.access({ ...c, kind: "gateway" }, conversation, p.agent_id);
+      if (p.usage) {
+        if (!p.run_id) fail(400, "run_id_required");
+        transaction(db, () => {
+          const inserted = db.prepare("INSERT OR IGNORE INTO usage_receipts VALUES(?,?)").run(c.node_id, p.run_id);
+          if (!inserted.changes) return;
+          const scopes = [[null, null], ...(conversation ? [[conversation, null]] : []), [conversation ?? null, p.agent_id]];
+          for (const [conversationId, agentId] of scopes) db.prepare(
             "INSERT INTO usage_metrics(owner_id,conversation_id,agent_id,prompt_tokens,completion_tokens,total_tokens,turns,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          ).run(
-            c.owner_id,
-            m.conversation_id,
-            p.agent_id,
-            p.usage.prompt_tokens ?? 0,
-            p.usage.completion_tokens ?? 0,
-            p.usage.total_tokens ?? 0,
-            1,
-            now(),
-          );
+          ).run(c.owner_id, conversationId, agentId, p.usage.prompt_tokens ?? 0, p.usage.completion_tokens ?? 0,
+            p.usage.total_tokens ?? 0, 1, p.completed_at ?? now());
+        });
       }
       return ack({ run_id: p.run_id });
     }

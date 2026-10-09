@@ -13,4 +13,17 @@ Implementation in progress. No production change, merge or final acceptance has 
 
 ## Work still underway
 
-TypeScript IM implementation is independently delegated. Root owns scripts, bounded asset conversion/cutover rehearsal, old runtime/tests retirement, canonical specification migration, final independent product/static gates and Ready PR with green CI.
+The independent TypeScript IM implementation is integrated. Root owns remaining old runtime/tests retirement, canonical specification migration, final independent product/static gates and Ready PR with green CI.
+
+Offline asset conversion is implemented and tested. Two real node snapshots were converted without changing production sources. The bounded inventory and exact reconciliation limits are recorded in [asset-migration.md](../asset-migration.md#m5-two-node-rehearsal-2026-10-10). Mini retains three unresolved external-control outcomes; candidate startup refuses them. Production cutover has not been attempted.
+
+## Native center integration and operations
+
+- The native IM first registration now seeds the complete canonical local Agent configuration. Reconnect preserves the existing center revision. This closes an observed first configuration PATCH conflict on the real node/center stack; a transport regression checks local model/prompt/features plus reconnect preservation.
+- Usage comes from DSH public `deriveTurnTokenUsage` over persisted own turn events, including native children and cached input. Node persists reports before delivery; IM accepts each `(node_id, native session/turn)` once and records owner/conversation/Agent scopes. Offline/reconnect retries do not increase totals. Child inherited history is excluded from usage and Work projections.
+- `pnpm build` and `pnpm test` passed on 2026-10-10: 48 files, 112 tests. New usage protections sit at the native runtime accounting seam, durable node report handoff, and actual HTTP/WebSocket IM process; each guards a distinct failure cause. Existing fork/history and Workflow tests were extended for inherited history and cold accounting.
+- `scripts/e2e-up.sh` and `e2e-down.sh` now use native TypeScript binaries, real device binding and process identity checks. Python remains only a standalone fixture/helper language. Isolation keeps the copied config, workspace, owner skill root, DSH state, identity and IM data in the selected runtime directory.
+- `scripts/e2e-resilience.sh --wt .dsh-runtime/native-resilience` passed against TypeScript IM + Node: restart IM without restarting Node, then start the already bound Node while IM is unavailable and recover when IM returns. Durable identity/data were retained; both services were stopped afterward.
+- `scripts/e2e-gateway-autostart.sh --wt .dsh-runtime/native-autostart` passed: launchd initial PID 6730, crash replacement 7180, simulated login 7225; manual stop and permanent disable verified. Owned processes and plist were cleaned. These checks do not prove physical sleep/network recovery.
+- Feishu fixture rendering remains covered by three passing standalone helper tests. The final native-center Feishu and iOS acceptance are still pending.
+- Final native-center model smoke passed in `.dsh-runtime/usage-live`: a real `deepseek:deepseek-v4-flash` call read an isolated sentinel through the native `read` tool, returned the exact content, and the center reported all three scopes with 4,594 owner tokens. Conversation `c_n93dc539`, message `7ec4cf9474624c869419122229050233`; ignored `chat-evidence.json` and `usage-evidence.json` preserve results. Both test services were stopped afterward.

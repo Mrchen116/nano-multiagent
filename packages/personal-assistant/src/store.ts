@@ -11,6 +11,8 @@ export class NodeStore {
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
       PRAGMA foreign_keys=ON;
+      CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
+      CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS sessions (
         session_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
@@ -48,6 +50,8 @@ export class NodeStore {
     if (owner.owner_id !== ownerId) { this.db.close(); throw new Error('Node state belongs to a different owner'); }
   }
 
+  /** Preserve the old relay deduplication window without replaying retired execution. */
+  priorRelay(key: string): boolean { return !!this.db.prepare('SELECT 1 FROM migration_relay_keys WHERE idempotency_key=? AND expires_at>?').get(key, Date.now()/1000); }
   /** Bind a product conversation once; runtime identity never comes from a model. */
   bind(binding: SessionBinding): SessionBinding {
     binding = { ...binding, conversationId: this.canonicalConversation(binding.agentId, binding.conversationId) };
@@ -222,6 +226,14 @@ export class NodeStore {
   confirmReceipt(inputId: string, status: string): void {
     this.db.prepare('INSERT INTO input_receipts VALUES(?,?) ON CONFLICT(input_id) DO UPDATE SET status=excluded.status').run(inputId, status);
   }
+  saveUsage(runId: string, payload: Record<string, unknown>): void {
+    this.db.prepare('INSERT OR IGNORE INTO usage_reports(run_id,payload) VALUES(?,?)').run(runId, JSON.stringify(payload));
+  }
+  pendingUsage(): {runId: string; payload: Record<string, unknown>}[] {
+    return (this.db.prepare('SELECT run_id,payload FROM usage_reports WHERE acknowledged=0 ORDER BY rowid').all() as {run_id: string;payload: string}[])
+      .map(row => ({runId: row.run_id, payload: JSON.parse(row.payload)}));
+  }
+  confirmUsage(runId: string): void { this.db.prepare('UPDATE usage_reports SET acknowledged=1 WHERE run_id=?').run(runId); }
   close(): void { this.db.close(); }
 }
 export interface Delivery { operationId: string; state: DeliveryState; messageId: string | null; content: string }

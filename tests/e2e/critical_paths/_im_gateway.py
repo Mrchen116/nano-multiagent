@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
@@ -83,13 +85,19 @@ def restart_gateway(
     """
     pid_file = os.path.join(wt_dir, ".gateway.pid")
     cfg = os.path.join(wt_dir, ".gateway-config.yaml")
-    log = os.path.join(wt_dir, ".gateway.log")
+    log = os.path.join(wt_dir, "gateway.log")
 
-    # 1) 优雅杀旧进程组。
-    if os.path.exists(pid_file):
-        with open(pid_file) as f:
-            old_pid = int(f.read().strip())
-        _terminate_process_group(old_pid)
+    repo_root = str(Path(__file__).resolve().parents[3])
+    node = shutil.which("node")
+    if node is None:
+        raise RuntimeError("Node.js is required for the native Gateway")
+    subprocess.run(
+        [node, str(Path(repo_root) / "apps/node/lib/cli.js"), "stop", "--config", cfg],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     # Old-process shutdown may persist one final heartbeat. Readiness must use a
     # generation floor sampled only after termination has completed.
@@ -110,7 +118,7 @@ def restart_gateway(
     gateway_command = (
         [sys.executable, gateway_entrypoint]
         if gateway_entrypoint is not None
-        else [sys.executable, "-m", "personal_assistant.main"]
+        else [node, str(Path(repo_root) / "apps/node/lib/cli.js")]
     )
     log_handle = open(log, "a")
     try:

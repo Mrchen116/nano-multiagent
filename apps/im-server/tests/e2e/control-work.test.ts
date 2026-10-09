@@ -4,7 +4,7 @@ import { start, bind } from "./helpers.js";
 
 it("transports configuration receipts, encrypted channel manifests and global Work over the real socket", async () => {
   const f = await start(),
-    g = await bind(f);
+    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", features: {heartbeat: true}}});
   const mirror = await f.http(
     "GET",
     "/im/v1/agents/assistant/config?source=mirror",
@@ -12,6 +12,7 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     f.tokens.alice,
   );
   expect(mirror.status, mirror.body).toBe(200);
+  expect(mirror.body).toMatchObject({display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", features: {heartbeat: true}});
   const updated = f.http(
     "PATCH",
     "/im/v1/agents/assistant/config",
@@ -22,7 +23,7 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     },
     f.tokens.alice,
   );
-  const apply = await g.frames.next((p) => p.type === "agent.config.apply");
+  const apply = await Promise.race([g.frames.next((p) => p.type === "agent.config.apply"), updated.then(r=>{throw new Error(JSON.stringify(r.body));})]);
   expect(apply.payload.candidate_fingerprint).toMatch(/^[a-f0-9]{64}$/);
   // An unrelated response with a matching ID cannot complete this operation.
   expect(
@@ -46,6 +47,8 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
   expect(applied.status, applied.body).toBe(200);
   expect(applied.body.display_name).toBe("Configured");
   expect(applied.body.profile_version).toBe(mirror.body.profile_version + 1);
+  await g.frames.send("node.register", {node_id: g.node, agents: ["assistant", "global"], agent_configurations: {assistant: {display_name: "Outdated local"}}});
+  expect((await f.http("GET", "/im/v1/agents/assistant/config?source=mirror", undefined, f.tokens.alice)).body.display_name).toBe("Configured");
   const liveRequest = f.http("GET", "/im/v1/agents/assistant/config", undefined, f.tokens.alice);
   const get = await g.frames.next((p) => p.type === "agent.config.get");
   await g.frames.send("agent.config", {

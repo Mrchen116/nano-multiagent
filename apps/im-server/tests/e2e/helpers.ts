@@ -164,7 +164,7 @@ export async function start(existingDbPath?: string) {
   }
   return { dir, dbPath, child, base, http, tokens };
 }
-export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a") {
+export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a", configurations: Record<string, unknown> = {}) {
   const pair = generateKeyPairSync("x25519"),
     publicKey = Buffer.from(pair.publicKey.export({ format: "jwk" }).x!, "base64url");
   const post = (action: string, b: any, token?: string) =>
@@ -218,8 +218,11 @@ export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a"
   expect((await post("commit", { ...auth, proof, envelopes: {} })).status).toBe(200);
   const recovery = await post("recover", auth);
   expect(recovery.status, recovery.body).toBe(200);
+  return connect(f, node, recovery.body.runtime_token, configurations);
+}
+export async function connect(f: Awaited<ReturnType<typeof start>>, node: string, runtime: string, configurations: Record<string, unknown> = {}) {
   const socket = new WebSocket(f.base.replace("http:", "ws:") + "/im/ws/gateway", {
-      headers: { Authorization: `Bearer ${recovery.body.runtime_token}` },
+      headers: { Authorization: `Bearer ${runtime}` },
     }),
     frames = new Frames(socket);
   await once(socket, "open");
@@ -227,6 +230,7 @@ export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a"
   const ack = await frames.send("node.register", {
     node_id: node,
     agents: ["assistant", "global"],
+    agent_configurations: configurations,
     agent_work_modes: { assistant: "single_thread", global: "global" },
     agent_workspaces: { assistant: "/tmp/assistant", global: "/tmp/global" },
     agent_tool_allowlist: { assistant: ["task_graph"], global: ["task_graph"] },
@@ -237,6 +241,6 @@ export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a"
     frames,
     node,
     token: ack.payload.gateway_access_token,
-    runtime: recovery.body.runtime_token,
+    runtime,
   };
 }

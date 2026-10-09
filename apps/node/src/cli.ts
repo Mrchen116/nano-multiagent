@@ -11,6 +11,8 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     config: { type: "string" },
+    "source-root": {type: "string"},
+    destination: {type: "string"},
     foreground: { type: "boolean" },
     "auto-bind": { type: "boolean" },
     "recover-device": { type: "boolean" },
@@ -21,10 +23,17 @@ const { values, positionals } = parseArgs({
 const action = positionals[0] ?? "start";
 if (values.help) {
   process.stdout.write(
-    "Usage: pnpm pa [start|stop|restart|status|bind] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
+    "Usage: pnpm pa [start|stop|restart|status|bind|migrate] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
   );
 } else
   try {
+    if (action === 'migrate') {
+      if(!values['source-root']||!values.destination)throw new Error('Usage: pnpm pa migrate --source-root <old-owner-root> --destination <new-empty-directory>');
+      const {migrateNode}=await import('./migration.js');
+      const report=await migrateNode(values['source-root'],values.destination);
+      process.stdout.write(JSON.stringify({nodeId:report.nodeId,counts:report.counts,blockers:report.blockers,readyForCutover:report.readyForCutover})+'\n');
+      process.exit(report.blockers.length?2:0);
+    }
     if (!["start", "stop", "restart", "status", "bind"].includes(action))
       throw new Error("Unknown personal-assistant command: " + action);
     const configPath = resolve(

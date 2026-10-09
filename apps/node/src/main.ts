@@ -5,13 +5,17 @@ import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
 import { projectCapabilities } from './capabilities.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
 const configIndex = process.argv.indexOf('--config');
 if (configIndex < 0 || !process.argv[configIndex + 1]) throw new Error('Usage: node apps/node/lib/main.js --config <gateway.yaml>');
 const configPath = resolve(process.argv[configIndex + 1]!);
+try {
+  const migration = JSON.parse(await readFile(join(dirname(configPath), 'migration-report.json'), 'utf8')) as {blockers: string[]};
+  if(migration.blockers.length)throw new Error(`Migration has ${migration.blockers.length} unreconciled operations; inspect migration-report.json before starting`);
+} catch(error) { if((error as NodeJS.ErrnoException).code !== 'ENOENT')throw error; }
 const configuration = await NodeConfiguration.read(configPath);
 const config = configuration.value;
 applyGatewayEnvironment(config);
@@ -35,6 +39,7 @@ let managed: ManagedChannels;
 let knowledge: KnowledgeUpdates;
 let history: ConversationHistory;
 let workflows: WorkflowResults;
+let usage: UsageReports;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
@@ -42,7 +47,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); } },
+  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
   onError: reportError,
 });
 const relay = new WebRelayConnection({
@@ -50,6 +55,7 @@ const relay = new WebRelayConnection({
   credentials: () => ({ accessToken: config.im_service.token, registration: {
     node_id: config.node.node_id, node_name: config.node.node_id, version: 'nano-dsh/0.1.0',
     agents: agents.map(agent => agent.agentId), user_id: config.node.user_id,
+    agent_configurations: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)])),
     agent_workspaces: Object.fromEntries(agents.map(agent => [agent.agentId, agent.workspace])),
     agent_work_modes: Object.fromEntries(agents.map(agent => [agent.agentId, agent.mode])),
     agent_skills: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.skills ?? []])),
@@ -116,12 +122,13 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'relay.message') {
       const input = frame.payload as unknown as RelayInput;
+      if (store.priorRelay(input.idempotency_key)) return;
       if (agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global') await globalProduct.receive(input);
       else await product.receive(input);
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); } },
+  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
   onError: reportError,
 });
 async function downloadImage(url: string, agentId: string) {
@@ -188,6 +195,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (previous) Object.assign(previous, next); else agents.push(next);
   },
 });
+usage = new UsageReports({nodeId: config.node.node_id, store, runtime, relay, onError: reportError});
 workflows = new WorkflowResults({agents,store,runtime,receive: (sessionId,input)=>product.background(sessionId,input),onError:reportError});
 history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
@@ -209,7 +217,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

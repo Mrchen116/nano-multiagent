@@ -15,6 +15,7 @@ export class InboxStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
+      CREATE TABLE IF NOT EXISTS imported_parts(seq INTEGER,part INTEGER,body TEXT,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
       CREATE TABLE IF NOT EXISTS reads(session_id TEXT,call_id TEXT,fragments TEXT,body TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
@@ -72,7 +73,7 @@ export class InboxStore {
     } else {
       snapshotId = randomUUID();
       snapshot = { agent, target: args.target, fragments: this.entries(agent, args.target).flatMap(row => {
-        const count = this.parts(JSON.parse(row.payload) as RelayInput).length;
+        const count = this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length;
         return Array.from({ length: count }, (_, part) => ({ seq: row.seq, part }))
           .filter(fragment => !this.db.prepare('SELECT 1 FROM fragments WHERE seq=? AND part=?').get(fragment.seq, fragment.part));
       }) };
@@ -82,7 +83,7 @@ export class InboxStore {
     const messages = selected.map(fragment => {
       const row = this.db.prepare('SELECT * FROM inbox WHERE seq=?').get(fragment.seq) as unknown as Entry;
       const input = JSON.parse(row.payload) as RelayInput;
-      const parts = this.parts(input);
+      const parts = this.parts(input, row.seq);
       return { id: input.message.id, target: row.target, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.metadata.sender_name ?? input.message.sender_user_id }, time: input.metadata.created_at ?? input.metadata.source_time ?? null,
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
@@ -93,7 +94,11 @@ export class InboxStore {
     this.db.prepare('INSERT INTO reads VALUES(?,?,?,?,?)').run(session, call, JSON.stringify(selected), text, hash(text));
     return body;
   }
-  private parts(input: RelayInput): Record<string, unknown>[][] {
+  private parts(input: RelayInput, seq?: number): Record<string, unknown>[][] {
+    if (seq !== undefined) {
+      const imported = this.db.prepare('SELECT body FROM imported_parts WHERE seq=? ORDER BY part').all(seq) as {body: string}[];
+      if (imported.length) return imported.map(row => JSON.parse(row.body) as Record<string, unknown>[]);
+    }
     const text = input.message.content;
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
@@ -134,9 +139,9 @@ export class InboxStore {
     try {
       for (const fragment of fragments) {
         this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT payload FROM inbox WHERE seq=?').get(fragment.seq) as { payload: string };
+        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string };
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
-        if (count === this.parts(JSON.parse(row.payload) as RelayInput).length) {
+        if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
           if (turn !== undefined) this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(fragment.seq, session, turn);
         }

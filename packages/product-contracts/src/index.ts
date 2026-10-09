@@ -62,3 +62,11 @@ export interface ModelRunProjection {
   id: string; sessionId: string; turn: number; state: 'running' | 'switching' | 'completed'; terminal?: unknown; switched?: string;
   attempts: { turn: number; route: { provider: string; model: string }; error?: { message: string; code: string } }[];
 }
+
+/** One durable native turn, excluding any inherited fork history. */
+export interface UsageReport {
+  sessionId: string;
+  turn: number;
+  time: number;
+  usage: {prompt_tokens: number; completion_tokens: number; total_tokens: number};
+}

@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-subagent';
 import type {} from '@deepseek-ai/dsh-session-query';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { RpcError, RpcPeer } from './rpc.js';
+import { readUsage } from './usage.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { CronOwners } from './cron-owners.js';
@@ -272,10 +273,18 @@ export default class NanoRuntime {
       await this.flush(agent);
       return (await models).fallback.evidence(agent, inputId);
     });
+    this.peer.handle('usage.read', async value => {
+      const {sessionId} = value as {sessionId: string};
+      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
+      try { return await readUsage(ctx, sessionId); } catch (error) {
+        if ((error as {code?: string}).code === 'SESSION_QUERY_SESSION_NOT_FOUND') return [];
+        throw error;
+      }
+    });
     this.peer.handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);
-      const events = agent.session.snapshotEvents().filter(event => event.seq > afterSeq);
+      const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
       await this.flush(agent);
       return { status: agent.status, events, modelRuns: (await models).fallback.list(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
@@ -290,7 +299,7 @@ export default class NanoRuntime {
         if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
         using observation = await ctx.sessionQuery.observeSession(child.id);
         const workflowRun = workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===child.id)));
-        return { ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: observation.events };
+        return { ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: observation.events.slice(observation.inheritedEventCount).filter(event => event.seq > (cursors[child.id] ?? -1)) };
       }));
     });
     this.peer.handle('workflow.pending', async () => (await workflow).pending());

@@ -109,6 +109,9 @@ export function apply(ctx) {
         ),
       )?.outputTokens,
     ).toBe(outputTokens(parentObservation.events));
+    const usage = await client!.rpc.request('usage.read', {sessionId: 'workflow'}) as {sessionId: string;turn: number;usage: {total_tokens: number}}[];
+    expect(new Set(usage.map(item => item.sessionId)).size).toBe(5);
+    expect(usage.reduce((sum, item) => sum + item.usage.total_tokens, 0)).toBe(15);
     const first = (await read())[0]!;
     expect(first.result.value.values).toEqual(["A_next", "B_next"]);
     expect(first.calls).toHaveLength(4);
@@ -125,6 +128,7 @@ export function apply(ctx) {
     await client!.shutdown();
     client = undefined;
     await initialize([binding]);
+    expect(await client!.rpc.request('usage.read', {sessionId: 'workflow'})).toEqual(usage);
     const replay = (await client!.rpc.request("workflow.control", {
       sessionId: "workflow",
       runId: first.id,

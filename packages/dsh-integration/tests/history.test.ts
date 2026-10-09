@@ -152,7 +152,8 @@ it("forks a native message with its configuration and compacted prefix, independ
       revision: fork.revision,
     });
     const forkEvents = await observe(fork.sessionId);
-    expect(forkEvents.some((e) => e.type === "compaction/end")).toBe(true);
+    expect(forkEvents.some((e) => e.type === "assistant/message")).toBe(false);
+    // Inherited compaction remains model context, but cannot replay as new product output.
     expect(JSON.stringify(forkEvents)).not.toContain("after-point");
     const capabilities = async (id: string) =>
       client!.rpc.request("session.capabilities", { sessionId: id });

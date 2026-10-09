@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     alias TEXT,
     last_error TEXT
 );
+CREATE TABLE IF NOT EXISTS usage_receipts (node_id TEXT NOT NULL,run_id TEXT NOT NULL,PRIMARY KEY(node_id,run_id));
 CREATE TABLE IF NOT EXISTS usage_metrics (
     metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id TEXT,
