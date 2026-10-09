@@ -19,7 +19,9 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     expect((await read('a')).tools).toEqual([]);
     expect((await read('a')).skills).toEqual([]);
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'a', cwd: home }) as { tools: { name: string }[]; skills: { name: string }[] };
-    expect(catalog.tools.map(tool => tool.name)).toContain('read');
+    expect(catalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history']));
+    const disabledCatalog = await client.rpc.request('configuration.catalog', { config: { ...config, agentId: 'new-agent', features: { task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false } }, cwd: home }) as typeof catalog;
+    expect(disabledCatalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['task_graph', 'memory', 'skill_manage', 'schedule_create', 'schedule_history']));
     expect(catalog.skills.map(skill => skill.name)).toContain('local-skill');
     const preview = await client.rpc.request('configuration.preview', { config: { ...config, systemPrompt: 'PREVIEW_ONLY_581' }, cwd: home }) as { prompt: string; tools: string[]; skills: unknown[] };
     expect(preview.prompt).toContain('PREVIEW_ONLY_581');

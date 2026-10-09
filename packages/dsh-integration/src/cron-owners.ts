@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import { Storage } from '@deepseek-ai/dsh-storage';
@@ -9,7 +10,7 @@ import { SessionId } from '@deepseek-ai/dsh-session';
 import { scheduleRealm } from './features/cron.js';
 
 type Fiber = ReturnType<Context['plugin']>;
-interface Owner { ctx: Context; domain: StorageDomain.DomainFacility; fiber?: Fiber; schedule?: ScheduleService; chain: Promise<unknown> }
+interface Owner { ctx: Context; domain: StorageDomain.DomainFacility; fiber?: Fiber; schedule?: ScheduleService; chain: Promise<unknown>; storageFibers: Fiber[] }
 
 /** Native storage realms keep each Agent's schedule table and timer independent. */
 export class CronOwners {
@@ -29,13 +30,14 @@ export class CronOwners {
         let domain!: StorageDomain.DomainFacility;
         // Keep both native dependencies in one fiber: alpha.1's nested domain
         // injection loses the isolated storage dependency through its shadow ctx.
-        await ctx.inject(['storage', 'storage.backend.json'], child => {
+        const domainFiber = ctx.inject(['storage', 'storage.backend.json'], child => {
           domain = new StorageDomain.DomainFacility(child, { backend: 'json' });
           const unmount = child.storage.mount('domain', domain);
           child.effect(() => async () => { await domain.closeAll(); unmount(); });
           child.provide('storageDomain', domain);
-        }).await();
-        return { ctx, domain, chain: Promise.resolve() };
+        });
+        await domainFiber.await();
+        return { ctx, domain, chain: Promise.resolve(), storageFibers: [domainFiber, json, storage] };
       })();
       this.owners.set(agentId, owner);
     }
@@ -80,7 +82,16 @@ export class CronOwners {
     });
     owner.chain = result.catch(() => {}); return result;
   }
+  /** Release a temporary catalog owner, or close a durable owner at shutdown. */
+  async disposeAgent(agentId: string, removeData = false): Promise<void> {
+    const pending = this.owners.get(agentId);
+    if (!pending) return;
+    const owner = await pending; await owner.chain; await owner.fiber?.dispose();
+    for (const fiber of owner.storageFibers) await fiber.dispose();
+    this.owners.delete(agentId);
+    if (removeData) await rm(join(this.home, 'schedules', createHash('sha256').update(agentId).digest('hex')), { recursive: true, force: true });
+  }
   async dispose(): Promise<void> {
-    for (const pending of this.owners.values()) { const owner = await pending; await owner.chain; await owner.fiber?.dispose(); owner.fiber = undefined; owner.schedule = undefined; }
+    for (const agentId of this.owners.keys()) await this.disposeAgent(agentId);
   }
 }

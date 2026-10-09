@@ -738,8 +738,8 @@
       "scope": "写入范围",
       "selectionRequired": "请选择至少一个同一 Gateway 上已结束的会话。",
       "requireDistiller": "开始前请先为执行 agent 启用 conversation-skill-distiller。",
-      "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
-      "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",
+      "requireSkillView": "开始前请先为执行 agent 启用 skill。",
+      "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill。",
       "starting": "启动中…",
       "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },

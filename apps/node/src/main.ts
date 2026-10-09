@@ -81,14 +81,14 @@ const relay = new WebRelayConnection({
         ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
           tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: 'explicit_allowlist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
       });
-      if (preview || !current) {
-        const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number; catalog: Parameters<typeof projectCapabilities>[0] };
-        await relay.request(preview ? frame.type.replace('.request', '') : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
-          ...(preview ? { preview: { prompt: result.prompt, section_count: result.section_count } } : { capabilities: projectCapabilities(result.catalog, config) }) });
+      if (preview) {
+        const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number };
+        await relay.request(frame.type.replace('.request', ''), { request_id: payload.request_id, node_id: config.node.node_id,
+          preview: { prompt: result.prompt, section_count: result.section_count } });
       } else {
-        const catalog = await runtime.request('configuration.catalog', { agentId, cwd: workspace }) as Parameters<typeof projectCapabilities>[0];
-        await relay.request('agent.capabilities', { request_id: payload.request_id, node_id: config.node.node_id, agent_id: agentId, workspace_root: workspace,
-          capabilities: projectCapabilities(catalog, config, candidate) });
+        const catalog = await runtime.request('configuration.catalog', { ...(current ? { agentId } : { config: candidate }), cwd: workspace }) as Parameters<typeof projectCapabilities>[0];
+        await relay.request(current ? 'agent.capabilities' : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
+          ...(current ? { agent_id: agentId, workspace_root: workspace } : {}), capabilities: projectCapabilities(catalog, config, current ? candidate : undefined) });
       }
     }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);

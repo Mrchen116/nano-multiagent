@@ -222,11 +222,13 @@ export default class NanoRuntime {
     });
     const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false) => {
       const previewId = `preview-${randomUUID()}`;
-      const config = { ...requested, agentId: previewId };
+      const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
       const preset = `nano:${previewId}:preview`;
       this.configurations.set(preset, config);
       const unregister = await ctx.agentPresets.register({ id: preset, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } }] });
       try {
+        // Native schedule tools appear only while their scoped service is mounted.
+        await this.cron.setEnabled(previewId, config.features?.cron_scheduling === true);
         const handle = await ctx.agents.create({ sessionId: SessionId(previewId), meta: { cwd, agentPreset: preset },
           setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, preset); } });
         try {
@@ -237,11 +239,11 @@ export default class NanoRuntime {
           return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
             tools: assembly.tools.map(tool => tool.name), skills: await ctx.skills.list({ scope: handle.agent, cwd }), catalog };
         } finally { await handle.dispose(); }
-      } finally { await unregister(); this.configurations.delete(preset); }
+      } finally { await unregister(); this.configurations.delete(preset); await this.cron.disposeAgent(previewId, true); }
     };
     this.peer.handle('configuration.catalog', async value => {
-      const { agentId, cwd } = value as { agentId: string; cwd: string };
-      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      const { agentId, cwd, config: candidate } = value as { agentId?: string; cwd: string; config?: AgentConfiguration };
+      const config = candidate ?? [...this.configurations.values()].find(config => config.agentId === agentId);
       if (!config) throw new RpcError(-32004, 'Unknown product Agent');
       return preview(config, cwd, true);
     });

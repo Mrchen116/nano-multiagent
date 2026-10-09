@@ -20,7 +20,7 @@ Skill 是按需加载的专业知识或工作流，不会因为处于启用状�
 - 非空时，只提供名单中的工具；默认工具也可以被用户关闭。
 - 显式空名单表示该 Agent 没有任何工具；模型尝试调用名单外工具时执行层拒绝，且不产生副作用。
 - `skill`、`memory`、`read`、`write`、`edit`、`bash`、`web_fetch`、`web_search`、`skill_manage`、`subagent`、`subagent_fork`、`workflow`、`job_output`、`job_kill` 等是否可用，以目标节点当前 capabilities 和 Agent 保存的选择为准。
-- 启用 cron feature 时，配置侧会把所需 `schedule_create/list/update/delete` 工具联动进 allowlist；Gateway 不在会话里偷偷扩宽白名单。
+- 启用 cron feature 需要选择 `schedule_create`；查询、修改、删除、立即运行和历史分别选择 `schedule_list`、`schedule_update`、`schedule_delete`、`schedule_run`、`schedule_history`。Gateway 不在会话里偷偷扩宽白名单。
 - 权限批准解决的是“这次允许不允许执行”；tool allowlist 解决的是“这个 Agent 是否拥有该工具”。未进入 allowlist 的工具不能靠权限卡临时获得。
 
 ### Web 搜索
