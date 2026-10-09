@@ -1,10 +1,11 @@
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding } from '@nano/product-contracts';
+import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
+import { logicalEvents } from './presentation.js';
 import { projectWorkEvent } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
@@ -35,7 +36,7 @@ export class GlobalAgent {
       const binding = options.store.bindings().find(binding => binding.sessionId === (data.rootSessionId ?? data.sessionId));
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
-      if (method === 'session.event') this.reconcile(binding).catch(options.onError);
+      if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
       if (method === 'session.status' && data.status === 'idle') this.wake(config, binding).catch(options.onError);
     });
   }
@@ -158,7 +159,7 @@ export class GlobalAgent {
         if (config?.features?.task_graph === false) throw new Error('Task Graphs Feature is disabled');
         if (config?.mode === 'global') await this.reconcile(binding);
         else {
-          const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
+          const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
           if (!read.durable) throw new Error('No durable source evidence'); this.options.store.recordEvents(binding.sessionId, read.events);
         }
         const events = this.options.store.events(binding.sessionId);
@@ -232,19 +233,21 @@ export class GlobalAgent {
     const task = (async () => {
       while (this.dirty.delete(binding.sessionId)) {
         const { store, inbox, runtime } = this.options;
-        const result = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
+        const result = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
         if (!result.durable) throw new Error('No durable event barrier');
         store.recordEvents(binding.sessionId, result.events);
         // Replay is safe and fills a product projection interrupted after the cursor commit.
-        const events = store.events(binding.sessionId);
+        const events = logicalEvents(store.events(binding.sessionId), result.modelRuns ?? []);
+        this.modelNotices(binding, result.modelRuns ?? []);
         for (const event of events) {
           const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
           if (event.type === 'tool/result') {
             const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
             inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn);
           }
-          if (event.type === 'turn/end') for (const entry of inbox.completedInputs(binding.sessionId, turn!)) {
-            const status = (event.data.reason as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
+          const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
+          if (event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
+            const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
             await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
           }
           const projected = projectWorkEvent(binding.sessionId, event, events);
@@ -256,14 +259,24 @@ export class GlobalAgent {
     })().finally(() => this.drains.delete(binding.sessionId));
     this.drains.set(binding.sessionId, task); return task;
   }
+  private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
+    for (const run of runs) {
+      for (const attempt of run.attempts) if (attempt.error) this.append(binding, `model-failure:${run.id}:${attempt.turn}`, 'message', {
+        role: 'system', text: `${attempt.route.model} 暂时无法完成：${attempt.error.message}`, native_turn: attempt.turn,
+      }, run.turn);
+      if (run.switched) this.append(binding, `model-switched:${run.id}`, 'message', { role: 'system', text: `已改用 ${run.switched}，因为主模型不可用。` }, run.turn);
+    }
+  }
   private async projectChildren(root: SessionBinding): Promise<void> {
-    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; label?: string; events?: RuntimeEvent[]; throughSeq?: number }[];
+    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[] }[];
     for (const child of children) {
       if (child.kind !== 'child') continue;
       const binding = { ...root, sessionId: child.id };
       this.append(binding, 'registered', 'session_registered', { scope: 'subagent', parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label });
-      for (const event of child.events ?? []) {
-        const projected = projectWorkEvent(child.id, event, child.events!, true);
+      this.modelNotices(binding, child.modelRuns ?? []);
+      const events = logicalEvents(child.events ?? [], child.modelRuns ?? []);
+      for (const event of events) {
+        const projected = projectWorkEvent(child.id, event, events, true);
         if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
       }
       if (child.throughSeq !== undefined) this.childCursors[child.id] = child.throughSeq;

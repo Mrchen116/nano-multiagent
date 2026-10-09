@@ -31,6 +31,7 @@ export interface AgentConfiguration {
   model: string;
   reasoningEffort?: string;
   maxTokens?: number;
+  modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
   features?: Record<string, boolean>;
   toolAllowlist?: string[];
@@ -75,14 +76,15 @@ export default class NanoRuntime {
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
   private readonly controller;
+  private readonly models: Promise<ModelPolicy>;
   private readonly cron: CronOwners;
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
-    const modelFiber = ctx.plugin(ModelPolicy);
-    const models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
+    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { let session = ctx.sessions.get(SessionId(sessionId)); while (session?.header.parentSession) session = ctx.sessions.get(session.header.parentSession); this.peer.notify('model.changed', { sessionId, rootSessionId: session?.id }); } });
+    const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
     const approvalFiber = ctx.plugin(NanoApproval, this.configurations);
@@ -219,14 +221,14 @@ export default class NanoRuntime {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
       await this.flush(agent);
-      return inputEvidence(agent.session.snapshotEvents(), inputId);
+      return (await models).fallback.evidence(agent, inputId);
     });
     this.peer.handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => event.seq > afterSeq);
       await this.flush(agent);
-      return { status: agent.status, events, approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+      return { status: agent.status, events, modelRuns: (await models).fallback.list(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
     this.peer.handle('session.descendants', async value => {
       const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
@@ -237,7 +239,7 @@ export default class NanoRuntime {
         const live = ctx.sessions.get(child.id);
         if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
         using observation = await ctx.sessionQuery.observeSession(child.id);
-        return { ...child, throughSeq: observation.cursor, events: observation.cursor > (cursors[child.id] ?? -1) ? observation.events : [] };
+        return { ...child, throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: observation.events };
       }));
     });
     this.peer.handle('session.command', async value => {
@@ -248,6 +250,7 @@ export default class NanoRuntime {
       const { sessionId } = value as { sessionId: string };
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
+      (await models).fallback.interrupt(agent);
       const wasRunning = agent.status === 'running';
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
@@ -375,6 +378,7 @@ export default class NanoRuntime {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
+      (await this.models).fallback.interrupt(agent);
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: { ...input.source, kind: input.source.kind === 'human' ? 'nano-human' as const : 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);

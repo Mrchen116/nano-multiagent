@@ -9,6 +9,7 @@ export interface AgentConfiguration {
   model: string;
   reasoningEffort?: string;
   maxTokens?: number;
+  modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
   features?: Record<string, boolean>;
   toolAllowlist?: string[];
@@ -54,3 +55,9 @@ export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' 
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
+
+/** Native attempts grouped into one product reply and its model notices. */
+export interface ModelRunProjection {
+  id: string; sessionId: string; turn: number; state: 'running' | 'switching' | 'completed'; terminal?: unknown; switched?: string;
+  attempts: { turn: number; route: { provider: string; model: string }; error?: { message: string; code: string } }[];
+}

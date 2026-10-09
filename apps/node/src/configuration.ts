@@ -56,6 +56,13 @@ export class NodeConfiguration {
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
+      modelFallbacks: (canonical.model_fallbacks ?? []).map(model => {
+        const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
+        if (!provider) throw new Error(`No configured provider for fallback ${model}`);
+        const selected = provider.models.find(candidate => candidate.name === model)!;
+        const effort = typeof selected.reasoning === 'object' ? selected.reasoning.default : undefined;
+        return { provider: provider.name, model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
+      }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
       approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
         memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),

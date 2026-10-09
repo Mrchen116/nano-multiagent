@@ -170,6 +170,7 @@ product = new SingleThread({
   image: downloadImage,
 });
 globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError });
+runtime.handle('model.check', value => product.modelCheck(value as { sessionId: string; turn: number }));
 runtime.handle('product.call', call => globalProduct.call(call as ProductCall));
 operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   current: agentId => configuration.current(agentId),

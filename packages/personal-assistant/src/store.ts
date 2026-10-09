@@ -136,7 +136,7 @@ export class NodeStore {
   }
   accepted(inputId: string): void { this.db.prepare('UPDATE inputs SET accepted=1 WHERE input_id=?').run(inputId); }
   inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }): void {
-    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=coalesce(?,terminal) WHERE input_id=?').run(
+    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=? WHERE input_id=?').run(
       Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), inputId,
     );
   }
@@ -201,6 +201,14 @@ export class NodeStore {
   }
   updateDelivery(operationId: string, state: DeliveryState, messageId: string | null, content: string): void {
     this.db.prepare('UPDATE deliveries SET state=?,message_id=?,content=? WHERE operation_id=?').run(state, messageId, content, operationId);
+  }
+  /** Retire the failed placeholder and reserve a distinct backup bubble atomically. */
+  advanceFallbackDelivery(operationId: string, noticeId: string, marker: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.saveCommand(noticeId, 'delivered'); this.saveCommand(marker, 'converted-to-failure');
+      this.updateDelivery(operationId, 'prepared', null, ''); this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   eventDelivered(operationId: string, seq: number): boolean {
     return !!this.db.prepare('SELECT 1 FROM delivery_events WHERE operation_id=? AND seq=?').get(operationId, seq);

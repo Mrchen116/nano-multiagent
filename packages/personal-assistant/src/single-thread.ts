@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding } from '@nano/product-contracts';
+import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { argumentsObject, tokenUsage, toolPresentation } from './presentation.js';
+import { argumentsObject, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
 interface InputEvidence { accepted: boolean; turn?: number; terminal?: unknown }
@@ -22,19 +22,20 @@ interface Options {
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
 export class SingleThread {
+  private readonly modelRuns = new Map<string, ModelRunProjection[]>();
   private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
   private readonly pendingApprovals = new Map<string, { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
-  private readonly streams = new Map<string, { turn: number; chain: Promise<unknown> }>();
+  private readonly streams = new Map<string, { sessionId: string; turn: number; chain: Promise<unknown> }>();
   constructor(private readonly options: Options) {
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
       const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
       if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
-      if (method === 'session.event' && data.event) this.reconcile(data.sessionId).catch(options.onError);
+      if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
       if (method === 'session.stream') this.stream(value as Stream);
@@ -163,17 +164,20 @@ export class SingleThread {
     const { store, runtime } = this.options;
     const binding = store.bindings().find(item => item.sessionId === sessionId);
     if (!binding) return;
-    const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
+    const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
+    this.modelRuns.set(sessionId, read.modelRuns ?? []);
     for (const input of store.inputs(sessionId)) {
       const evidence = await runtime.request('session.lookup', { sessionId, inputId: input.id }) as InputEvidence;
       store.inputEvidence(input.id, evidence);
     }
-    const events = store.events(sessionId);
+    const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
     for (const input of store.inputs(sessionId)) {
       if (input.turn === null) continue;
       const turn = input.turn;
+      const run = read.modelRuns?.find(run => run.turn === turn);
+      if (run) await this.modelNotices(binding, input.input, run);
       let delivery = store.prepareDelivery(sessionId, turn);
       if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
       if (delivery.state === 'confirmed' || delivery.state === 'failed' || delivery.state === 'withheld') {
@@ -181,6 +185,10 @@ export class SingleThread {
         continue;
       }
       const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
+      if (run && run.state !== 'completed' && (run.state === 'switching' || run.attempts.length > 1)) continue;
+      if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
+        store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
+      }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
       const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => item.input.metadata.origin === 'heartbeat');
       if (heartbeatOnly || group) {
@@ -196,7 +204,7 @@ export class SingleThread {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
-          agent_id: binding.agentId, idempotency_key: delivery.operationId,
+          agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
           external_reply: store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply });
         const messageId = ack.payload.message_id;
         if (typeof messageId !== 'string') throw new Error('IM did not acknowledge the output message identity');
@@ -217,12 +225,19 @@ export class SingleThread {
         store.confirmEvent(delivery.operationId, event.seq);
       }
       if (!end) continue;
+      // Closing waits for the stream queue without awaiting our own reconcile task.
+      if ([...this.streams.values()].some(stream => stream.sessionId === sessionId && (read.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn) === turn)) continue;
       const answers = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn);
       const final = answers.at(-1);
       const message = final?.data.message as { id: string; content: { type: string; text?: string }[] } | undefined;
-      const text = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') ?? '';
+      const publication = this.publication(sessionId, turn);
+      const text = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') || publication?.confirmed || '';
       const reason = end.data.reason as { kind: string };
       const completed = reason.kind === 'completed';
+      if (!completed && !text && !publication && run?.attempts.some(attempt => attempt.error) && !events.some(event => event.type === 'tool/call' && event.data.turn === turn)) {
+        await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'model_failure_notice' });
+        store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
+      }
       const inputs = store.inputs(sessionId);
       const position = inputs.findLastIndex(item => item.turn === turn);
       const correction = group && !binding.conversationId.startsWith('external:') && inputs.slice(position + 1).some(item => !item.input.metadata.context_only);
@@ -235,9 +250,10 @@ export class SingleThread {
       }
       store.updateDelivery(delivery.operationId, 'completing', delivery.messageId, text);
       try { await this.delta({ kind: 'message_completed', message_id: delivery.messageId,
-        final_content: text, delivery_status: completed ? 'completed' : 'failed',
+        final_content: publication?.pending && !message?.content.some(block => block.type === 'text' && block.text) ? undefined : text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
+        elapsed_ms: end.time - (events.find(event => event.type === 'turn/start' && event.data.turn === turn)?.time ?? end.time),
         resolved_model: events.filter(event => event.type === 'request/context' && event.seq <= end.seq).at(-1)?.data.model,
       }); } catch (error) {
         // The external adapter has already persisted and projected its uncertain platform result.
@@ -249,6 +265,37 @@ export class SingleThread {
     }
   }
 
+  private publication(sessionId: string, turn: number): { confirmed: string; pending?: string } | undefined {
+    const record = this.options.store.command(`published:${sessionId}:${turn}`);
+    return record ? JSON.parse(record) as { confirmed: string; pending?: string } : undefined;
+  }
+  /** Drain in-flight publication before the runtime chooses another model. */
+  async modelCheck(request: { sessionId: string; turn: number }): Promise<{ published: boolean }> {
+    await Promise.all([...this.streams.values()].filter(stream => stream.sessionId === request.sessionId).map(stream => stream.chain));
+    await this.reconcile(request.sessionId);
+    // A lost publication acknowledgement is also ineligible for replay.
+    return { published: !!this.options.store.command(`published:${request.sessionId}:${request.turn}`) };
+  }
+  private async modelNotices(binding: SessionBinding, input: RelayInput, run: ModelRunProjection) {
+    const notices = run.attempts.flatMap(attempt => attempt.error ? [{ id: `${run.id}:failure:${attempt.turn}`, text: `${attempt.route.model} 暂时无法完成回复：${attempt.error.message}`, failed: true }] : []);
+    if (run.switched && run.state === 'completed') notices.push({ id: `${run.id}:switched`, text: `已改用 ${run.switched}，因为主模型不可用。`, failed: false });
+    const first = notices[0];
+    const placeholder = this.options.store.delivery(binding.sessionId, run.turn);
+    const withdrawn = `model-placeholder:${run.id}`;
+    if (first?.failed && placeholder?.messageId && placeholder.state === 'sending' && !this.options.store.command(withdrawn)
+      && !this.options.store.command(`published:${binding.sessionId}:${run.turn}`)
+      && !this.options.store.events(binding.sessionId).some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))) {
+      await this.delta({ kind: 'message_completed', message_id: placeholder.messageId, final_content: first.text, delivery_status: 'failed' });
+      this.options.store.advanceFallbackDelivery(placeholder.operationId, first.id, withdrawn);
+    }
+    for (const notice of notices) {
+      if (this.options.store.command(notice.id)) continue;
+      const start = await this.delta({ kind: 'turn_start', conversation_id: input.conversation_id, agent_id: binding.agentId,
+        idempotency_key: notice.id, external_reply: input.metadata.external_reply });
+      await this.delta({ kind: 'message_completed', message_id: start.payload.message_id, final_content: notice.text, delivery_status: notice.failed ? 'failed' : 'completed' });
+      this.options.store.saveCommand(notice.id, 'delivered');
+    }
+  }
   private async approval(request: Approval) {
     const pending: { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string } = {
       sessionId: request.sessionId, messageId: '', posted: false,
@@ -297,18 +344,24 @@ export class SingleThread {
   private stream({ sessionId, frame }: Stream) {
     if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
     if (frame.type === 'start') {
-      this.streams.set(frame.attemptId, { turn: frame.turn!, chain: this.reconcile(sessionId) });
+      this.streams.set(frame.attemptId, { sessionId, turn: frame.turn!, chain: this.reconcile(sessionId) });
       return;
     }
     const stream = this.streams.get(frame.attemptId);
     if (!stream) return;
-    if (frame.type === 'end') { void stream.chain.finally(() => this.streams.delete(frame.attemptId)); return; }
+    if (frame.type === 'end') { void stream.chain.finally(() => { this.streams.delete(frame.attemptId); void this.reconcile(sessionId).catch(this.options.onError); }); return; }
     if (frame.chunk?.type !== 'text-delta') return;
     stream.chain = stream.chain.then(async () => {
-      const delivery = this.options.store.delivery(sessionId, stream.turn);
+      const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
+      const delivery = this.options.store.delivery(sessionId, turn);
       if (!delivery?.messageId || delivery.state !== 'sending') return;
+      if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
+      if (!frame.chunk!.text) return;
+      const published = this.publication(sessionId, turn) ?? { confirmed: '' };
+      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: frame.chunk!.text }));
       await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: frame.chunk!.text,
         idempotency_key: `${frame.attemptId}:${frame.index}` });
+      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ confirmed: published.confirmed + frame.chunk!.text }));
     }).catch(this.options.onError);
   }
   async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
