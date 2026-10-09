@@ -85,7 +85,18 @@
 
 两个 plist 均位于 Mini `~/Library/LaunchAgents/`，启用 RunAtLoad/KeepAlive。常规发布复用 launcher、plist、Tunnel 凭据和 DNS；不得用旧 `nohup uvicorn --host 0.0.0.0` 替换。TLS 在边缘终止，源站 loopback HTTP 是预期拓扑。
 
-Tunnel 稳定性以路径门禁和连续采样为准：完整部署前检查 QUIC/IPv6 en0 路径，完成后运行 `scripts/prod_tunnel.py --seconds 600`。窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败；其他临时 connector 不能替代生产 PID 的门禁。修改出口或 supervisor 时额外验证子进程退出、存活但不健康后的自动恢复。IPv6 地址和外部网络仍可能变化，每次部署都重新验收，不把一次成功当作永久保证。
+### Tunnel 验收分级
+
+按实际运行变更选择验收，不把每次发布都当作隧道稳定性修复：
+
+| 本次变更 | 验收要求 |
+|---|---|
+| 纯文档，不改变运行服务 | 文档与链接检查；不重启服务、不做运行验收 |
+| 普通 IM、前端或完整舰队部署，Tunnel 出口、协议、cloudflared 版本及 supervisor 不变 | 部署前检查 QUIC/IPv6 en0 路径；完成后 `scripts/prod_tunnel.py --seconds 30`，并验证 HTTPS/API、实时连接及本次受影响功能 |
+| 只更新 Gateway 或 LLM 代理，Tunnel 不变 | 验证受影响服务、节点连接及真实调用；无需例行 Tunnel 连续采样 |
+| 修改 Tunnel 出口路由、协议/IP 家族、cloudflared 版本或 supervisor/恢复机制，或恢复已观察到的 Tunnel 故障 | 完成后 `scripts/prod_tunnel.py --seconds 600`；恢复机制变更还需受控暂停与退出演练，随后开始连续采样 |
+
+30 秒用于发布后短时间健康核对；600 秒用于本次曾观察到间歇断连的隧道变更或故障恢复观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败。生产 PID 必须持有 metrics listener 和四个 IPv6 UDP socket，四条 QUIC 连接有双向计数；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
 
 公网规则不随 Git 代码发布而重建，但每次完整发布必须验证仍有效。308 不是 HSTS；当前未配置 HSTS，不得在验收中把二者混为一谈。账号准入、签名密钥、设备身份及数据库恢复是独立操作，普通 Feature 发布不重复首次迁移。
 

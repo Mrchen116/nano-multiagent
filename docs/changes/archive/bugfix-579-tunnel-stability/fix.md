@@ -25,7 +25,7 @@
 
 - 原 Tunnel 改为已实测的 QUIC/IPv6 en0 路径；不再依赖测试代理/TUN，将其配置恢复到改动前。
 - 原 Tunnel LaunchAgent 运行 `scripts/prod_tunnel.py` 的 supervisor runtime copy；路由漂移时等待，自动替换退出或存活但持续不健康的子进程。
-- 部署 Skill、runbook、生产舰队及两级文档入口指向同一门禁；核对生产 PID 的 metrics listener、四个 IPv6 UDP socket、四条 HA 与双向计数，以及公网 HTTPS。完整部署持续采样 600 秒，PID 替换或断连计数增加也使窗口失败。
+- 部署 Skill、runbook、生产舰队及两级文档入口指向同一门禁；核对生产 PID 的 metrics listener、四个 IPv6 UDP socket、四条 HA 与双向计数，以及公网 HTTPS。普通公网服务部署短时间采样 30 秒，Tunnel 路径、协议、cloudflared 版本、恢复机制变更或其故障恢复采样 600 秒；Gateway/LLM 局部更新按影响范围验收，纯文档不做运行验收。采样窗口内 PID 替换或断连计数增加也使窗口失败。
 
 ### 测试策略
 
@@ -51,3 +51,7 @@
 - Round 3 closure `a187723a4..510ffb2e4`：metric finding closed，存活 findings `[]`。
 - Round 4 patch `510ffb2e4..befe62119`：Tinypool override / lock / Node 要求与 Vitest 接口核对通过，findings `[]`；runtime full 与 closure 保留。
 - validated_at：`befe6211994ab47d9bdff97680034a8dcb0196ab`；后续仅澄清首次更新前先检查已安装 runtime、目标代码到位后再查 source 的文档命令顺序，记录最终现场结果并归档；runtime 未变，无 spec delta。
+
+## 部署验收范围校正
+
+用户指出每次部署都等待 600 秒不合理。将原先过宽的完整部署门禁改为按实际影响分级，权威规则见 [Tunnel 验收分级](../../../operations/prod-fleet.md#tunnel-验收分级)。普通公网服务部署用 30 秒健康采样及受影响功能验收；600 秒保留给 Tunnel 变更与其故障恢复，故障注入仅在恢复机制变更时执行。纯文档不重启生产、不重复运行验收。本次仅修正文档，runtime、既有现场验证及代码审查结论不变。
