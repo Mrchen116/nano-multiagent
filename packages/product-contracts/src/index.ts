@@ -15,6 +15,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
+  approval?: import('./approval.js').ApprovalConfiguration;
 }
 export interface SessionBinding {
   sessionId: string;
@@ -51,3 +52,4 @@ export interface RuntimePort {
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
+export { approvalDefaults, type ApprovalConfiguration } from './approval.js';

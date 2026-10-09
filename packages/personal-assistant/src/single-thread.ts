@@ -137,7 +137,7 @@ export class SingleThread {
     if (!pending) throw new Error('Permission is no longer pending');
     pending.decision = String(payload.decision);
     const decision = payload.decision === 'allow' || payload.decision === 'allow_once' ? 'allowed-once' : 'rejected';
-    await this.options.runtime.request('approval.answer', { requestId, decision });
+    await this.options.runtime.request('approval.answer', { requestId, decision, ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}) });
   }
 
   private reconcile(sessionId: string): Promise<void> {

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
+import { readApproval } from './approval.js';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
 
 export interface LocalAgent extends Record<string, unknown> {
@@ -16,11 +17,12 @@ export interface NodeConfigurationFile {
   agents: LocalAgent[];
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
-  llm: { default_model: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
+  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
 }
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
+  private readonly policies = new Map<string, AgentConfiguration['approval']>();
   private persistence: Promise<void> = Promise.resolve();
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) { return new NodeConfiguration(path, load(await readFile(path, 'utf8')) as NodeConfigurationFile); }
@@ -38,10 +40,19 @@ export class NodeConfiguration {
     if (effort && typeof selected.reasoning === 'object' && selected.reasoning.levels && !selected.reasoning.levels.includes(effort)) throw new Error(`Unsupported reasoning effort for ${model}`);
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
+    const workspace = agent.workspace_root!;
+    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(join(homedir(), '.nanoassistant'), workspace));
+    const approval = { ...this.policies.get(workspace)! };
+    if (this.value.llm.tool_approval_model) {
+      const reviewer = this.value.llm.providers.find(provider => provider.models.some(model => model.name === this.value.llm.tool_approval_model));
+      if (!reviewer) throw new Error('Tool approval model is not registered');
+      approval.reviewer = { provider: reviewer.name, model: this.value.llm.tool_approval_model };
+    }
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
+      approval,
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
       extensions: { global: join(homedir(), '.nanoassistant', 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },

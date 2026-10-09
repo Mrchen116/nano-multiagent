@@ -19,6 +19,7 @@ import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
+import { NanoApproval } from './policy/approval.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -33,6 +34,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
+  approval?: import('@nano/product-contracts').ApprovalConfiguration;
   mode?: 'single_thread' | 'global';
 }
 export interface SessionBinding {
@@ -65,7 +67,7 @@ export default class NanoRuntime {
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
   private readonly inputs = new Map<string, Promise<unknown>>();
-  private readonly approvals = new Map<string, (answer: ApprovalOutcome) => void>();
+  private readonly approvals = new Map<string, (answer: ApprovalOutcome, reason?: string) => void>();
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
   private readonly controller;
@@ -75,6 +77,8 @@ export default class NanoRuntime {
   constructor(private readonly ctx: Context) {
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
     ctx.plugin(ConfigurationScopes, this.configurations);
+    const approvalFiber = ctx.plugin(NanoApproval, this.configurations);
+    const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { resolve(child.nanoConfiguration); }); });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.controller = ctx.plugin(SessionController, { nativeOpen: false });
@@ -87,6 +91,7 @@ export default class NanoRuntime {
       const config = this.configurations.get(preset);
       if (!config) throw new Error(`Missing Nano configuration for ${preset}`);
       (await configuration).attachAgent(agent, config);
+      await (await approval).attach(agent, config);
       agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
         const assembled = await next();
         return { ...assembled, variables: { ...assembled.variables, provider: config.provider, model: config.model } };
@@ -117,15 +122,21 @@ export default class NanoRuntime {
       if (config?.mode === 'global' || !human) return 'rejected';
       const requestId = randomUUID();
       return new Promise<ApprovalOutcome>(resolve => {
-        const finish = (answer: ApprovalOutcome) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (answer: ApprovalOutcome, reason?: string) => {
+          if (!this.approvals.has(requestId)) return;
+          if (timer) clearTimeout(timer);
           this.approvals.delete(requestId);
           request.signal?.removeEventListener('abort', cancel);
+          if (answer === 'rejected' && reason?.trim()) request.agent.inject(freezeMessage({ id: MessageId(randomUUID()), role: 'user' as const, content: [{ type: 'text', text: `The human rejected ${request.toolName} (${request.callId ?? requestId}). Their reason: ${reason}` }],
+            source: { kind: 'user-approval', form: 'notice', summary: 'The human rejected this tool call with a reason.' } }));
           resolve(answer);
           this.peer.notify('approval.resolved', { requestId, sessionId: request.agent.id, outcome: answer });
         };
         const cancel = () => finish('cancelled');
         this.approvals.set(requestId, finish);
         if (request.signal?.aborted) return cancel();
+        timer = setTimeout(() => finish('unavailable'), Math.max(0, (config?.approval?.askTimeoutSec ?? 600) * 1000));
         request.signal?.addEventListener('abort', cancel, { once: true });
         this.peer.notify('approval.request', {
           requestId, sessionId: request.agent.id, toolName: request.toolName,
@@ -138,6 +149,7 @@ export default class NanoRuntime {
       const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
+      await approvalFiber.await();
       await ctx.loader.await();
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
@@ -210,7 +222,7 @@ export default class NanoRuntime {
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => event.seq > afterSeq);
       await this.flush(agent);
-      return { status: agent.status, events, throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+      return { status: agent.status, events, approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
     this.peer.handle('session.descendants', async value => {
       const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
@@ -234,11 +246,11 @@ export default class NanoRuntime {
       return { stopped: true, wasRunning };
     });
     this.peer.handle('approval.answer', value => {
-      const { requestId, decision } = value as { requestId: string; decision: ApprovalOutcome };
+      const { requestId, decision, reason } = value as { requestId: string; decision: ApprovalOutcome; reason?: string };
       if (!['allowed-once', 'rejected'].includes(decision)) throw new RpcError(-32602, 'Invalid approval decision');
       const answer = this.approvals.get(requestId);
       if (!answer) throw new RpcError(-32004, 'Approval is no longer pending');
-      answer(decision);
+      answer(decision, reason);
       return { answered: true };
     });
     this.peer.handle('configuration.apply', async value => {
