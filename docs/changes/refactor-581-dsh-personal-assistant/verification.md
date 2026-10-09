@@ -1,5 +1,9 @@
 # Verification Report: refactor-581-dsh-personal-assistant
 
+> Latest closure: `e89179da8956577b288ee374fe791c2ce82d5047 → 3014fe8cd76df81f34fb756eaebefe205b4051ad`; includes the first `bbbaee580` repair and precise later partial-usage fix, with committed `specs/im/response-metrics.md` and matching design table reviewed on 2026-10-10.
+
+**Latest result: corrected-delta ALIGNED; C1/W1/W2 CLOSED. Remaining full-unit gate: 1 CRITICAL (C2, incomplete independent product/physical-device evidence), 0 WARNING, 0 SUGGESTION.** No surviving source defect was found in this repair scope. Canonical spec merge/archive/docs validation remains the parent's pending workflow step, distinct from C2. The Round 1 sections below are historical and are superseded only where Round 2 explicitly closes a finding.
+
 > Validation snapshot: `4915c44cb7f7b829414a19087877ad9b73d69ea1 → e89179da8956577b288ee374fe791c2ce82d5047`
 
 Round 1 · `verification_mode: full` · `verdict: fail` · `requires_full_verification: false`
@@ -88,3 +92,37 @@ None.
 - Dedicated actual final TypeScript-center Feishu platform + IM response is recorded at ignored `.dsh-runtime/native-feishu-fixed/acceptance.json` and summarized in M5 progress. It is local real-platform evidence, not a production deployment or physical iOS result.
 - Legacy dispositions are authoritative in `M5-decommission/test-disposition.md`; old private Python implementation tests are not required to survive the approved replacement. Research/evaluation material remains outside retirement.
 - Parent is making source fixes during this report. No post-`e89179da8` source, tests or client edits were included. A precise patch/closure pass must close C1/W1/W2 and update evidence; C2 remains the product reviewer’s gate. No report commit was made in the shared worktree.
+
+## Round 2 — targeted closure and corrected delta
+
+Implementation snapshot: `e89179da8956577b288ee374fe791c2ce82d5047 → 3014fe8cd76df81f34fb756eaebefe205b4051ad`. This pass checks the exact supplied repair batches, prior findings and the complete six-area corrected unit delta. It is not a second full review. `requires_full_verification: false`.
+
+| Focus issue | Result | Direct evidence |
+|---|---|---|
+| C1 execution liveness | CLOSED | `packages/dsh-integration/src/index.ts` actual-running-Agent timer → `session.liveness`; `single-thread.ts` → `store.activeDeliveries(sessionId)` limits heartbeats to sending bubbles; existing `gateway.ts` heartbeat → message event time. Native quiet-model and real IM pending-approval heartbeat/heartbeat-loss regressions independently passed. |
+| W1 retained usage schema | CLOSED | Canonical usage keys emitted by `presentation.ts`; Work/Feishu updated consistently; Web/Swift unknown-count semantics match corrected response-metrics delta. Later `3014fe8cd` guards persisted partial `context_used/output` values without field aliases. Focused product and updated client tests independently passed; real token-usage critical path retained from parent. |
+| W2 runtime readiness/PID | CLOSED | Supervisor `onUnavailable` clears public readiness/PID before recovery; `onReady` persists replacement after successful initialization/product recovery. Independent actual SIGKILL lifecycle test passed. |
+| C2 independent final product/physical-device gate | STILL OPEN | Committed `acceptance.md` explicitly retains fail/inconclusive journeys and `needs_re_review: true`; signed device build/install does not prove physical UI acceptance. Product reviewer must close each still-applicable journey with actual new evidence. Source repairs do not retroactively turn earlier product failures into product passes. |
+
+Latest counts: **1 CRITICAL, 0 WARNING, 0 SUGGESTION**. C2 is an evidence/exit-criterion gap, not a claim of another source bug. The earlier acceptance report additionally records uncompleted Web/image and applicable capability/Workflow journeys; source fixes and new retained evidence may be reused only within their actual scope by the responsible product reviewer. Newly inspected `.dsh-runtime/two-node-evidence.json` at `bbbaee580` records two online nodes, each returning its own private sentinel, other-member conversation/media/permission requests rejected with 404, suspended access 401 and no other-member Agent configuration visibility. This closes that retained API isolation evidence gap, while the physical UI gate stays open.
+
+Independent repair verification: **7 backend files / 16 tests passed**, including native-profile liveness, actual IM process watchdog, actual node/DSH SIGKILL recovery, real Workflow tool read, PA sending-bubble filtering and usage projections; updated **1 frontend file / 8 TokenChip tests passed** at `3014fe8cd`. See [code-review.md](code-review.md#round-2--precise-repair-closure) for exact commands. Parent additionally reports final native suite **49 files / 115 tests**, build/typecheck, actual token critical path, real capability HTTP counts and signed iOS device build. Those are retained results, not independently repeated wholesale here.
+
+## Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/agent-capabilities.md`: native tools, two extension layers, one Auto consumer, five independent Features | Unchanged integration capability/policy/preset/Feature owners from full review; repaired native center consumes nested capability result in both HTTP endpoints | Prior profile/capability/approval/knowledge tests retained; parent real HTTP result: 6 models, 27 tools, 5 Features, 43 skills | aligned |
+| `specs/gateway/heartbeat-cron.md`: native same-session schedules, overdue delivery, source distinction and product Heartbeat | Unchanged native per-Agent Schedule owner and PA Heartbeat/source policies; repair adds execution liveness, not a second scheduler | Prior Cron/Heartbeat/native-center evidence retained; quiet-running-Agent regression independently passed | aligned |
+| `specs/gateway/relay-protocol.md`: new native history distill/fork, historical configuration, no old compatibility | Unchanged native history and durable product bindings; no repair expands old-data conversion | Prior history/fork/configuration/compact regressions retained | aligned |
+| `specs/gateway/service-lifecycle.md`: separate online/executable state, recovery, owned shutdown and CLI retirement | `apps/node/src/{main,lifecycle}.ts`; `packages/dsh-integration/src/client.ts` transition callbacks now persist unavailable and fresh runtime identity | Real lifecycle SIGKILL/replacement/public status independently passed; prior retirement/dependency evidence retained | aligned |
+| `specs/gateway/workflows.md`: JS catalog/nesting, controls, prefix reuse, shared budget and original delivery ownership | Unchanged reviewed host/guest/control/budget owners; `engine.read` strips undefined optional fields through JSON serialization; native child diagnostics retained in call state | Real native Workflow `action: read` independently passed; prior controls/prefix/budget tests retained | aligned |
+| `specs/im/response-metrics.md`: canonical fields, reported zero vs unknown, partial counters | `presentation.ts` canonical wire fields; Web TokenChip and Swift ChatUsageView display unknown cache/total as `—`, omit unavailable detail/window or show `—`, and avoid unsupported percentages; partial input/output is safe | Product projection/fallback/store and 8 updated TokenChip regressions independently passed; parent actual token-usage critical path passed | aligned |
+
+### Uncovered Observable Behavior
+
+None remaining in the supplied repair delta after the response-metrics correction. Capability envelope and Workflow lossless JSON/diagnostic fixes restore existing product behavior; inherited-effort guidance does not add a new product mode. The unknown-counter presentation is explicitly recorded in the sixth delta and design table rather than hidden behind “no IM delta.”
+
+Current `gateway/routing-delivery.md` still contains a historical permanent permission-wait exemption conflicting with the more specific existing `im/gateway-relay.md` unified-liveness contract. The repaired implementation follows the latter: healthy waits stay alive through actual native liveness, and dead execution owners still expire. Parent's canonical reconciliation must remove that contradictory legacy wording. This is an acknowledged pending documentation synchronization, not a request to reintroduce the exemption or a surviving source defect.
+
+Outcome: **aligned**. Implementation repair closure is complete for this batch; final independent product/physical evidence C2 and canonical/docs workflow completion remain outstanding. Reports were updated without source/test/config/design edits or a shared-tree commit.

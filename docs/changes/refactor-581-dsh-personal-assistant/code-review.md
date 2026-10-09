@@ -1,5 +1,7 @@
 # Code Review: refactor-581-dsh-personal-assistant
 
+**Latest: Round 2 closure at `3014fe8cd76df81f34fb756eaebefe205b4051ad` — all three focus findings CLOSED; surviving findings `[]`.** The historical full-review result below applies only to its original frozen snapshot. This is code-review approval for the repair scope, not completion of independent product or physical-device acceptance.
+
 Round 1 · full · **Changes required**
 
 Frozen implementation: `4915c44cb7f7b829414a19087877ad9b73d69ea1 → e89179da8956577b288ee374fe791c2ce82d5047`.
@@ -22,3 +24,21 @@ Only the frozen commit was reviewed. Parent-owned uncommitted repairs and docume
 4. Independently reran `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest tests/contract/test_runtime_dependency_contract.py -q`: **8 passed**. The worktree-local `.venv` is absent; the shared repository interpreter was used. Other retained integration test results are mapped in [verification.md](verification.md), not represented as independently rerun here.
 
 No source/test/configuration/design edits or shared-tree commit were made by this reviewer.
+
+## Round 2 — precise repair closure
+
+Mode: `closure`. Finding origin and patch base: `e89179da8956577b288ee374fe791c2ce82d5047`; validated implementation: `3014fe8cd76df81f34fb756eaebefe205b4051ad`. Reviewed the initial `bbbaee580` repair delta plus the explicitly supplied `bbbaee580..3014fe8cd` partial-usage repair and direct callers/consumers, without reopening the full branch. The six-area design/response-metrics delta is committed in the latter snapshot and reconciled separately by verifier.
+
+| Original focus | Closure | Evidence |
+|---|---|---|
+| P1 watchdog / C1 | CLOSED | Runtime emits `session.liveness` every 15 seconds only for an actual running bound native Agent; PA forwards only that session's sending deliveries with a real bubble ID. Existing IM heartbeat events refresh the watchdog. Independent native-profile quiet-model test and actual-process IM approval/heartbeat/heartbeat-loss test passed. Permission waits follow the same liveness contract; there is no permanent exemption for a dead owner. |
+| P1 token schema / W1 | CLOSED | `presentation.ts` emits `context_used/output/cache_read_tokens/cache_total_input_tokens`; Work and Feishu consumers use those fields. Web/Swift retain unknown counters rather than invent zero. Independent product projection/store/fallback regressions and all seven TokenChip tests passed. Parent retained actual token-usage HTTP/WS critical-path evidence applies to this repair. |
+| P2 stale readiness/PID / W2 | CLOSED | Supervisor loss, failed initialization and shutdown call `onUnavailable`; lifecycle clears readiness and runtime PID. Successful initialization plus product recovery updates the actual replacement PID. Independent real SIGKILL lifecycle regression observed unavailable then ready with the replacement PID and public status. |
+
+Also reviewed the bounded accompanying repairs: center capability endpoints consume the nested `capabilities` response envelope; Workflow read returns lossless JSON, failed native children retain diagnostics, and tool instructions clarify inherited effort. The native Workflow real-tool `read` regression passed. These repairs restore the existing contract and introduced no surviving maintainer-worthy finding in the reviewed scope.
+
+Independent command: `pnpm exec vitest run apps/node/tests/lifecycle.test.ts apps/im-server/tests/e2e/server.test.ts packages/dsh-integration/tests/runtime-profile.test.ts packages/dsh-integration/tests/workflow-native.test.ts packages/personal-assistant/tests/single-thread.test.ts packages/personal-assistant/tests/model-fallback.test.ts packages/personal-assistant/tests/store.test.ts` → **7 files / 16 tests passed (19.65s)**. Frontend focused command `pnpm exec vitest run src/features/chat/components/token-chip.test.tsx` → **1 file / 7 tests passed (577ms)**. Tests used their existing isolated fixtures and completed cleanup. No code edits or commit were made by this reviewer.
+
+Latest machine-readable findings are [code-review.json](code-review.json): `[]`. Historical findings remain available in the committed Round 1 report/JSON at `bbbaee580` and the narrative above.
+
+The precise `3014fe8cd` addition also closes persisted partial-usage display: optional `context_used/output` fields cannot produce NaN or an expansion TypeError; absent counters render `—` and unsupported percentages are suppressed. This uses the canonical field names without aliases for the former erroneous payload. Independently reran the updated TokenChip file: **8 tests passed**. The 16 backend checks above remain applicable because this addition changes only three frontend files and the two reviewed unit documents.

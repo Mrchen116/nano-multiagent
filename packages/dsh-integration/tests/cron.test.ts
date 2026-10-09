@@ -54,6 +54,7 @@ it('isolates native schedule owners, preserves disabled jobs across restart, and
     const history = await client!.rpc.request('schedule.command', { agentId: 'a', sessionId: 'session-a', action: 'history', args: { id: a.id, limit: 10 } }) as { records: unknown[] };
     expect(history.records).toHaveLength(1);
     const manual = await client!.rpc.request('schedule.command', { agentId: 'a', sessionId: 'session-a', action: 'create', args: { title: 'Manual', prompt: 'Manual task', after_seconds: 3600 } }) as { id: string };
+    expect(await client!.rpc.request('schedule.command', { agentId: 'a', action: 'jobs' })).toEqual(expect.arrayContaining([expect.objectContaining({ id: manual.id, name: 'Manual', instruction: 'Manual task', enabled: true, schedule: expect.objectContaining({ kind: 'after' }) })]));
     const run = { agentId: 'a', sessionId: 'session-a', action: 'run', args: { id: manual.id, inputId: 'manual-schedule:test' } };
     await client!.rpc.request('schedule.command', run); await client!.rpc.request('schedule.command', run);
     const admissions = await client!.rpc.request('schedule.evidence', { sessionId: 'session-a' }) as { messageId: string; trigger: string; accepted: boolean }[];

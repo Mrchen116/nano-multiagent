@@ -397,6 +397,13 @@ export default class NanoRuntime {
       const { agentId, sessionId, action, args = {} } = value as { agentId: string; sessionId?: string; action: string; args?: Record<string, unknown> };
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       if (sessionId && this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
+      if (action === 'jobs') {
+        const tasks = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
+        return tasks.map(({ id, title, prompt, sessionId, status, lastDelivery: _delivery, ...schedule }) => ({
+          id, sessionId, name: title, instruction: prompt, schedule,
+          enabled: status === 'active', delete_after_run: false,
+        }));
+      }
       if (action === 'run') {
         const config = [...this.configurations.values()].find(config => config.agentId === agentId)!;
         if (!config.features?.cron_scheduling) throw new RpcError(-32002, 'Cron Feature is disabled');

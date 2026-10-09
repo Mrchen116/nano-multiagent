@@ -113,12 +113,12 @@ const relay = new WebRelayConnection({
     if (frame.type === 'node.cron.jobs.request' || frame.type === 'node.cron.delete.request') {
       const agent = agents.find(agent => agent.agentId === payload.agent_id || !payload.agent_id && agent.workspace === payload.workspace_root);
       if (!agent) throw new Error('Cron request has no Agent on this node');
-      const jobs = await runtime.request('schedule.command', { agentId: agent.agentId, action: 'catalog' }) as { id: string; sessionId: string }[];
+      const jobs = await runtime.request('schedule.command', { agentId: agent.agentId, action: 'jobs' }) as { id: string; sessionId: string }[];
       if (frame.type === 'node.cron.jobs.request') await relay.request('node.cron.jobs', { request_id: payload.request_id, node_id: config.node.node_id, jobs });
       else {
         const job = jobs.find(job => job.id === payload.job_id);
-        const deleted = job ? await runtime.request('schedule.command', { agentId: agent.agentId, sessionId: job.sessionId, action: 'delete', args: { id: job.id } }) : false;
-        await relay.request('node.cron.delete', { request_id: payload.request_id, node_id: config.node.node_id, deleted: !!deleted });
+        const result = job ? await runtime.request('schedule.command', { agentId: agent.agentId, sessionId: job.sessionId, action: 'delete', args: { id: job.id } }) as { deleted: boolean } : undefined;
+        await relay.request('node.cron.delete', { request_id: payload.request_id, node_id: config.node.node_id, deleted: result?.deleted === true });
       }
     }
     if (frame.type === 'relay.message') {
