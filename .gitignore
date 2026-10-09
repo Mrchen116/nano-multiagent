@@ -257,3 +257,15 @@ sessions/
 *.pid
 heartbeat-state.json
 session_bindings.sqlite3*
+
+# TypeScript dependencies and per-worktree DSH runtime state
+node_modules/
+.dsh-runtime/
+*.tsbuildinfo
+/packages/*/lib/
+/apps/*/lib/
+/data/
+/channel-credentials-v1.pem
+/channel-manifest-v1.json
+/device-binding-operation.json
+/config-apply-receipts-v1.json

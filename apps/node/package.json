@@ -1,0 +1,21 @@
+{
+  "name": "@nano/node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node lib/main.js"
+  },
+  "dependencies": {
+    "@nano/product-contracts": "workspace:*",
+    "@nano/personal-assistant": "workspace:*",
+    "@nano/channels": "workspace:*",
+    "@nano/dsh-integration": "workspace:*",
+    "js-yaml": "4.2.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9"
+  }
+}

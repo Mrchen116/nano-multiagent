@@ -312,19 +312,19 @@ if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'll
   exit 1
 fi
 
-# ─── start Gateway (wrapper, --foreground + --auto-bind) ─────────────────────
-#
-# Gateway is NOT a bare ASGI app — it's a supervisor process. In foreground mode
-# it logs to the controlling stdio (we redirect to .gateway.log) and lives under
-# the shell job, so the `$!` PID is the actual process to kill. --auto-bind
-# replaces the interactive "click this URL" step that breaks worktree e2e.
-# refactor-381.
+# M1 retains the existing IM/device-proof bootstrap while the runtime is already
+# the TypeScript node plus an official DSH child. The bootstrap starts no Kernel.
+WT_CFG_PY="$WT_CFG" PYTHONPATH="$SRC_DIR" python - <<'PYDEVICE'
+import os
+from personal_assistant.gateway.device_binding import bind_local_device
+bind_local_device(os.environ["WT_CFG_PY"], auto_bind=True)
+PYDEVICE
 
-PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
-  --config "$WT_CFG" \
-  --im-service-url "http://127.0.0.1:$IM_PORT" \
-  --foreground \
-  --auto-bind \
+if [[ ! -f "$REPO_ROOT/apps/node/lib/main.js" ]]; then
+  echo "Build the TypeScript runtime first: pnpm install --frozen-lockfile && pnpm build" >&2
+  exit 1
+fi
+node "$REPO_ROOT/apps/node/lib/main.js" --config "$WT_CFG" \
   > "$WT_ROOT/.gateway.log" 2>&1 &
 echo $! > "$WT_ROOT/.gateway.pid"
 
