@@ -135,3 +135,21 @@ it("keeps Workflow script and description stable when its background launch retu
     detail: { script_preview: input.script, runId: "run", status: "running" },
   });
 });
+
+it("keeps global Workflow result fields in the consumed native input", async () => {
+  const {projectWorkEvent} = await import('../src/work-projection.js');
+  const store=new NodeStore(':memory:','owner');
+  store.bind({sessionId:'main',conversationId:'chat',agentId:'a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let submitted: any;
+  const service=new WorkflowResults({store,agents:[{agentId:'a',mode:'global'} as AgentConfiguration],runtime:{onNotification:()=>()=>{},async request(method,params){
+    if(method==='workflow.pending')return [{id:'wf',parentSessionId:'main',inputIds:[],meta:{name:'work',description:'Work'},startedAt:1,endedAt:5,result:{stopReason:'completed',value:'done'}}];
+    if(method==='session.lookup')return {accepted:false};
+    if(method==='session.submit')submitted=params;
+  }},receive:async()=>{throw new Error('Wrong delivery path')},onError:()=>{}});
+  try {
+    await service.recover();
+    const event={seq:2,time:2,type:'user/message',data:{...submitted,source:{...submitted.source,kind:'nano-system'}}};
+    const start={seq:1,time:1,type:'turn/start',data:{turn:1}};
+    expect(projectWorkEvent('main',event,[start,event])).toMatchObject({type:'injection_consumed',turn:1,payload:{background_returns:[{workflow_run_id:'wf',duration_ms:4,status:'completed',result:'"done"'}]}});
+  }finally{await service.stop();store.close();}
+});

@@ -99,3 +99,29 @@ it('retains cumulative cache hit counts and denominator in Work turn usage', () 
   ];
   expect(projectWorkEvent('main',events[2]!,events)?.payload.usage).toMatchObject({context_used:20,output:5,cache_read_tokens:35,cache_total_input_tokens:50});
 });
+
+
+it('maps native reasoning, model carry-forward, child messages and terminal duration', () => {
+  const events = [
+    {seq:1,time:1,type:'request/header',data:{header:{config:{model:'provider:model'}}}},
+    {seq:2,time:10,type:'turn/start',data:{turn:2}},
+    {seq:3,time:11,type:'user/message',data:{id:'child-return',source:{kind:'subagent-settled',senderSessionId:'child'},content:[{type:'text',text:'Child result'}]}},
+    {seq:4,time:12,type:'assistant/message',data:{turn:2,message:{id:'answer',content:[{type:'reasoning',text:'Visible reasoning'},{type:'text',text:'Answer'}]}}},
+    {seq:5,time:50,type:'turn/end',data:{turn:2,reason:{kind:'error',error:{code:'AUTH',message:'Rejected'}}}},
+  ];
+  expect(projectWorkEvent('main',events[1]!,events)?.payload).toMatchObject({model:'provider:model',trigger:{kind:'background_task'}});
+  expect(projectWorkEvent('main',events[2]!,events)).toMatchObject({turn:2,payload:{text:'Child result',source_session_id:'child',role:'system'}});
+  expect(projectWorkEvent('main',events[3]!,events)?.payload).toMatchObject({text:'Answer',reasoning_content:'Visible reasoning'});
+  expect(projectWorkEvent('main',events[4]!,events)?.payload).toMatchObject({status:'failed',elapsed_ms:40,error:{code:'AUTH'}});
+});
+it('preserves pending native arguments and classifies native tool cancellation', () => {
+  const call={seq:1,time:10,type:'tool/call',data:{callId:'c',name:'bash',arguments:'{"command":"pwd"}',nanoToolView:{call:{card:'terminal',title:'pwd',cwd:'/workspace'}}}};
+  const result={seq:2,time:20,type:'tool/result',data:{error:{name:'AbortError',code:'ABORTED_BEFORE_DISPATCH'},message:{toolCallId:'c',isError:true,content:[{type:'text',text:'Cancelled'}]}}};
+  expect(toolPresentation(call,[call])?.detail).toMatchObject({native_call:{title:'pwd',cwd:'/workspace'}});
+  expect(toolPresentation(result,[call,result])).toMatchObject({reason:'interrupted',duration_ms:10,detail:{error:{code:'ABORTED_BEFORE_DISPATCH'}}});
+});
+it('distinguishes pi-ai zero cache counters from absent provider accounting', () => {
+  const answers=[{seq:1,time:1,type:'assistant/message',data:{turn:1,usage:{inputTokens:10,outputTokens:2},stream:[{type:'chunk',chunk:{type:'finish',replayState:{response:{kind:'pi-ai'}}}}]}}];
+  expect(tokenUsage(answers,1)).toMatchObject({cache_read_tokens:0,cache_total_input_tokens:10});
+  expect(tokenUsage([{...answers[0]!,data:{...answers[0]!.data,stream:[]}}],1)).not.toHaveProperty('cache_read_tokens');
+});

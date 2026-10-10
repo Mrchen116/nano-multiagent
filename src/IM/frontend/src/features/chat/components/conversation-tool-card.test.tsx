@@ -66,3 +66,9 @@ it.each(['read', 'search', 'web', 'generic'])('keeps full %s result visible when
   expect(screen.getByText('Complete result body')).toBeVisible();
   expect(screen.queryByText('Short summary')).not.toBeInTheDocument();
 });
+
+it("renders native cursor and attachment image fields", () => {
+  render(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail:{next_cursor:"next",messages:[{id:"photo",sender:{name:"Alice"},content:[{type:"attachment",content_type:"image/png",url:"/photo.png",file_name:"Photo"}]}]}}} /></MemoryRouter>);
+  expect(screen.getByText("还有后续页面")).toBeVisible();
+  expect(screen.getByRole("img",{name:"Photo"})).toHaveAttribute("src","/photo.png");
+});

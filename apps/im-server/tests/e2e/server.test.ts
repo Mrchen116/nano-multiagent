@@ -222,9 +222,10 @@ it("keeps first approval choice, revokes suspended user access and expires disco
   );
   expect(late.body.decision).toBe("allow_once");
   await g.frames.send("node.streaming_delta", {node_id:g.node, kind:"permission_resolved", message_id:mid, request_id:"ask", decision:"allow_once"});
-  await g.frames.send("node.streaming_delta", {node_id:g.node, kind:"tool_call_completed", message_id:mid, tool_call:{id:"write-call",name:"write",status:"completed",output:"written"}});
+  await g.frames.send("node.streaming_delta", {node_id:g.node,kind:"tool_call_upserted",message_id:mid,process_seq:10,tool_call:{id:"write-call",name:"write",status:"running"}});
+  await g.frames.send("node.streaming_delta", {node_id:g.node, kind:"tool_call_completed", message_id:mid, process_seq:20, tool_call:{id:"write-call",name:"write",status:"completed",output:"written"}});
   const history = await f.http("GET", `/im/v1/conversations/${id}/messages`, undefined, f.tokens.alice);
-  expect(history.body.items.find((item: any) => item.message?.id === mid).message.tool_calls[0].approval).toBe("user_allow");
+  expect(history.body.items.find((item: any) => item.message?.id === mid).message.tool_calls[0]).toMatchObject({approval:"user_allow",seq:10});
   expect(
     (await f.http("POST", "/im/v1/company/members/bob/suspend", {}, f.tokens.alice)).status,
   ).toBe(200);

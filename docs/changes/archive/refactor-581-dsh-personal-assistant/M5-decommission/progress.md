@@ -126,3 +126,21 @@ The existing communication-native test now drives actual DSH execution through e
 
 
 Manual cache-display feedback: native quanj(u) turn 4 reported every step's cache usage, totaling 26,624 cached input tokens out of 49,428 (54%). PA aggregation was correct, but Work projection renamed cache_read_tokens to cache_read_input_tokens and dropped cache_total_input_tokens, so the UI truthfully lacked its required fields. The projection now preserves both canonical display fields. The existing store/projection regression covers multi-step cache totals; 14 focused tests, PA build and diff check passed. The retained test database is backed up and only this reported turn's derived usage fields are repaired from original native events; raw journals, event identities and execution status are preserved. Future turns use the corrected projection after node reload.
+
+
+Systematic display-field audit requested by the user (2026-10-10), across native DSH → PA → IM → shared Web presenters:
+
+| Display fields | Boundary correction / verified behavior |
+| --- | --- |
+| Main/child cache counts | pi-ai's public adapter explicitly omits zero counters. Normalize omitted counters only when the persisted finish replay state identifies pi-ai; unknown providers remain unknown. The reported child has input 10,262, output 19, pi-ai provenance and zero cache hits. |
+| Model / context / output | Carry the last actual request model across delta headers; retain context-window metadata, last-step context and cumulative output/cache accounting. |
+| Assistant text / reasoning | Preserve visible native reasoning blocks alongside text; opaque/encrypted blocks are not displayed. |
+| Tool start / finish / arguments | Preserve pending native call views, complete inputs, terminal command/cwd, full result detail and duration; map actual native approval denial/cancellation separately from failure. Shared single-chat tool ordering retains the original start sequence when completion arrives. |
+| Inbox page | Map actual relay sender display name and timestamp; use native next_cursor for pagination and image MIME type for attachment previews. Read/consumption and real delivery facts remain separate. |
+| Child / Workflow returns | Project native agent messages and settlement notices into the consuming turn with the source-session link, without inventing terminal status. Global Workflow input now carries the same result/status/usage/diagnostics/duration fields as single-thread input. |
+| Turn status / timing / trigger | Preserve native error details and elapsed time; identify child, human and schedule triggers using native source metadata. |
+| Permissions / delivery / other tools | Existing explicit approval decisions, held/pending/sent delivery states, subagent links and read/diff/search/web native full output remain intact. No global approval flow or image-fetch subsystem is added. |
+
+Focused checks cover projection loss, zero versus unknown cache values, Inbox wire fields, Workflow consumed-input mapping, HTTP/WebSocket tool ordering and shared frontend rendering. Combined product acceptance remains deferred as requested. No full review loop, live LLM rerun or remote CI is implied.
+
+Load completed: affected package builds and frontend production build passed; 37 backend and 32 frontend focused checks passed across the bounded audit runs. The retained node and IM were restarted with unchanged configuration/data; health, login, frontend and node-online readiness passed. Backed up the test IM database and repaired only the reported child turn cache projection from its original pi-ai event stream; HTTP confirms 0 cached tokens out of 10,262 input. Raw native journals and execution statuses are unchanged. Combined acceptance remains pending.

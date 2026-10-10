@@ -51,7 +51,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
     <button type="button" className="im-work-tool-head" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}>
       <span className="im-work-tool-icon" aria-hidden="true">{icons[call.name] || "◇"}</span><strong>{call.name}</strong><span className="im-work-tool-summary">{summary}</span>
       {(call.approval === "user_allow" || denied) && <span className="im-work-status-label">{tr(denied ? "已拒绝" : "已授权")}</span>}
-      <span className={error ? "im-work-error" : "im-work-muted"}>{tr(denied ? "未执行" : error ? "调用失败" : pending ? "调用中" : "调用完成")}</span>
+      <span className={error ? "im-work-error" : "im-work-muted"}>{tr(denied ? "未执行" : call.reason === "interrupted" ? "已中断" : error ? "调用失败" : pending ? "调用中" : "调用完成")}</span>
       {labels[business] && <span className="im-work-status-label">{tr(labels[business])}</span>}
       {typeof call.duration_ms === "number" && <time>{formatDuration(call.duration_ms)}</time>}
     </button>

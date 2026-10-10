@@ -10,11 +10,13 @@ export function NativeToolDetail({ call }: {call: ToolCall}) {
   const view = record(call.detail?.native_view);
   const pending = record(call.detail?.native_call);
   const content = records(view.content).filter(part => part.type === "text").map(part => text(part.text)).join("\n");
-  const command = text(view.command) || text(pending.command);
+  const command = text(view.command) || text(pending.command) || (pending.card === "terminal" ? text(pending.title) : "");
   const output = text(view.output) || content || text(call.detail?.content) || text(call.output);
   return <div className="chat-native-tool-detail">
     {(text(view.title) || text(pending.title)) && <strong>{text(view.title) || text(pending.title)}</strong>}
     {pending.rawInput != null && <pre className="chat-tool-call-pre">{typeof pending.rawInput === "string" ? pending.rawInput : JSON.stringify(pending.rawInput, null, 2)}</pre>}
+    {pending.rawInput == null && Object.keys(call.input ?? {}).length > 0 && <pre className="chat-tool-call-pre">{JSON.stringify(call.input, null, 2)}</pre>}
+    {text(pending.cwd) && <p><code>{text(pending.cwd)}</code></p>}
     {command && <pre className="chat-tool-call-pre">{command}</pre>}
     {text(view.path) && <p><code>{text(view.path)}</code></p>}
     {view.card === "diff" ? records(view.diffs).map((diff, index) => <div key={index}>

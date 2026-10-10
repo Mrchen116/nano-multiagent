@@ -66,13 +66,13 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; actorId: string; channel: string; messageId: string };
+  source: { kind: 'human' | 'system'; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-human': { kind: 'nano-human'; actorId: string; channel: string; messageId: string };
-    'nano-system': { kind: 'nano-system'; actorId: string; channel: string; messageId: string };
+    'nano-human': { kind: 'nano-human'; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+    'nano-system': { kind: 'nano-system'; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
   }
 }
 

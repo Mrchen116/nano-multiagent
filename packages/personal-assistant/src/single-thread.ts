@@ -5,7 +5,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { argumentsObject, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
+import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
 interface InputEvidence { accepted: boolean; turn?: number; terminal?: unknown }
@@ -266,7 +266,7 @@ export class SingleThread {
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
         elapsed_ms: end.time - (events.find(event => event.type === 'turn/start' && event.data.turn === turn)?.time ?? end.time),
-        resolved_model: events.filter(event => event.type === 'request/context' && event.seq <= end.seq).at(-1)?.data.model,
+        resolved_model: modelAt(events, end.seq),
       }); } catch (error) {
         // The external adapter has already persisted and projected its uncertain platform result.
         if (delivery.messageId?.startsWith('external:') && error instanceof RelayDeliveryError && error.delivery === 'unknown') store.updateDelivery(delivery.operationId, 'unknown', delivery.messageId, text);

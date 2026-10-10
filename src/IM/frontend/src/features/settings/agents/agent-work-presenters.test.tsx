@@ -45,3 +45,12 @@ it("shows native inbox sources when expanded and treats actual sent delivery as 
  expect(screen.queryByText("调用失败")).not.toBeInTheDocument();
  expect(screen.getByText("已收到")).toBeVisible();
 });
+
+it("keeps native terminal command and working directory visible after its title changes",()=>{
+ setLanguage("zh");
+ render(<ul><WorkTool expanded call={{id:"bash",name:"bash",status:"failed",reason:"interrupted",input:{command:"pwd"},detail:{native_view:{card:"terminal",title:"Interrupted",output:"partial output"},native_call:{card:"terminal",title:"pwd",cwd:"/workspace"}}}}/></ul>);
+ expect(screen.getByText("已中断")).toBeVisible();
+ expect(screen.getByText("pwd",{selector:"pre"})).toBeVisible();
+ expect(screen.getByText("/workspace")).toBeVisible();
+ expect(screen.getByText("partial output")).toBeVisible();
+});

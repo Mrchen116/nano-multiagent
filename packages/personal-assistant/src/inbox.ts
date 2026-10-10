@@ -85,7 +85,7 @@ export class InboxStore {
       const input = JSON.parse(row.payload) as RelayInput;
       const parts = this.parts(input, row.seq);
       return { id: input.message.id, target: row.target, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
-        name: input.metadata.sender_name ?? input.message.sender_user_id }, time: input.metadata.created_at ?? input.metadata.source_time ?? null,
+        name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time ?? null,
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = offset + selected.length;

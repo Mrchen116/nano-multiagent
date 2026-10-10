@@ -3,7 +3,13 @@ import type { RuntimeEvent, ModelRunProjection } from '@nano/product-contracts';
 /** Preserve the runtime's disjoint input/cache accounting at the IM boundary. */
 export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string, number> | undefined {
   const answers = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn);
-  const usage = answers.map(event => event.data.usage as Record<string, number> | undefined).filter((item): item is Record<string, number> => !!item);
+  const usage = answers.map(event => {
+    const usage = event.data.usage as Record<string, number> | undefined;
+    const stream = event.data.stream as {chunk?: {type?: string; replayState?: {response?: {kind?: string}}}}[] | undefined;
+    // The public pi-ai adapter omits zero cache counters; other providers may not report them.
+    const pi = stream?.some(item => item.chunk?.type === 'finish' && item.chunk.replayState?.response?.kind === 'pi-ai');
+    return usage && pi ? {cacheReadTokens: 0, cacheWriteTokens: 0, ...usage} : usage;
+  }).filter((item): item is Record<string, number> => !!item);
   const last = usage.at(-1);
   if (!last) return undefined;
   const prompt = last.inputTokens! + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0);
@@ -24,7 +30,7 @@ type NativeToolView = {call?: Record<string, unknown>; result?: Record<string, u
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
   const data = event.data;
   if (event.type === 'tool/call') return {
-    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), ...workflowDetail(data.name,argumentsObject(data.arguments)),
+    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), detail: {native_view: (data.nanoToolView as NativeToolView | undefined)?.call ?? {card: 'generic'}, native_call: (data.nanoToolView as NativeToolView | undefined)?.call}, ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
@@ -34,11 +40,13 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     const view = data.nanoToolView as NativeToolView | undefined;
     let detail: Record<string, unknown> | undefined;
     try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed; } catch { /* Plain native output remains displayable as text. */ }
+    const error = data.error as {name?: string; code?: string} | undefined;
+    const reason = error?.name === 'NanoApprovalDenied' ? 'denied' : ['ABORTED', 'ABORTED_BEFORE_DISPATCH'].includes(error?.code ?? '') ? 'interrupted' : undefined;
     if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId};
     else if (!detail) detail = {content: output, native_view: {card: 'generic', content: message.content}};
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
-      status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
-      output: toolSummary(call.data.name, argumentsObject(call.data.arguments), view, output, message.isError), ...(detail ? {detail} : {}),
+      reason, status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
+      output: toolSummary(call.data.name, argumentsObject(call.data.arguments), view, output, message.isError), detail: {...detail, ...(error ? {error} : {})},
       ...workflowDetail(call.data.name,argumentsObject(call.data.arguments),message.content.filter(block=>block.type==='text').map(block=>block.text??'').join(''),message.isError),
     };
   }
@@ -79,4 +87,13 @@ export function logicalEvents(events: RuntimeEvent[], runs: ModelRunProjection[]
     if (event.type === 'turn/end' && (run.state !== 'completed' || event.data.turn !== run.attempts.at(-1)?.turn)) return [];
     return [{ ...event, data: { ...event.data, turn: run.turn, ...(event.type === 'turn/end' ? { reason: run.terminal } : {}) } }];
   });
+}
+
+/** Request headers are deltas, so an unchanged model carries across native turns. */
+export function modelAt(events: RuntimeEvent[], seq: number): string | undefined {
+  for (const event of events.filter(event => event.seq <= seq).reverse()) {
+    const model = event.type === 'request/header' ? (event.data.header as {config?: {model?: unknown}} | undefined)?.config?.model : event.type === 'request/context' ? event.data.model : undefined;
+    if (typeof model === 'string') return model;
+  }
+  return undefined;
 }

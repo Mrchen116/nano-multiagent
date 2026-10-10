@@ -220,6 +220,7 @@ export class Work {
         status: "running",
         origin: p.origin,
         trigger: p.trigger,
+        job_id: p.trigger?.job_id,
         model_id: p.model_id ?? p.model,
         run_id: p.run_id,
         started_at: p.started_at ?? e.observed_at,
@@ -236,6 +237,7 @@ export class Work {
               : "completed"),
         finished_at: p.finished_at ?? e.observed_at,
         elapsed_ms: p.elapsed_ms ?? p.duration_ms,
+        error: p.error,
         model_id: p.model ?? turn.model_id,
       });
       if (p.usage)

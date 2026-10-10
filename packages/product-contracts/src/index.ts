@@ -40,6 +40,8 @@ export interface RelayInput {
     content: string;
     sender_user_id: string;
     sender_type: string;
+    created_at?: string;
+    sender?: {display_name?: string};
     attachments: { url: string; content_type: string; file_name?: string }[];
   };
 }

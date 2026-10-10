@@ -755,7 +755,7 @@ export class Gateway {
         }, m.permission_requests);
       const i = items.findIndex((x: Row) => x.id === item.id);
       if (i < 0) items.push(item);
-      else items[i] = { ...items[i], ...item };
+      else { item.seq = items[i].seq ?? item.seq; items[i] = { ...items[i], ...item }; }
       db.prepare("UPDATE messages SET tool_calls_json=? WHERE id=?").run(
         JSON.stringify(items),
         m.id,
