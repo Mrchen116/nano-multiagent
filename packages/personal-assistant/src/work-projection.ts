@@ -26,7 +26,7 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
   if (event.type === 'turn/end') {
     const reason = event.data.reason as { kind: string }; const usage = tokenUsage(events, turn!);
     return { type: 'turn_end', turn, payload: { status: reason.kind === 'completed' ? 'completed' : ['cancelled', 'aborted'].includes(reason.kind) ? 'interrupted' : 'failed', stop_reason: reason.kind,
-      usage: usage ? { prompt_tokens: usage.context_used, completion_tokens: usage.output, total_tokens: usage.total, context_used: usage.context_used, output: usage.output, context_window: usage.context_window, cache_read_input_tokens: usage.cache_read_tokens } : undefined,
+      usage: usage ? { prompt_tokens: usage.context_used, completion_tokens: usage.output, total_tokens: usage.total, context_used: usage.context_used, output: usage.output, context_window: usage.context_window, cache_read_tokens: usage.cache_read_tokens, cache_total_input_tokens: usage.cache_total_input_tokens } : undefined,
     } };
   }
 }

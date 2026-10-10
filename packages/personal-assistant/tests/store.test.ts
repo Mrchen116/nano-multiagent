@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { tokenUsage, toolPresentation } from '../src/presentation.js';
+import { projectWorkEvent } from '../src/work-projection.js';
 
 it('recovers input attribution and confirmed delivery without creating a second send', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nano-node-store-'));
@@ -87,4 +88,14 @@ it('bounds presenter-less summaries without losing their complete output', () =>
   const result = {seq: 2, time: 2, type: 'tool/result', data: {message: {toolCallId: 'c', content: [{type: 'text', text: output}]}}};
   expect(toolPresentation(result, [call, result])?.output).toHaveLength(80);
   expect(toolPresentation(result, [call, result])?.detail).toMatchObject({content: output});
+});
+
+
+it('retains cumulative cache hit counts and denominator in Work turn usage', () => {
+  const events = [
+    {seq:1,time:1,type:'assistant/message',data:{turn:1,usage:{inputTokens:10,cacheReadTokens:20,outputTokens:3}}},
+    {seq:2,time:2,type:'assistant/message',data:{turn:1,usage:{inputTokens:5,cacheReadTokens:15,outputTokens:2}}},
+    {seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}},
+  ];
+  expect(projectWorkEvent('main',events[2]!,events)?.payload.usage).toMatchObject({context_used:20,output:5,cache_read_tokens:35,cache_total_input_tokens:50});
 });
