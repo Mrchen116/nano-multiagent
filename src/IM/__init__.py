@@ -1,1 +1,0 @@
-"""Independent IM service package."""

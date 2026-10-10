@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import time
+
 import httpx
 
 from ._im_gateway import restart_gateway
@@ -63,10 +65,17 @@ class IMClient:
                 "display_name": display_name or username,
             },
         )  # 409 already-exists 视为正常,走 login 拿 token。
-        resp = self._http.post(
-            "/im/v1/auth/login",
-            json={"username": username, "password": password},
-        )
+        for attempt in range(3):
+            resp = self._http.post(
+                "/im/v1/auth/login", json={"username": username, "password": password}
+            )
+            if resp.status_code != 429 or attempt == 2:
+                break
+            # Stack readiness just logged in as this owner; honor its one-second gate.
+            delay = float(resp.headers.get("Retry-After", "1"))
+            if delay > 3:
+                break
+            time.sleep(delay)
         resp.raise_for_status()
         body = resp.json()
         self.token = body["access_token"]
@@ -178,6 +187,9 @@ class IMClient:
             "tool_allowlist": current.get("tool_allowlist", []),
             "group_reply_policy": current["group_reply_policy"],
             "default_model": current.get("default_model"),
+            "model_fallbacks": current.get("model_fallbacks", []),
+            "reasoning_effort": current.get("reasoning_effort"),
+            "skills_selection_mode": current.get("skills_selection_mode"),
             "features": dict(current.get("features") or {}),
             "custom_prompt": current.get("custom_prompt"),
         }

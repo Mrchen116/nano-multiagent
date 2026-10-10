@@ -39,32 +39,25 @@ def _port_is_open(port: int) -> bool:
         return False
 
 
-def _e2e_python_wrapper(
+def _e2e_node_preload(
     tmp_path: Path, *, im_launch_mode: str, readiness_timeout_seconds: int | None
 ) -> dict[str, str]:
-    """Delay or stop only the IM uvicorn child while preserving Gateway startup."""
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    wrapper = bin_dir / "python"
-    wrapper.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ \"${1:-}\" == \"-m\" && \"${2:-}\" == \"uvicorn\" ]]; then
-  case \"${NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE:-normal}\" in
-    delayed) sleep \"${NANO_MULTIAGENT_E2E_TEST_IM_DELAY_SECONDS:-0}\" ;;
-    exited) exit 23 ;;
-  esac
-fi
-exec \"$NANO_MULTIAGENT_E2E_REAL_PYTHON\" \"$@\"
+    """Inject a startup condition only into the actual TypeScript IM serve process."""
+    preload = tmp_path / "im-startup.mjs"
+    preload.write_text(
+        """
+if (process.argv[1]?.endsWith('/apps/im-server/lib/main.js') && process.argv[2] === 'serve') {
+  const mode = process.env.NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE;
+  if (mode === 'exited') process.exit(23);
+  if (mode === 'delayed') await new Promise(resolve => setTimeout(resolve, Number(process.env.NANO_MULTIAGENT_E2E_TEST_IM_DELAY_SECONDS) * 1000));
+}
 """,
         encoding="utf-8",
     )
-    wrapper.chmod(0o755)
     env = {
         **os.environ,
-        "PATH": f"{bin_dir}:{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
-        "NANO_MULTIAGENT_E2E_REAL_PYTHON": sys.executable,
+        "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
+        "NODE_OPTIONS": f"{os.environ.get('NODE_OPTIONS', '')} --import={preload.as_uri()}",
         "NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE": im_launch_mode,
     }
     if readiness_timeout_seconds is None:
@@ -140,7 +133,7 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         ports = _parse_ports_env(stack_dir / ".e2e-ports.env")
         assert ports["E2E_PROFILE"] == "default"
         assert all(
-            not path.exists() or path.read_bytes() != b"stale-external-shadow-state"
+            path.read_bytes() == b"stale-external-shadow-state"
             for path in stale_shadow_files
         )
         im_port = int(ports["IM_PORT"])
@@ -149,9 +142,7 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         assert _pid_is_alive(im_pid)
         assert _pid_is_alive(gateway_pid)
         assert _port_is_open(im_port)
-        assert (
-            httpx.get(f"{ports['IM_URL']}/openapi.json", timeout=2).status_code == 200
-        )
+        assert httpx.get(f"{ports['IM_URL']}/health", timeout=2).status_code == 200
 
         config = yaml.safe_load((stack_dir / ".gateway-config.yaml").read_text())
         workspace_root = (stack_dir / ".gateway-workspace").resolve()
@@ -179,10 +170,7 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         finally:
             client.close()
 
-        for path in (
-            stack_dir / "channel-credentials-v1.pem",
-            stack_dir / "channel-manifest-v1.json",
-        ):
+        for path in (stack_dir / "channel-credentials-v1.pem",):
             assert path.is_file()
     finally:
         down_result = subprocess.run(
@@ -196,16 +184,15 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         )
 
     assert down_result.returncode == 0, down_result.stderr
-    for path in (
-        stack_dir / ".im.pid",
-        stack_dir / ".gateway.pid",
-        stack_dir / ".e2e-ports.env",
-        stack_dir / ".e2e-jwt-secret",
-        stack_dir / ".gateway-config.yaml",
-        stack_dir / "channel-credentials-v1.pem",
-        stack_dir / "channel-manifest-v1.json",
-    ):
+    for path in (stack_dir / ".im.pid", stack_dir / ".gateway.pid"):
         assert not path.exists()
+    for name in (
+        ".gateway-config.yaml",
+        ".e2e-ports.env",
+        "channel-credentials-v1.pem",
+        "data/im_service.sqlite3",
+    ):
+        assert (stack_dir / name).is_file()
 
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and _port_is_open(im_port):
@@ -223,7 +210,7 @@ def test_e2e_up_accepts_slow_but_alive_im_within_readiness_budget(
 
     stack_dir = tmp_path / "slow-im"
     stack_dir.mkdir()
-    env = _e2e_python_wrapper(
+    env = _e2e_node_preload(
         tmp_path,
         im_launch_mode="delayed",
         readiness_timeout_seconds=None,
@@ -244,9 +231,7 @@ def test_e2e_up_accepts_slow_but_alive_im_within_readiness_budget(
         im_pid = int((stack_dir / ".im.pid").read_text().strip())
         assert _pid_is_alive(im_pid)
         ports = _parse_ports_env(stack_dir / ".e2e-ports.env")
-        assert (
-            httpx.get(f"{ports['IM_URL']}/openapi.json", timeout=2).status_code == 200
-        )
+        assert httpx.get(f"{ports['IM_URL']}/health", timeout=2).status_code == 200
     finally:
         _run_e2e_down(stack_dir, env)
     _assert_im_reclaimed(stack_dir, im_pid)
@@ -258,7 +243,7 @@ def test_e2e_up_reports_im_child_exit_before_readiness_deadline(tmp_path: Path) 
 
     stack_dir = tmp_path / "dead-im"
     stack_dir.mkdir()
-    env = _e2e_python_wrapper(
+    env = _e2e_node_preload(
         tmp_path,
         im_launch_mode="exited",
         readiness_timeout_seconds=5,
@@ -292,7 +277,7 @@ def test_e2e_up_reports_alive_im_readiness_deadline_and_cleanup(tmp_path: Path) 
 
     stack_dir = tmp_path / "timed-out-im"
     stack_dir.mkdir()
-    env = _e2e_python_wrapper(
+    env = _e2e_node_preload(
         tmp_path,
         im_launch_mode="delayed",
         readiness_timeout_seconds=1,

@@ -16,12 +16,13 @@
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
-| 配置开发环境、运行测试或开发 CLI/前端 | [`development/`](development/README.md) |
+| 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
+| 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#调研与联调入口) |
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
@@ -79,7 +80,7 @@
 | [`product/`](product/README.md) | 产品定位与稳定体验原则；原始需求稿和蓝图从该入口进入 archive |
 | [`archive/migration-plans/`](archive/migration-plans/README.md) | 已实施迁移的历史计划；current 用户流行为见 IM specs |
 | [`archive/audits/`](archive/audits/README.md) | 已结束的 drift 审计；可复现问题应重新进入 active work |
-| [`archive/implementation-narratives/`](archive/implementation-narratives/README.md) | 已退役实现叙事；current 行为从 kernel specs 读取 |
+| [`archive/implementation-narratives/`](archive/implementation-narratives/README.md) | 已退役实现叙事；current 执行边界从 Gateway runtime spec 读取 |
 | [`research/comparisons/`](research/comparisons/README.md) | 外部实现比较快照；current 结论仍需回到代码和 specs 核实 |
 | [`research/brainstorms/`](research/brainstorms/README.md) | 脑暴与阶段性方案材料 |
 | [`research/architecture-reviews/`](research/architecture-reviews/README.md) | 带 commit 和 working-tree 状态的架构审查快照 |
@@ -96,3 +97,5 @@
 - 移动或退役 current 文档时，同一变更内更新所有 live 入口。
 - 变更完成时，把验证后的长期行为归并进 current 文档；change unit 随后冻结为历史。
 - 文档中的命令优先指向仓库脚本，避免散文步骤与脚本形成两套流程。
+
+退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。

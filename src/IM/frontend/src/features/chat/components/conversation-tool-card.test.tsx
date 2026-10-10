@@ -50,3 +50,38 @@ it("keeps the compact inbox focused on messages and actionable pagination", () =
   result.rerender(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail:{...detail,has_more:true}}} compact /></MemoryRouter>);
   expect(screen.getByText("还有后续页面")).toBeInTheDocument();
 });
+
+it("renders native Inbox identifiers and presenter output without a per-tool renderer", () => {
+  const result = render(<MemoryRouter><ToolDetailBody call={{...call,status:"completed",detail:{messages:[{id:"native-message",target:"native-chat",sender:{name:"Alice"},time:"2026-10-10",content:[{type:"text",text:"Native constraint"}]}]}}}/></MemoryRouter>);
+  expect(screen.getByText("Native constraint")).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"原消息"})).toHaveAttribute("href","/chat/native-chat?message_id=native-message");
+  result.rerender(<MemoryRouter><ToolDetailBody call={{id:"native",name:"owner_tool",input:{},status:"completed",detail:{native_call:{card:"generic",title:"Read sample",rawInput:"sample.txt"},native_view:{card:"generic",content:[{type:"text",text:"Frozen native result"}]}}}}/></MemoryRouter>);
+  expect(screen.getByText("Read sample")).toBeInTheDocument();
+  expect(screen.getByText("sample.txt")).toBeInTheDocument();
+  expect(screen.getByText("Frozen native result")).toBeInTheDocument();
+});
+
+it.each(['read', 'search', 'web', 'generic'])('keeps full %s result visible when its native card omits body text', card => {
+  render(<ToolDetailBody call={{id:'native',name:'custom',input:{},status:'completed',output:'Short summary',detail:{native_call:{card:'generic',title:'Operation'},native_view:{card},content:'Complete result body'}}}/>);
+  expect(screen.getByText('Complete result body')).toBeVisible();
+  expect(screen.queryByText('Short summary')).not.toBeInTheDocument();
+});
+
+it("renders native cursor and attachment image fields", () => {
+  render(<MemoryRouter><ConversationToolCard call={{...call,status:"completed",detail:{next_cursor:"next",messages:[{id:"photo",sender:{name:"Alice"},content:[{type:"attachment",content_type:"image/png",url:"/photo.png",file_name:"Photo"}]}]}}} /></MemoryRouter>);
+  expect(screen.getByText("还有后续页面")).toBeVisible();
+  expect(screen.getByRole("img",{name:"Photo"})).toHaveAttribute("src","/photo.png");
+});
+
+it("shares prompt-before-result rendering for native subagent calls",()=>{
+ render(<ToolDetailBody call={{id:"child",name:"subagent",status:"completed",input:{prompt:"Find the answer"},detail:{content:"Answer",native_view:{card:"generic"}}}}/>);
+ expect(screen.getByText("Find the answer")).toBeVisible();
+ expect(screen.getByText("Answer")).toBeVisible();
+});
+
+it("shows conversation members and external string message bodies",()=>{
+ const result=render(<MemoryRouter><ConversationToolCard call={{id:"info",name:"conversations",status:"completed",input:{action:"info",target:"chat"},detail:{name:"Team",type:"group",channel:"web",members:[{user_id:"alice",name:"Alice",type:"user"}]}}}/></MemoryRouter>);
+ expect(screen.getByText(/Alice/)).toBeVisible();
+ result.rerender(<MemoryRouter><ConversationToolCard call={{id:"read",name:"conversations",status:"completed",input:{action:"read",target:"chat"},detail:{messages:[{id:"external",content:"External original text",sender:{display_name:"Alice"},created_at:"2026-10-10T01:00:00Z",attachments:[]}]}}}/></MemoryRouter>);
+ expect(screen.getByText("External original text")).toBeVisible();expect(screen.getByText(/Alice/)).toBeVisible();
+});

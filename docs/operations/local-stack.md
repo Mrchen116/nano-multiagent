@@ -1,97 +1,43 @@
 # Local Stack
 
-本文用于启动**本机一体**的 IM + Gateway + Web IM 开发主链路（IM 也跑在本机 `:8011`）。个人生产舰队是另一套拓扑——IM 只在 Mac mini，本机只跑第二 Gateway——见 [`prod-fleet.md`](prod-fleet.md)。临时开发验证需要隔离端口、config、数据库和进程，请改用 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
+本机开发运行 TypeScript IM + Node + DSH，生产拓扑另见 [fleet](prod-fleet.md)。临时验证用 [worktree 隔离脚本](../development/worktree-runtime.md)，不要占生产 `8011` 或复用生产数据。
 
-## 前置条件
+## 准备
 
-- 已按 [`../development/local-development.md`](../development/local-development.md) 安装 Python 依赖。
-- 已准备包含有效 `llm:` 段的 `~/.nanoassistant/config.yaml`；结构和生命周期命令见 [`gateway.md`](gateway.md)。
-- Web IM 需要 `src/IM/frontend/dist/`。本地尚未构建时，在 `src/IM/frontend/` 执行 `npm install && npm run build`；前端开发模式见 [`../../src/IM/frontend/README.md`](../../src/IM/frontend/README.md)。
+先按 [开发环境](../development/local-development.md) 安装并构建后端与 Web。配置 `~/.nanoassistant/config.yaml`，字段见 [Gateway](gateway.md)。
 
-## 1. 启动 IM
+为本地 IM 准备持久、私有 JWT secret，并在同一启动环境设置 `IM_JWT_SECRET`。已有数据库重启不能更换此密钥。可设置 `IM_DB_PATH`、`IM_UPLOAD_DIR`、`IM_FRONTEND_DIST_DIR` 为明确的绝对路径；默认分别为 `data/im_service.sqlite3`、`data/uploads` 与仓内 `src/IM/frontend/dist`。
 
-在仓库根目录执行：
+## 启动
 
-```bash
-PYTHONPATH=src .venv/bin/python -m uvicorn IM.app:app \
-  --host 127.0.0.1 \
-  --port 8011
-```
-
-把 IM 保持在当前终端或一个明确命名的持久终端会话中。先验证 HTTP 服务，再继续启动 Gateway：
+空库仅执行一次管理员初始化，再启动 IM：
 
 ```bash
-curl -fsS http://127.0.0.1:8011/openapi.json >/dev/null
+pnpm im init-admin --username root --password '<strong-password>' --display-name Root
+pnpm im serve --host 127.0.0.1 --port 8011
 ```
 
-浏览器入口为：
+保持该 IM 终端运行。`curl -fsS http://127.0.0.1:8011/health` 验证监听；浏览器打开 `http://127.0.0.1:8011/` 登录。
 
-- `http://127.0.0.1:8011/`
-- `http://127.0.0.1:8011/chat`
-
-未登录时页面会进入登录页；新用户可以从页面注册。空库需要先创建运维账号时，可使用 [`troubleshooting.md`](troubleshooting.md#认证和节点-api-诊断) 中的 `init_admin` 命令。
-
-## 2. 启动 Gateway
-
-默认配置位于 `~/.nanoassistant/config.yaml`：
+另一个终端启动节点：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main
+pnpm pa start --config ~/.nanoassistant/config.yaml
 ```
 
-使用其他配置或临时覆盖 IM 地址时显式传参：
+首次启动通过终端显示的设备绑定页面，以目标 owner 登录并完成确认。`--auto-bind` 只用于配置了测试登录身份的隔离自动化。已有绑定不会重复创建所有者身份。
 
-```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main \
-  --config /absolute/path/to/config.yaml \
-  --im-service-url http://127.0.0.1:8011
-```
-
-macOS 默认命令会注册当前用户的 LaunchAgent，并返回 `Gateway started (pid=...)`、`Autostart: enabled ...`、IM 地址和日志路径；登录后自动启动，异常退出时由 launchd 恢复。其他平台沿用普通后台进程。只想让这个本地栈使用普通后台模式时，在 config 中设置 `gateway.autostart: false` 后启动或 `restart`。
-
-这些输出只证明 Gateway 已建立运行态且当时仍存活；继续查看 config 同目录的 `gateway.log`，并在 Web IM 的节点页面确认节点已经连接。
-
-首次连接一个尚未绑定的节点时，Gateway 会尝试打开绑定页，并把 `ACTION ...` / `NEXT ...` 写入日志。按页面完成绑定即可；`--auto-bind` 只用于自动化和隔离 E2E。
-
-## 3. 验证用户主链路
-
-1. 登录 Web IM，打开 `/chat`。
-2. 若页面提示打开 bind flow，先完成节点绑定。
-3. 若页面提示 Gateway offline，回到 `gateway.log` 和节点页面确认连接状态。
-4. 输入区可用后发送一条消息，并确认用户消息和 Agent 回复都出现在当前会话。
-
-主链路为：
+`Gateway started` 表示 DSH 已完成初始化和持久恢复，IM 与飞书连接仍需分别观察。在节点页面确认 online，再向目标 Agent 发消息，确认真实回复出现在同一聊天。
 
 ```text
-Browser / Web IM
-  → IM HTTP API
-  → IM WebSocket relay
-  → Gateway
-  → in-process Agent Kernel
-  → Gateway
-  → Web IM
+Web/iOS → IM HTTP/WS → Node 产品路由 → stdio DSH → 产品交付 → 原聊天
 ```
 
-需要判断某一层失败时，按 [`troubleshooting.md`](troubleshooting.md) 的证据顺序排查。
-
-## 4. 停止
-
-先停止与该 config 对应的 Gateway：
+## 停止和恢复
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop
+pnpm pa status --config ~/.nanoassistant/config.yaml
+pnpm pa stop --config ~/.nanoassistant/config.yaml
 ```
 
-使用非默认配置时带上同一文件：
-
-```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop \
-  --config /absolute/path/to/config.yaml
-```
-
-看到 `STOPPED`、`NOT RUNNING` 或 `STALE` 后，再在 IM 所在终端发送 `Ctrl-C`。macOS 上 `stop` 只暂停当前登录会话；配置仍为 `autostart: true` 时，下次登录会再次启动 Gateway。`STOPPED` 表示实例已关闭，`NOT RUNNING` 表示该 config 没有运行态，`STALE` 表示 CLI 识别并清理了失效记录；详细语义见 [`gateway.md`](gateway.md#运行状态与可用性)。
-
-## Current behavior
-
-- Gateway 后台启停、状态文件、断线重连和绑定行为：[`../specs/gateway/service-lifecycle.md`](../specs/gateway/service-lifecycle.md)
-- Web IM 登录、会话和不可用状态：[`../specs/im/auth-tenancy.md`](../specs/im/auth-tenancy.md) / [`../specs/im/web-chat-ux.md`](../specs/im/web-chat-ux.md)
+先停节点，让 DSH 排空和刷盘，再在 IM 终端按 Ctrl-C。macOS 登录自启、PID/birth 身份校验、降级处理与恢复见 [Gateway 操作](gateway.md)；消息不通按 [排障顺序](troubleshooting.md) 保存首个错误。

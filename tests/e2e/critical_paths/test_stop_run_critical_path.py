@@ -61,7 +61,7 @@ def test_stop_aborts_active_run(im_user: IMClient) -> None:
     # 5) 否定:被中止的长任务的哨兵不应在随后窗口里出现(run 真停了 → never_sentinel 永不到)。
     def _has_never_sentinel(msgs: list[dict]) -> bool:
         return any(
-            m.get("sender_type") == "agent"
+            (m.get("sender") or {}).get("type") == "agent"
             and never_sentinel in (m.get("content") or "")
             for m in msgs
         )

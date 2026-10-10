@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,6 +102,10 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
             str(wt_dir),
         ],
         cwd=str(_REPO_ROOT),
+        env={
+            **os.environ,
+            "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
+        },
         capture_output=True,
         text=True,
     )
@@ -132,6 +137,10 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
     down = subprocess.run(
         ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
         cwd=str(_REPO_ROOT),
+        env={
+            **os.environ,
+            "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
+        },
         capture_output=True,
         text=True,
     )
@@ -148,7 +157,7 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
 
 def _dump_logs(wt_dir: Path) -> None:
     """把 IM / Gateway 日志 tail 到 stderr,失败时留可诊断证据(spec Req)。"""
-    for name in (".im.log", ".gateway.log"):
+    for name in (".im.log", "gateway.log"):
         log = wt_dir / name
         if log.exists():
             tail = "\n".join(log.read_text().splitlines()[-40:])

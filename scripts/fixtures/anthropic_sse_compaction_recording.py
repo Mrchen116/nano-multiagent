@@ -78,7 +78,7 @@ def _sse_text(text: str, *, input_tokens: int) -> bytes:
 
 
 def _sse_read_call() -> bytes:
-    arguments = json.dumps({"path": "compaction-source.txt"})
+    arguments = json.dumps({"file_path": "compaction-source.txt"})
     return _frames_bytes(
         [
             _message_start(100),
@@ -137,7 +137,7 @@ def _has_tool_result(body: dict[str, Any]) -> bool:
 
 
 def _is_summary_request(body: dict[str, Any]) -> bool:
-    return "Your task is to create a detailed summary" in json.dumps(
+    return "You are now acting as a compaction engine" in json.dumps(
         body.get("messages") or [], ensure_ascii=False
     )
 
@@ -156,12 +156,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         with self._lock:
             if _is_summary_request(body):
                 kind = "summary"
+            elif self._summary_completed:
+                kind = "post_summary"
             elif _has_tool_result(body):
                 kind = "tool_followup"
             elif not body.get("tools"):
                 kind = "classifier"
-            elif self._summary_completed:
-                kind = "post_summary"
             else:
                 kind = "tool_call"
             with open(self.record_path, "a", encoding="utf-8") as handle:
@@ -192,9 +192,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 )
                 response = _sse_text(summary, input_tokens=100)
             elif kind == "tool_followup":
-                response = _sse_text(
-                    f"TOOL-COMPLETE {self.sentinel}", input_tokens=45_000
-                )
+                response = _sse_text(f"TOOL-COMPLETE {self.sentinel}", input_tokens=100)
             elif kind == "classifier":
                 response = _sse_text("<block>no</block>", input_tokens=100)
             elif kind == "post_summary":

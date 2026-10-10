@@ -36,7 +36,10 @@ def test_context_survives_gateway_restart(
             conversation_id,
             f"请记住这个暗号:{sentinel}。稍后我会让你复述它。先回复确认你记住了。",
         )
-        ws.wait_for_event("message.completed")
+        ws.wait_for_event(
+            "message.completed",
+            lambda frame: sentinel in (frame.data.get("content") or ""),
+        )
     finally:
         ws.close()
 

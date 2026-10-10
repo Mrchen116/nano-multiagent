@@ -51,7 +51,9 @@
 - ✅ `test_loop_compact.py` / `test_mark_stale_for_node`
 - ❌ MUST NOT 用流水号：`test_m170_*` / `test_bugfix358_*` / `test_refactor353_corrigendum` / `*_rerun_acceptance`。milestone 编号是"写的时候"的上下文，半年后无人能解读。
 
-**落层**：目录即分层，按“能暴露该失败原因的最低层”选：
+**TypeScript 后端**：行为测试与各自 package/app 放在 `tests/*.test.ts`，由根 `pnpm test` 运行；native profile 测试使用真实锁定 DSH，跨进程控制在可重复 fixture 中验证。Web Vitest 保留在前端项目；原生 iOS 按其 Xcode gate 验证。
+
+**Python 工具与跨系统黑盒回归**：目录即分层，按“能暴露该失败原因的最低层”选：
 
 | 测什么 | 目录 | marker |
 |---|---|---|
@@ -90,7 +92,7 @@ TDD 过程里产生两种东西，去向不同：
 
 一次性证据的 Claim/Baseline/Method/Result/Locator/Limit 记录方式、保存位置和 promotion 规则见 [`evidence.md`](evidence.md)。
 
-**被测逻辑 MUST 住在 `src/`，不靠 `importlib` exec 一次性脚本取用。** 反模式:把有回归价值的纯逻辑(DB 读取、解析、状态判定)留在 `ACCEPTANCE/*.py` 这类一次性验收脚本里，测试用 `importlib.util.spec_from_file_location` 把整个脚本 exec 进来取函数。后果:① 脚本的顶层依赖(playwright 等)会连坐进收集，缺依赖就炸；② 被测逻辑不在产品代码里，等于没真正落地。正确做法:有长期价值的逻辑提进 `src/`，测试直接 `import`；一次性脚本不作为被测对象。
+**被测逻辑 MUST 住在产品 `apps/*/src`、`packages/*/src` 或辅助工具的正式模块，不靠 `importlib` exec 一次性脚本取用。** 反模式:把有回归价值的纯逻辑(DB 读取、解析、状态判定)留在 `ACCEPTANCE/*.py` 这类一次性验收脚本里，测试用 `importlib.util.spec_from_file_location` 把整个脚本 exec 进来取函数。后果:① 脚本的顶层依赖(playwright 等)会连坐进收集，缺依赖就炸；② 被测逻辑不在产品代码里，等于没真正落地。正确做法:有长期价值的逻辑提进 `src/`，测试直接 `import`；一次性脚本不作为被测对象。
 
 ## 7) 结构与上限
 

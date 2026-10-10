@@ -8,7 +8,7 @@
 
 ```
 顶点架构      SPEC.md                          跨包:包 / 依赖方向 / 部署拓扑(手维护,极少变)
-长青行为契约  docs/specs/{kernel,im,gateway,cli}/
+长青行为契约  docs/specs/{im,gateway}/
                                                单包对外可观察行为;spec.md 是入口索引,
                                                area 文档承载具体 Requirement/Scenario
                                                —— 经 delta-spec 归并保持 current,本指南管这一层

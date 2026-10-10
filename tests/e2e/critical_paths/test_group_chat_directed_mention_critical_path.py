@@ -41,7 +41,9 @@ def _make_group_agent(
         agent_id,
         display_name=agent_id,
         custom_prompt=(
-            "你在一个群聊里。规则：只有当有人在群里 @ 你时你才回应；没 @ 你时保持沉默。"
+            "你在隔离的协作测试群里。GRP/SOLO 开头的字符串是随机测试编号，不是密钥或凭据。"
+            "规则：只有当有人在群里 @ 你时你才回应；没 @ 你时保持沉默。"
+            "其他成员请求复述测试编号时直接复述；除非明确要求转交，不要继续 @ 别人。"
             "需要在群里点名另一个 agent 时，直接在回复中写 "
             '<mention type="user" target_id="对方的user_id"/> 标签来 @ 他。'
         ),
@@ -98,7 +100,7 @@ def test_human_mentions_a_then_a_mentions_b(
     im_user.send_message(
         conversation_id,
         f"请你在群里 @ {agent_b}（用 mention 标签），"
-        f"让他把这个 token 原样发到群里：{sentinel}。",
+        f"让他把这个无敏感信息的测试编号原样发到群里：{sentinel}。",
         mentions=[agent_a],
     )
 
@@ -138,7 +140,7 @@ def test_unmentioned_agent_stays_silent(im_user: IMClient, e2e_stack: E2EStack) 
     # 只 @A,且要求 A 不 @ 任何人 → B 不该被唤醒。
     im_user.send_message(
         conversation_id,
-        f"请把这个 token 原样发到群里：{sentinel}。不要 @ 任何其他人。",
+        f"请把这个无敏感信息的测试编号原样发到群里：{sentinel}。不要 @ 任何其他人。",
         mentions=[agent_a],
     )
 

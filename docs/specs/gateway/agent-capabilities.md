@@ -242,25 +242,25 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **GIVEN** PA agent 已持久化非空 `tool_allowlist`
 - **WHEN** Gateway 为该 agent 创建新 session
 - **THEN** session 只启用该白名单列出的工具
-- **AND** 若白名单不含 `skill_view`,session 不启用 `skill_view`
+- **AND** 若白名单不含 `skill`,session 不启用 `skill`
 
-#### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
-- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
+#### Scenario: 启用 Cron 能力提供允许的原生调度工具
+- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="schedule_create"` 已联动进 `tool_allowlist`）
 - **WHEN** Gateway 为该 Agent 构建会话
-- **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
+- **THEN** 该 Agent 工具集包含 `schedule_create`；其他原生 `schedule_*` 工具仍需在有效白名单内。停用 Cron 能力后，其调度工具不再可调用
 
-#### Scenario: Gateway 上报能力时标记 skill_view 默认开启
+#### Scenario: Gateway 上报能力时标记 skill 默认开启
 - **WHEN** Gateway 向 IM 上报当前节点可配置工具
-- **THEN** 工具列表包含 `skill_view`
-- **AND** `skill_view` 的 `default_on` 为 true
+- **THEN** 工具列表包含 `skill`
+- **AND** `skill` 的 `default_on` 为 true
 
 ### Requirement: PA 产品说明书按需回答产品问题
 
-PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。入口经 `skill_view` 按需加载，再由默认启用的 `read` 只读取当前问题所需的随包专题资料；普通任务不因其启用而加载。用户显式关闭 `read` 后，产品不保证详细手册可读。coding CLI、Kernel 内部和开发流程不属于该手册。
+PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、Gateway、Agent 配置、模型、skills、tools、memory、heartbeat、cron、外部渠道、启动和常见故障处理。入口经 `skill` 按需加载，再由默认启用的 `read` 只读取当前问题所需的随包专题资料；普通任务不因其启用而加载。用户显式关闭 `read` 后，产品不保证详细手册可读。退役 Coding CLI、DSH 内部和开发流程不属于该手册。
 
 #### Scenario: 在 PA 对话入口询问产品问题
 
-- **GIVEN** 当前 Agent 已启用产品说明书、`skill_view` 与 `read`
+- **GIVEN** 当前 Agent 已启用产品说明书、`skill` 与 `read`
 - **WHEN** 用户从 Web IM、飞书或其他 PA 对话入口询问 PA 能力、使用、配置或故障处理
 - **THEN** Agent 按需读取产品说明书，并基于当前安装版本直接回答
 
@@ -370,7 +370,7 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 
 ### Requirement: PA Agent 从有序的工作区与用户级兼容根发现 Skill
 
-PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `skill_view` 时，按该 Agent 的真实 Workspace 依次搜索 `<workspace>/.nanoassistant/skills/`、`<workspace>/.claude/skills/`、`<workspace>/.codex/skills/`，再依次搜索 `~/.nanoassistant/skills/`、`~/.agents/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。`~/.agents/skills/` 是用户级兼容来源，不新增 `<workspace>/.agents/skills/`。同名 Skill 只采用最先命中的版本；缺失或空的可选兼容目录不影响其他来源。
+PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `skill` 时，按该 Agent 的真实 Workspace 依次搜索 `<workspace>/.nanoassistant/skills/`、`<workspace>/.claude/skills/`、`<workspace>/.codex/skills/`，再依次搜索 `~/.nanoassistant/skills/`、`~/.agents/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。`~/.agents/skills/` 是用户级兼容来源，不新增 `<workspace>/.agents/skills/`。同名 Skill 只采用最先命中的版本；缺失或空的可选兼容目录不影响其他来源。
 
 #### Scenario: 工作区 Claude/Codex Skill 出现在 Agent capability 中
 - **GIVEN** 某 Agent 的真实 Workspace 下 `.claude/skills/` 或 `.codex/skills/` 含有效 Skill
@@ -385,7 +385,7 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 
 #### Scenario: 缺失兼容目录不阻断 PA Agent
 - **GIVEN** Agent Workspace 未创建 `.claude/skills/` 或 `.codex/skills/`，或用户主目录未创建 `.claude/skills/`
-- **WHEN** Gateway 解析 capabilities、开始新回复或处理 `skill_view`
+- **WHEN** Gateway 解析 capabilities、开始新回复或处理 `skill`
 - **THEN** 操作正常完成
 - **AND** 其他有效 roots 中的 Skill 仍可使用
 
@@ -431,6 +431,10 @@ PA Agent 的 Skill 配置必须区分“按当前可发现集合默认使用”�
 ### Requirement: self-evolution 创建的 Skill 跨前台 terminal 仍完成配置调和
 
 Gateway 对 self-evolution review 成功产生的 `skill_created` 业务事件保持 session 级消费，不依赖已经结束的前台 run context。事件无论在前台 terminal 前后到达或经可恢复 stream 重连重放，都按现有 mode-aware config-sync 规则收敛，不重复改变配置。
+
+后台 Memory/Skill review fork 保留父会话历史，逐字节继承父请求已渲染的 system prompt 和完整工具定义，维护指令追加在继承历史之后；不因后台工具白名单重建请求前缀。白名单在工具执行前独立拦截，工具可见不代表获准执行。这样保留上游前缀缓存的复用条件；实际命中仍以 provider usage 为准，不承诺每次命中。
+
+Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 fork 继承快照，压缩完成后再读取最新内容；禁用 memory_curation 时不读取。后台反思分别按主会话轮次和模型迭代累计，单轮并行工具不放大计数；前台对应维护工具的成功结果重置提醒读数，失败不重置。后台 review 仅完成后推进重置点，失败或取消不消耗提醒周期。
 
 #### Scenario: fast review 与 slow review 使用同一调和结果
 
@@ -508,3 +512,55 @@ Gateway 对 self-evolution review 成功产生的 `skill_created` 业务事件�
 - **GIVEN** 技能由后台自动新增并启用
 - **WHEN** 用户手动取消，或取消后重新启用该技能
 - **THEN** 下一轮按显式配置更新目录并保留既有配置分界行为
+
+### Requirement: 可替代能力采用原生工具名称与用法并允许受控升级
+
+#### Scenario: 使用通用工具
+- **WHEN** 助手使用已由DSH提供的等价工具或Skill调用入口
+- **THEN** 使用其原生名称、参数及命令方式；迁移后的既有Skill仍能完成工作，不依赖旧名字或旧schema兼容层。
+
+#### Scenario: 截断读取与后台输出
+- **WHEN** 文件超过单次读取范围，或后台工具完成
+- **THEN** 截断明确可继续读取；助手通过原生输出工具读取后台结果后正常向用户交付，不要求用户手动操作内部工具。
+
+#### Scenario: 升级上游工具
+- **WHEN** 维护者升级受支持的DSH版本并完成产品接入验证
+- **THEN** 可使用更新后的原生工具能力；身份、权限、Skill引用及结果交付仍有效，不被复制的旧实现固定住。
+
+### Requirement: 自建工具支持节点全局与workspace两层
+
+#### Scenario: 共享、局部及同名覆盖
+- **GIVEN** 本节点owner共享工具和workspace A的同名工具，另有workspace B
+- **WHEN** A或B的主会话及被允许的子任务使用工具
+- **THEN** A优先使用局部版本，B使用共享版本；A的私有工具不出现在B，工具名单继续限制可用能力。
+
+#### Scenario: 重启和同workspace多会话
+- **WHEN** 同一workspace建立多个会话或服务重启
+- **THEN** 按该workspace的同一份持久扩展声明装配，局部工具不因为包已安装而自动全局启用。
+
+### Requirement: Auto默认沿用Nano规则且可配置为DSH规则
+
+#### Scenario: 默认审核规则
+- **WHEN** 用户未选择其他Auto规则
+- **THEN** 工具权限审核沿用Nano当前判定规则，保留可信来源、短确认、拒绝计数、人工审批和无人值守分流。
+
+#### Scenario: 配置切换规则
+- **WHEN** 运维者选择DSH默认规则并重启节点完成生效
+- **THEN** 后续工具权限判定使用DSH规则；独立审核模型选择仍按既有契约，不能改用另一条并行审批链或绕开产品来源规则。
+- **AND** 配置生效前已发出的审批仍对应原请求，迟答不复活取消调用。
+
+#### Scenario: 规则切换不改变审核模型失败处理
+- **GIVEN** 节点配置了独立审核模型
+- **WHEN** 该模型在已有重试后仍失败或无有效判定
+- **THEN** 不自动换回执行Agent模型复审；有人值守/无人值守分别走既有分流。
+
+### Requirement: Feature可独立启停并撤销其后续影响
+
+#### Scenario: 关闭和重新开启单项能力
+- **WHEN** 用户对某Agent关闭再开启Task Graphs、Memory Curation、Skill Creation、Cron或Heartbeat
+- **THEN** 该Feature的工具、提示、命令和未来触发按有效配置撤销或恢复，其他Feature及其他Agent不受影响；重新开启不累积重复监听或任务。
+- **AND** 已有任务/记忆/Skill保留，Skill Creation关闭不等于禁用已有Skill加载。
+
+#### Scenario: 关闭期间重启与在途工作
+- **WHEN** 关闭的Feature经历节点重启，或关闭时已有工作被接收
+- **THEN** 重启不擅自重新启用；在途工作依原产品契约收口；未完成卸载显示pending，不伪报effective或回滚已发生副作用。

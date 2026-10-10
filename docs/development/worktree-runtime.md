@@ -18,11 +18,11 @@
 3. IM 数据库、JWT secret、Gateway runtime state、agent workspace 和 node identity 必须属于本次运行。
 4. 谁启动进程，谁负责记录进程身份、停止进程并确认端口已经释放。
 5. config 副本、secret、PID、日志、数据库、凭据和 workspace 都是本地运行数据，不提交。
-6. 内核是进程内库：Gateway 进程内持有内核，Coding CLI 进程内运行，不为内核分配独立端口。
+6. Node 管理独立 DSH 子进程，只经 stdio 通信；两者都不监听独立业务端口。DSH home 与 owner 配置根也必须隔离。
 
 ## 前置条件
 
-- 当前 Python 环境已安装项目依赖，并且 `python -c "import yaml"` 成功。worktree 没有独立 `.venv` 时，可以复用主 checkout 的虚拟环境。
+- 已执行 `pnpm install --frozen-lockfile`、`pnpm build` 与 Web 构建。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
 - 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含固定 agent、Web IM channel 和可选模型目录。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
@@ -80,15 +80,16 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 | 方面 | 脚本行为 |
 |---|---|
-| 端口 | 通过 `scripts/free-ports.sh` 为 IM 分配空闲端口；内核和 Gateway 不监听业务端口 |
-| IM identity | 为本次运行生成随机 `IM_JWT_SECRET`，在全新 IM 中注册隔离测试用户 |
+| 端口 | 通过 `scripts/free-ports.sh` 为 IM 分配空闲端口；DSH 和 Gateway 不监听业务端口 |
+| IM identity | 为本次运行生成随机 `IM_JWT_SECRET`，在全新 IM 中显式初始化隔离测试用户 |
 | IM 数据 | 以 `WT_ROOT` 为 cwd，使用其中的 `data/im_service.sqlite3`，启动前清理本目录的旧 E2E 状态 |
 | Gateway config | 默认从 `config/e2e/gateway.yaml` 复制 `.gateway-config.yaml`，不修改源文件；`--feishu` 仅向该副本注入私有测试 App 凭据 |
 | Gateway identity | 生成唯一 `node_id`，把 `im_service.url` 指向本次 IM，并同步本次测试用户的 `node.user_id` |
+| Runtime 根 | 本次 owner 根、Node SQLite 和 DSH home 均在 worktree 隔离目录 |
 | Agent workspace | 将 `node.workspace_base` 和所有预置 agent 的 `workspace_root` 改到 `.gateway-workspace/` |
 | Binding | Gateway 使用 `--auto-bind`，避免自动化流程停在浏览器确认页 |
-| 进程 | IM 和 Gateway 的 PID 分别写入 `.im.pid`、`.gateway.pid`；Gateway 以 `--foreground` 运行，由外部脚本拥有生命周期 |
-| Readiness | 等待 IM OpenAPI 可访问，并等待 Gateway 进程给出连接或启动信号 |
+| 进程 | IM 和 Gateway 的 PID 分别写入 `.im.pid`、`.gateway.pid`；Gateway 由当前 Node CLI 管理，状态文件记录 Node 与 DSH PID |
+| Readiness | 等待 IM health、Node/DSH 完成恢复，再验证目标 owner 的节点 online |
 | 后续入口 | 写出 `.e2e-ports.env`，提供 `IM_PORT`、`IM_URL`、`IM_JWT_SECRET`、`NODE_ID` 和 `VITE_IM_PROXY_TARGET` |
 
 源 config 必须包含可解析的 `llm:` 段。本文不复制完整模型配置；模型、provider 和凭据变化时只维护其 canonical 配置说明。
@@ -102,7 +103,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 | `.gateway-config.yaml` | 隔离 Gateway config，可能含凭据 | 删除 |
 | `.im.pid`、`.gateway.pid` | 外部进程身份 | 删除 |
 | `channel-credentials-v1.pem`、`channel-manifest-v1.json` | 本次 channel 凭据与 manifest | 删除 |
-| `.im.log`、`.gateway.log` | 本次运行日志 | 保留用于排障 |
+| `.im.log`、`gateway.log` | 本次运行日志 | 保留用于排障 |
 | `.gateway-workspace/` | 本次 agent workspace | 保留用于排障 |
 | `data/im_service.sqlite3` 及 Gateway SQLite state | 本次运行数据 | 保留或由下次 E2E 启动重建 |
 
@@ -119,7 +120,8 @@ kill -0 "$(cat "$WT_ROOT/.im.pid")"
 kill -0 "$(cat "$WT_ROOT/.gateway.pid")"
 curl -fsS "$IM_URL/openapi.json" >/dev/null
 lsof -nP -iTCP:"$IM_PORT" -sTCP:LISTEN
-tail -n 50 "$WT_ROOT/.gateway.log"
+pnpm pa status --config "$WT_ROOT/.gateway-config.yaml"
+tail -n 50 "$WT_ROOT/gateway.log"
 ```
 
 `e2e-up.sh` 的 readiness 只证明启动阶段通过。具体功能仍应执行与 change 对应的 API、E2E 或产品验收。

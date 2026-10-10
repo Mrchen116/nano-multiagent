@@ -1,172 +1,60 @@
-# SPEC.md — nano-multiagent 架构规约
+# nano-multiagent Architecture
 
-> **版本** v1.5 | **日期** 2026-07-30 | **对齐** `docs/README.md`本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`；全仓文档地图和冲突处理见 `docs/README.md`，长青 spec 写法见 `docs/specs/CONTRIBUTING.md`。在跨包架构范围内与其他设计文档冲突时，以本文档为准。
->
-> **v1.5 变更**：全仓文档索引、权威分工与生命周期移至 `docs/README.md`；本文 §6 只保留架构相关入口。
->
-> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/`。
->
-> **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露 `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
-> + loopback HTTP」改为「import `agent.sdk` 进程内直调」。**内核与产品形态正交**：产品呈现为终端软件、常驻 gateway 还是（未来的）云 API，是产品层决策，内核不内置任何形态偏好。
+## 产品与执行边界
 
----
+nano-multiagent 提供常驻个人助手和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；内部 subagent 是一次工作的执行单元，不是新的公司成员。
 
-## 1. 愿景
+DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 源码，不导入其私有实现。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 
-nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部署的顶层包组成。
+## 部署与请求路径
 
----
-
-## 2. 架构总览
-
-```
-        ┌───────────┐     ┌──────────────────┐
-        │  Browser   │     │   External IMs    │
-        │  (Web IM)  │     │  飞书│QQ│TG│Slack │
-        └─────┬─────┘     └────────┬─────────┘
-              │ HTTPS/SSE           │ Bot SDK / Webhook
-              ▼                     │
-┌─────────────────────────────────┐ │
-│  IM Service (src/IM/)           │ │
-│  可选中心服务，多用户数据隔离   │ │
-│                                 │ │
-│  HTTP API  /im/v1/*             │ │
-│    conversations│messages│SSE   │ │
-│    agents config│nodes│bind│me  │ │
-│                                 │ │
-│  WebSocket Server               │ │
-│    上行: register│hb│report     │ │
-│    下行: relay│config│trigger   │ │
-│                                 │ │
-│  Domain: User│AgentProfile      │ │
-│    Conversation│Message         │ │
-│    NodeStatus│RelayTask         │ │
-│                                 │ │
-│  Frontend: React+TS+Vite       │ │
-└──────────────┬──────────────────┘ │
-               │ WebSocket              │
-               │ (Gateway 主动发起)     │
-               ▼                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                USER MACHINE (每台部署机器)                        │
-│                                                                  │
-│  两个产品平级、各自独立 import agent.sdk（互不依赖）：           │
-│  ┌─ Node Gateway (personal_assistant/) ┐  ┌─ Coding CLI (coding_cli/) ─┐ │
-│  │  Channels · Inbound Pipeline         │  │  async-native Terminal REPL │ │
-│  │  Heartbeat · send_message · WS→IM    │  │                             │ │
-│  │  持有 Kernel = import agent.sdk      │  │  持有 Kernel = import agent.sdk│ │
-│  └─────────────────┬────────────────────┘  └──────────────┬──────────────┘ │
-│                    │ await kernel.*（进程内）              │ await kernel.*  │
-│                    └───────────────────┬───────────────────┘               │
-│                                        ▼ （二者各自调用同一份内核库）       │
-│  ┌─ Agent Kernel 库 (src/agent/) ──────────────────────────────┐ │
-│  │  sdk      build_kernel() → Kernel  ← 唯一对外面（进程内）    │ │
-│  │           create_session│submit│stream│interrupt│cancel│... │ │
-│  │           权限 = 注入的 can_use_tool 回调                    │ │
-│  │  core     SessionDirectory│ConversationSession × N          │ │
-│  │           AgentEngine→AgentLoop│KernelExecutor│RunsRegistry │──→ LLM API
-│  │           EventStreamHub│Tools│Hooks│Skills│Compaction      │ │
-│  │           LLMClient (port，仅接口)                           │ │
-│  │  platform LLMClientFactory(OpenAI-compat/Anthropic 具体实现)│ │
-│  │           Built-in tools│Persistence(SQLite)│Safety          │ │
-│  │  (refactor-406 决策1：products 层解散→消费者工厂)            │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  ┌─ Agent Workspaces ─────────────────────────────────────────┐  │
-│  │  agent-A/                       agent-B/                    │  │
-│  │  └── .nanoassistant/            └── .nanoassistant/         │  │
-│  │      sessions/│memory/              sessions/│memory/        │  │
-│  │      skills/│tools/│hooks/          skills/│tools/│hooks/    │  │
-│  │      chat_history/│HEARTBEAT.md    chat_history/│HEARTBEAT.md│  │
-│  └─────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  Web[Web IM / 原生 iPhone] -->|HTTP / WS| IM[TypeScript IM 中心]
+  IM <-->|设备认证 WS / HTTP| Node[用户机器：TypeScript Node]
+  Feishu[飞书] <-->|平台长连接 / API| Channels[Channels]
+  Channels <--> Node
+  Node <-->|stdio JSON RPC| DSH[官方 DSH 子进程 + Nano plugins]
+  DSH --> LLM[配置的模型服务]
+  DSH --> Workspace[Agent workspace / tools / skills]
 ```
 
-内核是**库**，不是服务：`agent.sdk.build_kernel()` 返回进程内的 `Kernel`，产品 import 后直调（async）。内核不内置 HTTP API；未来若要云化，由独立产品包 import `agent.sdk` 按需包一层 API，而非内核内置。IM Service 是唯一对外网络服务（多用户 / Web 前端 / 消息中继，HTTP+WS 名正言顺），不直接调内核。
+节点主动连接中心，不开放 Agent 业务监听端口。中心不执行 Agent、不读节点 workspace、不直接连接外部渠道。中心离线时，已绑定且具备本地密文凭据的外部渠道仍可自治，待连接恢复后补交付已有持久结果。
 
----
+## 代码归属
 
-## 3. 顶层结构
+| 包 / 目录 | 唯一职责 |
+|---|---|
+| `apps/im-server` | HTTP/WS、账号与公司资格、聊天及媒体授权、节点绑定、配置 operation、通道 desired state、共享任务图、Work 与用量投影 |
+| `apps/node` | CLI 与 macOS 生命周期、节点配置与设备凭据、provider 目录、产品和运行时装配、DSH 进程监管 |
+| `packages/product-contracts` | 与执行运行时无关的产品数据、配置指纹和端口契约 |
+| `packages/channels` | Web relay 传输、飞书收发、通道密文与平台身份 |
+| `packages/personal-assistant` | Inbox、单聊天/global 路由、群发言边界、durable handoff、结果投递、外部镜像、配置恢复与主动工作策略 |
+| `packages/dsh-integration` | 通过公开 DSH 服务与插件实现配置 scope、来源与审批、模型策略、Workflow、知识维护，以及持久事件/历史的产品投影 |
+| `src/IM/frontend` | 既有 React/TypeScript Web 客户端 |
+| `src/IM/ios` | 既有 Swift 原生 iPhone 客户端 |
+| `scripts`、`tests` | 运维和验收工具；Python 仅保留辅助脚本与黑盒回归 |
 
-```text
-src/
-├── agent/                        # Agent 内核库（对外只暴露 agent.sdk，进程内调用）
-│   ├── core/                     # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session
-│   ├── platform/                 # 集成层：LLM providers、persistence、safety
-│   └── sdk/                      # 对外面：build_kernel() → Kernel
-├── coding_cli/                   # 本地编码 CLI 应用（import agent.sdk 进程内直跑）
-├── personal_assistant/           # 个人助手 Node Gateway（import agent.sdk 进程内持有 Kernel）
-└── IM/                           # IM 前后端（独立网络服务）
-    ├── app.py                   # 后端服务入口
-    ├── api/                     # HTTP 路由
-    ├── ws/                      # WebSocket 连接管理
-    ├── application/             # 业务服务
-    ├── domain/                  # 领域模型
-    ├── infra/                   # 基础设施
-    └── frontend/                # Web IM 前端
-```
+Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产品层依赖 `RuntimePort`，不持有 DSH 对象。运行时接线集中在 integration，跨进程传递的是产品身份、输入来源、操作 ID、持久序号及真实事件。
 
----
+## 依赖方向
 
-## 4. 各包职责与边界
+- IM 只依赖 product-contracts，不导入 Node、PA、Channels 或 DSH。
+- PA 只依赖 product-contracts 与 Channels；Channels 只依赖 product-contracts。
+- Node 装配 PA、Channels、product-contracts 与 integration 的公开进程 client。
+- 只有 integration 可以导入 `@deepseek-ai/*`，且必须是已声明依赖的公开 exports。它不导入 PA、Channels 或 IM。
+- 不使用跨包相对路径、不添加 DSH 源码补丁、fork 或 private import。
 
-### agent — 执行内核（库）
+这些规则由 [runtime dependency contract](tests/contract/test_runtime_dependency_contract.py) 验证。DSH 更新需明确升级锁文件、公开 export 验证及受影响真实旅程，不能靠旧工具名或参数兼容副本维持表面通过。
 
-IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + 可扩展 + 可持久化 + 可观测"。
+## 状态与恢复的责任
 
-对外**只暴露 `agent.sdk`**（`build_kernel()` → 进程内 `Kernel`），禁止外部直接 import `agent.core` / `agent.platform` 内部模块。内核是库不是服务，**不内置任何对外网络 API**。
+IM 持有公司、聊天、共享任务图与配置操作等产品权威；节点持有真实配置、conversation/session 绑定、入站与交付记录、外部发送结果和凭据。DSH 持有原生会话、模型/工具执行、子任务与持久事件；Nano 的 Workflow owner 通过公开 PTC/subagent 服务管理逻辑调用、控制、预算与完成前缀。
 
-内部分三层（core / platform / sdk）：
-- `core` 纯逻辑，不依赖 `platform`；只持 `LLMClient` 端口（接口）。
-- `platform` 接环境（LLM provider 具体实现、持久化、安全），依赖 `core`。
-- `sdk` 唯一对外装配面，依赖 `core` + `platform`，暴露 `build_kernel()` / `Kernel`。
+用户消息被持久接收、Agent 完成、结果发给用户是不同事实。断线恢复按稳定输入和操作身份查询持久状态，不盲目重放工具或外发。未知发送保留未知；审批保留真实来源和调用归属。活跃运行发出 liveness，中心不会把安静的模型/工具/审批等待当作失败；执行进程消失后心跳停止，中心才按超时回收。
 
-> refactor-406（决策 1）：原 `products` 层（产品 profile / 默认工具 / hook / prompt / skill 策略）已解散——产品默认值下沉到各消费者包的工厂（`coding_cli.product` / `personal_assistant.product`），经 `build_kernel(tools=…, hooks=…, prompt=…)` 传入；内核眼里没有"产品"对象，两个一方产品与任意外部应用对 SDK 完全对等。
+配置 scope 决定各 Agent 的有效能力。全局插件与 workspace 私有插件是不同归属；默认发现与显式空集合不同。历史分支使用消息点配置。Cron 回到创建它的原主会话，一次性任务在停机期间到期后按 DSH 规则补发；Heartbeat 保留产品的忙碌跳过、活跃时段、任务节律和静默策略。
 
-内核对外行为契约详见 [`docs/specs/kernel/`](docs/specs/kernel/spec.md)。
+## 进一步阅读
 
-### coding_cli — 本地编码助手
-
-终端 CLI 应用（async-native REPL）。`import agent.sdk` 在进程内持有 `Kernel`，用户输入 → `await kernel.*` → 渲染流式响应。
-
-### personal_assistant — 个人助手 Node Gateway
-
-常驻进程。`import agent.sdk` 在 gateway 进程内持有 `Kernel`。负责：
-- Channel 接入外部 IM（QQ / Slack / Telegram 等）
-- 本地 heartbeat 调度与执行
-- 进程内调用 `Kernel`（`await kernel.*`）
-- 与 IM 服务交互（配置同步、消息中继、状态上报）
-
-### IM — 独立中心服务
-
-提供内置 Web IM + 用户/Agent 配置中心 + 可选消息中继。IM 也持有[协作任务图](docs/specs/im/task-graphs.md)的唯一持久记录；PA 经现有 HTTP/WS 边界提供 Agent 工具，浏览器负责读取和展示。
-
-**不直接调用 agent 内核**，只与用户浏览器和各机器上的 `personal_assistant` 交互。IM 可离线，Node Gateway 仍可本地自治。
-
----
-
-## 5. 依赖方向
-
-```
-用户 ──→ IM（Web IM）──WS──→ personal_assistant ──import agent.sdk（进程内）──→ agent
-用户 ──→ coding_cli ──import agent.sdk（进程内）──→ agent
-外部 IM ──→ personal_assistant ──import agent.sdk（进程内）──→ agent
-```
-
-**硬规则**：
-- `coding_cli` 和 `personal_assistant` 通过 **`import agent.sdk` 进程内调用** agent；**只允许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部模块
-- `IM` 不调用 agent，只与用户浏览器和各机器上的 `personal_assistant` 交互（HTTP/WS）
-- 内核分层（refactor-406 决策1：products 层解散）：`core` 不依赖 `platform`；`platform → core`；`sdk → core + platform`（唯一对外面）
-- `agent.sdk` 不被任何内核内部层反向依赖；`coding_cli` / `personal_assistant` / `IM` 三者之间无相互 import
-- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform`。相关断言由 `tests/contract/test_cli_sdk_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
-
----
-
-## 6. 相关文档
-
-本文只负责跨包架构。全仓文档地图、权威分工、生命周期和历史/研究材料入口见 [`docs/README.md`](docs/README.md)。
-
-- 单包 current 行为：[`docs/specs/README.md`](docs/specs/README.md)
-- 长青 spec 与 delta-spec 写法：[`docs/specs/CONTRIBUTING.md`](docs/specs/CONTRIBUTING.md)
-- 开发变更生命周期与门禁：[`docs/development/change-workflow.md`](docs/development/change-workflow.md)
-- change unit 目录与归档：[`docs/changes/README.md`](docs/changes/README.md)
+[Gateway current contracts](docs/specs/gateway/spec.md)、[IM current contracts](docs/specs/im/spec.md) 定义外部可观察行为；[运行时边界](docs/specs/gateway/service-lifecycle.md) 定义 Nano 对 DSH 的产品承诺；[文档地图](docs/README.md) 解释权威分工、开发流程和历史材料。

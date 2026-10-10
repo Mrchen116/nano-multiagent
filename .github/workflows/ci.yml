@@ -1,6 +1,5 @@
 # feat-388 触点 (c) — 远端兜底 CI：push/PR 时前后端双门任一红阻止合并
-# Python 质量门禁、两个互斥的 pytest 分片和 frontend（dependency audit + vitest）并行执行。
-# 分片让全量 Python 检查适配 hosted runner 的短生命周期，且不减少覆盖范围。
+# TypeScript runtime/center, standalone Python tooling, Web and iOS each keep their own gate.
 name: CI
 
 on:
@@ -29,8 +28,8 @@ jobs:
       - name: Release device archive
         run: ./src/IM/ios/scripts/build.sh archive
 
-  python:
-    name: Python checks
+  backend:
+    name: TypeScript backend and tooling
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,50 +55,27 @@ jobs:
       - name: Documentation integrity
         run: ./scripts/docs-check
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Install frozen runtime dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and typecheck
+        run: pnpm build && pnpm typecheck
+      - name: Native runtime and IM regressions
+        run: pnpm test
+
+      - name: Standalone helper and architecture tests
+        run: pytest -m "not e2e" -q
+
       - name: ruff check
         run: ruff check .
 
       - name: ruff format check
         run: ruff format --check .
-
-  python_tests_agent_pa:
-    name: Python tests (agent and PA)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: pytest (agent and PA, not e2e)
-        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5 tests/unit/agent tests/unit/personal_assistant
-
-  python_tests_remaining:
-    name: Python tests (remaining)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Contract tests compare new test files with origin/main.
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: pytest (remaining, not e2e)
-        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5 --ignore=tests/unit/agent --ignore=tests/unit/personal_assistant
 
   frontend:
     name: Frontend checks

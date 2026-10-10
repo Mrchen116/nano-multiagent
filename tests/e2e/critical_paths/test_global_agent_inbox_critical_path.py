@@ -72,7 +72,7 @@ def _consumed(view: dict, target: str, message_id: str) -> dict | None:
         ):
             continue
         messages = call.get("detail", {}).get("messages", [])
-        has_body = any(message.get("message_id") == message_id for message in messages)
+        has_body = any(message.get("id") == message_id for message in messages)
         committed = any(
             fact.get("type") == "inbox_read_committed"
             and any(
@@ -91,11 +91,11 @@ def _delegation(view: dict) -> dict | None:
     return next(
         (
             call
-            for call in _tools(view, "agent")
+            for call in _tools(view, "subagent")
             if call.get("status") == "completed"
             and not call.get("input", {}).get("agent_id")
             and call.get("input", {}).get("run_in_background") is True
-            and call.get("detail", {}).get("agent_id")
+            and call.get("detail", {}).get("child_session_id")
         ),
         None,
     )
@@ -105,10 +105,10 @@ def _followup(view: dict, child_id: str, amendment: str) -> dict | None:
     return next(
         (
             call
-            for call in _tools(view, "agent")
+            for call in _tools(view, "send_message")
             if call.get("status") == "completed"
             and call.get("input", {}).get("agent_id") == child_id
-            and amendment in call.get("input", {}).get("prompt", "")
+            and amendment in call.get("input", {}).get("message", "")
         ),
         None,
     )
@@ -119,7 +119,7 @@ def _dispatches(view: dict, target: str) -> list[dict]:
         fact
         for call in _tools(view, "send_message")
         for fact in call.get("work_facts", [])
-        if fact.get("type") == "dispatch_confirmed"
+        if fact.get("type") in {"dispatch_confirmed", "message_sent"}
         and fact.get("conversation_id") == target
     ]
 
@@ -151,7 +151,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                     "inbox",
                     "conversations",
                     "send_message",
-                    "agent",
+                    "subagent",
                     "bash",
                     "read",
                     "write",
@@ -159,9 +159,9 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                 "skills": [],
                 "custom_prompt": (
                     "你负责统筹用户在不同聊天提出的同一任务。先真实读取 Inbox 正文。"
-                    "实质计算委派给后台子 Agent，收到修订用 agent 工具的 agent_id 跟进同一个子 Agent。"
+                    "实质计算委派给后台子 Agent，收到修订用 send_message 工具的 agent_id/message 跟进同一个子 Agent。"
                     "测试中不发确认、进度或中间结果；仅收到子 Agent 最终修订结果后，"
-                    "用 send_message(to=原始任务聊天ID,text=结果)交付一次。"
+                    "用 send_message(target=原始任务聊天ID,text=结果)交付一次。"
                     "主 Agent 不替子 Agent 计算、不写测试文件、不创建 release 标记。"
                     "委派后可结束当前轮次，等待 Inbox 或后台返回唤醒。"
                 ),
@@ -189,14 +189,14 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
             writer.writerows(rows)
         expected = sum(amount - 3 for index, amount in rows if index % 2 == 0)
         chat_a = im_user.create_direct_conversation(agent_id, title=f"J2 A {suffix}")
-        chat_b = im_user.create_direct_conversation(agent_id, title=f"J2 B {suffix}")
+        chat_b = im_user.create_group_conversation([agent_id], title=f"J2 B {suffix}")
         assert chat_a != chat_b
         base = f"/im/v1/agents/{agent_id}/work"
         try:
             message_a = im_user.send_message(
                 chat_a,
                 f"订单汇总任务，最终只交付到本聊天 {chat_a}。数据：{dataset}。"
-                "请立即用 agent(run_in_background=true)委派一个真实子 Agent 读取 CSV、"
+                "请立即用 subagent(run_in_background=true)委派一个真实子 Agent 读取 CSV、"
                 "核对行数并计算全部订单 amount 合计。稍后我会在另一聊天修订统计口径。"
                 f"给子 Agent 的指令必须包含：在 {release} 出现前不得提交结果；"
                 "可用 bash 每次最多等待 20 秒，再检查后续指令，总等待上限 600 秒。"
@@ -218,7 +218,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
             assert main_session
             delegation = _delegation(first)
             assert delegation is not None
-            child_id = delegation["detail"]["agent_id"]
+            child_id = delegation["detail"]["child_session_id"]
             assert not im_user.agent_messages(chat_a, agent_id)
             assert not im_user.agent_messages(chat_b, agent_id)
             assert not release.exists()
@@ -226,7 +226,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                 chat_b,
                 f"修订同一订单任务，标识 {amendment}：只选择 order_id 为偶数的订单，"
                 "每笔选中订单的 amount 扣减固定费用 3 后求和，count 是选中行数。"
-                "必须先把这个标识和计算口径通过 agent(agent_id=原子AgentID,prompt=修订内容)"
+                "必须先把这个标识和计算口径通过 send_message(agent_id=原子AgentID,message=修订内容)"
                 "发给刚才同一个子 Agent，不另起子 Agent，不由主 Agent 计算。"
                 f"子 Agent 继续等待 {release}，夹具观察到真实跟进后会释放；"
                 f"最终 JSON 的 amendment 必须为 {amendment}，只发回原聊天 {chat_a}。",

@@ -1,5 +1,7 @@
 # 生产舰队（IM@mini + 双 Gateway）
 
+> 版本切换说明：本页现有 Python launcher/运行记录是 DSH 切换前的生产拓扑快照。refactor-581 的合并不代表已部署；首次切换必须先完成 [DSH 资产迁移](dsh-migration.md)，再按部署 skill 更新为 Node launcher。保留 Mini 唯一 IM、双节点 owner 和公网域名等拓扑约束。
+
 本文描述个人生产拓扑：Mac mini 跑唯一 IM，MacBook Air 与 Mac mini 各跑一个常驻 Gateway，均连同一 IM。Agent 执行部署/重启时的逐步命令与局部动作表见 [`.claude/skills/prod-fleet-deploy/SKILL.md`](../../.claude/skills/prod-fleet-deploy/SKILL.md)。单机开发的一次性主链路见 [`local-stack.md`](local-stack.md)；worktree 隔离见 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
 
 ## 拓扑

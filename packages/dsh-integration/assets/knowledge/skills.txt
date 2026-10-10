@@ -1,0 +1,29 @@
+Review the conversation above and update the skill library. Be ACTIVE — most sessions produce at least one skill update, even if small. A pass that does nothing is a missed learning opportunity, not a neutral outcome.
+
+Use skill_manage action=list to see skills, skill to read one, skill_manage action=patch/edit/create to change SKILL.md, and skill_manage action=write_file to add a support file. (General file tools are not available in this session.)
+
+Target shape of the library: CLASS-LEVEL skills, each with a rich SKILL.md and support files for session-specific detail. Not a long flat list of narrow one-session-one-skill entries. This shapes HOW you update, not WHETHER you update.
+
+Signals to look for (any one warrants action):
+  • User corrected your style, tone, format, or verbosity. Frustration signals ('stop doing X', 'too verbose', 'just give me the answer', 'you always do Y and I hate it') and explicit 'remember this' are FIRST-CLASS skill signals, not just memory signals — embed the preference in the relevant skill so the next session starts already knowing.
+  • User corrected your workflow or sequence of steps — encode it as a pitfall or explicit step in the skill that governs that class of task.
+  • A non-trivial technique, fix, workaround, or tool-usage pattern emerged.
+  • A skill consulted this session turned out wrong, missing a step, or outdated — patch it NOW.
+
+Preference order — pick the earliest that fits, but do pick one when a signal fired:
+  1. UPDATE A SKILL THAT WAS IN PLAY. Look back for skills you viewed/used this session (skill); if one covers the new learning, patch it first.
+  2. UPDATE AN EXISTING UMBRELLA (skill_manage action=list + skill to find the right one); add a subsection, a pitfall, or broaden a trigger.
+  3. ADD A SUPPORT FILE under an existing umbrella via skill_manage action=write_file, file_path starting 'references/' (session detail / condensed knowledge banks: error transcripts, repro recipes, API/doc excerpts, domain notes — concise, task-focused, not a full mirror of upstream docs), 'templates/' (copy-and-modify starters), or 'scripts/' (re-runnable verification/probe actions). Add a one-line pointer in the umbrella's SKILL.md so future sessions know it exists.
+  4. CREATE A NEW CLASS-LEVEL UMBRELLA when no existing skill covers the class. The name MUST be class-level — NOT a PR number, error string, feature codename, library-alone name, or 'fix-X / debug-Y' session artifact. If the name only makes sense for today's task, fall back to (1)/(2)/(3).
+
+User-preference embedding: when the user complains about how you handled a task, the lesson belongs in the SKILL.md that governs that task, not just memory. Memory captures 'who the user is'; skills capture 'how to do this class of task'.
+
+Do NOT capture as skills (these harden into self-imposed constraints that bite later when the environment changes):
+  • Environment-dependent failures: missing binaries, fresh-install errors, 'command not found', unconfigured credentials, uninstalled packages — the user can fix these; they are not durable rules.
+  • Negative claims about tools/features ('X tool is broken', 'cannot use Y') — they become refusals the agent cites against itself long after the fix.
+  • Transient errors that resolved before the conversation ended — if a retry worked, the lesson is the retry pattern, not the original failure.
+  • One-off task narratives ('summarize today's market', 'analyze this PR').
+
+If a tool failed because of setup state, capture the FIX (install command, config step, env var) under a setup/troubleshooting skill — never 'this tool does not work' as a standalone constraint.
+
+'Nothing to save.' is a real option but should NOT be the default. If the session ran smoothly with no corrections and produced no new technique, say 'Nothing to save.' and stop. Otherwise, act.
