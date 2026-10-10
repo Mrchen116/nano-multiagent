@@ -122,7 +122,7 @@ pnpm脚本名`build`是本unit需要建立的根工作区入口；依赖版本�
 | 飞书 | `~/.config/nano-multiagent/feishu-e2e.env`存在；仓库已有专用profile/单监听锁 | 接管时检查专用bot凭据和平台scope、可收输入/卡片回调；不得复用/踢下生产监听器。文件存在不等于本轮完成平台验收 |
 | Web | 现有浏览器与隔离IM地址 | 真浏览器核文本/图片、工具展示、审批、断线恢复；测试账号由隔离fixture创建 |
 | iOS真机 | `/Applications/Xcode.app`存在；命令级`DEVELOPER_DIR`核实一台已配对iPhone、Developer Mode已启用；当前tunnel不可用 | 接管时连接/解锁该设备并确认可达；按既有工程签名安装受审build再验前后台/图片/审批。不在本轮宣称真机验收已通过 |
-| 双节点发布 | 既有个人舰队与[生产操作规范](../../operations/prod-fleet.md) | 发布前核目标revision、owner/node绑定、Mini-only IM、实际进程cwd/PID与HTTPS/WSS；生产授权后执行 |
+| 双节点发布 | 既有个人舰队与[生产操作规范](../../../operations/prod-fleet.md) | 发布前核目标revision、owner/node绑定、Mini-only IM、实际进程cwd/PID与HTTPS/WSS；生产授权后执行 |
 
 以上资源归属和取得路径已明确；若接管时必需平台/设备不可用，验收标记未执行并恢复资源后继续，不能降格为源码或单测验收。不得在当前写作文档的dirty主仓启动测试服务。
 

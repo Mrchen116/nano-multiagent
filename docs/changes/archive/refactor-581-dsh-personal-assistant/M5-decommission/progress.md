@@ -82,3 +82,7 @@ The user explicitly deferred physical iPhone acceptance for this delivery. No ne
 - Promoted canonical docs: actual docs-check passed (251 maintained Markdown sources / 64 required routes); standalone Python checks 51 passed / 31 E2E deselected; Ruff check and format passed (82 files). Local raw `output/` scripts were excluded from Ruff because they are not versioned or included in CI.
 - Frontend dependency audit: zero vulnerabilities. Native iOS simulator tests passed (26 XCTest + 10 Swift Testing); unsigned Release device archive passed. These automatic checks remain distinct from the user-deferred physical iPhone journeys. The existing simulator was confirmed already in Shutdown state after the test.
 - Canonical index cleanup at `10ffd634b` only corrects stale prose to the already reviewed DSH ownership. No main increment since `4915c44`; product and code gates retain their observed snapshots through this documentation-only closure.
+
+### Archive retention decision
+
+The final move into `docs/changes/archive/` changes only paths and their relative Markdown links. Product acceptance, corrected-delta verification and code review retain the snapshots documented in their reports through this archive commit. Actual post-move documentation integrity passed (224 maintained sources / 64 required routes), the `unit/refactor-581` archive guard passed, and `git diff --check` passed. The PR records the final effective head separately from the original executed snapshots. Physical iPhone acceptance remains user-deferred; production deployment is not included.

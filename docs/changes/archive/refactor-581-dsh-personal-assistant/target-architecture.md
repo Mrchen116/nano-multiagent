@@ -463,7 +463,7 @@ DSH 重放执行日志只重建视图与未补齐的回执，不重新执行外�
 
 ### 8.5 single_thread 群发言也有独立复核
 
-current 的内置群运行在普通正文、同群发送工具及后台结果回流时，均在发言提交前复核该运行已接受的新消息。MENTION 背景缓冲、外部渠道和跨群通知仍按各自原规则处理，不能照搬 global 规则扩大唤醒。迁移需同时保留这条 single_thread 旅程，见 [current 规则](../../specs/gateway/routing-delivery.md#requirement-内置当前群运行在发言提交前复核已接受消息)。
+current 的内置群运行在普通正文、同群发送工具及后台结果回流时，均在发言提交前复核该运行已接受的新消息。MENTION 背景缓冲、外部渠道和跨群通知仍按各自原规则处理，不能照搬 global 规则扩大唤醒。迁移需同时保留这条 single_thread 旅程，见 [current 规则](../../../specs/gateway/routing-delivery.md#requirement-内置当前群运行在发言提交前复核已接受消息)。
 
 ## 9. 权限、审批与等待
 

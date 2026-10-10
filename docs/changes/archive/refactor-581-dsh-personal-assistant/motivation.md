@@ -415,7 +415,7 @@ Agent解读：是。此前将Workflow并入第六项Feature是作者误读，现
 
 ## 现状与动机证据
 
-- 当前 [SPEC.md](../../../SPEC.md) 要求 PA 与 CLI 经 `agent.sdk` 进程内调用内核。迁移涉及明确修订此架构约束，不能借保留一个旧类名宣称边界没有改变。
+- 当前 [SPEC.md](../../../../SPEC.md) 要求 PA 与 CLI 经 `agent.sdk` 进程内调用内核。迁移涉及明确修订此架构约束，不能借保留一个旧类名宣称边界没有改变。
 - [PA 工厂](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/product.py) 同时装配产品提示、工具、模型和 Skill 路径；[Gateway composition](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/composition.py) 接入路由、调度、Inbox、权限、工作记录与内核。
 - [全局运行协调器](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/global_run_coordinator.py) 依赖运行接收回执、事件、取消和压缩；[运行投递](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/runtime_delivery/stream.py) 依赖内核事件。替换不是仅修改一个工厂。
 - 早期静态盘点基于 Nano `76fe1d7e...` 工作目录（非最新远端口径）：`src/agent` 188 个 Python 文件、42,438 物理行；PA 排除 `builtin_skills` 后 116 个文件、48,778 行；CLI 23 个文件、6,071 行。PA 中 24 个文件直接从 `agent.sdk` 导入。数字含注释、空行，仅说明影响面，不是工期或必需重写量。
@@ -428,13 +428,13 @@ Agent解读：是。此前将Workflow并入第六项Feature是作者误读，现
 
 | 产品体验 | current 契约 | 需要讨论的迁移点 |
 |---|---|---|
-| Web IM／飞书收发、图片、回复去向、群更正 | [routing-delivery](../../specs/gateway/routing-delivery.md)、[external-channels](../../specs/gateway/external-channels.md) | 中断、实时呈现、发送前复核和真实投递回执 |
-| 全局主 Agent、多聊天 Inbox、内部委派 | [global-agent](../../specs/gateway/global-agent.md) | 产品 Inbox 与 DSH session inbox 的分工、工作记录 |
-| Heartbeat、Cron、主动汇报 | [heartbeat-cron](../../specs/gateway/heartbeat-cron.md) | 原上下文唤醒与独立任务语义是否保留 |
-| 多 Agent 配置、模型、Skill 和权限 | [agent-capabilities](../../specs/gateway/agent-capabilities.md) | DSH 原生范围、配置来源和生效边界 |
-| 共享任务图 | [task-graphs](../../specs/gateway/task-graphs.md) | 保留 IM 唯一记录与真实调用身份；不替换为 session todo |
-| Workflow 与自进化 | [workflows](../../specs/gateway/workflows.md)、[agent-capabilities](../../specs/gateway/agent-capabilities.md) | 原生替代、暂缓或小范围兼容的成本 |
-| 历史数据及服务重启 | [context-persistence](../../archive/pre-dsh-581/kernel/context-persistence.md)、[service-lifecycle](../../specs/gateway/service-lifecycle.md) | 聊天可读、模型上下文续接、未完成任务恢复分别确定 |
+| Web IM／飞书收发、图片、回复去向、群更正 | [routing-delivery](../../../specs/gateway/routing-delivery.md)、[external-channels](../../../specs/gateway/external-channels.md) | 中断、实时呈现、发送前复核和真实投递回执 |
+| 全局主 Agent、多聊天 Inbox、内部委派 | [global-agent](../../../specs/gateway/global-agent.md) | 产品 Inbox 与 DSH session inbox 的分工、工作记录 |
+| Heartbeat、Cron、主动汇报 | [heartbeat-cron](../../../specs/gateway/heartbeat-cron.md) | 原上下文唤醒与独立任务语义是否保留 |
+| 多 Agent 配置、模型、Skill 和权限 | [agent-capabilities](../../../specs/gateway/agent-capabilities.md) | DSH 原生范围、配置来源和生效边界 |
+| 共享任务图 | [task-graphs](../../../specs/gateway/task-graphs.md) | 保留 IM 唯一记录与真实调用身份；不替换为 session todo |
+| Workflow 与自进化 | [workflows](../../../specs/gateway/workflows.md)、[agent-capabilities](../../../specs/gateway/agent-capabilities.md) | 原生替代、暂缓或小范围兼容的成本 |
+| 历史数据及服务重启 | [context-persistence](../../../archive/pre-dsh-581/kernel/context-persistence.md)、[service-lifecycle](../../../specs/gateway/service-lifecycle.md) | 聊天可读、模型上下文续接、未完成任务恢复分别确定 |
 
 ## 进入设计与实施的边界
 

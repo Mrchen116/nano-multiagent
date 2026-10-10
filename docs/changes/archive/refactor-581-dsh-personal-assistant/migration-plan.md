@@ -60,7 +60,7 @@ flowchart LR
 | Workflow 共享 token budget | 原生提供 child 总数、并发和 item 限制，不是同一 token 预算 | **已确认保留**同 turn 父子 output-token累计、余额查询及耗尽后停止新派发；不以并发/数量上限代替 |
 | 脚本执行约束 | Nano 禁止脚本直接产生系统副作用；DSH Node VM 不是安全边界，受所选文件 sandbox 约束且网络并非由该 policy 限制 | 独立说明并确认约束选择；不把它藏在“换语言”里 |
 
-四项控制的验收按 [current Workflow 契约](../../archive/pre-dsh-581/kernel/workflows.md)：暂停不启动新 child，live resume恢复派发；重启替换同一 logical call的 attempt；恢复创建新 run并复用同 parent session内最长相同完成前缀，保留调用开始与完成顺序，遇到变化/缺失即停止后续复用；预算计父子 output tokens，耗尽后拒绝新 `agent()`，无 target时不添加上限。完成前缀恢复包括原终态记录在进程重启后的显式恢复，不承诺任意语言栈续跑。
+四项控制的验收按 [current Workflow 契约](../../../archive/pre-dsh-581/kernel/workflows.md)：暂停不启动新 child，live resume恢复派发；重启替换同一 logical call的 attempt；恢复创建新 run并复用同 parent session内最长相同完成前缀，保留调用开始与完成顺序，遇到变化/缺失即停止后续复用；预算计父子 output tokens，耗尽后拒绝新 `agent()`，无 target时不添加上限。完成前缀恢复包括原终态记录在进程重启后的显式恢复，不承诺任意语言栈续跑。
 
 脚本语言已确认JavaScript，保存/命名复用及一层嵌套已确认保留。子Agent审批已确认补迁；原问题10转为具体运行边界的工程核查；旧聊天兼容按C4排除，不扩大解释已确认决定。
 
@@ -233,7 +233,7 @@ IM↔节点现有协议继续表达产品行为；节点将 DSH 事件投影为�
 | Web/原生 iOS/飞书 | 登录恢复、媒体资格、消息/工具/审批/Work与配置可用；iOS有独立前后台和真实设备证据，飞书有实际平台证据 |
 | 新DSH历史 | 保存、重启继续、fork、读取与distill正常；不以旧聊天兼容作为验收门槛 |
 
-运行证据属于实现验收，不将本轮源码核查描述为“已通过产品测试”。沿用现有 [测试规则](../../development/testing.md) 与 [证据规则](../../development/evidence.md)；已有有效检查不因角色更换重复执行。
+运行证据属于实现验收，不将本轮源码核查描述为“已通过产品测试”。沿用现有 [测试规则](../../../development/testing.md) 与 [证据规则](../../../development/evidence.md)；已有有效检查不因角色更换重复执行。
 
 ### 6.1 既有验证资产怎么迁移
 
@@ -241,15 +241,15 @@ IM↔节点现有协议继续表达产品行为；节点将 DSH 事件投影为�
 
 | 风险与既有入口 | 迁移处置 | 新证据应观察什么 |
 |---|---|---|
-| [global Inbox关键路径](../../../tests/e2e/critical_paths/test_global_agent_inbox_critical_path.py) | 保留旅程，更新旧 `agent` 工具/参数及 Work提取器；不强迫新工具模拟旧schema | 两聊天来源、真实摄取、同child追加、正确目标交付 |
-| [审批关键路径](../../../tests/e2e/critical_paths/test_permission_approval_critical_path.py) | 保留批准/拒绝副作用断言；替换依赖旧 `.gitconfig` dangerous-basename 的触发方式 | 新审批链实际产生请求，批准后执行、拒绝不执行；不是仅展示一张卡 |
+| [global Inbox关键路径](../../../../tests/e2e/critical_paths/test_global_agent_inbox_critical_path.py) | 保留旅程，更新旧 `agent` 工具/参数及 Work提取器；不强迫新工具模拟旧schema | 两聊天来源、真实摄取、同child追加、正确目标交付 |
+| [审批关键路径](../../../../tests/e2e/critical_paths/test_permission_approval_critical_path.py) | 保留批准/拒绝副作用断言；替换依赖旧 `.gitconfig` dangerous-basename 的触发方式 | 新审批链实际产生请求，批准后执行、拒绝不执行；不是仅展示一张卡 |
 | [运行接收/竞态](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/integration/test_session_run_coordinator_real_kernel.py) | 旧 Python Kernel fixture退出后重写为新接入契约；不要保留其私有运行对象断言 | FIFO、插话归属、输出/取消与后台回流不串到下一输入 |
-| [重启续接关键路径](../../../tests/e2e/critical_paths/test_restart_session_continuity_critical_path.py) | 保留同新运行时重启旅程，更新启动/在线判据 | 同DSH上下文重启后继续；不另设旧聊天迁移样本 |
-| [分支](../../../tests/e2e/critical_paths/test_message_fork_critical_path.py)、[蒸馏路径](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py) | 改用新DSH历史与消息锚点，按C4排除旧格式适配 | 新历史指定消息分支、受控蒸馏、来源资格与缺失错误 |
-| [Cron](../../../tests/e2e/critical_paths/test_cron_push_critical_path.py)、[Heartbeat](../../../tests/e2e/critical_paths/test_heartbeat_bubble_critical_path.py) | 保留产品行为；新调度接线不得沿旧Kernel stub取得虚假通过 | 正确会话、静默、错过策略、运行历史、结果回流与追问 |
+| [重启续接关键路径](../../../../tests/e2e/critical_paths/test_restart_session_continuity_critical_path.py) | 保留同新运行时重启旅程，更新启动/在线判据 | 同DSH上下文重启后继续；不另设旧聊天迁移样本 |
+| [分支](../../../../tests/e2e/critical_paths/test_message_fork_critical_path.py)、[蒸馏路径](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/unit/personal_assistant/test_gateway_distill_prompt_resolver.py) | 改用新DSH历史与消息锚点，按C4排除旧格式适配 | 新历史指定消息分支、受控蒸馏、来源资格与缺失错误 |
+| [Cron](../../../../tests/e2e/critical_paths/test_cron_push_critical_path.py)、[Heartbeat](../../../../tests/e2e/critical_paths/test_heartbeat_bubble_critical_path.py) | 保留产品行为；新调度接线不得沿旧Kernel stub取得虚假通过 | 正确会话、静默、错过策略、运行历史、结果回流与追问 |
 | [single_thread群复核](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/unit/personal_assistant/test_reply_revalidation_delivery.py) | 纯业务规则可移植；接入层另覆盖实际发送边界 | 已接受更正挡住未提交旧稿；后台与同群发送工具一致 |
 | [任务图API](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/im_service/integration/test_task_graph_api.py) | IM保留阶段继续使用；TS化时复用HTTP/WS请求/响应语义，替换FastAPI TestClient装配 | 同图读写、revision、幂等、原子性和访问资格保持 |
-| [前端用户流](../../../src/IM/frontend/src/realtime/user-stream/user-stream.test.ts)、[聊天API](../../../src/IM/frontend/src/features/chat/chat-api.test.ts) | 产品协议稳定则保留；经确认的schema变化集中适配 | 重放/迟到事件、工具过程、审批与最终消息，不仅编译成功 |
+| [前端用户流](../../../../src/IM/frontend/src/realtime/user-stream/user-stream.test.ts)、[聊天API](../../../../src/IM/frontend/src/features/chat/chat-api.test.ts) | 产品协议稳定则保留；经确认的schema变化集中适配 | 重放/迟到事件、工具过程、审批与最终消息，不仅编译成功 |
 | [Swift能力契约][V01]、[Swift会话契约][V02] | 保留身份/地址/会话隔离，按新能力元数据更新工具及功能选项 | 显式空选择、登录刷新、旧响应不得污染新server/account；真机另验 |
 | [旧SDK边界](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/contract/test_agent_sdk_boundary_contract.py)、[CLI边界](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/contract/test_cli_sdk_only_contract.py) | 随旧路径退役而替换/删除，先建立新包依赖边界保护 | 产品代码不调用DSH私有实现，IM不驱动Agent loop；PA运维入口仍可用 |
 | [Workflow控制与恢复](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/tests/unit/agent/platform/workflows/test_manager_resume_restart.py) | 已确认保留四项行为；把旧Python对象断言改为新owner的暂停、attempt替换、前缀及预算契约 | 明确保留边界，同时验真实并行、值传递和进程重启后终态前缀恢复；不复制旧loop实现 |
@@ -288,7 +288,7 @@ IM↔节点现有协议继续表达产品行为；节点将 DSH 事件投影为�
 “整个迁移计划完成”的判据与“迁移已经实施完成”分开：计划完成需要能力/数据/协议范围闭合，用户已确认实质体验取舍，正式设计及独立审查收口，工作包、验收和发布回退可执行；并不要求在本轮先实施这些工作。当前产品取舍已确认，正式设计仍须独立审查；不能仅因问卷答完或文档存在就标记规划完成。
 
 [P03]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/docs/specs/gateway/relay-protocol.md#L254
-[P04]: ../../operations/prod-fleet.md
+[P04]: ../../../operations/prod-fleet.md
 [V01]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/IM/ios/Tests/AgentContractsTests.swift
 [V02]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/IM/ios/Tests/SessionTests.swift
 [M01]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/IM/infra/task_graph_schema.py
