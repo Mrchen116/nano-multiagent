@@ -31,8 +31,12 @@ export class NodeConfiguration {
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) {
     const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
-    for(const agent of value.agents){agent.workspace_root=resolve(agent.workspace_root??join(config.ownerRoot,'workspaces',agent.agent_id));await mkdir(agent.workspace_root,{recursive:true});}
+    for(const agent of value.agents){agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));await mkdir(agent.workspace_root,{recursive:true});}
     return config;
+  }
+  /** Resolve both the advertised template and new Agent workspaces on this node. */
+  defaultWorkspace(agentId: string): string {
+    return resolve(this.value.node.workspace_base ?? join(this.ownerRoot, 'workspaces'), agentId);
   }
   current(agentId: string): CanonicalAgentConfiguration | undefined {
     const agent = this.value.agents.find(agent => agent.agent_id === agentId);
@@ -91,7 +95,7 @@ export class NodeConfiguration {
     const previous = this.current(candidate.agent_id);
     if (!creating && !previous) throw new Error('Agent does not exist on this node');
     if (previous && previous.work_mode !== candidate.work_mode) throw new Error('Work mode is immutable');
-    const workspace = candidate.workspace_root || previous?.workspace_root || join(this.value.node.workspace_base ?? join(dirname(this.path), '.dsh-runtime', 'workspaces'), candidate.agent_id);
+    const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);

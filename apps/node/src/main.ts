@@ -76,7 +76,7 @@ const relay = new WebRelayConnection({
       if (agentId && !current) throw new Error('Capability request has no Agent on this node');
       const preview = frame.type.endsWith('preview.request');
       const workspace = current?.workspace_root ?? (typeof payload.workspace_root === 'string' && payload.workspace_root
-        ? payload.workspace_root : join(config.node.workspace_base ?? join(home, 'workspaces'), String(payload.agent_id_hint ?? 'preview')));
+        ? payload.workspace_root : configuration.defaultWorkspace(String(payload.agent_id_hint ?? 'preview')));
       const candidate = configuration.runtime({ ...current, agent_id: agentId ?? 'preview', workspace_root: workspace,
         ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
           tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: 'explicit_allowlist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
@@ -88,7 +88,10 @@ const relay = new WebRelayConnection({
       } else {
         const catalog = await runtime.request('configuration.catalog', { ...(current ? { agentId } : { config: candidate }), cwd: workspace }) as Parameters<typeof projectCapabilities>[0];
         await relay.request(current ? 'agent.capabilities' : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
-          ...(current ? { agent_id: agentId, workspace_root: workspace } : {}), capabilities: projectCapabilities(catalog, config, current ? candidate : undefined) });
+          ...(current ? { agent_id: agentId, workspace_root: workspace } : {}), capabilities: {
+            ...projectCapabilities(catalog, config, current ? candidate : undefined),
+            ...(!current ? { default_workspace_template: configuration.defaultWorkspace('{agent_id}') } : {}),
+          } });
       }
     }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);

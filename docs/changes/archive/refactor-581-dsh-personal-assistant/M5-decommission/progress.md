@@ -86,3 +86,10 @@ The user explicitly deferred physical iPhone acceptance for this delivery. No ne
 ### Archive retention decision
 
 The final move into `docs/changes/archive/` changes only paths and their relative Markdown links. Product acceptance, corrected-delta verification and code review retain the snapshots documented in their reports through this archive commit. Actual post-move documentation integrity passed (224 maintained sources / 64 required routes), the `unit/refactor-581` archive guard passed, and `git diff --check` passed. The PR records the final effective head separately from the original executed snapshots. Physical iPhone acceptance remains user-deferred; production deployment is not included.
+
+
+### User experience fixes — awaiting one combined acceptance (2026-10-10)
+
+The user reported that the new Agent form replaced its real default workspace path with the fallback allocation text. The TypeScript node omitted `default_workspace_template`; IM and the existing Web form still supported it. Node capabilities now advertise the same node-owned resolver used by creation, preview and configuration loading. The resolver respects `node.workspace_base`, otherwise the owner workspace root; explicit existing workspace paths remain unchanged.
+
+Focused checks only: `apps/node/tests/configuration.test.ts` 4 passed, Node TypeScript build and diff check passed; the restarted retained test node returns its actual workspace template via the IM capability API. No browser journey, independent review or full suite was repeated. Per the user's explicit instruction, this and subsequent manual feedback fixes await one combined final acceptance; the prior PR CI and review snapshots do not attest this new implementation delta. The user experience stack remains running, and changes are kept local until the feedback batch is ready for delivery.

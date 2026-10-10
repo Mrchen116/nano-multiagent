@@ -2,6 +2,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { canonicalAgentConfiguration } from '@nano/product-contracts';
 import { NodeConfiguration } from '../src/configuration.js';
 
 it('preserves default versus empty selections and ordered local/global Skill roots', async () => {
@@ -33,4 +34,29 @@ it('persists the local Workflow guideline without losing other Agent fields', as
     expect(restored.value.agents[0]?.custom_local).toBe('keep');
     expect(restored.runtime(restored.value.agents[0]!).workflow?.sizeGuideline).toBe('large');
   } finally { await rm(home, {recursive: true, force: true}); }
+});
+
+it.each([false, true])('uses the advertised workspace base for creation and config reload (custom base: %s)', async customBase => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-workspace-'));
+  try {
+    const path = join(home, 'node.json');
+    const ownerRoot = join(home, 'owner');
+    const base = customBase ? join(home, 'custom') : join(ownerRoot, 'workspaces');
+    await writeFile(path, JSON.stringify({
+      node: customBase ? { workspace_base: base } : {},
+      gateway: { environment: { NANO_OWNER_CONFIG_ROOT: ownerRoot } },
+      agents: [{ agent_id: 'existing' }],
+      llm: { default_model: 'test', providers: [{ name: 'test', models: [{ name: 'test' }] }] },
+    }));
+    const config = await NodeConfiguration.read(path);
+    expect(config.current('existing')?.workspace_root).toBe(join(base, 'existing'));
+    const template = config.defaultWorkspace('{agent_id}');
+    expect(template).toBe(join(base, '{agent_id}'));
+    const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new' }), true);
+    expect(created.workspace_root).toBe(template.replace('{agent_id}', 'new'));
+    await config.persist(created);
+    expect((await NodeConfiguration.read(path)).current('new')?.workspace_root).toBe(created.workspace_root);
+    const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', workspace_root: join(home, 'explicit') }), true);
+    expect(explicit.workspace_root).toBe(join(home, 'explicit'));
+  } finally { await rm(home, { recursive: true, force: true }); }
 });
