@@ -27,6 +27,7 @@
 | K06：自动新增 Skill 不破坏已有前缀；压缩后恢复已使用技能 | DSH tool-skill 在 `agent/pre-step` 追加完整 replacement catalog，不重写历史；I `knowledge/runtime.ts` 从使用记录经当前允许的 registry 重新注入正文 | 采用 capability-plugin-map K06 已允许的 append-only 接入；不另造发现器 |
 | K09：前台结束后仍完成 Skill 自动启用、真实归属与通知重试 | P `knowledge.ts` 独立调和持久事实，核对 root/owner，版本化 enable，receipt 后 ack；`knowledge.test.ts` | 保留 |
 | feat-541：只有可用性失败切备用；粘性只属当前会话；公开输出后不切；配置变化重置 | I `model-fallback.ts` 分类/持久 run/revision/等待 idle/发布检查；`model-policy.ts` session selection；I/P `model-fallback.test.ts` | 保留 |
+| bugfix-580 / PR #326：任务删除只在统一工具权限层判断授权，执行链不重复索要当轮真人消息或固定口令 | 本轮用户指出后补核，原审计漏项。TS IM 删除正则和 PA 当轮来源 gate 同步移除，保留身份/可选来源真实性/子树/revision/幂等；真实 native approval、WS 和 service 回归覆盖 | 已补迁；这不是需要保留的旧框架约束 |
 | 权限来源不能因换核被提升；专用 reviewer 不能失败后偷换模型 | I `policy/approval.ts` 先尊重原生 deny，再单一 consumer；`sources.ts` 区分 live Inbox/human/parent 与历史/工具事实；`approval.test.ts` | 保留 |
 | Feature 撤销、显式空工具集和历史配置不能从父模板重新扩大权限 | I `agent-config.ts` 立即收窄后等待 idle 应用；`capabilities.ts` 空集关闭 PTC transport，child 不加 global 固定项；`capabilities.test.ts`、`history.test.ts` | 保留 |
 | Inbox 真正进入模型上下文才可消费；图片不能只凭 descriptor 算读完 | P `inbox.ts` 冻结分页、准确片段、持久工具结果校验、事务 cursor；`inbox.test.ts` | 保留 |

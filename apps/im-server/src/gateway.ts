@@ -337,10 +337,10 @@ export class Gateway {
       };
     if (type === "task_graph.command") {
       try {
-        if (!p.request_id || !Array.isArray(p.source_message_ids ?? []))
+        if (!p.request_id)
           throw new TaskGraphError(
             "invalid_arguments",
-            "request_id and valid source_message_ids required",
+            "request_id required",
           );
         return {
           type: "task_graph.result",
@@ -353,7 +353,6 @@ export class Gateway {
                 id: p.agent_id,
                 node_id: c.node_id,
                 source_message_id: p.source_message_id,
-                source_message_ids: p.source_message_ids,
               },
               p.action,
               p.args ?? {},

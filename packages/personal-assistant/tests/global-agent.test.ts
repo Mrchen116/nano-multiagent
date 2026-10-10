@@ -83,3 +83,20 @@ it('holds a single-thread same-group tool send until the accepted correction is 
     expect(await product.call(call)).toMatchObject({status:'held_for_revalidation'});expect(sends).toBe(1);
   }finally{await product.stop();inbox.close();store.close();}
 });
+
+
+it.each(['global', 'single_thread'] as const)('forwards approved %s task deletion without collecting another human confirmation', async mode => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const binding = store.bind({agentId:'a',sessionId:'main',conversationId:mode==='global'?'global:a':'chat',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const sent: Record<string, unknown>[] = [];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+    relay:{request:async(type,payload)=>{if(type==='task_graph.command')sent.push(payload);return{type:'ack',payload:{ok:true,result:{deleted_ids:['n2']}}};}},image:async()=>'',onError:error=>{throw error;}});
+  const args={action:'delete',graph_id:'graph',node_id:'n2',base_revision:3,request_key:'delete-child'};
+  try {
+    expect(await product.call({method:'task_graph',args,operationId:'main:delete',callId:'delete',sessionId:binding.sessionId,rootSessionId:binding.sessionId,agentId:'a',ownerId:'owner'})).toMatchObject({ok:true,result:{deleted_ids:['n2']}});
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty('source_message_ids');
+    expect(sent[0]).toMatchObject({action:'delete',args:{graph_id:'graph',node_id:'n2',base_revision:3,request_key:'delete-child'}});
+  } finally {await product.stop();inbox.close();store.close();}
+});

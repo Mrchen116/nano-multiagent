@@ -293,3 +293,16 @@ it("returns the node's actual Skill usage envelope through the public endpoint",
   expect(response.status, response.body).toBe(200);
   expect(response.body).toEqual({ ...usage, node_online: true });
 });
+
+it('deletes an approved task over authenticated WS without a second source-message gate and replays its receipt', async () => {
+  const f = await start(), g = await bind(f, 'task-node', {assistant:{tool_allowlist:['task_graph']}});
+  const command = (request_id:string, action:string, args:Record<string,unknown>) => g.frames.send('task_graph.command',{node_id:g.node,agent_id:'assistant',request_id,action,args});
+  const created = await command('create','create',{title:'Authorized scope',mode:'dag',request_key:'create'});
+  expect(created.payload,JSON.stringify(created.payload)).toMatchObject({ok:true});
+  const id = created.payload.result.graph_id;
+  const args = {graph_id:id,base_revision:1,request_key:'delete'};
+  const deleted = await command('delete','delete',args);
+  expect(deleted.payload,JSON.stringify(deleted.payload)).toMatchObject({ok:true,result:{deleted:true}});
+  expect((await command('retry','delete',args)).payload.result).toEqual(deleted.payload.result);
+  expect((await f.http('GET',`/im/v1/task-graphs/${id}`,undefined,f.tokens.alice)).status).toBe(404);
+});

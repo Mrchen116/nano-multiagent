@@ -166,14 +166,12 @@ export class GlobalAgent {
         const start = events.findLast(event => event.type === 'turn/start');
         const human = events.filter(event => event.seq > (start?.seq ?? Infinity) && event.type === 'user/message')
           .map(event => event.data.source as { kind: string; messageId?: string }).filter(source => source?.kind === 'nano-human').at(-1)?.messageId;
-        const sourceIds = config?.mode === 'global' && start ? this.options.inbox.humanSources(binding.sessionId, Number(start.data.turn)) : [];
         const { action, target, ...args } = call.args;
-        if (action === 'delete' && !human && !sourceIds.length) return { ok: false, error: { code: 'confirmation_required', message: 'Deletion requires an explicit human request in this turn.' } };
         const conversationId = typeof target === 'string' ? target.replace(/^conversation:/, '')
           : ['create', 'apply', 'delete'].includes(String(action)) && config?.mode === 'single_thread' ? binding.conversationId : undefined;
         try {
           const response = await this.options.relay.request('task_graph.command', { node_id: this.options.nodeId, agent_id: binding.agentId,
-            request_id: call.operationId, action, source_message_id: human ?? null, source_message_ids: sourceIds,
+            request_id: call.operationId, action, source_message_id: human ?? null,
             args: { ...args, ...(conversationId === undefined ? {} : { conversation_id: conversationId }) } });
           return response.payload.ok ? { ok: true, result: response.payload.result } : { ok: false, error: response.payload.error };
         } catch (error) {

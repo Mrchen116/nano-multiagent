@@ -71,18 +71,35 @@ describe("company task graph atomic storage", () => {
       base_revision: 2,
       request_key: "delete",
     };
-    expect(() => s.execute(actor, "delete", deletion)).toThrow("reply with exactly");
-    db.prepare(
-      "INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at) VALUES('confirmation','chat','u1','user',?,'completed',?)",
-    ).run(`删除 ${created.graph_id}`, new Date().toISOString());
-    const confirmed = { ...actor, source_message_id: "confirmation" };
-    const receipt = s.execute(confirmed, "delete", deletion);
+    const receipt = s.execute(actor, "delete", deletion);
     expect(receipt.deleted).toBe(true);
     expect(one(db, "SELECT 1 FROM task_graphs")).toBeUndefined();
-    expect(s.execute(confirmed, "delete", deletion)).toEqual(receipt);
-    expect(() => s.execute(confirmed, "delete", { ...deletion, base_revision: 3 })).toThrow(
+    expect(s.execute(actor, "delete", deletion)).toEqual(receipt);
+    expect(() => s.execute(actor, "delete", { ...deletion, base_revision: 3 })).toThrow(
       "original parameters",
     );
+  });
+  it.each([undefined, '对', '直接删！'])('keeps deletion scope, identity and revision checks after contextual confirmation %s', confirmation => {
+    const { db } = fixture(), service = new TaskGraphService(db);
+    const created = service.execute(actor, 'create', {title:'计划',mode:'dag',request_key:'create'});
+    service.execute(actor, 'apply', {graph_id:created.graph_id,base_revision:1,request_key:'children',change_note:'',operations:[
+      {op:'add_task',client_ref:'child',container_id:'n1',title:'Remove',mode:'dag'},
+      {op:'add_task',client_ref:'grandchild',container_id:'@child',title:'Nested'},
+      {op:'add_task',client_ref:'sibling',container_id:'n1',title:'Keep'},
+    ]});
+    if (confirmation) db.prepare("INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at) VALUES('confirmation','chat','u1','user',?,'completed',?)").run(confirmation,new Date().toISOString());
+    const caller = {...actor,...(confirmation?{source_message_id:'confirmation'}:{})};
+    const args = {graph_id:created.graph_id,node_id:'n2',base_revision:2,request_key:'delete-child'};
+    expect(()=>service.execute(caller,'delete',{...args,base_revision:1})).toThrow('current graph');
+    expect(()=>service.execute({...caller,source_message_id:'invented'},'delete',args)).toThrow('not accessible');
+    db.prepare('UPDATE agent_profiles SET is_stale=1').run();
+    expect(()=>service.execute(caller,'delete',args)).toThrow('not accessible');
+    db.prepare('UPDATE agent_profiles SET is_stale=0').run();
+    const receipt = service.execute(caller,'delete',args);
+    expect(receipt.deleted_ids).toEqual(['n2','n3']);
+    expect(service.execute(caller,'delete',args)).toEqual(receipt);
+    const graph = service.execute(actor,'get',{graph_id:created.graph_id,view:'all'});
+    expect(graph.nodes.map((node:any)=>node.id)).toEqual(['n1','n4']);
   });
   it("denies disabled task tool and inactive owners", () => {
     const { db } = fixture(),

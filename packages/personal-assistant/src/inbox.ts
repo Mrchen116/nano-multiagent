@@ -117,10 +117,6 @@ export class InboxStore {
     if (!row || content[0]?.text !== row.body || content.filter(part => part.type === 'image').length !== this.imageReferences(session, call).length) throw new Error('Incomplete prepared inbox content');
     this.db.prepare('INSERT INTO read_content VALUES(?,?,?) ON CONFLICT(session_id,call_id) DO UPDATE SET digest=excluded.digest').run(session, call, hash(JSON.stringify(content)));
   }
-  humanSources(session: string, turn: number): string[] {
-    return (this.db.prepare(`SELECT i.message_id FROM inbox i JOIN ingestions g ON g.seq=i.seq
-      WHERE g.session_id=? AND g.turn=? AND i.consumed=1 AND json_extract(i.payload,'$.message.sender_type')='user'`).all(session, turn) as { message_id: string }[]).map(row => row.message_id);
-  }
   reviewTargets(session: string, turn: number): string[] {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
   }

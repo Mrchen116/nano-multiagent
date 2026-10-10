@@ -9,7 +9,6 @@ export interface TaskGraphActor {
   id: string;
   node_id?: string;
   source_message_id?: string;
-  source_message_ids?: string[];
 }
 export class TaskGraphError extends Error {
   constructor(
@@ -518,29 +517,6 @@ export class TaskGraphService {
         const id = args.node_id ?? doc.root_node_id,
           node = doc.nodes.find((n: Obj) => n.id === id);
         if (!node) fail("invalid_arguments", "node_id is not in this graph");
-        const locator = id === doc.root_node_id ? doc.graph_id : `${doc.graph_id}/${id}`;
-        const names = [node.title, locator];
-        const authorized = [actor.source_message_id, ...(actor.source_message_ids ?? [])]
-          .filter(Boolean)
-          .some((sourceId) => {
-            const s = this.source(sourceId!, user);
-            if (!s) return false;
-            const content = s.content
-              .replace(/^(?:\s*<mention\s+type="user"\s+target_id="[^"]+"\s*\/>)+/, "")
-              .trim();
-            return names.some((name) => {
-              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              return new RegExp(
-                `^(?:(?:请|确认|请确认)?(?:删除|删掉|移除)\\s*[‘“"']?${escaped}[’”"']?[。！!]?|(?:please\\s+|confirm\\s+)?(?:delete|remove)\\s+["']?${escaped}["']?[.!]?)$`,
-                "i",
-              ).test(content);
-            });
-          });
-        if (!authorized)
-          fail(
-            "confirmation_required",
-            `Ask the user to reply with exactly "删除 ${locator}" or "delete ${locator}" to confirm this scope. Do not claim a different chat or Web deletion is required.`,
-          );
         doc.next_node_number ??=
           Math.max(
             doc.nodes.length,
