@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
-import { tokenUsage } from '../src/presentation.js';
+import { tokenUsage, toolPresentation } from '../src/presentation.js';
 
 it('recovers input attribution and confirmed delivery without creating a second send', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nano-node-store-'));
@@ -50,4 +50,17 @@ it('projects native schedule admission with its original message identity across
     expect(store.inputs('s')[0]).toMatchObject({ id: message.id, accepted: true,
       input: { conversation_id: 'chat', metadata: { runtime_input_id: message.id, origin: 'schedule' } } });
   } finally { store.close(); }
+});
+
+it.each(['List available commands', ''])('keeps Bash descriptions and command output in separate presentation fields (%s)', description => {
+  const command = 'pwd; compgen -c | sort -u | head -100';
+  const output = '/workspace\n' + 'available-command\n'.repeat(100);
+  const call = {seq: 1, time: 1, type: 'tool/call', data: {callId: 'bash', name: 'bash', arguments: JSON.stringify({description, command})}};
+  const native = {card: 'terminal', output, exitCode: 0};
+  const result = {seq: 2, time: 2, type: 'tool/result', data: {
+    message: {toolCallId: 'bash', content: [{type: 'text', text: output}], isError: false},
+    nanoToolView: {call: {card: 'terminal', title: command, description}, result: native},
+  }};
+  expect(toolPresentation(call, [call])?.output).toBe(description || command);
+  expect(toolPresentation(result, [call, result])).toMatchObject({output: description || command, detail: {content: output, native_view: native}});
 });

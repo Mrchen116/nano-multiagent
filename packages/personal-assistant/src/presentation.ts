@@ -22,7 +22,7 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
   const data = event.data;
   if (event.type === 'tool/call') return {
-    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', ...workflowDetail(data.name,argumentsObject(data.arguments)),
+    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: bashSummary(data.name, argumentsObject(data.arguments)), ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
@@ -35,11 +35,17 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId};
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
       status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
-      output, ...(detail ? {detail} : {}),
+      output: bashSummary(call.data.name, argumentsObject(call.data.arguments)) ?? output, ...(detail ? {detail} : {}),
       ...workflowDetail(call.data.name,argumentsObject(call.data.arguments),message.content.filter(block=>block.type==='text').map(block=>block.text??'').join(''),message.isError),
     };
   }
   return undefined;
+}
+/** Preserve the original Bash card summary; command output belongs to its native detail. */
+function bashSummary(name: unknown, input: Record<string, unknown>): string | undefined {
+  if (name !== 'bash') return undefined;
+  const summary = String(input.description ?? '').trim() || String(input.command ?? '').split('\n')[0]!;
+  return summary.length > 80 ? summary.slice(0, 77) + '...' : summary;
 }
 function workflowDetail(name:unknown,input:Record<string,unknown>,output?:string,error?:boolean) {
   if(name!=='workflow')return {};
