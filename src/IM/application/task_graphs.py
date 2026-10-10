@@ -35,7 +35,6 @@ class TaskGraphActor:
     id: str
     node_id: str | None = None
     source_message_id: str | None = None
-    source_message_ids: tuple[str, ...] = ()
 
 
 _ACTION_FIELDS = {
@@ -101,7 +100,7 @@ class TaskGraphService:
 
         Args:
             actor: Identity captured by the authenticated API boundary.
-            action: One of create, list, get or apply.
+            action: One of create, list, get, apply, delete or activity.
             args: Action-specific business parameters; no actor fields accepted.
 
         Returns:
@@ -263,54 +262,6 @@ class TaskGraphService:
                     if node is None:
                         raise TaskGraphError(
                             "invalid_arguments", "node_id is not in this graph"
-                        )
-                    # Authorization comes from persisted human input, never tool arguments.
-                    names = [
-                        node["title"],
-                        document["graph_id"]
-                        if node_id == document["root_node_id"]
-                        else f"{document['graph_id']}/{node_id}",
-                    ]
-                    source_ids = tuple(
-                        dict.fromkeys(
-                            (
-                                *(
-                                    (actor.source_message_id,)
-                                    if actor.source_message_id
-                                    else ()
-                                ),
-                                *actor.source_message_ids,
-                            )
-                        )
-                    )
-                    authorized = False
-                    for source_id in source_ids:
-                        candidate = repository.source_message(source_id, user_id)
-                        if candidate is None:
-                            continue
-                        text = re.sub(
-                            r'^(?:\s*<mention\s+type="user"\s+target_id="[^"]+"\s*/>)+',
-                            "",
-                            candidate["content"],
-                        )
-                        authorized = any(
-                            re.fullmatch(
-                                r"(?:请|确认|请确认)?(?:删除|删掉|移除)\s*[‘“\"']?"
-                                + re.escape(name)
-                                + r"[’”\"']?[。！!]?|(?:please\s+|confirm\s+)?(?:delete|remove)\s+[\"']?"
-                                + re.escape(name)
-                                + r"[\"']?[.!]?",
-                                text.strip(),
-                                re.I,
-                            )
-                            for name in names
-                        )
-                        if authorized:
-                            break
-                    if not authorized:
-                        raise TaskGraphError(
-                            "confirmation_required",
-                            f'Ask the user to reply with exactly "删除 {names[1]}" or "delete {names[1]}" to confirm this scope. Do not claim a different chat or Web deletion is required.',
                         )
                     document, removed = delete_subtree(
                         document, node_id, actor=actor_name, now=now

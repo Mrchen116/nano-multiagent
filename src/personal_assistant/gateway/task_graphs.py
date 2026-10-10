@@ -91,26 +91,6 @@ class TaskGraphBridge:
                 source_message_id = target.im_relay.im_message_id
             elif target.external_shadow is not None:
                 source_message_id = target.external_shadow.ref.im_message_id
-        source_message_ids = []
-        if (
-            action == "delete"
-            and source_message_id is None
-            and provenance.agent.config.work_mode == "global"
-            and self._inbox is not None
-            and isinstance(run_id, str)
-            and run_id
-        ):
-            source_message_ids = self._inbox.committed_human_sources(
-                agent_id, session_id, run_id
-            )
-        if action == "delete" and source_message_id is None and not source_message_ids:
-            return {
-                "ok": False,
-                "error": {
-                    "code": "confirmation_required",
-                    "message": "Deletion requires an explicit human message in the current conversation.",
-                },
-            }
         business = {key: value for key, value in args.items() if key != "action"}
         if "target" in business:
             target = business.pop("target")
@@ -159,7 +139,6 @@ class TaskGraphBridge:
                         "agent_id": provenance.agent.agent_id,
                         "action": action,
                         "source_message_id": source_message_id,
-                        "source_message_ids": source_message_ids,
                         "args": business,
                     },
                 )

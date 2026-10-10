@@ -1,6 +1,6 @@
 # im - Task Graphs Specification
 
-> 对齐: feat-569 / feat-572
+> 对齐: bugfix-580
 > 上级: [im Specification](spec.md)
 
 ## Purpose
@@ -71,7 +71,8 @@
 
 #### Scenario: 明确删除与冲突重试
 - **WHEN** 用户明确指定删除范围或确认 Agent 说明的删除范围
-- **THEN** 仅删除相应图或子树，其他任务不变；旧链接明确不可用；没有明确要求/确认不删除。
+- **THEN** 经 [Gateway 统一工具权限流程](../gateway/task-graphs.md) 获准后，仅删除相应图或子树，其他任务不变；旧链接明确不可用。
+- **AND** IM 继续核实调用主体与资源访问资格，不通过用户消息的措辞或本轮消息是否存在再次裁决删除授权。
 - **AND** 写操作保持原子 revision 检查，过时请求不覆盖更新，同一写入重试不重复执行或改写原来源，删除回执也可核实。
 
 ### Requirement: 群任务视图记录本群创建及编辑的节点

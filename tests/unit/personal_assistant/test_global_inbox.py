@@ -325,31 +325,3 @@ def test_online_history_resolves_materialized_local_target(tmp_path):
     assert seen == ["native"]
     assert page["target"] == "native"
     assert service.get_target("a", "local:one")["permission_status"] == "allowed"
-
-
-def test_task_consent_requires_complete_current_run_committed_human_input(tmp_path):
-    service, store = make_service(tmp_path)
-    receive(service, "external-id", im_message_id="im-human")
-    receive(service, "historical", im_message_id="im-history", normal_live_input=False)
-    page = read(service)
-    assert service.committed_human_sources("a", "main", "run") == []
-    assert service.confirm_committed_read(proof(page, run_id="run"))
-    assert service.committed_human_sources("a", "main", "run") == ["im-human"]
-    assert service.committed_human_sources("a", "main", "other-run") == []
-    assert service.committed_human_sources("other-agent", "main", "run") == []
-    assert service.committed_human_sources("a", "other-session", "run") == []
-    receive(
-        service,
-        "long",
-        im_message_id="im-long",
-        content=[{"type": "text", "text": "x" * 25000}],
-    )
-    first = read(service, "part-one")
-    assert service.confirm_committed_read(
-        proof(first, "part-one", run_id="partial-run")
-    )
-    assert service.committed_human_sources("a", "main", "partial-run") == []
-    rest = read(service, "part-two")
-    assert service.confirm_committed_read(proof(rest, "part-two", run_id="partial-run"))
-    assert service.committed_human_sources("a", "main", "partial-run") == ["im-long"]
-    store.close()

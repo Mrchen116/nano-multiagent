@@ -199,6 +199,29 @@ def test_native_tool_uses_real_listener_with_same_agent_rules(tmp_path, mode, ch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["global", "single_thread"])
+async def test_delete_does_not_require_current_human_input(tmp_path, mode):
+    _, _, binder, manager, inbox = stack(tmp_path, mode)
+    bridge = TaskGraphBridge(manager=manager, binder=binder, inbox=inbox)
+    result = await bridge.execute(
+        {
+            "source_agent_id": "pa",
+            "origin_kernel_session_id": "session",
+            "origin_run_id": "run",
+            "tool_call_id": "delete",
+            "args": {
+                "action": "delete",
+                "graph_id": "tg_one",
+                "base_revision": 1,
+                "request_key": "delete",
+            },
+        }
+    )
+    assert result["ok"]
+    assert manager.send_json_await_ack.call_args.args[1]["action"] == "delete"
+
+
+@pytest.mark.asyncio
 async def test_config_save_applies_to_task_tools_on_next_session_runtime(tmp_path):
     config, catalog, binder, manager, inbox = stack(tmp_path)
     bridge = TaskGraphBridge(manager=manager, binder=binder, inbox=inbox)
