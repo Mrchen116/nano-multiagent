@@ -22,7 +22,7 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
   const target = text(args.target);
   const pending = call.status === "running";
   const failed = call.status === "failed" || Boolean(detail.error);
-  const conversations = entries(detail.conversations);
+  const conversations = entries(detail.sources ?? detail.conversations);
   const messages = entries(detail.messages);
   return <div className="im-conversation-tool-card">
     {!compact && <p className="text-xs text-slate-500">{tr(call.name === "conversations" ? "聊天历史查询 · 不推进收件箱" : action === "check" ? "待读摘要 · 不读取正文" : "收件箱消息页")}</p>}
@@ -32,7 +32,7 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
     {failed ? <pre className="chat-tool-call-pre">{typeof detail.error === "string" ? detail.error : JSON.stringify(detail.error ?? call.output, null, 2)}</pre> : !pending && <>
       {conversations.map((item, index) => <div className="im-work-source-row" key={text(item.target) || index}>
         <WorkThreadLink conversationId={text(item.target) || text(item.conversation_id)}>{text(item.name) || text(item.target) || text(item.conversation_id)}</WorkThreadLink>
-        {typeof item.pending_count === "number" && <span>{item.pending_count} {tr("条待读")}</span>}
+        {typeof (item.unread ?? item.pending_count) === "number" && <span>{String(item.unread ?? item.pending_count)} {tr("条待读")}</span>}
         {Array.isArray(item.attention_reasons) && <small>{item.attention_reasons.join(" · ")}</small>}
       </div>)}
       {messages.map((item, index) => {
@@ -44,7 +44,7 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
           {(item.complete_message === false || item.partial === true) && <small>{tr("此条消息的一部分")}</small>}
         </div>;
       })}
-      {(Array.isArray(detail.messages) || Array.isArray(detail.conversations)) && messages.length === 0 && conversations.length === 0 && <p>{tr("没有匹配记录")}</p>}
+      {(Array.isArray(detail.messages) || Array.isArray(detail.sources) || Array.isArray(detail.conversations)) && messages.length === 0 && conversations.length === 0 && <p>{tr("没有匹配记录")}</p>}
       {typeof detail.has_more === "boolean" && (!compact || detail.has_more) && <small>{tr(detail.has_more ? "还有后续页面" : "当前页面已返回")}</small>}
       {detail.truncated === true && <p>{tr("展示已截断")}</p>}
     </>}

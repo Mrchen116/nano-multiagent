@@ -40,7 +40,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   if (call.name === "inbox") summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
   if (call.name === "conversations") summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
   if (call.name === "send_message" && !input.agent_id) summary = `${tr("发送到")} ${target}`;
-  const sendError = call.name === "send_message" && text(detail.status) && !["ok", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
+  const sendError = call.name === "send_message" && text(detail.status) && !["ok", "sent", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
   const denied = call.approval === "user_deny" || call.reason === "denied";

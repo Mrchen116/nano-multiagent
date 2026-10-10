@@ -31,3 +31,17 @@ it("shows send errors and background failure details and terminal states",()=>{
  expect(screen.getByText("worker terminated")).toBeVisible();
  expect(screen.getByText("Killed")).toBeVisible();
 });
+
+
+it("shows native inbox sources when expanded and treats actual sent delivery as successful",()=>{
+ setLanguage("zh");
+ const result=render(<MemoryRouter><ul><WorkTool expanded call={{id:"check",name:"inbox",status:"completed",input:{action:"check"},detail:{sources:[{target:"chat-global",name:"全局",unread:3,requires_attention:true}]}}}/></ul></MemoryRouter>);
+ expect(screen.getByRole("link",{name:"全局"})).toHaveAttribute("href","/chat/chat-global");
+ expect(screen.getByText("3 条待读")).toBeVisible();
+ result.rerender(<MemoryRouter><ul><WorkTool expanded call={{id:"check",name:"inbox",status:"completed",input:{action:"check"},detail:{sources:[]}}}/></ul></MemoryRouter>);
+ expect(screen.getByText("没有匹配记录")).toBeVisible();
+ result.rerender(<MemoryRouter><ul><WorkTool expanded call={{id:"send",name:"send_message",status:"completed",input:{target:"chat-global",text:"已收到"},detail:{status:"sent",message_id:"delivered-message"}}}/></ul></MemoryRouter>);
+ expect(screen.getByText("调用完成")).toBeVisible();
+ expect(screen.queryByText("调用失败")).not.toBeInTheDocument();
+ expect(screen.getByText("已收到")).toBeVisible();
+});
