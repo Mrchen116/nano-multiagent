@@ -1,12 +1,14 @@
 import type {} from '@deepseek-ai/dsh-compaction';
 import type {} from '@deepseek-ai/dsh-tool-skill';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { realpath } from 'node:fs/promises';
 import { relative } from 'node:path';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { renderSkillContent } from '@deepseek-ai/dsh-skill';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { ToolSchema } from '@deepseek-ai/dsh-llm';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import type { SessionBinding, AgentConfiguration } from '../index.js';
@@ -29,9 +31,18 @@ export class KnowledgeRuntime extends Service {
   private readonly host: Context;
   private stopping = false;
   private readonly subscriptions = new Map<string, Set<Context>>();
+  private readonly reviewStart = new AsyncLocalStorage<{ parentId: string; system: string; tools: ToolSchema[]; allow: string[] }>();
   constructor(ctx: Context, private readonly options: Options) {
     super(ctx, 'nanoKnowledge'); this.host = ctx; this.state = ctx.storageDomain.open(knowledgeDomain);
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
+    ctx.on('agent/created', ({ agent }) => {
+      const frozen = this.reviewStart.getStore();
+      if (!frozen || agent.session.header.parentSession !== frozen.parentId) return;
+      // feat-349: preserve the model-visible prefix; restrict execution, not declarations.
+      agent.ctx.systemPrompt.section({ name: 'nano-review-parent-prompt', order: 0, text: frozen.system, interpolate: false, complete: true });
+      agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => ({ ...await next(), tools: structuredClone(frozen.tools) }), { prepend: true });
+      agent.ctx.tools.guard(exec => frozen.allow.includes(exec.name) ? undefined : `Knowledge review may only execute: ${frozen.allow.join(', ')}. ${exec.name} is not allowed.`);
+    });
     // Usage remains available when automatic Skill creation is disabled.
     ctx.on('tools/result', (exec, result) => {
       if (exec.name === 'skill' && exec.agent && !result.isError && this.config(exec.agent)) this.track(this.used(exec.agent, (exec.arguments as { name: string }).name, exec.callId));
@@ -185,10 +196,12 @@ export class KnowledgeRuntime extends Service {
     await state.table('reviews').put(id, record);
     const prompt = await policyAsset(`../knowledge/${kind}.txt`); signal.throwIfAborted();
     const history = batch ? await this.batchHistory(batch.refs) : ''; signal.throwIfAborted();
-    const run = await this.host.subagents.start('fork', { parent: agent, label: `nano-review:${id}`, signal,
+    const system = agent.session.deriveMessages().findLast(message => message.role === 'system' && message.content.length > 0);
+    const frozen = { parentId: agent.id, system: system?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? '', tools: structuredClone(agent.session.requestHeader()?.tools ?? []), allow: tools };
+    const run = await this.reviewStart.run(frozen, () => this.host.subagents.start('fork', { parent: agent, label: `nano-review:${id}`, signal,
       prompt: [{ type: 'text', text: prompt + (batch ? `\nReview the automatically created skill ${batch.name} using these actual usage references:\n${JSON.stringify(batch.refs)}\n${history}` : '') }],
-      toolFilter: { allow: tools }, agentOptions: { maxTokens: 8192 },
-    });
+      agentOptions: { maxTokens: 8192 },
+    }));
     try {
       await state.table('reviews').put(id, { ...record, childSessionId: run.id });
       await counters.put(key, { ...previous, [kind]: current });

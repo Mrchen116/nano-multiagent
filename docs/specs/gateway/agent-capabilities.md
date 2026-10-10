@@ -432,6 +432,8 @@ PA Agent 的 Skill 配置必须区分“按当前可发现集合默认使用”�
 
 Gateway 对 self-evolution review 成功产生的 `skill_created` 业务事件保持 session 级消费，不依赖已经结束的前台 run context。事件无论在前台 terminal 前后到达或经可恢复 stream 重连重放，都按现有 mode-aware config-sync 规则收敛，不重复改变配置。
 
+后台 Memory/Skill review fork 保留父会话历史，逐字节继承父请求已渲染的 system prompt 和完整工具定义，维护指令追加在继承历史之后；不因后台工具白名单重建请求前缀。白名单在工具执行前独立拦截，工具可见不代表获准执行。这样保留上游前缀缓存的复用条件；实际命中仍以 provider usage 为准，不承诺每次命中。
+
 #### Scenario: fast review 与 slow review 使用同一调和结果
 
 - **GIVEN** Agent 的 self-evolution review 成功创建 agent-scope 或 global-scope Skill

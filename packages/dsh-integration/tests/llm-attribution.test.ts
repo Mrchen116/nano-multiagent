@@ -1,24 +1,27 @@
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it('groups concurrent global agents and native Skill forks by product root on the actual HTTP wire', async () => {
+it('preserves native Skill-fork wire prefixes, enforces execution-only limits and groups concurrent roots', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-attribution-'));
   const requests: { root: string; session: string; body: any; path: string }[] = [];
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     const root = String(req.headers['x-session-id']); const session = String(req.headers['x-agent-session-id']);
-    const first = !requests.some(row => row.session === session);
+    const attempt = requests.filter(row => row.session === session).length;
     requests.push({ root, session, body: JSON.parse(body), path: req.url! });
-    const tool = root === session && first;
-    const block = tool ? { type: 'tool_use', id: 'list-skills', name: 'skill_manage', input: { action: 'list' } } : { type: 'text', text: 'done' };
+    const tool = attempt === 0 || root !== session && attempt === 1;
+    const block = attempt === 0
+      ? { type: 'tool_use', id: 'write-proof', name: 'write', input: { file_path: root === session ? 'parent-proof.txt' : 'forbidden-child.txt', content: 'actual execution' } }
+      : tool ? { type: 'tool_use', id: 'list-skills', name: 'skill_manage', input: { action: 'list' } } : { type: 'text', text: 'done' };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const emit = (type: string, data: object) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
     emit('message_start', { message: { id: 'fixture', type: 'message', role: 'assistant', model: 'fixture', content: [], stop_reason: null, usage: { input_tokens: 20, output_tokens: 0 } } });
-    emit('content_block_start', { index: 0, content_block: block });
+    emit('content_block_start', { index: 0, content_block: tool ? { ...block, input: {} } : block });
+    if (tool) emit('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) } });
     emit('content_block_stop', { index: 0 });
     emit('message_delta', { delta: { stop_reason: tool ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } });
     emit('message_stop', {}); res.end();
@@ -28,7 +31,7 @@ it('groups concurrent global agents and native Skill forks by product root on th
   try {
     const port = (server.address() as { port: number }).port;
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'anthropic-messages', baseURL: `http://127.0.0.1:${port}`, apiKeyEnv: 'NANO_TEST_KEY', headers: { 'x-session-id': 'stale-static-id' }, models: [{ id: 'fixture', contextWindow: 100000 }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }]);
-    const agents = ['a', 'b'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture', features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['skill_manage', 'skill'] }));
+    const agents = ['a', 'b'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture', systemPrompt: `Parent persona ${agentId}: preserve this exact prefix.`, features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['skill_manage', 'skill', 'write'], approval: { dangerouslySkipPermissions: true } }));
     const bindings = agents.map(agent => ({ sessionId: `global-${agent.agentId}`, agentId: agent.agentId, revision: '1', ownerId: 'owner', cwd: join(home, agent.agentId) }));
     for (const binding of bindings) await mkdir(binding.cwd);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
@@ -43,7 +46,17 @@ it('groups concurrent global agents and native Skill forks by product root on th
       expect(child.every(row => row.root === review.rootSessionId)).toBe(true);
       expect(JSON.stringify(child[0]!.body.messages)).toContain(`Inspect skills for ${review.rootSessionId}`);
       expect(JSON.stringify(child[0]!.body.messages)).toContain('Review the conversation');
-      expect(requests.filter(row => row.session === review.rootSessionId).length).toBe(2);
+      const parent = requests.filter(row => row.session === review.rootSessionId);
+      expect(parent.length).toBe(2);
+      for (const request of child) expect(request.body.system).toEqual(parent.at(-1)!.body.system);
+      expect(child.every(row => JSON.stringify(row.body.tools) === JSON.stringify(parent.at(-1)!.body.tools))).toBe(true);
+      const withoutCacheMarkers = (value: unknown) => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
+      expect(withoutCacheMarkers(child[0]!.body.messages.slice(0, parent.at(-1)!.body.messages.length))).toEqual(withoutCacheMarkers(parent.at(-1)!.body.messages));
+      expect(JSON.stringify(child[1]!.body.messages)).toContain('Knowledge review may only execute');
+      expect(child).toHaveLength(3);
+      const workspace = bindings.find(binding => binding.sessionId === review.rootSessionId)!.cwd;
+      expect(await readFile(join(workspace, 'parent-proof.txt'), 'utf8')).toBe('actual execution');
+      await expect(readFile(join(workspace, 'forbidden-child.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     }
     expect(requests.map(row => ({root: row.root, path: row.path}))).toEqual(expect.arrayContaining([
       { root: 'global-a', path: expect.stringMatching(/^\/v1\/messages(?:\?|$)/) },
