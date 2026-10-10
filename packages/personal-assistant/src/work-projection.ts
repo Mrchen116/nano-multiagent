@@ -10,9 +10,12 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     if (!source) return;
     return { type: 'turn_started', turn, payload: { run_id: `${sessionId}:${turn}`, origin: child ? 'background_task' : 'system', trigger: { kind: child ? 'agent' : source.kind === 'schedule' ? 'cron' : source.channel ?? 'inbox' } } };
   }
-  if (event.type === 'request/context' && typeof event.data.model === 'string') {
+  const model = event.type === 'request/header'
+    ? (event.data.header as { config?: { model?: unknown } } | undefined)?.config?.model
+    : event.type === 'request/context' ? event.data.model : undefined;
+  if (typeof model === 'string') {
     const start = events.findLast(candidate => candidate.seq < event.seq && candidate.type === 'turn/start');
-    if (start) return { type: 'model_selected', turn: start.data.turn as number, payload: { model: event.data.model } };
+    if (start) return { type: 'model_selected', turn: start.data.turn as number, payload: { model } };
   }
   const tool = toolPresentation(event, events);
   if (tool) return { type: event.type === 'tool/call' ? 'tool_start' : 'tool_end', turn, payload: { call_id: tool.id, tool_name: tool.name, arguments: tool.input, is_error: tool.status === 'failed', duration_ms: "duration_ms" in tool ? tool.duration_ms : undefined, presentation: { summary: tool.output ?? '', detail:tool.detail } } };
