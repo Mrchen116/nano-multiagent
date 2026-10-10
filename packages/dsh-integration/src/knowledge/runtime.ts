@@ -15,6 +15,7 @@ import type { SessionBinding, AgentConfiguration } from '../index.js';
 import { invalidateSkills } from '../capabilities.js';
 import { KnowledgeFiles, type MemoryChange, type SkillChange } from './files.js';
 import { knowledgeDomain, type KnowledgeDomain, type KnowledgeFact, type KnowledgeKind, type KnowledgeReview } from './state.js';
+import { reviewReadings } from './review-readings.js';
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
@@ -187,11 +188,11 @@ export class KnowledgeRuntime extends Service {
     const tools = (kind === 'memory' ? ['memory'] : ['skill_manage', 'skill']).filter(name => !!agent.ctx.tools.get(name, agent));
     if (!tools.includes(kind === 'memory' ? 'memory' : 'skill_manage')) return;
     const state = await this.state; const counters = state.table('counters'); signal.throwIfAborted();
-    const key = storageKey(`${agent.id}:${kind}`); const previous = counters.get(key) ?? { memory: 0, skills: 0 };
-    const events = agent.session.snapshotEvents();
-    const current = events.filter(event => event.type === (kind === 'memory' ? 'turn/end' : 'tool/call')).length;
+    // New unit: model iterations rather than individual parallel tool calls.
+    const key = storageKey(`${agent.id}:${kind}:iterations`); const previous = counters.get(key) ?? { memory: 0, skills: 0 };
+    const { current, maintained } = reviewReadings(agent.session.ownEvents(), kind);
     const interval = config.knowledge?.[kind === 'memory' ? 'memoryInterval' : 'skillInterval'] ?? 10;
-    if (interval <= 0 || !batch && current - previous[kind] < interval) return;
+    if (interval <= 0 || !batch && current - Math.max(previous[kind], maintained) < interval) return;
     const record: KnowledgeReview = { id, agentId: config.agentId, rootSessionId: agent.id, kind, turn: this.active.get(id)!.turn, status: 'running', at: Date.now() };
     await state.table('reviews').put(id, record);
     const prompt = await policyAsset(`../knowledge/${kind}.txt`); signal.throwIfAborted();
@@ -204,9 +205,9 @@ export class KnowledgeRuntime extends Service {
     }));
     try {
       await state.table('reviews').put(id, { ...record, childSessionId: run.id });
-      await counters.put(key, { ...previous, [kind]: current });
       if (batch) await this.files(agent).batchAccepted(batch.root, batch.name);
       const result = await run.result;
+      if (result.stopReason === 'completed') await counters.put(key, { ...previous, [kind]: current });
       await state.table('reviews').put(id, { ...record, childSessionId: run.id, status: result.stopReason, ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}) });
       if (kind === 'skills' && !signal.aborted) await this.files(agent).curate(this.files(agent).skillRoot);
       invalidateSkills(config); this.options.notify();
