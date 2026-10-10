@@ -4,7 +4,7 @@ import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
 import { SessionId } from '@deepseek-ai/dsh-session';
-import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
+import { EMPTY_RESPONSE_CODE, freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
@@ -124,6 +124,17 @@ export default class NanoRuntime {
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
     });
+    // Global replies are explicit tool deliveries; an empty successful stop can finish the turn.
+    ctx.on('llm/stream', async function* (options, next) {
+      const agent = options.sessionId && ctx.agents.get(SessionId(options.sessionId));
+      const silentCompletion = !options.purpose && agent && !agent.session.header.parentSession
+        && configurationService.forAgent(agent)?.mode === 'global';
+      for await (const chunk of next()) {
+        yield silentCompletion && chunk.type === 'finish' && chunk.reason.kind === 'error'
+          && chunk.reason.failure.code === EMPTY_RESPONSE_CODE
+          ? {...chunk, reason: {kind: 'stop'} as const} : chunk;
+      }
+    }, {prepend: true});
     const toolViews = recordToolPresentations(ctx);
     ctx.on('session/event', (session, event) => {
       let root = session;
