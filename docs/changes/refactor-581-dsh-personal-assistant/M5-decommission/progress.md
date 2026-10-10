@@ -75,3 +75,10 @@ Offline asset conversion is implemented and tested. Two real node snapshots were
 ## Authorized delivery resumption (2026-10-10)
 
 The user explicitly deferred physical iPhone acceptance for this delivery. No new implementation changes were made. `git fetch origin main` confirms the base is still `4915c44cb7f7b829414a19087877ad9b73d69ea1`, so there is no incoming main delta to invalidate retained gates. Prepared canonical specifications, architecture, startup/runbooks and retired Kernel/CLI historical indexes are now promoted; independent reviewers update their conclusions for the bounded user waiver and final documentation tree.
+
+### Local CI retained and completed before archive
+
+- No implementation delta after `88d49182b`: backend 50 files / 119 tests, build and typecheck retained; frontend full 809-test baseline plus the later focused 54-test UI repair set retained.
+- Promoted canonical docs: actual docs-check passed (251 maintained Markdown sources / 64 required routes); standalone Python checks 51 passed / 31 E2E deselected; Ruff check and format passed (82 files). Local raw `output/` scripts were excluded from Ruff because they are not versioned or included in CI.
+- Frontend dependency audit: zero vulnerabilities. Native iOS simulator tests passed (26 XCTest + 10 Swift Testing); unsigned Release device archive passed. These automatic checks remain distinct from the user-deferred physical iPhone journeys. The existing simulator was confirmed already in Shutdown state after the test.
+- Canonical index cleanup at `10ffd634b` only corrects stale prose to the already reviewed DSH ownership. No main increment since `4915c44`; product and code gates retain their observed snapshots through this documentation-only closure.

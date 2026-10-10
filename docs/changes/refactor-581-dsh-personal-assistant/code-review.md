@@ -1,6 +1,16 @@
 # Code Review: refactor-581-dsh-personal-assistant
 
-**Latest: Round 8 closure at `88d49182b0cccfc2937bdc0a337dfe436f76be9d` — prior findings remain CLOSED; surviving findings `[]`.** The historical full-review result below applies only to its original frozen snapshot. This is code-review approval for the repair scope, not completion of independent physical-device acceptance.
+**Latest: Round 9 documentation/scope closure through `10ffd634bc75bac11cd9a18d655c95e0925aeea4` — prior source findings remain CLOSED; surviving findings `[]`.** Approval applies to the user's adjusted delivery scope. Physical iPhone UI remains unverified and explicitly deferred by the user; it is not recorded as passed.
+
+| Metadata | Value |
+|---|---|
+| validated_at | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| executed_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_through | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| last implementation freeze | `88d49182b0cccfc2937bdc0a337dfe436f76be9d` |
+
+Executed base identifies the original full-review range; runtime tests and product journeys retain the precise snapshots documented in their rounds. The documentation-only extension through the effective head does not claim those journeys were rerun there. `origin/main` remains the same base; no incoming implementation delta was found.
 
 Round 1 · full · **Changes required**
 
@@ -94,3 +104,11 @@ Mode: `closure` with focused patch review. Frozen four-file delta: `38d6e5206bae
 The parameterized regression covers both ordinary chat and owner-first Heartbeat, checking first owner-directed creation, subsequent formal conversation targeting, notice/body order and usage. The Python E2E helper now preserves the existing fallback/effort/Skill-selection fields while updating configuration. The IM test title accurately separates suspended-user revocation from a different owner's gateway disconnect; it registers the close listener before closing and polls for server-side identity expiration. Product authentication code is unchanged.
 
 Independent command: `pnpm exec vitest run packages/personal-assistant/tests/model-fallback.test.ts apps/im-server/tests/e2e/server.test.ts` → **2 files / 6 tests passed (6.17s)**. Also inspected `.dsh-runtime/final-heartbeat-fallback-evidence.json`: one primary HTTP401 request, configured live `deepseek:deepseek-v4-flash` backup, three Agent messages (failure, switch, `HB_BACKUP_581` completed) in the same real conversation, with no preceding human message in that first-Heartbeat evidence. Parent reports **50 files / 119 tests passed (20.51s)** and build/typecheck passed. The product reviewer independently accepted S25 and records 30/33 passed; only S01/S17/S31 physical iPhone evidence remains inconclusive because the host Mac is locked. No implementation edit or commit was made.
+
+## Round 9 — canonical promotion and authorized physical deferral
+
+Mode: `closure`, documentation and scope only. Reviewed `88d49182b..c10650095` promotion plus the explicitly handed `c10650095..10ffd634b` Gateway-index correction. No product source, tests, dependency lockfile or CI workflow changed in that range. The eight promoted canonical files contain all **28** corrected delta Requirement bodies, identical after delta-marker removal and relative-link adjustment. README/SPEC/development/operations and retired Python Kernel/Coding CLI routing now describe Node + public stock DSH ownership. The one identified stale index description (`agent.sdk` in-process execution and independent Cron scope) is CLOSED by `10ffd634b`.
+
+The user's exact physical-iPhone deferral is recorded in motivation's delivery-scope section and pending-decisions Q25. The independent product report retains **30 pass / 3 authorized-deferred** for only the physical portions of S01/S17/S31. Web and iPhone share IM HTTP/WS contracts, while Swift UI behavior remains unverified. This scope adjustment does not claim 33 passes, remove iOS automatic test/archive CI, or authorize production deployment. No new source finding; [code-review.json](code-review.json) remains `[]`.
+
+No runtime matrix or full suite was rerun for documentation-only changes. Parent reports post-promotion docs-check **251 sources / 64 routes passed**, retained Python **51 passed / 31 deselected**, and iOS automatic test/archive still running. Archive/path-only handling and final CI results remain parent workflow work. Only the two assigned reports were edited; findings JSON was checked, and no implementation changes or commit were made.

@@ -1,8 +1,18 @@
 # Verification Report: refactor-581-dsh-personal-assistant
 
-> Latest closure: `38d6e5206bae3af38daca384c9e7d40303fe08ae → 88d49182b0cccfc2937bdc0a337dfe436f76be9d`, retaining all earlier full review and precise repair evidence. This pass closes first proactive fallback notice routing (F10) against the same eight corrected deltas; final independent product evidence is 30/33 passed with only the shared physical iPhone condition outstanding.
+> Latest closure: documentation promotion/user scope adjustment `88d49182b0cccfc2937bdc0a337dfe436f76be9d → 10ffd634bc75bac11cd9a18d655c95e0925aeea4`, retaining all earlier full review and precise repair evidence. The same eight corrected deltas are promoted to canonical; only physical iPhone portions of S01/S17/S31 are explicitly deferred by the user.
 
-**Latest result: corrected-delta ALIGNED; C1/W1/W2 CLOSED. Remaining full-unit gate: 1 CRITICAL (C2, physical iPhone evidence for S01/S17/S31), 0 WARNING, 0 SUGGESTION.** Final independent acceptance records 30/33 passed and no open product defect. No surviving source defect was found in this repair scope. Canonical spec merge/archive/docs validation remains the parent's pending workflow step, distinct from C2. Historical sections below retain their original snapshots; later rounds explicitly supersede closure and evidence status.
+**Latest result: corrected-delta ALIGNED; verdict PASS for the user's adjusted delivery scope; 0 CRITICAL, 0 WARNING, 0 SUGGESTION.** C1/W1/W2 are CLOSED. C2 is **SUPERSEDED BY USER-AUTHORIZED DEFERRAL**, not satisfied by physical evidence: final independent acceptance records 30 pass / 3 authorized-deferred and no open product defect. Physical native iPhone UI remains unverified. Canonical promotion is reconciled below; archive and final CI remain parent workflow. Historical sections retain their original snapshots; later rounds explicitly supersede closure and evidence status.
+
+| Metadata | Value |
+|---|---|
+| validated_at | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| executed_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_through | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| last implementation freeze | `88d49182b0cccfc2937bdc0a337dfe436f76be9d` |
+
+Executed base is the original full-verification range; each later execution retains its documented snapshot. `origin/main` remains that base, with no incoming implementation delta. The effective extension is documentation-only and does not imply rerunning all tests or product journeys at the documentation head. `requires_full_verification: false`.
 
 > Validation snapshot: `4915c44cb7f7b829414a19087877ad9b73d69ea1 → e89179da8956577b288ee374fe791c2ce82d5047`
 
@@ -110,7 +120,7 @@ Independent repair verification: **7 backend files / 16 tests passed**, includin
 
 ## Corrected Delta Reconciliation
 
-Latest mode: `corrected-delta`; frozen implementation `88d49182b0cccfc2937bdc0a337dfe436f76be9d`, retaining all earlier precise repair evidence and documentation corrections. All eight delta files remain applicable; the latest first-Heartbeat fallback notice repair restores existing owner delivery/model-fallback behavior and adds no semantic delta. Prior evidence remains applicable outside that exact proactive delivery seam. Full unchanged Requirement bodies copied for delta completeness were not treated as new implementation scope.
+Latest mode: `corrected-delta`; effective through `10ffd634bc75bac11cd9a18d655c95e0925aeea4`, implementation freeze `88d49182b0cccfc2937bdc0a337dfe436f76be9d`. All earlier repair evidence remains applicable because the extension changes only documentation and authorized acceptance scope. All eight canonical files were compared against the unit delta: **28 Requirement bodies aligned**, allowing only removed delta markers and adjusted relative links. No new semantic delta or full implementation rerun was needed.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -127,9 +137,9 @@ Latest mode: `corrected-delta`; frozen implementation `88d49182b0cccfc2937bdc0a3
 
 None remaining in the supplied repair delta after the response-metrics and routing/Cron prose corrections. Capability envelope, Workflow lossless JSON/diagnostics, Cron product jobs projection, complete catalog candidates, native Skill preflight, Skill usage envelope and single-thread public send/S04 revalidation restore existing product behavior. The unknown-counter presentation and actual Cron API route are explicitly recorded in the eight-area delta/design table. Catalog-only Feature mounting does not enable actual Agent capabilities. Temporary native owner cleanup is an implementation lifecycle detail within the existing catalog/Feature contract. Corrected skill/workflow names and two Cron subtitles describe the approved native behavior without adding a compatibility implementation. Skill usage and single-thread same-group send revalidation are existing Requirements (including motivation S04 and target architecture §8.5), so these repairs need no new semantic delta.
 
-Current canonical `gateway/routing-delivery.md` still contains historical permission-wait exemption text; the new unit delta now corrects both its full Requirement prose and Scenario to the existing `im/gateway-relay.md` unified-liveness contract. Parent's pending canonical reconciliation will apply it. The prepared `.dsh-runtime/canonical-next` tree is a local plan and was not counted as an already completed canonical merge/archive/docs gate.
+Canonical promotion at `c10650095` applies the complete eight-item delta, including unified approval liveness, native Schedule/Cron ownership, metrics unknowns and actual Cron API paths. The canonical Gateway index's stale in-process-kernel/Cron summary was identified during this pass and corrected at `10ffd634b`. README/SPEC/operations and archive routing now distinguish current Node + DSH behavior from retired Python Kernel/Coding CLI history. Parent reports the post-promotion docs-check passed (251 sources / 64 routes); archive/path-only handling and final CI remain its procedural responsibility.
 
-Outcome: **aligned**. Implementation repair closure is complete for this batch; final independent product/physical evidence C2 and canonical/docs workflow completion remain outstanding. Reports were updated without source/test/config/design edits or a shared-tree commit.
+Outcome: **aligned**. Source repairs and canonical reconciliation are complete for the reviewed scope. C2 no longer blocks this delivery under the explicit user deferral; physical iPhone UI remains unverified and requires later device evidence. Counts for the adjusted scope are **0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Reports were updated without source/test/config/design edits or a shared-tree commit.
 
 ## Round 3 — latest bounded closure result
 
@@ -184,3 +194,13 @@ Independent focused checks: `pnpm exec vitest run packages/personal-assistant/te
 The independent product reviewer's final [acceptance.md](acceptance.md) reconciliation now records **30 pass, 3 inconclusive, no open product defects** and explicitly accepts S25 from the new Heartbeat evidence plus the scoped Cron evidence. Prior S04 and other implementation/product failures are closed there. **C2 is now solely the shared physical-device evidence gap for S01, S17 and S31**: physical native iPhone chat/image follow-up, approval and three-client final confirmation have not been operated. The observed access blocker is **host Mac locked / manual unlock needed**, not an observed iPhone lock state. Build/install, Web/Feishu and simulator evidence cannot substitute for those physical journeys.
 
 Latest counts remain **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION**; corrected delta is aligned for all eight items and source review has no surviving finding (`[]`). Final physical acceptance remains reviewer-owned; canonical/archive/docs steps remain parent workflow. Only reports were edited, without implementation changes or commit.
+
+## Round 9 — canonical and user-scope closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `verdict: pass` within the explicitly adjusted delivery scope; `requires_full_verification: false`. Reviewed the documentation-only `88d49182b..c10650095` promotion and `c10650095..10ffd634b` index correction. No product source/test/config/dependency/CI delta exists. Exact Requirement comparison confirms all **eight canonical documents / 28 Requirement bodies** match the corrected unit delta after relative-link/delta-marker normalization. The stale Gateway-index kernel/Cron wording is CLOSED by the precise final documentation commit. No remaining material documentation mismatch was found in the requested promoted entrypoints.
+
+User authorization is recorded in [motivation.md](motivation.md#交付验收范围调整2026-10-10) and [pending-decisions.md](pending-decisions.md#q25--物理-iphone-验收暂缓). Only the physical native iPhone portions of S01/S17/S31 are `deferred-by-user` (the product report uses `authorized-deferred`); C2 is therefore **superseded for this delivery**, not an experimentally closed issue. The independent acceptance report records **30 pass / 3 authorized-deferred, open product defects 0**. Shared Web/iPhone HTTP/WS coverage remains valid, while Swift display/image/approval interaction still needs later physical observation. The observed host-Mac lock limitation is retained as history. No iPhone pass, production deployment authorization or canceled iOS automated gate is inferred.
+
+Retained execution evidence remains versioned in earlier rounds. Parent reports post-promotion docs-check **251 sources / 64 routes passed**, Python **51 passed / 31 deselected**, and automatic iOS test/archive still running; this documentation closure does not claim those results were independently rerun. Archive and final CI results remain parent-owned procedural work. No additional code matrix was opened.
+
+Current issues: **0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Code findings JSON is still `[]`. Follow-up physical acceptance remains required outside this user-adjusted delivery scope. Only the two assigned reports were edited, findings JSON checked, and no implementation changes or commit made.

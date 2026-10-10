@@ -1,5 +1,7 @@
 # refactor-581 — 独立产品验收
 
+当前交付结论见 **Round 10**：用户明确暂缓物理 iPhone 部分后，本次授权范围 **pass，30 pass / 3 authorized-deferred**；不代表33项全部实机通过。Round 1–9保留原始发现及当时判定。
+
 ## Round 1 — 2026-10-10
 
 Validation snapshot: `4915c44cb7f7b829414a19087877ad9b73d69ea1 → e89179da8956577b288ee374fe791c2ce82d5047`。模式 full；来源为 motivation.md S01—S33 与 design.md Runbook，未读取实现定位问题，未使用 worker 成功叙述替代验收。
@@ -312,3 +314,25 @@ report_commit: none。reviewer只追加本acceptance.md；原始运行材料位�
 最终实现冻结：`88d49182b0cccfc2937bdc0a337dfe436f76be9d`。caller报告该冻结build/typecheck及全后端50文件119测试通过；此自动检查结果不是reviewer重新运行的证据。Round 9主动Heartbeat实际证据来自caller修复后的隔离peer节点，Cron来自注明的先前真实切片；本reviewer的final-review其他旅程保持各轮已注明快照，没有虚称把全部场景在最终HEAD重跑一次。
 
 清理更新：caller最终要求停止本reviewer隔离栈。先核对Node59882启动时间2026-10-10 04:25:00及绝对final-review配置、IM61501启动时间04:29:01及精确worktree/59784命令，然后使用公开CLI stop停止Node，向核对过的IM发送SIGTERM。后验三个PID（Node59882、其DSH59886、IM61501）均不存在，CLI显示NOT RUNNING，59784无监听。数据库、截图及证据保留；未清理caller其他peer/飞书/proxy服务。
+
+
+## Round 10 — 用户明确暂缓物理iPhone，按调整后范围收口（2026-10-10）
+
+- validated_at: `c10650095a9619b0e36129f20646ea1d51673744`（本轮文档与授权范围核对）。
+- executed_at: 真实产品执行沿用Round 1–9各自注明的运行快照；最终实现冻结为 `88d49182b0cccfc2937bdc0a337dfe436f76be9d`。本轮没有启动服务或重跑旅程。
+- effective_at: `c10650095a9619b0e36129f20646ea1d51673744`。已核对从最终实现冻结至该HEAD仅文档/指引归并和决定记录变化，无产品源码变化，因此已验行为证据继续适用；不冒称在文档HEAD重新运行全部场景。
+- report_commit: none（由caller统一收口，本reviewer不提交）。
+
+用户原文：“除了iphone上，其他的场景都验收了吗，iphone可以暂时跳过，他和web端用的一套接口吧？”该明确决定已记录在motivation的本次交付范围及pending-decisions中。本轮只调整物理原生iPhone操作的验收范围，不把未执行事实改成通过，不撤销前述环境记录，也不授权生产部署。
+
+**Verdict: pass（用户明确调整后的本次交付范围）；Highest Required Action: none；needs_re_review: false（本次范围）。累计30 pass / 3 authorized-deferred；open产品缺陷0。** F1–F9均已真实复验关闭。Round 9原总体fail对应调整之前的完整必验范围；本轮用户决定使物理iPhone部分不再阻塞本次交付，其他30项通过证据与状态均不变。
+
+| 场景 | 本次状态 | 已有通过证据及延期边界 |
+|---|---|---|
+| S01 普通聊天及图片追问 | authorized-deferred | Web/飞书与共享接口证据保持；仅物理原生iPhone聊天、图片理解及追问交互暂缓。 |
+| S17 人工确认及Workflow审批 | authorized-deferred | Web/飞书、Workflow子审批归原启动消息、拒绝/取消迟答不执行保持通过；仅物理iPhone审批UI暂缓。 |
+| S31 CLI退役及终态服务 | authorized-deferred | TS终态服务、个人助手/IM管理入口、Web/飞书及旧CLI退役证据保持；仅第三客户端的物理iPhone终态操作确认暂缓。 |
+
+其余S02–S30及S32/S33除上述两项外，沿用Round 8累计表与Round 9的S25更新，合计30项pass。authorized-deferred是用户授权延期，既不是pass，也不是实现fail；因此本报告不写“33 pass”。后续仍需补齐上述物理原生iPhone切片，届时追加真实设备证据。iPhone和Web共用IM HTTP/WebSocket后端契约，只能说明共享后端已有覆盖，不能证明Swift原生展示、图片交互或审批操作已经实机验证；iOS自动构建/测试门禁不在此次延期范围。
+
+本轮未重新启动或修改隔离栈，Round 9已核对的清理结果保留。仅更新acceptance.md，不修改canonical文档、不提交、不创建PR；本次范围可交付，生产部署仍未授权。
