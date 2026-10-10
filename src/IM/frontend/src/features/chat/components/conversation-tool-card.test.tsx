@@ -72,3 +72,9 @@ it("renders native cursor and attachment image fields", () => {
   expect(screen.getByText("还有后续页面")).toBeVisible();
   expect(screen.getByRole("img",{name:"Photo"})).toHaveAttribute("src","/photo.png");
 });
+
+it("shares prompt-before-result rendering for native subagent calls",()=>{
+ render(<ToolDetailBody call={{id:"child",name:"subagent",status:"completed",input:{prompt:"Find the answer"},detail:{content:"Answer",native_view:{card:"generic"}}}}/>);
+ expect(screen.getByText("Find the answer")).toBeVisible();
+ expect(screen.getByText("Answer")).toBeVisible();
+});

@@ -1,3 +1,4 @@
+import { LongOutput } from "./tool-long-output";
 import type { ToolCall } from "../chat-types";
 
 type RecordValue = Record<string, unknown>;
@@ -11,11 +12,20 @@ export function NativeToolDetail({ call }: {call: ToolCall}) {
   const pending = record(call.detail?.native_call);
   const content = records(view.content).filter(part => part.type === "text").map(part => text(part.text)).join("\n");
   const command = text(view.command) || text(pending.command) || (pending.card === "terminal" ? text(pending.title) : "");
-  const output = text(view.output) || content || text(call.detail?.content) || text(call.output);
+  const terminal = pending.card === "terminal" || view.card === "terminal";
+  const output = text(view.output) || content || text(call.detail?.content) || (call.status === "running" ? "" : text(call.output));
+  if (terminal) return <div className="chat-tool-detail-term">
+    {text(pending.cwd) && <p className="im-work-muted"><code>{text(pending.cwd)}</code></p>}
+    {command && <div className="chat-tool-detail-term-cmd">{command}</div>}
+    {output && <LongOutput text={output} render={shown => <pre className={`chat-tool-detail-term-out${call.status === "failed" ? " chat-tool-detail-term-err" : ""}`}>{shown}</pre>} />}
+    {typeof view.exitCode === "number" && <div className="chat-tool-detail-term-meta"><span className={view.exitCode !== 0 ? "chat-tool-detail-exit-bad" : undefined}>exit {view.exitCode}</span></div>}
+    {text(view.signal) && <p>{text(view.signal)}</p>}
+  </div>;
+  // A native presenter chooses salient input; full arguments are only a fallback without one.
+  const rawInput = pending.rawInput ?? (Object.keys(pending).length === 0 ? call.input : undefined);
   return <div className="chat-native-tool-detail">
     {(text(view.title) || text(pending.title)) && <strong>{text(view.title) || text(pending.title)}</strong>}
-    {pending.rawInput != null && <pre className="chat-tool-call-pre">{typeof pending.rawInput === "string" ? pending.rawInput : JSON.stringify(pending.rawInput, null, 2)}</pre>}
-    {pending.rawInput == null && Object.keys(call.input ?? {}).length > 0 && <pre className="chat-tool-call-pre">{JSON.stringify(call.input, null, 2)}</pre>}
+    {rawInput != null && <pre className="chat-tool-call-pre">{typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput, null, 2)}</pre>}
     {text(pending.cwd) && <p><code>{text(pending.cwd)}</code></p>}
     {command && <pre className="chat-tool-call-pre">{command}</pre>}
     {text(view.path) && <p><code>{text(view.path)}</code></p>}

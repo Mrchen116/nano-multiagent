@@ -50,7 +50,18 @@ it("keeps native terminal command and working directory visible after its title 
  setLanguage("zh");
  render(<ul><WorkTool expanded call={{id:"bash",name:"bash",status:"failed",reason:"interrupted",input:{command:"pwd"},detail:{native_view:{card:"terminal",title:"Interrupted",output:"partial output"},native_call:{card:"terminal",title:"pwd",cwd:"/workspace"}}}}/></ul>);
  expect(screen.getByText("已中断")).toBeVisible();
- expect(screen.getByText("pwd",{selector:"pre"})).toBeVisible();
+ expect(screen.getByText("pwd",{selector:".chat-tool-detail-term-cmd"})).toBeVisible();
  expect(screen.getByText("/workspace")).toBeVisible();
  expect(screen.getByText("partial output")).toBeVisible();
+ expect(screen.getAllByText("pwd")).toHaveLength(1);
+ expect(screen.queryByText(/"command"/)).not.toBeInTheDocument();
+});
+
+it("shows the retained native subagent prompt before its result",()=>{
+ setLanguage("zh");
+ render(<ul><WorkTool expanded call={{id:"child",name:"subagent",status:"completed",input:{description:"测试子 agent 调用",prompt:"计算 17 × 23。"},detail:{content:"17 × 23 = 391。",child_session_id:"child-session"}}}/></ul>);
+ const prompt=screen.getByText("计算 17 × 23。"),result=screen.getByText("17 × 23 = 391。");
+ expect(prompt).toBeVisible();expect(result).toBeVisible();
+ expect(prompt.compareDocumentPosition(result)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(screen.queryByText("child_session_id")).not.toBeInTheDocument();
 });

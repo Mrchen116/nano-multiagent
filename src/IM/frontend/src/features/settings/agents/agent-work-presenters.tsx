@@ -55,7 +55,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
       {labels[business] && <span className="im-work-status-label">{tr(labels[business])}</span>}
       {typeof call.duration_ms === "number" && <time>{formatDuration(call.duration_ms)}</time>}
     </button>
-    {expanded && <div className="im-work-tool-body">{call.name === "agent" && prompt ? <>
+    {expanded && <div className="im-work-tool-body">{["agent", "subagent"].includes(call.name) && prompt ? <>
       <strong className="im-work-detail-label">{tr(input.agent_id ? "补充给" : "委派")} {text(input.agent_id) || text(input.description)}</strong>
       <pre>{prompt}</pre>
       {detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}
