@@ -179,3 +179,17 @@ def test_active_operation_collision_returns_pending_instead_of_sqlite_error(
 
     with pytest.raises(AgentConfigOperationPendingError, match="config_apply_pending"):
         repository.create(operation_id="operation-2", **kwargs)
+
+
+def test_empty_heartbeat_has_same_fingerprint_as_runtime_default() -> None:
+    """Clearing cadence must not conflict with the node's empty runtime snapshot."""
+    base = {"agent_id": "agent-1", "skills": []}
+    empty = {**base, "heartbeat_json": "{}"}
+    runtime = {**base, "heartbeat_json": None}
+    changed = {**base, "heartbeat_json": '{"every":"24h"}'}
+
+    assert candidate_fingerprint(empty) == agent_operation_fingerprint(runtime)
+    assert agent_operation_fingerprint(empty) == candidate_fingerprint(runtime)
+    assert candidate_fingerprint(changed) != candidate_fingerprint(empty)
+    # Keep the explicit clear on the wire; None means preserve in persistence.
+    assert gateway_candidate(empty)["heartbeat_json"] == "{}"

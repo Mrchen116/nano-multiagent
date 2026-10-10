@@ -38,7 +38,7 @@ const home: Conversation = {
 let currentGraph: TaskGraph;
 let graphStatus: number;
 let list: TaskGraphList;
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: ReturnType<typeof vi.fn<(url: string) => Promise<Response>>>;
 
 function renderTasks(path: string, messages: Message[] = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });

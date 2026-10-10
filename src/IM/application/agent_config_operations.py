@@ -611,6 +611,9 @@ def gateway_candidate(candidate: dict[str, object]) -> dict[str, object]:
 def candidate_fingerprint(candidate: dict[str, object]) -> str:
     """Hash the shared canonical Gateway configuration projection."""
     projected = gateway_candidate(candidate)
+    # The runtime omits empty cadence; explicit {} still clears it on the wire.
+    if projected["heartbeat_json"] == "{}":
+        projected["heartbeat_json"] = None
     encoded = json.dumps(
         {key: projected.get(key) for key in _GATEWAY_CONFIG_KEYS},
         sort_keys=True,

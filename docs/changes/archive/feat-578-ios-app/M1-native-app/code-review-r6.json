@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/IM/ios/NanoIM/Features/Tasks/TasksView.swift",
+    "line": 35,
+    "summary": "[P2] Listen for text submission after replacing searchable",
+    "failure_scenario": "Enter a task query and press the keyboard Search key. This delta replaces searchable with NanoSearchField, whose control is a regular TextField, but leaves onSubmit(of: .search). SwiftUI defines .search triggers for searchable controls and .text for TextField; submitLabel(.search) only sets the label. The submit action therefore does not invoke load(), so the old results remain until the unrelated three-second polling refresh. Use the default/text submit trigger for this field to preserve immediate submitted-query behavior.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]
