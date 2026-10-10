@@ -13,10 +13,11 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
   try {
     await writeFile(join(home, 'hang.mjs'), `export const name = 'hang'; export const inject = ['llm']; export function apply(ctx) { ctx.on('llm/stream', async function* (options) { if (options.signal.aborted) return; await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true })); }); }`);
     await prepareProfile(home, [{ insert: [{ id: 'hang', name: join(home, 'hang.mjs') }] }]); client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
-    await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
-    for (const agentId of ['a', 'b']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
+    await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'g', mode: 'global' }, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
+    for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
     expect((await read('a')).tools).toEqual([]);
+    expect((await read('g')).tools.sort()).toEqual(['conversations', 'inbox', 'send_message', 'subagent']);
     expect((await read('a')).skills).toEqual([]);
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'a', cwd: home }) as { tools: { name: string }[]; skills: { name: string }[] };
     expect(catalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history']));

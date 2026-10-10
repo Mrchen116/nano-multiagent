@@ -38,12 +38,13 @@ it('projects durable native child lineage and drafts into Work without a public 
   const childEvents = [
     { seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } },
     { seq: 2, time: 2, type: 'user/message', data: { source: { kind: 'subagent' } } },
-    { seq: 3, time: 3, type: 'assistant/message', data: { turn: 1, message: { id: 'draft', content: [{ type: 'text', text: 'private child draft' }] } } },
-    { seq: 4, time: 4, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { seq: 3, time: 3, type: 'request/context', data: { model: 'actual-model' } },
+    { seq: 4, time: 4, type: 'assistant/message', data: { turn: 1, message: { id: 'draft', content: [{ type: 'text', text: 'private child draft' }] } } },
+    { seq: 5, time: 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
   ];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'alice', workspace: '/tmp/alice', revision: '1', provider: 'test', model: 'test', mode: 'global' }], store, inbox,
     runtime: { onNotification: () => () => {}, async request(method, value) {
-      if (method === 'session.descendants') return [{ kind: 'child', id: 'child', parentId: (value as { sessionId: string }).sessionId, label: 'Research', events: childEvents, throughSeq: 4 }];
+      if (method === 'session.descendants') return [{ kind: 'child', id: 'child', parentId: (value as { sessionId: string }).sessionId, label: 'Research', events: childEvents, throughSeq: 5 }];
       return { events: [], durable: true, status: 'idle' };
     } }, relay: { ready: false, async request() { sends++; return { type: 'ack', payload: {} }; } }, image: async () => '', onError: () => {},
   });
@@ -52,6 +53,7 @@ it('projects durable native child lineage and drafts into Work without a public 
     const events = inbox.journal(0);
     expect(events.filter(event => event.session_id === 'child' && event.type === 'session_registered')).toEqual([expect.objectContaining({ payload: expect.objectContaining({ scope: 'subagent', child_agent_id: 'child', title: 'Research' }) })]);
     expect(events.filter(event => event.session_id === 'child' && event.type === 'message')).toHaveLength(1);
+    expect(events.filter(event => event.session_id === 'child' && event.type === 'model_selected')).toEqual([expect.objectContaining({ turn_id: '1', payload: { model: 'actual-model' } })]);
     expect(events.some(event => event.type === 'message_sent')).toBe(false); expect(sends).toBe(0);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });

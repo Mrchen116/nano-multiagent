@@ -1870,8 +1870,8 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
-              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "agent"] : []}
-              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "agent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
+              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
+              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}

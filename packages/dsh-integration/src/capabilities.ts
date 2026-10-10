@@ -45,7 +45,10 @@ export class ToolSelection {
     // product selection must also withdraw this executable transport.
     if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
-    state.dispose = agent.ctx.tools.restrict({ allow: (state.config.toolAllowlist ?? [...known]).filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
+    // Global root communication is part of the work mode, not an optional selection.
+    const fixed = state.config.mode === 'global' && agent.session.header.origin !== 'subagent'
+      ? ['inbox', 'conversations', 'send_message', 'subagent'] : [];
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...(state.config.toolAllowlist ?? [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
   }
 }
 

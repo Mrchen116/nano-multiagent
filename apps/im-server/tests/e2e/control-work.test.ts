@@ -142,14 +142,19 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
       observed_at: stamp,
       payload: { completed: true, usage: { prompt_tokens: 100, completion_tokens: 10 } },
     },
+    {
+      seq: 6, event_id: "work-6", root_agent_id: "global", session_id: "global-session",
+      turn_id: "turn-1", type: "model_selected", observed_at: stamp, payload: { model: "actual-model" },
+    },
   ];
   const append = { node_id: g.node, journal_id: "journal", from_seq: 1, events };
-  expect((await g.frames.send("agent.work.append", append)).payload.through_seq).toBe(5);
-  expect((await g.frames.send("agent.work.append", append)).payload.through_seq).toBe(5);
+  expect((await g.frames.send("agent.work.append", append)).payload.through_seq).toBe(6);
+  expect((await g.frames.send("agent.work.append", append)).payload.through_seq).toBe(6);
   const work = await f.http("GET", "/im/v1/agents/global/work", undefined, f.tokens.bob);
   expect(work.status, work.body).toBe(200);
   expect(work.body.turns).toHaveLength(1);
   expect(work.body.turns[0].status).toBe("completed");
+  expect(work.body.turns[0].model_id).toBe("actual-model");
   expect(work.body.turns[0].items[0].payload.output).toBe("2 graphs");
   expect(work.body.latest_main_usage.output).toBe(10);
   const chat = await f.http(

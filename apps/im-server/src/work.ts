@@ -246,6 +246,7 @@ export class Work {
           context_window: p.context_window ?? p.usage.context_window,
         };
     }
+    if (kind === "model_selected") turn.model_id = p.model;
     if (kind === "permission_request") turn.status = "waiting_permission";
     if (kind === "permission_resolved" && turn.status === "waiting_permission") {
       turn.status = one(
@@ -268,6 +269,7 @@ export class Work {
       [
         "turn_started",
         "turn_start",
+        "model_selected",
         "turn_end",
         "tool_result_committed",
         "turn_input_committed",
