@@ -30,6 +30,7 @@ import { NanoApproval } from './policy/approval.js';
 import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
+import { installLlmAttribution } from './llm-attribution.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -92,6 +93,15 @@ export default class NanoRuntime {
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    installLlmAttribution(ctx, sessionId => {
+      let session = ctx.sessions.get(SessionId(sessionId));
+      while (session && !this.bindings.has(session.id) && session.header.parentSession) {
+        const parent = ctx.sessions.get(session.header.parentSession);
+        if (!parent) break;
+        session = parent;
+      }
+      return session?.id ?? sessionId;
+    });
     let configurationService: ConfigurationScopes;
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);
