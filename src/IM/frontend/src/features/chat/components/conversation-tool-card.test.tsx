@@ -78,3 +78,10 @@ it("shares prompt-before-result rendering for native subagent calls",()=>{
  expect(screen.getByText("Find the answer")).toBeVisible();
  expect(screen.getByText("Answer")).toBeVisible();
 });
+
+it("shows conversation members and external string message bodies",()=>{
+ const result=render(<MemoryRouter><ConversationToolCard call={{id:"info",name:"conversations",status:"completed",input:{action:"info",target:"chat"},detail:{name:"Team",type:"group",channel:"web",members:[{user_id:"alice",name:"Alice",type:"user"}]}}}/></MemoryRouter>);
+ expect(screen.getByText(/Alice/)).toBeVisible();
+ result.rerender(<MemoryRouter><ConversationToolCard call={{id:"read",name:"conversations",status:"completed",input:{action:"read",target:"chat"},detail:{messages:[{id:"external",content:"External original text",sender:{display_name:"Alice"},created_at:"2026-10-10T01:00:00Z",attachments:[]}]}}}/></MemoryRouter>);
+ expect(screen.getByText("External original text")).toBeVisible();expect(screen.getByText(/Alice/)).toBeVisible();
+});

@@ -37,6 +37,7 @@ it('preserves native presenter output and actual child identity across configura
     expect(JSON.stringify(views),JSON.stringify(await observe())).toContain('PERSISTED_CONTENT');
     const child=views.find(e=>e.callId==='child-call')?.childSessionId;
     expect(child).toBeTruthy();
+    expect(views.find(e=>e.callId==='child-call')?.delegationKind).toBe('foreground');
     const children=await client!.rpc.request('session.descendants',{sessionId:'view'}) as any[];
     const detail=children.find(item=>item.id===child);
     expect(detail).toBeTruthy();

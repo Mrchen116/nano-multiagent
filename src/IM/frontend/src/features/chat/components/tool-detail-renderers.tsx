@@ -246,6 +246,7 @@ function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const prompt = str(detail.prompt);
   const subagent = str(detail.subagent_type);
   const status = str(detail.status);
+  const launched = ["continuable", "background"].includes(str(detail.delegation_kind));
   const content = str(detail.content);
   const outputFile = str(detail.output_file);
   const error = errorText(detail.error);
@@ -260,7 +261,7 @@ function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
         <div className="chat-tool-detail-agent-result">
           <div className="chat-tool-detail-agent-status">
             {status === "failed" ? "✕" : "✓"}{" "}
-            {t("chat.messagePane.toolDetail.agentDone", { status: status || "completed" })}
+            {launched ? t("agents.work.子执行已启动", {defaultValue:"子执行已启动"}) : t("chat.messagePane.toolDetail.agentDone", { status: status || "completed" })}
             {subagent && ` · ${subagent}`}
           </div>
           {content && <div className="chat-tool-detail-agent-content">{content}</div>}
@@ -412,7 +413,7 @@ function MemoryCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const action = str(detail.action);
   const target = str(detail.target);
-  const content = str(detail.content);
+  const content = str(detail.content ?? detail.old_text);
   const message = str(detail.message);
   // Round-3 fix: memory never raises — failures come back as success:false with
   // the reason in `message`. Render a failure state (✕ + error text), not ✓.
@@ -450,6 +451,10 @@ function MemoryCard({ detail, isResultPending = false }: ToolDetailCardProps) {
 }
 
 function SkillCard({ detail, isResultPending = false }: ToolDetailCardProps) {
+  if (Array.isArray(detail.skills)) return <div className="chat-tool-detail-info">{detail.skills.map((skill,index) => {
+    const entry = skill as ToolDetail;
+    return <div key={index}><strong>{str(entry.name)}</strong>{entry.description != null && <p>{str(entry.description)}</p>}</div>;
+  })}</div>;
   const action = str(detail.action);
   const name = str(detail.name);
   const message = str(detail.message);
@@ -635,11 +640,17 @@ function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
  */
 export function ToolDetailBody({ call }: { call: ToolCall }) {
   const detail = call.detail;
+  const input = call.input && typeof call.input === "object" ? call.input as ToolDetail : {};
   if (call.name === "inbox" || call.name === "conversations") return <ConversationToolCard call={call} />;
   if (call.name === "subagent") {
-    const input = call.input && typeof call.input === "object" ? call.input as Record<string, unknown> : {};
     return <AgentCard detail={{...detail, prompt: detail?.prompt ?? input.prompt, status: detail?.status ?? call.status}} isResultPending={call.status === "running"} />;
   }
+  if (call.name === "send_message" && input.agent_id) return <>
+    <Section label="补充给"><code>{str(input.agent_id)}</code></Section>
+    <pre className="chat-tool-call-pre">{str(input.message)}</pre>
+    {detail?.content != null && <pre className="chat-tool-call-pre">{str(detail.content)}</pre>}
+    {detail?.error != null && <ErrorCard detail={detail} />}
+  </>;
   if (detail?.native_view) return <NativeToolDetail call={call} />;
   if (call.name === "send_message" && (detail?.status === "pending_revalidation" || detail?.status === "held_for_revalidation")) {
     return <div><p>{detail.status === "pending_revalidation" ? "待发送 · 正文尚未提交" : "未发送 · 已保留为草稿"}</p>
@@ -653,13 +664,13 @@ export function ToolDetailBody({ call }: { call: ToolCall }) {
     if (Bespoke) {
       return (
         <Bespoke
-          detail={detail}
+          detail={{...input, ...detail}}
           isResultPending={isResultPending(call, detail)}
           isDenied={call.reason === "denied" || call.approval === "user_deny"}
         />
       );
     }
-    return <GenericCard detail={detail} />;
+    return <>{Object.keys(input).length > 0 && <details><summary>调用参数</summary><GenericCard detail={input} /></details>}<GenericCard detail={detail} /></>;
   }
   // No detail (historical message / presenter-less tool with empty result):
   // fall back to the output string so nothing is lost and nothing errors.

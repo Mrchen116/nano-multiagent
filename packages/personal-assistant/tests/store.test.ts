@@ -125,3 +125,9 @@ it('distinguishes pi-ai zero cache counters from absent provider accounting', ()
   expect(tokenUsage(answers,1)).toMatchObject({cache_read_tokens:0,cache_total_input_tokens:10});
   expect(tokenUsage([{...answers[0]!,data:{...answers[0]!.data,stream:[]}}],1)).not.toHaveProperty('cache_read_tokens');
 });
+
+it('preserves native background delegation kind without declaring the child complete', () => {
+  const call={seq:1,time:1,type:'tool/call',data:{callId:'child',name:'subagent',arguments:'{"prompt":"Research"}'}};
+  const result={seq:2,time:2,type:'tool/result',data:{message:{toolCallId:'child',content:[{type:'text',text:'started subagent child-session'}]},nanoToolView:{childSessionId:'child-session',delegationKind:'continuable'}}};
+  expect(toolPresentation(result,[call,result])).toMatchObject({status:'completed',detail:{delegation_kind:'continuable',child_session_id:'child-session',content:'started subagent child-session'}});
+});

@@ -44,8 +44,9 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
   const denied = call.approval === "user_deny" || call.reason === "denied";
-  const business = text(detail.status);
+  const business = ["continuable", "background"].includes(text(detail.delegation_kind)) ? "async_launched" : text(detail.status);
   const labels: Record<string, string> = { async_launched: "子执行已启动", message_queued: "补充已排队", held_for_revalidation: "未发送", pending_revalidation: "待发送" };
+  const internalMessage = call.name === "send_message" && Boolean(input.agent_id);
   const prompt = text(detail.prompt) || text(input.prompt);
   return <li className="im-work-tool-group" data-testid="process-item"><div className="im-work-tool">
     <button type="button" className="im-work-tool-head" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}>
@@ -62,7 +63,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
       {!pending && <p><span className="im-work-status-label">{tr(labels[business] || (error ? "失败" : "已完成"))}</span> {text(detail.agent_id)}</p>}
       {text(detail.content) && <pre>{text(detail.content)}</pre>}
       {text(detail.output_file) && <p className="im-work-muted">{tr("结果文件")}：<code>{text(detail.output_file)}</code></p>}
-    </> : call.name === "send_message" && !input.agent_id ? <><p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p><pre>{text(detail.text) || text(input.text)}</pre>{(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}</> : call.name === "inbox" ? <ConversationToolCard call={call} compact /> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
+    </> : internalMessage ? <><p>{tr("补充给")} {text(input.agent_id)}</p><pre>{text(input.message)}</pre>{text(detail.content) && <pre>{text(detail.content)}</pre>}{detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}</> : call.name === "send_message" && !input.agent_id ? <><p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p><pre>{text(detail.text) || text(input.text)}</pre>{(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}</> : call.name === "inbox" ? <ConversationToolCard call={call} compact /> : <ToolDetailBody call={call} />}{detailFooter}</div>}</div>{expanded && childLink}
   </li>;
 }
 

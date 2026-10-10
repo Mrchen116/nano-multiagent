@@ -65,3 +65,11 @@ it("shows the retained native subagent prompt before its result",()=>{
  expect(prompt.compareDocumentPosition(result)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(screen.queryByText("child_session_id")).not.toBeInTheDocument();
 });
+
+it("distinguishes background launch from child completion and shows internal follow-up text",()=>{
+ setLanguage("zh");
+ const result=render(<ul><WorkTool expanded call={{id:"child",name:"subagent",status:"completed",input:{prompt:"Research"},detail:{delegation_kind:"continuable",content:"started subagent child"}}}/></ul>);
+ expect(screen.getAllByText("子执行已启动").length).toBeGreaterThan(0);expect(screen.queryByText("已完成")).not.toBeInTheDocument();
+ result.rerender(<ul><WorkTool expanded call={{id:"send",name:"send_message",status:"completed",input:{agent_id:"child",message:"Follow up instruction"},detail:{content:"message delivered to agent child"}}}/></ul>);
+ expect(screen.getByText("Follow up instruction")).toBeVisible();expect(screen.getByText("message delivered to agent child")).toBeVisible();
+});

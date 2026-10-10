@@ -24,7 +24,7 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
   return result;
 }
 
-type NativeToolView = {call?: Record<string, unknown>; result?: Record<string, unknown>; childSessionId?: string};
+type NativeToolView = {call?: Record<string, unknown>; result?: Record<string, unknown>; childSessionId?: string; delegationKind?: string};
 
 /** Project durable tool events using their original names and stable call identity. */
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
@@ -42,7 +42,7 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed; } catch { /* Plain native output remains displayable as text. */ }
     const error = data.error as {name?: string; code?: string} | undefined;
     const reason = error?.name === 'NanoApprovalDenied' ? 'denied' : ['ABORTED', 'ABORTED_BEFORE_DISPATCH'].includes(error?.code ?? '') ? 'interrupted' : undefined;
-    if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId};
+    if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId, delegation_kind: view.delegationKind};
     else if (!detail) detail = {content: output, native_view: {card: 'generic', content: message.content}};
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
       reason, status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
