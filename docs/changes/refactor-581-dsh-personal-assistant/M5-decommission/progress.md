@@ -1,6 +1,6 @@
 # M5 — TypeScript center and old-path retirement
 
-Implementation and reported defect fixes are complete at `88d49182b`. Independent product acceptance is 30/33 passed; S01/S17/S31 retain physical iPhone UI evidence blocked by the locked host Mac. Final delivery remains open. No production change, merge or full acceptance has occurred.
+Implementation and reported defect fixes are complete at `88d49182b`. Independent product acceptance is 30/33 passed; on 2026-10-10 the user explicitly deferred the physical iPhone portions of S01/S17/S31 for this delivery. Those portions remain unverified. Canonical/PR closure is proceeding under that bounded scope adjustment. No production change, merge or full acceptance has occurred.
 
 ## Personal-assistant operations
 
@@ -71,3 +71,7 @@ Offline asset conversion is implemented and tested. Two real node snapshots were
 - Independent product acceptance is **30 pass / 3 inconclusive, no open observed product defect**; S01/S17/S31 share one external blocker: the host Mac remains locked, preventing physical native iPhone UI operations. Signed installation succeeds but does not close these scenarios. See [final acceptance](../acceptance.md).
 - All owned isolated IM/Node/DSH stacks and the ACK-fault proxy were stopped; runtime databases, configuration, raw evidence and screenshots remain for resume. The peer configuration points back to its real isolated IM endpoint. The old `ts-stack` and a confirmed orphaned pytest IM were also stopped. No production service was touched.
 - Canonical replacements remain prepared under `.dsh-runtime/canonical-next/`; structural preview reports zero problems. Resume by unlocking the Mac and making the paired physical iPhone available, restoring the isolated stack from its retained state, and running only the remaining native phone journeys. After valid product gates: canonical sync, archive, Ready PR and required CI. No PR has been created while those gates remain open.
+
+## Authorized delivery resumption (2026-10-10)
+
+The user explicitly deferred physical iPhone acceptance for this delivery. No new implementation changes were made. `git fetch origin main` confirms the base is still `4915c44cb7f7b829414a19087877ad9b73d69ea1`, so there is no incoming main delta to invalidate retained gates. Prepared canonical specifications, architecture, startup/runbooks and retired Kernel/CLI historical indexes are now promoted; independent reviewers update their conclusions for the bounded user waiver and final documentation tree.

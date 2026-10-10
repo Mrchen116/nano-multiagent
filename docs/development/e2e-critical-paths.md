@@ -35,10 +35,10 @@ scripts/e2e-self-evolution.sh
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
-| 1 | **工具调用后回复**——发一条需 agent 调工具才能答的消息，收到带正确结果的回复（覆盖工具调用主循环） | `test_tool_call_reply_critical_path.py::test_tool_call_then_reply_carries_sentinel` | gateway（`docs/specs/gateway/spec.md`）+ kernel（`docs/specs/kernel/spec.md`） | feat-421 |
-| 2 | **bash 前台超时**——agent 跑会超时的前台 bash，session 不卡死、用户最终仍收到回复 | `test_bash_foreground_timeout_critical_path.py::test_foreground_bash_timeout_still_replies` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
+| 1 | **工具调用后回复**——发一条需 agent 调工具才能答的消息，收到带正确结果的回复（覆盖工具调用主循环） | `test_tool_call_reply_critical_path.py::test_tool_call_then_reply_carries_sentinel` | gateway（`docs/specs/gateway/spec.md`）+ DSH integration（`docs/specs/gateway/service-lifecycle.md`） | feat-421 |
+| 2 | **bash 前台超时**——agent 跑会超时的前台 bash，session 不卡死、用户最终仍收到回复 | `test_bash_foreground_timeout_critical_path.py::test_foreground_bash_timeout_still_replies` | DSH integration（`docs/specs/gateway/service-lifecycle.md`） | feat-421 |
 | 3 | **bash 后台通知**——agent 把耗时 bash 丢后台，作业完成后用户**再**收到一条带结果的跟进消息 | `test_bash_background_notify_critical_path.py::test_background_bash_completion_sends_followup` | gateway + kernel | feat-421 |
-| 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` + `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
+| 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` + `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process` | DSH integration（`docs/specs/gateway/service-lifecycle.md`） | feat-421 |
 | 5 | **/stop**——对正在跑的 run 发 `/stop`，运行被中止、状态可见为已停 | `test_stop_run_critical_path.py::test_stop_aborts_active_run` | gateway + kernel | feat-421 |
 | 6 | **cron**（slow）——到点的定时任务自动推一条消息到 IM 对话 | `test_cron_push_critical_path.py::test_cron_job_auto_pushes_message`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
 | 7 | **Heartbeat 主动冒泡**（slow）——已建立聊天的 Agent 按 `.nanoassistant/HEARTBEAT.md` 指令，在 cadence 到点主动交付；真实模型与原生运行时 | `test_heartbeat_bubble_critical_path.py::test_heartbeat_bubbles_actionable_message`（`@pytest.mark.slow`） | runtime + gateway + im | refactor-581 |

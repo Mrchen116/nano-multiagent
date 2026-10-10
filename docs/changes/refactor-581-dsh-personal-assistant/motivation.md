@@ -416,8 +416,8 @@ Agent解读：是。此前将Workflow并入第六项Feature是作者误读，现
 ## 现状与动机证据
 
 - 当前 [SPEC.md](../../../SPEC.md) 要求 PA 与 CLI 经 `agent.sdk` 进程内调用内核。迁移涉及明确修订此架构约束，不能借保留一个旧类名宣称边界没有改变。
-- [PA 工厂](../../../src/personal_assistant/product.py) 同时装配产品提示、工具、模型和 Skill 路径；[Gateway composition](../../../src/personal_assistant/gateway/composition.py) 接入路由、调度、Inbox、权限、工作记录与内核。
-- [全局运行协调器](../../../src/personal_assistant/gateway/global_run_coordinator.py) 依赖运行接收回执、事件、取消和压缩；[运行投递](../../../src/personal_assistant/gateway/runtime_delivery/stream.py) 依赖内核事件。替换不是仅修改一个工厂。
+- [PA 工厂](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/product.py) 同时装配产品提示、工具、模型和 Skill 路径；[Gateway composition](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/composition.py) 接入路由、调度、Inbox、权限、工作记录与内核。
+- [全局运行协调器](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/global_run_coordinator.py) 依赖运行接收回执、事件、取消和压缩；[运行投递](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/gateway/runtime_delivery/stream.py) 依赖内核事件。替换不是仅修改一个工厂。
 - 早期静态盘点基于 Nano `76fe1d7e...` 工作目录（非最新远端口径）：`src/agent` 188 个 Python 文件、42,438 物理行；PA 排除 `builtin_skills` 后 116 个文件、48,778 行；CLI 23 个文件、6,071 行。PA 中 24 个文件直接从 `agent.sdk` 导入。数字含注释、空行，仅说明影响面，不是工期或必需重写量。
 - 本轮 fetch 后 Nano `origin/main` 为 `4915c44cb7f7b829414a19087877ad9b73d69ea1`；新增原生 iOS 客户端与配置指纹修正已纳入终态提案。
 - DSH 本地与 fetch 后远端基线均为 `5badb15009ae1756c3afe0ae0cef1faafc290ccc`，版本 `0.2.1-alpha.1`，工作区干净。能力与限制来自该基线的文档及源码，尚未做 Nano 接入运行验证。
@@ -434,7 +434,7 @@ Agent解读：是。此前将Workflow并入第六项Feature是作者误读，现
 | 多 Agent 配置、模型、Skill 和权限 | [agent-capabilities](../../specs/gateway/agent-capabilities.md) | DSH 原生范围、配置来源和生效边界 |
 | 共享任务图 | [task-graphs](../../specs/gateway/task-graphs.md) | 保留 IM 唯一记录与真实调用身份；不替换为 session todo |
 | Workflow 与自进化 | [workflows](../../specs/gateway/workflows.md)、[agent-capabilities](../../specs/gateway/agent-capabilities.md) | 原生替代、暂缓或小范围兼容的成本 |
-| 历史数据及服务重启 | [context-persistence](../../specs/kernel/context-persistence.md)、[service-lifecycle](../../specs/gateway/service-lifecycle.md) | 聊天可读、模型上下文续接、未完成任务恢复分别确定 |
+| 历史数据及服务重启 | [context-persistence](../../archive/pre-dsh-581/kernel/context-persistence.md)、[service-lifecycle](../../specs/gateway/service-lifecycle.md) | 聊天可读、模型上下文续接、未完成任务恢复分别确定 |
 
 ## 进入设计与实施的边界
 
@@ -450,3 +450,9 @@ Agent解读：是。此前将Workflow并入第六项Feature是作者误读，现
 ## 影响范围
 
 ## 迁移与回滚策略
+
+## 交付验收范围调整（2026-10-10）
+
+用户明确决定：“除了iphone上，其他的场景都验收了吗，iphone可以暂时跳过，他和web端用的一套接口吧？”
+
+本次交付接受该调整：S01、S17、S31 中仅物理原生 iPhone UI 操作部分暂缓，保留未验证状态，不改记为通过，也不因此延后其他已完成范围的 PR 交付。现有 30 项通过证据继续有效；三项场景的 Web/飞书及共享 IM 接口证据保持原结论。iPhone 与 Web 共用 IM HTTP/WebSocket 后端契约，但 Swift 原生展示、图片追问和审批交互仍需后续物理验收。iOS 自动构建/测试门禁保留。该决定不授权生产部署。

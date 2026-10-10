@@ -126,9 +126,9 @@ Workflow是常规工具，不新增Feature开关；工具选择按终态架构§
 
 2026-10-09 已由独立Agent对公开接口、四项语义和待定边界做一次有界技术复核，未发现阻断问题；已采纳恢复输入默认/覆盖及token accounting出处两项表述修正。此结论只覆盖本文技术草案，不代替整个迁移设计的Gate 2或实现验收。
 
-[N1]: ../../../docs/specs/kernel/workflows.md
-[N2]: ../../../src/agent/core/workflows/resume.py
-[N3]: ../../../src/agent/core/workflows/activation.py
+[N1]: ../../archive/pre-dsh-581/kernel/workflows.md
+[N2]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/agent/core/workflows/resume.py
+[N3]: https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/agent/core/workflows/activation.py
 [D1]: https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/workflow/workflow/src/runtime-types.ts
 [D2]: https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/workflow/workflow/src/index.ts
 [D3]: https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/workflow/workflow-ptc/src/host.ts

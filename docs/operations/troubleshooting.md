@@ -8,7 +8,7 @@
 
 1. **运行对象**：当前 shell 属于哪个 checkout，Gateway 使用哪份 config，浏览器访问哪个 IM 地址。
 2. **IM 可达性**：HTTP OpenAPI 是否可访问，Web IM 静态页面是否已经构建并由 IM host 提供。
-3. **Gateway 进程**：`.gateway-state.json`、live process 和 `gateway.log` 是否属于同一 config 与同一次启动。
+3. **Gateway 与 DSH 进程**：`.gateway-state.json`、live process 和 `gateway.log` 是否属于同一 config 与同一次启动；`ready` 和 `runtime_pid` 必须对应活着的执行子进程。
 4. **连接和绑定**：节点是否已绑定、是否 online，日志中是否有 `ACTION ...`、`NEXT ...` 或首个 bootstrap 错误。
 5. **真实路径**：登录、打开会话、发送消息、收到回复；只检查进程或接口不能替代用户路径。
 
@@ -19,7 +19,7 @@ GATEWAY_DIR="$HOME/.nanoassistant"
 
 curl -fsS http://127.0.0.1:8011/openapi.json >/dev/null
 test -f "$GATEWAY_DIR/.gateway-state.json" && sed -n '1,120p' "$GATEWAY_DIR/.gateway-state.json"
-ps -ax -o pid=,command= | grep '[p]ersonal_assistant.main'
+pnpm pa status --config "$GATEWAY_DIR/config.yaml"
 tail -n 100 "$GATEWAY_DIR/gateway.log"
 ```
 
@@ -27,9 +27,7 @@ macOS 自启还要核对对应 LaunchAgent。label 由 config 绝对路径稳定
 
 ```bash
 CONFIG="$HOME/.nanoassistant/config.yaml"
-LABEL=$(PYTHONPATH=src .venv/bin/python -c \
-  'from personal_assistant.gateway.macos_launch_agent import launch_agent_label; import sys; print(launch_agent_label(sys.argv[1]))' \
-  "$CONFIG")
+LABEL=$(node --input-type=module -e 'import {gatewayLabel} from "./apps/node/lib/lifecycle.js"; console.log(gatewayLabel(process.argv[1]))' "$CONFIG")
 launchctl print "gui/$(id -u)/$LABEL"
 plutil -p "$HOME/Library/LaunchAgents/$LABEL.plist"
 ```
@@ -42,7 +40,7 @@ plutil -p "$HOME/Library/LaunchAgents/$LABEL.plist"
 |---|---|---|
 | `/` 或 `/chat` 打不开 | IM 进程、`8011` 监听和 OpenAPI | 启动 IM；端口被占时确认占用者，不直接覆盖 |
 | OpenAPI 可达但没有 Web IM 页面 | `src/IM/frontend/dist/index.html` 是否存在 | 在前端目录执行 `npm install && npm run build`，再刷新页面 |
-| Gateway 启动后立刻退出 | `gateway.log` 的第一个错误、config 的 `llm:` / `web_relay` / IM 地址 | 修正原始配置后，对同一 config 重新启动 |
+| Gateway 启动后立刻退出 | `gateway.log` 的第一个错误、config 的 `llm:` / DSH 首个错误 / IM 地址 | 修正原始配置后，对同一 config 重新启动 |
 | `Autostart: failed`，但 Gateway 已运行 | CLI 后续原始错误、`launchctl print`、plist 路径和 `gateway.log` | 当前是降级后台进程；修复 LaunchAgent 条件后执行 `restart`，命令回到零才算完整恢复 |
 | `stop` 后下次登录又上线 | config 中 `gateway.autostart` 是否仍为 `true` | 这是当前登录临时停止的预期行为；长期关闭需 stop、改为 `false`、再默认启动 |
 | `gateway already running` | 状态文件中的 config、PID 和 process birth | 需要替换时使用 `restart`；不要启动第二个同 config 实例 |
@@ -75,7 +73,7 @@ Gateway 的 fail-closed 进程识别和关闭顺序见 [`../specs/gateway/servic
 空库创建第一个账号：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m IM.cli init_admin \
+pnpm im init-admin \
   --username root \
   --password '<set-strong-password>' \
   --display-name Root
@@ -104,21 +102,13 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   | python -m json.tool
 ```
 
-确实需要手工发起或确认绑定时：
+确实需要手工重新发起设备绑定时，先停止该节点，再使用当前 CLI：
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8011/im/v1/bind \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"start","node_id":"my-macbook"}' \
-  | python -m json.tool
-
-curl -sS -X POST http://127.0.0.1:8011/im/v1/bind \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"confirm","bind_id":"<bind-id>"}' \
-  | python -m json.tool
+pnpm pa bind --config ~/.nanoassistant/config.yaml
 ```
+
+按终端设备页面以目标 owner 登录并确认。只有需要明确恢复原设备身份时才使用 `--recover-device`，按界面核实原节点；不通过旧 bind API 创建另一套身份。
 
 用户事件 WebSocket 的低层诊断入口：
 

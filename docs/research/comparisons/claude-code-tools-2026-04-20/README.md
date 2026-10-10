@@ -17,4 +17,4 @@
 | [`web_fetch.md`](web_fetch.md) | 2026-04-20 / `2be76c27` | Web Fetch 对比与阶段设计 | web_fetch builtin、权限/运行测试 |
 | [`web_fetch-prompt-processing-design.md`](web_fetch-prompt-processing-design.md) | 2026-04-20 / `2be76c27` | prompt-based 内容处理 | web_fetch builtin 与测试 |
 
-旧正文保持记录时的观察。若要判断某项今天是否仍是缺口，重新核对 current code、tests 和 [`../../../specs/kernel/`](../../../specs/kernel/spec.md)；确认仍需处理后再建立 issue/change。
+旧正文保持记录时的观察。若要判断某项今天是否仍是缺口，重新核对 current code、tests 和 [`../../../specs/kernel/`](../../../archive/pre-dsh-581/kernel/spec.md)；确认仍需处理后再建立 issue/change。
