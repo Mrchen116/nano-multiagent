@@ -2,7 +2,7 @@
 
 > 2026-10-09，正式设计的Workflow详述，Q22—Q24修订已随整套设计通过独立Round 3复审。用户明确保留暂停／继续、指定运行中子任务重启、完成前缀复用、同 turn 父子共享 output-token预算。基线：Nano `4915c44c`、DSH `5badb150`。
 >
-> 本文是Workflow接入的设计权威位置。[能力地图](capability-plugin-map.md) 解释现有差距；[整体计划](migration-plan.md) 维护工作依赖；语言已确定JavaScript，命名复用与一层嵌套已确认保留。[产品决定](pending-decisions.md) 记录已确定的Auto规则及其他产品选择；原问题10转为具体运行边界工程核查；原有子任务审批路由直接补迁。本文与design.md一并通过独立审查，见[审查记录](design-review.md)。
+> 本文是Workflow接入的设计权威位置。[能力地图](capability-plugin-map.md) 解释现有差距；[整体计划](migration-plan.md) 维护工作依赖；语言已确定JavaScript，命名复用与一层嵌套已确认保留。[产品决定](pending-decisions.md) 记录已确定的Auto规则及其他产品选择；原问题10转为具体运行边界工程核查；2026-10-10用户修订取消子任务专属审批路由，见[产品决定](pending-decisions.md)。本文与design.md一并通过独立审查，见[审查记录](design-review.md)。
 
 ## 1. 设计结论
 
@@ -116,13 +116,13 @@ Workflow是常规工具，不新增Feature开关；工具选择按终态架构§
 | logical call与attempt | 对正在运行的选中child重启，旧attempt结束，新attempt结果交给原promise；迟到旧结果不覆盖；UI仍是一项call |
 | 持久前缀 | 相同脚本命中、改中间调用从该点重跑、只改label/phase仍命中、并发完成序保持；新进程打开同parent后显式恢复终态记录；跨parent拒绝 |
 | 共享预算 | 父子/多个Workflow/替换attempt共同累计，重放不重复累计；耗尽不启动新child；无target不加上限；provider重试usage不丢不重 |
-| 产品与后台 | 既有控制入口映射到唯一owner；原子任务审批路由补迁；风险政策按问题6；最终结果持久后再交付；断线/重启后状态可解释 |
+| 产品与后台 | 既有控制入口映射到唯一owner；子任务使用统一委派权限，不发起人工审批卡；风险政策按问题6；最终结果持久后再交付；断线/重启后状态可解释 |
 
 测试先覆盖纯控制与key比较，再用真实DSH child/PTC进程验证取消和清理，最后走Web/原生iOS/飞书控制与交付旅程。真实parallel与pipeline仍需证明并发和值传递。当前是源码和设计证据，未运行以上验收。
 
 ## 8. 已收口的产品边界
 
-脚本语言已确定为JavaScript，问题2a/2b已确认保留命名复用与一层嵌套。原Workflow子任务审批直接补迁，问题6已确认默认Nano规则并支持配置切换DSH规则，原问题10的A/B问法已撤销，脚本执行边界按原生接入做具体核查；所有产品选择已收口。本文已纳入整个迁移设计的正式Gate 2，结论见design-review.md。
+脚本语言已确定为JavaScript，问题2a/2b已确认保留命名复用与一层嵌套。子任务审批按2026-10-10决定改为统一DSH委派权限，问题6已确认默认Nano规则并支持配置切换DSH规则，原问题10的A/B问法已撤销，脚本执行边界按原生接入做具体核查；所有产品选择已收口。本文已纳入整个迁移设计的正式Gate 2，结论见design-review.md。
 
 2026-10-09 已由独立Agent对公开接口、四项语义和待定边界做一次有界技术复核，未发现阻断问题；已采纳恢复输入默认/覆盖及token accounting出处两项表述修正。此结论只覆盖本文技术草案，不代替整个迁移设计的Gate 2或实现验收。
 

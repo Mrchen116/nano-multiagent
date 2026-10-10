@@ -347,16 +347,6 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     const parentConfiguration = structuredClone(
       this.options.configuration(request.parent),
     );
-    const interactive =
-      parentConfiguration.mode !== "global" &&
-      request.parent.session
-        .snapshotEvents()
-        .some(
-          (event) =>
-            event.type === "user/message" &&
-            event.seq > (turn?.seq ?? -1) &&
-            event.data.source.kind === "nano-human",
-        );
     const allowed = this.host.tools
       .schemas(request.parent)
       .map((tool) => tool.name)
@@ -399,11 +389,6 @@ export class NanoWorkflowEngine extends WorkflowEngine {
           ...route,
           modelRouteFrozen: true,
           toolAllowlist: allowed,
-          workflowParent: {
-            sessionId: request.parent.id,
-            inputIds: record.inputIds,
-            interactive,
-          },
         };
         const child = await this.creating.run(config, () =>
           this.host.subagents.start(request.subagentProvider ?? "fork", {

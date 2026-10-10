@@ -316,7 +316,7 @@ export class SingleThread {
     this.pendingApprovals.set(request.requestId, pending);
     await this.reconcile(request.sessionId);
     if (pending.outcome) { this.pendingApprovals.delete(request.requestId); return; }
-    const input = this.options.store.inputs(request.sessionId).find(input => request.inputIds?.includes(input.id) || !request.childSessionId && input.turn !== null && input.terminal === null);
+    const input = this.options.store.inputs(request.sessionId).find(input => input.turn !== null && input.terminal === null);
     const delivery = input?.turn === undefined || input.turn === null ? undefined : this.options.store.delivery(request.sessionId, input.turn);
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
@@ -379,7 +379,7 @@ export class SingleThread {
   }
   async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
 }
-interface Approval { childSessionId?:string;inputIds?:string[];toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
+interface Approval { toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }
 function runtimeBinding(binding: SessionBinding) {
   const { conversationId: _conversation, ...runtime } = binding;

@@ -6,13 +6,15 @@
 
 ## 已确定，不再询问是否需要
 
+- **2026-10-10 用户修订：所有子 Agent统一采用 DSH 委派权限。** 普通 subagent、Workflow child、后台维护 child 均保留 `approval=never`。取消原 O09 / Workflow child原消息审批特例，Auto 拒绝后由父 Agent沟通，补充指令后仍审查，不借 unattended fallback 放行。Nano Auto规则与单一审核链不变。这取代下文及旧设计中“必须补迁 Workflow child审批卡”的决定；完成结果原会话投递仍保留。根聊天真实用户授权取证另列 [issue #330](https://github.com/Mrchen116/nano-multiagent/issues/330)，本次不实施。最终统一验收仍按用户安排延后，旧审查不作为本次权限变化的验收证据。
+
 - **Q22：DSH源码零改动**，公开插件/服务组合接入；撤回Schedule与agent-loop补丁路线。
 - **Q23/Q24：5个Feature独立插件单元，Workflow为常规工具**，Task Graphs、Memory Curation、Skill Creation、Cron、Heartbeat可分别启停并撤销后续影响，已有数据保留。
 
 - 只迁移个人助手，停用自研Coding CLI；Web、原生iOS、飞书、多节点、global Inbox、业务身份/交付/任务图等保留。
 - Workflow采用DSH JavaScript；暂停/继续、指定运行中子任务重启、完成前缀复用、共享output-token预算、保存/命名复用和一层嵌套全部保留。
 - 记忆与Skill自动维护迁移保留：受控更新/注入、使用统计、阈值review、归档、生成启用、真实写入通知及配置调和。原问题4撤销“改为手动”选项。
-- 按“缺失机制补迁”原则保留Workflow child原消息审批、专用审核模型、可信来源/global短确认、拒绝计数、无人值守回退、自动模型备用链。原问题5/9不再要求用户决定是否删功能；问题6已确认默认沿用Nano规则，并支持配置切换为DSH默认规则。
+- 按“缺失机制补迁”原则保留专用审核模型、可信来源/global短确认、拒绝计数、无人值守回退、自动模型备用链。原问题5/9不再要求用户决定是否删功能；问题6已确认默认沿用Nano规则，并支持配置切换为DSH默认规则。
 - 手动压缩focus/幂等、已有搜索后端、网页prompt提取、历史读取/Skill蒸馏、产品完整配置生效等原生未完整覆盖的能力补迁。
 - **问题3已确认A**：自建工具采用DSH标准格式，全局共享与workspace局部两层、同名局部覆盖均保留；日常原生工具用法随后已按Q21独立确认。
 - **问题7已确认按开发态处理；问题8随之撤销**：不做旧聊天续接、事件转换、旧消息fork或旧档案蒸馏兼容，迁移后使用新DSH会话。旧文件不因本决定删除；新系统会话保存、重启继续、fork与历史读取/蒸馏能力仍保留。

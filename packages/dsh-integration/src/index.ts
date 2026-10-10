@@ -41,7 +41,6 @@ export interface AgentConfiguration {
   reasoningEffort?: string;
   maxTokens?: number;
   modelRouteFrozen?: boolean;
-  workflowParent?: {sessionId:string;inputIds:string[];interactive:boolean};
   workflow?: { outputTokenTarget?: number; sizeGuideline?: string };
   modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
@@ -169,8 +168,8 @@ export default class NanoRuntime {
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
       const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
-      if (config?.mode === 'global' || !human && !config?.workflowParent?.interactive) return 'rejected';
-      const approvalSessionId = config?.workflowParent?.sessionId ?? request.agent.id;
+      if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human) return 'rejected';
+      const approvalSessionId = request.agent.id;
       if(!this.bindings.has(approvalSessionId)) return 'rejected';
       const requestId = randomUUID();
       return new Promise<ApprovalOutcome>(resolve => {
@@ -191,7 +190,7 @@ export default class NanoRuntime {
         timer = setTimeout(() => finish('unavailable'), Math.max(0, (config?.approval?.askTimeoutSec ?? 600) * 1000));
         request.signal?.addEventListener('abort', cancel, { once: true });
         this.peer.notify('approval.request', {
-          requestId, sessionId: approvalSessionId, childSessionId: approvalSessionId === request.agent.id ? undefined : request.agent.id, inputIds: config?.workflowParent?.inputIds, toolName: request.toolName,
+          requestId, sessionId: approvalSessionId, toolName: request.toolName,
           toolInput: history.findLast(event=>event.type==='tool/call'&&event.data.callId===request.callId)?.data,
           callId: request.callId, reason: request.reason,
         });
