@@ -60,3 +60,9 @@ it("renders native Inbox identifiers and presenter output without a per-tool ren
   expect(screen.getByText("sample.txt")).toBeInTheDocument();
   expect(screen.getByText("Frozen native result")).toBeInTheDocument();
 });
+
+it.each(['read', 'search', 'web', 'generic'])('keeps full %s result visible when its native card omits body text', card => {
+  render(<ToolDetailBody call={{id:'native',name:'custom',input:{},status:'completed',output:'Short summary',detail:{native_call:{card:'generic',title:'Operation'},native_view:{card},content:'Complete result body'}}}/>);
+  expect(screen.getByText('Complete result body')).toBeVisible();
+  expect(screen.queryByText('Short summary')).not.toBeInTheDocument();
+});

@@ -32,6 +32,7 @@ it('preserves native presenter output and actual child identity across configura
     await client!.rpc.request('session.submit',{sessionId:'view',inputId:'launch',mode:'followup',content:[{type:'text',text:'launch'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'launch'}});
     await expect.poll(async()=> (await client!.rpc.request('session.lookup',{sessionId:'view',inputId:'launch'}) as any).terminal,{timeout:15000}).toMatchObject({kind:'completed'});
     const observe=async()=> (await client!.rpc.request('session.observe',{sessionId:'view'}) as any).events as any[];
+    expect((await observe()).find(e=>e.type==='tool/call' && e.data.callId==='read-call')?.data.nanoToolView.call.title).toContain('sample.txt');
     const views=(await observe()).filter(e=>e.data.nanoToolView).map(e=>e.data.nanoToolView);
     expect(JSON.stringify(views),JSON.stringify(await observe())).toContain('PERSISTED_CONTENT');
     const child=views.find(e=>e.callId==='child-call')?.childSessionId;

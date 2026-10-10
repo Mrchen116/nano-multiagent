@@ -18,24 +18,27 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
   return result;
 }
 
+type NativeToolView = {call?: Record<string, unknown>; result?: Record<string, unknown>; childSessionId?: string};
+
 /** Project durable tool events using their original names and stable call identity. */
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
   const data = event.data;
   if (event.type === 'tool/call') return {
-    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: bashSummary(data.name, argumentsObject(data.arguments)), ...workflowDetail(data.name,argumentsObject(data.arguments)),
+    id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
     const call = events.find(item => item.type === 'tool/call' && item.data.callId === message.toolCallId);
     if (!call) return undefined;
     const output = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('');
-    const view = data.nanoToolView as {call?: unknown; result?: unknown; childSessionId?: string} | undefined;
+    const view = data.nanoToolView as NativeToolView | undefined;
     let detail: Record<string, unknown> | undefined;
     try { const parsed = JSON.parse(output); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed; } catch { /* Plain native output remains displayable as text. */ }
     if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId};
+    else if (!detail) detail = {content: output, native_view: {card: 'generic', content: message.content}};
     return { id: message.toolCallId, name: call.data.name, input: argumentsObject(call.data.arguments),
       status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
-      output: bashSummary(call.data.name, argumentsObject(call.data.arguments)) ?? output, ...(detail ? {detail} : {}),
+      output: toolSummary(call.data.name, argumentsObject(call.data.arguments), view, output, message.isError), ...(detail ? {detail} : {}),
       ...workflowDetail(call.data.name,argumentsObject(call.data.arguments),message.content.filter(block=>block.type==='text').map(block=>block.text??'').join(''),message.isError),
     };
   }
@@ -45,6 +48,15 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
 function bashSummary(name: unknown, input: Record<string, unknown>): string | undefined {
   if (name !== 'bash') return undefined;
   const summary = String(input.description ?? '').trim() || String(input.command ?? '').split('\n')[0]!;
+  return summary.length > 80 ? summary.slice(0, 77) + '...' : summary;
+}
+/** Card headers describe the operation; complete results remain in native detail. */
+function toolSummary(name: unknown, input: Record<string, unknown>, view?: NativeToolView, output?: string, failed = false): string {
+  const bash = bashSummary(name, input); if (bash !== undefined) return bash;
+  const result = view?.result, call = view?.call;
+  const short = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  let summary = short(result?.title) || short(call?.description) || short(input.description) || short(call?.title);
+  if (!summary) summary = failed ? 'failed' : output ?? JSON.stringify(input);
   return summary.length > 80 ? summary.slice(0, 77) + '...' : summary;
 }
 function workflowDetail(name:unknown,input:Record<string,unknown>,output?:string,error?:boolean) {

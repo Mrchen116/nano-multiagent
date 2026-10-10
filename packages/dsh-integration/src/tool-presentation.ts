@@ -15,6 +15,18 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
   const domain = ctx.storageDomain.open(spec);
   let writes = Promise.resolve();
   ctx.effect(() => async () => {await writes; await (await domain).close();});
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (exec.agent?.session.header.agentPreset?.startsWith('nano:')) {
+      const call = ctx.tools.get(exec.name, exec.agent)?.presentCall?.(exec.arguments);
+      if (call) {
+        const key = keyOf(exec.agent.id, exec.callId);
+        const snapshot = JSON.parse(JSON.stringify({callId: exec.callId, call}));
+        writes = writes.then(async () => {await (await domain).table('calls').put(key, snapshot);});
+        await writes;
+      }
+    }
+    return next();
+  }, {prepend: true});
   ctx.on('tools/result', (exec, result) => {
     if (!exec.agent?.session.header.agentPreset?.startsWith('nano:')) return;
     const definition = ctx.tools.get(exec.name, exec.agent);
@@ -37,9 +49,12 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
     await writes;
     const table = (await domain).table('calls');
     return events.map(event => {
-      if (event.type !== 'tool/result') return event;
-      const view = table.get(keyOf(sessionId, event.data.message.toolCallId));
-      return view ? {...event, data:{...event.data, nanoToolView:view}} : event;
+      if (event.type !== 'tool/result' && event.type !== 'tool/call') return event;
+      const callId = event.type === 'tool/call' ? event.data.callId : event.data.message.toolCallId;
+      const view = table.get(keyOf(sessionId, callId));
+      if (!view) return event;
+      if (event.type === 'tool/call') return {...event, data:{...event.data, nanoToolView:view}};
+      return {...event, data:{...event.data, nanoToolView:view}};
     });
   };
 }

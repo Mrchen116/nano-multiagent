@@ -64,3 +64,27 @@ it.each(['List available commands', ''])('keeps Bash descriptions and command ou
   expect(toolPresentation(call, [call])?.output).toBe(description || command);
   expect(toolPresentation(result, [call, result])).toMatchObject({output: description || command, detail: {content: output, native_view: native}});
 });
+
+it.each([
+  ['read', {file_path: 'report.md'}, 'Read report.md', {card: 'read', path: 'report.md'}],
+  ['write', {file_path: 'report.md'}, 'Write report.md', {card: 'diff', diffs: []}],
+  ['edit', {file_path: 'report.md'}, 'Edit report.md', {card: 'diff', diffs: []}],
+  ['grep', {pattern: 'report'}, 'Search report', {card: 'search', shape: 'matches', matches: [], total: 0}],
+  ['web_fetch', {url: 'https://example.com'}, 'Fetch example.com', {card: 'web', kind: 'fetch', url: 'https://example.com', statusCode: 200}],
+  ['subagent', {description: 'Research topic'}, 'Research topic', {card: 'generic'}],
+  ['custom', {}, 'Owner tool summary', {card: 'generic'}],
+] as const)('preserves %s presenter summaries separately from full detail', (name, input, title, native) => {
+  const output = 'FULL_RESULT\n'.repeat(100);
+  const call = {seq: 1, time: 1, type: 'tool/call', data: {callId: 'c', name, arguments: JSON.stringify(input), nanoToolView: {call: {card: 'generic', title}}}};
+  const result = {seq: 2, time: 2, type: 'tool/result', data: {message: {toolCallId: 'c', content: [{type: 'text', text: output}]}, nanoToolView: {call: {card: 'generic', title}, result: native}}};
+  expect(toolPresentation(call, [call])?.output).toBe(title);
+  expect(toolPresentation(result, [call, result])).toMatchObject({output: title, detail: {content: output, native_view: native}});
+});
+
+it('bounds presenter-less summaries without losing their complete output', () => {
+  const output = 'Custom tool output\n'.repeat(100);
+  const call = {seq: 1, time: 1, type: 'tool/call', data: {callId: 'c', name: 'custom', arguments: '{}'}};
+  const result = {seq: 2, time: 2, type: 'tool/result', data: {message: {toolCallId: 'c', content: [{type: 'text', text: output}]}}};
+  expect(toolPresentation(result, [call, result])?.output).toHaveLength(80);
+  expect(toolPresentation(result, [call, result])?.detail).toMatchObject({content: output});
+});
