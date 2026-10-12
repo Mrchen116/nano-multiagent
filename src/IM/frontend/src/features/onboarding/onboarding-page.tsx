@@ -60,7 +60,7 @@ export function OnboardingPage() {
   const configured = !!setup.data?.default_model && setup.data.models.some(m => m.model === setup.data?.default_model);
   const existingAgent = state.data?.agents.find(a => a.agent_id === candidateId) ?? state.data?.agents[0];
   const suggestedStep = node?.status !== 'online' ? 0 : existingAgent ? 3 : configured ? 2 : 1;
-  const step = viewStep ?? suggestedStep;
+  const step = node?.status !== 'online' ? 0 : viewStep ?? suggestedStep;
   const operation = setup.data?.operation;
   const working = operation?.state === 'waiting' || operation?.state === 'testing';
   const mutation = useMutation({ mutationFn: (input: SetupInput) => setupNode(currentNodeId!, input), onSuccess: result => { cache.setQueryData(['node-setup', user.id, currentNodeId], result); } });

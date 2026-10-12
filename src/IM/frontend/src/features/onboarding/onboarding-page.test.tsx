@@ -16,9 +16,9 @@ vi.mock('../chat/chat-api');
 const computer = { node_id: 'device', node_name: 'My computer', alias: null, status: 'online' };
 const install = { available: true, origin: 'https://nano.example', command: 'install Nano', script_url: 'https://nano.example/install.sh' };
 const modelStatus = { models: [], catalog: [], discovered: { codex: false }, default_model: '', workspace_base: '/my-workspaces' };
-function mount() {
+function mount(cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
  const router = createMemoryRouter([{ path: '/onboarding', element: <OnboardingPage /> }, { path: '/chat/:id', element: <p>Chat opened</p> }], { initialEntries: ['/onboarding'] });
- render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>);
+ render(<QueryClientProvider client={cache}><RouterProvider router={router} /></QueryClientProvider>);
  return router;
 }
 beforeEach(() => {
@@ -82,4 +82,21 @@ it('returns to computer recovery when an already-created assistant is offline', 
  await screen.findByRole('heading', {name: 'Connect your computer'});
  expect(screen.queryByRole('heading', {name: 'Assistant is ready'})).not.toBeInTheDocument();
  expect(screen.getByText(/Run the command on that computer again/)).toBeInTheDocument();
+});
+
+it('switches from freshly created ready state to recovery when the same open page loses its computer', async () => {
+ const cache = new QueryClient({defaultOptions: {queries: {retry: false}}});
+ const ready = {nodes: [computer], agents: [{agent_id: 'a', display_name: 'Created assistant', node_id: 'device', default_model: 'm', workspace_root: '/a', work_mode: 'global'}], install};
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model: 'm', models: [{provider: 'p', model: 'm'}]});
+ vi.mocked(getNodeCreateState).mockResolvedValue({capabilities: {tools: [], features: []}} as never);
+ vi.mocked(createNodeAgent).mockImplementation(async () => {vi.mocked(getOnboarding).mockResolvedValue(ready); return {} as never;});
+ mount(cache);
+ const create = await screen.findByRole('button', {name: 'Create my assistant →'});
+ await waitFor(() => expect(create).toBeEnabled());
+ await userEvent.click(create);
+ await screen.findByRole('heading', {name: 'Created assistant is ready'});
+ vi.mocked(getOnboarding).mockResolvedValue({...ready, nodes: [{...computer, status: 'offline'}]});
+ await cache.invalidateQueries({queryKey: ['onboarding', TEST_AUTH_USER.id]});
+ await screen.findByRole('heading', {name: 'Connect your computer'});
+ expect(screen.queryByRole('button', {name: 'Start your first task →'})).not.toBeInTheDocument();
 });

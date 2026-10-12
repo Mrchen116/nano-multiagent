@@ -36,7 +36,7 @@ export class Work {
     if (!r) fail(404, "scope_not_allowed");
     return { ...JSON.parse(r.payload), ...r };
   }
-  register(root: string, session: string, node: string, p: Row) {
+  register(root: string, session: string, node: string, p: Row, metadataOnly = false) {
     if (!["global_main", "subagent", "workflow", "cron"].includes(p.scope))
       fail(400, "invalid_scope");
     if (["subagent", "workflow"].includes(p.scope)) this.session(root, p.parent_session_id);
@@ -61,7 +61,9 @@ export class Work {
       .prepare(
         "INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET payload=excluded.payload",
       )
-      .run(session, root, node, p.scope, p.parent_session_id ?? null, JSON.stringify(p));
+      .run(session, root, node, p.scope, p.parent_session_id ?? null, metadataOnly
+        ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
+        : JSON.stringify(p));
   }
   append(node: string, p: Row): Row {
     let through =
@@ -114,22 +116,23 @@ export class Work {
             fail(409, "event_identity_conflict");
           continue;
         }
-        // Revoked work is acknowledged without storing content, so other Agents
-        // sharing this node journal can continue. Never replay a discarded event.
+        // Revoked content is never replayed. Keep only session identities so a
+        // later authorized owner can continue the same shared journal.
         if (e.seq <= through) continue;
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
-        if (!agentAvailable(this.db, profile)) { through = e.seq; continue; }
+        const available = agentAvailable(this.db, profile);
         if (e.type === "session_registered")
-          this.register(e.root_agent_id, e.session_id, node, e.payload);
-        else this.session(e.root_agent_id, e.session_id);
+          this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
         if (e.type === "session_linked") {
           if (e.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");
           this.register(e.root_agent_id, e.payload.child_session_id, node, {
             ...e.payload,
             scope: e.payload.workflow_run_id ? "workflow" : "subagent",
             parent_session_id: e.session_id,
-          });
+          }, !available);
         }
+        if (!available) { through = e.seq; continue; }
         const result = this.db
           .prepare(
             "INSERT INTO agent_work_events(node_id,journal_id,seq,event_id,root_agent_id,session_id,turn_id,type,observed_at,payload) VALUES(?,?,?,?,?,?,?,?,?,?)",

@@ -142,9 +142,28 @@ it('acknowledges revoked company work without blocking the shared private journa
   const batch = {journal_id: 'mixed', from_seq: 1, events};
   expect(app.im.gateway.work.append('mixed-private', batch).through_seq).toBe(2);
   expect(db.prepare('SELECT root_agent_id FROM agent_work_events').all()).toEqual([{root_agent_id: 'mixed-private'}]);
-  expect(db.prepare('SELECT root_agent_id FROM agent_work_sessions').all()).toEqual([{root_agent_id: 'mixed-private'}]);
+  expect(db.prepare("SELECT payload FROM agent_work_sessions WHERE root_agent_id='mixed-company'").get()).toEqual({payload: JSON.stringify({scope: 'global_main', parent_session_id: null})});
   db.prepare("UPDATE users SET membership_status='active' WHERE id=?").run(owner.user.id);
   expect(app.im.gateway.work.append('mixed-private', batch).through_seq).toBe(2);
   expect(db.prepare('SELECT root_agent_id FROM agent_work_events').all()).toEqual([{root_agent_id: 'mixed-private'}]);
   expect(() => app.im.gateway.work.append('mixed-private', {...batch, events: [{...events[0], root_agent_id: 'unknown'}]})).toThrow();
+});
+
+it('resumes both spaces after a revoked mixed node is handed to an approved owner', async () => {
+  const {app, db, register} = await fixture();
+  const before = await register('handoff-old'), after = await register('handoff-new');
+  agent(db, 'handoff-private', before.user.id, `personal:${before.user.id}`);
+  agent(db, 'handoff-company', before.user.id, 'company:default');
+  db.prepare("UPDATE agent_profiles SET node_id='handoff-private' WHERE agent_id='handoff-company'").run();
+  db.prepare("UPDATE users SET membership_status='suspended' WHERE id=?").run(before.user.id);
+  const registrations = ['handoff-company', 'handoff-private'].map((root, i) => ({seq:i+1,event_id:root,root_agent_id:root,session_id:root,type:'session_registered',payload:{scope:'global_main',title:'revoked private content'}}));
+  expect(app.im.gateway.work.append('handoff-private', {journal_id:'handoff',from_seq:1,events:registrations}).through_seq).toBe(2);
+  db.prepare("UPDATE users SET membership_status='active' WHERE id=?").run(after.user.id);
+  db.prepare("UPDATE nodes SET owner_id=? WHERE node_id='handoff-private'").run(after.user.id);
+  db.prepare("UPDATE agent_profiles SET owner_id=? WHERE node_id='handoff-private'").run(after.user.id);
+  db.prepare("UPDATE agent_profiles SET space_id=? WHERE agent_id='handoff-private'").run(`personal:${after.user.id}`);
+  const turns = registrations.map((e, i) => ({...e,seq:i+3,event_id:`turn-${e.event_id}`,turn_id:'new-turn',type:'turn_started',payload:{model:'m'}}));
+  expect(app.im.gateway.work.append('handoff-private', {journal_id:'handoff',from_seq:3,events:turns}).through_seq).toBe(4);
+  expect(db.prepare('SELECT root_agent_id FROM agent_work_events WHERE seq>=3 ORDER BY seq').all()).toEqual([{root_agent_id:'handoff-company'},{root_agent_id:'handoff-private'}]);
+  expect(db.prepare("SELECT payload FROM agent_work_sessions WHERE root_agent_id='handoff-company'").get()?.payload).not.toContain('revoked private content');
 });
