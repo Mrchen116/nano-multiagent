@@ -166,3 +166,35 @@ Scenario 来源仍为本 unit `spec.md`；未受改动影响的项引用 R1 连�
 需在新的冻结版本复验 #4：本人正常保存私人任务无需同意公司共享，实际保存成功，私人任务对其他账号继续不可读。若 caller 修复持续停留向导时的离线优先级，应同时补验“创建后不刷新、电脑掉线→恢复命令→同助手恢复”。
 
 上层文档同步要求沿用 R1。两个 reviewer 节点均已通过各自安装 CLI stop 返回 STOPPED；保留数据供后续复验。没有停止 caller 的 IM 或录像服务。
+
+---
+
+# Round 3 · targeted · 2026-10-13
+
+> validated_at: `b1a70198cfbe720b7fabcc56e87c84186cc87e10`（源码修复 `07f55e714`）；executed_base: `b70d4a7bd80b4424fea430e507390c5dde7c0a05`。
+
+## Verdict
+
+**fail：1 项新增 major 阻塞（#5）。** R2 #4 私人任务误报公司共享已关闭；同页不刷新掉线恢复也通过。普通请求现在确实保存成功，但助手未把结果送回原聊天，用户只在 Work 才能看到完成文本，S10 首次工作交付仍失败。
+
+## 冻结环境与连续旅程
+
+IM/Web 固定 `18490`，安装版本 `b1a70198cfbe`、release `2190800dd654053c2552ba52357382fa3ed716939b179fddf6a9b10ac0e483a3`。独立 reviewer 在原 `computer-r2` 安装根重跑页面命令，保留 `review-private` 的电脑、模型与 `assistant-245ccec4`。日志 `.dsh-runtime/review/installer-r3.log`、`installer-r3-reconnect.log`。
+
+1. 在已创建助手的 ready 页面保持不刷新，停止该安装根节点；页面自动回到 Connect computer，显示 Offline、重跑命令及身份/文件保留说明。再运行同一安装命令，页面自动恢复“恢复验证助手 is ready”，同一个助手继续进入会话 `c_rprqeogj`。1280×900 实际截图已目视核对，恢复动作明确可达。
+2. 在该助手尚无历史消息的新会话正常发送：“请把我的私人学习计划保存成任务，标题是‘私人学习计划-R3’。目标是本周了解两种笔记方法。两步即可：先比较大纲笔记与卡片笔记，再整理适用场景。请直接保存，不必先追问。”没有同意公司共享或提示绕过权限。
+3. 任务页真实出现 `tg_021a12df`，owner 为 `assistant-245ccec4`，Revision 2，包含所需两步及依赖。本人可查看；既有团队成员 `review-colleague` 和另一私人助手所有者 `review-new` 直接访问相同任务 URL 均被拒绝。
+4. 返回原聊天后没有助手消息。独立进入该助手 Work，执行已于 01:39:05 完成：4 次工具调用只有 inbox 两次、task_graph 两次；Agent response 为“已保存任务图「私人学习计划-R3」，包含两步：先比较大纲笔记与卡片笔记，再整理适用场景。”没有 send_message 调用。该文本不能当作已送达聊天的回复。
+
+## 问题与覆盖变化
+
+| 项目 | 结果 | 证据与影响 |
+|---|---|---|
+| R2 #4 / S1 私人任务保存 | closed / pass | 普通私人保存请求直接成功，未再声称公司共享；本人可读且两名其他账号不可读。 |
+| S5 / S11 同页掉线与恢复 | pass | 全过程无刷新或重新导航：ready → Offline + 命令 → 同助手 ready。 |
+| 新 #5 / S10 真实结果交付 | **major / fail** | 任务成功而原聊天无结果；Work 已完成且有最终文本，但没有消息送达。用户从聊天发起后无法获知完成，需要自行翻查 Tasks / Work。Caller确认这是本unit首用交付阻塞。 |
+| S2–S4、S6–S9、S12 | pass（沿用） | R1/R2 未受本轮修复影响的真实证据继续有效；不重复无关矩阵。 |
+
+本轮截图均在本地 `output/playwright/review-587-r3-*.png`：`live-offline`、`live-recovered`、`private-task-saved`、`work-undelivered`、`team-denied`、`other-owner-denied`。聊天未交付通过返回 `c_rprqeogj` 的实际 snapshot 核对；展开的 Work snapshot 保存在 `.playwright-cli/page-2026-10-12T17-41-13-439Z.yml`。以工具调用与界面实况为准，不读取实现解释根因。
+
+上层文档同步要求沿用 R1。下一轮只需普通私人任务请求→真实保存→结果回到原聊天的闭环，不用用户额外指定 send_message。reviewer 的 `computer-r2` 节点已 stop 返回 STOPPED；原 `computer` 节点本轮未启动。IM 与数据留给 caller。
