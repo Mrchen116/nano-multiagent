@@ -198,3 +198,41 @@ IM/Web 固定 `18490`，安装版本 `b1a70198cfbe`、release `2190800dd654053c2
 本轮截图均在本地 `output/playwright/review-587-r3-*.png`：`live-offline`、`live-recovered`、`private-task-saved`、`work-undelivered`、`team-denied`、`other-owner-denied`。聊天未交付通过返回 `c_rprqeogj` 的实际 snapshot 核对；展开的 Work snapshot 保存在 `.playwright-cli/page-2026-10-12T17-41-13-439Z.yml`。以工具调用与界面实况为准，不读取实现解释根因。
 
 上层文档同步要求沿用 R1。下一轮只需普通私人任务请求→真实保存→结果回到原聊天的闭环，不用用户额外指定 send_message。reviewer 的 `computer-r2` 节点已 stop 返回 STOPPED；原 `computer` 节点本轮未启动。IM 与数据留给 caller。
+
+---
+
+# Round 4 · targeted · 2026-10-13
+
+> validated_at: `f881314a469e97178cd91e59a308c0d3625404d9`；executed_base: `b70d4a7bd80b4424fea430e507390c5dde7c0a05`。
+
+## Verdict
+
+**pass，0 项未关闭阻塞。** R3 #5 已通过真实原聊天交付复验；结合前三轮保留证据，S1–S12 全部 pass。本轮只重验私人任务保存到原聊天交付，不把前轮结果伪称为本轮重新执行。
+
+## 冻结版本与实测结果
+
+- 固定 IM/Web `18490`，未重启 IM。原安装根 `computer-r2` 重跑同一安装命令，实际运行 release `17b2d8891d7df680c855a7ded017fa756336535ce447d19d70855decf89aa308` 的 CLI；进程 command 核对一致，日志 `.dsh-runtime/review/installer-r4.log`。
+- `review-private` 在原会话 `c_rprqeogj` 向同一个 `assistant-245ccec4` 普通请求保存“周末阅读计划-R4”，目标周末读完一篇技术文章，分阅读并摘录重点、写一段总结两步；未要求使用 send_message，未加入额外共享授权。
+- **原聊天实际收到助手消息**：“已保存「周末阅读计划-R4」，目标是周末读完一篇技术文章，分为两步：先阅读并摘录重点，再写一段总结。”消息显示助手身份、01:45 时间及 View Work 链接；不是输入框草稿或 Work 文本。
+- 再从真实 Tasks 入口核对 `tg_6bd77847`：标题、目标、两步及先后依赖一致，Revision 2，owner `assistant-245ccec4`。R3 任务也保留。`output/playwright/review-587-r4-chat-delivered.png` 与 `review-587-r4-task-saved.png` 已目视核对，1280×900 下聊天结果与任务结构清楚可读。
+
+## 最终 retained coverage
+
+| Scenario | 最终结果 | 实际来源 |
+|---|---|---|
+| S1 私人空间 | pass | R1注册/目录；R2私人Work及任务对象矩阵；R3正常私人保存且其他账号不可读 |
+| S2 团队批准 | pass | R1 pending→批准→目录并集，R2/R3批准不公开私人任务/Work |
+| S3 Agent安装 | pass | R1剪贴板prompt真实执行，R2–R4同命令真实升级 |
+| S4 手动安装 | pass | R1无预装Node实际安装，R2新根安装及网页绑定 |
+| S5 安装恢复与离线 | pass | R1部分安装/创建前恢复，R2冻结版本恢复，R3同页掉线→重跑→同助手 |
+| S6 已有模型复用 | pass | R2发现连接实测成功，返回已连接且可继续 |
+| S7 API配置 | pass | R1真实API验证/聊天、Key不回显，R2升级保留 |
+| S8 不可用连接 | pass | R1失败提示、禁止继续、修正恢复、OAuth取消 |
+| S9 少量输入创建 | pass | R1用途/默认值/真实创建，R2真实网络失败保留字段后重试成功且不重复 |
+| S10 完成第一件事 | pass | R1真实研究回复及追问；R4普通私人任务请求→实际任务→原聊天收到结果 |
+| S11 刷新与恢复 | pass | R1/R2重进保留助手/模型/会话，R3持续页面真实离线恢复 |
+| S12 旧用户与窄屏 | pass | R1旧用户直接聊天、1280/768/390中英文代表状态，R2窄屏创建失败/恢复 |
+
+R1–R3 must-match 原型对照和创建失败证据保留，未受本轮通信提示修改影响。R1 #1/#2、R2 #4、R3 #5 均关闭；R1 #3 已明确为真实上游执行失败，未当作无回复证据。上层文档同步责任沿用 R1，由 caller 收口。
+
+reviewer 节点已通过本轮 release CLI stop，返回 STOPPED；另一个 reviewer 节点未启动。保留 IM、账号、任务、会话与截图供 caller 收尾；只提交本报告，不改实现、不 push。
