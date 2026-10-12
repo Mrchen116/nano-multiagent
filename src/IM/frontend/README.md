@@ -32,7 +32,7 @@
 终端 A（启动 IM 服务）：
 
 ```bash
-PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port 8001
+pnpm im serve --host 127.0.0.1 --port 8001
 ```
 
 终端 B（启动前端 dev server）：

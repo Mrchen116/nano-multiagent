@@ -30,6 +30,7 @@ from ._im_client import IMClient
 def test_failed_subagent_isolated_from_main_process(im_user: IMClient) -> None:
     """子 agent 失败被隔离:父 agent 不崩、Gateway 存活、后续消息仍正常处理。"""
     agent_id = im_user.first_agent_id()
+    im_user.update_agent_config(agent_id, tool_allowlist=["subagent", "bash"])
     conversation_id = im_user.create_direct_conversation(agent_id)
 
     ws = im_user.connect_ws()
@@ -38,7 +39,7 @@ def test_failed_subagent_isolated_from_main_process(im_user: IMClient) -> None:
         #    它无论如何完不成 → 子 agent 任务以失败收场。父 agent 仍应给出一条回复(没崩)。
         im_user.send_message(
             conversation_id,
-            "请用 agent 工具派一个前台子 agent，要求它运行命令 `bash -c 'exit 7'` "
+            "请用 subagent 工具并设置 run_in_background=false 派一个前台子 agent，要求它运行命令 `bash -c 'exit 7'` "
             "并且必须让这条命令成功返回 0；只有命令成功了才算完成任务。"
             "（这条命令注定会失败——我就是要观察一个失败的子 agent 任务。）"
             "等子 agent 结束后，简短告诉我结果。",

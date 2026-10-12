@@ -1,15 +1,15 @@
 # AGENTS.md
 
-nano-multiagent 是一个同时支持终端 Coding Agent 和多渠道个人助手的 Python 多模型 Agent 项目。`agent` 提供进程内内核，`coding_cli` 和 `personal_assistant` 是两个产品入口，`IM` 提供独立中心服务与 Web 客户端。产品使用入口见 [README.md](README.md)，完整跨包架构见 [SPEC.md](SPEC.md)。
+nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`apps/node` 管理用户节点，`packages/personal-assistant` 持有产品路由与交付，`apps/im-server` 提供独立中心服务，Web/原生 iOS 客户端保留在 `src/IM/`。产品入口见 [README.md](README.md)，跨包架构见 [SPEC.md](SPEC.md)。
 
 ## 架构红线
 
-- `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，不得 import `agent.core` / `agent.platform` 内部。
-- `IM` 不调用 `agent`；`coding_cli`、`personal_assistant`、`IM` 三者之间不得相互 import。
-- 内核依赖方向是 `platform → core`、`sdk → core + platform`；`core` 不依赖 `platform`。
-- 内核是库，不恢复独立 HTTP server、旧 `--mode managed/remote` 或相关 HTTP CLI 子命令。
+- 只有 `packages/dsh-integration` 可以 import 已声明依赖的 DSH 公开 exports；不得修改上游源码、添加 fork/patch 或 private import。
+- `apps/node` 仅通过 `@nano/dsh-integration/client` 管理执行子进程；PA/Channels/IM 不 import DSH。
+- PA 可依赖 Channels 与 product-contracts；Channels、IM 仅依赖 product-contracts；禁止跨包相对路径绕过边界。
+- 不恢复旧 Python Kernel、Coding CLI 或第二套 Agent Loop。节点与 DSH 用 stdio 通信，不新增内核 HTTP 服务。
 
-这些边界由 `tests/contract/` 自动验收；详细职责、部署拓扑和例外裁决只写在 [SPEC.md](SPEC.md)。
+这些边界由 [runtime dependency contract](tests/contract/test_runtime_dependency_contract.py) 自动验收；职责、部署拓扑和例外裁决只写在 [SPEC.md](SPEC.md)。
 
 ## 开工路由
 

@@ -13,109 +13,64 @@ heartbeat 与 cron 两套本地主动机制的 per-agent 开关、调度和错�
 
 ### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
 
-Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本地调度(IM 服务不作调度源),各自由 IM 配置页上一个 per-agent 开关启停(配置经 IM→Gateway 同步生效):
+Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活跃时段、忙时跳过和无事静默行为。Cron采用原生定时工具，在创建它的主会话中到期执行并沿用上下文，不为每个任务或每次运行建立独立会话。两者各受对应Agent开关控制；IM不是调度源。
 
-- **Heartbeat**:周期性"带上下文"唤醒。单 Thread 模式携带该 Agent 与 owner 的 canonical 直聊上下文；全局模式携带该 Agent 的持续主工作上下文。**顶层节律 (多久唤醒一次)来自 agent 配置 `heartbeat.every`(未配置默认 30m),不来自 HEARTBEAT.md**; `<workspace_root>/.nanoassistant/HEARTBEAT.md`(Agent 可经对话自管写入)承载任务内容:freeform 任务清单 + 可选 `tasks:` 块的 per-task 独立频率子节律。活跃时段(activeHours)限制来自配置;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
-- **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管 (注册/查看/删除)。结果文本按既有明确投递策略回发；单 Thread 的 awareness 保存在 owner canonical 直聊，全局模式保存在主工作上下文。用户可就该结果追问，Agent 记得自己汇报过什么。
+#### Scenario: 原主对话到期执行
+- **GIVEN** 主Agent在single_thread聊天或global主工作会话创建定时任务
+- **WHEN** 任务到期
+- **THEN** 定时输入进入创建它的同一会话并沿用上下文；结果按该模式的产品发言/路由规则交付，后续可追问。
+- **AND** 不把旧隔离上下文的结果再次回灌到主会话。
 
-两套机制**均不补跑积压**:停机/空闲错过多个周期后,恢复只推进到最近一次边界触发一次(不刷屏回填); 已过期的一次性(`at`)任务恢复后不补跑。
+#### Scenario: 主对话重启后继续定时任务
+- **WHEN** 节点恢复一个有待触发任务的主会话
+- **THEN** 任务使用该数字人的有效模型、工具、Skill、身份与审批规则执行，不因冷恢复退回默认配置。
 
-Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Kernel 提交、IM 投递、运行历史和 canonical-session awareness;手动触发只改变触发时机并立即返回入队确认。手动触发请求按发起请求的 Agent 身份路由——多 Agent 并存、Agent 在运行期新建、或请求来自 heartbeat / cron 隔离会话时均路由到正确 Agent,互不串扰。运行历史必须区分 trigger,记录 accepted/running/terminal 状态、Kernel run、目标会话、结果或错误;仅有最近一次调度时间不构成运行历史。Gateway 关闭时已入队的 cron 投递在 IM 连接关闭前完成收拢。
+#### Scenario: 未启用的Agent两套机制都不跑
+- **GIVEN** 某Agent的Heartbeat与Cron开关均关闭
+- **WHEN** 调度tick或手动运行请求到达
+- **THEN** 不创建对应运行，手动运行得到明确不可用结果；重新启用按各自错过时间规则恢复。
 
-以下既有 Scenario 中按 owner canonical 直聊冒泡、结果投递和追问的规则适用于 `single_thread`；global 的主上下文及独立 Cron 归属见文末两个全局场景。开关、节律、幂等、触发历史和配置同步规则适用于两种模式。
+#### Scenario: 配置与任务管理即时生效
+- **WHEN** 用户通过既有配置入口启停主动能力，或主Agent通过原生定时工具创建、查看、更新和删除任务
+- **THEN** 管理结果反映实际生效状态，其他Agent任务不受影响；删除停止未来触发，已入队输入不被冒充撤回。
 
-#### Scenario: 未启用的 Agent 两套机制都不跑
-- **GIVEN** 某 Agent 的 heartbeat 与 cron 开关均关闭
-- **WHEN** 调度器周期 tick 或工具运行发生
-- **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行,cron 工具不获得可用手动运行能力
-
-#### Scenario: 手动运行已有 cron 任务立即入队
-- **GIVEN** 某 Agent 已启用 cron,且 workspace 中存在目标 job
-- **WHEN** Agent 的 cron 工具请求立即运行该 job
-- **THEN** Gateway 校验后接管请求,工具立即返回 accepted 与请求标识,不等待模型任务执行完成
-
-#### Scenario: 手动 cron 与定时 cron 使用同一执行语义
-- **WHEN** 手动入队的 cron job 执行完成
-- **THEN** 结果按该 job 原规则投递到目标会话、记录运行历史,并写入 canonical session awareness, 后续用户追问可引用该结果
-
-#### Scenario: 查询 cron 运行历史
-- **WHEN** Agent 查询某 job 的运行历史
-- **THEN** Gateway 返回手动和定时触发的最新结构化记录,包含触发来源、状态、时间、结果或错误, 不只返回 scheduler 的 `last_due_at`
-
-#### Scenario: 一次性任务入队后仍可执行
-- **WHEN** 启用 `deleteAfterRun` 的定时任务到期入队
-- **THEN** 任务定义保留到执行器成功提交 Kernel 后再删除，不会因提前删除而得到 `job_not_found`
-- **AND** 提交失败时保留任务供用户检查或手动重试
-
-#### Scenario: 手动运行未知或不可运行任务
-- **WHEN** cron 工具请求不存在或未启用的 job
-- **THEN** Gateway 在创建 isolated session 前拒绝请求并返回明确错误,不执行其他任务
-
-#### Scenario: Heartbeat 有内容时带上下文主动冒泡
-- **GIVEN** 某 Agent 的 heartbeat 已启用,且当前 tick 有可冒泡内容
-- **WHEN** 调度器到点触发该 Agent 的 heartbeat
-- **THEN** 在该 Agent 与 owner 的 canonical 直聊里像普通 Agent 消息一样发出,且能引用此前的对话上下文
-
-#### Scenario: Heartbeat 无可行动任务时安静跳过
-- **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可冒泡内容
-- **WHEN** 调度器到点触发该 Agent 的 heartbeat
-- **THEN** 不发任何用户可见消息(回 `HEARTBEAT_OK` 静默)
-
-#### Scenario: 活跃时段外不唤醒
-- **GIVEN** 某 Agent 的 heartbeat 配了 activeHours,当前时刻落在窗口外
-- **WHEN** 调度器周期 tick
-- **THEN** 不触发该 Agent 的 heartbeat,不打扰用户
-
-#### Scenario: 同一 Agent 多条 cron 任务各自按时触发
-- **GIVEN** 某 Agent 挂了多条不同节律的 cron 任务
-- **WHEN** 各任务到点
-- **THEN** 每条任务独立触发并把各自结果发回 canonical 直聊,互不干扰
+#### Scenario: 过期一次性任务恢复后补发
+- **GIVEN** 一次性提醒在节点停止期间到期
+- **WHEN** 服务恢复并成功恢复绑定主会话
+- **THEN** 按原生行为补发该提醒，不再采用旧的过期跳过策略。
 
 #### Scenario: 周期任务错过多个周期不刷屏回填
-- **GIVEN** 一个固定间隔的 heartbeat/cron 在 Gateway 停机或空闲期间错过了多个周期
-- **WHEN** 调度器恢复
-- **THEN** 只在最近一次边界触发一次,不为每个错过的周期各补跑一次
+- **WHEN** 节点恢复错过多个周期的任务
+- **THEN** 每个周期任务仅投递最近一次到期内容，不逐次补齐积压；同一主会话的到期周期任务可按原生方式合批。
 
-#### Scenario: 周期 Cron 指定未来起始时间
-- **GIVEN** 周期 Cron 设置了 `anchorMs` 起始时间
-- **WHEN** 起始时间尚未到达
-- **THEN** 定时 tick 不提前执行该任务，显式手动运行仍可执行
-- **AND** 到达起始时间后按该起点和间隔对齐，只触发最近一次尚未处理的周期
+#### Scenario: 立即运行与执行历史
+- **WHEN** 主Agent请求立即运行已有可用任务或查询其执行历史
+- **THEN** 手动运行返回接收结果并使用与到期触发相同的主会话与来源规则；历史区分手动/定时、接收/运行/终态、结果或错误，不以定时入队收据冒充执行成功。
+- **AND** 不存在或不可运行任务明确拒绝；一次性已入队任务仍可执行，失败如实记录，不执行另一条任务。
 
-#### Scenario: 过期的一次性任务不补跑
-- **GIVEN** 一个一次性(`at`)cron/heartbeat 的触发时刻在 Gateway 停机期间已过
-- **WHEN** Gateway 重启后调度器恢复
-- **THEN** 该任务被视为错过窗口、不补跑(已执行过的同样不重复)
+#### Scenario: 定时任务不获得实时人工同意
+- **WHEN** 定时输入在主会话中触发执行，或主会话此前正在等待人工确认
+- **THEN** 该输入仍是定时来源，不成为新的人类授权或待确认问题的回答；任务内工具照常接受Auto及无人值守规则约束。
 
-#### Scenario: Cron 汇报后用户追问,Agent 记得汇报内容
-- **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
-- **WHEN** 用户在该直聊就此结果追问
-- **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
+#### Scenario: 新会话不静默改绑旧安排
+- **WHEN** 用户在single_thread聊天创建新上下文
+- **THEN** 已有定时安排仍绑定创建时的会话，不静默迁移到新上下文；任务管理和结果仍有明确的原聊天归属。
 
-#### Scenario: Heartbeat 顶层节律由配置决定,忽略 HEARTBEAT.md 顶层 every
-- **GIVEN** 某 Agent 配置 `heartbeat.every=10m`,其 HEARTBEAT.md 顶层又写了 `every: 15s`
-- **WHEN** 调度器评估该 Agent 的 heartbeat 顶层节律
-- **THEN** 按 10m 触发;HEARTBEAT.md 顶层 `every:` 不生效(未配置则按默认 30m)
+#### Scenario: Heartbeat有事才在正确上下文冒泡
+- **WHEN** 已启用Heartbeat到点且助手空闲、处于活跃时段并有可行动任务
+- **THEN** single_thread使用owner canonical直聊上下文，global使用数字人主上下文处理，并按原规则反馈。
 
-#### Scenario: Agent 配置变更在活连接即时生效,无需重启 Gateway
-- **GIVEN** Gateway 与 IM 活连接,owner 在配置页关闭某 Agent 的 heartbeat
-- **WHEN** 该变更经 IM→Gateway 同步到达
-- **THEN** Gateway 无需重启,数个 tick 内停止该 Agent 的 heartbeat(enable/cadence 等配置变更同理即时生效)
+#### Scenario: Heartbeat忙碌、窗口外和无事静默
+- **WHEN** Heartbeat评估时助手正忙、处于activeHours外或没有可行动任务
+- **THEN** 跳过或以HEARTBEAT_OK静默，不生成用户可见噪声；错过多个周期不逐次补跑。
 
-#### Scenario: 断连期间的配置变更在重连对账时收敛
-- **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 enable / cadence(增量同步未送达)
-- **WHEN** Gateway 重连 IM 并完成全量对账
-- **THEN** 该 Agent 的调度行为收敛到 IM 当前真值
+#### Scenario: Heartbeat节律和任务内容来源不变
+- **WHEN** 配置声明顶层节律，HEARTBEAT文件声明任务及可选子节律
+- **THEN** 按配置顶层节律及activeHours运行，文件负责内容与任务子节律，文件顶层every不覆盖配置。
 
-#### Scenario: 全局模式周期唤醒
-- **GIVEN** Agent 使用全局模式并启用 Heartbeat
-- **WHEN** 一个有效 tick 到达
-- **THEN** 使用该 Agent 的持续主上下文，保留原节律、静默和错过周期规则；忙碌时跳过本 tick，不追加排队唤醒或另建并行主执行
-
-#### Scenario: 全局模式 Cron 仍隔离执行
-- **WHEN** 全局 Agent 的 cron 被定时或手动触发
-- **THEN** 保留独立执行上下文和明确结果投递，运行历史区分两种 trigger
-- **AND** 工作页可查看该独立执行，统计不混入主上下文；结果可在主上下文追问而不重复投递
+#### Scenario: 自动工作沿用模型备用策略
+- **WHEN** Heartbeat或Cron遇到主模型可用性失败，且尚未产生真实公开输出
+- **THEN** 沿用Agent有序备用链、粘性和切换说明；配置变化可重置，整链失败如实说明，不伪装执行成功。
 
 ### Requirement: 心跳与 cron 走该 Agent 同一条模型备用链
 
@@ -143,21 +98,19 @@ Heartbeat tick 与 cron 执行使用与人工聊天相同的主模型 + 有序�
 
 ### Requirement: 自动任务执行保留配置任务与实时人工同意的区别
 
-#### Scenario: Cron 触发后执行工具
-- **WHEN** 定时或原生 run 操作启动已保存的 Cron 任务
-- **THEN** 主模型及 Auto transcript 收到固定 CC scheduled 标记和完整说明；任务作为已配置任务执行，触发本身不是用户实时输入或新的人工同意。
+#### Scenario: Cron及手动运行的来源
+- **WHEN** 到期或立即运行启动已保存任务
+- **THEN** 主模型与Auto看到真实定时来源和任务说明；与真人同轮到达时各段来源分开，不因共用主会话成为实时人类输入。
 
-#### Scenario: Heartbeat 与后台通知
+#### Scenario: Heartbeat与后台通知
 - **WHEN** 周期唤醒、任务完成或失败信息进入会话
-- **THEN** 使用 CC 系统通知说明，不能充当待确认问题的回答；与真人同轮到达时各段保持来源。
+- **THEN** 它们不能充当待确认问题的回答；需要人工决定时按既有交互/无人值守分流处理。
 
-#### Scenario: 创建任务与任务内动作
-- **WHEN** Agent 管理产品内置 Cron 或执行任务内工具
-- **THEN** 审批取得调度操作的完整参数（包括实际 schedule/payload），不裁剪为摘要；调度操作使用已映射的 CC 例外，任务内动作继续走共享 Auto。
-- **AND** Cron 继续使用隔离 session，不因所属 Agent 为 global 就取得主会话交互选择；原无人值守 fallback、投递与不补跑行为不变。
+#### Scenario: 调度操作与任务内动作分别审核
+- **WHEN** Agent创建或更新定时安排，随后执行任务内工具
+- **THEN** 审批可取得实际调度参数和指令；任务内动作单独走共享Auto，定时安排本身不授权任意副作用。
 
-#### Scenario: 全局 Heartbeat 与普通全局运行区分交互
-- **WHEN** Heartbeat 复用全局主 session，且审批没有有效结论或达到拒绝阈值
-- **THEN** 仍按原无人值守 fallback 处理：显式 allow 可执行，默认/显式 deny 不执行，结果区分配置决定与模型判断
-- **AND** 提交前的共享 runtime 刷新保留全局主 session 的交互选择，但它不覆盖本次 Heartbeat 的实际自动入口；仅读取恢复绑定不重配忙碌运行。
-- **AND** 普通 global wake 与 global child 仍把未获准原因返回主 Agent；不能只凭 session 归属或 BACKGROUND_TASK 枚举混用这两类交互。
+#### Scenario: 全局Heartbeat与普通全局运行区分交互
+- **WHEN** Heartbeat复用global主会话，且审批无有效结论或达到拒绝阈值
+- **THEN** 仍按原无人值守fallback处理：显式allow可执行，默认或显式deny不执行，结果区分配置决定和模型判断。
+- **AND** 主会话的人工交互选择不覆盖本次自动来源；普通global wake和global child将未获准原因反馈主Agent，不能仅按session归属混用两类交互。

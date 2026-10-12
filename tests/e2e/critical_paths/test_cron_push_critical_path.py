@@ -46,30 +46,29 @@ def test_cron_job_auto_pushes_message(im_user: IMClient, e2e_stack: E2EStack) ->
         node_id,
         agent_id,
         display_name=agent_id,
-        custom_prompt="你是一个测试助手，会用 cron 工具按用户要求注册定时任务。",
+        custom_prompt="你是一个测试助手，会用 schedule_create 工具按用户要求注册定时任务。",
         default_model=e2e_stack.llm_model,
     )
-    # cron 工具仅在 features['cron_scheduling'] 开启时注册进 agent 工具集(product.py)。
-    im_user.update_agent_config(agent_id, features={"cron_scheduling": True})
-    # 注:PATCH 后 cron feature 同步到 gateway 的 live agent 配置是异步的,且无可观测的
-    # 「config 已热重载」就绪信号(ConfigSyncNotifier 不回 ack)。故此处不做伪等待——
-    # 若同步未及,下面让 agent 调 cron 工具那一轮会因工具缺失而表现异常,而 cron 推送本身
-    # 的 180s 宽窗(下方 poll)足以吸收同步延迟,是真正的 gate。
+    im_user.update_agent_config(
+        agent_id,
+        features={"cron_scheduling": True},
+        tool_allowlist=["schedule_create", "schedule_list", "schedule_cancel"],
+    )
 
     conversation_id = im_user.create_direct_conversation(agent_id)
     sentinel = "CRON" + secrets.token_hex(4).upper()
 
     im_user.send_message(
         conversation_id,
-        "请用 cron 工具注册一个定时任务："
-        "schedule 用 every 模式、间隔 5 秒（everyMs 设为 5000），"
-        f"任务内容（payload 的 message）是把这个 token 原样发出来：{sentinel}。"
-        "注册好后先回我一句确认。",
+        "请用 schedule_create 工具注册一个一次性定时任务："
+        'plan 为 {"kind":"after","afterSeconds":20}，'
+        f"任务内容（prompt）是把这个 token 原样发出来：{sentinel}。"
+        "注册好后先回复 REGISTERED，不要在确认中带任务 token。",
     )
 
     # 等注册完成(注册确认回复可能含哨兵 → 记为「已见」基线,后续只认更新的那条)。
     registration = im_user.wait_for_agent_reply_with(
-        conversation_id, sentinel, timeout=90.0
+        conversation_id, "REGISTERED", timeout=90.0
     )
     seen_before = _agent_msg_ids_with(im_user, conversation_id, sentinel)
     seen_before.add(registration["id"])

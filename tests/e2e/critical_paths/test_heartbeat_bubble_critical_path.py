@@ -26,12 +26,6 @@ from .conftest import E2EStack
 
 @pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason="产品 openclaw 心跳前缀 _OPENCLAW_HEARTBEAT_PROMPT glue 在 user message 触发 "
-    "K2.6 死反射，移 system role 即解（PoC 见 #126）；本 unit 只做测试不改产品；"
-    "tracked in #126",
-)
 def test_heartbeat_bubbles_actionable_message(
     im_user: IMClient, e2e_stack: E2EStack
 ) -> None:
@@ -48,11 +42,15 @@ def test_heartbeat_bubbles_actionable_message(
 
     # 建直聊(让心跳冒泡有归属对话;canonical 直聊由 owner+agent 唯一确定)。
     conversation_id = im_user.create_direct_conversation(agent_id)
+    im_user.send_message(conversation_id, "请回复 READY")
+    im_user.wait_for_agent_reply_with(conversation_id, "READY", timeout=90)
     sentinel = "HB" + secrets.token_hex(4).upper()
 
     # 写一份有实质可行动内容的 HEARTBEAT.md 到 agent workspace —— 空/仅标题会被
     # heartbeat_scheduler 判为「无内容」静默跳过(探查结论)。
-    workspace = os.path.join(e2e_stack.wt_dir, ".gateway-workspace", agent_id)
+    workspace = os.path.join(
+        e2e_stack.wt_dir, ".gateway-workspace", agent_id, ".nanoassistant"
+    )
     os.makedirs(workspace, exist_ok=True)
     with open(os.path.join(workspace, "HEARTBEAT.md"), "w") as f:
         f.write(f"每次心跳触发时，请主动在对话里把这个 token 原样发出来：{sentinel}\n")

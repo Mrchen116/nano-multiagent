@@ -72,7 +72,7 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 - **THEN** 该消息采用 provider create time，而不是本次补拉或触发发生的时间
 
 #### Scenario: 同一 shadow context 按逐消息实际入口标注
-- **GIVEN** 飞书聊天与 Web IM shadow conversation 共享同一 Kernel session
+- **GIVEN** 飞书聊天与 Web IM shadow conversation 共享同一 DSH session
 - **WHEN** 用户先从飞书发送消息，随后从 Web IM 继续
 - **THEN** Agent 看到前一条来自 `Feishu`、后一条来自 `Web IM`
 - **AND** 两条消息都不因 conversation 的外部来源属性而被标成同一入口
@@ -101,13 +101,13 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 #### Scenario: 非 PA 真人入口保持现状
 - **WHEN** Coding CLI、heartbeat、cron、subagent 或内部通知继续产生消息
 - **THEN** 它们不获得本 requirement 的 time/Channel envelope
-- **AND** Coding CLI 的 system prompt 与消息行为保持既有 bytes/semantics；heartbeat、cron、subagent 与内部通知保留各自已有的 message source/time 格式
+- **AND** 退役 Coding CLI 不再参与消息处理；heartbeat、cron、subagent 与内部通知保留各自的可信 message source/time 格式
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
 本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 Agent 身份解析与未知 Agent 拒绝适用于两种模式；global 的入站持久接受后交 Inbox，不预建等待主模型回复的聊天消息。
 
-任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策的窗口则完全豁免于 idle 看门狗超时。只有该轮收到 `permission_resolved` 或判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾。
+任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策同样依赖持续 liveness。只有判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾；`permission_resolved` 是审批结束事件，不是运行失活。
 
 #### Scenario: 直聊消息被默认 Agent 处理并把回复发回原通道
 - **GIVEN** 一个配置了至少一个 Agent 的 Gateway,且消息未显式指定 `agent_id`
@@ -142,13 +142,13 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 #### Scenario: 等人工权限决策期间不被 idle 看门狗误杀
 - **GIVEN** 某轮已发起一个需要授权的工具,正等待用户在权限卡片上决策
-- **WHEN** 等待时长超过判定窗口(即使用户离开、关闭 IM 页面、其间没有 liveness 心跳到达)
-- **THEN** 该轮不被 idle 看门狗取消;用户随后批准则工具正常执行、该轮继续推进,不报「relay idle for 120s」
-- **AND** 一旦用户做出决策、内核发出 `permission_resolved`,正常 idle 看门狗立即恢复,决策后的卡死/断连仍会被捕获
+- **WHEN** 用户离开或关闭页面，但运行时仍持续发出该轮的 liveness 心跳
+- **THEN** 该轮不被 idle 看门狗取消；用户随后批准则工具正常执行
+- **AND** 审批等待与其他执行阶段使用同一 liveness 判据；运行时死亡、断连或心跳停止仍会超时，不因一张旧权限卡永久免检
 
 #### Scenario: 路由到未知 Agent 被拒
 - **WHEN** 入站消息显式指定一个 Gateway 未注册的 `agent_id`
-- **THEN** Gateway 拒绝该路由(抛 `LookupError`),不创建会话也不执行
+- **THEN** Gateway 拒绝该路由(返回明确错误),不创建会话也不执行
 
 #### Scenario: 同群跨账号输入保持真实身份
 - **GIVEN** 不同账号与该 Gateway 的 Agent 共同参与一个 IM 群
@@ -159,17 +159,17 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 global 未摄取正文留在持久 Inbox，恢复其信号与主上下文，不创建按原聊天自动投递的恢复 batch。
 
-Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通消息，必须在 Kernel 给出可验证的恢复 batch 后继续由原聊天交付；恢复的最终文本一次发送，已接受消息各自只收到一次 terminal delivery status。
+Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通消息，必须在 执行运行时给出可验证的恢复 batch 后继续由原聊天交付；恢复的最终文本一次发送，已接受消息各自只收到一次 terminal delivery status。
 
 #### Scenario: 真中断前已接收的插话由同一聊天继续交付
 - **GIVEN** Agent 的当前 run 确实因非用户原因终止，且 Gateway 已接受一条尚未进入模型上下文的普通消息
-- **WHEN** Kernel 创建并结算该消息的关联恢复 batch
+- **WHEN** 执行运行时创建并结算该消息的关联恢复 batch
 - **THEN** Gateway 在原聊天接收恢复 run 的结果并一次完成该普通消息
 - **AND** 用户不必重发，也不会收到超时或重复回复
 
 #### Scenario: 无法验证或无法创建恢复 batch 时明确收口
 - **GIVEN** Gateway 正在等待已接受普通消息的恢复 batch
-- **WHEN** Kernel 明确结算为无 successor/无法恢复，或后继 descriptor 与已接受消息不匹配
+- **WHEN** 执行运行时明确结算为无 successor/无法恢复，或后继 descriptor 与已接受消息不匹配
 - **THEN** Gateway 只将尚未恢复的消息收口为失败并释放会话
 - **AND** 不把无关 run 的输出投到原聊天，也不无限等待
 
@@ -208,7 +208,7 @@ MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buff
 #### Scenario: Web IM 群聊裸 `/new` 为每个 Agent 重开会话
 - **GIVEN** 一个 `group_reply_policy=MENTION` 的内置 Web IM 多 Agent 群聊
 - **WHEN** 用户发送精确的裸 `/new`
-- **THEN** Gateway 为群内每个 Agent 分别切换到新的 Kernel session，并在同一群显示各 Agent 的控制确认
+- **THEN** Gateway 为群内每个 Agent 分别切换到新的 DSH session，并在同一群显示各 Agent 的控制确认
 - **AND** 后续面向每个 Agent 的普通消息不携带该 Agent 先前的群会话上下文
 
 #### Scenario: 群聊压缩仍需明确目标
@@ -227,31 +227,31 @@ MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buff
 
 本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 命令路由与入站幂等仍通用；global 的 `/new` 拒绝不重置主上下文。
 
-Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中，把精确的 `/new` 作为当前 Gateway session 的新会话命令。命令确认留在原聊天，既有可见历史不删除；后续普通消息使用新的 Kernel session。若原 session 正在执行，Gateway 先撤销并收敛旧 run 的所有尚未完成用户可见输出，再中断它；已排队但尚未提交的旧输入不能在新会话执行，旧 run 的 stream、final reply 或 external mirror 也不得在新会话确认之后抵达。`/new` 之外带有额外文本的 slash 消息按普通用户消息处理。
+Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中，把精确的 `/new` 作为当前 Gateway session 的新会话命令。命令确认留在原聊天，既有可见历史不删除；后续普通消息使用新的 DSH session。若原 session 正在执行，Gateway 先撤销并收敛旧 run 的所有尚未完成用户可见输出，再中断它；已排队但尚未提交的旧输入不能在新会话执行，旧 run 的 stream、final reply 或 external mirror 也不得在新会话确认之后抵达。`/new` 之外带有额外文本的 slash 消息按普通用户消息处理。
 
 #### Scenario: `/new` 保留可见历史并切换后续上下文
 - **GIVEN** 用户与某 Agent 已在一个 direct chat 中进行多轮对话
 - **WHEN** 用户发送精确的 `/new`
 - **THEN** 原聊天显示开始新会话的确认，既有可见消息仍可阅读
-- **AND** 后续普通消息由新的 Kernel session 处理，不携带旧会话上下文
+- **AND** 后续普通消息由新的 DSH session 处理，不携带旧会话上下文
 
 #### Scenario: 运行中开始新会话
 - **GIVEN** 当前 Gateway session 有正在执行或已接受但尚未提交的用户工作
 - **WHEN** 用户发送 `/new`
 - **THEN** Gateway 中断已执行的旧 run，丢弃未提交的旧输入，并确认旧操作已停止且新会话已就绪
-- **AND** 不再向该聊天投递旧 run 的 stream、final reply 或 external mirror，也不把旧输入提交到新 Kernel session
+- **AND** 不再向该聊天投递旧 run 的 stream、final reply 或 external mirror，也不把旧输入提交到新 DSH session
 - **AND** 若旧 run 已有 provisional bubble，Gateway 在新会话确认前将其以无正文的终态关闭或丢弃
 
 #### Scenario: 重放同一入站 `/new` 不重复切换会话
 - **GIVEN** Gateway 已成功处理一个带稳定入站 identity 的 `/new`
 - **WHEN** 外部 provider 或 relay 重放同一条入站消息
 - **THEN** Gateway 复用第一次的新会话结果和控制确认
-- **AND** 不创建第二个 Kernel session，也不因第二次切换丢弃第一次切换后的用户输入
+- **AND** 不创建第二个 DSH session，也不因第二次切换丢弃第一次切换后的用户输入
 
 #### Scenario: 新会话发布失败不吞掉旧 run 输出
 - **GIVEN** 当前 Gateway session 的 old run 已产生一条尚未投递的 stream、terminal reply 或 external mirror
 - **AND** 用户发送 `/new` 后，Gateway 已临时暂停该 old run 的可见输出
-- **WHEN** 新 Kernel session 无法持久发布为当前 binding
+- **WHEN** 新 DSH session 无法持久发布为当前 binding
 - **THEN** Gateway 保持原 binding 与后续上下文，不发送“已开始新会话”确认
 - **AND** 暂挂的 old run output 以原 identity 恰好一次恢复投递，old run 后续输出仍可见
 
@@ -259,7 +259,7 @@ Gateway 在已路由的 direct chat，或明确指向 Agent 的 group chat 中�
 
 以下按聊天寻址及 `/new` 切换的 Scenario 适用于 `single_thread`；global 将相同 focus、幂等、FIFO 预留、失败不改上下文和来源反馈作用于主 Session。消息被读入/提交的执行不得越过压缩预留边界，接收 Inbox 本身不被阻塞。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
-Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 Kernel session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。无论当前 session 是否有 active 或 queued work，Gateway 都接受该命令并立即预留其 FIFO 位置：在此前工作完成后执行压缩，且后续普通消息不得越过该压缩边界。若 `/new` 在已排队的压缩执行前切换会话，Gateway 不在新会话上执行该旧压缩，并在同一聊天说明其未执行。Gateway 在同一聊天明确区分成功、无需压缩、未执行和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
+Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点>` 作为当前 DSH session 的手动压缩命令。非空关注点仅指导这次摘要保留重点；它不作为普通用户 turn 写入会话。无论当前 session 是否有 active 或 queued work，Gateway 都接受该命令并立即预留其 FIFO 位置：在此前工作完成后执行压缩，且后续普通消息不得越过该压缩边界。若 `/new` 在已排队的压缩执行前切换会话，Gateway 不在新会话上执行该旧压缩，并在同一聊天说明其未执行。Gateway 在同一聊天明确区分成功、无需压缩、未执行和失败；失败不得改变调用前上下文。其他 slash 文本按普通用户消息处理。
 
 #### Scenario: 空闲会话按关注点压缩
 - **GIVEN** 当前聊天已有可压缩的历史，其中含认证方案和未完成事项
@@ -268,10 +268,10 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 - **AND** 随后的 Agent run 可从压缩摘要延续认证方案和未完成事项，关注点本身不成为一条普通 user message
 
 #### Scenario: 当前没有可压缩会话
-- **GIVEN** Gateway 尚未为当前聊天建立 Kernel session，或已有 session 但没有新的可压缩历史
+- **GIVEN** Gateway 尚未为当前聊天建立 DSH session，或已有 session 但没有新的可压缩历史
 - **WHEN** 用户发送 `/compact`
 - **THEN** Gateway 在原聊天说明无需压缩
-- **AND** 不为该 no-op 创建空 Kernel session，也不改变已有会话上下文
+- **AND** 不为该 no-op 创建空 DSH session，也不改变已有会话上下文
 
 #### Scenario: 忙碌时压缩排队并成为后续消息的 FIFO 屏障
 - **GIVEN** 当前 session 有 active 或 queued run
@@ -285,14 +285,14 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 #### Scenario: `/new` 不执行先前排队的压缩
 - **GIVEN** 当前 session 有尚未执行的 `/compact`
 - **WHEN** 用户在该压缩执行前发送 `/new`
-- **THEN** Gateway 切换到新 Kernel session，且不在新会话或旧会话执行该先前排队的压缩
+- **THEN** Gateway 切换到新 DSH session，且不在新会话或旧会话执行该先前排队的压缩
 - **AND** Gateway 在原聊天说明该压缩请求未执行
 
 #### Scenario: 重放同一入站压缩不产生第二个压缩边界
 - **GIVEN** Gateway 已成功处理一个带稳定入站 identity 的 `/compact <关注点>`
 - **WHEN** 外部 provider 或 relay 重放同一条入站消息
 - **THEN** Gateway 复用第一次的压缩结果和控制确认
-- **AND** 当前 Kernel session 不产生第二个 compaction record，关注点不作为重放 identity
+- **AND** 当前 DSH session 不产生第二个 compaction record，关注点不作为重放 identity
 
 ### Requirement: /stop 控制命令中断当前运行
 

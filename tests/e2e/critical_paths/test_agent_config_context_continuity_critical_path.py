@@ -155,9 +155,9 @@ def _wait_gateway_custom_prompt(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-        first_agent = (payload.get("agents") or [])[0]
-        if first_agent.get("custom_prompt") == custom_prompt:
-            return first_agent
+        for agent in payload.get("agents") or []:
+            if agent.get("custom_prompt") == custom_prompt:
+                return agent
         time.sleep(0.2)
     raise AssertionError(f"Gateway YAML did not receive custom prompt: {path}")
 
@@ -361,18 +361,12 @@ def stub_llm_stack(
             _wait_process_gone(pid)
         _wait_port_closed(int(stack.im_port))
         _wait_port_closed(stack.stub_port)
-        for generated in (
-            ".gateway.pid",
-            ".im.pid",
-            ".e2e-ports.env",
-            ".e2e-jwt-secret",
-            ".gateway-config.yaml",
-            "channel-credentials-v1.pem",
-            "channel-manifest-v1.json",
-        ):
+        for generated in (".gateway.pid", ".im.pid"):
             assert not (wt_dir / generated).exists(), (
-                f"fixture teardown left generated state: {generated}"
+                f"fixture teardown left PID: {generated}"
             )
+        # Runtime configuration and evidence remain available for diagnosis/restart.
+        assert (wt_dir / ".gateway-config.yaml").exists()
 
 
 @pytest.fixture
@@ -462,20 +456,21 @@ def test_agent_config_update_keeps_chat_context_with_stub_llm(
     assert "read" in _tool_names(last), (
         f"expected read tool after config update; tools={_tool_names(last)!r}"
     )
-    saved_agent = yaml.safe_load(
+    saved_agents = yaml.safe_load(
         (Path(stub_llm_stack.wt_dir) / ".gateway-config.yaml").read_text(
             encoding="utf-8"
         )
-    )["agents"][0]
+    )["agents"]
+    saved_agent = next(agent for agent in saved_agents if agent["agent_id"] == agent_id)
     assert saved_agent["custom_prompt"] == _UPDATED_PROMPT
     assert "system_prompt" not in saved_agent
 
 
 @pytest.mark.e2e
-def test_fork_immediately_after_config_update_uses_new_runtime(
+def test_fork_after_config_update_preserves_historical_runtime(
     stub_im_user: IMClient, stub_llm_stack: StubLLMStack
 ) -> None:
-    """A historical reply can fork before the source chat runs under new config."""
+    """A native fork restores the configuration at its historical reply point."""
 
     agent_id = stub_im_user.first_agent_id()
     old_prompt = "BUGFIX-547 OLD CONFIG"
@@ -527,6 +522,6 @@ def test_fork_immediately_after_config_update_uses_new_runtime(
     system = _system_blob(last)
     assert source_sentinel in blob
     assert branch_sentinel in blob
-    assert new_prompt in system
-    assert old_prompt not in system
-    assert "read" in _tool_names(last)
+    assert old_prompt in system
+    assert new_prompt not in system
+    assert "read" not in _tool_names(last)

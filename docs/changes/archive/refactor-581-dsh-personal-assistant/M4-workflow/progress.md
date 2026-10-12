@@ -1,0 +1,23 @@
+# M4 — Native JavaScript Workflow
+
+Implementation slice complete; independent final unit acceptance remains in M5.
+
+- Nano now supplies the sole public `WorkflowEngine` provider. Official PTC executes JavaScript and native `subagents.start` owns each real child. No upstream source, private import, alternate agent loop or Python interpreter was added.
+- The logical-call owner gates admission, waits for cancellation/disposal before replacement, retains the same logical promise, persists results before release, and replays matching completed prefixes in original completion order. Calls share concurrency, total-child and output-token budgets across one-level nested definitions.
+- Durable run records retain input/parent identity, source/args, attempts, results and delivery handoff. Cold running/paused records become interrupted; explicit resume creates a new run. Query/control/save commands use this owner and durable command identities.
+- Native assistant settlement usage uses last-sample replacement and retry boundaries. Fork-inherited events are excluded in live and cold reads. Budget ownership follows the parent logical model run across fallback turns; future turns cannot adopt prior background work. Human `+2k`/`+500k` targets also work after trusted Global Inbox reads.
+- Single-thread completion enters the original binding's normal durable input/delivery ledger, including the raw background-return sidecar. Global completion is a system input and the Agent explicitly publishes to its original target. Native child `never` policy is changed through the public policy API only for a trusted interactive Workflow launch; its approval remains bound to the original human input, even after foreground completion.
+- JavaScript files use a `// nano-workflow: {name,description,...}` metadata header. Catalog discovery preserves nearest project precedence, personal/builtin definitions, named namespaces and save symlink rules. The built-in deep-research definition is converted. Named slash invocations use the ordinary workflow tool/approval path.
+
+## Evidence so far
+
+- Control regressions: pause/admission, restart cleanup and stable promise, stop wakeup, durable replay ordering, first changed call, and exhausted budget.
+- Real native-process fixtures: pipeline and prefix recovery after restart; eight concurrent blocked children and queued calls stopped; selected child restart while paused; nested return and second-level rejection; hard-process interruption followed by explicit prefix recovery; child approval must precede the effect.
+- Build and broad related suite passed: 24 files / 52 tests. Subsequent command, capability, presentation and sidecar extensions passed focused checks; native JavaScript pipeline accounting also matches the public native completed-turn usage fold. Frontend Workflow surfaces passed 10 tests. Lifecycle startup uses a bounded 10-second wait under parallel runtime fixtures.
+- Real Web IM with DeepSeek: conversation `c_w9l9kukz`, parent `2955af3f-66aa-43cd-af65-dce54867844e`, run `8d826cf8-ae87-44ac-9af3-ea45e797bd3c`. Two native children returned `CEDAR581` and `MAPLE581`; the completed message carried the raw Workflow sidecar, and `/workflows <run-id>` returned the durable completed record. Ignored evidence: `.dsh-runtime/workflow-live.json`.
+- Real Global IM with DeepSeek: conversation `c_orxi4w1n`, parent `320425f9-22fb-4894-b785-71b9331cadd6`, run `df5d6002-e36c-4a04-901c-8321b034a711`. Inbox-launched `+2k` work returned `GLOBAL_CHILD581` and remaining budget `1451`, then published through explicit send_message. Ignored evidence: `.dsh-runtime/workflow-global-live.json`.
+- All live work used the isolated worktree node/IM, owner assets and data. Production was not updated. Web and Global evidence does not substitute for final Web/iOS/Feishu product gates.
+
+- Saved Workflow command journey with real DeepSeek also passed after the latest node restart: `/workflows 8d826cf8-ae87-44ac-9af3-ea45e797bd3c save personal saved-live-581`, then `/saved-live-581 {"test":"slash"}` returned both original tokens through run `9d9e3a3a-b0c2-4d13-a883-b9410bb7ac59`. Evidence: `.dsh-runtime/workflow-command-live.json`.
+- Session `/effort ultracode` is durable when the model offers `xhigh` and Workflow is selected; ordinary effort disables standing opt-in. Native command candidates use names without a leading slash, and capability filtering removes Workflow-only options when disabled. Global Work identifies Workflow child attempts with `scope=workflow`.
+- Native Workflow rows retain the submitted script and human description before/after asynchronous launch. Result sidecars include settled output usage and diagnostic logs alongside the raw result and resume hint.

@@ -746,7 +746,7 @@ export function AgentCreatePage() {
               <span><strong>{mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")}</strong><small className="block text-slate-500">{mode === "global" ? tr("一个持续上下文统筹各聊天，按需读取收件箱和委派。") : tr("每个聊天独立上下文，保持现有工作方式。")}</small></span>
             </label>)}
           </div>
-          <p className="text-xs text-slate-500">{tr("创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。")}</p>
+          <p className="text-xs text-slate-500">{tr("创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。")}</p>
         </section>
         <section className="im-agent-card">
           <div>
@@ -1001,8 +1001,8 @@ export function AgentCreatePage() {
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
-              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "agent"] : []}
-              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "agent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
+              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
+              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}

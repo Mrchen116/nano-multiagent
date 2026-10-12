@@ -991,7 +991,7 @@ export function ChatWorkspacePage() {
       ).some(
         (skill) => skill.name === DISTILL_SKILL_NAME
       ),
-      skillViewEnabled: resolveEnabledTools(config.tool_allowlist ?? [], capTools).includes("skill_view"),
+      skillViewEnabled: resolveEnabledTools(config.tool_allowlist ?? [], capTools).includes("skill"),
     };
   }
 

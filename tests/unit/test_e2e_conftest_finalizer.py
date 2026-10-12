@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def _spawn_gateway_marker(config_path: Path) -> subprocess.Popen[bytes]:
-    marker = f"personal_assistant.main --config {config_path}"
+    marker = f"apps/node/lib/cli.js --config {config_path}"
     return subprocess.Popen(
         [sys.executable, "-c", f"# {marker}\nimport time; time.sleep(60)"],
         start_new_session=True,
@@ -51,7 +51,7 @@ from pathlib import Path
 
 
 def test_leave_gateway_for_session_finalizer(tmp_path):
-    marker = f"personal_assistant.main --config {tmp_path / 'config.yaml'}"
+    marker = f"apps/node/lib/cli.js --config {tmp_path / 'config.yaml'}"
     process = subprocess.Popen(
         [sys.executable, "-c", f"# {marker}\\nimport time; time.sleep(60)"],
         start_new_session=True,
@@ -111,7 +111,7 @@ from pathlib import Path
 
 
 def test_leave_gateway_in_pytest_process_group(tmp_path):
-    marker = f"personal_assistant.main --config {tmp_path / 'config.yaml'}"
+    marker = f"apps/node/lib/cli.js --config {tmp_path / 'config.yaml'}"
     process = subprocess.Popen(
         [sys.executable, "-c", f"# {marker}\\nimport time; time.sleep(60)"],
     )

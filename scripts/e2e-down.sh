@@ -1,99 +1,42 @@
 #!/usr/bin/env bash
-# scripts/e2e-down.sh — stop everything scripts/e2e-up.sh started.
-#
-# Pairs with e2e-up.sh. Safe to run repeatedly. Cleans pid files, ports env,
-# JWT secret, gateway log/config copies. Does NOT remove .gateway-workspace/
-# (agent data may still be useful for inspection after a run).
-#
-# Shutdown order (Decision 7 / bugfix-402-M3):
-#   1. SIGTERM Gateway — waits up to GATEWAY_GRACE_SECONDS for clean exit
-#   2. Force-kill Gateway on timeout
-#   3. Stop IM (Gateway must be gone first so in-flight runs can settle)
-#
-# Usage:
-#   ./scripts/e2e-down.sh
-#   ./scripts/e2e-down.sh --wt /custom/worktree/path
-
+# Stop only the isolated stack owned by scripts/e2e-up.sh; retain runtime evidence.
 set -euo pipefail
-
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WT_ROOT="${PWD}"
-GATEWAY_GRACE_SECONDS=5
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
-    -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
+    -h|--help) echo "usage: $0 [--wt /isolated/runtime/root]"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
-
-feishu_lock_dir=""
-ports_env="$WT_ROOT/.e2e-ports.env"
-if [[ -f "$ports_env" ]]; then
-  feishu_lock_dir="$(sed -n 's/^export E2E_FEISHU_LISTENER_LOCK=//p' "$ports_env" | head -1)"
+if [[ -f "$WT_ROOT/.gateway-config.yaml" && -f "$WT_ROOT/.gateway-state.json" ]]; then
+  node "$REPO_ROOT/apps/node/lib/cli.js" stop --config "$WT_ROOT/.gateway-config.yaml"
 fi
-
-# Step 1: Signal Gateway and wait for graceful exit before touching IM.
-# Gateway's shutdown drains in-flight runs before closing IM transport;
-# sending SIGTERM to both at once would close IM before runs settle.
-gateway_pid_file="$WT_ROOT/.gateway.pid"
-if [[ -f "$gateway_pid_file" ]]; then
-  gw_pid=$(cat "$gateway_pid_file")
-  if kill -0 "$gw_pid" 2>/dev/null; then
-    kill "$gw_pid" 2>/dev/null || true
-    # Wait for graceful exit, then force-kill on timeout.
-    # bugfix-402-M6: elapsed was incremented by 1 per 0.2s sleep, so the loop
-    # exited after GATEWAY_GRACE_SECONDS × 0.2s (≈ 1s) instead of the intended
-    # GATEWAY_GRACE_SECONDS (5s).  Track ticks at 0.2s granularity.
-    elapsed_ticks=0
-    max_ticks=$(( GATEWAY_GRACE_SECONDS * 5 ))
-    while kill -0 "$gw_pid" 2>/dev/null; do
-      if [[ $elapsed_ticks -ge $max_ticks ]]; then
-        echo "gateway pid=$gw_pid did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
-        kill -9 "$gw_pid" 2>/dev/null || true
-        break
-      fi
-      sleep 0.2
-      elapsed_ticks=$(( elapsed_ticks + 1 ))
-    done
-  fi
-  rm -f "$gateway_pid_file"
-fi
-
-# Step 2: Now that Gateway is gone, stop IM.
-stopped_pids=()
-for pidfile in "$WT_ROOT/.im.pid"; do
-  if [[ -f "$pidfile" ]]; then
-    pid=$(cat "$pidfile")
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      stopped_pids+=("$pid")
+rm -f "$WT_ROOT/.gateway.pid"
+if [[ -f "$WT_ROOT/.im.pid" ]]; then
+  pid="$(cat "$WT_ROOT/.im.pid")"
+  if kill -0 "$pid" 2>/dev/null; then
+    if [[ ! -f "$WT_ROOT/.im.process-start" ]] || [[ "$(ps -p "$pid" -o lstart=)" != "$(cat "$WT_ROOT/.im.process-start")" ]]; then
+      echo "Refusing to stop IM: process birth does not match this stack" >&2
+      exit 1
     fi
-    rm -f "$pidfile"
+    kill "$pid"
+    for _ in $(seq 1 50); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -p "$pid" -o lstart=)" == "$(cat "$WT_ROOT/.im.process-start")" ]]; then kill -9 "$pid"; fi
   fi
-done
-
-# Give remaining services a moment, then force-kill stragglers.
-if [[ ${#stopped_pids[@]} -gt 0 ]]; then
-  sleep 0.5
-  for pid in "${stopped_pids[@]}"; do
-    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
-  done
+  rm -f "$WT_ROOT/.im.pid" "$WT_ROOT/.im.process-start"
 fi
-
-# `--feishu` owns one machine-scoped listener lock per dedicated test Bot. Only
-# the worktree named by the lock may release it after its Gateway has stopped.
-if [[ -n "$feishu_lock_dir" && -f "$feishu_lock_dir/owner" ]] && grep -Fqx "worktree=$WT_ROOT" "$feishu_lock_dir/owner"; then
-  rm -f "$feishu_lock_dir/owner"
-  rmdir "$feishu_lock_dir" 2>/dev/null || true
+if [[ -f "$WT_ROOT/.e2e-ports.env" ]]; then
+  feishu_lock_dir="$(sed -n 's/^export E2E_FEISHU_LISTENER_LOCK=//p' "$WT_ROOT/.e2e-ports.env" | head -1)"
+  if [[ -n "$feishu_lock_dir" && -f "$feishu_lock_dir/owner" ]] && grep -Fqx "worktree=$WT_ROOT" "$feishu_lock_dir/owner"; then
+    rm -f "$feishu_lock_dir/owner"
+    rmdir "$feishu_lock_dir" 2>/dev/null || true
+  fi
 fi
-
-# Remove generated state. .gateway-workspace/ is preserved for post-mortem.
-rm -f "$WT_ROOT/.e2e-ports.env"
-rm -f "$WT_ROOT/.e2e-jwt-secret"
-rm -f "$WT_ROOT/.gateway-config.yaml"
-rm -f "$WT_ROOT/channel-credentials-v1.pem"
-rm -f "$WT_ROOT/channel-manifest-v1.json"
-rm -f "$WT_ROOT/config-apply-receipts-v1.json"
-rm -f "$WT_ROOT/.feishu-self-evolution-llm.jsonl"
-
+# Keep config/key together with state so failed or finished runs remain inspectable.
 echo "e2e stack stopped (wt=$WT_ROOT)"

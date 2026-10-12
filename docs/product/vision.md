@@ -2,15 +2,15 @@
 
 ## 产品定位
 
-nano-multiagent 是一套让用户在自己的机器上运行、配置和协作多个 Agent 的系统，同时复用同一个产品中立的 Agent 内核支撑个人助手与本地 Coding CLI。
+nano-multiagent 是一套让用户在自己的机器上运行、配置和协作多个 Agent 的系统，使用同一个上游 DSH 执行运行时支撑个人助手。
 
 它面向希望长期拥有一组可持续工作的 Agent 的用户：Agent 有稳定身份、独立工作区和长期上下文，既能与用户直接协作，也能在会话中相互协作，并通过周期任务主动推进工作。
 
 ## 长期产品原则
 
-### 一个内核支撑多种产品
+### 执行运行时与产品职责分离
 
-Agent 执行、工具、skills、会话和持久化能力由同一内核提供；个人助手、Coding CLI 和未来产品通过公开 SDK 装配各自的工具、提示词、权限和交互方式。新的产品形态不复制一套专用 runtime。
+Agent 执行、原生工具、skills、会话和持久化由 DSH 提供；Nano 通过公开插件和服务装配产品身份、权限、路由与主动工作。产品能力演进不复制上游 Agent Loop。
 
 ### 长期 Agent 与临时执行单元分开
 
@@ -40,10 +40,9 @@ heartbeat、cron 和后台任务让长期 Agent 从被动问答扩展到主动�
 
 本文定义产品方向和长期取舍，不定义具体 API、页面字段或状态机：
 
-- 四个包的职责和依赖方向：[`../../SPEC.md`](../../SPEC.md)
-- Kernel current behavior：[`../specs/kernel/`](../specs/kernel/spec.md)
+- 各组件的职责和依赖方向：[`../../SPEC.md`](../../SPEC.md)
+- 执行边界与恢复：[`runtime.md`](../specs/gateway/service-lifecycle.md)
 - IM 与 Web IM current behavior：[`../specs/im/`](../specs/im/spec.md)
 - Gateway、主动任务和外部通道 current behavior：[`../specs/gateway/`](../specs/gateway/spec.md)
-- Coding CLI current behavior：[`../specs/cli/spec.md`](../specs/cli/spec.md)
 
 本文从早期 [`需求.md`](../archive/product-source-materials/需求.md) 蒸馏，并以当前架构、specs 和代码重新核对。旧稿中尚未实现、已经改变或属于具体方案的内容不进入本页。

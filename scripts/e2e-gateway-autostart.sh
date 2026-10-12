@@ -27,14 +27,8 @@ export PATH="$(dirname "$AUTOSTART_PYTHON"):$PATH"
 cleanup() {
   trap - EXIT INT TERM
   set +e
-  if [[ -f "$AUTOSTART_CONFIG" ]]; then
-    PYTHONPATH="$REPO_ROOT/src" "$AUTOSTART_PYTHON" \
-      -m personal_assistant.main stop --config "$AUTOSTART_CONFIG" \
-      >/dev/null 2>&1
-    PYTHONPATH="$REPO_ROOT/src" "$AUTOSTART_PYTHON" -c \
-      'from personal_assistant.gateway.macos_launch_agent import permanently_remove; import sys; permanently_remove(config_path=sys.argv[1])' \
-      "$AUTOSTART_CONFIG" >/dev/null 2>&1
-  fi
+  node "$REPO_ROOT/apps/node/lib/cli.js" stop --config "$AUTOSTART_CONFIG" >/dev/null 2>&1
+  [[ -n "${PLIST:-}" ]] && rm -f "$PLIST"
   "$SCRIPT_DIR/e2e-down.sh" --wt "$AUTOSTART_ROOT" >/dev/null 2>&1
 }
 trap cleanup EXIT INT TERM
@@ -84,14 +78,7 @@ assert_node_online() {
 IM_URL=$(sed -n 's/^export IM_URL=//p' "$AUTOSTART_ROOT/.e2e-ports.env")
 NODE_ID=$(sed -n 's/^export NODE_ID=//p' "$AUTOSTART_ROOT/.e2e-ports.env")
 
-# Replace e2e-up's foreground Gateway with the product's background entry.
-SEED_PID=$(cat "$AUTOSTART_ROOT/.gateway.pid")
-kill "$SEED_PID"
-for _ in $(seq 1 80); do
-  kill -0 "$SEED_PID" 2>/dev/null || break
-  sleep 0.25
-done
-kill -0 "$SEED_PID" 2>/dev/null && { echo "seed Gateway did not stop" >&2; exit 1; }
+node "$REPO_ROOT/apps/node/lib/cli.js" stop --config "$AUTOSTART_CONFIG"
 rm -f "$AUTOSTART_ROOT/.gateway.pid"
 
 AUTOSTART_CONFIG="$AUTOSTART_CONFIG" "$AUTOSTART_PYTHON" - <<'PY'
@@ -102,81 +89,34 @@ import yaml
 
 path = Path(os.environ["AUTOSTART_CONFIG"])
 payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-payload["gateway"] = {
-    "autostart": True,
-    "environment": {"NANO_MULTIAGENT_AUTO_BIND": "0"},
-}
+payload.setdefault("gateway", {})["autostart"] = True
 path.write_text(
     yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8"
 )
 PY
 
-START_OUTPUT=$(cd "$REPO_ROOT" && PYTHONPATH=src "$AUTOSTART_PYTHON" \
-  -m personal_assistant.main --config "$AUTOSTART_CONFIG" \
-  --im-service-url "$IM_URL" --auto-bind)
-grep -Fq "Autostart:       enabled" <<<"$START_OUTPUT"
-
-LABEL=$(cd "$REPO_ROOT" && PYTHONPATH=src "$AUTOSTART_PYTHON" -c \
-  'from personal_assistant.gateway.macos_launch_agent import launch_agent_label; import sys; print(launch_agent_label(sys.argv[1]))' \
-  "$AUTOSTART_CONFIG")
+START_OUTPUT=$(node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$AUTOSTART_CONFIG" --im-service-url "$IM_URL")
+grep -Fq "Autostart: enabled" <<<"$START_OUTPUT"
+LABEL=$(node --input-type=module - "$REPO_ROOT/apps/node/lib/lifecycle.js" "$AUTOSTART_CONFIG" <<'JS'
+const lifecycle=await import(process.argv[2]);console.log(lifecycle.gatewayLabel(process.argv[3]));
+JS
+)
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 launchctl print "gui/$(id -u)/$LABEL" >/dev/null
 FIRST_PID=$(wait_for_new_gateway)
-
-"$AUTOSTART_PYTHON" - "$LABEL" "$AUTOSTART_PYTHON" "$IM_URL" <<'PY'
-import os
-import subprocess
-import sys
+"$AUTOSTART_PYTHON" - "$PLIST" "$AUTOSTART_CONFIG" "$REPO_ROOT" "$(command -v node)" <<'PYCHECK'
+import plistlib,sys
 from pathlib import Path
-
-label = sys.argv[1]
-python = Path(sys.argv[2])
-transient_url = sys.argv[3]
-result = subprocess.run(
-    ["/bin/launchctl", "print", f"gui/{os.getuid()}/{label}"],
-    capture_output=True,
-    check=True,
-    text=True,
-)
-lines = [line.strip() for line in result.stdout.splitlines()]
-program = next(
-    line.removeprefix("program = ")
-    for line in lines
-    if line.startswith("program = ")
-)
-arguments_start = lines.index("arguments = {")
-arguments_end = lines.index("}", arguments_start)
-arguments = lines[arguments_start + 1 : arguments_end]
-assert program == str(python.absolute())
-assert arguments[0] == str(python.absolute())
-assert "--auto-bind" in arguments
-assert arguments[arguments.index("--im-service-url") + 1] == transient_url
-PY
-
-"$AUTOSTART_PYTHON" - "$PLIST" "$AUTOSTART_CONFIG" "$REPO_ROOT" "$AUTOSTART_PYTHON" "$IM_URL" <<'PY'
-import plistlib
-import sys
-from pathlib import Path
-
-plist_path = Path(sys.argv[1])
-config_path = Path(sys.argv[2])
-repo_root = Path(sys.argv[3])
-python = Path(sys.argv[4])
-transient_url = sys.argv[5]
-payload = plistlib.loads(plist_path.read_bytes())
-arguments = payload["ProgramArguments"]
-assert payload["KeepAlive"] is True
-assert payload["Program"] == str(python.absolute())
-assert arguments[0] == str(python.absolute())
-assert payload["WorkingDirectory"] == str(repo_root.resolve())
-assert payload["EnvironmentVariables"] == {
-    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-    "PYTHONPATH": str((repo_root / "src").resolve()),
-}
-assert str(config_path.resolve()) in arguments
-assert "--auto-bind" not in arguments
-assert transient_url not in arguments
-PY
+payload=plistlib.loads(Path(sys.argv[1]).read_bytes())
+args=payload['ProgramArguments']
+assert payload['KeepAlive'] is True
+assert Path(args[0]).resolve()==Path(sys.argv[4]).resolve()
+assert args[1]==str(Path(sys.argv[3])/'apps/node/lib/cli.js')
+assert '--foreground' in args
+assert args[args.index('--config')+1]==sys.argv[2]
+assert '--im-service-url' not in args
+assert payload['WorkingDirectory']==sys.argv[3]
+PYCHECK
 assert_node_online "$IM_URL" "$NODE_ID"
 
 # A crash must produce a new process while the same job remains loaded.
@@ -187,7 +127,7 @@ assert_node_online "$IM_URL" "$NODE_ID"
 
 # Manual stop pauses this login but preserves the stable definition.
 cd "$REPO_ROOT"
-PYTHONPATH=src "$AUTOSTART_PYTHON" -m personal_assistant.main stop \
+node "$REPO_ROOT/apps/node/lib/cli.js" stop \
   --config "$AUTOSTART_CONFIG" >/dev/null
 launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 \
   && { echo "LaunchAgent reloaded after manual stop" >&2; exit 1; }
@@ -197,7 +137,7 @@ launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 \
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 THIRD_PID=$(wait_for_new_gateway "$SECOND_PID")
 assert_node_online "$IM_URL" "$NODE_ID"
-PYTHONPATH=src "$AUTOSTART_PYTHON" -m personal_assistant.main stop \
+node "$REPO_ROOT/apps/node/lib/cli.js" stop \
   --config "$AUTOSTART_CONFIG" >/dev/null
 
 AUTOSTART_CONFIG="$AUTOSTART_CONFIG" "$AUTOSTART_PYTHON" - <<'PY'
@@ -214,13 +154,12 @@ path.write_text(
 )
 PY
 
-DISABLED_OUTPUT=$(PYTHONPATH=src "$AUTOSTART_PYTHON" \
-  -m personal_assistant.main --config "$AUTOSTART_CONFIG")
-grep -Fq "Autostart:       disabled" <<<"$DISABLED_OUTPUT"
+DISABLED_OUTPUT=$(node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$AUTOSTART_CONFIG")
+grep -Fq "Autostart: disabled" <<<"$DISABLED_OUTPUT"
 [[ ! -f "$PLIST" ]]
 launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 \
   && { echo "disabled LaunchAgent remained loaded" >&2; exit 1; }
-PYTHONPATH=src "$AUTOSTART_PYTHON" -m personal_assistant.main stop \
+node "$REPO_ROOT/apps/node/lib/cli.js" stop \
   --config "$AUTOSTART_CONFIG" >/dev/null
 
 echo "GATEWAY AUTOSTART E2E PASS first=$FIRST_PID crash_recovery=$SECOND_PID login=$THIRD_PID"

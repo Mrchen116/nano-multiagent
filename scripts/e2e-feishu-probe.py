@@ -11,6 +11,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+
+import yaml
 from pathlib import Path
 from typing import Any
 
@@ -67,15 +69,13 @@ def _require_test_profile(
         raise RuntimeError("the selected lark-cli profile targets a different Bot")
 
 
-def _saga_count(path: Path) -> int:
+def _inbound_count(path: Path) -> int:
     """Return the durable external-inbound count, treating startup as zero."""
     if not path.is_file():
         return 0
     try:
         with sqlite3.connect(path) as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) FROM external_shadow_sagas"
-            ).fetchone()
+            row = connection.execute("SELECT COUNT(*) FROM inbound").fetchone()
     except sqlite3.Error:
         return 0
     return int(row[0]) if row else 0
@@ -179,29 +179,26 @@ def _runtime_card_messages(
     return matches
 
 
-def _shadow_final_content(path: Path, nonce: str) -> str | None:
-    """Return the durable plain final shadow content for this probe, if ready."""
-
-    if not path.is_file():
+def _shadow_final_content(path: Path, im_path: Path, nonce: str) -> str | None:
+    """Read the actual IM projection of a confirmed native platform output."""
+    if not path.is_file() or not im_path.is_file():
         return None
-    try:
-        with sqlite3.connect(path) as connection:
-            row = connection.execute(
-                """
-                SELECT bubble.content
-                FROM external_shadow_sagas AS saga
-                JOIN external_shadow_bubbles AS bubble ON bubble.saga_id = saga.saga_id
-                WHERE saga.canonical_inbound_json LIKE ?
-                  AND bubble.state IN ('ready', 'reconciled')
-                  AND bubble.delivery_status = 'completed'
-                ORDER BY bubble.bubble_ordinal DESC
-                LIMIT 1
-                """,
-                (f"%{nonce}%",),
-            ).fetchone()
-    except sqlite3.Error:
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            """SELECT o.im_id FROM outputs o JOIN frames f ON f.output_id=o.id
+               WHERE o.state='confirmed' AND f.mirrored=1
+                 AND json_extract(f.body,'$.kind')='message_completed'
+                 AND json_extract(f.body,'$.final_content') LIKE ?
+               ORDER BY f.rowid DESC LIMIT 1""",
+            (f"%{nonce}%",),
+        ).fetchone()
+    if not row or not row[0]:
         return None
-    return str(row[0]) if row and isinstance(row[0], str) else None
+    with sqlite3.connect(im_path) as connection:
+        message = connection.execute(
+            "SELECT content FROM messages WHERE id=?", row
+        ).fetchone()
+    return str(message[0]) if message else None
 
 
 def _card_has_runtime_footer(card: dict[str, Any]) -> bool:
@@ -230,7 +227,11 @@ def main() -> int:
         )
         _require_test_profile(_profile_status(profile), values, profile)
         _require_feishu_stack(args.wt)
-        before = _saga_count(args.wt / "external_shadow_sagas.sqlite3")
+        config = yaml.safe_load((args.wt / ".gateway-config.yaml").read_text())
+        native_path = (
+            args.wt / ".dsh-runtime" / config["node"]["node_id"] / "external.sqlite3"
+        )
+        before = _inbound_count(native_path)
         nonce, chat_id = _send_probe(
             profile, values["NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID"]
         )
@@ -238,13 +239,14 @@ def main() -> int:
         parser.error(str(exc))
 
     deadline = time.monotonic() + args.timeout
-    saga_path = args.wt / "external_shadow_sagas.sqlite3"
     while time.monotonic() < deadline:
-        if _saga_count(saga_path) <= before:
+        if _inbound_count(native_path) <= before:
             time.sleep(0.25)
             continue
         cards = _runtime_card_messages(_lark_messages(profile, chat_id), nonce)
-        shadow_text = _shadow_final_content(saga_path, nonce)
+        shadow_text = _shadow_final_content(
+            native_path, args.wt / "data" / "im_service.sqlite3", nonce
+        )
         if (
             len(cards) == 1
             and _card_has_runtime_footer(cards[0])

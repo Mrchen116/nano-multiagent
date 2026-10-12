@@ -129,7 +129,9 @@ def main() -> int:
         return 2
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 19995
     _Handler.record_path = record_path
-    _Handler.message_start_usage = _read_usage_env("NANO_FIXTURE_MESSAGE_START_USAGE")
+    _Handler.message_start_usage = _read_usage_env(
+        "NANO_FIXTURE_MESSAGE_START_USAGE"
+    ) or {"input_tokens": 1, "output_tokens": 0}
     _Handler.message_delta_usage = _read_usage_env(
         "NANO_FIXTURE_MESSAGE_DELTA_USAGE"
     ) or {"input_tokens": 1, "output_tokens": 1}

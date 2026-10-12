@@ -29,7 +29,6 @@ set -euo pipefail
 # pass an arbitrary temporary directory as --wt.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
-SRC_DIR="$REPO_ROOT/src"
 DEFAULT_E2E_CONFIG="$REPO_ROOT/config/e2e/gateway.yaml"
 DEFAULT_FEISHU_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent/feishu-e2e.env"
 DEFAULT_FEISHU_LOCK_ROOT="${XDG_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nano-multiagent}"
@@ -158,7 +157,7 @@ done
 # not follow $WT_ROOT because test fixtures commonly use a non-git temp path.
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-# refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
+# Only the IM center listens on a port; DSH is a managed stdio child.
 read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 
 JWT_SECRET="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 32 || echo "e2e-$$-$(date +%s)")"
@@ -169,7 +168,7 @@ echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
 WT_CFG="$WT_ROOT/.gateway-config.yaml"
 cp "$MAIN_CFG" "$WT_CFG"
 if [[ "$E2E_PROFILE" == "feishu" ]]; then
-  PYTHONPATH="$SRC_DIR" python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
+  python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
     --config "$WT_CFG" \
     --env "$FEISHU_ENV"
   claim_feishu_listener_lock
@@ -180,33 +179,23 @@ WT_NAME="$(basename "$WT_ROOT")"
 NODE_ID="wt-${WT_NAME}-$$"
 WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
 
-if command -v yq >/dev/null 2>&1; then
-  # bugfix-424 (#127): node.workspace_base isolates *dynamically* created agents
-  # (built via IM agent.create) under the worktree, same as preset agents below.
-  yq -i "
-    .node.node_id = \"$NODE_ID\" |
-    .node.workspace_base = \"$WORKSPACE_DIR\" |
-    .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
-    .agents |= map(.workspace_root = \"$WORKSPACE_DIR/\" + .agent_id)
-  " "$WT_CFG"
-else
-  # Fallback when yq is absent: use python.
-  # refactor-387 M3: kernel.base_url no longer needed (kernel runs in-process).
-  WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
-    python3 - <<'PY'
-import os, sys, yaml
+WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" WT_ROOT_PY="$WT_ROOT" \
+  python3 - <<'PYCFG'
+import os, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
 cfg.setdefault("node", {})["node_id"] = os.environ["NODE_ID"]
-cfg.setdefault("im_service", {})["url"] = f"http://127.0.0.1:{os.environ['IM_PORT']}"
+cfg["node"]["user_id"] = ""
+cfg.setdefault("im_service", {}).update(url=f"http://127.0.0.1:{os.environ['IM_PORT']}", token="", username="nano", password="nano1234")
+cfg["im_service"].pop("refresh_token", None)
 wsd = os.environ["WORKSPACE_DIR"]
-# bugfix-424 (#127): isolate dynamically-created agents under the worktree too.
 cfg["node"]["workspace_base"] = wsd
+cfg.setdefault("gateway", {})["autostart"] = False
+cfg["gateway"].setdefault("environment", {})["NANO_OWNER_CONFIG_ROOT"] = os.path.join(os.environ["WT_ROOT_PY"], ".gateway-owner")
 for agent in cfg.get("agents", []):
     agent["workspace_root"] = os.path.join(wsd, agent["agent_id"])
 with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-PY
-fi
+PYCFG
 
 # An explicit critical-path model override must be registered in the copied config.
 # The selector changes only the worktree-local default, so preset and dynamically
@@ -225,43 +214,35 @@ for agent in cfg.get("agents", []):
     os.makedirs(agent["workspace_root"], exist_ok=True)
 PY
 
-# ─── start IM (bare uvicorn) ─────────────────────────────────────────────────
+# ─── start TypeScript IM ─────────────────────────────────────────────────
 #
 # feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
 # created by a previous run (with different owner_id) do not pollute the new instance.
 # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
 rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
-# feat-393 fix-r2: remove stale heartbeat-state.json so a previous run's last_due_at
-# does not trigger catch-up backlog on restart (that was the root cause of the 4x burst).
-rm -f "$WT_ROOT/heartbeat-state.json"
-# e2e-up.sh starts a fresh IM DB every run; Gateway's local state must be fresh too.
-# Otherwise old external chat bindings and buffered group context can route a new
-# validation run through stale kernel sessions from a previous e2e attempt.
-rm -f "$WT_ROOT/session_bindings.sqlite3" "$WT_ROOT/session_bindings.sqlite3-wal" "$WT_ROOT/session_bindings.sqlite3-shm"
-rm -f "$WT_ROOT/group_context_buffer.sqlite3" "$WT_ROOT/group_context_buffer.sqlite3-wal" "$WT_ROOT/group_context_buffer.sqlite3-shm"
-rm -f "$WT_ROOT/relay_dedup.sqlite3" "$WT_ROOT/relay_dedup.sqlite3-wal" "$WT_ROOT/relay_dedup.sqlite3-shm"
-rm -f "$WT_ROOT/external_shadow_sagas.sqlite3" "$WT_ROOT/external_shadow_sagas.sqlite3-wal" "$WT_ROOT/external_shadow_sagas.sqlite3-shm"
-# A previous Global journal names agents absent from this fresh IM database.
-rm -f "$WT_ROOT/global_agent.sqlite3" "$WT_ROOT/global_agent.sqlite3-wal" "$WT_ROOT/global_agent.sqlite3-shm"
-# The copied config gets a fresh node id on every run, so its credential key and
-# encrypted manifest must be fresh as one isolation pair as well.
-rm -f "$WT_ROOT/channel-credentials-v1.pem"
-rm -f "$WT_ROOT/channel-manifest-v1.json"
-rm -f "$WT_ROOT/device-binding-operation.json"
+# Each run gets a fresh node identity; preserve prior per-node DSH evidence.
+rm -f "$WT_ROOT/channel-credentials-v1.pem" "$WT_ROOT/device-binding-operation.json"
+if [[ ! -f "$REPO_ROOT/apps/im-server/lib/main.js" || ! -f "$REPO_ROOT/apps/node/lib/cli.js" ]]; then
+  echo "Build first: pnpm install --frozen-lockfile && pnpm build" >&2
+  exit 1
+fi
 
 cd "$WT_ROOT"
-IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
-  python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
-  > "$WT_ROOT/.im.log" 2>&1 &
-echo $! > "$WT_ROOT/.im.pid"
+IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" IM_DB_PATH="$WT_ROOT/data/im_service.sqlite3" IM_UPLOAD_DIR="$WT_ROOT/data/uploads" IM_PUBLIC_MODE=0 \
+  node --input-type=module - "$REPO_ROOT/apps/im-server/lib/main.js" "$IM_PORT" "$WT_ROOT" <<'JS'
+import {spawn,execFileSync} from 'node:child_process';
+import {openSync,closeSync,writeFileSync} from 'node:fs';
+const root=process.argv[4],log=openSync(root+'/.im.log','a');
+const child=spawn(process.execPath,[process.argv[2],'serve','--host','127.0.0.1','--port',process.argv[3]],{cwd:root,env:process.env,detached:true,stdio:['ignore',log,log]});
+writeFileSync(root+'/.im.pid',String(child.pid));
+writeFileSync(root+'/.im.process-start',execFileSync('ps',['-p',String(child.pid),'-o','lstart=']));
+closeSync(log);child.unref();
+JS
 
-# Wait for IM ready. IM has no dedicated /health endpoint, so we probe
-# /openapi.json — present on every FastAPI app once startup completes. A child
-# exit, an alive-but-not-ready deadline, and the pre-IM Feishu lock are distinct
-# failures and must not be collapsed into one generic startup error.
+# Readiness means the real TypeScript center has completed startup.
 IM_READINESS_STARTED_SECONDS=$SECONDS
 while true; do
-  if curl -sf "http://127.0.0.1:$IM_PORT/openapi.json" >/dev/null 2>&1; then
+  if curl -sf "http://127.0.0.1:$IM_PORT/health" >/dev/null 2>&1; then
     break
   fi
   IM_PID="$(cat "$WT_ROOT/.im.pid")"
@@ -279,54 +260,17 @@ while true; do
 done
 
 # Explicit local admission; public registration intentionally stays pending.
-IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" python -m IM.cli init_admin \
+IM_JWT_SECRET="$JWT_SECRET" node "$REPO_ROOT/apps/im-server/lib/main.js" init_admin \
   --username nano --password nano1234 --display-name "Test User" \
   --db-path "$WT_ROOT/data/im_service.sqlite3"
 
-# Resolve the nano user's real id in this ephemeral IM and patch config.node.user_id.
-# feat-393 fix-r1: the main config carries a stale user_id from a prior persistent IM
-# instance; the ephemeral IM is a fresh DB so that id does not exist (→ 404), causing
-# heartbeat to pass a nonexistent to_user_id and never deliver messages to the owner.
-# We login to obtain the authenticated profile which includes the real id, then update
-# the worktree config copy so Gateway uses the correct owner for heartbeat delivery.
-# Store this isolated browser credential only for the one-launch device acceptance.
-# bind_local_device replaces it with the node-scoped runtime credential after proof.
-WT_CFG_PY="$WT_CFG" IM_E2E_URL="http://127.0.0.1:$IM_PORT" python - <<'PYBIND'
-import os, httpx, yaml
-response = httpx.post(os.environ["IM_E2E_URL"] + "/im/v1/auth/login", json={"username": "nano", "password": "nano1234"}, trust_env=False)
-response.raise_for_status()
-pair = response.json()
-path = os.environ["WT_CFG_PY"]
-with open(path) as f: cfg = yaml.safe_load(f)
-cfg.setdefault("node", {})["user_id"] = pair["user"]["id"]
-cfg.setdefault("im_service", {})["token"] = pair["access_token"]
-with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-PYBIND
-
-# ─── validate llm config before starting Gateway ─────────────────────────────
-# The kernel runs in-process inside Gateway; there is no separate Kernel service.
-
-if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
-  echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
-  echo "Add the llm: block to the selected repository E2E config first." >&2
-  exit 1
-fi
-
-# ─── start Gateway (wrapper, --foreground + --auto-bind) ─────────────────────
-#
-# Gateway is NOT a bare ASGI app — it's a supervisor process. In foreground mode
-# it logs to the controlling stdio (we redirect to .gateway.log) and lives under
-# the shell job, so the `$!` PID is the actual process to kill. --auto-bind
-# replaces the interactive "click this URL" step that breaks worktree e2e.
-# refactor-381.
-
-PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
-  --config "$WT_CFG" \
-  --im-service-url "http://127.0.0.1:$IM_PORT" \
-  --foreground \
-  --auto-bind \
-  > "$WT_ROOT/.gateway.log" 2>&1 &
-echo $! > "$WT_ROOT/.gateway.pid"
+# The native CLI completes device proof and persists its runtime credential.
+node "$REPO_ROOT/apps/node/lib/cli.js" bind --config "$WT_CFG" --auto-bind
+node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$WT_CFG"
+node --input-type=module - "$WT_ROOT/.gateway-state.json" "$WT_ROOT/.gateway.pid" <<'JS'
+import {readFileSync,writeFileSync} from 'node:fs';
+writeFileSync(process.argv[3],String(JSON.parse(readFileSync(process.argv[2],'utf8')).pid));
+JS
 
 # Readiness requires the expected node to be online under the admitted owner.
 # A successful proof alone is insufficient: registration and config sync follow it.
@@ -362,7 +306,7 @@ if [[ "$E2E_PROFILE" == "feishu" ]]; then
 fi
 cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-# refactor-387 M3: kernel is in-process; no API_PORT needed.
+# DSH uses a private stdio link; no runtime HTTP port.
 # source this file in your shell, then curl with \$IM_URL.
 export IM_PORT=$IM_PORT
 export IM_URL=http://127.0.0.1:$IM_PORT
@@ -375,7 +319,7 @@ EOF
 
 echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
-echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
+echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/gateway.log)"
 echo "  profile $E2E_PROFILE"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
 echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"

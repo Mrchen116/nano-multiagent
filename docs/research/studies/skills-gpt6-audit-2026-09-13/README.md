@@ -50,35 +50,35 @@ current-owner: .claude/skills and src/personal_assistant/builtin_skills
 
 | Skill | KiB 前 → 后 | 行数前 → 后 |
 |---|---:|---:|
-| [conversation-skill-distiller](../../../../src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md) | 2.85 → 1.47 | 52 → 20 |
-| [lark-approval](../../../../src/personal_assistant/builtin_skills/lark-approval/SKILL.md) | 6.79 → 1.44 | 99 → 28 |
-| [lark-apps](../../../../src/personal_assistant/builtin_skills/lark-apps/SKILL.md) | 18.43 → 1.97 | 122 → 33 |
-| [lark-attendance](../../../../src/personal_assistant/builtin_skills/lark-attendance/SKILL.md) | 1.58 → 0.92 | 57 → 23 |
-| [lark-base](../../../../src/personal_assistant/builtin_skills/lark-base/SKILL.md) | 23.50 → 1.90 | 171 → 32 |
-| [lark-calendar](../../../../src/personal_assistant/builtin_skills/lark-calendar/SKILL.md) | 12.21 → 1.57 | 204 → 29 |
-| [lark-contact](../../../../src/personal_assistant/builtin_skills/lark-contact/SKILL.md) | 3.67 → 1.20 | 71 → 27 |
-| [lark-doc](../../../../src/personal_assistant/builtin_skills/lark-doc/SKILL.md) | 9.09 → 1.65 | 84 → 30 |
-| [lark-drive](../../../../src/personal_assistant/builtin_skills/lark-drive/SKILL.md) | 23.73 → 1.81 | 212 → 31 |
-| [lark-event](../../../../src/personal_assistant/builtin_skills/lark-event/SKILL.md) | 10.90 → 1.19 | 163 → 25 |
-| [lark-im](../../../../src/personal_assistant/builtin_skills/lark-im/SKILL.md) | 21.47 → 1.64 | 257 → 30 |
-| [lark-mail](../../../../src/personal_assistant/builtin_skills/lark-mail/SKILL.md) | 23.94 → 1.70 | 290 → 32 |
-| [lark-markdown](../../../../src/personal_assistant/builtin_skills/lark-markdown/SKILL.md) | 4.80 → 1.35 | 70 → 29 |
-| [lark-minutes](../../../../src/personal_assistant/builtin_skills/lark-minutes/SKILL.md) | 12.99 → 1.54 | 207 → 30 |
-| [lark-note](../../../../src/personal_assistant/builtin_skills/lark-note/SKILL.md) | 5.48 → 1.06 | 94 → 26 |
-| [lark-okr](../../../../src/personal_assistant/builtin_skills/lark-okr/SKILL.md) | 12.27 → 1.43 | 167 → 30 |
-| [lark-openapi-explorer](../../../../src/personal_assistant/builtin_skills/lark-openapi-explorer/SKILL.md) | 4.81 → 0.91 | 153 → 22 |
-| [lark-shared](../../../../src/personal_assistant/builtin_skills/lark-shared/SKILL.md) | 10.65 → 0.94 | 211 → 17 |
-| [lark-sheets](../../../../src/personal_assistant/builtin_skills/lark-sheets/SKILL.md) | 36.30 → 1.86 | 234 → 32 |
-| [lark-skill-maker](../../../../src/personal_assistant/builtin_skills/lark-skill-maker/SKILL.md) | 2.40 → 0.94 | 85 → 22 |
-| [lark-slides](../../../../src/personal_assistant/builtin_skills/lark-slides/SKILL.md) | 25.68 → 1.83 | 312 → 32 |
-| [lark-task](../../../../src/personal_assistant/builtin_skills/lark-task/SKILL.md) | 12.00 → 1.49 | 175 → 30 |
-| [lark-vc](../../../../src/personal_assistant/builtin_skills/lark-vc/SKILL.md) | 14.99 → 1.33 | 205 → 28 |
-| [lark-vc-agent](../../../../src/personal_assistant/builtin_skills/lark-vc-agent/SKILL.md) | 19.56 → 1.59 | 201 → 29 |
-| [lark-whiteboard](../../../../src/personal_assistant/builtin_skills/lark-whiteboard/SKILL.md) | 3.21 → 1.41 | 48 → 29 |
-| [lark-wiki](../../../../src/personal_assistant/builtin_skills/lark-wiki/SKILL.md) | 11.02 → 1.51 | 115 → 30 |
-| [lark-workflow-meeting-summary](../../../../src/personal_assistant/builtin_skills/lark-workflow-meeting-summary/SKILL.md) | 5.76 → 1.12 | 122 → 24 |
-| [lark-workflow-standup-report](../../../../src/personal_assistant/builtin_skills/lark-workflow-standup-report/SKILL.md) | 4.52 → 1.10 | 122 → 24 |
-| [nanoassistant-docs](../../../../src/personal_assistant/builtin_skills/nanoassistant-docs/SKILL.md) | 3.56 → 3.31 | 39 → 39 |
+| [conversation-skill-distiller](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md) | 2.85 → 1.47 | 52 → 20 |
+| [lark-approval](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-approval/SKILL.md) | 6.79 → 1.44 | 99 → 28 |
+| [lark-apps](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-apps/SKILL.md) | 18.43 → 1.97 | 122 → 33 |
+| [lark-attendance](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-attendance/SKILL.md) | 1.58 → 0.92 | 57 → 23 |
+| [lark-base](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-base/SKILL.md) | 23.50 → 1.90 | 171 → 32 |
+| [lark-calendar](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-calendar/SKILL.md) | 12.21 → 1.57 | 204 → 29 |
+| [lark-contact](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-contact/SKILL.md) | 3.67 → 1.20 | 71 → 27 |
+| [lark-doc](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-doc/SKILL.md) | 9.09 → 1.65 | 84 → 30 |
+| [lark-drive](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-drive/SKILL.md) | 23.73 → 1.81 | 212 → 31 |
+| [lark-event](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-event/SKILL.md) | 10.90 → 1.19 | 163 → 25 |
+| [lark-im](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-im/SKILL.md) | 21.47 → 1.64 | 257 → 30 |
+| [lark-mail](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-mail/SKILL.md) | 23.94 → 1.70 | 290 → 32 |
+| [lark-markdown](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-markdown/SKILL.md) | 4.80 → 1.35 | 70 → 29 |
+| [lark-minutes](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-minutes/SKILL.md) | 12.99 → 1.54 | 207 → 30 |
+| [lark-note](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-note/SKILL.md) | 5.48 → 1.06 | 94 → 26 |
+| [lark-okr](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-okr/SKILL.md) | 12.27 → 1.43 | 167 → 30 |
+| [lark-openapi-explorer](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-openapi-explorer/SKILL.md) | 4.81 → 0.91 | 153 → 22 |
+| [lark-shared](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-shared/SKILL.md) | 10.65 → 0.94 | 211 → 17 |
+| [lark-sheets](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-sheets/SKILL.md) | 36.30 → 1.86 | 234 → 32 |
+| [lark-skill-maker](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-skill-maker/SKILL.md) | 2.40 → 0.94 | 85 → 22 |
+| [lark-slides](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-slides/SKILL.md) | 25.68 → 1.83 | 312 → 32 |
+| [lark-task](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-task/SKILL.md) | 12.00 → 1.49 | 175 → 30 |
+| [lark-vc](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-vc/SKILL.md) | 14.99 → 1.33 | 205 → 28 |
+| [lark-vc-agent](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-vc-agent/SKILL.md) | 19.56 → 1.59 | 201 → 29 |
+| [lark-whiteboard](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-whiteboard/SKILL.md) | 3.21 → 1.41 | 48 → 29 |
+| [lark-wiki](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-wiki/SKILL.md) | 11.02 → 1.51 | 115 → 30 |
+| [lark-workflow-meeting-summary](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-workflow-meeting-summary/SKILL.md) | 5.76 → 1.12 | 122 → 24 |
+| [lark-workflow-standup-report](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/lark-workflow-standup-report/SKILL.md) | 4.52 → 1.10 | 122 → 24 |
+| [nanoassistant-docs](https://github.com/Mrchen116/nano-multiagent/blob/4915c44cb7f7b829414a19087877ad9b73d69ea1/src/personal_assistant/builtin_skills/nanoassistant-docs/SKILL.md) | 3.56 → 3.31 | 39 → 39 |
 
 生产 Skill 表格使用 Git 基线；原主仓未提交版本为 20,149 字节 / 287 行，其新增规则也已保留。change-impl-worker 与 nanoassistant-docs 已较薄，只修触发、表达或导航，没有为了缩短删除必要信息。
 

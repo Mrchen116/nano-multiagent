@@ -191,11 +191,11 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **THEN** 200 返回 `{content: string, node_online: bool}`；节点在线时 content 为 `HEARTBEAT.md` 内容 （文件不存在则空串）；节点离线或 RPC 超时时 `{content:"", node_online:false}`
 
 #### Scenario: 列 cron 任务经 RPC 代理
-- **WHEN** 前端 `GET /im/v1/agents/{id}/cron-jobs`
+- **WHEN** 前端 `GET /im/v1/agents/{id}/cron/jobs`
 - **THEN** 200 返回 jobs 数组；节点离线或超时时返回空列表（不报错），不直读 gateway 侧文件
 
 #### Scenario: 删 cron 任务经 RPC 代理
-- **WHEN** 前端 `DELETE /im/v1/agents/{id}/cron-jobs/{job_id}`
+- **WHEN** 前端 `DELETE /im/v1/agents/{id}/cron/jobs/{job_id}`
 - **THEN** 204 表示删除成功；节点离线或 RPC 超时或 job_id 不存在均返回 404
 
 ### Requirement: Agent 创建必须挂在已绑定且在线的节点下,workspace_root 仅在创建时由节点确定

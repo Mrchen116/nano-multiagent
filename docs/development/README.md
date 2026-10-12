@@ -7,7 +7,7 @@
 | 任务 | 先读 |
 |---|---|
 | 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
-| 安装环境、运行常用命令、开发 CLI 或前端 | [`local-development.md`](local-development.md) |
+| 安装环境、运行常用命令、开发 Node 或前端 | [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
@@ -23,7 +23,7 @@
 | 文档 | 负责的事实 |
 |---|---|
 | [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、实施方式、角色和门禁 |
-| [`local-development.md`](local-development.md) | Python/前端环境、常用命令、测试身份和提交格式 |
+| [`local-development.md`](local-development.md) | Node/前端与 Python 辅助工具环境、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
 | [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |
 | [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；已通过本仓迁移和真实 Agent 任务验证 |

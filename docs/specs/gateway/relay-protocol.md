@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Relay Protocol Specification
 
-> 对齐: feat-517 / feat-554 / feat-563
+> 对齐: feat-517 / feat-554 / feat-563 / feat-583
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -14,8 +14,8 @@ Gateway 与 IM 之间工具调用、附件、终态收口、图片、授权、�
 ### Requirement: Gateway 为同节点历史会话生成 distill prompt
 
 IM 请求已选择的同节点 source conversations 的 distill prompt 时，Gateway 用自己持有的 durable
-conversation/session binding 在本机解析 JSONL paths，并复核 execution Agent 的
-`conversation-skill-distiller` 和 `skill_view`。它以 request_id 返回当前普通
+conversation/session binding 在本机解析迁移后DSH历史的可读导出paths，并复核 execution Agent 的
+`conversation-skill-distiller` 和对应DSH原生Skill加载能力。它以 request_id 返回当前普通
 `conversation-skill-distiller` 消息格式的 prompt 或 actionable error。Gateway 不返回 transcript 内容，也不执行
 模型或 skill；后续由 IM 固定路由的普通聊天 relay 回到同一 Gateway 并按该 prompt 读取本机 paths。对已有
 external shadow conversation，Gateway 先查常规 `web_relay` binding；仅当它不存在时，才用 IM 从已授权 shadow
@@ -24,7 +24,7 @@ record 附带的既有 external identity 查常规 external binding。这个 fal
 #### Scenario: 本机 binding 生成可直接预填的 prompt
 - **GIVEN** 所有 source conversation/Agent 与 execution Agent 都属于当前 Gateway，且 source 有本机可读 binding
 - **WHEN** Gateway 收到 `node.distill.prompt.request`
-- **THEN** 它以相同 request_id 和 node_id 返回当前 distiller 格式的 prompt，包含 slash command、全部本机 JSONL paths、execution Agent 与 scope
+- **THEN** 它以相同 request_id 和 node_id 返回当前 distiller 格式的 prompt，包含 slash command、全部本机历史导出paths、execution Agent 与 scope
 - **AND** 不读取 transcript、不启动模型、不创建 session 或 skill
 
 #### Scenario: 任一 source 不能解析时不返回部分 prompt
@@ -34,15 +34,19 @@ record 附带的既有 external identity 查常规 external binding。这个 fal
 - **AND** 不读取其余 transcript、不启动模型、不创建 session 或 skill
 
 #### Scenario: execution Agent 缺少 distiller 能力时不返回 prompt
-- **WHEN** Gateway 收到 prompt request，但 execution Agent 缺少 `conversation-skill-distiller` 或 `skill_view`
+- **WHEN** Gateway 收到 prompt request，但 execution Agent 缺少 `conversation-skill-distiller` 或对应DSH原生Skill加载能力
 - **THEN** 它以相同 request_id 和 node_id 返回可理解错误
 - **AND** 不读取 transcript、不启动模型、不创建 session 或 skill
 
 #### Scenario: 已有 external shadow source 沿用 external binding
 - **GIVEN** source 是同节点的已有 external shadow conversation，且没有 `web_relay` binding、但其既有 external binding 存在
 - **WHEN** Gateway 收到由 IM 授权 shadow record 补充 external identity 的 prompt request
-- **THEN** Gateway 用该 external binding 解析本机 JSONL path 并返回当前格式 prompt
+- **THEN** Gateway 用该 external binding 解析本机历史导出path 并返回当前格式 prompt
 - **AND** browser 不获得或提交 external identity
+
+#### Scenario: 开发态不适配旧内核档案
+- **WHEN** source指向迁移前旧内核历史
+- **THEN** 返回明确不支持的错误，不生成部分prompt，也不读取或删除旧档案。
 
 ### Requirement: Gateway 中继工具调用时执行中即转发参数侧展示
 
@@ -256,7 +260,7 @@ Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标
 IM 不持有 conversation↔session 映射、也不直读 Gateway 侧会话日志，故「让分支单聊的 agent 记得历史」由 Gateway 受委托完成。Gateway 收到 IM 的 fork 请求后：复制**源会话在指定 fork 点那一刻所用的上下文视图**（源若已压缩则含当时的压缩摘要；未压缩则为到 fork 点的完整内容），生成一个独立的新会话，并把请求里的新 conversation 预绑定到该新会话——之后该新会话的首条入站消息命中预绑定、agent 带着「与源在 fork 点时一致」的记忆回复。新会话独立：对它的后续追加不回流源会话。
 
 #### Scenario: 受委托 fork 后新会话带源在 fork 点的记忆
-- **GIVEN** 一个已有多轮对话的 agent 会话，IM 经 WS RPC 请求对它在某 agent 回复处 fork 出新 conversation
+- **GIVEN** 一个迁移后已有多轮对话的Agent会话，IM 经 WS RPC 请求对它在某 agent 回复处 fork 出新 conversation
 - **WHEN** Gateway 处理该 fork 请求
 - **THEN** Gateway 生成一个新会话，其上下文 = 源会话在该 fork 点那一刻所用的视图；新 conversation 被绑定到该新会话；该会话首条入站消息复用此绑定、不另建空会话
 - **AND** 用户在新 conversation 继续对话时，agent 表现出对这段历史的记忆
@@ -272,9 +276,17 @@ IM 不持有 conversation↔session 映射、也不直读 Gateway 侧会话日�
 - **THEN** 新会话不含 fork 点之后的源历史；两会话各自独立演进，互不影响对方记忆
 
 #### Scenario: fork 失败回包让 IM 可回滚
-- **GIVEN** Gateway 处理 fork 请求时失败（如源会话绑定缺失、内核 fork 出错）
+- **GIVEN** Gateway 处理 fork 请求时失败（如源会话绑定缺失、运行时fork出错）
 - **WHEN** Gateway 回复该 WS RPC
 - **THEN** 回包标明失败，IM 据此回滚已建的新 conversation；Gateway 不留下半成品绑定
+
+#### Scenario: 分支沿用消息点配置
+- **WHEN** 用户从迁移后消息分支
+- **THEN** 新会话初始装配使用消息点对应配置快照，不能用当前其他会话配置替代。
+
+#### Scenario: 开发态不兼容旧消息分支
+- **WHEN** fork目标是迁移前旧内核消息
+- **THEN** 返回明确不支持的错误，不转换旧上下文或生成摘要交接分支。
 
 ### Requirement: Gateway 向 IM 中继可本地化且可归因的自进化通知
 
@@ -356,3 +368,38 @@ Gateway 消费某 Agent 的 `self_evolution_review` session event 时，继续�
 #### Scenario: 部署缺少必需入口
 - **WHEN** IM 没有配置用户入口，或 Gateway 对端版本无法提供它
 - **THEN** 产生明确的部署配置或协议错误，不向 Agent 注入猜测的入口。
+
+### Requirement: Gateway 为被授权的精确执行提供只读原生轨迹观察
+
+#### Scenario: 中心请求当前节点所属执行
+- **GIVEN** 请求经已认证 IM 连接到当前节点，指向该节点全局 Agent 的主执行或真实后代
+- **WHEN** IM 发起原生轨迹读取或观察
+- **THEN** Gateway 复核本机绑定和执行归属，通过运行时公开读取能力返回真实历史和观察更新。
+- **AND** 不因读取而激活或创建 Agent、提交输入、执行工具或修改配置。
+
+#### Scenario: 执行不属于该 Agent 或读取操作越界
+- **WHEN** 请求指向其他 Agent 的执行，或要求提交、审批、取消、配置或其他非只读操作
+- **THEN** 拒绝请求，不执行部分操作或尝试扩大权限。
+
+### Requirement: 轨迹观察跟随查看生命周期，不改变任务生命周期
+
+#### Scenario: 查看者离开或观察链中断
+- **WHEN** IM 关闭某项观察，或其认证连接／节点连接／运行时中断
+- **THEN** Gateway 释放对应读取与订阅，旧观察结果不能进入新观察。
+- **AND** 不取消实际任务、不重发任务；恢复查看时从原生真实记录继续检查。
+
+#### Scenario: 慢查看者不阻塞执行交付
+- **WHEN** 某查看者无法及时接收轨迹更新
+- **THEN** 该观察有界失败且可重新读取，不因此阻塞 Agent 执行或正常消息投递。
+
+### Requirement: 原生附件副本不扩大原聊天访问权
+
+#### Scenario: 读取来源于聊天的原生附件
+- **WHEN** IM 请求原生记录引用的聊天附件
+- **THEN** Gateway 提供可信来源供 IM 按原有媒体权限授权，授权通过后才返回对应字节。
+- **AND** 来源无法证明时明确不可预览，不以文件路径或模型声明替代授权证据。
+
+#### Scenario: 读取来源于工作区的原生图片
+- **WHEN** 请求图片的可信来源为成功读图工具读取的所属工作区文件
+- **THEN** 仅在原生记录确实引用该图片时提供预览；不接受查看者提交的任意文件路径。
+- **AND** 来源记录失败使预览不可用，但不会阻断正常业务输入。

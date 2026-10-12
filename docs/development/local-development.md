@@ -1,108 +1,49 @@
 # Local Development
 
-本文负责本地开发环境、常用测试命令、产品开发入口、测试身份和提交约定。IM、Gateway 与 Web IM 的启动和排障见 [`../operations/`](../operations/README.md)；worktree 内真实服务的隔离规则见 [`worktree-runtime.md`](worktree-runtime.md)。
+## 环境和安装
 
-## Python 环境
-
-项目要求 Python 3.11+。首次安装：
+后端要求 Node.js 24（或 package.json 指定的受支持版本）和 pnpm 11.7.0；Python 3.11+ 用于文档、迁移辅助与黑盒测试。使用已有 `.venv`，无需为 worktree 复制环境。
 
 ```bash
+pnpm install --frozen-lockfile
+pnpm build
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+.venv/bin/pip install -e ".[dev]"
+npm --prefix src/IM/frontend ci
+npm --prefix src/IM/frontend run build
 ```
 
-仓库已有 `.venv` 时优先使用它。无需激活也可以显式执行：
+## 最窄反馈与完整门禁
 
 ```bash
-.venv/bin/python -m pytest
+pnpm exec vitest run packages/personal-assistant/tests/single-thread.test.ts
+pnpm build
+pnpm typecheck
+pnpm test
+.venv/bin/python -m pytest -m "not e2e" -q
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+./scripts/docs-check
 ```
 
-## 常用测试
+真实模型/平台验收另按 [worktree runtime](worktree-runtime.md) 隔离，不以 fixture provider 的测试代替真模型、浏览器或实体 iPhone。永久测试准入、最低有效层与停止条件见 [testing](testing.md)，证据边界见 [evidence](evidence.md)。
+
+## 产品入口
+
+IM 使用 `pnpm im`，节点使用 `pnpm pa`。配置、首次管理员、设备绑定和真实聊天见 [本地运行](../operations/local-stack.md)。旧 Coding CLI 已退役，不再启动 Python Agent 入口。
 
 ```bash
-# 全部测试
-.venv/bin/python -m pytest
-
-# 单个测试文件
-.venv/bin/python -m pytest -xvs tests/unit/test_xxx.py
-
-# 跳过需要真实运行时的 e2e
-.venv/bin/python -m pytest -m "not e2e"
+npm --prefix src/IM/frontend run dev
+npm --prefix src/IM/frontend test
+npm --prefix src/IM/frontend run build
 ```
 
-先跑最窄相关测试，再按改动风险扩大到 integration、contract 或完整套件。测试应该放在哪一层、何时使用 e2e marker、哪些临时证据不应固化为回归测试，以 [`testing.md`](testing.md) 为准。
+Web mock 模式仅用于页面开发；真实模式、代理与路径见 [frontend README](../../src/IM/frontend/README.md)。`dist/` 不提交。原生 App 构建和签名见 [iOS README](../../src/IM/ios/README.md)。
 
-## 产品开发入口
+隔离脚本自动建立 `nano` / `nano1234` 测试身份和随机 JWT secret，仅用于本次本地 E2E。已有本地数据库使用自己的固定密钥；不把开发身份或临时凭据搬到生产。
 
-### Coding CLI
+## 提交与边界
 
-```bash
-PYTHONPATH=src .venv/bin/python -m coding_cli.main
-PYTHONPATH=src .venv/bin/python -m coding_cli.main \
-  --model volcanoArk:doubao-seed-2-0-code-preview-260215
-```
+依赖以 [SPEC](../../SPEC.md) 为准，只有 integration 导入 DSH。先核对 checkout、branch 和 dirty 状态，只暂存本任务文件；代码规范见 [coding guidelines](coding-guidelines.md)。
 
-CLI 的交互命令、`--text` 模式和排障见 [`../../README.md`](../../README.md#cli)，当前行为契约见 [`../specs/cli/spec.md`](../specs/cli/spec.md)。
-
-### IM 前端
-
-```bash
-cd src/IM/frontend
-npm install
-npm run dev
-npm run test
-npm run build
-```
-
-`src/IM/frontend/dist/` 是本地构建产物，不提交。前端开发模式、Mock/真实 IM 边界见 [`../../src/IM/frontend/README.md`](../../src/IM/frontend/README.md)。
-
-## 本地测试身份
-
-手工调试可以使用：
-
-```yaml
-username: nano
-password: nano1234
-display_name: Test User
-im_url: http://127.0.0.1:8011
-```
-
-注册示例：
-
-```bash
-curl -X POST "http://127.0.0.1:8011/im/v1/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"nano","password":"nano1234","display_name":"Test User"}'
-```
-
-手工反复重启同一 IM 数据库时，使用稳定的开发 JWT secret，避免已有 token 因重启失效：
-
-```bash
-IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" \
-  PYTHONPATH=src .venv/bin/python -m uvicorn IM.app:app \
-  --host 0.0.0.0 --port 8011
-```
-
-Gateway 的 `im_service.username` / `password` 可以使用这组测试身份，以便启动和重连时自动登录。完整配置见 [`../operations/gateway.md`](../operations/gateway.md)，启动顺序见 [`../operations/local-stack.md`](../operations/local-stack.md)。
-
-`scripts/e2e-up.sh` 会为隔离运行生成随机 secret，并在临时 IM 中注册测试身份；不要为它手工复用主实例的数据库或 token。
-
-## 开发约定
-
-- 代码编写、注释与 TODO/FIXME：以 [`coding-guidelines.md`](coding-guidelines.md) 为准。
-- 模块边界：以 [`../../SPEC.md`](../../SPEC.md) 为准；产品包不得绕过 `agent.sdk`。
-- 测试分层：以 [`testing.md`](testing.md) 为准。
-- 前端产物：`src/IM/frontend/dist/` 不提交。
-
-Commit message：
-
-```text
-<type>(<unit>/<milestone>/<roadpoint>): <desc>
-```
-
-- scope 使用 unit 实际目录中的 id，例如 `bugfix-355/M5/R1`；
-- milestone 级 commit 可以省略 roadpoint，unit 级 commit 可以省略 milestone；
-- phase 通过 type 表达：C1 红测用 `test`，C2 实现用 `feat` / `fix` / `refactor`，C3 文档用 `docs`。
-
-具体 change unit 内的提交节奏由当前 `change-*` skill 决定；本文只保存命名格式。
+Commit message 使用 `<type>(<unit>/<milestone>/<roadpoint>): <desc>`；简单任务可省略不适用层级。具体交付门禁见 [change workflow](change-workflow.md)。

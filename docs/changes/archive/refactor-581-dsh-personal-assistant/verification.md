@@ -1,0 +1,206 @@
+# Verification Report: refactor-581-dsh-personal-assistant
+
+> Latest closure: documentation promotion/user scope adjustment `88d49182b0cccfc2937bdc0a337dfe436f76be9d → 10ffd634bc75bac11cd9a18d655c95e0925aeea4`, retaining all earlier full review and precise repair evidence. The same eight corrected deltas are promoted to canonical; only physical iPhone portions of S01/S17/S31 are explicitly deferred by the user.
+
+**Latest result: corrected-delta ALIGNED; verdict PASS for the user's adjusted delivery scope; 0 CRITICAL, 0 WARNING, 0 SUGGESTION.** C1/W1/W2 are CLOSED. C2 is **SUPERSEDED BY USER-AUTHORIZED DEFERRAL**, not satisfied by physical evidence: final independent acceptance records 30 pass / 3 authorized-deferred and no open product defect. Physical native iPhone UI remains unverified. Canonical promotion is reconciled below; archive and final CI remain parent workflow. Historical sections retain their original snapshots; later rounds explicitly supersede closure and evidence status.
+
+| Metadata | Value |
+|---|---|
+| validated_at | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| executed_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_base | `4915c44cb7f7b829414a19087877ad9b73d69ea1` |
+| effective_through | `10ffd634bc75bac11cd9a18d655c95e0925aeea4` |
+| last implementation freeze | `88d49182b0cccfc2937bdc0a337dfe436f76be9d` |
+
+Executed base is the original full-verification range; each later execution retains its documented snapshot. `origin/main` remains that base, with no incoming implementation delta. The effective extension is documentation-only and does not imply rerunning all tests or product journeys at the documentation head. `requires_full_verification: false`.
+
+> Validation snapshot: `4915c44cb7f7b829414a19087877ad9b73d69ea1 → e89179da8956577b288ee374fe791c2ce82d5047`
+
+Round 1 · `verification_mode: full` · `verdict: fail` · `requires_full_verification: false`
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M1–M5 implementation owners present; required final product/physical-device exit evidence incomplete |
+| Correctness | All R1–R12 / S01–S33 mapped; three confirmed implementation defects |
+| Coherence | Core ownership, public stock DSH integration and five Feature scopes followed; execution observability and usage boundary deviate |
+
+**2 CRITICAL, 2 WARNING, 0 SUGGESTION. Fix and close required evidence before PR.** Source findings apply to the frozen implementation, not parent-owned fixes now in progress.
+
+## Completeness
+
+- M1: native runtime, session acceptance/flush/lookup, cancellation and approval owners exist. Retained tests and real text/tool/restart journeys support the implementation. Full three-client S01 acceptance is not established by API results alone.
+- M2: both work modes, Inbox, Feishu, Task Graphs, native schedule and product Heartbeat owners exist. Retained real native-center and dedicated Feishu results support delivery; final physical iOS/UI observation remains incomplete.
+- M3: native capabilities, two-layer extensions, selection, Auto policy, fallback, new history, knowledge maintenance and configuration continuity exist. Token-usage wire shape violates the retained clients (W1).
+- M4: JavaScript catalog and one nested level, pause/resume/restart, durable prefix reuse, actual-child execution and shared accounting exist, with native and product regressions documented in M4 progress.
+- M5: independent TypeScript center and new Node entrypoints exist; old kernel and Coding CLI are retired and test disposition is explicit. Public readiness after runtime loss/recovery is stale (W2), quiet execution liveness is missing (C1), and final reviewer evidence is incomplete (C2).
+- No `tasks.md` checklist is required for this simplified Full workflow. Milestone exits, not worker implementation claims, determine completion. Current canonical specification merge/archive/local docs CI is a pending workflow step under the parent’s ownership; its intentionally pre-merge state is not counted as an implementation defect.
+- Prototype / Reference coverage: **N/A**. Design retains existing client layout and interaction and explicitly adds no page/form/navigation prototype. It still requires actual Web/Swift/Feishu observation of the new data and native tool presentation.
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 / applicable evidence | 状态 |
+|---|---|---|---|
+| R1 S01–S02: three clients, text/image follow-up and identity | `packages/personal-assistant/src/{single-thread,global-agent,external}.ts`; `apps/im-server/src/{identity,messaging,media,gateway}.ts`; retained React/Swift clients | PA/channel/IM regressions; M1/M2/M5 live text, image, dedicated Feishu and identity evidence | Implemented; final physical/UI gate pending C2; usage defect W1 |
+| R2 S03–S04: global Inbox, concurrent source attribution and late correction | `packages/personal-assistant/src/{global-agent,inbox,single-thread}.ts`; `packages/dsh-integration/src/global-mode.ts` | Inbox/global product tests; actual native-center cross-chat/same-child and real group API journeys retained by parent | Covered by implementation and retained evidence |
+| R3 S05–S07/S32: tools, native names, two extension layers and true selection | `packages/dsh-integration/src/{capabilities,extensions,web}.ts`; `assets/social-tools.ts`; `apps/node/src/configuration.ts` | Capability/profile/social/web tests; public-export dependency contract independently 8 passed | Covered; approved native replacements applied |
+| R3 S33: five independent Feature lifecycles | `packages/dsh-integration/src/features/`; agent preset lifecycle; PA Heartbeat and knowledge subscription owners | Capabilities/profile/cron/knowledge and product tests; M1–M5 progress records on/off/restart/agent isolation | Covered at implementation/regression level; final product observation belongs to C2 |
+| R4 S08–S09: child/background continuation and cancellation | Native DSH subagent/jobs integration; PA single-thread/global and Workflow delivery owners | Native child/history/profile tests; parent’s actual foreground/background/failure/stop journeys | Covered; healthy quiet operations fail watchdog C1 |
+| R5 S10–S11: JS parallel/pipeline, named discovery/save and nesting | `packages/dsh-integration/src/workflow/{guest,catalog,engine}.ts` | Workflow catalog/native/lifecycle tests; M4 retained actual-child scenarios | Covered |
+| R5 S12–S13: pause/restart and durable completed prefix | `packages/dsh-integration/src/workflow/{control,state,engine}.ts` | Workflow control/lifecycle/native tests with attempt and replay state | Covered |
+| R5 S14: shared parent/child output budget | `packages/dsh-integration/src/workflow/budget.ts`; model attempt/settlement integration | Workflow budget/native tests, M4 usage evidence | Covered; accepted target semantics, not a hard streaming cap |
+| R6 S15–S18: one Auto consumer, selectable rules, human/global/unattended approval | `packages/dsh-integration/src/policy/`; PA approval routing; `packages/channels/src/feishu.ts` | Approval/workflow-approval regressions; real native-center allow/deny and three reviewer selection/escalation journeys | Covered except long pending waits C1 |
+| R7 S19–S20: memory and Skill use/maintenance/enable | `packages/dsh-integration/src/knowledge/`; independent Feature scopes; PA knowledge updates | Knowledge profile/product/builtin-skill regressions; M3/M5 retained evidence | Covered |
+| R8 S21–S23: native parent-session schedule, overdue recovery, manual/history | Native Schedule owner via integration Feature/Cron owners and schedule evidence | Cron/profile tests; actual native-center one-shot journey; cold-recovery/receipt evidence in M2 | Covered; approved schedule semantics applied |
+| R9 S24: Heartbeat quiet/busy/active-time policy | `packages/personal-assistant/src/{heartbeat,heartbeat-policy}.ts` | Heartbeat policy/product regressions and actual native-center journey | Covered |
+| R10 S25: next-turn configuration, model fallback and usage | Node/PA configuration operations; integration model policy/fallback; `presentation.ts:4–18` | Config/fallback/usage tests; actual configuration and accounting journeys | Material usage schema mismatch W1 |
+| R10 S26–S27: new history, compact/fork/distill and development cutover | Integration NativeHistory/compaction; PA history/session controls; Node migration | History/catalog/migration tests; real `/compact`, focused summary, restart and fork-config evidence | Covered; no old-chat compatibility required |
+| R11 S28–S29: graph/send facts, disconnect/runtime recovery | `apps/im-server/src/{task-graphs,work,gateway}.ts`; durable Node/PA stores and outboxes; `server.ts:276–305` | IM actual HTTP/WS/control/usage tests; resilience scripts and native-center journeys | Missing execution liveness C1; readiness mismatch W2 |
+| R12 S30–S31: operational entrypoints, executable readiness and retirement | `apps/node/src/{cli,lifecycle,main}.ts`; integration supervisor; root/scripts/CI | Lifecycle/device-binding tests; actual launchd/resilience evidence; boundary contract independently passed | Runtime readiness does not track recovery W2 |
+
+Implementation scope was reviewed against current product invariants plus the approved five delta areas. Old tool names/private runtime algorithms were not treated as preserved requirements. Shared task graphs intentionally follow company-wide qualification, not per-owner filtering; chat and attachment access remains a separate boundary.
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| Independent TypeScript IM → product Node → managed DSH child | Yes | `apps/im-server`, `apps/node`, `packages/personal-assistant`; no IM runtime dependency |
+| Stock pinned DSH, no fork/patch/private imports | Yes at reviewed source/dependency surface | Integration package/profile and lockfile; `tests/contract/test_runtime_dependency_contract.py` independently passed |
+| Product identity/delivery owners separate from native execution | Yes structurally; liveness incomplete | Product contracts, durable PA stores, IM identity/gateway; C1 |
+| Native tool names, native schedules to parent session, no old-history converter | Yes | Capabilities, schedule Feature owner, NativeHistory, migration blockers |
+| Five separately disposable Features, stable shared bridge | Yes | Feature plugin registrations and scoped preset effects; product subscriptions |
+| Own Workflow control/prefix/budget atop public PTC and subagents | Yes | `workflow/{engine,control,state,budget,guest,catalog}.ts` |
+| Retain HTTP/WS schema and client behavior | No | `presentation.ts:10–14` emits a different usage shape; W1 |
+| Separate connection online from execution ready; identify live runtime | No | `apps/node/src/main.ts:215` writes readiness once; W2 |
+
+### Prototype / Reference Contract
+
+N/A: no new prototype/must-match rows. Existing client interaction requires real observation under the design’s Runbook; C2 tracks missing final evidence rather than subjective visual quality.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **C1 — execution-specific liveness has no producer in the replacement path.** Current `docs/specs/gateway/routing-delivery.md` execution-liveness scenarios and `docs/specs/im/gateway-relay.md` watchdog scenarios remain applicable; target architecture §11 preserves long-running execution visibility. `apps/im-server/src/server.ts:283` expires replies from the last conversation event; the `run_heartbeat` receiver in `gateway.ts:806` has no replacement Node/PA producer, and pending approval time is ignored. Independent shortened-timeout reproduction failed both a healthy quiet-tool record and a fresh approval wait. Later text deltas are ignored for failed messages. **Action:** wire actual per-execution liveness and pending approval semantics through native execution to the center; add a regression distinguishing healthy quiet execution/approval from lost execution liveness. Merely keeping the node socket online or disabling the watchdog would not prove the contract.
+- **C2 — required final product/physical-device exit evidence is incomplete.** `design.md` Runbook requires real Web/Swift/Feishu observation and expressly rejects simulator/mirroring as physical-device substitution; M1/M2/M5 exits require applicable S01/S17/S29/S30 and final three-client behavior. M5 progress records signed iOS build/install but explicitly says UI acceptance was blocked by the locked Mac. Installation and API/native integration successes do not establish actual iOS chat/image/tool/approval/foreground/background behavior. **Action:** product reviewer must finish the required final client journeys on the installed physical device and attach versioned observations/results; retain pending status until then. This verifier does not substitute its static review for that independent gate.
+
+### WARNING（提 PR 前必须修）
+
+- **W1 — usage projection breaks unchanged client schema.** Design’s “IM、Web、iOS产品协议: no spec delta” and event/client mapping retain the public accounting boundary. `packages/personal-assistant/src/presentation.ts:10–14` emits `prompt/completion/cache_read/cache_total_input`; the unchanged center persists it, while Web `TokenChip` needs `context_used/output/cache_read_tokens/cache_total_input_tokens`. Independent frozen-source execution confirmed missing `output`, NaN context percent and a TypeError on details expansion. Swift consumes the same retained names. **Action:** normalize the product object to the retained schema with correct native disjoint input/cache/output meaning; keep missing provider counters unknown. Verify the serialized real message shape and both client consumers, not only internal accounting totals.
+- **W2 — public readiness reports a dead DSH PID after recovery.** R12 S30, service-lifecycle delta and target architecture §11 distinguish Node connection from executable readiness. `apps/node/src/main.ts:215` persists readiness once; `RuntimeSupervisor` loss/recovery updates only private state. Independent real-process reproduction observed DSH replacement PID33287 but public status still `RUNNING pid=33254 ready=true DSH=33272`. Retry exhaustion also leaves readiness true. **Action:** persist unavailable/recovered state from supervisor transitions, clear dead PID and record replacement PID only after successful initialization/recovery; verify public `pa status` through crash/recovery and exhausted retries.
+
+### SUGGESTION（可以修）
+
+None.
+
+## Evidence and verification boundaries
+
+- Independently executed boundary test: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest tests/contract/test_runtime_dependency_contract.py -q` → **8 passed in 0.07s**. Initial worktree-local `.venv` invocation failed because that interpreter does not exist; it is not a test failure.
+- Independently reproduced C1 and W2 with private temporary state; real node/server processes were stopped and temporary directories removed. W1 was executed directly from frozen Git source through TypeScript transpilation, so parent’s in-progress edits were excluded.
+- Reused versioned worker/parent integration evidence recorded in M1–M5 progress: backend **49 files / 113 tests**, frontend **86 files / 809 tests**, native build/typecheck and Python selected **51 tests**; runtime/history/feature/workflow/policy/accounting regressions; isolated resilience/autostart/device-binding exercises; real native-center global/child/approval/configuration/compact/schedule/Heartbeat journeys. These results establish their actual scopes, not a blanket product acceptance.
+- Dedicated actual final TypeScript-center Feishu platform + IM response is recorded at ignored `.dsh-runtime/native-feishu-fixed/acceptance.json` and summarized in M5 progress. It is local real-platform evidence, not a production deployment or physical iOS result.
+- Legacy dispositions are authoritative in `M5-decommission/test-disposition.md`; old private Python implementation tests are not required to survive the approved replacement. Research/evaluation material remains outside retirement.
+- Parent is making source fixes during this report. No post-`e89179da8` source, tests or client edits were included. A precise patch/closure pass must close C1/W1/W2 and update evidence; C2 remains the product reviewer’s gate. No report commit was made in the shared worktree.
+
+## Round 2 — targeted closure and corrected delta
+
+Implementation snapshot: `e89179da8956577b288ee374fe791c2ce82d5047 → 3014fe8cd76df81f34fb756eaebefe205b4051ad`. This pass checks the exact supplied repair batches, prior findings and the complete six-area corrected unit delta. It is not a second full review. `requires_full_verification: false`.
+
+| Focus issue | Result | Direct evidence |
+|---|---|---|
+| C1 execution liveness | CLOSED | `packages/dsh-integration/src/index.ts` actual-running-Agent timer → `session.liveness`; `single-thread.ts` → `store.activeDeliveries(sessionId)` limits heartbeats to sending bubbles; existing `gateway.ts` heartbeat → message event time. Native quiet-model and real IM pending-approval heartbeat/heartbeat-loss regressions independently passed. |
+| W1 retained usage schema | CLOSED | Canonical usage keys emitted by `presentation.ts`; Work/Feishu updated consistently; Web/Swift unknown-count semantics match corrected response-metrics delta. Later `3014fe8cd` guards persisted partial `context_used/output` values without field aliases. Focused product and updated client tests independently passed; real token-usage critical path retained from parent. |
+| W2 runtime readiness/PID | CLOSED | Supervisor `onUnavailable` clears public readiness/PID before recovery; `onReady` persists replacement after successful initialization/product recovery. Independent actual SIGKILL lifecycle test passed. |
+| C2 independent final product/physical-device gate | STILL OPEN | Committed `acceptance.md` explicitly retains fail/inconclusive journeys and `needs_re_review: true`; signed device build/install does not prove physical UI acceptance. Product reviewer must close each still-applicable journey with actual new evidence. Source repairs do not retroactively turn earlier product failures into product passes. |
+
+Latest counts: **1 CRITICAL, 0 WARNING, 0 SUGGESTION**. C2 is an evidence/exit-criterion gap, not a claim of another source bug. The earlier acceptance report additionally records uncompleted Web/image and applicable capability/Workflow journeys; source fixes and new retained evidence may be reused only within their actual scope by the responsible product reviewer. Newly inspected `.dsh-runtime/two-node-evidence.json` at `bbbaee580` records two online nodes, each returning its own private sentinel, other-member conversation/media/permission requests rejected with 404, suspended access 401 and no other-member Agent configuration visibility. This closes that retained API isolation evidence gap, while the physical UI gate stays open.
+
+Independent repair verification: **7 backend files / 16 tests passed**, including native-profile liveness, actual IM process watchdog, actual node/DSH SIGKILL recovery, real Workflow tool read, PA sending-bubble filtering and usage projections; updated **1 frontend file / 8 TokenChip tests passed** at `3014fe8cd`. See [code-review.md](code-review.md#round-2--precise-repair-closure) for exact commands. Parent additionally reports final native suite **49 files / 115 tests**, build/typecheck, actual token critical path, real capability HTTP counts and signed iOS device build. Those are retained results, not independently repeated wholesale here.
+
+## Corrected Delta Reconciliation
+
+Latest mode: `corrected-delta`; effective through `10ffd634bc75bac11cd9a18d655c95e0925aeea4`, implementation freeze `88d49182b0cccfc2937bdc0a337dfe436f76be9d`. All earlier repair evidence remains applicable because the extension changes only documentation and authorized acceptance scope. All eight canonical files were compared against the unit delta: **28 Requirement bodies aligned**, allowing only removed delta markers and adjusted relative links. No new semantic delta or full implementation rerun was needed.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/agent-capabilities.md`: native tools, two extension layers, one Auto consumer, five independent Features; native skill/manual names | Catalog uses a fresh disposable preview Agent with all five Feature candidates and its isolated native Schedule owner; actual session configuration and prompt-preview selections remain distinct. `requires_tool=schedule_create` and allowlist restrictions remain unchanged | Independent capability/Cron 4 tests passed; real runtime: three catalogs plus one preview leave disabled Agent without schedule tools, enabled Agent with all six, and exact persistent Schedule-directory set unchanged. Prior profile/approval/knowledge evidence retained | aligned |
+| `specs/gateway/heartbeat-cron.md`: native same-session schedules, overdue delivery, source distinction and product Heartbeat | Native Schedule/Heartbeat/source policies unchanged. First owner-bound model notices now use `to_user_id` and adopt the real ACK conversation, matching existing body delivery; fallback selection unchanged | Prior Cron/Heartbeat/liveness evidence retained; latest chat/owner-first fallback and IM regressions independently 6 passed. Actual no-human first Heartbeat 401→live backup evidence inspected; product reviewer accepts S25 | aligned |
+| `specs/gateway/relay-protocol.md`: new native history distill/fork, historical configuration, no old compatibility | Native history/durable bindings unchanged; Web Generate Skill preflight now checks native `skill`, matching the existing native distillation flow; no old-data conversion added | Complete Web workspace integration file independently 54 passed, including native Skill enabled/disabled preflight; prior history/fork/configuration/compact evidence retained | aligned |
+| `specs/gateway/service-lifecycle.md`: separate online/executable state, initialization/recovery barrier, config lock, birth-safe stop, missing-birth refusal and CLI retirement | `apps/node/src/{main,lifecycle}.ts`; supervisor transition callbacks persist unavailable/fresh identity; `ownedState` rejects unproven live birth and lifecycle waits for ready | Prior independently run real lifecycle SIGKILL/replacement/public status and PID-mismatch tests retained; no lifecycle source change in latest batch | aligned |
+| `specs/gateway/workflows.md`: JS catalog/nesting, controls, prefix reuse, shared budget and original delivery ownership | Unchanged reviewed host/guest/control/budget owners; `engine.read` strips undefined optional fields through JSON serialization; native child diagnostics retained in call state | Real native Workflow `action: read` independently passed; prior controls/prefix/budget tests retained | aligned |
+| `specs/im/response-metrics.md`: canonical fields, reported zero vs unknown, partial counters | `presentation.ts` canonical wire fields; Web TokenChip and Swift ChatUsageView display unknown cache/total as `—`, omit unavailable detail/window or show `—`, and avoid unsupported percentages; partial input/output is safe | Product projection/fallback/store and 8 updated TokenChip regressions independently passed; parent actual token-usage critical path passed | aligned |
+| `specs/gateway/routing-delivery.md`: native sessions, retained routing/context/control, S04 send revalidation and unified approval liveness | Shared product sends/query mount in single-thread; native child fields pass through. Same-current-Web-group sends refresh turn/input evidence and preserve old-call held results. IM query now admits connected non-stale single-thread Agents without a global journal row; global retains `global_main`, and all actions retain Agent conversation membership limits | Real-native communication/product correction 4 tests retained; latest actual HTTP/WS control-work file independently 3 passed, including own single-thread info and denial for another Agent's private chat. Prior reply/global/liveness evidence retained; actual S04 remains reviewer-owned | aligned |
+| `specs/im/agents-nodes.md`: actual `/cron/jobs` list/delete RPC routes and retained Skill usage API | Existing Cron routes/projection retained; Skill usage route now unwraps the Node response's `usage` member and returns the unchanged public rows/counts/heatmap/health shape | Independent native Cron file 2 passed; latest actual HTTP/WS control-work file 3 passed, including nonempty Skill usage/counts. Parent reports reviewer public API/Web confirmation; final acceptance report remains independently owned | aligned |
+
+### Uncovered Observable Behavior
+
+None remaining in the supplied repair delta after the response-metrics and routing/Cron prose corrections. Capability envelope, Workflow lossless JSON/diagnostics, Cron product jobs projection, complete catalog candidates, native Skill preflight, Skill usage envelope and single-thread public send/S04 revalidation restore existing product behavior. The unknown-counter presentation and actual Cron API route are explicitly recorded in the eight-area delta/design table. Catalog-only Feature mounting does not enable actual Agent capabilities. Temporary native owner cleanup is an implementation lifecycle detail within the existing catalog/Feature contract. Corrected skill/workflow names and two Cron subtitles describe the approved native behavior without adding a compatibility implementation. Skill usage and single-thread same-group send revalidation are existing Requirements (including motivation S04 and target architecture §8.5), so these repairs need no new semantic delta.
+
+Canonical promotion at `c10650095` applies the complete eight-item delta, including unified approval liveness, native Schedule/Cron ownership, metrics unknowns and actual Cron API paths. The canonical Gateway index's stale in-process-kernel/Cron summary was identified during this pass and corrected at `10ffd634b`. README/SPEC/operations and archive routing now distinguish current Node + DSH behavior from retired Python Kernel/Coding CLI history. Parent reports the post-promotion docs-check passed (251 sources / 64 routes); archive/path-only handling and final CI remain its procedural responsibility.
+
+Outcome: **aligned**. Source repairs and canonical reconciliation are complete for the reviewed scope. C2 no longer blocks this delivery under the explicit user deferral; physical iPhone UI remains unverified and requires later device evidence. Counts for the adjusted scope are **0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Reports were updated without source/test/config/design edits or a shared-tree commit.
+
+## Round 3 — latest bounded closure result
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Latest source patch is limited to native Cron product jobs projection and actual deletion outcome; all other new files expand/correct already implemented contract wording and handbooks. The two identified delta discrepancies (stale permanent approval exemption and old `cron` tool name) were precisely corrected by the parent and verified before this conclusion.
+
+Independent additional command: `pnpm exec vitest run packages/dsh-integration/tests/cron.test.ts` → **2 passed in 6.21s**. The prior 16 backend/8 frontend repair tests remain valid for unchanged source. No full-suite rerun or broad implementation review was required for this bounded pass.
+
+Remaining full-unit counts are **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION**. Actual Cron UI and other outstanding product journeys are owned by the ongoing independent reviewer; physical iPhone UI remains unproven. Signed build/install, API isolation evidence and native regression success cannot close that physical gate. Canonical merge/archive and final docs checks remain parent workflow work, not a newly discovered code defect. No source, test, configuration or design edit and no commit were made by this verifier.
+
+## Round 4 — catalog/preview and native Skill closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Frozen patch: `7cf584b9a → 34164e5e241b55bd674ffa0d7aedef4e83e2eb1f`. F6's missing Schedule candidates and F7's retired Skill preflight name are closed at implementation/regression level. Node/Agent catalogs load all five Feature candidates through a separate disposable native scope, whereas actual session capabilities and selected prompt preview remain governed by their requested configuration. No new semantic delta or broader permission grant was introduced.
+
+The temporary Schedule owner uses its own random Agent identity, preset/session and hashed storage directory. Its Schedule/domain/JSON/storage fibers are disposed before deleting that exact temporary directory. An independent real-runtime probe repeated catalog three times and preview once for an Agent with all five Features disabled: catalog had schedule candidates, actual disabled session had zero schedule tools, another enabled session retained all six, and the exact Schedule-directory set stayed unchanged (1 → 1). The private runtime/data were cleaned up. This directly verifies the requested normal-path isolation and cleanup without extending the review into hypothetical failure cases.
+
+Independent checks: capability/Cron **2 files / 4 tests passed (5.77s)** and Web workspace **1 file / 54 tests passed (5.05s)**. Exact commands and focused closure evidence are in [code-review.md](code-review.md#round-4--capability-catalog-and-native-skill-preflight). Prior closures remain valid for unchanged source; no full-suite rerun was required here. Parent's ongoing build/typecheck/full backend verification is separate evidence and is not claimed as independently repeated.
+
+Remaining full-unit counts: **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION**. The independent product reviewer owns actual catalog/preview/Generate Skill journeys and all outstanding acceptance results. Physical iPhone UI remains unproven; build/install, runtime probes and Web regression tests cannot replace it. Canonical merge/archive/docs gates remain the parent's procedural work. Only these reports and the existing empty findings JSON were reviewed/updated; no source/test/configuration/design edits or commit were made.
+
+## Round 5 — Skill usage closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Frozen delta: `34164e5e241b55bd674ffa0d7aedef4e83e2eb1f → 0ddf25b8b42a7e2062a6cdc950f8411380cdef48`. The one-line implementation repair correctly unwraps Node's existing `usage` envelope before the unchanged public Skill statistics projection. F8 is closed at implementation/regression level; prior findings and all eight corrected-delta conclusions remain valid. This restores the existing Skill usage Requirement rather than adding behavior that needs another delta.
+
+Independent actual HTTP/WS regression: `pnpm exec vitest run apps/im-server/tests/e2e/control-work.test.ts` → **1 file / 3 tests passed (4.29s)**. The added case validates complete public data including a Skill row with `use_count: 20`, heatmap and health counters. Parent reports product reviewer confirmation of actual API/Web rows/counts after isolated IM restart; the verifier does not replace the reviewer's final acceptance report or infer other journey results from this repair.
+
+Remaining full-unit counts: **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION** pending final independent product/physical-device evidence reconciliation. Physical iPhone UI still cannot be established by build/install or this server regression. Canonical/archive/docs workflow remains the parent's responsibility. Only reports were edited; findings JSON was checked and remains `[]`. No implementation edit or commit was made.
+
+## Round 6 — single-thread public send / S04 closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Frozen delta: `0ddf25b8b42a7e2062a6cdc950f8411380cdef48 → 0ca89aee67474d5014f92b04ebf24ace1307bd61`. F9 is closed at implementation/regression level: single-thread gets product public send/conversation tools, keeps its normal final-prose behavior, and does not gain Inbox/global prompting. Native child/parent communication keeps its distinct field-based native path. Same-current-Web-group public sends compare newer NodeStore inputs with the call's native turn at dispatch admission; a new corrected turn may send, while replay of the held old call remains held. This satisfies the existing S04/target §8.5 scope without widening revalidation to unrelated channels or conversations.
+
+Focused independent communication/global-Agent checks: **2 files / 4 tests passed (1.08s)**; exact command is recorded in [code-review.md](code-review.md#round-6--single-thread-public-sends-and-s04-boundary). Inspected parent retained full native-backend output: **50 files / 118 tests passed (20.89s)**; build/typecheck are parent-reported. Earlier source closure evidence is retained for unchanged code. Actual S04 is being independently observed by the product reviewer; these runtime/product regressions do not establish that UI journey by themselves.
+
+Also inspected the retained `.dsh-runtime/final-approval-policy-evidence.json`: correctly labeled **Actual RuntimeClient and controlled review model fixture**, nine sessions cover allow, third-denial human escalation, invalid reviewer/human allow, global return-to-Agent, unattended deny, DSH rules, human reject, cancellation and approval unavailability/timeout. Records contain native approval decisions and tool/result/turn outcomes (including canceled turn), 5 approval requests, 14 review calls and 3 actual fixture effects. This supplements R6 mechanism evidence; it is not a real-provider approval-model or physical-client result and does not close C2.
+
+Remaining full-unit counts: **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION** for outstanding final independent product/physical-device evidence. Canonical/archive/docs work remains the parent's procedural responsibility. Findings JSON remains `[]`; only reports were edited, without implementation changes or commit.
+
+## Round 7 — downstream IM query closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Frozen two-file delta: `0ca89aee67474d5014f92b04ebf24ace1307bd61 → 38d6e5206bae3af38daca384c9e7d40303fe08ae`. The product reviewer found that IM still demanded a global journal session for single-thread conversation info, blocking the Round 6 public-send path. This repair removes only that incorrect mode requirement. A non-stale Agent must still belong to the connection's Node; global still requires its Node-owned `global_main`; both modes remain restricted to conversations in which that Agent participates. F9's downstream implementation/regression gap is closed; Round 6 native dispatch and turn-boundary evidence remains valid within its scope.
+
+Independent actual HTTP/WS command: `pnpm exec vitest run apps/im-server/tests/e2e/control-work.test.ts` → **1 file / 3 tests passed (4.26s)**. It confirms own single-thread conversation info succeeds and another global Agent's private conversation is denied, alongside unchanged global queries and Skill usage. Parent reports IM build passed. No new semantic delta is needed for this existing communication contract; the same eight corrected deltas remain aligned.
+
+Remaining full-unit counts: **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION**. Actual S04 revalidation is still owned by the product reviewer; physical iPhone UI and final acceptance evidence cannot be inferred from this server regression. Canonical/archive/docs workflow remains parent-owned. Findings JSON is checked and remains `[]`; no implementation edits or commit were made.
+
+## Round 8 — first Heartbeat fallback and final evidence reconciliation
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `requires_full_verification: false`. Frozen four-file delta: `38d6e5206bae3af38daca384c9e7d40303fe08ae → 88d49182b0cccfc2937bdc0a337dfe436f76be9d`. F10 is closed: first proactive model notices resolve the virtual owner target via `to_user_id`, persist/adopt the IM ACK's formal conversation, and use that same binding for subsequent notices/body. The ordinary-chat branch and existing model-fallback policy remain intact. E2E configuration helpers preserve fallback/effort/Skill-selection fields; the IM close/identity test now waits for server-side disconnection and accurately describes its owner fixture. No authentication product code changed and no new semantic delta is required.
+
+Independent focused checks: `pnpm exec vitest run packages/personal-assistant/tests/model-fallback.test.ts apps/im-server/tests/e2e/server.test.ts` → **2 files / 6 tests passed (6.17s)**. Inspected actual `.dsh-runtime/final-heartbeat-fallback-evidence.json`: first Heartbeat has no preceding human message, primary HTTP401 occurs once, configured live backup is `deepseek:deepseek-v4-flash`, and failure/switch/`HB_BACKUP_581` completed messages share one formal owner conversation. Parent reports full backend **50 files / 119 tests passed (20.51s)** and build/typecheck. These retained scopes are identified separately from independently rerun checks.
+
+The independent product reviewer's final [acceptance.md](acceptance.md) reconciliation now records **30 pass, 3 inconclusive, no open product defects** and explicitly accepts S25 from the new Heartbeat evidence plus the scoped Cron evidence. Prior S04 and other implementation/product failures are closed there. **C2 is now solely the shared physical-device evidence gap for S01, S17 and S31**: physical native iPhone chat/image follow-up, approval and three-client final confirmation have not been operated. The observed access blocker is **host Mac locked / manual unlock needed**, not an observed iPhone lock state. Build/install, Web/Feishu and simulator evidence cannot substitute for those physical journeys.
+
+Latest counts remain **1 CRITICAL (C2), 0 WARNING, 0 SUGGESTION**; corrected delta is aligned for all eight items and source review has no surviving finding (`[]`). Final physical acceptance remains reviewer-owned; canonical/archive/docs steps remain parent workflow. Only reports were edited, without implementation changes or commit.
+
+## Round 9 — canonical and user-scope closure
+
+`verification_mode: corrected-delta`; `outcome: aligned`; `verdict: pass` within the explicitly adjusted delivery scope; `requires_full_verification: false`. Reviewed the documentation-only `88d49182b..c10650095` promotion and `c10650095..10ffd634b` index correction. No product source/test/config/dependency/CI delta exists. Exact Requirement comparison confirms all **eight canonical documents / 28 Requirement bodies** match the corrected unit delta after relative-link/delta-marker normalization. The stale Gateway-index kernel/Cron wording is CLOSED by the precise final documentation commit. No remaining material documentation mismatch was found in the requested promoted entrypoints.
+
+User authorization is recorded in [motivation.md](motivation.md#交付验收范围调整2026-10-10) and [pending-decisions.md](pending-decisions.md#q25--物理-iphone-验收暂缓). Only the physical native iPhone portions of S01/S17/S31 are `deferred-by-user` (the product report uses `authorized-deferred`); C2 is therefore **superseded for this delivery**, not an experimentally closed issue. The independent acceptance report records **30 pass / 3 authorized-deferred, open product defects 0**. Shared Web/iPhone HTTP/WS coverage remains valid, while Swift display/image/approval interaction still needs later physical observation. The observed host-Mac lock limitation is retained as history. No iPhone pass, production deployment authorization or canceled iOS automated gate is inferred.
+
+Retained execution evidence remains versioned in earlier rounds. Parent reports post-promotion docs-check **251 sources / 64 routes passed**, Python **51 passed / 31 deselected**, and automatic iOS test/archive still running; this documentation closure does not claim those results were independently rerun. Archive and final CI results remain parent-owned procedural work. No additional code matrix was opened.
+
+Current issues: **0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Code findings JSON is still `[]`. Follow-up physical acceptance remains required outside this user-adjusted delivery scope. Only the two assigned reports were edited, findings JSON checked, and no implementation changes or commit made.

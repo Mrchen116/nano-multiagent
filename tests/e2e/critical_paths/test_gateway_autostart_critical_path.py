@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import signal
+import hashlib
 import subprocess
 import sys
 from contextlib import suppress
@@ -19,13 +20,15 @@ def _cleanup_autostart_runtime(tmp_path: Path, env: dict[str, str]) -> None:
     """Remove launchd state even when the shell driver had to be killed."""
     config_path = tmp_path / ".gateway-config.yaml"
     cleanup_env = {**env, "PYTHONPATH": str(_REPO_ROOT / "src")}
-    cleanup_code = (
-        "from personal_assistant.gateway.macos_launch_agent import "
-        "permanently_remove; import sys; permanently_remove(config_path=sys.argv[1])"
-    )
     with suppress(subprocess.TimeoutExpired):
         subprocess.run(
-            [sys.executable, "-c", cleanup_code, str(config_path)],
+            [
+                "node",
+                str(_REPO_ROOT / "apps/node/lib/cli.js"),
+                "stop",
+                "--config",
+                str(config_path),
+            ],
             cwd=_REPO_ROOT,
             env=cleanup_env,
             stdout=subprocess.DEVNULL,
@@ -33,6 +36,12 @@ def _cleanup_autostart_runtime(tmp_path: Path, env: dict[str, str]) -> None:
             check=False,
             timeout=30,
         )
+    digest = hashlib.sha256(str(config_path.resolve()).encode()).hexdigest()[:16]
+    (
+        Path.home()
+        / "Library/LaunchAgents"
+        / f"io.github.mrchen116.nano-multiagent.gateway.{digest}.plist"
+    ).unlink(missing_ok=True)
     with suppress(subprocess.TimeoutExpired):
         subprocess.run(
             [

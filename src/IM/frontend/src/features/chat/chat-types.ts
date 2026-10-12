@@ -163,9 +163,9 @@ export interface BackgroundReturn {
 }
 
 export interface TokenUsage {
-  output: number;
-  context_used: number;
-  context_window: number;
+  output?: number;
+  context_used?: number;
+  context_window?: number;
   /** Per-turn prompt+completion sum (M17/R8-3); optional for back-compat with rows persisted before M17. */
   total?: number;
   /** feat-439-M1: 整轮命中缓存读取的 input 累计(分子)；旧行缺省。 */

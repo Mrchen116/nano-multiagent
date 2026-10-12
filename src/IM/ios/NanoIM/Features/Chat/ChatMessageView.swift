@@ -107,10 +107,12 @@ private struct ChatUsageView: View {
                 LabeledContent(L("本轮输出", "Turn output"), value: count("output"))
                 LabeledContent(L("本轮总用量", "Turn total"), value: count("total"))
                 LabeledContent(L("已用上下文", "Context used"), value: count("context_used") + " / " + count("context_window"))
-                let cached = usage["cache_read_tokens"].intValue ?? 0
-                let input = usage["cache_total_input_tokens"].intValue ?? 0
-                let rate = input > 0 ? Double(cached) / Double(input) * 100 : 0
-                LabeledContent(L("缓存命中", "Cache hits"), value: "\(cached.formatted()) (\(Int(rate.rounded()))%)")
+                if let cached = usage["cache_read_tokens"].intValue, let input = usage["cache_total_input_tokens"].intValue {
+                    let rate = input > 0 ? Double(cached) / Double(input) * 100 : 0
+                    LabeledContent(L("缓存命中", "Cache hits"), value: "\(cached.formatted()) (\(Int(rate.rounded()))%)")
+                } else {
+                    LabeledContent(L("缓存命中", "Cache hits"), value: "—")
+                }
                 if let used = usage["context_used"].intValue, let window = usage["context_window"].intValue, window > 0 {
                     let fraction = Double(used) / Double(window)
                     ProgressView(value: min(1, fraction)).tint(fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .teal)

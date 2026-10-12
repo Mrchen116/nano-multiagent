@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import shutil
 import sys
 import time
 from collections.abc import Iterator
@@ -326,9 +327,8 @@ def test_unregistered_model_rejects_gateway_startup(tmp_path: Path) -> None:
     )
     result = subprocess.run(
         [
-            sys.executable,
-            "-m",
-            "personal_assistant.main",
+            shutil.which("node") or "node",
+            str(_REPO_ROOT / "apps/node/lib/cli.js"),
             "--config",
             str(config),
             "--foreground",

@@ -58,11 +58,25 @@ def render_feishu_config(
     import yaml
 
     if identity_lookup is None:
-        from personal_assistant.config.local_store import (
-            infer_feishu_bot_open_id_from_app_credentials,
-        )
+        import httpx
 
-        identity_lookup = infer_feishu_bot_open_id_from_app_credentials
+        def identity_lookup(app_id: str, app_secret: str, domain: str) -> str | None:
+            with httpx.Client(base_url=domain, timeout=10) as client:
+                auth = client.post(
+                    "/open-apis/auth/v3/tenant_access_token/internal",
+                    json={"app_id": app_id, "app_secret": app_secret},
+                )
+                auth.raise_for_status()
+                token = auth.json().get("tenant_access_token")
+                if not token:
+                    raise FeishuE2EConfigError("Feishu test-App authentication failed")
+                response = client.get(
+                    "/open-apis/bot/v3/info/",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                response.raise_for_status()
+                return response.json().get("bot", {}).get("open_id")
+
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(payload, MutableMapping):
         raise FeishuE2EConfigError("Feishu E2E config must be a YAML mapping")

@@ -43,6 +43,8 @@ def _is_test_path(path: str) -> bool:
     candidate = Path(path)
     if candidate.parts[:1] == ("tests",) and candidate.suffix == ".py":
         return True
+    if candidate.parts[:1] in (("packages",), ("apps",)) and "tests" in candidate.parts:
+        return candidate.name.endswith((".test.ts", ".test.tsx"))
     return candidate.parts[:4] == (
         "src",
         "IM",

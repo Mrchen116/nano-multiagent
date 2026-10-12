@@ -43,13 +43,13 @@ llm:
 关键约束：
 
 - `llm:` 必填，`llm.default_model` 必须出现在某个 `llm.providers[].models[]` 中。
-- `llm.tool_approval_model` 可选。配置后，所有 PA Agent 的自动工具权限分类都使用这个已注册模型；省略时，各次分类复用发起运行的 Agent 模型。空值或未注册值会让 Gateway 拒绝启动。
+- `llm.tool_approval_model` 可选。配置后，所有 PA Agent 的自动工具权限分类都使用这个已注册模型；省略时，各次分类复用发起运行的 Agent 模型。未注册的非空值会让 Gateway 在设备绑定与运行前拒绝启动。
 - 专用审批模型只影响自动分类，不改变 Agent 的正常回复或工具结果续跑模型。分类调用失败时不会改用 Agent 模型或其他模型；单聊天保留原人工入口，普通全局主任务和其普通子任务返回原因，Heartbeat/Cron 保持无人值守 fallback。规则配置与升级回退见 [Auto 权限操作](auto-permissions.md)。
 - 修改 `llm.tool_approval_model` 后需要重启 Gateway；运行中的进程不会热加载该字段。
 - provider name 使用 `anthropic` 或 `openai_compat`，与上游接口协议匹配。
-- `im_service` 存在时需要启用内置 `web_relay`。
+- Web relay 是节点与 IM 的固定产品通路；`channels` 用于外部通道配置，不需要额外开关 Web relay。
 - `agents[].workspace_root` 省略时，Gateway 在 `~/.nanoassistant/workspaces/<agent-id>/` 创建默认 workspace；需要固定位置时显式填写绝对路径。
-- `im_service.username` / `password` 可用于 Gateway 首次登录和 token 刷新失败后的凭据回退。
+- `im_service.username` / `password` 可用于 Gateway 隔离自动化首次设备绑定登录；已绑定运行使用设备 runtime token。
 - `gateway.autostart` 默认 `true`。macOS 默认安装当前用户的 LaunchAgent，登录后启动并在异常退出时恢复；设为 `false` 后，下一次有效启动改用普通后台进程并删除持久定义。其他平台始终使用普通后台进程。
 - `gateway.environment` 只接受操作系统环境可用的字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。macOS 登录服务默认可发现系统目录和 Homebrew 常用目录；工具位于其他目录时，在这里显式设置 `PATH`。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
@@ -59,9 +59,9 @@ llm:
 默认 config：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart
+pnpm pa
+pnpm pa stop
+pnpm pa restart
 ```
 
 指定 config：
@@ -69,15 +69,15 @@ PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart
 ```bash
 GATEWAY_CONFIG=/absolute/path/to/config.yaml
 
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main --config "$GATEWAY_CONFIG"
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main stop --config "$GATEWAY_CONFIG"
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main restart --config "$GATEWAY_CONFIG"
+pnpm pa --config "$GATEWAY_CONFIG"
+pnpm pa stop --config "$GATEWAY_CONFIG"
+pnpm pa restart --config "$GATEWAY_CONFIG"
 ```
 
 调试时可以把 Gateway 附着在当前终端：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m personal_assistant.main \
+pnpm pa \
   --config "$GATEWAY_CONFIG" \
   --foreground
 ```
@@ -96,7 +96,7 @@ macOS 上，默认启动和 `restart` 会按当前配置应用 LaunchAgent。运
 
 | 输出 | 含义 | 下一步 |
 |---|---|---|
-| `Gateway started (pid=...)` | 后台 child 已写入有效运行态，启动命令可以返回 | 继续看日志和 IM 节点状态 |
+| `Gateway started (pid=...)` | 节点及受管 DSH 完成初始化和持久恢复，写出当前执行 PID | 继续看日志和 IM 节点状态 |
 | `Autostart: enabled ...` | macOS 当前登录服务已加载，具备登录启动与异常恢复 | 继续验证运行态与节点 online |
 | `Autostart: disabled ...` | 配置已关闭自启，当前是普通后台进程 | 无需自启时属于预期状态 |
 | `Autostart: failed ...` | Gateway 已降级运行，但登录自启未生效且命令非零 | 保留原始错误，检查 `launchctl` 与 plist |
@@ -106,12 +106,14 @@ macOS 上，默认启动和 `restart` 会按当前配置应用 LaunchAgent。运
 
 Gateway 可用需要同时满足：
 
-1. `.gateway-state.json` 指向的 process birth 仍然匹配存活进程。
+1. `.gateway-state.json` 指向的 process birth 仍然匹配节点进程，`ready=true` 且 `runtime_pid` 对应本次存活 DSH。
 2. `gateway.log` 中没有被后续关闭掩盖的启动首因，并已进入预期的连接或离线重试状态。
 3. IM 节点页面显示目标 node 已绑定且 online。
 4. Web IM 的真实消息路径能够完成一次往返。
 
 IM 暂时不可达时，Gateway 可以保持本地自治并继续重连；Web IM 路径要等 IM 连接和节点状态恢复。详细契约见 [`../specs/gateway/service-lifecycle.md`](../specs/gateway/service-lifecycle.md)。
+
+DSH 意外退出后节点先变为不可用，最多自动重启三次；每次成功恢复更新运行 PID，超出次数后明确报告需要重启节点。`pnpm pa status --config <path>` 同时呈现节点与 DSH 状态。
 
 ## 外部通道
 
@@ -146,3 +148,10 @@ gateway:
 ```
 
 显式选择 provider 会覆盖默认选择。provider 未配置、不可达、返回非 2xx 或不可解析响应时，工具明确报错，不静默切换到另一个 provider；SearXNG 实例需要启用 JSON 输出格式。`web_search` 只返回搜索结果，正文读取仍由 `web_fetch` 完成。
+
+
+## 本机状态与迁移
+
+配置同目录的 `.dsh-runtime/<node_id>/` 持有 Node SQLite、DSH home 和原生会话；owner root 默认 `~/.nanoassistant`，隔离验证通过 `gateway.environment.NANO_OWNER_CONFIG_ROOT` 指向本次目录。不要手工删除状态来修复一条消息，也不要把另一 owner 的 runtime 目录覆盖过来。
+
+旧环境保留与切换见 [DSH 迁移](dsh-migration.md)。仅完成代码合并不表示生产已切换。

@@ -3,65 +3,24 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nano-multiagent"
+name = "nano-multiagent-devtools"
 version = "0.1.0"
-description = "Nano multi-agent core skeleton"
-readme = "README.md"
+description = "Standalone documentation and HTTP acceptance tooling"
 requires-python = ">=3.11"
-dependencies = [
-  "fastapi>=0.115,<1.0",
-  "uvicorn>=0.30,<1.0",
-  "httpx>=0.27,<1.0",
-  "rich>=13.0,<14.0",
-  "markdownify>=0.13,<1.0",
-  "bcrypt>=4.0,<6.0",
-  "pyjwt>=2.8,<3.0",
-  # feat-388: 以下四个此前未声明、靠本地全局包的传递依赖碰巧带入，clean CI runner 缺失即报错。
-  # yaml: config 解析（auto_mode/local_store/commands），模块顶层 import → 缺失时 collection 全红；
-  # websockets: personal_assistant relay；aiohttp: gateway internal_dispatch / main，函数内延迟
-  # import → 缺失时运行该测试才报 ModuleNotFoundError（曾被误判为 flaky）；
-  # ddgs: web_search 工具默认注册在 personal_assistant，开箱即用，不做 optional。
-  "pyyaml>=6.0,<7.0",
-  "websockets>=13,<17.0",
-  "aiohttp>=3.10,<4.0",
-  "ddgs>=9,<11",
-  # feat-464: external-channel secrets use an X25519 + HKDF + AES-GCM envelope.
-  "cryptography>=45,<47",
-  "jsonschema>=4.23,<5.0",
-  "tree-sitter==0.25.2",
-  "tree-sitter-bash==0.25.1",
-  # feat-447: 飞书 SDK —— FeishuClient WebSocket 长连接 + REST API
-  "lark-oapi>=1.6.9,<2.0",
-]
+dependencies = ["httpx>=0.27,<1.0", "pyyaml>=6.0,<7.0", "websockets>=13,<17", "jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0,<9.0",
   "pytest-asyncio>=0.23,<2.0",
   "pytest-xdist>=3,<4",
-  # refactor-372-M1: 删除候选需要覆盖率证据才能安全删（决策 4）
-  "pytest-cov>=5.0,<7.0",
-  # feat-388: 固定大版本——format 输出跨大版本会变，CI/hook/本地须保持一致（决策 D5）
-  "ruff==0.15.*",
-  # refactor-486: docs-check 通过 Markdown AST 读取链接，避免把代码块和示例误判为 live 引用。
-  "markdown-it-py>=4,<5",
-  # feat-434: per-test 超时——把 CI 上偶发的整 job 挂死（runner "operation was canceled"，
-  # 无 traceback 难定位）变成单测超时 + faulthandler 栈转储，既止血又可精确定位 hang 的测试。
   "pytest-timeout>=2.3,<3.0",
+  "ruff==0.15.*",
+  "markdown-it-py>=4,<5",
 ]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["agent*", "coding_cli*", "personal_assistant*"]
-
-[tool.setuptools.package-data]
-personal_assistant = ["builtin_skills/**"]
-"agent.platform.tools.builtins" = ["workflow_tool_prompt.md", "bash_readonly_commands.json"]
-"agent.platform.hooks.builtins" = ["auto_mode_policy_assets/cc-2.1.267-nano-v1/*.txt", "auto_mode_policy_assets/cc-2.1.267-nano-v1/*.json"]
-"agent.platform.workflows" = ["bundled/*.py"]
+packages = []
 
 [tool.ruff]
 # feat-388: target-version 与 requires-python = ">=3.11" 对齐
@@ -77,22 +36,13 @@ ignore = ["B008"]
 [tool.ruff.lint.per-file-ignores]
 # tests/ 里 fixture/helper 变量可能被 pytest 解析而不直接使用；F821 forward ref 在 string annotation 里合法
 "tests/**" = ["F401", "F811", "F841", "F821"]
-# 以下文件使用 string annotation forward ref 避免循环 import（ruff F821 不识别此模式）
-"src/agent/core/hooks/types.py" = ["F821"]
-"src/agent/core/tools/base.py" = ["F821"]
-"src/agent/platform/background_tasks/wiring.py" = ["F821"]
-"src/personal_assistant/main.py" = ["F821"]
-# commands.py bridge 导入：模块属性供契约测试用 `is` 检查，不是真正的"未用 import"
-"src/coding_cli/commands.py" = ["F401"]
-
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
+pythonpath = [".", "tests"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 # feat-434: 单测超时兜底。CI 上偶发某测试挂死会让整个 pytest job 被 runner 以
 # "The operation was canceled" 收尸（无 traceback、无法定位）。per-test 超时把它降级成
 # 单条测试失败 + thread 法 faulthandler 栈转储，止血且可精确定位。90s 对单测极宽松
-# （全量 ~2900 测试本地 ~135s），不会误伤正常测试。
 addopts = "--timeout=90 --timeout-method=thread"
 markers = [
   "e2e: end-to-end tests that may require local runtime dependencies",

@@ -186,7 +186,7 @@ function mockFetch(opts: {
 } = {}) {
   const distillerVisible = opts.distillerVisible ?? true;
   const skillsSelectionMode = opts.skillsSelectionMode;
-  const toolAllowlist = opts.toolAllowlist ?? ["skill_view"];
+  const toolAllowlist = opts.toolAllowlist ?? ["skill"];
   const skillViewToolVisible = opts.skillViewToolVisible ?? true;
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
   const distillPromptError = opts.distillPromptError;
@@ -325,7 +325,7 @@ function mockFetch(opts: {
           ? [{ name: "conversation-skill-distiller", description: "Distill conversations", location: "/tmp/distiller/SKILL.md" }]
           : [],
         tools: skillViewToolVisible
-          ? [{ name: "skill_view", description: "View skills", default_on: skillViewDefaultOn }]
+          ? [{ name: "skill", description: "View skills", default_on: skillViewDefaultOn }]
           : [],
         model_options: [],
         commands: dynamicAgentState?.commands ?? [],
@@ -454,7 +454,7 @@ describe("ChatWorkspacePage — integration", () => {
     fetchSpy = mockFetch({
       dynamicAgentState: () => ({
         profileVersion: workflowEnabled ? 2 : 1,
-        toolAllowlist: workflowEnabled ? ["skill_view", "Workflow"] : ["skill_view"],
+        toolAllowlist: workflowEnabled ? ["skill", "Workflow"] : ["skill"],
         commands: workflowEnabled
           ? [
               {
@@ -707,7 +707,7 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.queryByDisplayValue(/conversation-skill-distiller/)).not.toBeInTheDocument();
   });
 
-  it("does not create the distill conversation when the execution agent lacks skill_view", async () => {
+  it("does not create the distill conversation when the execution agent lacks skill", async () => {
     const user = userEvent.setup();
     fetchSpy = mockFetch({ toolAllowlist: ["read"] });
     vi.stubGlobal("fetch", fetchSpy);
@@ -719,7 +719,7 @@ describe("ChatWorkspacePage — integration", () => {
     await user.click(screen.getByRole("button", { name: "Distill to skill" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
-    expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
+    expect(await screen.findByText(/Enable skill/)).toBeInTheDocument();
     const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
       (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
     );
@@ -738,7 +738,7 @@ describe("ChatWorkspacePage — integration", () => {
     await user.click(screen.getByRole("button", { name: "Distill to skill" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
-    expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
+    expect(await screen.findByText(/Enable skill/)).toBeInTheDocument();
     const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
       (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
     );

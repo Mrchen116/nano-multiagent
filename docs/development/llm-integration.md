@@ -9,7 +9,9 @@
 - 按 session 聚合的交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
 - 按协议保存的原始捕获：`/Users/czj/Repos/LLM_PROXY/logs/raw/<protocol>/`
 
-nano 的 provider translator 会把 kernel session id 放入 `X-Session-Id`。先从触发请求的一侧取得 session id：Coding CLI 可用 `/session`，自动化测试应从 fixture/结果中记录；其他产品路径如果没有直接暴露 id，就用发生时间、模型和消息中的唯一标记缩小日志目录，再从目录后缀确认 id。
+Nano 的 DSH integration 在公开 `llm/stream` 与 HTTP dispatcher 扩展点透传请求标识：`X-Session-Id` 使用产品绑定的主 session ID，让主 Agent 和它的 fork/background 子 Agent 归入同一 Inspector timeline；`X-Agent-Session-Id` 保留实际发起请求的原生 session ID，供原始请求 header 区分来源。原生 session 的存储、恢复与上下文身份不变。并发主会话各自归档，普通工具或附件 HTTP 不附带这些标识。
+
+先从全局 Agent 工作视图或自动化 fixture/结果取得主 session ID；其他产品路径没有直接暴露 ID 时，用发生时间、模型和消息中的唯一标记缩小日志目录，再从目录后缀确认 ID。缺少标识的历史原始请求不会因加载修复而自动回填。
 
 已知 session id 时直接定位：
 

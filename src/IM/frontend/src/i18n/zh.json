@@ -489,7 +489,7 @@
       },
       "cron": {
         "title": "定时任务",
-        "sub": "无需对话上下文即可定时运行的后台任务。",
+        "sub": "到期回到原对话、沿用对话上下文执行的定时任务。",
         "enabledLabel": "启用 cron",
         "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。",
         "loadError": "加载定时任务失败。",
@@ -670,7 +670,7 @@
       "单 Thread": "单 Thread",
       "一个持续上下文统筹各聊天，按需读取收件箱和委派。": "一个持续上下文统筹各聊天，按需读取收件箱和委派。",
       "每个聊天独立上下文，保持现有工作方式。": "每个聊天独立上下文，保持现有工作方式。",
-      "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。": "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、agent，其他工具仍可配置。",
+      "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。": "创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。",
       "创建后固定": "创建后固定",
       "固定": "固定",
       "已停止": "已停止",
@@ -738,8 +738,8 @@
       "scope": "写入范围",
       "selectionRequired": "请选择至少一个同一 Gateway 上已结束的会话。",
       "requireDistiller": "开始前请先为执行 agent 启用 conversation-skill-distiller。",
-      "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
-      "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",
+      "requireSkillView": "开始前请先为执行 agent 启用 skill。",
+      "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill。",
       "starting": "启动中…",
       "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
