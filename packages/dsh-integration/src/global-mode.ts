@@ -5,9 +5,10 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import type {} from './product-bridge.js';
 import type {} from './policy/approval.js';
 import { inboxSourceInstructions } from './policy/sources.js';
+import type { AttachmentSource } from './trajectory-attachments.js';
 
 export const name = 'nano-global-mode';
-export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval'];
+export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
 export function apply(ctx: Context, config: { mode?: string }) {
@@ -38,16 +39,19 @@ export function apply(ctx: Context, config: { mode?: string }) {
       const result = await ctx.nanoProduct.call(tool.name, args, exec);
       if (tool.name !== 'inbox') return result;
       const content: PromptContentPart[] = [{ type: 'text', text: JSON.stringify(result) }];
+      const sources: (AttachmentSource | null)[] = [null];
       if ((args as { action: string }).action === 'read') {
-        const body = result as { messages: { content: { type: string; content_type?: string; url?: string; file_name?: string }[] }[] };
+        const body = result as { messages: { id: string; target: string; content: { type: string; content_type?: string; url?: string; file_name?: string }[] }[] };
         for (const message of body.messages) for (const part of message.content) {
           if (!part.content_type?.startsWith('image/')) continue;
           if (part.content_type !== 'image/jpeg' && part.content_type !== 'image/png' && part.content_type !== 'image/gif' && part.content_type !== 'image/webp') throw new Error('Unsupported image media type');
           const image = await ctx.nanoProduct.call('inbox.image', { url: part.url }, exec) as { data: string };
           content.push({ type: 'image', mediaType: part.content_type, name: part.file_name, data: image.data });
+          sources.push(part.url ? { kind: 'chat', conversationId: message.target, messageId: message.id, url: part.url } : null);
         }
       }
       const admitted = await ctx.attachments.admitPromptContent(content);
+      await ctx.nanoTrajectoryAttachments.record(exec.agent!.id, admitted, sources);
       if ((args as { action: string }).action === 'read') {
         await ctx.nanoProduct.call('inbox.prepare', { content: admitted }, exec);
         ctx.nanoApproval.sources.recordInbox(exec.agent!.id, exec.callId);

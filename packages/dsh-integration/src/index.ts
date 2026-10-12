@@ -31,6 +31,8 @@ import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
 import { installLlmAttribution } from './llm-attribution.js';
+import { NativeTrajectory } from './trajectory.js';
+import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -61,6 +63,7 @@ export interface SessionBinding {
   revision: string;
 }
 interface Submit {
+  attachmentSources?: (AttachmentSource | null)[];
   sessionId: string;
   inputId: string;
   mode: 'followup' | 'steer' | 'inject';
@@ -120,6 +123,9 @@ export default class NanoRuntime {
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
     });
+    new TrajectoryAttachments(ctx);
+    const trajectory = new NativeTrajectory(ctx, { controller: this.sessionController, bindings: this.bindings, configurations: this.configurations });
+    trajectory.register(this.peer);
     ctx.on('agent/created', async ({ agent }) => {
       const preset = agent.session.header.agentPreset;
       if (!preset?.startsWith('nano:')) return;
@@ -445,6 +451,7 @@ export default class NanoRuntime {
     });
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
+      trajectory.dispose();
       await this.cron.dispose();
       for (const id of this.bindings.keys()) ctx.agents.get(SessionId(id))?.cancel({ kind: 'user' }, { keepInbox: true });
       await (await models).stop();
@@ -489,6 +496,7 @@ export default class NanoRuntime {
     if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
+      if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
       (await this.models).fallback.interrupt(agent);
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,

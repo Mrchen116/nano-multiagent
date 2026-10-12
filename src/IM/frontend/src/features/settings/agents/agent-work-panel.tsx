@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
@@ -15,6 +15,7 @@ import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
 import { workBase, workRequest, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
+import { AgentTrajectory } from './agent-trajectory';
 
 type SavedView = { selected: string | null; expanded: Record<string, boolean>; scroll: number; mainScroll?: number; focus?: string };
 const str = (value: unknown) => typeof value === "string" ? value : "";
@@ -74,6 +75,11 @@ function SessionFacts({ items, title = "执行记录" }: { items?: WorkItem[]; t
 export function AgentWorkPanel({ agentId }: { agentId: string }) {
   useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
+  const search = new URLSearchParams(location.search);
+  const nativeMode = search.get('work_view') === 'trajectory';
+  const recordScroll = useRef(0);
+  const nativePositions = useRef<Record<string, { top: number; firstSeq?: number; rowKey?: string; detailTab?: string }>>({});
   const client = useQueryClient();
   const namesQuery = useQuery({ queryKey: ["work-conversation-names"], queryFn: () => workRequest<{items: {id: string; title: string; participants?: {id: string; user_id?: string; display_name?: string}[]}[]}>("/im/v1/conversations") });
   const people = Object.fromEntries((namesQuery.data?.items ?? []).flatMap(c => (c.participants ?? []).flatMap(p => p.display_name ? [[p.id, p.display_name], ...(p.user_id ? [[p.user_id, p.display_name]] : [])] : [])));
@@ -84,6 +90,20 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const restored = useRef(false);
   const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", queryFn: ({ pageParam }) => workRequest<WorkView>(`${workBase(agentId)}${pageParam ? `?before_turn=${encodeURIComponent(pageParam)}` : ""}`), getNextPageParam: page => page.next_cursor ?? undefined });
   const view = viewQuery.data?.pages[0];
+  const nativeSession = search.get('execution') || view?.main_session_id || null;
+  const showNative = (sessionId?: string | null) => {
+    if (!nativeMode) recordScroll.current = root.current?.closest('.im-agent-panel')?.scrollTop ?? 0;
+    setSaved(current => ({ ...current, selected: sessionId && sessionId !== view?.main_session_id ? sessionId : null }));
+    const next = new URLSearchParams(location.search); next.set('work_view', 'trajectory');
+    if (sessionId) next.set('execution', sessionId); else next.delete('execution');
+    navigate({ search: next.toString() }, { replace: true });
+    root.current?.closest('.im-agent-panel')?.scrollTo({ top: 0 });
+  };
+  const showRecords = () => {
+    const next = new URLSearchParams(location.search); next.delete('work_view'); next.delete('execution');
+    navigate({ search: next.toString() }, { replace: true });
+    requestAnimationFrame(() => root.current?.closest('.im-agent-panel')?.scrollTo({ top: recordScroll.current }));
+  };
   const childQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "session", saved.selected], initialPageParam: "", enabled: Boolean(saved.selected), queryFn: ({ pageParam }) => workRequest<WorkTurnPage>(`${workBase(agentId)}/sessions/${encodeURIComponent(saved.selected!)}/turns${pageParam ? `?before_turn=${encodeURIComponent(pageParam)}` : ""}`), getNextPageParam: page => page.next_cursor ?? undefined });
   const selected = view?.other_executions.find(s => s.session_id === saved.selected);
   const online = view?.node_connection_state === "online";
@@ -128,6 +148,9 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     <div ref={root} className="im-work" data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}<button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></div> : view && <>
         <div className="im-work-status im-work-card"><div><h2>{tr("工作")}<small>{tr("全局 · 实验")}</small></h2><p>{tr("跨聊天的主工作轨迹及关联执行")}</p></div><div className="im-work-badges"><span className="im-work-status-label">{tr("主 Agent")} · {statusLabel(online ? view.main_execution : "unknown")}</span><span className="im-work-status-label">{tr(online ? "节点在线" : "节点离线")}</span></div></div>
+        <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || view.main_session_id)}>{tr('原生轨迹')}</button></div>
+        {nativeMode && <><label className="im-native-execution">{tr('当前执行')}<select aria-label="当前执行" value={nativeSession ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{view.other_executions.map(session => <option key={session.session_id} value={session.session_id}>{tr(sessionTitle(session))}</option>)}</select></label><AgentTrajectory agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} /></>}
+        <div hidden={nativeMode}>
         {!online && <p className="im-work-callout" role="status">{tr("节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
@@ -136,6 +159,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
             {viewQuery.hasNextPage && <button type="button" disabled={viewQuery.isFetchingNextPage} onClick={() => void viewQuery.fetchNextPage()}>{tr("更早轮次")}</button>}
           </section>
           {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
+            <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
             {childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : childQuery.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p> : childTurns.length ? childTurns.map(renderTurn) : <p>{tr("尚未报告执行轮次")}</p>}
             <SessionFacts items={childQuery.data?.pages[0]?.control_items} />
             {childQuery.hasNextPage && <button type="button" disabled={childQuery.isFetchingNextPage} onClick={() => void childQuery.fetchNextPage()}>{tr("更早轮次")}</button>}
@@ -143,6 +167,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
         </div>
         <SessionFacts items={view.control_items} title={tr("控制记录")} />
         {view.other_executions.length > 0 && <details className="im-work-other"><summary>{tr("关联执行 · ")}{view.other_executions.length}</summary>{view.other_executions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}</details>}
+        </div>
       </>}
     </div>
   </WorkNavigationContext.Provider>;

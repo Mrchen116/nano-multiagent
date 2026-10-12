@@ -6,7 +6,8 @@ import { all, one, now, fail, transaction, type Row, type ImContext } from "./co
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
 import {canonicalAgentConfiguration} from "@nano/product-contracts";
-type Connection = {
+import { TrajectoryObservers } from './trajectory.js';
+export type Connection = {
   socket: WebSocket;
   owner_id: string;
   node_id: string;
@@ -35,11 +36,13 @@ export class Gateway {
     }
   >();
   readonly work: Work;
+  readonly trajectory: TrajectoryObservers;
   readonly tasks: TaskGraphService;
   channelHandler?: (type: string, payload: Row) => Row | Promise<Row>;
   channelInitialize?: (nodeId: string) => void;
   constructor(readonly ctx: ImContext) {
     this.work = new Work(ctx);
+    this.trajectory = new TrajectoryObservers(ctx);
     this.tasks = new TaskGraphService(ctx.db);
   }
   isOnline(id: string) {
@@ -125,12 +128,16 @@ export class Gateway {
     });
   }
   closeUser(id: string) {
+    this.trajectory.closeUser(id);
     for (const b of this.browsers) if (b.userId === id) b.socket.close(1008);
   }
   closeSession(id: string) {
+    this.trajectory.closeSession(id);
     for (const b of this.browsers) if (b.sessionId === id) b.socket.close(1008);
   }
   revokeNode(id: string) {
+    const device = this.nodes.get(id);
+    if (device) this.trajectory.closeDevice(device);
     this.nodes.get(id)?.socket.close(1008);
     this.nodes.delete(id);
   }
@@ -160,7 +167,7 @@ export class Gateway {
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
   }
-  browserValid(b: Browser) {
+  browserValid(b: Pick<Browser, 'sessionId'>) {
     return !!one(
       this.ctx.db,
       "SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND u.membership_status='active'",
@@ -887,6 +894,7 @@ export class Gateway {
     }
   }
   shutdown() {
+    this.trajectory.shutdown();
     for (const c of this.nodes.values()) c.socket.close(1001);
     for (const b of this.browsers) b.socket.close(1001);
     for (const p of this.pending.values()) {
@@ -990,6 +998,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
       });
     });
     socket.on("close", () => {
+      g.trajectory.closeDevice(c);
       if (g.nodes.get(c.node_id) === c) {
         g.nodes.delete(c.node_id);
         ctx.db.prepare("UPDATE nodes SET status='offline' WHERE node_id=?").run(c.node_id);

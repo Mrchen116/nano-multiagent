@@ -31,6 +31,7 @@ flowchart TD
 | `packages/channels` | Web relay 传输、飞书收发、通道密文与平台身份 |
 | `packages/personal-assistant` | Inbox、单聊天/global 路由、群发言边界、durable handoff、结果投递、外部镜像、配置恢复与主动工作策略 |
 | `packages/dsh-integration` | 通过公开 DSH 服务与插件实现配置 scope、来源与审批、模型策略、Workflow、知识维护，以及持久事件/历史的产品投影 |
+| `packages/dsh-trajectory-viewer` | 隔离 iframe 内的官方原生轨迹查看器；使用公开浏览器包，通过父页面授权的只读通道访问当前执行 |
 | `src/IM/frontend` | 既有 React/TypeScript Web 客户端 |
 | `src/IM/ios` | 既有 Swift 原生 iPhone 客户端 |
 | `scripts`、`tests` | 运维和验收工具；Python 仅保留辅助脚本与黑盒回归 |
@@ -42,7 +43,8 @@ Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产
 - IM 只依赖 product-contracts，不导入 Node、PA、Channels 或 DSH。
 - PA 只依赖 product-contracts 与 Channels；Channels 只依赖 product-contracts。
 - Node 装配 PA、Channels、product-contracts 与 integration 的公开进程 client。
-- 只有 integration 可以导入 `@deepseek-ai/*`，且必须是已声明依赖的公开 exports。它不导入 PA、Channels 或 IM。
+- 服务端只有 integration 可以导入 `@deepseek-ai/*`，且必须是已声明依赖的公开 exports。它不导入 PA、Channels 或 IM。
+- 浏览器例外仅限 `packages/dsh-trajectory-viewer`：使用锁定版本的官方公开 client/remote exports，原样打包其注册 bundle；不持有 IM 凭据或执行权限。IM 前端只嵌入其隔离 iframe，不直接导入 DSH。
 - 不使用跨包相对路径、不添加 DSH 源码补丁、fork 或 private import。
 
 这些规则由 [runtime dependency contract](tests/contract/test_runtime_dependency_contract.py) 验证。DSH 更新需明确升级锁文件、公开 export 验证及受影响真实旅程，不能靠旧工具名或参数兼容副本维持表面通过。

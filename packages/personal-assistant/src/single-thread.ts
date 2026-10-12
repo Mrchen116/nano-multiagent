@@ -110,6 +110,7 @@ export class SingleThread {
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
       const content: Record<string, unknown>[] = [];
+      const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
       if (input.metadata.conversation_type === 'group' && input.participants?.length) {
         content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
       }
@@ -118,9 +119,11 @@ export class SingleThread {
         if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
         const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
         if (!attachment?.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
+        imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
         content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
       }
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
+        attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
         source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id },
       });
     }

@@ -137,3 +137,71 @@ Work 内按需进入、共享只读权限和独立官方 renderer 的总体分�
 - **R2-R1 — accepted（实施接线提醒）。** 已核实现有通用响应头确实禁止嵌入。将专用 viewer 路由的实际响应头与真实 iframe 加载作为 D2／E3 首条装配验证的检查点，只允许既定父页面嵌入 viewer，保留主应用页面策略。此处明确已有 iframe 方案的接线位置，不新增查看权限或变更既定架构；不为该提醒再开审查循环。
 - Author 已核实 R2 的公开接口与历史闭环证据，无实质异议。受审 spec／design／prototype／delta／骨架在 R2 后未改变；仅本报告追加 resolutions，保留 Approved 结论。
 - 交付位置：本功能依赖尚未合入 main 的 refactor-581，现有源码链接和契约以迁移 checkout 为基线。此次仅在该迁移分支提交本 unit 的设计产物；不将这些未实施文档与尚未合入的产品源码拆散推到 main，不改用户 primary checkout 的既有工作。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/trajectory_design_gate2`，独立 `change-design-reviewer`；未参与本轮需求／设计修订及 probe 编写。
+- review_mode: `full`
+- mode_reason: 用户新增原生信息与交互保真要求，R3.4/R3.5、前端 must-match 和最终测试服务交付条件均发生实质变化；按 skill 使用 full。未变化的只读 transport、权限和 observer 方案引用 R2 的已核证据，不机械重复运行验证。
+- started_at: `2026-10-12T12:58:25+08:00`
+- completed_at: `2026-10-12T13:01:48+08:00`
+- duration: 3 分 23 秒。
+- checkout: `/Users/czj/.codex/worktrees/native-dsh-trajectory/nano-multiagent`；branch `codex/feat-583-native-dsh-trajectory`；HEAD `1128a2b6e30911e4658ed0d935dfff6b1424c740`。
+- 上游基线：DSH `5badb15009ae1756c3afe0ae0cef1faafc290ccc`；probe 实际发布物 `0.2.1-alpha.1`，React/React DOM `18.3.1`。
+- 本轮仅追加本报告，未改冻结产物、产品代码、配置或运行服务，未提交，未调用真实 LLM。
+
+受审 SHA256：
+
+| 文件 | SHA256 |
+|---|---|
+| `spec.md` | `8c5d947d53c56d60e60b66ff523eb7abddf04006dfa40af75620bf7946e7c857` |
+| `design.md` | `cc56c3f0b56f32b01e77d14526a87f0abb4585088ebc807b4098ccdb2086f6b6` |
+| `prototype.html` | `924adc59fd474a607e7922c64367c567708234e93d43034e78ed27df1f2280cd` |
+| `specs/im/agent-work.md` | `8da6413cefe50f19d979f9a02c0e187562349f99c8168d345c0efa133dba6706` |
+| `specs/gateway/relay-protocol.md` | `c8e0256c0c01764424af0570f06f3d619538b4579e6d6398fe8bc50000d255e0` |
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 通过。**
+
+新设计已把“使用官方组件、保留其完整信息和交互”变成可逐项验收的要求。旧手写轨迹主体及其宽松 may-adapt 判断不再作为保真依据；本轮确认的公开组件装配可行性也不等于真实 Gateway 产品链已验收。
+
+### Coverage 与证据
+
+**需求与现状。** 阅读用户补充原话、完整 spec、四份 dirty 文档 diff、单 M1 和前两轮报告。R3.4/R3.5 明确时长、轮次、调用、搜索、三轨选择联动、完整模型可见输入、仅工具调用助手、历史 Schema／提示词与类型化检查器；未知历史不得用当前配置补造，桌面／窄屏均须可完整检查。新增要求符合用户对初版缺失信息的纠正，没有将查看扩展成执行控制。新 HEAD 相比 R2 基线 `587387240` 的产品目录／SPEC／架构测试没有变化，提交仅承接既有设计；实际 IM、Node 和 integration 装配入口仍有效。
+
+**原生保真与数据职责。** 独立检查 upstream `packages/client/ui-trajectory/src/client/index.ts`：官方插件确实注册 message、request-header、assistant、tool、compaction definitions，通过 `uiConversation.binding(...).target('trajectory')` 取得 snapshot，注册 `conversation.view/trajectory` 和 `conversation.trajectory.images`；loadOlder、imageUrl 与原生 Session binding 由官方服务衔接。D2.1 直接使用这条数据与呈现链，避免从丢失系统／上下文和完整 request header 的 Work projection 重建，责任合理；Nano 只拥有宿主与只读载体，不拥有第二份 trajectory renderer。
+
+源码 `TrajectoryToolbar.tsx` 的实际控件为时长切换、轮次折叠、调用折叠和搜索；`TrajectoryView.tsx` 管理对应状态、搜索、历史和选中，`timeline.ts`／`TrajectoryTimeline.tsx` 拥有输入／模型／工具 lanes、区间与缩放。隐藏的 actual-time 开关不被误写成用户必须看到的第五项控件。`TrajectoryTable.tsx:972`–`:1006` 按真实记录类型选择原文／来源、系统提示词、工具参数／结果／Schema／计时；请求检查器另有选项、用量和计时。snapshot builder 保留当时 request-header、callSchemas 与持久 Assistant 事实；D2.1 的“适用字段、未知保持未知”与官方行为一致，没有要求伪造历史。Table CSS 的可伸缩侧栏及 `max-width:760px` 覆盖式详情支持所述响应式方式。宿主给定高度和 `--dsh-composer-height:0px` 是不挂 composer 时必要的尺寸适配，不改变原生信息模型。
+
+**发布物和真实组件证据。** 阅读 `output/feat-583-probe/{README.md,boot.jsx,controller-fixture.js,build.mjs,closure.json,artifact-provenance.json,browser-evidence.json}`。最终 boot 通过公开 `ClientModuleSystem` 执行官方 closure bundles、完整 `ui-conversation.apply`、官方 Session Controller／RemoteStream／SessionBinding／uiSession，并只挂 trajectory slot；只读 fileUpload、workspace navigation、configForms 属于装配边界，没有替代原生 event window 或 definitions。独立计算 probe 的 trajectory、ui-conversation、ui-attachment、api-session-controller 四个 client bundle SHA256，均与本机实际安装的同版本发布物一致，不能把早期 constructor 变体当最终完整接法。
+
+独立查看 `native-controller-overview.png`、`native-tool-inspector.png`、`native-full-conversation-inspector.png`、`native-assistant-timing.png`、`native-image-inspector.png`：真实原生紧凑表格包含系统、用户、上下文、助手与工具，四项工具条和三轨都在；工具详情实际包含 Schema 和 950ms 计时，助手详情实际显示总时长、首 token 延迟、生成和吞吐量，图片详情使用完整中文标签。官方 attachment 插件确实注册 trajectory image slot；完整 conversation apply 保留其 locale 字典，D2.1 已要求附件、语言包和主题生效。这些证据足以确认公开嵌入方向，不证明真实 Node 归属、附件授权、live settlement 或重连故障已经通过。当前 format 4 的 compact stream 位于 event 内，实施沿用官方客户端处理；E3 中 packed/compact 是需核对的内容语义，不是新增旧版解包器的授权。
+
+**宿主原型与旧证据处置。** 本轮不沿用 R1 对手写轨迹主体的视觉放行。修订 prototype 明确仅呈现 Work 内切换、执行选择、读取状态与挂载区，内部没有假原生表格或检查器，符合最小呈现范围。独立 view_image 查看本轮真实渲染的 `output/feat-583-design/host-desktop.png`（1280×900）、`host-mobile-offline.png` 与 `host-mobile-expired.png`（390×844），确认原页导航、主次、子执行归属、离线重试和失效清除说明可读，无遮挡或范围混淆。宿主结构与 R1 已核的 current Work 风格一致；不把示例状态控件或大块占位文案带进产品。
+
+交互证据来源明确：root 本轮 CUA 走通原生切换、手机选择子执行→离线→资格失效→返回工作记录，返回后 tab selected 且三条主轮次与子入口仍在；本 reviewer 核对截图与 prototype 的对应状态／handler。当前 reviewer CUA 的 IAB 不可用、Chrome inventory fetch 失败，因此未冒称自己重放这些点击。视觉结论来自实际画面，交互结论由本轮操作记录与源码相互支持；原生内部逐控件、历史和实时交互仍由 V3/E3 在真实实现中验收。root 已恢复 viewport 并关闭其临时 tab；本 reviewer 未成功创建 tab 或改变 viewport，无需额外清理用户浏览器。
+
+**核心边界与历史机制。** `retained_from: Round 2`：D3 的非激活 cold observeSession + official page、live follow 第一帧复核、新物理 generation；D4 的 Work／Node binding／原生父链验证；D5 的可信附件来源及先授权后读字节；D6 的独立出站观察 WS、一次性 scope/Connection/owner/epoch 票据、有限 next response 与有界队列均未变化。新 fidelity 要求不需要放宽 whitelist、审批、账号或附件边界，不增加 IM 原始轨迹存储，不开放节点业务端口。DSH Host/runtime 仍由 integration 独占，viewer 仅依赖公开 browser/client；PA、IM 和 Node 对 native payload 仍保持不透明。R2 的源证据和新 diff 一致，完整官方 conversation.apply 初始化 input shell 不等于挂载发送 UI，写操作仍须由既定 transport／integration 双白名单拒绝。
+
+**Delta、M1 与最终验收。** IM delta 在正确 ADDED Requirement 下新增保真 Scenario，保留原有场景；Gateway delta 未变，仍表达消费者所需的只读、生命周期、慢观察隔离和附件边界。单 M1 未拆层或增加并行冲突，V3／E3 已从“相似外形”升级为 D2.1 全能力逐项操作与真实日志核对，并覆盖 locale/image slot、历史 Schema、原始内容和系统变化。V1/V2、E1/E2/E4/E5 继续覆盖宿主、按需、cold 非激活、权限和观察隔离，实施前置可用。
+
+用户最终看真实测试服务的要求在设计末尾已收口：验收后保留隔离体验栈，交付 URL、账号、node identity、PID/cwd、构建版本与清理命令；上方 e2e-down 是后续清理入口，不能在最终交付前关闭该体验栈。Runbook 要求真实 Web→IM→Node→DSH 与真实原生记录，probe 只证明客户端公开装配，fixture 成功不冒称真实 LLM。未实现的 Gateway E2E 是 M1 必做工作，并非本轮设计缺陷。
+
+### 历史问题闭环
+
+| Issue | 本轮证据与 Author Resolution | 状态 |
+|---|---|---|
+| R1-C1 | `retained_from: Round 2`；核心冷／live 读取设计未变，新 fidelity 不重新引入 cold follow promotion | **closed** |
+| R1-W1 | `retained_from: Round 2`；独立观察通道、有限拉取、超限 abort 与 E5 保持 | **closed** |
+| R2-R1（建议） | Author accepted，专用 viewer header／真实 iframe 装配留在 D2/E3 验证；不扩大主应用嵌入策略 | **accepted，非阻断** |
+
+### Issues
+
+无新增 CRITICAL 或 WARNING；无未闭合阻断问题。
+
+### Recommendations
+
+无新增改造建议。实施与产品验收直接按 D2.1／V3／E3 的完整能力表核对；不要再用宿主 prototype、早期 probe 变体或旧手画主体替代最终真实服务上的官方轨迹效果。

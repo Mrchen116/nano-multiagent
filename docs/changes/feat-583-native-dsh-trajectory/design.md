@@ -70,6 +70,8 @@ flowchart LR
 
 URL 采用 `?view=work&work_view=trajectory&execution=<session_id>`；缺省仍为工作记录。`execution` 仅是导航标识，每次访问均做服务器鉴权。切回记录保留现有展开和滚动位置；原生视图只保存当前 tab 内的显示选择，不持久保存原始内容。切换执行时先清空旧画面和销毁旧 scope，再挂载新 scope。
 
+实施接线：父页面按账号 revision 与执行保留数字滚动位置、最早已读 seq、原生行 key 和详情 tab ID；重新进入时通过官方 `loadThrough` 恢复历史窗口，再恢复阅读位置。该 bookmark 不包含原始记录正文或图片。官方浏览器偏好在 opaque iframe 中使用仅当前 iframe 生命周期的内存 Storage，避免访问 origin storage，也不添加 `allow-same-origin`。
+
 ### D2：原生 UI 使用独立、只读的浏览器容器
 
 `packages/dsh-trajectory-viewer` 构建固定版本的官方客户端模块图，在 `iframe sandbox="allow-scripts"` 中运行。父页面通过一个绑定该 iframe 的 `MessageChannel` 提供数据 transport，iframe 不取得 IM token、Gateway 凭据或任意网络转发能力；boot 只接收固定 scope、语言与主题。
@@ -77,6 +79,25 @@ URL 采用 `?view=work&work_view=trajectory&execution=<session_id>`；缺省仍�
 该包的产品接口仅为静态 viewer 入口和一份浏览器 transport 契约。框架装配、原生版本校验、Session binding、原生 `conversation.view` 挂载、取消和 Blob URL 清理均隐藏在该包内部。采用官方 `ClientModuleSystem` 和公开 plugin exports，不复制其源码或用 `src/*` 绕过公开入口；静态资源来自锁定的 npm 包，不加载节点 workspace 中任意插件前端。
 
 这是 [SPEC.md](../../../SPEC.md) 依赖规则的一项**明确、窄范围增量**：`dsh-integration` 继续独占 DSH **Host/runtime** 依赖；新 viewer 仅可依赖已声明、已锁定的官方 **browser/client** 公开入口。IM server、PA、Node 和现有 frontend 业务组件仍不直接 import DSH。M1 同步修改架构契约测试覆盖这个浏览器边界，不把例外扩展成所有前端均可导入 Host SDK。
+
+### D2.1：轨迹主体直接采用官方信息模型与交互
+
+用户已否定初版手写摘要原型。原生区域不重新定义记录、字段或检查器；`ui-trajectory` 自己注册 message / request-header / assistant / tool / compaction definitions，经 `uiConversation.binding(session).target('trajectory')` 组装，再交给官方 `TrajectoryView`。Nano 不从现有 `projectWorkEvent` 反推原生记录，该业务投影丢弃了系统／开发者上下文、完整 request header 与 stream 时序。
+
+核对源码 `5badb15009` 后，必须保留以下能力（发布包锁定为 `0.2.1-alpha.1`，桌面参考截图不作为其版本相同的声明）：
+
+| 能力 | 官方实现与数据来源 | 接入约束 |
+|---|---|---|
+| 时长、轮次、调用、搜索 | `TrajectoryToolbar`、`TrajectoryView`、`timeline` | 保留四个原生控件；时长是等宽／真实耗时切换，轮次与调用分别折叠对应层级。 |
+| 输入／模型／工具三轨与记录联动 | `TrajectoryTimeline`、`timeline.laneFor` | 点击选择、区间聚焦、缩放／平移沿用官方；不能裁掉输入轨或把时间条当装饰。 |
+| 系统提示词、用户、上下文、助手、工具、压缩 | trajectory 自有 definitions / snapshot builder / layout | 不裁剪到最后一轮，不合并掉上下文注入或仅工具调用的助手行；保留轮次、步骤、请求边界及嵌套调用关系。 |
+| 系统提示词与当时工具目录 | `request/header` + `system/message`，request-header definition | 保留变更 diff 和当时完整工具目录；不能以最新 registry 填补历史。 |
+| 类型化检查器 | `TrajectoryTable.detailTabs` | 系统：提示词／工具／变更；消息：概述／预览／原始／来源；工具：概述／参数或代码／结果／Schema／计时；请求：概述／选项／用量／计时。按官方适用字段显示，未知保持未知。 |
+| Schema 与请求统计 | snapshot builder 的 `callSchemas`、assistant definition 的持久 stream/usage | Schema 绑定当时请求头和 callId；保留 TTFT、生成时长、吞吐量、cache/reasoning tokens 等已报告事实。 |
+| 分页、虚拟化、滚动与流式内容 | 官方 Session event window 与 TrajectoryView/Table | 向前分页保留选中记录，向上阅读暂停尾部跟随；实时 partial 与最终消息由原生结算。 |
+| 附件与响应式检查器 | `ui-attachment` 的 `conversation.trajectory.images`；官方 Table CSS | browser 模块图显式包含附件插件，字节仍走 D5；保留桌面分栏伸缩、关闭和窄屏覆盖检查器。 |
+
+viewer 有确定可用高度，主体填满容器，不再包一层低密度摘要卡片。只读宿主没有 composer，设置公开 CSS 变量 `--dsh-composer-height: 0px`，避免官方默认 composer 留白挤占内容。颜色、字体、角色标签、表格密度和检查器内部布局使用官方主题；Nano 仅控制容器尺寸、外层导航和读取状态。图片 slot、语言包和 theme/primitives 是装配的一部分，不能以“插件已加载”代替这些依赖生效。
 
 ### D3：复用官方客户端会话与流处理，只替换载体和访问范围
 
@@ -200,9 +221,9 @@ sequenceDiagram
 
 ## 前端原型
 
-原型：[prototype.html](prototype.html)。它使用固定示例数据解释新增结构和状态，不接 Gateway，也不冒充官方 renderer 的实际接入验证。
+原型：[prototype.html](prototype.html)。最小呈现范围仅为新增的 Nano 宿主：Work 切换、执行选择、读取状态和容器尺寸。原生内部既有组件不再仿制；其信息／交互以 D2.1 源码依据、用户参考截图和实际官方组件渲染为 must-match。原型不接 Gateway，不充当原生接入验证。
 
-2026-10-12 已通过浏览器实际渲染走查 1280×900 与 390×844：记录／原生切换、主／子选择与返回、手机输入输出检查器、首次加载、离线、空态、资格失效和更新中断均可操作且内容可读。走查中修正了执行选择标签换行和手机检查器阅读位置；截图仅保存在本机忽略目录 `output/feat-583-design/`，不提交运行截图。此结论只覆盖文档原型，不代表原生组件或真实产品验收。
+初版原型的外层 Work 切换曾经走查，但用户已指出轨迹主体缺失信息；该次主体视觉结论失效。修订版删除误导性的手写轨迹，只审新增宿主。用户明确以最终实现后的测试服务验收：M1 必须提供官方插件实际渲染、真实会话和逐项控件操作证据。截图仅留本机 `output/feat-583-design/`，不提交运行截图。
 
 ### 现有 UX grounding
 
@@ -218,8 +239,8 @@ sequenceDiagram
 |---|---|---|---|---|
 | 原页内的记录／原生切换与执行选择 | must-match | Agent Work | 1280×900、390×844；主、子切换与返回 | V1 / E1 |
 | 首次加载、空执行、离线、连接中断和重试 | must-match | 原生容器 | 两种 viewport；状态有文字说明 | V2 / E2 |
-| 轨迹总览 → 记录选择 → 输入输出检查器 | must-match（语义） | 官方 trajectory 插槽 | 两种 viewport；历史与实时 | V3 / E3 |
-| 官方原生控件、颜色、表格具体排版 | may-adapt | 官方 renderer | 以锁定包真实能力为准，不按占位原型重写 | E3 |
+| 时长／轮次／调用／搜索、三轨联动、完整记录及类型化检查器 | must-match | 官方 trajectory 插槽，详见 D2.1 | 两种 viewport；完整输入、工具 Schema、历史与实时；逐控件操作 | V3 / E3 |
+| 官方角色颜色、紧凑表格、可关闭伸缩检查器和响应式布局 | must-match（原生） | 锁定官方 renderer | 不用 Nano 摘要样式覆盖；容器尺寸可随 Work 自适应 | V3 / E3 |
 | 示例时间、token、请求正文和原型状态控制条 | out-of-scope | 原型演示 | 真实产品显示读数；不出现“模拟离线”等控制 | E1 / E3 |
 
 ## 契约层增量（delta-spec）
@@ -271,9 +292,11 @@ pnpm pa status --config "$TRAJECTORY_E2E_ROOT/.gateway-config.yaml"
 
 - **V1 [reviewer]**：R1、R2、R3.1；桌面／手机从真实 Work 进入主／子原生视图再返回，选择和阅读位置正确，不产生任务或聊天副作用；覆盖原型第一项 must-match。
 - **V2 [reviewer]**：R4、R1.2、R5；空态、离线、中断、恢复、非 owner 查看、未授权执行与退出账号均真实可辨认；覆盖原型第二项 must-match。
-- **V3 [reviewer]**：R3.2–R3.3；实际官方原生时间概览、记录选择、检查器、历史分页及更新可用，数据和原生记录对应；覆盖原型第三项 must-match。
+- **V3 [reviewer]**：R3.2–R3.5；逐项操作“时长、轮次、调用、搜索”、三轨与选中联动；系统／上下文／仅工具调用助手／工具／请求／压缩及类型化检查器对应真实日志；历史分页、实时更新、Schema、提示词／目录、用量／计时、窄屏与关闭／伸缩均按 D2.1 核对，不只判断外形类似。
 - **E1 [worker]**：原有 Work 定向回归通过；未选原生模式时没有 viewer 资源／原始轨迹请求；保存桌面／手机真实截图及原型对照，原型控制条不进入产品。
 - **E2 [worker]**：测试 observer 的启动、取消、账号变化、节点／runtime 断开和迟到响应；真实持久 cold 主会话在查看、分页及断开前后，registry 中都没有新增 Session/Agent owner、没有模型或工具调用。覆盖读取时 disposal、正常业务冷转挂载的新 generation、离开后 follower/lease/监听归零；Agent 未被取消或重投，已保存 Work 仍可读取。截图覆盖 must-match 状态。
-- **E3 [worker]**：使用实际发布的原生客户端插件／Host API 和合成持久会话，验证 packed/compact Assistant、surface replacement、compaction、tool、取消、分页及 native 统计；记录包版本／public exports、实际原生渲染截图和原型对照。禁止 private imports、源码复制和备用手写 renderer。
+- **E3 [worker]**：使用实际发布的原生客户端插件／Host API 和合成持久会话，验证 packed/compact Assistant、surface replacement、compaction、tool、取消、分页及 native 统计；记录包版本／public exports、实际原生渲染截图和 D2.1 完整能力对照；验证 ui-attachment slot、当时 Schema、来源、原始内容、系统变化与全部工具条控件。禁止 private imports、源码复制和备用手写 renderer。
 - **E4 [worker]**：真实 IM ↔ Node ↔ DSH 定向测试覆盖 scope 复核、跨 Agent 拒绝、只读 whitelist、非 owner 合法查看、停用、原聊天附件授权与无来源图片拒绝；只读取不会启动模型或工具。
 - **E5 [worker]**：新增 viewer 的公开依赖检查、React／样式隔离与整仓构建；执行受影响 contract tests、frontend 定向测试、docs-check 和 diff-check。暂停真实浏览器观察消费并持续生成 native 帧，证明 runtime 队列有界、只终止该 observer；同时正常业务帧／心跳继续交付、设备 socket 仍存活。覆盖单帧过大、观察票据越界／重用／失效及设备换代，证明不会进入设备 ACK 队列或触发其积压关闭。归并 delta 与 D2 的架构规则后再进入代码审查／产品验收。
+
+用户最终体验栈在验收完成后保持运行，记录 URL、隔离账号、node identity、PID/cwd、构建版本和清理命令。用户要求回来直接查看，因此不在最终交付前停止这套验收栈；其他临时 probe／fixture 进程照常清理。
