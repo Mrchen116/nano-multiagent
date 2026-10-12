@@ -2,6 +2,14 @@
 
 本文负责日常 Gateway 持久配置、后台进程生命周期、外部通道和运行时 provider 配置。Gateway 的对外可观察行为由 [`../specs/gateway/`](../specs/gateway/spec.md) 定义。
 
+## 通过已部署 IM 安装
+
+注册后打开 `/onboarding`，复制“交给本机 Agent”的完整说明，或执行页面给出的手动安装命令。两条路径使用同一 IM 发布的安装包。安装器在当前用户目录准备 Node、锁定依赖与节点，不要求 sudo、全局 Node 安装或手写 YAML；首次绑定通过网页确认。
+
+默认安装根为 `~/.nanoassistant`，每个 IM origin 的配置放在 `connections/<origin-hash>/config.yaml`，workspace 与运行状态跟随该连接目录。页面再引导连接模型、真实测试、定义助手并开始聊天。原生 Codex 连接需要为 Nano 完成一次登录，不复制 Codex CLI 的刷新凭据；若本机已有可用代理，可以直接发现并测试它。
+
+安装中断或电脑离线时重跑原页面命令，保留绑定、模型与助手。已有助手时不会重新创建；相同连接已经运行则复用状态。高级启停仍使用下文 CLI，并传入安装器显示的实际 config 路径。隔离验收可设置 `NANO_INSTALL_ROOT`；`NANO_INSTALL_AUTOSTART=0` 只在首次生成配置时关闭自启。
+
 ## 持久配置
 
 默认 config 是 `~/.nanoassistant/config.yaml`。它属于本机运行配置，可能包含上游地址和登录凭据，不提交仓库。使用其他 config 时，start、stop 和 restart 都应传同一绝对路径。
@@ -42,11 +50,11 @@ llm:
 
 关键约束：
 
-- `llm:` 必填，`llm.default_model` 必须出现在某个 `llm.providers[].models[]` 中。
+- `llm:` 必填。有 Agent 时，`llm.default_model` 必须出现在某个 `llm.providers[].models[]` 中；首次设置生成的空节点允许空模型和空 Agent，绑定后由网页完成模型连接。
 - `llm.tool_approval_model` 可选。配置后，所有 PA Agent 的自动工具权限分类都使用这个已注册模型；省略时，各次分类复用发起运行的 Agent 模型。未注册的非空值会让 Gateway 在设备绑定与运行前拒绝启动。
 - 专用审批模型只影响自动分类，不改变 Agent 的正常回复或工具结果续跑模型。分类调用失败时不会改用 Agent 模型或其他模型；单聊天保留原人工入口，普通全局主任务和其普通子任务返回原因，Heartbeat/Cron 保持无人值守 fallback。规则配置与升级回退见 [Auto 权限操作](auto-permissions.md)。
 - 修改 `llm.tool_approval_model` 后需要重启 Gateway；运行中的进程不会热加载该字段。
-- provider name 使用 `anthropic` 或 `openai_compat`，与上游接口协议匹配。
+- 手工 provider 配置应明确匹配上游接口协议；网页设置保存独立 provider 名称、协议和模型，凭据由本机 DSH credentials 持有。
 - Web relay 是节点与 IM 的固定产品通路；`channels` 用于外部通道配置，不需要额外开关 Web relay。
 - `agents[].workspace_root` 省略时，Gateway 在 `~/.nanoassistant/workspaces/<agent-id>/` 创建默认 workspace；需要固定位置时显式填写绝对路径。
 - `im_service.username` / `password` 可用于 Gateway 隔离自动化首次设备绑定登录；已绑定运行使用设备 runtime token。

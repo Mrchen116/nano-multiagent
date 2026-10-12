@@ -66,3 +66,15 @@ reviewer 首条用户消息的 failed 并非离线测试导致：Node 持久事�
 产品 reviewer 在冻结发布包 b1a70198 上证实私人计划 tg_021a12df 已通过普通请求保存，不再要求公司共享确认；同页掉线与同电脑恢复也已通过。但执行以 completed 结束时仅产生 Work 内的“已保存”草稿，没有调用 send_message，聊天未收到结果。此真实失败作为交付修正的红证据，不能以工具成功代替用户收件。
 
 主 Agent 核对 global-mode 提示后，修正“工作完成无需额外 public completion”这一过宽表述：直接真人请求的答案/结果先通过既有 send_message 发回来源聊天，已送达后才无需重复完成消息；背景无可行动结果仍静默。没有修改工具、路由、自动审批或静默终态机制，也没有隐式公开私人草稿。此类模型行为以独立真实复验为绿证据，不增加只断言提示字符串的测试。
+
+## 最终门禁与归并
+
+产品 R4 在 `f881314a469e97178cd91e59a308c0d3625404d9` 的真实发布包上完成私人保存请求，任务 `tg_6bd77847` 成功且原聊天 `c_rprqeogj` 收到与之匹配的真实完成消息；#5 关闭。结合前轮有效证据，S1–S12 全部通过，0 未关闭阻塞。独立静态 R4 在同一实现树 PASS、0 CRITICAL/0 WARNING，七份 corrected delta 全部 aligned；通信窄测试 2/2 通过。
+
+最后一次 origin/main 同步仍为 `b70d4a7bd80b4424fea430e507390c5dde7c0a05`，无 main 增量。各门禁 executed_base 与 effective_base 均为该 SHA；code review/verification/product validated_at 均为 `f881314a469e97178cd91e59a308c0d3625404d9`。后续仅报告、七份已核 delta 的 canonical 归并、入口数量/职责摘要、使用说明与整体归档，无产品代码变化；结论 retained 到最终交付树，PR 记录解析后的 effective_through SHA。Gate 2 同理保留：恢复和明确交付义务不改变已审用户范围、接口、显式投递机制或权限。
+
+最终本地 Web 全量 88 文件/833 测试全部通过；root build/typecheck、Web build 已通过，最后提示改动后重新 root build 与通信回归通过。较早的后端全量、Python/Ruff、iOS 模拟器/Release archive 和其后定点回归保留，未因文档归并重复无关全量。录像已有真实成功 send_message，新的交付提示仅纠正后续私人保存请求，不使原视频失效。
+
+canonical 只归并七份已核对的 delta；更新包入口计数与现行说明，README 区分已有 IM 用户和自托管者，Gateway/local-stack 记录安装与安装包发布。全部 unit 文档整体归档后提交 Ready PR；未自动合并或部署，生产与主仓无关 dirty 内容保持原状。
+
+最终文档检查通过：260 个 maintained Markdown、64 条 required routes。检查发现 active delta 中一个沿用 canonical 相对位置的 gateway-relay 链接；已仅修正指向，归档时随目录深度调整，不改契约。`git diff --check` 通过。

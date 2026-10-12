@@ -8,6 +8,12 @@
 
 为本地 IM 准备持久、私有 JWT secret，并在同一启动环境设置 `IM_JWT_SECRET`。已有数据库重启不能更换此密钥。可设置 `IM_DB_PATH`、`IM_UPLOAD_DIR`、`IM_FRONTEND_DIST_DIR` 为明确的绝对路径；默认分别为 `data/im_service.sqlite3`、`data/uploads` 与仓内 `src/IM/frontend/dist`。
 
+## 发布首次安装包
+
+`pnpm build` 同时生成 `dist/node-release/manifest.json` 与 `nano-node.tgz`，IM 默认从这个目录提供 `/install.sh` 和 `/install/*`。若部署分离构建目录，设置 `IM_NODE_RELEASE_DIR` 为这两个文件所在的绝对目录。安装包缺失时返回明确的未发布状态，不提供失效命令。
+
+`IM_PUBLIC_URL` 必须是用户实际访问的 IM origin，安装材料从该地址生成；不要用请求 Host 代替部署配置。更新 IM 时同步发布对应的 Node 包和 Web 构建产物。首次使用者可直接在网页注册、绑定空节点和配置模型；下文手工 config 启动仍用于开发与运维。
+
 ## 启动
 
 空库仅执行一次管理员初始化，再启动 IM：

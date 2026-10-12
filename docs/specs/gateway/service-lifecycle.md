@@ -1,13 +1,13 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-542
+> 对齐: feat-587
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
-后台服务管理、IM 长连接、断线恢复和节点绑定的 Gateway 契约。
+同源首次安装、空节点设置、后台服务管理、IM 长连接、断线恢复和节点绑定的 Gateway 契约。
 
 ## Requirements
 
@@ -290,3 +290,15 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 #### Scenario: 旧Coding CLI退役
 - **WHEN** 用户安装最终迁移版本并查看启动入口
 - **THEN** 个人助手启停、IM管理和客户端入口继续可用，旧自研Coding CLI不再作为产品入口或运行依赖。
+
+### Requirement: 电脑端可在模型与助手为空时上线设置
+
+安装器连接已有 IM，自动准备当前用户目录中的运行依赖与私有配置，不要求部署 IM 或手写 YAML。节点绑定后可在未配模型、未建 Agent 时保持出站连接并接收设置操作；重复安装保留配置与数据。
+
+#### Scenario: 空节点
+- WHEN 用户首次安装并确认绑定
+- THEN 无需预先配置模型即可在页面看见电脑并开始配置；不会伪造已可执行的助手。
+
+#### Scenario: 重复与失败
+- WHEN 安装重跑或下载/依赖步骤失败
+- THEN 保留现有节点和数据，显示继续/恢复方法，不切换到未准备好的版本。
