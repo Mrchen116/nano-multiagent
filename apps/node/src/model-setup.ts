@@ -44,7 +44,6 @@ export class ModelSetup {
   private operation?: Operation;
   private pending?: Promise<void>;
   private catalog?: Promise<CatalogEntry[]>;
-  private discovery?: Promise<Discovery>;
   private readonly unsubscribe: () => void;
   constructor(private readonly configuration: NodeConfiguration, private readonly runtime: Runtime, private readonly discover = discoverLocalModels) {
     this.unsubscribe = runtime.onNotification((method, value) => {
@@ -61,8 +60,7 @@ export class ModelSetup {
       if (!this.pending) this.start(input);
     } else if (input.action !== 'status') throw new Error('Unsupported setup action');
     this.catalog ??= this.runtime.request('model.setup.catalog', {}).then(value => value as CatalogEntry[]).catch(() => { this.catalog = undefined; return []; });
-    this.discovery ??= this.discover();
-    const [catalog, discovered] = await Promise.all([this.catalog, this.discovery]);
+    const [catalog, discovered] = await Promise.all([this.catalog, this.discover()]);
     const llm = this.configuration.value.llm;
     return {
       models: llm.providers.flatMap(provider => provider.models.map(model => ({ provider: provider.name, model: model.name }))),

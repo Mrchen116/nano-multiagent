@@ -25,8 +25,16 @@ else
   NANO_EXPECTED=$(awk -v file="$NANO_NODE_ARCHIVE" '$2==file {print $1}' "$NANO_TEMP/node-sums")
   test "$(hash_file "$NANO_TEMP/node.tgz")" = "$NANO_EXPECTED"
   NANO_NODE_DIR="$NANO_ROOT/tooling/${NANO_NODE_ARCHIVE%.tar.gz}"
-  if [ ! -x "$NANO_NODE_DIR/bin/node" ]; then
-    tar -xzf "$NANO_TEMP/node.tgz" -C "$NANO_ROOT/tooling"
+  if [ ! -f "$NANO_NODE_DIR/.complete" ]; then
+    mkdir -p "$NANO_TEMP/runtime"
+    tar -xzf "$NANO_TEMP/node.tgz" -C "$NANO_TEMP/runtime"
+    NANO_STAGED_NODE="$NANO_TEMP/runtime/${NANO_NODE_ARCHIVE%.tar.gz}"
+    "$NANO_STAGED_NODE/bin/node" --version >/dev/null
+    PATH="$NANO_STAGED_NODE/bin:$PATH" "$NANO_STAGED_NODE/bin/npm" --version >/dev/null
+    touch "$NANO_STAGED_NODE/.complete"
+    # Only promote a complete runtime; a partial previous extraction is retryable.
+    if [ -e "$NANO_NODE_DIR" ]; then mv "$NANO_NODE_DIR" "$NANO_TEMP/incomplete-node"; fi
+    mv "$NANO_STAGED_NODE" "$NANO_NODE_DIR"
   fi
   NANO_NODE="$NANO_NODE_DIR/bin/node"
 fi

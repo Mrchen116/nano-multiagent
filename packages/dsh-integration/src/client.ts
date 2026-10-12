@@ -1,6 +1,6 @@
 /** Product-facing lifecycle for one owner node's official DSH process. */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile, readlink, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,13 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
 
 async function link(target: string, path: string) {
   try { await symlink(target, path, 'dir'); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (await readlink(path) === target) return;
+    // Reinstalled releases must not mix the old bundle with the new launcher.
+    await unlink(path);
+    await symlink(target, path, 'dir');
+  }
 }
 
 /** Process exit is requested only after the runtime has drained durable owners. */

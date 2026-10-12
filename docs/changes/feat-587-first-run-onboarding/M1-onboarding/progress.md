@@ -24,3 +24,26 @@
 ## 测试维护
 
 保留/扩展现有 identity、control、device-binding、company-access、auth-form-experience 与 iOS SessionTests；旧注册等待批准断言改为个人 onboarding。新增 bootstrap、setup、onboarding 和 tenancy 测试分别持有首次安装、公开运行时配置、跨进程入口与跨资源空间隔离风险；无为单次录屏创建永久测试。
+
+## R1 修复与本地 CI
+
+独立静态审查的三项发现均在本 unit 范围内并阻塞交付：公司 Work 失权导致同节点私人 journal 无法推进、首次 discovery 缓存使后启动的代理不可发现、Node 官方包解压失败后的部分目录被误认为完整。主 Agent 为每项补充可复现的失败测试后集中修复：不保存/发布失权 Work 内容但推进共享 journal；每次 setup 状态重新做限定范围发现；官方 Node 在临时目录完成解压、Node/npm 校验后才写完成标记并提升目录。3 文件 12 测试通过，既有 Work/trajectory 2 文件 6 测试通过。
+
+独立产品走查还发现已连接模型可再次点击并得到误导失败、助手创建后掉线仍显示 ready。主 Agent 将已有连接明确标注并允许继续，掉线按真实节点状态回到恢复步骤。对应前端行为测试先红后绿。既有绑定测试补充真实 transfer 标记，保留接收确认覆盖；普通绑定路由断言更新为电脑连接文案。相关 3 文件 11 测试通过。
+
+本地检查（完整基线 `59650f196` 与上述修复的受影响回归合并作为证据）：
+
+- 后端全量：63 文件、178 测试通过；修复增加 3 个行为测试，相关套件另跑通过。
+- Web 全量：88 文件、830 测试中 827 通过，3 个失败均为绑定旧文案/缺少 transfer fixture；修正后相关 3 文件 11 测试全部通过，其中新增 2 个恢复测试。无忽略或删除失败测试。
+- Python standalone/architecture：54 passed、31 e2e deselected；Ruff check 与 82 文件 format check 通过。
+- `pnpm build`、`pnpm typecheck`、Web `npm run build` 通过；Web critical audit 为 0 vulnerabilities。
+- iOS：独立模拟器 27 XCTest + 10 Swift Testing 全通过；Release arm64 archive 成功，无签名。仅说明构建/模拟器证据，不等同真机安装验收。测试专用 simulator 已删除。
+- 最终 sync `origin/main=b70d4a7bd80b4424fea430e507390c5dde7c0a05`，较审查基线未推进。
+
+原生 OAuth 真人账号登录、Linux/WSL 实机和生产部署未作为本次已完成证据。真实模型路径采用本机现有代理的 Codex ingress；官方 Node 自动下载路径由独立产品走查在隔离目录实际执行。
+
+### 重装升级与首聊状态诊断
+
+产品 reviewer 在第二次安装时遇到发布版本切换，启动最终超时。主 Agent 只读定位到自有 DSH profile 的两个 bundle symlink 仍指向旧 release，而新 launcher 从新 release 运行。用隔离空 home + 原旧链接重现 `web_fetch already registered`；不读写生产凭据。`prepareProfile` 现只对自己生成的两个符号链接比较并更新目标，不删除其他配置。链接更新行为先红后绿；同一旧链接实验经重新 prepare 后真实官方 DSH initialize 成功。安装发布版本变化属于首次安装/重复命令的真实交付场景，本 unit 内关闭。
+
+reviewer 首条用户消息的 failed 并非离线测试导致：Node 持久事件 `turn/end seq=48` 在 `2026-10-12T17:06:13` 记录上游 `502 upstream_empty_stream`，发生于已显式发送回复之后。第二轮 `seq=80` 为 completed；IM 两条 Agent 回复均 completed。该既有执行回执语义如实保留上游错误，不把已发出回复伪装为整轮成功，也不把它判为离线 UI 回归。外部 LLM_PROXY 未修改。

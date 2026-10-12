@@ -78,3 +78,16 @@ it.each([false, true])('discovers only models compatible with the chosen proxy i
     expect(JSON.stringify(discovered)).not.toContain('must-not-project');
   } finally { vi.unstubAllEnvs(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(home, { recursive: true, force: true }); }
 });
+
+it('discovers a proxy started after the first status without restarting the node', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-discovery-refresh-'));
+  try {
+    const path = join(home, 'config.yaml');
+    await writeFile(path, JSON.stringify({node: {}, agents: [], llm: {default_model: '', providers: []}}));
+    let available = false;
+    const setup = new ModelSetup(await NodeConfiguration.read(path), {request: async () => [], onNotification: () => () => {}}, async () => ({codex: false, ...(available ? {proxy: {base_url: 'http://localhost:4000/v1', models: ['local'], protocol: 'openai-completions' as const}} : {})}));
+    expect((await setup.handle({action: 'status'})).discovered.proxy).toBeUndefined();
+    available = true;
+    expect((await setup.handle({action: 'status'})).discovered.proxy?.models).toEqual(['local']);
+  } finally { await rm(home, {recursive: true, force: true}); }
+});

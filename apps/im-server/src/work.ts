@@ -79,6 +79,7 @@ export class Work {
       };
     if (!Array.isArray(p.events) || !p.events.length || p.events.length > 100)
       fail(400, "invalid_arguments");
+    const appliedRoots = new Set<string>();
     transaction(this.db, () => {
       for (const [i, e] of p.events.entries()) {
         if (
@@ -95,7 +96,7 @@ export class Work {
           e.root_agent_id,
           node,
         );
-        if (!agentAvailable(this.db, profile)) fail(403, "scope_not_allowed");
+        if (!profile) fail(403, "scope_not_allowed");
         const old = one(
           this.db,
           "SELECT * FROM agent_work_events WHERE node_id=? AND journal_id=? AND seq=?",
@@ -113,7 +114,11 @@ export class Work {
             fail(409, "event_identity_conflict");
           continue;
         }
+        // Revoked work is acknowledged without storing content, so other Agents
+        // sharing this node journal can continue. Never replay a discarded event.
+        if (e.seq <= through) continue;
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
+        if (!agentAvailable(this.db, profile)) { through = e.seq; continue; }
         if (e.type === "session_registered")
           this.register(e.root_agent_id, e.session_id, node, e.payload);
         else this.session(e.root_agent_id, e.session_id);
@@ -142,6 +147,7 @@ export class Work {
             JSON.stringify(e.payload),
           );
         this.project(e, Number(result.lastInsertRowid));
+        appliedRoots.add(e.root_agent_id);
         through = e.seq;
       }
       this.db
@@ -150,7 +156,7 @@ export class Work {
         )
         .run(node, p.journal_id, through);
     });
-    for (const root of new Set<string>(p.events.map((e: Row) => e.root_agent_id))) {
+    for (const root of appliedRoots) {
       const users = all(
         this.db,
         "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",

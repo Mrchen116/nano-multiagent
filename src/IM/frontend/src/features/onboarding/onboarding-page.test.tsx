@@ -67,3 +67,19 @@ it('reopens an existing first chat without replacing its draft with another star
  expect(router.state.location.state).toBeNull();
  expect(createConversation).not.toHaveBeenCalled();
 });
+it('shows an existing model as connected instead of offering a failing duplicate test', async () => {
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model: 'model-one', models: [{provider: 'p', model: 'model-one'}], discovered: {codex: false, proxy: {base_url: 'http://localhost:4000/v1', models: ['model-one'], protocol: 'openai-completions'}}});
+ vi.mocked(getNodeCreateState).mockResolvedValue({capabilities: {tools: [], features: []}} as never);
+ mount();
+ await screen.findByRole('heading', {name: 'What would you like help with?'});
+ await userEvent.click(screen.getByRole('button', {name: '← Back'}));
+ expect(await screen.findByRole('button', {name: 'Already connected'})).toBeDisabled();
+ expect(screen.getByRole('button', {name: 'Continue →'})).toBeEnabled();
+});
+it('returns to computer recovery when an already-created assistant is offline', async () => {
+ vi.mocked(getOnboarding).mockResolvedValue({nodes: [{...computer, status: 'offline'}], agents: [{agent_id: 'a', display_name: 'Assistant', node_id: 'device', default_model: 'm', workspace_root: '/a', work_mode: 'global'}], install});
+ mount();
+ await screen.findByRole('heading', {name: 'Connect your computer'});
+ expect(screen.queryByRole('heading', {name: 'Assistant is ready'})).not.toBeInTheDocument();
+ expect(screen.getByText(/Run the command on that computer again/)).toBeInTheDocument();
+});

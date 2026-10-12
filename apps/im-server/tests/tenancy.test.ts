@@ -130,3 +130,21 @@ it('does not replay old private task mutation receipts after the Agent changes p
   expect(() => tasks.execute(actor, 'delete', deletion)).toThrow('not accessible');
   expect(tasks.execute(actor, 'list', {}).items).toEqual([]);
 });
+
+it('acknowledges revoked company work without blocking the shared private journal or replaying dropped content', async () => {
+  const { app, db, register } = await fixture();
+  const owner = await register('mixed-owner');
+  agent(db, 'mixed-private', owner.user.id, `personal:${owner.user.id}`);
+  agent(db, 'mixed-company', owner.user.id, 'company:default');
+  db.prepare("UPDATE agent_profiles SET node_id='mixed-private' WHERE agent_id='mixed-company'").run();
+  db.prepare("UPDATE users SET membership_status='suspended' WHERE id=?").run(owner.user.id);
+  const events = ['mixed-company', 'mixed-private'].map((root, i) => ({seq: i + 1, event_id: root, root_agent_id: root, session_id: root, type: 'session_registered', payload: {scope: 'global_main'}}));
+  const batch = {journal_id: 'mixed', from_seq: 1, events};
+  expect(app.im.gateway.work.append('mixed-private', batch).through_seq).toBe(2);
+  expect(db.prepare('SELECT root_agent_id FROM agent_work_events').all()).toEqual([{root_agent_id: 'mixed-private'}]);
+  expect(db.prepare('SELECT root_agent_id FROM agent_work_sessions').all()).toEqual([{root_agent_id: 'mixed-private'}]);
+  db.prepare("UPDATE users SET membership_status='active' WHERE id=?").run(owner.user.id);
+  expect(app.im.gateway.work.append('mixed-private', batch).through_seq).toBe(2);
+  expect(db.prepare('SELECT root_agent_id FROM agent_work_events').all()).toEqual([{root_agent_id: 'mixed-private'}]);
+  expect(() => app.im.gateway.work.append('mixed-private', {...batch, events: [{...events[0], root_agent_id: 'unknown'}]})).toThrow();
+});

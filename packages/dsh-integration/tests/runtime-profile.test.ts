@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readlink, unlink, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -73,3 +73,15 @@ it('emits liveness from a real running native Agent while the model is silent', 
     await rm(home,{recursive:true,force:true});
   }
 },30000);
+
+it('repoints generated profile links when the installed release changes', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-profile-upgrade-'));
+  try {
+    await prepareProfile(home);
+    const paths = ['@nano/dsh-integration', '@deepseek-ai/dsh-base'].map(name => join(home, 'profiles/nano/node_modules', name));
+    const targets = await Promise.all(paths.map(path => readlink(path)));
+    for (const path of paths) { await unlink(path); await symlink(join(home, 'previous-release'), path, 'dir'); }
+    await prepareProfile(home);
+    expect(await Promise.all(paths.map(path => readlink(path)))).toEqual(targets);
+  } finally { await rm(home, {recursive: true, force: true}); }
+});
