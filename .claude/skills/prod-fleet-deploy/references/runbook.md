@@ -13,7 +13,11 @@
 
 MacBook Air Gateway 用目标 `prod-main-<short-sha>` detached worktree，各自安装锁定的 Node/pnpm 依赖并构建。新版本健康后才回收干净且无进程使用的旧 `prod-main-*`；不 force、不动其他 worktree。
 
+首次切换须同时完成迁移操作单中的「旧生产数据的额外对账」，尤其是 IM 旧全局主会话、可重放 relay 和工具镜像。停止旧 Python Gateway 时从保留的旧 checkout 使用 `PYTHONPATH=<旧checkout>/src <原venv>/bin/python -m personal_assistant.main stop --config …`；新代码已移除旧模块，不能从新 checkout 调旧入口。新状态安装后只用 Node 生命周期命令。
+
 ## 更新 Mini 代码和前端
+
+涉及公网运行服务前，使用 Mini 已安装的 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 验证现有 QUIC/IPv6 路径；目标版本未跟踪该运维脚本时保留已安装版本，不从未提交的本地文件覆盖生产 supervisor。
 
 以下是按需执行的命令，不是整段盲跑脚本。首先确认 Mini 当前分支为 main、已跟踪改动不会被覆盖，并确认远端目标 SHA 是本次授权版本。
 
@@ -93,7 +97,7 @@ pnpm pa restart --config ~/.nanoassistant/config.yaml
 
 必须从官网验证，不能只用源站 200 或节点绿灯代替：
 
-1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；MacBook Air 没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。
+1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；MacBook Air 没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。Tunnel 未变的普通服务部署执行已安装脚本 `--seconds 30`，记录 PID、连接数和公网结果；Tunnel 路径或恢复机制变更及故障恢复才执行 600 秒门禁。
 2. 官网 HTTPS 首页返回 200，TLS 验证开启；不使用 `curl -k`。HTTP 首页、带 query 的路径及假凭据登录 POST 返回到同主机 HTTPS 的 308，路径/query 保留。HTTP POST 不应返回应用登录结果。
 3. 官网实际静态资源属于本次 build；从真实浏览器检查本次变更相关页面和行为。使用现有真实账号验证登录、历史数据和实时连接；相关附件/聊天功能变更按授权范围做真实验收，保留脱敏证据。不得拿测试账号、测试数据库或隔离端口充当生产。
 4. 经官网认证读取 `/im/v1/me`、`/im/v1/nodes`：两生产节点均 online、心跳新鲜，owner 与 config 中真人 UUID 对齐。取人类有效会话用于这些 API，不使用机器凭据冒充用户；不打印 token，不在命令历史中拼接真实密码。
