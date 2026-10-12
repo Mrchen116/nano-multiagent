@@ -111,3 +111,58 @@
 ## 环境收尾
 
 混合版本的最后安装终态为 `Gateway startup timed out`，随后提示 `Installation paused. Your files are preserved. Run the same command to continue.`，原日志 `.dsh-runtime/review/installer-repeat-after-assistant.log` 保留。只读进程检查没有本reviewer安装根下的剩余Node进程；保留安装目录、用户数据和截图供R2使用，不删除、不改用户资源。原型静态服务由reviewer停止；caller持有的18490 IM未操作。
+
+---
+
+# Round 2 · targeted · 2026-10-13
+
+> validated_at: `00dd42398d4b9ec9baf0e136d786299659cf8cd3`；本轮范围 `59650f196..00dd42398`，累计基线 `b70d4a7bd80b4424fea430e507390c5dde7c0a05`。
+
+## Verdict
+
+**fail：1 项新增 major 阻塞。** 本轮关闭重复模型连接与已创建助手重新进入时的离线恢复问题，并补齐任务/Work 隔离和创建失败重试证据；但私人助手拒绝正常私人任务保存，错误地告诉用户 task_graph 是公司共享资源。后端隔离通过不能代替这个实际用户旅程通过。
+
+## 冻结环境与真实操作
+
+- 沿用隔离 IM/Web `18490`、R1 测试账号与原数据；核对指定 HEAD 及 installer manifest release `ed0edc04dc32670eef31068d2249c37569e0d3cf2750f69d4318f6033f59a0ad`。本轮未修改实现、配置或生产服务。
+- 在原安装根重跑同一安装命令，成功启动已绑定电脑、恢复原助手和原会话；再以 `review-private`、独立安装根 `.dsh-runtime/review/computer-r2` 完成新电脑绑定、发现本机模型测试及助手创建。安装日志 `.dsh-runtime/review/installer-r2.log`、`installer-r2-fresh.log`。
+- 新助手创建时，浏览器仅对实际创建 POST 注入 connectionfailed 网络故障；真实界面显示 Check and retry，保留名称、用途目标和路径。撤销路由故障后点击重试，真实服务创建 `assistant-245ccec4`，目录只有该助手。没有伪造成功响应。390px 窄屏截图已检查错误与恢复状态。
+- 用本人真实私人会话请求保存笔记对比任务，助手先声称任务图公司共享而拒绝。进一步明确允许保存这份不含敏感信息的验收草稿后，真实创建任务 `tg_fd82a621`。仅测试资源写入，没有向其他用户发消息。
+
+## 前轮问题复验与新增问题
+
+| 问题 | 实际证据 | 判定 |
+|---|---|---|
+| R1 #1 重复模型连接 | 新电脑发现 `codexOAuth:gpt-6-luna`、Connect and test 成功；返回显示 Already connected、连接动作禁用、Continue 可用 | closed；`review-587-r2-model-reuse.png` |
+| R1 #2 已有助手重新进入误报 ready | 原电脑离线时重新打开向导，出现 offline 与安装恢复入口；同安装根重跑后自动恢复同一助手，原聊天保留 | 本轮实测的重新进入路径 closed；不外推为页面持续打开时掉线已验证 |
+| R1 #3 已回复后 failed | 本人从 Agents → Work 展开原执行，实际先有成功 send_message，再有 502 upstream_empty_stream；第二次执行完成 | clarified；真实上游失败，不能归类为虚构回复或丢失回复；`review-587-r2-owner-work.png` |
+| R2 #4 major：私人保存任务被拒绝 | 正常要求把研究计划保存为私人任务时，助手称 task_graph 是公司共享资源、无法保证私人；改用普通保存请求仍出现 AutoDenied，要求先确认写入公司共享任务图。只有明确允许保存非敏感验收草稿才成功。 | **blocking**。新用户的私人空间内不能顺畅保存个人任务，且会被误导认为私人内容会公开；`review-587-r2-private-task-refusal.png`、`review-587-r2-task-denied.png` |
+
+## Scenario 与 must-match 覆盖
+
+Scenario 来源仍为本 unit `spec.md`；未受改动影响的项引用 R1 连续真实旅程，未重复无关操作。
+
+| Scenario | 本轮证据与范围 | 结果 |
+|---|---|---|
+| S1 独立私人空间 | 本人可读 `tg_fd82a621` 及私人助手 Work；另一私人账号与既有团队成员直接打开该任务均显示无访问权限，打开私人 Work 均无法加载该助手。批准加入团队的 owner 仍拥有私人任务。隔离矩阵通过，但私人任务保存实际被错误共享语义阻断，见 #4 | fail |
+| S2 团队批准 | 沿用 R1 申请、pending、批准及批准后的目录并集；本轮追加批准后私人任务/Work 对团队成员不可读 | pass |
+| S3 Agent 安装 | 沿用 R1 剪贴板 prompt 实际执行；本轮同命令恢复真实 frozen release | pass |
+| S4 手动安装 | 原安装根升级成功；第二根实际安装、网页绑定、启动及模型配置 | pass |
+| S5 安装恢复与离线 | 冻结版本上离线重新进入→明确恢复→同根重跑→恢复原助手和历史，日志与界面一致；持续停留页面的掉线状态不在本轮观察范围 | pass |
+| S6 复用本机连接 | 新电脑真实发现→测试成功→返回已连接复用 | pass |
+| S7 自定义 API | 沿用 R1 真实 API 成功与 Key 不回显；本轮升级保留该配置及原助手 | pass |
+| S8 不可用连接 | 沿用 R1 错误地址失败、禁用继续、修正成功与 OAuth 取消 | pass |
+| S9 少量输入创建 | 第二账号真实创建；注入实际网络失败后字段保留、可重试、最终成功且无重复助手 | pass |
+| S10 完成第一件事 | R1 两轮真实研究回复保留；本轮进一步保存为私人任务时遇到 #4，不能完整完成私人任务目标 | fail |
+| S11 刷新与恢复 | 原助手、模型、聊天在 frozen release 重装后保留；新助手失败后成功恢复 | pass |
+| S12 既有用户与窄屏 | 沿用 R1 desktop/tablet/mobile 与旧成员直入聊天；本轮 390px 创建失败/重试文本和控件可用 | pass |
+
+原型 must-match：本轮新增创建失败与重试画面，保留字段、恢复动作、无重复结果，符合契约；模型已连接复用与重新进入离线恢复符合目标。R1 其余整体布局对照沿用。新增 #4 属于完整个人助手旅程问题，不因原型没有逐条画出而忽略。
+
+截图主要位于本地 `output/playwright/review-587-r2-*.png`；最终另一私人账号任务拒绝证据为 `.playwright-cli/review-587-r2-private-task-denied.png`。矩阵截图包括 owner-task、owner-work、private-work-denied、team-work-denied、team-task-denied；创建截图 create-error-narrow、create-recovered。截图与 runtime 文件不提交。
+
+## 后续与收尾
+
+需在新的冻结版本复验 #4：本人正常保存私人任务无需同意公司共享，实际保存成功，私人任务对其他账号继续不可读。若 caller 修复持续停留向导时的离线优先级，应同时补验“创建后不刷新、电脑掉线→恢复命令→同助手恢复”。
+
+上层文档同步要求沿用 R1。两个 reviewer 节点均已通过各自安装 CLI stop 返回 STOPPED；保留数据供后续复验。没有停止 caller 的 IM 或录像服务。
