@@ -312,3 +312,125 @@ R1-W1–W4、R2-W1/W2 均保持 R2/R3 的 **closed**；Author Resolutions 已保
 ### Author Resolutions（Round 4 后）
 
 接受 R4 Approved，无实质异议。Q36–Q38 的布局、内容与交互已由独立浏览器核对，未修改受审原型或行为。审查后仅更新 design/visual-review 的审查状态文字，`retained_from: Round 4`；新增文档检查把本 unit 全部新增图片作为拟提交文件核验，unit 0 问题，剩余 4 条为其他 dirty 文档引用未跟踪内容的既有问题。未修改或提交那些文件。
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/feat584_design_review`（与 R1–R4 同一独立 reviewer）
+- target: `main` / `54dd5dc21` 的 R4 Approved 基线后，冻结的 Q39、spec 通知正文、design P5/Chat 呈现、prototype、两张更新消息截图及 visual-review。
+- review_mode: `delta`
+- mode_reason: Q39 明确撤销消息标签和结果摘要/展开，属于有界呈现要求变化；不是历史 issue closure，也未改变架构、通知对象、接口或 milestone，无需全量复审。
+- started_at: `2026-10-12T22:25:27+08:00`
+- completed_at: `2026-10-12T22:27:19+08:00`
+- duration: 1 分 52 秒（独立差异检查与浏览器取证时段）。
+- checkout: `main` / `54dd5dc21`；确认产品代码、unit delta 与 migration-guidance 无 tracked diff。只追加本报告，不提交或修改其他产物。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+Q39 已兑现：通知保留时间、实际修改者、任务链接、变化和 @，不再附标签、摘要或展开；完整结果仍从任务详情读取。Gate 2 通过范围仍限于设计与原型，不表示真实通知投递、有效 mention 或原生实现已验收。
+
+### Coverage 与证据
+
+- **需求及文档闭合。** spec 正文和 Q39、design P5/Chat 段落均明确移除该额外呈现；Q39 显式覆盖 Q38，visual-review 明确旧截图和摘要/展开说明属于历史证据。保留历史问答没有形成两套当前要求。P5 仍映射 R5、W2/W3，结果字段及任务详情契约未变。
+- **Raft 引用核验。** 只读 `/Users/czj/Repos/opensource-hub/raft-source` 中 `packages/server/src/routes/tasks.ts:821–838`、`packages/web/src/components/message/MessageItem.tsx:4159–4180`，确认所引任务状态通知正文包含修改者、任务编号/标题、目标状态，system 分支显示时间和正文，没有任务结果摘要/展开。另读 `SystemMessageGroupDisclosure.tsx` 与 `ThreadPanel.tsx:1792–1807` 调用，展开的是 `messageIndexes` 对应的原消息，不是任务 result。此结论只针对这些引用路径，不扩大为 Raft 所有消息都没有展开能力，也不把参考项目作为 Nano 的权限契约。
+- **局部实现落点。** 原型预置与新生成事件共用精简后的 `eventRow(body,time)`；移除了结果区 CSS 和 detail 参数，`saveEdit` 继续保存节点 result，只不再把它附加到通知展示对象。事件目标计算、任务链接和数量规则保留。复用现有聊天消息渲染与任务详情即可落实，无需新增数据模型、服务或依赖。
+- **独立实际画面。** 使用自己的 Chromium 会话 `feat584-review-r5` 打开作者静态服务，在 1440×960、390×844 看过 `output/playwright/feat-584-review/r5-chat-desktop.png` / `r5-chat-phone.png`：六条预置事件均为时间和变更正文，无“任务动态”逐条标签、摘要或展开；长标题与 @ 在手机可读，现有群头、气泡、输入区保持。
+- **回链和完整结果。** 手机点击 n4“确认用户引导”消息链接，进入正确详情；实际查看 `r5-result-detail.png`，两段原始结果完整保留，空描述提示和编辑入口可用。
+- **新生成通知。** 在同一手机会话编辑 n4 待确认→已完成，回 Chat；`r5-generated-phone.png` 显示一条新通知“小王将…设为已完成。@Agent B @Agent A”，自动出现在时间线底部，未附任务结果。补充 DOM 核验为 7 条事件（原 6 + 新 1），事件区标签检查 false、额外结果/展开控件 0、documentWidth=390。截图独立实际查看，未以 DOM 代替视觉检查。
+
+`retained_from: Round 4`：Q36/Q37 的任务头/密度、当前 React 聊天基线、其余三宽度证据、消息回链与删除后提示，以及 R4 中引用的架构、权限、delta、迁移和 M1 结论。**R4 的消息摘要/展开证据仅保留为历史，不继续作为 must-match；当前以 Q39 和本轮为准。** 理由：本轮未改变这些未受影响路径，手机回链亦有本轮复核，不需要重复无关全量检查。
+
+自己的浏览器已关闭；作者 `127.0.0.1:49268` 静态服务保留，未触及其他服务。
+
+### 历史问题闭环
+
+R1-W1–W4、R2-W1/W2 均保持 **closed**；R3/R4 无待关闭问题。Q39 是用户对已通过设计的新增修订，不回写或抹除旧轮结论与 Author Resolutions。
+
+### Issues
+
+无未关闭 CRITICAL/WARNING。
+
+### Recommendations
+
+无。
+
+
+### Author Resolutions（Round 5 后）
+
+接受 R5 Approved，无实质异议。Q39 的通知展示删除不影响 result 存储、详情、通知对象和投递规则。新用户反馈要求重做任务总览与状态分组，另由 Q40/R6 承接；不把 R5 消息局部通过扩大为新任务页已审查。
+
+## Round 6
+
+### Metadata
+
+- reviewer: `/root/feat584_design_review`（与 R1–R5 同一独立 reviewer）
+- target: R5 后冻结的 Q40 任务页信息架构、spec 根总览场景、task-graphs delta、design 根查询/视图/P1/P3/R1、prototype 与当前视觉证据。
+- review_mode: `full`
+- mode_reason: 不止视觉局部调整；新增根总览需求、扩展根查询摘要并修改 M1/R1 验收要求，需重新确认需求/接口/契约/原型/验收覆盖。未变架构与历史闭环保留既有证据，full 不等于重复所有后端或无关操作。
+- started_at: `2026-10-12T22:43:05+08:00`
+- completed_at: `2026-10-12T22:48:09+08:00`
+- duration: 5 分 4 秒（独立审查与浏览器取证时段）。
+- checkout: `main` / `54dd5dc21`，含已完成的未提交 R5；本轮确认产品 `apps/`、`packages/`、`src/` 无 tracked diff。只追加本报告，不改冻结产物、不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+Q40 的根任务总览、状态列边界、多层深入与显式跨层负责人视图形成一致的操作模型。原型关键路径经独立实际验证，没有未关闭的实质问题。结论仍为 Gate 2 设计通过，不表示真实 Web/iOS、后端权限/分页/通知或生产验收通过。
+
+### Coverage 与证据
+
+#### 现状、需求、接口与架构
+
+- **现状落点。** 重新读取实际 `src/IM/frontend/src/features/tasks/task-graphs-page.tsx`：`TaskGraphListPanel` 使用 `useTaskGraphList`，`TaskGraphsPage` 使用 graphId、scope/node 查询参数与 `TaskGraphCanvas`，现状是左侧根名单、中心画布和详情。读取 `apps/im-server/src/task-graphs.ts:303` 的根 summary 与 `:619` 起的 list，确认现有根摘要、document_json 和游标列表可被扩展；当前代码尚无目标身份/直属计数字段，不把设计当现状。
+- **需求收口。** spec 正文新增“比较根任务并进入下一层”，Q40 说明默认全局根总览、列框、去侧栏、覆盖详情和独立子层入口；对应 task-graphs delta 增补同一完整场景，原有逐层/探索嵌套、六状态、父子独立与权限场景保留。Q35 的无外框处理明确被 Q40 覆盖，Q39 的简洁系统消息没有回退。
+- **三种范围明确。** 根总览只包含可访问图根，列按自身状态；进入具体任务只显示直属 children，面包屑返回总览/祖先；“按负责人”明确为所有层级，匹配父子可同时出现，并带所属群/父路径。没有将直属记录数量当工作量百分比，也没有由子任务计数自动更新父状态。
+- **查询闭合。** 根列表补 conversation、creator、assignee、自身 status 和直属六状态计数，继续从图文档派生，足以支持卡片；深层匹配返回 graph_id/scope_id/node_id 和 parent_path，复用现有定位语义。design 明确总览/负责人继续游标分页，计数标示已加载范围，未加载完不能显示为全部任务或空列；41 节点原型只是全量样例，不是分页实现验证。
+- **职责与复用。** IM 继续作为唯一事实源，根摘要/直属计数应归属现有任务读取服务；客户端负责分列和覆盖详情，虚拟总览范围不成为新图或权限域。用既有 root 列表、children 与深链即可兑现 Q40，无需第二份进度、跨根依赖图、新查询服务或 PA/DSH 执行机制。创建根任务继续必选有写入资格的所属会话，未把全局总览作为共享权限域。
+- **验收映射。** P1 包含根总览/各层、带框五组、详情不挤压、祖先返回；P3 明确跨层负责人入口；M1/R1 新增根比较、返回和关闭详情恢复位置，W3 仍要求三宽度与 Web/iOS 真页面对照。M1 单一交付范围和 Runbook/外部资源前置未变，未引入未落实的新验收资源。
+
+#### UX 判断
+
+Q40 的分析回应多层任务场景，而非仅修改颜色或复制单层看板：总览提供比较目标的入口，层内看板保持同层任务可比较，跨层负责人入口避免筛选悄悄改变范围。卡片主体用于读/改任务，底部独立入口用于钻入下一层，两种动作在根与子层一致。移除重复根名单后五列获得宽度，覆盖详情让短暂阅读不重排列；有框容器、列头和数量清楚标示每一组，暂缓仍有独立状态标签。原型不以拖拽、自动父状态、跨根结构图等新机制代替需求。
+
+继承现有全局导航、teal token、任务内容与手机 sheet；左侧目录/默认入口/桌面详情方式的改变由 Q40 明确授权，不能要求机械保持旧布局。原型外层保持“示例数据、无后端”标识，搜索/结构连线演示与真实产品边界明确。
+
+#### 独立浏览器走查
+
+使用自己的 Chromium 会话 `feat584-review-r6`，复用作者 `127.0.0.1:49268/prototype.html`。以下图片均独立实际查看，临时证据位于 `output/playwright/feat-584-review/`；DOM 读数仅补充视觉和操作证据。
+
+| 范围 | 本轮操作与结果 |
+|---|---|
+| 根总览 | `r6-overview.png`：1440×960 默认 7 根，五列计数 2/2/1/1/1，暂缓 n40 在待办但明确标记；n1 的 3/15 与自身进行中分开。总览不出现跨根结构图。 |
+| 逐层/祖先/结构 | 从 n1 独立“查看15项子任务”进入，见 `r6-layer.png`；再进 n13，见 `r6-grandchild.png`，仅有 n20/n21/n22，数量3。切结构图仍是同三个节点；切回完成情况，经祖先回 n1、总览均正确。 |
+| 列密度与详情 | 1024×760 的 n1 待办列滚至末尾，打开 n19 详情后按 Escape 关闭；`r6-drawer-medium.png` / `r6-medium-restored.png` 证明覆盖详情不重排列。开/关时列宽均186.796875，scrollTop均201，documentWidth=1024，标题/操作无挤压。 |
+| 跨层负责人 | 选择 Agent B，`r6-assignee.png` 明确“16项任务·所有层级”，父/子直接匹配均存在，路径可辨；点 n23 后 `r6-deep-link.png` 定位其父 n10“验证邮件链接方案”，不是混在根层。详情选中 n23，父层只有1直属任务。 |
+| 手机层级 | `r6-deep-phone.png`、`r6-overview-phone.png`：390×844 五组纵向带框，详情为 sheet；多级路径在自身横向容器中可滚动，返回总览可达，整页无横向溢出。 |
+| 新建根任务 | 手机总览新建表单可见所属群选择（单一示例群），填写标题、负责人小王保存；`r6-root-created.png` 显示8根、n42详情、创建者/负责人/所属群，原图未被当成其父任务。 |
+| 总览只读状态 | 切公开访客后仍可见8根，但新建 disabled；从示例群“加入群聊”后新建 enabled。只证明本原型入口与既定资格一致，不替代真实 ACL 或多群候选测试。 |
+| Q39消息回链 | 新建时分配小王产生简洁事件；点击已有 n4 消息，`r6-chat-backlink-phone.png` 正确回 n1 的15直属层，并打开 n4完整结果。没有重新附加摘要/展开，R5消息呈现保持。 |
+
+已关闭自己的浏览器，保留作者静态服务；未操作其他服务。没有为本次设计审查运行不相关产品测试。
+
+#### 保留的覆盖
+
+`retained_from: Round 1/2/3`：会话权限、真实 actor、创建者/负责人规则、领取/返工、冲突、整子树删除、事务通知/relay、PA/DSH、`/stop`、迁移与相关六份 delta；`retained_from: Round 5`：Q39当前消息语义；`retained_from: Round 4`：React Chat grounding 与未变聊天布局。理由：本轮生产代码、对应职责/状态/通知对象没有修改，Q40不另造后端机制。R4 的旧任务布局证据仅属历史，当前任务布局以本轮为准。
+
+### 历史问题闭环
+
+R1-W1–W4、R2-W1/W2 保持 **closed**。当前层详情仍直接可达，覆盖式详情没有重开 R2-W1；领取赋值逻辑没有相关变化。R5 Approved 仅原消息范围，新任务页由本轮独立覆盖。历史 findings、resolutions 与当时结论全部保留。
+
+### Issues
+
+无未关闭 CRITICAL/WARNING。
+
+### Recommendations
+
+无。按更新后的 P1/P3/M1 真客户端标准实施，不新增视觉偏好或额外门禁。
+
+### Author Resolutions（Round 6）
+
+接受 R6 Approved，无实质异议。Q40 根总览、直属层、跨层负责人入口、带框状态列与覆盖详情已完成设计和原型闭环；Q39 简洁通知保留。此结论仅为 Gate 2 设计通过，真实 Web/iOS 与后端行为按 M1 验收。
