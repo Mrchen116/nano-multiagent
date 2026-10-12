@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import WebSocket from 'ws';
-import { WebRelayConnection, type ProtocolFrame } from '@nano/channels';
+import { WebRelayConnection, type ProtocolFrame, type RelayDiagnostic } from '@nano/channels';
 import { createServer } from '../src/server.js';
 import { digest } from '../src/identity.js';
 import { Frames } from './e2e/helpers.js';
@@ -44,17 +44,27 @@ async function fixture() {
   }
   function relay() {
     const received: ProtocolFrame[] = [];
+    const diagnostics: RelayDiagnostic[] = [];
     const connection = new WebRelayConnection({ url,
       credentials: () => ({ accessToken: 'runtime-secret', registration: { node_id: 'node', agents: ['assistant'] } }),
       heartbeatIntervalMs: 30000, ackTimeoutMs: 2000, reconnectInitialMs: 500, reconnectMaxMs: 500,
       onFrame: frame => { received.push(frame); },
+      onDiagnostic: event => { diagnostics.push(event); },
     });
     cleanups.push(() => connection.stop());
-    return { connection, received };
+    return { connection, received, diagnostics };
   }
   return { app, db, http, browser, relay };
 }
 const status = (value: string) => (frame: any) => frame.event_type === 'node.status_changed' && frame.data.status === value;
+
+test('closing the server sends the shutdown reason before the WebSocket plugin closes clients', async () => {
+  const f = await fixture(), { connection, diagnostics } = f.relay();
+  await connection.start();
+  await f.app.close();
+  await expect.poll(() => diagnostics.some(event => event.close_code === 1001 && event.close_reason === 'server_shutdown')).toBe(true);
+  expect(connection.state).not.toBe('revoked');
+});
 
 test('real IM heartbeat guard persists offline, notifies the owner and lets the Relay re-register for new traffic', async () => {
   const f = await fixture();

@@ -79,6 +79,10 @@ export async function createServer(options: ServerOptions = {}) {
   ctx.messaging = new Messaging(ctx);
   ctx.gateway = new Gateway(ctx);
   app.decorate("im", ctx);
+  // Preserve the shutdown reason before the WebSocket plugin closes its clients.
+  app.addHook("preClose", async () => {
+    ctx.gateway.shutdown();
+  });
   const allowed = [
     parsed.origin,
     ...(process.env.IM_BROWSER_ORIGINS ?? "")
@@ -328,9 +332,6 @@ export async function createServer(options: ServerOptions = {}) {
     for (const b of ctx.gateway.browsers) if (!ctx.gateway.browserValid(b)) b.socket.close(1008);
   }, 5000);
   guard.unref();
-  app.addHook("preClose", async () => {
-    ctx.gateway.shutdown();
-  });
   app.addHook("onClose", async () => {
     clearInterval(guard);
     clearInterval(watchdog);
