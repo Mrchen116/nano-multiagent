@@ -11,6 +11,29 @@ export interface RegistrationAck extends Record<string, unknown> {
   node_epoch?: number;
 }
 export type RelayState = 'stopped' | 'connecting' | 'registering' | 'ready' | 'reconnecting' | 'revoked';
+/** Safe connection lifecycle facts; payloads, credentials and URLs are never included. */
+export interface RelayDiagnostic {
+  timestamp: string;
+  node_id?: string;
+  connection: number;
+  event: 'connecting' | 'registering' | 'ready' | 'transport_error' | 'disconnected' | 'retry_scheduled' | 'stopped';
+  phase: 'connect' | 'register' | 'heartbeat' | 'receive' | 'send' | 'stop';
+  attempt: number;
+  reason?: string;
+  error_type?: string;
+  close_code?: number;
+  close_reason?: string;
+  http_status?: number;
+  delay_ms?: number;
+  outage_ms?: number;
+  revoked?: boolean;
+}
+type DiagnosticDetails = Partial<Pick<RelayDiagnostic, 'reason' | 'error_type' | 'close_code' | 'close_reason' | 'http_status' | 'delay_ms' | 'outage_ms' | 'revoked' | 'attempt'>>;
+const safeCloseReasons = new Set(['heartbeat_timeout', 'authority_revoked', 'server_shutdown', 'connection replaced', 'revoked']);
+const safeTransportCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN']);
+function errorType(error: unknown): string {
+  return error instanceof TypeError ? 'TypeError' : error instanceof RangeError ? 'RangeError' : 'Error';
+}
 /** Supplies fresh runtime credentials and node registration on every connection attempt. */
 export interface RelayCredentials {
   accessToken: string;
@@ -23,6 +46,7 @@ export interface WebRelayOptions {
   onFrame: (frame: ProtocolFrame) => void | Promise<void>;
   onState?: (state: RelayState) => void | Promise<void>;
   onError?: (error: Error) => void;
+  onDiagnostic?: (event: RelayDiagnostic) => void;
   heartbeatPayload?: () => Record<string, unknown>;
   heartbeatIntervalMs?: number;
   ackTimeoutMs?: number;
@@ -61,6 +85,7 @@ export class WebRelayConnection {
   private connectTimer?: ReturnType<typeof setTimeout>;
   private generation = 0;
   private attempt = 0;
+  private outageStartedAt?: number;
   private running = false;
   private startPromise?: Promise<RegistrationAck>;
   private resolveStart?: (ack: RegistrationAck) => void;
@@ -79,6 +104,7 @@ export class WebRelayConnection {
     if (this.running) return this.startPromise!;
     this.running = true;
     this.attempt = 0;
+    this.outageStartedAt = undefined;
     this.startPromise = new Promise((resolve, reject) => { this.resolveStart = resolve; this.rejectStart = reject; });
     void this.connect();
     return this.startPromise;
@@ -104,6 +130,7 @@ export class WebRelayConnection {
 
   /** Cancels timers, rejects outstanding work, and closes the owned socket without replay. */
   async stop(): Promise<void> {
+    if (this.state !== 'stopped') this.diagnose('stopped', 'stop');
     this.running = false;
     this.generation++;
     this.clearTimers();
@@ -121,7 +148,8 @@ export class WebRelayConnection {
   private async connect(): Promise<void> {
     const generation = ++this.generation;
     this.setState('connecting');
-    this.connectTimer = setTimeout(() => this.disconnect(generation, false, 'Connection deadline exceeded'), this.options.ackTimeoutMs ?? 10000);
+    this.diagnose('connecting', 'connect');
+    this.connectTimer = setTimeout(() => this.disconnect(generation, false, 'Connection deadline exceeded', { error_type: 'TimeoutError' }), this.options.ackTimeoutMs ?? 10000);
     try {
       const credentials = await this.options.credentials();
       if (!this.running || generation !== this.generation) return;
@@ -131,12 +159,22 @@ export class WebRelayConnection {
       url.pathname = '/im/ws/gateway'; url.search = ''; url.hash = '';
       const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${credentials.accessToken}`, 'User-Agent': 'nano-multiagent-gateway' } });
       this.socket = socket;
-      socket.on('error', () => { if (generation === this.generation) this.report(new Error('IM WebSocket transport error')); });
+      socket.on('error', (error: Error & { code?: string }) => {
+        if (generation !== this.generation) return;
+        this.diagnose('transport_error', this.phase(), { error_type: 'WebSocketError',
+          reason: error.code && safeTransportCodes.has(error.code) ? error.code : 'transport_error' });
+        this.report(new Error('IM WebSocket transport error'));
+      });
       socket.on('unexpected-response', (_request, response) => {
         response.resume();
-        this.disconnect(generation, response.statusCode === 401 || response.statusCode === 403, 'IM WebSocket handshake rejected');
+        this.disconnect(generation, response.statusCode === 401 || response.statusCode === 403, 'IM WebSocket handshake rejected', { error_type: 'HTTPError', http_status: response.statusCode });
       });
-      socket.on('close', code => this.disconnect(generation, code === 1008 || code === 4003, 'IM WebSocket disconnected'));
+      socket.on('close', (code, reason) => {
+        const text = reason.toString();
+        this.disconnect(generation, code === 1008 || code === 4003, 'IM WebSocket disconnected', {
+          close_code: code, close_reason: !text || safeCloseReasons.has(text) ? text : '[redacted]',
+        });
+      });
       socket.on('message', data => {
         if (generation !== this.generation) return;
         try {
@@ -148,10 +186,13 @@ export class WebRelayConnection {
       socket.once('open', () => {
         if (generation !== this.generation) return;
         this.setState('registering');
+        this.diagnose('registering', 'register');
         void this.enqueue({ type: 'node.register', payload: credentials.registration }).then(frame => {
           if (generation !== this.generation) return;
           clearTimeout(this.connectTimer); this.connectTimer = undefined;
           this.currentRegistration = frame.payload;
+          this.diagnose('ready', 'register', this.outageStartedAt === undefined ? {} : { outage_ms: Date.now() - this.outageStartedAt });
+          this.outageStartedAt = undefined;
           this.attempt = 0;
           this.setState('ready');
           this.resolveStart?.(frame.payload);
@@ -159,7 +200,7 @@ export class WebRelayConnection {
           this.scheduleHeartbeat(generation);
         }).catch(() => this.disconnect(generation, false, 'Node registration rejected'));
       });
-    } catch { this.disconnect(generation, false, 'Unable to establish IM connection'); }
+    } catch (error) { this.disconnect(generation, false, 'Unable to establish IM connection', { error_type: errorType(error) }); }
   }
 
   private enqueue(frame: ProtocolFrame): Promise<ProtocolFrame> {
@@ -171,7 +212,7 @@ export class WebRelayConnection {
     if (!pending) return;
     this.active = pending;
     const generation = this.generation;
-    pending.timer = setTimeout(() => this.disconnect(generation, false, 'IM response deadline exceeded'), this.options.ackTimeoutMs ?? 10000);
+    pending.timer = setTimeout(() => this.disconnect(generation, false, 'IM response deadline exceeded', { error_type: 'TimeoutError' }), this.options.ackTimeoutMs ?? 10000);
     try {
       this.socket.send(JSON.stringify(pending.frame), error => {
         if (error) this.disconnect(generation, false, 'IM frame send failed');
@@ -224,8 +265,10 @@ export class WebRelayConnection {
       }).catch(() => this.disconnect(generation, false, 'Heartbeat failed'));
     }, this.options.heartbeatIntervalMs ?? 30000);
   }
-  private disconnect(generation: number, revoked: boolean, message: string): void {
+  private disconnect(generation: number, revoked: boolean, message: string, details: DiagnosticDetails = {}): void {
     if (generation !== this.generation) return;
+    this.outageStartedAt ??= Date.now();
+    this.diagnose('disconnected', this.phase(), { reason: message, error_type: 'Error', revoked, ...details });
     this.generation++;
     this.clearTimers();
     const socket = this.socket; this.socket = undefined;
@@ -243,7 +286,21 @@ export class WebRelayConnection {
     }
     this.setState('reconnecting');
     const delay = Math.min((this.options.reconnectInitialMs ?? 1000) * 2 ** Math.min(this.attempt++, 20), this.options.reconnectMaxMs ?? 30000);
+    this.diagnose('retry_scheduled', 'connect', { attempt: this.attempt, delay_ms: delay });
     this.reconnectTimer = setTimeout(() => { void this.connect(); }, delay);
+  }
+  private phase(): RelayDiagnostic['phase'] {
+    if (this.currentState === 'connecting') return 'connect';
+    if (this.currentState === 'registering') return 'register';
+    if (this.active?.frame.type === 'node.heartbeat') return 'heartbeat';
+    return this.active ? 'send' : 'receive';
+  }
+  private diagnose(event: RelayDiagnostic['event'], phase: RelayDiagnostic['phase'], details: DiagnosticDetails = {}): void {
+    try {
+      this.options.onDiagnostic?.({ timestamp: new Date().toISOString(),
+        node_id: typeof this.registrationPayload.node_id === 'string' ? this.registrationPayload.node_id : undefined,
+        connection: this.generation, event, phase, attempt: this.attempt + 1, ...details });
+    } catch { /* A diagnostic sink cannot change connection lifecycle behavior. */ }
   }
   private failRequests(message: string): void {
     if (this.active) {

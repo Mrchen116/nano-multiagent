@@ -319,8 +319,12 @@ export async function createServer(options: ServerOptions = {}) {
   watchdog.unref();
   const guard = setInterval(() => {
     ctx.gateway.trajectory.check();
-    for (const c of ctx.gateway.nodes.values())
-      if (Date.now() - c.lastSeen > 90000) ctx.gateway.revokeNode(c.node_id);
+    for (const c of ctx.gateway.nodes.values()) {
+      if (Date.now() - c.lastSeen > 90000) {
+        ctx.gateway.disconnect(c, "heartbeat_timeout");
+        c.socket.close(1012, "heartbeat_timeout");
+      }
+    }
     for (const b of ctx.gateway.browsers) if (!ctx.gateway.browserValid(b)) b.socket.close(1008);
   }, 5000);
   guard.unref();

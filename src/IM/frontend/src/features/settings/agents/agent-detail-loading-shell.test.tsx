@@ -225,3 +225,20 @@ describe("agent detail asynchronous shell", () => {
     expect(screen.getByTestId("agent-detail-loading")).toBeInTheDocument();
   });
 });
+
+
+it("keeps unsaved configuration while live status changes offline and online", async () => {
+  const state = makeDetailState("agent-two", "Agent Two");
+  mocks.getAgentDetailState.mockResolvedValue(state);
+  const { queryClient, container } = renderPage();
+  const input = await screen.findByDisplayValue("Agent Two");
+  fireEvent.change(input, { target: { value: "Unsaved name" } });
+  const { applyAgentStatusEvent } = await vi.importActual<typeof import("./agent-status-ws-consumer")>("./agent-status-ws-consumer");
+  for (const status of ["offline", "online"]) {
+    act(() => applyAgentStatusEvent(queryClient, {
+      eventType: "agent.status_changed", payload: { agent_id: "agent-two", status },
+    }));
+    await waitFor(() => expect(container.querySelector(".im-agent-panel-node")?.classList.contains("online")).toBe(status === "online"));
+    expect(input).toHaveValue("Unsaved name");
+  }
+});
