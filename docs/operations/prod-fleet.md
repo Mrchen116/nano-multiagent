@@ -1,6 +1,6 @@
 # 生产舰队（IM@mini + 双 Gateway）
 
-> 版本切换说明：本页现有 Python launcher/运行记录是 DSH 切换前的生产拓扑快照。refactor-581 的合并不代表已部署；首次切换必须先完成 [DSH 资产迁移](dsh-migration.md)，再按部署 skill 更新为 Node launcher。保留 Mini 唯一 IM、双节点 owner 和公网域名等拓扑约束。
+> 2026-10-12 已将 IM 与双节点切换到 Node + DSH。首次从 Python 升级仍须执行 [DSH 资产迁移](dsh-migration.md)；后续常规部署不重复迁移，不重建节点身份。
 
 本文描述个人生产拓扑：Mac mini 跑唯一 IM，MacBook Air 与 Mac mini 各跑一个常驻 Gateway，均连同一 IM。Agent 执行部署/重启时的逐步命令与局部动作表见 [`.claude/skills/prod-fleet-deploy/SKILL.md`](../../.claude/skills/prod-fleet-deploy/SKILL.md)。单机开发的一次性主链路见 [`local-stack.md`](local-stack.md)；worktree 隔离见 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
 
@@ -37,7 +37,7 @@
 │   ▲ HTTP / WS → 127.0.0.1:8011                             │
 │   │                                                        │
 │ Gateway · node_id=mac-mini ── HTTP ──▶ LLM_Bridge :4000    │
-│   │                                  127.0.0.1:4000        │
+│   │                                100.88.34.122:4000      │
 │   └── Search → 127.0.0.1:8888 ──▶ SearXNG :8888            │
 │                                      ▲                     │
 └──────────────────────────────────────┼─────────────────────┘
@@ -57,10 +57,14 @@
 
 | 机器 | `node_id` | `im_service.url` | LLM 代理 |
 |---|---|---|---|
-| Mac mini | `mac-mini` | `http://127.0.0.1:8011` | `~/Repos/LLM_Bridge` → `:4000` |
+| Mac mini | `mac-mini` | `http://127.0.0.1:8011` | `~/Repos/LLM_Bridge` → `http://100.88.34.122:4000` |
 | MacBook Air | `macbook-air` | `https://im.nanoim.win` | `~/Repos/LLM_PROXY` → `:4000` |
 
 各机使用各自的 `~/.nanoassistant/config.yaml`，保留独立设备密钥与已绑定的节点运行凭据。普通发布不重新 bind，也不恢复旧账号密码认证方式。`node.user_id` 对齐与飞书影子会话验收步骤见 skill 验证清单。
+
+两机 Gateway 均由 `node apps/node/lib/cli.js --foreground --config …` 的 LaunchAgent 管理，并各自启动官方 DSH 子进程。Mini 从主仓运行；MacBook Air 从部署时固定 SHA 的 `prod-main-*` worktree 运行（当前为 Codex 管理的 worktree）。以 plist、live cwd 和 `.gateway-state.json` 为实际路径依据，不硬编码另一台机器的 checkout。持久状态位于 `~/.nanoassistant/.dsh-runtime/<node_id>/`，workspace 仍在原位置。
+
+Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占位 `api_key: nano-local-proxy`，供原生 provider 完成配置。它不是身份凭据，也不能替代其他需要认证的上游密钥；不要为了获得 loopback 默认值改写已验证的代理地址。
 
 ## 源站与隧道
 
@@ -70,12 +74,14 @@
 |---|---|
 | 公网入口 / `IM_PUBLIC_URL` | `https://im.nanoim.win` |
 | IM LaunchAgent | `io.github.mrchen116.nano-multiagent.public-im` |
-| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → 主仓 `.venv/bin/python -m IM.cli.public_server` |
+| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → `/opt/homebrew/bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
 | 源站 / worker | `127.0.0.1:8011` / 1 |
 | 生产数据库 | Mini `~/Repos/nano-multiagent/data/im_service.sqlite3` |
 | 附件 | 数据库旁 `message-images/` 与 `data/uploads/`，保留原目录及元数据 |
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
+| Tunnel supervisor | 已安装的 `~/.nanoassistant/bin/prod-tunnel.py`，由原 LaunchAgent 使用主仓 `.venv/bin/python` 启动；本次 DSH 切换未替换脚本 |
+| Tunnel 路径 | QUIC / IPv6，经 Mini `en0`；部署前执行已安装脚本的 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复才采样 600 秒 |
 | ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 404 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |
@@ -103,7 +109,7 @@ mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`
 2. 经官网认证的 `GET /im/v1/nodes` 中两个生产节点均为 `online` 且心跳新鲜；真实浏览器实时连接正常。
 3. IM/Tunnel LaunchAgent 正常、源站只监听 Mini `127.0.0.1:8011`；MacBook Air 无 IM `:8011`。
 4. 两边 `node.user_id` 等于 `GET /im/v1/me` 的用户 id；gateway 日志无持续的 `configured node owner differs`。
-5. 两边 LaunchAgent 均已加载；plist、live process 与 `.gateway-state.json` 都指向本次部署的 checkout 和同一 PID/process birth。MacBook Air 旧 production worktree 只能在这些证据成立后清理。
+5. 两边 LaunchAgent 均已加载；plist、live process 与 `.gateway-state.json` 都指向本次部署的 checkout 和同一 PID/process birth，`ready=true` 且 `runtime_pid` 为存活的 DSH 子进程。MacBook Air 旧 production worktree 只能在这些证据成立后清理。
 
 ## 飞书
 
