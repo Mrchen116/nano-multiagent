@@ -19,13 +19,13 @@
 
 ## 用户旅程体验
 
-<!-- 主路径 + 边界路径，截图/录屏/对话粘贴。 -->
+<!-- 从用户目标走主路径和相关恢复路径。界面用代表性内容与适用设备，分别说明功能结果、视觉组织和交互体验，以实际画面和操作为依据；包含与已有产品的体验对照。检查受影响范围的整体质量，不只点完按钮；设计本身造成的问题同样列入问题清单。无界面时不填视觉评价。 -->
 
 ## Reference Artifacts Reviewed
 
 <!--
 仅当 spec/design/验收标准引用原型、设计稿、reference screenshot、视觉一致性时填写；否则写 N/A。
-必须覆盖 design.md `## 前端原型` 原型对齐契约中相关的 must-match 行。
+必须覆盖 design.md `## 前端原型` 原型对齐契约中相关的 must-match 行。match 只说明符合契约，不能替代上面的独立体验判断；没有 reference 也不免除受影响界面的体验验收。
 -->
 
 | Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
