@@ -66,3 +66,19 @@ Additional changes reviewed without surviving defects:
 Validation reused from the final frozen tree: all-package build/typecheck passed; backend 58 files / 162 tests passed; Python 54 passed / 31 deselected; frontend full suite 825 passed before the final small host/bookmark fixes, followed by the affected 17-test Work regression and final build. Exact locators/limits are in `M1-work-native-trajectory/evidence.md`. Full suites were not rerun without a changed risk. Independent narrow reruns and negative architecture checks are described above; final `git diff --check` passed.
 
 Final code-review conclusion: both focus findings closed, no CONFIRMED or PLAUSIBLE finding survives. Product-acceptance completeness is separately reconciled in `verification.md` using the independent acceptance report; this code conclusion does not substitute for that report.
+
+## Post-PR compact Work toolbar — bounded patch review
+
+- review_mode: **patch**; reviewed fixed range `c7d127bdc91c238522fc3edeb16d04bd719e4e47..d4a88e5af06285c0c54a712f4c2a404f26be347c` on 2026-10-12, independent reviewer `/root/feat583_static`.
+- Product scope: only `src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx` and `agent-work.css`. The third changed path is the milestone evidence record. The patch responds to the user's explicit feedback about repeated Work heading/description/badges and a separate switch row in the open PR delivery session.
+- Checked actual diff and surrounding callers: the two mode buttons keep their callbacks/selected semantics; native execution select keeps the same session value/options/change callback; the same conditional `AgentTrajectory` receives unchanged scope/bookmark/back props. Record content remains mounted behind `hidden`, preserving the existing position/selection mechanism. Record mode retains main execution status; offline indication/callout remain, and native read status continues to come from `AgentTrajectory`. Removing a duplicated online badge does not remove its connection/error state.
+- CSS changes are confined to the removed header selectors and compact toolbar/select styling. Narrow screens wrap the execution selector to its own row with `min-width:0` and a shrinking select; focus outlines remain explicit. No runtime, observer, authorization, native renderer or dependency changes were included.
+- Evidence reused after reading the actual logs: `output/feat-583-toolbar-tests.log`, Work regression 17/17 at 14:19:09 local; `output/feat-583-toolbar-build.log`, `tsc -b && vite build` passed. Independently inspected desktop and 390px record-mode screenshots and ran patch `git diff --check` successfully. Browser native-mode/narrow-screen acceptance is separately owned by the product reviewer; screenshots of record mode are not claimed to prove it.
+
+Patch findings:
+
+```json
+[]
+```
+
+Conclusion: no CONFIRMED or PLAUSIBLE finding in this bounded patch. Prior C1/W2 closure and the unaffected backend/native code-review evidence remain retained. No full re-review or additional implementation loop is required.

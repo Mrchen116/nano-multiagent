@@ -4,6 +4,8 @@
 
 **Latest status: Round 3 targeted evidence closure at documentation HEAD `dd8bb92f1d1b4999fe83b1d556f409d09e308062`, product source unchanged from `7e22a91d28fff92d07980845cfbabb9821cd1316`: passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION. W3/A3 closed; C1/W2 closure retained; corrected delta aligned.** Rounds 1 and 2 below retain their historical findings and evidence limits. Round 3 supersedes their open-item counts and final verdicts.
 
+**Post-PR patch status: targeted affected-scope verification at `d4a88e5af06285c0c54a712f4c2a404f26be347c` passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION; corrected delta aligned; requires_full_verification: false.** The compact toolbar verification and retained-evidence boundaries are appended below; independent product review owns the new layout's real desktop/narrow-screen acceptance.
+
 ## Summary
 
 | Dimension | Result |
@@ -169,3 +171,22 @@ Final verdict: **not passed — 0 CRITICAL, 1 WARNING, 0 SUGGESTION.** Code revi
 Input was performed by caller through native Chrome after the user unlocked the Mac; this verifier checked the actual before/after image results and the independent product review, and did not perform that input. The earlier IAB drag-coordinate refusal remains an honest tool limitation in the historical rounds. R3.4 requires native time-range focus and zoom, not drag as the sole input method, so the successful native click/Escape and wheel interactions close the capability evidence gap. No safety restriction was bypassed by this verifier.
 
 Final verdict: **passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION.** W3/A3 is closed, M1's required verification evidence is complete, prior C1/W2 closure and zero code-review findings are retained, and corrected delta remains **aligned**. Canonical-spec merge, archive and PR readiness transitions are subsequent caller-owned steps; this report does not assert their completion or production deployment. The isolated test service remains caller-owned and running for the user.
+
+## Round 4 — Post-PR compact Work toolbar verification
+
+- verification_mode: **targeted affected scope / corrected-delta retention**.
+- validated range: `c7d127bdc91c238522fc3edeb16d04bd719e4e47..d4a88e5af06285c0c54a712f4c2a404f26be347c`; only product changes are `agent-work-panel.tsx` and `agent-work.css`. Milestone evidence is the only additional changed path.
+- Trigger: user's explicit UI feedback in the current PR delivery session authorizes removal of repeated Work heading, description, experimental label and duplicated online badge, combining the modes, native execution selection and necessary status in a compact toolbar.
+- requires_full_verification: **false**. No shared data boundary, runtime, native rendering, connection lifecycle, authorization, API, persistence or dependency changed. Prior source review, backend/native test evidence and W3/A3 closure remain applicable to those unchanged paths.
+
+| Affected contract | Actual implementation / retained evidence | Result |
+|---|---|---|
+| R1 / current IM Work two viewing modes; design D1 and V1/E1 | Same `showRecords` / `showNative` callbacks, tab semantics and conditional native mounting. Removed duplicated heading card contains no navigation or business behavior. Work records remain mounted under the same `hidden={nativeMode}` container. | aligned |
+| R2 selected main/related execution and retained reading position | Native select preserves its existing value, options and session-change callback. `AgentTrajectory` retains the same `agentId`, selected session/empty-state condition, bookmark ref and back callback; selection/scroll functions are unchanged. | aligned |
+| R4 / current IM Work unavailable and interruption states | Record mode keeps main execution status and offline callout; compact toolbar retains explicit offline text. Native-mode connection/read-only/interruption/error text and retry remain in unchanged `AgentTrajectory`. The repeated online badge is presentation duplication, not the native read status authority. Existing Work regression explicitly checks offline saved-record wording and disabled permission actions. | aligned |
+| Design desktop/narrow-screen host controls | Toolbar wraps; <=700px execution selector receives a full row, select can shrink, tab buttons keep fixed labels and visible focus styles. Independently opened `compact-toolbar-desktop.jpg` and `compact-toolbar-mobile.jpg`: record-mode controls and main state are visible without the redundant card. Native-mode interaction and exact narrow-screen layout are owned by the independent product reviewer, not inferred from these two record-mode screenshots. | technical host contract retained; product review separate |
+| Corrected delta | Both IM and Gateway delta retain the same two modes, execution identity, native inspection, lifecycle and permissions. User-requested host presentation simplification introduces no new observable capability or omitted behavior. | **aligned** |
+
+Reused bounded evidence, after independently reading the logs: Work regression `pnpm --dir src/IM/frontend exec vitest run src/features/settings/agents/agent-work-panel.test.tsx`, 17 passed (`output/feat-583-toolbar-tests.log`, start 14:19:09 local); frontend `tsc -b && vite build` passed (`output/feat-583-toolbar-build.log`). Existing build chunk/import warnings are not new failures. Independent `git diff c7d127bdc..d4a88e5af --check` passed. No full test suite or unaffected backend review was repeated, and this verifier edited only the two requested reports.
+
+Affected-scope technical verdict: **passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION.** Code-review patch result is `[]`; corrected delta remains **aligned**. This retains prior valid gates within the unchanged implementation and leaves real desktop/narrow-screen product judgment to the separately dispatched reviewer; it does not assert merge or production deployment.
