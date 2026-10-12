@@ -1,5 +1,59 @@
 # Verification Report: feat-587-first-run-onboarding
 
+## Round 2 — targeted-closure / delta
+
+- `review_round: 2`
+- `executed_base: b70d4a7bd80b4424fea430e507390c5dde7c0a05` (`origin/main`, caller's fetch result retained)
+- `validated_at: 00dd42398d4b9ec9baf0e136d786299659cf8cd3`
+- `diff_range: 59650f196642afbbc63f1475c0b874a6b1dc6ea9..00dd42398d4b9ec9baf0e136d786299659cf8cd3`
+- Modes: targeted-closure, delta, retained corrected-delta reconciliation.
+- Verdict: **FAIL — 0 CRITICAL, 2 WARNING, 0 SUGGESTION**.
+- `requires_full_verification: false`: the two surviving deviations are bounded by this patch's Work recovery and onboarding offline repair. R1's unaffected implementation coverage remains applicable.
+
+### Closure and new delta
+
+| Item | Current result | Evidence / contract |
+|---|---|---|
+| R1 W1 suspended company journal blocks personal work | closed for the original trigger | `Work.append` now acknowledges revoked records without persisting or broadcasting their content. Existing mixed-scope regression covers private seq2 and prevents discarded seq1 replay after later eligibility changes. New recovery defect V2-W1 below remains. |
+| R1 W2 discovery fixed for lifetime | closed | `ModelSetup.handle` rediscovers for each status; absent-to-available fixture passes without node restart. S6/S8/S11 preserved. |
+| R1 W3 interrupted official Node extraction | closed | Installer extracts in a temporary directory, verifies Node/npm, then marks and promotes. Independent actual-shell failure/retry regression passes. S4/S5 preserved. |
+| Product R1 duplicate already-connected model test | closed at code/API seam | Proxy/API model IDs and existing native Codex provider disable duplicate connect operations while the verified model keeps Continue enabled; existing-model Web regression passes. Independent product R2 owns final UI acceptance. |
+| Product R1 offline assistant falsely ready | partial; WARNING V2-W2 | Initial offline mounting now selects computer recovery, but successful creation sets `viewStep=3`, overriding later offline query state in the same page. |
+| Existing profile links retain old release | closed | `prepareProfile` replaces only its two generated symlinks when targets differ; generated link migration regression independently passes. Caller records actual old-release duplicate `web_fetch` initialization failure and successful official DSH initialize after repair. This is an installation recovery implementation detail within existing design decision 5, as recorded in the design supplement. |
+
+### V2-W1 — Lost registration blocks work after an authorized device handoff
+
+- Contract: S2/S5/S8/S11; `specs/im/auth-tenancy.md` personal use remains available; `specs/im/agents-nodes.md` full-device handoff preserves Agent/runtime continuity; `specs/im/agent-work.md` authorized users receive continuing Work. Design decisions 2, 3 and 5 require fixed-space access and recoverable persistent state.
+- Location: `apps/im-server/src/work.ts:121–124`. A revoked `session_registered` is acknowledged with no server-side session, and future records require that missing session. `packages/personal-assistant/src/inbox.ts:149–156` retains event identity and advances the ACK; `GlobalAgent.main` emits the same stable registration ID, which InboxStore deduplicates.
+- Independent reproduction uses actual IM Work/database and the owner/space mutation performed by `Identity.deviceCommit:830–849`: company registration seq1 is discarded while its owner is suspended; private registration seq2 succeeds. A different active approved member receives that same node (both profiles' owner changes, personal space follows its recipient). Company turn_started seq3 and private turn_started seq4 then throw `scope_not_allowed`, leaving journal through_seq=2 and private seq4 absent. The fixture exercises the server recovery seam and exact ownership transformation, not browser/local transfer confirmation; the actual transfer code establishes reachability.
+- Action: make required registration recoverable when eligible work resumes after handoff without replaying content produced while revoked. Add a regression that advances beyond the discarded registration and proves later private work still succeeds. Merely replaying the original discarded batch, as the current test does, misses this failure.
+
+### V2-W2 — Completion view hides subsequent offline recovery
+
+- Contract: S5/S8/S11, `specs/im/agents-nodes.md` recoverable continuous setup, and the prototype's offline/recovery must-match row.
+- Location: `src/IM/frontend/src/features/onboarding/onboarding-page.tsx:62–63`, with `create.onSuccess:80`. Changing `suggestedStep` does not override explicit `viewStep=3` after creation.
+- Independent actual-component reproduction: render OnboardingPage with real React Query/router and API mocks; start online with a verified model; click Create successfully; leave that component mounted; replace onboarding response with an offline node and invalidate its query. Assert cached node status is offline, the ready heading remains, Start your first task remains enabled, and the reinstall/reconnect instruction is absent. All four failure assertions passed. The existing new offline test only mounts an already-offline state and passes, so it does not protect the transition.
+- Action: give actual offline status precedence over the completed-step selection and protect this same-component transition through a behavioral test. Keep the existing initial-offline and connected-model tests.
+
+### Independent verification evidence
+
+| Command / exercise at frozen snapshot | Result |
+|---|---|
+| `pnpm exec vitest run apps/im-server/tests/tenancy.test.ts apps/node/tests/model-setup.test.ts apps/node/tests/installer.test.ts --maxWorkers=1 --no-file-parallelism` | 3 files, 12 passed, 7.25s |
+| `pnpm exec vitest run packages/dsh-integration/tests/runtime-profile.test.ts -t repoints --maxWorkers=1 --no-file-parallelism` | 1 passed, 2 unrelated real-runtime tests skipped, 183ms |
+| frontend `pnpm exec vitest run src/features/onboarding/onboarding-page.test.tsx --maxWorkers=1 --no-file-parallelism` | 5 passed, 1.15s |
+| Temporary actual OnboardingPage offline-transition fixture | 1 passed, 5 skipped, 1.12s; assertions establish V2-W2's failure state |
+| Temporary actual IM Work handoff-resume fixture | 1 passed, 5 skipped, 862ms; assertions establish V2-W1's rejected append and blocked private event |
+| `git diff --check 59650f196..00dd42398` | passed |
+
+Both temporary fixtures were removed. No production services, credentials, implementation or existing tests were changed by this verifier. The shared checkout began with only untracked `output/`; caller-owned edits appearing during report writing are excluded from this frozen review and will not be staged.
+
+Reused versioned M1 progress evidence for the broad backend 178-test baseline, recovery and Work/trajectory tests, native setup/cold restart, Web fixture repair/build/audit, Python/architecture/Ruff, root build/typecheck and iOS test/archive. No broad suite competed with caller's browser/video work. Product R2, complete journey recording, CI, current-spec merge and archive remain their owners' gates; pending artifacts are not missing implementation findings. The unrelated upstream 502/empty-stream reply observed in M1 has separately recorded later successful real replies and is not reclassified as an offline setup regression.
+
+## Round 1 — retained historical report
+
+The following was the full-verification conclusion at `59650f196`; current closure and verdict are above. Its corrected-delta table is maintained once, in the current reconciliation below.
+
 > Validation snapshot: `b70d4a7bd80b → 59650f196642afbbc63f1475c0b874a6b1dc6ea9`
 > Modes: full, including corrected-delta reconciliation. Independent reviewer; no implementation, test, configuration or design edits.
 
@@ -102,24 +156,22 @@ The six must-match rows all project into M1 and have corresponding real implemen
 
 ## Corrected Delta Reconciliation
 
-| Delta item | Implementation / test evidence | Outcome |
+Current snapshot: `00dd42398d4b9ec9baf0e136d786299659cf8cd3`. All seven corrected delta files are unchanged from R1 (`git diff` over the unit's `specs/` directory is empty for this patch). Their text remains aligned with the approved product/design intent; R1 coverage is retained for unaffected items. Design's final supplement records recovery implementation details and does not change interface or product scope.
+
+| Delta file | Current implementation / regression conclusion | Outcome |
 |---|---|---|
-| `specs/im/auth-tenancy.md`: immediate personal registration, fixed spaces, explicit join, revocation | identity/db/messaging/Gateway checks; tenancy and migration tests | implementation-mismatch W1: personal use blocked by mixed shared Work |
-| `specs/im/auth-tenancy.md`: native iOS optional personal eligibility | CommonModels.accountEnabled, app/ChatStore/MeView gates, SessionTests | aligned; caller owns Xcode result |
-| `specs/im/agents-nodes.md`: continuous setup/model failure recovery | installer/onboarding/ModelSetup; bootstrap/model/onboarding/Web tests | implementation-mismatch W2 |
-| `specs/im/agents-nodes.md`: full-device handoff, private Work follows, old chats/tasks stay | Identity.deviceCommit, transfer recipient check, identity transfer tests, task receipt isolation | aligned; no implicit private-history migration |
-| `specs/im/agent-work.md`: fixed-space Work/trajectory read and subscription | Work routes and broadcasts, TrajectoryObservers.valid; tenancy live/replay/trajectory regression | implementation-mismatch W1 for shared journal progression |
-| `specs/im/task-graphs.md`: personal/company actor scope, receipts, source projection | TaskGraphService eligibility/list/get/save/receipt; tenancy task and transfer receipt tests | aligned |
-| `specs/gateway/service-lifecycle.md`: empty bootstrap, repeat/failure preservation | bootstrap/cli/installer/main, bootstrap/device-binding tests, real empty node in M1 evidence | implementation-mismatch W3 |
-| `specs/gateway/agent-capabilities.md`: native/API validation and persisted local secrets | ModelSetup/NativeModelSetup, real native integration HTTP and restart test | aligned except shared setup discovery recovery W2 |
-| `specs/gateway/task-graphs.md`: fixed-space effective Agent capability | TaskGraphService agent feature/allowlist/online checks plus scope, Gateway command identity | aligned |
+| `specs/im/auth-tenancy.md` | Immediate private registration, explicit company join, fixed-space authorization and optional native personal eligibility retain R1 evidence. Original suspension blockage is repaired, but handoff-resumed shared Work can again block personal work. | implementation-mismatch V2-W1 |
+| `specs/im/agents-nodes.md` | Status rediscovers repaired local models; existing connections continue without duplicate test; full-device owner/space handoff implementation is retained. Same-page offline completion and Work resumption after handoff remain defective. | implementation-mismatch V2-W1/V2-W2 |
+| `specs/im/agent-work.md` | Existing read/subscription/trajectory authorization is retained. Revoked content is neither stored nor broadcast, but missing registration prevents authorized continuing records after handoff. | implementation-mismatch V2-W1 |
+| `specs/im/task-graphs.md` | R1 personal/company actor, receipt, source and transfer isolation evidence remains applicable; no patch changes. | aligned |
+| `specs/gateway/service-lifecycle.md` | Transactional official Node runtime preparation and generated-profile symlink migration close installer failures. Original bootstrap/configuration/identity persistence evidence retained. | aligned |
+| `specs/gateway/agent-capabilities.md` | Local credentials, real model validation, native/API flows and persisted nonsecret configuration retained; discovery repair now passes. | aligned |
+| `specs/gateway/task-graphs.md` | Fixed-space effective capabilities and Gateway identity checks retain R1 evidence; no patch changes. | aligned |
 
 ### Uncovered Observable Behavior
 
-- The shell no longer displays the `internal` badge (`src/IM/frontend/src/app/shell/nano-brand.tsx`). This is a branding adjustment consistent with the public-first-use goal, not a separate stable behavioral contract requiring a new delta.
-- Model discovery now prefers proxy profiles supporting OpenAI Chat, falling back to Anthropic-compatible models. Design's implementation supplement records this, and protocol-filtering tests cover it; the broader model delta already covers compatible local proxy discovery.
-- Device prepare now waits three seconds and observes 429 Retry-After. Existing device-binding recovery tests cover this, and the implementation supplement records it; this refines the existing retry contract.
-- The small native iOS eligibility change is expressly represented in the corrected auth-tenancy delta. There is no native onboarding implementation or claim.
-- No additional material externally observable behavior was found omitted from the seven deltas. Current specs remain unchanged while the active unit is unfinished.
+- R1's branding badge removal, compatible proxy protocol preference, device retry timing and native iOS optional eligibility remain accounted for in the same design/delta boundaries; no new native onboarding is claimed.
+- This patch's discarded revoked-event ACK is an authorization/recovery implementation within existing fixed-space Work contracts. It must not permanently lose the registration needed by later authorized work; V2-W1 is an implementation error, not a reason to weaken the delta.
+- Runtime staging/completion and the two generated-link replacements implement existing repeat-install/recovery behavior. Connected-model reuse and offline routing implement existing continuous onboarding behavior. No new material public behavior omitted from the corrected deltas was found.
 
-Outcome: **implementation-mismatch**. Correct W1/W2/W3 and recheck the affected seams; retain the separate final product/video/CI gates.
+Outcome: **implementation-mismatch** (delta text retained; V2-W1/V2-W2 require implementation fixes). `requires_full_verification: false`; next round can target these two failures and their fix delta.
