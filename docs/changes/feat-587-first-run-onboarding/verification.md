@@ -1,5 +1,40 @@
 # Verification Report: feat-587-first-run-onboarding
 
+## Round 3 — targeted-closure / delta
+
+- `review_round: 3`
+- `executed_base: b70d4a7bd80b4424fea430e507390c5dde7c0a05`
+- `validated_at: 07f55e7140c0194dae3504ae03126e1e4dbee71a`
+- `diff_range: 00dd42398d4b9ec9baf0e136d786299659cf8cd3..07f55e7140c0194dae3504ae03126e1e4dbee71a`
+- Modes: targeted-closure, delta, retained corrected-delta reconciliation.
+- Verdict: **PASS — 0 CRITICAL, 0 WARNING, 0 SUGGESTION**.
+- `requires_full_verification: false`. R1 full coverage and R2 unaffected closure evidence remain applicable. This conclusion covers implementation alignment; independent product acceptance/recording/CI/archive remain separate gates.
+
+### Closure and coherence
+
+| Item | Result | Evidence / contract |
+|---|---|---|
+| V2-W1 lost Work registration after authorized handoff | closed | `Work.register(metadataOnly)` keeps scope and parent identity for a new revoked registration, retaining existing authorized metadata without accepting revoked title/content. The append path retains parent/child identity for session links, then acknowledges revoked events before event insertion/projection/broadcast. The exact R2 owner/space handoff sequence now accepts company seq3 and private seq4 and proves the revoked title is absent. S2/S5/S8/S11, fixed-space Work and whole-device handoff contracts are restored. |
+| V2-W2 completion view hides subsequent offline state | closed | `step` checks actual offline state before the selected step. The same mounted page test creates successfully, receives offline state, then shows computer recovery and no start-task button. Existing initial-offline and connected-model tests still pass. S5/S8/S11 and prototype recovery requirement restored. |
+| Private task guidance contradicts fixed space | aligned | System prompt and tool description now distinguish private owner plans from company-shared plans and state that join/target cannot publish or change space. IM and Gateway task graph deltas already require this. No routing, schema, permissions or approval flow changed; native ordinary deletion allow/deny behavior independently passes. Product reviewer owns the actual model-created private plan journey. |
+| R1 W1/W2/W3 | retained closed | Revised Work metadata recovery closes the remaining R2 failure. Discovery refresh and transactional official Node staging remain unchanged and retain R2 tests. Existing two generated profile-link repairs also remain unchanged and retain R2 migration/native-initialize evidence. |
+| Architecture and prototype | retained | Package boundaries and public DSH integration are unchanged; no second loop/server or private upstream imports. Offline fix restores the must-match recovery row. Remaining R1 scenario/design/reference mappings are retained. |
+
+### Independent R3 evidence
+
+| Command / inspection | Result |
+|---|---|
+| `pnpm exec vitest run apps/im-server/tests/tenancy.test.ts apps/im-server/tests/control-work.test.ts --maxWorkers=1 --no-file-parallelism` | 6 passed, 4.05s; mixed-scope discard/no-replay and post-handoff continuation included |
+| `pnpm exec vitest run apps/im-server/tests/e2e/control-work.test.ts --maxWorkers=1 --no-file-parallelism` | 4 passed, 5.24s; real isolated socket transport and Work coverage |
+| frontend `pnpm exec vitest run src/features/onboarding/onboarding-page.test.tsx --maxWorkers=1 --no-file-parallelism` | 6 passed, 1.49s; new same-component transition plus prior behavior |
+| `pnpm exec vitest run packages/dsh-integration/tests/task-graph-permission.test.ts --maxWorkers=1 --no-file-parallelism` | 1 passed, 1.52s; isolated native tool allow/deny regression |
+| `git diff --check 00dd42398..07f55e714` | passed |
+| `.dsh-runtime/onboarding-e2e/web-final.log`, read-only reuse | 88 files / 833 tests passed, 62.58s; not independently rerun |
+
+The first combined IM command included a nonexistent `tests/control-work.test.ts` filter; Vitest ran only tenancy (6 tests). The corrected `tests/e2e/control-work.test.ts` command above independently ran the other 4; no missing file is represented as a pass.
+
+Frozen source `07f55e714` was checked against the shared checkout: only acceptance.md differed at inspection. No build, service restart, implementation/test edit or product journey was performed. Focused tests cleaned their own temporary homes/processes, and existing `output/` was preserved. Seven delta files have no R3 semantic/text changes; the single current reconciliation below supersedes the historical implementation-mismatch results while retaining both prior reports.
+
 ## Round 2 — targeted-closure / delta
 
 - `review_round: 2`
@@ -156,22 +191,23 @@ The six must-match rows all project into M1 and have corresponding real implemen
 
 ## Corrected Delta Reconciliation
 
-Current snapshot: `00dd42398d4b9ec9baf0e136d786299659cf8cd3`. All seven corrected delta files are unchanged from R1 (`git diff` over the unit's `specs/` directory is empty for this patch). Their text remains aligned with the approved product/design intent; R1 coverage is retained for unaffected items. Design's final supplement records recovery implementation details and does not change interface or product scope.
+Current snapshot: `07f55e7140c0194dae3504ae03126e1e4dbee71a`. All seven corrected delta files remain unchanged from R1/R2. The table below explicitly retains previously verified unaffected coverage and closes affected implementation deviations; no delta was rewritten to fit a bug. R1/R2 summaries above are historical verdicts.
 
 | Delta file | Current implementation / regression conclusion | Outcome |
 |---|---|---|
-| `specs/im/auth-tenancy.md` | Immediate private registration, explicit company join, fixed-space authorization and optional native personal eligibility retain R1 evidence. Original suspension blockage is repaired, but handoff-resumed shared Work can again block personal work. | implementation-mismatch V2-W1 |
-| `specs/im/agents-nodes.md` | Status rediscovers repaired local models; existing connections continue without duplicate test; full-device owner/space handoff implementation is retained. Same-page offline completion and Work resumption after handoff remain defective. | implementation-mismatch V2-W1/V2-W2 |
-| `specs/im/agent-work.md` | Existing read/subscription/trajectory authorization is retained. Revoked content is neither stored nor broadcast, but missing registration prevents authorized continuing records after handoff. | implementation-mismatch V2-W1 |
-| `specs/im/task-graphs.md` | R1 personal/company actor, receipt, source and transfer isolation evidence remains applicable; no patch changes. | aligned |
-| `specs/gateway/service-lifecycle.md` | Transactional official Node runtime preparation and generated-profile symlink migration close installer failures. Original bootstrap/configuration/identity persistence evidence retained. | aligned |
-| `specs/gateway/agent-capabilities.md` | Local credentials, real model validation, native/API flows and persisted nonsecret configuration retained; discovery repair now passes. | aligned |
-| `specs/gateway/task-graphs.md` | Fixed-space effective capabilities and Gateway identity checks retain R1 evidence; no patch changes. | aligned |
+| `specs/im/auth-tenancy.md` | R1 immediate registration, explicit company join, fixed spaces and native optional eligibility coverage retained. Work metadata-only recovery prevents blocked personal events after revocation and later approved-owner handoff. | aligned |
+| `specs/im/agents-nodes.md` | R2 discovery/connected-model/profile-upgrade closure retained. R3 actual offline precedence and company/private Work handoff continuation now pass their behavioral regressions. Whole-device ownership/data boundary coverage retained. | aligned |
+| `specs/im/agent-work.md` | R1 read/subscription/trajectory authorization retained. Revoked event contents are not stored/projected/broadcast; minimal registration structure allows later authorized continuous Work. Mixed-space and real socket tests pass. | aligned |
+| `specs/im/task-graphs.md` | R1 fixed-space actor, receipt, source and transfer isolation retained. R3 guidance now correctly describes private owner plans and company plans without changing enforcement. | aligned |
+| `specs/gateway/service-lifecycle.md` | R1 bootstrap/identity/config persistence plus R2 transactional official Node staging and generated-profile-link migration retained; no lifecycle source changed in R3. | aligned |
+| `specs/gateway/agent-capabilities.md` | R1 local credential/real-model/native/API validation and R2 discovery-refresh closure retained; no capability implementation changed in R3. | aligned |
+| `specs/gateway/task-graphs.md` | R1 fixed-space effective capability and Gateway identity checks retained. Corrected task guidance matches the existing contract; native ordinary deletion permission regression passes unchanged. | aligned |
 
 ### Uncovered Observable Behavior
 
-- R1's branding badge removal, compatible proxy protocol preference, device retry timing and native iOS optional eligibility remain accounted for in the same design/delta boundaries; no new native onboarding is claimed.
-- This patch's discarded revoked-event ACK is an authorization/recovery implementation within existing fixed-space Work contracts. It must not permanently lose the registration needed by later authorized work; V2-W1 is an implementation error, not a reason to weaken the delta.
-- Runtime staging/completion and the two generated-link replacements implement existing repeat-install/recovery behavior. Connected-model reuse and offline routing implement existing continuous onboarding behavior. No new material public behavior omitted from the corrected deltas was found.
+- R1 branding, compatible proxy discovery, retry timing and optional native iOS eligibility remain accounted for in existing design/delta scope; no native onboarding is claimed.
+- R2/R3 Work acknowledgment and minimal session-structure retention implement authorization and continuous recovery. They do not preserve or replay revoked content and introduce no new user-facing data-access contract.
+- Runtime staging/generated-link migration, connected-model reuse and actual offline precedence implement existing install/setup recovery requirements. Task wording restores the already specified private/company split; it adds no new scheduling, mutation or approval behavior.
+- No additional material public behavior omitted from the seven corrected deltas was found within this patch. Unaffected R1 full-diff coverage remains retained; current-spec merge is caller-owned at completion.
 
-Outcome: **implementation-mismatch** (delta text retained; V2-W1/V2-W2 require implementation fixes). `requires_full_verification: false`; next round can target these two failures and their fix delta.
+Outcome: **aligned**. `requires_full_verification: false`; no surviving implementation deviation in the requested R3 scope.

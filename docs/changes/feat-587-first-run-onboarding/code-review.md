@@ -1,5 +1,27 @@
 # Code review: feat-587-first-run-onboarding
 
+## Round 3 — closure + patch
+
+- `review_round: 3`
+- `executed_base: b70d4a7bd80b4424fea430e507390c5dde7c0a05`
+- `validated_at: 07f55e7140c0194dae3504ae03126e1e4dbee71a`
+- `diff_range: 00dd42398d4b9ec9baf0e136d786299659cf8cd3..07f55e7140c0194dae3504ae03126e1e4dbee71a`
+
+```json
+[]
+```
+
+### Finding closure
+
+| Focus | Status | Direct evidence |
+|---|---|---|
+| R2 Work registration loss after handoff | closed | Revoked registrations retain only immutable session identity/scope/parent structure; revoked event payloads are not inserted, projected or broadcast. Mixed-node handoff regression now advances through seq4 for company and personal work and excludes the revoked title. `session_linked` uses the same metadata-only path. |
+| R2 same-page offline masked by ready selection | closed | Actual offline status now precedes `viewStep`; the create-success → offline refetch test switches the same mounted component to recovery and removes the first-task button. |
+| Product R2 private task refused because of company-only guidance | closed at implementation contract | Tool/system guidance now states fixed personal/company resource spaces, joining-company privacy and context-only discussion target. Tool execution, mutation/retry and ordinary deletion approval remain unchanged. Real-model product acceptance remains separate. |
+| R1 journal/discovery/official Node runtime findings | retained closed | Discovery/runtime source and tests are unchanged from R2; Work's revised recovery supersedes the earlier discard-only implementation and closes R2's regression. |
+
+Reviewed the three changed source files, their two updated behavioral test files and M1 evidence. Independently ran tenancy 6/6, socket control/Work 4/4, onboarding 6/6 and native task deletion permission 1/1. `git diff --check` passed. Retained the independently observed final Web log (88 files, 833 tests passed). At inspection, HEAD differed from the frozen source commit only by the product acceptance report; no source/build/service changes were performed. No surviving confirmed or plausible finding within the requested patch/closure scope; no full re-review required.
+
 ## Round 2 — closure + patch
 
 - `review_round: 2`
