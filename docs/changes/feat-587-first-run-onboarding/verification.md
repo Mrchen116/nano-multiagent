@@ -1,5 +1,32 @@
 # Verification Report: feat-587-first-run-onboarding
 
+## Round 4 — targeted-closure / delta
+
+- `review_round: 4`
+- `executed_base: b70d4a7bd80b4424fea430e507390c5dde7c0a05`
+- `validated_at: f881314a469e97178cd91e59a308c0d3625404d9`
+- `diff_range: eac3c2ffd7e0c5725b0647faf4aa3eb2f3fa094f..f881314a469e97178cd91e59a308c0d3625404d9`
+- Verdict: **PASS for this implementation/contract review — 0 CRITICAL, 0 WARNING, 0 SUGGESTION**.
+- `requires_full_verification: false`; R3's seven-delta reconciliation and all unaffected coverage are retained. This is not a product acceptance pass or a claim that product R3 #5 has received real-model green evidence.
+
+### Scope and conclusion
+
+Independent product evidence at `eac3c2ffd` establishes the red condition: ordinary private task request actually created `tg_021a12df`, with correct private isolation, but no `send_message` call or reply in source chat `c_rprqeogj`; Work alone contained the saved-result text. Neither successful mutation nor completed runtime receipt fulfills spec S10's real-result delivery.
+
+The sole source edit (`packages/dsh-integration/src/global-mode.ts:18`) now instructs explicit answer/completion delivery for a direct human request before silent completion, except when that human requests no reply. It distinguishes successful tool action/private draft from delivery, preserves no extra completion after an actual sent result and background no-op silence, and retains `held_for_revalidation` as unsent with reread/reconsideration. It relies on true Inbox source identity and keeps quoted/Agent/system input from becoming human authorization.
+
+This aligns with current `docs/specs/gateway/global-agent.md` (delivery responsibility, drafts remain private, source-based authorization, actual send status), `docs/specs/gateway/routing-delivery.md` (global explicitly chooses targets), and `docs/specs/im/gateway-relay.md` (Inbox completion is not user-result delivery). It also fulfills the implementation intent of unit S10 and design's explicit-public-delivery boundary. The design/progress supplement records the actual failure and bounded repair without introducing implicit draft publication, an assumed current chat, a second loop or changed tool/approval protocol.
+
+The erroneous guidance is closed at implementation level. Independent product review must still verify an ordinary private save request reaches the original chat without user instructions to call send_message. Pending product evidence is kept distinct from this narrow code/spec consistency verdict, rather than represented as a passing real-model test.
+
+### Reused evidence and limits
+
+- Read `.dsh-runtime/onboarding-e2e/delivery-build.log`: root package builds complete and installer package is emitted for `f881314a469e`.
+- Read `.dsh-runtime/onboarding-e2e/delivery-native-tests.log`: `communication-native.test.ts` 2 tests passed, 2.32s. Inspected both tests: public-send fields reach the product bridge; global silent completion after delivery/no-op and other failure/single-thread behavior remain covered. Their deterministic model fixture does not test prompt effectiveness.
+- Independently ran `git diff --check eac3c2ffd..f881314a4`: passed. Read the actual source diff, relevant current contracts, product red report and design/progress additions. No tests or builds repeated; no string-only prompt test added.
+- Seven corrected delta files are unchanged. Every R3 row below is retained; explicit direct-human result delivery refines existing global communication/S10 behavior and adds no new externally observable contract requiring an eighth delta.
+- No source, configuration, production or runtime edits. Caller-owned README/operations edits and existing `output/` remain unstaged. Product acceptance, final evidence/CI and archival remain separately owned.
+
 ## Round 3 — targeted-closure / delta
 
 - `review_round: 3`
@@ -191,7 +218,7 @@ The six must-match rows all project into M1 and have corresponding real implemen
 
 ## Corrected Delta Reconciliation
 
-Current snapshot: `07f55e7140c0194dae3504ae03126e1e4dbee71a`. All seven corrected delta files remain unchanged from R1/R2. The table below explicitly retains previously verified unaffected coverage and closes affected implementation deviations; no delta was rewritten to fit a bug. R1/R2 summaries above are historical verdicts.
+Current snapshot: `f881314a469e97178cd91e59a308c0d3625404d9`. All seven corrected delta files remain unchanged from R1/R2/R3. R3 rows below are retained; R4 changes only guidance for the existing explicit delivery contract. The table below explicitly retains previously verified unaffected coverage and closes affected implementation deviations; no delta was rewritten to fit a bug. R1/R2/R3 summaries above are historical scoped verdicts.
 
 | Delta file | Current implementation / regression conclusion | Outcome |
 |---|---|---|
@@ -208,6 +235,7 @@ Current snapshot: `07f55e7140c0194dae3504ae03126e1e4dbee71a`. All seven correcte
 - R1 branding, compatible proxy discovery, retry timing and optional native iOS eligibility remain accounted for in existing design/delta scope; no native onboarding is claimed.
 - R2/R3 Work acknowledgment and minimal session-structure retention implement authorization and continuous recovery. They do not preserve or replay revoked content and introduce no new user-facing data-access contract.
 - Runtime staging/generated-link migration, connected-model reuse and actual offline precedence implement existing install/setup recovery requirements. Task wording restores the already specified private/company split; it adds no new scheduling, mutation or approval behavior.
+- R4 direct-human answer/completion delivery through send_message clarifies the existing global communication contract and S10. It does not automatically publish drafts, select targets or change permissions; product green remains separately required.
 - No additional material public behavior omitted from the seven corrected deltas was found within this patch. Unaffected R1 full-diff coverage remains retained; current-spec merge is caller-owned at completion.
 
-Outcome: **aligned**. `requires_full_verification: false`; no surviving implementation deviation in the requested R3 scope.
+Outcome: **aligned** (R3 seven-delta coverage retained; R4 explicit-delivery guidance aligned with existing current contract). `requires_full_verification: false`; no surviving implementation deviation in the requested R4 source/contract scope. This does not certify the pending actual-model delivery acceptance.

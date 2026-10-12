@@ -1,5 +1,22 @@
 # Code review: feat-587-first-run-onboarding
 
+## Round 4 — targeted closure + patch
+
+- `review_round: 4`
+- `executed_base: b70d4a7bd80b4424fea430e507390c5dde7c0a05`
+- `validated_at: f881314a469e97178cd91e59a308c0d3625404d9`
+- `diff_range: eac3c2ffd7e0c5725b0647faf4aa3eb2f3fa094f..f881314a469e97178cd91e59a308c0d3625404d9`
+
+```json
+[]
+```
+
+The one source change in `packages/dsh-integration/src/global-mode.ts:18` repairs the overly broad completion guidance: a direct human request requires explicit `send_message` delivery to its actual source unless the human requested no reply; tool success/private drafts are not delivery; once delivered, an extra completion is unnecessary; background work without an actionable update remains silent. Existing sent/held distinction, source authorization and denial handling remain intact. Tool schemas/execution, permission routing, Inbox, targets and terminal mechanisms are unchanged. Design/progress additions accurately describe the observed product failure and this bounded repair.
+
+Closure: the misleading prompt condition is **closed at source/contract level**. Product R3 #5 remains pending independent real-model confirmation; this review does not infer delivery from task_graph success, Work prose or the deterministic communication fixture. R3 implementation findings/closures are retained and no new confirmed/plausible code defect survives this patch.
+
+Read-only evidence reuse: `delivery-build.log` completed root build and emitted the `f881314a469e` release; `delivery-native-tests.log` reports communication-native 2/2 passed (2.32s). The tests cover actual public-send bridging and silent completion after delivery/no-op, plus preservation of other failures. Their model output is controlled, so they do not prove this guidance changes a real model's decision. No redundant run or prompt-string test was added. `git diff --check eac3c2ffd..f881314a4` passed. No full review, source edits, service changes or unrelated documentation staging.
+
 ## Round 3 — closure + patch
 
 - `review_round: 3`
