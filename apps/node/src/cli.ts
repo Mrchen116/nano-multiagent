@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { NodeConfiguration } from "./configuration.js";
 import { manageGateway, applyGatewayEnvironment } from "./lifecycle.js";
 import { bindDevice } from "./device-binding.js";
+import { bootstrapNode } from "./bootstrap.js";
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
@@ -20,10 +21,11 @@ const { values, positionals } = parseArgs({
     help: { type: "boolean", short: "h" },
   },
 });
-const action = positionals[0] ?? "start";
+const command = positionals[0] ?? "start";
+const action = command === "setup" ? "start" : command;
 if (values.help) {
   process.stdout.write(
-    "Usage: pnpm pa [start|stop|restart|status|bind|migrate] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
+    "Usage: pnpm pa [setup|start|stop|restart|status|bind|migrate] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
   );
 } else
   try {
@@ -36,10 +38,20 @@ if (values.help) {
     }
     if (!["start", "stop", "restart", "status", "bind"].includes(action))
       throw new Error("Unknown personal-assistant command: " + action);
-    const configPath = resolve(
-      values.config ?? join(homedir(), ".nanoassistant/config.yaml"),
-    );
-    const config = await NodeConfiguration.read(configPath);
+    if (command === "setup" && !values["im-service-url"])
+      throw new Error("setup requires --im-service-url <your Nano IM address>");
+    const config = command === "setup"
+      ? await bootstrapNode(values["im-service-url"]!, values.config)
+      : await NodeConfiguration.read(resolve(values.config ?? join(homedir(), ".nanoassistant/config.yaml")));
+    const configPath = config.path;
+    if (command === "setup") {
+      process.stdout.write(`Nano connection: ${config.value.im_service.url}\nConfiguration: ${configPath}\n`);
+      const current = await manageGateway(configPath, config.value, "status");
+      if (current.state?.ready) {
+        process.stdout.write("Your computer is already connected. Continue in the Nano webpage.\n");
+        process.exit(0);
+      }
+    }
     if (["start", "restart"].includes(action))
       for (const agent of config.value.agents) config.runtime(agent);
     if (values["im-service-url"])

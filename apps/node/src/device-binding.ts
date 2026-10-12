@@ -2,6 +2,7 @@ import { readFile, rm, rename, mkdir, access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { setTimeout as wait } from "node:timers/promises";
 import {
   ChannelKey,
   type ChannelAad,
@@ -82,6 +83,7 @@ export async function bindDevice(
     payload: unknown,
     browser = false,
   ): Promise<T> => {
+    for (;;) {
     const response = await fetch(
       new URL("/im/v1/device-binding/" + action, base),
       {
@@ -96,11 +98,19 @@ export async function bindDevice(
         signal: AbortSignal.any([options.signal, AbortSignal.timeout(15000)]),
       },
     );
+    // A person may take minutes to approve; polling shares the browser's source quota.
+    if (action === 'prepare' && response.status === 429) {
+      const seconds = Number(response.headers.get('retry-after')) || 3;
+      await response.body?.cancel();
+      await wait(Math.max(1, seconds) * 1000, undefined, { signal: options.signal });
+      continue;
+    }
     if (!response.ok)
       throw new Error(
         `Device binding ${action}: HTTP ${response.status} ${await response.text()}`,
       );
     return (await response.json()) as T;
+    }
   };
   if(options.auto&&!config.im_service.token&&config.im_service.username&&config.im_service.password){
     const response=await fetch(new URL('/im/v1/auth/login',base),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:config.im_service.username,password:config.im_service.password}),signal:AbortSignal.any([options.signal,AbortSignal.timeout(15000)])});
@@ -118,7 +128,7 @@ export async function bindDevice(
       }
     >("start", {
       node_id: config.node.node_id,
-      node_name: config.node.node_id,
+      node_name: config.node.node_name ?? config.node.node_id,
       public_key: key.registration.credential_public_key,
       key_id: key.registration.credential_key_id,
     });
@@ -143,14 +153,14 @@ export async function bindDevice(
       await post("accept", { browser_token: operation.browser_token }, true);
     else {
       options.report(
-        "Open this link and accept with the receiving active account:\n" +
+        "Open this link and confirm your Nano account:\n" +
           operation.bind_url,
       );
       options.open(operation.bind_url);
     }
     while (state.state === "awaiting_account") {
       options.signal.throwIfAborted();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await wait(3000, undefined, { signal: options.signal });
       state = await post<BindingState>("prepare", credential);
     }
   }
@@ -161,11 +171,13 @@ export async function bindDevice(
         ...config.agents.map((agent) => agent.agent_id),
       ]),
     ];
-    options.report(
-      `Transfer this device to ${state.target_name} (${state.target_user_id})\nAgents: ${agents.join(", ")}`,
+    const transfer = !!config.node.user_id || agents.length > 0;
+    if (transfer) options.report(
+      `Transfer this device to ${state.target_name} (${state.target_user_id})\nAgents: ${agents.join(", ")}\nAssistant work history transfers with the device. Existing private chats and task graphs remain in their original space.`,
     );
+    else options.report(`Connecting this computer to ${state.target_name}…`);
     if (
-      !options.auto &&
+      transfer && !options.auto &&
       !(await options.confirm(
         "Type yes to confirm the complete device transfer: ",
       ))

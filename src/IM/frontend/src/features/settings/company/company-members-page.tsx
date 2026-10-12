@@ -37,7 +37,7 @@ export function CompanyMembersPage() {
   const query = useInfiniteQuery({
     queryKey: ["company", "members"],
     initialPageParam: "",
-    enabled: Boolean(currentUser?.is_company_admin),
+    enabled: Boolean(currentUser?.is_company_admin && currentUser.membership_status === "active"),
     queryFn: ({ pageParam }) => authFetchJson<MemberPage>(`/im/v1/company/members?cursor=${encodeURIComponent(pageParam)}`),
     getNextPageParam: last => last.next_cursor ?? undefined
   });
@@ -50,7 +50,7 @@ export function CompanyMembersPage() {
       await client.invalidateQueries({ queryKey: ["company", "members"] });
     }
   });
-  if (!currentUser?.is_company_admin) return <Navigate to="/chat" replace />;
+  if (!currentUser?.is_company_admin || currentUser.membership_status !== "active") return <Navigate to="/chat" replace />;
 
   const members = query.data?.pages.flatMap(page => page.members) ?? [];
   const mutationError = change.error?.message.includes("cannot suspend the last active administrator")

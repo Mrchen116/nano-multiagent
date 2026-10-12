@@ -8,7 +8,7 @@
     "node": "^22.19.0 || >=24"
   },
   "scripts": {
-    "build": "pnpm -r --if-present build",
+    "build": "pnpm -r --if-present build && node scripts/build-node-release.mjs",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present typecheck",
     "pa": "node apps/node/lib/cli.js",

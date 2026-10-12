@@ -1,3 +1,4 @@
+import { canAccessSpace, canActorAccess } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
@@ -339,6 +340,8 @@ export class TaskGraphService {
     return this.db.prepare(sql).all(...args) as Obj[];
   }
   private chat(id: string | null | undefined, user: string) {
+    const scope = this.row("SELECT space_id FROM conversations WHERE id=?", id ?? null);
+    if (!scope || !canActorAccess(this.db, user, scope.space_id)) return undefined;
     return this.row(
       "SELECT c.id,c.title FROM conversations c JOIN conversation_participants p ON p.conversation_id=c.id WHERE c.id=? AND p.user_id=?",
       id ?? null,
@@ -346,6 +349,8 @@ export class TaskGraphService {
     );
   }
   private source(id: string, user: string) {
+    const message = this.row("SELECT conversation_id FROM messages WHERE id=?", id);
+    if (!message || !this.chat(message.conversation_id, user)) return undefined;
     return this.row(
       "SELECT m.*,c.external_source FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN conversation_participants p ON p.conversation_id=c.id AND p.user_id=? WHERE m.id=? AND m.sender_type='user'",
       user,
@@ -383,26 +388,28 @@ export class TaskGraphService {
     const p =
       actor.kind === "user"
         ? this.row(
-            "SELECT id,owner_id,display_name FROM users WHERE id=? AND membership_status='active'",
+            "SELECT * FROM users WHERE id=? AND (personal_space_enabled=1 OR membership_status='active')",
             actor.id,
           )
         : this.row(
-            "SELECT u.id,p.owner_id,p.display_name FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND owner.membership_status='active' AND n.status='online' AND COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')",
+            "SELECT u.id,p.owner_id,p.display_name,p.space_id,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')",
             actor.id,
             actor.node_id ?? null,
           );
-    if (!p) forbidden();
+    if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
+    const allowed = (space: string) => actor.kind === "agent" ? p.space_id === space && canAccessSpace(p, space) : canAccessSpace(p, space);
     const user = p.id,
       actorName = `${p.display_name} (${actor.id})`;
-    if (action === "list") return this.list(p.owner_id, args);
+    if (action === "list") return this.list(p, args, actor.kind === "agent");
     if (action === "activity") {
       const chat = text(args.conversation_id, "conversation_id");
       if (!this.chat(chat, user)) forbidden();
       const items: Obj[] = [];
       for (const row of this.rows(
-        "SELECT a.node_id,a.updated_at,g.document_json FROM task_node_chat_activity a JOIN task_graphs g ON g.graph_id=a.graph_id WHERE a.conversation_id=? ORDER BY a.updated_at DESC",
+        "SELECT a.node_id,a.updated_at,g.document_json,g.space_id FROM task_node_chat_activity a JOIN task_graphs g ON g.graph_id=a.graph_id WHERE a.conversation_id=? ORDER BY a.updated_at DESC",
         chat,
       )) {
+        if (!allowed(row.space_id)) continue;
         const d = JSON.parse(row.document_json),
           n = d.nodes.find((n: Obj) => n.id === row.node_id);
         if (n)
@@ -444,6 +451,7 @@ export class TaskGraphService {
         cutoff,
       );
       if (receipt) {
+        if (!allowed(receipt.space_id)) forbidden();
         if (receipt.operation_hash !== hash)
           fail("request_key_reused", "Use the original parameters with this request_key");
         return JSON.parse(receipt.result_json);
@@ -455,13 +463,13 @@ export class TaskGraphService {
         "SELECT * FROM task_graphs WHERE graph_id=?",
         text(args.graph_id, "graph_id"),
       );
-      if (!row) forbidden();
-      doc = { ...JSON.parse(row.document_json), owner_id: row.owner_id };
+      if (!row || !allowed(row.space_id)) forbidden();
+      doc = { ...JSON.parse(row.document_json), owner_id: row.owner_id, space_id: row.space_id };
       if (doc.schema_version !== 1) invalid("Unsupported task graph schema_version");
       if (action === "get") return this.get(doc, args, user);
     } else doc = {};
     const chat = args.conversation_id ?? null;
-    if (chat !== null && !this.chat(text(chat, "conversation_id"), user)) forbidden();
+    if (chat !== null && (!this.chat(text(chat, "conversation_id"), user) || !allowed(this.row("SELECT space_id FROM conversations WHERE id=?", chat)!.space_id))) forbidden();
     const source = actor.source_message_id ? this.source(actor.source_message_id, user) : null;
     if (actor.source_message_id && !source) forbidden();
     const provenance = {
@@ -487,6 +495,7 @@ export class TaskGraphService {
         schema_version: 1,
         graph_id: graphId,
         owner_id: p.owner_id,
+        space_id: p.space_id,
         root_node_id: "n1",
         revision: 1,
         nodes: [
@@ -595,10 +604,10 @@ export class TaskGraphService {
     return result;
   }
   private save(doc: Obj) {
-    const { owner_id, ...body } = doc;
+    const { owner_id, space_id, ...body } = doc;
     this.db
       .prepare(
-        "INSERT INTO task_graphs(graph_id,owner_id,root_title,revision,document_json,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(graph_id) DO UPDATE SET root_title=excluded.root_title,revision=excluded.revision,document_json=excluded.document_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+        "INSERT INTO task_graphs(graph_id,owner_id,root_title,revision,document_json,created_at,updated_at,updated_by,space_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(graph_id) DO UPDATE SET root_title=excluded.root_title,revision=excluded.revision,document_json=excluded.document_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
       )
       .run(
         doc.graph_id,
@@ -609,20 +618,26 @@ export class TaskGraphService {
         doc.created_at,
         doc.updated_at,
         doc.updated_by,
+        space_id,
       );
   }
   private receipt(actor: string, key: string, hash: string, doc: Obj, result: Obj) {
     this.db
-      .prepare("INSERT INTO task_graph_mutation_receipts VALUES(?,?,?,?,?,?)")
-      .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at);
+      .prepare("INSERT INTO task_graph_mutation_receipts(actor_key,request_key,operation_hash,graph_id,result_json,created_at,space_id) VALUES(?,?,?,?,?,?,?)")
+      .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at, doc.space_id);
   }
-  private list(owner: string, args: Obj) {
+  private list(principal: Obj, args: Obj, agent: boolean) {
+    const owner = principal.owner_id;
+    const spaces = agent ? [principal.space_id] : [
+      ...(principal.personal_space_enabled ? [`personal:${owner}`] : []),
+      ...(principal.membership_status === "active" ? ["company:default"] : []),
+    ];
     const query = text(args.query ?? "", "query", 240, true).trim(),
       limit = args.limit ?? 20;
     if (!Number.isInteger(limit) || limit < 1 || limit > 50)
       fail("invalid_arguments", "limit must be an integer from 1 to 50");
-    const params: any[] = [],
-      parts: string[] = ["1=1"];
+    const params: any[] = [...spaces],
+      parts: string[] = [`space_id IN (${spaces.map(() => "?").join(",")})`];
     if (query) {
       parts.push("INSTR(LOWER(root_title),LOWER(?))>0");
       params.push(query);
@@ -667,7 +682,7 @@ export class TaskGraphService {
     };
   }
   private get(doc: Obj, args: Obj, user: string) {
-    const { owner_id: _owner, ...projected } = doc;
+    const { owner_id: _owner, space_id: _space, ...projected } = doc;
     projected.nodes = doc.nodes.map((n: Obj) => {
       const chat = this.chat(n.last_chat_id, user),
         provenance = n.provenance ?? {};

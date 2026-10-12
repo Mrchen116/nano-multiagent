@@ -1,3 +1,4 @@
+import { requireCompanyAdmin } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createReadStream,
@@ -67,7 +68,8 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
   app.get("/im/v1/conversations/:conversation_id/attachments/:resource_id", read);
   app.get("/im/v1/attachments/capacity", (req) => {
     const p = ctx.identity.authenticateRequest(req);
-    if (!p.is_company_admin) fail(403, "company administrator required");
+    requireCompanyAdmin(p);
+    ctx.identity.requireSpace(p, "company:default");
     const service: Row = {
         used_bytes: 0,
         reserved_bytes: 0,
@@ -80,7 +82,8 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
     )) {
       const key = r.state === "stored" ? "used_bytes" : "reserved_bytes";
       service[key] += r.size;
-      if (r.owner_id) {
+      const member = r.owner_id ? one(db, "SELECT membership_status,personal_space_enabled FROM users WHERE id=?", r.owner_id) : undefined;
+      if (r.owner_id && (r.owner_id === p.owner_id || (member?.membership_status !== "none" && !member?.personal_space_enabled))) {
         const owner = owners.get(r.owner_id) ?? {
           owner_id: r.owner_id,
           username: r.username,

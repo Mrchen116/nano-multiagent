@@ -1,3 +1,4 @@
+import { canAccessSpace, agentAvailable } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -94,7 +95,7 @@ export class Work {
           e.root_agent_id,
           node,
         );
-        if (!profile) fail(403, "scope_not_allowed");
+        if (!agentAvailable(this.db, profile)) fail(403, "scope_not_allowed");
         const old = one(
           this.db,
           "SELECT * FROM agent_work_events WHERE node_id=? AND journal_id=? AND seq=?",
@@ -152,8 +153,8 @@ export class Work {
     for (const root of new Set<string>(p.events.map((e: Row) => e.root_agent_id))) {
       const users = all(
         this.db,
-        "SELECT id FROM users WHERE membership_status='active' AND password_hash IS NOT NULL",
-      ).map((u) => u.id);
+        "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
+      ).filter(u => canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id)).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
@@ -467,7 +468,7 @@ export class Work {
         p.agent_id,
         c.node_id,
       );
-    if (!agent) fail(403, "scope_not_allowed");
+    if (!agent || !agentAvailable(this.db, agent)) fail(403, "scope_not_allowed");
     // Single-thread sessions live on their node, not in the global Work journal.
     // Both modes remain limited below to conversations containing this Agent.
     if (agent.work_mode === "global") {
@@ -684,6 +685,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       id,
     );
     if (!p || (owner && p.owner_id !== user.owner_id)) fail(404, "agent_not_accessible");
+    ctx.identity.requireSpace(user, p.space_id);
     return p;
   }
   app.get("/im/v1/agents/:agent_id/work", (req) => {

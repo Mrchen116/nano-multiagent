@@ -125,3 +125,9 @@ refactor-581 建立 DSH-only 边界；feat-572/bugfix-574 建立公司访问和�
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-onboarding | 个人首次使用完整闭环 | 无 | 无 | IM 空间/installer/setup、Node bootstrap/model、integration 公开 seam、Web 引导、相关测试与文档 | [reviewer] S1–S12 与全部 must-match 在真栈可复核；视频真实注册到首个模型回复。[worker] 最低层空间矩阵、迁移、安装重复/失败、空 DSH、native/API 配置/OAuth 状态、前端交互通过；原型对照、安装/真实模型/窄屏证据，整机转移前后私人 Agent/Work 与旧会话/任务矩阵；本地 CI 和远端 CI 通过。 |
+
+## 实施收口补充
+
+- 原生 iOS 不复制 Web 首次设置向导，但必须兼容同一账号准入：可选 `personal_space_enabled` 决定个人可用性，旧响应继续按公司 active 判断；账号/设备与公司菜单分开准入。避免本 unit 的新账号被既有 iOS 错判为停用。
+- 真实安装发现电脑每秒轮询叠加浏览器轮询会耗尽绑定来源限额。电脑改为三秒轮询，并仅对只读 prepare 的 429 遵守 Retry-After 等待；不重复提交有副作用的请求。
+- 本机代理发现优先选择声明支持 OpenAI Chat 的 profile，只展示该协议支持的模型；没有时再选 Anthropic。真实验收使用现有 `codexOAuth:gpt-6-luna`，没有修补生产代理。

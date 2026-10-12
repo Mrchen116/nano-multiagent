@@ -1,3 +1,4 @@
+import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -43,7 +44,7 @@ export class Messaging {
         .run(id, `agent:${agentId}`, a.display_name, a.owner_id, now());
       u = one(this.db, "SELECT * FROM users WHERE id=?", id);
     }
-    return u!;
+    return { ...u!, owner_id: a.owner_id, space_id: a.space_id };
   }
   actor(u: Row): Row {
     return {
@@ -80,9 +81,10 @@ export class Messaging {
             principal.owner_id,
           )
         : undefined;
-      if (!agent) fail(404, "conversation_id not found");
+      if (!agent || agent.space_id !== c.space_id || !agentAvailable(this.db, agent)) fail(404, "conversation_id not found");
       uid = this.agentUser(agentId!).id;
     }
+    if (principal.kind !== "gateway") this.ctx.identity.requireSpace(principal, c.space_id);
     if (
       !one(
         this.db,
@@ -112,6 +114,7 @@ export class Messaging {
           "title",
           "type",
           "owner_id",
+          "space_id",
           "creator_id",
           "last_message_preview",
           "last_message_at",
@@ -159,9 +162,12 @@ export class Messaging {
       this.db,
       "SELECT c.id FROM conversations c JOIN conversation_participants p ON p.conversation_id=c.id WHERE p.user_id=? ORDER BY p.is_pinned DESC, COALESCE(c.last_message_at,c.created_at) DESC",
       userId,
-    ).map((c) => this.conversation(c.id, userId));
+    ).filter(c => {
+      const scope = one(this.db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id;
+      return canActorAccess(this.db, userId, scope);
+    }).map((c) => this.conversation(c.id, userId));
   }
-  resolveParticipants(principal: Row, actors: Row[], ids: string[] = [], group = true): string[] {
+  resolveParticipants(principal: Row, actors: Row[], ids: string[] = [], group = true, space?: string): string[] {
     let result = ids.map((id) =>
       id.startsWith("agent:") ? this.agentUser(id.slice(6)).id : id.replace(/^user:/, ""),
     );
@@ -181,15 +187,19 @@ export class Messaging {
     result = [...new Set(result)];
     for (const id of result) {
       const u = one(this.db, "SELECT * FROM users WHERE id=?", id);
-      if (!u || (!u.username.startsWith("agent:") && u.membership_status !== "active"))
-        fail(400, "participant not found");
+      if (!u) fail(404, "participant not found");
+      const profile = u.username.startsWith("agent:")
+        ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", u.username.slice(6)) : undefined;
+      const visible = profile ? canAccessSpace(principal, profile.space_id) && agentAvailable(this.db, profile)
+        : u.id === principal.id || (principal.membership_status === "active" && u.membership_status === "active");
+      if (!visible || (space && !canActorAccess(this.db, id, space))) fail(404, "participant not found");
       if (group && u.username.startsWith("agent:") && !one(this.db,
         "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id))
         fail(404, "agent not accessible");
     }
     return result;
   }
-  createConversation(p: Row, b: Row, force = false): Row {
+  createConversation(p: Row, b: Row, force = false, inheritedSpace?: string): Row {
     if (!b.title?.trim() || !["direct", "group"].includes(b.type))
       fail(422, "title and valid type required");
     const ids = this.resolveParticipants(
@@ -199,21 +209,27 @@ export class Messaging {
       b.type === "group",
     );
     if (!ids.length) fail(422, "participants required");
+    const profiles = ids.map(id => one(this.db, "SELECT ap.* FROM agent_profiles ap JOIN users u ON u.username='agent:'||ap.agent_id WHERE u.id=?", id)).filter(Boolean);
+    // Explicitly chatting with a company contact chooses their company scope;
+    // otherwise a new personal user's resources stay private.
+    const space = inheritedSpace ?? (profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
+    this.ctx.identity.requireSpace(p, space);
+    if (ids.some(id => !canActorAccess(this.db, id, space))) fail(404, "participant not found");
     if (!ids.includes(p.id)) ids.unshift(p.id);
     if (b.type === "direct" && ids.length !== 2)
       fail(400, "direct conversation requires two participants");
-    const key = b.type === "direct" && !force ? [...ids].sort().join("|") : null;
+    const key = b.type === "direct" && !force ? `${space}|${[...ids].sort().join("|")}` : null;
     const existing = key
-      ? one(this.db, "SELECT id FROM conversations WHERE direct_key=?", key)
+      ? one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", space, key, [...ids].sort().join("|"))
       : null;
     if (existing) return this.conversation(existing.id, p.id);
     const id = chatId("c_");
     transaction(this.db, () => {
       this.db
         .prepare(
-          "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at) VALUES(?,?,?,?,?,?,?)",
+          "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,space_id) VALUES(?,?,?,?,?,?,?,?)",
         )
-        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now());
+        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now(), space);
       for (const uid of ids)
         this.db
           .prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)")
@@ -470,7 +486,7 @@ export class Messaging {
           u.username.slice(6),
         ),
       )
-      .filter(Boolean) as Row[];
+      .filter(a => a && a.space_id === c.space_id && agentAvailable(this.db, a)) as Row[];
     const targetAgents = b.suppress_relay ? [] : agents;
     const m = this.insertMessage(
       id,
@@ -566,21 +582,23 @@ export class Messaging {
         )
       )
         fail(404, "target not accessible");
+      if (!canActorAccess(this.db, a.id, one(this.db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id)) fail(404, "target not accessible");
       return c.id;
     }
     const uid = target.replace(/^(?:user|agent):/, "");
     const u = one(this.db, "SELECT * FROM users WHERE id=? OR username=?", uid, `agent:${uid}`);
-    if (!u || (!u.username.startsWith("agent:") && u.membership_status !== "active"))
+    if (!u || !canActorAccess(this.db, a.id, a.space_id) || !canActorAccess(this.db, u.id, a.space_id))
       fail(404, "target not accessible");
-    const key = [a.id, u.id].sort().join("|");
-    const old = one(this.db, "SELECT id FROM conversations WHERE direct_key=?", key);
+    const pairKey = [a.id, u.id].sort().join("|");
+    const key = `${a.space_id}|${pairKey}`;
+    const old = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", a.space_id, key, pairKey);
     if (old) return old.id;
     const id = chatId("c_");
     this.db
       .prepare(
-        "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,space_id) VALUES(?,?,?,?,?,?,?,?)",
       )
-      .run(id, u.display_name, "direct", a.owner_id, a.id, key, now());
+      .run(id, u.display_name, "direct", a.owner_id, a.id, key, now(), a.space_id);
     for (const member of [a.id, u.id])
       this.db
         .prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)")
@@ -591,18 +609,25 @@ export class Messaging {
 export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   const s = ctx.messaging,
     db = ctx.db;
-  const contactRows = () =>
+  const contactRows = (viewer: Row) =>
     all(
       db,
       "SELECT u.id AS user_id,CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,COALESCE(ap.display_name,u.display_name) AS display_name,ap.agent_id,ap.owner_id,owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,COALESCE(n.status,'offline') AS status,ap.work_mode FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id LEFT JOIN users owner ON owner.id=ap.owner_id LEFT JOIN nodes n ON n.node_id=ap.node_id WHERE (u.password_hash IS NOT NULL AND u.password_hash!='' AND ap.agent_id IS NULL) OR (ap.agent_id IS NOT NULL AND ap.is_stale=0) ORDER BY u.id",
-    ).map((r) =>
+    ).filter(r => {
+      if (r.kind === "human") {
+        const target = one(db, "SELECT * FROM users WHERE id=?", r.user_id)!;
+        return target.id === viewer.id || (viewer.membership_status === "active" && target.membership_status === "active");
+      }
+      const profile = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", r.agent_id)!;
+      return canAccessSpace(viewer, profile.space_id) && agentAvailable(db, profile);
+    }).map((r) =>
       r.kind === "human" ? { user_id: r.user_id, kind: r.kind, display_name: r.display_name } : r,
     );
   app.get("/im/v1/contacts", (req) => {
-    ctx.identity.authenticateRequest(req);
+    const viewer = ctx.identity.authenticateRequest(req);
     const q = query(req);
     if (q.kind && !["human", "agent"].includes(q.kind)) fail(400, "invalid kind");
-    const rows = contactRows().filter(
+    const rows = contactRows(viewer).filter(
       (r) =>
         (!q.cursor || r.user_id > q.cursor) &&
         (!q.kind || r.kind === q.kind) &&
@@ -617,8 +642,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     };
   });
   app.get("/im/v1/contacts/:user_id", (req) => {
-    ctx.identity.authenticateRequest(req);
-    const r = contactRows().find((r) => r.user_id === params(req).user_id);
+    const viewer = ctx.identity.authenticateRequest(req);
+    const r = contactRows(viewer).find((r) => r.user_id === params(req).user_id);
     if (!r) fail(404, "contact not found");
     return r;
   });
@@ -687,7 +712,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id = params(req).conversation_id,
       c = s.access(p, id);
     if (c.type !== "group") fail(400, "group required");
-    const ids = s.resolveParticipants(p, body(req).participants ?? []);
+    const ids = s.resolveParticipants(p, body(req).participants ?? [], [], true, c.space_id);
     if (!ids.length) fail(400, "participants required");
     for (const uid of ids)
       db.prepare(

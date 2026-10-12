@@ -37,6 +37,42 @@ export class IdentityError extends Error {
     super(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
 }
+/** Return whether the account may use any product data plane. */
+export function accountEnabled(user: Row | undefined): boolean {
+  return !!user && (!!user.personal_space_enabled || user.membership_status === "active");
+}
+/** Choose the scope for a new resource without publishing personal history. */
+export function defaultSpace(user: Row): string {
+  return user.personal_space_enabled ? `personal:${user.owner_id}` : "company:default";
+}
+/** Space eligibility adds to, rather than replaces, object permissions. */
+export function canAccessSpace(user: Row | undefined, space: string): boolean {
+  return !!user && (space === "company:default" ? user.membership_status === "active"
+    : !!user.personal_space_enabled && space === `personal:${user.owner_id}`);
+}
+/** Resolve the human manager; runtime users never confer account eligibility. */
+export function ownerAccount(db: DatabaseSync, owner: string): Row | undefined {
+  return db.prepare("SELECT * FROM users WHERE owner_id=? AND username NOT LIKE 'agent:%' AND username NOT LIKE 'shadow:%' AND username!='system' LIMIT 1").get(owner) as Row | undefined;
+}
+/** A runtime actor stays inside its fixed scope, including after owner approval. */
+export function agentAvailable(db: DatabaseSync, profile: Row | undefined): boolean {
+  return !!profile && !profile.is_stale && canAccessSpace(ownerAccount(db, profile.owner_id), profile.space_id);
+}
+/** Check a conversation actor against both its fixed space and current eligibility. */
+export function canActorAccess(db: DatabaseSync, userId: string, space: string): boolean {
+  const user = db.prepare("SELECT * FROM users WHERE id=?").get(userId) as Row | undefined;
+  if (!user) return false;
+  if (user.username.startsWith("agent:")) {
+    const profile = db.prepare("SELECT * FROM agent_profiles WHERE agent_id=?").get(user.username.slice(6)) as Row | undefined;
+    return !!profile && profile.space_id === space && agentAvailable(db, profile);
+  }
+  return canAccessSpace(user, space);
+}
+/** Company administration never follows merely from personal account access. */
+export function requireCompanyAdmin(user: Row): void {
+  if (user.membership_status !== "active" || !user.is_company_admin)
+    throw new IdentityError(403, "company administrator required");
+}
 export const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const secret = (size = 32) => randomBytes(size).toString("base64url");
 const now = () => Math.floor(Date.now() / 1000);
@@ -80,6 +116,8 @@ const publicKey = (encoded: string) => {
 export class Identity {
   readonly refreshTtl = 7 * 24 * 60 * 60;
   private passwordWorkers = 0;
+  private readonly requestScopes = new WeakMap<object, Set<string>>();
+  private readonly principalRequests = new WeakMap<object, object>();
   constructor(
     readonly db: DatabaseSync,
     private jwtSecret: string,
@@ -118,6 +156,8 @@ export class Identity {
       id: row.id,
       owner_id: row.owner_id,
       membership_status: row.membership_status,
+      personal_space_enabled: Boolean(row.personal_space_enabled),
+      account_status: accountEnabled(row) ? "active" : row.membership_status,
       is_company_admin: Boolean(row.is_company_admin),
       owned_node_ids: owned,
       default_entry_node_id: owned.includes(row.default_entry_node_id)
@@ -137,6 +177,8 @@ export class Identity {
         "owned_node_ids",
         "created_at",
         "membership_status",
+        "personal_space_enabled",
+        "account_status",
         "is_company_admin",
       ].map((k) => [k, user[k]]),
     );
@@ -189,7 +231,7 @@ export class Identity {
       );
     try {
       this.run(
-        "INSERT INTO users(id,username,display_name,owner_id,password_hash,locale,created_at) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO users(id,username,display_name,owner_id,password_hash,locale,created_at,personal_space_enabled,membership_status) VALUES(?,?,?,?,?,?,?,1,'none')",
         id,
         username,
         displayName,
@@ -282,12 +324,26 @@ export class Identity {
   }
   authenticateRequest(request: Pick<FastifyRequest, "headers">, requireActive = true): User {
     const user = this.user(this.accessSession(bearer(request)).sub)!;
-    if (requireActive && user.membership_status !== "active")
+    if (requireActive && !accountEnabled(user))
       throw new IdentityError(403, {
         code: "company_membership_required",
         membership_status: user.membership_status,
       });
+    for (const space of this.requestScopes.get(request) ?? [])
+      if (!canAccessSpace(user, space)) throw new IdentityError(404, "resource not accessible");
+    this.principalRequests.set(user, request);
     return user;
+  }
+  /** Remember accessed scopes so the response gate also covers revocation during awaits. */
+  requireSpace(user: Row, space: string): void {
+    const fresh = this.user(user.id);
+    if (!canAccessSpace(fresh, space)) throw new IdentityError(404, "resource not accessible");
+    const request = this.principalRequests.get(user);
+    if (request) {
+      const scopes = this.requestScopes.get(request) ?? new Set<string>();
+      scopes.add(space);
+      this.requestScopes.set(request, scopes);
+    }
   }
   private issuePair(user: User, sid?: string, oldJti?: string) {
     const exp = now() + this.refreshTtl,
@@ -348,7 +404,7 @@ export class Identity {
     this.run("DELETE FROM auth_ws_tickets WHERE expires_at<=?", now());
     if (
       this.run(
-        "INSERT INTO auth_ws_tickets(ticket_hash,session_id,expires_at) SELECT ?,s.session_id,? FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND u.membership_status='active'",
+        "INSERT INTO auth_ws_tickets(ticket_hash,session_id,expires_at) SELECT ?,s.session_id,? FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND (u.personal_space_enabled=1 OR u.membership_status='active')",
         digest(ticket),
         now() + 30,
         sid,
@@ -421,7 +477,7 @@ export class Identity {
         target = this.user(userId);
       if (!actor?.is_company_admin || actor.membership_status !== "active")
         throw new IdentityError(403, "company administrator required");
-      if (!target?.password_hash) throw new IdentityError(404, "member not found");
+      if (!target?.password_hash || target.membership_status === "none") throw new IdentityError(404, "member not found");
       let next: string;
       if (action === "approve") {
         if (target.membership_status === "suspended")
@@ -445,7 +501,7 @@ export class Identity {
             "UPDATE users SET membership_status='suspended',auth_epoch=auth_epoch+1 WHERE id=?",
             userId,
           );
-          this.run(
+          if (!target.personal_space_enabled) this.run(
             "UPDATE node_binding_state SET node_epoch=node_epoch+1,runtime_token_hash=NULL WHERE owner_id=?",
             userId,
           );
@@ -501,7 +557,7 @@ export class Identity {
   }
   authenticateRuntime(token: string): RuntimeIdentity | null {
     const row = this.get(
-      "SELECT s.* FROM node_binding_state s JOIN nodes n ON n.node_id=s.node_id AND n.owner_id=s.owner_id JOIN users u ON u.owner_id=s.owner_id AND u.membership_status='active' WHERE s.runtime_token_hash=?",
+      "SELECT s.* FROM node_binding_state s JOIN nodes n ON n.node_id=s.node_id AND n.owner_id=s.owner_id JOIN users u ON u.owner_id=s.owner_id AND (u.personal_space_enabled=1 OR u.membership_status='active') WHERE s.runtime_token_hash=?",
       digest(token),
     );
     return row
@@ -520,9 +576,9 @@ export class Identity {
   }
   private active(id: string): User {
     const user = this.user(id);
-    if (!user || user.membership_status !== "active")
+    if (!accountEnabled(user))
       throw new IdentityError(409, "receiving account must be active");
-    return user;
+    return user!;
   }
   private snapshot(nodeId: string): Row {
     return Object.fromEntries(
@@ -658,6 +714,7 @@ export class Identity {
       if (!["awaiting_account", "awaiting_local_confirmation", "committed"].includes(op.state))
         throw new IdentityError(409, "binding operation invalid or expired");
       if (action === "accept" && op.state === "awaiting_account") {
+        this.checkTransferRecipient(op.node_id, user);
         this.run(
           "UPDATE node_binding_operations SET target_user_id=?,target_owner=?,state='awaiting_local_confirmation' WHERE operation_id=?",
           userId,
@@ -669,6 +726,8 @@ export class Identity {
       return {
         node_id: op.node_id,
         node_name: op.node_name,
+        is_transfer: !!op.expected_owner && op.expected_owner !== user.owner_id,
+        history_transferred: !!op.expected_owner && op.expected_owner !== user.owner_id,
         agents: this.all("SELECT agent_id FROM agent_profiles WHERE node_id=?", op.node_id).map(
           (r) => r.agent_id,
         ),
@@ -681,6 +740,11 @@ export class Identity {
     if (op.state === "committed") throw new IdentityError(409, "binding already committed");
     this.run("UPDATE node_binding_operations SET state='cancelled' WHERE operation_id=?", id);
     return { state: "cancelled" };
+  }
+  private checkTransferRecipient(node: string, user: User): void {
+    const profiles = this.all("SELECT * FROM agent_profiles WHERE node_id=?", node);
+    if (profiles.some(p => p.space_id === "company:default") && user.membership_status !== "active")
+      throw new IdentityError(409, "company agents require an active company recipient");
   }
   devicePrepare(id: string, token: string): Row {
     return this.transaction(() => {
@@ -718,6 +782,7 @@ export class Identity {
       if (op.state !== "awaiting_local_confirmation" || !op.snapshot_json)
         throw new IdentityError(409, "local confirmation required");
       const user = this.active(op.target_user_id);
+      this.checkTransferRecipient(op.node_id, user);
       const expected = createHmac("sha256", Buffer.from(op.challenge_hash, "hex"))
         .update(
           canonical({
@@ -778,6 +843,10 @@ export class Identity {
         "node_credential_keys",
       ])
         this.run(`UPDATE ${table} SET owner_id=? WHERE node_id=?`, user.owner_id, op.node_id);
+      if (snapshot.agent_profiles.some((profile: Row) => profile.space_id.startsWith("personal:")))
+        this.run("UPDATE users SET personal_space_enabled=1 WHERE id=?", user.id);
+      this.run("UPDATE agent_profiles SET space_id=? WHERE node_id=? AND space_id LIKE 'personal:%'", `personal:${user.owner_id}`, op.node_id);
+      this.run("UPDATE users SET owner_id=? WHERE username IN (SELECT 'agent:'||agent_id FROM agent_profiles WHERE node_id=?)", user.owner_id, op.node_id);
       this.run(
         "UPDATE channel_manifest_heads SET manifest_revision=manifest_revision+1 WHERE node_id=?",
         op.node_id,
@@ -837,7 +906,7 @@ export class Identity {
       if (op.state !== "awaiting_account")
         throw new IdentityError(409, "fresh device proof required");
       const row = this.get(
-        "SELECT s.*,u.id AS user_id FROM node_binding_state s JOIN users u ON u.owner_id=s.owner_id AND u.membership_status='active' WHERE s.node_id=?",
+        "SELECT s.*,u.id AS user_id FROM node_binding_state s JOIN users u ON u.owner_id=s.owner_id AND (u.personal_space_enabled=1 OR u.membership_status='active') WHERE s.node_id=?",
         op.node_id,
       );
       if (!row || row.owner_id !== op.expected_owner || row.node_epoch !== op.expected_epoch)

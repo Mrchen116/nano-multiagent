@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
+import { ModelSetup, type SetupRequest } from './model-setup.js';
 import { projectCapabilities } from './capabilities.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
@@ -47,16 +48,17 @@ const reportError = (error: unknown) => process.stderr.write(`${error instanceof
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
   initialize: async rpc => {
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
-    await rpc.request('initialize', { protocol: 1, agents, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
+    await rpc.request('initialize', { protocol: 1, agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
   onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,
   onUnavailable: () => { trajectory?.closeAll(); return lifecycle.unavailable(); },
 });
+const modelSetup = new ModelSetup(configuration, runtime);
 const relay = new WebRelayConnection({
   url: config.im_service.url,
   credentials: () => ({ accessToken: config.im_service.token, registration: {
-    node_id: config.node.node_id, node_name: config.node.node_id, version: 'nano-dsh/0.1.0',
+    node_id: config.node.node_id, node_name: config.node.node_name ?? config.node.node_id, version: 'nano-dsh/0.1.0',
     agents: agents.map(agent => agent.agentId), user_id: config.node.user_id,
     agent_configurations: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)])),
     agent_workspaces: Object.fromEntries(agents.map(agent => [agent.agentId, agent.workspace])),
@@ -64,11 +66,16 @@ const relay = new WebRelayConnection({
     agent_skills: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.skills ?? []])),
     agent_skills_selection_modes: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)?.skills_selection_mode])),
     agent_tool_allowlist: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.tool_allowlist ?? []])),
-    ...channelKey.registration, capabilities: { channel_bootstrap: true },
+    ...channelKey.registration, capabilities: { channel_bootstrap: true, model_setup: true },
   } }),
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'node.setup.request') {
+      const status = await modelSetup.handle(payload as unknown as SetupRequest).catch(error => ({ error_code: 'setup_invalid', message: error instanceof Error ? error.message : 'Model setup failed' }));
+      await relay.request('node.setup', { request_id: payload.request_id, node_id: config.node.node_id, ...status });
+      return;
+    }
     if (frame.type === 'trajectory.prepare') { trajectory.prepare(payload.scope as Parameters<NodeTrajectory['prepare']>[0], String(payload.ticket)); return; }
     if (frame.type === 'trajectory.close') { trajectory.close(String(payload.observer_id)); return; }
     if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
@@ -81,6 +88,15 @@ const relay = new WebRelayConnection({
       const preview = frame.type.endsWith('preview.request');
       const workspace = current?.workspace_root ?? (typeof payload.workspace_root === 'string' && payload.workspace_root
         ? payload.workspace_root : configuration.defaultWorkspace(String(payload.agent_id_hint ?? 'preview')));
+      if (!config.llm.default_model && !current) {
+        await relay.request(preview ? frame.type.replace('.request', '') : 'node.capabilities', {
+          request_id: payload.request_id, node_id: config.node.node_id,
+          ...(preview ? { error_code: 'model_not_configured', message: 'Connect a model before creating your assistant' } : {
+            capabilities: { ...projectCapabilities({ tools: [], skills: [] }, config), default_workspace_template: configuration.defaultWorkspace('{agent_id}') },
+          }),
+        });
+        return;
+      }
       const candidate = configuration.runtime({ ...current, agent_id: agentId ?? 'preview', workspace_root: workspace,
         ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
           tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: 'explicit_allowlist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
@@ -232,7 +248,7 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   trajectory.closeAll();
-  try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

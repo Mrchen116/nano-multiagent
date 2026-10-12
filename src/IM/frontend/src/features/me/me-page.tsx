@@ -126,7 +126,7 @@ export function MePage() {
         </Link>
       </div>
 
-      <div
+      {user?.membership_status === "active" && <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-policies"
       >
@@ -140,9 +140,9 @@ export function MePage() {
           <p className={LABEL}>{t("shell.userMenu.policies")}</p>
           <span className={CHEVRON} aria-hidden="true">›</span>
         </Link>
-      </div>
+      </div>}
 
-      {user?.is_company_admin && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden>👥</span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
+      {user?.is_company_admin && user.membership_status === "active" && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden>👥</span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-language"

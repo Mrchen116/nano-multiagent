@@ -111,6 +111,7 @@ export function AccountPage() {
           <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.account.title")}</h1>
         </div>
       ) : null}
+      <div className="mx-auto flex w-full max-w-[620px] gap-4 px-5 pt-5 text-sm"><Link to="/onboarding">{t("onboarding.continue")}</Link><Link to="/membership">{t("onboarding.team")}</Link></div>
       <form
         className="im-account-page grid gap-4 mx-auto w-full max-w-[620px]"
         style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}

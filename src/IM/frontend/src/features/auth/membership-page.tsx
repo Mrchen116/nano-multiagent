@@ -3,7 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "../../i18n";
 import { AuthAlert, AuthPageFrame } from "./auth-page-frame";
 import { authFetchJson } from "./auth-fetch";
-import { AuthUser, useAuthStore } from "./auth-store";
+import { AuthUser, accountEnabled, useAuthStore } from "./auth-store";
 
 export function safeReturnPath(value: unknown): string {
   return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/^\/(login|register|membership)([/?#]|$)/.test(value) ? value : "/chat";
@@ -24,6 +24,14 @@ export function MembershipPage() {
   if (!user) return <Navigate to="/login" replace />;
   const from = safeReturnPath((location.state as { from?: string } | null)?.from);
   const suspended = user.membership_status === "suspended";
+  const notJoined = user.membership_status === "none";
+  async function join() {
+    setBusy(true); setError(false);
+    try {
+      const snapshot = await authFetchJson<AuthUser>("/im/v1/company/join", { method: "POST" });
+      useAuthStore.getState().replaceUser(snapshot);
+    } catch { setError(true); } finally { setBusy(false); }
+  }
   async function refresh() {
     setBusy(true); setError(false);
     try {
@@ -32,9 +40,11 @@ export function MembershipPage() {
       if (snapshot.membership_status === "active") navigate(from, { replace: true });
     } catch { setError(true); } finally { setBusy(false); }
   }
-  return <AuthPageFrame kicker={t("company.title")} title={t(suspended ? "company.suspended" : "company.pending")} subtitle={t(suspended ? "company.suspendedHint" : "company.pendingHint")} footer={<button className="im-auth-link" onClick={() => navigate("/login", { replace: true, state: { signOut: true } })}>{t("shell.userMenu.signOut")}</button>}>
+  return <AuthPageFrame kicker={t("company.title")} title={t(notJoined ? "company.notJoined" : suspended ? "company.suspended" : "company.pending")} subtitle={t(notJoined ? "company.notJoinedHint" : suspended ? "company.suspendedHint" : "company.pendingHint")} footer={<button className="im-auth-link" onClick={() => navigate("/login", { replace: true, state: { signOut: true } })}>{t("shell.userMenu.signOut")}</button>}>
     <p>{user.display_name || user.username}</p>
     {error && <AuthAlert>{t("auth.feedback.serviceUnavailable")}</AuthAlert>}
-    <button className="im-auth-submit" disabled={busy} onClick={() => void refresh()}>{t("company.refresh")}</button>
+    {notJoined ? <button className="im-auth-submit" disabled={busy} onClick={() => void join()}>{t("company.join")}</button>
+      : <button className="im-auth-submit" disabled={busy} onClick={() => void refresh()}>{t("company.refresh")}</button>}
+    {accountEnabled(user) && <button className="im-auth-link" onClick={() => navigate(from === "/chat" && !user.owned_node_ids.length ? "/onboarding" : from, { replace: true })}>{t("company.continuePersonal")}</button>}
   </AuthPageFrame>;
 }

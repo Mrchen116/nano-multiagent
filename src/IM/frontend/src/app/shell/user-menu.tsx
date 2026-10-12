@@ -159,15 +159,14 @@ export function UserMenu() {
             </div>
             <span className="im-user-menu-chevron-right" aria-hidden>›</span>
           </Link>
-          {/* bugfix-390: restore policies page entry below nodes per user decision */}
-          <Link role="menuitem" to="/settings/policies" onClick={() => setOpen(false)} className="im-user-menu-item">
+          {user.membership_status === "active" && <Link role="menuitem" to="/settings/policies" onClick={() => setOpen(false)} className="im-user-menu-item">
             <span className="im-user-menu-icon"><MenuIcon kind="policies" /></span>
             <div className="im-user-menu-item-body">
               <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.policies")}</div>
             </div>
             <span className="im-user-menu-chevron-right" aria-hidden>›</span>
-          </Link>
-          {user.is_company_admin && (
+          </Link>}
+          {user.is_company_admin && user.membership_status === "active" && (
             <Link role="menuitem" to="/settings/company" onClick={() => setOpen(false)} className="im-user-menu-item">
               <span className="im-user-menu-icon"><MenuIcon kind="account" /></span>
               <div className="im-user-menu-item-body">

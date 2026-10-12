@@ -54,24 +54,28 @@ export function providerProfiles(config: NodeConfigurationFile["llm"]) {
   const providers: Record<string, unknown> = {};
   const env: NodeJS.ProcessEnv = {};
   for (const [index, provider] of config.providers.entries()) {
+    if (provider.native) {
+      providers[provider.name] = { models: provider.models.map(model => nativeModel(model, false)) };
+      continue;
+    }
     const credential = `NANO_PROVIDER_${index}_KEY`;
     if (provider.api_key) env[credential] = provider.api_key;
-    else if (
+    else if (!provider.credential_stored &&
       ["127.0.0.1", "localhost", "[::1]"].includes(
-        new URL(provider.base_url).hostname,
+        new URL(provider.base_url!).hostname,
       )
     )
       env[credential] = "nano-local-proxy";
     providers[provider.name] = {
-      api:
+      api: provider.protocol ?? (
         provider.name === "anthropic"
           ? "anthropic-messages"
-          : "openai-completions",
+          : "openai-completions"),
       baseURL: provider.base_url,
       defaultInput: ["text", "image"],
       ...(env[credential] ? { apiKeyEnv: credential } : {}),
       models: provider.models.map((model) =>
-        nativeModel(model, provider.name === "anthropic"),
+        nativeModel(model, provider.protocol === 'anthropic-messages' || provider.name === "anthropic"),
       ),
     };
   }

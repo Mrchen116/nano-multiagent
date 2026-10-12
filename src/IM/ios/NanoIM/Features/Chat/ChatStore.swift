@@ -49,7 +49,7 @@ final class ChatStore {
                 connectionText = L("正在连接…", "Connecting…")
                 let currentUser = try await client.session.updateUser()
                 guard token == epoch, !Task.isCancelled else { return }
-                guard currentUser.membership_status == "active" else { clear(); return }
+                guard currentUser.accountEnabled else { clear(); return }
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard token == epoch, !Task.isCancelled else { return }
                 reconcile(sync.items)

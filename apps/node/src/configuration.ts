@@ -14,13 +14,13 @@ export interface LocalAgent extends Record<string, unknown> {
   group_reply_policy?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
 }
 export interface NodeConfigurationFile {
-  node: { node_id: string; user_id: string; workspace_base?: string };
+  node: { node_id: string; node_name?: string; user_id: string; workspace_base?: string };
   im_service: { url: string; token: string;username?:string;password?:string;refresh_token?:string };
   agents: LocalAgent[];
   gateway?: {autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
-  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; extra_request_body?: Record<string, unknown>; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
+  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; native?: boolean; protocol?: 'openai-completions' | 'anthropic-messages' | 'openai-responses'; base_url?: string; api_key?: string; credential_stored?: boolean; models: { name: string; context_window?: number; extra_request_body?: Record<string, unknown>; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
 }
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
@@ -105,6 +105,15 @@ export class NodeConfiguration {
     const task = this.persistence.then(() => this.write(candidate));
     this.persistence = task.catch(() => {}); return task;
   }
+  /** Commit verified routes without putting new provider secrets in the node file. */
+  persistModels(llm: NodeConfigurationFile['llm']): Promise<void> {
+    const task = this.persistence.then(async () => {
+      await this.writeFile({ ...this.value, llm });
+      this.value.llm = llm;
+    });
+    this.persistence = task.catch(() => {});
+    return task;
+  }
   async setWorkflowGuideline(agentId: string, guideline: string): Promise<AgentConfiguration> {
     if (!['unrestricted', 'small', 'medium', 'large'].includes(guideline)) throw new Error('Invalid Workflow size guideline');
     const task = this.persistence.then(async () => {
@@ -124,12 +133,15 @@ export class NodeConfiguration {
     delete agent.heartbeat_json;
     const agents = this.value.agents.filter(item => item.agent_id !== candidate.agent_id).concat(agent);
     await mkdir(agent.workspace_root, { recursive: true });
+    await this.writeFile({ ...this.value, agents });
+    this.value.agents = agents;
+  }
+  private async writeFile(value: NodeConfigurationFile): Promise<void> {
     const temporary = join(dirname(this.path), `.nano-config-${randomUUID()}.tmp`);
     const file = await open(temporary, 'wx', 0o600);
-    try { await file.writeFile(dump({ ...this.value, agents }, { noRefs: true })); await file.sync(); } finally { await file.close(); }
+    try { await file.writeFile(dump(value, { noRefs: true })); await file.sync(); } finally { await file.close(); }
     await rename(temporary, this.path);
     const directory = await open(dirname(this.path), 'r');
     try { await directory.sync(); } finally { await directory.close(); }
-    this.value.agents = agents;
   }
 }

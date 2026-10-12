@@ -10,7 +10,7 @@ struct NanoIMApp: App {
             Group {
                 if !model.ready { ProgressView(L("恢复登录…", "Restoring session…")) }
                 else if let user = model.user {
-                    if user.membership_status == "active" {
+                    if user.accountEnabled {
                         RootTabs(client: model.client, user: user, accountUpdated: { Task { await model.refreshUser() } }, signOut: { Task { await model.signOut() } })
                             .id("\(model.client.baseURL)-\(user.id)")
                     } else { MembershipView(model: model, user: user) }

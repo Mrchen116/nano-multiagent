@@ -1,3 +1,4 @@
+import { agentAvailable } from "./identity.js";
 import {
   createCipheriv,
   createHash,
@@ -147,11 +148,11 @@ export class ChannelService {
   private agent(owner: string, agent: string) {
     const p = one(
       this.db,
-      "SELECT node_id FROM agent_profiles WHERE agent_id=? AND owner_id=?",
+      "SELECT * FROM agent_profiles WHERE agent_id=? AND owner_id=?",
       agent,
       owner,
     );
-    if (!p?.node_id) channelError("channel_not_found", 404);
+    if (!p?.node_id || !agentAvailable(this.db, p)) channelError("channel_not_found", 404);
     return p.node_id as string;
   }
   private key(owner: string, node: string) {
@@ -165,6 +166,7 @@ export class ChannelService {
     return k;
   }
   private row(owner: string, agent: string, channel: string) {
+    this.agent(owner, agent);
     const r = one(
       this.db,
       `${joined} WHERE ac.channel_id=? AND ac.owner_id=? AND ac.agent_id=?`,

@@ -14,7 +14,7 @@ import { setLanguage } from "../../i18n";
 
 function mount(entry = "/chat") {
   const router = createMemoryRouter([
-    { path: "/chat", element: <RequireAuth><p>Company secrets</p></RequireAuth> },
+    { path: "/chat", element: <RequireAuth><p>Protected app</p></RequireAuth> },
     { path: "/membership", element: <MembershipPage /> },
     { path: "/login", element: <LoginPage /> },
     { path: "/settings/company", element: <CompanyMembersPage /> },
@@ -36,10 +36,28 @@ describe("company access", () => {
     let resolve!: (response: Response) => void;
     vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise(done => { resolve = done; }));
     mount();
-    expect(screen.queryByText("Company secrets")).not.toBeInTheDocument();
+    expect(screen.queryByText("Protected app")).not.toBeInTheDocument();
     resolve(response({ ...TEST_AUTH_USER, membership_status: "pending" }));
     expect(await screen.findByRole("heading", { name: "Waiting for approval" })).toBeInTheDocument();
-    expect(screen.queryByText("Company secrets")).not.toBeInTheDocument();
+    expect(screen.queryByText("Protected app")).not.toBeInTheDocument();
+  });
+
+  it("lets a personal user continue using the app while team approval is pending", async () => {
+    const personal = { ...TEST_AUTH_USER, membership_status: "pending" as const, personal_space_enabled: true, account_status: "active" as const, is_company_admin: false };
+    useAuthStore.getState().replaceUser(personal);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response(personal));
+    mount();
+    expect(await screen.findByText("Protected app")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", {name: "Waiting for approval"})).not.toBeInTheDocument();
+  });
+
+  it("does not retain company administration when a personal administrator is suspended", async () => {
+    const personal = { ...TEST_AUTH_USER, membership_status: "suspended" as const, personal_space_enabled: true, account_status: "active" as const };
+    useAuthStore.getState().replaceUser(personal);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(personal));
+    mount("/settings/company");
+    await screen.findByText("Protected app");
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("/company/members"))).toBe(false);
   });
 
   it("refreshes approval and returns to the original company destination", async () => {
@@ -47,7 +65,7 @@ describe("company access", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => response(TEST_AUTH_USER));
     mount("/membership");
     await userEvent.click(screen.getByRole("button", { name: "Refresh status" }));
-    expect(await screen.findByText("Company secrets")).toBeInTheDocument();
+    expect(await screen.findByText("Protected app")).toBeInTheDocument();
   });
 
   it("keeps entered credentials during server cooldown and disables retries", async () => {
@@ -67,7 +85,7 @@ describe("company access", () => {
     useAuthStore.getState().replaceUser({ ...TEST_AUTH_USER, is_company_admin: false });
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response({ ...TEST_AUTH_USER, is_company_admin: false }));
     mount("/settings/company");
-    await screen.findByText("Company secrets");
+    await screen.findByText("Protected app");
     expect(fetch.mock.calls.some(([url]) => String(url).includes("/company/members"))).toBe(false);
   });
 

@@ -1,4 +1,5 @@
 import { afterEach } from "vitest";
+import { createIdentity } from "../src/identity.js";
 import { openDatabase } from "../src/db.js";
 import type { ImContext } from "../src/context.js";
 const databases: ReturnType<typeof openDatabase>[] = [];
@@ -28,16 +29,11 @@ export function fixture() {
     db.prepare(
       "INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat',?)",
     ).run(user);
+  const identity = createIdentity(db, "control-test-secret");
+  identity.authenticateRequest = (req: any) => identity.user(req.headers["x-user"] === "u2" ? "u2" : "u1")!;
   const ctx = {
     db,
-    identity: {
-      authenticateRequest: (req: any) => ({
-        id: req.headers["x-user"] === "u2" ? "u2" : "u1",
-        owner_id: req.headers["x-user"] === "u2" ? "o2" : "o1",
-        is_company_admin: true,
-      }),
-      authenticateRuntime: () => null,
-    },
+    identity,
     gateway: {
       request: async () => null,
       send: () => false,

@@ -77,7 +77,7 @@ export function RegisterPage() {
         display_name: displayName.trim() || normalizedUsername,
         locale: getCurrentLanguage()
       });
-      navigate("/membership", { replace: true, state: { from } });
+      navigate(from.startsWith("/bind/confirm") ? from : "/onboarding", { replace: true, state: { from } });
     } catch (error) {
       if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }
       const fieldFeedback = registrationFeedbackForApiError(error);

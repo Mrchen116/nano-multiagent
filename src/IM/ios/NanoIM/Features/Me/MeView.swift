@@ -20,7 +20,7 @@ struct MeView: View {
                     }
                 }.padding(.vertical, 8)
             }
-            if user.membership_status == "active" {
+            if user.accountEnabled {
                 Section(L("账号与设备", "Account and devices")) {
                     NavigationLink {
                         SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated)
@@ -32,6 +32,8 @@ struct MeView: View {
                         SettingsBindingView(client: client, user: user, onAccountUpdated: onAccountUpdated)
                     } label: { Label(L("绑定设备", "Bind a device"), systemImage: "link") }
                 }
+            }
+            if user.membership_status == "active" {
                 Section(L("公司", "Company")) {
                     NavigationLink {
                         SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)

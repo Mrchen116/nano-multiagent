@@ -12,7 +12,7 @@ import {
   type ImContext,
   type Row,
 } from "./context.js";
-import { bearer } from "./identity.js";
+import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, requireCompanyAdmin } from "./identity.js";
 import { canonicalJson } from "./task-graphs.js";
 import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
@@ -102,6 +102,7 @@ export function profileResponse(p: Row, mirror = false): Row {
       [
         "agent_id",
         "owner_id",
+        "space_id",
         "node_id",
         "display_name",
         "description",
@@ -164,6 +165,12 @@ export class ConfigOperations {
       if (this.locks.get(id) === next) this.locks.delete(id);
     }
   }
+  private authorize(owner: string, node: string, agent: string): void {
+    const user = ownerAccount(this.ctx.db, owner);
+    const device = one(this.ctx.db, "SELECT owner_id FROM nodes WHERE node_id=?", node);
+    const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", agent);
+    if (!accountEnabled(user) || device?.owner_id !== owner || (profile && (profile.owner_id !== owner || !canAccessSpace(user, profile.space_id)))) fail(404, "agent_id not found");
+  }
   private active(agent: string, owner: string) {
     return one(
       this.ctx.db,
@@ -182,6 +189,7 @@ export class ConfigOperations {
     root: string | null = null,
     previousHash?: string,
   ): Row {
+    this.authorize(owner, node, candidate.agent_id);
     const id = randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
@@ -214,6 +222,7 @@ export class ConfigOperations {
     return one(this.ctx.db, "SELECT * FROM agent_config_operations WHERE operation_id=?", id)!;
   }
   private async request(op: Row) {
+    this.authorize(op.owner_id, op.node_id, op.agent_id);
     const c = gatewayCandidate(JSON.parse(op.candidate_json));
     if (op.operation_kind === "create") c.create_operation_id = op.operation_id;
     return gatewayRequest(
@@ -237,6 +246,7 @@ export class ConfigOperations {
       });
       if (result?.status === "pending") result = await this.request(op);
     }
+    this.authorize(op.owner_id, op.node_id, op.agent_id);
     if (!result || !["applied", "rejected"].includes(result.status)) pending();
     if (
       result.operation_id !== op.operation_id ||
@@ -296,6 +306,7 @@ export class ConfigOperations {
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   private async commit(op: Row, result: Row): Promise<Row> {
+    this.authorize(op.owner_id, op.node_id, op.agent_id);
     const db = this.ctx.db;
     if (op.operation_kind === "compensation") {
       transaction(db, () => {
@@ -411,11 +422,11 @@ export class ConfigOperations {
         if (!changed.changes) fail(409, "profile_version conflict");
       } else
         db.prepare(
-          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,work_mode,workspace_root,workspace_is_default,features_json,custom_prompt,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)",
-        ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now());
+          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,work_mode,workspace_root,workspace_is_default,features_json,custom_prompt,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
+        ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now(), defaultSpace(ownerAccount(db, op.owner_id)!));
       db.prepare(
         "INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",
-      ).run(randomUUID(), `agent:${op.agent_id}`, c.display_name || op.agent_id, "", now());
+      ).run(randomUUID(), `agent:${op.agent_id}`, c.display_name || op.agent_id, op.owner_id, now());
       db.prepare("UPDATE users SET display_name=? WHERE username=?").run(
         c.display_name || op.agent_id,
         `agent:${op.agent_id}`,
@@ -434,13 +445,13 @@ function requireProfile(ctx: ImContext, agent: string, owner: string): Row {
     agent,
     owner,
   );
-  if (!p) fail(404, "agent_id not found");
+  if (!p || !canAccessSpace(ownerAccount(ctx.db, owner), p.space_id)) fail(404, "agent_id not found");
   return p;
 }
 function requireNode(ctx: ImContext, node: string, owner: string) {
   const n = one(
     ctx.db,
-    "SELECT * FROM nodes WHERE node_id=? AND (owner_id=? OR COALESCE(owner_id,'')='')",
+    "SELECT * FROM nodes WHERE node_id=? AND owner_id=?",
     node,
     owner,
   );
@@ -547,7 +558,15 @@ function requiredWorkspace(p: Row) {
 }
 export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   const ops = new ConfigOperations(ctx);
-  const user = (req: FastifyRequest) => ctx.identity.authenticateRequest(req);
+  const user = (req: FastifyRequest) => {
+    const u = ctx.identity.authenticateRequest(req);
+    const id = params(req)?.agent_id;
+    if (id) {
+      const profile = one(ctx.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", id);
+      if (profile) ctx.identity.requireSpace(u, profile.space_id);
+    }
+    return u;
+  };
   const rpc = async (node: string, action: string, payload: Row) => {
     const response = await gatewayRequest(ctx, node, action, payload);
     if (!response) fail(503, "target_node_id is not connected");
@@ -556,7 +575,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/nodes", async (req) =>
     all(
       ctx.db,
-      "SELECT * FROM nodes WHERE owner_id=? OR COALESCE(owner_id,'')='' ORDER BY node_id",
+      "SELECT * FROM nodes WHERE owner_id=? ORDER BY node_id",
       (await user(req)).owner_id,
     ).map(nodeResponse),
   );
@@ -667,14 +686,15 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req);
     return all(
       ctx.db,
-      "SELECT p.*,n.status AS node_status,u.id AS user_id FROM agent_profiles p LEFT JOIN nodes n ON n.node_id=p.node_id LEFT JOIN users u ON u.username='agent:'||p.agent_id WHERE p.is_stale=0 AND p.node_id IS NOT NULL AND ((p.owner_id=? AND COALESCE(n.owner_id,'') IN ('',?)) OR (p.owner_id='' AND COALESCE(n.owner_id,'')='')) ORDER BY p.created_at,p.rowid",
+      "SELECT p.*,n.status AS node_status,u.id AS user_id FROM agent_profiles p LEFT JOIN nodes n ON n.node_id=p.node_id LEFT JOIN users u ON u.username='agent:'||p.agent_id WHERE p.is_stale=0 AND p.node_id IS NOT NULL AND p.owner_id=? AND n.owner_id=? ORDER BY p.created_at,p.rowid",
       u.owner_id,
       u.owner_id,
-    ).map((p) => ({
+    ).filter(p => canAccessSpace(u, p.space_id)).map((p) => ({
       ...Object.fromEntries(
         [
           "agent_id",
           "owner_id",
+          "space_id",
           "node_id",
           "display_name",
           "description",
@@ -869,7 +889,8 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     };
   });
   app.get("/im/v1/policies", async (req) => {
-    await user(req);
+    const u = await user(req);
+    ctx.identity.requireSpace(u, "company:default");
     const { singleton_key: _key, ...result } = one(
       ctx.db,
       "SELECT * FROM settings_policies LIMIT 1",
@@ -878,7 +899,8 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.patch("/im/v1/policies", async (req) => {
     const u = await user(req);
-    if (!u.is_company_admin) fail(403, "Company administrator required");
+    requireCompanyAdmin(u);
+    ctx.identity.requireSpace(u, "company:default");
     const b = body(req),
       fields = [
         "default_model",

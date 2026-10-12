@@ -11,6 +11,8 @@ struct AuthUser: Codable, Sendable, Equatable {
     var default_entry_node_id: String?
     var owned_node_ids: [String]
     var created_at: String
+    var personal_space_enabled: Bool?
+    var accountEnabled: Bool { personal_space_enabled == true || membership_status == "active" }
 }
 
 struct Contact: Codable, Identifiable, Sendable, Hashable {

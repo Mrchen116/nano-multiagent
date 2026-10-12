@@ -1,3 +1,4 @@
+import { agentAvailable } from "./identity.js";
 import { createHmac, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -27,7 +28,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
       p.node_id,
       p.owner_id,
     );
-    if (!a) fail(404, "agent_id not found");
+    if (!a || !agentAvailable(db, a)) fail(404, "agent_id not found");
     if (!b.external_source?.trim() || !b.external_chat_id?.trim() || !b.title?.trim())
       fail(422, "external source, chat and title required");
     const user = s.agentUser(a.agent_id);
@@ -41,17 +42,19 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     }
     let c = one(
       db,
-      "SELECT * FROM conversations WHERE external_source=? AND external_chat_id=? AND config_agent_id=?",
+      "SELECT * FROM conversations WHERE external_source=? AND external_chat_id=? AND config_agent_id=? AND owner_id=? AND space_id=?",
       b.external_source,
       b.external_chat_id,
       a.agent_id,
+      p.owner_id,
+      a.space_id,
     );
     if (c && c.owner_id !== p.owner_id) fail(404, "conversation not accessible");
     if (!c) {
       const id = chatId("c_");
       transaction(db, () => {
         db.prepare(
-          "INSERT INTO conversations(id,title,type,owner_id,creator_id,config_agent_id,config_profile_version,external_source,external_chat_id,target_node_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO conversations(id,title,type,owner_id,creator_id,config_agent_id,config_profile_version,external_source,external_chat_id,target_node_id,created_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         ).run(
           id,
           b.title,
@@ -64,6 +67,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           b.external_chat_id,
           p.node_id,
           now(),
+          a.space_id,
         );
         for (const uid of [p.owner_id, user.id])
           db.prepare(
@@ -138,7 +142,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           skills: [],
           commands: [],
         };
-        if (!a?.node_id || !a.workspace_root) return result;
+        if (!a?.node_id || !a.workspace_root || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", id)!.space_id) return result;
         try {
           const response = await ctx.gateway.request(a.node_id, "agent.config.get", {
               agent_id: agentId,
@@ -204,7 +208,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           source.source_agent_id,
           p.owner_id,
         );
-      if (c.run_state !== "idle" || c.source_agent_id !== source.source_agent_id || !a?.node_id)
+      if (c.run_state !== "idle" || c.source_agent_id !== source.source_agent_id || !a?.node_id || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id)
         fail(409, "selected source is unavailable");
       if (node && node !== a.node_id) fail(409, "selected sources must belong to one Gateway");
       node = a.node_id;
@@ -226,7 +230,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
       p.owner_id,
       node,
     );
-    if (!execution) fail(409, "execution agent must belong to selected Gateway");
+    if (!execution || !agentAvailable(db, execution) || sources.some(source => one(db, "SELECT space_id FROM conversations WHERE id=?", source.conversation_id)!.space_id !== execution.space_id)) fail(409, "execution agent must belong to selected space and Gateway");
     const r = await ctx.gateway.request(node!, "node.distill.prompt.request", {
       sources,
       execution_agent_id: b.execution_agent_id,
@@ -243,6 +247,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         participants: [{ type: "agent", id: execution.agent_id }],
       },
       true,
+      execution.space_id,
     );
     db.prepare("UPDATE conversations SET target_node_id=? WHERE id=?").run(node!, c.id);
     reply.code(201);
@@ -275,6 +280,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         participants: [{ type: "agent", id: a.agent_id }],
       },
       true,
+      one(db, "SELECT space_id FROM conversations WHERE id=?", id)!.space_id,
     );
     try {
       const result = await ctx.gateway.request(a.node_id, "session.fork.request", {
@@ -411,7 +417,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
       card.agent_id,
       card.node_id,
     );
-    if (!a || card.status !== "pending") fail(409, "permission participants unavailable");
+    if (!a || card.status !== "pending" || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", r.conversation_id)!.space_id) fail(409, "permission participants unavailable");
     if (!card.options?.some((x: Row) => x.id === b.decision))
       fail(409, "decision is not an option for this request");
     Object.assign(card, {

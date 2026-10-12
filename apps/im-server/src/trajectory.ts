@@ -1,3 +1,4 @@
+import { canAccessSpace } from "./identity.js";
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type WebSocket from 'ws';
@@ -29,7 +30,7 @@ export class TrajectoryObservers {
     if (!auth) { socket.close(1008); return; }
     try {
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
-      if (!profile) throw new Error('该执行不可访问');
+      if (!profile || !canAccessSpace(this.ctx.identity.user(auth.user_id), profile.space_id)) throw new Error('该执行不可访问');
       const selected = this.ctx.gateway.work.session(agentId, sessionId);
       let root = selected;
       while (root.parent_session_id) root = this.ctx.gateway.work.session(agentId, root.parent_session_id);
@@ -102,6 +103,8 @@ export class TrajectoryObservers {
   }
 
   valid(observer: Observer): boolean {
+    const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", observer.scope.rootAgentId);
+    if (!profile || profile.owner_id !== observer.scope.ownerId || !canAccessSpace(this.ctx.identity.user(observer.userId), profile.space_id)) return false;
     return this.ctx.gateway.nodes.get(observer.device.node_id) === observer.device && observer.device.socket.readyState === 1
       && this.ctx.gateway.valid(observer.device) && this.ctx.gateway.browserValid(observer);
   }
