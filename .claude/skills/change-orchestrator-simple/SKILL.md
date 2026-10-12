@@ -14,6 +14,7 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 - 默认主 Agent 端到端实施与集成，首轮仅将可独立交付且收益足够的具体任务派给 subagent，不按层机械拆 worker。微小修复、环境命令和格式收尾直接完成。派发/复用遵循 workflow 的职责边界与下述派发适配；Codex 派发前读取 [适配表](../change-orchestrator/references/codex-execution-notes.md)；每个 milestone 退出标准须可从代码、测试、commits 和证据复核。
 - 按受影响区域读取相关实现、current specs、[测试规范](../../../docs/development/testing.md)；复用带版本、命令和结果的有效证据。先稳定 fixture 并完成窄测试，再跑本地全量与 CI，不因角色交接重复全量。
 - 对可测试的新行为/bug 取得有意义的失败复现，再实现并跑最窄验证。真实用户入口、跨进程链路、前端交互及适用原型对照须有真实证据；mock 不替代它们。
+- 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，在真实客户端先走查整体体验再交付验收；平台控件与功能接通不能代替视觉和交互设计。设计缺口带证据交回 author，不留给用户逐项发现。
 - 服务按 [worktree-runtime](../../../docs/development/worktree-runtime.md) 隔离。lite 回填 fix 的修复/验证；关键设计变化交回 author，需求或范围变化重新与用户对齐。
 
 ## 门禁与交付

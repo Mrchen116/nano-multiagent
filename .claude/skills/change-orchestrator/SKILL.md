@@ -14,7 +14,7 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 - 首轮仅在独立交付收益明确时将 milestone 派发 `change-impl-worker`；给 assignment、退出标准、unit 与 milestone 路径和精确 worktree/branch 计划。worker 自建并拥有现场，不设置 harness 自动 worktree isolation，不接管已派出的实施。
 - 仅在无依赖和写冲突时并行。后续审查、验收、CI 或用户反馈发现的问题由主 Agent 修复，不新派或唤醒修复 worker；修复后仍需适用的独立复验。
 - 派发与复用遵循 workflow 的职责边界与下述派发适配；Codex 派发前读取 [适配表](references/codex-execution-notes.md)；等待完成或 attention 通知，不轮询催进度。收到 blocker 后处理授权范围内问题，已确认需求或关键设计变化交回 author。
-- 签收以最终 unit tree 的退出标准证据为准。worker 的两份短记录、commits 和适用真实入口/prototype 对照证据必须可达；假入口、未完成验证和口头 DONE 不足以签收。
+- 签收以最终 unit tree 的退出标准证据为准。worker 的记录、commits 和真实入口证据必须可达；界面按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 核对整体体验与设计兑现，功能接通和口头 DONE 不足以签收。整体体验反馈由主 Agent 查明共同成因、集中修正并按影响复验。
 
 ## 独立门禁
 

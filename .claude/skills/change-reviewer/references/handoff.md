@@ -8,7 +8,7 @@ Issues 含 Severity（blocking/major/minor）、Regression Relation（direct/sus
 
 - 违反验收、阻塞关键路径或疑似本次同屏/相邻回归：默认 fix-implementation，因果交由 owner 查。
 - 明显无关、不影响可接受性且不像副作用：blocking/major 为 out-of-unit，记录关联 issue；minor 只记 Side Findings。对外创建 issue 需有当前任务授权，不因读到报告自动外发。
-- revise-design 需非首轮、同 issue 至少两轮 fix 未解决、引用 design 的具体矛盾。Highest Required Action 优先级：revise-design > fix-implementation > out-of-unit > pass。
+- 真实旅程与设计约定已显示方案本身妨碍用户目标时，引用具体设计、实际体验及用户代价，建议 revise-design；不以修复轮数为前提。尚不能区分设计与实现原因时，保留观察并交 owner 判真，不凭猜测改设计。Highest Required Action 优先级：revise-design > fix-implementation > out-of-unit > pass。
 
 报告注明 validated_at/executed_base、真实覆盖、Reference Artifacts Reviewed、上层文档待同步项。只 stage 本报告并 commit。并行报告使 push 被拒时 fetch/rebase 报告提交再普通 push；冲突或非报告变化交 owner 判定，不 force push。报告 commit 可从远端 unit branch 达到后才回报成功，validated_at 保留原值。
 
