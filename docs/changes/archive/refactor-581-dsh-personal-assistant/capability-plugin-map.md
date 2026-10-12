@@ -1,5 +1,6 @@
 # refactor-581：Agent 能力覆盖与源码可扩展性核查
 
+> **2026-10-10用户修订**：O09原Workflow child审批卡补迁方案已撤回，所有子 Agent统一采用DSH委派权限；下面有关原能力缺口的对照保留作历史取证，不再作为实施要求。最新决定见[产品取舍记录](pending-decisions.md)，根聊天授权取证延后至[issue #330](https://github.com/Mrchen116/nano-multiagent/issues/330)。
 > 2026-10-09，源码核查稿。先回答“DSH 已经覆盖什么、差异是什么、公开接口能补到哪里”。[终态架构](target-architecture.md)已同步全量审计与Q22—Q24修订，已随正式设计通过独立Round 3复审；本页保留原生覆盖及扩展成本的源码依据。
 >
 > 本轮再次 `git fetch origin`：Nano `origin/main` 仍为 `4915c44cb7f7b829414a19087877ad9b73d69ea1`，DSH `origin/master` 仍为 `5badb15009ae1756c3afe0ae0cef1faafc290ccc`（`0.2.1-alpha.1`）。以下是固定版本的源码／契约核查，未运行 Nano↔DSH 接入 PoC，不代表已验证产品等价。
@@ -79,7 +80,7 @@
 | O06 | Workflow 按名称／路径保存发现、project/personal/builtin、一层嵌套 | 原生接受 script/meta/args；没有等价 saved/nested 管理 | **已确认按原行为保留**，补命名catalog与共享父限额/停止/预算的一层嵌套 [N12]、[D13] |
 | O07 | Workflow pause/resume、某个 logical child restart、最长已完成前缀复用 | 原生 handle 为 result/cancel/dispose，没有脚本状态／中间值 checkpoint 或 Nano 前缀复用 | **已确认保留，需专项扩展**；不是改事件格式能完成 [N12]、[D13] |
 | O08 | Workflow 总 token target、统计、规模 guideline、子调用 effort/type/worktree 等控制 | 原生有并发／child 数／item 数限制，但不是同一共享 token budget，child 参数也不同 | **共享 output-token预算已确认保留**；其他参数按实际用途映射，不把 limit 名称相似当等价 [N12]、[D13] |
-| O09 | Workflow child在父前台结束后向原Web/飞书消息弹审批卡 | 默认child为never；公开创建生命周期可设置初始policy | **缺失能力补迁**：迁移可信绑定、delegation提示和原消息审批，复用原生child/ApprovalService；不另造provider [N13]、[D06] |
+| O09 | Workflow child在父前台结束后向原Web/飞书消息弹审批卡 | 默认child为never；公开创建生命周期可设置初始policy | **用户已选择原生语义**：2026-10-10取消此特例，所有child统一never，Auto阻断后交父Agent；原完成结果投递保留 [N13]、[D06] |
 | O10 | Cron创建/管理、执行、运行历史与交付 | 原生schedule绑定当前主会话，持久定义/timer/calendar/冷恢复已有；receipt只到inbox | **已选原生主对话投递＋补迁产品执行历史/交付**；退出旧每次新建隔离session的派发，见S1—S3 [N14]、[D14] |
 | O11 | Heartbeat 主上下文、忙时跳过、静默、活跃时段；错过周期不刷屏，一次性过期不补跑 | schedule 可定时发输入，但不自动实现这一组规则；overdue active 一次性安排仍可能投递 | **Heartbeat产品策略迁移；Cron过期一次性已确认改为DSH补发**，退出旧跳过规则；不新增Nano DSH heartbeat引擎 [N14]、[D14] |
 

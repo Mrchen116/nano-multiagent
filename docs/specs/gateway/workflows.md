@@ -67,36 +67,18 @@ Web 与外部 IM 的 Workflow 来源、能力开关、运行时查询控制、�
 - **WHEN** 人工用户通过`/workflows`对run或Agent发起pause、resume、stop、restart或save
 - **THEN** Gateway操作指定run，并把结果或稳定错误作为原channel的普通回复返回，不影响其他run或误操作普通对话回合。
 
-### Requirement: Workflow 子 Agent 的权限请求回到原人工会话
+### Requirement: Workflow 子 Agent 沿用统一委派权限
 
-#### Scenario: Web IM 批准子 Agent 工具
-- **GIVEN** Workflow 子 Agent 的工具调用需要人工确认
-- **AND** parent foreground turn 已在 async launch 后结束
-- **WHEN** parent 会话来自 Web IM
-- **THEN** Gateway 用 terminal 前保留的 conversation/message anchor，把批准请求按 request id 幂等追加到原 Workflow launch assistant message
-- **AND** 浏览器重连后仍从该已有 message 看到同一张卡，用户决定交回同一个 pending request
+#### Scenario: Auto 拒绝后交回父 Agent
+- **GIVEN** Workflow 子 Agent 与普通 subagent 使用相同的委派权限边界
+- **WHEN** Auto 不放行工具、审核失败或工具仍需要人工批准
+- **THEN** 当次操作不执行，子 Agent 得到阻断结果并向父 Agent报告；不向 Web IM、iOS 或飞书发送子 Agent专属审批卡，不等待卡片答复。
+- **AND** Workflow 不因交互式发起、父前台回合结束或无人值守回退配置而扩大子 Agent的权限。
 
-#### Scenario: 同一会话的多个 Workflow 权限不串消息
-- **GIVEN** parent session 的后台 subscriber 已存在，且两个 Workflow 分别从两条 assistant message 启动
-- **WHEN** 两个 run 的子 Agent 各自发送 permission request 并稍后 resolved
-- **THEN** Gateway 按 workflow run id、agent call id 与 request id 把每组事件幂等更新各自 launch message
-- **AND** 不使用首个或最新 launch 作 fallback，两个 run 终态后各自清理 binding
-
-#### Scenario: 权限或终态早于 launch anchor 不丢失路由
-- **GIVEN** Workflow tool result 以非展示 machine metadata 关联 parent tool call 与 Workflow run
-- **WHEN** child permission request 或 terminal event 比 Web launch anchor 先到 Gateway
-- **THEN** Gateway 按 machine correlation 暂存 request/resolved 或 terminal tombstone，anchor 到达后原序投递或清理
-- **AND** 通用 `tool_end.run_id` 仍仅表示 parent foreground run，不被误当 Workflow run id
-- **AND** terminal 只由 Workflow manager 在收口 pending broker request 后发布，不 relay 成 IM Workflow event
-
-#### Scenario: 飞书批准子 Agent 工具
-- **GIVEN** parent 会话来自飞书等支持原生批准的外部 IM
-- **WHEN** Workflow 子 Agent 请求权限
-- **THEN** 原生批准卡出现在原聊天，点击结果解析到同一个 pending request
-
-#### Scenario: 无人值守运行不挂起
-- **WHEN** 非交互来源的 Workflow child 遇到需确认工具
-- **THEN** Gateway 不发送无法响应的批准卡，结果遵循既有 unattended permission policy
+#### Scenario: 补充指令后重新审查
+- **WHEN** 父 Agent与用户沟通后向子 Agent提供补充指令，或恢复/重新派发该工作
+- **THEN** 后续操作仍走 Auto 与原有工具范围限制；直接父级指令保留来源，不伪装为真人消息，不自动解锁先前被拒操作。
+- **AND** 本阶段不额外读取根聊天的新用户授权；后续能力跟踪见 [issue #330](https://github.com/Mrchen116/nano-multiagent/issues/330)。
 
 ### Requirement: Gateway 对 Workflow 完成、显式查询和后台噪声采用不同投递节奏
 
@@ -154,6 +136,6 @@ Web 与外部 IM 的 Workflow 来源、能力开关、运行时查询控制、�
 - **WHEN** 父Agent、多个Workflow及其子任务/替换尝试在同一主轮次消耗输出token
 - **THEN** 实际消耗共同累计，重放结果不重复累计；耗尽后不派发新child，无预算配置时不额外加此上限。
 
-#### Scenario: 后台结果和审批仍归原启动会话
-- **WHEN** Workflow前台启动回复已结束，而子任务请求人工批准或运行完成
-- **THEN** 仍通过原启动消息/聊天处理对应审批和最终结果；只有成功持久的结果才可报告跨重启可恢复，取消请求的迟答不执行工具。
+#### Scenario: 后台结果仍归原启动会话
+- **WHEN** Workflow前台启动回复已结束，而子任务运行完成
+- **THEN** 最终结果仍交回原启动会话；只有成功持久的结果才可报告跨重启可恢复。子任务权限按统一委派边界处理，不追加人工审批卡。

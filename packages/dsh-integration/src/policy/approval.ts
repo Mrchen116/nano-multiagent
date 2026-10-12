@@ -44,7 +44,6 @@ export class NanoApproval extends Service {
     if (!config.approval) return;
     const table = (await this.audit).table('sessions');
     if (!table.get(agent.id)) await table.put(agent.id, []);
-    if(config.workflowParent?.interactive) agent.ctx.on('system-prompt/assemble', async (_assembly,_context,next)=>{const assembly=await next();assembly.contexts=assembly.contexts.map(context=>context.name==='subagent:delegation'?{...context,text:'You are a Workflow child. Tool access is limited to the inherited selection. Actions requiring approval are routed to the original human conversation; wait for that answer and respect rejection.'}:context);return assembly;},{prepend:true});
     const delegated = (await this.audit).table('delegated');
     const parentId = agent.session.header.parentSession;
     const parent = parentId && this.ctx.agents.get(parentId);
@@ -52,7 +51,9 @@ export class NanoApproval extends Service {
       await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent)] });
     }
     if (config.approval.enabled || config.approval.dangerouslySkipPermissions) this.ctx.permissionPresets.set(agent.session, 'auto');
-    if ((agent.session.header.origin !== 'subagent' || config.workflowParent?.interactive) && this.ctx.approval.overrideOf(agent.session) !== 'ask') setApprovalPolicy(agent.session, 'ask');
+    // Auto selects ask as a preset side effect; restore the native delegation boundary afterward.
+    const approvalPolicy = agent.session.header.origin === 'subagent' ? 'never' : 'ask';
+    if (this.ctx.approval.overrideOf(agent.session) !== approvalPolicy) setApprovalPolicy(agent.session, approvalPolicy);
   }
   private config(agent: Agent) { return this.configOf(agent); }
   private async inherited(sessionId: string): Promise<unknown[]> {
@@ -69,11 +70,11 @@ export class NanoApproval extends Service {
     });
   }
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
+    if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
     const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as { source?: { kind?: string; channel?: string } });
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
-    if (config.workflowParent?.interactive && config.mode !== 'global') return 'interactive';
-    if (config.mode === 'global' || agent.session.header.origin === 'subagent') return 'return_to_agent';
+    if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
   }
   private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage'>> = {}) {

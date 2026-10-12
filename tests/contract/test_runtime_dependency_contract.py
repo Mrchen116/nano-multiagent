@@ -15,6 +15,8 @@ ALLOWED = {
     "packages/channels": {"@nano/product-contracts"},
     "packages/personal-assistant": {"@nano/product-contracts", "@nano/channels"},
     "packages/dsh-integration": {"@nano/product-contracts"},
+    "packages/dsh-trajectory-viewer": set(),
+    "src/IM/frontend": set(),
     "apps/im-server": {"@nano/product-contracts"},
     "apps/node": {
         "@nano/product-contracts",
@@ -27,13 +29,27 @@ ALLOWED = {
 
 @pytest.mark.parametrize("package", ALLOWED)
 def test_product_owns_no_runtime_internals(package: str) -> None:
-    """Only the integration package imports DSH; Node sees its process client."""
-    for path in (ROOT / package / "src").rglob("*.ts"):
+    """Only integration and the isolated native viewer import public DSH exports."""
+    for path in (ROOT / package / "src").rglob("*"):
+        if path.suffix not in {".ts", ".tsx", ".js", ".jsx"}:
+            continue
         for specifier in IMPORT.findall(path.read_text()):
             if specifier.startswith("@nano/"):
                 assert specifier in ALLOWED[package], (path, specifier)
             if specifier.startswith("@deepseek-ai/"):
-                assert package == "packages/dsh-integration", (path, specifier)
+                if package == "packages/dsh-trajectory-viewer":
+                    assert specifier.startswith(
+                        "@deepseek-ai/dsh-client-"
+                    ) or specifier in {
+                        "@deepseek-ai/cordis",
+                        "@deepseek-ai/dsh-api-session-controller/remote",
+                        "@deepseek-ai/dsh-commands/remote",
+                        "@deepseek-ai/dsh-subagent/remote",
+                    }, (path, specifier)
+                assert package in {
+                    "packages/dsh-integration",
+                    "packages/dsh-trajectory-viewer",
+                }, (path, specifier)
             assert not any(
                 part in specifier
                 for part in ("src/agent", "src/coding_cli", "src/personal_assistant")
@@ -43,13 +59,16 @@ def test_product_owns_no_runtime_internals(package: str) -> None:
                 assert resolved.is_relative_to(ROOT / package), (path, specifier)
 
 
-def test_integration_imports_only_declared_public_dsh_exports() -> None:
+@pytest.mark.parametrize("package", ["dsh-integration", "dsh-trajectory-viewer"])
+def test_integration_imports_only_declared_public_dsh_exports(package: str) -> None:
     """Upgrading DSH must explicitly preserve every imported public export."""
-    integration = ROOT / "packages/dsh-integration"
+    integration = ROOT / "packages" / package
     dependencies = json.loads((integration / "package.json").read_text())[
         "dependencies"
     ]
-    for path in (integration / "src").rglob("*.ts"):
+    for path in (integration / "src").rglob("*"):
+        if path.suffix not in {".ts", ".tsx", ".js", ".jsx"}:
+            continue
         for specifier in IMPORT.findall(path.read_text()):
             if not specifier.startswith("@deepseek-ai/"):
                 continue

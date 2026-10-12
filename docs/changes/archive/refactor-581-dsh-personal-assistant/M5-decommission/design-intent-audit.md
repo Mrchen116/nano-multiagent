@@ -35,7 +35,7 @@
 | bugfix-535：并发结束路径不能重复发，平台回执前不能报成功 | P `external.ts` 同一 output 的 dispatch promise + 持久 confirmed/unknown；unknown 不自动重发；`external.test.ts` 包含延迟回执与重启 | 保留 |
 | Heartbeat 忙时跳过、活跃时段、错过周期不积压；不把低优先级唤醒排在人类之后 | P `heartbeat.ts` durable pending identity、`onlyIfIdle`、消耗 due；`heartbeat.test.ts` | 保留；不同于已确认的 Cron 补发 |
 | Workflow 逻辑 child 与尝试分离、重启先清理旧执行、共享预算和完成前缀可复用 | I `workflow/` engine/control/state/budget，原生 child/JS 执行；`workflow-control.test.ts`、`workflow-lifecycle.test.ts`、`workflow-budget.test.ts` | 保留 |
-| Workflow 原会话审批、父前台结束后结果仍可达；不能先 ack 再投递 | I `policy/approval.ts` workflowParent；P `workflows.ts` durable acceptance 后 checkpoint；`workflow-approval.test.ts`、P `workflows.test.ts` | 保留 |
+| Workflow 父前台结束后结果仍可达；不能先 ack 再投递 | P `workflows.ts` durable acceptance 后 checkpoint；P `workflows.test.ts` | 结果投递保留；2026-10-10用户明确取消原会话子任务审批特例，统一原生委派权限，见产品取舍记录；`workflow-approval.test.ts`覆盖无卡/拒绝/审核故障/允许 |
 | 新历史 fork 保留消息锚点、压缩前缀和当时配置，分支互不污染 | I 历史控制接原生 fork；`history.test.ts` 含冷恢复；旧聊天转换明确排除 | 保留新格式契约 |
 | 搜索后端/代理不能因换核被偷偷换服务；扩展全局/工作区分层仍在 | I `web.ts` DDG/Brave/SearXNG 与失败直报，公开 extract consumer；`extensions.ts` / `agent-config.ts` 分层 mount；`web.test.ts`、`runtime-profile.test.ts` | 保留；协议实际前缀由 wire 回归覆盖 |
 | 统计要区分未缓存输入、缓存输入和当前上下文；缺失不能伪造为零 | P `presentation.ts` 合并不重叠 buckets，只有已知 pi-ai 缺省零规则才补零，按 turn 投影；已有 presentation/store 测试 | 保留 |

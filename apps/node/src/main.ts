@@ -4,6 +4,7 @@ import { NodeConfiguration } from './configuration.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
 import { projectCapabilities } from './capabilities.js';
+import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
@@ -40,6 +41,7 @@ let knowledge: KnowledgeUpdates;
 let history: ConversationHistory;
 let workflows: WorkflowResults;
 let usage: UsageReports;
+let trajectory: NodeTrajectory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
@@ -49,7 +51,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
   },
   onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,
-  onUnavailable: () => lifecycle.unavailable(),
+  onUnavailable: () => { trajectory?.closeAll(); return lifecycle.unavailable(); },
 });
 const relay = new WebRelayConnection({
   url: config.im_service.url,
@@ -67,6 +69,8 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'trajectory.prepare') { trajectory.prepare(payload.scope as Parameters<NodeTrajectory['prepare']>[0], String(payload.ticket)); return; }
+    if (frame.type === 'trajectory.close') { trajectory.close(String(payload.observer_id)); return; }
     if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
     if (frame.type === 'node.distill.prompt.request') await relay.request('node.distill.prompt', { request_id: payload.request_id, node_id: config.node.node_id,
       ...await history.distill(payload).catch(error => ({ error_code: 'runtime_unavailable', message: String(error) })) });
@@ -132,9 +136,15 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
+  onState: async state => { if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
   onError: reportError,
 });
+trajectory = new NodeTrajectory({ imUrl: config.im_service.url, runtime, valid: scope => {
+  const binding = store.bindings().find(binding => binding.sessionId === scope.rootSessionId);
+  return relay.ready && scope.nodeId === config.node.node_id && scope.ownerId === config.node.user_id
+    && scope.nodeEpoch === relay.registration?.node_epoch && binding?.ownerId === scope.ownerId
+    && binding?.agentId === scope.rootAgentId && binding.conversationId === `global:${scope.rootAgentId}`;
+} });
 async function downloadImage(url: string, agentId: string) {
     if (url.startsWith('external:')) return external.image(url, agentId).data.toString('base64');
     const target = new URL(url, config.im_service.url);
@@ -221,6 +231,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
+  trajectory.closeAll();
   try { await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}

@@ -7,6 +7,7 @@ import { openDatabase } from "./db.js";
 import { createIdentity } from "./identity.js";
 import { registerIdentityRoutes } from "./identity-routes.js";
 import { Gateway, registerSockets } from "./gateway.js";
+import { registerTrajectorySockets } from './trajectory.js';
 import { Messaging, registerMessagingRoutes } from "./messaging.js";
 import { registerConversationActions } from "./conversation-actions.js";
 import { registerWorkRoutes } from "./work.js";
@@ -21,6 +22,7 @@ export interface ServerOptions {
   uploadDir?: string;
   frontendDistDir?: string;
   frontendDevBaseUrl?: string;
+  trajectoryDistDir?: string;
 }
 export function resolveSecret() {
   const secret = process.env.IM_JWT_SECRET?.trim();
@@ -102,8 +104,9 @@ export async function createServer(options: ServerOptions = {}) {
       ctx.messaging.principal(req);
   });
   app.addHook("onSend", async (req, reply, payload) => {
+    const viewerAsset = req.url.split('?')[0]!.startsWith('/trajectory/');
     reply
-      .header("X-Frame-Options", "DENY")
+      .header("X-Frame-Options", viewerAsset ? "SAMEORIGIN" : "DENY")
       .header("X-Content-Type-Options", "nosniff")
       .header("Referrer-Policy", "strict-origin-when-cross-origin");
     if (parsed.protocol === "https:") reply.header("Strict-Transport-Security", "max-age=86400");
@@ -117,11 +120,12 @@ export async function createServer(options: ServerOptions = {}) {
         )
         .header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     const path = req.url.split("?")[0]!;
+    if (viewerAsset) reply.header('Access-Control-Allow-Origin', '*').removeHeader('Access-Control-Allow-Credentials');
     if (path.startsWith("/im/v1/auth/")) reply.header("Cache-Control", "no-store");
     if (String(reply.getHeader("content-type")).startsWith("text/html"))
       reply.header(
         "Content-Security-Policy",
-        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
+        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}; object-src 'none'; base-uri 'self'; frame-ancestors ${viewerAsset ? "'self'" : "'none'"}; form-action 'self'`,
       );
     if (
       reply.statusCode < 400 &&
@@ -151,6 +155,7 @@ export async function createServer(options: ServerOptions = {}) {
   registerWorkRoutes(app, ctx);
   await registerMediaRoutes(app, ctx);
   registerSockets(app, ctx);
+  registerTrajectorySockets(app, ctx);
   app.get("/im/v1/gateway/identity", (req) => {
     const p = ctx.gateway.authenticate(
       (req.headers.authorization ?? "").replace(/^Bearer\s+/i, ""),
@@ -254,6 +259,13 @@ export async function createServer(options: ServerOptions = {}) {
     ".webmanifest": "application/manifest+json",
     ".woff2": "font/woff2",
   };
+  const trajectoryDist = resolve(options.trajectoryDistDir ?? process.env.IM_TRAJECTORY_DIST_DIR ?? 'packages/dsh-trajectory-viewer/dist');
+  app.get('/trajectory/*', (req, reply) => {
+    const relative = (req.params as { '*': string })['*'] || 'index.html';
+    const file = resolve(trajectoryDist, relative);
+    if (!file.startsWith(trajectoryDist + '/') || !existsSync(file) || !extname(file)) return reply.code(404).send({ detail: 'viewer asset not found' });
+    return reply.type(mime[extname(file)] ?? 'application/octet-stream').send(createReadStream(file));
+  });
   app.setNotFoundHandler((req, reply) => {
     const path = req.url.split("?")[0]!;
     if (req.method !== "GET" || path.startsWith("/im/"))
@@ -306,6 +318,7 @@ export async function createServer(options: ServerOptions = {}) {
   );
   watchdog.unref();
   const guard = setInterval(() => {
+    ctx.gateway.trajectory.check();
     for (const c of ctx.gateway.nodes.values())
       if (Date.now() - c.lastSeen > 90000) ctx.gateway.revokeNode(c.node_id);
     for (const b of ctx.gateway.browsers) if (!ctx.gateway.browserValid(b)) b.socket.close(1008);

@@ -31,6 +31,8 @@ import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
 import { installLlmAttribution } from './llm-attribution.js';
+import { NativeTrajectory } from './trajectory.js';
+import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 
 export interface AgentConfiguration {
   agentId: string;
@@ -41,7 +43,6 @@ export interface AgentConfiguration {
   reasoningEffort?: string;
   maxTokens?: number;
   modelRouteFrozen?: boolean;
-  workflowParent?: {sessionId:string;inputIds:string[];interactive:boolean};
   workflow?: { outputTokenTarget?: number; sizeGuideline?: string };
   modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
   systemPrompt?: string;
@@ -62,6 +63,7 @@ export interface SessionBinding {
   revision: string;
 }
 interface Submit {
+  attachmentSources?: (AttachmentSource | null)[];
   sessionId: string;
   inputId: string;
   mode: 'followup' | 'steer' | 'inject';
@@ -121,6 +123,9 @@ export default class NanoRuntime {
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
     });
+    new TrajectoryAttachments(ctx);
+    const trajectory = new NativeTrajectory(ctx, { controller: this.sessionController, bindings: this.bindings, configurations: this.configurations });
+    trajectory.register(this.peer);
     ctx.on('agent/created', async ({ agent }) => {
       const preset = agent.session.header.agentPreset;
       if (!preset?.startsWith('nano:')) return;
@@ -169,8 +174,8 @@ export default class NanoRuntime {
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
       const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
-      if (config?.mode === 'global' || !human && !config?.workflowParent?.interactive) return 'rejected';
-      const approvalSessionId = config?.workflowParent?.sessionId ?? request.agent.id;
+      if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human) return 'rejected';
+      const approvalSessionId = request.agent.id;
       if(!this.bindings.has(approvalSessionId)) return 'rejected';
       const requestId = randomUUID();
       return new Promise<ApprovalOutcome>(resolve => {
@@ -191,7 +196,7 @@ export default class NanoRuntime {
         timer = setTimeout(() => finish('unavailable'), Math.max(0, (config?.approval?.askTimeoutSec ?? 600) * 1000));
         request.signal?.addEventListener('abort', cancel, { once: true });
         this.peer.notify('approval.request', {
-          requestId, sessionId: approvalSessionId, childSessionId: approvalSessionId === request.agent.id ? undefined : request.agent.id, inputIds: config?.workflowParent?.inputIds, toolName: request.toolName,
+          requestId, sessionId: approvalSessionId, toolName: request.toolName,
           toolInput: history.findLast(event=>event.type==='tool/call'&&event.data.callId===request.callId)?.data,
           callId: request.callId, reason: request.reason,
         });
@@ -446,6 +451,7 @@ export default class NanoRuntime {
     });
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
+      trajectory.dispose();
       await this.cron.dispose();
       for (const id of this.bindings.keys()) ctx.agents.get(SessionId(id))?.cancel({ kind: 'user' }, { keepInbox: true });
       await (await models).stop();
@@ -490,6 +496,7 @@ export default class NanoRuntime {
     if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
+      if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
       (await this.models).fallback.interrupt(agent);
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
