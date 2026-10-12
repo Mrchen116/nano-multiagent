@@ -1,6 +1,6 @@
 # IM Agent Work — feat-583 delta
 
-Target：[docs/specs/im/agent-work.md](../../../../specs/im/agent-work.md)
+Target：[docs/specs/im/agent-work.md](../../../../../specs/im/agent-work.md)
 
 ## ADDED Requirements
 

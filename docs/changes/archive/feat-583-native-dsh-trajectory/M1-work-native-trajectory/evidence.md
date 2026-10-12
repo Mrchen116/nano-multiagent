@@ -45,3 +45,17 @@ Re-reading R3.4 confirmed that the requirement is native interval focus and zoom
 Zoom remains unverified: coordinate-based and fresh accessibility-target scrolling moved the outer page, with native timeline domain width unchanged at `100%`. Current computer-use inventory reports the Mac locked and Chrome unavailable. The user has been asked to unlock the Mac and keep Chrome open so a supported real input path can finish this bounded check. No source change, synthetic event injection or relaxation of the product requirement was made.
 
 Screenshot capture boundary: full-page capture reset the iframe layout and could capture a loading state in this IAB. The two evidence images above and `deliverable-native-trajectory.jpg` were replaced using the current viewport screenshot API and visually verified after saving; stale loading-state images are not used as passing evidence.
+
+### Native Chrome zoom verification
+
+After the user unlocked the Mac and opened Chrome, the supported native Chrome input surface became available. On the same actual service, `scroll` over the accessible native timeline performed a real wheel zoom: event spans widened and their visible positions changed while the outer Work page stayed fixed. The before/after screenshots are `output/feat-583-acceptance/chrome-before-zoom.png` and `chrome-after-zoom.png`. This completes root's previously missing zoom operation; independent acceptance owns the final A3 verdict. No product source changed after `7e22a91d28fff92d07980845cfbabb9821cd1316`.
+
+Final sync fetched `origin/main` again at `9e4b0a8a06bb0201410f9d6454c2f2a4daff5a6c`, already merged in this branch. No additional main changes invalidate the retained implementation tests or design/code gates. Final documentation reconciliation and archive checks are recorded below after independent closure.
+
+### Delivery closure
+
+Independent acceptance Round 4 passes all 13 scenarios; verification Round 3 closes W3/A3 with 0 CRITICAL / 0 WARNING / 0 SUGGESTION, and code review retains 0 findings. Corrected delta remains aligned and is merged into IM Agent Work and Gateway Relay Protocol canonical areas. Their indexes and the documentation map are updated.
+
+Gate `validated_at` remains the actual source tree `7e22a91d28fff92d07980845cfbabb9821cd1316` (targeted evidence closure inspected documentation HEAD `dd8bb92f1d1b4999fe83b1d556f409d09e308062`); `executed_base` and `effective_base` are `9e4b0a8a06bb0201410f9d6454c2f2a4daff5a6c`. The final closure commit contains only canonical merge, archive/link adjustments and these reports, so all gates are retained through that commit; the PR records its resolved SHA as `effective_through`. Earlier blocked-state sections are historical, superseded by this closure.
+
+All implementation checks above remain valid because no source changed. Documentation integrity, archive uniqueness and diff whitespace are rerun after moving the complete unit. iOS sources are unchanged; the remote CI runs its native build/tests/archive in addition to backend and frontend gates. The isolated service and worktree remain available until the user finishes reviewing; no production deployment or merge is performed.

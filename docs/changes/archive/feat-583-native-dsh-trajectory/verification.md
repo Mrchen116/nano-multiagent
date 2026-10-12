@@ -2,7 +2,7 @@
 
 > Round 1; verification_mode: full plus corrected-delta reconciliation. Baseline `1128a2b6e30911e4658ed0d935dfff6b1424c740` with task-owned dirty implementation, inspected through 2026-10-12 05:35 UTC. Independent verifier `/root/feat583_static`. Scope excludes product aesthetic judgment and production deployment.
 
-**Latest status: Round 2 targeted closure at `7e22a91d28fff92d07980845cfbabb9821cd1316`: 0 CRITICAL, 1 WARNING (A3 actual timeline interval drag/zoom evidence unavailable), 0 SUGGESTION. Not passed. C1/W2 closed; corrected delta aligned.** Round 1 below is retained as historical findings; the final closure and final corrected-delta section supersede its open-item counts.
+**Latest status: Round 3 targeted evidence closure at documentation HEAD `dd8bb92f1d1b4999fe83b1d556f409d09e308062`, product source unchanged from `7e22a91d28fff92d07980845cfbabb9821cd1316`: passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION. W3/A3 closed; C1/W2 closure retained; corrected delta aligned.** Rounds 1 and 2 below retain their historical findings and evidence limits. Round 3 supersedes their open-item counts and final verdicts.
 
 ## Summary
 
@@ -78,12 +78,12 @@ None. No speculative maintenance refactor is requested.
 
 ## Corrected Delta Reconciliation
 
-Final frozen reconciliation at `7e22a91d28fff92d07980845cfbabb9821cd1316`; this is the single current corrected-delta section. Historical Round 1 identified a missing workspace-image scenario and erroneous provenance-error side effect; both are corrected. Product acceptance's remaining A3 evidence gap is tracked separately and is not a proven delta/implementation mismatch.
+Final frozen reconciliation at `7e22a91d28fff92d07980845cfbabb9821cd1316`, retained at Round 3 documentation HEAD `dd8bb92f1d1b4999fe83b1d556f409d09e308062`; this is the single current corrected-delta section. Historical Round 1 identified a missing workspace-image scenario and erroneous provenance-error side effect; both are corrected. Acceptance Round 4 supplies the last A3 interaction evidence without changing product source or either delta.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
 | IM: two modes and selected main/related execution | Work host/iframe selection; native row/tab/scroll metadata bookmark and fresh history load | Acceptance R1/R2 and repaired A1/A2; existing Work 17-test regression | aligned |
-| IM: official trajectory inspection capability | Official trajectory/conversation/session/attachment composition; original public registration bundles | Acceptance R3.3/R3.5 verifies typed content and real cancellation; four toolbar controls and lane click observed. Interval drag/zoom remains inconclusive in R3.4. | aligned; A3 acceptance evidence gap remains |
+| IM: official trajectory inspection capability | Official trajectory/conversation/session/attachment composition; original public registration bundles | Acceptance R3.3/R3.5 verifies typed content and real cancellation; four toolbar controls and lane click observed. Acceptance Round 3 verifies native interval focus/Escape reset; Round 4 verifies native timeline wheel zoom, independently compared by this verifier. | aligned |
 | IM: lazy history/live reads and honest failure state | Conditional iframe + scoped public reads + generation reconnect | Cold restart/page/activation/cancellation tests; acceptance R3.1/R3.2/R4 desktop and mobile | aligned |
 | IM: shared Work visibility, original media authorization, loss of access | Two-step source authorization, real Inbox conversation identity, session/epoch validation and iframe clearance | Real IM private/shared image tests; acceptance R5 private-image refusal/owner decode, logout and suspension | aligned |
 | IM: trusted workspace-image preview | Successful read_image provenance verifies real workspace containment; native attachment API proves selected Session reference | Acceptance R5.1 active non-owner sees the workspace checkerboard; no-source refusal and source-error test | aligned |
@@ -96,7 +96,7 @@ Final frozen reconciliation at `7e22a91d28fff92d07980845cfbabb9821cd1316`; this 
 
 None. Both delta files now explicitly cover trusted workspace-origin image previews and source-failure noninterference. The final bookmark, empty state and Inbox-source fixes implement existing scenarios rather than changing the intended external contract. Internal MessagePort/RPC names, batch limits and static module layout remain design/implementation contracts.
 
-Outcome: **aligned**. This finding is bounded to corrected delta versus implementation; it does not turn A3's unperformed required interaction into a pass.
+Outcome: **aligned**, retained after the final targeted evidence closure. No newly observed behavior changes the corrected IM or Gateway delta contract.
 
 Rejected candidate: standalone historical Cron Work entries. Independent source search found current native Cron executes in its original bound Session; `GlobalAgent` registers global_main/subagent/workflow, not a new independent Cron root. Historical Work schema compatibility does not establish native provenance or permission. Native unavailability for such entries is covered by R4 and old Python conversion is explicitly out of scope; no blocking finding remains.
 
@@ -152,3 +152,20 @@ Final reproducible evidence:
 Required closure: perform interval drag/zoom with a browser input surface that supports the operation and record its real effect on the selected native timeline. No further code change or broad implementation review is justified by the tool limitation alone. Caller has elected to deliver the working retained local test service with this explicit acceptance limitation, preserving the gate as incomplete.
 
 Final verdict: **not passed — 0 CRITICAL, 1 WARNING, 0 SUGGESTION.** Code review has no surviving finding and corrected delta is aligned; M1 is not fully accepted and this report does not claim Ready for PR, archive completion, deployment or complete product acceptance. The isolated review service remains caller-owned and running for the user.
+
+## Round 3 — W3/A3 targeted evidence closure
+
+- verification_mode: targeted-closure plus corrected-delta retention; only the remaining W3/A3 evidence gap was reopened.
+- validated_at: documentation HEAD `dd8bb92f1d1b4999fe83b1d556f409d09e308062`; `origin/main` remains `9e4b0a8a06bb0201410f9d6454c2f2a4daff5a6c`.
+- Product source remains the already reviewed `7e22a91d28fff92d07980845cfbabb9821cd1316`. Independent `git diff --name-only 7e22a91d28fff92d07980845cfbabb9821cd1316 HEAD -- apps packages src/IM/frontend tests SPEC.md` returned no changes. Prior valid code-review, test and runtime evidence is retained; no full test suite or code review was repeated.
+- requires_full_verification: **false**. This closure adds missing observable interaction evidence and does not change implementation, spec, design or delta.
+
+| Remaining item | Independently checked evidence | Outcome |
+|---|---|---|
+| W3/A3: native interval focus/reset and zoom | Read [acceptance.md](acceptance.md) Round 3/4 and its final 13-scenario pass matrix. Round 3 records reviewer comparison of actual `range-click-before.jpg` and `range-reset-after.jpg`: native selected range, outside-row dimming, then Escape removal/restored text. Independently opened and compared `output/feat-583-acceptance/chrome-before-zoom.png` and `chrome-after-zoom.png` (both 2940×1716): same localhost51650 main execution and toolbar, wider colored event bars and corresponding horizontal shifts after wheel input; outer heading/cards/toolbar/table first row retain their vertical positions. This demonstrates native timeline zoom rather than outer page scroll or whole-page zoom. | closed |
+| V3 / E3 and reference tools/lane interaction row | The added native interval focus/reset and wheel zoom results complete the sole remaining required R3.4 evidence. Existing toolbar/lane, inspector, history/live, cancellation and desktop/mobile observations remain valid. | covered |
+| Corrected delta | Both IM and Gateway delta remain aligned with the unchanged reviewed product. The new evidence confirms an existing R3.4 capability; it introduces no new observable contract or omitted behavior. | aligned |
+
+Input was performed by caller through native Chrome after the user unlocked the Mac; this verifier checked the actual before/after image results and the independent product review, and did not perform that input. The earlier IAB drag-coordinate refusal remains an honest tool limitation in the historical rounds. R3.4 requires native time-range focus and zoom, not drag as the sole input method, so the successful native click/Escape and wheel interactions close the capability evidence gap. No safety restriction was bypassed by this verifier.
+
+Final verdict: **passed — 0 CRITICAL, 0 WARNING, 0 SUGGESTION.** W3/A3 is closed, M1's required verification evidence is complete, prior C1/W2 closure and zero code-review findings are retained, and corrected delta remains **aligned**. Canonical-spec merge, archive and PR readiness transitions are subsequent caller-owned steps; this report does not assert their completion or production deployment. The isolated test service remains caller-owned and running for the user.

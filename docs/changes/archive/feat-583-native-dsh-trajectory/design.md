@@ -10,19 +10,19 @@
 
 | 当前入口 | 当前职责与本次落点 |
 |---|---|
-| [AgentWorkPanel](../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx)、[Work API](../../../src/IM/frontend/src/features/settings/agents/agent-work-api.ts) | 主轮次、关联执行、已保存的过程记录；增加查看方式切换和原生视图容器，保留现有记录呈现。 |
-| [IM Work](../../../apps/im-server/src/work.ts) | `agent_work_sessions` 已登记 root Agent、节点、主／子会话及父关系；沿用共享查看鉴权和精确执行查找。 |
-| [Gateway relay](../../../apps/im-server/src/gateway.ts)、[Node 装配](../../../apps/node/src/main.ts) | 设备认证、双向 WS 和连接代际；通过设备连接建立临时观察连接，观察数据与业务 ACK 队列隔离。 |
-| [Runtime integration](../../../packages/dsh-integration/src/index.ts) | 已持有官方 `SessionController`；新增受固定产品 scope 限制的读取服务。 |
-| [Work projection](../../../packages/personal-assistant/src/work-projection.ts)、[NodeStore](../../../packages/personal-assistant/src/store.ts) | 当前投影仅保留业务轮次、消息、工具和统计；Node 本地保留完整原生事件。原生视图直接使用 DSH 的读接口，不从业务投影还原。 |
+| [AgentWorkPanel](../../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx)、[Work API](../../../../src/IM/frontend/src/features/settings/agents/agent-work-api.ts) | 主轮次、关联执行、已保存的过程记录；增加查看方式切换和原生视图容器，保留现有记录呈现。 |
+| [IM Work](../../../../apps/im-server/src/work.ts) | `agent_work_sessions` 已登记 root Agent、节点、主／子会话及父关系；沿用共享查看鉴权和精确执行查找。 |
+| [Gateway relay](../../../../apps/im-server/src/gateway.ts)、[Node 装配](../../../../apps/node/src/main.ts) | 设备认证、双向 WS 和连接代际；通过设备连接建立临时观察连接，观察数据与业务 ACK 队列隔离。 |
+| [Runtime integration](../../../../packages/dsh-integration/src/index.ts) | 已持有官方 `SessionController`；新增受固定产品 scope 限制的读取服务。 |
+| [Work projection](../../../../packages/personal-assistant/src/work-projection.ts)、[NodeStore](../../../../packages/personal-assistant/src/store.ts) | 当前投影仅保留业务轮次、消息、工具和统计；Node 本地保留完整原生事件。原生视图直接使用 DSH 的读接口，不从业务投影还原。 |
 | 新增 `packages/dsh-trajectory-viewer` | 浏览器专用的原生 DSH 客户端装配与只读 transport；构建为独立静态查看器，不提供服务器、Agent 或配置入口。 |
 
 现场基线为迁移 checkout `587387240`；页面为 `/settings/agents/e2eGlobal8753771b?view=work`。实际查看确认已有 3 个主轮次、1 个关联子执行，能展开工具和结果，尚无原生轨迹切换。调研期间未修改或重启测试服务。
 
 ### 既有约束
 
-- [SPEC.md](../../../SPEC.md)：IM 不依赖 DSH，Node 不开放 Agent 业务监听端口；PA 通过 `RuntimePort` 使用运行时，官方 DSH 不打补丁、不复制源码、不导入私有实现。
-- [Agent Work current](../../specs/im/agent-work.md)：active 公司成员可以查看他人的全局 Work；owner 管理边界、原聊天及受保护附件访问规则不变。
+- [SPEC.md](../../../../SPEC.md)：IM 不依赖 DSH，Node 不开放 Agent 业务监听端口；PA 通过 `RuntimePort` 使用运行时，官方 DSH 不打补丁、不复制源码、不导入私有实现。
+- [Agent Work current](../../../specs/im/agent-work.md)：active 公司成员可以查看他人的全局 Work；owner 管理边界、原聊天及受保护附件访问规则不变。
 - 原始轨迹保留在 Gateway／DSH 侧；IM 不新增原始轨迹表、搜索索引或全文后台同步。
 - 只读查询不能调用现有 `session.ensure`、integration 的 `agent()` 或 `resolveAgent()` 来恢复／激活 Agent，更不能提交输入。离开查看器只取消观察，不取消任务。
 
@@ -41,7 +41,7 @@
 
 ### 相关历史
 
-- [refactor-581 R06](../archive/refactor-581-dsh-personal-assistant/capability-plugin-map.md)：原生 renderer 不会自动进入 Nano 客户端，需做接入和产品呈现。
+- [refactor-581 R06](../refactor-581-dsh-personal-assistant/capability-plugin-map.md)：原生 renderer 不会自动进入 Nano 客户端，需做接入和产品呈现。
 - feat-554／feat-572 已形成当前 Work 的共享查看、主／子关系、分页和离线回看契约；此处保留现有业务记录。
 - [#331](https://github.com/Mrchen116/nano-multiagent/issues/331) 独立追踪“心跳超时误撤权且假在线”。新视图依据实际通道结果显示可用性，不等待该 bug 修复才识别读取失败，也不在本 unit 顺带修复它。
 
@@ -78,7 +78,7 @@ URL 采用 `?view=work&work_view=trajectory&execution=<session_id>`；缺省仍�
 
 该包的产品接口仅为静态 viewer 入口和一份浏览器 transport 契约。框架装配、原生版本校验、Session binding、原生 `conversation.view` 挂载、取消和 Blob URL 清理均隐藏在该包内部。采用官方 `ClientModuleSystem` 和公开 plugin exports，不复制其源码或用 `src/*` 绕过公开入口；静态资源来自锁定的 npm 包，不加载节点 workspace 中任意插件前端。
 
-这是 [SPEC.md](../../../SPEC.md) 依赖规则的一项**明确、窄范围增量**：`dsh-integration` 继续独占 DSH **Host/runtime** 依赖；新 viewer 仅可依赖已声明、已锁定的官方 **browser/client** 公开入口。IM server、PA、Node 和现有 frontend 业务组件仍不直接 import DSH。M1 同步修改架构契约测试覆盖这个浏览器边界，不把例外扩展成所有前端均可导入 Host SDK。
+这是 [SPEC.md](../../../../SPEC.md) 依赖规则的一项**明确、窄范围增量**：`dsh-integration` 继续独占 DSH **Host/runtime** 依赖；新 viewer 仅可依赖已声明、已锁定的官方 **browser/client** 公开入口。IM server、PA、Node 和现有 frontend 业务组件仍不直接 import DSH。M1 同步修改架构契约测试覆盖这个浏览器边界，不把例外扩展成所有前端均可导入 Host SDK。
 
 ### D2.1：轨迹主体直接采用官方信息模型与交互
 

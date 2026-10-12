@@ -1,6 +1,6 @@
 # Gateway Relay Protocol — feat-583 delta
 
-Target：[docs/specs/gateway/relay-protocol.md](../../../../specs/gateway/relay-protocol.md)
+Target：[docs/specs/gateway/relay-protocol.md](../../../../../specs/gateway/relay-protocol.md)
 
 ## ADDED Requirements
 
