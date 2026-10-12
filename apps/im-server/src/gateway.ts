@@ -243,6 +243,16 @@ export class Gateway {
       }
     b.cursor = top;
     b.ready = true;
+    // Presence is transient: close the gap between the browser's HTTP snapshot
+    // and this subscription without adding status rows to the chat event cursor.
+    for (const node of all(db,
+      "SELECT node_id,status,last_heartbeat_at,last_error FROM nodes WHERE owner_id=?", b.userId)) {
+      this.write(b.socket, { op: "event", event_type: "node.status_changed", data: node });
+    }
+    for (const agent of all(db,
+      "SELECT a.agent_id,a.node_id,n.status FROM agent_profiles a JOIN nodes n ON n.node_id=a.node_id AND n.owner_id=a.owner_id WHERE a.owner_id=? AND a.is_stale=0", b.userId)) {
+      this.write(b.socket, { op: "event", event_type: "agent.status_changed", data: agent });
+    }
   }
   register(c: Connection, p: Row): Row {
     const db = this.ctx.db;

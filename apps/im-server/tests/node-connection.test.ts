@@ -32,12 +32,13 @@ async function fixture() {
     expect(response.statusCode).toBe(200); tokens[id] = response.json().access_token;
   }
   const http = (method: 'GET' | 'POST', path: string, payload?: object, user = 'alice') => app.inject({ method, url: path, payload, headers: { authorization: `Bearer ${tokens[user]}` } });
-  async function browser(user: string) {
+  async function browser(user: string, beforeResume?: () => Promise<void>) {
     const ticket = (await http('POST', '/im/v1/auth/ws-ticket', {}, user)).json().ticket;
     const socket = new WebSocket(`${url.replace('http:', 'ws:')}/im/ws/user?ticket=${ticket}`, { headers: { Origin: 'http://127.0.0.1:8011' } });
     const frames = new Frames(socket);
     cleanups.push(() => socket.terminate());
     await once(socket, 'open');
+    await beforeResume?.();
     socket.send(JSON.stringify({ op: 'resume', after_event_id: 0 }));
     await expect.poll(() => [...app.im.gateway.browsers].some(b => b.userId === user && b.ready)).toBe(true);
     return frames;
@@ -66,9 +67,20 @@ test('closing the server sends the shutdown reason before the WebSocket plugin c
   expect(connection.state).not.toBe('revoked');
 });
 
+test('browser resume includes current owner presence when registration happened before subscription', async () => {
+  const f = await fixture(), relay = f.relay().connection;
+  const owner = await f.browser('alice', () => relay.start());
+  expect((await owner.next(status('online'))).data.last_error).toBeNull();
+  expect((await owner.next(frame => frame.event_type === 'agent.status_changed')).data).toMatchObject({ agent_id: 'assistant', status: 'online' });
+  const outsider = await f.browser('admin');
+  await pause(50);
+  expect(outsider.queue.some(frame => /^(node|agent)\.status_changed$/.test(frame.event_type))).toBe(false);
+});
+
 test('real IM heartbeat guard persists offline, notifies the owner and lets the Relay re-register for new traffic', async () => {
   const f = await fixture();
   const owner = await f.browser('alice'), outsider = await f.browser('admin');
+  await owner.next(status('offline'));
   const { connection, received } = f.relay();
   await connection.start();
   await owner.next(status('online'));
@@ -97,6 +109,7 @@ test('real IM heartbeat guard persists offline, notifies the owner and lets the 
 test('replacing a connection does not publish offline for the new registered connection', async () => {
   const f = await fixture(), owner = await f.browser('alice');
   const old = f.relay().connection; await old.start(); await owner.next(status('online'));
+  owner.queue.splice(0);
   const replacement = f.relay().connection; await replacement.start();
   await expect.poll(() => old.state).toBe('revoked');
   await pause(50);
