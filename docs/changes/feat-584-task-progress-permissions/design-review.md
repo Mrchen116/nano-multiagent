@@ -244,3 +244,71 @@ R1-W1–W4 保持 R2 的 closed，未重新打开；本轮无需重复全仓 doc
 R3 判真：接受 Approved，无实质异议；R1/R2 全部问题已有独立闭环，不新增可选修订。受审原型、spec、delta 与 milestone 保持不变。审查后仅将 design/visual-review 的状态文字更新为 R3 已通过，属于归档元数据，`retained_from: Round 3`；未改行为、视觉或接口，不另开一轮。
 
 最终格式检查仅清除五份 delta 的多余文件尾空行，内容不变，保留 R3 结论。
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/feat584_design_review`（与 R1–R3 同一独立 reviewer）
+- target: `main` / `06843ba4a` 的 R3 Approved 基线之后，冻结的 Q36–Q38、design 原型/P5、prototype 及视觉证据。
+- review_mode: `delta`
+- mode_reason: 新增的是有界的任务页头、示例内容密度与系统消息视觉/交互要求；核心需求语义、架构、权限、共享接口、六份 delta 与 M1 范围未改变。不能仅 closure，但已有基线与历史问题上下文足以保留未变部分，无需 full。
+- started_at: `2026-10-12T22:11:37+08:00`
+- completed_at: `2026-10-12T22:16:20+08:00`
+- duration: 4 分 43 秒（独立浏览器取证至完成核验时段）。
+- checkout: `main` / `06843ba4a`；确认 `apps/`、`packages/`、`src/`、unit delta 和 migration-guidance 无 tracked diff。只追加本报告，保留其他 dirty/untracked 内容，不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+Q36–Q38 在所选原型范围内已落实。独立实际渲染和交互验证没有发现会使实施走偏的未解决问题。本结论是 Gate 2 设计通过，不代表真实后端有效 mention、Agent 接收、原生 App 或生产部署验收。
+
+### Coverage 与证据
+
+#### 变化范围与现状依据
+
+- Q36：标题和祖先路径合为紧凑上下文栏，当前标题不再重复占两块区域；桌面同排呈现群归属/可见性，390 宽度分两行。详情入口保留，未因压缩头部重新引入 R2-W1。
+- Q37：代码样例为 3 棵树、32 节点，默认根层实际显示 15 个直属任务；长短标题、无描述、多段描述和长结果均有可达实例。负责人筛选/编辑资格继续引用既定会话授权，没有因为增加示例人物或树而改变权限。
+- Q38：独立查看作者的 `baseline-chat-desktop.png`、`baseline-chat-phone.png`，并核对实际组装 `chat-workspace-page.tsx` 使用 `ConversationSidebar` / `MessagePane`，以及 `global.css:1627` 起的 262px 侧栏规则。原型继承会话栏、紧凑群头、本人右侧浅绿气泡、Agent 左侧灰色气泡、底部输入区；手机隐藏全局导航并保留返回/群头/任务入口。系统事件居中且无真人气泡/头像，修改者、任务链接、变化和 @ 可区分。
+- 截图来源边界准确：React/Vite 基线由合成 API fixture 渲染，截图断线提示未被当成真实后端成功；本 reviewer 没有把直接访问缺 fixture 的 Vite 当作可用 demo。独立重现的主任务页和 Chat 与作者当前 `prototype-desktop.png`、`prototype-notice.png` 一致；按相同操作生成的改派/结果也与 `prototype-chat-reassigned.png` 的状态语义一致，没有用预置事件冒充本轮操作结果。
+- P5 已列出事件消息、修改者、任务链接、有效 @、状态、摘要/展开与手机回链，仍投影到 R5 和 W2/W3。M1 的真实 Web/iOS、三宽度原型对照、PA/DSH 通知验收要求保留。原型的本地文字回显、搜索/过滤背景已注明边界，不据此验收现有完整聊天功能。
+
+#### 独立原型操作
+
+使用自己的 Chromium 会话 `feat584-review-r4`，复用作者静态服务 `127.0.0.1:49268/prototype.html`。独立查看以下截图；DOM 数量/宽度检查仅作补充。临时证据位于 `output/playwright/feat-584-review/`。
+
+| 范围 | 操作、证据与结论 |
+|---|---|
+| 三宽度任务页 | `r4-desktop.png`、`r4-medium.png`、`r4-task-phone.png`：1440×960、1024×900、390×844 的紧凑上下文、长短卡片和状态分组可读。1024 的溢出限制在看板容器，documentWidth=1024；390 的任务页没有整页横向溢出。 |
+| 长描述/详情 | 打开 n12，`r4-long-description.png` 中长标题完整换行，多段描述和分步内容保留，手机 sheet 可读；n4 的空描述仍明确显示。 |
+| Chat 对照与预置事件 | `r4-chat-desktop.png`、`r4-chat-phone.png`：现有布局与本次轻量系统事件清楚区分，分配、改派、暂缓、待确认、完成均存在；长标题在手机自然换行。 |
+| 实际改派 | 点击 Chat n2 回链进入详情，从 Agent B 改派 Agent A，再进入 Chat；`r4-reassign.png` 显示新增一条“小王…从 @Agent B 改派给 @Agent A”事件，修改者和旧/新负责人完整。 |
+| 结果生成与展开 | 手机上编辑 n15 待确认→已完成，再进入 Chat；`r4-generated-phone.png` 显示新事件自动可见，含小王、任务链接、状态、@Agent A 与首段摘要。原有 6 条预置事件加上述改派、此次完成共 8 条，此次结果只新增 1 条。`r4-new-result-expanded.png` 显示同一条事件内展开多段完整结果，群头和输入区仍可用。 |
+| 消息回链 | 展开 n4 预置结果并点击任务链接，`r4-expanded-phone.png` / `r4-backlink-phone.png` 证明 390 宽度进入 n4 原任务详情；点击新生成 n15 事件亦进入 n15 详情，未错误跳到另一层或根节点。 |
+| 删除后的消息 | 经原型详情“删除任务及子树”确认删除 n15，再点仍保留的事件链接；`r4-deleted-link.png` 显示“任务已删除或无法访问”，没有空白崩溃或伪造新任务。仅操作本 reviewer 的内存示例。 |
+
+浏览器唯一 console error 为静态服务缺 `favicon.ico` 的 404，与设计路径无关。结束已关闭自己的浏览器，**保留作者静态服务**，未启动或停止生产进程。
+
+#### 保留的架构与契约判断
+
+`retained_from: Round 3`：R2-W1/W2 的独立闭环；`retained_from: Round 2`：Q34/Q35、六状态五分组、六份 delta 的完整覆盖；`retained_from: Round 1`：IM 唯一事实源、会话 ACL、真实 actor、事务消息/relay、PA/DSH、停止语义、迁移和验收前置。
+
+保留理由是本轮对应文档与产品代码没有变化，新增内容只是既定字段的 UI 呈现和演示数据。消息视觉应由现有客户端聊天渲染承担，摘要/展开是已有 result 的展示方式；IM 继续产出事件事实和有效 mention，PA 继续复用已有输入处理。无需新增存储、通知服务或第二套任务机制，也未发现借原型样式引入新的跨包依赖。
+
+### 历史问题闭环
+
+R1-W1–W4、R2-W1/W2 均保持 R2/R3 的 **closed**；Author Resolutions 已保留。本轮没有新的历史问题修复请求。Q36 仍有当前层详情入口，通知回链也能打开正确详情；领取赋值、冲突、delta 链接等无相关差异，不机械重复后端或历史整套验证。
+
+### Issues
+
+无未关闭 CRITICAL/WARNING。
+
+### Recommendations
+
+无。按既有 M1 进入实施与真实客户端验收，不追加新的视觉偏好或门禁。
+
+
+### Author Resolutions（Round 4 后）
+
+接受 R4 Approved，无实质异议。Q36–Q38 的布局、内容与交互已由独立浏览器核对，未修改受审原型或行为。审查后仅更新 design/visual-review 的审查状态文字，`retained_from: Round 4`；新增文档检查把本 unit 全部新增图片作为拟提交文件核验，unit 0 问题，剩余 4 条为其他 dirty 文档引用未跟踪内容的既有问题。未修改或提交那些文件。
