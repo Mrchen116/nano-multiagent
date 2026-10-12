@@ -8,7 +8,7 @@
 
 **fail（存在必验交互的 inconclusive；不等于已证实该交互有实现缺陷）**。
 
-大部分真实用户旅程已通过。两项实测缺陷已修复并复验关闭：空 Agent 显示空白已连接轨迹；两种查看方式往返丢失选中工具的检查器。尚未独立完成时间线区间拖拽／缩放：IAB 对 iframe 内拖拽返回 `Cannot safely inspect fractional iframe input coordinates`，不能把控件存在或时间条点击成功替代该交互结果。
+大部分真实用户旅程已通过。两项实测缺陷已修复并复验关闭：空 Agent 显示空白已连接轨迹；两种查看方式往返丢失选中工具的检查器。Round 3 已补充并独立核对区间聚焦与 Escape 复位的实际截图；尚缺时间线缩放的有效交互结果。IAB 拖拽输入受限，滚轮尝试只移动了外层页面，不能把聚焦成功或控件存在替代缩放成功。
 
 ## 环境与证据边界
 
@@ -52,7 +52,7 @@
 | R3.1 按需进入 | spec R3.1；design D6 | 工作记录模式不呈现 iframe；切原生先见“正在连接节点并读取原生轨迹…”和“正在加载执行轨迹…”，随后显示记录。返回记录时 iframe 销毁。未据此宣称内部所有 lease/监听计数已验证；该内部生命周期由 worker 的协议证据负责。 | 切主子及退出视图时的真实 DOM 快照 | pass |
 | R3.2 历史与实时过程 | spec R3.2；design D2.1 | 连续看到30个独立 sample read 的新增记录。重新进入较长主执行时有“加载更早的历史”；点击后从请求#3以前读回初始系统、上下文和请求#1。选择旧第1轮助手后，后续第6/7轮到来仍停留旧表位置和详情，没有拉回尾部。 | `desktop-system.jpg`、`desktop-resize.jpg`；工具输出中轮次数增长与旧选中状态并存 | pass |
 | R3.3 检查真实记录 | spec R3.3；design D2.1 | 已完成、进行中、失败、压缩及取消均实测。read 失败展示 FsError: FS_NOT_FOUND 与原始 not found；压缩展示摘要、原始输出、8,141ms，Token 未报告保持“—”；请求/助手包含真实用量和时间。第9轮 sleep30 被取消后原生工具状态为“失败”，结果明确 AbortError: ABORTED_BEFORE_DISPATCH / tool call aborted before dispatch，时长227ms，与普通文件错误和完成结果可区分；没有伪造成工具已完成。 | `tool-failure.jpg`、`compaction.jpg`、`cancelled-tool.jpg`；真实请求统计输出 | pass |
-| R3.4 原生工具条和联动完整 | spec R3.4；design D2.1 | 时长切换实际改变时间条长度；轮次折叠为“7个步骤·6个工具调用”“7个步骤·33个工具调用”；调用折叠保留助手，工具收为“10个工具调用·read”。搜索不存在字符串得到空表，搜索文件名返回对应记录。点击子执行时间条第7记录打开同一 read 的结果/Schema。区间拖拽／缩放工具受限，未完成。 | `desktop-timeline-tool.jpg`，四控件逐项 DOM 结果；A3 工具错误 | inconclusive |
+| R3.4 原生工具条和联动完整 | spec R3.4；design D2.1 | 时长切换实际改变时间条长度；轮次折叠为“7个步骤·6个工具调用”“7个步骤·33个工具调用”；调用折叠保留助手，工具收为“10个工具调用·read”。搜索不存在字符串得到空表，搜索文件名返回对应记录。点击子执行时间条第7记录打开同一 read 的结果/Schema。Round 3 新截图确认点击空白产生蓝色区间、区间外记录淡化，Escape 清除范围并恢复正文。缩放仍未得到有效结果。 | `desktop-timeline-tool.jpg`，四控件逐项 DOM 结果；`range-click-before.jpg`、`range-reset-after.jpg`，见 Round 3 证据来源边界 | inconclusive |
 | R3.5 完整模型输入和类型化检查器 | spec R3.5；design D2.1 | 系统完整提示词／工具目录；上下文概述、预览、原始内容、来源 Nano-system；仅工具调用助手仍有行与检查器；工具参数、结果、Schema、计时；请求#4 provider anthropic、deepseek-v4-flash、reasoningEffort high、输入11807/cache11648/output87、总1s/TTFT800ms/生成201ms/432.8tok/s。桌面分隔器 ArrowLeft 实测宽度398.5→415.5；关闭按钮使详情消失。手机结果完整换行可读并能关闭。未以当前配置补历史缺失字段。 | `desktop-system.jpg`、`desktop-resize.jpg`、`mobile-result.jpg`；真实类型化检查器输出 | pass |
 
 ### Requirement R4：读取失败和节点离线可辨认 — pass
@@ -77,7 +77,7 @@
 |---|---|---|---|---|
 | prototype 宿主导航、执行选择 | 原页内切换、主子返回 | desktop-system、selection-restored、mobile-child | 1280×900、390×844；主/子 | match |
 | prototype loading/empty/offline/interrupted | 有文字状态、重试、保留已保存记录 | empty-fixed、mobile-empty、offline、mobile-offline-open、mobile-reconnected | 两种 viewport；加载、空、离线、恢复 | match；错误下仍有加载占位见minor |
-| design D2.1 工具条、三轨、完整输入、检查器 | 每项真实操作，历史/实时/Schema | desktop-timeline-tool、desktop-system、compaction、tool-failure、mobile-result | 两种 viewport；主子与不同记录类型 | 部分match；区间拖拽/缩放 inconclusive |
+| design D2.1 工具条、三轨、完整输入、检查器 | 每项真实操作，历史/实时/Schema | desktop-timeline-tool、desktop-system、compaction、tool-failure、mobile-result、range-click-before、range-reset-after | 两种 viewport；主子与不同记录类型 | 聚焦/复位新增证据成立；缩放仍 inconclusive |
 | design D2.1 原生角色颜色/密度/关闭伸缩/响应式 | 不用摘要卡替代原生记录 | desktop-resize、mobile-result | 桌面分栏；手机覆盖详情 | match，宽度用官方分隔器键盘操作验证 |
 
 ## Remaining Issues / Side Findings
@@ -86,7 +86,7 @@
 
 | ID | Severity / relation | 现象 | Recommended Action / rationale |
 |---|---|---|---|
-| A3 | blocking evidence gap / unclear | 必验时间区间拖拽与缩放缺真实交互证据；IAB fractional iframe coordinate 限制。 | 在支持该输入的真实浏览器补测。不是源码根因结论；本 reviewer 未为绕过工具限制改页面或实现。 |
+| A3 | blocking evidence gap / unclear | 区间聚焦与复位已由 Round 3 实际截图补证；必验缩放仍缺有效结果，IAB 滚轮仅移动外层页面。 | 在支持原生缩放输入的真实浏览器补测。拖拽不是唯一验收动作，未覆盖的拖拽仅记录工具限制；当前不作源码根因结论。 |
 | S1 | minor / direct | 节点离线父提示正确，但 iframe 内仍显示“正在加载执行轨迹…”，两种viewport皆如此。 | 后续可改善错误占位一致性；不阻止理解离线或返回记录。 |
 | S2 | minor / unrelated-existing | Node离线时详情顶栏小圆点短时仍显示online，侧栏和Work已离线；恢复后偶见反向陈旧状态。 | 已有 #331 范围，原生可用性以真实读取结果正确提示；不扩大本unit修复范围。 |
 
@@ -100,3 +100,16 @@
 ## 交付状态
 
 本报告只描述独立产品验收，不替代技术验证、代码审查或生产部署。服务按用户要求保留，reviewer未清理共享隔离栈。截图为本机证据；报告由caller随unit统一提交，reviewer不并发提交其他角色文件。
+
+## Round 3：A3 定向复验尝试
+
+产品源仍为 `7e22a91d28fff92d07980845cfbabb9821cd1316`；本轮没有修改产品或需求。重新核对 R3.4：要求是保留原生时间区间聚焦与缩放能力，并未指定拖拽为唯一允许动作。因此，若通过原生空白区域点击创建范围、滚轮改变范围及 Escape 复位得到真实可观察结果，也足以关闭 A3；拖拽输入未覆盖只需记录为工具边界。
+
+本次复唤醒时原 IAB browser 3 已不可用，重新创建 IAB 也返回 `Browser is not available: iab`；CUA inventory 仅列出连接失败的 Chrome，原生 App 通道报告 Mac 锁定且自动解锁失败，因此 reviewer 未执行新的页面输入。第一次读取 `range-click-before.jpg` 时该文件还是加载中空容器，这份旧截图不能证明聚焦。caller 随后用不触发布局重置的截图方式覆盖了同名文件，并提供复位后的第二张图；以下结论基于 reviewer 重新打开这两份当前图片的独立视觉核对，不再沿用旧文件内容。
+
+| 实际图片 | 独立可见结果 | 来源与结论 |
+|---|---|---|
+| `range-click-before.jpg`（覆盖后的当前文件，1280×720） | 子执行 `Verify addition in doc` 已连接；时间线有蓝色边界和浅蓝范围，范围内两条上下文保持正常对比度，外部系统、用户、助手和工具记录淡化。 | caller 执行原生空白区域点击；reviewer 独立核图确认区间聚焦与联动结果。caller 另交接只读 DOM：selection left43.75%、width12.5%，domain100%；百分比来自该交接，不是 reviewer 从图片精确测量。 |
+| `range-reset-after.jpg`（1280×720） | 同一子执行范围填充及两端边界消失，仅保留中心指示线；系统、用户、上下文、助手和工具正文恢复正常对比度。 | caller 执行 Escape；reviewer 独立核图确认清除区间与正文恢复。caller 交接只读 DOM selection[] 与图片一致。 |
+
+**A3 当前仅剩缩放缺口。** caller 的截图坐标和 fresh AX element 滚轮输入均只移动外层页面，domain 始终100%，没有缩放成功证据。区间聚焦／复位的两张真实结果不证明缩放，因此 R3.4 仍为 inconclusive、总 verdict 保持 fail。本轮未再次尝试 UI，也未新增全量验收；其余通过场景保留。
