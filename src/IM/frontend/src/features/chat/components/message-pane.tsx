@@ -13,6 +13,7 @@ import React, {
 } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
@@ -1272,7 +1273,8 @@ function ConfigurationBoundaryDivider() {
 // CR-2: node prop 不透传 DOM（react-markdown v10 ExtraProps 传 node，不是合法 DOM attr）。
 // CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
 // 即可保留对齐（无需在 components 中二次转换 align 属性）。
-const MD_REMARK_PLUGINS = [remarkGfm, remarkMention];
+// Chat prose keeps ordinary line breaks without changing Markdown block parsing.
+const MD_REMARK_PLUGINS = [remarkGfm, remarkBreaks, remarkMention];
 const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
   table: ({ node: _node, ...props }) => (
     <table {...props} className="im-md-table" />

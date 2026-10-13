@@ -2403,6 +2403,45 @@ describe("MessagePane", () => {
       };
     }
 
+    it("preserves ordinary agent line breaks alongside paragraphs and inline Markdown", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg([
+            "你好 Tracy，**欢迎**！",
+            "",
+            "你可以找我：",
+            "• 理思路",
+            "• 做功课：[资料](https://example.com)",
+            "",
+            "直接说需求就好。",
+          ].join("\n"))]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const paragraphs = container.querySelectorAll(".im-md > p");
+      expect(paragraphs).toHaveLength(3);
+      expect(paragraphs[1]?.querySelectorAll("br")).toHaveLength(2);
+      expect(screen.getByText("欢迎").tagName).toBe("STRONG");
+      expect(screen.getByRole("link", { name: /资料/ })).toHaveAttribute("href", "https://example.com");
+    });
+
+    it.each(["  \n", "\\\n"])("keeps an explicit Markdown line break singular (%j)", (lineBreak) => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg(`第一行${lineBreak}第二行`)]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(container.querySelectorAll(".im-md br")).toHaveLength(1);
+      expect(container.querySelectorAll(".im-md > p")).toHaveLength(1);
+    });
+
     it("renders <script> as escaped text, not executed", () => {
       const { container } = render(
         <MessagePane
