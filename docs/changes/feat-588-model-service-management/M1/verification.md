@@ -144,3 +144,25 @@ Scope: read both complete delta files at the frozen head, the canonical target f
 None remaining. The env-name fix is internal and restores the existing S7/S8 guarantee; it does not add a new user-facing contract. Model display labels and metadata support service-qualified selection already in the deltas. The corrected IM MODIFIED requirement explicitly covers the retired developer-proxy discovery path. Native iOS model management, automatic publication/deployment and comprehensive paid-vendor acceptance remain outside the accepted scope.
 
 Outcome: **aligned**. Canonical documents are still current baseline documents at this validation snapshot; their subsequent merge must apply the listed MODIFIED replacement and ADDED entries together, without retaining the obsolete discovery sentence.
+
+## Round 3 — targeted closure: built-in catalog identity
+
+- Date: 2026-10-13; same independent verifier.
+- `validated_at`: `6309714219ba8cc1432e5e1752a94b50a7d8ad35`.
+- `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d`.
+- `verification_mode`: `targeted-closure`; `fix_delta_range`: `310c63f85b8ce82a2f4ebea5171717388248f876..6309714219ba8cc1432e5e1752a94b50a7d8ad35`.
+- `focus_issues`: Product-R1 built-in directory identity after service rename/cold initialization; retained W1 closure.
+- `requires_full_verification`: false.
+- Verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION.** Independent targeted product acceptance remains separate.
+
+| Contract / focus | Implementation and evidence | Alignment |
+|---|---|---|
+| S3 built-in provider directory; design decision 2's fixed provider identity | Native profile no longer overrides the DSH provider `displayName` (`providers.ts:60–66`). Real DSH cold initialization compares the empty-profile catalog with a renamed configured DeepSeek service (`providers.test.ts:11–33`); shared red evidence reproduced `deepseek` → `My Research API`, green evidence passes. | Product-R1 defect closed at the implementation/test seam. Cached catalog has the same correct built-in identity from initialization, including after service removal. |
+| S5 editable service name; design decision 3's stable service ID | Node keeps `display_name` in YAML, status and Agent capability labels (`model-setup.ts:62`, `:105`; `capabilities.ts:52`); native runtime profile no longer owns this product label. Custom runtime `displayName` remains (`providers.ts:79`). | aligned; independent source exercise confirms native product label and custom profile label remain intact. |
+| S7/S8 surviving credentials; W1 | Stable provider-name hex env binding (`providers.ts:70`) is unchanged. Same-session HTTP regression remains and is part of the green provider-file run. Independent profile exercise confirms removing the other service leaves B's key name unchanged. | W1 remains closed; R2 real HTTP/rebuilt-child evidence retained. |
+
+Inspected `/tmp/nano588-catalog-red.log` and `/tmp/nano588-catalog-green.log`, the actual regression source and the full patch. Green result: 4 files / 11 tests passed across providers/model-setup/capabilities/integration setup; node typecheck pass is provided by the author handoff. Reused these relevant results without an unrelated full-suite rerun. No implementation, tests, configuration or design were changed by the reviewer.
+
+The fix restores accepted identity/catalog behavior without changing the design or public API, so no design revision is needed. Both complete delta files are unchanged; Round 2's corrected-delta outcome **aligned** remains effective through this validation head. All unaffected R2 completeness/correctness/coherence and explicit reference-contract findings are retained. Browser acceptance and the separately documented test-upstream terminal failures are not decided by this static closure.
+
+`git diff --check c4e2517b9..630971421` passed. No runtime was started or restarted, no service data was modified, and no new fixture resources require cleanup. Existing user service 52267, shared model fixtures, `.runtime/` and `output/` were preserved.

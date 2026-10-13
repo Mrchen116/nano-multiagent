@@ -112,3 +112,30 @@ The new permanent regression (`providers.test.ts:11–77`) asserts the same live
 - R1's non-W1 code conclusions, public dependency boundary, Web explicit-contract comparison, common editor/owner/transaction checks and installation fixture boundary are retained. Spec/design/prototype, Web, IM, installer/publisher and probe/transaction source are unchanged.
 - The IM delta's newly explicit MODIFIED requirement is documentation alignment to the already-reviewed API-first behavior; full corrected-delta reconciliation is in [verification.md](verification.md#corrected-delta-reconciliation). This does not restore the rejected old UI approval or substitute for product review of the separately running eff9 build.
 - `git diff --check eff9d6daf..c4e2517b9` passed. Only the two assigned reports were changed by this reviewer; no implementation/config/test/design changes or push.
+
+## Round 3 — patch: built-in catalog identity
+
+- Date: 2026-10-13; same independent static reviewer.
+- `validated_at`: `6309714219ba8cc1432e5e1752a94b50a7d8ad35`.
+- `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d` (unchanged).
+- `pre_fix_head`: `310c63f85b8ce82a2f4ebea5171717388248f876` (R2 report-only commit over validated `c4e2517b96d22f7c1a38df22ac8259ec5ab96f68`). Reviewed its complete patch through the fixed validation head.
+- Mode: `patch`; focus: product R1's built-in provider directory being renamed by a user service label after cold initialization, including the cached directory after removal.
+- Result: **PASS — no patch findings; catalog identity defect closed at the implementation/test seam.** Product targeted acceptance is separate.
+
+### Findings
+
+```json
+[]
+```
+
+### Evidence and retained conclusions
+
+Only the native branch of `providerProfiles` removes the product `display_name` → DSH `displayName` override (`providers.ts:60–66`). The public DSH directory legitimately uses its configured profile display name; therefore leaving that field absent restores the runtime's built-in provider identity both before and after cold initialization. Node's existing cached catalog now starts from the same vendor identity and cannot retain the removed user-label override. No cache invalidation or compatibility mechanism is necessary for this fix.
+
+Product service labels still live in Node YAML (`model-setup.ts:105`), safe service status (`:62`) and Agent capability `provider_display_name` (`capabilities.ts:52`). The custom-provider branch retains `displayName` (`providers.ts:79`). API URL, protocol, model metadata, immutable provider ID and all credential bindings are unchanged. Independently inspected the source result with a renamed native service and a named custom service: native profile has no `displayName`, the input product label remains `My Research API`, and custom profile label remains `Custom Service`. Removing the other service preserves B's binding `NANO_PROVIDER_6C65676163792D62_KEY`.
+
+Read the permanent cold-initialization test (`providers.test.ts:11–33`) and its real DSH red/green evidence: `/tmp/nano588-catalog-red.log` expected `deepseek` but received `My Research API`; `/tmp/nano588-catalog-green.log` records providers/model-setup/capabilities/integration setup, 4 files / 11 tests passed. This uses a fresh temporary DSH home, reads the empty directory, then reopens the process with the renamed built-in configuration. Author node typecheck pass is provided by the handoff. These credible relevant results were reused without repeating an unrelated full suite.
+
+W1 remains **closed**: the stable env-name code and existing same-session HTTP regression are unchanged and the latter is included in the green provider-file run. R2's remaining code conclusions and corrected-delta alignment are retained; no design/spec/prototype, Web, IM source, installer, probe or transaction change occurred. The product R1 triage document records the identity issue and a separate upstream execution observation; this patch review does not issue a browser acceptance or broader runtime verdict.
+
+`git diff --check c4e2517b9..630971421` passed. No runtime processes/services were started or modified in this review; 52267 and shared fixtures remain untouched. Only the two assigned reports were edited; no push.
