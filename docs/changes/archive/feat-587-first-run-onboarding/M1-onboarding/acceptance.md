@@ -308,3 +308,71 @@ reviewer 节点已通过本轮 release CLI stop，返回 STOPPED；另一个 rev
 ## 收尾与文档
 
 只追加本587归档报告，不改源码、配置、设计或588报告，不push。已恢复中文并关闭本轮独立浏览器；按caller明确要求保留安装节点（恢复后PID 66428）、IM/API、数据与现场，交caller统一清理；没有停止共享服务。当前current specs已体现API优先及常驻管理，caller另做安装文档校正，不在本报告复制长期事实。新版交付视频由caller另用全新身份录制，止于首个真实回复，不追加刷新章节；merge main仍未执行。
+
+---
+
+# Round 6 · main 合流后空间与任务 targeted 复验 · 2026-10-13
+
+> validated_at: `ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`；执行约 17:58–18:09 Asia/Shanghai。调用方确认 IM 与前端来自本 checkout 的冻结构建；reviewer 开工独立核对 HEAD。后续修复不算本轮已验版本。
+
+## Verdict
+
+**fail：1 项 major（#6），1 项 minor（#7）。** 私人任务保存、私人/公司权限隔离、批准不公开既有私人内容、公开群访客读取与加入后协作均通过。含私人助手的建群流程仍承诺“公司内公开”，保存却变成不可切换的私密群，范围选择不能可靠表达用户决定；需修复后 targeted 复验。
+
+## 环境与范围
+
+- checkout `/Users/czj/.codex/worktrees/pr337-main-sync/nano-multiagent`，branch `codex/pr337-main-sync`；仅追加本报告，保留开工时既有 code-review.md / verification.md 修改与 `.review-private/`。没有提交、push、读实现定位原因或停止共享服务。
+- 仅使用独立 `http://127.0.0.1:52335`，通过 CUA 后台 IAB 操作真实 Web；Chrome 连接不可用后切换，不使用生产与原试用 62307。桌面 1280×900、窄屏 390×844；不是物理手机或原生 iOS。
+- 测试身份：`pr337private`（私人验收用户）与 `nano`（Test User）。调用方最初称 nano 是 legacy 公司用户，随后核实其实际是个人空间启用且公司 active；其 E2E Agent 固定在 nano 私人空间。因此本轮**不宣称 legacy 无个人空间账号迁移实测**。
+- 私人 Node `pr337-private-node`，Agent `pr337-private-agent` 的 UI 名称实际为 E2E Agent。首次 Agent 保存任务返回 not_found_or_forbidden；调用方核实 fixture 初始 tool_allowlist 为空。依授权在真实 Agent 设置页启用 task_graph/send_message，保存为 profile v2 后原聊天再次请求，真实创建成功。前次失败作为环境前置缺失记录，不据此推断 ACL 缺陷。
+- 本地截图根 `output/review587-r6/`，不入 git。所有写入仅这套独立账号、群与任务。
+
+## 连续操作与实际结果
+
+| 目标 / 来源 | 实际证据 | 结果 |
+|---|---|---|
+| 587 S1；current conversations 私人会话 | 私人目录只见自己的助手；新聊天建立 `c_a9a8nmly`，显示本人、助手及私人 Node；批准后仍能回看原历史 | pass |
+| 587 S1/S10；current task-graphs 私人保存 | Web 新建 `tg_4895053a`「私人阅读计划 R6」，私密·仅成员；390 宽度编辑状态为进行中、负责人为本人、记录结果，新增子任务成功；图 revision 与保存内容一致 | pass |
+| Agent 普通私人请求保存 | 补齐测试工具配置后请求「私人学习计划 R6B」，实际 `tg_5d9982dc`，两步分别比较方法、整理适用场景；原聊天真实回复“已保存，未执行”，Tasks 可见两节点且归属原私人会话 | pass |
+| 587 S2；auth-tenancy 申请与批准 | 账号→团队资格→申请后显示等待批准；nano 公司成员页批准，显示已加入 | pass |
+| 587 S1/S2；私人数据不可被公司读取 | nano 在批准前和批准后分别直接访问 `tg_4895053a` 均显示“任务不存在或你已无权访问”；访问 `c_a9a8nmly` 均回聊天空选择，不显示私人历史；批准后私人本人仍见原任务与会话 | pass |
+| current conversations 公司公开群读取/加入 | 用两个 active 真人创建 `c_54bgsp30`「公司读书会 R6」；nano 退出后从“发现公开群”进入，能读原消息，明确“只读·加入后可协作”，不可发言且不自动入列表；点击加入后发言成功 | pass |
+| current task-graphs 公开可读、加入后写 | `tg_2e273592`「公司笔记分享 R6」：nano 未入组时能读详情但没有编辑/领取；加入后领取，负责人 Test User、状态进行中；编辑结果并提交待确认成功，私人创建者回群看到分配与待确认系统消息、可回原任务 | pass |
+| 587 S12 与 current task 体验 | 1280 总览五列按状态区分、任务标题/负责人/所属会话/直属子任务清楚；详情抽屉不挤窄看板；390 单列分组、编辑字段和保存按钮完整可达，保存后详情显示新值；私人和公司任务在本人总览共存 | pass |
+| 私人助手群的可见范围决定 | nano 新建群选择自身 E2E Agent，表单仍显示“公司内公开”；保存 `c_vzmt40ab`「阅读协作公开群 R6」后配置却显示私密且禁用范围选择，任务 `tg_eb709c0a` 也显示私密 | **fail / #6 major** |
+
+## 体验裁决与问题
+
+**#6 major：建群可见范围承诺与保存结果不一致。** 选择私人助手后仍可看到公司公开默认值，没有解释该助手固定私人空间；保存后的私密结果无法切换。用户想建立公司可发现的协作入口，却只有保存后进入配置才发现无法实现；这是决定与结果不一致，不是颜色或文案偏好。私人资源不被自动发布的边界应保留，但界面必须在提交前表达真实可用范围。实际对象与步骤见上表，调用方已确认进入修复。
+
+**#7 minor：会话列表的任务系统消息预览暴露原始格式。** 公司任务待确认后，左侧列表预览含 `Test User \\(u\\_hh4oa27i\\)`、Markdown 任务链接与 `<mention type="user" target_id=...`；原群正文正确显示任务链接与 @姓名，点击与任务处理正常。列表的扫读质量下降，但不会阻断本轮读写和访问边界。证据 `private-agent-saved.png` 左侧列表及本轮 CUA snapshot；不把正文正确渲染当作列表也正确。
+
+关键截图：`private-detail-390.png`、`private-edit-390.png`、`private-board-390.png`、`private-agent-saved.png`、`private-agent-task-1280.png`、`company-denied-private-task.png`、`company-denied-after-approval.png`、`public-guest-chat-1280.png`、`public-guest-task-1280.png`、`public-joined-claimed-1280.png`、`company-overview-1280.png`、`mixed-overview-{1280,390}.png`。均通过真实画面目视判断；缩放过渡时的 `private-board-1280.png` 不作为桌面布局依据。
+
+## Retained 与未宣称项
+
+- S3–S5、S7–S9、S11 保留 R5 的安装生命周期、API 接入/编辑、错误恢复、创建助手、重登/掉线恢复具体结论；没有本轮重新安装声明。S6 仍按 R5 为 superseded。
+- S10 本轮新增私人任务成功与原聊天结果；R5 普通首答/追问及 R4 私人保存交付历史仍保留。真实公开 Release/匿名下载安装不属于本轮，待发布后独立验收。
+- R5 对 587/588 原型 must-match 的安装与模型区对照 retained；本轮只判断受 main 合流影响的会话/空间/任务实际体验，不把旧模型截图当成任务页证据。
+- 不外推原生 iOS、所有 OS、真实 Release、生产部署或旧 DB 升级。调用方负责整体门禁与上层文档同步。
+
+保留独立环境与测试数据供修复闭环；本轮没有启动或停止服务。
+
+---
+
+# Round 7 · 私人助手建群范围修复 targeted closure · 2026-10-13
+
+> validated_at: `864d44e281779f06dde7c771ac49d5dbf4e30e96`；执行约 18:10–18:12 Asia/Shanghai。调用方重建并重启本轮 IM 52335、保留原 DB/签名；reviewer 刷新真实客户端后执行。
+
+## Verdict
+
+**pass-with-issues：0 blocking / major，保留 R6 #7 一项 minor。** R6 #6 已关闭；当前受影响私人/公司空间与任务协作组合可交付。R6 的真实私人保存、批准前后隔离与公司公开群读/加入/写矩阵 retained，不重复声明为本轮重跑。
+
+## 实际闭环
+
+1. 私人验收用户进入新建群聊，未选成员时仍可选择公司公开；选 `pr337-private-agent` 后，范围即时变为“私密·仅成员”且不可切换，下方明确“包含私人助手的群聊保留在个人空间，仅成员可见”。桌面 1280×900 与 390×844 已目视核对，说明紧邻决定、群名和创建动作可见，不需保存后猜测范围。
+2. 在 390 宽度直接创建「私人阅读群 R7」`c_t4bsv0rn`；进入真实群配置，实际范围为私密·仅成员，与提交前展示一致。
+3. 再开建群：先选私人助手、取消，再只选公司成员 Test User，范围恢复可选择；真实切换私密→公司公开后创建「公司阅读群 R7」`c_vx5grxq3`，配置显示公司内公开。未因修复把所有群强制私人化。
+4. 真实截图位于 `output/review587-r6/`：`r7-private-scope-1280.png`、`r7-private-scope-390.png`、`r7-private-created-390.png`、`r7-company-created-1280.png`。截图不入 git。R6 的 Agent 原聊天最终回复与实际图 `tg_5d9982dc` 已确认成功，不以 retained 隐去前置缺失后的最终结果。
+
+R6 #7 系统通知在会话列表预览中的原始格式仍可观察；仅局部扫读问题，正文及协作操作正常，保留 minor。R5 安装/模型具体 retained 结论及真实 Release 尚未实测的边界继续适用。只追加报告，未改源码/设计/测试、未 commit/push；浏览器视口已恢复并关闭本轮临时 tab，所有独立服务交由 caller 管理。

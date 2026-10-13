@@ -172,3 +172,65 @@ Conclusion: **changes required for the two current-documentation findings before
 Reviewed both index changes: they route current readers to the corrected current operations section, with valid file targets and an existing heading. `git diff --check ea547e6ed..22aa42c62` independently passed; caller's focused docs-check passed (243 sources / 64 routes), reused without another full check/test cycle. The complete patch changes only five current documents; relative to runtime 77622d2, all additional changes are those documents plus the R5 reports. No runtime source, tests, dependencies or behavior changed.
 
 Result: **PASS, both P2 findings closed and no surviving findings**. R5's implementation review, test/CI evidence, historical issue closures and explicit supersession mappings are retained. Independent product review and the requested new video remain separate. Publication, public anonymous asset acceptance, production deployment and merge-main remain unexecuted/outside this closure. Only these two archived reports were appended; no push or runtime operation.
+
+
+## Round 7 — main synchronization integration review
+
+- `review_round: 7`; `review_mode: patch / integration`; `validated_at: de20ae5bb7cb353b067a5cb1285c956c0935c2c0`.
+- `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`; `pre_sync_head: bf548283291ba622c8f1e40b3a97ecf487b69a88`.
+- Scope: merge composition of feat-587/588 with main's feat-584 conversation task collaboration and bugfix-590 profile/deployment repair, plus affected authorization, historical migration, runtime and installer seams. Earlier full/closure conclusions retain their unchanged scope; this is not another full-unit review.
+
+```json
+[
+  {
+    "file": "apps/im-server/src/conversation-access.ts",
+    "line": 10,
+    "summary": "[P2] Keep legacy task migration independent of the not-yet-added space column",
+    "failure_scenario": "migrate-task-collaboration.ts:40 calls qualifiedUser while inspecting the pre-v2 database, whose actual pre-feat584 agent_profiles schema has no space_id. The merged helper delegates to agentAvailable, so an otherwise valid nonstale Agent with an active company owner and existing target-chat membership is rejected. An evidenced Agent assignee mapping fails dry-run/apply with 'Assigned actors must already be active members'; normal startup cannot first add the personal-space columns because openDatabase refuses pre-v2 databases. Preserve the strict runtime fixed-space check and use the legacy company's qualification contract at the one-time migration seam, with a regression on the actual legacy schema.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+Evidence: independently loaded `git show 8e9cb5b19^:apps/im-server/src/schema.sql` into an in-memory SQLite database. With an active human owner, a nonstale `agent:a`, and existing conversation membership, the merged helper returned human qualified=true / Agent qualified=false / space column present=false. Passing an evidenced Agent assignee mapping to `applyMigration` reproduced the exact rejection before backup or document validation. No production data, repository source or tests were modified. The main migration contract explicitly requires preserving supported, still-valid Agent assignments (`feat-584-task-progress-permissions/migration-guidance.md`, identity-by-evidence and implemented-command sections).
+
+Other inspected integration behavior is consistent: conversationAccess composes current resource-space eligibility with public/private read, membership write and dissolution; task listing applies permitted conversation spaces before summaries/counts; graph and receipt scope is derived from the fixed owning conversation; receipt retry rechecks that conversation; Agent assignees need same-space membership; durable task notices retain post-commit delivery and current relay eligibility. Main's bugfix-590 client implementation and runtime-profile owner tests are byte-identical to the executed main base. The installer, publication scripts/workflow, model setup/probe and Node code are byte-identical to pre-sync PR head, retaining earlier static/functional review conclusions.
+
+Reused caller's fixed-source evidence: `/tmp/pr337-tests-final.log` (70 backend/runtime test files, 235 tests passed), `/tmp/pr337-web-tests.log` (91 frontend files, 854 tests passed), successful build/typecheck and docs-check (237 maintained sources / 64 routes). Independently passed `git diff --check executed_base..validated_at`, installer Bash syntax and release-script Node syntax. No redundant full suite was run. Existing suites do not cover the demonstrated pre-v2 Agent mapping condition.
+
+Verdict: **changes required — one confirmed P2 integration finding**. Correction/closure can remain bounded to the historical migration seam and its regression; no full-unit restart is requested. Public-install/product acceptance, current CI, merge, release and fleet deployment keep their independent caller-owned gates; this report does not certify them. Only code-review.md and verification.md were appended; no commit/push or runtime operation.
+
+
+## Round 8 — targeted closure of legacy migration qualification
+
+- `review_round: 8`; `review_mode: closure`; `validated_at: ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`.
+- `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`; `finding_origin_head: de20ae5bb7cb353b067a5cb1285c956c0935c2c0`.
+- `fix_delta_range: de20ae5bb7cb353b067a5cb1285c956c0935c2c0..ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`; focus: R7 P2 / W7-M1.
+
+```json
+[]
+```
+
+**R7 P2: closed.** The complete fix changes only the migration source and one focused test. `eligibleAssignee` in `migrate-task-collaboration.ts:26–33` handles the actual legacy schema locally: absent conversation/profile space means the original company scope. Existing scoped databases still require matching actor/conversation space, nonstale profile and owner eligibility. Target conversation membership remains independently required. `conversation-access.ts`, `identity.ts` and live runtime checks are unchanged, avoiding a general fallback in product authorization.
+
+Independent verification: `pnpm exec vitest run apps/im-server/tests/task-migration.test.ts apps/im-server/tests/task-collaboration.test.ts apps/im-server/tests/tenancy.test.ts` passed (3 files / 11 tests, 17:58:11). The new regression removes the relevant pre-v2/personal-space columns, uses a pending Agent placeholder with eligible real owner, and executes apply plus real SQLite backup plus verify, preserving the evidenced Agent assignee. I additionally loaded the exact historical schema (`8e9cb5b19^:apps/im-server/src/schema.sql`) into isolated memory databases and confirmed stale Agent, suspended owner and missing conversation membership each still reject with `Assigned actors must already be active members`. No backup is reached for these rejection cases. Caller typecheck log `/tmp/pr337-typecheck-migration.log` shows all packages completed; `git diff --check` passed independently.
+
+Verdict: **PASS — no surviving findings, R7's single confirmed issue closed**. Earlier full/closure and R7 unaffected integration conclusions remain retained. No further full review or broad suite rerun is required by this two-file fix. Current CI/product/public-install/release/deployment acceptance remains separately owned. Appended only these two reports, without source/test/config/design edits, commit or push; existing `.review-private/` preserved.
+
+
+## Round 9 — targeted review of private-group scope presentation
+
+- `review_round: 9`; `review_mode: patch`; `validated_at: 864d44e281779f06dde7c771ac49d5dbf4e30e96`.
+- `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`; `pre_fix_head: ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`.
+- `fix_delta_range: ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d..864d44e281779f06dde7c771ac49d5dbf4e30e96`; scope: product-observed misleading public selection for a personal-Agent group. R8's other conclusions retained.
+
+```json
+[]
+```
+
+Inspected the complete seven-file patch and actual callers. Contact projection adds `ap.space_id` only after unchanged visibility/Agent eligibility filtering; human projection remains the existing minimal identity. The optional Contact/AgentRow property passes through ChatWorkspacePage to NewGroupModal. A selected personal Agent derives private display, disables the public/private selector and displays localized explanation; handleCreate independently derives private submission. Removing that selection restores the user's previous company visibility selection. The mutation passes that exact visibility into createConversation; existing server behavior already fixes personal groups private and checks all participant spaces. Therefore the UI now accurately represents enforcement without widening resource access or changing membership authority.
+
+Reviewed the regression's actual assertions: select personal Agent → private/disabled/explanation; submit → private payload; deselect → enabled/public. Reused frozen-fix caller evidence `/tmp/pr337-group-tests.log` (new-group-modal and agent-profile-page, 2 files / 10 tests passed at 18:06:45), plus `/tmp/pr337-group-build.log` (TypeScript/Vite production build passed). Independent `git diff --check ad0b096f9..864d44e28` passed. No new evidence gap warranted repeating those small tests or a broad suite.
+
+Verdict: **PASS — no surviving findings**. This corrects the visible representation of the established fixed-private-space contract; no new access capability or standalone spec delta is introduced. Independent product reviewer owns real-browser confirmation at the same head. Only the two review reports were appended, with no source/test/config/design edits, commit or push. Existing `.review-private/` and `output/` remain untouched.

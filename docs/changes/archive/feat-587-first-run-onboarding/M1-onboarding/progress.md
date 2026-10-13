@@ -90,3 +90,12 @@ PR339 已合入本 587 分支，集成点为 `77622d2152fe7e1bb2966fb656adf9e416
 最终同步 main 到 `82b4c13201dccd12ac72bb2a79c4dd99aa233c49`，新增内容仅为独立 feat-589 的设计/证据文档，无运行时代码和本 unit 行为变化。门禁 executed_base 保留 `b7e367cc08a642133dea28e372816cd79038818d`，effective_base 更新到该 main SHA；后续报告和 current 文档校正不改变集成运行时，各有效门禁 retained。同步后文档检查 248 sources / 64 routes 通过，diff check 通过。新版录像这轮最终执行完成；独立产品 R5 中首答送达后的上游 empty_stream 失败仍按其报告保留，不用本轮成功覆盖历史观察。
 
 用户要求停在 merge main 之前：PR337 继续 OPEN，未合并 main、发布 GitHub Release 或部署生产。用户原试用服务及无关工作区内容保持原状。
+
+
+## 2026-10-13 · main 集成与发布准备
+
+- 基线 `36f2cad9ee562617fd1c54b3725bed89415ada17`，候选代码 `864d44e281779f06dde7c771ac49d5dbf4e30e96`；保留 main 的会话任务 v2、任务视图切换和 DSH profile 链接自修复，与个人/公司资源空间组合。
+- 修复任务列表先筛空间再投影/计数、任务与 receipt 固定会话空间、旧数据库 Agent 负责人迁移资格；迁移真实回归先失败后通过。运行时空间权限不使用旧库缺字段兼容逻辑。
+- 实际产品复验发现私人助手建群的“公司内公开”选项与最终私密结果不符；联系人携带 Agent 固定空间，表单明确私密与个人空间说明并提交一致结果。独立产品结果见 acceptance 后续轮次，静态/一致性复核见 Round 7–9。
+- 本地 root 71 文件 / 236 测试通过；Web 91 文件 / 855 测试通过；typecheck、IM/Web build、Python 54 测试、Ruff 与 docs-check、diff check 通过。最新 UI 变化的 10 项定点测试和 tenancy 6 项回归通过。
+- 公开 Release、正式 manifest、生产部署和公网真实安装仍属于合并后的 guidance 执行，不以前轮运输替身或本轮隔离验证代替。用户已明确授权 CI 全绿后合并并完成这条发布链路；其余主仓 dirty/untracked 内容保持独立。

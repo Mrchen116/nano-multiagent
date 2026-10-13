@@ -341,3 +341,79 @@ Independent check: full patch read and `git diff --check ea547e6ed..22aa42c62` p
 **Completion conclusion:** no remaining static/verification issue within the integrated implementation and these current-documentation corrections. The caller may proceed with independently confirming the current product and recording the requested API-first new-user video. Those actions retain their own evidence gate; this report does not assert they have already completed. GitHub Release publication, actual anonymous public asset download, production installation/deployment and merge-main are not performed or implied. User's stop-before-main boundary remains in force.
 
 Only code-review.md and verification.md were appended. Existing untracked `.runtime/` and `output/` were preserved; no source, design, other report, publication, deployment or push operation.
+
+
+## Round 7 — integration delta and canonical-contract verification
+
+- `review_round: 7`; `verification_mode: delta / corrected-contract integration`.
+- `validated_at: de20ae5bb7cb353b067a5cb1285c956c0935c2c0`; `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`.
+- `fix_delta_range: bf548283291ba622c8f1e40b3a97ecf487b69a88..de20ae5bb7cb353b067a5cb1285c956c0935c2c0`; `requires_full_verification: false`.
+- Verdict: **FAIL — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**. Corrected-contract outcome: **implementation-mismatch**, limited to historical migration qualification.
+
+### Retained and delta rationale
+
+| Contract area | Integration mapping / evidence | Disposition |
+|---|---|---|
+| 587 immediate personal availability and explicit company approval | identity eligibility plus conversation-access qualifiedUser/conversationAccess; tenancy test exercises personal task save/list, approval, company public read, private isolation and suspension/relogin | aligned at runtime |
+| 587 fixed space plus main's fixed owning conversation | canonical IM task-graphs and Gateway task-graphs now state conversation ownership within private/company space; task save/receipt derive space from owning conversation, list filters permitted spaces, receipt retry checks current conversation | aligned; main supersedes frozen 587 company-wide/member-independent task semantics |
+| Main public/private groups and membership/lifecycle | canonical auth-tenancy, conversations-messages and agent-work compose space eligibility with public reads, membership writes, dissolve freeze, and source attachment access; messaging/Gateway/media consume that check | aligned; public read does not confer company approval or membership write |
+| Main assignment/delete/notification semantics | actual creator and member assignee checks, creator/admin deletion after conversation write checks, durable atomic notice/receipt and post-commit relay delivery remain; task-collaboration and tenancy regressions retained | aligned |
+| Historical upgrade preserving identity/assignment | main's migration command must execute against pre-v2 schema before startup. qualifiedUser now requires Agent space_id absent from that schema; independently reproduced evidenced valid Agent-assignee rejection | WARNING W7-M1; implementation-mismatch |
+| 588 API-first model services and safe persistence/probes | Node model setup, providers, DSH model-setup seam and release/install sources did not change from pre-sync PR head | prior full/closure evidence retained; no new spec delta |
+| 588 fixed GitHub distribution / version coupling | install metadata/script and build/publish/workflow unchanged; canonical install and corrected current runbook retain fixed SHA, hash, direct GitHub byte download and verified-manifest handoff | prior review retained; actual publication/public install remains a separate gate |
+| Main profile refresh and stable prod-main deployment | client.ts and runtime-profile.test.ts are identical to executed main base; canonical service-lifecycle retains persistent-state current-version loading and non-symlink conflict preservation | aligned; original owner test retained rather than duplicated |
+| Web/native onboarding and task UI | merge preserves accountEnabled and async reconcile composition; caller frontend suite passes. Earlier must-match and native evidence retain only their originally reviewed scope | static/regression retained; current product/physical acceptance separately owned |
+
+Archived 587 and 588 requirement/design/milestone records stay historical. The corrected canonical specs explicitly compose the later conversation task model with 587's space isolation and retain 588's API-first and independent package distribution requirements. Original proxy discovery and same-origin package-byte delivery remain explicitly superseded by 588. No omitted new installer/model external behavior was found in this delta, and no new full-unit requirement review is needed to close W7-M1.
+
+### W7-M1 — migration rejects supported historical Agent assignments
+
+Contract: feat584 migration-guidance requires that explicitly evidenced assignments be preserved when the actor remains valid and already belongs to the target conversation; 587's old-library-upgrade contract preserves old company data and state. Actual code: `conversation-access.ts:10` delegates to `agentAvailable`, requiring `agent_profiles.space_id`; `migrate-task-collaboration.ts:40` calls it on the raw pre-v2 database. `openDatabase` refuses that database before it can apply personal-spaces-v1. Thus the required one-time mapping cannot be completed with a valid Agent assignee on the actual pre-feat584 schema.
+
+Independent minimal reproduction loaded the exact legacy schema with `git show 8e9cb5b19^:apps/im-server/src/schema.sql`, inserted active owner/nonstale Agent/existing target membership and supplied an evidenced mapping. Human qualification succeeded; Agent qualification failed and `applyMigration` returned `Assigned actors must already be active members` before backup/document validation. This isolates qualification from document-shape validity. No persistent fixture or service was created.
+
+Executable correction: keep live runtime space enforcement strict; qualify actors at the legacy migration seam using the legacy company-owner contract. Add one meaningful regression using the real legacy schema with an active Agent owner/member, verify its mapping succeeds, and verify stale/revoked owner cases still fail. Closure need only inspect this fix delta and its result.
+
+### Evidence and limits
+
+Retained the earlier full/closure reports of both units for unchanged setup/model/installer paths. Inspected merge composition and affected task/auth/media/messaging/Gateway/migration/profile paths plus corrected canonical docs. Reused caller's frozen-head backend/runtime 70 files / 235 tests, frontend 91 files / 854 tests, build/typecheck and docs-check 237 maintained sources / 64 routes; independently checked diff whitespace and Bash/Node installer/publication syntax. The legacy Agent migration condition was not covered by those suites and was independently reproduced. No broad suite rerun, source/test/design edit, production access, publication/deployment or push occurred. These two reports are caller-owned working-tree changes, with `report_commit: pending`.
+
+
+## Round 8 — targeted closure of W7-M1
+
+- `review_round: 8`; `verification_mode: targeted-closure / delta`.
+- `validated_at: ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`; `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`.
+- `fix_delta_range: de20ae5bb7cb353b067a5cb1285c956c0935c2c0..ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d`; focus: W7-M1.
+- Verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**. `requires_full_verification: false`; corrected-contract outcome: **aligned**.
+
+| Focus contract | Final implementation and direct evidence | Result |
+|---|---|---|
+| Preserve evidenced valid Agent assignment on pre-v2 schema | Migration-local eligibility supplies legacy company scope only when the old field is absent, checks real owner and nonstale profile, then requires target membership. Independent task-migration test performs real apply/backup/verify with absent old fields and pending runtime placeholder; assignee is preserved | W7-M1 closed |
+| Reject stale/revoked/nonmember assignment | Inspected explicit checks; independently exercised each case against the exact historical schema in three memory databases, each rejected before backup/document validation | aligned |
+| Keep fixed spaces strict for live/private/company runtime | No change to identity/conversation-access or normal authorization; local migration helper also compares explicit profile and conversation scopes | aligned; R7 runtime conclusions retained |
+
+The patch is exactly migration source plus its regression (58 insertions / 2 deletions). It restores the existing historical-upgrade requirement without changing design or adding a new product contract. All R7 canonical space/conversation/public-group mappings and retained 587/588 requirement/milestone conclusions remain valid; original frozen historical wording and the explicit main/588 supersessions are unchanged. No uncovered external behavior is introduced by this fix.
+
+Independently executed the migration/task-collaboration/tenancy narrow suite at the frozen head: 3 files / 11 tests passed. Reused completed package typecheck from `/tmp/pr337-typecheck-migration.log`; independent diff whitespace passed. The exact legacy-schema negative probes created only in-memory databases and no services or persistent fixture. Earlier broad backend/frontend evidence remains applicable to unchanged paths. This closure does not substitute for current CI, product acceptance, actual public installer/download, merge, publication or fleet deployment evidence.
+
+Only code-review.md and verification.md were appended, with `report_commit: pending`; no source, tests, config, design, commit or push changes. Existing caller-owned `.review-private/` remains untouched.
+
+
+## Round 9 — targeted verification of private-group scope presentation
+
+- `review_round: 9`; `verification_mode: targeted-closure / delta`.
+- `validated_at: 864d44e281779f06dde7c771ac49d5dbf4e30e96`; `executed_base: 36f2cad9ee562617fd1c54b3725bed89415ada17`.
+- `fix_delta_range: ad0b096f9f8b2093bd59fa3839a44a5cb326ca7d..864d44e281779f06dde7c771ac49d5dbf4e30e96`; focus: personal group visible/submitted scope matches fixed private resource scope.
+- Verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**. `requires_full_verification: false`; outcome: **aligned / no new spec delta**.
+
+| Existing contract | Implementation and evidence | Outcome |
+|---|---|---|
+| Personal resources remain private after company approval; fixed scopes add to membership checks | Unchanged createConversation derives scope from selected Agent and persists noncompany group private. Contact access filtering remains unchanged; only authorized Agent scope metadata is projected | aligned |
+| Creation UI represents the actual personal scope | Contact → ChatWorkspacePage → NewGroupModal passes space_id; selected personal Agent forces displayed and submitted private, locks selector and explains the scope in both languages | aligned |
+| Company visibility selection remains usable after personal deselection | personalGroup is derived from the current selection rather than mutating saved visibility; regression checks enabled/public after deselect and private payload while selected | aligned |
+
+The seven-file patch fixes presentation of the already-enforced fixed private-space rule, rather than changing backend authorization or introducing new group capabilities. Main's company public/private defaults coexist with personal-space privacy; no edit to the frozen 587/588 historical requirements is needed. R8's migration closure, corrected canonical contract mappings and retained model/installer/runtime evidence remain valid. No omitted observable behavior in this delta was found beyond the additive authorized contact space metadata and truthful creation UI described above.
+
+Reused `/tmp/pr337-group-tests.log`: 2 files / 10 relevant frontend tests passed, including new select/deselect/private-submit regression; `/tmp/pr337-group-build.log`: TypeScript and Vite build passed. Inspected the complete patch, contact filtering, server scope selection and create mutation caller; independently checked diff whitespace. Product reviewer separately confirms the live browser at the same frozen head; this static verification does not certify that session or production release/install/deployment acceptance.
+
+Appended only code-review.md and verification.md. `report_commit: pending`; no source/test/config/design change, commit or push. Caller-owned `.review-private/` and `output/` were preserved.
