@@ -154,3 +154,47 @@ M1 reviewer A/B 受 R1-01 阻塞，C/F 通过。worker D/E/G 的实现层测试�
 caller 要求保留现场供统一修复核对：专用 IM、review Node、安装 Node `computer-2603ac39`、安装目录、数据库、截图和运行日志全部保留，不调用 e2e-down，不动模型 fixture。review Node 的重启由原 PID 13085 切到 PID 25496；安装 Node 本轮启动时 PID 23222。临时原型 HTTP 57169 和仅本轮创建的浏览器可关闭。
 
 R2 建议仅覆盖 R1-01：同一内置服务自定义改名→刷新→专用 Node 冷启动，核对列表厂商、只读 Provider、新增目录均仍为真实厂商；确认服务自定义名、URL/key/模型/助手引用保持，再用原助手真实发一轮。保留 R1 其他完整旅程，不扩大为重复全量验收。
+
+---
+
+## R2 — targeted 复验
+
+- 时间：2026-10-13 12:23–12:28 Asia/Shanghai。
+- mode：targeted；修复 R1-01，重验 S3/S8 与直接相邻 S5/S7、原助手真实回复；其余旅程沿用 R1 未失效证据。
+- executed_base：`b7e367cc08a642133dea28e372816cd79038818d`。
+- validated_at：`1580bdfb0627e9e9cc614dd3e6a41a63e58c2d47`；effective implementation：`6309714219ba8cc1432e5e1752a94b50a7d8ad35`。caller 确认后续只有报告提交，已在该树完成运行构建（`/tmp/nano588-final-runtime-build.log`），仅更新专用 review Node；前端/IM/安装代码相对 R1 未变。本轮开工 HEAD 与 validated_at 相同，未读取实现以代替产品判断。
+- 环境：沿用 R1 IM 57165、API fixture 18493/18494、Test User、`API Demo Mac`。review Node 由 caller PID 32360 在本轮冷启动切至 PID 33413，DSH PID 33420；04:25:16.363 UTC relay ready。安装 Node 与共享基础设施未重启。
+
+### Verdict
+
+**pass**。R1-01 已关闭；0 blocking、0 major、0 minor 新问题，Highest Required Action：**none**。R1 的 fail 与复现证据完整保留，最终结论由本节更新。不是仅因代码修复声明或静态检查通过而改判：下述真实客户端连续旅程已完成。
+
+### R1-01 复验旅程与结果
+
+1. 从用户菜单的 Model services 进入原电脑，原自定义服务长名称和 `Daily Chat` 仍在。Add service 的内置目录已能找到 `deepseek`。新建 `DeepSeek R2`，选择 `deepseek-chat` / `Daily R2`、高级 URL `http://127.0.0.1:18493/v1`、专用 fixture key，真实 Test and save 成功。
+2. 编辑该内置服务，只把服务名改为 `My renamed native service R2`，API key 留空；真实测试保存后刷新，再完整 stop/start 专用 Node。重载列表，标题保持自定义名，下一行仍为 `deepseek`；原长名称 Custom API 服务不受影响。证据：`E/r2-list-after-cold-restart.yml`、`E/r2-list-after-restart-1440.png`。
+3. 重开编辑页，Provider 为禁用的 `deepseek`，自定义服务名、`deepseek-chat` / `Daily R2` 与 URL 保留，API key 不回显且明确已保存。再次留空 key 测试保存成功，证明冷启动后原凭据仍可用。证据：`E/r2-editor-after-cold-restart.yml`、`E/r2-editor-after-restart-1440.png`、`E/r2-editor-after-restart-390.png`。
+4. 在 390×844 浏览器中查看列表并删除本轮未被助手使用的 native 服务；确认删除后再次 Add service，Provider 可正常选择 `deepseek`，默认服务名也回到 `deepseek`，没有前一次自定义名称污染。取消新增，原 Custom API 服务继续存在。证据：`E/r2-list-390.png`、`E/r2-catalog-after-delete.yml`、`E/r2-catalog-after-delete-390.png`。
+5. 返回原 `Review Assistant` / `assistant-4123d88b` 的原会话 `c_j1jrvl3u`，发送“请用一句中文回答：53加64等于多少？”，真实收到“53加64等于117。”。用户消息 `8d57dd00c2c8475c807e3f983041b355` 创建于 04:26:36.704 UTC；回复 `1868b9b0cdd64d41a5f96c0c0c3ba727` 创建于 04:26:56.801 UTC。等候本轮结束后重载，浏览器实际消息响应中的两者均为 `completed`，没有把先收到气泡视为整轮已结束。证据：`E/r2-real-reply-390.png`、`E/r2-messages-after-refresh.json`。
+
+实际看图覆盖 1440×1000 列表/编辑页、390×844 列表/编辑页/再次新增：服务名与厂商次行身份分开且可读；长名称换行没有挤掉 Edit/Remove；Provider 与服务名在表单中各有清楚标签。本轮没有改变布局，未发现修复引入新的视觉或交互回退。
+
+### Scenario 汇总
+
+| Scenario | 来源 / 本轮证据 | 最终结果 | R1 证据处置 |
+|---|---|---|---|
+| S1 首次接入 | spec S1；R1 首次完整接入及真实回复 | pass | 入口/前端未变，保留，不重复安装或创建助手 |
+| S2 常驻管理入口 | spec S2；R2 用户菜单→原电脑模型页，R1 无电脑/跨 owner/离线 | pass | 保留未受影响权限和空状态证据 |
+| S3 内置目录 | spec S3；R2 改名→冷启动→删除→目录仍 deepseek | pass | R1-01 由本轮实测关闭 |
+| S4 自定义服务 | spec S4；R1 多模型/同 wire ID 分服务，R2 原 Custom API 名称与回复保留 | pass | 保留 R1 完整添加/选择证据 |
+| S5 编辑服务 | spec S5；R2 空 key 改名与重启后再测试成功、字段保留 | pass | R1 URL/key 轮换证据仍有效 |
+| S6 失败与并发 | spec S6；R1 坏 key、取消、双页冲突、离线对账 | pass | Web/并发流程未变，保留 |
+| S7 移除服务/模型 | spec S7；R2 删除闲置 native 服务后目录与原助手继续可用 | pass | R1 依赖保护/单模型删除证据保留 |
+| S8 持久与界面一致 | spec S8；R2 冷启动列表/只读 Provider/字段/原助手连续性与两宽度看图 | pass | R1-01 由本轮实测关闭；768 宽度沿用 R1 |
+| S9 安装分发 | spec S9；R1 固定安装脚本、绑定、启动、重装与下载/校验负向旅程 | pass | 安装代码未变，保留运输 fixture 边界，不冒称公网 Release 已发布 |
+
+### 证据措辞澄清与现场
+
+R1 S8 表中的“真实手机操作”指真实 Web 客户端在浏览器 390×844 手机宽度下进行操作，**并非物理手机、iOS 原生客户端或移动 Safari 验收**；应按这个明确边界读取 R1/R2。真实推理仍经本地测试别名转发上游，与 R1 相同，不代表真实 DeepSeek 厂商认证；GitHub 匿名下载和正式部署仍不在本次验收中。R1 已记录的早期上游 502 现象没有被本轮抹去，也没有在本次真实回复中重现。
+
+只追加本 acceptance 报告；源码、测试、受版本控制配置、设计未修改。本轮创建的临时 native 服务已经按上述删除旅程移除；专用 IM、review Node、安装 Node、API fixture 与全部现场按 caller 明确要求保留。仅关闭本轮浏览器 session，不清理其他测试资料。
