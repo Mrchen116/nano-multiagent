@@ -13,14 +13,14 @@ description: "Full unit 实施完成后被派发产品验收，或用户明确�
 - 环境由 caller 按 runbook 集中准备，交接版本、启停命令、专用身份与授权范围。可按既有授权调整本次隔离环境的临时测试配置，不能改变受审实现、生产配置或扩大外发授权；缺前置时说明具体缺口，不重复派 Agent 做零碎环境操作。
 - 对指定 `validated_at` 验收。确认运行服务/前端产物来自该版本；只有陈旧或无法证明时重建/重启本次隔离服务，不无条件重启所有服务。共享基础设施、主仓和生产现场不动。
 - 真实验收在已配置的专用测试身份/资源内包含必要常规产品写入；生产、未知身份、非测试数据、广泛通知、付款和不可恢复动作需具体授权。报告写入例外不授权改代码。
-- full 覆盖全部必验 Scenario，可合并成有意义的旅程；targeted 只重验受影响项，未失效项引用前轮证据。边界不清或发现新副作用时扩大。
-- 从用户目标连续使用真实界面，对照当前产品基线与目标设计，分别判断功能结果、视觉组织和交互体验；完成动作仍须合理的查找、阅读、操作和恢复成本。先看整体再核对局部，发现设计本身有问题也要报告，不因符合原型或 Scenario 未逐项列出就忽略。
-- 期望结果未出现就是 fail；必要体验证据不足则 inconclusive。API 200、元素存在、页面可渲染或单测通过不能替代体验；留下实际画面、操作路径、viewport/状态和有依据的结论，严重度遵循共同标准。
+- full 覆盖全部必验 Scenario，可合并成有意义的旅程；targeted 只重验受影响项，未失效项按具体结论引用前轮证据，保留条件见 [validation](../change-orchestrator/references/validation.md)。边界不清或发现新副作用时扩大。
+- 界面先按共同标准独立阅读和操作，再核 Scenario 与原型契约；从实际内容说明用户如何辨认、比较、决定和完成，留下关键画面与操作依据。发现方案本身妨碍目标时同样报告，不以符合设计放行。
+- 期望结果未出现就是 fail；必要体验证据不足则 inconclusive。报告明确观察到的状态与 viewport，严重度遵循共同标准；功能证据不能补齐未观察的体验。
 
 ## 报告与完成
 
 [验收](assets/acceptance.md) 用于 feat/refactor/perf，[回归](assets/regression.md) 用于 Full bug。后续 Round 追加不覆盖；每个必验 Scenario 有来源、实际证据与 pass/fail/inconclusive/not-applicable，not-applicable 要有范围依据。
 
-任一必验项 fail/inconclusive、缺 must-match 对照或有 blocking 则 fail；major 默认阻塞，只有 caller 明确 acceptance bar 才可 pass-with-issues；不能按轮次自动降低标准。minor 可记录后 pass。
+先裁决受影响流程的整体可交付性，再归并问题和定级。共同造成信息层级混乱、阅读操作负担或明显脱离现有产品设计语言的问题，按整体影响处理，不能逐项以“仍可点击”降为 minor；minor 仅指不影响整体可接受性的局部改进。任一必验项 fail/inconclusive、缺 must-match 对照或有 blocking 则 fail；major 默认阻塞，只有 caller 明确 acceptance bar 才可 pass-with-issues；不能按轮次降低标准。
 
 输入、问题路由、报告同步见 [handoff](references/handoff.md)。只同步合法报告，不 force push，不把 rebase 后的树冒充实际验过的树。清理自己启动的服务，返回 verdict、问题数、report_path/report_commit 和阻塞事项。
