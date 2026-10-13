@@ -39,3 +39,10 @@
 - 已将独立校正的 IM MODIFIED/ADDED、Gateway ADDED delta 归入 current specs，同步入口数量与文档地图。`pnpm -r --if-present build`、`pnpm typecheck` 和安装候选构建通过；Ruff、文档检查、`git diff --check`、前端 critical audit 通过，audit 为 0 vulnerabilities。保留此前全量与本轮针对真实缺陷的窄回归证据，不重复无关全量。
 - PR 依赖仍开放的 #337，以 `codex/feat-587-first-run-onboarding` 为 base；不能先于该前置变更合入 main。未自动合并、发布 GitHub Release 或部署；S9 按设计允许的精确下载 fixture 验证，公网匿名 Release 下载仍需正式发布后验证。
 - 用户要求保留的 52267 试用服务与本 worktree 保留。独立验收栈和作者临时原型由主会话清理；用户明确结束试用后再清理 52267/18489/18490 并归档 worktree。
+
+## 同会话图标反馈收口
+
+- 用户要求移动端“我的”其他入口沿用模型服务的细线风格；将桌面既有 SVG 提取为共用组件，七个入口统一 18px / 1.7 stroke，移除 emoji 和图标底色，公司成员使用独立双人图标，退出保持红色。导航、权限、状态和 API 未改，无 spec delta。
+- 源码提交 `c6b4455e158a32f71e179de19477ad65b2432158`；`1bb8ff98e` 仅清理文件尾空白。MePage / AppShell 两文件 8 tests、TypeScript/Vite build 和变更范围 diff-check 通过。
+- 独立静态 R4 PASS / code review `[]`，旧模型服务与安装门禁 retained。仅补充手机与桌面菜单视觉复验，原 S1–S9 证据不重复执行；最新结论见 [acceptance](acceptance.md)。
+- final fetch 的 main 仍为 `b7e367cc08a642133dea28e372816cd79038818d`；图标一致性未改变 Gate 2 的布局和职责设计，其余后端/安装/安全验证 retained。最终报告与进度记录不改变运行语义，effective_through 以 PR body 最终 head 为准。
