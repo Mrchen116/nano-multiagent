@@ -13,10 +13,10 @@ orchestrator 决定角色组合，在同一次派发中明确每项职责、对�
 
 先合并相关修复、冻结版本后一次派发复验，不把同一小修机械派给多位静态 reviewer。测试证据附版本、命令、结果与定位，可信且覆盖当前范围的结果可复用；必要的关键复现仍独立执行。
 
-每次修复前记录 pre_fix_head；判定问题是否成立、属于本 unit、阻塞交付、根因在哪里，合并同因项。后续修复统一由主 Agent 完成，不派新 worker 或唤醒原 worker 修补；独立复验按角色模型表派发。旧问题用 closure；新源码用 patch；可能偏离 spec/design 时 verifier delta；无影响的结论注明 prior report、SHA、delta 与保留理由。
+每次修复前记录 pre_fix_head；判定问题是否成立、属于本 unit、阻塞交付、根因在哪里，合并同因项。后续修复统一由主 Agent 完成，不派新 worker 或唤醒原 worker 修补；独立复验按角色模型表派发。旧问题用 closure；新源码用 patch；可能偏离 spec/design 时 verifier delta；保留项注明 prior report、SHA、delta，以及旧证据具体支持的结论。代码未变仅说明对象未变；旧报告只有结构存在或功能成功时，可保留这些事实，不能连带继承体验通过。需求、判据或新反馈暴露证据缺口时，补验该判断，已有充分证据的部分无需重跑。
 
 权限、持久化、迁移、协议、跨进程、共享运行时、并发或部署变化可能使整条链失效；无法界定影响时对适用 gate 做 full。final sync、冲突解决、文档/CI fix 同样判断影响；记录 effective_base/effective_through，保留原 executed_base/validated_at。
 
-revise-design 建议需非首轮、同一 issue 至少两轮实施修复无效且引用 design 的具体矛盾；真实需求/关键设计变化仍交回 author。out-of-unit blocking 暂停交 triage，major 记录关联，minor 只记 side finding。
+revise-design 依据用户目标、实际体验与 design 的具体矛盾提出，不要求先经历实施修复轮次；真实需求/关键设计变化交回 author。out-of-unit blocking 暂停交 triage，major 记录关联，minor 只记 side finding。
 
 同一 issue 经 5 个有效修复轮或 unit 经 7 个有效验收轮仍未收口，保留现场交人。轮次上限是停损保护，不要求做满轮数；不为可选润色反复审查。
