@@ -8,6 +8,7 @@ export interface Contact {
   display_name: string;
   agent_id?: string;
   owner_id?: string;
+  space_id?: string;
   owner_display_name?: string;
   node_name?: string;
   status?: "online" | "offline";

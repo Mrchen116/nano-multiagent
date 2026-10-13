@@ -12,6 +12,21 @@ const AGENTS = [
 ];
 
 describe("NewGroupModal", () => {
+  it("keeps a personal assistant group private before and after submission", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    render(<NewGroupModal agents={[{ agent_id: "personal", display_name: "My assistant", space_id: "personal:owner" }]}
+      onClose={() => {}} onCreate={onCreate} />);
+    await user.click(screen.getByLabelText("My assistant"));
+    expect(screen.getByLabelText("Visibility")).toHaveValue("private");
+    expect(screen.getByLabelText("Visibility")).toBeDisabled();
+    expect(screen.getByText(/stay private in your personal space/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /Create group/ }));
+    expect(onCreate).toHaveBeenCalledWith({ agentIds: ["personal"], userIds: [], name: "My assistant", visibility: "private" });
+    await user.click(screen.getByLabelText("My assistant"));
+    expect(screen.getByLabelText("Visibility")).toBeEnabled();
+    expect(screen.getByLabelText("Visibility")).toHaveValue("public");
+  });
   it.each(["en", "zh"])("shows machine identity and translated presence in %s", async (locale) => {
     await act(async () => { await i18n.changeLanguage(locale); });
     try {

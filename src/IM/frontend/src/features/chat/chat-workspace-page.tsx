@@ -1231,7 +1231,7 @@ export function ChatWorkspacePage() {
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}

@@ -722,6 +722,7 @@
       "direct-user": "私聊"
     },
     "newGroup": {
+      "personalScope": "包含私人助手的群聊保留在个人空间，仅成员可见。",
       "title": "新建群聊",
       "subtitle": "选择其他人和自己管理的 Agent",
       "sectionAgents": "人和我的 Agent",
