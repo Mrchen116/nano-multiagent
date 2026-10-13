@@ -3,7 +3,7 @@ import * as Label from "@radix-ui/react-label";
 import { useTranslation } from "../../../i18n";
 import { AgentAllowlistOption } from "./im-agent-config-api";
 
-type SelectionMode = "default_discovery" | "explicit_allowlist";
+type SelectionMode = "default_discovery" | "explicit_allowlist" | "explicit_denylist";
 type SourceKey = "workspace" | "global" | "compatibility";
 
 function normalizePath(value: string | null | undefined) {
@@ -29,7 +29,7 @@ interface SkillSourceSelectorProps {
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
-  onChange: (next: string[], mode: "explicit_allowlist") => void;
+  onChange: (next: string[], mode: "explicit_denylist") => void;
 }
 
 export function SkillSourceSelector({
@@ -54,24 +54,17 @@ export function SkillSourceSelector({
     options: options.filter((option) => skillSourceKey(option, workspaceRoot ?? "") === group.key),
   })).filter((group) => group.options.length > 0);
 
-  const effectiveSelected = selectionMode === "default_discovery"
-    ? Array.from(new Set([...selected, ...options.map((option) => option.name)]))
-    : selected;
+  const disabled = selectionMode === "explicit_denylist" ? selected
+    : selectionMode === "explicit_allowlist" ? options.map(option => option.name).filter(name => !selected.includes(name)) : [];
+  const effectiveSelected = options.map(option => option.name).filter(name => !disabled.includes(name));
 
   function toggle(name: string) {
-    const isOn = effectiveSelected.includes(name);
-    onChange(
-      isOn ? effectiveSelected.filter((item) => item !== name) : [...effectiveSelected, name],
-      "explicit_allowlist",
-    );
+    onChange(disabled.includes(name) ? disabled.filter(item => item !== name) : [...disabled, name], "explicit_denylist");
   }
 
   function toggleGroup(names: string[], allSelected: boolean) {
     const groupNames = new Set(names);
-    const next = allSelected
-      ? effectiveSelected.filter((name) => !groupNames.has(name))
-      : Array.from(new Set([...effectiveSelected, ...names]));
-    onChange(next, "explicit_allowlist");
+    onChange(allSelected ? Array.from(new Set([...disabled, ...names])) : disabled.filter(name => !groupNames.has(name)), "explicit_denylist");
   }
 
   return (
@@ -81,9 +74,10 @@ export function SkillSourceSelector({
         <span className="text-[11px] text-slate-500" data-testid={`${testId}-mode`}>
           {selectionMode === "default_discovery"
             ? t("agents.form.access.skillsDefaultDiscovery")
-            : t("agents.form.access.skillsExplicitCount", { count: selected.length })}
+            : t("agents.form.access.skillsExplicitCount", { count: effectiveSelected.length })}
         </span>
       </div>
+      <p className="text-[11px] text-slate-500">{t("agents.form.access.skillsNewDefault")}</p>
       {isLoading && options.length === 0 ? (
         <p className="text-sm text-slate-500">...</p>
       ) : errorMessage ? (

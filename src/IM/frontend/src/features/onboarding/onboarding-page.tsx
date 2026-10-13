@@ -64,7 +64,7 @@ export function OnboardingPage() {
       return createNodeAgent(node.node_id, {
         agent_id: candidateId, owner_id: user.owner_id, display_name: name.trim(), description: goal.trim(), custom_prompt: goal.trim(),
         work_mode: 'global', workspace_root: null, group_reply_policy: 'MENTION', default_model: selectedModel,
-        model_fallbacks: [], reasoning_effort: null, skills: [], skills_selection_mode: 'default_discovery',
+        model_fallbacks: [], reasoning_effort: null, skills: [], skills_selection_mode: 'explicit_denylist',
         tool_allowlist: c.tools.filter(t => t.default_on).map(t => t.name),
         features: { ...Object.fromEntries((c.features ?? []).map(f => [f.key, f.default_on])), heartbeat: false, cron_scheduling: false },
       });

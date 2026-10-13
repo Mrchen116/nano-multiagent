@@ -104,7 +104,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   custom_prompt: "",
   features: {},
   skills: [],
-  skills_selection_mode: "explicit_allowlist",
+  skills_selection_mode: "explicit_denylist",
   tool_allowlist: [],
   work_mode: "single_thread",
   group_reply_policy: "MENTION",
@@ -166,6 +166,7 @@ function CreateBehaviorCard({
         tool_ids: draft.tool_allowlist ?? [],
         ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills ?? [],
+        skills_selection_mode: draft.skills_selection_mode,
         agent_id_hint: draft.agent_id || undefined,
         workspace_mode: workspaceMode,
         workspace_root: workspaceMode === "custom" ? workspaceRoot : null
@@ -373,8 +374,6 @@ export function AgentCreatePage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [isDirty, setIsDirty] = useState(false);
   const allowExitRef = useRef(false);
-  const skillsEditedRef = useRef(false);
-  const autoDefaultSkillsRef = useRef<string[]>([]);
   const autoDefaultToolsRef = useRef<string[]>([]);
   const toolsEditedRef = useRef(false);
   const blocker = useBlocker(() => isDirty && !allowExitRef.current);
@@ -394,8 +393,6 @@ export function AgentCreatePage() {
   }, [nodesQuery.data, selectedNodeId]);
 
   useEffect(() => {
-    skillsEditedRef.current = false;
-    autoDefaultSkillsRef.current = [];
     toolsEditedRef.current = false;
     autoDefaultToolsRef.current = [];
     setDraft((current) => ({
@@ -459,18 +456,6 @@ export function AgentCreatePage() {
 
   useEffect(() => {
     if (!capabilities) return;
-
-    if (!skillsEditedRef.current) {
-      const skillDefaults = defaultNames(capabilities.skills);
-      setDraft((current) => {
-        if (sameStringList(current.skills, skillDefaults)) return current;
-        if (current.skills.length > 0 && !sameStringList(current.skills, autoDefaultSkillsRef.current)) {
-          return current;
-        }
-        autoDefaultSkillsRef.current = skillDefaults;
-        return { ...current, skills: skillDefaults };
-      });
-    }
 
     if (!toolsEditedRef.current) {
       const toolDefaults = defaultNames(capabilities.tools);
@@ -980,14 +965,12 @@ export function AgentCreatePage() {
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
-              selectionMode={draft.skills_selection_mode ?? "explicit_allowlist"}
+              selectionMode={draft.skills_selection_mode ?? "explicit_denylist"}
               options={capabilities.skills}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
               onChange={(skills, skillsSelectionMode) => {
-                skillsEditedRef.current = true;
-                autoDefaultSkillsRef.current = [];
                 setErrorMessage(null);
                 setIsDirty(true);
                 setDraft({

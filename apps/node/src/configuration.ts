@@ -81,7 +81,7 @@ export class NodeConfiguration {
         skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
       extensions: { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
-      skillSelection: { mode: canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
+      skillSelection: { mode: canonical.skills_selection_mode === 'explicit_denylist' ? 'explicit_denylist' : canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
       skillRoots: [
         ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
         { path: join(this.ownerRoot, 'skills'), source: 'global' },

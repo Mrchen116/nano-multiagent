@@ -158,7 +158,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
               a.skills_selection_mode ??
               (allowed.length ? "explicit_allowlist" : "default_discovery");
           result.skills = (cap.capabilities?.skills ?? cap.skills ?? [])
-            .filter((x: Row) => mode === "default_discovery" || allowed.includes(x.name))
+            .filter((x: Row) => mode === "explicit_denylist" ? !allowed.includes(x.name) : mode === "default_discovery" || allowed.includes(x.name))
             .map((x: Row) => ({
               skill_key: createHmac("sha256", ctx.jwtSecret)
                 .update(

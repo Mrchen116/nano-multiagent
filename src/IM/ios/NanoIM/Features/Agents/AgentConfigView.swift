@@ -53,7 +53,7 @@ struct AgentConfigView: View {
                                 Text(L("模型", "Model") + ": " + (currentConfig.default_model ?? "—"))
                                 Text(L("备用模型", "Fallbacks") + ": " + currentConfig.model_fallbacks.joined(separator: ", "))
                                 Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.joined(separator: ", "))
-                                Text("Skills: " + currentConfig.skills.joined(separator: ", "))
+                                Text((currentConfig.skills_selection_mode == "explicit_denylist" ? L("已禁用 Skills: ", "Disabled skills: ") : "Skills: ") + currentConfig.skills.joined(separator: ", "))
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
                                 Text(L("群回复策略", "Group reply policy") + ": " + currentConfig.group_reply_policy)
@@ -199,17 +199,14 @@ struct AgentEditorFields: View {
         }
         Section {
             DisclosureGroup("Skills") {
-                Picker(L("选择方式", "Selection mode"), selection: $draft.skills_selection_mode) {
-                    Text(L("默认发现", "Default discovery")).tag("default_discovery")
-                    Text(L("显式名单（可为空）", "Explicit allowlist (may be empty)")).tag("explicit_allowlist")
-                }.disabled(capabilities == nil)
-                if draft.skills_selection_mode == "explicit_allowlist", let capabilities {
+                Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
+                if let capabilities {
                     ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
                         let options = capabilities.skills.filter { ($0.source_group ?? "unknown") == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
                                 ForEach(options) { option in
-                                    Toggle(isOn: selection(option.name, keyPath: \.skills)) {
+                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { draft.setSkill(option.name, enabled: $0, candidates: capabilities.skills.map(\.name)) })) {
                                         VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
                                     }
                                 }

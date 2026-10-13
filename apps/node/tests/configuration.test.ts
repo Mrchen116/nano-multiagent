@@ -98,3 +98,14 @@ it('serializes Agent saves against model removal and rejects stale model edits',
     expect((await NodeConfiguration.read(path)).current('new')?.default_model).toBe('base');
   } finally { await rm(home, {recursive: true, force: true}); }
 });
+
+ it('preserves explicit disabled Skill names in the runtime configuration', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-skill-denylist-'));
+  try {
+    const path = join(home, 'config.json');
+    await writeFile(path, JSON.stringify({ node: {}, agents: [], llm: { default_model: 'test', providers: [{ name: 'test', models: [{ name: 'test' }] }] } }));
+    const config = await NodeConfiguration.read(path);
+    const runtime = config.runtime({agent_id: 'a', workspace_root: home, skills_selection_mode: 'explicit_denylist', skills: ['blocked']});
+    expect(runtime.skillSelection).toEqual({mode: 'explicit_denylist', names: ['blocked']});
+  } finally { await rm(home, {recursive: true, force: true}); }
+});

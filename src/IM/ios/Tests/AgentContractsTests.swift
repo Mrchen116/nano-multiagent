@@ -42,6 +42,19 @@ struct AgentContractsTests {
         #expect(draft.previewPayload(capabilities: caps, creating: false, customWorkspace: false)["skill_ids"] == .array([]))
     }
 
+    @Test func skillDenylistKeepsNewSkillsEnabledAndHiddenDisables() {
+        var draft = AgentDraft()
+        draft.skills = ["blocked", "hidden"]
+        #expect(draft.enabledSkills(candidates: ["blocked", "imported"]) == ["imported"])
+        draft.setSkill("imported", enabled: false, candidates: ["blocked", "imported"])
+        #expect(draft.skills == ["blocked", "hidden", "imported"])
+        draft.setSkill("blocked", enabled: true, candidates: ["blocked", "imported"])
+        #expect(draft.skills == ["hidden", "imported"])
+        let preview = draft.previewPayload(capabilities: nil, creating: false, customWorkspace: false)
+        #expect(preview["skill_ids"] == .array([.string("hidden"), .string("imported")]))
+        #expect(preview["skills_selection_mode"] == .string("explicit_denylist"))
+    }
+
     @Test func enablingFeatureAddsOnlyItsRequiredToolAndDisablingPreservesTool() {
         var draft = AgentDraft()
         let feature = AgentFeature(key: "memory_curation", label_i18n: "feature.memory_curation.label", help_i18n: "feature.memory_curation.help", default_on: true, available: false, requires_tool: "memory")
