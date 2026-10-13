@@ -2,7 +2,7 @@
 
 ## Relations
 
-- Related: [refactor-593](../archive/refactor-593-skill-denylist/motivation.md)
+- Related: [refactor-593](../refactor-593-skill-denylist/motivation.md)
 
 ## 原始报告
 
@@ -28,3 +28,8 @@
 - 相关 Web 27 项测试通过，包括禁用灰色、名单外绿色以及保存后重新打开；页面测试使用 API mock，不能替代生产用户实际重试。
 - 生产新页面已观察到取消 ongoing-work 后为灰色；该草稿未保存并已刷新丢弃。
 - 旧截图具体的旧代码来源未证实；本 PR 不会热替换已运行的旧代码。无模型、技能内容或生产配置修改。
+- Web 全量：92 files / 860 tests passed。
+- pnpm build、pnpm typecheck 与 Web build 通过。
+- 后端全量：272 passed / 1 failed（既有 approval.test.ts 审批场景，本次未修改相关代码）；单独复跑该文件 5/5 通过，保留首次全量失败事实。
+- 独立 code review：无 findings。docs-check 首次发现新增 Requirement 的入口计数未同步，已修正。
+- docs-check、change unit 归档检查与 git diff --check 通过。
