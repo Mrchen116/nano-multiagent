@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-588
+> 对齐: refactor-593
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -436,27 +436,6 @@ Agent 创建/编辑页在已有 Skill 来源分组内提供紧凑的批量选择
 - **THEN** 分组标题、选择状态和单个 Skill 仍可辨认与触达
 - **AND** 不出现脱离 Skill 分组、占据页面主要空间的独立批量操作区
 
-### Requirement: 配置 API 表达默认 Skill discovery 与显式 allowlist 的不同意图
-
-Agent profile 的公开配置与保存结果表达 Skill selection mode：默认 discovery 使用当前可发现集合；explicit allowlist 只使用其 names，允许 names 为空。前端以该意图正确呈现有效选择，用户的首次单项或分组编辑将配置转为显式 allowlist；已有不带该意图的 profile 按既有语义兼容读取。
-
-#### Scenario: 显式空选择在配置页和后续回复中一致
-- **GIVEN** 用户在 Agent 配置页显式取消所有 Skill 并保存成功
-- **WHEN** 用户重新打开配置页或在既有聊天开始下一轮回复
-- **THEN** 配置页显示没有已选择的 Skill
-- **AND** 新回复不使用默认 discovery 来重新启用全部可发现 Skill
-
-#### Scenario: 保存后聊天候选立即采用新选择
-- **GIVEN** 用户已在既有聊天打开过 SlashPicker，浏览器仍缓存旧 Skill 候选
-- **WHEN** 用户在 Agent 配置页成功收窄或清空显式 allowlist 后立即回到该聊天
-- **THEN** SlashPicker 重新解析候选，不在缓存有效期内继续显示已禁用 Skill
-
-#### Scenario: 只读 mirror 不迁移历史缺席 mode
-- **GIVEN** 某历史 Agent 的 Gateway YAML 与 IM mirror profile 未携带 selection mode
-- **WHEN** IM 读取 mirror profile，或 Gateway 重连并以该 mirror 调和本地配置
-- **THEN** 只读响应保留历史缺席状态，前端仍按有效语义呈现
-- **AND** Gateway 不仅因这次读取或重连就在 YAML 中写入 mode
-
 ### Requirement: 节点上线/心跳/超时实时反映到 owner 的浏览器看板
 
 注册和心跳更新在线状态；注册上线及连接离线转换向节点 owner 广播 node.status_changed。当前连接关闭、超时或撤权时持久化 offline 并向 owner 广播；超时标记 last_error=heartbeat_timeout，且不撤销凭据。已打开页面实时反映状态；离线发送沿用明确失败语义。重连注册后恢复 online，旧连接的延迟关闭不覆盖新连接。关联 Agent 的已有状态消费者同步收到 agent.status_changed。Nodes、Chat 和 Agent detail 均显示真实状态，状态更新不覆盖未保存配置输入。广播严格按 owner 隔离。
@@ -776,3 +755,31 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 - **WHEN** 用户明确要求发布安装包并确定 `X.Y.Z` 版本号
 - **THEN** 发布对应 `vX.Y.Z` Release，源码提交仅作为追溯信息，安装包内容经校验后才可供安装入口选择；已有版本不覆盖。
 - **AND** 缺少确定版本号时不猜测或自动递增；现有已发布的 SHA 版本在被替换前仍可安装。
+
+### Requirement: Skill 配置保存取消项
+
+#### Scenario: 新增技能与手动选择
+- **WHEN** 用户创建或编辑 Agent 的技能选择
+- **THEN** 勾选表示启用，取消项保存为 `explicit_denylist` 下的禁用名称；Workspace、全局、兼容来源使用相同规则
+- **AND** 界面说明新技能默认启用，重新打开后已禁用项保持未选；暂时缺失的禁用名称不被丢弃
+
+### Requirement: 配置 API 表达 Skill 禁用名单与旧选择模式
+
+Agent profile 的公开配置与保存结果表达 Skill selection mode：explicit denylist 的 names 是禁用名称；勾选代表启用，首次单项或分组编辑保存取消项。尚未迁移的 default discovery / explicit allowlist 按既有语义读取；认证节点上线后以真实候选迁移。
+
+#### Scenario: 显式空选择在配置页和后续回复中一致
+- **GIVEN** 用户在 Agent 配置页显式取消所有 Skill 并保存成功
+- **WHEN** 用户重新打开配置页或在既有聊天开始下一轮回复
+- **THEN** 配置页显示保存时所有候选均未选择；之后新增名称默认启用
+- **AND** 新回复不重新启用已保存的禁用名称
+
+#### Scenario: 保存后聊天候选立即采用新选择
+- **GIVEN** 用户已在既有聊天打开过 SlashPicker，浏览器仍缓存旧 Skill 候选
+- **WHEN** 用户在 Agent 配置页成功禁用部分或全部当前 Skill 后立即回到该聊天
+- **THEN** SlashPicker 重新解析候选，不在缓存有效期内继续显示已禁用 Skill
+
+#### Scenario: 只读 mirror 保留旧模式，认证迁移单独提交
+- **GIVEN** 某历史 Agent 的 Gateway YAML 与 IM mirror profile 未携带 selection mode
+- **WHEN** IM 只读 mirror profile
+- **THEN** 只读响应保留历史缺席状态，前端仍按有效语义呈现
+- **AND** 只读本身不写 YAML；认证节点重连后的独立迁移使用真实候选和版本化配置操作写入禁用名单

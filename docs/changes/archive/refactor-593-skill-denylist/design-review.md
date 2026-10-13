@@ -100,6 +100,89 @@ author 补齐以上材料后，若仅将既有用户决定、实际画面和原�
 - R1-W2：design 增补两端内容关系与 must-match 投影，prototype 为明确标注的实现后局部状态对照；原生实际画面存 evidence/native-design.png。原型与产品证据不混用。
 - R1-W3：补唯一 M1 骨架及两轨退出标准、两端入口、隔离资源/启停/重启/清理 runbook。
 
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review`，沿用 Round 1 独立 reviewer；未参与设计/实现修订。
+- target: `refactor-593-skill-denylist`，branch `codex/skill-denylist`。
+- review_mode: `closure`。
+- mode_reason: R1-W1/W2/W3 的材料补齐与局部消歧；用户决定、核心字段、发现/过滤职责及单一 M1 未改变。对补明的迁移失败隔离/pending 恢复边界作局部架构核对，不扩大为整套实现审查。
+- started_at: `2026-10-13T22:44:34+08:00`。
+- completed_at: `2026-10-13T22:47:18+08:00`。
+- duration: `PT2M44S`。
+- validated_at: `42a02a49ae7f4c52221616d600286bb30aac4cb7`。
+- executed_base: `d07c7578f210ee7fe830e2e7de4407209e7c75fc`。
+- fix_delta: `11f3ceafc..42a02a49ae7f4c52221616d600286bb30aac4cb7`，核对时扣除已合入 main 的轨迹导航/发布策略变化。
+- retained_from: `Round 1` 的用户约束、产品组装入口、原生发现/过滤与配置 operation 责任判断、真实 Web 正常/草稿操作及原生 Skills/Global 观察。核实两个实际 Skills 组件相对 Round 1 无变化；新 main 未改该局部 UI。新基线的 `docs/specs/` 与 HEAD 完全一致，没有保留首版提前归并的禁用名单契约。
+- 现场: 开始与结束 HEAD 均为 validated_at，worktree clean；本 reviewer 只向本报告追加本轮，不提交，不改生产或测试用户配置。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**。
+
+R1-W1、R1-W2、R1-W3 全部 closed。通过范围为设计方案及交接材料，不表示代码/产品门禁已通过，也不补称事前 Gate 2 已执行。
+
+### 历史问题闭环与本轮证据
+
+#### R1-W1 — closed
+
+- Author Resolution：补 Gateway/IM delta、保留离线旧模式/蒸馏禁用/安全边界，恢复 current。
+- 独立核对：`specs/gateway/agent-capabilities.md` 正确镜像 canonical target；新禁用名单 Requirement 覆盖未来新名称、同名禁用、scope/precedence、真实候选迁移、创建事实、蒸馏及离线旧模式。旧空名单从“所有未来名称都不可用”改为“当时取消的名称持续禁用，后续新名称可用”，是已确认变化；旧 Requirement 的移除有明确替代。知识更新的 MODIFIED 条目完整保留前台 terminal、重连去重、来源/通知、prompt 继承与 memory/反思周期等未改场景。prompt 缓存前缀 Requirement 保留两个既有场景，并将自动配置写回改为原生发现语义。
+- `specs/im/agents-nodes.md` 显式替代旧模式 API Requirement，保留保存后 SlashPicker 更新保证，将只读 mirror 与认证迁移分开。`git diff --exit-code executed_base HEAD -- docs/specs` 成功，证明目标尚未提前写入 current，同时保留最新 main 的 current 更新。
+- 结论：契约变化与旧模式边界可供 verifier 对账，R1 所指缺口已闭环。最终归并仍需独立 corrected-delta 核对实际实现。
+
+#### R1-W2 — closed
+
+- Author Resolution：补两端内容关系、must-match 投影、局部原型及真实原生证据，明确实现后时序。
+- 独立核对：`design.md` 的前端原型与体验契约区明确 Web 来源分组/pill/计数/混合态/页级草稿反馈，以及 iOS 折叠来源/名称路径说明/开关/顶部 Save；may-adapt 有各端既有呈现依据，未用“平台适配”替代未作决定。缺失禁用名称、目录失败、预览/候选与保存反馈均有 must-match 结果和 M1 双轨投影。
+- 本轮逐张查看 `evidence/prototype-selected.png`、`prototype-mobile.png` 和 `native-design.png`。取消态的弱化项、来源计数、未保存提示与 Save 可对应；390px 状态中新的 meeting-notes 保持启用，暂缺 daily-journal-write 的已保存禁用说明可读。原生真实画面与 Round 1 观察一致，默认启用提示在来源与开关之前。局部模拟与真实原生画面标注不同，不混称原生持久化验收。
+- 独立以本地 Chrome 新标签页打开 `prototype.html`，操作 daily-journal-write 取消 → 模拟保存 → 候选暂缺 → 复制新名称 → 重开。观察到 2→1 已启用、Workspace 0/1、未保存状态与 Save 联动；后续 meeting-notes 默认启用、暂缺名称的禁用记录保留、重开无更改。模拟共用状态用于两端语义对照，不当作跨客户端同步能力。已关闭本轮创建的标签页，未保存真实 Agent 配置。
+- 保留 Round 1 对实际 Web/原生入口的观察；原型中的 checkbox 仅表意，真实原生仍以已观察的系统开关为依据。缺少真实保存/冲突/缺失候选产品观察被诚实保留给产品门禁，不再是未定义设计。
+- 结论：本次局部语义变更已有足够的内容关系与状态方案指导下游，R1-W2 closed；无需扩大为全页重设计。
+
+#### R1-W3 — closed
+
+- Author Resolution：补 M1 骨架、两端和消费者退出结果、隔离 runbook 与资源责任。
+- 独立核对：`M1-selection/.gitkeep` 存在；`design.md` M1 明确覆盖 Web/iOS、scope、新名称/同名禁用、preview/SlashPicker/显式调用、工具/进化不变，以及 native Session、迁移/CAS/pending/失败隔离、忙碌收紧与 idle 放宽。没有机械拆新 milestone 或补造旧实施过程。
+- Runbook 给出专属 checkout、已有 e2e-up/down、动态端口/health、测试身份、两类隔离 Skill roots、单独 Node 重启保留数据库、原生 build root/UDID/入口及 AX 滚动办法；清理由主 Agent 负责，外部账号/真机资源为无。核对 `scripts/e2e-up.sh` 的 `--wt`、health 和 `.e2e-ports.env` 输出、`e2e-down.sh` 以及 `src/IM/ios/scripts/build.sh` 的 build-root 支持，均有实际运行入口。专用栈/原生 app 已在 Round 1 实际使用，不是尚未提供的验收资源。
+- 结论：后续 reviewer 能按 unit 找到环境与必验结果；内部协议边界交 verifier，用户旅程交产品 reviewer，R1-W3 closed。
+
+### 局部恢复边界与架构 retained 判断
+
+补明的迁移恢复沿用原目标：失败只保留该 Agent 的旧选择并报告，不能拥有整个 runtime/channel 的恢复成败；pending operation 恢复后以已提交 canonical profile 继续迁移，不能把旧 operation 的成功误报为转换完成。核对 `packages/personal-assistant/src/knowledge.ts` 的按 Agent 隔离及后续重连重试说明、`apps/im-server/src/control.ts` 恢复后重读 profile 的已有 serialized/config operation 接线，以及对应窄回归新增位置。没有第二套迁移存储、配置权威或发现实现；责任与 Round 1 的架构判断一致。
+
+这是设计闭环与接线可行性检查，不宣称上述修复的代码正确性门禁通过；本轮未重跑全量测试，也未等待或替代产品 gate。
+
+### Issues / Recommendations
+
+无新增 CRITICAL/WARNING。R1-R1 的工具 allowlist 说明建议仍为可选，不影响明确的 Skills 默认启用提示或本轮通过结论。
+
 ### User scope correction during delivery
 
 用户随后明确：“这玩意哪用前端啊，内部机制调整啊”“赶紧做了逻辑修改就行了啊”。据用户优先指令，停止额外原型、体验契约与产品界面验收；刚新增的演示文件已移除，design精简为内部机制和必要配置语义。Round 1的观察和结论作为实际历史保留；R1-W2及R1-W3中的额外UI设计/验收前置不再是本轮交付要求。delta及内部逻辑退出条件仍须独立核对。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/design_review`，同一独立 reviewer。
+- target: `refactor-593-skill-denylist`；review_mode: `delta`。
+- mode_reason: 用户在 Round 2 记录完成、交棒前明确取消额外 UI 设计/验收要求；本轮仅核对这一有界范围缩减及其对内部契约/退出条件的影响，保留已发生的 Round 2 历史，不伪造原型要求仍通过。
+- started_at: `2026-10-13T22:49:57+08:00`；completed_at: `2026-10-13T22:51:11+08:00`；duration: `PT74S`。
+- validated_at: `3c09e7f7ea238e8a780a4eac1a6b6e461b38e142`；executed_base: `d07c7578f210ee7fe830e2e7de4407209e7c75fc`。
+- retained_from: `Round 2` 的内部发现/禁用/迁移、正确 canonical target 与配置消费者语义判断；核实 `42a02a49a..3c09e7f7e` 没有源码、测试、delta 变化，current specs 仍与 executed_base 一致。
+
+### Verdict 与问题闭环
+
+**Approved — 0 CRITICAL / 0 WARNING**，限于用户要求的内部机制及必要配置字段语义。
+
+- **R1-W1 closed，retained**：Gateway/IM delta 仍在，旧模式/空名单、真实候选迁移、蒸馏、缓存前缀和消费者一致性均有受审表达；current 未提前归并。精简 design 的“契约增量”仍解释旧场景替代与最终归并时点。
+- **R1-W2 no longer applicable**：根据上述用户原话，额外原型、平台体验契约及界面验收已被明确取消。此前真实观察保留为历史；被移除的演示资产不再充当当前交付依据。配置勾选/取消项、暂缺名称保留、两端 mode/names 适配的逻辑语义仍在设计与 delta 中，不因此取消。
+- **R1-W3 部分 closed、部分 no longer applicable**：平台 UX/额外产品验收前置随用户要求取消；内部逻辑部分已在当前 M1 列明原生 Session 新文件加载、过滤一致性、重启/同名禁用、default/allowlist/空选择迁移、CAS/镜像、pending 继续、失败隔离以及工具/进化策略不变。M1 骨架保留。精简运行边界继续要求专属 worktree 隔离，并明确主 Agent 起停/清理责任；没有为内部回归增加 UI 环境义务。
+
+### 范围与证据限度
+
+独立阅读 `3c09e7f7e` 的精简设计并核对文件差异。原生 provider/watcher/list/get 和既有 config operation/CAS 继续承担原职责；迁移失败保留旧模式并不影响 runtime/其他 Agent、pending 恢复后继续转换，仍属于原恢复目标。没有因删演示而遗漏内部逻辑决定或新增机制。
+
+本轮没有继续操作浏览器/Simulator、没有等待产品 gate、没有重复全量测试。代码正确性与内部场景回归仍由独立静态审查/verification 判断；设计通过不冒充这些门禁或生产部署。无新增 findings；R1-R1 的界面措辞建议同样不再构成本次范围要求。

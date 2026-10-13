@@ -59,6 +59,54 @@ Retained caller-supplied same-implementation evidence: runtime suite 71 files / 
 
 No product-journey, physical-device or production acceptance is inferred from this static review.
 
+## Round 2 — closure + patch
+
+- `validated_at`: `42a02a49ae7f4c52221616d600286bb30aac4cb7`
+- `executed_base`: `d07c7578f210ee7fe830e2e7de4407209e7c75fc`
+- Finding-origin / patch range: `11f3ceafc6ffffc22dfe88b4684bab01d94de957..42a02a49ae7f4c52221616d600286bb30aac4cb7`, restricted to this unit and affected shared boundaries.
+- Focus: Round 1 P1 runtime-recovery failure; P2 recovered-operation migration omission. No source/test/design changes or commits by reviewer.
+
+### Findings
+
+```json
+[]
+```
+
+| Focus finding | Closure | Direct evidence |
+|---|---|---|
+| P1 — migration HTTP failure aborts execution/channel recovery | **closed** | `KnowledgeUpdates.migrateSkills` now catches/reports each Agent's failure at `packages/personal-assistant/src/knowledge.ts:70-77` and continues. Actual RuntimeSupervisor/KnowledgeUpdates/native-process probe now starts successfully, remains available and executes the next recovery action while retaining legacy selection. The regression also covers another Agent continuing and the failed Agent retrying on a later migration call. |
+| P2 — recovered legacy operation returned as completed migration | **closed** | `apps/im-server/src/control.ts:798-812` reloads the committed profile after recovery, then performs conversion under the same serialized lock. The probe now queries full candidates, applies a new operation, returns explicit_denylist / `[blocked]` and advances profile_version to 3. Ordinary stale requests still check the input version; recovery uses the latest committed profile and existing operation fingerprint/CAS. |
+
+### Independent closure evidence
+
+- `pnpm exec tsx /tmp/skill-denylist-recovery-review.ts` (`/tmp/skill-denylist-recovery-review-r2.log`):
+
+  ```json
+  {"available":true,"recoveryContinued":true,"unavailable":0,"exitCode":null,"mode":"explicit_allowlist","errors":["Error: IM external projection failed: 503"]}
+  ```
+
+  The updated probe supplies the production-required `onError` callback; it uses actual RuntimeSupervisor + KnowledgeUpdates + a real temporary DSH child/profile. `recoveryContinued` is set after migration returns, proving downstream recovery is reached. IM 503 is injected through the port, not a claim of live-network acceptance. Shutdown/home cleanup completed after observation.
+
+- `pnpm exec tsx /tmp/skill-denylist-migration-review.ts` (`/tmp/skill-denylist-migration-review-r2.log`):
+
+  ```json
+  {"status":200,"mode":"explicit_denylist","skills":["blocked"],"calls":["agent.config.operation.status","agent.capabilities.resolve","agent.config.apply"],"persisted":{"skills_selection_mode":"explicit_denylist","profile_version":3}}
+  ```
+
+  Same real Fastify/database/ConfigOperations scenario as Round 1, with fixture Gateway responses. App/database closed. Necessary results are embedded rather than depending on temporary-file retention.
+
+### Patch/main-sync impact and retained results
+
+- The unit's source patch only changes the two migration owners and adds their behavioral regressions. The R1-selected Skill provider, busy-selection restriction, canonicalization, Node YAML/apply wiring, member command projection, Web selector/create/detail/preview/chat consumers and native iOS files are unchanged in `11f3ceafc..42a02a49a`; their R1 inspection and applicable component/contract evidence are retained.
+- Main's trajectory-navigation work adds `TrajectoryRuns` runtime observation and wraps maintenance subagent launch in `withKnowledgeRun`, which preserves the start return/error and supplies provenance through AsyncLocalStorage. It does not change Skill selection, roots, loading, maintenance prompt/tools/intervals or creation facts. The new trajectory UI package is an expressly documented browser-only exception in current `AGENTS.md` / `SPEC.md`; this unit adds no execution-runtime fork/private import. Main's explicit-release policy affects installer/publication, not Skill migration. Those upstream units were not re-reviewed wholesale.
+- Post-sync installation, build and runtime typecheck passed. `/tmp/nano593-sync-runtime-tests.log` records 74 files / 262 tests passed, covering the merged runtime/knowledge/trajectory seams. The build log identifies merge head `08b42eb13`; final `42a02a49a` only adds rendered local-design documentation/evidence, so source-test applicability is retained.
+- `/tmp/nano593-red-review.log` demonstrates both new regressions failed on the old implementation; `/tmp/nano593-green-review.log` records 17 tests passing after the fixes. No mechanical whole-suite rerun was added by this reviewer; the two independent reproductions directly verify the original failures.
+- Web's existing full-tsc `message-pane.tsx:467` failure remains an explicitly retained baseline limitation. Product/physical-device/production acceptance remains outside this report.
+
+### Effective through scoped documentation follow-up
+
+The human user explicitly narrowed delivery to the internal mechanism and cancelled the additional frontend prototype/product-UI acceptance work. `3c09e7f7ea238e8a780a4eac1a6b6e461b38e142` removes those added demonstration assets and simplifies design/runbook; its diff changes no source, tests or delta. The actual validated_at remains `42a02a49a`, and the code-review closure is effective through `3c09e7f7e`. No prototype/must-match/product-UI gate is required by this review under that updated scope. The necessary client representation/preview changes remain within the requested internal configuration contract.
+
 ## Author resolutions
 
 两项均确认属于本次改动。主 Agent直接修复：KnowledgeUpdates 按 Agent 捕获迁移错误并报告，保留旧模式供后续连接重试，避免异常传播到 DSH/产品恢复；迁移路由恢复 pending operation 后重读 canonical profile 并继续转换，沿现有序列锁和配置 CAS 完成新操作。两个针对性回归先红后绿（17 tests passed；/tmp/nano593-red-review.log 与 /tmp/nano593-green-review.log），后端 typecheck 通过。尚待独立 closure，不改写 Round 1 verdict。

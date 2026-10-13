@@ -27,4 +27,4 @@
 
 复用带版本的已有原生DSH、HTTP迁移、配置、Web/iOS契约测试；审查发现的两项恢复问题先红后绿并独立复现闭环。按当前CI运行build/typecheck/Vitest、Python/Ruff、docs-check和原生test/archive。Web完整tsc既有timer类型问题单独记录，不声称全绿；无真机验收。
 
-若需真实进程复现，遵循 [worktree-runtime](../../development/worktree-runtime.md)，只在现有专属worktree用 `scripts/e2e-up.sh` / `scripts/e2e-down.sh`；临时端口、config、owner根、DSH home、身份和workspace均隔离，测试账号来自repo E2E config，不使用生产身份。主Agent负责起停和清理。用户已取消额外界面验收，不为本次内部机制变更继续搭建UI演示。
+若需真实进程复现，遵循 [worktree-runtime](../../../development/worktree-runtime.md)，只在现有专属worktree用 `scripts/e2e-up.sh` / `scripts/e2e-down.sh`；临时端口、config、owner根、DSH home、身份和workspace均隔离，测试账号来自repo E2E config，不使用生产身份。主Agent负责起停和清理。用户已取消额外界面验收，不为本次内部机制变更继续搭建UI演示。
