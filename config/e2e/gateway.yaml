@@ -1,5 +1,6 @@
 # Repository-owned, secret-free default for isolated IM + Gateway E2E stacks.
 # scripts/e2e-up.sh rewrites node, IM URL and workspaces in its worktree copy.
+# Model catalog maintenance: docs/development/llm-integration.md.
 node:
   node_id: e2e-gateway
   workspace_base: /tmp/nano-e2e-workspace
@@ -55,17 +56,17 @@ llm:
           reasoning:
             default: high
             levels: [high, max]
-        - name: codexOAuth:gpt-5.6-sol
+        - name: codexOAuth:gpt-6.1-sol
           context_window: 258400
           reasoning:
             default: medium
             levels: [none, low, medium, high, xhigh, max]
-        - name: codexOAuth:gpt-5.6-terra
+        - name: codexOAuth:gpt-6-astra
           context_window: 258400
           reasoning:
             default: medium
             levels: [none, low, medium, high, xhigh, max]
-        - name: codexOAuth:gpt-5.6-luna
+        - name: codexOAuth:gpt-6-luna
           context_window: 258400
           reasoning:
             default: medium
