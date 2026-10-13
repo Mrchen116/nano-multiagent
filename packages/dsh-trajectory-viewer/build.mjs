@@ -17,7 +17,7 @@ function visit(id) {
   const packagePath = require.resolve(`${id}/package.json`);
   const directory = path.dirname(packagePath);
   const metadata = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-  if (metadata.version !== version) throw new Error(`Native viewer version mismatch: ${id}`);
+  if (id !== '@nano/trajectory-ui' && metadata.version !== version) throw new Error(`Native viewer version mismatch: ${id}`);
   const source = fs.readFileSync(path.join(directory, 'lib/client.js'), 'utf8');
   const external = [...new Set([...source.matchAll(/require\("([^"]+)"\)/g)]
     .map(match => match[1]).filter(name => !name.includes('${')))];
@@ -27,8 +27,10 @@ function visit(id) {
   }
 }
 for (const name of ['modules', 'connection', 'ui-renderer', 'ui-conversation', 'ui-session',
-  'ui-trajectory', 'ui-attachment', 'locale', 'ui-theme']) visit(`@deepseek-ai/dsh-client-${name}`);
+  'ui-attachment', 'locale', 'ui-theme']) visit(`@deepseek-ai/dsh-client-${name}`);
 for (const name of ['api-session-controller', 'api-gateway', 'typert-registry']) visit(`@deepseek-ai/dsh-${name}`);
+visit('@nano/trajectory-ui');
+fs.rmSync(path.join(dist, 'plugins', '@deepseek-ai', 'dsh-client-ui-trajectory'), { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
 const manifest = { rev: version, modules: [], plugins: [] };
 for (const [id, { directory, metadata, external }] of modules) {

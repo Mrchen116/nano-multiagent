@@ -216,7 +216,7 @@ struct AgentCreateView: View {
             guard !Task.isCancelled else { return }
             capabilities = value; error = nil
             draft.tool_allowlist = value.tools.filter { $0.default_on == true }.map(\.name)
-            draft.skills = value.skills.filter { $0.default_on == true }.map(\.name)
+            draft.skills = []; draft.skills_selection_mode = "explicit_denylist"
             draft.features = Dictionary(uniqueKeysWithValues: value.features.map { ($0.key, $0.default_on) })
         } catch { if !Task.isCancelled { self.error = agentError(error) } }
     }

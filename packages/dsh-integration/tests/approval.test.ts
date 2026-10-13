@@ -20,6 +20,49 @@ it('uses one selected rule set and inserts configured rule text without interpre
   expect(dsh).not.toContain('Keep <nano_workspace_root>');
 });
 
+it('skips the reviewer only for verified owner messages and reviews other public recipients with host facts', async () => {
+  const {mkdtemp,writeFile,readFile,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const {prepareProfile,RuntimeClient}=await import('../lib/client.js');
+  const home=await mkdtemp(join(tmpdir(),'nano-message-approval-'));let client:InstanceType<typeof RuntimeClient>|undefined;
+  try{
+    await writeFile(join(home,'fixture.mjs'),`import {appendFile} from 'node:fs/promises';
+export const name='message-approval-fixture';export const inject=['llm'];
+export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exec,next)=>exec.name==='send_message'&&exec.arguments.target==='owner-blocked'?{kind:'deny',reason:'Explicit tool restriction'}:next());ctx.on('llm/stream',async function*(options){
+ if(options.system){await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({system:options.system,prompt:options.messages[0].content[0].text})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"not authorized"}':'<block>yes</block><reason>not authorized</reason>'}};yield{type:'finish',reason:{kind:'stop'}};return;}
+ const human=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+ if(!steps.has(human.id)){steps.add(human.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:'send-'+human.id,name:'send_message',arguments:JSON.stringify({target:human.content[0].text,text:'This is a reply to myself'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
+ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
+});}`);
+    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture'}]}}}},{insert:[{id:'message-approval-fixture',name:join(home,'fixture.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    const sent:string[]=[];
+    client.rpc.handle('product.call',value=>{
+      const call=value as {method:string;args:{target:string};agentId:string};
+      if(call.method==='send_message.context')return {target:call.args.target,sender:{type:'agent',agent_id:call.agentId},recipient:{kind:call.args.target.startsWith('owner')?'owner':call.args.target},channel:'web'};
+      if(call.method==='send_message'){sent.push(call.args.target);return{status:'sent'};}
+      throw new Error('Unexpected product request');
+    });
+    const cases=[['owner-global','global','nano'],['owner-single','single_thread','nano'],['owner-dsh','global','dsh'],['owner-blocked','global','nano'],['user','global','nano'],['group','global','nano'],['unknown','global','nano']] as const;
+    const agents=cases.map(([agentId,mode,rules])=>({agentId,revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{...approvalDefaults,globalRoot:home,rules,denyLimit:20,alwaysAllowTools:['send_message']}}));
+    await client.rpc.request('initialize',{protocol:1,agents,bindings:[]});
+    for(const [agentId] of cases){
+      await client.rpc.request('session.ensure',{sessionId:agentId,agentId,revision:'1',ownerId:'owner',cwd:home});
+      await client.rpc.request('session.submit',{sessionId:agentId,inputId:agentId,mode:'followup',content:[{type:'text',text:agentId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:agentId}});
+      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:agentId,inputId:agentId}) as {terminal?:unknown}).terminal).toBeTruthy();
+    }
+    expect(sent).toEqual(['owner-global','owner-single','owner-dsh']);
+    const reviews=(await readFile(join(home,'reviews.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    expect(reviews).toHaveLength(6);
+    for(const review of reviews){
+      const rows=review.prompt.split('\n').filter((line:string)=>line.startsWith('{')).map((line:string)=>JSON.parse(line));
+      const context=rows.find((row:any)=>row.meta?.nano_message)?.meta.nano_message;
+      expect(context.sender.type).toBe('agent');
+      expect(['user','group','unknown']).toContain(context.recipient.kind);
+    }
+  }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+},30_000);
+
 it('uses the dedicated reviewer once per stage, escalates valid denials, and distinguishes unattended faults', async () => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os'); const { join } = await import('node:path');

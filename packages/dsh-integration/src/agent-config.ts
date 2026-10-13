@@ -77,6 +77,10 @@ export class ConfigurationScopes extends Service {
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       if (next.toolAllowlist !== undefined) config.toolAllowlist = config.toolAllowlist === undefined ? [...next.toolAllowlist] : config.toolAllowlist.filter(name => next.toolAllowlist!.includes(name));
       if (next.skillSelection?.mode === 'explicit_allowlist') config.skillSelection = { mode: 'explicit_allowlist', names: config.skillSelection?.mode === 'explicit_allowlist' ? config.skillSelection.names.filter(name => next.skillSelection!.names.includes(name)) : [...next.skillSelection.names] };
+      else if (next.skillSelection?.mode === 'explicit_denylist') {
+        if (config.skillSelection?.mode === 'explicit_allowlist') config.skillSelection.names = config.skillSelection.names.filter(name => !next.skillSelection!.names.includes(name));
+        else config.skillSelection = { mode: 'explicit_denylist', names: [...new Set([...(config.skillSelection?.mode === 'explicit_denylist' ? config.skillSelection.names : []), ...next.skillSelection.names])] };
+      }
       Skills.invalidateSkills(config);
     }
     this.tools.update(next.agentId);

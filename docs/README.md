@@ -11,8 +11,9 @@
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 构建与使用原生 iPhone 客户端 | [`../src/IM/ios/README.md`](../src/IM/ios/README.md) → [`specs/im/ios-client.md`](specs/im/ios-client.md) |
-| 理解全局 Agent 的跨聊天工作、工作记录与原生轨迹 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
-| 构建原生轨迹查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
+| 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
+| 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
+| 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
 | 查看讨论后保存的任务图及 Agent 工具契约 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |

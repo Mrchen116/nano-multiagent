@@ -1,4 +1,4 @@
-.onboarding-screen { min-height: 100dvh; background: #f7f9fb; color: #243440; font-size: 15px; line-height: 1.65; }
+.onboarding-screen { height: 100%; min-height: 0; overflow-y: auto; background: #f7f9fb; color: #243440; font-size: 15px; line-height: 1.65; }
 .onboarding-topbar { min-height: 64px; background: white; border-bottom: 1px solid #e2e8ed; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 36px; }
 .onboarding-account { display: flex; align-items: center; gap: 16px; color: #60717e; font-size: 13px; }
 .onboarding-account a, .onboarding-card a { color: #0f766e; }

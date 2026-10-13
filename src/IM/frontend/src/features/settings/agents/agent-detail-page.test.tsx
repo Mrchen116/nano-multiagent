@@ -814,7 +814,7 @@ describe("agent prompt preview", () => {
   }
 
   function makeStateWithSkillSelection(
-    mode: "default_discovery" | "explicit_allowlist",
+    mode: "default_discovery" | "explicit_allowlist" | "explicit_denylist",
     skills: string[],
   ) {
     const state = makeStateWithMemoryInAllowlist();
@@ -864,10 +864,11 @@ describe("agent prompt preview", () => {
   });
 
   it.each([
-    ["default discovery", "default_discovery", [], ["workspace-skill", "shared-skill"]],
-    ["explicit names", "explicit_allowlist", ["shared-skill", "hidden-skill"], ["shared-skill", "hidden-skill"]],
-    ["explicit empty", "explicit_allowlist", [], []],
-  ] as const)("projects %s into the preview skill ids", async (_case, mode, skills, expected) => {
+    ["default discovery", "default_discovery", []],
+    ["explicit names", "explicit_allowlist", ["shared-skill", "hidden-skill"]],
+    ["explicit empty", "explicit_allowlist", []],
+    ["disabled names", "explicit_denylist", ["shared-skill", "hidden-disabled"]],
+  ] as const)("projects %s into the preview skill ids", async (_case, mode, skills) => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
       makeStateWithSkillSelection(mode, [...skills]),
@@ -882,8 +883,9 @@ describe("agent prompt preview", () => {
 
     await waitFor(() => expect(apiMocks.promptPreviewMock).toHaveBeenCalled());
     const lastCall = apiMocks.promptPreviewMock.mock.calls.at(-1);
-    const body = lastCall?.[1] as { skill_ids?: string[] };
-    expect(body.skill_ids).toEqual([...expected]);
+    const body = lastCall?.[1] as { skill_ids?: string[]; skills_selection_mode?: string };
+    expect(body.skill_ids).toEqual([...skills]);
+    expect(body.skills_selection_mode).toBe(mode);
   });
 });
 

@@ -5,11 +5,12 @@ import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
-import type { ApprovalConfiguration } from '@nano/product-contracts';
+import type { ApprovalConfiguration, MessageApprovalContext } from '@nano/product-contracts';
+import type {} from '../product-bridge.js';
 import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
-import { ApprovalSources, inboxSourceInstructions } from './sources.js';
+import { ApprovalSources, inboxSourceInstructions, messageReviewInstructions } from './sources.js';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
@@ -17,7 +18,7 @@ const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', '
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
-  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain'];
+  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct'];
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
   readonly sources = new ApprovalSources();
@@ -106,8 +107,11 @@ export class NanoApproval extends Service {
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     if (policy.rules === 'nano' && (safeTools.has(exec.name)
       || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
-      || exec.name !== 'bash' && policy.alwaysAllowTools.includes(exec.name)
+      || !['bash', 'send_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
+    const messageContext = exec.name === 'send_message'
+      ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, exec) as MessageApprovalContext : undefined;
+    if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
     if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
@@ -115,12 +119,12 @@ export class NanoApproval extends Service {
     let decision: ReviewDecision | undefined; let usage: unknown;
     try {
       const prompt = await buildPolicy(policy, agent.session.header.cwd!);
-      const transcript = await this.sources.transcript(agent, exec, await this.inherited(agent.id));
+      const transcript = await this.sources.transcript(agent, exec, await this.inherited(agent.id), messageContext);
       for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
         const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
         const assembly = new BlockAssembler();
         const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 ? 30_000 : 60_000)]);
-        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system: `${prompt}\n\n${inboxSourceInstructions}`, messages: [{ role: 'user', content: [{ type: 'text', text: transcript + suffix }] }], temperature: 0,
+        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system: `${prompt}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`, messages: [{ role: 'user', content: [{ type: 'text', text: transcript + suffix }] }], temperature: 0,
           maxTokens: stage === 1 ? 2112 : 10240, signal })) assembly.push(chunk);
         usage = assembly.usage;
         if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted') throw new Error(JSON.stringify(assembly.finish));

@@ -11,15 +11,21 @@ export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node
 function releaseManifest(directory: string) {
   try {
     const value = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+    // Existing SHA releases remain installable until an explicit version is published.
+    const tag = typeof value?.version === 'string' && /^[a-f0-9]{40}$/.test(value.version)
+      ? `node-${value.version}`
+      : typeof value?.version === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value.version)
+        && typeof value.source_commit === 'string' && /^[a-f0-9]{40}$/.test(value.source_commit)
+        ? `v${value.version}` : null;
     if (!value || typeof value.version !== 'string' || typeof value.sha256 !== 'string'
-      || !/^[a-f0-9]{40}$/.test(value.version) || !/^[a-f0-9]{64}$/.test(value.sha256)
+      || !tag || !/^[a-f0-9]{64}$/.test(value.sha256)
       || value.package !== 'nano-node.tgz' || value.node_major !== 24 || value.pnpm_version !== '11.7.0'
-      || value.download_url !== `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${value.version}/nano-node.tgz`) return null;
+      || value.download_url !== `https://github.com/Mrchen116/nano-multiagent/releases/download/${tag}/nano-node.tgz`) return null;
     return value;
   } catch { return null; }
 }
 
-/** Describe the service-matched installer using only validated release metadata.
+/** Describe the explicitly selected installer using only validated release metadata.
  *
  * Args:
  *   origin: Configured public IM URL; request Host must not influence commands.

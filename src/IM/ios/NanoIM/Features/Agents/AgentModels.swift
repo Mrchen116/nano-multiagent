@@ -59,13 +59,26 @@ struct AgentDraft: Equatable, Sendable {
     var work_mode = "single_thread"
     var workspace_root = ""
     var skills: [String] = []
-    var skills_selection_mode = "explicit_allowlist"
+    var skills_selection_mode = "explicit_denylist"
     var tool_allowlist: [String] = []
     var features: [String: Bool] = [:]
     var custom_prompt = ""
     var group_reply_policy = "MENTION"
     var heartbeat = AgentHeartbeat()
 
+    func enabledSkills(candidates: [String]) -> [String] {
+        if skills_selection_mode == "explicit_denylist" { return candidates.filter { !skills.contains($0) } }
+        return skills_selection_mode == "default_discovery" ? candidates : skills
+    }
+    mutating func setSkill(_ name: String, enabled: Bool, candidates: [String]) {
+        if skills_selection_mode != "explicit_denylist" {
+            let selected = enabledSkills(candidates: candidates)
+            skills = candidates.filter { !selected.contains($0) }
+            skills_selection_mode = "explicit_denylist"
+        }
+        if enabled { skills.removeAll { $0 == name } }
+        else if !skills.contains(name) { skills.append(name) }
+    }
     var effectiveTools: [String] {
         work_mode == "global" ? Array(Set(tool_allowlist + ["inbox", "conversations", "send_message", "agent"])).sorted() : tool_allowlist
     }
@@ -98,7 +111,7 @@ struct AgentDraft: Equatable, Sendable {
     }
     func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool) -> [String: JSONValue] {
         let skillIDs = skills_selection_mode == "default_discovery" ? capabilities?.skills.map(\.name) ?? [] : skills
-        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "custom_prompt": .string(custom_prompt), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "work_mode": .string(work_mode)]
+        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "custom_prompt": .string(custom_prompt), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
         body["heartbeat_enabled"] = .bool(features["heartbeat"] ?? false)
         body["cron_enabled"] = .bool(features["cron_scheduling"] ?? false)
         if creating {

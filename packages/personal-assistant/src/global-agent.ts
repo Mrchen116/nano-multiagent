@@ -1,6 +1,6 @@
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
+import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, MessageApprovalContext } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
@@ -184,9 +184,31 @@ export class GlobalAgent {
             message: String(error), request_key: args.request_key } };
         }
       }
+      if (call.method === 'send_message.context') return await this.messageContext(binding, call.args);
       if (call.method === 'send_message') return await this.send(binding, call, controller.signal);
       throw new Error(`Unknown product method: ${call.method}`);
     } finally { this.calls.delete(call.operationId); }
+  }
+  private async messageContext(binding: SessionBinding, args: Record<string, unknown>): Promise<MessageApprovalContext> {
+    const target = String(args.target ?? '');
+    const context: MessageApprovalContext = { target, sender: { type: 'agent', agent_id: binding.agentId }, recipient: { kind: 'unknown' } };
+    if (target === binding.ownerId || target === `user:${binding.ownerId}`) return { ...context, channel: 'web', recipient: { kind: 'owner' } };
+    const conversation = target === 'current' ? binding.conversationId : target.replace(/^conversation:/, '');
+    let info: Record<string, unknown>;
+    try { info = await this.query(binding, { action: 'info', target: conversation }); }
+    catch { return context; } // An unavailable identity lookup never grants the owner exemption.
+    context.channel = String(info.channel ?? 'web');
+    if (info.type === 'group') context.recipient.kind = 'group';
+    else if (info.type === 'direct') {
+      context.recipient.kind = 'user';
+      if (context.channel === 'web') {
+        const members = (info.members ?? []) as { type: string; user_id: string }[];
+        if (members.length === 2 && members.filter(member => member.type === 'agent').length === 1
+          && members.some(member => member.type === 'user' && member.user_id === binding.ownerId)) context.recipient.kind = 'owner';
+        else if (members.length && members.every(member => member.type === 'agent')) context.recipient.kind = 'agent';
+      } else if (info.owner_recipient === true) context.recipient.kind = 'owner';
+    }
+    return context;
   }
   private async query(binding: SessionBinding, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     await this.flushWork();

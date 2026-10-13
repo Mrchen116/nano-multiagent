@@ -4,6 +4,8 @@
 
 ## 部署前
 
+安装包是独立发布动作，按 [发布规范](../../../../docs/operations/local-stack.md#发布首次安装包) 判断明确授权和版本号。普通部署先记录并保留现有 `IM_NODE_RELEASE_DIR/manifest.json`；默认目录为 IM checkout 下 `dist/node-release`。切换 checkout 时携带现有已验证清单，不用构建候选替代，不为匹配服务 SHA 新建 Release；部署后核对清单内容未变。
+
 1. 确认用户授权范围、目标 `origin/main` 精确 SHA、CI、两机 checkout/status 和 live PID/cwd。Mini 主仓只安全 fast-forward；MacBook Air 主仓只 fetch，保留全部无关 dirty/untracked。
 2. 记录现有 IM/Tunnel/Gateway 的 LaunchAgent、launcher、数据库及附件绝对路径、节点 ID、owner、凭据文件位置和通道归属；不输出密钥/token。不要从历史部署记录猜当前 PID，也不按端口批量 kill。
 3. 常规更新复用持久 JWT signing key、公司准入、Gateway 私钥及节点运行凭据；缺失或身份不匹配先查原因。不要例行 `initialize_company`、重新 bind、重新批准成员、创建新 Tunnel 或迁移飞书。

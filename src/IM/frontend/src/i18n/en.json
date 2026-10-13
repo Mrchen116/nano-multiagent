@@ -430,6 +430,7 @@
         "skillsGlobal": "Global",
         "skillsLocal": "Workspace",
         "skillsDefaultDiscovery": "Using all currently discoverable skills",
+        "skillsNewDefault": "New skills are enabled by default. Unchecked skills stay disabled.",
         "skillsExplicitCount": "{{count}} selected",
         "skillsGroupSelect": "Select group",
         "skillsGroupComplete": "Complete group",

@@ -27,6 +27,12 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
   expect((await device.frames.send('node.heartbeat', { node_id: device.node })).type).toBe('ack');
   node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'read', value: { ok: true, value: { items: [] } } }));
   expect((await browserFrames.next()).requestId).toBe('read');
+  browser.send(JSON.stringify({ type: 'call', requestId: 'runs', method: 'trajectory/runs', params: {} }));
+  expect(await nodeFrames.next()).toEqual({ type: 'call', requestId: 'runs', method: 'trajectory/runs', params: {} });
+  node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'runs', value: { ok: true, value: [] } }));
+  expect(await browserFrames.next()).toMatchObject({ requestId: 'runs', value: { ok: true, value: [] } });
+  browser.send(JSON.stringify({ type: 'call', requestId: 'cancel', method: 'session/cancel', params: {} }));
+  expect(await browserFrames.next()).toMatchObject({ requestId: 'cancel', code: 'read_only' });
   // Shared Work visibility does not grant access to another user's private chat images.
   for (const shared of [false, true]) {
     const chat = await f.http('POST', '/im/v1/conversations', { title: 'Image provenance', type: shared ? 'group' : 'direct', participants: [{ type: 'agent', id: 'assistant' }, ...(shared ? [{ type: 'user', id: 'bob' }] : [])] }, f.tokens.alice);

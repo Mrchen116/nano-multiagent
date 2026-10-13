@@ -41,10 +41,14 @@ export function MembershipPage() {
     } catch { setError(true); } finally { setBusy(false); }
   }
   return <AuthPageFrame kicker={t("company.title")} title={t(notJoined ? "company.notJoined" : suspended ? "company.suspended" : "company.pending")} subtitle={t(notJoined ? "company.notJoinedHint" : suspended ? "company.suspendedHint" : "company.pendingHint")} footer={<button className="im-auth-link" onClick={() => navigate("/login", { replace: true, state: { signOut: true } })}>{t("shell.userMenu.signOut")}</button>}>
-    <p>{user.display_name || user.username}</p>
-    {error && <AuthAlert>{t("auth.feedback.serviceUnavailable")}</AuthAlert>}
-    {notJoined ? <button className="im-auth-submit" disabled={busy} onClick={() => void join()}>{t("company.join")}</button>
-      : <button className="im-auth-submit" disabled={busy} onClick={() => void refresh()}>{t("company.refresh")}</button>}
-    {accountEnabled(user) && <button className="im-auth-link" onClick={() => navigate(from === "/chat" && !user.owned_node_ids.length ? "/onboarding" : from, { replace: true })}>{t("company.continuePersonal")}</button>}
+    <div className="im-membership-content">
+      <p className="im-membership-account">{user.display_name || user.username}</p>
+      {error && <AuthAlert>{t("auth.feedback.serviceUnavailable")}</AuthAlert>}
+      <div className="im-membership-actions">
+        {notJoined ? <button className="im-auth-submit" disabled={busy} onClick={() => void join()}>{t("company.join")}</button>
+          : <button className="im-auth-submit" disabled={busy} onClick={() => void refresh()}>{t("company.refresh")}</button>}
+        {accountEnabled(user) && <button className="im-auth-link im-membership-secondary" onClick={() => navigate(from === "/chat" && !user.owned_node_ids.length ? "/onboarding" : from, { replace: true })}>{t("company.continuePersonal")}</button>}
+      </div>
+    </div>
   </AuthPageFrame>;
 }

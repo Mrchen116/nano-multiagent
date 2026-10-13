@@ -179,7 +179,12 @@ export class ExternalChannels {
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
     const chats = this.state.chats().filter(chat => chat.agentId === payload.agent_id);
-    const describe = (chat: ExternalChat) => ({ target: chat.id, id: chat.id, name: chatTitle(chat), type: chat.isGroup ? 'group' : 'direct', channel: 'feishu' });
+    const describe = (chat: ExternalChat) => {
+      const connection = this.connections.get(chat.agentId);
+      const owner = connection?.config.appId === chat.appId ? connection.config.ownerOpenId : undefined;
+      return { target: chat.id, id: chat.id, name: chatTitle(chat), type: chat.isGroup ? 'group' : 'direct', channel: 'feishu',
+        owner_recipient: !!owner && !chat.isGroup && chat.sourceId === `feishu:${chat.appId}:dm:${owner}` };
+    };
     if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.filter(chat => (payload.targets as string[]).includes(chat.id) || (payload.targets as string[]).includes(chat.shadowId!)).map(describe) };
     const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
     if (!chat) return;

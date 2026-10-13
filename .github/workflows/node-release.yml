@@ -3,6 +3,10 @@ name: Publish Node installer
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Explicitly requested release version (X.Y.Z, without v prefix)
+        type: string
+        required: true
       commit:
         description: Full source commit SHA (40 lowercase hex characters)
         type: string
@@ -12,17 +16,24 @@ permissions:
   contents: write
 
 concurrency:
-  group: node-release-${{ inputs.commit }}
+  group: node-release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate fixed source revision
+      - name: Validate explicit version and fixed source revision
         env:
+          RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_COMMIT: ${{ inputs.commit }}
-        run: '[[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]'
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+      # Keep publishing policy from this workflow revision, even for older source commits.
+      - uses: actions/checkout@v4
+      - name: Preserve the versioned publisher
+        run: cp scripts/publish-node-release.mjs "$RUNNER_TEMP/nano-publish-node-release.mjs"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit }}
@@ -39,11 +50,12 @@ jobs:
         run: pnpm typecheck && pnpm test
       - name: Publish and anonymously verify the same package
         env:
+          RELEASE_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/publish-node-release.mjs
+        run: node "$RUNNER_TEMP/nano-publish-node-release.mjs"
       - name: Preserve verified manifest for the matching IM deployment
         uses: actions/upload-artifact@v4
         with:
-          name: node-manifest-${{ inputs.commit }}
+          name: node-manifest-${{ inputs.version }}
           path: dist/node-release/manifest.json
           if-no-files-found: error

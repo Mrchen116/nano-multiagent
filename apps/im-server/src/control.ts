@@ -481,7 +481,7 @@ function validateCandidate(input: Row, create = false) {
     fail(422, "invalid work_mode");
   if (
     input.skills_selection_mode != null &&
-    !["default_discovery", "explicit_allowlist"].includes(input.skills_selection_mode)
+    !["default_discovery", "explicit_allowlist", "explicit_denylist"].includes(input.skills_selection_mode)
   )
     fail(422, "invalid skills_selection_mode");
   if (!create && (!Number.isInteger(input.profile_version) || input.profile_version < 1))
@@ -546,6 +546,7 @@ function previewInput(b: Row): Row {
     tool_ids: b.tool_ids ?? [],
     scenario: b.scenario ?? "direct",
     skill_ids: b.skill_ids ?? [],
+    skills_selection_mode: b.skills_selection_mode ?? "explicit_allowlist",
   };
 }
 function previewResponse(r: Row): Row {
@@ -783,23 +784,31 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       return ops.update(p, c, u.owner_id);
     });
   });
-  app.post("/im/v1/agents/:agent_id/skills/enable", async (req) => {
+  app.post("/im/v1/agents/:agent_id/skills/migrate", async (req) => {
     const runtime = ctx.gateway.authenticate(bearer(req));
     if (!runtime) fail(401, "gateway identity required");
     const id = params(req).agent_id,
       b = body(req);
     if (
-      Object.keys(b).some((k) => !["profile_version", "skills"].includes(k)) ||
-      !Array.isArray(b.skills) ||
-      b.skills.some((s: unknown) => typeof s !== "string" || !s.trim())
+      Object.keys(b).some((k) => k !== "profile_version") ||
+      !Number.isInteger(b.profile_version)
     )
       fail(422, "Invalid skills");
     return ops.serialized(id, async () => {
-      const p = requireProfile(ctx, id, runtime.owner_id);
+      let p = requireProfile(ctx, id, runtime.owner_id);
       if (p.node_id !== runtime.node_id) fail(404, "agent_id not found");
-      if (p.profile_version !== b.profile_version) fail(409, "profile_version conflict");
+      const recovered = await ops.recover(id, runtime.owner_id);
+      if (recovered) p = requireProfile(ctx, id, runtime.owner_id);
+      if (p.skills_selection_mode === "explicit_denylist") return profileResponse(p);
+      if (!recovered && p.profile_version !== b.profile_version) fail(409, "profile_version conflict");
       const c = fromProfile(p);
-      c.skills = [...new Set([...c.skills, ...b.skills])];
+      const response = await ctx.gateway.request(runtime.node_id, "agent.capabilities.resolve", { agent_id: id, workspace_root: p.workspace_root });
+      const catalog = response.capabilities?.skills ?? response.skills;
+      if (!Array.isArray(catalog)) fail(503, "Skill catalog is unavailable");
+      c.skills = selection(c.skills_selection_mode, c.skills) === "explicit_allowlist"
+        ? catalog.map((skill: Row) => skill.name).filter((name: string) => !c.skills.includes(name))
+        : [];
+      c.skills_selection_mode = "explicit_denylist";
       return ops.update(p, c, runtime.owner_id);
     });
   });

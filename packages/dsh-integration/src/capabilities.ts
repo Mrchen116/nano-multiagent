@@ -96,7 +96,9 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     }
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
-  const allowed = (name: string) => config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
+  const allowed = (name: string) => config.skillSelection?.mode === 'explicit_denylist'
+    ? !config.skillSelection.names.includes(name)
+    : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
   for (const [index, root] of (config.skillRoots ?? []).entries()) {
     let native!: FileSystemSkillProvider;
     const providerName = `nano-files-${index}`;

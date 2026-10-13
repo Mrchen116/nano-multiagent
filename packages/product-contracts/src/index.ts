@@ -14,7 +14,7 @@ export interface AgentConfiguration {
   systemPrompt?: string;
   features?: Record<string, boolean>;
   toolAllowlist?: string[];
-  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
+  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
   knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };
@@ -57,9 +57,17 @@ export interface RuntimePort {
 }
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 
+/** Host-resolved public messaging identity; never supplied by model arguments. */
+export interface MessageApprovalContext {
+  target: string;
+  sender: { type: 'agent'; agent_id: string };
+  recipient: { kind: 'owner' | 'user' | 'agent' | 'group' | 'unknown' };
+  channel?: string;
+}
+
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
-export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';
+export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryRun, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';
 
 /** Native attempts grouped into one product reply and its model notices. */
 export interface ModelRunProjection {
