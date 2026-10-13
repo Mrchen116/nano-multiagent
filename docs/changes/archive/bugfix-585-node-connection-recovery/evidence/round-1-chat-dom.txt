@@ -1,0 +1,115 @@
+- banner:
+  - generic: nano IM
+  - generic: internal
+  - navigation "primary":
+    - link "Chat":
+      - /url: /chat
+    - link "Tasks":
+      - /url: /tasks
+    - link "Agents":
+      - /url: /settings/agents
+  - button "Test User":
+    - generic: TE
+    - generic: Test User
+    - generic: ▾
+- main:
+  - complementary "Messages":
+    - generic: Messages
+    - button "New conversation":
+    - searchbox "Search…"
+    - tablist:
+      - tab "All" [selected]
+      - tab "People"
+      - tab "Agent"
+      - tab "Group"
+      - tab "Network"
+    - list:
+      - button "online E2E Agent 18:35":
+        - generic: E2
+        - generic "online"
+        - generic: E2E Agent
+        - generic: 18:35
+    - button "Generate skill"
+  - region "E2E Agent":
+    - generic: E2
+    - generic "online"
+    - heading "E2E Agent" [level=2]
+    - generic: Test User ·
+    - text: E2E Agent
+    - generic: wt-.runtime-585-27082
+    - generic: Agent
+    - button "Conversation menu":
+    - status: No earlier messages
+    - generic: "Offline probe 585: do not queue this message."
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:30
+    - generic: failed
+    - generic: E2
+    - generic: E2E Agent
+    - generic: wt-.runtime-585-27082
+    - paragraph: deepseek:deepseek-v4-flash 暂时无法完成回复：Anthropic stream ended without a stop reason
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:30
+    - generic: failed
+    - generic: Recovery probe 585. What is 17 plus 26? Reply briefly.
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:31
+    - generic: failed
+    - generic: "Fresh recovery check: answer only the number 43."
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:33
+    - generic: E2
+    - generic: E2E Agent
+    - generic: wt-.runtime-585-27082
+    - paragraph: deepseek:deepseek-v4-flash 暂时无法完成回复：Anthropic stream ended without a stop reason
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:33
+    - generic: failed
+    - generic: "Recovery acceptance 585: What is 17 + 26? Answer briefly."
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+    - generic: 18:35
+    - generic: E2
+    - generic: E2E Agent
+    - generic: wt-.runtime-585-27082
+    - paragraph: "43"
+    - button "▸ 4.7k tok · ctx 2%":
+      - generic: ▸
+      - generic: 4.7k tok
+      - generic: ·
+      - generic: ctx 2%
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+        - button "Branch from here": ⑂
+    - generic: 18:35
+    - generic: ⏱ 3.4s
+    - generic: E2
+    - generic: E2E Agent
+    - generic: wt-.runtime-585-27082
+    - paragraph: "43"
+    - button "▸ 4.7k tok · ctx 2%":
+      - generic: ▸
+      - generic: 4.7k tok
+      - generic: ·
+      - generic: ctx 2%
+    - toolbar "Message actions":
+      - group "Message actions":
+        - button "Copy message": ⎘
+        - button "Branch from here": ⑂
+    - generic: 18:35
+    - generic: ⏱ 2.3s
+    - textbox "Message E2E Agent…"
+    - button "Send" [disabled]:
+    - paragraph: Enter to send · Shift+Enter new line

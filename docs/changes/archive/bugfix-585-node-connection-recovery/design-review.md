@@ -146,3 +146,80 @@
 ### Recommendations
 
 无新增。
+
+## Round 4
+
+### Metadata
+
+- reviewer target: `/root/design_review`，原独立设计 reviewer。
+- review_mode: `delta`
+- mode_reason: 本轮新增既有 service-lifecycle Requirement 的替换 delta，并校正 IM 广播措辞；有界契约修订超出纯问题 closure，但未改变首文档、技术决策、职责边界或 milestone。
+- started_at: `2026-10-12T18:30:51+08:00`
+- completed_at: `2026-10-12T18:31:12+08:00`
+- duration: 21 秒
+- reviewed checkout: `/Users/czj/.codex/worktrees/bugfix-585/nano-multiagent`，branch `codex/bugfix-585`。
+- validated_at: `48287332f5979e0c7aa5fa736aa67d0a2b0fcd4e` 加本轮冻结文档修订；未修改产品代码。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING；Gate 2 retained。**
+
+### Coverage 与证据
+
+- `retained_from: Round 3`：其继承的 R2 技术方案和 R3 Runbook 结论继续有效。核对本轮 design diff，只有 Changelog 与 canonical target 列表改变；incident 相对当前 HEAD 无修改，M1、关闭语义、状态生产/消费、草稿保护、安全诊断及运行前置均未改变。因此不重启完整设计审查，也不把本轮当作实现/产品验收。
+- **权威落点**：canonical `docs/specs/gateway/service-lifecycle.md:219` 已完整持有重连行为；新 delta 以 REMOVED 精确匹配旧 Requirement 标题，并以 ADDED 给出更名后完整条目。relay-protocol delta 删除重复恢复条目，只保留独立的持久诊断契约，消除了两处相互矛盾的长期权威。
+- **范围与依据**：旧“补发未确认帧”和“保留未受影响队列”与 R1 已核实的 TypeScript 实现不符。当前 `packages/channels/src/index.ts:268–310` 仍在断连时将 active 结算为 unknown、queue 结算为 not-sent 并清空，再按有上限退避重连；`packages/channels/tests/web-relay.test.ts` 的既有重连测试明确断言不会重放已发送或排队帧。本轮契约表达的是既有、已批准的传输边界，不是新增取消业务持久恢复的决定；新文字显式保留 PA 自身持久恢复。
+- **Scenario 保留**：逐项对比 canonical 原条目与新 delta，慢控制面、正常 ACK 时限、指数退避、匹配响应/FIFO、外部 IM 自治这五个原 Scenario 正文保持不变；只有未确认帧重放、control rejection 队列处置两项按既有不重放设计校正。临时中断恢复与权限终止从原 relay delta 迁入，用户验收范围未扩展。
+- **IM 措辞**：新文字区分心跳更新数据库与上下线转换广播。实际 heartbeat 分支 `apps/im-server/src/gateway.ts:359–364` 只落库，`publishNodeStatus` 由上线注册与当前连接清理调用。此消歧与原 design 的“上线/离线转换”一致；owner 隔离、Agent 同步状态、旧连接 fencing 和未保存输入保证均原样保留。
+- **职责判断**：恢复及投递边界继续归传输 owner 与 PA 各自承担，IM 继续持有节点可见状态，未新增机制、依赖或后台队列。没有要求把本 unit 扩大为其他迁移遗留文档的全面清理。
+
+### 历史问题闭环
+
+R1-W1、R1-W2 / R2-W1 及 R1-R1 的已关闭结论 retained；本轮未改动对应解决方案，没有重新打开的问题。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增。后续 corrected-delta verifier 仍按实际实现与测试核对最终归并版本；本轮只确认设计 Gate 2 在这次文档修订后继续有效。
+
+## Round 5
+
+### Metadata
+
+- reviewer target: `/root/design_review`，原独立设计 reviewer。
+- review_mode: `delta`
+- mode_reason: 对实际产品验收发现的 HTTP recovery / WS resume 状态缺口补充局部 IM 行为；本轮只审订阅恢复后的当前状态补发，以及关联消费者、身份与 cursor 边界。
+- started_at: `2026-10-12T18:39:50+08:00`
+- completed_at: `2026-10-12T18:40:27+08:00`
+- duration: 37 秒
+- reviewed checkout: `/Users/czj/.codex/worktrees/bugfix-585/nano-multiagent`，branch `codex/bugfix-585`。
+- validated_at: `684122882` 加冻结的订阅恢复设计、IM delta 与待实施的真实 socket 回归；本轮未修改产品代码或其他文档。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。** 本次订阅恢复增量可以实施；其余 Gate 2 Approved 结论 retained。
+
+### Coverage 与证据
+
+- `retained_from: Round 4`：Gateway 恢复/撤权/投递边界、诊断、canonical 落点和首文档范围未改变。本增量兑现既有 R2 的“已打开页面状态真实”，没有新增离线业务、持久事件系统或新 milestone。
+- **根因与实际装配**：`user-stream-runtime.ts:320–357` 在建 WS 前先 sync 并等待各页面 onRecovery；Nodes 的 onRecovery 刷新 HTTP cache。IM `Gateway.broadcast` 跳过尚未 ready 的浏览器，而 `replay` 当前只回放 conversation_events 后设 ready。节点状态帧不进该表，故 HTTP 完成到 resume 生效之间的注册确会永久丢失这次通知。新增 `node-connection.test.ts:70–78` 用真实 socket 在 open 后、resume 前等待真实 Relay 注册，正好约束该窗口；本轮核对其测试构造和当前源码，不宣称重新执行了 author 已报告的红测。
+- **设计闭环**：由 IM 在现有同步 replay 尾部对该 socket 补发 owner 当前节点/非 stale Agent 状态，能覆盖 resume 前已发生的变化；进入 ready 后仍由现有实时广播覆盖后续变化。现有 replay、数据库读取和 WS write 调用都是同步路径，无需新增异步队列或定时轮询。实现应保持这一连续时序，复用现有字段语义，包括 node 的 last_error/null 与 last_heartbeat_at。
+- **权限与投递范围**：resume 入口和默认 replay timer 已检查 browserValid；当前用户来自已消费的认证 ticket。状态查询按该浏览器 owner 限定，Agent 同时限定节点归属与非 stale；输出直接写该 socket，不能借 owner broadcast 把每次 resume 快照扩散到其他已在线浏览器。该限制与设计的“向该浏览器”一致，外租不会收到快照。
+- **cursor / 聊天隔离**：复用不带 event_id 的现有状态 envelope，符合客户端 `parseEvent` 和 `dispatchFrame`：无 eventId 的帧仍交付消费者，但不参与 cursor 去重或推进。保持原历史回放/cursor/resync 逻辑，状态快照不写 conversation_events；这里的补发是当前 presence，不是离线消息或业务帧重放。
+- **现有消费者与编辑保护**：Nodes、Chat、Agent detail 已消费对应事件；状态快照不需新协议或页面结构。Nodes 的现有状态处理也 patch 草稿的只读状态字段，Agent detail 沿用前轮批准的仅状态更新保护，故本方案不要求第二轮 HTTP 替换整个编辑表单。
+- **Delta 与验收**：IM delta 新增“浏览器恢复订阅时补齐错过的状态”Scenario，保留其余条目，目标 canonical 不变。既有 M1 的真实页面 R2 与跨 socket/owner 验收可承载这次增量；实施后须跑新增回归并复验真实 IM 重启时已打开 Nodes/Chat/Agent detail 收敛，而非只看 API。新观察到的隔离验收模型切换记录不改变设计边界，真实模型回复结果仍由产品 reviewer 核实。
+
+### 历史问题闭环
+
+R1–R4 已关闭问题保持关闭；本轮订阅恢复问题是新发现的同一 R2 旅程缺口，已由本次增量明确处理，不以此前 Approved 代替其审查。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增。

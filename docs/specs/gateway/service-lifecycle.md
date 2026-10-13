@@ -216,14 +216,14 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **WHEN** IM 服务下发 `node.cron.delete.request`（含 agent_id / workspace_root / job_id）
 - **THEN** Gateway 从 `jobs.json` 中移除匹配 job_id 的条目并回写，回帧 `node.cron.delete`（含 deleted: true/false）；job_id 不存在时 deleted 为 false，不报错
 
-### Requirement: 断线后自动重连并补发未确认帧,期间外部 IM 主路径不受影响
+### Requirement: 断线后自动重连且保持投递与权限边界
 
-WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发 `node.register`;断开前未收到 ack 的上行帧在重连后补发,不丢消息。注册 ACK 后的节点绑定和 Agent 配置收敛在后台运行,不得占住业务收发路径;控制面工作失败仅保留诊断,不使已连接 Gateway 失去中继能力。业务帧等待远端 IM ACK 使用 10 秒默认上限,不得因正常的跨机往返延迟而主动断线。断线期间外部 IM 主路径(通道 → Gateway → 内核)仍可用。
+临时连接失败、心跳超时或服务关闭后，Gateway 自动重连（指数退避、有上限），使用仍有效的凭据重新注册并恢复新消息收发；明确撤权或账户停用终止自动重连。连接层将未确认的在途帧结算为投递结果未知，将未发送帧结算为未发送，不自行重放或建立离线业务队列。已有 PA 业务持久恢复按其自身契约处理，不由传输层推断业务成功或自动重复副作用。注册 ACK 后的节点绑定和 Agent 配置收敛在后台运行,不得占住业务收发路径;控制面工作失败仅保留诊断,不使已连接 Gateway 失去中继能力。业务帧等待远端 IM ACK 使用 10 秒默认上限,不得因正常的跨机往返延迟而主动断线。断线期间外部 IM 主路径(通道 → Gateway → 内核)仍可用。
 
-#### Scenario: 重连后补发断线前未确认的帧
+#### Scenario: 重连不盲目重放未确认业务帧
 - **GIVEN** 一帧 `node.report` 已发出但 socket 在收到 ack 前断开
 - **WHEN** Gateway 重连成功
-- **THEN** 新连接上先发 `node.register`、再补发那帧 `node.report`,原 payload 不变
+- **THEN** 新连接先注册；连接层不自动重放那帧 node.report，调用方收到投递结果未知并按自身持久化契约处理。
 
 #### Scenario: 慢控制面收敛不阻塞已恢复的业务中继
 - **GIVEN** Gateway 已收到 `node.register` ACK，但节点绑定或 IM 上的 Agent 配置读取缓慢或暂时失败
@@ -242,7 +242,7 @@ WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发
 
 #### Scenario: control rejection 与普通断线使用同一退避
 - **WHEN** IM 以 protocol error 拒绝 `node.register` 或 `node.heartbeat`
-- **THEN** Gateway 断开当前 socket，保留未受影响的业务队列，并在下一次连接前执行既有指数退避
+- **THEN** Gateway 断开当前 socket，结算在途及排队帧，并在下一次连接前执行既有指数退避
 - **AND** backoff 只在新连接的 register ACK 后重置，不能因 transport connect 成功但注册失败而形成热循环
 
 #### Scenario: send yield 内到达的匹配响应不会丢失
@@ -254,6 +254,14 @@ WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发
 - **GIVEN** IM 服务不可达
 - **WHEN** 外部通道来一条入站消息
 - **THEN** 该消息照常走通道 → Gateway → 内核 → 回发,Agent 执行不受 IM 离线影响(本地自治)
+
+#### Scenario: 临时中断后无需人工干预
+- **WHEN** 休眠或网络中断后连接条件恢复且授权有效
+- **THEN** 节点无需重启、重新绑定或登录即可重新上线；用户新发送的消息可获得 Agent 回复。
+
+#### Scenario: 权限终止
+- **WHEN** 节点被撤权或账户停用
+- **THEN** 节点停止自动重连，不继续接收业务消息。
 
 ### Requirement: 首次连新 IM 实例时支持自动确认节点绑定
 
