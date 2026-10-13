@@ -39,6 +39,7 @@ Agent 发布含普通换行的正文时，Web IM 将同段内的多行合并显�
 - Red：通过 Vitest CLI 执行新增换行用例，期望同段内两个换行，修前实际为零；两种既有 Markdown hard break 用例通过。
 - Green：`message-pane.test.tsx` 97 个测试通过；普通换行、分段、强调与链接共同显示，行末两个空格和反斜线两种 hard break 均只产生一次换行。
 - 审查回归：扩展既有 type-7 mention 用例，修前没有段落及可见换行而失败；修后 mention chip 与后续两行同属一个段落，两个换行均可见。修正后重跑消息组件及前端全量测试和构建。
+- mention 真实浏览器复验：按现行 `type="user"` wire 格式预置首行 mention，聊天页显示 chip、第一行、第二行三个连续行，未出现额外空行；同页的普通正文和 Markdown 继续正确显示。
 - 前端全量：92 个文件、862 个测试通过；`npm run build` 通过，`npm audit --audit-level=critical` 为零漏洞。构建仅有既存的 chunk 大小与动态导入提示。
 - 其他本地 CI 等价检查：`pnpm install --frozen-lockfile`、`pnpm build`、`pnpm typecheck`、后端 74 个文件 / 272 个测试、Python 非 E2E 56 个测试、ruff check / format、docs-check 和 diff-check 通过。
 - 真实浏览器：以分支生产构建启动隔离 IM，使用专用本地账号和数据库，在真实 `/chat/<id>` 页面读取与截图同结构的 Agent 正文，四个 `•` 条目逐行显示。另核对标题、加粗、链接、Markdown 列表、表格及带空行和缩进的代码块。通过真实 user-stream 发布一条两行消息，实时读取和刷新后 `innerText` 均为 `实时换行第一行\n实时换行第二行 加粗`。

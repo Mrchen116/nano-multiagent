@@ -26,3 +26,7 @@ Main advanced from `737b73880` to `0b2bab6cf` with only feat-596 design/spec/pro
 - Owner verification: the repaired frontend full suite also completed successfully (92 files, 862 tests).
 
 The only remaining unit changes are validation notes and archive movement; they do not alter the reviewed product tree. Final integration base and effective version are recorded in the PR validation summary.
+
+### Final sync
+
+Main then advanced to `0e0c567978a89b33248cf1c342fb3311df45025b` (bugfix-595 onboarding/auth layout and its documentation). Its CSS additions are scoped to authentication/onboarding, with no chat/Markdown selectors or runtime dependency changes. The three reviewed chat implementation/test files are byte-identical to R2; code review and browser evidence are retained. The final integrated frontend suite/build and docs checks are run again; backend/tooling evidence remains valid. The final PR base is this commit.
