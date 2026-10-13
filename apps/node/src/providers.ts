@@ -56,7 +56,7 @@ function nativeModel(model: Model, anthropic: boolean) {
 export function providerProfiles(config: NodeConfigurationFile["llm"]) {
   const providers: Record<string, unknown> = {};
   const env: NodeJS.ProcessEnv = {};
-  for (const [index, provider] of config.providers.entries()) {
+  for (const provider of config.providers) {
     if (provider.native) {
       providers[provider.name] = {
         ...(provider.display_name ? {displayName: provider.display_name} : {}),
@@ -66,7 +66,8 @@ export function providerProfiles(config: NodeConfigurationFile["llm"]) {
       };
       continue;
     }
-    const credential = `NANO_PROVIDER_${index}_KEY`;
+    // The child environment survives live edits, so removing another service must not rebind this key.
+    const credential = `NANO_PROVIDER_${Buffer.from(provider.name).toString("hex").toUpperCase()}_KEY`;
     if (provider.api_key) env[credential] = provider.api_key;
     else if (!provider.credential_stored &&
       ["127.0.0.1", "localhost", "[::1]"].includes(

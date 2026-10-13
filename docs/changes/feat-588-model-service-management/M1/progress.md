@@ -2,7 +2,7 @@
 
 ## 基线与范围
 
-- Gate 2：design-review Round 2 Approved，0 CRITICAL / 0 WARNING。
+- Gate 2：UI 重做后的 design-review Round 4 Approved，0 CRITICAL / 0 WARNING。
 - 实施分支：`codex/feat-588-model-services`，前置 PR #337 `7083a0936`，同步 main `6275f271d`。
 - main 新增 bugfix-585 为节点连接恢复、presence reconciliation；没有改变本 unit 的模型 setup/DSH public seam、配置存储或 installer 设计。实施基线已合入，Gate 2 的职责与接口判断 retained；后续真实离线恢复在该组合树验收。
 - 主 Agent 负责模型服务、前端、集成与收尾。首轮独立安装分发任务负责 install/build/release 及其最窄测试，不修改模型文件；后续修复统一主 Agent。
@@ -23,3 +23,9 @@
 - 作者已在真实浏览器配置两服务、同名上游模型、多模型，更换 URL/key 后同一助手回复；相关图片保留到外部 artifact。后续独立验收以自己的实际结果为准。
 - 用户试用反馈触发 UI 设计重做；独立设计 R3/R4 闭环后重排实际页面，具体视觉/操作和证据见 [UI redesign](evidence/ui-redesign.md)。此次改变触及 Web 布局与授权反馈，后端验证 retained，相关 22 Web tests 和构建通过。
 - 用户要求测试服务保持运行：52267 是用户试用环境，不能为独立验收清空或重启；独立验收另建隔离栈。
+
+## 独立审查后的修复
+
+- 静态 R1 在 `eff9d6daf` 发现旧 YAML 内联凭据按服务数组下标绑定：删除 A 后，仍使用 B 的同一会话发送 A 的 key。新增真实 DSH/HTTP 回归先复现失败，再将环境变量名称固定到不可变服务 ID 的完整 UTF-8 hex；移除其他服务不再改变绑定。
+- `/tmp/nano588-legacy-red.log` 保留失败的实际 Authorization 对比；`/tmp/nano588-legacy-green.log` 为 providers/model-setup/configuration/integration model-setup 四文件 15 tests 通过。独立复验尚待最终批次冻结。
+- 文档检查通过（252 maintained sources / 64 routes）；Ruff check 与 format check 通过（82 files）。
