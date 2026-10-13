@@ -16,6 +16,7 @@ import { invalidateSkills } from '../capabilities.js';
 import { KnowledgeFiles, type MemoryChange, type SkillChange } from './files.js';
 import { knowledgeDomain, type KnowledgeDomain, type KnowledgeFact, type KnowledgeKind, type KnowledgeReview } from './state.js';
 import { reviewReadings } from './review-readings.js';
+import { withKnowledgeRun } from '../trajectory-runs.js';
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
@@ -199,10 +200,10 @@ export class KnowledgeRuntime extends Service {
     const history = batch ? await this.batchHistory(batch.refs) : ''; signal.throwIfAborted();
     const system = agent.session.deriveMessages().findLast(message => message.role === 'system' && message.content.length > 0);
     const frozen = { parentId: agent.id, system: system?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? '', tools: structuredClone(agent.session.requestHeader()?.tools ?? []), allow: tools };
-    const run = await this.reviewStart.run(frozen, () => this.host.subagents.start('fork', { parent: agent, label: `nano-review:${id}`, signal,
+    const run = await this.reviewStart.run(frozen, () => withKnowledgeRun(agent, kind, () => this.host.subagents.start('fork', { parent: agent, label: `nano-review:${id}`, signal,
       prompt: [{ type: 'text', text: prompt + (batch ? `\nReview the automatically created skill ${batch.name} using these actual usage references:\n${JSON.stringify(batch.refs)}\n${history}` : '') }],
       agentOptions: { maxTokens: 8192 },
-    }));
+    })));
     try {
       await state.table('reviews').put(id, { ...record, childSessionId: run.id });
       if (batch) await this.files(agent).batchAccepted(batch.root, batch.name);

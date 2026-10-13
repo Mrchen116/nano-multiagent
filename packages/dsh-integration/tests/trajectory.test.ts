@@ -28,6 +28,8 @@ it('reads cold native history without activating an Agent and replaces the obser
     await start();
     expect(await client!.rpc.request('trajectory.prepare', scope)).toMatchObject({ version: '0.2.1-alpha.1' });
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
+    expect(await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs' })).toEqual({ ok: true, value: [] });
+    await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs', params: { args: { request: { sessionId: 'other' } } } })).rejects.toThrow(/scope/i);
     const opened = await client!.rpc.request('trajectory.open', { observerId: 'viewer', method: 'session/follow', params: { args: { request: { assistantStream: true, maxMessages: 50 } } } }) as { streamId: string };
     const batch = await client!.rpc.request('trajectory.next', { observerId: 'viewer', streamId: opened.streamId }) as { frames: any[] };
     expect(batch.frames[0]).toMatchObject({ type: 'snapshot', header: { id: binding.sessionId }, assistantStream: { revision: 0 } });

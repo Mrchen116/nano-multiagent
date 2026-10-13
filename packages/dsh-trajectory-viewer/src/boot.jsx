@@ -64,10 +64,10 @@ async function start(init, port) {
     bootstrapModule: { id: registration.id, exports: bootstrap },
     loadBundle: url => loadScript(url.replace('/plugins/??', '/plugins/').replace('&rev=', '?rev=')),
   });
-  const load = id => modules.import(`@deepseek-ai/${id}/client`);
+  const load = id => modules.import(`${id.startsWith('@') ? id : '@deepseek-ai/' + id}/client`);
   const [renderer, conversation, session, trajectory, attachment, locale, theme, api, connection, gateway, typert] = await Promise.all([
     'dsh-client-ui-renderer', 'dsh-client-ui-conversation', 'dsh-client-ui-session',
-    'dsh-client-ui-trajectory', 'dsh-client-ui-attachment', 'dsh-client-locale', 'dsh-client-ui-theme',
+    '@nano/trajectory-ui', 'dsh-client-ui-attachment', 'dsh-client-locale', 'dsh-client-ui-theme',
     'dsh-api-session-controller', 'dsh-client-connection', 'dsh-api-gateway', 'dsh-typert-registry',
   ].map(load));
   const ctx = new Cordis.Context();
@@ -110,17 +110,34 @@ async function start(init, port) {
   session.apply(ctx);
   ctx.provide('uiWorkspace', { openSession: readonly, openWorkspace: readonly });
   conversation.apply(ctx, { maxConcurrentFileUploads: 2 });
+  let active = init.active !== false;
+  const visibility = event => { if (event.source === parent && event.data?.type === 'viewer-visibility') active = event.data.active === true; };
+  window.addEventListener('message', visibility);
+  ctx.effect(() => () => window.removeEventListener('message', visibility));
+  const navigation = {
+    initialRunId: init.targetRunId, parentSessionId: init.parentSessionId,
+    isActive: () => active,
+    readRuns: async signal => {
+      const result = await transport.rpc.call('/api', 'trajectory/runs', { args: { request: { sessionId: init.sessionId } } }, signal);
+      if (!result.ok) throw new Error(result.error?.message || '运行信息读取失败');
+      return result.value;
+    },
+    firstSeq: () => reference.binding.eventSource.getSnapshot().entries[0]?.event.seq,
+    lastSeq: () => reference.binding.eventSource.getSnapshot().entries.at(-1)?.event.seq,
+    hasMore: () => reference.binding.session.getSnapshot().hasMore,
+    loadThrough: seq => reference.binding.session.loadThrough(seq),
+    navigate: run => parent.postMessage({ type: 'viewer-navigate', run: { ...run,
+      label: run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行' } }, '*'),
+  };
   ctx.slots.register({ name: 'root', id: 'nano-trajectory', children: {
     'conversation.view': { kind: 'list', scope: 'session' },
   } }, function Viewer({ renderSlot, SessionProvider }) {
     return <SessionProvider session={reference}>
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', '--dsh-composer-height': '0px' }}>
-        {renderSlot('conversation.view', { inspectCall: undefined, viewRequest: null,
-          openView() {}, completeViewRequest() {} }, { only: 'trajectory' })}
-      </div>
+      {renderSlot('conversation.view', { inspectCall: undefined, viewRequest: null,
+        openView() {}, completeViewRequest() {} }, { only: 'trajectory' })}
     </SessionProvider>;
   });
-  trajectory.apply(ctx);
+  trajectory.apply(ctx, { navigation: () => navigation });
   attachment.apply(ctx);
   unmount = ctx.uiRenderer.mount(document.getElementById('root'));
   // Keep only a numeric reading bookmark in the host; history is always read afresh.
@@ -128,7 +145,7 @@ async function start(init, port) {
   const publishPosition = event => {
     if (restoring) return;
     const pane = document.querySelector('[data-trajectory-scroll]');
-    if (!pane) return;
+    if (!pane || pane.closest('[hidden]')) return;
     parent.postMessage({ type: 'viewer-position', top: pane.scrollTop,
       rowKey: pane.querySelector('[data-selected]')?.getAttribute('data-trajectory-row-key'),
       detailTab: document.querySelector('[role=tab][aria-selected=true]')?.id,

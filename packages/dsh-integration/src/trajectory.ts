@@ -76,7 +76,9 @@ export class NativeTrajectory {
     const controller = await this.options.controller;
     const args = this.arguments(observer, request);
     let value: unknown;
-    if (request.method === 'session/list') {
+    if (request.method === 'trajectory/runs') {
+      value = await this.ctx.nanoTrajectoryRuns.read(observer.scope.sessionId);
+    } else if (request.method === 'session/list') {
       using cut = await this.ctx.sessionQuery.observeSession(SessionId(observer.scope.sessionId), { signal });
       const agent = this.ctx.agents.get(cut.header.id);
       value = { items: [{ sessionId: cut.header.id, agentAvailable: Boolean(agent), running: agent?.status === 'running', blank: cut.cursor < 0,

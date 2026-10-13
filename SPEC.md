@@ -4,7 +4,7 @@
 
 nano-multiagent 提供常驻个人助手和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；内部 subagent 是一次工作的执行单元，不是新的公司成员。
 
-DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 源码，不导入其私有实现。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
+DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 
 ## 部署与请求路径
 
@@ -31,7 +31,8 @@ flowchart TD
 | `packages/channels` | Web relay 传输、飞书收发、通道密文与平台身份 |
 | `packages/personal-assistant` | Inbox、单聊天/global 路由、群发言边界、durable handoff、结果投递、外部镜像、配置恢复与主动工作策略 |
 | `packages/dsh-integration` | 通过公开 DSH 服务与插件实现配置 scope、来源与审批、模型策略、Workflow、知识维护，以及持久事件/历史的产品投影 |
-| `packages/dsh-trajectory-viewer` | 隔离 iframe 内的官方原生轨迹查看器；使用公开浏览器包，通过父页面授权的只读通道访问当前执行 |
+| `packages/trajectory-ui` | 本仓维护的 DSH 轨迹 UI 单包分叉；保留原生组件与样式，增加行级发起入口与执行范围控制，独立构建浏览器插件 |
+| `packages/dsh-trajectory-viewer` | 隔离 iframe 内的轨迹查看器；装配单个 Nano 原生派生轨迹插件与官方 Session/Conversation/Attachment，通过父页面授权的只读通道访问当前执行 |
 | `src/IM/frontend` | 既有 React/TypeScript Web 客户端 |
 | `src/IM/ios` | 既有 Swift 原生 iPhone 客户端 |
 | `scripts`、`tests` | 运维和验收工具；Python 仅保留辅助脚本与黑盒回归 |
@@ -44,8 +45,9 @@ Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产
 - PA 只依赖 product-contracts 与 Channels；Channels 只依赖 product-contracts。
 - Node 装配 PA、Channels、product-contracts 与 integration 的公开进程 client。
 - 服务端只有 integration 可以导入 `@deepseek-ai/*`，且必须是已声明依赖的公开 exports。它不导入 PA、Channels 或 IM。
-- 浏览器例外仅限 `packages/dsh-trajectory-viewer`：使用锁定版本的官方公开 client/remote exports，原样打包其注册 bundle；不持有 IM 凭据或执行权限。IM 前端只嵌入其隔离 iframe，不直接导入 DSH。
-- 不使用跨包相对路径、不添加 DSH 源码补丁、fork 或 private import。
+- 浏览器组装例外为 `packages/dsh-trajectory-viewer`：使用锁定版本的官方公开 client/remote exports，原样打包其注册 bundle，并通过 `@nano/trajectory-ui` 公开入口装配本仓轨迹插件；UI 分叉消费官方轨迹投影与 product-contracts 运行事实，仅改变本地显示投影与交互状态；不持有 IM 凭据或执行权限。IM 前端只嵌入其隔离 iframe，不直接导入 DSH。
+- `packages/trajectory-ui` 是唯一允许本仓维护源码分叉的 DSH UI 包，源于官方 `dsh-client-ui-trajectory`；上游版本、commit 和原始文件摘要见该包 `upstream.json`，版权与许可原样保留。它以 Nano 包名独立构建，只使用声明的公开依赖，不修改安装的官方包或 DSH 参考仓库。
+- 不使用跨包相对路径或 private import，不添加 DSH 执行运行时补丁；除上述轨迹 UI 包外，不维护其他 DSH fork。
 
 这些规则由 [runtime dependency contract](tests/contract/test_runtime_dependency_contract.py) 验证。DSH 更新需明确升级锁文件、公开 export 验证及受影响真实旅程，不能靠旧工具名或参数兼容副本维持表面通过。
 

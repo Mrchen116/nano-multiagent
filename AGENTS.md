@@ -4,7 +4,7 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 
 ## 架构红线
 
-- 只有 `packages/dsh-integration` 可以 import 已声明依赖的 DSH 公开 exports；不得修改上游源码、添加 fork/patch 或 private import。
+- 执行运行时仅由 `packages/dsh-integration` 通过已声明的 DSH 公开 exports 接入；浏览器查看器与本仓轨迹 UI 分叉的限定例外见 [SPEC.md](SPEC.md)。不得扩大为运行时 fork/patch 或 private import。
 - `apps/node` 仅通过 `@nano/dsh-integration/client` 管理执行子进程；PA/Channels/IM 不 import DSH。
 - PA 可依赖 Channels 与 product-contracts；Channels、IM 仅依赖 product-contracts；禁止跨包相对路径绕过边界。
 - 不恢复旧 Python Kernel、Coding CLI 或第二套 Agent Loop。节点与 DSH 用 stdio 通信，不新增内核 HTTP 服务。

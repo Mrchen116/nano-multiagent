@@ -31,4 +31,12 @@
 .im-native-trajectory { display:flex; flex-direction:column; height:max(540px,calc(100dvh - 245px)); border:1px solid #e5e7eb; background:white; overflow:hidden; }
 .im-native-trajectory iframe { width:100%; flex:1; min-height:0; border:0; }
 .im-native-status { display:flex; align-items:center; gap:12px; padding:6px 10px; font-size:12px; color:#64748b; border-bottom:1px solid #e5e7eb; }
-@media(max-width:640px) { .im-native-trajectory { height:max(500px,calc(100dvh - 280px)); margin:0 -8px; } .im-native-status { flex-wrap:wrap; } }
+@media(max-width:640px) { .im-native-trajectory { height:max(820px,calc(100dvh - 280px)); margin:0 -8px; } .im-native-status { flex-wrap:wrap; } }
+
+.im-native-stack { min-width:0; }
+.im-trajectory-layer[hidden] { display:none; }
+.im-trajectory-path { display:flex; align-items:center; gap:12px; padding:10px 12px; background:#f5faf8; border:1px solid #e0e9e5; border-bottom:0; font-size:12px; }
+.im-trajectory-path button { flex-shrink:0; padding:7px 10px; border:1px solid #bfd5cd; border-radius:6px; background:#fff; color:#347873; }
+.im-trajectory-path nav { display:flex; flex-wrap:wrap; gap:7px; min-width:0; overflow-wrap:anywhere; }
+.im-trajectory-path i { margin-right:7px; color:#8b9c95; font-style:normal; }
+@media(max-width:640px) { .im-trajectory-path { align-items:flex-start; flex-wrap:wrap; margin:0 -8px; } }
