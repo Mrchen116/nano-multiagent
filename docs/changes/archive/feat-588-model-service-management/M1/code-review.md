@@ -139,3 +139,22 @@ Read the permanent cold-initialization test (`providers.test.ts:11–33`) and it
 W1 remains **closed**: the stable env-name code and existing same-session HTTP regression are unchanged and the latter is included in the green provider-file run. R2's remaining code conclusions and corrected-delta alignment are retained; no design/spec/prototype, Web, IM source, installer, probe or transaction change occurred. The product R1 triage document records the identity issue and a separate upstream execution observation; this patch review does not issue a browser acceptance or broader runtime verdict.
 
 `git diff --check c4e2517b9..630971421` passed. No runtime processes/services were started or modified in this review; 52267 and shared fixtures remain untouched. Only the two assigned reports were edited; no push.
+
+## Round 4 — patch: user-menu icon consistency
+
+- Date: 2026-10-13; same independent static reviewer.
+- `validated_at`: `c6b4455e158a32f71e179de19477ad65b2432158`; `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d`.
+- Mode: `patch`; complete reviewed range: `d27a8ad2347ccc8fd57c569634567ed654a4b73a..c6b4455e158a32f71e179de19477ad65b2432158`, exactly three frontend files.
+- Result: **PASS — no surviving findings.**
+
+```json
+[]
+```
+
+The patch extracts the existing desktop 18px / 1.7-stroke SVGs into `UserMenuIcon`, replaces the mobile Me node/account/model/policy/company/language/sign-out glyphs with that same set, removes their icon background blocks, and adds a distinct two-person `members` glyph for both company entries. The SVG remains decorative (`aria-hidden`, `focusable=false`), while labels and whole-row click targets remain. Inspected every call site: hrefs, handlers, membership/admin conditions, language state, sign-out flow, node counts and API/query code are unchanged. No concrete correctness issue was found.
+
+Reused caller-provided validation for this frozen patch: MePage/AppShell 2 files / 8 tests passed and TypeScript/Vite build passed; read the existing tests covering entry URLs, language persistence, sign-out, mobile/desktop shell and unread state. No backend suite was repeated. The reviewer's range-based `git diff --check` reports only `user-menu-icons.tsx:15: new blank line at EOF`; this whitespace detail is not a behavioral finding.
+
+Subsequent whitespace cleanup `1bb8ff98e6309819abd2461930e869b818acada3` removes exactly that one EOF blank line. Inspected its complete diff: no semantic change, so the R4 conclusion is retained with the original `validated_at` and `effective_through: 1bb8ff98e6309819abd2461930e869b818acada3`. Final `git diff --check d27a8ad2347ccc8fd57c569634567ed654a4b73a..1bb8ff98e6309819abd2461930e869b818acada3` passes. Main remains `b7e367cc08a642133dea28e372816cd79038818d`.
+
+**No spec delta.** This is the user's narrow visual consistency follow-up during PR #339 delivery; it creates no navigation, permission, state or API contract. R1–R3 static conclusions, W1/catalog-identity closure, corrected-delta alignment and all unaffected model/onboarding/installer/backend boundaries are retained. This static pass does not replace visual judgment of the new glyphs. Only the two assigned archived reports were changed; no runtime operation or push.

@@ -166,3 +166,18 @@ Inspected `/tmp/nano588-catalog-red.log` and `/tmp/nano588-catalog-green.log`, t
 The fix restores accepted identity/catalog behavior without changing the design or public API, so no design revision is needed. Both complete delta files are unchanged; Round 2's corrected-delta outcome **aligned** remains effective through this validation head. All unaffected R2 completeness/correctness/coherence and explicit reference-contract findings are retained. Browser acceptance and the separately documented test-upstream terminal failures are not decided by this static closure.
 
 `git diff --check c4e2517b9..630971421` passed. No runtime was started or restarted, no service data was modified, and no new fixture resources require cleanup. Existing user service 52267, shared model fixtures, `.runtime/` and `output/` were preserved.
+
+## Round 4 — delta: user-menu icon consistency
+
+- Date: 2026-10-13; same independent verifier.
+- `validated_at`: `c6b4455e158a32f71e179de19477ad65b2432158`; `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d`.
+- `verification_mode`: `delta`; `fix_delta_range`: `d27a8ad2347ccc8fd57c569634567ed654a4b73a..c6b4455e158a32f71e179de19477ad65b2432158`.
+- `requires_full_verification`: false; verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION.**
+
+The complete three-file delta matches the user's icon-only feedback: the shared desktop line-icon component now supplies the seven mobile Me entries; desktop company members receives the same distinct two-person glyph, and the mobile icon background blocks are removed. Icon sizes/strokes and decorative accessibility attributes are explicit in `user-menu-icons.tsx:4`. Route destinations, node/status queries, membership/admin visibility, language selection, sign-out and row interaction targets are unchanged. Existing model-service entry identity remains intact.
+
+Reused caller-provided MePage/AppShell 2 files / 8 tests and TypeScript/Vite build results, with the relevant test source inspected. No unrelated backend or product journey was rerun. The range diff-check's trailing blank-line notice at the new icon file EOF is whitespace only and does not affect this alignment verdict.
+
+Retained after inspected cleanup `1bb8ff98e6309819abd2461930e869b818acada3`, whose sole change removes the extra EOF blank line. `validated_at` stays `c6b4455e158a32f71e179de19477ad65b2432158`; `effective_through` is `1bb8ff98e6309819abd2461930e869b818acada3`. Final `git diff --check d27a8ad2347ccc8fd57c569634567ed654a4b73a..1bb8ff98e6309819abd2461930e869b818acada3` passes; main remains the recorded `b7e367cc08a642133dea28e372816cd79038818d`.
+
+**No spec delta:** inspected all observable changes in the bounded patch; they change icon styling and reuse, with no new exact behavioral guarantee requiring a canonical Requirement/Scenario. Prior corrected-delta alignment remains valid. R1–R3 static gates and all unaffected model, credential, provider-directory, onboarding, owner, transaction, installation and public-dependency conclusions are retained; no claim of independent aesthetic acceptance is added. Only the assigned reports were edited; existing services, `.runtime/` and `output/` remain untouched.
