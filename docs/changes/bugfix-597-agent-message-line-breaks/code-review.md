@@ -15,3 +15,14 @@
 ## Integration validity
 
 Main advanced from `737b73880` to `0b2bab6cf` with only feat-596 design/spec/prototype evidence changes. Rebase retained the implementation tree; no changed runtime or Web dependency files invalidate the existing backend, tooling or Web evidence. The mention repair changes Web source, so Web tests/build and focused independent review are rerun; backend and Python evidence remain valid.
+
+## Round 2 — closure and patch
+
+- Reviewer: same independent `review_agent_line_breaks`, `gpt-6.1-sol/high`.
+- validated_at: `c8cc3798f9ea71d919dc9c4a839e1ab51fb25450`.
+- executed_base: `0b2bab6cf30ebad2fd1ee0915019913d529deea1`.
+- Scope: R1 finding closure and the changed mention conversion, plugin order, regression test and IM spec index; unrelated main design documents excluded.
+- Result: `[]`, Approved. R1 finding closed. Independent reproduction confirms one paragraph containing the mention and two line breaks; inline mention, quote/list line breaks, escaped script/event-bearing HTML, code indentation/blank lines and explicit hard breaks retain their expected behavior. Component/build evidence reused.
+- Owner verification: the repaired frontend full suite also completed successfully (92 files, 862 tests).
+
+The only remaining unit changes are validation notes and archive movement; they do not alter the reviewed product tree. Final integration base and effective version are recorded in the PR validation summary.
