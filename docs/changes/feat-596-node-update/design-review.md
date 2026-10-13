@@ -69,3 +69,48 @@
 ### Recommendations
 
 无额外可选项。以上三项闭环后，按实际设计变更选择 delta 或 closure 复审，无需扩展为全产品重设计。
+
+## Round 2
+
+### Metadata
+
+- reviewer: 同一独立 subagent `/root/design_review`。
+- reviewer_target: `bfb2c01447da92c21d68389cdf4cc4b3f9ded76a`，审查前工作树 clean。
+- review_mode: `delta`。
+- mode_reason: 按窄复审范围核对 R1 三项及其影响；修订新增 waiting/prepare/resumed 时序和本机屏障租约，属于有界协议变化，故采用 delta 而非仅核文案的 closure。不扩大为完整重审。
+- retained_from: Round 1；安装分发、DSH public API 可行性、模块职责、旧用户桥接、总体布局、canonical target、M1 范围和真实验收前置均未发生实质变化。
+- started_at: `2026-10-13T23:48:01+08:00`。
+- completed_at: `2026-10-13T23:49:37+08:00`。
+- duration: `1m36s`。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1 三项在设计层闭环，未发现本次修订引入新的阻断项。本结论允许据此实施，不代表 updater、消息持久恢复、故障回退或真实录屏已经验收。
+
+### Coverage 与影响判断
+
+核对 `480893430..bfb2c0144` 的设计/原型/relay delta 差异，并阅读修订段落与相邻取消裁决、真实 readiness、鉴权和持久状态条款。新的 prepare 只在新包完整准备后建立；busy 时释放并主动重放，因此没有将整个下载或长任务等待期间改成停收。取消仍由 IM 原子拒绝后续 claim，取消完成则等本地释放确认，分别承担授权裁决与恢复事实，不要求重新确认用户授权。
+
+屏障租约由 Node 承担，发布包下载与进程切换仍由 worker 承担，IM 只保存授权/投递状态；没有引入另一套 Agent Loop、消息队列或跨包 DSH import。声明“已释放 handoff 不可使用”及 stop 前重新核对是实施时必须兑现的不变量，不可仅通过查看某次历史 ready 文件满足。恢复失败时不解除既有消息的保留责任；具体恢复段落限定了常规终态释放规则，正常 succeeded/rolled_back 仍必须通过真实 readiness。
+
+本轮直接查看新增 [390 恢复失败截图](evidence/mobile-recovery-chat.png)，并核对原型 `render` 修改：电脑恢复入口、聊天 chip 的“电脑需要恢复”和原消息的“电脑恢复后继续处理，无需重发”在同一连续上下文可辨认，明确指出需要恢复且无需重发，不再暗示正常自动更新仍在进行。尝试独立打开原型时此前 IAB browser 已不可用，因此本轮证据是亲自查看已渲染截图及其代码变更，没有声称重新完成手机交互。Round 1 的更新/等待/取消独立交互证据保持原范围。
+
+M1 的 reviewer R2、worker W2 已包括取消、消息幂等、安全屏障和恢复相关测试，本轮收口的边界案例属于这些退出条件的具体化：prepare 期间发消息后取消、不重连重投；worker 冻结后退出与旧 handoff 失效；恢复失败消息刷新和同身份恢复重投。应在真实实施中验证，不能拿原型截图替代。
+
+### 历史问题闭环
+
+| 原 issue | Author Resolution（依据本轮受审设计） | 本轮核实证据与结果 |
+|---|---|---|
+| R1-W1 | IM 先持久建立 waiting/prepare gate，再请求本地屏障；在途 relay 保留且拒绝准入不写 accepted；busy/取消先恢复本地，再 ACK 并主动重放 | `design.md:47,51,72`；relay delta 新增“取消与恢复失败”。已明确 gate 顺序、在途责任及无需重连的恢复触发，**closed**。 |
+| R1-W2 | Node 监控 worker PID/birth/每秒心跳，15 秒失联释放屏障、恢复 cron/admission、删除 handoff，并独立 report；claim/stop 前核对且禁止使用失效 handoff | `design.md:49,68,70`。冻结不再依赖 worker 自己解锁；IM 未得到 resumed/ready 仍保留消息，迟到 worker 不能凭旧 ready 停机，**closed**。 |
+| R1-W3 | interrupted/recovery_required 的既有消息保留并提示恢复后继续；新发消息恢复普通离线语义；同身份同 epoch 恢复注册重新校验并重投；聊天显示需要恢复 | `design.md:72`、relay delta 新场景、原型 `render` 和新增 390 截图。消息去向、入口文案及恢复后幂等身份已明确；管理权限仍沿用设计中的本人设备限制，**closed**。 |
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。保持既定 M1 范围，实施和真实验收按收口后的契约执行。
