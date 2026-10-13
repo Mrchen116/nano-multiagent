@@ -135,11 +135,40 @@ export class Gateway {
     this.trajectory.closeSession(id);
     for (const b of this.browsers) if (b.sessionId === id) b.socket.close(1008);
   }
+  /** Persist loss of the current connection before closing its transport.
+   *
+   * Args:
+   *   connection: Socket owner; a replaced connection cannot take its successor offline.
+   *   reason: Local diagnostic category, never remote payload text.
+   */
+  disconnect(connection: Connection, reason = "connection_closed") {
+    this.trajectory.closeDevice(connection);
+    if (this.nodes.get(connection.node_id) !== connection) return;
+    this.nodes.delete(connection.node_id);
+    this.ctx.db.prepare("UPDATE nodes SET status='offline',last_error=? WHERE node_id=?")
+      .run(reason, connection.node_id);
+    this.publishNodeStatus(connection, "offline", { last_error: reason });
+  }
+  private publishNodeStatus(connection: Connection, status: string, extra: Row = {}) {
+    this.broadcast([connection.owner_id], {
+      op: "event", event_type: "node.status_changed",
+      data: { node_id: connection.node_id, status, ...extra },
+    });
+    // Agent detail has its own cache consumer; node events alone leave its badge stale.
+    for (const agent of all(this.ctx.db,
+      "SELECT agent_id FROM agent_profiles WHERE node_id=? AND owner_id=? AND is_stale=0",
+      connection.node_id, connection.owner_id)) {
+      this.broadcast([connection.owner_id], {
+        op: "event", event_type: "agent.status_changed",
+        data: { agent_id: agent.agent_id, node_id: connection.node_id, status },
+      });
+    }
+  }
   revokeNode(id: string) {
-    const device = this.nodes.get(id);
-    if (device) this.trajectory.closeDevice(device);
-    this.nodes.get(id)?.socket.close(1008);
-    this.nodes.delete(id);
+    const connection = this.nodes.get(id);
+    if (!connection) return;
+    this.disconnect(connection, "authority_revoked");
+    connection.socket.close(1008, "authority_revoked");
   }
   revokeOwner(id: string) {
     for (const c of this.nodes.values()) if (c.owner_id === id) this.revokeNode(c.node_id);
@@ -214,6 +243,16 @@ export class Gateway {
       }
     b.cursor = top;
     b.ready = true;
+    // Presence is transient: close the gap between the browser's HTTP snapshot
+    // and this subscription without adding status rows to the chat event cursor.
+    for (const node of all(db,
+      "SELECT node_id,status,last_heartbeat_at,last_error FROM nodes WHERE owner_id=?", b.userId)) {
+      this.write(b.socket, { op: "event", event_type: "node.status_changed", data: node });
+    }
+    for (const agent of all(db,
+      "SELECT a.agent_id,a.node_id,n.status FROM agent_profiles a JOIN nodes n ON n.node_id=a.node_id AND n.owner_id=a.owner_id WHERE a.owner_id=? AND a.is_stale=0", b.userId)) {
+      this.write(b.socket, { op: "event", event_type: "agent.status_changed", data: agent });
+    }
   }
   register(c: Connection, p: Row): Row {
     const db = this.ctx.db;
@@ -245,7 +284,7 @@ export class Gateway {
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
     this.nodes.set(c.node_id, c);
     db.prepare(
-      `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
+      `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
     ).run(c.node_id, c.owner_id, p.node_name ?? c.node_id, now(), p.agents.length, p.version ?? "");
     db.prepare("UPDATE agent_profiles SET is_stale=1,staled_at=? WHERE node_id=?").run(
       now(),
@@ -297,11 +336,7 @@ export class Gateway {
       }
       this.ctx.messaging.agentUser(id);
     }
-    this.broadcast([c.owner_id], {
-      op: "event",
-      event_type: "node.status_changed",
-      data: { node_id: c.node_id, status: "online", last_heartbeat_at: now() },
-    });
+    this.publishNodeStatus(c, "online", { last_heartbeat_at: now(), last_error: null });
     return {
       message_type: "node.register",
       im_user_url: this.ctx.publicUrl,
@@ -895,7 +930,10 @@ export class Gateway {
   }
   shutdown() {
     this.trajectory.shutdown();
-    for (const c of this.nodes.values()) c.socket.close(1001);
+    for (const c of this.nodes.values()) {
+      this.disconnect(c, "server_shutdown");
+      c.socket.close(1001, "server_shutdown");
+    }
     for (const b of this.browsers) b.socket.close(1001);
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
@@ -997,18 +1035,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
         }
       });
     });
-    socket.on("close", () => {
-      g.trajectory.closeDevice(c);
-      if (g.nodes.get(c.node_id) === c) {
-        g.nodes.delete(c.node_id);
-        ctx.db.prepare("UPDATE nodes SET status='offline' WHERE node_id=?").run(c.node_id);
-        g.broadcast([c.owner_id], {
-          op: "event",
-          event_type: "node.status_changed",
-          data: { node_id: c.node_id, status: "offline" },
-        });
-      }
-    });
+    socket.on("close", () => g.disconnect(c));
   });
   app.get("/im/ws/user", { websocket: true }, (socket, req) => {
     const origin = req.headers.origin;

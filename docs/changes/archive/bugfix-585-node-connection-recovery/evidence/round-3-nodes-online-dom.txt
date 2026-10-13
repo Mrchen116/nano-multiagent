@@ -1,0 +1,44 @@
+- banner:
+  - generic: nano IM
+  - generic: internal
+  - navigation "primary":
+    - link "Chat":
+      - /url: /chat
+    - link "Tasks":
+      - /url: /tasks
+    - link "Agents":
+      - /url: /settings/agents
+  - button "Test User":
+    - generic: TE
+    - generic: Test User
+    - generic: ▾
+- main:
+  - heading "Nodes" [level=1]
+  - paragraph: Gateway nodes connected to this workspace.
+  - paragraph: "1"
+  - paragraph: Total nodes
+  - paragraph: "1"
+  - paragraph: Online
+  - paragraph: "0"
+  - paragraph: Offline
+  - paragraph: "2"
+  - paragraph: Total agents
+  - generic: 🖥
+  - heading "wt-.runtime-585-27082" [level=3]
+  - generic: online
+  - paragraph: wt-.runtime-585-27082
+  - text: "2"
+  - text: agents
+  - generic: vnano-dsh/0.1.0
+  - text: version
+  - text: Alias wt-.runtime-585-27082
+  - textbox "Alias wt-.runtime-585-27082": wt-.runtime-585-27082
+  - generic: Live Snapshot
+  - generic: Heartbeat
+  - generic: 18:42:39
+  - generic: Version
+  - generic: nano-dsh/0.1.0
+  - generic: All saved
+  - link "+ New agent on node":
+    - /url: /settings/nodes/wt-.runtime-585-27082/agents/new
+  - button "Save wt-.runtime-585-27082" [disabled]

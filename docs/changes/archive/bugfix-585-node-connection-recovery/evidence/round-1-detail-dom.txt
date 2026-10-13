@@ -1,0 +1,68 @@
+- banner:
+  - generic: nano IM
+  - generic: internal
+  - navigation "primary":
+    - link "Chat":
+      - /url: /chat
+    - link "Tasks":
+      - /url: /tasks
+    - link "Agents":
+      - /url: /settings/agents
+  - button "Test User":
+    - generic: TE
+    - generic: Test User
+    - generic: ▾
+- main:
+  - complementary "Agents":
+    - generic: Agents
+    - link "+ New":
+      - /url: /settings/agents/new
+    - searchbox "Find Agent"
+    - navigation "Agents":
+      - button "E2E Agent":
+        - generic: E2
+        - generic "online"
+        - paragraph: E2E Agent Mine
+        - paragraph: e2e
+        - generic: wt-.runtime-585-27082
+      - button "E2E Peer Agent":
+        - generic: E2
+        - generic "online"
+        - paragraph: E2E Peer Agent Mine
+        - paragraph: e2e-peer
+        - generic: wt-.runtime-585-27082
+  - generic: E2
+  - generic "online"
+  - heading "E2E Agent" [level=2]
+  - paragraph:
+    - generic: e2e
+    - generic: wt-.runtime-585-27082
+  - button "Open chat ↗"
+  - button "No changes" [disabled]
+  - navigation "Agent detail sections":
+    - button "Overview"
+    - button "Config" [pressed]
+    - button "Channels"
+    - button "Skills"
+    - button "Sessions"
+  - heading "Identity" [level=3]
+  - paragraph: Name and purpose shown to users and other agents.
+  - paragraph: Work mode：Single thread · Fixed after creation
+  - generic: Agent ID
+  - textbox "Agent ID" [disabled]: e2e
+  - generic: Display Name
+  - textbox "Display Name": E2E Agent
+  - paragraph: Shown in conversations and group chats.
+  - generic: Description
+  - textbox "Description"
+  - paragraph: Short summary shown in group chats.
+  - heading "Behavior" [level=3]
+  - paragraph: Tune how this agent talks and what it does.
+  - generic: Custom Instructions
+  - textbox "Custom Instructions":
+    - /placeholder: You are my personal legal advisor, answer with relevant clauses…
+    - text: You are the isolated E2E test agent. Reply concisely.
+  - paragraph: Layered on top of the standard prompt. Leave blank to use the standard prompt.
+  - generic: Features
+  - paragraph: Toggle optional agent capabilities.
+  - checkbox "Task Graphs Allow the agent to save plans, exploration branch
