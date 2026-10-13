@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: refactor-593
+> 对齐: refactor-593 / feat-596
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -789,3 +789,21 @@ Agent profile 的公开配置与保存结果表达 Skill selection mode：explic
 - **WHEN** IM 只读 mirror profile
 - **THEN** 只读响应保留历史缺席状态，前端仍按有效语义呈现
 - **AND** 只读本身不写 YAML；认证节点重连后的独立迁移使用真实候选和版本化配置操作写入禁用名单
+
+### Requirement: 电脑端更新由 owner 主动发起并显示真实结果
+
+#### Scenario: 查看并发起
+- **WHEN** owner 查看电脑设置或聊天的本人电脑入口
+- **THEN** 可发现该电脑可用版本及说明；点击更新后才下载、安装和重启，不重复确认，不影响其他电脑。
+
+#### Scenario: 等待与取消
+- **WHEN** 新包已准备但电脑仍有任务
+- **THEN** 显示任务结束后更新，切换前可取消；下载和等待不强制中断工作。
+
+#### Scenario: 结果与恢复
+- **WHEN** 用户刷新或重新打开更新页面
+- **THEN** 显示实际阶段或结果；只有新版已上线才显示成功，只有旧版已恢复才显示已回退，失败可重试或进入明确恢复指引。
+
+#### Scenario: 不可更新与旧安装
+- **WHEN** 电脑离线、无新版、清单未发布、旧安装缺少能力或由源码运行
+- **THEN** 分别显示可理解的状态与适用入口；旧安装提供一次性升级说明，源码运行不会被网页更改部署。

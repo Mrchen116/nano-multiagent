@@ -86,3 +86,12 @@
 - 取消操作 `eeb9b70d-6128-4338-bd52-075ffdb8b555`；随后成功 `12baed71-ef25-4d6d-b1ee-b130ec7060a7`，01:05:53.661（UTC+8）。消息 `639a01da0d6d47ea8b4bf8dc48bcc81b` 于01:05:35.921发送，唯一relay key `639a01da0d6d47ea8b4bf8dc48bcc81b:update-assistant`，完成后唯一回复 `1690f50a41d64d9ebab6fa1e4bda2f78` 于01:05:53.892。
 - 同目录 `delivery-message-wait.png`、`delivery-message-refreshed.png`、`delivery-message-completed.png` 是本次实际页面截图；主agent已逐图核实等待文案和回复。独立产品复验的R4另记在acceptance报告。
 - `independent-review/` 持久保留验收原始失败、修复后及多宽截图。所有媒体/日志/私有配置均不提交Git；交付目录位于worktree外，不随清理删除。
+
+## M1 完成与收尾
+
+- R1/R2：独立产品验收累计 pass，R4 在 `56f1f5776` 真实确认即时等待、刷新保留与唯一回复；其余场景按未失效证据 retained。
+- W1/W2/W3：整体视频和多宽截图已持久保存；相关安全屏障、安装、取消、回退及消息竞态测试与本地 CI 均通过；静态 code review 无 findings，verification pass、corrected delta aligned。
+- 最终 main 仍为 `0e0c56797`。Gate 2 的需求、职责划分和原型契约未变；产品、code review、verification 在 `56f1f5776` 实际复验，后续仅证据文档、三份已审 delta 原文归并、上级条目计数和整个 unit 归档。因此门禁有效性保留至交付 PR head，未把文档移动冒充重新执行审查。
+- 三份增量已归并 current spec；docs-check 最终 231 maintained sources / 64 routes 通过，显式 `--head-ref unit/feat-596-node-update` 归档检查通过，`git diff --check` 通过。
+- 隔离 Node、DSH、IM、下载/模型 fixture、原型服务器及本次两个浏览器 session 已停止；相关端口无 listener。媒体在仓外保留，主仓 unrelated dirty 内容未触碰。
+- 交付边界：Ready PR 与 required CI 由后续 GitHub 实时状态确认；本记录不表示合并、发布候选包或生产部署。
