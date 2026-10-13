@@ -32,4 +32,4 @@
 - pnpm build、pnpm typecheck 与 Web build 通过。
 - 后端全量：272 passed / 1 failed（既有 approval.test.ts 审批场景，本次未修改相关代码）；单独复跑该文件 5/5 通过，保留首次全量失败事实。
 - 独立 code review：无 findings。docs-check 首次发现新增 Requirement 的入口计数未同步，已修正。
-- docs-check、change unit 归档检查与 git diff --check 通过。
+- docs-check 与 git diff --check 通过；unit 已移入 archive。归档脚本对本次 codex/ 分支名跳过检查，未将其作为有效验收证据。
