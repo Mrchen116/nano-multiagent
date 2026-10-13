@@ -9,6 +9,8 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 
 ## 不变量
 
+- 合并、部署、更新或重启不包含发包授权。只有用户明确要求发布安装包时才按 [安装包发布规范](../../../docs/operations/local-stack.md#发布首次安装包) 使用确定的版本号发布；普通部署保留当前已验证的安装清单，不自动触发发布工作流或切换安装版本。
+
 - 当前拓扑与入口以 [生产舰队](../../../docs/operations/prod-fleet.md) 为准：官网经 Cloudflare Tunnel 到 Mini 的唯一 loopback IM；MacBook Air 不运行 IM。普通部署更新这套源站即更新官网，不另建公网实例。
 - Mini 主仓只安全 fast-forward；MacBook Air 主仓默认只 fetch，保留 dirty/untracked，从固定的 detached `prod-main` worktree 启动 Gateway，版本记录为精确 Git SHA，不在目录名中编码版本。两机各自安装锁定的 Node/pnpm 依赖并构建；旧 `.venv` 只供尚在使用的运维脚本及回退代码使用。
 - 复用现有 IM/Tunnel LaunchAgent 和公网 launcher；不退回旧 `nohup uvicorn`、内网访问入口或全网卡监听。保留 Cloudflare HTTPS 重定向，当前版本公网模式必须使用 `pnpm im public-server`；首次从旧 Python 切换先完成 `docs/operations/dsh-migration.md`。

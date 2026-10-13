@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createServer } from '../src/server.js';
 
-const version = 'a'.repeat(40);
-const manifest = { version, sha256: 'b'.repeat(64), package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0', download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${version}/nano-node.tgz` };
+const version = '0.2.0';
+const manifest = { version, source_commit: 'a'.repeat(40), sha256: 'b'.repeat(64), package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0', download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/v${version}/nano-node.tgz` };
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closers.splice(0)) await close(); });
@@ -69,13 +69,16 @@ it('serves a pinned manifest without the package and redirects old scripts witho
   expect(redirect.headers.location).toBe(manifest.download_url);
   expect(redirect.headers['cache-control']).toBe('no-store');
   expect(redirect.body).toBe('');
-  const previous = { ...manifest, version: 'c'.repeat(40), download_url: manifest.download_url.replace(version, 'c'.repeat(40)) };
+  const previous = { ...manifest, version: 'c'.repeat(40), download_url: manifest.download_url.replace(`v${version}`, 'node-' + 'c'.repeat(40)) };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(previous));
   expect((await app.inject('/install/manifest.json')).json()).toEqual(previous);
   expect((await app.inject('/install/nano-node.tgz')).headers.location).toBe(previous.download_url);
 });
 it.each([
   '{broken', JSON.stringify({ sha256: 'b'.repeat(64) }),
+  JSON.stringify({ ...manifest, source_commit: 'not-a-commit' }),
+  JSON.stringify({ ...manifest, source_commit: undefined }),
+  JSON.stringify({ ...manifest, version: '01.2.3', download_url: manifest.download_url.replace('v0.2.0', 'v01.2.3') }),
   JSON.stringify({ ...manifest, download_url: 'https://github.com/Mrchen116/nano-multiagent/releases/latest/download/nano-node.tgz' }),
   JSON.stringify({ ...manifest, download_url: manifest.download_url.replace('Mrchen116', 'attacker') }),
   JSON.stringify({ ...manifest, version: 'd'.repeat(40) }),
