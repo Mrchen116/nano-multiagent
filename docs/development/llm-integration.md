@@ -39,6 +39,16 @@ session 目录中的 `*-req-*` 是代理收到的请求，`*-downstream-res-*` �
 
 ## 当前配置与模型
 
+### 隔离环境的模型目录
+
+`scripts/e2e-up.sh` 默认从 [`config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 复制模型目录，不从正式 Gateway 或代理动态发现模型。只修改个人 Gateway 配置或临时 `.gateway-config.yaml` 不会更新下一个 worktree 的默认目录。
+
+升级正式环境的推荐模型时，同一次变更必须同步该模板的型号、context window 和 reasoning 声明，并通过当前代理验证真实流式回复。保留 DeepSeek 等各档模型的用途；不要把已被替换的推荐型号继续留作新 E2E 的默认候选。2026-10-13 核对的 GPT 候选为 GPT-6.1 Sol、GPT-6 Astra、GPT-6 Luna，型号参考 [OpenAI 模型文档](https://learn.chatgpt.com/docs/models#recommended-models)。历史验收记录及刻意验证旧型号兼容性的测试不随目录升级改写。
+
+已启动环境持有自己的配置副本，需要更新其中的模型目录并重启对应隔离 Gateway，再检查 `/im/v1/agents/<agent_id>/capabilities` 的 `models`。不要为刷新目录重新运行 `e2e-up.sh`，它会重建测试数据库；不得复制正式环境的身份、凭据、channel 或运行数据。
+
+### 本机代理配置
+
 - LLM_PROXY 默认配置文件：`/Users/czj/Repos/LLM_PROXY/upstreams.json`
 - 配置结构说明：`/Users/czj/Repos/LLM_PROXY/README-zh.md` 的“上游配置”
 - 实际进程设置了 `UPSTREAM_CONFIG_PATH` 时，以该路径为准。
