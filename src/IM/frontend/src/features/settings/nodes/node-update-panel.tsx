@@ -42,7 +42,7 @@ export function NodeUpdatePanel({nodeId, update}: {nodeId:string;update:NodeUpda
   const bridge=['legacy','recovery_required','incompatible'].includes(state);
   const canCancel=!!op && cancellable.includes(op.state);
   const canUpdate=!active && update.available;
-  return <div data-testid={`node-update-${nodeId}`} className={`rounded-[10px] border p-4 ${error?'border-amber-200 bg-amber-50/60':'border-[var(--im-border)] bg-[var(--im-accent-soft)]/30'}`}>
+  return <div data-testid={`node-update-${nodeId}`} className={`min-w-0 rounded-[10px] border p-4 ${error?'border-amber-200 bg-amber-50/60':'border-[var(--im-border)] bg-[var(--im-accent-soft)]/30'}`}>
     <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-6">
       <div className="min-w-0">
         <h4 className="m-0 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] font-bold" aria-live="polite">
