@@ -3,7 +3,7 @@
 ## Relations
 
 - Related: bugfix-592；本次继续在 PR #344 的交付会话内修正消息权限边界。
-- Current: [Global Agent](../../specs/gateway/global-agent.md)、[Auto 权限](../../operations/auto-permissions.md)。
+- Current: [Global Agent](../../../specs/gateway/global-agent.md)、[Auto 权限](../../../operations/auto-permissions.md)。
 
 ## 原始报告
 
@@ -33,6 +33,8 @@
 - 当前契约归并到 Global Agent spec，操作说明与规则来源 README 同步。
 
 ## 验证
+
+独立 code review 无 finding；详见 [code review](code-review.md)。
 
 扩展现有 native approval、GlobalAgent 和 ExternalChannels 测试，保护预执行分流、平台身份映射和可信分类输入，不新增镜像 Prompt 文案单测。暂停前红测为本人未免审和其他收件人被白名单放行；最终聚焦 33 tests、全量 TypeScript 265 tests、Python 56 tests、构建、类型检查与 Ruff 均通过。
 
