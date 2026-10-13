@@ -48,9 +48,14 @@ fetch "$NANO_ORIGIN/install/manifest.json" "$NANO_TEMP/manifest.json"
 NANO_METADATA=$("$NANO_NODE" -e '
 const fs=require("fs");
 const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-if(!x || typeof x.version!=="string" || typeof x.sha256!=="string" || !/^[a-f0-9]{40}$/.test(x.version) || !/^[a-f0-9]{64}$/.test(x.sha256)
+const tag = typeof x?.version === "string" && /^[a-f0-9]{40}$/.test(x.version)
+  ? `node-${x.version}`
+  : typeof x?.version === "string" && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(x.version)
+    && typeof x.source_commit === "string" && /^[a-f0-9]{40}$/.test(x.source_commit)
+    ? `v${x.version}` : null;
+if(!x || typeof x.version!=="string" || typeof x.sha256!=="string" || !tag || !/^[a-f0-9]{64}$/.test(x.sha256)
   || x.package!=="nano-node.tgz" || x.node_major!==24 || x.pnpm_version!=="11.7.0"
-  || x.download_url!==`https://github.com/Mrchen116/nano-multiagent/releases/download/node-${x.version}/nano-node.tgz`) {
+  || x.download_url!==`https://github.com/Mrchen116/nano-multiagent/releases/download/${tag}/nano-node.tgz`) {
   console.error("Invalid installation manifest. Please retry from your IM service."); process.exit(1);
 }
 console.log(x.sha256 + " " + x.download_url);
