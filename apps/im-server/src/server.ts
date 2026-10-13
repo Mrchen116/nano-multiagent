@@ -3,6 +3,8 @@ import websocket from "@fastify/websocket";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, createReadStream, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
+import { registerOnboardingRoutes } from "./onboarding.js";
+import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
 import { openDatabase } from "./db.js";
 import { createIdentity } from "./identity.js";
 import { registerIdentityRoutes } from "./identity-routes.js";
@@ -23,6 +25,7 @@ export interface ServerOptions {
   frontendDistDir?: string;
   frontendDevBaseUrl?: string;
   trajectoryDistDir?: string;
+  nodeReleaseDir?: string;
 }
 export function resolveSecret() {
   const secret = process.env.IM_JWT_SECRET?.trim();
@@ -152,6 +155,9 @@ export async function createServer(options: ServerOptions = {}) {
     });
   });
   await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
+  const releaseDirectory = options.nodeReleaseDir ?? process.env.IM_NODE_RELEASE_DIR ?? defaultReleaseDirectory;
+  registerInstallRoutes(app, ctx, releaseDirectory);
+  registerOnboardingRoutes(app, ctx, releaseDirectory);
   registerIdentityRoutes(app, ctx);
   registerMessagingRoutes(app, ctx);
   registerConversationActions(app, ctx);
@@ -281,7 +287,7 @@ export async function createServer(options: ServerOptions = {}) {
         .send(createReadStream(file));
     if (
       path === "/" ||
-      /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|me)(\/|$)/.test(path)
+      /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");
       if (existsSync(index)) return reply.type("text/html").send(createReadStream(index));

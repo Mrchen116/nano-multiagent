@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db.js";
-import { canonical, createIdentity, digest, type Identity } from "../src/identity.js";
+import { canonical, createIdentity, digest, canActorAccess, canAccessSpace, type Identity } from "../src/identity.js";
 import { registerIdentityRoutes } from "../src/identity-routes.js";
 import type { ImContext } from "../src/context.js";
 
@@ -106,7 +106,7 @@ describe("durable identity compatibility", () => {
     expect(() => identity.refresh(replacement.refresh_token)).toThrow();
   });
 
-  it("preserves pending registration, active membership gates, browser Origin and Cookie-only refresh", async () => {
+  it("preserves browser Origin and Cookie-only refresh while new accounts can use their personal space", async () => {
     const { identity } = fixture(),
       app = await server(identity);
     const payload = {
@@ -127,12 +127,13 @@ describe("durable identity compatibility", () => {
     const created = await post(app, "/im/v1/auth/register", payload, headers);
     expect(created.statusCode).toBe(201);
     expect(created.json()).not.toHaveProperty("refresh_token");
-    expect(created.json().user.membership_status).toBe("pending");
+    expect(created.json().user.membership_status).toBe("none");
+    expect(created.json().user.account_status).toBe("active");
     expect(created.headers["set-cookie"]).toContain("HttpOnly; SameSite=Strict; Secure");
     const access = auth(created.json().access_token),
       cookie = String(created.headers["set-cookie"]).split(";")[0]!;
     expect((await app.inject({ url: "/im/v1/auth/me", headers: access })).statusCode).toBe(200);
-    expect((await app.inject({ url: "/im/v1/me", headers: access })).statusCode).toBe(403);
+    expect((await app.inject({ url: "/im/v1/me", headers: access })).statusCode).toBe(200);
     expect((await post(app, "/im/v1/auth/refresh", {}, { cookie })).statusCode).toBe(422);
     expect(
       (
@@ -208,6 +209,8 @@ describe("durable identity compatibility", () => {
     const { identity } = fixture();
     human(identity, "admin", false, "pending");
     human(identity, "member", false, "pending");
+    const pending = await identity.login("member", "old-password");
+    expect(() => identity.authenticateRequest({headers: auth(pending.access_token)})).toThrow();
     identity.initializeCompany("admin", ["member"]);
     identity.initializeCompany("admin", ["member"]);
     expect(() => identity.initializeCompany("member", ["admin"])).toThrow();
@@ -327,6 +330,16 @@ describe("device possession and ownership transfer", () => {
     expect(identity.authenticateRuntime(runtime.runtime_token)).toBeNull();
     expect(() => identity.deviceRecover(started.operation_id, started.operation_token)).toThrow();
 
+    // The explicit device handoff carries private Agent execution history, not
+    // the old owner's conversations or task graphs.
+    identity.run("UPDATE users SET personal_space_enabled=1 WHERE id='owner'");
+    identity.run("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,space_id,created_at,updated_at) VALUES('private','owner','new-node','Private','personal:owner','then','then')");
+    identity.run("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('agent-private','agent:private','Private','owner','then')");
+    identity.run("INSERT INTO conversations(id,title,owner_id,space_id,created_at) VALUES('private-chat','Private','owner','personal:owner','then')");
+    identity.run("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('private-chat','agent-private')");
+    identity.run("INSERT INTO task_graphs(graph_id,owner_id,space_id,conversation_id,root_title,revision,document_json,created_at,updated_at,updated_by) VALUES('private-task','owner','personal:owner','private-chat','Private',1,'{}','then','then','owner')");
+    identity.run("INSERT INTO agent_work_sessions VALUES('work-history','private','new-node','global_main',NULL,'{}')");
+    expect(canActorAccess(identity.db, 'agent-private', 'personal:owner')).toBe(true);
     const transfer = identity.deviceStart({
       node_id: "new-node",
       node_name: "Device",
@@ -334,6 +347,7 @@ describe("device possession and ownership transfer", () => {
     });
     const transferChallenge = openChallenge(key, transfer.challenge);
     identity.deviceProve(transfer.operation_id, transfer.operation_token, transferChallenge);
+    expect(identity.deviceBrowser("inspect", transfer.browser_token, "receiver")).toMatchObject({is_transfer: true, history_transferred: true});
     identity.deviceBrowser("accept", transfer.browser_token, "receiver");
     let ready = identity.devicePrepare(transfer.operation_id, transfer.operation_token);
     identity.run(
@@ -354,6 +368,14 @@ describe("device possession and ownership transfer", () => {
       proof(transferChallenge, ready.confirmation),
       {},
     );
+    expect(identity.get("SELECT owner_id,space_id FROM agent_profiles WHERE agent_id='private'")).toEqual({owner_id: 'receiver', space_id: 'personal:receiver'});
+    expect(identity.user('receiver')!.personal_space_enabled).toBe(true);
+    expect(canAccessSpace(identity.user('owner'), 'personal:receiver')).toBe(false);
+    expect(canAccessSpace(identity.user('receiver'), 'personal:receiver')).toBe(true);
+    expect(canActorAccess(identity.db, 'agent-private', 'personal:owner')).toBe(false);
+    expect(identity.get("SELECT session_id FROM agent_work_sessions WHERE root_agent_id='private'")?.session_id).toBe('work-history');
+    expect(identity.get("SELECT space_id FROM conversations WHERE id='private-chat'")?.space_id).toBe('personal:owner');
+    expect(identity.get("SELECT space_id FROM task_graphs WHERE graph_id='private-task'")?.space_id).toBe('personal:owner');
     expect(identity.user("owner")!.owned_node_ids).toEqual([]);
     expect(identity.user("receiver")!.owned_node_ids).toEqual(["new-node"]);
     expect(identity.authenticateRuntime(recovered.runtime_token)).toBeNull();
@@ -361,6 +383,23 @@ describe("device possession and ownership transfer", () => {
       identity.get("SELECT owner_id FROM channel_manifest_heads WHERE node_id='new-node'")!
         .owner_id,
     ).toBe("receiver");
+  });
+
+  it("requires company approval before handing over a device containing company Agents", () => {
+    const { identity } = fixture();
+    human(identity, "owner");
+    human(identity, "personal", false, "none");
+    identity.run("UPDATE users SET personal_space_enabled=1 WHERE id='personal'");
+    identity.run("INSERT INTO nodes(node_id,node_name,owner_id,status) VALUES('company-device','Company','owner','offline')");
+    identity.run("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('company-agent','owner','company-device','Company','then','then')");
+    const key = deviceKey();
+    identity.enrollDevice('company-device', key.public_key, key.key_id);
+    const operation = identity.deviceStart({node_id: 'company-device', node_name: 'Company', ...key});
+    identity.deviceProve(operation.operation_id, operation.operation_token, openChallenge(key, operation.challenge));
+    expect(() => identity.deviceBrowser('accept', operation.browser_token, 'personal')).toThrow('active company recipient');
+    expect(identity.get("SELECT owner_id FROM nodes WHERE node_id='company-device'")?.owner_id).toBe('owner');
+    identity.run("UPDATE users SET membership_status='active' WHERE id='personal'");
+    expect(identity.deviceBrowser('accept', operation.browser_token, 'personal').state).toBe('awaiting_local_confirmation');
   });
 
   it("requires local enrollment of existing nodes and keeps the enrolled key immutable", () => {

@@ -1,3 +1,4 @@
+import { canAccessSpace, canActorAccess } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
@@ -395,7 +396,7 @@ export class TaskGraphService {
     const user = resolved.user_id ? qualifiedUser(this.db, resolved.user_id) : undefined;
     if (user && (ref.type === "agent") !== user.username.startsWith("agent:"))
       fail("invalid_arguments", "Assignee actor type must match the resolved identity");
-    if (!user || !this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", conversation, resolved.user_id))
+    if (!user || !conversationAccess(this.db, conversation, resolved.user_id)?.is_member)
       fail("assignee_not_member", "Assignee must be an active conversation member");
   }
   private canDelete(node: Obj, actor: Obj, user: string): boolean {
@@ -450,15 +451,15 @@ export class TaskGraphService {
     const p =
       actor.kind === "user"
         ? this.row(
-            "SELECT id,owner_id,display_name FROM users WHERE id=? AND membership_status='active' AND username NOT LIKE 'agent:%'",
+            "SELECT * FROM users WHERE id=? AND (personal_space_enabled=1 OR membership_status='active') AND username NOT LIKE 'agent:%'",
             actor.id,
           )
         : this.row(
-            "SELECT u.id,p.owner_id,p.display_name FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND owner.membership_status='active' AND n.status='online' AND COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')",
+            "SELECT u.id,p.owner_id,p.display_name,p.space_id,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')",
             actor.id,
             actor.node_id ?? null,
           );
-    if (!p) forbidden();
+    if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
     const user = p.id,
       actorName = `${p.display_name} (${actor.id})`;
     const identity = {type:actor.kind,id:actor.id};
@@ -682,9 +683,10 @@ export class TaskGraphService {
   }
   private save(doc: Obj) {
     const { owner_id, ...body } = doc;
+    const space = this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id;
     this.db
       .prepare(
-        "INSERT INTO task_graphs(graph_id,owner_id,root_title,revision,document_json,created_at,updated_at,updated_by,conversation_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(graph_id) DO UPDATE SET root_title=excluded.root_title,revision=excluded.revision,document_json=excluded.document_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+        "INSERT INTO task_graphs(graph_id,owner_id,root_title,revision,document_json,created_at,updated_at,updated_by,conversation_id,space_id) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(graph_id) DO UPDATE SET root_title=excluded.root_title,revision=excluded.revision,document_json=excluded.document_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
       )
       .run(
         doc.graph_id,
@@ -696,14 +698,20 @@ export class TaskGraphService {
         doc.updated_at,
         doc.updated_by,
         doc.conversation_id,
+        space,
       );
   }
   private receipt(actor: string, key: string, hash: string, doc: Obj, result: Obj) {
     this.db
-      .prepare("INSERT INTO task_graph_mutation_receipts(actor_key,request_key,operation_hash,graph_id,result_json,created_at,conversation_id) VALUES(?,?,?,?,?,?,?)")
-      .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at, doc.conversation_id);
+      .prepare("INSERT INTO task_graph_mutation_receipts(actor_key,request_key,operation_hash,graph_id,result_json,created_at,conversation_id,space_id) VALUES(?,?,?,?,?,?,?,?)")
+      .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at, doc.conversation_id, this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id);
   }
   private list(user: string, actor: Obj, args: Obj) {
+    const account = this.row("SELECT * FROM users WHERE id=?", user)!;
+    const spaces = (actor.type === "agent"
+      ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
+      : ["company:default", `personal:${account.owner_id}`]).filter(space=>canActorAccess(this.db,user,space));
+    if (!spaces.length) return {items:[],total:0,next_cursor:null};
     const query = text(args.query ?? "", "query", 240, true).trim(), limit = args.limit ?? 20;
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) fail("invalid_arguments", "limit must be an integer from 1 to 50");
     const filtered = args.assignee_type !== undefined || args.assignee_id !== undefined;
@@ -723,10 +731,10 @@ export class TaskGraphService {
     // ACL is applied before json_each: summaries and counts never include inaccessible trees.
     const rows = this.rows(`SELECT g.document_json,n.value AS node_json FROM task_graphs g
       JOIN conversations c ON c.id=g.conversation_id JOIN json_each(g.document_json,'$.nodes') n
-      WHERE (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id=?) OR (c.type='group' AND c.visibility='public'))
+      WHERE c.space_id IN (${spaces.map(()=>"?").join(",")}) AND (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id=?) OR (c.type='group' AND c.visibility='public'))
       AND ${filtered ? "json_extract(n.value,'$.assignee.type')=? AND json_extract(n.value,'$.assignee.id')=?" : "json_extract(n.value,'$.id')=json_extract(g.document_json,'$.root_node_id')"}
       AND ${statuses ? "json_extract(n.value,'$.status') IN ("+statuses.map(()=>"?").join(",")+")" : "1=1"}
-      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
+      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
     const items = rows.map((r): Obj => {
       const d = JSON.parse(r.document_json), n = JSON.parse(r.node_json);
       const path: Obj[] = [];

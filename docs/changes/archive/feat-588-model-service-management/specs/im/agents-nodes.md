@@ -1,5 +1,15 @@
 # IM Agent 与电脑设置增量
 
+## MODIFIED Requirements
+
+### Requirement: 页面完成模型连接
+
+节点 owner 可选择内置服务商、填写自定义 API，或启动可选的原生 Codex 授权；API 接入为默认路径，不自动扫描开发者代理配置。状态区分等待、验证、成功和失败。验证失败不完成设置，凭据不回显或进入安装材料。
+
+#### Scenario: 验证与失败恢复
+- **WHEN** 用户测试连接
+- **THEN** 以节点实际模型请求结果显示可用或修复动作；等待、失败、重试不丢失电脑绑定。
+
 ## ADDED Requirements
 
 ### Requirement: API 接入与日常模型服务管理共用电脑上下文

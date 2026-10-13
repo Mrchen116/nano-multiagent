@@ -102,7 +102,7 @@
 
 ### Requirement: 数据面按登录身份、聊天成员与资源管理归属确定访问
 
-普通真人请求中，除 `/im/v1/auth/*` 外,所有数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token 和有效账号（个人空间可用或公司 active），再核对资源空间;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按资源空间及当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录只返回自己及私人助手，以及获准加入公司的成员和公司助手；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](../../../../specs/im/gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
+普通真人请求中，除 `/im/v1/auth/*` 外,所有数据面路由(`me` / conversations / messages / agents / nodes / metrics 等)要求合法 Bearer access token 和有效账号（个人空间可用或公司 active），再核对资源空间;缺失或非法 token 返回 401。聊天列表、消息、历史和受保护附件按资源空间及当前用户成员关系访问，非成员返回 404；Agent／Gateway 配置与 metrics 保持 owner 管理归属。联系人目录只返回自己及私人助手，以及获准加入公司的成员和公司助手；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](../../../../../specs/im/gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
 
 #### Scenario: 无 token 的数据面请求返回 401
 - **WHEN** 浏览器前端未带 Bearer 调 `GET /im/v1/me` / `/im/v1/conversations` / `/im/v1/agents` / `/im/v1/nodes` / `/im/v1/metrics/usage`
@@ -157,3 +157,12 @@
 #### Scenario: 旧库升级与团队批准
 - **WHEN** 既有库升级，或一个个人用户获批进入团队
 - **THEN** 旧资源保留公司范围、身份与成员状态；新用户的私人历史仍私有。旧 pending/suspended 用户不因升级自动恢复。
+
+### Requirement: 已有原生客户端兼容个人账号准入
+
+原生 iOS 使用个人空间或公司 active 判断账号可用，个人账号可以继续聊天和管理自己的账号/设备；公司菜单仍只向 active 公司成员展示。Web 首次设置向导不因此复制到原生客户端。
+
+#### Scenario: 个人账号与旧账号登录原生端
+- **WHEN** 个人空间启用的用户在公司 none、pending 或 suspended 状态登录 iOS
+- **THEN** 可以进入个人聊天与设备功能；公司未 active 时不展示公司管理入口。
+- **AND** 不带个人空间字段的旧账号仍按原公司成员状态判断准入。

@@ -11,6 +11,7 @@
 | 首次升级会话归属与任务协作数据 | [feat-584 迁移 guidance](../changes/archive/feat-584-task-progress-permissions/migration-guidance.md)；备份、显式映射和验证后启动 |
 | 首次升级 PA workspace/global home 目录 | [`pa-workspace-layout-migration.md`](pa-workspace-layout-migration.md)；完成后再按生产舰队流程启动 |
 | 第一次启动本机 IM + Gateway + Web IM（开发主链路） | [`local-stack.md`](local-stack.md) |
+| 发布电脑端安装包并部署匹配清单 | [`local-stack.md`](local-stack.md#发布首次安装包) |
 | 编写 Gateway 配置，执行 start / stop / restart | [`gateway.md`](gateway.md) |
 | 配置 Auto 规则、区分审批故障，执行升级或回退 | [`auto-permissions.md`](auto-permissions.md) |
 | 配置飞书通道或 `web_search` provider | [`gateway.md`](gateway.md) |

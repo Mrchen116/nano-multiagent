@@ -5,7 +5,6 @@ import { createMemoryRouter, MemoryRouter, Navigate, RouterProvider } from "reac
 
 import { setLanguage } from "../../i18n";
 import { LoginPage } from "./login-page";
-import { MembershipPage } from "./membership-page";
 import { RegisterPage } from "./register-page";
 import { AUTH_STORAGE_KEY, useAuthStore } from "./auth-store";
 
@@ -178,17 +177,17 @@ describe("auth form experience", () => {
     expect(screen.queryByText(detail)).not.toBeInTheDocument();
   });
 
-  it("stores registration and waits outside the company workspace", async () => {
+  it("stores registration and opens personal onboarding", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       authResponse(201, {
         access_token: "tok-new",
-        user: SAMPLE_USER
+        user: { ...SAMPLE_USER, membership_status: "none", personal_space_enabled: true, account_status: "active", is_company_admin: false }
       })
     );
     const router = createMemoryRouter(
       [
         { path: "/register", element: <RegisterPage /> },
-        { path: "/membership", element: <MembershipPage /> },
+        { path: "/onboarding", element: <h1>Personal onboarding</h1> },
         { path: "/", element: <Navigate to="/chat" replace /> },
         { path: "/chat", element: <div>Product home</div> }
       ],
@@ -201,9 +200,9 @@ describe("auth form experience", () => {
     await userEvent.type(screen.getByLabelText(/^password/i), "secret12");
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(await screen.findByRole("heading", { name: "Waiting for approval" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal onboarding" })).toBeInTheDocument();
     expect(screen.queryByText("Product home")).not.toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/membership");
+    expect(router.state.location.pathname).toBe("/onboarding");
     expect(useAuthStore.getState().accessToken).toBe("tok-new");
     expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(

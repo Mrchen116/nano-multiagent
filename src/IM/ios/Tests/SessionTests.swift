@@ -9,6 +9,20 @@ final class SessionTests: XCTestCase {
     private func pair(_ user: AuthUser, token: String = "rotated") throws -> Data {
         try JSONEncoder().encode(TokenPair(access_token: "access-" + token, refresh_token: token, user: user))
     }
+    func testPersonalAccountRemainsUsableIndependentlyOfTeamMembership() throws {
+        var value = user()
+        for status in ["none", "pending", "suspended"] {
+            value.membership_status = status
+            value.personal_space_enabled = true
+            let restored = try JSONDecoder().decode(AuthUser.self, from: JSONEncoder().encode(value))
+            XCTAssertTrue(restored.accountEnabled)
+            value.personal_space_enabled = nil
+            let legacy = try JSONDecoder().decode(AuthUser.self, from: JSONEncoder().encode(value))
+            XCTAssertFalse(legacy.accountEnabled)
+        }
+        value.membership_status = "active"
+        XCTAssertTrue(value.accountEnabled)
+    }
     func testConcurrentRequestsShareRefreshAndUseBearerWithoutBrowserCookies() async throws {
         let data = try pair(user())
         let transport = SessionTestTransport(refreshData: data, held: ["/im/v1/auth/refresh"])

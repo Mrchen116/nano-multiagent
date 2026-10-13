@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalJson, validateDocument } from './task-graphs.js';
 import { all, one, transaction, type Row } from './context.js';
-import { qualifiedUser } from './conversation-access.js';
+import { canAccessSpace, ownerAccount } from './identity.js';
 
 function fingerprint(db:DatabaseSync): string {
   return createHash('sha256').update(canonicalJson({
@@ -23,6 +23,14 @@ function ref(db:DatabaseSync,value:any): Row {
 }
 function columns(db:DatabaseSync,table:string):string[] {return all(db,`PRAGMA table_info(${table})`).map(r=>r.name);}
 function current(db:DatabaseSync) {return columns(db,'task_graphs').includes('conversation_id') && columns(db,'conversations').includes('visibility') && columns(db,'conversations').includes('dissolved_at') && columns(db,'task_graph_mutation_receipts').includes('conversation_id');}
+function eligibleAssignee(db:DatabaseSync,user:Row,conversation:Row):boolean {
+  // Pre-personal-space databases contain only company resources. Runtime ACLs remain strict.
+  const space=conversation.space_id ?? 'company:default';
+  if (!user.username.startsWith('agent:')) return canAccessSpace(user,space);
+  const profile=one(db,'SELECT * FROM agent_profiles WHERE agent_id=?',user.username.slice(6));
+  return !!profile && !profile.is_stale && (profile.space_id ?? 'company:default')===space
+    && canAccessSpace(ownerAccount(db,profile.owner_id),space);
+}
 function plan(db:DatabaseSync,mapping:Row):Row[] {
   if (mapping.fingerprint !== fingerprint(db)) throw Error('Database changed since dry-run; rebuild and review the mapping');
   return all(db,'SELECT * FROM task_graphs ORDER BY graph_id').map(row=>{
@@ -37,7 +45,8 @@ function plan(db:DatabaseSync,mapping:Row):Row[] {
       n.assignee=entry.assignee==null?null:ref(db,entry.assignee);
       if (n.assignee) {
         const u=one(db,'SELECT * FROM users WHERE '+(n.assignee.type==='agent'?'username=?':'id=?'),n.assignee.type==='agent'?`agent:${n.assignee.id}`:n.assignee.id)!;
-        if (!qualifiedUser(db,u.id) || !one(db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',m.conversation_id,u.id)) throw Error('Assigned actors must already be active members');
+        const conversation=one(db,'SELECT * FROM conversations WHERE id=?',m.conversation_id)!;
+        if (!eligibleAssignee(db,u,conversation) || !one(db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',m.conversation_id,u.id)) throw Error('Assigned actors must already be active members');
       }
       if(n.status==='dropped') n.status='closed';
       // Preserve historical updated_by text; never infer a historical creator from it.

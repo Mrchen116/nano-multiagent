@@ -1,14 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { one, type Row } from './context.js';
+import { accountEnabled, agentAvailable, canActorAccess } from './identity.js';
 
-/** Resolve current company qualification independently from conversation membership. */
+/** Resolve account eligibility without treating personal access as company approval. */
 export function qualifiedUser(db: DatabaseSync, userId: string): Row | undefined {
   const user = one(db, 'SELECT * FROM users WHERE id=?', userId);
-  if (!user || !user.username.startsWith('agent:') && user.membership_status !== 'active') return;
-  if (user.username.startsWith('agent:') && !one(db,
-    `SELECT 1 FROM agent_profiles a JOIN users owner ON owner.owner_id=a.owner_id
-     AND owner.username NOT LIKE 'agent:%' AND owner.membership_status='active'
-     WHERE a.agent_id=? AND a.is_stale=0`, user.username.slice(6))) return;
+  if (!user) return;
+  if (user.username.startsWith('agent:')) {
+    if (!agentAvailable(db, one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', user.username.slice(6)))) return;
+  } else if (!accountEnabled(user)) return;
   return user;
 }
 
@@ -17,7 +17,7 @@ export function conversationAccess(db: DatabaseSync, id: string, userId: string)
   const user = qualifiedUser(db, userId);
   if (!user) return;
   const c = one(db, 'SELECT * FROM conversations WHERE id=?', id);
-  if (!c) return;
+  if (!c || !canActorAccess(db,userId,c.space_id)) return;
   const member = !!one(db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', id, userId);
   if (!member && !(c.type === 'group' && c.visibility === 'public')) return;
   return {
@@ -25,6 +25,6 @@ export function conversationAccess(db: DatabaseSync, id: string, userId: string)
     is_member: member,
     can_write: member && !c.dissolved_at,
     can_join: !member && c.type === 'group' && c.visibility === 'public' && !c.dissolved_at,
-    can_change_visibility: member && !c.dissolved_at && c.type === 'group' && !user.username.startsWith('agent:') && !!user.is_company_admin,
+    can_change_visibility: c.space_id === 'company:default' && member && !c.dissolved_at && c.type === 'group' && !user.username.startsWith('agent:') && !!user.is_company_admin,
   };
 }

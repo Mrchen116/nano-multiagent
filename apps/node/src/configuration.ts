@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { ModelSetupError, type ModelConfiguration } from './model-types.js';
 import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
 import { defaultReasoning } from './providers.js';
@@ -14,13 +15,13 @@ export interface LocalAgent extends Record<string, unknown> {
   group_reply_policy?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
 }
 export interface NodeConfigurationFile {
-  node: { node_id: string; user_id: string; workspace_base?: string };
+  node: { node_id: string; node_name?: string; user_id: string; workspace_base?: string };
   im_service: { url: string; token: string;username?:string;password?:string;refresh_token?:string };
   agents: LocalAgent[];
   gateway?: {autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
-  llm: { default_model: string; tool_approval_model?: string; providers: { name: string; base_url: string; api_key?: string; models: { name: string; context_window?: number; extra_request_body?: Record<string, unknown>; reasoning?: { default?: string; levels?: string[] } | string }[] }[] };
+  llm: ModelConfiguration;
 }
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
@@ -61,17 +62,17 @@ export class NodeConfiguration {
     if (this.value.llm.tool_approval_model) {
       const reviewer = this.value.llm.providers.find(provider => provider.models.some(model => model.name === this.value.llm.tool_approval_model));
       if (!reviewer) throw new Error(`llm.tool_approval_model is not registered: ${this.value.llm.tool_approval_model}`);
-      approval.reviewer = { provider: reviewer.name, model: this.value.llm.tool_approval_model };
+      approval.reviewer = { provider: reviewer.name, model: reviewer.models.find(model => model.name === this.value.llm.tool_approval_model)!.id ?? this.value.llm.tool_approval_model };
     }
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
-      revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model,
+      revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
       modelFallbacks: (canonical.model_fallbacks ?? []).map(model => {
         const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
         if (!provider) throw new Error(`No configured provider for fallback ${model}`);
         const selected = provider.models.find(candidate => candidate.name === model)!;
         const effort = defaultReasoning(selected);
-        return { provider: provider.name, model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
+        return { provider: provider.name, model: selected.id ?? model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
       }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
       workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
@@ -102,8 +103,46 @@ export class NodeConfiguration {
     return resolved;
   }
   persist(candidate: CanonicalAgentConfiguration): Promise<void> {
-    const task = this.persistence.then(() => this.write(candidate));
+    const task = this.persistence.then(() => { this.runtime(candidate); return this.write(candidate); });
     this.persistence = task.catch(() => {}); return task;
+  }
+  /** A persistent version also fences key-only edits and survives node restarts. */
+  get modelRevision(): string {
+    return this.value.llm.revision ?? createHash('sha256').update(JSON.stringify(this.value.llm)).digest('hex');
+  }
+  /** Reject removals still referenced by saved Agent or approval configuration. */
+  assertModelUpdate(llm: ModelConfiguration, revision: string): void {
+    if (revision !== this.modelRevision) throw new ModelSetupError('conflict', 'Model services changed in another page. Review the latest configuration before saving.');
+    const names = new Set(llm.providers.flatMap(provider => provider.models.map(model => model.name)));
+    const dependencies = this.value.agents.filter(agent => {
+      const current = this.current(agent.agent_id)!;
+      return [agent.default_model || this.value.llm.default_model, ...(current.model_fallbacks ?? [])].some(name => !names.has(name));
+    }).map(agent => ({agent_id: agent.agent_id, display_name: String(agent.title ?? agent.display_name ?? agent.agent_id)}));
+    if (dependencies.length) throw new ModelSetupError('in_use', `Change the model choices of these assistants first: ${dependencies.map(item => item.display_name).join(', ')}`, dependencies);
+    if (this.value.llm.tool_approval_model && !names.has(this.value.llm.tool_approval_model)) throw new ModelSetupError('in_use', 'This model is used for tool approvals. Change the node approval model before removing it.');
+  }
+  /** Commit a verified model edit in the same queue as Agent writes.
+   *
+   * Args:
+   *   llm: Candidate nonsecret configuration.
+   *   revision: Version at which the user's draft was opened.
+   *   effect: Runtime apply/rollback owned by ModelSetup, after the final reference check.
+   */
+  persistModels(llm: ModelConfiguration, revision = this.modelRevision, effect?: {apply(): Promise<void>; rollback(): Promise<void>}): Promise<void> {
+    const task = this.persistence.then(async () => {
+      this.assertModelUpdate(llm, revision);
+      const next = {...llm, revision: randomUUID()};
+      try {
+        await effect?.apply();
+        await this.writeFile({ ...this.value, llm: next });
+        this.value.llm = next;
+      } catch (error) {
+        await effect?.rollback();
+        throw error;
+      }
+    });
+    this.persistence = task.catch(() => {});
+    return task;
   }
   async setWorkflowGuideline(agentId: string, guideline: string): Promise<AgentConfiguration> {
     if (!['unrestricted', 'small', 'medium', 'large'].includes(guideline)) throw new Error('Invalid Workflow size guideline');
@@ -124,12 +163,15 @@ export class NodeConfiguration {
     delete agent.heartbeat_json;
     const agents = this.value.agents.filter(item => item.agent_id !== candidate.agent_id).concat(agent);
     await mkdir(agent.workspace_root, { recursive: true });
+    await this.writeFile({ ...this.value, agents });
+    this.value.agents = agents;
+  }
+  private async writeFile(value: NodeConfigurationFile): Promise<void> {
     const temporary = join(dirname(this.path), `.nano-config-${randomUUID()}.tmp`);
     const file = await open(temporary, 'wx', 0o600);
-    try { await file.writeFile(dump({ ...this.value, agents }, { noRefs: true })); await file.sync(); } finally { await file.close(); }
+    try { await file.writeFile(dump(value, { noRefs: true })); await file.sync(); } finally { await file.close(); }
     await rename(temporary, this.path);
     const directory = await open(dirname(this.path), 'r');
     try { await directory.sync(); } finally { await directory.close(); }
-    this.value.agents = agents;
   }
 }

@@ -46,7 +46,7 @@ it("recovers a committed binding after a lost response and preserves the prior o
     agent_channel_removals: [],
   };
   let state = "awaiting_account",
-    commits = 0;
+    commits = 0, throttled = false;
   const requests: string[] = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -106,6 +106,12 @@ it("recovers a committed binding after a lost response and preserves the prior o
       expect(req.headers.authorization).toBe("Bearer browser-access");
       state = "awaiting_local_confirmation";
     } else if (action === "prepare") {
+      if (state === 'awaiting_local_confirmation' && !throttled) {
+        throttled = true;
+        res.writeHead(429, { 'Retry-After': '1' });
+        res.end(JSON.stringify({ detail: 'temporarily rate limited' }));
+        return;
+      }
       result = {
         state,
         target_name: "New owner",
@@ -171,6 +177,7 @@ it("recovers a committed binding after a lost response and preserves the prior o
     });
     expect(await readdir(runtime)).not.toContain("channels.sqlite3");
     expect(commits).toBe(1);
+    expect(throttled).toBe(true);
     expect(requests.filter((action) => action === "start")).toHaveLength(1);
     const archive = (await readdir(join(home, ".dsh-runtime"))).find((name) =>
       name.startsWith("device.previous-owner-"),

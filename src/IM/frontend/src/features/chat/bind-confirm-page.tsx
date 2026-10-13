@@ -6,7 +6,7 @@ import { authFetch } from "../auth/auth-fetch";
 
 import { useTranslation } from "../../i18n";
 
-type Binding = { node_id: string; node_name: string; agents: string[]; state: string };
+type Binding = { node_id: string; node_name: string; agents: string[]; state: string; is_transfer?: boolean; history_transferred?: boolean };
 
 export function BindConfirmPage() {
   const { t } = useTranslation();
@@ -31,8 +31,8 @@ export function BindConfirmPage() {
   useEffect(()=>{if(committed) void queryClient.invalidateQueries();},[committed,queryClient]);
   return (
     <section className="im-card mx-auto flex w-full max-w-xl flex-col gap-4 px-6 py-8">
-      <h1 className="im-title text-2xl font-bold">{t("company.bind.title")}</h1>
-      <p className="text-sm text-slate-500">{t("company.bind.description")}</p>
+      <h1 className="im-title text-2xl font-bold">{t(binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
+      <p className="text-sm text-slate-500">{binding?.is_transfer ? t("onboarding.transferHistory") : t("onboarding.bindDescription")}</p>
       <p>{t("company.bind.account")}: {user?.display_name || user?.username}</p>
       {!accepted && !committed && <Link to="/login" state={{ signOut: true, from: location.pathname + location.hash }}>{t("company.bind.switch")}</Link>}
       {!token && <p role="alert">{t("company.bind.missing")}</p>}
@@ -40,10 +40,10 @@ export function BindConfirmPage() {
       {binding && <div>
         <p>{binding.node_name}</p>
         <p>{t("shell.tabs.agents")}: {binding.agents.join(", ") || "—"}</p>
-        {(accepted || committed) && <p role="status">{committed ? t("company.bind.complete") : t("company.bind.localConfirm")}</p>}
+        {(accepted || committed) && <p role="status">{committed ? t("company.bind.complete") : binding?.is_transfer ? t("company.bind.localConfirm") : t("onboarding.bindWaiting")}</p>}
       </div>}
-      {!accepted && !committed && <button type="button" className="im-btn im-btn-primary w-full" disabled={!binding || accept.isPending} onClick={() => accept.mutate()}>{accept.isPending ? t("company.bind.accepting") : t("company.bind.accept")}</button>}
-      {committed ? <Link to="/chat" className="im-btn im-btn-muted">{t("company.bind.chat")}</Link> : <button type="button" className="im-btn im-btn-muted" disabled={!binding || cancel.isPending} onClick={()=>cancel.mutate()}>{t("company.cancel")}</button>}
+      {!accepted && !committed && <button type="button" className="im-btn im-btn-primary w-full" disabled={!binding || accept.isPending} onClick={() => accept.mutate()}>{accept.isPending ? t("company.bind.accepting") : t(binding?.is_transfer ? "company.bind.accept" : "onboarding.bindAccept")}</button>}
+      {committed ? <Link to={user?.personal_space_enabled ? "/onboarding" : "/chat"} className="im-btn im-btn-primary">{user?.personal_space_enabled ? t("onboarding.bindNext") : t("company.bind.chat")}</Link> : <button type="button" className="im-btn im-btn-muted" disabled={!binding || cancel.isPending} onClick={()=>cancel.mutate()}>{t("company.cancel")}</button>}
     </section>
   );
 }

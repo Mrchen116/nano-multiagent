@@ -6,6 +6,7 @@ import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, validateLogin } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
+import { accountEnabled } from "./auth-store";
 import { login, logout } from "./auth-session";
 
 import { safeReturnPath } from "./membership-page";
@@ -61,7 +62,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const pair = await login({ username: username.trim(), password });
-      navigate(pair.user.membership_status === "active" ? from : "/membership", { replace: true, state: { from } });
+      navigate(accountEnabled(pair.user) ? from : "/membership", { replace: true, state: { from } });
     } catch (error) {
       if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }
       setFormError(error instanceof AuthApiError && error.status === 401 ? "invalidCredentials" : "serviceUnavailable");

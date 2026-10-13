@@ -24,6 +24,7 @@ import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { KnowledgeRuntime } from './knowledge/runtime.js';
+import { NativeModelSetup } from './model-setup.js';
 import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
 import { NanoApproval } from './policy/approval.js';
@@ -81,7 +82,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'storageDomain', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -95,6 +96,7 @@ export default class NanoRuntime {
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    const modelSetup = new NativeModelSetup(ctx, this.peer);
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
       while (session && !this.bindings.has(session.id) && session.header.parentSession) {
@@ -204,7 +206,7 @@ export default class NanoRuntime {
     });
     this.peer.handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[] };
+      const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
@@ -215,6 +217,7 @@ export default class NanoRuntime {
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
+      if (config.providers !== undefined) await modelSetup.apply(config.providers);
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
         const revisions = new Set([agent.revision, ...config.bindings.filter(binding => binding.agentId === agent.agentId).map(binding => binding.revision)]);

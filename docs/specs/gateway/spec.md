@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-552 / feat-554 / feat-569 / refactor-581 / feat-583
+> 对齐: feat-588
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -10,7 +10,7 @@
 
 它对外承担的可观察职责:① 终端用户在任一通道发消息能被正确的 Agent 接受，single_thread 的回复回到原通道原目标，全局 Agent 自主摄取 Inbox 并显式选择发言目标; ② 群聊按各 Agent 配置与命令寻址规则触发;③ 运维者用启停命令把它当后台服务管理; ④ IM 服务在线时它主动连出、注册节点、周期心跳、同步配置、中继 Web IM 消息;⑤ IM 离线时按模式保持本地自治，显式投递的可用性以目标链路为准;⑥ 进程重启后会话映射自动恢复,Heartbeat 错过周期不补跑；Cron 使用原生持久调度并按一次性/周期语义恢复。
 
-**显式不负责**：不实现 Agent Loop、不直接执行模型/工具、不代管原生执行日志；这些由 DSH 负责。IM 拥有账号、公司与聊天。Node 管理运行时子进程；PA 通过产品 RuntimePort 接入，只有 integration 使用公开 DSH exports。旧 Coding CLI 已退役，边界见 [SPEC](../../../SPEC.md)。
+**显式不负责**：不实现 Agent Loop、不直接执行模型/工具、不代管原生执行日志；这些由 DSH 负责。IM 拥有账号、私人/公司空间与聊天。Node 管理运行时子进程；PA 通过产品 RuntimePort 接入，只有 integration 使用公开 DSH exports。旧 Coding CLI 已退役，边界见 [SPEC](../../../SPEC.md)。
 
 ## Canonical Areas
 
@@ -20,8 +20,8 @@
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与图文投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、PA 可读聊天副本 | 22 |
 | [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、成员查询、内部委派、显式发送、目标群复核与控制命令 | 13 |
-| [Service Lifecycle](service-lifecycle.md) | 启停、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 11 |
-| [Agent Capabilities](agent-capabilities.md) | 完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist、全局固定基础工具与可选 Workflow | 21 |
+| [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、启停、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 12 |
+| [Agent Capabilities](agent-capabilities.md) | 网页模型服务管理与验证、完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist、全局固定基础工具与可选 Workflow | 23 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义与对应原生主会话归属 | 3 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 22 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |

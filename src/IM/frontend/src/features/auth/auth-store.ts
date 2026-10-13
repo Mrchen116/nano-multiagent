@@ -4,7 +4,9 @@ export const AUTH_STORAGE_KEY = "im_auth_v1";
 if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_STORAGE_KEY);
 
 export interface AuthUser {
-  membership_status: "pending" | "active" | "suspended";
+  membership_status: "none" | "pending" | "active" | "suspended";
+  personal_space_enabled?: boolean;
+  account_status?: "active" | "pending" | "suspended";
   is_company_admin: boolean;
   id: string;
   username: string;
@@ -14,6 +16,11 @@ export interface AuthUser {
   default_entry_node_id: string | null;
   owned_node_ids: string[];
   created_at: string;
+}
+
+/** Accept legacy company snapshots while distinguishing personal access from team approval. */
+export function accountEnabled(user: AuthUser | null | undefined): boolean {
+  return !!user && (user.account_status === "active" || !!user.personal_space_enabled || user.membership_status === "active");
 }
 
 export interface BrowserSession {

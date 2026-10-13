@@ -1,13 +1,13 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-546
+> 对齐: feat-588
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
-agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口和内置 skills 自举的 Gateway 契约。
+网页模型接入与真实验证、agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口和内置 skills 自举的 Gateway 契约。
 
 ## Requirements
 
@@ -569,3 +569,34 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 #### Scenario: 关闭期间重启与在途工作
 - **WHEN** 关闭的Feature经历节点重启，或关闭时已有工作被接收
 - **THEN** 重启不擅自重新启用；在途工作依原产品契约收口；未完成卸载显示pending，不伪报effective或回滚已发生副作用。
+
+### Requirement: 由节点验证并持久化模型连接
+
+模型路由由 Node 持有，新 API/OAuth 凭据保留在节点的 DSH 原生凭据存储。原生 Codex 接入沿用 DSH 执行运行时；发现 CLI 不等同于授权或验证成功。已运行的兼容代理可以复用，无需安装第二套执行引擎。
+
+#### Scenario: API 或已有代理
+- WHEN owner 通过 IM 完成连接设置与验证
+- THEN 新助手可使用通过验证的模型，节点重启后配置仍可用，回传状态不包含密钥。
+
+#### Scenario: Codex 登录
+- WHEN 用户选择 Codex 订阅连接
+- THEN 在需要时显示一次性登录指引与取消/重试动作；成功后才允许验证模型，不复制 CLI refresh token 制造另一刷新所有者。
+
+### Requirement: 模型服务修改经验证后持久生效
+
+#### Scenario: 同名上游模型分属不同服务
+- **WHEN** 用户给不同服务配置相同上游模型 ID
+- **THEN** 助手可以明确选择其中一个，调用使用所选服务的连接与该上游 ID，原有模型引用保持有效。
+
+#### Scenario: 成功编辑与失败恢复
+- **WHEN** 用户修改连接地址、凭据或模型并保存
+- **THEN** 候选连接实际测试成功后才替换原配置；既有助手保持引用并在后续调用使用更新连接，刷新及节点重启后保持。
+- **AND** 验证失败或提交前取消不会使原来可用的连接变成失败候选。
+
+#### Scenario: 拒绝旧版本与在用引用移除
+- **WHEN** 提交基于旧版本的模型配置，或移除当前主模型、备用模型、默认模型隐式依赖或审批模型引用
+- **THEN** 拒绝本次修改并保留有效配置，不静默替换助手选择；Agent 配置与模型服务并发保存仍不能留下悬空引用。
+
+#### Scenario: 凭据限于执行电脑
+- **WHEN** 用户提交或再次编辑 API key
+- **THEN** 密钥保存在执行电脑的凭据存储中，不经状态查询返回，也不写入 IM 数据库或非敏感配置投影；空输入保留现有凭据。

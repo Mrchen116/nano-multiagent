@@ -1,3 +1,4 @@
+import { canAccessSpace, agentAvailable } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -36,7 +37,7 @@ export class Work {
     if (!r) fail(404, "scope_not_allowed");
     return { ...JSON.parse(r.payload), ...r };
   }
-  register(root: string, session: string, node: string, p: Row) {
+  register(root: string, session: string, node: string, p: Row, metadataOnly = false) {
     if (!["global_main", "subagent", "workflow", "cron"].includes(p.scope))
       fail(400, "invalid_scope");
     if (["subagent", "workflow"].includes(p.scope)) this.session(root, p.parent_session_id);
@@ -61,7 +62,9 @@ export class Work {
       .prepare(
         "INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET payload=excluded.payload",
       )
-      .run(session, root, node, p.scope, p.parent_session_id ?? null, JSON.stringify(p));
+      .run(session, root, node, p.scope, p.parent_session_id ?? null, metadataOnly
+        ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
+        : JSON.stringify(p));
   }
   append(node: string, p: Row): Row {
     let through =
@@ -79,6 +82,7 @@ export class Work {
       };
     if (!Array.isArray(p.events) || !p.events.length || p.events.length > 100)
       fail(400, "invalid_arguments");
+    const appliedRoots = new Set<string>();
     transaction(this.db, () => {
       for (const [i, e] of p.events.entries()) {
         if (
@@ -113,18 +117,23 @@ export class Work {
             fail(409, "event_identity_conflict");
           continue;
         }
+        // Revoked content is never replayed. Keep only session identities so a
+        // later authorized owner can continue the same shared journal.
+        if (e.seq <= through) continue;
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
+        const available = agentAvailable(this.db, profile);
         if (e.type === "session_registered")
-          this.register(e.root_agent_id, e.session_id, node, e.payload);
-        else this.session(e.root_agent_id, e.session_id);
+          this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
         if (e.type === "session_linked") {
           if (e.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");
           this.register(e.root_agent_id, e.payload.child_session_id, node, {
             ...e.payload,
             scope: e.payload.workflow_run_id ? "workflow" : "subagent",
             parent_session_id: e.session_id,
-          });
+          }, !available);
         }
+        if (!available) { through = e.seq; continue; }
         const result = this.db
           .prepare(
             "INSERT INTO agent_work_events(node_id,journal_id,seq,event_id,root_agent_id,session_id,turn_id,type,observed_at,payload) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -142,6 +151,7 @@ export class Work {
             JSON.stringify(e.payload),
           );
         this.project(e, Number(result.lastInsertRowid));
+        appliedRoots.add(e.root_agent_id);
         through = e.seq;
       }
       this.db
@@ -150,11 +160,11 @@ export class Work {
         )
         .run(node, p.journal_id, through);
     });
-    for (const root of new Set<string>(p.events.map((e: Row) => e.root_agent_id))) {
+    for (const root of appliedRoots) {
       const users = all(
         this.db,
-        "SELECT id FROM users WHERE membership_status='active' AND password_hash IS NOT NULL",
-      ).map((u) => u.id);
+        "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
+      ).filter(u => canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id)).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
@@ -468,7 +478,7 @@ export class Work {
         p.agent_id,
         c.node_id,
       );
-    if (!agent) fail(403, "scope_not_allowed");
+    if (!agent || !agentAvailable(this.db, agent)) fail(403, "scope_not_allowed");
     // Single-thread sessions live on their node, not in the global Work journal.
     // Both modes remain limited below to conversations containing this Agent.
     if (agent.work_mode === "global") {
@@ -698,6 +708,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       id,
     );
     if (!p || (owner && p.owner_id !== user.owner_id)) fail(404, "agent_not_accessible");
+    ctx.identity.requireSpace(user, p.space_id);
     return p;
   }
   app.get("/im/v1/agents/:agent_id/work", (req) => {

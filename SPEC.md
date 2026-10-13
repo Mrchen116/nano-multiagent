@@ -25,7 +25,7 @@ flowchart TD
 
 | 包 / 目录 | 唯一职责 |
 |---|---|
-| `apps/im-server` | HTTP/WS、账号与公司资格、聊天及媒体授权、节点绑定、配置 operation、通道 desired state、共享任务图、Work 与用量投影 |
+| `apps/im-server` | HTTP/WS、账号与私人/公司资源空间授权、聊天及媒体授权、节点绑定、配置 operation、通道 desired state、任务图、Work 与用量投影 |
 | `apps/node` | CLI 与 macOS 生命周期、节点配置与设备凭据、provider 目录、产品和运行时装配、DSH 进程监管 |
 | `packages/product-contracts` | 与执行运行时无关的产品数据、配置指纹和端口契约 |
 | `packages/channels` | Web relay 传输、飞书收发、通道密文与平台身份 |
@@ -51,7 +51,7 @@ Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产
 
 ## 状态与恢复的责任
 
-IM 持有公司、聊天、共享任务图与配置操作等产品权威；节点持有真实配置、conversation/session 绑定、入站与交付记录、外部发送结果和凭据。DSH 持有原生会话、模型/工具执行、子任务与持久事件；Nano 的 Workflow owner 通过公开 PTC/subagent 服务管理逻辑调用、控制、预算与完成前缀。
+IM 持有账号、私人/公司资源空间、聊天、任务图与配置操作等产品权威；节点持有真实配置、conversation/session 绑定、入站与交付记录、外部发送结果和凭据。DSH 持有原生会话、模型/工具执行、子任务与持久事件；Nano 的 Workflow owner 通过公开 PTC/subagent 服务管理逻辑调用、控制、预算与完成前缀。
 
 用户消息被持久接收、Agent 完成、结果发给用户是不同事实。断线恢复按稳定输入和操作身份查询持久状态，不盲目重放工具或外发。未知发送保留未知；审批保留真实来源和调用归属。活跃运行发出 liveness，中心不会把安静的模型/工具/审批等待当作失败；执行进程消失后心跳停止，中心才按超时回收。
 

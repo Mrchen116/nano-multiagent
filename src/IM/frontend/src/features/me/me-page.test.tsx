@@ -63,6 +63,7 @@ describe("MePage", () => {
     expect(screen.getByText("user-1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /account/i })).toHaveAttribute("href", "/settings/account");
     expect(screen.getByRole("link", { name: /nodes/i })).toHaveAttribute("href", "/settings/nodes");
+    expect(screen.getByRole("link", { name: /model services/i })).toHaveAttribute("href", "/settings/models");
     expect(screen.getByRole("link", { name: /policies/i })).toHaveAttribute("href", "/settings/policies");
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });

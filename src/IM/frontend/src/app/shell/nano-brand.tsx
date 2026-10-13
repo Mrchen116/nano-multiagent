@@ -24,9 +24,6 @@ export function NanoBrand({ className }: NanoBrandProps) {
         />
       </svg>
       <span>nano IM</span>
-      <span data-testid="shell-internal-badge" className="im-shell-internal-badge">
-        internal
-      </span>
     </div>
   );
 }

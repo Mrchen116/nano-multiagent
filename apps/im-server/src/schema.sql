@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS task_graphs (
     graph_id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     owner_id TEXT NOT NULL,
+    space_id TEXT NOT NULL DEFAULT 'company:default',
     root_title TEXT NOT NULL,
     revision INTEGER NOT NULL,
     document_json TEXT NOT NULL,
@@ -19,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT,
     locale TEXT NOT NULL DEFAULT 'en',
     created_at TEXT NOT NULL
-, membership_status TEXT NOT NULL DEFAULT 'pending', is_company_admin INTEGER NOT NULL DEFAULT 0, auth_epoch INTEGER NOT NULL DEFAULT 0);
+, personal_space_enabled INTEGER NOT NULL DEFAULT 0, membership_status TEXT NOT NULL DEFAULT 'pending', is_company_admin INTEGER NOT NULL DEFAULT 0, auth_epoch INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS settings_policies (
     singleton_key TEXT PRIMARY KEY,
     default_model TEXT NOT NULL,
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     dissolved_at TEXT,
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
+    space_id TEXT NOT NULL DEFAULT 'company:default',
     creator_id TEXT NOT NULL DEFAULT '',
     direct_key TEXT UNIQUE,
     last_message_preview TEXT,
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE TABLE IF NOT EXISTS agent_profiles (
     agent_id TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL DEFAULT 'company:default',
     owner_id TEXT NOT NULL,
     node_id TEXT,
     display_name TEXT NOT NULL,
@@ -336,6 +339,7 @@ CREATE TABLE IF NOT EXISTS company_initialization (
             active_ids TEXT NOT NULL
         );
 CREATE TABLE IF NOT EXISTS task_graph_mutation_receipts (
+            space_id TEXT NOT NULL DEFAULT 'company:default',
             actor_key TEXT NOT NULL, request_key TEXT NOT NULL, operation_hash TEXT NOT NULL,
             graph_id TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL,
             conversation_id TEXT NOT NULL,

@@ -8,6 +8,18 @@
 
 为本地 IM 准备持久、私有 JWT secret，并在同一启动环境设置 `IM_JWT_SECRET`。已有数据库重启不能更换此密钥。可设置 `IM_DB_PATH`、`IM_UPLOAD_DIR`、`IM_FRONTEND_DIST_DIR` 为明确的绝对路径；默认分别为 `data/im_service.sqlite3`、`data/uploads` 与仓内 `src/IM/frontend/dist`。
 
+## 发布首次安装包
+
+`pnpm build` 生成本地候选 `dist/node-release/manifest.candidate.json` 与 `nano-node.tgz`，不会发布 GitHub Release，也不会生成可部署的 `manifest.json`。不要把候选清单改名后用于正式安装入口。
+
+选择已通过 CI 的完整源码 SHA，在 [Publish Node installer](../../.github/workflows/node-release.yml) 工作流中手动提交该 SHA。工作流构建并测试固定版本，将包发布为 GitHub Release 的 `node-<SHA>/nano-node.tgz`；[发布脚本](../../scripts/publish-node-release.mjs) 再匿名下载并校验包体，成功后才生成 `manifest.json`，保存到本次运行的 `node-manifest-<SHA>` artifact。合并代码不会自动执行发布。
+
+从该次成功运行下载原始 `manifest.json`，部署到 IM 的 `IM_NODE_RELEASE_DIR`；未配置该变量时默认使用 IM checkout 的 `dist/node-release`。IM 只需这份清单，包体留在 GitHub。核对清单版本、固定下载地址和 SHA-256 与发布结果一致，并在匹配的 IM/Web 构建切换时原子替换清单；保留旧清单用于配套回退。
+
+IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.tgz` 仅重定向到清单中的固定 GitHub 地址。清单缺失或无效时返回未发布状态，不提供失效安装命令。正式开放安装前，还需从公网入口完成匿名下载、真实首次安装、绑定和助手回复；本地候选包或下载 fixture 不能替代这项验收。
+
+`IM_PUBLIC_URL` 必须是用户实际访问的 IM origin，安装材料从该地址生成；不要用请求 Host 代替部署配置。更新 IM 时同步发布对应的 Node 包和 Web 构建产物。首次使用者可直接在网页注册、绑定空节点和配置模型；下文手工 config 启动仍用于开发与运维。
+
 ## 启动
 
 空库仅执行一次管理员初始化，再启动 IM：

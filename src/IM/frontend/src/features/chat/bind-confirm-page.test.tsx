@@ -11,7 +11,7 @@ function page(url: string) {
 }
 describe("local device acceptance", () => {
   it("uses the fragment in POST and waits for terminal confirmation", async () => {
-    fetch.mockResolvedValueOnce({ok:true,json:async()=>({node_id:"node",node_name:"Device",agents:["a","b"],state:"awaiting_account"})}).mockResolvedValue({ok:true,json:async()=>({node_id:"node",node_name:"Device",agents:["a","b"],state:"awaiting_local_confirmation"})});
+    fetch.mockResolvedValueOnce({ok:true,json:async()=>({node_id:"node",node_name:"Device",is_transfer:true,agents:["a","b"],state:"awaiting_account"})}).mockResolvedValue({ok:true,json:async()=>({node_id:"node",node_name:"Device",is_transfer:true,agents:["a","b"],state:"awaiting_local_confirmation"})});
     page("/bind/confirm#token=secret");
     await waitFor(()=>expect(screen.getByRole("button",{name:"Accept complete device"})).toBeEnabled());
     await userEvent.click(screen.getByRole("button",{name:"Accept complete device"}));
@@ -21,6 +21,6 @@ describe("local device acceptance", () => {
   });
   it("does not consume legacy query tokens", () => {
     page("/bind/confirm?token=legacy");
-    expect(screen.getByRole("button",{name:"Accept complete device"})).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Connect this computer"})).toBeDisabled();
   });
 });

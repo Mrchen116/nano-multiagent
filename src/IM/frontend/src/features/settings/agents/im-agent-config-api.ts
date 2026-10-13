@@ -89,6 +89,8 @@ export type ModelReasoningDescriptor =
     };
 
 export interface ModelOption {
+  display_name?: string;
+  provider_display_name?: string;
   name: string;
   provider: string;
   reasoning?: ModelReasoningDescriptor;
@@ -271,6 +273,8 @@ export interface UpdateAgentChannelInput {
 }
 
 interface ModelOptionWire {
+  display_name?: string;
+  provider_display_name?: string;
   name: string;
   provider?: string;
   reasoning?: unknown;
@@ -360,7 +364,11 @@ export function normalizeModelOptions(raw: {
     seen.add(name);
     const provider = typeof value === "string" ? "" : value?.provider ?? "";
     const reasoning = typeof value === "string" ? undefined : normalizeReasoningDescriptor(value?.reasoning);
-    options.push({ name, provider, ...(reasoning ? { reasoning } : {}) });
+    const labels = typeof value === "string" ? {} : {
+      ...(value.display_name ? { display_name: value.display_name } : {}),
+      ...(value.provider_display_name ? { provider_display_name: value.provider_display_name } : {}),
+    };
+    options.push({ name, provider, ...labels, ...(reasoning ? { reasoning } : {}) });
   }
   return options;
 }

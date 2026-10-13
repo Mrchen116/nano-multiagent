@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isIP } from "node:net";
 import type { ImContext } from "./context.js";
 import { body, params, query } from "./context.js";
-import { IdentityError, bearer, type User } from "./identity.js";
+import { IdentityError, bearer, requireCompanyAdmin, type User } from "./identity.js";
 
 type Row = Record<string, any>;
 function string(input: Row, key: string, minimum = 0, maximum = Infinity): string {
@@ -54,7 +54,8 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
   };
   const admin = (request: FastifyRequest): User => {
     const user = identity.authenticateRequest(request);
-    if (!user.is_company_admin) throw new IdentityError(403, "company administrator required");
+    requireCompanyAdmin(user);
+    identity.requireSpace(user, "company:default");
     return user;
   };
   const source = (request: FastifyRequest) => {
@@ -185,13 +186,24 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
       throw new IdentityError(400, "bind_id or bind_token is required for confirm");
     throw new IdentityError(400, "device proof required; use local Gateway binding");
   });
+  app.post("/im/v1/company/join", (request) => {
+    const user = identity.authenticateRequest(request);
+    if (user.membership_status === "suspended") throw new IdentityError(409, "company membership suspended");
+    if (user.membership_status === "none") {
+      identity.transaction(() => {
+        identity.run("UPDATE users SET membership_status='pending' WHERE id=? AND membership_status='none'", user.id);
+        identity.run("INSERT INTO company_member_events(actor_id,user_id,action) VALUES(?,?,'apply')", user.id, user.id);
+      });
+    }
+    return identity.publicUser(identity.user(user.id)!);
+  });
   app.get("/im/v1/company/members", async (request) => {
     admin(request);
     const cursor = query(request).cursor ?? "";
     if (typeof cursor !== "string" || cursor.length > 128)
       throw new IdentityError(422, "invalid cursor");
     const rows = identity.all(
-      "SELECT u.id,u.username,u.display_name,u.membership_status,u.is_company_admin,(SELECT count(*) FROM nodes n WHERE n.owner_id=u.id) AS node_count,(SELECT count(*) FROM agent_profiles a WHERE a.owner_id=u.id AND a.is_stale=0) AS agent_count FROM users u WHERE u.password_hash IS NOT NULL AND u.password_hash!='' AND u.id>? ORDER BY u.id LIMIT 51",
+      "SELECT u.id,u.username,u.display_name,u.membership_status,u.is_company_admin,(SELECT count(*) FROM nodes n WHERE n.owner_id=u.id AND (u.personal_space_enabled=0 OR EXISTS(SELECT 1 FROM agent_profiles p WHERE p.node_id=n.node_id AND p.space_id='company:default'))) AS node_count,(SELECT count(*) FROM agent_profiles a WHERE a.owner_id=u.id AND a.space_id='company:default' AND a.is_stale=0) AS agent_count FROM users u WHERE u.password_hash IS NOT NULL AND u.password_hash!='' AND u.membership_status!='none' AND u.id>? ORDER BY u.id LIMIT 51",
       cursor,
     );
     return {
@@ -208,7 +220,7 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     const user = identity.transition(actor.id, user_id, action);
     if (action === "suspend") {
       await ctx.gateway.closeUser(user_id);
-      await ctx.gateway.revokeOwner(user_id);
+      if (!user.personal_space_enabled) await ctx.gateway.revokeOwner(user_id);
     }
     return identity.publicUser(user);
   });

@@ -1,6 +1,6 @@
 import { authFetch, authFetchJson } from "../../features/auth/auth-fetch";
 import { ensureFreshSession } from "../../features/auth/auth-session";
-import { useAuthStore } from "../../features/auth/auth-store";
+import { accountEnabled, useAuthStore } from "../../features/auth/auth-store";
 import {
   createUserStreamRuntime,
   UserStreamCooldownError,
@@ -33,7 +33,7 @@ async function resolveUserStreamUrl(_accessToken: string): Promise<string> {
 const runtime = createUserStreamRuntime({
   getSession: () => {
     const state = useAuthStore.getState();
-    return state.user?.membership_status === "active" ? { userId: state.user.id, accessToken: state.accessToken } : { userId: null, accessToken: null };
+    return accountEnabled(state.user) ? { userId: state.user!.id, accessToken: state.accessToken } : { userId: null, accessToken: null };
   },
   subscribeSession: (listener) => useAuthStore.subscribe(listener),
   ensureSession: ensureFreshSession,
@@ -54,8 +54,8 @@ const runtime = createUserStreamRuntime({
   },
   reportError: (error) => console.error("user stream runtime error", error),
   onMembershipChanged: () => {
-    const user = useAuthStore.getState().user;
-    if (user) useAuthStore.getState().replaceUser({ ...user, membership_status: "suspended" });
+    // Company suspension revokes this session even when the personal account remains usable.
+    useAuthStore.getState().clear();
   },
   resolveUrl: resolveUserStreamUrl
 });

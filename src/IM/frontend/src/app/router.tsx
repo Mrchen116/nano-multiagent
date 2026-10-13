@@ -1,5 +1,7 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
+import { ModelsPage } from "../features/settings/models/models-page";
+import { OnboardingPage } from "../features/onboarding/onboarding-page";
 import { App } from "./App";
 import { TaskGraphsPage } from "../features/tasks/task-graphs-page";
 import { BindConfirmPage } from "../features/chat/bind-confirm-page";
@@ -19,6 +21,7 @@ import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
 export const appRoutes: RouteObject[] = [
+  { path: "/onboarding", element: <RequireAuth><OnboardingPage /></RequireAuth> },
   { path: "/membership", element: <MembershipPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
@@ -75,6 +78,7 @@ export const appRoutes: RouteObject[] = [
               }
             ]
           },
+          { path: "models", element: <ModelsPage /> },
           { path: "company", element: <CompanyMembersPage /> },
           {
             path: "policies",

@@ -1,3 +1,4 @@
+import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { withHumanApproval } from "./messaging.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -61,14 +62,14 @@ export class Gateway {
   valid(c: Connection) {
     const r = one(
       this.ctx.db,
-      "SELECT b.owner_id,b.node_epoch,u.membership_status FROM node_binding_state b JOIN users u ON u.id=b.owner_id WHERE b.node_id=?",
+      "SELECT b.owner_id,b.node_epoch,u.membership_status,u.personal_space_enabled FROM node_binding_state b JOIN users u ON u.id=b.owner_id WHERE b.node_id=?",
       c.node_id,
     );
     return (
       !!r &&
       r.owner_id === c.owner_id &&
       r.node_epoch === c.node_epoch &&
-      r.membership_status === "active"
+      accountEnabled(r)
     );
   }
   write(socket: WebSocket, frame: Row) {
@@ -82,6 +83,18 @@ export class Gateway {
   }
   send(nodeId: string, frame: Row): boolean {
     const c = this.nodes.get(nodeId);
+    if (frame.type === "relay.message") {
+      const p = frame.payload;
+      const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
+      const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
+      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id) return false;
+    }
+    if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
+      const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);
+      const profile = message?.username?.startsWith("agent:") ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", message.username.slice(6), nodeId) : undefined;
+      const conversation = message ? one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", message.conversation_id) : undefined;
+      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id) return false;
+    }
     return !!c && this.valid(c) && this.write(c.socket, frame);
   }
   request(nodeId: string, type: string, payload: Row): Promise<Row> {
@@ -182,6 +195,16 @@ export class Gateway {
         b.socket.close(1008);
         continue;
       }
+      const conversationId = frame.conversation_id ?? frame.data?.conversation_id;
+      if (conversationId) {
+        const conversation = one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", conversationId);
+        // Membership removal/deletion notifications contain no protected content.
+        if (conversation && !canActorAccess(this.ctx.db, b.userId, conversation.space_id)) continue;
+      }
+      if (frame.event_type === "agent.work.updated") {
+        const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id);
+        if (!profile || !canAccessSpace(this.ctx.identity.user(b.userId), profile.space_id)) continue;
+      }
       if (
         frame.conversation_id &&
         !one(
@@ -199,7 +222,7 @@ export class Gateway {
   browserValid(b: Pick<Browser, 'sessionId'>) {
     return !!one(
       this.ctx.db,
-      "SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND u.membership_status='active'",
+      "SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND (u.personal_space_enabled=1 OR u.membership_status='active')",
       b.sessionId,
       Math.floor(Date.now() / 1000),
     );
@@ -225,6 +248,8 @@ export class Gateway {
         cursor,
         top,
       )) {
+        const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", e.conversation_id);
+        if (!conversation || !canActorAccess(db, b.userId, conversation.space_id)) continue;
         const data = JSON.parse(e.payload_json);
         this.write(b.socket, {
           op: "event",
@@ -293,7 +318,7 @@ export class Gateway {
     for (const id of p.agents) {
       const existed = one(db, "SELECT 1 FROM agent_profiles WHERE agent_id=?", id);
       db.prepare(
-        `INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,skills_json,skills_selection_mode,tool_allowlist_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET is_stale=0,staled_at=NULL,workspace_root=COALESCE(excluded.workspace_root,workspace_root),updated_at=excluded.updated_at`,
+        `INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,skills_json,skills_selection_mode,tool_allowlist_json,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET is_stale=0,staled_at=NULL,workspace_root=COALESCE(excluded.workspace_root,workspace_root),updated_at=excluded.updated_at`,
       ).run(
         id,
         c.owner_id,
@@ -306,6 +331,7 @@ export class Gateway {
         JSON.stringify(p.agent_tool_allowlist?.[id] ?? []),
         now(),
         now(),
+        defaultSpace(ownerAccount(db, c.owner_id)!),
       );
       // Only a first registration seeds local configuration. Reconnect must not
       // replace an existing IM desired revision or a pending configuration operation.
@@ -451,6 +477,8 @@ export class Gateway {
         c.node_id,
       );
       if (!relay) fail(404, "relay task not found");
+      const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
+      s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(
         "UPDATE relay_tasks SET status=?,receipt_status=?,receipt_detail=?,updated_at=? WHERE relay_task_id=?",
@@ -484,7 +512,8 @@ export class Gateway {
       const previous = key
         ? one(db, "SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=?", key)
         : undefined;
-      if (previous)
+      if (previous) {
+        s.access({ ...c, kind: "gateway" }, previous.conversation_id, a.agent_id);
         return ack({
           conversation_id: previous.conversation_id,
           message_id: previous.message_id,
@@ -492,6 +521,7 @@ export class Gateway {
           target_id: previous.target_id,
           source_agent_id: a.agent_id,
         });
+      }
       const id = s.resolveTarget(a.agent_id, p.to);
       s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
@@ -671,8 +701,8 @@ export class Gateway {
       c.node_id,
       c.owner_id,
     );
-    if (!a) fail(403, "agent_not_accessible");
-    return a;
+    if (!agentAvailable(this.ctx.db, a)) fail(403, "agent_not_accessible");
+    return a!;
   }
   streaming(c: Connection, p: Row): Row {
     const db = this.ctx.db,
@@ -864,6 +894,8 @@ export class Gateway {
   relayMessage(m: Row, a: Row, key: string, extra: Row = {}) {
     const db = this.ctx.db,
       s = this.ctx.messaging;
+    const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
+    if (!conversation || !agentAvailable(db, a) || a.space_id !== conversation.space_id) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
     const c = s.conversation(m.conversation_id, m.sender_user_id);
     const relay = randomUUID(),
@@ -1020,7 +1052,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
               journal_id: frame.payload?.journal_id,
             },
           });
-          if ((e as any).statusCode === 403) socket.close(1008);
+          if ((e as any).statusCode === 403 && !g.valid(c)) socket.close(1008);
         } finally {
           queued -= bytes;
         }

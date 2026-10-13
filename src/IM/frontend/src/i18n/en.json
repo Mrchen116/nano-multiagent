@@ -4,7 +4,7 @@
       "label": "Language"
     },
     "context": {
-      "eyebrow": "People · Agents · Devices",
+      "eyebrow": "YOUR PERSONAL ASSISTANT SPACE",
       "title": "Bring people and agents into one workspace",
       "body": "Start with chat, connect agents on your devices, and keep long-running work moving together.",
       "people": "Use agents with your team",
@@ -44,7 +44,7 @@
     "register": {
       "kicker": "Get started",
       "title": "Create your account",
-      "subtitle": "Set up your nano IM identity.",
+      "subtitle": "Create your account and start in your personal space. No approval needed.",
       "username": "Username",
       "password": "Password",
       "displayName": "Display name",
@@ -727,6 +727,7 @@
     "newGroup": {
       "title": "New group chat",
       "subtitle": "Choose people and Agents you manage",
+      "personalScope": "Groups with a personal assistant stay private in your personal space.",
       "sectionAgents": "People and my Agents",
       "groupName": "Group name (optional)",
       "groupNamePlaceholder": "Auto-generated from participants",
@@ -1176,12 +1177,26 @@
       "accept": "Accept complete device",
       "chat": "Continue to chat",
       "error": "The link has expired, or this account cannot receive the device."
-    }
+    },
+    "notJoined": "Not in a team yet",
+    "notJoinedHint": "Your personal space is ready. Apply to join the team; an administrator will approve team access.",
+    "join": "Apply to join team",
+    "continuePersonal": "Continue personal use"
   },
   "realtime": {
     "reconnecting": "Real-time updates disconnected. Check your network; retrying in {{seconds}}s.",
     "cooldown": "Real-time updates are busy. Retrying automatically in {{seconds}}s.",
     "retrying": "Reconnecting real-time updates… Check your network if this continues.",
     "signInAgain": "Sign in again"
+  },
+  "onboarding": {
+    "continue": "Set up your assistant",
+    "team": "Team membership",
+    "bindNext": "Continue model and assistant setup",
+    "bindWaiting": "Confirmed. Waiting for your computer to finish connecting…",
+    "transferHistory": "The device, assistants, and assistant work history will transfer to this account. Private assistants move into the recipient’s personal space. Existing private chats, attachments, and task graphs will not transfer.",
+    "bindTitle": "Connect your computer",
+    "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
+    "bindAccept": "Connect this computer"
   }
 }

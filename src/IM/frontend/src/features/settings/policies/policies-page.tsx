@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -27,11 +27,13 @@ export function PoliciesPage() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
-  const admin = useAuthStore(s => Boolean(s.user?.is_company_admin));
+  const companyMember = useAuthStore(s => s.user?.membership_status === "active");
+  const admin = useAuthStore(s => Boolean(s.user?.is_company_admin && s.user.membership_status === "active"));
   const capacity = useQuery({ queryKey: ["settings", "attachment-capacity"], enabled: admin, queryFn: () => authFetchJson<{ service: { used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }; owners: Array<{ owner_id: string; username: string | null; display_name: string | null; used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }> }>("/im/v1/attachments/capacity") });
 
   const query = useQuery({
     queryKey: ["settings", "policies"],
+    enabled: companyMember,
     queryFn: getPolicies
   });
 
@@ -55,6 +57,7 @@ export function PoliciesPage() {
     }
   });
 
+  if (!companyMember) return <Navigate to="/membership" replace />;
   if (!draft || !query.data) {
     return (
       <div className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">

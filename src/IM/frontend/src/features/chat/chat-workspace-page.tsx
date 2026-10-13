@@ -1,7 +1,7 @@
 import { GroupTaskPanel } from "../tasks/group-task-panel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams, useLocation, Link } from "react-router-dom";
 
 import { InAppToast } from "./components/in-app-toast";
 
@@ -341,6 +341,14 @@ export function ChatWorkspacePage() {
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const personalSpace = useAuthStore((s) => s.user?.personal_space_enabled);
+  useEffect(() => {
+    const starter = location.state?.onboardingStarter;
+    if (!conversationId || typeof starter !== "string") return;
+    setDraftSeed({ id: `onboarding:${conversationId}`, conversationId, text: starter });
+    const { onboardingStarter: _, ...rest } = location.state;
+    navigate(location.pathname + location.search, { replace: true, state: rest });
+  }, [conversationId, location.state, location.pathname, location.search, navigate]);
 
   const conversationsQuery = useQuery({
     queryKey: ["chat", "conversations"],
@@ -1206,6 +1214,7 @@ export function ChatWorkspacePage() {
               <div className="chat-empty-pane-icon" aria-hidden="true">💬</div>
               <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
               <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
+              {personalSpace && <Link className="im-btn im-btn-primary mt-4" to="/onboarding">{t("onboarding.continue")}</Link>}
             </div>
           )
         )
@@ -1222,7 +1231,7 @@ export function ChatWorkspacePage() {
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}

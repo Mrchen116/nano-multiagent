@@ -4,7 +4,7 @@
       "label": "语言"
     },
     "context": {
-      "eyebrow": "多人 · 多 Agent · 多设备",
+      "eyebrow": "你的个人助手空间",
       "title": "让人与 Agent 在一个工作区协作",
       "body": "从聊天开始，在不同设备上连接你的 Agent，一起跟进长期任务。",
       "people": "与团队成员共同使用 Agent",
@@ -44,7 +44,7 @@
     "register": {
       "kicker": "开始使用",
       "title": "创建账号",
-      "subtitle": "设置你的 nano IM 身份。",
+      "subtitle": "创建账号后即可使用自己的个人空间，无需等待审批。",
       "username": "用户名",
       "password": "密码",
       "displayName": "显示名",
@@ -722,6 +722,7 @@
       "direct-user": "私聊"
     },
     "newGroup": {
+      "personalScope": "包含私人助手的群聊保留在个人空间，仅成员可见。",
       "title": "新建群聊",
       "subtitle": "选择其他人和自己管理的 Agent",
       "sectionAgents": "人和我的 Agent",
@@ -1168,12 +1169,26 @@
       "accept": "接收整台设备",
       "chat": "进入聊天",
       "error": "链接已过期，或当前账号无法接收这台设备。"
-    }
+    },
+    "notJoined": "尚未加入团队",
+    "notJoinedHint": "个人空间已可用。申请加入团队后，由管理员批准团队访问。",
+    "join": "申请加入团队",
+    "continuePersonal": "继续个人使用"
   },
   "realtime": {
     "reconnecting": "实时连接已断开，请检查网络；将在 {{seconds}} 秒后自动重试。",
     "cooldown": "实时更新暂时繁忙，将在 {{seconds}} 秒后自动重试。",
     "retrying": "正在恢复实时连接；若持续未恢复，请检查网络。",
     "signInAgain": "重新登录"
+  },
+  "onboarding": {
+    "continue": "继续设置助手",
+    "team": "团队资格",
+    "bindNext": "继续设置模型和助手",
+    "bindWaiting": "已确认，等待电脑完成连接…",
+    "transferHistory": "设备、助手及助手工作历史将转交给当前账号；私人助手进入接收人的个人空间。原私人聊天、附件和任务不会转交。",
+    "bindTitle": "连接你的电脑",
+    "bindDescription": "确认后，这台电脑会连接到你的个人空间，用于运行你创建的助手。",
+    "bindAccept": "确认连接这台电脑"
   }
 }
