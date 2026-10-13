@@ -29,8 +29,8 @@ describe("skill source selector", () => {
     expect(screen.getByRole("button", { name: "local-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "local-a" }));
     expect(onChange).toHaveBeenCalledWith(
-      ["local-b", "global-a"],
-      "explicit_allowlist",
+      ["local-a"],
+      "explicit_denylist",
     );
   });
 
@@ -52,8 +52,8 @@ describe("skill source selector", () => {
     expect(group).toHaveAttribute("aria-checked", "mixed");
     await user.click(group);
     expect(onChange).toHaveBeenCalledWith(
-      ["local-a", "hidden-name", "local-b"],
-      "explicit_allowlist",
+      ["global-a"],
+      "explicit_denylist",
     );
   });
 
@@ -75,8 +75,8 @@ describe("skill source selector", () => {
     expect(group).toHaveAttribute("aria-checked", "true");
     await user.click(group);
     expect(onChange).toHaveBeenCalledWith(
-      ["global-a", "hidden-name"],
-      "explicit_allowlist",
+      ["local-a", "local-b"],
+      "explicit_denylist",
     );
   });
 
@@ -101,4 +101,13 @@ describe("skill source selector", () => {
     expect(screen.getByRole("checkbox", { name: /global.*0\/1/i })).toBeVisible();
     expect(screen.getByRole("checkbox", { name: /compatibility.*0\/1/i })).toBeVisible();
   });
+});
+
+it('keeps new skills selected and persists only disabled names, including hidden ones', async () => {
+  const user = userEvent.setup(); const onChange = vi.fn();
+  render(<SkillSourceSelector testId="denylist" label="Skills" selected={['local-a', 'hidden-disabled']} selectionMode="explicit_denylist" options={options} onChange={onChange} />);
+  expect(screen.getByRole('button', {name: 'local-a'})).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', {name: 'local-b'})).toHaveAttribute('aria-pressed', 'true');
+  await user.click(screen.getByRole('button', {name: 'local-b'}));
+  expect(onChange).toHaveBeenCalledWith(['local-a', 'hidden-disabled', 'local-b'], 'explicit_denylist');
 });

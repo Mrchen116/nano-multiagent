@@ -76,21 +76,15 @@ export interface AgentEnabledSkills {
   skills: (AgentAllowlistOption & { skill_key?: string })[];
 }
 
-/**
- * Resolve an agent's *enabled* skills = config whitelist ∩ capabilities (决策 2).
- *
- * The config whitelist (`agent.skills`) is the real enablement判据; capabilities
- * supplies description/location. An empty whitelist means "all discovered skills"
- * — runtime parity (`session.skills` unset → all available). capabilities skill
- * options have no `default_on`, so it is never used as an enablement判据.
- */
+/** Resolve the same effective Skill set as runtime discovery, including legacy migration inputs. */
 export function resolveEnabledSkills(
   whitelist: string[],
   capabilitySkills: AgentAllowlistOption[],
-  selectionMode?: "default_discovery" | "explicit_allowlist",
+  selectionMode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist",
 ): AgentAllowlistOption[] {
   const effectiveMode = selectionMode ?? (whitelist.length > 0 ? "explicit_allowlist" : "default_discovery");
   if (effectiveMode === "default_discovery") return capabilitySkills;
+  if (effectiveMode === "explicit_denylist") return capabilitySkills.filter(skill => !whitelist.includes(skill.name));
   const allow = new Set(whitelist);
   return capabilitySkills.filter((s) => allow.has(s.name));
 }

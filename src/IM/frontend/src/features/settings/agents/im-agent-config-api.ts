@@ -44,7 +44,7 @@ export interface AgentConfig {
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
   skills: string[];
-  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -158,7 +158,7 @@ export interface NodeAgentCreateRequest {
   features?: Record<string, boolean>;
   custom_prompt?: string | null;
   skills: string[];
-  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -184,7 +184,7 @@ export interface UpdateAgentConfigRequest {
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
   skills: string[];
-  skills_selection_mode?: "default_discovery" | "explicit_allowlist";
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
@@ -538,7 +538,7 @@ export async function listAgentSummaries() {
 /** Response shape that includes the backend's raw heartbeat_json string field. */
 type AgentConfigRaw = Omit<AgentConfig, "skills_selection_mode"> & {
   heartbeat_json?: string | null;
-  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | null;
+  skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist" | null;
 };
 
 export function normalizeAgentConfigResponse(raw: Record<string, unknown>): AgentConfig {
@@ -569,7 +569,9 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
     ...config,
     work_mode: config.work_mode === "global" ? "global" : "single_thread",
     skills_selection_mode:
-      config.skills_selection_mode === "explicit_allowlist"
+      config.skills_selection_mode === "explicit_denylist"
+        ? "explicit_denylist"
+        : config.skills_selection_mode === "explicit_allowlist"
         ? "explicit_allowlist"
         : config.skills_selection_mode === "default_discovery"
           ? "default_discovery"
@@ -758,6 +760,7 @@ export async function promptPreview(
     tool_ids?: string[];
     work_mode?: "single_thread" | "global";
     skill_ids?: string[];
+    skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   }
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/agents/${agentId}/prompt-preview`, {
@@ -767,6 +770,7 @@ export async function promptPreview(
       scenario: "direct",
       tool_ids: body.tool_ids ?? [],
       skill_ids: body.skill_ids ?? [],
+      skills_selection_mode: body.skills_selection_mode ?? "explicit_allowlist",
     }),
   });
   return result.prompt;
@@ -783,6 +787,7 @@ export async function nodePromptPreview(
     tool_ids?: string[];
     work_mode?: "single_thread" | "global";
     skill_ids?: string[];
+    skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
     agent_id_hint?: string;
     workspace_mode?: "default" | "custom";
     workspace_root?: string | null;
@@ -795,6 +800,7 @@ export async function nodePromptPreview(
       scenario: "direct",
       tool_ids: body.tool_ids ?? [],
       skill_ids: body.skill_ids ?? [],
+      skills_selection_mode: body.skills_selection_mode ?? "explicit_allowlist",
     }),
   });
   return result.prompt;

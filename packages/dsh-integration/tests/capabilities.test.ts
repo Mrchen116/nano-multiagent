@@ -114,3 +114,36 @@ export function apply(ctx) {
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
 }, 25_000);
+
+ it('discovers copied skills in the same session while disabled names survive reload', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-skill-import-')); let client: RuntimeClient | undefined; let logs = '';
+  const root = join(home, 'skills'); await mkdir(root);
+  const writeSkill = async (name: string) => { await mkdir(join(root, name), {recursive:true}); await writeFile(join(root, name, 'SKILL.md'), `---\nname: ${name}\ndescription: Import fixture\n---\nBODY_${name}`); };
+  await writeSkill('blocked');
+  await writeFile(join(home, 'load.mjs'), `export const name='load'; export const inject=['llm']; export function apply(ctx) { const seen=new Set(); ctx.on('llm/stream', async function* (options) { const last=options.messages.findLast(m=>m.role==='user' && m.content.some(b=>b.type==='text' && ['imported','blocked'].includes(b.text))); if(seen.has(last.id)){yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};return;}seen.add(last.id);const name=last.content.find(b=>b.type==='text').text;yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-load',name:'skill',arguments:JSON.stringify({name})}};yield {type:'finish',reason:{kind:'tool-calls'}}; }); }`);
+  const config = {agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['skill'],skillSelection:{mode:'explicit_denylist',names:['blocked']},skillRoots:[{path:root,source:'workspace'}]};
+  const binding={sessionId:'imports',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
+  try {
+    await prepareProfile(home,[{insert:[{id:'load',name:join(home,'load.mjs')}]}]);
+    for(let restart=0;restart<2;restart++) {
+      client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+      await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:restart?[binding]:[]});
+      await client.rpc.request('session.ensure',binding);
+      const skills=async()=>((await client!.rpc.request('session.capabilities',{sessionId:'imports'})) as {skills:{name:string}[]}).skills.map(s=>s.name);
+      expect(await skills()).not.toContain('blocked');
+      await writeSkill('imported');
+      await expect.poll(skills,{timeout:10000}).toContain('imported');
+      for(const name of ['imported','blocked']) {
+        const inputId=`${restart}-${name}`;
+        await client.rpc.request('session.submit',{sessionId:'imports',inputId,mode:'followup',content:[{type:'text',text:name}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
+        await expect.poll(async()=>((await client!.rpc.request('session.lookup',{sessionId:'imports',inputId})) as {terminal?:unknown}).terminal).toBeTruthy();
+        const observed=await client.rpc.request('session.observe',{sessionId:'imports'}) as {events:{type:string;data:{message?:{toolCallId:string;isError?:boolean;content:unknown}}}[]};
+        const result=observed.events.findLast(e=>e.type==='tool/result')?.data.message;
+        expect(result?.isError, JSON.stringify(result)).toBe(name==='blocked');
+        if(name==='imported')expect(JSON.stringify(result?.content)).toContain('BODY_imported');
+      }
+      await client.shutdown();client=undefined;
+    }
+  } catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
+  finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
+},30000);

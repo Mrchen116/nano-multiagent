@@ -50,7 +50,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
+  onReady: async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (relay.ready && knowledge) await knowledge.migrateSkills(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,
   onUnavailable: () => { trajectory?.closeAll(); return lifecycle.unavailable(); },
 });
@@ -99,7 +99,7 @@ const relay = new WebRelayConnection({
       }
       const candidate = configuration.runtime({ ...current, agent_id: agentId ?? 'preview', workspace_root: workspace,
         ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
-          tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: 'explicit_allowlist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
+          tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: payload.skills_selection_mode ?? 'explicit_denylist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
       });
       if (preview) {
         const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number };
@@ -152,7 +152,7 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
   },
-  onState: async state => { if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
+  onState: async state => { if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready') { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });

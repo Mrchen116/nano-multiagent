@@ -388,3 +388,34 @@ describe("recoverable config operations and HTTP boundary", () => {
     await app.close();
   });
 });
+
+ describe('Skill denylist migration', () => {
+  it.each([
+    ['explicit_allowlist', ['keep'], ['blocked']],
+    ['explicit_allowlist', [], ['keep', 'blocked']],
+    ['default_discovery', [], []],
+  ])('preserves %s selections through a versioned configuration operation', async (mode, skills, disabled) => {
+    const {db, ctx}=fixture(); const app=Fastify();
+    db.prepare('UPDATE agent_profiles SET skills_json=?,skills_selection_mode=?').run(JSON.stringify(skills),mode);
+    ctx.gateway.authenticate=()=>({node_id:'n',owner_id:'o1'}) as any;
+    const requests: Row[]=[];
+    ctx.gateway.request=async (_node,action,payload)=>{
+      if(action==='agent.capabilities.resolve')return {capabilities:{skills:[{name:'keep'},{name:'blocked'}]}};
+      requests.push(payload);
+      return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};
+    };
+    registerControlRoutes(app,ctx);
+    try {
+      const result=await app.inject({method:'POST',url:'/im/v1/agents/a/skills/migrate',headers:{authorization:'Bearer runtime'},payload:{profile_version:1}});
+      expect(result.statusCode,result.body).toBe(200);
+      expect(result.json()).toMatchObject({skills:disabled,skills_selection_mode:'explicit_denylist',profile_version:2});
+      expect(requests).toHaveLength(1);
+      const saved=one(db,'SELECT * FROM agent_profiles WHERE agent_id=?','a')!;
+      expect(JSON.parse(saved.skills_json)).toEqual(disabled);
+      expect(candidateFingerprint(requests[0].agent)).toBe(requests[0].candidate_fingerprint);
+      const retry=await app.inject({method:'POST',url:'/im/v1/agents/a/skills/migrate',headers:{authorization:'Bearer runtime'},payload:{profile_version:1}});
+      expect(retry.json()).toMatchObject({skills:disabled,profile_version:2});
+      expect(requests).toHaveLength(1);
+    }finally{await app.close();}
+  });
+});

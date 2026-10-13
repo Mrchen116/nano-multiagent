@@ -13,7 +13,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   const agentId = text(payload.agent_id) ?? '';
   const skills = Array.isArray(payload.skills) ? strings(payload.skills) : null;
   let mode = text(payload.skills_selection_mode);
-  if (mode && !['default_discovery', 'explicit_allowlist'].includes(mode)) throw new Error('Invalid skills_selection_mode');
+  if (mode && !['default_discovery', 'explicit_allowlist', 'explicit_denylist'].includes(mode)) throw new Error('Invalid skills_selection_mode');
   if (skills !== null) mode ??= skills.length ? 'explicit_allowlist' : 'default_discovery';
   const heartbeat = text(payload.heartbeat_json);
   let heartbeatJson: string | null = null;

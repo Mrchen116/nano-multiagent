@@ -49,7 +49,7 @@ export interface AgentConfiguration {
   systemPrompt?: string;
   features?: Record<string, boolean>;
   toolAllowlist?: string[];
-  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist'; names: string[] };
+  skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
   knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };

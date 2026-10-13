@@ -262,7 +262,7 @@ describe("agent create page", () => {
         custom_prompt: "You are Agent New.",
         features: {},
         skills: ["plan"],
-        skills_selection_mode: "explicit_allowlist",
+        skills_selection_mode: "explicit_denylist",
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: null,
@@ -323,7 +323,7 @@ describe("agent create page", () => {
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
 
-  it("materializes default-on global skills into the create payload", async () => {
+  it("enables discoverable skills with an empty denylist in the create payload", async () => {
     const user = userEvent.setup();
     mockNodes();
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
@@ -365,7 +365,7 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Default Skills",
       description: "",
-      skills: ["pa-global"],
+      skills: [],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
       default_model: null,
@@ -396,7 +396,7 @@ describe("agent create page", () => {
         "node-1",
         expect.objectContaining({
           agent_id: "agent-default-skills",
-          skills: ["pa-global"]
+          skills: []
         })
       );
     });
@@ -460,7 +460,7 @@ describe("agent create page", () => {
       owner_id: "",
       display_name: "Agent Node Two",
       description: "",
-      skills: ["node-two-global"],
+      skills: [],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
       default_model: null,
@@ -480,7 +480,7 @@ describe("agent create page", () => {
       expect(screen.getByRole("button", { name: "node-one-global" })).toHaveAttribute("aria-pressed", "true");
     });
     await user.click(screen.getByRole("button", { name: "node-one-compat" }));
-    expect(screen.getByRole("button", { name: "node-one-compat" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "node-one-compat" })).toHaveAttribute("aria-pressed", "false");
 
     await user.selectOptions(screen.getByLabelText(/^Owning Node/), "node-2");
 
@@ -498,7 +498,7 @@ describe("agent create page", () => {
         "node-2",
         expect.objectContaining({
           agent_id: "agent-node-two",
-          skills: ["node-two-global"]
+          skills: []
         })
       );
     });

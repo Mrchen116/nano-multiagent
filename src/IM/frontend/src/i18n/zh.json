@@ -427,6 +427,7 @@
         "skillsGlobal": "全局",
         "skillsLocal": "工作区",
         "skillsDefaultDiscovery": "按当前可发现 Skill 使用",
+        "skillsNewDefault": "新技能默认启用；取消勾选的技能保持禁用。",
         "skillsExplicitCount": "已选 {{count}} 项",
         "skillsGroupSelect": "选择本组",
         "skillsGroupComplete": "补全本组",

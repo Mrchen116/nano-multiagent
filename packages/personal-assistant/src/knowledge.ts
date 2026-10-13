@@ -1,4 +1,3 @@
-import { resolve, join } from 'node:path';
 import type { AgentConfiguration, RuntimePort } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
@@ -45,7 +44,6 @@ export class KnowledgeUpdates {
     }
     for (const [id, group] of groups) {
       try {
-        for (const fact of group) if (fact.kind === 'skills' && fact.action === 'create') await this.enable(fact);
         const first = group[0]!;
         if (first.reviewId) {
           const agent = this.options.agents.find(agent => agent.agentId === first.agentId); if (!agent) continue;
@@ -65,19 +63,14 @@ export class KnowledgeUpdates {
       } catch (error) { this.options.onError(error); }
     }
   }
-  private async enable(fact: Fact) {
-    const creator = this.options.agents.find(agent => agent.agentId === fact.agentId);
-    if (!creator || !fact.name || !fact.skill_root) throw new Error('Skill creation fact has no current owner');
-    const root = fact.scope === 'global' ? creator.knowledge?.globalSkillRoot : join(creator.workspace, '.nanoassistant', 'skills');
-    if (!root || resolve(root) !== resolve(fact.skill_root)) throw new Error('Skill creation root does not match its owner');
-    const affected = fact.scope === 'global' ? this.options.agents : [creator];
-    for (const agent of affected) {
-      if (agent.skillSelection?.mode !== 'explicit_allowlist' || agent.skillSelection.names.includes(fact.name)) continue;
+  /** Convert legacy choices once through the existing durable configuration operation. */
+  async migrateSkills() {
+    for (const agent of this.options.agents) {
+      if (agent.skillSelection?.mode === 'explicit_denylist') continue;
       const path = `/im/v1/agents/${encodeURIComponent(agent.agentId)}`;
       const profile = await this.options.im(`${path}/config?source=mirror`) as { profile_version: number; skills: string[] };
-      await this.options.im(`${path}/skills/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile_version: profile.profile_version, skills: [...new Set([...profile.skills, fact.name])] }) });
-      // The IM operation calls configuration.apply and returns only after runtime scope replacement.
+      await this.options.im(`${path}/skills/migrate`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_version: profile.profile_version }) });
     }
   }
   async stop() { this.stopped = true; this.unsubscribe(); await this.running; }
