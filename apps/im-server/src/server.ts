@@ -141,6 +141,7 @@ export async function createServer(options: ServerOptions = {}) {
       req.method !== "OPTIONS" &&
       path.startsWith("/im/v1/") &&
       !publicIdentity.has(path) &&
+      path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
     )
       ctx.messaging.principal(req);

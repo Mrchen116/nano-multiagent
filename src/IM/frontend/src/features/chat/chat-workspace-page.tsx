@@ -482,7 +482,7 @@ export function ChatWorkspacePage() {
     const node=nodesQuery.data?.find(n=>n.node_id===owned?.node_id);
     return {
       agentId: agentParticipant.id,
-      nodeName: node?.node_name ?? agent?.node_name ?? null,
+      nodeName: agent?.node_name ?? node?.node_name ?? null,
       nodeStatus: agent?.status ?? "offline",
       nodeId: node?.node_id,
       nodeUpdate: node?.update,

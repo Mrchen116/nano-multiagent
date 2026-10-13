@@ -6,6 +6,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { NodeUpdates, registerNodeUpdateRoutes } from '../src/node-updates.js';
 import { Messaging } from '../src/messaging.js';
 import { fixture } from './control-fixture.js';
+import { createServer } from '../src/server.js';
+import { digest } from '../src/identity.js';
 
 const homes: string[] = [];
 afterEach(() => { for (const home of homes.splice(0)) rmSync(home, {recursive:true, force:true}); });
@@ -90,5 +92,24 @@ it('authenticates the updater report independently of a browser session or live 
     f.offline();
     const result=await app.inject({method:'POST',url:'/im/v1/node-update/report',headers:{authorization:'Bearer runtime-token'},payload:{node_id:'n',operation_id:op.id,action:'poll'}});
     expect(result.statusCode).toBe(200);expect(result.json().operation.id).toBe(op.id);expect(result.json().registered.online).toBe(false);
+  } finally {await app.close();}
+});
+it('preserves runtime authentication through the full server response hooks while disconnected', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'nano-update-http-'));homes.push(dir);
+  writeFileSync(join(dir,'manifest.json'),JSON.stringify(target));
+  const app=await createServer({dbPath:join(dir,'im.db'),publicUrl:'http://localhost',nodeReleaseDir:dir});
+  try {
+    const {db,updates,gateway}=app.im;
+    db.prepare("INSERT INTO users(id,username,display_name,owner_id,membership_status,created_at) VALUES('u','owner','Owner','o1','active',datetime('now'))").run();
+    db.prepare("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('n','o1','Laptop','online')").run();
+    db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch,runtime_token_hash) VALUES('n','o1',3,?)").run(digest('runtime-token'));
+    gateway.isOnline=()=>true;gateway.send=()=>true;
+    updates!.register(id,old);
+    const op=updates!.begin('n','o1',{request_id:'click',version:target.version,sha256:target.sha256});
+    gateway.isOnline=()=>false;
+    const result=await app.inject({method:'POST',url:'/im/v1/node-update/report',headers:{authorization:'Bearer runtime-token'},payload:{node_id:'n',operation_id:op.id,action:'poll'}});
+    expect(result.statusCode).toBe(200);expect(result.json().operation.id).toBe(op.id);
+    expect(result.json().registered.online).toBe(false);
+    expect((await app.inject({method:'GET',url:'/im/v1/nodes',headers:{authorization:'Bearer runtime-token'}})).statusCode).toBe(401);
   } finally {await app.close();}
 });
