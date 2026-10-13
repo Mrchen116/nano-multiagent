@@ -4,6 +4,33 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
+it.each([
+  ['owner-id', 'user:owner', undefined, 'owner'],
+  ['owner-web', 'conversation:c_owner', {type:'direct',channel:'web',members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'owner'],
+  ['other-web', 'c_other', {type:'direct',channel:'web',members:[{type:'user',user_id:'other'},{type:'agent',user_id:'agent-account'}]}, 'user'],
+  ['owner-group', 'c_group', {type:'group',channel:'web',members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'group'],
+  ['owner-feishu', 'external:owner', {type:'direct',channel:'feishu',owner_recipient:true}, 'owner'],
+  ['other-feishu-shadow', 'c_shadow', {type:'direct',channel:'feishu',owner_recipient:false,members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'user'],
+  ['unmapped-feishu', 'external:unknown', {type:'direct',channel:'feishu'}, 'user'],
+  ['unknown', 'c_unknown', undefined, 'unknown'],
+] as const)('resolves %s message review identity from trusted product facts without sending', async (_label, target, info, expected) => {
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let sends=0;
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{async request(type){
+      if(type==='agent.message')sends++;
+      if(!info)throw new Error('No accessible target');
+      return {type:'conversation.query.result',payload:{ok:true,result:info}};
+    }},image:async()=>'',onError:()=>{}});
+  const call:ProductCall={method:'send_message.context',args:{target,owner_recipient:true},operationId:'review',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
+  try{
+    expect(await product.call(call)).toMatchObject({target,sender:{type:'agent',agent_id:'a'},recipient:{kind:expected}});
+    expect(sends).toBe(0);
+    await expect(product.call({...call,ownerId:'other'})).rejects.toThrow('identity');
+  }finally{await product.stop();inbox.close();store.close();}
+});
+
 it('holds a group draft when a correction arrives before dispatch and keeps tool identity idempotent', async () => {
   const store = new NodeStore(':memory:', 'owner'); const inbox = new InboxStore(':memory:');
   const binding = store.bind({ agentId: 'alice', sessionId: 'main', conversationId: 'global:alice', ownerId: 'owner', cwd: '/tmp/alice', revision: '1' });
