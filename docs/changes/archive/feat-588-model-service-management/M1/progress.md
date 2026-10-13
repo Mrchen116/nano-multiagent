@@ -30,3 +30,12 @@
 - `/tmp/nano588-legacy-red.log` 保留失败的实际 Authorization 对比；`/tmp/nano588-legacy-green.log` 为 providers/model-setup/configuration/integration model-setup 四文件 15 tests 通过。独立复验尚待最终批次冻结。
 - 文档检查通过（252 maintained sources / 64 routes）；Ruff check 与 format check 通过（82 files）。
 - 产品 R1 另发现内置厂商标签在改名/重启后被服务名覆盖；主会话以真实 DSH 冷启动目录红测确认后移除 native profile 的产品标签覆盖。四文件 11 tests 通过，原因与回复后上游 502 的独立取证见 [product R1 triage](evidence/product-r1-triage.md)。
+
+## 最终门禁与交付
+
+- Code review R3 `[]`，verifier R3 PASS / 0 CRITICAL / 0 WARNING / 0 SUGGESTION，`validated_at=6309714219ba8cc1432e5e1752a94b50a7d8ad35`。W1 与厂商身份问题均关闭；corrected-delta aligned。
+- 产品 R2 PASS / 0 blocking / 0 major / 0 minor，`validated_at=1580bdfb0627e9e9cc614dd3e6a41a63e58c2d47`。R1 完整旅程 retained，R2 实际重验厂商改名/刷新/冷重启/删除后目录及同一助手真实回复。手机证据是浏览器窄屏，不是物理设备验收。
+- 两次最终静态/产品验证的 `executed_base` 与 final-sync `effective_base` 都是 `b7e367cc08a642133dea28e372816cd79038818d`。最终 fetch 无新增 main 提交；相对原基线新增 main 仅 feat-589 需求文档。有效源码在上述验证后没有变化，报告提交、canonical 归并与整体归档不影响运行语义，门禁 retained 到 PR 的最终 head（PR body 记录其 `effective_through`）。Gate 2 R4 的布局与职责契约也未改变。
+- 已将独立校正的 IM MODIFIED/ADDED、Gateway ADDED delta 归入 current specs，同步入口数量与文档地图。`pnpm -r --if-present build`、`pnpm typecheck` 和安装候选构建通过；Ruff、文档检查、`git diff --check`、前端 critical audit 通过，audit 为 0 vulnerabilities。保留此前全量与本轮针对真实缺陷的窄回归证据，不重复无关全量。
+- PR 依赖仍开放的 #337，以 `codex/feat-587-first-run-onboarding` 为 base；不能先于该前置变更合入 main。未自动合并、发布 GitHub Release 或部署；S9 按设计允许的精确下载 fixture 验证，公网匿名 Release 下载仍需正式发布后验证。
+- 用户要求保留的 52267 试用服务与本 worktree 保留。独立验收栈和作者临时原型由主会话清理；用户明确结束试用后再清理 52267/18489/18490 并归档 worktree。
