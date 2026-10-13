@@ -1,16 +1,16 @@
 /** Upload one built candidate, verify it anonymously, then promote its IM manifest.
  *
  * Usage: RELEASE_VERSION=X.Y.Z node scripts/publish-node-release.mjs [candidate-directory]
- * Requires a clean checkout at the candidate commit and release-authorized gh.
+ * Run from the clean source checkout matching the candidate, with release-authorized gh.
  * Existing Release tags are never updated; deployment is a separate operation.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// The workflow keeps this publisher outside the selected source checkout.
+const root = process.cwd();
 const directory = resolve(process.argv[2] ?? join(root, 'dist/node-release'));
 const repository = 'Mrchen116/nano-multiagent';
 const version = process.env.RELEASE_VERSION;

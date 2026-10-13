@@ -11,6 +11,8 @@ const publisher = fileURLToPath(new URL('../../../scripts/publish-node-release.m
 async function fixture(failure = '') {
   const directory = await mkdtemp(join(tmpdir(), 'nano-publish-'));
   const bin = join(directory, 'bin');
+  const isolatedPublisher = join(directory, 'publisher.mjs');
+  await writeFile(isolatedPublisher, await readFile(publisher));
   await mkdir(bin);
   const version = 'a'.repeat(40);
   const releaseVersion = '0.2.0';
@@ -24,7 +26,7 @@ async function fixture(failure = '') {
   // Child-command fixtures exercise the publishing entrypoint without GitHub writes.
   const prelude = `#!${process.execPath}\nconst fs=require('node:fs'); const args=process.argv.slice(2); const dir=${JSON.stringify(directory)};\n`;
   const helpers = {
-    git: `if(args[0]==='rev-parse') console.log('${version}');`,
+    git: `if(process.cwd()!==fs.realpathSync(dir)) process.exit(4); if(args[0]==='rev-parse') console.log('${version}');`,
     gh: `if(args[0]==='repo') console.log('PUBLIC'); else {
       if(fs.existsSync(dir+'/uploaded')) process.exit(1);
       if(args[0]!=='release'||args[1]!=='create'||args[2]!=='v${releaseVersion}'||args[args.indexOf('--title')+1]!=='Nano Node v${releaseVersion}'||args[args.indexOf('--target')+1]!=='${version}') process.exit(2);
@@ -39,7 +41,7 @@ async function fixture(failure = '') {
     await writeFile(join(bin, name), prelude + source);
     await chmod(join(bin, name), 0o700);
   }
-  const run = (release = releaseVersion) => spawnSync(process.execPath, [publisher, directory], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_VERSION: release } });
+  const run = (release = releaseVersion) => spawnSync(process.execPath, [isolatedPublisher, directory], { cwd: directory, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_VERSION: release } });
   return { directory, candidate, bytes, run, published: { ...candidate, version: releaseVersion, source_commit: version, download_url: downloadUrl } };
 }
 
