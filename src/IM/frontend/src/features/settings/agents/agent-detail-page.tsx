@@ -1276,6 +1276,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   const isMobile = useIsMobile();
   useAgentStatusBroadcastConsumer();
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
+  const previousServerConfig = useRef<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [applyPending, setApplyPending] = useState(false);
@@ -1299,10 +1300,18 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
   });
 
   useEffect(() => {
-    if (detailQuery.data?.config) {
-      setDraft(detailQuery.data.config);
+    const config = detailQuery.data?.config;
+    if (!config) return;
+    const { node_status: _previousStatus, ...previousFields } = previousServerConfig.current ?? {};
+    const { node_status, ...fields } = config;
+    // Live presence must not replace an in-progress configuration edit.
+    if (previousServerConfig.current && JSON.stringify(previousFields) === JSON.stringify(fields)) {
+      setDraft(current => current ? { ...current, node_status } : config);
+    } else {
+      setDraft(config);
       setErrorMessage(null);
     }
+    previousServerConfig.current = config;
   }, [detailQuery.data]);
 
   const capabilities = detailQuery.data?.capabilities;
@@ -1933,8 +1942,9 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
                   : t("agents.form.access.modelPlatformDefaultPlain")}
               </option>
               {availableModels.map((model) => {
-                const providerSuffix = model.provider ? ` · ${model.provider}` : "";
-                const baseLabel = `${model.name}${providerSuffix}`;
+                const providerName = model.provider_display_name || model.provider;
+                const providerSuffix = providerName ? ` · ${providerName}` : "";
+                const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
                 return (
                   <option key={model.name} value={model.name}>
                     {model.name === platformDefaultModel

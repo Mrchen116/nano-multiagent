@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-587
+> 对齐: feat-588
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -459,18 +459,28 @@ Agent profile 的公开配置与保存结果表达 Skill selection mode：默认
 
 ### Requirement: 节点上线/心跳/超时实时反映到 owner 的浏览器看板
 
-Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner**的浏览器用户流广播 `node.status_changed` 事件(online);心跳超时由 IM 后台扫描翻为 offline 并广播 (`status:"offline", last_error:"heartbeat_timeout"`)。广播严格按 owner 隔离,不泄漏给他租浏览器。
+注册和心跳更新在线状态；注册上线及连接离线转换向节点 owner 广播 node.status_changed。当前连接关闭、超时或撤权时持久化 offline 并向 owner 广播；超时标记 last_error=heartbeat_timeout，且不撤销凭据。已打开页面实时反映状态；离线发送沿用明确失败语义。重连注册后恢复 online，旧连接的延迟关闭不覆盖新连接。关联 Agent 的已有状态消费者同步收到 agent.status_changed。Nodes、Chat 和 Agent detail 均显示真实状态，状态更新不覆盖未保存配置输入。广播严格按 owner 隔离。
 
 #### Scenario: 节点注册广播 online 给本租浏览器
-- **GIVEN** 节点已绑定某 owner,该 owner 一条浏览器用户流在线
-- **WHEN** Gateway 上行 `node.register {node_id, agents, capabilities}`
-- **THEN** 该 owner 浏览器收到 `op:"event"`、`event_type:"node.status_changed"`、`status:"online"` 帧; 他租浏览器收不到
+- **WHEN** 节点注册成功
+- **THEN** owner 的浏览器收到 online 事件，其他 owner 不收到。
 
 #### Scenario: 心跳超时翻 offline 并广播
-- **GIVEN** 一个 online 节点最近心跳已过期
-- **WHEN** IM 后台扫描运行
-- **THEN** 节点态翻 `offline`,向本租浏览器广播一帧 `node.status_changed status:"offline"
-  last_error:"heartbeat_timeout"`;对已 offline 节点重复扫描是无副作用的幂等(不重复广播)
+- **WHEN** IM 检测到当前节点心跳过期
+- **THEN** 数据库/API/owner 页面变为 offline，广播包含 heartbeat_timeout；重复清理不重复广播。
+
+#### Scenario: 断开与恢复一致
+- **WHEN** 当前连接断开后重新注册
+- **THEN** 页面先离线后在线，恢复后正常收发；旧连接关闭不导致假离线。
+
+#### Scenario: 编辑中收到状态变化
+- **WHEN** 用户在 Agent detail 尚未保存编辑时节点离线或恢复
+- **THEN** 状态标识实时更新，未保存输入仍保留。
+
+#### Scenario: 浏览器恢复订阅时补齐错过的状态
+- **GIVEN** 节点状态在浏览器 HTTP 刷新后、实时订阅恢复前改变
+- **WHEN** 浏览器重新订阅
+- **THEN** owner 的已打开页面收敛到节点及关联 Agent 当前状态，无需人工刷新；其他 owner 不收到这些状态。
 
 ### Requirement: Agent 通道页统一管理外部 channel 与安全凭据
 
@@ -722,8 +732,37 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 
 ### Requirement: 页面完成模型连接
 
-节点 owner 可查看发现的连接、配置 API、自定义兼容服务或启动原生 Codex 授权；状态区分发现、授权、验证和失败。验证失败不完成设置，凭据不回显或进入安装材料。
+节点 owner 可选择内置服务商、填写自定义 API，或启动可选的原生 Codex 授权；API 接入为默认路径，不自动扫描开发者代理配置。状态区分等待、验证、成功和失败。验证失败不完成设置，凭据不回显或进入安装材料。
 
 #### Scenario: 验证与失败恢复
-- WHEN 用户测试连接
-- THEN 以节点实际模型请求结果显示可用或修复动作；等待、失败、重试不丢失电脑绑定。
+- **WHEN** 用户测试连接
+- **THEN** 以节点实际模型请求结果显示可用或修复动作；等待、失败、重试不丢失电脑绑定。
+
+### Requirement: API 接入与日常模型服务管理共用电脑上下文
+
+#### Scenario: 首次 API 接入
+- **WHEN** 新用户打开模型接入步骤
+- **THEN** 首先看到内置服务商与自定义 API 的选择，可填写凭据和模型并测试；订阅登录为可选路径，不要求开发者本机代理。
+
+#### Scenario: 日常新增和编辑
+- **WHEN** 用户从常驻模型服务入口选择自己的电脑
+- **THEN** 可查看、新增、编辑服务及多个模型；密钥不回显，空输入保留原凭据；其他用户不能管理这些服务。
+- **AND** 电脑离线或未连接时明确显示恢复入口，不把无法读取呈现为无配置。
+
+#### Scenario: 未完成保存保留草稿
+- **WHEN** 测试失败、取消、离线或版本冲突
+- **THEN** 显示可行动反馈并保留当前草稿，不宣称保存成功，也不静默覆盖另一页面的修改。
+
+#### Scenario: 依赖保护
+- **WHEN** 用户试图移除被助手使用的模型或服务
+- **THEN** 展示受影响助手并要求先更换其模型；修改完成后才允许删除，桌面和手机均可完成上述操作。
+
+### Requirement: IM 安装入口指定版本，程序包由独立发布源直接分发
+
+#### Scenario: 安装当前服务配套版本
+- **WHEN** 用户运行当前 IM 提供的安装方式
+- **THEN** 电脑按该 IM 提供的固定版本和校验信息，直接从发布源下载程序包；不随发布源 latest 变化选取其他版本，程序包不经 IM 转发，安装完成后仍连接发起安装的 IM。
+
+#### Scenario: 下载失败保留原安装
+- **WHEN** 指定程序包不可下载或校验失败
+- **THEN** 明确显示重试方法，保留原安装与数据；不跳过校验、不切换未知版本，也不悄悄改经 IM 转发程序包。

@@ -38,9 +38,9 @@ try {
   const archive = join(output, 'nano-node.tgz');
   execFileSync('tar', ['-czf', archive, '-C', stage, '.']);
   const sha256 = createHash('sha256').update(await readFile(archive)).digest('hex');
-  const revision = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  await writeFile(join(output, 'manifest.json'), JSON.stringify({ version: revision, sha256, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' }, null, 2) + '\n');
-  console.log(`Node installer package ready: ${revision} (${sha256.slice(0, 12)})`);
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  await writeFile(join(output, 'manifest.candidate.json'), JSON.stringify({ version: revision, sha256, download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${revision}/nano-node.tgz`, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' }, null, 2) + '\n');
+  console.log(`Node installer candidate ready (publish and verify before deployment): ${revision} (${sha256.slice(0, 12)})`);
 } finally {
   await rm(stage, { recursive: true, force: true });
 }

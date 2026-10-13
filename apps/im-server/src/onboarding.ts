@@ -5,16 +5,15 @@ import { installMaterials } from './install.js';
 const fields = (row: Row, names: string[]) => Object.fromEntries(names.filter(name => row[name] !== undefined).map(name => [name, row[name]]));
 /** Keep setup credentials confined to the request; only public status crosses back. */
 function setupStatus(value: Row) {
+  const error = (item: Row) => ({...fields(item, ['code', 'message']), ...(Array.isArray(item.dependencies) ? {dependencies: item.dependencies.map((dep: Row) => fields(dep, ['agent_id', 'display_name']))} : {})});
   return {
-    models: (value.models ?? []).map((m: Row) => fields(m, ['provider', 'model'])),
-    catalog: (value.catalog ?? []).map((p: Row) => fields(p, ['provider', 'models'])),
-    default_model: value.default_model ?? '',
-    workspace_base: value.workspace_base ?? '',
-    discovered: {
-      codex: value.discovered?.codex === true,
-      ...(value.discovered?.proxy ? { proxy: fields(value.discovered.proxy, ['base_url', 'models', 'protocol']) } : {}),
-    },
-    ...(value.operation ? { operation: fields(value.operation, ['id', 'state', 'code', 'url', 'message']) } : {}),
+    revision: value.revision ?? '', ...(value.catalog_error ? {catalog_error: value.catalog_error} : {}),
+    services: (value.services ?? []).map((p: Row) => ({...fields(p, ['provider', 'display_name', 'native', 'source', 'protocol', 'base_url', 'credential_stored']), models: (p.models ?? []).map((m: Row) => fields(m, ['name', 'id', 'display_name', 'context_window', 'max_tokens', 'input']))})),
+    models: (value.models ?? []).map((m: Row) => fields(m, ['provider', 'model', 'display_name'])),
+    catalog: (value.catalog ?? []).map((p: Row) => ({...fields(p, ['provider', 'display_name']), models: (p.models ?? []).map((m: Row) => fields(m, ['id', 'name', 'contextWindow', 'maxTokens', 'inputModalities']))})),
+    default_model: value.default_model ?? '', workspace_base: value.workspace_base ?? '',
+    ...(value.operation ? {operation: {...fields(value.operation, ['id', 'state', 'code', 'url', 'message']), ...(value.operation.error ? {error: error(value.operation.error)} : {})}} : {}),
+    ...(value.error ? {error: error(value.error)} : {}),
   };
 }
 
@@ -36,9 +35,19 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
     };
     owned();
     const input = body(req);
-    if (!['status', 'configure', 'login', 'cancel'].includes(input.action)) fail(422, 'invalid setup action');
-    const payload = fields(input, ['action', 'provider', 'protocol', 'base_url', 'model', 'api_key']);
+    if (!['status', 'save', 'remove', 'login', 'cancel'].includes(input.action)) fail(422, 'invalid setup action');
+    const payload = fields(input, ['action', 'revision', 'provider', 'source', 'display_name', 'protocol', 'base_url', 'model', 'api_key']);
     for (const value of Object.values(payload)) if (typeof value !== 'string') fail(422, 'setup values must be text');
+    if (input.models !== undefined) {
+      if (!Array.isArray(input.models) || input.models.some((m: unknown) => !m || typeof m !== 'object' || Array.isArray(m))) fail(422, 'models must be an array');
+      payload.models = input.models.map((model: Row) => {
+        const item = fields(model, ['id', 'display_name', 'context_window', 'max_tokens', 'input']);
+        if (typeof item.id !== 'string' || (item.display_name !== undefined && typeof item.display_name !== 'string')) fail(422, 'model IDs and names must be text');
+        for (const key of ['context_window', 'max_tokens']) if (item[key] !== undefined && (!Number.isSafeInteger(item[key]) || item[key] <= 0)) fail(422, 'token limits must be positive integers');
+        if (item.input !== undefined && (!Array.isArray(item.input) || item.input.some((value: unknown) => !['text', 'image'].includes(String(value))))) fail(422, 'invalid model input');
+        return item;
+      });
+    }
     const result = await ctx.gateway.request(nodeId, 'node.setup.request', payload);
     owned();
     if (result.error_code) fail(503, 'Computer setup is unavailable. Reconnect your computer and retry.');

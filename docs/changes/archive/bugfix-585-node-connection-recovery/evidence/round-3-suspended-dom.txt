@@ -1,0 +1,29 @@
+- banner:
+  - generic: nano IM
+  - generic: internal
+  - group "Language":
+    - radio "EN" [checked]
+    - generic: "|"
+    - radio "中"
+- main:
+  - region "Bring people and agents into one workspace":
+    - paragraph: People · Agents · Devices
+    - heading "Bring people and agents into one workspace" [level=1]
+    - paragraph: Start with chat, connect agents on your devices, and keep long-running work moving together.
+    - generic: Use agents with your team
+    - generic: Collaborate with multiple agents in one chat
+    - generic: Manage and run work on your devices
+  - region "Sign in":
+    - generic: Welcome back
+    - heading "Sign in" [level=2]
+    - paragraph: Continue your conversations and agent work.
+    - generic: Username
+    - textbox "Username"
+    - generic: Password
+    - textbox "Password"
+    - button "Show password":
+    - button "Sign in":
+      - generic: Sign in
+    - generic: No account yet?
+    - link "Create one":
+      - /url: /register

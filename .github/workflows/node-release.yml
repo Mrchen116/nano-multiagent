@@ -1,0 +1,49 @@
+name: Publish Node installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full source commit SHA (40 lowercase hex characters)
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: node-release-${{ inputs.commit }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate fixed source revision
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: '[[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - run: pnpm install --frozen-lockfile
+      - name: Build candidate exactly once
+        run: pnpm build
+      - name: Verify runtime and installer
+        run: pnpm typecheck && pnpm test
+      - name: Publish and anonymously verify the same package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-node-release.mjs
+      - name: Preserve verified manifest for the matching IM deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-manifest-${{ inputs.commit }}
+          path: dist/node-release/manifest.json
+          if-no-files-found: error

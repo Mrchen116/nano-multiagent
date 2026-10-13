@@ -117,6 +117,8 @@ describe("normalizeModelOptions reasoning descriptors", () => {
         {
           name: "selectable",
           provider: "provider-a",
+          display_name: "Shared model",
+          provider_display_name: "Team API",
           reasoning: { kind: "selectable", default: "high", levels: ["low", "high", "high", ""] },
         },
         { name: "fixed", provider: "provider-b", reasoning: { kind: "fixed" } },
@@ -130,6 +132,8 @@ describe("normalizeModelOptions reasoning descriptors", () => {
       {
         name: "selectable",
         provider: "provider-a",
+        display_name: "Shared model",
+        provider_display_name: "Team API",
         reasoning: { kind: "selectable", default: "high", levels: ["low", "high"] },
       },
       { name: "fixed", provider: "provider-b", reasoning: { kind: "fixed" } },

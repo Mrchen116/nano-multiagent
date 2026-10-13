@@ -520,6 +520,8 @@ function modelOptions(value: unknown): Row[] {
       {
         name: entry.name.trim(),
         provider: typeof entry.provider === "string" ? entry.provider : "",
+        ...(optionalText(entry.display_name) ? {display_name: entry.display_name.trim()} : {}),
+        ...(optionalText(entry.provider_display_name) ? {provider_display_name: entry.provider_display_name.trim()} : {}),
         reasoning,
       },
     ];

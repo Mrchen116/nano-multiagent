@@ -1,6 +1,7 @@
+import { createServer } from 'node:net';
 import { afterEach, expect, test } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { WebRelayConnection, RelayDeliveryError, type ProtocolFrame } from '../src/index.js';
+import { WebRelayConnection, RelayDeliveryError, type ProtocolFrame, type RelayDiagnostic } from '../src/index.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -68,8 +69,9 @@ test('typed responses require matching correlation and generic rejection advance
 
 test('reconnect refreshes auth and registration without replaying uncertain or queued business frames', async () => {
   let tokens = 0;
+  const diagnostics: RelayDiagnostic[] = [];
   const s = await server((socket, frame) => { if (frame.type === 'node.report') socket.close(1012); else ack(socket, frame); });
-  const relay = connection(s.url, { credentials: async () => ({ accessToken: `token-${++tokens}`, registration: { node_id: 'node' } }) });
+  const relay = connection(s.url, { credentials: async () => ({ accessToken: `token-${++tokens}`, registration: { node_id: 'node' } }), onDiagnostic: event => diagnostics.push(event) });
   await relay.start();
   const sent = relay.request('node.report', {});
   const queued = relay.request('agent.message', {});
@@ -79,14 +81,18 @@ test('reconnect refreshes auth and registration without replaying uncertain or q
   expect(s.headers).toEqual(['Bearer token-1', 'Bearer token-2']);
   expect(s.frames.map(f => f.type)).toEqual(['node.register', 'node.report', 'node.register']);
   expect(relay.ready).toBe(true);
+  expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'disconnected', close_code: 1012 }), expect.objectContaining({ event: 'retry_scheduled', attempt: 1, delay_ms: 10 }), expect.objectContaining({ event: 'ready', outage_ms: expect.any(Number) })]));
+  expect(JSON.stringify(diagnostics)).not.toContain('token-');
 });
 
 test('heartbeat timeout reconnects; revoked identity stops automatic reconnect', async () => {
   const s = await server((socket, frame) => { if (frame.type === 'node.register') { ack(socket, frame); if (s.connections.length === 2) socket.close(4003, 'revoked'); } });
-  const relay = connection(s.url, { heartbeatIntervalMs: 15, ackTimeoutMs: 30 });
+  const diagnostics: RelayDiagnostic[] = [];
+  const relay = connection(s.url, { heartbeatIntervalMs: 15, ackTimeoutMs: 30, onDiagnostic: event => diagnostics.push(event) });
   await relay.start();
   await expect.poll(() => relay.state, { timeout: 1000 }).toBe('revoked');
   expect(s.connections.length).toBe(2);
+  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'disconnected', phase: 'heartbeat', error_type: 'TimeoutError' }));
   const count = s.connections.length;
   await pause(60); expect(s.connections).toHaveLength(count);
   await expect(relay.request('node.report', {})).rejects.toBeInstanceOf(RelayDeliveryError);
@@ -125,4 +131,44 @@ test('replacement authority error is terminal and errors never expose credential
   await pause(50);
   expect(relay.state).toBe('revoked'); expect(s.connections).toHaveLength(1);
   expect(errors.join(' ')).not.toContain('secret');
+});
+
+
+test('diagnostics redact unknown remote reasons and credential errors, and a throwing sink cannot block recovery', async () => {
+  const diagnostics: RelayDiagnostic[] = [];
+  let attempts = 0;
+  const s = await server((socket, frame) => ack(socket, frame));
+  const relay = connection(s.url + '?token=hidden-url', {
+    credentials: async () => {
+      if (++attempts === 1) throw new TypeError('Authorization: Bearer hidden-credential');
+      return { accessToken: 'hidden-token', registration: { node_id: 'node' } };
+    },
+    onDiagnostic: event => { diagnostics.push(event); if (event.event === 'retry_scheduled') throw Error('sink failed'); },
+  });
+  await relay.start();
+  s.connections[0]!.close(1012, 'Authorization: Bearer hidden-remote');
+  await expect.poll(() => relay.ready && s.connections.length === 2).toBe(true);
+  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'disconnected', phase: 'connect', error_type: 'TypeError' }));
+  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'disconnected', close_code: 1012, close_reason: '[redacted]' }));
+  expect(diagnostics.filter(event => event.event === 'ready').every(event => typeof event.outage_ms === 'number')).toBe(true);
+  expect(JSON.stringify(diagnostics)).not.toContain('hidden-');
+  await relay.stop();
+  expect(diagnostics.at(-1)).toMatchObject({ event: 'stopped', phase: 'stop', node_id: 'node' });
+});
+
+
+test('connection refusal records a safe transport category and retry without exposing the URL', async () => {
+  const listener = createServer();
+  await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
+  const address = listener.address();
+  if (!address || typeof address === 'string') throw Error('No port');
+  await new Promise<void>(resolve => listener.close(() => resolve()));
+  const diagnostics: RelayDiagnostic[] = [];
+  const relay = connection(`http://127.0.0.1:${address.port}/?token=private`, { onDiagnostic: event => diagnostics.push(event) });
+  const started = relay.start().catch(error => error);
+  await expect.poll(() => diagnostics.some(event => event.event === 'retry_scheduled')).toBe(true);
+  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'transport_error', phase: 'connect', error_type: 'WebSocketError', reason: 'ECONNREFUSED' }));
+  expect(JSON.stringify(diagnostics)).not.toMatch(/private|127\.0\.0\.1/);
+  await relay.stop();
+  expect(await started).toMatchObject({ delivery: 'not-sent' });
 });

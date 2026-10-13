@@ -36,6 +36,13 @@ it('configures a real empty DSH through settings and credentials, probes native 
     expect(await client!.rpc.request('model.setup.test', { id: 'setup', providers, provider: 'nano-fixture', model: 'test', api_key: 'local-fixture-secret' })).toEqual({});
     await client!.rpc.request('model.setup.finish', { commit: true });
     expect(calls.at(-1)).toEqual({ url: '/v1/chat/completions', authorization: 'Bearer local-fixture-secret' });
+    const saved = await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'});
+    expect(saved).toEqual({record: {kind: 'api-key', key: 'local-fixture-secret'}});
+    await client!.rpc.request('model.setup.stage', {id: 'edit', providers, provider: 'nano-fixture', api_key: 'rotated-fixture-secret'});
+    expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual({record: {kind: 'api-key', key: 'rotated-fixture-secret'}});
+    await client!.rpc.request('model.setup.finish', {commit: false});
+    expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual(saved);
+
     const failed = { ...providers, 'nano-failure': { ...providers['nano-fixture'], models: [{ id: 'failure' }] } };
     await expect(client!.rpc.request('model.setup.test', { id: 'failure', providers: failed, provider: 'nano-failure', model: 'failure', api_key: 'bad-secret' })).rejects.toThrow('Model connection verification failed');
     // The failed route was removed, so another attempt at the same new route is admitted.
@@ -48,6 +55,16 @@ it('configures a real empty DSH through settings and credentials, probes native 
     await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'message', mode: 'followup', content: [{ type: 'text', text: 'Reply READY' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'message' } });
     await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: binding.sessionId, inputId: 'message' }) as { terminal?: unknown }).terminal).toBeTruthy();
     expect(calls.at(-1)?.authorization).toBe('Bearer local-fixture-secret');
+    await client!.rpc.request('model.setup.stage', {id: 'edit-commit', providers, provider: 'nano-fixture', api_key: 'rotated-fixture-secret'});
+    await client!.rpc.request('model.setup.finish', {commit: true});
+    await client!.rpc.request('session.submit', {sessionId: binding.sessionId, inputId: 'after-edit', mode: 'followup', content: [{type: 'text', text: 'Reply READY again'}], source: {kind: 'human', actorId: 'owner', channel: 'test', messageId: 'after-edit'}});
+    await expect.poll(async () => (await client!.rpc.request('session.lookup', {sessionId: binding.sessionId, inputId: 'after-edit'}) as {terminal?: unknown}).terminal).toBeTruthy();
+    expect(calls.at(-1)?.authorization).toBe('Bearer rotated-fixture-secret');
+    await client!.rpc.request('model.setup.stage', {id: 'remove', providers: {}, provider: 'nano-fixture'});
+    expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual({record: null});
+    await client!.rpc.request('model.setup.finish', {commit: false});
+    expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual({record: {kind: 'api-key', key: 'rotated-fixture-secret'}});
+
     await client!.shutdown(); client = undefined;
   } finally {
     if (client) { client.process.kill('SIGKILL'); await client.exited; }

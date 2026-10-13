@@ -1,14 +1,14 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { AuthorizationDeclinedError } from '@deepseek-ai/dsh-authorization';
-import type {} from '@deepseek-ai/dsh-credentials';
+import type { CredentialRecord } from '@deepseek-ai/dsh-credentials';
 import type {} from '@deepseek-ai/dsh-settings';
 import { recordKeyFor, type PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai';
 import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import type { RpcPeer } from './rpc.js';
 
 type Profiles = Record<string, PiAiProviderProfile>;
-interface Candidate { id: string; providers: Profiles; provider: string; model: string; login?: boolean; api_key?: string }
-interface Transaction { abort: AbortController; previous: Profiles; candidate: Candidate; tested: boolean; keyWritten: boolean }
+interface Candidate { id: string; providers: Profiles; provider: string; model?: string; models?: string[]; login?: boolean; api_key?: string }
+interface Transaction { abort: AbortController; previous: Profiles; candidate: Candidate; tested: boolean; keyWritten: boolean; record?: CredentialRecord }
 
 /** Expose native model configuration/authentication through the existing stdio seam. */
 export class NativeModelSetup {
@@ -16,6 +16,18 @@ export class NativeModelSetup {
   private transaction?: Transaction;
   constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>) {
     peer.handle('model.setup.catalog', () => this.catalog());
+    peer.handle('model.setup.credential', async value => {
+      const record = await this.ctx.credentials.readRecord(recordKeyFor((value as {provider: string}).provider));
+      return record && record.kind !== 'api-key' ? {preserve: true} : {record: record ?? null};
+    });
+    peer.handle('model.setup.restore', async value => {
+      const snapshot = value as {provider: string; providers: Profiles; record?: CredentialRecord; preserve?: boolean};
+      if (!snapshot.preserve) await this.restore(snapshot.provider, snapshot.providers, snapshot.record);
+      else await this.apply(snapshot.providers);
+      this.transaction = undefined;
+      return {};
+    });
+    peer.handle('model.setup.stage', value => this.stage(value as Candidate));
     peer.handle('model.setup.test', value => this.test(value as Candidate));
     peer.handle('model.setup.finish', value => this.finish((value as { commit: boolean }).commit));
     peer.handle('model.setup.cancel', () => { this.transaction?.abort.abort(); return {}; });
@@ -27,9 +39,31 @@ export class NativeModelSetup {
     this.providers = structuredClone(providers);
   }
   private async catalog() {
-    return Promise.all(['openai-codex', 'openai', 'deepseek', 'anthropic'].map(async provider => ({
-      provider, models: (await this.ctx.llm.discoverModels('llm-pi-ai', { provider })).map(model => model.id),
+    const entries = this.ctx.llm.listConfigurableProviders().filter(item => item.settingsNs === 'llm-pi-ai' && !item.declared);
+    return Promise.all(entries.map(async item => ({provider: item.provider, display_name: item.displayName,
+      models: (await this.ctx.llm.discoverModels('llm-pi-ai', {provider: item.provider})).map(model => ({id: model.id, name: model.name, contextWindow: model.contextWindow, maxTokens: model.maxTokens, inputModalities: model.inputModalities})),
     })));
+  }
+  private async restore(provider: string, providers: Profiles, record?: CredentialRecord) {
+    if (record) await this.ctx.credentials.modifyRecord(recordKeyFor(provider), async () => record);
+    else await this.ctx.credentials.deleteRecord(recordKeyFor(provider));
+    await this.apply(providers);
+  }
+  private async stage(candidate: Candidate) {
+    if (this.transaction) throw new Error('A model setup operation is already running');
+    const record = await this.ctx.credentials.readRecord(recordKeyFor(candidate.provider));
+    if (record && record.kind !== 'api-key' && candidate.api_key) throw new Error('Cannot replace subscription authorization');
+    this.transaction = {abort: new AbortController(), previous: structuredClone(this.providers), candidate, tested: true, keyWritten: false, record};
+    if (candidate.api_key) {
+      this.transaction.keyWritten = true;
+      await this.ctx.credentials.modifyRecord(recordKeyFor(candidate.provider), async () => ({kind: 'api-key', key: candidate.api_key!}));
+    } else if (!candidate.providers[candidate.provider] && record?.kind === 'api-key') {
+      this.transaction.keyWritten = true;
+      await this.ctx.credentials.deleteRecord(recordKeyFor(candidate.provider));
+    }
+    delete candidate.api_key;
+    await this.apply(candidate.providers);
+    return {};
   }
   private notice(candidate: Candidate, state: 'waiting' | 'testing', data: { message?: string; code?: string; url?: string } = {}) {
     this.peer.notify('model.setup.notice', { id: candidate.id, state, ...data });
@@ -58,25 +92,26 @@ export class NativeModelSetup {
         });
         if (result.status === 'cancelled') transaction.abort.abort();
       } else {
-        if (!candidate.api_key) throw new Error('An API credential is required');
-        await this.ctx.credentials.modifyRecord(recordKeyFor(candidate.provider), async current => {
+        if (candidate.api_key) await this.ctx.credentials.modifyRecord(recordKeyFor(candidate.provider), async current => {
           if (current) throw new Error('A credential already exists for this new route');
           return { kind: 'api-key', key: candidate.api_key };
         });
-        transaction.keyWritten = true;
+        transaction.keyWritten = Boolean(candidate.api_key);
       }
       // Do not keep the supplied key in the operation record beyond the local write.
       delete candidate.api_key;
       transaction.abort.signal.throwIfAborted();
       await this.apply(candidate.providers);
       this.notice(candidate, 'testing');
+      for (const model of candidate.models ?? [candidate.model!]) {
       const assembly = new BlockAssembler();
       for await (const chunk of this.ctx.llm.stream({
-        provider: candidate.provider, model: candidate.model, maxTokens: 128,
+        provider: candidate.provider, model, maxTokens: 128,
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with the single word READY.' }] }],
         signal: AbortSignal.any([transaction.abort.signal, AbortSignal.timeout(45_000)]),
       })) assembly.push(chunk);
       if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted' || !assembly.blocks().some(block => block.type === 'text' && block.text.trim())) throw new Error('Model did not return text');
+      }
       transaction.abort.signal.throwIfAborted();
       transaction.tested = true;
       return {};
@@ -96,7 +131,10 @@ export class NativeModelSetup {
     try {
       if (!commit) {
         await this.apply(transaction.previous);
-        if (transaction.keyWritten) await this.ctx.credentials.deleteRecord(recordKeyFor(transaction.candidate.provider));
+        if (transaction.keyWritten) {
+          if (transaction.record) await this.ctx.credentials.modifyRecord(recordKeyFor(transaction.candidate.provider), async () => transaction.record);
+          else await this.ctx.credentials.deleteRecord(recordKeyFor(transaction.candidate.provider));
+        }
       }
     } finally { this.transaction = undefined; }
   }

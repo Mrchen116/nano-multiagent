@@ -33,7 +33,10 @@ function nativeModel(model: Model, anthropic: boolean) {
         ? ["high"]
         : undefined;
   return {
-    id: model.name,
+    id: model.id ?? model.name,
+    ...(model.display_name ? {name: model.display_name} : {}),
+    ...(model.max_tokens ? {maxTokens: model.max_tokens} : {}),
+    ...(model.input ? {input: model.input} : {}),
     contextWindow: model.context_window,
     ...(levels?.length
       ? {
@@ -53,12 +56,18 @@ function nativeModel(model: Model, anthropic: boolean) {
 export function providerProfiles(config: NodeConfigurationFile["llm"]) {
   const providers: Record<string, unknown> = {};
   const env: NodeJS.ProcessEnv = {};
-  for (const [index, provider] of config.providers.entries()) {
+  for (const provider of config.providers) {
     if (provider.native) {
-      providers[provider.name] = { models: provider.models.map(model => nativeModel(model, false)) };
+      providers[provider.name] = {
+        // Product labels belong to this service; the built-in catalog retains its provider identity.
+        ...(provider.base_url ? {baseURL: provider.base_url} : {}),
+        ...(provider.protocol ? {api: provider.protocol} : {}),
+        models: provider.models.map(model => nativeModel(model, provider.protocol === "anthropic-messages")),
+      };
       continue;
     }
-    const credential = `NANO_PROVIDER_${index}_KEY`;
+    // The child environment survives live edits, so removing another service must not rebind this key.
+    const credential = `NANO_PROVIDER_${Buffer.from(provider.name).toString("hex").toUpperCase()}_KEY`;
     if (provider.api_key) env[credential] = provider.api_key;
     else if (!provider.credential_stored &&
       ["127.0.0.1", "localhost", "[::1]"].includes(
@@ -67,6 +76,7 @@ export function providerProfiles(config: NodeConfigurationFile["llm"]) {
     )
       env[credential] = "nano-local-proxy";
     providers[provider.name] = {
+      ...(provider.display_name ? {displayName: provider.display_name} : {}),
       api: provider.protocol ?? (
         provider.name === "anthropic"
           ? "anthropic-messages"
