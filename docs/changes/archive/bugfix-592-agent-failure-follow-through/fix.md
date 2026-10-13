@@ -2,7 +2,7 @@
 
 ## Relations
 
-- Related: refactor-581-dsh-personal-assistant；当前契约见 [Global Agent](../../specs/gateway/global-agent.md)。
+- Related: refactor-581-dsh-personal-assistant；当前契约见 [Global Agent](../../../specs/gateway/global-agent.md)。
 
 ## 原始报告
 
@@ -39,4 +39,6 @@ Native DSH 保留工具结果并继续采样，Nano 主 Prompt 已要求“拒�
 
 真实模型固定拒绝对照：原 Prompt 0/3 继续处理，采纳的会话指令 8/8 发起原聊天独立询问；发送成功和无待办后台各 2/2 静默，可恢复技能错误 2/2 改用 read。后续询问也被拒绝的 2 次只有私人未送达记录，不能冒充交付完成。详见 [模型对照](evidence/model-comparison.md)。
 
-定向 native runtime/approval/communication 回归 3 文件 8 测试通过。指令为模型行为改进，不新增镜像实现的字符串单测；保留现有原生审批、通信及静默测试，真实模型行为由隔离实验验证。后续工程检查与独立审查结果在交付前回填。原始上下文和模型输出含私人信息，仅存本机临时证据，不提交仓库。
+定向 native runtime/approval/communication 回归 3 文件 8 测试通过。指令为模型行为改进，不新增镜像实现的字符串单测；保留现有原生审批、通信及静默测试，真实模型行为由隔离实验验证。pnpm build、pnpm typecheck、pnpm test（74 文件 / 255 测试）、pytest -m "not e2e"（56 通过 / 31 deselected）、docs-check、Ruff check/format 均通过。原生 configuration.preview 确认实际 session Prompt 包含实验指令，逐字匹配。独立 code review 覆盖 d07c7578f..099a59ebe，无存活 finding；见 [审查记录](code-review.md)。
+
+validated_at=099a59ebed2a6efa27763b5f598ad971dcc48c33；executed_base=d07c7578f210ee7fe830e2e7de4407209e7c75fc；final sync 的 origin/main 未变，effective_base 同 executed_base。后续仅回填证据和归档，产品源码与已审查版本一致。未部署生产，也未解决审核器正常回执误拒绝。原始上下文和模型输出含私人信息，仅存本机临时证据，不提交仓库。
