@@ -1274,7 +1274,7 @@ function ConfigurationBoundaryDivider() {
 // CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
 // 即可保留对齐（无需在 components 中二次转换 align 属性）。
 // Chat prose keeps ordinary line breaks without changing Markdown block parsing.
-const MD_REMARK_PLUGINS = [remarkGfm, remarkBreaks, remarkMention];
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMention, remarkBreaks];
 const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
   table: ({ node: _node, ...props }) => (
     <table {...props} className="im-md-table" />
