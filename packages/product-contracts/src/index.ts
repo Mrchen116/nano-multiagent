@@ -57,6 +57,14 @@ export interface RuntimePort {
 }
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 
+/** Host-resolved public messaging identity; never supplied by model arguments. */
+export interface MessageApprovalContext {
+  target: string;
+  sender: { type: 'agent'; agent_id: string };
+  recipient: { kind: 'owner' | 'user' | 'agent' | 'group' | 'unknown' };
+  channel?: string;
+}
+
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
 export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryRun, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';

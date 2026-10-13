@@ -8,7 +8,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoProduct: ProductB
 /** Adds only trusted execution identity to reverse product calls. */
 export class ProductBridge extends Service {
   constructor(ctx: Context, private readonly options: { peer: RpcPeer; bindings: Map<string, SessionBinding> }) { super(ctx, 'nanoProduct'); }
-  async call(method: string, args: unknown, exec: ToolRunContext): Promise<unknown> {
+  async call(method: string, args: unknown, exec: Pick<ToolRunContext, 'agent' | 'signal' | 'callId'>): Promise<unknown> {
     if (!exec.agent) throw new Error('Product tools require a bound Agent');
     let root = exec.agent;
     while (!this.options.bindings.has(root.id) && root.session.header.parentSession) {

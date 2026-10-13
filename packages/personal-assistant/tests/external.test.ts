@@ -3,6 +3,32 @@ import { ExternalChannels } from '../src/external.js';
 import { NodeStore } from '../src/store.js';
 import type { RelayInput } from '@nano/product-contracts';
 
+it('marks only the configured owner direct chat as an owner recipient, including shadow aliases', async () => {
+  const store=new NodeStore(':memory:','owner'),accepted:RelayInput[]=[];
+  const external=new ExternalChannels(':memory:',{nodeId:'node',ownerId:'owner',store,
+    relay:{ready:true,request:async()=>({type:'ack',payload:{}})},
+    im:async(_path,options)=>({id:`shadow-${JSON.parse(String(options?.body)).external_chat_id}`}),
+    receive:async input=>{accepted.push(input);},permission:async()=>{},onError:()=>{}});
+  let sends=0;
+  const connection={config:{appId:'app',ownerOpenId:'owner-openid'},send:async()=>{sends++;return 'sent';},thinking:async()=>undefined,image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}};
+  external.add('a',connection);
+  try{
+    for(const [id,senderId,isGroup] of [['owner','owner-openid',false],['other','other-openid',false],['group','owner-openid',true]] as const){
+      await external.receive('a',{messageId:id,chatId:id,senderId,isGroup,mentioned:false,time:'1000',parts:[{type:'text',text:'hi'}]});
+      const target=accepted.at(-1)!.conversation_id;
+      const info=await external.request('conversation.query',{agent_id:'a',action:'info',target});
+      expect(info.payload.result).toMatchObject({owner_recipient:id==='owner'});
+    }
+    await external.recover();
+    const alias=await external.request('conversation.query',{agent_id:'a',action:'info',target:'shadow-feishu:app:dm:owner-openid'});
+    expect(alias.payload.result).toMatchObject({owner_recipient:true});
+    external.add('a',{...connection,config:{appId:'app',ownerOpenId:'different-owner'}});
+    const stale=await external.request('conversation.query',{agent_id:'a',action:'info',target:accepted[0]!.conversation_id});
+    expect(stale.payload.result).toMatchObject({owner_recipient:false});
+    expect(sends).toBe(0);
+  }finally{await external.stop();store.close();}
+});
+
 it('keeps external execution and confirmed sends available offline and does not resend on replay', async () => {
   const store = new NodeStore(':memory:', 'owner'); let sends = 0;
   const accepted: RelayInput[] = []; let online = false; const mirrored: Record<string, unknown>[] = []; const requests: unknown[] = [];
