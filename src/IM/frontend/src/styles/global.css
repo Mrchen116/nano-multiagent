@@ -752,6 +752,41 @@ body {
   pointer-events: none;
 }
 
+.im-membership-content {
+  display: grid;
+  gap: 20px;
+}
+
+.im-membership-account {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--im-surface-2);
+  color: var(--im-text-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.im-membership-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.im-membership-secondary {
+  min-height: 45px;
+  padding: 10px 16px;
+  border: 1px solid var(--im-border-strong);
+  border-radius: 9px;
+  background: var(--im-surface);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.im-membership-secondary:hover {
+  background: var(--im-hover);
+}
+
 @media (max-width: 760px) {
   .im-auth-topbar {
     padding: 0 0.875rem;
