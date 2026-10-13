@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 
+import { UserMenuIcon } from "../../app/shell/user-menu-icons";
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { useQuery } from "@tanstack/react-query";
@@ -16,7 +17,7 @@ const CARD_BORDER = "border-y border-[oklch(0.91_0.005_240)]";
 const ROW_BASE =
   "flex w-full items-center gap-[14px] px-[18px] py-[14px] min-h-[60px] text-left bg-transparent hover:bg-[oklch(0.96_0.005_240)] transition-colors";
 const ICON_BASE =
-  "flex w-[28px] h-[28px] shrink-0 items-center justify-center rounded-[7px] text-[15px]";
+  "flex w-[28px] h-[28px] shrink-0 items-center justify-center";
 const LABEL = "flex-1 min-w-0 m-0 text-[15px] font-medium text-[oklch(0.14_0.01_240)]";
 const LABEL_DANGER = "flex-1 min-w-0 m-0 text-[15px] font-medium text-red-600 text-[oklch(0.50_0.15_25)]";
 const CHEVRON = "shrink-0 text-[18px] font-light text-[oklch(0.70_0.01_240)]";
@@ -80,9 +81,9 @@ export function MePage() {
       >
         <Link to="/settings/nodes" className={ROW_BASE} data-testid="me-row-nodes">
           <span
-            className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`}
+            className={ICON_BASE}
             aria-hidden="true"
-          >🖥</span>
+          ><UserMenuIcon kind="nodes" /></span>
           <div className="flex-1 min-w-0">
             <p className={LABEL}>{t("me.sections.nodes")}</p>
             <p
@@ -110,9 +111,9 @@ export function MePage() {
       >
         <Link to="/settings/account" className={ROW_BASE} data-testid="me-row-account">
           <span
-            className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`}
+            className={ICON_BASE}
             aria-hidden="true"
-          >👤</span>
+          ><UserMenuIcon kind="account" /></span>
           <div className="flex-1 min-w-0">
             <p className={LABEL}>{t("me.sections.account")}</p>
             <p
@@ -126,25 +127,22 @@ export function MePage() {
         </Link>
       </div>
 
-      <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/models" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg></span><p className={LABEL}>{lang === 'zh' ? '模型服务' : 'Model services'}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>
+      <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/models" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="models" /></span><p className={LABEL}>{lang === 'zh' ? '模型服务' : 'Model services'}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>
 
       {user?.membership_status === "active" && <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-policies"
       >
         <Link to="/settings/policies" className={ROW_BASE} data-testid="me-row-policies">
-          <span className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`} aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-              <path d="M4 7h6m4 0h6M4 17h10m4 0h2" />
-              <circle cx="12" cy="7" r="2" /><circle cx="16" cy="17" r="2" />
-            </svg>
+          <span className={ICON_BASE} aria-hidden="true">
+            <UserMenuIcon kind="policies" />
           </span>
           <p className={LABEL}>{t("shell.userMenu.policies")}</p>
           <span className={CHEVRON} aria-hidden="true">›</span>
         </Link>
       </div>}
 
-      {user?.is_company_admin && user.membership_status === "active" && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden>👥</span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
+      {user?.is_company_admin && user.membership_status === "active" && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/company" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="members" /></span><p className={LABEL}>{t("company.title")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-language"
@@ -154,9 +152,9 @@ export function MePage() {
           data-testid="me-row-language"
         >
           <span
-            className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)] text-[13px] font-bold text-[oklch(0.30_0.01_240)]`}
+            className={ICON_BASE}
             aria-hidden="true"
-          >文</span>
+          ><UserMenuIcon kind="language" /></span>
           <p className={LABEL}>{t("me.sections.language")}</p>
           <div
             className="inline-flex items-center gap-1 rounded-full bg-[oklch(0.94_0.005_240)] p-[3px]"
@@ -202,9 +200,9 @@ export function MePage() {
           data-testid="me-row-signout"
         >
           <span
-            className={`${ICON_BASE} bg-[oklch(0.96_0.04_25)]`}
+            className={ICON_BASE}
             aria-hidden="true"
-          >↗</span>
+          ><UserMenuIcon kind="logout" /></span>
           <p className={LABEL_DANGER}>{t("me.sections.signOut")}</p>
           <span className={CHEVRON} aria-hidden="true">›</span>
         </button>
