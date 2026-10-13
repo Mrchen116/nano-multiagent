@@ -28,3 +28,6 @@ M1-fix 扩展既有 `node-release.test.ts`、`installer.test.ts` 和 `onboarding
 - 修复后，3 个相关文件共 27 tests 通过：显式版本发布、SHA 追溯、缺失/非法版本拒绝、重复版本不覆盖、匿名下载/校验失败保留清单、新版本和已有 SHA 版本的安装/重装及安装入口路由。
 
 - 独立审查确认：直接 checkout 指定旧源码会恢复旧发布器，忽略版本输入。工作流现从自身修订保存发布器到 runner 临时目录，再 checkout 构建源码；发布器从当前源码 cwd 核对 SHA 和 clean 状态，旧源码不能覆盖当前发布规则。发布入口测试改为从独立脚本位置执行并校验源码 cwd。
+- 全量验证：`pnpm build`、`pnpm typecheck`、74 个文件 255 项后端测试；前端 92 个文件 857 项测试；Python 56 项；Ruff check/format 全部通过。iOS 源码与构建配置无变化，沿用 base 的通过证据并由 PR CI 再验。
+- 代码审查 R1 唯一旧源码发布器问题在 `ac40e9ed9` 修复，R2 closure 返回 `[]`。8 项发布器窄测试通过；独立离线用生产旧 SHA 的 candidate 和旧脚本复现，外置新版发布器正确生成 `v0.2.0`、标题与 `source_commit`，没有 GitHub 写入。
+- 最终同步 base 为 `68aeae7509ba2498b6be74c611bd36052dbed114`，main 无增量；审查后仅追加验证记录和完整归档，代码门禁保留有效。current spec 已随实现修正，不涉及 Full delta verifier。
