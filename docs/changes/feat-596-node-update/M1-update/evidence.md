@@ -3,7 +3,7 @@
 ## 基线与边界
 
 - Branch: `codex/feat-596-node-update`。首轮实现 `a9fc640ee2becbc5314019dd799bebaa81db1ff2`；HTTP 鉴权及聊天恢复修复 `2690627d6`；final sync `40a60f9` 合入 `origin/main=0e0c56797`；第二次发布提示修复 `e5cbeec26`。
-- 产品验收后的终态修复 `eba3f5cfc`：一次性升级已达到推荐版本后不再展示旧失败。`fcb4524b0` 只增强后台 review 的真实 DSH 屏障回归，不改变运行代码。
+- 产品验收后的终态修复 `eba3f5cfc`：一次性升级已达到推荐版本后不再展示旧失败。指南修复 `f5fcb1da9` 仅增加更新卡片 `min-w-0`，使窄屏升级/恢复指南正文换行、命令在内部横向滚动。`fcb4524b0` 只增强后台 review 的真实 DSH 屏障回归，不改变运行代码。
 - 独立 worktree：`/Users/czj/.codex/worktrees/feat-596-node-update/nano-multiagent`。IM `http://127.0.0.1:60837`；测试身份 nano；电脑 `wt-nano-multiagent-17159`；助手 `update-assistant`；会话 `c_xg12nvmf`。所有操作仅作用于该隔离环境。
 - 真 IM、SQLite、安装目录、Node、DSH、CLI、后台更新进程和 Web 浏览器。私有配置、凭据、PID、DB、原始日志及缓存不提交。
 - 受控部分：固定 GitHub URL 的下载 transport 映射到本地真实构建的 tar；模型使用本地 OpenAI SSE fixture；新版本进程可注入启动失败或 12 秒启动延时，以稳定观察切换窗口。没有修改产品 URL/hash 校验，也没有用 mock Node/DSH 替代真实进程。
@@ -18,7 +18,7 @@
 | HTTP report 在完整服务钩子下鉴权 | `pnpm exec vitest run apps/im-server/tests/node-updates.test.ts` | 7 passed；覆盖 runtime token 在 WS 断开时通过 report、普通管理接口仍拒绝该凭据 |
 | 包验证、取消、进程切换/回退、worker 丢失 | `apps/node/tests/node-updater.test.ts`、`update-process.test.ts`、lifecycle / release / installer 相关测试 | 6 files / 21 tests；其中 OS 进程 fixture 的 registration 是模拟，不能替代下文真栈 |
 | DSH 安全边界 | `update-barrier-native.test.ts`、Workflow、model-setup、PA 控制/heartbeat tests | 真 DSH 的 idle hold、queued inbox/cold recovery、Cron 保留、child/paused Workflow、未提交模型事务及 PA delivery 边界通过 |
-| Web 回归 | `npm run test`，`/tmp/nano596-final-frontend-tests.log` | 最终 93 files / 863 tests passed；后续仅 obsolete-result 修复，受影响组件 5 tests passed，其他结果保留 |
+| Web 回归 | `npm run test`，`/tmp/nano596-final-frontend-tests.log` | 最终 93 files / 865 tests passed（`/tmp/nano596-final-frontend-race-tests.log`）；包含旧终态与发送等待竞态新增回归 |
 | 第二次发布仍展示新版本与说明 | `node-update-panel.test.tsx` | 4 passed；真实 0.3→0.4 发布场景暴露并修复旧 succeeded 结果遮挡新版本 |
 | Web 构建与依赖 | `npm run build`；`npm audit --audit-level=critical` | build passed，0 vulnerabilities；仅已有 bundle-size/dynamic-import 提示 |
 | 工具及架构 | `pytest -m 'not e2e' -q`；`ruff check .`；`ruff format --check .` | 56 passed / 31 deselected；ruff 均通过；独立 reviewer 另跑架构契约 13 passed |
@@ -68,3 +68,21 @@
 ## 测试归属
 
 保留既有生命周期、安装、Workflow、Knowledge、模型、聊天恢复测试并在风险所属 seam 扩展。共享 manifest 校验、持久授权/取消与 report 接线、本机 worker/lease、真 DSH idle hold、Web 更新交互分别需要自己的最低层保护；临时发行包、进程观测和浏览器脚本只用于本次真栈验收，不进入永久测试套。没有添加第二套 Agent Loop 或改动 DSH 上游。
+
+## 最终集成有效性
+
+- Final sync 在产品代码冻结 `f5fcb1da9` 后再次 fetch，`origin/main` 仍为 `0e0c56797`；没有新增 main 差异。
+- `e5cbeec26` 之后运行代码涉及 Web 更新面板的旧终态优先级、指南宽度及 `56f1f5776` 聊天 POST/WS 顺序修复。后端全量、架构和 iOS 结果保留；最新前端全量与 build 通过。独立 reviewer 的复验和静态 delta 审查分别记录在 acceptance/code-review 报告。
+- M1 产品代码未新增第二套执行循环、源码更新入口或生产部署行为；最终归并和归档仅改变文档路径与 current spec，不使实现审查结论失效。
+
+### 录屏暴露的消息先后顺序修复
+
+真实操作 `036b9ec4-848f-4121-bcef-34af2e772d21` 切换期间，消息 `7fbec13bdc7a4656b5e14da7c95cff0c` 在 00:58:54.345 被接受，新版成功 00:59:06.600 后仅回复一次，但发出后气泡没有即时等待提示。原因是 `message.created` echo 先创建同 ID 气泡，发送 POST 的最终 `update_wait` 被 append_optimistic 的重复 ID 早退丢弃。新增现有 workspace integration 回归，先 echo 后响应，修复前准确报缺 Waiting for computer update。`56f1f5776` 移除该早退，沿已有按 ID 合并更新同一个气泡；完整 workspace 55 tests passed、Web build passed，随后全前端 93 files / 865 tests passed。实际重走发送、刷新、一次回复的视频与独立复验见最终交付记录。
+
+## 最终视频交付
+
+- 真实 Web build：`56f1f5776`；1280×900；连续录制 78.48 秒，MP4仅转码、没有拼接或伪造状态。`/Users/czj/Movies/Nano-Node-Update-20261014/01-node-update-overall.mp4`；原始 `01-node-update-original.webm`。补充失败回滚视频 `02-update-rollback.mp4` 保留早一轮未受影响的真实运行证据。
+- 画面：聊天新版提示→点击更新→下载准备→忙碌等待→取消→重新更新→切换中发送→即时等待→刷新仍等待→自动回复→电脑已更新。模型本次任务延时40秒，目标进程延时18秒，仅用于真实运行中的稳定观察。
+- 取消操作 `eeb9b70d-6128-4338-bd52-075ffdb8b555`；随后成功 `12baed71-ef25-4d6d-b1ee-b130ec7060a7`，01:05:53.661（UTC+8）。消息 `639a01da0d6d47ea8b4bf8dc48bcc81b` 于01:05:35.921发送，唯一relay key `639a01da0d6d47ea8b4bf8dc48bcc81b:update-assistant`，完成后唯一回复 `1690f50a41d64d9ebab6fa1e4bda2f78` 于01:05:53.892。
+- 同目录 `delivery-message-wait.png`、`delivery-message-refreshed.png`、`delivery-message-completed.png` 是本次实际页面截图；主agent已逐图核实等待文案和回复。独立产品复验的R4另记在acceptance报告。
+- `independent-review/` 持久保留验收原始失败、修复后及多宽截图。所有媒体/日志/私有配置均不提交Git；交付目录位于worktree外，不随清理删除。
