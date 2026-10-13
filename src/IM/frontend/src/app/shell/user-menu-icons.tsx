@@ -12,4 +12,3 @@ export function UserMenuIcon({ kind }: { kind: "account" | "nodes" | "models" | 
     </svg>
   );
 }
-
