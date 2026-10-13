@@ -239,3 +239,75 @@ Current snapshot: `f881314a469e97178cd91e59a308c0d3625404d9`. All seven correcte
 - No additional material public behavior omitted from the seven corrected deltas was found within this patch. Unaffected R1 full-diff coverage remains retained; current-spec merge is caller-owned at completion.
 
 Outcome: **aligned** (R3 seven-delta coverage retained; R4 explicit-delivery guidance aligned with existing current contract). `requires_full_verification: false`; no surviving implementation deviation in the requested R4 source/contract scope. This does not certify the pending actual-model delivery acceptance.
+
+
+## Round 5 — integrated completion audit after feat-588 merge
+
+- `review_round: 5`; modes: targeted-closure, integration-delta, corrected-delta/completion audit.
+- `validated_at: 77622d2152fe7e1bb2966fb656adf9e41613aed6`
+- `executed_base: b7e367cc08a642133dea28e372816cd79038818d`; ancestry independently confirmed.
+- Frozen tree: `85a9120442e4b5a7ed2df13360d77bf9da90558f`, identical to pre-merge `0247eb0e610bbf366f37b34f41015430cdaff8f7`.
+- Verdict: **FAIL completion approval — 0 CRITICAL / 2 WARNING / 0 SUGGESTION**, both concrete current-documentation drift below. No newly confirmed runtime implementation defect. `requires_full_verification: false`.
+- This appended round supersedes older pending-product statements and historical discovery/distribution assumptions only as expressly mapped below; prior evidence and failures remain intact.
+
+### Requirement / Scenario disposition
+
+| Original feat-587 scenario | Integrated disposition | Evidence retained / updated boundary |
+|---|---|---|
+| S1 personal space immediately usable | retained pass | 587 product R1 registration/contacts, R2 Work/task object matrix, R3 actual private save inaccessible to other accounts; unchanged tenancy enforcement. |
+| S2 explicit team approval, personal use remains available | retained pass | 587 approved/pending/other-owner matrix plus Work mixed-journal and handoff regressions; joining never changes private resource space. |
+| S3 local Agent install prompt | implementation/evidence retained; transport superseded | Self-contained same-IM prompt still drives the same installer. Historical actual execution retained; GitHub-fixed transport is now governed by 588 S9 and its isolated installation evidence. No current public Release is claimed. |
+| S4 manual installation | implementation/evidence retained; transport superseded | 587 real no-preinstalled-Node install and 588 actual shell/bind/start/reinstall with exact download transport fixture. Official Node staging remains complete-before-promote. Linux/WSL real-machine validation and public anonymous GitHub download are not claimed. |
+| S5 repeat/offline recovery | retained pass at tested seams | 587 actual same-page ready→offline→same-assistant recovery; 588 existing-install download/hash negative checks, private identity/config preservation and API-editor offline draft/revision review. |
+| S6 discover existing local proxy/Codex | **superseded, not re-passed** | User's 588 original request states ordinary users use APIs and local proxy is developer-only. 588 S1/S3/S4 replaces discovery-first behavior with API-first catalog/custom setup; optional native Codex remains. Removed proxy scanning and its old test are deliberate. Manual custom loopback remains supported; no real third-party OAuth login is claimed. |
+| S7 API configuration and credential privacy | covered by 588 S1/S3/S4/S5/S8 | Common initial/daily editor; actual tested API paths, local-only credential store, nested safe projection, blank-key retention, URL/key rotation and stable same-assistant choices. Test aliases forward real inference; not a claim of every vendor's live credential acceptance. |
+| S8 failed connection and recovery | covered by 588 S6 plus retained OAuth boundary | Probe leaves live service intact; failed/cancelled/conflict/offline drafts survive with explicit review. Existing native code/link/cancel coverage retained. Failed key is held in component memory for correction, not browser durable storage or status output. |
+| S9 guided assistant with few inputs | retained, updated model selection | Purpose/name/goal, stable retry ID and actual workspace remain; selected stable service-qualified model reference now comes from the shared editor/status. Existing create retry/nonduplication regressions and real creation retained. |
+| S10 first real result in chat | retained pass; latest integration product check separately owned | 587 product R4 ordinary private task save produced real task tg_6bd77847 and actual result in source conversation, closing #5; 588 product first/edited model → original assistant actual replies retained. Explicit send_message guidance/execution is unchanged by 588. Do not equate task success, Work draft or Inbox receipt with delivered reply. |
+| S11 reload/relogin/recovery | retained, strengthened by 588 S5/S6/S8 | Stable candidate, saved Agent/chat/Node identity; persisted model revision and credential store; Node cold restart, explicit stale-draft reconciliation and actual same-assistant reply evidence. |
+| S12 existing users/language/narrow screens | retained with 588 updated UI evidence | Legacy model refs/id fallback, stable old-key binding and catalog fixes; auth/iOS optional flag remain. 588 three-width API editor/list and mobile/desktop menu review replace affected visuals. iOS CI archive/tests pass; browser mobile width is not a physical iPhone or native model-management acceptance. |
+
+### Milestone / delivery completion
+
+| Gate | Current conclusion |
+|---|---|
+| 587 M1 implementation and lowest relevant regressions | Covered by original full review and closure rounds plus 588 follow-up; no extra worker/task document required. All accepted implementation behaviors have reviewable seams. |
+| 587 must-match | Install choices, team flow, guided creation and explicit real chat evidence retained. Model-source prototype row is superseded by 588 API-first/editor contract and its later approved UI design/product comparison, rather than pretending the old proxy screen still applies. |
+| 588 M1 A/B/C | Product R2 passed provider identity after cold restart/removal, API-first/current-editor, error/cancel/conflict/offline/dependency and same-assistant real replies; R3 passed menu icons. Full R1 unaffected three-width and lifecycle evidence retained. |
+| 588 M1 D/E | Public DSH/Node responsibility, roundtrip/wire ID, shared persistence queue, stage/YAML recovery, no-key projection and probe cleanup have full/static/targeted tests. Two actual prior defects were independently reproduced then closed. Final runtime source is unchanged since those semantic reviews. |
+| 588 M1 F/G install distribution | Fixed manifest/download URL/hash, old-route redirect, download failure preservation and candidate→publication→anonymous verification→manifest promotion implemented/tested. The accepted design explicitly defers actual Release/anonymous download to a future authorized publication operation. |
+| Current documentation / entrypoint reconciliation | **Not complete: W5-D1/W5-D2.** Canonical IM/Gateway specs contain the new contracts, but live operations/README still contradict them. Archived guidance cannot replace these current entrypoints. |
+| Remote CI | Independently observed run 38349265822 SUCCESS for all three jobs including iOS Release archive. Run head 0247eb0e6 has the exact same tree as integrated head 77622d2, so this gate is retained without another broad test run. |
+| New integrated product confirmation | Separately dispatched; this verifier does not certify the other reviewer's current session. Historical product gates retain their stated valid scope and fixture boundaries. |
+| Requested replacement new-user video | Next caller-owned gate after completion review/product confirmation; should show API-first route and end at a real received reply. Old 587 discovery/proxy video is historical evidence, not the requested updated video. Pending recording is not an absent implementation defect. |
+| Merge main / release / deployment | PR339 merged into PR337 only; PR337 remains OPEN with base main. User explicitly stops before merge main. No Release publishing, public anonymous asset-download acceptance, production upgrade or public-install availability is reported complete. |
+
+### Current documentation deviations
+
+**W5-D1 — current installation runbook instructs the obsolete build/deploy path.** `docs/operations/local-stack.md:13` says `pnpm build` generates `dist/node-release/manifest.json` plus the archive, and points IM at both. Actual `scripts/build-node-release.mjs:40–43` produces `manifest.candidate.json` only; `publish-node-release.mjs` promotes verified manifest.json only after fixed Release publication and anonymous byte/hash check. `apps/im-server/src/install.ts` requires that manifest and serves no archive body. A clean deployment following the runbook cannot make the advertised installer available; renaming the candidate would bypass the documented verification boundary. 588/guidance.md explicitly acknowledges this old text but is archived. Update the current runbook with the exact publication/verified-artifact handoff, metadata-only IM directory and matching build/manifest rollback. Contract: 588 S9, M1 F/G and canonical IM fixed-version installation requirement. This is a documentation fix, not a request to publish/deploy now.
+
+**W5-D2 — live user entrypoints still promise removed proxy autodiscovery.** `README.md:12` presents existing local proxy before API; `docs/operations/gateway.md:9` explicitly promises direct discovery/testing. Current `docs/specs/im/agents-nodes.md` and actual Node/common editor implement API-first without developer proxy scanning, as the user's 588 requirements demand. Update these current entrypoints to built-in/custom API first, optional Codex subscription and manual custom loopback, with the constant model-services route. Keep the archived original S6 wording as historical/superseded. Contract: 588 S1/S2/S3/S4 and the modified model-connection requirement. This is not a missing automatic discovery feature.
+
+### Retained corrected-delta reconciliation at integration
+
+The prior single detailed 587 corrected-delta section remains historical at f881314a4; this integration disposition applies its seven rows against current canonical contracts and 588's already-verified two deltas. No frozen historical spec is silently rewritten to excuse implementation.
+
+| 587 delta area | Integrated mapping / disposition |
+|---|---|
+| IM auth-tenancy | Retained aligned: immediate personal availability, explicit approval, fixed scopes and optional native eligibility; 588 does not change enforcement. |
+| IM agents-nodes | Original continuous setup, device handoff and private data boundaries retained. Original discovered-source model requirement is explicitly superseded by 588 MODIFIED API-first and ADDED daily editor/recovery/dependency/install requirements; canonical merge inspected. Runtime alignment retained; current entrypoint docs W5-D2 remain. |
+| IM agent-work | Retained aligned: authorization, minimal session metadata for handoff, no revoked content, actual Work/trajectory access and explicit delivery separation unchanged by 588. |
+| IM task-graphs | Retained aligned: fixed-space private/company tasks, actor/source/receipt isolation; 587 actual private-task and chat-result acceptance closes historical product gap. |
+| Gateway service-lifecycle | Empty/bootstrap/repeat/data-preservation retained. 587 same-origin archive transport is superseded by 588's fixed GitHub asset/direct download with same-origin script/metadata. Canonical lifecycle and IM install contract coexist; current runbook W5-D1 is still wrong. |
+| Gateway agent-capabilities | Native/API verification and local credentials retained; 588 stable service/wire-model references, isolated probes, revision/dependency queue and rollback are the accepted extension. Removed proxy scanning is superseded, not failing recovery. |
+| Gateway task-graphs | Retained aligned: effective capability/identity/space and explicit mutation authorization; model-service changes resolve primary/fallback/approval models without changing task permissions. |
+
+Corrected-delta text/implementation outcome: **aligned with explicit supersession**. Completion verdict remains FAIL because two authoritative current entrypoints drift from the implemented/merged contracts. No additional material behavior omitted from the delta/current-contract chain was found in this bounded integration review; menu icons remain no-spec-delta.
+
+### Verification execution and evidence limits
+
+Read archived 587 original spec/design/M1/rounds 1–4, 588 original user request/design/M1, independent static/verification rounds 1–4 and product rounds 1–3. Traced current onboarding/shared editor/owner relay, Node model setup/probe/configuration/providers, native local credential/settings seam, installer/manifest/build/publish/workflow and current docs. Retained unaffected tenancy/Work/task/ios evidence; no repetitive full regression was run for a merge with an identical tree.
+
+Independent read-only commands: checkout/status/branch; merge ancestry; `git rev-parse 0247eb0e6^{tree} 77622d2152^{tree}`; `git diff --stat 1bb8ff98e..77622d2` (only archived reports/progress/guidance); `git diff --check b7e367cc08..77622d2`; `bash -n apps/im-server/assets/install.sh`; `node --check scripts/build-node-release.mjs`; `node --check scripts/publish-node-release.mjs`; `gh run view 38349265822 --json databaseId,headSha,status,conclusion,jobs`; `gh pr view 337/339` metadata. All static syntax/range checks passed; remote metadata matched the statuses above. [CI run](https://github.com/Mrchen116/nano-multiagent/actions/runs/38349265822), [open PR337](https://github.com/Mrchen116/nano-multiagent/pull/337), [merged PR339](https://github.com/Mrchen116/nano-multiagent/pull/339).
+
+No source/test/design/other report was edited; no services, build, publication, deployment or main merge initiated. Existing untracked `.runtime/` and `output/` were preserved. Two doc findings were delivered together for caller's single correction batch; no speculative review loop requested. Next static closure can be limited to those current-doc changes; integrated product and new video remain separately owned.

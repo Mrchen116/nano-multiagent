@@ -109,3 +109,45 @@ Snapshot: `b70d4a7bd80b..59650f196642afbbc63f1475c0b874a6b1dc6ea9`; review mode 
   }
 ]
 ```
+
+
+## Round 5 — integrated feat-588 completion audit
+
+- `review_round: 5`; independent code-review / change-verifier roles retained.
+- `validated_at: 77622d2152fe7e1bb2966fb656adf9e41613aed6`
+- `executed_base: b7e367cc08a642133dea28e372816cd79038818d` (origin/main, ancestor of validation head).
+- Worktree: `/Users/czj/.codex/worktrees/feat-588-model-services/nano-multiagent`; branch `codex/feat-587-final-review`. The archived original feat-587 worktree was not accessed.
+- Modes: integration-delta and completion-audit. Reviewed affected onboarding/model/credential/installation/current-documentation seams; retained unaffected full and closure reviews. No additional full review or implementation changes.
+
+### Findings
+
+```json
+[
+  {
+    "file": "docs/operations/local-stack.md",
+    "line": 13,
+    "summary": "[P2] Document verified Release manifest promotion before enabling installation",
+    "failure_scenario": "The current operations entry says pnpm build creates dist/node-release/manifest.json and that IM needs the archive alongside it. The integrated build now writes only manifest.candidate.json; install.ts enables the installer only with the separately verified manifest.json, while the archive is downloaded directly from the fixed GitHub Release. An operator following this current instruction on a clean deployment gets an unavailable installer/503 and no documented publication/promotion step, or may rename an unverified candidate to make it work. The new correct instructions exist only in archived feat-588/guidance.md, which itself acknowledges the current local-stack text is obsolete. Update the current operations route with candidate versus verified manifest, fixed-version publication/anonymous hash validation, IM-only metadata deployment and coordinated rollback; do not imply publication/deployment already happened.",
+    "review_mode": "integration-delta + completion-audit",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "docs/operations/gateway.md",
+    "line": 9,
+    "summary": "[P2] Replace removed proxy autodiscovery instructions in current product entrypoints",
+    "failure_scenario": "Gateway operations still promises that an existing local proxy can be directly discovered and tested, and README.md:12 lists that discovered connection as the first setup path. User-approved feat-588 explicitly supersedes feat-587's old discovery-first S6: the current common editor defaults to API providers/custom service, and Node no longer scans developer proxy configuration. A new user following the current entrypoints is sent looking for a removed discovery action rather than using the supported API-first path. Align README and Gateway instructions with current IM agents-nodes contract: built-in/API first, optional Codex login, custom API including manually entered loopback proxy, plus the permanent model-services entry. Retain historical S6 in archived spec as superseded rather than claiming it passed again.",
+    "review_mode": "integration-delta + completion-audit",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+### Retained closures and integration evidence
+
+- No new runtime-source correctness finding. feat-587 historical W1/W2/W3 and R2 Work/offline repairs remain closed within their applicable contracts. The removed discovery-specific W2 implementation is superseded by feat-588's explicit API-first scope; it is not missing work. feat-587 product R4 at f881314a4 independently closed actual private-save → original-chat delivery (tg_6bd77847), superseding this report's earlier pending-product wording.
+- Retained feat-588 M1 full R1 and targeted R2–R4 static/verification evidence. Legacy remaining-service credentials have stable immutable-ID env bindings; vendor catalog identity remains separate from editable service labels. The temporary probe, shared Agent/model write queue, revision/dependency rechecks, local credential store and safe IM projection remain as reviewed. Product R1/R2 actual API onboarding, edit/key retention, conflict/offline/dependency/restart and same-assistant replies, plus R3 menu visual evidence, are retained with their fixture/platform limits.
+- Independently checked `0247eb0e6^{tree}` equals `77622d2152^{tree}`: `85a9120442e4b5a7ed2df13360d77bf9da90558f`. Since the last semantic cleanup `1bb8ff98e`, only archived reports/progress/guidance changed; the integration introduces no unreviewed runtime-source delta.
+- Read-only GitHub checks: PR #339 is MERGED into `codex/feat-587-first-run-onboarding` at 77622d2; PR #337 remains OPEN with base main. CI run 38349265822 for 0247eb0e6 is completed/success: TypeScript backend/tooling, frontend and iOS build/tests all successful, including Release device archive. Tree identity supports retaining this run after the merge commit; no new full test run is needed solely for the commit shape.
+- Independently passed range `git diff --check`, `bash -n apps/im-server/assets/install.sh`, and `node --check` on build/publish release scripts. Existing tests were read with trusted recorded results; no test/service/build/release operation was repeated.
+
+Conclusion: **changes required for the two current-documentation findings before completion approval**. Implementation and existing functional/CI gates can be retained. New integrated product confirmation and the requested API-first new-user video are separately owned next steps; Release publication, anonymous public asset download and production deployment have not been executed and are not asserted by this code review. No merge-main, push or external message action was performed.
