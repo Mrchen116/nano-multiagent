@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- R1：补齐屏障前 relay gate、取消/崩溃后主动重放、本机屏障租约，以及恢复失败后的消息投影。
+
 ## 现状分析
 
 ### 涉及范围
@@ -42,7 +44,11 @@ Web → IM 的 owner-only 更新操作 → 既有节点 WS 下发固定操作 �
 
 **先准备好新目录，再在安全边界停旧进程。** Node 有本地 admission gate，保护 relay、外部 channel、Heartbeat、模型/配置变更；短暂 gate 期间 Web 输入仍留在 IM relay，外部输入仍在 ExternalChannels durable ledger，不能返回成功后吞掉。正在执行的任务和 permission response 继续。准备屏障会核对 Node 的在途 admission/控制操作以及 PA reconciliation；DSH 一次性核对全部 live Agent（含 child）、inbox、ModelPolicy/ModelFallback 待续工作、Workflow live/paused 工作、Knowledge review/tasks。存在工作就返回 busy，不 cancel。没有工作才暂停 cron timer 并用 public runMaintenance 把 idle Agent 保持在真正 idle，相同 scope 禁止新 session admission；竞态发现新增工作则释放并重试。取消或准备失败恢复原 cron/接入，不修改用户保存的 feature 开关。
 
-**取消与切换在 IM 做一次原子裁决。** 更新进程定期取得 cancel_requested；waiting 阶段拿到本地包含 operation_id、pid/process_start 的 ready handoff 后，向 IM claim-switch。IM 只在同一 owner/epoch/operation 且未取消时切到 switching，同时开启 relay gate。取消先发生则切换不能发生；切换先发生则取消返回冲突，UI 不再展示取消按钮。准备屏障与 claim 之间仍可取消，释放本地屏障。HTTP ACK 丢失查询同一 operation，不启动第二个切换。
+**等待屏障与消息 gate 按同一操作交接。** 新包准备完成后，worker 先报告 waiting/prepare，由 IM 持久开启该操作的 relay gate，再请求 Node 屏障。已发送但尚未承认的 relay 一并保留；Node admission 拒绝不能写 accepted receipt。屏障发现 busy 时先恢复本机 admission，再报告 waiting/resumed，IM 关闭 gate 并主动重放 queued/sent/accepted；下一次空闲探测重复此顺序。取消只先写 cancel_requested；只有本机释放屏障后才报告 cancelled 并主动重放，不依赖 WS 重连。下载阶段取消无需建立屏障。
+
+**本机屏障有短租约，不能依赖 worker 一直存活。** `.node-update.json` 由 worker 每秒刷新 operation_id、worker PID/birth 和 heartbeat；Node 的屏障绑定该身份及自身 PID/birth。worker 进程死亡或连续 15 秒心跳过期时，Node 自动释放 runMaintenance、恢复 cron/admission、删除匹配 handoff，并通过自己的持久 runtime token 报告 interrupted/resumed；只有该恢复 ACK 或验证通过的在线注册才能解除 IM relay gate。worker claim-switch 前和实际 stop 前都重新核对租约与 handoff；claim 已成功但 stop 前屏障失效时不得停机，先报告 interrupted/resumed 收口；已释放或属于其他进程的 handoff 不可使用。取消、准备失败和租约超时共享这一释放路径。IM 30 秒失联将结果标记 interrupted 或 recovery_required；未取得 resumed/ready 时，既有排队消息保留为等待电脑恢复而非仍在正常更新，恢复节点重新注册后再重放。
+
+**取消与切换在 IM 做一次原子裁决。** 更新进程定期取得 cancel_requested；waiting 阶段拿到本地包含 operation_id、pid/process_start 的 ready handoff 后，向 IM claim-switch。IM 只在同一 owner/epoch/operation 且未取消时切到 switching，同时保持已开启的 relay gate。取消先发生则切换不能发生；切换先发生则取消返回冲突，UI 不再展示取消按钮。准备屏障与 claim 之间仍可取消，释放本地屏障。HTTP ACK 丢失查询同一 operation，不启动第二个切换。
 
 **真实 readiness 后才显示成功。** 新 CLI 使用原 config 与同一 identity 启动；更新进程验证 PID birth、实际 release hash/commit、DSH ready 和该版本已在 IM 注册，随后上报 succeeded。在成功前 IM 保持 relay gate，注册后不提前重放。终态解除 gate 后仅投递仍符合成员/owner/epoch 的既有 relay，Node 的既有输入幂等防重复。已排队输入在刷新后从持久消息状态恢复。
 
@@ -63,7 +69,7 @@ IM 增加受管安装快照及更新操作表；后者保存 operation_id/reques
 - `node.register` 携带实际 release 与 update capability，后续 reconnect 不以相同 Node 名字推断成功。节点快照与 `node.update_changed` 供 Web cache 刷新。
 - 本地连接目录保存 `.node-update.json` 和屏障 handoff；下载 staging、锁和日志均保持私有/不入 Git。工作进程独占状态写入，Node 只写带 operation_id/PID 的 ready handoff。每次进程启动检查未收口操作并以真实状态恢复或报告 interrupted，不把旧 ready 当新授权。
 
-消息只在 waiting 的短屏障/切换期间保持 queued；正常 downloading/installing 继续投递。切换时 HTTP send 返回已持久消息，更新恢复后复用原 relay key。等待提示由 pending 消息对应仍 gated 的 relay 计算，支持一条消息的多节点接收，避免一台更新挡住其他节点。不改普通离线节点发送失败语义。
+消息只在 waiting/prepare 的短屏障及切换期间保持 queued；正常 downloading/installing 继续投递。切换时 HTTP send 返回已持久消息，更新恢复后复用原 relay key。等待提示由 pending 消息对应仍 gated 的 relay 计算，支持一条消息的多节点接收，避免一台更新挡住其他节点。不改普通离线节点发送失败语义。进入 recovery_required 或未恢复的 interrupted 后，不再接受新的“更新中成功排队”发送；已持久排队消息显示“电脑恢复后继续处理，无需重发”，聊天 chip 显示“电脑需要恢复”并链接该电脑恢复入口。取消/下载失败/已回退且在线时，释放 gate 后立即重放；恢复失败则在同身份同 epoch 节点恢复注册后重新校验并重放，原 relay key 始终不变。
 
 ## 前端原型
 
