@@ -151,3 +151,24 @@ Snapshot: `b70d4a7bd80b..59650f196642afbbc63f1475c0b874a6b1dc6ea9`; review mode 
 - Independently passed range `git diff --check`, `bash -n apps/im-server/assets/install.sh`, and `node --check` on build/publish release scripts. Existing tests were read with trusted recorded results; no test/service/build/release operation was repeated.
 
 Conclusion: **changes required for the two current-documentation findings before completion approval**. Implementation and existing functional/CI gates can be retained. New integrated product confirmation and the requested API-first new-user video are separately owned next steps; Release publication, anonymous public asset download and production deployment have not been executed and are not asserted by this code review. No merge-main, push or external message action was performed.
+
+
+## Round 6 — closure of integrated documentation findings
+
+- `review_round: 6`; mode: targeted closure.
+- `validated_at: 22aa42c62af979671366d2a1ebc2644f1d7618e0`
+- `pre_fix_head: ea547e6eddb118c5798d25a524a7e0f59e18a309`; inspected the entire five-document patch.
+- `executed_base: b7e367cc08a642133dea28e372816cd79038818d`; runtime-source validation retained at `77622d2152fe7e1bb2966fb656adf9e41613aed6`.
+
+```json
+[]
+```
+
+| R5 focus finding | Status | Closure evidence |
+|---|---|---|
+| W5-D1 / P2 obsolete installation publication runbook | closed | local-stack now separates build candidate from verified manifest, names manual fixed-SHA publishing and anonymous hash validation, uses the workflow artifact for metadata-only IM deployment, requires matching/atomic manifest switches and retained rollback, and distinguishes public first-use acceptance from fixtures. Compared with actual build/publish scripts, workflow and install routes. |
+| W5-D2 / P2 removed proxy discovery promised in current entrypoints | closed | README/Gateway now present API-first built-in/custom setup, optional Codex and manually entered compatible proxy. Permanent per-computer model-services entry and local YAML/credential-store boundaries are explicit. No promise of developer-config scanning remains. |
+
+Reviewed both index changes: they route current readers to the corrected current operations section, with valid file targets and an existing heading. `git diff --check ea547e6ed..22aa42c62` independently passed; caller's focused docs-check passed (243 sources / 64 routes), reused without another full check/test cycle. The complete patch changes only five current documents; relative to runtime 77622d2, all additional changes are those documents plus the R5 reports. No runtime source, tests, dependencies or behavior changed.
+
+Result: **PASS, both P2 findings closed and no surviving findings**. R5's implementation review, test/CI evidence, historical issue closures and explicit supersession mappings are retained. Independent product review and the requested new video remain separate. Publication, public anonymous asset acceptance, production deployment and merge-main remain unexecuted/outside this closure. Only these two archived reports were appended; no push or runtime operation.

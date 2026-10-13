@@ -311,3 +311,33 @@ Read archived 587 original spec/design/M1/rounds 1–4, 588 original user reques
 Independent read-only commands: checkout/status/branch; merge ancestry; `git rev-parse 0247eb0e6^{tree} 77622d2152^{tree}`; `git diff --stat 1bb8ff98e..77622d2` (only archived reports/progress/guidance); `git diff --check b7e367cc08..77622d2`; `bash -n apps/im-server/assets/install.sh`; `node --check scripts/build-node-release.mjs`; `node --check scripts/publish-node-release.mjs`; `gh run view 38349265822 --json databaseId,headSha,status,conclusion,jobs`; `gh pr view 337/339` metadata. All static syntax/range checks passed; remote metadata matched the statuses above. [CI run](https://github.com/Mrchen116/nano-multiagent/actions/runs/38349265822), [open PR337](https://github.com/Mrchen116/nano-multiagent/pull/337), [merged PR339](https://github.com/Mrchen116/nano-multiagent/pull/339).
 
 No source/test/design/other report was edited; no services, build, publication, deployment or main merge initiated. Existing untracked `.runtime/` and `output/` were preserved. Two doc findings were delivered together for caller's single correction batch; no speculative review loop requested. Next static closure can be limited to those current-doc changes; integrated product and new video remain separately owned.
+
+
+## Round 6 — targeted closure of current entrypoint drift
+
+- `review_round: 6`; `verification_mode: targeted-closure / delta`.
+- `validated_at: 22aa42c62af979671366d2a1ebc2644f1d7618e0`
+- `fix_delta_range: ea547e6eddb118c5798d25a524a7e0f59e18a309..22aa42c62af979671366d2a1ebc2644f1d7618e0`
+- `executed_base: b7e367cc08a642133dea28e372816cd79038818d`
+- Verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION; both R5 documentation warnings closed.** `requires_full_verification: false`.
+
+### Closure
+
+| Warning | Result | Exact correction / verification |
+|---|---|---|
+| W5-D1 installation runbook contradicts verified publication boundary | closed | `docs/operations/local-stack.md:13–19` now states build emits only manifest.candidate.json/package; full-SHA manually dispatched workflow publishes fixed Release, anonymously downloads and checks hash, then yields node-manifest artifact. IM deploys only the original verified manifest with matching IM/Web build, atomic switch and retained old manifest; legacy package route redirects. Public install/bind/reply acceptance remains explicitly required before opening the installer. These statements match unchanged build/publish/install/workflow source. |
+| W5-D2 current README/Gateway still promise removed automatic proxy discovery | closed | `README.md:12–14`, `docs/operations/gateway.md:7–11` now match API-first catalog/custom editor and daily per-computer model services. Optional Codex, manual loopback/custom proxy, local nonsecret YAML and local DSH credential storage are accurately distinguished from IM relay/status. No developer-config scan is promised. |
+
+Both current indices now link the corrected current publication section instead of leaving the usable explanation only inside an archived change. File targets and the publication heading were inspected. This closes the two authoritative-entrypoint gaps that made R5 completion approval fail; no new implementation or spec contract was introduced.
+
+### Retained implementation and completion boundaries
+
+The complete fix is exactly five Markdown files (15 insertions / 5 deletions); all runtime source/tests/dependencies are unchanged from `77622d2152fe7e1bb2966fb656adf9e41613aed6`. Therefore R5 source correctness, requirement/milestone mapping, historical defect closure, original runtime CI run 38349265822 and source-tree identity reasoning remain applicable. The product reviewer still uses the frozen 77622d2 runtime, which is semantically the same program; this documentation closure does not constitute that independent product review or a rebuilt release.
+
+R5's seven-area corrected-delta disposition remains **aligned with explicit supersession**, now with W5-D1/W5-D2 closed in current entrypoints. Original discovery-first S6 remains superseded by the user's 588 API-first requirement, not newly passed. The same-origin program-byte distribution assumption remains superseded by fixed GitHub distribution with same-origin script/metadata. No archived original requirement or existing test was rewritten.
+
+Independent check: full patch read and `git diff --check ea547e6ed..22aa42c62` passed; compared named manifest/artifact fields and commands with unchanged source/workflow. Reused caller's relevant docs-check result of 243 sources / 64 routes. No code suite/build/service restart was repeated for this documentation-only change, and no new fixture was created.
+
+**Completion conclusion:** no remaining static/verification issue within the integrated implementation and these current-documentation corrections. The caller may proceed with independently confirming the current product and recording the requested API-first new-user video. Those actions retain their own evidence gate; this report does not assert they have already completed. GitHub Release publication, actual anonymous public asset download, production installation/deployment and merge-main are not performed or implied. User's stop-before-main boundary remains in force.
+
+Only code-review.md and verification.md were appended. Existing untracked `.runtime/` and `output/` were preserved; no source, design, other report, publication, deployment or push operation.
