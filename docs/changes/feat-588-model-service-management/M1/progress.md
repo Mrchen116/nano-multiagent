@@ -29,3 +29,4 @@
 - 静态 R1 在 `eff9d6daf` 发现旧 YAML 内联凭据按服务数组下标绑定：删除 A 后，仍使用 B 的同一会话发送 A 的 key。新增真实 DSH/HTTP 回归先复现失败，再将环境变量名称固定到不可变服务 ID 的完整 UTF-8 hex；移除其他服务不再改变绑定。
 - `/tmp/nano588-legacy-red.log` 保留失败的实际 Authorization 对比；`/tmp/nano588-legacy-green.log` 为 providers/model-setup/configuration/integration model-setup 四文件 15 tests 通过。独立复验尚待最终批次冻结。
 - 文档检查通过（252 maintained sources / 64 routes）；Ruff check 与 format check 通过（82 files）。
+- 产品 R1 另发现内置厂商标签在改名/重启后被服务名覆盖；主会话以真实 DSH 冷启动目录红测确认后移除 native profile 的产品标签覆盖。四文件 11 tests 通过，原因与回复后上游 502 的独立取证见 [product R1 triage](evidence/product-r1-triage.md)。

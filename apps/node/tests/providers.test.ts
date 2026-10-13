@@ -8,6 +8,30 @@ import { NodeConfiguration } from "../src/configuration.js";
 import { providerProfiles } from "../src/providers.js";
 import { ModelSetup } from "../src/model-setup.js";
 
+it("keeps built-in provider identity separate from the service label after cold initialization", async () => {
+  const home = await mkdtemp(join(tmpdir(), "nano-provider-catalog-"));
+  let client: RuntimeClient | undefined;
+  try {
+    await prepareProfile(home, [{ id: "llm-pi-ai", config: { providers: {} } }]);
+    const catalog = async (providers: Record<string, unknown>) => {
+      client = new RuntimeClient({ home, cwd: home });
+      await client.rpc.request("initialize", { protocol: 1, agents: [], bindings: [], providers });
+      const entries = await client.rpc.request("model.setup.catalog", {}) as Array<{ provider: string; display_name: string }>;
+      await client.shutdown(); client = undefined;
+      return entries.find(entry => entry.provider === "deepseek")!.display_name;
+    };
+    const original = await catalog({});
+    const profile = providerProfiles({ default_model: "deepseek/deepseek-chat", providers: [{
+      name: "deepseek", native: true, display_name: "My Research API",
+      models: [{ name: "deepseek/deepseek-chat", id: "deepseek-chat" }],
+    }] });
+    expect(await catalog(profile.providers)).toBe(original);
+  } finally {
+    if (client) { client.process.kill("SIGKILL"); await client.exited; }
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("keeps the remaining legacy service credential in the same live session after removing an earlier service", async () => {
   const authorization: Array<string | undefined> = [];
   const server = createServer(async (req, res) => {

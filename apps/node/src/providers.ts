@@ -59,7 +59,7 @@ export function providerProfiles(config: NodeConfigurationFile["llm"]) {
   for (const provider of config.providers) {
     if (provider.native) {
       providers[provider.name] = {
-        ...(provider.display_name ? {displayName: provider.display_name} : {}),
+        // Product labels belong to this service; the built-in catalog retains its provider identity.
         ...(provider.base_url ? {baseURL: provider.base_url} : {}),
         ...(provider.protocol ? {api: provider.protocol} : {}),
         models: provider.models.map(model => nativeModel(model, provider.protocol === "anthropic-messages")),
