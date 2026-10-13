@@ -86,7 +86,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         b = body(req),
         r = params(req);
       if (p.kind !== "gateway") fail(401, "gateway credential required");
-      const c = s.access(p, r.conversation_id, b.agent_id);
+      const c = s.access(p, r.conversation_id, b.agent_id, "write");
       if (!c.external_source || c.config_agent_id !== b.agent_id)
         fail(404, "external conversation not accessible");
       if (
@@ -387,7 +387,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     const user = ctx.identity.authenticateRequest(req),
       r = params(req),
       b = body(req);
-    s.access(user, r.conversation_id);
+    s.access(user, r.conversation_id, undefined, "write");
     const m = s.message(b.message_id);
     if (m.conversation_id !== r.conversation_id) fail(409, "message_id not found");
     const card = m.permission_requests.find((x: Row) => x.request_id === r.request_id);

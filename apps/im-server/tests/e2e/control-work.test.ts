@@ -297,7 +297,9 @@ it("returns the node's actual Skill usage envelope through the public endpoint",
 it('deletes an approved task over authenticated WS without a second source-message gate and replays its receipt', async () => {
   const f = await start(), g = await bind(f, 'task-node', {assistant:{tool_allowlist:['task_graph']}});
   const command = (request_id:string, action:string, args:Record<string,unknown>) => g.frames.send('task_graph.command',{node_id:g.node,agent_id:'assistant',request_id,action,args});
-  const created = await command('create','create',{title:'Authorized scope',mode:'dag',request_key:'create'});
+  const chat = await f.http('POST','/im/v1/conversations',{title:'Task scope',type:'group',participants:[{type:'agent',id:'assistant'}]},f.tokens.alice);
+  expect(chat.status,chat.body).toBe(201);
+  const created = await command('create','create',{title:'Authorized scope',mode:'dag',request_key:'create',conversation_id:chat.body.id});
   expect(created.payload,JSON.stringify(created.payload)).toMatchObject({ok:true});
   const id = created.payload.result.graph_id;
   const args = {graph_id:id,base_revision:1,request_key:'delete'};

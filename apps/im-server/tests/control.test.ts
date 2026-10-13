@@ -13,11 +13,15 @@ import { ChannelService, sealChannelSecret } from "../src/channels.js";
 import { ConfigOperations, candidateFingerprint, registerControlRoutes } from "../src/control.js";
 import { one, type ImContext, type Row } from "../src/context.js";
 import { fixture } from "./control-fixture.js";
+function taskMessaging(db: any) {
+  const ctx = {db,gateway:{broadcast:()=>{},send:()=>false}} as unknown as ImContext;
+  return new Messaging(ctx);
+}
 const actor = { kind: "agent" as const, id: "a", node_id: "n" };
 describe("company task graph atomic storage", () => {
   it("rolls back invalid DAG mutations and replays receipts after graph deletion", () => {
     const { db } = fixture(),
-      s = new TaskGraphService(db);
+      s = new TaskGraphService(db, taskMessaging(db));
     const created = s.execute(actor, "create", {
       title: "计划",
       mode: "dag",
@@ -56,11 +60,7 @@ describe("company task graph atomic storage", () => {
     expect(
       one(db, "SELECT 1 FROM task_graph_mutation_receipts WHERE request_key='bad'"),
     ).toBeUndefined();
-    const other = s.execute({ kind: "user", id: "u2" }, "get", {
-      graph_id: created.graph_id,
-      view: "all",
-    });
-    expect(other.nodes[0].last_chat_id).toBeNull();
+    expect(() => s.execute({kind:"user",id:"u2"},"get",{graph_id:created.graph_id,view:"all"})).toThrow("not accessible");
     expect(() =>
       s.execute({ kind: "user", id: "u2" }, "activity", {
         conversation_id: "chat",
@@ -80,8 +80,8 @@ describe("company task graph atomic storage", () => {
     );
   });
   it.each([undefined, '对', '直接删！'])('keeps deletion scope, identity and revision checks after contextual confirmation %s', confirmation => {
-    const { db } = fixture(), service = new TaskGraphService(db);
-    const created = service.execute(actor, 'create', {title:'计划',mode:'dag',request_key:'create'});
+    const { db } = fixture(), service = new TaskGraphService(db, taskMessaging(db));
+    const created = service.execute(actor, 'create', {title:'计划',mode:'dag',request_key:'create',conversation_id:'chat'});
     service.execute(actor, 'apply', {graph_id:created.graph_id,base_revision:1,request_key:'children',change_note:'',operations:[
       {op:'add_task',client_ref:'child',container_id:'n1',title:'Remove',mode:'dag'},
       {op:'add_task',client_ref:'grandchild',container_id:'@child',title:'Nested'},
@@ -103,7 +103,7 @@ describe("company task graph atomic storage", () => {
   });
   it("denies disabled task tool and inactive owners", () => {
     const { db } = fixture(),
-      s = new TaskGraphService(db);
+      s = new TaskGraphService(db, taskMessaging(db));
     db.prepare("UPDATE agent_profiles SET tool_allowlist_json='[]'").run();
     expect(() => s.execute(actor, "create", { title: "x", mode: "dag", request_key: "c" })).toThrow(
       "not accessible",

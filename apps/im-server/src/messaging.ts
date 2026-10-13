@@ -13,6 +13,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
+import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 /** Derive human approval badges from the durable request/decision identity. */
 export function withHumanApproval(call: Row, permissions: Row[]): Row {
   const decision = permissions.findLast(item => item.call_id === call.id && item.status === "resolved" && item.decided_by)?.decision;
@@ -66,7 +67,7 @@ export class Messaging {
     const targets = new Set([...content.matchAll(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g)].map(match => match[1]));
     return this.members(conversationId).filter(user => user.username.startsWith("agent:") && targets.has(user.id)).map(user => user.username.slice(6));
   }
-  access(principal: Row, id: string, agentId?: string): Row {
+  access(principal: Row, id: string, agentId?: string, mode: "read" | "write" = "read"): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id);
     if (!c) fail(404, "conversation_id not found");
     let uid = principal.id;
@@ -83,19 +84,16 @@ export class Messaging {
       if (!agent) fail(404, "conversation_id not found");
       uid = this.agentUser(agentId!).id;
     }
-    if (
-      !one(
-        this.db,
-        "SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?",
-        id,
-        uid,
-      )
-    )
-      fail(404, "conversation_id not found");
-    return c;
+    const access = conversationAccess(this.db,id,uid);
+    if (!access || (mode === "write" && !access.is_member)) fail(404,"conversation_id not found");
+    if (mode === "write" && access.dissolved_at) fail(409,{code:"conversation_dissolved",message:"This conversation is read-only after dissolution"});
+    return access;
   }
+
   conversation(id: string, userId: string): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id)!;
+    const access = conversationAccess(this.db,id,userId);
+    if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const prefs =
       one(
@@ -122,6 +120,8 @@ export class Messaging {
           "created_at",
         ].map((key) => [key, c[key]]),
       ),
+      visibility:c.visibility, dissolved_at:c.dissolved_at,
+      is_member:access.is_member,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
       participants: members.map((u) => this.actor(u)),
       participant_ids: members.map((u) => u.id),
       direct_kind:
@@ -154,10 +154,13 @@ export class Messaging {
           : null,
     };
   }
-  conversations(userId: string): Row[] {
+  conversations(userId: string, scope = "joined"): Row[] {
+    if (!["joined","public"].includes(scope)) fail(400,"invalid scope");
+    if (!qualifiedUser(this.db,userId)) fail(403,"company membership required");
+    if (scope === "public") return all(this.db,"SELECT id FROM conversations WHERE type='group' AND visibility='public' AND dissolved_at IS NULL ORDER BY COALESCE(last_message_at,created_at) DESC").map(c=>this.conversation(c.id,userId));
     return all(
       this.db,
-      "SELECT c.id FROM conversations c JOIN conversation_participants p ON p.conversation_id=c.id WHERE p.user_id=? ORDER BY p.is_pinned DESC, COALESCE(c.last_message_at,c.created_at) DESC",
+      "SELECT c.id FROM conversations c JOIN conversation_participants p ON p.conversation_id=c.id WHERE p.user_id=? AND c.dissolved_at IS NULL ORDER BY p.is_pinned DESC, COALESCE(c.last_message_at,c.created_at) DESC",
       userId,
     ).map((c) => this.conversation(c.id, userId));
   }
@@ -198,7 +201,10 @@ export class Messaging {
       b.participant_ids ?? [],
       b.type === "group",
     );
-    if (!ids.length) fail(422, "participants required");
+    if (!ids.length && b.type !== "group") fail(422, "participants required");
+    if (b.visibility !== undefined && !["public","private"].includes(b.visibility)) fail(422,"invalid visibility");
+    if (p.kind === "agent" && ids.some(id=>id !== p.id && one(this.db,"SELECT username FROM users WHERE id=?",id)?.username.startsWith("agent:")))
+      fail(403,"An Agent can add only itself, not other Agents");
     if (!ids.includes(p.id)) ids.unshift(p.id);
     if (b.type === "direct" && ids.length !== 2)
       fail(400, "direct conversation requires two participants");
@@ -211,9 +217,9 @@ export class Messaging {
     transaction(this.db, () => {
       this.db
         .prepare(
-          "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at) VALUES(?,?,?,?,?,?,?)",
+          "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,visibility) VALUES(?,?,?,?,?,?,?,?)",
         )
-        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now());
+        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now(), b.type === "group" ? b.visibility ?? "public" : "private");
       for (const uid of ids)
         this.db
           .prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)")
@@ -287,7 +293,7 @@ export class Messaging {
     });
     return result;
   }
-  event(id: string, messageId: string | null, type: string, data: Row, status = "completed"): Row {
+  event(id: string, messageId: string | null, type: string, data: Row, status = "completed", publish = true): Row {
     const at = now();
     const payload = {
       created_at: at,
@@ -311,7 +317,7 @@ export class Messaging {
       created_at: at,
       data: { ...payload, event_id: Number(result.lastInsertRowid) },
     };
-    this.ctx.gateway.broadcast(
+    if (publish) this.ctx.gateway.broadcast(
       this.members(id).map((u) => u.id),
       frame,
     );
@@ -363,8 +369,9 @@ export class Messaging {
         "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
       )
       .run(cId, sender);
+    if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
     const m = this.message(id);
-    this.event(cId, id, "message.created", { ...m, message_id: id }, status);
+    this.event(cId, id, "message.created", { ...m, message_id: id }, status, extra.publish !== false);
     return m;
   }
   copyReferences(source: string, target: string, value: string): string {
@@ -430,7 +437,7 @@ export class Messaging {
       b = body(req),
       q = query(req),
       id = params(req).conversation_id,
-      c = this.access(p, id, q.agent_id);
+      c = this.access(p, id, q.agent_id, "write");
     let sender = p.id,
       type = "user";
     if (p.kind === "gateway") {
@@ -461,93 +468,97 @@ export class Messaging {
         )
       : undefined;
     if (old) return this.message(old.id);
-    const agents = this.members(id)
-      .filter((u) => u.username.startsWith("agent:"))
-      .map((u) =>
-        one(
-          this.db,
-          "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",
-          u.username.slice(6),
-        ),
-      )
-      .filter(Boolean) as Row[];
-    const targetAgents = b.suppress_relay ? [] : agents;
-    const m = this.insertMessage(
-      id,
-      sender,
-      type,
-      b.content ?? "",
-      attachments,
-      key,
-      targetAgents.length ? "pending" : "completed",
-      p.kind === "gateway" ? b : {},
-    );
-    if (targetAgents.length) {
-      let sent = false;
-      for (const a of targetAgents) {
-        const relayId = randomUUID().replaceAll("-", ""),
-          relayKey = `${key ?? m.id}:${a.agent_id}`;
-        const payload = {
-          relay_task_id: relayId,
-          idempotency_key: relayKey,
-          conversation_id: id,
-          agent_id: a.agent_id,
-          message: m,
-          sender: m.sender,
-          participants: this.conversation(id, sender).participants,
-          metadata: {
-            conversation_type: c.type,
-            mentioned_agent_ids: this.mentionedAgents(id, m.content),
-            participant_agent_ids: agents.map((a) => a.agent_id),
-            config_profile_version: a.profile_version,
-            node_epoch:
-              one(this.db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", a.node_id)
-                ?.node_epoch ?? 0,
-            ...(c.external_source
-              ? {
-                  external_source: c.external_source,
-                  external_chat_id: c.external_chat_id,
-                  trigger_source: "im",
-                }
-              : {}),
-          },
-        };
-        this.db
-          .prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-          .run(
-            relayId,
-            m.id,
-            id,
-            a.node_id,
-            JSON.stringify(payload),
-            relayKey,
-            "queued",
-            null,
-            null,
-            now(),
-            now(),
-          );
-        if (this.ctx.gateway.send(a.node_id, { type: "relay.message", payload })) {
-          sent = true;
-          this.db
-            .prepare("UPDATE relay_tasks SET status='sent' WHERE relay_task_id=?")
-            .run(relayId);
-        } else
-          this.event(
-            id,
-            m.id,
-            "relay.failed",
-            {
-              relay_task_id: relayId,
-              target_node_id: a.node_id,
-              reason: "node_disconnected",
-            },
-            "failed",
-          );
-      }
-      if (!sent) fail(503, "target_node_id is not connected");
+    const agents = b.suppress_relay ? [] : this.relayAgents(id);
+    const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
+      agents.length ? "pending" : "completed",p.kind === "gateway" ? b : {});
+    if (!b.suppress_relay) {
+      const relays = this.enqueueRelays(m,key,agents);
+      if (relays.length && !this.deliverRelays(relays)) fail(503,"target_node_id is not connected");
     }
     return m;
+  }
+  /** Persist a task event inside the caller's graph transaction; never publish early. */
+  persistTaskNotice(id: string, sender: string, content: string, metadata: Row): Row {
+    const m = this.insertMessage(id,sender,"system",content,[],null,"completed",{system_notice:metadata,publish:false});
+    this.enqueueRelays(m);
+    return m;
+  }
+  private relayAgents(id: string): Row[] {
+    return this.members(id).filter(u=>u.username.startsWith("agent:") && qualifiedUser(this.db,u.id))
+      .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean) as Row[];
+  }
+  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id)): Row[] {
+    const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
+    const relays: Row[] = [];
+    for (const a of agents) {
+      const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
+      const payload = {relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
+        message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
+          conversation_type:c.type,mentioned_agent_ids:this.mentionedAgents(c.id,m.content),participant_agent_ids:agents.map(a=>a.agent_id),
+          config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
+          ...(c.external_source ? {external_source:c.external_source,external_chat_id:c.external_chat_id,trigger_source:"im"} : {})}};
+      this.db.prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id,m.id,c.id,a.node_id,JSON.stringify(payload),relayKey,"queued",null,null,now(),now());
+      relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
+    }
+    return relays;
+  }
+  /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
+  relayEligible(task: Row): boolean {
+    const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+    return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
+  }
+  deliverRelays(relays: Row[]): boolean {
+    let sent = false;
+    for (const task of relays) {
+      if (!this.relayEligible(task)) {
+        this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
+        continue;
+      }
+      if (this.ctx.gateway.send(task.target_node_id,{type:"relay.message",payload:JSON.parse(task.payload_json)})) {
+        this.db.prepare("UPDATE relay_tasks SET status='sent',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
+        sent = true;
+      }
+    }
+    return sent;
+  }
+  /** Publish committed system messages and attempt their already durable relay rows. */
+  publishMessages(messages: Row[]) {
+    for (const m of messages) {
+      const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
+      const data = JSON.parse(e.payload_json);
+      this.ctx.gateway.broadcast(this.members(m.conversation_id).map(u=>u.id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,event_id:e.event_id}});
+      this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id));
+    }
+  }
+  /** Join only the caller, without changing invitation authority for other Agents. */
+  joinConversation(userId: string, id: string): Row {
+    const c = conversationAccess(this.db,id,userId);
+    if (!c || c.type !== "group" || c.visibility !== "public") fail(404,"conversation_id not found");
+    if (c.dissolved_at) fail(409,{code:"conversation_dissolved",message:"This conversation has been dissolved"});
+    this.db.prepare("INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES(?,?)").run(id,userId);
+    this.membership(id,this.members(id).map(u=>u.id));
+    return this.conversation(id,userId);
+  }
+  /** Freeze group history and close unfinished records without generating task notices. */
+  dissolveConversation(userId: string, id: string) {
+    const c = conversationAccess(this.db,id,userId);
+    if (!c?.can_write) fail(404,"conversation_id not found");
+    if (c.creator_id !== userId) fail(403,"only creator can delete group");
+    transaction(this.db,()=>{
+      const at = now();
+      this.db.prepare("UPDATE conversations SET dissolved_at=? WHERE id=?").run(at,id);
+      for (const row of all(this.db,"SELECT * FROM task_graphs WHERE conversation_id=?",id)) {
+        const d=JSON.parse(row.document_json);
+        for (const n of d.nodes) if (!["done","closed"].includes(n.status)) {n.status="closed";n.updated_at=at;}
+        for (const n of d.nodes) {
+          if (n.selected_candidate_id && d.nodes.some((candidate: Row)=>candidate.id===n.selected_candidate_id && candidate.status==="closed")) n.selected_candidate_id=null;
+        }
+        d.revision++; d.updated_at=at;
+        this.db.prepare("UPDATE task_graphs SET document_json=?,revision=?,updated_at=? WHERE graph_id=?").run(JSON.stringify(d),d.revision,at,row.graph_id);
+      }
+      this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
+    });
+    this.membership(id,this.members(id).map(u=>u.id));
   }
   resolveTarget(agentId: string, target: string): string {
     const a = this.agentUser(agentId);
@@ -634,7 +645,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const a = one(db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", query(req).agent_id);
       if (a?.node_id !== p.node_id) fail(404, "agent not found");
     }
-    return { items: s.conversations(uid) };
+    return { items: s.conversations(uid,query(req).scope ?? "joined") };
   });
   app.get("/im/v1/sync", (req) => {
     const p = ctx.identity.authenticateRequest(req);
@@ -649,11 +660,19 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     s.access(p, id, query(req).agent_id);
     return s.conversation(id, p.id ?? s.agentUser(query(req).agent_id).id);
   });
+  app.post("/im/v1/conversations/:conversation_id/join",req=>{
+    const p=ctx.identity.authenticateRequest(req);
+    return s.joinConversation(p.id,params(req).conversation_id);
+  });
   app.patch("/im/v1/conversations/:conversation_id", (req) => {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id,
       b = body(req);
-    s.access(p, id);
+    const c = s.access(p, id, undefined, "write");
+    if (b.visibility !== undefined) {
+      if (!c.can_change_visibility) fail(403,"Only a joined company administrator can change visibility");
+      if (!["public","private"].includes(b.visibility)) fail(400,"invalid visibility");
+    }
     if (b.title !== undefined) {
       if (!b.title.trim()) fail(400, "title must be non-empty");
       db.prepare("UPDATE conversations SET title=?,title_is_custom=1 WHERE id=?").run(
@@ -661,6 +680,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         id,
       );
     }
+    if (b.visibility !== undefined) db.prepare("UPDATE conversations SET visibility=? WHERE id=?").run(b.visibility,id);
     for (const key of ["is_pinned", "is_muted"])
       if (b[key] !== undefined)
         db.prepare(
@@ -675,17 +695,18 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   app.delete("/im/v1/conversations/:conversation_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id,
-      c = s.access(p, id);
+      c = s.access(p, id, undefined, "write");
     if (c.type === "group" && c.creator_id !== p.id) fail(403, "only creator can delete group");
     const recipients = s.members(id).map((u) => u.id);
-    db.prepare("DELETE FROM conversations WHERE id=?").run(id);
+    if (c.type === "group") s.dissolveConversation(p.id,id);
+    else db.prepare("DELETE FROM conversations WHERE id=?").run(id);
     s.membership(id, recipients);
     reply.code(204).send();
   });
   app.post("/im/v1/conversations/:conversation_id/participants", (req) => {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id,
-      c = s.access(p, id);
+      c = s.access(p, id, undefined, "write");
     if (c.type !== "group") fail(400, "group required");
     const ids = s.resolveParticipants(p, body(req).participants ?? []);
     if (!ids.length) fail(400, "participants required");
@@ -702,7 +723,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   app.delete("/im/v1/conversations/:conversation_id/participants/:user_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
       { conversation_id: id, user_id: uid } = params(req),
-      c = s.access(p, id);
+      c = s.access(p, id, undefined, "write");
     if (c.type !== "group" || uid === c.creator_id) fail(403, "creator cannot be removed");
     const recipients = s.members(id).map((u) => u.id);
     db.prepare("DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?").run(

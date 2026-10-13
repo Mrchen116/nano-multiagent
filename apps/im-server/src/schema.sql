@@ -1,6 +1,7 @@
 -- IM business schema; preserves existing center storage and identifiers.
 CREATE TABLE IF NOT EXISTS task_graphs (
     graph_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
     owner_id TEXT NOT NULL,
     root_title TEXT NOT NULL,
     revision INTEGER NOT NULL,
@@ -32,6 +33,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     title_is_custom INTEGER NOT NULL DEFAULT 0,
+    visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('public','private')),
+    dissolved_at TEXT,
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
     creator_id TEXT NOT NULL DEFAULT '',
@@ -335,6 +338,7 @@ CREATE TABLE IF NOT EXISTS company_initialization (
 CREATE TABLE IF NOT EXISTS task_graph_mutation_receipts (
             actor_key TEXT NOT NULL, request_key TEXT NOT NULL, operation_hash TEXT NOT NULL,
             graph_id TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
             PRIMARY KEY(actor_key,request_key));
 CREATE TABLE IF NOT EXISTS task_node_chat_activity (
         graph_id TEXT NOT NULL REFERENCES task_graphs(graph_id) ON DELETE CASCADE,

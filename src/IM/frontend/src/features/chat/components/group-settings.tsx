@@ -30,6 +30,10 @@ export interface GroupSettingsAgentOption {
 }
 
 export interface GroupSettingsProps {
+  readOnly?: boolean;
+  visibility?: "public" | "private";
+  canChangeVisibility?: boolean;
+  onVisibilityChange?(visibility: "public" | "private"): Promise<unknown>;
   title: string;
   members: GroupSettingsMember[];
   addableAgents: GroupSettingsAgentOption[];
@@ -86,6 +90,7 @@ export function GroupSettings(props: GroupSettingsProps) {
   const [manageMode, setManageMode] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const readOnly = Boolean(props.readOnly);
   const isCreator = members.some(member => member.isSelf && member.isCreator);
   const agentMembers = members.filter((m) => m.type === "agent");
   const nameInvalid = nameDraft.trim().length === 0;
@@ -207,6 +212,7 @@ export function GroupSettings(props: GroupSettingsProps) {
       type="button"
       className="group-settings-name-row"
       aria-label={t("chat.groupSettings.rename")}
+      disabled={readOnly}
       onClick={startRename}
     >
       <span className="group-settings-name">{title}</span>
@@ -239,7 +245,7 @@ export function GroupSettings(props: GroupSettingsProps) {
     const confirming = confirmingRemoveId !== null && confirmingRemoveId === m.userId;
     // userId must be present to remove (the endpoint keys on it). Guard against a
     // null user_id so the ✕ never becomes a silent no-op.
-    const removable = m.type !== "system" && !m.isCreator && !m.isSelf && m.userId != null;
+    const removable = !readOnly && m.type !== "system" && !m.isCreator && !m.isSelf && m.userId != null;
     // 留出删除控件列的语境：桌面(hover 显 ✕)或移动 manage 态。该列内每行都占等宽前导槽位
     // ——可删的放 ✕，不可删的(本人)放等宽空 spacer——让所有成员头像左缘对齐。
     const showRemoveColumn = !isMobile || manageMode;
@@ -327,11 +333,11 @@ export function GroupSettings(props: GroupSettingsProps) {
   }
 
   // ─── Dissolve danger zone (shared) ────────────────────────────────────────
-  const dissolveBlock = !isCreator ? (
+  const dissolveBlock = readOnly ? <p>{t("tasks.readOnly")}</p> : !isCreator ? (
     <button type="button" className="group-settings-btn-danger-wide" disabled={isBusy} onClick={() => void runAction(() => onLeave?.())}>{t("chat.groupSettings.leave")}</button>
   ) : confirmingDissolve ? (
     <div className="group-settings-dissolve-confirm" data-testid="group-settings-dissolve-confirm">
-      <p>{t("chat.groupSettings.dissolveConfirm")}</p>
+<p>{t("tasks.dissolveConfirm")}</p>
       <div className="group-settings-inline-confirm-acts">
         <button type="button" className="group-settings-btn-danger-solid" disabled={isBusy} onClick={handleDissolve}>
           {t("chat.groupSettings.dissolve")}
@@ -347,9 +353,10 @@ export function GroupSettings(props: GroupSettingsProps) {
     </button>
   );
 
+  const visibilityControl = props.visibility && <label className="group-settings-preferences">{t("tasks.visibility")}<select aria-label={t("tasks.visibility")} value={props.visibility} disabled={!props.canChangeVisibility || readOnly || isBusy} onChange={e => void runAction(() => props.onVisibilityChange?.(e.target.value as "public" | "private"))}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label>;
   const preferences = onPreferenceChange ? <div className="group-settings-preferences">
-    <label><input type="checkbox" checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))}/>{t("chat.preferences.pin")}</label>
-    <label><input type="checkbox" checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))}/>{t("chat.preferences.mute")}</label>
+    <label><input type="checkbox" disabled={readOnly} checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))}/>{t("chat.preferences.pin")}</label>
+    <label><input type="checkbox" disabled={readOnly} checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))}/>{t("chat.preferences.mute")}</label>
   </div> : null;
 
   // ─── Mobile: full-screen add picker takes over the whole screen ────────────
@@ -413,7 +420,7 @@ export function GroupSettings(props: GroupSettingsProps) {
               {t("chat.groupSettings.members")} · {members.length}
             </div>
             <ul className="group-settings-card">
-              {!manageMode && (
+              {!manageMode && !readOnly && (
                 <li className="group-settings-add-row">
                   <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
                     <span className="group-settings-add-icon" aria-hidden="true">＋</span>
@@ -425,7 +432,7 @@ export function GroupSettings(props: GroupSettingsProps) {
             </ul>
           </div>
           <div className="group-settings-group">
-            {preferences}
+            {visibilityControl}{preferences}
             <div className="group-settings-card group-settings-card--danger">{dissolveBlock}</div>
           </div>
         </div>
@@ -458,7 +465,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           <span className="group-settings-section-label">
             {t("chat.groupSettings.members")} · {members.length}
           </span>
-          {!adding && (
+          {!adding && !readOnly && (
             <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
               ＋ {t("chat.groupSettings.addMembers")}
             </button>
@@ -489,7 +496,7 @@ export function GroupSettings(props: GroupSettingsProps) {
 
         <ul className="group-settings-list">{members.map(memberRow)}</ul>
 
-        {preferences}
+        {visibilityControl}{preferences}
         <div className="group-settings-danger-zone">{dissolveBlock}</div>
       </aside>
     </>

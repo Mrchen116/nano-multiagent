@@ -107,6 +107,7 @@ private struct RootTabs: View {
     @State private var selectedTab = 0
     @State private var chatPath: [String] = []
     @State private var taskLink: NativeTaskLink?
+    @State private var taskNavigationID = UUID()
     @State private var agentLink: Contact?
     @Environment(\.scenePhase) private var scenePhase
     init(client: IMClient, user: AuthUser, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
@@ -120,13 +121,14 @@ private struct RootTabs: View {
                     .navigationDestination(for: String.self) { id in ConversationView(store: chat, conversationID: id, openChat: openChat) }
             }.tabItem { Label(L("聊天", "Chats"), systemImage: "bubble.left.and.bubble.right") }.tag(0)
                 .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })
-            NavigationStack { TasksView(client: client, onReference: reference) }
+            NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
                 .tabItem { Label(L("任务", "Tasks"), systemImage: "point.3.connected.trianglepath.dotted") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
                 .tabItem { Label("Agent", systemImage: "person.crop.square") }.tag(2)
             NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, onSignOut: signOut) }
                 .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
         }
+        .environment(\.openTaskOverview, { taskLink = nil; taskNavigationID = UUID(); selectedTab = 1 })
         .environment(\.openURL, OpenURLAction { url in
             guard ServerOrigin.same(client.baseURL, url) else {
                 return ["http", "https", "mailto", "tel"].contains(url.scheme ?? "") ? .systemAction : .discarded

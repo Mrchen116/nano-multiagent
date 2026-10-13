@@ -100,3 +100,78 @@ it.each(['global', 'single_thread'] as const)('forwards approved %s task deletio
     expect(sent[0]).toMatchObject({action:'delete',args:{graph_id:'graph',node_id:'n2',base_revision:3,request_key:'delete-child'}});
   } finally {await product.stop();inbox.close();store.close();}
 });
+
+it.each([
+  { mode: 'global', conversationId: 'global:a', target: undefined, expected: undefined },
+  { mode: 'global', conversationId: 'global:a', target: 'current', expected: undefined },
+  { mode: 'global', conversationId: 'global:a', target: 'conversation:c_existing', expected: 'c_existing' },
+  { mode: 'single_thread', conversationId: 'c_bound', target: undefined, expected: 'c_bound' },
+  { mode: 'single_thread', conversationId: 'c_bound', target: 'current', expected: 'c_bound' },
+  { mode: 'single_thread', conversationId: 'external:feishu:chat', target: undefined, expected: undefined },
+  { mode: 'single_thread', conversationId: 'external:feishu:mapped', target: undefined, expected: 'c_shadow' },
+] as const)('resolves task creation ownership from $mode / $conversationId / $target', async ({ mode, conversationId, target, expected }) => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const binding = store.bind({ agentId: 'a', sessionId: 'main', conversationId, ownerId: 'owner', cwd: '/tmp', revision: '1' });
+  store.aliasConversation('a', 'c_shadow', 'external:feishu:mapped');
+  const sent: Record<string, unknown>[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode }], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async method => method === 'session.descendants' ? [] : { events: [], durable: true, status: 'idle' } },
+    relay: { request: async (type, payload) => { if (type === 'task_graph.command') sent.push(payload); return { type: 'ack', payload: { ok: true, result: { graph_id: 'tg_created' } } }; } }, image: async () => '', onError: error => { throw error; } });
+  try {
+    const result = await product.call({ method: 'task_graph', args: { action: 'create', title: 'Goal', mode: 'dag', request_key: 'create', ...(target ? { target } : {}) }, operationId: 'main:create', callId: 'create', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'a', ownerId: 'owner' });
+    if (expected) {
+      expect(result).toMatchObject({ ok: true });
+      expect(sent).toEqual([expect.objectContaining({ agent_id: 'a', args: expect.objectContaining({ conversation_id: expected }) })]);
+    } else {
+      expect(result).toMatchObject({ ok: false, error: { code: 'conversation_required' } });
+      expect(sent).toEqual([]);
+    }
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});
+
+it('forwards conversation discovery and membership actions with the registered identity and rejects child calls', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({ agentId: 'a', sessionId: 'main', conversationId: 'global:a', ownerId: 'owner', cwd: '/tmp', revision: '1' });
+  const sent: Record<string, unknown>[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async () => ({}) },
+    relay: { request: async (_type, payload) => { sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
+  const call: ProductCall = { method: 'conversations', args: {}, operationId: 'main:query', callId: 'query', sessionId: 'main', rootSessionId: 'main', agentId: 'a', ownerId: 'owner' };
+  try {
+    for (const args of [{ action: 'create', type: 'group', title: 'Team', visibility: 'public', participant_ids: ['user'] }, { action: 'join', target: 'c_group' }, { action: 'list', scope: 'public' }]) {
+      await product.call({ ...call, args: { ...args, agent_id: 'forged', node_id: 'forged' } });
+      expect(sent.at(-1)).toMatchObject({ ...args, agent_id: 'a', node_id: 'node', session_id: 'main' });
+      await expect(product.call({ ...call, args, sessionId: 'child' })).rejects.toThrow('main Agent');
+    }
+    expect(sent).toHaveLength(3);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});
+
+it.each([
+  { policy: 'mention_only', mentioned: false, attention: false },
+  { policy: 'mention_only', mentioned: true, attention: true },
+  { policy: 'always', mentioned: false, attention: true },
+] as const)('retains system task messages under $policy and wakes only with attention ($mentioned)', async ({ policy, mentioned, attention }) => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const submitted: Record<string, unknown>[] = []; let status = 'running', cancellations = 0;
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global', groupReplyPolicy: policy }], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async (method, value) => {
+      if (method === 'session.submit') submitted.push(value as Record<string, unknown>);
+      if (method === 'session.cancel') { cancellations++; return { wasRunning: true }; }
+      return method === 'session.descendants' ? [] : { events: [], durable: true, status };
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : {} }) }, image: async () => '', onError: error => { throw error; } });
+  const input: RelayInput = { agent_id: 'a', conversation_id: 'c_group', relay_task_id: 'task-event', idempotency_key: 'task-event', metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] }, message: { id: 'task-event', content: 'Assignment changed <mention type="user" target_id="a"/>', sender_type: 'system', sender_user_id: 'actor', attachments: [] } };
+  try {
+    await product.receive(input); await product.receive(input);
+    expect(submitted).toEqual([]);
+    expect(inbox.check('a').sources).toEqual([expect.objectContaining({ unread: 1, requires_attention: attention })]);
+    expect(inbox.read('a', 'main', 'read', { target: 'c_group' })).toMatchObject({ messages: [{ id: 'task-event', sender: { type: 'system' } }] });
+    status = 'idle'; await product.recover(); await product.receive(input);
+    expect(submitted).toHaveLength(attention ? 1 : 0);
+    if (attention) expect(submitted[0]).toMatchObject({ mode: 'followup', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
+    await product.receive({ ...input, message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
+    expect(cancellations).toBe(1);
+    await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
+    expect(submitted).toHaveLength(attention ? 2 : 0);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});

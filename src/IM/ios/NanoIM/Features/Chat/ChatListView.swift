@@ -87,6 +87,7 @@ struct NewChatView: View {
     @State private var contacts: [Contact] = []
     @State private var selection: Set<String> = []
     @State private var group = false
+    @State private var visibility = "public"
     @State private var title = ""
     @State private var search = ""
     @State private var error: String?
@@ -98,7 +99,15 @@ struct NewChatView: View {
             Form {
                 Section {
                     Toggle(L("创建群聊", "Create group"), isOn: $group).onChange(of: group) { _, value in if !value { selection = Set(selection.prefix(1)) } }
-                    if group { TextField(L("群名称（可选）", "Group name (optional)"), text: $title) }
+                }
+                if group {
+                    Section(L("群设置", "Group settings")) {
+                        TextField(L("群名称（可选）", "Group name (optional)"), text: $title)
+                        Picker(L("可见范围", "Visibility"), selection: $visibility) { Text(L("公开", "Public")).tag("public"); Text(L("私密", "Private")).tag("private") }.pickerStyle(.segmented)
+                    }
+                }
+                Section {
+                    NavigationLink(L("发现公开群", "Discover public groups")) { PublicGroupsView(client: client, completed: completed) }
                 }
                 if let error { Section { ErrorNotice(message: error) } }
                 Section(L("联系人", "Contacts")) {
@@ -125,7 +134,7 @@ struct NewChatView: View {
         busy = true; error = nil; defer { busy = false }
         let selected = contacts.filter { selection.contains($0.id) }
         let groupTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selected.map(\.display_name).joined(separator: "、") : title
-        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID); completed(chat) }
+        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: visibility); completed(chat) }
         catch { self.error = error.localizedDescription }
     }
 }

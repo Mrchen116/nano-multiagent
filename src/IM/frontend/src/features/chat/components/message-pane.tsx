@@ -103,6 +103,7 @@ export interface MessagePaneProps {
   onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
+  onJoin?: () => Promise<void>;
   onOpenTasks?(): void;
   onRename?(title: string): Promise<unknown>;
   /** Send mutation error message, shown as an in-app toast. */
@@ -218,6 +219,7 @@ export function MessagePane({
   onSend,
   onBack,
   onOpenConfig,
+  onJoin,
   onOpenTasks,
   onRename,
   sendError,
@@ -294,8 +296,12 @@ export function MessagePane({
   const lastReadRef = useRef<string | null>(null);
   const forceScrollToBottomRef = useRef(false);
   const sendInFlightRef = useRef(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
   const composerBusy = Boolean(
-    isSending
+    conversation.can_write === false
+    || Boolean(conversation.dissolved_at)
+    || isSending
     || composerSending
     || isComposerSending(conversation.id)
   );
@@ -997,6 +1003,8 @@ export function MessagePane({
         {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
       </header>
 
+      {conversation.can_write === false && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
+      {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
@@ -1674,7 +1682,8 @@ function MessageBubble({
     const noticeText = formatSystemNotice(t, message.system_notice, isDirectChat);
     return (
       <div className="chat-bubble-system">
-        {noticeText ?? message.content}
+        {message.system_notice?.kind === "task_graph" && <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})} · </time>}
+        {noticeText ?? <MarkdownContent content={message.content} participants={participants} />}
       </div>
     );
   }
