@@ -15,7 +15,7 @@ vi.mock('../settings/agents/im-agent-config-api');
 vi.mock('../chat/chat-api');
 const computer = { node_id: 'device', node_name: 'My computer', alias: null, status: 'online' };
 const install = { available: true, origin: 'https://nano.example', command: 'install Nano', script_url: 'https://nano.example/install.sh' };
-const modelStatus = { models: [], catalog: [], discovered: { codex: false }, default_model: '', workspace_base: '/my-workspaces' };
+const modelStatus = { revision: 'r1', services: [], models: [], catalog: [{provider: 'deepseek', display_name: 'DeepSeek', models: [{id: 'deepseek-chat'}]}], default_model: '', workspace_base: '/my-workspaces' };
 function mount(cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
  const router = createMemoryRouter([{ path: '/onboarding', element: <OnboardingPage /> }, { path: '/chat/:id', element: <p>Chat opened</p> }], { initialEntries: ['/onboarding'] });
  render(<QueryClientProvider client={cache}><RouterProvider router={router} /></QueryClientProvider>);
@@ -30,15 +30,16 @@ beforeEach(() => {
 it('keeps failed model validation on the model step and never stores the entered key', async () => {
  mount();
  await screen.findByRole('heading', { name: 'Connect a model' });
- await userEvent.click(await screen.findByRole('button', { name: /Use an API key/ }));
+ await screen.findByLabelText('API Key');
  await userEvent.type(screen.getByLabelText('API Key'), 'private-key-example');
- await userEvent.type(screen.getByLabelText('Model', { exact: true }), 'model-one');
+ await userEvent.clear(screen.getByLabelText('Model ID'));
+ await userEvent.type(screen.getByLabelText('Model ID'), 'model-one');
  vi.mocked(setupNode).mockResolvedValue({ ...modelStatus, operation: { id: 'op', state: 'failed' } });
  await userEvent.click(screen.getByRole('button', { name: 'Test and save' }));
  await screen.findByRole('alert');
  expect(screen.getByRole('button', { name: 'Continue →' })).toBeDisabled();
- expect(screen.getByLabelText('API Key')).toHaveValue('');
- expect(JSON.stringify(localStorage)).not.toContain('private-key-example');
+ expect(screen.getByLabelText('API Key')).toHaveValue('private-key-example');
+ expect(Array.from({length: localStorage.length}, (_, i) => localStorage.getItem(localStorage.key(i)!)).join(' ')).not.toContain('private-key-example');
  expect(createNodeAgent).not.toHaveBeenCalled();
 });
 it('restores a verified model, creates one personal global assistant, and preserves its ID for retry', async () => {
@@ -67,13 +68,14 @@ it('reopens an existing first chat without replacing its draft with another star
  expect(router.state.location.state).toBeNull();
  expect(createConversation).not.toHaveBeenCalled();
 });
-it('shows an existing model as connected instead of offering a failing duplicate test', async () => {
- vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model: 'model-one', models: [{provider: 'p', model: 'model-one'}], discovered: {codex: false, proxy: {base_url: 'http://localhost:4000/v1', models: ['model-one'], protocol: 'openai-completions'}}});
+it('shows saved models without developer proxy discovery or a duplicate setup test', async () => {
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model: 'model-one', models: [{provider: 'p', model: 'model-one'}], services: [{provider: 'p', display_name: 'Team service', source: 'custom', native: false, credential_stored: true, models: [{name: 'model-one', id: 'model-one'}]}]});
  vi.mocked(getNodeCreateState).mockResolvedValue({capabilities: {tools: [], features: []}} as never);
  mount();
  await screen.findByRole('heading', {name: 'What would you like help with?'});
  await userEvent.click(screen.getByRole('button', {name: '← Back'}));
- expect(await screen.findByRole('button', {name: 'Already connected'})).toBeDisabled();
+ expect(await screen.findByRole('heading', {name: 'Team service'})).toBeInTheDocument();
+ expect(screen.queryByText('Local model proxy')).not.toBeInTheDocument();
  expect(screen.getByRole('button', {name: 'Continue →'})).toBeEnabled();
 });
 it('returns to computer recovery when an already-created assistant is offline', async () => {

@@ -1,0 +1,25 @@
+# M1 实施记录
+
+## 基线与范围
+
+- Gate 2：design-review Round 2 Approved，0 CRITICAL / 0 WARNING。
+- 实施分支：`codex/feat-588-model-services`，前置 PR #337 `7083a0936`，同步 main `6275f271d`。
+- main 新增 bugfix-585 为节点连接恢复、presence reconciliation；没有改变本 unit 的模型 setup/DSH public seam、配置存储或 installer 设计。实施基线已合入，Gate 2 的职责与接口判断 retained；后续真实离线恢复在该组合树验收。
+- 主 Agent 负责模型服务、前端、集成与收尾。首轮独立安装分发任务负责 install/build/release 及其最窄测试，不修改模型文件；后续修复统一主 Agent。
+
+## 测试策略
+
+- Node model-setup 既有新增/失败用例 rewrite-merge，增加编辑保留凭据、多模型/同名 wire ID、版本冲突/依赖保护及共享队列交错。开发者代理自动发现已退出普通产品路径，其专用测试删除；保留可手填自定义 loopback 行为。
+- DSH integration model-setup 保留真实锁定 runtime/HTTP 与 OAuth 取消；扩展 credential/profile stage 回滚、真实目录及旧连接不受 probe 影响，不在 mock 层重复整个用户旅程。
+- IM onboarding owner 双侧与安全投影测试 keep/extend；安装行为由 installation 子任务维护，不与模型 owner 测试重复。
+- Web 共用编辑器测试承担草稿/厂商身份/revision 的交互回归；真实浏览器负责信息组织、移动布局、首次及日常管理到真实回复。
+- fixture、截图和录像保留外部 artifact 路径，实际结果记入 evidence，不提交本机运行数据。
+
+## 实施与作者验证
+
+- 已实现 DSH 动态目录、Node 独立 probe 与提交/回滚、持久化共享队列、同名上游模型的服务限定引用、IM 安全投影和常驻/首次共用编辑器。新增与编辑不扫描开发者代理配置。
+- 安装分发首轮交付见 [release-distribution](evidence/release-distribution.md)，没有发布 GitHub Release 或部署。
+- 本地 backend 串行全量 67 files / 205 tests 通过；Python contract 54 passed / 31 e2e deselected；前端全量 89 files / 842 tests 通过。测试命令与日志在本机 `.runtime/feat-588/`；早期并行 runtime 资源竞争的超时以串行全量及窄复核收口。
+- 作者已在真实浏览器配置两服务、同名上游模型、多模型，更换 URL/key 后同一助手回复；相关图片保留到外部 artifact。后续独立验收以自己的实际结果为准。
+- 用户试用反馈触发 UI 设计重做；独立设计 R3/R4 闭环后重排实际页面，具体视觉/操作和证据见 [UI redesign](evidence/ui-redesign.md)。此次改变触及 Web 布局与授权反馈，后端验证 retained，相关 22 Web tests 和构建通过。
+- 用户要求测试服务保持运行：52267 是用户试用环境，不能为独立验收清空或重启；独立验收另建隔离栈。

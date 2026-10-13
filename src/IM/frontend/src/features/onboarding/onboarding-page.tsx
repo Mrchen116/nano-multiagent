@@ -6,7 +6,8 @@ import { getCurrentLanguage, setLanguage, useTranslation } from '../../i18n';
 import { useAuthStore } from '../auth/auth-store';
 import { createConversation, listConversations } from '../chat/chat-api';
 import { createNodeAgent, getNodeCreateState } from '../settings/agents/im-agent-config-api';
-import { getOnboarding, setupNode, type ModelProtocol, type SetupInput } from './onboarding-api';
+import { ModelServicesPanel } from '../settings/models/model-services-panel';
+import { getOnboarding, setupNode } from './onboarding-api';
 import './onboarding.css';
 
 type Purpose = 'daily' | 'research' | 'coding' | 'custom';
@@ -22,13 +23,6 @@ const starters: Record<Purpose, [string, string]> = {
   coding: ['我想推进一个项目。先问我项目位置、目标和当前阻碍，帮我确定第一步。', 'I want to move a project forward. Ask about its location, goal, and current blocker, then help me decide the first step.'],
   custom: ['请围绕我给你的目标，先问三个最必要的问题，再安排第一步。', 'Based on the goal I gave you, ask the three most essential questions, then help me take the first step.'],
 };
-const providers = {
-  openai: { label: 'OpenAI', url: 'https://api.openai.com/v1', protocol: 'openai-completions' },
-  deepseek: { label: 'DeepSeek', url: 'https://api.deepseek.com/v1', protocol: 'openai-completions' },
-  anthropic: { label: 'Anthropic', url: 'https://api.anthropic.com', protocol: 'anthropic-messages' },
-  custom: { label: '', url: '', protocol: 'openai-completions' },
-} as const;
-
 /** First-run progress is reconstructed from the user's actual node and model state. */
 export function OnboardingPage() {
   useTranslation();
@@ -46,12 +40,8 @@ export function OnboardingPage() {
   const [viewStep, setViewStep] = useState<number | null>(null);
   const [installMethod, setInstallMethod] = useState<'agent' | 'manual'>('agent');
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
-  const [apiOpen, setApiOpen] = useState(false);
-  const [provider, setProvider] = useState<keyof typeof providers>('openai');
-  const [protocol, setProtocol] = useState<ModelProtocol>('openai-completions');
-  const [baseUrl, setBaseUrl] = useState(providers.openai.url as string);
-  const [model, setModel] = useState(''), [key, setKey] = useState('');
-  const [codexModel, setCodexModel] = useState(''), [proxyModel, setProxyModel] = useState('');
+  const [editingModel, setEditingModel] = useState(false);
+  const [modelChoice, setModelChoice] = useState<string>(draft.modelChoice ?? '');
   const state = useQuery({ queryKey: ['onboarding', user.id], queryFn: getOnboarding, refetchInterval: 3000 });
   const node = state.data?.nodes.find(n => n.node_id === nodeId)
     ?? state.data?.nodes.find(n => n.status === 'online') ?? state.data?.nodes[0];
@@ -60,10 +50,12 @@ export function OnboardingPage() {
   const configured = !!setup.data?.default_model && setup.data.models.some(m => m.model === setup.data?.default_model);
   const existingAgent = state.data?.agents.find(a => a.agent_id === candidateId) ?? state.data?.agents[0];
   const suggestedStep = node?.status !== 'online' ? 0 : existingAgent ? 3 : configured ? 2 : 1;
-  const step = node?.status !== 'online' ? 0 : viewStep ?? suggestedStep;
+  const step = node?.status !== 'online' && viewStep !== 1 ? 0 : viewStep ?? suggestedStep;
+  const selectedModel = setup.data?.models.some(m => m.model === modelChoice) ? modelChoice : setup.data?.default_model ?? '';
+  useEffect(() => { if (currentNodeId && !nodeId) setNodeId(currentNodeId); }, [currentNodeId, nodeId]);
+  useEffect(() => { if (viewStep === null && setup.data && !configured && !existingAgent && node?.status === 'online') setViewStep(1); }, [viewStep, setup.data, configured, existingAgent, node?.status]);
   const operation = setup.data?.operation;
   const working = operation?.state === 'waiting' || operation?.state === 'testing';
-  const mutation = useMutation({ mutationFn: (input: SetupInput) => setupNode(currentNodeId!, input), onSuccess: result => { cache.setQueryData(['node-setup', user.id, currentNodeId], result); } });
   const capabilities = useQuery({ queryKey: ['onboarding-capabilities', user.id, currentNodeId, setup.data?.default_model], queryFn: () => getNodeCreateState(currentNodeId!), enabled: step === 2 && !!currentNodeId && configured, retry: false });
   const create = useMutation({
     mutationFn: async () => {
@@ -71,7 +63,7 @@ export function OnboardingPage() {
       if (!node || !c || !name.trim()) throw new Error('not ready');
       return createNodeAgent(node.node_id, {
         agent_id: candidateId, owner_id: user.owner_id, display_name: name.trim(), description: goal.trim(), custom_prompt: goal.trim(),
-        work_mode: 'global', workspace_root: null, group_reply_policy: 'MENTION', default_model: setup.data!.default_model,
+        work_mode: 'global', workspace_root: null, group_reply_policy: 'MENTION', default_model: selectedModel,
         model_fallbacks: [], reasoning_effort: null, skills: [], skills_selection_mode: 'default_discovery',
         tool_allowlist: c.tools.filter(t => t.default_on).map(t => t.name),
         features: { ...Object.fromEntries((c.features ?? []).map(f => [f.key, f.default_on])), heartbeat: false, cron_scheduling: false },
@@ -88,14 +80,7 @@ export function OnboardingPage() {
     await cache.invalidateQueries({ queryKey: ["chat", "conversations"] });
     navigate(`/chat/${conversation.id}`, { state: fresh ? { onboardingStarter: starters[purpose][zh ? 0 : 1] } : null });
   } });
-  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({ agentId: candidateId, nodeId: currentNodeId ?? '', purpose, name, goal })); }, [draftKey, candidateId, currentNodeId, purpose, name, goal]);
-  const codexModels = setup.data?.catalog.find(p => p.provider === 'openai-codex')?.models ?? [];
-  const apiModels = setup.data?.catalog.find(p => p.provider === provider)?.models ?? [];
-  const proxy = setup.data?.discovered.proxy;
-  const selectedModel = model || apiModels[0] || '';
-  const modelConnected = (id: string) => setup.data?.models.some(m => m.model === id) === true;
-  const proxyConnected = modelConnected(proxyModel || proxy?.models[0] || '');
-  const codexConnected = setup.data?.models.some(m => m.provider === 'openai-codex') === true;
+  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({ agentId: candidateId, nodeId: currentNodeId ?? '', purpose, name, goal, modelChoice })); }, [draftKey, candidateId, currentNodeId, purpose, name, goal, modelChoice]);
   async function copy() {
     const install = state.data?.install;
     if (!install?.available) return;
@@ -107,7 +92,6 @@ export function OnboardingPage() {
     catch { setCopyError(true); }
   }
   function choose(next: Purpose) { setPurpose(next); setGoal(goals[next][zh ? 0 : 1]); }
-  function changeProvider(next: keyof typeof providers) { setProvider(next); setBaseUrl(providers[next].url); setProtocol(providers[next].protocol); setModel(''); setKey(''); }
   const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('认识你的助手', 'Meet your assistant'), text('开始第一件事', 'Start your first task')];
   const error = (message: string) => <p className="onboarding-error" role="alert">{message}</p>;
   const next = (index: number, disabled = false) => <button className="onboarding-primary" disabled={disabled} onClick={() => setViewStep(index)}>{text('继续 →', 'Continue →')}</button>;
@@ -126,30 +110,13 @@ export function OnboardingPage() {
             {node?.status !== 'online' && node && <p className="onboarding-detail">{text('在该电脑重跑上方命令即可恢复。已有身份、配置和文件会保留。', 'Run the command on that computer again to reconnect. Your identity, settings, and files are preserved.')}</p>}
             {node?.status === 'online' && <div className="onboarding-footer"><span />{next(configured ? 2 : 1)}</div>}
           </>}
-          {step === 1 && <><h2>{text('给助手接通一个模型', 'Connect a model')}</h2><p className="onboarding-sub">{text('优先使用这台电脑上已有的连接。', 'Start with a connection you already have.')} · {node?.alias || node?.node_name}</p>
-            {node?.status !== 'online' ? error(text('电脑已离线。回到连接电脑步骤恢复后继续。', 'Your computer is offline. Reconnect it to continue.')) : setup.isPending ? <p>{text('正在检查可用连接…', 'Checking available connections…')}</p> : setup.error ? <>{error(text('暂时无法读取电脑上的模型设置，请确认电脑在线后重试。', 'Could not read model settings. Make sure your computer is online and retry.'))}<button className="onboarding-secondary" onClick={() => void setup.refetch()}>{text('重试', 'Retry')}</button></> : <>
-              {configured && <div className="onboarding-status ok">✓ {text('已连接模型', 'Connected model')}: {setup.data?.default_model}</div>}
-              {!apiOpen ? <>
-                {!setup.data?.discovered.codex && !proxy && !configured && <p className="onboarding-instructions">{text('没有发现现成连接。可以连接 Codex 账号，或使用 API Key。', 'No existing connection found. Connect a Codex account or use an API key.')}</p>}
-                {proxy && <div className="onboarding-model-row"><div><strong>{text('本机模型代理', 'Local model proxy')}</strong><small>{proxy.base_url} · {proxyConnected ? text('已连接，可继续', 'Already connected') : text('已发现，等待验证', 'Found, ready to verify')}</small><label>{text('代理模型', 'Proxy model')}<select value={proxyModel || proxy.models[0] || ''} onChange={e => setProxyModel(e.target.value)}>{proxy.models.map(m => <option key={m}>{m}</option>)}</select></label></div><button className="onboarding-primary" disabled={working || mutation.isPending || !proxy.models.length || proxyConnected} onClick={() => mutation.mutate({ action: 'configure', provider: 'local-proxy', protocol: proxy.protocol, base_url: proxy.base_url, model: proxyModel || proxy.models[0] })}>{proxyConnected ? text('已连接，可继续', 'Already connected') : text('使用并测试', 'Connect and test')}</button></div>}
-                {codexModels.length > 0 && <div className="onboarding-model-row"><div><strong>Codex</strong><small>{setup.data?.discovered.codex ? text('检测到本机 Codex · 为 Nano 登录一次', 'Codex detected · Sign in once for Nano') : text('连接你已有的 Codex 账号', 'Connect your existing Codex account')}</small><label>{text('Codex 模型', 'Codex model')}<select value={codexModel || codexModels[0]} onChange={e => setCodexModel(e.target.value)}>{codexModels.map(m => <option key={m}>{m}</option>)}</select></label></div><button className="onboarding-primary" disabled={working || mutation.isPending || codexConnected} onClick={() => mutation.mutate({ action: 'login', provider: 'openai-codex', model: codexModel || codexModels[0] })}>{codexConnected ? text('已连接，可继续', 'Already connected') : text('连接 Codex 账号', 'Connect Codex')}</button></div>}
-                <button className="onboarding-link" onClick={() => setApiOpen(true)}>{text('使用 API Key 或自定义服务 →', 'Use an API key or custom service →')}</button>
-              </> : <form onSubmit={e => { e.preventDefault(); mutation.mutate({ action: 'configure', provider, protocol, base_url: baseUrl.trim(), model: selectedModel.trim(), ...(key ? { api_key: key } : {}) }); setKey(''); }}>
-                <label htmlFor="onboarding-provider">{text('模型服务', 'Model service')}</label><select id="onboarding-provider" value={provider} onChange={e => changeProvider(e.target.value as keyof typeof providers)}>{Object.entries(providers).map(([id, p]) => <option key={id} value={id}>{p.label || text('自定义兼容服务', 'Custom compatible service')}</option>)}</select>
-                {provider === 'custom' && <><label htmlFor="onboarding-protocol">{text('服务协议', 'Protocol')}</label><select id="onboarding-protocol" value={protocol} onChange={e => setProtocol(e.target.value as ModelProtocol)}><option value="openai-completions">OpenAI Chat Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="openai-responses">OpenAI Responses</option></select><label htmlFor="onboarding-url">{text('服务地址', 'Service URL')}</label><input id="onboarding-url" type="url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" required /></>}
-                <label htmlFor="onboarding-key">API Key{provider === 'custom' ? text('（本机免密代理可留空）', ' (optional for local proxies)') : ''}</label><input id="onboarding-key" type="password" autoComplete="off" value={key} onChange={e => setKey(e.target.value)} required={provider !== 'custom'} placeholder={text('粘贴你的 API Key', 'Paste your API key')} />
-                <label htmlFor="onboarding-model">{text('模型', 'Model')}</label><input id="onboarding-model" list="onboarding-models" value={selectedModel} onChange={e => setModel(e.target.value)} required placeholder={text('填写服务提供的模型 ID', 'Model ID from your provider')} /><datalist id="onboarding-models">{apiModels.map(m => <option key={m} value={m} />)}</datalist>
-                <div className="onboarding-actions"><button className="onboarding-primary" disabled={working || mutation.isPending || modelConnected(selectedModel.trim())}>{modelConnected(selectedModel.trim()) ? text('已连接，可继续', 'Already connected') : text('测试并保存连接', 'Test and save')}</button><button type="button" className="onboarding-link" onClick={() => setApiOpen(false)}>{text('返回发现的连接', 'Back to discovered connections')}</button></div>
-              </form>}
-              <p className="onboarding-detail">{text('凭据保存到这台电脑，保存后不会回显。无需复制本机登录文件。', 'Credentials stay on this computer and are never shown again. No login-file copying needed.')}</p>
-              {working && <div className="onboarding-instructions" role="status"><strong>{operation?.state === 'waiting' ? text('在授权页完成登录', 'Complete sign-in on the authorization page') : text('正在验证真实模型请求…', 'Verifying a real model request…')}</strong>{operation?.code && <p className="onboarding-code">{operation.code}</p>}{operation?.url && <a href={operation.url} target="_blank" rel="noreferrer">{text('打开授权页 ↗', 'Open authorization page ↗')}</a>}<p>{text('完成后这里会自动更新。你可以先离开，稍后回来查看。', 'This updates automatically. You can leave and return later.')}</p><button className="onboarding-link" onClick={() => mutation.mutate({ action: 'cancel' })}>{text('取消此次连接', 'Cancel connection')}</button></div>}
-              {(mutation.error || operation?.state === 'failed') && error(text('连接未通过。请检查登录状态、服务地址、模型或 Key，然后重试。电脑绑定已保留。', 'Connection failed. Check your sign-in, service URL, model, or key and retry. Your computer binding is preserved.'))}
-              {operation?.state === 'cancelled' && <p role="status">{text('已取消，可以重新选择连接。', 'Cancelled. You can choose another connection.')}</p>}
-            </>}
-            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{next(2, !configured || working || node?.status !== 'online')}</div>
+          {step === 1 && <><h2>{text('给助手接通一个模型', 'Connect a model')}</h2><p className="onboarding-sub">{text('选择你使用的服务商，填写 API Key，测试成功后即可创建助手。', 'Choose your provider, enter an API key, and verify the connection before creating your assistant.')} · {node?.alias || node?.node_name}</p>
+            {node && <ModelServicesPanel key={node.node_id} node={node} initialAdd onEditingChange={setEditingModel} />}
+            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{next(2, !configured || working || editingModel || node?.status !== 'online')}</div>
           </>}
           {step === 2 && <><h2>{text('你想让助手帮你做什么？', 'What would you like help with?')}</h2><p className="onboarding-sub">{text('先从一个方向开始。名字和目标之后都可以修改。', 'Start with one direction. You can change the name and goal later.')}</p>
             <div className="onboarding-choices">{(['daily', 'research', 'coding', 'custom'] as Purpose[]).map((p, i) => <button key={p} className={`onboarding-choice ${purpose === p ? 'selected' : ''}`} onClick={() => choose(p)} aria-pressed={purpose === p}><strong>{[text('日常助理', 'Everyday assistant'), text('资料研究', 'Research partner'), text('编程搭档', 'Coding partner'), text('自己定义', 'Your own purpose')][i]}</strong><small>{[text('计划、整理与跟进', 'Plan, organize, and follow through'), text('阅读、调研与归纳', 'Read, investigate, and synthesize'), text('理解项目、开发与排障', 'Understand, build, and debug'), text('按你的工作方式来', 'Adapt to how you work')][i]}</small></button>)}</div>
+            <label htmlFor="onboarding-assistant-model">{text('使用的模型', 'Assistant model')}</label><select id="onboarding-assistant-model" value={selectedModel} onChange={e => setModelChoice(e.target.value)}>{setup.data?.models.map(m => { const service = setup.data.services.find(s => s.provider === m.provider); return <option key={m.model} value={m.model}>{m.display_name || m.model} · {service?.display_name || m.provider}</option>; })}</select>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <label htmlFor="onboarding-goal">{text('告诉它你的目标', 'Tell it your goal')}</label><textarea id="onboarding-goal" value={goal} onChange={e => setGoal(e.target.value)} />
             <div className="onboarding-preview"><strong>{text('工作电脑', 'Computer')}: {node?.alias || node?.node_name}</strong><p>{text('助手的独立文件夹：', 'Your assistant’s own folder:')}</p><code>{setup.data?.workspace_base ? `${setup.data.workspace_base}/${candidateId}` : text('等待电脑确认…', 'Waiting for your computer…')}</code><p>{text('需要处理其他文件时，再把位置告诉它。', 'Tell it where to find other files when you need them.')}</p></div>

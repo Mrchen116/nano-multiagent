@@ -126,6 +126,8 @@ export function MePage() {
         </Link>
       </div>
 
+      <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/models" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg></span><p className={LABEL}>{lang === 'zh' ? '模型服务' : 'Model services'}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>
+
       {user?.membership_status === "active" && <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
         data-testid="me-card-policies"

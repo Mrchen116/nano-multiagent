@@ -43,12 +43,24 @@ if [ ! -f "$NANO_ROOT/tooling/node_modules/pnpm/bin/pnpm.cjs" ]; then
   npm install --prefix "$NANO_ROOT/tooling" --no-audit --no-fund pnpm@11.7.0
 fi
 NANO_PNPM="$NANO_ROOT/tooling/node_modules/pnpm/bin/pnpm.cjs"
-echo '2/4 Downloading Nano from your IM service…'
+echo '2/4 Downloading the Nano version selected by your IM service from GitHub…'
 fetch "$NANO_ORIGIN/install/manifest.json" "$NANO_TEMP/manifest.json"
-NANO_HASH=$("$NANO_NODE" -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(!/^[a-f0-9]{64}$/.test(x.sha256))process.exit(1);console.log(x.sha256)' "$NANO_TEMP/manifest.json")
+NANO_METADATA=$("$NANO_NODE" -e '
+const fs=require("fs");
+const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+if(!x || typeof x.version!=="string" || typeof x.sha256!=="string" || !/^[a-f0-9]{40}$/.test(x.version) || !/^[a-f0-9]{64}$/.test(x.sha256)
+  || x.package!=="nano-node.tgz" || x.node_major!==24 || x.pnpm_version!=="11.7.0"
+  || x.download_url!==`https://github.com/Mrchen116/nano-multiagent/releases/download/node-${x.version}/nano-node.tgz`) {
+  console.error("Invalid installation manifest. Please retry from your IM service."); process.exit(1);
+}
+console.log(x.sha256 + " " + x.download_url);
+' "$NANO_TEMP/manifest.json")
+read -r NANO_HASH NANO_DOWNLOAD_URL <<< "$NANO_METADATA"
 NANO_RELEASE="$NANO_ROOT/releases/$NANO_HASH"
 if [ ! -f "$NANO_RELEASE/.installed" ]; then
-  fetch "$NANO_ORIGIN/install/nano-node.tgz" "$NANO_TEMP/nano-node.tgz"
+  if ! fetch "$NANO_DOWNLOAD_URL" "$NANO_TEMP/nano-node.tgz"; then
+    echo 'GitHub package download failed. Your installation is unchanged. Run the same command to retry.' >&2; exit 1
+  fi
   if [ "$(hash_file "$NANO_TEMP/nano-node.tgz")" != "$NANO_HASH" ]; then
     echo 'Download verification failed. Please run the command again.' >&2; exit 1
   fi

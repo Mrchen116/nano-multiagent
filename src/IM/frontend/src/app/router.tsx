@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
+import { ModelsPage } from "../features/settings/models/models-page";
 import { OnboardingPage } from "../features/onboarding/onboarding-page";
 import { App } from "./App";
 import { TaskGraphsPage } from "../features/tasks/task-graphs-page";
@@ -77,6 +78,7 @@ export const appRoutes: RouteObject[] = [
               }
             ]
           },
+          { path: "models", element: <ModelsPage /> },
           { path: "company", element: <CompanyMembersPage /> },
           {
             path: "policies",

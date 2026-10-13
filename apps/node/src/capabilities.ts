@@ -33,9 +33,9 @@ export function projectCapabilities(
     (!agent ||
       agent.toolAllowlist === undefined ||
       agent.toolAllowlist.includes("workflow"));
-  const model = node.llm.providers
-    .flatMap((provider) => provider.models)
-    .find((model) => model.name === (agent?.model ?? node.llm.default_model));
+  const model = agent
+    ? node.llm.providers.find(provider => provider.name === agent.provider)?.models.find(model => (model.id ?? model.name) === agent.model)
+    : node.llm.providers.flatMap(provider => provider.models).find(model => model.name === node.llm.default_model);
   const levels =
     typeof model?.reasoning === "object" ? (model.reasoning.levels ?? []) : [];
   return {
@@ -48,6 +48,8 @@ export function projectCapabilities(
       provider.models.map((model) => ({
         name: model.name,
         provider: provider.name,
+        display_name: model.display_name ?? model.id ?? model.name,
+        provider_display_name: provider.display_name ?? provider.name,
         ...(typeof model.reasoning === "object"
           ? { reasoning: { kind: "selectable", ...model.reasoning } }
           : model.reasoning

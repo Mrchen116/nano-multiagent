@@ -131,3 +131,116 @@ API 优先及常驻服务管理的总体方向成立；现有模块与 DSH 公�
 ### Author Resolutions — Round 2
 
 作者核对 R2 的逐项闭环与独立原型证据，无实质异议；R1-R1 公开目录分类提示保留为实施约束。R2 后受审设计/需求/delta/原型无语义修改，Gate 2 有效。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/models_design_review`，独立 reviewer；未修改产品实现。
+- review_mode: `delta`
+- mode_reason: 用户实际试用否定旧 UI，故本轮重新检查全部受影响 UI 的信息组织、密度、视觉关系及操作；后端提交边界、接口、模型引用、权限和安装分发未发生设计变化。采用有界 UI delta，不以 R2 Approved 保留旧 UI 判断。
+- started_at: `2026-10-13T11:28:52+08:00`
+- completed_at: `2026-10-13T11:33:54+08:00`
+- duration: 5 分 2 秒。
+- checkout: `/Users/czj/.codex/worktrees/feat-588-model-services/nano-multiagent`，`codex/feat-588-model-services`。已有大量实施 dirty/untracked，全部保留。本轮只追加报告和本地审查截图缓存。
+- reviewed: design 的“2026-10-13 UI 设计修订”及 must-match、最新 prototype、evidence Round 3；另读 design 其余段落确认波及边界。
+- retained_from: `Round 2` 的后端契约、职责/公开接口和提交边界，以及 `Round 1` 的安装分发/两份 delta canonical target。旧 UI 的视觉完成度结论不 retained。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 2 WARNING。本次 UI 修订尚未通过 Gate 2。**
+
+新的设置组织方向成立：服务内容成为主体，电脑上下文从大卡片变为紧凑一行，常用编辑与低强调移除稳定同行，订阅授权反馈回到自己的区域。它解决了用户截图里真实存在的层级和空间浪费；但手机编辑遮挡与电脑归属切换仍会影响正常操作，不能按“比旧版紧凑、无横向溢出”直接放行。
+
+### Coverage 与证据
+
+**从用户实际落差重新判断。** 实际查看用户提供的桌面截图 `codex-clipboard-7dfebbdb-dd7b-4ce2-bc49-cc3fc991fd76.png` 和手机截图 `codex-clipboard-13fd9cf8-317a-4995-a02e-0ea871f5c085.png`。旧界面的问题不是缺功能：眉题/大标题/介绍/电脑卡片/章节标题连续占据首屏；授权横幅插到服务前，首字头像、模型标签、编辑及红色移除均抢主次；手机操作换行进一步放大行高。R1 的“能阅读、无挤压”不足以衡量用户完成设置的整体成本，本轮不再以该标准替代体验判断。
+
+**参考采用合理。** 核对本机 DSH `ModelsSection.module.css` 的 720px 内容宽、16px 标题、14px 服务名、紧凑 row/actions 和按需 editor 组织。新方案借用了层级关系而非照搬整个 DSH 设置；Nano 保留多电脑归属、真实测试和恢复路径，有产品依据。
+
+**独立画面。** 新会话 `review588r3` 只访问 18487 原型，未访问或操作用户的 52267 服务、真实 OAuth 或模型数据。重新渲染 1440×900、768×1024、390×844，不依赖作者小修前的截图。实际查看桌面/手机列表、订阅授权、手机/平板编辑、失败反馈与首次模型步骤。桌面阅读宽度收敛，标题与新增主操作对齐；手机正常首屏同时呈现电脑、两项服务、添加和订阅入口，信息按服务名→类型→模型读取。普通编辑动作不会因手机窄屏另起一行，授权卡片不再推动服务离开视野。
+
+**代表性内容和操作。** 实际从列表进入编辑、展开订阅并触发模拟授权、进入首次 API、切换自定义、触发测试失败/冲突；修改示例服务为“工作室共享推理服务与日常办公模型”，模型为 `us.anthropic.claude-sonnet-4-5-20250929-v1:0`，模拟保存后名称与长模型能换行，编辑/移除仍可辨认。平板编辑的地址/协议双列、两行模型、贴近提交区的失败信息组织清楚。手机新增保留 API 优先，订阅为次要入口。新增、编辑与失败状态的总体组织不需要再扩大重设计；具体遮挡见 R3-W1。
+
+**历史功能和架构波及。** R1-W2 后端提交决策仍 closed，本次不复做实现审查或故障注入。原型保留 R1-W1 的草稿/冲突恢复函数及 R1-W3 的已有厂商只读处理，没有理由据 UI 重排要求改后端或另加事务机制；实际产品仍须按 M1 验收。此次新增的“编辑中电脑禁切换”责任是前端保持操作上下文，与 Node owner/RPC 权限互补，不能依靠后端权限替代，见 R3-W2。must-match 与 M1 A/B/C 的对应关系成立，非敏感数据契约和安装分发没有波及。
+
+本轮截图缓存位于本 worktree `output/playwright/`：`review588r3-desktop.png`、`review588r3-mobile.png`、`review588r3-auth.png`、`review588r3-editor.png`、`review588r3-edit-focused.png`、`review588r3-long-list.png`、`review588r3-tablet.png`、`review588r3-error.png`、`review588r3-onboarding.png`；均已实际查看。缓存不提交。`git diff --check` 对本 unit 通过，不把它作为视觉证据。
+
+### 历史问题闭环
+
+- R1-W1：数据保留/冲突选择逻辑未改，R2 的功能闭环 retained；本轮发现的新手机布局遮挡单列 R3-W1，不回写旧结论。
+- R1-W2：提交顺序及失败权威设计未变，retained closed。
+- R1-W3：已有内置厂商仍只读，已有编辑态进一步去掉不可切换的方式 tabs；retained closed。
+- 用户对旧 UI 的新反馈：已转化为当前修订段及整体体验检查。旧 UI 视觉批准不再作为本轮的通过依据。
+
+### Issues
+
+#### R3-W1 — 手机悬浮保存栏遮挡正在填写的模型名称
+
+- 位置：`prototype.html` 的手机 `.footer { position:sticky; bottom:0; ... }`；design 的“提交紧邻表单底部”和编辑区 must-match。
+- 证据：390×844，打开团队服务的两模型编辑器，保存栏悬在第一模型显示名称附近；实际向第一个“模型显示名称”填入 `Review display name` 并聚焦，输入值与光标所在区域仍被保存栏盖住。`review588r3-edit-focused.png` 是当时的 viewport 截图，`review588r3-editor.png` 显示栏跨在模型行中间及剩余表单。不是仅从 full-page 截图推断。
+- 用户代价：正常填写时看不到输入结果，保存区看起来像表单终点却还有模型与高级设置在后方；用户需额外猜测滚动位置才能核对。提高保存按钮可达性不能以遮挡当前工作内容为代价。
+- 收口要求：优先让提交区回到自然表单末尾；若保留 sticky，需留足滚动/焦点避让空间，证明每个模型 ID、显示名称、移除和错误反馈在点击/键盘聚焦后都能完整看到。只修受影响手机编辑，不要求重做桌面。
+
+#### R3-W2 — 编辑中仍能切换电脑，表单与归属说明出现矛盾
+
+- 位置：design “2026-10-13 UI 设计修订”电脑上下文条目；`prototype.html` 的电脑 select 与 `renderEditor`。
+- 证据：实际编辑团队服务时，电脑下拉仍可从 MacBook Air 切到“工作室 Mac mini”；原表单及已保存密钥状态继续显示，说明仍写“密钥保存在 MacBook Air”。`review588r3-tablet.png` 同时显示 Mac mini 标题上下文和 MacBook Air 密钥说明。原型与本轮明确的“编辑时禁切换”决定相反。
+- 用户代价：用户无法确定当前更改会作用在哪台电脑；相同服务名存在于多机时尤其容易误判。这里不是要求原型接真实后端，而是它必须表达已经选定的编辑归属约束。
+- 收口要求：进入新增/编辑即固定所选电脑，返回列表/取消后才能切换；文字与固定上下文一致。将这一点补进 must-match 并复查进入、取消、返回及保存结果，避免只在文档中承诺。
+
+### Recommendations
+
+- R3-R1：设计段写“移除为低强调图标动作”，原型仍是低强调文字“移除”。当前文字不妨碍辨认，也没有重新争夺主次，因此不阻断；实施前统一文字与图标的选择即可，不必为追求图标增加用户识别成本。
+
+### 下一轮范围
+
+两处局部 UI 问题修正后可做 closure：独立看手机字段聚焦/滚动及电脑固定路径，保留本轮列表密度、授权局部化、三宽度和长内容的判断。若因此改变整套编辑组织，再按真实影响扩大到 delta。产品代码与用户正在使用的服务无需为本轮设计复审被重启或改写。
+
+### Author Resolutions (Round 3)
+
+- R3-W1 accepted：手机 footer 回到自然文档流，移除 sticky；design 明确不得悬浮遮挡。
+- R3-W2 accepted：renderEditor 禁用电脑选择器，renderList 解锁；密钥归属文字取当前所选电脑，取消/保存/返回均回到列表。must-match 加入编辑中固定归属。
+- R3-R1 accepted：统一低强调文字“移除”，既保持识别也避免增加图标说明。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/models_design_review`，独立 reviewer；未修改产品实现。
+- review_mode: `closure`
+- mode_reason: 本轮只修手机提交栏定位、编辑电脑固定与对应说明，没有改变整套编辑组织；按 R3 下一轮范围逐项闭环。
+- started_at: `2026-10-13T11:35:17+08:00`
+- completed_at: `2026-10-13T11:39:04+08:00`
+- duration: 3 分 47 秒。
+- checkout: `/Users/czj/.codex/worktrees/feat-588-model-services/nano-multiagent`，`codex/feat-588-model-services`；保留已有 dirty/untracked，只追加本报告与本地截图缓存。
+- reviewed: R3 Author Resolutions、design 修订段及 must-match、最新原型中的受影响路径。
+- retained_from: R3 的列表密度、授权局部化、1440/768/390 与长内容判断；R2 的后端契约和提交边界；R1 的安装分发与 delta canonical target。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R3 两项 WARNING 已闭环，当前设计通过 Gate 2。**
+
+此结论是设计与原型审查，不替代真实产品的 M1 验收，也不表示当前实施或部署已通过。
+
+### Coverage 与证据
+
+使用全新独立 Playwright 会话 `review588r4`，仅访问 `http://127.0.0.1:18487/prototype.html`，390×844 实际操作；未操作用户的 52267 服务、真实模型配置或 OAuth。
+
+**手机填写与提交区。** 进入两模型团队服务，向第一个模型显示名称填入 `Review display name R4` 并保持焦点，实际查看 viewport 截图 `output/playwright/review588r4-focused.png`：字段、文字及聚焦框完整可见，保存栏不再盖在其上。又填写第二个模型名称，实际查看 `review588r4-second.png` 的滚动后 viewport；页面按自然高度滚动，没有悬浮提交层。完整查看 `review588r4-editor.png`，两模型及高级设置之后才是取消/测试并保存，表单的结束位置明确。design 同步写明自然末尾与不得悬浮遮挡。本轮没有移动其余控件或要求新增滚动补偿机制。
+
+**电脑上下文。** 在列表选择“工作室 Mac mini”后进入已有服务，电脑选择器 disabled，密钥说明明确写同一台 Mac mini。实际取消后选择器恢复可用；进入新增同样固定电脑且说明一致，点击“← 模型服务”返回后可切到 MacBook Air；再次编辑时重新固定 MacBook Air，说明随之更新。最后点击模拟测试并保存，成功回到列表且选择器解锁。这些状态来自实际操作与新 snapshot，不仅凭源码判断。must-match 已加入“编辑中固定”，与行为一致。
+
+原型唯一 console error 为未提供 `favicon.ico` 的 404，与本轮路径无关。审查会话已关闭。截图为本地缓存，不提交；未修改实施文件。
+
+### 历史问题闭环
+
+| 原 issue | Author Resolution | 本轮核实 | 状态 |
+|---|---|---|---|
+| R3-W1 | 手机 footer 回到自然流 | 实际填写并查看聚焦 viewport；完整图确认提交区位于所有模型/高级设置之后，第一字段不再受遮挡 | closed |
+| R3-W2 | 新增/编辑固定电脑，列表解锁，说明取当前选择 | Mac mini 与 MacBook 两种上下文核实；新增、已有编辑、取消、返回、模拟保存均实际操作 | closed |
+| R3-R1 | 统一低强调文字“移除” | design 与当前原型一致；不增加图标识别成本 | accepted |
+
+### Issues 与 Recommendations
+
+无新增 CRITICAL 或 WARNING，也无新增整改要求。保留 R3 已通过的视觉判断及 R2 后端判断；后续按既定 M1 将当前原型与 must-match 落实到真实产品，不因本轮 closure 扩大设计范围。

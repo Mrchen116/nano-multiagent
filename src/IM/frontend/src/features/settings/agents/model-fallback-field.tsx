@@ -12,7 +12,9 @@ function availableFallbacks(models: ModelOption[], primary: string | null, taken
 }
 
 function modelLabel(model: ModelOption): string {
-  return model.provider ? `${model.name} · ${model.provider}` : model.name;
+  const provider = model.provider_display_name || model.provider;
+  const name = model.display_name || model.name;
+  return provider ? `${name} · ${provider}` : name;
 }
 
 interface ModelFallbackFieldProps {

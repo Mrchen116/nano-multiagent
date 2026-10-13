@@ -1063,8 +1063,9 @@ export function AgentCreatePage() {
                   : t("agents.form.access.modelPlatformDefaultPlain")}
               </option>
               {availableModels.map((model) => {
-                const providerSuffix = model.provider ? ` · ${model.provider}` : "";
-                const baseLabel = `${model.name}${providerSuffix}`;
+                const providerName = model.provider_display_name || model.provider;
+                const providerSuffix = providerName ? ` · ${providerName}` : "";
+                const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
                 return (
                   <option key={model.name} value={model.name}>
                     {model.name === capabilities.platform_default_model

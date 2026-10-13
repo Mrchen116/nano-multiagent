@@ -50,7 +50,7 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
+  onReady: async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,
   onUnavailable: () => { trajectory?.closeAll(); return lifecycle.unavailable(); },
 });
@@ -72,7 +72,7 @@ const relay = new WebRelayConnection({
   onFrame: async frame => {
     const payload = frame.payload;
     if (frame.type === 'node.setup.request') {
-      const status = await modelSetup.handle(payload as unknown as SetupRequest).catch(error => ({ error_code: 'setup_invalid', message: error instanceof Error ? error.message : 'Model setup failed' }));
+      const status = await modelSetup.handle(payload as unknown as SetupRequest).catch(error => ({ error_code: 'setup_invalid', message: 'Model setup is unavailable' }));
       await relay.request('node.setup', { request_id: payload.request_id, node_id: config.node.node_id, ...status });
       return;
     }

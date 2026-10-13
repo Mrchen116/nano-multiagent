@@ -60,3 +60,41 @@ it.each([false, true])('uses the advertised workspace base for creation and conf
     expect(explicit.workspace_root).toBe(join(home, 'explicit'));
   } finally { await rm(home, { recursive: true, force: true }); }
 });
+
+it('resolves identical upstream IDs through stable service-specific references', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-model-ids-'));
+  try {
+    const path = join(home, 'node.json');
+    await writeFile(path, JSON.stringify({node: {}, agents: [], llm: {default_model: 'service-a/shared', tool_approval_model: 'service-b/shared', providers: [
+      {name: 'service-a', models: [{name: 'service-a/shared', id: 'shared'}]},
+      {name: 'service-b', models: [{name: 'service-b/shared', id: 'shared'}]},
+    ]}}));
+    const config = await NodeConfiguration.read(path);
+    expect(config.runtime({agent_id: 'a', workspace_root: home, model_fallbacks: ['service-b/shared']})).toMatchObject({
+      provider: 'service-a', model: 'shared', modelFallbacks: [{provider: 'service-b', model: 'shared'}], approval: {reviewer: {provider: 'service-b', model: 'shared'}},
+    });
+  } finally { await rm(home, {recursive: true, force: true}); }
+});
+
+it('serializes Agent saves against model removal and rejects stale model edits', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-model-race-'));
+  try {
+    const path = join(home, 'node.json');
+    const llm = {default_model: 'base', providers: [{name: 'p', models: [{name: 'base'}, {name: 'extra'}]}]};
+    await writeFile(path, JSON.stringify({node: {}, agents: [], llm}));
+    const config = await NodeConfiguration.read(path);
+    const next = {...llm, providers: [{name: 'p', models: [{name: 'base'}]}]};
+    const agent = canonicalAgentConfiguration({agent_id: 'new', workspace_root: home, default_model: 'extra'});
+    const saved = config.persist(agent);
+    await expect(config.persistModels(next, config.modelRevision)).rejects.toThrow(/new/);
+    await saved;
+    expect(config.runtime(config.value.agents[0]!)).toMatchObject({model: 'extra'});
+    await config.persist({...agent, default_model: 'base'});
+    const revision = config.modelRevision;
+    await config.persistModels(next, revision);
+    await expect(config.persistModels(llm, revision)).rejects.toThrow(/changed/);
+    // An Agent validated before removal must still be checked when its queued write runs.
+    await expect(config.persist(agent)).rejects.toThrow(/extra/);
+    expect((await NodeConfiguration.read(path)).current('new')?.default_model).toBe('base');
+  } finally { await rm(home, {recursive: true, force: true}); }
+});
