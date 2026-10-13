@@ -10,6 +10,7 @@
 | 从 Python Gateway 首次切到 Node + DSH | [`dsh-migration.md`](dsh-migration.md)；保留非聊天资产并核实未决外发 |
 | 首次升级 PA workspace/global home 目录 | [`pa-workspace-layout-migration.md`](pa-workspace-layout-migration.md)；完成后再按生产舰队流程启动 |
 | 第一次启动本机 IM + Gateway + Web IM（开发主链路） | [`local-stack.md`](local-stack.md) |
+| 发布电脑端安装包并部署匹配清单 | [`local-stack.md`](local-stack.md#发布首次安装包) |
 | 编写 Gateway 配置，执行 start / stop / restart | [`gateway.md`](gateway.md) |
 | 配置 Auto 规则、区分审批故障，执行升级或回退 | [`auto-permissions.md`](auto-permissions.md) |
 | 配置飞书通道或 `web_search` provider | [`gateway.md`](gateway.md) |

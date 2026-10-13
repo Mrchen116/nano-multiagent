@@ -4,9 +4,11 @@
 
 ## 通过已部署 IM 安装
 
-注册后打开 `/onboarding`，复制“交给本机 Agent”的完整说明，或执行页面给出的手动安装命令。两条路径使用同一 IM 发布的安装包。安装器在当前用户目录准备 Node、锁定依赖与节点，不要求 sudo、全局 Node 安装或手写 YAML；首次绑定通过网页确认。
+注册后打开 `/onboarding`，复制“交给本机 Agent”的完整说明，或执行页面给出的手动安装命令。两条路径使用同一 IM 指定的固定版本程序包：IM 提供安装脚本和清单，包体直接从 GitHub Release 下载，发布与清单部署见 [安装入口准备](local-stack.md#发布首次安装包)。安装器在当前用户目录准备 Node、锁定依赖与节点，不要求 sudo、全局 Node 安装或手写 YAML；首次绑定通过网页确认。
 
-默认安装根为 `~/.nanoassistant`，每个 IM origin 的配置放在 `connections/<origin-hash>/config.yaml`，workspace 与运行状态跟随该连接目录。页面再引导连接模型、真实测试、定义助手并开始聊天。原生 Codex 连接需要为 Nano 完成一次登录，不复制 Codex CLI 的刷新凭据；若本机已有可用代理，可以直接发现并测试它。
+默认安装根为 `~/.nanoassistant`，每个 IM origin 的配置放在 `connections/<origin-hash>/config.yaml`，workspace 与运行状态跟随该连接目录。页面默认引导选择 API 服务商或自定义 API，真实测试成功后定义助手并开始聊天。原生 Codex 订阅连接是可选路径，需要为 Nano 完成一次登录，不复制 Codex CLI 的刷新凭据；已有兼容代理可作为自定义 API 手动填写地址和模型，页面不扫描开发者代理配置。
+
+后续从桌面用户菜单或手机“我的”进入“模型服务”，按电脑管理服务与模型。非敏感模型配置写入该连接的本地 YAML，新 API/OAuth 凭据写入该电脑的 DSH 凭据存储；网页提交经 IM 转发，密钥不写入 IM 数据库或状态回显。删除在用服务或模型前，需先调整依赖它的助手。
 
 安装中断或电脑离线时重跑原页面命令，保留绑定、模型与助手。已有助手时不会重新创建；相同连接已经运行则复用状态。高级启停仍使用下文 CLI，并传入安装器显示的实际 config 路径。隔离验收可设置 `NANO_INSTALL_ROOT`；`NANO_INSTALL_AUTOSTART=0` 只在首次生成配置时关闭自启。
 
