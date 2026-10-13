@@ -62,7 +62,7 @@
 
 各机使用各自的 `~/.nanoassistant/config.yaml`，保留独立设备密钥与已绑定的节点运行凭据。普通发布不重新 bind，也不恢复旧账号密码认证方式。`node.user_id` 对齐与飞书影子会话验收步骤见 skill 验证清单。
 
-两机 Gateway 均由 `node apps/node/lib/cli.js --foreground --config …` 的 LaunchAgent 管理，并各自启动官方 DSH 子进程。Mini 从主仓运行；MacBook Air 从部署时固定 SHA 的 `prod-main-*` worktree 运行（当前为 Codex 管理的 worktree）。以 plist、live cwd 和 `.gateway-state.json` 为实际路径依据，不硬编码另一台机器的 checkout。持久状态位于 `~/.nanoassistant/.dsh-runtime/<node_id>/`，workspace 仍在原位置。
+两机 Gateway 均由 `node apps/node/lib/cli.js --foreground --config …` 的 LaunchAgent 管理，并各自启动官方 DSH 子进程。Mini 从主仓运行；MacBook Air 从固定的 detached `prod-main` worktree 运行（当前路径为 `~/.codex/worktrees/prod-main/nano-multiagent`，由 Codex 管理）。部署只切换该 checkout 的精确 Git SHA，不另建带 SHA 的目录；开发主仓保留已有改动。以 plist、live cwd 和 `.gateway-state.json` 为实际路径依据，不硬编码另一台机器的 checkout。持久状态位于 `~/.nanoassistant/.dsh-runtime/<node_id>/`，workspace 仍在原位置。
 
 Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占位 `api_key: nano-local-proxy`，供原生 provider 完成配置。它不是身份凭据，也不能替代其他需要认证的上游密钥；不要为了获得 loopback 默认值改写已验证的代理地址。
 
@@ -122,3 +122,11 @@ IM 启动必须显式设置 `IM_PUBLIC_URL` 为用户实际打开 Web IM 的 HTT
 Gateway YAML 的 `node.execution_access_address` 可选，填写执行设备供用户访问的主机名或 IP（不含协议、端口、路径或凭据）；缺失时省略提示中的该行。此值仅提供访问事实，不开放监听端口、不授予文件权限，也不保证用户能访问任意服务。
 
 升级前保留原配置并为 IM 增加 `IM_PUBLIC_URL`，先升级 IM 再升级 Gateway。旧 IM 未下发入口时，新 Gateway 报配置/版本不匹配，不采用内部连接地址猜测。回退代码时可保留新增环境变量；此配置说明不授权执行生产部署。
+
+## 固定生产 checkout 与 DSH profile
+
+Mini 复用主仓固定路径；MacBook Air 长期复用上文的 prod-main。更新前记录旧 SHA、确认生产 checkout 干净并停止其 Gateway，再切到经 CI 验证的目标 SHA、安装锁定依赖、构建并启动；失败时停止候选，切回记录的旧 SHA 并重新安装/构建。回退涉及数据库时仍须遵守对应迁移的恢复契约，不能仅回退代码。
+
+每个节点的持久 DSH profile 位于 `~/.nanoassistant/.dsh-runtime/<node_id>/profiles/nano/`。启动时由 Nano 生成插件与 provider 配置，并核对 dsh-integration、dsh-base 两个依赖软链接，过期或悬空链接更新到当前安装；正确链接保留，同名普通文件/目录明确报错且不覆盖。不能通过删除整个 DSH_HOME 修复路径；会话、配置、工作区和设备身份继续持久保留。
+
+已有带 SHA 的运行目录首次切换时，先停止旧 Gateway，再使用固定 checkout 启动，核对 LaunchAgent、live cwd、runtime profile 的依赖目标和 ready 状态后才回收旧目录。Codex 管理的 worktree 使用应用工具创建/归档；不直接改名导致应用附件元数据悬空。操作顺序见 [部署 runbook](../../.claude/skills/prod-fleet-deploy/references/runbook.md#固定生产-worktree)。

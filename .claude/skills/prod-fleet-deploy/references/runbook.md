@@ -11,7 +11,7 @@
 5. 若本次首次从 Python Gateway 切到 DSH，先按 [DSH 迁移](../../../../docs/operations/dsh-migration.md) 完成每节点最终快照、未决外发核对和资产切换；普通版本重启不能绕过该步骤。
 6. 若仍使用旧 PA 目录，先执行 [无覆盖迁移](../../../../docs/operations/pa-workspace-layout-migration.md)。完成迁移后不重复执行。
 
-MacBook Air Gateway 用目标 `prod-main-<short-sha>` detached worktree，各自安装锁定的 Node/pnpm 依赖并构建。新版本健康后才回收干净且无进程使用的旧 `prod-main-*`；不 force、不动其他 worktree。
+MacBook Air Gateway 长期复用固定 detached `prod-main` worktree，各自安装锁定的 Node/pnpm 依赖并构建。精确 SHA 进入部署记录，不进入目录名；普通更新不再创建或清理生产 worktree。首次迁移后才回收干净且无进程使用的历史目录；不 force、不动其他 worktree。
 
 首次切换须同时完成迁移操作单中的「旧生产数据的额外对账」，尤其是 IM 旧全局主会话、可重放 relay 和工具镜像。停止旧 Python Gateway 时从保留的旧 checkout 使用 `PYTHONPATH=<旧checkout>/src <原venv>/bin/python -m personal_assistant.main stop --config …`；新代码已移除旧模块，不能从新 checkout 调旧入口。新状态安装后只用 Node 生命周期命令。
 
@@ -62,36 +62,48 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 - 代理仅在本次授权范围需要时更新或重启。先核对实际 base_url、监听、进程 cwd/PID 与管理方式；不要根据旧端口示例杀服务，也不要为符合旧文档擅改可用配置。SearXNG 稳定地址继续写各机 config。
 - `ssh mini 'zsh -lc "…"'` 可取得 npm/docker 的 login PATH；Node 使用已经核实的绝对可执行路径，两个目标 checkout 都先安装锁定依赖并构建。
 
+### 固定生产 worktree
+
+固定路径见 [生产舰队](../../../../docs/operations/prod-fleet.md#节点身份)。在 Codex 内首次创建使用 `create_worktree(name="prod-main", ref=目标SHA)` 并核对返回路径；之后复用，不能因 SHA 改变而新建目录。已有同名路径须核对 Git common dir 与用途，不覆盖或改名不明现场。非 Codex 环境可用 `git worktree add --detach <固定路径> <目标SHA>` 首次创建。
+
+首次切换先在新 checkout 执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再从 live cwd 已核对的、已构建的旧 checkout 执行 `pnpm pa stop --config ~/.nanoassistant/config.yaml`，最后在新目录 restart 并验健康。不要从尚未构建的新目录调用 pa stop。下面的升级示例适用于固定目录已经投入运行的后续部署。
+
 ```bash
-# Mini Gateway
+# Mini Gateway（代码、依赖和构建已经更新到确认版本）
 ssh mini 'cd ~/Repos/nano-multiagent && pnpm pa restart --config ~/.nanoassistant/config.yaml'
 
-# MacBook Air：仅 fetch；将 target 固定为本次已确认、与 Mini 相同的 SHA。
+# MacBook Air：主仓只 fetch；target 是本次已确认、与 Mini 相同的 SHA。
+set -e
 cd ~/Repos/nano-multiagent
 git fetch origin
-repo_root=$PWD
-# target=<已确认目标SHA>
 : "${target:?set the reviewed deployment SHA}"
-short=$(git rev-parse --short "$target")
-prod_worktree="$repo_root/.worktrees/prod-main-$short"
-if [[ -e "$prod_worktree" ]]; then
-  [[ $(git -C "$prod_worktree" rev-parse HEAD) == "$target" ]] || exit 1
-else
-  git worktree add --detach "$prod_worktree" "$target"
+prod_worktree="$HOME/.codex/worktrees/prod-main/nano-multiagent"
+# 首次创建已按上文完成。Git 返回异常、dirty 或非 detached 状态时先核实。
+git -C "$prod_worktree" rev-parse --show-toplevel
+test -z "$(git -C "$prod_worktree" status --porcelain)"
+if git -C "$prod_worktree" symbolic-ref -q HEAD; then
+  print -u2 -r -- "ABORT: production checkout must be detached"
+  exit 1
 fi
-git -C "$prod_worktree" status --short
-# 若有未预期修改，先核实；不得覆盖。
+previous_sha=$(git -C "$prod_worktree" rev-parse HEAD)
+# 将 previous_sha 与 target 写入本机受限部署记录，不写密钥。
 if lsof -tiTCP:8011 -sTCP:LISTEN; then
   print -u2 -r -- "ABORT: local IM listener exists; identify its owner"
   exit 1
 fi
 cd "$prod_worktree"
+pnpm pa stop --config ~/.nanoassistant/config.yaml
+git checkout --detach "$target"
 pnpm install --frozen-lockfile
 pnpm build
 pnpm pa restart --config ~/.nanoassistant/config.yaml
 ```
 
-新 Gateway 健康后核对两机 LaunchAgent label（用 `apps/node/lib/lifecycle.js` 的 `gatewayLabel(config绝对路径)` 计算）、plist 工作目录、`.gateway-state.json` 的 PID/process birth、live cwd、DSH ready/runtime_pid 与目标 SHA。旧 production worktree 逐路径检查无 dirty/untracked、无 live cwd 引用后才 `git worktree remove`，最后 `git worktree prune`。
+升级失败时保留日志和当前状态，停止候选 Gateway，再在同一干净 checkout `git checkout --detach "$previous_sha"`、安装旧版本锁定依赖并构建、重新启动和验健康。不 reset/clean/stash 生产目录中的未知修改；数据库变更按对应迁移操作单回退。
+
+新 Gateway 健康后核对两机 LaunchAgent label（用 `apps/node/lib/lifecycle.js` 的 `gatewayLabel(config绝对路径)` 计算）、plist 工作目录、`.gateway-state.json` 的 PID/process birth、live cwd、DSH ready/runtime_pid 与目标 SHA。另核 nano profile 内 dsh-integration 与 dsh-base 的链接目标属于当前 checkout/锁定安装；这两条链接由启动逻辑自动检查并刷新。若同名 entry 是普通文件或目录，保留内容并解决冲突，不能删整个 DSH_HOME。
+
+首次迁移需要停止旧 Gateway，并在固定 checkout 启动后验证上述状态；旧目录暂留用于恢复。仅在迁移验收通过且没有 dirty/untracked、进程 cwd 或 profile 链接引用后回收旧 production worktree。Codex 管理目录使用 `archive_worktree`，其他普通 Git worktree 可 `git worktree remove`；保留固定 prod-main，最后按需要 prune。不要直接移动 Codex 管理目录而留下旧附件路径。
 
 ## 部署完成验收
 
