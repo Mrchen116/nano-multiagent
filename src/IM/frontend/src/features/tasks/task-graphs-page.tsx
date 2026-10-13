@@ -188,10 +188,22 @@ export function TaskGraphsPage() {
       : graph === null ? <div className="tasks-empty" role="alert"><h2>{t("tasks.unavailable")}</h2><Link to="/tasks">{t("tasks.allTargets")}</Link></div>
       : <>{query.isError && <ReadNotice stale={Boolean(graph)} onRefresh={() => void query.refetch()} />}
         {invalidLocation ? <div className="tasks-empty" role="alert"><h2>{t("tasks.invalidLocation")}</h2>{root && <button className="tasks-button" onClick={() => enter(root)}>{t("tasks.backRoot")}</button>}</div>
-          : graph && scope && <><div className="tasks-toolbar"><button className="tasks-button" aria-pressed={view === "progress"} onClick={() => setView("progress")}>{t("tasks.progress")}</button><button className="tasks-button" aria-pressed={view === "graph"} onClick={() => setView("graph")}>{t("tasks.structure")}</button><button className="tasks-button" onClick={() => select(scope)}>{t("tasks.nodeDetails")}</button>
+          : graph && scope && <><div className="tasks-toolbar">
+            <div className="tasks-scope-actions"><button className="tasks-button" onClick={() => select(scope)}>{t("tasks.nodeDetails")}</button>
             {scope.can_edit && <button className="tasks-button tasks-button--primary" onClick={() => setEditor({ graph, parent: scope })}>{t("tasks.createChild")}</button>}
             {conversation && !conversation.can_write && <span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>}
             {conversation?.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={busy} onClick={() => void act(() => joinConversation(conversation.id))}>{t("tasks.join")}</button>}
+            </div>
+            <div className="tasks-view-switch" role="group" aria-label={t("tasks.view")}>
+              <button type="button" aria-pressed={view === "progress"} onClick={() => setView("progress")}>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="4" height="10" rx="1" /><rect x="10" y="3" width="4" height="6" rx="1" /></svg>
+                {t("tasks.progress")}
+              </button>
+              <button type="button" aria-pressed={view === "graph"} onClick={() => setView("graph")}>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="6" width="4" height="4" rx="1" /><rect x="11" y="1" width="4" height="4" rx="1" /><rect x="11" y="11" width="4" height="4" rx="1" /><path d="M5 8h3V3h3M8 8v5h3" /></svg>
+                {t("tasks.structure")}
+              </button>
+            </div>
           </div><p className="tasks-range">{t("tasks.directOnly")} · <TaskCounts counts={scope.direct_counts} /></p>
           {view === "graph" ? <div className="tasks-content"><TaskGraphCanvas key={`${graph.graph_id}:${scope.id}`} graph={graph} scope={scope} selectedId={selected?.id} {...actions} /></div>
             : <TaskBoard nodes={children.map(node => ({ ...node, selected: scope.selected_candidate_id === node.id }))} onSelect={card => select(graph.nodes.find(node => node.id === card.id)!)} onEnter={card => enter(graph.nodes.find(node => node.id === card.id)!)} />}

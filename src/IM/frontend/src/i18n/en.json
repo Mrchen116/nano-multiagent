@@ -1092,6 +1092,7 @@
     "conversation": "Owning conversation",
     "chooseConversation": "Choose a writable conversation",
     "membersOnly": "Assign only to current conversation members. Join first before assigning.",
+    "view": "Task view",
     "progress": "Progress",
     "readOnly": "Read only · join to collaborate",
     "join": "Join group",

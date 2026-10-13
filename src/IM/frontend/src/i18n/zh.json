@@ -1084,6 +1084,7 @@
     "conversation": "所属会话",
     "chooseConversation": "选择有写入权限的会话",
     "membersOnly": "只能分配给所属会话成员；非成员需先加入。",
+    "view": "任务视图",
     "progress": "完成情况",
     "readOnly": "只读 · 加入后可协作",
     "join": "加入群聊",
