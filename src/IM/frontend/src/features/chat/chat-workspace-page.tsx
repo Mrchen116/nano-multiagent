@@ -221,7 +221,8 @@ function streamReducer(
     // arrives for the agent reply path in some flows). Dedupe by id so the
     // later WS message.created — if/when it comes — does not double-print.
     if (action.message.conversation_id !== state.conversation_id) return state;
-    if (state.messages.some((m) => m.id === action.message.id)) return state;
+    // The echo can precede POST completion and lacks the final relay wait.
+    // Merge the authoritative response by id without adding a second bubble.
     // bugfix-419: sort the new list so a WS echo with a different created_at
     // (e.g. server clock vs. client optimistic timestamp) lands in order.
     const timeline = mergeTimelineItems(state.timeline ?? [], [{ type: "message", message: action.message }]);
