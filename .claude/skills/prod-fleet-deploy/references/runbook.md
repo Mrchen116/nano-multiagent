@@ -66,6 +66,8 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 
 固定路径见 [生产舰队](../../../../docs/operations/prod-fleet.md#节点身份)。在 Codex 内首次创建使用 `create_worktree(name="prod-main", ref=目标SHA)` 并核对返回路径；之后复用，不能因 SHA 改变而新建目录。已有同名路径须核对 Git common dir 与用途，不覆盖或改名不明现场。非 Codex 环境可用 `git worktree add --detach <固定路径> <目标SHA>` 首次创建。
 
+首次切换先在新 checkout 执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再从 live cwd 已核对的、已构建的旧 checkout 执行 `pnpm pa stop --config ~/.nanoassistant/config.yaml`，最后在新目录 restart 并验健康。不要从尚未构建的新目录调用 pa stop。下面的升级示例适用于固定目录已经投入运行的后续部署。
+
 ```bash
 # Mini Gateway（代码、依赖和构建已经更新到确认版本）
 ssh mini 'cd ~/Repos/nano-multiagent && pnpm pa restart --config ~/.nanoassistant/config.yaml'
