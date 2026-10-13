@@ -1199,5 +1199,101 @@
     "bindTitle": "Connect your computer",
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
     "bindAccept": "Connect this computer"
+  },
+  "nodeUpdate": {
+    "available": {
+      "title": "Update available",
+      "body": "Your assistant will pause briefly. Chats and files will be kept."
+    },
+    "requested": {
+      "title": "Preparing download",
+      "body": "Your update is authorized. You can close this page."
+    },
+    "downloading": {
+      "title": "Downloading",
+      "body": "Your assistant can keep working. The update will wait for current tasks to finish."
+    },
+    "installing": {
+      "title": "Preparing update",
+      "body": "Checking the new version. Your assistant can keep working."
+    },
+    "waiting": {
+      "title": "Waiting for tasks to finish",
+      "body": "The update is ready and will continue after current work finishes."
+    },
+    "switching": {
+      "title": "Updating",
+      "body": "Your computer will return shortly. New messages will wait for the update."
+    },
+    "verifying": {
+      "title": "Checking connection",
+      "body": "The new version is connecting. Messages will continue when it is ready."
+    },
+    "rolling_back": {
+      "title": "Restoring previous version",
+      "body": "The new version could not start. Chats and files will be kept."
+    },
+    "succeeded": {
+      "title": "Updated",
+      "body": "Your computer is connected and your assistant is ready."
+    },
+    "cancelled": {
+      "title": "Update cancelled",
+      "body": "The current version keeps working. You can update later."
+    },
+    "failed": {
+      "title": "Update incomplete",
+      "body": "Download or preparation failed. The current version remains available. Check your connection and retry."
+    },
+    "rolled_back": {
+      "title": "Previous version restored",
+      "body": "Your assistant is available. Chats and files have been kept."
+    },
+    "interrupted": {
+      "title": "Update interrupted",
+      "body": "The update process stopped. Retry when your computer is online."
+    },
+    "recovery_required": {
+      "title": "Computer needs recovery",
+      "body": "Your computer has not recovered. Chats and files are kept. Run the recovery command on this computer."
+    },
+    "offline": {
+      "title": "Update when computer is online",
+      "body": "Open Nano on this computer, then return here to update."
+    },
+    "current": {
+      "title": "Up to date",
+      "body": "This computer has the version recommended by your service."
+    },
+    "legacy": {
+      "title": "Enable button updates",
+      "body": "Run a one-time upgrade on this computer to enable updates here."
+    },
+    "source": {
+      "title": "Update through your deployment",
+      "body": "This computer runs from source. Use your existing deployment process."
+    },
+    "unpublished": {
+      "title": "No installable version",
+      "body": "The service has not published an installable version yet."
+    },
+    "incompatible": {
+      "title": "Upgrade with the installer",
+      "body": "This version needs a one-time installer upgrade before button updates can continue."
+    },
+    "update": "Update",
+    "cancel": "Cancel update",
+    "cancelling": "Cancelling…",
+    "starting": "Starting…",
+    "bridge": "Upgrade instructions",
+    "recover": "Recovery instructions",
+    "copy": "Copy command",
+    "copied": "Copied",
+    "commandHelp": "Finish current tasks, then run this command in a terminal on this computer, or ask its local agent to run it. Your identity, assistants, models and files will be kept.",
+    "requestError": "The operation may have changed. Refreshing its status; check before retrying.",
+    "progressChip": "Update in progress",
+    "recoveryChip": "Recovery needed",
+    "waitMessage": "Waiting for computer update",
+    "waitRecovery": "Will continue when the computer recovers. No need to resend."
   }
 }

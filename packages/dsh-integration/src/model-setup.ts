@@ -33,6 +33,8 @@ export class NativeModelSetup {
     peer.handle('model.setup.cancel', () => { this.transaction?.abort.abort(); return {}; });
     ctx.effect(() => () => { this.transaction?.abort.abort(); });
   }
+  /** A staged or testing provider transaction must finish before an update. */
+  get busy(): boolean { return !!this.transaction; }
   /** Node YAML is authoritative on every cold initialization, including an empty map. */
   async apply(providers: Profiles): Promise<void> {
     await this.ctx.settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers'], value: providers }]);

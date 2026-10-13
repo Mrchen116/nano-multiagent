@@ -62,6 +62,8 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   private readonly budgets = new Map<string, BudgetRecord>();
   private readonly creating = new AsyncLocalStorage<AgentConfiguration>();
   private writes = Promise.resolve();
+  private pendingWrites = 0;
+  private readonly undelivered = new Set<string>();
   private readonly ready: Promise<void>;
   private stopping = false;
   constructor(
@@ -96,6 +98,8 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       await (await this.storage).close();
     });
   }
+  /** A paused Workflow still owns unfinished work and blocks an update. */
+  get busy(): boolean { return this.live.size > 0 || this.pendingWrites > 0 || this.undelivered.size > 0; }
   childConfiguration(parent: AgentConfiguration): AgentConfiguration {
     return this.creating.getStore() ?? parent;
   }
@@ -104,7 +108,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     for (const [, budget] of storage.table("budgets").entries())
       this.budgets.set(budget.id, budget);
     for (const [, record] of storage.table("runs").entries())
-      this.recoveredRecords.set(record.id, record);
+      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered) this.undelivered.add(record.id); }
     for (const [id, record] of storage.table("runs").entries())
       if (record.state === "running" || record.state === "paused") {
         await storage.table("runs").put(id, {
@@ -116,6 +120,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       }
   }
   private save(record: WorkflowRecord) {
+    if (record.result && !record.delivered) this.undelivered.add(record.id);
     record.revision++;
     const snapshot = structuredClone(record);
     return this.enqueue(async () => {
@@ -123,7 +128,8 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     });
   }
   private enqueue(write: () => Promise<void>) {
-    const task = this.writes.then(write);
+    this.pendingWrites++;
+    const task = this.writes.then(write).finally(() => { this.pendingWrites--; });
     this.writes = task;
     return task;
   }
@@ -744,6 +750,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     const table = (await this.storage).table("runs");
     const record = table.get(key(id));
     if (record) await table.put(key(id), { ...record, delivered: true });
+    this.undelivered.delete(id);
   }
   async command(parent: Agent, id: string, argument: string) {
     await this.ready;

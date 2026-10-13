@@ -32,6 +32,8 @@ export class KnowledgeRuntime extends Service {
   private readonly tasks = new Set<Promise<unknown>>();
   private readonly host: Context;
   private stopping = false;
+  private updateHeld = false;
+  private readonly undelivered = new Set<string>();
   private readonly subscriptions = new Map<string, Set<Context>>();
   private readonly reviewStart = new AsyncLocalStorage<{ parentId: string; system: string; tools: ToolSchema[]; allow: string[] }>();
   constructor(ctx: Context, private readonly options: Options) {
@@ -72,6 +74,10 @@ export class KnowledgeRuntime extends Service {
       return assembly;
     });
   }
+  /** Reviews and their asynchronous bookkeeping must finish before an update. */
+  get busy(): boolean { return this.active.size > 0 || this.tasks.size > 0 || this.undelivered.size > 0; }
+  /** Pause periodic curation during an update without changing Feature settings. */
+  suspendUpdates(held: boolean): void { this.updateHeld = held; }
   private track(task: Promise<unknown>) {
     this.tasks.add(task); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
   }
@@ -109,6 +115,7 @@ export class KnowledgeRuntime extends Service {
   private async changed(exec: ToolExecution, result: { kind: KnowledgeKind; action: string; path: string; name?: string; scope?: string; skill_root?: string; source?: string }) {
     const agent = exec.agent!; const root = this.root(agent); const reviewId = this.reviewIdentity(agent.id);
     const fact: KnowledgeFact = { id: `${agent.id}:${exec.callId}`, agentId: this.config(agent)!.agentId, rootSessionId: root.id, sessionId: agent.id, turn: reviewId ? this.active.get(reviewId)!.turn : this.turn(root), ...result, ...(reviewId ? { reviewId } : {}) };
+    this.undelivered.add(fact.id);
     await (await this.state).table('facts').put(storageKey(fact.id), fact); this.options.notify();
   }
   async usage(agentId: string) {
@@ -126,8 +133,9 @@ export class KnowledgeRuntime extends Service {
     });
   }
   async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value); }
-  async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); }
+  async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); this.undelivered.delete(id); }
   async recover() {
+    for (const fact of await this.facts()) this.undelivered.add(fact.id);
     const reviews = (await this.state).table('reviews');
     for (const [id, review] of reviews.entries()) if (review.status === 'running') await reviews.put(id, { ...review, status: 'interrupted' });
     return this.reviews();
@@ -141,6 +149,7 @@ export class KnowledgeRuntime extends Service {
     let scan = () => {};
     if (kind === 'skills') {
       scan = () => {
+        if (this.updateHeld) return;
         const agent = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => this.host.agents.get(SessionId(binding.sessionId))).find(Boolean);
         if (!agent) return;
         const files = this.files(agent);

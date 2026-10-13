@@ -17,6 +17,8 @@ export class ConfigurationOperations {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY, receipt TEXT NOT NULL)');
   }
+  /** Includes write-ahead operations that have not yet reached the runtime. */
+  get busy(): boolean { return this.chains.size > 0 || !!this.db.prepare("SELECT 1 FROM operations WHERE json_extract(receipt,'$.status')='pending' LIMIT 1").get(); }
   private get(id: string): Receipt | undefined {
     const row = this.db.prepare('SELECT receipt FROM operations WHERE id=?').get(id) as { receipt: string } | undefined;
     return row ? JSON.parse(row.receipt) as Receipt : undefined;

@@ -6,6 +6,7 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { subscribeUserStream } from "../../../realtime/user-stream";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
+import { NodeUpdatePanel, nodeUpdateActive, nodeUpdateSwitching } from './node-update-panel';
 
 function statusDotStyle(status: string): import("react").CSSProperties {
   const online = status === "online";
@@ -38,7 +39,8 @@ export function NodesPage() {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["settings", "nodes"],
-    queryFn: listNodes
+    queryFn: listNodes,
+    refetchInterval: query => query.state.data?.some(n=>nodeUpdateActive(n.update)) ? 2000 : 60000
   });
   const [drafts, setDrafts] = useState<Record<string, NodeSettingsProfile>>({});
 
@@ -49,7 +51,7 @@ export function NodesPage() {
   }, [query.data]);
 
   const rows = useMemo(() => {
-    return (query.data ?? []).map((node) => drafts[node.node_id] ?? node);
+    return (query.data ?? []).map((node) => drafts[node.node_id] ? {...node, alias:drafts[node.node_id].alias,relay_enabled:drafts[node.node_id].relay_enabled,reporting_enabled:drafts[node.node_id].reporting_enabled}:node);
   }, [drafts, query.data]);
 
   function isNodeDirty(node: NodeSettingsProfile): boolean {
@@ -71,6 +73,7 @@ export function NodesPage() {
         await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
       },
       onEvent: (event) => {
+        if(event.eventType==='node.update_changed'){void queryClient.invalidateQueries({queryKey:['settings','nodes']});return;}
         if (event.eventType !== "node.status_changed") return;
         const payload = event.payload as {
           node_id?: unknown;
@@ -127,6 +130,10 @@ export function NodesPage() {
     });
     return detach;
   }, [queryClient]);
+  useEffect(()=>{
+    const id=decodeURIComponent(window.location.hash.slice(1));
+    if(id)document.getElementById(id)?.scrollIntoView?.({block:'start'});
+  },[query.data?.length]);
 
   const mutation = useMutation({
     mutationFn: (row: NodeSettingsProfile) =>
@@ -224,12 +231,13 @@ export function NodesPage() {
         </div>
       </div>
       {rows.map((row) => {
-        const statusText = t(statusLabelKey(row.status));
+        const statusText = nodeUpdateSwitching(row.update) ? t('nodeUpdate.switching.title') : t(statusLabelKey(row.status));
         const isOnline = row.status === "online";
 
         return (
           <section
             key={row.node_id}
+            id={`node-${row.node_id}`}
             className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white overflow-hidden"
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[oklch(0.87_0.006_240)] px-[18px] py-[14px]">
@@ -276,6 +284,7 @@ export function NodesPage() {
             </div>
 
             <div className="grid gap-[14px] px-[18px] py-[14px]">
+              {row.update && <NodeUpdatePanel nodeId={row.node_id} update={row.update}/>}
               <div className="grid items-start gap-[14px] md:grid-cols-2">
                 <label
                   className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]"

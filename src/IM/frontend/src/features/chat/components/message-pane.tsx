@@ -47,6 +47,7 @@ import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-par
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
+import type { NodeUpdateView } from '../../settings/im-settings-api';
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
 import {
@@ -94,6 +95,8 @@ export interface MessagePaneProps {
   slashCommands?: SlashCommandCandidate[];
   nodeName?: string | null;
   nodeStatus?: "online" | "offline";
+  nodeId?: string | null;
+  nodeUpdate?: NodeUpdateView;
   /** Agent color for header avatar (direct-agent conversations). */
   agentColor?: string | null;
   /** Agent initials for header avatar (direct-agent conversations). */
@@ -213,6 +216,8 @@ export function MessagePane({
   slashCommands = [],
   nodeName,
   nodeStatus = "offline",
+  nodeId,
+  nodeUpdate,
   agentColor,
   agentInitials,
   isMobile = false,
@@ -977,7 +982,7 @@ export function MessagePane({
                 ))}
               </span>
             )}
-            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
+            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
@@ -1795,6 +1800,7 @@ function MessageBubble({
           )}
         </div>
 
+        {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (

@@ -193,6 +193,7 @@ export interface Message {
   content: string;
   attachments: Attachment[];
   delivery_status: DeliveryStatus;
+  update_wait?: 'updating' | 'recovery_required' | null;
   created_at: string;
   tool_calls?: ToolCall[];
   /** feat-439-M2: 整轮多段思考（过程时间线）。undefined = 无思考 / 旧行（不留空壳）。 */

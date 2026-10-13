@@ -35,6 +35,8 @@ export class ModelPolicy extends Service {
     this.fallback = new ModelFallback(ctx, { route: agent => this.route(agent), select: (agent, route) => { this.selections.get(agent.id)!.selected = route; }, sticky: async (agent, route) => { const selection = this.selections.get(agent.id)!; selection.sticky = route; delete selection.effort; delete selection.selected; await (await this.state).table('sessions').put(key(agent.id), selection); }, ...options });
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
   }
+  /** Pending between-turn commands and fallback work block a safe update. */
+  get busy(): boolean { return this.commands.size > 0 || this.fallback.busy; }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.configs.set(agent.id, config);
     const saved = (await this.state).table('sessions').get(key(agent.id));

@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify";
 import type { Identity } from "./identity.js";
 import type { Gateway } from "./gateway.js";
 import type { Messaging } from "./messaging.js";
+import type { NodeUpdates } from './node-updates.js';
 export type Row = Record<string, any>;
 export interface ImContext {
   db: DatabaseSync;
@@ -14,6 +15,7 @@ export interface ImContext {
   identity: Identity;
   gateway: Gateway;
   messaging: Messaging;
+  updates?: NodeUpdates;
 }
 export function fail(statusCode: number, detail: string | Row): never {
   throw Object.assign(

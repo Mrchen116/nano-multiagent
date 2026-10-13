@@ -67,6 +67,9 @@ export interface MessageApprovalContext {
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
+export { parseReleaseManifest, nodeUpdateTerminal, nodeUpdateCancellable,
+  type ReleaseManifest, type NodeRelease, type NodeUpdateState, type NodeUpdateOperation,
+  type NodeUpdateView, type NodeUpdateReport } from './node-update.js';
 export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryRun, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';
 
 /** Native attempts grouped into one product reply and its model notices. */

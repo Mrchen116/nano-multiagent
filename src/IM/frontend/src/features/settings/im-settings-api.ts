@@ -1,5 +1,15 @@
 import { authFetch } from "../auth/auth-fetch";
 
+export interface NodeUpdateView {
+  installation: 'managed' | 'legacy' | 'source';
+  current: {version: string} | null;
+  target: {version: string; sha256: string; release_notes?: string} | null;
+  available: boolean;
+  reason: string;
+  operation: {id: string; state: string; cancel_requested: boolean; relay_gated: boolean; request_id: string} | null;
+  install_command: string;
+}
+
 export interface NodeSettingsProfile {
   node_id: string;
   owner_id: string;
@@ -12,6 +22,7 @@ export interface NodeSettingsProfile {
   reporting_enabled: boolean;
   alias: string | null;
   last_error: string | null;
+  update?: NodeUpdateView;
 }
 
 export interface AccountProfile {
@@ -74,6 +85,13 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function listNodes() {
   return requestJson<NodeSettingsProfile[]>("/im/v1/nodes");
+}
+
+export function startNodeUpdate(nodeId: string, input: {request_id: string; version: string; sha256: string}) {
+  return requestJson(`/im/v1/nodes/${encodeURIComponent(nodeId)}/update`, {method:'POST', body:JSON.stringify(input)});
+}
+export function cancelNodeUpdate(nodeId: string, operationId: string) {
+  return requestJson(`/im/v1/nodes/${encodeURIComponent(nodeId)}/update/cancel`, {method:'POST', body:JSON.stringify({operation_id:operationId})});
 }
 
 export async function confirmBindToken(bindToken: string) {
