@@ -99,3 +99,7 @@ author 补齐以上材料后，若仅将既有用户决定、实际画面和原�
 - R1-W1：新增 Gateway/IM delta，显式保留离线旧模式、蒸馏禁用和 safe boundary；修正 IM 旧首次编辑/重连条目与新契约冲突。首版提前改动的 current 已恢复，待最终核对后归并。
 - R1-W2：design 增补两端内容关系与 must-match 投影，prototype 为明确标注的实现后局部状态对照；原生实际画面存 evidence/native-design.png。原型与产品证据不混用。
 - R1-W3：补唯一 M1 骨架及两轨退出标准、两端入口、隔离资源/启停/重启/清理 runbook。
+
+### User scope correction during delivery
+
+用户随后明确：“这玩意哪用前端啊，内部机制调整啊”“赶紧做了逻辑修改就行了啊”。据用户优先指令，停止额外原型、体验契约与产品界面验收；刚新增的演示文件已移除，design精简为内部机制和必要配置语义。Round 1的观察和结论作为实际历史保留；R1-W2及R1-W3中的额外UI设计/验收前置不再是本轮交付要求。delta及内部逻辑退出条件仍须独立核对。
