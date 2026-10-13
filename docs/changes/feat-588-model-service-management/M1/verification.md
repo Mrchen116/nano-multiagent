@@ -97,3 +97,50 @@ Recommendation: preserve surviving credentials when recomputing live routes, the
 None.
 
 One WARNING remains. This frozen implementation is not ready for PR until W1 is fixed and the separately required product acceptance / final CI gates are complete.
+
+## Round 2 — targeted closure and corrected delta
+
+- Date: 2026-10-13; same independent static reviewer as R1.
+- `validated_at`: `c4e2517b96d22f7c1a38df22ac8259ec5ab96f68`.
+- `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d`.
+- `verification_mode`: `targeted-closure`, plus `corrected-delta`; `fix_delta_range`: `eff9d6daf0b44cd6d1297e08500697e97561fa69..c4e2517b96d22f7c1a38df22ac8259ec5ab96f68`.
+- `focus_issues`: W1; `requires_full_verification`: false.
+- Verdict: **PASS for static verification — 0 CRITICAL / 0 WARNING / 0 SUGGESTION. Corrected delta outcome: aligned.** Independent product acceptance, canonical merge, final CI and actual release/deployment remain their respective owners' work.
+
+### W1 closure
+
+The fix replaces the positional env name with the full UTF-8 hex of immutable service ID (`apps/node/src/providers.ts:70`). It changes no profile fields, credential store format, probe or commit/rollback mechanism. Startup, live stage and recovery all recompute profiles through this same function, so removing A does not change B's key reference. `main.ts:29` / `:48` are the actual initial env capture and supervisor assembly locations (the R1 shorthand `:46` was imprecise).
+
+Independently reran the R1 real DSH/HTTP reproduction at the frozen head, then rebuilt the child using the original startup env and current remaining profiles. The same B session sent `Bearer fixture-key-B` on all three requests: before removal, after successful A removal, and after child rebuild. Initial/live profile binding was identically `NANO_PROVIDER_6C65676163792D62_KEY`. Full durable output and command are appended in [code-review Round 2](code-review.md#round-2--closure). This closes the S7/S8 deviation; all nine scenario implementation mappings now align within their documented evidence boundaries.
+
+Reviewed permanent regression `apps/node/tests/providers.test.ts:11–77`: two real inline-key providers, actual `ModelSetup.remove`, same-session completed requests, and actual Authorization header assertion. Shared red log proves the old B→A failure; shared green log records 4 files / 15 tests passed across providers/model-setup/configuration/integration setup. These logs and source were inspected; no unrelated full suite was rerun. Child-rebuild evidence validates env/profile consistency, not a whole-node lifecycle or full browser acceptance.
+
+### Retained conclusions and base impact
+
+R1 completeness, architecture, unaffected correctness, explicit prototype comparison and installation evidence boundaries remain valid. Compared the complete fix delta and main increment: only the env-name implementation and its regression changed; main added two unrelated feat-589 requirement documents. No Web, IM source, installer/publisher, model probe/transaction, spec, design or prototype changed. Current Gate 2 R4 remains applicable; the old rejected UI judgment remains invalid. Product reviewer continues separately on the eff9 build; this static pass does not issue a product verdict.
+
+`git diff --check eff9d6daf..c4e2517b9` passed. Only assigned reports were edited. Independent fixture resources were cleaned; existing `.runtime/`, `output/`, user service 52267 and shared model fixtures were preserved.
+
+## Corrected Delta Reconciliation
+
+Scope: read both complete delta files at the frozen head, the canonical target for the modified IM requirement, their R1 implementation/test mappings, and the whole implementation delta for uncovered observable behavior. The IM MODIFIED item completes the canonical replacement of the old discovered-connection wording; it does not expand or weaken the accepted feature scope. The R1 statement that no behavior was omitted is refined here: the already-implemented removal of developer-proxy autodiscovery is now explicitly represented as MODIFIED, avoiding contradictory canonical wording after merge.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| IM MODIFIED `页面完成模型连接` / 验证与失败恢复 (`specs/im/agents-nodes.md:5–11`) | API-first common panel at `onboarding-page.tsx:113`; catalog/custom switches and optional subscription; Node setup no longer imports/scans local proxy configuration | Existing onboarding + models component tests, Node setup real-request probe and failure/cancel tests, R1 author evidence | aligned; replaces the exact current requirement at `docs/specs/im/agents-nodes.md:733` with a complete modified entry |
+| IM ADDED / 首次 API 接入 (`:17–19`) | Common panel initial API draft; subscription separated | Onboarding tests; models catalog selection test | aligned |
+| IM ADDED / 日常新增和编辑 (`:21–24`) | Permanent route/menu/Me, computer scope, safe fields; owner check before/after relay | Models edit/blank-key/missing/offline tests; IM owner-transfer/safe projection tests | aligned |
+| IM ADDED / 未完成保存保留草稿 (`:26–28`) | Revision-bound local draft; conflict comparison/reapply; explicit pending/cancel terminal feedback | Models conflict/offline/cancel tests; Node failed probe/stale revision tests | aligned |
+| IM ADDED / 依赖保护 (`:30–32`) | Shared final Agent/reference check, dependency names and confirmation UI | Configuration interleaving tests; models dependency test; W1 actual header regression now preserves remaining services | aligned |
+| IM ADDED / 安装当前服务配套版本 (`:36–38`) | Fixed full SHA manifest and GitHub URL; script direct download; origin-bound setup | Onboarding manifest/redirect tests, installer/bootstrap tests, release fixture | aligned within design's pre-publication boundary |
+| IM ADDED / 下载失败保留原安装 (`:40–42`) | Hash before promotion; failure cleanup and previous install/config preserved | Installer malformed manifest/download/hash tests; publication failure manifest preservation tests | aligned |
+| Gateway ADDED / 同名上游模型分属不同服务 (`specs/gateway/agent-capabilities.md:7–9`) | Stable product model reference and provider-qualified wire ID resolution | Node setup duplicate IDs; configuration primary/fallback/approval wire-ID test | aligned |
+| Gateway ADDED / 成功编辑与失败恢复 (`:11–14`) | Isolated candidate probe, shared queue apply/rollback, persisted revision | Node setup edit/cancel/YAML/child recovery tests; real DSH stage/rollback/cold restart; new remaining-service live request regression | aligned |
+| Gateway ADDED / 拒绝旧版本与在用引用移除 (`:16–18`) | Preflight/final revision/reference check; Agent save re-resolves inside same queue | Configuration both-order interleaving and stale writes; Node dependency tests | aligned |
+| Gateway ADDED / 凭据限于执行电脑 (`:20–22`) | Local stdio credential record; API key excluded from YAML and nested IM response projection; blank retains record | Node blank-key/migration tests; IM nested safe projection; real credential stage/rollback | aligned |
+
+### Uncovered Observable Behavior
+
+None remaining. The env-name fix is internal and restores the existing S7/S8 guarantee; it does not add a new user-facing contract. Model display labels and metadata support service-qualified selection already in the deltas. The corrected IM MODIFIED requirement explicitly covers the retired developer-proxy discovery path. Native iOS model management, automatic publication/deployment and comprehensive paid-vendor acceptance remain outside the accepted scope.
+
+Outcome: **aligned**. Canonical documents are still current baseline documents at this validation snapshot; their subsequent merge must apply the listed MODIFIED replacement and ADDED entries together, without retaining the obsolete discovery sentence.

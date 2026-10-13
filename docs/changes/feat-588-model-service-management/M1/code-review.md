@@ -64,3 +64,51 @@ Actionable correction: keep a surviving service's credential binding stable acro
 - Installer pins a complete SHA and hash, downloads the fixed GitHub URL directly, redirects the old IM package route, and preserves previous installation on failure. Publishing promotes a manifest only after anonymous hash verification. No Release publication or deployment is inferred from fixture tests.
 - Reused author evidence after inspecting logs and corresponding tests: backend 67 files / 205 tests, Python 54 passed / 31 e2e deselected, frontend 89 files / 842 tests; UI redo 4 files / 22 tests, final models 8 tests and TypeScript/Vite build. Locators: `.runtime/feat-588/{native-tests-serial,python-tests,frontend-tests,typecheck,legacy-edit-test}.log`, `/tmp/nano588-ui-{tests,final-test,final-build}.log`, and `evidence/release-distribution.md`. These passing tests do not cover the surviving legacy service's env-index change reproduced above.
 - `git diff --check e2e7aae..eff9d6daf` passed. No implementation, tests, config or design were changed. Existing untracked `.runtime/` and `output/` were preserved. All runtime resources created by this review were cleaned.
+
+## Round 2 — closure
+
+- Date: 2026-10-13; same independent static reviewer as R1.
+- `validated_at`: `c4e2517b96d22f7c1a38df22ac8259ec5ab96f68`.
+- `executed_base`: `b7e367cc08a642133dea28e372816cd79038818d`.
+- `finding_origin_head` / `pre_fix_head`: `eff9d6daf0b44cd6d1297e08500697e97561fa69`.
+- Fix commit: `db8c54e2f373e9d512f26151a912fb30edf01292`; inspected origin-head through the frozen validation head. Product code/test delta is only `apps/node/src/providers.ts` and `apps/node/tests/providers.test.ts`.
+- Focus finding: R1 P1 / verifier W1. Mode: `closure`. Result: **PASS; W1 closed; no surviving findings.**
+
+### Findings
+
+```json
+[]
+```
+
+### Focus closure and independent evidence
+
+| Focus finding | Status | Evidence |
+|---|---|---|
+| W1: removing A makes remaining legacy B use A's key | closed | `providers.ts:70` derives a stable env name from the complete UTF-8 bytes of immutable `provider.name`. List position is no longer an input. Actual HTTP calls in the independent rerun use B's key before/after removal and after rebuilding the child with the original startup env. |
+
+The fix keeps startup, live stage, rollback and child recovery on the same `providerProfiles` function. Startup computes the env once (`main.ts:29`, `:48`); live edit/rollback recompute the map (`model-setup.ts:122`, `:144`); recovery initializes from current YAML with the original supervisor env (`main.ts:51`, integration `client.ts:108`). An unchanged B service ID therefore produces the same env key in each path. No probe, stage/finish, credential-store or transaction code changed. For clarity, the R1 shorthand reference `main.ts:46` in its call-chain text should read `main.ts:48`; R1's observed defect and conclusion are unchanged.
+
+Independent command: `node --import tsx /tmp/nano588-review-legacy-closure.mts > /tmp/nano588-review-legacy-closure.log 2>&1`, using the same temporary two-service HTTP fixture as R1, then explicitly shutting down and recreating the DSH child with the original env and the current remaining profiles. The same persisted session was ensured and submitted again. Durable result:
+
+```json
+{
+  "remove_operation": {"state": "succeeded"},
+  "authorization_before": "Bearer fixture-key-B",
+  "authorization_after_remove": "Bearer fixture-key-B",
+  "authorization_after_child_rebuild": "Bearer fixture-key-B",
+  "initialBinding": "NANO_PROVIDER_6C65676163792D62_KEY",
+  "liveBinding": "NANO_PROVIDER_6C65676163792D62_KEY",
+  "remaining": ["legacy-b"]
+}
+```
+
+This is direct local DSH/HTTP evidence, with fake keys and an OS-assigned port. The child rebuild reproduces the supervisor's env/profile inputs; it is not a full node supervisor crash/restart acceptance. All created processes, server connections and temporary home were cleaned; 52267 and 18489/18490 were untouched.
+
+The new permanent regression (`providers.test.ts:11–77`) asserts the same live-session HTTP header across actual removal, with both inputs completed. Inspected shared red evidence `/tmp/nano588-legacy-red.log` shows the precise B→A failure under the old positional binding; green evidence `/tmp/nano588-legacy-green.log` records providers/model-setup/configuration/integration setup, 4 files / 15 tests passed. Author node typecheck pass is recorded in the handoff. No unrelated full suite was repeated.
+
+### Retained scope and integration check
+
+- Main `6275f271d..b7e367cc08a642133dea28e372816cd79038818d` adds only feat-589's `original-request.md` and `spec.md`; no implementation, tests, runtime dependencies or feat-588 contract were changed by that sync.
+- R1's non-W1 code conclusions, public dependency boundary, Web explicit-contract comparison, common editor/owner/transaction checks and installation fixture boundary are retained. Spec/design/prototype, Web, IM, installer/publisher and probe/transaction source are unchanged.
+- The IM delta's newly explicit MODIFIED requirement is documentation alignment to the already-reviewed API-first behavior; full corrected-delta reconciliation is in [verification.md](verification.md#corrected-delta-reconciliation). This does not restore the rejected old UI approval or substitute for product review of the separately running eff9 build.
+- `git diff --check eff9d6daf..c4e2517b9` passed. Only the two assigned reports were changed by this reviewer; no implementation/config/test/design changes or push.
