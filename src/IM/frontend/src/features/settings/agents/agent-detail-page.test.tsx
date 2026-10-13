@@ -842,6 +842,33 @@ describe("agent prompt preview", () => {
     apiMocks.listAgentsMock.mockResolvedValue([]);
   });
 
+  it("keeps disabled skills gray after saving and reopening the config", async () => {
+    const user = userEvent.setup();
+    const state = makeStateWithSkillSelection("explicit_denylist", ["shared-skill", "hidden-disabled"]);
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    apiMocks.updateAgentConfigMock.mockImplementation(async (_id, next) => {
+      const config = { ...state.config, ...next, profile_version: 2 };
+      apiMocks.getAgentDetailStateMock.mockResolvedValue({ ...state, config });
+      return config;
+    });
+    const page = renderDetailPage();
+    const shared = await screen.findByRole("button", { name: "shared-skill" });
+    expect(shared).toHaveAttribute("aria-pressed", "false");
+    expect(shared).toHaveClass("bg-[oklch(0.96_0.005_240)]");
+    await user.click(screen.getByRole("button", { name: "workspace-skill" }));
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+    await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled());
+    expect(apiMocks.updateAgentConfigMock.mock.calls[0][1]).toMatchObject({
+      skills: ["shared-skill", "hidden-disabled", "workspace-skill"],
+      skills_selection_mode: "explicit_denylist",
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "workspace-skill" })).toHaveAttribute("aria-pressed", "false"));
+    page.unmount();
+    renderDetailPage();
+    expect(await screen.findByRole("button", { name: "shared-skill" })).toHaveClass("bg-[oklch(0.96_0.005_240)]");
+    expect(screen.getByRole("button", { name: "workspace-skill" })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("sends the selected tools to the preview API", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithMemoryInAllowlist());

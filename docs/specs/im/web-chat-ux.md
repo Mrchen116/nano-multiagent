@@ -11,6 +11,14 @@ Web IM 聊天页滚动、输入、消息操作和桌面/移动一致性的用户
 
 ## Requirements
 
+### Requirement: 页面加载获取当前前端入口
+
+Web IM 的 HTML 页面入口（包括 Agent 设置等 SPA 路由）MUST 返回 `Cache-Control: no-store`，避免刷新时继续使用引用旧版本脚本的入口。已经运行的页面需要刷新才会加载新代码；本规则不触发自动刷新或丢弃未保存草稿。
+
+#### Scenario: 更新部署后重新打开配置页
+- **WHEN** 浏览器重新加载 Agent 设置页面或直接请求 `/index.html`
+- **THEN** HTML 入口不由浏览器缓存复用，页面从当前部署的入口加载脚本。
+
 ### Requirement: Agent 图片在正文中按顺序展示加载、成功和失败状态
 
 Web IM MUST 保持 Agent 回复的图文顺序，内联图片保持原比例、不重复加入附件区，适配桌面与移动端；图片状态不影响相邻文字阅读。

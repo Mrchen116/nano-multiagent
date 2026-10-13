@@ -107,7 +107,9 @@ it('keeps new skills selected and persists only disabled names, including hidden
   const user = userEvent.setup(); const onChange = vi.fn();
   render(<SkillSourceSelector testId="denylist" label="Skills" selected={['local-a', 'hidden-disabled']} selectionMode="explicit_denylist" options={options} onChange={onChange} />);
   expect(screen.getByRole('button', {name: 'local-a'})).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', {name: 'local-a'})).toHaveClass('bg-[oklch(0.96_0.005_240)]');
   expect(screen.getByRole('button', {name: 'local-b'})).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', {name: 'local-b'})).toHaveClass('bg-[oklch(0.93_0.08_180)]');
   await user.click(screen.getByRole('button', {name: 'local-b'}));
   expect(onChange).toHaveBeenCalledWith(['local-a', 'hidden-disabled', 'local-b'], 'explicit_denylist');
 });
