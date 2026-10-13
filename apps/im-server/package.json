@@ -17,6 +17,7 @@
     "@nano/product-contracts": "workspace:*"
   },
   "devDependencies": {
+    "@nano/channels": "workspace:*",
     "@types/ws": "8.18.1"
   }
 }

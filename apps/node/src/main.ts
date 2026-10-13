@@ -154,6 +154,7 @@ const relay = new WebRelayConnection({
   },
   onState: async state => { if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready') { await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
   onError: reportError,
+  onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
 trajectory = new NodeTrajectory({ imUrl: config.im_service.url, runtime, valid: scope => {
   const binding = store.bindings().find(binding => binding.sessionId === scope.rootSessionId);
