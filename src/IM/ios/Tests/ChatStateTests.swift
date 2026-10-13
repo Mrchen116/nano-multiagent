@@ -76,6 +76,30 @@ final class ChatStateTests: XCTestCase {
         store.clear()
     }
 
+    func testPublicVisitorAndDissolvedHistorySurviveSidebarRefreshUntilAccessIsRevoked() async throws {
+        for dissolved in [false, true] {
+            let json = """
+            {"id":"chat","title":"History","participants":[],"participant_ids":[],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","visibility":"public","is_member":false,"can_write":false,"dissolved_at":\(dissolved ? "\"now\"" : "null")}
+            """
+            let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
+            let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
+            let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page, detail: Data(json.utf8))
+            let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+            _ = try await session.login(username: "user", password: "test")
+            let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+            store.selectedID = "chat"
+            await store.loadConversations(); await store.loadChat("chat")
+            XCTAssertTrue(store.conversations.isEmpty)
+            XCTAssertEqual(store.inspectedConversation?.can_write, false)
+            XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+            await transport.revokeDetail()
+            await store.loadConversations()
+            XCTAssertNil(store.inspectedConversation)
+            XCTAssertNil(store.timelines["chat"])
+            store.clear()
+        }
+    }
+
     private func makeStore(list: Data = Data(#"{"items":[]}"#.utf8)) async throws -> ChatStore {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
@@ -284,12 +308,18 @@ private struct ChatTestCredentials: CredentialStore {
 private actor HistoryTransport: HTTPTransport {
     let pair: Data; let latest: Data; let bridge: Data; let list: Data
     var cursors: [String?] = []
-    init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8)) { self.pair = pair; self.latest = latest; self.bridge = bridge; self.list = list }
+    var detail: Data?
+    var detailStatus = 200
+    func revokeDetail() { detailStatus = 404 }
+    init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8), detail: Data? = nil) { self.pair = pair; self.latest = latest; self.bridge = bridge; self.list = list; self.detail = detail }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
         let body: Data
         if url.path.contains("/auth/") { body = pair }
         else if url.path == "/im/v1/conversations" { body = list }
+        else if url.path == "/im/v1/conversations/chat", let detail {
+            return (detailStatus == 200 ? detail : Data(#"{"detail":"not found"}"#.utf8), HTTPURLResponse(url: url, statusCode: detailStatus, httpVersion: nil, headerFields: [:])!)
+        }
         else {
             let cursor = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
             cursors.append(cursor); body = cursor == nil ? latest : bridge

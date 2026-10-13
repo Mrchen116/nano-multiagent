@@ -32,15 +32,24 @@ struct ChatInfoView: View {
                     Toggle(L("置顶", "Pinned"), isOn: Binding(get: { chat.is_pinned }, set: { mutate(["is_pinned": .bool($0)]) })).disabled(busy)
                     Toggle(L("静音", "Muted"), isOn: Binding(get: { chat.is_muted }, set: { mutate(["is_muted": .bool($0)]) })).disabled(busy)
                 }
+                .disabled(chat.can_write == false)
+                if chat.type == "group" {
+                    Section(L("可见范围", "Visibility")) {
+                        if chat.can_change_visibility == true {
+                            Picker(L("可见范围", "Visibility"), selection: Binding(get: { chat.visibility ?? "private" }, set: { mutate(["visibility": .string($0)]) })) { Text(L("公开", "Public")).tag("public"); Text(L("私密", "Private")).tag("private") }.disabled(busy)
+                        } else { Text(chat.visibility == "public" ? L("公开", "Public") : L("私密", "Private")) }
+                        if chat.dissolved_at != nil { Text(L("已解散 · 历史只读", "Dissolved · read-only history")) }
+                    }
+                }
                 Section(L("成员", "Members")) {
                     ForEach(chat.participants, id: \.id) { actor in
                         HStack(spacing: 12) { AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 36); Text(actor.display_name ?? actor.id); Spacer(); Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(.secondary)
-                            if chat.type == "group", chat.creator_id == store.user.id, actor.user_id != store.user.id {
+                            if chat.type == "group", chat.creator_id == store.user.id, chat.can_write != false, actor.user_id != store.user.id {
                                 Button(role: .destructive) { remove = actor } label: { Image(systemName: "minus.circle") }.accessibilityLabel(L("移除", "Remove"))
                             }
                         }
                     }
-                    if chat.type == "group", chat.creator_id == store.user.id {
+                    if chat.type == "group", chat.creator_id == store.user.id, chat.can_write != false {
                         Button { addingMembers = true } label: { Label(L("添加成员", "Add members"), systemImage: "person.badge.plus") }.disabled(busy)
                     }
                 }
@@ -49,7 +58,7 @@ struct ChatInfoView: View {
                         store.drafts[id] = [store.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n")
                         openChat(id)
                     } }
-                    if chat.creator_id == store.user.id { Section { Button(L("解散群聊", "Dissolve group"), role: .destructive) { confirmDelete = true } } }
+                    if chat.creator_id == store.user.id, chat.can_write != false { Section { Button(L("解散群聊", "Dissolve group"), role: .destructive) { confirmDelete = true } } }
                 }
             } else { ProgressView() }
             if let error { ErrorNotice(message: error) }
@@ -85,7 +94,7 @@ struct ChatInfoView: View {
             }
             .confirmationDialog(L("解散此群聊？", "Dissolve this group?"), isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button(L("解散群聊", "Dissolve group"), role: .destructive) { Task { await deleteGroup() } }
-            } message: { Text(L("所有成员都会失去此群聊入口。", "This removes the group for all members.")) }
+            } message: { Text(L("未完成任务会关闭，已完成结果与聊天历史保留，只读查看。", "Unfinished tasks close. Completed results and conversation history remain read-only.")) }
             .confirmationDialog(L("移除此成员？", "Remove this member?"), isPresented: Binding(get: { remove != nil }, set: { if !$0 { remove = nil } }), titleVisibility: .visible) {
                 Button(L("移除", "Remove"), role: .destructive) { if let actor = remove { Task { await removeMember(actor) } } }
             }

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -20,13 +20,13 @@ const node = (id: string, title: string, container: string | null = "root", over
   created_at: "2026-09-22T01:00:00Z", updated_at: "2026-09-22T01:00:00Z", updated_by: "Nano", ...overrides
 });
 const sampleGraph: TaskGraph = {
-  schema_version: 1, graph_id: "tg-1", root_node_id: "root",
+  schema_version: 2, graph_id: "tg-1", root_node_id: "root",
   revision: 9, relative_url: "/tasks/tg-1", created_at: "2026-09-22T01:00:00Z", updated_at: "2026-09-22T01:00:00Z", updated_by: "Nano",
   nodes: [node("root", "Video product", null, { mode: "dag" }),
     node("A", "A Choose direction", "root", { mode: "explore", selected_candidate_id: "Z", selection_reason: "Lower cost" }),
     node("B", "B Implement"), node("C", "C Test"), node("D", "D Documentation"), node("E", "E Launch"),
     node("X", "X Generated video", "A", { status: "done", result: "Too expensive" }),
-    node("Y", "Y Templates", "A", { status: "dropped", result: "Does not meet the quality target", change_note: "User chose to stop this direction" }),
+    node("Y", "Y Templates", "A", { status: "closed", result: "Does not meet the quality target", change_note: "User chose to stop this direction" }),
     node("Z", "Z Hybrid", "A", { derived_from_id: "X", mode: "dag" }),
     node("Z1", "Z1 Prototype", "Z"), node("Z2", "Z2 Evaluate", "Z"), node("Z3", "Z3 Decide", "Z")],
   dependencies: [{ from: "A", to: "B" }, { from: "B", to: "C" }, { from: "A", to: "C" }, { from: "A", to: "D" }, { from: "C", to: "E" }, { from: "D", to: "E" }, { from: "Z1", to: "Z2" }, { from: "Z2", to: "Z3" }]
@@ -40,8 +40,8 @@ let graphStatus: number;
 let list: TaskGraphList;
 let fetchMock: ReturnType<typeof vi.fn<(url: string) => Promise<Response>>>;
 
-function renderTasks(path: string, messages: Message[] = []) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderTasks(path: string, messages: Message[] = [], gcTime = 0) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime } } });
   const onSend = vi.fn();
   const router = createMemoryRouter([
     { path: "/chat/other", element: <div>Other discussion</div> },
@@ -63,16 +63,84 @@ beforeEach(() => {
     if (url.includes("/task-graphs/")) return new Response(JSON.stringify(graphStatus === 200 ? currentGraph : { detail: { code: "read_failed", message: "Unavailable" } }), { status: graphStatus });
     return new Response(JSON.stringify(list), { status: 200 });
   });
+  const baseFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async url => {
+    if(url.includes("/task-graphs?") && new URL(url,"http://test").searchParams.has("statuses")) {
+      const statuses=new URL(url,"http://test").searchParams.get("statuses")!.split(",");
+      const items=list.items.filter(item=>statuses.includes(item.status));
+      return Response.json({...list,items,total:items.length});
+    }
+    return baseFetch(url);
+  });
+  vi.stubGlobal("IntersectionObserver", class { observe(){} disconnect(){} });
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("task graph browsing", () => {
+  it("opens the root overview without selecting a tree and drills into direct children", async () => {
+    const { router } = renderTasks("/tasks");
+    await screen.findByRole("button", { name: "View Video product" });
+    expect(screen.getAllByTestId("task-status-column")).toHaveLength(5);
+    expect(screen.queryByText("A Choose direction")).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/tasks");
+    await userEvent.click(screen.getByRole("button", { name: "Enter subgraph of Video product" }));
+    await screen.findByRole("button", { name: "View A Choose direction" });
+    expect(screen.queryByText("Z1 Prototype")).not.toBeInTheDocument();
+  });
+
+  it("keeps paused records in todo and in-review records in their own direct-child column", async () => {
+    currentGraph.nodes.find(node => node.id === "B")!.status = "paused";
+    currentGraph.nodes.find(node => node.id === "C")!.status = "in_review";
+    renderTasks("/tasks/tg-1");
+    await screen.findByRole("button", { name: "View B Implement" });
+    expect(within(screen.getByRole("region", { name: "To do" })).getByText("Paused")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "In review" })).getByText("C Test")).toBeInTheDocument();
+    expect(screen.queryByText("Z1 Prototype")).not.toBeInTheDocument();
+  });
+
+  it("queries assignees across levels and opens a result at its original containing scope", async () => {
+    list.items = [{ ...list.items[0], node_id: "Z2", scope_id: "Z", title: "Z2 Evaluate", parent_path: [{id:"root",title:"Video product"},{id:"A",title:"A Choose direction"},{id:"Z",title:"Z Hybrid"}] }];
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async url => url.includes("/contacts?") ? Response.json({items:[{user_id:"user-1",kind:"human",display_name:"Human"}],next_cursor:null}) : base(url));
+    const { router } = renderTasks("/tasks?collection=assignee&assignee_type=user&assignee_id=user-1");
+    await screen.findByRole("button", { name: "View Z2 Evaluate" });
+    expect(fetchMock.mock.calls.some(([url]) => url.includes("assignee_type=user") && url.includes("assignee_id=user-1"))).toBe(true);
+    expect(screen.getByText("Video product / A Choose direction / Z Hybrid")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "View Z2 Evaluate" }));
+    expect(router.state.location.pathname).toBe("/tasks/tg-1");
+    expect(router.state.location.search).toBe("?scope=Z&node=Z2");
+    expect(await screen.findByRole("dialog", { name: "Node details" })).toBeInTheDocument();
+  });
+
+  it("renders a task system event as linked content with effective mentions and opens the original task", async () => {
+    home.participants = [{ type:"agent", id:"nano", user_id:"agent-user", display_name:"Nano" }];
+    const { router } = renderTasks("/chat/home", [{id:"task-event",permission_requests:[],conversation_id:"home",sender:{type:"system",id:"system"},sender_type:"system",sender_user_id:"system",content:'Owner assigned [C Test](/tasks/tg-1?scope=root&node=C) to <mention type="user" target_id="agent-user"/>',attachments:[],delivery_status:"completed",created_at:"2026-10-12T12:00:00Z",system_notice:{kind:"task_graph",graph_id:"tg-1",node_id:"C",scope_id:"root"}}]);
+    expect(await screen.findByText("@Nano")).toHaveAttribute("data-target-id", "agent-user");
+    await userEvent.click(screen.getByRole("link", { name: "C Test" }));
+    expect(router.state.location.search).toBe("?scope=root&node=C");
+    expect(await screen.findByRole("dialog", { name: "Node details" })).toBeInTheDocument();
+    home.participants = [];
+  });
+
+  it("claims an available task with the required revision and change-note envelope", async () => {
+    currentGraph.nodes.find(node => node.id === "C")!.can_claim = true;
+    const writes: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") { writes.push(JSON.parse(init.body as string)); return Response.json({graph_id:"tg-1",revision:10}); }
+      return fetchMock(url);
+    }));
+    renderTasks("/tasks/tg-1?scope=root&node=C");
+    await userEvent.click(await screen.findByRole("button", { name: "Claim and start" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({base_revision:9,change_note:"",operations:[{op:"claim_task",node_id:"C"}]});
+  });
+
   it("returns a selected node to its own latest update chat", async () => {
     currentGraph.nodes.find(node => node.id === "C")!.last_chat_id = "other";
     currentGraph.nodes.find(node => node.id === "C")!.last_chat_title = "Other discussion";
     const { router } = renderTasks("/tasks/tg-1?node=C");
-    const detail = await screen.findByRole("complementary", { name: "Node details" });
+    const detail = await screen.findByRole("dialog", { name: "Node details" });
     await userEvent.click(within(detail).getByRole("button", { name: "Discuss this task in chat" }));
     expect(router.state.location.pathname).toBe("/chat/other");
     expect(composerStoreFor("user-1").get("other")?.draft).toContain("C Test");
@@ -82,7 +150,7 @@ describe("task graph browsing", () => {
     currentGraph.nodes.forEach(node => { node.last_chat_id = null; node.last_chat_title = null; });
     const user = userEvent.setup();
     renderTasks("/tasks/tg-1?node=C");
-    const detail = await screen.findByRole("complementary", { name: "Node details" });
+    const detail = await screen.findByRole("dialog", { name: "Node details" });
     expect(screen.queryByRole("button", { name: "Back to chat" })).not.toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: "Discuss this task in chat" })).not.toBeInTheDocument();
     await user.click(within(detail).getByRole("button", { name: "Copy reference" }));
@@ -92,10 +160,12 @@ describe("task graph browsing", () => {
 
   it("shows all direct DAG edges and relationships, preserves view on reread, and navigates both nesting modes", async () => {
     const { container, router } = renderTasks("/tasks/tg-1?scope=root&node=C");
-    const detail = await screen.findByRole("complementary", { name: "Node details" });
+    const detail = await screen.findByRole("dialog", { name: "Node details" });
     expect(within(detail).getByRole("button", { name: "B Implement" })).toBeInTheDocument();
     expect(within(detail).getByRole("button", { name: "A Choose direction" })).toBeInTheDocument();
     expect(within(detail).getByRole("button", { name: "E Launch" })).toBeInTheDocument();
+    await userEvent.click(within(detail).getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Internal structure" }));
     expect(container.querySelectorAll("path[data-edge]")).toHaveLength(6);
     expect(screen.getByText("Layer 2")).toBeInTheDocument();
     expect(screen.getByText("Parallel")).toBeInTheDocument();
@@ -107,12 +177,13 @@ describe("task graph browsing", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled());
     expect(screen.getByText("90%")).toBeInTheDocument();
     expect(scroll.scrollLeft).toBe(150);
-    expect(router.state.location.search).toContain("node=C");
+    expect(router.state.location.search).toContain("scope=root");
     await userEvent.click(screen.getByRole("button", { name: "Enter subgraph of A Choose direction" }));
     expect(router.state.location.search).toContain("scope=A");
     expect(container.querySelector('[data-edge="X:Z"]')).toHaveAttribute("stroke-dasharray", "5 4");
     await userEvent.click(screen.getByRole("button", { name: "View Z Hybrid" }));
-    expect(within(screen.getByRole("complementary", { name: "Node details" })).getByRole("button", { name: "X Generated video" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "Node details" })).getByRole("button", { name: "X Generated video" })).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
     await userEvent.click(screen.getByRole("button", { name: "Enter subgraph of Z Hybrid" }));
     expect(router.state.location.search).toBe("?scope=Z");
     expect(screen.getByRole("button", { name: "View Z2 Evaluate" })).toBeInTheDocument();
@@ -125,7 +196,7 @@ describe("task graph browsing", () => {
   });
 
   it("retains old records with a stale warning but removes protected cached content after access is revoked", async () => {
-    const { client } = renderTasks("/tasks/tg-1?scope=root&node=C");
+    const { client } = renderTasks("/tasks/tg-1?scope=root");
     await screen.findByRole("button", { name: "View A Choose direction" });
     graphStatus = 503;
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -162,14 +233,17 @@ describe("task graph browsing", () => {
     const { router } = renderTasks("/tasks/tg-1?scope=Z&node=Z2");
     const dialog = await screen.findByRole("dialog", { name: "Node details" });
     expect(within(dialog).getByRole("heading", { name: "Z2 Evaluate" })).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Internal structure" }));
     const scroll = screen.getByLabelText("Task graph canvas, scroll to explore");
     scroll.scrollLeft = 112;
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "View Z2 Evaluate" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(router.state.location.search).toBe("?scope=Z");
     expect(scroll.scrollLeft).toBe(112);
-    await userEvent.click(screen.getByRole("button", { name: "Goals" }));
-    expect(await screen.findByRole("dialog", { name: "Goals" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: "Root overview" }));
+    expect(router.state.location.pathname).toBe("/tasks");
   });
 
   it("does not silently open another scope when a deep link is invalid", async () => {
@@ -180,19 +254,51 @@ describe("task graph browsing", () => {
     expect(screen.getByRole("button", { name: "View A Choose direction" })).toBeInTheDocument();
   });
 
-  it("lists account goals, supports search and pagination, and shows genuine empty results", async () => {
-    list.next_cursor = "next-page";
-    list.total = 21;
-    const { router } = renderTasks("/tasks");
-    await screen.findByRole("link", { name: /Video product/ });
-    list = { items: [], next_cursor: null, total: 21 };
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes("cursor=next-page") && !url.includes("conversation_id="))).toBe(true));
-    await screen.findByText(/No task graphs yet/);
-    await userEvent.type(screen.getByRole("textbox", { name: "Search goal names" }), "other");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    await screen.findByText("No matching goals.");
-    expect(router.state.location.search).toContain("query=other");
+  it("loads status columns independently, preserves appended cards on refresh, and resets every column for search", async () => {
+    const observers=new Map<Element, IntersectionObserverCallback>();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(private callback:IntersectionObserverCallback, private options:IntersectionObserverInit){}
+      observe(){observers.set(this.options.root as Element,this.callback);}
+      disconnect(){observers.delete(this.options.root as Element);}
+    });
+    const todo={...list.items[0],title:'Todo first'};
+    const more={...todo,graph_id:'tg-more',title:'Todo tail',status:'paused' as const};
+    const done={...todo,graph_id:'tg-done',title:'Done immediately',status:'done' as const};
+    fetchMock.mockImplementation(async url=>{
+      const params=new URL(url,"http://test").searchParams;
+      const empty=params.get('query')==='other';
+      const statuses=params.get('statuses');
+      if(!statuses)return Response.json(list);
+      if(statuses==='todo,paused')return Response.json(empty?{items:[],next_cursor:null,total:0}:params.has('cursor')?{items:[more],next_cursor:null,total:2}:{items:[todo],next_cursor:'todo-next',total:2});
+      return Response.json({items:!empty&&statuses==='done'?[done]:[],next_cursor:null,total:!empty&&statuses==='done'?1:0});
+    });
+    const {router,client}=renderTasks('/tasks', [], 300_000);
+    await screen.findByRole('button',{name:'View Done immediately'});
+    const todoColumn=screen.getByRole('region',{name:'To do'});
+    expect(within(todoColumn).getByRole('heading',{level:2})).toHaveTextContent('To do');
+    expect(within(todoColumn).getByText('2',{selector:'header span'})).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Next'})).not.toBeInTheDocument();
+    await waitFor(()=>expect(observers.size).toBe(1));
+    await act(async()=>{observers.values().next().value!([{isIntersecting:true}] as IntersectionObserverEntry[],{} as IntersectionObserver);});
+    await within(todoColumn).findByRole('button',{name:'View Todo tail'});
+    expect(fetchMock.mock.calls.filter(([url])=>url.includes('cursor=')).map(([url])=>new URL(url,'http://test').searchParams.get('statuses'))).toEqual(['todo,paused']);
+    await act(async()=>{await client.invalidateQueries({queryKey:['task-graphs']});});
+    expect(within(todoColumn).getByRole('button',{name:'View Todo first'})).toBeInTheDocument();
+    expect(within(todoColumn).getByRole('button',{name:'View Todo tail'})).toBeInTheDocument();
+    fetchMock.mockClear();
+    await userEvent.type(screen.getByRole('textbox',{name:'Search goal names'}),'other');
+    await userEvent.click(screen.getByRole('button',{name:'Search'}));
+    await waitFor(()=>expect(fetchMock.mock.calls.filter(([url])=>url.includes('query=other'))).toHaveLength(5));
+    expect(fetchMock.mock.calls.some(([url])=>url.includes('query=other')&&url.includes('cursor='))).toBe(false);
+    await screen.findAllByText('No tasks');
+    expect(router.state.location.search).toContain('query=other');
+    fetchMock.mockClear();
+    await userEvent.clear(screen.getByRole('textbox',{name:'Search goal names'}));
+    await userEvent.click(screen.getByRole('button',{name:'Search'}));
+    await screen.findByRole('button',{name:'View Todo first'});
+    expect(screen.queryByRole('button',{name:'View Todo tail'})).not.toBeInTheDocument();
+    await waitFor(()=>expect(fetchMock.mock.calls.filter(([url])=>url.includes('/task-graphs?'))).toHaveLength(5));
+    expect(fetchMock.mock.calls.some(([url])=>url.includes('cursor='))).toBe(false);
   });
 });
 

@@ -17,6 +17,9 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(accepted).toHaveLength(1);
     const input = accepted[0]!;
     expect(input.message.sender_user_id).toBe('human');
+    const task = { agent_id: 'a', request_id: 'task-call', action: 'create', source_message_id: input.message.id, args: { conversation_id: 'shadow-chat' } };
+    expect(await external.request('task_graph.command', task)).toMatchObject({ payload: { ok: false, error: { code: 'source_unavailable' } } });
+    expect(mirrored).toEqual([]);
     const start = await external.request('node.streaming_delta', { node_id: 'node', kind: 'turn_start', agent_id: 'a', conversation_id: input.conversation_id, idempotency_key: 'turn', external_reply: input.metadata.external_reply });
     const complete = { kind: 'message_completed', message_id: start.payload.message_id, final_content: 'answer', delivery_status: 'completed' };
     await external.request('node.streaming_delta', complete); await external.request('node.streaming_delta', complete);
@@ -32,6 +35,9 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(sends).toBe(2);
     expect(mirrored.filter(frame => frame.system_notice)).toHaveLength(1);
     expect(store.bindingFor('a', 'shadow-chat')?.sessionId).toBe('session');
+    await external.request('task_graph.command', task);
+    expect(mirrored).toContainEqual({ ...task, source_message_id: 'shadow-input' });
+    expect(await external.request('task_graph.command', { ...task, agent_id: 'other' })).toMatchObject({ payload: { ok: false, error: { code: 'source_unavailable' } } });
     expect(mirrored.filter(frame => frame.kind === 'turn_start')).toHaveLength(2);
     expect(mirrored.filter(frame => frame.kind === 'message_completed')).toHaveLength(2);
     await external.request('node.system_message', { ...notice, conversation_id: 'shadow-chat', idempotency_key: 'internal-review' });

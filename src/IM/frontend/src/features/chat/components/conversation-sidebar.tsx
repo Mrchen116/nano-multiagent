@@ -33,6 +33,7 @@ export interface ConversationSidebarProps {
   selfUserId?: string | null;
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
+  onDiscover?(): void;
   onNewGroup(): void;
   onNewChat?(): void;
   agents?: SidebarAgent[];
@@ -71,6 +72,7 @@ export function ConversationSidebar({
   selfUserId = null,
   activeConversationId,
   onSelect,
+  onDiscover,
   onNewGroup,
   onNewChat,
   agents,
@@ -109,7 +111,7 @@ export function ConversationSidebar({
       <header className="chat-sidebar-header">
         <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
-          <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} />
+          <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} onDiscover={onDiscover} />
         </div>
         {distillMode && (
           <div className="chat-sidebar-distill-actions">

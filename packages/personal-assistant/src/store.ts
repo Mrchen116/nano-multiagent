@@ -64,6 +64,20 @@ export class NodeStore {
   aliasConversation(agentId: string, alias: string, canonical: string): void {
     this.db.prepare('INSERT INTO conversation_aliases VALUES(?,?,?) ON CONFLICT(agent_id,alias) DO UPDATE SET canonical=excluded.canonical').run(agentId, alias, canonical);
   }
+  /** Resolve a real IM conversation without inventing an external shadow.
+   *
+   * Args:
+   *   agentId: Registered PA Agent identity.
+   *   conversationId: Bound or explicitly selected conversation.
+   *
+   * Returns:
+   *   IM ID, or undefined when the external conversation has not been mirrored.
+   */
+  imConversation(agentId: string, conversationId: string): string | undefined {
+    if (conversationId.startsWith('global:') || conversationId.startsWith('owner:')) return;
+    if (!conversationId.startsWith('external:')) return conversationId;
+    return (this.db.prepare('SELECT alias FROM conversation_aliases WHERE agent_id=? AND canonical=?').get(agentId, conversationId) as { alias: string } | undefined)?.alias;
+  }
   private canonicalConversation(agentId: string, conversationId: string): string {
     return (this.db.prepare('SELECT canonical FROM conversation_aliases WHERE agent_id=? AND alias=?').get(agentId, conversationId) as { canonical: string } | undefined)?.canonical ?? conversationId;
   }

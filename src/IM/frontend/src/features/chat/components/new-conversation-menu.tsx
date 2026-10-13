@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "../../../i18n";
 
 /** A single creation entry keeps both chat actions reachable on narrow screens. */
-export function NewConversationMenu({ onNewChat, onNewGroup }: {
+export function NewConversationMenu({ onNewChat, onNewGroup, onDiscover }: {
   onNewChat?(): void;
   onNewGroup(): void;
+  onDiscover?(): void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -67,6 +68,10 @@ export function NewConversationMenu({ onNewChat, onNewGroup }: {
         </svg>
         {t("chat.list.newGroup")}
       </button>
+      {onDiscover && <button type="button" role="menuitem" onClick={() => select(onDiscover)}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6" /><path d="m15 15 5 5M7 10h6M10 7v6" /></svg>
+        {t("tasks.discover")}
+      </button>}
     </div>}
   </div>;
 }

@@ -71,5 +71,5 @@ it("finds a person on a later contacts page and keeps mixed group actors distinc
   await userEvent.click(screen.getByLabelText("Bo"));
   await userEvent.click(screen.getByLabelText("Iris"));
   await userEvent.click(screen.getByRole("button",{name:/Create group/}));
-  expect(create).toHaveBeenCalledWith({agentIds:["own-agent"],userIds:["person-b"],name:"Bo, Iris"});
+  expect(create).toHaveBeenCalledWith({visibility:"public",agentIds:["own-agent"],userIds:["person-b"],name:"Bo, Iris"});
 });

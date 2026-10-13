@@ -32,9 +32,14 @@ it('registers a usable private account, keeps join explicit and never publishes 
   agent(db, 'private-a', a.user.id, `personal:${a.user.id}`);
   agent(db, 'private-b', b.user.id, `personal:${b.user.id}`);
   agent(db, 'company-agent', admin.user.id, 'company:default');
-  const tasks = new TaskGraphService(db);
-  const task = tasks.execute({ kind: 'agent', id: 'private-a', node_id: 'private-a' }, 'create', { title: 'Private plan', mode: 'dag', request_key: 'create-private' });
-  const company = tasks.execute({ kind: 'agent', id: 'company-agent', node_id: 'company-agent' }, 'create', { title: 'Company plan', mode: 'dag', request_key: 'create-company' });
+  const privateChat = (await request(a.access_token, 'POST', '/im/v1/conversations', {title:'Private task chat',type:'direct',participants:[{type:'agent',id:'private-a'}]})).json();
+  const companyChat = (await request(admin.access_token, 'POST', '/im/v1/conversations', {title:'Company task chat',type:'group',visibility:'public',participants:[{type:'agent',id:'company-agent'}]})).json();
+  expect(privateChat).toMatchObject({visibility:'private',can_write:true});
+  expect(companyChat).toMatchObject({visibility:'public',can_write:true});
+  expect((await request(a.access_token, 'GET', '/im/v1/conversations?scope=public')).json().items).toEqual([]);
+  const tasks = new TaskGraphService(db, app.im.messaging);
+  const task = tasks.execute({ kind: 'agent', id: 'private-a', node_id: 'private-a' }, 'create', { title: 'Private plan', mode: 'dag', request_key: 'create-private', conversation_id: privateChat.id });
+  const company = tasks.execute({ kind: 'agent', id: 'company-agent', node_id: 'company-agent' }, 'create', { title: 'Company plan', mode: 'dag', request_key: 'create-company', conversation_id: companyChat.id });
   const contacts = (await request(a.access_token, 'GET', '/im/v1/contacts')).json().items;
   expect(contacts.map((x: any) => x.user_id).sort()).toEqual([a.user.id, 'agent-private-a'].sort());
   expect((await request(admin.access_token, 'GET', '/im/v1/company/members')).json().members.map((x: any) => x.id)).not.toContain(a.user.id);
@@ -116,11 +121,12 @@ it('filters live events, replay and native trajectory by current space after com
 });
 
 it('does not replay old private task mutation receipts after the Agent changes private owner', async () => {
-  const { db, register } = await fixture();
+  const { app, db, register, request } = await fixture();
   const before = await register('before-transfer'), after = await register('after-transfer');
   agent(db, 'transferred', before.user.id, `personal:${before.user.id}`);
-  const tasks = new TaskGraphService(db), actor = {kind: 'agent' as const, id: 'transferred', node_id: 'transferred'};
-  const created = tasks.execute(actor, 'create', {title: 'Private graph', mode: 'dag', request_key: 'create'});
+  const chat = (await request(before.access_token, 'POST', '/im/v1/conversations', {title:'Transfer task chat',type:'direct',participants:[{type:'agent',id:'transferred'}]})).json();
+  const tasks = new TaskGraphService(db, app.im.messaging), actor = {kind: 'agent' as const, id: 'transferred', node_id: 'transferred'};
+  const created = tasks.execute(actor, 'create', {title: 'Private graph', mode: 'dag', request_key: 'create', conversation_id:chat.id});
   const deletion = {graph_id: created.graph_id, base_revision: 1, request_key: 'delete'};
   const receipt = tasks.execute(actor, 'delete', deletion);
   expect(tasks.execute(actor, 'delete', deletion)).toEqual(receipt);

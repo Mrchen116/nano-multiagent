@@ -25,14 +25,14 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
 }
 
 async function link(target: string, path: string) {
-  try { await symlink(target, path, 'dir'); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    if (await readlink(path) === target) return;
-    // Reinstalled releases must not mix the old bundle with the new launcher.
-    await unlink(path);
-    await symlink(target, path, 'dir');
-  }
+  try { await symlink(target, path, 'dir'); return; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  // DSH_HOME survives deployments; its bundles must use this locked install.
+  // readlink rejects ordinary files/directories without deleting owner content.
+  const existing = await readlink(path);
+  if (resolve(dirname(path), existing) === resolve(target)) return;
+  await unlink(path);
+  await symlink(target, path, 'dir');
 }
 
 /** Process exit is requested only after the runtime has drained durable owners. */

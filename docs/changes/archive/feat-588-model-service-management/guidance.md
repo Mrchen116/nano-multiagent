@@ -24,7 +24,7 @@
 
 ## 1. 固定发布版本
 
-1. 确认前置 feat-587（PR #337）和本 unit（PR #339）已按依赖顺序合入；实时检查 PR 状态，不沿用编写时的快照。
+1. 确认集成 PR #337 已合入 main，且包含本 unit（PR #339 已合入 #337 的分支，不需要再次单独合入 main）；实时检查提交祖先关系，不沿用编写时的快照。
 2. 选择包含这两个 unit 的已通过 CI 的 main commit，记为 `RELEASE_SHA`，必须是完整的 40 位小写 SHA。IM、前端与安装包使用这个明确版本；不要发布临时试用 worktree 的 dirty 构建产物。
 3. 核对现有生产版本、manifest 是否存在、实际 `IM_NODE_RELEASE_DIR`、IM launcher 的 `IM_PUBLIC_URL`，保存可恢复的旧构建与旧 manifest。保留生产数据库、附件、签名密钥、节点身份、模型凭据和用户工作区。
 4. 只读检查 `node-${RELEASE_SHA}` 是否已有 Release。若已有，先核对其发布记录和原始已验证 manifest，不直接重复运行发布或覆盖 asset。

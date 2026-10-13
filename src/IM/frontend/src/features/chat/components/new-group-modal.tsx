@@ -18,7 +18,7 @@ export interface NewGroupModalProps {
   isBusy?: boolean;
   error?: boolean;
   onClose(): void;
-  onCreate(payload: { agentIds: string[]; userIds: string[]; name: string }): void;
+  onCreate(payload: { agentIds: string[]; userIds: string[]; name: string; visibility: "public" | "private" }): void;
 }
 
 export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error = false }: NewGroupModalProps) {
@@ -27,6 +27,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
   const titleId = useId();
   const nameInputId = useId();
   const [selected, setSelected] = useState<string[]>([]);
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
 
@@ -37,7 +38,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
   function handleCreate() {
     if (selected.length === 0) return;
     const trimmed = name.trim();
-    onCreate({ agentIds: agents.filter(a => selected.includes(a.agent_id) && a.kind !== "human").map(a => a.agent_id), userIds: agents.filter(a => selected.includes(a.agent_id) && a.kind === "human").map(a => a.agent_id), name: trimmed || selectedNames });
+    onCreate({ visibility, agentIds: agents.filter(a => selected.includes(a.agent_id) && a.kind !== "human").map(a => a.agent_id), userIds: agents.filter(a => selected.includes(a.agent_id) && a.kind === "human").map(a => a.agent_id), name: trimmed || selectedNames });
   }
 
   const selectedNames = agents
@@ -85,7 +86,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
       </header>
       <div className="chat-modal-body">
         {error && <p role="alert">{t("chat.contacts.failed")}</p>}
-        <p className="chat-modal-section-label">{t("chat.newGroup.sectionAgents")}</p>
+        <label className="chat-modal-section-label">{t("tasks.visibility")}<select value={visibility} onChange={e => setVisibility(e.target.value as "public" | "private")}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label><p className="chat-modal-section-label">{t("chat.newGroup.sectionAgents")}</p>
         <input type="search" className="chat-sidebar-search" aria-label={t("chat.contacts.search")} placeholder={t("chat.contacts.search")} value={search} onChange={e => setSearch(e.target.value)} />
         <ul className="chat-modal-agents">
           {agents.filter(a => `${a.display_name} ${a.agent_id}`.toLowerCase().includes(search.toLowerCase())).map((a) => {

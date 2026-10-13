@@ -167,8 +167,13 @@ export class GlobalAgent {
         const human = events.filter(event => event.seq > (start?.seq ?? Infinity) && event.type === 'user/message')
           .map(event => event.data.source as { kind: string; messageId?: string }).filter(source => source?.kind === 'nano-human').at(-1)?.messageId;
         const { action, target, ...args } = call.args;
-        const conversationId = typeof target === 'string' ? target.replace(/^conversation:/, '')
-          : ['create', 'apply', 'delete'].includes(String(action)) && config?.mode === 'single_thread' ? binding.conversationId : undefined;
+        const bound = config?.mode === 'single_thread' && !binding.conversationId.startsWith('owner:') ? binding.conversationId : undefined;
+        const source = typeof target === 'string' && target !== 'current' ? target.replace(/^conversation:/, '')
+          : ['create', 'apply', 'delete'].includes(String(action)) ? bound : undefined;
+        const conversationId = source ? this.options.store.imConversation(binding.agentId, source) : undefined;
+        if ((action === 'create' || target !== undefined) && !conversationId) return { ok: false, error: {
+          code: 'conversation_required', message: 'Choose an existing conversation target; creation requires a bound IM conversation or a verified external shadow.',
+        } };
         try {
           const response = await this.options.relay.request('task_graph.command', { node_id: this.options.nodeId, agent_id: binding.agentId,
             request_id: call.operationId, action, source_message_id: human ?? null,

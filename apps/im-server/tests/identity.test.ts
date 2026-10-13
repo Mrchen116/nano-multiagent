@@ -337,7 +337,7 @@ describe("device possession and ownership transfer", () => {
     identity.run("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('agent-private','agent:private','Private','owner','then')");
     identity.run("INSERT INTO conversations(id,title,owner_id,space_id,created_at) VALUES('private-chat','Private','owner','personal:owner','then')");
     identity.run("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('private-chat','agent-private')");
-    identity.run("INSERT INTO task_graphs(graph_id,owner_id,space_id,root_title,revision,document_json,created_at,updated_at,updated_by) VALUES('private-task','owner','personal:owner','Private',1,'{}','then','then','owner')");
+    identity.run("INSERT INTO task_graphs(graph_id,owner_id,space_id,conversation_id,root_title,revision,document_json,created_at,updated_at,updated_by) VALUES('private-task','owner','personal:owner','private-chat','Private',1,'{}','then','then','owner')");
     identity.run("INSERT INTO agent_work_sessions VALUES('work-history','private','new-node','global_main',NULL,'{}')");
     expect(canActorAccess(identity.db, 'agent-private', 'personal:owner')).toBe(true);
     const transfer = identity.deviceStart({

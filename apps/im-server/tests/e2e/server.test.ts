@@ -153,7 +153,7 @@ it("serves auth, live node relay, idempotent streaming, private media, task grap
         f.tokens.bob,
       )
     ).status,
-  ).toBe(200);
+  ).toBe(404);
   const cursor = completed.event_id;
   browser.send(JSON.stringify({ op: "resume", after_event_id: cursor - 1 }));
   expect((await events.next((p) => p.event_id === cursor)).data.content).toBe("answer");

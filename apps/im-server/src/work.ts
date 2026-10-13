@@ -13,6 +13,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
+import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 export class Work {
   constructor(readonly ctx: ImContext) {
     for (const r of all(ctx.db, "SELECT session_id,turn_id,payload FROM agent_work_turns")) {
@@ -490,12 +491,23 @@ export class Work {
       !Number.isInteger(limit) ||
       limit < 1 ||
       limit > 50 ||
-      !["list", "read", "info", "describe"].includes(p.action)
+      !["list", "read", "info", "describe", "create", "join"].includes(p.action)
     )
       fail(400, "invalid_arguments");
     const s = this.ctx.messaging,
       uid = s.agentUser(p.agent_id).id,
-      conversations = s.conversations(uid);
+      conversations = s.conversations(uid,p.scope ?? "joined");
+    const user = qualifiedUser(this.db,uid);
+    if (!user) fail(403,"scope_not_allowed");
+    if (p.action === "create") {
+      if (p.type && p.type !== "group") fail(400,"Only group creation is supported here");
+      const created = s.createConversation({...user,kind:"agent"},{title:p.title,type:"group",visibility:p.visibility,participant_ids:p.participant_ids ?? []});
+      return {target:created.id,name:created.title,conversation:created};
+    }
+    if (p.action === "join") {
+      const joined = s.joinConversation(uid,p.target);
+      return {target:joined.id,name:joined.title,conversation:joined};
+    }
     const members = (id: string) =>
       s.members(id).map((u) => ({
         id: u.id,
@@ -505,9 +517,8 @@ export class Work {
       }));
     if (p.action === "describe")
       return {
-        conversations: conversations
-          .filter((r) => (p.targets ?? []).includes(r.id))
-          .map((r) => ({
+        conversations: (p.targets ?? []).filter((id:string)=>!!conversationAccess(this.db,id,uid)).map((id:string)=>s.conversation(id,uid))
+          .map((r: Row) => ({
             target: r.id,
             name: r.title,
             kind: r.type,
@@ -515,7 +526,7 @@ export class Work {
             participants: members(r.id),
           })),
       };
-    const target = conversations.find((r) => r.id === p.target);
+    const target = p.target && conversationAccess(this.db,p.target,uid) ? s.conversation(p.target,uid) : undefined;
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -523,6 +534,7 @@ export class Work {
         name: target.title,
         type: target.type,
         channel: target.external_source ?? "web",
+        visibility:target.visibility,is_member:target.is_member,can_write:target.can_write,dissolved_at:target.dissolved_at,
         members: members(p.target).map((m) => ({
           user_id: m.id,
           name: m.name,
@@ -536,6 +548,7 @@ export class Work {
       action: p.action,
       target: p.target ?? null,
       query: p.query ?? null,
+      scope: p.scope ?? "joined",
     };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
@@ -588,6 +601,7 @@ export class Work {
             kind: r.type,
             channel: r.external_source ?? "web",
             participants: members(r.id),
+            visibility:r.visibility,is_member:r.is_member,can_write:r.can_write,
             latest_message_at: r.last_message_at,
             history_availability: "im_history",
           });
@@ -602,7 +616,7 @@ export class Work {
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
     let messages = all(
       this.db,
-      "SELECT id FROM messages WHERE conversation_id=? AND sender_type IN ('user','agent') ORDER BY rowid",
+      "SELECT id FROM messages WHERE conversation_id=? AND sender_type IN ('user','agent','system') ORDER BY rowid",
       p.target,
     )
       .map((r) => s.message(r.id))

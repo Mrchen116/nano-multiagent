@@ -72,6 +72,7 @@ export interface CreateConversationRequest {
   title: string;
   type: "direct" | "group";
   participants: Actor[];
+  visibility?: "public" | "private";
 }
 
 export async function createConversation(req: CreateConversationRequest): Promise<Conversation> {
@@ -82,7 +83,7 @@ export async function createConversation(req: CreateConversationRequest): Promis
   ];
   return authFetchJson<Conversation>(
     "/im/v1/conversations",
-    { method: "POST", body: JSON.stringify({ title: req.title, type: req.type, participants }) },
+    { method: "POST", body: JSON.stringify({ title: req.title, type: req.type, participants, ...(req.type === "group" ? { visibility: req.visibility ?? "public" } : {}) }) },
     "createConversation"
   );
 }
@@ -140,7 +141,7 @@ export async function forkConversation(
 /** Update mutable conversation metadata (currently just the group title). */
 export async function updateConversation(
   conversationId: string,
-  patch: { title?: string; is_pinned?: boolean; is_muted?: boolean }
+  patch: { visibility?: "public" | "private"; title?: string; is_pinned?: boolean; is_muted?: boolean }
 ): Promise<Conversation> {
   return authFetchJson<Conversation>(
     `/im/v1/conversations/${encodeURIComponent(conversationId)}`,
@@ -217,4 +218,15 @@ export interface ConversationCommands {
 }
 export async function getConversationCommands(conversationId: string): Promise<ConversationCommands[]> {
   return (await authFetchJson<{items: ConversationCommands[]}>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/commands`)).items;
+}
+
+export function getConversation(id: string): Promise<Conversation> {
+  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}`);
+}
+export function joinConversation(id: string): Promise<Conversation> {
+  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}/join`, { method: "POST", body: "{}" });
+}
+export async function listPublicConversations(): Promise<Conversation[]> {
+  const result = await authFetchJson<{items: Conversation[]}>("/im/v1/conversations?scope=public");
+  return result.items;
 }

@@ -13,7 +13,7 @@ import { ApprovalSources, inboxSourceInstructions } from './sources.js';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'conversations', 'memory']);
+const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
@@ -104,7 +104,9 @@ export class NanoApproval extends Service {
     if (downstream.kind !== 'allow') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
-    if (policy.rules === 'nano' && (safeTools.has(exec.name) || exec.name !== 'bash' && policy.alwaysAllowTools.includes(exec.name)
+    if (policy.rules === 'nano' && (safeTools.has(exec.name)
+      || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
+      || exec.name !== 'bash' && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
     const header = agent.session.requestHeader();

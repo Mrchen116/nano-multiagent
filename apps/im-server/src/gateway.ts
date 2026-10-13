@@ -44,7 +44,7 @@ export class Gateway {
   constructor(readonly ctx: ImContext) {
     this.work = new Work(ctx);
     this.trajectory = new TrajectoryObservers(ctx);
-    this.tasks = new TaskGraphService(ctx.db);
+    this.tasks = new TaskGraphService(ctx.db,ctx.messaging);
   }
   isOnline(id: string) {
     return this.nodes.has(id);
@@ -479,6 +479,7 @@ export class Gateway {
       if (!relay) fail(404, "relay task not found");
       const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(
         "UPDATE relay_tasks SET status=?,receipt_status=?,receipt_detail=?,updated_at=? WHERE relay_task_id=?",
       ).run(p.delivery_status, p.delivery_status, p.detail ?? null, now(), p.relay_task_id);
@@ -522,7 +523,7 @@ export class Gateway {
         });
       }
       const id = s.resolveTarget(a.agent_id, p.to);
-      s.access({ ...c, kind: "gateway" }, id, a.agent_id);
+      s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
       const targetUser = one(
         db,
@@ -598,7 +599,7 @@ export class Gateway {
           )
           ?.username.slice(6);
       const a = this.requireAgent(c, source);
-      s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id);
+      s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
       if (!p.text?.trim()) fail(400, "text required");
       if (p.system_notice) {
         if (
@@ -639,7 +640,7 @@ export class Gateway {
 
     if (type === "agent.config.boundary") {
       const a = this.requireAgent(c, p.agent_id);
-      s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id);
+      s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
       const m = s.message(p.before_message_id);
       if (m.conversation_id !== p.conversation_id) fail(400, "anchor not found");
       let b = one(
@@ -711,7 +712,7 @@ export class Gateway {
       if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
         fail(403, "agent_user_id does not match source Agent");
       const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
-      s.access({ ...c, kind: "gateway" }, id, a.agent_id);
+      s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const transition = p.reply_process_transition;
       if (transition?.predecessor_message_id) {
         const predecessor = s.message(transition.predecessor_message_id);
@@ -771,7 +772,7 @@ export class Gateway {
     const m = s.message(p.message_id);
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
-    s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id);
+    s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
     let eventType = "",
       data: Row = {};
     if (p.kind === "message_delta") {
@@ -1038,18 +1039,8 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
                   });
               }
             }
-            for (const task of all(
-              ctx.db,
-              "SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted')",
-              c.node_id,
-            ))
-              g.send(c.node_id, {
-                type: "relay.message",
-                payload: {
-                  ...JSON.parse(task.payload_json),
-                  relay_task_id: task.relay_task_id,
-                },
-              });
+            ctx.messaging.deliverRelays(all(ctx.db,
+              "SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted')",c.node_id));
           }
         } catch (e) {
           g.write(socket, {

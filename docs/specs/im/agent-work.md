@@ -1,6 +1,6 @@
 # IM - Agent Work Specification
 
-> 对齐: feat-587
+> 对齐: feat-584、feat-587
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -25,10 +25,10 @@
 - **WHEN** 用户查看这次委派对应的执行过程
 - **THEN** 可以查看 subagent 的工作轨迹及当前结果，并辨认其与主 Agent 委派的关联，不要求是 Agent 管理者
 
-#### Scenario: Work 内容完整可见，原聊天仍按成员访问
+#### Scenario: Work 内容完整可见，原聊天仍按会话范围访问
 - **GIVEN** 主执行和子执行记录包含查看者未参与的聊天内容
-- **WHEN** 有该 Agent 空间权限的用户查看 Work，或从中点击来源聊天及受保护附件
-- **THEN** Work 的已有内容不按来源聊天过滤或遮盖；原聊天和受保护附件仍按成员关系判定，非成员无法读取。
+- **WHEN** 有该 Agent 资源空间资格的用户查看 Work，或从中点击来源聊天及受保护附件
+- **THEN** Work 的已有内容不按来源聊天过滤或遮盖；原聊天和受保护附件仍按当前会话读取资格判定；有效公司成员可读公开群，私密群与私聊仅成员可读，Work 可见不额外授予来源访问权。
 
 #### Scenario: 非管理者持续查看工作进度
 - **GIVEN** 用户打开有权访问的公司全局 Agent Work

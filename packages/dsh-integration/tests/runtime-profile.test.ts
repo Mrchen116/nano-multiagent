@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile, readlink, unlink, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, readlink, symlink, unlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it('launches the official profile and cold-recovers a durably accepted input', async () => {
+it('refreshes retained profile links and cold-recovers a durably accepted input', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-dsh-profile-'));
   const workspace = join(home, 'workspace');
   let client: RuntimeClient | undefined;
@@ -17,6 +17,23 @@ it('launches the official profile and cold-recovers a durably accepted input', a
   const binding = { sessionId: 'nano-test-session', agentId: 'test', revision: '1', ownerId: 'test-owner', cwd: workspace };
   try {
     await prepareProfile(home);
+    const modules = join(home, 'profiles', 'nano', 'node_modules');
+    const links = [join(modules, '@nano', 'dsh-integration'), join(modules, '@deepseek-ai', 'dsh-base')];
+    const targets = await Promise.all(links.map(path => readlink(path)));
+    const previous = join(home, 'previous-install');
+    await mkdir(previous);
+    // A retained checkout and a deleted checkout must both be refreshed.
+    for (const [i, path] of links.entries()) {
+      await unlink(path);
+      await symlink(i === 0 ? previous : join(home, 'deleted-install'), path, 'dir');
+    }
+    const retained = join(home, 'session-state.txt');
+    await writeFile(retained, 'persistent session state');
+    await prepareProfile(home);
+    expect(await Promise.all(links.map(path => readlink(path)))).toEqual(targets);
+    expect(await readFile(retained, 'utf8')).toBe('persistent session state');
+    await prepareProfile(home);
+    expect(await Promise.all(links.map(path => readlink(path)))).toEqual(targets);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
     expect(await client.rpc.request('initialize', config)).toMatchObject({ protocol: 1, version: '0.2.1-alpha.1' });
     await client.rpc.request('session.ensure', binding);
@@ -74,14 +91,17 @@ it('emits liveness from a real running native Agent while the model is silent', 
   }
 },30000);
 
-it('repoints generated profile links when the installed release changes', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'nano-profile-upgrade-'));
+
+it.each(['file', 'directory'])('preserves a non-symlink %s at a managed profile entry', async kind => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-profile-conflict-'));
   try {
     await prepareProfile(home);
-    const paths = ['@nano/dsh-integration', '@deepseek-ai/dsh-base'].map(name => join(home, 'profiles/nano/node_modules', name));
-    const targets = await Promise.all(paths.map(path => readlink(path)));
-    for (const path of paths) { await unlink(path); await symlink(join(home, 'previous-release'), path, 'dir'); }
-    await prepareProfile(home);
-    expect(await Promise.all(paths.map(path => readlink(path)))).toEqual(targets);
-  } finally { await rm(home, {recursive: true, force: true}); }
+    const entry = join(home, 'profiles', 'nano', 'node_modules', '@nano', 'dsh-integration');
+    await unlink(entry);
+    if (kind === 'directory') await mkdir(entry);
+    const retained = kind === 'directory' ? join(entry, 'keep.txt') : entry;
+    await writeFile(retained, 'owner content');
+    await expect(prepareProfile(home)).rejects.toThrow();
+    expect(await readFile(retained, 'utf8')).toBe('owner content');
+  } finally { await rm(home, {recursive:true, force:true}); }
 });

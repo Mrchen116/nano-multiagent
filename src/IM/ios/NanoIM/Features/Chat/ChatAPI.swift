@@ -6,10 +6,10 @@ extension IMClient {
         if let before { query.append(.init(name: "before_message_id", value: before)) }
         return try await get("/im/v1/conversations/\(id.pathComponent)/messages", query: query)
     }
-    func createConversation(title: String, type: String, participants: [ActorRef], userID: String) async throws -> Conversation {
-        struct Body: Encodable, Sendable { let title: String; let type: String; let participants: [ActorRef] }
+    func createConversation(title: String, type: String, participants: [ActorRef], userID: String, visibility: String = "public") async throws -> Conversation {
+        struct Body: Encodable, Sendable { let title: String; let type: String; let participants: [ActorRef]; let visibility: String }
         return try await send("/im/v1/conversations", body: Body(title: title, type: type,
-            participants: [ActorRef(type: "user", id: userID)] + participants.filter { !($0.type == "user" && $0.id == userID) }))
+            participants: [ActorRef(type: "user", id: userID)] + participants.filter { !($0.type == "user" && $0.id == userID) }, visibility: visibility))
     }
     func sendMessage(_ id: String, draft: PendingSend, userID: String, participants: [ActorRef] = []) async throws -> ChatMessage {
         struct Body: Encodable, Sendable { let sender: ActorRef; let content: String; let attachments: [ChatAttachment] }

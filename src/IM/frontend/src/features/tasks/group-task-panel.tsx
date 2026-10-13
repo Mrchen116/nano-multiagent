@@ -3,11 +3,12 @@ import { useTranslation } from "../../i18n";
 import { taskGraphUrl, useTaskActivity } from "./task-graphs-api";
 import "./task-graphs.css";
 
-export function GroupTaskPanel({ conversationId, onClose }: { conversationId: string; onClose(): void }) {
+export function GroupTaskPanel({ conversationId, canCreate, onClose }: { conversationId: string; canCreate?: boolean; onClose(): void }) {
   const { t } = useTranslation();
   const query = useTaskActivity(conversationId);
   return <aside className="group-task-panel" aria-label={t("shell.tabs.tasks")}>
     <header><h2>{t("shell.tabs.tasks")}</h2><button aria-label={t("tasks.close")} onClick={onClose}>×</button></header>
+    {canCreate && <Link className="tasks-button" to={`/tasks?create=root&conversation_id=${encodeURIComponent(conversationId)}`}>{t("tasks.createRoot")}</Link>}
     {query.isPending ? <p role="status">{t("tasks.loading")}</p>
       : query.isError ? <div role="alert">{t("tasks.readFailed")}<button onClick={() => void query.refetch()}>{t("tasks.refresh")}</button></div>
         : !query.data ? <p>{t("tasks.unavailable")}</p>

@@ -147,3 +147,20 @@ describe("GroupSettings (mobile fullscreen)", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 });
+
+it("lets an authorized member switch visibility and freezes controls for read-only history", async () => {
+  const change = vi.fn().mockResolvedValue(undefined);
+  const { unmount } = render(<GroupSettings title="History" members={MEMBERS} addableAgents={ADDABLE} isMobile={false} visibility="public" canChangeVisibility onVisibilityChange={change} onClose={vi.fn()} onRename={vi.fn()} onAddParticipants={vi.fn()} onRemoveParticipant={vi.fn()} onDissolve={vi.fn()} onOpenAgentConfig={vi.fn()} />);
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Visibility" }), "private");
+  expect(change).toHaveBeenCalledWith("private");
+  unmount();
+  renderSettings({readOnly:true,visibility:"private",canChangeVisibility:true});
+  expect(screen.getByRole("combobox", { name: "Visibility" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Rename/i })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: /Add members/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Dissolve/i })).not.toBeInTheDocument();
+});
+it("does not grant visibility changes from group creator identity alone", () => {
+  renderSettings({visibility:"public",canChangeVisibility:false});
+  expect(screen.getByRole("combobox", { name: "Visibility" })).toBeDisabled();
+});

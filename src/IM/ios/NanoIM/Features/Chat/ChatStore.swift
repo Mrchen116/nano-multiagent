@@ -6,6 +6,7 @@ final class ChatStore {
     let client: IMClient
     let user: AuthUser
     var conversations: [Conversation] = []
+    var inspectedConversation: Conversation?
     var timelines: [String: [TimelineItem]] = [:]
     var before: [String: String] = [:]
     var drafts: [String: String] = [:]
@@ -37,7 +38,7 @@ final class ChatStore {
         Task { await stream.stop() }
     }
     func clear() {
-        stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
+        stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil; listLoaded = false
     }
     func run() async {
@@ -52,7 +53,7 @@ final class ChatStore {
                 guard currentUser.accountEnabled else { clear(); return }
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard token == epoch, !Task.isCancelled else { return }
-                reconcile(sync.items)
+                await reconcile(sync.items)
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
                 // Persisted snapshots contain every delta, so invalidation/re-read avoids
@@ -124,12 +125,17 @@ final class ChatStore {
                 let chats = self.dirtyChats; self.dirtyChats = []
                 let list = self.needsList; self.needsList = false
                 if list { await self.loadConversations() }
-                if let id = self.selectedID, chats.contains(id), self.conversations.contains(where: { $0.id == id }) { await self.loadChat(id) }
+                if let id = self.selectedID, chats.contains(id), (self.conversations.contains(where: { $0.id == id }) || self.inspectedConversation?.id == id) { await self.loadChat(id) }
             }
         }
     }
-    private func reconcile(_ values: [Conversation]) {
-        let allowed = Set(values.map(\.id))
+    private func reconcile(_ values: [Conversation]) async {
+        let token = epoch
+        if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
+        else { inspectedConversation = nil }
+        guard token == epoch, !Task.isCancelled else { return }
+        var allowed = Set(values.map(\.id))
+        if let inspectedConversation { allowed.insert(inspectedConversation.id) }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
         for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess) where !allowed.contains(id) {
@@ -145,8 +151,24 @@ final class ChatStore {
         let token = epoch
         do {
             let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
-            guard token == epoch, !Task.isCancelled else { return }; reconcile(page.items)
+            guard token == epoch, !Task.isCancelled else { return }; await reconcile(page.items)
         } catch { if token == epoch, !(error is CancellationError) { listError = error.localizedDescription; for id in checkingAccess { errors[id] = error.localizedDescription } } }
+    }
+    func inspectConversation(_ id: String) async {
+        let token = epoch
+        do {
+            let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
+            guard token == epoch, !Task.isCancelled else { return }
+            inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
+        } catch {
+            guard token == epoch else { return }
+            inspectedConversation = nil
+            if [403, 404].contains((error as? APIError)?.status ?? 0) {
+                timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
+                revokedChats.insert(id)
+            }
+            errors[id] = error.localizedDescription
+        }
     }
     func loadChat(_ id: String, older: Bool = false) async {
         guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
