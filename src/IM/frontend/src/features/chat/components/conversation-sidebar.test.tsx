@@ -94,8 +94,9 @@ describe("ConversationSidebar", () => {
     const user = userEvent.setup();
     const onNewGroup = vi.fn();
     const onNewChat = vi.fn();
+    const onDiscover = vi.fn();
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}}
-      onNewGroup={onNewGroup} onNewChat={onNewChat} />);
+      onNewGroup={onNewGroup} onNewChat={onNewChat} onDiscover={onDiscover} />);
     const trigger = screen.getByRole("button", { name: "New conversation" });
     expect(screen.queryByRole("menu")).toBeNull();
     await user.click(trigger);
@@ -107,6 +108,11 @@ describe("ConversationSidebar", () => {
     await user.click(screen.getByRole("menuitem", { name: "Create group" }));
     expect(onNewGroup).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("button", {name:"Discover public groups"})).not.toBeInTheDocument();
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", {name:"Discover public groups"}));
+    expect(onDiscover).toHaveBeenCalledOnce();
+    expect(trigger).toHaveFocus();
   });
 
   it("supports keyboard navigation and dismisses the creation menu", async () => {

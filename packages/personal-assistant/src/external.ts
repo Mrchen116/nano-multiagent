@@ -106,6 +106,12 @@ export class ExternalChannels {
         return ack(type, { message_id: this.state.output(output.id)!.platformId });
       }
     }
+    if (type === 'task_graph.command' && ['create', 'apply', 'delete'].includes(String(payload.action)) && String(payload.source_message_id).startsWith('external:')) {
+      const source = this.state.inbound().find(row => row.id === payload.source_message_id && row.input.agent_id === payload.agent_id);
+      if (!source?.mirror) return { type: 'task_graph.result', payload: { request_id: payload.request_id, ok: false,
+        error: { code: 'source_unavailable', message: 'The external source message has not been mirrored to IM.' } } };
+      return this.options.relay.request(type, { ...payload, source_message_id: source.mirror });
+    }
     if (type === 'conversation.query') {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
     }

@@ -3,7 +3,7 @@ import type { RelayInput, RuntimeEvent } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
 import { SingleThread } from '../src/single-thread.js';
 
-it('parks group background without starting runtime, admits it on mention, and suppresses silent replies', async () => {
+it.each(['user', 'system'])('parks %s group background, admits it on mention once, and suppresses silent replies', async senderType => {
   const store = new NodeStore(':memory:', 'owner');
   const submitted: Record<string, unknown>[] = []; const frames: Record<string, unknown>[] = [];
   let ensured = 0; let events: RuntimeEvent[] = [];
@@ -21,7 +21,7 @@ it('parks group background without starting runtime, admits it on mention, and s
   });
   const input = (id: string, mentioned = false): RelayInput => ({ agent_id: 'a', conversation_id: 'group', relay_task_id: id, idempotency_key: id,
     metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] },
-    message: { id, content: id, sender_user_id: 'human', sender_type: 'user', attachments: [] } });
+    message: { id, content: id, sender_user_id: 'human', sender_type: senderType, attachments: [] } });
   try {
     await product.receive(input('background'));
     expect(ensured).toBe(0); expect(submitted).toHaveLength(0);
@@ -49,7 +49,7 @@ it('parks group background without starting runtime, admits it on mention, and s
   } finally { await product.stop(); store.close(); }
 });
 
-it('withholds an internal group draft when an accepted correction is waiting and publishes the revised turn', async () => {
+it.each(['user', 'system'])('withholds a group draft when an accepted %s correction is waiting and publishes the revised turn', async senderType => {
   const store = new NodeStore(':memory:', 'owner'); const frames: Record<string, unknown>[] = []; const submitted: Record<string, unknown>[] = [];
   let events: RuntimeEvent[] = []; let correctionConsumed = false;
   const product = new SingleThread({ nodeId: 'node', ownerId: 'owner', store,
@@ -61,7 +61,7 @@ it('withholds an internal group draft when an accepted correction is waiting and
       return { durable: true, events };
     } }, relay: { async request(_type, payload) { frames.push(payload); return { type: 'ack', payload: { message_id: String(payload.idempotency_key) } }; } }, image: async () => '', onError: () => {},
   });
-  const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'group', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'group' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'human', attachments: [] } });
+  const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'group', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'group' }, message: { id, content: id, sender_type: senderType, sender_user_id: 'human', attachments: [] } });
   try {
     await product.receive(input('first'));
     events = [{ seq: 1, time: 1, type: 'assistant/message', data: { turn: 1, message: { id: 'draft', content: [{ type: 'text', text: 'Thursday' }] } } }, { seq: 2, time: 2, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }];

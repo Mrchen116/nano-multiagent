@@ -9,6 +9,9 @@ import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
 import { colorForAgent } from "./components/avatar";
 import {
+  getConversation,
+  joinConversation,
+  listPublicConversations,
   addParticipants,
   createConversation,
   createDistillPrompt,
@@ -69,6 +72,7 @@ import {
 } from "./components/group-settings";
 import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
+import { PublicGroupsModal } from "./components/public-groups-modal";
 import { NewChatModal } from "./components/new-chat-modal";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
@@ -320,6 +324,8 @@ export function ChatWorkspacePage() {
   const { t } = useTranslation();
   const [membershipReady, setMembershipReady] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showPublicGroups, setShowPublicGroups] = useState(false);
+  const closePublicGroups = useCallback(() => setShowPublicGroups(false), []);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<ChatWorkspaceError | null>(null);
@@ -342,15 +348,18 @@ export function ChatWorkspacePage() {
   });
   const localConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
+  const publicGroupsQuery = useQuery({ queryKey: ["chat", "public-groups"], queryFn: listPublicConversations, enabled: showPublicGroups });
+  const conversationDetailQuery = useQuery({ queryKey: ["chat", "conversation-detail", conversationId], queryFn: () => getConversation(conversationId!), enabled: Boolean(conversationId && membershipReady && conversationsQuery.isSuccess && !conversationsQuery.data?.some(chat => chat.id === conversationId)), refetchInterval: () => document.visibilityState === "visible" ? 3000 : false, retry: false });
   const activeConversation: Conversation | null = useMemo(() => {
     if (!conversationId || !membershipReady) return null;
-    return conversationsQuery.data?.find((c) => c.id === conversationId) ?? null;
-  }, [conversationId, conversationsQuery.data, membershipReady]);
+    return conversationsQuery.data?.find((c) => c.id === conversationId) ?? (conversationDetailQuery.isError ? null : conversationDetailQuery.data ?? null);
+  }, [conversationId, conversationsQuery.data, conversationDetailQuery.data, conversationDetailQuery.isError, membershipReady]);
 
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId && activeConversation),
     queryKey: ["chat", "messages", conversationId],
     queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE }),
+    refetchInterval: () => activeConversation?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
     refetchOnWindowFocus: false
   });
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
@@ -660,6 +669,14 @@ export function ChatWorkspacePage() {
     queryClient.setQueryData(["chat", "conversations"], conversations);
     const active = conversationIdRef.current;
     if (active && !allowed.has(active)) {
+      try {
+        const readable = await getConversation(active);
+        queryClient.setQueryData(["chat", "conversation-detail", active], readable);
+        await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
+        return;
+      } catch {
+        queryClient.removeQueries({ queryKey: ["chat", "conversation-detail", active] });
+      }
       tokenUsageCache.current.clear();
       pendingLiveMessageIdsRef.current.clear();
       pendingDiscardedMessageIdsRef.current.clear();
@@ -833,8 +850,8 @@ export function ChatWorkspacePage() {
   // Auto-scroll is handled inside MessagePane via a ref on the messages container.
 
   const createGroupMutation = useMutation({
-    mutationFn: (payload: { agentIds: string[]; userIds: string[]; name: string }) =>
-      createConversation({ title: payload.name, type: "group", participants: [...payload.agentIds.map(id => ({ type: "agent" as const, id })), ...payload.userIds.map(id => ({ type: "user" as const, id }))] }),
+    mutationFn: (payload: { agentIds: string[]; userIds: string[]; name: string; visibility: "public" | "private" }) =>
+      createConversation({ title: payload.name, type: "group", visibility: payload.visibility, participants: [...payload.agentIds.map(id => ({ type: "agent" as const, id })), ...payload.userIds.map(id => ({ type: "user" as const, id }))] }),
     onSuccess: (conv) => {
       setShowNewGroup(false);
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
@@ -1110,6 +1127,7 @@ export function ChatWorkspacePage() {
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewChat={() => setShowNewChat(true)}
+          onDiscover={() => setShowPublicGroups(true)}
           onNewGroup={() => setShowNewGroup(true)}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
@@ -1126,10 +1144,12 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
+            onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
             timeline={visibleTimeline}
             onReadMessage={(messageId) => {
+              if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);
             }}
             onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}
@@ -1190,7 +1210,8 @@ export function ChatWorkspacePage() {
           )
         )
       )}
-      {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} onClose={() => setShowTasks(false)} />}
+      {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
+      {showPublicGroups && <PublicGroupsModal groups={publicGroupsQuery.data} pending={publicGroupsQuery.isPending} error={publicGroupsQuery.isError} onRetry={() => void publicGroupsQuery.refetch()} onClose={closePublicGroups} onSelect={chat => { setShowPublicGroups(false); navigate(`/chat/${chat.id}`); }} />}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
         const chat = await createConversation({ title: contact.display_name, type: "direct", participants: [contactActor(contact)] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
@@ -1292,6 +1313,10 @@ export function ChatWorkspacePage() {
       {showGroupSettings && activeConversation && isGroupKind && (
         <GroupSettings
           title={activeConversation.title}
+          readOnly={activeConversation.can_write === false || Boolean(activeConversation.dissolved_at)}
+          visibility={activeConversation.visibility}
+          canChangeVisibility={activeConversation.can_change_visibility}
+          onVisibilityChange={visibility => updateConversation(activeConversation.id, { visibility }).then(() => queryClient.invalidateQueries({ queryKey: ["chat"] }))}
           isPinned={activeConversation.is_pinned}
           isMuted={activeConversation.is_muted}
           onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}

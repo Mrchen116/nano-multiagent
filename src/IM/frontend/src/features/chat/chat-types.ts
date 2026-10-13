@@ -176,9 +176,12 @@ export interface TokenUsage {
 
 export interface SystemNotice {
   kind: string;
-  source_agent_id: string;
-  source_agent_display_name: string;
-  updated_targets: string[];
+  source_agent_id?: string;
+  source_agent_display_name?: string;
+  updated_targets?: string[];
+  graph_id?: string;
+  node_id?: string;
+  scope_id?: string;
 }
 
 export interface Message {
@@ -227,6 +230,11 @@ export type TimelineItem =
     };
 
 export interface Conversation {
+  visibility?: "public" | "private";
+  dissolved_at?: string | null;
+  is_member?: boolean;
+  can_write?: boolean;
+  can_change_visibility?: boolean;
   id: string;
   title: string;
   participants: Actor[];

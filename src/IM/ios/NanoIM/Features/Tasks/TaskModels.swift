@@ -20,6 +20,14 @@ struct TaskNode: Codable, Identifiable, Sendable, Hashable {
     var updated_by: String
     var last_chat_id: String?
     var last_chat_title: String?
+    var created_by: ActorRef?
+    var assignee: ActorRef?
+    var updated_by_actor: ActorRef?
+    var can_edit: Bool?
+    var can_delete: Bool?
+    var can_claim: Bool?
+    var direct_counts: TaskCounts?
+
 }
 struct TaskDependency: Codable, Sendable, Hashable { let from: String; let to: String }
 struct TaskGraph: Codable, Sendable {
@@ -33,11 +41,19 @@ struct TaskGraph: Codable, Sendable {
     var updated_at: String
     var updated_by: String
     var relative_url: String
+    var conversation: TaskConversation
 }
 struct TaskSummary: Codable, Identifiable, Sendable {
     var graph_id: String; var root_node_id: String; var revision: Int; var updated_at: String
     var updated_by: String; var relative_url: String; var title: String; var mode: String; var status: String
-    var id: String { graph_id }
+    var node_id: String?
+    var scope_id: String?
+    var parent_path: [TaskPathPart]?
+    var conversation: TaskConversation
+    var created_by: ActorRef?
+    var assignee: ActorRef?
+    var direct_counts: TaskCounts?
+    var id: String { graph_id + ":" + (node_id ?? root_node_id) }
 }
 struct TaskGraphPage: Decodable, Sendable { let items: [TaskSummary]; let next_cursor: String?; let total: Int }
 struct TaskActivity: Decodable, Identifiable, Sendable {
@@ -82,5 +98,138 @@ struct NativeTaskLayout {
 }
 
 func taskStatus(_ status: String) -> String {
-    switch status { case "todo": return L("待办", "To do"); case "doing": return L("进行中", "In progress"); case "done": return L("完成", "Done"); case "paused": return L("暂停", "Paused"); case "dropped": return L("已放弃", "Dropped"); default: return status }
+    switch status { case "todo": return L("待办", "To do"); case "doing": return L("进行中", "In progress"); case "done": return L("完成", "Done"); case "paused": return L("暂缓", "Paused"); case "in_review": return L("待确认", "In review"); case "closed": return L("已关闭", "Closed"); default: return status }
+}
+
+struct TaskConversation: Codable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var visibility: String
+    var dissolved_at: String?
+    var is_member: Bool
+    var can_write: Bool
+}
+struct TaskCounts: Codable, Sendable, Hashable {
+    var todo: Int; var doing: Int; var in_review: Int; var done: Int; var paused: Int; var closed: Int; var total: Int
+    var summary: String { L("直属子任务：已完成 \(done) / 共 \(total)", "Direct subtasks: \(done) done / \(total) total") }
+}
+struct TaskPathPart: Codable, Sendable, Hashable { var id: String; var title: String }
+let taskStatuses = ["todo", "doing", "in_review", "done", "paused", "closed"]
+let taskGroups = ["todo", "doing", "in_review", "done", "closed"]
+func taskGroupContains(_ group: String, status: String) -> Bool { group == status || (group == "todo" && status == "paused") }
+
+extension ActorRef {
+    var taskKey: String { type + ":" + id }
+    var taskName: String { display_name ?? id }
+    var taskValue: JSONValue { .object(["type": .string(type), "id": .string(id)]) }
+}
+
+struct TaskDraft: Equatable {
+    var title = ""
+    var description = ""
+    var result = ""
+    var mode = "dag"
+    var status = "todo"
+    var assignee: ActorRef?
+    var changeNote = ""
+    init(node: TaskNode? = nil) {
+        if let node { title = node.title; description = node.description; result = node.result; mode = node.mode; status = node.status; assignee = node.assignee }
+    }
+    func operations(node: TaskNode?, parentID: String?) -> [JSONValue] {
+        if let node {
+            var result: [JSONValue] = [.object(["op": .string("update_task"), "node_id": .string(node.id), "patch": .object(["title": .string(title), "description": .string(description), "result": .string(self.result), "status": .string(status)])])]
+            if assignee?.taskKey != node.assignee?.taskKey { result.append(.object(["op": .string("set_assignee"), "node_id": .string(node.id), "assignee": assignee?.taskValue ?? .null])) }
+            return result
+        }
+        return [.object(["op": .string("add_task"), "client_ref": .string("new"), "container_id": .string(parentID ?? ""), "title": .string(title), "description": .string(description), "mode": .string(mode), "status": .string(status), "result": .string(result), "assignee": assignee?.taskValue ?? .null])]
+    }
+}
+enum TaskEditField: String, CaseIterable, Identifiable {
+    case title, description, result, status, assignee
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .title: return L("任务标题", "Task title")
+        case .description: return L("任务说明", "Description")
+        case .result: return L("当前结果", "Result")
+        case .status: return L("状态", "Status")
+        case .assignee: return L("负责人", "Assignee")
+        }
+    }
+    func value(in draft: TaskDraft) -> String {
+        switch self {
+        case .title: return draft.title
+        case .description: return draft.description
+        case .result: return draft.result
+        case .status: return draft.status
+        case .assignee: return draft.assignee?.taskKey ?? ""
+        }
+    }
+    func display(in draft: TaskDraft) -> String {
+        if self == .status { return taskStatus(draft.status) }
+        if self == .assignee { return draft.assignee?.taskName ?? L("未分配", "Unassigned") }
+        return value(in: draft).isEmpty ? L("未填写", "Empty") : value(in: draft)
+    }
+    func copy(from source: TaskDraft, to target: inout TaskDraft) {
+        switch self {
+        case .title: target.title = source.title
+        case .description: target.description = source.description
+        case .result: target.result = source.result
+        case .status: target.status = source.status
+        case .assignee: target.assignee = source.assignee
+        }
+    }
+}
+
+/// Reconciles independent edits while requiring a choice for competing edits.
+/// No choice writes data; the caller must still submit against the fresh revision.
+struct TaskConflict {
+    let mine: TaskDraft
+    let latest: TaskDraft
+    let fields: [TaskEditField]
+    let retained: [TaskEditField]
+    let adopted: [TaskEditField]
+    private let merged: TaskDraft
+
+    init(baseline: TaskNode, draft: TaskDraft, latest: TaskNode) {
+        let before = TaskDraft(node: baseline), remote = TaskDraft(node: latest)
+        var merged = draft
+        var fields: [TaskEditField] = [], retained: [TaskEditField] = [], adopted: [TaskEditField] = []
+        for field in TaskEditField.allCases {
+            let localChanged = field.value(in: draft) != field.value(in: before)
+            let remoteChanged = field.value(in: remote) != field.value(in: before)
+            if !localChanged {
+                field.copy(from: remote, to: &merged)
+                if remoteChanged { adopted.append(field) }
+            } else if remoteChanged && field.value(in: draft) != field.value(in: remote) {
+                fields.append(field)
+            } else { retained.append(field) }
+        }
+        self.mine = draft; self.latest = remote; self.merged = merged
+        self.fields = fields; self.retained = retained; self.adopted = adopted
+    }
+
+    func resolved(keepingMine choices: [TaskEditField: Bool]) -> TaskDraft? {
+        guard fields.allSatisfy({ choices[$0] != nil }) else { return nil }
+        var result = merged
+        for field in fields { field.copy(from: choices[field] == true ? mine : latest, to: &result) }
+        return result
+    }
+}
+
+extension TaskDraft {
+    func needsReworkReason(after node: TaskNode?) -> Bool {
+        node?.status == "done" && status == "doing" && changeNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+extension IMClient {
+    func taskGraph(_ id: String) async throws -> TaskGraph {
+        let graph: TaskGraph = try await get("/im/v1/task-graphs/\(id.pathComponent)", query: [.init(name: "view", value: "all")])
+        guard graph.schema_version == 2 else { throw APIError(status: 422, detail: L("暂不支持此任务图版本。", "Unsupported task graph version.")) }
+        return graph
+    }
+    func applyTask(_ graph: TaskGraph, operations: [JSONValue], note: String = "", key: String) async throws {
+        let _: JSONValue = try await send("/im/v1/task-graphs/\(graph.graph_id.pathComponent)/apply", body: ["base_revision": .number(Double(graph.revision)), "request_key": .string(key), "operations": .array(operations), "change_note": .string(note)] as [String: JSONValue])
+    }
 }

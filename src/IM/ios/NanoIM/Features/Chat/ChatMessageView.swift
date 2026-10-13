@@ -10,6 +10,18 @@ struct ChatMessageView: View {
     private var mine: Bool { message.sender.id == selfID }
     private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
+        if message.system_notice?["kind"].stringValue == "task_graph" {
+            VStack(spacing: 4) {
+                NanoTimestamp(value: message.created_at)
+                Text(taskNoticeText).font(.caption).multilineTextAlignment(.center).tint(NanoTheme.accent)
+            }.font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity).padding(.vertical, 6).textSelection(.enabled)
+        } else { bubble }
+    }
+    private var taskNoticeText: AttributedString {
+        let text = ChatText.display(message.content, participants: participants)
+        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace), baseURL: client.baseURL)) ?? AttributedString(text)
+    }
+    private var bubble: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }

@@ -6,6 +6,7 @@ struct ConversationView: View {
     @Bindable var store: ChatStore
     let conversationID: String
     let openChat: (String) -> Void
+    @Environment(\.scenePhase) private var phase
     @State private var photo: PhotosPickerItem?
     @State private var pickingPhoto = false
     @State private var importing = false
@@ -24,7 +25,7 @@ struct ConversationView: View {
     @State private var viewport = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var mentionRowHeight = 48.0
     @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
-    private var conversation: Conversation? { store.conversations.first { $0.id == conversationID } }
+    private var conversation: Conversation? { store.inspectedConversation?.id == conversationID ? store.inspectedConversation : store.conversations.first { $0.id == conversationID } }
     private var items: [TimelineItem] {
         let timeline = store.timelines[conversationID] ?? []
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
@@ -86,6 +87,16 @@ struct ConversationView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.checkingAccess.contains(conversationID) {
                 VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+            } else if let conversation, conversation.can_write == false {
+                VStack {
+                    Text(conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
+                    if conversation.dissolved_at == nil && conversation.visibility == "public" && conversation.is_member == false {
+                        Button(L("加入群聊", "Join group")) { Task {
+                            do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/join", body: EmptyResponse()); await store.inspectConversation(conversationID); await store.loadConversations() }
+                            catch { store.errors[conversationID] = error.localizedDescription }
+                        } }
+                    }
+                }.padding().frame(maxWidth: .infinity).background(.bar)
             } else { composer.disabled(conversation == nil) }
         }
         .background(NanoTheme.canvas)
@@ -98,9 +109,21 @@ struct ConversationView: View {
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
             store.selectedID = conversationID
+            await store.inspectConversation(conversationID)
             await store.loadChat(conversationID)
             do { let result: ItemsPage<ChatCommandSet> = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/commands"); commands = result.items }
             catch { /* Commands are optional when a target device is offline; message sending remains available. */ }
+        }
+        .task(id: "\(conversationID)-\(phase == .active)") {
+            guard phase == .active else { return }
+            while !Task.isCancelled {
+                // Visitors do not subscribe as members; recheck access while reading public history.
+                if conversation?.is_member == false || conversation?.dissolved_at != nil {
+                    await store.inspectConversation(conversationID)
+                    await store.loadChat(conversationID)
+                }
+                try? await Task.sleep(for: .seconds(3))
+            }
         }
         .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
