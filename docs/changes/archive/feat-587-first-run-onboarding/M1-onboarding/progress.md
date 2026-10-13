@@ -78,3 +78,15 @@ reviewer 首条用户消息的 failed 并非离线测试导致：Node 持久事�
 canonical 只归并七份已核对的 delta；更新包入口计数与现行说明，README 区分已有 IM 用户和自托管者，Gateway/local-stack 记录安装与安装包发布。全部 unit 文档整体归档后提交 Ready PR；未自动合并或部署，生产与主仓无关 dirty 内容保持原状。
 
 最终文档检查通过：260 个 maintained Markdown、64 条 required routes。检查发现 active delta 中一个沿用 canonical 相对位置的 gateway-relay 链接；已仅修正指向，归档时随目录深度调整，不改契约。`git diff --check` 通过。
+
+## 588 集成后的完成复核与新版录像（2026-10-13）
+
+PR339 已合入本 587 分支，集成点为 `77622d2152fe7e1bb2966fb656adf9e41613aed6`，其树与 588 最终 head `0247eb0e610bbf366f37b34f41015430cdaff8f7` 完全相同。该 head 的 CI run 38349265822 三项成功证据保留。独立静态复核 R5 对齐全部需求/里程碑后提出两处 current 文档偏差；一次修正 README、Gateway、安装发布 runbook 和入口后，R6 在 `22aa42c62af979671366d2a1ebc2644f1d7618e0` PASS，0 CRITICAL / WARNING。独立产品 R5 在集成运行时 PASS、0 阻塞/major，逐项保留或重验 S1–S12；原 S6 开发者代理发现由 588 的 API 优先契约明确替代，不再宣称旧路径通过。
+
+新版录像在上述确认之后，以另一个全新账号“林舟”、空安装根和独立 IM 18497 开始。实际完成中文注册、两种安装选项及复制、无预装 Node 的手动安装、网页绑定、添加自定义 API 并真实测试、命名“小澄”并创建助手、修改首个任务草稿后发送。任务请求是建立每天阅读 20 分钟的习惯，未在请求中指定底层工具；真实助手在原聊天提出三个相关问题。会话 `c_e5j6ws6w`，助手 `assistant-a5154775`，节点 `computer-bd19e4ec`；用户消息和助手消息均 completed，relay `7a2b580820314ff09102b7873609a98c` 的 status / receipt_status 均 completed。录像止于首答，没有刷新章节；刷新/重装/离线恢复由独立验收报告覆盖。
+
+原始视频 509.12 秒、1280×900，交付 MP4 为全程 2 倍速约 254.6 秒，未删去安装等待或失败步骤。画面与最终首答已抽帧核对。媒体保存在本地交付目录 `feat-587-integrated/new-user-flow-full.webm`、`new-user-flow-2x.mp4`，不提交媒体、账号、凭据、日志或数据库。终端是明确标注的辅助输出页，呈现实际安装 stdout。程序包为固定版本/哈希的本地候选：只将精确 GitHub asset URL 的运输替换成本地相同字节，其余官方 Node 下载与安装真实执行；这不代表已发布 Release 或通过匿名公网下载。自定义测试 API 将请求转发到已有代理的真实 Codex 推理，不代表第三方厂商账号认证。
+
+最终同步 main 到 `82b4c13201dccd12ac72bb2a79c4dd99aa233c49`，新增内容仅为独立 feat-589 的设计/证据文档，无运行时代码和本 unit 行为变化。门禁 executed_base 保留 `b7e367cc08a642133dea28e372816cd79038818d`，effective_base 更新到该 main SHA；后续报告和 current 文档校正不改变集成运行时，各有效门禁 retained。同步后文档检查 248 sources / 64 routes 通过，diff check 通过。新版录像这轮最终执行完成；独立产品 R5 中首答送达后的上游 empty_stream 失败仍按其报告保留，不用本轮成功覆盖历史观察。
+
+用户要求停在 merge main 之前：PR337 继续 OPEN，未合并 main、发布 GitHub Release 或部署生产。用户原试用服务及无关工作区内容保持原状。
