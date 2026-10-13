@@ -15,7 +15,11 @@ ALLOWED = {
     "packages/channels": {"@nano/product-contracts"},
     "packages/personal-assistant": {"@nano/product-contracts", "@nano/channels"},
     "packages/dsh-integration": {"@nano/product-contracts"},
-    "packages/dsh-trajectory-viewer": set(),
+    "packages/dsh-trajectory-viewer": {
+        "@nano/product-contracts",
+        "@nano/trajectory-ui/client",
+    },
+    "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": set(),
     "apps/im-server": {"@nano/product-contracts"},
     "apps/node": {
@@ -29,7 +33,7 @@ ALLOWED = {
 
 @pytest.mark.parametrize("package", ALLOWED)
 def test_product_owns_no_runtime_internals(package: str) -> None:
-    """Only integration and the isolated native viewer import public DSH exports."""
+    """Only integration and isolated trajectory UI packages import public DSH exports."""
     for path in (ROOT / package / "src").rglob("*"):
         if path.suffix not in {".ts", ".tsx", ".js", ".jsx"}:
             continue
@@ -49,6 +53,7 @@ def test_product_owns_no_runtime_internals(package: str) -> None:
                 assert package in {
                     "packages/dsh-integration",
                     "packages/dsh-trajectory-viewer",
+                    "packages/trajectory-ui",
                 }, (path, specifier)
             assert not any(
                 part in specifier
@@ -59,7 +64,9 @@ def test_product_owns_no_runtime_internals(package: str) -> None:
                 assert resolved.is_relative_to(ROOT / package), (path, specifier)
 
 
-@pytest.mark.parametrize("package", ["dsh-integration", "dsh-trajectory-viewer"])
+@pytest.mark.parametrize(
+    "package", ["dsh-integration", "dsh-trajectory-viewer", "trajectory-ui"]
+)
 def test_integration_imports_only_declared_public_dsh_exports(package: str) -> None:
     """Upgrading DSH must explicitly preserve every imported public export."""
     integration = ROOT / "packages" / package

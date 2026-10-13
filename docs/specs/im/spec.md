@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-588
+> 对齐: feat-548 / bugfix-549 / feat-551-agent-reply-images / feat-554 / feat-561 / feat-569 / feat-572 / feat-578 / feat-583 / feat-589 / feat-587 / feat-588
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -23,7 +23,7 @@
 | [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示与自进化提示本地化 | 22 |
 | [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 5 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
-| [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹 | 5 |
+| [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹及父子执行范围导航 | 8 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
 | [Agents and Nodes](agents-nodes.md) | 固定版本安装、首次助手引导与模型服务管理、Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注与 Workflow tool pill | 33 |

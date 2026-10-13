@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createServer } from '../src/server.js';
 import { openDatabase } from '../src/db.js';
 import { TaskGraphService } from '../src/task-graphs.js';
+import { EventEmitter } from 'node:events';
 
 const cleanups: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -153,6 +154,54 @@ it('acknowledges revoked company work without blocking the shared private journa
   expect(app.im.gateway.work.append('mixed-private', batch).through_seq).toBe(2);
   expect(db.prepare('SELECT root_agent_id FROM agent_work_events').all()).toEqual([{root_agent_id: 'mixed-private'}]);
   expect(() => app.im.gateway.work.append('mixed-private', {...batch, events: [{...events[0], root_agent_id: 'unknown'}]})).toThrow();
+});
+
+it('closes revoked company trajectory reads while the same node remains usable for personal work', async () => {
+  const { app, db, register } = await fixture();
+  const owner = await register('native-owner'), reader = await register('native-reader');
+  db.prepare("UPDATE users SET membership_status='active' WHERE id IN (?,?)").run(owner.user.id, reader.user.id);
+  db.prepare('UPDATE users SET is_company_admin=1 WHERE id=?').run(reader.user.id);
+  agent(db, 'native-private', owner.user.id, `personal:${owner.user.id}`);
+  agent(db, 'native-company', owner.user.id, 'company:default');
+  db.prepare("UPDATE agent_profiles SET node_id='native-private' WHERE agent_id='native-company'").run();
+  db.prepare("INSERT INTO node_binding_state(node_id,node_epoch,owner_id) VALUES('native-private',0,?)").run(owner.user.id);
+  class Socket extends EventEmitter {
+    readyState = 1; bufferedAmount = 0; frames: any[] = [];
+    send(raw: string) { this.frames.push(JSON.parse(raw)); }
+    close(code?: number) { this.readyState = 3; this.frames.push({ closed: code }); }
+  }
+  const device = { node_id: 'native-private', owner_id: owner.user.id, node_epoch: 0, socket: new Socket() };
+  app.im.gateway.nodes.set(device.node_id, device as any);
+  app.im.gateway.work.append(device.node_id, { journal_id: 'native-mixed', from_seq: 1, events:
+    ['native-company', 'native-private'].map((root, i) => ({ seq: i + 1, event_id: root, root_agent_id: root, session_id: root, type: 'session_registered', payload: { scope: 'global_main' } })) });
+  const open = (token: string, root: string) => {
+    const browser = new Socket();
+    const ticket = app.im.identity.issueTicket(app.im.identity.accessSession(token).sid);
+    app.im.gateway.trajectory.browser(browser as any, ticket, root, root);
+    return browser;
+  };
+  const pair = (browser: Socket) => {
+    const prepare = device.socket.frames.filter(frame => frame.type === 'trajectory.prepare').at(-1);
+    const node = new Socket();
+    app.im.gateway.trajectory.node(node as any, prepare.payload.ticket);
+    node.emit('message', Buffer.from(JSON.stringify({ type: 'ready', observerId: prepare.payload.scope.observerId })));
+    expect(browser.frames.at(-1)).toMatchObject({ type: 'ready' });
+    return node;
+  };
+  const company = open(reader.access_token, 'native-company'), companyNode = pair(company);
+  app.im.identity.transition(reader.user.id, owner.user.id, 'suspend');
+  app.im.gateway.trajectory.check();
+  expect(app.im.gateway.valid(device as any)).toBe(true);
+  expect(company.readyState).toBe(3);
+  expect(companyNode.readyState).toBe(3);
+  const denied = open(reader.access_token, 'native-company');
+  expect(denied.frames).toContainEqual(expect.objectContaining({ type: 'failed' }));
+  expect(denied.readyState).toBe(3);
+  const freshOwner = await app.im.identity.login('native-owner', 'password-123');
+  const personal = open(freshOwner.access_token, 'native-private'), personalNode = pair(personal);
+  personal.emit('message', Buffer.from(JSON.stringify({ type: 'call', requestId: 'private-read', method: 'session/page', params: {} })));
+  expect(personalNode.frames.at(-1)).toMatchObject({ requestId: 'private-read', method: 'session/page' });
+  expect(personal.readyState).toBe(1);
 });
 
 it('resumes both spaces after a revoked mixed node is handed to an approved owner', async () => {

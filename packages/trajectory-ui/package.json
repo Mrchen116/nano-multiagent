@@ -1,0 +1,64 @@
+{
+  "name": "@nano/trajectory-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nano-maintained fork of the DSH trajectory UI",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/dsh-agent": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-attachment": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-store": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-compaction": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-llm": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-session": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-util-values": "0.2.1-alpha.1",
+    "@tanstack/react-virtual": "3.14.9",
+    "diff": "9.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@nano/product-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.1",
+    "@types/react-dom": "18.3.0",
+    "@types/diff": "7.0.2",
+    "esbuild": "0.25.0"
+  }
+}
