@@ -10,7 +10,7 @@ import {
 import { Messaging } from "../src/messaging.js";
 import { TaskGraphService, canonicalJson } from "../src/task-graphs.js";
 import { ChannelService, sealChannelSecret } from "../src/channels.js";
-import { ConfigOperations, candidateFingerprint, registerControlRoutes } from "../src/control.js";
+import { ConfigOperations, candidateFingerprint, profileResponse, registerControlRoutes } from "../src/control.js";
 import { one, type ImContext, type Row } from "../src/context.js";
 import { fixture } from "./control-fixture.js";
 function taskMessaging(db: any) {
@@ -418,4 +418,29 @@ describe("recoverable config operations and HTTP boundary", () => {
       expect(requests).toHaveLength(1);
     }finally{await app.close();}
   });
+});
+
+
+it('finishes migration after recovering a pending legacy configuration operation', async () => {
+  const {db, ctx} = fixture(); const app = Fastify();
+  db.prepare("UPDATE agent_profiles SET skills_json='[\"keep\"]',skills_selection_mode='explicit_allowlist'").run();
+  ctx.gateway.authenticate = () => ({node_id:'n',owner_id:'o1'}) as any;
+  let recover = false; const calls: string[] = [];
+  ctx.gateway.request = async (_node, action, payload) => {
+    calls.push(action);
+    if (action === 'agent.capabilities.resolve') return {capabilities:{skills:[{name:'keep'},{name:'blocked'}]}};
+    if (!recover) return {status:'pending'};
+    const op = one(db,'SELECT * FROM agent_config_operations WHERE operation_id=?',payload.operation_id)!;
+    return {status:'applied',operation_id:op.operation_id,candidate_fingerprint:op.candidate_fingerprint,agent:JSON.parse(op.candidate_json)};
+  };
+  const p = one(db,'SELECT * FROM agent_profiles')!;
+  await expect(new ConfigOperations(ctx).update(p,{...profileResponse(p,true),display_name:'Recovered edit'},'o1')).rejects.toMatchObject({statusCode:503});
+  recover = true; calls.length = 0; registerControlRoutes(app,ctx);
+  try {
+    const result = await app.inject({method:'POST',url:'/im/v1/agents/a/skills/migrate',headers:{authorization:'Bearer runtime'},payload:{profile_version:1}});
+    expect(result.statusCode,result.body).toBe(200);
+    expect(result.json()).toMatchObject({display_name:'Recovered edit',skills_selection_mode:'explicit_denylist',skills:['blocked'],profile_version:3});
+    expect(calls).toEqual(['agent.config.operation.status','agent.capabilities.resolve','agent.config.apply']);
+    expect(one(db,'SELECT skills_selection_mode FROM agent_profiles')?.skills_selection_mode).toBe('explicit_denylist');
+  } finally { await app.close(); }
 });

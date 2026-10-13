@@ -795,12 +795,12 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     )
       fail(422, "Invalid skills");
     return ops.serialized(id, async () => {
-      const p = requireProfile(ctx, id, runtime.owner_id);
+      let p = requireProfile(ctx, id, runtime.owner_id);
       if (p.node_id !== runtime.node_id) fail(404, "agent_id not found");
       const recovered = await ops.recover(id, runtime.owner_id);
-      if (recovered) return recovered;
+      if (recovered) p = requireProfile(ctx, id, runtime.owner_id);
       if (p.skills_selection_mode === "explicit_denylist") return profileResponse(p);
-      if (p.profile_version !== b.profile_version) fail(409, "profile_version conflict");
+      if (!recovered && p.profile_version !== b.profile_version) fail(409, "profile_version conflict");
       const c = fromProfile(p);
       const response = await ctx.gateway.request(runtime.node_id, "agent.capabilities.resolve", { agent_id: id, workspace_root: p.workspace_root });
       const catalog = response.capabilities?.skills ?? response.skills;

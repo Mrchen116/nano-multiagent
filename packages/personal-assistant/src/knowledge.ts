@@ -67,10 +67,15 @@ export class KnowledgeUpdates {
   async migrateSkills() {
     for (const agent of this.options.agents) {
       if (agent.skillSelection?.mode === 'explicit_denylist') continue;
-      const path = `/im/v1/agents/${encodeURIComponent(agent.agentId)}`;
-      const profile = await this.options.im(`${path}/config?source=mirror`) as { profile_version: number; skills: string[] };
-      await this.options.im(`${path}/skills/migrate`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile_version: profile.profile_version }) });
+      try {
+        const path = `/im/v1/agents/${encodeURIComponent(agent.agentId)}`;
+        const profile = await this.options.im(`${path}/config?source=mirror`) as { profile_version: number; skills: string[] };
+        await this.options.im(`${path}/skills/migrate`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_version: profile.profile_version }) });
+      } catch (error) {
+        // Keep the legacy selection for a later reconnect, without failing runtime recovery.
+        this.options.onError(error);
+      }
     }
   }
   async stop() { this.stopped = true; this.unsubscribe(); await this.running; }

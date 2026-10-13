@@ -37,3 +37,24 @@ it('recovers committed changes without re-enabling disabled skills and retries u
     expect(notices[0]).toMatchObject({ node_id: 'node', conversation_id: 'original-chat', system_notice: { updated_targets: ['skills'] } });
   } finally { await updates.stop(); inbox.close(); store.close(); await rm(home, { recursive: true, force: true }); }
 });
+
+it('isolates a failed legacy migration and retries it without blocking other agents', async () => {
+  const agents: AgentConfiguration[] = ['a', 'b'].map(agentId => ({ agentId, workspace: '/tmp/review', revision: '1', mode: 'single_thread', provider: 'test', model: 'test', skillSelection: { mode: 'explicit_allowlist', names: [] } }));
+  let fail = true;
+  const errors: unknown[] = []; const migrated: string[] = [];
+  const updates = new KnowledgeUpdates({ agents, runtime: { onNotification: () => () => {} }, onError: error => errors.push(error),
+    im: async (path: string, init?: RequestInit) => {
+      if (path.includes('/a/') && fail) throw new Error('IM 503');
+      if (!init) return { profile_version: 1 };
+      migrated.push(path); agents.find(agent => path.includes(`/${agent.agentId}/`))!.skillSelection = { mode: 'explicit_denylist', names: [] }; return {};
+    },
+  } as ConstructorParameters<typeof KnowledgeUpdates>[0]);
+  try {
+    await expect(updates.migrateSkills()).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1); expect(migrated).toEqual(['/im/v1/agents/b/skills/migrate']);
+    expect(agents[0]!.skillSelection!.mode).toBe('explicit_allowlist');
+    fail = false; await updates.migrateSkills();
+    expect(migrated).toEqual(['/im/v1/agents/b/skills/migrate', '/im/v1/agents/a/skills/migrate']);
+    expect(agents[0]!.skillSelection!.mode).toBe('explicit_denylist');
+  } finally { await updates.stop(); }
+});
