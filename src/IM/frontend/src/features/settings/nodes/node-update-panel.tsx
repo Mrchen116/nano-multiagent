@@ -36,7 +36,7 @@ export function NodeUpdatePanel({nodeId, update}: {nodeId:string;update:NodeUpda
   },onSuccess:()=>{requestId.current=null;},onSettled:refresh});
   const cancel=useMutation({mutationFn:()=>cancelNodeUpdate(nodeId,op!.id),onSettled:refresh});
   const recover=nodeUpdateNeedsRecovery(update);
-  const result=op && ['succeeded','cancelled','failed','rolled_back','interrupted'].includes(op.state) ? op.state : null;
+  const result=op && !(op.state==='succeeded' && update.available) && ['succeeded','cancelled','failed','rolled_back','interrupted'].includes(op.state) ? op.state : null;
   const state=recover?'recovery_required':active?op!.state:['available','current'].includes(update.reason)?result ?? update.reason:update.reason;
   const error=['failed','rolled_back','interrupted','recovery_required'].includes(state);
   const bridge=['legacy','recovery_required','incompatible'].includes(state);

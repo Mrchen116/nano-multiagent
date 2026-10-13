@@ -28,6 +28,11 @@ it('allows cancellation while waiting, but removes it once switching starts',asy
   expect(screen.queryByRole('button',{name:'Cancel update'})).not.toBeInTheDocument();
   expect(screen.getByText('Updating')).toBeVisible();
 });
+it('shows the next published release after a previous update succeeded',()=>{
+  show({...value,operation:{id:'previous',state:'succeeded',cancel_requested:false,relay_gated:false,request_id:'previous-click'}});
+  expect(screen.getByRole('heading',{name:/Update available.*1.2.2 → 1.2.3/})).toBeVisible();
+  expect(screen.getByText('Improved reconnects')).toBeVisible();
+});
 it('disables offline updates and gives a precise recovery link after a failed switch',()=>{
   const offline=show({...value,reason:'offline',available:false});expect(screen.getByRole('button',{name:'Update'})).toBeDisabled();offline.unmount();
   render(<MemoryRouter><NodeChip nodeName="My computer" nodeId="my-computer" status="offline" update={{...value,reason:'recovery_required',available:false,operation:{id:'op',state:'recovery_required',relay_gated:true,cancel_requested:false,request_id:'request'}}}/></MemoryRouter>);
