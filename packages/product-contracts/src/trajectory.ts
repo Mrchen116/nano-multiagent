@@ -21,3 +21,25 @@ export interface TrajectoryRequest {
 export type TrajectoryResponse =
   | { type: 'result'; requestId: string; value: TrajectoryJson }
   | { type: 'error'; requestId: string; code: string; message: string };
+
+/** One native subagent residency epoch, observed without copying its conversation. */
+export interface TrajectoryRun {
+  runId: string;
+  parentSessionId: string;
+  sessionId: string;
+  provider: string;
+  label?: string;
+  kind: 'tool' | 'memory' | 'skills' | 'unknown';
+  delegation: 'foreground' | 'background' | 'unknown';
+  launchSeq?: number;
+  callId?: string;
+  /** Inclusive first new native offset; fork inheritance precedes this coordinate. */
+  startSeq?: number;
+  /** Inclusive final accepted native offset, present only for observed terminal runs. */
+  endSeq?: number;
+  /** Lifecycle observation time in Unix milliseconds. */
+  startedAt: number;
+  endedAt?: number;
+  stopReason?: string;
+  state: 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+}

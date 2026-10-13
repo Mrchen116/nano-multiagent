@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -91,7 +91,13 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", queryFn: ({ pageParam }) => workRequest<WorkView>(`${workBase(agentId)}${pageParam ? `?before_turn=${encodeURIComponent(pageParam)}` : ""}`), getNextPageParam: page => page.next_cursor ?? undefined });
   const view = viewQuery.data?.pages[0];
   const nativeSession = search.get('execution') || view?.main_session_id || null;
+  const [nativeSelectionVersion, setNativeSelectionVersion] = useState(0);
+  const [activeNative, setActiveNative] = useState<{base: string | null; sessionId: string; label?: string} | null>(null);
+  const onActiveNative = useCallback((sessionId: string, label?: string) => setActiveNative({base:nativeSession,sessionId,label}), [nativeSession]);
+  const shownNative = activeNative?.base === nativeSession ? activeNative.sessionId : nativeSession;
   const showNative = (sessionId?: string | null) => {
+    setNativeSelectionVersion(value => value + 1);
+    setActiveNative(null);
     if (!nativeMode) recordScroll.current = root.current?.closest('.im-agent-panel')?.scrollTop ?? 0;
     setSaved(current => ({ ...current, selected: sessionId && sessionId !== view?.main_session_id ? sessionId : null }));
     const next = new URLSearchParams(location.search); next.set('work_view', 'trajectory');
@@ -149,10 +155,10 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}<button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></div> : view && <>
         <div className="im-work-toolbar">
           <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || view.main_session_id)}>{tr('原生轨迹')}</button></div>
-          {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={nativeSession ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{view.other_executions.map(session => <option key={session.session_id} value={session.session_id}>{tr(sessionTitle(session))}</option>)}</select></label>}
+          {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{view.other_executions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !view.other_executions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr('关联执行')}</option>}</select></label>}
           <div className="im-work-toolbar-status">{!nativeMode && <span>{tr("主 Agent")} · {statusLabel(online ? view.main_execution : "unknown")}</span>}{!online && <span className="im-work-error">{tr("节点离线")}</span>}</div>
         </div>
-        {nativeMode && <AgentTrajectory agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
+        {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(view.other_executions.find(item => item.session_id === nativeSession)))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         <div hidden={nativeMode}>
         {!online && <p className="im-work-callout" role="status">{tr("节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>

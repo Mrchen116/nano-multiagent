@@ -29,7 +29,7 @@ it('retries interrupted runtime extraction without accepting a partial node exec
 });
 
 
-async function releaseFixture() {
+async function releaseFixture(version = '0.2.0') {
   const home = await mkdtemp(join(tmpdir(), 'nano-release-install-'));
   const root = join(home, 'nano');
   const bin = join(home, 'bin');
@@ -45,9 +45,8 @@ async function releaseFixture() {
   const archive = join(home, 'package.tgz');
   expect(spawnSync('tar', ['-czf', archive, '-C', payload, '.']).status).toBe(0);
   const sha256 = createHash('sha256').update(await readFile(archive)).digest('hex');
-  const version = 'a'.repeat(40);
-  const url = `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${version}/nano-node.tgz`;
-  const manifest = { version, sha256, download_url: url, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' };
+  const url = `https://github.com/Mrchen116/nano-multiagent/releases/download/${version.length === 40 ? `node-${version}` : `v${version}`}/nano-node.tgz`;
+  const manifest = { version, source_commit: 'a'.repeat(40), sha256, download_url: url, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' };
   await writeFile(join(home, 'manifest.json'), JSON.stringify(manifest));
   // Only this test process replaces curl. Production accepts no download-source override.
   await writeFile(join(bin, 'curl'), `#!${process.execPath}
@@ -68,8 +67,8 @@ else if (url === ${JSON.stringify(url)}) {
   return { home, root, archive, manifest, run };
 }
 
-it('downloads the pinned GitHub asset once and preserves existing files on reinstall', async () => {
-  const f = await releaseFixture();
+it.each(['0.2.0', 'a'.repeat(40)])('downloads pinned version %s and preserves existing files on reinstall', async (version) => {
+  const f = await releaseFixture(version);
   try {
     const first = f.run();
     expect(first.status, first.stderr).toBe(0);

@@ -74,8 +74,8 @@ export function apply(ctx) {
  });
 }`);
   const agents = [
-    { agentId: 'a', revision: '1', provider: 'fixture', model: 'test', features: { memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['memory'] },
-    { agentId: 'b', revision: '1', provider: 'fixture', model: 'test', features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
+    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['memory'] },
+    { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
   ];
   const bindings = agents.map(config => ({ sessionId: `knowledge-${config.agentId}`, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: config.agentId === 'a' ? workspaceA : workspaceB }));
   try {
@@ -89,6 +89,17 @@ export function apply(ctx) {
     for (const [index, binding] of bindings.entries()) await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: binding.sessionId, mode: 'followup', content: [{ type: 'text', text: index ? 'skill fixture' : 'memory fixture' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: binding.sessionId } });
     const facts = async () => await client!.rpc.request('knowledge.facts', {}) as { facts: { kind: string; reviewId?: string; agentId: string }[]; reviews: { status: string; kind: string }[] };
     await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(2);
+    for (const [index, binding] of bindings.entries()) {
+      // Explicit launch provenance must survive opaque review labels for both maintenance kinds.
+      await client!.rpc.request('trajectory.prepare', { observerId: binding.sessionId, rootAgentId: binding.agentId, rootSessionId: binding.sessionId, sessionId: binding.sessionId, ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
+      const runs = await client!.rpc.request('trajectory.call', { observerId: binding.sessionId, method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };
+      expect(runs.value).toHaveLength(1);
+      expect(runs.value[0]).toMatchObject({ kind: index ? 'skills' : 'memory', delegation: 'background', provider: 'fork', state: 'completed' });
+      expect(runs.value[0]!.launchSeq).toBeTypeOf('number');
+      expect(runs.value[0]!.startSeq).toBeGreaterThan(0);
+      expect(runs.value[0]!.endSeq).toBeGreaterThan(runs.value[0]!.startSeq!);
+      expect(runs.value[0]!.callId).toBeUndefined();
+    }
     expect((await facts()).facts.map(fact => [fact.agentId, fact.kind, !!fact.reviewId]).sort()).toEqual([['a','memory',true],['b','skills',true]]);
     expect(await readFile(join(workspaceA,'.nanoassistant/memory/USER.md'),'utf8')).toContain('evidence-backed');
     expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);

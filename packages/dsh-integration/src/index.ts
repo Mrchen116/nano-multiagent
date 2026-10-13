@@ -32,6 +32,7 @@ import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
 import { installLlmAttribution } from './llm-attribution.js';
+import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 
@@ -106,6 +107,7 @@ export default class NanoRuntime {
       }
       return session?.id ?? sessionId;
     });
+    new TrajectoryRuns(ctx);
     let configurationService: ConfigurationScopes;
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!);

@@ -59,7 +59,7 @@ export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' 
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
-export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';
+export { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryRun, type TrajectoryJson, type TrajectoryScope, type TrajectoryRequest, type TrajectoryResponse } from './trajectory.js';
 
 /** Native attempts grouped into one product reply and its model notices. */
 export interface ModelRunProjection {

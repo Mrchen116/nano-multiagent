@@ -1,4 +1,4 @@
-const calls = new Set(['session/list', 'session/page', 'session/projections', 'session/attachment']);
+const calls = new Set(['session/list', 'session/page', 'session/projections', 'session/attachment', 'trajectory/runs']);
 const streams = new Set(['session/control', 'session/follow']);
 
 interface Pending {
