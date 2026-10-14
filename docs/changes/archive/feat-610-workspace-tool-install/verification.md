@@ -87,6 +87,7 @@ Delta: `specs/gateway/agent-capabilities.md` within this unit; canonical destina
 | Truthful failed installation/loading (`48-50`) | native error propagation plus Loader/fiber audit and actual application result | test `62-69,79-84`: failed source, distinct fixed generation and unaffected good tool | aligned |
 | Restart and revocation (`52-54`) | persistent native profile/file dependencies; disable-before-remove and scope refresh | test `85-101`: restart, disable across restart, re-enable/remove | aligned |
 | Preserve unrelated choices (`56-59`) | baseline names excluded from automatic additions; management/empty selection gate | test `61,71,74` and retained native restrictions | aligned |
+| ADDED IM workspace availability and unrelated-save / management-disabled scenarios (`specs/IM/agents-nodes.md:3-15`) | catalog metadata → Node/IM normalization → read-only workspace cards; saved static draft and creation defaults remain separate | native catalog enabled/disabled/repeated-preview regression; Node/IM projection tests; PillSelector normalized status/static-choice regression; actual settings screenshot inspected in Round 3 | aligned |
 
 ### Uncovered Observable Behavior
 
@@ -122,3 +123,47 @@ Corrected delta remains **aligned**: its consumer requirements and scenarios are
 The independent `acceptance.md` reports real IM → Node → DSH → real LLM **7/7** at `33ef0d76d`. Those product results remain valid: the patch changes only the managed package execution command, and the new real native regression validates the affected seam with global pnpm unavailable. Full product verification is not required again; this conclusion does not expand that acceptance to published installer execution or production deployment. Independent design-review R4 passed with 0 CRITICAL / 0 WARNING; it remains a separate design gate. Caller confirmed isolated product services were cleaned.
 
 Final snapshot evidence inspected: `pnpm test` **84 files / 313 tests passed** (`/tmp/feat610-final-tests.log`); non-E2E pytest **56 passed / 31 deselected** (`/tmp/feat610-final-pytest.log`). These supersede the earlier retained whole-suite evidence for the final implementation version.
+
+## Round 3 — Availability display and source-classification delta
+
+- verification_mode: delta, including corrected-delta reconciliation
+- fix_delta_range: `d8f3a6b0d0435ef6b33f24d5e0f063b073ec194a..4122379c8ef39fc110c553302ea23081830f595f`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `4122379c8ef39fc110c553302ea23081830f595f`
+- completed_at: 2026-10-15T00:40:00+08:00
+- code / contract outcome: aligned
+- verdict: pass
+- issues: 0 CRITICAL / 0 WARNING / 0 SUGGESTION
+- requires_full_verification: false
+- report_commit: caller-owned shared worktree; not committed by reviewer.
+
+| Affected contract | Implementation and direct evidence | Result |
+|---|---|---|
+| Workspace tools identified without broadening static tools | `workspace-tools.ts:118-122` extends baseline from current static names before updating Include; previous managed names are preserved as managed | aligned |
+| Late Cron contributions remain static and unselected | repeated `configuration.catalog` native regression asserts only `workspace_echo` has workspace source and `schedule_create` remains unavailable; red log proves the original classification failure | covered |
+| Page reports actual availability, including management disabled | `capabilities.ts:36-50` marks installed names using the same effective selection; native test checks management-enabled and empty Agent catalogs | aligned |
+| Metadata preserved across Node/IM/frontend | `apps/node/src/capabilities.ts:60-65`; `apps/im-server/src/control.ts:499`; frontend API normalization `328-331`; projection and route regression | aligned |
+| Read-only dynamic state does not mutate static selection | frontend `pill-selector.tsx:40-42,101-120` separates workspace state; detail payload remains draft-only; create defaults accept only default_on=true and Node marks managed tools false | aligned |
+| New IM delta is the narrow consumer addition | `specs/IM/agents-nodes.md` adds availability/source, unrelated-save and management-disabled behavior, leaving configuration persistence/protocol unchanged | aligned |
+
+Evidence inspected: `/tmp/feat610-late-tools-red.log` reproduces static scheduler misclassification; `/tmp/feat610-ui-native-tests.log` **3 files / 18 passed**; `/tmp/feat610-ui-frontend-tests.log` **3 files / 37 passed**; full native `/tmp/feat610-ui-full-tests.log` **84 files / 314 passed**; full frontend `/tmp/feat610-ui-full-frontend.log` **95 files / 882 passed**. Caller reports build/typecheck success. Independent runtime dependency contract **13 passed**, and `git diff --check d8f3a6b0d..4122379c8` passed.
+
+### Reference Contract Coverage
+
+The design now has a bounded reference contract; earlier rounds' N/A applied before this UI addition. `prototype.html` is explicitly an unrendered draft, so it cannot provide browser comparison evidence. The worker subsequently supplied an actual HTTP settings screenshot `/tmp/feat610-review/workspace-tools-settings.jpg`; this verifier inspected its pixels. It shows the original static Tool Allowlist with unchecked schedule tools, a distinct Workspace tools section, expense_summary Enabled, description and no-allowlist/chat-disable guidance, followed by the original model controls. This provides a real implementation comparison for the explicit content/hierarchy contract, without claiming the draft was rendered or replacing the independent product review.
+
+| Must-match | Milestone projection | Implementation evidence | Durable real comparison | Status |
+|---|---|---|---|---|
+| Distinct workspace origin, actual state and no-check-needed guidance | M1 reviewer addition in design's configuration-page section | workspace cards and localized help; native metadata tests and component assertions | Actual desktop screenshot inspected; source/state also confirmed by native and IM tests | covered |
+| Static choices editable and unrelated save does not append workspace names | same M1 addition | static buttons and existing draft serialization; default_on=false; component static-choice assertion | Actual screenshot separates static buttons and the read-only dynamic card; full browser save journey belongs to independent product review | covered at verifier seam |
+| Existing settings hierarchy and narrow-screen wrapping | design may-adapt/real-page boundary | existing field/container retained; wrap/break classes on workspace rows | Actual desktop hierarchy inspected; narrow-screen product evaluation pending | desktop/reference contract covered; responsive product gate separate |
+
+### Resolved evidence concern — R3-W1
+
+- Contract: `design.md` configuration-page section requires actual browser walkthrough and unrelated-field save; verifier skill requires inspectable real comparison for frontend must-match.
+- Initial evidence: the prototype is explicitly unrendered and tests alone do not establish a real frontend comparison.
+- Closure: inspected the subsequently provided actual HTTP desktop screenshot above, and reconciled its explicit content/hierarchy with design and source. Combined with real native availability and metadata tests and existing form serialization, verifier contract evidence is sufficient. No implementation defect was found. The independent product reviewer still owns narrow-screen experience, actual unrelated-field save, management-disabled view and continued real call; this verification does not claim those actions have already occurred.
+
+Retained evidence: the previous real-IM/real-LLM **7/7** continues to prove tool creation/use, sharing and other-workspace denial, restart, preserved choices, failure-source repair and revocation. The new read-only UI does not alter those operations. The baseline change is additionally covered by the full native lifecycle regression at this revision, so it does not require re-acceptance of unrelated core journeys.
+
+Corrected-delta outcome remains **aligned**. The unique reconciliation table above includes the IM addition; no new observable behavior is omitted. Engineering verification passes with 0 CRITICAL / 0 WARNING. The next independent browser product gate remains separate and is not inferred from the older 7/7 report.

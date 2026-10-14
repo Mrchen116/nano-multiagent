@@ -45,3 +45,19 @@
 ## 用户网页体验场景
 
 在最终源码d7265f0上重启保留的隔离服务，真实DeepSeek模型自行创作`expense-summary-bundle`三个文件，通过`plugin_manager`安装启用并实际调用`expense_summary`，5条跨月支出得到2026-10的4笔、办公89.90/交通50.70/餐饮48.00，总计188.60元；9月20元正确排除。用户消息`43132288c4de4befa27070feae34444c`、回复`f5084f651ba04857b5473dd4b2f223b0`，聊天`c_pp1ump8j`。未修改白名单、未为安装重启。浏览器已正常登录测试账号并打开聊天，展开Process确认三个write、plugin_manager与expense_summary输入/结果真实可见。服务IM端口54267、Node/DSH启动时PID5181/5187，保留给用户继续体验。
+
+## 配置页反馈闭环
+
+用户实际设置页发现已可调用工具仍显示未勾选。最终源码`4122379c8ef39fc110c553302ea23081830f595f`补齐同一有效集合的source_group/ enabled元数据与只读Workspace tools分组；静态选择保持可编辑，自动工具不进静态默认名单。实际预览另复现晚加载Cron项误归workspace（`/tmp/feat610-late-tools-red.log`），每次Include更新前扩充静态baseline后，重复catalog只标记真正新增工具，原生全生命周期通过。
+
+- `pnpm build`、`pnpm typecheck`、前端`npm run build`通过。
+- 窄native3files18tests、前端3files37tests通过；前端交互测试证明只读状态、不发自动工具选择、静态操作payload不含自动工具名，以及Unavailable状态。真实用户配置未改动来做演示。
+- 全量native84files314tests（`/tmp/feat610-ui-full-tests.log`）、frontend95files882tests（`/tmp/feat610-ui-full-frontend.log`）通过；non-E2E pytest56passed31deselected；docs-check通过。
+- worker真实桌面浏览器截图`/tmp/feat610-review/workspace-tools-settings.jpg`，仅expense_summary Enabled及说明/管理提示；原用户tab未改动。原型草稿因file协议被浏览器策略拒绝而未渲染，没有绕过；以真实授权localhost产品页完成实际视觉对照，草稿不冒称验证通过。
+- 独立code-review patch findings=[]、verifier delta pass/corrected-delta aligned；原生执行+持久化7/7旅程retained，新增UI由R2真实浏览器复验补齐。
+
+## 最终 UI 收尾
+
+- 独立设计R5 Approved 0/0，采用真实桌面和390px窄屏实际产品对照；独立产品R2 pass，新第8Scenario与原7项retained。新fork聊天真实expense_summary为3笔40元，配置前后完全相同。Unavailable与表单保存支路明确保留自动化证据边界，不声称真人操作。
+- final sync origin/main仍为9182699fca58d42fbf166f3de7445c635dcb3527。effective_base保持该SHA；最终源码validated_at为4122379c8ef39fc110c553302ea23081830f595f；effective_through为最终`docs: finalize workspace tool availability review`归档提交。其后仅报告、已校正IM delta原文归并、索引计数与路径移动，无代码或验收判据变化；各门禁retained。
+- 测试服务按用户要求继续运行；不归档或删除managed worktree，用户结束体验后以同目录e2e-down.sh清理，再归档worktree。

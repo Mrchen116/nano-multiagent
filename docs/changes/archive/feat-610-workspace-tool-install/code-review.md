@@ -56,3 +56,29 @@ The patch fixes the observed `spawn pnpm ENOENT` in environments without global 
 ```
 
 No source, tests, configuration or design were modified by this reviewer; only this report and verification were appended.
+
+## Round 3 — Workspace availability display and source classification
+
+- review_mode: patch
+- diff_range: `d8f3a6b0d0435ef6b33f24d5e0f063b073ec194a..4122379c8ef39fc110c553302ea23081830f595f`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `4122379c8ef39fc110c553302ea23081830f595f`
+- completed_at: 2026-10-15T00:40:00+08:00
+- verdict: Approved; findings `[]`.
+
+Reviewed the entire patch, including reopened unit documents, the new IM delta and bounded prototype contract. This review does not count component tests or the unrendered prototype as browser acceptance.
+
+- `WorkspaceOwner.refresh()` now records currently present non-managed names before each Include update, while preserving previous managed names. This admits late static contributions into the static baseline without misclassifying a previously installed workspace tool. Disabled/removal names disappear from the resulting callable view. The repeated native catalog regression reproduces the formerly misclassified `schedule_*` names, now asserts exactly `workspace_echo` as the workspace source, and confirms `schedule_create` is still unavailable to the restricted Agent. Inspected the red reproduction log and the green native test result.
+- `ToolSelection.catalog()` adds workspace source and effective availability only to names derived from that managed collection. It computes availability through the same selection method used for dispatch and restores its temporary restriction in `finally`. It does not change tool registration, execute methods, approval or persisted allowlists.
+- Node preserves source/availability and sets workspace `default_on=false`; IM's shared Agent/node capability normalizer preserves boolean availability. Frontend normalization retains both fields. The metadata therefore survives the actual runtime → Node → IM → frontend path; the new Node and IM tests protect those boundaries.
+- `PillSelector` now groups only workspace-source tools into read-only availability cards; its only product callers are the create/detail tool fields. Skills use the distinct SkillSourceSelector, so workspace skills remain editable. Static buttons retain their original toggling behavior. Workspace cards expose name, description, status and chat management guidance without an ineffective switch.
+- Detail saving continues to serialize `draft.tool_allowlist`, initialized from stored configuration; the capability catalog does not append dynamic names. Create defaults include only `default_on=true`, so the Node projection prevents workspace names from becoming static defaults. The component regression confirms toggling `read` emits only the static choices and changing availability emits no onChange. Existing page/configuration tests continue to protect form submission.
+- Inspected test logs at the fixed revision: narrow native **3 files / 18 tests passed** (`/tmp/feat610-ui-native-tests.log`), frontend **3 files / 37 tests passed** (`/tmp/feat610-ui-frontend-tests.log`); full native **84 files / 314 tests passed** (`/tmp/feat610-ui-full-tests.log`), full frontend **95 files / 882 tests passed** (`/tmp/feat610-ui-full-frontend.log`). Build/typecheck results are caller-provided evidence. Independently reran runtime dependency contract: **13 passed**; patch whitespace check passed.
+- Earlier real-LLM 7/7 remains applicable to self-creation, actual use, workspace sharing/isolation, persistence, failures and revoke operations. The new read-only settings scenario and its visual/reference must-match require the next independent real-browser review; this code approval does not assert that evidence already exists.
+- Subsequent worker evidence: inspected actual desktop screenshot `/tmp/feat610-review/workspace-tools-settings.jpg`. It shows the separate read-only workspace section, expense_summary Enabled with description/guidance, and unchanged static schedule tools outside that section. This satisfies the verifier's inspectable desktop content/reference comparison; independent browser product review still owns narrow-screen behavior, actual form-save and continued-call journeys.
+
+```json
+[]
+```
+
+Only code-review.md and verification.md were edited by this reviewer; no commit was created.

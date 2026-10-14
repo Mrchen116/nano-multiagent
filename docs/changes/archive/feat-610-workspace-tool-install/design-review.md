@@ -217,3 +217,59 @@ R1-W1、R1-W2、R2-W1 保持 closed；本轮无新增问题。
 ### Recommendations
 
 无额外建议。
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 用户设置页反馈引出的有界展示增量；覆盖 workspace 来源/实际状态接口、静态选择关系、局部信息层级及 catalog 晚注册静态工具的最窄修正，不重审安装、generation、审批或部署架构。
+- started_at: 2026-10-15T00:38:20+08:00
+- completed_at: 2026-10-15T00:41:40+08:00
+- duration: 3m20s（完成 checkout 与变更基线读取后计时）
+- baseline: `4122379c8ef39fc110c553302ea23081830f595f`，worktree `/Users/czj/.codex/worktrees/workspace-tools/nano-multiagent`，branch `codex/feat-610-workspace-tools`。
+- retained_from: R1–R4 的原生公共能力、职责、工具选择/执行、generation 恢复和安装版包管理器证据；本轮仅为相同有效集合增加展示事实，并收窄来源识别。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+有限展示方案能消除已自动启用工具仍待勾选的误导。真实桌面和窄屏页面均支持其信息组织；原型 HTML 草稿未渲染，不将实际产品观察记作草稿视觉通过。
+
+### Coverage 与证据
+
+#### 用户场景与实际信息组织
+
+- 独立通过 Chrome 新建审查标签，使用获准的隔离测试身份正常登录 `http://127.0.0.1:54267/settings/agents/e2e`。未复用或修改用户原页，未修改 Agent 配置。
+- 先查看真实整页及相邻区域，再定位工具区：既有 Access & Model 保留 Skills、Tool Allowlist、模型字段的阅读顺序；静态工具仍为选中/未选中的可操作 pill。其下有独立 `Workspace tools` 小标题、自动管理及聊天停用指引、工具状态卡，随后才是 Default Model。新区域没有伪装成另一组待选择 pill。
+- 桌面截图观察到 `expense_summary` 与 `Enabled` 相邻，下面直接显示完整业务说明。用户可以就地判断工具已可用、用途是什么和如何停用，无需从静态名单推断；该名字没有 checkbox。`plugin_manager` 保持静态已选，`schedule_*` 保持静态未选，只有真实自建工具在 workspace 区。
+- 额外使用浏览器 viewport 能力检查 390×844 CSS 窄屏：静态 pill 自然换行，workspace 标题、指引、名称/Enabled 和说明均完整落在同一列；说明换行，没有新增工具区的截断或必须横移才能判断状态的问题。读完后恢复 viewport，关闭自建标签。
+- 本轮代表性真实桌面/窄屏截图及 AX 状态保留在审查会话的 CUA 输出；worker 的桌面对照截图另在 `/tmp/feat610-review/workspace-tools-settings.jpg`。本轮判断来自独立真实页面观察，不仅依据 worker 截图或组件名。
+- `prototype.html` 本轮只读源文件；author 已明确 file URL 策略拒绝及“未渲染草稿”，没有绕过。本次可审的局部渲染证据是授权 HTTP 产品页面，其容器、间距、相邻控件与响应式关系真实可见。草稿中的已启用/不可用状态用于解释设计意图，不作为已验证画面。
+
+#### 接口、选择与职责
+
+- `ToolSelection.catalog()` 对实际安装增量附加 `source_group: workspace`，`enabled` 通过既有 `selection()` 判定（`packages/dsh-integration/src/capabilities.ts:24-48`），没有引入新的权限源或持久开关。关闭管理能力/空名单不自动获得工具的执行规则继续保留。
+- Node 为 workspace 项设置 `default_on: false`，并保留来源与 enabled；IM 归一化保留布尔 enabled，前端归一化继续保留这两项（`apps/node/src/capabilities.ts:60-65`、`apps/im-server/src/control.ts:496-503`、`im-agent-config-api.ts:327-333`）。这避免把安装事实写成新建页的静态默认选择。
+- `PillSelector` 仅让非 workspace 项进入原有选择按钮，workspace 项渲染只读 section/article；onChange 仍只处理静态按钮（`pill-selector.tsx:40-42,70-119`）。该局部展示复用既有页面，不需要新管理页或额外持久状态，职责归属合适。
+- 晚注册 Cron 工具的修正发生在每次 Include 更新之前：当前可见且不在先前 managed 增量中的名字加入 baseline，再从更新后新增名字推导 workspace 集合（`workspace-tools.ts:118-123` 及原有增量计算）。这针对真实 catalog preview 生命周期补齐静态集合，不把全部 catalog 新名字一概自动授权，也没有另建来源数据库。
+- 已核对新增原生测试：主 Agent workspace 工具 enabled=true、显式空集 enabled=false、重复 catalog 只有 `workspace_echo` 被标为 workspace，且 `schedule_create` 未进入执行集合（`tests/workspace-tools.test.ts:76-85`）。组件测试分别覆盖 Enabled/Unavailable、没有 workspace 选择按钮、点击静态 read 时保存值不包含自建名（`pill-selector.test.tsx`）。本轮沿用该固定 revision 的已有窄/全量验证记录，未再跑全套。
+
+#### Delta、must-match 与验证边界
+
+- `spec.md` 新增配置页真实状态 Scenario；IM delta 锚定 Agent 配置页消费者行为，涵盖查看/保存不填静态名单与关闭管理后不可用；Gateway delta 保留相同自动集合与静态选择边界。设计 `83-93` 行已明确沿用容器、只读信息层级、提示、响应式、must-match/may-adapt/out-of-scope 和 M1 新退出标准，足以指导该局部实现与产品复验。
+- 本轮真实页面验证 Enabled 的桌面/窄屏信息层级。为遵守只读审查约束，没有关闭 e2e 的管理能力或保存无关配置；Unavailable 的可实现状态由同一 selection 接线与组件状态测试支持。真实状态切换、保存后名单保持及继续聊天实际调用，仍由已安排的独立产品复验完成；本设计 Approved 不提前代替这些验收结论。
+- 本轮只追加本报告，不改实现、不提交；没有停止共享隔离栈。作者/其他 reviewer 的报告修改保持。
+
+### 历史问题闭环
+
+R1-W1、R1-W2、R2-W1 保持 closed；R4 的安装版接线结论保留。本轮无新增设计问题。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
