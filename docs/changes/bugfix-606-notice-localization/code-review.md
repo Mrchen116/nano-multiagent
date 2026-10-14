@@ -35,3 +35,5 @@
 ## Browser-discovered preview correction
 
 首轮浏览器截图发现左侧会话摘要仍显示存储英文。补入最新消息的结构化 notice 到会话 REST 摘要，Sidebar 复用当前语言 formatter；普通消息更新快路径清除旧 notice。新增 Sidebar 语言切换/普通消息替换断言，扩展真实进程用例核对摘要语义，并扩展既有消息快路径用例。该追加 diff 待独立 patch review，首轮产品内容的结论 retained。
+
+独立 patch review 已在 `4f47a844ac9c6e696df828bb8bc0c8ca603365ce` 核对 `25168b92323ee13d6fa2b2adcd97e1bf2b709206..HEAD`，返回 `[]`。核对摘要持久身份、实时会话缓存刷新、当前语言渲染与普通消息清除旧 notice；无存活 finding。最终追加后前端全套 93 files / 872 tests passed，IM 全套 16 files / 76 tests passed，typecheck 和前端生产构建 passed；其余未变化检查 retained。追加范围的 effective_through 为 `4f47a844ac9c6e696df828bb8bc0c8ca603365ce`，后续仅记录本结论。
