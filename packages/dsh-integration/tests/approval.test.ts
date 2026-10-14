@@ -166,3 +166,113 @@ it('preserves human, direct-parent and denial sources while treating tool text a
   source.release(agent.id);
   expect(await source.transcript(agent, exec, [])).not.toContain('host_context_live');
 });
+
+it('bypasses the classifier for selected Nano Auto queries while retaining writes, manual mode, and tool restrictions', async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
+  const queries = [
+    { name: 'skill_manage', args: { action: 'list' } },
+    { name: 'task_graph', args: { action: 'list' } },
+    { name: 'task_graph', args: { action: 'get', graph_id: 'graph' } },
+    { name: 'schedule_list', args: {} },
+    { name: 'schedule_history', args: { id: 'schedule' } },
+    { name: 'workflow', args: { action: 'list' } },
+    { name: 'workflow', args: { action: 'read' } },
+    { name: 'get_goal', args: {} },
+    { name: 'todo_write', args: { todos: [] } },
+  ];
+  const reviewed = [
+    ...['create', 'edit', 'patch', 'write_file', 'remove_file'].map(action => ({ name: 'skill_manage', args: { action } })),
+    ...['create', 'apply', 'delete'].map(action => ({ name: 'task_graph', args: { action } })),
+    ...['create', 'update', 'delete', 'run'].map(action => ({ name: `schedule_${action}`, args: { id: 'schedule' } })),
+    ...['launch', 'save', 'control'].map(action => ({ name: 'workflow', args: { action } })),
+    { name: 'workflow', args: {} },
+    { name: 'create_goal', args: { objective: 'A persistent objective' } },
+    { name: 'update_goal', args: { action: 'resume' } },
+    { name: 'bash', args: { command: 'pwd' } },
+    { name: 'send_message', args: { target: 'group', text: 'A synthetic reply' } },
+  ];
+  const home = await mkdtemp(join(tmpdir(), 'nano-query-approval-'));
+  let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
+  try {
+    await writeFile(join(home, 'fixture.mjs'), `import { appendFile } from 'node:fs/promises';
+export const name='query-approval-fixture'; export const inject=['llm','tools'];
+export function apply(ctx) {
+ const seen=new Set();
+ ctx.on('tools/pre-execute',(exec,next)=>exec.agent?.id==='blocked'?{kind:'deny',reason:'Explicit tool restriction'}:next());
+ ctx.on('llm/stream',async function*(options) {
+  if(options.system) {
+   const prompt=options.messages[0].content[0].text;
+   const pending=JSON.parse(prompt.split('\\n').find(line=>line.startsWith('{"pending_action"'))).pending_action;
+   await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({name:pending.name,action:pending.arguments.action??null})+'\\n');
+   yield {type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"Synthetic denial"}':'<block>yes</block><reason>Synthetic denial</reason>'}};
+   yield {type:'finish',reason:{kind:'stop'}};return;
+  }
+  const human=options.messages.findLast(message=>message.role==='user'&&message.source?.kind==='nano-human');
+  if(!seen.has(human.id)) {
+   seen.add(human.id);
+   for(const [index,call] of JSON.parse(human.content[0].text).entries())yield {type:'block-end',index,block:{type:'tool-call',id:human.id+'-'+index,name:call.name,arguments:JSON.stringify(call.args)}};
+   yield {type:'finish',reason:{kind:'tool-calls'}};return;
+  }
+  yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};
+ });
+}`);
+    await prepareProfile(home, [
+      { id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'fixture' }] } } } },
+      { insert: [{ id: 'query-approval-fixture', name: join(home, 'fixture.mjs') }] },
+    ]);
+    const toolAllowlist = [...new Set([...queries, ...reviewed].map(call => call.name))];
+    const agents = ['queries', 'writes', 'dsh', 'manual', 'blocked', 'hidden'].map(agentId => ({
+      agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture',
+      toolAllowlist: agentId === 'hidden' ? [] : toolAllowlist,
+      features: { task_graph: true, skill_creation: true, memory_curation: false, cron_scheduling: true },
+      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') },
+      approval: { ...approvalDefaults, enabled: agentId !== 'manual', globalRoot: home, rules: agentId === 'dsh' ? 'dsh' : 'nano' },
+    }));
+    client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    const effects: { method: string; sessionId: string }[] = [];
+    client.rpc.handle('product.call', value => {
+      const call = value as { method: string; sessionId: string };
+      if (call.method === 'send_message.context') return { target: 'group', recipient: { kind: 'group' }, sender: { type: 'agent' }, channel: 'web' };
+      effects.push(call); return { ok: true };
+    });
+    await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
+    const reviewLog = async () => readFile(join(home, 'reviews.jsonl'), 'utf8').then(text => text.trim().split('\n').map(line => JSON.parse(line) as { name: string; action: string | null }), error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const config of agents) {
+      const calls = config.agentId === 'writes' ? reviewed : queries;
+      const prior = (await reviewLog()).length;
+      await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
+      await client.rpc.request('session.submit', { sessionId: config.agentId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: JSON.stringify(calls) }],
+        source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: config.agentId } });
+      await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: config.agentId, inputId: config.agentId }) as { terminal?: unknown }).terminal, { timeout: 10000 }).toBeTruthy();
+      const reviews = (await reviewLog()).slice(prior);
+      const observed = await client.rpc.request('session.observe', { sessionId: config.agentId }) as { events: { type: string; data: any }[]; approvals: { source: string }[] };
+      const results = observed.events.filter(event => event.type === 'tool/result');
+      expect(results).toHaveLength(calls.length);
+      if (['writes', 'dsh'].includes(config.agentId)) {
+        expect(new Set(reviews.map(review => `${review.name}:${review.action}`))).toEqual(new Set(calls.map(call => `${call.name}:${'action' in call.args ? call.args.action : null}`)));
+        expect(results.every(event => event.data.message.isError)).toBe(true);
+      } else {
+        expect(reviews).toEqual([]);
+        if (config.agentId === 'queries') {
+          expect(results.every(event => !event.data.message.isError)).toBe(true);
+          expect(observed.approvals.map(entry => entry.source)).toEqual(calls.map(() => 'safe_tool'));
+        } else {
+          expect(results.every(event => event.data.message.isError)).toBe(true);
+          if (config.agentId === 'manual') expect(JSON.stringify(results)).toContain('manual_required');
+          if (config.agentId === 'blocked') {
+            expect(JSON.stringify(results)).toContain('Explicit tool restriction');
+            expect(observed.approvals).toEqual([]);
+          }
+        }
+      }
+    }
+    expect(effects.map(call => call.method)).toEqual(['task_graph', 'task_graph', 'schedule.history']);
+    await client.shutdown(); client = undefined;
+  } catch (error) { throw new Error(`${error}\n${logs}`, { cause: error }); }
+  finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
+}, 30_000);
