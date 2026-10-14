@@ -352,6 +352,24 @@ CREATE TABLE IF NOT EXISTS node_binding_state (
             node_id TEXT PRIMARY KEY, node_epoch INTEGER NOT NULL DEFAULT 0,
             runtime_token_hash TEXT, owner_id TEXT NOT NULL DEFAULT ''
         );
+CREATE TABLE IF NOT EXISTS node_installations (
+  node_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+  release_json TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS node_update_operations (
+  id TEXT PRIMARY KEY, request_id TEXT NOT NULL, node_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL, node_epoch INTEGER NOT NULL, target_json TEXT NOT NULL,
+  previous_json TEXT NOT NULL, state TEXT NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0,
+  relay_gated INTEGER NOT NULL DEFAULT 0, error_code TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE(node_id,owner_id,node_epoch,request_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS node_update_one_active ON node_update_operations(node_id)
+  WHERE state IN ('requested','downloading','installing','waiting','switching','verifying','rolling_back');
+CREATE TABLE IF NOT EXISTS node_update_requests (
+  node_id TEXT NOT NULL, owner_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+  request_id TEXT NOT NULL, operation_id TEXT NOT NULL REFERENCES node_update_operations(id),
+  PRIMARY KEY(node_id,owner_id,node_epoch,request_id)
+);
 CREATE TABLE IF NOT EXISTS node_binding_operations (
             operation_id TEXT PRIMARY KEY, node_id TEXT NOT NULL,
             node_name TEXT NOT NULL, expected_owner TEXT NOT NULL,

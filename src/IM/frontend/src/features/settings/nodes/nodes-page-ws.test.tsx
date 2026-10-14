@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { screen, act, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
@@ -140,6 +141,10 @@ describe("nodes page — node.status_changed WS subscription", () => {
       expect(FakeWebSocket.instances.length).toBeGreaterThan(0);
     });
     const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
+    await userEvent.click(screen.getByRole("button", { name: "View node-a details" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await userEvent.clear(screen.getByLabelText("Computer name"));
+    await userEvent.type(screen.getByLabelText("Computer name"), "Unsaved name");
 
     await act(async () => {
       ws.emit("node.status_changed", {
@@ -152,8 +157,11 @@ describe("nodes page — node.status_changed WS subscription", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("node-status-pill-node-a")).toHaveTextContent(/offline/i);
+      expect(screen.getAllByTestId("node-status-pill-node-a").every(el => el.textContent?.includes("offline"))).toBe(true);
     });
+    expect(screen.getByLabelText("Computer name")).toHaveValue("Unsaved name");
+    expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
+    await userEvent.click(screen.getByText("Connection diagnostics"));
     expect(screen.getByTestId("node-last-error-node-a")).toHaveTextContent("heartbeat timeout");
   });
 });

@@ -34,6 +34,7 @@ it('configures a real empty DSH through settings and credentials, probes native 
     const catalog = await client!.rpc.request('model.setup.catalog', {}) as { provider: string; models: string[] }[];
     expect(catalog.find(item => item.provider === 'openai-codex')?.models.length).toBeGreaterThan(0);
     expect(await client!.rpc.request('model.setup.test', { id: 'setup', providers, provider: 'nano-fixture', model: 'test', api_key: 'local-fixture-secret' })).toEqual({});
+    expect(await client!.rpc.request('update.prepare', { operationId: 'model-transaction' })).toEqual({ ready: false });
     await client!.rpc.request('model.setup.finish', { commit: true });
     expect(calls.at(-1)).toEqual({ url: '/v1/chat/completions', authorization: 'Bearer local-fixture-secret' });
     const saved = await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'});

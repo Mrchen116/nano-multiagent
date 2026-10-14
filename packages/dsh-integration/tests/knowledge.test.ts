@@ -52,7 +52,8 @@ it('runs independent native maintenance children, persists successful facts and 
   const workspaceA = join(home, 'a'); const workspaceB = join(home, 'b');
   await mkdir(workspaceA); await mkdir(workspaceB);
   const content = '---\nname: reviewed-workflow\ndescription: Reuse the verified approach\n---\n\nVerify the requested outcome against the original evidence.';
-  await writeFile(join(home, 'fixture.mjs'), `export const name='knowledge-fixture'; export const inject=['llm','tools'];
+  await writeFile(join(home, 'fixture.mjs'), `import {existsSync,writeFileSync} from 'node:fs';
+export const name='knowledge-fixture'; export const inject=['llm','tools'];
 export function apply(ctx) {
  ctx.tools.register({ name:'fixture_observation', description:'Observe fixture state', parameters:{type:'object',properties:{}}, output:{schema:{},render:()=>[{type:'text',text:'observed'}]},execute:()=>({observed:true}) });
  const seen=new Set();
@@ -63,6 +64,8 @@ export function apply(ctx) {
   if (!seen.has(last.id)) {
    seen.add(last.id);
    if (prompt.startsWith('Review the conversation')) {
+    writeFileSync(${JSON.stringify(join(home, 'review-started'))},'started');
+    while(!existsSync(${JSON.stringify(join(home, 'release-review'))}))await new Promise(resolve=>setTimeout(resolve,20));
     if(options.maxTokens!==8192)throw new Error('Review output budget was overwritten');
     if (prompt.includes('consider saving to memory')) {name='memory';args={action:'add',target:'user',content:'The user prefers evidence-backed concise responses.'};}
     else if(prompt.includes('actual usage references')) {if(!prompt.includes('invoke-selected'))throw new Error('Missing actual usage history');name='skill_manage';args={action:'patch',name:'reviewed-workflow',old_string:'Verify the requested outcome',new_string:'Recheck the requested outcome'};}
@@ -88,6 +91,9 @@ export function apply(ctx) {
     await start();
     for (const [index, binding] of bindings.entries()) await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: binding.sessionId, mode: 'followup', content: [{ type: 'text', text: index ? 'skill fixture' : 'memory fixture' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: binding.sessionId } });
     const facts = async () => await client!.rpc.request('knowledge.facts', {}) as { facts: { kind: string; reviewId?: string; agentId: string }[]; reviews: { status: string; kind: string }[] };
+    await expect.poll(()=>readFile(join(home,'review-started'),'utf8').catch(()=>''),{timeout:8000}).toBe('started');
+    expect(await client!.rpc.request('update.prepare',{operationId:'background-review'})).toEqual({ready:false});
+    await writeFile(join(home,'release-review'),'continue');
     await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(2);
     for (const [index, binding] of bindings.entries()) {
       // Explicit launch provenance must survive opaque review labels for both maintenance kinds.

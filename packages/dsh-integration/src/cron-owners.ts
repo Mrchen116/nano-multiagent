@@ -15,6 +15,7 @@ interface Owner { ctx: Context; domain: StorageDomain.DomainFacility; fiber?: Fi
 /** Native storage realms keep each Agent's schedule table and timer independent. */
 export class CronOwners {
   private readonly owners = new Map<string, Promise<Owner>>();
+  private paused?: string[];
   constructor(private readonly ctx: Context, private readonly home: string) {}
   private owner(agentId: string): Promise<Owner> {
     let owner = this.owners.get(agentId);
@@ -81,6 +82,23 @@ export class CronOwners {
       throw new Error('Unknown schedule command');
     });
     owner.chain = result.catch(() => {}); return result;
+  }
+  /** Suspend timers without changing saved jobs or the user's Feature setting. */
+  async pause(): Promise<void> {
+    if (this.paused) return;
+    this.paused = [];
+    for (const [agentId, pending] of this.owners) {
+      const owner = await pending;
+      await owner.chain;
+      if (owner.fiber) { this.paused.push(agentId); await this.setEnabled(agentId, false); }
+    }
+  }
+  /** Restore only timer owners that were enabled when the update acquired them. */
+  async resume(): Promise<void> {
+    const paused = this.paused;
+    if (!paused) return;
+    for (const agentId of paused) await this.setEnabled(agentId, true);
+    this.paused = undefined;
   }
   /** Release a temporary catalog owner, or close a durable owner at shutdown. */
   async disposeAgent(agentId: string, removeData = false): Promise<void> {

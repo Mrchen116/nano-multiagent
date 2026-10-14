@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
+import { loadNodeRelease } from "./release.js";
+import { nodeUpdateTerminal, type NodeUpdateReport } from "@nano/product-contracts";
 import { parseArgs } from "node:util";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -48,8 +51,28 @@ if (values.help) {
       process.stdout.write(`Nano connection: ${config.value.im_service.url}\nConfiguration: ${configPath}\n`);
       const current = await manageGateway(configPath, config.value, "status");
       if (current.state?.ready) {
-        process.stdout.write("Your computer is already connected. Continue in the Nano webpage.\n");
-        process.exit(0);
+        const target = await loadNodeRelease();
+        if (target.kind === 'source' || current.state.release?.sha256 === target.sha256) {
+          process.stdout.write("Your computer is already connected. Continue in the Nano webpage.\n");
+          process.exit(0);
+        }
+        if (current.state.release?.kind === 'source') throw new Error('This computer runs a source checkout. Update it using its original deployment method.');
+        if (current.state.release?.updater_protocol === 1) {
+          const response = await fetch(new URL('/im/v1/node-update/report', config.value.im_service.url), {
+            method: 'POST', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${config.value.im_service.token}`},
+            body: JSON.stringify({node_id: config.value.node.node_id, action: 'request_install', request_id: randomUUID(), version: target.version, sha256: target.sha256}),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!response.ok) throw new Error('The selected installation version is no longer available. Run the installation command again.');
+          const report = await response.json() as NodeUpdateReport;
+          process.stdout.write('Update requested. Existing work will finish before the computer switches. You can follow or cancel it in Nano.\n');
+          // The detached worker owns liveness; this CLI must not keep a crashed worker alive in IM.
+          if (nodeUpdateTerminal(report.operation.state) && report.operation.state !== 'succeeded')
+            throw new Error(`Update finished: ${report.operation.state}. Open Nano for recovery instructions.`);
+          process.exit(0);
+        }
+        process.stdout.write('Enabling safe updates for this older installation. Existing tasks must be finished before running this command. Preserving your configuration and workspace.\n');
+        await manageGateway(configPath, config.value, 'stop');
       }
     }
     if (["start", "restart"].includes(action))

@@ -84,6 +84,7 @@ export class Gateway {
   send(nodeId: string, frame: Row): boolean {
     const c = this.nodes.get(nodeId);
     if (frame.type === "relay.message") {
+      if (this.ctx.updates?.gate(nodeId)) return false;
       const p = frame.payload;
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
@@ -98,6 +99,7 @@ export class Gateway {
     return !!c && this.valid(c) && this.write(c.socket, frame);
   }
   request(nodeId: string, type: string, payload: Row): Promise<Row> {
+    if (this.ctx.updates?.gate(nodeId)) return Promise.reject(Object.assign(new Error('Computer is updating; try again when it reconnects'), {statusCode:409}));
     const requestId = payload.request_id ?? randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -311,6 +313,7 @@ export class Gateway {
     db.prepare(
       `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
     ).run(c.node_id, c.owner_id, p.node_name ?? c.node_id, now(), p.agents.length, p.version ?? "");
+    this.ctx.updates?.register(c, p.release);
     db.prepare("UPDATE agent_profiles SET is_stale=1,staled_at=? WHERE node_id=?").run(
       now(),
       c.node_id,
@@ -1016,6 +1019,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
           const result = await g.handle(c, frame.type, frame.payload ?? {});
           g.write(socket, result);
           if (frame.type === "node.register" && result.type === "ack") {
+            ctx.updates?.reconnect(c);
             g.channelInitialize?.(c.node_id);
             for (const row of all(
               ctx.db,

@@ -15,6 +15,7 @@
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
+| 更新已安装的电脑端、处理一次性旧版过渡或失败恢复 | [`operations/gateway.md`](operations/gateway.md#更新已安装的电脑端) |
 | 查看讨论后保存的任务图及 Agent 工具契约 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |

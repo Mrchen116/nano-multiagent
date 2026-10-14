@@ -42,6 +42,8 @@ export class ModelSetup {
       if (notice.id === this.operation?.id && this.pending) this.operation = {...notice};
     });
   }
+  /** An in-flight credential/provider change must finish before a process update. */
+  get busy(): boolean { return !!this.pending || !!this.rollback || this.committing; }
   /** Inspect or mutate one computer; optimistic revisions fence drafts from other pages. */
   async handle(input: SetupRequest) {
     this.catalog ??= this.runtime.request('model.setup.catalog', {}).then(value => {this.catalogError = false; return value as CatalogEntry[];}).catch(() => {this.catalog = undefined; this.catalogError = true; return [];});

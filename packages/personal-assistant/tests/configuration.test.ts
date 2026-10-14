@@ -19,10 +19,12 @@ it('recovers a persisted configuration after runtime failure without losing the 
   try {
     await expect(operations.handle('apply', intent)).rejects.toThrow('runtime disconnected');
     expect(operations.status('op').status).toBe('pending');
+    expect(operations.busy).toBe(true);
     await operations.close(); fail = false;
     operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), options);
     await operations.recover();
     expect(operations.status('op').status).toBe('applied');
+    expect(operations.busy).toBe(false);
     expect(await operations.handle('apply', intent)).toMatchObject({ status: 'applied' });
     expect([persisted, applied]).toEqual([1, 1]);
     expect(await operations.handle('apply', { ...intent, candidate_fingerprint: 'different' })).toMatchObject({ error_code: 'operation_id_reused' });

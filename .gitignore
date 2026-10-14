@@ -275,4 +275,7 @@ node_modules/
 .gateway-owner/
 .gateway-lifecycle.lock/
 .gateway-runtime.lock/
+.node-update.json
+.node-update-handoff.json
+.node-update.lock/
 .im.process-start

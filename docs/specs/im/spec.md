@@ -26,8 +26,8 @@
 | [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹及父子执行范围导航 | 8 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | 固定版本安装、首次助手引导与模型服务管理、Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注与 Workflow tool pill | 34 |
-| [Gateway Relay](gateway-relay.md) | 消息中继与回执、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 12 |
+| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注与 Workflow tool pill | 37 |
+| [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 13 |
 | [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生及原生统一编辑 | 18 |
 
 ## Maintenance Rule

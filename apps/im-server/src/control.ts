@@ -580,7 +580,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       ctx.db,
       "SELECT * FROM nodes WHERE owner_id=? ORDER BY node_id",
       (await user(req)).owner_id,
-    ).map(nodeResponse),
+    ).map(node => ({...nodeResponse(node), ...(ctx.updates ? {update: ctx.updates.view(node)} : {})})),
   );
   app.patch("/im/v1/nodes/:node_id/config", async (req) => {
     const u = await user(req),

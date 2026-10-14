@@ -1,4 +1,6 @@
 import { GroupTaskPanel } from "../tasks/group-task-panel";
+import type { NodeUpdateView } from '../settings/im-settings-api';
+import { nodeUpdateActive } from '../settings/nodes/node-update-panel';
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation, Link } from "react-router-dom";
@@ -219,7 +221,8 @@ function streamReducer(
     // arrives for the agent reply path in some flows). Dedupe by id so the
     // later WS message.created — if/when it comes — does not double-print.
     if (action.message.conversation_id !== state.conversation_id) return state;
-    if (state.messages.some((m) => m.id === action.message.id)) return state;
+    // The echo can precede POST completion and lacks the final relay wait.
+    // Merge the authoritative response by id without adding a second bubble.
     // bugfix-419: sort the new list so a WS echo with a different created_at
     // (e.g. server clock vs. client optimistic timestamp) lands in order.
     const timeline = mergeTimelineItems(state.timeline ?? [], [{ type: "message", message: action.message }]);
@@ -238,6 +241,7 @@ interface NodeRow {
   node_id: string;
   node_name: string;
   status: string;
+  update?: NodeUpdateView;
 }
 
 type DistillTargetScope = "agent" | "global";
@@ -397,7 +401,8 @@ export function ChatWorkspacePage() {
 
   const nodesQuery = useQuery({
     queryKey: ["chat", "nodes"],
-    queryFn: fetchNodes
+    queryFn: fetchNodes,
+    refetchInterval: query => query.state.data?.some(n=>nodeUpdateActive(n.update)) ? 2000 : 60000
   });
 
   const contactsQuery = useQuery({ queryKey: ["contacts", selfUserId], queryFn: () => listContacts(), refetchInterval: 3000 });
@@ -461,6 +466,8 @@ export function ChatWorkspacePage() {
     agentId: string | null;
     nodeName: string | null;
     nodeStatus: "online" | "offline";
+    nodeId?: string | null;
+    nodeUpdate?: NodeUpdateView;
     agentColor: string | null;
     agentInitials: string | null;
   }>(() => {
@@ -472,14 +479,18 @@ export function ChatWorkspacePage() {
       return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
     }
     const agent = publicAgents.find(a => a.agent_id === agentParticipant.id);
+    const owned=agentsQuery.data?.find(a=>a.agent_id===agentParticipant.id);
+    const node=nodesQuery.data?.find(n=>n.node_id===owned?.node_id);
     return {
       agentId: agentParticipant.id,
-      nodeName: agent?.node_name ?? null,
+      nodeName: agent?.node_name ?? node?.node_name ?? null,
       nodeStatus: agent?.status ?? "offline",
+      nodeId: node?.node_id,
+      nodeUpdate: node?.update,
       agentColor: colorForAgent({ display_name: agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id }),
       agentInitials: (agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id).slice(0, 2)
     };
-  }, [activeConversation, contactsQuery.data]);
+  }, [activeConversation, contactsQuery.data, agentsQuery.data, nodesQuery.data]);
 
   // feat-438 决策 2: the ⚙ entry dispatches by conversation kind. Group /
   // agent-network open the in-place GroupSettings surface; direct-agent keeps
@@ -728,6 +739,10 @@ export function ChatWorkspacePage() {
           return;
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
+        if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
+        if (event.eventType === 'node.update_wait_changed' && event.payload.conversation_id === conversationIdRef.current) {
+          void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
+        }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
           if (messagesQueryFetchingRef.current && chatEvent.type !== "agent.config.changed") {
@@ -1170,6 +1185,8 @@ export function ChatWorkspacePage() {
             configLabel={headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
+            nodeId={headerAgentContext.nodeId}
+            nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments) => sendMutation.mutateAsync({

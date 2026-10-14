@@ -26,6 +26,8 @@ export class KnowledgeUpdates {
       if (method === 'knowledge.changed' || method === 'session.event' && (value as { event?: { type: string } }).event?.type === 'turn/end') void this.recover().catch(options.onError);
     });
   }
+  /** Local knowledge notices must settle before the Node stops. */
+  get busy(): boolean { return !!this.running || this.again; }
   recover(): Promise<void> {
     if (this.stopped) return Promise.resolve();
     this.again = true;

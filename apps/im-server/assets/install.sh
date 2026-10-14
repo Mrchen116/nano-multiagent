@@ -11,7 +11,8 @@ hash_file() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}';
   else sha256sum "$1" | awk '{print $1}'; fi
 }
-fetch() { curl --fail --location --silent --show-error --retry 2 "$1" -o "$2"; }
+fetch() { curl --disable --fail --location --silent --show-error --retry 2 --proto "=https,http" --proto-redir "=https,http" "$1" -o "$2"; }
+fetch_package() { curl --disable --fail --location --silent --show-error --retry 2 --proto "=https" --proto-redir "=https" "$1" -o "$2"; }
 echo '1/4 Preparing the computer runtime…'
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 && node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>=24||a===22&&b>=19?0:1)'; then
   NANO_NODE=$(command -v node)
@@ -63,7 +64,7 @@ console.log(x.sha256 + " " + x.download_url);
 read -r NANO_HASH NANO_DOWNLOAD_URL <<< "$NANO_METADATA"
 NANO_RELEASE="$NANO_ROOT/releases/$NANO_HASH"
 if [ ! -f "$NANO_RELEASE/.installed" ]; then
-  if ! fetch "$NANO_DOWNLOAD_URL" "$NANO_TEMP/nano-node.tgz"; then
+  if ! fetch_package "$NANO_DOWNLOAD_URL" "$NANO_TEMP/nano-node.tgz"; then
     echo 'GitHub package download failed. Your installation is unchanged. Run the same command to retry.' >&2; exit 1
   fi
   if [ "$(hash_file "$NANO_TEMP/nano-node.tgz")" != "$NANO_HASH" ]; then
@@ -71,6 +72,15 @@ if [ ! -f "$NANO_RELEASE/.installed" ]; then
   fi
   mkdir -p "$NANO_TEMP/package"
   tar -xzf "$NANO_TEMP/nano-node.tgz" -C "$NANO_TEMP/package"
+  "$NANO_NODE" -e '
+const fs=require("fs"),path=require("path");
+const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+if(m.updater_protocol!==undefined) {
+ const p=JSON.parse(fs.readFileSync(path.join(process.argv[2],".nano-release.json"),"utf8"));
+ if(m.updater_protocol!==1||m.data_epoch!==1||p.updater_protocol!==1||p.data_epoch!==1||p.source_commit!==(m.source_commit||m.version)) throw Error("Package metadata mismatch");
+}
+' "$NANO_TEMP/manifest.json" "$NANO_TEMP/package"
+  cp "$NANO_TEMP/manifest.json" "$NANO_TEMP/package/.release-manifest.json"
   echo '3/4 Installing dependencies in your private Nano folder…'
   (cd "$NANO_TEMP/package" && "$NANO_NODE" "$NANO_PNPM" install --prod --frozen-lockfile)
   touch "$NANO_TEMP/package/.installed"

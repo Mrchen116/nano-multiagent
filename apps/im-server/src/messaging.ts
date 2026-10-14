@@ -285,6 +285,7 @@ export class Messaging {
         type: m.sender_type,
         display_name: m.sender_display_name ?? u.display_name,
       },
+      ...(this.ctx.updates ? {update_wait: this.ctx.updates.messageWait(id)} : {}),
     };
     for (const key of [
       "attachments",
@@ -488,8 +489,10 @@ export class Messaging {
     if (!b.suppress_relay) {
       const relays = this.enqueueRelays(m,key,agents);
       if (relays.length && !this.deliverRelays(relays)) fail(503,"target_node_id is not connected");
+      const wait = this.ctx.updates?.messageWait(m.id);
+      if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
-    return m;
+    return this.message(m.id);
   }
   /** Persist a task event inside the caller's graph transaction; never publish early. */
   persistTaskNotice(id: string, sender: string, content: string, metadata: Row): Row {
@@ -519,6 +522,8 @@ export class Messaging {
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
   relayEligible(task: Row): boolean {
     const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+    const epoch = one(this.db, 'SELECT node_epoch FROM node_binding_state WHERE node_id=?', task.target_node_id)?.node_epoch ?? 0;
+    if (payload.metadata?.node_epoch !== undefined && payload.metadata.node_epoch !== epoch) return false;
     return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
   }
   deliverRelays(relays: Row[]): boolean {
@@ -526,6 +531,10 @@ export class Messaging {
     for (const task of relays) {
       if (!this.relayEligible(task)) {
         this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
+        continue;
+      }
+      if (this.ctx.updates?.acceptingQueue(task.target_node_id)) {
+        sent = true;
         continue;
       }
       if (this.ctx.gateway.send(task.target_node_id,{type:"relay.message",payload:JSON.parse(task.payload_json)})) {

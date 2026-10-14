@@ -5,6 +5,7 @@ import { existsSync, createReadStream, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
+import { registerNodeUpdateRoutes } from './node-updates.js';
 import { openDatabase } from "./db.js";
 import { createIdentity } from "./identity.js";
 import { registerIdentityRoutes } from "./identity-routes.js";
@@ -106,6 +107,7 @@ export async function createServer(options: ServerOptions = {}) {
     if (
       path.startsWith("/im/v1/") &&
       !publicIdentity.has(path) &&
+      path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
     )
       ctx.messaging.principal(req);
@@ -139,6 +141,7 @@ export async function createServer(options: ServerOptions = {}) {
       req.method !== "OPTIONS" &&
       path.startsWith("/im/v1/") &&
       !publicIdentity.has(path) &&
+      path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
     )
       ctx.messaging.principal(req);
@@ -157,6 +160,7 @@ export async function createServer(options: ServerOptions = {}) {
   await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
   const releaseDirectory = options.nodeReleaseDir ?? process.env.IM_NODE_RELEASE_DIR ?? defaultReleaseDirectory;
   registerInstallRoutes(app, ctx, releaseDirectory);
+  registerNodeUpdateRoutes(app, ctx, releaseDirectory);
   registerOnboardingRoutes(app, ctx, releaseDirectory);
   registerIdentityRoutes(app, ctx);
   registerMessagingRoutes(app, ctx);
@@ -331,6 +335,7 @@ export async function createServer(options: ServerOptions = {}) {
   );
   watchdog.unref();
   const guard = setInterval(() => {
+    ctx.updates?.sweep();
     ctx.gateway.trajectory.check();
     for (const c of ctx.gateway.nodes.values()) {
       if (Date.now() - c.lastSeen > 90000) {

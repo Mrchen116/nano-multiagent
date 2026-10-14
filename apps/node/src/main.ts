@@ -1,6 +1,8 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
+import { loadNodeRelease } from './release.js';
+import { NodeUpdater, updatePath } from './node-updater.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
 import { ModelSetup, type SetupRequest } from './model-setup.js';
@@ -20,6 +22,14 @@ try {
 } catch(error) { if((error as NodeJS.ErrnoException).code !== 'ENOENT')throw error; }
 const configuration = await NodeConfiguration.read(configPath);
 const config = configuration.value;
+const release = await loadNodeRelease();
+let updateHolding: string | undefined;
+let admissions = 0;
+async function admitted<T>(action: () => Promise<T>): Promise<T> {
+  if (updateHolding) throw new Error('Computer is preparing to update');
+  admissions++;
+  try { return await action(); } finally { admissions--; }
+}
 applyGatewayEnvironment(config);
 const imOverride=process.argv.indexOf('--im-service-url');if(imOverride>=0)config.im_service.url=process.argv[imOverride+1]!;
 const lifecycle=await claimGateway(configPath);
@@ -50,15 +60,15 @@ const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => pro
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
     await rpc.request('initialize', { protocol: 1, agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
-  onReady: async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (relay.ready && knowledge) await knowledge.migrateSkills(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } await lifecycle.ready(runtime.process!.pid!); },
+  onReady: async () => { if (!updateHolding) await admitted(async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (relay.ready && knowledge) await knowledge.migrateSkills(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } }); await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,
-  onUnavailable: () => { trajectory?.closeAll(); return lifecycle.unavailable(); },
+  onUnavailable: async () => { trajectory?.closeAll(); await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); },
 });
 const modelSetup = new ModelSetup(configuration, runtime);
 const relay = new WebRelayConnection({
   url: config.im_service.url,
   credentials: () => ({ accessToken: config.im_service.token, registration: {
-    node_id: config.node.node_id, node_name: config.node.node_name ?? config.node.node_id, version: 'nano-dsh/0.1.0',
+    node_id: config.node.node_id, node_name: config.node.node_name ?? config.node.node_id, version: release.version, release,
     agents: agents.map(agent => agent.agentId), user_id: config.node.user_id,
     agent_configurations: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)])),
     agent_workspaces: Object.fromEntries(agents.map(agent => [agent.agentId, agent.workspace])),
@@ -68,9 +78,14 @@ const relay = new WebRelayConnection({
     agent_tool_allowlist: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.tool_allowlist ?? []])),
     ...channelKey.registration, capabilities: { channel_bootstrap: true, model_setup: true },
   } }),
-  heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: 'nano-dsh/0.1.0' }),
+  heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'node.update.request') { await updater.request(String(payload.operation_id)); return; }
+    const permission = frame.type === 'node.streaming_delta' && payload.kind === 'permission_response';
+    if (updateHolding && !permission) return; // Unacknowledged relays remain in IM and are replayed after release.
+    admissions++;
+    try {
     if (frame.type === 'node.setup.request') {
       const status = await modelSetup.handle(payload as unknown as SetupRequest).catch(error => ({ error_code: 'setup_invalid', message: 'Model setup is unavailable' }));
       await relay.request('node.setup', { request_id: payload.request_id, node_id: config.node.node_id, ...status });
@@ -151,8 +166,9 @@ const relay = new WebRelayConnection({
       else await product.receive(input);
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
+    } finally { admissions--; }
   },
-  onState: async state => { if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready') { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } },
+  onState: async state => { await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
@@ -182,7 +198,7 @@ async function im(path: string, options?: RequestInit): Promise<unknown> {
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   onError: reportError, runtimeFooter: config.display?.platforms?.feishu?.runtime_footer?.enabled ?? config.display?.runtime_footer?.enabled,
   attention: input => needsAttention(input, agents.find(agent => agent.agentId === input.agent_id)!),
-  receive: input => agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global' ? globalProduct.receive(input) : product.receive(input),
+  receive: input => admitted(() => agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global' ? globalProduct.receive(input) : product.receive(input)),
   permission: payload => product.permission(payload),
   im,
 });
@@ -234,22 +250,43 @@ knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime,
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
   settings: agentId => (config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
-  available: agentId => runtime.available && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
+  available: agentId => !updateHolding && runtime.available && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
 });
 runtime.onNotification((method, value) => { if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
+const updater = new NodeUpdater(configuration, {
+  onError: reportError,
+  prepare: async operationId => {
+    if (updateHolding && updateHolding !== operationId) return false;
+    updateHolding = operationId;
+    const busy = () => admissions > 0 || modelSetup.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
+    if (!runtime.available || busy()) return false;
+    const result = await runtime.request('update.prepare', {operationId}) as {ready: boolean};
+    return result.ready && !busy();
+  },
+  resume: async operationId => {
+    if (updateHolding && updateHolding !== operationId) return;
+    if (runtime.available) await runtime.request('update.release', {operationId});
+    updateHolding = undefined;
+    if (runtime.available && !stopping) await admitted(async () => {
+      await external.recover(); await product.recover(!relay.ready); await globalProduct.recover();
+      await knowledge.recover(); await workflows.recover();
+    });
+  },
+});
+let stopping = false;
 await runtime.start();
+await updater.start();
 await managed.start();
 await external.recover();
 await product.recover(true);
 void relay.start().catch(reportError);
 heartbeat.start();
 process.stdout.write(`Node ${config.node.node_id} ready; DSH pid=${runtime.process!.pid}\n`);
-let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
   trajectory.closeAll();
-  try { await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

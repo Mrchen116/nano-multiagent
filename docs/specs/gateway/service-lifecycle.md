@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-587
+> 对齐: feat-587 / feat-596
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -317,3 +317,17 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 #### Scenario: 重复与失败
 - WHEN 安装重跑或下载/依赖步骤失败
 - THEN 保留现有节点和数据，显示继续/恢复方法，不切换到未准备好的版本。
+
+### Requirement: 受管电脑按一次明确授权安全切换固定版本
+
+#### Scenario: 准备和切换
+- **WHEN** 用户发起该电脑更新
+- **THEN** 电脑下载并校验服务指定版本，完整准备成功且现有任务安全结束后才切换；关闭网页不取消已授权更新。
+
+#### Scenario: 失败与数据保留
+- **WHEN** 更新失败或用户在切换前取消
+- **THEN** 保留身份、模型、助手、聊天和文件；下载失败不停止旧程序，新程序启动失败尝试恢复原版本，恢复结果如实可见。
+
+#### Scenario: 新旧安装与重复运行
+- **WHEN** 首次安装，或旧用户按一次性指引升级，或用户重复执行安装入口
+- **THEN** 受管安装具备后续按钮更新能力，不重建现有身份和配置；相同版本复用，版本切换不因旧进程在线被误报成功。
