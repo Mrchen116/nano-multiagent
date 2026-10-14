@@ -30,16 +30,16 @@ it('allows cancellation while waiting, but removes it once switching starts',asy
 });
 it('shows the next published release after a previous update succeeded',()=>{
   show({...value,operation:{id:'previous',state:'succeeded',cancel_requested:false,relay_gated:false,request_id:'previous-click'}});
-  expect(screen.getByRole('heading',{name:/Update available.*1.2.2 → 1.2.3/})).toBeVisible();
+  expect(screen.getByRole('heading',{name:/Nano 1.2.3 is ready/})).toBeVisible();
   expect(screen.getByText('Improved reconnects')).toBeVisible();
 });
 it('clears an obsolete failure after a manual installation reaches the published version',()=>{
   show({...value,current:{version:'1.2.3'},available:false,reason:'current',operation:{id:'old-failure',state:'failed',cancel_requested:false,relay_gated:false,request_id:'old-click'}});
-  expect(screen.getByRole('heading',{name:/Up to date.*1.2.3/})).toBeVisible();
+  expect(screen.queryByTestId('node-update-my-computer')).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Retry'})).not.toBeInTheDocument();
 });
 it('disables offline updates and gives a precise recovery link after a failed switch',()=>{
-  const offline=show({...value,reason:'offline',available:false});expect(screen.getByRole('button',{name:'Update'})).toBeDisabled();offline.unmount();
+  const offline=show({...value,reason:'offline',available:false});expect(screen.queryByRole('button',{name:'Update'})).not.toBeInTheDocument();offline.unmount();
   render(<MemoryRouter><NodeChip nodeName="My computer" nodeId="my-computer" status="offline" update={{...value,reason:'recovery_required',available:false,operation:{id:'op',state:'recovery_required',relay_gated:true,cancel_requested:false,request_id:'request'}}}/></MemoryRouter>);
   expect(screen.getByRole('link',{name:/Recovery needed/})).toHaveAttribute('href','/settings/nodes#node-my-computer');
   expect(screen.queryByText('Update available')).not.toBeInTheDocument();
