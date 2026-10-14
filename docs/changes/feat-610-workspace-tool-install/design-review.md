@@ -132,3 +132,46 @@ R1-W1 closed；R1-W2 still-open。本地 `file:` 包安装和来源持久化可�
 ### Author Resolutions
 
 - R2-W1 accepted：原生 pnpm 的 hoisted 副本不能提供 generation URL。执行层改为从 profile dependencies 持久的 file: 来源识别本 workspace generation，再用原生 bundlePatchPaths/loadOverlayPatches 从真实 generation 解析 patch；普通包沿用 loadProfileDirectory。已用锁定公开 API 连续安装同名 file:g1/file:g2 验证：第一代源码求值失败，第二代 URL 不同且返回 fixed；没有清理或改写模块缓存。设计关键决策已修订，M1 必须把这个完整失败→修正重装→实际调用链纳入原生进程回归。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: closure
+- mode_reason: `29597d838` 只收口 R2-W1 的 generation 执行解析基点，不改变已审的安装服务、scope、工具选择、审批、公共接口或 milestone 分工；核查历史 issue 关闭证据即可。
+- started_at: 2026-10-14T23:46:29+08:00
+- completed_at: 2026-10-14T23:47:13+08:00
+- duration: 44s（完成修订 diff 读取后计时）
+- baseline: Nano `29597d838`；DSH/Include 与参考源码基线同 Round 1。
+- retained_from: Round 1 的完整覆盖与 Round 2 的白名单闭环、原生 file: 安装及持久来源证据；本轮没有波及这些结论。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R2-W1 与其前身 R1-W2 已关闭；R1-W1 保持 closed。设计已具备不操作模块缓存、从持久来源恢复的本地失败修正路径。
+
+### 历史问题闭环与证据
+
+#### R2-W1 / R1-W2 — closed
+
+- **Author Resolution**：本地 managed bundle 的标准 profile dependency 保存 `file:<generation>`；执行层对属于该 workspace generations 根的来源，使用公开 `readProfileManifest()`、`bundlePatchPaths()`、`loadOverlayPatches()` 解析真实 generation patch。普通外部包继续使用 `loadProfileDirectory()`，不以 hoisted 安装副本作为本地执行解析基点。
+- **设计核对**：`design.md:44` 已明确上述分支、相对入口约束、依赖从祖先 profile/node_modules 解析、来源持久化和不建额外映射库；`58,67` 的失败修正与实际 URL 检查与该分支一致。R2 Author Resolutions 同时要求 M1 覆盖完整失败后修正重装链路。
+- **独立实测**：本轮再次使用已安装锁定包的原生 `initProfile()`、`PluginManager.installBundle()`、真实 pnpm。对同名同版本 bundle 连续安装 `file:g1`、`file:g2`；每次从 profile 磁盘 dependencies 读取来源，再用上述公开 API 解析 patch。两次 pnpm 均退出 0；第一代入口为 `<profile>/generations/g1/tool.mjs`，第二代为 `<profile>/generations/g2/tool.mjs`，`distinct execution URLs: true`。
+- **失败恢复**：第一代模块顶层抛出 evaluation error；在同一执行 Context 原生 Include 更新为第二代后，修正模块正常注册函数，调用返回 `fixed`。没有改写/清空模块缓存，没有重启该执行进程。
+- **持久化**：随后启动全新的 Node 子进程，重新从磁盘 profile dependencies 及 generation manifest/patch 解析，加载原生 Include 并调用相同函数，输出 `fresh process persisted call: fixed`，退出 0；该过程不依赖上一进程的临时映射。
+- **证据边界**：该探针证明原生包安装、generation URL、失败模块修复和进程重启恢复的设计可实现性；调用的是探针插件注册函数，不是已实现 Nano `plugin_manager` 的真栈工具验收。工具审批、模型声明/dispatch、跨 workspace 与真实 IM 旅程仍按已审 M1 门禁实施和验证。
+- 所有临时 profile、generation、Context 及子进程已清理；未触碰生产服务。本轮只追加本报告，未提交。
+
+#### R1-W1 — retained closed
+
+本轮未改 delta；沿用 Round 2 对完整 MODIFIED 与保留 Scenario 的证据。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
