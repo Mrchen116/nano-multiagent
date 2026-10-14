@@ -124,6 +124,7 @@ function patchConversationPreview(
     return {
       ...item,
       last_message_preview: preview,
+      last_message_system_notice: null,
       last_message_at: createdAt ?? item.last_message_at,
       unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
     };

@@ -627,17 +627,9 @@ export class Gateway {
         p.text,
         [],
         p.idempotency_key ?? null,
+        "completed",
+        { system_notice: p.system_notice ? { ...p.system_notice, source_agent_display_name: a.display_name } : undefined },
       );
-      if (p.system_notice) {
-        db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(
-          JSON.stringify({
-            ...p.system_notice,
-            source_agent_display_name: a.display_name,
-          }),
-          m.id,
-        );
-        s.event(m.conversation_id, m.id, "message.reconciled", s.message(m.id));
-      }
       return ack({ message_id: m.id });
     }
 

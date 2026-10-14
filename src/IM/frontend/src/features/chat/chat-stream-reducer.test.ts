@@ -230,7 +230,13 @@ describe("chat-stream-reducer", () => {
       delivery_status: "completed",
       created_at: "2026-01-01T00:00:01Z",
       elapsed_ms: 432,
-      kernel_message_id: "kernel-1"
+      kernel_message_id: "kernel-1",
+      system_notice: {
+        kind: "self_evolution_review",
+        source_agent_id: "product",
+        source_agent_display_name: "SpecLab Product",
+        updated_targets: ["memory"],
+      },
     };
     const event = toChatWsEvent("message.reconciled", payload);
     expect(event).not.toBeNull();
@@ -239,6 +245,7 @@ describe("chat-stream-reducer", () => {
       { ...emptyConversationState, conversation_id: "c1", messages: [live] },
       event!
     );
+    expect(existing.messages[0]!.system_notice).toEqual(payload.system_notice);
     const replayed = applyWsEvent(existing, event!);
     const missing = applyWsEvent(
       { ...emptyConversationState, conversation_id: "c1", messages: [] },

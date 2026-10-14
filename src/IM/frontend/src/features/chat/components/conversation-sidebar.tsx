@@ -2,6 +2,7 @@ import { mentionNameMap, mentionPlainText } from "./mention-parser";
 import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
+import { formatSystemNotice } from "../system-notice";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import { NewConversationMenu } from "./new-conversation-menu";
@@ -92,8 +93,9 @@ export function ConversationSidebar({
   const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
 
   const previews = useMemo(() => new Map(conversations.map((c) => [
-    c.id, mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants))
-  ])), [conversations]);
+    c.id, formatSystemNotice(t, c.last_message_system_notice, c.type === "direct")
+      ?? mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants))
+  ])), [conversations, t]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
