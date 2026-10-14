@@ -26,7 +26,7 @@
 - 页面证据为本机临时截图 `/tmp/nano-notice-606-zh.jpg`、`/tmp/nano-notice-606-en.jpg`、`/tmp/nano-notice-606-zh-refresh.jpg`，未提交缓存。
 - docs-check 和 git diff --check passed；新增本审查记录后再运行 docs-check。
 
-## Sync and remaining gate
+## Sync and remaining gate（候选交付时）
 
 同步 main 增量只包含无关 bugfix-607 的 fix.md；受审产品、测试与需求均未变，独立结论 retained。首次完整事件和时间线契约继续有效；浏览器实际发现摘要仍为英文后，同一 unit 增加摘要一致性 delta，仍待用户确认后归并。
 
@@ -37,3 +37,13 @@
 首轮浏览器截图发现左侧会话摘要仍显示存储英文。补入最新消息的结构化 notice 到会话 REST 摘要，Sidebar 复用当前语言 formatter；普通消息更新快路径清除旧 notice。新增 Sidebar 语言切换/普通消息替换断言，扩展真实进程用例核对摘要语义，并扩展既有消息快路径用例。该追加 diff 待独立 patch review，首轮产品内容的结论 retained。
 
 独立 patch review 已在 `4f47a844ac9c6e696df828bb8bc0c8ca603365ce` 核对 `25168b92323ee13d6fa2b2adcd97e1bf2b709206..HEAD`，返回 `[]`。核对摘要持久身份、实时会话缓存刷新、当前语言渲染与普通消息清除旧 notice；无存活 finding。最终追加后前端全套 93 files / 872 tests passed，IM 全套 16 files / 76 tests passed，typecheck 和前端生产构建 passed；其余未变化检查 retained。追加范围的 effective_through 为 `4f47a844ac9c6e696df828bb8bc0c8ca603365ce`，后续仅记录本结论。
+
+## Fast-close after user acceptance
+
+2026-10-14 用户确认“这两个都可以合入。”，快速开发的用户验收门禁已通过。
+
+最终同步 main 至 `c17f53ab6`；增量为 bugfix-607 的 composer 软换行/滚动条样式及对应输入场景，不触及通知首次发布、消息 reducer、Sidebar 或通知 formatter。受审产品/测试文件相对已确认候选完全未变；样式仅限定 composer，不作用于通知行或摘要。独立 full/patch review、用户验收和既有构建/全套测试结论 retained。此后仅归并既有 delta、记录确认及整体归档，不追加空 review。
+
+本次同步后的 effective_base 为 `c17f53ab6`，effective_through 为 `3e90fe3f0c8575f3b9336638d16c45f27250c93e`；后续仅上述文档收尾。最终 focused regression、docs-check、archive gate 与 diff 检查结果随收尾提交记录。
+
+最终同步后的前端四文件 focused regression：82 tests passed；真实 IM system-notices：1 test passed。canonical 归并后的 docs-check 与 git diff --check passed；既有前端全套 872 tests、IM 全套 76 tests、build/typecheck、Python/ruff 与远端 CI 结论 retained。归档后的文档完整性与 archive gate 再次检查。

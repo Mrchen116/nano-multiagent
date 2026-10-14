@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-607
+> 对齐: bugfix-606
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -460,6 +460,11 @@ Web IM 在聊天时间线中把后台自进化结果显示为既有轻量 system
 - **GIVEN** direct-chat fork 带入了一条结构化 self-evolution notice
 - **WHEN** 用户打开分支单聊或切换界面语言
 - **THEN** 提示保留源消息的更新对象和来源快照，并按分支界面的当前语言显示
+
+#### Scenario: 会话摘要中的通知保持同一语言
+- **WHEN** 后台自进化通知是会话的最新消息，或用户切换界面语言
+- **THEN** 左侧会话摘要与时间线按相同的当前界面语言表达更新对象
+- **AND** 后续普通消息替换摘要时，不继续显示之前的通知
 
 ### Requirement: Web IM 收到的图片 attachment 以可辨认原图预览
 

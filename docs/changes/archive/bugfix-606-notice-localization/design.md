@@ -22,8 +22,8 @@ Base 为 `9ebe12f8553a593f6179784b0276849fb14e5358`。产品改动位于 IM gate
 - 前端 `npx vitest run src/features/chat/chat-stream-reducer.test.ts src/features/chat/components/system-notice-message.test.tsx`：47 tests 通过。
 - 修复前服务端首次事件为 null，前端 reconciled 后为 undefined；两个产品断点分别被捕获。
 - 完整检查及独立审查追加至 code-review.md。
-- 用户验收：待用户亲自体验候选版本，未记录为完成。
+- 用户验收：2026-10-14 用户确认“这两个都可以合入。”，接受当前候选的时间线与摘要语言一致性。
 
 ## Canonical 文档影响
 
-首次完整事件与时间线本地化恢复既有契约；实际浏览器检查发现会话摘要仍显示英文，因此在同一 unit 中增加摘要一致性。最窄 delta 位于 `specs/im/web-chat-ux.md`，待用户确认后归并，不提前覆盖 current。
+首次完整事件与时间线本地化恢复既有契约；实际浏览器检查发现会话摘要仍显示英文，因此在同一 unit 中增加摘要一致性。最窄 delta 位于 `specs/im/web-chat-ux.md`，用户确认后已归并到 canonical web-chat-ux.md，并更新包入口摘要；保留 main 中 bugfix-607 的输入框行为契约。
