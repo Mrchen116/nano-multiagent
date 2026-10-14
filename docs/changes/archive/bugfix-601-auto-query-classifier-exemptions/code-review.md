@@ -30,3 +30,9 @@
 2026-10-14，用户基于已展示的验证结果明确要求：“把 #351 和 #352 转正式合并”。据此确认交付并收尾，不补记未发生的真人亲手测试。
 
 本轮仅归并已审查 delta、更新 canonical 入口计数、同步实际收尾状态及归档路径；产品和回归测试 blob 保持独立审查版本。主会话核对 canonical 与原 delta 一致，原 code review 和运行证据继续有效，不增加无实质变化的复审轮次。最终 effective_base/effective_through 由 PR 记录。
+
+## 已合并更新能力的集成
+
+合并前同步 main `d667bdb964c07e7d1ebe80bdbb0c5aaec0edb063`（PR #349）。唯一文本冲突为 Gateway 入口相邻两行计数；保留 Service Lifecycle 的更新/回退说明与 13 条 Requirement，同时保留本 unit 的 Agent Capabilities 24 条。
+
+本 unit 的 approval.ts 与 approval.test.ts 保持独立审查 blob。main 的更新屏障/生命周期改动不改变本批 action 判定；沿用 downstream 拒绝优先和工具执行约束，集成后的相关回归及最终远端 CI 重新验证。最终 effective_base 更新为上述 main，实际结果及 head 见 PR。

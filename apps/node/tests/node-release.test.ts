@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,9 +17,13 @@ async function fixture(failure = '') {
   const version = 'a'.repeat(40);
   const releaseVersion = '0.2.0';
   const downloadUrl = `https://github.com/Mrchen116/nano-multiagent/releases/download/v${releaseVersion}/nano-node.tgz`;
-  const bytes = Buffer.from('one built package');
+  const payload = join(directory, 'payload');
+  await mkdir(payload);
+  await writeFile(join(payload, '.nano-release.json'), JSON.stringify({source_commit: version, updater_protocol: 1, data_epoch: 1}));
+  execFileSync('tar', ['-czf', join(directory, 'nano-node.tgz'), '-C', payload, '.']);
+  const bytes = await readFile(join(directory, 'nano-node.tgz'));
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const candidate = { version, sha256, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0', download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${version}/nano-node.tgz` };
+  const candidate = { version, source_commit: version, updater_protocol: 1, data_epoch: 1, sha256, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0', download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${version}/nano-node.tgz` };
   await writeFile(join(directory, 'nano-node.tgz'), bytes);
   await writeFile(join(directory, 'manifest.candidate.json'), JSON.stringify(candidate));
   await writeFile(join(directory, 'manifest.json'), 'previous verified manifest');

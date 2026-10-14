@@ -17,6 +17,8 @@ export class SessionControls {
   private readonly tails = new Map<string, Promise<unknown>>();
   private readonly active = new Map<string, Promise<void>>();
   constructor(private readonly options: Options) {}
+  /** Unfinished controls remain busy even after a failed delivery or reconnect. */
+  get busy(): boolean { return this.active.size > 0 || this.options.store.controls().some(intent => !intent.delivered); }
   run(binding: SessionBinding, input: RelayInput, action: string, argument: string): Promise<void> {
     const id = `${input.agent_id}:${input.message.id}`;
     const existing = this.active.get(id); if (existing) return existing;

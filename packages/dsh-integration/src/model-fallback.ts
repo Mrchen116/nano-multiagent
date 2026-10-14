@@ -113,6 +113,7 @@ export class ModelFallback {
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
   private writes: Promise<void> = Promise.resolve();
+  private pendingWrites = 0;
   private failure: unknown;
   private stopped = false;
   constructor(
@@ -125,6 +126,8 @@ export class ModelFallback {
       if (item) this.observe(item.agent, item.config, event);
     });
   }
+  /** Includes continuation work that may outlive the public Agent running state. */
+  get busy(): boolean { return this.pendingWrites > 0 || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.agents.set(agent.id, { agent, config });
     for (const [, run] of (await this.storage).table('runs').entries())
@@ -203,11 +206,12 @@ export class ModelFallback {
     return messages.filter((message) => !this.list(agent.id).some((run) => run.withdrawn?.includes(message.id)));
   }
   private save(run: ModelRun) {
+    this.pendingWrites++;
     const snapshot = structuredClone(run);
     const task = this.writes.then(async () => {
       if (this.failure) throw this.failure;
       await (await this.storage).table('runs').put(key(run.id), snapshot);
-    });
+    }).finally(() => { this.pendingWrites--; });
     this.writes = task.catch((error) => {
       this.failure ??= error;
     });

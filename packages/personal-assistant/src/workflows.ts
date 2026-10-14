@@ -35,6 +35,8 @@ export class WorkflowResults {
         void this.recover().catch(options.onError);
     });
   }
+  /** Local result handoff must settle before the Node stops. */
+  get busy(): boolean { return !!this.running || this.again; }
   recover(): Promise<void> {
     if (this.stopped) return Promise.resolve();
     this.again = true;

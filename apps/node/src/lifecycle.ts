@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
+import { loadNodeRelease } from "./release.js";
+import type { NodeRelease } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
 const exec = promisify(execFile);
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,6 +27,10 @@ export interface GatewayState {
   process_start: string;
   ready: boolean;
   runtime_pid?: number;
+  connected?: boolean;
+  entry?: string;
+  node_exec?: string;
+  release?: NodeRelease;
 }
 export interface GatewayTiming {
   startup_timeout_seconds?: number;
@@ -171,12 +177,20 @@ export async function claimGateway(config: string) {
     config_path: config,
     process_start,
     ready: false,
+    connected: false,
+    entry,
+    node_exec: process.execPath,
+    release: await loadNodeRelease(),
   };
   await atomicPrivate(statePath(config), state);
   return {
     async ready(runtimePid: number) {
       state.ready = true;
       state.runtime_pid = runtimePid;
+      await atomicPrivate(statePath(config), state);
+    },
+    async connected(connected: boolean) {
+      state.connected = connected;
       await atomicPrivate(statePath(config), state);
     },
     async unavailable() {

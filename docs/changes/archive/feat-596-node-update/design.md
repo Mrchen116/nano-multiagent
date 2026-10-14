@@ -65,7 +65,7 @@ IM 增加受管安装快照及更新操作表；后者保存 operation_id/reques
 - `GET /im/v1/nodes` 增加 `update`：current/target 信息、可用性、当前 operation、安装类型、必要时一次性安装材料。认证仍按 owner 隔离。
 - `POST /im/v1/nodes/:node_id/update`：owner、online、managed/protocol、epoch、manifest/版本/hash 校验后落盘授权并派发 `node.update.request`。网络结果不明保留 requested，重试/重连按同一操作核对。
 - `POST /im/v1/nodes/:node_id/update/cancel`：仅 owner 能原子取消未切换的 operation。
-- `POST /im/v1/node-update/report`：仅持久 runtime token 可用，核对 node/owner/epoch/operation，白名单阶段迁移。返回当前授权事实/cancel 标志；claim-switch 在该事务裁决。该窄接口明确排除普通 IM session prehandler，仍单独严格鉴权。
+- `POST /im/v1/node-update/report`：仅持久 runtime token 可用，核对 node/owner/epoch/operation，白名单阶段迁移。返回当前授权事实/cancel 标志；claim-switch 在该事务裁决。该窄接口明确排除普通 IM session prehandler，仍单独严格鉴权。显式执行 setup 的受管安装还可用 request_install action，以本机 runtime token、稳定 request_id 和已展示 version/hash 进入同一授权流程；不能借此选择任意包。
 - `node.register` 携带实际 release 与 update capability，后续 reconnect 不以相同 Node 名字推断成功。节点快照与 `node.update_changed` 供 Web cache 刷新。
 - 本地连接目录保存 `.node-update.json` 和屏障 handoff；下载 staging、锁和日志均保持私有/不入 Git。工作进程独占状态写入，Node 只写带 operation_id/PID 的 ready handoff。每次进程启动检查未收口操作并以真实状态恢复或报告 interrupted，不把旧 ready 当新授权。
 

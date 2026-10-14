@@ -1199,5 +1199,178 @@
     "bindTitle": "Connect your computer",
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
     "bindAccept": "Connect this computer"
+  },
+  "nodeUpdate": {
+    "available": {
+      "title": "Update available",
+      "body": "Your assistant will pause briefly. Chats and files will be kept."
+    },
+    "requested": {
+      "title": "Preparing download",
+      "body": "Your update is authorized. You can close this page."
+    },
+    "downloading": {
+      "title": "Downloading",
+      "body": "Your assistant can keep working. The update will wait for current tasks to finish."
+    },
+    "installing": {
+      "title": "Preparing update",
+      "body": "Checking the new version. Your assistant can keep working."
+    },
+    "waiting": {
+      "title": "Waiting for tasks to finish",
+      "body": "The update is ready and will continue after current work finishes."
+    },
+    "switching": {
+      "title": "Updating",
+      "body": "Your computer will return shortly. New messages will wait for the update."
+    },
+    "verifying": {
+      "title": "Checking connection",
+      "body": "The new version is connecting. Messages will continue when it is ready."
+    },
+    "rolling_back": {
+      "title": "Restoring previous version",
+      "body": "The new version could not start. Chats and files will be kept."
+    },
+    "succeeded": {
+      "title": "Updated",
+      "body": "Your computer is connected and your assistant is ready."
+    },
+    "cancelled": {
+      "title": "Update cancelled",
+      "body": "The current version keeps working. You can update later."
+    },
+    "failed": {
+      "title": "Update incomplete",
+      "body": "Download or preparation failed. The current version remains available. Check your connection and retry."
+    },
+    "rolled_back": {
+      "title": "Previous version restored",
+      "body": "Your assistant is available. Chats and files have been kept."
+    },
+    "interrupted": {
+      "title": "Update interrupted",
+      "body": "The update process stopped. Retry when your computer is online."
+    },
+    "recovery_required": {
+      "title": "Computer needs recovery",
+      "body": "Your computer has not recovered. Chats and files are kept. Run the recovery command on this computer."
+    },
+    "offline": {
+      "title": "Update when computer is online",
+      "body": "Open Nano on this computer, then return here to update."
+    },
+    "current": {
+      "title": "Up to date",
+      "body": "This computer has the version recommended by your service."
+    },
+    "legacy": {
+      "title": "Enable button updates",
+      "body": "Run a one-time upgrade on this computer to enable updates here."
+    },
+    "source": {
+      "title": "Update through your deployment",
+      "body": "This computer runs from source. Use your existing deployment process."
+    },
+    "unpublished": {
+      "title": "No installable version",
+      "body": "The service has not published an installable version yet."
+    },
+    "incompatible": {
+      "title": "Upgrade with the installer",
+      "body": "This version needs a one-time installer upgrade before button updates can continue."
+    },
+    "update": "Update",
+    "cancel": "Cancel update",
+    "cancelling": "Cancelling…",
+    "starting": "Starting…",
+    "bridge": "Upgrade instructions",
+    "recover": "Recovery instructions",
+    "copy": "Copy command",
+    "copied": "Copied",
+    "commandHelp": "Finish current tasks, then run this command in a terminal on this computer, or ask its local agent to run it. Your identity, assistants, models and files will be kept.",
+    "requestError": "The operation may have changed. Refreshing its status; check before retrying.",
+    "progressChip": "Update in progress",
+    "recoveryChip": "Recovery needed",
+    "waitMessage": "Waiting for computer update",
+    "waitRecovery": "Will continue when the computer recovers. No need to resend."
+  },
+  "computers": {
+    "account": "My account",
+    "summary": "{{total}} computers · {{online}} online",
+    "subtitle": "Your computers and assistants",
+    "connect": "Connect computer",
+    "connected": "Connected computers",
+    "private": "Only visible to you",
+    "unnamed": "Unnamed computer",
+    "viewDetails": "View {{name}} details",
+    "details": "Details",
+    "detailsTitle": "Computer details",
+    "backToList": "Back to computers",
+    "recoveryTitle": "Recovery and installation",
+    "lastVersion": "Last version",
+    "assistantCount_zero": "No assistants",
+    "assistantCount_one": "{{count}} assistant",
+    "assistantCount_other": "{{count}} assistants",
+    "assistantCount": "{{count}} assistants",
+    "lastSeen": "Last online {{time}}",
+    "reconnect": "Open Nano on this computer to reconnect",
+    "noConnection": "No connection recorded",
+    "help": "Your assistants work on your computers. Keep Nano running to continue the conversation anytime.",
+    "emptyTitle": "Connect your first computer",
+    "emptyBody": "Install Nano on a computer to give your assistants a place to work.",
+    "loadHelp": "Check your connection and try again.",
+    "stale": "Could not refresh. Showing the last known status.",
+    "name": "Computer name",
+    "rename": "Rename",
+    "saveName": "Save name",
+    "nameRequired": "Enter a computer name",
+    "saveFailed": "Could not save. Your name is kept; please try again.",
+    "saved": "Computer name updated",
+    "offlineManage": "Open Nano on this computer. You can rename it or create an assistant after it reconnects.",
+    "updateManage": "You can rename this computer or create assistants after it recovers.",
+    "lastOnline": "Last online",
+    "assistantsHere": "Assistants on this computer",
+    "noAssistants": "No assistants yet",
+    "assistantsFailed": "Could not load assistants",
+    "createAssistant": "Create assistant",
+    "diagnostics": "Connection diagnostics",
+    "id": "Computer ID",
+    "connectionLog": "Connection record",
+    "noError": "No error recorded",
+    "notFound": "This computer is no longer listed. Return and refresh.",
+    "releaseReady": "Nano {{version}} is ready",
+    "updateStages": "Update stages",
+    "continueOnComputer": "Continue on this computer",
+    "getStarted": "Give your assistants a place to work",
+    "recoveryOn": "Complete these steps on “{{name}}”. Its status will update when it reconnects.",
+    "connectBody": "Install Nano on the computer where your assistants will work, then confirm with your current account.",
+    "installFailed": "Could not load installation instructions. Please retry.",
+    "noInstaller": "No computer installer is available from this service yet. Please try again later.",
+    "installMethod": "Installation method",
+    "agentMode": "Ask a local agent",
+    "manualMode": "Install manually",
+    "openAgent": "Open Codex or Claude Code on your computer.",
+    "openTerminal": "Open a terminal on this computer.",
+    "giveInstructions": "Copy the instructions and give them to your local agent.",
+    "pasteCommand": "Paste the command and follow the installation steps.",
+    "confirmBinding": "Confirm the binding in your browser, then return to the computer list.",
+    "returnAfterRecovery": "Wait for the computer to reconnect, then return to the list.",
+    "copyInstructions": "Copy instructions",
+    "copyCommand": "Copy command",
+    "copyFailed": "Could not copy automatically. Select the text above and copy it manually.",
+    "platforms": "Supports macOS / Linux. On Windows, use WSL.",
+    "refreshList": "Finished on the computer? Refresh list",
+    "agentInstructions": "Help me install or recover the Nano computer client and connect to {{origin}}. Wait for current tasks to finish, then run the command provided by this service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Let me confirm any binding; do not request passwords or model keys.",
+    "stage": {
+      "prepare": "Prepare",
+      "idle": "Wait for idle",
+      "switch": "Switch"
+    },
+    "agentRecoveryInstructions": "Help me recover Nano on this computer. Wait for current tasks to finish, then run the recovery command provided by the service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Ask me to complete any confirmation; do not request passwords or model keys.",
+    "title": "Computers",
+    "summary_one": "{{total}} computer · {{online}} online",
+    "summary_other": "{{total}} computers · {{online}} online"
   }
 }

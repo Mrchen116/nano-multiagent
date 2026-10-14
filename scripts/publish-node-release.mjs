@@ -30,6 +30,10 @@ const manifest = { ...candidate, version, source_commit: revision,
 execFileSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: root });
 const archive = join(directory, candidate.package);
 if (hash(await readFile(archive)) !== candidate.sha256) throw new Error('Candidate package checksum does not match');
+const metadata = JSON.parse(execFileSync('tar', ['-xOf', archive, './.nano-release.json'], {encoding: 'utf8'}));
+if (metadata.source_commit !== revision || metadata.updater_protocol !== 1 || metadata.data_epoch !== 1
+    || candidate.source_commit !== revision || candidate.updater_protocol !== 1 || candidate.data_epoch !== 1)
+  throw new Error('Candidate package metadata does not match the source and updater protocol');
 const visibility = execFileSync('gh', ['repo', 'view', repository, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' }).trim();
 if (visibility !== 'PUBLIC') throw new Error('Installer releases require a public repository');
 // gh release create fails if this tag already has a Release; never use upload --clobber.

@@ -12,6 +12,7 @@ import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-pro
 import type {} from '@deepseek-ai/dsh-subagent';
 import type {} from '@deepseek-ai/dsh-session-query';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
+import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
 import { readUsage } from './usage.js';
@@ -91,13 +92,13 @@ export default class NanoRuntime {
   private readonly approvals = new Map<string, (answer: ApprovalOutcome, reason?: string) => void>();
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
+  private admissions = 0;
   private readonly controller;
   private readonly models: Promise<ModelPolicy>;
   private readonly cron: CronOwners;
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
-    const modelSetup = new NativeModelSetup(ctx, this.peer);
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
       while (session && !this.bindings.has(session.id) && session.header.parentSession) {
@@ -119,6 +120,33 @@ export default class NanoRuntime {
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
+    let updateServices: { models: ModelPolicy; knowledge: KnowledgeRuntime; workflow: NanoWorkflowEngine } | undefined;
+    const update = new UpdateBarrier({
+      agents: () => ctx.agents.list(),
+      busy: () => !this.accepting || modelSetup.busy || this.admissions > 0 || this.approvals.size > 0 ||
+        !updateServices || updateServices.models.busy || updateServices.knowledge.busy || updateServices.workflow.busy,
+      pause: async () => {
+        updateServices!.knowledge.suspendUpdates(true);
+        await this.cron.pause();
+        // Cold bindings may contain durable inbox entries before PA recovery.
+        for (const id of this.bindings.keys()) await this.agent(id);
+      },
+      resume: async () => { updateServices?.knowledge.suspendUpdates(false); await this.cron.resume(); },
+    });
+    // Track in-flight RPCs before their first await. Read paths resolving an
+    // Agent can also restore durable inbox work, so they share admission.
+    const handle = (method: string, action: (value: unknown) => unknown) => this.peer.handle(method, async value => {
+      if (update.held && method !== 'approval.answer') throw new RpcError(-32003, 'Runtime is held for update');
+      this.admissions++;
+      try { return await action(value); } finally { this.admissions--; }
+    });
+    const modelSetup = new NativeModelSetup(ctx, { handle, notify: (method, value) => this.peer.notify(method, value) });
+    this.peer.handle('update.prepare', async value => {
+      const operationId = (value as { operationId: string }).operationId;
+      if (typeof operationId !== 'string' || !operationId) throw new RpcError(-32602, 'Update operation identity is required');
+      return update.prepare(operationId);
+    });
+    this.peer.handle('update.release', value => update.release((value as { operationId: string }).operationId));
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
@@ -206,7 +234,7 @@ export default class NanoRuntime {
         });
       });
     });
-    this.peer.handle('initialize', async value => {
+    handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
       const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
@@ -233,12 +261,13 @@ export default class NanoRuntime {
       }
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       await history.recoverExports(config.bindings.map(binding => binding.sessionId));
+      updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       this.accepting = true;
       for (const agent of config.agents) { await this.cron.setEnabled(agent.agentId, agent.features?.cron_scheduling === true); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1' };
     });
-    this.peer.handle('session.ensure', value => this.ensure(value as SessionBinding));
-    this.peer.handle('session.submit', value => {
+    handle('session.ensure', value => this.ensure(value as SessionBinding));
+    handle('session.submit', value => {
       const input = value as Submit;
       const key = `${input.sessionId}\0${input.inputId}`;
       const running = this.inputs.get(key);
@@ -247,7 +276,7 @@ export default class NanoRuntime {
       this.inputs.set(key, task);
       return task;
     });
-    this.peer.handle('session.capabilities', async value => {
+    handle('session.capabilities', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
     });
@@ -272,13 +301,13 @@ export default class NanoRuntime {
         } finally { await handle.dispose(); }
       } finally { await unregister(); this.configurations.delete(preset); await this.cron.disposeAgent(previewId, true); }
     };
-    this.peer.handle('configuration.catalog', async value => {
+    handle('configuration.catalog', async value => {
       const { agentId, cwd, config: candidate } = value as { agentId?: string; cwd: string; config?: AgentConfiguration };
       const config = candidate ?? [...this.configurations.values()].find(config => config.agentId === agentId);
       if (!config) throw new RpcError(-32004, 'Unknown product Agent');
       return preview(config, cwd, true);
     });
-    this.peer.handle('configuration.selection', async value => {
+    handle('configuration.selection', async value => {
       const { agentId, cwd } = value as { agentId: string; cwd: string };
       const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
       if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
@@ -290,11 +319,11 @@ export default class NanoRuntime {
           skills: await ctx.skills.list({ scope: key, cwd }) };
       } finally { await diagnostic.dispose(); }
     });
-    this.peer.handle('configuration.preview', value => {
+    handle('configuration.preview', value => {
       const { config, cwd } = value as { config: AgentConfiguration; cwd: string };
       return preview(config, cwd);
     });
-    this.peer.handle('session.fork', async value => {
+    handle('session.fork', async value => {
       const { sessionId, messageId, operationId } = value as { sessionId: string; messageId: string; operationId: string };
       const source = await this.agent(sessionId); const binding = this.bindings.get(sessionId)!;
       const desired = this.configurations.get(source.session.header.agentPreset!)!;
@@ -302,21 +331,21 @@ export default class NanoRuntime {
       this.bindings.set(result.sessionId, { ...binding, sessionId: result.sessionId });
       return { ...result, revision: binding.revision };
     });
-    this.peer.handle('session.export', async value => {
+    handle('session.export', async value => {
       const { sessionId } = value as { sessionId: string };
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
       return { path: await history.path(sessionId) };
     });
-    this.peer.handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
-    this.peer.handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
-    this.peer.handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
-    this.peer.handle('session.lookup', async value => {
+    handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
+    handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
+    handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
+    handle('session.lookup', async value => {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
       await this.flush(agent);
       return (await models).fallback.evidence(agent, inputId);
     });
-    this.peer.handle('usage.read', async value => {
+    handle('usage.read', async value => {
       const {sessionId} = value as {sessionId: string};
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
       try { return await readUsage(ctx, sessionId); } catch (error) {
@@ -324,14 +353,14 @@ export default class NanoRuntime {
         throw error;
       }
     });
-    this.peer.handle('session.observe', async value => {
+    handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
       await this.flush(agent);
       return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: (await models).fallback.list(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
-    this.peer.handle('session.descendants', async value => {
+    handle('session.descendants', async value => {
       const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
       const root = await this.agent(sessionId); await this.flush(root);
       const children = await ctx.subagents.listDescendants(root.id);
@@ -345,12 +374,12 @@ export default class NanoRuntime {
         return { ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: await toolViews(child.id, observation.events.slice(observation.inheritedEventCount)) };
       }));
     });
-    this.peer.handle('workflow.pending', async () => (await workflow).pending());
-    this.peer.handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
-    this.peer.handle('workflow.read', async value => { const {sessionId,runId} = value as {sessionId:string;runId?:string}; return (await workflow).read(await this.agent(sessionId),runId); });
-    this.peer.handle('workflow.control', async value => { const {sessionId,runId,action,ordinal} = value as {sessionId:string;runId:string;action:string;ordinal?:number}; return (await workflow).control(await this.agent(sessionId),runId,action,ordinal); });
-    this.peer.handle('workflow.catalog', async value => (await workflow).catalog(await this.agent((value as {sessionId:string}).sessionId)).list());
-    this.peer.handle('session.command', async value => {
+    handle('workflow.pending', async () => (await workflow).pending());
+    handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
+    handle('workflow.read', async value => { const {sessionId,runId} = value as {sessionId:string;runId?:string}; return (await workflow).read(await this.agent(sessionId),runId); });
+    handle('workflow.control', async value => { const {sessionId,runId,action,ordinal} = value as {sessionId:string;runId:string;action:string;ordinal?:number}; return (await workflow).control(await this.agent(sessionId),runId,action,ordinal); });
+    handle('workflow.catalog', async value => (await workflow).catalog(await this.agent((value as {sessionId:string}).sessionId)).list());
+    handle('session.command', async value => {
       const request = value as { sessionId: string; id: string; action: string; argument?: string };
       if (request.action === 'config') {
         const match = /^workflowSizeGuideline\s+(unrestricted|small|medium|large)$/.exec(request.argument ?? '');
@@ -363,7 +392,7 @@ export default class NanoRuntime {
       if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
       return (await models).command(await this.agent(request.sessionId), request);
     });
-    this.peer.handle('session.cancel', async value => {
+    handle('session.cancel', async value => {
       const { sessionId } = value as { sessionId: string };
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -375,7 +404,7 @@ export default class NanoRuntime {
       await this.flush(agent);
       return { stopped: true, wasRunning };
     });
-    this.peer.handle('approval.answer', value => {
+    handle('approval.answer', value => {
       const { requestId, decision, reason } = value as { requestId: string; decision: ApprovalOutcome; reason?: string };
       if (!['allowed-once', 'rejected'].includes(decision)) throw new RpcError(-32602, 'Invalid approval decision');
       const answer = this.approvals.get(requestId);
@@ -383,7 +412,7 @@ export default class NanoRuntime {
       answer(decision, reason);
       return { answered: true };
     });
-    this.peer.handle('configuration.apply', async value => {
+    handle('configuration.apply', async value => {
       const next = value as AgentConfiguration;
       await ctx.llm.resolveModelInfo(next.provider, next.model);
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
@@ -407,7 +436,7 @@ export default class NanoRuntime {
       this.peer.notify('heartbeat.subscription', { agentId: next.agentId, enabled: next.features?.heartbeat === true });
       return { effective: true, revision: next.revision };
     });
-    this.peer.handle('configuration.features', async value => {
+    handle('configuration.features', async value => {
       const { agentId, features } = value as { agentId: string; features: Record<string, boolean> };
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       await (await configuration).setFeatures(agentId, features);
@@ -415,18 +444,18 @@ export default class NanoRuntime {
       this.peer.notify('heartbeat.subscription', { agentId, enabled: features.heartbeat === true });
       return { effective: true, features };
     });
-    this.peer.handle('schedule.enabled', async value => {
+    handle('schedule.enabled', async value => {
       const { agentId, enabled } = value as { agentId: string; enabled: boolean };
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       await this.cron.setEnabled(agentId, enabled);
       for (const config of this.configurations.values()) if (config.agentId === agentId) config.features = { ...config.features, cron_scheduling: enabled };
       return { effective: true, enabled };
     });
-    this.peer.handle('schedule.evidence', async value => {
+    handle('schedule.evidence', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId); await this.flush(agent);
       return scheduleEvidence(agent.session.snapshotEvents());
     });
-    this.peer.handle('schedule.command', async value => {
+    handle('schedule.command', async value => {
       const { agentId, sessionId, action, args = {} } = value as { agentId: string; sessionId?: string; action: string; args?: Record<string, unknown> };
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       if (sessionId && this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
@@ -456,6 +485,7 @@ export default class NanoRuntime {
     });
     this.peer.handle('shutdown', async () => {
       this.accepting = false;
+      await update.stop();
       trajectory.dispose();
       await this.cron.dispose();
       for (const id of this.bindings.keys()) ctx.agents.get(SessionId(id))?.cancel({ kind: 'user' }, { keepInbox: true });
