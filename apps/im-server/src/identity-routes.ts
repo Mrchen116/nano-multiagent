@@ -153,6 +153,10 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     return { ticket: identity.issueTicket(session.sid), expires_in: 30 };
   });
   app.get("/im/v1/me", async (request) => account(identity.authenticateRequest(request)));
+  app.patch("/im/v1/me/timezone", async request => {
+    const user = identity.authenticateRequest(request);
+    return { timezone: ctx.messaging.updateUserTimezone(user.id, body(request).timezone) };
+  });
   app.patch("/im/v1/me", async (request) => {
     const user = identity.authenticateRequest(request),
       payload = body(request),

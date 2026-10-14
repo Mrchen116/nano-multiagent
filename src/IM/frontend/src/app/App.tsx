@@ -6,8 +6,10 @@ import { useGlobalMessageToast } from "../features/chat/hooks/use-global-message
 import { AgentCompletionNotifier } from "../features/notifications/agent-completion-notifier";
 import { UserStreamConnectionNotice } from "../realtime/user-stream/connection-notice";
 import { AppShell } from "./shell/app-shell";
+import { useUserTimezone } from "../features/auth/user-timezone";
 
 export function App() {
+  useUserTimezone();
   useMembershipCache();
   const { toast, dismiss, agentCompletionCandidate } = useGlobalMessageToast();
 

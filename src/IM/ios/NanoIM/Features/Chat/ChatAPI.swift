@@ -12,8 +12,9 @@ extension IMClient {
             participants: [ActorRef(type: "user", id: userID)] + participants.filter { !($0.type == "user" && $0.id == userID) }, visibility: visibility))
     }
     func sendMessage(_ id: String, draft: PendingSend, userID: String, participants: [ActorRef] = []) async throws -> ChatMessage {
-        struct Body: Encodable, Sendable { let sender: ActorRef; let content: String; let attachments: [ChatAttachment] }
-        let body = Body(sender: ActorRef(type: "user", id: userID), content: ChatText.wire(draft.content, participants: participants), attachments: draft.attachments)
+        struct Body: Encodable, Sendable { let sender: ActorRef; let content: String; let attachments: [ChatAttachment]; let timezone: String }
+        let body = Body(sender: ActorRef(type: "user", id: userID), content: ChatText.wire(draft.content, participants: participants), attachments: draft.attachments,
+                        timezone: TimeZone.autoupdatingCurrent.identifier)
         return try await request("/im/v1/conversations/\(id.pathComponent)/messages", method: "POST",
                                  body: JSONEncoder().encode(body), headers: ["Idempotency-Key": draft.key])
     }

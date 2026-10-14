@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     default_entry_node_id TEXT,
     password_hash TEXT,
     locale TEXT NOT NULL DEFAULT 'en',
+    timezone TEXT,
     created_at TEXT NOT NULL
 , personal_space_enabled INTEGER NOT NULL DEFAULT 0, membership_status TEXT NOT NULL DEFAULT 'pending', is_company_admin INTEGER NOT NULL DEFAULT 0, auth_epoch INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS settings_policies (
@@ -138,6 +139,7 @@ CREATE TABLE IF NOT EXISTS messages (
     delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     tool_calls_json TEXT,
+    timezone TEXT,
     token_usage_json TEXT,
     -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
     thinking_json TEXT,

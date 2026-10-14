@@ -514,7 +514,7 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
               />
             </div>
             <p className="im-agent-field-help">
-              {t("agents.form.heartbeat.activeHoursHelp", "Heartbeat only triggers within this time window (leave blank for always-on)")}
+              {t("agents.form.heartbeat.activeHoursHelp", "Uses your local time; leave blank for always-on")}
             </p>
           </div>
 

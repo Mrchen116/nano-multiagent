@@ -14,6 +14,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
+import { formatLocalTime } from "@nano/product-contracts";
 export class Work {
   constructor(readonly ctx: ImContext) {
     for (const r of all(ctx.db, "SELECT session_id,turn_id,payload FROM agent_work_turns")) {
@@ -672,7 +673,7 @@ export class Work {
                 }
               : {}),
           },
-          source_time: m.created_at,
+          source_time: formatLocalTime(m.created_at, m.timezone ?? undefined),
           source: {
             channel: target.external_source ?? "web",
             conversation_id: p.target,

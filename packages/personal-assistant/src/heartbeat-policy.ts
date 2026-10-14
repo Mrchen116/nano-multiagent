@@ -1,4 +1,5 @@
-export interface HeartbeatSettings { every?: string; active_hours?: { start?: string; end?: string; timezone?: string } }
+import { formatLocalTime } from '@nano/product-contracts';
+export interface HeartbeatSettings { every?: string; timezone?: string; active_hours?: { start?: string; end?: string; timezone?: string } }
 export interface HeartbeatTask { name: string; prompt: string; interval?: number; at?: number; cron?: string }
 export function intervalMilliseconds(value: string): number {
   const match = /^\s*(\d+)\s*([smhd])\s*$/i.exec(value);
@@ -31,24 +32,26 @@ export function heartbeatTasks(content: string, settings: HeartbeatSettings): He
 export function withinActiveHours(now: number, settings: HeartbeatSettings): boolean {
   const hours = settings.active_hours;
   if (!hours?.start || !hours.end) return true;
-  const clock = new Intl.DateTimeFormat('en-GB', { timeZone: hours.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(now));
+  const timezone = settings.timezone ?? hours.timezone;
+  if (!timezone) return false; // Unknown user time must not turn a daytime window into a night-time wake.
+  const clock = formatLocalTime(now, timezone).slice(11, 16);
   return hours.start <= hours.end ? hours.start <= clock && clock < hours.end : hours.start <= clock || clock < hours.end;
 }
 /** One due boundary per task; skipped intervals are never backfilled. */
-export function heartbeatDue(task: HeartbeatTask, last: number | undefined, now: number): number | undefined {
+export function heartbeatDue(task: HeartbeatTask, last: number | undefined, now: number, timezone?: string): number | undefined {
   if (task.at !== undefined) return task.at <= now && (last === undefined || last < task.at) ? task.at : undefined;
   if (task.cron) {
     const due = Math.floor(now / 60000) * 60000;
-    return due !== last && cronMatches(task.cron, new Date(due)) ? due : undefined;
+    return timezone && due !== last && cronMatches(task.cron, formatLocalTime(due, timezone)) ? due : undefined;
   }
   const interval = task.interval!;
   const due = last === undefined ? Math.floor(now / interval) * interval : last + Math.floor((now - last) / interval) * interval;
   return due <= now && (last === undefined || due > last) ? due : undefined;
 }
-function cronMatches(expression: string, time: Date): boolean {
+function cronMatches(expression: string, time: string): boolean {
   const fields = expression.split(/\s+/);
   if (fields.length !== 5) throw new Error('Heartbeat cron requires five fields');
-  const values = [time.getUTCMinutes(), time.getUTCHours(), time.getUTCDate(), time.getUTCMonth() + 1, time.getUTCDay()];
+  const values = [Number(time.slice(14, 16)), Number(time.slice(11, 13)), Number(time.slice(8, 10)), Number(time.slice(5, 7)), new Date(time.slice(0, 10) + 'T00:00:00Z').getUTCDay()];
   const bounds = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
   return fields.every((field, index) => field.split(',').some(part => {
     if (index === 4) part = part.replace(/sun|mon|tue|wed|thu|fri|sat/gi, day => String(['sun','mon','tue','wed','thu','fri','sat'].indexOf(day.toLowerCase())));

@@ -41,6 +41,7 @@ export interface RelayInput {
     sender_user_id: string;
     sender_type: string;
     created_at?: string;
+    timezone?: string;
     sender?: {display_name?: string};
     attachments: { url: string; content_type: string; file_name?: string }[];
   };
@@ -66,6 +67,7 @@ export interface MessageApprovalContext {
 }
 
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
+export { validateTimeZone, formatLocalTime } from './time.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
 export { parseReleaseManifest, nodeUpdateTerminal, nodeUpdateCancellable,
   type ReleaseManifest, type NodeRelease, type NodeUpdateState, type NodeUpdateOperation,

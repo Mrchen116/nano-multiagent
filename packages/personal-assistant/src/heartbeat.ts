@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { AgentConfiguration, RuntimePort, SessionBinding } from '@nano/product-contracts';
 import { heartbeatDue, heartbeatTasks, withinActiveHours, type HeartbeatSettings } from './heartbeat-policy.js';
+import { formatLocalTime } from '@nano/product-contracts';
 
 interface Options {
   agents: AgentConfiguration[]; runtime: RuntimePort;
@@ -42,6 +43,7 @@ export class Heartbeat {
       if (!this.options.available(agent.agentId)) continue;
       if (!agent.features?.heartbeat || !this.subscriptions.has(agent.agentId)) { if (manual) throw new Error('Heartbeat Feature is disabled'); continue; }
       const settings = this.options.settings(agent.agentId);
+      const timezone = settings.timezone ?? settings.active_hours?.timezone;
       if (!withinActiveHours(now, settings)) continue;
       const pending = this.db.prepare('SELECT intent FROM pending WHERE agent=?').get(agent.agentId) as { intent: string } | undefined;
       if (pending) { await this.admit(JSON.parse(pending.intent) as Intent); continue; }
@@ -53,12 +55,12 @@ export class Heartbeat {
       const binding = await this.options.binding(agent);
       for (const task of tasks) {
         const previous = this.db.prepare('SELECT time FROM due WHERE agent=? AND task=?').get(agent.agentId, task.name) as { time: number } | undefined;
-        const due = manual ? now : heartbeatDue(task, previous?.time, now);
+        const due = manual ? now : heartbeatDue(task, previous?.time, now, timezone);
         if (due === undefined) continue;
         const hash = createHash('sha256').update(task.name + '\0' + task.prompt).digest('hex').slice(0, 16);
         const inputId = `heartbeat:${agent.agentId}:${due}:${hash}`;
         const intent: Intent = { agentId: agent.agentId, task: task.name, due, sessionId: binding.sessionId, inputId, mode: 'followup', onlyIfIdle: true,
-          content: [{ type: 'text', text: `Read .nanoassistant/HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\n\n${task.prompt}` }],
+          content: [{ type: 'text', text: `Current time: ${formatLocalTime(now, timezone)}${timezone ? ` (${timezone})` : ' (user timezone unknown)'}.\nRead .nanoassistant/HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\n\n${task.prompt}` }],
           source: { kind: 'system', actorId: agent.agentId, channel: 'heartbeat', messageId: inputId } };
         this.db.prepare('INSERT INTO pending VALUES(?,?)').run(agent.agentId, JSON.stringify(intent));
         await this.admit(intent);

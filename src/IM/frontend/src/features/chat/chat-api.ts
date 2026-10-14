@@ -3,6 +3,7 @@
 
 import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
+import { browserTimezone } from "../auth/user-timezone";
 import type {
   Actor,
   Attachment,
@@ -59,7 +60,8 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
-    attachments: req.attachments ?? []
+    attachments: req.attachments ?? [],
+    timezone: browserTimezone()
   };
   return authFetchJson<Message>(
     `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,

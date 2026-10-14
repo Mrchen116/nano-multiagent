@@ -290,6 +290,8 @@ export class NativeHistory {
               : undefined;
         if (!message) return [];
         const content = message.content
+          // The readable copy keeps human text; runtime/trajectory retains the model context.
+          .filter((block, index) => !(index === 0 && block.type === "text" && message.source.kind === "nano-human" && block.text === message.source.contextEnvelope))
           .flatMap((block) =>
             block.type === "text"
               ? [block.text]

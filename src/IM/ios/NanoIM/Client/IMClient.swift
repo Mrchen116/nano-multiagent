@@ -4,11 +4,20 @@ import Foundation
 actor IMClient {
     nonisolated let baseURL: URL
     nonisolated let session: Session
+    private var reportedTimeZone: (userID: String, timezone: String)?
     init(baseURL: URL, session: Session? = nil) {
         self.baseURL = baseURL
         self.session = session ?? Session(baseURL: baseURL)
     }
     func serverURL() -> URL { baseURL }
+    /// Sync the foreground user's system timezone; unchanged values need no request.
+    func syncTimeZone(userID: String) async throws {
+        let timezone = TimeZone.autoupdatingCurrent.identifier
+        guard reportedTimeZone?.userID != userID || reportedTimeZone?.timezone != timezone else { return }
+        struct Result: Decodable, Sendable { let timezone: String }
+        let result: Result = try await send("/im/v1/me/timezone", method: "PATCH", body: ["timezone": timezone])
+        reportedTimeZone = (userID, result.timezone)
+    }
     func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         try await request(path, query: query)
     }

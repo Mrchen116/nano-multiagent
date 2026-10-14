@@ -3,6 +3,31 @@ import type { RelayInput, RuntimeEvent } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
 import { SingleThread } from '../src/single-thread.js';
 
+it('supplies local message time to the model without rewriting the human body', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const submitted: any[] = [];
+  const product = new SingleThread({ nodeId: 'node', ownerId: 'owner', store,
+    agents: [{ agentId: 'a', revision: '1', mode: 'single_thread', provider: 'test', model: 'test', workspace: '/tmp' }],
+    runtime: { onNotification: () => () => {}, async request(method, value) {
+      if (method === 'session.submit') submitted.push(value);
+      if (method === 'session.lookup') return { accepted: submitted.some(input => input.inputId === (value as any).inputId) };
+      return { events: [], durable: true };
+    } },
+    relay: { async request() { return { type: 'ack', payload: {} }; } }, image: async () => '', onError: error => { throw error; },
+  });
+  const input: RelayInput = { agent_id: 'a', conversation_id: 'c', relay_task_id: 'morning', idempotency_key: 'morning',
+    metadata: { conversation_type: 'direct', channel: 'web_relay' }, message: { id: 'morning', content: '早，今天有什么安排？',
+      created_at: '2026-10-14T01:00:00Z', timezone: 'Asia/Shanghai', sender_type: 'user', sender_user_id: 'owner', attachments: [] } };
+  try {
+    await product.receive(input);
+    expect(submitted[0].content).toEqual([
+      { type: 'text', text: 'Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM.' },
+      { type: 'text', text: input.message.content },
+    ]);
+    expect(store.inputs(store.bindingFor('a', 'c')!.sessionId)[0]!.input.message.content).toBe(input.message.content);
+  } finally { await product.stop(); store.close(); }
+});
+
 it.each(['user', 'system'])('parks %s group background, admits it on mention once, and suppresses silent replies', async senderType => {
   const store = new NodeStore(':memory:', 'owner');
   const submitted: Record<string, unknown>[] = []; const frames: Record<string, unknown>[] = [];

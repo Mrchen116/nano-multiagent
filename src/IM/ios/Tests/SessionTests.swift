@@ -42,6 +42,18 @@ final class SessionTests: XCTestCase {
         }
         XCTAssertEqual(try vault.load()?.refresh_token, "rotated")
     }
+    func testForegroundClientAutomaticallyReportsSystemTimezoneOnce() async throws {
+        let transport = SessionTestTransport(refreshData: try pair(user()))
+        let session = Session(baseURL: origin, transport: transport, credentials: SessionTestCredentials(StoredSession(refresh_token: "old", user: user())))
+        _ = try await session.restore()
+        let client = IMClient(baseURL: origin, session: session)
+        try await client.syncTimeZone(userID: "alice")
+        try await client.syncTimeZone(userID: "alice")
+        let requests = await transport.recorded().filter { $0.url?.path == "/im/v1/me/timezone" }
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        XCTAssertEqual(try JSONDecoder().decode([String: String].self, from: body)["timezone"], TimeZone.autoupdatingCurrent.identifier)
+    }
     func testLateAccountResponseCannotReturnAfterSignOut() async throws {
         let transport = SessionTestTransport(refreshData: try pair(user()), held: ["/im/v1/policies"])
         let vault = SessionTestCredentials(StoredSession(refresh_token: "old", user: user()))
@@ -123,6 +135,7 @@ private actor SessionTestTransport: HTTPTransport {
         for waiter in waiters.removeValue(forKey: path) ?? [] { waiter.resume() }
         if held.contains(path) { await withCheckedContinuation { paused[path, default: []].append($0) } }
         let isRefresh = path == "/im/v1/auth/refresh"
-        return (isRefresh ? refreshData : Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: isRefresh ? refreshStatus : 200, httpVersion: nil, headerFields: [:])!)
+        let data = path == "/im/v1/me/timezone" ? request.httpBody! : isRefresh ? refreshData : Data("{}".utf8)
+        return (data, HTTPURLResponse(url: request.url!, statusCode: isRefresh ? refreshStatus : 200, httpVersion: nil, headerFields: [:])!)
     }
 }

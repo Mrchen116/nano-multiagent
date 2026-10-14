@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { ExternalChannels } from '../src/external.js';
 import { NodeStore } from '../src/store.js';
 import type { RelayInput } from '@nano/product-contracts';
+import { InboxStore } from '../src/inbox.js';
 
 it('marks only the configured owner direct chat as an owner recipient, including shadow aliases', async () => {
   const store=new NodeStore(':memory:','owner'),accepted:RelayInput[]=[];
@@ -70,6 +71,32 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(sends).toBe(2);
     expect(requests).toContainEqual(expect.objectContaining({ sender_source_id: 'human', suppress_relay: true }));
   } finally { await external.stop(); store.close(); }
+});
+
+it('gives Feishu Inbox the original occurrence and the owner timezone captured at ingress', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  store.setOwnerTimezone('Asia/Shanghai');
+  const inbox = new InboxStore(':memory:');
+  let accepted: RelayInput | undefined;
+  const external = new ExternalChannels(':memory:', { nodeId: 'node', ownerId: 'owner', store,
+    relay: { ready: false, async request() { throw new Error('offline'); } }, im: async () => { throw new Error('offline'); },
+    receive: async input => { accepted = input; inbox.receive(input, true); }, permission: async () => {}, onError: () => {},
+  });
+  external.add('a', { config: { appId: 'app', ownerOpenId: 'human' }, async send() { return 'sent'; },
+    async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
+  const message = { messageId: 'morning', chatId: 'chat', senderId: 'human', senderName: '你', isGroup: false, mentioned: false,
+    time: String(Date.parse('2026-10-14T01:00:00Z')), parts: [{ type: 'text' as const, text: '早，今天有什么安排？' }] };
+  try {
+    await external.receive('a', message);
+    store.setOwnerTimezone('Asia/Tokyo');
+    await external.receive('a', message);
+    expect(inbox.read('a', 'main', 'read', { target: accepted!.conversation_id })).toMatchObject({
+      messages: [{ time: '2026-10-14T09:00:00+08:00', content: [{ text: message.parts[0]!.text }] }],
+    });
+    expect((await external.request('conversation.query', { agent_id: 'a', action: 'read', target: accepted!.conversation_id })).payload.result).toMatchObject({
+      messages: [{ created_at: '2026-10-14T09:00:00+08:00' }],
+    });
+  } finally { await external.stop(); inbox.close(); store.close(); }
 });
 
 it('keeps group approval values private and accepts only the bound owner on the actual card', async () => {

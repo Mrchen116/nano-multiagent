@@ -1,6 +1,7 @@
 import type { FeishuConfiguration, FeishuMessage, ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
 import type { RelayInput } from '@nano/product-contracts';
+import { formatLocalTime } from '@nano/product-contracts';
 import { NodeStore } from './store.js';
 import { ExternalStore, type ExternalChat, type ExternalOutput } from './external-store.js';
 
@@ -56,7 +57,10 @@ export class ExternalChannels {
         sender_display_name: message.senderName, ...(message.contextOnly ? { context_only: true } : {}),
         ...(message.senderId === connection.config.ownerOpenId ? { owner_user_id: this.options.ownerId } : {}),
         content_parts: message.parts.map(part => part.type === 'text' ? part : { type: 'image', url: `${eventId}:${part.key}` }),
-      }, message: { id: eventId, content: text, sender_type: 'user', sender_user_id: message.senderId, attachments } };
+      }, message: { id: eventId, content: text, sender_type: 'user', sender_user_id: message.senderId, attachments,
+        created_at: new Date(Number.isFinite(Number(message.time)) && Number(message.time) > 0 ? Number(message.time) : Date.now()).toISOString(),
+        ...(message.senderId === connection.config.ownerOpenId && this.options.store.ownerTimezone ? { timezone: this.options.store.ownerTimezone } : {}),
+      } };
     this.state.saveInbound(eventId, id, message, input);
     const task = this.admit(eventId).finally(() => this.admissions.delete(eventId)); this.admissions.set(eventId, task); return task;
   }
@@ -189,7 +193,9 @@ export class ExternalChannels {
     const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
     if (!chat) return;
     if (payload.action === 'info') return describe(chat);
-    if (payload.action === 'read') return { ...describe(chat), messages: this.state.inbound().filter(row => row.chatId === chat.id).slice(-50).map(row => ({ ...row.input.message })) };
+    if (payload.action === 'read') return { ...describe(chat), messages: this.state.inbound().filter(row => row.chatId === chat.id).slice(-50).map(row => ({
+      ...row.input.message, ...(row.input.message.created_at ? { created_at: formatLocalTime(row.input.message.created_at, row.input.message.timezone) } : {}),
+    })) };
   }
 
   private flush(): Promise<void> {
@@ -217,7 +223,7 @@ export class ExternalChannels {
           }
         }
         const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/messages?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
-          content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
+          content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
       }
       for (const frame of this.state.pendingFrames()) {

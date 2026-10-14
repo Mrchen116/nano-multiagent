@@ -13,6 +13,7 @@ export interface AuthUser {
   display_name: string;
   owner_id: string;
   locale: string;
+  timezone?: string | null;
   default_entry_node_id: string | null;
   owned_node_ids: string[];
   created_at: string;

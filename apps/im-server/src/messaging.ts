@@ -15,6 +15,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
+import { validateTimeZone } from "@nano/product-contracts";
 /** Derive human approval badges from the durable request/decision identity. */
 export function withHumanApproval(call: Row, permissions: Row[]): Row {
   const decision = permissions.findLast(item => item.call_id === call.id && item.status === "resolved" && item.decided_by)?.decision;
@@ -280,6 +281,7 @@ export class Messaging {
           "content",
           "delivery_status",
           "created_at",
+          "timezone",
           "elapsed_ms",
           "kernel_message_id",
         ].map((key) => [key, m[key]]),
@@ -362,10 +364,10 @@ export class Messaging {
       : undefined;
     if (old) return this.message(old.id);
     const id = randomUUID().replaceAll("-", "");
-    const at = now();
+    const at = extra.created_at ?? now();
     this.db
       .prepare(
-        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -379,6 +381,7 @@ export class Messaging {
         key,
         extra.sender_display_name ?? null,
         extra.sender_source_id ?? null,
+        extra.timezone ?? null,
       );
     this.db
       .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
@@ -487,9 +490,13 @@ export class Messaging {
         )
       : undefined;
     if (old) return this.message(old.id);
+    // Retries and history retain the timezone captured by the original send.
+    const timezone = p.kind === "gateway" ? b.timezone ?? null
+      : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
+      : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id);
     const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-      agents.length ? "pending" : "completed",p.kind === "gateway" ? b : {});
+      agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone });
     if (!b.suppress_relay) {
       const relays = this.enqueueRelays(m,key,agents);
       if (relays.length && !this.deliverRelays(relays)) fail(503,"target_node_id is not connected");
@@ -497,6 +504,25 @@ export class Messaging {
       if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
     return this.message(m.id);
+  }
+  /** Save a foreground client's timezone and notify this user's connected Gateways.
+   *
+   * Args:
+   *   userId: Authenticated human account, never a client-selected target.
+   *   value: System timezone reported by the browser or native app.
+   * Returns:
+   *   The saved timezone; unchanged values do not write or broadcast.
+   */
+  updateUserTimezone(userId: string, value: unknown): string {
+    let timezone: string;
+    try { timezone = validateTimeZone(value); } catch { fail(422, "invalid timezone"); }
+    const previous = one(this.db, "SELECT timezone FROM users WHERE id=?", userId)?.timezone;
+    if (previous !== timezone) {
+      this.db.prepare("UPDATE users SET timezone=? WHERE id=?").run(timezone, userId);
+      for (const node of all(this.db, "SELECT node_id FROM nodes WHERE owner_id=?", userId))
+        this.ctx.gateway.send(node.node_id, { type: "user.timezone", payload: { timezone } });
+    }
+    return timezone;
   }
   /** Persist a task event inside the caller's graph transaction; never publish early. */
   persistTaskNotice(id: string, sender: string, content: string, metadata: Row): Row {

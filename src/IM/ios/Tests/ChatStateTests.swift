@@ -145,6 +145,8 @@ final class ChatStateTests: XCTestCase {
         await store.loadChat("chat")
         await store.send("chat")
         let initialKeys = await transport.keys
+        let timezones = await transport.timezones
+        XCTAssertEqual(timezones, [TimeZone.autoupdatingCurrent.identifier])
         XCTAssertEqual(initialKeys.count, 1)
         XCTAssertFalse(initialKeys[0].isEmpty)
         await store.send("chat", retry: true)
@@ -286,6 +288,7 @@ private actor UploadTransport: HTTPTransport {
 private actor LostSendTransport: HTTPTransport {
     let pair: Data; let message: Data; let page: Data; let list: Data
     var keys: [String] = []
+    var timezones: [String] = []
     init(pair: Data, message: Data, page: Data, list: Data) { self.pair = pair; self.message = message; self.page = page; self.list = list }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
@@ -293,6 +296,8 @@ private actor LostSendTransport: HTTPTransport {
         if url.path.contains("/auth/") { body = pair }
         else if request.httpMethod == "POST", url.path.hasSuffix("/messages") {
             keys.append(request.value(forHTTPHeaderField: "Idempotency-Key") ?? "")
+            let payload = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            timezones.append(payload["timezone"] as? String ?? "")
             if keys.count == 1 { throw URLError(.networkConnectionLost) }
             body = message
         } else if url.path == "/im/v1/conversations" { body = list }

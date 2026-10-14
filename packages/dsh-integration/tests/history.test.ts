@@ -78,6 +78,7 @@ it("forks a native message with its configuration and compacted prefix, independ
         inputId: id,
         mode: "followup",
         content: [
+          { type: "text", text: "Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM." },
           { type: "text", text: id + " Remember these facts. ".repeat(100) },
         ],
         source: {
@@ -85,6 +86,7 @@ it("forks a native message with its configuration and compacted prefix, independ
           actorId: "owner",
           channel: "test",
           messageId: id,
+          contextEnvelope: "Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM.",
         },
       });
       await expect
@@ -193,6 +195,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     );
     expect(readable).toContain("fork-only");
     expect(readable).not.toContain("after-point");
+    expect(readable).not.toContain("Message time:");
     await client!.shutdown();
     client = undefined;
     await start();
