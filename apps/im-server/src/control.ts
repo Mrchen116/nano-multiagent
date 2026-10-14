@@ -813,6 +813,17 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       return ops.update(p, c, runtime.owner_id);
     });
   });
+  for (const method of ['GET', 'POST'] as const) app.route({method, url: '/im/v1/agents/:agent_id/plugins', handler: async req => {
+    const u = await user(req), p = requireProfile(ctx, params(req).agent_id, u.owner_id);
+    const b = method === 'GET' ? {action: 'list_bundles'} : body(req);
+    if (method === 'POST' && (Object.keys(b).some(key => !['action', 'target', 'enabled'].includes(key))
+      || !['set_bundle', 'remove_bundle'].includes(b.action) || typeof b.target !== 'string' || !b.target.trim()
+      || b.action === 'set_bundle' && typeof b.enabled !== 'boolean'
+      || b.action === 'remove_bundle' && b.enabled !== undefined)) fail(422, 'Invalid plugin command');
+    const result = await rpc(p.node_id, 'node.plugins.request', {agent_id: p.agent_id, ...b});
+    if (result.error) fail(409, result.error);
+    return result.plugins;
+  }});
   app.get("/im/v1/agents/:agent_id/capabilities", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);

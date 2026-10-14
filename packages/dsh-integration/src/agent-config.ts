@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -12,16 +13,17 @@ import * as MemoryCuration from './features/memory-curation.js';
 import * as SkillCreation from './features/skill-creation.js';
 import * as Cron from './features/cron.js';
 import type { AgentConfiguration } from './index.js';
-import { WorkspaceExtensions } from './workspace-tools.js';
+import { WorkspaceExtensions, type PluginCommand } from './workspace-tools.js';
 
 type Fiber = ReturnType<Context['plugin']>;
 interface PresetScope { agentId: string; ctx: Context; features: Map<string, Fiber> }
-interface AgentScope { agent: Agent; config: AgentConfiguration; persona?: Fiber; skills?: Fiber }
+interface AgentScope { agent: Agent; config: AgentConfiguration; workspace?: string; persona?: Fiber; skills?: Fiber }
 declare module '@deepseek-ai/cordis' { interface Context { nanoConfiguration: ConfigurationScopes } }
 
 /** Keeps inherited tool contributions filterable and history configuration Agent-local. */
 export class ConfigurationScopes extends Service {
   static inject = ['tools', 'hmr'];
+  private readonly maintenance = new Map<string, Promise<void>>();
   private readonly presets = new Set<PresetScope>();
   private readonly agents = new Map<Agent, AgentScope>();
   private readonly tools: ToolSelection;
@@ -42,6 +44,26 @@ export class ConfigurationScopes extends Service {
   forAgent(agent: Agent) { return this.agents.get(agent)?.config; }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }
   catalog(agent: Agent) { return this.tools.catalog(agent); }
+  /** Apply owner plugin changes only while every Agent sharing the workspace is reserved idle. */
+  managePlugins(config: AgentConfiguration, command: PluginCommand) {
+    return this.extensions.manage(config, command, (workspace, job) => this.maintain(workspace, job));
+  }
+  private async maintain(workspace: string, job: () => Promise<void>): Promise<void> {
+    const agents = () => [...this.agents.values()].filter(scope => scope.workspace === workspace).map(scope => scope.agent);
+    for (;;) {
+      await Promise.all(agents().map(agent => agent.whenIdle()));
+      let release!: () => void;
+      const released = new Promise<void>(resolve => {release = resolve;});
+      const tasks: Promise<unknown>[] = [];
+      this.maintenance.set(workspace, released);
+      let reserved = true;
+      // No await between the fresh snapshot and all native idle reservations.
+      try { for (const agent of agents()) tasks.push(agent.runMaintenance(() => released)); }
+      catch { reserved = false; }
+      try { if (reserved) {await job(); return;} }
+      finally { this.maintenance.delete(workspace); release(); await Promise.allSettled(tasks); }
+    }
+  }
   /** Project the callable selection, including authorized workspace installations. */
   selection(config: AgentConfiguration, names: string[]) { return this.tools.selection(config, names); }
   private allConfigurations() { return new Set([...this.configurations.values(), ...[...this.agents.values()].map(scope => scope.config)]); }
@@ -77,7 +99,9 @@ export class ConfigurationScopes extends Service {
     }, { prepend: true });
   }
   async attachAgent(agent: Agent, config: AgentConfiguration): Promise<void> {
-    const scope: AgentScope = { agent, config }; this.agents.set(agent, scope);
+    const workspace = config.workspace ? await realpath(config.workspace) : undefined;
+    while (workspace && this.maintenance.has(workspace)) await this.maintenance.get(workspace);
+    const scope: AgentScope = { agent, config, workspace }; this.agents.set(agent, scope);
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }

@@ -309,6 +309,18 @@ export default class NanoRuntime {
       if (!config) throw new RpcError(-32004, 'Unknown product Agent');
       return preview(config, cwd, true);
     });
+    handle('plugins.manage', async value => {
+      const command = value as import('./workspace-tools.js').PluginCommand & {agentId: string};
+      const entry = [...this.configurations].find(([, config]) => config.agentId === command.agentId);
+      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
+      const preset = await ctx.agentPresets.acquireScope(entry[0]);
+      try {
+        const {view, settled} = await (await configuration).managePlugins(entry[1], command);
+        // An accepted background operation must keep its native preset alive through teardown.
+        void settled.finally(() => preset[Symbol.asyncDispose]()).catch(error => ctx.logger.error(error));
+        return view;
+      } catch (error) { await preset[Symbol.asyncDispose](); throw error; }
+    });
     handle('configuration.selection', async value => {
       const { agentId, cwd } = value as { agentId: string; cwd: string };
       const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);

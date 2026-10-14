@@ -131,6 +131,14 @@ const relay = new WebRelayConnection({
       }
     }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
+    if (frame.type === 'node.plugins.request') {
+      const result = await (async () => {
+        const agentId = String(payload.agent_id);
+        if (!config.agents.some(agent => agent.agent_id === agentId)) throw new Error('Plugin request has no Agent on this node');
+        return {plugins: await runtime.request('plugins.manage', {agentId, action: payload.action, target: payload.target, enabled: payload.enabled})};
+      })().catch(error => ({error: String(error)}));
+      await relay.request('node.plugins', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
+    }
     if (frame.type === 'node.skills.usage.request') {
       const agentId = String(payload.agent_id);
       const usage = await runtime.request('knowledge.usage', { agentId }) as Record<string, unknown>;

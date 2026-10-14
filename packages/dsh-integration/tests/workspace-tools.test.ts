@@ -24,6 +24,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     ctx.on('llm/stream',async function* (options) {
       const last=options.messages.findLast(m=>m.role==='user' && m.content.some(b=>b.type==='text' && b.text.startsWith('{"tool":')));
       const command=last && JSON.parse(last.content.find(b=>b.type==='text').text); const step=last ? steps.get(last.id)??0 : 2;
+      if(command?.tool==='hold') {await new Promise(resolve=>setTimeout(resolve,2000));yield {type:'block-end',index:0,block:{type:'text',text:'hold finished'}};yield {type:'finish',reason:{kind:'stop'}};return;}
       const selected=step===0?command:step===1?command.next:undefined;
       if(!selected) {yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};return;}
       steps.set(last.id,step+1);
@@ -34,12 +35,14 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
   const agents = [
     { agentId: 'a', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
     { agentId: 'b', workspace: b, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'peer', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
     { agentId: 'empty', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] },
   ];
   const bindings = [
     { sessionId: 'tools-a', agentId: 'a', revision: '1', ownerId: 'owner', cwd: a },
     { sessionId: 'tools-a2', agentId: 'a', revision: '1', ownerId: 'owner', cwd: a },
     { sessionId: 'tools-b', agentId: 'b', revision: '1', ownerId: 'owner', cwd: b },
+    { sessionId: 'tools-peer', agentId: 'peer', revision: '1', ownerId: 'owner', cwd: a },
     { sessionId: 'tools-empty', agentId: 'empty', revision: '1', ownerId: 'owner', cwd: a },
   ];
   const capabilities = async (sessionId: string) => (await client!.rpc.request('session.capabilities', { sessionId }) as { tools: string[] }).tools;
@@ -99,6 +102,62 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).toContain('plugin_manager');
     expect((await call('tools-a', 'workspace_echo', { value: 'RESTART_RESULT' })).text).toContain('RESTART_RESULT');
     expect(await capabilities('tools-b')).not.toContain('workspace_echo');
+    const held = call('tools-a', 'hold', {});
+    await expect.poll(async () => (await client!.rpc.request('session.observe', {sessionId:'tools-a'}) as {status:string}).status).toBe('running');
+    const control = (command: Record<string, unknown>) => client!.rpc.request('plugins.manage', {agentId:'a', ...command}) as Promise<{pending?: unknown; entries:{name:string;enabled:boolean}[]}>;
+    const pending = await control({action:'set_bundle',target:'workspace-echo',enabled:false});
+    expect(pending.pending).toMatchObject({target:'workspace-echo',enabled:false});
+    expect(pending.entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(true);
+    expect((await control({action:'list_bundles'})).pending).toBeTruthy();
+    await held;
+    await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
+    expect((await call('tools-a', 'workspace_echo', {value:'DISABLED_BY_USER'})).error).toBe(true);
+    expect(await capabilities('tools-peer')).not.toContain('workspace_echo');
+    await manage({action:'install_bundle',target:source});
+    expect(await capabilities('tools-a')).not.toContain('workspace_echo');
+    await client!.shutdown(); client=undefined; await start(true);
+    expect(await capabilities('tools-a')).not.toContain('workspace_echo');
+    await control({action:'set_bundle',target:'workspace-echo',enabled:true});
+    await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
+    expect((await call('tools-a', 'workspace_echo', {value:'USER_ENABLED_AGAIN'})).text).toContain('USER_ENABLED_AGAIN');
+    const style = join(a, 'report-style'); await mkdir(style);
+    await writeFile(join(style, 'package.json'), JSON.stringify({name:'report-style',version:'1.0.0',type:'module',description:'Format expense reports',dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
+    await writeFile(join(style, 'provider.mjs'), `export function apply(ctx) {ctx.provide('reportStyle', 'STYLE_ISOLATED_610');}`);
+    await writeFile(join(style, 'cordis.patch.yml'), JSON.stringify([{insert:[{id:'style-provider',name:'./provider.mjs'}]}]));
+    expect((await manage({action:'install_bundle',target:style})).text).toContain('root services');
+    await writeFile(join(style, 'consumer.mjs'), `import {existsSync} from 'node:fs'; import {writeFile,readFile} from 'node:fs/promises';
+      export const inject=['reportStyle','systemPrompt']; export function apply(ctx) {
+        ctx.systemPrompt.section({name:'report-style',order:850,text:ctx.reportStyle});
+        ctx.effect(()=>async()=> { if(!existsSync(${JSON.stringify(join(a,'hold-cleanup'))})) return;
+          await writeFile(${JSON.stringify(join(a,'cleanup-started'))},'yes');
+          while(!existsSync(${JSON.stringify(join(a,'release-cleanup'))})) await new Promise(resolve=>setTimeout(resolve,20));
+          await readFile(new URL(import.meta.url)); await writeFile(${JSON.stringify(join(a,'cleanup-done'))},'yes');
+        });
+      }`);
+    await writeFile(join(style, 'cordis.patch.yml'), JSON.stringify([{insert:[{id:'style-group',name:'cordis:group',group:true,isolate:{reportStyle:true},config:[{id:'style-provider',name:'./provider.mjs'},{id:'style-consumer',name:'./consumer.mjs'}]}]}]));
+    expect((await manage({action:'install_bundle',target:style})).text).toContain('applied');
+    const prompt = async (sessionId: string) => JSON.stringify((await client!.rpc.request('session.capabilities',{sessionId}) as {prompt:unknown}).prompt);
+    expect(await prompt('tools-a')).toContain('STYLE_ISOLATED_610');
+    expect(await prompt('tools-peer')).toContain('STYLE_ISOLATED_610');
+    expect(await prompt('tools-b')).not.toContain('STYLE_ISOLATED_610');
+    expect((await control({action:'list_bundles'})).entries.find(entry=>entry.name==='report-style')).toMatchObject({enabled:true});
+    await writeFile(join(a,'hold-cleanup'),'yes');
+    await control({action:'remove_bundle',target:'report-style'});
+    await expect.poll(()=>existsSync(join(a,'cleanup-started'))).toBe(true);
+    expect((await control({action:'list_bundles'})).pending).toBeTruthy();
+    // A new input stays in the native inbox during async teardown; B keeps running.
+    let newTurnFinished=false;
+    const queued=call('tools-a','workspace_echo',{value:'AFTER_CLEANUP'}).then(result=>{newTurnFinished=true;return result;});
+    const otherWorkspace = await call('tools-b','plugin_manager',{action:'list_bundles'});
+    expect(otherWorkspace.error, otherWorkspace.text).toBe(false);
+    expect(newTurnFinished).toBe(false);
+    expect(existsSync(join(a,'cleanup-done'))).toBe(false);
+    await writeFile(join(a,'release-cleanup'),'yes');
+    await expect.poll(async()=> (await control({action:'list_bundles'})).pending,{timeout:10_000}).toBeUndefined();
+    expect(existsSync(join(a,'cleanup-done'))).toBe(true);
+    expect((await queued).text).toContain('AFTER_CLEANUP');
+    expect(await prompt('tools-a')).not.toContain('STYLE_ISOLATED_610');
+    expect((await control({action:'list_bundles'})).entries.some(entry=>entry.name==='report-style')).toBe(false);
     await manage({ action: 'set_bundle', target: 'workspace-echo', enabled: false });
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     expect((await call('tools-a', 'workspace_echo', { value: 'disabled' })).error).toBe(true);

@@ -889,3 +889,30 @@ export interface SkillsUsageResponse {
 export async function getAgentSkillsUsage(agentId: string): Promise<SkillsUsageResponse> {
   return requestJson<SkillsUsageResponse>(`/im/v1/agents/${agentId}/skills/usage`);
 }
+
+export type PluginText = string | Record<string, string>;
+export interface AgentPlugin {
+  name: string;
+  display_name: PluginText;
+  description: PluginText;
+  version?: string;
+  enabled: boolean;
+  state: 'enabled' | 'disabled' | 'failed';
+  rows: {id: string; name: PluginText}[];
+  removable: boolean;
+  diagnostics: string[];
+}
+export interface AgentPlugins {
+  workspace: string;
+  entries: AgentPlugin[];
+  pending?: {action: string; target: string; enabled?: boolean; phase: 'waiting' | 'applying'};
+  error?: string;
+  diagnostics?: string[];
+}
+export type PluginCommand = {action: 'set_bundle'; target: string; enabled: boolean} | {action: 'remove_bundle'; target: string};
+export function listAgentPlugins(agentId: string): Promise<AgentPlugins> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`);
+}
+export function manageAgentPlugin(agentId: string, command: PluginCommand): Promise<AgentPlugins> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`, {method: 'POST', body: JSON.stringify(command)});
+}
