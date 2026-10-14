@@ -175,3 +175,45 @@ R2-W1 与其前身 R1-W2 已关闭；R1-W1 保持 closed。设计已具备不操
 ### Recommendations
 
 无额外建议。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 有限复核安装版包管理器启动事实及 Node → integration 的内部 initialize 接线；不改变工具契约、profile 持久化、安装/执行 scope、审批或子任务边界，无需重做完整审查。
+- started_at: 2026-10-15T00:17:34+08:00
+- completed_at: 2026-10-15T00:18:49+08:00
+- duration: 1m15s（完成 worktree 状态与 diff 读取后计时）
+- baseline: worktree `/Users/czj/.codex/worktrees/workspace-tools/nano-multiagent`，branch `codex/feat-610-workspace-tools`，HEAD `c4822c94f6c388fc4807a2bc88a199b581f42e03` 加当前包管理器接线 diff；锁定 DSH/Include 基线不变。
+- retained_from: Round 1 的完整覆盖、Round 2 的白名单闭环及 Round 3 的 generation/失败恢复/持久化实测；本轮变化不影响这些证据。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+安装版自带 pnpm 的路径与 installer 一致，启动事实来源和传递时序正确。包操作通过原生 `ProfileContext.packageManager` 执行，源码模式继续采用原生默认。
+
+### Coverage 与证据
+
+- **实际 installer 路径**：`apps/im-server/assets/install.sh:43-46` 将 pnpm 安装在 `<NANO_ROOT>/tooling/node_modules/pnpm/bin/pnpm.cjs`；`65,88,91` 将 release 放在 `<NANO_ROOT>/releases/<hash>` 并从该 release 的 `apps/node/lib/cli.js` 启动。`apps/node/src/release.ts:6` 的 `releaseRoot` 从 `apps/node/lib/release.js` 定位 release 根，因此 `41` 行 `../../tooling/node_modules/pnpm/bin/pnpm.cjs` 正好指向 installer 的私有文件。现有 updater 也使用同一路径（`apps/node/src/update-worker.ts:34-35`）。
+- **缺口与最小修复相符**：LaunchAgent 固定 PATH 不包含私有 pnpm 目录（`apps/node/src/lifecycle.ts:153-160`），因此仅依赖原生默认 `pnpm` 的确不能覆盖安装版。新增方案直接用 `process.execPath` 执行私有 pnpm JS 入口，包操作的 PATH 前置该 Node 所在目录，供 pnpm 及其子进程找到相同 Node；没有修改父进程全局 PATH，也没有要求用户全局安装 pnpm。
+- **可信来源**：`loadNodeRelease()` 先解析安装 manifest 并核对 release metadata（`release.ts:13-28`）；`installedPackageManager()` 只对其 managed 结果提供 invocation，source 返回 undefined（`39-42`）。`main.ts:26,61` 在 Node 启动路径调用该组合，不从模型参数、Agent 配置或 workspace profile 读 executable/args。Node 保持结构化事实提供者，只使用 integration client，不新增 DSH import。
+- **接口与时序**：可信 invocation 经内部 stdio `initialize.packageManager` → `ConfigurationScopes.packageManager()` → `WorkspaceExtensions.packageManager` → `WorkspaceOwner.create()` 注入独立管理 Context 的 `ProfileContext.packageManager`（`packages/dsh-integration/src/index.ts:240-261`、`agent-config.ts:36-37`、`workspace-tools.ts:31,47,80-87`）。设置发生在产品 presets 注册之前，首个 workspace manager 创建时即可获得 invocation；未提供时保留既有宿主/native 默认。
+- **原生消费方式**：锁定 DSH 的公开 `ProfilePnpmInvocation` 由 command/args/env 构成；原生 manager 将该值交给包操作，registry 查询同样使用它（参考源码 `packages/boot/plugin-manager/src/index.ts:335-339,680-692`）。包操作使用调用方命令及前置参数，并将 invocation env 合并入包操作环境（`src/operations.ts:315-358,598,630`）。这属于原生支持的应用内置包管理器入口，无需 shell wrapper、上游 patch 或新增包生命周期。
+- **窄验证**：运行 `pnpm exec vitest run apps/node/tests/node-updater.test.ts packages/dsh-integration/tests/workspace-tools.test.ts -t 'distinguishes source installs|verifies fixed HTTPS|installs workspace tools'`，结果 2 files passed、3 tests passed、1 test 因筛选跳过。覆盖 source 不注入、verified managed release 的 installer 形状路径/绝对命令，以及 DSH runtime PATH 隐藏全局工具时，通过可信 invocation 完成实际 workspace 安装、使用、恢复和重启路径。
+- **证据边界**：这是 installer 路径、启动接口与原生进程可行性复核；未运行完整公开下载安装或部署验收。没有因此扩大本轮范围，也没有重复 R1–R3 全审。
+- 本轮只追加本报告，没有修改实现或其他文档，没有提交；作者已有修改保持。测试自行清理其临时 runtime/进程。
+
+### 历史问题闭环
+
+R1-W1、R1-W2、R2-W1 保持 closed；本轮无新增问题。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。

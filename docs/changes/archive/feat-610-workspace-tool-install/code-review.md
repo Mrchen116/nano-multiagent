@@ -32,3 +32,27 @@ Approved. No confirmed or plausible actionable defect remains in the reviewed im
 ```
 
 The caller identified a relative documentation link requiring a path-only correction during closeout; it does not alter the reviewed contracts or code. No source, tests, configuration or design were modified by this reviewer.
+
+## Round 2 — Installed package-manager patch
+
+- review_mode: patch
+- diff_range: `c4822c94f6c388fc4807a2bc88a199b581f42e03..d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- completed_at: 2026-10-15T00:20:00+08:00
+- verdict: Approved; findings `[]`.
+
+The patch fixes the observed `spawn pnpm ENOENT` in environments without global pnpm. Review is limited to the new installed command, trusted initialization plumbing, affected regression and documentation changes; Round 1's core implementation conclusions are retained.
+
+- `apps/node/src/release.ts:40-43` derives `../../tooling/node_modules/pnpm/bin/pnpm.cjs` from the verified release directory. This matches `apps/im-server/assets/install.sh:43-46,65` (`<install-root>/tooling`, `<install-root>/releases/<hash>`) and `apps/node/src/update-worker.ts:22,34-35`. `process.execPath` supplies an absolute Node invocation, and its directory is added only to the package operation environment. Source releases return no override.
+- `apps/node/src/main.ts:61` sends that Node-owned fact over the existing stdio initializer. `packages/dsh-integration/src/index.ts:251` installs it after Loader readiness and before any configured Agent preset registration. `agent-config.ts:41` passes it to WorkspaceExtensions, which captures it on workspace owner creation (`workspace-tools.ts:47,80-87`). RuntimeSupervisor repeats initialization on process restarts; all owner creation paths therefore receive the same invocation.
+- Integration uses the published `ProfilePnpmInvocation` / `ProfileContext.packageManager` seam; Node does not import DSH. The installed package exports and native manager support command, argument and environment overrides. Independent runtime dependency contract rerun at the new snapshot: **13 passed**. Patch whitespace check passed.
+- Inspected `/tmp/feat610-pinned-pnpm-red.log`: real install failed with exit 127 / `spawn pnpm ENOENT`. Inspected `/tmp/feat610-pinned-pnpm-green.log`: **2 files / 4 tests passed**. Workspace regression now hides runtime PATH, supplies a real absolute pnpm invocation through initialize, and completes installation, failed-source repair, isolation, restart and revocation. The node-updater fixture independently executes the derived private CLI path, rather than only comparing its string. Build/typecheck success is caller-provided evidence at this snapshot.
+- `acceptance.md` records the independent real-LLM **7/7** journey at `33ef0d76d`; its product behavior evidence remains applicable. This patch supplies the missing installer execution command and changes neither workspace selection, permission filtering, lifecycle semantics nor user-facing tool protocol. No full product re-acceptance is required for this delta. It does not claim a published installer/fleet deployment was performed.
+- Final snapshot suite results inspected: `pnpm test` **84 files / 313 tests passed** (`/tmp/feat610-final-tests.log`); non-E2E pytest **56 passed / 31 deselected** (`/tmp/feat610-final-pytest.log`). Independent design-review R4 passed with 0 CRITICAL / 0 WARNING; isolated product services were cleaned by caller.
+
+```json
+[]
+```
+
+No source, tests, configuration or design were modified by this reviewer; only this report and verification were appended.

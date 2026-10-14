@@ -32,3 +32,16 @@
 - 红/绿证据：`/tmp/feat610-pinned-pnpm-red.log`、`/tmp/feat610-pinned-pnpm-green.log`。
 - 产品验收在原核心实现 `33ef0d7` 已完成 7/7 场景；新增接线仅改变安装版的原生包执行命令，源码真栈语义未变。
 - 隔离 Node/DSH 两次重启后由 `e2e-down.sh` 按 lifecycle 状态正常停止；IM 随同停止，端口54267与PID505/511已确认不存在。
+
+## 最终集成与门禁有效性
+
+- final sync：origin/main 仍为 `9182699fca58d42fbf166f3de7445c635dcb3527`；无外部推进或冲突。
+- 最终源码版本：`d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`；build/typecheck passed；全量84 files/313 tests、non-E2E pytest56 passed/31deselected。未改前端/Python规则，保留此前881项前端与Ruff通过证据。
+- 独立设计R4 Approved 0/0；独立code-review patch findings=[]；verifier delta pass/corrected-delta aligned。
+- 真实IM/LLM产品7/7通过的validated_at为`33ef0d76d342a10c411ccbc0828f82d0d564e810`；静态审查已确认安装版可信命令接线不改变源码产品旅程，保留该报告。
+- effective_base：`9182699fca58d42fbf166f3de7445c635dcb3527`；effective_through：本归并/归档提交（可用`git log --grep='archive feat-610'`定位）。后续只含报告、已校正delta原文归并、目录移动和相对链接修正；没有运行时代码变化，已审源码与验收结论retained。
+- 用户要求继续网页体验，因此重新启动同一隔离栈，保留workspace、数据库与配置。服务不会在本轮交付时关闭，worktree保留给用户；后续用户结束体验时按此worktree的`./scripts/e2e-down.sh`停止，再归档worktree。生产未改动。
+
+## 用户网页体验场景
+
+在最终源码d7265f0上重启保留的隔离服务，真实DeepSeek模型自行创作`expense-summary-bundle`三个文件，通过`plugin_manager`安装启用并实际调用`expense_summary`，5条跨月支出得到2026-10的4笔、办公89.90/交通50.70/餐饮48.00，总计188.60元；9月20元正确排除。用户消息`43132288c4de4befa27070feae34444c`、回复`f5084f651ba04857b5473dd4b2f223b0`，聊天`c_pp1ump8j`。未修改白名单、未为安装重启。浏览器已正常登录测试账号并打开聊天，展开Process确认三个write、plugin_manager与expense_summary输入/结果真实可见。服务IM端口54267、Node/DSH启动时PID5181/5187，保留给用户继续体验。

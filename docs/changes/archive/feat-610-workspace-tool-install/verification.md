@@ -93,3 +93,32 @@ Delta: `specs/gateway/agent-capabilities.md` within this unit; canonical destina
 None. Ordinary external package replacement retains native `restart-required`, as explicitly documented in design and the product manual; local authored bundles use the approved generation path. Package build approval remains part of native management and existing Nano execution approval.
 
 Outcome: aligned
+
+## Round 2 — Package invocation delta verification
+
+- verification_mode: delta
+- fix_delta_range: `c4822c94f6c388fc4807a2bc88a199b581f42e03..d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- prior_verification: Round 1 above, validated at `33ef0d76d342a10c411ccbc0828f82d0d564e810`
+- completed_at: 2026-10-15T00:20:00+08:00
+- verdict: pass
+- issues / validated_issues: none; 0 CRITICAL / 0 WARNING / 0 SUGGESTION
+- requires_full_verification: false
+- report_commit: caller-owned shared worktree; not committed by reviewer.
+
+| Affected contract | Actual implementation / evidence | Result |
+|---|---|---|
+| Managed installations can self-install without global pnpm | `apps/node/src/release.ts:40-43` uses the installer's private pnpm path and absolute Node; installer `apps/im-server/assets/install.sh:43-46,65` and updater `apps/node/src/update-worker.ts:22,34-35` confirm that layout | aligned |
+| Package manager is trusted startup data, outside model/Agent scope arguments | Node main initializer → `index.ts:251` → `agent-config.ts:41` → workspace owner's native `ProfileContext.packageManager`; assigned before configured preset registration | aligned |
+| Public DSH runtime boundary remains intact | Type exported by locked `@deepseek-ai/dsh-app-boot`; no DSH import from Node; independent architecture suite **13 passed** at this snapshot | aligned |
+| Source and workspace execution semantics remain valid | Source release returns undefined and owner preserves native default; only package command changes; scope, allowlist, generations, load audit and management operations unchanged | aligned |
+| Real no-global-pnpm failure has regression protection | Red log contains `spawn pnpm ENOENT`; green log has **2 files / 4 tests passed**. Runtime PATH is hidden during the full native install/repair/isolation/restart/revocation test; updater fixture executes the resolved private CLI path | covered |
+
+Commands/results reused at this snapshot: caller's `pnpm build` and `pnpm typecheck` passed; `pnpm exec vitest run packages/dsh-integration/tests/workspace-tools.test.ts apps/node/tests/node-updater.test.ts` passed, confirmed from `/tmp/feat610-pinned-pnpm-green.log`. Independently reran `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract/test_runtime_dependency_contract.py` (**13 passed**) and `git diff --check c4822c94f..d7265f0a3` (passed). Earlier full-suite evidence remains applicable to unchanged paths.
+
+Corrected delta remains **aligned**: its consumer requirements and scenarios are unchanged in this patch; the design addition makes the existing self-install promise work with the installer-owned package manager. No omitted new user behavior was found. The unique Corrected Delta Reconciliation section above retains its outcome; this round extends its installation evidence.
+
+The independent `acceptance.md` reports real IM → Node → DSH → real LLM **7/7** at `33ef0d76d`. Those product results remain valid: the patch changes only the managed package execution command, and the new real native regression validates the affected seam with global pnpm unavailable. Full product verification is not required again; this conclusion does not expand that acceptance to published installer execution or production deployment. Independent design-review R4 passed with 0 CRITICAL / 0 WARNING; it remains a separate design gate. Caller confirmed isolated product services were cleaned.
+
+Final snapshot evidence inspected: `pnpm test` **84 files / 313 tests passed** (`/tmp/feat610-final-tests.log`); non-E2E pytest **56 passed / 31 deselected** (`/tmp/feat610-final-pytest.log`). These supersede the earlier retained whole-suite evidence for the final implementation version.
