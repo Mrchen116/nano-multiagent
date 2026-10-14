@@ -254,8 +254,14 @@ export class GlobalAgent {
     signal.throwIfAborted();
     // Receive and dispatch admission are synchronous in this node's event loop.
     inbox.preparePublication(call.operationId, target, text);
-    if (info?.type === 'group' && info.channel === 'web' && (global ? inbox.blocking(binding.agentId, conversation!) : correction)) {
-      const result = { status: 'held_for_revalidation', target, message: 'Read the new messages in this conversation and reconsider before sending.' };
+    // External conversations and their IM mirrors share one delivery target.
+    const inboxTargets = [conversation, info?.target, conversation && store.imConversation(binding.agentId, conversation)];
+    const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
+    const unreadTargets = global && revalidate ? [...new Set(inboxTargets)].filter((target): target is string => typeof target === 'string' && inbox.blocking(binding.agentId, target)) : [];
+    if (revalidate && (global ? unreadTargets.length > 0 : correction)) {
+      const result = { status: 'held_for_revalidation', target, ...(global ? { inbox_targets: unreadTargets } : {}), message: global
+        ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
+        : 'Read the new messages in this conversation and reconsider before sending.' };
       inbox.settlePublication(call.operationId, 'held', result);
       if (global) this.append(binding, `publication:${call.operationId}`, 'draft_withheld', { call_id: call.callId, target, text }, turn);
       return result;
