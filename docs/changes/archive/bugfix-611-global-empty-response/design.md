@@ -39,7 +39,7 @@
 - 修复后：该包 30 个测试文件、74 项测试通过；包 build/typecheck、13 项运行时依赖契约测试、git diff --check 通过。
 - 一次性真实 profile 的 session.capabilities 检查确认：非空收尾要求和私有/显式交付边界已进入组装提示词，旧的允许空正文结束语句已移除。
 - 全仓 docs-check 被基线既有 `docs/changes/feat-610-workspace-tool-install/specs/gateway/agent-capabilities.md:7` 的 `task-graphs.md` 断链阻塞；git show Base 核实该断链先于本次改动，未扩大本次范围。
-- 真实模型场景验证：见 [regression.md](regression.md)，六个隔离用例通过；生产送达与用户亲自验收尚未发生，单次模型结果不等于行为稳定性保证。
+- 真实模型场景验证：见 [regression.md](regression.md)，六个隔离用例通过；生产送达尚未验证，用户于 2026-10-15 确认快修验收通过，单次模型结果不等于行为稳定性保证。
 
 ## 后续增量验证
 
@@ -47,4 +47,4 @@
 
 ## Canonical 文档影响
 
-目标见 `specs/gateway/global-agent.md` delta。用户验收后归并并归档；目前不将方案批准记成产品验收。
+目标见 `specs/gateway/global-agent.md` delta。用户已于 2026-10-15 明确验收通过；按最终 delta 归并到 docs/specs/gateway/global-agent.md，同步包入口 Requirement 数量，然后整 unit 归档。

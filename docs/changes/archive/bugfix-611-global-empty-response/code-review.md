@@ -37,4 +37,12 @@
 
 ## Closure
 
-两轮均无存活 finding。原生重试保持首轮结论，过程沟通增量通过第二轮审查。无真实模型/生产验收；用户批准方案不视为亲自验收，unit 保持 active，尚未归并 canonical、归档或部署。
+两轮均无存活 finding。原生重试保持首轮结论，过程沟通增量通过第二轮审查。六个真实模型隔离场景通过（见 regression.md），用户于 2026-10-15 明确确认快修验收通过。生产送达未验证，未部署。
+
+## 最终同步与归档有效性
+
+- git fetch origin main 后，远端 main 仍为 `9182699fca58d42fbf166f3de7445c635dcb3527`；main 增量为空，无需 rebase 或重复源码审查。
+- `validated_at`: Round 1/2 所列固定基线加对应源码散列；`executed_base` / `effective_base`: `9182699fca58d42fbf166f3de7445c635dcb3527`。
+- `effective_through`: 最终归档提交（PR 记录实际 SHA）；源码与 Round 2、真实模型测试版本相同，保留审查及用户验收结论。
+- 收尾仅归并已验证 delta、澄清公开静默不等于省略内部收尾、更新验收记录并移动 unit。
+- 本地 docs-check 的既有阻塞：feat-610 delta 中 task-graphs.md 相对链接错误；仅改为正确的 canonical 相对路径，无产品行为或 feat-610 设计变化，不使审查/验收失效。

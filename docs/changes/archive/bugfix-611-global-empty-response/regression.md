@@ -45,4 +45,17 @@
 
 ## Limit
 
-这是真实 DSH + 真实模型的集成场景测试，不是生产 Web IM/飞书送达验收。产品 Inbox 和发送出口、权限使用隔离 harness；未覆盖真实审批、生产网络投递、既有超长上下文或所有模型。单次通过不代表模型行为必然稳定。本报告由主会话执行，不代替用户亲自体验或独立产品验收；unit 继续保持 active。
+这是真实 DSH + 真实模型的集成场景测试，不是生产 Web IM/飞书送达验收。产品 Inbox 和发送出口、权限使用隔离 harness；未覆盖真实审批、生产网络投递、既有超长上下文或所有模型。单次通过不代表模型行为必然稳定。本报告由主会话执行，不冒充独立产品验收。用户随后于 2026-10-15 明确确认“这次快修验收通过，收尾归档提 PR 吧”；该确认作为本次快速开发的用户验收记录，不扩大为生产送达证明。
+
+## 归档前本地 CI 等价检查
+
+最终源码与真实模型测试版本一致，归档前仅补契约与文档：
+
+- `pnpm build`、`pnpm typecheck`：通过。
+- `pnpm test`：83 files / 312 tests 通过。
+- `pytest -m "not e2e" -q`：56 passed，31 deselected；本次真实模型场景单独记录于上文。
+- `ruff check .`、`ruff format --check .`：通过（82 files）。
+- 前端 `npm ci`、`npm audit --audit-level=critical`：通过，0 vulnerabilities。
+- 前端 `npm test`：首次 880/881，通过前端全量与后端并行执行时，bind-confirm-page 的 1 s waitFor 未观察到绑定预览；相关前端文件相对 origin/main 无 diff。随后该文件单独运行 2/2 通过；后端结束后的前端全量复跑 881/881 通过。原因未确证，未把重跑通过视为已诊断或修复，也未更改测试超时或产品代码。
+- `scripts/docs-check`、`git diff --check`：通过。docs-check 的既有 feat-610 相对链接已作单行纠正，不涉及产品行为。
+- iOS 未改动，不执行原生 iOS 本地门禁；远端按 CI 的路径检测选择。
