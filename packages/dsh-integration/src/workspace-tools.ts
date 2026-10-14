@@ -115,6 +115,11 @@ class WorkspaceOwner {
     catch (error) { this.diagnostics = [String(error)]; return; }
     const diagnostics: string[] = [];
     for (const mount of this.mounts) {
+      // Services can contribute static tools after preset construction (for example Cron previews).
+      // Only names introduced by this Include update may become workspace additions.
+      for (const tool of mount.ctx.tools.schemas(scopeOf(mount.ctx))) {
+        if (!mount.tools.includes(tool.name)) mount.baseline.add(tool.name);
+      }
       const loadErrors: string[] = [];
       // Loader deliberately logs import failures instead of throwing them; retain the original local diagnostic too.
       const stop = this.host.logger.exporter({ levels: { default: 2 }, export: message => {

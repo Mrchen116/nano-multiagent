@@ -1,4 +1,5 @@
 import * as Label from "@radix-ui/react-label";
+import { useTranslation } from "../../../i18n";
 
 // M19/R11-3: prototype `im-components.jsx::MultiSelect` 视觉重写 —
 // 全部 options 平铺 pill (不是 picker / 浮层 / checkbox grid),每项 <button>
@@ -9,6 +10,8 @@ import * as Label from "@radix-ui/react-label";
 export type PillOption = {
   name: string;
   description?: string;
+  source_group?: string | null;
+  enabled?: boolean;
 };
 
 type PillSelectorProps = {
@@ -34,6 +37,9 @@ export function PillSelector({
   onRetry,
   onChange,
 }: PillSelectorProps) {
+  const { t } = useTranslation();
+  const workspace = options.filter(opt => opt.source_group === "workspace");
+  const selectable = options.filter(opt => opt.source_group !== "workspace");
   function isSelected(opt: PillOption): boolean {
     return selected.includes(opt.name) || fixed.includes(opt.name);
   }
@@ -64,10 +70,10 @@ export function PillSelector({
           role="group"
           aria-label={label}
         >
-          {options.length === 0 ? (
+          {selectable.length === 0 ? (
             <p className="text-sm text-slate-500">—</p>
           ) : (
-            options.map((opt) => {
+            selectable.map((opt) => {
               const isOn = isSelected(opt);
               return (
                 <button
@@ -91,6 +97,23 @@ export function PillSelector({
             })
           )}
         </div>
+      )}
+      {!isLoading && !errorMessage && workspace.length > 0 && (
+        <section className="mt-4 grid gap-2" aria-label={t("agents.form.access.workspaceTools")}>
+          <h4 className="text-sm font-semibold">{t("agents.form.access.workspaceTools")}</h4>
+          <p className="text-xs leading-5 text-slate-500">{t("agents.form.access.workspaceToolsHelp")}</p>
+          {workspace.map(opt => (
+            <article key={opt.name} className="min-w-0 rounded-xl border border-[var(--im-border)] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="break-all font-mono text-xs font-semibold">{opt.name}</span>
+                <span className={opt.enabled ? "text-xs font-semibold text-teal-700" : "text-xs text-slate-500"}>
+                  {t(opt.enabled ? "agents.form.access.workspaceToolEnabled" : "agents.form.access.workspaceToolUnavailable")}
+                </span>
+              </div>
+              <p className="mt-1 break-words text-xs leading-5 text-slate-500">{opt.description}</p>
+            </article>
+          ))}
+        </section>
       )}
     </div>
   );

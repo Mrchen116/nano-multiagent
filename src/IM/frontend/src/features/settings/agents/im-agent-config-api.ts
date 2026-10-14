@@ -65,6 +65,7 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
+  enabled?: boolean;
   // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
@@ -326,6 +327,7 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         name: value.name.trim(),
         description: value.description ?? "",
         default_on: value.default_on,
+        ...(typeof value.enabled === "boolean" ? {enabled: value.enabled} : {}),
         location: value.location ?? null,
         source_group: value.source_group ?? null,
       }];

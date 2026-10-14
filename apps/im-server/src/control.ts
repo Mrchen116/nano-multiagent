@@ -496,6 +496,7 @@ function allowlistOptions(value: unknown): Row[] {
         name: entry.name.trim(),
         description: typeof entry.description === "string" ? entry.description.trim() : "",
         default_on: !!entry.default_on,
+        ...(typeof entry.enabled === "boolean" ? {enabled: entry.enabled} : {}),
         location: optionalText(entry.location),
         source_group: ["workspace", "global", "compatibility"].includes(entry.source_group)
           ? entry.source_group

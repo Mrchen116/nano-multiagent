@@ -36,7 +36,14 @@ export class ToolSelection {
   catalog(agent: Agent) {
     const state = this.agents.get(agent)!;
     this.changing = true;
-    try { state.dispose?.(); state.dispose = undefined; return agent.ctx.tools.schemas(agent); }
+    try {
+      state.dispose?.(); state.dispose = undefined;
+      const schemas = agent.ctx.tools.schemas(agent);
+      const installed = new Set(this.installed(state.config));
+      const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name)));
+      return schemas.map(tool => installed.has(tool.name)
+        ? { ...tool, source_group: 'workspace' as const, enabled: selected.has(tool.name) } : tool);
+    }
     finally { this.refresh(agent, state); this.changing = false; }
   }
   update(agentId: string) {

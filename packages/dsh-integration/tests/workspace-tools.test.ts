@@ -73,6 +73,13 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).toContain('workspace_echo');
     expect(await capabilities('tools-a')).not.toContain('read');
     expect(await capabilities('tools-a2')).toContain('workspace_echo');
+    const catalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as {tools: {name: string; source_group?: string; enabled?: boolean}[]};
+    expect(catalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: true});
+    const emptyCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'empty', cwd: a}) as typeof catalog;
+    expect(emptyCatalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: false});
+    const refreshedCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as typeof catalog;
+    expect(refreshedCatalog.tools.filter(tool => tool.source_group === 'workspace').map(tool => tool.name)).toEqual(['workspace_echo']);
+    expect(await capabilities('tools-a')).not.toContain('schedule_create');
     expect(await capabilities('tools-b')).not.toContain('workspace_echo');
     expect(await capabilities('tools-empty')).toEqual([]);
     expect((await call('tools-a2', 'workspace_echo', { value: 'LIVE_WORKSPACE_RESULT' })).text).toContain('LIVE_WORKSPACE_RESULT');

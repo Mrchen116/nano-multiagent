@@ -79,3 +79,15 @@ Review 驱动方式：不改客户端，用客户端真实的 IM 消息接口驱
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-workspace-tools | 接通 workspace 原生安装与热装配 | 无 | 单组 | dsh-integration、Node capabilities 必要接线、产品手册、原生进程测试 | [reviewer] spec 全部场景；[worker] 锁定 DSH 原生服务和 loader 实际安装/启停/失败/重启测试，跨 workspace 不可发现及实际 dispatch 拒绝，旧工具禁用和空集保持，相关 typecheck/tests/docs-check 通过 |
+
+## 配置页状态补齐（用户网页体验反馈）
+
+用户在真实设置页看到 expense_summary 已列出但未勾选：当前配置控件直接读取静态名单，误导已生效工具仍需手选。沿用页面 Access & Model 与既有工具 pill 样式；静态工具区仍可编辑。其下单独展示 Workspace tools，列出工具名、说明、实际 Enabled/Unavailable 状态；提示无需添加白名单，停用在聊天中完成。自动工具是只读状态，不给出无效开关，不写入静态名单；管理能力关闭时按实际工具集合显示不可用。桌面和窄屏沿用同一字段区自适应换行，不增加导航或其他管理界面。
+
+接口：原生 ToolSelection.catalog 对安装后新增的独立名字附 source_group=workspace 与 enabled（使用同一有效集合判定）；Node/IM 保留这两项事实，workspace 工具 default_on=false（不加入新建页静态默认名单）。前端工具 selector 把 workspace 项分组为只读状态卡，其他项保持原选择行为。未引入新的权限或持久状态。
+
+[局部原型](prototype.html)覆盖同一Access & Model工具区的已启用/管理关闭不可用状态。must-match：独立workspace来源、实际可用状态、无需勾选的提示，静态项仍可编辑且保存不添加workspace名称。may-adapt：沿用既有pill圆角与响应式换行。out-of-scope：其他配置字段/安装管理UI。Runbook追加：实际浏览器打开/settings/agents/e2e，工具区确认expense_summary状态；在聊天继续实际调用，对照配置未填新工具名；通过正常配置保存一个无关字段，再确认名单不变。用户当前使用隔离栈，复验先用后台新tab，结束保留用户原页。M1退出标准追加：[reviewer]此Scenario与局部原型信息层级实际走查；[worker]原生目录→IM归一化→前端只读展示与保存回归。
+
+来源识别修正：真实设置页的catalog预览会在preset装配后启用Cron服务，原先只保留最初baseline导致schedule_*误归自建工具。每次Include更新前把当前存在且不属于先前workspace增量的名字记入静态baseline；更新后仅新出现且不冲突的名字加入workspace增量。重复catalog回归先复现schedule_*误分类，再验证只剩真实自建名字；保持静态选择。
+
+原型边界：file://原型预览被浏览器URL策略拒绝（只允许http/https），未绕过该策略，prototype.html是未渲染草稿。已改为在获准的真实localhost产品页检查实际增量；独立review须以真实产品页面验证信息层级、响应式和状态，不声称草稿视觉已验证。

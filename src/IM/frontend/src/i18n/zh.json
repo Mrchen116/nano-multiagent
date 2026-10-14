@@ -516,6 +516,10 @@
         "policyOptionNoReply": "NO_REPLY — 在群里保持沉默"
       },
       "access": {
+        "workspaceTools": "Workspace 工具",
+        "workspaceToolsHelp": "自动管理，无需添加白名单。要停用或移除，请在聊天中告诉助手。",
+        "workspaceToolEnabled": "已启用",
+        "workspaceToolUnavailable": "不可用",
         "title": "访问与模型",
         "sub": "允许列表保持最小。",
         "skills": "技能",

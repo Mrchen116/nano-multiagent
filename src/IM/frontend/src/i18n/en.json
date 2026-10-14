@@ -517,6 +517,10 @@
         "policyOptionNoReply": "NO_REPLY — Stay silent in groups"
       },
       "access": {
+        "workspaceTools": "Workspace tools",
+        "workspaceToolsHelp": "Managed automatically; no allowlist entry needed. Ask the assistant in chat to disable or remove a tool.",
+        "workspaceToolEnabled": "Enabled",
+        "workspaceToolUnavailable": "Unavailable",
         "title": "Access & Model",
         "sub": "Keep allowlists minimal.",
         "skills": "Skills",

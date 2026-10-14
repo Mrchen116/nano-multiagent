@@ -444,3 +444,14 @@ it('finishes migration after recovering a pending legacy configuration operation
     expect(one(db,'SELECT skills_selection_mode FROM agent_profiles')?.skills_selection_mode).toBe('explicit_denylist');
   } finally { await app.close(); }
 });
+
+it("preserves workspace tool availability in the Agent capabilities response", async () => {
+  const {ctx} = fixture();
+  ctx.gateway.request = async () => ({capabilities:{tools:[{name:"expense_summary",description:"Monthly expenses",source_group:"workspace",enabled:true,default_on:false}]}});
+  const app=Fastify();registerControlRoutes(app,ctx);
+  try {
+    const response=await app.inject({method:"GET",url:"/im/v1/agents/a/capabilities"});
+    expect(response.statusCode).toBe(200);
+    expect(response.json().tools).toContainEqual(expect.objectContaining({name:"expense_summary",source_group:"workspace",enabled:true,default_on:false}));
+  } finally {await app.close();}
+});
