@@ -1,7 +1,7 @@
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { NodeConfiguration } from './configuration.js';
-import { loadNodeRelease } from './release.js';
+import { installedPackageManager, loadNodeRelease } from './release.js';
 import { NodeUpdater, updatePath } from './node-updater.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
@@ -58,7 +58,7 @@ const reportError = (error: unknown) => process.stderr.write(`${error instanceof
 const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
   initialize: async rpc => {
     await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
-    await rpc.request('initialize', { protocol: 1, agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
+    await rpc.request('initialize', { protocol: 1, packageManager: installedPackageManager(release), agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
   },
   onReady: async () => { if (!updateHolding) await admitted(async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (relay.ready && knowledge) await knowledge.migrateSkills(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } }); await lifecycle.ready(runtime.process!.pid!); },
   onError: reportError,

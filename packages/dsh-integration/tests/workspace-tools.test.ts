@@ -1,12 +1,15 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
 it('installs workspace tools into existing chats, isolates dispatch, retries failed source and preserves restart choices', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-workspace-tools-'));
+  const pnpm = await realpath(process.env.PATH!.split(delimiter).map(dir => join(dir, 'pnpm')).find(path => existsSync(path))!);
+  const packageManager = { command: pnpm, args: [], env: { PATH: process.env.PATH! } };
   const a = join(home, 'a'); const b = join(home, 'b'); const source = join(a, 'my-tool');
   let client: RuntimeClient | undefined; let logs = '';
   await mkdir(source, { recursive: true }); await mkdir(b);
@@ -52,8 +55,8 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
   try {
     await prepareProfile(home, [{ insert: [{ id: 'model', name: join(home, 'model.mjs') }] }]);
     const start = async (restore = false) => {
-      client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
-      await client.rpc.request('initialize', { protocol: 1, agents, bindings: restore ? bindings : [] });
+      client = new RuntimeClient({ home, cwd: home, env: { PATH: join(home, 'no-global-tools') }, onLog: text => { logs += text; } });
+      await client.rpc.request('initialize', { protocol: 1, packageManager, agents, bindings: restore ? bindings : [] });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
     await start();

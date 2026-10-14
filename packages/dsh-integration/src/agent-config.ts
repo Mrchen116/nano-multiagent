@@ -1,3 +1,4 @@
+import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import * as Skills from './capabilities.js';
@@ -32,6 +33,12 @@ export class ConfigurationScopes extends Service {
     this.extensions = new WorkspaceExtensions(ctx, id => this.tools.update(id));
     this.tools = new ToolSelection(ctx, config => this.extensions.tools(config.agentId));
   }
+  /** Configure the trusted Node package invocation before any workspace is mounted.
+   *
+   * Args:
+   *   invocation: Application-owned package command, or the native source default.
+   */
+  packageManager(invocation?: ProfilePnpmInvocation) { this.extensions.packageManager = invocation; }
   forAgent(agent: Agent) { return this.agents.get(agent)?.config; }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }
   catalog(agent: Agent) { return this.tools.catalog(agent); }

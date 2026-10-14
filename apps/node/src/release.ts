@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseReleaseManifest, type NodeRelease, type ReleaseManifest } from '@nano/product-contracts';
 
@@ -26,4 +26,18 @@ export async function verifyReleaseMetadata(root: string, manifest: ReleaseManif
       || metadata.updater_protocol !== 1 || metadata.data_epoch !== 1
       || manifest.updater_protocol !== 1 || manifest.data_epoch !== 1)
     throw new Error('Package release metadata does not match the compatible manifest');
+}
+
+/** Supply the installer's private pnpm for managed Node package operations.
+ *
+ * Args:
+ *   release: Verified identity of this running Node.
+ *   root: Release directory beneath the installation's releases directory.
+ * Returns:
+ *   Bundled invocation for managed installs, or the native default for source checkouts.
+ */
+export function installedPackageManager(release: NodeRelease, root = releaseRoot) {
+  if (release.kind !== 'managed') return;
+  return { command: process.execPath, args: [resolve(root, '../../tooling/node_modules/pnpm/bin/pnpm.cjs')],
+    env: { PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}` } };
 }

@@ -58,6 +58,8 @@ WorkspaceExtensions 服务统一拥有 profile、管理 Context、对应 preset 
 - 失败：保持 manager 实际磁盘结果与诊断；无关 bundle 的 Include 条目不变化。修复本地源后再次 install_bundle 创建新 generation，由原生安装器更新依赖，再实际验证新 URL 的加载与调用；禁止重复导入失败旧 URL 并声称恢复。
 - Node capabilities 与 configuration.selection 使用同一有效工具集合；公共 profile 的新增工具不影响其他 workspace。无需新增 IM API 或客户端 UI。
 
+**安装版使用自带 pnpm。** Node 已验证为 managed release 时，initialize 传入安装器固定 tooling/pnpm 的绝对命令与私有 PATH 环境；integration 只把该可信启动事实传给原生 ProfileContext.packageManager。源码模式保留原生默认。workspace profile、插件选择与包生命周期不变；不要求全局 pnpm，不修改节点全局 PATH。
+
 ## 契约层增量
 
 - gateway/agent-capabilities：workspace 自助安装、有限自动工具集合、在线启停和持久化，见 `specs/gateway/agent-capabilities.md`。

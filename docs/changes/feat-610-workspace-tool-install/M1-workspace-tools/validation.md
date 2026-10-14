@@ -22,3 +22,13 @@
 | `git diff --check` | passed | diff 格式 |
 
 独立静态审查、corrected-delta 和真实 IM+Node+DSH/LLM 产品验收结论分别见 unit 的 code-review、verification 与 acceptance 报告。隔离真栈使用 worktree 专用身份、workspace、运行数据和随机端口；不触碰生产配置或服务。
+
+## 安装版包管理器补充
+
+收尾发现安装器把 pnpm 安装在私有 tooling 目录，LaunchAgent PATH 不含它。将真实 DSH 测试进程 PATH 设为空目录，并通过 initialize 传入可信 packageManager：修复前 install_bundle 返回 exitCode=127 / spawn pnpm ENOENT；接通原生 ProfileContext.packageManager 后，同一完整安装/失败修复/隔离/重启测试通过。Node 已安装 release 测试通过实际执行 installer 所用私有 pnpm 路径验证 resolver；源码 release 保持默认。
+
+- `pnpm build`、`pnpm typecheck` passed（本轮含安装版接线）。
+- `pnpm exec vitest run packages/dsh-integration/tests/workspace-tools.test.ts apps/node/tests/node-updater.test.ts`：2 files / 4 tests passed。
+- 红/绿证据：`/tmp/feat610-pinned-pnpm-red.log`、`/tmp/feat610-pinned-pnpm-green.log`。
+- 产品验收在原核心实现 `33ef0d7` 已完成 7/7 场景；新增接线仅改变安装版的原生包执行命令，源码真栈语义未变。
+- 隔离 Node/DSH 两次重启后由 `e2e-down.sh` 按 lifecycle 状态正常停止；IM 随同停止，端口54267与PID505/511已确认不存在。

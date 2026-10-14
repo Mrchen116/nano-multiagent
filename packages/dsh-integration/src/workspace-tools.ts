@@ -9,7 +9,7 @@ import { Loader, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
 import { Include } from '@deepseek-ai/cordis-plugin-include';
 import { PluginManager, type ChangeResult } from '@deepseek-ai/dsh-plugin-manager';
 import type { PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types';
-import { bundlePatchPaths, composeEntries, initProfile, loadOverlayPatches, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
+import { type ProfilePnpmInvocation, bundlePatchPaths, composeEntries, initProfile, loadOverlayPatches, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
 import { auditRows } from '@deepseek-ai/dsh-agent-preset-registry';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import type {} from '@deepseek-ai/dsh-hmr';
@@ -28,6 +28,7 @@ class WorkspaceInclude extends Include {
 
 /** Own workspace profiles while native DSH owns package operations and plugin lifecycles. */
 export class WorkspaceExtensions {
+  packageManager?: ProfilePnpmInvocation;
   private readonly owners = new Map<string, Promise<WorkspaceOwner>>();
   private readonly mounts = new Set<Mount>();
   constructor(private readonly ctx: Context, private readonly changed: (agentId: string) => void) {
@@ -43,7 +44,7 @@ export class WorkspaceExtensions {
     if (!config.workspace) return;
     const workspace = await realpath(config.workspace);
     let pending = this.owners.get(workspace);
-    if (!pending) { pending = WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id)); this.owners.set(workspace, pending); }
+    if (!pending) { pending = WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id), this.packageManager); this.owners.set(workspace, pending); }
     const owner = await pending;
     ctx.tools.register({ name: 'plugin_manager',
       description: 'Install and manage tools only in this configured workspace. Actions: list_bundles, install_bundle (target local bundle directory or package spec), set_bundle (target bundle name and enabled), remove_bundle. Create a local standard DSH bundle with package.json {name,version,type:"module",dsh:{bundle:{patch:"./cordis.patch.yml"}}}, a patch [{insert:[{id:"my-tool",name:"./tool.mjs"}]}], and a JS plugin exporting inject=["tools"] and apply(ctx) that calls ctx.tools.register with name, description, parameters, output {schema,render}, execute. Local entries must stay inside the bundle. Successful installation makes new tool names available now without editing the static allowlist. Fix failed local source and install its directory again. Bundles and dependencies persist across restart. approvedBuilds only after explicit user approval for pending build scripts. Package replacement outside local bundles can require restart.',
@@ -76,14 +77,14 @@ class WorkspaceOwner {
   private readonly watches: (() => Promise<void>)[] = [];
   private diagnostics: string[] = [];
   private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly changed: (agentId: string) => void) {}
-  static async create(host: Context, workspace: string, changed: (agentId: string) => void): Promise<WorkspaceOwner> {
+  static async create(host: Context, workspace: string, changed: (agentId: string) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
     // A workspace owns an empty profile, not a second base runtime. initProfile preserves existing state.
     initProfile(dir, []);
     await writeFile(join(dir, 'runtime.json'), '[]', { flag: 'wx' }).catch(error => { if (error.code !== 'EEXIST') throw error; });
     const managerRoot = new Context();
     managerRoot.provide('profileContext', { name: 'workspace', dir, patchPath: join(dir, 'cordis.patch.yml'), installAnchor: anchor, cwd: workspace,
-      home: dir, startedBundles: [], overlays: [], telemetryDisabledEnv: '1', ...(host.profileContext.packageManager ? { packageManager: host.profileContext.packageManager } : {}) });
+      home: dir, startedBundles: [], overlays: [], telemetryDisabledEnv: '1', ...(packageManager ? { packageManager } : {}) });
     await managerRoot.plugin(Loader).await();
     await managerRoot.plugin(PluginManager, {}).await();
     const owner = new WorkspaceOwner(host, workspace, dir, managerRoot, changed);

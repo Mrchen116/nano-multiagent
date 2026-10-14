@@ -1,5 +1,6 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { randomUUID } from 'node:crypto';
+import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
@@ -236,7 +237,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { protocol: number; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
@@ -247,6 +248,7 @@ export default class NanoRuntime {
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
+      configurationService.packageManager(config.packageManager);
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
