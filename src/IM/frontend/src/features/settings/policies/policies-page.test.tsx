@@ -1,8 +1,16 @@
-import { focusManager } from "@tanstack/react-query";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { useAuthStore } from "../../auth/auth-store";
+import { TEST_AUTH_USER } from "../../../test/render-router";
+import { MemoryRouter } from "react-router-dom";
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PoliciesPage } from "./policies-page";
 import { appRoutes } from "../../../app/router";
 import { setLanguage } from "../../../i18n";
 import { renderRouter } from "../../../test/render-router";
@@ -166,5 +174,55 @@ describe("policies page", () => {
     expect(await screen.findByLabelText("Default Model")).toHaveValue(
       "codex_oauth:gpt-5.5",
     );
+  });
+  it("keeps the accepted save when an earlier background read completes last", async () => {
+    const state = mockPolicies();
+    useAuthStore
+      .getState()
+      .setSession({ access_token: "test", user: TEST_AUTH_USER });
+    const original = { ...state.policy };
+    const api = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    let release!: (response: Response) => void;
+    fetchMock.mockImplementation((input, init) => {
+      if (
+        input === "/im/v1/policies" &&
+        init?.method !== "PATCH" &&
+        ++reads > 1
+      )
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      return api(input, init);
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PoliciesPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    const field = await screen.findByLabelText("Default Model");
+    await user.clear(field);
+    await user.type(field, "Accepted save");
+    let refresh!: Promise<void>;
+    act(() => {
+      refresh = client.refetchQueries({ queryKey: ["settings", "policies"] });
+    });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    await user.click(screen.getByRole("button", { name: /save policies/i }));
+    await screen.findByText("Changes saved.");
+    await act(async () => {
+      release(new Response(JSON.stringify(original), { status: 200 }));
+      await refresh;
+    });
+    await user.tab();
+    expect(field).toHaveValue("Accepted save");
+    expect(screen.getByText("Changes saved.")).toBeInTheDocument();
+    client.clear();
   });
 });

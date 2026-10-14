@@ -12,7 +12,7 @@
 
 - `npm run build`：通过，568 modules；有既有大包与动态导入提示，不影响生成。
 - 前端全套 `npm test`：93文件 / 877测试通过；`npm audit --audit-level=critical`：0 vulnerabilities。
-- `pnpm build` 与 `pnpm typecheck`：通过（仅构建本地 installer candidate，没有发布）。`pnpm test` 在运行，最终状态由收尾 validation 记录。
+- `pnpm build` 与 `pnpm typecheck`：通过（仅构建本地 installer candidate，没有发布）。`pnpm test` 初次有一项未改动usage测试超时；单项重跑通过，保持15s timeout并限制maxWorkers=2后的完整80文件/296测试通过。未修改后端/测试/timeout，不能据此认定并发为唯一根因。
 - Python helpers：56 passed / 31 deselected；ruff check/format通过。日志临时定位 `/tmp/nano-feat604/`，最终归档记录必要摘要。
 
 ## 真实页面自检
@@ -22,3 +22,8 @@
 - 390px真实响应式下编辑最后一个留存字段，然后停止本次IM并提交。31天草稿保留，失败文字/保存按钮/真实四项底栏同屏；恢复同一IM后直接重试成功，刷新读回31天。[手机失败](policies-mobile-failure.png)。
 - 320px账号实际渲染，长显示名自然换行，表单与保存动作不横向溢出，真实底栏保持可达。[320px账号](account-mobile-320.png)。
 - 本段是实施者自检，不替代独立产品验收；只声明上述状态，不推导其余身份、英文窄屏和其他故障已通过。永久测试与真实自检共同支持后续独立验收。
+
+## 审查修复
+
+- 独立静态审查复现两页旧GET晚于PATCH返回会覆盖保存结果。新增既有页面回归测试在旧实现2项失败；成功回调取消同key在途读取后，3文件21项通过，frontend build再次通过。首文档/design/delta未改变。
+- 独立产品R1实际覆盖除S7后台交错之外的全部场景；保存失败/恢复已有真实证据，后台交错需在修复后的静态构建上补独立产品验证，不用组件测试冒充。

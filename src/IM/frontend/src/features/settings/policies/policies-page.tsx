@@ -58,7 +58,12 @@ export function PoliciesPage() {
   const [saved, setSaved] = useState(false);
   const mutation = useMutation({
     mutationFn: updatePolicies,
-    onSuccess(updated) {
+    async onSuccess(updated) {
+      // A pre-save read must not overwrite the response accepted by this save.
+      await client.cancelQueries({
+        queryKey: ["settings", "policies"],
+        exact: true,
+      });
       client.setQueryData(["settings", "policies"], updated);
       setDraft(null);
       setSaved(true);

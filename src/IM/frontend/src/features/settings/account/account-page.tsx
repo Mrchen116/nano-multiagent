@@ -26,17 +26,20 @@ export function AccountPage() {
   const valid = name.trim().length > 0;
   const mutation = useMutation({
     mutationFn: updateAccount,
-    onSuccess(updated) {
+    async onSuccess(updated) {
+      // A pre-save read must not overwrite the response accepted by this save.
+      await client.cancelQueries({
+        queryKey: ["settings", "account"],
+        exact: true,
+      });
       client.setQueryData(["settings", "account"], updated);
       const current = useAuthStore.getState().user;
       if (current)
-        useAuthStore
-          .getState()
-          .replaceUser({
-            ...current,
-            display_name: updated.display_name,
-            locale: updated.locale,
-          });
+        useAuthStore.getState().replaceUser({
+          ...current,
+          display_name: updated.display_name,
+          locale: updated.locale,
+        });
       setDraft(null);
       setSaved(true);
     },

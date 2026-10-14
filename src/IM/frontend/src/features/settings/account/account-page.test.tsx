@@ -1,8 +1,14 @@
-import { focusManager } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountPage } from "./account-page";
 import { appRoutes } from "../../../app/router";
 import { setLanguage } from "../../../i18n";
 import { renderRouter } from "../../../test/render-router";
@@ -227,5 +233,48 @@ describe("account settings", () => {
     expect(await screen.findByLabelText(/display name/i)).toHaveValue(
       "Alex Chen",
     );
+  });
+  it("keeps the accepted save when an earlier background read completes last", async () => {
+    mockAccountApi();
+    const original = meBody();
+    const api = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    let release!: (response: Response) => void;
+    fetchMock.mockImplementation((input, init) => {
+      if (input === "/im/v1/me" && init?.method !== "PATCH" && ++reads > 1)
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      return api(input, init);
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AccountPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    const field = await screen.findByLabelText(/display name/i);
+    await user.clear(field);
+    await user.type(field, "Accepted save");
+    let refresh!: Promise<void>;
+    act(() => {
+      refresh = client.refetchQueries({ queryKey: ["settings", "account"] });
+    });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    await user.click(screen.getByRole("button", { name: /save account/i }));
+    await screen.findByText("Changes saved.");
+    await act(async () => {
+      release(new Response(JSON.stringify(original), { status: 200 }));
+      await refresh;
+    });
+    await user.tab();
+    expect(field).toHaveValue("Accepted save");
+    expect(screen.getByText("Changes saved.")).toBeInTheDocument();
+    client.clear();
   });
 });
