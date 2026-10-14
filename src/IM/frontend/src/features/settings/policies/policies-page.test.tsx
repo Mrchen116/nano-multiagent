@@ -1,78 +1,228 @@
+import { useAuthStore } from "../../auth/auth-store";
+import { TEST_AUTH_USER } from "../../../test/render-router";
+import { MemoryRouter } from "react-router-dom";
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { screen } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PoliciesPage } from "./policies-page";
 import { appRoutes } from "../../../app/router";
+import { setLanguage } from "../../../i18n";
 import { renderRouter } from "../../../test/render-router";
+import type { PolicyProfile } from "../im-settings-api";
 
 const fetchMock = vi.fn();
-
 globalThis.fetch = fetchMock as typeof fetch;
-
-afterEach(() => {
-  fetchMock.mockReset();
-});
-
-describe("policies page", () => {
-  it("loads and saves policies through IM APIs", async () => {
-    const user = userEvent.setup();
-    let policies = {
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+function mockPolicies() {
+  const state = {
+    policy: {
       default_model: "codex_oauth:gpt-5.5",
       max_turn_per_run: 14,
       max_attachment_size_mb: 15,
       retention_days: 30,
       audit_level: "basic",
-      rate_limit_per_min: 45
-    };
-
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/policies" && init?.method === "PATCH") {
-        policies = JSON.parse(String(init.body)) as typeof policies;
-        return new Response(JSON.stringify(policies), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
+      rate_limit_per_min: 45,
+    } as PolicyProfile,
+    failWrite: false,
+    failRead: false,
+    failCapacity: false,
+    reads: 0,
+  };
+  fetchMock.mockImplementation(async (input, init) => {
+    if (input === "/im/v1/policies") {
+      if (init?.method === "PATCH") {
+        if (state.failWrite) return json({ detail: "unavailable" }, 503);
+        state.policy = JSON.parse(String(init.body));
+      } else {
+        state.reads += 1;
+        if (state.failRead) return json({ detail: "unavailable" }, 503);
       }
-      if (url === "/im/v1/policies") {
-        return new Response(JSON.stringify(policies), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
+      return json(state.policy);
+    }
+    if (input === "/im/v1/attachments/capacity")
+      return state.failCapacity
+        ? json({}, 503)
+        : json({
+            service: {
+              used_bytes: 100,
+              reserved_bytes: 20,
+              limit_bytes: 1024,
+              full: false,
+            },
+            owners: [],
+          });
+    if (input === "/im/v1/nodes") return json([]);
+    if (input === "/im/v1/sync") return json({ items: [], max_event_id: 0 });
+    if (input === "/im/v1/conversations") return json({ items: [] });
+    return json({}, 404);
+  });
+  return state;
+}
+function mount() {
+  renderRouter({ routes: appRoutes, initialEntries: ["/settings/policies"] });
+}
+beforeEach(() => setLanguage("en"));
+afterEach(() => {
+  focusManager.setFocused(undefined);
+  fetchMock.mockReset();
+});
 
-    renderRouter({
-      routes: appRoutes,
-      initialEntries: ["/settings/policies"]
-    });
-
-    await user.clear(await screen.findByLabelText("Default Model"));
-    await user.type(screen.getByLabelText("Default Model"), "claude-sonnet-4");
+describe("policies page", () => {
+  it("saves the complete policy and distinguishes presets from actual capacity", async () => {
+    const state = mockPolicies();
+    const user = userEvent.setup();
+    mount();
+    const model = await screen.findByLabelText("Default Model");
+    await user.clear(model);
+    await user.type(model, "claude-sonnet-4");
     await user.selectOptions(screen.getByLabelText("Audit Level"), "strict");
     await user.clear(screen.getByLabelText("Max Turn Per Run"));
     await user.type(screen.getByLabelText("Max Turn Per Run"), "24");
     await user.clear(screen.getByLabelText("Rate Limit / Min"));
     await user.type(screen.getByLabelText("Rate Limit / Min"), "88");
     await user.click(screen.getByRole("button", { name: "Save Policies" }));
-
-    expect(await screen.findByDisplayValue("claude-sonnet-4")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("24")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/im/v1/policies", expect.any(Object));
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/im/v1/policies",
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({
-          default_model: "claude-sonnet-4",
-          max_turn_per_run: 24,
-          max_attachment_size_mb: 15,
-          retention_days: 30,
-          audit_level: "strict",
-          rate_limit_per_min: 88
-        })
-      })
+    await waitFor(() =>
+      expect(state.policy).toEqual({
+        default_model: "claude-sonnet-4",
+        max_turn_per_run: 24,
+        max_attachment_size_mb: 15,
+        retention_days: 30,
+        audit_level: "strict",
+        rate_limit_per_min: 88,
+      }),
     );
+    expect(screen.getByRole("meter")).toHaveAttribute(
+      "aria-valuetext",
+      "120 B / 1 KiB",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save Policies" }),
+    ).toBeDisabled();
+  });
+
+  it("retains incomplete and failed drafts while capacity failures stay independent", async () => {
+    const state = mockPolicies();
+    state.failWrite = true;
+    state.failCapacity = true;
+    const user = userEvent.setup();
+    mount();
+    const field = await screen.findByLabelText("Max Turn Per Run");
+    const form = screen.getByRole("form", { name: "policies-form" });
+    await user.clear(field);
+    expect(field).toHaveValue(null);
+    expect(
+      within(form).getByRole("button", { name: "Save Policies" }),
+    ).toBeDisabled();
+    await user.type(field, "1.5");
+    expect(
+      within(form).getByRole("button", { name: "Save Policies" }),
+    ).toBeDisabled();
+    await user.clear(field);
+    await user.type(field, "24");
+    await user.click(
+      within(form).getByRole("button", { name: "Save Policies" }),
+    );
+    expect(await within(form).findByRole("alert")).toHaveTextContent(
+      /retained/i,
+    );
+    expect(field).toHaveValue(24);
+    expect(
+      within(form).getByRole("button", { name: "Save Policies" }),
+    ).toBeEnabled();
+    await user.click(within(form).getByRole("button", { name: /discard/i }));
+    expect(field).toHaveValue(14);
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+  });
+
+  it("keeps the policy draft when a background read updates saved values", async () => {
+    const state = mockPolicies();
+    const user = userEvent.setup();
+    mount();
+    const model = await screen.findByLabelText("Default Model");
+    await user.clear(model);
+    await user.type(model, "unfinished-model");
+    state.policy = { ...state.policy, default_model: "server-model" };
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(state.reads).toBeGreaterThan(1));
+    expect(model).toHaveValue("unfinished-model");
+    await user.click(screen.getByRole("button", { name: /discard/i }));
+    await waitFor(() => expect(model).toHaveValue("server-model"));
+  });
+
+  it("retries a policy load failure while actual storage stays available", async () => {
+    const state = mockPolicies();
+    state.failRead = true;
+    mount();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("meter")).toBeInTheDocument();
+    state.failRead = false;
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(await screen.findByLabelText("Default Model")).toHaveValue(
+      "codex_oauth:gpt-5.5",
+    );
+  });
+  it("keeps the accepted save when an earlier background read completes last", async () => {
+    const state = mockPolicies();
+    useAuthStore
+      .getState()
+      .setSession({ access_token: "test", user: TEST_AUTH_USER });
+    const original = { ...state.policy };
+    const api = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    let release!: (response: Response) => void;
+    fetchMock.mockImplementation((input, init) => {
+      if (
+        input === "/im/v1/policies" &&
+        init?.method !== "PATCH" &&
+        ++reads > 1
+      )
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      return api(input, init);
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <PoliciesPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    const field = await screen.findByLabelText("Default Model");
+    await user.clear(field);
+    await user.type(field, "Accepted save");
+    let refresh!: Promise<void>;
+    act(() => {
+      refresh = client.refetchQueries({ queryKey: ["settings", "policies"] });
+    });
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    await user.click(screen.getByRole("button", { name: /save policies/i }));
+    await screen.findByText("Changes saved.");
+    await act(async () => {
+      release(new Response(JSON.stringify(original), { status: 200 }));
+      await refresh;
+    });
+    await user.tab();
+    expect(field).toHaveValue("Accepted save");
+    expect(screen.getByText("Changes saved.")).toBeInTheDocument();
+    client.clear();
   });
 });

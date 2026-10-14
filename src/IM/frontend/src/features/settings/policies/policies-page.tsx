@@ -1,245 +1,303 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 
-import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { PolicyProfile, getPolicies, updatePolicies } from "../im-settings-api";
-
 import { useAuthStore } from "../../auth/auth-store";
-import { authFetchJson } from "../../auth/auth-fetch";
+import {
+  getPolicies,
+  updatePolicies,
+  type PolicyProfile,
+} from "../im-settings-api";
+import { AttachmentCapacityPanel } from "./attachment-capacity-panel";
+import "../settings-surfaces.css";
 
-// M2 restyle: 以 account-page.tsx 为 house-style 参考重写呈现层。
-// 字段集、getPolicies/updatePolicies 调用、保存语义全部不动。
-
-function isDirty(draft: PolicyProfile, saved: PolicyProfile): boolean {
-  return (
-    draft.default_model !== saved.default_model ||
-    draft.audit_level !== saved.audit_level ||
-    draft.max_turn_per_run !== saved.max_turn_per_run ||
-    draft.rate_limit_per_min !== saved.rate_limit_per_min ||
-    draft.max_attachment_size_mb !== saved.max_attachment_size_mb ||
-    draft.retention_days !== saved.retention_days
-  );
+type Draft = Record<keyof PolicyProfile, string>;
+const groups = [
+  { key: "runtime", fields: ["default_model", "max_turn_per_run"] },
+  { key: "safety", fields: ["audit_level", "rate_limit_per_min"] },
+  { key: "storage", fields: ["max_attachment_size_mb", "retention_days"] },
+] as const;
+const labels: Record<keyof PolicyProfile, string> = {
+  default_model: "defaultModel",
+  max_turn_per_run: "maxTurnPerRun",
+  audit_level: "auditLevel",
+  rate_limit_per_min: "rateLimitPerMin",
+  max_attachment_size_mb: "maxAttachmentSizeMb",
+  retention_days: "retentionDays",
+};
+function toDraft(profile: PolicyProfile): Draft {
+  return Object.fromEntries(
+    Object.entries(profile).map(([key, value]) => [key, String(value)]),
+  ) as Draft;
+}
+function validField(key: keyof PolicyProfile, value: string) {
+  return key === "default_model"
+    ? Boolean(value.trim())
+    : key === "audit_level"
+      ? ["off", "basic", "strict"].includes(value)
+      : value.trim() !== "" &&
+        Number.isInteger(Number(value)) &&
+        Number(value) >= 1;
 }
 
+/** Render readable team presets while separating them from actual administrator storage data. */
 export function PoliciesPage() {
   const { t } = useTranslation();
-  const isMobile = useIsMobile();
-  const queryClient = useQueryClient();
-  const companyMember = useAuthStore(s => s.user?.membership_status === "active");
-  const admin = useAuthStore(s => Boolean(s.user?.is_company_admin && s.user.membership_status === "active"));
-  const capacity = useQuery({ queryKey: ["settings", "attachment-capacity"], enabled: admin, queryFn: () => authFetchJson<{ service: { used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }; owners: Array<{ owner_id: string; username: string | null; display_name: string | null; used_bytes: number; reserved_bytes: number; limit_bytes: number; full: boolean }> }>("/im/v1/attachments/capacity") });
-
+  const user = useAuthStore((s) => s.user);
+  const companyMember = user?.membership_status === "active";
+  const admin = companyMember && Boolean(user?.is_company_admin);
+  const client = useQueryClient();
   const query = useQuery({
     queryKey: ["settings", "policies"],
+    queryFn: getPolicies,
     enabled: companyMember,
-    queryFn: getPolicies
+    retry: false,
   });
-
-  const [draft, setDraft] = useState<PolicyProfile | null>(null);
-  const [errorDetail, setErrorDetail] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (query.data) {
-      setDraft(query.data);
-    }
-  }, [query.data]);
-
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saved, setSaved] = useState(false);
   const mutation = useMutation({
-    mutationFn: (next: PolicyProfile) => updatePolicies(next),
-    onSuccess: async () => {
-      setErrorDetail(null);
-      await queryClient.invalidateQueries({ queryKey: ["settings", "policies"] });
+    mutationFn: updatePolicies,
+    async onSuccess(updated) {
+      // A pre-save read must not overwrite the response accepted by this save.
+      await client.cancelQueries({
+        queryKey: ["settings", "policies"],
+        exact: true,
+      });
+      client.setQueryData(["settings", "policies"], updated);
+      setDraft(null);
+      setSaved(true);
     },
-    onError: (err: Error) => {
-      setErrorDetail(err.message);
-    }
   });
-
   if (!companyMember) return <Navigate to="/membership" replace />;
-  if (!draft || !query.data) {
-    return (
-      <div className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
-        <p className="mx-auto mt-8 text-sm text-[oklch(0.55_0.01_240)]">{t("settings.policies.loading")}</p>
-      </div>
+  const baseline = query.data ? toDraft(query.data) : null;
+  // Keep incomplete numeric input as text; a refetch never owns the user's draft.
+  const values = draft ?? baseline;
+  const dirty =
+    values !== null &&
+    baseline !== null &&
+    (Object.keys(values) as Array<keyof Draft>).some(
+      (key) => values[key].trim() !== baseline[key],
     );
-  }
-
-  const dirty = isDirty(draft, query.data);
-
-  const onDiscard = () => {
-    setDraft(query.data!);
-    setErrorDetail(null);
-  };
-
-  const onSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!admin || !dirty || mutation.isPending) return;
-    mutation.mutate(draft);
-  };
+  const valid =
+    values !== null &&
+    (Object.keys(values) as Array<keyof Draft>).every((key) =>
+      validField(key, values[key]),
+    );
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
-      {isMobile ? (
-        <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
-          <Link
-            data-testid="policies-page-back"
-            to="/me"
-            aria-label="Back"
-            className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
-          >
-            ‹
-          </Link>
-          <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.policies.title")}</h1>
-        </div>
-      ) : null}
-      <form
-        className="im-policies-page grid gap-4 mx-auto w-full max-w-[620px]"
-        style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}
-        onSubmit={onSubmit}
-        aria-label="policies-form"
-      >
-        {!isMobile && (
-          <header>
-            <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
-              {t("settings.policies.title")}
-            </h2>
-            <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.policies.subtitle")}</p>
-          </header>
-        )}
-
-        {errorDetail && (
-          <div
-            role="alert"
-            className="rounded-[12px] border border-[oklch(0.78_0.15_25)] bg-[oklch(0.97_0.03_25)] px-4 py-3 text-sm text-[oklch(0.45_0.14_25)]"
-          >
-            {t("settings.policies.actions.saveFailed", { detail: errorDetail })}
-          </div>
-        )}
-
-        {!admin && <p>{t("company.readOnly")}</p>}
-        <fieldset disabled={!admin} className="contents">
-        {/* 模型与审计卡 */}
-        <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
-          <div className="grid gap-[14px]">
-            <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-              {t("settings.policies.fields.defaultModel")}
-              <input
-                className="im-input"
-                value={draft.default_model}
-                onChange={(event) => setDraft({ ...draft, default_model: event.target.value })}
-              />
-            </label>
-            <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-              {t("settings.policies.fields.auditLevel")}
-              <select
-                className="im-input"
-                value={draft.audit_level}
-                onChange={(event) =>
-                  setDraft({ ...draft, audit_level: event.target.value as PolicyProfile["audit_level"] })
-                }
-              >
-                <option value="off">{t("settings.policies.fields.auditLevelOff")}</option>
-                <option value="basic">{t("settings.policies.fields.auditLevelBasic")}</option>
-                <option value="strict">{t("settings.policies.fields.auditLevelStrict")}</option>
-              </select>
-            </label>
-          </div>
-        </section>
-
-        {/* 运行时限制卡 */}
-        <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3 md:grid-cols-2">
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.policies.fields.maxTurnPerRun")}
-            <input
-              className="im-input"
-              type="number"
-              value={draft.max_turn_per_run}
-              onChange={(event) => setDraft({ ...draft, max_turn_per_run: Number(event.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.policies.fields.rateLimitPerMin")}
-            <input
-              className="im-input"
-              type="number"
-              value={draft.rate_limit_per_min}
-              onChange={(event) => setDraft({ ...draft, rate_limit_per_min: Number(event.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.policies.fields.maxAttachmentSizeMb")}
-            <input
-              className="im-input"
-              type="number"
-              value={draft.max_attachment_size_mb}
-              onChange={(event) => setDraft({ ...draft, max_attachment_size_mb: Number(event.target.value) })}
-            />
-          </label>
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.policies.fields.retentionDays")}
-            <input
-              className="im-input"
-              type="number"
-              value={draft.retention_days}
-              onChange={(event) => setDraft({ ...draft, retention_days: Number(event.target.value) })}
-            />
-          </label>
-        </section>
-
-        </fieldset>
-        {/* 保存区 */}
-        {admin && (
-        <div
-          data-testid="policies-save-footer"
-          className="flex items-center justify-between gap-3 rounded-[12px] border border-[oklch(0.87_0.006_240)] bg-white px-4 py-[14px]"
+    <section className="settings-surface im-policies-page">
+      <div className="settings-frame">
+        <Link
+          className="settings-back"
+          data-testid="policies-page-back"
+          to="/me"
         >
-          <span className="text-[12.5px] text-[oklch(0.60_0.01_240)]">
-            {dirty ? (
-              <span className="font-bold text-[oklch(0.50_0.15_60)]">● {t("settings.policies.actions.unsavedChanges")}</span>
-            ) : null}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="im-btn im-btn-muted"
-              disabled={!dirty || mutation.isPending}
-              onClick={onDiscard}
-            >
-              {t("settings.policies.actions.discard")}
-            </button>
-            <button
-              type="submit"
-              className="im-btn im-btn-primary"
-              disabled={!dirty || mutation.isPending}
-            >
-              {mutation.isPending ? t("settings.policies.actions.saving") : t("settings.policies.actions.save")}
-            </button>
-          </div>
-        </div>)}
-        {admin && (
-          <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
-            <h3 className="m-0 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">{t("company.capacity")}</h3>
-            <p className="m-0 text-[13px] text-[oklch(0.55_0.01_240)]">{t("company.capacityHint")}</p>
-            {capacity.isError && <p role="alert">{t("auth.feedback.serviceUnavailable")}</p>}
-            {capacity.data && [
-              { ...capacity.data.service, owner_id: "service", display_name: t("company.service"), username: null },
-              ...capacity.data.owners
-            ].map(row => (
-              <div key={row.owner_id} className="min-w-0 text-[13px]">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <strong className="break-words">{row.display_name || row.username || row.owner_id}</strong>
-                  {row.username && <span className="break-all text-[12px] text-[oklch(0.55_0.01_240)]">@{row.username}</span>}
-                </div>
-                <p className="m-0 mt-1 text-[oklch(0.55_0.01_240)]">
-                  {t("company.used")}: {(row.used_bytes / 1048576).toFixed(1)} MiB · {t("company.reserved")}: {(row.reserved_bytes / 1048576).toFixed(1)} MiB · {t("company.limit")}: {(row.limit_bytes / 1048576).toFixed(0)} MiB {row.full && `· ${t("company.full")}`}
-                </p>
-              </div>
-            ))}
-          </section>
+          ‹ {t("computers.account")}
+        </Link>
+        <header className="settings-heading">
+          <h1>{t("settings.policies.title")}</h1>
+          <p>{t("settings.policies.subtitle")}</p>
+        </header>
+        {admin ? (
+          <AttachmentCapacityPanel />
+        ) : (
+          <p className="settings-notice">{t("company.readOnly")}</p>
         )}
-      </form>
-    </div>
+        <header className="settings-subheading">
+          <h2>{t("settings.policies.presetsTitle")}</h2>
+          <p>{t("settings.policies.presetsSubtitle")}</p>
+        </header>
+        <div className="settings-notice">
+          <strong>{t("settings.policies.notAppliedTitle")}</strong>
+          <p>{t("settings.policies.notAppliedHint")}</p>
+          <Link className="settings-link" to="/settings/models">
+            {t("settings.policies.manageModels")} →
+          </Link>
+        </div>
+        {values ? (
+          <form
+            aria-label="policies-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!admin || !dirty || !valid || mutation.isPending) return;
+              setSaved(false);
+              mutation.mutate({
+                default_model: values.default_model.trim(),
+                audit_level: values.audit_level as PolicyProfile["audit_level"],
+                max_turn_per_run: Number(values.max_turn_per_run),
+                rate_limit_per_min: Number(values.rate_limit_per_min),
+                max_attachment_size_mb: Number(values.max_attachment_size_mb),
+                retention_days: Number(values.retention_days),
+              });
+            }}
+          >
+            {groups.map((group) => (
+              <section
+                className="settings-card settings-section"
+                key={group.key}
+              >
+                <header>
+                  <h2>{t(`settings.policies.groups.${group.key}.title`)}</h2>
+                  <p>{t(`settings.policies.groups.${group.key}.hint`)}</p>
+                </header>
+                <div className="settings-section-content">
+                  {group.fields.map((key) => {
+                    const label = labels[key];
+                    const fieldValid = validField(key, values[key]);
+                    const id = `policy-${key}`;
+                    return (
+                      <div className="settings-policy-field" key={key}>
+                        {admin ? (
+                          <>
+                            <label className="settings-field" htmlFor={id}>
+                              {t(`settings.policies.fields.${label}`)}
+                            </label>
+                            {key === "audit_level" ? (
+                              <select
+                                className="im-input"
+                                id={id}
+                                value={values[key]}
+                                disabled={mutation.isPending}
+                                aria-describedby={`${id}-hint`}
+                                onChange={(event) => {
+                                  setDraft({
+                                    ...values,
+                                    [key]: event.target.value,
+                                  });
+                                  setSaved(false);
+                                  mutation.reset();
+                                }}
+                              >
+                                {["off", "basic", "strict"].map((level) => (
+                                  <option key={level} value={level}>
+                                    {t(`settings.policies.audit.${level}`)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                className="im-input"
+                                id={id}
+                                type={
+                                  key === "default_model" ? "text" : "number"
+                                }
+                                required
+                                min={key === "default_model" ? undefined : 1}
+                                step={key === "default_model" ? undefined : 1}
+                                value={values[key]}
+                                disabled={mutation.isPending}
+                                aria-invalid={!fieldValid}
+                                aria-describedby={`${id}-hint`}
+                                onChange={(event) => {
+                                  setDraft({
+                                    ...values,
+                                    [key]: event.target.value,
+                                  });
+                                  setSaved(false);
+                                  mutation.reset();
+                                }}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <h3 className="settings-field">
+                              {t(`settings.policies.fields.${label}`)}
+                            </h3>
+                            <p className="settings-readonly">
+                              {key === "audit_level"
+                                ? t(`settings.policies.audit.${values[key]}`)
+                                : values[key]}
+                            </p>
+                          </>
+                        )}
+                        <p
+                          id={`${id}-hint`}
+                          className={`settings-field-hint ${!fieldValid ? "settings-error-text" : ""}`}
+                        >
+                          {t(
+                            fieldValid
+                              ? `settings.policies.hints.${key}`
+                              : key === "default_model"
+                                ? "settings.surface.modelRequired"
+                                : "settings.surface.positiveInteger",
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            {admin && (
+              <footer className="settings-save">
+                <p
+                  role={mutation.isError ? "alert" : "status"}
+                  className={
+                    mutation.isError
+                      ? "settings-error-text"
+                      : saved
+                        ? "settings-success-text"
+                        : ""
+                  }
+                >
+                  {t(
+                    mutation.isError
+                      ? "settings.surface.saveFailed"
+                      : saved
+                        ? "settings.surface.saved"
+                        : dirty
+                          ? "settings.surface.unsaved"
+                          : "settings.surface.unchanged",
+                  )}
+                </p>
+                <div>
+                  <button
+                    className="im-btn im-btn-muted"
+                    type="button"
+                    disabled={!dirty || mutation.isPending}
+                    onClick={() => {
+                      setDraft(null);
+                      setSaved(false);
+                      mutation.reset();
+                    }}
+                  >
+                    {t("settings.policies.actions.discard")}
+                  </button>
+                  <button
+                    className="im-btn im-btn-primary"
+                    type="submit"
+                    disabled={!dirty || !valid || mutation.isPending}
+                  >
+                    {t(
+                      mutation.isPending
+                        ? "settings.policies.actions.saving"
+                        : "settings.policies.actions.save",
+                    )}
+                  </button>
+                </div>
+              </footer>
+            )}
+          </form>
+        ) : (
+          <div className="settings-card settings-state">
+            {query.isError ? (
+              <>
+                <p role="alert">{t("settings.surface.loadFailed")}</p>
+                <button
+                  className="im-btn im-btn-muted"
+                  onClick={() => void query.refetch()}
+                >
+                  {t("common.retry")}
+                </button>
+              </>
+            ) : (
+              <p role="status">{t("settings.policies.loading")}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
