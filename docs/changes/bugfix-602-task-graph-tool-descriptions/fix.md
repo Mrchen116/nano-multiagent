@@ -1,6 +1,6 @@
 # bugfix-602: 补齐任务工具调用描述
 
-> 快速开发事后记录；active。实现及 Agent 实测已完成，等待独立 code review 与用户亲测确认，未归档。
+> 快速开发事后记录；active。实现、真实 Agent 验证及独立 code review 已完成，用户亲测确认尚未发生，未归档。
 
 ## Relations
 
@@ -45,4 +45,4 @@
 
 ## 收尾状态
 
-独立 code review 由主会话执行，尚未进行；PR/CI、canonical delta 归并及用户确认待主会话收尾。未合并、部署或归档。
+主会话派发独立 full code review 已通过，findings `[]`，详见 [code-review.md](code-review.md)。PR/CI 由主会话交付；用户确认尚未发生，canonical delta 归并与归档保留待完成。未合并或部署。

@@ -30,7 +30,7 @@
 
 ## 验证定位
 
-真实栈、隔离方式、实际调用和持久图见 [M1-fix/progress.md](M1-fix/progress.md)。用户尚未亲测；独立 code review 待主会话。
+真实栈、隔离方式、实际调用和持久图见 [M1-fix/progress.md](M1-fix/progress.md)。独立 [code review](code-review.md) 已通过，用户尚未亲测。
 
 ## Canonical 影响
 

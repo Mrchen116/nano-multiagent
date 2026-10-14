@@ -39,4 +39,4 @@
 
 ## 待收口
 
-用户尚未亲测，独立 code review/PR/CI 由主会话继续。当前 unit 保持 active。
+独立 full code review 已通过，findings `[]`；审查者核对了三例共 29 份实际模型请求、自然输入与图数据，详见 [code-review.md](../code-review.md)。PR/CI 由主会话继续；用户尚未亲测，当前 unit 保持 active。
