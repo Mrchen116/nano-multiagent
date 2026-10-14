@@ -84,3 +84,20 @@ No new confirmed or plausible defect was found in the closure delta; no full-rev
 
 - W1 accepted. Both success callbacks now cancel the same-key in-flight query before adopting the PATCH response and clearing the draft. This keeps the existing API and local editor design.
 - Durable tests extend the existing account/policies suites with the exact ordering: initial read → edit → hold an earlier refetch → PATCH succeeds → release old response → tab away from field → accepted value and saved feedback remain. Before the fix both tests failed (old name/model returned); after the fix the focused 3 files / 21 tests pass. Temporary red/green locators: `/tmp/nano-feat604/save-race-red.log`, `save-race-green.log`.
+
+## Round 3 — post-PR CI patch
+
+本段归集独立审查者的返回事实，不覆盖 R1/R2 的历史。
+
+- reviewer: `/root/pr357_ci_patch_review`，`gpt-6.1-sol/high`；未参与实现，使用 change-code-review。
+- review_mode: `patch`；范围仅 `7e892cb6992411e0731797bdb653271594b90676..587ac7cd97280fea548237829f802fd22d0075c3`。
+- patch_base: `7e892cb6992411e0731797bdb653271594b90676`；实际 main / executed_base: `20400dffb6b5877169d444377f573188e217485e`。
+- validated_at: `587ac7cd97280fea548237829f802fd22d0075c3`；受审 worktree clean。
+- reviewed_at: `2026-10-14T06:47:54Z`。
+- verdict: pass；findings `[]`。
+
+CI #38523384462 的既有登录冷却测试显示 Retry-After=30 时初始文案为31秒。一次 start 中两次 Date.now 相差1ms，经 Math.ceil 后成为31；既有真实 LoginPage 测试以每次时钟读取推进1ms稳定复现，未放宽30秒、凭据保留或重试禁用断言。修复只让 now/until 使用同一时间戳，原最短冷却、定时刷新与恢复语义保留。
+
+审查者检查了唯一两个调用方 LoginPage/RegisterPage，独立运行 company-access 与 auth-form-experience 两文件，25/25通过，diff-check通过；核读红测、完整前端880/880通过和生产构建成功日志。未发现存活缺陷，无须扩展 full review。
+
+独立一致性核对确认该补丁不改变 feat-604 的账号资料、空间资格、容量、策略权限、草稿或保存契约，不使归档 S1–S9 真实验收失效；本轮未执行或冒充新的真实浏览器验收。既有 Gate 2、corrected delta 及未受影响验收结论 retained。后续仅归集本报告和验证记录，最终 effective_through 在 PR body 记录。

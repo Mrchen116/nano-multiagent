@@ -74,3 +74,11 @@ main增量仅bugfix-607的composer caret修复及其文档：global.css变更限
 | Product reviewer R2 S1–S9 | retained；已记录的身份/角色/容量/保存恢复/布局/双语旅程没有受到上述 main 变化影响，保存的查询键与回调未变；未把本次组件检查冒充重新执行真实产品验收。 |
 
 同步后追加验证：五个前端文件（company-access、account-page、policies-page、system-notice-message、conversation-sidebar）51 tests passed；`npm run build`（包含 tsc）passed。docs-check、显式 `unit/feat-604` 唯一归档检查和 staged/unstaged diff-check passed。依赖声明与 lockfile 未变，原各门禁的 executed_base / validated_at 保留；最终 effective_through 由 PR body 记录本次精确交付 HEAD，远端 CI 针对该 HEAD 再次运行。
+
+### 同步后 CI 的冷却计时修复
+
+CI #38523384462：后端通过，前端879通过/1失败；唯一失败为既有 LoginPage 冷却测试，服务端 Retry-After=30 而显示31。原因是同一次初始化先后读取两次 Date.now，跨1ms后 Math.ceil 增加一秒；不是以重跑或放宽断言作为修复。既有 company-access 用例增加每次读取推进1ms的时钟，原实现稳定失败（1失败/9 skipped），复用同一时间戳后10/10通过。临时红/绿日志 `/tmp/nano-pr-357-cooldown-red.log`、`/tmp/nano-pr-357-cooldown-green.log`。
+
+固定修复 HEAD 为 `587ac7cd97280fea548237829f802fd22d0075c3`。完整前端93文件880/880通过（36.82s），`npm run build`含tsc通过；日志 `/tmp/nano-pr-357-frontend-full.log`、`/tmp/nano-pr-357-frontend-build.log`。独立 patch review 返回[]，另独立执行两个认证文件25/25通过；审查版本、实际 main、范围和结论见 code-review.md Round 3。
+
+修复恢复既有认证冷却契约，未改变本 unit 账号/策略职责、权限、保存流程或三条已审 delta。Gate 2、verifier/corrected-delta、S1–S9 真实验收仍 retained；独立审查者额外核对了这一影响边界，不宣称重跑浏览器验收。依赖、后端和原生实现未变，最终文档/归档检查与新 HEAD 远端 CI 仍作为合入前检查。
