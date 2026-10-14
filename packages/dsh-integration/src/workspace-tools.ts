@@ -267,6 +267,12 @@ class WorkspaceOwner {
           const localName = staged && readProfileManifest('nano', staged.slice(5)).name;
           const prior = previousBundles.find(bundle => bundle.name === localName || bundle.name === args.target);
           result = await manager.installBundle(staged ?? args.target, { enabled: args.enabled ?? (prior?.installed ? prior.enabled : undefined), approvedBuilds: args.approvedBuilds, registry: args.registry, requestId });
+          // Package specs can include aliases or versions. The native result owns their resolved name.
+          if (!result.error && args.enabled === undefined && result.bundle && previousBundles.some(bundle => bundle.name === result.bundle && bundle.installed && !bundle.enabled)) {
+            const restored = await manager.setBundleEnabled(result.bundle, false);
+            if (restored.error) return restored;
+            result = {...result, enabled: false};
+          }
         } else {
           if (!(await manager.listBundles()).some(bundle => bundle.name === args.target && bundle.installed)) throw new Error('Bundle is not installed in this workspace');
           if (args.action === 'set_bundle') {

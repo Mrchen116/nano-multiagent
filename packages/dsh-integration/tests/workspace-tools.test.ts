@@ -115,6 +115,9 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-peer')).not.toContain('workspace_echo');
     await manage({action:'install_bundle',target:source});
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
+    const namedUpdate = await manage({action:'install_bundle',target:`workspace-echo@file:${source}`});
+    expect(namedUpdate.error, namedUpdate.text).toBe(false);
+    expect((await control({action:'list_bundles'})).entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(false);
     await client!.shutdown(); client=undefined; await start(true);
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     await control({action:'set_bundle',target:'workspace-echo',enabled:true});
