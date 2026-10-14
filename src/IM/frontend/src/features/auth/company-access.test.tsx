@@ -94,8 +94,9 @@ describe("company access", () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response({ default_model: "model", audit_level: "basic", max_turn_per_run: 10, rate_limit_per_min: 60, max_attachment_size_mb: 10, retention_days: 30 }));
     mount("/settings/policies");
     await screen.findByText("Only company administrators can edit policies.");
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(4);
-    for (const field of [...screen.getAllByRole("spinbutton"), screen.getByRole("textbox"), screen.getByRole("combobox")]) expect(field).toBeDisabled();
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(await screen.findByText("model")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   });

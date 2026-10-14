@@ -1,279 +1,324 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { useTranslation, type Locale } from "../../../i18n";
+import { getCurrentLanguage, useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
-import {
-  AccountProfile,
-  UpdateAccountInput,
-  getAccount,
-  listNodes,
-  updateAccount
-} from "../im-settings-api";
+import { getAccount, updateAccount } from "../im-settings-api";
+import "../settings-surfaces.css";
 
-// M19/R11-6: 保留 2 张窄居中卡 (Profile + Devices, maxWidth 620px)，
-// Profile 头部带 54×54 圆 avatar + initials + mono user_id。
-// Preferences 卡 (Language radio + Notifications checkbox) 不在 prototype —
-// Language 入口在 Me 页 / UserMenu (R2 已落),Notifications toggle 在 Me 页 (R2 已落)。
-
-interface DraftState {
-  display_name: string;
-}
-
-function toDraft(profile: AccountProfile): DraftState {
-  return {
-    display_name: profile.display_name
-  };
-}
-
-function isDirty(draft: DraftState, profile: AccountProfile): boolean {
-  return draft.display_name !== profile.display_name;
-}
-
-function initialsOf(name: string): string {
-  return (name || "U").trim().slice(0, 2).toUpperCase();
-}
-
+/** Render personal identity editing and the account's space and management destinations. */
 export function AccountPage() {
   const { t } = useTranslation();
-  const isMobile = useIsMobile();
-  const queryClient = useQueryClient();
-
-  const accountQuery = useQuery({ queryKey: ["settings", "account"], queryFn: getAccount });
-  const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes });
-
-  const profile = accountQuery.data;
-  const [draft, setDraft] = useState<DraftState | null>(null);
-  const [errorDetail, setErrorDetail] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (profile) {
-      setDraft(toDraft(profile));
-    }
-  }, [profile]);
-
-  const mutation = useMutation({
-    mutationFn: async (input: UpdateAccountInput) => updateAccount(input),
-    onSuccess: async (updated) => {
-      const auth = useAuthStore.getState();
-      if (auth.user) {
-        auth.replaceUser({ ...auth.user, display_name: updated.display_name, locale: updated.locale });
-      }
-      setErrorDetail(null);
-      await queryClient.invalidateQueries({ queryKey: ["settings", "account"] });
-    },
-    onError: (err: Error) => {
-      setErrorDetail(err.message);
-    }
+  const authUser = useAuthStore((s) => s.user);
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: ["settings", "account"],
+    queryFn: getAccount,
+    retry: false,
   });
-
-  const ownedNodeRows = useMemo(() => {
-    if (!profile) return [];
-    return (nodesQuery.data ?? []).filter((node) => profile.owned_node_ids.includes(node.node_id));
-  }, [profile, nodesQuery.data]);
-
-  if (!draft || !profile) {
-    return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
-  }
-
-  const dirty = isDirty(draft, profile);
-  const currentLocale: Locale = profile.locale === "zh" ? "zh" : "en";
-
-  const onDiscard = () => {
-    setDraft(toDraft(profile));
-    setErrorDetail(null);
-  };
-
-  const onSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!dirty || mutation.isPending) return;
-    mutation.mutate({
-      display_name: draft.display_name.trim(),
-      default_entry_node_id: profile.default_entry_node_id,
-      locale: currentLocale
-    });
-  };
+  // A draft belongs to the editor, so background query refreshes cannot replace it.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const profile = query.data;
+  const name = draft ?? profile?.display_name ?? "";
+  const dirty = profile !== undefined && name.trim() !== profile.display_name;
+  const valid = name.trim().length > 0;
+  const mutation = useMutation({
+    mutationFn: updateAccount,
+    onSuccess(updated) {
+      client.setQueryData(["settings", "account"], updated);
+      const current = useAuthStore.getState().user;
+      if (current)
+        useAuthStore
+          .getState()
+          .replaceUser({
+            ...current,
+            display_name: updated.display_name,
+            locale: updated.locale,
+          });
+      setDraft(null);
+      setSaved(true);
+    },
+  });
+  const member = authUser?.membership_status ?? "none";
+  const teamState =
+    member === "active"
+      ? authUser?.is_company_admin
+        ? "admin"
+        : "member"
+      : member;
+  const personal = Boolean(authUser?.personal_space_enabled);
+  const computerCount = (
+    profile?.owned_node_ids ??
+    authUser?.owned_node_ids ??
+    []
+  ).length;
+  const displayName = profile?.display_name ?? authUser?.display_name ?? "";
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
-      {isMobile ? (
-        <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
-          <Link
-            data-testid="account-page-back"
-            to="/me"
-            aria-label="Back"
-            className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
-          >
-            ‹
-          </Link>
-          <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.account.title")}</h1>
-        </div>
-      ) : null}
-      <div className="mx-auto flex w-full max-w-[620px] gap-4 px-5 pt-5 text-sm"><Link to="/onboarding">{t("onboarding.continue")}</Link><Link to="/membership">{t("onboarding.team")}</Link></div>
-      <form
-        className="im-account-page grid gap-4 mx-auto w-full max-w-[620px]"
-        style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}
-        onSubmit={onSubmit}
-        aria-label="account-form"
-      >
-        {!isMobile && (
-        <header>
-          <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
-            {t("settings.account.title")}
-          </h2>
-          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.account.subtitle")}</p>
+    <section className="settings-surface im-account-page">
+      <div className="settings-frame">
+        <Link
+          className="settings-back"
+          data-testid="account-page-back"
+          to="/me"
+        >
+          ‹ {t("computers.account")}
+        </Link>
+        <header className="settings-heading">
+          <h1>{t("settings.account.title")}</h1>
+          <p>{t("settings.account.subtitle")}</p>
         </header>
+        {profile ? (
+          <form
+            aria-label="account-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!dirty || !valid || mutation.isPending) return;
+              setSaved(false);
+              mutation.mutate({
+                display_name: name.trim(),
+                default_entry_node_id: profile.default_entry_node_id,
+                locale: profile.locale,
+              });
+            }}
+          >
+            <section className="settings-card settings-section">
+              <header>
+                <h2>{t("settings.account.identity.heading")}</h2>
+                <p>{t("settings.account.identity.subtitle")}</p>
+              </header>
+              <div className="settings-section-content">
+                <div className="settings-identity">
+                  <span
+                    className="settings-avatar"
+                    aria-hidden="true"
+                    data-testid="account-avatar"
+                  >
+                    {(displayName || "U").trim().slice(0, 2).toUpperCase()}
+                  </span>
+                  <div>
+                    <strong>{displayName}</strong>
+                    <span>@{profile.username}</span>
+                  </div>
+                </div>
+                <label
+                  className="settings-field"
+                  htmlFor="account-display-name"
+                >
+                  {t("settings.account.identity.displayName")}
+                </label>
+                <input
+                  id="account-display-name"
+                  className="im-input"
+                  value={name}
+                  disabled={mutation.isPending}
+                  required
+                  maxLength={128}
+                  aria-invalid={!valid}
+                  aria-describedby="account-name-hint"
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setSaved(false);
+                    mutation.reset();
+                  }}
+                />
+                <p
+                  id="account-name-hint"
+                  className={`settings-field-hint ${!valid ? "settings-error-text" : ""}`}
+                >
+                  {t(
+                    valid
+                      ? "settings.account.identity.displayNameHint"
+                      : "settings.surface.nameRequired",
+                  )}
+                </p>
+                <details className="settings-details">
+                  <summary>{t("settings.account.identity.details")}</summary>
+                  <dl className="settings-metadata">
+                    <dt>{t("settings.account.identity.userId")}</dt>
+                    <dd data-testid="account-user-id">
+                      {profile.user_id || profile.id}
+                    </dd>
+                    {profile.created_at && (
+                      <>
+                        <dt>{t("settings.account.identity.createdAt")}</dt>
+                        <dd>
+                          {new Date(profile.created_at).toLocaleDateString(
+                            getCurrentLanguage(),
+                          )}
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                </details>
+              </div>
+            </section>
+            <footer className="settings-save" data-testid="account-save-footer">
+              <p
+                role={mutation.isError ? "alert" : "status"}
+                className={
+                  mutation.isError
+                    ? "settings-error-text"
+                    : saved
+                      ? "settings-success-text"
+                      : ""
+                }
+              >
+                {t(
+                  mutation.isError
+                    ? "settings.surface.saveFailed"
+                    : saved
+                      ? "settings.surface.saved"
+                      : dirty
+                        ? "settings.surface.unsaved"
+                        : "settings.surface.unchanged",
+                )}
+              </p>
+              <div>
+                <button
+                  className="im-btn im-btn-muted"
+                  type="button"
+                  disabled={!dirty || mutation.isPending}
+                  onClick={() => {
+                    setDraft(null);
+                    setSaved(false);
+                    mutation.reset();
+                  }}
+                >
+                  {t("settings.account.actions.discard")}
+                </button>
+                <button
+                  className="im-btn im-btn-primary"
+                  type="submit"
+                  disabled={!dirty || !valid || mutation.isPending}
+                >
+                  {t(
+                    mutation.isPending
+                      ? "settings.account.actions.saving"
+                      : "settings.account.actions.saveAccount",
+                  )}
+                </button>
+              </div>
+            </footer>
+          </form>
+        ) : (
+          <div className="settings-card settings-state">
+            {query.isError ? (
+              <>
+                <p role="alert">{t("settings.surface.loadFailed")}</p>
+                <button
+                  type="button"
+                  className="im-btn im-btn-muted"
+                  onClick={() => void query.refetch()}
+                >
+                  {t("common.retry")}
+                </button>
+              </>
+            ) : (
+              <p role="status">{t("common.loading")}</p>
+            )}
+          </div>
         )}
 
-      {errorDetail && (
-        <div
-          role="alert"
-          className="rounded-[12px] border border-[oklch(0.78_0.15_25)] bg-[oklch(0.97_0.03_25)] px-4 py-3 text-sm text-[oklch(0.45_0.14_25)]"
-        >
-          {t("settings.account.actions.saveFailed", { detail: errorDetail })}
-        </div>
-      )}
-
-      <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
-        <header>
-          <h3 className="m-0 text-[15px] font-extrabold text-[oklch(0.14_0.01_240)]">
-            {t("settings.account.identity.heading")}
-          </h3>
-          <p className="mt-1 text-[12.5px] text-[oklch(0.55_0.01_240)]">
-            {t("settings.account.identity.subtitle")}
-          </p>
-        </header>
-        <div className="flex items-center gap-4 pb-1">
-          <span
-            data-testid="account-avatar"
-            className="flex w-[54px] h-[54px] shrink-0 items-center justify-center rounded-full bg-[oklch(0.52_0.14_270)] text-white text-[20px] font-extrabold"
-            aria-hidden="true"
-          >
-            {initialsOf(profile.display_name)}
-          </span>
-          <div className="min-w-0">
-            <p className="m-0 text-[16px] font-extrabold text-[oklch(0.14_0.01_240)] truncate">
-              {profile.display_name}
-            </p>
-            <p data-testid="account-user-id" className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">
-              {profile.user_id || profile.id}
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-[14px] md:grid-cols-2">
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.account.identity.userId")}
-            <input className="im-input im-agent-input-mono" value={profile.user_id || profile.id} disabled />
-          </label>
-          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-            {t("settings.account.identity.displayName")}
-            <input
-              className="im-input"
-              value={draft.display_name}
-              onChange={(event) => setDraft({ ...draft, display_name: event.target.value })}
-              required
-              minLength={1}
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
-        <header>
-          <h3 className="m-0 text-[15px] font-extrabold text-[oklch(0.14_0.01_240)]">
-            {t("settings.account.defaults.heading")}
-          </h3>
-          <p className="mt-1 text-[12.5px] text-[oklch(0.55_0.01_240)]">
-            {t("settings.account.defaults.subtitle")}
-          </p>
-        </header>
-        <div className="grid gap-2">
-          {ownedNodeRows.map((node) => {
-            const isOnline = node.status === "online";
-            return (
-              <div
-                key={node.node_id}
-                data-testid={`account-owned-node-${node.node_id}`}
-                className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-[10px]"
-              >
-                <span
-                  className={
-                    "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-bold " +
-                    (isOnline
-                      ? "bg-[oklch(0.93_0.07_145)] text-[oklch(0.32_0.14_145)] border-[oklch(0.80_0.12_145)]"
-                      : "bg-[oklch(0.92_0.005_240)] text-[oklch(0.50_0.01_240)] border-[oklch(0.85_0.005_240)]")
-                  }
-                >
+        <section className="settings-card settings-section">
+          <header>
+            <h2>{t("settings.account.spaces.heading")}</h2>
+            <p>{t("settings.account.spaces.subtitle")}</p>
+          </header>
+          <div className="settings-section-content">
+            <div className="settings-row">
+              <div>
+                <h3>
+                  {t("settings.account.spaces.personal")}{" "}
                   <span
-                    className={
-                      "inline-block h-1.5 w-1.5 rounded-full " +
-                      (isOnline ? "bg-[oklch(0.55_0.18_145)]" : "bg-[oklch(0.60_0.01_240)]")
-                    }
-                  />
-                  {isOnline ? "online" : "offline"}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="m-0 text-[13px] font-bold text-[oklch(0.18_0.01_240)] truncate">{node.alias || node.node_name}</p>
-                  <p className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">{node.node_id}</p>
-                </div>
-                <div className="shrink-0 text-right text-[12px] text-[oklch(0.55_0.01_240)]">
-                  <p className="m-0">
-                    {node.agent_count} {t("settings.account.defaults.agentsShort")}
-                  </p>
-                  <p className="m-0">v{node.version}</p>
-                </div>
+                    className={`settings-badge ${personal ? "" : "neutral"}`}
+                  >
+                    {t(
+                      personal
+                        ? "settings.account.spaces.available"
+                        : "settings.account.spaces.unavailable",
+                    )}
+                  </span>
+                </h3>
+                <p>
+                  {t(
+                    personal
+                      ? "settings.account.spaces.personalHint"
+                      : "settings.account.spaces.companyOnly",
+                  )}
+                </p>
               </div>
-            );
-          })}
-        </div>
-        <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-2 text-[12px] grid gap-1">
-          {profile.created_at ? (
-            <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
-              <span>{t("settings.account.identity.createdAt")}</span>
-              <span className="text-[oklch(0.30_0.01_240)] font-semibold">
-                {new Date(profile.created_at).toLocaleDateString()}
-              </span>
             </div>
-          ) : null}
-          <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
-            <span>{t("settings.account.defaults.ownedNodes")}</span>
-            <span className="text-[oklch(0.30_0.01_240)] font-semibold">
-              {profile.owned_node_ids.length}
-            </span>
+            <div className="settings-row">
+              <div>
+                <h3>
+                  {t("settings.account.spaces.team")}{" "}
+                  <span
+                    className={`settings-badge ${member === "active" ? "" : "neutral"}`}
+                  >
+                    {t(`settings.account.spaces.states.${teamState}`)}
+                  </span>
+                </h3>
+                <p>{t(`settings.account.spaces.hints.${member}`)}</p>
+              </div>
+              {member !== "active" ? (
+                <Link
+                  className="settings-link"
+                  to="/membership"
+                  state={{ from: "/settings/account" }}
+                >
+                  {t(
+                    member === "none"
+                      ? "settings.account.spaces.join"
+                      : member === "pending"
+                        ? "settings.account.spaces.application"
+                        : "settings.account.spaces.membership",
+                  )}{" "}
+                  →
+                </Link>
+              ) : authUser?.is_company_admin ? (
+                <Link className="settings-link" to="/settings/company">
+                  {t("settings.account.spaces.manageMembers")} →
+                </Link>
+              ) : null}
+            </div>
           </div>
-        </div>
-      </section>
-
-      <div
-        data-testid="account-save-footer"
-        className="flex items-center justify-between gap-3 rounded-[12px] border border-[oklch(0.87_0.006_240)] bg-white px-4 py-[14px]"
-      >
-        <span className="text-[12.5px] text-[oklch(0.60_0.01_240)]">
-          {dirty ? (
-            <span className="font-bold text-[oklch(0.50_0.15_60)]">● {t("settings.account.actions.unsavedChanges")}</span>
-          ) : null}
-        </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="im-btn im-btn-muted"
-            disabled={!dirty || mutation.isPending}
-            onClick={onDiscard}
-          >
-            {t("settings.account.actions.discard")}
-          </button>
-          <button
-            type="submit"
-            className="im-btn im-btn-primary"
-            disabled={!dirty || mutation.isPending}
-          >
-            {mutation.isPending ? t("settings.account.actions.saving") : t("settings.account.actions.saveAccount")}
-          </button>
-        </div>
+        </section>
+        <section className="settings-card settings-section">
+          <header>
+            <h2>{t("settings.account.linked.heading")}</h2>
+            <p>{t("settings.account.linked.subtitle")}</p>
+          </header>
+          <div className="settings-section-content">
+            <div className="settings-row">
+              <div>
+                <h3>{t("settings.account.linked.computers")}</h3>
+                <p>
+                  {t(
+                    computerCount
+                      ? "settings.account.linked.summary"
+                      : "settings.account.linked.empty",
+                    { count: computerCount },
+                  )}
+                </p>
+              </div>
+              <Link className="settings-link" to="/settings/nodes">
+                {t("settings.account.linked.manage")} →
+              </Link>
+            </div>
+            {computerCount === 0 && (
+              <Link
+                className="settings-link settings-setup-link"
+                to="/onboarding"
+              >
+                {t("onboarding.continue")} →
+              </Link>
+            )}
+          </div>
+        </section>
       </div>
-      </form>
-    </div>
+    </section>
   );
 }

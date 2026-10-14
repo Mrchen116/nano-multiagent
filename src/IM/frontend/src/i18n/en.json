@@ -78,7 +78,7 @@
     "title": "Me",
     "sections": {
       "account": "Account",
-      "accountSubtitle": "Profile and gateway",
+      "accountSubtitle": "Profile and spaces",
       "nodes": "Nodes",
       "nodesSubtitle": "Nodes and gateway",
       "language": "Language",
@@ -154,14 +154,16 @@
     },
     "account": {
       "title": "Account",
-      "subtitle": "Your profile and devices.",
+      "subtitle": "Manage your profile, spaces and team membership.",
       "identity": {
-        "heading": "Profile",
-        "subtitle": "Your identity inside the workspace.",
+        "heading": "Personal profile",
+        "subtitle": "How your team and assistants know you.",
         "displayName": "Display name",
         "username": "Username",
         "userId": "User ID",
-        "createdAt": "Member since"
+        "createdAt": "Member since",
+        "displayNameHint": "Shown in chats, tasks and member lists.",
+        "details": "Account details"
       },
       "defaults": {
         "heading": "Devices",
@@ -182,15 +184,52 @@
         "save": "Save",
         "saveAccount": "Save account",
         "saving": "Saving…",
-        "discard": "Discard",
+        "discard": "Discard changes",
         "savedJustNow": "Saved.",
         "unsavedChanges": "Unsaved changes",
         "saveFailed": "Save failed: {{detail}}"
+      },
+      "spaces": {
+        "heading": "Spaces and team",
+        "subtitle": "Personal access and team membership are separate.",
+        "personal": "Personal space",
+        "available": "Available",
+        "unavailable": "Not enabled",
+        "personalHint": "Manage your private chats, assistants and tasks.",
+        "companyOnly": "This account uses the team space.",
+        "team": "Team",
+        "states": {
+          "none": "Not joined",
+          "pending": "Awaiting approval",
+          "suspended": "Suspended",
+          "member": "Member",
+          "admin": "Administrator"
+        },
+        "hints": {
+          "none": "Apply when you need to collaborate. Personal access needs no approval.",
+          "pending": "Your application is awaiting administrator approval.",
+          "active": "You can access shared team content.",
+          "suspended": "Team access is suspended; your personal access is separate."
+        },
+        "join": "Apply to join",
+        "application": "View application",
+        "membership": "View membership",
+        "manageMembers": "Manage members"
+      },
+      "linked": {
+        "heading": "Related settings",
+        "subtitle": "Connect and manage computers in their own page.",
+        "computers": "My computers",
+        "summary": "{{count}} computers connected",
+        "summary_one": "{{count}} computer connected",
+        "summary_other": "{{count}} computers connected",
+        "empty": "No computers connected. Connect one to run your assistant.",
+        "manage": "Manage computers"
       }
     },
     "policies": {
       "title": "Policies",
-      "subtitle": "Global runtime limits and safety configuration.",
+      "subtitle": "Review actual storage and maintain team policy presets.",
       "loading": "Loading policies…",
       "fields": {
         "defaultModel": "Default Model",
@@ -211,10 +250,64 @@
       "actions": {
         "save": "Save Policies",
         "saving": "Saving…",
-        "discard": "Discard",
+        "discard": "Discard changes",
         "unsavedChanges": "Unsaved changes",
         "saveFailed": "Save failed: {{detail}}"
+      },
+      "presetsTitle": "Policy presets",
+      "presetsSubtitle": "These values are stored as presets and are not enforced.",
+      "notAppliedTitle": "These presets do not change current behavior",
+      "notAppliedHint": "Model, turns, audit, rate, attachment size and retention values are stored only. Manage actual models in assistant settings; attachment limits are determined by the service.",
+      "manageModels": "Manage model services",
+      "groups": {
+        "runtime": {
+          "title": "Run presets",
+          "hint": "Model and run length."
+        },
+        "safety": {
+          "title": "Safety presets",
+          "hint": "Audit detail and message frequency."
+        },
+        "storage": {
+          "title": "Attachments and retention",
+          "hint": "Upload size and history retention."
+        }
+      },
+      "audit": {
+        "off": "Off",
+        "basic": "Basic",
+        "strict": "Strict"
+      },
+      "hints": {
+        "default_model": "Records a default model name; does not override assistant settings.",
+        "max_turn_per_run": "Records the desired maximum turns in one run.",
+        "audit_level": "Records the desired level of audit detail.",
+        "rate_limit_per_min": "Records the desired per-user message limit per minute.",
+        "max_attachment_size_mb": "Records the desired size; does not set actual upload limits.",
+        "retention_days": "Records desired retention; does not automatically delete messages."
       }
+    },
+    "surface": {
+      "unchanged": "No changes",
+      "unsaved": "Unsaved changes",
+      "saved": "Changes saved.",
+      "saveFailed": "Save failed. Your changes are retained; please retry.",
+      "loadFailed": "Unable to load this section. Please retry.",
+      "nameRequired": "Enter a display name containing more than spaces.",
+      "modelRequired": "Enter a model name.",
+      "positiveInteger": "Enter a whole number of at least 1."
+    },
+    "capacity": {
+      "subtitle": "Actual usage, managed separately from the presets below.",
+      "occupied": "occupied",
+      "available": "Uploads available",
+      "remaining": "Remaining",
+      "members": "Visible account usage · {{count}} accounts",
+      "visibility": "Only accounts you may view are listed. Their usage may total less than the service usage.",
+      "empty": "No attachment usage for visible accounts.",
+      "failed": "Storage usage is unavailable. Presets can still be viewed and edited separately.",
+      "fullHint": "Storage is full. New attachment uploads are paused; text chat remains available.",
+      "refresh": "Refresh usage"
     }
   },
   "agents": {

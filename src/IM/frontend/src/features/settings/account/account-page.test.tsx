@@ -1,5 +1,6 @@
+import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appRoutes } from "../../../app/router";
@@ -20,13 +21,13 @@ const SAMPLE_USER = {
   membership_status: "active" as const,
   is_company_admin: true,
   owned_node_ids: ["node-app-01", "node-app-02"],
-  created_at: "2026-03-13T10:00:00Z"
+  created_at: "2026-03-13T10:00:00Z",
 };
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
   });
 }
 
@@ -34,7 +35,7 @@ function meBody(overrides: Partial<typeof SAMPLE_USER> = {}) {
   return {
     ...SAMPLE_USER,
     user_id: SAMPLE_USER.id,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -51,7 +52,7 @@ function nodesBody() {
       relay_enabled: true,
       reporting_enabled: true,
       alias: "MacBook",
-      last_error: null
+      last_error: null,
     },
     {
       node_id: "node-app-02",
@@ -64,8 +65,8 @@ function nodesBody() {
       relay_enabled: true,
       reporting_enabled: true,
       alias: "Mini",
-      last_error: null
-    }
+      last_error: null,
+    },
   ];
 }
 
@@ -79,7 +80,8 @@ function mockAccountApi() {
     }
     if (url === "/im/v1/me") return jsonResponse(stored);
     if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
-    if (url === "/im/v1/sync") return jsonResponse({ items: [], max_event_id: 0 });
+    if (url === "/im/v1/sync")
+      return jsonResponse({ items: [], max_event_id: 0 });
     if (url === "/im/v1/conversations") return jsonResponse({ items: [] });
     return new Response(null, { status: 404 });
   });
@@ -90,18 +92,19 @@ beforeEach(() => {
   setLanguage("en");
   useAuthStore.getState().setSession({
     access_token: "t",
-    user: SAMPLE_USER
+    user: SAMPLE_USER,
   });
 });
 
 afterEach(() => {
+  focusManager.setFocused(undefined);
   fetchMock.mockReset();
   localStorage.clear();
   useAuthStore.getState().clear();
 });
 
 describe("account settings", () => {
-  it("shows owned devices without a routing selector and still saves the profile", async () => {
+  it("summarizes computers without duplicating their management and saves the profile", async () => {
     const user = userEvent.setup();
     mockAccountApi();
 
@@ -110,9 +113,15 @@ describe("account settings", () => {
     const displayName = await screen.findByLabelText(/display name/i);
     expect(displayName).toHaveValue("Alex Chen");
     expect(screen.queryByLabelText(/default entry node/i)).toBeNull();
-    expect(screen.getByTestId("account-owned-node-node-app-01")).toHaveTextContent("MacBook");
-    expect(screen.getByTestId("account-owned-node-node-app-02")).toHaveTextContent("Mini");
-    expect(screen.queryByTestId("account-owned-node-default-chip-node-app-01")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: /manage computers/i }),
+    ).toHaveAttribute("href", "/settings/nodes");
+    expect(
+      screen.queryByTestId("account-owned-node-node-app-01"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("account-owned-node-default-chip-node-app-01"),
+    ).toBeNull();
 
     await user.clear(displayName);
     await user.type(displayName, "Alex Ops");
@@ -120,12 +129,13 @@ describe("account settings", () => {
 
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(
-        ([url, init]) => url === "/im/v1/me" && (init as RequestInit)?.method === "PATCH"
+        ([url, init]) =>
+          url === "/im/v1/me" && (init as RequestInit)?.method === "PATCH",
       );
       expect(JSON.parse(String((patchCall?.[1] as RequestInit).body))).toEqual({
         display_name: "Alex Ops",
         default_entry_node_id: "node-app-01",
-        locale: "en"
+        locale: "en",
       });
     });
     expect(useAuthStore.getState().user?.display_name).toBe("Alex Ops");
@@ -146,5 +156,76 @@ describe("account settings", () => {
 
     expect(await screen.findByDisplayValue("Alex Chen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
+  });
+  it("keeps a failed edit and rejects a whitespace-only display name", async () => {
+    const user = userEvent.setup();
+    mockAccountApi();
+    const api = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) =>
+      init?.method === "PATCH"
+        ? Promise.resolve(jsonResponse({ detail: "unavailable" }, 503))
+        : api(input, init),
+    );
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+    const field = await screen.findByLabelText(/display name/i);
+    await user.clear(field);
+    await user.type(field, "   ");
+    expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
+    await user.clear(field);
+    await user.type(field, "Keep this draft");
+    await user.click(screen.getByRole("button", { name: /save/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /retained|kept/i,
+    );
+    expect(field).toHaveValue("Keep this draft");
+    expect(screen.getByRole("button", { name: /save/i })).toBeEnabled();
+  });
+
+  it("keeps the name draft when the saved profile refreshes in the background", async () => {
+    const user = userEvent.setup();
+    mockAccountApi();
+    const api = fetchMock.getMockImplementation()!;
+    let background = false;
+    fetchMock.mockImplementation((input, init) =>
+      input === "/im/v1/me" && background
+        ? Promise.resolve(
+            jsonResponse(meBody({ display_name: "Background profile" })),
+          )
+        : api(input, init),
+    );
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+    const field = await screen.findByLabelText(/display name/i);
+    await user.clear(field);
+    await user.type(field, "My unfinished draft");
+    background = true;
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await screen.findByText("Background profile");
+    expect(field).toHaveValue("My unfinished draft");
+    expect(screen.getByRole("button", { name: /save/i })).toBeEnabled();
+  });
+
+  it("offers a retry after a profile load failure without hiding related settings", async () => {
+    let available = false;
+    fetchMock.mockImplementation(async (input) =>
+      input === "/im/v1/me"
+        ? jsonResponse(
+            available ? meBody() : { detail: "unavailable" },
+            available ? 200 : 503,
+          )
+        : jsonResponse([]),
+    );
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /manage computers/i }),
+    ).toBeInTheDocument();
+    available = true;
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(await screen.findByLabelText(/display name/i)).toHaveValue(
+      "Alex Chen",
+    );
   });
 });

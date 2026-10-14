@@ -1,0 +1,24 @@
+# 实施与自检
+
+## 测试策略
+
+- 风险与 seam：账号/策略实际表单保存、放弃、无效值、异步重新读取不覆盖草稿、请求失败后可恢复；最低层为既有 React Testing Library 页面测试。只读和容量身份辨认仍由既有 company-access 测试负责，不复制权限测试。
+- `account-page.test.tsx` rewrite-merge：旧设备逐行呈现断言改为电脑管理摘要入口；保留保存/放弃，补空白名/保存失败、后台刷新和读失败重试。
+- `policies-page.test.tsx` rewrite-merge：完整六字段保存用解析后的 JSON 验证，避免把键顺序当协议；补空数字/非整数、失败草稿与容量故障独立、后台刷新与读失败恢复。
+- `company-access.test.tsx` rewrite-merge：普通成员从禁用控件改为只读文本，保留权限与容量用户名识别覆盖。
+- 先修改行为测试在旧实现取得3项失败（摘要入口、空白名校验、只读文本）；完成新实现后相关3文件19项全部通过。无新永久测试文件、无一次性浏览器脚本混入测试套件。
+
+## 验证结果
+
+- `npm run build`：通过，568 modules；有既有大包与动态导入提示，不影响生成。
+- 前端全套 `npm test`：93文件 / 877测试通过；`npm audit --audit-level=critical`：0 vulnerabilities。
+- `pnpm build` 与 `pnpm typecheck`：通过（仅构建本地 installer candidate，没有发布）。`pnpm test` 在运行，最终状态由收尾 validation 记录。
+- Python helpers：56 passed / 31 deselected；ruff check/format通过。日志临时定位 `/tmp/nano-feat604/`，最终归档记录必要摘要。
+
+## 真实页面自检
+
+- 真实静态构建由隔离 IM 提供。中文桌面账号的身份/用户名、资料编辑、折叠账号详情、独立空间与关联管理符合原型；显示名保存为测试姓名后，个人菜单同步，刷新仍保留。[桌面账号](account-desktop.png)。
+- 管理员策略先呈现实际占用和剩余，再呈现未执行预设；展开可见账号，长中文姓名/用户名、1GiB满额成员与用量可辨认。[桌面策略](policies-desktop.png)。
+- 390px真实响应式下编辑最后一个留存字段，然后停止本次IM并提交。31天草稿保留，失败文字/保存按钮/真实四项底栏同屏；恢复同一IM后直接重试成功，刷新读回31天。[手机失败](policies-mobile-failure.png)。
+- 320px账号实际渲染，长显示名自然换行，表单与保存动作不横向溢出，真实底栏保持可达。[320px账号](account-mobile-320.png)。
+- 本段是实施者自检，不替代独立产品验收；只声明上述状态，不推导其余身份、英文窄屏和其他故障已通过。永久测试与真实自检共同支持后续独立验收。
