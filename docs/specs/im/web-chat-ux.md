@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: feat-551-agent-reply-images / feat-554 / feat-563
+> 对齐: bugfix-598
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -18,6 +18,18 @@ Web IM 的 HTML 页面入口（包括 Agent 设置等 SPA 路由）MUST 返回 `
 #### Scenario: 更新部署后重新打开配置页
 - **WHEN** 浏览器重新加载 Agent 设置页面或直接请求 `/index.html`
 - **THEN** HTML 入口不由浏览器缓存复用，页面从当前部署的入口加载脚本。
+
+### Requirement: Agent 消息保留普通换行并支持 Markdown
+
+Web IM SHALL 显示 Agent 正文中的普通换行和段落分隔，同时保留 Markdown 格式；实时消息与历史消息使用同一规则。
+
+#### Scenario: 普通多行正文保持分行
+- **WHEN** Agent 消息的同一段落含普通换行，例如 `你可以找我：` 后逐行列出 `•` 条目
+- **THEN** 每次换行均在聊天正文中显示，不折叠为同一行；空行仍分隔段落。
+
+#### Scenario: Markdown 与换行共同显示
+- **WHEN** Agent 消息同时包含普通换行和 Markdown
+- **THEN** 标题、强调、链接、列表、引用、表格、代码块和 mention 按既有规则显示，显式 Markdown 换行不会重复成空行，代码块内容与缩进保持原样。
 
 ### Requirement: Agent 图片在正文中按顺序展示加载、成功和失败状态
 
