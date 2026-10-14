@@ -66,3 +66,16 @@ it('preserves relay sender names and timestamps in native inbox pages', () => {
     expect(store.read('alice','main','read',{target:'group-a'})).toMatchObject({messages:[{sender:{name:'Alice'},time:'2026-10-10T01:00:00Z'}]});
   } finally {store.close();}
 });
+
+it('renders a message in its captured user timezone without changing its historical instant', () => {
+  const store = new InboxStore(':memory:');
+  const message = input('local', '早，今天有什么安排？');
+  message.message.created_at = '2026-10-14T01:00:00Z';
+  Object.assign(message.message, { timezone: 'Asia/Shanghai' });
+  try {
+    store.receive(message, true);
+    expect(store.read('alice', 'main', 'local-read', { target: 'group-a' })).toMatchObject({
+      messages: [{ time: '2026-10-14T09:00:00+08:00', content: [{ text: message.message.content }] }],
+    });
+  } finally { store.close(); }
+});

@@ -173,6 +173,7 @@ export class Identity {
         "display_name",
         "owner_id",
         "locale",
+        "timezone",
         "default_entry_node_id",
         "owned_node_ids",
         "created_at",

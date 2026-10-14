@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Heartbeat and Cron Specification
 
-> 对齐: feat-552
+> 对齐: bugfix-608
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -114,3 +114,20 @@ Heartbeat tick 与 cron 执行使用与人工聊天相同的主模型 + 有序�
 - **WHEN** Heartbeat复用global主会话，且审批无有效结论或达到拒绝阈值
 - **THEN** 仍按原无人值守fallback处理：显式allow可执行，默认或显式deny不执行，结果区分配置决定和模型判断。
 - **AND** 主会话的人工交互选择不覆盖本次自动来源；普通global wake和global child将未获准原因反馈主Agent，不能仅按session归属混用两类交互。
+
+### Requirement: Heartbeat 活跃时段、文件 cron 与唤醒时间采用同一用户时区
+
+#### Scenario: 本地早间触发
+- **GIVEN** 用户已自动报告 Asia/Shanghai，Heartbeat 活跃时段覆盖 09:00，HEARTBEAT.md 任务 cron 为每日 09:00
+- **WHEN** UTC 01:00 到达
+- **THEN** 按上海 09:00 判断时段与任务到期，唤醒给 Agent 的当前时间带 +08:00 与 Asia/Shanghai。
+
+#### Scenario: 设置页不要求填写 timezone
+- **WHEN** 用户在 iOS 设置 Heartbeat 时段
+- **THEN** 仅需设置时段，不需手动填写 timezone；小字说明“按你所在地时间”。
+
+#### Scenario: 未知时区不猜测用户所在地
+- **GIVEN** 没有已保存用户时区或旧明确配置时区
+- **WHEN** 评估时钟活跃窗口或文件 cron
+- **THEN** 不以 Gateway 系统时区猜测执行。
+- **AND** 相对 every 节律和 DSH 原生定时工具行为不因本变更改写。

@@ -111,7 +111,8 @@ describe("chat-api", () => {
     expect(JSON.parse(init.body as string)).toEqual({
       sender: { type: "user", id: "user-1" },
       content: "hello",
-      attachments: []
+      attachments: [],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
   });
 

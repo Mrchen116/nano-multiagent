@@ -263,7 +263,7 @@ struct AgentHeartbeatFields: View {
             TextField(L("间隔，例如 30m / 1h", "Interval, e.g. 30m / 1h"), text: Binding(get: { draft.heartbeat.every ?? "" }, set: { draft.heartbeat.every = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never)
             TextField(L("活跃开始 HH:mm（可选）", "Active from HH:mm (optional)"), text: hour(\.start))
             TextField(L("活跃结束 HH:mm（可选）", "Active until HH:mm (optional)"), text: hour(\.end))
-            TextField(L("时区（可选）", "Timezone (optional)"), text: hour(\.timezone)).textInputAutocapitalization(.never).autocorrectionDisabled()
+            Text(L("按你所在地时间", "Uses your local time")).font(.caption).foregroundStyle(.secondary)
             Button(L("查看 HEARTBEAT.md", "View HEARTBEAT.md")) {
                 Task {
                     do { let value: AgentHeartbeatDocument = try await client.get(agentPath(agentID) + "/heartbeat-md"); if value.node_online { document = AgentPrompt(prompt: value.content); error = nil } else { error = L("节点离线，无法读取 HEARTBEAT.md", "Node offline; HEARTBEAT.md is unavailable") } }

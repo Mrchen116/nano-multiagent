@@ -576,6 +576,7 @@
         "enabledHelp": "Agent will wake periodically and check its HEARTBEAT.md task list.",
         "everyLabel": "Cadence",
         "everyHelp": "How often the agent wakes up.",
+        "activeHoursHelp": "Uses your local time; leave blank for always-on",
         "everyUnitLabel": "Cadence unit",
         "unit": {
           "s": "seconds",

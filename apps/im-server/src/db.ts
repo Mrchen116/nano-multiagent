@@ -21,6 +21,13 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY)");
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-timezone-v1'").get()) {
+      for (const table of ['users', 'messages']) {
+        if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'timezone'))
+          db.exec(`ALTER TABLE ${table} ADD COLUMN timezone TEXT`);
+      }
+      db.prepare("INSERT INTO schema_migrations VALUES('user-timezone-v1')").run();
+    }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='personal-spaces-v1'").get()) {
       for (const [table, column, definition] of [
         ["users", "personal_space_enabled", "INTEGER NOT NULL DEFAULT 0"],

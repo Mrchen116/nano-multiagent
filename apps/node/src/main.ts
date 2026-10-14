@@ -81,6 +81,7 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'user.timezone') { store.setOwnerTimezone(String(payload.timezone)); return; }
     if (frame.type === 'node.update.request') { await updater.request(String(payload.operation_id)); return; }
     const permission = frame.type === 'node.streaming_delta' && payload.kind === 'permission_response';
     if (updateHolding && !permission) return; // Unacknowledged relays remain in IM and are replayed after release.
@@ -168,7 +169,7 @@ const relay = new WebRelayConnection({
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
     } finally { admissions--; }
   },
-  onState: async state => { await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
+  onState: async state => { if (state === 'ready' && typeof relay.registration?.owner_timezone === 'string') store.setOwnerTimezone(relay.registration.owner_timezone); await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
@@ -248,7 +249,7 @@ workflows = new WorkflowResults({agents,store,runtime,receive: (sessionId,input)
 history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
-  settings: agentId => (config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}) as HeartbeatSettings,
+  settings: agentId => ({ ...(config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}), timezone: store.ownerTimezone }) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
   available: agentId => !updateHolding && runtime.available && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
 });

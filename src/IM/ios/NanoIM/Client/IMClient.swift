@@ -9,6 +9,12 @@ actor IMClient {
         self.session = session ?? Session(baseURL: baseURL)
     }
     func serverURL() -> URL { baseURL }
+    /// Report each foreground activation because another device may have updated the account.
+    func syncTimeZone() async throws {
+        let timezone = TimeZone.autoupdatingCurrent.identifier
+        struct Result: Decodable, Sendable { let timezone: String }
+        let _: Result = try await send("/im/v1/me/timezone", method: "PATCH", body: ["timezone": timezone])
+    }
     func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         try await request(path, query: query)
     }

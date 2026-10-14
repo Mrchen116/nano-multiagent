@@ -17,18 +17,31 @@ it('keeps config cadence authoritative, evaluates task rhythms once, and respect
   expect(withinActiveHours(Date.parse('2026-10-09T12:00:00Z'), { active_hours: { start: '09:00', end: '18:00', timezone: 'Asia/Shanghai' } })).toBe(false);
 });
 
+it('uses the saved user timezone for both active hours and HEARTBEAT cron', () => {
+  const morning = Date.parse('2026-10-14T01:00:00Z');
+  const night = Date.parse('2026-10-14T17:00:00Z');
+  const settings = { timezone: 'Asia/Shanghai', active_hours: { start: '09:00', end: '18:00' } };
+  expect(withinActiveHours(morning, settings)).toBe(true);
+  expect(withinActiveHours(night, settings)).toBe(false);
+  const task = { name: 'daily', prompt: 'Check inbox', cron: '0 9 * * *' };
+  expect(heartbeatDue(task, undefined, morning, 'Asia/Shanghai')).toBe(morning);
+  expect(heartbeatDue(task, undefined, morning + 8 * 3600000, 'Asia/Shanghai')).toBeUndefined();
+});
+
 it('recovers an uncertain heartbeat admission by its original identity and does not refill missed ticks', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nano-heartbeat-'));
   await mkdir(join(directory, '.nanoassistant'));
   await writeFile(join(directory, '.nanoassistant/HEARTBEAT.md'), 'Check inbox');
   const agent = { agentId: 'a', revision: '1', workspace: directory, mode: 'single_thread' as const, provider: 'p', model: 'm', features: { heartbeat: true } };
   const accepted = new Set<string>(); let fail = true; let submissions = 0;
-  const options = { agents: [agent], settings: () => ({ every: '10m' }), available: () => true, onError: () => {},
+  const options = { agents: [agent], settings: () => ({ every: '10m', timezone: 'Asia/Shanghai' }), available: () => true, onError: () => {},
     binding: async () => ({ sessionId: 's', conversationId: 'c', ownerId: 'o', agentId: 'a', cwd: directory, revision: '1' }),
     runtime: { onNotification: () => () => {}, request: async (method: string, params: unknown) => {
       const value = params as { inputId: string; onlyIfIdle?: boolean; source?: { channel: string } };
       if (method === 'session.lookup') return { accepted: accepted.has(value.inputId) };
       expect(value.onlyIfIdle).toBe(true); expect(value.source?.channel).toBe('heartbeat');
+      const content = (params as { content: {text: string}[] }).content;
+      expect(content[0]!.text).toContain('+08:00 (Asia/Shanghai)');
       accepted.add(value.inputId); submissions++;
       if (fail) throw new Error('lost acceptance response'); return { accepted: true };
     } },

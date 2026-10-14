@@ -372,6 +372,7 @@ export class Gateway {
       node_id: c.node_id,
       node_epoch: c.node_epoch,
       gateway_access_token: c.token,
+      owner_timezone: one(db, "SELECT timezone FROM users WHERE id=?", c.owner_id)?.timezone ?? null,
     };
   }
   async handle(c: Connection, type: string, p: Row): Promise<Row> {

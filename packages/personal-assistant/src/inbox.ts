@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RelayInput } from '@nano/product-contracts';
+import { formatLocalTime } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Fragment { seq: number; part: number }
@@ -84,8 +85,10 @@ export class InboxStore {
       const row = this.db.prepare('SELECT * FROM inbox WHERE seq=?').get(fragment.seq) as unknown as Entry;
       const input = JSON.parse(row.payload) as RelayInput;
       const parts = this.parts(input, row.seq);
+      const instant = input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time
+        ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
       return { id: input.message.id, target: row.target, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
-        name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time ?? null,
+        name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = offset + selected.length;

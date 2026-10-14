@@ -14,6 +14,7 @@ export class NodeStore {
       CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
       CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS owner_timezone (owner_id TEXT PRIMARY KEY, timezone TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (
         session_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
         conversation_id TEXT NOT NULL, binding TEXT NOT NULL,
@@ -50,6 +51,14 @@ export class NodeStore {
     if (owner.owner_id !== ownerId) { this.db.close(); throw new Error('Node state belongs to a different owner'); }
   }
 
+  /** Read the account timezone cached for offline external input and Heartbeat. */
+  get ownerTimezone(): string | undefined {
+    return (this.db.prepare('SELECT timezone FROM owner_timezone WHERE owner_id=?').get(this.ownerId) as { timezone: string } | undefined)?.timezone;
+  }
+  /** Cache an IM-confirmed owner timezone without changing message snapshots. */
+  setOwnerTimezone(timezone: string): void {
+    this.db.prepare('INSERT INTO owner_timezone VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET timezone=excluded.timezone WHERE timezone!=excluded.timezone').run(this.ownerId, timezone);
+  }
   /** Preserve the old relay deduplication window without replaying retired execution. */
   priorRelay(key: string): boolean { return !!this.db.prepare('SELECT 1 FROM migration_relay_keys WHERE idempotency_key=? AND expires_at>?').get(key, Date.now()/1000); }
   /** Bind a product conversation once; runtime identity never comes from a model. */

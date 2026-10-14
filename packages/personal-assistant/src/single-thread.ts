@@ -5,6 +5,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
+import { formatLocalTime } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
@@ -118,6 +119,12 @@ export class SingleThread {
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
       const content: Record<string, unknown>[] = [];
       const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
+      let contextEnvelope: string | undefined;
+      if (input.message.sender_type === 'user' && input.message.created_at) {
+        const time = formatLocalTime(input.message.created_at, input.message.timezone);
+        contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
+        content.push({ type: 'text', text: contextEnvelope });
+      }
       if (input.metadata.conversation_type === 'group' && input.participants?.length) {
         content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
       }
@@ -131,7 +138,7 @@ export class SingleThread {
       }
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
-        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id },
+        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, contextEnvelope },
       });
     }
     store.accepted(inputId);
