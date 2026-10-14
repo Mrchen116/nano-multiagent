@@ -78,7 +78,7 @@
     "title": "我",
     "sections": {
       "account": "账号",
-      "accountSubtitle": "个人资料与网关",
+      "accountSubtitle": "个人资料与空间",
       "nodes": "节点",
       "nodesSubtitle": "资料与网关",
       "language": "语言",
@@ -154,14 +154,16 @@
     },
     "account": {
       "title": "账号",
-      "subtitle": "你的个人资料和设备。",
+      "subtitle": "管理个人资料，了解你的空间与团队资格。",
       "identity": {
-        "heading": "资料",
-        "subtitle": "你在工作区中的身份。",
+        "heading": "个人资料",
+        "subtitle": "让团队和助手知道如何称呼你。",
         "displayName": "显示名",
         "username": "用户名",
         "userId": "用户 ID",
-        "createdAt": "加入时间"
+        "createdAt": "加入时间",
+        "displayNameHint": "显示在聊天、任务和成员列表中。",
+        "details": "账号详情"
       },
       "defaults": {
         "heading": "设备",
@@ -182,15 +184,52 @@
         "save": "保存",
         "saveAccount": "保存账户",
         "saving": "保存中…",
-        "discard": "放弃",
+        "discard": "放弃修改",
         "savedJustNow": "已保存。",
         "unsavedChanges": "有未保存改动",
         "saveFailed": "保存失败:{{detail}}"
+      },
+      "spaces": {
+        "heading": "空间与团队",
+        "subtitle": "个人空间和团队资格各自独立。",
+        "personal": "个人空间",
+        "available": "可用",
+        "unavailable": "未启用",
+        "personalHint": "管理你的私人聊天、助手与任务。",
+        "companyOnly": "当前账号使用团队空间。",
+        "team": "团队",
+        "states": {
+          "none": "未加入",
+          "pending": "等待批准",
+          "suspended": "资格已停用",
+          "member": "已加入",
+          "admin": "管理员"
+        },
+        "hints": {
+          "none": "需要协作时再申请加入，个人空间无需审批。",
+          "pending": "申请正在等待管理员批准。",
+          "active": "可以访问团队共享内容。",
+          "suspended": "团队访问已停用，个人空间资格不受影响。"
+        },
+        "join": "申请加入",
+        "application": "查看申请",
+        "membership": "查看资格",
+        "manageMembers": "管理成员"
+      },
+      "linked": {
+        "heading": "关联管理",
+        "subtitle": "在专属页面连接和管理电脑。",
+        "computers": "我的电脑",
+        "summary": "已连接 {{count}} 台电脑",
+        "summary_one": "已连接 {{count}} 台电脑",
+        "summary_other": "已连接 {{count}} 台电脑",
+        "empty": "还没有连接电脑，连接后即可运行助手。",
+        "manage": "管理电脑"
       }
     },
     "policies": {
       "title": "策略",
-      "subtitle": "全局运行时限制与安全配置。",
+      "subtitle": "查看实际存储状态，维护团队策略预设。",
       "loading": "加载策略中…",
       "fields": {
         "defaultModel": "默认模型",
@@ -199,22 +238,76 @@
         "auditLevelOff": "关闭",
         "auditLevelBasic": "基础",
         "auditLevelStrict": "严格",
-        "maxTurnPerRun": "每轮最大轮次",
+        "maxTurnPerRun": "单次运行轮次",
         "maxTurnPerRunHint": "单次运行允许的最大 agent 轮次数。",
-        "rateLimitPerMin": "每分钟限流",
+        "rateLimitPerMin": "每分钟消息数",
         "rateLimitPerMinHint": "每用户每分钟最大消息数。",
-        "maxAttachmentSizeMb": "附件最大体积（MB）",
+        "maxAttachmentSizeMb": "单个附件大小（MB）",
         "maxAttachmentSizeMbHint": "超过此大小的文件将被拒绝。",
-        "retentionDays": "消息留存天数",
+        "retentionDays": "消息留存（天）",
         "retentionDaysHint": "消息历史记录的保留时长。"
       },
       "actions": {
         "save": "保存策略",
         "saving": "保存中…",
-        "discard": "放弃",
+        "discard": "放弃修改",
         "unsavedChanges": "有未保存改动",
         "saveFailed": "保存失败:{{detail}}"
+      },
+      "presetsTitle": "策略预设",
+      "presetsSubtitle": "保存的是预设值，尚未接入执行。",
+      "notAppliedTitle": "这些预设目前不会改变实际运行",
+      "notAppliedHint": "模型、轮次、审计、限流、附件大小和留存预设目前仅保存记录。实际模型在助手设置中管理；实际附件限制以服务端为准。",
+      "manageModels": "管理模型服务",
+      "groups": {
+        "runtime": {
+          "title": "运行预设",
+          "hint": "模型与运行轮次。"
+        },
+        "safety": {
+          "title": "安全预设",
+          "hint": "审计和消息频率。"
+        },
+        "storage": {
+          "title": "附件与留存",
+          "hint": "上传大小和历史保留。"
+        }
+      },
+      "audit": {
+        "off": "关闭",
+        "basic": "基础",
+        "strict": "严格"
+      },
+      "hints": {
+        "default_model": "记录默认模型名称；不会覆盖助手当前配置。",
+        "max_turn_per_run": "记录期望的单次运行轮次上限。",
+        "audit_level": "记录期望的审计详细程度。",
+        "rate_limit_per_min": "记录期望的每用户每分钟消息上限。",
+        "max_attachment_size_mb": "记录期望值；不决定实际上传限制。",
+        "retention_days": "记录期望留存时长；不会据此自动删除消息。"
       }
+    },
+    "surface": {
+      "unchanged": "尚未修改",
+      "unsaved": "有未保存的修改",
+      "saved": "修改已保存。",
+      "saveFailed": "保存失败，修改已保留。请重试。",
+      "loadFailed": "暂时无法加载，请重试。",
+      "nameRequired": "请输入有效的显示名，不能仅包含空格。",
+      "modelRequired": "请输入有效的模型名称。",
+      "positiveInteger": "请输入大于或等于 1 的整数。"
+    },
+    "capacity": {
+      "subtitle": "当前实际用量，与下方预设分开管理。",
+      "occupied": "已占用",
+      "available": "可上传",
+      "remaining": "剩余",
+      "members": "可见账号用量 · {{count}} 人",
+      "visibility": "仅列出你有权查看的账号，用量之和可能小于全服务。",
+      "empty": "可见账号暂无附件用量。",
+      "failed": "暂时无法读取存储用量。预设仍可单独查看和编辑。",
+      "fullHint": "存储已满，新的附件上传将暂停，文字聊天仍可使用。",
+      "refresh": "刷新用量"
     }
   },
   "agents": {
