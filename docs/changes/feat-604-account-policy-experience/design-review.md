@@ -66,3 +66,47 @@
 - R1-R1 — accepted：成员折叠区改为“可见账号用量”，说明权限范围内明细不一定等于全服务；不扩大数据读取。
 - R1-R2 — accepted：user-menu 路径修正到 `app/shell/user-menu.tsx`。
 - 补充基线：冻结 db8a7321a 的前端 git archive + npm 锁定依赖构建，本次测试管理员在隔离真栈看到的旧页见 [账号](M1-settings/evidence/baseline-account-isolated.png)、[策略](M1-settings/evidence/baseline-policies-isolated.png)。截图只包含本次专用测试数据，不是生产部署证据。
+
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review`，沿用 R1 独立 reviewer；skill：`change-design-reviewer`
+- reviewer_target: `main ef2304bbde34f79d2ceebf213cf3ba6e0288cfbc`；previous_target: `db8a7321ad544660984b3bbef34e15374aeabc8d`
+- review_mode: `closure`
+- mode_reason: 冻结差异限于 R1 两项反馈/手机上下文问题的修正、容量范围消歧、入口路径和证据补充；首文档、delta-spec、职责边界、共享接口与 M1 退出标准未变，无需扩大为新的 full review。
+- started_at: `2026-10-14T11:16:32+08:00`
+- completed_at: `2026-10-14T11:19:06+08:00`
+- duration: `PT2M34S`
+- retained_from: `Round 1`；需求覆盖、现状组装、接口与权限、架构复用、delta 归并目标和验收前置不受本轮差异影响，沿用 R1 的独立核查与隔离真栈观察。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1 两项问题均关闭。保存失败的说明与当前操作位于同一个可见保存条，手机原型也呈现了有界内容区与既有底栏的关系；本轮修订已足以指导实施。
+
+### Coverage 与证据边界
+
+本轮独立核对两个冻结版本间的完整 unit diff、R1 Author Resolutions、design 决策 3/4/6、原型 footer/submitDraft/main/shell、walkthrough 和三张新增截图。[手机保存失败](M1-settings/evidence/prototype-mobile-save-failure.png) 是 author 在 320px 限高容器中修改长策略表单并提交失败后取得的真实渲染画面；本 reviewer 独立查看像素，明确看到 `test-model` 草稿、红色失败说明、放弃/保存按钮与四项手机底栏同时在场，桌面顶栏已不在产品手机区域。图像证明这一失败状态与空间关系，不能单凭它推导完整滚动序列或失败后成功重试。
+
+本轮子会话的旧 IAB、创建新 IAB、绑定主会话现存标签均报告浏览器不可用；未接管用户 Chrome，也未声称独立重新执行 R2 交互。闭环结论由本轮独立图像判断、冻结源码、明确设计约束和 author 的实际操作记录共同支持。R1 已独立执行的编辑/失败/重试及现有产品对照按上述 retained 范围保留；真实客户端持久化、权限、refetch、中英文及不同手机尺寸仍按 M1 退出标准独立验收。
+
+新增 [账号隔离基线](M1-settings/evidence/baseline-account-isolated.png) 与 [策略隔离基线](M1-settings/evidence/baseline-policies-isolated.png) 的画面和本 reviewer 在 R1 直接查看的隔离旧页相符，替代了不可复查的会话截图引用；它们仍只证明本次专用测试构建，不能用于生产部署结论。
+
+### 历史问题闭环
+
+| ID | Author Resolution | 本轮核实证据与判断 | 状态 |
+|---|---|---|---|
+| R1-W1 | 失败与成功反馈移入保存条，输入后恢复未保存状态 | design 决策 4 明确反馈与当前操作同时可见；`submitDraft` 修改 footer 内的 `#status`，失败为 alert 且保留草稿/保存按钮；新增手机失败截图直接显示结果与操作同屏，不再依赖回页首 | closed |
+| R1-W2 | 手机改为限高 flex 容器、main 独立滚动，保留既有底栏背景 | `.preview-mobile` 具有限高，main 为可收缩的 overflow-y:auto 区域，底栏 flex-shrink:0，保存条在该内容滚动区内；截图直接显示窄屏的失败保存条位于底栏上方。design 决策 6 同时约束末尾字段及导航不得被覆盖，给实施和真实产品验收留下明确判断依据 | closed |
+| R1-R1 | 明细标为“可见账号用量”并说明不能与全服务直接求和 | design 决策 3 与原型折叠区文案同步；仅说明既有 service/owners 范围，不修改读取权限或接口 | closed |
+| R1-R2 | 修正 user-menu 路径 | design 现状入口已改为 `app/shell/user-menu.tsx`，与 R1 核实的真实组装位置一致 | closed |
+
+### Issues
+
+无新增 CRITICAL / WARNING；无 still-open 历史问题。
+
+### Recommendations
+
+无新增建议。
