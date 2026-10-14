@@ -248,6 +248,7 @@ export interface Conversation {
   is_muted: boolean;
   unread_count: number;
   last_message_preview: string | null;
+  last_message_system_notice?: SystemNotice | null;
   last_message_at: string | null;
   created_at: string;
   /** feat-446-M3: derived from active agent delivery rows; hidden unless distill selection mode is active. */

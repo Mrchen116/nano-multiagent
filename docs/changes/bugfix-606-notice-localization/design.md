@@ -4,13 +4,13 @@
 
 ## 实现范围
 
-Base 为 `9ebe12f8553a593f6179784b0276849fb14e5358`。产品改动位于 IM gateway 的 node.system_message handler，以及 Web 的 message.reconciled 类型与 reducer。既有 Messaging.insertMessage 已支持随消息持久化 system_notice 后才发布事件，本次直接复用。
+Base 为 `9ebe12f8553a593f6179784b0276849fb14e5358`。产品改动位于 IM gateway 的 node.system_message handler，以及 Web 的 message.reconciled 类型与 reducer、会话摘要的结构化通知字段与渲染。既有 Messaging.insertMessage 已支持随消息持久化 system_notice 后才发布事件，本次直接复用。
 
 ## 最终结构与数据流
 
 认证节点和来源 Agent 的校验沿用既有逻辑。handler 把来源显示名快照与结构化 notice 一起传给 insertMessage；首次 message.created 与历史消息由同一份持久内容构造，无后补 metadata 事件。相同投递身份重试直接取回原消息，不改来源快照、不新增通知事件。
 
-前端 message.reconciled 的完整消息类型包含可选 system_notice，reducer 重建完整快照时保留该字段。既有 formatSystemNotice 按当前 i18n 渲染；无结构化 notice 的历史消息继续展示存储正文。没有新 schema、库、兼容解析或翻译规则。
+前端 message.reconciled 的完整消息类型包含可选 system_notice，reducer 重建完整快照时保留该字段。既有 formatSystemNotice 按当前 i18n 渲染；无结构化 notice 的历史消息继续展示存储正文。会话 REST 摘要按原最新消息时间关联其持久 notice，Sidebar 复用同一 formatter；普通消息快路径清除前一 notice，语言切换使摘要重新计算。没有新 schema、库、兼容解析或翻译规则。
 
 ## 风险、失败与回退
 
@@ -26,4 +26,4 @@ Base 为 `9ebe12f8553a593f6179784b0276849fb14e5358`。产品改动位于 IM gate
 
 ## Canonical 文档影响
 
-无 spec delta：恢复 `docs/specs/im/gateway-relay.md` 的“首次完整 message.created”与 `docs/specs/im/web-chat-ux.md` 的当前语言通知契约，未增加新的对外规则。
+首次完整事件与时间线本地化恢复既有契约；实际浏览器检查发现会话摘要仍显示英文，因此在同一 unit 中增加摘要一致性。最窄 delta 位于 `specs/im/web-chat-ux.md`，待用户确认后归并，不提前覆盖 current。

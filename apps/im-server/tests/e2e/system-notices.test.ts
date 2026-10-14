@@ -35,6 +35,8 @@ it('publishes a complete localized-notice snapshot once and preserves it on retr
   const messages = history.body.items.filter((item: any) => item.type === 'message');
   expect(messages).toHaveLength(1);
   expect(messages[0].message.system_notice).toEqual(live.data.system_notice);
+  const conversations = await f.http('GET', '/im/v1/conversations', undefined, f.tokens.alice);
+  expect(conversations.body.items.find((item: any) => item.id === conversation).last_message_system_notice).toEqual(live.data.system_notice);
   const db = new DatabaseSync(f.dbPath, { readOnly: true });
   try {
     const notifications = db.prepare('SELECT event_type,payload_json FROM conversation_events WHERE message_id=?').all(sent.payload.message_id);

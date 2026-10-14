@@ -28,6 +28,10 @@
 
 ## Sync and remaining gate
 
-同步 main 增量只包含无关 bugfix-607 的 fix.md；受审产品、测试与需求均未变，独立结论 retained。无 spec delta，既有语言/首事件契约继续有效。
+同步 main 增量只包含无关 bugfix-607 的 fix.md；受审产品、测试与需求均未变，独立结论 retained。首次完整事件和时间线契约继续有效；浏览器实际发现摘要仍为英文后，同一 unit 增加摘要一致性 delta，仍待用户确认后归并。
 
 用户尚未亲自体验候选版本；unit 保持 active，PR 以 draft 交付。自动化及 Agent 浏览器检查不冒充用户验收；用户确认后才能调用 change-fast-close 完成归档和正式交付。
+
+## Browser-discovered preview correction
+
+首轮浏览器截图发现左侧会话摘要仍显示存储英文。补入最新消息的结构化 notice 到会话 REST 摘要，Sidebar 复用当前语言 formatter；普通消息更新快路径清除旧 notice。新增 Sidebar 语言切换/普通消息替换断言，扩展真实进程用例核对摘要语义，并扩展既有消息快路径用例。该追加 diff 待独立 patch review，首轮产品内容的结论 retained。

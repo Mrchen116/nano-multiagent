@@ -138,6 +138,10 @@ export class Messaging {
       is_pinned: !!prefs.is_pinned,
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
+      last_message_system_notice: c.last_message_at ? JSON.parse(one(this.db,
+        "SELECT system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+        id, c.last_message_at,
+      )?.system_notice_json ?? "null") : null,
       run_state: one(
         this.db,
         "SELECT 1 FROM messages WHERE conversation_id=? AND delivery_status='running'",
