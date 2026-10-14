@@ -103,3 +103,44 @@ None requiring an additional delta requirement. The unit's changed responsibilit
 Outcome: **implementation-mismatch**.
 
 No self-created service/browser environment needs cleanup. Temporary component reproduction files are outside the repository under `/tmp/nano-feat604/static-review/`; only this report and code-review.md were added, with no commit. Fix W1 before PR approval and retain the separately required product-review verdict.
+
+## Round 2 — Targeted Closure
+
+- verifier: `/root/static_review`; verification_mode: `targeted-closure`, including corrected-delta closure for the prior implementation-mismatch.
+- executed_base: `9ebe12f8553a593f6179784b0276849fb14e5358` (unchanged).
+- finding_origin_head / pre_fix_head: `a2f3a66688e3bc1e17920f2976506bf1d222bc16`.
+- validated_at: `49795346290faadb5039fb1b371db5f6d145562a`.
+- fix_delta_range: `a2f3a66688e3bc1e17920f2976506bf1d222bc16..49795346290faadb5039fb1b371db5f6d145562a`.
+- prior_verification_path: this report, Round 1; focus_issues: `W1`.
+- requires_full_verification: `false`.
+- verdict: **PASS — W1 closed; 0 CRITICAL / 0 WARNING / 0 SUGGESTION.** This supersedes Round 1's implementation block at the new snapshot. Real-product S7 acceptance remains a separate reviewer obligation.
+
+### Coverage and retained conclusions
+
+The full closure diff was inspected. Only the two page success callbacks and the existing page regression tests change product behavior; other delta files integrate previously completed reports, real-product screenshots, runtime and validation evidence. Spec/design/delta have no changes. Round 1's unrelated requirement/design/current-authority/must-match checks remain valid; new product screenshots do not enlarge this verifier's visual-acceptance claims.
+
+| Focus / contract | Implementation evidence | Direct validation | Conclusion |
+|---|---|---|---|
+| W1; S1/S7; design decision 4; editable-state delta | `account/account-page.tsx:29` and `policies/policies-page.tsx:61` await exact same-key cancellation before adopting accepted response and clearing draft | Existing page tests now hold pre-save GET until after PATCH; assert accepted value and success status after releasing it | **closed** |
+| Test protection at the lowest relevant seam | New cases in `account-page.test.tsx:237` and `policies-page.test.tsx:178` exercise actual components, QueryClient and API response ordering | Red log: 2 failures before fix; green: 3 files / 21 pass. Independent direct Vitest rerun: both selected cases passed at 11:57:20 +08:00, 2.24s | covered |
+| No new authority/architecture behavior | No API, permission, backend, runtime, dependency or global-state change | Full fix delta and unchanged spec/design/delta inspected | retained |
+
+The cancellation removes the earlier query result's ability to replace the successful baseline even if the underlying HTTP promise finishes later. Awaiting it before the cache write also preserves mutation-pending locks until the response and draft state have been reconciled. No additional state machinery is required.
+
+Validation locators and exact independent command are recorded in [code-review.md](code-review.md#round-2--closure). The completed final frontend log was inspected: 93 files / 879 tests passed; build passed again. Prior root build/typecheck, bounded root 80 files / 296 tests, Python 56 tests, ruff and unchanged-dependency audit evidence remain applicable. The initial root timeout remains in the historical record without claiming a proven unique cause. No full suite was intentionally repeated by this verifier.
+
+### Corrected-delta closure
+
+This closes the prior Corrected Delta Reconciliation's implementation-mismatch; the original Round 1 result above is preserved as history. The delta text is unchanged because W1 required implementation correction, not contract relaxation.
+
+| Delta item | Latest reconciliation | Outcome |
+|---|---|---|
+| `specs/im/auth-tenancy.md:5` — account responsibilities | Fix only orders successful-save completion; identity/space/computer responsibilities and unaffected evidence retained | aligned |
+| `specs/im/auth-tenancy.md:14` — actual capacity and unenforced presets | No change to capacity, groups, visibility, limits or read-only semantics; previous evidence retained | aligned |
+| `specs/im/auth-tenancy.md:24` — recoverable and truthful edit/save feedback | Same-key in-flight GET canceled before accepted response becomes baseline; actual component regression tests prove old response cannot restore old visible value | aligned |
+
+Uncovered Observable Behavior: **None.** The fix adds no behavior outside the existing edit/save contract.
+
+Latest corrected-delta outcome: **aligned**.
+
+The scope remains targeted; no new shared-boundary impact requires full verification. This static/consistency pass does not close product reviewer R1-G1 by itself: independently observing the controlled refresh/save path in the rebuilt real client remains that reviewer's gate. Only the two assigned reports were appended, no commit was created, and no review-owned runtime needs cleanup.

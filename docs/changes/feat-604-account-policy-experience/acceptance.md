@@ -87,3 +87,63 @@
 - [x] `docs/specs/im/auth-tenancy.md`：**需要更新**，当前长期契约尚未含本unit界面职责/预设语义/恢复体验增量，由orchestrator最终校正并归并delta-spec。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## Round 2 — S7 targeted revalidation
+
+- 日期：2026-10-14；mode=full；revalidation_mode=targeted。
+- Validation snapshot: `9ebe12f8553a593f6179784b0276849fb14e5358 → 49795346290faadb5039fb1b371db5f6d145562a`。
+- fix_delta: `a2f3a6668..497953462`；focus：S7 / R1-G1；prior：本报告 Round 1。
+- 开始时 HEAD 精确匹配、工作树干净。新 dist/index.html 构建时间11:51:00；继续由同一 worktree IM32125提供。只读核对差异文件列表与caller的修复边界，没有读取产品源码定位问题。
+
+### Verdict
+
+**pass**。R1-G1 已通过真实后台 GET 的可控返回顺序补齐；当前未解决问题0，最高所需动作pass，无需再次产品复验。
+
+本轮独立验证两页编辑中后台返回不丢草稿，以及较早读取在保存成功之后返回不会让已保存值回退。结合R1的真实保存失败/重试与提交锁定证据，S7完整通过。用户可见的新值、成功反馈、禁用保存和刷新后的持久化结果相互一致，修复没有在这条旅程中引入新的理解或操作负担。
+
+### 方法与边界
+
+IAB旧句柄不可用，浏览器扩展连接也失败；按runbook使用Cua native API新建专用Chrome无痕窗口，内含产品19767和同源health两个本地标签。使用真实Ctrl+Tab切出切回触发页面可见性变化，没有注入脚本、调用React或QueryClient、修改DOM状态。
+
+19767是caller准备的透明传输fixture，产品资产/API/WS均转发同一19765 IM；只暂扣下一次指定GET的真实响应。每组都先通过fixture state确认`held`目标路径，按预定顺序release。保存后的场景，必须先记录PATCH200、浏览器成功状态，再release旧GET。本轮只证明本地客户端的竞态恢复，不作为代理或生产安全验收。
+
+### 实际顺序与结果（UTC）
+
+| 路径 / 顺序 | 已捕获的实际事件 | 浏览器观察 | 结果 |
+|---|---|---|---|
+| 账号：编辑中返回旧GET | arm03:57:43.442；held `/im/v1/me` 03:57:49.077；release03:58:02.925 | 草稿`S7 Draft Protected`仍在输入框，身份摘要仍是尚未更改的`陈晓 · 恢复验证`，`Unsaved changes`和保存动作保留 | pass |
+| 账号：保存后返回旧GET | held03:58:21.589；PATCH200 03:58:52.034；确认`Changes saved.`后release03:59:09.975 | 输入、身份摘要、顶栏均为`S7 Draft Protected`，旧GET返回后不回退，保存禁用；Cmd+R后仍为新值并显示`No changes` | pass |
+| 策略：编辑中返回旧GET | held `/im/v1/policies` 03:59:30.426；release03:59:43.100 | 原留存32，编辑值37在旧GET返回后保留，`Unsaved changes`与保存动作保留 | pass |
+| 策略：保存后返回旧GET | held03:59:56.723；PATCH200 04:00:29.518；确认`Changes saved.`后release04:00:46.304 | 留存37与成功反馈保留，保存禁用；Cmd+R后仍为37并显示`No changes` | pass |
+
+PATCH响应并非即时到达，两次分别在held后约30秒和33秒出现；等待期间真实页面显示Saving并禁用字段/放弃/保存。没有在PATCH200之前提前释放，未把此次等待时间归因成产品缺陷。
+
+### Reference Artifacts Reviewed
+
+| 契约 | 本轮真实产品依据 | 结论 |
+|---|---|---|
+| design编辑反馈与恢复must-match：输入不丢，结果可感知，后台更新保护 | 上表四条真实顺序；[账号旧GET释放后](M1-settings/evidence/review-r2/r2-account-after-old-get.png)、[策略编辑中返回](M1-settings/evidence/review-r2/r2-policies-draft-after-get.png)、[策略旧GET释放后](M1-settings/evidence/review-r2/r2-policies-after-old-get.png) | match；R1的inconclusive闭合 |
+| 身份/空间/关联管理must-match | 保留R1五身份、零/一电脑与真实导航证据，修复未改变该契约 | match retained |
+| 容量与分组预设must-match | 保留R1正常/满额/未知/只读实际画面与操作证据，修复未改变该契约 | match retained |
+
+### 场景继承与最终覆盖
+
+| Scenario | 本轮处理 | 最终结果 |
+|---|---|---|
+| S1 | 保留R1身份/详情与保存刷新证据；本轮补充保存后旧GET返回及再次刷新 | pass |
+| S2 | 保留R1一电脑真实电脑页/零电脑助手设置旅程；不受保存竞态修复影响 | pass |
+| S3 | 保留R1五类真实身份、membership返回和管理员成员入口；权限/导航未变 | pass |
+| S4 | 保留R1正常、上传中、满额与分组预设证据；容量/信息层级未变 | pass |
+| S5 | 保留R1真实member只读值、无保存/容量；角色呈现未变 | pass |
+| S6 | 保留R1无效输入/放弃/未变禁用证据；校验与放弃未变 | pass |
+| S7 | 本轮四条后台读取顺序补齐；保留R1两页真实失败重试；本轮再次观察两页提交锁定 | pass |
+| S8 | 保留R1资料/预设/容量真实停服错误和恢复；局部读取失败呈现未变 | pass |
+| S9 | 保留R1桌面/390/320中英文、键盘/标签/status证据；布局文案和导航未变 | pass |
+
+### 交回与同步
+
+- 两页当前测试数据：显示名`S7 Draft Protected`，留存37天；均通过真实UI保存并刷新确认。
+- fixture state最终armed=null、held=null；无暂扣请求。IM PID32125、proxy PID37001继续运行交回caller，没有重启服务。
+- 专用Chrome无痕测试窗口及其两个本地标签保留，供caller接续；没有导航/关闭用户既有窗口或标签。native窗口没有IAB markHandoff接口，故通过保留窗口交接。
+- 上层文档同步结论保留R1：auth-tenancy需要由orchestrator最终归并，其余无需更新。
+- 只追加本报告与三张截图，未提交；无新增issue、无产品/测试/设计/受控配置修改。

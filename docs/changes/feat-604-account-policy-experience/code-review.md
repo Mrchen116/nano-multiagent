@@ -48,6 +48,38 @@ Reused the frozen implementation evidence in [implementation-validation.md](M1-s
 
 The single confirmed finding prevents code-review approval at this snapshot. No additional speculative or style findings were retained. No product changes, commit, server process or browser session were created by this review.
 
+## Round 2 — closure
+
+- reviewer: `/root/static_review`, same independent reviewer; skill `change-code-review`.
+- review_mode: `closure`; focus: Round 1's single P2/W1.
+- executed_base: `9ebe12f8553a593f6179784b0276849fb14e5358` (unchanged).
+- finding_origin_head / pre_fix_head: `a2f3a66688e3bc1e17920f2976506bf1d222bc16`.
+- validated_at: `49795346290faadb5039fb1b371db5f6d145562a`.
+- closure diff: `a2f3a66688e3bc1e17920f2976506bf1d222bc16..49795346290faadb5039fb1b371db5f6d145562a`.
+- scope reason: product changes are confined to both success callbacks and regression coverage in the existing page tests. Remaining changes integrate R1 reports/screenshots/runtime and prior validation. Spec/design/delta are unchanged; R1's unaffected conclusions remain valid. HEAD matched the new validated_at and the tree was clean before report edits.
+- verdict: **Approved — W1 closed; no surviving findings.** This supersedes Round 1's code-review block for the new snapshot only.
+
+### JSON findings
+
+```json
+[]
+```
+
+### Focus finding closure
+
+| Finding | Result | Evidence |
+|---|---|---|
+| R1 P2 / verifier W1: earlier GET replaces successful save response | **closed** | Both `async onSuccess` callbacks await same-key `cancelQueries({ exact: true })` before `setQueryData`, AuthStore synchronization and draft clearing (`account/account-page.tsx:29`, `policies/policies-page.tsx:61`). This cancels the React Query result even when the underlying mocked HTTP promise resolves later. The mutation remains pending through this ordered completion. |
+
+The two new tests drive the real page components with an independent QueryClient and controlled HTTP order: initial data → edit → held old GET → successful PATCH/status → release old GET → assert accepted value and success feedback. They observe form values rather than a cancellation-call count. Both fail on the old callbacks and pass with the fix, so the added coverage directly protects the reported regression without introducing a new framework or permanent test file.
+
+- author red/green evidence inspected: `/tmp/nano-feat604/save-race-red.log` (2 failures), `save-race-green.log` (3 files / 21 passed).
+- independent targeted rerun, frontend cwd: `./node_modules/.bin/vitest run src/features/settings/account/account-page.test.tsx src/features/settings/policies/policies-page.test.tsx -t 'keeps the accepted save when an earlier background read completes last' --maxWorkers=1`.
+- independent result: 2 files / 2 selected tests passed, 9 unrelated tests skipped by name filter; 2026-10-14 11:57:20 +08:00, 2.24s. The first attempted invocation through the npm shell wrapper expanded the multiword filter and selected 17 files (35 passed / 235 skipped); the direct command above is the precise closure check.
+- final frontend suite evidence inspected: `/tmp/nano-feat604/frontend-tests-final.log`, 93 files / 879 passed, 23.02s. Frontend build passed again per implementation handoff; dependencies did not change, so prior zero-vulnerability audit remains applicable. Root build/typecheck, bounded 296-test suite, Python 56 tests and ruff evidence remain unaffected.
+
+No new confirmed or plausible defect was found in the closure delta; no full-review expansion is required. This is component/static closure, not the separate real-product S7 acceptance. Only code-review.md and verification.md were modified by this round; no commit or product/server/browser changes.
+
 ## Author Resolution for Round 1
 
 - W1 accepted. Both success callbacks now cancel the same-key in-flight query before adopting the PATCH response and clearing the draft. This keeps the existing API and local editor design.
