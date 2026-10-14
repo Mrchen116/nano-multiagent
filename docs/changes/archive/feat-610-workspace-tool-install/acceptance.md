@@ -152,6 +152,6 @@ R1 继承不表示旧进程旅程在新版本逐项重跑。该 delta 涉及 cat
 
 ### 上层文档与清理
 
-新增 `docs/specs/IM/agents-nodes.md` 的配置页状态增量需 orchestrator 按最终实现归并；gateway delta 的收尾要求延续 R1。SPEC、AGENTS、文档体系无新增修改需求。
+新增 `docs/specs/im/agents-nodes.md` 的配置页状态增量需 orchestrator 按最终实现归并；gateway delta 的收尾要求延续 R1。SPEC、AGENTS、文档体系无新增修改需求。
 
 只追加本报告，不提交。未改两个既有 Agent 配置、未停启服务、未操控用户原浏览器标签；自建标签已关闭、临时 viewport 已 reset。保存/Unavailable 真人状态未执行的边界如上，未用测试成功冒充真实画面。

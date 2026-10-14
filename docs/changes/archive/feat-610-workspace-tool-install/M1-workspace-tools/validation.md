@@ -61,3 +61,5 @@
 - 独立设计R5 Approved 0/0，采用真实桌面和390px窄屏实际产品对照；独立产品R2 pass，新第8Scenario与原7项retained。新fork聊天真实expense_summary为3笔40元，配置前后完全相同。Unavailable与表单保存支路明确保留自动化证据边界，不声称真人操作。
 - final sync origin/main仍为9182699fca58d42fbf166f3de7445c635dcb3527。effective_base保持该SHA；最终源码validated_at为4122379c8ef39fc110c553302ea23081830f595f；effective_through为最终`docs: finalize workspace tool availability review`归档提交。其后仅报告、已校正IM delta原文归并、索引计数与路径移动，无代码或验收判据变化；各门禁retained。
 - 测试服务按用户要求继续运行；不归档或删除managed worktree，用户结束体验后以同目录e2e-down.sh清理，再归档worktree。
+
+归档后发现macOS大小写不敏感路径使`git add docs/specs/IM`未暂存Git实际跟踪的`docs/specs/im`；已按真实Git路径暂存canonical原文归并，并将unit delta目录名改为im。effective_through延至`docs: align canonical IM paths for feat-610`提交；只改变已审契约归并与路径，无源码/判据变化，门禁retained。
