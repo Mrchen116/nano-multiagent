@@ -31,29 +31,44 @@ it.each([
   }finally{await product.stop();inbox.close();store.close();}
 });
 
-it('holds a group draft when a correction arrives before dispatch and keeps tool identity idempotent', async () => {
+it.each([
+  { label: 'Web group', type: 'group', channel: 'web', requested: 'c_group', incoming: 'c_group', resolved: 'c_group' },
+  { label: 'Web direct', type: 'direct', channel: 'web', requested: 'c_direct', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'user recipient', type: 'direct', channel: 'web', requested: 'user:owner', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'agent recipient', type: 'direct', channel: 'web', requested: 'agent:bob', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'bare recipient', type: 'direct', channel: 'web', requested: 'owner', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'Feishu direct', type: 'direct', channel: 'feishu', requested: 'external:direct', incoming: 'external:direct', resolved: 'external:direct' },
+  { label: 'Feishu shadow reply', type: 'direct', channel: 'feishu', requested: 'c_shadow', incoming: 'external:direct', resolved: 'external:direct' },
+  { label: 'Feishu external reply to shadow input', type: 'direct', channel: 'feishu', requested: 'external:direct', incoming: 'c_shadow', resolved: 'external:direct' },
+])('holds a $label draft before dispatch until newer input is read, preserving tool identity', async ({ type: conversationType, channel, requested, incoming, resolved }) => {
   const store = new NodeStore(':memory:', 'owner'); const inbox = new InboxStore(':memory:');
   const binding = store.bind({ agentId: 'alice', sessionId: 'main', conversationId: 'global:alice', ownerId: 'owner', cwd: '/tmp/alice', revision: '1' });
+  store.aliasConversation('alice', 'c_shadow', 'external:direct');
   let sent = 0;
-  const input: RelayInput = { agent_id: 'alice', conversation_id: 'c_group', relay_task_id: 'relay', idempotency_key: 'correction', metadata: { conversation_type: 'group' }, message: { id: 'correction', content: 'Change the date', sender_type: 'user', sender_user_id: 'human', attachments: [] } };
+  const input: RelayInput = { agent_id: 'alice', conversation_id: incoming, relay_task_id: 'relay', idempotency_key: 'correction', metadata: { conversation_type: conversationType }, message: { id: 'correction', content: 'Change the date', sender_type: 'user', sender_user_id: 'human', attachments: [] } };
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'alice', workspace: '/tmp/alice', revision: '1', provider: 'test', model: 'test', mode: 'global' }], store, inbox,
     runtime: { onNotification: () => () => {}, request: async method => method === 'session.descendants' ? [] : ({ events: [], durable: true, status: 'idle' }) },
     relay: { request: async (type, payload) => {
       if (type === 'agent.work.append') return { type: 'agent.work.ack', payload: { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } };
-      if (type === 'conversation.query') { inbox.receive(input, true); return { type: 'conversation.query.result', payload: { ok: true, result: { type: 'group', channel: 'web', name: 'Group' } } }; }
-      if (type === 'agent.message') sent++;
+      if (type === 'conversation.query') { inbox.receive(input, true); return { type: 'conversation.query.result', payload: { ok: true, result: { type: conversationType, channel, target: resolved, name: 'Conversation' } } }; }
+      if (type === 'agent.message') {
+        expect(payload.to).toBe(requested.startsWith('c_') || requested.startsWith('external:') ? `conversation:${requested}` : requested);
+        sent++;
+      }
       return { type: 'ack', payload: { message_id: 'sent-message', conversation_id: 'c_group' } };
     } }, image: async () => '', onError: error => { throw error; },
   });
-  const call: ProductCall = { method: 'send_message', args: { target: 'c_group', text: 'old draft' }, operationId: 'main:call', callId: 'call', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'alice', ownerId: 'owner' };
+  const call: ProductCall = { method: 'send_message', args: { target: requested, text: 'old draft' }, operationId: 'main:call', callId: 'call', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'alice', ownerId: 'owner' };
   try {
-    expect(await product.call(call)).toMatchObject({ status: 'held_for_revalidation' });
+    expect(await product.call(call)).toMatchObject({ status: 'held_for_revalidation', inbox_targets: [incoming] });
     expect(sent).toBe(0);
-    const page = inbox.read('alice', 'main', 'read', { target: 'c_group' });
+    const page = inbox.read('alice', 'main', 'read', { target: incoming });
     inbox.commitRead('main', 'read', [{ type: 'text', text: JSON.stringify(page) }], false);
     expect(await product.call(call)).toMatchObject({ status: 'held_for_revalidation' });
     expect(sent).toBe(0);
-    expect(await product.call({ ...call, operationId: 'main:reconsidered', callId: 'reconsidered', args: { target: 'c_group', text: 'new draft' } })).toMatchObject({ status: 'sent' });
+    inbox.receive({ ...input, conversation_id: 'c_other', message: { ...input.message, id: 'other-chat' } }, true);
+    inbox.receive({ ...input, message: { ...input.message, id: 'background' } }, false);
+    expect(await product.call({ ...call, operationId: 'main:reconsidered', callId: 'reconsidered', args: { target: requested, text: 'new draft' } })).toMatchObject({ status: 'sent' });
     expect(sent).toBe(1);
     await expect(product.call({ ...call, agentId: 'bob' })).rejects.toThrow('identity');
     await expect(product.call({ ...call, method: 'inbox', sessionId: 'child', args: { action: 'check' } })).rejects.toThrow('main Agent');
