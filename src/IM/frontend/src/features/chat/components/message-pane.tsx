@@ -317,7 +317,7 @@ export function MessagePane({
   const surfaceTokenRef = useRef(0);
   const attemptTokenRef = useRef(0);
   const noticeTokenRef = useRef(0);
-  const noticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
   const latestCopyAttemptRef = useRef<{
     attemptToken: number;
     conversationGeneration: number;
