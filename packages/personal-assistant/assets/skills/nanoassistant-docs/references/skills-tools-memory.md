@@ -48,3 +48,9 @@ Skill 是按需加载的专业知识或工作流，不会因为处于启用状�
 ## 自建工具
 
 使用标准 DSH plugin/bundle。个人共享层为 `~/.nanoassistant/plugins.json`，workspace 层为 `<workspace>/.nanoassistant/plugins.json`；局部同名工具优先。安装不自动取消 Agent 的工具选择限制。Python 程序可以由原生工具通过明确参数调用，旧 `agent.sdk` Tool 适配器需要转换，不能继续动态加载。
+
+Agent 启用 `plugin_manager` 后，可以自己创建并安装 workspace 工具，无需逐个添加工具白名单或重启。管理入口只管理当前配置 workspace；不会改其他 workspace 或节点公共 profile。动作使用 `list_bundles`、`install_bundle`、`set_bundle`、`remove_bundle`。安装得到的新独立工具名自动可用，原有静态工具的禁用选择保持；关闭管理能力或显式空工具集不自动获得这些工具。自建能力按 bundle 停用或移除。
+
+创建本地工具时，在当前 workspace 建一个独立 bundle 目录：`package.json` 声明 `name`、`version`、`type: module` 和 `dsh.bundle.patch: ./cordis.patch.yml`；patch 插入 `name: ./tool.mjs` 的插件；JS 插件导出 `inject = ['tools']` 与 `apply(ctx)`，通过 `ctx.tools.register` 声明名称、描述、参数、`output {schema, render}` 和执行函数。Python 可以作为 bundle 中的脚本由该执行函数调用。把 bundle 的目录传给 `plugin_manager install_bundle`，然后实际调用新工具验证。
+
+本地安装在 `<workspace>/.nanoassistant/dsh-plugins/` 保存标准 DSH profile 和独立版本产物；重启不会重写这些状态。修改源目录后再次安装会生成新版本，所以首次源码加载失败后也可修正并重试。不要修改已安装版本产物。只有结果 `application: applied` 且真实工具调用成功，才能声称已可用；`failed` 要按诊断修正。普通 registry/git 包的替换可能返回 `restart-required`，不能声称已经在线生效。构建脚本授权仍需用户明确同意，不从一般工具安装请求推断。

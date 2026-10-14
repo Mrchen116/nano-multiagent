@@ -12,13 +12,21 @@ import type { AgentConfiguration } from './index.js';
 export class ToolSelection {
   private readonly agents = new Map<Agent, { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }>();
   private changing = false;
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
     ctx.on('tools/change', () => {
       if (this.changing) return;
       this.changing = true;
       try { for (const [agent, state] of this.agents) this.refresh(agent, state); }
       finally { this.changing = false; }
     });
+  }
+  /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
+  selection(config: AgentConfiguration, names: string[]): string[] {
+    const allow = config.toolAllowlist;
+    if (allow === undefined) return names;
+    const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
+    const selected = new Set([...allow, ...installed]);
+    return names.filter(name => selected.has(name));
   }
   attach(agent: Agent, config: AgentConfiguration) {
     const state = { config }; this.agents.set(agent, state);
@@ -48,7 +56,7 @@ export class ToolSelection {
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = state.config.mode === 'global' && agent.session.header.origin !== 'subagent'
       ? ['inbox', 'conversations', 'send_message', 'subagent'] : [];
-    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...(state.config.toolAllowlist ?? [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
   }
 }
 

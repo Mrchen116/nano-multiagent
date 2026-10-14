@@ -315,7 +315,7 @@ export default class NanoRuntime {
       const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
       try {
         await diagnostic.ctx.plugin(SelectedSkills, entry[1]).await();
-        return { tools: ctx.tools.schemas(key).map(tool => tool.name).filter(name => entry[1].toolAllowlist === undefined || entry[1].toolAllowlist.includes(name)),
+        return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
           skills: await ctx.skills.list({ scope: key, cwd }) };
       } finally { await diagnostic.dispose(); }
     });
