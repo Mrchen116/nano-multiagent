@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: refactor-593
+> 对齐: bugfix-601
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -525,6 +525,24 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **GIVEN** 节点配置了独立审核模型
 - **WHEN** 该模型在已有重试后仍失败或无有效判定
 - **THEN** 不自动换回执行Agent模型复审；有人值守/无人值守分别走既有分流。
+
+### Requirement: Nano Auto 的指定查询与会话计划记录不依赖分类审核
+
+#### Scenario: 查询已有工作与记录当前会话计划
+- **GIVEN** Agent 使用已开启的 Nano Auto，且工具自身权限与作用域允许调用
+- **WHEN** 用户要求查看已有 Skill 列表、任务图、提醒及其执行历史、Workflow 定义或运行记录、当前 goal，或者记录当前会话计划
+- **THEN** `skill_manage list`、`task_graph list/get`、`schedule_list`、`schedule_history`、`workflow list/read`、`get_goal` 与 `todo_write` 不请求分类模型，并按原工具语义执行
+- **AND** 工具可用性、确定性拒绝、作用域、ACL 与参数/执行约束保持有效；记录计划不会自动启动工作
+
+#### Scenario: 相邻动作继续审核
+- **GIVEN** Agent 使用已开启的 Nano Auto，且没有其它既有显式放行
+- **WHEN** Agent 发起上述工具的其它写入、调度、编排或 goal 生命周期动作，或者执行 Bash/公开消息发送
+- **THEN** 不因该工具具有查询功能而获得本批豁免，继续既有审批路径
+- **AND** 缺席 action 的 Workflow 默认启动不属于查询
+
+#### Scenario: Auto 关闭与 DSH 规则保持原路径
+- **WHEN** 运维者关闭 Auto，或者选择 DSH 规则
+- **THEN** 上述调用不继承本批新增豁免；Auto 关闭时保持原人工审批路径，DSH 规则下保持原审核路径
 
 ### Requirement: Feature可独立启停并撤销其后续影响
 

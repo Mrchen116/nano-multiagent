@@ -107,6 +107,10 @@ export class NanoApproval extends Service {
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     if (policy.rules === 'nano' && (safeTools.has(exec.name)
       || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
+      || policy.enabled && (['schedule_list', 'schedule_history', 'get_goal', 'todo_write'].includes(exec.name)
+        || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
+        || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
+        || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
       || !['bash', 'send_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     const messageContext = exec.name === 'send_message'
