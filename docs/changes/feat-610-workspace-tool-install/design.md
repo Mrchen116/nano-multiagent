@@ -39,7 +39,9 @@ WorkspaceExtensions 服务统一拥有 profile、管理 Context、对应 preset 
 
 **复用原生管理服务，并在 Nano 边界提供 workspace 版 `plugin_manager`。** 保留原生操作名 `list_bundles`、`install_bundle`、`set_bundle`、`remove_bundle`，不提供可以修改公共宿主、其他 profile、preset 的动作。参数中不接受 workspace 或 Agent identity：它们由可信执行配置解析。
 
-**包状态和执行 scope 分工明确。** 原生 manager 在未加载执行插件的管理 Context 工作，原生 package result 的 `restart-required` 只描述该 Context；Nano 完成所有相关 Include 的实际加载检查后才返回 `application: applied`。包安装失败沿用原始失败；加载失败返回 `application: failed` 与诊断，绝不能把 pnpm 退出 0 当作安装可用。已加载包的源码替换沿用 DSH 限制，返回 restart-required，不假装刷新 ESM 缓存；本次保证新增工具安装和启停无需重启。
+**包状态和执行 scope 分工明确。** 原生 manager 在未加载执行插件的管理 Context 工作，原生 package result 的 `restart-required` 只描述该 Context；Nano 完成所有相关 Include 的实际加载检查后才返回 `application: applied`。包安装失败沿用原始失败；加载失败返回 `application: failed` 与诊断，绝不能把 pnpm 退出 0 当作安装可用。
+
+**本地自建 bundle 安装为不可变版本产物，修正后重新安装不复用旧模块 URL。** 管理入口接受 workspace 内本地 bundle 目录，将本次源文件复制到该 workspace profile 的独立 generation 目录（不复制 .git/node_modules），再用原生 `installBundle(file:<generation>)` 安装。自建 bundle 的插件行使用相对文件入口，DSH patch 解析把它们锚定到本次安装产物的绝对 URL。新安装、更新或失败后修正重装都获得独立 URL；不操作 Node 模块缓存、不缓存补丁、不自行实现 HMR。标准文件产物和依赖完全由原生 pnpm 安装。已安装 bundle 的 source 继续指向版本产物，因此重启仍可加载；用户源目录与已运行版本解耦。普通 registry/git 包替换若原生返回 restart-required 则保留它，不能假称已热加载。本地免重启路径限定 bundle 插件行的相对入口，拒绝本地源 bundle 中指向旧绝对模块或裸包入口的执行行并给出修改指引。
 
 **安装许可与既有静态工具选择分开。** `plugin_manager` 是可选工具，默认候选开启，但已存在的显式名单不静默加入它。用户启用管理能力后，其 workspace 新安装的独立工具名自动进入有效工具集合，不修改其他静态工具选择。显式空集、关闭管理工具的 Agent、受限制子任务均不因此扩权。与安装前既有名称冲突的工具不自动获得授权。安装工具集按原生 scope 与选中的 bundle 重新推导，不维护第二份工具白名单数据库；停用/移除通过 `plugin_manager` 控制整个 bundle。该有限例外归并到 current spec，并在产品手册解释。
 
@@ -53,7 +55,7 @@ WorkspaceExtensions 服务统一拥有 profile、管理 Context、对应 preset 
 - `WorkspaceExtensions.tools(agentId)`：返回该 Agent 的 workspace 自动工具名；ToolSelection 只在主 Agent 选择含 `plugin_manager`（或未限制默认集）时并入。子任务仍由既有继承工具 mask 决定。
 - 安装：管理工具已通过 Nano 审批 → 原生 manager.installBundle → 原生 profile 解析 → 各 scope Include 更新 → 等待 Loader 与 fibers、检查失败条目 → 返回实际应用状态、包诊断和新增工具名。
 - 停用：先原生选择取消，再更新所有 Include 并等待退出；移除先停用/卸载执行树，再调用原生 removeBundle，避免删除仍在使用的文件。
-- 失败：保持 manager 实际磁盘结果与诊断；无关 bundle 的 Include 条目不变化。修复后重试明确走原生激活验证，不把已保存状态误报成功。
+- 失败：保持 manager 实际磁盘结果与诊断；无关 bundle 的 Include 条目不变化。修复本地源后再次 install_bundle 创建新 generation，由原生安装器更新依赖，再实际验证新 URL 的加载与调用；禁止重复导入失败旧 URL 并声称恢复。
 - Node capabilities 与 configuration.selection 使用同一有效工具集合；公共 profile 的新增工具不影响其他 workspace。无需新增 IM API 或客户端 UI。
 
 ## 契约层增量
@@ -62,7 +64,7 @@ WorkspaceExtensions 服务统一拥有 profile、管理 Context、对应 preset 
 
 ## 风险与回退
 
-原生插件在节点进程内执行；workspace 隔离是能力发现、配置和调用 scope 隔离，沿用本机插件信任边界。管理工具不能借名单名称覆盖已禁用默认工具。包替换仍受上游重启限制。加载失败必须检查真实 Loader 状态；无关已用工具不受影响。关闭 plugin_manager 撤销自动获得的工具集合，已有标准 profile 文件保留以供恢复。
+原生插件在节点进程内执行；workspace 隔离是能力发现、配置和调用 scope 隔离，沿用本机插件信任边界。管理工具不能借名单名称覆盖已禁用默认工具。非本地包替换仍受上游重启限制；本地产物每代路径不同，并验证文件 URL 确属当代产物。加载失败必须检查真实 Loader 状态；无关已用工具不受影响。关闭 plugin_manager 撤销自动获得的工具集合，已有标准 profile 文件保留以供恢复。
 
 ## Runbook for Reviewer
 
