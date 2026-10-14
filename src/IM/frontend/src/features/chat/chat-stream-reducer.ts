@@ -210,6 +210,7 @@ export function applyWsEvent(
         token_usage: ev.token_usage,
         elapsed_ms: ev.elapsed_ms,
         kernel_message_id: ev.kernel_message_id,
+        system_notice: ev.system_notice,
         permission_requests: ev.permission_requests ?? current?.permission_requests ?? []
       };
       if (current) {
