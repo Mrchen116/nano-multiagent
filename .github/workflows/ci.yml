@@ -9,8 +9,45 @@ on:
   pull_request:
 
 jobs:
+  ios_changes:
+    name: Detect iOS changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.filter.outputs.required }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the full PR diff
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          diff = subprocess.check_output([
+              "git", "diff", "--name-only", "--no-renames", "-z",
+              f"{os.environ['BASE_SHA']}...{os.environ['HEAD_SHA']}",
+          ])
+          paths = [os.fsdecode(path) for path in diff.split(b"\0") if path]
+          required = any(
+              path == ".github/workflows/ci.yml"
+              or (path.startswith("src/IM/ios/") and not path.endswith((".md", "/.gitignore")))
+              for path in paths
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"required={str(required).lower()}\n")
+          PY
+
   ios:
     name: iOS build and tests
+    needs: ios_changes
+    # Only a successful, explicit negative detection may skip the required check.
+    if: ${{ !cancelled() && (needs.ios_changes.result != 'success' || needs.ios_changes.outputs.required != 'false') }}
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer

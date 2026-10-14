@@ -53,6 +53,8 @@
 
 **TypeScript 后端**：行为测试与各自 package/app 放在 `tests/*.test.ts`，由根 `pnpm test` 运行；native profile 测试使用真实锁定 DSH，跨进程控制在可重复 fixture 中验证。Web Vitest 保留在前端项目；原生 iOS 按其 Xcode gate 验证。
 
+**iOS CI 触发范围**：PR 的完整差异涉及 `src/IM/ios/` 下除 `.md` 和 `.gitignore` 外的文件，或 `.github/workflows/ci.yml` 时，运行模拟器测试与 Release 归档；其余 PR 跳过 iOS job，前后端检查照常运行。主干 push 始终运行 iOS gate；路径检测失败时仍运行 iOS，避免误跳过必需检查。当前 iOS 测试使用模拟响应，不承担真实服务端 API 兼容性验收。
+
 **Python 工具与跨系统黑盒回归**：目录即分层，按“能暴露该失败原因的最低层”选：
 
 | 测什么 | 目录 | marker |
