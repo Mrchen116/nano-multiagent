@@ -62,7 +62,7 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     expect((await call(product, 'inbox', { action: 'check' })).sources[0].target).toBe(target);
     expect(await call(product, 'inbox', { action: 'read', target, limit: 1 }, 'first')).toEqual(first);
     const page = await call(product, 'inbox', { action: 'read', target, cursor: first.next_cursor, limit: 1 }, 'photo');
-    const image = await call(product, 'inbox.image', { url: 'private-photo' }, 'photo');
+    const image = await call(product, 'inbox.image', { url: 'private-photo', message_id: 'first' }, 'photo');
     expect(image.source).toEqual({ kind: 'chat', conversationId: external, messageId: 'first', url: 'private-photo' });
     const content = [{ type: 'text', text: JSON.stringify(page) }, { type: 'image', attachment: { attachmentId: 'image' } }];
     await call(product, 'inbox.prepare', { content }, 'photo');
@@ -86,6 +86,16 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     expect(sentResult).toEqual({ status: 'sent', target, message_id: 'sent-1' });
     expect(await call(product, 'send_message', { target: external, text: 'done' }, 'send')).toEqual(sentResult);
     expect(sent).toBe(1);
+    // Reusing a same-conversation image must not collapse two distinct message sources.
+    for (const id of ['shared-1', 'shared-2']) {
+      const shared = message(id); shared.message.attachments = photo.message.attachments;
+      inbox.receive(shared, true);
+    }
+    await call(product, 'inbox', { action: 'read', target }, 'shared');
+    for (const id of ['shared-1', 'shared-2']) {
+      expect((await call(product, 'inbox.image', { url: 'private-photo', message_id: id }, 'shared')).source.messageId).toBe(id);
+    }
+    await expect(call(product, 'inbox.image', { url: 'private-photo', message_id: 'not-in-page' }, 'shared')).rejects.toThrow('current Inbox read');
     for (const args of [{ action: 'info', target }, { action: 'list', cursor: first.next_cursor }]) {
       await expect(product.call({ ...base, agentId: 'bob', sessionId: 'other', rootSessionId: 'other', method: 'conversations', args })).rejects.toThrow('scope');
     }

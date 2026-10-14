@@ -41,11 +41,11 @@ export function apply(ctx: Context, config: { mode?: string }) {
       const content: PromptContentPart[] = [{ type: 'text', text: JSON.stringify(result) }];
       const sources: (AttachmentSource | null)[] = [null];
       if ((args as { action: string }).action === 'read') {
-        const body = result as { messages: { content: { type: string; content_type?: string; url?: string; file_name?: string }[] }[] };
+        const body = result as { messages: { id: string; content: { type: string; content_type?: string; url?: string; file_name?: string }[] }[] };
         for (const message of body.messages) for (const part of message.content) {
           if (!part.content_type?.startsWith('image/')) continue;
           if (part.content_type !== 'image/jpeg' && part.content_type !== 'image/png' && part.content_type !== 'image/gif' && part.content_type !== 'image/webp') throw new Error('Unsupported image media type');
-          const image = await ctx.nanoProduct.call('inbox.image', { url: part.url }, exec) as { data: string; source: AttachmentSource };
+          const image = await ctx.nanoProduct.call('inbox.image', { url: part.url, message_id: message.id }, exec) as { data: string; source: AttachmentSource };
           content.push({ type: 'image', mediaType: part.content_type, name: part.file_name, data: image.data });
           sources.push(image.source);
         }

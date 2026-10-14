@@ -26,7 +26,7 @@
 2. 原 Inbox、会话查询、投递和任务图链路继续执行权限、成员、未读复核和幂等检查。
 3. 普通结果在返回模型前投影。发送回执的持久记录不改写，结果相同的 `target/conversation_id` 只返回前者。
 4. Inbox read 的投影在保存 `reads.body/digest` 前进行，保证消费证明验证的是模型实际收到的精确 body。`target` 移至页顶层，每条消息仍保留 message ID、sender、time、partial/content 等来源证据。
-5. `inbox.image` 从已保存页面派生可信来源，再解析为原 conversation ID；完整来源通过宿主 RPC 交给 trajectory attachment 存储，不进入模型正文。旧页面的 per-message target 仍可读取。
+5. `inbox.image` 用 message_id 与 URL 从已保存页面派生可信来源，再解析为原 conversation ID；完整来源通过宿主 RPC 交给 trajectory attachment 存储，不进入模型正文。同页复用 URL 仍分别保留两条真实消息来源；旧页面的 per-message target 仍可读取。
 6. `inbox_read_committed` 工作投影把短 target 还原为真实 conversation ID，保留工作记录/消息关联。
 7. Workflow 工具的 read/control 单独剔除 parentSessionId/inputIds/budgetId、calls.key、attempts.id；内部 engine/RPC、预算、重放、持久记录和 UI 数据不缩减。
 

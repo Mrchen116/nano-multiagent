@@ -135,7 +135,7 @@ export class GlobalAgent {
           body => this.options.store.toolReferences.result(call.agentId, 'inbox', body) as Record<string, unknown>);
       }
       if (call.method === 'inbox.image') {
-        const source = this.options.inbox.imageSources(call.sessionId, call.callId).find(source => source.url === call.args.url);
+        const source = this.options.inbox.imageSources(call.sessionId, call.callId).find(source => source.url === call.args.url && source.messageId === call.args.message_id);
         if (!source) throw new Error('Image is outside the current Inbox read');
         const data = await this.options.image(String(call.args.url), call.agentId);
         controller.signal.throwIfAborted(); return { data, source: { ...source,
