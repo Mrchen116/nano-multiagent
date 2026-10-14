@@ -70,6 +70,9 @@ describe("company access", () => {
 
   it("keeps entered credentials during server cooldown and disables retries", async () => {
     useAuthStore.getState().clear();
+    // Consecutive clock reads can cross a millisecond during cooldown setup.
+    let currentTime = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => currentTime++);
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(response({ detail: "limited" }, 429, { "Retry-After": "30" }));
     mount("/login");
     await userEvent.type(screen.getByLabelText(/username/i), "alex");
