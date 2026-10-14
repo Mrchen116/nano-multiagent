@@ -1,361 +1,98 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from '../../../i18n';
+import { subscribeUserStream } from '../../../realtime/user-stream';
+import { listNodes, updateNode, type NodeSettingsProfile } from '../im-settings-api';
+import { NodeUpdatePanel, nodeUpdateActive, nodeUpdateNeedsRecovery, nodeUpdateSwitching } from './node-update-panel';
+import { NodeDrawer, NodeIcon } from './node-surface';
+import { NodeDetails } from './node-details';
+import { NodeConnectGuide } from './node-connect-guide';
+import './nodes-page.css';
 
-import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { useTranslation } from "../../../i18n";
-import { subscribeUserStream } from "../../../realtime/user-stream";
-import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
+import { computerName, computerVersion, lastSeenTime, NodeStatus } from './node-display';
 
-function statusDotStyle(status: string): import("react").CSSProperties {
-  const online = status === "online";
-  return {
-    background: online ? "oklch(0.55 0.18 145)" : "oklch(0.60 0.01 240)"
-  };
-}
-
-function statusPillStyle(status: string): import("react").CSSProperties {
-  const online = status === "online";
-  return {
-    background: online ? "oklch(0.93 0.07 145)" : "oklch(0.92 0.005 240)",
-    color: online ? "oklch(0.32 0.14 145)" : "oklch(0.50 0.01 240)",
-    border: `1px solid ${online ? "oklch(0.80 0.12 145)" : "oklch(0.85 0.005 240)"}`,
-    fontSize: 11.5,
-    fontWeight: 700
-  };
-}
-
-function statusLabelKey(status: string): string {
-  if (status === "online") return "settings.nodes.statusOnline";
-  if (status === "offline") return "settings.nodes.statusOffline";
-  if (status === "degraded") return "settings.nodes.statusDegraded";
-  return "settings.nodes.statusOffline";
-}
-
+/** Manage owned computers while preserving update and realtime query ownership. */
 export function NodesPage() {
-  const { t } = useTranslation();
-  const isMobile = useIsMobile();
-  const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: ["settings", "nodes"],
-    queryFn: listNodes
-  });
-  const [drafts, setDrafts] = useState<Record<string, NodeSettingsProfile>>({});
-
-  const originalById = useMemo(() => {
-    const map = new Map<string, NodeSettingsProfile>();
-    for (const node of query.data ?? []) map.set(node.node_id, node);
-    return map;
-  }, [query.data]);
-
-  const rows = useMemo(() => {
-    return (query.data ?? []).map((node) => drafts[node.node_id] ?? node);
-  }, [drafts, query.data]);
-
-  function isNodeDirty(node: NodeSettingsProfile): boolean {
-    const orig = originalById.get(node.node_id);
-    if (!orig) return false;
-    return (
-      node.alias !== orig.alias ||
-      node.relay_enabled !== orig.relay_enabled ||
-      node.reporting_enabled !== orig.reporting_enabled
-    );
-  }
-
-  // node.status_changed is emitted by M10 (owner-scoped) and patched into React
-  // Query cache so the status pill / last_heartbeat / last_error reflect heartbeat
-  // state in real time without forcing a refetch round trip.
-  useEffect(() => {
-    const detach = subscribeUserStream({
-      onRecovery: async () => {
-        await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
-      },
-      onEvent: (event) => {
-        if (event.eventType !== "node.status_changed") return;
-        const payload = event.payload as {
-          node_id?: unknown;
-          status?: unknown;
-          last_heartbeat_at?: unknown;
-          last_error?: unknown;
-        };
-        const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
-        const status = typeof payload.status === "string" ? payload.status : null;
-        if (!nodeId || !status) return;
-        queryClient.setQueryData<NodeSettingsProfile[] | undefined>(["settings", "nodes"], (prev) => {
-          if (!prev) return prev;
-          let changed = false;
-          const next = prev.map((node) => {
-            if (node.node_id !== nodeId) return node;
-            changed = true;
-            return {
-              ...node,
-              status,
-              last_heartbeat_at:
-                typeof payload.last_heartbeat_at === "string" ? payload.last_heartbeat_at : node.last_heartbeat_at,
-              last_error:
-                payload.last_error === null
-                  ? null
-                  : typeof payload.last_error === "string"
-                    ? payload.last_error
-                    : node.last_error
-            } satisfies NodeSettingsProfile;
-          });
-          return changed ? next : prev;
-        });
-        // Live status fields override the draft's read-only snapshot without dropping
-        // user-in-progress alias / toggle edits.
-        setDrafts((prev) => {
-          const draft = prev[nodeId];
-          if (!draft) return prev;
-          return {
-            ...prev,
-            [nodeId]: {
-              ...draft,
-              status,
-              last_heartbeat_at:
-                typeof payload.last_heartbeat_at === "string" ? payload.last_heartbeat_at : draft.last_heartbeat_at,
-              last_error:
-                payload.last_error === null
-                  ? null
-                  : typeof payload.last_error === "string"
-                    ? payload.last_error
-                    : draft.last_error
-            }
-          };
-        });
-      }
-    });
-    return detach;
-  }, [queryClient]);
-
+  const { t, i18n } = useTranslation();
+  const client = useQueryClient();
+  const { hash } = useLocation();
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const [panel, setPanel] = useState<{ kind: 'detail' | 'connect' | 'recovery'; id?: string } | null>(null);
+  const query = useQuery({ queryKey: ['settings', 'nodes'], queryFn: listNodes,
+    refetchInterval: query => query.state.data?.some(n => nodeUpdateActive(n.update)) ? 2000 : 60000 });
+  const nodes = query.data ?? [];
+  const selected = nodes.find(n => n.node_id === panel?.id);
   const mutation = useMutation({
-    mutationFn: (row: NodeSettingsProfile) =>
-      updateNode(row.node_id, {
-        alias: row.alias,
-        relay_enabled: row.relay_enabled,
-        reporting_enabled: row.reporting_enabled
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
-      // The agents list/rail cache the same /im/v1/nodes payload under their
-      // own key for device labels; alias edits must reach them too.
-      await queryClient.invalidateQueries({ queryKey: ["settings", "agents", "nodes-status"] });
+    mutationFn: ({ node, alias }: { node: NodeSettingsProfile; alias: string }) => updateNode(node.node_id, {
+      alias, relay_enabled: node.relay_enabled, reporting_enabled: node.reporting_enabled
+    }),
+    onSuccess: async (saved) => {
+      client.setQueryData<NodeSettingsProfile[]>(['settings', 'nodes'], rows => rows?.map(n => n.node_id === saved.node_id ? { ...n, alias: saved.alias } : n));
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['settings', 'nodes'] }),
+        client.invalidateQueries({ queryKey: ['settings', 'agents', 'nodes-status'] }),
+        client.invalidateQueries({ queryKey: ['chat', 'nodes'] }),
+        client.invalidateQueries({ queryKey: ['contacts'] })
+      ]);
     }
   });
-
-  // M19/R11-5: prototype `im-extra-pages.jsx::NodesPage` 顶部 4 KPI 卡 — 视觉契约
-  // 用 Tailwind utility 直接落 (white card / oklch border / 24px bold 数字 / 12px 灰 label)。
-  const totalNodes = rows.length;
-  const onlineCount = rows.filter((r) => r.status === "online").length;
-  const offlineCount = rows.filter((r) => r.status === "offline").length;
-  const totalAgents = rows.reduce((s, r) => s + (r.agent_count ?? 0), 0);
-
-  return (
-    <div className="flex h-full flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
-      {isMobile ? (
-        <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
-          <Link
-            data-testid="nodes-page-back"
-            to="/me"
-            aria-label={t("common.back")}
-            className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
-          >
-            ‹
-          </Link>
-          <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-4" style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}>
-      {!isMobile && (
-      <div>
-        <h1 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
-        <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.subtitle")}</p>
-      </div>
-      )}
-      {query.isLoading ? (
-        <p className="text-sm text-[var(--im-text-muted)]">{t("settings.nodes.loading")}</p>
-      ) : query.isError && rows.length === 0 ? (
-        <div className="im-agent-card">
-          <p role="alert">{t("settings.nodes.loadFailed")}</p>
-          <button className="im-btn im-btn-muted justify-self-start" onClick={() => void query.refetch()}>{t("common.retry")}</button>
-        </div>
-      ) : rows.length === 0 ? (
-        <section data-testid="nodes-empty" className="mx-auto my-6 flex w-full max-w-xl flex-col items-center rounded-2xl border border-[var(--im-border)] bg-[var(--im-surface)] px-6 py-8 text-center sm:my-10 sm:px-10 sm:py-10">
-          <span className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--im-accent-soft)] text-[var(--im-accent)]" aria-hidden="true">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="13" rx="2" /><path d="M8 21h8M12 16v5" />
-            </svg>
-          </span>
-          <h2 className="m-0 text-xl font-bold">{t("settings.nodes.empty")}</h2>
-          <p className="mb-6 mt-2 text-sm leading-6 text-[var(--im-text-muted)]">{t("settings.nodes.emptyBody")}</p>
-          <ol className="m-0 grid w-full list-none gap-4 rounded-xl bg-[var(--im-surface-2)] p-5 text-left text-sm leading-6">
-            {["bindStart", "bindConfirm"].map((step, index) => (
-              <li key={step} className="flex items-start gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--im-surface)] text-xs font-semibold text-[var(--im-accent)]" aria-hidden="true">{index + 1}</span>
-                <span>{t(`settings.nodes.${step}`)}</span>
-              </li>
-            ))}
-          </ol>
-          <button type="button" className="im-btn im-btn-primary mt-6 inline-flex items-center gap-2" disabled={query.isFetching} onClick={() => void query.refetch()}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9" /></svg>
-            {t(query.isFetching ? "settings.nodes.refreshing" : "settings.nodes.refresh")}
-          </button>
-        </section>
-      ) : <>
-      <div
-        data-testid="nodes-kpi-grid"
-        className="grid grid-cols-2 gap-[10px] md:grid-cols-4"
-      >
-        <div data-testid="nodes-kpi-total" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
-          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{totalNodes}</p>
-          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiTotal")}</p>
-        </div>
-        <div data-testid="nodes-kpi-online" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
-          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{onlineCount}</p>
-          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiOnline")}</p>
-        </div>
-        <div data-testid="nodes-kpi-offline" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
-          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{offlineCount}</p>
-          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiOffline")}</p>
-        </div>
-        <div data-testid="nodes-kpi-agents" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
-          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{totalAgents}</p>
-          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiAgents")}</p>
-        </div>
-      </div>
-      {rows.map((row) => {
-        const statusText = t(statusLabelKey(row.status));
-        const isOnline = row.status === "online";
-
-        return (
-          <section
-            key={row.node_id}
-            className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white overflow-hidden"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[oklch(0.87_0.006_240)] px-[18px] py-[14px]">
-              <div className="flex items-center gap-3">
-                <span
-                  data-testid={`node-icon-${row.node_id}`}
-                  className={
-                    "flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] text-[16px] " +
-                    (isOnline ? "bg-[oklch(0.92_0.08_145)]" : "bg-[oklch(0.92_0.005_240)]")
-                  }
-                  aria-hidden="true"
-                >
-                  {isOnline ? "🖥" : "💤"}
-                </span>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="m-0 text-[14px] font-extrabold text-[oklch(0.14_0.01_240)]">{row.alias ?? row.node_name}</h3>
-                    <span
-                      data-testid={`node-status-pill-${row.node_id}`}
-                      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                      style={statusPillStyle(row.status)}
-                    >
-                      <span
-                        data-status-dot={row.status}
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={statusDotStyle(row.status)}
-                      />
-                      {statusText}
-                    </span>
-                  </div>
-                  <p className="m-0 mt-[2px] font-mono text-[11.5px] text-[oklch(0.55_0.01_240)]">{row.node_id}</p>
-                </div>
-              </div>
-              <div className="flex shrink-0 gap-[14px] text-right text-[12px] text-[oklch(0.55_0.01_240)]">
-                <span>
-                  <b data-testid={`node-agent-count-${row.node_id}`} className="text-[15px] text-[oklch(0.25_0.01_240)]">{row.agent_count}</b><br />
-                  {t("settings.nodes.agentsShort")}
-                </span>
-                <span>
-                  <b data-testid={`node-version-${row.node_id}`} className="text-[15px] text-[oklch(0.25_0.01_240)]">v{row.version}</b><br />
-                  {t("settings.nodes.versionShort")}
-                </span>
-              </div>
+  useEffect(() => subscribeUserStream({
+    onRecovery: async () => { await client.invalidateQueries({ queryKey: ['settings', 'nodes'] }); },
+    onEvent: event => {
+      if (event.eventType === 'node.update_changed') { void client.invalidateQueries({ queryKey: ['settings', 'nodes'] }); return; }
+      if (event.eventType !== 'node.status_changed') return;
+      const p = event.payload as Partial<NodeSettingsProfile>;
+      if (typeof p.node_id !== 'string' || typeof p.status !== 'string') return;
+      // Only live fields change here; an open rename form owns its alias draft.
+      const rows = client.getQueryData<NodeSettingsProfile[]>(['settings', 'nodes']);
+      if (!rows?.some(n => n.node_id === p.node_id)) { void client.invalidateQueries({ queryKey: ['settings', 'nodes'] }); return; }
+      client.setQueryData<NodeSettingsProfile[]>(['settings', 'nodes'], current => current?.map(n => n.node_id !== p.node_id ? n : {
+        ...n, status: p.status!,
+        last_heartbeat_at: typeof p.last_heartbeat_at === 'string' ? p.last_heartbeat_at : n.last_heartbeat_at,
+        last_error: p.last_error === null || typeof p.last_error === 'string' ? p.last_error : n.last_error
+      }));
+    }
+  }), [client]);
+  useEffect(() => {
+    if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: 'start' });
+  }, [hash, nodes.length]);
+  function open(kind: 'detail' | 'connect' | 'recovery', id?: string) {
+    returnFocus.current = document.activeElement as HTMLElement;
+    mutation.reset(); setPanel({ kind, id });
+  }
+  const online = nodes.filter(n => n.status === 'online' && !nodeUpdateSwitching(n.update) && !nodeUpdateNeedsRecovery(n.update)).length;
+  const hasData = query.data !== undefined;
+  return <div className="computers-page"><main className="computers-frame">
+    <Link className="computers-back" to="/me" data-testid="nodes-page-back"><NodeIcon name="back"/>{t('computers.account')}</Link>
+    <header className="computers-heading"><div><h1>{t('computers.title')}</h1><p>{hasData ? t('computers.summary', { count: nodes.length, total: nodes.length, online }) : t('computers.subtitle')}</p></div>
+      <button className="node-button" onClick={() => open('connect')}><NodeIcon name="plus"/>{t('computers.connect')}</button>
+    </header>
+    {query.isPending ? <div role="status" aria-label={t('settings.nodes.loading')}><div className="node-skeleton"/><div className="node-skeleton"/></div>
+      : !hasData && query.isError ? <section className="nodes-empty"><NodeIcon name="info"/><h2>{t('settings.nodes.loadFailed')}</h2><p>{t('computers.loadHelp')}</p><button className="node-button primary" onClick={() => void query.refetch()}>{t('common.retry')}</button></section>
+      : nodes.length === 0 ? <section className="nodes-empty" data-testid="nodes-empty"><span className="node-computer-icon"><NodeIcon name="computer"/></span><h2>{t('computers.emptyTitle')}</h2><p>{t('computers.emptyBody')}</p><button className="node-button primary" onClick={() => open('connect')}>{t('computers.connect')}</button></section>
+      : <>
+        {query.isError && <div className="node-notice" role="alert"><NodeIcon name="info"/><span>{t('computers.stale')}</span><button className="node-button" onClick={() => void query.refetch()}>{t('common.retry')}</button></div>}
+        <div className="computers-list-label"><span>{t('computers.connected')}</span><span>{t('computers.private')}</span></div>
+        {nodes.map(node => {
+          const name = computerName(node, t('computers.unnamed'));
+          const offline = node.status !== 'online' && !nodeUpdateSwitching(node.update);
+          return <article className={`computer-card ${offline ? 'offline' : ''}`} key={node.node_id} id={`node-${node.node_id}`}>
+            <div className="computer-main"><span className="node-computer-icon"><NodeIcon name="computer"/></span>
+              <div className="computer-identity"><h2><button onClick={() => open('detail', node.node_id)}>{name}</button></h2>
+                <div className="computer-metadata"><NodeStatus node={node}/><span>·</span><span>{nodeUpdateNeedsRecovery(node.update) ? t('computers.lastVersion') : 'Nano'} {computerVersion(node)}</span><span>·</span><span>{t('computers.assistantCount', { count: node.agent_count })}</span></div>
+              </div><button className="computer-detail-link" aria-label={t('computers.viewDetails', { name })} onClick={() => open('detail', node.node_id)}><span>{t('computers.details')}</span><NodeIcon name="next"/></button>
             </div>
-
-            <div className="grid gap-[14px] px-[18px] py-[14px]">
-              <div className="grid items-start gap-[14px] md:grid-cols-2">
-                <label
-                  className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]"
-                  htmlFor={`alias-${row.node_id}`}
-                >
-                  {t("settings.nodes.aliasLabel", { nodeId: row.node_id })}
-                  <input
-                    id={`alias-${row.node_id}`}
-                    className="im-input"
-                    value={row.alias ?? row.node_name}
-                    onChange={(event) =>
-                      setDrafts((prev) => ({
-                        ...prev,
-                        [row.node_id]: { ...row, alias: event.target.value }
-                      }))
-                    }
-                  />
-                </label>
-
-                <div className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
-                  <span>{t("settings.nodes.liveSnapshot")}</span>
-                  <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.95_0.005_240)] px-3 py-2 font-mono text-[12px] font-normal text-[oklch(0.25_0.01_240)]">
-                    <div className="flex justify-between">
-                      <span className="text-[oklch(0.55_0.01_240)]">{t("settings.nodes.heartbeat")}</span>
-                      <span>{row.last_heartbeat_at ? new Date(row.last_heartbeat_at).toLocaleTimeString() : "—"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[oklch(0.55_0.01_240)]">{t("settings.nodes.version")}</span>
-                      <span>{row.version || "—"}</span>
-                    </div>
-                    {row.last_error ? (
-                      <div
-                        data-testid={`node-last-error-${row.node_id}`}
-                        className="mt-1 rounded-[6px] bg-[oklch(0.96_0.06_25)] px-2 py-1 text-[11px] leading-snug text-[oklch(0.45_0.14_25)]"
-                      >
-                        ⚠ {row.last_error}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              {/* M20/R12-bis-2: card-level footer with status text + small pill Save + New agent button. */}
-              <div
-                data-testid={`nodes-card-save-footer-${row.node_id}`}
-                className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.91_0.005_240)] pt-2"
-              >
-                <span className="text-[12px] font-semibold text-[oklch(0.65_0.01_240)]">
-                  {isNodeDirty(row) ? (
-                    <span className="text-[oklch(0.50_0.15_60)]">● {t("settings.nodes.unsavedChanges")}</span>
-                  ) : (
-                    t("settings.nodes.allSaved")
-                  )}
-                </span>
-                <div className="flex items-center gap-2">
-                  {isOnline ? (
-                    <Link
-                      data-testid={`nodes-card-new-agent-${row.node_id}`}
-                      className="inline-flex items-center rounded-lg px-3 py-1.5 text-[12px] font-semibold text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)] border border-[oklch(0.87_0.006_240)]"
-                      to={`/settings/nodes/${row.node_id}/agents/new`}
-                    >
-                      {t("settings.nodes.createAgentOn")}
-                    </Link>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="inline-flex items-center rounded-lg bg-[oklch(0.52_0.14_180)] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
-                    onClick={() => mutation.mutate(row)}
-                    disabled={mutation.isPending || !isNodeDirty(row)}
-                  >
-                    {mutation.isPending ? t("settings.nodes.saving") : t("settings.nodes.save", { nodeId: row.node_id })}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-        );
-      })}
+            {node.update && <NodeUpdatePanel nodeId={node.node_id} update={node.update} onInstructions={() => open('recovery', node.node_id)}/>}
+            {offline && !nodeUpdateNeedsRecovery(node.update) && <p className="computer-offline-note">{node.last_heartbeat_at ? t('computers.lastSeen', { time: lastSeenTime(node.last_heartbeat_at, i18n.language) }) : t('computers.noConnection')} · {t('computers.reconnect')}</p>}
+          </article>;
+        })}
       </>}
-      </div>
-    </div>
-  );
+    <p className="computers-help"><NodeIcon name="leaf"/>{t('computers.help')}</p>
+    {panel && <NodeDrawer title={t(panel.kind === 'detail' ? 'computers.detailsTitle' : panel.kind === 'recovery' ? 'computers.recoveryTitle' : 'computers.connect')} returnFocus={returnFocus} onClose={() => setPanel(null)}>
+      {panel.kind === 'detail' && selected ? <NodeDetails key={selected.node_id} node={selected} pending={mutation.isPending} error={mutation.isError} save={alias => mutation.mutateAsync({ node: selected, alias })} resetError={mutation.reset}/>
+        : panel.kind !== 'detail' ? <NodeConnectGuide node={panel.kind === 'recovery' ? selected : undefined} onRefresh={() => { void query.refetch(); setPanel(null); }}/>
+        : <p>{t('computers.notFound')}</p>}
+    </NodeDrawer>}
+  </main></div>;
 }

@@ -37,9 +37,12 @@ it('recovers an uncertain heartbeat admission by its original identity and does 
   try {
     heartbeat.subscription('a', true);
     await expect(heartbeat.tick(undefined, false, 1200000)).rejects.toThrow('lost acceptance');
+    expect(heartbeat.busy).toBe(true);
     await heartbeat.stop(); fail = false;
     heartbeat = new Heartbeat(join(directory, 'hb.sqlite3'), options); heartbeat.subscription('a', true);
+    expect(heartbeat.busy).toBe(true);
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(1);
+    expect(heartbeat.busy).toBe(false);
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(2);
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(2);
     heartbeat.subscription('a', false);

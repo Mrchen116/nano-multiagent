@@ -40,6 +40,11 @@ export class GlobalAgent {
       if (method === 'session.status' && data.status === 'idle') this.wake(config, binding).catch(options.onError);
     });
   }
+  /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
+  get busy(): boolean {
+    return this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.calls.size > 0 || !!this.workFlush ||
+      this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
+  }
   private binding(config: AgentConfiguration): SessionBinding {
     const { store } = this.options;
     return store.bindingFor(config.agentId, `global:${config.agentId}`) ?? store.bind({

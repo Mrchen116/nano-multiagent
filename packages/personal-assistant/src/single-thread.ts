@@ -43,6 +43,13 @@ export class SingleThread {
     });
   }
 
+  /** Covers reconciliation, output delivery and durable inputs still awaiting completion. */
+  get busy(): boolean {
+    return this.controls.busy || this.draining.size > 0 || this.dirty.size > 0 || this.streams.size > 0 || this.pendingApprovals.size > 0 ||
+      this.options.store.bindings().some(binding => this.options.agents.some(agent => agent.agentId === binding.agentId && agent.mode === 'single_thread') &&
+        (this.options.store.inputs(binding.sessionId).some(input => !input.terminal) || this.options.store.activeDeliveries(binding.sessionId).length > 0));
+  }
+
   /** Store inbound content before acknowledging its durable runtime handoff. */
   async receive(input: RelayInput): Promise<void> {
     const { store, runtime, agents } = this.options;

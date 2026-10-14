@@ -108,6 +108,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
     await until(async () => (await find("restart")).calls[0]?.state).toBe(
       "running",
     );
+    expect(await client!.rpc.request("update.prepare", { operationId: "active-child" })).toEqual({ ready: false });
     await control(first, "pause");
     await control(first, "restart_child", 1);
     expect(
@@ -116,6 +117,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
     expect(
       (await readFile(join(home, "ends"), "utf8")).trim().split("\n"),
     ).toHaveLength(1);
+    expect(await client!.rpc.request("update.prepare", { operationId: "paused-workflow" })).toEqual({ ready: false });
     await control(first, "resume");
     await until(
       async () => (await find("restart")).calls[0].attempts.length,

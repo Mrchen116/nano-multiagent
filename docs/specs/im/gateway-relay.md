@@ -1,6 +1,6 @@
 # IM - Gateway Relay Specification
 
-> 对齐: feat-546 / feat-554 / feat-572
+> 对齐: feat-546 / feat-554 / feat-572 / feat-596
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -293,3 +293,23 @@ IM 接收 Gateway 的自进化 system notification 时，校验来源 AgentProfi
 - **WHEN** 当前已注册且管理者 active 的 Gateway 为自身节点 Agent 调用 `POST /im/v1/agents/{agent_id}/skills/enable`
 - **THEN** 仅接受 profile_version 和要启用的技能 ID，按现有 optimistic locking / Gateway apply 协议合并到已有技能列表，保留工作模式、工具、模型及其他完整配置。
 - **AND** 真人凭据、其他节点 Agent、过期版本、停用或已交接机器被拒绝；该入口不授予完整配置、公司策略或他人设备管理权限。
+
+### Requirement: 已授权更新的切换阶段持久等待新消息
+
+#### Scenario: 切换期间发送和刷新
+- **WHEN** 用户向正在切换版本的电脑发送消息并刷新页面
+- **THEN** 消息保留并显示等待电脑更新完成，不被普通离线报错要求重发；该电脑恢复后继续处理且不重复回复。
+
+#### Scenario: 多电脑与访问变更
+- **WHEN** 消息接收方包含更新中的电脑与其他电脑，或等待期间权限发生变化
+- **THEN** 其他电脑继续正常接收；恢复后仍按当前成员资格和设备归属投递，不能借等待绕过权限。
+
+#### Scenario: 普通离线
+- **WHEN** 目标电脑未处于有效更新切换过程而离线
+- **THEN** 沿用普通离线失败语义，不冒充正在更新或已可处理。
+
+#### Scenario: 取消与恢复失败
+- **WHEN** 更新取消且原节点恢复接入
+- **THEN** 主动重放暂存消息，不依赖断线重连。
+- **WHEN** 更新进程中断且电脑尚未恢复
+- **THEN** 已暂存消息显示电脑恢复后继续处理、无需重发；聊天入口提供恢复提示，不无限显示正常更新；同身份节点恢复后继续投递。

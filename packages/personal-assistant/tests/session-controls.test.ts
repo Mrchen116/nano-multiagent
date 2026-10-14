@@ -12,9 +12,11 @@ it('reserves command order and recovers the same result after delivery failed', 
   let controls=new SessionControls(options);
   try {
     const pending=controls.run(binding,input,'compact','focus'); const rejected=expect(pending).rejects.toThrow('offline');
+    expect(controls.busy).toBe(true);
     let later=false; const next=controls.wait('s').then(()=>{later=true;});await Promise.resolve();expect(later).toBe(false);
     release();await rejected;await next;expect(commands).toBe(1);await controls.stop();
-    controls=new SessionControls(options);fail=false;await controls.recover('a');expect(commands).toBe(1);
+    controls=new SessionControls(options);expect(controls.busy).toBe(true);fail=false;await controls.recover('a');expect(commands).toBe(1);
+    expect(controls.busy).toBe(false);
     expect(store.control('a:input')).toMatchObject({text:'Compacted original context',delivered:true});
     expect(frames.filter(frame=>frame.kind==='turn_start').map(frame=>frame.idempotency_key)).toEqual(['command:a:input','command:a:input']);
   }finally{release();await controls.stop();store.close();}

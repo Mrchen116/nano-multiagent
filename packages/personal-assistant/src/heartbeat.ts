@@ -24,6 +24,8 @@ export class Heartbeat {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS due(agent TEXT, task TEXT, time INTEGER, PRIMARY KEY(agent,task)); CREATE TABLE IF NOT EXISTS pending(agent TEXT PRIMARY KEY, intent TEXT NOT NULL)');
   }
+  /** Includes uncertain persisted admissions awaiting reconciliation. */
+  get busy(): boolean { return !!this.active || !!this.db.prepare('SELECT 1 FROM pending LIMIT 1').get(); }
   subscription(agentId: string, enabled: boolean): void { if (enabled) this.subscriptions.add(agentId); else this.subscriptions.delete(agentId); }
   start(interval = 1000): void {
     if (this.running) return; this.running = true;

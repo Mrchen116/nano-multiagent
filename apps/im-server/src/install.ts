@@ -4,24 +4,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ImContext } from './context.js';
 import { fail } from './context.js';
+import { parseReleaseManifest } from '@nano/product-contracts';
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node-release/', import.meta.url));
 
-function releaseManifest(directory: string) {
+export function releaseManifest(directory: string) {
   try {
-    const value = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
-    // Existing SHA releases remain installable until an explicit version is published.
-    const tag = typeof value?.version === 'string' && /^[a-f0-9]{40}$/.test(value.version)
-      ? `node-${value.version}`
-      : typeof value?.version === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value.version)
-        && typeof value.source_commit === 'string' && /^[a-f0-9]{40}$/.test(value.source_commit)
-        ? `v${value.version}` : null;
-    if (!value || typeof value.version !== 'string' || typeof value.sha256 !== 'string'
-      || !tag || !/^[a-f0-9]{64}$/.test(value.sha256)
-      || value.package !== 'nano-node.tgz' || value.node_major !== 24 || value.pnpm_version !== '11.7.0'
-      || value.download_url !== `https://github.com/Mrchen116/nano-multiagent/releases/download/${tag}/nano-node.tgz`) return null;
-    return value;
+    return parseReleaseManifest(JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8')));
   } catch { return null; }
 }
 

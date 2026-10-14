@@ -35,11 +35,12 @@ try {
   const assets = execFileSync('git', ['ls-files', '-z', '--', 'packages/dsh-integration/assets', 'packages/dsh-integration/cordis.patch.yml', 'packages/personal-assistant/assets'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
   for (const file of assets) await copy(file);
   await readFile(join(stage, 'apps/node/lib/cli.js'));
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  await writeFile(join(stage, '.nano-release.json'), JSON.stringify({source_commit: revision, updater_protocol: 1, data_epoch: 1}) + '\n');
   const archive = join(output, 'nano-node.tgz');
   execFileSync('tar', ['-czf', archive, '-C', stage, '.']);
   const sha256 = createHash('sha256').update(await readFile(archive)).digest('hex');
-  const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  await writeFile(join(output, 'manifest.candidate.json'), JSON.stringify({ version: revision, sha256, download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${revision}/nano-node.tgz`, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' }, null, 2) + '\n');
+  await writeFile(join(output, 'manifest.candidate.json'), JSON.stringify({ version: revision, source_commit: revision, updater_protocol: 1, data_epoch: 1, sha256, download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${revision}/nano-node.tgz`, package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0' }, null, 2) + '\n');
   console.log(`Node installer candidate ready (publish and verify before deployment): ${revision} (${sha256.slice(0, 12)})`);
 } finally {
   await rm(stage, { recursive: true, force: true });

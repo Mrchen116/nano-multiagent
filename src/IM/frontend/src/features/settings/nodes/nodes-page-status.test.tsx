@@ -25,6 +25,7 @@ function mockNodes(nodes: unknown[]) {
         new Response(JSON.stringify(nodes), { status: 200, headers: { "Content-Type": "application/json" } })
       );
     }
+    if (url === "/im/v1/onboarding") return Promise.resolve(new Response(JSON.stringify({ agents: [], install: { available: false } }), { status: 200 }));
     if (url === "/im/v1/agents") {
       return Promise.resolve(
         new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })
@@ -40,7 +41,7 @@ function mockNodes(nodes: unknown[]) {
 }
 
 describe("nodes page — status pill + last_error + empty state", () => {
-  it("renders an online pill with green dot for online nodes and a red pill for offline nodes", async () => {
+  it("renders an online pill with green dot for online nodes and neutral offline status with on-demand diagnostics", async () => {
     mockNodes([
       {
         node_id: "node-a",
@@ -80,6 +81,9 @@ describe("nodes page — status pill + last_error + empty state", () => {
     expect(offlinePill).toHaveTextContent(/offline/i);
     expect(offlinePill.querySelector('[data-status-dot="offline"]')).toBeInTheDocument();
 
+    expect(screen.queryByText("connection refused")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "View node-b details" }));
+    await userEvent.click(screen.getByText("Connection diagnostics"));
     const errorEl = screen.getByTestId("node-last-error-node-b");
     expect(errorEl).toHaveTextContent("connection refused");
   });
@@ -90,7 +94,8 @@ describe("nodes page — status pill + last_error + empty state", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
 
     expect(await screen.findByTestId("nodes-empty")).toBeInTheDocument();
-    expect(screen.getByText(/Open the binding link provided by Gateway/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect your first computer" })).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Connect computer" })[1]);
     expect(screen.queryByTestId("nodes-kpi-grid")).not.toBeInTheDocument();
 
     mockNodes([{
@@ -98,14 +103,14 @@ describe("nodes page — status pill + last_error + empty state", () => {
       last_heartbeat_at: null, agent_count: 0, version: "1.8.2", alias: null,
       relay_enabled: true, reporting_enabled: true, last_error: null
     }]);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Refresh devices" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Finished on the computer? Refresh list" }));
 
     expect(await screen.findByRole("heading", { name: "My laptop" })).toBeInTheDocument();
     expect(screen.queryByTestId("nodes-empty")).not.toBeInTheDocument();
-    expect(screen.getByText("Heartbeat")).toBeInTheDocument();
+    expect(screen.queryByText("Heartbeat")).not.toBeInTheDocument();
   });
 
-  it("keeps loaded devices and Heartbeat visible when a background refresh fails", async () => {
+  it("keeps loaded devices and marks stale data when a background refresh fails", async () => {
     mockNodes([{
       node_id: "node-a", node_name: "My laptop", owner_id: "owner-1", status: "online",
       last_heartbeat_at: null, agent_count: 0, version: "1.8.2", alias: null,
@@ -124,8 +129,7 @@ describe("nodes page — status pill + last_error + empty state", () => {
 
     expect(client.getQueryState(["settings", "nodes"])?.status).toBe("error");
     expect(screen.getByRole("heading", { name: "My laptop" })).toBeInTheDocument();
-    expect(screen.getByText("Heartbeat")).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/last known status/);
     client.clear();
   });
 });

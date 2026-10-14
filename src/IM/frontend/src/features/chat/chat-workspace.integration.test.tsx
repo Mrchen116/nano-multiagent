@@ -1691,6 +1691,34 @@ describe("ChatWorkspacePage — integration", () => {
     });
   });
 
+  it("keeps the update wait from POST when the message echo arrives first", async () => {
+    const baseFetch = mockFetch();
+    let finishPost!: (response: Response) => void;
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { finishPost = resolve; });
+      }
+      return baseFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await user.type(screen.getByRole("textbox"), "Continue after update");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+    const message = { ...FIXTURES.messagesC1[0], id: "m2", content: "Continue after update", update_wait: "updating" };
+    act(() => emitSharedChatEvent({
+      type: "message.created", conversation_id: "c1", message_id: "m2",
+      sender_user_id: "u-self", sender_type: "user", content: message.content,
+      delivery_status: "sent", tool_calls: [], token_usage: null, created_at: message.created_at
+    }));
+    await screen.findByText(message.content, { selector: "span" });
+    await act(async () => { finishPost(jsonResponse(message)); });
+    expect(await screen.findByText("Waiting for computer update")).toBeInTheDocument();
+    expect(screen.getAllByText(message.content)).toHaveLength(1);
+  });
+
   it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
