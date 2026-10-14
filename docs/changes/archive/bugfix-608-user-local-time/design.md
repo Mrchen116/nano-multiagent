@@ -45,8 +45,8 @@
 - 本机运行定位：`/tmp/nano-user-local-time-ios-test.log`、`/tmp/nano-user-local-time-ios-test-final.log`、`/tmp/nano-user-local-time-ios-archive.log`、`/tmp/nano-user-local-time-web-build-final.log`、`/tmp/nano-user-local-time-python-tests.log`；浏览器网络记录位于隔离 worktree 的 .playwright-cli，均不提交到仓库。
 - 长期覆盖归属：IM 新 timezone e2e 保护账号持久化/WS 同步/幂等快照；Web 新生命周期测试保护前台与后台边界；其余 inbox、external-channels、single-thread、heartbeat、native history 和 iOS Session/ChatState 扩展既有覆盖，未创建里程碑专用测试。
 - 自动化渠道 fixture 使用真实 provider 时间字段，但未向生产飞书账号发送；模拟器与 API 测试不替代 iPhone 真机验收。
-- 用户亲自验收：尚无确认，unit 保留 active。
+- 交付确认：用户于 2026-10-14 明确要求“合入，并正式部署”；按该授权完成收尾，不补造用户亲自测试或真机验收。
 
 ## Canonical 文档影响
 
-本目录 specs/ 保存最窄 delta：IM 账号时区、Gateway 真人消息时间、global Inbox 时间和 Heartbeat 本地时间。用户实际验收后再归并对应 current 文档。
+本目录 specs/ 的四份最窄 delta 已归并到 IM 账号时区、Gateway 真人消息时间、global Inbox 时间和 Heartbeat 本地时间对应 current 文档，并更新包入口派生数量。仅因用户明确授权合入部署完成归档，不补造额外验收过程。
