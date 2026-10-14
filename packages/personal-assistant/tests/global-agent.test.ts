@@ -51,7 +51,10 @@ it.each([
     relay: { request: async (type, payload) => {
       if (type === 'agent.work.append') return { type: 'agent.work.ack', payload: { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } };
       if (type === 'conversation.query') { inbox.receive(input, true); return { type: 'conversation.query.result', payload: { ok: true, result: { type: conversationType, channel, target: resolved, name: 'Conversation' } } }; }
-      if (type === 'agent.message') sent++;
+      if (type === 'agent.message') {
+        expect(payload.to).toBe(requested.startsWith('c_') || requested.startsWith('external:') ? `conversation:${requested}` : requested);
+        sent++;
+      }
       return { type: 'ack', payload: { message_id: 'sent-message', conversation_id: 'c_group' } };
     } }, image: async () => '', onError: error => { throw error; },
   });

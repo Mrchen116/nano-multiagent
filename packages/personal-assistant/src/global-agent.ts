@@ -232,18 +232,19 @@ export class GlobalAgent {
       if (previous.target !== target || previous.body !== text) throw new Error('Publication identity conflict');
       if (previous.result) return JSON.parse(previous.result) as unknown;
     }
-    let conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
+    const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
     if (global) await this.reconcile(binding);
     else {
       const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
       if (!read.durable) throw new Error('No durable source evidence');
       store.recordEvents(binding.sessionId, read.events);
     }
-    if (global && !conversation) {
+    let reviewConversation = conversation;
+    if (global && !reviewConversation) {
       const resolved = await this.query(binding, { action: 'resolve_target', target });
-      if (typeof resolved.target === 'string') conversation = resolved.target;
+      if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
-    const info = conversation ? await this.query(binding, { action: 'info', target: conversation }) : undefined;
+    const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
     let correction = false;
     if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
@@ -259,7 +260,7 @@ export class GlobalAgent {
     // Receive and dispatch admission are synchronous in this node's event loop.
     inbox.preparePublication(call.operationId, target, text);
     // External conversations and their IM mirrors share one delivery target.
-    const inboxTargets = [conversation, info?.target, conversation && store.imConversation(binding.agentId, conversation)];
+    const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
     const unreadTargets = global && revalidate ? [...new Set(inboxTargets)].filter((target): target is string => typeof target === 'string' && inbox.blocking(binding.agentId, target)) : [];
     if (revalidate && (global ? unreadTargets.length > 0 : correction)) {
