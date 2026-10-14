@@ -80,3 +80,55 @@
 
 - R1-W1 accepted：delta 增加完整 MODIFIED 白名单 Requirement，保留全部未改 Scenario，明确 workspace 管理许可的有限增量。
 - R1-W2 accepted：本地自建 bundle 每次安装生成不可变版本产物，再用 DSH 原生 file: 安装；执行入口为相对文件路径，由原生 patch 锚定到当代 URL。修正失败源码后重装产生新 URL，不复用 Node 失败缓存。普通外部包替换保留原生 restart-required。设计关键决策、数据流和风险已同步。
+
+## Round 2
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 白名单修订属于旧问题闭环；本地不可变 generation 引入新的文件产物和安装/执行 URL 路径，超出仅文字消歧，因此核查该有界设计变化与受影响恢复、持久化行为。
+- started_at: 2026-10-14T23:43:21+08:00
+- completed_at: 2026-10-14T23:44:38+08:00
+- duration: 1m17s（完成修订 diff 读取后计时）
+- baseline: Nano `de83edc47`；DSH/Include 与参考源码基线同 Round 1。
+- retained_from: Round 1 的现状入口、scope/权限、公开 exports、职责分工、同 workspace 多 preset、Node 接线、前端范围和 M1 归属证据；这些部分没有实质变化。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+R1-W1 closed；R1-W2 still-open。本地 `file:` 包安装和来源持久化可用，但原生安装后重新解析 bundle 并不会把插件行锚定到 generation 目录，修订仍复用旧执行 URL。
+
+### Coverage 与证据
+
+- 已完整对比 `dbef789c3..de83edc47` 的 design 和 delta，并读 Author Resolutions。delta 增加了原白名单 Requirement 的完整 MODIFIED：保留默认工具禁用、显式空集、Cron、skill 默认候选等 Scenario，新增有限动态集合并调整“不被默认集合自动扩宽”的场景；与新增 workspace Requirement 联读可确定例外边界。
+- 公开 `parseInstallSpec()` 支持绝对 `file:` 目录；原生 manager 也提供本地包真实安装测试（参考源码 `packages/boot/plugin-manager/tests/install-spec.spec.ts:13-17`、`tests/manager.spec.ts:1160-1182`）。本轮进一步使用已安装 npm 包的 `PluginManager.installBundle()` 和真实 pnpm，未 mock 包操作。
+- 临时 profile 使用公开 `initProfile()`，管理 Context 按设计不装 HMR/执行插件。连续创建并安装 `generations/g1`、`generations/g2`，两代保留同一 bundle 名 `feat610-generation-probe`、版本 `1.0.0`，patch 插件行均为 `./tool.mjs`。第一代模块顶层抛错，第二代修正。每次安装后使用公开 `loadProfileDirectory()` 与 `composeEntries()` 得出执行行，再用真实原生 Include 应用。
+- 两次 pnpm 均退出 0；dependencies 分别持久保存 `file:<profile>/generations/g1` 与 `file:<profile>/generations/g2`；选中 bundle 可从磁盘重读。因此 file: 本身和来源保存没有问题。但两次解析出的 `packageDir` 均为 `<profile>/node_modules/feat610-generation-probe`，模块 URL 均为 `file://<profile>/node_modules/feat610-generation-probe/tool.mjs`。
+- 核心观察：`entry URLs equal: true`；第二代实际 Include 更新后 `same-process repaired generation: not loaded`。原生 manager 的 `restart-required` 可由纯管理 Context 解释，却不能改变该执行 URL 的事实。
+- 原因与锁定源码一致：`initProfile()` 的 pnpm 配置明确使用 `nodeLinker: hoisted`（`packages/boot/app-boot/src/profile.ts:236-245`）；`resolveBundleDir()` 经 package lookup 返回安装目录（同文件 `684-711`）；`loadProfileDirectory()` 从该安装目录读 patch（`745-758`），`loadOverlayPatches()` 将相对行锚定在该 patch 所在目录（`packages/boot/app-boot/src/index.ts:349-365`）。保存 `file:g2` 不等于执行 URL 指向 g2。
+- 没有引入 scope、权限、子任务或多 workspace 边界变化。generation 的持久化仍属于 workspace profile，职责可以留在 WorkspaceExtensions；本轮仅阻断尚不成立的执行路径假设，不要求普遍支持 registry/git 或任意已加载包热替换。
+- 所有临时 profile、generations 和测试 Context 已清理；没有使用生产服务。没有修改代码或首文档。
+
+### 历史问题闭环
+
+- **R1-W1 — closed**：Author Resolution 接受并新增完整 MODIFIED。核对 delta `3-35` 与原 canonical Requirement，新增有限集合的条件及未改变 Scenario 均已保留，原“不自动扩宽”场景已作对应限定。
+- **R1-W2 — still-open**：Author Resolution 采用 generation 加 file: 原生安装；原生实测证明目录来源不同，但实际解析后的执行 URL 相同，尚不能修复同进程的失败模块缓存。具体见 R2-W1。
+
+### Issues
+
+#### R2-W1 — file: generation 改变安装来源，没有改变实际执行入口 URL（延续 R1-W2）
+
+- **位置**：`design.md:44,58,67`。
+- **证据**：上述真实原生 manager/pnpm/profile parser/Include 路径产生相同的 `<profile>/node_modules/<bundle>/tool.mjs` URL；第一代求值失败后，第二代修正仍未加载。设计“DSH patch 解析把它们锚定到本次安装产物的绝对 URL”“新安装、更新或失败后修正重装都获得独立 URL”的断言，与默认原生 profile 行为不符。
+- **未修后果**：即使实施遵循新 generation 设计，也会在实际 URL 检查中拒绝恢复，或再次导入失败旧 URL；自助修复旅程仍不能免重启完成。
+- **需要收口**：明确让执行 patch 的解析基点确实位于不可变 generation 的公开 API 路径，或提供真实验证成立的其他方案；不能仅依赖 file: 来源改变。需要对同名 bundle 连续两代安装、第一代求值失败后第二代成功加载作证据，同时保留原生安装清单与重启恢复。普通外部包的 restart-required 限制可以继续保留。
+
+### Recommendations
+
+无额外建议。
+
+### Author Resolutions
+
+- R2-W1 accepted：原生 pnpm 的 hoisted 副本不能提供 generation URL。执行层改为从 profile dependencies 持久的 file: 来源识别本 workspace generation，再用原生 bundlePatchPaths/loadOverlayPatches 从真实 generation 解析 patch；普通包沿用 loadProfileDirectory。已用锁定公开 API 连续安装同名 file:g1/file:g2 验证：第一代源码求值失败，第二代 URL 不同且返回 fixed；没有清理或改写模块缓存。设计关键决策已修订，M1 必须把这个完整失败→修正重装→实际调用链纳入原生进程回归。
