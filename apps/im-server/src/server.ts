@@ -285,16 +285,19 @@ export async function createServer(options: ServerOptions = {}) {
     if (req.method !== "GET" || path.startsWith("/im/"))
       return reply.code(404).send({ detail: "not found" });
     const file = resolve(dist, "." + path);
-    if (file.startsWith(dist + "/") && existsSync(file) && extname(file))
+    if (file.startsWith(dist + "/") && existsSync(file) && extname(file)) {
+      // The HTML entrypoint must not retain a bundle with obsolete config semantics.
+      if (extname(file) === ".html") reply.header("Cache-Control", "no-store");
       return reply
         .type(mime[extname(file)] ?? "application/octet-stream")
         .send(createReadStream(file));
+    }
     if (
       path === "/" ||
       /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");
-      if (existsSync(index)) return reply.type("text/html").send(createReadStream(index));
+      if (existsSync(index)) return reply.header("Cache-Control", "no-store").type("text/html").send(createReadStream(index));
       return reply.redirect(dev.replace(/\/$/, "") + req.url);
     }
     return reply.code(404).send({ detail: "not found" });

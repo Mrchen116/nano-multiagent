@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: feat-551-agent-reply-images / feat-554 / feat-563
+> 对齐: bugfix-598
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -10,6 +10,14 @@
 Web IM 聊天页滚动、输入、消息操作和桌面/移动一致性的用户可见契约。
 
 ## Requirements
+
+### Requirement: 页面加载获取当前前端入口
+
+Web IM 的 HTML 页面入口（包括 Agent 设置等 SPA 路由）MUST 返回 `Cache-Control: no-store`，避免刷新时继续使用引用旧版本脚本的入口。已经运行的页面需要刷新才会加载新代码；本规则不触发自动刷新或丢弃未保存草稿。
+
+#### Scenario: 更新部署后重新打开配置页
+- **WHEN** 浏览器重新加载 Agent 设置页面或直接请求 `/index.html`
+- **THEN** HTML 入口不由浏览器缓存复用，页面从当前部署的入口加载脚本。
 
 ### Requirement: Agent 消息保留普通换行并支持 Markdown
 
