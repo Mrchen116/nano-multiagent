@@ -19,7 +19,7 @@
  * 在此场景失配，本实现改为全局扫描节点 value，正确切出任意位置的 mention 标签。
  */
 
-import type { Root, Html, RootContent } from "mdast";
+import type { Root, Html, RootContent, PhrasingContent } from "mdast";
 import type { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 
@@ -33,19 +33,18 @@ const MENTION_GLOBAL_RE = new RegExp(MENTION_TAG_RE_SOURCE.source, "g");
  * Splits node.value on MENTION_GLOBAL_RE into alternating text and mention
  * nodes, mirroring parseMentions' split semantics. Each mention becomes a
  * node with data.hName="span" so remark-rehype auto-emits a hast element.
- * Non-mention text runs become raw html nodes (preserved as-is by remark-rehype,
- * which discards unsafe html — safe for our use case since they are prose text).
+ * Other content remains literal text, allowing later prose plugins to handle
+ * its line breaks while keeping arbitrary HTML escaped.
  */
-function splitHtmlNodeIntoMentionNodes(value: string): RootContent[] {
-  const nodes: RootContent[] = [];
+function splitHtmlNodeIntoMentionNodes(value: string): PhrasingContent[] {
+  const nodes: PhrasingContent[] = [];
   let last = 0;
   let match: RegExpExecArray | null;
 
   MENTION_GLOBAL_RE.lastIndex = 0;
   while ((match = MENTION_GLOBAL_RE.exec(value)) !== null) {
     if (match.index > last) {
-      // Text before this mention — keep as html node (remark-rehype discards raw html safely).
-      nodes.push({ type: "html", value: value.slice(last, match.index) });
+      nodes.push({ type: "text", value: value.slice(last, match.index) });
     }
     nodes.push({
       type: "html",
@@ -62,7 +61,7 @@ function splitHtmlNodeIntoMentionNodes(value: string): RootContent[] {
   }
 
   if (last < value.length) {
-    nodes.push({ type: "html", value: value.slice(last) });
+    nodes.push({ type: "text", value: value.slice(last) });
   }
 
   return nodes;
@@ -85,7 +84,12 @@ export const remarkMention: Plugin<[], Root> = () => {
       MENTION_GLOBAL_RE.lastIndex = 0;
       if (!MENTION_GLOBAL_RE.test(node.value)) return;
 
-      const replacements = splitHtmlNodeIntoMentionNodes(node.value);
+      const phrasing = splitHtmlNodeIntoMentionNodes(node.value);
+      // A standalone mention creates an HTML block. Keep its prose in one
+      // paragraph so line breaks do not become separate grid items.
+      const replacements: RootContent[] = parent.type === "root"
+        ? [{ type: "paragraph", children: phrasing }]
+        : phrasing;
 
       // Splice replacements into parent.children at current index.
       (parent.children as RootContent[]).splice(index, 1, ...replacements);

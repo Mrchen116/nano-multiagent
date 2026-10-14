@@ -11,6 +11,18 @@ Web IM 聊天页滚动、输入、消息操作和桌面/移动一致性的用户
 
 ## Requirements
 
+### Requirement: Agent 消息保留普通换行并支持 Markdown
+
+Web IM SHALL 显示 Agent 正文中的普通换行和段落分隔，同时保留 Markdown 格式；实时消息与历史消息使用同一规则。
+
+#### Scenario: 普通多行正文保持分行
+- **WHEN** Agent 消息的同一段落含普通换行，例如 `你可以找我：` 后逐行列出 `•` 条目
+- **THEN** 每次换行均在聊天正文中显示，不折叠为同一行；空行仍分隔段落。
+
+#### Scenario: Markdown 与换行共同显示
+- **WHEN** Agent 消息同时包含普通换行和 Markdown
+- **THEN** 标题、强调、链接、列表、引用、表格、代码块和 mention 按既有规则显示，显式 Markdown 换行不会重复成空行，代码块内容与缩进保持原样。
+
 ### Requirement: Agent 图片在正文中按顺序展示加载、成功和失败状态
 
 Web IM MUST 保持 Agent 回复的图文顺序，内联图片保持原比例、不重复加入附件区，适配桌面与移动端；图片状态不影响相邻文字阅读。
