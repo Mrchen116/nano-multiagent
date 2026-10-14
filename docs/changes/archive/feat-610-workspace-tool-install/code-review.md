@@ -82,3 +82,56 @@ Reviewed the entire patch, including reopened unit documents, the new IM delta a
 ```
 
 Only code-review.md and verification.md were edited by this reviewer; no commit was created.
+
+## Round 4 — Standard workspace plugins and web management
+
+- review_mode: full for the newly designed plugin scope; earlier tool-install findings retained only where applicable.
+- scope_delta: `89c47478b054b8d788022752213ff6d494b5f9d9..3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- executed_base: merged `origin/main` `4a1485d43d33c02fb3635a8c26b4b9a343a8680a`
+- validated_at: `3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- verdict: Issues Found — 1 confirmed correctness defect.
+- excluded: unrelated bugfix-611 changes brought in from main; author follow-up changes after the frozen snapshot.
+
+Coverage: new plugin spec/design and Gate 2 R9; complete new implementation/HTTP/UI/test/manual diff; current Gateway/IM boundaries; published DSH APIs. The independent page, zero-tool package directory, confirmation and pending/error feedback were inspected in source. The design state-board image was actually opened, including its documented corrections; it is not a real product screenshot. Old tool-only and read-only-card acceptance does not prove this new scope.
+
+Implementation checks:
+
+- HTTP uses authenticated identity/space access and owner profile lookup, derives the Node from that profile, limits POST to set/remove, and rejects client-supplied scope/path keys. Node checks the configured Agent before forwarding only the action/target/enabled facts. Runtime acquires that Agent's preset and retains it through the background operation. Model install authority and user web authority remain separate.
+- Workspace pending is registered before background scheduling; list bypasses the mutation queue, later mutations fail busy, and operations retain the old displayed entries until settlement. ConfigurationScopes waits current workspace Agents, takes a fresh synchronous maintenance reservation, gates later attachments and releases in finally; other workspaces are not reserved. Native runMaintenance synchronously rejects a non-idle Agent, so partial reservations are released and retried.
+- Native Include rows namespace explicit isolate labels by mount, detect root-service leakage through the published leakedServices helper, retire failed rows and preserve package diagnostics. Previous fibers, including nested rows, are captured before update; retired fibers' inertia is awaited before management settlement or file removal. The real fixture covers root leakage failure, isolated group provider/consumer prompt contribution for A/peer and B isolation, delayed cleanup, queued A input and independently progressing B.
+- The new Plugins tab includes no-tool entries, saved state, scope explanation, details, inline confirmation and a separate refresh/error path; immediate actions do not serialize Agent draft fields or require Save. Dynamic tools are excluded from static pills. Component tests cover zero-tool listing, old state during pending, confirmation, request failure and offline/empty distinction.
+- Evidence inspected: native lifecycle `/tmp/feat610-plugins-native.log` 1 file / 1 test pass; HTTP/native `/tmp/feat610-plugins-tests.log` 2 files / 2 tests pass; UI `/tmp/feat610-plugins-ui.log` 2 files / 4 tests pass. Caller reports typecheck/Web build pass; full build and whole-suite evidence was still being completed when dispatched. Independently checked runtime dependency contract (13 passed) and frozen diff whitespace (passed).
+
+### R4-P2 — Versioned registry updates re-enable a previously disabled package
+
+- location: `packages/dsh-integration/src/workspace-tools.ts:267-269`
+- status: CONFIRMED
+- trigger: an installed package `report-style` is disabled; the Agent calls install_bundle with target `report-style@1.1.0`, omitting enabled.
+- evidence: prior selection is looked up only by the staged local name or exact target string. A registry version/range target does not equal its package name, so prior is undefined and enabled remains undefined. The pinned native PluginManager treats undefined as true; after resolving the actual package it calls selectBundle(name, true) before returning restart-required for an existing dependency (`packages/boot/plugin-manager/src/index.ts:573-577`). The persisted bundle selection therefore becomes enabled even if execution waits for restart. The local-directory regression succeeds because it has localName and does not protect this case.
+- consequence: normal package update reverses the user's explicit stop choice, contrary to spec's completed-choice persistence and `design.md:101`. Restart-required does not preserve disabled state.
+- required correction: after native installation identifies result.bundle, reconcile the previously installed package's disabled selection within the same controlled transaction and before refresh/early restart-required return. Avoid inventing a second npm-spec parser. Protect a versioned registry target with an adapter-level package-manager fixture.
+
+```json
+[{"file":"packages/dsh-integration/src/workspace-tools.ts","line":268,"summary":"[P2] Preserve disabled selection for versioned registry updates","failure_scenario":"An installed disabled report-style bundle is updated through target report-style@1.1.0 without enabled. Exact target lookup misses its package name, native installation defaults enabled to true and persists that choice before returning restart-required; the plugin returns after restart against the user's saved stop choice.","review_mode":"full","status":"CONFIRMED"}]
+```
+
+The author accepted the finding and is preparing a fix; this report deliberately retains it at the frozen snapshot until independent closure checks. No product source or tests were modified by this reviewer.
+
+## Round 5 — R4-P2 closure
+
+- review_mode: closure
+- finding_origin_head: `3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- validated_at: `df579de5e8fb7c09626e132a28fd23f5663dae18`
+- executed_base: `4a1485d43d33c02fb3635a8c26b4b9a343a8680a`
+- focus_findings: R4-P2
+- verdict: Approved; R4-P2 closed; findings `[]`.
+
+The six-line correction uses native result.bundle to find the prior installed selection and restores false before refresh or the existing-package restart-required return. It is conditional on omitted enabled, so an explicit enabled:true remains an intentional enable. Restoration errors propagate rather than being reported applied. No custom package-spec parser or unrelated lifecycle logic was added.
+
+The new regression uses real native pnpm with `workspace-echo@file:<source>`: target differs from the resolved package name, following the exact failure mechanism of a versioned registry spec without network-dependent fixtures. Inspected `/tmp/feat610-update-red.log`: expected false, received true at the persisted selection assertion. Inspected `/tmp/feat610-update-green.log`: the same real install/disable/named update/restart/enable/isolation/resource-cleanup lifecycle passes (1 file / 1 test, 15.29s). Patch whitespace check passes.
+
+Full-scope logs inspected: `/tmp/feat610-all-native.log` 85 files / 315 tests pass, `/tmp/feat610-all-web.log` 96 files / 885 tests pass, `/tmp/feat610-python.log` 56 pass / 31 deselected. These started before this narrow fix and are retained for unchanged paths; the post-fix native regression is the direct closure evidence. Caller also reports full build/typecheck, docs, Ruff and audit passing. New plugin-page/real non-tool product acceptance is still separate and pending; prior tool-only acceptance is not substituted.
+
+```json
+[]
+```

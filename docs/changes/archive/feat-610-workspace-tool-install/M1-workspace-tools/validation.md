@@ -63,3 +63,41 @@
 - 测试服务按用户要求继续运行；不归档或删除managed worktree，用户结束体验后以同目录e2e-down.sh清理，再归档worktree。
 
 归档后发现macOS大小写不敏感路径使`git add docs/specs/IM`未暂存Git实际跟踪的`docs/specs/im`；已按真实Git路径暂存canonical原文归并，并将unit delta目录名改为im。effective_through延至`docs: align canonical IM paths for feat-610`提交；只改变已审契约归并与路径，无源码/判据变化，门禁retained。
+
+## 插件管理扩展（2026-10-15，取代只读工具卡）
+
+本节为当前交付范围；前文保留工具版的开发和验收历史。用户要求标准 DSH 插件而不只工具，因此重新打开 Full unit，修订 spec/design，并经独立设计 R9 Approved（0/0）后实施。概念状态图与未渲染 HTML 的证据边界见 design.md。
+
+- final integration source: `df579de5e`；executed_base: `4a1485d43`。合并 main 的 bugfix-611 后，保留其 global 回复/原生重试修复；本次插件 RPC 独立接入。冲突仅为 canonical 对齐标记与本 unit 的历史 delta，按新插件目标保留，未丢弃上游源码。
+- 新增端到端控制链：独立 Plugins tab → IM owner/space/Node 校验 → Node 可信 Agent 配置 → integration preset/同一 native profile。无额外包数据库或工具 denylist；零工具插件也进入安装目录。
+- 关闭/卸载在 workspace 原生维护窗口执行，查询不排在等待队列后；旧 fiber 异步清理完成才结束 pending。根服务泄漏失败退役，provider/consumer 通过原生 isolate group 隔离。安装、启用选择与完成状态持久化。
+- 受影响测试处置：workspace-tools.test.ts rewrite-merge 未实现 denylist 红测为原生整包控制；保留原来的安装/失败修正/隔离/空名单/重启链，并扩充共享 workspace、零工具提示词、服务隔离与异步退出。PillSelector 测试改为只保护静态权限；新 AgentPluginsPanel 测试归属包目录与即时操作交互。IM plugins.test.ts 归属新 HTTP 认证和参数边界，避免堆入既有超长 control.test.ts。Node 转发由真实 E2E 覆盖，不加镜像 mock。
+
+| 验证 | 结果与证据 |
+|---|---|
+| 新控制面红测 | plugins.manage Unknown method、HTTP 无新路由、缺插件面板/旧 workspace 卡仍存在；`/tmp/feat610-plugins-red.log`、`plugins-http-red.log`、`plugins-ui-red.log` |
+| 原生非工具生命周期 | root service 拒绝 → group/isolate 提示词在 A/peer 生效、B 无贡献 → 异步 cleanup pending → A 新消息排队、B 正常调用 → 清理完成再移包；`/tmp/feat610-plugins-native.log` passed |
+| 包 spec 更新修复 | `workspace-echo@file:<source>` 的原生已解析包名与输入 spec 不同；红测停用变 true，修复按 result.bundle 恢复旧选择；`/tmp/feat610-update-red.log` / `update-green.log`（完整原生链15.29s通过） |
+| 全量 Node/DSH/IM | `pnpm test` 85 files / 315 tests passed；`/tmp/feat610-all-native.log`（3e43f7649）；后续6行包选择修复以同一完整原生生命周期复验 |
+| 全量 Web | `npm test` 96 files / 885 tests passed；`/tmp/feat610-all-web.log` |
+| 构建/类型 | `pnpm build`、`pnpm typecheck`、Web `npm run build` passed；`/tmp/feat610-fullbuild.log`、`typecheck.log`、`webbuild-final.log`；修复后 integration 单包 build passed |
+| Python/格式/依赖 | pytest56 passed31deselected；ruff check与format passed82files；前端 npm audit 0 vulnerabilities |
+| 文档与 diff | docs-check245 Markdown/64routes passed；git diff --check passed；归并/归档后再次执行文档检查 |
+
+真实 Agent 创作：聊天 `c_pp1ump8j` 于01:48发送自然语言报销格式需求，模型自行创建 `expense-report-style` 零工具 bundle，通过 plugin_manager 安装为 applied，并实际调用既有 expense_summary 返回11月3笔50元（餐饮30、交通20）；回复按“报销月报”标题、总计、分类表格与核对票据提醒呈现。一次自动审批服务未给出合法verdict，按已授权测试范围在真实审批卡 Allow once 放行写源码，其余沿正常链路。01:50正常重启隔离Node后，两包仍启用，静态白名单仍是原7项，没有添加 expense_summary 或重设session。独立产品验收继续核开关、卸载、busy、窄屏与错误场景，结论以 acceptance.md 为准。
+
+测试服务按用户明确要求保留：`http://127.0.0.1:54267`，测试账号nano/nano1234；插件入口 `/settings/agents/e2e?view=plugins`。所有进程、workspace与数据仍在本worktree；生产没有变更。验收结束保留两个报销插件启用；清理触发为用户结束体验后执行本worktree的 e2e-down，再归档worktree。
+
+补充边界验证 `c4ba8d5ea`（只改测试，产品源码仍df579de5e）：`/tmp/feat610-pending-restart.log` 完整原生链passed14.05s。workspace pending 时另一同 workspace Agent 管理命令返回 busy，不阻塞当前回合；当前回合忙碌时收到启用pending，随后仅强制结束测试临时DSH子进程，重启后旧disabled保持、pending消失。该进程中断是fixture证据，不冒充真实网页硬重启；实际示例服务不受影响。
+
+
+### 插件版最终门禁与归档
+
+- final sync：重新 fetch 后 `origin/main` 仍为 `4a1485d43d33c02fb3635a8c26b4b9a343a8680a`，无新增上游影响。
+- Gate 2 R9 Approved 0/0；code-review R5 findings=[]；verifier R6 与 c4ba 测试补充 pass / corrected-delta aligned；产品 R3 最终补充裁决 pass，10/10 Scenario、blocking/major/minor 0/0/0。
+- 产品与源码门禁 validated_at：`df579de5e8fb7c09626e132a28fd23f5663dae18`；executed_base / effective_base：`4a1485d43d33c02fb3635a8c26b4b9a343a8680a`。新增测试树 `c4ba8d5ead802dbfaa911e0cd7ff5c0e6dd1198a` 由静态与产品 reviewer 独立检查，未改变运行实现。
+- effective_through 延续到本次 `docs: verify and archive workspace plugin management` 提交。其差异仅为独立报告、已校正 delta 原文归并、索引描述、整目录归档与相对链接修正；不改变源码、设计或验收判据，所以各门禁 retained。最终提交 SHA 记录在 PR。
+- 干净体验聊天 `/chat/c_dkpuwqw4` 未指定格式，真实工具算出3笔80元，零工具插件贡献月报标题、分类表和核票提示。真实截图 `clean-demo.png`、`final-enabled.png` 位于 `/tmp/feat610-review/r3/`。最终保留 expense-summary-bundle 与 expense-report-style 启用；临时测试包已移除，源码保留。
+- 用户明确要求保留服务，因此保留本 worktree 与隔离 IM/Node；结束体验后再从此目录执行 `./scripts/e2e-down.sh`。不停止共享模型代理，不改生产。
+
+归档后文档检查通过：235 maintained Markdown sources / 64 required routes；git diff --check 通过。最终真实页面复查两个插件开关均 Enabled，干净聊天80元月报可见。

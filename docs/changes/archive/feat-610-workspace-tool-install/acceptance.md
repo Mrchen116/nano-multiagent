@@ -155,3 +155,81 @@ R1 继承不表示旧进程旅程在新版本逐项重跑。该 delta 涉及 cat
 新增 `docs/specs/im/agents-nodes.md` 的配置页状态增量需 orchestrator 按最终实现归并；gateway delta 的收尾要求延续 R1。SPEC、AGENTS、文档体系无新增修改需求。
 
 只追加本报告，不提交。未改两个既有 Agent 配置、未停启服务、未操控用户原浏览器标签；自建标签已关闭、临时 viewport 已 reset。保存/Unavailable 真人状态未执行的边界如上，未用测试成功冒充真实画面。
+
+## Round 3 — 完整插件管理体验（2026-10-15）
+
+- **validated_at**: `df579de5e8fb7c09626e132a28fd23f5663dae18`（实际运行服务版本；写报告时 HEAD 已前移，不将后续提交冒称已验）。
+- **Verdict: fail / incomplete evidence**。观察到的主要用户旅程均通过，未发现 blocking/major/minor 产品缺陷（0/0/0）；但两个必验 Scenario 含尚未取得充分证据的分支，按 reviewer 门禁记为 inconclusive，不能以主要流程正常替代完整通过。
+- 本轮 supersede R2 的只读 workspace tools UI 结论：当前产品为独立 Plugins 页签及整包管理。只追加报告，未改实现或测试。
+
+### 环境、实际入口与整体体验
+
+真实隔离 IM `http://127.0.0.1:54267`，Test User，节点 `wt-nano-multiagent-96374`，Agent e2e/e2e-peer。使用 caller 已准备的原生 Node/DSH 和真实模型。浏览器为自建 Chrome 标签；桌面及实际 CSS `390×844` 窄屏。使用既有登录与专用测试数据，不访问生产。
+
+从 Agent 设置进入 Plugins，第一屏先说明 workspace 共享范围，再逐包呈现名称、描述、版本、实际状态和开关。零工具 `expense-report-style` 与工具包平等列出，未因工具数为零消失；详情承载来源及诊断，卸载需展开并确认具体包及共享影响。Config 保留原静态工具 pill，使用 Manage workspace plugins 跳转，旧只读 workspace 卡不再重复展示。开关不依赖 Save，等待时保留实际开关状态并禁用重复动作。空列表、失败、离线分别给出创建引导、诊断、无法确认提示，没有用空列表伪装请求失败。窄屏内容自然换行，实际 scrollWidth=innerWidth=390，操作未被遮挡。未发现整体信息层级或完成路径的交付障碍。
+
+### 实际旅程与证据
+
+1. 读取原真实创建 timeline：助手已在既有会话编写并安装 `expense-report-style`，使用 `systemPrompt.section`，零新增工具，与 `expense_summary` 一起产生报销月报。另在 reviewer 新聊天真实继续调用，无重新安装要求。
+2. 浏览器关闭样式插件后，通过产品 prompt-preview 分别核对 e2e/e2e-peer 均撤销“标题固定为「报销月报」”贡献；重新开启即恢复。旧聊天仍可能沿历史模仿格式，因此不把旧聊天文风当成提示词是否撤销的证据。对应文件 `prompt-enabled.txt`、`prompt-e2e-disabled.txt`、`prompt-e2e-peer-disabled.txt`、`prompt-reenabled.txt`。
+3. 实际 `bash sleep 35` 在途时关闭 expense-summary，页面显示等待空闲；在途请求正常完成 BUSY610_DONE（回复 `195fa333f1f04676938881d208d6c96b`），随后状态变为 Disabled。后续真实工具调用不能再找到 expense_summary。未取消任务或重建聊天。
+4. 对 `orchid610-bundle` 经 Details→Uninstall→Confirm uninstall，确认页写明包与共享范围；列表移除，workspace 中原 `tool.mjs` 保留，其他插件未被移除。
+5. 通过真实聊天让助手使临时 repair bundle 加载抛错 `R3_PLUGIN_LOAD_FAIL`，安装失败，页面保留条目并显示 Needs attention。浏览器将其关闭；助手修复并更新版本 0.1.1，install_bundle 省略 enabled，结果仍 false/applied，而非悄悄开启。显式开启后 `orchid610_repair(41)` 真实返回 42（回复 `7ecde40ae31e4370852ff9f3b921974b`）。
+6. 在 idle 时正常 stop/start 本隔离 Node。停机页面显示 Status unavailable/503，保留旧列表并禁用动作；恢复后 style enabled、summary disabled、repair disabled/version0.1.1、已卸载 orchid 不复现。此证明已完成选择持久化和真实离线反馈，不证明 pending 中强制重启。
+7. B workspace 的真实 Plugins 页面为空且有聊天创建引导，prompt 无 A 样式贡献；工具隔离沿用 R1 B 实际 UNKNOWN_TOOL 证据。静态 Config 七项 read/write/edit/bash/glob/grep/plugin_manager 未被变更。
+8. 清理临时安装项，恢复两个体验包均 enabled。新建干净体验聊天 `c_dkpuwqw4`「插件体验：报销月报」，只有用户与 e2e。自然请求仅给三笔支出与分类，未指定月报格式；真实 `expense_summary` 返回 3 笔/80 元（交通50、餐饮30），模型输出报销月报、分类表和核票提示。回复 `dc4154c80ccf4df9b924bfa3ee784b0e`，真实调用 `call_00_oOnUD87qa2SjObFSpCnw4056`。聊天与服务保留供用户体验。
+
+### Reference Artifacts Reviewed / must-match
+
+已读当前 spec、design、IM delta 与共同体验标准，并查看 design-assets/plugins-states.png 概念状态板。HTML 原型因既有 file:// 策略未渲染，不声称像素级对照；以下按设计要求的信息关系与真实截图比较。
+
+| 必须匹配的关系 | 实际证据（均 `/tmp/feat610-review/r3/`） | 结果 |
+|---|---|---|
+| 独立 Plugins 入口与共享范围 | desktop-list.png，实际设置页进入 | match |
+| 整包开关、等待、最终真实状态 | style-disabled.png、pending.png、recovered-persistent.png | match |
+| 错误、空、离线不混淆 | failed-plugin.png、empty.png、offline.png | match |
+| 卸载确认明确包及范围、来源可查 | uninstall-confirm.png，源码保留核对 | match |
+| 390px 无横向溢出、操作可达 | mobile390.png，实际390×844 | match |
+| 可直接继续体验两个插件 | final-enabled.png、clean-demo.png，真实会话结果 | match |
+
+### Scenario 逐项裁决
+
+| spec Scenario | 结果 | 来源及实际证据 |
+|---|---|---|
+| 工具和非工具插件在既有聊天生效 | pass | 原创建真实 timeline、R1工具创建，以及本轮零工具 prompt 贡献/实际调用/干净月报 |
+| 同 workspace 共享，其他 workspace 隔离 | pass | 同workspace两Agent prompt共同撤销；B空页面/无贡献；R1 B UNKNOWN_TOOL保留 |
+| 已完成的选择跨重启保留 | pass | idle真实重启与recovered-persistent；已禁用同名修复更新保持false/version0.1.1 |
+| 查看全部已安装插件 | pass | enabled/disabled/failed/零工具真实列表，详情及独立入口；B真实空态 |
+| 关闭与重新开启整个插件 | pass | 真实工具和提示词撤销/恢复；事件资源生命周期由下述native测试补充，不冒称浏览器直接观察 |
+| 卸载插件 | pass | 真实确认/条目消失/源码保留/其他插件继续调用 |
+| 忙碌时等待安全应用 | inconclusive | 真实在途sleep未取消、等待到idle后应用通过；同workspace并发管理不覆盖/不死锁目前仅caller源码审查说明，缺独立对应执行证据 |
+| 安装失败可以修复 | pass | 真实抛错诊断与异常条目，修复重装保持禁用，开启后真实42结果 |
+| 离线或待应用期间重启 | inconclusive | 真实停机/恢复反馈通过；未在pending中重启，不能证明未完成操作恢复及允许重发分支 |
+| 安装新插件保留既有禁用选择 | pass | 静态配置未改变、R1既有选择证据；显式空集/子任务/可信身份由原生与HTTP测试补充 |
+
+### 自动化补充与边界
+
+Reviewer 读取 caller 提供日志：`/tmp/feat610-plugins-native.log` 1 file/1 passed，`/tmp/feat610-update-green.log` 1 file/1 passed。Caller 说明包含根服务污染隔离、systemPrompt、异步 ctx.effect teardown、A排队且B继续、更新禁用保持；UI与HTTP补充日志为 `/tmp/feat610-plugins-ui.log`、`/tmp/feat610-plugins-tests.log`。这些用于原生生命周期/权限边界补充，未替代浏览器截图或冒称独立重跑。Caller 明确无 pending 强制重启专门用例，且并发模型管理主要由源码审查支持，因此如上保留 inconclusive。
+
+### 交接与清理
+
+体验入口：`http://127.0.0.1:54267/chat/c_dkpuwqw4`；管理入口：`http://127.0.0.1:54267/settings/agents/e2e?view=plugins`。两个体验包 expense-summary-bundle、expense-report-style 均启用。临时 orchid/repair 安装项已移除，源码保留。仅 stop/start 本隔离节点一次用于授权重启场景；没有停止 caller 的 IM/模型代理，最终服务保持运行。临时 viewport 已 reset，自建浏览器标签已关闭，用户原标签未动。
+
+需要补齐的只是上述两项证据，未观察到需修复的产品缺陷。插件页目标行为的 current spec 归并由 orchestrator 处理。
+
+
+### Round 3 补充裁决 — 新增原生并发与中断证据收口
+
+**最终 verdict：pass，blocking/major/minor 0/0/0。** 上文“无相应用例”和两个 inconclusive 是补充材料到达前的阶段判断，现由本节明确替代；保留原记录以区分证据到达顺序。产品实际 validated_at 仍为 `df579de5e8fb7c09626e132a28fd23f5663dae18`，新增测试提交为 `c4ba8d5ead802dbfaa911e0cd7ff5c0e6dd1198a`，该提交只改一个测试文件（7 additions / 1 deletion），未改变受验产品实现。
+
+Reviewer 独立读取 `/tmp/feat610-pending-restart.log`（1 file / 1 passed，14.05s）并核对新增测试实际断言。它通过 RuntimeClient 启动真实 DSH subprocess，不是仅 mock 页面状态，也不只基于 worker 成功叙述：
+
+- 真实 session 进入 running，网页等价 `plugins.manage` 设置停用形成 pending；同 workspace 另一个 session 的 `plugin_manager` 再发管理请求真实返回 busy；原任务继续完成，pending 清除，目标工具从两 session 撤销。此与本轮实际网页 waiting→Disabled 和原请求完成的证据共同覆盖并发不覆盖、不死锁。
+- 当前插件已 disabled；真实 session running 时再次请求开启产生 pending，随后明确 `client.process.kill('SIGKILL')` 并等待 exited，在同一持久目录启动新 subprocess。恢复后 pending 不存在，旧 disabled 状态仍使 capability 不含工具；重新发开启请求可成功应用并真实调用返回 USER_ENABLED_AGAIN。该证据验证中断前未完成的开启没有被误记成功，并允许重发。
+
+| 原 inconclusive Scenario | 最终结果 | 完整证据组合 |
+|---|---|---|
+| 忙碌时等待安全应用 | pass | 54267 实际网页等待、在途请求完成、终态Disabled + 新原生真实peer管理busy/共享撤销 |
+| 离线或待应用期间重启 | pass | 54267 实际离线不可确认、保留旧列表、恢复展示 + 新原生SIGKILL pending/磁盘旧状态/重新发起成功 |
+
+这是原生边界和页面体验的组合证据，未声称在 54267 浏览器页面打开时执行过 pending SIGKILL。现有真实网页已覆盖相关不确定态与恢复体验；新增真实 subprocess 已覆盖缺失的中断持久化及并发行为，足以完成这两个 Scenario，无需再次干扰保留给用户体验的服务。十项 Scenario 最终均 pass，must-match 对照齐全。此补充只修改验收报告，没有重启或停止最终体验服务；干净聊天 `c_dkpuwqw4` 未追加测试消息。
