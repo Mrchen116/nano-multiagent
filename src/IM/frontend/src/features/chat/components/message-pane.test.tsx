@@ -2403,6 +2403,45 @@ describe("MessagePane", () => {
       };
     }
 
+    it("preserves ordinary agent line breaks alongside paragraphs and inline Markdown", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg([
+            "你好 Tracy，**欢迎**！",
+            "",
+            "你可以找我：",
+            "• 理思路",
+            "• 做功课：[资料](https://example.com)",
+            "",
+            "直接说需求就好。",
+          ].join("\n"))]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const paragraphs = container.querySelectorAll(".im-md > p");
+      expect(paragraphs).toHaveLength(3);
+      expect(paragraphs[1]?.querySelectorAll("br")).toHaveLength(2);
+      expect(screen.getByText("欢迎").tagName).toBe("STRONG");
+      expect(screen.getByRole("link", { name: /资料/ })).toHaveAttribute("href", "https://example.com");
+    });
+
+    it.each(["  \n", "\\\n"])("keeps an explicit Markdown line break singular (%j)", (lineBreak) => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg(`第一行${lineBreak}第二行`)]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(container.querySelectorAll(".im-md br")).toHaveLength(1);
+      expect(container.querySelectorAll(".im-md > p")).toHaveLength(1);
+    });
+
     it("renders <script> as escaped text, not executed", () => {
       const { container } = render(
         <MessagePane
@@ -2448,11 +2487,11 @@ describe("MessagePane", () => {
       // CR-1: CommonMark HTML block type-7 — mention 独占首行紧跟非空行时
       // remark-parse 将整段（mention行+后续文本）打包为单个 html 节点，
       // 旧 MENTION_FULL_RE 全锚定失配导致 mention 退化为字面量。
-      it("renders mention chip when mention is on first line with no blank line before next text (type-7 html block)", () => {
-        render(
+      it("preserves line breaks after a mention on the first line (type-7 html block)", () => {
+        const { container } = render(
           <MessagePane
             conversation={CONV_WITH_PARTICIPANTS}
-            messages={[agentMsgWithParticipants('<mention type="user" target_id="a-coder"/>\n正文继续')]}
+            messages={[agentMsgWithParticipants('<mention type="user" target_id="a-coder"/>\n正文继续\n第二行')]}
             mentionCandidates={[]}
             onSend={() => {}}
           />
@@ -2461,6 +2500,8 @@ describe("MessagePane", () => {
         // Prose text after the mention must still appear
         expect(screen.getByText(/正文继续/)).toBeInTheDocument();
         expect(screen.queryByText(/<mention/)).toBeNull();
+        expect(container.querySelectorAll(".im-md > p")).toHaveLength(1);
+        expect(container.querySelectorAll(".im-md br")).toHaveLength(2);
       });
 
       it("renders multiple mentions mixed with text in a single html node", () => {
