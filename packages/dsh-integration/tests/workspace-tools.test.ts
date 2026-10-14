@@ -109,6 +109,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(pending.pending).toMatchObject({target:'workspace-echo',enabled:false});
     expect(pending.entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(true);
     expect((await control({action:'list_bundles'})).pending).toBeTruthy();
+    expect((await call('tools-peer','plugin_manager',{action:'set_bundle',target:'workspace-echo',enabled:true})).text).toContain('busy');
     await held;
     await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
     expect((await call('tools-a', 'workspace_echo', {value:'DISABLED_BY_USER'})).error).toBe(true);
@@ -118,7 +119,12 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     const namedUpdate = await manage({action:'install_bundle',target:`workspace-echo@file:${source}`});
     expect(namedUpdate.error, namedUpdate.text).toBe(false);
     expect((await control({action:'list_bundles'})).entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(false);
-    await client!.shutdown(); client=undefined; await start(true);
+    const interruptedId = randomUUID();
+    await client!.rpc.request('session.submit', {sessionId:'tools-a',inputId:interruptedId,mode:'followup',content:[{type:'text',text:JSON.stringify({tool:'hold',args:{}})}],source:{kind:'human',actorId:'owner',channel:'test',messageId:interruptedId}});
+    await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'tools-a'}) as {status:string}).status).toBe('running');
+    expect((await control({action:'set_bundle',target:'workspace-echo',enabled:true})).pending).toBeTruthy();
+    client!.process.kill('SIGKILL'); await client!.exited; client=undefined; await start(true);
+    expect((await control({action:'list_bundles'})).pending).toBeUndefined();
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     await control({action:'set_bundle',target:'workspace-echo',enabled:true});
     await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
