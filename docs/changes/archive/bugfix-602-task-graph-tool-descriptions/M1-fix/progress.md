@@ -40,3 +40,11 @@
 ## 待收口
 
 独立 full code review 已通过，findings `[]`；审查者核对了三例共 29 份实际模型请求、自然输入与图数据，详见 [code-review.md](../code-review.md)。2026-10-14 用户明确要求“把 #351 和 #352 转正式合并”，据此记录结果确认、归并 canonical 并归档；PR/CI 与合并由主会话完成，不补记真人亲手测试。
+
+## 最终 main 集成复验
+
+同步已合入 PR #349 的 main `d667bdb964c07e7d1ebe80bdbb0c5aaec0edb063`，并基于 #351 最终集成 head `36da3027b8a6d94cf191e46ed53bab32967a2658` 重放本 unit；task_graph 两个产品文件与真实模型验证版本内容一致。
+
+在集成树 `acbe34828dee6fe5689f236e0a788f6546563aec` 上，`pnpm build`、`pnpm typecheck`、完整 `pnpm test`（79 文件 / 295 tests）、docs-check（230 maintained sources / 64 routes）通过。包含查询豁免、更新屏障与任务图既有权限/协作回归。之前集成 #351 后的聚焦 5 文件 21 项亦通过。
+
+本轮没有修改七处描述、任务系统提示词或工具业务；真实模型实验的输入/契约和临时显式许可边界保持，保留其已独立核验的结果。后续仅补此实际复验记录，最终 PR head 的远端 CI 仍单独检查。
