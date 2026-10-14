@@ -10,6 +10,7 @@ it('persists foreground timezone, pushes it to Gateways, and freezes each relaye
   const set = (timezone: string) => f.http('PATCH', '/im/v1/me/timezone', { timezone }, f.tokens.alice);
   expect((await set('Asia/Shanghai')).status).toBe(200);
   expect((await g.frames.next(frame => frame.type === 'user.timezone')).payload).toEqual({ timezone: 'Asia/Shanghai' });
+  expect((await set('Asia/Shanghai')).status).toBe(200);
   expect((await f.http('GET', '/im/v1/auth/me', undefined, f.tokens.alice)).body.timezone).toBe('Asia/Shanghai');
   const chat = await f.http('POST', '/im/v1/conversations', { title: 'Time', type: 'direct',
     participants: [{ type: 'agent', id: 'global' }] }, f.tokens.alice);
@@ -19,6 +20,7 @@ it('persists foreground timezone, pushes it to Gateways, and freezes each relaye
     f.tokens.alice, { 'Idempotency-Key': 'first-timezone' });
   expect(first.status).toBe(201);
   const relay = await g.frames.next(frame => frame.type === 'relay.message');
+  expect(g.frames.queue.filter(frame => frame.type === 'user.timezone')).toEqual([]);
   expect(relay.payload.message.timezone).toBe('Asia/Shanghai');
   const inbox = new InboxStore(':memory:');
   try {

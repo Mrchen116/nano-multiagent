@@ -482,6 +482,7 @@
         "enabledHelp": "Agent 会定期唤醒，检查 HEARTBEAT.md 中的任务清单。",
         "everyLabel": "节律",
         "everyHelp": "agent 多久唤醒一次。",
+        "activeHoursHelp": "按你所在地时间；留空表示全天",
         "everyUnitLabel": "节律单位",
         "unit": {
           "s": "秒",

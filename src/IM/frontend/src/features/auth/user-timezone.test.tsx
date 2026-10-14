@@ -7,7 +7,7 @@ import { useUserTimezone } from "./user-timezone";
 vi.mock("./auth-fetch", () => ({ authFetchJson: vi.fn() }));
 afterEach(() => { useAuthStore.getState().clear(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
-it("reports foreground system changes and leaves background or unchanged timezone alone", async () => {
+it("reports each foreground activation even when the local timezone is unchanged", async () => {
   let visibility: DocumentVisibilityState = "hidden";
   vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
   const zone = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
@@ -21,11 +21,12 @@ it("reports foreground system changes and leaves background or unchanged timezon
   await waitFor(() => expect(useAuthStore.getState().user?.timezone).toBe("Asia/Shanghai"));
   expect(authFetchJson).toHaveBeenCalledTimes(1);
   act(() => window.dispatchEvent(new Event("focus")));
-  expect(authFetchJson).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(authFetchJson).toHaveBeenCalledTimes(2));
+  await act(async () => {});
   zone.mockReturnValue({ timeZone: "Asia/Tokyo" } as Intl.ResolvedDateTimeFormatOptions);
   visibility = "hidden";
   act(() => document.dispatchEvent(new Event("visibilitychange")));
-  expect(authFetchJson).toHaveBeenCalledTimes(1);
+  expect(authFetchJson).toHaveBeenCalledTimes(2);
   visibility = "visible";
   act(() => document.dispatchEvent(new Event("visibilitychange")));
   await waitFor(() => expect(useAuthStore.getState().user?.timezone).toBe("Asia/Tokyo"));

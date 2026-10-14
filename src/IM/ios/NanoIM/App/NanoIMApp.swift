@@ -176,7 +176,7 @@ private struct RootTabs: View {
             }
         }
         .task(id: scenePhase) { if scenePhase == .active { await chat.run() } }
-        .task(id: scenePhase) { if scenePhase == .active { try? await client.syncTimeZone(userID: user.id) } }
+        .task(id: scenePhase) { if scenePhase == .active { try? await client.syncTimeZone() } }
         .onChange(of: scenePhase) { _, value in if value != .active { chat.stop() } }
         .onDisappear { chat.clear() }
         .onOpenURL { url in

@@ -17,7 +17,8 @@ export function useUserTimezone(): void {
       if (document.visibilityState !== "visible") return;
       const timezone = browserTimezone();
       const user = useAuthStore.getState().user;
-      if (user?.id !== userId || user.timezone === timezone || pending === timezone) return;
+      // Another device may have changed the account timezone since this page was active.
+      if (user?.id !== userId || pending === timezone) return;
       pending = timezone;
       void authFetchJson<{ timezone: string }>("/im/v1/me/timezone", {
         method: "PATCH", body: JSON.stringify({ timezone }),

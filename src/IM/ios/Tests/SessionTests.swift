@@ -42,15 +42,15 @@ final class SessionTests: XCTestCase {
         }
         XCTAssertEqual(try vault.load()?.refresh_token, "rotated")
     }
-    func testForegroundClientAutomaticallyReportsSystemTimezoneOnce() async throws {
+    func testForegroundClientAutomaticallyReportsSystemTimezoneOnEachActivation() async throws {
         let transport = SessionTestTransport(refreshData: try pair(user()))
         let session = Session(baseURL: origin, transport: transport, credentials: SessionTestCredentials(StoredSession(refresh_token: "old", user: user())))
         _ = try await session.restore()
         let client = IMClient(baseURL: origin, session: session)
-        try await client.syncTimeZone(userID: "alice")
-        try await client.syncTimeZone(userID: "alice")
+        try await client.syncTimeZone()
+        try await client.syncTimeZone()
         let requests = await transport.recorded().filter { $0.url?.path == "/im/v1/me/timezone" }
-        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.count, 2)
         let body = try XCTUnwrap(requests.first?.httpBody)
         XCTAssertEqual(try JSONDecoder().decode([String: String].self, from: body)["timezone"], TimeZone.autoupdatingCurrent.identifier)
     }
