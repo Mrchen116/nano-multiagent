@@ -173,6 +173,15 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
   const singleChat = await f.http("POST", "/im/v1/conversations", { title: "Single chat", type: "direct", participants: [{ type: "agent", id: "assistant" }] }, f.tokens.alice);
   const singleInfo = await g.frames.send("conversation.query", { node_id: g.node, request_id: "single-info", agent_id: "assistant", session_id: "single-session", action: "info", target: singleChat.body.id });
   expect(singleInfo.payload, JSON.stringify(singleInfo.payload)).toMatchObject({ ok: true, result: { target: singleChat.body.id, type: "direct", channel: "web" } });
+  const lookup = (target: string) => g.frames.send("conversation.query", { node_id: g.node, request_id: `resolve:${target}`, agent_id: "assistant", session_id: "single-session", action: "resolve_target", target });
+  for (const target of ["user:alice", "alice"]) {
+    expect((await lookup(target)).payload).toMatchObject({ ok: true, result: { target: singleChat.body.id } });
+  }
+  const beforeLookup = await f.http("GET", "/im/v1/conversations", undefined, f.tokens.alice);
+  expect((await lookup("user:bob")).payload).toMatchObject({ ok: true, result: { target: null } });
+  expect((await f.http("GET", "/im/v1/conversations", undefined, f.tokens.alice)).body).toEqual(beforeLookup.body);
+  const agentSend = await g.frames.send("agent.message", { node_id: g.node, to: "agent:global", text: "hello peer", from_session_id: "assistant|tool_call:peer" });
+  expect((await lookup("agent:global")).payload).toMatchObject({ ok: true, result: { target: agentSend.payload.conversation_id } });
   const inaccessible = await g.frames.send("conversation.query", { node_id: g.node, request_id: "single-private", agent_id: "assistant", session_id: "single-session", action: "info", target: chat.body.id });
   expect(inaccessible.payload).toMatchObject({ ok: false, error: "target_not_accessible" });
   const listing = await g.frames.send("conversation.query", {

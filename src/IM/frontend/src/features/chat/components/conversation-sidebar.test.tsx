@@ -1,8 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import "../../../i18n";
+import { i18n } from "../../../i18n";
 import type { Conversation } from "../chat-types";
 import { ConversationSidebar } from "./conversation-sidebar";
 
@@ -297,4 +297,21 @@ it.each([false, true])("resolves agent/user mentions in preview and search (dist
   view.rerender(<ConversationSidebar {...props} conversations={[{ ...conversations[0], participants: [] }]} />);
   expect(screen.getByText("@unknown @unknown 准时到。")).toBeVisible();
   expect(view.container.textContent).not.toContain("<mention");
+});
+
+
+it("renders structured notice previews in the selected language and updates after a normal message", async () => {
+  const conversation = conv({id:"notice-chat",title:"Notices",last_message_preview:"· background self-evolution review: skills updated",
+    last_message_system_notice:{kind:"self_evolution_review",source_agent_id:"a",source_agent_display_name:"Assistant",updated_targets:["skills"]}});
+  const props = {conversations:[conversation],activeConversationId:null,onSelect:()=>{},onNewGroup:()=>{}};
+  try {
+    await act(async()=>{await i18n.changeLanguage("zh");});
+    const view=render(<ConversationSidebar {...props} />);
+    expect(screen.getByText("· 后台自进化：技能已更新")).toBeVisible();
+    await act(async()=>{await i18n.changeLanguage("en");});
+    expect(screen.getByText("· Background self-evolution: skills updated")).toBeVisible();
+    view.rerender(<ConversationSidebar {...props} conversations={[{...conversation,last_message_preview:"New user message",last_message_system_notice:null}]} />);
+    expect(screen.getByText("New user message")).toBeVisible();
+    expect(screen.queryByText("· Background self-evolution: skills updated")).not.toBeInTheDocument();
+  } finally {await act(async()=>{await i18n.changeLanguage("en");});}
 });

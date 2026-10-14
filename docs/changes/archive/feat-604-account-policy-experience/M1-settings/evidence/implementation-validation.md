@@ -59,3 +59,18 @@ main增量仅bugfix-607的composer caret修复及其文档：global.css变更限
 - reviewer专用Chrome无痕窗口和两个本地标签已由reviewer关闭，保留用户原有窗口。IM32125、延迟proxy37001和原型server由本worktree创建者在交付时停止；没有Gateway/DSH/LLM进程需要清理。
 
 - sync后补跑：frontend build通过；三文件21测试通过（4.32s），日志 `frontend-build-synced.log` / `frontend-focused-synced.log`。最终归档后docs-check、diff-check和唯一archive检查均通过；远端CI结果在PR实时查看。
+
+### PR 357 合入前同步（2026-10-14）
+
+用户明确授权“PR #357 也合入”。恢复时确认 PR 为开放且非 draft，head 为 `6f0283dd49febdedfbd619897abbd3a483101473`，原远端 CI 全绿；新建独立干净 worktree，未修改原实施 worktree 或主 checkout 的已有内容。
+
+本次 effective_base 更新为 `20400dffb6b5877169d444377f573188e217485e`，同步增量为 bugfix-605 的私聊发送复核与 bugfix-606 的通知本地化。唯一冲突是 `docs/specs/im/spec.md` 的对齐标记：保留本 unit 的 Auth and Tenancy 13 条契约摘要，以及 main 的通知/摘要本地化摘要；标记更新为最后修改入口的 feat-604。没有产品代码冲突，没有调整设计、delta 或实现；本 unit 的账号/策略代码、样式、i18n、测试和 auth-tenancy canonical 相对原 PR head 逐文件完全一致。
+
+| Gate | 本次失效判断 |
+|---|---|
+| Gate 2 R2 | retained；设计与已审 delta 未变，新 main 不改变账号/策略职责或交互方案。 |
+| Code review R2 | retained；受审产品与测试逐文件未变，通知修改限定聊天 renderer/Sidebar/conversation cache，私聊复核限定 PA 与 IM 目标解析。 |
+| Verifier R2 / corrected delta | retained；三条 auth-tenancy Requirement 原文未变，入口 13 条计数与已归并 canonical 一致，原 W1 修复仍保留。 |
+| Product reviewer R2 S1–S9 | retained；已记录的身份/角色/容量/保存恢复/布局/双语旅程没有受到上述 main 变化影响，保存的查询键与回调未变；未把本次组件检查冒充重新执行真实产品验收。 |
+
+同步后追加验证：五个前端文件（company-access、account-page、policies-page、system-notice-message、conversation-sidebar）51 tests passed；`npm run build`（包含 tsc）passed。docs-check、显式 `unit/feat-604` 唯一归档检查和 staged/unstaged diff-check passed。依赖声明与 lockfile 未变，原各门禁的 executed_base / validated_at 保留；最终 effective_through 由 PR body 记录本次精确交付 HEAD，远端 CI 针对该 HEAD 再次运行。

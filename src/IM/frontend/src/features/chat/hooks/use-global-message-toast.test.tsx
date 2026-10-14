@@ -57,6 +57,7 @@ function conversation(id: string, overrides: Partial<Conversation> = {}): Conver
     is_muted: false,
     unread_count: 0,
     last_message_preview: null,
+    last_message_system_notice: null,
     last_message_at: null,
     created_at: "2026-03-26T00:00:00Z",
     ...overrides
@@ -631,6 +632,7 @@ describe("useGlobalMessageToast", () => {
     queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-1", {
         last_message_preview: "older",
+        last_message_system_notice: {kind:"self_evolution_review",source_agent_id:"a",source_agent_display_name:"Assistant",updated_targets:["memory"]},
         last_message_at: "2026-03-26T00:00:00Z"
       })
     ]);
