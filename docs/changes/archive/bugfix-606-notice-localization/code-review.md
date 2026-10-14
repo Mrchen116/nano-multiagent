@@ -47,3 +47,11 @@
 本次同步后的 effective_base 为 `c17f53ab6`，effective_through 为 `3e90fe3f0c8575f3b9336638d16c45f27250c93e`；后续仅上述文档收尾。最终 focused regression、docs-check、archive gate 与 diff 检查结果随收尾提交记录。
 
 最终同步后的前端四文件 focused regression：82 tests passed；真实 IM system-notices：1 test passed。canonical 归并后的 docs-check 与 git diff --check passed；既有前端全套 872 tests、IM 全套 76 tests、build/typecheck、Python/ruff 与远端 CI 结论 retained。归档后的文档完整性与 archive gate 再次检查。
+
+## Final integration after PR 355
+
+PR 355 合入后的最终 main 为 `0ccd61589304052eb55da93ec5a7d5068ec7ec23`。本 unit 在 `fc2aede0d678915f0dc464d55b3f46f6f70310eb` 已集成同一组 bugfix-605 commits，并通过完整 build/typecheck 与四文件后端组合回归（40 tests）；前端 82 tests 及既有全套检查 retained。随后同步 main 的 merge commit，Git tree 完全相同。
+
+bugfix-605 在 Messaging 的收件人解析和 Work 查询增加只读解析，PA 增加发送前复核；本 unit 修改通知发布、会话最新 notice 和前端展示。共享文件的改动位于不同方法，无通知语义或投递语义冲突，真实 IM 两条链路在组合树上通过。独立审查、用户确认和真实候选证据继续有效；没有新增实现或需要重新确认的结果。
+
+最终 effective_base 为 `0ccd61589304052eb55da93ec5a7d5068ec7ec23`，effective_through 为 `dae4278c90c0d7b22b260b8c4d26b74b5f3958fc`；后续仅追加本集成记录。最终 docs-check、归档唯一性与 git diff --check 通过后交付。
