@@ -34,6 +34,9 @@ it.each([
 it.each([
   { label: 'Web group', type: 'group', channel: 'web', requested: 'c_group', incoming: 'c_group', resolved: 'c_group' },
   { label: 'Web direct', type: 'direct', channel: 'web', requested: 'c_direct', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'user recipient', type: 'direct', channel: 'web', requested: 'user:owner', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'agent recipient', type: 'direct', channel: 'web', requested: 'agent:bob', incoming: 'c_direct', resolved: 'c_direct' },
+  { label: 'bare recipient', type: 'direct', channel: 'web', requested: 'owner', incoming: 'c_direct', resolved: 'c_direct' },
   { label: 'Feishu direct', type: 'direct', channel: 'feishu', requested: 'external:direct', incoming: 'external:direct', resolved: 'external:direct' },
   { label: 'Feishu shadow reply', type: 'direct', channel: 'feishu', requested: 'c_shadow', incoming: 'external:direct', resolved: 'external:direct' },
   { label: 'Feishu external reply to shadow input', type: 'direct', channel: 'feishu', requested: 'external:direct', incoming: 'c_shadow', resolved: 'external:direct' },
