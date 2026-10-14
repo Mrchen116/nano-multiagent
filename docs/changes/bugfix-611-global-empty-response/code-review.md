@@ -24,6 +24,17 @@
 - 审查复用 build/typecheck 与两条 subprocess fixture 测试通过证据，独立 diff --check 通过。
 - 主会话后续完整包回归 74 项及依赖契约 13 项均通过；docs-check 基线断链见 design。
 
+## Round 2 — 过程沟通增量
+
+- Review mode: `patch`；pre_fix_head / validated_at base: `e8a6a6692f427bd9ef90097ed32389f82a5747f0` 加本轮 dirty。
+- 范围：global-mode.ts、incident.md、design.md、delta-spec；不重审未变的原生重试改动。
+- Reviewer: 复用独立 `review_empty_response`，gpt-6.1-sol / high。
+- Result: Passed，findings `[]`，无需代码修复。
+- 受审 global-mode.ts SHA256: `9944bf41513495105d5ff7966eff5c6bcf8f9a98615e1cd4d541bdcb5d39bdfd`。
+- 核对：先回应、必要进度、简短表达、不回复例外，以及确认/进度不代替最终交付，与私有收尾、发送复核保持一致。
+- 主会话增量 build、5 项 communication-native/capabilities 回归、真实 profile 提示词组装检查通过；reviewer 独立 diff --check 通过。
+- executed_base / effective_base 保持首轮值，未同步 main；effective_through 为本次过程沟通增量提交，审查后仅补验证结果和本报告，源码未变。
+
 ## Closure
 
-无存活 finding。审查后仅文档事实补充，源码未变，保留审查结论。无真实模型/生产验收；用户批准方案不视为亲自验收，unit 保持 active，尚未归并 canonical、归档或部署。
+两轮均无存活 finding。原生重试保持首轮结论，过程沟通增量通过第二轮审查。无真实模型/生产验收；用户批准方案不视为亲自验收，unit 保持 active，尚未归并 canonical、归档或部署。
