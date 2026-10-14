@@ -39,11 +39,11 @@
 - 修复后：该包 30 个测试文件、74 项测试通过；包 build/typecheck、13 项运行时依赖契约测试、git diff --check 通过。
 - 一次性真实 profile 的 session.capabilities 检查确认：非空收尾要求和私有/显式交付边界已进入组装提示词，旧的允许空正文结束语句已移除。
 - 全仓 docs-check 被基线既有 `docs/changes/feat-610-workspace-tool-install/specs/gateway/agent-capabilities.md:7` 的 `task-graphs.md` 断链阻塞；git show Base 核实该断链先于本次改动，未扩大本次范围。
-- 用户真实模型/生产验收：尚未发生；fixture 不证明模型必然遵守新提示词。
+- 真实模型场景验证：见 [regression.md](regression.md)，六个隔离用例通过；生产送达与用户亲自验收尚未发生，单次模型结果不等于行为稳定性保证。
 
 ## 后续增量验证
 
-过程沟通增量仅修改提示词；保留原生重试与投递测试，不为特定措辞新增永久断言。增量重新构建通过；communication-native/capabilities 共 5 项回归通过；真实 profile 的 session.capabilities 组装检查确认先公开回应、深入执行前回应、必要进度、进度不等于最终交付和非空内部收尾要求全部存在。模型遵守程度仍须实际体验，不能由 fixture 证明。
+过程沟通增量仅修改提示词；保留原生重试与投递测试，不为特定措辞新增永久断言。增量重新构建通过；communication-native/capabilities 共 5 项回归通过；真实 profile 的 session.capabilities 组装检查确认先公开回应、深入执行前回应、必要进度、进度不等于最终交付和非空内部收尾要求全部存在。随后六个真实模型场景通过，详见 [regression.md](regression.md)；仍不代替生产送达或用户亲自体验。
 
 ## Canonical 文档影响
 
