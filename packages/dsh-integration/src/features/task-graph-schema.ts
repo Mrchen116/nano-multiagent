@@ -11,6 +11,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
   "type": "object",
   "properties": {
     "action": {
+      "description": "Choose one action; do not mix its fields with another action. create: requires title, mode and request_key; global mode also requires target, while single_thread may omit target for its bound conversation. Optional create fields: description, assignee, status and result. create does not accept operations. apply: requires graph_id, base_revision, request_key, change_note and operations; target is optional. delete: requires graph_id, base_revision and request_key; node_id and target are optional. get: requires graph_id; scope_id and view are optional. list: all filters are optional; accepts only query, cursor, limit, statuses, assignee_type and assignee_id. Do not supply target for list/get.",
       "type": "string",
       "enum": [
         "delete",
@@ -83,6 +84,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
       "description": "Required for create, apply, and delete. Choose a unique key for each new mutation; preserve the same key and arguments on uncertain retries."
     },
     "change_note": {
+      "description": "Required for action=apply, including when the value is an empty string. Use a short explanation of the batch; an empty string is allowed for ordinary edits. Reopening done work as doing (including claim_task) requires a nonblank reason. Not accepted by create, delete, list or get.",
       "type": "string",
       "maxLength": 8000
     },
@@ -90,7 +92,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
       "type": "array",
       "minItems": 1,
       "maxItems": 100,
-      "description": "Atomic finite operations; IDs may use @client_ref defined by an earlier add_task in this batch. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/result/links/order only). add_dependency/remove_dependency: from,to (direct siblings in dag). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. Example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a direction\",\"mode\":\"explore\"}].",
+      "description": "Only for action=apply. Execute 1-100 operations in order as one atomic mutation. Use stable node IDs (for example n1) for existing nodes. To reference a node added earlier in this batch, use @client_ref (for example @A); bare A is not a batch reference and forward references are not allowed. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/result/links/order only). add_dependency/remove_dependency: from,to (prerequisite -> successor; direct siblings in the same dag scope). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. For an existing dag root n1, example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a plan\"},{\"op\":\"add_task\",\"client_ref\":\"B\",\"container_id\":\"n1\",\"title\":\"Confirm attendees\"},{\"op\":\"add_dependency\",\"from\":\"@A\",\"to\":\"@B\"}].",
       "items": {
         "type": "object",
         "properties": {
@@ -109,6 +111,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
           },
           "assignee": assignee,
           "client_ref": {
+            "description": "Required for add_task. Define a unique local name without @, for example A. Later operations in this batch must reference the new node as @A, not A. The returned client_refs maps this name to the stable node ID for future calls.",
             "type": "string"
           },
           "container_id": {
@@ -170,9 +173,11 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
             "type": "string"
           },
           "from": {
+            "description": "Required for add_dependency/remove_dependency. The prerequisite node that to depends on. Use an existing stable node ID such as n2, or @A for a client_ref defined by an earlier add_task in this batch. Both nodes must be direct children of the same dag scope.",
             "type": "string"
           },
           "to": {
+            "description": "Required for add_dependency/remove_dependency. The successor that depends on from. Use an existing stable node ID such as n3, or @B for a client_ref defined by an earlier add_task in this batch. Both nodes must be direct children of the same dag scope.",
             "type": "string"
           },
           "patch": {
