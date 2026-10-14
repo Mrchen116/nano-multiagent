@@ -587,7 +587,22 @@ export class Messaging {
     });
     this.membership(id,this.members(id).map(u=>u.id));
   }
-  resolveTarget(agentId: string, target: string): string {
+  /** Resolve an authorized send target.
+   *
+   * Args:
+   *   agentId: Sending Agent identity used for membership and space checks.
+   *   target: Conversation, user or Agent address accepted by message delivery.
+   *   create: False for lookup without creating an empty direct conversation.
+   *
+   * Returns:
+   *   Authorized conversation ID, or undefined for a new direct target in lookup mode.
+   *
+   * Side Effects:
+   *   Creates a direct conversation only in the default delivery mode.
+   */
+  resolveTarget(agentId: string, target: string): string;
+  resolveTarget(agentId: string, target: string, create: false): string | undefined;
+  resolveTarget(agentId: string, target: string, create = true): string | undefined {
     const a = this.agentUser(agentId);
     const c = one(
       this.db,
@@ -615,6 +630,7 @@ export class Messaging {
     const key = `${a.space_id}|${pairKey}`;
     const old = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", a.space_id, key, pairKey);
     if (old) return old.id;
+    if (!create) return;
     const id = chatId("c_");
     this.db
       .prepare(

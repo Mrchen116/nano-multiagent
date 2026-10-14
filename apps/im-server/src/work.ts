@@ -491,7 +491,7 @@ export class Work {
       !Number.isInteger(limit) ||
       limit < 1 ||
       limit > 50 ||
-      !["list", "read", "info", "describe", "create", "join"].includes(p.action)
+      !["list", "read", "info", "describe", "resolve_target", "create", "join"].includes(p.action)
     )
       fail(400, "invalid_arguments");
     const s = this.ctx.messaging,
@@ -499,6 +499,10 @@ export class Work {
       conversations = s.conversations(uid,p.scope ?? "joined");
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
+    if (p.action === "resolve_target") {
+      if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
+      return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
+    }
     if (p.action === "create") {
       if (p.type && p.type !== "group") fail(400,"Only group creation is supported here");
       const created = s.createConversation({...user,kind:"agent"},{title:p.title,type:"group",visibility:p.visibility,participant_ids:p.participant_ids ?? []});
