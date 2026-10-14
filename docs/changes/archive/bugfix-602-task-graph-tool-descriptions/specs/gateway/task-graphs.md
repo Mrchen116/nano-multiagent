@@ -1,6 +1,6 @@
 # gateway - Task Graphs Delta
 
-目标：[current task graphs](../../../../specs/gateway/task-graphs.md)。未归并。
+目标：[current task graphs](../../../../../specs/gateway/task-graphs.md)。已归并。
 
 ## ADDED Requirements
 

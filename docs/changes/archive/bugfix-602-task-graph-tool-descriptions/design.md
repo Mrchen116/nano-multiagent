@@ -30,8 +30,8 @@
 
 ## 验证定位
 
-真实栈、隔离方式、实际调用和持久图见 [M1-fix/progress.md](M1-fix/progress.md)。独立 [code review](code-review.md) 已通过，用户尚未亲测。
+真实栈、隔离方式、实际调用和持久图见 [M1-fix/progress.md](M1-fix/progress.md)。独立 [code review](code-review.md) 已通过；用户基于验证报告确认结果并授权转正式合并。
 
 ## Canonical 影响
 
-[最窄 delta](specs/gateway/task-graphs.md)记录工具公布动作与引用契约；尚未覆盖 current spec。raw prompt、日志、配置、数据库和脚本均仅在本地 output/runtime，不提交。
+[最窄 delta](specs/gateway/task-graphs.md)记录工具公布动作与引用契约；已按原 delta 归并 current spec，并同步 Gateway 入口 Requirement 计数。raw prompt、日志、配置、数据库和脚本均仅在本地 output/runtime，不提交。

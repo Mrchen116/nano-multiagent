@@ -1,6 +1,6 @@
 # gateway - Task Graphs Specification
 
-> 对齐: feat-584、feat-587
+> 对齐: bugfix-602
 > 上级: [gateway Specification](spec.md)
 
 ## Purpose
@@ -95,3 +95,12 @@
 - **WHEN** 具有既有产品会话工具资格的真实 Agent 列出公开群、创建群或自行加入
 - **THEN** 公司内公开群可读；新建群默认公开且可选私密；加入仅作用于 Agent 自己，私密群不允许自行加入。
 - **AND** 此能力不授权模型指定其他 Agent 身份，不绕过内部 child 的既有工具限制，不把 Agent owner 身份转换为群管理员。
+
+### Requirement: 任务工具公布动作与参数契约
+
+#### Scenario: Agent 获取任务工具定义
+- **WHEN** 已启用任务工具的 Agent 获取模型可见的 task_graph 定义
+- **THEN** 工具及参数描述明确五动作字段归属：create 只建根，图内节点与关系使用后续 apply，不混用动作参数。
+- **AND** apply 的变更说明字段必填，普通修改允许空说明，重新开启已完成工作仍要求原因。
+- **AND** 批内节点定义与引用、仅引用此前定义的节点，以及依赖 from 为前置、to 为后续的方向有就近说明与可用示例。
+- **AND** 描述不改变资源归属、权限、原子修改、幂等或记录不调度执行的既有契约。

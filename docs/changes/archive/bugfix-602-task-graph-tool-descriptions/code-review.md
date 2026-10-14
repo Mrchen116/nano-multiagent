@@ -21,4 +21,10 @@
 - effective_base：最终 fetch 后仍为 `290652ada2bf5fafbd4ac9f27a1514680ff78ca9`，无 main 增量。
 - effective_through：上述实施 head 的产品内容；最终 PR 记录交付 head。审查后仅补本记录及三个文档的实际审查状态，未改变代码、测试、需求或运行证据，结论保留。
 - Final result：Passed。
-- 证据限于所列真实模型和场景；不宣称 classifier 已修复。用户亲测尚未发生，unit 继续 active，不归档或归并 canonical。
+- 证据限于所列真实模型和场景；不宣称 classifier 已修复。用户随后基于已展示的验证结果明确确认交付，授权转正式合并；据此归并 canonical 并归档，不补记真人亲手测试。
+
+## 合并收尾有效性
+
+2026-10-14 用户原话：“把 #351 和 #352 转正式合并”。本轮同步 #351 最终 head `f6965bb39c16d1ec2929db57a987a8e4df15faec`，新增变化是已独立审查/验证的 Nano Auto 查询豁免及其文档。task_graph 七处模型可见描述、系统提示词、业务权限与实际运行证据不变；本 unit 的真实测试已显式许可相关工具，集成不改变该实验边界。保留原代码审查和真实模型验证结论。
+
+之后仅将已审 delta 归并 canonical、维护入口计数、记录用户确认及修正归档相对链接。主会话逐条核对与原 delta 一致，未新增产品实现或语义决定；不增加重复审查轮次。最终 effective_base/effective_through 见 PR。

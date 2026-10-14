@@ -39,4 +39,4 @@
 
 ## 待收口
 
-独立 full code review 已通过，findings `[]`；审查者核对了三例共 29 份实际模型请求、自然输入与图数据，详见 [code-review.md](../code-review.md)。PR/CI 由主会话继续；用户尚未亲测，当前 unit 保持 active。
+独立 full code review 已通过，findings `[]`；审查者核对了三例共 29 份实际模型请求、自然输入与图数据，详见 [code-review.md](../code-review.md)。2026-10-14 用户明确要求“把 #351 和 #352 转正式合并”，据此记录结果确认、归并 canonical 并归档；PR/CI 与合并由主会话完成，不补记真人亲手测试。

@@ -1,6 +1,6 @@
 # bugfix-602: 补齐任务工具调用描述
 
-> 快速开发事后记录；active。实现、真实 Agent 验证及独立 code review 已完成，用户亲测确认尚未发生，未归档。
+> 快速开发事后记录；已完成归档。用户基于真实 Agent 验证报告明确确认交付并授权转正式合并。
 
 ## Relations
 
@@ -28,7 +28,7 @@
 
 工具 description 没说明 create 只建根节点、复杂计划须随后 apply。五种动作的字段摊在一个 schema 中，未说明每动作必填/可选/禁止混用；`change_note` 没有 apply 必填说明。`@client_ref` 曾在 operations 长段中出现，但定义与引用字段缺就近解释，示例也没有连边。from/to 只写了兄弟节点约束，没写前置→后续方向。
 
-原任务图意图来自 feat-569：讨论后保存、渐进更新 DAG/探索结构，不根据图自动调度。current 契约是 [Gateway task graphs](../../specs/gateway/task-graphs.md)。本修复保留稳定图/节点 ID、资源归属、变更说明、原子 revision 和幂等契约。现有 DSH schema 迁入定位为 `129b083613`；本次未据此断言该问题是相对更早实现的新回归。
+原任务图意图来自 feat-569：讨论后保存、渐进更新 DAG/探索结构，不根据图自动调度。current 契约是 [Gateway task graphs](../../../specs/gateway/task-graphs.md)。本修复保留稳定图/节点 ID、资源归属、变更说明、原子 revision 和幂等契约。现有 DSH schema 迁入定位为 `129b083613`；本次未据此断言该问题是相对更早实现的新回归。
 
 ## 修复
 
@@ -40,9 +40,9 @@
 
 - 第一版文案即通过三个独立 global Agent 的真实 IM→Node→DSH→模型→任务服务路径；每例干净 Session/workspace/knowledge，没有在用户任务里教授工具语法。三例各一次 create + 一次 apply，参数拒绝均为 0，SQLite 持久图均为一根、三子节点、两条正确方向依赖。
 - 实际 LLM_PROXY 请求逐例核对七处文案均存在，task system prompt 与原实玩完全一致。
-- 原图增量修改结果、session/graph IDs、验证命令与证据入口见 [M1-fix/progress.md](M1-fix/progress.md)。真实 Agent 实测不等于用户亲测；尚无用户确认。
+- 原图增量修改结果、session/graph IDs、验证命令与证据入口见 [M1-fix/progress.md](M1-fix/progress.md)。真实 Agent 实测不冒充真人亲手测试；用户随后基于这些结果明确要求转正式合并。
 - `pnpm build`、独立 Web 标准构建、任务权限/capabilities/IM 协作聚焦测试均通过。没有新增锁死文案的永久测试；保留既有权限/持久状态覆盖，本次真实模型检查作为运行证据。
 
 ## 收尾状态
 
-主会话派发独立 full code review 已通过，findings `[]`，详见 [code-review.md](code-review.md)。PR/CI 由主会话交付；用户确认尚未发生，canonical delta 归并与归档保留待完成。未合并或部署。
+主会话派发独立 full code review 已通过，findings `[]`，详见 [code-review.md](code-review.md)。2026-10-14，用户明确要求“把 #351 和 #352 转正式合并”；已据此确认交付、归并 canonical 并归档，主会话继续 PR/CI 与合并。未补记未发生的真人亲手测试。
