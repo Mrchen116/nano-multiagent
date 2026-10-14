@@ -28,8 +28,18 @@
 - Python：56 passed / 31 deselected；ruff check 与 format check passed。
 - docs-check 与 git diff --check passed；新增本审查记录后再运行 docs-check。
 
-## Sync and remaining gate
+## Sync and remaining gate（候选交付时）
 
 同步 main 增量只包含无关 bugfix-607 的 fix.md；所有受审产品文件与测试内容未变化，独立结论和用户场景证据 retained。code review 通过不代替快速开发的用户验收。
 
 用户尚未亲自体验候选版本；本 unit 保持 active，delta 未覆盖 current，PR 以 draft 交付。用户确认后才能调用 change-fast-close 完成 canonical 归并、归档和正式交付。
+
+## Fast-close after user acceptance
+
+2026-10-14 用户确认“这两个都可以合入。”，快速开发的用户验收门禁已通过。真实 IM / Node / DSH / DeepSeek 拦截、读取与新调用发送的完整补测记录见 incident.md。
+
+最终同步 main 至 `c17f53ab6`；该增量为 bugfix-607 的 composer 软换行/滚动条样式和对应文档，不触及本 unit 的 PA、目标解析、投递或工作事件。受审产品/测试文件相对已确认候选完全未变，独立 code review、用户验收和既有构建/全套测试结论 retained。此后仅校正并归并已确认的 delta、记录用户确认及整体归档；没有新增实现或用户可观察结果，不追加空 review。
+
+本次同步后的 effective_base 为 `c17f53ab6`，effective_through 为 `a277e3ee3ae399f32b9cae6b374c1e01e4ec6073`；后续仅上述文档收尾。最终 focused regression、docs-check、archive gate 与 diff 检查结果随收尾提交记录。
+
+最终同步后的三文件 focused regression：39 tests passed。canonical 归并后的 docs-check 与 git diff --check passed；原完整后端 303 tests、build/typecheck、Python/ruff 及远端 CI 结论 retained。归档后的文档完整性与 archive gate 再次检查。

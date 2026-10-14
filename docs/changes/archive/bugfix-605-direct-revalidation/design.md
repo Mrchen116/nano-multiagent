@@ -22,8 +22,8 @@ Base 为 `9ebe12f8553a593f6179784b0276849fb14e5358`。产品改动位于 `packag
 - 修复前：Web/Feishu 私聊及双向镜像场景四项失败；原群复核通过。
 - 构建与类型：`pnpm build && pnpm typecheck` 通过；最终发送反馈变更后另运行 PA build 与后端全套。
 - 完整检查和独立审查结论追加至 code-review.md。
-- 用户验收：待用户亲自体验候选版本，未记录为完成。
+- 用户验收：2026-10-14 用户确认“这两个都可以合入。”；真实模型拦截补测的时间线与消息/调用身份见 incident.md。
 
 ## Canonical 文档影响
 
-delta 位于 `specs/gateway/global-agent.md`。待快速开发用户确认门禁完成后归并 global-agent.md 及包入口的范围摘要；当前不覆盖 current spec。
+delta 位于 `specs/gateway/global-agent.md`，已按最终行为归并到 canonical global-agent.md 及包入口的范围摘要；既有外部群聊和已开始投递的边界保留。
