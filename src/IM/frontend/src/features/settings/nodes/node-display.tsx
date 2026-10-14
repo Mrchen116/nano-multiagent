@@ -32,4 +32,3 @@ export function NodeStatus({ node }: { node: NodeSettingsProfile }) {
     : `settings.nodes.${node.status === 'online' ? 'statusOnline' : node.status === 'degraded' ? 'statusDegraded' : 'statusOffline'}`;
   return <span className={`node-status ${state}`} data-testid={`node-status-pill-${node.node_id}`}><i data-status-dot={state}/>{t(label)}</span>;
 }
-

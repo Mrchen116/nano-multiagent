@@ -40,3 +40,12 @@
 - `author-details.webm`、`author-update.webm`：真实交互连续录屏，无合成页面或剪接；浏览器 viewport 在更新录屏中有调整。
 
 临时环境完整控制、reset-current、故障注入、启动/停止及存活核对见 worktree 的 `output/playwright/computer600-runtime/README.md`。其中 auth/config/数据库不提交。独立验收接管此环境，主 Agent 最终负责在更新终态后调用其 `stop.sh` 清理全部自建进程。后续门禁结论以本 unit `acceptance.md`、`verification.md`、`code-review.md` 为准。
+
+## 交付整合（2026-10-14）
+
+- 冻结产品 `4068b2cfdd138c8bbe3b0b9d839a910fca9d36dc`；独立 code review / full verifier 报告提交 `d1d94ea147dc200e3bc477ea8ecafaec49c7a39c`：findings `[]`、0 CRITICAL / WARNING / SUGGESTION，全部 delta aligned。独立产品验收提交 `5979e228818ab9d47cfce618dad56f48bf281996`：S1–S8、M1 A–D 和全部 must-match pass，0 issues。
+- 最终 fetch 的 `origin/main` 仍为 `290652ada2bf5fafbd4ac9f27a1514680ff78ca9`，已在分支内，无新增同步差异。`executed_base` 与 `effective_base` 均为此 SHA。后续源码仅删除 `node-display.tsx` 文件末尾一个空行，范围 diff-check 已恢复通过；没有语义、CSS 或数据流变化，无需重新验收。
+- 已将独立核对 aligned 的两条 IM delta 原文归并 current `agents-nodes.md`，父级 Requirement 计数由 35 更新为 37，并完整归档本 unit；只修正归档导致的相对链接。Gate 2 的首文档用户目标、架构决定、原型与验收判据不变，原 Approved 结论 retained。上述门禁有效到本次交付树；PR 记录 `effective_through` 的精确提交。
+- 补充本地 CI：`pnpm typecheck` 全通过；`pytest -m 'not e2e' -q` 56 passed / 31 deselected；ruff check 与 format 全通过；`npm audit --audit-level=critical` 为 0 vulnerabilities。最新范围 diff-check、docs-check 与显式两项 unit archive 检查见交付命令结果。
+- 作者录屏另存同名 MP4，仅转为 H.264，未剪接。编码尺寸 800×600，详情 49.2 秒，更新 61 秒；页面 viewport 与截图尺寸单独记录，不能混同编码尺寸。隔离环境 runbook 已保存 `/Users/czj/Movies/Nano-Computer-Page-20261014/runtime-runbook.md`；独立验收全部媒体位于同目录 `independent-review/`。
+- 产品 reviewer 完成后，主 Agent 在无 active operation 时执行该环境 `stop.sh`；IM/model 两个端口已无 listener，Node/DSH 停止。原型 18760 也已停止；独立 reviewer 的浏览器与 18761 原型服务已自行清理。主仓已有 dirty/untracked 文件未纳入本次提交。

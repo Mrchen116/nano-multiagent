@@ -16,7 +16,7 @@
 
 ### 既有约束
 
-只改 Web 呈现与页面内交互；不修改 IM/Node/DSH 更新契约、权限或安装器。不提前覆盖 [current agents-nodes](../../specs/im/agents-nodes.md)。遵循 [Web IM 体验原则](../../product/web-im-principles.md)：可辨认身份、真实可用性、合理密度、独立手机布局。未收到 Node 成功回报时不得用计时器宣告更新完成。
+只改 Web 呈现与页面内交互；不修改 IM/Node/DSH 更新契约、权限或安装器。不提前覆盖 [current agents-nodes](../../../specs/im/agents-nodes.md)。遵循 [Web IM 体验原则](../../../product/web-im-principles.md)：可辨认身份、真实可用性、合理密度、独立手机布局。未收到 Node 成功回报时不得用计时器宣告更新完成。
 
 ### 可复用能力
 
@@ -105,7 +105,7 @@ feat-596 已交付更新全链路并获用户“功能看着 ok”反馈，本 u
 
 ## 契约层增量 (delta-spec)
 
-- IM：[specs/im/agents-nodes.md](specs/im/agents-nodes.md) → [canonical](../../specs/im/agents-nodes.md)，只增加渐进管理与连接入口的稳定承诺，不重复 feat-596 更新生命周期。
+- IM：[specs/im/agents-nodes.md](specs/im/agents-nodes.md) → [canonical](../../../specs/im/agents-nodes.md)，只增加渐进管理与连接入口的稳定承诺，不重复 feat-596 更新生命周期。
 
 ## 风险与回退
 
@@ -113,9 +113,9 @@ feat-596 已交付更新全链路并获用户“功能看着 ok”反馈，本 u
 
 ## Runbook for Reviewer
 
-本次设计无常驻业务服务。原型：在仓库根 `python3 -m http.server 18760 --bind 127.0.0.1 --directory docs/changes/feat-600-computer-page-experience`，访问 `/prototype.html`，结束 Ctrl-C。端口冲突选其他空闲高位端口，不复用不明进程。
+本次设计无常驻业务服务。原型：在仓库根 `python3 -m http.server 18760 --bind 127.0.0.1 --directory docs/changes/archive/feat-600-computer-page-experience`，访问 `/prototype.html`，结束 Ctrl-C。端口冲突选其他空闲高位端口，不复用不明进程。
 
-未来 M1 的真实产品验收在含 feat-596 的独立 worktree，遵循 [隔离运行契约](../../development/worktree-runtime.md)，不得在本 main 或生产实例起测试栈。
+未来 M1 的真实产品验收在含 feat-596 的独立 worktree，遵循 [隔离运行契约](../../../development/worktree-runtime.md)，不得在本 main 或生产实例起测试栈。
 
 | 服务 | 停止 | 启动/构建 | 健康检查 |
 |---|---|---|---|
