@@ -10,7 +10,7 @@
 
 ## Round 1
 
-- Status: 1 个 CONFIRMED P2，已由主 Agent 修复，待 closure。
+- Status: 1 个 CONFIRMED P2，已由主 Agent 修复并通过独立 closure。
 - Reviewer: 独立 `review_compact_references`，`gpt-6.1-sol/high`，使用 `change-code-review`。
 - Finding: `global-agent.ts` 的 Inbox 图片来源按 URL 单独 `.find`。同一页两条消息复用图片 URL 时都返回第一条 messageId；reviewer 用真实 NodeStore/InboxStore/GlobalAgent 复现。
 - Resolution: 内部 `inbox.image` RPC 同时携带页面中的 message_id 和 URL，宿主仅从已保存页面匹配二者。补充同页复用图片的两条消息及伪造 message_id 拒绝回归；不更改模型工具参数。
@@ -20,6 +20,13 @@
 
 ## Closure
 
+- Follow-up mode: `closure`，同一独立 reviewer / `gpt-6.1-sol/high`。
+- finding_origin_head: `f50e958b2dcb63efa5e90eba324776f013cdf3c0`。
+- validated_at / effective_through: `5a70bb3406a1b34a9501767882dedaad406ac00b`。
+- effective_base: `247ae97ae358b66d7637b1cdfd5f910bf1a06cc9`；未同步其他 main 增量。
+- Result: **Passed**；P2 closed；剩余 findings `[]`。未受 patch 影响的 full review 结论保留。
+- Tests after fix: PA 与 DSH integration 构建通过；6 受影响测试文件 / 43 测试通过；reviewer 独立复跑 2 文件 / 5 测试和 diff check 通过。
+- 最后文档提交只更新本报告与验证记录，不改变已验证产品树；不使代码审查结论失效。
 - 用户实际验收：未确认；保持 active。
 - 未执行生产部署、真实飞书发送或 UI 实机验收。
-- 审查和适用门禁完成后记录结果；用户确认后再归并 canonical 与归档。
+- 代码实现、独立审查和适用本地门禁已完成；用户确认后再归并 canonical 与归档。

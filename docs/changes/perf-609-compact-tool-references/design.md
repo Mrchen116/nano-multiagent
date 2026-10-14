@@ -64,7 +64,8 @@
 - 初次窄验证：6 文件 / 46 测试通过。
 - 补来源投影验证：`packages/personal-assistant/tests/tool-references.test.ts` 3 测试通过。
 - 本地全量：`pnpm test`，83 文件 / 312 测试通过；`pnpm -r --if-present build`、`pnpm typecheck` 通过。
-- `git diff --check` 通过；最终其他门禁见 code-review。
+- `git diff --check` 通过；56 Python 测试、docs-check、ruff check/format 和安装包候选构建通过。
+- 独立 review 的同页图片 URL 复用问题已修复；修复后 6 文件 / 43 测试通过，独立 closure 无剩余 findings。完整证据见 [code-review.md](code-review.md)。
 - 字符 benchmark 见 motivation，不宣称实测 token 或生产费用下降。
 
 ### 测试策略与既有覆盖
