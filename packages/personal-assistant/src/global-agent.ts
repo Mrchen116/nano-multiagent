@@ -112,6 +112,12 @@ export class GlobalAgent {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
     if ((call.method === 'inbox' || call.method === 'conversations') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may consume Inbox or query conversation history');
+    const references = this.options.store.toolReferences;
+    const result = await this.execute({ ...call, args: references.arguments(call.agentId, call.method, call.args) }, binding);
+    // Inbox reads persist the exact model-visible body before image admission and consumption.
+    return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result);
+  }
+  private async execute(call: ProductCall, binding: SessionBinding): Promise<unknown> {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);
     try {
       if (call.method === 'inbox') {
@@ -125,12 +131,16 @@ export class GlobalAgent {
         const info = await this.query(binding, { action: 'info', target: call.args.target });
         this.options.inbox.updateTarget(call.agentId, call.args.target, String(info.name));
         controller.signal.throwIfAborted();
-        return this.options.inbox.read(call.agentId, call.sessionId, call.callId, call.args as { target: string; cursor?: string; limit?: number });
+        return this.options.inbox.read(call.agentId, call.sessionId, call.callId, call.args as { target: string; cursor?: string; limit?: number },
+          body => this.options.store.toolReferences.result(call.agentId, 'inbox', body) as Record<string, unknown>);
       }
       if (call.method === 'inbox.image') {
-        if (!this.options.inbox.imageReferences(call.sessionId, call.callId).includes(String(call.args.url))) throw new Error('Image is outside the current Inbox read');
+        const source = this.options.inbox.imageSources(call.sessionId, call.callId).find(source => source.url === call.args.url);
+        if (!source) throw new Error('Image is outside the current Inbox read');
         const data = await this.options.image(String(call.args.url), call.agentId);
-        controller.signal.throwIfAborted(); return { data };
+        controller.signal.throwIfAborted(); return { data, source: { ...source,
+          conversationId: this.options.store.toolReferences.resolveTarget(call.agentId, source.conversationId),
+        } };
       }
       if (call.method === 'inbox.prepare') {
         this.options.inbox.prepareRead(call.sessionId, call.callId, call.args.content as { type: string; text?: string }[]); return { prepared: true };
@@ -301,10 +311,10 @@ export class GlobalAgent {
           if (event.type === 'tool/result') {
             const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
             if (inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) {
-              const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {messages: {id: string; target: string; partial?: boolean}[]};
+              const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
               this.append(binding, `inbox-read:${message.toolCallId}`, 'inbox_read_committed', {
                 call_id: message.toolCallId,
-                source_refs: body.messages.map(item => ({conversation_id: item.target, message_id: item.id, complete_message: !item.partial})),
+                source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
               }, turn, event.time);
             }
           }

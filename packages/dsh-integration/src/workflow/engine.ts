@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   WorkflowEngine,
   WorkflowRunId,
@@ -261,7 +261,9 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       throw new Error(
         "Workflow requires a JavaScript script, name and description",
       );
-    const id = WorkflowRunId(randomUUID());
+    let id: WorkflowRunId;
+    do { id = WorkflowRunId(`wf_${randomBytes(4).toString('hex')}`); }
+    while (this.live.has(id) || this.recoveredRecords.has(id));
     const abort = new AbortController();
     const turn = request.parent.session
       .snapshotEvents()

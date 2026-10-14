@@ -1,10 +1,12 @@
 import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@nano/product-contracts';
+import { ToolReferences } from './tool-references.js';
 
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
 export class NodeStore {
   private readonly db: DatabaseSync;
+  readonly toolReferences: ToolReferences;
   constructor(path: string, readonly ownerId: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`
@@ -49,6 +51,7 @@ export class NodeStore {
     this.db.prepare('INSERT INTO node_owner(owner_id) SELECT ? WHERE NOT EXISTS(SELECT 1 FROM node_owner)').run(ownerId);
     const owner = this.db.prepare('SELECT owner_id FROM node_owner').get() as { owner_id: string };
     if (owner.owner_id !== ownerId) { this.db.close(); throw new Error('Node state belongs to a different owner'); }
+    this.toolReferences = new ToolReferences(this.db);
   }
 
   /** Read the account timezone cached for offline external input and Heartbeat. */

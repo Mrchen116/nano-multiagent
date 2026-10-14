@@ -57,8 +57,18 @@ export class InboxStore {
   }
   admitWake(agent: string, watermark: number): void { this.db.prepare('INSERT INTO wakes VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET watermark=max(watermark,excluded.watermark)').run(agent, watermark); }
 
-  /** Cursor freezes fragments and membership; later messages remain a later read. */
-  read(agent: string, session: string, call: string, args: { target: string; cursor?: string; limit?: number }): Record<string, unknown> {
+  /** Freeze fragments and persist the exact page admitted to the model.
+   *
+   * Args:
+   *   agent: Trusted product Agent identity.
+   *   session: Execution session receiving this page.
+   *   call: Durable tool call identity; retries replay its saved body.
+   *   args: Canonical target and cursor; later messages remain a later read.
+   *   present: Optional model projection, applied before saving the consumption evidence.
+   * Returns:
+   *   Saved page; only this exact content can commit its fragments as consumed.
+   */
+  read(agent: string, session: string, call: string, args: { target: string; cursor?: string; limit?: number }, present: (body: Record<string, unknown>) => Record<string, unknown> = body => body): Record<string, unknown> {
     const prior = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (prior) return JSON.parse(prior.body) as Record<string, unknown>;
     let snapshot: Snapshot;
@@ -87,12 +97,12 @@ export class InboxStore {
       const parts = this.parts(input, row.seq);
       const instant = input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time
         ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
-      return { id: input.message.id, target: row.target, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
+      return { id: input.message.id, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = offset + selected.length;
-    const body = { messages, ...(next < snapshot.fragments.length ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) };
+    const body = present({ target: args.target, messages, ...(next < snapshot.fragments.length ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
     const text = JSON.stringify(body);
     this.db.prepare('INSERT INTO reads VALUES(?,?,?,?,?)').run(session, call, JSON.stringify(selected), text, hash(text));
     return body;
@@ -110,10 +120,25 @@ export class InboxStore {
   }
   updateTarget(agent: string, target: string, name: string): void { this.db.prepare('INSERT INTO targets VALUES(?,?,?) ON CONFLICT(agent_id,target) DO UPDATE SET name=excluded.name').run(agent, target, name); }
   imageReferences(session: string, call: string): string[] {
+    return this.imageSources(session, call).map(source => source.url);
+  }
+  /** Read image provenance from the saved tool page, including legacy per-message targets.
+   *
+   * Args:
+   *   session: Execution session owning the read.
+   *   call: Durable Inbox read call.
+   * Returns:
+   *   Image sources; compact conversation references still need host resolution.
+   * Raises:
+   *   Error: There is no matching saved Inbox read.
+   */
+  imageSources(session: string, call: string): { kind: 'chat'; conversationId: string; messageId: string; url: string }[] {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (!row) throw new Error('No matching inbox read');
-    const body = JSON.parse(row.body) as { messages: { content: { type: string; content_type?: string; url?: string }[] }[] };
-    return body.messages.flatMap(message => message.content.filter(part => part.content_type?.startsWith('image/')).map(part => part.url!));
+    const body = JSON.parse(row.body) as { target: string; messages: { id: string; target?: string; content: { type: string; content_type?: string; url?: string }[] }[] };
+    return body.messages.flatMap(message => message.content.filter(part => part.content_type?.startsWith('image/')).map(part => ({
+      kind: 'chat' as const, conversationId: message.target ?? body.target, messageId: message.id, url: part.url!,
+    })));
   }
   prepareRead(session: string, call: string, content: { type: string; text?: string }[]): void {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;

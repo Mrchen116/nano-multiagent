@@ -99,6 +99,16 @@ export function apply(ctx) {
       sessionId: "workflow",
     })) as { events: import("@deepseek-ai/dsh-session").SessionEvent[] };
     expect(parentObservation.events.find((event: any) => event.type === 'tool/result' && event.data.message.toolCallId === 'workflow-read')).toMatchObject({data:{message:{isError:false}}});
+    const modelRead = parentObservation.events.find((event: any) => event.type === 'tool/result' && event.data.message.toolCallId === 'workflow-read') as any;
+    const visibleRuns = JSON.parse(modelRead.data.message.content[0].text).runs;
+    expect(visibleRuns[0].id).toMatch(/^wf_[a-f0-9]{8}$/);
+    expect(visibleRuns[0]).not.toHaveProperty('parentSessionId');
+    expect(visibleRuns[0]).not.toHaveProperty('budgetId');
+    expect(visibleRuns[0]).not.toHaveProperty('inputIds');
+    for (const call of visibleRuns[0].calls) {
+      expect(call).not.toHaveProperty('key');
+      for (const attempt of call.attempts) expect(attempt).not.toHaveProperty('id');
+    }
     expect(
       deriveTurnTokenUsage(
         parentObservation.events.slice(

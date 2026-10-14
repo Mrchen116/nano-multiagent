@@ -60,7 +60,9 @@ it.each([
   });
   const call: ProductCall = { method: 'send_message', args: { target: requested, text: 'old draft' }, operationId: 'main:call', callId: 'call', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'alice', ownerId: 'owner' };
   try {
-    expect(await product.call(call)).toMatchObject({ status: 'held_for_revalidation', inbox_targets: [incoming] });
+    const held = await product.call(call) as { status: string; inbox_targets: string[] };
+    expect(held.status).toBe('held_for_revalidation');
+    expect(held.inbox_targets.map(target => store.toolReferences.resolveTarget('alice', target))).toEqual([incoming]);
     expect(sent).toBe(0);
     const page = inbox.read('alice', 'main', 'read', { target: incoming });
     inbox.commitRead('main', 'read', [{ type: 'text', text: JSON.stringify(page) }], false);

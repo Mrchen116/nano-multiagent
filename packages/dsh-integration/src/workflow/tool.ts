@@ -7,6 +7,15 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { NanoWorkflowEngine } from "./engine.js";
 import type { WorkflowMeta } from "@deepseek-ai/dsh-workflow";
 import type { AgentConfiguration } from "../index.js";
+import type { WorkflowRecord } from "./state.js";
+
+/** Keep replay/accounting identities in storage, outside model-facing run results. */
+function presentRun(record: WorkflowRecord) {
+  const { parentSessionId: _parent, inputIds: _inputs, budgetId: _budget, ...run } = record;
+  return { ...run, calls: run.calls.map(({ key: _key, attempts, ...call }) => ({
+    ...call, attempts: attempts.map(({ id: _id, ...attempt }) => attempt),
+  })) };
+}
 
 declare module "@deepseek-ai/dsh-llm" {
   interface MessageSourceMap {
@@ -154,9 +163,11 @@ export function registerWorkflowTool(
       if (args.action === "list")
         return { definitions: await engine.catalog(parent).list() };
       if (args.action === "read")
-        return { runs: await engine.read(parent, args.runId) };
-      if (args.action === "control")
-        return engine.control(parent, args.runId!, args.control!, args.ordinal);
+        return { runs: (await engine.read(parent, args.runId)).map(presentRun) };
+      if (args.action === "control") {
+        const result = await engine.control(parent, args.runId!, args.control!, args.ordinal);
+        return 'runId' in result ? result : presentRun(result);
+      }
       if (args.action === "save")
         return engine
           .catalog(parent)
