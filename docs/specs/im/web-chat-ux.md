@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-598
+> 对齐: bugfix-607
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -163,6 +163,11 @@ Web IM 的当前会话、会话列表、消息、配置边界、提醒与状态�
 - **WHEN** 文字超过一行
 - **THEN** composer 自动增高以展示更多内容
 - **AND** 增高到最大行数后不再继续变高,内部可滚动
+
+#### Scenario: 长草稿反复编辑后文字与光标保持对齐
+- **WHEN** 用户输入、删除或重新编辑包含中英文、路径及提及的长草稿，使输入框发生软换行或内部滚动
+- **THEN** 可见文字、提及高亮和原生编辑光标保持对齐，不因滚动条出现或消失产生额外空位
+- **AND** 用户输入的空格与换行、原生中文组合输入和编辑行为保持原样
 
 ### Requirement: Web IM 未发送输入按会话隔离
 

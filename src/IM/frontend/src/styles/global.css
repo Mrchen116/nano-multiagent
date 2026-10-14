@@ -2227,6 +2227,15 @@ body {
   position: relative;
 }
 
+/* Native editing and the visible mirror must wrap at the same width, even
+   when only the textarea displays a scrollbar. */
+.chat-composer-highlight-mirror,
+.chat-composer-highlight-input {
+  scrollbar-gutter: stable;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 .chat-composer-highlight-mirror {
   position: absolute;
   inset: 0;
@@ -2237,8 +2246,8 @@ body {
   font-size: 0.9rem;
   line-height: inherit;
   white-space: pre-wrap;
-  word-break: break-word;
   overflow: hidden;
+  overflow-y: auto;
   pointer-events: none;
   color: var(--im-text);
 }
