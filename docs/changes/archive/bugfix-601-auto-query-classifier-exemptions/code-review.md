@@ -2,7 +2,7 @@
 
 ## Review scope
 
-- Base / 当前 HEAD：`290652ada2bf5fafbd4ac9f27a1514680ff78ca9`。
+- Base / 审查时 HEAD：`290652ada2bf5fafbd4ac9f27a1514680ff78ca9`。
 - Review mode：`full`。
 - Reviewable tree：`codex/auto-query-exemptions` 的本次暂存/工作树 diff；尚未创建实施 commit。
 - 产品文件：`packages/dsh-integration/src/policy/approval.ts`。
@@ -25,4 +25,8 @@
 - Reviewer 独立执行暂存 diff 检查通过；主会话核对完整本地结果：build/typecheck、TypeScript 74 文件 273 项、docs、Ruff 均通过。
 - 最终结论：Passed；无未解决 findings。
 
-用户亲自体验验收尚未发生；unit 保持 active，不归档。自动化测试通过不代表用户验收或生产交付。
+## 用户确认与归档收尾
+
+2026-10-14，用户基于已展示的验证结果明确要求：“把 #351 和 #352 转正式合并”。据此确认交付并收尾，不补记未发生的真人亲手测试。
+
+本轮仅归并已审查 delta、更新 canonical 入口计数、同步实际收尾状态及归档路径；产品和回归测试 blob 保持独立审查版本。主会话核对 canonical 与原 delta 一致，原 code review 和运行证据继续有效，不增加无实质变化的复审轮次。最终 effective_base/effective_through 由 PR 记录。

@@ -1,6 +1,6 @@
 # bugfix-601: As-built Design
 
-> 本文在实现后根据实际代码和回归结果整理。用户实际体验验收尚未发生，unit 保持 active。
+> 本文在实现后根据实际代码和回归结果整理。用户已基于验证结果明确确认交付并授权转正式合并；本 unit 完成契约归并与归档。
 
 ## 实现范围
 
@@ -65,4 +65,4 @@ Python/文档/Ruff 使用主 checkout 的现有 `.venv` 工具，在本 worktree
 
 ## Canonical 文档影响
 
-[Gateway delta](specs/gateway/agent-capabilities.md) 描述本批消费者可观察行为，目标为 `docs/specs/gateway/agent-capabilities.md`。unit 尚未完成用户验收，当前只保存 delta，不覆盖 current spec 或归档。
+[Gateway delta](specs/gateway/agent-capabilities.md) 描述本批消费者可观察行为，目标为 `docs/specs/gateway/agent-capabilities.md`。已按独立审查通过的 delta 归并 current spec，并更新 Gateway 入口 Requirement 计数；本 unit 随收尾归档。
