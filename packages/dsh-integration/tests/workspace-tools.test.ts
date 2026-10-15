@@ -106,6 +106,11 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-empty')).toEqual([]);
     expect((await call('tools-a2', 'workspace_echo', { value: 'LIVE_WORKSPACE_RESULT' })).text).toContain('LIVE_WORKSPACE_RESULT');
     expect((await call('tools-b', 'workspace_echo', { value: 'denied' })).error).toBe(true);
+    await writeFile(join(source, 'tool.mjs'), goodSource.replace('echo:args.value', "echo:'UPDATED:'+args.value"));
+    const updated = await call('tools-a', 'plugin_manager', {action:'install_bundle',target:source}, {tool:'workspace_echo',args:{value:'HOT_UPDATE'}});
+    expect(updated.error, updated.text).toBe(false);
+    expect(updated.text).toContain('UPDATED:HOT_UPDATE');
+    expect((await call('tools-peer','workspace_echo',{value:'PEER_UPDATE'})).text).toContain('UPDATED:PEER_UPDATE');
     const selection = await client!.rpc.request('configuration.selection', { agentId: 'a', cwd: a }) as { tools: string[] };
     expect(selection.tools).toContain('workspace_echo');
     const other = join(a, 'broken-tool'); await mkdir(other);

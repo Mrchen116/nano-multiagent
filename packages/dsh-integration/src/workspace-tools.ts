@@ -177,11 +177,21 @@ class WorkspaceOwner {
         for (const arg of message.args) if (arg instanceof Error && arg.stack?.includes(this.dir)) loadErrors.push(arg.stack.slice(0, 3000));
       } });
       const retired = new Set([...mount.tree.entries()].flatMap(entry => entry.fiber ? [entry.fiber] : []));
-      const scoped = (entries: EntryOptions[]): EntryOptions[] => entries.map(row => ({ ...row,
+      const nextNames = new Map<string, string | undefined>();
+      const scoped = (entries: EntryOptions[]): EntryOptions[] => entries.map(row => {
+        nextNames.set(row.id, row.name);
+        return { ...row,
         ...(row.isolate ? {isolate: Object.fromEntries(Object.entries(row.isolate).map(([name, label]) => [name, typeof label === 'string' ? `${mount.namespace}:${label}` : label]))} : {}),
         ...(row.group && Array.isArray(row.config) ? {config: scoped(row.config)} : {}),
-      }));
+        };
+      });
       const mountedRows = scoped(rows);
+      // Native entry updates retain the loaded module when only its name changes.
+      // Retire changed generation entries before recreating them through the public loader API.
+      const replaced = [...mount.tree.entries()].filter(entry => nextNames.has(entry.options.id) && nextNames.get(entry.options.id) !== entry.options.name);
+      const replacedFibers = replaced.flatMap(entry => entry.fiber ? [entry.fiber] : []);
+      for (const entry of replaced) entry.parent.remove(entry.options.id);
+      await Promise.all(replacedFibers.map(fiber => fiber.inertia));
       let audit: Awaited<ReturnType<typeof auditRows>>;
       try { await mount.tree.root.update(structuredClone(mountedRows)); audit = await auditRows(mount.tree); }
       finally { stop(); }
