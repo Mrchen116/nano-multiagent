@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import { BlockAssembler } from '@deepseek-ai/dsh-llm';
+import { BlockAssembler, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
@@ -131,7 +131,7 @@ export class NanoApproval extends Service {
         if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
           throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
         }
-        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system,
+        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system, reasoningEffort: ReasoningEffortId('low'),
           messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
 
         usage = assembly.usage;

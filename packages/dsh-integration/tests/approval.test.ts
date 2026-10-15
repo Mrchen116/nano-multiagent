@@ -79,7 +79,7 @@ export function apply(ctx) {
       const prompt = options.messages[0].content[0].text;
       const pending = JSON.parse(prompt.split('\\n').findLast(line => line.startsWith('{')));
       const scenario = pending.fixture_effect.scenario;
-      await appendFile(process.env.DSH_HOME + '/reviews.jsonl', JSON.stringify({ model: options.model, provider: options.provider, scenario, stop: options.stop, prompt }) + '\\n');
+      await appendFile(process.env.DSH_HOME + '/reviews.jsonl', JSON.stringify({ model: options.model, provider: options.provider, reasoningEffort: options.reasoningEffort, scenario, stop: options.stop, prompt }) + '\\n');
       content = scenario === 'fault' ? 'no valid verdict' : scenario === 'allow' ? '<block>no</block>' : '<block>yes</block><reason>scope missing</reason>';
       if (options.system.startsWith('REVIEW_POLICY')) content = '{"risk":"high","decision":"deny","reason":"sensitive exfiltration"}';
     } else {
@@ -121,6 +121,7 @@ export function apply(ctx) {
     await expect(client.rpc.request('approval.answer', { requestId: rejection.requestId, decision: 'allowed-once' })).rejects.toThrow('no longer pending');
     const reviews = (await readFile(join(home, 'reviews.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(reviews.every(review => review.model === 'review-model')).toBe(true);
+    expect(reviews.every(review => review.reasoningEffort === 'low')).toBe(true);
     expect(reviews.every(review => !('stop' in review))).toBe(true);
     expect(reviews.filter(review => review.scenario === 'threshold')).toHaveLength(6);
     const fault = await client.rpc.request('session.observe', { sessionId: 'approval-fault' }) as { approvals: Record<string, unknown>[] };
