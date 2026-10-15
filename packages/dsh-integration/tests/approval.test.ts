@@ -101,7 +101,7 @@ export function apply(ctx) {
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     const requests: Record<string, unknown>[] = [];
     client.rpc.onNotification((method, value) => { if (method === 'approval.request') { requests.push(value as Record<string, unknown>); const request = value as { requestId: string; sessionId: string };
-      if (request.sessionId === 'approval-timeout') return;
+      if (['approval-timeout', 'approval-threshold'].includes(request.sessionId)) return;
       if (request.sessionId === 'approval-cancel') { void client!.rpc.request('session.cancel', { sessionId: request.sessionId }); return; }
       void client!.rpc.request('approval.answer', { requestId: request.requestId, decision: request.sessionId === 'approval-reject' ? 'rejected' : 'allowed-once', ...(request.sessionId === 'approval-reject' ? { reason: 'Do not overwrite the report' } : {}) }); } });
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
@@ -110,6 +110,21 @@ export function apply(ctx) {
       await client.rpc.request('session.ensure', { sessionId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
       const scenario = ['system', 'global', 'reject', 'cancel', 'timeout'].includes(config.agentId) ? 'fault' : config.agentId;
       await client.rpc.request('session.submit', { sessionId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: scenario }], source: { kind: config.agentId === 'system' ? 'system' : 'human', actorId: 'owner', channel: config.agentId === 'system' ? 'heartbeat' : 'test', messageId: config.agentId } });
+      if (config.agentId === 'threshold') {
+        await expect.poll(() => requests.find(request => request.sessionId === sessionId)).toBeTruthy();
+        const original = requests.find(request => request.sessionId === sessionId)!;
+        let applied = false;
+        const next = { ...config, revision: '2', approval: { ...config.approval, rules: 'codex' } };
+        const update = client.rpc.request('configuration.apply', next).then(() => { applied = true; });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        expect(applied).toBe(false);
+        await client.rpc.request('approval.answer', { requestId: original.requestId, decision: 'allowed-once' });
+        await update;
+        const observation = await client.rpc.request('session.observe', { sessionId }) as { approvals: Record<string, unknown>[] };
+        expect(observation.approvals.filter(row => row.source === 'classifier_block').every(row => row.rules === 'nano')).toBe(true);
+        expect(observation.approvals.at(-1)).toMatchObject({ source: 'human', decision: 'allow', callId: 'threshold-2' });
+        await expect(client.rpc.request('approval.answer', { requestId: original.requestId, decision: 'allowed-once' })).rejects.toThrow('no longer pending');
+      }
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId, inputId: config.agentId }) as { terminal?: unknown }).terminal, { timeout: 5000 }).toBeTruthy();
     }
     const effects = (await readFile(join(home, 'effects.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line).scenario);
@@ -128,7 +143,7 @@ export function apply(ctx) {
     expect(fault.approvals.filter(event => event.source === 'classifier_unavailable')).toEqual([expect.objectContaining({ decision: 'no_verdict', consecutive: 0, total: 0 })]);
     await client.shutdown(); client = undefined;
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
-    const bindings = agents.map(config => ({ sessionId: `approval-${config.agentId}`, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home }));
+    const bindings = agents.map(config => ({ sessionId: `approval-${config.agentId}`, agentId: config.agentId, revision: config.revision, ownerId: 'owner', cwd: home }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings });
     await client.rpc.request('session.ensure', bindings.find(binding => binding.agentId === 'threshold'));
     const recovered = await client.rpc.request('session.observe', { sessionId: 'approval-threshold' }) as { approvals: Record<string, unknown>[] };

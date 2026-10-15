@@ -44,6 +44,8 @@ it('runs workspace writes without judge calls but preserves downstream restricti
   const { readFile } = await import('node:fs/promises');
   try {
     await mkdir(workspace);
+    await writeFile(join(home, 'protected.txt'), 'unchanged');
+    await symlink(join(home, 'protected.txt'), join(workspace, 'looks-local.txt'));
     await writeFile(join(home, 'fixture.mjs'), `import {appendFile} from 'node:fs/promises';
 export const name='workspace-approval-fixture'; export const inject=['llm','tools'];
 export function apply(ctx) {
@@ -60,14 +62,15 @@ export function apply(ctx) {
     client = new RuntimeClient({ home, cwd: workspace, env: { NANO_TEST_KEY: 'fixture' } });
     await client.rpc.request('initialize', { protocol: 1, agents: [{ agentId: 'agent', revision: '1', provider: 'fixture', model: 'fixture', mode: 'global', toolAllowlist: ['write'], approval: { ...approvalDefaults, globalRoot: home } }], bindings: [] });
     await client.rpc.request('session.ensure', { sessionId: 'test', agentId: 'agent', revision: '1', ownerId: 'owner', cwd: workspace });
-    for (const [id, path] of [['ordinary', 'proof.txt'], ['blocked', 'blocked.txt'], ['outside', join(home, 'outside.txt')]]) {
+    for (const [id, path] of [['ordinary', 'proof.txt'], ['blocked', 'blocked.txt'], ['outside', join(home, 'outside.txt')], ['symlink', 'looks-local.txt']]) {
       await client.rpc.request('session.submit', { sessionId: 'test', inputId: id, mode: 'followup', content: [{ type: 'text', text: path }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: id } });
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'test', inputId: id }) as { terminal?: unknown }).terminal).toBeTruthy();
     }
     expect(await readFile(join(workspace, 'proof.txt'), 'utf8')).toBe('proof');
     await expect(readFile(join(workspace, 'blocked.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(home, 'outside.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
-    expect((await readFile(join(home, 'reviews.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(2);
+    expect(await readFile(join(home, 'protected.txt'), 'utf8')).toBe('unchanged');
+    expect((await readFile(join(home, 'reviews.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(4);
     const observed = await client.rpc.request('session.observe', { sessionId: 'test' }) as { approvals: { source: string }[] };
     expect(observed.approvals.filter(row => row.source === 'workspace_file')).toHaveLength(1);
   } finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }

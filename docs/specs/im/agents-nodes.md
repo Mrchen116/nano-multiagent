@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-610
+> 对齐: feat-615
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -10,6 +10,22 @@
 首次安装与模型/助手引导、Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、runtime 能力解析、用户维事件流和配置 RPC 的 IM 契约。
 
 ## Requirements
+
+### Requirement: 每个 Agent 可独立选择自动审批策略
+
+Agent 创建与配置页提供 CC、Codex 和跟随节点选项。简短说明帮助用户理解策略区别；明确保存后从下一轮任务生效。该选择不改变执行模型、已有聊天历史、工具权限或其它 Agent。空选择沿用节点既有配置，旧客户端省略字段不清除已保存选择。
+
+#### Scenario: 独立选择并持久化
+- **WHEN** 用户给两个自有 Agent 分别选择 CC 和 Codex 并保存、刷新
+- **THEN** 各自保留选择，并可切回另一策略或节点继承。
+
+#### Scenario: 下一轮采用选择
+- **WHEN** 用户在既有聊天期间成功保存策略
+- **THEN** 进行中的整轮与已发出的人工审批保持原请求；下一轮任务采用新策略，聊天历史保留。
+
+#### Scenario: 保存未成功
+- **WHEN** 节点离线、版本冲突或应用结果尚未确认
+- **THEN** 按既有配置 operation 语义显示失败或待确认，不宣称候选策略生效；恢复后可继续操作。
 
 ### Requirement: Agent 配置页可设置有序备用模型，且默认不占地方
 
