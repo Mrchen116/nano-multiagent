@@ -56,3 +56,48 @@
 
 - R1-W1: accepted。design 决策7新增全流程90秒共享deadline、父取消传播、重试剩余时间、await dispose、cursor/checkpoint不提交及迟到判定抑制；只读检查限常规文件和有界目录，防止特殊文件长阻塞。依据上游 REVIEW_TIMEOUT 和当前 DSH cancel/dispose public API。
 - R1-W2: accepted。Gateway delta 的 MODIFIED 已替换为完整原条目与全部保留场景；去重投影和直接超窗不可用明确只限 CC/DSH，新增逐Agent选择/继承及下一轮切换场景并指向 Codex 独立预算规则。未更改原型、需求或 milestone 组织。
+
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review_615`（与 Round 1 相同的独立 reviewer）
+- target: main `dd80647b7`，本 unit 的 design、Gateway delta 与 Author Resolutions。
+- review_mode: closure
+- mode_reason: 修改限定于 R1-W1 的执行期限/取消契约及对应 M1 检查、R1-W2 的完整 delta 展开；需求、模块职责、插件接口、milestone 组织与前端方案未变，没有需要重新 full review 的扩展。
+- started_at: 2026-10-16T00:24:21+08:00
+- completed_at: 2026-10-15T16:24:55.968Z
+- duration: 约 1 分钟
+- retained_from: Round 1
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 通过。**
+
+这是设计门禁结论，不表示产品代码、真实 DSH 场景或两策略效果对照已经通过。
+
+### Coverage 与 retained evidence
+
+重新读取 design 决策 7、接口相邻的 trunk/checkpoint/预算恢复决定、M1 退出标准，以及完整 Gateway delta；与 Round 1 指出的问题和 canonical 条目逐项对照。其余现状组装、DSH public API 可实施性、职责和权限边界、配置 operation、IM delta、对照协议与验收资源判断沿用 Round 1：这些部分未实质改变，新增 deadline 使用的是已经核实的 cancel/dispose/create signal 能力，没有引入第二套 loop 或跨包依赖。原型和客户端交互未改，保留 Round 1 reviewer 的桌面/390 宽独立观察，不重复启动预览服务。
+
+### 历史问题闭环
+
+#### R1-W1 — closed
+
+- Author Resolution: accepted；新增整次共享 90 秒 deadline、父取消传播、停止并 await dispose、禁止提交未完成 checkpoint 和迟到判定。
+- 本轮证据：`design.md` 决策 7 明确从创建/准备开始计时，所有模型请求、只读调查与一次预算重建共享剩余时限；创建 signal 只覆盖创建阶段，因此还明确在实例创建后关联原生 `agent.cancel`。返回前复查取消/时限，用户取消返回 cancel，超时进入 classifier_unavailable 分流；未提交实例 dispose 后不推进 cursor/checkpoint。工具限普通文件与有界目录，避免 FIFO/设备读取的直接阻塞路径。M1 增加共享 deadline 与取消收尾检查，决策列出持续调用、慢调查、重试剩余时间和迟到判定测试。
+- 结论：整次审查边界和失败交付已足以指导实施；不再依靠每请求 token 限额推断整个 Agent 会停止。具体异步取消和资源释放仍须由 M1 原生 DSH 测试证明。
+
+#### R1-W2 — closed
+
+- Author Resolution: accepted；用完整 MODIFIED Requirement 替换说明性占位，并限定 CC/DSH 原上下文/超窗规则。
+- 本轮证据：Gateway delta 保留默认规则、来源投影、预计超窗、子 Agent 委派、节点规则切换与模型失败六类旧场景；来源投影和直接超窗不可用加上 CC/DSH 前置条件。新增逐 Agent 显式选择/清空继承和下一轮切换场景，Codex 的证据保留/预算恢复指向独立 Requirement。canonical 同名条目可按既定规则完整替换，不会依赖实施者拼接丢失的 Scenario。
+- 结论：旧规则行为与 Codex 恢复机制的适用边界已明确，归并缺口关闭。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议；按现有 M1 进入实施与验证即可。
