@@ -79,6 +79,23 @@
 
 无。
 
+## Round 2 — targeted closure
+
+- Validated product head: `8aa3c814946cc0d8296ff90d6a269b8d68f5ccd8`。
+- Fix delta: `ccf74c47c..8aa3c8149`；保留 Round 1 已覆盖且未变的配置、CC、工具隔离、fork 与来源结论。
+- Verdict: **1 CRITICAL / 1 WARNING 尚未关闭**；R1-W1 已关闭，无新增问题。
+- requires_full_verification: `false`。
+
+### Closure disposition
+
+| Issue | Disposition | 直接证据 |
+|---|---|---|
+| R1-C1 产品与两层真实策略比较报告 | still_open | 主代理与独立产品 reviewer 继续执行，尚未交接完整报告 |
+| R1-W1 人工批准未投影 | closed | Codex opt-in asked/decided 配对及有效 exact action/PTC 关联；批准明确限一次，不复活移出surface的动作；7 source tests passed，`/tmp/feat615-static-source-closure.log`；原 seam 现 hasManualAuthorization=true |
+| R1-W2 原生恢复/取消证据 | partially_closed | 锁定 DSH native fixture 新增 provider overflow rebuild 和父取消 late grant suppression，`/tmp/feat615-native-recovery.log` 1 test passed；共享deadline只有mock，未直接执行原生慢调查/持续工具的到期收尾 |
+
+原生 compaction 仍未被本轮独立触发。其识别/rebuild代码与预算 admission 静态核对、pure budget 与 mock recovery可复用；不得把 provider overflow fixture 记成 compaction 测试。剩余 W2 只需补 D7/M1 明列的原生调查过程中 shared deadline/收尾证据，不重复全部单测或真实模型任务。
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
@@ -86,14 +103,14 @@
 | Gateway MODIFIED：默认/来源/超窗适用 CC/DSH；旧子 Agent、规则切换、失败路径 | classifier.ts 提取原逻辑；approval.ts保留路由/never；sources默认选项不变 | approval现有测试 + source测试 + node继承测试 | aligned |
 | Gateway MODIFIED：逐 Agent 明确选择/清空/继承与下一轮 | product-contracts + Node runtime + existing apply/config scopes | API/Node/PA configuration tests | aligned |
 | Gateway ADDED：CC 普通文件快速放行及路径保护 | cc.ts + cc-workspace.ts + downstream facade | pure/native workspace tests | aligned |
-| Gateway ADDED：Codex 本地只读、精确 action、来源、连续并发、预算与失败审计 | codex/context/inspection/sources/audit | pure/native/mock覆盖，R1-W1/W2为更详细design缺口 | aligned at delta wording; implementation-mismatch against D4 |
+| Gateway ADDED：Codex 本地只读、精确 action、来源、连续并发、预算与失败审计 | codex/context/inspection/sources/audit；8aa3c8149 补 verified manual action | pure/native/mock 与 7 source tests；W2 为退出证据缺口 | aligned |
 | IM ADDED：选择、继承、省略保留、失败与下一轮 | shared UI + control/db/gateway + Node mode | API/Node tests；产品验收待补 | aligned at contract; evidence pending |
 
 ### Uncovered Observable Behavior
 
-没有发现 unit diff 中需要另加 delta 的独立外部行为。Codex low/medium 在缺授权时仍可能 allow 是已选择固定上游策略的行为，真实报告必须明确展示，不把它等同于“全部未授权动作拒绝”。人工授权保留应修实现，不静默删改设计来适配缺失。
+没有发现 unit diff 中需要另加 delta 的独立外部行为。Codex low/medium 在缺授权时仍可能 allow 是已选择固定上游策略的行为，真实报告必须明确展示，不把它等同于“全部未授权动作拒绝”。人工授权已在 8aa3c8149 修实现，未静默删改设计。
 
-Outcome: **implementation-mismatch**（R1-W1）；两个 corrected delta 的文本与已实现主链相符，不需要用改文档掩盖问题。
+Outcome: **aligned**（8aa3c8149 corrected-delta closure）；两个 corrected delta 的文本与最终已核对实现相符。完整 M1 仍受 C1/W2 证据门禁约束，aligned 不等于产品验收通过。
 
 ## Validation Evidence
 

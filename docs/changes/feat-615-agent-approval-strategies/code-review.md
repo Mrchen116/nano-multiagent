@@ -44,3 +44,20 @@
 - 命令：`pnpm exec vitest run packages/dsh-integration/tests/codex-approval.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/codex-approval-native.test.ts packages/dsh-integration/tests/approval-workspace.test.ts apps/im-server/tests/approval-configuration.test.ts apps/node/tests/configuration.test.ts packages/personal-assistant/tests/configuration.test.ts`。
 - 在上述冻结 head 执行：**7 files / 26 tests passed**；日志 `/tmp/feat615-static-review-tests.log`。
 - 没有修改实现、测试或运行配置；全量 CI、真实模型比较和产品验收由主代理及独立产品 reviewer 执行，不以本静态报告代替。
+
+## Round 2
+
+- Mode: `closure`，保留 Round 1 未变范围；另对修复提交的前端错误展示与 native 测试 delta 作 patch review。
+- Finding origin head: `ccf74c47c`；fix head: `8aa3c814946cc0d8296ff90d6a269b8d68f5ccd8`。
+- Focus finding `[P2] 将已验证的原生人工审批投影进 Guardian 证据`: **closed**。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+`ApprovalSources.history` 的 Codex opt-in 先按 approval id 配对宿主 asked/decided，仅允许 allowed-once 并按 toolName/callId 关联仍在有效消息 surface 的精确历史动作；PTC 也须保留 native root。输出带 user-approval 来源与明确一次性范围，不把旧批准扩成新授权；默认 CC 投影不变。source 回归覆盖正例、默认无投影、动作被移除及 rejected 不算批准。原复现脚本输出 `hasManualAuthorization=true`。独立 source suite **1 file / 7 tests passed**，日志 `/tmp/feat615-static-source-closure.log`。
+
+新增 native fixture 经过真实锁定 DSH，provider overflow 后 audit 为 rebuild，父取消后没有 cancel action allow/effect，四个 reviewer 均 dispose；主代理日志 `/tmp/feat615-native-recovery.log` 为 **1 file / 1 test passed**，可复用，不重复运行。预算 admission/原生 compaction/慢调查 deadline 的证据边界见 verification，不能把 provider overflow fixture称为真实 compaction。
+
+前端 patch 将已有 `errorMessage` 始终显示在 footer alert，解决保存失败只有 direct-chat error 时才显示的问题；相关冲突测试改为断言可见 alert。没有改保存、请求或运行配置语义；真实产品结果由独立 reviewer 验收。
