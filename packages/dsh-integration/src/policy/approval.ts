@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { BlockAssembler } from '@deepseek-ai/dsh-llm';
+import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -10,7 +11,7 @@ import type {} from '../product-bridge.js';
 import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
-import { ApprovalSources, inboxSourceInstructions, messageReviewInstructions } from './sources.js';
+import { ApprovalSources, inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions } from './sources.js';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
@@ -49,7 +50,7 @@ export class NanoApproval extends Service {
     const parentId = agent.session.header.parentSession;
     const parent = parentId && this.ctx.agents.get(parentId);
     if (agent.session.header.origin === 'subagent' && !agent.session.header.isSeeded && !delegated.get(agent.id) && parent) {
-      await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent)] });
+      await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global')] });
     }
     if (config.approval.enabled || config.approval.dangerouslySkipPermissions) this.ctx.permissionPresets.set(agent.session, 'auto');
     // Auto selects ask as a preset side effect; restore the native delegation boundary afterward.
@@ -60,16 +61,9 @@ export class NanoApproval extends Service {
   private async inherited(sessionId: string): Promise<unknown[]> {
     const saved = (await this.audit).table('delegated').get(sessionId);
     if (!saved) return [];
-    if (saved.epoch === this.epoch) return saved.entries;
-    // Previously observed host messages remain background after process recovery.
-    return saved.entries.map(entry => {
-      if (entry && typeof entry === 'object' && 'host_context_live' in entry) {
-        const { host_context_live, ...rest } = entry;
-        return { ...rest, host_context: host_context_live };
-      }
-      return entry;
-    });
+    return this.sources.restoreEntries(saved.entries, saved.epoch !== this.epoch);
   }
+
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
@@ -123,13 +117,23 @@ export class NanoApproval extends Service {
     let decision: ReviewDecision | undefined; let usage: unknown;
     try {
       const prompt = await buildPolicy(policy, agent.session.header.cwd!);
-      const transcript = await this.sources.transcript(agent, exec, await this.inherited(agent.id), messageContext);
+      const transcript = await this.sources.transcript(agent, exec, await this.inherited(agent.id), messageContext, config.mode !== 'global');
+      const model = await this.ctx.llm.resolveModelInfo(reviewer.provider, reviewer.model, exec.signal);
+      const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`;
       for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
         const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
         const assembly = new BlockAssembler();
         const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 ? 30_000 : 60_000)]);
-        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system: `${prompt}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`, messages: [{ role: 'user', content: [{ type: 'text', text: transcript + suffix }] }], temperature: 0,
-          maxTokens: stage === 1 ? 2112 : 10240, signal })) assembly.push(chunk);
+        const maxTokens = stage === 1 ? 2112 : 10240;
+        const userText = transcript + suffix;
+        // Public DSH estimator is a heuristic, not the provider tokenizer. Reserve the full stage output.
+        const estimatedInput = estimateContent([{ type: 'text', text: system }, { type: 'text', text: userText }]) + 8;
+        if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
+          throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
+        }
+        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system,
+          messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
+
         usage = assembly.usage;
         if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted') throw new Error(JSON.stringify(assembly.finish));
         const result = assembly.blocks().filter(block => block.type === 'text').map(block => block.text).join('');
