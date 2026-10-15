@@ -14,12 +14,13 @@ import { auditRows, leakedServices } from '@deepseek-ai/dsh-agent-preset-registr
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import type {} from '@deepseek-ai/dsh-hmr';
 import type { AgentConfiguration } from './index.js';
+import { describePluginApi, pluginApiTopics, type PluginApiTopic } from './plugin-development.js';
 
 const require = createRequire(import.meta.url);
 const anchor = require.resolve('@deepseek-ai/dsh/package.json');
 const inside = (root: string, path: string) => { const value = relative(root, path); return value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value); };
 interface Mount { ctx: Context; config: AgentConfiguration; tree: Include; namespace: string; baseline: Set<string>; tools: string[] }
-export interface PluginCommand { action: 'list_bundles' | 'install_bundle' | 'set_bundle' | 'remove_bundle'; target?: string; enabled?: boolean; approvedBuilds?: string[]; registry?: string }
+export interface PluginCommand { action: 'list_bundles' | 'describe_api' | 'install_bundle' | 'set_bundle' | 'remove_bundle'; topic?: PluginApiTopic; target?: string; enabled?: boolean; approvedBuilds?: string[]; registry?: string }
 
 type PluginText = string | Record<string, string>;
 export interface PluginView {
@@ -63,8 +64,8 @@ export class WorkspaceExtensions {
     }
     const owner = await pending;
     ctx.tools.register({ name: 'plugin_manager',
-      description: 'Create, install and manage standard DSH plugins in this configured workspace (tools, prompt sections, scoped listeners and isolated services). Actions: list_bundles, install_bundle (target local bundle directory or package spec), set_bundle (target bundle name and enabled), remove_bundle. list_bundles returns profileDir: edit its cordis.patch.yml to configure installed entries through the native workspace-only user overlay (hot applied). Never edit installed package files, runtime.json or the host profile. Create a local standard DSH bundle with package.json {name,version,type:"module",dsh:{bundle:{patch:"./cordis.patch.yml"}}}, a patch [{insert:[{id:"my-tool",name:"./tool.mjs"}]}], and a JS plugin exporting inject=["tools"] and apply(ctx) that calls ctx.tools.register with name, description, parameters, output {schema,render}, execute. A zero-tool plugin can export inject=["systemPrompt"] and apply(ctx) { ctx.systemPrompt.section({name:"report-style",order:850,text:"Format expense reports as a table."}); }. Use ctx.effect(() => () => cleanup()) for owned resources. Service providers and consumers must share a group:true entry with isolate:{serviceName:true}, config:[provider,consumer]; root service leakage is rejected. Configure existing bundle row ids via user overlay so disabling the bundle also removes their contribution. An isolated compaction provider in this workspace tree becomes the current Agent preset engine: host automatic compaction yields and manual compact routes to it; it does not require changing the host provider or restarting the session. Local entries must stay inside the bundle. Successful installation makes new tool names available now without editing the static allowlist. Fix failed local source and install its directory again. Bundles and dependencies persist across restart. approvedBuilds only after explicit user approval for pending build scripts. Package replacement outside local bundles can require restart.',
-      parameters: { type: 'object', properties: { action: { enum: ['list_bundles', 'install_bundle', 'set_bundle', 'remove_bundle'] }, target: { type: 'string' }, enabled: { type: 'boolean' }, approvedBuilds: { type: 'array', items: { type: 'string' } }, registry: { type: 'string' } }, required: ['action'], additionalProperties: false },
+      description: 'Create, install and manage standard DSH plugins in this configured workspace. For plugin development/configuration/debugging, load nano-plugin-development with the skill tool when available; respect disabled Skills. describe_api(topic: tool, prompt, service, events, compaction) returns current public API documentation paths and Nano support boundaries; read the relevant declarations before coding. list_bundles returns installed state and profileDir. install_bundle(target: local bundle directory or package spec), set_bundle(target: bundle name, enabled), remove_bundle(target: bundle name) manage persistent workspace bundles. Changes affect every Agent sharing this workspace; new independent tool names become available without editing static allowlists. Verify application and actual business behavior; failed or restart-required is not live success. Never edit installed package files, runtime.json or the host profile. Workspace plugins are trusted local code, not an OS sandbox. approvedBuilds only after explicit user approval for pending build scripts.',
+      parameters: { type: 'object', properties: { action: { enum: ['list_bundles', 'describe_api', 'install_bundle', 'set_bundle', 'remove_bundle'] }, topic: { enum: pluginApiTopics }, target: { type: 'string' }, enabled: { type: 'boolean' }, approvedBuilds: { type: 'array', items: { type: 'string' } }, registry: { type: 'string' } }, required: ['action'], additionalProperties: false },
       output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       timeoutMs: 600_000,
       isConcurrencySafe: () => false,
@@ -267,6 +268,7 @@ class WorkspaceOwner {
   command(args: PluginCommand, callId: string, signal: AbortSignal): Promise<unknown> {
     // Reads must never sit behind an operation waiting for the calling Agent to become idle.
     if (args.action === 'list_bundles') return this.managerRoot.pluginManager.listBundles().then(entries => ({profileDir: this.dir, entries: entries.filter(bundle => bundle.installed), diagnostics: this.diagnostics, ...(this.pending ? {pending: this.pending} : {})}));
+    if (args.action === 'describe_api') return Promise.resolve(describePluginApi(this.workspace, args.topic));
     if (this.pending) return Promise.resolve({application:'failed', error:{code:'busy',diagnostic:'A workspace plugin change is pending. Finish this turn and retry later.'}});
     const task = this.chain.then(() => this.execute(args, callId, signal));
     this.chain = task.catch(() => {});

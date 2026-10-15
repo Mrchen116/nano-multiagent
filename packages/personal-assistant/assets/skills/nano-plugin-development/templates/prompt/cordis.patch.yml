@@ -1,0 +1,3 @@
+- insert:
+    - id: workspace-report-format
+      name: ./prompt.mjs

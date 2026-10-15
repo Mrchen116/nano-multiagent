@@ -1,8 +1,9 @@
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, cp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
@@ -69,6 +70,20 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await start();
     expect(await capabilities('tools-a')).toContain('plugin_manager');
     expect(await capabilities('tools-empty')).toEqual([]);
+    for (const topic of ['tool', 'prompt', 'service', 'events', 'compaction']) {
+      const api = await manage({ action: 'describe_api', topic });
+      expect(api.error, api.text).toBe(false);
+      const value = JSON.parse(JSON.parse(api.text)[0].text);
+      expect(value).toMatchObject({workspace: await realpath(a), topic, runtimeVersion: expect.any(String)});
+      expect(value.packages.length).toBeGreaterThan(0);
+      for (const pkg of value.packages) {
+        expect(pkg.types.length).toBeGreaterThan(0);
+        for (const entry of pkg.types) expect(await readFile(entry.path, 'utf8')).toContain('export');
+      }
+      expect(api.text).not.toContain(b);
+    }
+    expect((await manage({ action: 'describe_api' })).error).toBe(true);
+    expect((await manage({ action: 'describe_api', topic: 'client' })).error).toBe(true);
     const bad = await manage({ action: 'install_bundle', target: source });
     expect(bad.text).toContain('BROKEN_WORKSPACE_SOURCE');
     expect(bad.text).toContain('failed');
@@ -113,6 +128,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(pending.pending).toMatchObject({target:'workspace-echo',enabled:false});
     expect(pending.entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(true);
     expect((await control({action:'list_bundles'})).pending).toBeTruthy();
+    expect((await call('tools-peer', 'plugin_manager', {action:'describe_api',topic:'tool'})).error).toBe(false);
     expect((await call('tools-peer','plugin_manager',{action:'set_bundle',target:'workspace-echo',enabled:true})).text).toContain('busy');
     await held;
     await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
@@ -181,6 +197,36 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect((await manage({ action: 'remove_bundle', target: 'workspace-echo' })).text).toContain('applied');
     expect((await manage({ action: 'remove_bundle', target: 'broken-workspace-tool' })).text).toContain('applied');
     expect(await capabilities('tools-a2')).not.toContain('workspace_echo');
+    // Shipped authoring templates must work through the real workspace installer,
+    // not just parse as JavaScript or resemble the documentation examples.
+    const templates = fileURLToPath(new URL('../../personal-assistant/assets/skills/nano-plugin-development/templates/', import.meta.url));
+    for (const template of ['tool', 'prompt', 'service']) {
+      const dir = join(a, `template-${template}`);
+      await cp(join(templates, template), dir, {recursive:true});
+      expect((await manage({action:'install_bundle',target:dir})).text).toContain('applied');
+    }
+    expect((await call('tools-a', 'workspace_total', {cents:[1250,3750,-500]})).text).toContain('4500');
+    expect(await prompt('tools-a')).toContain('待核对事项');
+    expect(await prompt('tools-b')).not.toContain('待核对事项');
+    expect((await call('tools-a', 'workspace_counted_echo', {text:'A_ONLY'})).text).toContain('A_ONLY');
+    expect(JSON.parse(JSON.parse((await call('tools-a','workspace_counter_status',{})).text)[0].text)).toBe(1);
+    const bService = join(b, 'template-service');
+    await cp(join(templates, 'service'), bService, {recursive:true});
+    await call('tools-b','plugin_manager',{action:'install_bundle',target:bService});
+    await call('tools-b','workspace_counted_echo',{text:'B_ONLY'});
+    expect(JSON.parse(JSON.parse((await call('tools-a','workspace_counter_status',{})).text)[0].text)).toBe(1);
+    await manage({action:'set_bundle',target:'workspace-call-counter',enabled:false});
+    expect((await call('tools-a','workspace_counted_echo',{text:'DISABLED'})).error).toBe(true);
+    expect((await call('tools-b','workspace_counted_echo',{text:'B_CONTINUES'})).error).toBe(false);
+    await manage({action:'set_bundle',target:'workspace-call-counter',enabled:true});
+    await call('tools-a','workspace_counted_echo',{text:'ONE_LISTENER'});
+    expect(JSON.parse(JSON.parse((await call('tools-a','workspace_counter_status',{})).text)[0].text)).toBe(1);
+    for (const name of ['workspace-total','workspace-report-format','workspace-call-counter']) {
+      await manage({action:'remove_bundle',target:name});
+    }
+    expect(await prompt('tools-a')).not.toContain('待核对事项');
+    expect(await capabilities('tools-a')).not.toContain('workspace_total');
+    expect(await capabilities('tools-a')).not.toContain('workspace_counter_status');
     const engine = join(a, 'scoped-compaction'); await mkdir(engine);
     const marker = join(a, 'compaction-owner');
     await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',dsh:{bundle:{patch:'./cordis.patch.yml'}}}));

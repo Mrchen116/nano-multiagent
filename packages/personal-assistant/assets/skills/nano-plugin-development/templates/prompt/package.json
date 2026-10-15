@@ -1,0 +1,1 @@
+{"name":"workspace-report-format","version":"1.0.0","type":"module","description":"为报销报告贡献固定结构","dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}
