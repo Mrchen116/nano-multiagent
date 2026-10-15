@@ -61,3 +61,18 @@
 新增 native fixture 经过真实锁定 DSH，provider overflow 后 audit 为 rebuild，父取消后没有 cancel action allow/effect，四个 reviewer 均 dispose；主代理日志 `/tmp/feat615-native-recovery.log` 为 **1 file / 1 test passed**，可复用，不重复运行。预算 admission/原生 compaction/慢调查 deadline 的证据边界见 verification，不能把 provider overflow fixture称为真实 compaction。
 
 前端 patch 将已有 `errorMessage` 始终显示在 footer alert，解决保存失败只有 direct-chat error 时才显示的问题；相关冲突测试改为断言可见 alert。没有改保存、请求或运行配置语义；真实产品结果由独立 reviewer 验收。
+
+## Round 3
+
+- Mode: `patch`；delta `8aa3c8149..ba88c18bcb9179d84b6765fcef8712f17b6db1bf`，仅 Guardian usage 与原生验证增强。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+`deriveTurnTokenUsage` 的公共契约要求一个完整 `turn/start..turn/end` 切片；此前 reviewer 的 `added` 可能含 turn 前入队事件，公共折叠器会把结果判 unavailable。现在按该轮边界截取，真实 native fixture 的 first action audit 包含 `uncachedInputTokens:10/outputTokens:5`，没有人工构造缓存总量或降级统计。
+
+新增 native 测试先运行真实 host-owned `guardian_read`，随后等待信号，整次约90秒后得到 classifier_unavailable/no_verdict；原动作未 allow/执行，所有五个 reviewer 都 dispose。异步并发改为 parallel-a 延迟80ms返回allow、parallel-b即刻deny，独立callId与rationale映射及不同sessionId通过，能够发现错序串判。最终修正 schema 字段后的 `/tmp/feat615-native-final.log`：**1 file / 1 test passed，92.59s**。首次 `/tmp/feat615-native-deadline.log` 的末尾断言把公开 `uncachedInputTokens` 写成 `inputTokens`，已保留失败；其中90秒超时与拒绝原动作是真实观察，不将首次整项失败写成通过。
+
+原生 compaction 没有被此测试主动触发；provider overflow、mock预算恢复与静态 compaction 分支核对各自保留证明范围。未重复全量 CI 或真实模型比较。

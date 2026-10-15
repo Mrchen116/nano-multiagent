@@ -96,6 +96,16 @@
 
 原生 compaction 仍未被本轮独立触发。其识别/rebuild代码与预算 admission 静态核对、pure budget 与 mock recovery可复用；不得把 provider overflow fixture 记成 compaction 测试。剩余 W2 只需补 D7/M1 明列的原生调查过程中 shared deadline/收尾证据，不重复全部单测或真实模型任务。
 
+## Round 3 — evidence closure and usage patch
+
+- Validated product head: `ba88c18bcb9179d84b6765fcef8712f17b6db1bf`；delta `8aa3c8149..ba88c18bc`。
+- Verdict: **1 CRITICAL / 0 WARNING 尚未关闭**。R1-W2 已关闭；R1-C1 仍待综合产品与真实比较报告。
+- requires_full_verification: `false`。
+- R1-W2 closed：真实锁定 DSH 原生调查工作流先执行 guardian_read，随后模型等待信号，90秒共享deadline触发classifier_unavailable/no_verdict；没有晚到allow或原动作effect，五个reviewer全部dispose。最终测试 `/tmp/feat615-native-final.log` **1 file / 1 test passed，92.59s**。与原有mock的一次deadline/重试不续期、native父取消/overflow证据组合，覆盖D7/M1所列整体时限与收尾风险。
+- 新增并发错序观察：parallel-a延迟80ms allow，parallel-b即刻deny；分别断言decision/rationale及不同fork sessionId，结果正确。
+- Usage patch：按public API将原生新增事件限于turn/start至turn/end；native audit验证uncachedInputTokens10/outputTokens5。源码和API证据见code-review Round3。
+- 首次native deadline测试末尾usage字段误写而失败的日志保留于`/tmp/feat615-native-deadline.log`；最终schema字段修正后通过。原生compaction仍未独立触发，预算 admission/compaction 的静态与pure/mock证据边界保持，不虚构直接场景。
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
@@ -103,14 +113,14 @@
 | Gateway MODIFIED：默认/来源/超窗适用 CC/DSH；旧子 Agent、规则切换、失败路径 | classifier.ts 提取原逻辑；approval.ts保留路由/never；sources默认选项不变 | approval现有测试 + source测试 + node继承测试 | aligned |
 | Gateway MODIFIED：逐 Agent 明确选择/清空/继承与下一轮 | product-contracts + Node runtime + existing apply/config scopes | API/Node/PA configuration tests | aligned |
 | Gateway ADDED：CC 普通文件快速放行及路径保护 | cc.ts + cc-workspace.ts + downstream facade | pure/native workspace tests | aligned |
-| Gateway ADDED：Codex 本地只读、精确 action、来源、连续并发、预算与失败审计 | codex/context/inspection/sources/audit；8aa3c8149 补 verified manual action | pure/native/mock 与 7 source tests；W2 为退出证据缺口 | aligned |
+| Gateway ADDED：Codex 本地只读、精确 action、来源、连续并发、预算与失败审计 | codex/context/inspection/sources/audit；8aa3c8149 补 verified manual action | pure/native/mock、7 source tests、90秒原生deadline/drain及usage测试 | aligned |
 | IM ADDED：选择、继承、省略保留、失败与下一轮 | shared UI + control/db/gateway + Node mode | API/Node tests；产品验收待补 | aligned at contract; evidence pending |
 
 ### Uncovered Observable Behavior
 
 没有发现 unit diff 中需要另加 delta 的独立外部行为。Codex low/medium 在缺授权时仍可能 allow 是已选择固定上游策略的行为，真实报告必须明确展示，不把它等同于“全部未授权动作拒绝”。人工授权已在 8aa3c8149 修实现，未静默删改设计。
 
-Outcome: **aligned**（8aa3c8149 corrected-delta closure）；两个 corrected delta 的文本与最终已核对实现相符。完整 M1 仍受 C1/W2 证据门禁约束，aligned 不等于产品验收通过。
+Outcome: **aligned**（ba88c18bc corrected-delta closure）；两个 corrected delta 的文本与最终已核对实现相符。完整 M1 仍受 C1 产品/对照证据门禁约束，aligned 不等于产品验收通过。
 
 ## Validation Evidence
 
