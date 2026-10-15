@@ -18,6 +18,7 @@ import {
   reasoningEffortAfterModelChange,
 } from "./model-reasoning-field";
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
+import { AgentPluginsPanel } from "./agent-plugins-panel";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentWorkPanel } from "./agent-work-panel";
@@ -695,7 +696,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
 }
 
 type SkillsUsageView = "list" | "agent" | "health";
-type AgentDetailSection = "work" | "overview" | "config" | "channels" | "skills" | "sessions";
+type AgentDetailSection = "work" | "overview" | "config" | "channels" | "skills" | "plugins" | "sessions";
 
 const CONTRIBUTION_DAYS = 365;
 const HEATMAP_DATA_DAYS = 30;
@@ -1615,13 +1616,13 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
-              <button
+              {activeSection === "config" && <button
                 className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
                 type="submit"
                 disabled={mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
               >
                 {headerSaveText}
-              </button>
+              </button>}
             </div>
           )}
         </div>
@@ -1645,6 +1646,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
             ["config", t("agents.detail.sections.config")],
             ["channels", t("agents.detail.sections.channels")],
             ["skills", t("agents.detail.sections.skills")],
+            ["plugins", t("agents.detail.sections.plugins")],
             ["sessions", t("agents.detail.sections.sessions")],
           ] as Array<[AgentDetailSection, string]>).map(([section, label]) => (
             <button
@@ -1669,6 +1671,8 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           <AgentWorkPanel agentId={agentId} />
         ) : activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
+        ) : activeSection === "plugins" ? (
+          <AgentPluginsPanel agentId={agentId} />
         ) : activeSection === "overview" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.overview")}>
             {t("agents.detail.sections.overviewPlaceholder")}
@@ -1870,6 +1874,16 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
             <PillSelector
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
+              labelAction={
+                <button
+                  type="button"
+                  className="inline-flex min-h-8 items-center gap-1 rounded px-1 text-sm text-[var(--im-accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--im-accent)]"
+                  onClick={() => setActiveSection("plugins")}
+                >
+                  {t("agents.plugins.manage")}
+                  <span aria-hidden="true">→</span>
+                </button>
+              }
               selected={draft.tool_allowlist}
               fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
               options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}

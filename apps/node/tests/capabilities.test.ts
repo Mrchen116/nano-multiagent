@@ -3,7 +3,7 @@ import { projectCapabilities } from "../src/capabilities.js";
 import type { NodeConfigurationFile } from "../src/configuration.js";
 it("exposes selectable effort and native Workflow commands without a duplicate slash", () => {
   const catalog = {
-    tools: [{ name: "workflow", description: "workflow" }],
+    tools: [{ name: "workflow", description: "workflow" }, {name: "expense_summary", description: "Expenses", source_group: "workspace" as const, enabled: true}],
     skills: [],
     workflows: [{ name: "saved", description: "Saved workflow" }],
   };
@@ -25,7 +25,9 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
     model: "test",
     toolAllowlist: ["workflow"],
   };
-  const commands = projectCapabilities(catalog, node, agent).commands;
+  const capabilities = projectCapabilities(catalog, node, agent);
+  expect(capabilities.tools.find(tool => tool.name === "expense_summary")).toMatchObject({source_group: "workspace", enabled: true, default_on: false});
+  const commands = capabilities.commands;
   expect(commands.map((command) => command.name)).toEqual([
     "new",
     "stop",

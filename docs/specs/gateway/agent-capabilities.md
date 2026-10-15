@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-601
+> 对齐: feat-610
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -222,11 +222,11 @@ Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id �
 
 ### Requirement: Agent 工具集由 tool_allowlist 真白名单决定并在执行层强制，能力特性按 requires_tool 联动其工具
 
-本条以下恰等于配置白名单、显式空集和不自动扩宽的规则及 Scenario 适用于 `single_thread`。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
+本条的静态工具选择规则适用于 `single_thread`。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大静态默认工具、显式空集或子任务限制。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
 
 任务图特性被显式关闭时，`task_graph` 从该 Agent 的有效工具集排除；这一有限例外及预览、下一轮生效规则见 [任务图规范](task-graphs.md)。
 
-Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时 Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有任何工具**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的 `tool_allowlist` 一致，无分裂。
+Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：除上述 workspace 自建工具的有限增量外，非空时 Agent 静态工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有任何工具**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的 `tool_allowlist` 一致，无分裂。
 
 #### Scenario: 用户禁用某默认工具后该工具不再提供
 - **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
@@ -241,7 +241,7 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 #### Scenario: 显式工具白名单不被默认集合自动扩宽
 - **GIVEN** PA agent 已持久化非空 `tool_allowlist`
 - **WHEN** Gateway 为该 agent 创建新 session
-- **THEN** session 只启用该白名单列出的工具
+- **THEN** session 的静态工具只启用该白名单列出的工具；仅在启用 `plugin_manager` 时按已安装 workspace 工具集合增加独立工具名
 - **AND** 若白名单不含 `skill`,session 不启用 `skill`
 
 #### Scenario: 启用 Cron 能力提供允许的原生调度工具
@@ -619,3 +619,43 @@ Agent 使用 `skills_selection_mode=explicit_denylist`，`skills` 保存禁用�
 - **GIVEN** 节点尚未完成认证迁移
 - **WHEN** 节点离线工作或旧模式会话继续执行
 - **THEN** 历史 default discovery 保持发现行为，显式 allowlist 包括空名单仍按原选择限制；不凭缺失候选推断禁用名单
+
+### Requirement: Agent 可在 workspace 自助安装原生工具
+
+Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创建标准 DSH bundle（包括工具、提示词和其他适用 workspace scope 的插件贡献），安装、启用、停用和移除。新增且不与既有工具名冲突的 workspace 工具自动并入该 Agent 的有效集合，不要求人工修改白名单。静态工具选择和禁用保持；关闭管理能力或显式空工具集不自动获得这些工具。子任务保留既有继承与角色限制。bundle 的启停由管理入口控制。
+
+#### Scenario: 安装后既有聊天立即使用
+- **WHEN** Agent 成功安装并启用 workspace 工具
+- **THEN** 同 workspace 既有及新聊天可使用它，不需重启；其他 workspace 不可发现或执行
+
+#### Scenario: 失败不声称已启用
+- **WHEN** 包安装或实际加载失败
+- **THEN** Agent 收到失败状态和真实诊断；包管理成功不代替执行可用证据
+
+#### Scenario: 重启和撤销
+- **WHEN** 节点重启或 Agent 停用/移除已安装 bundle
+- **THEN** 重启保留持久选择，停用/移除后后续调用不可执行对应工具
+
+#### Scenario: 保留其他工具选择
+- **GIVEN** 已有禁用工具或显式空集
+- **WHEN** 该 workspace 安装新增工具
+- **THEN** 既有禁用选择不改变，空集不自动扩宽
+
+#### Scenario: 非工具插件及整体停用
+- **WHEN** Agent 安装不注册工具的提示词插件，随后用户停用或重新启用
+- **THEN** 当前 workspace 的提示词贡献生效、撤销或恢复，其他 workspace 不受影响；DSH 生命周期管理的资源一并回收
+
+#### Scenario: 网页与聊天管理同一原生插件状态
+- **WHEN** 已认证的所属用户从 Agent 设置管理插件
+- **THEN** Node 从可信 Agent 配置解析 workspace，网页与聊天操作同一份持久安装和启用状态，不修改宿主全局 profile
+- **AND** 忙碌时网页操作等待 workspace 执行空闲，状态查询仍可用，并发管理明确返回忙碌而不死锁；未完成操作不报成功
+
+#### Scenario: 停用状态在更新时保留
+- **GIVEN** 已安装包处于停用
+- **WHEN** Agent 更新同名包且没有显式要求开启
+- **THEN** 包仍停用，重启保持已完成的选择
+
+#### Scenario: 第三方插件的宿主依赖与 workspace 配置
+- **WHEN** Agent 安装声明兼容当前 DSH 的第三方 bundle，并通过 workspace 原生 user overlay 配置其服务作用域
+- **THEN** 插件可复用宿主公开依赖，配置在该 workspace 热应用；不要求复制运行时、修改宿主 profile 或静态工具白名单
+- **AND** 该 preset 提供压缩引擎时，自动与人工压缩由该引擎负责；停用后恢复默认引擎，其他 workspace 保持原有行为

@@ -43,3 +43,22 @@ it('keeps session effort, compacts with focus once and restores selected Skill i
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },20000);
+
+it('leaves automatic compaction to the preset engine and routes manual compaction to it', async () => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const { default: NanoCompaction } = await import('../lib/compaction.js');
+  const ctx = new Context();
+  const agent = {} as Parameters<InstanceType<typeof NanoCompaction>['compactIfNeeded']>[0];
+  const signal = new AbortController().signal;
+  const calls: unknown[][] = [];
+  const engine = { compactNow: async (...args: unknown[]) => {calls.push(args); return null;} };
+  ctx.provide('agentPresets', {serviceFor: (selected: unknown, service: string) => selected === agent && service === 'compaction' ? engine : undefined} as never);
+  const fallback = new NanoCompaction(ctx, {auto:false});
+  // The preset owns its hooks; the host must not measure or summarize the same turn a second time.
+  expect(await fallback.compactIfNeeded(agent, 'pressure', signal)).toBeNull();
+  expect(await fallback.compactIfNeeded(agent, 'context-overflow', signal)).toBeNull();
+  expect(calls).toEqual([]);
+  await fallback.compactFocused(agent, 'focus', signal, 'owned-command' as never);
+  expect(calls).toEqual([[agent, signal, 'owned-command']]);
+  await ctx.fiber.dispose();
+});

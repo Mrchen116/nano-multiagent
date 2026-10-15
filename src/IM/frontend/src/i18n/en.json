@@ -350,7 +350,8 @@
         "sessions": "Sessions",
         "overviewPlaceholder": "The overview page is not included in this release. It will be designed separately.",
         "channelsPlaceholder": "The channels page is not included in this release. It will be designed separately.",
-        "sessionsPlaceholder": "The sessions page is not included in this release. It will be designed separately."
+        "sessionsPlaceholder": "The sessions page is not included in this release. It will be designed separately.",
+        "plugins": "Plugins"
       }
     },
     "channels": {
@@ -781,7 +782,33 @@
     "globalMode": "Global mode",
     "threadMode": "Single Thread mode",
     "mine": "Mine",
-    "search": "Find Agent"
+    "search": "Find Agent",
+    "plugins": {
+      "title": "Plugins",
+      "description": "Enable or disable plugins installed by your assistant.",
+      "refresh": "Refresh",
+      "scope": "Shared with Agents in this workspace",
+      "scopeHelp": "Plugins are shared by Agents in this workspace. Disabling keeps the package installed; tool permissions are managed separately in Config.",
+      "loading": "Loading plugins…",
+      "unavailable": "Plugin status is unavailable",
+      "operationFailed": "Plugin change failed",
+      "retryHelp": "Refresh to read the current state before trying again.",
+      "empty": "No plugins yet",
+      "emptyHelp": "Try asking in chat: “Create a plugin that formats my expense reports.”",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "failed": "Needs attention",
+      "waiting": "Waiting for this workspace to become idle. Current work continues.",
+      "applying": "Applying the change and releasing plugin resources…",
+      "details": "Details",
+      "entries": "Plugin entries",
+      "confirmTitle": "Uninstall {{name}}?",
+      "confirmHelp": "This removes the installed package for all Agents sharing this workspace. Your source files are kept.",
+      "confirmUninstall": "Confirm uninstall",
+      "cancel": "Cancel",
+      "uninstall": "Uninstall",
+      "manage": "Manage plugins"
+    }
   },
   "chat": {
     "conversationMenu": {

@@ -1,4 +1,5 @@
 import * as Label from "@radix-ui/react-label";
+import type { ReactNode } from "react";
 
 // M19/R11-3: prototype `im-components.jsx::MultiSelect` 视觉重写 —
 // 全部 options 平铺 pill (不是 picker / 浮层 / checkbox grid),每项 <button>
@@ -9,11 +10,14 @@ import * as Label from "@radix-ui/react-label";
 export type PillOption = {
   name: string;
   description?: string;
+  source_group?: string | null;
+  enabled?: boolean;
 };
 
 type PillSelectorProps = {
   testId: string;
   label: string;
+  labelAction?: ReactNode;
   selected: string[];
   fixed?: string[];
   options: PillOption[];
@@ -26,6 +30,7 @@ type PillSelectorProps = {
 export function PillSelector({
   testId,
   label,
+  labelAction,
   selected,
   fixed = [],
   options,
@@ -34,6 +39,7 @@ export function PillSelector({
   onRetry,
   onChange,
 }: PillSelectorProps) {
+  const selectable = options.filter(opt => opt.source_group !== "workspace");
   function isSelected(opt: PillOption): boolean {
     return selected.includes(opt.name) || fixed.includes(opt.name);
   }
@@ -45,7 +51,10 @@ export function PillSelector({
 
   return (
     <div className="im-agent-field">
-      <Label.Root>{label}</Label.Root>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <Label.Root>{label}</Label.Root>
+        {labelAction}
+      </div>
       {isLoading && options.length === 0 ? (
         <p className="text-sm text-slate-500">…</p>
       ) : errorMessage ? (
@@ -64,10 +73,10 @@ export function PillSelector({
           role="group"
           aria-label={label}
         >
-          {options.length === 0 ? (
+          {selectable.length === 0 ? (
             <p className="text-sm text-slate-500">—</p>
           ) : (
-            options.map((opt) => {
+            selectable.map((opt) => {
               const isOn = isSelected(opt);
               return (
                 <button
@@ -92,6 +101,7 @@ export function PillSelector({
           )}
         </div>
       )}
+
     </div>
   );
 }

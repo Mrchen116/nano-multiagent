@@ -1,5 +1,6 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { randomUUID } from 'node:crypto';
+import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
@@ -225,7 +226,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { protocol: number; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { protocol: number; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
@@ -236,6 +237,7 @@ export default class NanoRuntime {
       await knowledgeFiber.await();
       await (await knowledge).recover();
       await ctx.loader.await();
+      configurationService.packageManager(config.packageManager);
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
       for (const agent of config.agents) {
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
@@ -296,6 +298,18 @@ export default class NanoRuntime {
       if (!config) throw new RpcError(-32004, 'Unknown product Agent');
       return preview(config, cwd, true);
     });
+    handle('plugins.manage', async value => {
+      const command = value as import('./workspace-tools.js').PluginCommand & {agentId: string};
+      const entry = [...this.configurations].find(([, config]) => config.agentId === command.agentId);
+      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
+      const preset = await ctx.agentPresets.acquireScope(entry[0]);
+      try {
+        const {view, settled} = await (await configuration).managePlugins(entry[1], command);
+        // An accepted background operation must keep its native preset alive through teardown.
+        void settled.finally(() => preset[Symbol.asyncDispose]()).catch(error => ctx.logger.error(error));
+        return view;
+      } catch (error) { await preset[Symbol.asyncDispose](); throw error; }
+    });
     handle('configuration.selection', async value => {
       const { agentId, cwd } = value as { agentId: string; cwd: string };
       const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
@@ -304,7 +318,7 @@ export default class NanoRuntime {
       const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
       try {
         await diagnostic.ctx.plugin(SelectedSkills, entry[1]).await();
-        return { tools: ctx.tools.schemas(key).map(tool => tool.name).filter(name => entry[1].toolAllowlist === undefined || entry[1].toolAllowlist.includes(name)),
+        return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
           skills: await ctx.skills.list({ scope: key, cwd }) };
       } finally { await diagnostic.dispose(); }
     });

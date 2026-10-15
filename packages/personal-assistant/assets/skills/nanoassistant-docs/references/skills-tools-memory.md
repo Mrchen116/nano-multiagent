@@ -45,6 +45,28 @@ Skill 是按需加载的专业知识或工作流，不会因为处于启用状�
 - 不保存一次性任务进度、临时状态、容易重新发现的琐碎信息或敏感秘密。
 - Memory 在未来轮次注入；若用户问“你记住了什么”，应依据当前可见 memory，而不是凭空复述。
 
-## 自建工具
+## 自建插件与工具
 
 使用标准 DSH plugin/bundle。个人共享层为 `~/.nanoassistant/plugins.json`，workspace 层为 `<workspace>/.nanoassistant/plugins.json`；局部同名工具优先。安装不自动取消 Agent 的工具选择限制。Python 程序可以由原生工具通过明确参数调用，旧 `agent.sdk` Tool 适配器需要转换，不能继续动态加载。
+
+Agent 启用 `plugin_manager` 后，可以自己创建并安装 workspace 标准插件（工具、提示词、scope 内监听器和隔离服务），无需逐个添加工具白名单或重启。管理入口只管理当前配置 workspace；不会改其他 workspace 或节点公共 profile。动作使用 `list_bundles`、`install_bundle`、`set_bundle`、`remove_bundle`。安装得到的新独立工具名自动可用，原有静态工具的禁用选择保持；关闭管理能力或显式空工具集不自动获得这些工具。自建能力按 bundle 停用或移除。
+
+创建本地工具时，在当前 workspace 建一个独立 bundle 目录：`package.json` 声明 `name`、`version`、`type: module` 和 `dsh.bundle.patch: ./cordis.patch.yml`；patch 插入 `name: ./tool.mjs` 的插件；JS 插件导出 `inject = ['tools']` 与 `apply(ctx)`，通过 `ctx.tools.register` 声明名称、描述、参数、`output {schema, render}` 和执行函数。Python 可以作为 bundle 中的脚本由该执行函数调用。把 bundle 的目录传给 `plugin_manager install_bundle`，然后实际调用新工具验证。
+
+本地安装在 `<workspace>/.nanoassistant/dsh-plugins/` 保存标准 DSH profile 和独立版本产物；重启不会重写这些状态。修改源目录后再次安装会生成新版本，所以首次源码加载失败后也可修正并重试。不要修改已安装版本产物。`list_bundles` 返回 `profileDir`；需要配置第三方插件时，修改该目录下的 `cordis.patch.yml` 原生 user overlay，系统会热应用。只覆盖该 bundle 已声明的行（例如行级 `isolate`、`config`），这样停用 bundle 时对应贡献也会撤销；不要独立插入一份不随 bundle 开关的副本。不要改 `runtime.json` 或宿主 profile。宿主 DSH peer 依赖由原生解析器复用，无需在 workspace 再装一份运行时。只有结果 `application: applied` 且真实工具调用成功，才能声称已可用；`failed` 要按诊断修正。普通 registry/git 包的替换可能返回 `restart-required`，不能声称已经在线生效。构建脚本授权仍需用户明确同意，不从一般工具安装请求推断。
+
+插件不必提供工具。例如 `style.mjs` 可以写：
+
+```js
+export const inject = ['systemPrompt'];
+export function apply(ctx) {
+  ctx.systemPrompt.section({name: 'expense-report-style', order: 850, text: '报销报告先给总额，再用分类表格列明细。'});
+  // 自建资源通过 ctx.effect(() => () => cleanup()) 管理，停用时由原生生命周期释放。
+}
+```
+
+标准 patch 插入 `{id: 'expense-report-style', name: './style.mjs'}`，安装后通过真实回复核实效果。普通服务不会因 workspace scope 自动隔离：provider 和 consumer 放入同一个 `{id:'report-group', name:'cordis:group', group:true, isolate:{reportService:true}, config:[provider,consumer]}`；根服务泄漏会被拒绝并返回诊断。局部源入口必须留在 bundle 内。支持当前 preset 可用的原生能力，不替换节点宿主 runtime。
+
+用户可在 Agent 设置的“插件”页查看所有已安装包，包括没有工具、已关闭或加载失败的插件。关闭通过原生选择停用整个包并回收受管资源，保留安装包和源码；卸载是单独确认的移除操作。两者影响共享此 workspace 的所有 Agent，网页在空闲安全边界应用并显示等待状态，不需要额外保存或重启 session。同名停用插件更新默认保持停用，可显式 enabled:true 重新启用。网页管理权限与 Agent 能否调用 plugin_manager 分开。
+
+压缩引擎插件：当前 workspace 插件树属于 Agent preset。通过原生 user overlay 给已安装 bundle 的现有条目配置 `isolate: {compaction: true}`（相关 provider/consumer 需共享隔离 group），该引擎由 preset 发现；Nano 默认自动压缩会让出处理权，人工 `/compact` 也路由到它。无需停用宿主默认 provider，也无需为首次激活重启会话。若插件自身有 model surface 或存储路径配置，按其文档在 workspace overlay 中设置；工具实际可见、调用成功和 compaction 事务完成仍需分别验证。

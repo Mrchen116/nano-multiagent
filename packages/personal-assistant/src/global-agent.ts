@@ -321,6 +321,8 @@ export class GlobalAgent {
           const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
           if (event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
             const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
+            // Keep Web receipts durable until reconnect; external channel receipts remain local.
+            if (this.options.relay.ready === false && !entry.input.relay_task_id.startsWith('external:')) continue;
             await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
           }
           const projected = projectWorkEvent(binding.sessionId, event, events);

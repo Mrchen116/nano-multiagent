@@ -1,0 +1,172 @@
+# Code Review: feat-610
+
+## Metadata
+
+- reviewer: independent agent `workspace_tools_static_review`
+- review_mode: full
+- completed_at: 2026-10-15T00:05:00+08:00
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `33ef0d76d342a10c411ccbc0828f82d0d564e810`
+- scope: complete `origin/main..HEAD` implementation diff; spec/design/design-review and corrected gateway delta.
+- findings: `[]`
+
+## Verdict
+
+Approved. No confirmed or plausible actionable defect remains in the reviewed implementation. This is code and contract review; independent product acceptance remains separate.
+
+## Coverage and evidence
+
+- Reviewed all eight changed implementation, test, manual, dependency and lock files. Startup still disables the host-global management tool; the new tool is registered in a trusted workspace preset (`workspace-tools.ts:42-64`). Workspace identity is canonicalized from configuration, and model arguments cannot select another profile.
+- Native PluginManager owns package transactions in a workspace-only management Context (`79-94`, `166-209`). Execution uses native Include and the host HMR queue. No runtime fork, private import, cache rewrite, second execution loop or separate permission database was introduced.
+- Local bundle staging produces distinct generations, validates executable entries inside that generation, and parses execution patches from the persisted `file:` source rather than pnpm's hoisted copy (`96-109`, `149-164`). The published APIs and imports were checked against the installed locked packages and the pinned upstream reference.
+- Actual Loader/fiber audit precedes an `applied` result; failed rows are retired without dropping unrelated working entries (`111-147`, `202-208`). Source evaluation failure, corrected reinstall and immediate same-turn dispatch are protected by `workspace-tools.test.ts:62-69`; an unrelated failed bundle leaves a good tool callable at `79-84`.
+- Dynamic names exclude names present before managed installation (`56`, `144`). ToolSelection requires management permission for additions, preserves explicit empty sets and existing selections, and applies the same collection to execution and configuration selection (`capabilities.ts:24-29,47-59`; `index.ts:318`). Native child composition restrictions intersect across the scope chain; this implementation does not replace or dispose the child's inherited mask.
+- The native process regression covers same-workspace chats, actual cross-workspace dispatch rejection, disabled static `read`, explicit empty selection, restart, disable/re-enable and removal (`workspace-tools.test.ts:70-101`). Existing capabilities, knowledge-policy and communication-native coverage remains applicable.
+- Reused implementation evidence at the validated revision: `pnpm build`, `pnpm typecheck` pass; `pnpm test`: 84 files / 313 tests pass (`/tmp/nano-feat610-tests.log`, inspected). Additional caller evidence: non-E2E pytest 56 pass / 31 deselected; frontend 94 files / 881 tests pass; Ruff check/format pass.
+- Independently executed `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract/test_runtime_dependency_contract.py`: 13 pass. `git diff --check origin/main..HEAD` passes.
+
+## Findings JSON
+
+```json
+[]
+```
+
+The caller identified a relative documentation link requiring a path-only correction during closeout; it does not alter the reviewed contracts or code. No source, tests, configuration or design were modified by this reviewer.
+
+## Round 2 — Installed package-manager patch
+
+- review_mode: patch
+- diff_range: `c4822c94f6c388fc4807a2bc88a199b581f42e03..d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `d7265f0a3a11a3467d9acb421ad6e45ec4721fbd`
+- completed_at: 2026-10-15T00:20:00+08:00
+- verdict: Approved; findings `[]`.
+
+The patch fixes the observed `spawn pnpm ENOENT` in environments without global pnpm. Review is limited to the new installed command, trusted initialization plumbing, affected regression and documentation changes; Round 1's core implementation conclusions are retained.
+
+- `apps/node/src/release.ts:40-43` derives `../../tooling/node_modules/pnpm/bin/pnpm.cjs` from the verified release directory. This matches `apps/im-server/assets/install.sh:43-46,65` (`<install-root>/tooling`, `<install-root>/releases/<hash>`) and `apps/node/src/update-worker.ts:22,34-35`. `process.execPath` supplies an absolute Node invocation, and its directory is added only to the package operation environment. Source releases return no override.
+- `apps/node/src/main.ts:61` sends that Node-owned fact over the existing stdio initializer. `packages/dsh-integration/src/index.ts:251` installs it after Loader readiness and before any configured Agent preset registration. `agent-config.ts:41` passes it to WorkspaceExtensions, which captures it on workspace owner creation (`workspace-tools.ts:47,80-87`). RuntimeSupervisor repeats initialization on process restarts; all owner creation paths therefore receive the same invocation.
+- Integration uses the published `ProfilePnpmInvocation` / `ProfileContext.packageManager` seam; Node does not import DSH. The installed package exports and native manager support command, argument and environment overrides. Independent runtime dependency contract rerun at the new snapshot: **13 passed**. Patch whitespace check passed.
+- Inspected `/tmp/feat610-pinned-pnpm-red.log`: real install failed with exit 127 / `spawn pnpm ENOENT`. Inspected `/tmp/feat610-pinned-pnpm-green.log`: **2 files / 4 tests passed**. Workspace regression now hides runtime PATH, supplies a real absolute pnpm invocation through initialize, and completes installation, failed-source repair, isolation, restart and revocation. The node-updater fixture independently executes the derived private CLI path, rather than only comparing its string. Build/typecheck success is caller-provided evidence at this snapshot.
+- `acceptance.md` records the independent real-LLM **7/7** journey at `33ef0d76d`; its product behavior evidence remains applicable. This patch supplies the missing installer execution command and changes neither workspace selection, permission filtering, lifecycle semantics nor user-facing tool protocol. No full product re-acceptance is required for this delta. It does not claim a published installer/fleet deployment was performed.
+- Final snapshot suite results inspected: `pnpm test` **84 files / 313 tests passed** (`/tmp/feat610-final-tests.log`); non-E2E pytest **56 passed / 31 deselected** (`/tmp/feat610-final-pytest.log`). Independent design-review R4 passed with 0 CRITICAL / 0 WARNING; isolated product services were cleaned by caller.
+
+```json
+[]
+```
+
+No source, tests, configuration or design were modified by this reviewer; only this report and verification were appended.
+
+## Round 3 — Workspace availability display and source classification
+
+- review_mode: patch
+- diff_range: `d8f3a6b0d0435ef6b33f24d5e0f063b073ec194a..4122379c8ef39fc110c553302ea23081830f595f`
+- executed_base: `9182699fca58d42fbf166f3de7445c635dcb3527`
+- validated_at: `4122379c8ef39fc110c553302ea23081830f595f`
+- completed_at: 2026-10-15T00:40:00+08:00
+- verdict: Approved; findings `[]`.
+
+Reviewed the entire patch, including reopened unit documents, the new IM delta and bounded prototype contract. This review does not count component tests or the unrendered prototype as browser acceptance.
+
+- `WorkspaceOwner.refresh()` now records currently present non-managed names before each Include update, while preserving previous managed names. This admits late static contributions into the static baseline without misclassifying a previously installed workspace tool. Disabled/removal names disappear from the resulting callable view. The repeated native catalog regression reproduces the formerly misclassified `schedule_*` names, now asserts exactly `workspace_echo` as the workspace source, and confirms `schedule_create` is still unavailable to the restricted Agent. Inspected the red reproduction log and the green native test result.
+- `ToolSelection.catalog()` adds workspace source and effective availability only to names derived from that managed collection. It computes availability through the same selection method used for dispatch and restores its temporary restriction in `finally`. It does not change tool registration, execute methods, approval or persisted allowlists.
+- Node preserves source/availability and sets workspace `default_on=false`; IM's shared Agent/node capability normalizer preserves boolean availability. Frontend normalization retains both fields. The metadata therefore survives the actual runtime → Node → IM → frontend path; the new Node and IM tests protect those boundaries.
+- `PillSelector` now groups only workspace-source tools into read-only availability cards; its only product callers are the create/detail tool fields. Skills use the distinct SkillSourceSelector, so workspace skills remain editable. Static buttons retain their original toggling behavior. Workspace cards expose name, description, status and chat management guidance without an ineffective switch.
+- Detail saving continues to serialize `draft.tool_allowlist`, initialized from stored configuration; the capability catalog does not append dynamic names. Create defaults include only `default_on=true`, so the Node projection prevents workspace names from becoming static defaults. The component regression confirms toggling `read` emits only the static choices and changing availability emits no onChange. Existing page/configuration tests continue to protect form submission.
+- Inspected test logs at the fixed revision: narrow native **3 files / 18 tests passed** (`/tmp/feat610-ui-native-tests.log`), frontend **3 files / 37 tests passed** (`/tmp/feat610-ui-frontend-tests.log`); full native **84 files / 314 tests passed** (`/tmp/feat610-ui-full-tests.log`), full frontend **95 files / 882 tests passed** (`/tmp/feat610-ui-full-frontend.log`). Build/typecheck results are caller-provided evidence. Independently reran runtime dependency contract: **13 passed**; patch whitespace check passed.
+- Earlier real-LLM 7/7 remains applicable to self-creation, actual use, workspace sharing/isolation, persistence, failures and revoke operations. The new read-only settings scenario and its visual/reference must-match require the next independent real-browser review; this code approval does not assert that evidence already exists.
+- Subsequent worker evidence: inspected actual desktop screenshot `/tmp/feat610-review/workspace-tools-settings.jpg`. It shows the separate read-only workspace section, expense_summary Enabled with description/guidance, and unchanged static schedule tools outside that section. This satisfies the verifier's inspectable desktop content/reference comparison; independent browser product review still owns narrow-screen behavior, actual form-save and continued-call journeys.
+
+```json
+[]
+```
+
+Only code-review.md and verification.md were edited by this reviewer; no commit was created.
+
+## Round 4 — Standard workspace plugins and web management
+
+- review_mode: full for the newly designed plugin scope; earlier tool-install findings retained only where applicable.
+- scope_delta: `89c47478b054b8d788022752213ff6d494b5f9d9..3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- executed_base: merged `origin/main` `4a1485d43d33c02fb3635a8c26b4b9a343a8680a`
+- validated_at: `3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- verdict: Issues Found — 1 confirmed correctness defect.
+- excluded: unrelated bugfix-611 changes brought in from main; author follow-up changes after the frozen snapshot.
+
+Coverage: new plugin spec/design and Gate 2 R9; complete new implementation/HTTP/UI/test/manual diff; current Gateway/IM boundaries; published DSH APIs. The independent page, zero-tool package directory, confirmation and pending/error feedback were inspected in source. The design state-board image was actually opened, including its documented corrections; it is not a real product screenshot. Old tool-only and read-only-card acceptance does not prove this new scope.
+
+Implementation checks:
+
+- HTTP uses authenticated identity/space access and owner profile lookup, derives the Node from that profile, limits POST to set/remove, and rejects client-supplied scope/path keys. Node checks the configured Agent before forwarding only the action/target/enabled facts. Runtime acquires that Agent's preset and retains it through the background operation. Model install authority and user web authority remain separate.
+- Workspace pending is registered before background scheduling; list bypasses the mutation queue, later mutations fail busy, and operations retain the old displayed entries until settlement. ConfigurationScopes waits current workspace Agents, takes a fresh synchronous maintenance reservation, gates later attachments and releases in finally; other workspaces are not reserved. Native runMaintenance synchronously rejects a non-idle Agent, so partial reservations are released and retried.
+- Native Include rows namespace explicit isolate labels by mount, detect root-service leakage through the published leakedServices helper, retire failed rows and preserve package diagnostics. Previous fibers, including nested rows, are captured before update; retired fibers' inertia is awaited before management settlement or file removal. The real fixture covers root leakage failure, isolated group provider/consumer prompt contribution for A/peer and B isolation, delayed cleanup, queued A input and independently progressing B.
+- The new Plugins tab includes no-tool entries, saved state, scope explanation, details, inline confirmation and a separate refresh/error path; immediate actions do not serialize Agent draft fields or require Save. Dynamic tools are excluded from static pills. Component tests cover zero-tool listing, old state during pending, confirmation, request failure and offline/empty distinction.
+- Evidence inspected: native lifecycle `/tmp/feat610-plugins-native.log` 1 file / 1 test pass; HTTP/native `/tmp/feat610-plugins-tests.log` 2 files / 2 tests pass; UI `/tmp/feat610-plugins-ui.log` 2 files / 4 tests pass. Caller reports typecheck/Web build pass; full build and whole-suite evidence was still being completed when dispatched. Independently checked runtime dependency contract (13 passed) and frozen diff whitespace (passed).
+
+### R4-P2 — Versioned registry updates re-enable a previously disabled package
+
+- location: `packages/dsh-integration/src/workspace-tools.ts:267-269`
+- status: CONFIRMED
+- trigger: an installed package `report-style` is disabled; the Agent calls install_bundle with target `report-style@1.1.0`, omitting enabled.
+- evidence: prior selection is looked up only by the staged local name or exact target string. A registry version/range target does not equal its package name, so prior is undefined and enabled remains undefined. The pinned native PluginManager treats undefined as true; after resolving the actual package it calls selectBundle(name, true) before returning restart-required for an existing dependency (`packages/boot/plugin-manager/src/index.ts:573-577`). The persisted bundle selection therefore becomes enabled even if execution waits for restart. The local-directory regression succeeds because it has localName and does not protect this case.
+- consequence: normal package update reverses the user's explicit stop choice, contrary to spec's completed-choice persistence and `design.md:101`. Restart-required does not preserve disabled state.
+- required correction: after native installation identifies result.bundle, reconcile the previously installed package's disabled selection within the same controlled transaction and before refresh/early restart-required return. Avoid inventing a second npm-spec parser. Protect a versioned registry target with an adapter-level package-manager fixture.
+
+```json
+[{"file":"packages/dsh-integration/src/workspace-tools.ts","line":268,"summary":"[P2] Preserve disabled selection for versioned registry updates","failure_scenario":"An installed disabled report-style bundle is updated through target report-style@1.1.0 without enabled. Exact target lookup misses its package name, native installation defaults enabled to true and persists that choice before returning restart-required; the plugin returns after restart against the user's saved stop choice.","review_mode":"full","status":"CONFIRMED"}]
+```
+
+The author accepted the finding and is preparing a fix; this report deliberately retains it at the frozen snapshot until independent closure checks. No product source or tests were modified by this reviewer.
+
+## Round 5 — R4-P2 closure
+
+- review_mode: closure
+- finding_origin_head: `3e43f7649f21bc01c41241c3bb27d743142a9b77`
+- validated_at: `df579de5e8fb7c09626e132a28fd23f5663dae18`
+- executed_base: `4a1485d43d33c02fb3635a8c26b4b9a343a8680a`
+- focus_findings: R4-P2
+- verdict: Approved; R4-P2 closed; findings `[]`.
+
+The six-line correction uses native result.bundle to find the prior installed selection and restores false before refresh or the existing-package restart-required return. It is conditional on omitted enabled, so an explicit enabled:true remains an intentional enable. Restoration errors propagate rather than being reported applied. No custom package-spec parser or unrelated lifecycle logic was added.
+
+The new regression uses real native pnpm with `workspace-echo@file:<source>`: target differs from the resolved package name, following the exact failure mechanism of a versioned registry spec without network-dependent fixtures. Inspected `/tmp/feat610-update-red.log`: expected false, received true at the persisted selection assertion. Inspected `/tmp/feat610-update-green.log`: the same real install/disable/named update/restart/enable/isolation/resource-cleanup lifecycle passes (1 file / 1 test, 15.29s). Patch whitespace check passes.
+
+Full-scope logs inspected: `/tmp/feat610-all-native.log` 85 files / 315 tests pass, `/tmp/feat610-all-web.log` 96 files / 885 tests pass, `/tmp/feat610-python.log` 56 pass / 31 deselected. These started before this narrow fix and are retained for unchanged paths; the post-fix native regression is the direct closure evidence. Caller also reports full build/typecheck, docs, Ruff and audit passing. New plugin-page/real non-tool product acceptance is still separate and pending; prior tool-only acceptance is not substituted.
+
+```json
+[]
+```
+
+## Round 6 — Host resolution, preset compaction and offline receipt closure
+
+- review_mode: patch plus closure of this reviewer's resolver-order and offline-recovery P2 findings.
+- executed_base / prior_head: `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`.
+- validated_at: `084b4ac18123db3b504e02e8c4a739dfc55577a6` on `codex/feat-610-workspace-tools`; initially reviewed uncommitted, then checked the frozen commit and final text delta. Only this delta, not the historical PR.
+- verdict: Approved; both P2 findings closed; findings `[]`.
+
+Reviewed workspace-tools.ts, compaction.ts, global-agent.ts, their changed tests, plugin instructions and approved bounded R10/R11 decisions. createRuntimeResolution and PluginPackages are public root exports of pinned DSH. Per-workspace profile/home and isolated pluginPackages realm prevent manager auto-refresh from prematurely withdrawing cleanup dependencies. Refresh retains prior mappings through Include update and retired fiber inertia before removing obsolete mappings; native replace/restart errors remain intact. No private import, runtime patch or dependency copy was introduced. Native Worker resolution remains a process-wide table, outside this main-thread compatibility claim.
+
+### Resolver-order P2 — closed
+
+The earlier reverse-Map close could differ from asynchronous native wrapper registration order. Independent temporary-Context evidence in `/tmp/rollover-plugin-1015/review-resolver-disposal-{serial,concurrent}.log` showed serial restoration true and concurrent restoration false. WorkspaceExtensions.creating now serializes initial owner creation (`workspace-tools.ts:43,58-62`); reverse release (`:46`) therefore matches actual registration. Inspected `disposal-fixed.log`: concurrent attach reports restored:true; `order-green.log`: native lifecycle passes in 18.30s.
+
+### Preset compaction and integration-coverage concern — closed
+
+The public serviceFor lookup selects implementations owned by the live Agent's retained preset subtree, including isolated realms, excluding the host default. Both native automatic hooks dynamically invoke compactIfNeeded; the host override yields to a preset backend for pressure/overflow. Manual compactFocused forwards Agent, signal and command identity to public compactNow; absent a preset backend, the existing default focused summarizer remains. Approved R11 leaves a custom backend responsible for its compaction semantics.
+
+The narrow model-policy regression covers both automatic trigger values and manual forwarding (`combined-green.log`: 2 files / 3 tests, 18.44s). The real DSH subprocess fixture at `workspace-tools.test.ts:184-207` installs an isolated BasicCompactionEngine subclass, executes session.command, inspects compaction/summary and an actual summarize marker, confirms B never invokes A's engine, and confirms A no longer invokes it after disable (`engine-integration.log`: 1 test, 20.53s). Existing model-policy subprocess coverage also proves default compaction with focus. The previous coverage warning is closed by the native integration seam rather than by the mocked condition test alone.
+
+### Offline-recovery P2 — closed
+
+The provisional main.ts readiness guard was reverted: main.ts has no delta and GlobalAgent recovery is not suppressed offline. At `global-agent.ts:324-326`, only completed Web input receipts are deferred when relay.ready is explicitly false, without confirming them; external-prefixed receipts continue locally and reconcile/project/wake continue. Existing reconnect recover retries pending receipts and confirms after successful delivery.
+
+The public recover regression uses real InboxStore/NodeStore with Web and external inputs. Inspected `receipt-red.log`: old code throws Relay is not ready; `receipt-green.log`: all 32 tests pass. Assertions prove offline external completion, retained Web pending state, and one Web delivery across repeated reconnect recovery. Evidence paths above are under `/tmp/rollover-plugin-1015/`.
+
+The final tool description and product manual clarify native user-overlay row configuration, isolated preset compaction ownership, host automatic yielding and manual routing without a first-activation session restart. The canonical Gateway spec and unit delta contain the identical new third-party host-dependency/workspace-configuration scenario (`docs/specs/gateway/agent-capabilities.md:658-661`). This documents the reviewed behavior without adding another runtime path. Inspected `/tmp/rollover-plugin-1015/final2-targeted.log`: 3 files / 35 tests passed in 19.98s, and `final2-typecheck.log`: all participating packages completed successfully.
+
+No remaining actionable findings were found. Whitespace check passed. Full-suite/build gates remain caller-owned; no whole-suite repeat or existing-service operation was performed. Third-party dsh-context-rollover real-model use remains separate product acceptance, not established by import or fixture success.
+
+```json
+[]
+```
+
+Only code-review.md and verification.md were edited by this reviewer; no commit was created.

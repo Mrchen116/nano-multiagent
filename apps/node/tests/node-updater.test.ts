@@ -5,7 +5,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { loadNodeRelease } from '../src/release.js';
+import { installedPackageManager, loadNodeRelease } from '../src/release.js';
 import { installRelease } from '../src/update-worker.js';
 import { NodeUpdater, updatePath, type UpdateLease } from '../src/node-updater.js';
 import { atomicPrivate, processBirth } from '../src/lifecycle.js';
@@ -19,6 +19,7 @@ it('distinguishes source installs and refuses mismatched managed package identit
   const root = await mkdtemp(join(tmpdir(), 'nano-release-'));
   try {
     expect(await loadNodeRelease(root)).toEqual({kind: 'source', version: 'source'});
+    expect(installedPackageManager(await loadNodeRelease(root), root)).toBeUndefined();
     await writeFile(join(root, '.release-manifest.json'), JSON.stringify(manifest()));
     await writeFile(join(root, '.nano-release.json'), JSON.stringify({source_commit: 'c'.repeat(40), updater_protocol: 1, data_epoch: 1}));
     await expect(loadNodeRelease(root)).rejects.toThrow('metadata');
@@ -42,7 +43,12 @@ it('verifies fixed HTTPS download and build metadata before dependency installat
     await chmod(join(bin, 'curl'), 0o700); process.env.PATH = `${bin}:${previousPath}`;
     const installed = await installRelease(target, root, async () => {});
     expect(await readFile(join(installed, 'dependency-installed'), 'utf8')).toBe('yes');
-    expect(await loadNodeRelease(installed)).toMatchObject({sha256: target.sha256});
+    const release = await loadNodeRelease(installed);
+    expect(release).toMatchObject({sha256: target.sha256});
+    const manager = installedPackageManager(release, installed)!;
+    await rm(join(installed, 'dependency-installed'));
+    execFileSync(manager.command, [...manager.args, '--version'], {cwd: installed, env: {PATH: '', ...manager.env}});
+    expect(await readFile(join(installed, 'dependency-installed'), 'utf8')).toBe('yes');
     await expect(installRelease({...target, sha256: 'c'.repeat(64)}, root, async () => {})).rejects.toThrow('checksum');
     await expect(installRelease({...target, download_url: 'https://attacker.example/package'}, root, async () => {})).rejects.toThrow('Incompatible');
   } finally { process.env.PATH = previousPath; await rm(root, {recursive: true, force: true}); }

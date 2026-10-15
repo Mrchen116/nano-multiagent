@@ -350,7 +350,8 @@
         "sessions": "会话",
         "overviewPlaceholder": "本期不设计概览页。保持空态，后续单独设计。",
         "channelsPlaceholder": "本期不设计通道页。保持空态，后续单独设计。",
-        "sessionsPlaceholder": "本期不设计会话页。保持空态，后续单独设计。"
+        "sessionsPlaceholder": "本期不设计会话页。保持空态，后续单独设计。",
+        "plugins": "插件"
       }
     },
     "channels": {
@@ -780,7 +781,33 @@
     "globalMode": "全局模式",
     "threadMode": "单 Thread 模式",
     "mine": "我的",
-    "search": "查找 Agent"
+    "search": "查找 Agent",
+    "plugins": {
+      "title": "插件",
+      "description": "管理助手安装的插件，按需启用或停用。",
+      "refresh": "刷新",
+      "scope": "同一工作区的 Agent 共享这些插件",
+      "scopeHelp": "插件由同一工作区内的 Agent 共享。停用会保留安装包；工具调用权限在配置页单独管理。",
+      "loading": "正在读取插件…",
+      "unavailable": "暂时无法读取插件状态",
+      "operationFailed": "插件更改失败",
+      "retryHelp": "请刷新确认当前状态后重试。",
+      "empty": "还没有插件",
+      "emptyHelp": "可以在聊天中说：“创建一个插件，统一我的报销报告格式。”",
+      "enabled": "已启用",
+      "disabled": "已关闭",
+      "failed": "需要处理",
+      "waiting": "等待工作区空闲，当前任务会继续完成。",
+      "applying": "正在应用更改并释放插件资源…",
+      "details": "详情",
+      "entries": "插件条目",
+      "confirmTitle": "卸载 {{name}}？",
+      "confirmHelp": "这会移除同一工作区内所有 Agent 使用的安装包。你的源码文件会保留。",
+      "confirmUninstall": "确认卸载",
+      "cancel": "取消",
+      "uninstall": "卸载",
+      "manage": "管理插件"
+    }
   },
   "chat": {
     "conversationMenu": {

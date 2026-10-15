@@ -65,6 +65,7 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
+  enabled?: boolean;
   // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
@@ -326,6 +327,7 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         name: value.name.trim(),
         description: value.description ?? "",
         default_on: value.default_on,
+        ...(typeof value.enabled === "boolean" ? {enabled: value.enabled} : {}),
         location: value.location ?? null,
         source_group: value.source_group ?? null,
       }];
@@ -886,4 +888,31 @@ export interface SkillsUsageResponse {
 
 export async function getAgentSkillsUsage(agentId: string): Promise<SkillsUsageResponse> {
   return requestJson<SkillsUsageResponse>(`/im/v1/agents/${agentId}/skills/usage`);
+}
+
+export type PluginText = string | Record<string, string>;
+export interface AgentPlugin {
+  name: string;
+  display_name: PluginText;
+  description: PluginText;
+  version?: string;
+  enabled: boolean;
+  state: 'enabled' | 'disabled' | 'failed';
+  rows: {id: string; name: PluginText}[];
+  removable: boolean;
+  diagnostics: string[];
+}
+export interface AgentPlugins {
+  workspace: string;
+  entries: AgentPlugin[];
+  pending?: {action: string; target: string; enabled?: boolean; phase: 'waiting' | 'applying'};
+  error?: string;
+  diagnostics?: string[];
+}
+export type PluginCommand = {action: 'set_bundle'; target: string; enabled: boolean} | {action: 'remove_bundle'; target: string};
+export function listAgentPlugins(agentId: string): Promise<AgentPlugins> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`);
+}
+export function manageAgentPlugin(agentId: string, command: PluginCommand): Promise<AgentPlugins> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`, {method: 'POST', body: JSON.stringify(command)});
 }
