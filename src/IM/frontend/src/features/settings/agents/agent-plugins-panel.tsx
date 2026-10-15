@@ -70,7 +70,7 @@ export function AgentPluginsPanel({agentId}: {agentId: string}) {
         <details className="mt-2 sm:ml-12">
           <summary className="w-fit cursor-pointer py-1 text-xs text-slate-500 hover:text-[var(--im-accent)]">{t('agents.plugins.details')}</summary>
           <div className="mt-3 grid min-w-0 gap-3 text-xs leading-5">
-            <p className="break-all font-mono text-slate-500">{plugin.name}{plugin.version ? ` · ${plugin.version}` : ''}</p>
+            {plugin.name !== title && <p className="break-all font-mono text-slate-500">{plugin.name}</p>}
             {plugin.rows.length > 0 && <div><p className="font-semibold">{t('agents.plugins.entries')}</p><p className="break-words text-slate-500">{plugin.rows.map(row => local(row.name)).join(' · ')}</p></div>}
             {plugin.diagnostics.map((diagnostic,index) => <pre key={index} className="whitespace-pre-wrap break-all rounded-lg bg-rose-50 p-3 text-rose-800">{diagnostic}</pre>)}
             {confirm === plugin.name ? <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
