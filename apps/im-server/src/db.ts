@@ -39,6 +39,11 @@ export function openDatabase(path: string): DatabaseSync {
       }
       db.prepare("INSERT INTO schema_migrations VALUES('personal-spaces-v1')").run();
     }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='agent-approval-mode-v1'").get()) {
+      if (!db.prepare('PRAGMA table_info(agent_profiles)').all().some(column => column.name === 'approval_mode'))
+        db.exec("ALTER TABLE agent_profiles ADD COLUMN approval_mode TEXT CHECK (approval_mode IS NULL OR approval_mode IN ('cc', 'codex'))");
+      db.prepare("INSERT INTO schema_migrations VALUES('agent-approval-mode-v1')").run();
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

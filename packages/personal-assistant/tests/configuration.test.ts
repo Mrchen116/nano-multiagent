@@ -1,8 +1,10 @@
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
+import { canonicalJson, canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
 import { ConfigurationOperations } from '../src/configuration.js';
 
 it('recovers a persisted configuration after runtime failure without losing the optimistic operation identity', async () => {
@@ -60,4 +62,31 @@ it('applies another Agent configuration while one Agent waits for its running tu
     const state = await Promise.race([b, new Promise(resolve => setTimeout(() => resolve({ status: 'blocked' }), 100))]);
     expect(state).toMatchObject({ status: 'applied' });
   } finally { release(); await a; await operations.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+
+it('recovers a pre-strategy pending receipt without changing its fingerprint or inherited mode', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nano-config-legacy-'));
+  const {approval_mode: _mode, ...legacy} = canonicalAgentConfiguration({agent_id: 'a', workspace_root: directory, custom_prompt: 'old'});
+  const candidate = {...legacy, custom_prompt: 'new'};
+  const hash = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const intent = {operation_id: 'legacy', candidate_fingerprint: hash(candidate), expected_previous_fingerprint: hash(legacy), agent: candidate};
+  const path = join(directory, 'ops.sqlite3');
+  const db = new DatabaseSync(path);
+  db.exec('CREATE TABLE operations(id TEXT PRIMARY KEY, receipt TEXT NOT NULL)');
+  db.prepare('INSERT INTO operations VALUES(?,?)').run('legacy', JSON.stringify({kind: 'apply', intent, candidate, status: 'pending'}));
+  db.close();
+  let current = canonicalAgentConfiguration(legacy);
+  let applied: unknown;
+  const ops = new ConfigurationOperations(path, {
+    current: () => current, resolve: async value => value,
+    persist: async value => { current = canonicalAgentConfiguration(value); },
+    apply: async value => { applied = canonicalAgentConfiguration(value); },
+  });
+  try {
+    await ops.recover();
+    expect(ops.status('legacy')).toMatchObject({status: 'applied', candidate_fingerprint: intent.candidate_fingerprint});
+    expect(applied).toMatchObject({custom_prompt: 'new', approval_mode: null});
+    expect(current.approval_mode).toBeNull();
+  } finally { await ops.close(); await rm(directory, {recursive: true, force: true}); }
 });

@@ -299,6 +299,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         default_model: "model",
         model_fallbacks: [],
         reasoning_effort: null,
+        approval_mode: "codex",
         work_mode: "single_thread",
         workspace_root: "/agent",
         features: {},
@@ -314,6 +315,7 @@ describe("recoverable config operations and HTTP boundary", () => {
     const result = await new ConfigOperations(ctx).recover("a", "o1");
     expect(result?.display_name).toBe("修改");
     expect(result?.profile_version).toBe(2);
+    expect(result?.approval_mode).toBe("codex");
     expect(one(db, "SELECT status FROM agent_config_operations")?.status).toBe("committed");
   });
   it("compensates Gateway after profile CAS loses while preserving concurrent values", async () => {
@@ -323,7 +325,7 @@ describe("recoverable config operations and HTTP boundary", () => {
     ctx.gateway.request = async (_n, action, p) => {
       calls.push(p);
       if (calls.length === 1)
-        db.prepare("UPDATE agent_profiles SET display_name='Concurrent',profile_version=2").run();
+        db.prepare("UPDATE agent_profiles SET display_name='Concurrent',approval_mode='cc',profile_version=2").run();
       return {
         status: "applied",
         operation_id: p.operation_id,
@@ -338,6 +340,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         {
           agent_id: "a",
           display_name: "Candidate",
+          approval_mode: "codex",
           workspace_root: "/agent",
           tool_allowlist: ["task_graph"],
         },
@@ -346,6 +349,7 @@ describe("recoverable config operations and HTTP boundary", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(calls).toHaveLength(2);
     expect(calls[1].agent.display_name).toBe("Concurrent");
+    expect(calls[1].agent.approval_mode).toBe("cc");
     expect(one(db, "SELECT display_name FROM agent_profiles")?.display_name).toBe("Concurrent");
     expect(
       one(db, "SELECT status FROM agent_config_operations WHERE operation_kind='compensation'")

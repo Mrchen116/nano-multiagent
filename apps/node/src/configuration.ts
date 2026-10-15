@@ -11,6 +11,7 @@ import { canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentC
 
 export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
+  approval_mode?: 'cc' | 'codex' | null;
   default_model?: string; custom_prompt?: string; features?: Record<string, boolean>;
   group_reply_policy?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
 }
@@ -56,6 +57,7 @@ export class NodeConfiguration {
     const workspace = agent.workspace_root!;
     if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
     const approval = { ...this.policies.get(workspace)! };
+    if (canonical.approval_mode !== null) approval.rules = canonical.approval_mode === 'cc' ? 'nano' : 'codex';
     let evolution: Record<string, unknown> = {};
     try { evolution = (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as { self_evolution?: Record<string, unknown> })?.self_evolution ?? {}; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }

@@ -1,7 +1,7 @@
 /** Node-resolved automatic approval configuration; never model-supplied. */
 export interface ApprovalConfiguration {
   enabled: boolean;
-  rules: 'nano' | 'dsh';
+  rules: 'nano' | 'codex' | 'dsh';
   dangerouslySkipPermissions: boolean;
   alwaysAllowTools: string[];
   denyLimit: number;

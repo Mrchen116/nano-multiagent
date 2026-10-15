@@ -19,7 +19,7 @@ export function readApproval(globalRoot: string, workspace: string): ApprovalCon
     if (Array.isArray(current)) { if (Array.isArray(value)) Object.assign(result, { [to]: value.filter(item => typeof item === 'string') }); }
     else if (typeof value === typeof current) Object.assign(result, { [to]: value });
   }
-  if (!['nano', 'dsh'].includes(result.rules)) throw new Error('auto_mode.rules must be nano or dsh');
+  if (!['nano', 'codex', 'dsh'].includes(result.rules)) throw new Error('auto_mode.rules must be nano, codex or dsh');
   if (!['allow', 'deny'].includes(result.unattendedFallback)) throw new Error('Invalid auto_mode.unattended_fallback');
   return result;
 }
