@@ -30,11 +30,11 @@
 
 核对基线为 Nano `ca113ce2a`，DSH 本地参考源码 `5badb15009`。以下是代码和契约观察，不代表本 unit 已实施或生产验证。
 
-1. [现有插件契约](../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace 自建 bundle、工具自动可用、启停、持久化、提示词贡献、隔离服务与压缩引擎；本 unit 延续这些能力。相关历史为 feat-610。
-2. [管理工具](../../../packages/dsh-integration/src/workspace-tools.ts) 的描述承担了较长的创建教程；[产品手册](../../../packages/personal-assistant/assets/skills/nanoassistant-docs/references/skills-tools-memory.md) 另有插件说明，但没有面向开发任务的完整独立指导入口。
-3. [运行时配置](../../../packages/dsh-integration/cordis.patch.yml) 禁用了原生技能文件发现及原生管理工具；[技能根配置](../../../apps/node/src/configuration.ts) 与 [技能提供](../../../packages/dsh-integration/src/capabilities.ts) 使用 Nano 选择的目录，未默认引入 DSH bundled 插件开发 Skill。
+1. [现有插件契约](../../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace 自建 bundle、工具自动可用、启停、持久化、提示词贡献、隔离服务与压缩引擎；本 unit 延续这些能力。相关历史为 feat-610。
+2. [管理工具](../../../../packages/dsh-integration/src/workspace-tools.ts) 的描述承担了较长的创建教程；[产品手册](../../../../packages/personal-assistant/assets/skills/nanoassistant-docs/references/skills-tools-memory.md) 另有插件说明，但没有面向开发任务的完整独立指导入口。
+3. [运行时配置](../../../../packages/dsh-integration/cordis.patch.yml) 禁用了原生技能文件发现及原生管理工具；[技能根配置](../../../../apps/node/src/configuration.ts) 与 [技能提供](../../../../packages/dsh-integration/src/capabilities.ts) 使用 Nano 选择的目录，未默认引入 DSH bundled 插件开发 Skill。
 4. DSH 参考仓库的 `packages/preset/agent-preset/skills/cordis-plugin-development/SKILL.md` 使用技能目录、按需 reference/模板、运行时 API 检查与实际安装验证指导开发。该资料覆盖 DSH 宿主 profile 和 Web UI，不能原样当成 Nano 使用说明。
-5. [架构](../../../SPEC.md) 明确 Nano 使用 Web IM、原生 iOS 和飞书；轨迹查看器是限定的只读集成。DSH UI 插件安装成功不意味着这些客户端获得页面或控件。
+5. [架构](../../../../SPEC.md) 明确 Nano 使用 Web IM、原生 iOS 和飞书；轨迹查看器是限定的只读集成。DSH UI 插件安装成功不意味着这些客户端获得页面或控件。
 6. 当前插件在运行时进程加载 JavaScript；workspace 归属、服务隔离和加载审计不等同于操作系统沙箱。本次支持可信本地扩展，不承诺阻止任意代码的全部越界副作用。
 
 ## 用户场景
