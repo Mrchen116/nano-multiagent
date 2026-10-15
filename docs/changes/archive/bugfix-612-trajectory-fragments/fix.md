@@ -72,3 +72,9 @@ M1-fix 在独立 worktree、`codex/bugfix-612-trajectory-fragments` 分支完成
 - 定向 runtime/transport/IM/Node/codec 回归：16 tests 通过；宿主前端轨迹：4 tests 通过。
 
 未修改、重启或部署生产服务；PR merge 与生产部署分别由后续明确授权执行。
+
+浏览器最终复验已等待历史加载按钮退出 busy，并打开继承上下文的「原始内容」检查器（30,857 字符）；三次 viewer status 均为 ready。脱敏结果见 `M1-fix/browser-result.json`。首轮临时 browser harness 漏发持续心跳，90 秒后被 IM 正常关闭；最终夹具每 10 秒发心跳，复验通过。此调整只涉及一次性验收夹具。
+
+独立 full code review：`[]` findings；reviewer 独立运行 5 files / 15 tests 通过，见 `code-review.md`。final sync 后 origin/main 仍为 `c6a5865931fce663aa3ddedea9af732c45fd347f`，没有额外 main delta；审查后的变更仅补充脱敏证据、审查记录和归档位置，产品代码与永久测试未变。`validated_at=5b7592ff8f79e4c44d32db938ec63d009c69673d`，`executed_base=effective_base=c6a5865931fce663aa3ddedea9af732c45fd347f`；有效性保留至 PR Validation Summary 标注的最终 head。
+
+一次性测试已移出仓库，临时 IM、DSH、观察 socket、浏览器和隔离 runtime 目录均经夹具清理。截图另保存在本机 `/tmp/nano-612-browser-evidence/`。
