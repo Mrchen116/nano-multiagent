@@ -14,6 +14,7 @@ class Socket {
   close = vi.fn();
   constructor(readonly url: string) { Socket.instances.push(this); }
 }
+const channels: { port1: ReturnType<typeof port>; port2: ReturnType<typeof port> }[] = [];
 const port = () => ({ close: vi.fn(), start: vi.fn(), postMessage: vi.fn(), onmessage: null });
 function message(frame: HTMLIFrameElement, data: unknown) {
   act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data })));
@@ -26,8 +27,9 @@ async function connect(frame: HTMLIFrameElement, index: number) {
 }
 beforeEach(() => {
   Socket.instances = [];
+  channels.length = 0;
   vi.stubGlobal('WebSocket', Socket);
-  vi.stubGlobal('MessageChannel', class { port1 = port(); port2 = port(); });
+  vi.stubGlobal('MessageChannel', class { port1 = port(); port2 = port(); constructor() { channels.push(this); } });
   useAuthStore.setState({ user: { id: 'reader' } as never, revision: 1 });
 });
 
@@ -76,4 +78,18 @@ it('ignores foreign sources and mismatched parent targets and clears the stack o
   act(() => useAuthStore.getState().clear());
   expect(container.querySelector('iframe')).toBeNull();
   expect(Socket.instances[0].close).toHaveBeenCalled();
+});
+
+it.each([false, true])('keeps fragmented reads pending until the final fragment (final=%s)', async final => {
+  const { container } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
+  await connect(container.querySelector('iframe')!, 0);
+  const channel = channels[0];
+  act(() => (channel.port1.onmessage as unknown as (event: { data: unknown }) => void)({ data: { type: 'call', requestId: 'page', method: 'session/page' } }));
+  const part = { type: 'trajectory-fragment', requestId: 'page', transferId: 'transfer', index: 0, final, data: 'partial' };
+  act(() => Socket.instances[0].onmessage?.({ data: JSON.stringify(part) }));
+  expect(channel.port1.postMessage).toHaveBeenCalledWith(part);
+  channel.port1.postMessage.mockClear();
+  act(() => Socket.instances[0].onclose?.({ code: 1011, reason: '断开' }));
+  if (final) expect(channel.port1.postMessage).not.toHaveBeenCalled();
+  else expect(channel.port1.postMessage).toHaveBeenCalledWith({ type: 'error', requestId: 'page', code: 'trajectory_disconnected', message: '断开' });
 });

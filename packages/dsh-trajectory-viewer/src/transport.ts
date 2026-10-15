@@ -1,3 +1,5 @@
+import { TrajectoryValueDecoder } from '@nano/product-contracts/trajectory-wire';
+
 const calls = new Set(['session/list', 'session/page', 'session/projections', 'session/attachment', 'trajectory/runs']);
 const streams = new Set(['session/control', 'session/follow']);
 
@@ -14,6 +16,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
   let serial = 0;
   let disposed = false;
   const pending = new Map<string, Pending>();
+  const responses = new TrajectoryValueDecoder();
   const active = new Set<string>();
   const localHolds = new Set<() => void>();
   function request(type: string, fields: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
@@ -32,7 +35,16 @@ export function createReadonlyTransport(port: MessagePort, options: {
     });
   }
   const receive = (event: MessageEvent) => {
-    const message = event.data;
+    let message;
+    try { message = responses.push(event.data); }
+    catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      const waiter = pending.get(event.data?.requestId);
+      waiter?.reject(failure); pending.delete(event.data?.requestId);
+      responses.clear(); options.onInterrupted?.(failure.message);
+      return;
+    }
+    if (!message) return;
     const waiter = pending.get(message?.requestId);
     if (!waiter) return;
     pending.delete(message.requestId);
@@ -78,16 +90,19 @@ export function createReadonlyTransport(port: MessagePort, options: {
       active.add(streamId);
       const abort = () => abortStream(streamId);
       signal.addEventListener('abort', abort, { once: true });
+      const frames = new TrajectoryValueDecoder();
       try {
         while (!signal.aborted && !disposed) {
           const batch = await request('next', { streamId }, signal);
           for (const frame of batch.frames) {
             if (signal.aborted || disposed) return;
-            yield frame;
+            const complete = frames.push(frame);
+            if (complete !== undefined) yield complete;
           }
-          if (batch.done) return;
+          if (batch.done) { frames.finish(); return; }
         }
       } finally {
+        frames.clear();
         signal.removeEventListener('abort', abort);
         abortStream(streamId);
       }
@@ -102,6 +117,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
       for (const finish of localHolds) finish();
       for (const waiter of pending.values()) waiter.reject(new Error('Viewer disposed'));
       pending.clear();
+      responses.clear();
       port.removeEventListener('message', receive);
       port.close();
     },

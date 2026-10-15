@@ -1,3 +1,4 @@
+import { encodeTrajectoryValue, TrajectoryValueDecoder, TRAJECTORY_MAX_BYTES } from '@nano/product-contracts';
 import { expect, it } from 'vitest';
 import { once } from 'node:events';
 import WebSocket from 'ws';
@@ -27,6 +28,21 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
   expect((await device.frames.send('node.heartbeat', { node_id: device.node })).type).toBe('ack');
   node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'read', value: { ok: true, value: { items: [] } } }));
   expect((await browserFrames.next()).requestId).toBe('read');
+  const largePage = { ok: true, value: { records: [{ text: '完整轨迹😀"\\'.repeat(150_000) }], hasMore: true } };
+  browser.send(JSON.stringify({ type: 'call', requestId: 'large-page', method: 'session/page', params: {} }));
+  expect(await nodeFrames.next()).toMatchObject({ requestId: 'large-page', method: 'session/page' });
+  for (const part of encodeTrajectoryValue({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'large-page', value: largePage })) {
+    await new Promise<void>((resolve, reject) => node.send(JSON.stringify(part), error => error ? reject(error) : resolve()));
+  }
+  const decoder = new TrajectoryValueDecoder();
+  let restored;
+  while (restored === undefined) {
+    const part = await browserFrames.next();
+    expect(Buffer.byteLength(JSON.stringify(part))).toBeLessThan(TRAJECTORY_MAX_BYTES);
+    restored = decoder.push(part);
+  }
+  expect(restored).toMatchObject({ requestId: 'large-page', value: largePage });
+  decoder.finish();
   browser.send(JSON.stringify({ type: 'call', requestId: 'runs', method: 'trajectory/runs', params: {} }));
   expect(await nodeFrames.next()).toEqual({ type: 'call', requestId: 'runs', method: 'trajectory/runs', params: {} });
   node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'runs', value: { ok: true, value: [] } }));
@@ -44,7 +60,10 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
     const requestId = `image-${shared}`;
     browser.send(JSON.stringify({ type: 'call', requestId, method: 'session/attachment', params: { args: { request: { attachmentId: 'native-image' } } }, attachmentAuthorized: true }));
     expect((await nodeFrames.next()).method).toBe('trajectory/attachment-source');
-    node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId, value: { ok: true, value: { sources: [{ kind: 'chat', conversationId: chat.body.id, messageId: message.body.id, url: upload.body.url }] } } }));
+    // Fragmented provenance must still be intercepted and authorized before any bytes reach the reader.
+    for (const part of encodeTrajectoryValue({ type: 'result', observerId: prepare.payload.scope.observerId, requestId, value: { ok: true, value: { sources: [{ kind: 'chat', conversationId: chat.body.id, messageId: message.body.id, url: upload.body.url }], padding: 'x'.repeat(1_300_000) } } })) {
+      await new Promise<void>((resolve, reject) => node.send(JSON.stringify(part), error => error ? reject(error) : resolve()));
+    }
     if (!shared) expect(await browserFrames.next()).toMatchObject({ type: 'error', requestId, code: 'attachment_forbidden' });
     else {
       expect(await nodeFrames.next()).toMatchObject({ type: 'call', method: 'session/attachment', requestId, attachmentAuthorized: true });

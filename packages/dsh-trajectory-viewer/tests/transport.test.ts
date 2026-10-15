@@ -1,3 +1,4 @@
+import { encodeTrajectoryValue } from "@nano/product-contracts";
 import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it } from "vitest";
 import { createReadonlyTransport } from "../src/transport.js";
@@ -20,6 +21,7 @@ function channel() {
   dispose.push(() => { transport.dispose(); port1.close(); port2.close(); });
   return {
     transport, messages, generations,
+    send: (value: unknown) => port2.postMessage(value),
     nextMessage: () => new Promise<Record<string, unknown>>(resolve => { waiting.push(resolve); }),
     respond: (request: Record<string, unknown>, value: unknown) => {
       port2.postMessage({ type: "result", requestId: request.requestId, value });
@@ -69,6 +71,37 @@ describe("read-only native viewer transport", () => {
     const finalRequest = await nextPull;
     c.respond(finalRequest, { frames: [], done: true });
     await expect(last).resolves.toMatchObject({ done: true });
+  });
+
+  it("reassembles multi-batch native snapshots and large unary pages before publishing them", async () => {
+    const c = channel();
+    const opening = { type: "snapshot", records: [{ text: '历史😀"\\'.repeat(160_000) }] };
+    const parts = [...encodeTrajectoryValue(opening)];
+    expect(parts.length).toBeGreaterThan(2);
+    const stream = c.transport.rpc.open!("/api", "session/follow", payload, new AbortController().signal)[Symbol.asyncIterator]();
+    const opened = c.nextMessage(), first = stream.next();
+    const open = await opened;
+    let pulled = c.nextMessage();
+    c.respond(open, { streamId: "large" });
+    let published = false;
+    void first.then(() => { published = true; });
+    for (let i = 0; i < parts.length; i++) {
+      const request = await pulled;
+      if (i + 1 < parts.length) pulled = c.nextMessage();
+      expect(published).toBe(false);
+      c.respond(request, { frames: [parts[i]], done: i + 1 === parts.length });
+    }
+    await expect(first).resolves.toEqual({ value: opening, done: false });
+    const released = c.nextMessage();
+    await expect(stream.next()).resolves.toMatchObject({ done: true });
+    expect(await released).toMatchObject({ type: "abort", streamId: "large" });
+
+    const sent = c.nextMessage();
+    const page = c.transport.rpc.call("/api", "session/page", payload);
+    const request = await sent;
+    const response = { type: "result", requestId: request.requestId, value: { ok: true, value: opening } };
+    for (const part of encodeTrajectoryValue(response)) c.send(part);
+    await expect(page).resolves.toEqual(response.value);
   });
 
   it("aborts a pending read and releases its stream without invoking Agent cancellation", async () => {

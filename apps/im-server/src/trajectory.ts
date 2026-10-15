@@ -2,7 +2,7 @@ import { agentAvailable, canAccessSpace } from "./identity.js";
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type WebSocket from 'ws';
-import { TRAJECTORY_MAX_BYTES, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
+import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, TrajectoryValueDecoder, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 import { one, type ImContext, type Row } from './context.js';
 import type { Connection } from './gateway.js';
 
@@ -17,6 +17,7 @@ interface Observer {
   ticket: string;
   timer: NodeJS.Timeout;
   attachments: Map<string, TrajectoryRequest>;
+  reader: TrajectoryValueDecoder;
 }
 
 /** Routes ephemeral native reads without storing their payload or joining device ACK work. */
@@ -40,7 +41,7 @@ export class TrajectoryObservers {
       const id = randomUUID(), pairing = randomBytes(32).toString('base64url');
       const observer: Observer = { scope: { observerId: id, rootAgentId: agentId, rootSessionId: root.session_id, sessionId, ownerId: profile.owner_id,
         nodeId: device.node_id, nodeEpoch: device.node_epoch }, browser: socket, userId: auth.user_id, sessionId: auth.session_id,
-        device, ready: false, ticket: pairing, attachments: new Map(), timer: setTimeout(() => this.close(id, 1013, '观察连接超时'), 60_000) };
+        device, ready: false, ticket: pairing, attachments: new Map(), reader: new TrajectoryValueDecoder(), timer: setTimeout(() => this.close(id, 1013, '观察连接超时'), 60_000) };
       this.observers.set(id, observer); this.tickets.set(pairing, observer);
       socket.once('close', () => this.close(id));
       socket.on('error', () => this.close(id));
@@ -81,8 +82,10 @@ export class TrajectoryObservers {
       if (!this.valid(observer)) { this.close(observer.scope.observerId, 1008, '访问资格已失效'); return; }
       if (size > TRAJECTORY_MAX_BYTES) { this.close(observer.scope.observerId, 1009, '轨迹响应过大'); return; }
       try {
-        const frame = JSON.parse(raw.toString()) as Row;
-        if (frame.observerId !== observer.scope.observerId) throw new Error('observer mismatch');
+        const part = JSON.parse(raw.toString()) as Row;
+        if (part.observerId !== observer.scope.observerId) throw new Error('observer mismatch');
+        const frame = observer.reader.push(part) as Row | undefined;
+        if (!frame) return;
         const attachment = observer.attachments.get(frame.requestId);
         if (attachment) {
           observer.attachments.delete(frame.requestId);
@@ -115,10 +118,16 @@ export class TrajectoryObservers {
   closeDevice(device: Connection): void { for (const observer of this.observers.values()) if (observer.device === device) this.close(observer.scope.observerId, 1011, '节点连接已中断'); }
   shutdown(): void { for (const id of this.observers.keys()) this.close(id, 1001, '服务已停止'); }
 
-  private write(observer: Observer, socket: WebSocket, frame: unknown): void {
-    const text = JSON.stringify(frame), size = Buffer.byteLength(text);
-    if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { this.close(observer.scope.observerId, 1009, '轨迹读取积压'); return; }
-    if (socket.readyState === 1) socket.send(text);
+  private async write(observer: Observer, socket: WebSocket, frame: unknown): Promise<void> {
+    try {
+      for (const part of encodeTrajectoryValue(frame)) {
+        if (!this.observers.has(observer.scope.observerId) || !this.valid(observer)) return;
+        const text = JSON.stringify(part), size = Buffer.byteLength(text);
+        if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { this.close(observer.scope.observerId, 1009, '轨迹读取积压'); return; }
+        if (socket.readyState !== 1) return;
+        await new Promise<void>((resolve, reject) => socket.send(text, error => error ? reject(error) : resolve()));
+      }
+    } catch { this.close(observer.scope.observerId, 1011, '更新已中断'); }
   }
 
   private attachmentAllowed(observer: Observer, source: Row): boolean {
@@ -140,6 +149,7 @@ export class TrajectoryObservers {
     const observer = this.observers.get(id);
     if (!observer) return;
     this.observers.delete(id); this.tickets.delete(observer.ticket); clearTimeout(observer.timer);
+    observer.reader.clear();
     observer.browser.close(code, reason); observer.node?.close(code, reason);
     if (this.ctx.gateway.nodes.get(observer.device.node_id) === observer.device)
       this.ctx.gateway.send(observer.device.node_id, { type: 'trajectory.close', payload: { observer_id: id } });
