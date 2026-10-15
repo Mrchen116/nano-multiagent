@@ -29,8 +29,15 @@
 
 ## 修复
 
-实施中。
+按已对齐的 CC 风格投影实现：独立 agent_instructions、工具名 JSONL、最后一个完整动作；Inbox 使用 inbox_result + observation，send_message 使用实际结果状态。移除 runtime-context/Skill 和 source 正文副本，保留已加载指令的原生基线/更新语义；相同指令正文保留最后出现顺序，避免文件 A→B→A 时误应用 B。没有重新读盘或解析上游指令正文。
+
+保留单聊天已交付提议；全局私稿不进入审核。通过 DSH 公开 PTC 事件补全可见 root 的内部调用与结果，并按 turn/step 绑定，避免重用 ID 或压缩后把旧 Inbox 复活。既有持久委派条目在读取时去掉旧快照和完整来源，恢复后 Inbox 降为背景。
+
+用已声明的 DSH token-meter/estimate 和 llm.resolveModelInfo 检查完整请求与输出预留；它是启发式估算，供应商实际错误仍按原流程处理。未新增分词器、依赖补丁、模型切换或历史裁剪。
 
 ## 验证
 
-扩展现有审核投影保护；通过原生 DSH 子进程捕获最终审核请求验证接线。窄回归稳定后执行本地 CI 和独立代码审查。测试与最终版本证据在完成时回填。
+- Red：新投影回归 4 项在修改前均失败，分别暴露快照重复、Inbox/投递缺失、来源格式与 PTC 结果缺失。
+- 测试归属：将 approval.test.ts 原来源测试 rewrite-merge 到 approval-sources.test.ts，扩展同一投影风险；原审核路由/本人免审/委派边界测试 keep，只适配最后动作的格式。
+- 原生子进程：通过真实锁定 DSH 加载 AGENTS.md、产生动态长 runtime snapshot、读取两次 Inbox、发送提议并执行受审动作，捕获最终审核请求。独立小窗口 reviewer 在提交前被阻断且无副作用；LLM fixture 只证明组装、路由和执行接线，不声称真实模型判定准确率。
+- 完整检查、独立 review 与最终基线在交付时回填。

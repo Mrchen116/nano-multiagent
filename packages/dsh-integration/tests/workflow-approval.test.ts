@@ -25,8 +25,8 @@ export function apply(ctx) {
   ctx.on('llm/stream', async function*(o) {
     if (o.system) {
       const text = o.messages[0].content[0].text;
-      const pending = JSON.parse(text.split('\\n').find(line=>line.startsWith('{"pending_action"'))).pending_action;
-      const scenario = pending.arguments.scenario;
+      const pending = JSON.parse(text.split('\\n').findLast(line=>line.startsWith('{')));
+      const scenario = pending.fixture_effect.scenario;
       yield {type:'block-end',index:0,block:{type:'text',text:scenario==='allow'?'<block>no</block>':scenario==='fault'?'invalid verdict':'<block>yes</block><reason>scope missing</reason>'}};
       yield {type:'finish',reason:{kind:'stop'}}; return;
     }
