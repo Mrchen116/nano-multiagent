@@ -24,8 +24,8 @@
 
 - 当前 DSH 接入在 `packages/dsh-integration/src/index.ts` 注册 `NanoApproval`，由 `policy/approval.ts` 承担自动判定与既有人工/无人值守分流。插件入口存在，不需要引入第二套主 Agent Loop。
 - `packages/product-contracts/src/approval.ts` 当前只有 `nano` / `dsh` 规则选择；`apps/node/src/approval.ts` 从 owner/workspace 配置读取。`packages/product-contracts/src/configuration.ts` 的 Agent 配置尚未承载逐 Agent 审批策略。
-- [Gateway current spec](../../specs/gateway/agent-capabilities.md) 规定可信来源、独立审批模型、子 Agent 边界及审批失败分流；[IM current spec](../../specs/im/agents-nodes.md) 规定设置经所属节点成功应用后才持久化，保留保存失败与待确认状态。这些是设计需核对的现有行为。
-- [feat-552 工作区快速放行证据](../archive/feat-552-global-auto-approval/evidence/workspace-file-fastpath.md) 证明旧实现曾对普通工作区 Write/Edit 直接放行，并覆盖真实路径、符号链接与敏感目标边界。当前 DSH `policy/approval.ts` 未保留该分支。恢复应基于当前 DSH 接入，不恢复旧 Python 运行时。
+- [Gateway current spec](../../../specs/gateway/agent-capabilities.md) 规定可信来源、独立审批模型、子 Agent 边界及审批失败分流；[IM current spec](../../../specs/im/agents-nodes.md) 规定设置经所属节点成功应用后才持久化，保留保存失败与待确认状态。这些是设计需核对的现有行为。
+- [feat-552 工作区快速放行证据](../feat-552-global-auto-approval/evidence/workspace-file-fastpath.md) 证明旧实现曾对普通工作区 Write/Edit 直接放行，并覆盖真实路径、符号链接与敏感目标边界。当前 DSH `policy/approval.ts` 未保留该分支。恢复应基于当前 DSH 接入，不恢复旧 Python 运行时。
 - Codex 参考为本机 `~/Repos/opensource-hub/codex` 的 `codex-rs/prompts/templates/guardian/policy_template.md` 与 `codex-rs/guardian-context/src/profile.rs`：分别给出风险/授权判定和含工具结果的上下文保留规则。外部实现属于设计输入，不自动成为本仓完整产品契约。
 
 ## 用户场景
