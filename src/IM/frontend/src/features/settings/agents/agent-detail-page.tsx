@@ -1631,9 +1631,9 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
             </div>
           )}
         </div>
-        {openDirectChatMutation.isError && errorMessage ? (
+        {errorMessage ? (
           <p
-            data-testid="open-chat-error"
+            data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}
             role="alert"
             className="im-agent-footer-status error"
             aria-live="polite"

@@ -13,7 +13,7 @@ it('runs Guardian in native isolated scopes, reuses deltas, forks concurrent che
 import {appendFile} from 'node:fs/promises';
 export const name='guardian-fixture';export const inject=['llm','tools','agents','nanoApproval','codexApproval'];
 export function apply(ctx){
- const steps=new Set();const inspections=new Set();
+ const steps=new Set();const inspections=new Set();let overflowed=false;
  const log=(file,value)=>appendFile(process.env.DSH_HOME+'/'+file,JSON.stringify(value)+'\\n');
  ctx.on('agent/created',({agent})=>{if(agent.id.startsWith('nano-codex-'))return log('agents.jsonl',{id:agent.id,parent:agent.session.header.parentSession,seeded:agent.session.header.isSeeded});});
  ctx.on('agent/disposed',({agent})=>{if(agent.id.startsWith('nano-codex-'))return log('disposed.jsonl',{id:agent.id});});
@@ -25,6 +25,8 @@ export function apply(ctx){
    const input=pending.content.find(c=>c.type==='text'&&c.text.includes('<planned_action>')).text;
    const action=JSON.parse(input.match(/<planned_action>([\\s\\S]*)<\\/planned_action>/)[1]);
    await log('reviews.jsonl',{action,input,tools:o.tools?.map(t=>t.name),messages:o.messages,effort:o.reasoningEffort});
+   if(action.arguments.scenario==='overflow'&&!overflowed){overflowed=true;throw new Error('CONTEXT_WINDOW_EXCEEDED');}
+   if(action.arguments.scenario==='cancel'){await log('waiting.jsonl',{});await new Promise(resolve=>{if(o.signal.aborted)resolve();else o.signal.addEventListener('abort',resolve,{once:true});});}
    if(action.arguments.scenario==='inspect'&&!inspections.has(pending.id)){
     inspections.add(pending.id);
     for(const [index,name,args] of [[0,'guardian_read',{path:'evidence.txt'}],[1,'fixture_effect',{scenario:'escape'}],[2,'run_code',{code:'throw new Error("escape")'}]])yield{type:'block-end',index,block:{type:'tool-call',id:pending.id+'-'+index,name,arguments:JSON.stringify(args)}};
@@ -48,21 +50,28 @@ export function apply(ctx){
     const config={agentId:'a',revision:'1',provider:'fixture',model:'main',mode:'global',approval:{...approvalDefaults,globalRoot:home,rules:'codex',reviewer:{provider:'fixture',model:'review'}}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
-    for(const scenario of ['first','inspect','parallel','invalid','after-failure']){
+    for(const scenario of ['first','inspect','parallel','invalid','after-failure','overflow']){
       await client.rpc.request('session.submit',{sessionId:'parent',inputId:scenario,mode:'followup',content:[{type:'text',text:scenario}],source:{kind:'human',actorId:'owner',channel:'test',messageId:scenario}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:scenario}) as any).terminal,{timeout:10000}).toBeTruthy();
     }
+    await client.rpc.request('session.submit',{sessionId:'parent',inputId:'cancel',mode:'followup',content:[{type:'text',text:'cancel'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'cancel'}});
+    await expect.poll(()=>readFile(join(home,'waiting.jsonl'),'utf8').catch(()=>''),{timeout:10000}).not.toBe('');
+    await client.rpc.request('session.cancel',{sessionId:'parent'});
+    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'cancel'}) as any).terminal,{timeout:10000}).toBeTruthy();
+    const observation:any=await client.rpc.request('session.observe',{sessionId:'parent'});
+    expect(observation.approvals.find((row:any)=>row.callId==='overflow-0')?.metadata.contextMode).toBe('rebuild');
+    expect(observation.approvals.some((row:any)=>row.callId==='cancel-0'&&row.decision==='allow')).toBe(false);
     const lines=async(file:string)=>(await readFile(join(home,file),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const effects=await lines('effects.jsonl');
-    expect(effects.map(e=>e.scenario)).toEqual(['first','inspect','parallel','after-failure']);
+    expect(effects.map(e=>e.scenario)).toEqual(['first','inspect','parallel','after-failure','overflow']);
     await expect(readFile(join(home,'escaped.jsonl'),'utf8')).rejects.toThrow();
     const reviews=await lines('reviews.jsonl');
     for(const review of reviews){expect(review.tools.sort()).toEqual(['guardian_list','guardian_read','guardian_stat']);expect(review.effort).toBe('low');}
     expect(reviews.find(r=>r.action.arguments.scenario==='inspect').input).not.toContain('"user":"first"');
     expect(JSON.stringify(reviews.filter(r=>r.action.arguments.scenario==='inspect').at(-1).messages)).toContain('LOCAL_EVIDENCE');
     const parallel=(await lines('parallel.jsonl'))[0];expect(parallel.map((r:any)=>r.metadata.contextMode).sort()).toEqual(['delta','fork']);expect(new Set(parallel.map((r:any)=>r.metadata.sessionId)).size).toBe(2);
-    const created=await lines('agents.jsonl');expect(created).toHaveLength(3);expect(created.filter(row=>row.seeded)).toHaveLength(2);
-    const disposed=await lines('disposed.jsonl');expect(disposed).toHaveLength(2);
+    const created=await lines('agents.jsonl');expect(created).toHaveLength(4);expect(created.filter(row=>row.seeded)).toHaveLength(2);
+    const disposed=await lines('disposed.jsonl');expect(disposed).toHaveLength(4);
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },30000);

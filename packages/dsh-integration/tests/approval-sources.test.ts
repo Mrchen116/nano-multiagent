@@ -112,3 +112,18 @@ it('preserves the last instruction update when a file returns to an earlier vers
   expect(prompt.indexOf('AGENTS.md\\nB')).toBeLessThan(prompt.indexOf('AGENTS.md\\nA'));
   expect(prompt.match(/AGENTS.md\\nA/g)).toHaveLength(1);
 });
+
+it('projects host-verified one-time approval only for retained exact actions in Codex evidence', async () => {
+  const action = call('approved', 'bash', { command: 'remove one disposable file' });
+  const events = [
+    { type: 'approval/asked', data: { id: 'request', callId: 'approved', toolName: 'bash', reason: 'Remove this file?' } },
+    { type: 'approval/decided', data: { id: 'request', outcome: 'allowed-once' } },
+  ];
+  const sources = new ApprovalSources();
+  const evidence = await sources.history(fixture([action], events), undefined, false, { toolResults: true });
+  expect(evidence.find(row => row.approved_action)).toMatchObject({ origin: { kind: 'user-approval' }, approved_action: { id: 'approved', name: 'bash', arguments: { command: 'remove one disposable file' } } });
+  expect(await sources.history(fixture([action], events))).not.toEqual(evidence);
+  expect(await sources.history(fixture([], events), undefined, false, { toolResults: true })).toEqual([]);
+  events[1].data.outcome = 'rejected';
+  expect((await sources.history(fixture([action], events), undefined, false, { toolResults: true })).some(row => row.approved_action)).toBe(false);
+});

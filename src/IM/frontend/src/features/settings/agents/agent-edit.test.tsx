@@ -447,7 +447,7 @@ describe("agent edit page", () => {
     fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
 
-    expect(await screen.findByText(/409.*profile_version conflict/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("agent-save-error")).toHaveTextContent(/409.*profile_version conflict/i);
     expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
   });
 
