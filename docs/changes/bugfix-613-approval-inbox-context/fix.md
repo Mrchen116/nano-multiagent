@@ -40,4 +40,4 @@
 - Red：新投影回归 4 项在修改前均失败，分别暴露快照重复、Inbox/投递缺失、来源格式与 PTC 结果缺失。
 - 测试归属：将 approval.test.ts 原来源测试 rewrite-merge 到 approval-sources.test.ts，扩展同一投影风险；原审核路由/本人免审/委派边界测试 keep，只适配最后动作的格式。
 - 原生子进程：通过真实锁定 DSH 加载 AGENTS.md、产生动态长 runtime snapshot、读取两次 Inbox、发送提议并执行受审动作，捕获最终审核请求。独立小窗口 reviewer 在提交前被阻断且无副作用；LLM fixture 只证明组装、路由和执行接线，不声称真实模型判定准确率。
-- 完整检查、独立 review 与最终基线在交付时回填。
+- 完整本地 CI 和实际审核模型两组样本已通过，详见 [validation](M1-fix/evidence/validation.md)。独立 full code review 无存活 findings；最终 sync 的 origin/main 未推进，基线和有效范围见 [code-review](code-review.md)。
