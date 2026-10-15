@@ -139,3 +139,17 @@ M1 仍单一交付，不分层派 worker。追加范围 integration/Node/IM cont
 Reviewer runbook：保留既有隔离栈 http://127.0.0.1:54267、账号 nano/nano1234、Agent e2e、聊天 c_pp1ump8j。用当前 worktree 的 pnpm build 和 Web build 更新产物，先核对 .gateway-state.json/PID/cwd/命令与 listener 后仅重启隔离进程，保留数据库、workspace、端口和身份；不用会重建数据的 e2e-up。通过真实聊天让 LLM 创作一个零工具报销报告格式插件，与现有 expense_summary 组合使用；在专用浏览器 tab 操作开关并继续聊天对照。保留可体验的已启用插件、示例结果与测试服务；用户明确要求保留，最终不执行 e2e-down。终止仅限本次验收辅助进程。最终更新现有 PR #359 的标题/描述为实际插件范围，等待 CI 全绿，不自动合并。
 
 R8 后追加验证：web pending 等待阶段仍可 list；在 teardown 被 gate 阻塞时再提交消息/Cron，新回合在维护释放后执行，B workspace 不受阻；async cleanup 完成前不显示 applied；root service leakage 报失败并移除，正确 isolate group 的服务/consumer 在 A 生效且 B 无贡献。既有故障修复 fixture 与 UI pending 测试承担这些边界，不增设相同失败原因的多层重复用例。
+
+### 同一 PR 验收反馈：第三方插件宿主依赖解析
+
+用户要求补齐 DSH 原生能力，再用全新上下文的 global Agent 安装 `athif23/dsh-context-rollover` 并实际使用。现场 v0.2.2 安装成功但 import `@deepseek-ai/cordis` 失败；同版本隔离对照只注册 DSH `createRuntimeResolution` / `PluginPackages` 后可导入，确认 workspace 包管理 scope 遗漏宿主解析。
+
+沿用 M1 和既有隔离/热更新契约：每个 workspace owner 持有隔离于 PluginManager 自动刷新的原生 `PluginPackages`（独立 service realm），以真实安装 anchor、该 workspace profile 与 home=profile dir 创建 resolution。事务与外部配置变更都先发布新增映射，同时保留即将撤销的旧映射；再更新 Include 并等待旧 fiber inertia，最后发布完整最新表撤销旧映射。这样清理函数仍能动态导入原包依赖。包替换若被原生 replace 拒绝，保留错误，不绕开模块缓存或宣称热替换成功。workspace scope 拆除前先结束插件 fibers，再按注册逆序释放原生 resolver，避免叠加 resolver 的生命周期残留。复用同一宿主类/库，不复制依赖、不升级或修改 DSH。保留原生包替换需要重启的明确诊断，不把所有首次安装描述为需要重启。服务插件仍遵守原生 isolated group 和 preset 约束；实际插件是否提供正确 scope 的入口必须继续核实，不把模块导入通过写成运行成功。
+
+回归扩展既有 workspace-tools 真实子进程测试：fixture import 宿主 Cordis/LLM，原红测复现缺包；同一回归保护安装后既有会话调用、重启恢复、停用/移除和其他 workspace 不受影响。真实模型验收使用新 Agent、新 workspace、新全局 session，避免旧技能与失败历史影响安装判断；既有失败现场保留。
+
+范围说明：本轮修复验证主线程 workspace 插件运行；DSH 原生 Worker 解析环境是进程级单表，不能宣称多 workspace Worker 插件已兼容，本轮不为未用到的 Worker 新造解析协议。
+
+补充实际验收：依赖修复后，上游 bundle 默认的宿主 compaction 行与 NanoCompaction 冲突；上游同时提供 preset 用法（原生 isolate compaction group，modelSurface=always）。不把第三方默认宿主 patch 直接改写为全局覆盖。Agent 可在自己的 profile user patch 使用上述原生 scoped 配置，原始包不改动。Nano 默认压缩器在 `agentPresets.serviceFor(agent,'compaction')` 返回 preset 自有引擎时让出自动压缩，并将人工 compact 路由到该引擎的公开 compactNow；没有自有引擎时保持原有带 focus 摘要逻辑。这修复宿主默认与 scoped 插件并存时双重压缩的问题，停用后自动回退默认引擎。新增回归验证 preset 服务接管自动触发和人工压缩的公开服务边界；真实插件验收另核对 session 的 compaction 事件，既有 workspace 回归继续保护作用域隔离。首次 owner 初始化串行，使原生 resolver 安装顺序与 owners 插入顺序一致，随后逆序释放。
+
+此次实际重启还暴露恢复投递问题：runtime.onReady 在 relay.start 之前恢复 global Agent，会补发停机前待确认输入的 Web delivery receipt，因 relay 未就绪直接退出。保留全局本地/飞书离线恢复，仅在 reconcile 发现 Web receipt 且 relay 未就绪时保留 pending；既有连接就绪恢复重试真实投递，收到 ACK 后才 confirmReceipt。飞书 external receipt 继续本地处理。不能为测试删除 pending 输入或伪造 ACK。回归覆盖离线恢复 external、Web pending 保留、重连只投递一次；真实原失败状态重启和后续插件重启作为产品证据。

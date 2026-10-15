@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -15,7 +15,11 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
   await mkdir(source, { recursive: true }); await mkdir(b);
   await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'workspace-echo', version: '1.0.0', type: 'module', dsh: { bundle: { patch: './cordis.patch.yml' } } }));
   await writeFile(join(source, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: 'echo', name: './tool.mjs' }] }]));
-  const goodSource = `export const inject=['tools']; export function apply(ctx) {
+  const goodSource = `import { Context, symbols } from '@deepseek-ai/cordis';
+    import { createUserMessage } from '@deepseek-ai/dsh-llm';
+    if (!symbols.original || typeof createUserMessage !== 'function') throw new Error('HOST_PEERS_MISSING');
+    export const inject=['tools']; export function apply(ctx) {
+    if (!(ctx.root instanceof Context)) throw new Error('DUPLICATE_HOST_CORDIS');
     ctx.tools.register({name:'workspace_echo',description:'Return a workspace value',parameters:{type:'object',properties:{value:{type:'string'}},required:['value']},
       output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},execute:async args=>({echo:args.value})});
   }`;
@@ -177,6 +181,30 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect((await manage({ action: 'remove_bundle', target: 'workspace-echo' })).text).toContain('applied');
     expect((await manage({ action: 'remove_bundle', target: 'broken-workspace-tool' })).text).toContain('applied');
     expect(await capabilities('tools-a2')).not.toContain('workspace_echo');
+    const engine = join(a, 'scoped-compaction'); await mkdir(engine);
+    const marker = join(a, 'compaction-owner');
+    await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
+    await writeFile(join(engine, 'engine.mjs'), `import {appendFile} from 'node:fs/promises';
+      import {BasicCompactionEngine} from '@deepseek-ai/dsh-compaction-basic';
+      export default class extends BasicCompactionEngine {async summarize(...args) {
+        await appendFile(${JSON.stringify(marker)}, 'preset\\n'); return super.summarize(...args);
+      }}`);
+    await writeFile(join(engine, 'cordis.patch.yml'), JSON.stringify([{insert:[{id:'scoped-compaction',name:'./engine.mjs',isolate:{compaction:true},config:{auto:false,retainTokens:0,headroomTokens:100,maxTokens:256}}]}]));
+    expect((await manage({action:'install_bundle',target:engine})).text).toContain('applied');
+    const compact = async (sessionId: string, id: string) => {
+      await call(sessionId, 'plugin_manager', {action:'list_bundles', evidence:'preserve this evidence '.repeat(300)});
+      const result = await client!.rpc.request('session.command', {sessionId,id,action:'compact',argument:'preserve evidence'});
+      expect(result, JSON.stringify(result)).toMatchObject({success:true});
+      const observed = await client!.rpc.request('session.observe', {sessionId}) as {events:{type:string}[]};
+      expect(observed.events.some(event => event.type === 'compaction/summary')).toBe(true);
+    };
+    await compact('tools-a', 'preset-compact');
+    expect(await readFile(marker,'utf8')).toBe('preset\n');
+    await compact('tools-b', 'other-workspace-compact');
+    expect(await readFile(marker,'utf8')).toBe('preset\n');
+    await manage({action:'set_bundle',target:'scoped-compaction',enabled:false});
+    await compact('tools-a', 'fallback-compact');
+    expect(await readFile(marker,'utf8')).toBe('preset\n');
     await client!.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }

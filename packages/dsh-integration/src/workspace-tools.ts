@@ -9,7 +9,7 @@ import { Loader, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
 import { Include } from '@deepseek-ai/cordis-plugin-include';
 import { PluginManager, type ChangeResult } from '@deepseek-ai/dsh-plugin-manager';
 import type { PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types';
-import { type ProfilePnpmInvocation, bundlePatchPaths, composeEntries, initProfile, loadOverlayPatches, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
+import { type ProfilePnpmInvocation, type RuntimeResolution, PluginPackages, bundlePatchPaths, composeEntries, createRuntimeResolution, initProfile, loadOverlayPatches, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
 import { auditRows, leakedServices } from '@deepseek-ai/dsh-agent-preset-registry';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import type {} from '@deepseek-ai/dsh-hmr';
@@ -40,9 +40,10 @@ class WorkspaceInclude extends Include {
 export class WorkspaceExtensions {
   packageManager?: ProfilePnpmInvocation;
   private readonly owners = new Map<string, Promise<WorkspaceOwner>>();
+  private creating: Promise<unknown> = Promise.resolve();
   private readonly mounts = new Set<Mount>();
   constructor(private readonly ctx: Context, private readonly changed: (agentId: string) => void) {
-    ctx.effect(() => async () => { for (const owner of this.owners.values()) await (await owner).close(); });
+    ctx.effect(() => async () => { for (const owner of [...this.owners.values()].reverse()) await (await owner).close(); });
   }
   /** Mount only the trusted configured workspace, never a model-supplied scope.
    *
@@ -54,10 +55,15 @@ export class WorkspaceExtensions {
     if (!config.workspace) return;
     const workspace = await realpath(config.workspace);
     let pending = this.owners.get(workspace);
-    if (!pending) { pending = WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id), this.packageManager); this.owners.set(workspace, pending); }
+    if (!pending) {
+      // Native resolver wrappers must be installed and released in opposite orders.
+      pending = this.creating.then(() => WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id), this.packageManager));
+      this.creating = pending.catch(() => {});
+      this.owners.set(workspace, pending);
+    }
     const owner = await pending;
     ctx.tools.register({ name: 'plugin_manager',
-      description: 'Create, install and manage standard DSH plugins in this configured workspace (tools, prompt sections, scoped listeners and isolated services). Actions: list_bundles, install_bundle (target local bundle directory or package spec), set_bundle (target bundle name and enabled), remove_bundle. Create a local standard DSH bundle with package.json {name,version,type:"module",dsh:{bundle:{patch:"./cordis.patch.yml"}}}, a patch [{insert:[{id:"my-tool",name:"./tool.mjs"}]}], and a JS plugin exporting inject=["tools"] and apply(ctx) that calls ctx.tools.register with name, description, parameters, output {schema,render}, execute. A zero-tool plugin can export inject=["systemPrompt"] and apply(ctx) { ctx.systemPrompt.section({name:"report-style",order:850,text:"Format expense reports as a table."}); }. Use ctx.effect(() => () => cleanup()) for owned resources. Service providers and consumers must share a group:true entry with isolate:{serviceName:true}, config:[provider,consumer]; root service leakage is rejected. Local entries must stay inside the bundle. Successful installation makes new tool names available now without editing the static allowlist. Fix failed local source and install its directory again. Bundles and dependencies persist across restart. approvedBuilds only after explicit user approval for pending build scripts. Package replacement outside local bundles can require restart.',
+      description: 'Create, install and manage standard DSH plugins in this configured workspace (tools, prompt sections, scoped listeners and isolated services). Actions: list_bundles, install_bundle (target local bundle directory or package spec), set_bundle (target bundle name and enabled), remove_bundle. list_bundles returns profileDir: edit its cordis.patch.yml to configure installed entries through the native workspace-only user overlay (hot applied). Never edit installed package files, runtime.json or the host profile. Create a local standard DSH bundle with package.json {name,version,type:"module",dsh:{bundle:{patch:"./cordis.patch.yml"}}}, a patch [{insert:[{id:"my-tool",name:"./tool.mjs"}]}], and a JS plugin exporting inject=["tools"] and apply(ctx) that calls ctx.tools.register with name, description, parameters, output {schema,render}, execute. A zero-tool plugin can export inject=["systemPrompt"] and apply(ctx) { ctx.systemPrompt.section({name:"report-style",order:850,text:"Format expense reports as a table."}); }. Use ctx.effect(() => () => cleanup()) for owned resources. Service providers and consumers must share a group:true entry with isolate:{serviceName:true}, config:[provider,consumer]; root service leakage is rejected. Configure existing bundle row ids via user overlay so disabling the bundle also removes their contribution. An isolated compaction provider in this workspace tree becomes the current Agent preset engine: host automatic compaction yields and manual compact routes to it; it does not require changing the host provider or restarting the session. Local entries must stay inside the bundle. Successful installation makes new tool names available now without editing the static allowlist. Fix failed local source and install its directory again. Bundles and dependencies persist across restart. approvedBuilds only after explicit user approval for pending build scripts. Package replacement outside local bundles can require restart.',
       parameters: { type: 'object', properties: { action: { enum: ['list_bundles', 'install_bundle', 'set_bundle', 'remove_bundle'] }, target: { type: 'string' }, enabled: { type: 'boolean' }, approvedBuilds: { type: 'array', items: { type: 'string' } }, registry: { type: 'string' } }, required: ['action'], additionalProperties: false },
       output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       timeoutMs: 600_000,
@@ -103,7 +109,7 @@ class WorkspaceOwner {
   private error?: string;
   private readonly watches: (() => Promise<void>)[] = [];
   private diagnostics: string[] = [];
-  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly changed: (agentId: string) => void) {}
+  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string) => void) {}
   static async create(host: Context, workspace: string, changed: (agentId: string) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
     // A workspace owns an empty profile, not a second base runtime. initProfile preserves existing state.
@@ -112,9 +118,14 @@ class WorkspaceOwner {
     const managerRoot = new Context();
     managerRoot.provide('profileContext', { name: 'workspace', dir, patchPath: join(dir, 'cordis.patch.yml'), installAnchor: anchor, cwd: workspace,
       home: dir, startedBundles: [], overlays: [], telemetryDisabledEnv: '1', ...(packageManager ? { packageManager } : {}) });
+    // Each profile routes only its own files to the shared installation, never another workspace.
+    const resolution = await createRuntimeResolution({ installAnchor: anchor, profile: loadProfileDirectory('nano', dir, anchor), home: dir });
+    // Keep native manager auto-refresh separate: retiring fibers need the old mappings until cleanup finishes.
+    const resolver = managerRoot.isolate('pluginPackages', Symbol());
+    await resolver.plugin(PluginPackages, { resolution }).await();
     await managerRoot.plugin(Loader).await();
     await managerRoot.plugin(PluginManager, {}).await();
-    const owner = new WorkspaceOwner(host, workspace, dir, managerRoot, changed);
+    const owner = new WorkspaceOwner(host, workspace, dir, managerRoot, resolver, resolution, changed);
     for (const file of ['package.json', 'cordis.patch.yml']) owner.watches.push(await host.hmr.watchConfig(join(dir, file), async () => {
       // Management refreshes explicitly after the native package transaction; its intermediate writes are not activations.
       if (!owner.changing) await owner.refresh();
@@ -138,7 +149,18 @@ class WorkspaceOwner {
   }
   async refresh(): Promise<void> {
     let rows: EntryOptions[];
-    try { rows = this.rows(); }
+    let next: RuntimeResolution;
+    try {
+      rows = this.rows();
+      next = await createRuntimeResolution({ installAnchor: anchor, profile: loadProfileDirectory('nano', this.dir, anchor), home: this.dir });
+      const retained = { ...next,
+        entries: [...next.entries, ...this.resolution.entries.filter(old => !next.entries.some(entry => entry.name === old.name))],
+        localPackageNames: [...new Set([...next.localPackageNames, ...this.resolution.localPackageNames])],
+        linkedRoots: [...next.linkedRoots, ...this.resolution.linkedRoots.filter(old => !next.linkedRoots.some(root => root.realPath === old.realPath))],
+      };
+      this.resolver.pluginPackages.replace(retained);
+      this.resolution = retained;
+    }
     catch (error) { this.diagnostics = [String(error)]; return; }
     const diagnostics: string[] = [];
     for (const mount of this.mounts) {
@@ -191,6 +213,9 @@ class WorkspaceOwner {
       mount.tools = mount.ctx.tools.schemas(scopeOf(mount.ctx)).map(tool => tool.name).filter(name => !mount.baseline.has(name));
       this.changed(mount.config.agentId);
     }
+    // The removed plugins have drained; their dependency mappings can now leave the native table.
+    this.resolver.pluginPackages.replace(next);
+    this.resolution = next;
     this.diagnostics = [...new Set(diagnostics)];
   }
   private async stage(target: string): Promise<string | undefined> {
@@ -241,7 +266,7 @@ class WorkspaceOwner {
   }
   command(args: PluginCommand, callId: string, signal: AbortSignal): Promise<unknown> {
     // Reads must never sit behind an operation waiting for the calling Agent to become idle.
-    if (args.action === 'list_bundles') return this.managerRoot.pluginManager.listBundles().then(entries => ({entries: entries.filter(bundle => bundle.installed), diagnostics: this.diagnostics, ...(this.pending ? {pending: this.pending} : {})}));
+    if (args.action === 'list_bundles') return this.managerRoot.pluginManager.listBundles().then(entries => ({profileDir: this.dir, entries: entries.filter(bundle => bundle.installed), diagnostics: this.diagnostics, ...(this.pending ? {pending: this.pending} : {})}));
     if (this.pending) return Promise.resolve({application:'failed', error:{code:'busy',diagnostic:'A workspace plugin change is pending. Finish this turn and retry later.'}});
     const task = this.chain.then(() => this.execute(args, callId, signal));
     this.chain = task.catch(() => {});
@@ -294,10 +319,19 @@ class WorkspaceOwner {
         const target = (await manager.listBundles()).find(bundle => bundle.name === (result.bundle ?? args.target));
         const failures = this.diagnostics.filter(diagnostic => !previousDiagnostics.has(diagnostic)
           || args.action !== 'remove_bundle' && args.enabled !== false && target?.rows.some(row => diagnostic.startsWith(`${row.rowId} (`)));
-        return { ...result, application: failures.length ? 'failed' : 'applied', warnings: this.diagnostics,
+        return { ...result, profileDir: this.dir, application: failures.length ? 'failed' : 'applied', warnings: this.diagnostics,
           ...(failures.length ? { error: { code: 'activation-failed', diagnostic: failures.join('\n') } } : {}),
           tools: [...new Set([...this.mounts].flatMap(mount => mount.tools))] };
       } finally { signal.removeEventListener('abort', cancel); this.changing = false; }
   }
-  async close(): Promise<void> { await this.chain; await this.managerRoot.fiber.dispose(); for (const dispose of this.watches) await dispose(); }
+  async close(): Promise<void> {
+    await this.chain;
+    for (const dispose of this.watches) await dispose();
+    for (const mount of this.mounts) {
+      const fibers = [...mount.tree.entries()].flatMap(entry => entry.fiber ? [entry.fiber] : []);
+      await mount.tree.root.update([]);
+      await Promise.all(fibers.map(fiber => fiber.inertia));
+    }
+    await this.managerRoot.fiber.dispose();
+  }
 }

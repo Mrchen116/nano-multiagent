@@ -36,3 +36,8 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 - **GIVEN** 已安装包处于停用
 - **WHEN** Agent 更新同名包且没有显式要求开启
 - **THEN** 包仍停用，重启保持已完成的选择
+
+#### Scenario: 第三方插件的宿主依赖与 workspace 配置
+- **WHEN** Agent 安装声明兼容当前 DSH 的第三方 bundle，并通过 workspace 原生 user overlay 配置其服务作用域
+- **THEN** 插件可复用宿主公开依赖，配置在该 workspace 热应用；不要求复制运行时、修改宿主 profile 或静态工具白名单
+- **AND** 该 preset 提供压缩引擎时，自动与人工压缩由该引擎负责；停用后恢复默认引擎，其他 workspace 保持原有行为

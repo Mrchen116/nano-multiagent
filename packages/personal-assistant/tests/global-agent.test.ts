@@ -219,3 +219,38 @@ it.each([
     expect(submitted).toHaveLength(attention ? 2 : 0);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
+
+it('retains completed Web receipts offline while reconciling external inputs, then delivers once connected', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({ agentId: 'a', sessionId: 'main', conversationId: 'global:a', ownerId: 'owner', cwd: '/tmp', revision: '1' });
+  for (const id of ['web', 'external:feishu']) {
+    inbox.receive({ agent_id: 'a', conversation_id: id, relay_task_id: id, idempotency_key: id,
+      metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] } }, true);
+    const page = inbox.read('a', 'main', id, { target: id });
+    expect(inbox.commitRead('main', id, [{ type: 'text', text: JSON.stringify(page) }], false, 1)).toBe(true);
+  }
+  let ready = false;
+  const receipts: string[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global' }], store, inbox,
+    runtime: { onNotification: () => () => {}, async request(method) {
+      if (method === 'session.descendants') return [];
+      return { events: [{ seq: 1, time: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }], durable: true, status: 'idle' };
+    } }, relay: { get ready() { return ready; }, async request(type, payload) {
+      if (type === 'node.delivery_receipt') {
+        const id = String(payload.relay_task_id);
+        if (!ready && !id.startsWith('external:')) throw new Error('Relay is not ready');
+        receipts.push(id);
+      }
+      return { type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as {seq: number}[]).at(-1)!.seq } : {} };
+    } }, image: async () => '', onError: error => { throw error; },
+  });
+  try {
+    await product.recover();
+    expect(receipts).toEqual(['external:feishu']);
+    expect(inbox.completedInputs('main', 1).map(row => row.input.relay_task_id)).toEqual(['web']);
+    ready = true;
+    await product.recover(); await product.recover();
+    expect(receipts).toEqual(['external:feishu', 'web']);
+    expect(inbox.completedInputs('main', 1)).toEqual([]);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});
