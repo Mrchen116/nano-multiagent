@@ -1,6 +1,8 @@
 # Verification Report: feat-615-agent-approval-strategies
 
-> Validation snapshot: `08b06c57b → ccf74c47cafa2aef4b3a9e73fec05f178578c5a0`
+> Initial validation snapshot: `08b06c57b → ccf74c47cafa2aef4b3a9e73fec05f178578c5a0`
+> Final product source: `ba88c18bcb9179d84b6765fcef8712f17b6db1bf`；最终证据核对包括独立产品报告 `005764ec7` 与后续 test/document delta。
+> Current verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**；corrected-delta **aligned**。以下保留各轮当时结论。
 
 ## Round 1
 
@@ -106,6 +108,30 @@
 - Usage patch：按public API将原生新增事件限于turn/start至turn/end；native audit验证uncachedInputTokens10/outputTokens5。源码和API证据见code-review Round3。
 - 首次native deadline测试末尾usage字段误写而失败的日志保留于`/tmp/feat615-native-deadline.log`；最终schema字段修正后通过。原生compaction仍未独立触发，预算 admission/compaction 的静态与pure/mock证据边界保持，不虚构直接场景。
 
+## Round 4 — final evidence closure
+
+- Mode: targeted-closure + corrected-delta；产品source仍为`ba88c18bc`，未变实现结论保留。
+- Verdict: **pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**；R1-C1、R1-W1、R1-W2全部closed。
+- requires_full_verification: `false`。
+- **R1-C1 closed**：`M1-strategies/acceptance.md`在独立产品reviewer提交`005764ec7`明确pass；覆盖两个must-match的1280/390真实对照、两Agent独立保存/刷新、新建默认继承、真实409恢复、同一聊天CC/Codex切换与进行中冻结、最终runtime文件/交付/usage。verifier核对报告与直接来源，不替代该reviewer的视觉判断。
+- `M1-strategies/evidence/comparison.md`包含固定审批模型/effort、初始状态、相同action与真实自然任务两层、文件和terminal delivery、耗时、每项可取得usage/cache及unknown/partial；原始16个fixed样本、16个natural corrected样本、单项retry、明确FAQ双策略和两组broad补测逐项核对。首批driver无效与测试期间中断保留；Codex两个小文件未授权删除allow不被补测抹去。范围满足有限样本比较，不推导总体安全保证或普遍优劣。
+- 真实native CC symlink/downstream/outside增量2测试、在途人工卡切换6测试均通过，定义/实际日志已核对；现有90秒native综合测试的错序allow/deny、overflow、cancel、dispose与usage证据保留。没有重复全量测试。
+- `M1-strategies/evidence/validation.md`与原始日志对账：全量backend93 files/346 tests、frontend96 files/887 tests、Python56 pass，以及后续source/UI/native窄测试成立。早期full/build证据按原版本保留，后续修复由对应窄测试/最终真实runtime接续，不把早期full宣称为最终树全量重跑；CI收尾由orchestrator负责。
+- Canonical归并检查：Gateway的一个MODIFIED及两个ADDED Requirement、IM一个ADDED Requirement与本unit已aligned delta正文逐条完全一致，没有遗漏旧Scenario。
+
+### Final completion map
+
+| 退出范围 | 最终证据 | 状态 |
+|---|---|---|
+| 单M1 spec全部Scenario与原型must-match | independent acceptance `005764ec7` + comparison原始对账 | complete |
+| per-Agent保存、继承、恢复、下一轮与旧人工卡 | API/Node/PA tests + UI实际切换 + native pending approval switch | complete |
+| CC路径边界、敏感矩阵、native真实symlink、0 judge fastpath | helper矩阵 + native paths2pass +真实CC编辑 | complete |
+| Codex工具约束、来源、manual、复用/fork/失败/预算/期限 | source7pass、native92.59s、lifecycle预算/改写/配置、实际full/delta | complete with stated evidence limits |
+| 同条件两层模型比较与首失败披露 | comparison.md + fixed/natural raw locators | complete |
+| 公共架构边界与corrected delta归并 | 静态代码核对、canonical四Requirement逐条一致 | aligned |
+
+静态code review与verifier门禁完成；这不表示生产部署、发布或远端CI已经完成。自动native compaction未独立强制触发的限制继续保留，不因此重复无关测试。
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
@@ -114,13 +140,13 @@
 | Gateway MODIFIED：逐 Agent 明确选择/清空/继承与下一轮 | product-contracts + Node runtime + existing apply/config scopes | API/Node/PA configuration tests | aligned |
 | Gateway ADDED：CC 普通文件快速放行及路径保护 | cc.ts + cc-workspace.ts + downstream facade | pure/native workspace tests | aligned |
 | Gateway ADDED：Codex 本地只读、精确 action、来源、连续并发、预算与失败审计 | codex/context/inspection/sources/audit；8aa3c8149 补 verified manual action | pure/native/mock、7 source tests、90秒原生deadline/drain及usage测试 | aligned |
-| IM ADDED：选择、继承、省略保留、失败与下一轮 | shared UI + control/db/gateway + Node mode | API/Node tests；产品验收待补 | aligned at contract; evidence pending |
+| IM ADDED：选择、继承、省略保留、失败与下一轮 | shared UI + control/db/gateway + Node mode | API/Node tests；independent acceptance PASS | aligned |
 
 ### Uncovered Observable Behavior
 
 没有发现 unit diff 中需要另加 delta 的独立外部行为。Codex low/medium 在缺授权时仍可能 allow 是已选择固定上游策略的行为，真实报告必须明确展示，不把它等同于“全部未授权动作拒绝”。人工授权已在 8aa3c8149 修实现，未静默删改设计。
 
-Outcome: **aligned**（ba88c18bc corrected-delta closure）；两个 corrected delta 的文本与最终已核对实现相符。完整 M1 仍受 C1 产品/对照证据门禁约束，aligned 不等于产品验收通过。
+Outcome: **aligned**（ba88c18bc corrected-delta closure；005764ec7 evidence closure）；两个 corrected delta 的文本、归并后的canonical条目与最终已核对实现相符；C1产品/对照证据已完成，静态门禁pass。
 
 ## Validation Evidence
 

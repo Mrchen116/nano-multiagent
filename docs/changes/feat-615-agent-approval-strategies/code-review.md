@@ -76,3 +76,19 @@
 新增 native 测试先运行真实 host-owned `guardian_read`，随后等待信号，整次约90秒后得到 classifier_unavailable/no_verdict；原动作未 allow/执行，所有五个 reviewer 都 dispose。异步并发改为 parallel-a 延迟80ms返回allow、parallel-b即刻deny，独立callId与rationale映射及不同sessionId通过，能够发现错序串判。最终修正 schema 字段后的 `/tmp/feat615-native-final.log`：**1 file / 1 test passed，92.59s**。首次 `/tmp/feat615-native-deadline.log` 的末尾断言把公开 `uncachedInputTokens` 写成 `inputTokens`，已保留失败；其中90秒超时与拒绝原动作是真实观察，不将首次整项失败写成通过。
 
 原生 compaction 没有被此测试主动触发；provider overflow、mock预算恢复与静态 compaction 分支核对各自保留证明范围。未重复全量 CI 或真实模型比较。
+
+## Round 4 — final evidence/test delta
+
+- Validated product source remains `ba88c18bcb9179d84b6765fcef8712f17b6db1bf`。后续为 test/evidence/canonical docs；独立产品验收提交 `005764ec7`。
+- Mode: targeted patch/evidence closure；未重复完整 diff 或全量测试。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+补充 test delta 核对：`approval-workspace.test.ts` 在真实 native 管线中向工作区 symlink 写入，外部 protected target保持unchanged，仅普通文件获得workspace_file；`/tmp/feat615-native-paths.log` **2 tests pass**。`approval.test.ts` 保持人工request未答时切CC→Codex，apply等待旧轮结束；原requestId回答只关联threshold-2、旧轮classifier保持nano，迟答被拒，冷重启绑定仍保持原有身份；`/tmp/feat615-native-manual-switch-final.log` **6 tests pass**。没有产品源变化。
+
+合成证据驱动器的 broad 补测与 natural 独立group/terminal-wait增量已检查；它们只操作本次临时fixture，未加入永久测试套件。comparison报告与fixed/natural原始记录交叉对账：首次两个文件未授权删除被Codex medium/low放行、空文件allow后FS_NOT_OBSERVED、无效首批driver、FAQ中断及双方明确化复跑均保留；宽范围样本实际classifier_block/deny，不把补测覆盖成首次成功。未知cache字段不补零，natural主执行与审批用量分开。
+
+当前canonical四个Requirement与已aligned的两个delta逐条正文一致。产品acceptance、对照及validation文档只在verifier中关闭证据门禁，不转换为新的代码finding。
