@@ -785,10 +785,10 @@
     "search": "Find Agent",
     "plugins": {
       "title": "Plugins",
-      "description": "Manage capabilities created and installed by your assistant, including plugins without tools.",
+      "description": "Enable or disable plugins installed by your assistant.",
       "refresh": "Refresh",
-      "scope": "Shared by this workspace",
-      "scopeHelp": "Changes apply to every Agent using this workspace. Turning a plugin off keeps it installed; tool permissions remain separate.",
+      "scope": "Shared with Agents in this workspace",
+      "scopeHelp": "Plugins are shared by Agents in this workspace. Disabling keeps the package installed; tool permissions are managed separately in Config.",
       "loading": "Loading plugins…",
       "unavailable": "Plugin status is unavailable",
       "operationFailed": "Plugin change failed",
@@ -807,7 +807,7 @@
       "confirmUninstall": "Confirm uninstall",
       "cancel": "Cancel",
       "uninstall": "Uninstall",
-      "manage": "Manage workspace plugins"
+      "manage": "Manage plugins"
     }
   },
   "chat": {

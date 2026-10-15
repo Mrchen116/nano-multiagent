@@ -1874,6 +1874,16 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
             <PillSelector
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
+              labelAction={
+                <button
+                  type="button"
+                  className="inline-flex min-h-8 items-center gap-1 rounded px-1 text-sm text-[var(--im-accent)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--im-accent)]"
+                  onClick={() => setActiveSection("plugins")}
+                >
+                  {t("agents.plugins.manage")}
+                  <span aria-hidden="true">→</span>
+                </button>
+              }
               selected={draft.tool_allowlist}
               fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
               options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
@@ -1896,7 +1906,6 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
               }}
             />
           </div>
-          <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => setActiveSection("plugins")}>{t("agents.plugins.manage")}</button>
           <ModelFallbackField
             label={t("agents.form.access.model")}
             labelHtmlFor="default-model"
