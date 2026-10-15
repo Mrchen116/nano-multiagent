@@ -107,7 +107,7 @@ export class CodexApproval extends Service {
           if(!decision)throw new Error('Invalid Guardian verdict');
           signal.throwIfAborted();
           if(!fork&&this.trunks.get(parent.id)===trunk){trunk.checkpoint={rows:serialized,events:[...events],sessionId:agent.id};trunk.reviewer=reviewer;committed=true;}
-          return{decision,usage:deriveTurnTokenUsage(added),metadata:{sessionId:agent.id,contextMode:mode,risk:decision.risk,authorization:decision.authorization}};
+          return{decision,usage:deriveTurnTokenUsage(added.slice(added.findIndex(event=>event.type==='turn/start'),added.findLastIndex(event=>event.type==='turn/end')+1)),metadata:{sessionId:agent.id,contextMode:mode,risk:decision.risk,authorization:decision.authorization}};
         }catch(error){
           if(reviewer){await this.discard(reviewer);reviewer=undefined;}
           signal.throwIfAborted();
