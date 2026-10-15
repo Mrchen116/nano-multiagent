@@ -101,3 +101,26 @@
 - 用户明确要求保留服务，因此保留本 worktree 与隔离 IM/Node；结束体验后再从此目录执行 `./scripts/e2e-down.sh`。不停止共享模型代理，不改生产。
 
 归档后文档检查通过：235 maintained Markdown sources / 64 required routes；git diff --check 通过。最终真实页面复查两个插件开关均 Enabled，干净聊天80元月报可见。
+
+### 同一 PR 第三方原生插件反馈修复（2026-10-15）
+
+- source `084b4ac18123db3b504e02e8c4a739dfc55577a6`，基线 `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`。不升级 DSH、不修改第三方包、不扩大架构例外。
+- 根因与修复：workspace 安装缺少宿主公开依赖解析，补原生 createRuntimeResolution/PluginPackages；保留旧映射到退出清理完成，串行首次 owner 注册、逆序拆除。preset 自有压缩引擎接管自动/人工压缩，默认引擎让出；原生 overlay 配置入口与作用域说明随产品提供。
+- 真实 restart 发现 GlobalAgent 在 IM 未就绪时补发完成回执导致启动退出；保留离线本地/外部恢复，仅暂缓 Web receipt，ACK 后才确认。原数据保留，最终代码正常启动为 Node11849 / DSH11859，ready/connected。
+- 工程证据根目录 `/tmp/rollover-plugin-1015/`：宿主 import `red.log`→`green.log`；逆序释放 `review-resolver-disposal-{serial,concurrent}.log`→`disposal-fixed.log` restored:true；compaction `compaction-red.log`→`combined-green.log`；回执 `receipt-red.log`→`receipt-green.log`32 passed。
+- `engine-integration.log`：真实 DSH 子进程、原生 bundle 安装、session.command、compaction/summary 与 summarize marker，覆盖 A 接管/B 隔离/A 停用回默认；1 test passed20.53s。
+- `final-tests.log`85 files316 tests passed（回执修复与末段 fixture 增补前）；最终受影响复验 `final2-targeted.log`3 files35 tests passed，`final2-typecheck.log`全包通过。完整 build 后末次改动单包重建见 `receipt-build.log` / `help2-build.log`。
+- `final-docs.log`235 Markdown64routes通过，diff check通过。未修改 Web，保留前文全量 Web、Python/Ruff证据。
+- Gate 2 R10/R11/R13 Approved；R12 全局恢复延后方案被更窄 R13 方案替代，未进入最终源码。独立静态 review R6 findings=[]、verifier pass / corrected-delta aligned，版本084b4ac18。真实第三方模型结果由下述产品验收补充，不能用 fixture 替代。
+
+主验收样本：新 global Agent `rollover-gpt-1015`，新 workspace、新 session `36811f8a-455b-4a0d-88d1-5fa13d75c27f`，模型配置 `codexOAuth:gpt-6.1-sol`（现有 anthropic 接入）。聊天 `/chat/c_jh16zrkn`。先遇 GitHub 构建审批，未批准脚本，后提示其使用项目官方 npm 预构建包；npm0.2.2 安装成功后默认根 compaction 冲突，补充产品能力说明让 Agent 自行配置 workspace 原生 overlay。原失败轨迹保留，不描述成一次无指导安装成功。
+
+Agent 自己给既有 context-rollover row 配置 isolate.compaction、modelSurface=always、workspace 内 notesDir，并在首次 new_context 无可压缩范围后自行将 retainTokens 调整为2048；没有修改第三方包、宿主 profile 或静态工具白名单。运行中新增 notes/new_context/history 等工具可用。原生日志 compaction/start244→summary245→end247，provider=dsh-context-rollover、model=deterministic/window-1、reason=model-requested，shadowedTokenCount26732。end247 之后 notes.read259/result260 成功返回海盐-731与2468元；get_context_remaining262 报18163tokens。证据 `/tmp/rollover-gpt-1015/compaction.json`、`events.json`；管理页 Enabled 截图 `plugins-enabled.png`。这是实际上下文替换与持久笔记读取，不是仅安装成功或请求入队。
+
+原 DeepSeek 新 Agent `rollover-clean-1015` 的审核503、GitHub构建审批与默认服务冲突样本也保留（聊天 `/chat/c_gfpvol92`），不删除失败样本以制造全绿。独立第二个全新 Agent 的最终结果见 acceptance.md 本轮追加。
+
+独立产品 R4 pass：`rollover-independent-1015` 从全新上下文一次自然请求自主安装与配置，reviewer 无中途提示/代写；真实事务156/157/159后 notes171/173读回雾松-842/1357，最终投递200/201，turn/end206。完整独立报告见 acceptance.md。
+
+第三方包实际重启补验（主 Agent）：确认两验收 global 会话均 turn/end 后，11:41:17 仅正常重启隔离 Node，保留所有数据。新 Node14988 / DSH14993 ready=true、connected=true；IM28411继续监听54267。原 session 在新进程中直接调用 notes331/result332读回海盐-731/2468，list_bundles333/334仍installed=true、enabled=true、diagnostics=[]，send_message338/339成功送达。没有重新安装或重复rollover。该段为主Agent证据，不冒称独立reviewer执行。
+
+最终 fetch main 无新提交；源码084b4ac18的远端 TypeScript/backend、Frontend、iOS change detection全部成功（无iOS变更，build跳过）。后续提交仅验收/审查/设计记录，源码门禁 retained；最终文档提交的CI由PR核对。测试服务、两个第三方插件与聊天保留，不合并、不部署生产。

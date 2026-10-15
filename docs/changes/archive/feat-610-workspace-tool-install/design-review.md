@@ -519,3 +519,183 @@ R8-W1、R8-W2、R8-W3、R8-W4 均 closed。此结论允许按修订后的标准�
 ### 工作边界
 
 本轮只追加 design-review.md，保留 R1–R8 与 Author Resolutions；未修改产品代码、设计或 prototype，未提交，未操作用户 Agent/浏览器 tab，也未启停隔离服务。文档 diff whitespace 检查通过；本轮设计审查不以未实现测试代替原生接口及视觉证据。
+
+
+## Round 10
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 同一 PR 的真实第三方插件验收暴露 workspace 宿主依赖解析遗漏；仅审原生 resolution 接线、映射更新和多 workspace 关闭顺序，不重复已通过的产品界面及整体 Full 设计。
+- started_at: 2026-10-15T10:58:49+08:00
+- completed_at: 2026-10-15T11:02:15+08:00
+- duration: 206s
+- baseline: branch `codex/feat-610-workspace-tools`，HEAD `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`；受审增量为 design.md:143-151。审查期间作者按发现修订了同一增量段，结论针对最终两阶段映射更新方案。
+- retained_from: Round 9 及其保留的公开安装接口、generation URL、workspace 隔离、idle reservation、异步 teardown、可信 API、持久化、视觉设计和产品验收边界；归档位置变化不触发重复全审。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+原生宿主依赖解析接线及更新/退出边界已经收口。此结论允许实施该主线程修复；不代表第三方 rollover 插件的 preset/service 激活、工具调用或真实上下文切换已通过。
+
+### Delta Coverage 与证据
+
+- **现场根因独立复核**：读取 `/tmp/rollover-plugin-1015/report.md` 和 probe-resolution.mjs，并以两个独立 Node 子进程实际重跑。baseline 退出 1，复现同一已安装 dsh-context-rollover@0.2.2 导入 Cordis 的 ERR_MODULE_NOT_FOUND；native 退出 0，仅使用公开 createRuntimeResolution + PluginPackages 后 IMPORT_OK。DSH 仍为 0.2.1-alpha.1，解析到宿主 Cordis 4.0.5-alpha.1。未给插件补装依赖、升级包、改服务或激活该插件。
+- **产品落点与公开边界**：当前 WorkspaceOwner.create 确实只在 managerRoot 提供 profileContext，启动 Loader/PluginManager 后将插件加载到宿主 scoped Include；没有安装 profile resolution。`@deepseek-ai/dsh-app-boot` 公开导出 createRuntimeResolution、PluginPackages、RuntimeResolution 类型，已安装包的独立 probe 也实际使用这些 exports；符合只能由 dsh-integration 接入 DSH 的仓库红线。
+- **职责划分**：workspace owner 已掌握可信 profile 路径与执行树生命周期，故在此拥有原生 resolver 合理；Node/IM 无须新增依赖复制、加载器或安装协议。`home=profile dir` 明确限制原生 profilesDir 的拦截范围，真实 installAnchor 保证共享宿主类/库。不同 workspace 使用独立 profile 表，不以同一张活动 profile 表覆盖全部 workspace。
+- **管理事务与解析发布**：原生 PluginManager 在安装、启用和移除路径会寻找 pluginPackages 并自动 refresh（参考源码 `packages/boot/plugin-manager/src/index.ts:452-458,575-577,643,781-787`）。最终设计明确将 owner 的 PluginPackages 放在独立 service realm，不让 manager 自动刷新提前撤销映射；owner 用公开 API 计算最新表并发布，不需要改动 DSH 或私有导入。
+- **生命周期顺序的审中修订**：初稿“外部配置变更刷新后再加载 Include”会违背公开 RuntimeInterception.replace 的约束：profile mappings/local names/linked roots 应在使用它们的插件停止后才移除。该点已反馈并在本轮报告前修正为“新增映射先发布，同时保留待撤旧映射 → Include update 与旧 fiber inertia drain → 发布完整新表撤旧”。原生 PluginPackages.replace 接受完整 RuntimeResolution，并将保留映射的目录/版本/scope 交给原生检查，因此可用薄表投影完成，无须自写解析器。
+- **替换诊断**：已核 `profile-resolution/resolver.ts:375-411`，原生 replace 会拒绝保留映射的目录/版本/scope 更换、installation 映射改变及同名 linked root 改向。设计保留这些诊断，不清模块缓存、不将所有初次安装都误报 restart-required，也不将原生替换拒绝覆盖为 applied。现有 generation 下执行入口的 distinct URL 决定继续保留；profile 内 generation 不属于被 linkedProfileRoots 收集的外部链接根，新增接线不要求回退到 hoisted 副本。
+- **多 workspace 关闭**：已核原生 interception 的 dispose 只在当前 hook 仍是本层 wrapper 时恢复上层，因此必须按实际注册逆序释放，不能沿用当前 owners Map 的正序 close 作为正确证据。最终设计已明确先结束执行 fibers，再按注册逆序释放 resolver；这也是多 workspace 初始化与退出实施必须遵循的边界。resolver 属于 runtime owner，不随一个聊天或 Agent 短期卸载而提前销毁。
+- **Worker 范围**：公开 PluginPackages 还维护原生 Worker 环境数据，而 registerWorkerResolution 只有进程级单表。最终设计明确本轮验证主线程 workspace 插件，未宣称多 workspace Worker 已兼容；当前第三方试用未用该路径，本轮不要求新增 Worker 协议。
+- **范围与验证**：这是现有标准插件安装/依赖共享契约的接线修正，不新增 HTTP 权限或 UI 交互。现有真实子进程 fixture 追加 Cordis/LLM imports 可防止原来仅注入 tools 的测试漏检；安装后调用、失败修正、重启、停用/移除、跨 workspace 与异步退出要求继续适用。新 Agent/新 workspace/新 global session 的真实模型验收已写明，旧失败现场保留；导入通过与 preset/service 真正激活分开验证。
+
+### 历史问题闭环
+
+R8-W1–W4 维持 closed。审中映射撤销顺序已在最终受审设计纠正，无未解决 findings；本轮没有以 R9 Approved 代替新证据。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
+
+### 工作边界
+
+只追加本报告，未改实现、设计或测试，未提交，未操作用户 Agent/浏览器 tab，未启停隔离服务。两次 probe 均为独立进程中的模块导入对照，不属于真实插件激活或产品验收。`git diff --check` 通过。
+
+
+## Round 11
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 第二层真实安装反馈新增默认 compaction 与 preset 自有后端的选择规则，并将首次 workspace owner 初始化串行以兑现 resolver 栈的释放顺序；仅审该有界增量。
+- started_at: 2026-10-15T11:12:15+08:00
+- completed_at: 2026-10-15T11:13:40+08:00
+- duration: 85s
+- baseline: HEAD `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`，design.md:153 新增段；resolver 顺序修正已有工作树代码，compaction 方案尚未实现。DSH 0.2.1-alpha.1 与第三方 dsh-context-rollover@0.2.2 不变。
+- retained_from: Round 10 的原生 resolution、两阶段映射发布、替换诊断和 Worker 限定；R9 及之前未受影响的 scope/管理 API/异步退出/产品设计证据继续保留。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+公开 preset 服务查询与 compaction 接口足以实现该分工，无需修改第三方包或全局覆盖宿主引擎。首次初始化串行补齐实际 resolver 注册顺序与 owner 记录顺序的一致性。真实 rollover 效果仍属于后续验收。
+
+### Delta Coverage 与证据
+
+- **原生 scoped 用法属实**：已读取实际已安装包的默认 cordis.patch.yml、README 和 presets/standard-rollover/agent.cordis.yml。默认 patch 注册 root compaction；preset 用法则使用原生 cordis:group、isolate.compaction=true，内部 context-rollover 配置 modelSurface='always'（该文件 138-155 行）。profile user patch 依照此方式调整 workspace 条目，保留原包，是合理配置入口；不将上游 host patch 自动改写为另一套隐式兼容规则。
+- **默认引擎实际冲突落点**：本仓 cordis.patch.yml 关闭原生 compaction-basic 并装配 host NanoCompaction；NanoCompaction 当前只增加 focus summarize，继承 BasicCompactionEngine 的自动监听。因此隔离服务能避免注册同名冲突，但若不让默认后端让出，host 与 scoped 后端仍会同时接收自动触发。
+- **公开服务选择**：AgentPresetRegistry.serviceFor(agent,'compaction') 根据 Agent 所属实际 preset mount，再通过 fiber 归属查询其服务（参考源码 `packages/preset/agent-preset-registry/src/index.ts:324-326`、mount.ts:99-114）。它查询 mount 子树的隔离服务而非返回 host 默认服务，能覆盖 preset 内动态 Include 贡献，也不会以工具名或用户文本推断后端归属。
+- **自动路径可窄覆盖**：BasicCompactionEngine 的 pre-step pressure 与 request-error overflow 均动态调用 this.compactIfNeeded（参考源码 `packages/compaction/compaction-basic/src/index.ts:145-164,205`）。NanoCompaction 在存在 preset 自有引擎时返回无处理结果，即可让出两条自动路径；没有时保持原 Basic 行为，不必改原生私有 listener。第三方自己的 compactionOwnedElsewhere 也使用公开 serviceFor 并比较真实服务实例，其 preset 实例不会把自己误判成另一个后端。
+- **人工路径闭合**：真实 session 命令落在 model-policy.ts 的 compact 分支，经 whenIdle 调用 host NanoCompaction.compactFocused；在此选择 preset 自有引擎并调用公开 compactNow(agent,signal,commandId)，保留原生 idle maintenance、取消与命令关联。CompactionEngine 的公开抽象方法包含 compactNow（`packages/compaction/compaction/src/index.ts`）；第三方实际实现也采用此签名。自有引擎负责其压缩语义；只有默认 summarizer 使用原有 focus guidance，符合本轮明确裁决，不向第三方强塞 Nano 摘要实现。
+- **停用回退与权限**：同一原生 workspace 管理流程在维护窗口撤销 scoped 服务并 drain；之后 serviceFor 不再返回该贡献，默认自动及人工摘要分支恢复。其他 workspace 的 Agent 对应不同 mount，保留默认逻辑。包开关继续独立于 tool_allowlist；modelSurface=always 提供 model-facing 注册，不自行授予静态禁用工具或 plugin_manager 权限。
+- **resolver 顺序**：只有反转 Map 不能保证并发异步 create 的实际安装顺序。新设计明确首次 owner 初始化串行；当前接线落点是 WorkspaceExtensions.creating promise 链，记录 owner 后按该链创建，关闭时反转 owners。这样无需新解析器或复杂注册表就兑现 R10 的原生 LIFO 契约；已存在 owner 的查询/日常管理不需要因此串行全部 workspace。
+- **验证边界**：新增真实 session compact 命令与 compaction 事件路由回归、其他 workspace 不变、停用回退与真实模型使用要求合理；自动回归应覆盖 pressure/overflow 的同一动态入口，不能只以人工 compact 成功推定双后端已消除。本轮只核设计与接口，未执行尚未实现的 compaction 修复，也未声称真实 rollover 已通过。
+
+### 历史问题闭环
+
+R8-W1–W4 及 R10 映射撤销顺序继续 closed。首次 owner 串行是 R10 逆序释放决定的有界落实；本轮未引入全局 service 覆盖、private import 或另一套 Agent Loop。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
+
+### 工作边界
+
+仅追加 design-review.md，未改产品代码、设计或测试，未提交；未操作第三方包、用户 Agent 或现存服务。`git diff --check` 通过。
+
+
+## Round 12
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: 真实重启暴露 relay 启动前补发 global 输入回执导致启动失败；仅复核恢复顺序这一处有界变化。
+- started_at: 2026-10-15T11:22:26+08:00
+- completed_at: 2026-10-15T11:22:39+08:00
+- duration: 13s
+- baseline: HEAD `48ecbfec267343bf6df6f2d577c21fb1a8ea7733` 加当前工作树；design.md 最后一段和 apps/node/src/main.ts 单条件增量。
+- retained_from: Round 10–11 的 resolver/compaction 及此前插件 scope 设计。此次不改变插件接口、持久化、权限或视觉设计，不重复全审。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+将首次 global 恢复延后至 relay ready，有现存回调承接；运行中 DSH 重启且 relay 已 ready 时仍立即恢复。无需删除持久输入或改变回执协议。
+
+### Delta Coverage 与证据
+
+- 已读 `/tmp/rollover-plugin-1015/start-stack.log`：错误确从 runtime onReady → GlobalAgent.recover → receipt → relay.request 传播，RelayDeliveryError 标为 not-sent；不是插件 scope 加载失败。
+- 组装入口的真实顺序是 await runtime.start()，之后才 relay.start()（main.ts:286-291）。因此 startup onReady 直接执行需要联网回执的 recover 会阻止代码到达 relay.start；新增 relay.ready 条件切断此启动依赖环。
+- 已核既有 relay.onState ready 回调仍调用 globalProduct.recover（main.ts:180）。WebRelayConnection.setState 先发布状态再异步触发回调，ready 属性读取该状态；首次连接后有可靠恢复入口。运行中 DSH 重启若 relay 已连，runtime onReady 保留同一 recover；若未连，则由后续连接 ready 承接。
+- GlobalAgent.recover 仍执行 main/controls/reconcile/wake；回执确认位于 receipt 成功之后，持久 pending 输入没有因跳过早期调用而被确认或删除（global-agent.ts:106-109,324）。本次只改变调用时机，保留原数据、补发与 ACK 边界。
+- 修复后原失败状态可启动并创建新 Agent 为作者报告的现场证据，本 reviewer 未独立启停服务或宣称第三方插件安装/rollover/重启验收已通过。新 GPT Agent 的真实安装仍按既有验收继续。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
+
+### 工作边界
+
+仅追加本报告，未修改产品/设计/数据，未提交，未干预正在运行的真实 Agent 测试。`git diff --check` 通过。
+
+
+## Round 13
+
+### Metadata
+
+- reviewer_target: 同一独立 reviewer `/root/workspace_tools_design_review`（Codex）
+- review_mode: delta
+- mode_reason: R12 的整次 global recover 延后方案影响飞书离线自治，已弃用；本轮独立审查替代的 Web receipt 局部暂缓方案，不复审插件主体。
+- started_at: 2026-10-15T11:23:42+08:00
+- completed_at: 2026-10-15T11:24:22+08:00
+- duration: 40s
+- baseline: HEAD `48ecbfec267343bf6df6f2d577c21fb1a8ea7733` 加当前工作树；apps/node/src/main.ts 已还原，最终设计是 GlobalAgent.reconcile 中 Web receipt 条件暂缓。
+- retained_from: R11 及此前未受影响结论；**R12 对已放弃 main.ts guard 的 Approved 结论 superseded，不可作为最终方案或实施依据。** 历史文本保留供追溯，以下结论取代它。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+最终方案仅在 relay.ready=false 时暂缓 Web 回执，保留 pending 且不 confirm；本地/飞书恢复照常。R12 只检查启动与重连调用链，遗漏了整次 recover 延后对 external 离线恢复的影响，本轮纠正这一判断。
+
+### Delta Coverage 与证据
+
+- 最终 design.md 最后一段已明确保留 global 本地/飞书离线恢复；main.ts 没有工作树 diff，startup 与 relay ready 的原 recover 入口全部保留，避免将外网 IM ready 变成飞书恢复的前置条件。
+- 真实产品组装中 GlobalAgent 的 relay 是 ExternalChannels（main.ts:234），其 ready 反映 Web relay，但 `node.delivery_receipt` 的 `external:` 路径在 ExternalChannels.request 内独立本地处理并返回 ACK（external.ts:95-99）。因此仅跳过非 external: 回执符合实际通道责任；不能因为 Web 未连而跳过整个 GlobalAgent.recover。
+- reconcile 在完成 turn 的 completedInputs 循环内暂缓相应 Web receipt，随后仍执行其他输入、工作投影、children 与 wake；未修改 main/controls/reconcile/wake 的整体恢复顺序。成功 receipt 后才 confirmReceipt 的顺序保留。
+- 重连可重新处理已持久化 turn/end：reconcile 不只遍历新 observe 结果，还从 NodeStore 全部持久 events 生成 logicalEvents。InboxStore.completedInputs 只选择未写 receipts 记录的输入；离线跳过没有写确认，重连 ACK 后确认，正常重复 recover 不再投递已确认项（global-agent.ts:300-327；inbox.ts:151-154）。没有删除输入或伪造回执。
+- 已查看 receipt-red.log：旧代码在离线 Web receipt 上抛错；receipt-green.log 显示当前全部 32 项通过。独立运行本轮新增 public GlobalAgent + 真实 InboxStore/NodeStore 回归，结果 **1 passed / 31 skipped**。用例验证离线 external 已处理而 Web 仍 pending，连接后 Web 投递并确认，再次 recover 无重复回执。这里证明正常成功 ACK 后的重复恢复行为，不扩大为未知网络结果的全局 exactly-once 保证。
+- 此局部修正不改变原生插件 scope、resolver 或 compaction 设计；真实重启与第三方插件效果仍按既有产品验收执行。本轮未干预正在运行的新 Agent。
+
+### 历史问题闭环
+
+R12 已被本轮最终方案及审查结论取代。R10–R11 未受影响，继续 retained。
+
+### Issues
+
+无未解决问题。
+
+### Recommendations
+
+无额外建议。
+
+### 工作边界
+
+仅追加本报告，未改实现、设计或数据，未提交，未操作服务/用户 Agent。`git diff --check` 通过。

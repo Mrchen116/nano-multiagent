@@ -78,7 +78,7 @@ None.
 
 ## Corrected Delta Reconciliation
 
-Current corrected delta: `specs/gateway/agent-capabilities.md` and `specs/im/agents-nodes.md` within this active unit, relative to the canonical baseline at `89c47478b`. Older rounds below preserve their historical tool-only/read-only-card conclusions; they do not cover the new standard-plugin scope. Current reconciliation is at `df579de5e8fb7c09626e132a28fd23f5663dae18`, with Round 4's unchanged implementation evidence retained.
+Current corrected delta: `specs/gateway/agent-capabilities.md` and `specs/im/agents-nodes.md` within this unit, relative to the canonical baseline at `89c47478b`. Older rounds below preserve their historical conclusions. The standard-plugin reconciliation at `df579de5e8fb7c09626e132a28fd23f5663dae18` is retained. Round 7 verifies `48ecbfec267343bf6df6f2d577c21fb1a8ea7733..084b4ac18123db3b504e02e8c4a739dfc55577a6`, including the identical new third-party host-dependency/workspace-configuration scenario in the canonical Gateway spec and unit delta. Offline receipts retain the existing recovery contract rather than adding a new user behavior.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -89,10 +89,14 @@ Current corrected delta: `specs/gateway/agent-capabilities.md` and `specs/im/age
 | IM independent plugin page and retained unrelated-save behavior | new tab, zero-tool directory and immediate mutation; static draft serialization unchanged; old cards removed | UI/HTTP tests and Round 6 actual desktop/390-width plugin-page comparison | aligned |
 | IM web management remains available with Agent management tool disabled | trusted web path has no plugin_manager tool-allowlist dependency; package state is separate from tool use | control identity test and source audit | aligned |
 | IM pending, error, offline and confirmation semantics | native snapshots/pending/error; poll and refresh; per-card confirmation and no optimistic state change | native/HTTP/UI regressions plus actual pending, empty, failed-detail and confirmation screenshots; final product offline/restart work remains independent | aligned |
+| Workspace host dependencies and resolution withdrawal | public native resolver per workspace; mappings retained through old fiber drain; serial first owner creation and reverse close | host Cordis/LLM imports and Context identity in native lifecycle; concurrent-disposal red/control and fixed restored:true evidence | aligned |
+| Scoped preset compaction, workspace isolation and default fallback | public serviceFor selects current preset backend; automatic triggers yield; manual command invokes compactNow; absent backend keeps default focused summarizer | trigger/forwarding regression plus real DSH installed-engine command/summary/marker, B isolation and disable assertions; existing default-focus subprocess coverage retained | aligned |
+| Offline recovery and delayed Web completion receipts | main.ts unchanged; GlobalAgent delays only offline completed Web receipts without confirmation, preserving external recovery | real InboxStore/NodeStore public recover red/green: external completes offline, Web stays pending, repeated reconnect delivers Web once | aligned |
+| Gateway third-party host-dependency/workspace-configuration Scenario | canonical `agent-capabilities.md:658-661` and unit delta match; public resolver, user overlay, preset engine delegation, disable fallback and workspace isolation implement each clause | host-dependency native lifecycle, pressure/overflow branch regression, real installed preset summarize marker/B isolation/disable test; final targeted 3 files / 35 tests pass | aligned |
 
 ### Uncovered Observable Behavior
 
-No omitted target behavior found in the new unit implementation diff. The independently merged bugfix-611 is excluded. Registry replacement's native restart-required limitation remains documented, but does not excuse reversing a saved disabled choice (R4-P2).
+No omitted target behavior found in the reviewed unit delta, including Round 7's bounded fixes. The independently merged bugfix-611 is excluded. Registry replacement's native restart-required limitation remains documented, but does not excuse reversing a saved disabled choice (R4-P2). Multi-workspace Worker compatibility remains outside the approved main-thread fix. Third-party real-model rollover use is pending independent product acceptance; imports and native fixtures do not replace that journey.
 
 Outcome: aligned
 
@@ -268,3 +272,34 @@ Offline/restart, repaired-source update remaining disabled and the final product
 - New assertions exercise declared public behavior: while A is genuinely busy and a web mutation is pending, a same-workspace peer's plugin-manager mutation returns busy instead of joining a self-waiting queue. A second real busy turn accepts web enable as pending, then only the fixture's temporary DSH subprocess is SIGKILLed; restoring persisted bindings shows pending absent and the previously disabled tool still unavailable. These protect concurrent-management and interrupted-unapplied-state contracts through native dispatch/profile/restart, rather than asserting internal scheduling details.
 - Inspected `/tmp/feat610-pending-restart.log`: complete native lifecycle **1 file / 1 test passed**, 14.05s. This evidence extends the earlier lifecycle regression; it does not claim a production or shared product service was killed. Product final acceptance and its offline/restore evidence remain owned by the independent reviewer.
 - Verdict retained: **pass**, 0 CRITICAL / 0 WARNING / 0 SUGGESTION; requires_full_verification=false. This update changes only verification.md and is not committed by reviewer.
+
+## Round 7 — Host resolution, preset compaction and offline receipt closure
+
+- verification_mode: targeted-closure and corrected-delta.
+- executed_base: `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`.
+- validated_at: `084b4ac18123db3b504e02e8c4a739dfc55577a6`; the caller committed the reviewed implementation while reports were being prepared; final committed text delta was checked.
+- validated_issues: resolver disposal-order P2 closed; provisional offline GlobalAgent recovery guard P2 closed; real preset-compaction integration evidence warning closed.
+- verdict: engineering pass; corrected-delta outcome: aligned.
+- issues: 0 CRITICAL / 0 WARNING / 0 SUGGESTION.
+- requires_full_verification: false.
+- report_commit: caller-owned worktree; reviewer did not commit.
+
+### Completeness and correctness
+
+| Contract / decision | Implementation evidence | Validation inspected | Outcome |
+|---|---|---|---|
+| Public host dependencies with workspace scope | workspace-tools.ts imports public root app-boot exports, initializes native resolution for each actual profile/home, and isolates pluginPackages from manager auto-refresh | fixture imports host Cordis/LLM and verifies shared Context identity before real tool invocation; initial red/green and subsequent lifecycle green logs | covered |
+| Keep dependencies available through cleanup and release native resolver stack | retained mappings precede Include update; old fiber inertia precedes latest table; creating serializes initial owner registration before reverse close | independent serial/concurrent resolver-control logs show the old failure; disposal-fixed.log reports concurrent restored:true; order-green.log passes | covered |
+| Preset owns automatic and manual compaction; unrelated workspace and default path preserved | compaction.ts uses public serviceFor, returns null for both host automatic trigger paths when owned, and forwards manual compactNow; otherwise retains focused default path | model-policy branch regression and existing real default-focus command; installed native engine marker and compaction/summary, B isolation and disable assertions in workspace-tools.test.ts:184-207 | covered |
+| Offline recovery proceeds while Web completed receipts wait for reconnect | main.ts restored; global-agent.ts:324-326 skips only not-ready non-external receipts and does not confirm them | receipt-red.log reproduces exception; receipt-green.log passes 32 tests; public recover with real stores proves external offline completion, durable Web pending state and one reconnect delivery | covered |
+| Explicit third-party dependency/configuration scenario and Agent guidance | canonical Gateway spec :658-661 matches unit delta; description/manual explain existing-row user overlay, preset compaction, host yielding/manual routing and first-activation behavior | source/spec/manual reconciliation plus final2-targeted.log, 3 files / 35 tests passed, 19.98s; final2-typecheck.log all participating packages completed | aligned |
+
+Evidence logs are under `/tmp/rollover-plugin-1015/`. `engine-integration.log` passes the complete extended native lifecycle in 20.53s; `combined-green.log` previously passed 2 files / 3 tests in 18.44s. Tests were inspected and reused rather than duplicated. The narrow trigger test by itself did not satisfy the integration requirement; the real installed-engine subprocess regression supplies that seam. The default-focus subprocess regression remains applicable to the absent-backend path.
+
+### Coherence and limits
+
+Native replace rejection is preserved for unsupported path/version changes. No private DSH imports, dependency copies, runtime fork, second Agent Loop or Node-to-DSH import boundary expansion was introduced. Native Worker resolution remains process-wide and is not represented as multi-workspace compatible. Approved R11 assigns custom backends their own compaction semantics; the fallback preserves Nano's existing focused summarizer.
+
+The unique Corrected Delta Reconciliation section above includes the new Gateway scenario and the affected recovery behavior; outcome is aligned with no omitted reviewed observable behavior. Existing frontend reference evidence is unchanged and retained. The third-party dsh-context-rollover real-model journey is still running separately and is not declared accepted by this engineering report. Import success and a fixture backend do not establish that plugin's actual rollover result, deployment or release.
+
+Only code-review.md and verification.md were edited by this reviewer. No product file, existing service or full-suite run was changed or operated; final whitespace check passed.

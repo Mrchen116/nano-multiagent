@@ -233,3 +233,42 @@ Reviewer 独立读取 `/tmp/feat610-pending-restart.log`（1 file / 1 passed，1
 | 离线或待应用期间重启 | pass | 54267 实际离线不可确认、保留旧列表、恢复展示 + 新原生SIGKILL pending/磁盘旧状态/重新发起成功 |
 
 这是原生边界和页面体验的组合证据，未声称在 54267 浏览器页面打开时执行过 pending SIGKILL。现有真实网页已覆盖相关不确定态与恢复体验；新增真实 subprocess 已覆盖缺失的中断持久化及并发行为，足以完成这两个 Scenario，无需再次干扰保留给用户体验的服务。十项 Scenario 最终均 pass，must-match 对照齐全。此补充只修改验收报告，没有重启或停止最终体验服务；干净聊天 `c_dkpuwqw4` 未追加测试消息。
+
+## Round 4 — 第三方 rollover 插件独立增量验收（2026-10-15）
+
+- **mode**: targeted；第三方标准包安装、workspace 配置恢复、真实 rollover 与持久笔记回读。此前完整管理旅程沿用 Round 3 最终结论；本轮不冒称重验开关、卸载、并发和重启。
+- **validated_at**: `084b4ac18`；executed_base `48ecbfec267343bf6df6f2d577c21fb1a8ea7733` + 本提交增量。Caller 确认 DSH integration、PA、Node 已 build，11:26:55 重启的 Node 11849 / DSH 11859 对应此源码；Web/IM 无增量沿原产物。Reviewer 不重启服务。
+- **verdict: pass**；本次范围 blocking/major/minor = 0/0/0，highest_required_action=pass，needs_re_review=false。
+- 独立身份：新建 Global Agent `rollover-independent-1015`（原生插件独立验收 · 雾松），新默认 workspace；模型 `codexOAuth:gpt-6.1-sol`、推荐中强度，其他默认。新主 Session `89d8a060-2be3-41d3-83c2-2f4d527f0172`，聊天 `c_9w6n1cua`。从 Nano Web 真入口创建并发送一次自然请求，未复用 caller 样本或旧失败上下文。
+
+### 请求、恢复与可观察结果
+
+请求安装 GitHub 项目 athif23/dsh-context-rollover，允许官方 npm 预构建包，禁止批准/运行 GitHub 构建脚本与修改宿主；用插件保存“验收代号雾松-842，预算1357元”，实际 rollover 后读回。Reviewer 没有教配置命令、代安装、代写 workspace、修改源码或补发干预提示。
+
+Agent 自行读 nanoassistant-docs 与官方 README，安装 npm `dsh-context-rollover@0.2.2`。默认 compaction 注册冲突如实返回 failed；Agent 自行将已有 context-rollover 行在 workspace user overlay 配置 isolate.compaction、modelSurface=always 与 workspace notesDir，随后 diagnostics 为空。首次 new_context 返回接受但没有实际替换；Agent 对照上下文用量和已装官方包实现，自行识别默认保留尾部过大，并仅将 workspace retainTokens 调至 2048 后重试。未把第一次请求接受冒称成功。
+
+### 原生与页面证据
+
+所有独立证据位于 `/tmp/rollover-independent-1015/`：完整解压 `session.jsonl`，抽取 `compaction.json`，`plugins-enabled.png`，`chat-final.png`。来自原生 session.v4.jsonl.zstd，sessions 数据库按本 Agent 精确取得 session_id。
+
+| 必验结果 | 实际证据 | 裁决 |
+|---|---|---|
+| 新 Agent 自助安装官方第三方包并恢复配置冲突 | tool/call57 install_bundle；58 原始冲突；69 自主 workspace edit；183 list_bundles installed=true/enabled=true/diagnostics=[] | pass |
+| 插件真实保存指定状态 | notes.write87/result88 成功保存 acceptance-wusong-842.md | pass |
+| 真正执行 rollover，非请求接受 | new_context153 后 compaction/start156、summary157、end159；compactionId=65299a85-556e-4991-9ad1-ad5c87169e44；provider=dsh-context-rollover；model=deterministic/window-1；shadowedRange10–134、shadowedTokenCount17536 | pass |
+| rollover 后通过插件回读并恢复历史 | notes.read171/result173 完整返回雾松-842/1357；history172/174及180/181恢复旧请求；get_context_remaining175/176显示约16468tokens | pass |
+| 用户收到真实最终交付、插件页状态准确 | send_message200/result201 status=sent，message6bbc64f4ddf74204a6c08b1aa75cf9bf；浏览器可见完整最终回复；插件页0.2.2已启用；turn/end206 completed | pass |
+
+### 体验与范围边界
+
+已读本 unit spec/design/current gateway 契约与共同体验标准。真实桌面视口约1538×1014：插件卡片明确显示名称、版本、描述、开关和已启用状态；下方说明同 workspace 共享。聊天内先确认任务、再报告冲突恢复进展、最终明确区分首次无效请求与实际 rollover，用户能辨认过程和最终结果。此增量未改变布局，原型结构和其他管理状态沿 Round 3 证据。
+
+Side observation：该浏览器测试身份出现“实时更新暂时繁忙，30秒重试”提示，刷新后可读已持久消息；未发现其改变插件执行与最终投递结果。实时无刷新投递不由本轮证明，此现象关系未明且不据此扩展插件增量结论。
+
+服务与插件均保留，未启动额外服务、未重启或停止 caller 服务。Agent 默认技能创建能力另自主写入了 workspace-rollover-acceptance skill；它在 rollover 及回读之后产生，不是安装成功的前置。第三方包重启持久性由 caller 后续单独验证，本轮不借用尚未发生的证据。
+
+- Chat: `http://127.0.0.1:54267/chat/c_9w6n1cua`
+- Work: `http://127.0.0.1:54267/settings/agents/rollover-independent-1015?view=work`
+- Plugins: `http://127.0.0.1:54267/settings/agents/rollover-independent-1015?view=plugins`
+
+本轮按 caller 指令只追加报告，不提交。上层 current/design 已包含配置入口及 preset compaction 让出约定，本轮未发现需新增的契约差异。

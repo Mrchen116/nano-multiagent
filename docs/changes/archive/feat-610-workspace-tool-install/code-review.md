@@ -135,3 +135,38 @@ Full-scope logs inspected: `/tmp/feat610-all-native.log` 85 files / 315 tests pa
 ```json
 []
 ```
+
+## Round 6 — Host resolution, preset compaction and offline receipt closure
+
+- review_mode: patch plus closure of this reviewer's resolver-order and offline-recovery P2 findings.
+- executed_base / prior_head: `48ecbfec267343bf6df6f2d577c21fb1a8ea7733`.
+- validated_at: `084b4ac18123db3b504e02e8c4a739dfc55577a6` on `codex/feat-610-workspace-tools`; initially reviewed uncommitted, then checked the frozen commit and final text delta. Only this delta, not the historical PR.
+- verdict: Approved; both P2 findings closed; findings `[]`.
+
+Reviewed workspace-tools.ts, compaction.ts, global-agent.ts, their changed tests, plugin instructions and approved bounded R10/R11 decisions. createRuntimeResolution and PluginPackages are public root exports of pinned DSH. Per-workspace profile/home and isolated pluginPackages realm prevent manager auto-refresh from prematurely withdrawing cleanup dependencies. Refresh retains prior mappings through Include update and retired fiber inertia before removing obsolete mappings; native replace/restart errors remain intact. No private import, runtime patch or dependency copy was introduced. Native Worker resolution remains a process-wide table, outside this main-thread compatibility claim.
+
+### Resolver-order P2 — closed
+
+The earlier reverse-Map close could differ from asynchronous native wrapper registration order. Independent temporary-Context evidence in `/tmp/rollover-plugin-1015/review-resolver-disposal-{serial,concurrent}.log` showed serial restoration true and concurrent restoration false. WorkspaceExtensions.creating now serializes initial owner creation (`workspace-tools.ts:43,58-62`); reverse release (`:46`) therefore matches actual registration. Inspected `disposal-fixed.log`: concurrent attach reports restored:true; `order-green.log`: native lifecycle passes in 18.30s.
+
+### Preset compaction and integration-coverage concern — closed
+
+The public serviceFor lookup selects implementations owned by the live Agent's retained preset subtree, including isolated realms, excluding the host default. Both native automatic hooks dynamically invoke compactIfNeeded; the host override yields to a preset backend for pressure/overflow. Manual compactFocused forwards Agent, signal and command identity to public compactNow; absent a preset backend, the existing default focused summarizer remains. Approved R11 leaves a custom backend responsible for its compaction semantics.
+
+The narrow model-policy regression covers both automatic trigger values and manual forwarding (`combined-green.log`: 2 files / 3 tests, 18.44s). The real DSH subprocess fixture at `workspace-tools.test.ts:184-207` installs an isolated BasicCompactionEngine subclass, executes session.command, inspects compaction/summary and an actual summarize marker, confirms B never invokes A's engine, and confirms A no longer invokes it after disable (`engine-integration.log`: 1 test, 20.53s). Existing model-policy subprocess coverage also proves default compaction with focus. The previous coverage warning is closed by the native integration seam rather than by the mocked condition test alone.
+
+### Offline-recovery P2 — closed
+
+The provisional main.ts readiness guard was reverted: main.ts has no delta and GlobalAgent recovery is not suppressed offline. At `global-agent.ts:324-326`, only completed Web input receipts are deferred when relay.ready is explicitly false, without confirming them; external-prefixed receipts continue locally and reconcile/project/wake continue. Existing reconnect recover retries pending receipts and confirms after successful delivery.
+
+The public recover regression uses real InboxStore/NodeStore with Web and external inputs. Inspected `receipt-red.log`: old code throws Relay is not ready; `receipt-green.log`: all 32 tests pass. Assertions prove offline external completion, retained Web pending state, and one Web delivery across repeated reconnect recovery. Evidence paths above are under `/tmp/rollover-plugin-1015/`.
+
+The final tool description and product manual clarify native user-overlay row configuration, isolated preset compaction ownership, host automatic yielding and manual routing without a first-activation session restart. The canonical Gateway spec and unit delta contain the identical new third-party host-dependency/workspace-configuration scenario (`docs/specs/gateway/agent-capabilities.md:658-661`). This documents the reviewed behavior without adding another runtime path. Inspected `/tmp/rollover-plugin-1015/final2-targeted.log`: 3 files / 35 tests passed in 19.98s, and `final2-typecheck.log`: all participating packages completed successfully.
+
+No remaining actionable findings were found. Whitespace check passed. Full-suite/build gates remain caller-owned; no whole-suite repeat or existing-service operation was performed. Third-party dsh-context-rollover real-model use remains separate product acceptance, not established by import or fixture success.
+
+```json
+[]
+```
+
+Only code-review.md and verification.md were edited by this reviewer; no commit was created.
