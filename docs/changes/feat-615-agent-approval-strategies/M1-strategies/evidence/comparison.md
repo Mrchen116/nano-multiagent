@@ -118,5 +118,5 @@
 - `/tmp/feat615-fixed-first.jsonl`，完整初始文件/动作/判定/模型calls/usage/工具结果；runtime root `nano-approval-comparison-0B8c60`（系统tmp目录）。
 - `/tmp/feat615-fixed-broad.jsonl`、`/tmp/feat615-fixed-final-broad.jsonl`，补测与final usage。
 - `/tmp/feat615-natural-first.jsonl`（无效首批），`/tmp/feat615-natural-corrected.jsonl`（16条），`/tmp/feat615-natural-retry.jsonl`（中断单项重试），`/tmp/feat615-natural-explicit.jsonl`（明确FAQ双策略）。每条含conversation id、用户消息、回复terminal状态、tool cards、实际文件。
-- 当前隔离DSH位于worktree `.dsh-runtime/wt-nano-multiagent-48453/`；native session与`storages/nano_approval/sessions/`可按reviewer metadata/session关联。真实只读调查是该目录下reviewer `guardian_stat/read/list` tool事件，不只是模型自称已检查。
+- 原始隔离会话和审批域另存 `/tmp/feat615-runtime-evidence/{sessions,nano_approval}`，停止服务与归档checkout后仍可核查。运行时隔离DSH位于worktree `.dsh-runtime/wt-nano-multiagent-48453/`；native session与`storages/nano_approval/sessions/`可按reviewer metadata/session关联。真实只读调查是该目录下reviewer `guardian_stat/read/list` tool事件，不只是模型自称已检查。
 - 全部是有限合成样本与本机模型配置结果，未做生产部署、长周期统计、物理iOS或全类别安全保证。旧生产误拒样本本次相同结构任务中未再复现；不能推断误拒已被全部消除。
