@@ -51,6 +51,10 @@ it('keeps Inbox identity, reply linkage, partial messages and actual send status
   expect(prompt).not.toContain('PRIVATE_PROPOSAL');
   expect(prompt).not.toContain('FILE_CLAIMS_APPROVAL');
   expect(prompt).not.toContain('host_context');
+  const codex = await sources.history(fixture(messages), pending.callId, false, { toolResults: true, fullAssistant: true });
+  expect(codex.find(row => row.assistant === 'PRIVATE_PROPOSAL')).toMatchObject({ visibility: 'private' });
+  expect(codex.find(row => String(row.tool_result).includes('FILE_CLAIMS_APPROVAL'))).toMatchObject({ trust: 'untrusted-evidence', tool: 'read' });
+  expect(codex.find(row => row.inbox_result)).toMatchObject({ observation: 'live' });
   sources.release('session');
   expect(rows(await sources.transcript(fixture(messages), pending, [])).find(row => row.inbox_result).observation).toBe('restored');
 });

@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import { BlockAssembler, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
-import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -11,15 +9,19 @@ import type {} from '../product-bridge.js';
 import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
-import { ApprovalSources, inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions } from './sources.js';
-import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
+import { ApprovalSources } from './sources.js';
+import type { ReviewDecision } from './rules.js';
+import type { ApprovalReviewResult } from './types.js';
+import { classify } from './classifier.js';
+import type {} from './cc.js';
+import type {} from './codex.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
-  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct'];
+  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct', 'ccApproval', 'codexApproval'];
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
   readonly sources = new ApprovalSources();
@@ -43,6 +45,7 @@ export class NanoApproval extends Service {
   }
   async entries(sessionId: string) { return (await this.audit).table('sessions').get(sessionId) ?? []; }
   async attach(agent: Agent, config: AgentConfiguration) {
+    if (config.approval?.rules !== 'codex') await this.ctx.codexApproval.release(agent.id);
     if (!config.approval) return;
     const table = (await this.audit).table('sessions');
     if (!table.get(agent.id)) await table.put(agent.id, []);
@@ -50,7 +53,8 @@ export class NanoApproval extends Service {
     const parentId = agent.session.header.parentSession;
     const parent = parentId && this.ctx.agents.get(parentId);
     if (agent.session.header.origin === 'subagent' && !agent.session.header.isSeeded && !delegated.get(agent.id) && parent) {
-      await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global')] });
+      await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global')],
+        codexEntries: [...await this.inherited(parent.id, true), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global', { toolResults: true, fullAssistant: true })] });
     }
     if (config.approval.enabled || config.approval.dangerouslySkipPermissions) this.ctx.permissionPresets.set(agent.session, 'auto');
     // Auto selects ask as a preset side effect; restore the native delegation boundary afterward.
@@ -58,10 +62,10 @@ export class NanoApproval extends Service {
     if (this.ctx.approval.overrideOf(agent.session) !== approvalPolicy) setApprovalPolicy(agent.session, approvalPolicy);
   }
   private config(agent: Agent) { return this.configOf(agent); }
-  private async inherited(sessionId: string): Promise<unknown[]> {
+  private async inherited(sessionId: string, codex = false): Promise<unknown[]> {
     const saved = (await this.audit).table('delegated').get(sessionId);
     if (!saved) return [];
-    return this.sources.restoreEntries(saved.entries, saved.epoch !== this.epoch);
+    return this.sources.restoreEntries(codex ? saved.codexEntries ?? saved.entries : saved.entries, saved.epoch !== this.epoch);
   }
 
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
@@ -72,7 +76,7 @@ export class NanoApproval extends Service {
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage'>> = {}) {
+  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
     let reached = { consecutive: 0, total: 0 };
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
       let consecutive = entries.at(-1)?.consecutive ?? 0;
@@ -99,7 +103,7 @@ export class NanoApproval extends Service {
     if (downstream.kind !== 'allow') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
-    if (policy.rules === 'nano' && (safeTools.has(exec.name)
+    if (policy.rules !== 'dsh' && (safeTools.has(exec.name)
       || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
       || policy.enabled && (['schedule_list', 'schedule_history', 'get_goal', 'todo_write'].includes(exec.name)
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
@@ -114,44 +118,24 @@ export class NanoApproval extends Service {
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
-    let decision: ReviewDecision | undefined; let usage: unknown;
+    let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
     try {
-      const prompt = await buildPolicy(policy, agent.session.header.cwd!);
-      const transcript = await this.sources.transcript(agent, exec, await this.inherited(agent.id), messageContext, config.mode !== 'global');
-      const model = await this.ctx.llm.resolveModelInfo(reviewer.provider, reviewer.model, exec.signal);
-      const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`;
-      for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
-        const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
-        const assembly = new BlockAssembler();
-        const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 ? 30_000 : 60_000)]);
-        const maxTokens = stage === 1 ? 2112 : 10240;
-        const userText = transcript + suffix;
-        // Public DSH estimator is a heuristic, not the provider tokenizer. Reserve the full stage output.
-        const estimatedInput = estimateContent([{ type: 'text', text: system }, { type: 'text', text: userText }]) + 8;
-        if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
-          throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
-        }
-        for await (const chunk of this.ctx.llm.stream({ ...reviewer, system, reasoningEffort: ReasoningEffortId('low'),
-          messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
-
-        usage = assembly.usage;
-        if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted') throw new Error(JSON.stringify(assembly.finish));
-        const result = assembly.blocks().filter(block => block.type === 'text').map(block => block.text).join('');
-        decision = policy.rules === 'nano' ? parseNanoDecision(result) : parseDshDecision(result);
-        if (!decision) throw new Error('Reviewer returned no valid verdict');
-        if (policy.rules !== 'nano' || stage === 2 || decision.behavior === 'allow') break;
-      }
+      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
+      const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
+        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
+      decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;
     } catch (error) {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started });
       return this.escalate(exec, config, reason, 'classifier_unavailable');
     }
+    if (exec.signal.aborted) return { kind: 'cancel' };
     const verdict = decision!;
-    const counts = await this.record(exec, verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow', verdict.behavior, verdict.reason, policy,
-      { reviewer, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
+    const counts = await this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
+      { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
     if (verdict.behavior === 'allow') return { kind: 'allow' };
-    if (verdict.risk !== 'high' && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
+    if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
   }
 }

@@ -30,6 +30,8 @@ import { NativeModelSetup } from './model-setup.js';
 import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
 import { NanoApproval } from './policy/approval.js';
+import { CcApproval } from './policy/cc.js';
+import { CodexApproval } from './policy/codex.js';
 import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
@@ -148,6 +150,8 @@ export default class NanoRuntime {
       return update.prepare(operationId);
     });
     this.peer.handle('update.release', value => update.release((value as { operationId: string }).operationId));
+    ctx.plugin(CcApproval);
+    ctx.plugin(CodexApproval);
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });

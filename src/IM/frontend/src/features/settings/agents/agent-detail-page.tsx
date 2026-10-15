@@ -1,3 +1,4 @@
+import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
@@ -120,6 +121,7 @@ interface BehaviorCardProps {
   agentId: string;
   draft: AgentConfigFormState;
   capabilityFeatures: AgentFeature[];
+  onApprovalModeChange: (value: ApprovalMode) => void;
   onCustomPromptChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
@@ -129,6 +131,7 @@ function BehaviorCard({
   agentId,
   draft,
   capabilityFeatures,
+  onApprovalModeChange,
   onCustomPromptChange,
   onFeatureToggle,
   onPolicyChange
@@ -196,6 +199,8 @@ function BehaviorCard({
       </div>
 
       {/* Custom Instructions are the only public per-agent prompt input. */}
+      <ApprovalModeField value={draft.approval_mode} onChange={onApprovalModeChange} />
+
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
         <textarea
@@ -1744,6 +1749,11 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           agentId={agentId}
           draft={draft}
           capabilityFeatures={capabilities.features ?? []}
+          onApprovalModeChange={(value) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, approval_mode: value });
+          }}
           onCustomPromptChange={(value) => {
             setSaved(false);
             setErrorMessage(null);

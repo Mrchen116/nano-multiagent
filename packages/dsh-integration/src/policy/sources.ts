@@ -72,7 +72,7 @@ export class ApprovalSources {
     });
   }
 
-  async history(agent: Agent, pendingCallId?: string, includeAssistant = false): Promise<Record<string, unknown>[]> {
+  async history(agent: Agent, pendingCallId?: string, includeAssistant = false, options: { toolResults?: boolean; fullAssistant?: boolean } = {}): Promise<Record<string, unknown>[]> {
     const lines: Record<string, unknown>[] = [];
     const calls = new Map<string, string>();
     let proposal = '';
@@ -96,7 +96,8 @@ export class ApprovalSources {
     }
     for (const message of agent.session.deriveMessages()) {
       if (message.role === 'assistant') {
-        if (includeAssistant && text(message.content).trim()) proposal = text(message.content).slice(-2000);
+        if (options.fullAssistant && text(message.content).trim()) lines.push({ assistant: text(message.content), visibility: includeAssistant ? 'context' : 'private' });
+        if (!options.fullAssistant && includeAssistant && text(message.content).trim()) proposal = text(message.content).slice(-2000);
         for (const block of message.content) if (block.type === 'tool-call') {
           calls.set(block.id, block.name);
           if (block.id !== pendingCallId) lines.push({ [block.name]: parseJson(block.arguments), id: block.id });
@@ -106,12 +107,12 @@ export class ApprovalSources {
             if (event.type === 'tool/ptc-dispatch-start' && event.data.subCallId !== pendingCallId) {
               lines.push({ [event.data.name]: event.data.arguments, id: event.data.subCallId });
             } else if (event.type === 'tool/ptc-dispatch') {
-              this.appendResult(lines, agent.id, event.data.subCallId, event.data.name, event.data.content, event.data.isError);
+              this.appendResult(lines, agent.id, event.data.subCallId, event.data.name, event.data.content, event.data.isError, options.toolResults);
             }
           }
         }
       } else if (message.role === 'tool') {
-        this.appendResult(lines, agent.id, message.toolCallId, calls.get(message.toolCallId), message.content, !!message.isError);
+        this.appendResult(lines, agent.id, message.toolCallId, calls.get(message.toolCallId), message.content, !!message.isError, options.toolResults);
       } else if (message.role === 'user') {
         const source = message.source;
         const kind: string = source.kind;
@@ -138,8 +139,8 @@ export class ApprovalSources {
     return lines;
   }
 
-  private appendResult(lines: Record<string, unknown>[], sessionId: string, id: string, name: string | undefined, content: readonly ContentBlock[], isError: boolean) {
-    lines.push({ outcome: isError ? 'error' : 'ok', id });
+  private appendResult(lines: Record<string, unknown>[], sessionId: string, id: string, name: string | undefined, content: readonly ContentBlock[], isError: boolean, includeBody = false) {
+    lines.push({ outcome: isError ? 'error' : 'ok', id, ...(includeBody ? { tool_result: text(content), tool: name, trust: 'untrusted-evidence' } : {}) });
     if (!isError && (name === 'inbox' || name === 'send_message')) {
       lines.push({ [`${name}_result`]: parseJson(text(content)), id,
         ...(name === 'inbox' ? { observation: this.isLiveInbox(sessionId, id) ? 'live' : 'restored' } : {}) });
