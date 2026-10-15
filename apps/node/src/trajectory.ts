@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { TRAJECTORY_MAX_BYTES, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
+import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 
 /** Owns outbound readers independently of the device's business ACK queue. */
 export class NodeTrajectory {
@@ -18,17 +18,22 @@ export class NodeTrajectory {
     this.sockets.set(scope.observerId, socket);
     let initialized = false;
     const active = () => this.sockets.get(scope.observerId) === socket && this.options.valid(scope);
-    const write = (value: unknown) => {
-      const text = JSON.stringify(value);
-      if (!active() || socket.readyState !== WebSocket.OPEN) return;
-      if (Buffer.byteLength(text) > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + Buffer.byteLength(text) > TRAJECTORY_MAX_BYTES) { this.close(scope.observerId); return; }
-      socket.send(text);
+    const write = async (value: unknown) => {
+      try {
+        for (const part of encodeTrajectoryValue(value)) {
+          const text = JSON.stringify(part), size = Buffer.byteLength(text);
+          if (!active() || socket.readyState !== WebSocket.OPEN) return;
+          if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { this.close(scope.observerId); return; }
+          // Drain each fragment before sending the next on this dedicated observer socket.
+          await new Promise<void>((resolve, reject) => socket.send(text, error => error ? reject(error) : resolve()));
+        }
+      } catch { this.close(scope.observerId); }
     };
     socket.once('open', () => {
       void this.options.runtime.request('trajectory.prepare', scope).then(value => {
         initialized = true;
         if (!active()) { void this.options.runtime.request('trajectory.close', { observerId: scope.observerId }).catch(() => {}); return; }
-        write({ type: 'ready', observerId: scope.observerId, ...value as object });
+        void write({ type: 'ready', observerId: scope.observerId, ...value as object });
       }).catch(error => { write({ type: 'failed', observerId: scope.observerId, message: String(error) }); socket.close(1011); });
     });
     socket.on('message', raw => {

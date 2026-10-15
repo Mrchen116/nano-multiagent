@@ -1,4 +1,4 @@
-import { TRAJECTORY_MAX_BYTES } from '@nano/product-contracts';
+import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue } from '@nano/product-contracts';
 
 interface Batch { frames: unknown[]; bytes: number; created: number }
 
@@ -10,6 +10,7 @@ export class TrajectoryStream {
   private pulling = false;
   private wake?: () => void;
   private deadline?: NodeJS.Timeout;
+  private capacity?: () => void;
   readonly controller = new AbortController();
   readonly settled: Promise<void>;
 
@@ -31,6 +32,7 @@ export class TrajectoryStream {
       if (this.failure) throw this.failure;
       const batch = this.batches.shift();
       this.armDeadline();
+      this.capacity?.();
       return { frames: batch?.frames ?? [], done: this.done && this.batches.length === 0 };
     } finally { this.pulling = false; }
   }
@@ -43,24 +45,34 @@ export class TrajectoryStream {
     clearTimeout(this.deadline);
     this.controller.abort(error);
     this.wake?.();
+    this.capacity?.();
   }
 
   private async pump(source: (signal: AbortSignal) => AsyncIterable<unknown>) {
     try {
       for await (const frame of source(this.controller.signal)) {
         if (this.controller.signal.aborted) break;
-        const bytes = Buffer.byteLength(JSON.stringify(frame)) + 1;
-        // Reserve room for the carrier response envelope in the socket's same budget.
-        const budget = TRAJECTORY_MAX_BYTES - 1024;
-        if (bytes > budget) throw new Error('trajectory_frame_too_large');
-        let batch = this.batches.at(-1);
-        if (!batch || batch.bytes + bytes > budget) {
-          if (this.batches.length === 2) throw new Error('trajectory_slow_consumer');
-          batch = { frames: [], bytes: 0, created: Date.now() };
-          this.batches.push(batch);
+        let first = true;
+        for (const part of encodeTrajectoryValue(frame)) {
+          const bytes = Buffer.byteLength(JSON.stringify(part)) + 1;
+          const budget = TRAJECTORY_MAX_BYTES - 1024;
+          let batch = this.batches.at(-1);
+          if (!batch || batch.bytes + bytes > budget) {
+            if (this.batches.length === 2) {
+              if (first) throw new Error('trajectory_slow_consumer');
+              // One large native DTO must be pulled over several bounded batches.
+              // Waiting within that DTO is not evidence of a slow observer.
+              await new Promise<void>(resolve => { this.capacity = resolve; });
+              this.capacity = undefined;
+              if (this.controller.signal.aborted) return;
+            }
+            batch = { frames: [], bytes: 0, created: Date.now() };
+            this.batches.push(batch);
+          }
+          batch.frames.push(part); batch.bytes += bytes;
+          first = false;
+          this.armDeadline(); this.wake?.();
         }
-        batch.frames.push(frame); batch.bytes += bytes;
-        this.armDeadline(); this.wake?.();
       }
       this.done = true; this.wake?.();
     } catch (error) {

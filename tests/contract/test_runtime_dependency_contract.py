@@ -17,6 +17,7 @@ ALLOWED = {
     "packages/dsh-integration": {"@nano/product-contracts"},
     "packages/dsh-trajectory-viewer": {
         "@nano/product-contracts",
+        "@nano/product-contracts/trajectory-wire",
         "@nano/trajectory-ui/client",
     },
     "packages/trajectory-ui": {"@nano/product-contracts"},

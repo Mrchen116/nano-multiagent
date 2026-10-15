@@ -102,7 +102,10 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
         const value = JSON.parse(event.data);
         if (value.type === 'ready') { version = value.version; initialize(); }
         else if (value.type === 'failed') { setState('error'); setMessage(value.message); }
-        else { requests.delete(value.requestId); port?.postMessage(value); }
+        else {
+          if (value.type !== 'trajectory-fragment' || value.final) requests.delete(value.requestId);
+          port?.postMessage(value);
+        }
       };
       socket.onclose = event => {
         if (disposed) return;

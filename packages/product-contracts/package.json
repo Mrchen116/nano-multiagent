@@ -7,6 +7,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./trajectory-wire": {
+      "types": "./lib/trajectory-wire.d.ts",
+      "default": "./lib/trajectory-wire.js"
     }
   },
   "scripts": {

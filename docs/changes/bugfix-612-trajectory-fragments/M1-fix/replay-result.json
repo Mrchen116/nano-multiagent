@@ -1,0 +1,16 @@
+{
+  "sessionId": "b64d6e64-e0bb-4fe3-accf-af3cb479d29d",
+  "events": 2097,
+  "inheritedEvents": 2018,
+  "startupFrameBytes": 1256641,
+  "startupBatches": 2,
+  "maxRuntimeBatchBytes": 955285,
+  "openingRecordCount": 238,
+  "historyPages": 7,
+  "oversizedPages": 0,
+  "physicalMessages": 10,
+  "maxWebSocketBytes": 973000,
+  "expectedEventSha256": "768d07f78777a6ac3cabfe8c6d641316773dd6b3fef215f3bde46795295f2ed7",
+  "receivedEventSha256": "768d07f78777a6ac3cabfe8c6d641316773dd6b3fef215f3bde46795295f2ed7",
+  "heartbeat": "ack"
+}
