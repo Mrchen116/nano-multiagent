@@ -246,6 +246,7 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
+    await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
@@ -268,6 +269,7 @@ describe("agent create page", () => {
         default_model: null,
         model_fallbacks: [],
         reasoning_effort: "max",
+        approval_mode: "cc",
         work_mode: workMode,
         workspace_root: null,
         confirm_existing_workspace: false

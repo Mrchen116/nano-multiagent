@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     default_model TEXT,
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,
+    approval_mode TEXT CHECK (approval_mode IS NULL OR approval_mode IN ('cc', 'codex')),
     work_mode TEXT NOT NULL DEFAULT 'single_thread',
     workspace_root TEXT,
     workspace_is_default INTEGER,

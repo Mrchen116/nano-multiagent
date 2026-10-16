@@ -1,3 +1,4 @@
+import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
@@ -111,6 +112,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   default_model: null,
   model_fallbacks: [],
   reasoning_effort: null,
+  approval_mode: null,
   workspace_root: null,
   confirm_existing_workspace: false
 };
@@ -124,6 +126,7 @@ interface CreateBehaviorCardProps {
   selectedNodeId: string;
   workspaceMode: WorkspaceMode;
   workspaceRoot: string | null;
+  onApprovalModeChange: (value: ApprovalMode) => void;
   onCustomPromptChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
@@ -135,6 +138,7 @@ function CreateBehaviorCard({
   selectedNodeId,
   workspaceMode,
   workspaceRoot,
+  onApprovalModeChange,
   onCustomPromptChange,
   onFeatureToggle,
   onPolicyChange
@@ -224,6 +228,8 @@ function CreateBehaviorCard({
       </div>
 
       {/* Custom Instructions — optional textarea; empty is valid */}
+      <ApprovalModeField value={draft.approval_mode} onChange={onApprovalModeChange} />
+
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
         <textarea
@@ -931,6 +937,11 @@ export function AgentCreatePage() {
           selectedNodeId={selectedNodeId}
           workspaceMode={workspaceMode}
           workspaceRoot={normalizedDraft.workspace_root}
+          onApprovalModeChange={(value) => {
+            setIsDirty(true);
+            setErrorMessage(null);
+            setDraft({ ...draft, approval_mode: value });
+          }}
           onCustomPromptChange={(value) => {
             setErrorMessage(null);
             setIsDirty(true);

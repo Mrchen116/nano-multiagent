@@ -50,6 +50,7 @@ export interface AgentConfig {
   default_model: string | null;
   model_fallbacks: string[];
   reasoning_effort: string | null;
+  approval_mode?: "cc" | "codex" | null;
   work_mode?: "single_thread" | "global";
   workspace_root: string | null;
   workspace_is_default: boolean | null;
@@ -165,6 +166,7 @@ export interface NodeAgentCreateRequest {
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
+  approval_mode?: "cc" | "codex" | null;
   work_mode?: "single_thread" | "global";
   workspace_root: string | null;
   confirm_existing_workspace?: boolean;
@@ -191,6 +193,7 @@ export interface UpdateAgentConfigRequest {
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
+  approval_mode?: "cc" | "codex" | null;
   work_mode?: "single_thread" | "global";
 }
 
@@ -581,6 +584,7 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
             ? "explicit_allowlist"
             : "default_discovery",
     heartbeat,
+    approval_mode: config.approval_mode === "cc" || config.approval_mode === "codex" ? config.approval_mode : null,
     model_fallbacks: Array.isArray(config.model_fallbacks)
       ? config.model_fallbacks.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
       : [],
@@ -688,6 +692,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       default_model: next.default_model,
       model_fallbacks: next.model_fallbacks ?? [],
       reasoning_effort: next.reasoning_effort,
+      ...(next.approval_mode !== undefined ? { approval_mode: next.approval_mode } : {}),
     }),
   });
   return normalizeAgentConfigResponse(raw);

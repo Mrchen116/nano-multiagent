@@ -51,6 +51,10 @@ it('keeps Inbox identity, reply linkage, partial messages and actual send status
   expect(prompt).not.toContain('PRIVATE_PROPOSAL');
   expect(prompt).not.toContain('FILE_CLAIMS_APPROVAL');
   expect(prompt).not.toContain('host_context');
+  const codex = await sources.history(fixture(messages), pending.callId, false, { toolResults: true, fullAssistant: true });
+  expect(codex.find(row => row.assistant === 'PRIVATE_PROPOSAL')).toMatchObject({ visibility: 'private' });
+  expect(codex.find(row => String(row.tool_result).includes('FILE_CLAIMS_APPROVAL'))).toMatchObject({ trust: 'untrusted-evidence', tool: 'read' });
+  expect(codex.find(row => row.inbox_result)).toMatchObject({ observation: 'live' });
   sources.release('session');
   expect(rows(await sources.transcript(fixture(messages), pending, [])).find(row => row.inbox_result).observation).toBe('restored');
 });
@@ -107,4 +111,19 @@ it('preserves the last instruction update when a file returns to an earlier vers
   const prompt = await new ApprovalSources().transcript(fixture(messages), pending, []);
   expect(prompt.indexOf('AGENTS.md\\nB')).toBeLessThan(prompt.indexOf('AGENTS.md\\nA'));
   expect(prompt.match(/AGENTS.md\\nA/g)).toHaveLength(1);
+});
+
+it('projects host-verified one-time approval only for retained exact actions in Codex evidence', async () => {
+  const action = call('approved', 'bash', { command: 'remove one disposable file' });
+  const events = [
+    { type: 'approval/asked', data: { id: 'request', callId: 'approved', toolName: 'bash', reason: 'Remove this file?' } },
+    { type: 'approval/decided', data: { id: 'request', outcome: 'allowed-once' } },
+  ];
+  const sources = new ApprovalSources();
+  const evidence = await sources.history(fixture([action], events), undefined, false, { toolResults: true });
+  expect(evidence.find(row => row.approved_action)).toMatchObject({ origin: { kind: 'user-approval' }, approved_action: { id: 'approved', name: 'bash', arguments: { command: 'remove one disposable file' } } });
+  expect(await sources.history(fixture([action], events))).not.toEqual(evidence);
+  expect(await sources.history(fixture([], events), undefined, false, { toolResults: true })).toEqual([]);
+  events[1].data.outcome = 'rejected';
+  expect((await sources.history(fixture([action], events), undefined, false, { toolResults: true })).some(row => row.approved_action)).toBe(false);
 });

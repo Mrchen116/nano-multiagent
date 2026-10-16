@@ -4,7 +4,7 @@ import { start, bind } from "./helpers.js";
 
 it("transports configuration receipts, encrypted channel manifests and global Work over the real socket", async () => {
   const f = await start(),
-    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", features: {heartbeat: true}}});
+    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {heartbeat: true}}});
   const mirror = await f.http(
     "GET",
     "/im/v1/agents/assistant/config?source=mirror",
@@ -12,13 +12,14 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     f.tokens.alice,
   );
   expect(mirror.status, mirror.body).toBe(200);
-  expect(mirror.body).toMatchObject({display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", features: {heartbeat: true}});
+  expect(mirror.body).toMatchObject({display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {heartbeat: true}});
   const updated = f.http(
     "PATCH",
     "/im/v1/agents/assistant/config",
     {
       ...mirror.body,
       display_name: "Configured",
+      approval_mode: "cc",
       group_reply_policy: "manual",
     },
     f.tokens.alice,
@@ -46,8 +47,9 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
   const applied = await updated;
   expect(applied.status, applied.body).toBe(200);
   expect(applied.body.display_name).toBe("Configured");
+  expect(applied.body.approval_mode).toBe("cc");
   expect(applied.body.profile_version).toBe(mirror.body.profile_version + 1);
-  await g.frames.send("node.register", {node_id: g.node, agents: ["assistant", "global"], agent_configurations: {assistant: {display_name: "Outdated local"}}});
+  await g.frames.send("node.register", {node_id: g.node, agents: ["assistant", "global"], agent_configurations: {assistant: {display_name: "Outdated local", approval_mode: "codex"}}});
   expect((await f.http("GET", "/im/v1/agents/assistant/config?source=mirror", undefined, f.tokens.alice)).body.display_name).toBe("Configured");
   const liveRequest = f.http("GET", "/im/v1/agents/assistant/config", undefined, f.tokens.alice);
   const get = await g.frames.next((p) => p.type === "agent.config.get");
@@ -56,7 +58,7 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     request_id: get.payload.request_id,
     agent: result.agent,
   });
-  expect((await liveRequest).body.display_name).toBe("Configured");
+  expect((await liveRequest).body).toMatchObject({display_name: "Configured", approval_mode: "cc"});
 
   expect(
     (

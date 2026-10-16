@@ -24,6 +24,7 @@
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
+| 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |
