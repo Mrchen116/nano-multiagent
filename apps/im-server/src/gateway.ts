@@ -340,7 +340,7 @@ export class Gateway {
       // replace an existing IM desired revision or a pending configuration operation.
       if (!existed && p.agent_configurations?.[id]) {
         const seed=canonicalAgentConfiguration({...p.agent_configurations[id],agent_id:id,workspace_root:p.agent_workspaces?.[id],work_mode:p.agent_work_modes?.[id]??'single_thread'});
-        db.prepare('UPDATE agent_profiles SET display_name=?,group_reply_policy=?,default_model=?,reasoning_effort=?,custom_prompt=?,heartbeat_json=?,features_json=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,model_fallbacks_json=? WHERE agent_id=?').run(seed.display_name,seed.group_reply_policy,seed.default_model,seed.reasoning_effort,seed.custom_prompt,seed.heartbeat_json,JSON.stringify(seed.features),JSON.stringify(seed.skills),seed.skills_selection_mode,JSON.stringify(seed.tool_allowlist),JSON.stringify(seed.model_fallbacks),id);
+        db.prepare('UPDATE agent_profiles SET display_name=?,group_reply_policy=?,default_model=?,reasoning_effort=?,approval_mode=?,custom_prompt=?,heartbeat_json=?,features_json=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,model_fallbacks_json=? WHERE agent_id=?').run(seed.display_name,seed.group_reply_policy,seed.default_model,seed.reasoning_effort,seed.approval_mode,seed.custom_prompt,seed.heartbeat_json,JSON.stringify(seed.features),JSON.stringify(seed.skills),seed.skills_selection_mode,JSON.stringify(seed.tool_allowlist),JSON.stringify(seed.model_fallbacks),id);
       }
       const advertised = p.agent_create_operations?.[id];
       const operation = advertised

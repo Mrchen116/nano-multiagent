@@ -164,6 +164,7 @@ describe("agent edit page", () => {
     expect(screen.getByRole("button", { name: /bash/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /read_file/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Approval strategy"), "codex");
 
     const reasoning = await screen.findByLabelText("Reasoning effort");
     expect(reasoning).toHaveValue("high");
@@ -176,6 +177,8 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
 
     expect((await screen.findAllByText("✓ Saved")).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Approval strategy")).toHaveValue("codex");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").map(([, init]) => JSON.parse(init.body)).at(-1)).toMatchObject({ approval_mode: "codex" });
     await waitFor(() => {
       expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
     });
@@ -201,7 +204,8 @@ describe("agent edit page", () => {
             group_reply_policy: "MENTION",
             default_model: null,
             model_fallbacks: [],
-            reasoning_effort: "max"
+            reasoning_effort: "max",
+            approval_mode: "codex"
           })
         })
       );
@@ -443,7 +447,7 @@ describe("agent edit page", () => {
     fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
 
-    expect(await screen.findByText(/409.*profile_version conflict/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("agent-save-error")).toHaveTextContent(/409.*profile_version conflict/i);
     expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
   });
 

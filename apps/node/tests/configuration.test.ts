@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { canonicalAgentConfiguration } from '@nano/product-contracts';
+import { agentConfigurationFingerprint, canonicalAgentConfiguration } from '@nano/product-contracts';
 import { NodeConfiguration } from '../src/configuration.js';
 
 it('preserves default versus empty selections and ordered local/global Skill roots', async () => {
@@ -107,5 +107,29 @@ it('serializes Agent saves against model removal and rejects stale model edits',
     const config = await NodeConfiguration.read(path);
     const runtime = config.runtime({agent_id: 'a', workspace_root: home, skills_selection_mode: 'explicit_denylist', skills: ['blocked']});
     expect(runtime.skillSelection).toEqual({mode: 'explicit_denylist', names: ['blocked']});
+  } finally { await rm(home, {recursive: true, force: true}); }
+});
+
+
+it('persists per-Agent approval overrides while inherited policy and disabled Auto survive reload', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-approval-mode-'));
+  try {
+    const path = join(home, 'node.json');
+    await writeFile(join(home, 'config.yaml'), 'auto_mode:\n  rules: dsh\n  enabled: false\n');
+    await writeFile(path, JSON.stringify({node: {}, gateway: {environment: {NANO_OWNER_CONFIG_ROOT: home}}, agents: [{agent_id: 'a', workspace_root: home}], llm: {default_model: 'test', providers: [{name: 'test', models: [{name: 'test'}]}]}}));
+    const config = await NodeConfiguration.read(path);
+    const original = config.current('a')!;
+    expect(original.approval_mode).toBeNull();
+    const inherited = config.runtime(original);
+    expect(inherited.approval).toMatchObject({rules: 'dsh', enabled: false});
+    for (const [mode, rules] of [['cc', 'nano'], ['codex', 'codex'], [null, 'dsh']] as const) {
+      await config.persist(canonicalAgentConfiguration({...original, approval_mode: mode}));
+      const restored = await NodeConfiguration.read(path);
+      expect(restored.current('a')?.approval_mode).toBe(mode);
+      expect(restored.runtime(restored.current('a')!).approval).toMatchObject({rules, enabled: false});
+    }
+    expect(inherited.approval?.rules).toBe('dsh');
+    expect(agentConfigurationFingerprint({...original, approval_mode: 'cc'})).not.toBe(agentConfigurationFingerprint({...original, approval_mode: 'codex'}));
+    expect(() => canonicalAgentConfiguration({...original, approval_mode: 'invalid'})).toThrow(/approval_mode/);
   } finally { await rm(home, {recursive: true, force: true}); }
 });

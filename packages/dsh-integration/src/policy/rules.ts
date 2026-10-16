@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { ApprovalConfiguration } from '@nano/product-contracts';
 
-export interface ReviewDecision { behavior: 'allow' | 'deny'; reason: string; risk?: 'low' | 'medium' | 'high' }
+export interface ReviewDecision { behavior: 'allow' | 'deny'; reason: string; risk?: 'low' | 'medium' | 'high' | 'critical'; authorization?: 'high' | 'medium' | 'low' | 'unknown' }
 const assets = new URL('../../assets/auto/', import.meta.url);
 const loaded = new Map<string, Promise<string>>();
 export function policyAsset(name: string): Promise<string> {

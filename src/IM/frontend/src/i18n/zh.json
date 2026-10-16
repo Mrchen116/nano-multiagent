@@ -514,7 +514,15 @@
         "policyHelp": "在群聊中何时回复（始终在场,不可关闭）。",
         "policyOptionMention": "MENTION — 仅当被 @ 时回复",
         "policyOptionAlways": "ALWAYS — 每条群消息都回复",
-        "policyOptionNoReply": "NO_REPLY — 在群里保持沉默"
+        "policyOptionNoReply": "NO_REPLY — 在群里保持沉默",
+        "approvalMode": "审批策略",
+        "approvalInherit": "跟随节点",
+        "approvalDescription": {
+          "inherit": "沿用节点现有的审批设置。",
+          "cc": "普通工作区文件编辑直接放行，其他操作按 CC 规则审查。",
+          "codex": "结合风险、授权和工具事实审查，必要时只读核实文件。"
+        },
+        "approvalTiming": "保存后从下一轮任务生效；自动审批开关沿用节点设置。"
       },
       "access": {
         "title": "访问与模型",

@@ -1,0 +1,94 @@
+# feat-615 Code Review
+
+## Round 1
+
+- Reviewer: `/root/static_review_615`，独立静态审查者，未参与受审实现。
+- Mode: `full`。
+- Executed base: `08b06c57b`。
+- Validated product head: `ccf74c47cafa2aef4b3a9e73fec05f178578c5a0`。
+- Range: `08b06c57b..ccf74c47c`；44 个产品、测试、资产及固定动作证据文件。未提交 `.approval-e2e.yaml` 与主代理继续编写的证据脚本不属于本次冻结代码结论。
+- Result: **1 CONFIRMED finding；需修复后局部 closure**。
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/policy/codex.ts",
+    "line": 61,
+    "summary": "[P2] 将已验证的原生人工审批投影进 Guardian 证据",
+    "failure_scenario": "在 single_thread 人工允许一次受审动作后，DSH 只记录 approval/asked 与 approval/decided；后续 Codex 审查仅读取 deriveMessages 和 PTC 事件，既不读取该配对记录，也不读取 nano_approval 的 human audit。Guardian 因而能看到历史动作但看不到宿主确认的人工批准，连续维护或失败后再审查时会把真实授权当作未知。这违反 design 决策 4 的人工审批保留要求。应按 approval id 配对 allowed-once 并关联有效历史中的 callId/精确动作，保持批准的原动作范围；不能把旧批准推广到新动作或复活已压缩掉的动作。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+### Finding 直接证据
+
+- `policy/codex.ts:59-66` 只用 `ApprovalSources.history` 构造当下证据。
+- `policy/sources.ts:80-139` 读取 snapshot 只为 subagent/step/PTC 关联，输出只来自有效消息及 PTC 调用/结果，没有 `approval/asked` / `approval/decided` 分支。
+- 已锁定 DSH public `dsh-user-approval` 的 `ApprovalService.request` 持久化 asked `{id,toolName,callId?,reason?}` 与 decided `{id,outcome}`；public 类型说明二者是 log-only audit，不进入消息 surface。
+- `src/index.ts:214-215` 仅在人工拒绝并给出理由时注入 `user-approval` 消息。`policy/approval.ts:35-43` 的人工允许 audit 写入独立 domain；Codex 请求没有消费它。
+- 最小可重跑 seam：`pnpm exec tsx /tmp/feat615-manual-approval-projection.mts`。fixture 同时提供有效 bash tool-call 与合法 allowed-once audit pair，输出只剩 bash 调用，`hasManualAuthorization=false`。脚本与输出 `/tmp/feat615-manual-approval-projection.{mts,json}` 是本次临时证据，不提交永久测试。
+
+### 已覆盖范围
+
+1. **配置全链。** nullable mode、旧客户端省略保留、显式清空继承、canonical/IM fingerprint、SQL migration、registration seed、Node runtime override，以及既有 apply/recovery/rollback/下一轮冻结 seam。没有改变 Auto 开关或执行模型解析。
+2. **CC。** downstream allow 后才走普通 write/edit fastpath；原始与真实路径都限定 cwd；不存在叶子从最近已有祖先解析；敏感目标、自定义策略与 Bash 不获得新增豁免；原分类逻辑从 facade 提取后保留两阶段和 DSH 路径。
+3. **Codex。** 独立 Service；固定 policy 资产与严格 verdict；受限 Agent scope 的 host-owned 三工具及 guard；无继承运行工具、PTC、写入、消息或网络。scope 自有注册可覆盖同名祖先工具的事实由锁定 DSH 源码和 native 测试共同确认。
+4. **生命周期。** 同步认领 trunk；并发从最后成功 checkpoint seed fork；成功才推进 rows/events；失败、取消、历史改写和配置变化清理未提交实例；一次紧预算重建；整次 90 秒 signal 与父取消关联；返回前检查取消；high/critical 不因拒绝计数放宽。
+5. **来源与预算。** CC 默认 transcript 不变；Codex 保留普通工具内容并标为不可信、私稿与 Inbox/发送真实状态；action 完整保留、授权优先、有界历史及 omission 标记。人工批准投影缺口见 finding；native compaction/deadline 的回归证据缺口另记 verification，不以假想代码缺陷替代。
+6. **前端与报告脚本。** 新建/编辑共享选择控件，草稿/保存走既有 API；固定动作脚本只在临时 fixture 中做比较。首轮 Codex 对两个临时文件的未授权 rm 给 medium/low 并 allow，是固定上游 low/medium policy 的实测结果，不把它篡改成“已拒绝”或直接当作 adapter 代码缺陷。
+
+### 验证
+
+- 命令：`pnpm exec vitest run packages/dsh-integration/tests/codex-approval.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/codex-approval-native.test.ts packages/dsh-integration/tests/approval-workspace.test.ts apps/im-server/tests/approval-configuration.test.ts apps/node/tests/configuration.test.ts packages/personal-assistant/tests/configuration.test.ts`。
+- 在上述冻结 head 执行：**7 files / 26 tests passed**；日志 `/tmp/feat615-static-review-tests.log`。
+- 没有修改实现、测试或运行配置；全量 CI、真实模型比较和产品验收由主代理及独立产品 reviewer 执行，不以本静态报告代替。
+
+## Round 2
+
+- Mode: `closure`，保留 Round 1 未变范围；另对修复提交的前端错误展示与 native 测试 delta 作 patch review。
+- Finding origin head: `ccf74c47c`；fix head: `8aa3c814946cc0d8296ff90d6a269b8d68f5ccd8`。
+- Focus finding `[P2] 将已验证的原生人工审批投影进 Guardian 证据`: **closed**。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+`ApprovalSources.history` 的 Codex opt-in 先按 approval id 配对宿主 asked/decided，仅允许 allowed-once 并按 toolName/callId 关联仍在有效消息 surface 的精确历史动作；PTC 也须保留 native root。输出带 user-approval 来源与明确一次性范围，不把旧批准扩成新授权；默认 CC 投影不变。source 回归覆盖正例、默认无投影、动作被移除及 rejected 不算批准。原复现脚本输出 `hasManualAuthorization=true`。独立 source suite **1 file / 7 tests passed**，日志 `/tmp/feat615-static-source-closure.log`。
+
+新增 native fixture 经过真实锁定 DSH，provider overflow 后 audit 为 rebuild，父取消后没有 cancel action allow/effect，四个 reviewer 均 dispose；主代理日志 `/tmp/feat615-native-recovery.log` 为 **1 file / 1 test passed**，可复用，不重复运行。预算 admission/原生 compaction/慢调查 deadline 的证据边界见 verification，不能把 provider overflow fixture称为真实 compaction。
+
+前端 patch 将已有 `errorMessage` 始终显示在 footer alert，解决保存失败只有 direct-chat error 时才显示的问题；相关冲突测试改为断言可见 alert。没有改保存、请求或运行配置语义；真实产品结果由独立 reviewer 验收。
+
+## Round 3
+
+- Mode: `patch`；delta `8aa3c8149..ba88c18bcb9179d84b6765fcef8712f17b6db1bf`，仅 Guardian usage 与原生验证增强。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+`deriveTurnTokenUsage` 的公共契约要求一个完整 `turn/start..turn/end` 切片；此前 reviewer 的 `added` 可能含 turn 前入队事件，公共折叠器会把结果判 unavailable。现在按该轮边界截取，真实 native fixture 的 first action audit 包含 `uncachedInputTokens:10/outputTokens:5`，没有人工构造缓存总量或降级统计。
+
+新增 native 测试先运行真实 host-owned `guardian_read`，随后等待信号，整次约90秒后得到 classifier_unavailable/no_verdict；原动作未 allow/执行，所有五个 reviewer 都 dispose。异步并发改为 parallel-a 延迟80ms返回allow、parallel-b即刻deny，独立callId与rationale映射及不同sessionId通过，能够发现错序串判。最终修正 schema 字段后的 `/tmp/feat615-native-final.log`：**1 file / 1 test passed，92.59s**。首次 `/tmp/feat615-native-deadline.log` 的末尾断言把公开 `uncachedInputTokens` 写成 `inputTokens`，已保留失败；其中90秒超时与拒绝原动作是真实观察，不将首次整项失败写成通过。
+
+原生 compaction 没有被此测试主动触发；provider overflow、mock预算恢复与静态 compaction 分支核对各自保留证明范围。未重复全量 CI 或真实模型比较。
+
+## Round 4 — final evidence/test delta
+
+- Validated product source remains `ba88c18bcb9179d84b6765fcef8712f17b6db1bf`。后续为 test/evidence/canonical docs；独立产品验收提交 `005764ec7`。
+- Mode: targeted patch/evidence closure；未重复完整 diff 或全量测试。
+- Result: **无存活代码 finding**。
+
+```json
+[]
+```
+
+补充 test delta 核对：`approval-workspace.test.ts` 在真实 native 管线中向工作区 symlink 写入，外部 protected target保持unchanged，仅普通文件获得workspace_file；`/tmp/feat615-native-paths.log` **2 tests pass**。`approval.test.ts` 保持人工request未答时切CC→Codex，apply等待旧轮结束；原requestId回答只关联threshold-2、旧轮classifier保持nano，迟答被拒，冷重启绑定仍保持原有身份；`/tmp/feat615-native-manual-switch-final.log` **6 tests pass**。没有产品源变化。
+
+合成证据驱动器的 broad 补测与 natural 独立group/terminal-wait增量已检查；它们只操作本次临时fixture，未加入永久测试套件。comparison报告与fixed/natural原始记录交叉对账：首次两个文件未授权删除被Codex medium/low放行、空文件allow后FS_NOT_OBSERVED、无效首批driver、FAQ中断及双方明确化复跑均保留；宽范围样本实际classifier_block/deny，不把补测覆盖成首次成功。未知cache字段不补零，natural主执行与审批用量分开。
+
+当前canonical四个Requirement与已aligned的两个delta逐条正文一致。产品acceptance、对照及validation文档只在verifier中关闭证据门禁，不转换为新的代码finding。

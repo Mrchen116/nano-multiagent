@@ -57,6 +57,7 @@ const gatewayKeys = [
   "default_model",
   "model_fallbacks",
   "reasoning_effort",
+  "approval_mode",
   "work_mode",
   "workspace_root",
   "features",
@@ -72,6 +73,7 @@ export function gatewayCandidate(c: Row): Row {
     default_model: optionalText(c.default_model),
     model_fallbacks: stringList(c.model_fallbacks),
     reasoning_effort: optionalText(c.reasoning_effort),
+    approval_mode: c.approval_mode ?? null,
     work_mode: c.work_mode || "single_thread",
     workspace_root: optionalText(c.workspace_root),
     features: Object.fromEntries(
@@ -92,8 +94,10 @@ export function gatewayCandidate(c: Row): Row {
 export function candidateFingerprint(c: Row): string {
   const p = gatewayCandidate(c);
   if (p.heartbeat_json === "{}") p.heartbeat_json = null;
+  // Null keeps pre-strategy operation receipts valid during upgrade/recovery.
+  const keys = gatewayKeys.filter(k => k !== "approval_mode" || p.approval_mode !== null);
   return createHash("sha256")
-    .update(asciiJson(Object.fromEntries(gatewayKeys.map((k) => [k, p[k] ?? null]))))
+    .update(asciiJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
     .digest("hex");
 }
 export function profileResponse(p: Row, mirror = false): Row {
@@ -109,6 +113,7 @@ export function profileResponse(p: Row, mirror = false): Row {
         "group_reply_policy",
         "default_model",
         "reasoning_effort",
+        "approval_mode",
         "work_mode",
         "workspace_root",
         "profile_version",
@@ -406,6 +411,7 @@ export class ConfigOperations {
         c.default_model ?? null,
         JSON.stringify(c.model_fallbacks ?? []),
         c.reasoning_effort ?? null,
+        c.approval_mode ?? null,
         c.work_mode ?? "single_thread",
         c.workspace_root ?? null,
         c.workspace_is_default == null ? null : +c.workspace_is_default,
@@ -416,13 +422,13 @@ export class ConfigOperations {
       if (existing) {
         const changed = db
           .prepare(
-            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,group_reply_policy=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,custom_prompt=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
+            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,group_reply_policy=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,custom_prompt=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
           )
           .run(...vals, now(), op.agent_id, existing.profile_version);
         if (!changed.changes) fail(409, "profile_version conflict");
       } else
         db.prepare(
-          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,work_mode,workspace_root,workspace_is_default,features_json,custom_prompt,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
+          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,custom_prompt,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
         ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now(), defaultSpace(ownerAccount(db, op.owner_id)!));
       db.prepare(
         "INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",
@@ -477,6 +483,8 @@ function validateCandidate(input: Row, create = false) {
       (!Array.isArray(input[key]) || input[key].some((s: unknown) => typeof s !== "string"))
     )
       fail(422, `${key} must be a string list`);
+  if (input.approval_mode != null && !["cc", "codex"].includes(input.approval_mode))
+    fail(422, "invalid approval_mode");
   if (input.work_mode != null && !["single_thread", "global"].includes(input.work_mode))
     fail(422, "invalid work_mode");
   if (
@@ -673,6 +681,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         default_model: b.default_model ?? null,
         model_fallbacks: b.model_fallbacks ?? [],
         reasoning_effort: b.reasoning_effort ?? null,
+        approval_mode: b.approval_mode ?? null,
         work_mode: b.work_mode ?? "single_thread",
         workspace_root: b.workspace_root ?? null,
         heartbeat_json: null,
@@ -778,6 +787,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         model_fallbacks: b.model_fallbacks ?? [],
         features: b.features ?? {},
       };
+      if ("approval_mode" in b) c.approval_mode = b.approval_mode;
       for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"])
         if (k in b && (k === "reasoning_effort" || b[k] !== null)) c[k] = b[k];
       if (b.heartbeat != null && !("heartbeat_json" in b))

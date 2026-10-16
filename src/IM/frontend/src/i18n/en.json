@@ -515,7 +515,15 @@
         "policyHelp": "When this agent replies in group conversations (always active, not a toggle).",
         "policyOptionMention": "MENTION — Reply only when @-mentioned",
         "policyOptionAlways": "ALWAYS — Reply to every group message",
-        "policyOptionNoReply": "NO_REPLY — Stay silent in groups"
+        "policyOptionNoReply": "NO_REPLY — Stay silent in groups",
+        "approvalMode": "Approval strategy",
+        "approvalInherit": "Follow node",
+        "approvalDescription": {
+          "inherit": "Use the node’s existing approval settings.",
+          "cc": "Ordinary workspace file edits pass directly; other actions use the CC policy.",
+          "codex": "Review risk and authorization with tool evidence, inspecting files when needed."
+        },
+        "approvalTiming": "After saving, applies from the next task. Auto approval follows the node settings."
       },
       "access": {
         "title": "Access & Model",

@@ -11,6 +11,8 @@ export function canonicalJson(value: unknown): string {
 /** One non-secret configuration representation shared by node and IM. */
 export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   const agentId = text(payload.agent_id) ?? '';
+  const approvalMode = payload.approval_mode ?? null;
+  if (approvalMode !== null && approvalMode !== 'cc' && approvalMode !== 'codex') throw new Error('Invalid approval_mode');
   const skills = Array.isArray(payload.skills) ? strings(payload.skills) : null;
   let mode = text(payload.skills_selection_mode);
   if (mode && !['default_discovery', 'explicit_allowlist', 'explicit_denylist'].includes(mode)) throw new Error('Invalid skills_selection_mode');
@@ -23,7 +25,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
     heartbeatJson = canonicalJson(decoded);
   }
   return {
-    agent_id: agentId, work_mode: text(payload.work_mode) ?? 'single_thread',
+    agent_id: agentId, approval_mode: approvalMode as 'cc' | 'codex' | null, work_mode: text(payload.work_mode) ?? 'single_thread',
     display_name: text(payload.display_name) ?? agentId, skills, skills_selection_mode: mode,
     tool_allowlist: strings(payload.tool_allowlist), group_reply_policy: text(payload.group_reply_policy) ?? 'manual',
     default_model: text(payload.default_model), model_fallbacks: strings(payload.model_fallbacks), reasoning_effort: text(payload.reasoning_effort),
@@ -37,5 +39,7 @@ export type CanonicalAgentConfiguration = ReturnType<typeof canonicalAgentConfig
 export function agentConfigurationFingerprint(payload: Record<string, unknown>): string {
   const canonical = canonicalAgentConfiguration(payload);
   if (canonical.heartbeat_json === '{}') canonical.heartbeat_json = null;
-  return createHash('sha256').update(canonicalJson(canonical)).digest('hex');
+  // Inherited mode preserves fingerprints stored in pre-strategy operation receipts.
+  const { approval_mode, ...legacy } = canonical;
+  return createHash('sha256').update(canonicalJson(approval_mode === null ? legacy : canonical)).digest('hex');
 }
