@@ -99,3 +99,68 @@
 无存活 finding。核对 `global-agent.ts:149-157` 将主会话 `schedule.run` 发送为同 session 的 `schedule.command`，及 `index.ts:474-485` 验证任务归属后 `agent.followup` 入队、返回 input evidence 的实际链路；accepted/pending 不等于业务任务已完成。新增指导要求交代状态、结束当前轮、随后核实消息，不在当前轮 sleep 等待后续输入或重复触发，和原机制一致。`cron.test.ts:56-61` 保留手动输入 admission/稳定身份去重覆盖；此次没有运行时行为变化或新回归风险，不增加逐句文案测试。`git diff --check 246c484ae..972b047ac` 通过。
 
 本轮只追加本报告并更新 verifier 的有效范围；产品最终证据仍由独立 reviewer 提供，不以本轮静态核对替代旅程验收。
+
+
+## Round 4 — 原生管理语义修订
+
+### Metadata
+
+- reviewer: `/root/static_revision_614`，未参与实现或测试修改
+- review_mode: `patch`
+- executed_base: `36ebeed51ea20e4e4157fce7a285b63320b5e6bd`
+- validated_at: `f56e5e6d89cd496ef0bcdf75816db37313281a63`
+- integration baseline: `origin/main@481467ac1`；本轮不重新审合入的 feat-615 审批实现
+- checkout: `/Users/czj/.codex/worktrees/feat-614-plugin-development/nano-multiagent`
+- scope: `36ebeed51..f56e5e6d8` 的 19 个文件，重点为原生覆盖安装结果、EntryTree 恢复、workspace 工具归属、模板与上游 Skill 适配；相关未提交改动仅为独立 design-review Round 3 报告，不属于实现补丁。
+- upstream reference: `/Users/czj/Repos/opensource-hub/deepseek-harness@5badb15009ae1756c3afe0ae0cef1faafc290ccc`；接口另与当前安装锁定包核对。
+
+### Verdict
+
+```json
+[]
+```
+
+**pass**。没有存活 CONFIRMED / PLAUSIBLE finding，也没有需追加核验的争议候选。
+
+### 检查范围与依据
+
+- `workspace-tools.ts:218-222,274-281,304-306` 删除 generation 拷贝和本地 rows 重写；本地源目录仍限制在所属 workspace、受管 profile 之外。普通路径转成原生 `包名@link:绝对路径`，显式 `file:` 保留协议；与原生 manager 的同名重装推断逻辑（上游 `packages/boot/plugin-manager/src/index.ts:545-577`）相符。已安装包返回 `restart-required` 时直接保留结果，不再强制释放 fiber、refresh 或改报 applied。首次安装仍走本仓既有审计/激活路径，停启与卸载仍通过原生 manager、EntryGroup 生命周期及异步 inertia 等待完成。
+- `workspace-tools.ts:33-46,83-89,121-145` 使用公开 EntryTree 重建内存树，不读写派生 runtime.json；原生 profile 继续唯一持有安装与启停选择。锁定 `@deepseek-ai/cordis-plugin-loader` 根 exports 公开导出 EntryTree；构造器保留父 entry 的 subtree/subgroup，与上游 `packages/preset/agent-preset-registry/src/mount.ts:8-24` 相同，不破坏原 preset inventory。scope effect 的 root.stop 与上游 mountPreset 相同；原有 refresh/close 审计、隔离及清理路径继续成立。
+- `workspace-tools.test.ts:91-124` 直接验证修复后正常进程重启、同 Agent 既有聊天、同 workspace peer、新 configuration catalog/preview、workspace source_group 与显式空集；重复 catalog 仅包含 workspace_echo，schedule_create 不获得 workspace 权限。`:189-215` 验证卸载等待异步清理、后续输入排队及停用选择跨重启持久。测试观察公开 RPC、工具结果和持久选择，不依赖 runtime.json 文本或私有树形状。
+- tool/service 模板使用当前公开 defineTool 参数与输出 DSL，导入包声明 peerDependencies；与原生 linked resolver 的 peer 查找一致。模板真实安装后分别调用整数分汇总、prompt contribution、私有计数服务；跨 workspace 计数、停用撤销与重启清零语义均有已有 runtime 回归。
+- 主 Skill 与 bundle 资料保留上游工作优先、按需接口发现、普通 workspace 文件创作、原生管理结果、实际使用及修复的组织。UPSTREAM.md 标注基线、原文件和适配清单，LICENSE.upstream.txt 与上游 MIT 原文一致。有限 describe_api、Nano workspace/工具选择、客户端/MCP 支持范围、overlay 和 queued schedule_run 是明确适配；没有引导修改宿主、恢复第二套 schema 教程或承诺停启会刷新代码。压缩指导保留正常默认值，只报告实际观察到的自动/人工路径。
+
+### Validation、retained 与限制
+
+- 复用并只读核对 `/tmp/feat614-revision-native-green.log`：相关 2 文件 / 2 测试通过，39.66 秒；命令、版本、red/green 与诊断记在 `evidence/native-semantics-revision.md`。测试仍从公开 RPC 运行真实锁定 DSH，覆盖本轮改变的风险，不重复运行有效窄测。
+- `/tmp/feat614-revision-full-build.log` 末尾确认构建候选为冻结 `f56e5e6d89cd496ef0bcdf75816db37313281a63`；`/tmp/feat614-revision-typecheck.log` 全部包通过。独立 `git diff --check 36ebeed51..f56e5e6d8` 通过。完整 CI 与新的自然模型样本由 caller/reviewer 独立完成，本轮不提前声明其结果。
+- retained_from: Round 1/3 的只读 API topic/版本路径、Skill 安装/发现与显式禁用、未变化的产品手册/入口和 queued schedule_run 机制检查。独立核对本轮增量没有修改这些装配链；`a60a3239e..36ebeed51` 的 integration 变化为审批策略，未变化的插件发现/管理路径证据可保留，但旧审批/模型样本不据此自动有效。
+- superseded: Round 2 的 generation、path-change 强制 retirement 与在线热更新结论，以及旧产品更新首调/低阈值压缩样本对本次指导的成功证明。更新语义按新用户约束、design 顶部修订与本轮直接重启回归判断。报告仅证明代码审查充分覆盖该 patch，不代替 fresh Agent 产品旅程、canonical 归并或最终交付。
+
+
+## Round 5 — 手动压缩交接文案 closure
+
+### Metadata
+
+- reviewer: `/root/static_revision_614`
+- review_mode: `closure`；focus 为用户 `/compact` 入口、idle 时机及 Nano 必要差异
+- finding_origin_head / executed_base: `f56e5e6d89cd496ef0bcdf75816db37313281a63`
+- validated_at: `f09df0d25dd39d4e17b56ac140077003e4caf17b`
+- scope: `f56e5e6d8..f09df0d25`，仅 design.md 与 compaction reference 共 4 行新增；未提交 validation/evidence/design-review 属其他角色报告，不重新审整条 PR。
+
+### Verdict
+
+```json
+[]
+```
+
+**pass**。没有存活代码缺陷。原报告无 focus finding 待关闭；本轮核对的手动验证交接指导缺口为 **closed（文案/机制）**，模型效果另验。
+
+### Closure 依据与 retained
+
+- `references/compaction.md:7` 指明用户在聊天发送 `/compact`，与 current `docs/specs/gateway/global-agent.md:133-139` 一致。实际 global-agent.ts:79-80 的 sessionControl 进入宿主管理路径，integration index.ts:389-400 将 session.command 交给 model-policy；model-policy.ts:116-120 调用 preset-owned/default compaction，并将真实结果返回命令来源。该入口未注册为 Agent 可调用工具，指导不要求 Agent 自己调用 shell/RPC 重建控制面。
+- 原生 BasicCompactionEngine.compactNow 在 idle maintenance 中执行（上游 packages/compaction/compaction-basic/src/index.ts:383 起；当前安装 dsh-agent 的公开 runMaintenance 文档明确同步保留 idle 并在运行中拒绝）。结束当前轮、交代已安装/已验证部分、等待用户触发后再继续核验，符合真实时机，不制造 Agent 自等或把未发生压缩称为成功。
+- 禁止借其他 session 取得证据，落实已有 Nano workspace/身份与按可用环境验证边界；这是上游通用指导所需的 Nano 用户入口差异，没有新增 runtime/API、权限或压缩能力。design 只补观察归因，并明确保留旧探索/失败与拒绝，不把旧样本当新文案验证。
+- retained_from: Round 4 的冻结运行时代码、EntryTree/profile、原生待重启安装、peer/preview 工具归属、模板 DSL/peer resolution、Skill 来源与许可均未变化；窄测 2/2、build/typecheck 与这些代码结论继续有效。
+- 核对新窄测 `/tmp/feat614-revision-compact-handoff-test.log`：builtin-skills 1 文件 / 1 测试通过，140ms；`/tmp/feat614-revision-handoff-build.log` 构建候选明确为本冻结 f09df0d25。`git diff --check f56e5e6d8..f09df0d25` 通过。不重复全量测试。
+- 本轮只做静态 closure，不证明新文案减少模型探索的效果；独立新 owner/DeepSeek 自然输入对照待产品 reviewer 报告。

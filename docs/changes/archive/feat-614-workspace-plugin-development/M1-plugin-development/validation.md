@@ -91,3 +91,17 @@
 最终同步基线 `08b06c57b`，集成tree `a60a3239e`。上游相对前次基线只有feat-615设计、原型与delta文档，未改变本unit运行代码、current契约或测试配置；runtime实际验证仍为 `246c484ae`，最后Skill指导审查为 `972b047ac`。设计Gate2保留：热更新修复只兑现已确认生命周期，仍用公开DSH接口；code review三轮、full verification及corrected-delta、独立产品Round2均按各报告记录覆盖。后续canonical归并和整目录archive仅同步已审契约与路径，不扩大功能；最终PR记录具体head及effective范围。
 
 最终canonical归并、整体archive及相对链接调整后，`scripts/docs-check`通过（241 maintained Markdown sources / 64 required routes），`check_change_unit_archived.py --head-ref unit/feat-614-plugin-development`通过，`git diff --check`通过。该批仅已审文档归并、报告与路径调整，保留所有门禁结论；原始日志 `/tmp/feat614-docs-final.log`。
+
+## 2026-10-17 原生语义修订的现行证据
+
+以上在线热更新、低阈值压缩及旧门禁有效性属于历史。本节及对应报告的新 Round 取代其对本次交付的成功判断；冻结实现 `f56e5e6d89cd496ef0bcdf75816db37313281a63`，已集成并最终核实 `origin/main@481467ac16f0eda4561fca5c8230050541600de9`。
+
+- 上游 Skill/MIT 适配、原生覆盖安装结果、公开 EntryTree 恢复、模板 DSL/peer 等变化见 [原生回归证据](../evidence/native-semantics-revision.md)。旧实现对待重启更新报 applied 的有效红测保留；修订后相关真实 runtime 与 Skill 装配窄测 2/2 通过。
+- 完整 `pnpm build`、`pnpm typecheck`、`pnpm test` 通过（93 文件/346 测试，120.69 秒）；`pytest -m 'not e2e' -q` 56 通过/31 deselected；前端 96 文件/887 测试通过（49.46 秒），critical audit 为 0；ruff check/format 通过（83 文件）。本轮未改 iOS，按远端变更门判定。
+- 日志在 `/tmp/feat614-revision-{full-build,typecheck,all-ts,py,frontend,audit,ruff,ruff-format}.log`；归并前 docs-check 235 maintained Markdown sources/64 routes 通过，最终归并后再核对文档完整性。
+- 独立设计 Round 2/3 Approved（各 0/0）；独立静态 code-review Round 4 pass、verification Round 2 delta pass/corrected-delta aligned（0/0）。后续仅已审 delta 归并、报告和归档文档变化，按实际内容保留实现门禁，不因提交号机械重复全量。
+- 主侧全新模型自然任务见 [新 Agent 实测](../evidence/fresh-agent-revision.md)：确实读取新 Skill 与当前 API，首装工具返回 6500 分、更新待重启保留旧结果、正常 Node 重启后原生新版返回 5600 分；报告格式/普通聊天、Cron 排队后结束当前轮并后续发送均有真实结果。离线桩测试、探索浪费、审批拒绝和不准确的目录措辞没有隐藏或算作原生活性成功。
+- 独立产品的新样本与跨 Agent 自生成 Skill 副作用分别记录在 [acceptance](../acceptance.md) 新 Round；索引另用独立 owner 对照，避免把学习结果混算给随包指导。自动压缩未触发时不宣称该路径已有新普通场景证据。
+- `f09df0d25` 后续只补压缩参考的用户 `/compact` 入口/结束当前轮交接，运行时代码未变。装配窄测 1/1、构建通过；code-review Round 5 与 verification Round 3 pass/aligned，保留前述实现和完整工程证据。新身份的压缩对照按 acceptance 新 Round 单列，未以旧样本代替新指导。
+- 独立产品 Round 3 将普通默认样本自动未触发记为 R3-E1 open/inconclusive。owner 按用户最新“常规场景”与事前设计说明验收边界，设计 Round 4 独立 Approved（0/0）：自动/人工支持契约不变，允许其他必验通过且无实现阻塞时 pass-with-issues；该缺口不关闭、不伪写为自动新样本通过，旧 Round 3 fail 保留。
+- 最终独立产品 Round 4 **pass-with-issues**：新原生人工压缩247项、插件独立台账块及续聊通过；R3-E1自动未观察保持inconclusive，R4-S1模型调查负担/审批摩擦保持minor，未宣传效率改善。已审delta按同名Requirement归并canonical，无重复追加；完整报告与合成证据身份保留。四个专用栈与自建tmux均清理、端口关闭、Node/DSH退出，详见新Agent证据。
