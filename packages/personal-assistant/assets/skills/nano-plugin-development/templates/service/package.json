@@ -1,1 +1,1 @@
-{"name":"workspace-call-counter","version":"1.0.0","type":"module","description":"演示私有服务和局部工具调用计数（重载清零）","dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}
+{"name": "workspace-call-counter", "version": "1.0.0", "type": "module", "description": "演示私有服务和局部工具调用计数（重载清零）", "dsh": {"bundle": {"patch": "./cordis.patch.yml"}}, "peerDependencies": {"@deepseek-ai/dsh-tools": "*"}}

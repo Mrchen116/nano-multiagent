@@ -4,11 +4,11 @@ import { dirname, resolve } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const topics = {
-  tool: { packages: ['@deepseek-ai/dsh-tools'], supported: 'Register new workspace tools with parameters, output schema/render and execute. Do not shadow existing tools or bypass their permissions.' },
+  tool: { packages: ['@deepseek-ai/dsh-tools'], supported: 'Register new workspace tools using the public defineTool DSL or its supported raw schema subset, output schema/render and execute. Do not shadow existing tools or bypass their permissions.' },
   prompt: { packages: ['@deepseek-ai/dsh-system-prompt'], supported: 'Contribute uniquely named section/context entries. Do not use complete, shadow host sections, suppress runtime context or change identity/approval/delivery rules.' },
   service: { packages: ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-loader'], supported: 'Provide plugin-private services inside a shared group with isolate. Own resources through ctx.effect cleanup. Each Agent preset mounts its own instance; workspace installation state is shared.' },
   events: { packages: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-scope'], supported: 'Passively observe scope-filtered tools/result, filtering your own tool names. Do not mutate frozen results or dispatch more tools from the observer. tools/change and system-prompt/change are unfiltered, not private workspace events. File watchers must target explicit workspace data and close on disposal.' },
-  compaction: { packages: ['@deepseek-ai/dsh-compaction', '@deepseek-ai/dsh-compaction-basic'], supported: 'Use an isolated compaction provider. Prefer BasicCompactionEngine configuration or its public summarize hook; preserve native transactions, cancellation and tool pairing. Verify automatic and manual compaction and fallback after disable.' },
+  compaction: { packages: ['@deepseek-ai/dsh-compaction', '@deepseek-ai/dsh-compaction-basic'], supported: 'Use an isolated compaction provider. Prefer BasicCompactionEngine configuration or its public summarize hook; preserve native transactions, cancellation and tool pairing. Keep native defaults for ordinary work and report which compaction paths were actually observed.' },
 } as const;
 
 export type PluginApiTopic = keyof typeof topics;

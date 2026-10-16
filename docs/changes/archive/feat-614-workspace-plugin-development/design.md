@@ -2,6 +2,17 @@
 
 > 对齐：[spec.md](spec.md)，含 2026-10-15 用户追加的完整实施与真实 Agent 轨迹验收要求。
 
+## 当前交付修订（2026-10-16，用户明确授权）
+
+本节取代下文中此前自行编写完整教程、不可变 generation 与额外在线更新的设计决定；保留原记录供复盘，不以历史门禁放行本次修订。
+
+- **复用上游知识**：以 DSH `5badb15009ae1756c3afe0ae0cef1faafc290ccc` 的 `cordis-plugin-development` 及所引用公开包资料为基线。主 Skill 沿用工作优先、按需发现、普通 workspace 文件创作、安装结果检查、实调及观察到的缺陷修复流程；bundle 资料复用原 manifest/exports/安装与生命周期说明。记录来源、适配清单及 MIT 许可，不把不适用的 DSH Web UI/MCP/Profile 权限指令原样灌给 Nano 模型。三个小模板保留，工具参数优先使用上游公开 `defineTool` DSL，不维护第二种 schema 教程。
+- **必要差异**：Nano 只有 workspace 管理，不修改节点宿主和客户端；默认技能发现/显式禁用保持；有限 `describe_api` 代替广域宿主 inspection，返回版本准确的公开资料位置。文件调用使用原生会话 cwd，schema 以公开类型支持子集为准；隔离服务及 cleanup 沿用 Cordis。Nano 自有 schedule_run 说明 accepted/pending 是后续输入，当前轮应先交付状态并结束，避免自等或重复触发。
+- **原生管理语义**：删除本地源码复制到 generation、改写 bundle rows 来源和路径变化强制释放 fiber 的逻辑。由原生 PluginManager 安装普通源码包，并沿既有公开 profile 解析和 workspace 挂载处理首次安装、启停、卸载。已安装包覆盖安装的 `restart-required` 原样返回，不 refresh、不改报 applied；正常节点重启后读取新代码。保留 workspace 源目录归属校验、工具选择、私有服务审计与异步清理。没有新增代码热更新机制，也不把停启当保证加载新版本的办法。
+- **挂载恢复**：沿用上游 preset 的公开 `EntryTree` 内存树模式，由原生 profile 重建 workspace 挂载。移除派生 `runtime.json` 的 Include 读写；它不是安装状态的权威来源，提前恢复其注册会把 workspace 工具误归为静态工具。内存树释放、原生审计与工具归属仍在既有 owner 生命周期内，不引入第二套持久化或加载器。
+- **验证策略**：先把现有真实 runtime 热更新断言改为：更新返回 restart-required、原调用仍旧值、启停不许冒称升级、正常 Node/DSH 重启后新值；首次失败源码修复同样按原生待重启结果处理。保留安装/共享/隔离/工具限制/cleanup/模板/压缩回归，不增加逐句文案测试。复测用全新 DeepSeek 与 Astra Agent，普通工具、报告格式、索引/监听、压缩目标及更新请求，不提供 Skill 名/API 参数/代码；不给普通任务注入强制生命周期压力测试，压缩保留默认配置，低阈值旧压力样本不复用成新指导成功证据。
+- **收尾**：独立设计 delta 审查、代码/一致性 delta 与校正契约复验、独立产品 targeted 旅程覆盖改变的指导与安装更新语义。未失效的禁用/边界结果按实际影响保留；主干已合入 feat-615 审批策略，重新跑本地 CI 并使用当前正常 Auto。
+
 ## Changelog
 
 - 2026-10-16：真实模型更新旅程暴露既有热更新缺陷：原生 loader 保留同 id 的已加载模块，单改 generation 路径不重载。integration 在公开 EntryGroup 生命周期内释放路径变化的旧条目、等待资源清理，再应用新条目；不修改或绕过 DSH。此修复兑现既定更新场景，不改变支持范围和架构决定。添加同名同版本更新后立即实调及同 workspace 共享回归。工具指导补足会话 cwd 和公开文件服务写入策略的查询提醒，来自真实失败。

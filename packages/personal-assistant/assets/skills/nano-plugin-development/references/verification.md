@@ -1,19 +1,9 @@
-# 验证与交付
+# Verify in the available environment
 
-先完成最小真实用户目标，再验证适用的持续行为。不要把所有任务都扩成通用测试平台。
+Adapted from DSH's working-first and available-environment verification guidance. Scale verification to the change's risk. Exercise the requested business capability after installation; report unavailable checks. Do not build substitute previews, repair the environment or add optional outputs just to obtain verification.
 
-| 类型 | 核心证据 |
-|---|---|
-| 工具 | 原生调用新工具，业务值与已知输入一致；不是只在 bash 内运行同一段代码 |
-| 提示词 | 没有重复格式要求的相关任务得到期望输出；干净聊天可用；关闭后贡献撤销 |
-| 服务/索引 | 实际查询与更新后的文件一致；资源和数据归属明确 |
-| 局部事件 | 本插件目标调用引发记录，另一 workspace 不引发；停用后无新副作用 |
-| 压缩 | 自动/人工各有真实压缩完成，关键事实仍可用；停用恢复默认引擎 |
+For test subprocesses or temporary resources, use a unique owned directory, bound execution and await cleanup. Preserve the first failure and actual repair. Distinguish saved configuration, live activation, business result and user delivery. A normal node restart is a separate lifecycle operation; a pending replacement is not live success.
 
-安装结果必须同时看 application 和 diagnostics。`applied` 后实际使用失败仍算失败；返回具体错误，修正原源码再装。缺少宿主能力时先查当前包声明和支持边界，不复制 runtime、不改宿主或凭空增加 fallback。
+Nano plugins provide business capabilities; existing Cron/Workflow handles orchestration and existing messaging tools handle delivery. In a global main session, Nano's `schedule_run` accepted/pending result admits a later input. Send the current status and finish this turn so it can run; do not sleep waiting for yourself or repeat the trigger. Verify the resulting chat message afterward.
 
-需要验证重启持久性时只重启获授权的隔离测试节点；不要为普通创建任务擅自重启用户节点。正常本地更新无需重启。停用、重启、重新启用与卸载分别观察持久选择，不把重新安装后能用说成重启恢复成功。
-
-验证应保留第一次失败和后续修复，不隐去失败工具调用。使用与用户目标相同的数据路径，记录准确的插件名、源目录、实际调用与结果，说明同 workspace 影响；不要贴出密钥或完整私人轨迹。
-
-插件是业务能力，定时唤醒走已有 Cron，编排走 Workflow，给用户发消息走既有交付工具。全局主会话的 `schedule_run` 返回 accepted/pending 只表示后续输入已排队；先向用户说明状态并结束当前轮，让调度轮次执行，再核实实际消息。不要在同一轮里 sleep 等待自己排队的任务，也不要因暂未收到结果重复触发。测试时只对获授权的收件人操作。若用户要求 Nano 客户端按钮或任意来源代码安全隔离，说明边界并给适用的交付位置，不以“插件安装成功”代替不存在的产品能力。
+Finish when the user's requested result works. Check disable/restore or other lifecycle behavior when the task calls for it, rather than making every ordinary request a full test programme. Report source location, workspace sharing and any unverified result accurately.

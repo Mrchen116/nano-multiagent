@@ -14,7 +14,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
   const a = join(home, 'a'); const b = join(home, 'b'); const source = join(a, 'my-tool');
   let client: RuntimeClient | undefined; let logs = '';
   await mkdir(source, { recursive: true }); await mkdir(b);
-  await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'workspace-echo', version: '1.0.0', type: 'module', dsh: { bundle: { patch: './cordis.patch.yml' } } }));
+  await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'workspace-echo', version: '1.0.0', type: 'module', peerDependencies: {'@deepseek-ai/cordis':'*','@deepseek-ai/dsh-llm':'*'}, dsh: { bundle: { patch: './cordis.patch.yml' } } }));
   await writeFile(join(source, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: 'echo', name: './tool.mjs' }] }]));
   const goodSource = `import { Context, symbols } from '@deepseek-ai/cordis';
     import { createUserMessage } from '@deepseek-ai/dsh-llm';
@@ -89,9 +89,12 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(bad.text).toContain('failed');
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     await writeFile(join(source, 'tool.mjs'), goodSource);
-    const installed = await call('tools-a', 'plugin_manager', { action: 'install_bundle', target: source }, { tool: 'workspace_echo', args: { value: 'SAME_TURN_RESULT' } });
+    const installed = await manage({ action: 'install_bundle', target: source });
     expect(installed.error, installed.text).toBe(false);
-    expect(installed.text).toContain('SAME_TURN_RESULT');
+    expect(installed.text).toContain('restart-required');
+    await client!.shutdown(); client = undefined; await start(true);
+    expect(await capabilities('tools-a'), (await manage({action:'list_bundles'})).text).toContain('workspace_echo');
+    expect((await call('tools-a', 'workspace_echo', {value:'REPAIRED_AFTER_RESTART'})).text).toContain('REPAIRED_AFTER_RESTART');
     expect(await capabilities('tools-a')).toContain('workspace_echo');
     expect(await capabilities('tools-a')).not.toContain('read');
     expect(await capabilities('tools-a2')).toContain('workspace_echo');
@@ -107,9 +110,15 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect((await call('tools-a2', 'workspace_echo', { value: 'LIVE_WORKSPACE_RESULT' })).text).toContain('LIVE_WORKSPACE_RESULT');
     expect((await call('tools-b', 'workspace_echo', { value: 'denied' })).error).toBe(true);
     await writeFile(join(source, 'tool.mjs'), goodSource.replace('echo:args.value', "echo:'UPDATED:'+args.value"));
-    const updated = await call('tools-a', 'plugin_manager', {action:'install_bundle',target:source}, {tool:'workspace_echo',args:{value:'HOT_UPDATE'}});
+    const updated = await manage({action:'install_bundle',target:source});
     expect(updated.error, updated.text).toBe(false);
-    expect(updated.text).toContain('UPDATED:HOT_UPDATE');
+    expect(updated.text).toContain('restart-required');
+    expect((await call('tools-a','workspace_echo',{value:'BEFORE_RESTART'})).text).not.toContain('UPDATED:');
+    await manage({action:'set_bundle',target:'workspace-echo',enabled:false});
+    await manage({action:'set_bundle',target:'workspace-echo',enabled:true});
+    expect((await call('tools-a','workspace_echo',{value:'TOGGLE_IS_NOT_UPGRADE'})).text).not.toContain('UPDATED:');
+    await client!.shutdown(); client = undefined; await start(true);
+    expect((await call('tools-a','workspace_echo',{value:'AFTER_RESTART'})).text).toContain('UPDATED:AFTER_RESTART');
     expect((await call('tools-peer','workspace_echo',{value:'PEER_UPDATE'})).text).toContain('UPDATED:PEER_UPDATE');
     const selection = await client!.rpc.request('configuration.selection', { agentId: 'a', cwd: a }) as { tools: string[] };
     expect(selection.tools).toContain('workspace_echo');
@@ -169,7 +178,9 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
         });
       }`);
     await writeFile(join(style, 'cordis.patch.yml'), JSON.stringify([{insert:[{id:'style-group',name:'cordis:group',group:true,isolate:{reportStyle:true},config:[{id:'style-provider',name:'./provider.mjs'},{id:'style-consumer',name:'./consumer.mjs'}]}]}]));
-    expect((await manage({action:'install_bundle',target:style})).text).toContain('applied');
+    expect((await manage({action:'install_bundle',target:style})).text).toContain('restart-required');
+    await client!.shutdown(); client = undefined; await start(true);
+    expect(await capabilities('tools-a'), (await manage({action:'list_bundles'})).text).toContain('workspace_echo');
     const prompt = async (sessionId: string) => JSON.stringify((await client!.rpc.request('session.capabilities',{sessionId}) as {prompt:unknown}).prompt);
     expect(await prompt('tools-a')).toContain('STYLE_ISOLATED_610');
     expect(await prompt('tools-peer')).toContain('STYLE_ISOLATED_610');
@@ -189,7 +200,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await writeFile(join(a,'release-cleanup'),'yes');
     await expect.poll(async()=> (await control({action:'list_bundles'})).pending,{timeout:10_000}).toBeUndefined();
     expect(existsSync(join(a,'cleanup-done'))).toBe(true);
-    expect((await queued).text).toContain('AFTER_CLEANUP');
+    expect((await queued).text, (await manage({action:'list_bundles'})).text).toContain('AFTER_CLEANUP');
     expect(await prompt('tools-a')).not.toContain('STYLE_ISOLATED_610');
     expect((await control({action:'list_bundles'})).entries.some(entry=>entry.name==='report-style')).toBe(false);
     await manage({ action: 'set_bundle', target: 'workspace-echo', enabled: false });
@@ -234,7 +245,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).not.toContain('workspace_counter_status');
     const engine = join(a, 'scoped-compaction'); await mkdir(engine);
     const marker = join(a, 'compaction-owner');
-    await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
+    await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',peerDependencies:{'@deepseek-ai/dsh-compaction-basic':'*'},dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
     await writeFile(join(engine, 'engine.mjs'), `import {appendFile} from 'node:fs/promises';
       import {BasicCompactionEngine} from '@deepseek-ai/dsh-compaction-basic';
       export default class extends BasicCompactionEngine {async summarize(...args) {

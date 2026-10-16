@@ -1,15 +1,13 @@
 /** Workspace ownership around native DSH package installation and scoped plugin trees. */
 import { randomUUID } from 'node:crypto';
-import { cp, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
-import { Loader, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
-import { Include } from '@deepseek-ai/cordis-plugin-include';
+import { Loader, EntryTree, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
 import { PluginManager, type ChangeResult } from '@deepseek-ai/dsh-plugin-manager';
 import type { PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types';
-import { type ProfilePnpmInvocation, type RuntimeResolution, PluginPackages, bundlePatchPaths, composeEntries, createRuntimeResolution, initProfile, loadOverlayPatches, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
+import { type ProfilePnpmInvocation, type RuntimeResolution, PluginPackages, composeEntries, createRuntimeResolution, initProfile, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
 import { auditRows, leakedServices } from '@deepseek-ai/dsh-agent-preset-registry';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import type {} from '@deepseek-ai/dsh-hmr';
@@ -19,7 +17,7 @@ import { describePluginApi, pluginApiTopics, type PluginApiTopic } from './plugi
 const require = createRequire(import.meta.url);
 const anchor = require.resolve('@deepseek-ai/dsh/package.json');
 const inside = (root: string, path: string) => { const value = relative(root, path); return value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value); };
-interface Mount { ctx: Context; config: AgentConfiguration; tree: Include; namespace: string; baseline: Set<string>; tools: string[] }
+interface Mount { ctx: Context; config: AgentConfiguration; tree: EntryTree; namespace: string; baseline: Set<string>; tools: string[] }
 export interface PluginCommand { action: 'list_bundles' | 'describe_api' | 'install_bundle' | 'set_bundle' | 'remove_bundle'; topic?: PluginApiTopic; target?: string; enabled?: boolean; approvedBuilds?: string[]; registry?: string }
 
 type PluginText = string | Record<string, string>;
@@ -32,9 +30,20 @@ export interface PluginView {
   diagnostics: string[];
 }
 
-/** Capture a native Include without exporting a second loader service. */
-class WorkspaceInclude extends Include {
-  constructor(ctx: Context, config: Include.Config & { mounted(tree: Include): void }) { super(ctx, config); config.mounted(this); }
+/** Native in-memory preset tree; the workspace profile owns persistence. */
+class WorkspaceTree extends EntryTree {
+  constructor(ctx: Context) {
+    // Match DSH's PresetTree: a secondary tree must not replace the owning preset's inventory.
+    const owner = ctx.fiber.entry;
+    const subtree = owner?.subtree;
+    const subgroup = owner?.subgroup;
+    super(ctx);
+    if (owner) {
+      if (subtree === undefined) delete owner.subtree; else owner.subtree = subtree;
+      if (subgroup === undefined) delete owner.subgroup; else owner.subgroup = subgroup;
+    }
+  }
+  override write(): void {}
 }
 
 /** Own workspace profiles while native DSH owns package operations and plugin lifecycles. */
@@ -64,7 +73,7 @@ export class WorkspaceExtensions {
     }
     const owner = await pending;
     ctx.tools.register({ name: 'plugin_manager',
-      description: 'Create, install and manage standard DSH plugins in this configured workspace. For plugin development/configuration/debugging, load nano-plugin-development with the skill tool when available; respect disabled Skills. describe_api(topic: tool, prompt, service, events, compaction) returns current public API documentation paths and Nano support boundaries; read the relevant declarations before coding. list_bundles returns installed state and profileDir. install_bundle(target: local bundle directory or package spec), set_bundle(target: bundle name, enabled), remove_bundle(target: bundle name) manage persistent workspace bundles. Changes affect every Agent sharing this workspace; new independent tool names become available without editing static allowlists. Verify application and actual business behavior; failed or restart-required is not live success. Never edit installed package files, runtime.json or the host profile. Workspace plugins are trusted local code, not an OS sandbox. approvedBuilds only after explicit user approval for pending build scripts.',
+      description: 'Create, install and manage standard DSH plugins in this configured workspace. For plugin development/configuration/debugging, load nano-plugin-development with the skill tool when available; respect disabled Skills. describe_api(topic: tool, prompt, service, events, compaction) returns current public API documentation paths and Nano support boundaries; read the relevant declarations before coding. list_bundles returns installed state and profileDir. install_bundle(target: local bundle directory or package spec), set_bundle(target: bundle name, enabled), remove_bundle(target: bundle name) manage persistent workspace bundles. Changes affect every Agent sharing this workspace; new independent tool names become available without editing static allowlists. Package replacement retains native restart-required semantics; toggling a bundle is not an online code-upgrade guarantee. Verify application and actual business behavior; failed or restart-required is not live success. Never edit installed package files, runtime.json or the host profile. Workspace plugins are trusted local code, not an OS sandbox. approvedBuilds only after explicit user approval for pending build scripts.',
       parameters: { type: 'object', properties: { action: { enum: ['list_bundles', 'describe_api', 'install_bundle', 'set_bundle', 'remove_bundle'] }, topic: { enum: pluginApiTopics }, target: { type: 'string' }, enabled: { type: 'boolean' }, approvedBuilds: { type: 'array', items: { type: 'string' } }, registry: { type: 'string' } }, required: ['action'], additionalProperties: false },
       output: { schema: { type: 'object' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       timeoutMs: 600_000,
@@ -72,12 +81,10 @@ export class WorkspaceExtensions {
       execute: (args, exec) => owner.command(args as PluginCommand, exec.callId, exec.signal),
     });
     const baseline = new Set(ctx.tools.schemas(scopeOf(ctx)).map(tool => tool.name));
-    let tree!: Include;
-    const fiber = ctx.plugin(WorkspaceInclude, { path: pathToFileURL(join(owner.dir, 'runtime.json')).href, mounted: (value: Include) => { tree = value; } });
-    await fiber.await();
+    const tree = new WorkspaceTree(ctx);
     const mount = { ctx, config, tree, namespace: randomUUID(), baseline, tools: [] as string[] };
     this.mounts.add(mount); owner.mounts.add(mount);
-    ctx.effect(() => () => { this.mounts.delete(mount); owner.mounts.delete(mount); });
+    ctx.effect(() => () => { tree.root.stop(); this.mounts.delete(mount); owner.mounts.delete(mount); });
     // A broken persisted bundle must not prevent access to the management tool needed to repair it.
     await this.ctx.hmr.runExclusive(() => owner.refresh());
   }
@@ -115,7 +122,6 @@ class WorkspaceOwner {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
     // A workspace owns an empty profile, not a second base runtime. initProfile preserves existing state.
     initProfile(dir, []);
-    await writeFile(join(dir, 'runtime.json'), '[]', { flag: 'wx' }).catch(error => { if (error.code !== 'EEXIST') throw error; });
     const managerRoot = new Context();
     managerRoot.provide('profileContext', { name: 'workspace', dir, patchPath: join(dir, 'cordis.patch.yml'), installAnchor: anchor, cwd: workspace,
       home: dir, startedBundles: [], overlays: [], telemetryDisabledEnv: '1', ...(packageManager ? { packageManager } : {}) });
@@ -136,17 +142,7 @@ class WorkspaceOwner {
   private rows(): EntryOptions[] {
     const profile = loadProfileDirectory('nano', this.dir, anchor);
     if (profile.skippedBundles.length) throw new Error(profile.skippedBundles.map(item => `${item.packageName}: ${item.reason}`).join('\n'));
-    const manifest = readProfileManifest('nano', this.dir);
-    const layers = profile.layers.map(layer => {
-      const spec = manifest.dependencies?.[layer.packageName];
-      const generation = spec?.startsWith('file:') ? resolve(this.dir, spec.slice(5)) : undefined;
-      if (!generation || !inside(join(this.dir, 'generations'), generation)) return layer.patches;
-      // Hoisted pnpm installs reuse node_modules/<name>. Resolve self-authored entries from the immutable source generation.
-      const bundle = readProfileManifest('nano', generation).dsh?.bundle;
-      if (!bundle) throw new Error(`Missing bundle metadata in ${generation}`);
-      return bundlePatchPaths(generation, bundle).flatMap(file => loadOverlayPatches('nano', file));
-    });
-    return composeEntries([...layers, profile.patches]);
+    return composeEntries([...profile.layers.map(layer => layer.patches), profile.patches]);
   }
   async refresh(): Promise<void> {
     let rows: EntryOptions[];
@@ -174,24 +170,14 @@ class WorkspaceOwner {
       // Loader deliberately logs import failures instead of throwing them; retain the original local diagnostic too.
       const stop = this.host.logger.exporter({ levels: { default: 2 }, export: message => {
         if (message.type !== 'error' || loadErrors.length >= 8) return;
-        for (const arg of message.args) if (arg instanceof Error && arg.stack?.includes(this.dir)) loadErrors.push(arg.stack.slice(0, 3000));
+        for (const arg of message.args) if (arg instanceof Error && arg.stack?.includes(this.workspace)) loadErrors.push(arg.stack.slice(0, 3000));
       } });
       const retired = new Set([...mount.tree.entries()].flatMap(entry => entry.fiber ? [entry.fiber] : []));
-      const nextNames = new Map<string, string | undefined>();
-      const scoped = (entries: EntryOptions[]): EntryOptions[] => entries.map(row => {
-        nextNames.set(row.id, row.name);
-        return { ...row,
+      const scoped = (entries: EntryOptions[]): EntryOptions[] => entries.map(row => ({ ...row,
         ...(row.isolate ? {isolate: Object.fromEntries(Object.entries(row.isolate).map(([name, label]) => [name, typeof label === 'string' ? `${mount.namespace}:${label}` : label]))} : {}),
         ...(row.group && Array.isArray(row.config) ? {config: scoped(row.config)} : {}),
-        };
-      });
+      }));
       const mountedRows = scoped(rows);
-      // Native entry updates retain the loaded module when only its name changes.
-      // Retire changed generation entries before recreating them through the public loader API.
-      const replaced = [...mount.tree.entries()].filter(entry => nextNames.has(entry.options.id) && nextNames.get(entry.options.id) !== entry.options.name);
-      const replacedFibers = replaced.flatMap(entry => entry.fiber ? [entry.fiber] : []);
-      for (const entry of replaced) entry.parent.remove(entry.options.id);
-      await Promise.all(replacedFibers.map(fiber => fiber.inertia));
       let audit: Awaited<ReturnType<typeof auditRows>>;
       try { await mount.tree.root.update(structuredClone(mountedRows)); audit = await auditRows(mount.tree); }
       finally { stop(); }
@@ -229,22 +215,11 @@ class WorkspaceOwner {
     this.resolution = next;
     this.diagnostics = [...new Set(diagnostics)];
   }
-  private async stage(target: string): Promise<string | undefined> {
+  private async localSource(target: string): Promise<string | undefined> {
     if (!(isAbsolute(target) || target.startsWith('.') || target.startsWith('file:') || target.startsWith('link:'))) return;
     const source = await realpath(resolve(this.workspace, target.replace(/^(file|link):/, '')));
     if (!inside(this.workspace, source) || inside(source, this.dir)) throw new Error('Local plugin bundle must be inside this workspace and outside its managed profile');
-    const dir = join(this.dir, 'generations', randomUUID());
-    await mkdir(dir, { recursive: true });
-    await cp(source, dir, { recursive: true, filter: path => !['node_modules', '.git'].includes(basename(path)) });
-    const bundle = readProfileManifest('nano', dir).dsh?.bundle;
-    if (!bundle) throw new Error('Local package must declare dsh.bundle');
-    const patches = bundlePatchPaths(dir, bundle).flatMap(file => loadOverlayPatches('nano', file));
-    const check = (rows: EntryOptions[]) => { for (const row of rows) {
-      if (row.group && Array.isArray(row.config)) check(row.config);
-      else if (!row.name?.startsWith('file:') || !inside(dir, fileURLToPath(row.name))) throw new Error('Local bundle plugin entries must use relative files inside the bundle');
-    } };
-    check(composeEntries([patches]));
-    return `file:${dir}`;
+    return source;
   }
   private async entries() {
     return (await this.managerRoot.pluginManager.listBundles()).filter(bundle => bundle.installed).map(bundle => {
@@ -294,16 +269,17 @@ class WorkspaceOwner {
       const previousPackages = new Set(Object.keys(readProfileManifest('nano', this.dir).dependencies ?? {}));
       this.changing = true;
       let result: ChangeResult;
-      let local = false;
       const cancel = () => { void manager.cancelInstall(requestId); };
       signal.addEventListener('abort', cancel, { once: true });
       try {
         if (args.action === 'install_bundle') {
-          const staged = await this.stage(args.target); local = staged !== undefined;
+          const local = await this.localSource(args.target);
           signal.throwIfAborted();
-          const localName = staged && readProfileManifest('nano', staged.slice(5)).name;
+          const localName = local && readProfileManifest('nano', local).name;
           const prior = previousBundles.find(bundle => bundle.name === localName || bundle.name === args.target);
-          result = await manager.installBundle(staged ?? args.target, { enabled: args.enabled ?? (prior?.installed ? prior.enabled : undefined), approvedBuilds: args.approvedBuilds, registry: args.registry, requestId });
+          // An unchanged path dependency needs its name for the native manager to identify a reinstall.
+          const spec = local ? `${localName}@${args.target.startsWith('file:') ? 'file:' : 'link:'}${local}` : args.target;
+          result = await manager.installBundle(spec, { enabled: args.enabled ?? (prior?.installed ? prior.enabled : undefined), approvedBuilds: args.approvedBuilds, registry: args.registry, requestId });
           // Package specs can include aliases or versions. The native result owns their resolved name.
           if (!result.error && args.enabled === undefined && result.bundle && previousBundles.some(bundle => bundle.name === result.bundle && bundle.installed && !bundle.enabled)) {
             const restored = await manager.setBundleEnabled(result.bundle, false);
@@ -325,7 +301,7 @@ class WorkspaceOwner {
         signal.throwIfAborted();
         if (result.error || result.application === 'cancelled') return result;
         // Native manager owns no execution tree. Only this scoped activation can report that a tool is actually live.
-        if (!local && args.action === 'install_bundle' && result.application === 'restart-required'
+        if (args.action === 'install_bundle' && result.application === 'restart-required'
           && result.bundle && previousPackages.has(result.bundle)) return result;
         await this.host.hmr.runExclusive(() => this.refresh());
         const target = (await manager.listBundles()).find(bundle => bundle.name === (result.bundle ?? args.target));
