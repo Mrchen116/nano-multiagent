@@ -230,3 +230,91 @@ Round 2 的实现、原生管理与挂载/模板结论继续 retained：两提�
 Uncovered Observable Behavior: **无**；**no new spec delta**。该交接说明解释已经存在的用户手动入口，不是增加 Agent 工具或改变压缩时机。canonical 归并仍按 caller 的门禁流程完成。
 
 Outcome: **aligned**。无 delta-mismatch / implementation-mismatch；本结论是静态契约一致性，新的模型效果另由产品验收提供。
+
+## Round 4 — 任务收口 delta / corrected-delta（静态部分）
+
+### Metadata 与 Summary
+
+- verifier: `/root/static_scope_614`
+- verification_mode: `delta` + 受影响 `corrected-delta` 静态续核
+- executed_base: `c839d677747f365bff9a1388e132d24717d7d67d`
+- validated_at: `0d23eb7e5f240551ac2cebb0d9572a4a941f8d61`
+- fix_delta_range: `c839d6777..0d23eb7e5`，7 文件，产品指导仅三个英文句子及两份 reference
+- verified_at: `2026-10-17T23:30:04+08:00`
+- requires_full_verification: `false`
+- 静态 verdict: **pass / aligned**；issues / validated_issues: `[]`；0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+- **整体退出标准尚未裁决**：本次派发先完成静态部分，新真实模型旅程仍在运行，不能以窄探针或旧旅程提前满足本轮 M1 的模型效果与公开交付要求。
+
+| 维度 | 已核实范围与结果 |
+|---|---|
+| Completeness | 新增全局续问 delta 的两个 Scenario 均有对应指导；新模型旅程与完整工程门禁待冻结证据 |
+| Correctness | 代码/资料及 API 入口静态对齐；真实模型效果 pending，不等于实现失败 |
+| Coherence | 遵守 design Changelog 和 evidence/task-scope-revision.md 的有界增量，无 runtime/API/审批/生命周期变化 |
+
+### Correctness 与 Coherence
+
+| 契约 / design 决定 | 实现及直接证据 | 状态 |
+|---|---|---|
+| 新 global-agent delta：已有上下文足以回答 | global-mode.ts:18 三句指导明确简短答案后结束、不附加未请求排障或验证；旧助手计划/假设不构成指令或事实 | 静态 covered；实际完整轮次及用户收件待产品证据 |
+| 新 delta：明确继续验证或有具体信息缺口 | 同处明确允许必要调查/开发；原有持续推进 accepted human requests、沟通、权限及交付要求完整保留 | 静态 covered；新自然输入对照 pending |
+| 旧任务及真实来源保留 | 人类已接受而未交付的请求继续受 Keep working 约束；Inbox source、wake 非授权、未知 sender/其他 Agent 不能授予权限未变 | aligned；没有把助手自行添加的 checkpoint next step 当新请求 |
+| 压缩知识复用当前公开资料，保留 Nano 差异 | describe_api 返回 dsh-compaction/basic 版本、README/types；实际 README:182-210 有 Auxiliary summarizer request/最终固定格式；compaction.ts:17-25 与用户命令 canonical:133-139 保持原路由 | aligned；输出不符不能反推路由未调用 |
+| 原生安装/更新、默认值、禁用回落和宿主边界 | compaction reference 仍保留 provider/disable、默认值、用户 idle 交接及 no-op 边界；bundle.md 保留 restart-required；运行时代码/API/schema 未改 | aligned；Round 2/3 未受影响静态及 runtime 证据 retained |
+| 输出效果与执行路径/根因分开 | verification reference 新增直接 activation/request evidence 或原因未知；已有实调、失败保留、用户交付分层未删除 | aligned；调查范围须与当前任务有关 |
+
+没有前端/UI/prototype 变化，Prototype / Reference Contract: N/A。框架接入仍仅在 integration；PA 变化仅为随包知识资产，无跨包边界或新执行环。
+
+### Evidence 与能力边界
+
+- `/tmp/feat614-r3/narrow-tests.log`：3 文件 / 4 项 pass（37.12 秒），对应 communication-native、workspace-tools、builtin-skills 既有真实 runtime/装配/刷新 seam；检查实际断言后保留，不重复逐句提示词测试。
+- 只读核对同目录 typecheck 全包完成、pytest 56 passed/31 deselected、docs 235 maintained sources/64 routes；独立 diff check 和 main 祖先检查通过。前端日志已显示 96 文件/887 项通过；本时点 TypeScript 全量日志尚无最终结果，工程总体完成仍由 caller 按最终日志裁决。
+- 独立比较 A1/D1 请求仅 system 不同，并读取 A/D/control-d 返回块。该窄探针不执行工具；3/3 send_message 请求不是 3/3 实际公开交付，也不能证明模型完整收尾、归因准确、普遍成功率或端到端耗时。
+- 旧版本真实请求已被 design Round 5 直接核为包含插件 summary guidance 与原生最后固定格式。它纠正“缺标题可判未调用”的解释强度，既不证明新输出效果正确，也不新增宿主路由故障。
+- 新 DeepSeek + Codex/Luna 产品旅程由主侧与独立 reviewer 驱动，尚未冻结。待核：真实压缩事务和续聊、另一种简短问答、明确继续验证对照、公开送达及完整轮次终止；原失败保留，自动普通样本未触发保持 open/inconclusive。未结束不计失败/通过，不据本静态 report 发布整体通过。
+
+### 本轮 Corrected Delta Reconciliation（限定静态部分）
+
+| Delta item | Implementation evidence | Test/effect evidence | Outcome |
+|---|---|---|---|
+| specs/gateway/global-agent.md：上下文足够的简短续问 | global-mode 三句及原来源/交付指导 | 窄探针支持选择候选；真实送达/收尾 pending | aligned（静态） |
+| 同 delta：明确继续验证与具体信息缺口 | 新第二句及保留的 accepted human requests 要求 | control-d 仍发起证据读取；完整执行 pending | aligned（静态） |
+| 已校正 agent-capabilities delta：上游指导与原生生命周期 | compaction reference 指向安装包；bundle 生命周期未变；UPSTREAM/MIT 保留 | 已有效 runtime/资产回归保留，新指导模型效果另验 | aligned |
+| 验证与修复真实结果 | verification reference 要求直接归因证据；不取消实调与失败修复 | 静态说明与 Evidence 规范一致；本轮不据未知路径宣称根因 | aligned |
+
+Uncovered Observable Behavior: **无**。此次可观察增量已由新 global-agent delta 覆盖；reference 精简和归因边界落实现有插件指导 Requirement，不增加第二个接口或生命周期承诺。canonical 的新 Requirement 尚待本轮产品/整体门禁后归并，不能把 active delta 提前当 current 已完成。
+
+Outcome: **aligned（静态）**，无 delta-mismatch / implementation-mismatch。保留先前有效范围，不重新验收旧 PR；caller 提供最终冻结产品证据后只做必要 closure，若后续实施/契约改变则按实际 delta 续核。
+
+## Round 5 — 最终范围 corrected-delta closure（静态部分）
+
+- verifier: `/root/static_scope_614`；verification_mode: `corrected-delta` + 有界 closure
+- executed_base: `481467ac16f0eda4561fca5c8230050541600de9`（执行时 main）
+- comparison_base / finding_origin_head: `c839d677747f365bff9a1388e132d24717d7d67d`（本轮 patch 起点）
+- validated_at: `8e0ec154e0bcccf4b2e2479fe5550c6b917230e5`；verified_at: `2026-10-18T00:09:05+08:00`
+- requires_full_verification: `false`；issues / validated_issues: `[]`；0 CRITICAL / 0 WARNING / 0 SUGGESTION
+- 静态 verdict / outcome: **pass / aligned**。本节取代 Round 4 对实验性全局 delta 的现行判断；Round 4 仅保留为历史，不能据其宣称最终新增了全局收口能力。
+
+### Completeness、Correctness 与 Coherence
+
+独立完整核对 `c839d6777..8e0ec154e`：产品差异仅两份 reference，另三份是 design/design-review/实验 evidence。`global-mode.ts`、canonical `docs/specs/`、既有 unit agent-capabilities delta 均无差异；新 global-agent delta 已删除，最终全局指导与人类旧任务持续执行语义保持原版。design Round 6 的 Inbox 必要差异及 Round 7 的实验撤回决定与最终范围一致；没有 runtime/API/审批/加载生命周期改变，也没有前端或 Prototype contract。
+
+### Current Corrected Delta Reconciliation
+
+| 最终条目 | 实现与直接证据 | Outcome |
+|---|---|---|
+| 新 global-agent delta / D 全局规则撤回 | global-mode 及 canonical 与基线一致；unit 新文件不再存在；设计/evidence 保留失败及撤回决定 | aligned；superseded，不待 canonical 归并 |
+| 既有开发指导 Requirement：当前版本资料和 Nano 必要差异 | compaction reference 指向原生两包 README/types；installed README:182 起含辅助摘要/最后指令；global-mode.ts:32-42 与 sources.ts:7,20-27 支持 Inbox 真人来源说明 | aligned（静态） |
+| 既有真实验证/修复 Requirement | reference 要求检查 actual checkpoint 的请求事实及直接 activation/request evidence；不以标题证明业务成功、不凭缺标题证明路由失败 | aligned（静态）；新模型效果待产品裁决 |
+| 原生管理与 workspace 支持边界 | provider/disable、用户 compact/idle、bundle 生命周期和 no-op 限制均保留；所有 runtime/API 未变 | aligned；保留未受影响的既有直接证据 |
+
+Uncovered Observable Behavior: **无；no extra spec delta**。这两份 reference 解释既有输入形态、摘要开发入口及验证边界，落实 canonical agent-capabilities 的现有开发指导/真实结果契约；没有新来源协议、执行规则或压缩能力承诺，无需新增 global-agent Requirement。已有压缩支持及原 M1 未被削减。
+
+### Validation 与未完成证据
+
+- 复用并只读核对最终 final-narrow-tests.log：3 文件/4 项 pass（36.83 秒）；通信、workspace 管理和 Skill 刷新 seam 的既有覆盖仍适用。独立固定 range diff check 通过，不新增逐句永久测试、不重复广泛测试。
+- full-tests.log 保留首次 workspace-tools 90 秒超时；full-tests-recheck.log 93 文件/346 项 pass（108.11 秒），caller 记录采用 maxWorkers=4；另有单项通过结果。前端 887、pytest 56、typecheck/docs/ruff/audit 的先前已核工程结果在最终纯 reference 范围有效；工程通过不替代业务效果。
+- Round 4 的 D/A–G 窄探针、D 下独立普通问答与明确验证成功不作为最终资料的模型证据；完整 D 台账失败及续问错误仍按 evidence 保留。没有宣称全局收口、效率或零误导改善。
+- 新身份最终版本旅程仍在跑；caller 报告 Agent 已读 Inbox 段、提取真人消息及人工 checkpoint 四项事实，但存在测试夹具台账混入，尚待真实 Agent 修复后的完整结果与独立产品判定。本 verifier 本轮未将该进行中样本判通过或失败，也未把生成插件修复算作 PR 代码修复。
+- 首个开发轮在交接后遭 caller 提前重启，turn interrupted，不能作为自然收口证据。自动普通样本未触发继续 open/inconclusive。最终产品结果、公开交付和现场清理由 root/product reviewer 补证；本静态 pass 不能替代整体退出裁决。
+
+Outcome: **aligned（最终静态范围）**；未发现 delta-mismatch 或 implementation-mismatch。最终真实产品证据仍 pending，由指定角色收口，不因其未结束追加实现缺陷或重复全量验收。

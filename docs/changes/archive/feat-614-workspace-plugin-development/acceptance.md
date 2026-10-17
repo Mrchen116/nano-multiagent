@@ -236,3 +236,89 @@ Reference Artifacts Reviewed：N/A，无客户端UI变化。Round3的工具/格�
 | 查询插件隔离承诺 | spec场景5、6 | retain Round3所列可信本地扩展而非OS沙箱实证。 | pass |
 
 上层文档同步沿用Round3结论；spec新增本轮证据边界由caller独立复核。报告仅追加、未提交；R3 fail及原始样本均保留。新对照完整输入/轨迹/消息/事务在 `/tmp/feat614-r2/compact-evidence/`，不提交日志、凭据或业务文件。review/index栈已由caller集中清理；compact栈本轮完成后交回caller清理，当前Agent idle。共享proxy与生产未操作。
+
+## Round 5A — targeted 当前问答范围独立产品验收（2026-10-17）
+
+Validation snapshot：`0d23eb7e5f240551ac2cebb0d9572a4a941f8d61`，基线 `c839d6777`，主干祖先 `481467ac1`。reviewer确认worktree HEAD及初始clean；运行产物由caller冻结并交接，未重启共享Node。隔离环境 `/tmp/feat614-r3-product`、IM `127.0.0.1:64068`，专用 `s614-deepseek`，DeepSeek V4 Flash / High，Codex审批 + Luna reviewer。真实入口为公开IM登录/聊天/Work/插件API；CUA创建可见IAB返回“visibility is not supported in a subagent thread”，因此依design runbook使用同客户端API，**没有浏览器视觉或iOS验收**。未人工放行拒绝、未改源码/测试/设计/配置、未访问生产。
+
+### 独立自然旅程与真实结果
+
+会话 `c_wy2y81xr`，原生session `8d6ae60c-58ef-41ce-a31d-93043bd73ee3`。原始自然输入均在 `/tmp/feat614-r3/reviewer-*.txt`，没有给Skill名、API参数或正确实现。完整分页Work、消息、管理状态在 `/tmp/feat614-r3/reviewer-evidence/`；保留 `create-trace.json`、`followup-trace.json`、`verify-trace.json` 及三份watch日志，未删首错或重跑筛样本。
+
+- **普通输出格式插件**：请求工作区周报固定“已完成 / 待推进 / 待决定”，末尾“云杉项目组”，不改个人记忆/聊天提示词。样例事实为预算18400元已定、桌面首版已定、下周三询价未做、企微接入未定。Agent自行读取Skill和API，创建并安装 `weekly-report-format`，以 `project_weekly_report` 工具实现格式能力。首轮23:29:00–23:31:16（+08:00），约136秒、29次工具调用；原生seq146/174生成三节与落款，四项业务状态正确。seq162停用调用报unknown tool属于真实撤销对照，不是被隐藏的创作失败。没有发生安装失败或更新待重启；本样本不是system-prompt section插件贡献的独立证明。
+- **进行中询问进度**：插件实调后、最终交付前发送“现在进展怎样？简单说一下就行。”（`a23cb923…`）。原send_message被held后，Agent重新读取消息，并以seq200实际sent进度+原周报交付（消息 `a55dac90…`），没有把原任务交付丢弃。到达时执行工作已基本完成，因此只覆盖交付阶段，不能推导长任务中途都会继续执行；不为补证据另造完整开发任务。
+- **简短业务续问**：输入“预算定了多少？企业微信已经决定要接了吗？两句话回答就好。”（`dd8976a6…`）。turn3，23:32:14–23:32:19，约4.7秒，只有inbox check/read与send_message三次调用。seq248实际sent两句：“项目预算已定为18400元。企业微信是否接入还没有决定，仍挂在待决定里。”没有技术读取、无请求的验证/后续工作、路由推断或把未决改写为既定；随后idle。
+- **明确继续验证**：输入要求继续验证启停/实际效果并最终保持启用（`b3775a96…`）。turn4，23:33:14–23:34:09，约55秒、11次工具调用。seq294停用applied；seq305真实工具调用unknown tool；seq311恢复applied；seq317原生成功生成同事实三节周报；seq324管理状态enabled、无diagnostics；seq330实际sent复验结果和周报。reviewer随后经公开插件API独立核实enabled且无diagnostics（`plugins-final.json`），最终idle。此次明确执行没有被“简短续问收口”限制误伤。
+
+本样本未修改个人记忆或聊天提示词的可见依据是全部写入/调用轨迹及profile检查，不把Agent自述当额外证明。两次unknown tool均为主动停用对照；一次held投递保留并由重读消息后sent闭环，没有人工绕过。
+
+### 覆盖、保留项与证据边界
+
+| Scenario | 来源 | 独立结论及证据 | 结果 |
+|---|---|---|---|
+| 已有上下文足以回答 | 本次delta `specs/gateway/global-agent.md` | turn3直接两句业务答案、无技术调查、idle | pass |
+| 明确继续验证 | 同上 | turn4真实停用失败/恢复成功/持久化状态与sent交付 | pass |
+| 简短进度询问不丢已授权任务 | caller补充边界 | 原交付held后重读并实际交付；只覆盖开发末尾交付阶段 | pass（有限覆盖） |
+| 普通插件创建安装与实调 | spec场景1/2及本次targeted目标 | 首轮真实创建/安装/原生格式输出；使用工具式格式实现 | pass |
+| 提示词section、服务/监听、模板、生命周期更新/重启/共享与工具限制 | 原spec、Round3/4 | 本次没有runtime/API/选择机制变动，retain Round3/4逐项已有证据，不冒称新运行；本轮只重验普通启停 | retain |
+| 压缩人工/自动/停用恢复 | 原spec、Round4 owner bar | 本独立样本未做压缩；Round4人工与Round3停用恢复retain；自动普通默认未触发仍未观察 | retain / 自动inconclusive |
+
+没有未完成旧技术计划或压缩检查点进入本普通样本，因此它证明的是另一种自然续问及明确验证对照，不独自关闭复杂压缩后的旧计划回归。caller独占压缩旅程另行记录。本reviewer在23:35左右只读其完整Work快照 `/tmp/feat614-r3/product-evidence/s614-isolate-trace.json`，观察61次工具、未出现write/install_bundle，仍在读summarizeWithLlm、preset、integration注册/attach源码；该快照是进行中观察，不提前判最终交付，但足以说明**不能把普通续问的成功推广为复杂插件开发效率改善**。没有据源码读取行为推断宿主缺陷。
+
+### Verdict
+
+**本增量两项必验：pass；累积unit：pass-with-issues，沿用Round4明确owner bar。** 新增阻塞问题0；保留R3-E1自动默认路径未观察的证据缺口1项，R4-S1复杂开发探索成本的历史观察不关闭。普通业务问答与明确验证均有本轮真模型直接证据；复杂压缩场景最终结果须与caller本轮完整旅程合并，不能以本节替代。进度问的长任务中段行为、浏览器视觉未覆盖，不列为已发现缺陷。
+
+仅追加本报告，未提交；本轮Agent已idle、插件按请求保持启用。服务由caller集中清理，reviewer未停止共享栈。原始日志/凭据/运行数据不入仓库。
+
+## Round 5B — 最终 native 全局指导普通样本复验（2026-10-18）
+
+Validation snapshot：`8e0ec154e0bcccf4b2e2479fe5550c6b917230e5`，reviewer确认HEAD；caller已将隔离Node重启到最终产物。先前Round5A的额外全局D指导已撤回，其4.7秒普通续问和其他观察只属于 `0d23eb7e5`，不能移作最终版本的机制证据。最终相对 `c839d6777` 产品变化仅为compaction/verification参考资料；本轮未重新引入通用收口规则。保留原报告，不宣称F/G或文案消除了模型不稳定性。
+
+继续使用独占 `s614-deepseek` / `c_wy2y81xr`、原生session `8d6ae60c-58ef-41ce-a31d-93043bd73ee3`，同DeepSeek V4 Flash / High、Codex/Luna。公开IM API驱动；未接触caller独占 `s614-final`，未重启任何服务。
+
+| 目标 | 自然输入、实际证据与结果 | 裁决 |
+|---|---|---|
+| 已有业务事实简短续问 | `decadad0…`：“云杉项目首版做什么端？向供应商询价已经完成了吗？简短回答。” turn5，00:01:09–00:01:15（+08:00），约5.7秒；seq768/771 inbox check/read，seq776 send_message实际sent“首版只做桌面端。向供应商询价还没开始，计划下周三进行。”仅3调用，无技术调查或未经请求的下一步。 | pass（最终版本样本） |
+| 明确启停实调 | `21d473c8…`要求再次停用试用、恢复后用现有事实生成并保持启用。turn6，00:02:13–00:02:46，约32.6秒、10调用；seq825停用applied，seq829调用unknown tool，seq832恢复applied，seq839正常输出三节与云杉落款，预算18400/桌面首版/询价未做/企微未定准确，seq851实际sent交付。 | pass（最终版本样本） |
+
+最终公开插件API独立读取 `final-native-plugins.json` 显示enabled、无diagnostics；Work idle。完整原始证据 `/tmp/feat614-r3/reviewer-evidence/final-followup-trace.json`、`final-verify-trace.json`、对应watch日志与原始自然输入保留，停用unknown tool为预期对照，未人为放行拒绝。原插件创作仍属于Round5A版本；本节只证明最终native全局指导下普通续问/明确验证的实际表现，不证明提示词插件创建、复杂压缩或效率有普遍改善。
+
+**局部verdict：pass；新增问题0。整体最终scope尚待复杂压缩新样本冻结后的独立核验，本节不提前放行。** 已知主侧前轮private成员错误和第二次台账漏业务事实不能由本普通样本覆盖；原失败证据须保留，复杂场景不视为业务pass。Round3/4未变化的生命周期、模板、选择边界与默认自动未观察仍按Round5A的明确保留范围处理。未覆盖浏览器视觉/物理iOS。只追加报告、未提交，服务留给caller集中管理。
+
+## Round 5C — 最终 reference 增量独立 closure（2026-10-18）
+
+**validated_at：`8e0ec154e0bcccf4b2e2479fe5550c6b917230e5`；overall verdict：pass-with-issues。** 最终只保留compaction/verification两份reference变化，额外全局D规则已经撤回；Round5B最终native指导的普通续问/启停实调仍有效。此裁决沿用Round4明确owner bar：默认自动未触发保留未观察，不降低阈值造压力。未声明复杂开发效率、普遍简短收口或零误导改善。
+
+### 独立核验来源与真实边界
+
+reviewer只读冻结证据根 `/Users/czj/Repos/nano-multiagent/output/feat614-task-scope-20261017/final-compaction-trial/` 的完整 `followup-trace.json`、聊天消息、两份manual事务、provenance、metrics、orchestration-note，以及生成插件快照中识别Inbox和继承台账的相关部分；未用caller结论、CI或离线测试替代真实摘要内容。公共IM插件API另核对 `s614-final` 当前 `decision-compaction` enabled、无diagnostics；未发送新任务、改代码或重启服务。模型DeepSeek V4 Flash / High，Codex审批/Luna；session `5688c799-44d2-4e38-834f-1a67e7d373b2`，聊天 `c_1xuqsls6`。metrics记录152次allow、0deny，其中132次Luna、20次无reviewer的确定性路径；这是该session审批统计，不是通用安全或成功率证明。
+
+- **新指导确实进入执行**：Work记录读取包含Nano Inbox差异的reference；推理seq787明确从工具结果 `messages[].sender.type=user` 提取真人内容，首装生成插件也实际含此判断。两次真实summary的插件独立账本均出现预算28600、首版离线、周五确认报价、云同步未决。这比“Skill读过/安装成功”更强，但不能推导没有其它来源误识别。
+- **首开发轮有外部干预**：68调用、456.21秒至最后item；首次write前38调用。turn1为interrupted：caller在公开交接后但Agent仍继续README修改/思考时过早正常重启。故不能称自然完成或用耗时比较效率；原始状态与orchestration-note保留。重启后idle再走公开 `/compact`，真实事务成立，不将首轮自然完成与事务成功混为一谈。
+- **首真实压缩业务fail保留**：`manual-first-events.json` seq329/330/332，事务 `8d6dc40c-ac85-4f44-9502-c01d670e48f0`，聊天“已压缩129项”。独立账本四项事实俱在，但多出独立条目“供应商报价需在周五前锁定”，来源是测试夹具，不能当用户项目决定。此前其他版本的private成员运行错误及漏业务事实样本也不因本轮通过而删除或改写。
+- **Agent自主修复并准确交接**：caller只反馈实际账本污染及自然目标，未代写修复。turn2正常completed，77调用、467.83秒；两次未先read的edit错误均保留并自行恢复。真实工具返回restart-required，公开交付明确当前未生效、需正常重启与新 `/compact`，未把离线检查当新摘要成功。修复包含限制真实checkpoint来源及当前已污染条目的定点清理，不能宣传为所有语义污染都已解决。
+- **修复后真实业务结果**：idle后正常重启，再发公开 `/compact`；`manual-second-events.json` seq730/731/733，事务 `7ae19e26-e8e4-4b3b-a176-a01c735fb4f4`，聊天“已压缩159项”。插件独立账本仍保留四项事实，原夹具句不再作为独立决定。它仍出现在用户纠错原话“但…账本还混入了…”的引用里，普通摘要也解释其不是决定；因此不能声称全文没有该文字。账本还纳入“不要人为调低阈值”“刚才/compact已完成”“不要把测试输出”等操作说明/片段，属于剩余质量局限，非纯净项目决策表。
+- **压缩后续问**：turn3 completed，29.14秒、7调用，其中4次bash寻找/读取旧chat_history导出；seq1213还枚举到相邻workspace历史文件路径，但后续内容读取限本session，未见读取他会话内容。最终seq1225实际sent预算28600/离线/周五确认报价已定，云同步未定；报价未声称已完成。下一步增加“再据此定首版范围”“暂不纳入首版承诺”，属于未被用户确认的新建议，未清楚标注建议；不能扩写成既定事实保真或无需调查。此次最终范围已撤回全局收口改动，故不把4次读取冒称对应新规则通过。
+
+### 最终Scenario与保留结论
+
+| Scenario | 本轮实际证据与retain边界 | 结果 |
+|---|---|---|
+| 普通插件业务续问与明确启停执行 | Round5B最终版本自然输入、直接业务回答、停用unknown tool/恢复原生输出、公开管理enabled | pass |
+| 压缩指导中的Nano真人输入来源 | 实际读取/采用Inbox结构，首装与修复后真实台账均含四项事实 | pass（有后述来源质量局限） |
+| 真实人工压缩、失败可见与修复 | 首次污染fail保留；Agent自主修复、restart-required正确交接；第二次真实事务及摘要通过目标事实核对 | pass after repair |
+| 压缩后继续业务对话 | 四项状态正确且真实sent；额外读取及未标注建议保留为minor | pass-with-issues |
+| 停用回落与默认自动 | 停用回落retain Round3 f09实际默认事务及续聊；本次未变runtime、启停或provider语义。默认自动新普通样本仍未触发 | retain；自动inconclusive，owner明确接受 |
+| 工具/提示词/索引服务、模板、更新重启/共享/限制/客户端边界 | retain Round3/4逐项证据；最终reference变化未改相应runtime/API/选择机制，不冒充本轮重跑 | retain |
+
+### 剩余问题与裁决依据
+
+| ID | Severity / 状态 | 实际影响及证据 | 处理 |
+|---|---|---|---|
+| R3-E1 | major证据缺口 / owner明确接受、仍open | 默认自动路径未触发，仅manual有真实新事务 | 保留未观察，按Round4明确bar允许pass-with-issues；不称自动已验过 |
+| R5-S1（承接R4-S1） | minor / open | 复杂首轮38调用后才write且被caller提前重启；修复77调用；续问4次额外文件探查，末尾有未明确标为建议的范围措辞 | 披露成本和表达局限，不声明效率/零误导；无本次runtime归因 |
+| R5-S2 | minor / open | 修复后台账保留正确事实但仍含操作指令、纠错引用和截短片段 | 不能称纯决策表或全文清除夹具文字；当前业务事实可辨认，最终答案未把夹具句当决定 |
+| R5-F1 | 首次业务fail / 修复后关闭 | 第一事务将夹具句作独立决定；第二真实事务不再如此，四事实保留 | 保留首次失败和修复全过程，不用重跑覆盖 |
+
+最终未发现必须阻塞本次两reference交付的宿主实现问题；新增未关闭blocking/major为0，保留owner接受major证据缺口1项及minor质量问题2项。普通样本与复杂样本的证据强度分别陈述，首轮被干预不能充当无人干预全旅程成功。原生自动支持契约不变，浏览器视觉/iOS仍未验收。本轮仅追加acceptance，未提交；服务及数据由caller集中管理。

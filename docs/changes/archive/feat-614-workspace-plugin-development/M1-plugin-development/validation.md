@@ -105,3 +105,15 @@
 - `f09df0d25` 后续只补压缩参考的用户 `/compact` 入口/结束当前轮交接，运行时代码未变。装配窄测 1/1、构建通过；code-review Round 5 与 verification Round 3 pass/aligned，保留前述实现和完整工程证据。新身份的压缩对照按 acceptance 新 Round 单列，未以旧样本代替新指导。
 - 独立产品 Round 3 将普通默认样本自动未触发记为 R3-E1 open/inconclusive。owner 按用户最新“常规场景”与事前设计说明验收边界，设计 Round 4 独立 Approved（0/0）：自动/人工支持契约不变，允许其他必验通过且无实现阻塞时 pass-with-issues；该缺口不关闭、不伪写为自动新样本通过，旧 Round 3 fail 保留。
 - 最终独立产品 Round 4 **pass-with-issues**：新原生人工压缩247项、插件独立台账块及续聊通过；R3-E1自动未观察保持inconclusive，R4-S1模型调查负担/审批摩擦保持minor，未宣传效率改善。已审delta按同名Requirement归并canonical，无重复追加；完整报告与合成证据身份保留。四个专用栈与自建tmux均清理、端口关闭、Node/DSH退出，详见新Agent证据。
+
+
+## 2026-10-18 最终 reference 收口
+
+本轮实际产品差异仅 `references/compaction.md` 与 `references/verification.md`，冻结实现 `8e0ec154e`；`global-mode.ts` 实验及新增 global delta 已撤回，canonical 无新增变更。设计 Round7、code-review Round7、verification Round5 覆盖最终范围；真实产品的自然修复、两次压缩、简短续聊、首次失败和测试编排失误见 [最终实测](../evidence/task-scope-revision.md) 与 acceptance 最新 Round。
+
+最新main为 `481467ac16f0eda4561fca5c8230050541600de9`，本轮多次fetch未推进，已是HEAD祖先。实现后只追加验收/证据/交付文档，已有设计与静态门禁按内容保留至最终文档提交；无运行时、审批、生命周期、前端或iOS改动。最终窄测3文件4项通过；完整TypeScript93文件346项、前端96文件887项、Python56项、typecheck/build/ruff/format/audit通过。完整TS首次workspace-tools超时与复跑通过均保留，不宣传效率改善。
+
+独立普通样本最终版本下通过，复杂样本首次台账污染、Agent自然修复、真实再次压缩以及仍有多余调查全部保留。自动压缩未自然触发仍为inconclusive。工程通过、安装/启用、摘要事务完成、自定义账本正确及聊天收件各自独立取证；不把首开发轮interrupted写为自然收口。
+
+
+最终产品Round5C pass-with-issues，新增阻塞0，保留自动未观察和两项minor质量/成本问题。owner接受独立结论，未以成功样本覆盖原失败。隔离栈/Node82000/DSH、64068端口和自建tmux均已清理，合成证据保留于主仓本机output，专用runtime/auth/config/key已移除，共享代理及生产未动。最终effective_base仍为481467ac16，effective_through为本轮仅报告的交付提交；PR写入实际完整head。

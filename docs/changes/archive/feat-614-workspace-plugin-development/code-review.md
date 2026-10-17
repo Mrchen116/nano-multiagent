@@ -164,3 +164,56 @@
 - retained_from: Round 4 的冻结运行时代码、EntryTree/profile、原生待重启安装、peer/preview 工具归属、模板 DSL/peer resolution、Skill 来源与许可均未变化；窄测 2/2、build/typecheck 与这些代码结论继续有效。
 - 核对新窄测 `/tmp/feat614-revision-compact-handoff-test.log`：builtin-skills 1 文件 / 1 测试通过，140ms；`/tmp/feat614-revision-handoff-build.log` 构建候选明确为本冻结 f09df0d25。`git diff --check f56e5e6d8..f09df0d25` 通过。不重复全量测试。
 - 本轮只做静态 closure，不证明新文案减少模型探索的效果；独立新 owner/DeepSeek 自然输入对照待产品 reviewer 报告。
+
+## Round 6 — 任务收口与证据判断 patch（静态审查）
+
+### Metadata
+
+- reviewer: `/root/static_scope_614`，未参与受审实现或测试修改
+- review_mode: `patch`
+- executed_base: `c839d677747f365bff9a1388e132d24717d7d67d`
+- validated_at: `0d23eb7e5f240551ac2cebb0d9572a4a941f8d61`
+- reviewed_at: `2026-10-17T23:30:04+08:00`
+- checkout: `/Users/czj/.codex/worktrees/feat-614-plugin-development/nano-multiagent`，`codex/feat-614-plugin-development`；起始 clean；已确认 `481467ac16f0eda4561fca5c8230050541600de9` 为 HEAD 祖先。
+- scope: 上述固定 range 的 7 文件；产品变更仅 global-mode 的三个指导句和两份 Skill reference。未扩大审查旧 PR、已合入审批实现或未改变的插件加载器。
+
+### Verdict
+
+```json
+[]
+```
+
+**静态代码审查 pass**。无存活 CONFIRMED / PLAUSIBLE finding；不代表新指导的完整 Agent 旅程已经通过。
+
+### 覆盖与依据
+
+- `global-mode.ts:17-19` 仅在 global mode 注册新增指导，实际 preset 装配仍安装 GlobalMode。简短续问从可用上下文回答，缺失具体事实或用户要求继续时允许调查；旧助手计划与假设不能自行升级成人类授权或事实。已有未交付的人类请求仍受紧邻的 `Keep working on accepted human requests until ...` 约束；人类原授权不因摘要而失效。未删除交付、进度、内部收尾、拒绝后安全处理或独立授权工作要求。仅措辞可能有多种阅读不构成已举证回归，实际模型收口仍待产品证据。
+- `plugin-development.ts:11,44-50` 的 compaction 主题能返回当前安装的两个公开压缩包。独立读锁定 `dsh-compaction-basic/README.md:182-210`，确有 `Auxiliary summarizer request` 及最后 `Output EXACTLY` 指令。原生 API/事务/hook 由原 README/types 维护；Nano workspace provider、用户 `/compact` 与 idle 交接、禁查其他 session、默认阈值及 no-op 不能算成功仍保留。
+- `compaction.ts:17-25` 的 preset provider 自动让出/人工调用未变；`bundle.md` 仍明确替换包的 restart-required、停启不能保证加载新版和正常重启后实调。UPSTREAM.md/MIT 及 API authority 未变，无新增 private import、跨包依赖或运行时 fork。
+- `references/verification.md:7` 把输出效果异常与路径/根因分开，须有 activation/request evidence 才能归因；已有实调、保留失败、按风险检查及未验证如实报告继续存在。没有把安装成功等同业务成功，没有取消当前任务必要的修复。
+- 独立比较本机 A1/D1 请求，仅顶层 system 不同。A1–A3 返回 bash 请求，D1–D3 返回 send_message 请求，control-d 同时请求 send_message 与 bash；只证明下一次模型选择，不能证明执行、送达或完整轮次结束。evidence 与新增 delta 均保留该边界，没有把探针冒充 E2E。
+
+### Validation、retained 与待补范围
+
+- 只读核对 `/tmp/feat614-r3/narrow-tests.log`：3 文件 / 4 项通过（37.12 秒）；通信真实 runtime、workspace 插件和随包刷新测试保护原装配与沟通 seam，不证明新自然模型行为。typecheck、pytest 56 passed/31 deselected、docs 235 sources/64 routes 日志通过；独立 `git diff --check c839d6777..0d23eb7e5` 通过。没有要求逐句提示词永久测试。
+- Round 4/5 的原生管理、EntryTree/profile、API discovery、模板、作用域及资源撤销静态结论在本 patch 未变范围保留；旧热更新、旧低阈值和旧模型效率结论不能作为 D 的证据。
+- 本时点主侧与独立产品 reviewer 的新 DeepSeek + Codex/Luna 完整旅程仍在运行。真实手动压缩、简短续问公开交付/完整收尾、另一种简短问答及明确继续验证对照须由后续冻结证据裁决；未结束不是失败或通过。本报告不关闭既有自动压缩未观察缺口。
+
+## Round 7 — 最终两份 reference 的 patch / closure
+
+- reviewer: `/root/static_scope_614`；review_mode: `patch` + Round 6 范围 closure
+- executed_base: `481467ac16f0eda4561fca5c8230050541600de9`（执行时 main）
+- comparison_base / finding_origin_head: `c839d677747f365bff9a1388e132d24717d7d67d`（本轮 patch 起点）
+- validated_at: `8e0ec154e0bcccf4b2e2479fe5550c6b917230e5`；reviewed_at: `2026-10-18T00:09:05+08:00`
+- scope: 相对基线共 5 文件，其中产品差异只有 `references/compaction.md` 与 `references/verification.md`；另三份为设计及实验记录。未提交的 acceptance 属独立角色工作；本 reviewer 仅更新本报告及 verification，不提交。
+
+```json
+[]
+```
+
+**最终静态 code review pass**，没有存活 finding。独立确认 `global-mode.ts`、所有 canonical specs 和 unit 的既有 agent-capabilities delta 相对基线无差异，新增 global-agent delta 已删除。Round 6 关于 D 三句及新增全局 delta 的静态判断为 **superseded（实验撤回）**，不是最终产品承诺；D 下普通问答成功、A–G 探针均不能证明最终改动改善了全局收口或效率。
+
+- 新 Inbox 段与 `global-mode.ts:32-42` 的工具结果 JSON、`policy/sources.ts:7,20-27` 的真人来源提取相符。Global Mode 真人聊天经 Inbox 数据进入历史，单筛模型 `role: user` 可能漏掉人类业务事实；来源还须区分 Agent/system/宿主指导。reference 要求区分人类数据并在实际 checkpoint 核对业务事实，没有将所有工具文本当新授权、固化内部 schema 或引入另一个提取框架。
+- Round 6 的两份 reference 静态核对继续 retained：安装版本 README 确有 Auxiliary summarizer request/最后固定格式；公开 API、workspace provider、正常默认值、用户 `/compact`/idle 交接、禁查其他 session、替换包原生 restart-required、实际效果与路径归因分层均保留。没有运行时、审批、生命周期或原任务持续推进规则变化。
+- 只读核对 `/tmp/feat614-r3/final-narrow-tests.log`：最终范围 3 文件/4 项 pass，36.83 秒。工程首次全量 90 秒超时保留在 full-tests.log；full-tests-recheck.log 显示 93 文件/346 项 pass，108.11 秒，caller 记录为限制 maxWorkers=4 后重跑。该工程回归覆盖装配与既有行为，不等于新模型产品效果。独立固定 range diff check 通过；未重复广泛测试。
+- 本时点新身份真实压缩旅程尚未冻结。caller 报告已有真人消息提取及四项事实，但台账混入测试夹具，正在让真实 Agent 自然修复其生成插件；这些不是本 PR 实现变更，本报告不预判修复结果。第一开发轮交接后被 caller 提前重启而 interrupted，不能称自然收口。最终产品证据须由 root/product reviewer 另补；全局范围/效率改善不作声明。
