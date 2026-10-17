@@ -240,3 +240,50 @@ Round 2 无 CRITICAL/WARNING issue。作者新报告的挂载恢复失败有可�
 ### Author Resolutions
 
 - 作者接受 Round 4 Approved（0/0）。自动新样本 R3-E1 保持 open/inconclusive，旧产品 Round 3 fail 不重写；最终产品结论按显式 bar 与真实新结果另列。本轮裁决及已审 canonical delta 的归并不修改运行时或自动/人工支持契约，保留 Round 2/3 的实现设计边界。
+
+## Round 5
+
+### Metadata
+
+- reviewer target: `/root/design_scope_614`（独立 change-design-reviewer，新 reviewer）
+- review_mode: `delta`
+- mode_reason: 同一 PR #364 的有界任务收口指导、压缩资料精简与证据归因修订；没有改变运行时接口、审批、插件能力或生命周期。已重新核对实际装配入口与本轮原始探针，未仅依据旧 Approved 放行。
+- started_at: 2026-10-17T23:23:22+08:00（最终原始证据复核与裁决计时；此前已读取设计及历史报告）
+- completed_at: 2026-10-17T23:25:00+08:00（约）
+- duration: 约 2 分钟（最终复核与裁决）
+- reviewed checkout: `/Users/czj/.codex/worktrees/feat-614-plugin-development/nano-multiagent`，`codex/feat-614-plugin-development`，HEAD `c839d677747f365bff9a1388e132d24717d7d67d`；已核 `481467ac16f0eda4561fca5c8230050541600de9` 是该 HEAD 祖先。
+- reviewed target: HEAD 加未提交的 design Changelog、`evidence/task-scope-revision.md`、`specs/gateway/global-agent.md`；指导候选为本机 `/tmp/feat614-r3/replay-final-candidate.py` 的 D。只追加本报告，不改代码或设计、不提交、不执行新模型或产品验收。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+方案以当前请求范围约束助手自己的旧计划，并把输出效果与实际执行路径分开判断，落点和复杂度适当。可进入实施及受影响门禁复验；本轮批准不代表 D 已通过完整 Agent 轮次、真实压缩旅程或公开交付验证。
+
+### Coverage 与证据
+
+- **实际装配与职责**：`packages/dsh-integration/src/agent-config.ts:86` 在真实 preset 装配中安装 GlobalMode；`global-mode.ts:15-19` 按 global mode 注册产品沟通与持续执行指导。D 插在既有持续执行句之前，适用于上下文已经足够的简短续问，既有 `send_message`、内部收尾、进度、拒绝后安全处理仍保留。该能力是所有全局任务的回复范围控制，归此现有提示词层合理；不应依赖插件 Skill 是否被发现或启用，也不需要新状态机、消息路由或权限规则。原先已接受的真人任务仍由既有持续执行要求约束，不能把助手自己新增的检查点计划当成额外授权。
+- **本轮问题归因**：独立读取原摘要请求 `09-28-59_125` 的末两条消息，分别确认 `Workspace summary guidance` / `## Project Decisions` 与原生 `Output EXACTLY` 存在。由此可确认自定义指导进入该次真实摘要请求；仅缺少目标标题不足以认定未走插件。`compaction.ts:17-25` 的 preset 自动让出和人工 `compactNow` 路由继续存在，本轮没有新的路由故障证据。将修订集中在任务范围、资料与结论强度，而不改压缩接线，符合已观察问题。
+- **探针能证明的范围**：独立对照 A1 与 D1 请求，仅 `system` 顶层字段不同；重放脚本把流式改为非流式，不执行返回的工具调用。原始 A1–A3 均先请求 bash；D1–D3 都只请求 `send_message` 交付业务答案；control-d 同时请求确认消息和 bash 证据读取。支持把 D 作为待复验候选，不能推导完整轮次结束、消息真正送达、调查实际成功、普遍成功率或端到端耗时。D1/D2 对云同步决策次序仍有额外建议，证据文件已保留这一局限；不把“没有排障调用”扩写成所有回答内容都已严格准确。
+- **资料复用与保留差异**：现有 `references/compaction.md` 已指向安装版本 README/公开声明；精简重复的 summarize、阈值和验证教程，继续保留 Nano workspace provider 与用户 `/compact`/当前轮结束交接，是对 Round 2 上游复用原则的收敛。`docs/specs/gateway/global-agent.md:133-139` 确认用户命令作用于全局主上下文；宿主控制不能由 shell/RPC 重建的边界与既有支持范围继续适用。`references/verification.md` 已要求按风险、业务结果、实际激活与用户交付分别验证，新增“输出异常不等于路径/根因证明”与这些要求一致，不取消用户明确要求的验证或实际缺陷处理。
+- **Delta、消费者与验收**：新增 delta 锚定 canonical `docs/specs/gateway/global-agent.md`，采用 ADDED 独立 Requirement，未覆盖原内部收尾和任务进度 Scenario。两个场景分别覆盖上下文足够的简短问答、明确继续开发/验证或具体信息缺口，消费者行为明确。单 M1 和原能力矩阵无需重分；本轮证据文件已指定同场景真实模型、另一种简短问答、明确继续验收对照，以及现有 runtime/沟通/Skill 刷新回归。指导效果依赖模型，采用真实完整旅程而不增加逐句提示词断言是合理选择。没有客户端布局或交互变化，不需要新的前端原型。
+
+### Retained coverage
+
+- retained_from: **Round 2 / Round 3**。有限 `describe_api`、原生安装更新 `restart-required`、profile/EntryTree 挂载、工具选择、公开 API 与资源清理职责未变；本轮无需重新证明无改动的加载实现。PA Skill 资产继续沿原有随包安装链交付。
+- retained_from: **Round 4**。普通样本自动压缩未触发仍为未观察；人工压缩、继续对话和停用恢复等既有必验边界不因资料精简消失。旧样本只能证明其原版本/配置，不可补作 D 的真实模型结果。
+- 既有无关门禁可按上述未受影响范围保留；指导变动涉及的代码、一致性、canonical delta 与真实模型产品结果须由后续独立门禁裁决。设计批准不将原失败样本或开放证据缺口改写为通过。
+
+### 历史问题闭环
+
+- 设计 Round 1–4 没有 CRITICAL/WARNING 待关闭。
+- 产品 R3-E1 的自动路径新样本缺口本轮未产生新证据，继续沿用 Round 4 的 open/inconclusive 边界。
+- 本轮补查纠正“缺标题可能说明未调用插件”的归因强度；没有证明插件所要求的结构已满足，也没有据此关闭输出效果问题。续问扩展排障的端到端问题仍待新指导完整旅程验证。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增实现要求。按本轮已定的真实模型对照与既有受影响门禁完成复验，并据实际结果报告，不能以探针里的工具请求替代用户可见交付。
