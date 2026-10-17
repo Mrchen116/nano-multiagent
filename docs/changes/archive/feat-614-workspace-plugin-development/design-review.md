@@ -287,3 +287,84 @@ Round 2 无 CRITICAL/WARNING issue。作者新报告的挂载恢复失败有可�
 ### Recommendations
 
 无新增实现要求。按本轮已定的真实模型对照与既有受影响门禁完成复验，并据实际结果报告，不能以探针里的工具请求替代用户可见交付。
+
+## Round 6
+
+### Metadata
+
+- reviewer target: `/root/design_scope_614`（独立 change-design-reviewer，承接 Round 5）
+- review_mode: `delta`
+- mode_reason: 真实手动压缩发现生成插件按模型 role 抽取导致业务事实遗漏；仅复核 compaction reference 新增一段 Nano 输入来源差异及实际 checkpoint 验证要求。
+- started_at: 2026-10-17T23:53:32+08:00
+- completed_at: 2026-10-17T23:54:01+08:00
+- duration: 29 秒
+- reviewed target: HEAD `0d23eb7e5f240551ac2cebb0d9572a4a941f8d61` 加未提交 `references/compaction.md` 新段、design Changelog 与对应证据记录。其他并行报告修改不在本轮范围；只追加本报告、不提交、不执行新模型验收。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+这是现有 Nano 输入链路的必要知识适配，足以指导后续实现而不另造提取框架或修改运行时。批准该指导增量，不代表旧样本业务效果失败已经修复；须由全新 Agent 的真实业务事实保留结果判断。
+
+### Coverage 与证据
+
+- **真实失败及适配依据**：独立读取本机 `product-evidence/manual-second-events.json`，确认 seq888 开始、seq889 生成摘要、seq891 无错误结束。seq889 的独立“项目决策台账”仅含两条 Skill 指导，没有青禾业务事实；原生摘要正文虽有预算等信息，不能替代该插件自定义台账的效果。读取 `plugin-before-repair/decisions.mjs`，其 `extractDecisions` 直接跳过非 `role: user` 消息；与当前工作区同名 extractor 文件逐字一致。这些证据支持修正“role 等于人类来源”的错误假设，而不是继续用完成事件或标题作为效果通过依据。
+- **实际产品链路**：`global-mode.ts:33-59` 将产品 Inbox 返回值作为 JSON 文本内容提供给原生工具结果；`policy/sources.ts:7` 已明确 Inbox 的人、Agent、系统及恢复历史来源不同，`:20-27` 也按真实来源区分人类文本。新增段落说明 Global Mode 真人消息来自 Inbox 工具结果、仅筛 user role 可能漏人类输入并误收宿主指导，与代码事实一致。它要求识别人类数据，没有将所有工具文本升级成人类事实或新授权，也没有新增消息格式或审批规则。
+- **职责与复杂度**：本轮仅补三句话，位置在压缩扩展的现有按需 reference；引擎 API、摘要最终指令仍指向安装版本 README/声明。没有固化 Inbox JSON schema、复制审批来源实现、添加提取器模板或扩展 private API。生成插件自身如何提取仍由其业务目标和公开输入决定，Nano 只说明宿主特有的输入差异，符合 Round 2 的上游复用原则。
+- **契约与验证**：原 spec 要求压缩后保留请求中的关键事实，本段没有新增能力承诺，不需另加 canonical delta。新增“核对真实 checkpoint 的业务事实，而不只看标题”使已有业务验收可观察。主侧按同原始输入、模型及审批条件用全新 Agent 复验，能检验新指导是否改变创作结果；旧样本继续记业务效果失败。首次 private 成员/代理错误与本段是不同问题，不以此新增框架教程或声称运行时已修复。
+
+### Retained coverage
+
+- retained_from: **Round 5**。D 的任务收口、公开交付与证据归因边界未变；Round 2/3 的原生生命周期、公开 API、profile/EntryTree 职责仍适用。
+- retained_from: **Round 4**。自动压缩未观察的证据处置和其他必验项不变。本轮仅补充输入知识，不能以第二次人工事务成功消除自动证据缺口或自定义业务台账失败。
+
+### 历史问题闭环
+
+设计无历史 CRITICAL/WARNING 待关闭。本轮确认旧样本“事务成功但台账业务效果失败”的事实与可执行修订方向；修复效果仍待全新真实样本，不记为 closed/pass。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增要求；保留旧失败，按实际 checkpoint 中的请求事实和插件贡献分别裁决新样本。
+
+## Round 7
+
+### Metadata
+
+- reviewer target: `/root/design_scope_614`（独立 change-design-reviewer）
+- review_mode: `delta`
+- mode_reason: 真实模型及后续探针未支持全局规则的稳定收益，最终撤回该实验规则和新增 delta；仅核查范围收缩的一致性。
+- started_at: 2026-10-17T23:59:14+08:00
+- completed_at: 2026-10-17T23:59:19+08:00
+- duration: 5 秒（本次差异核查）
+- reviewed target: HEAD `0d23eb7e5` 加当前未提交撤回与设计/证据记录；只追加本报告、不提交、不重跑模型。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+最终范围与“复用上游资料、只补 Nano 必要差异”的既有决定一致。实验没有证明收益时撤回全局规则合理；没有把真实失败解释成通过，也没有靠继续增加指令扩张原 M1。
+
+### Coverage 与证据
+
+- 独立对比本轮起始基线 `c839d677747f365bff9a1388e132d24717d7d67d`，`global-mode.ts` 与 canonical `docs/specs/gateway/global-agent.md` 均无差异；新增 global-agent delta 已删除。`packages` 与 `docs/specs` 的实际产品增量仅剩 `references/compaction.md`、`references/verification.md`，与最新 design Changelog 的最终范围相符。
+- 证据记录保留完整 D 续问额外调查、未决事实被改变、只看标题就判断闭环的失败，也保留 F/G 探针不足以证明稳定改善的限定。该结果由作者记录，本轮不将其冒称独立产品复现；撤回决定也不需要把候选失败改写或删除。
+- 保留资料仍指向安装版本的原生摘要资料，补充 workspace provider、用户命令交接、Inbox 来源及实际业务事实检查；verification 只按直接证据约束归因，没有新增 runtime、API、审批或生命周期机制。既有产品支持契约和 M1 未被削减。
+- 全新 Agent 按最终资料开展真实旅程是有效的后续验证方式；D 下的独立问答成功不能充当最终代码版本的验收。既有开发成本、错误推断及自定义台账失败仍须按实际结果披露，不宣称已解决效率或全部误导问题。
+
+### Retained coverage 与历史闭环
+
+- retained_from: **Round 6**，Inbox 来源差异及业务事实验证的设计判断继续有效；**Round 2/3/4** 的原生生命周期、公开能力和自动未观察边界保留。
+- **Round 5** 的 D 仅作为历史候选设计批准保留，不再是交付设计或行为承诺；不存在需要归并的新 global-agent canonical Requirement。
+- 无设计 CRITICAL/WARNING 待关闭；产品台账失败及自动新样本缺口未由本次范围裁决关闭。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增要求；按最终两份资料完成新样本及受影响独立门禁，分别报告实际业务效果与未验证项。
