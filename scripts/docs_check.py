@@ -495,6 +495,33 @@ def _canonical_spec_entries(tracked: set[Path]) -> list[Path]:
     )
 
 
+def check_spec_alignment(root: Path, tracked: set[Path]) -> list[Problem]:
+    """Require one latest-unit alignment declaration in each canonical spec."""
+    problems: list[Problem] = []
+    for path in sorted(tracked):
+        if path.parent.parent != SPEC_ROOT or path.suffix.lower() != ".md":
+            continue
+        declarations = [
+            (line, token.map[0] + offset + 1)
+            for token in _MARKDOWN.parse((root / path).read_text(encoding="utf-8"))
+            if token.type == "inline" and token.map is not None
+            for offset, line in enumerate(token.content.splitlines())
+            if line.startswith("对齐:")
+        ]
+        if len(declarations) != 1 or not re.fullmatch(
+            r"对齐:\s*(?:feat|bugfix|refactor|perf)-\d+\s*", declarations[0][0]
+        ):
+            problems.append(
+                Problem(
+                    "SPEC_ALIGNMENT",
+                    path,
+                    "expected one '对齐: <unit-id>' declaration with only the latest unit",
+                    declarations[0][1] if declarations else None,
+                )
+            )
+    return problems
+
+
 def check_spec_area_indexes(root: Path, tracked: set[Path]) -> list[Problem]:
     """Check package area coverage and derived Requirement counts."""
     problems: list[Problem] = []
@@ -946,6 +973,7 @@ def run_checks(root: Path, tracked: set[Path] | None = None) -> list[Problem]:
         *check_reachability(root, tracked),
         *check_change_units(root, tracked),
         *check_research_metadata(root, tracked),
+        *check_spec_alignment(root, tracked),
         *check_spec_area_indexes(root, tracked),
         *check_e2e_critical_path_catalog(root, tracked),
         *check_agent_bootstrap(root, tracked),

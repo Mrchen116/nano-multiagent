@@ -1,6 +1,6 @@
 # im - Task Graphs Specification
 
-> 对齐: feat-584、feat-587
+> 对齐: feat-587
 > 上级: [im Specification](spec.md)
 
 ## Purpose

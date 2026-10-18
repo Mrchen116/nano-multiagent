@@ -14,6 +14,8 @@
 
 > 继续啊，整个做出来，并且真正像常规场景那样测试效果，重点观察agent的轨迹，是否真正理解，是否真正能做出各种插件
 
+> 那就按这个方向改 PR #364，尽量复用 DSH 原始 Skill 和原生管理语义，只补 Nano 必要的差异说明，去掉额外的热更新承诺。改完再用真实 Agent 按常规场景测试，重点看轨迹里是否还有被错误引导。
+
 ## 澄清记录
 
 2026-10-15：Agent 提出 workspace 能力扩展方案，用户以上述第三条原话接受并要求建立 unit，随后以第四条原话授权继续完整设计、实施与交付。真实测试需使用常规自然语言任务，并观察 Agent 的实际轨迹与各种插件的业务效果；不能仅以模板测试或安装成功代替模型理解和创作能力。没有新增未回答的问题。
@@ -30,12 +32,20 @@
 
 核对基线为 Nano `ca113ce2a`，DSH 本地参考源码 `5badb15009`。以下是代码和契约观察，不代表本 unit 已实施或生产验证。
 
-1. [现有插件契约](../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace 自建 bundle、工具自动可用、启停、持久化、提示词贡献、隔离服务与压缩引擎；本 unit 延续这些能力。相关历史为 feat-610。
-2. [管理工具](../../../packages/dsh-integration/src/workspace-tools.ts) 的描述承担了较长的创建教程；[产品手册](../../../packages/personal-assistant/assets/skills/nanoassistant-docs/references/skills-tools-memory.md) 另有插件说明，但没有面向开发任务的完整独立指导入口。
-3. [运行时配置](../../../packages/dsh-integration/cordis.patch.yml) 禁用了原生技能文件发现及原生管理工具；[技能根配置](../../../apps/node/src/configuration.ts) 与 [技能提供](../../../packages/dsh-integration/src/capabilities.ts) 使用 Nano 选择的目录，未默认引入 DSH bundled 插件开发 Skill。
+1. [现有插件契约](../../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace 自建 bundle、工具自动可用、启停、持久化、提示词贡献、隔离服务与压缩引擎；本 unit 延续这些能力。相关历史为 feat-610。
+2. [管理工具](../../../../packages/dsh-integration/src/workspace-tools.ts) 的描述承担了较长的创建教程；[产品手册](../../../../packages/personal-assistant/assets/skills/nanoassistant-docs/references/skills-tools-memory.md) 另有插件说明，但没有面向开发任务的完整独立指导入口。
+3. [运行时配置](../../../../packages/dsh-integration/cordis.patch.yml) 禁用了原生技能文件发现及原生管理工具；[技能根配置](../../../../apps/node/src/configuration.ts) 与 [技能提供](../../../../packages/dsh-integration/src/capabilities.ts) 使用 Nano 选择的目录，未默认引入 DSH bundled 插件开发 Skill。
 4. DSH 参考仓库的 `packages/preset/agent-preset/skills/cordis-plugin-development/SKILL.md` 使用技能目录、按需 reference/模板、运行时 API 检查与实际安装验证指导开发。该资料覆盖 DSH 宿主 profile 和 Web UI，不能原样当成 Nano 使用说明。
-5. [架构](../../../SPEC.md) 明确 Nano 使用 Web IM、原生 iOS 和飞书；轨迹查看器是限定的只读集成。DSH UI 插件安装成功不意味着这些客户端获得页面或控件。
+5. [架构](../../../../SPEC.md) 明确 Nano 使用 Web IM、原生 iOS 和飞书；轨迹查看器是限定的只读集成。DSH UI 插件安装成功不意味着这些客户端获得页面或控件。
 6. 当前插件在运行时进程加载 JavaScript；workspace 归属、服务隔离和加载审计不等同于操作系统沙箱。本次支持可信本地扩展，不承诺阻止任意代码的全部越界副作用。
+
+## 2026-10-16 交付修订约束
+
+用户明确要求修改同一 PR，接受收敛到 DSH 原生语义。首次安装及已加载插件启停仍在线；覆盖已安装包遵循原生 `restart-required`，不额外承诺本地代码热更新。开发指导从 DSH 原始 Skill 适配，只保留 Nano 必要差异；复测使用新 Agent 与自然业务请求，重点观察错误引导，不把前轮成功当新指导的证据。原始失败和旧门禁保持历史，新结论另轮记录。
+
+### 本轮验收方法与证据边界（2026-10-17 owner 裁决）
+
+用户最新授权的“按常规场景测试”及本轮事前设计的默认阈值约束，限定了新指导的模型试用方式：人工压缩、继续对话与停用回落须有真实新证据；自动压缩在普通运行中实际发生时取证，未触发则明确记为未观察，不降低阈值或制造压力以取得新模型通过记录。下文自动/人工两条路径的既有支持契约不变；此前自动事务只能作为其原版本与配置下的历史运行时证据，不能冒称新指导普通场景效果。本轮产品验收允许在无实现阻塞、其他必验项通过时以 pass-with-issues 收口这一明确披露的自动路径新样本证据缺口，不将该项伪写为 pass。
 
 ## 用户场景
 
