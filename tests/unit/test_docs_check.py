@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts import docs_check
 
 
@@ -158,6 +160,43 @@ def test_spec_area_index_accepts_matching_count_and_ignores_code_blocks(
     problems = docs_check.check_spec_area_indexes(tmp_path, {entry, area})
 
     assert problems == []
+
+
+def test_spec_alignment_accepts_one_unit_and_ignores_examples(tmp_path: Path) -> None:
+    spec = _write(
+        tmp_path,
+        "docs/specs/gateway/spec.md",
+        "# Gateway\n\n> 对齐: feat-614\n> 上级: package\n\n"
+        "```markdown\n> 对齐: feat-1 / feat-2\n```\n",
+    )
+    guide = _write(
+        tmp_path,
+        "docs/specs/CONTRIBUTING.md",
+        "> 对齐: <latest unit-id>\n",
+    )
+
+    assert docs_check.check_spec_alignment(tmp_path, {spec, guide}) == []
+
+
+@pytest.mark.parametrize(
+    "alignment",
+    [
+        "> 对齐: feat-610 / bugfix-611 / feat-614\n",
+        "> 对齐: feat-584、feat-587\n",
+        "> 对齐: feat-614\n> 对齐: feat-614\n",
+        "> 对齐: \n",
+        "",
+    ],
+)
+def test_spec_alignment_rejects_missing_or_multiple_units(
+    tmp_path: Path, alignment: str
+) -> None:
+    spec = _write(tmp_path, "docs/specs/gateway/runs.md", f"# Runs\n\n{alignment}")
+
+    problems = docs_check.check_spec_alignment(tmp_path, {spec})
+
+    assert [problem.code for problem in problems] == ["SPEC_ALIGNMENT"]
+    assert problems[0].path == spec
 
 
 def test_spec_area_index_rejects_drift_duplicates_missing_and_unindexed_areas(

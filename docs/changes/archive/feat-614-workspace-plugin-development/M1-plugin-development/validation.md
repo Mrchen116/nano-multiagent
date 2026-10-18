@@ -117,3 +117,10 @@
 
 
 最终产品Round5C pass-with-issues，新增阻塞0，保留自动未观察和两项minor质量/成本问题。owner接受独立结论，未以成功样本覆盖原失败。隔离栈/Node82000/DSH、64068端口和自建tmux均已清理，合成证据保留于主仓本机output，专用runtime/auth/config/key已移除，共享代理及生产未动。最终effective_base仍为481467ac16，effective_through为本轮仅报告的交付提交；PR写入实际完整head。
+
+
+## 2026-10-18 合入前的 spec 对齐元数据修正
+
+用户要求本 unit 顺带清理 `docs/specs/` 累积的对齐 unit，并由 CI 保证每份 canonical spec 只有一条、一个 unit。复用现有 `scripts/docs-check` 和其 CI Documentation integrity 入口，不增加平行 workflow；规范只补明确的唯一性要求。检查覆盖 package 入口和 area，顶层 README/CONTRIBUTING 示例及 fenced code 不参与声明计数。校验单一 unit 格式，不从 Git 历史自动推断哪个 unit 最新。
+
+新单测先在缺失检查函数时6项失败；实现后6项通过，新入口对原仓文件准确报出7处累积对齐。修正这7份元数据，按既有归并历史保留最新 unit；relay-protocol 及 agent-work 同时补回实际最近修改的 bugfix-585 / bugfix-612。正文 Requirement/Scenario 和产品运行行为未变，不使此前真实产品证据或设计门禁失效；本增量另做独立静态 patch 审查。用户同时明确授权合入、更新本地主仓和生产服务，部署结论另由实际生产检查证明。
