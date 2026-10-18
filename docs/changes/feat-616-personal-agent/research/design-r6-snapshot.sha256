@@ -1,0 +1,14 @@
+c9c052a002fbbbd9556717a9c47c9deec18d48a827f6da9208a06714f689f63c  docs/changes/feat-616-personal-agent/spec.md
+2c456f63f4e8a229cc82c1c37c545931079eb99323303fbf6355e4477b80a84c  docs/changes/feat-616-personal-agent/design.md
+d2a09a0d3ac059f9b93e36a2f05411c061e15ddb711178e44418d569eb3a38b2  docs/changes/feat-616-personal-agent/prototype.html
+77bfca1ed99ba931a958d5993918b8ce8480e61e7ba227d1908541fdaa0c35e4  docs/changes/feat-616-personal-agent/specs/gateway/agent-capabilities.md
+d79beba0c296c48321223c1224765c20baed3eb1abf1c4b48618b5a999113494  docs/changes/feat-616-personal-agent/specs/gateway/global-agent.md
+0c3026a9f2fc0ab252eaaff63a07a13c8283f2e910480e5e3360d5bea070e2ae  docs/changes/feat-616-personal-agent/specs/gateway/personal-agent.md
+aeefef045db04ec91ffca50b7046b818988761b732f3b0525020796dc12a4fbd  docs/changes/feat-616-personal-agent/specs/gateway/task-graphs.md
+b8703b981b37313c7fbec912e0e2982b63aa201bc56e6ca85b0101bc586188a8  docs/changes/feat-616-personal-agent/specs/im/agent-work.md
+4a746418d34a53f51f2764e1690458e545d24c63e8a263534e97b2506306f438  docs/changes/feat-616-personal-agent/specs/im/agents-nodes.md
+07d72e772043e516025246f550add413b3ed1f01120fa7d140c66cf9a7b3af6b  docs/changes/feat-616-personal-agent/specs/im/auth-tenancy.md
+a50c2777cd55b492c2c5d27f5c1b8409f6a0312ce9f2186f38bb7d6bac866a62  docs/changes/feat-616-personal-agent/specs/im/conversations-messages.md
+989c180e7ed278250b9e7525a0c6d4c6f167828c51593f2f6c9b49782c180709  docs/changes/feat-616-personal-agent/specs/im/personal-agent.md
+9924809f83a0c64ce6fc5664ab16dad9055db32ec660bb5a70f8cf2fa1890703  docs/changes/feat-616-personal-agent/specs/im/task-graphs.md
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/changes/feat-616-personal-agent/M1-personal-agent/.gitkeep
