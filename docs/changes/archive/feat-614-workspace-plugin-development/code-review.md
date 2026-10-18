@@ -217,3 +217,21 @@
 - Round 6 的两份 reference 静态核对继续 retained：安装版本 README 确有 Auxiliary summarizer request/最后固定格式；公开 API、workspace provider、正常默认值、用户 `/compact`/idle 交接、禁查其他 session、替换包原生 restart-required、实际效果与路径归因分层均保留。没有运行时、审批、生命周期或原任务持续推进规则变化。
 - 只读核对 `/tmp/feat614-r3/final-narrow-tests.log`：最终范围 3 文件/4 项 pass，36.83 秒。工程首次全量 90 秒超时保留在 full-tests.log；full-tests-recheck.log 显示 93 文件/346 项 pass，108.11 秒，caller 记录为限制 maxWorkers=4 后重跑。该工程回归覆盖装配与既有行为，不等于新模型产品效果。独立固定 range diff check 通过；未重复广泛测试。
 - 本时点新身份真实压缩旅程尚未冻结。caller 报告已有真人消息提取及四项事实，但台账混入测试夹具，正在让真实 Agent 自然修复其生成插件；这些不是本 PR 实现变更，本报告不预判修复结果。第一开发轮交接后被 caller 提前重启而 interrupted，不能称自然收口。最终产品证据须由 root/product reviewer 另补；全局范围/效率改善不作声明。
+
+
+## Round 8 — 合入前 spec 对齐元数据 patch（独立静态审查）
+
+- reviewer: `/root/alignment_review_614`，未参与受审实现；review_mode: `patch`
+- validated_at: `72619dd49086fd417d1717c320a8400ece55eb55`；reviewed_at: `2026-10-18T18:02:36+08:00`
+- executed_base: `481467ac16f0eda4561fca5c8230050541600de9`（caller 提供的执行时 main，独立确认是冻结 HEAD 祖先）
+- comparison_base: `ea0b27e88510462e2299d1b4ea2db71854b51bda`；本轮受审 effective 范围为 `ea0b27e88510462e2299d1b4ea2db71854b51bda..72619dd49086fd417d1717c320a8400ece55eb55` 的 11 文件，不重新审整条 PR；checkout 起始 clean。本报告及 verification 的追加是报告变更，不计入受审实现。
+
+```json
+[]
+```
+
+**pass**，没有存活 CONFIRMED / PLAUSIBLE finding。`check_spec_alignment` 接入既有 `run_checks`，CI `.github/workflows/ci.yml:92-93` 继续经 `scripts/docs-check` 执行，无平行检查入口。package 入口与 area 均覆盖；顶层指南不在路径范围，Markdown inline token 排除 fenced code；声明数量不等于一、缺失/空值、斜线或顿号积累、多条同 unit 均会失败。格式只验证一个合法 unit，不声称从 Git 自动判断最新归并；最近 unit 由维护者更新，符合 CONTRIBUTING 新规则。
+
+独立运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_docs_check.py -q`：17 passed（0.06 秒）；`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check`：235 maintained Markdown sources / 64 required routes；固定受审 range `git diff --check` 通过。只读核对 `/tmp/feat614-alignment-{red,green,existing-red,tests,docs}.log`，保留先 6 red、后 6 green，以及原文件七处 `SPEC_ALIGNMENT` 失败的记录。Git 历史确认 relay-protocol 的 `0228c9f98` 为 bugfix-585 契约补充、agent-work 的 `5b7592ff8` 为 bugfix-612 轨迹契约补充，其余五份保留相应最近归并 unit；本 patch 仅修改其元数据，未改 Requirement/Scenario。
+
+retained_from: code review Round 7、verification Round 5 的最终两 reference / 原生运行链结论及 acceptance Round 5C；本 patch 无 runtime、API、生命周期、模型指导或产品行为变化，已有适用工程/产品证据可保留，无额外产品 spec delta。保留自动压缩 R3-E1 未观察、R5-S1/R5-S2 minor 和首轮失败/修复边界，不将本次静态 pass 写成新真实 Agent、浏览器/iOS 或生产验证。未启动服务、未触碰生产、未提交。

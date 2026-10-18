@@ -318,3 +318,18 @@ Uncovered Observable Behavior: **无；no extra spec delta**。这两份 referen
 - 首个开发轮在交接后遭 caller 提前重启，turn interrupted，不能作为自然收口证据。自动普通样本未触发继续 open/inconclusive。最终产品结果、公开交付和现场清理由 root/product reviewer 补证；本静态 pass 不能替代整体退出裁决。
 
 Outcome: **aligned（最终静态范围）**；未发现 delta-mismatch 或 implementation-mismatch。最终真实产品证据仍 pending，由指定角色收口，不因其未结束追加实现缺陷或重复全量验收。
+
+
+## Round 6 — 合入前 spec 对齐元数据 delta（独立静态核验）
+
+- verifier: `/root/alignment_review_614`；verification_mode: `delta` / corrected-delta 有界核对
+- validated_at: `72619dd49086fd417d1717c320a8400ece55eb55`；verified_at: `2026-10-18T18:02:36+08:00`
+- executed_base: `481467ac16f0eda4561fca5c8230050541600de9`（执行时 main，已确认冻结 HEAD 祖先）
+- comparison_base: `ea0b27e88510462e2299d1b4ea2db71854b51bda`；受核 effective 范围：`ea0b27e88510462e2299d1b4ea2db71854b51bda..72619dd49086fd417d1717c320a8400ece55eb55` 的 11 文件。整条 unit 的有效累计基线仍为 executed_base；报告追加不扩大此次实施范围。
+- verdict / outcome: **pass / aligned**；issues / validated_issues: `[]`；0 CRITICAL / 0 WARNING / 0 SUGGESTION；requires_full_verification: `false`。
+
+用户追加要求为每份 canonical spec 只保留最近一个 unit，由已有 CI 入口保证一条声明、一个 unit。`CONTRIBUTING.md:98`、`scripts/docs_check.py:498-524,976` 与新增六项接受/拒绝用例一致：package 入口和 area 同受检，顶层指南与 fenced code 不误算；缺失、空值、多声明和多 unit 拒绝。CI 已经调用此脚本，不需新增 workflow。七份 spec 只有对齐行变更，正文契约无差异；独立 Git 历史支持最近归并归属，relay-protocol / agent-work 补回 bugfix-585 / bugfix-612，未将本次纯元数据清理冒称各产品契约新行为。检查验证唯一性和格式，最新归属由人按归并事实维护。
+
+独立最窄验证为 `python -m pytest tests/unit/test_docs_check.py -q`（使用主仓 `.venv`）：17 passed（0.06 秒）；现有 docs-check：235 sources / 64 routes pass；固定 range diff check pass。只读核对 alignment red/green/existing-red/tests/docs 日志，6 red → 6 green 和七份原违规诊断保留。本轮未重复广泛工程测试或真实 Agent 验收；Python CI 工具与元数据没有跨包运行时依赖变化、宿主边界改变或 frontend/prototype contract。
+
+Uncovered Observable Behavior: **无；no extra product spec delta**。原 M1、design 及已归并 agent-capabilities delta 不受此 patch 影响；verification Round 5 对最终两 reference 的静态结论、原生 runtime/模板/Skill/共享隔离等既有适用证据 retained，产品最新裁决以 acceptance Round 5C 的 pass-with-issues 为准。R3-E1 默认自动未触发仍 open/inconclusive，R5-S1/R5-S2 质量与成本局限、首轮台账失败与修复后结果均保留；不将历史热更新、低阈值或撤回的全局实验结论恢复为现行成功证据。未新增产品验证、生产部署或物理设备验收主张。本轮仅追加两份静态报告，未改实现/测试/设计、未提交、无需服务清理。

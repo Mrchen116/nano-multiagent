@@ -124,3 +124,6 @@
 用户要求本 unit 顺带清理 `docs/specs/` 累积的对齐 unit，并由 CI 保证每份 canonical spec 只有一条、一个 unit。复用现有 `scripts/docs-check` 和其 CI Documentation integrity 入口，不增加平行 workflow；规范只补明确的唯一性要求。检查覆盖 package 入口和 area，顶层 README/CONTRIBUTING 示例及 fenced code 不参与声明计数。校验单一 unit 格式，不从 Git 历史自动推断哪个 unit 最新。
 
 新单测先在缺失检查函数时6项失败；实现后6项通过，新入口对原仓文件准确报出7处累积对齐。修正这7份元数据，按既有归并历史保留最新 unit；relay-protocol 及 agent-work 同时补回实际最近修改的 bugfix-585 / bugfix-612。正文 Requirement/Scenario 和产品运行行为未变，不使此前真实产品证据或设计门禁失效；本增量另做独立静态 patch 审查。用户同时明确授权合入、更新本地主仓和生产服务，部署结论另由实际生产检查证明。
+
+
+本增量独立 code-review Round8 / verification Round6 pass、无存活发现，产品/设计证据按实际未变范围retain。完整Python首次在恢复后未安装runtime依赖时3项架构检查失败；锁定pnpm依赖安装后62 passed/31 deselected，ruff check/format全仓通过（83files）。不因文档/辅助检查变化重跑未受影响的真实模型旅程；远端最终head CI仍须通过后合并。
