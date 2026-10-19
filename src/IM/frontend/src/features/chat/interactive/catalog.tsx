@@ -1,8 +1,8 @@
 import React from 'react';
 import { defineComponent, useFormName, useFormValidation, useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
-import { openuiLibrary } from '@openuidev/react-ui/genui-lib';
-import { Button } from '@openuidev/react-ui';
+import { openuiLibrary, Button } from '@openuidev/react-ui';
 import { z } from 'zod';
+import { compositionExamples } from './composition-examples';
 
 const ContinueButton = defineComponent({
   name: 'ContinueButton',
@@ -25,8 +25,17 @@ const Form = defineComponent({
   props: openuiLibrary.components.Form.props.extend({buttons: z.union([openuiLibrary.components.Form.props.shape.buttons, ContinueButton.ref])}),
   component: openuiLibrary.components.Form.component,
 });
+// Keep upstream rendering and props; expose only a hook for responsive card rows.
+const UpstreamStack = openuiLibrary.components.Stack.component;
+const Stack = defineComponent({
+  name: 'Stack', description: openuiLibrary.components.Stack.description,
+  props: openuiLibrary.components.Stack.props,
+  component: args => args.props.direction === 'row' && args.props.wrap
+    ? <div className="nano-ui-card-row" style={{ display: 'contents' }}><UpstreamStack {...args} /></div>
+    : <UpstreamStack {...args} />,
+});
 export const interactiveLibrary = openuiLibrary.extend({
-  components: { add: [{ component: ContinueButton, slots: ['Card.children'] }], override: [Form] },
+  components: { add: [{ component: ContinueButton, slots: ['Card.children'] }], override: [Form, Stack] },
 });
 
 export const interactiveTools = [
@@ -34,11 +43,17 @@ export const interactiveTools = [
   { name: 'continue_conversation', mode: 'write', description: 'Send a new user request with the current UI state to this reply author. Mutation only; returns an enqueue receipt, not a completed business result.', parameters: { type: 'object', properties: { message: { type: 'string' }, context: {} }, required: ['message'] } },
 ] as const;
 
-export const interactivePrompt = interactiveLibrary.prompt({
+const libraryPrompt = interactiveLibrary.prompt({
   preamble: 'Write OpenUI inside send_message.interactive.source. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.',
   bindings: true, builtinFunctions: true, toolCalls: true, editMode: true,
   tools: interactiveTools.map(tool => ({name:tool.name, description:tool.description, inputSchema:{...tool.parameters},outputSchema:{}})),
   additionalRules: [
+    'COMPOSITION: Nano owns colors, fonts, borders, control appearance and chart palettes. Choose structure and semantic variants, not a new skin. Lead with one useful conclusion or question, then the main exploration or comparison, then supporting detail. Do not give every fact an equally prominent card.',
+    'Use three spacing levels: tight text/labels (Stack gap s), related controls/results (m or l), and separate sections (xl). Use a clear Stack as the page scaffold, Card for a distinct result or input group, sunk for a secondary control group. Avoid a Card around the entire page and cards nested inside cards. Use short paragraphs in cards; move lengthy background into plain sections or Tabs.',
+    'Put the most important control close to its changing result and explanatory graphic. Use charts for quantitative relationships, Steps for processes, tables for comparable facts; a graphic must explain something. Label units, series and assumptions. A large headline result plus a small comparison is usually clearer than four equally weighted metrics. Do not repeat the same title, summary or numbers in several sections.',
+    'For side-by-side content use Stack with direction row and wrap true; the host gives direct Cards a readable column width and wraps them in narrow panels. Keep compared options symmetric in labels, order and units. Keep button groups in Buttons. Prefer a few meaningful controls; secondary detail should not push the first useful result far below the controls on a phone.',
+    'Before sending, check the first screen: can the reader identify the main idea and next useful interaction without reading everything? Keep essential output in the main flow, with related explanation nearby. Use Tabs only for genuinely alternate views or optional details, never to hide the only result behind a vague label. Use semantic heading hierarchy and concise labels. The examples illustrate composition, not fixed topics or mandatory templates.',
+
     'Choose controls that materially help understanding, comparison or input. Distinguish user values, retrieved facts, calculations and explicitly labeled illustrative assumptions. Rendering is not a data source or proof of execution; do not invent live values, task progress, persistence or connected business tools.',
     'Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.',
     'Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.',
@@ -50,3 +65,8 @@ export const interactivePrompt = interactiveLibrary.prompt({
   ],
 }).replace('as the third Form argument', 'as the second Form argument'); // Match the published Form schema; upstream prose has the wrong position.
 
+export const interactiveCompositionGuide = '\n## Composition examples\n\n' + compositionExamples.map(example =>
+  `### ${example.title}\n${example.intent}\n\n\`\`\`openui\n${example.source}\n\`\`\``,
+).join('\n\n');
+
+export const interactivePrompt = libraryPrompt + interactiveCompositionGuide;

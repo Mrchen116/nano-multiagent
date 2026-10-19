@@ -1,5 +1,7 @@
 import React, { Component, useEffect, useMemo, useRef, useState } from 'react';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
+import { ThemeProvider } from '@openuidev/react-ui';
+import { interactiveTheme } from './theme';
 import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
@@ -187,6 +189,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
       <fieldset disabled={busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
+        <ThemeProvider mode="light" lightTheme={interactiveTheme} cssSelector=".interactive-card">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
           onParseResult={parsed => {
@@ -206,6 +209,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
             clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
           }}
           onAction={onAction} />
+        </ThemeProvider>
       </fieldset>
     </RenderBoundary>}
     {error === 'render' && fallback}

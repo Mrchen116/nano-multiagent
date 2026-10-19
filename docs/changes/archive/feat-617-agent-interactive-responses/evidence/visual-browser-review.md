@@ -1,0 +1,39 @@
+# 统一主题与构图：实现方真实浏览器证据
+
+- 实现版本：`d8ba0ac50`；与 `origin/main` 的后续同步仅带入 issue intake 与 bugfix-618 设计材料，没有改变本轮产品实现。
+- 隔离入口：`http://127.0.0.1:58769`，Test User，Chrome。最终前端脚本 `/assets/index-DciNEapF.js`。
+- 截图与模型源仅保留在仓库外 `/tmp/feat617-visual-evidence/`；不提交运行数据或截图缓存。
+
+## 同一历史源重渲染
+
+旧会话 `c_8iutij8v` 的消息 `339014d87fc14d11b2e978a9b3cefcaf`，修改前后 SQLite 只读提取的 OpenUI source SHA-256 都是 `6591e352471a6e234c498bfa1f1921fc813d819078416b5fef132831d43a5a90`。最终浏览器保留本金 12000、利率 5%、期限 20 年，显示本息 31839.57、收益 19839.57、比单利多 7839.57。
+
+`same-source-desktop-final.png` 显示更清楚的数字层级、白色卡片与有区分度的三条图线。DOM 实测图线颜色 `#0f766e`、`#5476b5`、`#b7791f`。先前的 `same-source-desktop.png` 来自 ThemeProvider 与 library 不同公开入口造成上下文分离的中间构建，不用于最终验收；最终二者统一从公开根入口导入。
+
+## 新模型样本
+
+通过真实聊天 UI 在新建的隔离群内发送原话，未注入业务 UI 程序：
+
+| 场景 | 用户输入 | 持久化完成消息 |
+|---|---|---|
+| 复利第一轮 | 给我介绍下复利是啥 | `650306845be24e9f9d98e9b69b43ee5a` |
+| 复利第二轮 | 能不能做一个精美的UI全面介绍下 | `210a2a98b5c1447989665bba689d45b5`，会话 `c_0usbd4jg` |
+| 非金融机制解释 | 为什么热咖啡开始凉得快，后来凉得慢？ | `b95ae2bef78c4c769d54bd31e6c2f59b`，会话 `c_nlxmdmhx` |
+
+复利第二轮 source SHA-256 `c49ef5b6003d0abdab910a8d5829551f94cfe5cf6205c454ee2ebdfb0b9b598d`；咖啡 source SHA-256 `9a2c216d176562c1ee2152c6e38ebf636e1ba5bc72bca64ae6864a3caa3cacf3`。三个消息均为 `completed`。
+
+复利完整页按结论、三步机制、输入与主要结果、增长图、辅助解释组织。桌面两个主要卡片各约 583px，并排分配空间。修改本金 10000 → 12000，结果 26532.98 → 31839.57；再选 8%，结果变为 55931.49。恢复示例后回到 10000 / 5% / 20 年及 26532.98。两条图线采用青绿/金色，仍有系列名称。打开收益率 Select，portaled 菜单的白表面、青绿选中态和字体与输入区一致，见 `compound-portal-desktop.png`。桌面 document scrollWidth 与 innerWidth 均 1537。
+
+咖啡样本使用温度 Slider 与温差/相对速度数字和对照图。实际通过键盘 Home 把温度降至 20℃，温差和相对速度都更新为 0；80℃示例显示相对 40℃的速度为 3 倍。说明包含近似模型与蒸发、杯子和空气流动的限制。
+
+这两组模型样本使用本轮同一构图规则及阅读/通勤示例的前一版；通勤示例当时使用 Slider，随后换为 number Input，以便在 jsdom 中稳定验证示例绑定。最终示例由 Renderer 交互测试覆盖，不能把上述模型样本说成读取了完全相同字节的最终 Skill。最终隔离节点已重启加载当前构建，记录 `/tmp/feat617-visual-final-runtime.log`。这是一组配置与样本的观察，不保证所有模型请求都生成同一种构图。
+
+## 验证和证据边界
+
+- 前端窄测试 14/14；全量 99 文件、910/910，通过。
+- 最终前端 build、后端 build、typecheck 通过；native communication 专项 2/2 通过。
+- 两个完整构图示例验证输入绑定、结果计算及本地 reset，不触发宿主请求；测试仅替换图表渲染以避开 jsdom canvas 限制，图表外观由真实浏览器验证。
+- 后端本轮默认并行全量为354 passed / 23 failed（16文件失败，主要为超时）；对失败文件用maxWorkers=2复验，14文件/38项通过、2项仍失败。再按CI的Node24串行复验这两个文件，capabilities 3项通过，workspace-tools仍在90秒超时。日志 `/tmp/feat617-visual-backend-tests.log`、`/tmp/feat617-visual-backend-retry.log`、`/tmp/feat617-visual-runtime-node24.log`。这不能宣称本机后端全绿；最终远端CI单独记录，不为本视觉增量修改未受影响的插件测试或延长其阈值。
+- 中屏/手机、旧消息完整旅程由独立产品 reviewer 在 `acceptance.md` 本轮记录。实现方的 viewport override 曾未生效，不能将实际 1537 的截图误作 769/390 证据。
+- 既有实时连接忙提示在部分标签出现；本轮没有修改连接上限或宣称解决该问题。关闭自己的多余页后旧消息页未再显示提示。持久化完成、刷新读取与本地交互已分别观察。
+- 保留当前隔离预览服务，未部署生产、合并 PR 或做真机验收。

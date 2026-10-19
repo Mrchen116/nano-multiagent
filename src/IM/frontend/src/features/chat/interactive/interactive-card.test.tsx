@@ -37,6 +37,7 @@ describe('private interactive reply', () => {
     const send=vi.fn().mockRejectedValue(new InteractionSubmissionError(reason, reason === 'alreadySubmitted' ? 'original' : undefined));
     render(<InteractiveCard message={message} onSend={send} onSelect={vi.fn()} />);
     const field=await screen.findByRole('textbox');
+    await waitFor(() => expect(field).toHaveValue('周日见'));
     fireEvent.change(field,{target:{value:'保留本机草稿'}});
     fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
     expect(await screen.findByRole('alert')).toHaveTextContent(reason === 'stale' ? /已有更新|no longer accepts/i : /其他设备|another device/i);
@@ -48,7 +49,9 @@ describe('private interactive reply', () => {
   it('does not overwrite another device after a draft conflict', async () => {
     vi.mocked(saveInteractionDraft).mockRejectedValue(new Error('409 conflict'));
     render(<InteractiveCard message={message} onSend={vi.fn()} onSelect={vi.fn()} />);
-    fireEvent.change(await screen.findByRole('textbox'),{target:{value:'保留本机输入'}});
+    const field = await screen.findByRole('textbox');
+    await waitFor(() => expect(field).toHaveValue('周日见'));
+    fireEvent.change(field,{target:{value:'保留本机输入'}});
     expect(await screen.findByRole('alert')).toHaveTextContent(/另一设备|Another device/);
     expect(screen.getByRole('textbox')).toHaveValue('保留本机输入');
     expect(saveInteractionDraft).toHaveBeenCalledTimes(1);

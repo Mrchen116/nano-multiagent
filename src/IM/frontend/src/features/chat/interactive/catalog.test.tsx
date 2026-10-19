@@ -1,8 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { Renderer } from '@openuidev/react-lang';
+import { defineComponent, Renderer } from '@openuidev/react-lang';
 import { interactiveLibrary } from './catalog';
-import { openuiLibrary } from '@openuidev/react-ui/genui-lib';
+import { openuiLibrary } from '@openuidev/react-ui';
 
 const source = `root = Stack([form])
 form = Form("draft", send, [field])
@@ -34,5 +34,30 @@ it('preserves every upstream component and executes local actions without host m
   expect(await screen.findByText('2')).toBeVisible();
   fireEvent.click(screen.getByRole('button',{name:'重置'}));
   expect(await screen.findByText('1')).toBeVisible();
+  expect(requests).toBe(0);
+});
+
+it('keeps the published composition examples executable with local state and no host request', async () => {
+  // This seam covers program bindings/actions; browser acceptance covers chart layout.
+  const library = interactiveLibrary.extend({ components: { override: ['LineChart', 'BarChart'].map(name =>
+    defineComponent({ ...openuiLibrary.components[name], component: () => null }),
+  ) } });
+  const { compositionExamples } = await import('./composition-examples');
+  let requests = 0;
+  const reading = render(<Renderer response={compositionExamples[0].source} library={library} publishObservability={false} onAction={() => { requests++; }} />);
+  const minutes = await screen.findByRole('spinbutton');
+  expect(await screen.findByText('140 分钟')).toBeVisible();
+  fireEvent.change(minutes, { target: { value: '30' } });
+  expect(await screen.findByText('210 分钟')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '恢复20分钟' }));
+  expect(await screen.findByText('140 分钟')).toBeVisible();
+  reading.unmount();
+  render(<Renderer response={compositionExamples[1].source} library={library} publishObservability={false} onAction={() => { requests++; }} />);
+  const days = await screen.findByRole('spinbutton');
+  expect(await screen.findByText('每周 20 元')).toBeVisible();
+  expect(await screen.findByText('每周 50 元')).toBeVisible();
+  fireEvent.change(days, { target: { value: '6' } });
+  expect(await screen.findByText('每周 24 元')).toBeVisible();
+  expect(await screen.findByText('每周 60 元')).toBeVisible();
   expect(requests).toBe(0);
 });

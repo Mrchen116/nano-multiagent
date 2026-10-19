@@ -462,6 +462,7 @@ All checks passed. Ready for PR update after canonical reconciliation and archiv
 | Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned；Round 10实际冻结追问/换题 + 新policy样本 |
 | Gateway ADDED：所有群Agent不读未提交状态 | 前后端群guard，既有draft仅人类本人GET/PUT授权不变；明确提交后才共享 | aligned |
 | Web ADDED：消息随聊天面板和内容伸缩 | Round 11静态实现与R6一致；Round 12核独立acceptance R5真实同源复利、1537/769/390、宽表格/代码内滚、长文上限、复制及手机操作，C1-LAYOUT closed | aligned |
+| Web ADDED：交互回复使用统一产品视觉 | Round 13静态及生成资产一致；Round 14核独立产品R6、同source/另一作者历史、portal/focus、两领域新构图和三宽度操作；current精确归并，C1-VISUAL closed | aligned |
 
 ### Uncovered Observable Behavior
 
@@ -652,3 +653,110 @@ All checks passed. Ready for canonical reconciliation, archival and updating PR 
 C1-LAYOUT **closed**。R6 Approved + Round 11代码审查`[]`与一致性核对 + R5独立产品pass + 当前证据closure，满足同一M1的布局增量退出标准。没有剩余本轮CRITICAL/WARNING或待产品证据门禁，`layout-code-review.json`保持`[]`。
 
 既有“Real-time updates are busy”仍按R5保留事实：历史阅读与本地操作完成，本轮未验证实时消息送达，不将其扩成布局缺陷或声称连接已恢复。Global/群权限、幂等、83组件、Query/Mutation/patch和原生设备仅保留原实际范围，不重跑或外推。源码、测试、设计、配置、运行环境均未修改，未提交截图；报告由caller提交，远端CI、合并与部署仍是独立事项。
+
+
+## Round 13 — unified theme and information composition delta
+
+### Metadata and verdict
+
+- reviewer: `/root/layout_static_review`，独立审查，未参与视觉方案或实施；skills: `change-code-review` + `change-verifier`。
+- verification_mode: `delta` + scoped `corrected-delta`；review_mode: `patch`。
+- validated_at: `d8ba0ac509709da4185b891bbd3f54c8136aba65`；fix_delta_range: `d9876365f4f3e4fdd5ac7fc8e8809aa6fecd6203..d8ba0ac509709da4185b891bbd3f54c8136aba65`。
+- executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`；effective_base: `d9be419c7791c5cccf06b629ce72c4af8cd023de`；effective_through: `2feef94d8f59967b0a97d1f07c95ddeb0250f46f`。
+- checked_at: `2026-10-19T22:22:34+08:00`。final sync为其他unit设计/issue模板、文档/工作流与脚本，未改变本次产品、测试或设计；冻结validated_at不变。
+- retained_from: Round 12面板空间与消息操作、Round 10自然上下文及此前未变完整库/协议范围；design-review Round 7 Approved。
+- requires_full_verification: `false`。
+- verdict: **静态PASS — 0实现CRITICAL / WARNING；代码review `[]`，corrected-delta静态aligned。C1-VISUAL为尚未完成的独立产品退出证据，整体M1不可仅凭本轮静态结论放行。**
+
+### Completeness / correctness / coherence
+
+| 最新契约与设计 | 实现与验证 | 结论 |
+|---|---|---|
+| spec统一视觉：不同作者/历史消息兼容，Nano决定外观 | `interactive-card.tsx:171-189`以public ThemeProvider/lightTheme包原Renderer，`.interactive-card`及其portal同主题；`theme.ts:1-63`映射现有IM字体、表面、文字、动作/边框和多色palette。原load/initialState/busy/readOnly/state/action接口不变，catalog_version/组件props及generated JSON schema无改动 | aligned；旧source/portal实际体验待产品 |
+| design公开Stack适配与窄容器 | `catalog.tsx:28-38`复用公开Stack props/description/component，row+wrap时加display:contents宿主；`interactive-card.css:20-30`只给直属Card16rem basis，原Card仍minWidth:0。520px命名inline-size容器只改padding；没有重写上游React或给Buttons/nowrap/非Card行加列宽 | aligned |
+| spec信息主次：主结论、控制与结果、辅助解释 | `catalog.tsx:51-55`覆盖主结论、三档间距、清晰章节、变量结果就近、对称比较、图形有解释作用、辅助内容后置和避免嵌套Card；常驻intelligent-ui只追加一句结构职责，详细Skill仍按需加载 | 静态aligned；真实模型结果待产品 |
+| design两份完整通用示例 | `composition-examples.ts:1-30`阅读时间/累计投入与公交地铁对称比较，输入均转数值计算、假设有标记、local Reset不请求模型；`catalog.test.tsx:40-64`实际Renderer验证20→30→Reset与5→6联动及0外部动作。图表在该单测stub，不把它当成真实图表布局测试 | aligned at declared seam |
+| 同源资产及公开契约 | `generate-interactive-ui.ts`仍从同一catalog生成DSH prompt和PA Skill；已审37行生成增量与规则/两个示例一致，全前端pretest检查无漂移。product-contracts catalog、DSH catalog JSON/公开工具未变 | aligned |
+| 状态/权限/旧业务契约不退回 | 两项旧interactive-card测试仅增加等待恢复值再操作；原冲突回显和保存失败保护保留。未改IM/PA存储/relay、直接私聊与群边界、ToAssistant/Mutation或patch逻辑 | retained；控件外观变化的可用性需本次验 |
+
+主题只覆盖Web消费端及其portal，执行侧只变既有短prompt和同源Skill，不引入DSH private export、跨包相对导入、第二套Loop或新工具。样式/内容职责按R7分开；现有公开库足以写出两个示例，未为了凑数加新组件。是否还有真实表达缺口仍须结合模型样本记录，不凭静态推断全部任务都已足够。
+
+### Reused validation
+
+已直接读取下列caller提交的当前候选日志，不重复运行未失效测试：
+
+- `/tmp/feat617-visual-full-frontend.log`：`npm test -- --maxWorkers=2`，含`check:interactive-assets`，99 files / **910 passed**，22:15:22开始。
+- `/tmp/feat617-visual-narrow-final2.log`：catalog + interactive-card两文件，**14 passed**；示例联动/legacy组件、本地动作与原恢复/重试/冲突行为覆盖保留。
+- `/tmp/feat617-visual-build-final.log`：Web **tsc -b + Vite build通过**；大chunk及上游注释annotation警告不冒充失败，也不由此扩展性能重构。
+- `/tmp/feat617-visual-backend-build.log`：workspace/backend build至apps/node完成；构建发生在产品提交前，日志版本戳为d987，caller将其绑定受审产品内容，不冒称构建时HEAD已为d8。
+- `/tmp/feat617-visual-native-test.log`：native **1 file / 2 passed**。该摘要未逐项证明模型构图质量，仅复用原生入口装配范围。
+- 独立`git diff --check d9876365f..d8ba0ac50`通过。
+
+### Prototype / Reference Contract and C1-VISUAL
+
+| R7明确must-match | 当前直接证据 | 剩余 |
+|---|---|---|
+| 同一旧source换肤、不同作者历史、菜单和键盘焦点 | 已读baseline.json/source和最终same-source-desktop-final、compound-portal-desktop截图；旧source三色曲线与新portal青绿选中底已核。caller确认最终资产index-DciNEapF.js，DOM三色stroke及SQLite source SHA不变 | 最终资产下同source与不同作者历史回归、焦点/禁用/portal独立实际证据 |
+| 同原话两轮新上下文复利、另一个非财务问题；主次与变量结果清楚 | caller新群c_0usbd4jg/c_nlxmdmhx；本地source有复利Select/LineChart与咖啡Slider/BarChart，均可追溯，未将之硬编码进产品；已打开新复利portal及Tab画面 | 作者持久/浏览器记录及独立模型内容/交互裁决、失败与表达缺口记录 |
+| 1537/768/390阅读/操作，控件改变结果，状态语义保留 | 原型记录只是模拟；当前compound-tablet.png画布仍为桌面宽，不能按文件名当中屏证据 | 独立DOM有效宽度/三档操作、旧state可用；不将旧R5“未改字体/主题”画面外推到本次换肤 |
+
+**CRITICAL C1-VISUAL — 产品退出证据pending（非已确认代码缺陷）**：design末尾M1增量退出标准要求独立同source/历史、新模型构图和三宽度实际操作。当前静态审查时尚未收到这轮完整报告。旧图palette差异经caller补最终资产同source截图、三色DOM stroke及原source SHA后已REFUTED，原图为根入口导入修订前时点；不列代码缺陷或要求再改产品。
+
+建议：收到独立产品报告后一次性核对最终资产、实际有效视口、同source历史兼容/portal/focus、本地数值和两领域模型构图；使用既有日志和新证据定向closure，不重审全部后端/83组件或重跑全量910项。原型和fixture只作其明确用途，不替代真实模型结果。
+
+### Final delta correction coverage
+
+本轮corrected-delta覆盖全部实际新增：Web ADDED `交互回复使用统一产品视觉`（delta:40-48）的两个Scenario，与主题/历史兼容、构图及桌面/手机消费结果对齐。current `docs/specs/im/web-chat-ux.md`尚无该Requirement，新ADDED分类正确；旧面板自适应Requirement已在current并无语义改变，不重复添加；旧自然上下文MODIFIED和IM/Gateway delta均保留Round 10/12的已归并结论。
+
+没有新增DTO、公开schema、工具、权限或业务能力；16rem响应式和主题换肤是本条对外契约的实现，通用示例/guide是生成质量机制而非新业务承诺，未遗漏另一份应落到Gateway的行为契约。未发现delta-mismatch或implementation-mismatch。唯一Corrected Delta Reconciliation段已补本轮行，Outcome保持 **aligned（静态）**；待C1-VISUAL闭合后可将新ADDED直接归并current及同步入口数量，不能用改spec追认未过的视觉结果。
+
+### Current disposition
+
+代码审查PASS，JSON结果见code-review.md Round 1。0 WARNING / 0 SUGGESTION；唯一剩余CRITICAL为C1-VISUAL证据门禁。旧C1-LAYOUT和C1-NC维持closed，不因主题变化重开未受影响后端；旧样式实看只保留布局/业务实际范围，不直接宣称新主题通过。报告commit由本reviewer仅暂存code-review.md与verification.md创建，未改产品、测试、设计或运行环境。
+
+
+## Round 14 — C1-VISUAL final evidence closure and current reconciliation
+
+### Metadata and verdict
+
+- verification_mode: `targeted-closure` + final scoped `corrected-delta`；focus: Round 13 C1-VISUAL、统一视觉/信息层级must-match与current归并。
+- validated_at / validated_product_code: `d8ba0ac509709da4185b891bbd3f54c8136aba65`；review delta base: `d9876365f4f3e4fdd5ac7fc8e8809aa6fecd6203`。
+- unit executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`；effective_base: `d9be419c7791c5cccf06b629ce72c4af8cd023de`；effective_through: `ef8a33375de72f974b2936af7ab127cedf9df4c7`。
+- independent_acceptance_commit: `9256d177d`（acceptance Round 6）；author_evidence_commit: `cb73fc9a2`；current_reconciliation_commit: `d1a4efc59`；入口对齐标记修正：`ef8a33375`（仅一行，已核为feat-617）。
+- checked_at: `2026-10-19T22:30:10+08:00`；retained_from: Round 13静态代码/资产/14与910项测试及原生装配证据、Round 12未变布局、Round 10未变协议范围。
+- requires_full_verification: `false`。
+- verdict: **PASS — C1-VISUAL closed；0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected-delta aligned。** 本结论是本轮视觉/构图及契约收口，不表示最终全仓CI或PR已通过/合并。
+
+已核对d8至d1的src/packages/apps差异为空；后续为其他unit同步、作者证据、独立报告、current及进度记录，没有产品代码或设计决定变化。本轮只追加verification并同步唯一Corrected Delta Reconciliation条目，不改实现/设计/其他报告，不重跑全量测试。
+
+### C1-VISUAL — closed
+
+| must-match与退出要求 | 新独立证据及本轮直接核对 | 结论 |
+|---|---|---|
+| 同source主题重渲染，历史组件和状态兼容 | R6在最终index-DciNEapF.js下操作c_8iutij8v旧复利，原Tab/内容保留，恢复10000/5%/20年→26532.98；字体/数字/卡片层级与三色曲线/tooltip可读。作者只读source SHA始终6591e352…43a5a90；旧中间图不用于最终验收 | covered |
+| 另一作者历史、portal/选中/焦点仍属于同产品 | R6操作default-agent旧冒泡“下一步”，数组2/1/3/4与归位说明更新，按钮保持青绿；已打开reviewer-other-author.png核历史控件/表格。Select portal白表面、青绿选中底/勾选和本金焦点边界由R6实看；旧图表tooltip同主题 | covered |
+| 新上下文复利两轮原话与非金融解释有清楚主次和有效图形 | R6从真实历史核两轮原话及210a2a98…完整回复：结论/机制→近邻参数与主结果→曲线→辅助Tabs；咖啡样本先温差结论→Slider/数值与BarChart→假设。复利本金12000/8%后55931.49，咖啡键盘90℃→70℃温差/3.5倍、21℃→1℃/0.05倍；没有套入阅读/通勤内容 | covered within these samples |
+| 三档真实内容宽度与手机顺序/输入完成态 | R6校准DOM1537×944、769×900、390×844；中屏/手机scrollWidth分别769/390。769参数/结果按内容余宽堆叠，390数值与图例可读。已打开reviewer-new-compound-medium.png及reviewer-mobile-tab-input.png：辅助Tab正文及“继续理解”输入实际同时存在，Send可用；R6随后清空未发草稿 | covered |
+| 按实际表达缺口决定是否加组件 | 两领域以现有Steps、Input/Select/Slider、Line/BarChart和Tabs表达变量/过程/对比，R6未见必须新增自由图形的缺口；非任意题目的能力保证，不为清单补组件 | covered at declared scope |
+
+作者先前viewport未生效的桌面画布不充当三档证据，本轮采用R6校准后的实际DOM宽度和独立图片；769明确披露为中间档，不冒称精确768。原型只作主题/信息层级对照，真实模型source/操作与fixture用途分开。
+
+R6披露一次Tab/输入批量操作未呈现完成态，随后独占复核通过并截图；本轮直接核最终Tab/输入截图，不以工具命令返回成功替代UI结果。约22:25的恢复/重连瞬态发生于caller加载最终隔离Node期间，后续旧卡恢复；未将该现象归因成视觉bug或声称实时通道通过。正常本地探索成功不恢复保存/附带管理条。
+
+### Final prompt and sample boundary
+
+实际模型样本使用相同五条构图规则，但当时通勤示例仍用Slider，最终为便于jsdom验证改为number Input。两份独立记录都明确该差异，本报告不称其为“最终Skill逐字相同条件下重新生成”。最终两示例由真实Renderer状态/本地动作测试、资产同源检查及native入口装配支持；该控件替换未改变本轮信息组织决策、业务/权限或模型选择输出的协议，因此不要求为修订示例重复全部模型旅程。最终节点加载当前构建由作者运行记录支持，provider/config和有限样本的限制继续保留。
+
+### Final corrected delta / current reconciliation
+
+本轮重新核全部受影响校正：新增`交互回复使用统一产品视觉`两个Scenario与最终实现/测试/独立用户结果一致；已有面板自适应条目没有被新主题覆盖或重复新增，自然上下文MODIFIED和IM/Gateway条目保持原已归并范围；无新增schema、工具、权限或另一个运行时。
+
+已逐字比较unit新ADDED与current `docs/specs/im/web-chat-ux.md`：Requirement及两个Scenario完全相同、仅出现一次，current只增加外层主题标题；实际Requirement数为28，IM入口27→28与摘要同步准确。progress新增记录如实区分最终主题、两例prompt差异、产品R6、已有910/14/native2及后端本轮超时，未把限定样本扩大为全模型保证。无遗漏可观察行为、delta-mismatch或implementation-mismatch，唯一Corrected Delta Reconciliation已更新为 **aligned**。
+
+### Validation / remaining delivery boundary
+
+视觉退出证据齐全，C1-VISUAL **closed**，旧C1-LAYOUT/C1-NC保持closed，code-review.md Round 1的`[]`继续有效，无需新代码审查或full verification。
+
+caller新告知后端默认并行出现23个timeouts，限定2 workers复验14/16文件通过，余workspace-tools/capabilities环境执行测试正在CI Node24下串行诊断。上述本轮日志不在本次视觉证据closure范围，不能据旧全量通过结果抹去新超时，也不把视觉PASS写成全仓最终回归绿；最终CI全绿仍由caller独立收口。Round 13的910项Web、14项窄测、native2及build只保留各自已执行范围。
+
+本次检查整体d8..d1的diff-check遇到main同步带入的bugfix-618三份delta EOF空行，仅与其他unit文档有关；不将其报为617产品finding，不修改它们。617收尾文档（d8..ef8限定unit及current IM目录）与本报告的diff-check均通过。截图仅本机/tmp，未声称生产、iPhone真机/软键盘、全部禁用态或实时送达通过。

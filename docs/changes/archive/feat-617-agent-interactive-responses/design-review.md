@@ -422,3 +422,64 @@ Root核对R5覆盖最新用户确认的私聊/群聊边界、真实组装入口�
 ### Author Resolutions after Round 6
 
 Root 接受 R6 的两处文档/原型对齐意见，已在本轮最终 Approved 前修正：真实客户端以浏览器 viewport 能力直接验收（不绕过 frame-ancestors）；宽代码/表格原型全宽且段落保留上限。0C/0W，无实质异议。进入同一 M1 布局实施；后端、自然上下文和完整组件目录未变。
+
+
+## Round 7
+
+### Metadata
+
+- reviewer target: `/root/layout_design_review`，独立 reviewer；未编写本轮视觉方案、原型或产品代码。
+- review_mode: `full`
+- mode_reason: 用户纠正上一轮交付范围，新增统一组件视觉、生成信息构图和按证据决定组件扩充的 Requirement；需要完整审查这条生成→渲染→阅读/操作流程。未改变的权限、状态、消息路由与已完成宽度方案按范围保留，不重审全部组件或后端。
+- started_at: 2026-10-19T21:56:12+08:00。
+- completed_at: 2026-10-19T22:00:04.528097+08:00。
+- duration: 232 秒（源码接线核实与最终收口阶段；此前文档及首屏预查未独立计时）。
+- baseline: `unit/feat-617` / `d9876365f4f3e4fdd5ac7fc8e8809aa6fecd6203`；开始时仅 spec/design/Web delta 和新增视觉原型/作者走查记录未提交。本 reviewer 只追加本报告，不改产品代码、不提交、不重启服务。
+- 最终受审快照 SHA256 前16位：spec.md `2feca55c87b0bc9e`；design.md `944d49443bd18908`；specs/im/web-chat-ux.md `f53ae2782f8299c8`；prototype-visual.html `d6a5725485fd2b54`。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本轮统一视觉与信息构图方案通过 Gate 2。它同时处理宿主主题与 Agent 信息组织，不能再以扩宽代替整轮视觉完成。薄响应式适配有实际依据，未变组件契约和既有历史 source 可继续复用；不以“补组件”为目标增加未经样本证明的机制。通过结论限设计可实施性，不代表主题已接线、示例已可运行或真实模型构图已通过。
+
+### Coverage 与证据
+
+#### 用户要求、现状与职责
+
+- spec 最新补充明确把上一轮遗漏的三部分纳回同一 M1/PR：Nano 负责字体/色彩/边框/层级/交互状态，Agent 负责内容主次及表达选择，组件扩充依据实际缺口。design 对应给出主题接线、构图规则与两个通用示例、跨领域真实样本及不足时再设计的边界，未借旧布局已完成宣称视觉已完成。
+- 独立打开 `http://127.0.0.1:58769/chat/c_8iutij8v`，读取 `/new` 之后的“给我介绍下复利是啥”及“能不能做一个精美的UI全面介绍下”，并在真实“复利探索馆”进入增长实验室。当前内容已占宽，但多个灰块和正文/副标题仍接近同等视觉重量；与 Nano 导航的青绿和冷白关系不统一。此观察支持主题及构图分别处理，不能把旧模型 source 的信息结构当成仅靠 CSS 就会改好的结果。
+- `global.css:1-45` 已定义 IBM Plex Sans、青绿 `--im-accent`、表面/边框/文字 token。实际 `MessagePane` 继续加载 InteractiveCard，后者目前直接导入上游 defaults/components CSS 并把保存 source 交给 Renderer；`interactive/catalog.tsx` 使用公开 openuiLibrary，只有历史 ContinueButton/Form 兼容接缝，故新增 Nano 主题属于 Web 宿主职责，不需要改 IM DTO、消息存储或 DSH 执行循环。
+
+#### 公开主题、响应式复用与生成资产
+
+- 锁定包公开 `index.d.ts` 导出 ThemeProvider；其公开 ThemeProps 支持 lightTheme、cssSelector，Theme 包含颜色/排版/布局/效果。实现 `dist/index.mjs:1444-1495` 默认 selector 为 body，显式 selector 会覆盖该默认，并另生成 portalThemeClassName；Select 与图表 tooltip 消费该 portal class。最终设计明确作用于 `.interactive-card` 和 Provider 的 portal，足以避免仅凭祖先 CSS 导致弹层退回默认主题，也不扩散到导航。
+- 原生 Stack 实现 `genui-lib/index.mjs:14967` 只输出 inline flex，wrap=true 没有提供列宽；Card `:15276` 使用 flex:1/minWidth:0。单改主题确实不能保证窄卡片列自然重排。本轮审查中作者收口为：只包装公开 row+wrap Stack，沿用 props/description/component 与 renderNode，稳定 class 的宿主 display:contents，仅直系 Card 使用16rem flex-basis并保留min-width:0；非Card、nowrap、Buttons/TagBlock不改。顺序、条件与动作不被重写，容器520px以下只调整padding。相比复制布局组件或泛化改写全部 row，这个适配与已观察问题相称。
+- `scripts/generate-interactive-ui.ts:3-12` 已从同一 interactiveLibrary/interactivePrompt 生成产品契约 schema、DSH catalog/prompt、PA Skill；设计复用这一路径，不分别维护两个提示版本。`packages/dsh-integration/src/agent-config.ts` 实际引用 IntelligentUI，现有短常驻提示要求按需加载完整 Skill，追加一句构图职责与此分工一致。
+- 规则覆盖主结论、对称比较、变量与结果就近、辅助信息后置、避免重复嵌套卡片；阅读计划和通勤比较示例与本轮复利验收分属不同内容，不把复利答案硬编码为通用模板。示例要经实际 Renderer交互验证，资产生成一致性与公开 schema 兼容均有 worker 出口。现有 Steps/Progress/图表/Tabs/local state 先用于真实样本，有明确表达缺口才修订公开契约，未以未实现自由图形兜底承诺能力。
+
+#### 独立原型体验与限制
+
+- 独立通过 CUA 渲染 `8768/prototype-visual.html` 桌面、有效CSS宽767px中屏和390px手机；先观察画面再读作者记录。桌面主结论先出现，参数左侧、主结果与曲线右侧，主要金额明显大于辅助差额；三条解释放在操作结果之后，计算方式与风险通过次级Tab切换。新主题图形线条、图例、动作强调与 Nano 青绿关联，边界较轻，未靠大面积灰底区分所有层级。
+- 中屏/手机参数和结果按顺序堆叠，卡片说明转单列，标题/正文完整，无页面横向溢出；390px时 DOM innerWidth/scrollWidth 均390。独立键盘把持有时间20改19，结果变25270、差额5770；点击“使用边界”呈现固定收益假设及费用/税费/通胀说明，主要探索与辅助解释的操作关系明确。
+- 当前Chrome缩放80%，viewport设置值不等于CSS viewport。独立读取innerWidth后校准至767和390；作者记录的中屏769与本轮767共同覆盖断点附近。已告知实施/产品验收必须记录有效CSS宽度；本轮结束已reset临时viewport并关闭自己创建的页面。没有把浏览器尺寸设置成功当作响应式证据。
+- 原型使用模拟图表和原生range，仅证明层级、配色和关系，不证明上游每种组件、焦点/禁用态或portal已符合主题。真实旧source换肤、不同作者历史卡片、真实Select弹层与键盘焦点，以及新模型输出必须在实施后分别检查；design 的must-match已经明确这些出口。原型中的composer为背景示意，本轮不把它当作真实输入验证。
+
+#### Delta、milestone、资源与保留范围
+
+- Web delta“交互回复使用统一产品视觉”在 current `docs/specs/im/web-chat-ux.md` 不存在，ADDED正确；两个Scenario分别覆盖历史/不同作者一致性和解释/探索层级。既有自然输入/失败/状态及面板宽度Scenario没有被删除或改成新语义，归并仍锚定正确的Web消费者文档。
+- M1退出分开要求同一旧source换肤与新上下文真实生成；后者使用已核对两轮原话及非财务样本，不追加帮助模型通过的提示，并保存失败和能力不足记录。may-adapt只留措辞/图形/章节具体选择，不能改变主次清楚与变量结果关联的must-match。
+- 隔离58769可访问，已有会话、保存source和原话可读取，`/health`返回ok；保留数据的Node CLI config重启、构建与健康检查沿用前文具体Runbook。新测试上下文不删历史，账号/凭据与截图继续留本机；资源可用于后续实施验收。本次页面再次显示实时更新重试横条，静态读取和本地操作不能证明实时链路正常，真实生成验收需另外核实送达/持久化与连接状态。
+- `retained_from: Round 5 / Round 6`：自然上下文、私聊/群聊边界、权限/幂等/公开快照、已有完整组件能力，以及面板宽度与消息菜单入口的设计结论。R6“本轮不调整主题/提示”的限制仅针对上一轮布局任务，已被此次用户明确增加的主题/构图范围覆盖；不阻断本轮授权内工作。R3-W1/W2/W3保持closed，R5/R6无未关闭问题。
+
+### Issues
+
+无未解决 CRITICAL / WARNING。审查中发现的原生Stack窄列适配与主题portal作用域已明确纳入最终设计，未留给worker自行决定产品行为。
+
+### Recommendations
+
+无新增机制或额外范围建议；按既定同source/新生成双路径验收，不用原型或单个成功样本替代真实产品结果。
+
+### R7 Author Resolutions
+
+作者核实 R7 的0C/0W结论及证据边界，接受。主题只作用于交互根和Provider portal；row/wrap适配仅作用于Card列，不改Buttons等行内布局。原型模拟与真实换肤、新模型构图三类证据分开记录。实施继续同一M1，未改变受审设计语义。

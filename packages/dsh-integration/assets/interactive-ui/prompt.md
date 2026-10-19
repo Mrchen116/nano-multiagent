@@ -406,6 +406,11 @@ Before finishing, walk your output and verify:
 4. Every $binding appears in at least one component or expression.
 5. Every visible filter $binding appears in at least one Query args object.
 
+- COMPOSITION: Nano owns colors, fonts, borders, control appearance and chart palettes. Choose structure and semantic variants, not a new skin. Lead with one useful conclusion or question, then the main exploration or comparison, then supporting detail. Do not give every fact an equally prominent card.
+- Use three spacing levels: tight text/labels (Stack gap s), related controls/results (m or l), and separate sections (xl). Use a clear Stack as the page scaffold, Card for a distinct result or input group, sunk for a secondary control group. Avoid a Card around the entire page and cards nested inside cards. Use short paragraphs in cards; move lengthy background into plain sections or Tabs.
+- Put the most important control close to its changing result and explanatory graphic. Use charts for quantitative relationships, Steps for processes, tables for comparable facts; a graphic must explain something. Label units, series and assumptions. A large headline result plus a small comparison is usually clearer than four equally weighted metrics. Do not repeat the same title, summary or numbers in several sections.
+- For side-by-side content use Stack with direction row and wrap true; the host gives direct Cards a readable column width and wraps them in narrow panels. Keep compared options symmetric in labels, order and units. Keep button groups in Buttons. Prefer a few meaningful controls; secondary detail should not push the first useful result far below the controls on a phone.
+- Before sending, check the first screen: can the reader identify the main idea and next useful interaction without reading everything? Keep essential output in the main flow, with related explanation nearby. Use Tabs only for genuinely alternate views or optional details, never to hide the only result behind a vague label. Use semantic heading hierarchy and concise labels. The examples illustrate composition, not fixed topics or mandatory templates.
 - Choose controls that materially help understanding, comparison or input. Distinguish user values, retrieved facts, calculations and explicitly labeled illustrative assumptions. Rendering is not a data source or proof of execution; do not invent live values, task progress, persistence or connected business tools.
 - Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.
 - Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.
@@ -414,3 +419,35 @@ Before finishing, walk your output and verify:
 - Match control binding types exactly: Input/TextArea/Select/RadioGroup values are strings, including numeric-looking option IDs; Slider values are number arrays. Set must preserve the bound type. Convert an arithmetic result to a string with empty-string concatenation when storing it in a string-bound variable; use numeric coercion only for calculations.
 - For edits, send interactive.source_mode="patch" with supersedes_message_id and changed statements, or send a full new source. New versions retain the original publicly readable history.
 - After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses it because the interactive reply is already delivered. Never end with an empty response.
+## Composition examples
+
+### An explanation with one useful variable
+Lead with the takeaway, put a small control group beside the main result, and let the graph explain the relationship. Supporting prose follows without another card. These illustrative reading assumptions are not retrieved facts.
+
+```openui
+$minutes = "20"
+root = Stack([intro, exploration, explanation], "column", "xl")
+intro = Stack([TextContent("每天留一点时间，一周就能积累起来", "large-heavy"), TextContent("调节每天的阅读时间，看看连续坚持一周的累计投入。")], "column", "s")
+exploration = Stack([controls, result], "row", "l", "stretch", "start", true)
+controls = Card([CardHeader("每天读多久？"), FormControl("每天阅读（分钟）", Input("minutes", "", "number", {min: 0, max: 120}, $minutes)), Buttons([Button("恢复20分钟", @Reset($minutes), "secondary")])], "sunk")
+daily = @Max([0, @Min([120, $minutes * 1])])
+weekly = daily * 7
+result = Card([CardHeader("一周累计"), TextContent(weekly + " 分钟", "large-heavy"), LineChart(["第1天", "第3天", "第7天"], [Series("累计阅读分钟", [daily, daily * 3, weekly])], "linear", "坚持天数", "分钟", 220)])
+explanation = Stack([TextContent("**先找到能持续的节奏**"), TextContent("这里按每天相同时间计算。图中的直线表示稳定积累，不代表阅读效果或理解程度。", "small")], "column", "s")
+```
+
+### A comparison with symmetric criteria
+Use the same labels and units on both options, then show the decision-relevant difference. One shared control changes both sides. Do not add an Agent request button when the local comparison already answers the question. Route numbers are labeled illustrative assumptions.
+
+```openui
+$days = "5"
+root = Stack([heading, control, comparison, chart, note], "column", "l")
+heading = Stack([TextContent("通勤：省时间，还是省一点费用？", "large-heavy"), TextContent("对比同样的出行次数；金额和时间都是示例，不是实时路线数据。")], "column", "s")
+control = Card([FormControl("每周通勤天数", Input("days", "", "number", {min: 1, max: 7}, $days))], "sunk")
+days = @Max([1, @Min([7, $days * 1])])
+comparison = Stack([routeA, routeB], "row", "m", "stretch", "start", true)
+routeA = Card([CardHeader("公交", "单程 40 分钟 · 2 元"), TextContent("每周 " + days * 4 + " 元", "large-heavy"), TextContent("往返合计 " + days * 80 + " 分钟", "small")])
+routeB = Card([CardHeader("地铁", "单程 25 分钟 · 5 元"), TextContent("每周 " + days * 10 + " 元", "large-heavy"), TextContent("往返合计 " + days * 50 + " 分钟", "small")])
+chart = Card([CardHeader("一周的时间差"), BarChart(["公交", "地铁"], [Series("往返分钟", [days * 80, days * 50])], "grouped", "路线", "分钟", 220)])
+note = TextContent("按示例，地铁每周少用 " + days * 30 + " 分钟，多花 " + days * 6 + " 元。未计算等车和换乘时间。", "small")
+```
