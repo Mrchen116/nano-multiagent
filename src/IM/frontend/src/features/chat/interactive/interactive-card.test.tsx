@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InteractiveCard } from './interactive-card';
+import { InteractionSubmissionError } from './submission-error';
 import { readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 vi.mock('../chat-api', () => ({readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
@@ -31,6 +32,18 @@ describe('private interactive reply', () => {
     fireEvent.click(await screen.findByRole('button',{name:/重试|Retry/}));
     await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
     expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
+  });
+  it.each(['alreadySubmitted', 'stale'] as const)('stops replaying a definite %s conflict while retaining local values', async reason => {
+    const send=vi.fn().mockRejectedValue(new InteractionSubmissionError(reason, reason === 'alreadySubmitted' ? 'original' : undefined));
+    render(<InteractiveCard message={message} onSend={send} onSelect={vi.fn()} />);
+    const field=await screen.findByRole('textbox');
+    fireEvent.change(field,{target:{value:'保留本机草稿'}});
+    fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent(reason === 'stale' ? /已有更新|no longer accepts/i : /其他设备|another device/i);
+    expect(screen.queryByRole('button',{name:/重试|Retry/})).not.toBeInTheDocument();
+    expect(field).toHaveValue('保留本机草稿');
+    expect(field).toBeDisabled();
+    if(reason==='alreadySubmitted') expect(screen.getByRole('link',{name:/原提交|previous submission/i})).toHaveAttribute('href','/chat/chat?message_id=original');
   });
   it('does not overwrite another device after a draft conflict', async () => {
     vi.mocked(saveInteractionDraft).mockRejectedValue(new Error('409 conflict'));

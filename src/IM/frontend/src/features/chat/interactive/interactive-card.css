@@ -1,6 +1,6 @@
 .interactive-card { margin-top: 12px; min-width: 0; max-width: 680px; color: var(--foreground, #202124); }
 .interactive-card-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
-.interactive-card-fields:disabled { opacity: .72; }
+.interactive-card :is(input, textarea, select):disabled { color: inherit; -webkit-text-fill-color: currentColor; opacity: 1; }
 .interactive-card input, .interactive-card textarea, .interactive-card select { max-width: 100%; font: inherit; }
 .interactive-card-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #667085; }
 .interactive-card-status button, .interactive-selection button { border: 0; background: transparent; color: #2563eb; cursor: pointer; }

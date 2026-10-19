@@ -8,6 +8,7 @@ import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
 import './interactive-card.css';
+import { InteractionSubmissionError } from './submission-error';
 
 export interface InteractiveSelection {
   conversationId: string;
@@ -38,7 +39,8 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
   const [generation, setGeneration] = useState(0);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|null>(null);
+  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|null>(null);
+  const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const [saved, setSaved] = useState(false);
   const state = useRef<Record<string, unknown>>({});
   const revision = useRef(0);
@@ -47,7 +49,7 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
   const saving = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<{input: InteractionReplyInput; key: string}|null>(null);
-  const locked = Boolean(readOnly || submitted || done);
+  const locked = Boolean(readOnly || submitted || done || submissionConflict);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const selectRef = useRef(onSelect); selectRef.current = onSelect;
@@ -91,7 +93,12 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
     try {
       await onSend(pending.current.input, pending.current.key);
       setDone(true); pending.current = null; dirty.current = false;
-    } catch { setError('send'); }
+    } catch (e) {
+      if (e instanceof InteractionSubmissionError) {
+        pending.current = null; dirty.current = false;
+        setSubmissionConflict(e); setError(e.reason);
+      } else setError('send');
+    }
     finally { setBusy(false); }
   }
   const fallback = <p role="status">{t('chat.interactive.fallback')}</p>;
@@ -121,6 +128,7 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
     <div className="interactive-card-status" aria-live="polite">
       {locked ? t(submitted || done ? 'chat.interactive.submitted' : 'chat.interactive.readOnly') : busy ? t('chat.interactive.sending') : saved ? t('chat.interactive.saved') : null}
       {error && error !== 'render' && <span role="alert">{t(`chat.interactive.${error}Error`)}</span>}
+      {submissionConflict?.submissionMessageId && <a href={`/chat/${encodeURIComponent(message.conversation_id)}?message_id=${encodeURIComponent(submissionConflict.submissionMessageId)}`}>{t('chat.interactive.previousSubmission')}</a>}
       {error === 'load' && <button type="button" onClick={() => void load()}>{t('chat.interactive.retry')}</button>}
       {error === 'save' && <button type="button" onClick={() => void save()}>{t('chat.interactive.retry')}</button>}
       {error === 'send' && <button type="button" onClick={() => void submit()}>{t('chat.interactive.retry')}</button>}

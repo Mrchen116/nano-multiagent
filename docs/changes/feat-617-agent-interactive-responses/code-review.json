@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/IM/frontend/src/features/chat/interactive/interactive-card.tsx",
+    "line": 94,
+    "summary": "[P2] 将明确的提交冲突显示为可重试的未知结果，卡片永久锁在失败状态",
+    "failure_scenario": "同一用户在两台设备打开同一卡片：设备 A 已用状态 A 提交；设备 B 在尚未收到该公开消息时点击状态 B，服务端返回 409 interaction_already_submitted 和 submission_message_id。或设备 B 尚未获知原卡片已被替代时提交，服务端返回 409 interaction_read_only。这里无条件捕获错误并显示“提交结果尚未确认，可重试同一次提交”，同时保留 pending.current；fieldset 因 pending 禁用，重试再次发送相同冻结请求，必然再次 409。客户端既不展示原提交结果/已有更新，也不提示新的要求应单独发送，与 design.md:102 和消息 delta 的明确冲突恢复契约不符。应区分确定拒绝与网络未知：保留本次内容，展示已提交或已替代状态及原提交，允许通过普通文字另发要求；只有未知结果继续使用相同 key 重试。现有 interactive-card.test.tsx 仅覆盖网络失败重试和草稿 PUT 冲突，未覆盖 POST 409。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]
