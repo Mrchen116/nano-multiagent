@@ -23,7 +23,7 @@
 #### Scenario: 四类网页提报
 - WHEN 贡献者进入新建 Issue 页面并选择任一表单
 - THEN 看见与用途对应的问题、背景、预期结果和验证信息字段，且必填内容缺失时不能提交。
-- AND 影响区域允许“不确定”，相关资料可选；正常模板选择页没有空白 Issue 入口。
+- AND 影响区域允许“不确定”，相关资料可选；普通贡献者（Read/Triage）的模板选择页没有空白 Issue 入口，维护者保留 GitHub 的 Maintainers only 原生例外。
 
 #### Scenario: 默认分诊标签
 - WHEN 提交 Bug、Feature、Design task 或 Maintenance

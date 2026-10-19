@@ -15,7 +15,7 @@ Issue 保存问题、目标与讨论入口；进入开发后，是否建立 chan
 
 所有表单都包含影响区域，可多选或填“不确定”；相关资料可选。区域选择保存在正文中，不会自动变成标签。提报者不需要知道内部模块、根因或实现方案。提供日志、截图前去除密钥和私人内容。
 
-正常网页模板选择页关闭空白入口；CLI/API 仍可直接创建 Issue，也应写清上述上下文。Agent 使用 CLI 时显式传已确定的标签，不确定的区域留给维护者分诊：
+普通贡献者（Read/Triage）的网页模板选择页关闭空白入口；GitHub 对 Write/Maintain/Admin 保留标注“Maintainers only”的空白入口（[平台规则](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository)）。CLI/API 仍可直接创建 Issue，也应写清上述上下文。Agent 使用 CLI 时显式传已确定的标签，不确定的区域留给维护者分诊：
 
 ```bash
 gh issue create --repo Mrchen116/nano-multiagent \

@@ -46,3 +46,7 @@
 ## Author Resolutions
 
 R1 无 findings 或 recommendations。Author 核实结论与实际资源一致，保留 Approved。后续实现按受审设计执行。
+
+### Platform wording clarification retained
+
+真实 ADMIN 网页显示 Maintainers only 空白入口，且 GitHub 官方配置文档明确 Write/Maintain/Admin 原生例外。spec/design 将“正常网页”明确为普通贡献者（Read/Triage），同步长期规范；配置仍为已审查的 blank_issues_enabled: false，不改变方案、范围或接口，R1 结论 retained。非维护者账号未实测，验收报告须保留此证据边界。

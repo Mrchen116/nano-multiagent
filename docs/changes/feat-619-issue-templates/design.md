@@ -25,7 +25,7 @@
 
 - **采用四种入口。** Bug 记录现象/预期/复现/环境/影响；Feature 记录场景/困难/期望/完成标准；Design 记录待决问题/背景约束/设计产物/评估标准；Maintenance 记录维护问题/影响/期望/验证。通用区域多选允许“不确定”，相关链接可选。正文选择不会自动映射区域标签。
 - **四维标签，不预判优先级。** type: bug/feature/refactor/tech-debt/docs/test/ci；area: pa/node/dsh-integration/im-server/web/ios/channels/infra/docs；priority: P0/P1/P2/P3；status: needs-triage/needs-design/ready/blocked/in-progress/needs-verification。type 分诊后一个，area 至少一个，priority 理解后指定，开放 Issue status 一个。ready 不代表通过 unit 门禁。
-- **安全默认值。** 所有表单 needs-triage；Bug/Feature/Maintenance 分别加 bug/feature/tech-debt，Design 不定 type。禁用正常网页空白入口，CLI/API 仍可创建。
+- **安全默认值。** 所有表单 needs-triage；Bug/Feature/Maintenance 分别加 bug/feature/tech-debt，Design 不定 type。禁用普通贡献者网页空白入口；GitHub 对 Write/Maintain/Admin 保留 Maintainers only 原生例外，CLI/API 仍可创建。
 - **标签清单是元数据唯一来源。** .github/labels.json 列出 26 个标签；短 Node CLI `node scripts/sync-issue-labels.mjs OWNER/REPO` 用 gh label create --force 同步，不删除清单外标签，不操作 Issue。显式 repo 避免工作目录推断错目标；失败即非零退出，修正后可重跑。
 - **自动化只补状态。** `.github/workflows/issue-triage.yml` 仅 issues: types: [opened]，issues:write 最小权限，无 checkout；github-script 直接读取最新标签，检查 status: 前缀后 addLabels。直接使用 context，不插入用户文本到代码。没有评论、标签移除或历史扫描。
 - **长期事实落开发规范。** docs/development/issues.md 解释字段、四维用法、CLI 示例、同步与验收/上线顺序；标签详细说明只在 JSON，规范链接过去。
