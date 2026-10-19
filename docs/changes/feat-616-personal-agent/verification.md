@@ -698,3 +698,13 @@ Uncovered Observable Behavior: **no new spec delta**。capture是现有恢复契
 ### Handoff
 
 仅新增`code-review-r8.json`并追加verification；未改实现、测试、设计或delta正文，未操作共享服务或推送。S1旧失败报告保留并由本轮明确closure，其他未执行安全组合保持可复现前置；不重复开启泛化审查或以窄测试代替真实模型/用户旅程。报告提交号见交接消息。
+
+### R8 incremental closure — historical fork configuration
+
+- 范围：`21bdd924f → 8acd1d722bf0668dc9e2c7932388123206ffae8f`，仅`dsh-integration/src/index.ts`、`agent-config.ts`实际代码变化与实施记录。增量审查结果`[]`；R8定向 **Approved / corrected-delta aligned** 保留，0新增CRITICAL/WARNING；不重开无关审查。
+- 已发生回归不能省略：`9cebd17b7`完整backend为**402 passed / 1 failed**，失败在既有`history.test.ts:212`。模板与next相同不代表历史fork已使用相同执行配置，原revision-only提前返回使冷恢复后的fork仍为`read / ORIGINAL_PERSONA`，未应用本次要求的`write / NEW_PERSONA`。此全量不写成403通过。
+- 修复核对：`ConfigurationScopes.applyRevisionOnly(next)`枚举`allConfigurations()`中的当前模板/保留模板和实际live Agent scope，先按同agent筛选，**所有配置除revision外均与next deep-equal**才逐项更新revision；空集合或任一历史配置不同均返回false，且不先局部修改其他配置。runtime随后沿原完整restrict/whenIdle/setConfiguration路径更新所有对应scope。历史fork不能再被“当前模板相同”掩盖，真正没有执行变化的busy rename仍无需等待idle。
+- 权限/契约保持：immutable partition与mode、模型资格检查仍在该判断前；普通完整apply的工具收紧、等待idle、persona/skills/features更新未删除。没有放宽PA工具、宿主隔离、binding、scope、出站审批或代际ACK边界。只把原metadata-only的充分条件补全，**no new spec delta**。
+- 固定`8acd1d722`，2026-10-19 16:17独立执行`pnpm exec vitest run packages/dsh-integration/tests/history.test.ts packages/dsh-integration/tests/capabilities.test.ts`：**2 files / 4 tests passed**。确认编译产物也包含applyRevisionOnly；真实DSH的历史冷恢复后工具/提示词更新，以及原busy metadata/nonmetadata差别都通过，不仅验证helper比较。
+- 复用caller的`/tmp/feat616-r8-history-regression.log`同两suite4项通过；实际读取`/tmp/feat616-r8-all-frontend.log`：`9cebd17b7` **97 files / 898 tests passed**，本次无前端变化，继续有效。caller正在重跑修复后完整backend，该进行中结果未在本节提前写绿。
+- Retained：R8 S1原序列及knowledge/workflow fresh恢复、中央rename提交/延迟恢复、群space/私人ACL、owner Inbox与watermark、UI入口/role/cache证据全部未失效；之前安全矩阵限制及独立真实产品R6判定继续保留。此次只追加报告，未改源码、服务或模型配置。
