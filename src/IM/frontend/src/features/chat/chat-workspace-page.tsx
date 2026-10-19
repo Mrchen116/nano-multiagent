@@ -842,13 +842,14 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
         attachments: payload.attachments,
         interactionReply: payload.interactionReply,
-        idempotencyKey: payload.idempotencyKey
+        idempotencyKey: payload.idempotencyKey,
+        interactionContexts: payload.interactionContexts
       }),
     onSuccess: (created, payload) => {
       clearSendError(payload.conversationId);
@@ -1196,10 +1197,10 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments, interactionReply, idempotencyKey) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments, interactionReply, idempotencyKey
+              attachments, interactionReply, idempotencyKey, interactionContexts
             })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}

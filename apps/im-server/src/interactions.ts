@@ -1,6 +1,6 @@
 import { mergeStatements } from '@openuidev/lang-core';
 import type { FastifyRequest } from 'fastify';
-import { canonicalJson, interactiveResponse, type InteractionSnapshot } from '@nano/product-contracts';
+import { canonicalJson, interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
 import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
 import { interactionState, validateInteractiveSource, type InteractiveSchema } from './interactive-source.js';
@@ -31,6 +31,29 @@ export class Interactions {
   publication(id: string): unknown {
     const row = one(this.db, 'SELECT publication_json FROM message_interactive WHERE message_id=?', id);
     return row?.publication_json ? JSON.parse(row.publication_json) : interactiveResponse(this.message(id));
+  }
+  /** Resolve private background without turning it into a submission.
+   *
+   * Args:
+   *   user: Authenticated human who already passed conversation write access.
+   *   cid: Conversation containing every referenced source.
+   *   input: Browser snapshots, validated against their saved UI source.
+   * Returns:
+   *   Canonical background for private delivery to each source Agent.
+   * Raises:
+   *   Error: A source is outside this conversation or its state is invalid.
+   */
+  contexts(user: Row, cid: string, input: unknown): InteractionContext[] {
+    if (user.kind === 'gateway' || user.username?.startsWith('agent:')) fail(403, 'Human viewer required');
+    if (!Array.isArray(input) || input.length > 3) fail(422, 'At most three interaction contexts');
+    return input.map(value => {
+      if (!value || typeof value.source_message_id !== 'string'
+        || value.interacted_at !== undefined && (!Number.isFinite(value.interacted_at) || value.interacted_at < 0)) fail(422, 'Invalid interaction context');
+      const source = this.source(value.source_message_id, cid);
+      const {state, fields} = this.state(source, value.state);
+      return {source_message_id:source.message_id, source_summary:source.content.slice(0,160), agent_id:source.username.slice(6), state, fields,
+        ...(value.interacted_at !== undefined ? {interacted_at:value.interacted_at} : {})};
+    });
   }
   /** Save validated source inside the same transaction as its Agent message. */
   record(id: string, cid: string, sender: string, input: unknown): void {

@@ -74,7 +74,6 @@ import {
   type ComposerSnapshot
 } from "./composer-draft-store";
 
-import { InteractionSubmissionError } from "../interactive/submission-error";
 import type { InteractiveSelection } from "../interactive/interactive-card";
 const InteractiveCard = React.lazy(() => import("../interactive/interactive-card").then(module => ({default: module.InteractiveCard})));
 import type { InteractionReplyInput } from "../interactive/types";
@@ -109,7 +108,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string): void | Promise<void | Message>;
+  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, interactionContexts?: import("../interactive/types").InteractionContextInput[]): void | Promise<void | Message>;
   onBack?(): void;
   onOpenConfig?(): void;
   onJoin?: () => Promise<void>;
@@ -258,24 +257,18 @@ export function MessagePane({
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
-  const [selections, setSelections] = useState<Record<string, InteractiveSelection>>({});
-  const detached = useRef(new Set<string>());
-  const [interactionAttempts, setInteractionAttempts] = useState<Record<string, {text:string;input:InteractionReplyInput;key:string;editedAt:number}>>({});
+  const backgrounds = useRef<Record<string, Record<string, InteractiveSelection>>>({});
+  const [interactionAttempts, setInteractionAttempts] = useState<Record<string, {text:string;attachments:Attachment[];contexts:import("../interactive/types").InteractionContextInput[];key:string}>>({});
   const pendingInteraction = interactionAttempts[conversation.id];
   function clearInteractionAttempt(cid: string) {
     setInteractionAttempts(current => { const next={...current}; delete next[cid]; return next; });
   }
-  const selection = selections[conversation.id];
   const chooseInteraction = useCallback((next: InteractiveSelection) => {
-    if (detached.current.has(`${next.source_message_id}:${next.editedAt}`)) return;
-    setSelections(current => current[next.conversationId]?.editedAt > next.editedAt ? current : {...current, [next.conversationId]: next});
+    const chat = backgrounds.current[next.conversationId] ??= {};
+    chat[next.source_message_id] = next;
   }, []);
   const submittedMessages = new Map(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => [m.interaction_reply!.source_message_id, m.id]));
   const replacedIds = new Set(messages.flatMap(m => m.interactive?.supersedes_message_id ? [m.interactive.supersedes_message_id] : []));
-  const activeSelection = selection && !replacedIds.has(selection.source_message_id) ? selection : undefined;
-  function clearSelection(cid: string, source: string, editedAt = Infinity) {
-    setSelections(current => { if (current[cid]?.source_message_id !== source || current[cid].editedAt > editedAt) return current; const next = {...current}; delete next[cid]; return next; });
-  }
 
   const localComposerStoreRef = useRef<Map<string, ComposerSnapshot>>(new Map());
   const composerSnapshots = composerStore
@@ -649,8 +642,16 @@ export function MessagePane({
     const trimmed = text.trim();
     if (!trimmed && (onlyText || pending.length === 0)) return;
     const sourceConversationId = displayedConversationIdRef.current;
+    const contexts = !isGroup ? messages.filter(message => message.interactive && !message.interactive.read_only
+      && !message.interactive.superseded_by && !replacedIds.has(message.id))
+      .flatMap((message,index) => {
+        const value = backgrounds.current[sourceConversationId]?.[message.id];
+        return value ? [{value,index}] : [];
+      }).sort((left,right) => right.value.editedAt-left.value.editedAt || right.index-left.index).slice(0,3)
+      .map(({value}) => ({source_message_id:value.source_message_id,state:structuredClone(value.state),
+        ...(value.editedAt ? {interacted_at:value.editedAt} : {})})) : [];
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
-    const wireContent = reconstructWireContent(activeSelection ? text : trimmed, draftMentions);
+    const wireContent = reconstructWireContent(contexts.length ? text : trimmed, draftMentions);
     const submittedAttachments = onlyText ? [] : pending;
     const submittedAttachmentUrls = new Set(submittedAttachments.map((attachment) => attachment.url));
     forceScrollToBottomRef.current = true;
@@ -658,21 +659,16 @@ export function MessagePane({
     sendingConversationIdRef.current = sourceConversationId;
     markComposerSending(sourceConversationId);
     setComposerSending(true);
-    const attempt = interactionAttempts[sourceConversationId] ?? (activeSelection ? {
-      text:wireContent, input:{source_message_id:activeSelection.source_message_id,state:structuredClone(activeSelection.state)},
-      key:crypto.randomUUID(),editedAt:activeSelection.editedAt,
+    const attempt = interactionAttempts[sourceConversationId] ?? (contexts.length ? {
+      text:wireContent, attachments:structuredClone(submittedAttachments), contexts, key:crypto.randomUUID(),
     } : undefined);
     if (attempt) setInteractionAttempts(current => ({...current,[sourceConversationId]:attempt}));
     try {
-      if (attempt) await onSend(attempt.text, submittedAttachments, attempt.input, attempt.key);
+      if (attempt) await onSend(attempt.text, attempt.attachments, undefined, attempt.key, attempt.contexts);
       else await onSend(wireContent, submittedAttachments);
-      if (attempt) {
-        clearInteractionAttempt(sourceConversationId);
-        clearSelection(sourceConversationId, attempt.input.source_message_id, attempt.editedAt);
-      }
+      if (attempt) clearInteractionAttempt(sourceConversationId);
     } catch (error) {
-      if (error instanceof InteractionSubmissionError || String(error).includes('createMessage failed: 4')) clearInteractionAttempt(sourceConversationId);
-      if (error instanceof InteractionSubmissionError && activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
+      if (String(error).includes('createMessage failed: 4')) clearInteractionAttempt(sourceConversationId);
       forceScrollToBottomRef.current = false;
       return;
     } finally {
@@ -1092,16 +1088,7 @@ export function MessagePane({
                   interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
                   interactiveSubmissionId={submittedMessages.get(m.id)}
                   onInteractionSelect={chooseInteraction}
-                  onInteractionSend={async (input, key) => {
-                    try {
-                      const result = await onSend("", [], input, key);
-                      clearSelection(conversation.id, input.source_message_id);
-                      return result;
-                    } catch (error) {
-                      if (error instanceof InteractionSubmissionError) clearSelection(conversation.id, input.source_message_id);
-                      throw error;
-                    }
-                  }}
+                  onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
               );
             })}
@@ -1111,13 +1098,6 @@ export function MessagePane({
 
       <form className="chat-pane-composer" onSubmit={handleSubmit}>
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
-        {activeSelection && <div className="interactive-selection" role="status">
-          <span title={activeSelection.title}>{t("chat.interactive.attached")} · {activeSelection.title.slice(0, 70)}</span>
-          <button type="button" disabled={Boolean(pendingInteraction)} onClick={() => {
-            detached.current.add(`${activeSelection.source_message_id}:${activeSelection.editedAt}`);
-            clearSelection(conversation.id, activeSelection.source_message_id);
-          }}>{t("chat.interactive.cancel")}</button>
-        </div>}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy || Boolean(pendingInteraction)}>
           {pending.length > 0 && (
             <div className="chat-pane-composer-chips">

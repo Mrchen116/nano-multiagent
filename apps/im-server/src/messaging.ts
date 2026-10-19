@@ -15,7 +15,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
-import { validateTimeZone } from "@nano/product-contracts";
+import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 /** Derive human approval badges from the durable request/decision identity. */
 export function withHumanApproval(call: Row, permissions: Row[]): Row {
@@ -485,6 +485,9 @@ export class Messaging {
     )
       fail(403, "sender does not match authenticated user");
     if (typeof b.content !== "string" && b.content !== undefined) fail(422, "invalid content");
+    if (b.interaction_contexts !== undefined && c.type !== 'direct') fail(422, 'Private interaction background is only supported in direct chats');
+    if (c.type === 'group' && b.interaction_reply && !b.interaction_reply.action_id && !b.interaction_reply.event)
+      fail(422, 'Group interaction state requires an explicit card action');
     if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, req);
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
@@ -503,16 +506,22 @@ export class Messaging {
         )
       : undefined;
     if (old) return this.message(old.id);
+    if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
+    const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
     const timezone = p.kind === "gateway" ? b.timezone ?? null
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
       : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id);
-    const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-      agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone });
+    // Freeze private background with its message; publish only after both are durable.
+    const {m,relays} = transaction(this.db, () => {
+      const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone, publish:false });
+      return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
+    });
+    const delivered = this.publishMessages([m]);
     if (!b.suppress_relay) {
-      const relays = this.enqueueRelays(m,key,agents);
-      if (relays.length && !this.deliverRelays(relays)) fail(503,"target_node_id is not connected");
+      if (relays.length && !delivered) fail(503,"target_node_id is not connected");
       const wait = this.ctx.updates?.messageWait(m.id);
       if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
@@ -565,15 +574,17 @@ export class Messaging {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
       .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean) as Row[];
   }
-  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id)): Row[] {
+  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = []): Row[] {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Row[] = [];
     for (const a of agents) {
+      const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const payload = {relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
+          ...(background.length ? {interaction_contexts:background} : {}),
           ...(c.external_source ? {external_source:c.external_source,external_chat_id:c.external_chat_id,trigger_source:"im"} : {})}};
       this.db.prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id,m.id,c.id,a.node_id,JSON.stringify(payload),relayKey,"queued",null,null,now(),now());
       relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
@@ -607,12 +618,14 @@ export class Messaging {
   }
   /** Publish committed system messages and attempt their already durable relay rows. */
   publishMessages(messages: Row[]) {
+    let delivered = false;
     for (const m of messages) {
       const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
       const data = JSON.parse(e.payload_json);
       this.ctx.gateway.broadcast(this.members(m.conversation_id).map(u=>u.id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,event_id:e.event_id}});
-      this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id));
+      delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
     }
+    return delivered;
   }
   /** Join only the caller, without changing invitation authority for other Agents. */
   joinConversation(userId: string, id: string): Row {

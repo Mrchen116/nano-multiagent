@@ -44,10 +44,11 @@ export async function listMessages(
   return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
 }
 
-import type { InteractionDraft, InteractionReplyInput } from "./interactive/types";
+import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
   interactionReply?: InteractionReplyInput;
+  interactionContexts?: InteractionContextInput[];
   idempotencyKey?: string;
   conversationId: string;
   content: string;
@@ -67,7 +68,8 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     content: req.content,
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
-    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})
+    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
+    ...(req.interactionContexts?.length ? { interaction_contexts: req.interactionContexts } : {})
   };
   const response = await authFetch(
     `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,

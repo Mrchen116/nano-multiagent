@@ -282,3 +282,80 @@ R3-W1/W2/W3 均关闭，本轮冻结设计通过 Gate 2。该结论不代表普�
 ### Recommendations
 
 无。按既定 M1 实施及真实普通提问验收，不扩大为新的设计循环。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer target: `/root/openui_restore_design_review`，独立 reviewer；未参与本轮 spec/design/prototype 或产品修订。
+- review_mode: `full`
+- mode_reason: 新用户要求改变手写消息的共享接口、私聊/群聊状态边界和后续输入语义，不能仅以旧问题 closure 放行。本轮完整检查受影响的生成后探索 → 普通发问 → relay → 普通/Global 输入链、权限、delta、增量体验与验收前置；未改变的 OpenUI 生成/明确操作能力使用具体保留证据，不重复全部组件或模型样本。
+- started_at: 2026-10-19T19:36:20+08:00。
+- completed_at: 2026-10-19T19:39:47+08:00。
+- duration: 207 秒。
+- baseline: `unit/feat-617` / `72791ffadc9e3c0e3bb0bc9543c8a049bcf44dbb`，受审为其上尚未提交的 active 恢复与自然上下文修订；开始时已有 staged renames、design/spec/delta/prototype 修改及 prototype-continuous.html，本轮全部保留。
+- 受审快照 SHA256 前16位：spec `db8861c867719b8b`；design `05206d89611b8d21`；prototype `2f262935ee08920c`；IM messages delta `e4c3601c3921d75b`；Web delta `fd0e7ce07f36cf91`；Gateway delta `819a64d3e6b70759`。
+- 本轮只追加本报告；未提交、未修改产品/配置、未重启服务、未调用真实模型，未触碰 feat-616 或生产。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本轮自然上下文设计通过 Gate 2。私聊发问背景与明确提交分离、群聊未提交状态不传递、普通消息保持原路由和原文，均有可实施的接线与验证出口。此结论不证明后台快照已在产品生效，也不将模拟回复当成模型会准确理解或忽略背景的证据；实施后的普通/Global、群聊拒收和持久化必须按本轮增量验收。
+
+### Coverage 与证据
+
+#### 用户要求、范围与保留结论
+
+- 已读取 spec 末尾两次用户原话及最终确认：去掉保存成功、Current choices 和 Detach；私聊发送时由 Agent 判断背景是否相关；群聊所有 Agent 包括卡片作者均不得读取未提交状态，只有明确卡片动作才共享。最终边界覆盖此前“群聊仅作者获得背景”的草案。design 的自然上下文段与三份 delta 均按最终边界写明，未将背景改为隐式业务授权。
+- 原来的手写消息附带选择/定向卡片作者由本轮明确替代；原生 ToAssistant/Mutation/ContinueButton 的明确请求、公开快照、实际用户和幂等规则保留。Features 默认开启/可关闭、only617、无排序题专用生成逻辑、完整库/本地动作/条件/Each/工具与 patch 能力没有被再次裁剪。
+- `retained_from: Round 3 / Round 4`：OpenUI 公开接缝、模块职责、原生事件标签与完整状态适配、patch 完整历史及请求级幂等的设计判断。它们不证明新的自然消息路径已实现。
+- 另核对当前 `acceptance.md` Round 3 的真实冒泡排序/月相、连续原生按钮、原状态恢复及三宽度记录，以及 `preview-workspace-fix.md` 的能力预览目录修复范围。仅保留各报告实际观察的能力与修复事实；旧手写附带选择、群内普通文字公开快照和 Current choices 体验已被本轮目标替代，不作为新体验通过证据；preview 修复不受影响，无需因此重做其生命周期。
+
+#### 真实组装入口、接口与数据流
+
+- Web 实际 `message-pane.tsx:260-283,642-678` 当前将最近一张卡片存为 selection，手写发送构造 interaction_reply，成功后清除选择；`:1113-1117` 渲染附带横条。InteractiveCard 当前保存/恢复并通知 onSelect。新设计把这里改为会话内最多三张背景候选、初始/恢复完整状态可用、实际操作优先、成功不清缓存，是对当前产品路径的明确替换，并非只隐藏文案。替代、会话切换/删除不会把背景带到另一会话；历史可读背景不重新获得业务提交权限。
+- `chat-api.ts` 的普通 createMessage 本就承载正文和附件；`messaging.ts:468-518` 在会话写权限之后分流 interaction_reply 与普通消息。新可选 interaction_contexts 走普通路径、明确动作继续走 sendInteraction，故正常附件无需被旧 interaction_reply 的“另发附件”限制阻断。发问时深拷贝正文、附件、候选快照与 key，未知结果重试原请求、后续编辑只影响下一次发问，已写为具体规则。
+- `messaging.ts:568-580` 已逐目标 Agent 保存完整 relay payload，metadata 为现有纯数据接缝；`apps/node/src/main.ts:173-174` 读取 RelayInput，product-contracts 的 metadata 当前为 Record。把服务端按来源生成的规范快照注入各 relay 的 metadata，不需要新存储表、广播字段或第二消息模型。当前普通路径先 insertMessage 再 enqueueRelays，design 已要求本轮将本人消息与对应 relay 同事务提交后发布；这项必须实施，不能误认为现有路径已原子化。
+- `messaging.ts:310-313,405` 的公开消息投影只含现有 interaction_reply/interactive；设计明确新背景不进入 public Message DTO、message.created、history/fork 或 interaction_submissions，不修改个人 draft revision。因此自然发言不会被误回显为“已确认选择”，也不会靠以后读取可变草稿重建先前问题。已有 key 返回原消息/原 relay，对已保存背景采用首次提交语义，防止重试覆盖背景。
+- `single-thread.ts:117-120` 与 `inbox.ts:115-119` 都经 product-contracts 的 withInteractionContext 生成文本；新设计要求同源格式化新背景，再交给原 session input / Inbox，沿既有正文和附件链。背景标记为发问时可用数据、按原话决定相关性、换题忽略、歧义澄清、无授权；没有添加按题材关键词强制路由或另一 Agent Loop。模型是否实际遵守需真实普通/Global样本验证，原型固定回复不能替代。
+
+#### 权限、职责与复杂度
+
+- 后台字段的服务端来源校验限当前会话可读交互消息与正常人类写权限；source 的作者与摘要由保存源取得，浏览器不选择接收者。direct relay 只向卡片作者提供其自己的背景，不因源 id 添加 mention 或唤醒别的 Agent。原明确提交仍沿已有 source Agent 定向语义。
+- 群聊前端普通发送不带 interaction_contexts，服务端拒绝该字段；旧/直接客户端也不能绕过。群内 interaction_reply 要求 action_id/event，堵住原“只给 state + 手写 content”就公开私有状态的路径。原 `interactions.ts:52-58` readDraft 已拒绝 Gateway/Agent，且按当前人类 user_id 读草稿；设计没有放宽此接口。群成员和所有 Agent 取得的只能是明确提交后的公开快照。
+- 状态最多三张、每份沿用16 KiB、摘要160字；服务端复用已保存源和既有 state/fields 规范化，无需把独立后台缓存变成新的授权或公开业务对象。Web 负责即时状态与冻结请求，IM 负责来源/权限/事务与 relay 定向，PA formatter 负责来源标记和模型输入；各职责延续现有边界。未见需要新工具、权限平台或通用事件总线的实际理由。
+
+#### 独立增量体验判断
+
+Chrome / cua_repl 独立打开 `57336` 原型服务并操作，另使用现有 prototype-sizes wrapper 的 768×900、390×844 iframe；对照 [真实旧界面](evidence/native-bubble-desktop.png) 和当前 MessagePane 入口。新原型明确标注回复/失败为模拟，属于现有聊天内容区与 composer 的局部增量，不以其简化 header 替代整个产品导航。
+
+- 旧真实截图中，长来源摘要被塞入 Current choices 横条并附 Detach，占用输入框上方一整行；新原型只保留内容、参数与自然输入。改变年率时结果即变，既无保存成功提示，也无“需要管理附带状态”的操作。用户可以直接问问题，删除这行没有丢失本次任务需要的参数含义和操作入口。
+- 独立将年率改10%，发送“Why is there a difference?”，再改回5%。本人消息只显示原话，模拟回复仍解释发问时10%/差值310，而当前卡片为5%/差值76.25。该画面明确表达“后台冻结当前帧，继续探索不改变旧问题”的目标，不再显示 Submitted choices 区块。
+- 独立模拟发送未知结果：5%时发送“Explain the current parameters”，看见明确的原请求重试提示；改到10%后再次 Send，回复仍使用原5%/差值76.25。接着发送“Hello”，正常得到换题响应，没有被强制拉回图表。此处只证明原型交互意图，固定脚本不证明真实模型判断能力。
+- 768 与390实际渲染均没有附带横条，参数、结果和输入可读；手机独立触发失败后，红色未知结果提示位于输入上方，文字完整、Send仍可达。变化从“正常状态不断提示”改为“有错误才提示”，用户无需主动维护草稿/附带模式。未观察到足以阻断增量设计的布局或操作问题；没有执行真机软键盘检查。
+- 自动持久化/恢复、CAS、多人群聊拒收和多卡相关性属于后续真实产品与协议验证；本原型未连接这些机制，本轮不提前宣称通过。既有对应布局/错误体验作为参考保留，数据语义按新规则重验。
+
+#### Delta、milestone 与验收前置
+
+- IM delta 的 MODIFIED 正确锚定 current“交互确认保留真实用户、原回复与选择语义”，保留群中身份、多次请求/幂等、替代/fork与patch场景；明确替换旧手写附带确认场景。新增“自然消息的交互背景保持准确且不改变路由”描述冻结与私聊/群聊边界。
+- Web delta 的 MODIFIED 替换现有“交互内容保持聊天阅读与操作连贯”，保留桌面/手机、生成/渲染失败，改写普通输入/静默保存与真实失败；不改已有连续本地探索 Requirement。Gateway 新增 Agent 按原话判断背景及群聊不读私人操作，锚定消费者正确。ADDED 名称在 current 尚不存在，没有再次产生重复式 delta。
+- 继续同一 M1；自然追问与无关话题覆盖普通/Global，状态冻结/失败重试覆盖正文与附件，多卡/群内普通文字/明确动作及权限窄测均有 must-match 出口。原完整库与普通生成结果只保留原范围，本轮重新验证 R2/R3/W2，符合实际影响。
+- 沿用 R4 已审的当前 worktree 保留数据 Runbook、58769 owner/普通/Global资源及既有独立群用户证据；未改变服务拓扑、账号资源或外部业务依赖。受影响产品复验不能仅靠API注入背景或原型模拟，必须驱动真实Web普通发问，并核对持久relay、公开消息缺字段和群内拒收/明确提交。
+
+### 历史问题闭环
+
+R3-W1/W2/W3 保持 closed：本轮不改变原生事件标签/完整状态适配、已有 Runbook 或已归并的旧能力。新 delta 已重新按当前 canonical 编写；原 R1-W1 的“手写限制语不被替换”继续成立，但后台快照是否公开/如何传给 Agent 以此次用户确认的新规则为准。无旧 open issue。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+无额外机制或范围扩展建议；按本轮契约实施并执行受影响真实旅程即可。
+
+### Author resolution after Round 5
+
+Root核对R5覆盖最新用户确认的私聊/群聊边界、真实组装入口和增量原型，0C/0W，无需修订设计。普通/Global与群内Agent的数据输入将在实施后分别取证；旧功能与preview修复保留原有效证据。R5之后首文档、设计和delta无实质变化。

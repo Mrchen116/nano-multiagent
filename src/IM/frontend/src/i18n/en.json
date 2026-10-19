@@ -1095,7 +1095,6 @@
       "queued": "Saved, waiting for Agent",
       "readOnly": "Historical reply · read only",
       "sending": "Submitting…",
-      "saved": "Draft saved, visible only to you",
       "loadError": "Could not restore the draft.",
       "saveError": "Draft has not been saved.",
       "conflictError": "Another device updated this draft. Load the latest version to continue.",
@@ -1105,12 +1104,10 @@
       "sendError": "Submission is unconfirmed. Retry the same submission.",
       "retry": "Retry",
       "loadLatest": "Load latest draft",
-      "attached": "Current choices will be attached",
-      "cancel": "Detach",
       "choices": "Submitted choices",
       "ask": "Ask the Agent",
       "actionError": "This action is not connected or this link type is unsupported.",
-      "pendingRetry": "Delivery is unconfirmed. Send again to retry the original message and its saved choices."
+      "pendingRetry": "Delivery is unconfirmed. Send again to retry the original message."
     }
   },
   "feature": {

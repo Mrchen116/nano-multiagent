@@ -23,6 +23,17 @@ export interface InteractionSnapshot extends Omit<InteractionReplyInput, 'source
   action_label?: string;
   fields: { name: string; label: string; value: unknown; display_value?: string }[];
 }
+/** Private-chat context captured when sending text, never a public submission. */
+export interface InteractionContextInput {
+  source_message_id: string;
+  state: Record<string, unknown>;
+  interacted_at?: number;
+}
+export interface InteractionContext extends InteractionContextInput {
+  source_summary: string;
+  agent_id: string;
+  fields: InteractionSnapshot['fields'];
+}
 export interface InteractionDraft {
   draft_revision: number;
   updated_at?: string | null;

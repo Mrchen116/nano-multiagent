@@ -23,29 +23,28 @@ describe('interactive choices and handwritten requests',()=>{
   view.rerender(<MessagePane conversation={conversation} messages={[{...reply,delivery_status:'running'}]} selfUserId="u1" mentionCandidates={[]} onSend={vi.fn()}/>);
   expect(screen.queryByText(/已保存，等待 Agent 处理|Saved, waiting for Agent/)).not.toBeInTheDocument();
  });
- it('keeps exact handwritten content beside edited fields and clears the attachment after successful send',async()=>{
+ it('keeps direct-chat background silent and retains it across natural questions',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
-  fireEvent.change(await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000}),{target:{value:'林悦，周日10点断桥见'}});
-  await screen.findByText(/将附带当前选择|Current choices will be attached/);
+  fireEvent.change(await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000}),{target:{value:'私聊新草稿'}});
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
-  fireEvent.change(composer,{target:{value:'  先别发送，把语气改得随意一点  '}});
-  fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('  先别发送，把语气改得随意一点  ',[],expect.objectContaining({source_message_id:'card',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'林悦，周日10点断桥见'})})})}),expect.any(String)));
+  fireEvent.change(composer,{target:{value:'先别发送，帮我解释'}});fireEvent.submit(composer.closest('form')!);
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String),[expect.objectContaining({source_message_id:'card',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'私聊新草稿'})})})})]));
+  expect(screen.queryByText(/将附带当前选择|Current choices will be attached|草稿已保存|Draft saved/)).not.toBeInTheDocument();
   await waitFor(()=>expect(composer).toHaveValue(''));
-  expect(screen.queryByText(/将附带当前选择|Current choices will be attached/)).not.toBeInTheDocument();
+  fireEvent.change(composer,{target:{value:'你好，换个话题'}});fireEvent.submit(composer.closest('form')!);
+  await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
+  expect(send.mock.calls[1][4]).toEqual(send.mock.calls[0][4]);
  });
- it('preserves handwritten text and detaches a definitively rejected choice so the user can continue',async()=>{
-  const send=vi.fn().mockRejectedValueOnce(new InteractionSubmissionError('alreadySubmitted','original')).mockResolvedValue(undefined);
-  render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
-  fireEvent.change(await screen.findByPlaceholderText('编辑草稿'),{target:{value:'本机新草稿'}});
-  const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
-  fireEvent.change(composer,{target:{value:'先别发送，改成下午'} });
-  fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(screen.queryByText(/将附带当前选择|Current choices will be attached/)).not.toBeInTheDocument());
-  expect(composer).toHaveValue('先别发送，改成下午');
-  fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenLastCalledWith('先别发送，改成下午',[]));
+ it('does not attach group state to ordinary text but shares explicit card actions',async()=>{
+  const send=vi.fn().mockResolvedValue(undefined);
+  render(<MessagePane conversation={{...conversation,type:'group'}} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
+  fireEvent.change(await screen.findByPlaceholderText('编辑草稿'),{target:{value:'群内私人草稿'}});
+  const composer=screen.getByPlaceholderText(/type @ to mention|输入 @ 召唤/);
+  fireEvent.change(composer,{target:{value:'解释一下'}});fireEvent.submit(composer.closest('form')!);
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[]));
+  fireEvent.click(screen.getByRole('button',{name:'继续修改'}));
+  await waitFor(()=>expect(send).toHaveBeenLastCalledWith('',[],expect.objectContaining({action_id:'send',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'群内私人草稿'})})})}),expect.any(String)));
  });
  it('leaves typed input untouched when the card button is used',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);

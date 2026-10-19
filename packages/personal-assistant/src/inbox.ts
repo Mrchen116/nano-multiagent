@@ -112,7 +112,7 @@ export class InboxStore {
       const imported = this.db.prepare('SELECT body FROM imported_parts WHERE seq=? ORDER BY part').all(seq) as {body: string}[];
       if (imported.length) return imported.map(row => JSON.parse(row.body) as Record<string, unknown>[]);
     }
-    const text = withInteractionContext(input.message.content, input.message.interaction_reply);
+    const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
     for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);
