@@ -1,4 +1,7 @@
+import * as PersonalTools from './personal-security.js';
+import { assertPersonalConfiguration } from './personal-security.js';
 import { realpath } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -43,6 +46,20 @@ export class ConfigurationScopes extends Service {
    */
   packageManager(invocation?: ProfilePnpmInvocation) { this.extensions.packageManager = invocation; }
   forAgent(agent: Agent) { return this.agents.get(agent)?.config; }
+  /** Advance metadata without replacing a historical branch's distinct execution choices.
+   *
+   * Args:
+   *   next: Current requested configuration.
+   * Returns:
+   *   Whether every live/template scope already has the requested execution settings.
+   */
+  applyRevisionOnly(next: AgentConfiguration): boolean {
+    const configs = [...this.allConfigurations()].filter(config => config.agentId === next.agentId);
+    const { revision: _, ...execution } = next;
+    if (!configs.length || configs.some(({ revision: _revision, ...current }) => !isDeepStrictEqual(current, execution))) return false;
+    for (const config of configs) config.revision = next.revision;
+    return true;
+  }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }
   catalog(agent: Agent) { return this.tools.catalog(agent); }
   /** Apply owner plugin changes only while every Agent sharing the workspace is reserved idle. */
@@ -76,6 +93,7 @@ export class ConfigurationScopes extends Service {
   /** Called while the native preset generation is assembled, above Agent restrictions. */
   async attach(ctx: Context, agentId: string): Promise<void> {
     const config = this.config(agentId);
+    assertPersonalConfiguration(config);
     if (config.extensions?.global) {
       const path = config.extensions.global;
       if (!this.sharedExtensions.has(path)) this.sharedExtensions.set(path, mountExtensions(this.host, path));
@@ -84,10 +102,11 @@ export class ConfigurationScopes extends Service {
     await mountExtensions(ctx, config.extensions?.workspace);
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
-    await ctx.plugin(GlobalMode, { mode: config.mode }).await();
+    await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
     await this.extensions.attach(ctx, config);
+    if (config.personal) await ctx.plugin(PersonalTools, config).await();
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;
@@ -146,7 +165,7 @@ export class ConfigurationScopes extends Service {
     // The native Agent restriction and prompt view still apply its exact choices.
     const configs = [...this.allConfigurations()].filter(config => config.agentId === scope.agentId);
     for (const [key, plugin] of [['intelligent_ui', IntelligentUI], ['memory_curation', MemoryCuration], ['skill_creation', SkillCreation], ['task_graph', TaskGraphs], ['heartbeat', Heartbeat]] as const) {
-      const enabled = configs.some(config => key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false);
+      const enabled = configs.some(config => (key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false));
       const existing = scope.features.get(key);
       if (!enabled && existing) { await existing.dispose(); scope.features.delete(key); }
       if (enabled && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId }); await fiber.await(); scope.features.set(key, fiber); }

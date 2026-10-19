@@ -12,9 +12,16 @@ interface Connection {
   image(messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }>;
   updateCard(messageId: string, card: Record<string, unknown>): Promise<void>;
 }
+export interface ExternalDelivery {
+  agentId:string; target:string; shadowId?:string; appId:string; sourceId:string; chatId:string;
+  text:string; card?:Record<string,unknown>; operationId:string; incidentRef?:string;
+  dispatch(text:string,card?:Record<string,unknown>):Promise<string>;
+}
 interface Options {
   nodeId: string; ownerId: string; store: NodeStore;
   runtimeFooter?: boolean;
+  personalAgent?(agentId:string):boolean;
+  personalDelivery?(delivery:ExternalDelivery):Promise<string|undefined>;
   attention?(input: RelayInput): boolean;
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   im(path: string, options?: RequestInit): Promise<unknown>;
@@ -81,6 +88,10 @@ export class ExternalChannels {
     }
     for (const attachment of row.input.message.attachments) attachment.content_type = this.state.image(attachment.url, chat.agentId)!.mediaType;
     this.state.updateInput(id, row.message, row.input);
+    if(this.options.personalAgent?.(chat.agentId)) {
+      if(!this.ready)throw new Error('Personal source authority requires the center');
+      await this.flush();
+    }
     await this.options.receive(row.input); this.state.accept(id);
     void this.flush().catch(this.options.onError);
   }
@@ -110,6 +121,12 @@ export class ExternalChannels {
         return ack(type, { message_id: this.state.output(output.id)!.platformId });
       }
     }
+    if(['pa.source.admit','pa.incident.report'].includes(type) && String(payload.source_message_id).startsWith('external:')) {
+      const source=this.state.inbound().find(row=>row.id===payload.source_message_id&&row.input.agent_id===payload.agent_id);
+      const chat=source?this.state.chat(source.chatId):undefined;
+      if(!source?.mirror||!chat?.shadowId)throw new Error('Personal source is not yet synchronized');
+      return this.options.relay.request(type,{...payload,source_message_id:source.mirror,conversation_id:chat.shadowId});
+    }
     if (type === 'task_graph.command' && ['create', 'apply', 'delete'].includes(String(payload.action)) && String(payload.source_message_id).startsWith('external:')) {
       const source = this.state.inbound().find(row => row.id === payload.source_message_id && row.input.agent_id === payload.agent_id);
       if (!source?.mirror) return { type: 'task_graph.result', payload: { request_id: payload.request_id, ok: false,
@@ -126,7 +143,7 @@ export class ExternalChannels {
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
         this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, delivery_status: 'completed' };
+        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -170,9 +187,19 @@ export class ExternalChannels {
       if (current.state === 'unknown') throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown');
       const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId);
       if (!connection || connection.config.appId !== chat.appId) throw new Error('External app is unavailable');
-      this.state.settle(output.id, 'sending');
-      try { const messageId = await connection.send(chat.chatId, text, output.operationId, this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined); this.state.settle(output.id, 'confirmed', messageId); }
-      catch { this.state.settle(output.id, 'unknown'); throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown'); }
+      const card = this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined;
+      const dispatch=async(body:string,frozenCard?:Record<string,unknown>)=>{
+        this.state.settle(output.id,'sending');
+        try { const id=await connection.send(chat.chatId,body,output.operationId,frozenCard);this.state.settle(output.id,'confirmed',id);return id; }
+        catch {this.state.settle(output.id,'unknown');throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated','unknown');}
+      };
+      if(this.options.personalAgent?.(chat.agentId)) {
+        if(!this.options.personalDelivery)throw new Error('Personal delivery adapter unavailable');
+        const id=await this.options.personalDelivery({agentId:chat.agentId,target:chat.id,shadowId:chat.shadowId,appId:chat.appId,sourceId:chat.sourceId,chatId:chat.chatId,
+          text,card,operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,dispatch});
+        if(!id)throw new Error('Personal delivery has no provider receipt');
+        this.state.settle(output.id,'confirmed',id);
+      } else await dispatch(text,card);
     })().finally(() => this.dispatches.delete(output.id));
     this.dispatches.set(output.id, task); return task;
   }
@@ -218,11 +245,11 @@ export class ExternalChannels {
           const image = this.state.image(attachment.url, chat.agentId)!;
           if (image.uploaded) attachments.push(JSON.parse(image.uploaded));
           else {
-            const uploaded = await this.options.im(`/im/v1/uploads?conversation_id=${encodeURIComponent(chat.shadowId!)}&agent_id=${encodeURIComponent(chat.agentId)}&file_name=image.png`, { method: 'POST', headers: { 'Content-Type': image.mediaType }, body: new Uint8Array(image.data) });
+            const uploaded = await this.options.im(`/im/v1/uploads?conversation_id=${encodeURIComponent(chat.shadowId!)}&agent_id=${encodeURIComponent(chat.agentId)}&file_name=image.png${this.options.personalAgent?.(chat.agentId)?'&external_incoming=1':''}`, { method: 'POST', headers: { 'Content-Type': image.mediaType }, body: new Uint8Array(image.data) });
             this.state.uploaded(attachment.url, uploaded); attachments.push(uploaded);
           }
         }
-        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/messages?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
+        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/${this.options.personalAgent?.(chat.agentId)?'external-incoming':'messages'}?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
           content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
       }
@@ -249,7 +276,7 @@ export class ExternalChannels {
   }
   private async approval(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;
-    if (!connection.config.ownerOpenId) return;
+    if (this.options.personalAgent?.(chat.agentId) || !connection.config.ownerOpenId) return;
     const request = payload.permission_request as Record<string, unknown>; const id = String(request.request_id);
     const prior = this.state.approvals().find(row => row.requestId === id); if (prior) return;
     this.state.approval(id, output.id, request);

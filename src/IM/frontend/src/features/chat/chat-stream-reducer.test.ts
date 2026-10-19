@@ -873,3 +873,26 @@ describe("chat-stream-reducer", () => {
     });
   });
 });
+
+it('preserves authenticated PA delegation across realtime creation, reconciliation, and history merge',()=>{
+ const delegation={agent_id:'pa',authorized_by:'owner',display_name:'Aster',label:'Owner’s PA · Sent on behalf'};
+ const created:WsEvent={type:'message.created',conversation_id:'c1',message_id:'delegated',sender_user_id:'pa-user',sender_type:'agent',content:'Thursday works.',tool_calls:[],token_usage:null,delivery_status:'completed',created_at:'2026-10-19T00:00:00Z',delegation};
+ const first=applyWsEvent({...emptyConversationState,conversation_id:'c1'},created);
+ expect(first.messages[0].delegation).toEqual(delegation);
+ const second=applyWsEvent(first,{...created,type:'message.reconciled',delivery_status:'completed',attachments:[],thinking:[],elapsed_ms:null,kernel_message_id:null});
+ expect(second.messages[0].delegation).toEqual(delegation);
+ expect(second.messages[0].sender.type).toBe('agent');
+ expect(second.messages).toHaveLength(1);
+});
+
+
+it.each(['message.created', 'message.reconciled'] as const)('retains reply draft routing in %s events', type => {
+  const reply_draft = {target_conversation_id:'original', source_message_id:'source', field_name:'$reply', possible_stale:true};
+  const event = toChatWsEvent(type, {
+    conversation_id:'c1',message_id:'card',sender_user_id:'agent:a1',sender_type:'agent',content:'Reply draft',
+    attachments:[],tool_calls:[],thinking:[],token_usage:null,delivery_status:'completed',created_at:'2026-10-19T08:00:00Z',
+    elapsed_ms:null,kernel_message_id:null,reply_draft,
+  });
+  const next = applyWsEvent({...emptyConversationState,conversation_id:'c1'},event!);
+  expect(next.messages[0].reply_draft).toEqual(reply_draft);
+});

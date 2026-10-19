@@ -1531,5 +1531,82 @@
     "title": "Computers",
     "summary_one": "{{total}} computer · {{online}} online",
     "summary_other": "{{total}} computers · {{online}} online"
+  },
+  "pa": {
+    "firstChatTitle": "Start with something small",
+    "firstChatHint": "Choose an example and make it yours. Clicking fills the message box without sending.",
+    "examples": {
+      "planWeek": "Help me plan my study time and breaks this week.",
+      "startExercise": "I want to exercise three times a week. Help me make a beginner plan.",
+      "findNextStep": "I keep putting a few things off. Help me figure out my next step."
+    },
+    "useDraft": "Use in original chat",
+    "draftStale": "You have already replied in the original chat. This draft may be out of date.",
+    "replaceDraft": "The original chat has an unsent draft. Replace it with this reply? Cancel to keep your existing draft.",
+    "return": "← Back to personal assistant",
+    "create": "My personal assistant",
+    "role": "Personal assistant · Following through",
+    "start": "Give it a name and get started",
+    "settings": "Personal assistant settings",
+    "returnSource": "← Back to previous chat",
+    "retry": "Personal assistant unavailable · Retry",
+    "label": "Personal assistant",
+    "noOtherChats": "No other conversations",
+    "privacy": {
+      "title": "Privacy protection",
+      "protected": "Blocked",
+      "expand": "View",
+      "collapse": "Hide",
+      "intro": "Nothing to do. Your assistant declined these requests.",
+      "requests_one": "{{count}} request",
+      "requests_other": "{{count}} requests",
+      "evidence": "Reasons and records",
+      "source": "View original message",
+      "dismiss": "Got it",
+      "options": "Future requests",
+      "optionsHint": "Requests are still checked. Blocking stops direct requests; shared group messages remain visible with a risk reminder. Your own chats are unaffected.",
+      "misunderstanding": "Mark as misunderstanding",
+      "block": "Block direct requests",
+      "saving": "Saving…",
+      "error": "Could not save all changes. The remaining notices are still here; please try again.",
+      "saved": {
+        "dismiss": "Notices dismissed. Privacy protection stays on.",
+        "misunderstanding": "Marked as a misunderstanding. Future requests will still be checked.",
+        "block": "Direct requests blocked. Group collaboration continues with a risk reminder."
+      },
+      "contacts_one": "{{count}} person",
+      "contacts_other": "{{count}} people"
+    },
+    "configuration": {
+      "accessTitle": "Chat access",
+      "accessHelp": "Your assistant can look up conversations you participated in and can still access. Exclude any chats you want to keep out of its reach.",
+      "exclusions": "Excluded chats · {{count}}",
+      "search": "Find a chat",
+      "loading": "Loading chats…",
+      "loadError": "Could not load these settings. Please retry.",
+      "retry": "Retry",
+      "noChats": "No matching chats",
+      "immediate": "Checked chats are excluded immediately. Your assistant stops receiving new messages and looking up history there; previously read content is not erased. Uncheck to restore access.",
+      "saving": "Saving…",
+      "saved": "Changes applied",
+      "saveError": "The change was not saved. Please retry.",
+      "moveTitle": "Change working computer",
+      "moveHelp": "Keep the same assistant and chat. The previous computer stops acting for you. Local private history is not copied; your assistant reloads sources it can still access.",
+      "computer": "Computer",
+      "chooseComputer": "Choose another online computer",
+      "move": "Continue on this computer",
+      "saveBeforeMove": "Save or discard your configuration changes before changing computers."
+    },
+    "blocked": {
+      "title": "Blocked contacts",
+      "help": "Direct requests from these people are blocked. Shared group messages still reach your assistant with a risk reminder. Your own chats are unaffected.",
+      "loading": "Loading contacts…",
+      "empty": "No blocked contacts",
+      "unblock": "Unblock",
+      "unblocking": "Unblocking…",
+      "notice": "View risk notice",
+      "privateSource": "You are not a member of the original chat. You can view the risk notice your assistant sent you.",
+      "restored": "Contact unblocked. Future requests will be checked normally."
+    }
   }
 }

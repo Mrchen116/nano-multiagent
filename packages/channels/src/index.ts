@@ -228,7 +228,8 @@ export class WebRelayConnection {
     if (pending && this.matches(pending.frame, frame)) {
       clearTimeout(pending.timer); this.active = undefined;
       if (frame.type === 'error') {
-        pending.reject(new RelayDeliveryError('IM rejected the request', 'rejected', String(frame.payload.code ?? 'error')));
+        const code = String(frame.payload.code ?? 'error');
+        pending.reject(new RelayDeliveryError(`IM rejected the request: ${code}`, 'rejected', code));
         if (pending.frame.type === 'node.register' || pending.frame.type === 'node.heartbeat') {
           this.disconnect(generation, false, 'IM rejected control frame'); return;
         }
@@ -241,11 +242,11 @@ export class WebRelayConnection {
   }
   private matches(sent: ProtocolFrame, received: ProtocolFrame): boolean {
     if (received.type === 'error') {
-      const key = results[sent.type]?.[1];
+      const key = sent.type.startsWith('pa.') ? 'request_id' : results[sent.type]?.[1];
       return (received.payload.message_type === undefined || received.payload.message_type === sent.type)
         && (!key || received.payload[key] === undefined || received.payload[key] === sent.payload[key]);
     }
-    const typed = results[sent.type];
+    const typed = sent.type.startsWith('pa.') ? [`${sent.type}.result`, 'request_id'] : results[sent.type];
     if (typed) {
       const [type, key] = typed;
       return received.type === type && sent.payload[key] !== undefined && received.payload[key] === sent.payload[key];

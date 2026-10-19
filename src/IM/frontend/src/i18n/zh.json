@@ -1523,5 +1523,80 @@
     },
     "agentRecoveryInstructions": "请帮我恢复这台电脑上的 Nano。先等待当前任务结束，再运行此服务提供的恢复命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认时由我操作，不要索取密码或模型密钥。",
     "title": "电脑"
+  },
+  "pa": {
+    "firstChatTitle": "从一件小事开始",
+    "firstChatHint": "选一个例子，改成你的想法。点击只填入输入框，不会发送。",
+    "examples": {
+      "planWeek": "帮我安排这周的学习和休息。",
+      "startExercise": "我想每周运动三次，帮我制定一个入门计划。",
+      "findNextStep": "我有几件事总在拖延，帮我理清下一步。"
+    },
+    "useDraft": "在原聊天使用",
+    "draftStale": "你已在原聊天回复过，这份草稿可能已过时。",
+    "replaceDraft": "原聊天已有未发送内容。要用这份草稿替换吗？取消将保留原内容。",
+    "return": "← 返回个人助手",
+    "create": "我的个人助手",
+    "role": "个人助手 · 持续替你跟进",
+    "start": "给它一个名字，开始合作",
+    "settings": "个人助手设置",
+    "returnSource": "← 返回刚才的聊天",
+    "retry": "个人助手暂不可用 · 重试",
+    "label": "个人助手",
+    "noOtherChats": "没有其他聊天",
+    "privacy": {
+      "title": "隐私保护",
+      "protected": "已拦截",
+      "expand": "查看",
+      "collapse": "收起",
+      "intro": "这些请求已被助手拒绝，你无需处理。",
+      "requests": "{{count}} 次请求",
+      "evidence": "查看原因与记录",
+      "source": "查看原消息",
+      "dismiss": "知道了",
+      "options": "后续协作",
+      "optionsHint": "默认继续正常协作，每次请求仍会检查。屏蔽后拒收私聊请求，共同群聊仍接收并提示风险，不影响你与对方聊天。",
+      "misunderstanding": "标记为误会",
+      "block": "屏蔽此人的私聊请求",
+      "saving": "正在保存…",
+      "error": "部分操作未保存，未完成的提醒仍在这里，请重试。",
+      "saved": {
+        "dismiss": "已收起提醒，隐私保护继续生效。",
+        "misunderstanding": "已标记为误会，后续请求仍会正常检查。",
+        "block": "已屏蔽私聊请求；共同群聊仍可协作，助手会留意相关风险。"
+      },
+      "contacts": "{{count}} 位联系人"
+    },
+    "configuration": {
+      "accessTitle": "聊天访问",
+      "accessHelp": "助手可以按需查询你有权查看的已参与聊天。你可以排除不想让它查看的聊天。",
+      "exclusions": "不让助手查看的聊天 · {{count}}",
+      "search": "查找聊天",
+      "loading": "正在加载聊天…",
+      "loadError": "暂时无法加载，请重试。",
+      "retry": "重试",
+      "noChats": "没有匹配的聊天",
+      "immediate": "勾选即排除，更改立即生效。排除后不再接收该聊天的新消息或查询历史；不会抹除已读内容。取消勾选可恢复访问。",
+      "saving": "正在保存…",
+      "saved": "已生效",
+      "saveError": "更改尚未保存成功，请重试。",
+      "moveTitle": "更换工作电脑",
+      "moveHelp": "保留同一个助手和聊天，旧电脑停止替你行动。本地私人历史不会自动复制，助手会重新读取仍获准的资料。",
+      "computer": "工作电脑",
+      "chooseComputer": "选择另一台在线电脑",
+      "move": "在这台电脑继续",
+      "saveBeforeMove": "请先保存或撤销配置修改，再更换工作电脑。"
+    },
+    "blocked": {
+      "title": "已屏蔽联系人",
+      "help": "拒收这些人的私聊请求。共同群聊仍正常接收，助手会留意相关风险；你与他们的聊天不受影响。",
+      "loading": "正在加载联系人…",
+      "empty": "暂无被屏蔽的联系人",
+      "unblock": "解除屏蔽",
+      "unblocking": "正在解除…",
+      "notice": "查看风险记录",
+      "privateSource": "你不是原聊天的成员，可查看助手已发给你的风险记录。",
+      "restored": "已解除屏蔽，后续请求恢复正常检查。"
+    }
   }
 }

@@ -1,4 +1,5 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
+import { personalEvidenceMessages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
@@ -41,6 +42,7 @@ import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 
 export interface AgentConfiguration {
+  personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
   workspace?: string;
   revision: string;
@@ -171,6 +173,7 @@ export default class NanoRuntime {
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
       const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
+      if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
@@ -243,7 +246,10 @@ export default class NanoRuntime {
       await ctx.loader.await();
       configurationService.packageManager(config.packageManager);
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
+      const personal = config.agents.filter(agent => agent.personal);
+      if (personal.length && (config.agents.length !== 1 || config.bindings.some(binding => binding.agentId !== personal[0]!.agentId || binding.ownerId !== personal[0]!.personal!.ownerId))) throw new RpcError(-32002, 'Personal runtime must contain only its trusted binding');
       for (const agent of config.agents) {
+        assertPersonalConfiguration(agent);
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
         const revisions = new Set([agent.revision, ...config.bindings.filter(binding => binding.agentId === agent.agentId).map(binding => binding.revision)]);
         // Existing Sessions retain their native preset identity while receiving
@@ -276,6 +282,7 @@ export default class NanoRuntime {
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
     });
     const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false) => {
+      assertPersonalConfiguration(requested);
       const previewId = `preview-${randomUUID()}`;
       const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
       const preset = `nano:${previewId}:preview`;
@@ -419,12 +426,48 @@ export default class NanoRuntime {
       answer(decision, reason);
       return { answered: true };
     });
+    handle('pa.evidence', async value => {
+      const {agentId,sessionId} = value as {agentId:string;sessionId:string};
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config?.personal) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const agent = this.bindings.has(sessionId) ? await this.agent(sessionId) : ctx.agents.get(SessionId(sessionId));
+      if (!agent) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const lineage = [agent];
+      let root = agent;
+      // Native children share the product identity, but their own evidence and
+      // delegation context must both reach the disclosure reviewer.
+      while (!this.bindings.has(root.id) && root.session.header.parentSession) {
+        const parent = ctx.agents.get(root.session.header.parentSession);
+        if (!parent) throw new RpcError(-32004,'Unknown personal evidence binding');
+        lineage.push(parent);
+        root = parent;
+      }
+      if (this.bindings.get(root.id)?.agentId !== agentId) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const evidence = await Promise.all(lineage.map(async scope => {
+        const assembly = await ctx.systemPrompt.assemble({scope});
+        return {sessionId:scope.id,messages:personalEvidenceMessages(scope),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
+      }));
+      return {...evidence[0],rootSessionId:root.id,ancestors:evidence.slice(1)};
+    });
+    handle('pa.review', async value => {
+      const {agentId,kind,evidence} = value as {agentId:string;kind:string;evidence:unknown};
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config?.personal) throw new RpcError(-32004, 'Unknown personal Agent');
+      return reviewPersonal(ctx,config,kind,evidence);
+    });
     handle('configuration.apply', async value => {
       const next = value as AgentConfiguration;
+      assertPersonalConfiguration(next);
+      const host = [...this.configurations.values()][0];
+      if (host && (Boolean(host.personal) !== Boolean(next.personal) || host.personal && (host.agentId !== next.agentId || JSON.stringify(host.personal) !== JSON.stringify(next.personal)))) throw new RpcError(-32002, 'Configuration cannot change runtime partition');
       await ctx.llm.resolveModelInfo(next.provider, next.model);
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
       if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
-      if (previous) {
+      // A display-name revision does not change execution and must not wait for a long-running goal.
+      const scopes = await configuration, modelPolicy = await models;
+      const metadataOnly = previous && scopes.applyRevisionOnly(next);
+      if (metadataOnly) await modelPolicy.advanceRevision(next);
+      if (previous && !metadataOnly) {
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
@@ -517,6 +560,8 @@ export default class NanoRuntime {
     const previous = this.bindings.get(binding.sessionId);
     if (previous && JSON.stringify(previous) !== JSON.stringify(binding)) throw new RpcError(-32002, 'Session binding conflict');
     const preset = `nano:${binding.agentId}:${binding.revision}`;
+    const config = this.configurations.get(preset);
+    if (config?.personal && (binding.ownerId !== config.personal.ownerId || binding.cwd !== config.workspace)) throw new RpcError(-32004, 'Personal Session must retain its owner and private workspace');
     if (!this.configurations.has(preset)) throw new RpcError(-32002, 'Unknown configuration revision');
     this.bindings.set(binding.sessionId, binding);
     await (await this.sessionController).create({ sessionId: SessionId(binding.sessionId), cwd: binding.cwd, agentPreset: preset });

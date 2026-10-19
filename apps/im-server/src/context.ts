@@ -16,6 +16,7 @@ export interface ImContext {
   gateway: Gateway;
   messaging: Messaging;
   updates?: NodeUpdates;
+  personal?: import("./personal-agent.js").PersonalAgents;
 }
 export function fail(statusCode: number, detail: string | Row): never {
   throw Object.assign(

@@ -63,7 +63,7 @@ const libraryPrompt = interactiveLibrary.prompt({
     'For edits, send interactive.source_mode="patch" with supersedes_message_id and changed statements, or send a full new source. New versions retain the original publicly readable history.',
     'After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses it because the interactive reply is already delivered. Never end with an empty response.',
   ],
-});
+}).replace('as the third Form argument', 'as the second Form argument'); // Match the published Form schema; upstream prose has the wrong position.
 
 export const interactiveCompositionGuide = '\n## Composition examples\n\n' + compositionExamples.map(example =>
   `### ${example.title}\n${example.intent}\n\n\`\`\`openui\n${example.source}\n\`\`\``,

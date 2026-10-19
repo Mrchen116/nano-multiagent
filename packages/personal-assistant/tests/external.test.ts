@@ -145,3 +145,16 @@ it('never reports completed before the platform response and preserves unknown o
     expect(sends).toBe(1);
   } finally { await external.stop(); store.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+it('authenticates a personal channel input through its persisted IM source before admission',async()=>{
+ const store=new NodeStore(':memory:','owner'),calls:{type:string;payload:any}[]=[];let external:ExternalChannels;
+ external=new ExternalChannels(':memory:',{nodeId:'node',ownerId:'owner',store,personalAgent:()=>true,
+  relay:{ready:true,request:async(type,payload)=>{calls.push({type,payload});return {type:type+'.result',payload:{ok:true,result:{allowed:true}}};}},
+  im:async(path)=>({id:path.endsWith('find-or-create')?'shadow-chat':'shadow-message'}),
+  receive:async input=>{await external.request('pa.source.admit',{agent_id:input.agent_id,source_message_id:input.message.id,conversation_id:input.conversation_id});},permission:async()=>{},onError:error=>{throw error;}});
+ external.add('pa',{config:{appId:'app'},send:async()=>'',thinking:async()=>undefined,image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}});
+ try {
+  await external.receive('pa',{messageId:'m',chatId:'dm',senderId:'peer',isGroup:false,mentioned:false,time:'1000',parts:[{type:'text',text:'Hello'}]});
+  expect(calls).toContainEqual({type:'pa.source.admit',payload:{agent_id:'pa',source_message_id:'shadow-message',conversation_id:'shadow-chat'}});
+ }finally{await external.stop();store.close();}
+});

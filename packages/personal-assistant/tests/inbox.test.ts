@@ -79,3 +79,17 @@ it('renders a message in its captured user timezone without changing its histori
     });
   } finally { store.close(); }
 });
+
+it('wakes for new input after clearing the newest source, including after reopening', () => {
+  const dir=mkdtempSync(join(tmpdir(),'nano-inbox-revoke-'));
+  let store=new InboxStore(join(dir,'inbox.sqlite3'));
+  try {
+    store.receive(input('old','Old source'),true);
+    store.admitWake('alice',store.wakePending('alice')!);
+    store.revokeSource('alice','group-a');
+    store.close();store=new InboxStore(join(dir,'inbox.sqlite3'));
+    store.receive(input('new','New direct instruction','owner'),true);
+    expect(store.wakePending('alice')).toBeDefined();
+    expect(JSON.stringify(store.read('alice','main','read',{target:'owner'}))).toContain('New direct instruction');
+  } finally {store.close();rmSync(dir,{recursive:true});}
+});

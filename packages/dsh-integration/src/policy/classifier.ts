@@ -2,7 +2,7 @@ import { BlockAssembler, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { Context } from '@deepseek-ai/cordis';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
-import { inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions } from './sources.js';
+import { inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions, personalAuthorizationInstructions } from './sources.js';
 import type { ApprovalReviewRequest, ApprovalReviewResult } from './types.js';
 
 /** Existing pinned CC two-stage and legacy DSH one-stage classification. */
@@ -11,9 +11,9 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
   const agent = exec.agent!; const policy = config.approval!;
   let decision: ReviewDecision | undefined; let usage: unknown;
   const prompt = await buildPolicy(policy, agent.session.header.cwd!);
-  const transcript = await sources.transcript(agent, exec, inherited, messageContext, config.mode !== 'global');
+  const transcript = await sources.transcript(agent, exec, inherited, messageContext, config.mode !== 'global',request.personalAuthorization);
   const model = await ctx.llm.resolveModelInfo(reviewer.provider, reviewer.model, exec.signal);
-  const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`;
+  const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}${request.personalAuthorization ? `\n\n${personalAuthorizationInstructions}` : ''}`;
   for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
     const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
     const assembly = new BlockAssembler();

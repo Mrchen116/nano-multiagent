@@ -17,6 +17,7 @@ import {
 export function registerConversationActions(app: FastifyInstance, ctx: ImContext) {
   const s = ctx.messaging,
     db = ctx.db;
+  app.post("/im/v1/conversations/:conversation_id/external-incoming",req=>s.incomingExternal(req));
   app.post("/im/v1/conversations/external/find-or-create", (req, reply) => {
     const p = s.principal(req),
       b = body(req);

@@ -369,7 +369,8 @@ const fields: Obj = {
 };
 /** Persist graph documents and replay receipts in the same synchronous transaction. */
 export class TaskGraphService {
-  constructor(private db: DatabaseSync, private messaging: Messaging) {}
+  constructor(private db: DatabaseSync, private messaging: Messaging,
+    private personalRead?: {ownerUserId:string; agentUserId:string; sourceAllowed:(conversationId:string)=>boolean}) {}
   private row(sql: string, ...args: any[]): Obj | undefined {
     return this.db.prepare(sql).get(...args) as Obj | undefined;
   }
@@ -377,7 +378,8 @@ export class TaskGraphService {
     return this.db.prepare(sql).all(...args) as Obj[];
   }
   private chat(id: string | null | undefined, user: string) {
-    return id ? conversationAccess(this.db, id, user) : undefined;
+    return id && (!this.personalRead || this.personalRead.sourceAllowed(id))
+      ? conversationAccess(this.db,id,user) ?? (this.personalRead ? conversationAccess(this.db,id,this.personalRead.agentUserId) : undefined) : undefined;
   }
   private writable(id: string, user: string) {
     const c = this.chat(id, user);
@@ -405,7 +407,9 @@ export class TaskGraphService {
   private projection(doc: Obj, user: string, actor: Obj): Obj {
     const c = this.chat(doc.conversation_id, user);
     if (!c) forbidden();
-    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:c.can_write};
+    // Query mode does not revoke mutation rights; shared PA writes still use reviewed delivery.
+    const canWrite = c.can_write || (!!this.personalRead && !!conversationAccess(this.db, doc.conversation_id, this.personalRead.agentUserId)?.can_write);
+    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:canWrite};
   }
 
   private source(id: string, user: string) {
@@ -415,7 +419,7 @@ export class TaskGraphService {
       id,
     );
   }
-  execute(actor: TaskGraphActor, action: string, args: Obj): Obj {
+  private validateCommand(action:string,args:Obj):void {
     if (
       !fields[action] ||
       !args ||
@@ -425,7 +429,11 @@ export class TaskGraphService {
       fail("invalid_arguments", "Unknown action or argument fields");
     if (Buffer.byteLength(JSON.stringify(args)) > 2 * 1024 * 1024)
       fail("invalid_arguments", "Request exceeds 2 MiB");
+  }
+  execute(actor: TaskGraphActor, action: string, args: Obj): Obj {
+    this.validateCommand(action,args);
     const write = ["create", "apply", "delete"].includes(action);
+    if (write && this.personalRead) forbidden();
     if (!["user", "agent"].includes(actor.kind)) forbidden();
     const notices: Obj[] = [];
     let result: Obj;
@@ -441,12 +449,45 @@ export class TaskGraphService {
     try { this.messaging.publishMessages(notices); } catch { /* Durable events and relay are replayed. */ }
     return result!;
   }
+  /** Read as the authenticated owner, filtering sources before projection and pagination.
+   *
+   * Args:
+   *   actor: Gateway-authenticated current PA identity.
+   *   ownerUserId: Owner resolved from the current personal binding.
+   *   action: Read-only task action.
+   *   args: Validated task query arguments.
+   *   sourceAllowed: Current personal source policy, also applied to linked provenance.
+   */
+  readPersonal(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,sourceAllowed:(id:string)=>boolean):Obj {
+    if(!['get','list','activity'].includes(action)) forbidden();
+    return new TaskGraphService(this.db,this.messaging,{ownerUserId,agentUserId:this.messaging.agentUser(actor.id).id,sourceAllowed}).execute(actor,action,args);
+  }
+  /** Execute the original reviewed task command, preserving native validation and PA attribution.
+   *
+   * Args:
+   *   actor: Authenticated PA whose binding is checked at commit.
+   *   ownerUserId: Current binding owner; never supplied by the main model.
+   *   action: Original native mutation action.
+   *   args: Entire frozen native argument object.
+   *   notices: Durable notices published after the caller's transaction commits.
+   */
+  executeDelegated(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,notices:Obj[]):Obj {
+    const binding=this.row("SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id WHERE b.agent_id=? AND b.node_id=? AND b.owner_user_id=? AND b.status='active' AND n.node_epoch=b.node_epoch AND n.owner_id=b.owner_id",actor.id,actor.node_id??null,ownerUserId);
+    if(!binding||actor.kind!=='agent'||!['create','apply','delete'].includes(action))forbidden();
+    this.validateCommand(action,args);
+    const conversation=action==='create'?args.conversation_id:this.row('SELECT conversation_id FROM task_graphs WHERE graph_id=?',args.graph_id)?.conversation_id;
+    const agentUser=this.row("SELECT id FROM users WHERE username=?",`agent:${actor.id}`)?.id;
+    const accessUser=conversationAccess(this.db,conversation,ownerUserId)?.can_write?ownerUserId:agentUser;
+    return this.executeTransaction(actor,action,args,true,notices,ownerUserId,accessUser);
+  }
   private executeTransaction(
     actor: TaskGraphActor,
     action: string,
     args: Obj,
     write: boolean,
     notices: Obj[],
+    delegatedOwner?: string,
+    delegatedAccessUser?: string,
   ): Obj {
     const p =
       actor.kind === "user"
@@ -460,7 +501,7 @@ export class TaskGraphService {
             actor.node_id ?? null,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
-    const user = p.id,
+    const user = this.personalRead?.ownerUserId ?? delegatedAccessUser ?? delegatedOwner ?? p.id,
       actorName = `${p.display_name} (${actor.id})`;
     const identity = {type:actor.kind,id:actor.id};
     if (action === "list") return this.list(user, identity, args);
@@ -663,14 +704,17 @@ export class TaskGraphService {
     }
     if (Buffer.byteLength(JSON.stringify(doc)) > 2 * 1024 * 1024)
       invalid("Graph document exceeds 2 MiB");
-    for (const n of doc.nodes) if (changed.includes(n.id)) n.provenance = provenance;
+    for (const n of doc.nodes) if (changed.includes(n.id)) {
+      n.provenance = provenance;
+      if(delegatedOwner)n.updated_by_actor={...identity,authorized_by:delegatedOwner};
+    }
     for (const n of doc.nodes) {
       const old = before?.nodes.find((x:Obj) => x.id === n.id);
       if (!old || !sameActor(old.assignee,n.assignee)) this.assignee(n.assignee, doc.conversation_id);
     }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
-      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, user, notice.content, notice.metadata));
+      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
     this.receipt(actorKey, key, hash, doc, result);
     if (chat)
       for (const id of changed)
@@ -708,7 +752,7 @@ export class TaskGraphService {
   }
   private list(user: string, actor: Obj, args: Obj) {
     const account = this.row("SELECT * FROM users WHERE id=?", user)!;
-    const spaces = (actor.type === "agent"
+    const spaces = (actor.type === "agent" && !this.personalRead
       ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
       : ["company:default", `personal:${account.owner_id}`]).filter(space=>canActorAccess(this.db,user,space));
     if (!spaces.length) return {items:[],total:0,next_cursor:null};
@@ -731,11 +775,11 @@ export class TaskGraphService {
     // ACL is applied before json_each: summaries and counts never include inaccessible trees.
     const rows = this.rows(`SELECT g.document_json,n.value AS node_json FROM task_graphs g
       JOIN conversations c ON c.id=g.conversation_id JOIN json_each(g.document_json,'$.nodes') n
-      WHERE c.space_id IN (${spaces.map(()=>"?").join(",")}) AND (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id=?) OR (c.type='group' AND c.visibility='public'))
+      WHERE c.space_id IN (${spaces.map(()=>"?").join(",")}) AND (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id IN (?,?)) OR (c.type='group' AND c.visibility='public'))
       AND ${filtered ? "json_extract(n.value,'$.assignee.type')=? AND json_extract(n.value,'$.assignee.id')=?" : "json_extract(n.value,'$.id')=json_extract(g.document_json,'$.root_node_id')"}
       AND ${statuses ? "json_extract(n.value,'$.status') IN ("+statuses.map(()=>"?").join(",")+")" : "1=1"}
-      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
-    const items = rows.map((r): Obj => {
+      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, this.personalRead?.agentUserId ?? user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
+    const items = rows.filter(r=>!this.personalRead || !!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
       const d = JSON.parse(r.document_json), n = JSON.parse(r.node_json);
       const path: Obj[] = [];
       for (let p = d.nodes.find((x:Obj)=>x.id===n.container_id); p; p=d.nodes.find((x:Obj)=>x.id===p.container_id)) path.unshift({id:p.id,title:p.title});

@@ -139,7 +139,7 @@ OptionCard(value: string, title: string, subtitle?: string, topContent?: Icon | 
 - OptionCards: larger selectable cards with title, subtitle and an optional Icon or Image on top. Use OptionCard references for each option.
 - For Form fields, define EACH FormControl as its own reference — do NOT inline all controls in one array. This allows progressive field-by-field streaming.
 - NEVER nest Form inside Form — each Form should be a standalone container.
-- Form requires explicit buttons. Always pass a Buttons(...) reference as the third Form argument.
+- Form requires explicit buttons. Always pass a Buttons(...) reference as the second Form argument.
 - rules is an optional object: {required: true, email: true, minLength: 8, maxLength: 100}
 - Available rules: required, email, min, max, minLength, maxLength, pattern, url, numeric
 - The renderer shows error messages automatically — do NOT generate error text in the UI

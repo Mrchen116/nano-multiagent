@@ -94,3 +94,8 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
   visit(root);
   return {state, fields};
 }
+
+/** Whether a draft navigation field names a declared top-level string state. */
+export function isInteractiveStringState(source:string,field:string):boolean {
+  return typeof parser.parse(source).stateDeclarations[field] === 'string';
+}

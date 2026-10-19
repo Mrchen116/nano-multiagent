@@ -1,0 +1,84 @@
+PASS Initial owner chat, fixed custom PA navigation and unverified banner
+PASS Source proactive work exists without manual forwarding
+PASS Blank name rejected without changing identity or owner draft
+PASS Long custom name and unchanged private conversation
+PASS Cancel rename keeps the saved name
+PASS Second rename updates group display, not identity
+PASS Reply editor survives cancel/back
+PASS Existing source text and attachment require a decision
+PASS Append preserves original draft and attachment, does not send
+PASS Undo restores previous draft
+PASS Unknown message result not shown sent
+PASS Receipt recovery commits same message once
+PASS Paused observer does not pretend to see owner reply
+PASS Resume merges latest handled state and avoids stale reminder
+PASS Exclusion stops source use before cleanup finishes
+PASS Cleanup only finishes on receipt
+PASS Explicit cleanup keeps source chat and task records
+PASS Task review shows exact result, target, state change and original owner
+PASS Authorized write keeps task identity and assignee with real PA attribution
+PASS Revision conflict blocks overwrite, preserves result draft
+PASS Late task result cannot write after source access loss
+PASS External native DM has no owner settings or private task data
+PASS External claimed permission and control text do not grant owner access or stop owner
+PASS Owner confirmation names requester, exact audience/content, purpose and one-time limit
+PASS Precise release draft survives leaving panel
+PASS Authorized response returns to original DM under same PA identity
+PASS Follow-up does not expand the earlier release
+PASS Changed group audience invalidates old confirmation
+PASS Reconfirmed group reply remains in original group
+PASS Expired permission does not send
+PASS Source revocation removes old release preview
+PASS Declining disclosure does not silently send a fallback message
+PASS Unknown release delivery is distinguishable from sent
+PASS Release delivery recovery uses single existing submission
+PASS Lost source suppresses preview and applying stale text
+PASS Initial creation validates name
+PASS Creation explains ongoing observation and native contact before activation
+PASS Setup back retains name and goal
+PASS Exiting onboarding preserves draft
+PASS Repeated create and uncertain receipt keep same operation, no duplicate
+PASS Offline retry does not invent completion
+PASS Reconnect resolves original create once
+PASS First message remains editable and unsent
+PASS Existing users get explicit PA setup with specialist preservation
+PASS Mobile navigation markup retains all five destinations
+PASS No browser, network, or product code execution evidence is claimed
+STATIC DOM CHECKS: 46 passed; no browser layout, screenshot, visual inspection, backend, security or real delivery verified.
+R1 static assertions: 13 passed; no visual/backend verification
+PASS blocked request retired
+PASS unblock cannot revive old approval
+PASS refresh cannot revive contact revoked
+PASS new message creates fresh request
+PASS unknown identity preserved
+PASS search actual payload visible
+PASS saved action draft persists
+PASS parameter change needs review
+PASS unknown does not invent completion
+PASS receipt recovers same operation
+PASS real actor and broad risk explicit
+PASS unavailable safe node does not fallback
+PASS offline keeps draft
+PASS broad result owner-only not shared
+PASS no implicit result reingestion
+PASS exact selected result explicit new input
+PASS cancel no new execution
+17 R2 static checks passed; not browser, backend, privacy or provider proof
+PASS unknown retained across switch
+PASS same operation recovered
+PASS running retained across switch
+PASS original completion retained
+PASS source lost precommit refuses
+PASS review cannot revive lost source
+PASS inflight revoke blocks callback
+PASS unknown contact revocation retains receipt
+PASS new request after old receipt
+9 R3 static checks passed; visual and real execution unverified
+PASS revoked unknown retains receipt entry
+PASS query preserves revoked scope
+PASS blocked contact unknown has owner query entry
+PASS new message queued while old unknown
+PASS receipt completion promotes queued request without resend
+PASS duplicate receipt does not duplicate request or message
+6 R4 static checks passed; not real receipts or visuals
+6 R5 static assertions passed; stale callback cannot mutate replacement request. No real delivery or visual validation.

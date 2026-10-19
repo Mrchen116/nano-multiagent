@@ -1,6 +1,10 @@
+import type { PersonalAgentIdentity } from './personal-agent.js';
+export * from './personal-agent.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
+  /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
+  personal?: PersonalAgentIdentity;
   revision: string;
   workspace: string;
   mode: 'single_thread' | 'global';
@@ -57,6 +61,8 @@ export interface RuntimeEvent {
 export interface RuntimePort {
   request(method: string, params: unknown): Promise<unknown>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
+  /** Capture the current host generation for one asynchronous reconciliation. */
+  capture?(): RuntimePort;
 }
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 

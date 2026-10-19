@@ -1,0 +1,18 @@
+[
+  {
+    "file": "packages/personal-assistant/src/external.ts",
+    "line": 93,
+    "summary": "[P1] Personal Channels input cannot pass the newly mandatory shadow flush",
+    "failure_scenario": "The new personal admission path awaits flush before receive, but flush mirrors each inbound message through POST /conversations/:shadow/messages using sender_type=user. The real Messaging.sendMessage first calls access(write), which rejects every noncanonical PA conversation with personal_reviewed_delivery_required; its following PA sender guard would also reject the external user mirror with owner_identity_cannot_be_delegated. Independently composed the real ExternalChannels with the real Messaging.sendMessage and a valid PA binding: a normal Feishu DM rejected personal_reviewed_delivery_required and product receive ran zero times. The new test mocks the entire IM write and therefore misses this contract mismatch. Add a narrowly authenticated inbound-mirror adapter that verifies node/Agent/channel/source identity and persists the real external sender without granting arbitrary PA writes or owner impersonation.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "apps/im-server/src/personal-agent.ts",
+    "line": 42,
+    "summary": "[P1] The new external actor block identity is never checked at transport egress",
+    "failure_scenario": "sourceActor now stores external contact blocks as external:<shadow-conversation>:<sender-source-id>. PersonalActions.validate still compares blocks only against conversation_participants, which for an external shadow are the owner and PA, so it never sees that external actor. After blocking the sender, an existing authorized coordination goal can prepare a new Feishu action and obtain a sending permit; policy revision only invalidates older proposals and does not block these new ones. Independently reproduced using real PersonalActions and the canonical external block key: prepare/review/commit after the block returned sending. Resolve the transport's authenticated recipient into the same canonical external identity and enforce its current block at prepare/commit, including pending goal/incident sends, without treating the whole channel owner as the external sender.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]

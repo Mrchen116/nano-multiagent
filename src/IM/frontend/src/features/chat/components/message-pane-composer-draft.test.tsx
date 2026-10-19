@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode, type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import "../../../i18n";
+import { setLanguage } from "../../../i18n";
 import type { Conversation } from "../chat-types";
 import { forgetComposerConversation, restoreComposerMembership, type ComposerSnapshot } from "./composer-draft-store";
 import { MessagePane } from "./message-pane";
@@ -316,4 +316,44 @@ it("keeps failed files across chats and sends only text without consuming attach
   await user.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument());
   expect(screen.getByRole("button", { name: /^Send$/ })).toBeEnabled();
+});
+
+
+it("fills a first PA example without sending or replacing an existing draft", async () => {
+  setLanguage('en');
+  const onSend = vi.fn();
+  const {rerender} = render(pane(CONV_A, {personalAgent:true, personalStarterExamples:true, onSend}));
+  const example='Help me plan my study time and breaks this week.';
+  await userEvent.click(screen.getByRole('button',{name:example}));
+  expect(screen.getByRole('textbox')).toHaveValue(example);
+  expect(screen.getByRole('textbox')).toHaveFocus();
+  expect(onSend).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  await userEvent.type(screen.getByRole('textbox'),' Keep Friday free.');
+  rerender(pane(CONV_B));
+  expect(screen.queryByText('Start with something small')).not.toBeInTheDocument();
+  rerender(pane(CONV_A,{personalAgent:true,personalStarterExamples:true,onSend}));
+  expect(screen.getByRole('textbox')).toHaveValue(example+' Keep Friday free.');
+  expect(onSend).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button',{name:'Send'}));
+  await waitFor(()=>expect(onSend).toHaveBeenCalledTimes(1));
+});
+
+it("hides PA examples while an attachment is uploading or waiting to retry", async () => {
+  setLanguage('en');
+  let rejectUpload!: (reason: Error) => void;
+  const uploadAttachment = vi.fn(() => new Promise<{url:string}>((_resolve,reject) => { rejectUpload=reject; }));
+  render(pane(CONV_A,{personalStarterExamples:true,uploadAttachment}));
+  const example='Help me plan my study time and breaks this week.';
+  expect(screen.getByRole('button',{name:example})).toBeInTheDocument();
+  fireEvent.drop(screen.getByRole('textbox').closest('[data-dragging]')!,{
+    dataTransfer:{files:[new File(['img'],'first.png',{type:'image/png'})],types:['Files']}
+  });
+  await waitFor(()=>expect(uploadAttachment).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  await act(async()=>{rejectUpload(new Error('offline'));});
+  expect(screen.getByRole('button',{name:'Retry'})).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button',{name:'Remove first.png'}));
+  expect(screen.getByRole('button',{name:example})).toBeInTheDocument();
 });

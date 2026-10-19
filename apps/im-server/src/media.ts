@@ -124,7 +124,8 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
         q = query(req),
         cId = params(req)?.conversation_id ?? q.conversation_id,
         isImage = req.url.split("?")[0]!.endsWith("/images");
-      ctx.messaging.access(p, cId, q.agent_id, "write");
+      if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
+      else ctx.messaging.access(p, cId, q.agent_id, "write");
       const fileName = basename(String(q.file_name ?? "").trim()),
         key = isImage
           ? String(req.headers["idempotency-key"] ?? "").trim()
@@ -184,7 +185,8 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
         if (IMAGES.has(mime) && imageType(head) !== mime)
           fail(415, "image content does not match content type");
         const fresh = ctx.messaging.principal(req);
-        ctx.messaging.access(fresh, cId, q.agent_id, "write");
+        if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(fresh,cId,q.agent_id);
+        else ctx.messaging.access(fresh, cId, q.agent_id, "write");
         const digest = hash.digest("hex"),
           old = one(
             db,

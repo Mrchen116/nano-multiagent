@@ -33,8 +33,21 @@ export class InboxStore {
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
   }
   receive(input: RelayInput, attention: boolean): void {
-    this.db.prepare('INSERT OR IGNORE INTO inbox(agent_id,target,message_id,payload,attention) VALUES(?,?,?,?,?)')
+    // Source cleanup can remove the highest rowid; never reuse an admitted wake sequence.
+    this.db.prepare('INSERT OR IGNORE INTO inbox(seq,agent_id,target,message_id,payload,attention) VALUES((SELECT max(coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0))+1),?,?,?,?,?)')
       .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
+  }
+  /** Remove a revoked source from future reads and frozen page caches. */
+  revokeSource(agent: string, target: string): void {
+    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND target=?').all(agent,target) as {seq:number}[];
+    for(const {seq} of rows) {
+      this.db.prepare('DELETE FROM imported_parts WHERE seq=?').run(seq);
+      this.db.prepare('DELETE FROM fragments WHERE seq=?').run(seq);
+    }
+    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND target=?').run(agent,target);
+    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND json_extract(data,'$.target')=?").run(agent,target);
+    this.db.prepare("DELETE FROM reads WHERE json_extract(body,'$.target')=?").run(target);
+    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
   }
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare('SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND (? IS NULL OR target=?) ORDER BY seq').all(agent, target ?? null, target ?? null) as unknown as Entry[];
@@ -99,6 +112,8 @@ export class InboxStore {
         ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
       return { id: input.message.id, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
+        ...(input.metadata.personal_source_role ? {source_role:input.metadata.personal_source_role} : {}),
+        ...(input.metadata.personal_actor_risk ? {actor_risk:input.metadata.personal_actor_risk} : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = offset + selected.length;

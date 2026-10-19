@@ -62,7 +62,7 @@ export class ToolSelection {
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = state.config.mode === 'global' && agent.session.header.origin !== 'subagent'
-      ? ['inbox', 'conversations', 'send_message', 'subagent'] : [];
+      ? ['inbox', 'conversations', 'send_message', 'subagent', ...(state.config.personal ? ['personal_sources'] : [])] : [];
     state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
   }
 }

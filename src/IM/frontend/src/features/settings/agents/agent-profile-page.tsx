@@ -24,7 +24,7 @@ export function AgentProfilePage() {
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
   if (query.isPending) return <p>{t("common.loading")}</p>;
   if (query.isError || !agent) return <section className="im-agent-panel"><p role="alert">{t("agents.loadError")}</p><button onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
-  if (agent.owner_id === self) return <AgentDetailPage />;
+  if (agent.owner_id === self) return <AgentDetailPage personal={agent.role === "personal"} />;
   const work = agent.work_mode === "global" && params.get("view") === "work";
   return <div className="agents-overview">
     <AgentsRailDesktop activeId={agentId} />
@@ -97,7 +97,7 @@ export function AgentProfilePage() {
             <div>
               <h3 className="im-agent-card-title">{t("agents.publicProfile")}</h3>
               <p className="im-agent-card-sub">
-                {t("agents.mode")}: {t(agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}
+                {t("agents.mode")}: {t(agent.role === "personal" ? "pa.label" : agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}
               </p>
             </div>
             <dl className="im-agent-card-grid-2 im-agent-profile-details">

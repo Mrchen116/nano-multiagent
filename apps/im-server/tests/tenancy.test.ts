@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,6 +59,51 @@ it('registers a usable private account, keeps join explicit and never publishes 
   const fresh = await app.im.identity.login('alice', 'password-123');
   expect((await request(fresh.access_token, 'GET', '/im/v1/agents/private-a/work')).statusCode).toBe(200);
   expect((await request(fresh.access_token, 'GET', `/im/v1/task-graphs/${company.graph_id}`)).statusCode).toBe(404);
+});
+
+it('keeps the registered personal assistant and private history through company application and approval', async () => {
+  const { app, db, register, request } = await fixture();
+  const admin = await register('pa-admin');
+  app.im.identity.initializeCompany(admin.user.id);
+  const registration = await app.inject({ method: 'POST', url: '/im/v1/auth/register', payload: { username: 'pa-new-owner', password: 'password-123', display_name: 'New owner' } });
+  expect(registration.statusCode).toBe(201);
+  const owner = registration.json();
+  expect(owner.user.membership_status).toBe('none');
+  // Only the computer transport is substituted; account, creation and membership routes stay real.
+  db.prepare("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('pa-device',?,'Personal computer','online')").run(owner.user.owner_id);
+  db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('pa-device',?,1)").run(owner.user.owner_id);
+  let creations = 0;
+  vi.spyOn(app.im.gateway, 'request').mockImplementation(async (_node, method, payload: any) => {
+    if (method === 'node.capabilities.resolve') return { capabilities: { tools: [{ name: 'send_message', default_on: true }] } };
+    expect(method).toBe('agent.create');
+    creations++;
+    return { status: 'applied', operation_id: payload.operation_id, candidate_fingerprint: payload.candidate_fingerprint, agent: { ...payload.agent, workspace_root: '/private/new-owner-pa', workspace_is_default: true } };
+  });
+  const create = await request(owner.access_token, 'POST', '/im/v1/personal-agent', { request_key: 'first-personal-pa', node_id: 'pa-device', display_name: '小禾' });
+  expect(create.statusCode, create.body).toBe(201);
+  const binding = create.json().binding;
+  const original = app.im.messaging.insertMessage(binding.conversation_id, owner.user.id, 'user', '我的私人计划是周末学陶艺。', [], null);
+  const verifyIdentity = async () => {
+    expect((await request(owner.access_token, 'GET', '/im/v1/personal-agent')).json().binding).toEqual(binding);
+    const chat = (await request(owner.access_token, 'GET', `/im/v1/conversations/${binding.conversation_id}`)).json();
+    expect(chat).toMatchObject({ id: binding.conversation_id, space_id: `personal:${owner.user.owner_id}` });
+    const history = await request(owner.access_token, 'GET', `/im/v1/conversations/${binding.conversation_id}/messages`);
+    expect(history.statusCode).toBe(200);
+    expect(history.body).toContain(original.id);
+    expect(history.body).toContain('我的私人计划是周末学陶艺。');
+    for (const path of [`/im/v1/conversations/${binding.conversation_id}`, `/im/v1/agents/${binding.agent_id}/work`])
+      expect((await request(admin.access_token, 'GET', path)).statusCode, path).toBe(404);
+  };
+  await verifyIdentity();
+  expect((await request(owner.access_token, 'POST', '/im/v1/company/join', {})).json().membership_status).toBe('pending');
+  await verifyIdentity();
+  expect((await request(admin.access_token, 'POST', `/im/v1/company/members/${owner.user.id}/approve`, {})).statusCode).toBe(200);
+  expect((await request(owner.access_token, 'GET', '/im/v1/auth/me')).json().membership_status).toBe('active');
+  await verifyIdentity();
+  const reopened = await request(owner.access_token, 'POST', '/im/v1/personal-agent', { request_key: 'after-company-approval', node_id: 'pa-device', display_name: 'Do not replace' });
+  expect(reopened.json().binding).toEqual(binding);
+  expect(creations).toBe(1);
+  expect(db.prepare('SELECT COUNT(*) AS n FROM personal_agent_bindings WHERE owner_id=?').get(owner.user.owner_id)).toEqual({ n: 1 });
 });
 
 it('upgrades old rows once without activating pending or suspended accounts or changing resource identifiers', () => {

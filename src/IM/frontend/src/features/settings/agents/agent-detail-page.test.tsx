@@ -1021,7 +1021,7 @@ describe("feature tool linkage with an empty allowlist", () => {
 
     expect(patchBody.tool_allowlist).toEqual(["cron_tool"]);
     expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ["chat", "slash-candidates"],
+      queryKey: ["chat"],
     });
   });
 

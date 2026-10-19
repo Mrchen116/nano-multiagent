@@ -52,12 +52,18 @@ export class Work {
     )
       fail(409, "session_identity_conflict");
     if (p.scope === "global_main") {
+      if(old && JSON.parse(old.payload).retired)fail(409,"retired_main_session");
       const other = one(
         this.db,
-        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main'",
+        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
         root,
       );
-      if (other && other.session_id !== session) fail(409, "main_session_conflict");
+      if (other && other.session_id !== session) {
+        // Restoring a PA on its current device can replace execution context,
+        // while keeping the owner's old Work records available as history.
+        if(!one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND node_id=? AND status='active'",root,node))fail(409,"main_session_conflict");
+        this.db.prepare("UPDATE agent_work_sessions SET payload=json_set(payload,'$.retired',json('true')) WHERE session_id=?").run(other.session_id);
+      }
     }
     this.db
       .prepare(
@@ -165,7 +171,7 @@ export class Work {
       const users = all(
         this.db,
         "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id)).map((u) => u.id);
+      ).filter(u => {const personal=one(this.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",root);return (!personal||personal.owner_user_id===u.id)&&canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id);}).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
@@ -428,7 +434,7 @@ export class Work {
   }
   view(root: string, before?: string, limit = 20): Row {
     const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root),
-      main = sessions.find((s) => s.scope === "global_main")?.session_id ?? null;
+      main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const page = main ? this.turns(root, main, before, limit) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
@@ -463,7 +469,7 @@ export class Work {
       node_connection_state: online ? "online" : "offline",
       control_items: main ? this.items(root, main, "").items : [],
       other_executions: sessions
-        .filter((s) => s.scope !== "global_main")
+        .filter((s) => s.scope !== "global_main" || JSON.parse(s.payload).retired)
         .map((s) => {
           const x = { ...JSON.parse(s.payload), ...s };
           delete x.payload;
@@ -473,6 +479,8 @@ export class Work {
     };
   }
   query(c: Row, p: Row): Row {
+    p={...p,query:p.keyword??p.query};
+    if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
         this.db,
         "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0",
@@ -481,10 +489,10 @@ export class Work {
       );
     if (!agent || !agentAvailable(this.db, agent)) fail(403, "scope_not_allowed");
     // Single-thread sessions live on their node, not in the global Work journal.
-    // Both modes remain limited below to conversations containing this Agent.
+    // PA queries additionally intersect owner participation with current source access.
     if (agent.work_mode === "global") {
       const session = this.session(p.agent_id, p.session_id);
-      if (session.node_id !== c.node_id || session.scope !== "global_main")
+      if (session.node_id !== c.node_id || session.scope !== "global_main" || session.retired)
         fail(403, "scope_not_allowed");
     }
     const limit = p.limit ?? 20;
@@ -492,25 +500,34 @@ export class Work {
       !Number.isInteger(limit) ||
       limit < 1 ||
       limit > 50 ||
-      !["list", "read", "info", "describe", "resolve_target", "create", "join"].includes(p.action)
+      !["list", "read", "search", "info", "describe", "resolve_target", "create", "join"].includes(p.action)
     )
       fail(400, "invalid_arguments");
+    const personal = one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
+    if(personal) this.ctx.personal!.authority(c,p);
     const s = this.ctx.messaging,
-      uid = s.agentUser(p.agent_id).id,
-      conversations = s.conversations(uid,p.scope ?? "joined");
+      uid = personal?.owner_user_id ?? s.agentUser(p.agent_id).id,
+      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id),
+      conversations = personal ? this.ctx.personal!.sourceConversations(personal,p.scope??"joined").filter(r=>!r.excluded) : s.conversations(uid,p.scope ?? "joined");
+    const viewerFor=(id:string)=>personal&&!conversationAccess(this.db,id,uid)?s.agentUser(p.agent_id).id:uid;
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
     if (p.action === "resolve_target") {
       if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
+      if(personal) {
+        const target=p.target.replace(/^(conversation|user|agent):/, "");
+        const matches=conversations.filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
+        return {target:matches.length===1?matches[0]!.id:null};
+      }
       return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
     }
     if (p.action === "create") {
       if (p.type && p.type !== "group") fail(400,"Only group creation is supported here");
-      const created = s.createConversation({...user,kind:"agent"},{title:p.title,type:"group",visibility:p.visibility,participant_ids:p.participant_ids ?? []});
+      const created = s.createConversation({...qualifiedUser(this.db,s.agentUser(p.agent_id).id),kind:"agent"},{title:p.title,type:"group",visibility:p.visibility,participant_ids:p.participant_ids ?? []});
       return {target:created.id,name:created.title,conversation:created};
     }
     if (p.action === "join") {
-      const joined = s.joinConversation(uid,p.target);
+      const joined = s.joinConversation(s.agentUser(p.agent_id).id,p.target);
       return {target:joined.id,name:joined.title,conversation:joined};
     }
     const members = (id: string) =>
@@ -522,7 +539,7 @@ export class Work {
       }));
     if (p.action === "describe")
       return {
-        conversations: (p.targets ?? []).filter((id:string)=>!!conversationAccess(this.db,id,uid)).map((id:string)=>s.conversation(id,uid))
+        conversations: (p.targets ?? []).filter((id:string)=>sourceAllowed(id)&&!!conversationAccess(this.db,id,viewerFor(id))).map((id:string)=>s.conversation(id,viewerFor(id)))
           .map((r: Row) => ({
             target: r.id,
             name: r.title,
@@ -531,7 +548,7 @@ export class Work {
             participants: members(r.id),
           })),
       };
-    const target = p.target && conversationAccess(this.db,p.target,uid) ? s.conversation(p.target,uid) : undefined;
+    const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target)) : undefined;
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -553,6 +570,10 @@ export class Work {
       action: p.action,
       target: p.target ?? null,
       query: p.query ?? null,
+      participant_id: p.participant_id ?? null,
+      message_id: p.message_id ?? null,
+      before: p.before ?? null,
+      after: p.after ?? null,
       scope: p.scope ?? "joined",
     };
     let cursor: Row | undefined, snapshot: Row | undefined;
@@ -617,15 +638,18 @@ export class Work {
         next_cursor: offset < ids.length ? next(ids, offset) : null,
       };
     }
-    if (!target) fail(404, "target_not_accessible");
+    if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
-    let messages = all(
-      this.db,
-      "SELECT id FROM messages WHERE conversation_id=? AND sender_type IN ('user','agent','system') ORDER BY rowid",
-      p.target,
-    )
-      .map((r) => s.message(r.id))
-      .filter((m) => m.content || m.attachments.length);
+    const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
+    const filters = ["sender_type IN ('user','agent','system')"], values:any[]=[];
+    if(p.message_id){filters.push('id=?');values.push(p.message_id);}
+    if(p.query){filters.push('instr(lower(content),lower(?))>0');values.push(String(p.query));}
+    if(p.before){filters.push('created_at<?');values.push(p.before);}
+    if(p.after){filters.push('created_at>=?');values.push(p.after);}
+    if(p.participant_id){filters.push('sender_user_id=?');values.push(p.participant_id);}
+    let messages = targets.length ? all(this.db,
+      `SELECT id FROM messages WHERE conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY rowid`,...targets,...values)
+      .map(row=>s.message(row.id)).filter(m=>m.content||m.attachments.length||m.interactive) : [];
     if (p.before_message_id) {
       const i = messages.findIndex((m) => m.id === p.before_message_id);
       if (i < 0) fail(404, "target_not_accessible");
@@ -645,6 +669,7 @@ export class Work {
         part = 0;
         continue;
       }
+      const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -660,25 +685,30 @@ export class Work {
         if (cost > budget || (content.type === "image" && images >= 4)) break;
         budget -= cost;
         if (content.type === "image") images++;
+        if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
           sender: {
             id: m.sender_user_id,
             name: m.sender.display_name,
-            kind: target.external_source && m.sender_type === "user" ? "external" : m.sender_type,
-            ...(target.external_source && m.sender_type === "user"
+            kind: messageConversation.external_source && m.sender_type === "user" ? "external" : m.sender_type,
+            ...(messageConversation.external_source && m.sender_type === "user"
               ? {
-                  channel: target.external_source,
+                  channel: messageConversation.external_source,
                   ...(m.sender_source_id ? { source_id: m.sender_source_id } : {}),
                 }
               : {}),
           },
           source_time: formatLocalTime(m.created_at, m.timezone ?? undefined),
           source: {
-            channel: target.external_source ?? "web",
-            conversation_id: p.target,
-            reply_target: p.target,
+            channel: messageConversation.external_source ?? "web",
+            conversation_id: m.conversation_id,
+            reply_target: m.conversation_id,
+            ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
+            url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
+          ...(m.interactive ? {interactive:m.interactive} : {}),
+          ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
           content: [content],
           complete_message: parts.length === 1,
@@ -691,9 +721,9 @@ export class Work {
     }
     return {
       target: p.target,
-      name: target.title,
-      kind: target.type,
-      channel: target.external_source ?? "web",
+      name: target?.title,
+      kind: target?.type,
+      channel: target?.external_source ?? "web",
       messages: page,
       history_scope: "im_history",
       has_more: offset < ids.length,
@@ -712,7 +742,8 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'",
       id,
     );
-    if (!p || (owner && p.owner_id !== user.owner_id)) fail(404, "agent_not_accessible");
+    const personal=one(db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",id);
+    if (!p || (owner && p.owner_id !== user.owner_id) || (personal && personal.owner_user_id!==user.id)) fail(404, "agent_not_accessible");
     ctx.identity.requireSpace(user, p.space_id);
     return p;
   }

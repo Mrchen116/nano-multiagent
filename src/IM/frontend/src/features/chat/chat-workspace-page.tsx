@@ -1,3 +1,6 @@
+import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
+import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
+import { getPersonalAgent, renamePersonalAgent } from '../personal-agent/personal-agent-api';
 import { GroupTaskPanel } from "../tasks/group-task-panel";
 import type { NodeUpdateView } from '../settings/im-settings-api';
 import { nodeUpdateActive } from '../settings/nodes/node-update-panel';
@@ -331,6 +334,7 @@ export function ChatWorkspacePage() {
   const { t, i18n } = useTranslation();
   const [membershipReady, setMembershipReady] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showPersonalAgentSetup, setShowPersonalAgentSetup] = useState(false);
   const [showPublicGroups, setShowPublicGroups] = useState(false);
   const closePublicGroups = useCallback(() => setShowPublicGroups(false), []);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -348,6 +352,9 @@ export function ChatWorkspacePage() {
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const personalAgent = useQuery({queryKey:['personal-agent',selfUserId],queryFn:getPersonalAgent,enabled:!!selfUserId,retry:false,refetchInterval:()=>document.visibilityState==='visible'?5000:false});
+  const personalBinding = personalAgent.data?.binding;
+  const isPersonalConversation = Boolean(personalBinding && conversationId===personalBinding.conversation_id);
   const personalSpace = useAuthStore((s) => s.user?.personal_space_enabled);
   useEffect(() => {
     const starter = location.state?.onboardingStarter;
@@ -1126,6 +1133,15 @@ export function ChatWorkspacePage() {
     });
   }
 
+  function handlePersonalDraft(draft: NonNullable<Message["reply_draft"]>, text: string) {
+    const target = draft.target_conversation_id;
+    if (!target) return;
+    const existing = composerStoreFor(selfUserId).get(target)?.draft;
+    if (existing?.trim() && existing !== text && !window.confirm(t('pa.replaceDraft'))) return;
+    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text});
+    navigate(`/chat/${encodeURIComponent(target)}`, {state:{personalAgentReturn:true}});
+  }
+
   return (
     <div className="chat-workspace" ref={chatRootRef}>
       {(workReturnUrl || locatorNotice) && <div className="im-work-chat-navigation" role="status">{workReturnUrl && <button type="button" onClick={() => navigate(workReturnUrl)}>{t("agents.work.← 返回工作")}</button>}{locatorNotice && <span>{t(`agents.work.${locatorNotice}`, {defaultValue:locatorNotice})}</span>}</div>}
@@ -1169,7 +1185,9 @@ export function ChatWorkspacePage() {
       )}
       {showList && (
         <ConversationSidebar
-          conversations={sidebarConversations}
+          conversations={sidebarConversations.filter(c=>c.id!==personalBinding?.conversation_id)}
+          emptyLabel={personalBinding?t('pa.noOtherChats'):undefined}
+          personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):setShowPersonalAgentSetup(true)}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('pa.start','给它一个名字，开始合作')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
           selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
@@ -1195,18 +1213,28 @@ export function ChatWorkspacePage() {
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
             timeline={visibleTimeline}
+            focusMessageId={locatorMessageId}
+            personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
+            personalStarterExamples={isPersonalConversation && messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0}
+            returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
+              ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
+              : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)
+                ? <button type="button" onClick={()=>navigate(location.state.sourceReturnUrl)}>{t('pa.returnSource','← 返回刚才的聊天')}</button>
+                : undefined}
+            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='pending')}/> : undefined}
             onReadMessage={(messageId) => {
               if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);
             }}
             onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}
             agentNodeNames={Object.fromEntries(publicAgents.filter(a => a.node_name).map(a => [a.agent_id!, a.node_name!]))}
-            globalAgentIds={publicAgents.filter(a => a.work_mode === "global").map(a => a.agent_id!)}
+            globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
+            onUseReplyDraft={isPersonalConversation ? handlePersonalDraft : undefined}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
-            configLabel={headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
+            configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             nodeId={headerAgentContext.nodeId}
@@ -1240,9 +1268,11 @@ export function ChatWorkspacePage() {
             }}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
-            onRename={activeConversation.can_write === false ? undefined : (title) => renameMutation.mutateAsync(title)}
+            onRename={activeConversation.can_write === false ? undefined : isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
             onOpenConfig={
-              activeConversation.is_observer ? undefined : isGroupKind
+              activeConversation.is_observer ? undefined : isPersonalConversation
+                ? () => personalBinding && !personalAgent.data?.creation ? navigate(`/settings/agents/${personalBinding.agent_id}`) : setShowPersonalAgentSetup(true)
+                : isGroupKind
                 ? () => setShowGroupSettings(true)
                 : headerAgentContext.agentId
                   ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
@@ -1260,6 +1290,7 @@ export function ChatWorkspacePage() {
           )
         )
       )}
+      {showPersonalAgentSetup && personalAgent.data && <PersonalAgentDialog state={personalAgent.data} nodes={nodesQuery.data??[]} onClose={()=>setShowPersonalAgentSetup(false)} onCreated={id=>{setShowPersonalAgentSetup(false);navigate(`/chat/${id}`);}}/>}
       {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
       {showPublicGroups && <PublicGroupsModal groups={publicGroupsQuery.data} pending={publicGroupsQuery.isPending} error={publicGroupsQuery.isError} onRetry={() => void publicGroupsQuery.refetch()} onClose={closePublicGroups} onSelect={chat => { setShowPublicGroups(false); navigate(`/chat/${chat.id}`); }} />}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
@@ -1375,7 +1406,7 @@ export function ChatWorkspacePage() {
           isMobile={isMobile}
           isBusy={groupSettingsBusy}
           onClose={() => setShowGroupSettings(false)}
-          onRename={(title) => renameMutation.mutateAsync(title)}
+          onRename={isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
           onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
           onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
           onLeave={async () => { await removeParticipant(activeConversation.id, selfUserId!); await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate("/chat"); }}

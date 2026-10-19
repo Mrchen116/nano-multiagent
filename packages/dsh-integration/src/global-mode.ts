@@ -11,7 +11,7 @@ export const name = 'nano-global-mode';
 export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string }) {
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean }) {
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
@@ -21,13 +21,13 @@ export function apply(ctx: Context, config: { mode?: string }) {
     { name: 'inbox', description: 'Check unread conversation sources or read their ordered content. Root main Agent only; consumption is recorded after full durable ingestion.', parameters: {
       type: 'object', properties: { action: { type: 'string', enum: ['check', 'read'] }, target: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['action'], additionalProperties: false,
     } },
-    { name: 'conversations', description: 'Discover joined or public conversations, inspect members, read history, create a group, or join a public group as yourself. Root main Agent only. Public read access does not imply membership or write access.', parameters: {
-      type: 'object', properties: { action: { type: 'string', enum: ['list', 'info', 'read', 'create', 'join'] }, scope: { type: 'string', enum: ['joined', 'public'] }, title: { type: 'string' }, type: { type: 'string', enum: ['group'] }, visibility: { type: 'string', enum: ['public', 'private'], description: 'New groups default to public.' }, participant_ids: { type: 'array', items: { type: 'string' }, description: 'User IDs or agent:IDs under ordinary invitation rules; the actual Agent creator is automatically a member.' }, target: { type: 'string' }, query: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
+    { name: 'conversations', description: 'Discover joined or public conversations, inspect members, read or search history, create a group, or join a public group as yourself. Root main Agent only. Public read access does not imply membership or write access.', parameters: {
+      type: 'object', properties: { action: { type: 'string', enum: ['list', 'info', 'read', 'search', 'create', 'join'] }, scope: { type: 'string', enum: ['joined', 'public'] }, title: { type: 'string' }, type: { type: 'string', enum: ['group'] }, visibility: { type: 'string', enum: ['public', 'private'], description: 'New groups default to public.' }, participant_ids: { type: 'array', items: { type: 'string' }, description: 'User IDs or agent:IDs under ordinary invitation rules; the actual Agent creator is automatically a member.' }, target: { type: 'string' }, query: { type: 'string' }, keyword: { type: 'string' }, participant_id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' }, message_id: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
     } },
     { name: 'send_message', description: 'Use target/text for a public message to an accessible conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' }, interactive: { type: 'object', properties: {
+      type: 'object', properties: { ...(config.personal ? {reply_draft: {type:'object',properties:{target_conversation_id:{type:'string'},source_message_id:{type:'string'},field_name:{type:'string',description:'Exact declared top-level string state key including $, e.g. $draft for TextArea("reply_body", "", 4, null, $draft). Do not use the input name reply_body.'}},required:['target_conversation_id','source_message_id','field_name'],additionalProperties:false}} : {}), target: { type: 'string' }, text: { type: 'string' }, interactive: { type: 'object', properties: {
         format: { type: 'string', enum: ['openui'] }, catalog_version: { type: 'string', enum: ['nano-1'] }, source: { type: 'string', maxLength: 65536 }, supersedes_message_id: { type: 'string' }, source_mode: { type: 'string', enum: ['patch'] },
-      }, required: ['format', 'catalog_version', 'source'], additionalProperties: false }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { required: ['interactive'] } }], additionalProperties: false,
+      }, required: ['format', 'catalog_version', 'source'], additionalProperties: false }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { anyOf: [{ required: ['interactive'] }, { required: ['reply_draft'] }] } }], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
@@ -35,7 +35,7 @@ export function apply(ctx: Context, config: { mode?: string }) {
       ? (value as unknown as { content: ContentBlock[] }).content : [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
       if (tool.name === 'send_message' && typeof (args as { agent_id?: unknown }).agent_id === 'string') {
-        if ((args as { interactive?: unknown }).interactive !== undefined) throw new Error('Interactive replies require public target/text');
+        if ((args as { interactive?: unknown }).interactive !== undefined || (args as { reply_draft?: unknown }).reply_draft !== undefined) throw new Error('Interactive replies require public target/text');
         if (!nativeSend) throw new Error('Native child communication is unavailable');
         return nativeSend.execute(args, exec);
       }

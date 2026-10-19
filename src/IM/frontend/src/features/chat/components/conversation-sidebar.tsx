@@ -1,5 +1,5 @@
 import { mentionNameMap, mentionPlainText } from "./mention-parser";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { formatSystemNotice } from "../system-notice";
@@ -31,6 +31,8 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 
 export interface ConversationSidebarProps {
   conversations: Conversation[];
+  personalAgentEntry?: ReactNode;
+  emptyLabel?: string;
   selfUserId?: string | null;
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
@@ -70,6 +72,8 @@ function formatDate(iso: string | null): string {
 
 export function ConversationSidebar({
   conversations,
+  personalAgentEntry,
+  emptyLabel,
   selfUserId = null,
   activeConversationId,
   onSelect,
@@ -180,9 +184,10 @@ export function ConversationSidebar({
           </button>
         </div>
       ) : null}
+      {personalAgentEntry}
       <ul className="chat-sidebar-list">
         {filtered.length === 0 ? (
-          <li className="chat-sidebar-empty">{t("chat.list.empty")}</li>
+          <li className="chat-sidebar-empty">{emptyLabel ?? t("chat.list.empty")}</li>
         ) : (
           filtered.map((c) => {
             const active = c.id === activeConversationId;

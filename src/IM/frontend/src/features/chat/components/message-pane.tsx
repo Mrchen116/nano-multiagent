@@ -88,11 +88,20 @@ export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
   conversation: Conversation;
+  /** Owner-only collaboration summary, within the existing scrollable chat. */
+  collaborationContent?: React.ReactNode;
+  headerActions?: React.ReactNode;
+  focusMessageId?: string | null;
+  personalAgent?: boolean;
+  /** Owner PA only, after the initial history request has confirmed an empty chat. */
+  personalStarterExamples?: boolean;
+  returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
   /** Compatibility input for callers not yet upgraded to the typed timeline. */
   messages?: Message[];
   mentionCandidates: MentionCandidate[];
+  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
   draftSeed?: { id: string; conversationId?: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
@@ -213,10 +222,17 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
+  collaborationContent,
+  headerActions,
+  focusMessageId,
+  personalAgent = false,
+  personalStarterExamples = false,
+  returnNavigation,
   timeline,
   messages: messagesProp,
   mentionCandidates,
   draftSeed = null,
+  onUseReplyDraft,
   slashSkills = [],
   slashCommands = [],
   nodeName,
@@ -894,7 +910,7 @@ export function MessagePane({
   useEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
-    nearBottomRef.current = true;
+    nearBottomRef.current = !focusMessageId;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
     historyAnchorRef.current = null;
@@ -911,6 +927,11 @@ export function MessagePane({
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
+    if(focusMessageId&&!forceScrollToBottomRef.current) {
+      lastMessageIdRef.current=messages.at(-1)?.id??null;
+      nearBottomRef.current=false;
+      return;
+    }
     if (skipNextMessageAutoScrollRef.current) {
       skipNextMessageAutoScrollRef.current = false;
       return;
@@ -925,7 +946,7 @@ export function MessagePane({
       (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
-      isInitialHydration
+      (isInitialHydration && !focusMessageId)
       || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
@@ -1018,7 +1039,7 @@ export function MessagePane({
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
           </div>
         </div>
-        {!isMobile && <KindBadge kind={kind} />}
+        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
@@ -1038,8 +1059,10 @@ export function MessagePane({
             {!isMobile && <span>{t("chat.messagePane.config")}</span>}
           </button>
         )}
+        {headerActions}
         {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
       </header>
+      {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
       {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
@@ -1047,8 +1070,14 @@ export function MessagePane({
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
             <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-            <p className="chat-pane-empty-title">{t("chat.messagePane.emptyTitle")}</p>
-            <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
+            <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
+            <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
+            {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
+              {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
+                setDraft(t(`pa.examples.${key}`));
+                composerRef.current?.focus();
+              }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
+            </div>}
           </div>
         ) : (
           <>
@@ -1073,7 +1102,7 @@ export function MessagePane({
                   key={m.id}
                   message={m}
                   selfUserId={selfUserId}
-                  workAgentId={globalAgentIds.includes(m.sender.id) ? m.sender.id : undefined}
+                  workAgentId={globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                   nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
                   readOnly={conversation.can_write === false}
@@ -1088,6 +1117,7 @@ export function MessagePane({
                   onSheetRequest={requestActionSheet}
                   interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
                   interactiveSubmissionId={submittedMessages.get(m.id)}
+                  onUseReplyDraft={onUseReplyDraft}
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
@@ -1095,6 +1125,7 @@ export function MessagePane({
             })}
           </>
         )}
+        {collaborationContent}
       </div>
 
       {conversation.is_observer && <div className="chat-observer-notice" role="status">
@@ -1541,9 +1572,10 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onUseReplyDraft,
 }: {
   message: Message;
+  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
   interactiveReadOnly?: boolean;
   interactiveSubmissionId?: string;
   onInteractionSelect(selection: InteractiveSelection): void;
@@ -1767,6 +1799,7 @@ function MessageBubble({
               {message.sender.display_name ?? message.sender.id}
             </span>
             {nodeName && <small>{nodeName}</small>}
+            {message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
           </div>
         )}
         <div
@@ -1792,7 +1825,7 @@ function MessageBubble({
             </div>
           )}
           {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} /></React.Suspense>}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} onUseReplyDraft={onUseReplyDraft} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>

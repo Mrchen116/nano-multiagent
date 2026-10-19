@@ -16,6 +16,7 @@ interface ResultRecord {
   result: { value: unknown; stopReason: string; error?: string };
 }
 interface Options {
+  partitionKey?: string;
   agents: AgentConfiguration[];
   store: NodeStore;
   runtime: RuntimePort;
@@ -52,7 +53,8 @@ export class WorkflowResults {
     return this.running;
   }
   private async reconcile() {
-    const { runtime, store } = this.options;
+    const { store } = this.options;
+    const runtime = this.options.runtime.capture?.() ?? this.options.runtime;
     for (const record of (await runtime.request(
       "workflow.pending",
       {},
@@ -65,7 +67,7 @@ export class WorkflowResults {
         (agent) => agent.agentId === binding.agentId,
       );
       if (!config) continue;
-      const inputId = `workflow-result:${record.id}`;
+      const inputId = `workflow-result:${this.options.partitionKey ? `${this.options.partitionKey}:` : ""}${record.id}`;
       const source = store
         .inputs(binding.sessionId)
         .find((input) => record.inputIds.includes(input.id))?.input;

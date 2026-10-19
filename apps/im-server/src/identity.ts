@@ -58,13 +58,19 @@ export function ownerAccount(db: DatabaseSync, owner: string): Row | undefined {
 export function agentAvailable(db: DatabaseSync, profile: Row | undefined): boolean {
   return !!profile && !profile.is_stale && canAccessSpace(ownerAccount(db, profile.owner_id), profile.space_id);
 }
+/** Public contactability never grants access to personal configuration or Work. */
+export function canContactPersonalAgent(db: DatabaseSync, viewer: Row, profile: Row): boolean {
+  return viewer.membership_status === 'active' && ownerAccount(db,profile.owner_id)?.membership_status === 'active'
+    && !!db.prepare("SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND status='active'").get(profile.agent_id)
+    && agentAvailable(db,profile);
+}
 /** Check a conversation actor against both its fixed space and current eligibility. */
 export function canActorAccess(db: DatabaseSync, userId: string, space: string): boolean {
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(userId) as Row | undefined;
   if (!user) return false;
   if (user.username.startsWith("agent:")) {
     const profile = db.prepare("SELECT * FROM agent_profiles WHERE agent_id=?").get(user.username.slice(6)) as Row | undefined;
-    return !!profile && profile.space_id === space && agentAvailable(db, profile);
+    return !!profile && agentAvailable(db, profile) && (profile.space_id === space || (space === "company:default" && canContactPersonalAgent(db,ownerAccount(db,profile.owner_id)!,profile)));
   }
   return canAccessSpace(user, space);
 }
@@ -589,6 +595,7 @@ export class Identity {
         "agent_channels",
         "agent_channel_removals",
         "agent_config_operations",
+        "personal_agent_bindings",
       ].map((table) => [
         table,
         this.all(`SELECT * FROM ${table} WHERE node_id=? ORDER BY rowid`, nodeId),
@@ -743,6 +750,8 @@ export class Identity {
     return { state: "cancelled" };
   }
   private checkTransferRecipient(node: string, user: User): void {
+    if(this.get("SELECT 1 FROM pa_node_residencies WHERE node_id=? AND owner_id!=?",node,user.owner_id))
+      throw new IdentityError(409,"A computer containing personal assistant data cannot be transferred to another owner");
     const profiles = this.all("SELECT * FROM agent_profiles WHERE node_id=?", node);
     if (profiles.some(p => p.space_id === "company:default") && user.membership_status !== "active")
       throw new IdentityError(409, "company agents require an active company recipient");
@@ -867,6 +876,7 @@ export class Identity {
         digest(runtime),
         user.owner_id,
       );
+      this.rotatePersonalEpoch(op.node_id,user.owner_id,op.expected_epoch+1);
       this.run(
         "UPDATE node_binding_operations SET state='cancelled' WHERE node_id=? AND operation_id!=? AND state!='committed'",
         op.node_id,
@@ -889,6 +899,12 @@ export class Identity {
       );
       return { state: "committed" };
     });
+  }
+  /** Rotate personal authority with device credentials; never carry an old permit forward. */
+  private rotatePersonalEpoch(node: string, owner: string, epoch: number) {
+    this.run('UPDATE personal_agent_bindings SET node_epoch=? WHERE node_id=? AND owner_id=?',epoch,node,owner);
+    this.run("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id IN (SELECT binding_id FROM personal_agent_bindings WHERE node_id=?) AND state IN ('prepared','allowed')",node);
+    this.run("UPDATE agent_config_operations SET status='rejected',error_code='node_epoch_changed',updated_at=datetime('now') WHERE node_id=? AND agent_id IN (SELECT agent_id FROM personal_agent_bindings WHERE node_id=?) AND status IN ('pending','gateway_applied')",node,node);
   }
   deviceRecover(id: string, token: string): Row {
     const op = this.operation(id, token);
@@ -918,6 +934,7 @@ export class Identity {
         digest(runtime),
         op.node_id,
       );
+      this.rotatePersonalEpoch(op.node_id,row.owner_id,row.node_epoch+1);
       this.run(
         "UPDATE node_binding_operations SET state='committed',target_user_id=?,target_owner=?,runtime_token=? WHERE operation_id=?",
         row.user_id,

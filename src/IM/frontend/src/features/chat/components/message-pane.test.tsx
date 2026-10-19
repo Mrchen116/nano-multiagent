@@ -181,6 +181,18 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
   });
 
+  it("keeps a deep-linked historical message away from automatic bottom hydration", () => {
+    const props={conversation:DIRECT_CONV,messages:[] as Message[],selfUserId:"u1",mentionCandidates:[],onSend:vi.fn(),focusMessageId:"m1"};
+    const {container,rerender}=render(<MessagePane {...props}/>);
+    const scroller=container.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics={scrollTop:0,scrollHeight:1800,clientHeight:400};
+    setScrollMetrics(scroller,metrics);
+    rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES}/>);
+    expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES,{...SAMPLE_MESSAGES[1],id:"m3"}]}/>);
+    expect(scroller.scrollTop).toBe(0);
+  });
+
   describe("history pagination scroll trigger (feat-451 R1)", () => {
     const MANY_MESSAGES: Message[] = Array.from({ length: 8 }, (_, idx) => ({
       id: `hist-${idx + 1}`,
@@ -2776,4 +2788,11 @@ describe("MessagePane", () => {
     });
 
   });
+});
+
+it('shows the server PA delegation label separately from the message body',()=>{
+ const delegated:Message={...SAMPLE_MESSAGES[1],delegation:{agent_id:'a-planner',authorized_by:'owner',display_name:'Planner',label:'Owner’s PA · Sent on behalf'}};
+ render(<MessagePane conversation={GROUP_CONV} messages={[delegated]} mentionCandidates={[]} onSend={()=>{}}/>);
+ expect(screen.getByText('Owner’s PA · Sent on behalf')).toHaveClass('pa-delegation');
+ expect(screen.getByText('Hi back')).toBeInTheDocument();
 });

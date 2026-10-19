@@ -9,6 +9,7 @@ import { setLanguage } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
+import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT } from "./components/composer-draft-store";
 import type { UserStreamEvent } from "../../realtime/user-stream";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
@@ -374,6 +375,7 @@ function renderAtRoute(initial: string, queryClient?: QueryClient) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
+          <Route path="/settings/agents/a-planner" element={<h1>Planner configuration</h1>} />
           <Route path="/chat" element={<ChatWorkspacePage />} />
           <Route path="/chat/:conversationId" element={<ChatWorkspacePage />} />
         </Routes>
@@ -439,6 +441,63 @@ describe("ChatWorkspacePage — integration", () => {
     vi.unstubAllGlobals();
     useAuthStore.getState().clear();
   });
+
+  it.each(['active', 'unavailable'])('opens the existing Agent configuration directly for an already-created %s PA', async (status) => {
+    const baseFetch = fetchSpy;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/im/v1/personal-agent')) return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status},creation:null,policy:{revision:1,excluded_conversation_ids:[]}});
+      if (String(input).endsWith('/im/v1/personal-agent/incidents')) return jsonResponse({items:[]});
+      return baseFetch(input, init);
+    }));
+    renderAtRoute('/chat/c1');
+    await screen.findByText('Hi Planner');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', {name:/Conversation menu/i}));
+    await user.click(screen.getByRole('menuitem', {name:/Agent configuration/i}));
+    expect(await screen.findByRole('heading', {name:'Planner configuration'})).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('adopts the edited private reply into the original composer with explicit replacement and no send', async () => {
+    const baseFetch=fetchSpy;
+    let privateState: Record<string,unknown>={'$reply':'Saved reply'};
+    let revision=1;
+    const card={...FIXTURES.messagesC1[0],id:'reply-card',sender:{type:'agent',id:'a-planner',display_name:'Planner'},sender_user_id:'user-uuid-planner',sender_type:'agent',content:'Suggested reply',
+      interactive:{format:'openui',catalog_version:'nano-1',source:'$reply = "Initial reply"\nroot = TextArea("body", "Reply draft", 3, null, $reply)'},
+      reply_draft:{target_conversation_id:'c2',source_message_id:'source',field_name:'$reply',possible_stale:true}};
+    const customFetch=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.endsWith('/im/v1/personal-agent'))return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status:'active'},policy:{revision:1,excluded_conversation_ids:[]}});
+      if(url.endsWith('/im/v1/personal-agent/incidents'))return jsonResponse({items:[]});
+      if(url.endsWith('/interaction-state')){
+        if(init?.method==='PUT'){privateState=JSON.parse(String(init.body)).state;revision++;}
+        return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null});
+      }
+      if(url.includes('/conversations/c1/messages')&&(!init?.method||init.method==='GET'))return jsonResponse({items:[{type:'message',message:card}],next_before_message_id:null});
+      return baseFetch(input,init);
+    });
+    vi.stubGlobal('fetch',customFetch);
+    composerStoreFor('u-self').set('c2',{...EMPTY_COMPOSER_SNAPSHOT,draft:'Existing reply'});
+    const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const view=renderAtRoute('/chat/c1');
+    try {
+      const field=await screen.findByPlaceholderText('Reply draft', {}, {timeout:10000});
+      await waitFor(()=>expect(field).toHaveValue('Saved reply'));
+      fireEvent.change(field,{target:{value:'Edited reply'}});
+      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
+      await waitFor(()=>expect(confirm).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole('heading',{name:'Planner'})).toBeInTheDocument();
+      expect(field).toHaveValue('Edited reply');
+      expect(composerStoreFor('u-self').get('c2')?.draft).toBe('Existing reply');
+      expect(privateState['$reply']).toBe('Edited reply');
+      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
+      await screen.findByRole('heading',{name:'Research Squad'});
+      expect(screen.getByPlaceholderText(/type @ to mention/i)).toHaveValue('Edited reply');
+      expect(customFetch.mock.calls.filter(([input,init])=>String(input).endsWith('/messages')&&init?.method==='POST')).toEqual([]);
+      fireEvent.click(screen.getByRole('button',{name:'← Back to personal assistant'}));
+      await waitFor(()=>expect(screen.getByPlaceholderText('Reply draft')).toHaveValue('Edited reply'));
+    } finally {confirm.mockRestore();view.unmount();}
+  }, 15000);
 
   it("renders the conversation list and the active conversation messages", async () => {
     renderAtRoute("/chat/c1");

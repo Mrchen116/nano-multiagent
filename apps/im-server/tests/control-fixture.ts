@@ -34,6 +34,7 @@ export function fixture() {
   const ctx = {
     db,
     identity,
+    publicUrl: 'http://im.test',
     gateway: {
       request: async () => null,
       send: () => false,

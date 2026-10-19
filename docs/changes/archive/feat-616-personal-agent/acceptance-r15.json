@@ -1,0 +1,33 @@
+{
+  "round": "R15",
+  "verdict": "PASS",
+  "validated_at": "41ce20314fd7c156b04d941cfd4a5dc5a8582dd7 + frozen R15 dirty diff",
+  "viewport": [
+    1280,
+    720
+  ],
+  "synthetic_fixture": true,
+  "scenarios": {
+    "current_reversible_restriction": "PASS",
+    "owner_pa_direct_readonly": "PASS",
+    "private_group_notice_fallback": "PASS",
+    "failed_unblock_preserves_state": "PASS",
+    "successful_unblock_and_reload": "PASS",
+    "historical_incidents_preserved": "PASS",
+    "mobile": "PASS - caller verified 583x827 config, evidence, read-only DM, unblock and reload"
+  },
+  "blocking_findings": 0,
+  "failure_trigger_removed": true,
+  "policy_revision_after_unblock": 5,
+  "caller_mobile_viewport": [
+    583,
+    827
+  ],
+  "validation": {
+    "backend_runtime": 448,
+    "frontend": 933,
+    "python_tooling": 62,
+    "docs": "passed",
+    "typecheck_build": "passed"
+  }
+}

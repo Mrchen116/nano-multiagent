@@ -17,23 +17,13 @@ import { fetch as proxyFetch } from "undici";
 import type {} from "./model-policy.js";
 
 /** Register provider adapters; native tools retain limits, citations and errors. */
-export function searchProviders(
-  env: NodeJS.ProcessEnv = process.env,
-): WebSearchProvider[] {
-  const get = async (
-    url: URL,
-    signal?: AbortSignal,
-    headers?: Record<string, string>,
-  ) => {
+export function searchProviders(env: NodeJS.ProcessEnv = process.env): WebSearchProvider[] {
+  const get = async (url: URL, signal?: AbortSignal, headers?: Record<string, string>) => {
     const route = proxyRouteFor(url);
     const response = route.proxied
       ? await proxyFetch(url, { signal, headers, dispatcher: route.dispatcher })
       : await fetch(url, { signal, headers });
-    if (!response.ok)
-      throw new WebError(
-        `Search backend returned HTTP ${response.status}`,
-        "WEB_SEARCH_HTTP_ERROR",
-      );
+    if (!response.ok) throw new WebError('Search backend returned HTTP ' + response.status, 'WEB_SEARCH_HTTP_ERROR');
     return response;
   };
   return [
