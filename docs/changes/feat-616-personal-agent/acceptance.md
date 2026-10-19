@@ -364,3 +364,29 @@ P1/P2/P3/P4/P5/P7及限定草稿的已通过样本继承Round3/4；本轮未重�
 ### 录像
 
 `r5-choice-continuation.webm`记录真实推荐与15:41:54单次点击，`r5-reservation-result.webm`记录实际peer预留请求/回执及最终Done；两段间有等待，不能称连续录像。`r5-onboarding.webm`为真实首次创建/改名/重复进入。既有`/tmp/feat616-final-walkthrough.webm`为Round3原85.04秒版本，尚未替换。所有录像/截图均在`/tmp`，不提交到仓库。
+
+## Round 6 · 2026-10-19 · expanded journeys（进行中）
+
+Validation snapshot `9cebd17b720a326b4fc51838fe3041bd13fa2034`；16:11开工HEAD及clean status已核实。caller重启原隔离IM/Node，主6.1 Sol/审批6 Luna不变，复用两个headless session。R5核心闭环/搜索/子任务证据继承。
+
+- **改名与完整配置入口pass（本样本）**：Agents页“小航验收”旁Personal assistant标识可见。真实进入Config，16:11:41将Display Name保存为小航复验成功，回同一DM历史/三个旧私密草稿保留；16:12新回复署名小航复验。16:13:28通过聊天PA设置Save name恢复“小航”，入口/新消息sender/设置同步。设置新增Model, instructions & capabilities链接真实打开同一PA完整Config，模型、指令、能力均可见；只改名称、不改模型/授权。`r6-config-edit.txt`、`r6-config-saved.txt`、`r6-name-restored.txt`、`r6-settings-link-destination.txt`。截图`r6-pa-full-config.png`（1440×3400展示完整配置）、`r6-chat-config-link.png`。
+- **暂停观察仍直接按需查询pass（本样本）**：caller确认没有另发消息，16:10–11旧15:54查询在Node重启后得到湖畔厅/青橙47与原出处，属恢复结果，保留R5原无回复事实。reviewer16:11:51发新R6查询，16:12 ack、16:13相同准确信息及原出处，暂停提示仍可见，未联络群成员。`r6-query-completed.txt`。
+- **PA+同事私密建群pass；普通Agent范围单列**：16:12选择PA+林悦+普通E2E，仍404 participant not found；16:14普通E2E+林悦对照同样404；仅PA+林悦16:14:50成功建Private群`c_kcku07iw`，双方UI均可见Test User/小航/林悦。caller说明普通E2E是私人Agent，不具备公司群资格，reviewer未读实现；因此不以普通fixture无法共享判PA建群修复失败，但UI仍仅泛化Could not complete this action，未解释不能选择的范围。`r6-group-failed.txt`、`r6-ordinary-group-denied.txt`、`r6-group-real-message.txt`。
+- **来源排除pass（一次真实样本）**：16:13:58只勾选R5合成群`c_vm2qot6w`；异步checkbox使CLI check立即报未变，但后续snapshot明确checked，不重复点击。16:14直接询访问状态，16:15回复当前被排除无权查阅，未复述地点/识别词/缓存。`r6-source-excluded.txt`、`r6-exclusion-answer.txt`。16:23恢复此群并用peer新的山岚厅/紫杉82消息发起按需查询，结果待补。
+- **多人/普通Agent协作截至16:22未闭环**：16:15:30 owner新目标本人负责，授权PA向新群林悦确认投影、另请E2E核算300+20×10，双来源三行结果仅owner验收，不预留付款，暂停观察但继续已交办。产生三个owner负责目标`tg_89c337f6`/`tg_6ada3be0`/`tg_80a20f3d`。16:16群真实收到PA代发询问，16:17:56 peer回复含投影且无需回群；Work16:18:38–21:27实际读取群回执并记录，无群额外回复。普通Agent send_message显示Completed11.7s，但随后inbox Read E2E Agent无匹配记录，主AgentIdle等待，owner尚无最终汇总。不能将send_message完成当对方实际执行/答复。`r6-work-coordination.txt`、`r6-inbox-agent-proof.txt`。该turn的goal.update曾被Automatic reviewer unavailable/ABORTED拒绝，耗时60s，后续更新Completed；将审批服务暂时不可用与内容授权拒绝区分。16:23独立来源恢复请求是新的owner输入，后续若原协作恢复不得称纯自动恢复。
+
+R6实际等待/取证录像`r6-coordination-wait.webm`，包含群回复、配置入口、Work真实状态和来源恢复操作；不以录像长度代替结论。R5完整核心闭环录像`r5-complete-journey.webm`222.48秒/4,157,429字节，由两段真实录屏顺序拼接，第二段明确标Waiting gap omitted；原始文件保留。
+
+### Round 6 来源恢复与退出补充（16:30）
+
+- 16:24恢复R5合成群后实际回复**山岚厅/紫杉82**并链接16:23新消息，旧内容已被替代；`r6-source-restored-result.txt`。真实点击出处回原群新消息，未继续使用旧缓存作答。
+- 因R5群owner是Creator、UI只有Dissolve group，reviewer没有解散；由peer16:26创建新Private群`c_ghrrfngv`“R6退群访问验收”，邀请owner。16:27按需查询成功**云杉室/白鹭63**及原出处；16:28:52 owner真实点击Leave group回/chat，peer设置明确只剩1名林悦（Creator）。16:29 owner再要求查位置/标识，16:30 PA拒绝，说明退群后访问撤销、不用旧缓存，查询已暂停；未复述两个值。`r6-before-leave-query.txt`、`r6-left-group.txt`、`r6-peer-members-after-leave.txt`、`r6-after-leave-final.txt`。此退群样本pass，不外推全部许可变化。
+- **R6新增可见不一致，未关闭**：退群前普通查询自动建`tg_92dbcb91`并分配给PA小航（非前述owner负责目标），16:27已私下交付，但16:28又提示因来源“仅供群内验收”不能转私聊、无法记录完成，且承认已转述。owner当时仍有群权限且明确要求私下查询；是否临时查询任务应归owner由caller按spec裁决，reviewer保留该责任与交付/完成不一致事实。不得以之后退群拒绝成功覆盖此问题。
+
+已向caller通知可执行计划冷重启；当前名称已恢复小航，观察仍暂停，R5群排除已恢复，退出仅影响新合成peer-owned群。旧任务/消息/三个私密草稿均保留，未再次清理缓存或原聊天。冷重启结果待补。
+
+### Round 6 收尾
+
+caller16:32通知用户进入设计简化讨论，暂不执行冷重启、不追加旅程。**本轮总体fail / highest_required_action fix-implementation**：多人协作等待普通E2E回复，未形成双来源私下汇总；退群前已交付内容与审批拒绝记录完成存在可见不一致。改名、完整配置入口、暂停状态直接查询、PA+同事私密群、来源排除/恢复/退出的上述具体样本已通过。普通私人Agent不可加入同事群属于fixture权限边界，不伪称公司Agent协作通过；泛化失败反馈单独保留。冷重启、本轮完整跨Agent闭环及前轮尚未覆盖的全出口/故障注入等仍inconclusive，不以工程结果代替浏览器证据。用户提出的新设计尚未实施，不属于本次validated_at范围。
+
+本轮仅提交acceptance.md；截图/录像/浏览器快照不入库。暂停观察保持当前用户正在讨论的状态，未擅自更改为新设计或恢复开关；名称已为小航。测试数据均为合成验收消息，新peer-owned群已退出，其他已有对话/草稿/任务保留。两个专用headless会话收尾关闭，未启动或停止真实服务。
