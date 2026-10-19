@@ -2,6 +2,15 @@
 
 > Validation snapshot: `cc47abe3f → 0373d8feca33a449c0ea7e7f5a01fa88909e3e87`
 
+## Current verdict
+
+**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
+
+- 最终实现候选：`a211d7643e64b820908397844cbd3125372c83e0`；unit executed_base：`cc47abe3f`。
+- 产品 Round 2 报告提交：`2183e38708a4dcef24ba2ef559b2446bb9b7f2f5`，仅增加 acceptance/截图；未改变已审实现，不因报告 SHA 变化重跑已覆盖范围。
+- 最新 closure：Round 4。Round 1/2/3 的失败与 pending 保留为历史，当前结论以此 verdict 和 Round 4 为准。
+- `code-review.json` 为 `[]`；原 W1、产品 A1/A2 与证据 C1 全部 closed。实现核对与验收门禁已通过，可继续 canonical 归并、归档与 PR；不代表已创建 PR、CI 完成、合并、发布或部署。
+
 ## Round 1 metadata
 
 - unit_id: `feat-617-agent-interactive-responses`
@@ -138,19 +147,68 @@
 
 `code-review.json` 更新为 `[]`：focus finding 已关闭，fix delta 未发现存活代码问题。报告仅包含上述范围的独立静态核对，未声称本轮实际浏览器复现或完整 unit 已可交 PR。
 
+## Round 3 — A1/A2 fix delta and C1 evidence reconciliation
+
+- verification_mode: `delta` + `targeted-closure`；code review mode: `patch`。
+- executed_base: `cc47abe3f`（unit 基线，不随报告提交变化）。
+- validated_at / candidate: `a211d7643e64b820908397844cbd3125372c83e0`
+- fix_delta_range: `613f33765..a211d7643`
+- checked_at: `2026-10-19T16:55:11+08:00`
+- focus_issues: 产品 Round 1 A1（离线待处理反馈）和 A2（内部选项值）；C1 仅补证据核对。
+- retained_from: Round 1 full 与 Round 2 W1 closure。`aaa6bfc24` 后此前仅报告/证据变化不触发重复全量重审。
+- requires_full_verification: `false`
+- 当前结论：**patch code review 无存活问题；delta aligned；C1 pending A1/A2 独立产品复验**。
+
+### Fix delta findings and evidence
+
+- **A1 implemented at the relevant seam**：`message-pane.tsx:1865` 只对带 interaction_reply 且持久状态为 pending 的本人选择消息显示“已保存，等待 Agent 处理”。原卡片 submitted 改为中性的“选择已提交”，不把中心持久化等同 Agent 接手或业务完成。`chat-workspace-page.tsx:746` 收到当前会话 `relay.delivery_receipt` 后重读权威消息；已核对 `gateway.ts:490–499` 更新消息状态并发该事件、`messaging.ts:321` 为事件附会话 ID，因此不是只在 mock 中成立的接线。离线不消失，恢复且回执后消失的真实体验仍待独立 reviewer。
+- **A2 implemented without changing input identity**：`interactive-source.ts:78–81` 从校验后 source 的 option 元素建立 label 映射，`:116–120` 给 Radio/Select/CheckBoxGroup 增加可选 `display_value`。`value` 原样保留，提交 semantic identity 仍比较 raw canonical state，不改幂等和模型真实输入；display_value 随持久 snapshot 进入历史/事件，前端 `message-pane.tsx:1799` 优先显示它。历史旧 snapshot 无该可选字段时保持原有 raw 值回退，不改写不可变旧记录。
+- IM 新测试覆盖 RadioGroup 的 bike→骑行、Select 的 am→上午，以及多选仅显示选中的雨伞，同时断言原 value 未变。Web 新 flow 测试覆盖 pending 提示与 running 后消失，新 workspace integration 测试由 receipt 触发权威 refetch 并消除提示。caller 的红→绿交接为 **IM 2 suites / 18 tests、Web 4 suites / 162 tests**；progress W3 已持久记录。`pnpm typecheck`、双 build 通过，前后端 build 日志 `/tmp/feat617-a1-frontend-build.log`、`/tmp/feat617-a1-backend-build.log` 与交接相符。复用有效证据，不重复已覆盖测试。
+- 本轮独立 `git diff --check 613f33765..a211d7643` 通过；未改实现、测试、配置或 runtime。
+
+### C1 current disposition
+
+`acceptance.md` Round 1（独立实际旅程，产品代码 `aaa6bfc24`）现已提供普通/Global 三类卡片、纯文字、双用户隔离、双页面草稿冲突、失败重试、替代/fork、渲染降级，以及 1440/768/390 全部 must-match 对照，均给出入口、操作和 durable 截图。该证据补齐原 C1 大部分缺项，不能继续描述为“未进行完整产品验收”。原生真机和真实外部 channel 未执行的边界也明确，本文仍只保留此前摘要 DTO/回退 seam 的测试结论。
+
+Round 1 因 A1 major 阻塞而 fail，A2 minor；两项实现修复和针对性回归已成立。本轮不代替产品 reviewer 宣称 A1/A2 真实体验闭环。已补核 a211d7643 的 `/tmp/feat617-a211-docs-check.log`：`PATH=<main .venv/bin> ./scripts/docs-check` 通过，249 maintained Markdown sources / 64 required routes；`/tmp/feat617-final-web-tests.log`：最终 Web 全量 **99 suites / 899 tests passed**。caller 确认最新 origin/main 仍为执行基线 cc47abe3f，无需新增集成范围。C1 **仅剩等待 A1/A2 targeted 产品复验**；收到报告后更新最终 closure，无需因文档 SHA 增长重审无关源码或重跑全量。
+
+## Round 4 — C1 targeted evidence closure
+
+- verification_mode: `targeted-closure`；focus_issues: `C1`。
+- executed_base: `cc47abe3f`
+- validated_at / implementation candidate: `a211d7643e64b820908397844cbd3125372c83e0`
+- acceptance evidence commit: `2183e38708a4dcef24ba2ef559b2446bb9b7f2f5`
+- checked_at: `2026-10-19T16:59:03+08:00`
+- retained_from: Round 1 full、Round 2 W1 closure、Round 3 patch/delta。report-only 增量已经核对，不扩大代码审查。
+- requires_full_verification: `false`
+- verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**。
+
+### C1 — closed
+
+已核对 `acceptance.md` Round 2 的实际操作、版本、Reference 对照、retained evidence 与新增 durable 截图：
+
+- A1：390×844 下真实停止本 unit Node 后提交新 Global 卡片，本人消息出现 `Saved, waiting for Agent`，原卡片只表达 `Choices submitted` 并只读。恢复 Node 后无导航、无手动刷新，待处理 DOM 消失；Agent 随后按所选骑行/咖啡/拍照、排除读书继续规划。证据：`evidence/review-r2-offline.png`、`review-r2-resumed.png`，R2-T2。
+- A2：Global 手机及普通 Agent 768×900 的单/多选确认分别显示“骑行／咖啡休息、拍照”及“线下／带书、带笔记”；刷新后保持相同标签和只读结果。原 raw value 继续用于状态/模型数据，不承诺迁移旧快照。证据：`review-r2-refresh-labels.png`、`review-r2-normal-done.png`、`review-r2-normal.png`，R2-T1/T3/T4。
+- 独立产品 reviewer 裁决 A1/A2 **closed，新增问题 0，Web 验收整体 pass**，并逐项保留 Round 1 已实际覆盖的其余 Scenario 与 1440/768/390 must-match。三种任务/两种 Agent、配置关闭重开、手写“先别发送”、用户隔离、CAS、网络重试、替代/fork和降级均有具体入口与实际结果，不以代码未变代替体验证据。
+- docs-check 已在 a211d7643 通过（249 maintained Markdown sources / 64 required routes）；最终 Web 99 suites / 899 tests 通过；此前 IM/PA/DSH/架构/构建证据按已审范围保留。M1 W1、W2、R1、R2、R3 在首版 Web 范围与相关回退 seam 的证据边界内满足，milestone **1/1 完整退出**。
+
+真实手机硬件、原生 App 和外部 channel 未在产品现场接入；该边界沿用 acceptance，不扩展成真机或外部渠道通过声明。独立 verifier 负责核 explicit contract/证据链，产品体验裁决来自上述独立 reviewer；本轮没有操作或修改 runtime。
+
+All checks passed. Ready for PR after the caller completes canonical reconciliation and archival.
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| IM：共同持久化/授权、刷新/节点离线 | Messaging 投影、transaction、schema、Interactions 权限 | interactive-messages 持久化/隔离/离线 | aligned |
-| IM：fork/原会话删除、只读、不复制草稿 | `conversation-actions.ts:331`；`interactions.ts:103` | fork copy 窄测；真实旅程待 C1 | aligned at implementation seam |
+| IM：共同持久化/授权、刷新/节点离线 | Messaging 投影/transaction/权限；pending 提示 + receipt 权威 refetch | 原 IM 测试；Round 3 IM18/Web162；acceptance Round 2 R2-T2 离线与无刷新恢复 | aligned |
+| IM：fork/原会话删除、只读、不复制草稿 | `conversation-actions.ts:331`；`interactions.ts:103` | fork copy 窄测；acceptance Round 1 T8 真产品旅程 | aligned at implementation seam |
 | IM：真实用户、原回复、实际选择、群中不同成员 | `interactions.ts:69`；`messaging.ts:575`；两条 PA 输入 | interactive-messages；PA interactive-replies | aligned |
 | IM：已提交/被替代明确状态、不同意图冲突且保留输入 | backend 409 + `chat-api.ts:78` 类型化；card 停止重放保留字段/原结果链接；composer 去除冲突附件保留原文 | 原 backend 回归；Round 2 两卡片 + 一手写恢复场景，4 suites / 24 tests | aligned (W1 closed at aaa6bfc24) |
 | IM：手写正文原样与草稿同时进入公开消息/模型 | `message-pane.tsx:647`；`interactions.ts:79`；withInteractionContext | interactive-flow、IM、PA 双路径“先别发送” | aligned |
-| Web：调整后继续、已提交/实际业务结果区分 | Renderer + 自己消息 snapshot + ContinueButton；明确冲突单独展示 | catalog/card/flow；Round 2 冲突恢复回归；部分真栈记录 | aligned at implementation seam |
-| Web：手机/桌面、生成/失败、摘要与输入 | 原 MessagePane 内嵌、CSS、RenderBoundary、既有运行投影 | 实现三宽度与异常对照待 C1 | evidence pending |
+| Web：调整后继续、已提交/实际业务结果区分 | Renderer/选择快照/静态动作；明确冲突；pending 单独反馈；server display_value 保留 raw value | catalog/card/flow；Round 2/3 回归；acceptance Round 2 A1/A2 closed | aligned |
+| Web：手机/桌面、生成/失败、摘要与输入 | 原 MessagePane 内嵌、CSS、RenderBoundary、既有运行投影 | acceptance Round 1 Reference 表与 Round 2 retained 对照；A1/A2 修复后手机/窄桌面复验 closed | aligned |
 | Web：个人草稿恢复与跨设备 CAS 冲突 | GET/PUT 用户 key + CAS；load/save conflict | interactive-card PUT conflict、IM CAS/隔离 | aligned |
-| Gateway：任意 Agent 按任务交付、真实用户执行链 | global-mode tool + PA public send / Relay/Inbox | 模型样本、communication-native、PA tests；完整 R1 待 C1 | aligned at implementation seam |
+| Gateway：任意 Agent 按任务交付、真实用户执行链 | global-mode tool + PA public send / Relay/Inbox | 模型样本、communication-native、PA tests；acceptance Round 1 T1/T2/T4–T7 | aligned at implementation seam |
 | Gateway：外部/原生可读摘要、不泄露 DSL | `global-agent.ts:291` strip + 不变正文 | PA web/feishu 参数化 | aligned |
 | Gateway：Features 默认/关闭/重新开启/旧卡片保留 | capabilities + generic UI + DSH lifecycle + PA guard，未改变旧消息 API | 三层 Feature 回归与 progress 浏览器保存刷新 | aligned |
 
@@ -159,4 +217,4 @@
 - 本 unit 顺带修改默认 E2E 模板：显式工具名单、两普通 Agent 加一个 Global Agent、空 Skill 禁用名单。它是已授权的开发/验收预设行为，已在 `docs/development/worktree-runtime.md` 与 `evidence/e2e-config-validation.md` 正确归属；不属于这三份产品 delta，无需把运维预设硬塞入产品 spec。
 - 没有发现其他应进入三份产品 delta 却遗漏的对外行为。NO_REPLY 的特殊投影限定已确认交互的该 turn，属于单份公开回复契约的实现，未改变普通无卡片回复。
 
-Outcome: **aligned**（实现与最终 delta，经 aaa6bfc24 的 W1 closure）。C1 产品退出证据仍 pending，因此完整 unit 尚不能给出 All checks passed / Ready for PR。
+Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证据 closure 均完成）。无 delta-mismatch、implementation-mismatch 或存活 CRITICAL/WARNING。
