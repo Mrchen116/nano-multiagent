@@ -52,3 +52,8 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 - 真实浏览器：Global 原话在 17:56 生成步骤/柱状图/重置；18:06 再发同一句（先取消旧状态附带）生成显示正常的版本。普通 Agent 原话“给我讲解下单利和复利的区别”生成输入/下拉/曲线/动态金额，2万元、10% 显示26000/26620与差620；刷新保留。自然语言追问保存当时参数；提交后仍可调至3万元，前一快照仍为2万元。后续完整证据与独立验收待补。
 - 验证：前端99 suites / 905 tests；IM与PA交互22 suites / 108 tests；pnpm build、Web build通过。日志分别 /tmp/feat617-native-final-web-tests.log、/tmp/feat617-native-im-tests.log、/tmp/feat617-native-build-3.log、/tmp/feat617-native-web-build-4.log。最后只加发布原始输入断言，interactive-messages 11项再次通过。
 - 本 worktree 保留数据重启：IM健康且Node ready；旧会话/历史/草稿未重置。主 checkout、feat-616及生产未变。隔离浏览器 Slider 在 jsdom 组合测试耗时异常，真实浏览器验证 Set 2→3、手动3→4正常；未替换或裁剪 Slider。
+
+
+### 2026-10-19 18:16 完整原生实测与 W2 修正
+
+完整实测源和失败样本已保存在 [新作者走查](../evidence/native-browser-review.md) 与 native-model-samples.json。普通原话跨领域自主生成、原生重置/刷新、同卡两轮手写快照与回答均实测通过。完整backend96/373、Python62与typecheck通过。独立静态W2同次native请求WS/POST双增revision已先红后绿：统一权威读回版本，保留当前编辑，2 suites/16 tests。等待冻结版本独立closure与产品完整新轮报告；未宣称门禁完成。

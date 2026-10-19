@@ -72,13 +72,17 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     } catch { setError('load'); }
   }
   useEffect(() => { void load(); return () => clearTimeout(timer.current); }, [message.id]);
+  async function syncSubmittedDraft() {
+    try {
+      const draft = await readInteractionDraft(message.conversation_id, message.id);
+      // POST and WS can confirm the same submission in either order.
+      revision.current = Math.max(revision.current, draft.draft_revision);
+      setDone(JSON.stringify(state.current) === JSON.stringify(draft.state));
+    } catch { setError('save'); }
+  }
   // Composer submissions also advance the draft revision, without remounting the explorer.
   useEffect(() => {
-    if (!loaded || !submittedMessageId) return;
-    void readInteractionDraft(message.conversation_id, message.id).then(draft => {
-      revision.current = draft.draft_revision;
-      setDone(JSON.stringify(state.current) === JSON.stringify(draft.state));
-    }).catch(() => setError('save'));
+    if (loaded && submittedMessageId) void syncSubmittedDraft();
   }, [submittedMessageId]);
 
   async function save() {
@@ -110,7 +114,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
       await saveRequest.current?.catch(() => undefined);
       const result = await onSend(pending.current.input, pending.current.key);
       setDone(true); pending.current = null; dirty.current = false;
-      revision.current++;
+      await syncSubmittedDraft();
       return result;
     } catch (e) {
       if (e instanceof InteractionSubmissionError) {

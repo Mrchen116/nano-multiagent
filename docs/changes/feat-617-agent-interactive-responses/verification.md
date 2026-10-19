@@ -2,7 +2,13 @@
 
 > Validation snapshot: `cc47abe3f → 0373d8feca33a449c0ea7e7f5a01fa88909e3e87`
 
-## Current verdict
+## Current verdict — full OpenUI restoration
+
+**Issues Found — 1 CRITICAL pending product evidence / 1 WARNING / 0 SUGGESTION；corrected delta implementation-mismatch。**
+
+固定实现候选 `07ca4831c03e9fab4b9e5341eed6315317c17675`；旧交付基线 `cf4b17f00`，unit/main 基线 `cc47abe3f`。此前表单切片 PASS 全部保留为历史，不外推为本轮用户目标通过。详见 Round 5。
+
+## Previous delivery verdict — superseded by restored full OpenUI scope
 
 **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
@@ -196,7 +202,7 @@ Round 1 因 A1 major 阻塞而 fail，A2 minor；两项实现修复和针对性�
 
 All checks passed. Ready for PR after the caller completes canonical reconciliation and archival.
 
-## Corrected Delta Reconciliation
+## Previous Delivery Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -218,3 +224,81 @@ All checks passed. Ready for PR after the caller completes canonical reconciliat
 - 没有发现其他应进入三份产品 delta 却遗漏的对外行为。NO_REPLY 的特殊投影限定已确认交互的该 turn，属于单份公开回复契约的实现，未改变普通无卡片回复。
 
 Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证据 closure 均完成）。无 delta-mismatch、implementation-mismatch 或存活 CRITICAL/WARNING。
+
+
+## Round 5 — full OpenUI restoration review
+
+### Metadata and scope
+
+- verification_mode: `full`，同时核对当前全部三份 corrected delta；code review mode: `full`。
+- validated_at / candidate: `07ca4831c03e9fab4b9e5341eed6315317c17675`
+- executed_base: `cc47abe3f`；prior-delivery baseline: `cf4b17f00`。
+- checked_at: `2026-10-19T18:11:09+08:00`
+- 先重读当前 spec/design/三份 delta 和 design-review R4 Approved，再审新实现；没有用旧表单原型、终身一次提交或旧产品 PASS 替代本次目标。
+- 代码范围覆盖 `cf4b17f00..07ca4831c` 完整恢复 diff，并核对 `cc47abe3f..07ca4831c` 的原公开交付链与既有架构职责。未受改变的身份/权限、PA publication、Relay/Inbox、离线反馈、Features 和 fork 数据独立性沿用此前实际源码及窄证据；已改变的 catalog/状态/原生事件/工具/patch/迁移全部重新核对。
+- requires_full_verification: `false`（本轮已为 full；后续局部修复和产品证据可定向 closure）。
+- 本轮只改本 unit 两份报告；未改仓库源码/测试、未操作其他 worktree、未启停服务。临时独立窄复现场地位于系统临时目录，完成后清理。
+
+### Completeness and evidence
+
+| 项目 | 实现与证据 | 当前状态 |
+|---|---|---|
+| 完整组件库和旧卡片兼容 | `catalog.tsx:22` 仅增加旧 ContinueButton 并扩展 Form buttons union，未删除任意上游组件；catalog test 断言包含全部上游组件并验证旧消息编辑恢复 | covered |
+| 本地状态、计算、条件、Each、Set/Reset/多个按钮 | 原生完整 library + Renderer；source/parser 不再以表单数量、静态字段/单按钮拒绝合法语言；catalog/native source 测试、本地 Set/Reset 无 host 请求 | implemented；真实知识讲解的 meaningful 变化待产品证据 |
+| 完整原生事件和当前 state | `interactive-card.tsx:105,132,145` 完整 ref + formState 冻结，click capture 标签独立于 generated message/context；`interactions.ts:85` 和 DTO/withInteractionContext 保存独立字段 | native/Mutation 参数化测试覆盖 Set 后 scale=3 与最新 Form 草稿；PA 接收完整 state/event；covered |
+| 多次探索/请求级幂等 | 新键各自请求，失败保留原 frozen input/key；submission 主键改 message_id，source/user 非唯一；确认后可继续本地操作和保存 | 后端重复/新键测试及 Web 两次请求 covered；revision 竞争见 W2 |
+| Query/Mutation 与宿主工具 | generated interactiveTools 给静态服务端校验分类；仅 conversation_messages/read 与 continue_conversation/write；当前 cid/身份由 host 决定 | Query 真实 listMessages seam；Mutation 同一 submit；未知/读写错配拒绝；covered |
+| 链接与未知事件 | `onAction` 只允许 http/https，noopener/noreferrer；未知动作显式 action error，未推断工具或网络目标 | 源码核对；未增加任意 JS/shell 执行器 |
+| patch 不可变完整版本与发布重试 | `Interactions.record` 在现有 insert transaction 内 mergeStatements，完整校验后新版本/旧 superseded 原子保存；publication_json 保存原 normalized patch，Gateway 重试比较原输入 | patch 无root补丁合并、旧源保留、publication原输入断言通过；covered |
+| 数据升级/旧消息 | migration 在事务内保留原 submissions，并取消 source/user unique；旧 source 在新 parser/evaluator 下读/交互；fork 复制完整源/快照不复制私有草稿 | 原兼容 tests retained + 新 schema/迁移代码核对；covered at seam |
+| 表达选择无验收题专用逻辑 | Feature/生成 Skill/完整 prompt 为通用过程/关系/条件/编辑指导；针对产品源码、生成资产搜索无冒泡/排序/复利专用分支或答案 | covered by source inspection |
+| 新 must-match / 普通原话和跨领域 | progress 记真实原话生成、首轮 Select 数值绑定失败与通用修复、跨领域普通问题结果；旧表单 acceptance 不覆盖新版连续探索 | **C2 pending independent product evidence** |
+
+复用并核对 `/tmp/feat617-native-final-web-tests.log`：Web **99 suites / 905 tests passed**；`/tmp/feat617-native-im-tests.log`：IM/PA 相关 **22 suites / 108 tests passed**；progress 记录 pnpm build、Web build 通过及发布原输入断言的 11 tests 追加通过。本轮未重跑无关全量。`git diff --check cf4b17f00..07ca4831c` 仅报告 design.md EOF 新空行，不列为产品缺陷。
+
+### Correctness and architecture
+
+完整 OpenUI 作为注册语言/Renderer 使用，不是第二套 Agent Loop。IM 仅加载 lang-core 与 product-contracts 纯 catalog；PA/Channels 不 import DSH；宿主 Query 使用既有登录用户 REST read 权限，Mutation 只向当前 source 作者产生普通用户请求，不能指定其他会话/Agent/角色。生成上下文被标记为 UI 生成数据；正文保留实际标签或用户手写原文。原公开 source 披露审核仍覆盖整个 source，patch 沿既有公开 send_message/dispatch 交付；缺失 Feature 值默认启用，关闭接口拒绝新交互的旧规则仍适用。
+
+交互状态完整保留及原生事件适配本身有实际 seam 测试；但同一次 native 按钮请求可能同时经 WS prop effect 和 POST 成功分支更新本地 CAS revision，构成下述确定问题。它影响新目标“继续探索后刷新恢复”，不能用旧单次提交的测试 PASS 关闭。
+
+### Issues
+
+#### CRITICAL C2 — 新用户目标的独立真实产品证据尚未最终收口
+
+- 契约：当前 spec 的“无交互提示的知识讲解”“保留通用界面能力”“多次探索与继续提问”，design 的新 must-match 与 M1 R1/R2/R3/W2。
+- 旧 acceptance Round 1/2 是被用户否定的静态表单切片，不证明此次目标。progress 新现场记录是有价值的作者证据，但独立产品 reviewer 的最终普通原话/跨领域、三宽度意义变化、连续提问与本地探索、查询/修改失败和 patch/历史/权限对照尚未交付。
+- 建议：接收既定独立产品验收及 durable 对照，逐项闭合上述新目标；不要重启或清空既有现场，不用 API fixture 代替无提示真实模型入口。该问题为证据门禁 pending，不据此猜测新产品必然失败。
+
+#### WARNING W2 — 同次提交的 WS/POST 双路径把草稿 CAS 版本增加两次
+
+- 契约：`design.md` 私有状态 CAS、“继续对话可多次发生”与即时完整状态；Web delta“提问后继续探索”，IM delta“多次探索与请求幂等”。
+- 位置：`interactive-card.tsx:76–82,111–113`，关联 `messaging.ts:536` 在 POST 返回前 publishMessages。
+- 触发：当前本地 revision=2。按钮请求创建消息后，其 WS 回显先使 submittedMessageId 改变；effect GET 读取已提交草稿，revision=3。然后同一 POST Promise 返回，成功分支 `revision.current++` 又变4。下一次编辑 PUT expected=4，而服务端仍3，单设备被错误提示“另一设备更新”，重试相同版本仍失败；载入最新才能恢复但会替换刚编辑的值。
+- 独立复现：系统临时目录中的一次性 Vitest 使用实际 InteractiveCard/Renderer；mock 初次 draft revision=2，延迟 onSend Promise，先 rerender submittedMessageId 并返回 GET revision=3，再 resolve 同一 onSend，编辑 TextArea。实际 `saveInteractionDraft` 的第3参数为 **4**，正确值为 **3**；1 test failed，`AssertionError: expected 4 to be 3`。未运行服务、未改仓库测试。这是正常网络可产生的合法事件先后，不需要另一个用户或异常数据库。
+- 证据等级：**CONFIRMED**。现有“composer提交后读取revision”与“连续native两次请求”分别覆盖单一路径，没有覆盖两种消息确认同时指向同一次 native 提交。
+- 建议：让 native POST 成功与 WS 提交同步通过单一权威 revision 更新路径收敛，不再在读回最新 revision 后盲目 +1。补最低层回归保护 WS→POST 与 POST→WS 顺序，断言后续编辑成功保存且值保留；无需引入额外状态框架。
+
+### Current disposition
+
+旧 W1、A1/A2/C1 在原交付范围的闭合历史保留。本次新问题 W2 open，C2 pending；当前代码审查 JSON 为本轮一个 CONFIRMED finding。静态核对本身已完整结束，不等待新产品报告才报告确定问题，不追逐假想边界。
+
+## Corrected Delta Reconciliation
+
+| Current delta item | 最终实现/证据 | 结果 |
+|---|---|---|
+| IM MODIFIED：真实用户/群隔离/手写正文原文 | 原身份/read-write checks + request snapshot + 完整 withInteractionContext；相关 backend/Web/PA tests | aligned |
+| IM MODIFIED：多次探索与请求幂等 | request级key、完整semantic、source/user可多次、同键重试/不同语义409；新迁移/窄测 | request identity aligned；继续编辑的私有状态 W2 implementation-mismatch |
+| IM MODIFIED：patch 完整历史 | 公共 mergeStatements、完整校验、publication_json、同作者同会话限制、事务回滚 | aligned |
+| Web ADDED：组件/计算/动作与连续本地探索 | 未删除完整上游组件；native Renderer；local Set/Reset无新请求 | implemented / independent product evidence C2 pending |
+| Web ADDED：提问后继续探索、错误不抹可读内容 | 可多次submit、请求冻结、已提交不锁全卡、tool errors沿原生通道；私有revision双推进 | **implementation-mismatch (W2)** |
+| Web ADDED：Query/业务动作边界 | 仅已登记只读Query和明确Mutation，host身份/cid固定，返回message receipt非业务完成 | aligned |
+| Gateway MODIFIED：各任务通用交互及外部文字 | 通用 Feature、完整 catalog/skill、原公开交付与渠道strip retained | implemented / real generation C2 pending |
+| Gateway ADDED：无提示普通问题和跨领域 | 代码/提示无验收题逻辑；作者现场新模型样本保留失败 | source aligned / independent product evidence C2 pending |
+| Gateway ADDED：保留OpenUI并遵守权限 | full82+legacy组件、原生机制、仅两host工具，未接入文件/任意系统调用 | aligned |
+
+### Uncovered Observable Behavior
+
+无新增遗漏。旧 Features、消息读取/fork授权、Web基本阅读/失败与外部摘要 Requirement 在 current 原条目中保留；当前 MODIFIED/ADDED 类别与已交付 canonical 基线对应，未把未变旧条目重复 ADDED。恢复全部 UI 能力与业务工具接通范围已分别写明。
+
+Outcome: **implementation-mismatch**（W2）；另有 C2 独立产品证据待补。当前不能 Ready for PR / 再次宣称完整用户目标通过。

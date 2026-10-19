@@ -98,3 +98,26 @@ it('refreshes draft revision after a composer submission while keeping the explo
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'继续探索'}});
   await waitFor(()=>expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',7,expect.any(Object)));
 });
+
+it.each(['ws-first', 'post-first'])('keeps the authoritative draft revision after a native submission with %s delivery', async order => {
+  let complete!: (value: unknown) => void;
+  const send = vi.fn(() => new Promise(resolve => { complete = resolve; }));
+  const props = {message, onSend:send, onSelect:vi.fn()};
+  const view = render(<InteractiveCard {...props} />);
+  const field = await screen.findByRole('textbox');
+  fireEvent.click(screen.getByRole('button', {name:'发送给林悦'}));
+  await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:3,state:{draft:{body:{value:'周日见'}}},submission_message_id:'request-1'});
+  const reflect = () => view.rerender(<InteractiveCard {...props} submittedMessageId="request-1" />);
+  if (order === 'ws-first') {
+    reflect();
+    await waitFor(() => expect(readInteractionDraft).toHaveBeenCalledTimes(2));
+  }
+  complete({id:'request-1'});
+  await waitFor(() => expect(field).not.toBeDisabled());
+  if (order === 'post-first') reflect();
+  fireEvent.change(field,{target:{value:'提交后继续修改'}});
+  await waitFor(() => expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',3,expect.any(Object)));
+  expect(field).toHaveValue('提交后继续修改');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
