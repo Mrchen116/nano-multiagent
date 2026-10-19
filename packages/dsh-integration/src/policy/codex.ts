@@ -69,7 +69,7 @@ export class CodexApproval extends Service {
       const overhead=tokenCost(system)+tokenCost(JSON.stringify(schemas))+outputReserve+512;
       const limit=model.context?.contextWindow;
       if(!limit)throw new Error('Guardian reviewer model has no declared context window');
-      const action={name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd,rules:request.config.approval,recipient:request.messageContext};
+      const action={name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd,rules:request.config.approval,recipient:request.messageContext,nano_personal_authorization:request.personalAuthorization};
       let mode=fork?'fork':checkpoint?'delta':'full';
       for(let attempt=0;attempt<2;attempt++){
         signal.throwIfAborted();

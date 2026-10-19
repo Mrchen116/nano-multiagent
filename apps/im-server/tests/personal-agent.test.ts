@@ -3,6 +3,7 @@ import { fixture } from './control-fixture.js';
 import { Messaging } from '../src/messaging.js';
 import { TaskGraphService } from '../src/task-graphs.js';
 import { PersonalAgents } from '../src/personal-agent.js';
+import { Gateway, type Connection } from '../src/gateway.js';
 
 function personalFixture() {
  const f = fixture();
@@ -15,6 +16,22 @@ function personalFixture() {
  for(const id of ['u1','u2']) f.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer',?)").run(id);
  return {...f,service:new PersonalAgents(f.ctx),principal:{node_id:'n',owner_id:'o1',node_epoch:1},args:{agent_id:'a',binding_id:'binding',epoch:1}};
 }
+it('retries persisted pending observations on node heartbeat without another user message',async()=>{
+ const {ctx,db,service,principal}=personalFixture();ctx.personal=service;
+ db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES('o1','owner-binding','Owner','o1',datetime('now'),'active')").run();
+ const gateway=new Gateway(ctx),connection=principal as Connection;gateway.nodes.set('n',connection);
+ const wake=vi.spyOn(service,'wake');
+ ctx.messaging.insertMessage('peer','u2','user','A normal quote');
+ wake.mockClear();
+ await gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
+ expect(wake).toHaveBeenCalledTimes(1);
+ // A transient input review failure leaves the durable event pending.
+ await gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
+ expect(wake).toHaveBeenCalledTimes(2);
+ db.prepare("UPDATE pa_source_events SET state='processed'").run();
+ await gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
+ expect(wake).toHaveBeenCalledTimes(2);
+});
 it('reads owner tasks without PA membership and removes excluded sources before list counts and cursors',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const tasks=new TaskGraphService(db,ctx.messaging),actor={kind:'agent' as const,id:'a',node_id:'n'};

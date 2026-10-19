@@ -410,6 +410,11 @@ export class Gateway {
       db.prepare(
         "UPDATE nodes SET status=?,last_heartbeat_at=?,last_error=?,agent_count=COALESCE(?,agent_count) WHERE node_id=?",
       ).run(p.status ?? "online", now(), p.last_error ?? null, p.agent_count ?? null, c.node_id);
+      // Pending observations survive transient review failures. Existing heartbeats retry them without a new user message.
+      if((p.status??'online')==='online') for(const binding of all(db,`SELECT DISTINCT b.* FROM personal_agent_bindings b
+        JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies policy ON policy.binding_id=b.binding_id
+        WHERE b.node_id=? AND b.status='active' AND e.state IN ('pending','received')
+        AND (e.conversation_id IS NULL OR policy.observation_enabled=1)`,c.node_id)) this.ctx.personal?.wake(binding);
       return ack({ node_id: c.node_id });
     }
     if (type === "agent.work.append")

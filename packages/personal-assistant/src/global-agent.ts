@@ -203,6 +203,10 @@ export class GlobalAgent {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);
     try {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
+      if(call.method==='pa.authorization') {
+        if(!personalConfig)throw new Error('Trusted personal identity required');
+        return this.personal.request(personalConfig,'pa.scope.resolve');
+      }
       if (call.method === 'personal_assistant' || call.method === 'pa.action.guard' || call.method === 'pa.action.complete') {
         if (!personalConfig) throw new Error('Trusted personal identity required');
         if(call.method === 'pa.action.complete')return this.personal.complete(personalConfig,call);

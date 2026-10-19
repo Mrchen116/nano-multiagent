@@ -121,7 +121,9 @@ export class NanoApproval extends Service {
     const started = Date.now();
     let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
     try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
+      // Persistent owner scopes and UI choices must reach the ordinary reviewer too, including after recovery.
+      const personalAuthorization=config.personal ? await this.ctx.nanoProduct.call('pa.authorization',{},exec) : undefined;
+      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, personalAuthorization, reviewer };
       const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
         : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
       decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;

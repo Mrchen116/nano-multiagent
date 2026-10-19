@@ -7,6 +7,31 @@ import { personalFilePath, assertPersonalConfiguration, reviewPersonal } from '.
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 
+it('supplies server owner scopes and choices to ordinary approval without bypassing its denial',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'pa-owner-approval-'));let client:RuntimeClient|undefined;
+ try {
+  await writeFile(join(home,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
+export const name='pa-owner-approval';export const inject=['tools','llm'];export function apply(ctx){
+ctx.on('llm/stream',async function*(o){const prompt=o.messages[0].content[0].text;const allow=prompt.includes('SERVER_OWNER_CHOICE')&&!prompt.includes('FORBIDDEN_DISCLOSURE');yield{type:'block-end',index:0,block:{type:'text',text:allow?'<block>no</block>':'<block>yes</block><reason>Not authorized</reason>'}};yield{type:'finish',reason:{kind:'stop'}};});
+ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];for(const text of ['Chosen reservation','FORBIDDEN_DISCLOSURE'])results.push(await ctx.tools.execute({name:'send_message',callId:'send-'+results.length,arguments:{target:'peer',text},agent,signal:new AbortController().signal}));await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
+  await prepareProfile(home,[{insert:[{id:'pa-owner-approval',name:join(home,'fixture.mjs')}]}]);
+  client=new RuntimeClient({home,cwd:home});
+  const sent:string[]=[];let authorityReads=0;
+  client.rpc.handle('product.call',value=>{const call=value as any;
+   if(call.method==='send_message.context')return {target:'peer',sender:{type:'agent',agent_id:'pa'},recipient:{kind:'user'},channel:'web'};
+   if(call.method==='pa.authorization'){authorityReads++;return {scopes:[{task_ref:'goal',revoked:0,scope:{allowed_action_kinds:['message'],allowed_conversation_ids:['peer']}}],assistance:[{task_ref:'goal',paused:false}],owner_decisions:[{status:'resolved',owner_resolution:{option:'SERVER_OWNER_CHOICE'}}]};}
+   if(call.method==='send_message'){sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
+   throw Error('Unexpected product call '+call.method);
+  });
+  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home}};
+  await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+  await client.rpc.request('session.ensure',{sessionId:'root',agentId:'pa',ownerId:'owner',revision:'1',cwd:home});
+  await expect.poll(async()=>readFile(join(home,'results.json'),'utf8').catch(()=>''),{timeout:10000}).not.toBe('');
+  const results=JSON.parse(await readFile(join(home,'results.json'),'utf8'));
+  expect(sent).toEqual(['Chosen reservation']);expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBeGreaterThan(0);
+ }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+},20000);
+
 it('keeps private document paths out of control files and symlink escapes',async()=>{
   const home=await mkdtemp(join(tmpdir(),'pa-files-'));
   try{
