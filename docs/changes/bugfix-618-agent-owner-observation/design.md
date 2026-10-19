@@ -102,8 +102,12 @@ Web：`http://127.0.0.1:53186`；原生 Debug origin：`http://127.0.0.1:53186`�
 
 | ID | 依赖 | 并行组 | 范围 | Exit Criteria |
 |---|---|---|---|---|
-| M1-owner-observation | 无 | 单线 | IM access/list/event/replay、Web DTO/分类/只读、iOS DTO/提示、测试与 delta | **[reviewer R1]** 双 owner/同 owner/私人空间在 Web Network 发现已有和新协作，辨认双方身份；**[reviewer R2]** Web 与 iOS 只读无发送/加入及原生列表长按/侧滑写动作，参与者不变，普通成员聊天可发送；**[reviewer R3]** 实时、历史、重连与失效一致；同账号同空间在线查看时只改变 owner，下一次前台复查清除正文/媒体和列表旧项，长消息可滚；**[worker W1]** 先红后绿的最低层 HTTP/WS 权限矩阵覆盖 list/read/media/writes/owner变化与账号失效；**[worker W2]** 扩展现有 frontend/iOS 测试，提供原型/实际页面对照；**[worker W3]** 适用独立静态与产品门禁、契约归并及 CI 通过。 |
+| M1-owner-observation | 无 | 单线 | IM access/list/event/replay、Web DTO/分类/只读、iOS DTO/提示、测试与 delta | **[reviewer R1]** 双 owner/同 owner/私人空间在 Web Network 发现已有和新协作，辨认双方身份；**[reviewer R2]** Web只读无发送/加入，参与者不变，普通成员聊天可发送；iOS保留实现/静态/自动化证据，按用户2026-10-19决定不要求原生手势实际补验；**[reviewer R3]** 实时、历史、重连与失效一致；同账号同空间在线查看时只改变 owner，下一次前台复查清除正文/媒体和列表旧项，长消息可滚；**[worker W1]** 先红后绿的最低层 HTTP/WS 权限矩阵覆盖 list/read/media/writes/owner变化与账号失效；**[worker W2]** 扩展现有 frontend/iOS 测试，提供原型/实际页面对照；**[worker W3]** 适用独立静态与产品门禁、契约归并及 CI 通过。 |
 
 ## 测试处置
 
 现有 `tenancy.test.ts`/IM e2e 通信测试承担成员与空间边界，扩展其观察者矩阵，避免重复建 unit 命名测试；Web sidebar/message-pane 既有测试加入 Network direct 和隐藏 composer；iOS ChatStateTests 加只读观察字段与发送 guard；Web 集成覆盖 403/404 后清理以及迟到响应不恢复正文；原生实际走查长按和侧滑不露写动作。DSH 与 Node 不改，不增加运行时兼容测试。
+
+## 实施后验收范围确认（2026-10-19）
+
+用户明确“web验证过就行”，以[incident验收范围调整](incident.md#验收范围调整2026-10-19)为准；Runbook与原型中原生手势项目保留为原设计历史，不再是本次产品放行前置。iOS代码和契约目标未变，既有自动化/静态验证保留；未发生新实现或关键设计变化，不重新开启Gate2。
