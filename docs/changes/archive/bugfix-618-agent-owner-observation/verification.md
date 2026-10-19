@@ -219,3 +219,56 @@ M1的实现与验证部分通过，**生命周期交付步骤仍pending**：归�
 R2 corrected-delta focus已aligned，本轮无新行为delta。用户只调整验收范围；Web/iOS/auth/conversations/Work的实现目标均未变，R2 aligned结论保留。**Outcome: aligned（retained，无新增delta）**。
 
 本轮只追加verification及code-review保留说明，不改源码、测试、设计或产品报告，不提交。最终Web build仅生成忽略产物；没有自启服务或接生产。`regression.md` R4由独立产品reviewer同期追加，按caller交接读取，不冒充本审查者亲自重跑产品旅程。
+
+## Round 4 · Latest Main Sync Delta / Closure · 2026-10-19
+
+> Validation snapshot: `65de8cd2085b461b55b23eb88fc2eceb19c7bc39 → de0141f84831fbae9f2b68946204b4f032bb554e`
+
+- verification_mode: delta + targeted-closure
+- review_round: 4
+- executed_base / effective_base: `65de8cd2085b461b55b23eb88fc2eceb19c7bc39`
+- validated_at: `de0141f84831fbae9f2b68946204b4f032bb554e`
+- prior_verification_path: 本文件Round 3
+- fix_delta_range: `35e815e61..de0141f84`（含main同步；新增兼容修复为`50b27ffd5..de0141f84`）
+- focus_issues: main共享接口/消息组件交集；owner交互只读；合并冲突保留双方intent；已关闭W1/W2持续有效
+- requires_full_verification: false
+- verdict: **pass（delta实现/一致性及测试门禁）**；新增CRITICAL/WARNING/SUGGESTION **0/0/0**。本轮真实Web新卡片/布局补验由独立产品reviewer另行收口，不把此前版本的产品pass静默投射为新布局pass。
+
+### Completeness / 影响边界
+
+最新main带入feat-617交互回复、依赖和共享消息布局，不能沿用上一次“仅文档”的保留判断。本轮读取merge combined diff、相对新main的618差异，以及交互read/draft/submit、消息创建/持久广播、Web卡片/自然输入/冲突恢复调用链。范围是开放PR同步main的兼容修复，不新增需求/milestone；上游独立归档的feat-617不作为618全量重做对象。
+
+当前产品依赖已变，本轮采用新树5文件38项后端、6文件52项Web和最终build/typecheck作为受影响边界证据；**旧347/889分次全套不称为本次依赖合并后的全套通过**。未受影响的618 owner派生、列表/历史/媒体/当前资格原契约及证据可以保留，且新tenancy矩阵再次通过。真实Web新增交互卡/布局是产品补验对象，旧原型/截图不充当补验。
+
+### Correctness / Scenario Mapping
+
+| Requirement / 合并intent | 实现与契约证据 | 测试证据 | 状态 |
+|---|---|---|---|
+| owner仅观察，不修改交互状态或提交请求 | `interactions.ts:79,87` GET读/PUT写分离，GET只取本人draft；`messaging.ts:474`在interaction_reply分支前要求member write | 独立tenancy双方owner的GET状态符合默认只读内容；PUT/提交404、outsider404；interaction_drafts0、messages1、relay_tasks0 | covered |
+| 可读取交互内容但字段与提交不可操作 | `message-pane.tsx:1089`由can_write推readOnly；`interactive-card.tsx:170` fieldset disabled；`:91,108,181`阻止save/submit/select | 独立interactive-flow观察会话真实MessagePane组合，字段/Continue按钮disabled，无composer，点提交无send/save | covered |
+| 普通成员提交冲突保留草稿编辑和明确失败，未知结果原快照重试 | fieldset只使用readOnly，未用包含submissionConflict的locked；main lockedRef/pending/key/state逻辑保持；current `web-chat-ux.md`“私人状态与真实失败”保留 | 独立card+flow18项含alreadySubmitted/stale不重放且field可编辑，本机值保留；未知结果同input/key；自然追问与群明确动作回归通过 | covered |
+| observer composer隐藏；main pendingInteraction重试不丢 | `message-pane.tsx:1104-1106,1183`保留form can_write及pending提示/禁用；原onSend扩展参数与返回Message保持 | flow18项、最终6文件52项含原成员冲突/交互回归通过 | covered |
+| 双方owner接收持久事件，同时保留main delivered返回 | `messaging.ts:345,622-629`既保留conversationReaderIds广播，也聚合deliverRelays结果；`sendMessage:523-525`消费返回；gateway最终资格和replay保留 | 新tenancy当前资格/live/replay矩阵再次通过；后端5文件38项、消息与交互回归通过 | covered |
+| 两份current规格保留双方Requirement，索引准确 | `conversations-messages.md:520-575`观察+main交互；`web-chat-ux.md:567-642`观察+交互/布局/视觉；spec.md表计数 | 独立计数auth15/messages30/web29/iOS6，与索引一致；相对双parent审merge无Requirement丢失 | aligned |
+| 无原生源码增量 | `git diff 35e815e61..de0141f84 -- src/IM/ios`为空 | 既有47原生测试与unsigned archive可保留；用户取消原生实际补验的边界不变 | retained |
+
+### Evidence / Execution
+
+- 冻结HEAD独立执行Web `npm exec vitest -- run src/features/chat/interactive/interactive-flow.test.tsx src/features/chat/interactive/interactive-card.test.tsx --maxWorkers=1`：**18/18 passed**，23:00:12，9.75s，`/tmp/nano618-independent-sync-web.log`。
+- 独立执行后端 `pnpm exec vitest run apps/im-server/tests/tenancy.test.ts -t 'both real Agent owners' --maxWorkers=1`：**1 passed，7项因-t未选择**，23:00:12，1.38s，`/tmp/nano618-independent-sync-tenancy.log`。核心授权接口与持久化结果独立确认，不依赖mock卡片推断后端安全。
+- 复用并检查版本/结果：RED `/tmp/nano618-sync-card-red.log`失败在readonly textarea；GREEN `/tmp/nano618-sync-web-final.log`6 files/52 tests、`/tmp/nano618-sync-backend.log`5 files/38 tests全部通过；Web最终build、workspace build/typecheck分别见sync-web-build/sync-build/sync-typecheck日志。build的Node installer候选标记50b27ffd5，最终fieldset前端兼容修复另有最终Web build证明；未宣称发布或部署。
+- 当前冲突解决由combined diff直接核查；未靠仅看git无冲突就认定语义保留。fieldset没有用locked替代readOnly，普通成员冲突后草稿仍可编辑，避免损坏main原intent。
+
+### Corrected Delta Retention / Observable Changes
+
+本轮无新的需求delta。新主干交互API和卡片仍受618既有“当前读取资格/成员写入/客户端只读”契约约束；fieldset补充是既有只读语义在新组件上的兼容修复。main三组messages及四组web Requirement与618新增内容均保留，归并索引计数正确。**Outcome: aligned**。无需为了修复放宽owner写资格或重开Gate2。
+
+### Remaining Gate Boundary
+
+实现与一致性delta通过，无存活问题；R2两项finding保持closed，code-review patch findings=[]。同步main后新卡与布局的真实产品定向补验由product reviewer承担（本报告写入时尚未追加）；远端CI、PR合并、生产部署分别核实，不由本地静态/测试pass推导。用户既有“Web验证过就行”继续适用，原生未验项不改写成pass。
+
+本轮只追加归档unit的code-review/verification，未改实现/测试/设计、未提交、未派修复worker、未动生产或主仓。独立测试临时DB均由fixture清理。
+
+### Evidence Storage Policy Alignment（同轮保留说明）
+
+main `docs/development/evidence.md:50-54`规定截图/录屏不提交Git，而存放gitignored或稳定仓外目录。caller同期将本unit旧24张PNG从索引移除，保留原本地文件与 `/Users/czj/.codex/artifacts/bugfix-618/visual-evidence/`，新增`evidence/local-artifacts.md`并调整历史图链。本审查者独立列出冻结HEAD的24张PNG，逐一检查原本地文件和仓外副本：**24/24存在且SHA-256一致**。因此原先有效的视觉证据可保留；不把政策性移出Git当作证据删除或未验，也不宣称远端Git可下载这些图片。旧结论仍需按具体原始版本/场景适用，main后的新卡片/布局补验另由产品reviewer提供；最终链接docs-check由caller执行。

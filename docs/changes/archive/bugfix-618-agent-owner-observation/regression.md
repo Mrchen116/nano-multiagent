@@ -177,3 +177,29 @@ R2已经说明的N/A边界继续保留：当前未声明的消息修改/撤回�
 R1–R3中的原生inconclusive、控制工具阻塞，以及R1内部错误提示观察完整保留；原生审批卡、友好撤权提示、长按/侧滑/详情**没有因此被改写为pass**。这些项目按用户明确决定移出本次产品放行范围，已有原生自动化/静态证据也不替代真实交互。未继续操作原生或启用替代驱动。
 
 只追加本报告，未修改实现、测试、设计或其他文档，未提交。服务已由caller清理；本轮未新启服务。上层current契约归并仍按本报告前述清单由orchestrator收尾，产品验收已在调整后的范围内完成。
+
+
+## Round 5 · 2026-10-19 · 合入 main 后 Web 定向回归
+
+> validated_at: `de0141f84831fbae9f2b68946204b4f032bb554e`
+> executed_base / effective_base: `65de8cd2085b461b55b23eb88fc2eceb19c7bc39`
+> 范围：保持R4用户确认的Web + IM HTTP/WS；本轮实际重验main合并带来的Web布局和OpenUI交互只读路径，不操作原生。
+
+**Final Verdict: pass。** highest_required_action=pass；未解决blocking/major/minor问题数=0；needs_re_review=false；gh_issues_filed=0。
+
+本轮开始核实HEAD及干净checkout，在caller重建的隔离服务上通过真实Chrome使用Alice账号。Web 53186、IM 58054、fixture control 58055；跨owner会话为`c_zhb70mw3`，普通成员群为`c_swwx6ft9`。报告收尾时其他reviewer/caller正在更新文档及迁移截图，保留其变更。本轮未读产品实现、未修改代码、未提交。
+
+| 回归路径 | 实际结果 |
+|---|---|
+| Network到协作会话 | 桌面真实点击Network，可辨alpha↔gamma、alpha↔beta、palpha↔pbeta；进入跨owner会话后作者与节点归属可读，固定底栏明确read only，无composer。 |
+| 新OpenUI Form桌面只读 | 历史真实渲染Review notes、Existing collaboration notes输入框与Continue review按钮；输入框/按钮均disabled。Continue review实际点击被不可用状态阻止，未发生提交；卡片标记Historical reply · read only。 |
+| 390 CSS宽新布局/卡片 | 依据已有80%浏览器缩放，将viewport设为312×675，现场确认innerWidth=390、innerHeight=844。实际向前滚动触发历史分页，看到No earlier messages、最初双方发言、完整卡片及其输入/按钮；纵向阅读无截断，底栏不遮挡卡片。通过真实AX setValue尝试编辑被“no settable value”拒绝，原内容保持。 |
+| 旧审批只读 | 现有历史审批仍显示bash / NEEDS REVIEW / deploy --check，未出现Allow/Deny或理由/决定入口。新表单只读没有替代掉审批内容。 |
+| 已显示新卡片撤权 | 保持卡片在窄屏上可见，仅调用隔离fixture /revoke；页面自动回/chat，显示Conversation unavailable及友好说明，跨owner条目消失，正文和表单卡一并清空。随后/restore恢复alpha owner。 |
+| 普通成员发送 | 点击发布计划协作，真实输入并发送“R5 普通成员发送回归：发布清单已确认。”；消息作为新气泡出现（23:03），输入框清空、Send恢复disabled。正常成员发送能力保留。 |
+
+体验结论：新的消息/卡片布局在桌面和390宽度均能理解协作双方与内容，表单保留信息但明确不可操作；失去权限后不会留下仍可见的卡片。普通成员群仍能完成发送。没有发现新增产品问题。
+
+R4覆盖闭合表中未受本次布局合并影响的R1/R2/R3证据继续保留，包括Bob独立owner读取、私人空间隔离、HTTP拒写矩阵、双方真实WS实时/恢复/撤权重放、媒体授权与撤权关闭。它们不是本轮新执行的测试；R5只新增上述真实UI证据。原生inconclusive仍按R4范围裁决保留，不改写为pass。
+
+新证据位于[本地证据目录](evidence/local-artifacts.md)：`review-r5-desktop-card.png`、`review-r5-narrow-card.png`、`review-r5-revoked.png`、`review-r5-member-send.png`。未使用其他临时截图作为本轮结论。结束已reset viewport，fixture已restore；服务保持运行交caller统一清理。

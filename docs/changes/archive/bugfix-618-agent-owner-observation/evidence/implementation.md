@@ -27,7 +27,7 @@
 
 该脚本先显式 resume，收到双方新增事件；断开 bob 后消息可重放；只变更 alpha owner 后 alice不再收到内容而bob继续收。6条包含此前审计产生的合成记录，最终相对基线新增3条，没有真人插话。HTTP/WS和模拟节点直接验证 IM 变动链路，未调用真实模型，不声称 DSH 自主协作或生产验证。
 
-真实 Web：Network 筛选有私人、同 owner、跨 owner3条，成员群不混入；打开跨 owner后两位作者/节点可辨，底栏只读无发送/加入/配置，新增消息可见（[implemented-web.png](implemented-web.png)）。只改owner后下次前台复查清空正文并回列表；自检发现泛用“Send failed”标题，已改为访问失效专用标题，最终产品review复核。沿用现有头像/气泡/作者/时间，底栏层级和原型对应。
+真实 Web：Network 筛选有私人、同 owner、跨 owner3条，成员群不混入；打开跨 owner后两位作者/节点可辨，底栏只读无发送/加入/配置，新增消息可见（`implemented-web.png`）。只改owner后下次前台复查清空正文并回列表；自检发现泛用“Send failed”标题，已改为访问失效专用标题，最终产品review复核。沿用现有头像/气泡/作者/时间，底栏层级和原型对应。
 
 ## 验证环境说明
 
@@ -75,3 +75,19 @@ unit保持active；不归并current spec、不归档、不创建Ready PR。待�
 - 服务端口已释放、模拟器已关闭；worktree保留至PR/CI完成，临时实验不进入长期测试。旧runbook中的active路径仅为历史执行记录，资源现在位于archive。
 
 远端CI结果由PR记录；本记录不代替远端检查，不代表合并、部署或原生真机验收。
+
+## 按用户要求同步最新main（65de8cd20）
+
+用户要求“远端代码有更新，你的分支也及时更新最新的main”。合入origin/main@65de8cd2085b461b55b23eb88fc2eceb19c7bc39（feat617 Intelligent UI，123文件，含依赖和共享消息路径），新冻结产品HEAD为de0141f84831fbae9f2b68946204b4f032bb554e；前述d9be419c7基线结论作为历史保留，不直接宣称覆盖新main。
+
+- 冲突解决：messaging同时保留conversationReaderIds与新main的delivered返回值；MessagePane保留只读composer条件、owner底栏及main的pendingInteraction流程。三份canonical文档保留双方Requirement并重算入口计数。
+- 合并脚本首次遗漏第二个messaging冲突，未推送的本地merge曾含冲突标记；完整解决并amend为50b27ffd5，docs-check/diff-check通过后才推送。远端没有含冲突标记的版本。
+- 先红：owner-observed交互卡用例在50b27ffd5实际失败（textarea未disabled），日志/tmp/nano618-sync-card-red.log。修复只让字段组使用readOnly禁用，不用包含提交冲突状态的locked禁用，保留普通成员冲突后继续编辑本地草稿。后端写门禁原已拒绝，补真实卡片草稿GET/PUT/提交及无关账号断言。
+- 按新锁安装后pnpm build/typecheck、最终Web build通过。backend 5文件38项通过（/tmp/nano618-sync-backend.log）；Web 6文件52项通过（/tmp/nano618-sync-web-final.log），覆盖owner新卡片及main成员交互/冲突。扩展既有tenancy/interactive-flow，不新建unit专属测试文件。
+- 新DB实际HTTP/已认证WS通过：双方live/replay、无关管理员、owner撤权停止交付、两Agent参与者不变，68条=基线新增3；长历史审计取limit=200，避免默认50分页误计数（/tmp/nano618-sync-http-ws-audit.log）。fixture新增/interactive，由真实Agent节点发布可查看表单供独立产品复验，不调用模型。
+
+独立reviewer/verifier按新main影响范围复验；旧head CI已取消，新head检查已启动。此次main未改原生源码，人工验收仍以用户Web决定为准；不复用旧CI冒充新版本通过。
+
+同步后门禁已收口：产品R5 pass（新版桌面/390 CSS宽、卡片只读、撤权清理、成员发送）；code-review R3 findings=[]；verification R4 delta/closure pass。独立18项Web与1项核心tenancy矩阵通过。de0141f84上的远端前端与后端全套检查通过，iOS自动检查尚排队；最终报告提交仅改文档和证据索引，精确effective_through及远端最终状态由PR记录，不声明排队检查已绿。
+
+新main的截图不入Git规则同时落实：旧24图逐一复制并核对哈希，R5新图直接保存在稳定仓外目录，见[local-artifacts](local-artifacts.md)。当前unit继续保持完整归档；图片原件未删除，但不再作为Git附件提交。归档检查、docs-check与diff-check再次通过。

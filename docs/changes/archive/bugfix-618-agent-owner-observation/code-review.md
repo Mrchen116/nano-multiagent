@@ -90,3 +90,42 @@
 - `1823aef43..3a477acd6`仅unit报告/截图与用户验收范围说明，独立核对无产品源码、测试或依赖变更。R2 patch/closure结论保留：**findings=[]，两项focus closed**，不需要重复full code review。
 - 本轮C1 targeted verification已通过：独立产品R4按用户确认的Web+IM HTTP/WS范围pass，完整失败项均有原时限后续通过；本审查者额外在冻结HEAD执行最终 `npm run build`，TypeScript与Vite通过（`/tmp/nano618-independent-final-web-build.log`）。详情见verification Round 3。
 - 原生未完成真实交互按用户要求移出放行前置，仍保持未验记录；归并、归档、PR/CI是caller后续交付步骤，不在本报告冒称完成。未新增finding，未提交。
+
+## Round 3 · Latest Main Integration Patch Review · 2026-10-19
+
+- review_mode: patch + retained-finding closure
+- executed_base / effective_base: `65de8cd2085b461b55b23eb88fc2eceb19c7bc39`
+- validated_at: `de0141f84831fbae9f2b68946204b4f032bb554e`
+- pre_sync_head: `35e815e61`
+- patch_range: `35e815e61..de0141f84`；重点检查main新交互接口/共享消息组件与618观察权限的交集、merge commit `50b27ffd5`冲突解决、兼容修复 `50b27ffd5..de0141f84`。
+- 不把上游feat-617整体重新作为618需求审查；对最新main的本unit差异与实际重叠调用链交叉核对。没有改产品、测试、设计或提交。
+
+### Findings
+
+```json
+[]
+```
+
+### 冲突与新增接口核查
+
+| 影响面 | 核查与结论 |
+|---|---|
+| 事件reader与publishMessages返回 | merge combined diff保留`conversationReaderIds` import及`messaging.ts:345,626`读取者广播，同时保留main `publishMessages:622-629` delivered聚合返回及`sendMessage:523-525`的relay判断。没有退回成员only广播，也未丢main投递结果。 |
+| owner交互state读取/草稿/提交 | 新`interactions.ts:76-81`的GET复用当前conversation read，并限定`user_id=p.id`，不返回他人草稿；PUT `:87`及`messaging.ts:474`的所有消息/interaction提交先走成员write，发生在insert草稿/消息/relay之前。新增tenancy断言双方owner可读空状态，PUT/submit404、outsider GET404，草稿0、消息1、relay0。 |
+| 只读卡片UI | `message-pane.tsx:1089`保留main已提供的can_write映射到interactiveReadOnly；`interactive-card.tsx:170`补fieldset readOnly禁用，加上已有lockedRef对save/submit/state publish的阻断。不仅靠隐藏composer，也不靠服务端404来呈现可编辑假象。 |
+| readOnly与业务冲突语义分离 | fieldset用`readOnly || busy || pending`，没有误用`locked`（后者还包含submissionConflict）。普通成员alreadySubmitted/stale冲突仍保留字段与本机值可编辑，禁止原请求重放；成员自然输入未知结果仍保留冻结text/state/key重试。这是main已有契约，修复没有抹去。 |
+| composer合并 | `message-pane.tsx:1104-1106`仍以can_write控制整个form，并保留pendingInteraction提示和附件禁用；`:1183`的输入禁用与原pending重试逻辑保留。非观察者的main继续探索/提交路径未被替换成旧版onSend。 |
+| 当前spec合并 | conversations-messages中618观察Requirement与617交互三组Requirement均保留；web-chat-ux中618 Network/失效与617交互/布局/视觉均保留。实际计数auth15 / messages30 / web29 / iOS6，与spec.md相符；标题对齐bugfix-618，不丢main新增业务契约。 |
+| 原生与旧findings | `git diff 35e815e61..HEAD -- src/IM/ios`为空，R2两项finding仍closed；原生静态/47测试/unsigned archive证据保留且不声称新原生人工验收。 |
+
+### 验证
+
+- **独立Web**：冻结HEAD执行 `npm exec vitest -- run src/features/chat/interactive/interactive-flow.test.tsx src/features/chat/interactive/interactive-card.test.tsx --maxWorkers=1`，2 files / **18 tests passed**，23:00:12，9.75s，`/tmp/nano618-independent-sync-web.log`。直接覆盖owner卡字段/提交disabled、无composer/无save/send，以及成员冲突保留本机草稿、未知结果原快照重试、原生交互事件和普通自然追问。
+- **独立HTTP/持久化边界**：`pnpm exec vitest run apps/im-server/tests/tenancy.test.ts -t 'both real Agent owners' --maxWorkers=1`，**1 passed / 7 skipped by selection**，23:00:12，1.38s，`/tmp/nano618-independent-sync-tenancy.log`。测试中真实Fastify请求与SQLite断言通过；没有将选择器跳过7项冒称8项全跑。
+- **复用且已读**：RED `/tmp/nano618-sync-card-red.log`在字段not disabled处失败；最终GREEN `/tmp/nano618-sync-web-final.log`6文件52项、`/tmp/nano618-sync-backend.log`5文件38项通过。`/tmp/nano618-sync-web-build.log`最终TS/Vite构建通过，`/tmp/nano618-sync-typecheck.log`全部包Done，`/tmp/nano618-sync-build.log`完整build成功。构建日志的Node installer候选标记merge commit50b27ffd5，与最终兼容修复产品仅前端fieldset/测试增量相符；不把该候选当已发布包。
+
+结论：patch无存活finding，旧finding均保持closed。已覆盖新增共享权限/提交边界，没有需升级full审查的未核实候选。main后的真实Web卡片与布局定向验收由独立产品reviewer追加，旧产品截图不替代新组件/布局补验。远端CI/PR合并/部署不属于本报告已完成声明。
+
+### Evidence policy retention after main sync
+
+main `docs/development/evidence.md:50-54`要求截图/录屏留在gitignored或稳定仓外目录。caller正在将24张旧视觉证据移出Git索引，保留本地原文件及稳定副本 `/Users/czj/.codex/artifacts/bugfix-618/visual-evidence/`，并在`evidence/local-artifacts.md`及旧报告图链记录定位。本审查者独立枚举冻结HEAD的24张PNG并比较本地原文件/稳定副本：missing=0，SHA-256 mismatch=0。此为证据保存政策对齐，不是删掉已验事实或变成未验；证据内容、版本、场景和既有范围限制均保留。移出Git后的链接完整性由caller最终docs-check确认，不改变产品patch findings=[]。
