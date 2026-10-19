@@ -1,0 +1,67 @@
+{
+  "validated_code": "329c64c9c",
+  "fixture": "Both cards generated through real unhinted model questions after clean initial context; no API source fixture was published",
+  "question_id": "b707886f73b046a9880663a044134412",
+  "contexts": [
+    {
+      "source_message_id": "827f86fc01284bfb9e54bc9e98974564",
+      "source_summary": "冒泡排序的核心是：从左到右比较相邻两个数，前面大就交换。每一轮都会把剩余部分的最大值“冒”到右端，因此下一轮可以少比较一个位置。例如 [4,2,3,1]，三轮后变为 [1,2,3,4]。下面可以逐步查看每次比较，并对照 Python 实现。",
+      "agent_id": "e2e",
+      "state": {
+        "$s": "2"
+      },
+      "fields": [
+        {
+          "name": "step",
+          "label": "step",
+          "value": "2",
+          "display_value": "第 2 次比较"
+        }
+      ],
+      "interacted_at": 1792411777781
+    },
+    {
+      "source_message_id": "eb04741949c34d08b5558ca0e391064f",
+      "source_summary": "假设年利率固定、每年复利一次，且没有追加本金或费用。三年后：单利本息=P(1+3r)，复利本息=P(1+r)³，差额=P(3r²+r³)。因此，本金翻倍，差额也翻倍；非负利率越高，差额增长越快，并不是简单的正比关系。例如本金 10,000 元、年利率 5%，三年后单利本息 11,500 元、复利本息 11,576.25",
+      "agent_id": "e2e",
+      "state": {
+        "$p": "20000",
+        "$rate": "5"
+      },
+      "fields": [
+        {
+          "name": "principal",
+          "label": "本金（元）",
+          "value": "20000"
+        },
+        {
+          "name": "rate",
+          "label": "年利率（%）",
+          "value": "5",
+          "display_value": "5%"
+        }
+      ],
+      "interacted_at": 1792411773600
+    }
+  ],
+  "later_local_states": [
+    {
+      "source_message_id": "827f86fc01284bfb9e54bc9e98974564",
+      "state": {
+        "$s": "3"
+      }
+    },
+    {
+      "source_message_id": "eb04741949c34d08b5558ca0e391064f",
+      "state": {
+        "$p": "30000",
+        "$rate": "5"
+      }
+    }
+  ],
+  "reply_id": "b55285d3ba454fadbc7e2f8fdcc498f7",
+  "reply": [
+    "- 排序演示：当前是第 2 次比较，比较的是 **4 和 3**。\n- 利息演示：当前本金为 **20,000 元**，年利率为 **5%**。",
+    "completed"
+  ]
+}
