@@ -138,3 +138,10 @@ The user's test service remains available at its isolated local URL while they i
 - R9 独立产品验收 PASS，13 Scenario 已覆盖，0 blocking/major/minor；独立 code review 与 delta consistency 均无未关闭发现。报告保留初次失败与修复后实际结果。
 - canonical 已归并至 docs/specs/im/personal-agent.md 和 docs/specs/gateway/personal-agent.md，并更新入口；完整 unit 归档。归档后 docs-check 249 maintained sources / 67 routes 通过。
 - 187秒验收短片和原始证据留在 ignored data/acceptance/feat-616/r9/；前123秒真实UI录像，后64秒实际截图回看，均明确标记剪辑。专用浏览器及空白创建服务已关闭；53808用户测试服务和8766原型服务按请求保留。未部署生产、未合并PR。
+
+### R10 registration continuity and main sync
+
+- 用户指出R9录像从登录后的空白账号开始，缺少注册→首次设置→入公司。现明确该已有契约：注册后创建固定PA，none/pending/active沿用同一PA与主人私聊，不复制或发布私人资产；生产身份实现无需修改。新增真实IM注册/PA创建/公司申请批准回归，8 tests通过，独立审查Approved。
+- 用户通知PR366已合并；同步main `65de8cd20`，集成为`0e6474e1f`，PR368 base改为main。两个交互UI冲突同时保留616草稿保存/采用禁用和617主题/组合指导，生成源重新生成。78个UI/工作区tests、DSH build、native通信2tests通过，Web构建通过；独立15tests与生成资产检查通过。
+- 本轮真实新账号从/register进入首次设置，通过正常浏览器确认隔离Node后创建小禾，个人计划两小时在pending仍能回忆，管理员正常批准后同一PA继续改为三小时。read-only before/after确认完整binding/profile一致且binding数为1。真实产品结论及视频以acceptance R10为准。
+- 本地安装包未发布，不能把本轮当下载/安装验收；使用同一分支已构建的Node，独立身份/config/runtime/workspace，模型连接复用已验证Sol6.1/Luna6配置。注册、设备浏览器确认、PA创建、公司申请/批准均真实UI。专用Node已停止，临时config/绑定URL/凭据已移除；保留忽略目录中的证据与合成测试数据，原53808主服务更新至合并后构建并继续保留。

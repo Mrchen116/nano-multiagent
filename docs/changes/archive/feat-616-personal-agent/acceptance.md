@@ -1,4 +1,4 @@
-> 当前结论：**Round 9 PASS（2026-10-19，限定下述真实样本）**。请先读文末 Round 9；此前失败与修复历史完整保留。视频及证据入口：`data/acceptance/feat-616/r9/README.md`（本地 ignored 目录）。
+> 当前结论：**Round 9 full PASS；Round 10 注册/加入公司及合并影响 targeted PASS（2026-10-19，限定下述样本）**。R10从真实注册开始，见文末；安装包下载未验。视频入口：`data/acceptance/feat-616/r10-registration/README.md`；R9完整旅程证据仍保留。
 
 # feat-616 — 独立真实产品验收
 
@@ -453,3 +453,47 @@ reviewer `/root/pa_product_acceptance` 独立通过真实 Web UI、两套专用�
 证据限于列出的真实输入、权限与版本；未证明任意代码/插件全网络泄漏防护，未作生产/原生iOS/所有工具的接受声明。定时创建删除已验证，未额外重复测试所有 Heartbeat/暂停取消既有 Global 组合。修复前失败保留，报告未将工程测试替代产品验证。
 
 专用 headless 浏览器及两个 context 已关闭，录像落盘；未停止 caller 保留的53808服务，未清理用户原有会话/文件。仅提交本报告，截图、日志、视频及配置均不入库。
+
+
+## Round 10 · 2026-10-19 · 注册到公司与合并影响 targeted
+
+**Verdict: PASS（本路径，安装包/新模型接入不在已验证范围）；blocking 0，major 0。** 不重跑或替代 R9 full 结论。本轮用户要求从真实注册开始，而不是预置账号登录；以下每一步均为真实 UI 动作，没有 API 预注册、绕过公司审批或伪造 Node 状态。
+
+### 前置与实际限制
+
+主旅程运行 `1190bbbfc`，隔离53808、专用新账号 `r10-new-owner` / 初禾R10。真实注册自动进入 onboarding，但第1步实际提示“管理员尚未发布电脑端安装包，请稍后刷新”（`03-install-blocked.txt/png`）；这意味着本隔离环境的下载安装链未就绪，不能宣称完整新电脑安装验收通过。
+
+caller 提供同版本 source-built 独立 Node，无预置 Agent，独立工作区与身份；reviewer 使用新注册身份打开正常绑定确认页并点击“确认连接这台电脑”，正常协议完成交接，caller启动Node。模型复用既有6.1 Sol/6 Luna测试服务，因此向导自动通过电脑/模型两步；本轮不验证安装包下载/安装及新API Key接入。此替代边界在视频字幕/索引明确说明，初始错误保留。
+
+### 真实路径与判据
+
+证据均位于 `data/acceptance/feat-616/r10-registration/`（ignored，仅本地保存）。
+
+| 路径/判据 | 观察结果 | 证据 |
+|---|---|---|
+| 真实注册后先个人使用 | /register填写新用户名/显示名/密码，直接进入个人空间onboarding，无公司审批前置；注册后membership明确未加入团队 | `01-register.png`、`02-after-register.png`、`04-membership-before-apply.txt/png` |
+| 本人绑定电脑、首次设置创建PA | 正常UI确认初禾的测试电脑→设备交接完成→名字小禾，交代个人计划；系统创建PA `pa_4482930aa248`、主人DM `c_6e1340ddd579`，非普通Agent冒充PA | `05-confirm-computer.png`、`06-computer-bound.txt/png`、`07-computer-ready.png`、`08-name-first-pa.png`、`10-personal-pa-identity.txt` |
+| 未加入公司即可真实个人对话 | 22:49首条“周末去白鹭书店阅读两小时，不建任务、不联系任何人”；小禾真实回复记住计划。Work可见该轮4次工具已完成 | `11-personal-first-reply.txt/png`、`12-private-work-before-company.txt/png` |
+| 主动申请，不替用户默认加入 | 通过账号页“团队未加入→申请加入→申请加入团队”，实际变为等待管理员批准；新聊天对象此时只有自己的小禾 | `13-account-personal-only.png`、`14-membership-pending.txt/png`、`16-company-contacts-before-approval.png` |
+| pending不影响个人使用 | 点击继续个人使用，经聊天固定入口回同一DM；22:51正确复述两小时计划，未等待公司审批才回复 | `17-pending-personal-still-works.txt/png` |
+| 管理员真实批准 | 独立管理员context登录nano，在公司成员页看见初禾R10待批准；实际点击批准加入，反馈“已批准初禾R10加入公司” | `15-admin-pending-member.txt/png`、`18-admin-approved.txt/png` |
+| 获批后身份/历史/绑定连续 | 同一PA `pa_4482930aa248`、同一DM `c_6e1340ddd579`、同一初禾测试电脑，全部历史保留；22:51正确回忆入公司前两小时，并按新要求改三小时；账户个人空间可用、团队已加入、1台电脑 | `22-company-pa-identity.txt`、`23-approved-same-chat-continued.txt/png`、`24-account-company-active.txt/png` |
+| 公司访问增加，私人Work不扩散 | 批准后新聊天列表新增林悦/TestUser/小航；管理员访问小禾Work URL仅看到公开资料，无Work/配置/会话；直接访问其主人DM退回/chat，不显示私人计划 | `19-company-contacts-after-approval.txt/png`、`20-admin-private-work-denied.txt/png`、`21-admin-private-dm-denied.txt/png` |
+
+caller另以只读数据库对比 before/after 的完整binding/profile完全一致、binding唯一1，产物 `identity-before-company.json` / `identity-after-company.json`；reviewer的独立结论以上述浏览器可见ID、电脑、历史与续聊为依据，不将DB补证称为UI观察。
+
+### 体验判断与必须保留的连续性
+
+桌面1440×900实际检查注册、首次设置、个人账号、申请和管理员审批。个人空间与公司资格有明确分区，待审批有“继续个人使用”入口；获批后个人聊天无需迁移/重新创建PA。安装包缺失错误明确，但阻止全新电脑独立安装，因此仅在上述已连接Node前提下通过。未追加无关导航、UI重设计或重跑R9其他场景。
+
+### 同步main后的窄回归
+
+caller合并main并构建 `0e6474e1f` 后，reviewer刷新原nano账号的既有R9草稿：桌面1440×900及手机390×844主题与字号可读，TextArea、来源、过期提醒、采用按钮完整可操作（`25-merged-draft-desktop.png`、`26-merged-draft-mobile.png`）。编辑为本轮测试文案、blur后刷新仍保留。通过应用内切换在原聊天保留未发送输入；点击采用真实弹出“原聊天已有未发送内容。要用这份草稿替换吗？取消将保留原内容。”并dismiss，回原聊天内容完整保留（`29-merged-cancel-proof.txt/png`）。没有点击Send、没有真实外发；完成后卡片恢复原文，临时未发送输入清空。
+
+过程中两次使用硬导航会重新载入应用，原聊天临时输入并未保留，故没有触发替换确认；这两次不作为“取消通过”证据。随后真正应用内切换的确认与取消才是本结论依据。工具读textarea初次误用innerText已纠正为inputValue，没有因此宣称丢失输入。局部回归未重跑注册/公司身份链，不以新前端版本冒称主旅程的运行版本。
+
+### 录像与收尾
+
+`r10-registration-to-company.mp4` **196.00秒（3分16秒）**，全部是真实动作录像，包含真实注册、确认绑定、首次创建、个人使用、申请、管理员批准、同PA继续及私人Work访问边界。跨两个身份页面按实际顺序拼接，等待省略；没有伪造DOM、静态图替代注册或预置账号。`clip-index.json`给出源视频起止，原始录像保留于raw/raw-admin。已抽帧目视检查字幕、布局与操作内容。
+
+专用headless浏览器和两个context全部关闭；未停止caller管理的服务。仅追加本报告和本地ignored证据，不修改archive设计、不提交代码或报告。

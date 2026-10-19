@@ -882,3 +882,16 @@ current IM spec、archive unit spec与IM delta新增的同名Scenario一致：�
 工程证据的限制明确保留：首次电脑连接/模型确认被fixture替代；原私人消息不是模型回复；没有真实DSH session/context跨批准的运行探针。配置与上下文未被会员变更写入由静态代码及身份/历史保持支持，不能把它写成已实际体验了所有运行状态恢复。独立产品reviewer正在从/register录制首次设置、个人使用、公司申请批准和同一PA/DM/历史；本报告不代填其结果，也不把安装包未发布的本地源码电脑端称作下载/安装验收。
 
 本轮仅写archive unit的code-review-r10.json和verification，不改实现/测试/设计、未commit、未启动或重启共享服务。caller五文件dirty增量保持原样；保留本轮范围之外所有既有结论。
+
+### R10 main sync — bounded conflict integration review
+
+- validated_at: `0e6474e1f3b3a03b702c2eacc7cf17a3e16a3327`（合入`origin/main=65de8cd20`）；范围为`0dee4a107..0e6474e1f`的catalog.tsx、interactive-card.tsx冲突整合及生成资产一致性，2026-10-19 22:52 Asia/Shanghai。其他617上游实现/审查按既有版本保留，不重开全分支审查。
+- code_review_mode: **bounded merge closure**；`code-review-r10-main-sync.json=[]`。verification_mode: **delta consistency**；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。
+
+对两侧实际代码均作对照：相对同步前保留PA草稿采用流程；相对main，catalog仅保留616已核的Form提示第二参数替换。`libraryPrompt`完成该替换后再拼接617的`interactiveCompositionGuide`，composition规则/示例、上游组件及responsive Stack均在，没有将新guide覆盖回旧prompt。DSH prompt和PA Skill相对main也仅留下这一参数纠正，schema未改。
+
+interactive-card将617 ThemeProvider包在原Renderer外、原fieldset内，并保留`disabled={busy || applyingDraft || Boolean(pending.current)}`。原私有编辑状态、等待当前save、再次save后再采用、失败保留编辑和不调用send的逻辑未被合并丢失；主题不会另起保存/提交路径。现有采用按钮本身同样保留applyingDraft禁用。current PA spec“编辑并采用、不自动发送”与617 current web UX主题/组合契约可同时成立；无新PA权限、数据协议或产品delta。
+
+独立在frontend执行`pnpm exec vitest run src/features/chat/interactive/catalog.test.tsx src/features/chat/interactive/interactive-card.test.tsx`：**2 files / 15 tests passed**，5.32s，日志`/tmp/pa-static-review-616/r10-main-sync-ui-tests.log`。含真实库局部状态/组合示例执行，以及PA草稿保存失败不采用、重试成功采用且未send。独立`pnpm exec tsx scripts/generate-interactive-ui.ts --check` **exit=0**（成功静默，`r10-main-sync-generated-check.log`）；`git diff --check`通过。复用已实际读取caller `/tmp/feat616-r10-main-ui-tests.log` **4 files / 78 tests passed**及`/tmp/feat616-r10-main-ui-build.log`构建成功（已有chunk size warning）。未重复全量。
+
+本轮不以jsdom测试代判真实主题美术/窄屏布局体验；上游617已核结果按版本保留，caller另安排实际卡片布局复验。注册→首次设置→公司批准的独立产品补验与本轮两个冲突整合分别记录，不互相代填。仅新增本轮JSON并追加verification，未改实现或共享服务、未commit；既有失败/closure记录保留。
