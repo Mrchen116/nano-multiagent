@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "file": "src/IM/frontend/src/features/chat/interactive/interactive-card.tsx",
+    "line": 113,
+    "summary": "[P2] 避免 WebSocket 先回显时将同一次提交的草稿版本增加两次",
+    "failure_scenario": "初始 draft_revision=2；卡片请求的 message.created 经 WebSocket 先进入消息列表，submittedMessageId effect 读取已提交草稿并把 revision.current 设为服务端的3；随后同一 POST 的 onSend 返回，submit 成功分支又执行 revision.current++，变成4。服务端在 publishMessages 后才返回 POST，该时序合法。继续编辑后 PUT 带 expected_draft_revision=4，而服务端仍3，实际用户遭遇虚假的另一设备冲突，重试不能保存，载入最新又会放弃刚编辑的状态。本轮使用真实 InteractiveCard/Renderer、延迟 POST Promise 与更新后的 submittedMessageId 独立窄复现，得到 expected 3 / actual 4 的失败。应从服务端权威 revision 同步，或采用单一路径推进同一次提交；保护 WS/POST 两种先后顺序。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]
