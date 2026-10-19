@@ -1044,6 +1044,7 @@ export function MessagePane({
                   workAgentId={globalAgentIds.includes(m.sender.id) ? m.sender.id : undefined}
                   nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
+                  readOnly={conversation.can_write === false}
                   isMobile={isMobile}
                   participants={conversation.participants}
                   isDirectChat={isDirectChat}
@@ -1495,6 +1496,7 @@ function MessageBubble({
   conversationId,
   isMobile,
   participants,
+  readOnly = false,
   isDirectChat = false,
   agentOnline = false,
   onFork,
@@ -1511,6 +1513,7 @@ function MessageBubble({
   conversationId: string;
   isMobile?: boolean;
   participants?: Actor[];
+  readOnly?: boolean;
   isDirectChat?: boolean;
   agentOnline?: boolean;
   onFork?(messageId: string): void;
@@ -1776,6 +1779,7 @@ function MessageBubble({
               <PermissionCard
                 key={req.request_id}
                 request={req}
+                readOnly={readOnly}
                 disabled={!!req.agent_id && !(participants ?? []).some(p => p.type === "agent" && p.id === req.agent_id)}
                 conversationId={message.conversation_id}
                 messageId={message.id}

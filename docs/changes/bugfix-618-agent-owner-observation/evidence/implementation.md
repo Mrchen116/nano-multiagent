@@ -34,3 +34,14 @@
 首次同时执行默认并发Web全套、runtime构建与Xcode构建使本机load达到203，并出现多处未改模块超时；停止了仅本unit验证进程树，保留日志，不将未完成/超时全套称作通过。后续完整验证按受控并发、分阶段执行。原生首次构建停止后清理两个本unit孤儿swift进程；原生测试按可用iPhone17Pro模拟器进行。最终结论及独立门禁见后续报告。
 
 设计 retained：fixture只补5秒节点心跳和对端send-back演示驱动、delta只修合法相对链接，未改变Gate2方案/用户契约；iOS Network分类投影既有发现语义，不新增导航体系。
+
+## 首轮独立审查后的修复
+
+pre_fix_head `03d1d5a65`。审批只读资格遗漏和滚动fixture前提问题均接受，具体闭环见code-review/verification的后续Round。
+
+- Web修复+既有审批成员行为+分类+此前无关trajectory超时项：4文件35测试通过（`/tmp/nano618-web-fix.log`）；新增的真实页面用例同时证明审批内容可读、决定按钮/理由框不存在。
+- iOS修复后：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ... -jobs 2 test`，30测试0失败，`/tmp/nano618-ios-fix.log`。
+- Release设备归档：同工程 `generic/platform=iOS`、Release、`CODE_SIGNING_ALLOWED=NO`、`-jobs 2 archive`，ARCHIVE SUCCEEDED，`/tmp/nano618-ios-archive.log`。归档是未签名构建，不等于真机安装或生产发布。
+- 全量Web首轮最终887/889通过：本unit滚动fixture和无关trajectory5秒超时各1项；两项均在上述35项复跑中通过，最终全套正在重跑。
+- 后端全量343/347通过，4个超时分布3文件；串行重跑后model-fallback、control-work全部15项通过，只剩未改动workspace-tools的90秒超时。正在主仓对照同一测试，不把重试/基线疑点写成通过。
+- 隔离资源补齐：fixture提供`/classifications`（真人/人机私聊）、`/history`（60条历史+100行长清单）、`/media`（受保护测试图标及文本附件）、`/approval`（正式节点streaming生成待审批卡），用于独立补验。原生origin应为53186，经同源Vite转发API和WS；58054仅用于不带浏览器Origin的直接API。

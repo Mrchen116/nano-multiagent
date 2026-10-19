@@ -92,7 +92,7 @@ curl -f http://127.0.0.1:58055/revoke
 curl -f http://127.0.0.1:58055/restore
 ```
 
-Web：`http://127.0.0.1:53186`；原生 Debug origin：`http://127.0.0.1:58054`。合成账号 `alice` / `bob` / `charlie`，密码均 `old-password`；alice 与 bob 是跨 owner 观察双方，charlie 是无关管理员。fixture 的日志给出真人成员群 ID；实际私聊从 Network 发现。健康检查：`curl -f http://127.0.0.1:58054/health` 及浏览器真实登录、会话列表、节点注册成功日志；启动前核对 `git rev-parse HEAD`，进程 cwd 必须是受审 worktree。停止 fixture 用该进程 PID 的 `kill -TERM <pid>`（finally 关闭 socket/server 并删除临时数据库）；Vite 用启动会话 Ctrl-C。
+Web：`http://127.0.0.1:53186`；原生 Debug origin：`http://127.0.0.1:53186`（与IM public origin一致，HTTP/WS由Vite代理58054）。合成账号 `alice` / `bob` / `charlie`，密码均 `old-password`；alice 与 bob 是跨 owner 观察双方，charlie 是无关管理员。fixture 的日志给出真人成员群 ID；实际私聊从 Network 发现。健康检查：`curl -f http://127.0.0.1:58054/health` 及浏览器真实登录、会话列表、节点注册成功日志；启动前核对 `git rev-parse HEAD`，进程 cwd 必须是受审 worktree。停止 fixture 用该进程 PID 的 `kill -TERM <pid>`（finally 关闭 socket/server 并删除临时数据库）；Vite 用启动会话 Ctrl-C。
 
 原生资源已落实：`/Applications/Xcode.app`，iOS 26.4 iPhone 17 Pro 模拟器 `1CE31893-672F-495A-B2B5-3ACF39A7A257` 可用。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`；构建 `NANO_IOS_BUILD_ROOT=/tmp/nano618-ios ./src/IM/ios/scripts/build.sh build`，测试加 `NANO_IOS_SIMULATOR_ID=1CE31893-672F-495A-B2B5-3ACF39A7A257` 执行 `build.sh test`。模拟器独立 UI 走查使用已构建 Debug app、上述 origin 与合成账号；不使用生产账号或真机。
 

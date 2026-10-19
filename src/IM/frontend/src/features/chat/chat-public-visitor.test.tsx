@@ -17,7 +17,7 @@ it.each([false, true])("refreshes read-only timelines and clears revoked owner o
   if (observer) Object.assign(conversation, {title:"Atlas ↔ Scout",type:"direct",direct_kind:"agent-agent",visibility:"private",is_observer:true,participants:[{type:"agent",id:"atlas",display_name:"Atlas"},{type:"agent",id:"scout",display_name:"Scout"}]});
   let revoked = false;
   let resolveOlder: ((response: Response) => void) | undefined;
-  const message = (id: string, content: string) => ({id,conversation_id:"room",sender:{id:"other",type:"user",display_name:"Other"},sender_user_id:"other",sender_type:"user",content,attachments:[],delivery_status:"completed",created_at:"2026-09-09T00:00:00Z"});
+  const message = (id: string, content: string) => ({id,conversation_id:"room",sender:{id:observer ? "atlas" : "other",type:observer ? "agent" : "user",display_name:observer ? "Atlas" : "Other"},sender_user_id:observer ? "atlas" : "other",sender_type:observer ? "agent" : "user",content,permission_requests:observer ? [{request_id:"approval",tool_name:"bash",question:"Review deployment command",tool_input:{command:"deploy --check"},agent_id:"atlas",status:"pending",options:[{id:"allow_once",label:"Allow once",description:"Allow"},{id:"deny",label:"Deny",description:"Deny"}]}] : [],attachments:[],delivery_status:"completed",created_at:"2026-09-09T00:00:00Z"});
   let messages = [message("m1", "Initial public message")];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -39,11 +39,16 @@ it.each([false, true])("refreshes read-only timelines and clears revoked owner o
       expect(screen.queryByRole("button", {name:"Send"})).toBeNull();
       expect(screen.queryByRole("button", {name:"Config"})).toBeNull();
       expect(screen.getByText("Agent collaboration · read only")).toBeVisible();
+      expect(screen.getByText("Review deployment command")).toBeVisible();
+      expect(screen.getByText(/deploy --check/)).toBeVisible();
+      expect(screen.queryByRole("button", {name:/Allow once|Deny/})).toBeNull();
     } else expect(screen.getByRole("button", {name:"Join group"})).toBeInTheDocument();
     messages = [...messages, message("m2", "A new task collaboration notice")];
     await waitFor(() => expect(screen.getByText("A new task collaboration notice")).toBeInTheDocument(), {timeout:4500});
     if (observer) {
-      fireEvent.scroll(document.querySelector(".chat-pane-messages")!);
+      const pane = document.querySelector(".chat-pane-messages")!;
+      Object.defineProperties(pane, {scrollHeight:{configurable:true,value:1200},clientHeight:{configurable:true,value:300},scrollTop:{configurable:true,writable:true,value:0}});
+      fireEvent.scroll(pane);
       await waitFor(() => expect(resolveOlder).toBeDefined());
       revoked = true;
       await waitFor(() => expect(router.state.location.pathname).toBe("/chat"), {timeout:4500});

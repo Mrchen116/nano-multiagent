@@ -25,6 +25,7 @@ export interface PermissionCardProps {
   messageId?: string;
   endpoint?: string;
   disabled?: boolean;
+  readOnly?: boolean;
   /** Called with the chosen decision string after a successful POST. */
   onResolved(decision: string): void;
   /** Test seam: override fetch. Defaults to authFetch (injects Authorization header). */
@@ -85,6 +86,7 @@ export function PermissionCard({
   messageId,
   endpoint,
   disabled = false,
+  readOnly = false,
   onResolved,
   fetchFn = authFetch,
 }: PermissionCardProps) {
@@ -95,6 +97,7 @@ export function PermissionCard({
   const [reason, setReason] = useState("");
 
   async function handleChoice(option: PermissionOption) {
+    if (readOnly) return;
     setTransient({ kind: "submitting", chosenId: option.id });
     const trimmedReason = reason.trim();
     // feat-440-M2 (F4): the reason belongs to a Deny only (spec Q4: 允许类决策忽略
@@ -186,7 +189,7 @@ export function PermissionCard({
         </div>
       )}
       {/* feat-440-M1: 常驻选填拒绝理由框,在按钮区上方(spec Q4 形态 A)。 */}
-      <textarea
+      {!readOnly && <><textarea
         data-testid="permission-reason-input"
         className="chat-permission-reason"
         rows={2}
@@ -217,7 +220,7 @@ export function PermissionCard({
             </button>
           );
         })}
-      </div>
+      </div></>}
     </div>
   );
 }

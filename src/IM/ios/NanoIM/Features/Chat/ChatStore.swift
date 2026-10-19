@@ -167,8 +167,8 @@ final class ChatStore {
                 timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
                 revokedChats.insert(id)
                 conversations.removeAll { $0.id == id }
-            }
-            errors[id] = error.localizedDescription
+                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
+            } else { errors[id] = error.localizedDescription }
         }
     }
     func loadChat(_ id: String, older: Bool = false) async {
