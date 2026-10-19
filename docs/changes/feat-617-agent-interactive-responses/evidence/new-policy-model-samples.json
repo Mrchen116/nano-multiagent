@@ -1,0 +1,42 @@
+{
+  "validated_code": "329c64c9c",
+  "knowledge_fresh_session": "52f832a5-de4d-463e-925b-15b92680ad8d",
+  "knowledge_messages": [
+    [
+      "45e9756c9b564536beea37e71df349da",
+      "user",
+      "给我讲解下冒泡排序",
+      "completed"
+    ],
+    [
+      "827f86fc01284bfb9e54bc9e98974564",
+      "agent",
+      "冒泡排序的核心是：从左到右比较相邻两个数，前面大就交换。每一轮都会把剩余部分的最大值“冒”到右端，因此下一轮可以少比较一个位置。例如 [4,2,3,1]，三轮后变为 [1,2,3,4]。下面可以逐步查看每次比较，并对照 Python 实现。",
+      "completed"
+    ]
+  ],
+  "knowledge_cards": [
+    [
+      "827f86fc01284bfb9e54bc9e98974564",
+      "root = Stack([intro, demo, implementation, facts])\n$s = \"0\"\nintro = MarkDownRenderer(\"## 冒泡排序：相邻比较，大的往右走\\n以**从小到大**排序为例：比较相邻两个数，左边比右边大就交换；否则不动。每轮结束，未排序部分的最大值都会到达右端，就像气泡浮到水面。\")\ndemo = Card([CardHeader(\"一步一步看\", \"教学示例：[4, 2, 3, 1]；展示每次比较后的结果\"), picker, current, explanation, controls])\npicker = Select(\"step\", [SelectItem(\"0\", \"开始\"), SelectItem(\"1\", \"第 1 次比较\"), SelectItem(\"2\", \"第 2 次比较\"), SelectItem(\"3\", \"第 3 次比较\"), SelectItem(\"4\", \"第 4 次比较\"), SelectItem(\"5\", \"第 5 次比较\"), SelectItem(\"6\", \"第 6 次比较\")], null, null, $s)\nframes = [\"4　2　3　1\", \"2　4　3　1\", \"2　3　4　1\", \"2　3　1　4\", \"2　3　1　4\", \"2　1　3　4\", \"1　2　3　4\"]\nnotes = [\"先从最左边的一对开始比较。\", \"第 1 轮：4 > 2，交换。4 向右移动一格。\", \"第 1 轮：4 > 3，交换。4 继续向右移动。\", \"第 1 轮：4 > 1，交换。最大值 4 已就位，后面不用再比较它。\", \"第 2 轮：重新从左开始。2 < 3，不交换。注意：不是每次比较都会交换。\", \"第 2 轮：3 > 1，交换。3 已就位，右端的 3、4 都不用再动。\", \"第 3 轮：只需比较 2 和 1，交换后全部有序。\"]\ncurrent = TextContent(frames[$s], \"large-heavy\")\nexplanation = TextContent(notes[$s])\ncontrols = Buttons([Button(\"上一步\", @Set($s, \"\" + ($s * 1 > 0 ? $s * 1 - 1 : 0)), \"secondary\"), Button(\"下一步\", @Set($s, \"\" + ($s * 1 < 6 ? $s * 1 + 1 : 6))), Button(\"重置\", @Reset($s), \"tertiary\")])\nimplementation = Card([CardHeader(\"Python 实现\", \"原地排序：直接修改传入的列表\"), code, mapping])\ncode = CodeBlock(\"python\", \"def bubble_sort(a):\\n    n = len(a)\\n    for i in range(n - 1):\\n        swapped = False\\n        for j in range(n - 1 - i):\\n            if a[j] > a[j + 1]:\\n                a[j], a[j + 1] = a[j + 1], a[j]\\n                swapped = True\\n        if not swapped:\\n            break\\n    return a\\n\\nprint(bubble_sort([4, 2, 3, 1]))\\n# [1, 2, 3, 4]\")\nmapping = MarkDownRenderer(\"- **外层 `i`**：控制轮数，最多 `n−1` 轮。\\n- **内层 `j`**：比较 `a[j]` 与 `a[j+1]`；右端已有 `i` 个数就位，所以比较范围缩小。\\n- **`swapped`**：如果一整轮没有交换，说明已经有序，可以提前结束。\")\nfacts = MarkDownRenderer(\"### 记住这几点\\n- 平均、最坏时间复杂度：**O(n²)**，数据多时效率不高。\\n- 上面带提前退出的版本，最好情况（已有序）为 **O(n)**。\\n- 额外空间：**O(1)**。\\n- **稳定排序**：只在严格大于时交换，相等元素不会改变彼此的相对顺序。\\n\\n一句话：**相邻比较，逆序就换；每过一轮，最大归位。**\")"
+    ]
+  ],
+  "simple_fact": {
+    "validated_at": "329c64c9c",
+    "session_id": "62f1cc07-700c-4d81-9456-dcb166af3afb",
+    "messages": [
+      [
+        "d6398eda3f114f639783a585ec8fbb87",
+        "user",
+        "17+25等于多少？",
+        "completed"
+      ],
+      [
+        "02cfbeac63ad48a5a99a1da6925264f1",
+        "agent",
+        "17 + 25 = 42。",
+        "completed"
+      ]
+    ]
+  }
+}
