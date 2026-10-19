@@ -1,6 +1,6 @@
 # feat-617: Agent 交互式回复
 
-状态：需求与设计已对齐，2026-10-19 经用户授权进入独立实施。
+状态：2026-10-19 实施与独立门禁完成，已归档待 PR 审查；未合并或部署。
 
 ## Relations
 
@@ -36,7 +36,7 @@ feat-616 的隐私提醒卡片是提出需求的实例。本需求属于 Web IM 
 
 > 对了，这个intelligent UI特性应该设置成agent配置页的**Features，可以勾选或者不勾选。默认勾选。**
 
-作者解读：用户授权自主选型与设计，可复用开源、适配开源或自行设计，以目标体验和可维护性判断。研究证据见 [Intelligent UI 开源选型](../../research/studies/intelligent-ui-open-source-2026-10-19/README.md)。选择哪种库不作为用户体验要求；下述场景构成本独立 unit 的需求边界。
+作者解读：用户授权自主选型与设计，可复用开源、适配开源或自行设计，以目标体验和可维护性判断。研究证据见 [Intelligent UI 开源选型](../../../research/studies/intelligent-ui-open-source-2026-10-19/README.md)。选择哪种库不作为用户体验要求；下述场景构成本独立 unit 的需求边界。
 
 ## 当前事实与参考边界
 

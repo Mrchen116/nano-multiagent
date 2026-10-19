@@ -3,7 +3,7 @@ status: research-snapshot
 recorded-at: 2026-10-19
 nano-baseline: e7088f9d5e84d98663e42803b94ab788ed517702
 source-baseline: OpenUI 8d9c4c3b108a7b5352192a6a9d7327bdf7ea19b5; json-render 72568f990e5502c4d3115691facb8ca928a5c9fc; dsh-intelligent-ui c4920ad2327ee5dfdfb42744e4696286868d934e
-current-owner: docs/changes/feat-617-agent-interactive-responses/spec.md
+current-owner: docs/specs/im/conversations-messages.md
 ---
 
 # 从 Intelligent UI 到 Nano 的通用交互回复

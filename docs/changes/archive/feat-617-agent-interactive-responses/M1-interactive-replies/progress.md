@@ -28,3 +28,11 @@
 产品 Round 1 在 `aaa6bfc24` 完成完整真实旅程，报告见 `../acceptance.md`。A1 离线提交缺少待处理提示成立并阻塞；A2 选择摘要显示内部值成立。`0a7b187a8` 为修复前实现基线（随后 `613f33765` 仅验收报告）。修复仅增加 pending 消息提示、收到 relay 回执后的消息刷新，以及从公开卡片选项生成的 display_value；原始 value 与不可变历史继续保留。提交卡片用中性“选择已提交”，实际业务结果仍由后续 Agent 回复说明。
 
 先复现三项红测：选项标签缺失、待处理提示缺失、收到回执后仍未清除提示；修复后 IM 2 suites / 18 tests、前端 4 suites / 162 tests 通过。`pnpm typecheck`、前后端构建通过。产品 A1/A2 定向复验、静态 patch 与 verification closure 后执行最终同步、归并、归档和 PR CI；616 未修改。
+
+## W4：交付收口
+
+最终实现候选 `a211d7643`，产品 Round 2 报告提交 `2183e3870`；产品 PASS、静态 code-review `[]`、verification PASS / 0 CRITICAL / 0 WARNING，三份 delta aligned。A1/A2 与 C1 均关闭；单选/多选、离线恢复无需刷新、正常提交与后续模型结果均有独立现场证据。完整 Web 最终 99 suites / 899 tests 通过；归档前 docs-check 249 maintained Markdown / 64 routes; post-archive docs-check 237 maintained Markdown / 64 routes, archive gate passed. 其余本地 CI 使用 W2 中有效结果，修复相关 IM18/Web162 与前后端构建/typecheck 已追加覆盖。
+
+Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`，无 main 增量。产品首次 full 在 `aaa6bfc24`、targeted 在 `a211d7643`；静态 full 在 `0373d8fec`、后续 closure/patch 在 `aaa6bfc24`/`a211d7643`。报告逐项保留未受影响证据；最终归并与归档只改变契约归属、路径与交付记录，不改运行代码或门禁判据。effective_base 为上述 main，effective_through 使用 PR 所列最终 head，原 executed_base / validated_at 保留在独立报告。
+
+三份产品 delta 按已审内容归并到 canonical specs，整个 unit 归档。feat-616、主 checkout 既有修改及生产环境未改动。临时 W1 Vite 与遗留 DSH 进程已清理；隔离产品实例与测试数据保留供用户评估 617，完成评估后由本 worktree owner 清理；主仓原型预览未改动。原生 App / 外部渠道只有文本边界回归证据，未声称真机或外部现场验收。

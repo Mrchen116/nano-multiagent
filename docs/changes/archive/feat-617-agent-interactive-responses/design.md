@@ -30,7 +30,7 @@
 
 ### 相关历史
 
-feat-584 定义当前会话/身份与消息协作语义；bugfix-606 定义 Web 入口刷新行为；既有 Global Agent 与公开 publication 契约决定交付边界。feat-616 是提出需求的场景，实施与数据模型不作为 feat-617 前置。研究基线、开源成熟度和未验证项见 [选型研究](../../research/studies/intelligent-ui-open-source-2026-10-19/research.md)。
+feat-584 定义当前会话/身份与消息协作语义；bugfix-606 定义 Web 入口刷新行为；既有 Global Agent 与公开 publication 契约决定交付边界。feat-616 是提出需求的场景，实施与数据模型不作为 feat-617 前置。研究基线、开源成熟度和未验证项见 [选型研究](../../../research/studies/intelligent-ui-open-source-2026-10-19/research.md)。
 
 ## 架构总览
 
