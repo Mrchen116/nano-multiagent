@@ -21,6 +21,13 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY)");
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-replies-v1'").get()) {
+      if (!db.prepare("PRAGMA table_info(interaction_drafts)").all().some(column => column.name === "updated_at"))
+        db.exec("ALTER TABLE interaction_drafts ADD COLUMN updated_at TEXT");
+      if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "interaction_reply_json"))
+        db.exec("ALTER TABLE messages ADD COLUMN interaction_reply_json TEXT");
+      db.prepare("INSERT INTO schema_migrations VALUES('interactive-replies-v1')").run();
+    }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-timezone-v1'").get()) {
       for (const table of ['users', 'messages']) {
         if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'timezone'))

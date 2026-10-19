@@ -1080,9 +1080,31 @@
       "pin": "置顶聊天",
       "mute": "消息免打扰"
     },
-    "viewWork": "查看 Work"
+    "viewWork": "查看 Work",
+    "interactive": {
+      "title": "交互回复",
+      "fallback": "此内容暂时无法交互，请查看上方文字摘要。",
+      "loading": "正在恢复你的选择…",
+      "submitted": "已提交 · 等待 Agent 继续",
+      "readOnly": "历史内容 · 只读",
+      "sending": "正在提交…",
+      "saved": "草稿已保存，仅你可见",
+      "loadError": "无法恢复草稿。",
+      "saveError": "草稿暂未保存。",
+      "conflictError": "另一设备已更新草稿，请载入最新版本后继续。",
+      "sendError": "提交结果尚未确认，可重试同一次提交。",
+      "retry": "重试",
+      "loadLatest": "载入最新草稿",
+      "attached": "将附带当前选择",
+      "cancel": "取消附带",
+      "choices": "已提交的选择"
+    }
   },
   "feature": {
+    "intelligent_ui": {
+      "label": "Intelligent UI",
+      "help": "允许 Agent 按需生成可编辑、可选择的交互卡片。关闭后使用文字回复，已有卡片仍保留。"
+    },
     "task_graph": {
       "label": "任务图",
       "help": "允许 Agent 记录计划、探索分支和进度，在任务页查看。关闭不删除已有记录。"

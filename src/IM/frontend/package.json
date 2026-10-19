@@ -7,10 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "node -e \"const { spawnSync } = require('node:child_process'); const args = process.argv.slice(1).filter((arg) => arg !== '--runInBand'); const result = spawnSync('vitest', ['run', ...args], { stdio: 'inherit', shell: true }); process.exit(result.status ?? 1);\" --",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:interactive-assets": "tsx ../../../scripts/generate-interactive-ui.ts --check",
+    "pretest": "npm run check:interactive-assets"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
+    "@openuidev/lang-core": "1.0.1",
+    "@openuidev/react-lang": "1.0.1",
+    "@openuidev/react-ui": "0.18.1",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.7",
@@ -26,6 +31,7 @@
     "react-router-dom": "^7.9.3",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
+    "zod": "4.6.5",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
@@ -39,8 +45,17 @@
     "jsdom": "^27.0.0",
     "playwright": "^1.60.0",
     "tailwindcss": "^4.1.12",
+    "tsx": "4.22.4",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@openuidev/react-ui": {
+      "zustand": "$zustand"
+    },
+    "@openuidev/react-headless": {
+      "zustand": "$zustand"
+    }
   }
 }

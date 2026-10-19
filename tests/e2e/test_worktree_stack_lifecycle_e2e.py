@@ -151,6 +151,7 @@ def test_worktree_stack_isolates_runtime_and_releases_owned_resources(
         assert {agent["agent_id"] for agent in config["agents"]} == {
             "e2e",
             "e2e-peer",
+            "e2e-global",
         }
         assert all(
             Path(agent["workspace_root"]).resolve().is_relative_to(workspace_root)

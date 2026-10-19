@@ -839,11 +839,13 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
-        attachments: payload.attachments
+        attachments: payload.attachments,
+        interactionReply: payload.interactionReply,
+        idempotencyKey: payload.idempotencyKey
       }),
     onSuccess: (created, payload) => {
       clearSendError(payload.conversationId);
@@ -1189,11 +1191,11 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments
-            }).then(() => undefined)}
+              attachments, interactionReply, idempotencyKey
+            })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
             selfUserId={selfUserId}

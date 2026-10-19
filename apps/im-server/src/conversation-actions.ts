@@ -328,6 +328,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           ).run(...keys.map((k) => copy[k]));
           ids.set(m.id, copy.id);
         }
+        s.interactions.copy(ids);
         for (const [source, target] of ids) {
           const m = history.find((x) => x.id === source)!;
           const process = JSON.parse(m.reply_process_json ?? "[]").map((x: Row) => ({

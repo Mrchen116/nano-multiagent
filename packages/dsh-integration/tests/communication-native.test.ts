@@ -15,6 +15,12 @@ it('routes single-thread public send fields through the product bridge', async (
     client.rpc.handle('product.call', value => {calls.push(value);return {status:'sent',message_id:'public-message'};});
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'chat',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
+    const prompt = async () => JSON.stringify((await client!.rpc.request('session.capabilities', {sessionId:'chat'}) as any).prompt);
+    expect(await prompt()).toContain('nano-interactive-replies');
+    await client.rpc.request('configuration.features', {agentId:'a',features:{intelligent_ui:false}});
+    expect(await prompt()).not.toContain('nano-interactive-replies');
+    await client.rpc.request('configuration.features', {agentId:'a',features:{intelligent_ui:true}});
+    expect(await prompt()).toContain('nano-interactive-replies');
     await client.rpc.request('session.submit',{sessionId:'chat',inputId:'human',mode:'followup',content:[{type:'text',text:'send the public reply'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'human'}});
     await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'chat',inputId:'human'}) as any).terminal).toBeTruthy();
     expect(calls).toContainEqual(expect.objectContaining({method:'send_message',args:{target:'current',text:'public reply'},rootSessionId:'chat',agentId:'a'}));

@@ -1,0 +1,14 @@
+.interactive-card { margin-top: 12px; min-width: 0; max-width: 680px; color: var(--foreground, #202124); }
+.interactive-card-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.interactive-card-fields:disabled { opacity: .72; }
+.interactive-card input, .interactive-card textarea, .interactive-card select { max-width: 100%; font: inherit; }
+.interactive-card-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #667085; }
+.interactive-card-status button, .interactive-selection button { border: 0; background: transparent; color: #2563eb; cursor: pointer; }
+.interactive-selection { display: flex; align-items: center; gap: 8px; margin: 0 8px 8px; padding: 8px 12px; border-radius: 10px; background: #eef4ff; font-size: 13px; }
+.interactive-selection span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interactive-snapshot { margin-top: 8px; padding: 8px 12px; border-left: 2px solid #a7bbd9; font-size: 13px; }
+.interactive-snapshot dl { margin: 6px 0 0; }
+.interactive-snapshot dt { color: #667085; }
+.interactive-snapshot dd { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble-card:has(.interactive-card) { width: min(680px, 100%); }
+@media (max-width: 767px) { .interactive-card { width: 100%; } }

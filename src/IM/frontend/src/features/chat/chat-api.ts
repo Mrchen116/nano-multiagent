@@ -43,7 +43,11 @@ export async function listMessages(
   return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
 }
 
+import type { InteractionDraft, InteractionReplyInput } from "./interactive/types";
+
 export interface CreateMessageRequest {
+  interactionReply?: InteractionReplyInput;
+  idempotencyKey?: string;
   conversationId: string;
   content: string;
   attachments?: Attachment[];
@@ -61,11 +65,12 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
     attachments: req.attachments ?? [],
-    timezone: browserTimezone()
+    timezone: browserTimezone(),
+    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})
   };
   return authFetchJson<Message>(
     `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,
-    { method: "POST", body: JSON.stringify(body) },
+    { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) },
     "createMessage"
   );
 }
@@ -231,4 +236,14 @@ export function joinConversation(id: string): Promise<Conversation> {
 export async function listPublicConversations(): Promise<Conversation[]> {
   const result = await authFetchJson<{items: Conversation[]}>("/im/v1/conversations?scope=public");
   return result.items;
+}
+
+function interactionPath(cid: string, mid: string): string {
+  return `/im/v1/conversations/${encodeURIComponent(cid)}/messages/${encodeURIComponent(mid)}/interaction-state`;
+}
+export function readInteractionDraft(cid: string, mid: string): Promise<InteractionDraft> {
+  return authFetchJson(interactionPath(cid, mid));
+}
+export function saveInteractionDraft(cid: string, mid: string, revision: number, state: Record<string, unknown>): Promise<InteractionDraft> {
+  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) });
 }

@@ -1,9 +1,10 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { agentConfigurationFingerprint, canonicalAgentConfiguration } from '@nano/product-contracts';
-import { NodeConfiguration } from '../src/configuration.js';
+import { NodeConfiguration, type NodeConfigurationFile } from '../src/configuration.js';
+import { load } from 'js-yaml';
 
 it('preserves default versus empty selections and ordered local/global Skill roots', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-node-config-'));
@@ -131,5 +132,30 @@ it('persists per-Agent approval overrides while inherited policy and disabled Au
     expect(inherited.approval?.rules).toBe('dsh');
     expect(agentConfigurationFingerprint({...original, approval_mode: 'cc'})).not.toBe(agentConfigurationFingerprint({...original, approval_mode: 'codex'}));
     expect(() => canonicalAgentConfiguration({...original, approval_mode: 'invalid'})).toThrow(/approval_mode/);
+  } finally { await rm(home, {recursive: true, force: true}); }
+});
+
+it('keeps E2E preset tools enabled through configuration sync and provides both Agent modes', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-e2e-preset-'));
+  try {
+    const preset = load(await readFile(new URL('../../../config/e2e/gateway.yaml', import.meta.url), 'utf8')) as NodeConfigurationFile;
+    preset.gateway = { environment: { NANO_OWNER_CONFIG_ROOT: join(home, 'owner') } };
+    for (const agent of preset.agents) agent.workspace_root = join(home, agent.agent_id);
+    const path = join(home, 'node.json');
+    await writeFile(path, JSON.stringify(preset));
+    const config = await NodeConfiguration.read(path);
+    for (const agent of config.value.agents) {
+      const before = config.runtime(agent);
+      // Registration and Skill migration round-trip the canonical configuration.
+      const current = config.current(agent.agent_id)!;
+      await config.persist({...current, skills: [], skills_selection_mode: 'explicit_denylist'});
+      const restored = await NodeConfiguration.read(path);
+      const after = restored.runtime(restored.value.agents.find(item => item.agent_id === agent.agent_id)!);
+      expect(after.toolAllowlist).toEqual(expect.arrayContaining(['skill', 'read', 'send_message']));
+      expect(after.toolAllowlist).toEqual(before.toolAllowlist);
+      expect(after.mode).toBe(before.mode);
+    }
+    const modes = new Set(config.value.agents.map(agent => config.runtime(agent).mode));
+    expect(modes).toEqual(new Set(['single_thread', 'global']));
   } finally { await rm(home, {recursive: true, force: true}); }
 });

@@ -5,7 +5,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { formatLocalTime } from '@nano/product-contracts';
+import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
@@ -114,7 +114,8 @@ export class SingleThread {
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${input.message.content}` : input.message.content;
+      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply);
+      const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
       const content: Record<string, unknown>[] = [];
@@ -216,6 +217,14 @@ export class SingleThread {
       if (run && run.state !== 'completed' && (run.state === 'switching' || run.attempts.length > 1)) continue;
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
+      }
+      const interactiveDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
+      if (end && interactiveDelivered) {
+        const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as {content: {type: string; text?: string}[]} | undefined;
+        if (last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim() === 'NO_REPLY') {
+          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'interactive_reply_delivered'});
+          store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
+        }
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
       const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => item.input.metadata.origin === 'heartbeat');
@@ -387,6 +396,9 @@ export class SingleThread {
       if (!delivery?.messageId || delivery.state !== 'sending') return;
       if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
       if (!frame.chunk!.text) return;
+      // A confirmed card owns the reply. Wait for the final message to distinguish
+      // its non-empty closing sentinel from an additional meaningful answer.
+      if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) return;
       const published = this.publication(sessionId, turn) ?? { confirmed: '' };
       this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: frame.chunk!.text }));
       await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: frame.chunk!.text,

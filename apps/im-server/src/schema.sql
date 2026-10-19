@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_calls_json TEXT,
     timezone TEXT,
     token_usage_json TEXT,
+    interaction_reply_json TEXT,
     -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
     thinking_json TEXT,
     -- feat-517: terminal subagent/workflow results shown as process items.
@@ -432,3 +433,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_caller_idempotency_k
 CREATE INDEX IF NOT EXISTS task_graph_delete_receipt_expiry
         ON task_graph_mutation_receipts(created_at)
         WHERE json_type(result_json,'$.deleted_ids')='array';
+
+-- Immutable Agent UI and private per-viewer drafts; only submissions become messages.
+CREATE TABLE IF NOT EXISTS message_interactive (
+    message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    format TEXT NOT NULL,
+    catalog_version TEXT NOT NULL,
+    source TEXT NOT NULL,
+    registry_json TEXT NOT NULL,
+    supersedes_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    superseded_by TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    read_only INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS interaction_drafts (
+    source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    draft_revision INTEGER NOT NULL DEFAULT 0,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT,
+    submission_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    PRIMARY KEY(source_message_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS interaction_submissions (
+    source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+    semantic_json TEXT NOT NULL,
+    PRIMARY KEY(source_message_id,user_id)
+);

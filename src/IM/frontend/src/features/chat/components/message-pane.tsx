@@ -74,6 +74,10 @@ import {
   type ComposerSnapshot
 } from "./composer-draft-store";
 
+import type { InteractiveSelection } from "../interactive/interactive-card";
+const InteractiveCard = React.lazy(() => import("../interactive/interactive-card").then(module => ({default: module.InteractiveCard})));
+import type { InteractionReplyInput } from "../interactive/types";
+
 type DraftMention = {
   label: string;       // e.g. "@架构" — visible text inserted into textarea
   type: "agent" | "user";
@@ -104,7 +108,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[]): void | Promise<void>;
+  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string): void | Promise<void | Message>;
   onBack?(): void;
   onOpenConfig?(): void;
   onJoin?: () => Promise<void>;
@@ -253,6 +257,20 @@ export function MessagePane({
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
+  const [selections, setSelections] = useState<Record<string, InteractiveSelection>>({});
+  const detached = useRef(new Set<string>());
+  const selection = selections[conversation.id];
+  const chooseInteraction = useCallback((next: InteractiveSelection) => {
+    if (detached.current.has(`${next.source_message_id}:${next.editedAt}`)) return;
+    setSelections(current => current[next.conversationId]?.editedAt > next.editedAt ? current : {...current, [next.conversationId]: next});
+  }, []);
+  const submittedIds = new Set(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => m.interaction_reply!.source_message_id));
+  const replacedIds = new Set(messages.flatMap(m => m.interactive?.supersedes_message_id ? [m.interactive.supersedes_message_id] : []));
+  const activeSelection = selection && !submittedIds.has(selection.source_message_id) && !replacedIds.has(selection.source_message_id) ? selection : undefined;
+  function clearSelection(cid: string, source: string) {
+    setSelections(current => { if (current[cid]?.source_message_id !== source) return current; const next = {...current}; delete next[cid]; return next; });
+  }
+
   const localComposerStoreRef = useRef<Map<string, ComposerSnapshot>>(new Map());
   const composerSnapshots = composerStore
     ?? (import.meta.env.MODE === "test" ? localComposerStoreRef.current : composerStoreFor(selfUserId));
@@ -626,7 +644,7 @@ export function MessagePane({
     if (!trimmed && (onlyText || pending.length === 0)) return;
     const sourceConversationId = displayedConversationIdRef.current;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
-    const wireContent = reconstructWireContent(trimmed, draftMentions);
+    const wireContent = reconstructWireContent(activeSelection ? text : trimmed, draftMentions);
     const submittedAttachments = onlyText ? [] : pending;
     const submittedAttachmentUrls = new Set(submittedAttachments.map((attachment) => attachment.url));
     forceScrollToBottomRef.current = true;
@@ -635,7 +653,11 @@ export function MessagePane({
     markComposerSending(sourceConversationId);
     setComposerSending(true);
     try {
-      await onSend(wireContent, submittedAttachments);
+      if (activeSelection) await onSend(wireContent, submittedAttachments, {
+        source_message_id: activeSelection.source_message_id, state: activeSelection.state,
+      });
+      else await onSend(wireContent, submittedAttachments);
+      if (activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
     } catch {
       forceScrollToBottomRef.current = false;
       return;
@@ -1053,6 +1075,14 @@ export function MessagePane({
                   onCopyRequest={requestCopy}
                   onMenuRequest={requestMessageMenu}
                   onSheetRequest={requestActionSheet}
+                  interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
+                  interactiveSubmitted={submittedIds.has(m.id)}
+                  onInteractionSelect={chooseInteraction}
+                  onInteractionSend={async (input, key) => {
+                    const result = await onSend("", [], input, key);
+                    clearSelection(conversation.id, input.source_message_id);
+                    return result;
+                  }}
                 />
               );
             })}
@@ -1061,6 +1091,13 @@ export function MessagePane({
       </div>
 
       <form className="chat-pane-composer" onSubmit={handleSubmit}>
+        {activeSelection && <div className="interactive-selection" role="status">
+          <span title={activeSelection.title}>{t("chat.interactive.attached")} · {activeSelection.title.slice(0, 70)}</span>
+          <button type="button" onClick={() => {
+            detached.current.add(`${activeSelection.source_message_id}:${activeSelection.editedAt}`);
+            clearSelection(conversation.id, activeSelection.source_message_id);
+          }}>{t("chat.interactive.cancel")}</button>
+        </div>}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
           {pending.length > 0 && (
             <div className="chat-pane-composer-chips">
@@ -1498,8 +1535,13 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
+  interactiveReadOnly, interactiveSubmitted, onInteractionSelect, onInteractionSend,
 }: {
   message: Message;
+  interactiveReadOnly?: boolean;
+  interactiveSubmitted?: boolean;
+  onInteractionSelect(selection: InteractiveSelection): void;
+  onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
   workAgentId?: string;
   nodeName?: string;
@@ -1742,6 +1784,14 @@ function MessageBubble({
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
+          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submitted={interactiveSubmitted}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} /></React.Suspense>}
+          {message.interaction_reply && <details className="interactive-snapshot" open>
+            <summary>{t("chat.interactive.choices")}</summary>
+            <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
+              <dt>{field.label}</dt><dd>{typeof field.value === 'string' ? field.value : JSON.stringify(field.value)}</dd>
+            </React.Fragment>)}</dl>
+          </details>}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
               {message.attachments.map((att) => (
