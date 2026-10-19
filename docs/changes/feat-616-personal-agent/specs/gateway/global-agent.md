@@ -4,7 +4,7 @@
 
 ### Requirement: 全局 Agent 跨聊天保持连续的工作认知
 
-普通全局 Agent 保持原有跨聊天认知；个人助手仅本人私密执行具备跨来源认知，外部 DM/群不继承私人上下文。
+普通全局 Agent 保持原有跨聊天认知；个人助手通过统一私密执行结合当前获准的跨来源背景处理请求，对外仅发送当前授权范围内的内容。
 
 #### Scenario: 使用另一个聊天中已读取的相关条件
 - **GIVEN** 全局 Agent 已在 A 聊天读取并确认一项工作约束
@@ -13,11 +13,11 @@
 
 #### Scenario: 同一 PA 身份在外部会话交流
 - **WHEN** 外部真人或 Agent 对 PA 发起原生 DM 或群提及
-- **THEN** 该会话仅使用本会话和经 owner 授权的资料，不因同一身份取得本人私密主上下文或其他外部会话历史。
+- **THEN** PA 可结合获准的私人背景理解请求，但外部联系人只取得经过当前授权与独立外发检查的答复，不能读取主上下文、Work 或其他来源记录。
 
 ### Requirement: 依据配置接收信号，并自主安排读取
 
-以下普通 global 行为保持。个人助手按可信执行域处理：只有 owner 当前专属私聊能控制私密 global_main；外部 DM/群和观察历史不能控制它，外部命令最多作用于对应外部执行。观察输入是系统事实通知，不是新用户命令。
+The ordinary global behavior below remains. For a personal assistant, only authenticated owner commands in the canonical owner DM control the private main execution. External DM/group inputs and observed history retain their provenance in that unified execution; they cannot stop, reset or compact it, and observations are facts rather than new owner instructions.
 
 #### Scenario: 忙碌期间有其他聊天的新请求
 - **GIVEN** 全局主 Agent 正在处理工作
@@ -36,7 +36,7 @@
 
 ### Requirement: 全局模式不通过聊天命令重置工作上下文
 
-以下普通 global 行为保持。个人助手按可信执行域处理：只有 owner 当前专属私聊能控制私密 global_main；外部 DM/群和观察历史不能控制它，外部命令最多作用于对应外部执行。观察输入是系统事实通知，不是新用户命令。
+The ordinary global behavior below remains. For a personal assistant, only authenticated owner commands in the canonical owner DM control the private main execution. External DM/group inputs and observed history retain their provenance in that unified execution; they cannot stop, reset or compact it, and observations are facts rather than new owner instructions.
 
 #### Scenario: 全局 Agent 收到重置命令
 - **GIVEN** Agent 使用全局模式
@@ -51,7 +51,7 @@
 
 ### Requirement: 停止命令强制停止实际触达的 Agent
 
-以下普通 global 行为保持。个人助手按可信执行域处理：只有 owner 当前专属私聊能控制私密 global_main；外部 DM/群和观察历史不能控制它，外部命令最多作用于对应外部执行。观察输入是系统事实通知，不是新用户命令。
+The ordinary global behavior below remains. For a personal assistant, only authenticated owner commands in the canonical owner DM control the private main execution. External DM/group inputs and observed history retain their provenance in that unified execution; they cannot stop, reset or compact it, and observations are facts rather than new owner instructions.
 
 #### Scenario: 从一个聊天停止跨聊天工作的 Agent
 - **GIVEN** 全局 Agent 正在处理来自其他聊天的工作
@@ -71,7 +71,7 @@
 
 ### Requirement: 全局模式的压缩命令作用于主工作上下文
 
-以下普通 global 行为保持。个人助手按可信执行域处理：只有 owner 当前专属私聊能控制私密 global_main；外部 DM/群和观察历史不能控制它，外部命令最多作用于对应外部执行。观察输入是系统事实通知，不是新用户命令。
+The ordinary global behavior below remains. For a personal assistant, only authenticated owner commands in the canonical owner DM control the private main execution. External DM/group inputs and observed history retain their provenance in that unified execution; they cannot stop, reset or compact it, and observations are facts rather than new owner instructions.
 
 #### Scenario: 从聊天压缩全局主上下文
 - **GIVEN** Agent 使用全局模式
