@@ -1,0 +1,63 @@
+name: Maintenance · 工程维护
+description: CI、测试、文档、仓库卫生与开发流程维护。
+labels:
+- type:tech-debt
+- status:needs-triage
+body:
+- type: markdown
+  attributes:
+    value: 请先搜索已有 Issue。描述你知道的事实即可，不需要提前定位根因或给出实现方案。
+- type: dropdown
+  id: area
+  attributes:
+    label: 影响区域
+    description: 可多选；不清楚时选择“不确定”。这里只记录线索，维护者会补 area:* 标签。
+    multiple: true
+    options:
+    - 个人助手与任务路由 (pa)
+    - 电脑节点与本地启动 (node)
+    - DSH 执行集成 (dsh-integration)
+    - IM 服务端 (im-server)
+    - Web 客户端 (web)
+    - iOS 客户端 (ios)
+    - 飞书等消息渠道 (channels)
+    - CI、部署与仓库工具 (infra)
+    - 文档 (docs)
+    - 不确定
+  validations:
+    required: true
+- type: textarea
+  id: problem
+  attributes:
+    label: 维护问题
+    description: 现在有什么问题，为什么需要处理？
+  validations:
+    required: true
+- type: textarea
+  id: impact
+  attributes:
+    label: 背景与影响范围
+    description: 影响哪些开发、测试或运维操作？
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: 期望结果
+    description: 完成后应该有什么变化？
+  validations:
+    required: true
+- type: textarea
+  id: validation
+  attributes:
+    label: 验证方式
+    description: 通过什么检查、命令或实际操作确认完成？
+  validations:
+    required: true
+- type: textarea
+  id: links
+  attributes:
+    label: 相关资料
+    description: 相关 Issue、PR、spec 或截图链接；没有可留空。
+  validations:
+    required: false
