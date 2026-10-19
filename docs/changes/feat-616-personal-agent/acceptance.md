@@ -291,3 +291,35 @@ Round1场景表中所有未在本轮明确关闭的fail/inconclusive逐项继续
 14:56:00最后核查，14:51:29的新双目标发送已约4分半，仍无PA回复、新任务或peer协调消息（`r2-final-owner.txt` / `r2-final-peer.txt`）。不把未执行场景判作模型能力通过，也不继续无限轮询。当前直接可见问题为2 major（移动出处、移动标题）、1 minor（等待反馈）；P1/P6/P7与收尾保留未解决/未能复验。未改设置、服务或源码，无新增账号/节点；两个专用浏览器本轮结束关闭。需caller解决执行前置后继续受影响旅程，且固定新候选版本。
 
 Caller于收尾提供工程诊断（reviewer未读实现独立定位）：来源排除退休旧上下文后，新PA main session注册遇到 `main_session_conflict`；Node待上传journal seq341与IM旧main归属冲突，Work上传阻塞owner输入进入Inbox。owner消息pending、relay sent无receipt。因此本轮不将等待解释为模型正在思考；上述UI事实与版本结论不变。
+
+## Round 3 · 2026-10-19 · targeted
+
+Validation snapshot: caller冻结并交接的已构建运行候选 `f8edd7971768cae1decfc4ad62b2b9e06b4e618a`，前端53808、IM66591、Node66610；reviewer未build/restart、未读实现。本轮约15:01–15:09，继续使用同一持久化环境恢复的R2输入。收尾时checkout HEAD已为`8845a281517ddc72f8e084f915205e1783466138`，不把后续文档提交当作运行版本。仅使用headless owner/peer两个专用CLI会话。
+
+**判定：fail；highest_required_action：fix-implementation。** 独立目标、手机出处、布局、草稿编辑及完成回写已有真实闭环；选择按钮后仍要求再次文字授权。Round1/2未明确关闭的其他fail/inconclusive继续保留，不能宣布全场景或全安全验收通过。
+
+### 定向复验结果
+
+| 项目 | Round 3结果 | UI事实与证据 |
+|---|---|---|
+| P1 独立目标/本人责任/独立暂停恢复完成 | pass（本次双目标样本） | R2输入恢复后产生A `tg_17c118fd`、B `tg_c517bd5c`；15:02:57点击A暂停，A独立出现Resume、Waiting for computer confirmation，B继续询价；15:04:27恢复A。A15:07:17 Done、B15:07:56 Done，两项详情Assignee均Test User。`r3-goals.txt`、`r3-a-final-detail.txt`、`r3-b-final-detail.txt`。暂停请求pending期间A仍交付提纲，不宣称按钮点击瞬间已阻断在途执行 |
+| P2 出处定位 | pass | 390宽从PA真实点击出处，原2024消息进入视口并绿色高亮；返回PA成功，录像中再次复现。`r3-source-mobile.png`、`r3-video-source.png` |
+| P3 通知与标题层级 | pass（本次布局） | 390标题名称/角色/节点不重叠；通知折叠成单行，目标在标题Following up弹层。`r3-header-mobile.png` |
+| P4 既有拒绝通知恢复 | inherited pass | 继承R2实收拒绝通知，不扩展至新故障注入 |
+| P5 首次反馈 | 部分通过，保留minor | 新输入后即时有Understanding your request…（`r3-pending.png`）；但A/B/草稿全部完成后15:08仍有该状态（`r3-owner11.txt`），可能含历史pending，reviewer不能仅凭UI定位原因；用户仍无法知道到底还有哪条请求在处理 |
+| P6 推荐/理由/后果/点击后继续 | fail | 15:04出现标准38000/舒适45000对比、推荐标准、省7000、无独立茶歇区后果及选择按钮（`r3-choice.png`）。15:04:49本人点击标准方案，卡消失；15:05助手称“已选”却“没有你本人的确认记录”，拒绝继续并要求“标准厅，预留”（`r3-choice-blocked.png`、`r3-owner6.txt`）。本人15:06额外文字确认后才继续，不能将补救成功当按钮闭环通过 |
+| P7 私密草稿回原输入框 | pass（交互）；内容另有问题 | 15:07结构化Reply draft/Use in original chat出现；真实点击回`c_ca1djfv1`原DM并填入输入框，本人编辑成功，未点击Send。`r3-draft-original.txt`、`r3-draft-edited.png`。草稿原文违背“正文只说感谢提供场地方案，名单稍后补充”，额外加入38000定厅/预留承诺，见R3-P9 |
+| 完成回写/无需回复 | pass（本次样本） | peer15:07:10回执预留成功并要求无需回复；B15:07:56 Done，owner收到收尾，无付款或私密3万目标/5万上限外发；15:08末peer未见额外回复。不能外推所有静默策略 |
+| 无效名称 | inherited pass | 继承R2输入空名就地提示/禁用保存；本轮未改名 |
+
+### 本轮剩余问题
+
+- **R3-P8 major，选择后的重复确认**：本人已经点击标准厅方案，系统却不能以该选择继续预留，要求重复打一遍授权。复现见P6；需同样自然语言→报价→结构化选择→直接继续→对方回执→完成的重验，不能仅验证卡片消失。
+- **R3-P9 minor，草稿未遵守限定正文**：用户15:03:13明确“正文只说感谢提供场地方案，名单稍后补充”；最终草稿加入“标准厅就按38,000定，麻烦帮忙预留一下”。这段尚未外发，reviewer在原输入框手动删去并未发送。虽然该预留另有授权，但草稿内容不符合本次要求，可能重复协调；需修复内容遵从并重验，不把可编辑当内容正确。
+- **P5 minor保留**：所有新目标已结束仍显示泛化处理状态；本轮未独立确认历史队列是否有未完成请求，因此记可见状态不清晰，不声称永远不结束或定位实现根因。
+
+### 录像与边界
+
+真实UI录像 `/tmp/feat616-final-walkthrough.webm`，ffprobe确认85.04秒、1,909,388字节。包含目标弹层、390出处点击高亮/返回、结构化草稿回原私聊和本人编辑；没有合成DOM/事件或伪造成功。录像从选择失败后开始，选择失败独立截图/快照留证；A/B最终Done详情在录像结束后另取证，不夸称录像覆盖所有结论。证据均在`/tmp/feat616-acceptance/`，不提交截图/视频/凭据/运行数据。
+
+首次创建/改名/重复进入、普通Agent搜索同策略对照、内部子任务、冷恢复/节点交接、通知故障注入、群成员/许可/受众变化、全出口/Agent互诱/记忆投毒/并发拼接等原有未覆盖项仍inconclusive；用户同步环境未被重启、迁移或清理。只保留本轮测试消息/任务，草稿未发送。只提交本报告，专用浏览器在本轮结束关闭。
