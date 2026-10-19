@@ -58,11 +58,13 @@ GET/PUT interaction-state 路径与身份校验继续复用。保存 Renderer �
 
 ### 发给 Agent 的事件
 
-`interaction_reply` 继续包含 source_message_id/state，兼容旧 action_id；增加上游事件 `{type:'continue_conversation', message, context?, form_name?, label?}`。旧 action_id 仍从保存源取得文字。原生事件携带 Renderer 的 message/context 与用户操作时可见的按钮标签；正文优先显示实际标签，生成的 message/context 作为附属交互信息明确标记，不冒充手写要求或系统指令。用户直接打字时原文仍独立完整保留。
+`interaction_reply` 继续包含 source_message_id/state，兼容旧 action_id；增加上游事件 `{type:'continue_conversation', message, context?, form_name?, label?}`。旧 action_id 仍从保存源取得文字。Web 从容器 click capture 取得最近可交互元素的 aria-label 或可见文字作为 label（键盘激活同样产生 click），与 Renderer 回调的 message/context 分开记录；无法取得时明确显示“向 Agent 提问”，不把生成 message 冒充用户所见按钮。原生事件传递这些独立字段；正文优先显示实际标签，生成的 message/context 作为附属交互信息明确标记，不冒充手写要求或系统指令。用户直接打字时原文仍独立完整保留。
 
-Web 使用事件自身的当前 state 发起请求，不等待 debounce。source 作者仍为显式目标 Agent，浏览器不能通过 event 更换 Agent 或会话。按用户前缀隔离 Idempotency-Key；相同 key 相同语义返回原 message，不同语义 409。缺键的交互请求拒绝，避免网络不确定时无法重试。成功后清除该次 pending，允许后续新的请求；正在进行的同一次请求禁止重入，网络不确定时保留原 input/key。
+Web 同步在 onStateUpdate 中维护最新完整 state ref；动作回调以该 ref 为基础，按 formName 合并回调中当前 formState（具名 Form 只包含局部状态），立即复制为请求快照，不等待 debounce。Set 后的 ToAssistant 和 Mutation 都走同一提交函数，取 Set 已更新后的 ref。点击期间禁止同一卡片业务重入；纯本地动作仍由上游执行。source 作者仍为显式目标 Agent，浏览器不能通过 event 更换 Agent 或会话。按用户前缀隔离 Idempotency-Key；相同 key 相同语义返回原 message，不同语义 409。缺键的交互请求拒绝，避免网络不确定时无法重试。成功后清除该次 pending，允许后续新的请求；正在进行的同一次请求禁止重入，网络不确定时保留原 input/key。
 
 `interaction_submissions` 改为 message_id 主键，保留 source/user 索引，不再对 source/user 唯一；增量迁移保留全部历史记录。确认快照、本人消息与 relay 入队继续在同一事务内提交。离线时显示已保存待处理，回执到达后更新状态。
+
+窄验证固定为：Form 外 `$scale=2` 绑定 Slider，Form 内 Input 草稿；按钮可见“解释当前结果”，Action 先 Set(scale,3) 再 ToAssistant("分析参数",{kind:"comparison"})。本人正文是“解释当前结果”，event.message 是“分析参数”，event.context 保留独立对象，snapshot 同时包含 scale=3 和最新草稿。同例改用 Mutation 时取得同样完整快照；手写正文从不被这些内容替换。
 
 ### toolProvider
 
@@ -96,7 +98,26 @@ Web 使用事件自身的当前 state 发起请求，不等待 debounce。source
 
 ## Runbook for Reviewer
 
-复用本 worktree 已有隔离栈 `http://127.0.0.1:58769`，用户名 nano、密码 nano1234。普通 e2e / Global e2e-global；主模型 codexOAuth:gpt-6.1-sol，审核 codexOAuth:gpt-6-luna。已有运行数据不可重置。首次启动路径和保留数据重启按 `docs/development/worktree-runtime.md`；不操作 feat-616 或生产。
+复用本 worktree 已有隔离栈 `http://127.0.0.1:58769`，用户名 nano、密码 nano1234。普通 e2e / Global e2e-global；主模型 codexOAuth:gpt-6.1-sol，审核 codexOAuth:gpt-6-luna。已有运行数据不可重置。新现场可用 `scripts/e2e-up.sh`，但该脚本会清库，本次不得重跑。保留数据重启用下列命令，仅操作当前 worktree 的 PID/config/DB；不操作 feat-616 或生产。
+
+```sh
+cd /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-617
+node apps/node/lib/cli.js stop --config .gateway-config.yaml
+kill -TERM "$(cat .im.pid)"
+pnpm build
+(cd src/IM/frontend && npm run build)
+set -a
+. ./.e2e-ports.env
+set +a
+IM_PUBLIC_URL="$IM_URL" IM_DB_PATH="$PWD/data/im_service.sqlite3" IM_UPLOAD_DIR="$PWD/data/uploads" IM_PUBLIC_MODE=0 \
+  nohup node apps/im-server/lib/main.js serve --host 127.0.0.1 --port "$IM_PORT" >> .im.log 2>&1 &
+echo $! > .im.pid
+curl --fail "$IM_URL/health"
+node apps/node/lib/cli.js start --config .gateway-config.yaml
+node apps/node/lib/cli.js status --config .gateway-config.yaml
+```
+
+停止前用 `ps -p <pid> -o command=` 核实对应本 worktree；停止后确认端口释放再启动。健康检查失败则读 .im.log，不清库重试。Node status 必须显示 ready/connected；再登录以当前 owner 调用 GET /im/v1/nodes，核对本 .e2e-ports.env 的 node_id online。保留原 .gateway-config.yaml、.gateway-state 身份、运行目录和 data 文件。
 
 真实浏览器进行桌面/中等/手机尺寸操作。先以普通用户原话“给我讲解下冒泡排序”发问；不得追加“做交互/按钮/滑块”指导，不用 API 注入预制 source 充当该旅程。另选未在产品提示中出现的不同领域普通问题，检查是否按需要主动使用交互；报告原始问题、完整回复、交互后的变化及失败样本。核对产品代码/提示/Skill 没有算法专用逻辑。API fixture 只用于工具、权限、patch、幂等的确定性回归。
 

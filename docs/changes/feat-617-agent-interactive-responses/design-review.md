@@ -128,3 +128,102 @@ R1-W1 已关闭，当前冻结设计通过 Gate 2。此结论是设计审查通�
 ### Author Resolutions（Round 2）
 
 作者核实 R2 的 R1-W1 closure 与 retained 范围，接受结论；无剩余实质问题。R2 后未修改首文档、设计、delta、原型或 milestone。仅追加本段结论与提交本轮产物，Gate 2 retained。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/openui_restore_design_review`，本轮新独立 reviewer；未参与受审设计、原型或产品实现。
+- review_mode: `full`
+- mode_reason: 用户否定原静态表单切片，本轮同时改变能力范围、原生事件接口、状态快照、多次请求身份、工具接线、patch 发布和 M1 退出标准；R2 closure 的范围不足以覆盖，不能继承其 Approved 结论。
+- started_at: 2026-10-19T17:30:00+08:00（约；入口未记录秒级时间）。
+- completed_at: 2026-10-19T17:41:22+08:00。
+- duration: 约 11 分钟，含源码核对及独立 Chrome 原型操作；开始时刻为估计值。
+- baseline: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-617` / `unit/feat-617`；冻结 HEAD `d44e176a0f68be2683f08333673607187d733fc5`，此前交付 `cf4b17f00`。开始时 `git status --short` 为空，定稿前 HEAD 未变。
+- 冻结范围：新版 `spec.md`、`design.md`、三份 `specs/**`、`prototype.html`、`evidence/prototype-continuous-review.md`、响应式 wrapper 与截图。旧产品和旧报告仅用于现状、兼容性及既有交付证据。
+- 本轮仅追加本报告；未修改产品/配置、未调用模型、未重启隔离服务，未触碰主 checkout、feat-616 或生产。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 3 WARNING。**
+
+恢复完整 OpenUI 能力、连续本地探索和按请求去重的方向符合本轮用户要求，独立原型操作未发现阻断体验的问题。但原生事件适配与固定版本真实契约不一致，delta 的归并类别仍沿用首次实施前的状态，保留数据的验收重启路径也未落实。三项关闭前不通过 Gate 2；不要求提前完成真实模型产品验收来关闭设计问题。
+
+### Coverage 与证据
+
+#### 现状与真实组装入口
+
+- `src/IM/frontend/src/features/chat/components/message-pane.tsx:79,268,1794` 实际 lazy-load InteractiveCard，并从本人历史提交推导 submittedIds；`interactive-card.tsx` 以 submitted/done/readOnly 锁定 Renderer 和 fieldset。`catalog.tsx` 当前主动删除上游组件、覆盖 Form、关闭 toolCalls，并将 plain questions 归为 plain text。`apps/im-server/src/interactive-source.ts` 当前拒绝 Action/Set/Reset/Query/Mutation，要求静态具名表单。因此设计所针对的收窄确实存在于产品组装路径，非只在 fixture 中存在。
+- `apps/im-server/src/messaging.ts:488,521-537` 的真实发送路由调用 Interactions.prepare，并在同一事务中保存本人消息、确认和 relay；`interactions.ts` 当前以 source/user 查旧提交，writeDraft 通过 `submission_message_id IS NULL` 锁定，替代/fork 通过 writable 拒绝新提交。多次请求必须同步调整这些服务端条件以及 Web 的 submittedIds，而不只移除按钮 disabled。design 已列出请求键、迁移和提交锁的目标，落点与现有职责一致。
+- `packages/personal-assistant/src/single-thread.ts:117` 和 `inbox.ts:115` 均调用 product-contracts 的 withInteractionContext；该 helper 目前仅附带 fields/selected_action，新的原生 message/context 与通用绑定变量必须进入新快照及这两个真实输入路径。design 的 PA 上下文范围、来源标记和 M1-R2 已覆盖目标；原生回调到底提供什么仍存在 R3-W1。
+- `packages/dsh-integration/src/agent-config.ts:95,148` 的真实 Features 组装，以及 `global-mode.ts:27-30` 的 send_message schema，是生成指导和 patch envelope 的实际接缝；`global-agent.ts:241-243,292` 已有 Feature 禁止新卡片、publication identity 和外部渠道文字分流。设计继续使用这些接缝，不引入第二执行环。
+
+#### 用户约束与架构判断
+
+- spec 保留 only617、不接入 feat-616、Features 默认开启及关闭后历史可读；普通/Global 均可使用。指定原话“给我讲解下冒泡排序”、不得提示生成交互、不得在组件/提示/Skill 植入题目专用逻辑，以及另选跨领域普通问题，都进入 Runbook 与 M1-R1。本轮原型用运动关系演示设计，没有被当作模型样本或冒泡排序验收结果。
+- 完整上游组件、状态、条件/Each、本地动作、Query/Mutation 与 patch 不再被静态表单限制裁掉；真实宿主能力仅声明 conversation_messages 与 continue_conversation，明确未接入文件编辑能力。这符合“保留 UI 能力、业务工具遵守既有权限”的边界。
+- 职责选择合理：Web 承担 Renderer 与当前用户 REST 适配，IM 承担公开版本/私有状态/请求身份，PA 承担来源与公开交付，DSH integration 承担模型能力指导。复用现有 listMessages、消息 API 和 relay/Inbox，比新增通用工具代理或聊天服务更小；没有发现需要另起通用权限框架的理由。
+- 固定 npm 安装中核实 react-lang/lang-core 1.0.1 与 react-ui 0.18.1：lang-core 公开 exports 包含 createParser/evaluateRoot/mergeStatements；react-lang RendererProps 公开 toolProvider、onAction、onStateUpdate、initialState。完整库、工具 provider 与 patch 使用公开接缝可行。具体 ActionEvent 的标签和状态语义不支持 design 当前假设，见 R3-W1；不能仅因同名 API 存在就判定接口闭合。
+- patch 采用同作者同会话、同事务验证和完整源落库、保留原始发布输入比较重试，避免把补丁输入与归并结果错误比较；按请求键去重替换 source/user 唯一键，同时保留不可变确认快照，适合连续探索。旧 ContinueButton 只作为已存在历史兼容，不要求保留旧能力收窄。
+
+#### 独立体验判断
+
+先独立查看真实渲染并操作，再核对作者走查记录。本轮使用 Chrome / cua_repl 打开提供的原型服务，桌面窗口实际 1538×944；随后打开 `evidence/prototype-sizes.html` 的 768×900 与 390×844 iframe。基线对照查看旧产品的 [桌面截图](evidence/product-desktop.png) 及 [实施浏览器记录](evidence/implementation-browser-review.md)。
+
+- 桌面：先有普通问题和简短解释，探索区内依次是运动方式、位置图、时间/速度/距离、参数、本地操作和当前解释。独立点“下一秒”，2 秒/4 米变为 3 秒/9 米；“解释当前结果”留下当时快照。随后切匀速、再下一秒、再次解释，得到第二条 4 秒/2 米每秒/8 米请求，第一条仍为匀加速的原状态。用户可从同一内容区看懂参数与结果对应，不需要把本地操作误当成连续聊天请求。
+- 手机：独立点下一秒和解释，再点重置；UI 回到 2 秒/4 米，旧请求仍保留 3 秒/9 米，底部出现可取消的“附带当前探索状态”。参数上下排列，本地三按钮可读，解释按钮整行；主聊天滚动能触达操作，输入入口保留，没有第二层卡片纵向滚动。中等宽度保留列表和聊天关系，参数纵向排布，没有看到关键控件被裁切。
+- 相比旧产品，原型保留摘要先于交互、本人消息与 Agent 内容分离、底部输入及主列表滚动；增量是探索反馈与多次请求。原型用运动数值演示可理解的变化关系，非仅展示“有按钮”。按钮解释请求显示等待回复，不冒充最终业务完成。没有因视觉风格偏好提出阻断项。
+- 原型仍是手写模拟，不能证明上游 Renderer、真实模型、持久化或 Query/Mutation 已成功。刷新/CAS/离线/替代等旧证据只作为既有体验参考；新状态语义仍须 M1-R2/R3 实际回归。手机为真实 CSS iframe 观察，不声称设备软键盘或原生 iOS 验证。
+
+#### Delta、milestone 与验收前置
+
+- 三份 delta 的 canonical target 与消费者归属正确；但首次交付已把旧条目归并入 current，当前全部标为 ADDED 会保留互相矛盾的旧提交语义，见 R3-W2。
+- M1-R1/R2/R3 和 W1/W2 覆盖无交互提示真实生成、本地探索、多次请求、权限/私有状态、patch/fork、Features 与跨宽度，原型 must-match 有对应出口。无需拆成第二套生命周期，也无需扩大至 feat-616 或原生客户端。
+- 隔离栈 `http://127.0.0.1:58769/health` 本轮只读返回 `{"status":"ok"}`；账号、普通/Global Agent 和模型由 Runbook 指定，旧真实产品证据提供既有资源来源。此检查只证明 IM HTTP 健康，不证明新功能或模型在线。Runbook 引用的工作树文档没有落实“保留现有数据重启”且推荐脚本会删除数据库，见 R3-W3。
+
+### 历史问题闭环
+
+#### R1-W1 — closed（原问题关闭保留；新事件缺口另记 R3-W1）
+
+- Author Resolution / R2：手写正文原样保存，独立选择摘要，完整语义去重。
+- 本轮证据：新版 design:61 保留手写原文与生成附属上下文区分；:63 要求同键同语义返回原结果、不同语义冲突；IM delta:34-37 保留“先别发送”例及正文/状态/动作比较。当前 messaging.ts:527 与 withInteractionContext 仍保留正文链。
+- 原“摘要覆盖手写限制语”的问题没有重新出现；source/user 终身唯一则被用户明确要求的多次探索替换为请求级幂等。R2 对旧表单整体设计的 Approved 不延伸为本轮通过。
+
+### Issues
+
+#### R3-W1：原生回调没有设计所依赖的完整标签与状态，适配契约尚未闭合
+
+- 严重性：WARNING。
+- 位置：`design.md:15,61-70`。
+- 证据：固定安装 react-lang 1.0.1 的 `dist/exports-CLfR509v.mjs:601-606` 中 getFormPayload(formName) 对具名 Form 仅返回 `{[formName]: raw}`，否则才返回完整 store snapshot。`:637-644` 的 ToAssistant 回调把 `step.message` 放到 humanFriendlyMessage，params 只含 context，并没有传入 Button label；Button 虽调用 triggerAction(label, formName, action)，这个 label 在 ToAssistant 分支已被丢弃。lang-core `dist/index.d.cts:284-296` 的 ActionEvent 也没有单独的可见 label/full-state 字段。Mutation 的 toolProvider 仅得到 args，更没有该事件对象。
+- 未修后果：按“原生事件携带可见按钮标签”“Web 使用事件自身当前 state”直接实现，会把模型生成的 ToAssistant message 当成用户看到的按钮文字，或丢失 Form 外的 `$` 绑定和独立输入。例如用户在图表区调整参数后点击 Form 中的继续按钮，持久快照与 Agent 输入可能只有该 Form，不能复现用户刚看到的结果。原型展示的“实际标签 + 当时完整状态”不能靠目前声明的接口自然取得。
+- 修订要求：在不裁剪本地能力、不 fork 上游的前提下，明确实际宿主适配决定：可见动作文字如何取得或以什么明确区分来源的文案替代；完整当前状态如何与事件的 formState 合成，Set 后紧接 ToAssistant/Mutation 时采用哪个时点；Mutation 复用提交时如何取得同一快照。给出一组含 Form 外绑定、Form 内动作、不同 Button label/ToAssistant message 的端到端字段映射，以及对应窄验证。这里需要收口接口与用户回显语义，不要求本轮实现适配代码。
+- 状态：open。
+
+#### R3-W2：恢复 active 后的 delta 未切换到现有 canonical 基线
+
+- 严重性：WARNING。
+- 位置：三份 `specs/**` 的 `## ADDED Requirements`；尤其 `specs/im/conversations-messages.md:17-37`。
+- 证据：当前 `docs/specs/im/conversations-messages.md:523,535`、`web-chat-ux.md:567`、`gateway/agent-capabilities.md:739,751` 已含同名条目。current IM 仍写“已提交或被替代的卡片”再次提交返回原结果；新 delta 则要求后续新请求独立保存。`docs/specs/CONTRIBUTING.md:142-154` 明确 ADDED 追加、MODIFIED 替换同名完整条目。
+- 未修后果：按声明归并会重复 Requirement 并留下“一次提交即终身返回旧结果”与“可多次提交”两套相反契约，实施者/验证者无法据此确定正确行为。不是纯格式问题。
+- 修订要求：以冻结 HEAD 的 current 为基线重分 ADDED/MODIFIED；真正新增的连续探索等条目仍 ADDED，已变更的同名条目用 MODIFIED 并带全未改变 Scenario，完全未变化的条目不重复追加。明确旧单次提交 Scenario 由请求级幂等替代，保留既有权限、fork、外部文字和 Features 契约。
+- 状态：open。
+
+#### R3-W3：Runbook 宣称的保留数据重启路径不存在于所引用流程
+
+- 严重性：WARNING。
+- 位置：`design.md:97-101`。
+- 证据：design 要求保留 58769 栈和运行数据，并称“保留数据重启按 worktree-runtime.md”。该文档推荐 `e2e-up.sh`，且明确写明启动清理旧 E2E 状态；实际 `scripts/e2e-up.sh:161,182-189,222-224` 重分端口/配置并删除现有 IM sqlite/WAL/SHM 与绑定状态。该文档没有针对当前栈的保留数据重启命令，另一个“手工调试”段还列旧 Python IM 命令，不能作为当前 Node 栈实施后复验入口。
+- 未修后果：下游为验证新 build 而照推荐脚本起栈会销毁本次保留的用户实测、旧消息兼容和历史数据；若完全不重启，则可能测试旧 build。两者都会破坏本轮验收前提。
+- 修订要求：在 unit Runbook 写出或链接实际可用的本栈停止、构建、保留原端口/config/DB/identity 的启动及健康/Node 就绪检查命令，明确常规 e2e-up 是新现场入口而不能用于本轮保留现场。只需补此 unit 的真实复验路径，不要求扩展成生产部署流程；本轮 reviewer 未执行任何重启。
+- 状态：open。
+
+### Recommendations
+
+无额外扩展建议。修订应限于上述接口、delta 归并和验收入口，保留完整 OpenUI 与通用生成目标。
+
+### Author Resolution / R3
+
+- R3-W1：以 click capture 可见标签与 Renderer message/context 分离；onStateUpdate 完整 ref + 具名 formState 合并，Set 后立即冻结，Mutation 共用提交。设计给出具体 Form 内外状态/不同标签映射及窄测试。
+- R3-W2：按 current 基线整理：IM 修改交互确认完整 Requirement，Web 仅新增连续探索，Gateway 修改任务表达并新增普通提问；未变条目不重复。旧单次提交 Scenario 被请求级幂等完整替代。
+- R3-W3：Runbook 补入当前栈保留数据 stop/build/start/health/status 命令与 PID 验证，明确禁止重跑会清库的 e2e-up。

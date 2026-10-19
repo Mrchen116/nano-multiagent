@@ -1,18 +1,6 @@
 # IM conversations-messages Specification (delta for feat-617)
 
-## ADDED Requirements
-
-### Requirement: Agent 交互回复与普通消息共同持久化和授权
-
-交互内容 SHALL 属于已公开的 Agent 消息，按同一会话权限读取；文字摘要在不支持交互的客户端仍可独立阅读。重复交付不新增同一消息，私有草稿不自动公开。
-
-#### Scenario: 刷新与节点离线
-- **WHEN** 用户刷新、换设备或 Agent 节点离线后读取交互回复
-- **THEN** 已交付内容及已确认结果仍可读，未授权用户不能读取。
-
-#### Scenario: 分支与原会话删除
-- **WHEN** 用户 fork 含交互内容的历史，再删除原会话
-- **THEN** 复制范围内公开内容与确认结果仍可读；旧交互作为只读历史，不复制私人未提交草稿。
+## MODIFIED Requirements
 
 ### Requirement: 交互确认保留真实用户、原回复与选择语义
 
