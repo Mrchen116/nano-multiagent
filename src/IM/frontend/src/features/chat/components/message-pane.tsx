@@ -1753,7 +1753,7 @@ function MessageBubble({
           {initials}
         </span>
       )}
-      <div className="flex flex-col min-w-0">
+      <div className="chat-bubble-column flex flex-col min-w-0">
         {!isUser && (
           <div className="chat-bubble-meta">
             <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
