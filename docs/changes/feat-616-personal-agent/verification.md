@@ -426,3 +426,77 @@ Outcome: **implementation-mismatch**。R4并发代码blocker已独立关闭；�
 文档校验使用仓库既有Python环境：`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check`，276 maintained Markdown sources / 64 required routes通过（默认系统Python缺PyYAML，未安装新依赖）。
 
 本轮仅写R5报告、verification与上述4个active delta文件，未改实现/测试/服务。报告及delta校正一起提交，最终提交号见交接消息；canonical尚未归并。既有不相关证据保留，不重复开启全量实现审查。
+
+## Round 6 — Personal Task Read Closure and Owner Decision/Control Delta
+
+### Metadata and verdict
+
+- review_round: `6`
+- code_review_mode: `closure` + 本轮明确纳入的修复 delta；`code-review-r6.json=[]`。
+- verification_mode: `corrected-delta`，保留R5其他已核对且未失效的条目，仅复验R5-C1及本批owner选择/控制修复。
+- executed_base / prior candidate: `8845a281517ddc72f8e084f915205e1783466138`
+- validated_at: `19458a27ef0aa4c78035a1879ed4ba3cbd4694a3`
+- verdict: **Approved — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**（当前定向代码审查与corrected-delta gate）。
+- corrected-delta outcome: **aligned**。
+- requires_full_verification: `false`。
+- R5-C1 **closed**；R4证据digest、R2来源/Channels边界、退休Work等未变化的有效结论继承。
+- 该批准不代替真实产品验收。root另行安排的产品R4仍需给出实际旅程结果；此前产品fail/inconclusive不因本报告自动通过，不宣称M1已完成或可部署。
+
+### R5-C1 closure — actual Gateway evidence
+
+Gateway对PA的get/list/activity先以当前connection调用 `PersonalAgents.authority`，从binding取owner_user_id，不采信模型owner参数；随后进入 `TaskGraphService.readPersonal`。该只读适配仍经原execute校task capability、工具allowlist、Agent注册/节点/账号资格，再以owner当前会话资格∩sourceAllowed读取。
+
+- 独立重跑上轮 `/tmp/pa-static-review-616/round5-task-read.mts`，使用真实注册Gateway.handle及真实TaskGraphService、PersonalAgents：
+  - owner参与、PA未加入的私密源任务，sourceAllowed=true，原先get失败，本轮Gateway返回 **ok=true**。
+  - 同源转公开并在PA政策排除，sourceAllowed=false，原先Gateway仍回完整图，本轮 **ok=false / not_found_or_forbidden**。
+- 探针保留了对普通底层 `TaskGraphService.execute(actor=agent)` 的对照：它仍沿Agent自身成员/公开群规则处理。这不是PA工具旁路；PA模型调用已经由Gateway强制转入readPersonal，普通Agent行为未被扩大。
+- 新回归覆盖get readonly projection、list limit=1时的items/total/next_cursor、排除后total=0、不允许通过readPersonal执行create，以及owner离群而PA仍在群也不能读取。
+
+代码审查结果：
+
+| 读取边界 | 核对证据 | 结果 |
+|---|---|---|
+| 当前binding与epoch | Gateway进入adapter前调用authority，不能拿旧PA node或模型owner读取 | aligned |
+| owner源资格与PA排除 | adapter.chat每次先sourceAllowed，再conversationAccess(owner) | aligned |
+| list计数/分页 | source过滤发生在map/sort、total、cursor/page计算前，不先分页再删项，也不泄漏被排除项统计 | aligned |
+| activity与引用出处 | activity同时经chat核讨论来源与任务归属；get中的last_chat/provenance投影也经同一chat过滤 | aligned |
+| 只读与写分离 | adapter仅准get/list/activity，execute对personalRead write拒绝；conversation.can_write=false及节点can_edit/delete/claim=false | aligned |
+| task capability与普通Agent | 原execute主体/节点/task开关/allowlist校验保留，普通构造与路径不带personalRead | aligned |
+| 原reviewed写回 | executeDelegated与冻结scope/owner write ACL/revision/真实actor/assignee不变 | retained |
+
+### Owner decision / control delta
+
+**已选方案可作为当前事实继续，不扩大原scope。** server私密UI决定入口仍核owner登录身份、decision归属、pending状态、expected_revision及option合法性，并持久化真实resolution。`owner.decision`系统唤醒现在明确要求主PA读取 `goals.authorization.owner_decisions` 的服务端记录；不把模型自建question/options、事件自由文本或未决选项当授权。reviewer同样只认可resolved option在既有目标约束内的后果；declined/snoozed不放行。`PersonalActions.prepare/validate` 的既有scope允许动作/对象、当前权限、证据digest和出站审核没有放宽。
+
+这落实了原design“本人决定一次后继续”及IM delta的choice语义；不是新增可由system wake建立任意scope的能力。Gateway/global-agent delta对canonical owner DM新grant的限制仍适用，UI选择是在已记录目标范围内作已有业务决定，不能借此扩大受众/资料范围。
+
+**旧控制冲突有界重新解释。** PersonalAssistant只在服务端返回assistance_revision_conflict/policy_revision_conflict时删除该消息缓存的审查结果，重新拉当前scope/assistance事实，以**同一已认证当前owner消息**重新解释一次；第二次冲突继续返回错误，不无限重试、不修改owner证据、不回落普通Agent权限。控制完成键绑定实际control内容；已达到目标状态的pause/resume由IM幂等返回，不再因旧revision重复改变状态。不是将历史消息重新当成新owner输入或自动重放owner叙述的过去操作。
+
+新增回归证明：一次旧control冲突后fresh resolve/review各执行两次、旧control只尝试一次；owner消息最终admit成功；同消息再次进入不重新review。实际模型在产品中是否据此不重复确认仍须产品R4验证，提示词一致性不能替代该旅程。
+
+### Independent validation
+
+- `pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/personal-assistant/tests/global-agent.test.ts`
+  - 固定 `19458a27e`，2026-10-19 15:15，**3 files / 68 tests passed**。
+- 上述真实Gateway旧probe产生允许/拒绝的相反修复结果，闭合R5的两个直接失败条件。
+- 复用caller本批全build/typecheck成功结果；没有重跑无关全量、启动模型或重启共享IM/Node服务。
+
+### Corrected Delta Reconciliation
+
+| 保留/修正条目 | 当前证据 | Outcome |
+|---|---|---|
+| gateway/task-graphs、im/task-graphs的owner资格∩源策略读取 | 本轮readPersonal与真实Gateway闭合，list统计/分页及provenance/readonly检查成立 | **aligned**，原R5-C1 closed |
+| gateway/personal-agent、im/auth-tenancy的受影响源API不绕排除/失权 | PA task读取进入同一当前source策略，普通read不能经模型owner字段换身份 | aligned |
+| 决定一次继续、无system伪授权 | 服务端resolution查询、事件指向server facts、reviewer+scope/commit仍约束 | aligned |
+| 旧pending控制恢复，不重放过去动作 | 有界fresh facts复核、pause/resume幂等、真实owner source核验和回归 | aligned |
+| R5已校正统一主/子执行、owner群成员操作、服务器residency真实边界 | 本批未改变对应实现和active delta，前轮证据继续有效 | aligned，retained |
+| R4审查代际绑定、Work退休、R2Channels私密入站/屏蔽 | 本批未改变该权限关口，原直接复现与closure仍适用 | aligned，retained |
+| 其他R5已对账delta与产品行为 | 目标契约未被本批缩减；产品退出证据留独立验收 | 文本/实现范围继承，不代判产品pass |
+
+Uncovered Observable Behavior: 没有新增独立用户流程或扩展权限。readPersonal是现有task只读动作的可信owner适配；owner.decision事件纠正现有已选方案的执行说明；缓存冲突恢复仅重解释同一认证输入。**no new spec delta**，active delta与最终design保持，canonical尚未归并。
+
+Outcome: **aligned**。当前代码与corrected-delta门禁无未关闭CRITICAL/WARNING；完整产品及M1交付结论仍由caller合并独立产品R4和适用证据后决定。
+
+### Handoff
+
+本轮仅提交 `code-review-r6.json` 和verification报告，未改实现/测试/设计/delta正文、未重启服务或推送。提交号见最终交接消息。
