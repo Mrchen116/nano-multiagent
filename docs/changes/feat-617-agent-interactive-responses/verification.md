@@ -4,9 +4,9 @@
 
 ## Current verdict — full OpenUI restoration
 
-**Issues Found — 1 CRITICAL pending product evidence / 1 WARNING / 0 SUGGESTION；corrected delta implementation-mismatch。**
+**Static closure passed — 1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
-固定实现候选 `07ca4831c03e9fab4b9e5341eed6315317c17675`；旧交付基线 `cf4b17f00`，unit/main 基线 `cc47abe3f`。此前表单切片 PASS 全部保留为历史，不外推为本轮用户目标通过。详见 Round 5。
+最新定向 closure 的固定实现候选 `19efc4031bb858af5251410dec0c68849dbf77b1`，effective_through `60b311a48ac5e999a3594d81316acf3c69eac433`（仅移除测试无效类型选项，产品代码不变）；full 审查候选 `07ca4831c`、旧交付基线 `cf4b17f00`、unit/main 基线 `cc47abe3f` 均保留。此前表单切片 PASS 不外推为本轮用户目标通过。详见 Round 5/6。
 
 ## Previous delivery verdict — superseded by restored full OpenUI scope
 
@@ -288,10 +288,10 @@ Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证�
 | Current delta item | 最终实现/证据 | 结果 |
 |---|---|---|
 | IM MODIFIED：真实用户/群隔离/手写正文原文 | 原身份/read-write checks + request snapshot + 完整 withInteractionContext；相关 backend/Web/PA tests | aligned |
-| IM MODIFIED：多次探索与请求幂等 | request级key、完整semantic、source/user可多次、同键重试/不同语义409；新迁移/窄测 | request identity aligned；继续编辑的私有状态 W2 implementation-mismatch |
+| IM MODIFIED：多次探索与请求幂等 | request级key、完整semantic、source/user可多次、同键重试/不同语义409；新迁移/窄测 | aligned；W2 在 Round 6 closed |
 | IM MODIFIED：patch 完整历史 | 公共 mergeStatements、完整校验、publication_json、同作者同会话限制、事务回滚 | aligned |
 | Web ADDED：组件/计算/动作与连续本地探索 | 未删除完整上游组件；native Renderer；local Set/Reset无新请求 | implemented / independent product evidence C2 pending |
-| Web ADDED：提问后继续探索、错误不抹可读内容 | 可多次submit、请求冻结、已提交不锁全卡、tool errors沿原生通道；私有revision双推进 | **implementation-mismatch (W2)** |
+| Web ADDED：提问后继续探索、错误不抹可读内容 | 可多次submit、请求冻结、已提交不锁全卡、tool errors沿原生通道；私有revision双推进 | aligned；W2 在 Round 6 closed |
 | Web ADDED：Query/业务动作边界 | 仅已登记只读Query和明确Mutation，host身份/cid固定，返回message receipt非业务完成 | aligned |
 | Gateway MODIFIED：各任务通用交互及外部文字 | 通用 Feature、完整 catalog/skill、原公开交付与渠道strip retained | implemented / real generation C2 pending |
 | Gateway ADDED：无提示普通问题和跨领域 | 代码/提示无验收题逻辑；作者现场新模型样本保留失败 | source aligned / independent product evidence C2 pending |
@@ -301,4 +301,48 @@ Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证�
 
 无新增遗漏。旧 Features、消息读取/fork授权、Web基本阅读/失败与外部摘要 Requirement 在 current 原条目中保留；当前 MODIFIED/ADDED 类别与已交付 canonical 基线对应，未把未变旧条目重复 ADDED。恢复全部 UI 能力与业务工具接通范围已分别写明。
 
-Outcome: **implementation-mismatch**（W2）；另有 C2 独立产品证据待补。当前不能 Ready for PR / 再次宣称完整用户目标通过。
+Outcome: **aligned**（Round 6 定向核对后 W2 closed，重试按钮修复与 delta 相符）；C2 独立产品证据仍待补。当前不能 Ready for PR / 再次宣称完整用户目标通过。
+
+
+## Round 6 — W2 and retry accessibility targeted closure
+
+### Metadata
+
+- code review mode: `closure`，focus 为 Round 5 W2；另外定向核对独立产品新发现的 retry accessibility 修复。verification_mode: `targeted-closure` + fix delta。
+- validated_at / frozen candidate: `19efc4031bb858af5251410dec0c68849dbf77b1`
+- fix_delta_range: `07ca4831c..19efc4031`
+- executed_base: `cc47abe3f`（unit 基线不随 closure 改动）。
+- effective_through: `60b311a48ac5e999a3594d81316acf3c69eac433`；额外 diff 仅移除 Testing Library getByRole 的无效 `exact:true` 测试选项，已独立核对单行，不改变产品代码/断言含义，不扩大复验。
+- checked_at: `2026-10-19T18:18:46+08:00`
+- retained_from: Round 5 full，其他实现/架构/规格结论保留；产品 C2 仍 pending。
+- requires_full_verification: `false`
+- verdict: **静态 closure 通过；1 CRITICAL pending evidence / 0 WARNING / 0 SUGGESTION**。
+
+### W2 — closed
+
+`interactive-card.tsx:75` 新 `syncSubmittedDraft()` 是 WS prop effect 与 native POST 成功共用的权威 GET 路径；读取服务端实际 draft_revision 并以 Math.max 与当前版本收敛，已移除成功分支盲目 `revision.current++`。同一确认不会再被算两次，晚到的较旧 GET 也不会倒退新版本；不 remount explorer、不改本地当前输入。
+
+已读 `/tmp/feat617-w2-red.log`，相同 WS→POST 时序在修复前确实 **expected revision 3 / actual 4** 失败；`/tmp/feat617-w2-green.log` 显示真实 InteractiveCard/Renderer 的 WS-first、POST-first 与原输入/连续请求共 **2 suites / 16 tests passed**。这直接覆盖原 finding，不用作者手写追问的成功结果代替 native 按钮时序保护。
+
+### Retry accessibility — implementation aligned
+
+`AttachmentDropzone` 原本为整个 composer 子树设置 `aria-disabled=true`；未知发送等待重试时，textarea 应冻结，发送按钮却需要可操作。该祖先标记使实际辅助访问/浏览器定位把绿色 Send 仍视为 disabled。修复仅将 drop surface 状态改为 `data-disabled`；handleDragEnter/Over/Drop 的 disabled guard 仍阻止添加新文件，具体 textarea 的 native disabled 保持。它不解冻原请求，不改变 message/state/key，也不开放新附件变更。
+
+已读 `/tmp/feat617-retry-red.log`，修复前 retry 的 disabled 祖先断言真实失败；green 日志 **3 suites / 18 tests passed**。interactive-flow 改用实际 Send click，断言按钮本身和祖先均可操作，仍比较两次 onSend 的完整冻结正文、state 和 key。dropzone 窄测同时断言 disabled 下 drop 不调用 onAdd 而子按钮可点击。修复与 Web 连续探索/错误恢复、IM 请求级幂等 delta 一致，没有扩大协议或业务权限。
+
+### Evidence reconciliation and pending boundary
+
+- 新作者 `evidence/native-browser-review.md` 和 `native-model-samples.json` 保存普通原话、失败源、修正后真实源及同卡两轮20000/620→30000/930的持久状态；它们是实际生成与作者旅程证据，不能代替独立产品 C2。
+- `/tmp/feat617-native-final3-web.log` 已独立核对最终19ef Web **99 suites / 908 tests passed**。caller 交接全 backend 96/373、Python非E2E62、typecheck与ruff通过；上一有效 full build 等证据保留。60b311a48 删除无效测试类型选项后的 build 正在由 caller 重跑，未在本报告抢先声称该次完成。
+- caller 的最终同步确认 origin/main 仍 `cc47abe3f`，无集成增量。无需因只追加报告或该测试类型修正重审完整 unit。
+- C2 **继续 pending**：独立产品 reviewer 的新版完整旅程及19ef两项 targeted复验尚未最终交付。收到报告后只做证据 closure，不重复已有效覆盖的 full 静态或全量测试。
+
+### Focus disposition
+
+| Item | Status | Evidence |
+|---|---|---|
+| Round 5 W2 / code-review P2 | **closed** | 统一权威 revision、移除双推进；相同红测与双顺序绿测 |
+| 新产品重试按钮不可访问问题 | **implementation fixed / independent product confirmation pending** | data-disabled 不影响Send；真click/冻结重试与drop guard的红→绿 |
+| C2 新用户目标独立产品证据 | **pending** | 等待既定独立 full + targeted 产品报告 |
+
+`code-review.json` 更新为 `[]`。本轮仅更改报告，未改源码/测试/环境、未触碰其他 worktree；没有对未证明的边界继续扩展审查。
