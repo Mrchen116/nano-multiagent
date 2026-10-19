@@ -277,3 +277,52 @@ Round4自然背景的Global/群聊权限、普通文字与明确提交、冻结�
 多个页面仍可见基线已有“Real-time updates are busy”横条。读取历史与上述本地操作完成；本轮未验证实时消息送达，也没有关闭未知用户tab或放宽连接限制。该环境现象未阻塞布局旅程，不作为新增布局缺陷。必要宽内容资源由caller补齐后完成观察，无剩余inconclusive。
 
 仅创建并关闭本reviewer两个Chrome标签页，已reset临时viewport；未启动服务、清空历史或提交新聊天消息。复利测试个人状态保留12000本金与风险Tab，属于授权本地探索。上层delta/current归并由orchestrator收口；本reviewer仅追加此报告。
+
+## Round 6 — 统一视觉与信息构图独立验收（2026-10-19 22:17–22:31）
+
+**Verdict: pass；blocking / major / minor = 0 / 0 / 0；highest_required_action: pass。** 本轮覆盖spec末尾统一产品视觉、清晰信息主次及三宽度操作，不能用Round5扩宽结论代替本轮。独立 reviewer `/root/layout_product_review` 只读需求/design/Gate2R7及真实界面，未读取实现定位原因、改产品源码或注入UI fixture。
+
+### 版本、入口和证据范围
+
+- validated_at: `d8ba0ac509709da4185b891bbd3f54c8136aba65`；executed_base: `d9876365f4f3e4fdd5ac7fc8e8809aa6fecd6203`。开始HEAD与受验版一致；后续HEAD `764b79e9472c5aab65b2d1d57d8079fd9142d318`。检查 `git diff --name-only d8ba0ac50..HEAD -- src packages apps` 为空；后续同步为其他unit文档/issue模板及评审报告，不改变受验产品。
+- 实际页面script为 `/assets/index-DciNEapF.js`，与worktree dist/index.html一致（stylesheet `/assets/index-e9s1B4AS.css`）。隔离58769，账号Test User；没有生产操作。
+- DOM实际viewport：1537×944、769×900、390×844。使用自己创建的Chrome页校准；769不声称精确768。手机及中屏读取document.scrollWidth分别390、769，没有页面横向溢出。
+- 新模型样本由caller预先生成，reviewer从实际历史核对两轮原话及完整回复并独立操作，没有替换消息或重新提示模型帮助通过。复利群 `c_0usbd4jg`：第一问“给我介绍下复利是啥”，第二问“能不能做一个精美的UI全面介绍下”（正常群@ E2E Agent），第二回复 `210a2a98b5c1447989665bba689d45b5`。非财务群 `c_nlxmdmhx` 原话“为什么热咖啡开始凉得快，后来凉得慢？”。
+- 生成时构图规则与本轮相同，但通勤示例仍是Slider；最终示例已换为Input以便jsdom挂载验证。此为caller披露的prompt差异：这些样本支持该版构图规则的实际表现，不冒称最终示例文本逐字相同条件下重新生成。最终前端渲染与操作在受验产品树进行。
+
+### 独立体验裁决
+
+**新复利构图成立。** 首先是“复利·让增长本身参与增长”及一段核心解释，然后用三步说明利息再投入；参数区与主结果位于紧邻的两张卡内。桌面左侧“你的假设”集中本金/收益率/年限，右侧首先显示“20年后·复利本息合计”和金额，其他事实作为标签/数值行排列，用户无需从四个等权灰块里寻找主结果。曲线紧随两卡，下方Tabs收纳公式、影响因素、误区和使用方法。真实输出没有逐像素复刻原型，但满足主结论可找、变量和结果就近、辅助信息后置的must-match；三步数字同时含组件序号和正文①②③，属于局部重复，不影响阅读或操作，不列阻塞问题。
+
+桌面本金输入获得青绿焦点边界；收益率Select展开为白色轻边框portal，当前5%有青绿背景和勾选，不退回默认蓝色皮肤。390手机把左右卡顺序堆叠，输入区可完整阅读。实际选8%、本金改12000，20年复利本息55931.49、累计收益43931.49、单利31200、差额24731.49；曲线同时更新到约120K的30年末值。曲线青绿/赭色与图例标签相配，手机刻度、轴标题和图例可辨。769仍保留聊天列表，但卡片按实际剩余宽度堆叠，未挤成两条细列。
+
+**非财务解释同样成立。** 咖啡回复先给出“温差越大，凉得越快”，再用温度Slider/数值选择、温差标题和相对速度BarChart呈现机制；最后才给近似条件与蒸发说明。没有把通勤/阅读计划示例内容套入答案。键盘End将温度调90℃，温差变70℃、速度3.5倍；手机Home再ArrowRight变21℃、温差1℃、速度0.05倍，柱高随之变化。769的数值Select portal保留同一字体、青绿选中态与可滚动选项；390下控件、结果和图表不突破内容列。该样本证明条件变化与解释关联，非真实咖啡温度测量或物理精度验证。
+
+**旧消息与不同作者仍可用。** 旧 `c_8iutij8v` 的同一“复利探索馆”在新主题下保留原内容和Tab结构；字体/标题/数字层级、白卡边界、青绿输入和多色图例统一。桌面四指标两列排列，数字视觉重量明显高于旁边说明；手机和769逐项堆叠。实际点击“恢复默认示例”恢复10000/5%/20年、期末26532.98。桌面图表点选20年位置出现白色轻边框tooltip，三条数据与青绿/蓝/赭图例对应，浮层文字清楚。主题没有假装替旧source重构信息内容。
+
+另一作者default-agent的旧 `c_dm0w2u5u` 冒泡演示在769下保留统一卡片/表格/青绿主要按钮；实际“下一步”变成第2轮比较3和1，数组为2/1/3/4并说明3、4归位。按钮和本地状态路径未被换肤破坏。语义提示块仍可用蓝色强调，不把统一主题误解为所有元素只能同一色。
+
+### 操作完成态与环境瞬态
+
+复利手机辅助Tab和输入最终在独占复核中成立：“概念与公式”选中、实际正文显示“一条公式理解复利”；输入“继续理解”后DOM和截图均确认文字保留、Send可用。随后清空未发送草稿。此前一次批量操作后截图仍显示旧Tab/空输入，未把命令成功当作通过；独占重做后未复现稳定故障，前次瞬态的具体原因未归因。
+
+页面持续存在已知Real-time updates busy横条；约22:25另观察到Restoring your choices/Reconnecting，caller确认同期只重启隔离Node加载最终资产（IM未重启），随后旧卡片恢复并完成实际操作。本轮记录此瞬态，不把它计作稳定视觉成功或实时链路通过。未发送新的模型请求，没有将静态history/refetch证明扩大为实时送达。
+
+### must-match覆盖与参考
+
+| 来源/目标 | 本轮证据 | 结论 |
+|---|---|---|
+| spec统一产品视觉；design同source/不同作者/portal/焦点 | 旧复利与default-agent冒泡，新复利Select和输入焦点、旧图表tooltip实际显示与操作 | pass |
+| spec清晰主次；design核心结论→控制与结果→解释 | 新两轮复利主结果/辅助行/曲线/Tabs，以及咖啡温差机制的完整阅读和变量改变 | pass |
+| design1537/约768/390可读可操作 | 实际1537/769/390；参数变动、键盘Slider、Tab切换、输入完成态；无页面横向溢出 | pass |
+| evidence-dependent组件扩充 | 两样本由现有Steps、输入/Select、Slider、Line/BarChart和Tabs表达有效关系，未见必须新增自由图形的缺口 | 当前样本无需扩充 |
+
+实际渲染 `8768/prototype-visual.html` 的桌面与769布局，并切换默认视觉示意对照；读取spec/design末尾、Gate2R7与共同体验标准。原型只用于宿主主题/层级契约，不当作模型生成或产品操作证据。当前结果在控制布局与具体章节上may-adapt，主次与操作关系不降低标准。
+
+本地截图在 `/tmp/feat617-visual-evidence/`：`reviewer-new-compound-desktop.png`、`reviewer-new-compound-medium.png`、`reviewer-new-compound-mobile.png`、`reviewer-coffee-mobile.png`、`reviewer-old-desktop.png`、`reviewer-old-mobile.png`、`reviewer-other-author.png`、`reviewer-mobile-tab-input.png`。仅文字报告入库，未提交截图缓存。
+
+### Retained与完成
+
+Round5已验的普通短句、纯长文64rem、Markdown代码/宽表格内部滚动与复制按未改范围保留；本轮不以这些旧结果替代新的主题或Card重排。Round4私聊/群聊背景、明确提交和权限/幂等，Round3完整原生能力的原证据边界保留。未重跑83组件全量或全部禁用态、未调用Query/Mutation/patch、未验iPhone真机/软键盘，也不证明任何未来模型输出均具有良好构图。
+
+本轮无新UI fixture、无源码/模型消息修改、无新对外发送或服务启动。自己的两个验收tab均关闭，临时viewport已reset；只保留授权本地探索产生的个人状态。上层delta/current归并及最终prompt精确版本生成证据由orchestrator按边界收口，reviewer不扩大本轮结论。
