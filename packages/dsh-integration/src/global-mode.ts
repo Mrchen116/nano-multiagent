@@ -24,8 +24,10 @@ export function apply(ctx: Context, config: { mode?: string }) {
     { name: 'conversations', description: 'Discover joined or public conversations, inspect members, read history, create a group, or join a public group as yourself. Root main Agent only. Public read access does not imply membership or write access.', parameters: {
       type: 'object', properties: { action: { type: 'string', enum: ['list', 'info', 'read', 'create', 'join'] }, scope: { type: 'string', enum: ['joined', 'public'] }, title: { type: 'string' }, type: { type: 'string', enum: ['group'] }, visibility: { type: 'string', enum: ['public', 'private'], description: 'New groups default to public.' }, participant_ids: { type: 'array', items: { type: 'string' }, description: 'User IDs or agent:IDs under ordinary invitation rules; the actual Agent creator is automatically a member.' }, target: { type: 'string' }, query: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
     } },
-    { name: 'send_message', description: 'Use target/text for a public message to an accessible conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'] }], additionalProperties: false,
+    { name: 'send_message', description: 'Use target/text for a public message to an accessible conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. When the Intelligent UI Feature is enabled, for useful choices or editable drafts first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
+      type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' }, interactive: { type: 'object', properties: {
+        format: { type: 'string', enum: ['openui'] }, catalog_version: { type: 'string', enum: ['nano-1'] }, source: { type: 'string', maxLength: 65536 }, supersedes_message_id: { type: 'string' },
+      }, required: ['format', 'catalog_version', 'source'], additionalProperties: false }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { required: ['interactive'] } }], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
@@ -33,6 +35,7 @@ export function apply(ctx: Context, config: { mode?: string }) {
       ? (value as unknown as { content: ContentBlock[] }).content : [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
       if (tool.name === 'send_message' && typeof (args as { agent_id?: unknown }).agent_id === 'string') {
+        if ((args as { interactive?: unknown }).interactive !== undefined) throw new Error('Interactive replies require public target/text');
         if (!nativeSend) throw new Error('Native child communication is unavailable');
         return nativeSend.execute(args, exec);
       }

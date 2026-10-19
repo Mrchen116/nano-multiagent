@@ -16,6 +16,7 @@ import {
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { validateTimeZone } from "@nano/product-contracts";
+import { Interactions } from './interactions.js';
 /** Derive human approval badges from the durable request/decision identity. */
 export function withHumanApproval(call: Row, permissions: Row[]): Row {
   const decision = permissions.findLast(item => item.call_id === call.id && item.status === "resolved" && item.decided_by)?.decision;
@@ -24,7 +25,8 @@ export function withHumanApproval(call: Row, permissions: Row[]): Row {
 }
 
 export class Messaging {
-  constructor(readonly ctx: ImContext) {}
+  readonly interactions: Interactions;
+  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); }
   get db() {
     return this.ctx.db;
   }
@@ -305,8 +307,10 @@ export class Messaging {
         m[key === "permission_requests" ? "permission_request_json" : `${key}_json`] ?? "[]",
       );
     result.tool_calls = result.tool_calls.map((call: Row) => withHumanApproval(call, result.permission_requests));
-    for (const key of ["token_usage", "system_notice"])
+    for (const key of ["token_usage", "system_notice", "interaction_reply"])
       result[key] = JSON.parse(m[`${key}_json`] ?? "null");
+    const interactive = this.interactions.message(id);
+    if (interactive) result.interactive = interactive;
     for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
     Object.defineProperties(result, {
       awaiting_permission_at: { value: m.awaiting_permission_at },
@@ -354,6 +358,8 @@ export class Messaging {
     status = "completed",
     extra: Row = {},
   ): Row {
+    if (extra.interactive && !this.db.isTransaction)
+      return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
     const old = key
       ? one(
           this.db,
@@ -392,6 +398,11 @@ export class Messaging {
       )
       .run(cId, sender);
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
+    if (extra.interactive) {
+      if (type !== 'agent') fail(403, 'Only Agent messages may contain interactive replies');
+      this.interactions.record(id, cId, sender, extra.interactive);
+    }
+    if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
     this.event(cId, id, "message.created", { ...m, message_id: id }, status, extra.publish !== false);
     return m;
@@ -474,6 +485,8 @@ export class Messaging {
     )
       fail(403, "sender does not match authenticated user");
     if (typeof b.content !== "string" && b.content !== undefined) fail(422, "invalid content");
+    if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, req);
+    if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
     if (!b.content?.trim() && !attachments.length)
@@ -504,6 +517,24 @@ export class Messaging {
       if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
     return this.message(m.id);
+  }
+  private sendInteraction(p: Row, id: string, b: Row, req: FastifyRequest): Row {
+    if (b.attachments?.length) fail(422, 'Send attachments in a separate message');
+    const rawKey = req.headers['idempotency-key'];
+    const key = rawKey ? `interaction:${p.id}:${String(rawKey)}` : null;
+    const prepared = this.interactions.prepare(p, id, b, key);
+    if (prepared.existing) return this.message(prepared.existing);
+    // Preserve handwritten text exactly, including reference syntax and whitespace.
+    const content = this.validateReferences(p, id, prepared.content);
+    const timezone = b.timezone === undefined ? one(this.db, 'SELECT timezone FROM users WHERE id=?', p.id)?.timezone ?? null : this.updateUserTimezone(p.id, b.timezone);
+    const message = transaction(this.db, () => {
+      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { timezone, interaction_reply: prepared.snapshot, publish: false });
+      this.interactions.submit(p.id, m.id, prepared);
+      this.enqueueRelays(m, key);
+      return m;
+    });
+    this.publishMessages([message]);
+    return this.message(message.id);
   }
   /** Save a foreground client's timezone and notify this user's connected Gateways.
    *
@@ -541,7 +572,7 @@ export class Messaging {
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const payload = {relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
-          conversation_type:c.type,mentioned_agent_ids:this.mentionedAgents(c.id,m.content),participant_agent_ids:agents.map(a=>a.agent_id),
+          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(c.external_source ? {external_source:c.external_source,external_chat_id:c.external_chat_id,trigger_source:"im"} : {})}};
       this.db.prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id,m.id,c.id,a.node_id,JSON.stringify(payload),relayKey,"queued",null,null,now(),now());
@@ -831,6 +862,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     reply.code(201);
     return s.sendMessage(req);
   });
+  app.get('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.readDraft(req));
+  app.put('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.writeDraft(req));
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id,

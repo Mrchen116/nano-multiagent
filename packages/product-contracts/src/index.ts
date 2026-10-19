@@ -38,6 +38,8 @@ export interface RelayInput {
   message: {
     id: string;
     content: string;
+    interactive?: import('./interactive.js').MessageInteractive;
+    interaction_reply?: import('./interactive.js').InteractionSnapshot;
     sender_user_id: string;
     sender_type: string;
     created_at?: string;
@@ -88,3 +90,5 @@ export interface UsageReport {
   usage: {prompt_tokens: number; completion_tokens: number; total_tokens: number};
 }
 export { encodeTrajectoryValue, TrajectoryValueDecoder } from './trajectory-wire.js';
+export * from './interactive.js';
+export { interactiveCatalog } from './interactive-catalog.js';

@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-10-19：按用户补充，增加 Agent Features 默认启用的 `intelligent_ui` 开关。
+
 ## 现状分析
 
 ### 涉及范围
@@ -61,6 +63,8 @@ Catalogue 的唯一维护源放在 `src/IM/frontend/src/features/chat/interactiv
 **5. 每次交付内容不可变。** 后续修改生成新消息。可选 `supersedes_message_id` 明确将同一 Agent、同一会话的旧卡片标成“已有更新”；不靠标题猜测。服务器检查提交时是否已被替代；即使仍可提交，也只是新的用户输入，Agent 必须结合当前事实解释，不把旧卡片视为持续有效的执行授权。
 
 **6. 上游适配有明确止点。** M1 开始先做固定版本与实际模型的四类任务验证；出现具体 DSL/Renderer 缺陷先判断是否可用小适配解决。若核心生成可靠性不合格，回 design owner 用同样契约换 json-render，并对实质变化复审，不在实施期悄悄维护两个引擎。
+
+**7. Agent Features 控制能力。** Node capability registry 暴露 `intelligent_ui`（默认 true，关联 send_message），复用 Agent 配置页现有 checkbox 与配置同步。缺失值视为启用。DSH 使用独立 Feature 生命周期挂载 `nano-interactive-replies` 提示，并按当前 Agent 配置过滤历史 preset；PA 显式发布接口在关闭时拒绝带 interactive 的调用，反馈改用文字。关闭不会删除已有卡片、草稿或选择；既有卡片提交仍是普通用户输入，后续回复遵守当前开关。
 
 ## 接口与数据流
 

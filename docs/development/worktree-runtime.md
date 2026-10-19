@@ -23,7 +23,7 @@
 ## 前置条件
 
 - 已执行 `pnpm install --frozen-lockfile`、`pnpm build` 与 Web 构建。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
-- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含固定 agent、Web IM channel 和可选模型目录。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
+- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 
