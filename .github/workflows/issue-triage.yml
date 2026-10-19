@@ -15,11 +15,13 @@ jobs:
         with:
           script: |
             // Read current labels so a status set after creation is respected too.
-            const { data: issue } = await github.rest.issues.get(context.issue);
+            const { owner, repo, number } = context.issue;
+            const target = { owner, repo, issue_number: number };
+            const { data: issue } = await github.rest.issues.get(target);
             if (issue.labels.some(label => label.name?.startsWith('status:'))) {
               return;
             }
             await github.rest.issues.addLabels({
-              ...context.issue,
+              ...target,
               labels: ['status:needs-triage'],
             });
