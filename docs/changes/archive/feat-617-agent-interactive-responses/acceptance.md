@@ -1,5 +1,7 @@
 # feat-617 — 验收报告
 
+> 本文提到的截图仅保存在仓库外；定位见[本地证据说明](evidence/local-artifacts.md)。
+
 > Round 1 · 独立真实产品验收 · 2026-10-19 16:34–16:50 Asia/Shanghai
 >
 > Validation snapshot: `aaa6bfc24 → aaa6bfc24`。验收起点 HEAD 确认为 `aaa6bfc24a052e4da3da1eeeec4a819f47d7a142`；期间 caller 更新到 `0a7b187a8`，仅增加证据与报告，产品代码和运行产物未变。前端构建由 caller 于 16:31 提供，后端包含受验后端代码；未重建数据库、未改实现。
@@ -24,7 +26,7 @@
 - **T2 Global 草稿与双页面冲突**：`/chat/c_igsjsbh2`，16:35 请求可直接编辑的测试同伴邀请，16:36 得到草稿。编辑为周日15点北山街，另一页面载入同一草稿；另一页改16点，本页改17点，得到真实草稿冲突提示 `Another device updated this draft. Load the latest version to continue.`，17点仍保留。点 Load latest draft 后手写“先别发送，把语气改得随意一点；务必保留我编辑后的时间和地点”，本人消息原文完整，独立选择区保留17点/北山街/半小时；16:39 模型正确保留这些信息并明确未发送。
 - **T3 Features**：`/settings/agents/e2e` 初始 Intelligent UI 勾选；取消并 Save Agent，刷新后仍未勾选（profile v5）。16:40 请求可编辑活动草稿，模型明确当前交互未启用并返回文字。重新勾选保存后，16:42 新请求生成读书会邀请卡片；旧卡片、已提交结果仍在。未指定配置的默认值通过已存在测试 Agent 初始勾选观察，未另建默认配置 Agent。
 - **T4 普通草稿与文字继续**：16:42 新读书会草稿编辑为“测试同伴，周一晚上8点线上聊《小王子》，半小时。”，手写“先别发，帮我改得更简短，保留这些具体信息。”，公开原文和选择分开显示，模型返回精简草稿并保留书目、时间、线上形式、时长且未发送。
-- **T5 双用户提醒**：`/chat/c_o0bf5oiy`，16:40 通过产品 @ E2E Peer Agent，请其生成周六中午前确认周一读书会提醒。owner 编辑“参加 / 仅本人草稿：我会带茶叶”；独立登录 `ui-peer` 后刷新，仍是空备注和未选项，未泄漏 owner 草稿。peer 提交“不参加 / 同伴有其他安排”，owner 提交“参加 / 仅本人草稿：我会带茶叶”，两条公开选择各归本人。16:41 Agent 分别确认两人的真实选择，只在本群记录，见 [群内分别提交](evidence/review-group-submissions.png)。
+- **T5 双用户提醒**：`/chat/c_o0bf5oiy`，16:40 通过产品 @ E2E Peer Agent，请其生成周六中午前确认周一读书会提醒。owner 编辑“参加 / 仅本人草稿：我会带茶叶”；独立登录 `ui-peer` 后刷新，仍是空备注和未选项，未泄漏 owner 草稿。peer 提交“不参加 / 同伴有其他安排”，owner 提交“参加 / 仅本人草稿：我会带茶叶”，两条公开选择各归本人。16:41 Agent 分别确认两人的真实选择，只在本群记录，见 群内分别提交（本地截图 `review-group-submissions.png`）。
 - **T6 Global 行程与离线**：16:42 Global 生成周六公园两小时散步/骑行比较卡片。改为11:30、骑行。16:43 仅停止本 checkout Node（CLI 返回 STOPPED），界面离线后点击继续。确认消息持久化、原卡片只读，但没有待处理提示（问题 A1）；摘要显示 `bike`（A2）。随后立刻恢复同一 Node，CLI 返回 pid 12581，界面恢复在线，模型后续处理了11:30/骑行。未停止 IM。
 - **T7 Global 提醒与简单文字**：16:44 请求周三前确认读书会报名，Global 生成参加/暂不参加、备注和“仅在本聊天记录选择与备注”按钮。实际选择参加、备注“确认书目后再实际报名”并提交。16:45 请求4+5只给数字，16:46 得到纯文字 `9`；普通 Agent 16:43 同样以纯文字 `5` 回答2+3，没有强迫卡片。
 - **T8 替代与 fork**：普通聊天的纯文字 `5` 消息经真实 Branch from here 创建 `/chat/c_uyylfjg0`，复制的交互为 `Historical reply · read only`，输入和继续按钮禁用，公开选择仍可读。返回原聊天，16:45 要求作废精简邀请、以周四前确认提醒替代；新卡片出现后旧精简邀请同样只读、不能点击。Global 对已提交公园卡片的替代请求也返回新提醒，旧卡片保持不可操作；Global 旧卡片的提示仍是已提交，不能据此单独证明替代标识。
@@ -37,16 +39,16 @@
 
 | Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
 |---|---|---|---|---|
-| prototype.html 正常/编辑 | 同一回复内摘要在前，选择与主动作相邻 | [桌面编辑](evidence/review-desktop.png)、[窄屏编辑](evidence/review-768-edited.png)、[手机编辑](evidence/review-390-edited.png)、[摘要](evidence/review-390-summary.png)；T1/T4/T5 | 1440×1000 / 768×900 / 390×844 | match；长内容需主区滚动，选择区仍紧邻主动作 |
-| prototype.html 编辑/提交/失败 | 即时编辑、本人选择回显、提交卡片只读 | [1440提交](evidence/review-1440-reminder.png)、[768提交](evidence/review-768-reminder.png)、[390提交](evidence/review-390-reminder.png)、[失败](evidence/review-390-failure.png)、[草稿冲突](evidence/review-conflict.png) | 三种宽度；提交与网络失败；T1/T2/T4 | 核心操作 match；离线反馈 deviation A1，选择回显可读性 deviation A2 |
-| prototype.html 替代/降级 | 文字仍可读，旧卡片不执行，输入可用 | [替代](evidence/review-390-old-replaced.png)、[fork](evidence/review-390-fork.png)、[降级](evidence/review-390-fallback.png)；T8/T9 | 390×844 | match；历史只读提示较泛化，但不可再提交、正文与输入保留 |
+| prototype.html 正常/编辑 | 同一回复内摘要在前，选择与主动作相邻 | 桌面编辑（本地截图 `review-desktop.png`）、窄屏编辑（本地截图 `review-768-edited.png`）、手机编辑（本地截图 `review-390-edited.png`）、摘要（本地截图 `review-390-summary.png`）；T1/T4/T5 | 1440×1000 / 768×900 / 390×844 | match；长内容需主区滚动，选择区仍紧邻主动作 |
+| prototype.html 编辑/提交/失败 | 即时编辑、本人选择回显、提交卡片只读 | 1440提交（本地截图 `review-1440-reminder.png`）、768提交（本地截图 `review-768-reminder.png`）、390提交（本地截图 `review-390-reminder.png`）、失败（本地截图 `review-390-failure.png`）、草稿冲突（本地截图 `review-conflict.png`） | 三种宽度；提交与网络失败；T1/T2/T4 | 核心操作 match；离线反馈 deviation A1，选择回显可读性 deviation A2 |
+| prototype.html 替代/降级 | 文字仍可读，旧卡片不执行，输入可用 | 替代（本地截图 `review-390-old-replaced.png`）、fork（本地截图 `review-390-fork.png`）、降级（本地截图 `review-390-fallback.png`）；T8/T9 | 390×844 | match；历史只读提示较泛化，但不可再提交、正文与输入保留 |
 
 ## 问题清单
 
 | # | 严重度 | 现象与用户影响 | 处置 |
 |---|---|---|---|
-| A1 | major / blocking | Node 离线时点击卡片，只有 `Choices submitted to the Agent`，本人消息无已保存待处理状态；无法判断 Agent 是否已经接手。设计明确要求离线显示消息已保存待处理。见 [离线截图](evidence/review-offline.png)，T6，16:43，Global。 | 交 caller 修复后复验离线提交、恢复处理以及正常提交文案。 |
-| A2 | minor | 可见选项为中文“骑行”，公开选择摘要变成内部值 `bike`，确认结果与操作语言不一致，增加回看时的理解负担。见 [离线截图](evidence/review-offline.png) 的活动方式。 | 选择快照展示用户看到的标签，复验单选/多选与刷新历史；不把该词汇问题单独扩大为整体视觉失败。 |
+| A1 | major / blocking | Node 离线时点击卡片，只有 `Choices submitted to the Agent`，本人消息无已保存待处理状态；无法判断 Agent 是否已经接手。设计明确要求离线显示消息已保存待处理。见 离线截图（本地截图 `review-offline.png`），T6，16:43，Global。 | 交 caller 修复后复验离线提交、恢复处理以及正常提交文案。 |
+| A2 | minor | 可见选项为中文“骑行”，公开选择摘要变成内部值 `bike`，确认结果与操作语言不一致，增加回看时的理解负担。见 离线截图（本地截图 `review-offline.png`） 的活动方式。 | 选择快照展示用户看到的标签，复验单选/多选与刷新历史；不把该词汇问题单独扩大为整体视觉失败。 |
 
 ## 验收标准覆盖
 
@@ -75,7 +77,7 @@
 | Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 离开、刷新与回看 | spec.md / must-match 3 | 刷新恢复草稿、另一页面恢复、双账号隔离、替代/fork只读 | T1/T2/T5/T8；fork与替代截图 | pass | 第二设备为独立页面模拟，同步读取服务端草稿；未宣称真实手机硬件测试 |
-| 生成过程与失败 | spec.md / must-match 3 | 观察真实运行过程；网络失败；注入未知组件 | T1/T9；[降级](evidence/review-390-fallback.png) | pass | 旧文字与输入保留，失败未显示成功；一次交付完成卡片 |
+| 生成过程与失败 | spec.md / must-match 3 | 观察真实运行过程；网络失败；注入未知组件 | T1/T9；降级（本地截图 `review-390-fallback.png`） | pass | 旧文字与输入保留，失败未显示成功；一次交付完成卡片 |
 
 ### Requirement: 延续现有 Web IM 体验 — 组内结论: pass
 
@@ -129,9 +131,9 @@
 
 | 项目 | Round 1结果 | 本轮证据 | 本轮结果 |
 |---|---|---|---|
-| A1 离线提交缺少待处理反馈 | fail / major | [离线](evidence/review-r2-offline.png) → [未刷新恢复](evidence/review-r2-resumed.png)；R2-T2实际停启与状态消失 | pass / closed |
-| A2 选择摘要显示内部value | minor | [新单选多选及刷新](evidence/review-r2-refresh-labels.png)、[普通正常处理结果](evidence/review-r2-normal-done.png)；R2-T1/T3/T4 | pass / closed |
-| must-match 2：编辑、本人回显、提交只读、失败/处理中 | Round 1核心成立，A1/A2偏差 | [正常提交初态](evidence/review-r2-normal.png)、上述离线/恢复/结果截图；390×844与768×900 | match；A1/A2偏差消除 |
+| A1 离线提交缺少待处理反馈 | fail / major | 离线（本地截图 `review-r2-offline.png`） → 未刷新恢复（本地截图 `review-r2-resumed.png`）；R2-T2实际停启与状态消失 | pass / closed |
+| A2 选择摘要显示内部value | minor | 新单选多选及刷新（本地截图 `review-r2-refresh-labels.png`）、普通正常处理结果（本地截图 `review-r2-normal-done.png`）；R2-T1/T3/T4 | pass / closed |
+| must-match 2：编辑、本人回显、提交只读、失败/处理中 | Round 1核心成立，A1/A2偏差 | 正常提交初态（本地截图 `review-r2-normal.png`）、上述离线/恢复/结果截图；390×844与768×900 | match；A1/A2偏差消除 |
 | Scenario：执行有明确对象与实际结果 | fail | 离线有待处理，恢复自动消失；正常提交与模型最终确认分开；对象仍仅本测试聊天 | pass |
 | R3 离线与历史结果 | fail | R2-T2无刷新恢复；R2-T4刷新回看；其他部分沿用下表具体证据 | pass（Web现场范围） |
 
@@ -165,20 +167,20 @@ Node已恢复：`RUNNING pid=18487 ready=true DSH=18491`，两条会话均取得
 
 ### 自然问题、有效探索与继续交流
 
-1. 普通 Agent 新会话原话 **“给我讲解下冒泡排序”**，没有要求 UI 或列举组件。真实回复自动给出摘要与原生交互：步骤 Select、数组/解释、上一步/下一步/重置、Python/复杂度 Tabs。连续下一步让 `[4,2,3,1]` 变为 `[2,4,3,1]`、`[2,3,4,1]`、`[2,3,1,✅4]`，比较说明随之变化；三次本地点击没有 POST 消息，仅私有状态保存200。[第3步实看](evidence/review-native-bubble-step3.png)。这是真实状态驱动解释，不只是静态文字或一次性表单。
+1. 普通 Agent 新会话原话 **“给我讲解下冒泡排序”**，没有要求 UI 或列举组件。真实回复自动给出摘要与原生交互：步骤 Select、数组/解释、上一步/下一步/重置、Python/复杂度 Tabs。连续下一步让 `[4,2,3,1]` 变为 `[2,4,3,1]`、`[2,3,4,1]`、`[2,3,1,✅4]`，比较说明随之变化；三次本地点击没有 POST 消息，仅私有状态保存200。第3步实看（本地截图 `review-native-bubble-step3.png`）。这是真实状态驱动解释，不只是静态文字或一次性表单。
 2. 在第3步手写 **“为什么当前最右边的4已经确定位置了？只解释当前这一步。”**，201消息 `c66d43dc52a146189ef9594756adae26` 保留原文，附 source `bcaeb5825e694315bcf003764dc80f1a`、`{$s:'3'}` 和中文步骤摘要；模型明确解释当前 `[2,3,1,4]` 的4已经就位。继续至第5步再提问，模型依据 `[2,1,3,4]` 回答3已固定、下一步比较2和1。刷新后第5步草稿恢复。
 3. 为单独验证原生请求按钮，明确追加 **“请给这张演示补一个‘解释这一帧’按钮，让我不用每次打字；原来的步骤探索保留。”**。新 source `3c44c3f6f2ba482eb8943864de280ebb` 具备按钮；此样本属于定向能力验证，不计入自然触发证明。第2/3步分别点击，得到不同消息 `306fbc40e91748c6a3cf684f08486456`、`ae68189289324e989e2b66d8c7ce2182`，用户正文为“解释这一帧”，event.message 保留完整询问，event.context 包含当前 step/array/explanation，state和中文步骤摘要一致。模型分别解释4与3、4与1的对应帧。请求后仍可本地探索，未把整张卡永久锁死。
 4. 私有群通过实际 @ 普通 Agent 提问 **“为什么月亮会有阴晴圆缺？”**，没有要求UI。真实模型自动生成月相 Select、月相图标与原因说明，含新月/上弦/满月/下弦。本人切到满月后，另一用户首次进入仍是新月；对方切到上弦，不改变本人的满月。对方提交 **“我现在选的这个月相，为什么只亮一半？”** 得到 `089d22f7de034eb8b0603103c37db4a4`，快照 `{$p:'1'}`/“🌓 上弦月”；本人提交 **“我选的满月和月食有什么不同？”** 得到 `61367909f5044b5dbd57af0ec89dc0e6`，快照 `{$p:'2'}`/“🌕 满月”。模型最终分别解释侧看半个亮面与月食进入地影，且说明不是每次满月都月食。群内一个并发轮次显示 `1 unsent draft`，随后公开最终回复覆盖两人的具体问题；不声称每个模型轮次各有独立最终消息。
 
 ### N1 与连续提交修复闭合
 
-旧版在浏览器模拟手写POST断连后，出现 `Delivery is unconfirmed`，但无故障拦截后 Send 与输入仍被可访问语义判为disabled，正常自动化无法点击重试：[失败现场](evidence/review-native-retry-disabled.png)。原生按钮连续提交正常路径初版样本可通过，但作者发现的 WS/POST revision 竞态不能由该样本排除。
+旧版在浏览器模拟手写POST断连后，出现 `Delivery is unconfirmed`，但无故障拦截后 Send 与输入仍被可访问语义判为disabled，正常自动化无法点击重试：失败现场（本地截图 `review-native-retry-disabled.png`）。原生按钮连续提交正常路径初版样本可通过，但作者发现的 WS/POST revision 竞态不能由该样本排除。
 
 载入修复资产后，step4手写“此刻为什么2和3不需要交换？”并再次拦截POST。恢复网络路由后 Send 的 `isDisabled=false`，实际点击成功201；两次请求原文、source和 `{$s:'4'}` 完全相同，未刷新、未重填。随后原生按钮连续201产生 `57e70f94a50d4a3887ef7c1bf09c91c0`（step5）、`c143a91ae40546d59575cdbd5cf51495`（step4）；每次提交后立即上一步的私有状态PUT均200，没有409。**N1 closed；连续提交/保存定向复验 pass。** 这是有限实时样本，不宣称排除了所有调度交错。最终已清除故障路由。
 
 ### 三种宽度实看
 
-实际顶层浏览器视口1440×900、768×900、390×900，分别截图并逐张打开查看：[1440](evidence/review-native-1440.png)、[768](evidence/review-native-768.png)、[390](evidence/review-native-390.png)。三种均无文档横向溢出，Select/解释/状态数组可读，四个按钮自然换行，Tabs可辨识，输入框及当前上下文条常驻。768保留侧栏，卡片内容列较窄、文字换行较多，但没有裁切控件或遮挡输入；390隐藏侧栏后主对话滚动，未引入第二个卡片纵向滚动区。当前选择长摘要在窄屏省略，Detach保持可操作。没有将桌面浏览器的390视口称为iPhone真机验收。
+实际顶层浏览器视口1440×900、768×900、390×900，分别截图并逐张打开查看：1440（本地截图 `review-native-1440.png`）、768（本地截图 `review-native-768.png`）、390（本地截图 `review-native-390.png`）。三种均无文档横向溢出，Select/解释/状态数组可读，四个按钮自然换行，Tabs可辨识，输入框及当前上下文条常驻。768保留侧栏，卡片内容列较窄、文字换行较多，但没有裁切控件或遮挡输入；390隐藏侧栏后主对话滚动，未引入第二个卡片纵向滚动区。当前选择长摘要在窄屏省略，Detach保持可操作。没有将桌面浏览器的390视口称为iPhone真机验收。
 
 ### 证据边界与保留范围
 
@@ -200,14 +202,14 @@ Node已恢复：`RUNNING pid=18487 ready=true DSH=18491`，两条会话均取得
 - 从空白会话只问 **“为什么物体浸在水里会变轻？”**（`1fc76f6128fc42db8e121bf66c2cc247`），未要求UI。真实模型先简短回应，再发布 `ef964189b20046f699e5837ee622be33`：正文解释浮力，Select选择未浸入/一半/完全浸没，Bar chart比较重力/浮力/手的拉力。默认一半时拉力15N；选择完全浸没后，图表与公式即时变成20−10=10N，没有新用户消息或成功保存提示。
 - 完全浸没时普通输入 **“为什么现在手只需要这么大的力？”**（`37bf7426a21346dc9da72027d3d62e14`），随即继续改为未浸入，当前卡片显示20−0=20N。模型随后明确解释发问时“完全浸没”、浮力10N、手拉力10N（`5e3411076d83435ba9df43068054e30e`）；没有采用发送后的20N状态。数据库relay持久背景为 `{$fraction:'1'}`，普通公开message的 `interaction_reply=null`，界面本人消息只有原话，无Submitted choices。
 - 随后原话 **“换个话题，帮我把‘今天辛苦了，早点休息’翻译成自然的英文。”**（实际正文使用中文双引号，`ac51e105a0fa4888a04a828743e22b07`）。relay仍有未浸入背景 `{$fraction:'0'}`；模型只回答 “You’ve worked hard today. Get some rest and have an early night.” 并简短说明语气，没有强行继续浮力。证明该样本由模型按话语忽略背景，而非背景被清空才可换题。
-- 刷新后卡片仍为未浸入，普通问题与回复保留；继续探索和输入均可用。[Global追问与换题实看](evidence/review-context-global.png)。本轮没有使用API预制此卡片。
+- 刷新后卡片仍为未浸入，普通问题与回复保留；继续探索和输入均可用。Global追问与换题实看（本地截图 `review-context-global.png`）。本轮没有使用API预制此卡片。
 
 ### 群聊：未提交不可知，明确按钮才共享
 
 1. 新群实际 @ E2E Peer Agent 后仅问 **“为什么一年会有四季？”**（`d0250403c8d24ec899ecc353c5d48a67`）。模型真实发布 `ddd610c7a8194012a1a6ed2ebcb0c78b`，四个时节选择切换南北半球季节与解释。默认6月夏至，改成12月冬至后显示北半球冬/南半球夏。
 2. 普通无@消息 **“我刚才换了一个选项，先继续看，暂时不用回答。”**（`4cafdda45cab484c9448aa10d3ce6ef6`）只显示原话。实际relay没有interaction_contexts、interaction_reply=null、mentioned_agent_ids=[]，未将卡片作者强行添加为mention。这里沿群既有relay语义存在e2e-peer接收记录，不能把“未隐式定向”表述为“群内Agent完全不收到普通群消息”。
 3. 再通过真实mention明确问作者 **“你知道我刚才在卡片里选的具体时节吗？不知道就直接说不知道，别猜。”**（`db6a139317144b968c594fc5b1b1c49c`）。relay仍无背景；模型 `d51f295aa1024fc4b710b077b81666ac` 明确回复“不知道。我没有收到你刚才在卡片里选择的具体时节，不能看到或推断你的选择。” 此时本人卡片仍显示12月冬至。刷新恢复该私人状态后还能改9月秋分、3月春分，始终没有保存成功/附带横条。
-4. 为验证明确动作，另行真实请求添加“解释我选的时节”按钮（这是定向动作验证，不计作自然生成样本）。新卡 `a03053f91f294131bb66cb942bb7039e` 保留Select；选择12月冬至并点击按钮，产生 `ee75e045ea864daf80227858c6d65889`。此时才出现本人Submitted choices／12月冬至快照，relay公开interaction_reply含event、context.season=december与完整 `{$season:'december'}`，定向作者。模型 `56344d53802744c992846df78485ddc4` 准确解释12月冬至及南北半球差异。[明确动作与公开快照](evidence/review-context-1440-explicit.png)。保留明确提交状态不等同于恢复已删除的普通保存成功提示。
+4. 为验证明确动作，另行真实请求添加“解释我选的时节”按钮（这是定向动作验证，不计作自然生成样本）。新卡 `a03053f91f294131bb66cb942bb7039e` 保留Select；选择12月冬至并点击按钮，产生 `ee75e045ea864daf80227858c6d65889`。此时才出现本人Submitted choices／12月冬至快照，relay公开interaction_reply含event、context.season=december与完整 `{$season:'december'}`，定向作者。模型 `56344d53802744c992846df78485ddc4` 准确解释12月冬至及南北半球差异。明确动作与公开快照（本地截图 `review-context-1440-explicit.png`）。保留明确提交状态不等同于恢复已删除的普通保存成功提示。
 
 以上持久relay摘录见 [review-context-relays.json](evidence/review-context-relays.json)。它与实际UI/模型结果共同证明本轮样本的数据边界；不将单一群Agent样本扩为所有身份/API拒绝路径已现场逐一测试。
 
@@ -220,7 +222,7 @@ Node已恢复：`RUNNING pid=18487 ready=true DSH=18491`，两条会话均取得
 | 群内背景不成为选中模式/隐式定向 | 无@普通消息mentions空；明确@作者也无私人背景且模型不知道；按钮提交后才公开快照 | pass |
 | 既有控件、明确结果及窄屏输入可用 | 三个实际内容宽度操作、刷新恢复、明确提交及模型答复 | pass |
 
-本轮实际内容视口为 **1440×900、767×900、390×844**（Chrome已有页面缩放，校准后读取DOM innerWidth/innerHeight，767不冒称768）；另Global默认桌面1537×1014。逐张查看 [桌面明确提交](evidence/review-context-1440-explicit.png)、[中等宽度](evidence/review-context-768.png)、[手机宽度](evidence/review-context-390.png)。文件名768表示目标档位，实际767如上。旧Round3的精确768未受影响布局证据保留。
+本轮实际内容视口为 **1440×900、767×900、390×844**（Chrome已有页面缩放，校准后读取DOM innerWidth/innerHeight，767不冒称768）；另Global默认桌面1537×1014。逐张查看 桌面明确提交（本地截图 `review-context-1440-explicit.png`）、中等宽度（本地截图 `review-context-768.png`）、手机宽度（本地截图 `review-context-390.png`）。文件名768表示目标档位，实际767如上。旧Round3的精确768未受影响布局证据保留。
 
 桌面保留聊天列表和导航，内容区中的参数、季节解释、请求按钮含义清楚；767与390收起列表，卡片仍由主对话滚动，Select/说明/输入没有重叠，手机可直接切换时节并继续打字。正常输入区没有长摘要横条，使用户只需理解卡片内容与聊天问题；异常连接状态仍明确显示在页首，明确动作仍有公开快照和等待反馈，符合R5“去除正常管理负担，保留异常/明确结果”的增量目标。截图外侧留白来自浏览器视口override的截图画布，不是产品横向滚动内容。未进行原生手机/软键盘测试。
 

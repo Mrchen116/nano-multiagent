@@ -1,5 +1,7 @@
 # Verification Report: feat-617-agent-interactive-responses
 
+> 本文提到的截图仅保存在仓库外；定位见[本地证据说明](evidence/local-artifacts.md)。
+
 > Validation snapshot: `cc47abe3f → 0373d8feca33a449c0ea7e7f5a01fa88909e3e87`
 
 ## Current verdict — natural direct-chat background

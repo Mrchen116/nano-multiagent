@@ -238,6 +238,12 @@ data/uploads/
 data/*.sqlite3
 
 # Local screenshots / scratch artifacts
+# Change evidence images stay local; commit written findings and locators.
+docs/changes/**/evidence/**/*.png
+docs/changes/**/evidence/**/*.jpg
+docs/changes/**/evidence/**/*.jpeg
+docs/changes/**/evidence/**/*.webp
+docs/changes/**/evidence/**/*.gif
 Snipaste_*.png
 # feat-569 browser acceptance captures stay local; the written review is the PR evidence.
 docs/changes/archive/feat-569-task-graphs-mvp/M1-task-graphs/evidence/browser/
