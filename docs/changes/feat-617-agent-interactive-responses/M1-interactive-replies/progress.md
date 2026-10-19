@@ -36,3 +36,8 @@
 Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`，无 main 增量。产品首次 full 在 `aaa6bfc24`、targeted 在 `a211d7643`；静态 full 在 `0373d8fec`、后续 closure/patch 在 `aaa6bfc24`/`a211d7643`。报告逐项保留未受影响证据；最终归并与归档只改变契约归属、路径与交付记录，不改运行代码或门禁判据。effective_base 为上述 main，effective_through 使用 PR 所列最终 head，原 executed_base / validated_at 保留在独立报告。
 
 三份产品 delta 按已审内容归并到 canonical specs，整个 unit 归档。feat-616、主 checkout 既有修改及生产环境未改动。临时 W1 Vite 与遗留 DSH 进程已清理；隔离产品实例与测试数据保留供用户评估 617，完成评估后由本 worktree owner 清理；主仓原型预览未改动。原生 App / 外部渠道只有文本边界回归证据，未声称真机或外部现场验收。
+
+
+## 2026-10-19 用户实测后的范围纠正
+
+原 PR #366 / cf4b17f00 的表单切片未满足通用 Intelligent UI。用户普通知识问题实际仅得到文字，授权恢复 OpenUI 能力，并要求无交互提示的指定原话和跨领域实测、禁止专用答案/组件。unit 恢复 active；原证据保留但不外推为本次目标通过。spec/design/delta/prototype 已按新边界修订，待独立 Gate 2；产品代码尚未修正。
