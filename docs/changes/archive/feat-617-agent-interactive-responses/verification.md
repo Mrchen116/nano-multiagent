@@ -461,12 +461,15 @@ All checks passed. Ready for PR update after canonical reconciliation and archiv
 | Web MODIFIED：桌面手机、生成失败、个人状态/真实失败 | 既有布局/摘要/输入；CAS/native失败保留；普通请求冻结正文/附件/背景/key | aligned；Round 10三宽度/刷新新对照 + 当前冻结/CAS专项 |
 | Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned；Round 10实际冻结追问/换题 + 新policy样本 |
 | Gateway ADDED：所有群Agent不读未提交状态 | 前后端群guard，既有draft仅人类本人GET/PUT授权不变；明确提交后才共享 | aligned |
+| Web ADDED：消息随聊天面板和内容伸缩 | Round 11静态实现与R6一致；Round 12核独立acceptance R5真实同源复利、1537/769/390、宽表格/代码内滚、长文上限、复制及手机操作，C1-LAYOUT closed | aligned |
 
 ### Uncovered Observable Behavior
 
 无遗漏新增对外行为。自然上下文不新增数据库表/列、不改变已注册组件/工具或workspace权限；普通消息原子提交与publish返回值是本轮已设计的数据一致性/503语义修复，已纳入核对。三份delta按当前canonical的同名MODIFIED与新增ADDED分类，无重复旧手写公开确认契约。
 
 Outcome: **aligned**。本轮产品C1-NC经Round 10 closed，无存活CRITICAL/WARNING；实现与最终三份delta一致。
+
+布局增量补充：新增 Web ADDED 的实现、文字与独立产品证据一致，Round 12已闭合 C1-LAYOUT，未发现 delta-mismatch / implementation-mismatch；current归并可按新增Requirement直接执行，不重复添加已归并的旧MODIFIED条目。
 
 
 ## Round 9 — prompt clarification patch closure
@@ -548,6 +551,104 @@ C1-NC继续pending，待同一独立产品报告到齐后一次性证据closure�
 
 C1-NC **closed**；当前W1/W2/R1/R2/R3按本轮影响范围与上述保留证据满足，M1 **1/1 complete**。Code review无存活finding，最新三份delta **aligned**，没有剩余CRITICAL/WARNING。
 
+
+## Round 11 — panel-adaptive message layout delta
+
+### Metadata and verdict
+
+- unit_id: `feat-617-agent-interactive-responses`；branch: `unit/feat-617`。
+- reviewer: 独立静态 reviewer，未参与本轮布局设计或实施；使用 `change-code-review` 与 `change-verifier`。
+- code_review_mode: `patch`；verification_mode: `delta` + scoped `corrected-delta`。
+- validated_at: `7de8780574093c17f1cedc82b7254b05b54d6f8c`；fix_delta_range: `e615886161bb21ecba35f1af8a04e0e93ffff355..7de8780574093c17f1cedc82b7254b05b54d6f8c`。
+- executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`；effective_base: `dfdbf6bf300f7af899f13d67957586ee517f3c0b`；effective_through: `b2c72f02a138511e5696b24b5860c7b4ee3e3e5a`。
+- checked_at: `2026-10-19T21:34:52+08:00`。已核对 final sync 仅加入 bugfix-618 incident 文档；本轮源码、测试、设计与受审 SHA 逐字相同，保留冻结 validated_at。
+- retained_from: Round 10 及 design-review Round 6；本轮不重新审后端、自然上下文权限/路由、完整组件目录和 preview-workspace。
+- requires_full_verification: `false`。
+- verdict: **静态 PASS — code review `[]`，无实现 CRITICAL / WARNING；corrected-delta 静态 aligned。新布局的产品退出证据仍待 C1-LAYOUT closure，不能据此直接宣称整个 M1 再次完成。**
+
+### Completeness / correctness / coherence
+
+| 契约与设计 | 源码及直接证据 | 结论 |
+|---|---|---|
+| spec.md:175-179：宽交互使用面板余宽，去外层灰底，保留身份 | `global.css:2364-2390` 的行100%与内容列flex:1；`message-pane.tsx:1756` 新内容列类；`interactive-card.css:1,13` 去680px、全宽透明无左右padding。实际头像、sender/meta、timestamp及toolbar节点未删除；实际桌面截图与作者几何记录为654→1189.9px | implementation aligned |
+| spec.md:181-183：短消息收缩，长文阅读上限，宽代码/表格内部滚动 | `global.css:2412-2416,2710-2727`：fit-content、64rem上限、含代码/表格的外壳全宽，普通段落仍受上限；既有pre overflow-x:auto、table display:block/max-width/overflow与grid child min-width:0保留；不靠JS测量或改生成源。本人继续align-self:flex-end，另一位人类走普通气泡 | implementation aligned |
+| spec.md:185-187：窄面板与手机适配，不额外固定比例留白 | 移除72%/88%限制；行、列、卡片min-width:0，30px shrink-0头像与既有gutter保留；交互手机间隔16px、壳垂直padding8px。作者390截图已直接打开：内容位于面板内、composer可见；记录document scrollWidth=390 | implementation aligned；真实操作与中等宽度仍待独立产品证据 |
+| design.md:191-195：宿主负责空间，保留组件内容/样式及菜单、复制、图片 | 产品改动仅wrapper class和两份CSS；保留Renderer、组件catalog、Query/Mutation、原消息/代码复制与菜单处理。interactive CSS为该懒加载组件的样式，实际桌面computed透明记录及截图确认覆盖旧Agent灰底；未引入新协议、跨包依赖、额外运行时或配置 | coherent |
+| 既有状态恢复回归不被布局测试修正削弱 | `interactive-card.test.tsx:20` 仅由立即expect改为waitFor同一恢复值；`interactive-card.tsx:62-74,167-176`异步读取后装配Renderer/initialState，文本框出现与上游应用恢复值不是同一时刻。断言仍要求恢复草稿且后续编辑/即时提交内容不变，无产品恢复逻辑修改 | aligned；修正等待实际结果，未降低行为保护 |
+
+### Validation evidence and limits
+
+- 已直接读取 `/tmp/feat617-layout-full-frontend-final.log`：当前候选 `npm test`（含 `check:interactive-assets`）**99 files / 909 tests passed**，Start 21:32:48，Duration 31.85s。前次 `/tmp/feat617-layout-full-frontend.log` 为908/909，唯一失败是恢复值立即断言；最终日志包含修订后的原行为保护。
+- 复用 caller 绑定本候选的窄测 message-pane + interactive-card **108/108**、修订后 interactive-card **11/11**、前端 `build`（tsc -b + vite build）与 docs-check通过证据；独立运行冻结patch `git diff --check`通过。没有因CSS改动新增断言class/样式字面的永久测试，浏览器空间与操作由明确must-match负责。
+- 已阅读 `layout-browser-review.md` 与 `layout-prototype-review.md`，直接打开真实 `after-desktop.png`、`after-390.png`。可确认宿主外层空间与手机composer的可复查对照；截图不证明参数操作、剪贴板内容、窄桌面断点或实时消息链路。原型三宽度只作设计证据，不替代真实产品。
+- 作者的767px记录明确不冒称768px；代码复制已点击但clipboard读取空，作者没有据此宣称内容复制成功。已有“Real-time updates are busy”基线横条亦未被静态门禁掩盖。以上保留给独立产品reviewer裁决，不据猜测报告代码finding。
+
+### Prototype / Reference Contract
+
+| must-match（design.md:203-205） | M1投影与已有证据 | 当前状态 |
+|---|---|---|
+| 同一真实复利消息全宽/透明、身份和操作可用 | R6已Approved；保存源不变；作者桌面前后图/几何与390截图，源码空间链已核 | 静态及作者证据covered；独立产品pending |
+| 短消息收缩、长文上限、代码/表格内部滚动及复制 | fit-content/64rem/内部overflow接线一致；作者普通短句37.5/246.7/152px、代码宽壳记录 | 独立真实混合阅读、表格滚动及复制结果pending |
+| 390编辑参数、切Tab后继续输入，无页面横向滚动 | 作者390几何与Tab自检、实际截图；未改输入逻辑 | 独立交互与中等窄面板pending |
+
+### Corrected delta and current merge readiness
+
+本轮仅新增 `specs/im/web-chat-ux.md:26-36` 的 ADDED“消息随聊天面板和内容伸缩”。current `docs/specs/im/web-chat-ux.md` 尚无同名Requirement；目标路径、消费者、两Scenario及宽交互/宽内容/短句/长文/手机可观察保证与实现一致，未把64rem、class名或截图写进current契约。没有遗漏本轮对外行为。旧MODIFIED“交互内容保持聊天阅读与操作连贯”已在current归并且与delta一致，保持原条目即可，不重复新增；IM/Gateway的前轮delta及自然上下文结论保留。
+
+Outcome: **aligned（静态）**；无 delta-mismatch / implementation-mismatch。文本可按新ADDED直接归入current并同步IM入口派生数量，但归并放行须先闭合下面的产品证据门禁；本轮没有授权以调整契约回避真实体验问题。
+
+### Issues and remaining gate
+
+#### CRITICAL C1-LAYOUT — 新布局的独立产品退出证据 pending
+
+`design.md:203-205,209` 要求真实同一复利消息与混合内容、窄桌面/手机、参数/Tab/输入、复制/菜单和必要内滚动的独立增量验收。当前静态review时尚未收到该报告，故不替产品reviewer完成主观美学或实际操作裁决。此项是未完成证据门禁，**不是已确认代码缺陷**。
+
+建议：沿已派发的独立产品验收，补上可复查实际宽度与操作/结果（尤其精确768或清楚披露的中等断点、真实表格/代码内滚动与复制内容）；核实并如实记录实时横条状态。报告到齐后仅做该证据targeted closure，无需重审后端或重跑已有效通过的全量测试。
+
+#### WARNING / SUGGESTION
+
+无。
+
+仅修改本轮 `layout-code-review.json` 与本报告；未改产品、测试、设计、配置或运行环境，未将截图入库。共享现场报告由caller提交，report_commit待caller赋值。
+
 真实产品样本只证明本次provider/config与有限旅程，未声称所有模型必然选择同样UI。连接上限造成的`Real-time updates are busy`及reload边界按acceptance如实保留；没有新降低连接限制或扩大为生产故障裁决。原生手机/软键盘、iOS、外部channel与生产未现场接入，保留各自原测试边界，不宣称真机或部署通过。
 
 All checks passed. Ready for canonical reconciliation, archival and updating PR #366. 此结论不表示这些动作、远端CI、合并或部署已经完成。
+
+
+## Round 12 — C1-LAYOUT targeted evidence closure
+
+### Metadata and verdict
+
+- verification_mode: `targeted-closure` + scoped final `corrected-delta`；focus: Round 11的C1-LAYOUT及布局must-match。
+- validated_at / validated_product_code: `7de8780574093c17f1cedc82b7254b05b54d6f8c`；executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`。
+- effective_base: `dfdbf6bf300f7af899f13d67957586ee517f3c0b`；effective_through / independent_acceptance_commit: `2aee3995eb54502adab6c2bfe0ae34e88afb4584`。
+- checked_at: `2026-10-19T21:40:22+08:00`；retained_from: Round 11静态审查与全部适用绿测、Round 10未变范围。
+- requires_full_verification: `false`。
+- verdict: **PASS — C1-LAYOUT closed，0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected-delta aligned。**
+
+已核对7de878057至当前已提交HEAD仅有bugfix-618 incident及acceptance文档，无产品、测试或布局设计变化。独立产品报告`acceptance.md` Round 5为pass，0 blocking/major/minor，运行资产JS/CSS与当前worktree dist相符。本轮只核证据，不重复已有效通过的前端全量909项或未变后端测试。
+
+### C1-LAYOUT — closed
+
+| 退出要求 | 独立实际证据及本轮核对 | 结论 |
+|---|---|---|
+| 同一真实复利消息释放横向空间、透明外壳，保留身份与层级 | R5沿c_8iutij8v既有生成源实看：1537×944交互区1189.88px，摘要/参数/图表同列，四Tab和指标原样；头像/名称/时间保留。原型只约束宿主层级，不要求其三指标替代真实四指标 | covered |
+| 短消息收缩、长文阅读上限与宽内容独立伸展 | 既有hi及问候气泡收缩，发送方右/Agent左；固定数据c_un37ok0p内291字纯段落气泡1023.99px（64rem），八列表格/长code外壳使用余宽。本轮直接打开reviewer-desktop-longtext.png核真实同屏对照 | covered |
+| 代码及宽表格在自身区域横滚，不撑宽页面 | R5真实390代码clientWidth320/scrollWidth430/scrollLeft109.375；八列表格clientWidth300/scrollWidth1003/scrollLeft703.125，最后团队规模/取舍列可读。769同样限制内滚，页面scrollWidth为769/390；已打开reviewer-wide-table-mobile.png核后列与常驻composer | covered |
+| 窄桌面与手机连续阅读、编辑参数/切Tab/继续输入 | R5实际DOM viewport1537×944、769×900、390×844；769保留侧栏并适配余宽，390隐藏侧栏。手机本金10000→12000，期末26532.98→31839.57；Tab右滚切到避开误区，输入测试句且发送可用，随后清空未发草稿。已打开reviewer-mobile.png核Tab和输入可达 | covered |
+| 消息操作、复制结果与导航保持 | R5 Copy message读回完整问候及291字全文；Copy code读回完整Python与缩进，含不可见横滚部分。会话菜单实际展开，手机返回/桌面导航可达；不再依赖作者此前clipboard读取空的证据 | covered |
+
+769为明确披露的中等宽度，覆盖保留侧栏时更窄的实际消息面板；不冒称精确768。design的“768档”用于窄桌面可用性而非必须逐像素截图，该样本连同390覆盖本次适配目标，无需为1px差异再开验收。截图外侧空白来自viewport override画布，独立DOM宽度与内滚结果已区分页面溢出。
+
+宽表格与纯长文fixture为publish:false持久固定数据，独立reviewer在真实客户端操作；它适合隔离检验布局、滚动与复制，未冒充自然模型生成或实时送达。真实复利仍使用原保存源，其本地参数与Tab操作提供交互证据。二者共同覆盖这次宿主布局改动，无新增模型生成承诺。
+
+### Final corrected delta and disposition
+
+唯一Corrected Delta Reconciliation段的布局项已同步为**aligned**。新增Web ADDED完整覆盖本轮可观察变化，旧自然上下文/失败MODIFIED与current相同而保持，不另生重复Requirement；无遗漏新增行为、delta-mismatch或implementation-mismatch。caller随后已在当前dirty文档完成归并，本轮直接核对新Requirement及两Scenario与已审delta逐字相同、仅一次出现；IM入口派生数量同步26→27，与实际27条相符。
+
+同次dirty文档中，design仅更新开头状态为R6与产品R5通过，设计决定未变；layout-browser-review只追加本候选99/909、audit、独立门禁与final sync的已有结果，没有扩大为生产/实时送达通过。已检查这些文档diff及`git diff --check`，没有新增契约或实施偏离，本次closure适用于这些收尾文档。verification以外文件由caller修改，本reviewer没有改current或设计。
+
+C1-LAYOUT **closed**。R6 Approved + Round 11代码审查`[]`与一致性核对 + R5独立产品pass + 当前证据closure，满足同一M1的布局增量退出标准。没有剩余本轮CRITICAL/WARNING或待产品证据门禁，`layout-code-review.json`保持`[]`。
+
+既有“Real-time updates are busy”仍按R5保留事实：历史阅读与本地操作完成，本轮未验证实时消息送达，不将其扩成布局缺陷或声称连接已恢复。Global/群权限、幂等、83组件、Query/Mutation/patch和原生设备仅保留原实际范围，不重跑或外推。源码、测试、设计、配置、运行环境均未修改，未提交截图；报告由caller提交，远端CI、合并与部署仍是独立事项。
