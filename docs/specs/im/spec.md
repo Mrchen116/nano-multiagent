@@ -8,7 +8,7 @@
 
 `IM` 是多人协作的即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心, 并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
 
-它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天读取遵循会话公开范围及成员资格、写入要求成员资格，全局 Agent Work 详情对有效公司成员完整开放;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
+它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天读取遵循会话公开范围及成员资格、写入要求成员资格，普通公司全局 Agent Work 详情对有效公司成员完整开放，PA 私人配置与 Work 按 [Personal Agent](personal-agent.md) 保持主人可见;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
 
 **显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
 
@@ -29,6 +29,7 @@
 | [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill 与 workspace 插件管理 | 39 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 13 |
 | [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生及原生统一编辑 | 18 |
+| [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、来源限制与对外披露边界；通用能力复用 Global | 5 |
 
 ## Maintenance Rule
 

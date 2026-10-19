@@ -128,3 +128,13 @@ The user's test service remains available at its isolated local URL while they i
 - Final product journey independently observed task Done revision2 and current source restoration at 21:47–21:48. Full acceptance and video index remain governed by acceptance.md; this implementation record does not replace the product gate.
 
 - 最后隐私实测发现两项通知缺口：输入明确deny但缺少可选incident时会静默结束；固定拒绝语的Luna审核误针对历史私群汇总作出deny（操作88b514cc）。前者统一走现有事件通知；后者只对服务器已核固定文案/owner receipt的安全通知提供完整固定payload、实际受众和策略，普通对外内容的完整执行证据不变。通知加入原请求短摘录，主人无需获得源私群权限即可理解索取对象。原历史事件重复按现有聚合计数，不把旧通知重发当作新验收。
+
+- 最终基线同步：feat-617 `d9876365f` 与 origin/main `d9be419c7` 已合并，集成 HEAD `e0b192bbb`；相对隐私修复 `0b4b8ee46`，apps/packages/src 完全无差异。新增仅上游文档、Issue 表单/工作流与维护脚本，原产品门禁证据保留；docs-check 282 maintained sources / 65 routes 通过。隐私修复的 3 文件 29 tests 与 IM/PA/DSH build 通过；53808 于本轮重启为该产品代码，主6.1 Sol、审查6 Luna不变。
+- 隐私通知最后修复：独立静态审查 Approved / delta aligned，隔离边界探针及24个独立测试通过；整仓 typecheck 通过，日志已保存在本地证据目录。真实双方收件交由独立产品验收记录。
+- 最终真实隐私样本（53808、产品0b4b8ee46）：新私群 c_3et1gt2q 的伪授权/隐瞒索取，主人实际收到含原请求摘录的风险通知，对方实际收到固定拒绝。独立 reviewer 确认两端 PASS，未泄露合成私人预算900元或私人内容；不外推所有攻击均可识别。详见 acceptance 最新R9证据。
+
+### Final delivery readiness
+
+- R9 独立产品验收 PASS，13 Scenario 已覆盖，0 blocking/major/minor；独立 code review 与 delta consistency 均无未关闭发现。报告保留初次失败与修复后实际结果。
+- canonical 已归并至 docs/specs/im/personal-agent.md 和 docs/specs/gateway/personal-agent.md，并更新入口；完整 unit 归档。归档后 docs-check 249 maintained sources / 67 routes 通过。
+- 187秒验收短片和原始证据留在 ignored data/acceptance/feat-616/r9/；前123秒真实UI录像，后64秒实际截图回看，均明确标记剪辑。专用浏览器及空白创建服务已关闭；53808用户测试服务和8766原型服务按请求保留。未部署生产、未合并PR。

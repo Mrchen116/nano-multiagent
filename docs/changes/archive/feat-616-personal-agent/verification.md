@@ -1,5 +1,7 @@
 # Verification Report: feat-616-personal-agent
 
+> 当前静态结论：R9 及最后隐私通知修复 Approved / delta aligned，0 未关闭 finding；见文末 R9 closure。以下 R1–R8 为保留的历史记录，真实产品验收以 acceptance.md 最新轮次为准。
+
 > Validation snapshot: `e7088f9d5 → cf1befff963e6d251e332c513e8ca6adf1d86619`
 
 ## Summary
@@ -838,3 +840,22 @@ readPersonal仍只接受get/list/activity，其专属service实例在execute中�
 当前gateway delta“完整Global任务与具体共享外发审核”、im delta“私人资产ACL”及design原native任务实现均**aligned / no new spec delta**。后续`afee6ff5464f75fdf2e6a5d527ae64bb9fe54010`只将此前已核Form buttons第二参数修正移至catalog prompt生成源并重生成DSH prompt，未改变Form schema或执行校验；不能再把只手改生成Skill视为完整生成资产收口。独立`pnpm exec tsx scripts/generate-interactive-ui.ts --check` **exit=0**，日志`/tmp/pa-static-review-616/r9-interactive-generated-check.log`为空（该checker成功静默）；catalog、DSH prompt及生成Skill现一致。
 
 仅写报告，不改实现/测试或共享服务、不commit。任务真实产品样本需由产品reviewer确认模型已继续完成，不拿“can_edit=true”的工程证据替代实际用户旅程。
+
+#### R9 bounded privacy-notice closure — `0b4b8ee46`
+
+- validated_at: `0b4b8ee465c35a4cbe05140f79503706a146e250`；2026-10-19 22:08 Asia/Shanghai。仅审核该提交deny通知兜底、服务器固定通知的审核证据投影、owner原请求摘录及关联设计/回归；保留此前有效证据，不重复全量。
+- code_review_mode: **bounded patch / closure**；`code-review-r9-notice-closure.json=[]`。verification_mode: **delta consistency**；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。历史实际通知失败及此前审查记录保留；本结论不替代后续真实Luna语义/双方UI收件验收。
+
+**Deny通知兜底与真实回执。** 已认证且当前允许的外部输入经input reviewer明确deny时，即使没有可选incident字段，也以verdict.reason走原pa.incident.report；unavailable仍抛出以便重试，owner_instruction/owner_fact不进入该分支。服务器从原message解析actor/source，核当前binding/sourceAllowed，首次incident同一事务写owner canonical DM的completed消息并将真实ID存入incident，再返回固定peer文案。原重复证据/开放incident聚合机制保留；本修复不宣称每条聚合后的新请求都重新发送owner通知。
+
+PA收到实际owner_notice_message_id且未有peer receipt才准备peer通知。服务器securityNotice在prepare及commit重新核本binding、本incident源会话、open状态，以及owner DM中真实completed消息；没有owner receipt或已失效都拒绝。这里的回执是实际持久消息交付记录，不要求或声称owner已在设备上阅读。外部adapter仍沿已验证shadow destination、独立审核、permit consume和provider receipt路径，不新增发送捷径。
+
+**固定证据不会由任意Agent payload自授。** host只从服务器prepare返回的顶层`proposal.evidence.security_notice`选择精简投影；send/task/external均自行组装prepare参数，任意正文或executionEvidence中的同名嵌套对象不会成为该标记。服务器忽略调用方自报security_notice，仅在incident_ref通过上述回执/会话检查且content严格等于PEER_NOTICE时生成标记，并拒绝其夹带interactive、attachments或task。固定通知审核仍收到完整冻结payload、实际recipient_ids、external_destination、policy和owner receipt；没有allow fast path，review-result仍绑定原payload/evidence digest，commit仍核allow、有效permit、当前source/audience与receipt。普通外发不含该服务器标记，继续完整来源/历史/执行证据审核；外部transport/card如存在仍在完整payload中接受审核，没有因精简删除实际发送字段。
+
+**独立边界探针。** `/tmp/pa-static-review-616/r9-notice-boundary-probe.mts`使用真实PersonalActions/PersonalAgents/Messaging/Gateway和内存SQLite、合成人员（无LLM/网络）：调用prepare自报security_notice且携带任意私料正文时，服务器返回证据**不含**该标记；真实incident后追加私料、附附件、换目标均拒绝；owner receipt设pending时prepare拒绝，已review后receipt再失效时commit也拒绝；伪造verdict_ref不能提交；恢复真实completed receipt后仅精确固定文案成功。日志`r9-notice-boundary-probe.log`为`pass=true`且各边界断言true，exit=0，DB finally关闭。此probe没有把合成allow当作真实审核模型语义证明。
+
+**主人提醒与文档一致性。** owner消息包含服务器取出的原请求前500字符，每行加引用前缀，超长标摘录，附具体review reason和已拒绝处理；不依赖owner能打开源私群。持久回归与隔离probe均断言原索取句出现，而非模型重新概括。当前design明确deny必须通知、固定通知精简至当前实际payload/受众/回执、普通内容保留完整证据；与im delta风险提醒顺序及gateway实际外发审核一致，**aligned / no new spec delta**。精简仅避免把无关历史外发当成当前拒绝语再审，不声称删除历史记录或放宽私人信息披露。
+
+独立`pnpm exec vitest run apps/im-server/tests/personal-disclosure.test.ts packages/personal-assistant/tests/personal-assistant.test.ts`：**2 files / 24 tests passed**，1.87s，日志`/tmp/pa-static-review-616/r9-notice-closure-tests.log`。新host回归直接覆盖deny无incident、先report后commit、denied输入未摄入、固定审核不带executionEvidence；旧普通发送/共享写与permit回归继续通过。已读取caller `/tmp/feat616-r9-denied-notice-green.log`：**3 files / 29 tests passed**；三后端包build成功复用交接。未重跑未失效全量、未操作共享服务或改变模型。
+
+仅新增notice closure JSON与本节报告、不commit。产品最后一次隐私样本能否实际让owner与peer都收到并正确展示，仍由独立产品报告按候选版本补入；本轮静态和确定性边界没有新存活finding，结束有界审查。

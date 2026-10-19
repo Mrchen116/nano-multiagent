@@ -12,6 +12,7 @@
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 构建与使用原生 iPhone 客户端 | [`../src/IM/ios/README.md`](../src/IM/ios/README.md) → [`specs/im/ios-client.md`](specs/im/ios-client.md) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
+| 理解每个人的 PA、双身份聊天访问和原聊天协助 | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
