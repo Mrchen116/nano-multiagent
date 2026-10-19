@@ -375,6 +375,7 @@ function renderAtRoute(initial: string, queryClient?: QueryClient) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
+          <Route path="/settings/agents/a-planner" element={<h1>Planner configuration</h1>} />
           <Route path="/chat" element={<ChatWorkspacePage />} />
           <Route path="/chat/:conversationId" element={<ChatWorkspacePage />} />
         </Routes>
@@ -439,6 +440,22 @@ describe("ChatWorkspacePage — integration", () => {
     (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = originalWS;
     vi.unstubAllGlobals();
     useAuthStore.getState().clear();
+  });
+
+  it.each(['active', 'unavailable'])('opens the existing Agent configuration directly for an already-created %s PA', async (status) => {
+    const baseFetch = fetchSpy;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/im/v1/personal-agent')) return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status},creation:null,policy:{revision:1,excluded_conversation_ids:[]}});
+      if (String(input).endsWith('/im/v1/personal-agent/incidents')) return jsonResponse({items:[]});
+      return baseFetch(input, init);
+    }));
+    renderAtRoute('/chat/c1');
+    await screen.findByText('Hi Planner');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', {name:/Conversation menu/i}));
+    await user.click(screen.getByRole('menuitem', {name:/Agent configuration/i}));
+    expect(await screen.findByRole('heading', {name:'Planner configuration'})).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('adopts the edited private reply into the original composer with explicit replacement and no send', async () => {

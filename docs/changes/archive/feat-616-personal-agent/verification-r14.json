@@ -1,0 +1,143 @@
+{
+  "review_round": "R14",
+  "base": "34b5fefcb6eee92689d3ad47f860d259638f3c17",
+  "candidate": "Caller-frozen R14 correction batch after 34b5fefcb; 2026-10-20 00:36 Asia/Shanghai",
+  "code_review_mode": "bounded closure: R14-W1 and R14-W2 only",
+  "verification_mode": "delta consistency",
+  "verdict": "Approved",
+  "corrected_delta_outcome": "aligned",
+  "requires_full_verification": false,
+  "counts": {
+    "critical": 0,
+    "warning": 0,
+    "suggestion": 0
+  },
+  "findings": [],
+  "mapping": [
+    {
+      "contract": "Single common Agent configuration entry and one identity form",
+      "outcome": "aligned / R14-W1 closed",
+      "evidence": "Both active and unavailable already-created owner PA navigate the actual conversation menu directly to the same configuration route without a dialog. The decision uses creation receipt, so pending recovery remains separate. Common field form is still unique."
+    },
+    {
+      "contract": "Owner-only PA settings; ordinary and others' profiles unaffected",
+      "outcome": "aligned",
+      "evidence": "AgentProfilePage renders editable AgentDetailPage only for owner and passes personal from actual role. New card additionally matches authenticated owner's returned binding.agent_id to current agentId; ordinary Agent personal=false and other owners use existing profile. Existing policy/restore endpoints still authenticate the owner; no backend permission changes."
+    },
+    {
+      "contract": "Immediate source exclusions coexist with normal save form",
+      "outcome": "aligned",
+      "evidence": "Checkboxes call current policy revision API and disable while pending; onSettled refreshes only personal-agent query, not detail-state. UI explains immediate effect; search does not rebuild exclusion selection. Errors expose retry/state refetch. Buttons use type=button inside the shared outer form, avoiding accidental common-form submit."
+    },
+    {
+      "contract": "Restore uses existing protocol and updates configuration cache",
+      "outcome": "aligned / R14-W2 closed",
+      "evidence": "Existing restore API and owner/node authority unchanged; only other online nodes are selectable. Parent dirty/apply/save state disables migration with a visible hint; no new approval protocol. Successful allowed restore clears selection and invalidates existing personal binding and exact Agent detail prefix."
+    },
+    {
+      "contract": "Current spec/archive spec/design/delta agree",
+      "outcome": "aligned documents; implementation issues limited to the two findings",
+      "evidence": "All require one existing configuration page for already-created PA, immediate source effects and pending-only dialog recovery. No extra PA rename, approval, lifecycle engine or new settings API."
+    }
+  ],
+  "independent_checks": [
+    {
+      "command": "pnpm exec vitest run src/features/personal-agent/personal-agent.test.tsx src/features/settings/agents/agent-detail-page.test.tsx",
+      "cwd": "src/IM/frontend",
+      "result": "2 files / 29 tests passed, 3.01s",
+      "log": "/tmp/pa-static-review-616/r14-config-tests.log",
+      "limits": "Original suites cover common form and basic immediate exclusion; they did not cover unavailable chat routing or restoring a dirty form. No runtime reproduction is claimed for those two static, directly reachable paths.",
+      "phase": "initial review"
+    },
+    {
+      "phase": "two-finding closure",
+      "command": "pnpm exec vitest run src/features/chat/chat-workspace.integration.test.tsx src/features/personal-agent/personal-agent.test.tsx --testNamePattern 'already-created|unsaved|move|moving|working computer'",
+      "cwd": "src/IM/frontend",
+      "result": "2 files / 5 passed, 61 skipped, 1.43s",
+      "log": "/tmp/pa-static-review-616/r14-closure-tests.log",
+      "coverage": "Includes the two active/unavailable actual-menu navigation cases and dirty migration selected-node guard, plus matched existing unsaved-composer behavior. No full-suite rerun."
+    }
+  ],
+  "retained_caller_evidence": [
+    "/tmp/feat616-r14-ui-tests.log: 3 files / 87 tests passed, read",
+    "/tmp/feat616-r14-web-build.log: frontend build passed with existing chunk warning, read",
+    "/tmp/feat616-r14-offline-red.log: active passed/unavailable failed before route correction, read",
+    "/tmp/feat616-r14-ui-tests.log: final 3 files / 89 tests passed, read",
+    "/tmp/feat616-r14-web-build.log: final frontend build and caller tsc passed; build completion read, existing chunk warning retained"
+  ],
+  "scope_limits": "Only the moved configuration UI and directly affected routing/cache/form interactions reviewed. No unrelated full suite or speculative edge-case loop. Real desktop/mobile appearance, source mutation and migration product journey remain with the product reviewer.",
+  "handoff": "Existing two R14 JSON reports updated only, no product/test/design edit or commit. Original two CONFIRMED findings preserved in history; current code review array is empty, delta aligned. Other R14 owner/config/cache/source findings remain clear and earlier evidence retained. Actual restore and mobile appearance product journey still belongs to independent product acceptance. No further scan.",
+  "history": [
+    {
+      "phase": "initial R14 review",
+      "candidate": "Initial R14 dirty diff supplied by caller; 2026-10-20 00:33 Asia/Shanghai. Corrections began during review and are tracked separately below.",
+      "verdict": "Fix before PR / targeted correction closure pending",
+      "counts": {
+        "critical": 0,
+        "warning": 2,
+        "suggestion": 0
+      },
+      "code_review_findings": [
+        {
+          "file": "/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent/src/IM/frontend/src/features/chat/chat-workspace-page.tsx",
+          "line": 1274,
+          "summary": "[P2] Route an already-created offline PA to its existing configuration",
+          "failure_scenario": "Create a PA, then take its owning computer offline or let its personal runtime report unavailable. The server projects its active stored binding as status=unavailable while creation remains null. The new chat menu routes only status=active to /settings/agents/:id, so this already-created PA instead opens the reduced setup dialog. That dialog has no settings or restore branch and no creation receipt to recover, leaving only its not-ready message and Done. This breaks the unified configuration entry exactly when the owner may need the moved restore controls. Distinguish unfinished creation using the creation receipt, not runtime availability. Add an unavailable+creation=null chat-menu case alongside the active case.",
+          "review_mode": "bounded patch: 34b5fefcb initial R14 dirty candidate, before caller correction batch",
+          "status": "CONFIRMED"
+        },
+        {
+          "file": "/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent/src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx",
+          "line": 27,
+          "summary": "[P2] Protect unsaved shared configuration before moving the PA to another computer",
+          "failure_scenario": "In the initial R14 candidate, edit the name or custom instructions without saving, then choose another online computer in the new same-page PA card and restore. Restore uses the persisted profile, then invalidates ['settings','agents',agentId]. The parent AgentDetailPage refetches detail-state, observes changed node_id/profile metadata, and its existing useEffect calls setDraft(config), silently replacing the unsaved form. The initial card neither receives the parent's dirty state nor prevents this operation. Reuse the parent isDirty/applyPending/mutation.isPending state to disable migration with a save/discard explanation, then refresh after a permitted restore. Caller has already added this guard during review; it is retained here as the confirmed initial finding pending the requested correction-batch verification, not a claim that the current guard is absent.",
+          "review_mode": "bounded patch: 34b5fefcb initial R14 dirty candidate; caller guard observed, closure pending",
+          "status": "CONFIRMED"
+        }
+      ],
+      "verification_findings": [
+        {
+          "id": "R14-W1",
+          "status": "open / caller correcting",
+          "severity": "WARNING",
+          "contract": "Current and archive IM PA creation/configuration Scenario: an already-created PA opens existing Agent configuration; only creation and unfinished creation recovery remain in the dialog",
+          "actual": "Chat configuration tests binding.status==='active'. Server state converts an offline active binding to unavailable while creation=null; this existing PA opens a setup dialog with no configuration/restore controls.",
+          "evidence": "chat-workspace-page.tsx:1274; PersonalAgents.state projects active+offline/runtime unavailable; reduced PersonalAgentDialog only recovers state.creation",
+          "repro": "Existing owner PA canonical DM -> computer offline/runtime unavailable -> conversation menu Agent configuration -> setup dialog, not /settings/agents/:id",
+          "action": "Branch on actual unfinished creation, not runtime availability; preserve ordinary observer restrictions and test active/unavailable existing PA plus pending creation."
+        },
+        {
+          "id": "R14-W2",
+          "status": "caller guard applied during review / targeted verification pending",
+          "severity": "WARNING",
+          "contract": "Reuse shared configuration and save workflow without losing unsaved edits; moving the working computer remains a secondary operation on this page",
+          "actual_initial": "Restore was available while the shared form had unsaved fields. Its detail-state invalidation changes server node metadata, triggering the parent's setDraft(config) and discarding the local edits.",
+          "evidence": "Initial PersonalAgentSettings restore onSuccess invalidates settings/agents/agentId; AgentDetailPage useEffect excludes only node_status from comparison, not node_id, and resets draft for changed fields",
+          "repro": "Change unsaved name/custom_prompt -> select another online computer -> restore -> changed detail-state overwrites the dirty form",
+          "action": "Reuse isDirty/applyPending/mutation pending to guard restore with a save/discard explanation; confirm allowed restore clears selection and refreshes the same identity.",
+          "inflight_fix": "Caller has added hasUnsavedChanges={isDirty || applyPending || mutation.isPending}, disabled restore and explanatory text, plus clearing node selection after success. Static direction is correct; requested correction-batch regression/closure remains separate."
+        }
+      ],
+      "note": "Both concrete initial defects were accepted and corrected by caller. Preserve the initial paths and evidence; this closure only changes current status."
+    }
+  ],
+  "candidate_blobs": {
+    "src/IM/frontend/src/features/chat/chat-workspace-page.tsx": "6edd515076d53e126d8609cd26a96145b5e1ccc0",
+    "src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx": "5164ef59232903b2804321c5dab25d7b6f352e2a",
+    "src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx": "3278c83e50c90d49b5551689727a5ae5e2294e72"
+  },
+  "closed_findings": [
+    {
+      "id": "R14-W1",
+      "status": "closed",
+      "resolution": "Canonical owner PA configuration now branches on an existing binding with no unfinished creation receipt. Runtime unavailable no longer redirects an already-created PA into setup. Real pending creation keeps the recovery dialog; observer gate remains first.",
+      "evidence": "Parameterized active/unavailable integration test navigates the actual chat menu to existing configuration and asserts no dialog. Caller red log confirms unavailable failed before the correction."
+    },
+    {
+      "id": "R14-W2",
+      "status": "closed",
+      "resolution": "Shared AgentDetailPage passes isDirty || applyPending || mutation.isPending to the PA card. Restore is disabled for that state with a save/discard hint, so its refresh cannot be started by the owner while the normal form has unsaved edits. Allowed restore still uses existing API and clears node selection before refreshing actual binding/detail. Source exclusions remain independent immediate mutations.",
+      "evidence": "New component test selects another online node with hasUnsavedChanges=true, verifies disabled migration button, explanatory hint and no restore API call. Actual parent state wiring statically verified."
+    }
+  ]
+}

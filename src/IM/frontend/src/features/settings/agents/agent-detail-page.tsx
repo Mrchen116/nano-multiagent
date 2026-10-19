@@ -1,3 +1,4 @@
+import { PersonalAgentSettings } from '../../personal-agent/personal-agent-settings';
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1746,6 +1747,8 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             </p>
           </div>
         </section>
+
+        {personal && <PersonalAgentSettings agentId={agentId} hasUnsavedChanges={isDirty || applyPending || mutation.isPending} />}
 
         {/* feat-379-M3: Behavior card replaced with BehaviorCard component */}
         <BehaviorCard

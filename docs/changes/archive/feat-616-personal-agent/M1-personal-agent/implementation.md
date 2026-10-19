@@ -167,3 +167,9 @@ The user's test service remains available at its isolated local URL while they i
 - 新dismiss动作仅把主人可见的open记录标为dismissed；不改policy revision、block或wake。误会与拒收沿用原机制，actor级拒收同时解决该人的其余open提醒。批量确认发生部分错误时刷新真实结果并保留未成功记录。
 - 独立审查发现最初复用closed会让待发固定对方通知invalid_security_notice。已先红复现，再以专属dismissed状态纠正；固定通知仍需原owner回执、冻结内容、受众和独立审查，closed/blocked没有放宽，迟到dismiss不覆盖既有决定。新增真实Fastify→prepare/review→dismiss→commit回归验证已审固定通知可完成并落回执。
 - 本轮后端2文件26tests、Web6tests、整仓typecheck、IM/Web build、docs-check通过；本地日志/tmp/feat616-r13-*。独立审查和实际UI验收分别见本轮review/verification与acceptance记录。用户测试53808已加载新版本；保留原主账号提醒，未部署生产。
+
+### R14 one Agent configuration page
+
+- 移除已创建PA的独立设置浮窗：聊天菜单直接进入现有Agent配置页，共用名字、模型、补充指令、技能与保存机制。只将PA特有的聊天访问和现有电脑恢复控件放进同页；创建及真正pending创建重试仍保留。后端API、权限和名字同步未新增一套。
+- Chat access默认折叠排除列表，搜索/勾选沿用revision策略接口，明确立即生效与不抹除已读内容；错误可见可重试。更换电脑在有未保存/应用中配置时禁用，避免刷新覆盖共享配置草稿。
+- 独立审查及实际离线fixture暴露runtime unavailable被误判未创建，已补active/unavailable参数回归先红后绿；按creation是否存在决定创建恢复，存量离线PA仍直达配置。三文件89tests及Web类型检查/构建通过，原全量未受影响证据保留；日志/tmp/feat616-r14-*。

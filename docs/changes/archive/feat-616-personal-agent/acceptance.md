@@ -565,3 +565,8 @@ reviewer准备新账号 `r12-guidance-owner` / 知夏R12，通过真实注册与
 ## Round 13 - privacy notice UX
 
 Scoped product acceptance PASS: [R13 report](acceptance-r13.md). Actual desktop interactions and retained narrow-screen evidence cover grouping, original-message return, acknowledgement without policy effects, and actor-level blocking. Synthetic incidents validate presentation and persistence, not model classification.
+
+
+## Round 14 - unified Agent configuration
+
+Scoped product acceptance PASS: [R14 report](acceptance-r14.md). Actual existing offline PA chat-to-config navigation and immediate source exclusion persistence passed after closing the unavailable-state routing issue. Desktop and retained narrow-screen screenshots are recorded; no new model or computer migration journey was claimed.

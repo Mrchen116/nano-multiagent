@@ -64,3 +64,8 @@
 .pa-privacy button:focus-visible, .pa-privacy summary:focus-visible, .pa-privacy a:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 3px; }
 .pa-privacy-feedback { margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--im-text-muted); }
 @media (max-width: 480px) { .pa-privacy-summary { gap: 9px; padding: 12px; } .pa-privacy-body { padding: 0 12px 4px; } .pa-privacy-icon { width: 30px; height: 34px; } .pa-privacy-actions button { min-height: 40px; } .pa-privacy-options summary, .pa-privacy-evidence summary { padding: 9px 0; } }
+.pa-access-settings details > summary { cursor:pointer; font-size:13px; font-weight:600; padding:8px 0; }
+.pa-access-settings details[open] > summary { margin-bottom:8px; }
+.pa-access-settings .pa-source-list { display:grid; gap:8px; max-height:240px; overflow:auto; margin-top:12px; }
+.pa-access-settings .pa-source-list label { display:flex; gap:10px; align-items:center; min-height:36px; font-size:13px; overflow-wrap:anywhere; }
+.pa-access-settings .pa-source-list input { flex-shrink:0; }

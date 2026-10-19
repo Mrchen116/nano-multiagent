@@ -992,3 +992,8 @@ message-pane.tsx:1075仅检查pending.length===0，而原handleAdd开始先增�
 ## R13 privacy notice UX
 
 Independent code review Approved; delta aligned, no open findings. See [R13 verification](verification-r13.json) and [code review](code-review-r13.json). The initial acknowledgement/peer-delivery race is preserved in review history and closed by a failing-then-passing API regression plus an independent recovery probe. Product evidence is in [R13 acceptance](acceptance-r13.md).
+
+
+## R14 unified Agent configuration
+
+Independent code review Approved; delta aligned. See [R14 verification](verification-r14.json) and [code review](code-review-r14.json). Offline routing and dirty configuration protection findings are closed with targeted regressions. Product evidence: [R14 acceptance](acceptance-r14.md).

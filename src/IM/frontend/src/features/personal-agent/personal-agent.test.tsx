@@ -4,11 +4,16 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { setLanguage } from '../../i18n';
+import { PersonalAgentSettings } from './personal-agent-settings';
+import { listConversations } from '../chat/chat-api';
+import { listNodes } from '../settings/agents/im-agent-config-api';
 import { PersonalAgentDialog } from './personal-agent-dialog';
 import { PersonalAgentCollaboration } from './personal-agent-collaboration';
 import * as api from './personal-agent-api';
 import type { Conversation } from '../chat/chat-types';
 vi.mock('./personal-agent-api');
+vi.mock('../chat/chat-api');
+vi.mock('../settings/agents/im-agent-config-api');
 const state:api.PersonalAgentState={binding:{binding_id:'pa1',agent_id:'a1',owner_id:'o1',owner_user_id:'u1',node_id:'n1',node_epoch:1,conversation_id:'pa-chat',display_name:'Aster',status:'active'},policy:{revision:4,excluded_conversation_ids:[]}};
 const clients:QueryClient[]=[];
 function mount(element:React.ReactNode) {
@@ -18,11 +23,14 @@ function mount(element:React.ReactNode) {
 beforeEach(async()=>{
  vi.resetAllMocks();await act(async()=>setLanguage('en'));
  vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[]});
+ vi.mocked(api.getPersonalAgent).mockResolvedValue(state);
+ vi.mocked(listConversations).mockResolvedValue([{id:'private',title:'Private group'} as Conversation]);
+ vi.mocked(listNodes).mockResolvedValue([]);
 });
 afterEach(()=>{clients.splice(0).forEach(c=>c.clear());});
 it('creates without a task and retries the same operation after an uncertain result',async()=>{
  const done=vi.fn();vi.mocked(api.createPersonalAgent).mockRejectedValueOnce(new Error('lost response')).mockResolvedValue(state);
- mount(<PersonalAgentDialog state={{binding:null,policy:null}} nodes={[{node_id:'n1',node_name:'Computer',status:'online'}]} conversations={[]} onClose={()=>{}} onCreated={done}/>);
+ mount(<PersonalAgentDialog state={{binding:null,policy:null}} nodes={[{node_id:'n1',node_name:'Computer',status:'online'}]} onClose={()=>{}} onCreated={done}/>);
  await userEvent.clear(screen.getByLabelText('Name'));await userEvent.type(screen.getByLabelText('Name'),'Aster');
  expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));await screen.findByRole('alert');
@@ -38,20 +46,32 @@ it('creates without a task and retries the same operation after an uncertain res
 });
 it('offers source exclusions and ordinary configuration without retired observation or cleanup controls',async()=>{
  vi.mocked(api.updatePersonalAgentPolicy).mockResolvedValue({...state.policy!,revision:5});
- mount(<PersonalAgentDialog state={state} nodes={[]} conversations={[{id:'private',title:'Private group'} as Conversation]} onClose={()=>{}} onCreated={()=>{}}/>);
- expect(screen.getByRole('link',{name:'Model, instructions & capabilities'})).toHaveAttribute('href','/settings/agents/a1');
+ mount(<PersonalAgentSettings agentId="a1"/>);
+ await screen.findByRole('heading',{name:'Chat access'});
+ expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+ expect(screen.queryByRole('textbox',{name:'Name'})).not.toBeInTheDocument();
  expect(screen.queryByText('Clear assistant source cache')).not.toBeInTheDocument();
  expect(screen.queryByRole('checkbox',{name:/Observe/})).not.toBeInTheDocument();
- await userEvent.click(screen.getByText('Chats excluded from assistant access'));
+ await userEvent.click(screen.getByText('Excluded chats · 0'));
  await userEvent.click(screen.getByRole('checkbox',{name:'Private group'}));
  await waitFor(()=>expect(api.updatePersonalAgentPolicy).toHaveBeenLastCalledWith({expected_revision:4,excluded_conversation_ids:['private']}));
 });
 it('restores a pending creation from the server instead of creating a second identity',async()=>{
  const pending={...state,binding:{...state.binding!,status:'pending'},creation:{request_key:'original-key'}};
  vi.mocked(api.createPersonalAgent).mockResolvedValue(state);
- mount(<PersonalAgentDialog state={pending} nodes={[]} conversations={[]} onClose={()=>{}} onCreated={()=>{}}/>);
+ mount(<PersonalAgentDialog state={pending} nodes={[]} onClose={()=>{}} onCreated={()=>{}}/>);
  await userEvent.click(screen.getByRole('button',{name:'Retry setup'}));
  await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledWith(expect.objectContaining({request_key:'original-key',node_id:'n1'})));
+});
+
+it('preserves unsaved shared configuration before changing the PA computer',async()=>{
+ vi.mocked(listNodes).mockResolvedValue([{node_id:'n2',node_name:'Other computer',status:'online'} as Awaited<ReturnType<typeof listNodes>>[number]]);
+ mount(<PersonalAgentSettings agentId="a1" hasUnsavedChanges/>);
+ await userEvent.click(await screen.findByText('Change working computer'));
+ await userEvent.selectOptions(screen.getByRole('combobox',{name:'Computer'}),'n2');
+ expect(screen.getByRole('button',{name:'Continue on this computer'})).toBeDisabled();
+ expect(screen.getByText('Save or discard your configuration changes before changing computers.')).toBeInTheDocument();
+ expect(api.restorePersonalAgent).not.toHaveBeenCalled();
 });
 
 it('groups repeated privacy notices and acknowledges without changing policy',async()=>{

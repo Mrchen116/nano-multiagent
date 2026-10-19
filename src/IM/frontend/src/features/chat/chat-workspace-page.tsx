@@ -334,7 +334,7 @@ export function ChatWorkspacePage() {
   const { t, i18n } = useTranslation();
   const [membershipReady, setMembershipReady] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
-  const [showPersonalAgentSettings, setShowPersonalAgentSettings] = useState(false);
+  const [showPersonalAgentSetup, setShowPersonalAgentSetup] = useState(false);
   const [showPublicGroups, setShowPublicGroups] = useState(false);
   const closePublicGroups = useCallback(() => setShowPublicGroups(false), []);
   const [showNewGroup, setShowNewGroup] = useState(false);
@@ -1187,7 +1187,7 @@ export function ChatWorkspacePage() {
         <ConversationSidebar
           conversations={sidebarConversations.filter(c=>c.id!==personalBinding?.conversation_id)}
           emptyLabel={personalBinding?t('pa.noOtherChats'):undefined}
-          personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):setShowPersonalAgentSettings(true)}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('pa.start','给它一个名字，开始合作')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
+          personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):setShowPersonalAgentSetup(true)}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('pa.start','给它一个名字，开始合作')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
           selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
@@ -1234,7 +1234,7 @@ export function ChatWorkspacePage() {
             onUseReplyDraft={isPersonalConversation ? handlePersonalDraft : undefined}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
-            configLabel={isPersonalConversation ? t('pa.settings','个人助手设置') : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
+            configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             nodeId={headerAgentContext.nodeId}
@@ -1271,7 +1271,7 @@ export function ChatWorkspacePage() {
             onRename={activeConversation.can_write === false ? undefined : isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
             onOpenConfig={
               activeConversation.is_observer ? undefined : isPersonalConversation
-                ? () => setShowPersonalAgentSettings(true)
+                ? () => personalBinding && !personalAgent.data?.creation ? navigate(`/settings/agents/${personalBinding.agent_id}`) : setShowPersonalAgentSetup(true)
                 : isGroupKind
                 ? () => setShowGroupSettings(true)
                 : headerAgentContext.agentId
@@ -1290,7 +1290,7 @@ export function ChatWorkspacePage() {
           )
         )
       )}
-      {showPersonalAgentSettings && personalAgent.data && <PersonalAgentDialog state={personalAgent.data} nodes={nodesQuery.data??[]} conversations={localConversations} onClose={()=>setShowPersonalAgentSettings(false)} onCreated={id=>{setShowPersonalAgentSettings(false);navigate(`/chat/${id}`);}}/>}
+      {showPersonalAgentSetup && personalAgent.data && <PersonalAgentDialog state={personalAgent.data} nodes={nodesQuery.data??[]} onClose={()=>setShowPersonalAgentSetup(false)} onCreated={id=>{setShowPersonalAgentSetup(false);navigate(`/chat/${id}`);}}/>}
       {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
       {showPublicGroups && <PublicGroupsModal groups={publicGroupsQuery.data} pending={publicGroupsQuery.isPending} error={publicGroupsQuery.isError} onRetry={() => void publicGroupsQuery.refetch()} onClose={closePublicGroups} onSelect={chat => { setShowPublicGroups(false); navigate(`/chat/${chat.id}`); }} />}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {

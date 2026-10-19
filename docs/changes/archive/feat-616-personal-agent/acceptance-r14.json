@@ -1,0 +1,37 @@
+{
+  "round": "R14",
+  "verdict": "PASS",
+  "validated_at": "34b5fefcb6eee92689d3ad47f860d259638f3c17 + final R14 dirty build",
+  "issues_found": 1,
+  "issues_remaining": 0,
+  "desktop": [
+    1280,
+    720
+  ],
+  "mobile_shared_evidence": [
+    513,
+    827
+  ],
+  "scenarios": {
+    "offline_existing_pa_chat_to_config": "PASS after fix",
+    "single_display_name": "PASS",
+    "source_exclude_immediate_persistence": "PASS",
+    "source_restore_immediate_persistence": "PASS",
+    "profile_save_not_required": "PASS",
+    "mobile_layout": "PASS shared evidence"
+  },
+  "policy_revisions": [
+    2,
+    3,
+    4
+  ],
+  "source_permissions_restored": true,
+  "primary_login_restored": true,
+  "limits": [
+    "No new model journey",
+    "No live computer migration",
+    "Creation/pending retained, not rerun",
+    "No network failure injection"
+  ],
+  "screenshot": "data/acceptance/feat-616/r14-unified-settings/unified-settings-desktop-final.png"
+}

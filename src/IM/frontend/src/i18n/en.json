@@ -1576,6 +1576,26 @@
       },
       "contacts_one": "{{count}} person",
       "contacts_other": "{{count}} people"
+    },
+    "configuration": {
+      "accessTitle": "Chat access",
+      "accessHelp": "Your assistant can look up conversations you participated in and can still access. Exclude any chats you want to keep out of its reach.",
+      "exclusions": "Excluded chats · {{count}}",
+      "search": "Find a chat",
+      "loading": "Loading chats…",
+      "loadError": "Could not load these settings. Please retry.",
+      "retry": "Retry",
+      "noChats": "No matching chats",
+      "immediate": "Checked chats are excluded immediately. Your assistant stops receiving new messages and looking up history there; previously read content is not erased. Uncheck to restore access.",
+      "saving": "Saving…",
+      "saved": "Changes applied",
+      "saveError": "The change was not saved. Please retry.",
+      "moveTitle": "Change working computer",
+      "moveHelp": "Keep the same assistant and chat. The previous computer stops acting for you. Local private history is not copied; your assistant reloads sources it can still access.",
+      "computer": "Computer",
+      "chooseComputer": "Choose another online computer",
+      "move": "Continue on this computer",
+      "saveBeforeMove": "Save or discard your configuration changes before changing computers."
     }
   }
 }
