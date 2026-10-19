@@ -14,7 +14,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
-import { conversationAccess, qualifiedUser } from "./conversation-access.js";
+import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conversation-access.js";
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 /** Derive human approval badges from the durable request/decision identity. */
@@ -134,8 +134,9 @@ export class Messaging {
           "created_at",
         ].map((key) => [key, c[key]]),
       ),
+      title: access.is_observer && !c.title_is_custom ? agents.map(u => u.display_name).join(" ↔ ") : c.title,
       visibility:c.visibility, dissolved_at:c.dissolved_at,
-      is_member:access.is_member,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
+      is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
       participants: members.map((u) => this.actor(u)),
       participant_ids: members.map((u) => u.id),
       direct_kind:
@@ -176,15 +177,15 @@ export class Messaging {
     if (!["joined","public"].includes(scope)) fail(400,"invalid scope");
     if (!qualifiedUser(this.db,userId)) fail(403,"account access required");
     if (scope === "public") return all(this.db,"SELECT id FROM conversations WHERE space_id='company:default' AND type='group' AND visibility='public' AND dissolved_at IS NULL ORDER BY COALESCE(last_message_at,created_at) DESC").filter(c=>conversationAccess(this.db,c.id,userId)).map(c=>this.conversation(c.id,userId));
-    return all(
-      this.db,
-      "SELECT c.id FROM conversations c JOIN conversation_participants p ON p.conversation_id=c.id WHERE p.user_id=? AND c.dissolved_at IS NULL ORDER BY p.is_pinned DESC, COALESCE(c.last_message_at,c.created_at) DESC",
-      userId,
-    ).filter(c => {
-      const scope = one(this.db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id;
-      return canActorAccess(this.db, userId, scope);
-    }).map((c) => this.conversation(c.id, userId));
+    return all(this.db, `SELECT c.id FROM conversations c
+      LEFT JOIN conversation_participants p ON p.conversation_id=c.id AND p.user_id=?
+      WHERE c.dissolved_at IS NULL AND (p.user_id IS NOT NULL OR (c.type='direct' AND EXISTS (
+        SELECT 1 FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
+        JOIN agent_profiles a ON u.username='agent:'||a.agent_id WHERE cp.conversation_id=c.id AND a.owner_id=?)))
+      ORDER BY COALESCE(p.is_pinned,0) DESC,COALESCE(c.last_message_at,c.created_at) DESC`,userId,userId)
+      .filter(c => conversationAccess(this.db,c.id,userId)).map(c => this.conversation(c.id,userId));
   }
+
   resolveParticipants(principal: Row, actors: Row[], ids: string[] = [], group = true, space?: string): string[] {
     let result = ids.map((id) =>
       id.startsWith("agent:") ? this.agentUser(id.slice(6)).id : id.replace(/^user:/, ""),
@@ -366,7 +367,7 @@ export class Messaging {
       data: { ...payload, event_id: Number(result.lastInsertRowid) },
     };
     if (publish) this.ctx.gateway.broadcast(
-      this.members(id).map((u) => u.id),
+      conversationReaderIds(this.db,id),
       frame,
     );
     for(const b of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id)) this.ctx.personal?.wake(b);
@@ -682,7 +683,7 @@ export class Messaging {
     for (const m of messages) {
       const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
       const data = JSON.parse(e.payload_json);
-      this.ctx.gateway.broadcast(this.members(m.conversation_id).map(u=>u.id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
+      this.ctx.gateway.broadcast(conversationReaderIds(this.db,m.conversation_id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
       delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
     }
     return delivered;

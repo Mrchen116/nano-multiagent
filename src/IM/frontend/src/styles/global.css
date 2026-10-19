@@ -5706,3 +5706,6 @@ body {
 .pa-starter-examples button:hover { background: var(--im-surface-2); }
 .pa-starter-examples button:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 2px; }
 .pa-starter-examples button span { flex: none; opacity: .55; }
+
+.chat-observer-notice { display:flex; flex-direction:column; gap:3px; padding:14px 20px; border-top:1px solid var(--border-color, #e5e7eb); background:#fafbfc; color:#64748b; font-size:12px; line-height:1.6; }
+.chat-observer-notice strong { color:#475569; font-weight:600; }

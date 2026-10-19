@@ -11,6 +11,7 @@
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 构建与使用原生 iPhone 客户端 | [`../src/IM/ios/README.md`](../src/IM/ios/README.md) → [`specs/im/ios-client.md`](specs/im/ios-client.md) |
+| 查看双方 Agent owner 对协作私聊的只读观察权限 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md) → [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)；Web 入口见 [`specs/im/web-chat-ux.md`](specs/im/web-chat-ux.md) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 理解每个人的 PA、双身份聊天访问和原聊天协助 | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |

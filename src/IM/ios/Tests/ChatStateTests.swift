@@ -100,6 +100,21 @@ final class ChatStateTests: XCTestCase {
         }
     }
 
+    func testOwnerObservationDecodesAsNetworkAndCannotSend() async throws {
+        let data = Data(#"{"id":"chat","title":"Atlas ↔ Scout","participants":[{"type":"agent","id":"atlas"},{"type":"agent","id":"scout"}],"participant_ids":["atlas","scout"],"type":"direct","direct_kind":"agent-agent","owner_id":"other","creator_id":"atlas","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","is_observer":true,"is_member":false,"can_write":false}"#.utf8)
+        let chat = try JSONDecoder().decode(Conversation.self, from: data)
+        XCTAssertEqual(chat.is_observer, true)
+        XCTAssertEqual(chat.category, "network")
+        let store = try await makeStore()
+        store.conversations = [chat]
+        store.drafts["chat"] = "must not send"
+        await store.send("chat")
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertNil(store.timelines["chat"])
+        XCTAssertEqual(store.drafts["chat"], "must not send")
+        store.clear()
+    }
+
     private func makeStore(list: Data = Data(#"{"items":[]}"#.utf8)) async throws -> ChatStore {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))

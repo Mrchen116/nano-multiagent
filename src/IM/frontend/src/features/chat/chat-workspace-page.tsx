@@ -88,7 +88,7 @@ const HISTORY_PAGE_SIZE = 50;
 
 type ChatWorkspaceError = {
   conversationId: string;
-  kind: "send" | "attachment";
+  kind: "send" | "attachment" | "access";
   message: string;
   submissionMessageId?: string;
 };
@@ -331,7 +331,7 @@ export function ChatWorkspacePage() {
   const chatRootRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [membershipReady, setMembershipReady] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showPersonalAgentSettings, setShowPersonalAgentSettings] = useState(false);
@@ -380,15 +380,16 @@ export function ChatWorkspacePage() {
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId && activeConversation),
     queryKey: ["chat", "messages", conversationId],
-    queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE }),
+    queryFn: ({signal}) => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, signal }),
     refetchInterval: () => activeConversation?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    retry: (count, error) => ![403,404].includes((error as Error & {status?: number}).status ?? 0) && count < 3
   });
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const conversationIdRef = useRef(conversationId);
-  const historyRequestRef = useRef<{ conversationId: string; cursor: string } | null>(null);
+  const historyRequestRef = useRef<{ conversationId: string; cursor: string; controller: AbortController } | null>(null);
   const messagesQueryFetchingRef = useRef(false);
   // M5: reset should converge to REST history, except for live rows accepted
   // while that same history request is still in flight.
@@ -509,7 +510,7 @@ export function ChatWorkspacePage() {
     ? classifyConversationKind(activeConversation)
     : null;
   const [showTasks, setShowTasks] = useState(false);
-  const isGroupKind = conversationKind === "group" || conversationKind === "agent-network";
+  const isGroupKind = activeConversation?.type === "group";
 
   // Pre-resolve members + addable agents for GroupSettings so the component stays
   // presentational. Status comes from the nodes cache (same derivation the header
@@ -619,17 +620,21 @@ export function ChatWorkspacePage() {
     if (!conversationId || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
     const request = historyRequestRef.current;
     if (request?.conversationId === conversationId && request.cursor === historyCursor) return;
-    historyRequestRef.current = { conversationId, cursor: historyCursor };
+    const controller = new AbortController();
+    historyRequestRef.current = { conversationId, cursor: historyCursor, controller };
     setIsLoadingHistory(true);
     try {
       const page = await listMessages(conversationId, {
         limit: HISTORY_PAGE_SIZE,
-        beforeMessageId: historyCursor
+        beforeMessageId: historyCursor,
+        signal: controller.signal
       });
-      if (conversationIdRef.current !== conversationId) return;
+      if (conversationIdRef.current !== conversationId || controller.signal.aborted) return;
       dispatch({ type: "prepend_history", timeline: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
     } finally {
       if (
         historyRequestRef.current?.conversationId === conversationId
@@ -690,6 +695,7 @@ export function ChatWorkspacePage() {
     const cached = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
     for (const previous of cached) {
       if (allowed.has(previous.id)) continue;
+      if (historyRequestRef.current?.conversationId === previous.id) { historyRequestRef.current.controller.abort(); historyRequestRef.current = null; }
       await queryClient.cancelQueries({ queryKey: ["chat", "messages", previous.id] });
       queryClient.removeQueries({ queryKey: ["chat", "messages", previous.id] });
       forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), previous.id);
@@ -716,6 +722,16 @@ export function ChatWorkspacePage() {
       await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
     }
   }
+
+  useEffect(() => {
+    if (!activeConversation?.is_observer || ![403,404].includes((messagesQuery.error as (Error & {status?: number}) | null)?.status ?? 0)) return;
+    // Owner changes keep the login valid, so a denied read must retire cached content too.
+    void listConversations().catch(() => (queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? []).filter(c => c.id !== activeConversation.id)).then(async chats => {
+      if (conversationIdRef.current !== activeConversation.id) return;
+      await reconcileMembership(chats);
+      setWorkspaceError({ conversationId: "", kind: "access", message: i18n.language.startsWith("zh") ? "此聊天已不可访问。" : "This conversation is no longer accessible." });
+    }).catch(() => undefined);
+  }, [messagesQuery.error, activeConversation?.id, activeConversation?.is_observer]);
 
   // Subscribe to owner-scoped status events so all node/agent status indicators
   // in the Chat workspace (Node chip, sidebar status dot, mention candidate
@@ -1104,7 +1120,7 @@ export function ChatWorkspacePage() {
 
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
-  const visibleWorkspaceError = workspaceError?.conversationId === conversationId
+  const visibleWorkspaceError = workspaceError?.conversationId === (conversationId ?? "")
     ? workspaceError
     : null;
 
@@ -1145,7 +1161,7 @@ export function ChatWorkspacePage() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-[var(--im-danger)]">
               {t(
-                visibleWorkspaceError.kind === "attachment"
+                visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorTitle" : visibleWorkspaceError.kind === "attachment"
                   ? "chat.messagePane.attachmentErrorTitle"
                   : "chat.messagePane.sendErrorTitle"
               )}
@@ -1156,7 +1172,7 @@ export function ChatWorkspacePage() {
           <button
             type="button"
             aria-label={t(
-              visibleWorkspaceError.kind === "attachment"
+              visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorDismiss" : visibleWorkspaceError.kind === "attachment"
                 ? "chat.messagePane.attachmentErrorDismiss"
                 : "chat.messagePane.sendErrorDismiss"
             )}
@@ -1252,9 +1268,9 @@ export function ChatWorkspacePage() {
             }}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
-            onRename={isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
+            onRename={activeConversation.can_write === false ? undefined : isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
             onOpenConfig={
-              isPersonalConversation
+              activeConversation.is_observer ? undefined : isPersonalConversation
                 ? () => setShowPersonalAgentSettings(true)
                 : isGroupKind
                 ? () => setShowGroupSettings(true)

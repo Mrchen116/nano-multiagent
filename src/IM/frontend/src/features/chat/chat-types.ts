@@ -253,6 +253,7 @@ export interface Conversation {
   dissolved_at?: string | null;
   is_member?: boolean;
   can_write?: boolean;
+  is_observer?: boolean;
   can_change_visibility?: boolean;
   id: string;
   title: string;
@@ -288,6 +289,7 @@ export interface Conversation {
  */
 export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_kind" | "participants">): ConversationKind {
   if (c.type === "direct") {
+    if (c.direct_kind === "agent-agent") return "agent-network";
     if (c.direct_kind === "user-user" || c.direct_kind === "user") return "direct-user";
     return "direct-agent";
   }

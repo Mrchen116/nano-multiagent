@@ -14,6 +14,18 @@ beforeEach(()=>{
  vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:1,state:{},submission_message_id:null});
 });
 describe('interactive choices and handwritten requests',()=>{
+ it('keeps owner-observed collaboration cards readable without editable fields or submission',async()=>{
+  const send=vi.fn();
+  render(<MessagePane conversation={{...conversation,direct_kind:'agent-agent',can_write:false,is_observer:true}} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
+  const draft=await screen.findByPlaceholderText('编辑草稿');
+  expect(draft).toBeDisabled();
+  const submit=screen.getByRole('button',{name:'继续修改'});
+  expect(submit).toBeDisabled();
+  fireEvent.click(submit);
+  expect(send).not.toHaveBeenCalled();
+  expect(saveInteractionDraft).not.toHaveBeenCalled();
+  expect(document.querySelector('.chat-pane-composer')).toBeNull();
+ });
  it('shows readable choices and an explicit queued status until delivery resumes',()=>{
   const reply={...card,id:'reply',interactive:undefined,sender:{type:'user',id:'u1'},sender_user_id:'u1',sender_type:'user',content:'',delivery_status:'pending',interaction_reply:{source_message_id:'card',source_summary:'行程',agent_id:'a1',state:{},fields:[{name:'mode',label:'方式',value:'bike',display_value:'骑行'}]}} as Message;
   const view=render(<MessagePane conversation={conversation} messages={[reply]} selfUserId="u1" mentionCandidates={[]} onSend={vi.fn()}/>);

@@ -5,6 +5,7 @@ struct ChatMessageView: View {
     let message: ChatMessage
     let selfID: String
     var participants: [ActorRef] = []
+    var readOnly = false
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
@@ -57,7 +58,7 @@ struct ChatMessageView: View {
                 } label: { Label(L("过程", "Process") + " (\(processItems.count))", systemImage: "list.bullet.rectangle").font(.caption) }
             }
             ForEach(message.permission_requests ?? []) { permission in
-                ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, refreshed: refreshed)
+                ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
             if message.sender_type == "agent" {
                 HStack {
@@ -143,6 +144,7 @@ struct ChatPermissionCard: View {
     let conversationID: String
     let messageID: String
     let permission: ChatPermission
+    var readOnly = false
     let refreshed: () -> Void
     @State private var decision: ChatPermissionOption?
     @State private var reason = ""
@@ -156,7 +158,7 @@ struct ChatPermissionCard: View {
             NavigationLink(L("查看操作输入", "Inspect action input")) { JSONDetailView(value: permission.tool_input) }
             if permission.status == "resolved" { Text(L("已处理：", "Resolved: ") + (permission.decision ?? "")).foregroundStyle(.secondary) }
             else if permission.status == "submitted" || submitted { Label(L("已提交，等待确认", "Submitted, awaiting confirmation"), systemImage: "clock") }
-            else { ForEach(permission.options) { option in
+            else if !readOnly { ForEach(permission.options) { option in
                 Button { decision = option } label: { VStack(alignment: .leading) { Text(option.label); if !option.description.isEmpty { Text(option.description).font(.caption).foregroundStyle(.secondary) } } }.disabled(busy)
             } }
             if let error { ErrorNotice(message: error) }
@@ -170,6 +172,7 @@ struct ChatPermissionCard: View {
                 }.navigationTitle(L("审批", "Permission")).toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { decision = nil } } } } }
     }
     private func submit(_ option: ChatPermissionOption) async {
+        guard !readOnly else { return }
         struct Body: Encodable, Sendable { let message_id: String; let decision: String; let reason: String? }
         busy = true; error = nil; defer { busy = false }
         do {

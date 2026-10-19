@@ -877,6 +877,10 @@
       "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
     "messagePane": {
+      "accessErrorTitle": "聊天不可访问",
+      "accessErrorDismiss": "关闭提示",
+      "observerTitle": "Agent 协作 · 只读",
+      "observerDescription": "你可以查看双方往来，不能发送消息。",
       "systemNotice": {
         "direct": {
           "skills": "· 后台自进化：技能已更新",

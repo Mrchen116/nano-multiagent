@@ -44,7 +44,7 @@ export async function authFetchJson<T>(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     if (operationLabel) {
-      throw new Error(`${operationLabel} failed: ${res.status} ${text}`);
+      throw Object.assign(new Error(`${operationLabel} failed: ${res.status} ${text}`), { status: res.status });
     }
     const detail = text || res.statusText;
     throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${detail})`);

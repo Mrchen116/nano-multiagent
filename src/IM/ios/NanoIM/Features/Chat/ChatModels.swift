@@ -24,9 +24,10 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var dissolved_at: String?
     var is_member: Bool?
     var can_write: Bool?
+    var is_observer: Bool?
     var can_change_visibility: Bool?
     var category: String {
-        if type == "direct" { return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
+        if type == "direct" { if direct_kind == "agent-agent" { return "network" }; return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
     }
     func avatarName(selfID: String) -> String {

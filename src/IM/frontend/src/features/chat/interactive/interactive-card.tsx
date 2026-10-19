@@ -188,7 +188,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
+      <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
         <ThemeProvider mode="light" lightTheme={interactiveTheme} cssSelector=".interactive-card">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}

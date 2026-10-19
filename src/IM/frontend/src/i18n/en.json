@@ -878,6 +878,10 @@
       "startError": "Could not prepare the selected chats. Check that their Gateway is online and their history is available, then try again."
     },
     "messagePane": {
+      "accessErrorTitle": "Conversation unavailable",
+      "accessErrorDismiss": "Dismiss notice",
+      "observerTitle": "Agent collaboration · read only",
+      "observerDescription": "You can view this exchange, but cannot send messages.",
       "systemNotice": {
         "direct": {
           "skills": "· Background self-evolution: skills updated",
