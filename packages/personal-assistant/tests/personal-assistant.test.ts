@@ -30,6 +30,24 @@ function fixture(decision = 'deny') {
   const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
+it('reinterprets a stale owner control against fresh state without blocking the owner message forever',async()=>{
+ const f=fixture('allow');let reviews=0,resolves=0,controls=0;
+ f.runtime.request=async method=>method==='pa.review'? (++reviews===1
+  ? {decision:'allow',reason:'Pause request',controls:[{action:'pause',task_ref:'goal',expected_revision:1}]}
+  : {decision:'allow',reason:'Owner reports an already applied control; current state is authoritative',scopes:[]}):{};
+ f.relay.request=async(type)=>{
+  if(type==='pa.scope.resolve')resolves++;
+  if(type==='pa.owner.control'){controls++;return {type:type+'.result',payload:{ok:false,error:{code:'assistance_revision_conflict'}}};}
+  return {type:type+'.result',payload:{ok:true,result:type==='pa.source.admit'?{allowed:true}:type==='pa.scope.resolve'?{owner_message:{id:'owner-input'},assistance:[{task_ref:'goal',revision:resolves}]}:{}}};
+ };
+ try {
+  const input={agent_id:'pa',conversation_id:'c_owner',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-input',content:'I already clicked pause. Please draft a thank-you.',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
+  expect([reviews,resolves,controls]).toEqual([2,2,1]);
+  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
+  expect(reviews).toBe(2);
+ }finally{f.inbox.close();f.store.close();}
+});
 it.each(['deny','needs_owner','unavailable'])('never commits a %s disclosure and exposes no review tool',async decision=>{
   const f=fixture(decision);
   try{

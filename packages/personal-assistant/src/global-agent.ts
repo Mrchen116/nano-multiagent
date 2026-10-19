@@ -170,8 +170,11 @@ export class GlobalAgent {
                 if(goal?.schedule_id) await this.options.runtime.request('schedule.command',{agentId:config.agentId,sessionId:binding.sessionId,action:'delete',args:{id:goal.schedule_id}});
               }
               const id=`pa-event:${config.personal!.bindingId}:${event.event_id}`;
+              const instruction=event.kind==='owner.decision'
+                ? 'This is an authenticated owner decision receipt from the private UI. Read personal_assistant goals and its authorization.owner_decisions for the selected option and consequences. Continue that choice within the existing goal scope and constraints without asking the owner to repeat the same decision in chat. It does not authorize unrelated actions or disclosures.'
+                : 'Check personal_assistant goals before continuing. This event is not new authority to share information.';
               await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
-                content:[{type:'text',text:`Personal assistant product state changed: ${JSON.stringify({kind:event.kind,payload:event.payload})}. Check personal_assistant goals before continuing. This event is not new authority to share information.`}],
+                content:[{type:'text',text:`Personal assistant product state changed: ${JSON.stringify({kind:event.kind,payload:event.payload})}. ${instruction}`}],
                 source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});
             }
             await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'});

@@ -15,6 +15,27 @@ function personalFixture() {
  for(const id of ['u1','u2']) f.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer',?)").run(id);
  return {...f,service:new PersonalAgents(f.ctx),principal:{node_id:'n',owner_id:'o1',node_epoch:1},args:{agent_id:'a',binding_id:'binding',epoch:1}};
 }
+it('reads owner tasks without PA membership and removes excluded sources before list counts and cursors',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();
+ const tasks=new TaskGraphService(db,ctx.messaging),actor={kind:'agent' as const,id:'a',node_id:'n'};
+ const doc=tasks.execute({kind:'user',id:'u1'},'create',{conversation_id:'peer',title:'Owner private task',mode:'dag',request_key:'owner-task'});
+ const binding=service.authority(principal,args);
+ const read=(action:string,query:Record<string,unknown>)=>tasks.readPersonal(actor,'u1',action,query,id=>service.sourceAllowed(binding,id));
+ expect(()=>tasks.execute(actor,'get',{graph_id:doc.graph_id})).toThrow();
+ expect(read('get',{graph_id:doc.graph_id,view:'all'})).toMatchObject({graph_id:doc.graph_id,conversation:{can_write:false}});
+ expect(read('list',{limit:1})).toMatchObject({total:1,items:[{title:'Owner private task',can_edit:false}],next_cursor:null});
+ db.prepare("UPDATE conversations SET type='group',visibility='public' WHERE id='peer'").run();
+ service.updatePolicy('o1',{expected_revision:1,excluded_conversation_ids:['peer']});
+ expect(tasks.execute(actor,'get',{graph_id:doc.graph_id})).toMatchObject({graph_id:doc.graph_id});
+ expect(()=>read('get',{graph_id:doc.graph_id})).toThrow();
+ expect(read('list',{limit:1})).toMatchObject({items:[],total:0,next_cursor:null});
+ expect(()=>read('create',{conversation_id:'peer',title:'Cannot bypass review',mode:'dag',request_key:'bad'})).toThrow();
+ service.updatePolicy('o1',{expected_revision:2,excluded_conversation_ids:[]});
+ db.prepare("UPDATE conversations SET visibility='private' WHERE id='peer'").run();
+ db.prepare("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'").run();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ expect(()=>read('get',{graph_id:doc.graph_id})).toThrow();
+});
 it('searches arbitrarily old authorized history without consuming owner unread or observation state',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const m=ctx.messaging.insertMessage('peer','u2','user','old launch agreement',[],null,'completed',{created_at:'2001-01-01T00:00:00.000Z'});

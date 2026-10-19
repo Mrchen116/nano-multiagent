@@ -369,7 +369,8 @@ const fields: Obj = {
 };
 /** Persist graph documents and replay receipts in the same synchronous transaction. */
 export class TaskGraphService {
-  constructor(private db: DatabaseSync, private messaging: Messaging) {}
+  constructor(private db: DatabaseSync, private messaging: Messaging,
+    private personalRead?: {ownerUserId:string; sourceAllowed:(conversationId:string)=>boolean}) {}
   private row(sql: string, ...args: any[]): Obj | undefined {
     return this.db.prepare(sql).get(...args) as Obj | undefined;
   }
@@ -377,7 +378,7 @@ export class TaskGraphService {
     return this.db.prepare(sql).all(...args) as Obj[];
   }
   private chat(id: string | null | undefined, user: string) {
-    return id ? conversationAccess(this.db, id, user) : undefined;
+    return id && (!this.personalRead || this.personalRead.sourceAllowed(id)) ? conversationAccess(this.db, id, user) : undefined;
   }
   private writable(id: string, user: string) {
     const c = this.chat(id, user);
@@ -405,7 +406,7 @@ export class TaskGraphService {
   private projection(doc: Obj, user: string, actor: Obj): Obj {
     const c = this.chat(doc.conversation_id, user);
     if (!c) forbidden();
-    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:c.can_write};
+    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:!this.personalRead && c.can_write};
   }
 
   private source(id: string, user: string) {
@@ -426,6 +427,7 @@ export class TaskGraphService {
     if (Buffer.byteLength(JSON.stringify(args)) > 2 * 1024 * 1024)
       fail("invalid_arguments", "Request exceeds 2 MiB");
     const write = ["create", "apply", "delete"].includes(action);
+    if (write && this.personalRead) forbidden();
     if (!["user", "agent"].includes(actor.kind)) forbidden();
     const notices: Obj[] = [];
     let result: Obj;
@@ -440,6 +442,19 @@ export class TaskGraphService {
     // Delivery is after COMMIT: a disconnected node cannot turn a saved mutation into failure.
     try { this.messaging.publishMessages(notices); } catch { /* Durable events and relay are replayed. */ }
     return result!;
+  }
+  /** Read as the authenticated owner, filtering sources before projection and pagination.
+   *
+   * Args:
+   *   actor: Gateway-authenticated current PA identity.
+   *   ownerUserId: Owner resolved from the current personal binding.
+   *   action: Read-only task action.
+   *   args: Validated task query arguments.
+   *   sourceAllowed: Current personal source policy, also applied to linked provenance.
+   */
+  readPersonal(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,sourceAllowed:(id:string)=>boolean):Obj {
+    if(!['get','list','activity'].includes(action)) forbidden();
+    return new TaskGraphService(this.db,this.messaging,{ownerUserId,sourceAllowed}).execute(actor,action,args);
   }
   /** Apply a reviewed PA result in its caller's transaction with owner access and PA attribution.
    *
@@ -475,7 +490,7 @@ export class TaskGraphService {
             actor.node_id ?? null,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
-    const user = delegatedOwner ?? p.id,
+    const user = this.personalRead?.ownerUserId ?? delegatedOwner ?? p.id,
       actorName = `${p.display_name} (${actor.id})`;
     const identity = {type:actor.kind,id:actor.id,...(delegatedOwner?{authorized_by:delegatedOwner}:{})};
     if (action === "list") return this.list(user, identity, args);
@@ -723,7 +738,7 @@ export class TaskGraphService {
   }
   private list(user: string, actor: Obj, args: Obj) {
     const account = this.row("SELECT * FROM users WHERE id=?", user)!;
-    const spaces = (actor.type === "agent"
+    const spaces = (actor.type === "agent" && !this.personalRead
       ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
       : ["company:default", `personal:${account.owner_id}`]).filter(space=>canActorAccess(this.db,user,space));
     if (!spaces.length) return {items:[],total:0,next_cursor:null};
@@ -750,7 +765,7 @@ export class TaskGraphService {
       AND ${filtered ? "json_extract(n.value,'$.assignee.type')=? AND json_extract(n.value,'$.assignee.id')=?" : "json_extract(n.value,'$.id')=json_extract(g.document_json,'$.root_node_id')"}
       AND ${statuses ? "json_extract(n.value,'$.status') IN ("+statuses.map(()=>"?").join(",")+")" : "1=1"}
       AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
-    const items = rows.map((r): Obj => {
+    const items = rows.filter(r=>!this.personalRead || !!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
       const d = JSON.parse(r.document_json), n = JSON.parse(r.node_json);
       const path: Obj[] = [];
       for (let p = d.nodes.find((x:Obj)=>x.id===n.container_id); p; p=d.nodes.find((x:Obj)=>x.id===p.container_id)) path.unshift({id:p.id,title:p.title});

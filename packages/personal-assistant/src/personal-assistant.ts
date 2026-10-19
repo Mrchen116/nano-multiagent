@@ -35,7 +35,7 @@ export class PersonalAssistant {
   }
 
   /** Record only a current authenticated owner message as an authorization candidate. */
-  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): Promise<boolean> {
+  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput, refreshControl = true): Promise<boolean> {
     const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
     if(source.allowed!==true)return false;
     const owner = input.conversation_id === config.personal!.conversationId && input.message.sender_type === 'user'
@@ -51,10 +51,17 @@ export class PersonalAssistant {
         if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
         if(!saved)this.options.store.saveCommand(reviewKey,JSON.stringify(verdict));
         if (verdict.decision === 'allow') {
-          for (const [index,control] of (verdict.controls??[]).entries()) {
-            const key=`${reviewKey}:control:${index}`;
+          for (const control of verdict.controls??[]) {
+            const key=`${reviewKey}:control:${createHash('sha256').update(JSON.stringify(control)).digest('hex')}`;
             if(!this.options.store.command(key)) {
-              await this.request(config,'pa.owner.control',{...control,source_message_id:input.message.id});
+              try { await this.request(config,'pa.owner.control',{...control,source_message_id:input.message.id}); }
+              catch(error) {
+                if(!/assistance_revision_conflict|policy_revision_conflict/.test(String(error))) throw error;
+                // Reinterpret the same authenticated message against current facts, never replay a stale revision forever.
+                this.options.store.forgetCommand(reviewKey);
+                if(refreshControl) return this.admit(config,binding,input,false);
+                throw error;
+              }
               this.options.store.saveCommand(key,'done');
             }
           }

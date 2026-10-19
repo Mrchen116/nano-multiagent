@@ -129,6 +129,7 @@ export class NodeStore {
     return (this.db.prepare('SELECT result FROM command_results WHERE id=?').get(id) as { result: string } | undefined)?.result;
   }
   saveCommand(id: string, text: string): void { this.db.prepare('INSERT OR IGNORE INTO command_results VALUES(?,?)').run(id, text); }
+  forgetCommand(id:string):void { this.db.prepare('DELETE FROM command_results WHERE id=?').run(id); }
   /** Replace only the active lookup; historical sessions retain their delivery target. */
   reset(binding: SessionBinding, next: SessionBinding, commandId: string): void {
     this.db.exec('BEGIN IMMEDIATE');

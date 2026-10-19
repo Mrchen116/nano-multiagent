@@ -156,6 +156,7 @@ export class PersonalAgents {
     const b=this.authority(principal,args); this.ownerMessage(b,args.source_message_id);
     if(['pause','resume','draft_only'].includes(args.action)) {
       const a=one(this.db,'SELECT * FROM pa_assistance WHERE binding_id=? AND task_ref=?',b.binding_id,args.task_ref);
+      if(a && ['pause','resume'].includes(args.action) && !!a.paused===(args.action==='pause')) return this.assistance(b.owner_id);
       if(!a || a.revision!==args.expected_revision) fail(409,'assistance_revision_conflict');
       transaction(this.db,()=>{
         if(args.action==='draft_only') {
