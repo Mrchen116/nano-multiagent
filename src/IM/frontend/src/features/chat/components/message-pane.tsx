@@ -74,6 +74,7 @@ import {
   type ComposerSnapshot
 } from "./composer-draft-store";
 
+import { InteractionSubmissionError } from "../interactive/submission-error";
 import type { InteractiveSelection } from "../interactive/interactive-card";
 const InteractiveCard = React.lazy(() => import("../interactive/interactive-card").then(module => ({default: module.InteractiveCard})));
 import type { InteractionReplyInput } from "../interactive/types";
@@ -658,7 +659,8 @@ export function MessagePane({
       });
       else await onSend(wireContent, submittedAttachments);
       if (activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
-    } catch {
+    } catch (error) {
+      if (error instanceof InteractionSubmissionError && activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
       forceScrollToBottomRef.current = false;
       return;
     } finally {
@@ -1079,9 +1081,14 @@ export function MessagePane({
                   interactiveSubmitted={submittedIds.has(m.id)}
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={async (input, key) => {
-                    const result = await onSend("", [], input, key);
-                    clearSelection(conversation.id, input.source_message_id);
-                    return result;
+                    try {
+                      const result = await onSend("", [], input, key);
+                      clearSelection(conversation.id, input.source_message_id);
+                      return result;
+                    } catch (error) {
+                      if (error instanceof InteractionSubmissionError) clearSelection(conversation.id, input.source_message_id);
+                      throw error;
+                    }
                   }}
                 />
               );
