@@ -336,3 +336,31 @@ Validation snapshot：`19458a27ef0aa4c78035a1879ed4ba3cbd4694a3`，15:16开工HE
 工具层曾有npx启动等待（截图/导航命令尚未调用浏览器）；停止两个挂起的npm启动进程后，使用同一缓存CLI直连原有两个会话正常，未增加浏览器，未将工具延迟记为产品失败。Caller提供新询价误拦的普通审批器授权上下文缺口诊断；reviewer未读实现独立验证，产品结论只依赖上述实际UI。
 
 录像：`/tmp/feat616-acceptance/r4-walkthrough.webm`原始96.68秒，另保留前85秒直接裁切版`r4-walkthrough-85.webm`（无拼接/伪造）。覆盖精确草稿回原DM、本人编辑、原DM实收报价、目标仍等待；未包含不存在的选择成功。R3的`/tmp/feat616-final-walkthrough.webm`原样保留，不替换成成功结论。新R4任务/报价保留供下一候选接续。所有早期未覆盖场景继续inconclusive，尤其全出口安全、故障注入、冷恢复与首次创建；本轮不扩大通过范围。仅提交报告，两个headless专用浏览器收尾关闭，无服务或运行数据直接改动。
+
+## Round 5 · 2026-10-19 · expanded normal journeys（进行中）
+
+运行候选为 caller 交接的 `ed73cb9b8d3159eb512893b20e24316da097fab0`。约15:28开始；15:36本人UI将PA主模型改为`codexOAuth:gpt-6.1-sol`，15:38 caller按用户要求将普通/独立审批模型设为`codexOAuth:gpt-6-luna`并重启隔离Node。下列恢复结果均属于这次配置与重启之后，不能称为纯heartbeat自然恢复。真实服务53808与初见fixture52763；只复用owner/peer两个headless浏览器。reviewer未读实现、未运行工程测试。
+
+### 已闭环事实
+
+| 项目 | 本轮结果 | 用户可见证据 |
+|---|---|---|
+| P6 / R3-P8 选择后继续 | pass（本样本） | R4旧报价不重发、不催办，15:41出现标准16000/景观19000选择卡，推荐标准、省3000及无景观后果；15:41:54本人只点击一次标准。15:44 peer原DM真实收到免费预留请求，带Test User的PA代发身份；15:45:11 peer确认预留且无需回复，owner15:46收到成功结果，`tg_a5460b05`15:46:54 Done、Assignee Test User。未补发选厅文字、未付款。证据`r5-choice.txt/png`、`r5-peer9.txt`、`r5-owner-reservation.txt`、`r5-r4-done.txt/png` |
+| R4-P10 新目标授权 | pass（本样本） | 15:32明确新目标11月1日上午6人、不投影，只询可用性/报价不预留；15:39 peer实收询问，无重复授权；15:40报价500，owner15:44收到，`tg_4e073ff4`15:45 Done。不以旧目标授权替代新目标 |
+| 首次创建/无效名/重复进入 | pass（空白fixture样本） | 52763初次modal展示观察、数据、模型及角色说明；空白名即时提示并禁建；Later取消未建DM。15:34:49不填可选目标创建初见小舟，进入唯一`c_8e975383e5da`并上线；改名小舟改名后标题/固定入口更新，重复进入同DM，15:36还原初见小舟。`r5-first-*.txt`、`r5-created.txt`、`r5-renamed.txt`、`r5-reentered.txt`、`r5-onboarding.webm`。旧历史/草稿与新回复签名综合场景另列未关闭 |
+| 公开搜索与普通Agent同策略对照 | pass（公开搜索样本） | PA15:49真实web_search先失败后19.7s成功；普通E2E初始空tool allowlist导致工具不可用，不作PA策略差异。caller修正fixture工具后15:57重新同类任务，普通web_search1.5s、21.4s交付2官方链接。两者均主6.1 Sol、Follow node，未出现人工审批。`r5-search-work-expanded.txt`、`r5-ordinary-search-proof.txt`。不外推所有工具/风险动作 |
+| 内部子任务私下成果 | pass（本样本） | PA以实际subagent“整理西湖三行清单”完成17.9s，Work展开可读委派输入及实际三行输出；15:51仅ownerDM交付2官方来源与清单，15:52搜索/子任务两个目标Done。`r5-child-result.txt`。不只依据主Agent自报，也不将有链接等于验证全网页事实 |
+| 自然语言观察暂停 | pass（设置改变）；按需查询保留失败 | 15:49用户请求暂停新消息观察、已交办/历史仍继续；设置checkbox实际未选，DM有暂停状态，搜索及子任务仍完成。15:54另发按需读取新合成群请求，至15:58仍无回复，详见下项 |
+
+P1/P2/P3/P4/P5/P7及限定草稿的已通过样本继承Round3/4；本轮未重新扩展其保证范围。
+
+### 扩展旅程发现与操作记录（截至15:59）
+
+- **改名未及时生效，待修复重验**：主PA15:49/15:50 Save name小航验收，15秒后提示`The change was not saved. Please retry.`；15:57再导航，旧消息sender已显示小航验收，但固定入口/标题/输入框/设置仍小航，旧草稿仍在。空白fixture改名成功不覆盖这个有长期执行的PA。证据`r5-name-settled.txt`、`r5-rename-failed.png`、`r5-source-retrieved.txt`。caller已获报，reviewer未反复重试。
+- **邀请同事与PA/普通Agent建群失败，待修复重验**：UI新建R5协作与来源控制测试群选择owner、林悦、PA、普通E2E，实际POST404 `participant not found`；去掉两个Agent后201成功，仅owner+peer新私群`c_vm2qot6w`。不把API失败归为模型行为。`r5-group-requests.txt`。caller已获报，合成群只供来源边界测试。
+- **暂停观察后的按需历史查询未交付，待诊断**：peer15:54:24在上述合成群发送湖畔厅/青橙47资料，owner15:54:37在PA DM要求保持暂停、按需查这个本人仍在群的地点/识别词并给原出处、不联系成员。至15:58查询未回复，不能用“暂停观察”解释为允许忽略owner直接请求，也不能宣称已成功读取来源。后续清理影响证据链后，不以重复查询补救关闭此首次请求缺口。
+- **reviewer误触全来源缓存清理**：15:58:31点击设置`Clear source cache`，原以为进入来源选择/确认，实际立即进入Requested等待确认；没有scoped selector，也没有二次确认。本操作超出本轮原计划仅清理合成群来源的范围，已立即告知caller。UI文字明确不删除原聊天、执行记录或已发送内容；15:59 Work新context显示15:58:30–51清理事件完成及无新待处理消息。reviewer未再请求清理，也未声称只清了测试群。此操作必须披露，后续来源/冷恢复结果须以实际新基线标注。
+
+### 录像
+
+`r5-choice-continuation.webm`记录真实推荐与15:41:54单次点击，`r5-reservation-result.webm`记录实际peer预留请求/回执及最终Done；两段间有等待，不能称连续录像。`r5-onboarding.webm`为真实首次创建/改名/重复进入。既有`/tmp/feat616-final-walkthrough.webm`为Round3原85.04秒版本，尚未替换。所有录像/截图均在`/tmp`，不提交到仓库。
