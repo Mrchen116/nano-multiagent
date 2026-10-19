@@ -14,6 +14,15 @@ beforeEach(()=>{
  vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:1,state:{},submission_message_id:null});
 });
 describe('interactive choices and handwritten requests',()=>{
+ it('shows readable choices and an explicit queued status until delivery resumes',()=>{
+  const reply={...card,id:'reply',interactive:undefined,sender:{type:'user',id:'u1'},sender_user_id:'u1',sender_type:'user',content:'',delivery_status:'pending',interaction_reply:{source_message_id:'card',source_summary:'行程',agent_id:'a1',state:{},fields:[{name:'mode',label:'方式',value:'bike',display_value:'骑行'}]}} as Message;
+  const view=render(<MessagePane conversation={conversation} messages={[reply]} selfUserId="u1" mentionCandidates={[]} onSend={vi.fn()}/>);
+  expect(screen.getByText('骑行')).toBeInTheDocument();
+  expect(screen.queryByText('bike')).not.toBeInTheDocument();
+  expect(screen.getByText(/已保存，等待 Agent 处理|Saved, waiting for Agent/)).toBeInTheDocument();
+  view.rerender(<MessagePane conversation={conversation} messages={[{...reply,delivery_status:'running'}]} selfUserId="u1" mentionCandidates={[]} onSend={vi.fn()}/>);
+  expect(screen.queryByText(/已保存，等待 Agent 处理|Saved, waiting for Agent/)).not.toBeInTheDocument();
+ });
  it('keeps exact handwritten content beside edited fields and clears the attachment after successful send',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);

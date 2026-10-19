@@ -7,6 +7,7 @@ interface Field {
   label: string;
   componentType: string;
   variable?: string;
+  options?: Record<string, string>;
   value: unknown;
 }
 export interface InteractiveSchema {
@@ -74,7 +75,10 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
       const value = variable ? parsed.stateDeclarations[variable] : node.props.value ?? node.props.defaultValue
         ?? (node.typeName === 'CheckBoxGroup' ? {} : node.typeName === 'Slider' ? [node.props.min] : '');
       if (variable && !Object.hasOwn(parsed.stateDeclarations, variable)) throw new Error('Undeclared field state');
-      fields.push({ form, name, label, componentType: node.typeName, ...(variable ? { variable } : {}), value });
+      const options = Array.isArray(node.props.items) ? Object.fromEntries(node.props.items
+        .filter((item: ElementNode) => typeof item.props?.label === 'string' && typeof (item.props.value ?? item.props.name) === 'string')
+        .map((item: ElementNode) => [item.props.value ?? item.props.name, item.props.label])) : undefined;
+      fields.push({ form, name, label, componentType: node.typeName, ...(variable ? { variable } : {}), ...(options ? { options } : {}), value });
     }
     Object.values(node.props).forEach(item => visit(item, form, label));
   }
@@ -109,7 +113,11 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
   const fields = schema.fields.map(field => {
     const entry = (state[field.form] as Record<string, { value: unknown }> | undefined)?.[field.name];
     const value = field.variable && Object.hasOwn(state, field.variable) ? state[field.variable] : entry?.value ?? field.value;
-    return { name: field.name, label: field.label, value };
+    const displayValue = field.options && typeof value === 'string' && Object.hasOwn(field.options, value) ? field.options[value]
+      : field.options && field.componentType === 'CheckBoxGroup' && value && typeof value === 'object'
+        ? Object.entries(value).filter(([, checked]) => checked === true).map(([name]) => field.options![name] ?? name).join('、') || '—'
+        : undefined;
+    return { name: field.name, label: field.label, value, ...(displayValue !== undefined ? { display_value: displayValue } : {}) };
   });
   return { state, fields };
 }
