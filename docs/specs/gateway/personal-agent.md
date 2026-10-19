@@ -36,3 +36,11 @@
 #### Scenario: 跨轮次持续工作
 - **WHEN** Global 或 PA 接续已接受的持续事项
 - **THEN** 可按普通 Skill 发现、选择和加载机制使用随包 nano-ongoing-work，复用已有工作记录、任务、子 Agent、Heartbeat 和 schedule；不新增 PA 账本服务或调度器，不覆盖用户已有 ongoing-work Skill，也不绕过用户禁用选择。
+
+### Requirement: 联系人风险由服务器身份与主人决定承载
+#### Scenario: 被屏蔽账号在共同群发言
+- **WHEN** Web IM 同一账号在任意有权接收的群聊发言
+- **THEN** 后端仍准入消息，服务端的 actor_risk 随独立输入检查与主 PA inbox_read 结果传递，不能由消息正文自称解除；群内屏蔽联系人同时列入外发审核证据，不硬性禁止其他正常协作。
+#### Scenario: 撤销限制
+- **WHEN** 主人在配置页解除屏蔽
+- **THEN** 服务端删除当前限制、递增原策略版本并发出 policy.changed，主 PA 得知限制已撤销；历史理由不再自动构成当前风险标记。

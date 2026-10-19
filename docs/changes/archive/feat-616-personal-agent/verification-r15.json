@@ -1,0 +1,97 @@
+{
+  "review_round": "R15",
+  "base": "41ce20314fd7c156b04d941cfd4a5dc5a8582dd7",
+  "candidate": "Caller-frozen R15 dirty product diff, plus subsequent personal-sources test-only expectation correction; 2026-10-20 00:54–00:58 Asia/Shanghai",
+  "candidate_blobs": {
+    "apps/im-server/src/conversation-access.ts": "2dee29c0409561e1a7c1cc514c18728b8c46973f",
+    "apps/im-server/src/personal-agent.ts": "07ce77200a430661ada00abf5dd60b20b27b4367",
+    "apps/im-server/src/personal-actions.ts": "f0969ca7e3d03a4cea1abbabfd77c0f1cdebb73c",
+    "packages/personal-assistant/src/personal-assistant.ts": "cee0dabf7a0d3743d54c425fddf0e18defc900b0",
+    "packages/personal-assistant/src/global-agent.ts": "cdca26ebc0b502af56c7dd7410b4cb90a37cf8c8",
+    "src/IM/frontend/src/features/personal-agent/personal-agent-blocked-contacts.tsx": "6f50fdeb37c7232114873a1eb0dfda0aca826aa1"
+  },
+  "code_review_mode": "bounded patch",
+  "verification_mode": "corrected-delta",
+  "verdict": "Approved",
+  "corrected_delta_outcome": "aligned",
+  "requires_full_verification": false,
+  "counts": {
+    "critical": 0,
+    "warning": 0,
+    "suggestion": 0
+  },
+  "findings": [],
+  "mapping": [
+    {
+      "contract": "Current blocked-person list, evidence and owner unblock in existing PA configuration",
+      "outcome": "aligned",
+      "evidence": "GET/DELETE resolve only the authenticated owner's binding. Actor is a persisted identity, not a submitted display name. Listing reads current pa_contact_blocks and retains incident history; each evidence URL points to the original only if conversationAccess currently grants the owner read, otherwise to that binding's actual owner notice. New card is inside the existing owner-matched PersonalAgentSettings; ordinary/other-owner configuration exposure is unchanged. Unblock errors preserve records and permit retry; success invalidates existing personal-agent queries. Type=button avoids submitting dirty shared configuration."
+    },
+    {
+      "contract": "Native Web IM actor restriction follows the person across chats while group messages remain received",
+      "outcome": "aligned",
+      "evidence": "messageAllowed revalidates current source rights and blocks the persisted actor only in non-group conversations. Group source admission returns actorRisk from current binding+actor relation and incident reason. PersonalAssistant deletes incoming personal_actor_risk and only installs the server-returned value; input review receives it in source evidence, then GlobalAgent.receive stores that same admitted input in Inbox and Inbox.read exposes actor_risk. Tests execute both reviewer and actual Inbox projection and clear the forged/stale metadata when admission no longer returns risk. The flag explicitly does not make every message malicious and grants no owner authority."
+    },
+    {
+      "contract": "Normal group sends remain independently reviewed, direct sends remain blocked",
+      "outcome": "aligned",
+      "evidence": "Prepared evidence includes participant recipient_risks alongside complete frozen payload, recipients, current policy, sources and disclosures. Only group destinations skip the old contact presence hardblock; the same prepare/review/digest/permit/commit chain remains. Non-group native audiences still check current actor risk; existing verified external transport checks remain unchanged. This review does not infer cross-platform identity linkage."
+    },
+    {
+      "contract": "Owner decisions revoke old permits and notify the main PA without a permanent historical score",
+      "outcome": "aligned",
+      "evidence": "Block/unblock modify the existing relation, increment policy revision and persist policy.changed in the same transaction, then wake through the existing observation path. PersonalActions.validate rejects a permit whose policy revision predates the decision. Global observation recovery delivers the authenticated event to the current main session and explains removal of an active contact restriction; events are acknowledged through the existing durable queue. New admission computes risk only from the current block row, so removal clears it despite retained incidents. Previously read contexts are not claimed erased."
+    },
+    {
+      "contract": "Owner read-only observation of their PA-human direct does not grant private-group or ordinary-agent human-DM access",
+      "outcome": "aligned",
+      "evidence": "directAgentOwners still requires exactly two direct participants. Its added branch requires exactly one human and a PA binding whose owner matches the actual profile, plus current PA access to that conversation space; outer conversationAccess still checks the observer's current account/space eligibility. is_observer does not set is_member, can_write or can_join. HTTP, list, event replay and real-time reader selection use this common helper. Private groups never enter the branch; ordinary Agent-human directs have no PA owner relation. Existing two-Agent direct semantics remain retained."
+    },
+    {
+      "contract": "Spec/design/current/delta consistency",
+      "outcome": "aligned",
+      "evidence": "R15 design, IM/current/archive scenarios and gateway delta consistently narrow blocking to direct requests, retain group risk evidence and reviewed collaboration, provide reversible owner controls and scoped evidence observation. Old R13 all-request wording is explicitly updated. No new scoring engine, migration, scheduler or identity guessing is introduced."
+    }
+  ],
+  "independent_checks": [
+    {
+      "command": "pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-disclosure.test.ts packages/personal-assistant/tests/personal-assistant.test.ts",
+      "result": "3 files / 42 tests passed, 0.67s",
+      "log": "/tmp/pa-static-review-616/r15-boundary-tests.log",
+      "coverage": "Current group ingress, risk evidence, reviewed group commit, direct refusal, owner-only unblock, readonly observer HTTP/write/join, private-group fallback and real input-review/Inbox annotation propagation; earlier fixed notice, permit and privacy regression retained."
+    },
+    {
+      "command": "pnpm exec vitest run src/features/personal-agent/personal-agent.test.tsx",
+      "cwd": "src/IM/frontend",
+      "result": "1 file / 8 tests passed, 1.24s",
+      "log": "/tmp/pa-static-review-616/r15-ui-tests.log",
+      "coverage": "Existing config integration, evidence URL, failed unblock retaining the person, retry and list refresh after actual mocked success."
+    },
+    {
+      "command": "pnpm exec tsx /tmp/pa-static-review-616/r15-native-contact-boundary-probe.mts",
+      "result": "exit=0; pass and all ten named boundary assertions true",
+      "log": "/tmp/pa-static-review-616/r15-native-contact-boundary-probe.log",
+      "coverage": "Actual Fastify route, Messaging/PersonalAgents/PersonalActions/conversationAccess/readers and SQLite with personal-space PA in a company direct: owner readonly; private group denied and owner-notice fallback; direct blocked; block invalidates previously allowed permit; group receives actor risk and reviewed reply commits; unblock clears current risk; both policy events persisted; incident history retained; ordinary Agent-human DM remains unobservable.",
+      "limits": "Synthetic identities and independent allow, not real model semantics or browser receipt. First probe attempted deleting a referenced binding and hit a fixture foreign-key constraint at its final ordinary-Agent case; fixture corrected to create a separate real ordinary Agent and rerun all assertions successfully. App/database closed in finally; no shared service mutation."
+    },
+    {
+      "command": "git diff --check and JSON parsing",
+      "result": "passed"
+    }
+  ],
+  "retained_and_rewritten_test_evidence": [
+    "/tmp/feat616-r15-green3.log: caller targeted 3 files / 66 passed, read",
+    "/tmp/feat616-r15-green2.log: earlier 3 files / 40 passed including caller-retained tenancy evidence, read; retained for unchanged boundaries",
+    "/tmp/feat616-r15-web.log: 2 files / 10 passed, read",
+    "/tmp/feat616-r15-backend-all.log: 259 passed / 1 failed, read; not reported as a full-green run. Failure was old personal-sources owner_can_read=false for PA-human direct, intentionally invalidated by the new authorized observation contract.",
+    "/tmp/feat616-r15-sources.log: corrected personal-sources 1 file / 6 passed, read. New assertion expects true for PA-human direct, then converts the same fixture to a private group and still requires false; product code unchanged by this test correction.",
+    "/tmp/feat616-r15-web-build.log: frontend build completed successfully with existing chunk warning, read",
+    "/tmp/feat616-r15-root-all.log: final root full suite 103 files / 448 passed, read; supersedes the earlier narrow contract-mismatch run without erasing it",
+    "/tmp/feat616-r15-frontend-all.log: final full frontend 100 files / 933 passed, read",
+    "Caller final Python result: 62 passed / 31 deselected; execution not repeated by reviewer",
+    "Caller confirmed IM/PA build session56387 exit=0 and both-package explicit typecheck session38144 exit=0; reviewer did not rerun builds or restart the served lib runtime",
+    "/tmp/feat616-r15-docs.log: documentation integrity passed 240 maintained sources / 67 required routes, read; initial gateway/spec.md manifest count5 was stale after the sixth Requirement, corrected only to6 with no product code change"
+  ],
+  "product_and_scope_limits": "Current test gates prove identity, ACL, annotations, policy persistence and deterministic reviewed delivery. They do not prove a real model will always interpret person-level risk correctly or that all visual layouts are mature. Real config→evidence→readonly→unblock product journey is separate. Native Web IM uses stable user IDs; existing external adapter identity remains source-scoped, with no asserted cross-platform linking. Earlier unaffected R1-R14 evidence and failures are retained; no full branch review or unrelated suite rerun.",
+  "handoff": "Only code-review-r15.json and verification-r15.json written. No product, test or design edits, commit, deployment or shared runtime restart. No actionable evidenced defect remains in the bounded frozen product delta; corrected-delta aligned. Final caller test/docs validation incorporated after product-code freeze; only the source test contract and docs manifest changed, no new product review required."
+}

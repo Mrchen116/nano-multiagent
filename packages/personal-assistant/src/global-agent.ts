@@ -162,7 +162,7 @@ export class GlobalAgent {
                 }
               }
               const id=`pa-event:${config.personal!.bindingId}:${event.event_id}`;
-              const instruction='Respect the current source permissions for further reads and disclosures. Previously read content has not been erased. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
+              const instruction='Respect the current source permissions for further reads and disclosures. Previously read content has not been erased. If contact_blocked is false, the owner has removed the current contact restriction: stop treating prior blocked annotations as an active restriction. Incident history alone does not keep a person blocked. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
               await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
                 content:[{type:'text',text:`Personal assistant product state changed: ${JSON.stringify({kind:event.kind,payload:event.payload})}. ${instruction}`}],
                 source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});

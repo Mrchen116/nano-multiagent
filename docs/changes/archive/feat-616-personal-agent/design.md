@@ -97,7 +97,7 @@ reply_draft 保存来源定位元数据，与消息绑定，正文和编辑 revi
 
 基线为用户截图中展开的五张重复大卡：每张重复“需要知情”及说明、屏蔽与误会两个长按钮并列，缺少单纯确认已读的出口。保持原PA聊天与普通输入框，不新增通知中心或审批页。改为默认一条紧凑保护摘要（状态、请求数、联系人数）；展开仅按actor身份聚合，先看人物、最新原因摘要，再按需展开所有原始理由和对应消息链接。不同来源证据不合并或丢弃。提醒与聊天正文视觉区分，手机不横向溢出，长名字/原文换行。
 
-主动作“知道了”调用现有incident接口的新dismiss分支，仅把显示中的open记录标为dismissed，无policy revision、屏蔽或wake副作用；固定对方通知仍按原有冻结内容/受众/审查校验完成，dismissed不使在途通知失效，迟到的dismiss也不覆盖blocked或closed决定；批量逐条请求完成后统一刷新，部分失败仍显示失败记录。误会和拒收放在“后续协作”，说明前者不放行信息、后者仅阻止对方联系PA。block的原actor级权限边界不变，同时关闭同actor其他open提醒，避免已屏蔽仍被重复要求处理。文案走现有i18n；原始模型理由/人名不假装自动翻译。
+主动作“知道了”调用现有incident接口的新dismiss分支，仅把显示中的open记录标为dismissed，无policy revision、屏蔽或wake副作用；固定对方通知仍按原有冻结内容/受众/审查校验完成，dismissed不使在途通知失效，迟到的dismiss也不覆盖blocked或closed决定；批量逐条请求完成后统一刷新，部分失败仍显示失败记录。误会和拒收放在“后续协作”，说明前者不放行信息、后者拒收对方私聊请求，群聊保留消息并提示风险。block的actor级关系继续复用，同时关闭同actor其他open提醒，避免已屏蔽仍被重复要求处理。文案走现有i18n；原始模型理由/人名不假装自动翻译。
 
 原型对照以实际组件在隔离53808中的折叠/展开/理由/后续协作状态截图为本轮局部可交互呈现（沿用现有导航和聊天背景），证据在data/acceptance/feat-616/r13-privacy-notices/。must-match：无须处理可读、同人只占一组、知道了不改权限、可查看出处与恢复PA、手机可读可点；不重做其他聊天或历史风险判定。
 
@@ -109,3 +109,16 @@ reply_draft 保存来源定位元数据，与消息绑定，正文和编辑 revi
 PA独有聊天访问作为现有Config中的一张卡片：说明访问范围，默认折叠排除列表，展开后搜索并勾选，沿用带revision的policy API并明确即时生效。加载与保存失败可见，不把失败当作成功；不加入新审批或独立配置页。更换工作电脑沿用现有restore，在同页次级展开，仅有其他在线电脑时显示；有未保存/待应用的共享配置时禁用迁移并提示先保存或撤销，避免恢复刷新覆盖草稿。普通Agent不渲染PA设置，他人PA沿用只读profile；固定权限由后端继续校验。
 
 本轮原型对照以实际配置页/聊天入口截图为准，保留既有导航、配置标签和卡片样式。must-match：聊天到配置一跳、页面只有一个名字字段、聊天访问可发现且修改结果明确、手机可读可操作。
+
+
+## R15：可撤销的联系人限制与群内风险提示
+
+复用 `pa_contact_blocks(binding_id, actor_id)`，不新增信用分、风险引擎或审批。Web IM 账号 ID 在聊天间稳定；不把同名用户或不同外部渠道身份猜成同一个人。当前外部适配器仍以已验证的来源身份工作，不能宣称已实现跨平台身份关联。
+
+`PersonalAgents.actorRisk` 从当前屏蔽关系和原 incident 取依据；消息准入仅对 direct 硬拒绝，被屏蔽者的 group 消息沿普通权限与独立输入检查。可信 annotation 由 `pa.source.admit` 返回，覆盖中继携带的同名 metadata，经独立输入检查和主 PA `inbox_read` 输出；不修改原文、不自动断言每条新消息恶意。外发 validate 只对 direct 检查 blocked；群聊冻结提案把 recipient_risks 一起交给既有披露审核，policy revision 仍阻止旧许可复用。
+
+主人配置页新增紧凑“已屏蔽联系人”卡，默认展示联系人和最新原因，按需展开证据；GET blocked-contacts 返回当前名单及 owner 可访问的链接，DELETE 按认证 owner 的 binding 删除一人限制。解除失败保留记录，成功刷新名单和策略。block/unblock 在原事务里递增 policy revision 并插入 policy.changed，通过原持久观察队列向主 PA说明当前限制；取消后的新消息不再带风险提示，旧事件只供回看。无模型工具允许对方自行解除，无永久信誉结论。
+
+证据查看复用 `conversationAccess` 和 `conversationReaderIds`：恰有一个真人及一个 PA 的 direct，额外允许该 PA 的有效主人只读；PA 可以来自个人空间且合法参与公司 direct。仍核对账号、会话空间、PA 当前可访问性、绑定与 profile 归属。普通 Global-真人私聊、非成员私密群不增加权限；GET、sync、实时事件沿同一判定，所有写入仍要求成员身份。列表候选查询同步包含该 PA owner，观察标题显示实际双方。无法读取原群时返回已送达主人通知链接。
+
+测试沿现有 personal-agent / personal-assistant / frontend personal-agent 文件扩展，保护 actor 跨会话提示、group 收发与 direct 拒收、服务端覆盖伪造 metadata、主模型可见 inbox、owner-only 撤销与权限只读、失败重试。已有 tenancy owner-observer 覆盖保留，真实浏览器走配置→证据→只读→解除旅程。没有新增独立状态机。

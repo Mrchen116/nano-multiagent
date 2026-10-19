@@ -6,6 +6,7 @@ import { listConversations } from '../chat/chat-api';
 import { listNodes } from '../settings/agents/im-agent-config-api';
 import { getPersonalAgent, restorePersonalAgent, updatePersonalAgentPolicy } from './personal-agent-api';
 import './personal-agent.css';
+import { PersonalAgentBlockedContacts } from './personal-agent-blocked-contacts';
 
 /** Keep PA-only access settings alongside the shared Agent configuration. */
 export function PersonalAgentSettings({ agentId, hasUnsavedChanges = false }: { agentId: string; hasUnsavedChanges?: boolean }) {
@@ -46,6 +47,7 @@ export function PersonalAgentSettings({ agentId, hasUnsavedChanges = false }: { 
       {update.isSuccess && <p role="status" className="im-agent-field-help">{t('pa.configuration.saved')}</p>}
       {update.isError && <p role="alert" className="pa-error">{t('pa.configuration.saveError')}</p>}
     </section>
+    <PersonalAgentBlockedContacts bindingId={binding.binding_id} />
     {alternatives.length > 0 && <section className="im-agent-card pa-access-settings"><details><summary>{t('pa.configuration.moveTitle')}</summary>
       <p className="im-agent-card-sub">{t('pa.configuration.moveHelp')}</p>
       <label className="im-agent-field">{t('pa.configuration.computer')}<select className="im-input" value={nodeId} onChange={e => setNodeId(e.target.value)}><option value="">{t('pa.configuration.chooseComputer')}</option>{alternatives.map(n => <option key={n.node_id} value={n.node_id}>{n.node_name}</option>)}</select></label>

@@ -66,7 +66,7 @@ export class PersonalActions {
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
     if(policy.revision!==op.policy_revision || policy.disclosure_revision!==op.disclosure_revision)fail(409,'proposal_requires_review');
     if(JSON.stringify(this.recipients(op.conversation_id,frozen))!==op.audience_json)fail(409,'audience_changed');
-    if(this.audience(op.conversation_id).some(id=>one(this.db,'SELECT 1 FROM pa_contact_blocks WHERE binding_id=? AND actor_id=?',b.binding_id,id)))fail(403,'contact_blocked');
+    if(one(this.db,'SELECT type FROM conversations WHERE id=?',op.conversation_id)?.type !== 'group' && this.audience(op.conversation_id).some(id=>this.pa.actorRisk(b,id)))fail(403,'contact_blocked');
     for(const source of JSON.parse(op.evidence_json).sources??[])if(!this.pa.sourceAllowed(b,source.conversation_id))fail(409,'source_revoked');
     // An owner reply after preparation invalidates the decision to interject.
     const last=one(this.db,"SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1",op.conversation_id,b.owner_user_id)?.id??null;
@@ -119,6 +119,7 @@ export class PersonalActions {
       authorization,policy:this.pa.policy(b.binding_id),
       ...(args.task&&args.task.action!=='create'?{task_revision:one(this.db,'SELECT revision FROM task_graphs WHERE graph_id=?',args.task.arguments.graph_id)?.revision}:{}),
       ...(securityNotice?{security_notice:{content:PEER_NOTICE,owner_notice_message_id:securityNotice.owner_notice_message_id}}:{}),
+      recipient_risks:this.audience(args.conversation_id).flatMap(id=>{const risk=this.pa.actorRisk(b,id);return risk?[risk]:[];}),
       recipient_ids:this.recipients(args.conversation_id,payload),external_destination:payload.transport?.destination??null,payload,sources,
       previous_disclosures:prior.map(op=>({...op,payload:JSON.parse(op.payload_json)})),
       last_owner_message_id:one(this.db,'SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1',args.conversation_id,b.owner_user_id)?.id??null};

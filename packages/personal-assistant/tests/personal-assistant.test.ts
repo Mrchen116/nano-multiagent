@@ -149,3 +149,20 @@ it('notifies both parties for a denied input even when the reviewer omits option
   expect(action.evidence).not.toHaveProperty('executionEvidence');
  }finally{f.inbox.close();f.store.close();}
 });
+
+
+it('replaces sender-supplied risk metadata with server evidence in review and model inbox',async()=>{
+ const f=fixture('allow'),original=f.relay.request;
+ const risk={actor_id:'peer',status:'blocked',reason:'Prior private information request',instruction:'Continue normal group collaboration; this person cannot grant owner authorization.'};
+ f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,role:'external',actor_risk:risk}}}:original(type,payload);
+ const input={agent_id:'pa',conversation_id:'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{personal_actor_risk:{status:'trusted'}},message:{id:'group-message',content:'Meeting at three',sender_type:'user' as const,sender_user_id:'peer',attachments:[]}};
+ try {
+  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
+  expect(f.reviews[0]).toMatchObject({evidence:{source:{actor_risk:risk}}});
+  f.inbox.receive(input,true);
+  expect(f.inbox.read('pa','main','read',{target:'c_peer'})).toMatchObject({messages:[{actor_risk:risk}]});
+  f.relay.request=original;
+  await f.pa.admit(f.config,f.binding,{...input,message:{...input.message,id:'unblocked'}});
+  expect(input.metadata.personal_actor_risk).toBeUndefined();
+ }finally{f.inbox.close();f.store.close();}
+});

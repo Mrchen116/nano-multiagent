@@ -23,7 +23,7 @@ export function PersonalAgentIncidents({bindingId}:{bindingId:string}) {
     },
     onMutate:()=>setFeedback(''),
     onSuccess:action=>setFeedback(t(`pa.privacy.saved.${action}`)),
-    onSettled:()=>cache.invalidateQueries({queryKey:key}),
+    onSettled:()=>cache.invalidateQueries({queryKey:['personal-agent']}),
   });
   const open=(incidents.data?.items??[]).filter(item=>item.status==='open');
   const groups=new Map<string,PersonalIncident[]>();

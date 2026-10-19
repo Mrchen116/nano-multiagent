@@ -17,6 +17,8 @@ it('queries both identities once and keeps excluded sources out of list, search 
  expect(result.messages.map((m:any)=>m.message_id).sort()).toEqual([ownerMessage.id,peerMessage.id].sort());
  expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.url).toBe(`http://im.test/chat/peer?message_id=${ownerMessage.id}`);
  expect(query({action:'read',target:'agent-only'}).messages[0].sender.name).toBe('u2');
+ expect(query({action:'read',target:'agent-only'}).messages[0].source.owner_can_read).toBe(true);
+ db.prepare("UPDATE conversations SET type='group',visibility='private' WHERE id='agent-only'").run();
  expect(query({action:'read',target:'agent-only'}).messages[0].source.owner_can_read).toBe(false);
  expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.owner_can_read).toBe(true);
  const command=ctx.messaging.insertMessage('chat','u1','user','Do not read the Agent peer conversation');

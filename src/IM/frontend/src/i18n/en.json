@@ -1564,15 +1564,15 @@
       "source": "View original message",
       "dismiss": "Got it",
       "options": "Future requests",
-      "optionsHint": "Collaboration can continue, with each request still checked. Blocking only stops requests to your assistant; your own chats are unaffected.",
+      "optionsHint": "Requests are still checked. Blocking stops direct requests; shared group messages remain visible with a risk reminder. Your own chats are unaffected.",
       "misunderstanding": "Mark as misunderstanding",
-      "block": "Block requests to my assistant",
+      "block": "Block direct requests",
       "saving": "Saving…",
       "error": "Could not save all changes. The remaining notices are still here; please try again.",
       "saved": {
         "dismiss": "Notices dismissed. Privacy protection stays on.",
         "misunderstanding": "Marked as a misunderstanding. Future requests will still be checked.",
-        "block": "Your assistant will no longer accept new requests from this person."
+        "block": "Direct requests blocked. Group collaboration continues with a risk reminder."
       },
       "contacts_one": "{{count}} person",
       "contacts_other": "{{count}} people"
@@ -1596,6 +1596,17 @@
       "chooseComputer": "Choose another online computer",
       "move": "Continue on this computer",
       "saveBeforeMove": "Save or discard your configuration changes before changing computers."
+    },
+    "blocked": {
+      "title": "Blocked contacts",
+      "help": "Direct requests from these people are blocked. Shared group messages still reach your assistant with a risk reminder. Your own chats are unaffected.",
+      "loading": "Loading contacts…",
+      "empty": "No blocked contacts",
+      "unblock": "Unblock",
+      "unblocking": "Unblocking…",
+      "notice": "View risk notice",
+      "privateSource": "You are not a member of the original chat. You can view the risk notice your assistant sent you.",
+      "restored": "Contact unblocked. Future requests will be checked normally."
     }
   }
 }

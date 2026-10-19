@@ -69,3 +69,13 @@
 .pa-access-settings .pa-source-list { display:grid; gap:8px; max-height:240px; overflow:auto; margin-top:12px; }
 .pa-access-settings .pa-source-list label { display:flex; gap:10px; align-items:center; min-height:36px; font-size:13px; overflow-wrap:anywhere; }
 .pa-access-settings .pa-source-list input { flex-shrink:0; }
+
+.pa-blocked-contacts { display:grid; gap:12px; }
+.pa-blocked-count { margin-left:8px; color:var(--im-text-muted); font-size:12px; font-weight:400; }
+.pa-blocked-empty { margin:0; padding:12px 0; color:var(--im-text-muted); font-size:13px; }
+.pa-blocked-person { min-width:0; border-top:1px solid var(--im-border); padding-top:16px; }
+.pa-blocked-heading { display:flex; align-items:center; gap:9px; }
+.pa-blocked-heading strong { flex:1; min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.pa-blocked-heading button { flex-shrink:0; }
+.pa-blocked-person .pa-privacy-reason { margin-left:37px; }
+.pa-blocked-person .pa-privacy-evidence { margin-left:37px; }

@@ -23,6 +23,7 @@ function mount(element:React.ReactNode) {
 beforeEach(async()=>{
  vi.resetAllMocks();await act(async()=>setLanguage('en'));
  vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[]});
+ vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[]});
  vi.mocked(api.getPersonalAgent).mockResolvedValue(state);
  vi.mocked(listConversations).mockResolvedValue([{id:'private',title:'Private group'} as Conversation]);
  vi.mocked(listNodes).mockResolvedValue([]);
@@ -106,4 +107,20 @@ it('shows a saved owner request awaiting processing and removes it when processi
  view.unmount();
  mount(<PersonalAgentCollaboration state={state} pendingOwnerInput={false}/>);
  expect(screen.queryByText('Working on your request…')).not.toBeInTheDocument();
+});
+
+
+it('shows active blocked people, opens evidence and keeps a failed unblock retryable',async()=>{
+ const person={actor_id:'peer',actor_name:'Lin',reason:'Requested private notes',evidence:[{id:'incident',reason:'Requested private notes',original:true,conversation_id:'pa-peer',message_id:'probe'}]};
+ vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[person]});
+ vi.mocked(api.unblockPersonalContact).mockRejectedValueOnce(new Error('Offline')).mockImplementation(async()=>{vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[]});return {ok:true};});
+ mount(<PersonalAgentSettings agentId="a1"/>);
+ await screen.findByText('Lin');
+ await userEvent.click(screen.getByText('Reasons and records'));
+ expect(screen.getByRole('link',{name:/View original message/})).toHaveAttribute('href','/chat/pa-peer?message_id=probe');
+ await userEvent.click(screen.getByRole('button',{name:'Unblock'}));await screen.findByRole('alert');
+ expect(screen.getByText('Lin')).toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Unblock'}));
+ await screen.findByText('No blocked contacts');
+ expect(api.unblockPersonalContact).toHaveBeenLastCalledWith('peer',expect.anything());
 });

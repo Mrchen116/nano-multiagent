@@ -45,9 +45,12 @@ export class PersonalAssistant {
     const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
     if(source.allowed!==true)return false;
     input.metadata.personal_source_role = source.role;
+    // Only the authenticated server admission can set or clear this annotation.
+    delete input.metadata.personal_actor_risk;
+    if(source.actor_risk) input.metadata.personal_actor_risk = source.actor_risk;
     if (source.role !== 'owner_instruction' && source.role !== 'owner_fact') {
       const verdict = await this.review(config,'input',{source:{conversation_id:input.conversation_id,message_id:input.message.id,
-        actor:input.message.sender_user_id,kind:input.message.sender_type},content:input.message.content});
+        actor:input.message.sender_user_id,kind:input.message.sender_type,actor_risk:source.actor_risk},content:input.message.content});
       if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
       if (verdict.incident || verdict.decision === 'deny') {
         const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident?.reason ?? verdict.reason});
