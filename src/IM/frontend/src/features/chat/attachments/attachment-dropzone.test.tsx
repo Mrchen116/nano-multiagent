@@ -35,4 +35,15 @@ describe("AttachmentDropzone", () => {
     expect(onAdd).toHaveBeenCalledWith([file]);
   });
 
+  test("disables file drops without disabling independent child actions", () => {
+    const onAdd = vi.fn();
+    const retry = vi.fn();
+    render(<AttachmentDropzone onAdd={onAdd} disabled><button onClick={retry}>Retry request</button></AttachmentDropzone>);
+    const button = screen.getByRole('button', {name:'Retry request'});
+    fireEvent.drop(button.parentElement!, {dataTransfer:dataTransferOf([makeFile('a.png','image/png')])});
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(button.closest('[aria-disabled="true"]')).toBeNull();
+    fireEvent.click(button);
+    expect(retry).toHaveBeenCalledOnce();
+  });
 });

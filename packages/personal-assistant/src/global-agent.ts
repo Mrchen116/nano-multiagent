@@ -1,7 +1,8 @@
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, MessageApprovalContext } from '@nano/product-contracts';
-import type { ProtocolFrame } from '@nano/channels';
+import { canonicalJson, interactiveResponse } from '@nano/product-contracts';
+import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
@@ -234,12 +235,16 @@ export class GlobalAgent {
   }
   private async send(binding: SessionBinding, call: ProductCall, signal: AbortSignal): Promise<unknown> {
     const { inbox, store, runtime } = this.options;
-    const global = this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode === 'global';
+    const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
+    const global = config?.mode === 'global';
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
+    const interactive = interactiveResponse(call.args.interactive);
+    if (interactive && config?.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
+    const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
     const previous = inbox.publication(call.operationId);
     if (previous) {
-      if (previous.target !== target || previous.body !== text) throw new Error('Publication identity conflict');
+      if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
       if (previous.result) return JSON.parse(previous.result) as unknown;
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
@@ -268,7 +273,7 @@ export class GlobalAgent {
     }
     signal.throwIfAborted();
     // Receive and dispatch admission are synchronous in this node's event loop.
-    inbox.preparePublication(call.operationId, target, text);
+    inbox.preparePublication(call.operationId, target, publicationBody);
     // External conversations and their IM mirrors share one delivery target.
     const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
@@ -284,12 +289,18 @@ export class GlobalAgent {
     inbox.settlePublication(call.operationId, 'sending');
     try {
       const response = await this.options.relay.request('agent.message', { node_id: this.options.nodeId, text,
+        ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       const result = { status: 'sent', target, message_id: response.payload.message_id, conversation_id: response.payload.conversation_id };
       inbox.settlePublication(call.operationId, 'confirmed', result);
+      if (interactive && !global && turn !== undefined) store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`, JSON.stringify(result));
       if (global) this.append(binding, `publication:${call.operationId}`, 'message_sent', { call_id: call.callId, text, ...result }, turn);
       return result;
     } catch (error) {
+      if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+        inbox.settlePublication(call.operationId, 'rejected');
+        throw new Error(`Interactive reply rejected: ${error.code ?? error.message}`);
+      }
       inbox.settlePublication(call.operationId, 'unknown');
       throw error;
     }

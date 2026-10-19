@@ -19,8 +19,8 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、账号设置与系统策略预设 | 15 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口 | 27 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存 | 25 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口、私聊交互背景与群聊明确提交 | 30 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存、连续交互探索、面板自适应消息布局与统一视觉层级 | 29 |
 | [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 6 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
 | [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹及父子执行范围导航 | 8 |

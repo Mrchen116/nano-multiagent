@@ -1,0 +1,58 @@
+{
+  "validated_at": "f63ffa73d",
+  "ordinary_session_id": "6f0256c3-ffc7-414a-aa6e-05337851eed7",
+  "messages": [
+    [
+      "b8d4062660ab4c21a4d64b33cfd36fa1",
+      "user",
+      "给我讲解下冒泡排序",
+      "completed",
+      null
+    ],
+    [
+      "2ae2bff62e9b45a08e8207f9af45934c",
+      "agent",
+      "冒泡排序的核心是：相邻两个数比较，顺序不对就交换。按从小到大排序时，每一轮都会把剩余元素中的最大值“冒”到右端。例如 [4,2,3,1] 第一轮变为 [2,3,1,4]，4 就到位了；重复这个过程，直到有序。下面可以逐步查看每一次比较，并阅读 Python 实现。",
+      "completed",
+      null
+    ],
+    [
+      "680bb5be9f5c4a66a3bf849fa7cae8f7",
+      "user",
+      "为什么这里要交换？",
+      "completed",
+      null
+    ],
+    [
+      "12b0dea209884921beba288c406eaabe",
+      "agent",
+      "你现在看到的是**第 1 轮第②步：比较 4 和 3**。\n\n因为我们要按**从小到大**排序，而此时 **4 在 3 左边，4 > 3**，它们的顺序反了，所以要交换：\n\n```text\n交换前： [2, 4, 3, 1]\n             └──┘\n交换后： [2, 3, 4, 1]\n```\n\n这一步让更大的 **4 向右移动了一格**。接下来它会和 1 比较，再交换，最终到达最右端。\n\n注意：**一次交换不需要让整个数组都有序**，只需要调整当前相邻两个数的顺序。反复这样做，整个数组就会逐渐排好。",
+      "completed",
+      null
+    ]
+  ],
+  "cards": [
+    [
+      "2ae2bff62e9b45a08e8207f9af45934c",
+      "root = Stack([intro, demo, implementation, properties])\n$step = 0\nintro = Card([CardHeader(\"冒泡排序：大的数一步步往右走\"), TextContent(\"以**从小到大**排序为例：从左向右比较相邻元素，左边大于右边就交换。一轮结束后，未排序部分的最大值一定到达最右端；下一轮就不用再比较它。\")])\nframes = [{values: [4,2,3,1], note: \"初始数组。点击下一步，开始第一轮。\"}, {values: [2,4,3,1], note: \"第1轮①：比较 4 和 2。4 > 2，交换。\"}, {values: [2,3,4,1], note: \"第1轮②：比较 4 和 3。4 > 3，交换。\"}, {values: [2,3,1,4], note: \"第1轮③：比较 4 和 1，交换。最大值 4 已到位，后续不再比较它。\"}, {values: [2,3,1,4], note: \"第2轮①：比较 2 和 3。顺序正确，不交换。\"}, {values: [2,1,3,4], note: \"第2轮②：比较 3 和 1，交换。3 已到位，右侧 [3,4] 已排好。\"}, {values: [1,2,3,4], note: \"第3轮：比较 2 和 1，交换。全部有序！共比较6次，交换5次。\"}]\nframe = frames[$step]\ndemo = Card([CardHeader(\"逐步演示\", \"示例：[4, 2, 3, 1]\"), numbers, explanation, navigation])\nnumbers = Stack(@Each(frame.values, \"n\", Tag(\"\" + n, null, \"lg\", \"info\")), \"row\", \"m\")\nexplanation = TextContent(frame.note)\nnavigation = Buttons([Button(\"上一步\", @Set($step, @Max([0, $step - 1])), \"secondary\"), Button(\"下一步\", @Set($step, @Min([6, $step + 1])), \"primary\"), Button(\"重置\", @Reset($step), \"tertiary\")])\nimplementation = Card([CardHeader(\"Python 实现\"), CodeBlock(\"python\", \"def bubble_sort(a):\\n    n = len(a)\\n    for i in range(n - 1):\\n        swapped = False\\n        for j in range(n - 1 - i):\\n            if a[j] > a[j + 1]:\\n                a[j], a[j + 1] = a[j + 1], a[j]\\n                swapped = True\\n        if not swapped:\\n            break\\n    return a\\n\\nprint(bubble_sort([4, 2, 3, 1]))\\n# [1, 2, 3, 4]\"), TextContent(\"**外层循环**控制轮数，最多 n−1 轮。\\n\\n**内层循环**比较相邻元素：右侧已有 i 个元素到位，因此只比较 n−1−i 次。\\n\\n**提前结束**：如果整轮没有发生交换，说明已经有序，无须继续。此函数直接修改传入的列表。\")])\nproperties = Card([CardHeader(\"记住这几个特点\"), TextContent(\"- **时间复杂度**：平均、最坏 O(n²)；带提前结束优化时，已排序输入为 O(n)。\\n- **额外空间**：O(1)，原地排序。\\n- **稳定**：仅在左边严格大于右边时交换，相等元素的相对顺序不变。\\n- **适用场景**：适合学习排序原理；大规模数据通常使用语言内置排序。\\n\\n口诀：**相邻比较，大的右移；每轮到位一个，无交换就结束。**\")])"
+    ]
+  ],
+  "backgrounds": [
+    {
+      "message_id": "680bb5be9f5c4a66a3bf849fa7cae8f7",
+      "agent_id": "e2e",
+      "background": [
+        {
+          "source_message_id": "2ae2bff62e9b45a08e8207f9af45934c",
+          "source_summary": "冒泡排序的核心是：相邻两个数比较，顺序不对就交换。按从小到大排序时，每一轮都会把剩余元素中的最大值“冒”到右端。例如 [4,2,3,1] 第一轮变为 [2,3,1,4]，4 就到位了；重复这个过程，直到有序。下面可以逐步查看每一次比较，并阅读 Python 实现。",
+          "agent_id": "e2e",
+          "state": {
+            "$step": 2
+          },
+          "fields": [],
+          "interacted_at": 1792410981408
+        }
+      ]
+    }
+  ]
+}

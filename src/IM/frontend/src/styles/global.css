@@ -2365,7 +2365,8 @@ body {
   display: flex;
   flex-direction: row;
   gap: 10px;
-  max-width: 72%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-bubble--user {
@@ -2376,6 +2377,16 @@ body {
 .chat-bubble--agent {
   align-self: flex-start;
   align-items: flex-start;
+  width: 100%;
+}
+
+.chat-bubble-column {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chat-bubble--agent > .chat-bubble-column {
+  flex: 1;
 }
 
 .chat-bubble-system {
@@ -2400,6 +2411,9 @@ body {
 
 .chat-bubble-card {
   position: relative;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(100%, 64rem);
   background: var(--im-surface-2);
   border: none;
   border-radius: 1rem;
@@ -2691,6 +2705,25 @@ body {
 .chat-bubble-content {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chat-message-body {
+  max-width: 64rem;
+  line-height: 1.65;
+}
+
+/* Wide artifacts use the panel; surrounding prose keeps a reading measure. */
+.chat-bubble-card:has(.im-code-block, .im-md-table) {
+  width: 100%;
+  max-width: none;
+}
+
+.chat-message-body:has(.im-code-block, .im-md-table) {
+  max-width: none;
+}
+
+.chat-message-body .im-md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 64rem;
 }
 
 .im-md {
@@ -4977,9 +5010,6 @@ body {
   }
   .chat-pane-messages {
     padding: 14px 12px 8px;
-  }
-  .chat-bubble {
-    max-width: 88%;
   }
 }
 

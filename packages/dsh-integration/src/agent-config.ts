@@ -9,6 +9,7 @@ import * as Persona from '@deepseek-ai/dsh-persona';
 import * as GlobalMode from './global-mode.js';
 import * as TaskGraphs from './features/task-graphs.js';
 import * as Heartbeat from './features/heartbeat.js';
+import * as IntelligentUI from './features/intelligent-ui.js';
 import * as MemoryCuration from './features/memory-curation.js';
 import * as SkillCreation from './features/skill-creation.js';
 import * as Cron from './features/cron.js';
@@ -91,7 +92,7 @@ export class ConfigurationScopes extends Service {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;
       const disabled = new Set<string>();
-      for (const [feature, section] of [['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory'], ['skill_creation', 'nano-skill-creation']] as const) if (selected.features?.[feature] === false) disabled.add(section);
+      for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory'], ['skill_creation', 'nano-skill-creation']] as const) if (selected.features?.[feature] === false) disabled.add(section);
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
       assembly.sections = assembly.sections.filter(section => !disabled.has(section.name));
       assembly.contexts = assembly.contexts.filter(section => !disabled.has(section.name));
@@ -144,7 +145,7 @@ export class ConfigurationScopes extends Service {
     // Historical branches may retain a Feature disabled in the current template.
     // The native Agent restriction and prompt view still apply its exact choices.
     const configs = [...this.allConfigurations()].filter(config => config.agentId === scope.agentId);
-    for (const [key, plugin] of [['memory_curation', MemoryCuration], ['skill_creation', SkillCreation], ['task_graph', TaskGraphs], ['heartbeat', Heartbeat]] as const) {
+    for (const [key, plugin] of [['intelligent_ui', IntelligentUI], ['memory_curation', MemoryCuration], ['skill_creation', SkillCreation], ['task_graph', TaskGraphs], ['heartbeat', Heartbeat]] as const) {
       const enabled = configs.some(config => key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false);
       const existing = scope.features.get(key);
       if (!enabled && existing) { await existing.dispose(); scope.features.delete(key); }

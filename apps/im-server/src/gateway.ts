@@ -7,7 +7,7 @@ import type WebSocket from "ws";
 import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
-import {canonicalAgentConfiguration} from "@nano/product-contracts";
+import {canonicalAgentConfiguration, canonicalJson, interactiveResponse} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
 export type Connection = {
   socket: WebSocket;
@@ -503,11 +503,17 @@ export class Gateway {
       )
         fail(400, "invalid_agent_message");
       const key = source[1] ? `${a.agent_id}:${source[1]}` : null;
+      let interactive;
+      try { interactive = interactiveResponse(p.interactive); } catch (error) { fail(422, (error as Error).message); }
       const previous = key
         ? one(db, "SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=?", key)
         : undefined;
       if (previous) {
         s.access({ ...c, kind: "gateway" }, previous.conversation_id, a.agent_id);
+        const saved = s.message(previous.message_id);
+        const savedInteractive = s.interactions.publication(previous.message_id);
+        if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
+          || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({
           conversation_id: previous.conversation_id,
           message_id: previous.message_id,
@@ -532,18 +538,21 @@ export class Gateway {
             ? "agent_id"
             : "user_id";
       const targetId = targetKind === "agent_id" ? targetUser!.username.slice(6) : rawTarget;
-      const m = s.insertMessage(
+      const m = transaction(db, () => {
+      const created = s.insertMessage(
         id,
         s.agentUser(a.agent_id).id,
         "agent",
         p.text.trim(),
         p.attachments ?? [],
         key,
+        'completed',
+        { interactive, publish: false },
       );
       if (p.background_returns)
         db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(
           JSON.stringify(p.background_returns),
-          m.id,
+          created.id,
         );
       if (key)
         db.prepare("INSERT INTO agent_message_dispatch_log VALUES(?,?,?,?,?,?,?)").run(
@@ -552,9 +561,12 @@ export class Gateway {
           targetKind,
           targetId,
           id,
-          m.id,
+          created.id,
           now(),
         );
+      return created;
+      });
+      s.publishMessages([m]);
       s.event(
         id,
         m.id,

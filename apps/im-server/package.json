@@ -10,11 +10,12 @@
     "test": "vitest run tests"
   },
   "dependencies": {
-    "fastify": "5.8.2",
     "@fastify/websocket": "11.2.0",
-    "ws": "8.20.0",
+    "@nano/product-contracts": "workspace:*",
+    "@openuidev/lang-core": "1.0.1",
     "bcryptjs": "3.0.3",
-    "@nano/product-contracts": "workspace:*"
+    "fastify": "5.8.2",
+    "ws": "8.20.0"
   },
   "devDependencies": {
     "@nano/channels": "workspace:*",

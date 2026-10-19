@@ -27,6 +27,7 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
   };
   const capabilities = projectCapabilities(catalog, node, agent);
   expect(capabilities.tools.find(tool => tool.name === "expense_summary")).toMatchObject({source_group: "workspace", enabled: true, default_on: false});
+  expect(capabilities.features.find(feature => feature.key === "intelligent_ui")).toMatchObject({default_on: true, requires_tool: "send_message"});
   const commands = capabilities.commands;
   expect(commands.map((command) => command.name)).toEqual([
     "new",
