@@ -39,3 +39,7 @@
 ## Cleanup
 
 独立 reviewer 创建的测试 Issue #1–#8 已全部关闭、0 评论，私有测试仓随后由主 Agent 归档。未启动 Nano 真服务；本次构建和测试由命令自身结束。
+
+### Final sync documentation repair
+
+新 main 的 bugfix-618 delta 文档 auth-tenancy.md 引用同目录不存在的 gateway-relay.md，最终 docs-check 报 BROKEN_LINK。仅将链接指向既存 canonical docs/specs/im/gateway-relay.md；无语义变化，无运行时变更。已核对目标且重跑 docs-check，设计、代码、一致性和产品门禁按这一纯链接修复与归档 diff retained。此修复只在本 PR 工作区，不修改主 checkout 的 dirty 内容。
