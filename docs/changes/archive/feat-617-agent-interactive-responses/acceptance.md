@@ -232,3 +232,48 @@ Node已恢复：`RUNNING pid=18487 ready=true DSH=18491`，两条会话均取得
 - CAS、断连后重试冻结正文/附件、多卡歧义和所有Agent服务端拒绝由本轮专项协议材料支持；本reviewer没有新做这些故障注入，不能引用旧普通interaction_reply重试当作新后台context重试已通过。普通入口真实新样本由root单独记录。无Query/Mutation/patch或83组件重复全量测试，也无生产/真机声明。
 - 初始与群页出现 `Real-time updates are busy`，本reviewer以正常reload读取完成消息；root报告测试浏览器多连接达到每用户WS上限，并释放自己旧tab后Global页消失。本轮观察确认提示如实、消息持久、reload可见；不声称群页实时连接已全部恢复，也不将环境连接上限当成新背景逻辑失败。未降低限制或关闭未知用户tab。
 - 收尾仅关闭本reviewer新建的两个Chrome tab并reset临时viewport；无遗留故障拦截或自行启动服务。后续prompt-only改动可保留本轮传输/隐私/控件结果，新的生成策略需标记其自己的版本与样本。
+
+## Round 5 — 消息布局独立产品验收（2026-10-19）
+
+**Verdict: pass。新增 blocking / major / minor 均 0；highest_required_action: pass。** 本轮完整覆盖新增“消息宽度适配聊天面板与内容”三个 Scenario，其他行为按下述明确范围 retained。独立 reviewer `/root/layout_product_review` 未参与实现，未读取产品实现定位原因，未修改源码/测试/配置。
+
+- validated_at: `7de8780574093c17f1cedc82b7254b05b54d6f8c`；executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`。
+- 验收期间 HEAD 为 `b2c72f02a138511e5696b24b5860c7b4ee3e3e5a`，effective_base 为 `dfdbf6bf3`。独立检查 `git diff --stat 7de878057..HEAD` 只有另一项 bugfix-618 的 incident.md；受验产品树不变。
+- 实际 Chrome 加载 `/assets/index-DvjoFOE7.js`、`/assets/index-D7-5iZHo.css`，与本 worktree dist/index.html 一致。caller 确认 dist 来自上述受验产品树；未重启服务。
+- 实际 viewport（读取 DOM）：1537×944、769×900、390×844。中间档是769而非精确768。CUA viewport override 截图外侧留白不属于页面；页面 scrollWidth 分别为1537、769、390。
+- 账号 Test User；隔离服务 `http://127.0.0.1:58769`。复利 `c_8iutij8v`、混合消息 `c_dm0w2u5u`、既有Markdown表格 `c_uyylfjg0` 均可访问。
+
+### 实际体验与操作
+
+桌面直接阅读既有“复利探索馆”，先看摘要、分组和图表，再操作Tab。交互区实际宽1189.88px，起点x321.99；内容延伸到聊天面板右边距，没有外层重复灰底。原有内部介绍卡和指标卡仍保留分组，摘要、Tabs、参数和图表沿同一内容列排列。增长实验室的四指标为两列，图表横向展开，数值与对应标签可辨认；头像、名称与时间仍属于同一条消息。原型三指标/三参数并排仅是演示；真实模型源的四Tab、四指标及现有主题未被误判为不一致。
+
+769宽度仍有左聊天列表，聊天内容列随剩余空间收缩，段落换行、输入和参数可达。390宽度隐藏列表并显示返回入口。实际将复利探索馆本金从10000改为12000，期末本息从26532.98变为31839.57、累计收益19839.57、比单利多7839.57。之后通过Tab右滚入口进入“04 · 避开误区”，正文切换，输入框填入“布局验收：继续阅读”，发送按钮可用；随后清空该未发送测试输入。无保存成功/附带横条。没有发送新模型请求，本次结果仅证明本地计算、布局和输入操作。
+
+普通会话中 `hi` 与“Hi! What can I help you with today?”按内容收缩，发送方靠右、Agent靠左。Copy message 实际读回完整英文问候；会话菜单展开Rename/Pin chat/Mute chat/Agent configuration，入口可达。冒泡排序长说明在手机可连续阅读，Python块实际clientWidth320、scrollWidth430；横滚后scrollLeft109.375，文档横向偏移仍0。Copy code剪贴板保留完整Python内容与缩进，不是只复制可见部分。
+
+既有两列Markdown行程表在390自然换行，时间与安排可读，但不够证明宽表格滚动。因此caller另建隔离fixture群 `c_un37ok0p`，只用于真实客户端布局补证：消息 `1bcfaa002e3d44268b4507e26e10c1b8` 含八列表格和长代码，`97ed0f7f7d114553a37780c05f9de250` 为291字纯段落。它们是持久化固定数据、publish:false，不冒充真实模型生成或实时到达。
+
+该fixture桌面八列可直接比较，代码延伸到内容区右边；纯长段落气泡宽1023.99px（64rem），与宽内容外壳区分明确。手机八列表格可视宽300、内容宽1003；实际横滚到scrollLeft703.125，可读最后的团队规模及取舍列，页面仍390px。769下表格及代码也限制在各自区域，输入框保留。纯长段落手机自然换行，消息复制读回291字全文；没有整页横向滚动。
+
+### Scenario 与 must-match 对照
+
+| 来源 | 必验结果与证据 | 结论 |
+|---|---|---|
+| spec新增“桌面阅读交互回复”；design must-match宽交互/透明外壳 | 同一复利消息1537与窄屏实看；1189.88px交互区、身份/时间保留、图表与指标可读 | pass |
+| spec新增“短消息与长文字”；design must-match短句/长文/代码表格 | 既有短消息收缩；fixture纯长文1023.99px；390代码和八列表格实际内滚；消息与代码复制全文 | pass |
+| spec新增“窄面板与手机”；design must-match手机内容与输入 | 769/390直接浏览器视口；390改本金、Tab右滚并切换、继续输入；document scrollWidth390 | pass |
+| design retained导航与消息操作的受影响面 | 桌面列表/会话菜单、手机返回和composer仍可达；复制实操通过 | pass |
+
+### Reference Artifacts Reviewed
+
+读取spec/design末尾布局增量、design-review Round6、共同体验标准、当前 `docs/specs/im/web-chat-ux.md` 的阅读与交互契约；实际渲染 `http://127.0.0.1:8768/prototype-layout.html` 桌面，并以其宿主宽度/层级契约对照真实客户端。原型不作为产品操作成功证据。Round4仅在结束时用于界定未变范围，未用作者成功叙述代替本轮观察。
+
+截图只存仓库外 `/tmp/feat617-layout-evidence/`：`reviewer-desktop.png`（真实复利指标/图表）、`reviewer-mobile.png`（手机Tab切换与继续输入）、`reviewer-mobile-table.png`（既有行程表）、`reviewer-mobile-code.png`（代码内滚）、`reviewer-wide-table-mobile.png`（八列表格后列）、`reviewer-desktop-longtext.png`（宽内容与纯长文上限同屏）。这些是本地复查材料，不提交截图缓存。
+
+### Retained、限制与收尾
+
+Round4自然背景的Global/群聊权限、普通文字与明确提交、冻结和恢复结论按其原实际范围保留；Round3原生组件探索与明确请求的未变范围保留。本轮只改宿主布局，没有新做后端权限、断网幂等、模型生成、83组件全量、Query/Mutation/patch、原生iPhone或软键盘验收。不能将本轮pass扩大为这些范围重新通过。
+
+多个页面仍可见基线已有“Real-time updates are busy”横条。读取历史与上述本地操作完成；本轮未验证实时消息送达，也没有关闭未知用户tab或放宽连接限制。该环境现象未阻塞布局旅程，不作为新增布局缺陷。必要宽内容资源由caller补齐后完成观察，无剩余inconclusive。
+
+仅创建并关闭本reviewer两个Chrome标签页，已reset临时viewport；未启动服务、清空历史或提交新聊天消息。复利测试个人状态保留12000本金与风险Tab，属于授权本地探索。上层delta/current归并由orchestrator收口；本reviewer仅追加此报告。
