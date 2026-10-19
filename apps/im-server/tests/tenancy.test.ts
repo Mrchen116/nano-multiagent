@@ -238,7 +238,9 @@ it('lets both real Agent owners observe existing direct history and events witho
   const personal = messaging.resolveTarget('private-left', 'agent:private-right');
   // These histories predate observation and do not require another Agent message.
   db.prepare("UPDATE conversations SET owner_id='legacy-orphan' WHERE id=?").run(cross);
-  for (const id of [cross, same, personal]) messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null);
+  const interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([form])\nform = Form("draft", ContinueButton("send", "Continue"), [FormControl("Draft", TextArea("body", "Draft", 3, null, "Read only"))])'};
+  const histories = [cross, same, personal].map(id => messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null, 'completed', id === cross ? {interactive} : {}));
+  const interactionPath = `/im/v1/conversations/${cross}/messages/${histories[0].id}/interaction-state`;
   db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(cross,alice.user.id);
   const upload = await app.inject({method:'POST',url:`/im/v1/uploads?conversation_id=${cross}&file_name=history.txt`,payload:'historical attachment',headers:{authorization:`Bearer ${alice.access_token}`,'content-type':'text/plain'}});
   expect(upload.statusCode).toBe(201);
@@ -253,7 +255,10 @@ it('lets both real Agent owners observe existing direct history and events witho
     const ids = (await request(pair.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id);
     expect(ids.filter((id: string) => id === cross)).toHaveLength(1);
     expect((await request(pair.access_token, 'GET', '/im/v1/sync')).json().items.map((c: any) => c.id)).toContain(cross);
+    expect((await request(pair.access_token, 'GET', interactionPath)).json()).toMatchObject({draft_revision:0,state:{}});
+    expect((await request(pair.access_token, 'PUT', interactionPath, {expected_draft_revision:0,state:{}})).statusCode).toBe(404);
     for (const [method, path, payload] of [
+      ['POST', `/im/v1/conversations/${cross}/messages`, {sender:{type:'user',id:pair.user.id},interaction_reply:{source_message_id:histories[0].id,action_id:'send',state:{}}}],
       ['POST', `/im/v1/conversations/${cross}/messages`, {content: 'intrude', sender: {type: 'agent', id: 'left'}}],
       ['PATCH', `/im/v1/conversations/${cross}`, {title: 'changed', is_pinned: true}],
       ['POST', `/im/v1/conversations/${cross}/participants`, {participants: [{type: 'user', id: pair.user.id}]}],
@@ -264,6 +269,8 @@ it('lets both real Agent owners observe existing direct history and events witho
     expect((await app.inject({method:'POST', url:`/im/v1/uploads?conversation_id=${cross}&file_name=note.txt`, payload:'blocked',headers:{authorization:`Bearer ${pair.access_token}`,'content-type':'text/plain'}})).statusCode).toBe(404);
   }
   expect((await request(outsider.access_token, 'GET', media)).statusCode).toBe(404);
+  expect((await request(outsider.access_token, 'GET', interactionPath)).statusCode).toBe(404);
+  expect(db.prepare('SELECT COUNT(*) n FROM interaction_drafts').get()).toEqual({n:0});
   expect((await request(outsider.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);
   expect((await request(bob.access_token, 'GET', `/im/v1/conversations/${personal}`)).statusCode).toBe(404);
   expect((await request(alice.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id).sort()).toEqual([cross, same, personal].sort());

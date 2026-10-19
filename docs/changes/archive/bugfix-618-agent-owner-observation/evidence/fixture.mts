@@ -44,6 +44,9 @@ try {
   try{
    if(request.url==='/send') await alice('agent.message',{from_session_id:'alpha|tool_call:'+Date.now(),to:'agent:gamma',text:'新进展：备份已经完成，发布清单已更新。'});
    else if(request.url==='/send-back') await bob('agent.message',{from_session_id:'gamma|tool_call:'+Date.now(),to:'agent:alpha',text:'对端新消息：发布复核完成。'});
+   else if(request.url==='/interactive') {
+    await alice('agent.message',{from_session_id:'alpha|tool_call:interactive-review',to:'agent:gamma',text:'协作检查卡：owner 只能查看。',interactive:{format:'openui',catalog_version:'nano-1',source:'root = Stack([form])\nform = Form("draft", ContinueButton("send", "Continue review"), [FormControl("Review notes", TextArea("body", "Read-only notes", 3, null, "Existing collaboration notes"))])'}});
+   }
    else if(request.url==='/classifications') {
     await http('POST','/im/v1/conversations','alice',{title:'真人沟通',type:'direct',participants:[{type:'user',id:'bob'}]});
     await http('POST','/im/v1/conversations','alice',{title:'我的助手',type:'direct',participants:[{type:'agent',id:'alpha'}]});
