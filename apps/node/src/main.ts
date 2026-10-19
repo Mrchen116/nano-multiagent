@@ -1,5 +1,6 @@
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { RuntimePartitions, type RuntimePartition } from './runtime-partitions.js';
 import { NodeConfiguration } from './configuration.js';
 import { installedPackageManager, loadNodeRelease } from './release.js';
 import { NodeUpdater, updatePath } from './node-updater.js';
@@ -48,21 +49,77 @@ let operations: ConfigurationOperations;
 let heartbeat: Heartbeat;
 let external: ExternalChannels;
 let managed: ManagedChannels;
-let knowledge: KnowledgeUpdates;
+const knowledgeByPartition = new Map<string, KnowledgeUpdates>();
+const knowledge = { get busy() { return [...knowledgeByPartition.values()].some(item => item.busy); },
+  recover: () => settlePartitions([...knowledgeByPartition.values()].map(item => item.recover())),
+  migrateSkills: () => settlePartitions([...knowledgeByPartition.values()].map(item => item.migrateSkills())),
+  stop: () => Promise.all([...knowledgeByPartition.values()].map(item => item.stop())) };
 let history: ConversationHistory;
-let workflows: WorkflowResults;
+const workflowsByPartition = new Map<string, WorkflowResults>();
+const workflows = { get busy() { return [...workflowsByPartition.values()].some(item => item.busy); },
+  recover: () => settlePartitions([...workflowsByPartition.values()].map(item => item.recover())),
+  stop: () => Promise.all([...workflowsByPartition.values()].map(item => item.stop())) };
 let usage: UsageReports;
 let trajectory: NodeTrajectory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-const runtime = new RuntimeSupervisor({ home, cwd: home, env, onLog: text => process.stderr.write(text),
-  initialize: async rpc => {
-    await writeFile(join(home, 'runtime.pid'), String(runtime.process!.pid));
-    await rpc.request('initialize', { protocol: 1, packageManager: installedPackageManager(release), agents, providers: providerProfiles(config.llm).providers, bindings: store.bindings().map(({ conversationId: _, ...binding }) => binding) });
+async function settlePartitions(tasks: Promise<unknown>[]): Promise<void> {
+  for (const result of await Promise.allSettled(tasks)) if (result.status === 'rejected') reportError(result.reason);
+}
+function installPartitionConsumers(partition: RuntimePartition): void {
+  if (!product || knowledgeByPartition.has(partition.key)) return;
+  const port = runtime.scoped(partition);
+  const partitionKey = partition.key === 'ordinary' ? undefined : partition.key;
+  knowledgeByPartition.set(partition.key, new KnowledgeUpdates({ nodeId: config.node.node_id, agents: partition.agents,
+    runtime: port, partitionKey, store, inbox, relay: external, im, onError: reportError }));
+  workflowsByPartition.set(partition.key, new WorkflowResults({ agents: partition.agents, store, runtime: port, partitionKey,
+    receive: (sessionId, input) => product.background(sessionId, input), onError: reportError }));
+}
+const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings(), onError: reportError,
+  create: partition => {
+    const partitionHome = partition.key === 'ordinary' ? home : join(home, 'pa', Buffer.from(partition.key).toString('base64url'));
+    const supervisor = new RuntimeSupervisor({ home: partitionHome, cwd: partitionHome, env,
+      onLog: text => process.stderr.write(text),
+      initialize: async rpc => {
+        await writeFile(join(partitionHome, 'runtime.pid'), String(supervisor.process!.pid));
+        if (partition.key !== 'ordinary') {
+          const snapshot = await runtime.partitions.get('ordinary')!.runtime.request('model.setup.snapshot', {});
+          await rpc.request('model.setup.sync', snapshot);
+        }
+        await rpc.request('initialize', { protocol: 1, packageManager: installedPackageManager(release), agents: partition.agents,
+          providers: providerProfiles(config.llm).providers,
+          bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
+      },
+      onReady: async () => {
+        installPartitionConsumers(partition);
+        if (!updateHolding) await admitted(async () => {
+          if (partition.key === 'ordinary') await modelSetup.recover();
+          if (operations) {
+            if (partition.key === 'ordinary') await operations.recover();
+            else queueMicrotask(() => { void operations.recover().catch(reportError); });
+          }
+          if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
+          if (product) {
+            await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
+              knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover(), usage.recover()]);
+          }
+        });
+        if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
+      },
+      onError: reportError,
+      onUnavailable: async () => {
+        for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
+        if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
+      },
+    });
+    return { get available() { return supervisor.available; },
+      request: (method, params) => supervisor.request(method, params),
+      onNotification: listener => supervisor.onNotification(listener),
+      handle: (method, handler) => supervisor.handle(method, handler),
+      start: async () => { await mkdir(partitionHome, {recursive:true, mode:0o700}); await prepareProfile(partitionHome, [{id:'llm-pi-ai', config:{providers:providerProfiles(config.llm).providers}}]); await supervisor.start(); },
+      shutdown: () => supervisor.shutdown(),
+    };
   },
-  onReady: async () => { if (!updateHolding) await admitted(async () => { await modelSetup.recover(); if (operations) await operations.recover(); if (relay.ready && knowledge) await knowledge.migrateSkills(); if (product) { await product.recover(!relay.ready); await globalProduct.recover(); if (external) await external.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); } }); await lifecycle.ready(runtime.process!.pid!); },
-  onError: reportError,
-  onUnavailable: async () => { trajectory?.closeAll(); await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); },
 });
 const modelSetup = new ModelSetup(configuration, runtime);
 const relay = new WebRelayConnection({
@@ -81,6 +138,7 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
     if (frame.type === 'user.timezone') { store.setOwnerTimezone(String(payload.timezone)); return; }
     if (frame.type === 'node.update.request') { await updater.request(String(payload.operation_id)); return; }
     const permission = frame.type === 'node.streaming_delta' && payload.kind === 'permission_response';
@@ -205,6 +263,8 @@ async function im(path: string, options?: RequestInit): Promise<unknown> {
 }
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
+  personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
+  personalDelivery: delivery => globalProduct.externalDelivery(delivery),
   onError: reportError, runtimeFooter: config.display?.platforms?.feishu?.runtime_footer?.enabled ?? config.display?.runtime_footer?.enabled,
   attention: input => needsAttention(input, agents.find(agent => agent.agentId === input.agent_id)!),
   receive: input => admitted(() => agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global' ? globalProduct.receive(input) : product.receive(input)),
@@ -253,13 +313,13 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   },
 });
 usage = new UsageReports({nodeId: config.node.node_id, store, runtime, relay, onError: reportError});
-workflows = new WorkflowResults({agents,store,runtime,receive: (sessionId,input)=>product.background(sessionId,input),onError:reportError});
+
 history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
-knowledge = new KnowledgeUpdates({ nodeId: config.node.node_id, agents, runtime, store, inbox, relay: external, im, onError: reportError });
+for (const partition of runtime.partitions.values()) installPartitionConsumers(partition);
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, onError: reportError,
   settings: agentId => ({ ...(config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}), timezone: store.ownerTimezone }) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
-  available: agentId => !updateHolding && runtime.available && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
+  available: agentId => !updateHolding && runtime.availableFor(agentId) && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
 });
 runtime.onNotification((method, value) => { if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
 const updater = new NodeUpdater(configuration, {
@@ -290,7 +350,7 @@ await external.recover();
 await product.recover(true);
 void relay.start().catch(reportError);
 heartbeat.start();
-process.stdout.write(`Node ${config.node.node_id} ready; DSH pid=${runtime.process!.pid}\n`);
+process.stdout.write(`Node ${config.node.node_id} ready; DSH hosts=${runtime.partitions.size}\n`);
 async function stop() {
   if (stopping) return;
   stopping = true;

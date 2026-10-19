@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /** Existing product search backends and prompt extraction over native web tools. */
 import type { Context } from "@deepseek-ai/cordis";
 import { BlockAssembler, ReasoningEffortId } from "@deepseek-ai/dsh-llm";
@@ -19,22 +20,39 @@ import type {} from "./model-policy.js";
 /** Register provider adapters; native tools retain limits, citations and errors. */
 export function searchProviders(
   env: NodeJS.ProcessEnv = process.env,
+  beforeRequest?: (request: {url:string;actualDestination:string;requestDigest:string;method:'GET';headerNames:string[]}) => Promise<unknown>,
+  afterRequest?: (permit: unknown, state:'confirmed'|'unknown') => Promise<void>,
 ): WebSearchProvider[] {
   const get = async (
     url: URL,
     signal?: AbortSignal,
     headers?: Record<string, string>,
   ) => {
-    const route = proxyRouteFor(url);
-    const response = route.proxied
-      ? await proxyFetch(url, { signal, headers, dispatcher: route.dispatcher })
-      : await fetch(url, { signal, headers });
-    if (!response.ok)
-      throw new WebError(
-        `Search backend returned HTTP ${response.status}`,
-        "WEB_SEARCH_HTTP_ERROR",
-      );
-    return response;
+    for (let redirects = 0; redirects <= 5; redirects++) {
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new WebError('Invalid search transport URL', 'WEB_SEARCH_URL');
+      const requestDigest = createHash('sha256').update(JSON.stringify({url:url.href,method:'GET',headers:headers ?? {}})).digest('hex');
+      const permit = await beforeRequest?.({url:url.href,actualDestination:url.href,requestDigest,method:'GET',headerNames:Object.keys(headers ?? {})});
+      const route = proxyRouteFor(url);
+      const redirect = beforeRequest ? 'manual' as const : 'follow' as const;
+      let response;
+      try {
+        response = route.proxied
+          ? await proxyFetch(url, { signal, headers, redirect, dispatcher: route.dispatcher })
+          : await fetch(url, { signal, headers, redirect });
+      } catch (error) { await afterRequest?.(permit, 'unknown'); throw error; }
+      await afterRequest?.(permit, 'confirmed');
+      if (beforeRequest && response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+        const next = new URL(response.headers.get('location')!, url);
+        await response.body?.cancel();
+        // Provider credentials never follow redirects to a different recipient.
+        if (next.origin !== url.origin) headers = undefined;
+        url = next;
+        continue;
+      }
+      if (!response.ok) throw new WebError(`Search backend returned HTTP ${response.status}`, 'WEB_SEARCH_HTTP_ERROR');
+      return response;
+    }
+    throw new WebError('Search redirect limit exceeded', 'WEB_SEARCH_REDIRECT_LIMIT');
   };
   return [
     {

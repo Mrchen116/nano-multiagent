@@ -402,6 +402,18 @@ describe("device possession and ownership transfer", () => {
     expect(identity.deviceBrowser('accept', operation.browser_token, 'personal').state).toBe('awaiting_local_confirmation');
   });
 
+  it("does not transfer a computer that has held personal assistant data to another owner", () => {
+    const {identity}=fixture();human(identity,'owner');human(identity,'receiver');
+    identity.run("INSERT INTO nodes(node_id,node_name,owner_id,status) VALUES('pa-device','Private','owner','offline')");
+    identity.run("INSERT INTO pa_node_residencies VALUES('pa-device','owner')");
+    const key=deviceKey();identity.enrollDevice('pa-device',key.public_key,key.key_id);
+    const operation=identity.deviceStart({node_id:'pa-device',node_name:'Private',...key});
+    identity.deviceProve(operation.operation_id,operation.operation_token,openChallenge(key,operation.challenge));
+    expect(()=>identity.deviceBrowser('accept',operation.browser_token,'receiver')).toThrow('personal assistant data');
+    expect(identity.get("SELECT owner_id FROM nodes WHERE node_id='pa-device'")?.owner_id).toBe('owner');
+    expect(identity.deviceBrowser('accept',operation.browser_token,'owner').state).toBe('awaiting_local_confirmation');
+  });
+
   it("requires local enrollment of existing nodes and keeps the enrolled key immutable", () => {
     const { identity } = fixture();
     human(identity, "owner");

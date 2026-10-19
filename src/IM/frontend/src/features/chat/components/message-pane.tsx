@@ -84,6 +84,10 @@ export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
   conversation: Conversation;
+  /** Owner-only collaboration summary, within the existing scrollable chat. */
+  collaborationContent?: React.ReactNode;
+  personalAgent?: boolean;
+  returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
   /** Compatibility input for callers not yet upgraded to the typed timeline. */
@@ -209,6 +213,9 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
+  collaborationContent,
+  personalAgent = false,
+  returnNavigation,
   timeline,
   messages: messagesProp,
   mentionCandidates,
@@ -986,7 +993,7 @@ export function MessagePane({
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
           </div>
         </div>
-        {!isMobile && <KindBadge kind={kind} />}
+        {personalAgent ? <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
@@ -1008,6 +1015,7 @@ export function MessagePane({
         )}
         {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
       </header>
+      {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
       {conversation.can_write === false && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
@@ -1041,7 +1049,7 @@ export function MessagePane({
                   key={m.id}
                   message={m}
                   selfUserId={selfUserId}
-                  workAgentId={globalAgentIds.includes(m.sender.id) ? m.sender.id : undefined}
+                  workAgentId={globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                   nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
                   isMobile={isMobile}
@@ -1058,6 +1066,7 @@ export function MessagePane({
             })}
           </>
         )}
+        {collaborationContent}
       </div>
 
       <form className="chat-pane-composer" onSubmit={handleSubmit}>
@@ -1718,6 +1727,7 @@ function MessageBubble({
               {message.sender.display_name ?? message.sender.id}
             </span>
             {nodeName && <small>{nodeName}</small>}
+            {message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
           </div>
         )}
         <div

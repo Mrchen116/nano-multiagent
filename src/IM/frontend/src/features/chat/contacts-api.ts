@@ -5,6 +5,7 @@ import type { Actor } from "./chat-types";
 export interface Contact {
   user_id: string;
   kind: "human" | "agent";
+  role?: "personal";
   display_name: string;
   agent_id?: string;
   owner_id?: string;

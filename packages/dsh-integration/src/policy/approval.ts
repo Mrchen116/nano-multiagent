@@ -104,6 +104,7 @@ export class NanoApproval extends Service {
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     if (policy.rules !== 'dsh' && (safeTools.has(exec.name)
+      || config.personal && (exec.name === 'personal_files' || exec.name === 'personal_assistant' && ['history.search','history.read','goals'].includes(String((exec.arguments as {action?:unknown}).action)))
       || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
       || policy.enabled && (['schedule_list', 'schedule_history', 'get_goal', 'todo_write'].includes(exec.name)
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'

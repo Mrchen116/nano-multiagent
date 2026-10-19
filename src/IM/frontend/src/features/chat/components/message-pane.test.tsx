@@ -2777,3 +2777,10 @@ describe("MessagePane", () => {
 
   });
 });
+
+it('shows the server PA delegation label separately from the message body',()=>{
+ const delegated:Message={...SAMPLE_MESSAGES[1],delegation:{agent_id:'a-planner',authorized_by:'owner',display_name:'Planner',label:'Owner’s PA · Sent on behalf'}};
+ render(<MessagePane conversation={GROUP_CONV} messages={[delegated]} mentionCandidates={[]} onSend={()=>{}}/>);
+ expect(screen.getByText('Owner’s PA · Sent on behalf')).toHaveClass('pa-delegation');
+ expect(screen.getByText('Hi back')).toBeInTheDocument();
+});

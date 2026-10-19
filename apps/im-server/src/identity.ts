@@ -58,13 +58,19 @@ export function ownerAccount(db: DatabaseSync, owner: string): Row | undefined {
 export function agentAvailable(db: DatabaseSync, profile: Row | undefined): boolean {
   return !!profile && !profile.is_stale && canAccessSpace(ownerAccount(db, profile.owner_id), profile.space_id);
 }
+/** Public contactability never grants access to personal configuration or Work. */
+export function canContactPersonalAgent(db: DatabaseSync, viewer: Row, profile: Row): boolean {
+  return viewer.membership_status === 'active' && ownerAccount(db,profile.owner_id)?.membership_status === 'active'
+    && !!db.prepare("SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND status='active'").get(profile.agent_id)
+    && agentAvailable(db,profile);
+}
 /** Check a conversation actor against both its fixed space and current eligibility. */
 export function canActorAccess(db: DatabaseSync, userId: string, space: string): boolean {
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(userId) as Row | undefined;
   if (!user) return false;
   if (user.username.startsWith("agent:")) {
     const profile = db.prepare("SELECT * FROM agent_profiles WHERE agent_id=?").get(user.username.slice(6)) as Row | undefined;
-    return !!profile && profile.space_id === space && agentAvailable(db, profile);
+    return !!profile && agentAvailable(db, profile) && (profile.space_id === space || (space === "company:default" && canContactPersonalAgent(db,ownerAccount(db,profile.owner_id)!,profile)));
   }
   return canAccessSpace(user, space);
 }
@@ -743,6 +749,8 @@ export class Identity {
     return { state: "cancelled" };
   }
   private checkTransferRecipient(node: string, user: User): void {
+    if(this.get("SELECT 1 FROM pa_node_residencies WHERE node_id=? AND owner_id!=?",node,user.owner_id))
+      throw new IdentityError(409,"A computer containing personal assistant data cannot be transferred to another owner");
     const profiles = this.all("SELECT * FROM agent_profiles WHERE node_id=?", node);
     if (profiles.some(p => p.space_id === "company:default") && user.membership_status !== "active")
       throw new IdentityError(409, "company agents require an active company recipient");

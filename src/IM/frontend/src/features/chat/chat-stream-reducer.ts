@@ -211,6 +211,7 @@ export function applyWsEvent(
         elapsed_ms: ev.elapsed_ms,
         kernel_message_id: ev.kernel_message_id,
         system_notice: ev.system_notice,
+        delegation: ev.delegation,
         permission_requests: ev.permission_requests ?? current?.permission_requests ?? []
       };
       if (current) {
@@ -245,7 +246,8 @@ export function applyWsEvent(
         sender: {
           type: ev.sender_type === "agent" ? "agent" : ev.sender_type === "system" ? "system" : "user",
           id: senderId,
-          display_name: resolvedDisplayName
+          display_name: resolvedDisplayName,
+          role: ev.sender?.role
         },
         sender_user_id: ev.sender_user_id,
         sender_type: ev.sender_type,
@@ -261,6 +263,7 @@ export function applyWsEvent(
         token_usage: ev.token_usage,
         permission_requests: [],
         system_notice: ev.system_notice,
+        delegation: ev.delegation,
       };
       // bugfix-419: sort by created_at so WS arrival order does not dictate
       // render order. The tie-break on id makes ordering deterministic when two

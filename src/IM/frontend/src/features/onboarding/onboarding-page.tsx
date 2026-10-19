@@ -4,25 +4,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { getCurrentLanguage, setLanguage, useTranslation } from '../../i18n';
 import { useAuthStore } from '../auth/auth-store';
-import { createConversation, listConversations } from '../chat/chat-api';
-import { createNodeAgent, getNodeCreateState } from '../settings/agents/im-agent-config-api';
+import { createPersonalAgent, getPersonalAgent } from '../personal-agent/personal-agent-api';
 import { ModelServicesPanel } from '../settings/models/model-services-panel';
 import { getOnboarding, setupNode } from './onboarding-api';
 import './onboarding.css';
 
-type Purpose = 'daily' | 'research' | 'coding' | 'custom';
-const goals: Record<Purpose, [string, string]> = {
-  daily: ['帮我整理资料、安排计划，持续跟进重要的事。', 'Help me organize information, make plans, and follow through on important work.'],
-  research: ['帮我查找资料、比较证据，形成有来源的研究结论。', 'Help me research questions, compare evidence, and produce well-sourced conclusions.'],
-  coding: ['帮我理解项目、拆解需求，验证每次修改的结果。', 'Help me understand projects, break down requirements, and verify changes.'],
-  custom: ['围绕我的目标，先澄清必要信息，再一起推进。', 'Clarify what matters for my goals, then help me take the next step.'],
-};
-const starters: Record<Purpose, [string, string]> = {
-  daily: ['帮我把这周最重要的目标整理成一份可执行计划。先问我三个必要的问题。', 'Help me turn my most important goals for this week into a practical plan. First ask me three essential questions.'],
-  research: ['我想了解一个新领域。先问清我的研究问题和用途，再帮我制定查证计划。', 'I want to explore a new field. Ask about my research question and intended use, then help me plan how to verify the evidence.'],
-  coding: ['我想推进一个项目。先问我项目位置、目标和当前阻碍，帮我确定第一步。', 'I want to move a project forward. Ask about its location, goal, and current blocker, then help me decide the first step.'],
-  custom: ['请围绕我给你的目标，先问三个最必要的问题，再安排第一步。', 'Based on the goal I gave you, ask the three most essential questions, then help me take the first step.'],
-};
 /** First-run progress is reconstructed from the user's actual node and model state. */
 export function OnboardingPage() {
   useTranslation();
@@ -32,55 +18,40 @@ export function OnboardingPage() {
   const navigate = useNavigate(), cache = useQueryClient();
   const draftKey = `nano-onboarding:${user.id}`;
   const [draft] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) ?? '{}'); } catch { return {}; } });
-  const [candidateId] = useState<string>(() => draft.agentId ?? `assistant-${crypto.randomUUID().slice(0, 8)}`);
+  const [requestKey] = useState<string>(() => draft.requestKey ?? crypto.randomUUID());
   const [nodeId, setNodeId] = useState<string>(draft.nodeId ?? '');
-  const [purpose, setPurpose] = useState<Purpose>(draft.purpose ?? 'daily');
   const [name, setName] = useState<string>(draft.name ?? text('小助理', 'My assistant'));
-  const [goal, setGoal] = useState<string>(draft.goal ?? goals.daily[zh ? 0 : 1]);
+  const [goal, setGoal] = useState<string>(draft.goal ?? '');
+  const [observe, setObserve] = useState(true);
   const [viewStep, setViewStep] = useState<number | null>(null);
   const [installMethod, setInstallMethod] = useState<'agent' | 'manual'>('agent');
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
   const [editingModel, setEditingModel] = useState(false);
-  const [modelChoice, setModelChoice] = useState<string>(draft.modelChoice ?? '');
+  const personal = useQuery({queryKey:['personal-agent',user.id],queryFn:getPersonalAgent,retry:false,refetchInterval:3000});
   const state = useQuery({ queryKey: ['onboarding', user.id], queryFn: getOnboarding, refetchInterval: 3000 });
   const node = state.data?.nodes.find(n => n.node_id === nodeId)
     ?? state.data?.nodes.find(n => n.status === 'online') ?? state.data?.nodes[0];
   const currentNodeId = node?.node_id;
   const setup = useQuery({ queryKey: ['node-setup', user.id, currentNodeId], queryFn: () => setupNode(currentNodeId!, { action: 'status' }), enabled: !!currentNodeId && node?.status === 'online', refetchInterval: 2000, retry: false });
   const configured = !!setup.data?.default_model && setup.data.models.some(m => m.model === setup.data?.default_model);
-  const existingAgent = state.data?.agents.find(a => a.agent_id === candidateId) ?? state.data?.agents[0];
+  const existingAgent = personal.data?.binding;
   const suggestedStep = node?.status !== 'online' ? 0 : existingAgent ? 3 : configured ? 2 : 1;
   const step = node?.status !== 'online' && viewStep !== 1 ? 0 : viewStep ?? suggestedStep;
-  const selectedModel = setup.data?.models.some(m => m.model === modelChoice) ? modelChoice : setup.data?.default_model ?? '';
   useEffect(() => { if (currentNodeId && !nodeId) setNodeId(currentNodeId); }, [currentNodeId, nodeId]);
   useEffect(() => { if (viewStep === null && setup.data && !configured && !existingAgent && node?.status === 'online') setViewStep(1); }, [viewStep, setup.data, configured, existingAgent, node?.status]);
   const operation = setup.data?.operation;
   const working = operation?.state === 'waiting' || operation?.state === 'testing';
-  const capabilities = useQuery({ queryKey: ['onboarding-capabilities', user.id, currentNodeId, setup.data?.default_model], queryFn: () => getNodeCreateState(currentNodeId!), enabled: step === 2 && !!currentNodeId && configured, retry: false });
   const create = useMutation({
-    mutationFn: async () => {
-      const c = capabilities.data?.capabilities;
-      if (!node || !c || !name.trim()) throw new Error('not ready');
-      return createNodeAgent(node.node_id, {
-        agent_id: candidateId, owner_id: user.owner_id, display_name: name.trim(), description: goal.trim(), custom_prompt: goal.trim(),
-        work_mode: 'global', workspace_root: null, group_reply_policy: 'MENTION', default_model: selectedModel,
-        model_fallbacks: [], reasoning_effort: null, skills: [], skills_selection_mode: 'explicit_denylist',
-        tool_allowlist: c.tools.filter(t => t.default_on).map(t => t.name),
-        features: { ...Object.fromEntries((c.features ?? []).map(f => [f.key, f.default_on])), heartbeat: false, cron_scheduling: false },
-      });
+    mutationFn: () => {
+      if (!node || !name.trim()) throw new Error('not ready');
+      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim(),initial_goal:goal.trim()||undefined,observation_enabled:observe});
     },
-    onSuccess: async () => { await cache.invalidateQueries({ queryKey: ['onboarding', user.id] }); setViewStep(3); },
+    onSuccess: async result => {
+      await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']})]);
+      if (result.binding) navigate(`/chat/${result.binding.conversation_id}`);
+    },
   });
-  const chat = useMutation({ mutationFn: async () => {
-    if (!existingAgent) throw new Error('missing assistant');
-    const existing = (await listConversations()).find(c => c.type === 'direct' && c.participants.some(p => p.type === 'agent' && p.id === existingAgent.agent_id));
-    if (existing) return { conversation: existing, fresh: false };
-    return { conversation: await createConversation({ title: existingAgent.display_name, type: 'direct', participants: [{ type: 'agent', id: existingAgent.agent_id }] }), fresh: true };
-  }, onSuccess: async ({ conversation, fresh }) => {
-    await cache.invalidateQueries({ queryKey: ["chat", "conversations"] });
-    navigate(`/chat/${conversation.id}`, { state: fresh ? { onboardingStarter: starters[purpose][zh ? 0 : 1] } : null });
-  } });
-  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({ agentId: candidateId, nodeId: currentNodeId ?? '', purpose, name, goal, modelChoice })); }, [draftKey, candidateId, currentNodeId, purpose, name, goal, modelChoice]);
+  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,goal})); }, [draftKey,requestKey,currentNodeId,name,goal]);
   async function copy() {
     const install = state.data?.install;
     if (!install?.available) return;
@@ -91,7 +62,6 @@ export function OnboardingPage() {
     try { await navigator.clipboard.writeText(installMethod === 'manual' ? install.command : prompt); setCopied(true); setCopyError(false); }
     catch { setCopyError(true); }
   }
-  function choose(next: Purpose) { setPurpose(next); setGoal(goals[next][zh ? 0 : 1]); }
   const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('认识你的助手', 'Meet your assistant'), text('开始第一件事', 'Start your first task')];
   const error = (message: string) => <p className="onboarding-error" role="alert">{message}</p>;
   const next = (index: number, disabled = false) => <button className="onboarding-primary" disabled={disabled} onClick={() => setViewStep(index)}>{text('继续 →', 'Continue →')}</button>;
@@ -114,17 +84,17 @@ export function OnboardingPage() {
             {node && <ModelServicesPanel key={node.node_id} node={node} initialAdd onEditingChange={setEditingModel} />}
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{next(2, !configured || working || editingModel || node?.status !== 'online')}</div>
           </>}
-          {step === 2 && <><h2>{text('你想让助手帮你做什么？', 'What would you like help with?')}</h2><p className="onboarding-sub">{text('先从一个方向开始。名字和目标之后都可以修改。', 'Start with one direction. You can change the name and goal later.')}</p>
-            <div className="onboarding-choices">{(['daily', 'research', 'coding', 'custom'] as Purpose[]).map((p, i) => <button key={p} className={`onboarding-choice ${purpose === p ? 'selected' : ''}`} onClick={() => choose(p)} aria-pressed={purpose === p}><strong>{[text('日常助理', 'Everyday assistant'), text('资料研究', 'Research partner'), text('编程搭档', 'Coding partner'), text('自己定义', 'Your own purpose')][i]}</strong><small>{[text('计划、整理与跟进', 'Plan, organize, and follow through'), text('阅读、调研与归纳', 'Read, investigate, and synthesize'), text('理解项目、开发与排障', 'Understand, build, and debug'), text('按你的工作方式来', 'Adapt to how you work')][i]}</small></button>)}</div>
-            <label htmlFor="onboarding-assistant-model">{text('使用的模型', 'Assistant model')}</label><select id="onboarding-assistant-model" value={selectedModel} onChange={e => setModelChoice(e.target.value)}>{setup.data?.models.map(m => { const service = setup.data.services.find(s => s.provider === m.provider); return <option key={m.model} value={m.model}>{m.display_name || m.model} · {service?.display_name || m.provider}</option>; })}</select>
+          {step === 2 && <><h2>{text('你想让助手帮你做什么？', 'What would you like help with?')}</h2><p className="onboarding-sub">{text('给它一个名字，有想推进的事情可以一起交代。','Give it a name and, if you like, a goal to start with.')}</p>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
-            <label htmlFor="onboarding-goal">{text('告诉它你的目标', 'Tell it your goal')}</label><textarea id="onboarding-goal" value={goal} onChange={e => setGoal(e.target.value)} />
-            <div className="onboarding-preview"><strong>{text('工作电脑', 'Computer')}: {node?.alias || node?.node_name}</strong><p>{text('助手的独立文件夹：', 'Your assistant’s own folder:')}</p><code>{setup.data?.workspace_base ? `${setup.data.workspace_base}/${candidateId}` : text('等待电脑确认…', 'Waiting for your computer…')}</code><p>{text('需要处理其他文件时，再把位置告诉它。', 'Tell it where to find other files when you need them.')}</p></div>
-            {(create.error || capabilities.error) && <>{error(text('电脑尚未确认创建结果。名称和目标已保留，重试会核对同一助手。', 'Your computer has not confirmed the result. Your name and goal are preserved; retry checks the same assistant.'))}<button className="onboarding-link" onClick={() => void capabilities.refetch()}>{text('重新检查电脑', 'Check computer again')}</button></>}
+            <label htmlFor="onboarding-goal">{text('最近想推进什么？（可选）', 'What would you like to work on? (optional)')}</label><textarea id="onboarding-goal" value={goal} onChange={e => setGoal(e.target.value)} />
+            <label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" style={{width:'auto'}} checked={observe} onChange={e=>setObserve(e.target.checked)}/>{text('了解我的聊天与任务，主动跟进','Follow my conversations and tasks')}</label>
+            <p className="onboarding-detail">{text('助手可按需查询你有权查看的已参与聊天，相关资料由你配置的模型处理。你随时可以暂停观察或排除聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. Pause observation or exclude chats anytime; your assistant does not mark messages read for you.')}</p>
+            {create.error && error(text('电脑尚未确认创建结果。名称和目标已保留，重试会核对同一助手。','Your computer has not confirmed creation. Your name and goal are preserved; retry checks the same assistant.'))}
             {node?.status !== 'online' && error(text('电脑暂时离线，重新上线后即可继续。', 'Your computer is offline. Continue when it reconnects.'))}
-            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !capabilities.data || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建我的助手 →', 'Create my assistant →')}</button></div>
+            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !configured || !personal.isSuccess || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建并开始合作 →', 'Create and start →')}</button></div>
           </>}
-          {step === 3 && <><span className="onboarding-chip">{text('助手已创建', 'Assistant created')}</span><h2>{existingAgent?.display_name || name}{text('已准备好', ' is ready')}</h2><p className="onboarding-sub">{text('从一件小事开始，看看你们如何一起工作。', 'Start with a small task and see how you work together.')}</p><div className="onboarding-instructions"><strong>{text('建议从这里开始', 'A place to start')}</strong><p>{starters[purpose][zh ? 0 : 1]}</p></div><p className="onboarding-detail">{text('进入真实聊天后，这条建议会放进输入框；你可以修改它或换成自己的任务，再发送。', 'In your chat, this suggestion will be a draft. Edit it or write your own task before sending.')}</p>{chat.error && error(text('暂时无法打开聊天，请重试。助手已经保留。', 'Could not open the chat. Retry; your assistant is saved.'))}<div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手', 'Manage assistants')}</Link><button className="onboarding-primary" disabled={!existingAgent || chat.isPending} onClick={() => chat.mutate()}>{chat.isPending ? text('正在打开…', 'Opening…') : text('开始第一件事 →', 'Start your first task →')}</button></div></>}
+          {step === 3 && <><span className="onboarding-chip">{text('我的个人助手','My personal assistant')}</span><h2>{existingAgent?.display_name || name}</h2><p className="onboarding-sub">{existingAgent?.status==='active'?text('继续交代目标、查看进展，或直接问一件过去的事。','Continue your goals, check progress, or ask about a past conversation.'):text('助手正在准备，创建信息和目标已保存。','Your assistant is getting ready. Its setup and goal are saved.')}</p><div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手','Manage assistants')}</Link><button className="onboarding-primary" disabled={!existingAgent} onClick={()=>existingAgent&&navigate(`/chat/${existingAgent.conversation_id}`)}>{text('打开个人助手 →','Open personal assistant →')}</button></div></>}
+
           </>}
         </section>
       </div>

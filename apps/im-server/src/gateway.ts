@@ -88,7 +88,7 @@ export class Gateway {
       const p = frame.payload;
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
-      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id) return false;
+      if (!agentAvailable(this.ctx.db, profile) || !conversation || !canActorAccess(this.ctx.db,this.ctx.messaging.agentUser(profile!.agent_id).id,conversation.space_id)) return false;
     }
     if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
       const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);
@@ -373,6 +373,7 @@ export class Gateway {
       node_epoch: c.node_epoch,
       gateway_access_token: c.token,
       owner_timezone: one(db, "SELECT timezone FROM users WHERE id=?", c.owner_id)?.timezone ?? null,
+      personal_agents:all(db,"SELECT * FROM personal_agent_bindings WHERE owner_id=? AND node_id=? AND node_epoch=?",c.owner_id,c.node_id,c.node_epoch),
     };
   }
   async handle(c: Connection, type: string, p: Row): Promise<Row> {
@@ -396,6 +397,10 @@ export class Gateway {
       waiter.resolve(p);
       return ack({ request_id: p.request_id });
     }
+    if (type.startsWith("pa.")) {
+      try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
+      catch(error) { const e=error as any;return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:{code:e.detail??"personal_operation_failed",message:e.message}}}; }
+    }
     if (type === "node.heartbeat") {
       db.prepare(
         "UPDATE nodes SET status=?,last_heartbeat_at=?,last_error=?,agent_count=COALESCE(?,agent_count) WHERE node_id=?",
@@ -409,6 +414,11 @@ export class Gateway {
       };
     if (type === "task_graph.command") {
       try {
+        const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
+        if(personal && ["create","apply","delete"].includes(p.action)) {
+          const destination=p.args?.conversation_id??one(db,"SELECT conversation_id FROM task_graphs WHERE graph_id=?",p.args?.graph_id??"")?.conversation_id;
+          if(destination!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+        }
         if (!p.request_id)
           throw new TaskGraphError(
             "invalid_arguments",
@@ -527,6 +537,8 @@ export class Gateway {
         });
       }
       const id = s.resolveTarget(a.agent_id, p.to);
+      const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
+      if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
       const targetUser = one(
@@ -603,6 +615,8 @@ export class Gateway {
           )
           ?.username.slice(6);
       const a = this.requireAgent(c, source);
+      const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
+      if(personal && p.conversation_id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
       if (!p.text?.trim()) fail(400, "text required");
       if (p.system_notice) {
@@ -708,6 +722,8 @@ export class Gateway {
       if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
         fail(403, "agent_user_id does not match source Agent");
       const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
+      const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
+      if(personal && id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const transition = p.reply_process_transition;
       if (transition?.predecessor_message_id) {
@@ -768,6 +784,8 @@ export class Gateway {
     const m = s.message(p.message_id);
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
+    const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
+    if(personal && m.conversation_id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
     s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
     let eventType = "",
       data: Row = {};
@@ -891,7 +909,7 @@ export class Gateway {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
-    if (!conversation || !agentAvailable(db, a) || a.space_id !== conversation.space_id) return;
+    if (!conversation || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
     const c = s.conversation(m.conversation_id, m.sender_user_id);
     const relay = randomUUID(),

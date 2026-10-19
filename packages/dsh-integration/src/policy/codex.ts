@@ -124,12 +124,14 @@ export class CodexApproval extends Service {
 
   private async discard(reviewer:Reviewer){await reviewer.handle.dispose();this.active.delete(reviewer);}
   private async create(request:ApprovalReviewRequest,system:string,signal:AbortSignal,checkpoint:Checkpoint|undefined,limit:number,overhead:number):Promise<Reviewer>{
+    const model = request.config.personal ? await this.ctx.llm.resolveModelInfo(request.reviewer.provider,request.reviewer.model,signal) : undefined;
+    const effort = request.config.personal ? model?.reasoning?.efforts.find(item=>item.id==='low')?.id ?? model?.reasoning?.defaultEffort ?? model?.reasoning?.efforts[0]?.id : ReasoningEffortId('low');
     const reviewer={} as Reviewer;
     reviewer.signal=signal;reviewer.limit=limit;reviewer.overhead=overhead;reviewer.start=checkpoint?.events.length??0;
     const handle=await this.ctx.agents.create({sessionId:SessionId(`nano-codex-${randomUUID()}`),signal,
       meta:{cwd:request.exec.agent!.session.header.cwd,agentPreset:'nano-codex-reviewer',...(checkpoint?{parentSession:SessionId(checkpoint.sessionId),isSeeded:true}:{})},
       ...(checkpoint?{seed:checkpoint.events,inheritedEventCount:SessionLogOffset(checkpoint.events.length)}:{}),
-      agentOptions:{...request.reviewer,reasoningEffort:ReasoningEffortId('low'),maxTokens:outputReserve},
+      agentOptions:{...request.reviewer,reasoningEffort:effort,maxTokens:outputReserve},
       setup:(scope,agent)=>{
         setApprovalPolicy(agent.session,'never');
         scope.tools.presentAs('native');scope.tools.restrict({allow:[]});
@@ -145,7 +147,7 @@ export class CodexApproval extends Service {
           const cost=tokenCost(JSON.stringify(agent.session.deriveMessages()))+(reviewer.first?tokenCost(reviewer.input):0)+overhead;
           if(cost>limit){reviewer.failure=new ReviewBudgetError('Guardian request exceeds context budget');throw reviewer.failure;}
           reviewer.first=false;
-          return{...await next(),...request.reviewer,reasoningEffort:ReasoningEffortId('low'),maxTokens:outputReserve};
+          return{...await next(),...request.reviewer,reasoningEffort:effort,maxTokens:outputReserve};
         },{prepend:true});
         scope.on('agent/request-error',async({failure})=>{reviewer.failure=new Error(JSON.stringify(failure));return undefined;},{prepend:true});
       },

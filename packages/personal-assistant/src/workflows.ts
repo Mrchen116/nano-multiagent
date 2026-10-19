@@ -16,6 +16,7 @@ interface ResultRecord {
   result: { value: unknown; stopReason: string; error?: string };
 }
 interface Options {
+  partitionKey?: string;
   agents: AgentConfiguration[];
   store: NodeStore;
   runtime: RuntimePort;
@@ -65,7 +66,7 @@ export class WorkflowResults {
         (agent) => agent.agentId === binding.agentId,
       );
       if (!config) continue;
-      const inputId = `workflow-result:${record.id}`;
+      const inputId = `workflow-result:${this.options.partitionKey ? `${this.options.partitionKey}:` : ""}${record.id}`;
       const source = store
         .inputs(binding.sessionId)
         .find((input) => record.inputIds.includes(input.id))?.input;

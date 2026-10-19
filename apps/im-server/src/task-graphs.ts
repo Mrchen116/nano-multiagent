@@ -441,12 +441,27 @@ export class TaskGraphService {
     try { this.messaging.publishMessages(notices); } catch { /* Durable events and relay are replayed. */ }
     return result!;
   }
+  /** Apply a reviewed PA result in its caller's transaction with owner access and PA attribution.
+   *
+   * Args:
+   *   actor: Server-resolved personal Agent identity.
+   *   ownerUserId: Binding owner whose current write access is checked.
+   *   args: Frozen update_task operations; reassignment and claiming are unsupported.
+   *   notices: Messages to publish only after the caller commits.
+   */
+  executeDelegated(actor:TaskGraphActor,ownerUserId:string,args:Obj,notices:Obj[]):Obj {
+    const binding=this.row("SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id WHERE b.agent_id=? AND b.node_id=? AND b.owner_user_id=? AND b.status='active' AND n.node_epoch=b.node_epoch AND n.owner_id=b.owner_id",actor.id,actor.node_id??null,ownerUserId);
+    if(!binding||actor.kind!=='agent'||Object.keys(args).some(k=>!fields.apply.includes(k))||!Array.isArray(args.operations)
+      ||args.operations.some((op:Obj)=>op.op!=='update_task'||!op.patch||Object.keys(op.patch).some(k=>!['result','status'].includes(k))))forbidden();
+    return this.executeTransaction(actor,'apply',args,true,notices,ownerUserId);
+  }
   private executeTransaction(
     actor: TaskGraphActor,
     action: string,
     args: Obj,
     write: boolean,
     notices: Obj[],
+    delegatedOwner?: string,
   ): Obj {
     const p =
       actor.kind === "user"
@@ -460,9 +475,9 @@ export class TaskGraphService {
             actor.node_id ?? null,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
-    const user = p.id,
+    const user = delegatedOwner ?? p.id,
       actorName = `${p.display_name} (${actor.id})`;
-    const identity = {type:actor.kind,id:actor.id};
+    const identity = {type:actor.kind,id:actor.id,...(delegatedOwner?{authorized_by:delegatedOwner}:{})};
     if (action === "list") return this.list(user, identity, args);
     if (action === "activity") {
       const chat = text(args.conversation_id, "conversation_id");
@@ -670,7 +685,7 @@ export class TaskGraphService {
     }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
-      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, user, notice.content, notice.metadata));
+      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
     this.receipt(actorKey, key, hash, doc, result);
     if (chat)
       for (const id of changed)

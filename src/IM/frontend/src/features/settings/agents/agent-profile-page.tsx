@@ -97,7 +97,7 @@ export function AgentProfilePage() {
             <div>
               <h3 className="im-agent-card-title">{t("agents.publicProfile")}</h3>
               <p className="im-agent-card-sub">
-                {t("agents.mode")}: {t(agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}
+                {t("agents.mode")}: {t(agent.role === "personal" ? "pa.label" : agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}
               </p>
             </div>
             <dl className="im-agent-card-grid-2 im-agent-profile-details">

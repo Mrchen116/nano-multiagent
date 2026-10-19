@@ -67,6 +67,7 @@ export class NodeConfiguration {
       approval.reviewer = { provider: reviewer.name, model: reviewer.models.find(model => model.name === this.value.llm.tool_approval_model)!.id ?? this.value.llm.tool_approval_model };
     }
     return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
+      ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
       modelFallbacks: (canonical.model_fallbacks ?? []).map(model => {
@@ -78,13 +79,13 @@ export class NodeConfiguration {
       }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
       workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
-      approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
+      approval, knowledge: { globalSkillRoot: canonical.personal_agent ? join(workspace, '.nanoassistant', 'skills') : join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
         memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),
         skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
-      extensions: { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
+      extensions: canonical.personal_agent ? undefined : { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_denylist' ? 'explicit_denylist' : canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
-      skillRoots: [
+      skillRoots: canonical.personal_agent ? [] : [
         ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
         { path: join(this.ownerRoot, 'skills'), source: 'global' },
         { path: join(homedir(), '.agents', 'skills'), source: 'global' },
@@ -97,6 +98,8 @@ export class NodeConfiguration {
     if (!['single_thread', 'global'].includes(candidate.work_mode)) throw new Error('Invalid work mode');
     const previous = this.current(candidate.agent_id);
     if (!creating && !previous) throw new Error('Agent does not exist on this node');
+    if (previous && JSON.stringify(previous.personal_agent ?? null) !== JSON.stringify(candidate.personal_agent ?? null)) throw new Error('Personal binding is immutable');
+    if (candidate.personal_agent && (candidate.personal_agent.ownerId !== this.value.node.user_id || candidate.work_mode !== 'global')) throw new Error('Personal Agent must belong to this node owner and use global mode');
     if (previous && previous.work_mode !== candidate.work_mode) throw new Error('Work mode is immutable');
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');

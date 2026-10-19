@@ -32,6 +32,8 @@ export class TrajectoryObservers {
     try {
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
       if (!profile || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(this.ctx.identity.user(auth.user_id), profile.space_id)) throw new Error('该执行不可访问');
+      const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",agentId);
+      if(personal && personal.owner_user_id!==auth.user_id)throw new Error("该执行不可访问");
       const selected = this.ctx.gateway.work.session(agentId, sessionId);
       let root = selected;
       while (root.parent_session_id) root = this.ctx.gateway.work.session(agentId, root.parent_session_id);
@@ -108,6 +110,8 @@ export class TrajectoryObservers {
   valid(observer: Observer): boolean {
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", observer.scope.rootAgentId);
     if (!profile || !agentAvailable(this.ctx.db, profile) || profile.owner_id !== observer.scope.ownerId || !canAccessSpace(this.ctx.identity.user(observer.userId), profile.space_id)) return false;
+    const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",observer.scope.rootAgentId);
+    if(personal && personal.owner_user_id!==observer.userId)return false;
     return this.ctx.gateway.nodes.get(observer.device.node_id) === observer.device && observer.device.socket.readyState === 1
       && this.ctx.gateway.valid(observer.device) && this.ctx.gateway.browserValid(observer);
   }

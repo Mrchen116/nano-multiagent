@@ -102,7 +102,10 @@ export class KnowledgeRuntime extends Service {
     return label?.startsWith('nano-review:') && this.active.has(label.slice(12)) ? label.slice(12) : undefined;
   }
   async memory(exec: ToolExecution, change: MemoryChange) {
-    const result = await this.files(exec.agent!).memory(change, exec.agent!.id, exec.signal);
+    const agent = exec.agent!;
+    // Model-created notes cannot mint an owner decision, even after compaction or child return.
+    const provenance = this.config(agent)?.personal ? {kind:'derived' as const, sources: [{sessionId:agent.id,throughSeq:agent.session.snapshotEvents().at(-1)?.seq ?? -1,rootSessionId:this.root(agent).id}]} : undefined;
+    const result = await this.files(agent).memory(change, agent.id, exec.signal, provenance);
     await this.changed(exec, { ...result, kind: 'memory' }); return result;
   }
   async skill(exec: ToolExecution, change: SkillChange) {

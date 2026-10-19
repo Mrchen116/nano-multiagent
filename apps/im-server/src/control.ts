@@ -82,6 +82,7 @@ export function gatewayCandidate(c: Row): Row {
     custom_prompt: optionalText(c.custom_prompt),
     heartbeat_json: heartbeat(c.heartbeat_json),
   };
+  if (c.personal_agent) p.personal_agent = c.personal_agent;
   if ("skills" in c) p.skills = Array.isArray(c.skills) ? stringList(c.skills) : null;
   if ("skills" in c || "skills_selection_mode" in c)
     p.skills_selection_mode = Array.isArray(p.skills)
@@ -96,6 +97,7 @@ export function candidateFingerprint(c: Row): string {
   if (p.heartbeat_json === "{}") p.heartbeat_json = null;
   // Null keeps pre-strategy operation receipts valid during upgrade/recovery.
   const keys = gatewayKeys.filter(k => k !== "approval_mode" || p.approval_mode !== null);
+  if(p.personal_agent) keys.push("personal_agent");
   return createHash("sha256")
     .update(asciiJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
     .digest("hex");
@@ -195,6 +197,11 @@ export class ConfigOperations {
     previousHash?: string,
   ): Row {
     this.authorize(owner, node, candidate.agent_id);
+    const binding=one(this.ctx.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=? AND owner_id=? AND node_id=?",candidate.agent_id,owner,node);
+    if(binding) {
+      candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
+      if(previous)previous={...previous,personal_agent:candidate.personal_agent};
+    } else {candidate={...candidate};delete candidate.personal_agent;}
     const id = randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
@@ -229,6 +236,9 @@ export class ConfigOperations {
   private async request(op: Row) {
     this.authorize(op.owner_id, op.node_id, op.agent_id);
     const c = gatewayCandidate(JSON.parse(op.candidate_json));
+    const binding = one(this.ctx.db, "SELECT * FROM personal_agent_bindings WHERE agent_id=? AND owner_id=? AND node_id=?",op.agent_id,op.owner_id,op.node_id);
+    if(binding) c.personal_agent={bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch};
+    else delete c.personal_agent;
     if (op.operation_kind === "create") c.create_operation_id = op.operation_id;
     return gatewayRequest(
       this.ctx,

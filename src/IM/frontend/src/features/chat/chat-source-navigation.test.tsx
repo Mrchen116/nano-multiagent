@@ -43,3 +43,16 @@ it.each([["en", "Location unavailable"], ["zh", "暂不可定位"]] as const)("l
   expect(screen.getByText(`External chat · ${label}`)).toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
 });
+
+it('keeps source visits in the app and offers an explicit return to the originating PA conversation',async()=>{
+ const {TaskGraphLink}=await import('../tasks/task-graph-link');
+ const {useLocation}=await import('react-router-dom');
+ const {default:userEvent}=await import('@testing-library/user-event');
+ function Source(){const location=useLocation();return <p>{location.state?.sourceReturnUrl}</p>;}
+ const router=createMemoryRouter([{path:'/chat/pa',element:<TaskGraphLink href="/chat/history?message_id=old">Original message</TaskGraphLink>},{path:'/chat/history',element:<Source/>}],{initialEntries:['/chat/pa']});
+ render(<RouterProvider router={router}/>);
+ await userEvent.click(screen.getByRole('link',{name:'Original message'}));
+ expect(router.state.location.pathname).toBe('/chat/history');
+ expect(router.state.location.search).toBe('?message_id=old');
+ expect(await screen.findByText('/chat/pa')).toBeInTheDocument();
+});

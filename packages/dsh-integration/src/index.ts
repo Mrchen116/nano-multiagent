@@ -1,4 +1,6 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
+import { KnowledgeFiles } from './knowledge/files.js';
+import { PersonalSecurity, personalEvidenceMessages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
@@ -41,6 +43,7 @@ import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 
 export interface AgentConfiguration {
+  personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
   workspace?: string;
   revision: string;
@@ -100,6 +103,7 @@ export default class NanoRuntime {
   private readonly models: Promise<ModelPolicy>;
   private readonly cron: CronOwners;
   private readonly sessionController: Promise<SessionController>;
+  private readonly security: Promise<PersonalSecurity>;
 
   constructor(private readonly ctx: Context) {
     installLlmAttribution(ctx, sessionId => {
@@ -156,6 +160,8 @@ export default class NanoRuntime {
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
+    const personalSecurity = ctx.plugin(PersonalSecurity, (agent: Agent) => configurationService.forAgent(agent));
+    this.security = new Promise(resolve => {ctx.inject(['nanoPersonalSecurity'], child => {resolve(child.nanoPersonalSecurity);});});
     this.controller = ctx.plugin(SessionController, { nativeOpen: false });
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -171,6 +177,7 @@ export default class NanoRuntime {
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
       const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
+      if (desired.personal) { config.personal = desired.personal; config.extensions = undefined; config.skillRoots = []; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
@@ -234,6 +241,7 @@ export default class NanoRuntime {
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
+      await personalSecurity.await();
       await modelFiber.await();
       await webFiber.await();
       await workflowFiber.await();
@@ -243,7 +251,10 @@ export default class NanoRuntime {
       await ctx.loader.await();
       configurationService.packageManager(config.packageManager);
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
+      const personal = config.agents.filter(agent => agent.personal);
+      if (personal.length && (config.agents.length !== 1 || config.bindings.some(binding => binding.agentId !== personal[0]!.agentId || binding.ownerId !== personal[0]!.personal!.ownerId))) throw new RpcError(-32002, 'Personal runtime must contain only its trusted binding');
       for (const agent of config.agents) {
+        assertPersonalConfiguration(agent);
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
         const revisions = new Set([agent.revision, ...config.bindings.filter(binding => binding.agentId === agent.agentId).map(binding => binding.revision)]);
         // Existing Sessions retain their native preset identity while receiving
@@ -276,6 +287,7 @@ export default class NanoRuntime {
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
     });
     const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false) => {
+      assertPersonalConfiguration(requested);
       const previewId = `preview-${randomUUID()}`;
       const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
       const preset = `nano:${previewId}:preview`;
@@ -419,8 +431,43 @@ export default class NanoRuntime {
       answer(decision, reason);
       return { answered: true };
     });
+    handle('pa.evidence', async value => {
+      const {agentId,sessionId} = value as {agentId:string;sessionId:string};
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config?.personal || this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const agent = await this.agent(sessionId);
+      const assembly = await ctx.systemPrompt.assemble({scope:agent});
+      return {sessionId, messages:personalEvidenceMessages(agent),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
+    });
+    handle('pa.invalidate', async value => {
+      const {agentId} = value as {agentId:string};
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config?.personal) throw new RpcError(-32004,'Unknown personal Agent');
+      const security = await this.security;
+      security.revoking.add(agentId);
+      (await knowledge).suspendUpdates(true);
+      const retiredSessionIds = [...this.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => binding.sessionId);
+      try {
+        const live = ctx.agents.list().filter(agent => configurationService.forAgent(agent)?.agentId === agentId);
+        for (const agent of live) agent.cancel({kind:'user'},{keepInbox:false});
+        await Promise.all(live.map(async agent => {await agent.whenIdle();await this.flush(agent);}));
+        await security.state.retire(agentId,retiredSessionIds);
+        await new KnowledgeFiles(config.workspace!,config.knowledge?.globalSkillRoot).clearMemory();
+        for (const id of retiredSessionIds) this.bindings.delete(id);
+        return {invalidated:true,retiredSessionIds};
+      } finally { security.revoking.delete(agentId); (await knowledge).suspendUpdates(false); }
+    });
+    handle('pa.review', async value => {
+      const {agentId,kind,evidence} = value as {agentId:string;kind:string;evidence:unknown};
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!config?.personal) throw new RpcError(-32004, 'Unknown personal Agent');
+      return reviewPersonal(ctx,config,kind,evidence);
+    });
     handle('configuration.apply', async value => {
       const next = value as AgentConfiguration;
+      assertPersonalConfiguration(next);
+      const host = [...this.configurations.values()][0];
+      if (host && (Boolean(host.personal) !== Boolean(next.personal) || host.personal && (host.agentId !== next.agentId || JSON.stringify(host.personal) !== JSON.stringify(next.personal)))) throw new RpcError(-32002, 'Configuration cannot change runtime partition');
       await ctx.llm.resolveModelInfo(next.provider, next.model);
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
       if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
@@ -513,10 +560,13 @@ export default class NanoRuntime {
   *[Service.init]() { yield () => { this.peer.close(); for (const answer of this.approvals.values()) answer('unavailable'); }; }
 
   private async ensure(binding: SessionBinding) {
+    if (await (await this.security).state.isRetired(binding.sessionId)) throw new RpcError(-32004, 'Personal session was retired');
     if (!this.accepting) throw new RpcError(-32003, 'Runtime is not accepting sessions');
     const previous = this.bindings.get(binding.sessionId);
     if (previous && JSON.stringify(previous) !== JSON.stringify(binding)) throw new RpcError(-32002, 'Session binding conflict');
     const preset = `nano:${binding.agentId}:${binding.revision}`;
+    const config = this.configurations.get(preset);
+    if (config?.personal && (binding.ownerId !== config.personal.ownerId || binding.cwd !== config.workspace)) throw new RpcError(-32004, 'Personal Session must retain its owner and private workspace');
     if (!this.configurations.has(preset)) throw new RpcError(-32002, 'Unknown configuration revision');
     this.bindings.set(binding.sessionId, binding);
     await (await this.sessionController).create({ sessionId: SessionId(binding.sessionId), cwd: binding.cwd, agentPreset: preset });
@@ -526,6 +576,7 @@ export default class NanoRuntime {
   }
 
   private async agent(sessionId: string): Promise<Agent> {
+    if (await (await this.security).state.isRetired(sessionId)) throw new RpcError(-32004,'Personal session was retired');
     if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
     const result = await (await this.sessionController).resolveAgent(SessionId(sessionId));
     if ('error' in result) throw result.error;

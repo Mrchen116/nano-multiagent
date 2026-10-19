@@ -165,7 +165,7 @@ export class Work {
       const users = all(
         this.db,
         "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id)).map((u) => u.id);
+      ).filter(u => {const personal=one(this.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",root);return (!personal||personal.owner_user_id===u.id)&&canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id);}).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
@@ -495,15 +495,25 @@ export class Work {
       !["list", "read", "info", "describe", "resolve_target", "create", "join"].includes(p.action)
     )
       fail(400, "invalid_arguments");
+    const personal = one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
+    if(personal) this.ctx.personal!.authority(c,p);
     const s = this.ctx.messaging,
-      uid = s.agentUser(p.agent_id).id,
-      conversations = s.conversations(uid,p.scope ?? "joined");
+      uid = personal?.owner_user_id ?? s.agentUser(p.agent_id).id,
+      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id),
+      conversations = [...s.conversations(uid,personal ? "joined" : p.scope ?? "joined"),...(personal?s.conversations(s.agentUser(p.agent_id).id).filter(r=>!conversationAccess(this.db,r.id,uid)):[])].filter(r=>sourceAllowed(r.id));
+    const viewerFor=(id:string)=>personal&&!conversationAccess(this.db,id,uid)?s.agentUser(p.agent_id).id:uid;
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
     if (p.action === "resolve_target") {
       if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
+      if(personal) {
+        const target=p.target.replace(/^(conversation|user|agent):/, "");
+        const matches=conversations.filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
+        return {target:matches.length===1?matches[0]!.id:null};
+      }
       return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
     }
+    if(personal && ["create","join"].includes(p.action)) fail(403,"personal_reviewed_delivery_required");
     if (p.action === "create") {
       if (p.type && p.type !== "group") fail(400,"Only group creation is supported here");
       const created = s.createConversation({...user,kind:"agent"},{title:p.title,type:"group",visibility:p.visibility,participant_ids:p.participant_ids ?? []});
@@ -522,7 +532,7 @@ export class Work {
       }));
     if (p.action === "describe")
       return {
-        conversations: (p.targets ?? []).filter((id:string)=>!!conversationAccess(this.db,id,uid)).map((id:string)=>s.conversation(id,uid))
+        conversations: (p.targets ?? []).filter((id:string)=>sourceAllowed(id)&&!!conversationAccess(this.db,id,viewerFor(id))).map((id:string)=>s.conversation(id,viewerFor(id)))
           .map((r: Row) => ({
             target: r.id,
             name: r.title,
@@ -531,7 +541,7 @@ export class Work {
             participants: members(r.id),
           })),
       };
-    const target = p.target && conversationAccess(this.db,p.target,uid) ? s.conversation(p.target,uid) : undefined;
+    const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target)) : undefined;
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -660,6 +670,7 @@ export class Work {
         if (cost > budget || (content.type === "image" && images >= 4)) break;
         budget -= cost;
         if (content.type === "image") images++;
+        if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,p.target,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
           sender: {
@@ -712,7 +723,8 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'",
       id,
     );
-    if (!p || (owner && p.owner_id !== user.owner_id)) fail(404, "agent_not_accessible");
+    const personal=one(db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",id);
+    if (!p || (owner && p.owner_id !== user.owner_id) || (personal && personal.owner_user_id!==user.id)) fail(404, "agent_not_accessible");
     ctx.identity.requireSpace(user, p.space_id);
     return p;
   }

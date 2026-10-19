@@ -16,6 +16,8 @@ export class NativeModelSetup {
   private transaction?: Transaction;
   constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>) {
     peer.handle('model.setup.catalog', () => this.catalog());
+    peer.handle('model.setup.snapshot', () => this.snapshot());
+    peer.handle('model.setup.sync', value => this.sync(value as Awaited<ReturnType<NativeModelSetup['snapshot']>>));
     peer.handle('model.setup.credential', async value => {
       const record = await this.ctx.credentials.readRecord(recordKeyFor((value as {provider: string}).provider));
       return record && record.kind !== 'api-key' ? {preserve: true} : {record: record ?? null};
@@ -39,6 +41,22 @@ export class NativeModelSetup {
   async apply(providers: Profiles): Promise<void> {
     await this.ctx.settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers'], value: providers }]);
     this.providers = structuredClone(providers);
+  }
+  /** Export only approved model routes and their credentials to a trusted sibling host. */
+  async snapshot() {
+    const records: Record<string, CredentialRecord | null> = {};
+    for (const provider of Object.keys(this.providers)) records[provider] = await this.ctx.credentials.readRecord(recordKeyFor(provider)) ?? null;
+    return {providers: structuredClone(this.providers), records};
+  }
+  /** Apply a host-issued provider snapshot; no Agent configuration or plugin code crosses. */
+  async sync(snapshot: {providers: Profiles; records: Record<string, CredentialRecord | null>}) {
+    for (const provider of new Set([...Object.keys(this.providers), ...Object.keys(snapshot.providers)])) {
+      const record = snapshot.records[provider];
+      if (record) await this.ctx.credentials.modifyRecord(recordKeyFor(provider), async () => record);
+      else await this.ctx.credentials.deleteRecord(recordKeyFor(provider));
+    }
+    await this.apply(snapshot.providers);
+    return {};
   }
   private async catalog() {
     const entries = this.ctx.llm.listConfigurableProviders().filter(item => item.settingsNs === 'llm-pi-ai' && !item.declared);

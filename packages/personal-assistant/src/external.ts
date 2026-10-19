@@ -12,9 +12,16 @@ interface Connection {
   image(messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }>;
   updateCard(messageId: string, card: Record<string, unknown>): Promise<void>;
 }
+export interface ExternalDelivery {
+  agentId:string; target:string; shadowId?:string; appId:string; sourceId:string; chatId:string;
+  text:string; card?:Record<string,unknown>; operationId:string; taskRef?:string;
+  dispatch(text:string,card?:Record<string,unknown>):Promise<string>;
+}
 interface Options {
   nodeId: string; ownerId: string; store: NodeStore;
   runtimeFooter?: boolean;
+  personalAgent?(agentId:string):boolean;
+  personalDelivery?(delivery:ExternalDelivery):Promise<string|undefined>;
   attention?(input: RelayInput): boolean;
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   im(path: string, options?: RequestInit): Promise<unknown>;
@@ -126,7 +133,7 @@ export class ExternalChannels {
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
         this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, delivery_status: 'completed' };
+        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_task_ref:payload.pa_task_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -170,9 +177,19 @@ export class ExternalChannels {
       if (current.state === 'unknown') throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown');
       const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId);
       if (!connection || connection.config.appId !== chat.appId) throw new Error('External app is unavailable');
-      this.state.settle(output.id, 'sending');
-      try { const messageId = await connection.send(chat.chatId, text, output.operationId, this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined); this.state.settle(output.id, 'confirmed', messageId); }
-      catch { this.state.settle(output.id, 'unknown'); throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated', 'unknown'); }
+      const card = this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined;
+      const dispatch=async(body:string,frozenCard?:Record<string,unknown>)=>{
+        this.state.settle(output.id,'sending');
+        try { const id=await connection.send(chat.chatId,body,output.operationId,frozenCard);this.state.settle(output.id,'confirmed',id);return id; }
+        catch {this.state.settle(output.id,'unknown');throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated','unknown');}
+      };
+      if(this.options.personalAgent?.(chat.agentId)) {
+        if(!this.options.personalDelivery)throw new Error('Personal delivery adapter unavailable');
+        const id=await this.options.personalDelivery({agentId:chat.agentId,target:chat.id,shadowId:chat.shadowId,appId:chat.appId,sourceId:chat.sourceId,chatId:chat.chatId,
+          text,card,operationId:output.operationId,taskRef:typeof metadata?.pa_task_ref==='string'?metadata.pa_task_ref:undefined,dispatch});
+        if(!id)throw new Error('Personal delivery has no provider receipt');
+        this.state.settle(output.id,'confirmed',id);
+      } else await dispatch(text,card);
     })().finally(() => this.dispatches.delete(output.id));
     this.dispatches.set(output.id, task); return task;
   }
@@ -249,7 +266,7 @@ export class ExternalChannels {
   }
   private async approval(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;
-    if (!connection.config.ownerOpenId) return;
+    if (this.options.personalAgent?.(chat.agentId) || !connection.config.ownerOpenId) return;
     const request = payload.permission_request as Record<string, unknown>; const id = String(request.request_id);
     const prior = this.state.approvals().find(row => row.requestId === id); if (prior) return;
     this.state.approval(id, output.id, request);

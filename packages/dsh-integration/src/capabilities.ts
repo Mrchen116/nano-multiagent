@@ -1,3 +1,4 @@
+import { PERSONAL_TOOLS } from './personal-security.js';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
 import type {} from '@deepseek-ai/dsh-tool-skill';
@@ -22,6 +23,7 @@ export class ToolSelection {
   }
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
   selection(config: AgentConfiguration, names: string[]): string[] {
+    if (config.personal) names = names.filter(name => PERSONAL_TOOLS.has(name));
     const allow = config.toolAllowlist;
     if (allow === undefined) return names;
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
@@ -41,7 +43,7 @@ export class ToolSelection {
       const schemas = agent.ctx.tools.schemas(agent);
       const installed = new Set(this.installed(state.config));
       const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name)));
-      return schemas.map(tool => installed.has(tool.name)
+      return schemas.filter(tool => !state.config.personal || PERSONAL_TOOLS.has(tool.name)).map(tool => installed.has(tool.name)
         ? { ...tool, source_group: 'workspace' as const, enabled: selected.has(tool.name) } : tool);
     }
     finally { this.refresh(agent, state); this.changing = false; }
@@ -55,14 +57,14 @@ export class ToolSelection {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled = Object.entries({ task_graph: 'task_graph', memory: 'memory_curation', skill_manage: 'skill_creation' }).filter(([, feature]) => state.config.features?.[feature] === false).map(([tool]) => tool);
-    if (state.config.toolAllowlist === undefined && !disabled.length) return;
+    if (state.config.toolAllowlist === undefined && !disabled.length && !state.config.personal) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
-    if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
+    if (state.config.personal || state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = state.config.mode === 'global' && agent.session.header.origin !== 'subagent'
-      ? ['inbox', 'conversations', 'send_message', 'subagent'] : [];
+      ? ['inbox', 'conversations', 'send_message', 'subagent', ...(state.config.personal ? ['personal_assistant', 'personal_files'] : [])] : [];
     state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
   }
 }

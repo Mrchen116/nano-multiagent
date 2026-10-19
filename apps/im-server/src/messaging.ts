@@ -1,4 +1,4 @@
-import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable } from "./identity.js";
+import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -55,6 +55,7 @@ export class Messaging {
       display_name: u.display_name,
       user_id: u.id,
       is_stale: u.is_stale ? true : null,
+      ...(u.username.startsWith("agent:") && one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",u.username.slice(6)) ? {role:"personal"} : {}),
     };
   }
   members(id: string): Row[] {
@@ -83,6 +84,13 @@ export class Messaging {
             principal.owner_id,
           )
         : undefined;
+      const personal=agentId?one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId):undefined;
+      if(personal) {
+        this.ctx.personal!.authority(principal,{agent_id:agentId});
+        if(mode==="write" && id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+        if(!this.ctx.personal!.sourceAllowed(personal,id,mode))fail(404,"conversation_id not found");
+        return conversationAccess(this.db,id,personal.owner_user_id)!;
+      }
       if (!agent || agent.space_id !== c.space_id || !agentAvailable(this.db, agent)) fail(404, "conversation_id not found");
       uid = this.agentUser(agentId!).id;
     }
@@ -198,7 +206,7 @@ export class Messaging {
       if (!u) fail(404, "participant not found");
       const profile = u.username.startsWith("agent:")
         ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", u.username.slice(6)) : undefined;
-      const visible = profile ? canAccessSpace(principal, profile.space_id) && agentAvailable(this.db, profile)
+      const visible = profile ? (canAccessSpace(principal, profile.space_id) || canContactPersonalAgent(this.db,principal,profile)) && agentAvailable(this.db, profile)
         : u.id === principal.id || (principal.membership_status === "active" && u.membership_status === "active");
       if (!visible || (space && !canActorAccess(this.db, id, space))) fail(404, "participant not found");
       if (group && u.username.startsWith("agent:") && !one(this.db,
@@ -220,8 +228,13 @@ export class Messaging {
     if (b.visibility !== undefined && !["public","private"].includes(b.visibility)) fail(422,"invalid visibility");
     if (p.kind === "agent" && ids.some(id=>id !== p.id && one(this.db,"SELECT username FROM users WHERE id=?",id)?.username.startsWith("agent:")))
       fail(403,"An Agent can add only itself, not other Agents");
+    if(b.type==='direct' && ids.filter(id=>id!==p.id).length===1) {
+      const canonical=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE b.owner_user_id=? AND u.id=? AND b.status='active'",p.id,ids.find(id=>id!==p.id)!);
+      if(canonical)return this.conversation(canonical.conversation_id,p.id);
+    }
     const profiles = ids.map(id => one(this.db, "SELECT ap.* FROM agent_profiles ap JOIN users u ON u.username='agent:'||ap.agent_id WHERE u.id=?", id)).filter(Boolean);
-    const space = inheritedSpace ?? (profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
+    const contactingPersonal=profiles.some(profile=>!!profile && profile.owner_id!==p.owner_id && canContactPersonalAgent(this.db,p,profile));
+    const space = inheritedSpace ?? (contactingPersonal ? "company:default" : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
     this.ctx.identity.requireSpace(p, space);
     if (ids.some(id => !canActorAccess(this.db, id, space))) fail(404, "participant not found");
     if (!ids.includes(p.id)) ids.unshift(p.id);
@@ -293,6 +306,8 @@ export class Messaging {
       },
       ...(this.ctx.updates ? {update_wait: this.ctx.updates.messageWait(id)} : {}),
     };
+    const delegation = one(this.db,"SELECT * FROM pa_delegated_messages WHERE message_id=?",id);
+    if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
     for (const key of [
       "attachments",
       "tool_calls",
@@ -342,6 +357,7 @@ export class Messaging {
       this.members(id).map((u) => u.id),
       frame,
     );
+    for(const b of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=? AND p.observation_enabled=1",frame.event_id)) this.ctx.personal?.wake(b);
     return frame;
   }
   insertMessage(
@@ -392,6 +408,7 @@ export class Messaging {
       )
       .run(cId, sender);
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
+    if(type==="user") this.db.prepare("UPDATE pa_decisions SET status='declined',revision=revision+1 WHERE kind='draft' AND status='pending' AND json_extract(payload_json,'$.target_conversation_id')=? AND binding_id IN (SELECT binding_id FROM personal_agent_bindings WHERE owner_user_id=?)").run(cId,sender);
     const m = this.message(id);
     this.event(cId, id, "message.created", { ...m, message_id: id }, status, extra.publish !== false);
     return m;
@@ -463,6 +480,7 @@ export class Messaging {
     let sender = p.id,
       type = "user";
     if (p.kind === "gateway") {
+      if(one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",q.agent_id) && (b.sender?.type??b.sender_type)!=="agent")fail(403,"owner_identity_cannot_be_delegated");
       sender =
         b.sender?.type === "agent" || b.sender_type === "agent"
           ? this.agentUser(q.agent_id).id
@@ -579,7 +597,7 @@ export class Messaging {
     for (const m of messages) {
       const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
       const data = JSON.parse(e.payload_json);
-      this.ctx.gateway.broadcast(this.members(m.conversation_id).map(u=>u.id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,event_id:e.event_id}});
+      this.ctx.gateway.broadcast(this.members(m.conversation_id).map(u=>u.id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
       this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id));
     }
   }
@@ -630,6 +648,8 @@ export class Messaging {
   resolveTarget(agentId: string, target: string, create: false): string | undefined;
   resolveTarget(agentId: string, target: string, create = true): string | undefined {
     const a = this.agentUser(agentId);
+    const personal=one(this.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
+    if(personal && [personal.owner_id,personal.owner_user_id,`user:${personal.owner_user_id}`,`user:${personal.owner_id}`,personal.conversation_id,`conversation:${personal.conversation_id}`].includes(target))return personal.conversation_id;
     const c = one(
       this.db,
       "SELECT id FROM conversations WHERE id=?",
@@ -683,9 +703,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         return target.id === viewer.id || (viewer.membership_status === "active" && target.membership_status === "active");
       }
       const profile = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", r.agent_id)!;
-      return canAccessSpace(viewer, profile.space_id) && agentAvailable(db, profile);
+      return (canAccessSpace(viewer, profile.space_id)||canContactPersonalAgent(db,viewer,profile)) && agentAvailable(db, profile);
     }).map((r) =>
-      r.kind === "human" ? { user_id: r.user_id, kind: r.kind, display_name: r.display_name } : r,
+      r.kind === "human" ? { user_id: r.user_id, kind: r.kind, display_name: r.display_name } : one(db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",r.agent_id) ? {user_id:r.user_id,kind:r.kind,display_name:r.display_name,agent_id:r.agent_id,owner_id:r.owner_id,owner_display_name:r.owner_display_name,role:"personal",status:r.status} : r,
     );
   app.get("/im/v1/contacts", (req) => {
     const viewer = ctx.identity.authenticateRequest(req);

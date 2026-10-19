@@ -1501,5 +1501,16 @@
     "title": "Computers",
     "summary_one": "{{total}} computer · {{online}} online",
     "summary_other": "{{total}} computers · {{online}} online"
+  },
+  "pa": {
+    "return": "← Back to personal assistant",
+    "create": "My personal assistant",
+    "role": "Personal assistant · Following through",
+    "start": "Give it a name and get started",
+    "settings": "Personal assistant settings",
+    "returnSource": "← Back to previous chat",
+    "retry": "Personal assistant unavailable · Retry",
+    "label": "Personal assistant",
+    "noOtherChats": "No other conversations"
   }
 }

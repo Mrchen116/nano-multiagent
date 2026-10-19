@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { PersonalAgentIdentity } from './index.js';
 
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(item => text(item) ? [text(item)!] : []) : [];
@@ -17,6 +18,15 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   let mode = text(payload.skills_selection_mode);
   if (mode && !['default_discovery', 'explicit_allowlist', 'explicit_denylist'].includes(mode)) throw new Error('Invalid skills_selection_mode');
   if (skills !== null) mode ??= skills.length ? 'explicit_allowlist' : 'default_discovery';
+  let personal: PersonalAgentIdentity | undefined;
+  if (payload.personal_agent != null) {
+    const value = payload.personal_agent as Partial<PersonalAgentIdentity>;
+    if (!value || typeof value !== 'object' || !text(value.bindingId) || !text(value.ownerId)
+      || !text(value.conversationId) || !Number.isSafeInteger(value.epoch) || value.epoch! < 1) {
+      throw new Error('Invalid server-issued personal_agent binding');
+    }
+    personal = { bindingId: value.bindingId!, ownerId: value.ownerId!, conversationId: value.conversationId!, epoch: value.epoch! };
+  }
   const heartbeat = text(payload.heartbeat_json);
   let heartbeatJson: string | null = null;
   if (heartbeat) {
@@ -25,6 +35,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
     heartbeatJson = canonicalJson(decoded);
   }
   return {
+    ...(personal ? { personal_agent: personal } : {}),
     agent_id: agentId, approval_mode: approvalMode as 'cc' | 'codex' | null, work_mode: text(payload.work_mode) ?? 'single_thread',
     display_name: text(payload.display_name) ?? agentId, skills, skills_selection_mode: mode,
     tool_allowlist: strings(payload.tool_allowlist), group_reply_policy: text(payload.group_reply_policy) ?? 'manual',

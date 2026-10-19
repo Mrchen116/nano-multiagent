@@ -36,6 +36,18 @@ export class InboxStore {
     this.db.prepare('INSERT OR IGNORE INTO inbox(agent_id,target,message_id,payload,attention) VALUES(?,?,?,?,?)')
       .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
   }
+  /** Remove a revoked source from future reads and frozen page caches. */
+  revokeSource(agent: string, target: string): void {
+    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND target=?').all(agent,target) as {seq:number}[];
+    for(const {seq} of rows) {
+      this.db.prepare('DELETE FROM imported_parts WHERE seq=?').run(seq);
+      this.db.prepare('DELETE FROM fragments WHERE seq=?').run(seq);
+    }
+    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND target=?').run(agent,target);
+    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND json_extract(data,'$.target')=?").run(agent,target);
+    this.db.prepare("DELETE FROM reads WHERE json_extract(body,'$.target')=?").run(target);
+    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
+  }
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare('SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND (? IS NULL OR target=?) ORDER BY seq').all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }

@@ -1,0 +1,35 @@
+.pa-entry { flex-shrink: 0; border-bottom: 1px solid var(--im-border); padding: 5px 8px; }
+.pa-entry .chat-sidebar-row { width: 100%; }
+.pa-entry-icon { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; border-radius: 12px; color: var(--im-accent, #27685b); background: var(--im-surface-hover, #e7f1ec); font-size: 23px; }
+.pa-badge { font-size: 11px; color: var(--im-text-muted); }
+.pa-collaboration { margin: 14px 0 0; width: min(100%, 720px); display: grid; gap: 10px; }
+.pa-notice { font-size: 12px; color: var(--im-text-muted); margin: 0; }
+.pa-card { padding: 13px 15px; border: 1px solid var(--im-border); border-radius: 12px; background: var(--im-surface); overflow-wrap: anywhere; }
+.pa-card summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.pa-card h3 { font-size: 14px; margin: 0 0 6px; }
+.pa-card p { font-size: 13px; margin: 6px 0; white-space: pre-wrap; }
+.pa-card .pa-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pa-card button, .pa-dialog button.pa-secondary { padding: 6px 10px; border: 1px solid var(--im-border); background: var(--im-surface); border-radius: 7px; font-size: 12px; cursor: pointer; }
+.pa-card button:disabled, .pa-dialog button:disabled { opacity: .5; cursor: default; }
+.pa-card textarea { width: 100%; min-height: 80px; resize: vertical; margin-top: 8px; padding: 9px; border: 1px solid var(--im-border); border-radius: 8px; font-size: 14px; }
+.pa-card label { display: grid; gap: 4px; margin-top: 8px; font-size: 12px; }
+.pa-dialog-overlay { position: fixed; inset: 0; z-index: 90; background: #0006; }
+.pa-dialog { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); overflow: auto; z-index: 91; padding: 22px; border-radius: 16px; background: var(--im-surface); color: var(--im-text); box-shadow: 0 20px 80px #0003; }
+.pa-dialog h2 { margin: 0 0 12px; font-size: 19px; }
+.pa-dialog p { font-size: 13px; line-height: 1.7; color: var(--im-text-muted); }
+.pa-dialog label { display: grid; gap: 7px; margin: 14px 0; font-size: 13px; }
+.pa-dialog input:not([type=checkbox]), .pa-dialog textarea, .pa-dialog select { width: 100%; padding: 9px 10px; border: 1px solid var(--im-border); border-radius: 8px; color: var(--im-text); background: var(--im-surface); }
+.pa-dialog textarea { min-height: 75px; resize: vertical; }
+.pa-dialog .pa-toggle { display: flex; align-items: start; gap: 9px; }
+.pa-dialog .pa-toggle input { margin-top: 3px; }
+.pa-dialog footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+.pa-source-list { max-height: 180px; overflow: auto; }
+.pa-source-list label { display: flex; align-items: center; gap: 8px; }
+.pa-error { color: var(--im-danger, #b42318) !important; font-size: 13px; }
+.pa-delegation { font-size: 11px; color: var(--im-text-muted); border: 1px solid var(--im-border); border-radius: 4px; padding: 1px 5px; }
+
+.pa-goal { padding: 12px 0 3px; }
+.pa-goal + .pa-goal { margin-top: 10px; border-top: 1px solid var(--im-border); }
+
+.pa-source-return { flex-shrink: 0; padding: 7px 16px; border-bottom: 1px solid var(--im-border); font-size: 12px; color: var(--im-text-muted); }
+.pa-source-return button { cursor: pointer; }

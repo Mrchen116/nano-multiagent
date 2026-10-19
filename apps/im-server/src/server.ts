@@ -3,6 +3,7 @@ import websocket from "@fastify/websocket";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, createReadStream, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
+import { PersonalAgents, registerPersonalAgentRoutes } from "./personal-agent.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
 import { registerNodeUpdateRoutes } from './node-updates.js';
@@ -82,6 +83,7 @@ export async function createServer(options: ServerOptions = {}) {
   } as ImContext;
   ctx.messaging = new Messaging(ctx);
   ctx.gateway = new Gateway(ctx);
+  ctx.personal = new PersonalAgents(ctx);
   app.decorate("im", ctx);
   // Preserve the shutdown reason before the WebSocket plugin closes its clients.
   app.addHook("preClose", async () => {
@@ -166,6 +168,7 @@ export async function createServer(options: ServerOptions = {}) {
   registerMessagingRoutes(app, ctx);
   registerConversationActions(app, ctx);
   registerControlRoutes(app, ctx);
+  registerPersonalAgentRoutes(app, ctx);
   registerWorkRoutes(app, ctx);
   await registerMediaRoutes(app, ctx);
   registerSockets(app, ctx);

@@ -51,16 +51,16 @@ test('registration gates business sends and blocked inbound handlers do not bloc
   expect(received).toEqual(['relay.message', 'agent.work.cancel', 'agent.work.permission']);
 });
 
-test('typed responses require matching correlation and generic rejection advances FIFO', async () => {
+test.each(['conversation.query','pa.scope.resolve','pa.action.commit'])('typed %s responses require matching correlation and generic rejection advances FIFO', async type => {
   const s = await server((socket, frame) => {
-    if (frame.type === 'conversation.query') {
-      socket.send(JSON.stringify({ type: 'conversation.query.result', payload: { request_id: 'wrong' } }));
-      setTimeout(() => socket.send(JSON.stringify({ type: 'conversation.query.result', payload: { request_id: frame.payload.request_id } })), 10);
+    if (frame.type === type) {
+      socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: 'wrong' } }));
+      setTimeout(() => socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: frame.payload.request_id } })), 10);
     } else if (frame.type === 'node.report') socket.send(JSON.stringify({ type: 'error', payload: { code: 'rejected', message_type: frame.type } }));
     else ack(socket, frame);
   });
   const relay = connection(s.url); await relay.start();
-  expect((await relay.request('conversation.query', { request_id: 'right' })).payload.request_id).toBe('right');
+  expect((await relay.request(type, { request_id: 'right' })).payload.request_id).toBe('right');
   const rejected = relay.request('node.report', {});
   const next = relay.request('agent.message', {});
   await expect(rejected).rejects.toMatchObject({ delivery: 'rejected', code: 'rejected' });

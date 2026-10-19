@@ -432,3 +432,101 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_caller_idempotency_k
 CREATE INDEX IF NOT EXISTS task_graph_delete_receipt_expiry
         ON task_graph_mutation_receipts(created_at)
         WHERE json_type(result_json,'$.deleted_ids')='array';
+
+-- Personal identity is issued by IM, independent from editable Agent configuration.
+CREATE TABLE IF NOT EXISTS personal_agent_bindings (
+ binding_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL UNIQUE, owner_user_id TEXT NOT NULL,
+ agent_id TEXT NOT NULL UNIQUE, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+ conversation_id TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, request_key TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending', initial_goal TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pa_policies (
+ binding_id TEXT PRIMARY KEY REFERENCES personal_agent_bindings(binding_id),
+ revision INTEGER NOT NULL DEFAULT 1, observation_enabled INTEGER NOT NULL DEFAULT 1,
+ excluded_json TEXT NOT NULL DEFAULT '[]', disclosure_revision INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS conversation_participation_history (
+ conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(conversation_id,user_id)
+);
+INSERT OR IGNORE INTO conversation_participation_history SELECT conversation_id,user_id FROM conversation_participants;
+CREATE TRIGGER IF NOT EXISTS remember_conversation_participation AFTER INSERT ON conversation_participants BEGIN
+ INSERT OR IGNORE INTO conversation_participation_history VALUES(NEW.conversation_id,NEW.user_id);
+END;
+CREATE TABLE IF NOT EXISTS pa_source_events (
+ event_id INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL, source_event_id INTEGER,
+ kind TEXT NOT NULL, conversation_id TEXT, message_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}',
+ policy_revision INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
+ UNIQUE(binding_id,source_event_id)
+);
+CREATE TRIGGER IF NOT EXISTS personal_observation_event AFTER INSERT ON conversation_events
+WHEN NEW.event_type IN ('message.created','message.completed','conversation.membership_changed','task_graph.changed')
+BEGIN
+ INSERT OR IGNORE INTO pa_source_events(binding_id,source_event_id,kind,conversation_id,message_id,policy_revision,created_at)
+ SELECT b.binding_id,NEW.event_id,NEW.event_type,NEW.conversation_id,NEW.message_id,p.revision,NEW.created_at
+ FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id
+ WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
+ AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
+ AND NOT EXISTS(SELECT 1 FROM json_each(p.excluded_json) WHERE value=NEW.conversation_id);
+END;
+CREATE TABLE IF NOT EXISTS pa_goal_scopes (
+ scope_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, task_ref TEXT NOT NULL,
+ owner_message_id TEXT NOT NULL, owner_text TEXT NOT NULL, scope_json TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1, revoked INTEGER NOT NULL DEFAULT 0,
+ UNIQUE(binding_id,task_ref)
+);
+CREATE TABLE IF NOT EXISTS pa_assistance (
+ binding_id TEXT NOT NULL, task_ref TEXT NOT NULL, scope_id TEXT, next_action TEXT,
+ next_check_at TEXT, waiting_on TEXT, decision_id TEXT, paused INTEGER NOT NULL DEFAULT 0,
+ schedule_id TEXT, status TEXT NOT NULL DEFAULT 'active', revision INTEGER NOT NULL DEFAULT 1,
+ PRIMARY KEY(binding_id,task_ref)
+);
+CREATE TABLE IF NOT EXISTS pa_decisions (
+ id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, task_ref TEXT, kind TEXT NOT NULL,
+ payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', revision INTEGER NOT NULL DEFAULT 1,
+ snooze_until TEXT, resolution_json TEXT, request_key TEXT, UNIQUE(binding_id,request_key)
+);
+CREATE TABLE IF NOT EXISTS pa_operations (
+ operation_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, request_key TEXT NOT NULL,
+ task_ref TEXT, scope_id TEXT, scope_revision INTEGER, policy_revision INTEGER NOT NULL,
+ disclosure_revision INTEGER NOT NULL, conversation_id TEXT NOT NULL, audience_json TEXT NOT NULL,
+ payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL, evidence_json TEXT NOT NULL,
+ verdict_json TEXT, verdict_ref TEXT, expires_at TEXT, state TEXT NOT NULL DEFAULT 'prepared',
+ message_id TEXT, result_json TEXT, created_at TEXT NOT NULL, UNIQUE(binding_id,request_key)
+);
+CREATE TABLE IF NOT EXISTS pa_delegated_messages (
+ message_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+ authorized_by TEXT NOT NULL, display_name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pa_cleanup_operations (
+ operation_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, conversation_id TEXT,
+ request_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
+ UNIQUE(binding_id,request_key)
+);
+CREATE TABLE IF NOT EXISTS pa_source_reads (
+ binding_id TEXT NOT NULL, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+ policy_revision INTEGER NOT NULL, PRIMARY KEY(binding_id,message_id)
+);
+CREATE TABLE IF NOT EXISTS pa_incidents (
+ id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, actor_id TEXT NOT NULL,
+ conversation_id TEXT NOT NULL, source_message_id TEXT NOT NULL, category TEXT NOT NULL,
+ reason TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'open',
+ owner_notice_message_id TEXT, peer_notice_message_id TEXT,
+ UNIQUE(binding_id,source_message_id,category)
+);
+CREATE TABLE IF NOT EXISTS pa_contact_blocks (
+ binding_id TEXT NOT NULL, actor_id TEXT NOT NULL, PRIMARY KEY(binding_id,actor_id)
+);
+CREATE TRIGGER IF NOT EXISTS personal_membership_revoked AFTER DELETE ON conversation_participants BEGIN
+ INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at)
+ SELECT b.binding_id,'source.revoked',json_object('conversation_id',OLD.conversation_id),p.revision,strftime('%Y-%m-%dT%H:%M:%fZ','now')
+ FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id WHERE b.owner_user_id=OLD.user_id;
+ UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE conversation_id=OLD.conversation_id AND state IN ('prepared','allowed');
+END;
+CREATE TABLE IF NOT EXISTS pa_node_residencies (
+ node_id TEXT NOT NULL, owner_id TEXT NOT NULL, PRIMARY KEY(node_id,owner_id)
+);
+INSERT OR IGNORE INTO pa_node_residencies SELECT node_id,owner_id FROM personal_agent_bindings;
+CREATE TABLE IF NOT EXISTS pa_incident_evidence (
+ binding_id TEXT NOT NULL, message_id TEXT NOT NULL, category TEXT NOT NULL, incident_id TEXT NOT NULL,
+ PRIMARY KEY(binding_id,message_id,category)
+);

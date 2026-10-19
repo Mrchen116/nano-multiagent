@@ -29,7 +29,7 @@ export function NewChatModal({ onClose, onSelect }: { onClose(): void; onSelect(
         <ul className="chat-modal-agents">{query.data?.filter(c => c.user_id !== self).map(c => <li key={c.user_id}>
           <button className="chat-modal-agent" disabled={busy} onClick={() => void select(c)}>
             <Avatar initials={c.display_name.slice(0, 2)} color={colorForAgentSeed(c.display_name)} size={34} status={c.status} />
-            <span className="chat-modal-agent-body"><strong className="chat-modal-agent-name">{c.display_name}</strong><span className="chat-modal-agent-meta">{c.kind === "human" ? t("chat.contacts.person") : [c.owner_display_name, c.node_name].filter(Boolean).join(" · ")}</span></span>
+            <span className="chat-modal-agent-body"><strong className="chat-modal-agent-name">{c.display_name}</strong><span className="chat-modal-agent-meta">{c.kind === "human" ? t("chat.contacts.person") : [c.owner_display_name, c.role==='personal'?t('pa.label'):c.node_name].filter(Boolean).join(" · ")}</span></span>
           </button>
         </li>)}</ul>
       </div>

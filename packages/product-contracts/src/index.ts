@@ -1,6 +1,10 @@
+import type { PersonalAgentIdentity } from './personal-agent.js';
+export * from './personal-agent.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
+  /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
+  personal?: PersonalAgentIdentity;
   revision: string;
   workspace: string;
   mode: 'single_thread' | 'global';

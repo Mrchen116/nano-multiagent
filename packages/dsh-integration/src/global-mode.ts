@@ -11,7 +11,7 @@ export const name = 'nano-global-mode';
 export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string }) {
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean }) {
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
@@ -25,7 +25,7 @@ export function apply(ctx: Context, config: { mode?: string }) {
       type: 'object', properties: { action: { type: 'string', enum: ['list', 'info', 'read', 'create', 'join'] }, scope: { type: 'string', enum: ['joined', 'public'] }, title: { type: 'string' }, type: { type: 'string', enum: ['group'] }, visibility: { type: 'string', enum: ['public', 'private'], description: 'New groups default to public.' }, participant_ids: { type: 'array', items: { type: 'string' }, description: 'User IDs or agent:IDs under ordinary invitation rules; the actual Agent creator is automatically a member.' }, target: { type: 'string' }, query: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
     } },
     { name: 'send_message', description: 'Use target/text for a public message to an accessible conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'] }], additionalProperties: false,
+      type: 'object', properties: { ...(config.personal ? {task_ref: {type:'string',description:'Existing goal reference from personal_assistant goals for authorized external coordination.'}} : {}), target: { type: 'string' }, text: { type: 'string' }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'] }], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,

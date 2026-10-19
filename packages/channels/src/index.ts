@@ -241,11 +241,11 @@ export class WebRelayConnection {
   }
   private matches(sent: ProtocolFrame, received: ProtocolFrame): boolean {
     if (received.type === 'error') {
-      const key = results[sent.type]?.[1];
+      const key = sent.type.startsWith('pa.') ? 'request_id' : results[sent.type]?.[1];
       return (received.payload.message_type === undefined || received.payload.message_type === sent.type)
         && (!key || received.payload[key] === undefined || received.payload[key] === sent.payload[key]);
     }
-    const typed = results[sent.type];
+    const typed = sent.type.startsWith('pa.') ? [`${sent.type}.result`, 'request_id'] : results[sent.type];
     if (typed) {
       const [type, key] = typed;
       return received.type === type && sent.payload[key] !== undefined && received.payload[key] === sent.payload[key];
