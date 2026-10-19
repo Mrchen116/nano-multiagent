@@ -6,7 +6,7 @@
 
 **Static delta checks passed — 1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
-当前固定候选 `f63ffa73d1e3204017bc1b521fae6719710b3cb2`；patch base `72791ffad`，unit execution base `cc47abe3f`。本轮静态patch无存活问题，三份最新delta与实现 aligned；仅新自然上下文体验的独立产品证据待补（本轮 C1-NC）。此前完整OpenUI、两项原生修复及preview修复保留原有效范围，不用旧手写公开提交/Detach体验替代新目标。详见 Round 8。
+最新固定候选 `329c64c9c2b82b01833fdfb98847133d1abd11d0`（在f63ffa73d上仅prompt/工具描述/生成资产澄清）；自然上下文实现候选 `f63ffa73d`、patch base `72791ffad`、unit execution/effective base `cc47abe3f`。Round 8/9静态无存活问题，三份最新delta aligned；仅新自然上下文体验的独立产品证据待补（C1-NC）。此前完整OpenUI、原生修复和preview保留原范围，不用旧手写公开确认/Detach体验替代新目标。
 
 ## Previous delivery verdict — superseded by restored full OpenUI scope
 
@@ -465,3 +465,31 @@ All checks passed. Ready for PR update after canonical reconciliation and archiv
 无遗漏新增对外行为。自然上下文不新增数据库表/列、不改变已注册组件/工具或workspace权限；普通消息原子提交与publish返回值是本轮已设计的数据一致性/503语义修复，已纳入核对。三份delta按当前canonical的同名MODIFIED与新增ADDED分类，无重复旧手写公开确认契约。
 
 Outcome: **aligned**。静态delta完成；本轮产品C1-NC仍pending，完整交付当前不能再次宣称Ready for PR。
+
+
+## Round 9 — prompt clarification patch closure
+
+- code review mode: `patch`；verification_mode: `delta` / corrected-delta closure。
+- validated_at / candidate: `329c64c9c2b82b01833fdfb98847133d1abd11d0`
+- fix_delta_range: `f63ffa73d..329c64c9c`
+- executed_base / effective_base: `cc47abe3f`；caller final fetch仍无main增量。
+- checked_at: `2026-10-19T20:00:07+08:00`
+- retained_from: Round 8自然背景实现/权限/路由/冻结/隐私核对与此前未受影响有效结论。
+- requires_full_verification: `false`
+- 结论：**code review `[]`；delta aligned；C1-NC仍pending，0 WARNING**。
+
+### Source and contract reconciliation
+
+- `features/intelligent-ui.ts` 仍由原 `nano-interactive-replies` systemPrompt section常驻挂载；只细化事实/写作/直接代码用text、机制过程/参数有意义时主动交互、比较优先呈现标准/假设/表格、编辑输入与工具有真实行为。没有题目名、预设答案、关键词判题路由、额外Agent或generate_ui工具；保持完整注册组件、本地计算与原工具边界。
+- 新规则明确私聊send-time background按原话相关性判断/换题忽略/歧义澄清，群聊未提交state不可读，只有明确提交共享；与R5和三份delta一致，没有用prompt替代Round 8的前后端硬隔离。
+- 真实用户值、verified tool data、计算与标明的示例分开；render不是数据源/业务执行证明，UI事件与背景不能授权外发。这是原权限/实际结果要求的澄清，不改变当前宿主Query/Mutation能力或审批。
+- `global-mode.ts` 只把send_message描述由旧choices/editable-drafts扩至explanation/exploration/comparison/editor，schema、execute/publication逻辑未变。catalog只增加同源真实数据规则，生成prompt.md和Skill.md的单行内容与catalog源一致；未改组件props、tool registry、传输和UI状态。
+- design追加记录明确参考范围与非实质性，没有静默新增业务能力或降低普通问题主动交互目标。三份当前delta无需新增条目；Round 8 Corrected Delta Reconciliation全部保留，Outcome继续 **aligned**。
+
+### Evidence and remaining closure
+
+实际读取 `/tmp/feat617-context-prompt-tests.log`：native communication/capabilities **3 suites / 6 tests passed**；原Feature缺失默认、关闭/重开挂载接线继续存在。caller最终Node/前端build日志 `/tmp/feat617-context-final-build.log`、`context-final-web-build.log` 已确认成功。本轮没有重复此前有效full测试或操作运行环境。
+
+作者新增 `evidence/natural-context-browser-review.md` 保存空白普通原话、step2自然追问、继续step3、relay固定step2、公开interaction_reply=null、模型按4与3解释的端到端结果，同时保留最初残留work登记导致session冲突的失败与恢复边界。它能补充普通路径证据，不能单独代替当前尚在进行的Global/群聊/三宽度独立增量产品裁决。
+
+C1-NC继续pending，待同一独立产品报告到齐后一次性证据closure；无需因本次纯prompt澄清重开Full设计、重审83组件或改变已执行基线。本轮只更新verification，code-review.json仍为`[]`，未动caller未跟踪截图/relay证据。
