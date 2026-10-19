@@ -15,6 +15,7 @@ it('queries both identities once and keeps excluded sources out of list, search 
  expect(query({action:'list',scope:'public'}).conversations.map((c:any)=>c.target)).toContain('discover');
  const result=query({action:'search',query:'launch'});
  expect(result.messages.map((m:any)=>m.message_id).sort()).toEqual([ownerMessage.id,peerMessage.id].sort());
+ expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.url).toBe(`http://im.test/chat/peer?message_id=${ownerMessage.id}`);
  expect(query({action:'read',target:'agent-only'}).messages[0].sender.name).toBe('u2');
  const command=ctx.messaging.insertMessage('chat','u1','user','Do not read the Agent peer conversation');
  service.sources(principal,{...args,action:'exclude',conversation_id:'agent-only',source_message_id:command.id,expected_revision:1});

@@ -704,6 +704,7 @@ export class Work {
             channel: messageConversation.external_source ?? "web",
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
+            url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
           ...(m.interactive ? {interactive:m.interactive} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
