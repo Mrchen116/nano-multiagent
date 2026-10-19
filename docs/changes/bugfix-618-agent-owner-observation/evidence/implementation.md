@@ -58,3 +58,9 @@ pre_fix_head `03d1d5a65`。审批只读资格遗漏和滚动fixture前提问题�
 - 产品R3使用CUA新建页和公开viewport能力，实测390×844 CSS像素，窄屏返回、分类、长内容、分页独立通过；原生审批卡/失效修复可视复验、长按/侧滑/详情仍未完成。历史R2窄屏阻塞已关闭。
 
 unit保持active；不归并current spec、不归档、不创建Ready PR。待补齐原生真实交互并关闭verification的C1后，再完成最终同步、归并、归档和CI交付；不合并或部署。
+
+## 阻塞后的现场与恢复
+
+已停止本unit fixture/Vite（PID39825/21404），核实58054、58055、53186均释放；fixture按finally清理合成SQLite。关闭本次启动的iPhone17Pro和宿主恢复时自动启动的Nano feat578 390，两设备均Shutdown，没有清除原设备数据。worktree与已安装依赖保留，用于补验；临时计时实验已删除。主仓dirty/untracked未修改或提交。
+
+恢复时在unit根目录运行`node --import tsx docs/changes/bugfix-618-agent-owner-observation/evidence/fixture.mts`，前端目录以`VITE_IM_PROXY_TARGET=http://127.0.0.1:58054 npm run dev -- --host 127.0.0.1 --port 53186 --strictPort`启动；按需调用control的`/seed`、`/classifications`、`/history`、`/media`、`/approval`。新建DB的conversation ID以实际列表为准，不能复用历史报告ID。原生base URL仍应为53186。CUA替代驱动的用户答复尚未收到，不把等待时间当作授权。
