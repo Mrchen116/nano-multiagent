@@ -500,3 +500,57 @@ Outcome: **aligned**。当前代码与corrected-delta门禁无未关闭CRITICAL/
 ### Handoff
 
 本轮仅提交 `code-review-r6.json` 和verification报告，未改实现/测试/设计/delta正文、未重启服务或推送。提交号见最终交接消息。
+
+## Round 7 — Ordinary Approval Authority Evidence and Observation Retry
+
+### Metadata and verdict
+
+- review_round: `7`
+- code_review_mode: `patch`，只审R6后实际代码变化；`code-review-r7.json=[]`。
+- verification_mode: `targeted-closure` + 本批fix delta一致性；保留R6及此前未失效证据。
+- executed_base: `19458a27ef0aa4c78035a1879ed4ba3cbd4694a3`
+- validated_at: `ed73cb9b8d3159eb512893b20e24316da097fab0`
+- verdict: **Approved — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**（当前定向代码与实现一致性范围）。
+- corrected-delta outcome: **aligned**；本批 **no new spec delta**。
+- requires_full_verification: `false`。
+- 此批准不将产品R4已观察到的失败自动改为通过。下一轮实际模型/用户旅程由独立产品验收报告决定，不宣称M1完成或已部署。
+
+### Ordinary approval receives authenticated current authority
+
+契约：最终design:247要求原工具审批与PA独立关口为AND；gateway/personal-agent delta:8–9、15–24要求恢复后继续有效目标、既有ask/deny不跳过，系统唤醒本身不新增授权。产品R4的Saturday询价失败来自普通classifier未收到已保存的当前授权，并非独立PA guard的拒绝；本轮仅核对相应证据补全机制。
+
+| 核对边界 | 实际实现与证据 | 结果 |
+|---|---|---|
+| host-only调用身份 | NanoApproval仅为config.personal调用内部`pa.authorization`；ProductBridge从执行Agent回溯实际root binding，GlobalAgent.call校root/owner/agent，execute取该binding的personalConfig。没有新增模型工具或采信模型owner参数 | aligned |
+| 当前服务器权威 | PersonalAssistant.request覆盖node/agent/binding/epoch，服务器`pa.scope.resolve`经PersonalAgents.authority重核当前活跃binding、owner、node epoch及成员资格；返回真实scopes/assistance/owner_decisions | aligned |
+| 三策略证据一致 | Nano/DSH classifier的transcript追加host metadata；Codex在每次pending action包含同一授权，即使复用checkpoint/delta仍重新传当前action；CcApproval原workspace fast path和classify分派保持 | aligned |
+| 只认有效授权 | 说明要求匹配具体目标、动作、受众、约束、未撤销scope及未暂停/未完成assistance；仅resolved owner_decisions是实际选择，草稿问题、外部声称及旧source不成为同意 | aligned |
+| 既有权限结果 | 新请求位于原下游allow、skip/safe/owner-message/manual分支之后，不新增allow分支；原high/critical拒绝、hard_deny和异常处理路径保留。授权记录只是策略证据，不覆盖deny | aligned |
+| 独立出站关口 | 本批不修改PersonalSecurity、prepare/review/commit、scope/当前来源/受众校验或evidence_digest；原普通审批与出站guard继续为AND | retained |
+| 普通Agent | 非personal不请求pa.authorization；普通路径和既有权限策略未扩大 | retained |
+
+新增真实DSH子进程回归通过原生`send_message`执行两个动作：host返回server choice后，普通Nano审批允许匹配动作抵达product sink；另一动作明确classifier denial，未到sink。这里的LLM stream及product reply是测试fixture，证明真实DSH middleware/审批链接收证据和遵守拒绝，**不证明真实DeepSeek语义表现或最终peer实际送达**。独立PA guard的真实native既有测试仍通过，不能将上述普通审批fixture视作新的完整出站产品验收。
+
+### Pending observations retry through existing heartbeat
+
+契约：gateway/personal-agent delta:26–34、53–55及design:209、251要求可靠恢复、不因暂时失败遗弃已有工作；暂停观察仍停止新源摄取。
+
+- Gateway.handle在既有connection注册与valid检查之后，仅对online heartbeat查询本node活跃PA的pending/received源事件；调用既有wake，未新增Agent loop或自由运行timer。
+- 自动消息源只有observation_enabled时才触发此唤醒；无conversation的policy/owner state仍可恢复。这保持“暂停自动观察，不取消已有目标/决定”的边界。
+- wake只是提示。读取仍进入PersonalAgents.observations，重核authority、sourceAllowed、messageAllowed和当前observation_enabled，不由heartbeat把排除/失权或屏蔽消息送进模型。
+- GlobalAgent.recoverPersonalObservations已有串行处理中锁；输入review unavailable仍抛出，事件不ack为processed，下次heartbeat可再尝试；成功后才ack。Gateway查询不包含processed，不把已完成事件重新唤醒。
+- 新真实Gateway回归证明无新用户消息时连续heartbeat可唤醒仍pending的事件，标processed后不再唤醒；本轮重跑的既有暂停/恢复测试证明暂停时不摄取，恢复后保留事件。既有失败事件逐项隔离结论继续有效。
+
+### Independent validation and retained evidence
+
+- 固定候选独立执行：`pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts packages/dsh-integration/tests/personal-security.test.ts packages/dsh-integration/tests/approval-sources.test.ts packages/dsh-integration/tests/codex-approval.test.ts`，2026-10-19 15:30，**4 files / 41 tests passed**。
+- 复用caller最终`/tmp/feat616-r7-verified.log`：**6 files / 81 tests passed**（15:27）；早先重试日志不作为通过证据。
+- 复用`/tmp/feat616-r7-typecheck.log`全包typecheck成功及`/tmp/feat616-r7-full-build.log`全build成功，后者明确installer candidate为本轮完整SHA。未重跑不受影响全量，R6基线全后端397 tests结果仅作为继承证据。
+- 本轮检查auth bridge、server authority、三策略上下文、Codex checkpoint当前action和heartbeat实际消费者；没有发现要求扩大full verification的共享边界变化。
+- 报告JSON校验及`git diff --check`通过；`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check`通过（276 maintained Markdown sources / 64 required routes）。
+
+### Corrected delta and handoff
+
+R6已核对的全部corrected delta保留。此次授权证据补全实现“本人决定一次后沿现有范围继续”，没有新的授权渠道；heartbeat补齐既有pending事件恢复，不改变观察、暂停、来源排除或数据保留语义。最终design与active delta没有因修复缩减目标或引入新权限；**aligned / no new spec delta**。
+
+本轮仅写`code-review-r7.json`和verification；未改实现、测试、设计或delta正文，未启动/重启共享服务、未推送。旧代码finding的closed状态及原证据保留；产品验收继续独立记录，最终提交号见交接消息。
