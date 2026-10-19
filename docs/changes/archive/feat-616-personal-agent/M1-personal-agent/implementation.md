@@ -158,3 +158,5 @@ The user's test service remains available at its isolated local URL while they i
 - 新PA创建把默认服务职责写入现有custom_prompt；既有Agent配置、Persona加载、编辑/清空、创建幂等与恢复机制直接复用，不增加迁移或自动回填。固定PA系统提示仅去除重复服务偏好，身份/来源/草稿协议/披露边界保留。
 - 随包新增nano-ongoing-work，普通Global和PA均按现有Skill机制发现和按需加载。沿用现有任务、工作记录、子Agent、Heartbeat和schedule，不覆盖用户ongoing-work或Skill选择，不新建PA状态/调度服务。
 - 创建默认字段先红后绿；4文件35tests通过，含实际DSH Global/PA加载Skill全文、清空custom prompt、禁用Skill后其他Skill保留及PA固定身份提示保留；contracts/IM/PA/DSH构建、全仓typecheck通过。日志/tmp/feat616-r12-*。真实产品与独立审查随后记录。
+- R12冻结实现为6903405c8，独立code review/delta consistency Approved；随后合入main d1e6a8f0c（PR369）为61f1cdd34，六处冲突分别保留owner观察只读与PA配置/标识/草稿/广播完整payload，独立整合审查Approved。合并影响IM22、披露/来源17、Web54tests及前后端构建通过，docs-check通过；未修改上游iOS实现，差异相对main不含本轮iOS变更。
+- 用户再次提醒Prompt/Skill分工后，默认文案进一步精简为每轮职责/偏好/触发条件，流程细节只留Skill；创建13tests与IM build再次通过，独立closure无finding。真实模型样本验证的是6903405c8初版默认及未变的Skill/配置机制，不把后续精简文案声称为已重新跑过模型样本。

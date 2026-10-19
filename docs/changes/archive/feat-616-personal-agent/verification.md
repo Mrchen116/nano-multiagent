@@ -930,3 +930,60 @@ message-pane.tsx:1075仅检查pending.length===0，而原handleAdd开始先增�
 - 新回归在实际MessagePane触发drop，挂起真实uploadAttachment promise，断言开始上传后示例消失；reject后Retry控件出现而示例仍隐藏；点击Remove后示例恢复。它在仓内正常收集执行，补上原/tmp fixture未能运行的证据，未仅断言布尔helper。独立`pnpm exec vitest run src/features/chat/components/message-pane-composer-draft.test.tsx`：**1 file / 17 tests passed**，2.17s，日志`/tmp/pa-static-review-616/r11-attachment-closure-tests.log`。原示例填写/聚焦/编辑、跨聊天草稿保留、明确Send一次的用例继续通过。
 - 复用并实际读取caller `/tmp/feat616-r11-ui-tests-final.log`：**3 files / 28 tests passed**；`/tmp/feat616-r11-web-build-final.log`frontend build成功（已有依赖注释/chunk warning）。`git diff --check`和JSON校验通过。R11其余后端21/UI27以及此前仍适用证据保留，没有重跑全量。
 - 本次仍仅写code-review-r11.json与verification，不commit、不改实现或共享服务。创建仅命名与示例只填写的当前spec/design/delta现无存活工程不一致；独立产品体验/真实点击发送验收继续另记。
+
+## Round 12 — Editable default guidance and shared ongoing-work Skill
+
+- executed_base: `d7e2862813631c5af17101710f6149ee5ea5d35f`；validated_at: caller冻结的该HEAD后R12 dirty增量，2026-10-20 00:01 Asia/Shanghai。用户已明确授权职责指导移入可编辑custom_prompt、必要协议留在system；只审这次实际变化，不重开整个feat。
+- code_review_mode: **bounded patch**；verification_mode: **delta consistency**。`code-review-r12.json=[]`；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。既有安全/身份/发送链未失效证据和历史失败保持，不以文案变化重新宣称旧全量覆盖新模型行为。
+- 关键Git blobs：personal-agent.ts=`6f23586222c5f84d56dab33e5d754d2950db55e0`；新增defaults=`ed2d7add6dc556b6872b04d4469b932fb9dccfbe`；personal-security.ts=`3c05e5adae74c0f8579df563a37d0fb68fa26baf`；nano-ongoing-work/SKILL.md=`81aff1625d14c4a3ce3f09c6fa9e4047fa876054`；最终native回归=`1343ac294c48aa3108192cc7d32b86014892cd92`。
+
+### First-write semantics and editable configuration
+
+新默认文本只进入PA首次`ops.create`候选。已有active binding先返回state；pending恢复先走原ConfigOperations.recover，使用持久候选，不重新套用新默认；restorePersonal沿fromProfile保留现有字段，普通配置修改/节点注册也没有引入默认回填。ConfigOperations.create本身拒绝已存在profile，不能用创建重试覆盖用户配置。新增回归确认首次candidate含默认Skill指导和default_discovery，随后将profile custom_prompt改为用户文字，再重试同创建请求，用户文字仍在且agent.create只执行一次。
+
+清空路径仍为普通配置optionalText/null→NodeConfiguration的systemPrompt→ConfigurationScopes.setConfiguration：先dispose原Persona，仅非空next.systemPrompt才挂新Persona，没有PA fallback。新增默认文件是首次产品值，不是运行时再次读取的隐藏规则。服务偏好中“持续推进/交互选择/汇报方式”移出PA固定section；真实Global通用执行协议继续共用，固定PA section保留owner授权来源、双身份/真实出处、reply_draft字段、来源控制及对外披露限制。清空用户指导不会移除这些协议或独立review/commit关口。
+
+### Shared Skill and actual tool boundaries
+
+新增nano-ongoing-work经原installBuiltinSkills安装独立产品名称，不覆盖用户ongoing-work；原workspace/global优先级、discovery、显式allow/deny选择及native get均复用。没有自动把正文常驻system，也没有在用户禁用后另读文件或强制加载的新增路径；默认custom_prompt中的按需引用不修改Skill选择。
+
+规程只使用现有工具/文件：task_graph保留原创建/版本/显式请求约束；工作笔记仅在确需跨轮次且没有既有记录时写入workspace，不新增账本服务；原始授权不由笔记替代。schedule需实际创建回执及ID；Heartbeat读现有`.nanoassistant/HEARTBEAT.md`、保留已有内容，沿真实Feature/subscription/availability/任务解析机制，不承诺禁用或离线时自行唤醒。子执行、消息、取消和最终投递均要求实际对象/状态，不以记录、受理回执或私有总结冒充结果。未新增工具schema、定时器、迁移或设置页面。
+
+当前/归档IM scenario、gateway新增Requirement及design R12一致；gateway current入口计数同步为5。职责可编辑与固定协议并存，共用Skill遵循用户选择，**aligned / no uncovered spec delta**。不把默认文案或Skill存在本身当作真实模型持续协助成功证明。
+
+### Independent validation and evidence limits
+
+- 独立`pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts packages/personal-assistant/tests/builtin-skills.test.ts`：**2 files / 14 tests passed**，0.58s，日志`/tmp/pa-static-review-616/r12-defaults-tests.log`。创建默认、编辑后重试不覆盖与原installer保护用户名称通过。
+- caller补实际资产/native验证后，独立`pnpm exec vitest run packages/dsh-integration/tests/personal-security.test.ts`：**1 file / 5 tests passed**，4.28s，日志`/tmp/pa-static-review-616/r12-native-tests.log`。真实官方DSH的Global与PA均发现并经native skill execute取得随包正文；configuration.apply清空systemPrompt并denylist nano-ongoing-work后，prompt无旧Persona标记、可用Skill无此名称，owner-skill仍存在；PA固定section仍在。工具执行、普通插件/shell/记忆与PA协议原路径继续通过。
+- native用例的product.call和模型输出为fixture；证明真实prompt/Skill加载、清空及选择机制，不是实际LLM自主选择Skill、持续跟进或新默认风格的端到端语义验收。provider list/get的deny过滤另已静态核对；没有把从列表消失夸大为OS文件保密机制。
+- 已读取caller先红的`/tmp/feat616-r12-red.log`（旧代码custom_prompt为null），最终`/tmp/feat616-r12-final-tests.log` **4 files / 35 tests passed**，以及`/tmp/feat616-r12-build.log`三后端包build、`/tmp/feat616-r12-typecheck.log`全后端typecheck成功。未重复全量；报告JSON与仅报告路径git diff --check通过。最后全树diff-check时caller已在进行另一批合并，返回messaging/chat-workspace/message-pane/interactive-card/global.css等conflict markers；这不属于冻结R12增量，不作为其finding，也不把在途全树称为已通过最终完整性检查。已交caller处理，未触碰冲突文件。
+
+本轮只新增code-review-r12.json和追加verification，不改实现/测试/设计、不commit、不操作共享服务。没有存活代码finding；本批用户授权范围的静态与确定性gate通过，真实模型服务方式样本按产品证据另记。
+
+### R12 main sync — owner observation and retained PA behavior
+
+- validated_at: `61f1cdd344494e37240d84aa54e235199661d324`，parents=`6903405c8`与`d1e6a8f0c`；2026-10-20 00:04 Asia/Shanghai。仅审`6903405c8..61f1cdd34`六处冲突解决及其PA/observer交互，使用combined diff及两侧代码对照。其他已合main的618功能/审查按上游有效证据保留，不重开全量。
+- code_review_mode: **bounded merge closure**；verification_mode: **delta consistency**。`code-review-r12-main-sync.json=[]`；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。上节在途marker问题在冻结树已消失，当前全树`git diff --check`通过，不将合并过程中的临时冲突当作存活finding。
+
+| 整合位置 | 对两侧约束与结果的核对 |
+|---|---|
+| Messaging event/publishMessages | 实时接收者均用conversationReaderIds，helper沿同一当前conversationAccess资格过滤；publishMessages仍在事件data后合并完整this.message，包括后写入的PA delegation、interactive与reply metadata，不退回只有持久旧data。原PA source wake、relay投递路径保留。 |
+| Workspace配置/改名 | 非可写会话不提供onRename，observer不提供onOpenConfig；主人canonical DM仍用renamePersonalAgent及原cache invalidation、PersonalAgentDialog入口。不是用观察者身份解锁PA配置。 |
+| MessagePane身份/导航与禁写 | PA badge、delegation标识、returnNavigation、collaboration与空聊引导均保留；observer显示专属说明、无composer/改名/配置写入口，permission和interactive收到can_write=false。引导仍需当前owner canonical及成功空历史flag，上传/失败附件隐藏条件保留。 |
+| Interactive fieldset | disabled同时含readOnly与applyingDraft，保留busy/pending、原ThemeProvider和先保存再采用。observer不能编辑/提交，主人PA的普通草稿采用保护未被合并覆盖。 |
+| CSS | pa-starter-examples与chat-observer-notice两段并存，不互相替换或共享selector。真实布局质量仍按产品证据判断。 |
+| IM current入口 | 同时保留普通公司Global Work公开、PA私人配置/Work主人限制，并增加当前双方Agent owner观察资格；没有把观察资格写成成员/发送/审批权。 |
+
+相互影响补查：上游owner观察仅作用于完整、同space、两位均为Agent的direct；普通owner-human/PA canonical DM不因该规则增加第三方reader，PA Work route及事件reader仍核真实binding owner。PA sourceAccess依旧要求owner实际参与历史或PA自身可读，不会仅因owner在UI可观察而取消原“主人参与过”的来源约束。服务器已有reader变化不作为PA任意新授权；本合并未删除具体共享外发review/commit或私人资产ACL。
+
+独立后端`pnpm exec vitest run apps/im-server/tests/personal-disclosure.test.ts apps/im-server/tests/personal-sources.test.ts`：**2 files / 17 tests passed**，0.98s，日志`/tmp/pa-static-review-616/r12-main-sync-boundary-tests.log`。包括PA代发完整广播、relay完整payload、来源排除、真实audience变更和receipt边界。
+
+独立frontend `pnpm exec vitest run src/features/chat/interactive/interactive-flow.test.tsx src/features/chat/components/message-pane-composer-draft.test.tsx`：**2 files / 24 tests passed**，4.19s，日志`/tmp/pa-static-review-616/r12-main-sync-ui-tests.log`。observer真实卡片字段/提交disabled、无composer且不save/send；原PA示例只填写、附件状态隐藏与会话草稿保持同时通过。
+
+已实际读取caller `/tmp/feat616-r12-main-tests.log` **2 files / 22 tests passed**、`main-ui-tests.log` **5 files / 54 tests passed**、`main-boundary-tests.log` **2 files / 17 tests passed**及IM/frontend build成功（已有chunk warning）。未重复无关全量。两份当前PA delta、原Global公开Work与owner观察契约可同时成立，**aligned / no new PA spec delta**。
+
+仅追加本节与code-review-r12-main-sync.json，未改实现/测试/设计、不commit、不重启共享服务。保留R12可编辑默认指导/native Skill结论和更早未失效证据；不把本轮工程通过代判新增上游UI/iOS真实体验或所有PA语义旅程。
+
+### R12 prompt/Skill responsibility closure
+
+用户补充提醒后，仅复核`61f1cdd34`后默认短文案（blob=`6d1542232164bc9979859b284fe4efcf8e9f600b`）及design新增分工说明，2026-10-20 00:08 Asia/Shanghai：custom_prompt现仅保留主动推进、少打扰、关注相关输入、沟通偏好和跨轮次/等待时按需加载nano-ongoing-work的触发条件；记录字段、恢复步骤、实际唤醒/回执、完成核验和取消收尾均由未变化的Skill集中承载，固定身份/来源/权限/草稿协议未改。**Approved / aligned，0新增finding**，R12 JSON仍为`[]`，不另建轮次或重跑完整门禁。已读取caller `/tmp/feat616-r12-prompt-boundary-tests.log`创建suite **13 tests passed**及`/tmp/feat616-r12-prompt-build.log`IM build成功；`git diff --check`通过。此前默认保存/编辑/清空与native Skill的工程及caller产品样本仍支持未变的加载/配置机制，不能冒充此次精简文字本身的全新真实模型语义验收。仅追加本段、不改实现或commit。

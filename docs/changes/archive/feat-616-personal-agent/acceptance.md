@@ -1,4 +1,4 @@
-> 当前结论：**R9 full、R10 注册/公司路径、R11 只起名创建及首聊示例均 PASS（各自限定样本与版本）**。最新创建体验以文末R11为准；R10创建时交代任务的旧步骤已被新需求替代。R11视频入口：`data/acceptance/feat-616/r11-first-chat/README.md`。
+> 当前结论：**R9 full与R10–R12各有界路径 PASS（各自限定样本/版本）**。R12验证默认职责可编辑/清空及Skill复用，运行默认初版6903405c8；后续精简文案未重跑模型。最新创建体验见R11；证据分别保留于各轮本地目录。
 
 # feat-616 — 独立真实产品验收
 
@@ -531,3 +531,32 @@ checkout基线 `10873316bc2b9cac74f71c06e447320f9edaff66` 加 caller 本轮未�
 `r11-first-chat.mp4` 约118秒：真实注册、只起名创建、桌面/手机空态、点击填入、编辑后Send、历史与回复、同事PA对照。只剪去等待/环境准备，片段原速；`clip-index.json`列明原片来源与时间。R9/R10原证据完整保留，R10含任务输入的创建画面不再代表当前体验。
 
 专用headless Chrome、两个context已全部关闭；服务归caller管理。仅追加acceptance与ignored本地证据，未修改实现/设计，未commit。
+
+
+## Round 12 · 2026-10-20 · 默认职责与持续工作Skill targeted
+
+**Verdict: PASS（下列真实样本）；blocking 0，major 0。** 本轮把可编辑职责、通用Skill复用和PA固定协议分别验证，不重跑R9/R10/R11已通过路径。运行代码为 `6903405c8` 默认文案初版；caller随后将职责文案进一步缩短，把具体记录/调度步骤仅留Skill，此后续短文案未重新运行模型，本报告不对它作相同行为实证声明。现有PA不回填默认文案是预期行为。
+
+### 环境与可观察证据
+
+reviewer准备新账号 `r12-guidance-owner` / 知夏R12，通过真实注册与绑定确认使用独立source-built Node `r12-guidance-9e0aca7b`，空Agent配置、独立owner/workspace，只复用测试模型连接。新PA仅起名小夏，ID `pa_37d0c53dabee`，主人DM `c_dc8cd27d6aee`。未API创建账号/PA、未改源码/测试或生产配置。证据位于 `data/acceptance/feat-616/r12-default-guidance/`。
+
+| 判据 | 实际结果与证据 | 结论 |
+|---|---|---|
+| 新PA默认职责使用现有可编辑字段 | 仅起名创建后，从PA设置进入原Agent Config，自定义补充指令真实包含默认职责和按需读取nano-ongoing-work条件。稳定prompt预览含相同文字 | pass：`01-default-custom-prompt.txt/png`、`02-default-stable-prompt.txt` |
+| 编辑保存后实际生效 | 改成“每次回复第一句以知夏已收到开头”及按需Skill，保存/刷新字段持久化；稳定prompt中原默认长文消失、新指令出现；下一轮ack及最终回复均实际以该开头起句 | pass：`07-edited-stable-prompt.txt`、`10-correction-completed.txt/png` |
+| 清空不隐式恢复职责 | 清空保存后刷新字段为真正空字符串；稳定prompt不含原默认文案、不含编辑后的开头规则，固定PA身份/授权/来源协议仍在；第三轮正常交付且不再带该开头 | pass：`11-cleared-stable-prompt.txt`、`11-cleared-custom-prompt.png`、`15-disabled-skill-result.txt` |
+| 随包Skill可发现并真实加载 | Config正常技能列表出现nano-ongoing-work。未在用户首条请求点名Skill，模型依据默认职责实际skill Load nano-ongoing-work完成32ms，随后glob/write工作记录 | pass：`03-skills-coexist.png`、`04-live-skill-loaded.txt/png`、`09-live-write-proof.txt` |
+| 用户自有ongoing-work不被覆盖 | Node首次启动前创建合成用户自有ongoing-work，保留标记r12-user-owned-camellia-73；安装后两技能并存，SHA256前后均为0d463c96e0bba35125744f39ef89d56352a1e1f7b2bda207e737e8c61c185ff9；后续真实加载用户Skill得到正确标记 | pass：`16-user-skill-hash.txt`、`14-disabled-skill-work-proof.txt/png`、`15-disabled-skill-result.txt/png` |
+| 禁用遵守原有选择 | 使用既有技能按钮禁用nano，保存/刷新aria-pressed=false，ongoing-work仍true；随后模型报告nano不在可用目录，实际仅skill ongoing-work调用24ms，没有read/bash或其他绕路，无新任务/提醒 | pass（本样本）：`12-nano-skill-disabled-user-skill-enabled.png`、`14-disabled-skill-work-proof.txt` |
+| 小型跨轮次记录与纠正 | A周六白鹭书店2小时、B周日散步半小时，首轮实际写入独立条目。第二轮只更正A为青松书店1小时，B不变，并按明确要求结束两项；真实文件分别记录最终状态且不把结束跟进说成活动已完成 | pass：`06-two-items-recorded.txt`、`10-correction-completed.txt/png`、`13-ongoing-work-final.md` |
+
+稳定prompt证据来自现有配置页的服务预览，实际模型回复另作行为验证；没有把UI预览称为完整原始请求抓包。禁用样本是当前目录和模型遵守设置的实际行为，并未强迫模型调用已禁用工具去穷举所有拦截路径。小型跨轮次样本只有两项、一次更正与显式结束，不外推长期持续工作可靠性或Heartbeat/定时长周期效果。
+
+### 体验与操作记录
+
+沿用现有Agent配置，没有新增另一套PA职责设置。职责可直接编辑；清空后仍是同一PA。技能启用/禁用在同一组按钮中可辨识，用户自有与随包技能不同名且同时可见。桌面1440×900截图已目视检查；本轮不改变移动布局，未重复移动路径。
+
+一次清空保存先持续“保存中”，约几十秒后成功；reviewer等待确定成功再刷新，没有把10秒工具等待超时误判为保存失败。最终状态与后续行为均已验证。
+
+本轮以截图、可见文本、真实Work及持久文件为证据，原始页面录像保留raw/，没有另剪短视频。全部工作结束，无主动后续事项。专用浏览器/context已关闭。独立Node71257收到TERM后DSH子进程退出但Node残留、在IM切换期间出现runtime unavailable；最终仅对该确认的fixture PID执行KILL，exec退出137，无剩余子进程。此收尾事实保留，不外推为职责/Skill机制失败。自建config/binding URL及runtime credentials已删除，其他本地证据保留；主IM/Node由caller管理，未停止。只追加本报告，未commit。
