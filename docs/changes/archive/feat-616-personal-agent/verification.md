@@ -859,3 +859,26 @@ PA收到实际owner_notice_message_id且未有peer receipt才准备peer通知。
 独立`pnpm exec vitest run apps/im-server/tests/personal-disclosure.test.ts packages/personal-assistant/tests/personal-assistant.test.ts`：**2 files / 24 tests passed**，1.87s，日志`/tmp/pa-static-review-616/r9-notice-closure-tests.log`。新host回归直接覆盖deny无incident、先report后commit、denied输入未摄入、固定审核不带executionEvidence；旧普通发送/共享写与permit回归继续通过。已读取caller `/tmp/feat616-r9-denied-notice-green.log`：**3 files / 29 tests passed**；三后端包build成功复用交接。未重跑未失效全量、未操作共享服务或改变模型。
 
 仅新增notice closure JSON与本节报告、不commit。产品最后一次隐私样本能否实际让owner与peer都收到并正确展示，仍由独立产品报告按候选版本补入；本轮静态和确定性边界没有新存活finding，结束有界审查。
+
+## Round 10 — Registration and membership continuity supplement
+
+- executed_base / product code: `1190bbbfcd9521ea252efde793365a1f70f49088`；validated_at: 本轮该HEAD之后未提交的五文件有界增量（tenancy.test.ts、current IM PA spec、archive unit spec/design/IM delta），2026-10-19 22:50 Asia/Shanghai。没有产品源码变化；本轮是同一PR368交付的补验，不另建生命周期，不重复已关闭全量检查。
+- code_review_mode: **bounded patch / test review**；`code-review-r10.json=[]`。verification_mode: **delta consistency**；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。历史发现/闭环及先前仍有效证据保留，真实注册到批准的完整视频/产品判定由独立reviewer补充。
+
+### Test effectiveness and unchanged authority
+
+新增回归没有预置PA：新owner通过真实`POST /im/v1/auth/register`取得token并断言201/none，使用此token经真实`POST /im/v1/personal-agent`创建。仅电脑transport用在线node/binding fixture与gateway.request spy替代，capabilities.resolve及带真实operation/fingerprint的agent.create回执被模拟；创建、ConfigOperations提交、主人私聊和membership routes仍是真实服务/SQLite。原私人消息由真实Messaging持久化，用认证GET回读，能够核原message ID与正文。
+
+同一个verifyIdentity在none、真实company/join后的pending、真实管理员approve后的active三阶段执行：完整binding等值（包括agent/binding/conversation等身份）、DM仍为personal:owner空间、历史ID/正文存在；公司admin读取该DM和PA Work均404。批准后再次请求创建新名字，binding不变，agent.create总次数仍为1，owner绑定行总数为1。因而不是只断言“获批成功”，也不是测试自己写入的membership状态。
+
+静态核对原实现：company/join只改users.membership_status并记成员事件；Identity.transition approve只更新该用户membership_status及既有成员事件，不写PA binding/profile/conversation/Work。PA创建以owner归属串行化，已有其他request_key直接返回当前PA state，不重建配置/私聊。Work HTTP route在读取journal前先核PA绑定owner及私人space，故admin的404对应真实访问边界，不因测试未运行真实Work journal而被当成“公司admin可以看到空Work”。现有onboarding create仍直调createPersonalAgent，无普通助手转换路径。
+
+### Delta alignment and limits
+
+current IM spec、archive unit spec与IM delta新增的同名Scenario一致：注册首次设置创建固定PA，个人使用无需公司批准，申请批准后沿用身份/消息/配置/工作上下文且不发布私人资产。design说明owner稳定归属、membership仅改变公司资格及隔离源码电脑端的证据边界，与现有实现一致；没有为未通过行为修改权限或要求第二个PA。**aligned；本轮是已有行为的明确Scenario与回归保护，没有新的产品代码/API或权限语义。**
+
+独立执行`pnpm exec vitest run apps/im-server/tests/tenancy.test.ts`：**1 file / 8 tests passed**，5.73s，日志`/tmp/pa-static-review-616/r10-continuity-tests.log`。已读取caller `/tmp/feat616-r10-continuity-tests.log`同文件8项通过。JSON及`git diff --check`通过；未重复无变化的全量/build。
+
+工程证据的限制明确保留：首次电脑连接/模型确认被fixture替代；原私人消息不是模型回复；没有真实DSH session/context跨批准的运行探针。配置与上下文未被会员变更写入由静态代码及身份/历史保持支持，不能把它写成已实际体验了所有运行状态恢复。独立产品reviewer正在从/register录制首次设置、个人使用、公司申请批准和同一PA/DM/历史；本报告不代填其结果，也不把安装包未发布的本地源码电脑端称作下载/安装验收。
+
+本轮仅写archive unit的code-review-r10.json和verification，不改实现/测试/设计、未commit、未启动或重启共享服务。caller五文件dirty增量保持原样；保留本轮范围之外所有既有结论。

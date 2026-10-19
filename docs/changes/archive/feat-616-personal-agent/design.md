@@ -23,6 +23,12 @@ flowchart TD
  PS --> A
 ```
 
+### 注册与加入公司的连续体验
+
+注册后进入现有首次设置，完成电脑绑定和模型连接后，直接调用同一个 createPersonalAgent 创建固定 PA；不是先创建普通助手再转换。允许稍后继续设置，个人使用无需公司资格。绑定以 owner_id 为稳定归属，成员申请/批准只更新 membership_status，不创建或迁移 PA、主人私聊、配置与执行上下文。获批后在同一 PA 中继续使用；新增公司资源访问仍逐项遵循现有权限，主人私人聊天与 Work 保持私人。
+
+注册验收必须从 /register 开始，覆盖创建前 company none、申请后 pending、批准后 active 三个阶段；核对同一 agent_id/binding_id/conversation_id 和原消息。实际安装包未发布的本地环境可使用隔离源码构建的电脑端，但必须明确记录这不构成下载安装验收，不可预置 PA 冒充注册创建。
+
 ### 身份与双向消息
 
 保留 personal_agent_bindings 和既有 owner-only 配置/Work ACL、身份 epoch。PA 自己的可读会话与主人可读且参与过的会话取并集；source exclusions 应用于整个 PA 的查询与接收。查询扩展现有 conversations 工具的 list/info/read，并增加 search 参数能力，不新增 PA 历史工具或数据库。消息来源附原消息 URL 和主人是否可读的事实；仅 PA 可读时明确说明并给出相关事实摘要，不把链接展示为主人可打开的入口。Agent 建群复用现有会话权限，依据实时 profile/owner 权限而非运行账号的成员状态。
