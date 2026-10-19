@@ -1,0 +1,25 @@
+name: Issue triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            // Read current labels so a status set after creation is respected too.
+            const { data: issue } = await github.rest.issues.get(context.issue);
+            if (issue.labels.some(label => label.name?.startsWith('status:'))) {
+              return;
+            }
+            await github.rest.issues.addLabels({
+              ...context.issue,
+              labels: ['status:needs-triage'],
+            });

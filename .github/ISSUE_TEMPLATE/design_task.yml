@@ -1,0 +1,62 @@
+name: Design task · 设计讨论
+description: 对需求、方案或实施前的决策进行讨论。
+labels:
+- status:needs-triage
+body:
+- type: markdown
+  attributes:
+    value: 请先搜索已有 Issue。描述你知道的事实即可，不需要提前定位根因或给出实现方案。
+- type: dropdown
+  id: area
+  attributes:
+    label: 影响区域
+    description: 可多选；不清楚时选择“不确定”。这里只记录线索，维护者会补 area:* 标签。
+    multiple: true
+    options:
+    - 个人助手与任务路由 (pa)
+    - 电脑节点与本地启动 (node)
+    - DSH 执行集成 (dsh-integration)
+    - IM 服务端 (im-server)
+    - Web 客户端 (web)
+    - iOS 客户端 (ios)
+    - 飞书等消息渠道 (channels)
+    - CI、部署与仓库工具 (infra)
+    - 文档 (docs)
+    - 不确定
+  validations:
+    required: true
+- type: textarea
+  id: decision
+  attributes:
+    label: 待决问题
+    description: 这次需要讨论或决定什么？
+  validations:
+    required: true
+- type: textarea
+  id: context
+  attributes:
+    label: 背景与约束
+    description: 当前情况、已知限制和已有资料。
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: 预期设计产物
+    description: 讨论结束后希望得到什么结论、边界或文档？
+  validations:
+    required: true
+- type: textarea
+  id: validation
+  attributes:
+    label: 评估标准
+    description: 怎样判断方案足够清楚、能够进入后续工作？
+  validations:
+    required: true
+- type: textarea
+  id: links
+  attributes:
+    label: 相关资料
+    description: 相关 Issue、PR、spec 或截图链接；没有可留空。
+  validations:
+    required: false

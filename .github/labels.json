@@ -1,0 +1,132 @@
+[
+  {
+    "name": "type:bug",
+    "color": "BFD4F2",
+    "description": "User-visible defect or regression"
+  },
+  {
+    "name": "type:feature",
+    "color": "BFD4F2",
+    "description": "New behavior or product capability"
+  },
+  {
+    "name": "type:refactor",
+    "color": "BFD4F2",
+    "description": "Restructure implementation without changing intended behavior"
+  },
+  {
+    "name": "type:tech-debt",
+    "color": "BFD4F2",
+    "description": "Engineering process, maintainability, or repository hygiene work"
+  },
+  {
+    "name": "type:docs",
+    "color": "BFD4F2",
+    "description": "Documentation content or organization"
+  },
+  {
+    "name": "type:test",
+    "color": "BFD4F2",
+    "description": "Test coverage, fixtures, or test reliability"
+  },
+  {
+    "name": "type:ci",
+    "color": "BFD4F2",
+    "description": "Continuous integration checks or automation"
+  },
+  {
+    "name": "area:pa",
+    "color": "1D76DB",
+    "description": "Personal assistant routing, tasks, and delivery"
+  },
+  {
+    "name": "area:node",
+    "color": "1D76DB",
+    "description": "User node lifecycle and local startup"
+  },
+  {
+    "name": "area:dsh-integration",
+    "color": "1D76DB",
+    "description": "Public DSH integration and execution adapter"
+  },
+  {
+    "name": "area:im-server",
+    "color": "1D76DB",
+    "description": "Central IM service and persistence"
+  },
+  {
+    "name": "area:web",
+    "color": "1D76DB",
+    "description": "Web client experience"
+  },
+  {
+    "name": "area:ios",
+    "color": "1D76DB",
+    "description": "Native iOS client experience"
+  },
+  {
+    "name": "area:channels",
+    "color": "1D76DB",
+    "description": "Feishu and other message channel integrations"
+  },
+  {
+    "name": "area:infra",
+    "color": "1D76DB",
+    "description": "Repository infrastructure, CI, GitHub workflow, and developer tooling"
+  },
+  {
+    "name": "area:docs",
+    "color": "1D76DB",
+    "description": "Repository documentation"
+  },
+  {
+    "name": "priority:P0",
+    "color": "FBCA04",
+    "description": "Critical outage or data-loss risk requiring immediate attention"
+  },
+  {
+    "name": "priority:P1",
+    "color": "FBCA04",
+    "description": "High-impact problem to address next"
+  },
+  {
+    "name": "priority:P2",
+    "color": "FBCA04",
+    "description": "Important but schedulable; not immediately blocking"
+  },
+  {
+    "name": "priority:P3",
+    "color": "FBCA04",
+    "description": "Low urgency; suitable for backlog"
+  },
+  {
+    "name": "status:needs-triage",
+    "color": "0E8A16",
+    "description": "Needs initial classification and assessment"
+  },
+  {
+    "name": "status:needs-design",
+    "color": "0E8A16",
+    "description": "Needs requirements or design decisions before implementation"
+  },
+  {
+    "name": "status:ready",
+    "color": "0E8A16",
+    "description": "Ready for implementation"
+  },
+  {
+    "name": "status:blocked",
+    "color": "0E8A16",
+    "description": "Waiting on an explicit dependency or decision"
+  },
+  {
+    "name": "status:in-progress",
+    "color": "0E8A16",
+    "description": "Work is actively underway"
+  },
+  {
+    "name": "status:needs-verification",
+    "color": "0E8A16",
+    "description": "Implementation awaits relevant verification"
+  }
+]

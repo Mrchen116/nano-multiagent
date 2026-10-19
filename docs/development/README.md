@@ -7,7 +7,9 @@
 | 任务 | 先读 |
 |---|---|
 | 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
-| 安装环境、运行常用命令、开发 Node 或前端 | [`local-development.md`](local-development.md) |
+| 提报 GitHub Issue、分诊和维护标签 | [`issues.md`](issues.md) |
+| 安装环境、运行常用命令、开发 Node 或前端 | [`issues.md`](issues.md) | GitHub 提报入口、标签使用与同步维护 |
+| [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
