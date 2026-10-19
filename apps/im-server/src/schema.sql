@@ -441,6 +441,7 @@ CREATE TABLE IF NOT EXISTS message_interactive (
     catalog_version TEXT NOT NULL,
     source TEXT NOT NULL,
     registry_json TEXT NOT NULL,
+    publication_json TEXT,
     supersedes_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
     superseded_by TEXT REFERENCES messages(id) ON DELETE SET NULL,
     read_only INTEGER NOT NULL DEFAULT 0
@@ -457,7 +458,6 @@ CREATE TABLE IF NOT EXISTS interaction_drafts (
 CREATE TABLE IF NOT EXISTS interaction_submissions (
     source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
-    semantic_json TEXT NOT NULL,
-    PRIMARY KEY(source_message_id,user_id)
+    message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    semantic_json TEXT NOT NULL
 );

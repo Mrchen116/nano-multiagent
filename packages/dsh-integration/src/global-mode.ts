@@ -26,7 +26,7 @@ export function apply(ctx: Context, config: { mode?: string }) {
     } },
     { name: 'send_message', description: 'Use target/text for a public message to an accessible conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. When the Intelligent UI Feature is enabled, for useful choices or editable drafts first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
       type: 'object', properties: { target: { type: 'string' }, text: { type: 'string' }, interactive: { type: 'object', properties: {
-        format: { type: 'string', enum: ['openui'] }, catalog_version: { type: 'string', enum: ['nano-1'] }, source: { type: 'string', maxLength: 65536 }, supersedes_message_id: { type: 'string' },
+        format: { type: 'string', enum: ['openui'] }, catalog_version: { type: 'string', enum: ['nano-1'] }, source: { type: 'string', maxLength: 65536 }, supersedes_message_id: { type: 'string' }, source_mode: { type: 'string', enum: ['patch'] },
       }, required: ['format', 'catalog_version', 'source'], additionalProperties: false }, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { required: ['interactive'] } }], additionalProperties: false,
     } },
   ];

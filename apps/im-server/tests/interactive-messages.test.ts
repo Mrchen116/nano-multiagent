@@ -85,4 +85,37 @@ describe('interactive message persistence', () => {
     await expect(messaging.sendMessage(request('u2'))).rejects.toMatchObject({statusCode:404});
   });
 
+  it('keeps exploring after submission and persists each new request with its own identity', async () => {
+    const {messaging,request,db} = setup();
+    const first=await messaging.sendMessage(request());
+    const draft=request();draft.body={expected_draft_revision:1,state:{draft:{body:{value:'周日见'}}}};
+    expect(messaging.interactions.writeDraft(draft)).toMatchObject({submission_message_id:null});
+    const next=request('u1','解释这次的变化',{draft:{body:{value:'周日见'}}}); next.headers['idempotency-key']='next-key';
+    const second=await messaging.sendMessage(next);
+    expect(second.id).not.toBe(first.id);
+    expect(await messaging.sendMessage(next)).toMatchObject({id:second.id});
+    expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(2);
+  });
+  it('merges a patch into a new immutable version and retains publication input', () => {
+    const {messaging,card} = setup();
+    const patch={...interactive,source_mode:'patch',supersedes_message_id:card.id,source:'form = Form("draft", ContinueButton("send", "发送给林悦"), [FormControl("草稿", TextArea("body", "", 3, null, "周日见"))])'};
+    const next=messaging.insertMessage('chat','a1','agent','已改',[],null,'completed',{interactive:patch});
+    expect(next.interactive.source).toContain('root =');
+    expect(messaging.interactions.publication(next.id)).toEqual(patch);
+    expect(next.interactive.source).toContain('周日见');
+    expect(messaging.message(card.id).interactive.source).toContain('周六见');
+  });
+
+  it('persists native action metadata and full local state without treating generated message as handwritten text', async () => {
+    const {messaging,request} = setup();
+    const req=request();delete req.body.interaction_reply.action_id;
+    req.body.interaction_reply.event={type:'continue_conversation',label:'解释当前结果',message:'分析参数',context:{kind:'comparison'}};
+    req.body.interaction_reply.state={'$scale':[3],draft:{body:{value:'修改后的稿子'}}};
+    const sent=await messaging.sendMessage(req);
+    expect(sent.content).toBe('解释当前结果');
+    expect(sent.interaction_reply).toMatchObject({event:{message:'分析参数',context:{kind:'comparison'}},state:{'$scale':[3]},fields:[{label:'草稿',value:'修改后的稿子'}]});
+    const missing=request();delete missing.headers['idempotency-key'];
+    await expect(messaging.sendMessage(missing)).rejects.toMatchObject({statusCode:422});
+  });
+
 });

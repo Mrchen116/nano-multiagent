@@ -521,7 +521,7 @@ export class Gateway {
       if (previous) {
         s.access({ ...c, kind: "gateway" }, previous.conversation_id, a.agent_id);
         const saved = s.message(previous.message_id);
-        const savedInteractive = saved.interactive ? interactiveResponse(saved.interactive) : undefined;
+        const savedInteractive = s.interactions.publication(previous.message_id);
         if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
           || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({

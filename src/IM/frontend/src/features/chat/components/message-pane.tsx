@@ -260,16 +260,21 @@ export function MessagePane({
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
   const [selections, setSelections] = useState<Record<string, InteractiveSelection>>({});
   const detached = useRef(new Set<string>());
+  const [interactionAttempts, setInteractionAttempts] = useState<Record<string, {text:string;input:InteractionReplyInput;key:string;editedAt:number}>>({});
+  const pendingInteraction = interactionAttempts[conversation.id];
+  function clearInteractionAttempt(cid: string) {
+    setInteractionAttempts(current => { const next={...current}; delete next[cid]; return next; });
+  }
   const selection = selections[conversation.id];
   const chooseInteraction = useCallback((next: InteractiveSelection) => {
     if (detached.current.has(`${next.source_message_id}:${next.editedAt}`)) return;
     setSelections(current => current[next.conversationId]?.editedAt > next.editedAt ? current : {...current, [next.conversationId]: next});
   }, []);
-  const submittedIds = new Set(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => m.interaction_reply!.source_message_id));
+  const submittedMessages = new Map(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => [m.interaction_reply!.source_message_id, m.id]));
   const replacedIds = new Set(messages.flatMap(m => m.interactive?.supersedes_message_id ? [m.interactive.supersedes_message_id] : []));
-  const activeSelection = selection && !submittedIds.has(selection.source_message_id) && !replacedIds.has(selection.source_message_id) ? selection : undefined;
-  function clearSelection(cid: string, source: string) {
-    setSelections(current => { if (current[cid]?.source_message_id !== source) return current; const next = {...current}; delete next[cid]; return next; });
+  const activeSelection = selection && !replacedIds.has(selection.source_message_id) ? selection : undefined;
+  function clearSelection(cid: string, source: string, editedAt = Infinity) {
+    setSelections(current => { if (current[cid]?.source_message_id !== source || current[cid].editedAt > editedAt) return current; const next = {...current}; delete next[cid]; return next; });
   }
 
   const localComposerStoreRef = useRef<Map<string, ComposerSnapshot>>(new Map());
@@ -653,13 +658,20 @@ export function MessagePane({
     sendingConversationIdRef.current = sourceConversationId;
     markComposerSending(sourceConversationId);
     setComposerSending(true);
+    const attempt = interactionAttempts[sourceConversationId] ?? (activeSelection ? {
+      text:wireContent, input:{source_message_id:activeSelection.source_message_id,state:structuredClone(activeSelection.state)},
+      key:crypto.randomUUID(),editedAt:activeSelection.editedAt,
+    } : undefined);
+    if (attempt) setInteractionAttempts(current => ({...current,[sourceConversationId]:attempt}));
     try {
-      if (activeSelection) await onSend(wireContent, submittedAttachments, {
-        source_message_id: activeSelection.source_message_id, state: activeSelection.state,
-      });
+      if (attempt) await onSend(attempt.text, submittedAttachments, attempt.input, attempt.key);
       else await onSend(wireContent, submittedAttachments);
-      if (activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
+      if (attempt) {
+        clearInteractionAttempt(sourceConversationId);
+        clearSelection(sourceConversationId, attempt.input.source_message_id, attempt.editedAt);
+      }
     } catch (error) {
+      if (error instanceof InteractionSubmissionError || String(error).includes('createMessage failed: 4')) clearInteractionAttempt(sourceConversationId);
       if (error instanceof InteractionSubmissionError && activeSelection) clearSelection(sourceConversationId, activeSelection.source_message_id);
       forceScrollToBottomRef.current = false;
       return;
@@ -1078,7 +1090,7 @@ export function MessagePane({
                   onMenuRequest={requestMessageMenu}
                   onSheetRequest={requestActionSheet}
                   interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
-                  interactiveSubmitted={submittedIds.has(m.id)}
+                  interactiveSubmissionId={submittedMessages.get(m.id)}
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={async (input, key) => {
                     try {
@@ -1098,14 +1110,15 @@ export function MessagePane({
       </div>
 
       <form className="chat-pane-composer" onSubmit={handleSubmit}>
+        {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
         {activeSelection && <div className="interactive-selection" role="status">
           <span title={activeSelection.title}>{t("chat.interactive.attached")} · {activeSelection.title.slice(0, 70)}</span>
-          <button type="button" onClick={() => {
+          <button type="button" disabled={Boolean(pendingInteraction)} onClick={() => {
             detached.current.add(`${activeSelection.source_message_id}:${activeSelection.editedAt}`);
             clearSelection(conversation.id, activeSelection.source_message_id);
           }}>{t("chat.interactive.cancel")}</button>
         </div>}
-        <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
+        <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy || Boolean(pendingInteraction)}>
           {pending.length > 0 && (
             <div className="chat-pane-composer-chips">
               {pending.map((att) => (
@@ -1182,7 +1195,7 @@ export function MessagePane({
                 onKeyDown={handleKeyDown}
                 enterKeyHint={isMobile ? "enter" : undefined}
                 onPaste={handlePaste}
-                disabled={composerBusy}
+                disabled={composerBusy || Boolean(pendingInteraction)}
                 onScroll={() => {
                   if (mirrorRef.current && composerRef.current) {
                     mirrorRef.current.scrollTop = composerRef.current.scrollTop;
@@ -1542,11 +1555,11 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmitted, onInteractionSelect, onInteractionSend,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend,
 }: {
   message: Message;
   interactiveReadOnly?: boolean;
-  interactiveSubmitted?: boolean;
+  interactiveSubmissionId?: string;
   onInteractionSelect(selection: InteractiveSelection): void;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
@@ -1791,7 +1804,7 @@ function MessageBubble({
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
-          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submitted={interactiveSubmitted}
+          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
             onSelect={onInteractionSelect} onSend={onInteractionSend} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>

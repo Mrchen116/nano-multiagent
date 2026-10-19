@@ -1,9 +1,9 @@
-import React, { Component, useEffect, useRef, useState } from 'react';
-import { Renderer } from '@openuidev/react-lang';
+import React, { Component, useEffect, useMemo, useRef, useState } from 'react';
+import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
-import { readInteractionDraft, saveInteractionDraft } from '../chat-api';
+import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
@@ -20,7 +20,7 @@ export interface InteractiveSelection {
 export interface InteractiveCardProps {
   message: Message;
   readOnly?: boolean;
-  submitted?: boolean;
+  submittedMessageId?: string;
   onSelect(selection: InteractiveSelection): void;
   onSend(input: InteractionReplyInput, key: string): Promise<unknown>;
 }
@@ -32,14 +32,14 @@ class RenderBoundary extends Component<{ children: React.ReactNode; fallback: Re
 }
 
 /** Render public source while keeping edits private until an explicit continuation. */
-export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}: InteractiveCardProps) {
+export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend}: InteractiveCardProps) {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState(false);
   const [initial, setInitial] = useState<Record<string, unknown>>({});
   const [generation, setGeneration] = useState(0);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|null>(null);
+  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const [saved, setSaved] = useState(false);
   const state = useRef<Record<string, unknown>>({});
@@ -47,9 +47,12 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
   const touched = useRef(false);
   const dirty = useRef(false);
   const saving = useRef(false);
+  const saveRequest = useRef<ReturnType<typeof saveInteractionDraft> | null>(null);
+  const submitting = useRef(false);
+  const actionLabel = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<{input: InteractionReplyInput; key: string}|null>(null);
-  const locked = Boolean(readOnly || submitted || done || submissionConflict);
+  const locked = Boolean(readOnly || submissionConflict);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const selectRef = useRef(onSelect); selectRef.current = onSelect;
@@ -69,6 +72,14 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
     } catch { setError('load'); }
   }
   useEffect(() => { void load(); return () => clearTimeout(timer.current); }, [message.id]);
+  // Composer submissions also advance the draft revision, without remounting the explorer.
+  useEffect(() => {
+    if (!loaded || !submittedMessageId) return;
+    void readInteractionDraft(message.conversation_id, message.id).then(draft => {
+      revision.current = draft.draft_revision;
+      setDone(JSON.stringify(state.current) === JSON.stringify(draft.state));
+    }).catch(() => setError('save'));
+  }, [submittedMessageId]);
 
   async function save() {
     if (saving.current || lockedRef.current || !dirty.current || pending.current) return;
@@ -76,62 +87,102 @@ export function InteractiveCard({message, readOnly, submitted, onSelect, onSend}
     dirty.current = false;
     const value = state.current;
     try {
-      const result = await saveInteractionDraft(message.conversation_id, message.id, revision.current, value);
+      saveRequest.current = saveInteractionDraft(message.conversation_id, message.id, revision.current, value);
+      const result = await saveRequest.current;
       revision.current = result.draft_revision;
       setSaved(true); setError(null);
     } catch (e) {
       dirty.current = true;
       setError(String(e).includes('409') ? 'conflict' : 'save');
-    } finally { saving.current = false; }
+    } finally { saving.current = false; saveRequest.current = null; }
     // An edit during an in-flight save must persist with the newly returned revision.
     if (state.current !== value && dirty.current) void save();
   }
-  async function submit(actionId?: string) {
-    if (locked || busy) return;
-    if (!pending.current) pending.current = {input: {source_message_id: message.id, action_id: actionId, state: structuredClone(state.current)}, key: crypto.randomUUID()};
+  async function submit(request?: Pick<InteractionReplyInput, 'action_id'|'event'>, formState?: Record<string, unknown>) {
+    if (lockedRef.current) { setError('stale'); throw new Error('This historical reply cannot submit new requests'); }
+    if (submitting.current) throw new Error('A request is already pending');
+    submitting.current = true;
+    if (!pending.current) pending.current = {input: {source_message_id: message.id, ...request,
+      state: structuredClone({...state.current, ...formState})}, key: crypto.randomUUID()};
     clearTimeout(timer.current); setBusy(true); setError(null);
     try {
-      await onSend(pending.current.input, pending.current.key);
+      // Finish an earlier private save before submission increments its revision.
+      await saveRequest.current?.catch(() => undefined);
+      const result = await onSend(pending.current.input, pending.current.key);
       setDone(true); pending.current = null; dirty.current = false;
+      revision.current++;
+      return result;
     } catch (e) {
       if (e instanceof InteractionSubmissionError) {
         pending.current = null; dirty.current = false;
         setSubmissionConflict(e); setError(e.reason);
       } else setError('send');
+      throw e;
     }
-    finally { setBusy(false); }
+    finally { submitting.current = false; setBusy(false); }
+  }
+  const submitRef = useRef(submit); submitRef.current = submit;
+  const toolProvider = useMemo(() => ({
+    conversation_messages: async (args: Record<string, unknown>) => {
+        const result = await listMessages(message.conversation_id, {limit:typeof args.limit === 'number' ? Math.max(1, Math.min(100, Math.floor(args.limit))) : 20});
+        return result.items.flatMap(item => item.type === 'message' ? [{id:item.message.id,sender:item.message.sender.display_name,content:item.message.content,delivery_status:item.message.delivery_status}] : []);
+    },
+    continue_conversation: async (args: Record<string, unknown>) => {
+        if (typeof args.message !== 'string') throw new Error('message required');
+        const result = await submitRef.current({event:{type:'continue_conversation',message:args.message,context:args.context,label:actionLabel.current || t('chat.interactive.ask')}}) as Message | undefined;
+        return {message_id:result?.id,delivery_status:result?.delivery_status};
+
+    },
+  }), [message.id, message.conversation_id, t]);
+  function onAction(action: ActionEvent) {
+    if (action.type === 'open_url') {
+      try { const url=new URL(String(action.params.url)); if (!['https:','http:'].includes(url.protocol)) throw new Error('Unsupported URL'); window.open(url.href,'_blank','noopener,noreferrer'); }
+      catch { setError('action'); }
+      return;
+    }
+    if (action.type === 'nano_continue' && typeof action.params.action_id === 'string') {
+      void submit({action_id:action.params.action_id}, action.formState).catch(() => undefined); return;
+    }
+    if (action.type === 'continue_conversation') {
+      void submit({event:{type:'continue_conversation',message:action.humanFriendlyMessage,context:action.params.context,
+        form_name:action.formName,label:actionLabel.current || t('chat.interactive.ask')}}, action.formState).catch(() => undefined); return;
+    }
+    setError('action');
   }
   const fallback = <p role="status">{t('chat.interactive.fallback')}</p>;
   return <section className="interactive-card" aria-label={t('chat.interactive.title')}
+    onClickCapture={event => {
+      touched.current = true;
+      const target = event.target instanceof Element ? event.target.closest('button,[role="button"],a,[tabindex]') : null;
+      actionLabel.current = (target?.getAttribute('aria-label') || target?.textContent || '').trim();
+    }}
     onTouchStart={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}
     onPointerDownCapture={() => { touched.current = true; }} onKeyDownCapture={() => { touched.current = true; }}
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={locked || busy || Boolean(pending.current)} className="interactive-card-fields">
+      <fieldset disabled={busy || Boolean(pending.current)} className="interactive-card-fields">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
-          initialState={initial} isStreaming={locked || busy || Boolean(pending.current)} publishObservability={false}
-          onError={errors => { if (errors.length) setError('render'); }}
+          initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
+          onParseResult={parsed => { state.current = {...parsed?.stateDeclarations, ...state.current}; }}
+          onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
             state.current = value;
             if (!touched.current || lockedRef.current || pending.current) return;
-            dirty.current = true; setSaved(false); select(value);
+            dirty.current = true; setDone(false); setSaved(false); select(value);
             clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
           }}
-          onAction={action => {
-            const id = action.params?.action_id;
-            if (action.type === 'nano_continue' && typeof id === 'string') void submit(id);
-          }} />
+          onAction={onAction} />
       </fieldset>
     </RenderBoundary>}
     {error === 'render' && fallback}
     <div className="interactive-card-status" aria-live="polite">
-      {locked ? t(submitted || done ? 'chat.interactive.submitted' : 'chat.interactive.readOnly') : busy ? t('chat.interactive.sending') : saved ? t('chat.interactive.saved') : null}
+      {locked ? t('chat.interactive.readOnly') : busy ? t('chat.interactive.sending') : done ? t('chat.interactive.submitted') : saved ? t('chat.interactive.saved') : null}
       {error && error !== 'render' && <span role="alert">{t(`chat.interactive.${error}Error`)}</span>}
       {submissionConflict?.submissionMessageId && <a href={`/chat/${encodeURIComponent(message.conversation_id)}?message_id=${encodeURIComponent(submissionConflict.submissionMessageId)}`}>{t('chat.interactive.previousSubmission')}</a>}
       {error === 'load' && <button type="button" onClick={() => void load()}>{t('chat.interactive.retry')}</button>}
       {error === 'save' && <button type="button" onClick={() => void save()}>{t('chat.interactive.retry')}</button>}
-      {error === 'send' && <button type="button" onClick={() => void submit()}>{t('chat.interactive.retry')}</button>}
+      {error === 'send' && <button type="button" onClick={() => void submit().catch(() => undefined)}>{t('chat.interactive.retry')}</button>}
       {error === 'conflict' && <button type="button" onClick={() => void load()}>{t('chat.interactive.loadLatest')}</button>}
     </div>
   </section>;

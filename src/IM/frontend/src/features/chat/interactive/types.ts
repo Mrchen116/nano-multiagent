@@ -4,6 +4,7 @@ export interface InteractiveResponse {
   format: 'openui';
   catalog_version: 'nano-1';
   source: string;
+  source_mode?: 'patch';
   supersedes_message_id?: string;
 }
 export interface MessageInteractive extends InteractiveResponse {
@@ -13,6 +14,7 @@ export interface MessageInteractive extends InteractiveResponse {
 export interface InteractionReplyInput {
   source_message_id: string;
   action_id?: string;
+  event?: { type: 'continue_conversation'; message: string; context?: unknown; form_name?: string; label?: string };
   state: Record<string, unknown>;
 }
 export interface InteractionSnapshot extends Omit<InteractionReplyInput, 'source_message_id'> {

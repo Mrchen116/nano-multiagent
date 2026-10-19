@@ -1107,7 +1107,10 @@
       "loadLatest": "Load latest draft",
       "attached": "Current choices will be attached",
       "cancel": "Detach",
-      "choices": "Submitted choices"
+      "choices": "Submitted choices",
+      "ask": "Ask the Agent",
+      "actionError": "This action is not connected or this link type is unsupported.",
+      "pendingRetry": "Delivery is unconfirmed. Send again to retry the original message and its saved choices."
     }
   },
   "feature": {
