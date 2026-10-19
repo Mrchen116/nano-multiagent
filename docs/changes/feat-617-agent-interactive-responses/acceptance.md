@@ -188,3 +188,45 @@ Node已恢复：`RUNNING pid=18487 ready=true DSH=18491`，两条会话均取得
 - 本轮真实模型发布新source并替代旧回复，**不能据此断言使用了源patch协议**。source patch 合法/非法、旧稳定版恢复、Query/Mutation授权与全82+1组件注册的证据需引用作者的专项运行/契约材料，不能归入本独立浏览器通过结论。
 - 本轮非排序的自然月相样本与排序样本共同证明至少两个主题可自然触发有意义原生交互；不能仅凭黑盒样本证明实现完全不存在题材硬编码。Global自然样本由另一份报告覆盖，不与本 reviewer 的普通 Agent 样本混同。
 - 原生iOS、外部channel与生产未接入；无部署或真机通过声明。最终完整交付门禁需结合专项范围与独立代码审查，不能将本报告当作全部协议测试的替代品。
+
+## Round 4 — 自然上下文 targeted 独立验收（2026-10-19 19:54–20:00）
+
+**Verdict：本轮独立负责的 Global／群聊真实旅程 pass，新增 blocking/major/minor 均0。** 受验 `f63ffa73d`，实际网页资产 `/assets/index-BFf3QWC7.js`；主模型 gpt-6.1-sol，审核 gpt-6-luna。root在本轮完成后才计划切换新的生成引导prompt，不能把本轮样本标成后续prompt版本结果。普通入口由root同期独立场地验证，不冒充本reviewer操作；完整交付仍合并普通入口、协议异常和静态证据。
+
+已读 spec 最终私聊/群聊边界、design自然上下文增量、R5原型走查及共同体验标准。仅使用CUA操作新建浏览器tab，读取隔离运行数据库的真实relay补证；未读实现定位原因、未改代码、未重启服务。Global `c_igsjsbh2` 由root事前清理聊天/session/inbox登记，本reviewer首次实际看到 `No messages yet`；新建私有群 `c_znatz5wd`（本人、UI测试同伴、E2E Peer Agent）最初同样空白。未操作root的普通 `c_8iutij8v` 或用户原有Chrome聊天页。
+
+### Global：自然触发、追问冻结、换题和恢复
+
+- 从空白会话只问 **“为什么物体浸在水里会变轻？”**（`1fc76f6128fc42db8e121bf66c2cc247`），未要求UI。真实模型先简短回应，再发布 `ef964189b20046f699e5837ee622be33`：正文解释浮力，Select选择未浸入/一半/完全浸没，Bar chart比较重力/浮力/手的拉力。默认一半时拉力15N；选择完全浸没后，图表与公式即时变成20−10=10N，没有新用户消息或成功保存提示。
+- 完全浸没时普通输入 **“为什么现在手只需要这么大的力？”**（`37bf7426a21346dc9da72027d3d62e14`），随即继续改为未浸入，当前卡片显示20−0=20N。模型随后明确解释发问时“完全浸没”、浮力10N、手拉力10N（`5e3411076d83435ba9df43068054e30e`）；没有采用发送后的20N状态。数据库relay持久背景为 `{$fraction:'1'}`，普通公开message的 `interaction_reply=null`，界面本人消息只有原话，无Submitted choices。
+- 随后原话 **“换个话题，帮我把‘今天辛苦了，早点休息’翻译成自然的英文。”**（实际正文使用中文双引号，`ac51e105a0fa4888a04a828743e22b07`）。relay仍有未浸入背景 `{$fraction:'0'}`；模型只回答 “You’ve worked hard today. Get some rest and have an early night.” 并简短说明语气，没有强行继续浮力。证明该样本由模型按话语忽略背景，而非背景被清空才可换题。
+- 刷新后卡片仍为未浸入，普通问题与回复保留；继续探索和输入均可用。[Global追问与换题实看](evidence/review-context-global.png)。本轮没有使用API预制此卡片。
+
+### 群聊：未提交不可知，明确按钮才共享
+
+1. 新群实际 @ E2E Peer Agent 后仅问 **“为什么一年会有四季？”**（`d0250403c8d24ec899ecc353c5d48a67`）。模型真实发布 `ddd610c7a8194012a1a6ed2ebcb0c78b`，四个时节选择切换南北半球季节与解释。默认6月夏至，改成12月冬至后显示北半球冬/南半球夏。
+2. 普通无@消息 **“我刚才换了一个选项，先继续看，暂时不用回答。”**（`4cafdda45cab484c9448aa10d3ce6ef6`）只显示原话。实际relay没有interaction_contexts、interaction_reply=null、mentioned_agent_ids=[]，未将卡片作者强行添加为mention。这里沿群既有relay语义存在e2e-peer接收记录，不能把“未隐式定向”表述为“群内Agent完全不收到普通群消息”。
+3. 再通过真实mention明确问作者 **“你知道我刚才在卡片里选的具体时节吗？不知道就直接说不知道，别猜。”**（`db6a139317144b968c594fc5b1b1c49c`）。relay仍无背景；模型 `d51f295aa1024fc4b710b077b81666ac` 明确回复“不知道。我没有收到你刚才在卡片里选择的具体时节，不能看到或推断你的选择。” 此时本人卡片仍显示12月冬至。刷新恢复该私人状态后还能改9月秋分、3月春分，始终没有保存成功/附带横条。
+4. 为验证明确动作，另行真实请求添加“解释我选的时节”按钮（这是定向动作验证，不计作自然生成样本）。新卡 `a03053f91f294131bb66cb942bb7039e` 保留Select；选择12月冬至并点击按钮，产生 `ee75e045ea864daf80227858c6d65889`。此时才出现本人Submitted choices／12月冬至快照，relay公开interaction_reply含event、context.season=december与完整 `{$season:'december'}`，定向作者。模型 `56344d53802744c992846df78485ddc4` 准确解释12月冬至及南北半球差异。[明确动作与公开快照](evidence/review-context-1440-explicit.png)。保留明确提交状态不等同于恢复已删除的普通保存成功提示。
+
+以上持久relay摘录见 [review-context-relays.json](evidence/review-context-relays.json)。它与实际UI/模型结果共同证明本轮样本的数据边界；不将单一群Agent样本扩为所有身份/API拒绝路径已现场逐一测试。
+
+### UI独立裁决与must-match
+
+| must-match | 实际操作/观察 | 结果 |
+|---|---|---|
+| 正常探索无保存成功、Current choices、Detach | Global与群Select多次切换、刷新、普通发言均无这些元素；输入直接衔接聊天 | pass |
+| 发问时背景准确，继续探索不改旧背景；换题正常 | Global全浸没发问→未浸入→模型仍10N；英文翻译忽略背景；持久relay对应两份冻结状态 | pass |
+| 群内背景不成为选中模式/隐式定向 | 无@普通消息mentions空；明确@作者也无私人背景且模型不知道；按钮提交后才公开快照 | pass |
+| 既有控件、明确结果及窄屏输入可用 | 三个实际内容宽度操作、刷新恢复、明确提交及模型答复 | pass |
+
+本轮实际内容视口为 **1440×900、767×900、390×844**（Chrome已有页面缩放，校准后读取DOM innerWidth/innerHeight，767不冒称768）；另Global默认桌面1537×1014。逐张查看 [桌面明确提交](evidence/review-context-1440-explicit.png)、[中等宽度](evidence/review-context-768.png)、[手机宽度](evidence/review-context-390.png)。文件名768表示目标档位，实际767如上。旧Round3的精确768未受影响布局证据保留。
+
+桌面保留聊天列表和导航，内容区中的参数、季节解释、请求按钮含义清楚；767与390收起列表，卡片仍由主对话滚动，Select/说明/输入没有重叠，手机可直接切换时节并继续打字。正常输入区没有长摘要横条，使用户只需理解卡片内容与聊天问题；异常连接状态仍明确显示在页首，明确动作仍有公开快照和等待反馈，符合R5“去除正常管理负担，保留异常/明确结果”的增量目标。截图外侧留白来自浏览器视口override的截图画布，不是产品横向滚动内容。未进行原生手机/软键盘测试。
+
+### Retained与限制
+
+- Round3原生探索、ToAssistant、刷新、全库相关边界及preview-workspace修复中未受影响部分保留。旧“普通文字公开选择/定向卡片作者”、旧Current choices条以及旧群内普通提交状态 **不再保留为当前目标**，由本轮结果替代。
+- CAS、断连后重试冻结正文/附件、多卡歧义和所有Agent服务端拒绝由本轮专项协议材料支持；本reviewer没有新做这些故障注入，不能引用旧普通interaction_reply重试当作新后台context重试已通过。普通入口真实新样本由root单独记录。无Query/Mutation/patch或83组件重复全量测试，也无生产/真机声明。
+- 初始与群页出现 `Real-time updates are busy`，本reviewer以正常reload读取完成消息；root报告测试浏览器多连接达到每用户WS上限，并释放自己旧tab后Global页消失。本轮观察确认提示如实、消息持久、reload可见；不声称群页实时连接已全部恢复，也不将环境连接上限当成新背景逻辑失败。未降低限制或关闭未知用户tab。
+- 收尾仅关闭本reviewer新建的两个Chrome tab并reset临时viewport；无遗留故障拦截或自行启动服务。后续prompt-only改动可保留本轮传输/隐私/控件结果，新的生成策略需标记其自己的版本与样本。
