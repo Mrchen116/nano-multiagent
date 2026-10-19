@@ -730,3 +730,696 @@ same object, different delivery -> unchanged
 ### Recommendations
 
 无新增建议。仅保留上述两个已明确的资源闭环，后续复审范围由新证据及受审树是否变化决定。
+
+
+## Round 7
+
+### Metadata
+
+- reviewer: independent `change-design-reviewer`，`/root/design_review_r7`；未创作本轮 spec/design/prototype，只追加本报告。
+- reviewer target: `docs/changes/feat-616-personal-agent` 2026-10-19 目标推进版，工作树 `/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent`，分支 `docs/feat-616-personal-agent-handoff`。
+- review_mode: **full**。
+- mode_reason: 核心产品责任、持续授权、私密执行能力、成果返回及主旅程均已重写；R6 closure 的范围不足以覆盖新方案，不沿用旧问题全部关闭即整体通过的结论。
+- started_at: `2026-10-19T10:03:38+08:00`
+- completed_at: `2026-10-19T10:10:15+08:00`
+- duration: `397s`
+- executed_base / HEAD: `f4162189f9ec50fe437913a68bd540d5d6ab3c0e`；没有 rebase、切分支、提交或刷新远端。
+- validated_at: HEAD + 当前未提交修改。spec SHA-256 `afe88f532ffe7a0cef5e9ec8ac26861ff4b6f997378a9af0c5fd814ae21cb46b`；design `3224d93edb1eda785290a350843988a8dd6ba3d027121fd50e8a7375726afd64`；prototype `3ed05914b788b099b7a84914fba0c0c1a392bf5d6d382f17e1150856350305c7`。作者在本轮中途修订 unknown 自动核对及群成员呈现后，reviewer 已 reload 自己的 tab 并按最终版本重新走主链。
+- write scope: 仅追加本报告，旧前缀 SHA-256 `8b02f5bdfc012f417d8afab2f4a863a3da7a2b7aceb8b5f808e07a7a427c9991`；保留既有 dirty/untracked 文件，不创建截图或其他文件。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 3 WARNING。**
+
+持续目标版已实质减少用户操作：一次交办后普通准备直接推进，内部成果自动承接，业务选择和新增披露各有清楚含义；本轮没有发现需要重做核心架构或恢复逐动作 PA 审批的问题。仍有一项直接复现的稍后提醒问题，以及当前产品画面对照、真实模型资源两项前置缺口，故不签发 Gate 2 Approved。该结论不阻止交付本轮明确请求的设计、可评审原型及模拟录像，也不要求本轮实现产品后端。
+
+### Coverage 与证据
+
+**需求、决定和模块职责。** 本轮读取最新 spec/design、10 个 delta、当前 global-agent / agent-work / task-graphs 契约及安全验收场景；核对命名、自动观察、四类 IM 关系、普通工具同策略、持续授权、任务唯一事实、安静跟进、内部返回、对外范围、恢复与来源清理。新文档明确替代历史 authorized_task 人工批准/结果重新提供链，因此不再把这些旧门禁当作必须恢复的行为。
+
+从真实组装入口向下核查，而非只看测试：`apps/node/src/main.ts:41–61,234–262` 创建 RuntimeSupervisor、GlobalAgent、Heartbeat，并将 `product.call` 交给 GlobalAgent；`apps/im-server/src/main.ts:57` → `server.ts:164–170` → `control.ts:959` 注册 onboarding/messaging/work/task 路由。`packages/personal-assistant/src/global-agent.ts:46–109,149–198` 现有 global binding、可靠 Inbox wake、schedule evidence 与 task_graph relay 确认复用落点；`heartbeat.ts:48–77` 的 due/pending 与 onlyIfIdle 说明精确跟进不能仅靠普通 heartbeat。`apps/im-server/src/task-graphs.ts:370` 起持久图与幂等回执同事务，任务 actor/revision/通知应继续在 IM 落地。
+
+架构判断：目标业务状态保留在 task_graph，pa_assistance 只附加跟进/等待/提醒关联，较新增第二任务库简单且避免双写状态；DSH 承担调度/执行，PA 负责来源关联、授权范围和交付，IM 负责身份、ACL 与权威任务写入，职责与现有依赖方向相符。private child 复用既有内部委派，外部 shared Agent 仍需明确协作许可。`approval.ts:102–121` 确认当前 safe fast path 与既有 ask/deny/Auto 是真实产品路径；新版“同配置、同意图同权限结果”可沿此实现，不需要新增 PA 人工审批链。它也意味着普通广权限工具风险不会凭 PA 名称消失；设计及安全场景已明确把这一点留给真实攻击/有用性验证，不将 host ACL 夸大成同 OS 强隔离。
+
+external/observation 的 fresh session、executionProfileId、动态工具 ceiling 和注入隔离继续引用 `research/execution-isolation-feasibility.md` 的锁定公开 exports 取证；本轮检查其边界与新方案相容，未重新下载依赖或宣称实际隔离已经实现。来源排除重建、owner/node epoch 和私人 Work/附件/WS 的 host 边界仍需 M1 实现验证。
+
+**delta 与跨平台。** 逐一将 MODIFIED requirement 锚回相同 canonical 文件/标题，并比较原 Scenario 标题集合：8 个包含 MODIFIED 的 delta 中，27 个修改目标全部存在，没有丢失旧 Scenario 标题；同时检查 PA 特例前言、普通主体场景、任务 actor/revision 与原通知语义。新增 personal-agent 两文件为 ADDED；没有借归并把普通 Agent 的工具/跨聊天规则或公司任务普遍扩权。Web 桌面为侧栏/目标摘要/私聊，窄屏为隐藏导航与全宽详情/面板，已有足够具体的内容顺序和动作方案；原生 iOS 新导航明确不在本轮范围，既有聊天/任务/API 回归纳入 W7，不把窄屏 Web 当作 native 证据。
+
+**独立原型观察。** 用 CUA 在独立隐藏 IAB tab 打开 `http://127.0.0.1:8766/prototype.html`，未绑定或操作作者录像 tab。先观察实际画面，再核源码和清单。最终冻结版独立完成：
+
+1. 390 预览：交办演示 → 自动准备 → 推荐零售/制造案例 → 选择后自动制作 → 打开可阅读的演示页面 → 回同一目标 → 查看外发身份、群成员、正文与两份附件 → 一次确认。
+2. 下次发送回执未知：确认后按钮不允许重复提交，页面说明核对同一次发送；随后自动进入“等林悦确认”，无需用户点核对。只证明模拟交互，不证明网络幂等。
+3. 暂停观察 → 模拟林悦确认 → 界面说明“确认已到原群；观察暂停，PA 尚未读取” → 恢复观察后同一任务完成，第二目标仍独立存在。发送成功之前不展示目标完成。
+4. 768 与 1440 预览检查导航、已完成目标和“周五杭州行程”独立摘要；390 的成果/外发面板保留固定返回或提交区域，正文可滚动，关键身份/受众/操作未被裁掉。1440 是原型提供的缩放预览，不声称原生设备验收。
+5. 初始版本独立走过“16:00 再提醒我”→快进到16:00→同一案例卡重新出现；最终冻结文件仍保持该卡与 snooze 的硬编码时间，形成 R7-W1。unknown/群成员的后续改动不涉及此函数。
+
+视觉判断：紧凑目标摘要持续回答当前阶段；推荐、理由和两项业务后果在选择区邻接；预览与分享分开，分享页可同时判断谁将收到什么；手机面板的返回/提交位置稳定。这些直接支持本轮主链体验，不仅是“按钮可用”。当前客户端的真实导航/密度/交互对照尚未成立，见 R7-W2。
+
+**milestone 与验收前置。** 单 M1 已同时列 reviewer 用户结果和 worker 原型对照、授权/恢复/任务并发/资产隔离验证；未把原型静态结果或历史 97 项脚本当作真实产品通过。作者三宽度录像报告 `research/prototype-goal-journey-validation.md` 在本轮核查时尚未写入，未提前引用为通过证据；作者已口头报告的录像仅作待交付材料，不影响上述独立结果。DeepSeek 仍按 R7-W3 保留。
+
+### 历史问题闭环
+
+| 原 issue | 本轮核查 | 状态 |
+| --- | --- | --- |
+| R6-W1 / R5-W2 / R1-W7 | 当前可用浏览器已完成上述独立渲染、连续操作与跨宽度观察；旧“没有真实浏览器”的资源判断不再成立。design 明确没有当前产品真实画面对照 | 原型资源部分 **closed**；当前产品对照 **still-open**，合并为 R7-W2 |
+| R6-W2 / R5-W3 / R1-W8 | design:166 明确保留未落实 DeepSeek 资源；无新的可用性证据或门禁调整授权 | **still-open**，R7-W3 |
+| R5-W1 及 R1–R4 已关闭的旧逐动作/结果交接交互问题 | 本轮原型与授权模型已重写，旧 request 生命周期不作为新版完整正确性的证据；新版 unknown 已独立观察自动核对，核心主链重新审查 | 旧结论保留历史，不再把旧实现检查机械移植为新要求 |
+| 设备交接、任务系统通知、外部私人 Work 边界 | 新 design 与对应 delta 保留上述限制及实际 actor/owner/revision/受众要求，未恢复跨 owner 私料转移或普通 Agent 委托越权 | 设计约束保留，实际实现待 M1 |
+
+### Issues
+
+#### R7-W1 — 到达提醒时间后，“稍后”仍承诺同一个已经到达的时间
+
+- 分类：可自主修复的原型交互问题。
+- 位置：`prototype.html:37,46,91,110`；对应 design:77、spec“关键业务取舍/稍后提醒”。
+- 证据：案例选择卡点“16:00 再提醒我”，再通过外层事件推进到16:00，卡片恢复但仍提供“16:00 再提醒我”。`snooze()` 只设 boolean 并固定通知16:00，没有新的 future deadline；再次稍后只能进入“好，16:00 再提醒你选案例”。这是主旅程已有按钮的实际操作，不是假设边缘情况。
+- 用户影响：用户在约定提醒时仍暂时无法决定，会被承诺一个已经到达的时间，无法理解下一次何时提醒；实现者若照原型兑现，也会得到反复即时提醒或无后续唤醒的两种错误解释。
+- 需修订：稍后动作生成并展示一个晚于当前模拟时间的新提醒点；摘要、决策卡与时间推进使用同一提醒值。只需覆盖当前主旅程，不要求新增完整日历编辑器。
+- 关闭证据：首次稍后→到期→再次稍后，显示新的未来时间；再次到期仍是同一决定、后台准备保留且无重复目标。
+
+#### R7-W2 — 原型已可真实观察，但与当前产品的实际界面对照仍缺失
+
+- 分类：必要体验证据缺口，保留 R6-W1 尚未闭环部分；不是浏览器不可用。
+- 位置：`design.md:34–39,149`，`research/prototype-ux-review-2026-10-19.md`。
+- 证据：design 明确前轮材料是原型对照、不能替代现网客户端画面，本轮未运行当前客户端。reviewer 核实真实产品 `AppShell` 的桌面顶部导航和 mobile bottom bar，以及 chat-workspace 的会话列表/详情组装；原型呈现全局左侧导航/目标列表和手机抽屉。源码只能证实差异存在，不能代替画面及相关动作对照。作者亦确认目前只有静态原型服务。
+- 用户影响：下游尚不能判断新增 PA 固定入口与既有聊天/任务导航在实际产品中的并存方式、密度及返回路径；按原型整体替换或局部嵌入可能形成不同体验。
+- 需补证：允许环境下观察当前产品对应入口/相邻页面，用可复查画面与短路径说明哪些沿用、哪些明确改变及原因；隔离现有产品即可，不要求先实现 feat-616 后端，也不要求访问生产私料。补齐前不得把“像 IM”或组件名称相同当作已对齐。
+
+#### R7-W3 — DeepSeek 必验资源仍未落实
+
+- 分类：纯实施验收资源前置，延续 R6-W2；不算本轮静态原型功能失败。
+- 位置：`design.md:166,174`，M1 W7。
+- 证据：当前文档仍记云端凭据未落实，没有新的隔离资源可用性证据或用户调整前置顺序的明确授权；本轮未读取、搬运秘密，也未要求运行尚未实现的产品链路。
+- 影响：后续真实模型的有用性、来源隔离与送达验收仍没有可执行资源保障，不能凭模拟视频通过 Gate 2。
+- 恢复条件：安全落实授权隔离环境中的模型资源，或取得并记录用户对前置顺序的明确调整；最终真模型验收继续保留。无需为交付本轮设计/录像提前完成产品实现。
+
+### Recommendations
+
+无新增非阻断建议。本轮完成所需主链和边界覆盖后停止扩展原型分支；修复后按实际变化进行一次有界复核。
+
+
+## Author Resolution — R7-W1 (2026-10-19)
+
+R7-W1 接受。稍后提醒从当前模拟时刻计算：09:42时为16:00；到达16:00后再次稍后为17:00，再到期后为18:00。决策按钮、目标摘要、承接文案、详情和演示事件读取同一提醒值，不重复承诺已过时间；外层演示按钮改为“下一次提醒 / 跟进到达”。本轮只修该分支，视频主链的09:42→16:00流程不变。R7-W2/W3资源事实未变化，不声明关闭或Gate 2通过。
+
+补充同轮走查修正：最终完成卡调整到历史跟进记录之后；切换回目标定位最新进展。避免完成后最下方仍是16:00“尚未确认”的旧记录，让用户误判当前状态。该修改不改变授权或结果条件，将重新录制最终主链。
+
+R8窄复核中继续修正同一时间源：发送后的nextCheck按当前模拟时刻生成，并由目标摘要、等待卡、原任务、详情及模拟到达共同读取；跟进后用lastCheck记录已执行时间，nextCheck向后推进。因而17:00选择并发送材料后，下一次检查为18:00，不退回16:00。
+
+
+## Round 8
+
+### Metadata
+
+- reviewer: independent `change-design-reviewer`，`/root/design_review_r7`；只追加报告。
+- reviewer target: R7-W1 Author Resolution、相邻等待阶段时间与完成卡顺序；同一工作树/分支，HEAD `f4162189f9ec50fe437913a68bd540d5d6ab3c0e`。
+- review_mode: **closure**。
+- mode_reason: 仅修原型的提醒时间、相邻跟进时间与完成记录呈现；spec/design 哈希与 R7 相同，无核心范围或接口变化，不重开 full review。
+- retained_from: **Round 7**；需求、架构、10 个 delta、跨端范围与 M1 判断继续有效，两项资源事实未变。
+- started_at: `2026-10-19T10:12:48+08:00`（本轮首个显式计时点，进入浏览器稍早于此）
+- completed_at: `2026-10-19T10:16:20+08:00`
+- duration: `212s`（显式计时区间）
+- validated_at: 最终 prototype SHA-256 `c699986cfe234f2c15db48d11ef191609ae9f74652b1ede1d9a298f2e3080af6`；追加前报告 SHA-256 `a55538f881c9681912a433b1c3ed7177c97550d4c281b97d2a7e5b7fe2aaa516`。本轮中发现相邻时间遗漏后由作者修正，reviewer reload 最终版本重新走该路径。
+- write scope: 仅追加本报告；无产品修改、分支、提交或部署操作。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 2 WARNING。**
+
+**R7-W1 及本轮同源时间遗漏已关闭，完成结尾呈现通过；没有未关闭的新增实质交互问题。** 两项既有前置缺口仍在，故 Gate 2 未 Approved；不阻止本轮设计/原型录像交付，不要求部署或实现新后端。
+
+### Coverage 与独立关闭证据
+
+本轮 IAB 返回不可用；CUA inventory 仅列 Chrome，随后创建独立 `R8 原型复核` Chrome session/tab，未绑定或操作用户/作者原有标签。通过可见按钮、选择器和输入实际运行，不通过改页面状态跳过流程。
+
+1. **连续稍后**：09:42交办 → 自动准备 → 点“16:00 再提醒我”；目标摘要和承接卡都显示16:00。点击外层“下一次提醒 / 跟进到达”的模拟到达，时钟16:00、同一选择卡提供17:00。再次稍后，摘要/卡片都为17:00；再次到达，时钟17:00、按钮变为18:00。原TASK-184及另一行程目标保留，无重复目标。
+2. **相邻等待阶段**：首次复验继续选择案例和分享时，时钟17:00却出现“今天16:00检查”，即时反馈作者并在本轮一起修正，不另开无界分支。最终版重新从交办走连续稍后到17:00，选择案例→自动制作→确认分享，摘要和等待卡均显示18:00；再次模拟到达，时钟18:00，摘要/等待卡/历史跟进消息都记录18:00已检查、19:00再检查，没有退回固定16:00。源码 `prototype.html:25,36,38,47,66,71,92,95,111` 使用当前clock生成提醒/nextCheck，并以lastCheck保留已执行时间；不要求新增日历机制。
+3. **完成结尾**：产生一次“仍未确认”历史跟进后模拟林悦确认，真实AX顺序与画面均为历史跟进在先、最新完成卡在后。切换周五行程再回客户演示，稳定滚动位置完整展示完成卡、已完成条件与两个后续按钮；没有以旧催办记录作为结尾。最终时间修订后再次完成，旧18:00跟进仍位于完成卡之前。对应 `prototype.html:54–55,82`。
+
+以上证明当前静态原型交互与呈现。没有证明真实调度、持久化、模型调用或外发已实现。已读取作者新写的 `research/prototype-goal-journey-validation.md`，其三宽度操作与证据局限可供复查；最新版视频仍在重录，本轮不宣称视频文件已完成或独立验收录像。R7的独立390主旅程、768/1440呈现证据保留，不为本次时间文案重跑全套视觉检查。
+
+### 历史问题闭环
+
+| 原 issue | Author Resolution / 本轮证据 | 状态 |
+| --- | --- | --- |
+| R7-W1 | 提醒按钮、摘要、卡片按当前clock递进；独立实际验证16→17→18，同目标正常继续；相邻分享后18→19亦复验 | **closed** |
+| R7-W2 | 新验证记录仍明确缺少当前真实IM客户端画面对照；本轮只测原型，未产生新的现产品证据 | **still-open**，R8-W1 |
+| R7-W3 | 模型资源与前置顺序未变化；未读取秘密，未运行产品/模型 | **still-open**，R8-W2 |
+
+### Issues
+
+#### R8-W1 — 当前产品真实界面对照仍待补齐
+
+- 分类：必要体验证据缺口；retained from R7-W2。
+- 位置：`design.md:34–39,149`、`research/prototype-goal-journey-validation.md` 证据边界。
+- 当前原型已有真实浏览器证据，但仍没有当前产品入口及相邻界面的真实画面/路径对照，不能确认新固定PA入口与既有聊天/任务导航如何并存。补证范围保持R7要求，不新增产品实现或部署前置。
+
+#### R8-W2 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R7-W3 / R6-W2。
+- 位置：`design.md:166,174`，M1 W7。
+- 无新的隔离模型资源可用性证据或用户调整前置顺序的授权；后续真实模型有用性、安全与送达验收资源仍待落实。当前原型和录像不能替代，亦不要求本轮先实现后端。
+
+### Recommendations
+
+无新增建议。当前实质原型修正已完成有界复验，停止扩展检查；后续仅按新增证据决定是否复审。
+
+
+## Author Resolution — 现有 UI 校正（2026-10-19）
+
+用户要求撤回全局侧栏改版。spec、design、IM PA delta 与 prototype 已保持现有桌面顶栏、消息列表、手机列表/底部导航；只增加 PA 入口、私聊内目标进展、普通聊天回复帮助与已授权观察的主动接手。目标保持持续推进，未恢复搜索或内部委派审批。
+
+对 R8-W1 新增当前真实 React 组件的隔离渲染对照及截图，详见 `research/existing-ui-alignment.md`；合成会话不声称真实后端产品验收。R8-W2 的 DeepSeek 资源状态未变化。请独立复核当前 UI 与相关文档 delta，保留历史报告。
+
+
+## Round 9
+
+### Metadata
+
+- reviewer: independent `change-design-reviewer`，`/root/design_review_r7`。
+- reviewer target: 用户要求恢复现有 UI 后的 spec/design/prototype、IM PA delta 与 `research/existing-ui-alignment.md`；同一工作树/分支，HEAD `f4162189f9ec50fe437913a68bd540d5d6ab3c0e`。
+- review_mode: **delta**。
+- mode_reason: 全局导航回归既有框架、PA 多目标收回私聊、普通聊天辅助回复是有界但实质的 UI 变化，需重新看画面与相关路径；目标授权、执行/任务职责、安全接口和 M1 范围没有新增变化，无需重做 full 架构审查。
+- retained_from: **Round 7 / Round 8**。R7 的非 UI 架构、任务唯一事实、安全接口与跨端范围判断，R8 的递进提醒时间修复继续有效；旧全局侧栏/手机抽屉的体验结论由本轮替代，R8-W1 根据新证据重审。
+- started_at: `2026-10-19T11:05:10+08:00`
+- completed_at: `2026-10-19T11:10:28+08:00`
+- duration: `318s`
+- validated_at: HEAD + 冻结的未提交文件；spec SHA-256 `680f79e14258a24508a01c164387ae199771e381be3bff1c9144b850400a286a`；design `0931c69945aa4bb65acf812834355635223389cf30818835a6ddfd98dc10a761`；prototype `11ca546ab00d1f86c3e0620fd89745e6df6b313464539ea47188d270d0c25f23`；IM PA delta `78cdcbb67a6287564e4a9b7f93f5bfc4bb0a3e302f7babb7379fc70984024223`；UI 对齐记录 `e57ecf8f2ad7a406924c0d9b7214ade8c740e1df16ad29e16266189265ab77f0`。
+- write scope: 仅追加本报告；追加前报告 SHA-256 `3d2c90bb872a428f159a7ba4fa0482ad963a90aaaf4cd1fd31dc0937f95ba8f1`。未修改原型/产品/设计、未提交、未操作作者或用户标签。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+**现有 UI 对照缺口 R8-W1 已关闭；本轮未发现新增实质体验问题。** 方案已回到现有 IM 的桌面顶栏、消息列表和手机列表/底栏，PA 的目标索引与协助在本人私聊内承接。仅 DeepSeek 实施验收资源前置仍未落实，故不签发 Gate 2 Approved；这不阻止交付当前设计、可评审原型及明确标识的模拟录像。
+
+### Coverage 与独立证据
+
+**当前产品对照。** reviewer 自建三个 Chrome 标签，分别打开原型 `http://127.0.0.1:8766/prototype.html`、现有组件桌面 `http://127.0.0.1:8767/` 和390宽手机基线 `/frame.html`。先看实际渲染并操作返回列表，再核对夹具与源码。`/tmp/feat616-ui-baseline-20261019/baseline.tsx` 直接导入当前未修改的 AppShell、ConversationSidebar、MessagePane、useIsMobile、global.css，Query 缓存及消息为合成数据；它不是手工仿绘的基线，也不是完整产品后端验收。
+
+实际产品组装落点核对 `app/router.tsx:38–39` → `chat-workspace-page.tsx:1091–1092,1147,1169,1217–1218`：桌面并列列表和消息，手机按会话选择二选一，返回 `/chat`。`app/shell/app-shell.tsx:22–69` 控制桌面导航和手机会话隐藏底栏；`styles/global.css:413–414,1662–1674` 与 `hooks/use-is-mobile.ts:3–4` 对应48px顶栏、262px列表及768断点。被引用组件/样式相对本工作树 HEAD 无未提交差异。基线画面确认上述结构、原聊天/任务/智能体顺序、手机四项底栏、灰色对方气泡和浅绿本人气泡；原型保持这些关系，只增 PA 固定项、快捷入口及聊天内协助内容。
+
+**相关增量路径。** 所有操作通过可见 UI 控件完成，无注入内部状态：
+
+1. 林悦私聊 → “让小航帮我回复” → 回填原输入框 → 改成“明天上午发给你确认” → 切到 PA → 返回林悦：修改后的草稿仍在原会话，PA 输入框为空。发送后显示本人浅绿消息，输入框清空，明确已回复的问题不再重复提醒。
+2. 重置合成场景后模拟已授权范围的消息到达：PA 在本人私聊引用林悦和群的来源，先提出接手，未提前对外承诺；点一次“交给你跟进”后关联原 TASK-184，自动从准备进入带理由的案例选择。
+3. “跟进中2”在 PA 标题内展开两件事；切到周五行程并输入独立草稿，经全局“聊天”再回 PA，仍在周五行程且草稿保留。返回演示时是原待决定事项，输入框不混入行程草稿。没有全局左侧目标栏或新增任务中心。
+4. 在768预览选择零售案例，自动制作成果；切390预览后从聊天返回列表，底栏恢复聊天/任务/智能体/我四项；固定 PA 项再次进入原目标，底栏隐藏，成果与输入框可达。材料分享面板同时展示 PA 身份、陈同学/林悦/小航三个收件成员、可编辑正文及两份附件范围，底部确认/保留动作可见。
+5. 一次确认分享后进入“等林悦确认”，显示16:00检查；模拟到期后显示16:00已跟进、17:00复查，无再次审批。再模拟林悦确认，原任务完成且跟进数减为1；最终完成卡位于旧跟进消息之后。回周五行程仍显示独立推进及此前未发送草稿。
+6. 实际观察自适应桌面、1440、768、390画面。768保留并列消息列表及紧凑顶栏，390隐藏全局框架并保留返回/目标索引/设置；手机列表结构与真实组件对照一致。1440完成页的当前摘要、历史记录、完成结果和后续按钮可区分。预览是浏览器 iframe 的逻辑宽度，不作为原生 iOS 设备证据。
+
+体验判断：PA 入口在既有会话体系可发现；目标选择没有抢占全局导航；正常回复的原收件人与本人发送身份清楚；目标摘要、决定、成果、等待、完成连贯，手机新增信息没有截断主要动作。当前密度和局部卡片差异没有构成需要进一步风格迭代的用户代价。
+
+**文档、职责与验收。** spec 最新“现有 UI”约束、design:135–163 和 `specs/im/personal-agent.md` 的新增框架/回复 Scenario 一致；该 delta 为 ADDED，不覆盖现有普通聊天契约。M1 的 R1/W1/W2 已落实既有框架与三宽度对照。其他任务/智能体/账户页面只是原型背景，文档明确不重做其整页设计；原生 iOS 新导航仍不在范围。PA 多目标面板只索引原任务投影，继续复用现有聊天组装和 task_graph，不引入第二任务库或第二导航体系。旧录像/走查已明确被当前导航证据替代，不能用旧侧栏截图指导实施。
+
+本轮证明当前静态交互与布局对齐；没有证明真实发送、后台调度、持久化或模型已实现，也未独立验收作者录像文件。没有新增跨包职责变化或要求提前实现产品的证据缺口。
+
+### 历史问题闭环
+
+| 原 issue | Author Resolution / 本轮证据 | 状态 |
+| --- | --- | --- |
+| R8-W1 / R7-W2 | 作者撤回全局侧栏，提供真实组件隔离基线；reviewer 独立观察桌面与手机并走返回列表、辅助回复、PA目标切换，核对实际组装与夹具导入 | **closed** |
+| R7-W1 及 R8 相邻时间/完成卡问题 | 时间机制本轮未重新改动，保留R8连续稍后证据；本轮再次实走16:00跟进→17:00复查及完成卡在旧记录之后 | **closed，retained** |
+| R8-W2 / R7-W3 | design:176 仍明确模型凭据未落实；本轮没有新的授权隔离资源可用性证据或前置顺序调整 | **still-open**，R9-W1 |
+
+### Issues
+
+#### R9-W1 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置，retained from R8-W2；不是本轮原型交互失败。
+- 位置：`design.md:176,185`，M1 W7。
+- 证据：当前设计仍写明云端 DeepSeek 凭据未落实，真实模型有用性、来源边界和送达验收需实施阶段执行；本轮没有新的资源可用性证据或用户调整前置顺序的明确授权。
+- 后果：静态原型及模拟录像不能保证该必验链路可执行，Gate 2 仍未满足全部前置。
+- 关闭条件：安全落实授权隔离模型资源，或记录用户对前置顺序的明确调整；最终真实模型验收继续保留。不要求本轮提前实现产品后端。
+
+### Recommendations
+
+无新增建议。当前 UI 修订已完成必要的独立对照与增量旅程，停止扩展审美或猜测性边界检查。
+
+
+## Author Resolution — 可疑套取双向告知（2026-10-19）
+
+按用户追加，spec 保存原话并新增可疑套取双向告知需求；design 第 7 节补充判断责任、来源证据、事件合并、owner 通知与外部告知的送达顺序、误会/屏蔽与正常工作不受影响。两个 PA delta 与安全验收同步。prototype 在原有 UI 内增加信息卡及外部事实告知，无新增审批页或产品导航。
+
+新增不是 Instinct 已核实实现的声明，也不解决此前讨论的开放任务语义披露风险；模型可疑判断仍可能误判，通知不替代权限与隔离。DeepSeek 资源前置仍保留。请独立审查本次有界增量及其影响，历史结论不回写。
+
+
+## Round 10
+
+### Metadata
+
+- reviewer: independent `change-design-reviewer`，`/root/design_review_r7`。
+- reviewer target: 可疑套取双向告知的 spec、design第7节、IM/Gateway PA delta、安全验收、原型及作者走查记录；同一工作树/分支，HEAD `f4162189f9ec50fe437913a68bd540d5d6ab3c0e`。
+- review_mode: **delta**。
+- mode_reason: 新增有依据的可疑事件报告、本人/请求者双向事实告知和误会/屏蔽控制，需检查来源、送达依赖及新的 UI 路径；未改变目标授权、工具审批、external profile 隔离或任务事实边界，不扩大为 full 重审。
+- retained_from: **Round 7 / Round 8 / Round 9**。架构、安全能力限制与递进时间修复保留；R9现有框架对照和普通目标旅程仍有效。新告知卡在同一聊天容器内，本轮复查新增内容和交互。
+- started_at: `2026-10-19T11:44:33+08:00`
+- completed_at: `2026-10-19T11:50:23+08:00`
+- duration: `350s`
+- validated_at: spec SHA-256 `4e306dd73df99e66cd12aa68cc789e7990ffd986547efbfe0f1bac598e64ee61`；design `6e720ee1bcf1ff68d158df4d3fe82fc77ebdd60afa05d68016566ac20ed9c62e`；最终prototype `64efc86ae5966e8a99f517067f2cb208261c0c9c64a61d013da3269e5843c177`；IM PA delta `45cbf492dff2e8e230b770581056116722d63afc658fe8021c8d6cc433f4687c`；Gateway PA delta `f855d17b3060f8be64b99e2e1faf97a4f05d42c6efbadeee54e9ee9c65ccfc38`；安全场景 `ff896af330f0d93d7ed4eb00092f3d296952bb8e7e633825afec414137af9ab7`。
+- write scope: 仅追加本报告；此前字节保留，追加前报告 SHA-256 `1d87924587229b4bbaa5151f3bbf6a761c5f3f3da5f9c51f872f81be602f70c1`。原型中的一处按钮缺陷由作者在本轮修复，reviewer reload最终文件复验；没有产品修改、提交或部署。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+**本次双向告知增量没有未关闭的新增实质问题。** 主人通知送达前不向请求者宣称已通知；告知限原会话、事实措辞不披露主人反应；重复事件合并，误会标记不扩权，无新增审批。屏蔽按钮的真实交互缺陷已在本轮修复并独立复验。仅保留 DeepSeek 必验资源前置，Gate 2 仍未 Approved；不阻止交付当前设计与静态原型。
+
+### Coverage 与证据
+
+**需求与决定。** spec:265–286 保存用户原话，并把恶意指控收敛为有具体来源的“疑似”判断；首次模糊越界先解释边界，重复/伪造授权/要求隐瞒才形成事件。design:98–107 明确 actor/conversation/source-message refs、owner-only事件、两侧operation refs、去重、本人送达依赖、同会话回复权限以及误会/屏蔽行为。IM与Gateway的 ADDED requirement 与这三类场景一致，不借通知扩展可读资料或新授权。`security/acceptance-scenarios.md:19–20` 增加真实来源证据、送达pending/unknown、重复和误会负例；既有M1依然要求真实host/API/模型安全与有用性验收，静态演示不替代这些退出条件。
+
+**模块职责与复用。** incident属于PA私密来源事件及投递关联，不属于任务审批或全公司信誉系统。模型判断可疑语义，host负责认证actor、真实消息计数、持久事件和可靠operation；IM负责会话ACL与消息存储。这是在现有消息能力和已规划 `pa_source_events/deliveries` 上补充有界事件，没有第二Agent loop或新的任务事实库。
+
+从实际组装路径核对现有能力：`packages/personal-assistant/src/global-agent.ts:235–294` 在 `agent.message` 调用前保存publication，完成回执后写confirmed/message_id，失败写unknown；`inbox.ts:185–187` 保存operation状态；`apps/im-server/src/gateway.ts:504–553` 用真实Agent身份、会话write ACL和dispatch key处理发送，`messaging.ts:348–397` 按caller幂等key复用消息并持久化内容/事件。这些支持复用同一operation核对、以本人DM持久可见回执作为告知前提；本轮未声称新的incident编排已经存在。发送回执也不代表本人已读。固定对外事实文案仍受最终同会话权限/屏蔽约束，不能因“保护主人”绕过既有发送规则。
+
+**独立原型操作。** 新建独立 Chrome 标签打开 `http://127.0.0.1:8766/prototype.html`，未使用作者/用户标签或修改内部状态。通过演示事件和正常输入完成：
+
+1. 外部DM首次索取其他日程：只回复“其他个人安排不在分享范围”，没有恶意定性或新审批。打开“下次主人通知延迟”再模拟伪造授权请求，外部只得到拒绝及“已记录”；切本人尚无该信息卡。恢复通知后，本人才出现可核对来源/理由/阻断结果的卡片，外部随后出现“已通知陈同学”。记录页明确“不代表已读”。
+2. 再次恢复无重复发送；同一伪造请求再次到达，主人卡计数从1变2，外部仅新增请求，没有反复警告。主人不操作时已交办演示照常从准备进入案例选择，告知没有变成新的任务/审批，也没有停住另一行程目标。
+3. 点“这是误会，继续协作”，主人卡显示误会已标记、原分享范围不变；外部DM没有主人反应或误会结论。随后在外部发送“演示时长调整到二十分钟吧”，得到正常协调回应。没有产生新的私人日程分享授权。
+4. 切群视角时，DM告知未出现于群。通过群输入相同伪造授权文案，群先显示拒绝/已记录，通知恢复后仅该群出现已通知文案；本人侧按DM与群分别显示来源和计数，DM误会标记没有混入群事件。
+5. 屏蔽按钮初次点击无效果，浏览器console明确报 `ReferenceError: s is not defined`；定位 `prototype.html:171` 的inline handler引用IIFE私有变量。作者将参数在渲染时展开为true/false后，reviewer重新加载最终版：屏蔽立即显示已阻止新请求，重复演示请求不增加计数；解除后仅接收之后请求，计数仍为1，未回放屏蔽期内容。
+6. 最终版补验相邻送达边界：群事件通知pending时先屏蔽林悦，再恢复主人通知。本人可见群事件，但群中仍只有拒绝/已记录，没有补发“已通知”来绕过屏蔽。最终复验没有新增脚本错误；console中保留的旧错误时间早于reload。
+
+实际观察自适应桌面、768和390新增卡片及记录页。姓名/来源/依据/处理结果邻接；手机卡片可滚动至查看记录、误会和屏蔽操作，输入框保持可用，既有顶部/列表/手机返回关系未变。信息卡明确“你不用处理”，与业务决定卡有不同含义，未迫使用户逐条审批保护措施。R9真实组件视觉基线继续有效，不为这次局部卡片重开全IM视觉验收。
+
+**证据边界。** 恶意识别、通知回执和阻断结果均为静态演示；不能据关键词分支或本轮浏览器路径证明真实攻击识别率、持久投递、所有资料未泄露或模型安全。开放任务中的语义披露风险、广权限工具/同OS限制及既有隔离必要性没有因双向告知而消除。通知是拒绝后的可见反馈，不能替代上下文隔离、权限与披露判断。本轮没有修改external/observation隔离架构；用户关于这些机制的进一步讨论不计作已落地设计变更。作者原55秒视频未覆盖本次新增告知旅程，未将它作为R10证据。
+
+### 历史问题闭环
+
+| 原 issue / 本轮发现 | 本轮证据 | 状态 |
+| --- | --- | --- |
+| R9-W1 / R8-W2 | design:188仍明确DeepSeek资源未落实；没有新的可用性证据或用户调整前置顺序的明确授权 | **still-open**，R10-W1 |
+| R8-W1现有UI对照 | 本轮只在已有消息容器加信息卡，桌面/768/390局部复核无框架变化 | **closed，retained from R9** |
+| 本轮屏蔽按钮引用私有状态报错 | 作者展开字面参数；reviewer reload后实际验证屏蔽、阻断新请求、解除及pending通知期间屏蔽不补发 | **closed** |
+
+### Issues
+
+#### R10-W1 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R9-W1。
+- 位置：`design.md:188,196`，M1 W7。
+- 证据与影响：没有新的授权隔离模型资源可用性证据，或用户对前置顺序调整的明确授权。双向告知的有用性、误判与真实来源/发送边界仍需真实模型和host/API验收；静态演示不能满足该前置。
+- 关闭条件：安全落实授权隔离资源，或记录用户对前置顺序的明确调整；最终真实模型验收仍需执行，不要求本轮提前实现产品后端。
+
+### Recommendations
+
+无新增建议。当前增量与直接发现的问题已完成有界复核，停止扩展猜测性攻击或新的架构方案。
+
+## Author Resolutions — R10 与统一 PA 设计修订（2026-10-19）
+
+- R10 屏蔽按钮问题：accepted，已将 inline handler 的私有状态引用改为渲染时字面参数；R10 独立实际复验已关闭，本轮保留该原型文件。
+- R10-W1：accepted，DeepSeek 隔离资源前置仍未落实，本轮没有新增密钥/资源证据，不宣称 Gate 2 已过。
+- 用户最新原话“先按这个来考虑怎么设计吧，改一版设计”授权按统一 PA、独立入口/出站检查与系统执行边界修订。spec 保存原话与范围；design 新架构图、第3/4/7节、接口/能力边界/里程碑重写，两个 PA delta、capabilities delta、安全验收及研究依据同步。
+- 本轮不改产品代码或原型。R9 现有 UI 与 R10 告知交互证据可作为保留项；旧 external/observation 无私料 session 不再是当前架构目标，相关安全证据不能直接沿用。研究历史不回写，当前解释由 design 与新研究依据提供。
+- 请 reviewer 独立决定复审范围，重点核对可信授权与语义判定、实际出口/工具装配、子执行和自动记忆、拒绝/不可用的恢复、正常任务效用与既有契约衔接。没有指定期望结论；原模型资源警告单独保留。
+
+
+## Round 11
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`；未参与本轮设计编写。
+- reviewer target: 用户明确授权的统一 PA 架构修订；spec/design、全部10份 delta、安全与有用性场景、新研究依据及实施就绪记录。工作树 `/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent`，分支 `docs/feat-616-personal-agent-handoff`，HEAD `f4162189f9ec50fe437913a68bd540d5d6ab3c0e`。
+- review_mode: **full**。
+- mode_reason: 从 external/observation 无私料业务 session 改为统一可读私料主上下文，改变核心信任边界、运行时装配、共享接口与 M1；旧隔离结论不能直接沿用。重新检查整体需求、职责、可信授权、所有出口、记忆、恢复及正常任务效用。未变的 UI 和交互保留独立证据。
+- retained_from: **Round 9 / Round 10**，仅现有 Web 框架、连续目标/普通聊天、双向告知交互以及 DeepSeek 资源状态；旧 external 模型不含私人 canary 的成功标准不保留。
+- started_at: `2026-10-19T12:23:07+08:00`
+- completed_at: `2026-10-19T12:28:08+08:00`
+- duration: `302s`
+- validated_at: spec SHA-256 `76b2c1ee6a90dd3f8b5a290f15ddf210903b790c04af0e3393c38af798d23d92`；design `841ca3ca538e56b488857cfa5500cc19a4291e314ed9a0d365b2d3f15e4d83b5`；prototype `64efc86ae5966e8a99f517067f2cb208261c0c9c64a61d013da3269e5843c177`；Gateway PA delta `9ab0d8bf06ad3a270ad52046c883e90b6fc1cb53e0ee3e30560364ec1c63bf4c`；capabilities delta `1c778524207c2628ec38fe91bd138d16332799883d6584135747650933493f68`；安全场景 `10c2ab4d8658dba75e0ce24b4968af84461277bb3be6c134ab7581802864bcb5`。
+- write scope: 只追加本报告；此前123780字节完整保留，追加前 SHA-256 `96c9c9305aba65f925e43940afe41b4bc20be168c2945b05728cf51c518bb00c`。无产品代码修改、安装、服务启动、生产操作或提交。
+
+### Verdict
+
+**Issues Found — 1 CRITICAL / 1 WARNING。**
+
+统一 PA、来源约束、独立语义审核与强制出口的方向符合最新用户授权，不要求退回每个外部会话无记忆的旧架构。新增实质问题是：现有普通 Agent 与 PA 共享 DSH 宿主，普通扩展可在共享 root 初始化，而设计尚未选择能兑现“普通 Agent 保持原能力、不可控插件不进入 PA 宿主”的装配方案。这影响核心安全前提，须先收口。另保留 DeepSeek 真实验收资源前置。Gate 2 未 Approved。
+
+### Coverage 与证据
+
+**需求与整体决定。** spec:298起保存本轮用户原话和授权，design:22–45明确统一理解、独立无工具审核、代码关口及残余误判；没有把论文效果写成产品保证。第1–6节继续使用唯一PA、原任务事实、目标级scope、真实schedule和本人业务决定，内部子任务结果自动回流；不新增逐工具审批、第二任务库或另一Agent loop。第7节明确从认证owner当前输入签发许可，引用/历史/system/模型总结均不能扩权，新增scope还需保留原文供出口复核。自动安全改写最多两次、跨key拒绝记录和仅必要新增决定，避免“每次不确定都问主人”。审查不可用仅暂停该动作，不伪装成用户应批准的隐私判断。
+
+**真实装配及公开接口。** 从 `apps/node/src/main.ts:40,58–63` 的实际启动入口追至 `packages/dsh-integration/src/index.ts:94–129` 的单一 bindings/configuration/root、`agent-config.ts:76–91` 的插件装配和 `extensions.ts:7–18` 的动态import。由此得出 R11-C1，而非仅因引用行存在认定安全。当前 `policy/approval.ts` 的 safe/skip/run_code提前返回不能替代新披露关口。检查本机现有依赖中 `@deepseek-ai/dsh-tools@0.2.1-alpha.1` 的公开类型：restrict限制继承工具，guard在pre-execute后单调拒绝；有工具边界可复用，但guard不拦插件初始化/任意JS副作用。本工作树未安装依赖；这里只读主checkout同版本的已安装包，未以其证明本工作树产品已运行。
+
+`@deepseek-ai/dsh-web` 根export提供search/fetch provider注册，现有 `web.ts` 已用公开 `applyWebFetchTool` 和provider接口，因此可在dsh-integration接入受控网络adapter而不private import。现有search `get()`与原生fetch的自动重定向并没有新隐私检查；design:147要求实际query/URL/path/body及redirect重新检查，必须由实施替换/包裹真实provider路径并验收，不能仅凭工具名或初始URL放行。本文没有把当前网络能力误称已受控，也不据设计阶段缺少实现新增问题。
+
+**授权、来源及审查数据闭合。** design:122–138、209–221把可信binding/actor、原owner消息/提案、真实受众、实际读取与已注入记忆来源、历史披露放入host组装证据。模型自报引用不能省略敏感证据，缺失/超窗为unavailable；审核结果绑定冻结正文、附件、destination、scope/source/audience/policy版本和期限。最终执行还校版本，不让修改正文、共享受众或引用内容复用旧pass。owner DM只凭真实收件路由快速通过披露边界，原工具审批仍适用。职责分配保持 IM 持有身份/任务/ACL，PA编排operation/资料证据，Node/dsh-integration运行公开DSH和adapter；Channels/IM不import DSH。
+
+**实际出口与共享存储。** 独立阅读 `personal-assistant/src/external.ts:100–179`，确认显式agent.message、message_completed/final_content自动publish以及streaming relay均为真实路径。design:138,144–148覆盖未审正文不外部流式、显式/自动回复、Channels最终投递、任务/附件/共享文档、网络工具和外部Agent委派；Channel不可在审核后追加私人信息。共享写入按实际受众处理，不能称内部任务所以免审；实际provider回执与IM镜像落库区分。内部child/Work/logs限定owner，背景最小化，继承关口，外部专业Agent委派不冒充内部执行。这些边界与既有 global/inbox/messaging 幂等能力相容；新业务operation不是模型可签的公开pass工具。
+
+**记忆、撤源与恢复。** 实读knowledge runtime/files，现有自动memory来源主要是session/timestamp，fork/后台更新会复用现有机制，不能假定已有完整派生来源。design:124–126明确新自动派生项继承实际读取来源集合，owner_decision/external_claim/derived不互相升级，generic edit/skill不能改权限及自动知识根；这一必要增量落在现有knowledge存储，不另建全盘taint引擎。来源失权使旧执行退休，允许内容重建；普通资料工具不读退休导出/原生日志，owner-only历史查看与自动摄取区分。design:157,221将unknown/sending计可能披露，同owner短提交锁校disclosure revision，避免并行审核用同一旧历史全部直接发送；冷恢复先校owner/node/能力策略，再核旧操作、失效pass、恢复安排。无跨平台真实身份绑定则不猜合并，未知串通风险明确保留。
+
+**delta及实施边界。** 对全部10份delta逐项检查canonical目标；26项MODIFIED requirement名称都能匹配 `docs/specs/`，旧Scenario标题无遗漏。能力delta为PA附加明确例外，普通Agent原配置/Auto语义保留；PA与IM新增需求包括统一理解、派生事实不授权、不可用不先发、连续/并行披露及双向告知。安全场景已废弃旧“external主请求绝无canary”的标准，改检查实际recipient/sink。M1要求真实DSH装配、主/子/后台、全部sink、skip/HMR旁路、冻结/并发/unknown，并同时完整完成演示和场地两条正常旅程、记录误拒绝/必要分享/打断次数与质量。不是只跑孤立policy或只报阻断率；本轮未提前要求产品后端实现。R11-C1收口后需相应补装配/生命周期验收。
+
+**研究使用边界。** 独立查看 [FlowSeal原文](https://arxiv.org/html/2609.14003v1)、[Claude Code Auto Mode官方说明](https://www.anthropic.com/engineering/claude-code-auto-mode)及[Agents SDK guardrails文档](https://openai.github.io/openai-agents-python/guardrails/)。前者明确工具外执行与独立语义判断的分工，后两者分别支持剔除主模型自我解释、工具管道覆盖不同的注意点。研究表的这些核心借鉴与本设计一致；不把FlowSeal形式化条件或论文数字转移为Nano保证，其余论文不是本轮实现可行性的必要证据。本仓可行性仍以公开exports、真实装配与上述限制为准。
+
+**UI与证据边界。** prototype哈希与R10最终版完全相同；本次未新增界面、改导航或改告知动作。保留本人在R9对当前真实React组件基线和三宽度连续目标/普通聊天的独立观察，以及R10延迟通知、重复/误会、屏蔽/解除的独立操作。无需为未改原型重跑相同浏览器流程。“审核暂不可用/能力不足”沿已有目标阻塞摘要，不加审批页。上述UI证据只证明界面方案；不证明真实来源、模型抗攻击效果、全网络覆盖或持久投递。
+
+### 历史问题闭环
+
+| 原问题/证据 | 本轮判断 | 状态 |
+| --- | --- | --- |
+| R10-W1 DeepSeek资源 | design:264继续明确未落实；无新资源证据或用户调整该前置顺序的授权 | **still-open，R11-W1** |
+| R8-W1现有UI对照、R10屏蔽按钮 | 本轮原型哈希未变，独立R9/R10真实渲染和交互证据保留 | **closed，retained** |
+| 旧external/observation隔离与无canary验收 | 用户明确改统一PA；本轮按新的host来源/出口与实际接收端标准重审 | **superseded，不沿用为安全通过证据** |
+| 共享宿主插件装配 | 当前startup/root扩展证据显示设计尚未闭合；作者已认可缺口并表示报告后统一修订，受审文件未变 | **open，R11-C1** |
+
+### Issues
+
+#### R11-C1 — 普通 Agent 与 PA 共享运行时，初始化前排除不可控插件的边界尚未落定
+
+- 分类：核心安全装配与职责设计；CRITICAL。
+- 位置：`design.md:149–153,217,275`；现状 `apps/node/src/main.ts:40,58–63`，`packages/dsh-integration/src/agent-config.ts:76–91`，`extensions.ts:7–18`。
+- 证据：Node目前把全部config.agents交给同一RuntimeSupervisor；ConfigurationScopes将任一Agent的global extensions加载到共享 `this.host`，随后直接import并执行插件。插件初始化和后台监听可使用Node fs/fetch或贡献root行为，不必经过PA工具guard。新设计同时要求普通Agent保持任意既有配置，且不可控插件在执行/初始化前不得进入PA宿主，却没有选定怎样改变上述共享装配及热更新/恢复路由。
+- 未修后果：实施若仅按PA agent配置过滤插件或加restrict/guard，普通Agent已经加载的root贡献/后台代码仍与PA运行时共存；最终sink的“所有受控执行”前提不成立。反向对整个共享host禁插件又会改变明确保留的普通Agent能力。这是已有装配的确定冲突，不是假想插件漏洞，也不能由审核提示词补救。
+- 关闭条件：明确一个可实施的可信宿主/配置边界及生命周期路由，覆盖启动、普通Agent新建/插件热更新、PA主/子/审核/knowledge与冷恢复，保证未知插件代码在进入PA宿主前被排除且普通Agent原能力保留。沿apps/node → dsh-integration/client与stdio即可，不要求新增Agent loop或OS沙箱；须继续明确同OS受信代码及磁盘隔离的实际限制，并把此边界加入M1验收。
+
+#### R11-W1 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R10-W1。
+- 位置：`design.md:264,275`，M1 W7。
+- 证据与影响：没有新授权隔离模型资源可用性证据，或用户对前置顺序调整的明确授权。统一主上下文会接触私人资料，新的独立审核有用性/误判及实际出口必须经真实模型和host/API验收；静态原型与一手论文不能替代。
+- 关闭条件：安全落实授权隔离资源，或记录用户对前置顺序的明确调整；最终真实模型验收仍须执行。不要求本轮提前实现产品后端。
+
+### Recommendations
+
+无新增可选建议。当前核心需求与边界已完成有界审查；先收口确定的共享宿主装配问题，不扩展为任意攻击穷举或重新选择未经用户要求的架构。
+
+## Author Resolutions — R11（2026-10-19）
+
+- **R11-C1 — accepted。** 核实 `apps/node/src/main.ts` 单 supervisor 和 `agent-config.attach` 共享 host global extension 路径，问题成立。design 第7节新增“宿主分区”：普通 Agent 保留原宿主，每个可信 personal binding 经现有 RuntimeSupervisor/client 获独立 home/profile/进程；主/子/审核/knowledge 同 PA 分区，不按外部会话拆 session。明确 RuntimePort 路由、进程来源验证、初始化前过滤、配置预览/HMR、新建、冷恢复、局部故障和整体更新；注明同OS受信代码仍不是恶意插件沙箱。接口职责、M1、Gateway PA delta、安全场景与研究依据同步。修订仅设计文件，没有提前运行或实现新分区。
+- **R11-W1 — accepted，retained。** 没有新增 DeepSeek 隔离资源，不申请或暗示批准跳过前置；当前可交付设计修订，Gate 2 仍需按实际资源与最后审查结论判断。
+- 本次其余冻结产物及 prototype 不变，请独立核对 R11-C1 的修订与影响，自定范围，不重开已保留的相同 UI 旅程。
+
+
+## Round 12
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`。
+- reviewer target: R11-C1 Author Resolution；design宿主分区、grounding/职责/M1，Gateway PA增量场景、安全验收和研究依据。工作树、分支与HEAD同R11。
+- review_mode: **delta**。
+- mode_reason: 围绕R11-C1的有界修复，但新增多supervisor和RuntimePort路由会影响配置、事件、集合查询、后台结果及轨迹，需检查这些实际消费者，不能仅核旧问题措辞。统一PA业务结构、授权/出口、UI未变。
+- retained_from: **Round 11** 的非宿主架构及安全/效用判断；**Round 9 / Round 10** 的原型与UI独立证据。R11资源警告保留。
+- started_at: `2026-10-19T12:30:30+08:00`
+- completed_at: `2026-10-19T12:31:59+08:00`
+- duration: `90s`
+- validated_at: design.md `eea1fd480f3ef9982adbec6a89d6fcfb0def49181bee1b1f7942471203a1971c`；specs/gateway/personal-agent.md `cac6b9128f32ac58b0ce07cb22b8312fea84f0e2c486a900e8de5e94849228a6`；security/acceptance-scenarios.md `7aae9f710bb152615925ee272b72a03a1fc3d82d22a43f140fc6b91ae002c12d`；research/unified-pa-security-design.md `1ccab76532f046a5626d9844b4ad9d16a31604d26e7612434b0b65095cc6d1a7`；prototype.html `64efc86ae5966e8a99f517067f2cb208261c0c9c64a61d013da3269e5843c177`。
+- write scope: 仅追加报告，保留此前 137320 字节，追加前SHA-256 `3368fbedf8286d162c465a28cd2f0dd9b49d16954f93eb6f900fab9f7a9db255`；无产品修改、提交、部署或提前实现。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 2 WARNING。**
+
+**R11-C1已关闭。** 专属DSH宿主与初始化前配置控制已给出可实施方案，普通Agent保持原宿主，且未夸大为OS沙箱。新增路由设计仍缺现有无agent/session请求的聚合与句柄归属规则（R12-W1）；DeepSeek资源前置继续保留（R12-W2）。Gate 2仍未Approved。
+
+### Coverage 与证据
+
+**初始化边界与职责。** design:156–165选定 `ordinary` 与 `personal:<bindingId>` supervisor，服务器认证binding/node epoch决定分区，不接受模型参数改role，不在PA初始化期间临时落入ordinary。PA主/子/审核/knowledge留在同一分区，独立home/cwd/profile仅装受审配置，普通global/workspace插件不复制；初始化、preview/catalog、HMR、新建和冷恢复均纳入，足以关闭旧“同进程root已加载”的确定冲突。新的apps/node职责和M1范围与该决定一致。
+
+实读 `packages/dsh-integration/src/client.ts:13–28,43–54,79–151`：prepareProfile以传入home建profile，RuntimeClient每实例spawn官方CLI并指定DSH_HOME/cwd，Supervisor有独立ready/recovery/process状态；`package.json`声明 `./client` export。复用这些能力比修改DSH、发明第二loop或只加工具白名单更直接。prepareProfile当前默认仍加载base/integration，过滤与受控profile是实施增量，不能把现有函数调用本身当作安全证明。设计已要求import前审来源，M1以真实初始化PID和后台hook验收，不仅看工具列表。
+
+**生命周期与身份。** design:160–163明确NodeStore/session lineage、实际进程来源与ProductBridge核对、冲突/旧epoch拒绝而不fallback；配置改变及provider数据不广播全部Agent配置，停旧admission后才换epoch。实读 `apps/node/src/main.ts:235–298` 的配置应用、handler、heartbeat可用性、全局update及stop，确认这些是必须改的实际调用点。新设计对某PA故障局部unavailable、整体更新fan-out/drain与部分失败释放给出明确行为；不是“节点在线则一切ready”。现有NodeStore持久session归属可复用，新增子执行/审核lineage需覆盖冷恢复。这里无需新跨包SDK，Node内部实现原RuntimePort即可；但具体请求类别覆盖还有下述R12-W1。
+
+**同OS与正常行为。** design:165明确普通进程恶意代码仍可能直接读取同用户磁盘，部署者、本机宽权限代码与内建adapter处于可信环境；专属home不是OS权限隔离。外部联系不开放普通插件安装/代码执行权限。这与本unit现有受信本机边界一致，不要求引入新沙箱。普通插件同项配置继续可用，PA不合规能力明确受限，正常任务效用的R11标准保留。
+
+**delta、验收和UI。** Gateway PA新增同节点普通配置变化与PA运行不可用两项Scenario，表达消费者可见行为而非要求用户管理进程。安全场景:18–19增加普通global/workspace插件初始化PID、后台hook、主/子/审核/knowledge、preview/HMR/恢复与进程来源测试；M1:288同步实际DSH验证及正常Agent能力保持。研究补充只记录源码和设计选择，不宣称运行通过。prototype SHA-256与R10一致，导航、目标和双向告知无变化，保留R9/R10独立操作证据；未重跑无变化UI。没有新的模型资源证据。
+
+### 历史问题闭环
+
+| 原问题 | Author Resolution与独立证据 | 状态 |
+| --- | --- | --- |
+| R11-C1共享宿主插件初始化 | 独立supervisor/home/profile；初始化前过滤、配置/HMR/恢复范围、真实进程来源、普通Agent保持，公开client确可复用 | **closed** |
+| R11-W1 DeepSeek资源 | design:277仍明确未落实，无新证据或用户调整前置授权 | **still-open，R12-W2** |
+| R9/R10 UI与R11其余架构 | 原型未变，路由变化不改变用户流程；已有独立证据继续有效 | **retained** |
+
+### Issues
+
+#### R12-W1 — 新RuntimePort分区路由遗漏无agent/session的集合查询与opaque句柄请求
+
+- 分类：共享内部接口与恢复闭合；WARNING。
+- 位置：`design.md:160,163`；实际消费者 `packages/personal-assistant/src/knowledge.ts:41,64`、`workflows.ts:56–59,138`、`apps/node/src/trajectory.ts:35–60`；运行时handler `packages/dsh-integration/src/index.ts:347–348,384–385`。
+- 证据：设计声明按agentId或session binding定位分区，无法唯一归属拒绝，另明确update/provider fan-out。实际 `knowledge.facts({})`、`workflow.pending({})` 是全宿主集合查询；`knowledge.acknowledge({id})`、`workflow.acknowledge({runId})`只带结果ID；`trajectory.prepare`之后的call/next/abort/close只带observerId。它们没有可直接套用的agent/session参数。RuntimePort本身仅request/onNotification，不会自动补这些路由事实。
+- 未修后果：直接按当前规则实现会拒绝集合查询与后续确认，阻断后台知识及内部任务结果回流；若为使其工作广播ack/轨迹或回落ordinary，则可能串区。冷恢复中仅保留临时句柄映射也不足以解释未确认结果归属。
+- 关闭条件：为现有请求分出有界的集合查询与句柄后续操作，选择由分区消费者分别调用，或在Node路由器按可信分区聚合；结果/ack须保留来源分区及epoch。trajectory等由prepare创建的句柄按原分区路由，失效/未知不得fallback，重启按有效持久事实重建或明确使临时句柄失效；局部宿主不可用不让其他分区结果一起丢失。补对应M1/场景即可，不要求逐RPC实现表、新通用框架或提前编码。
+
+#### R12-W2 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R11-W1。
+- 位置：`design.md:277,288`，M1 W7。
+- 证据与影响：没有新授权隔离模型资源或用户调整前置顺序的证据。宿主设计闭合不替代统一PA的真实模型、全sink及正常任务效用验收。
+- 关闭条件：安全落实资源，或记录用户对前置顺序的明确调整；最终真实验收仍须执行。不要求本轮提前实现产品后端。
+
+### Recommendations
+
+无新增建议。问题限于实际存在的集合/句柄接口，不扩展为假想插件攻击或重新设计业务会话拓扑。
+
+## Author Resolutions — Round 12
+
+- **R12-W1：接受并修复。** 选择按分区实例化既有 KnowledgeUpdates/WorkflowResults，使用 Node 绑定的 scoped RuntimePort，不引入集合聚合框架。查询、确认与通知固定来源分区；真实记录身份复核，产品投递/去重使用稳定分区与原生 ID 复合键，保留原生 RPC 参数。区分持久结果恢复与 supervisor generation，局部故障独立恢复。轨迹由 prepare 建立 observerId 归属，后续句柄操作路由到原分区，重启/失权失效并重新 prepare。design 第7节、M1和安全场景同步补充同名结果、正确确认、局部故障和临时句柄验收。
+- **R12-W2：保留。** 真实 DeepSeek 隔离验收资源尚未落实，本轮不宣称 Gate 2 Approved 或安全运行通过。
+- 本轮不改产品代码或原型，不扩大正常用户流程；请求仅对上述真实接口缺口作闭合复核，其余沿 R12 有效证据。
+
+
+## Round 13
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`。
+- reviewer target: R12-W1 Author Resolution；design:161–163、M1与安全场景的集合/ACK/句柄闭合修订；工作树、分支、HEAD同R12。
+- review_mode: **closure**。
+- mode_reason: 修订只为已证实的无agent/session接口补明确归属，未更改统一PA、宿主分区方案或用户流程；按R12-W1关闭条件逐项核对，不扩大到其他边界。
+- retained_from: **Round 11 / Round 12** 的架构、全出口与安全/效用判断；**Round 9 / Round 10** 的UI独立证据；DeepSeek资源警告保留。
+- started_at: `2026-10-19T12:34:08+08:00`
+- completed_at: `2026-10-19T12:34:52+08:00`
+- duration: `44s`
+- validated_at: design.md `6cd18651cc6cef6441838d20d7d5aa80065b689dc7303f422639a157a18ccbaa`；security/acceptance-scenarios.md `8a9257c285eca1d8337690af5bc33c99f60126e20f024204213a5203a1e4e656`；prototype.html `64efc86ae5966e8a99f517067f2cb208261c0c9c64a61d013da3269e5843c177`。
+- write scope: 仅追加报告，保留此前 146127 字节，追加前SHA-256 `6b86cec2b6bc1d93e28ed94e0b1c653cb94cba1d5b9dc906292ab2362f744ad0`；无产品修改、提交或部署。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+**R12-W1已关闭，本轮无新增实质问题。** 集合查询和原生ACK采用分区消费者，临时轨迹句柄有明确来源/generation；恢复与局部失败均已收口。仅保留DeepSeek必验资源前置，Gate 2仍未Approved。此结论只说明设计缺口闭合，不表示产品实现或安全运行已通过。
+
+### 历史问题闭环与证据
+
+#### R12-W1：closed
+
+**集合与确认。** design:161选择按分区实例化既有 `KnowledgeUpdates`、`WorkflowResults`，Node注入与真实supervisor绑定的scoped RuntimePort。`knowledge.facts({})`、`workflow.pending({})`及其ACK都留在同一分区，不再按缺失agent/session猜路由或广播。源码复核 `knowledge.ts:11–27,41,64`、`workflows.ts:18–36,56–59,138`：两消费者本来通过注入的RuntimePort查询/订阅/确认，分区注入能直接复用现有结构；不必引入全宿主集合聚合框架。`index.ts:347–348,384–385`确认原生查询/ACK语义，`workflow.completed`确是通知而非查询，新文档正确区分。
+
+**可信归属与冷恢复。** 结果agent/root/session/parentSession必须匹配有效分区binding；产品投递与去重采用稳定分区+记录类别+原生ID，同名fact/review/run不跨区合并，RPC继续用各自原生ID。design:162区分持久结果和临时generation：旧回调丢弃，重启从同binding持久数据重查未确认结果，以稳定键核对既有接收事实后再ACK。某分区失败只延后其消费，其他分区正常；不因局部批次完成确认未处理项，更换binding/撤epoch不恢复旧资格。这覆盖R12提出的结果回流、正确确认、重启与局部不可用后果。
+
+**临时轨迹。** design:163在有效owner ACL/ticket的prepare时建立observer→分区/generation/session，后续call/open/next/abort/close及stream按该登记，未知/冲突/失权/旧generation拒绝，无广播/ordinary fallback。源码 `apps/node/src/trajectory.ts:33–60`确认这些后续请求实际只带observer/stream信息，新映射填补真实缺口。close清登记，宿主重启关闭该分区观察连接，查看器重新prepare；不尝试跨宿主扫描或持久恢复临时句柄。
+
+**验收对应。** `security/acceptance-scenarios.md:20–21`新增ordinary与两个PA同名原生ID、ACK仅回来源、局部故障、冷恢复不重复投递、旧generation及observer失效场景；M1:291同步分区知识/内部成果回流与确认、同名去重和轨迹句柄。检查覆盖点与上述具体设计一致，不能用单纯工具列表测试替代。受审设计与场景diff检查通过；本轮没有运行产品测试，也未复跑未变化的原型。
+
+#### R12-W2：still-open → R13-W1
+
+`design.md:283,291`继续说明DeepSeek隔离资源尚未落实；Author Resolution也未提供新可用性证据或用户调整前置顺序的授权。沿用原资源问题，不把接口闭合计作真实模型验收。
+
+### Issues
+
+#### R13-W1 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R12-W2。
+- 位置：`design.md:283,291`，M1 W7。
+- 影响：统一PA的真实模型有用性、语义审核、实际接收端边界与受控能力仍需隔离资源验证；设计及原型证据不能替代。
+- 关闭条件：安全落实授权隔离资源，或记录用户对前置顺序的明确调整；最终真实模型验收仍须执行。不要求本轮提前实施后端。
+
+### Recommendations
+
+无。本轮关闭范围已完成，不再扩展相同设计审查或猜测性边界。
+
+## Author Resolutions — Round 13
+
+- 接受独立 closure 结论：R12-W1 已关闭，本轮无新增实质设计问题，停止设计修复循环。
+- 保留唯一 DeepSeek 隔离验收资源前置；当前交付为设计与契约修订，不标 Gate 2 Approved，不声称后端或安全效果已验证。后续实施前落实该资源并执行设计中的真实模型与正常任务效用验收。
+
+## Author revision — 新消息协助与完整历史查询
+
+- 根据2026-10-19用户追加原话同步spec/design及Gateway、IM delta、安全场景：30天仅首次后台整理，历史按本人当前权限随时按需检索；区分暂停、排除、清理；原消息出处、无已读副作用、历史非授权。
+- 新消息允许草稿/授权内代发/不回复；原人际会话保留，代发为可信PA actor并向双方固定标识，新增受信代理写入契约，不伪造本人身份或增加第三成员。
+- 产品代码、prototype未改；原型历史证据不用于认证新增的代发标记与历史定位，实施须按本次场景验证。DeepSeek资源前置继续保留。
+
+- 用户进一步明确拒绝固定30天窗口：当前spec/design/delta/security已删除首次整理与查询窗口，prototype同步三处文案，均为按需检索、不设人为时间上限。前述作者“30天预热”解读被此次原话替代；旧报告仅为历史记录。
+
+
+## Round 14
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`。
+- reviewer target: 用户新增“新消息可草稿/PA标记代发/不发”与“随时查过去本人参与聊天”的需求，以及最新“不要无端限制30天”纠正；spec/design §8、UI段、Gateway/IM PA delta、安全场景和原型三处文字修订。工作树、分支、HEAD同R13。
+- review_mode: **delta**。
+- mode_reason: 新增可信代理写入、按需历史查询及用户可见身份/出处路径，波及消息DTO/同步/历史和读取权限；统一PA安全架构及宿主边界未变，不重开全量审查。
+- retained_from: **Round 11–13** 的统一PA、宿主分区、来源/披露与恢复判断；**Round 9/10** 的既有UI与连续目标交互。新增代发标记和历史结果路径没有继承旧原型通过结论。
+- started_at: `2026-10-19T13:13:24+08:00`
+- completed_at: `2026-10-19T13:15:32+08:00`
+- duration: `129s`（含等待作者落实用户即时取消时间窗的修订）
+- validated_at: spec.md `ca6d2982e9f03efa36f806a68e53a91f5b9585ef672249b2b5d19d3c2f7e183a`；design.md `757b875005da91ab2d050447e2ce893e4a17af34ce1fca3011a4ac6a61dc0fa3`；prototype.html `77002be3a4a6009e5c258169cc31f9a6603a3589f3dfbe4fc7635bfb0d9b9b21`；specs/gateway/personal-agent.md `68cfff96bcf0d89c174c4e5c13c1e0cae9f002b14671d52fbdf0a03ab05df0fe`；specs/im/personal-agent.md `ebffe95809c00119447f58d37b2b20d2a26924178736d00eedde1b328803b543`；security/acceptance-scenarios.md `8270f5570c51bf3efb7d4aff76392a10f29da732007675f938df5ec6866116d4`。
+- write scope: 仅追加报告，保留此前152361字节，追加前SHA-256 `40a19957d4dba4f0ca17de3a50ab2ccada41c46896b8c4a166c30971bf8f06c7`；无产品修改、服务或生产操作。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 2 WARNING。**
+
+新需求的数据与权限路径已给出可实施设计，固定历史时间窗口已完整取消。新增问题是两段用户可见路径尚缺与改动相称的原型和实际走查（R14-W1）；DeepSeek资源前置继续保留（R14-W2）。Gate 2仍未Approved，不把设计结论作为实现或安全运行证明。
+
+### Coverage 与证据
+
+**最新需求。** spec:332–362保留用户原话与取消30天的即时纠正；最终design:193,197与Gateway delta/security不再把首次整理或查询限制为固定时间窗，分页只控制单次量。独立检索design/prototype/Gateway delta/security未发现残留30天门槛。新消息三种处理是PA按内容/已有许可选择，不是每条消息新增用户三选一；不回复不创建待办，草稿本人发仍为本人消息，已有scope内代发不重复问批准。作者转述的用户最新“优雅极简、不要复杂配置/交互”原则与此相容，本轮冻结文件未新增该段，不把后续修订计作已审证据。
+
+**原DM代发与真实身份。** 实读 `apps/im-server/src/gateway.ts:504–553`，现agent.message先requireAgent再按该Agent检查目标write ACL，不能自然发送到两真人DM；`messaging.ts:458–475`的普通浏览器身份校验也不允许冒充Agent。design:195明确新增受信代理写入分支，以personal binding、owner当前write ACL、scope、受众及已审operation授权；真实PA actor和authorized_by持久化并经DTO/同步/历史传递，不偷用owner token、不改变DM参与者。这个新增落点必要且职责明确，不是只改显示名。普通浏览器不可设置代理身份，原工具审批/外发关口仍适用；owner先回复后重核待发动作，避免过期代答。现 `messaging.ts:271–305`集中构造消息DTO、insertMessage持久化/事件机制可复用，实施需补可信代理元数据的同一投影；本轮未声称这些字段已有实现。
+
+**历史范围、权限与副作用。** `messaging.ts:834–867`现有消息游标分页先access校验，读路径不执行 `:820–827` 的已读写入；设计保留此分离。新增 `pa.history.search/read` 在IM权威存储按可信owner binding执行跨会话条件检索及命中上下文，不复制聊天数据库或强制新向量服务，返回真实作者/时间/消息出处与覆盖状态。当前代码只有会话分页，没有现成跨会话关键词契约，文档对此断言准确。
+
+`conversation-access.ts:16–31`实际按当前成员/公开群及space资格决定read，成员且未解散才能write。design:201相应区分参与过与当前可读：退出私有群可能不可读，公开群全站可见不自动纳入个人历史集合，必要时持久参与记录；未覆盖/删除/失权不装作未找到。每次query/page/原文/附件都校当前ACL与source policy，索引/缓存不绕撤权；暂停观察不禁按需查询，排除禁止读取，清理缓存不删除原消息或永久禁止获准重新读取。查询不推观察cursor/已读，不以旧owner原话签新scope，对外传播仍进独立披露审核。与既有可信来源/撤源约束一致。
+
+**消费者及UI现状。** `src/IM/frontend/src/features/chat/components/work-thread-link.tsx`已有带message_id的真实聊天链接，`chat-workspace-page.tsx:321,621–661`解析定位参数并加载/定位旧消息，能复用为原文出处入口；不是新发明独立历史门户。现 `message-pane.tsx:1535–1541,1700–1721`以真实sender区分本人/Agent气泡并显示作者，新增代理固定标记必须在该关系中设计，不能从普通Agent名字或正文推断owner授权。R9对这些聊天基线的独立实际观察仍有效，但未观察新增标记/查询答案界面；本轮没有把代码阅读充当新增视觉验收。
+
+**delta与M1。** Gateway新增按需任意时期查询/当前权限Scenario，IM新增三种处理/真实代理身份/来源定位Scenario；均位于PA新增消费者契约，普通消息冒充身份规则不放宽。M1:301与安全场景:22–24覆盖人物/时间/关键词、分页上下文、原文、撤权/排除/暂停、可信actor与双方实时/历史展示、DM成员不变和本人已回复。需要验证的实现边界明确，真实产品与DeepSeek验收未提前执行。受审文档diff检查通过。
+
+### 历史问题闭环
+
+| 原问题/变化 | 本轮证据 | 状态 |
+| --- | --- | --- |
+| R12-W1集合/句柄分区 | 本次未修改宿主/消费者设计，R13闭合证据有效 | **closed，retained** |
+| R13-W1 DeepSeek资源 | design:293,301仍说明未落实，无新资源证据或调整前置授权 | **still-open，R14-W2** |
+| 固定30天窗口 | 用户明确纠正后，最终spec/design/delta/security及三处原型文案均取消首次/查询固定时间窗 | **本轮已修正，无新增issue** |
+| 新代发标记与历史出处体验 | 仅文字契约，原型未覆盖这两段新路径；作者明确不将旧证据当新证据 | **open，R14-W1** |
+
+### Issues
+
+#### R14-W1 — 新增双方代发标记与历史答案定位缺少原型和实际体验证据
+
+- 分类：前端设计/必需体验证据；WARNING。
+- 位置：`design.md:195,197,256,278,301`，`specs/im/personal-agent.md:104–113`，`prototype.html`。
+- 证据：本次原型只删三处固定窗口文字，未加入原DM双方的PA代发标记，亦未加入PA历史答案/作者时间/原文定位/返回路径。旧R9/R10原型没有覆盖这两个新增用户结果，文字“双方固定标记”“提供出处”尚不足以判断实际辨识与阅读/操作关系。`change-design-author/references/prototype-and-runbook.md:17,46–48`要求与UI改动相称的原型并实际渲染走查，明确“不能宣称原型就绪或把必要视觉检查推迟到实施验收”。
+- 用户代价/未修后果：实施者需要自行决定本人消息、PA代答和外部消息的视觉归属，以及多条历史依据如何阅读、点击后看到哪段原文、手机如何返回；可能虽字段齐全却让对方误认真人发送，或让本人无法核对答案出处。本轮没有观察到这些具体失误，因此问题记为设计/证据缺口，而非虚构现成视觉bug。
+- 关闭条件：在既有聊天壳内补最小两段连续原型：本人/对方视角辨认同一代发消息（含与本人发送草稿的区别），以及本人问旧事→答案带作者/时间/来源→打开原文上下文→返回。保留未找到/无权或来源不可用的必要差异；实际桌面与窄屏观察并留简短证据。无需改导航、增历史时间配置、每消息三选一或安全参数面板；不要求提前实现后端。
+
+#### R14-W2 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R13-W1。
+- 位置：`design.md:293,301`，M1 W7。
+- 影响：代发scope/审核、历史来源与真实任务效用仍需隔离模型、host/API和实际接收端验收；当前设计/静态原型不能替代。
+- 关闭条件：安全落实授权资源，或记录用户对前置顺序的明确调整；最终真实验收仍须执行。
+
+### Recommendations
+
+无新增建议。新增发现限于真实前端流程证据，不扩展为新的配置体系或假想权限边界。
+
+## Author Resolutions — Round 14
+
+- **R14-W1 accepted**：补原输入框查询历史→原群高亮原文→返回，以及明确代发→本人原私聊→对方原私聊两段原型。没有新设置页，双方固定PA标记，1440/390实际浏览器观察见research/history-delegation-ux.md及截图。同步design体验契约；修正错误“今天”标签与连续对话保留后复查。
+- **R14-W2 retained**：DeepSeek资源前置未变，仍不宣称Gate2 Approved。
+- 用户最新“优雅极简”原话纳入spec，design明定系统承担安全复杂度，无历史窗口/逐消息三选一/审核参数，IM delta同步。
+
+
+## Round 15
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`。
+- reviewer target: R14-W1原型闭合、用户“优雅极简”原则的spec/design/IM delta收敛及新增走查记录；工作树、分支、HEAD同R14。
+- review_mode: **closure**。
+- mode_reason: 新增原型只补R14已经确定的两段用户流程，极简原则明确不加配置/逐消息选择，未更改业务授权或架构；独立实际操作核旧缺口，不重开无变化旅程。
+- retained_from: **Round 14**的数据/权限与接口判断，**Round 11–13**宿主/来源/出口，**Round 9/10**现有聊天基线及其他目标/告知旅程；DeepSeek资源警告保留。
+- started_at: `2026-10-19T13:19:42+08:00`
+- completed_at: `2026-10-19T13:22:28+08:00`
+- duration: `166s`
+- validated_at: spec.md `107e45fb71d570b8fc4a45b6541a657b2136b39622fe82bce211b9110cf92c8a`；design.md `085e85d9904e7893076b843881d90c427ef35bbcd64b00f0f8e479d5e92f0fef`；prototype.html `95d41f1bb2fc826512916d5540ad8d4aea5c0ec278782c86f0be4018869629cb`；specs/im/personal-agent.md `462f0f2d2ff06366977734b6f4fb4037d7f55aa78b8d4bbe3d37f7320dd2a3b5`；research/history-delegation-ux.md `ec4ee489dd307db1b2e203c46d106eb2d7354becebc4abf7ac624d7e688eb4ec`。
+- write scope: 只追加报告，完整保留此前 162123 字节，追加前SHA-256 `400efcb178e51de74d85b640cd10293ba277a33cee03605339e0246b3ba49abd`。原型本轮一处邻接消息顺序问题由作者修复，reviewer reload最终版独立复验；无产品修改、提交或部署。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+**R14-W1已关闭，本轮没有未关闭的新增实质问题。** 历史答案→原文→返回与双方PA代发标记均有真实浏览器操作证据；发现的邻接顺序问题已同轮修复复验。仅保留DeepSeek必验资源前置（R15-W1），Gate 2仍未Approved。原型是合成静态样例，不证明实际检索、鉴权、模型或投递已实现。
+
+### 历史问题闭环与独立证据
+
+#### R14-W1：closed
+
+**检索与出处。** IAB对reviewer不可用后，新建独立Chrome复核页 `http://127.0.0.1:8766/prototype.html`，未使用作者/用户标签、未写内部状态。在1440原输入框询问“去年产品协作群里，我们怎么约定演示报价的？”，直接得到“演示不放报价、重点门店协作，报价另发林悦”的答案，下方相邻展示产品协作群、陈同学、2025年6月12日14:32及“查看原消息”。结论先于出处，出处可在同一眼阅读范围内核查，没有时间窗口、查询模式或审批步骤。
+
+实际点击进入原产品协作群，2025日期、原文高亮、前后林悦两条上下文同时可见；没有错误“今天”标签。“返回个人助手”回同一答案。随后连续要求代发，原问题和历史答案仍保留在其前。切390再从已保留答案点原文/返回，两侧文字自动换行，原文内容和返回动作可见，不需记住屏外信息或重问一次。这独立复核了作者记录的日期/连续对话修订。
+
+**代发身份与草稿区别。** 从原PA输入框明确说“替我回复林悦：这次演示先不放报价，重点展示门店协作，报价单会另发给你确认。”，没有额外确认弹窗。回执附同一正文与“查看原聊天”；原人际DM显示小航头像/名字，固定标记“陈同学的 PA · 代为发送”贴在正文上方。产品外切换“林悦看与陈同学的私聊”，标题仍为陈同学的人际聊天，正文和标记相同，不把聊天改成林悦与PA的另一个DM。1440与390实际截图中，身份标记、文字及输入框清楚可见，标记不是正文自称。
+
+在本人390原DM补走“让小航帮我回复→放入输入框→发送”：草稿说明本人编辑/发送，发送后为本人右侧浅绿气泡；PA代发仍为有固定标记的Agent气泡。对方视角本人消息作者为陈同学，PA消息作者为小航并有代发标记，区别由真实界面表达而非用户读技术字段。
+
+**同轮发现并关闭。** 首次补走草稿时，较晚本人消息被插在先前PA代发上方，源于ordinaryContent把全部peerReplies画完后固定追加delegatedMessage。已向作者报告实际步骤，作者把PA代发也追加同一消息序列，双方视角按同一序列渲染。reviewer reload后重新代发，再完整完成草稿放回/发送：本人界面顺序为林悦原请求→PA代发→本人后续消息；对方也显示相同顺序与各自作者，没有丢失或重复。最终console未见原型脚本错误；两条错误来自浏览器Zotero扩展连接，不归因原型。未据此扩展其他无关旅程。
+
+**证据与适用边界。** 可持久复查的代表图/作者走查在 [history-delegation-ux.md](research/history-delegation-ux.md)，包括 [历史答案桌面](research/history-delegation-evidence/history-answer-desktop.png)、[历史答案手机](research/history-delegation-evidence/history-answer-mobile.png)、[原文](research/history-delegation-evidence/history-source.png)、[本人手机代发](research/history-delegation-evidence/delegation-owner-mobile.png)、[对方手机代发](research/history-delegation-evidence/delegation-peer-mobile.png)；本轮独立操作与其主要流程一致，邻接消息顺序修复的额外证据以上述reload复验为准。仅检查合成报价约定和固定代发文本，不将其称作通用搜索器；未找到/未覆盖/无权与分页撤权的真实差异由现有spec/design/安全场景明确，留待产品运行验收，不宣称本原型实现这些后端状态。手机是响应式Web，不是native iOS验收。
+
+**极简原则。** spec保留用户最新原话，design:65–67把检索分页、来源/审核/恢复归系统责任，正常入口保留聊天输入；自然语言暂停/来源例外和只给草稿可表达偏好，必要新决定才询问。IM delta同步普通流程不配置历史时间、审批参数或每消息三选一。实际新增路径符合此收敛，没有把安全技术步骤搬成产品按钮。原型表/M1与新增记录衔接，不要求重做导航或扩大配置范围。
+
+#### R14-W2：still-open → R15-W1
+
+design:298,306与Author Resolution继续说明DeepSeek隔离资源未落实。无新资源证据或用户调整前置顺序的授权，原警告保留。
+
+### Issues
+
+#### R15-W1 — DeepSeek 必验资源仍未落实
+
+- 分类：实施验收资源前置；retained from R14-W2。
+- 位置：`design.md:298,306`，M1 W7。
+- 影响：静态原型闭合不代替真实模型有用性、来源/外发审查、host/API及真实接收端结果。
+- 关闭条件：安全落实授权隔离资源，或记录用户对前置顺序的明确调整；最终真实验收仍须执行。
+
+### Recommendations
+
+无。两段新增体验及本轮直接发现问题已完成有界复核，不继续扩展相同审查。
+
+## Author Resolutions — Round 15
+
+- 接受R14-W1关闭结论：独立1440/390查询原文往返、双方代发身份与本人草稿发送完成。审查发现的原型消息顺序问题已将本人/PA消息统一按发送顺序渲染并同轮复验通过，无新增实质问题，停止修订循环。
+- 唯一DeepSeek资源警告继续保留，不标Gate2 Approved；此次交付为设计与静态原型，非真实后端验收。
+
+## Author admission update — 用户授权先实施
+
+2026-10-19 用户原话“你先去实现吧”。在已反复明示唯一资源缺口的上下文中，按此直接授权把 DeepSeek 资源准备顺序移至交付前真实验收，不省略最终验收。design资源段同步；功能/安全/原型语义无变化。请求独立关闭资源准入警告后进入默认简化实施。
+
+
+## Round 16
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design_review_r7`。
+- reviewer target: 用户明确授权先实施后的唯一资源准入警告R15-W1；`design.md:298,306`与Author admission update。工作树、分支、HEAD同R15。
+- review_mode: **closure**。
+- mode_reason: 仅核对旧警告关闭条件中的用户授权调整前置顺序，不重审没有变化的功能、安全、接口或原型。
+- retained_from: **Round 15**及其明确继承的R9–R14独立证据；全部已关闭设计问题保持关闭。
+- started_at: `2026-10-19T13:26:03+08:00`
+- completed_at: `2026-10-19T13:26:24+08:00`
+- duration: `22s`
+- validated_at: design.md `02467560927547b14de7b586a84905c9914c3414b211c478c8b006952b4d32bf`；prototype.html `95d41f1bb2fc826512916d5540ad8d4aea5c0ec278782c86f0be4018869629cb`。
+- write scope: 仅追加本报告，保留此前 169904 字节，追加前SHA-256 `480ae638c4bcfef3fab8cb541fd082eed3a76af05cadda5a7d9365618ad2d53b`；无产品实现、模型调用、提交或部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2设计准入通过，可以进入实施。**
+
+这不是模型或产品验收通过：DeepSeek资源尚未核实，真实模型、有用性/安全与host/API验收继续作为交付退出条件。
+
+### 历史问题闭环与证据
+
+#### R15-W1：closed（用户调整前置顺序）
+
+R15-W1原关闭条件明确允许两种证据：资源落实，或用户明确调整其前置顺序。本轮收到用户在资源缺口已明确告知后直接要求“你先去实现吧”的授权，Author admission update保留该原话和上下文；design:298据此把资源准备从实施准入前置移至交付前真实验收。此次关闭基于用户对顺序的调整，未声称凭据已经可用，也未把模拟验证视为替代。
+
+design:306的M1 W7仍要求真实DeepSeek端到端同时证明有用与边界，并保留普通Agent/渠道/iOS API回归及runtime dependency contract。安全场景与原有接收端/全出口验证没有删减，后续若资源未落实，实施可继续但不能以当前设计批准宣告最终验收完成。
+
+未发生新的功能、安全或原型决定，本轮没有重复浏览器操作、扩展检查范围或要求再次确认。所有其他结论按R15保留。
+
+### Issues
+
+无未关闭设计准入问题。
+
+### Recommendations
+
+无。按用户授权进入既定实施流程，保留真实验收退出条件。

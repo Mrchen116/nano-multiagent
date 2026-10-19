@@ -1,5 +1,7 @@
 # feat-616 实施准备与验证边界
 
+> 本文保留 R6（2026-10-16）历史准备证据。当前统一 PA 与独立审查版及资源状态见 [design](../design.md) 和 [新版原型验证](prototype-goal-journey-validation.md)；旧逐动作授权及手工结果回流检查不作为当前验收。
+
 记录时间：2026-10-16；基线 main 481467ac16f0eda4561fca5c8230050541600de9。
 
 ## 已完成的准备
@@ -77,3 +79,12 @@ change-workflow 明确 Full 通过 Gate 2 才实施，prototype-and-runbook 明�
 提交前维护检查修正了 auth-tenancy delta 中指向现行 gateway-relay 契约的相对链接（原路径在 delta 目录中不存在）；仅链接修正，无契约语义变化。R6 manifest 保留历史原值，交接树与该历史快照的这项差异不代表重审或 Gate 2 通过。另清理研究文档末尾空行。
 
 交接前在同一基线上重跑：六个 prototype-state-checks 脚本共 97 项通过；补齐仓外临时 Python 检查依赖后，`PYTHONPATH=/tmp/nano-pa-handoff-docs-check ./scripts/docs-check` 通过（272 maintained Markdown sources / 64 required routes）；`git diff --cached --check` 通过。仍未运行真实视觉或 DeepSeek 验证。仓库 CI 当前只在 main push 或 pull_request 触发，本次仅推设计分支且不创建 PR，不等同获得远端 CI 结果。
+
+
+## 2026-10-19 — 统一 PA 与独立外发审查设计修订
+
+用户已授权按统一 PA 方案改设计，本次仍仅设计交付。当前权威为 [design 第7节](../design.md#7-统一理解入口辨来源出口独立审查) 与 [安全场景](../security/acceptance-scenarios.md)；R6 受限 external/observation session、全外部模型请求无私人 canary 不再是当前架构要求。旧研究保留为能力取证和已放弃方案的历史，不能据其建议覆盖新设计。
+
+当前必须验证：PA 可以使用目标必要的私密资料；实际接收方和共享存储不能收到越权内容。审核不替代身份/ACL，原工具 fast path 不替代披露审查；IM/Channels 自动投递、附件/共享结果、网络参数、子任务、记忆写入及热更新均纳入。不可受控的任意代码/插件不能自动进入 PA，正常搜索、整理/制作、内部成果回流、持续跟进必须同时可用。
+
+R9/R10 已核现有 UI 与新增可疑告知，本次不改原型。DeepSeek 隔离验收资源仍未落实，公开 DSH exports 的静态取证不等于新关口运行或模型效果验证。独立审查记录继续追加 design-review.md；不因本次设计修订宣称 Gate 2 通过、产品实施或生产部署。

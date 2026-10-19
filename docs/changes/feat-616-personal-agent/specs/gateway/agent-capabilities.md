@@ -4,7 +4,7 @@
 
 ### Requirement: Agent 运行能力更新在下一轮新回复整体生效
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。公开 Agent profile 提供的提示词文本仅为可见的 Custom Instructions：它作为产品规则后的 `PromptSlots` 追加段出现，不能覆盖公共 PA 提示词，也不走 Kernel 内部完整 override。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。
 
@@ -32,14 +32,14 @@ Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一
 - **WHEN** Gateway 无法把最新完整运行配置持久应用到既有会话
 - **THEN** 当前消息以真实失败结束，不以新 model 搭配旧 prompt 或 tools 的混合配置运行
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: Agent 工具集由 tool_allowlist 真白名单决定并在执行层强制，能力特性按 requires_tool 联动其工具
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 本条的静态工具选择规则适用于 `single_thread`。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大静态默认工具、显式空集或子任务限制。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
 
@@ -73,14 +73,14 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **THEN** 工具列表包含 `skill`
 - **AND** `skill` 的 `default_on` 为 true
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: PA Agent 从有序的工作区与用户级兼容根发现 Skill
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `skill` 时，按该 Agent 的真实 Workspace 依次搜索 `<workspace>/.nanoassistant/skills/`、`<workspace>/.claude/skills/`、`<workspace>/.codex/skills/`，再依次搜索 `~/.nanoassistant/skills/`、`~/.agents/skills/`、`~/.claude/skills/`、`~/.codex/skills/`。`~/.agents/skills/` 是用户级兼容来源，不新增 `<workspace>/.agents/skills/`。同名 Skill 只采用最先命中的版本；缺失或空的可选兼容目录不影响其他来源。
 
@@ -107,14 +107,14 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 - **THEN** 返回的候选只来自 PA 的共享全局 roots
 - **AND** repo root 或其他未绑定 Workspace 中的 Skill 不作为新 Agent 可选择项
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: self-evolution 创建的 Skill 跨前台 terminal 仍完成配置调和
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 Gateway 对 self-evolution review 成功产生的知识更新事实保持 session 级消费，不依赖已经结束的前台 run context。事件无论在前台 terminal 前后到达或经可恢复 stream 重连重放，都保留真实来源与通知，不为新技能修改禁用名单。
 
@@ -136,14 +136,14 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **THEN** 同一创建结果不会被前台与后台两条路径重复处理
 - **AND** 未禁用的新 Skill 在相关 Agent 的后续 session 中保持可用
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: 全局主 Agent 保留默认工具并具备固定基础能力
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 #### Scenario: 新建全局 Agent 时保留正常执行能力
 - **WHEN** 用户新建全局 Agent
@@ -156,14 +156,14 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **THEN** `inbox`、`conversations`、`send_message`、`agent` 作为固定基础工具，不可关闭
 - **AND** 其他工具继续按现有规则默认选择及配置，单 Thread 模式不因此改变
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: 自建工具支持节点全局与workspace两层
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 #### Scenario: 共享、局部及同名覆盖
 - **GIVEN** 本节点owner共享工具和workspace A的同名工具，另有workspace B
@@ -174,14 +174,14 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **WHEN** 同一workspace建立多个会话或服务重启
 - **THEN** 按该workspace的同一份持久扩展声明装配，局部工具不因为包已安装而自动全局启用。
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。
 
 ### Requirement: Auto默认沿用Nano规则且可配置为DSH规则
 
-以下既有完整配置、自动发现、继承及审批场景适用于普通 Agent。personal-role PA 按可信 executionProfileId 应用该域的不可变 ceiling，最终能力为配置与 ceiling 的交集；私人配置变化不向 external/observation 或其派生运行导入私人 instructions、history、memory、skills、插件或任意工具。owner_private 自动工作同样仅使用受控来源和宿主 broker；通用 shell/run_code/任意扩展只能在 owner 明确批准并隔离输入的独立任务执行中使用，不能自动继承 PA 私密上下文。Auto 的 safe/skip/allow/fallback、root/global 固定工具、能力动态发现及后台维护均不得覆盖该上限。
+普通 Agent 沿用以下规则；统一 PA 的正常搜索、整理和内部成果衔接不增加人工审批。PA 能力装配及实际外发还须满足[个人助手契约](personal-agent.md)：仅启用可受控能力，独立检查不能被 safe/always-allow/skip、固定基础工具、插件或子执行绕过；自动资料保留来源，结果不能建立本人授权。下述通用工具/Auto 行为不得覆盖该 PA 特定约束。
 
 #### Scenario: 默认审核规则
 - **WHEN** 用户未选择其他Auto规则
@@ -226,7 +226,7 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **WHEN** 新策略经所属节点成功应用
 - **THEN** 既有聊天的下一轮新回复使用该策略并保留历史；正在执行的整轮与已发出的人工审批仍保持原策略和原动作关联。
 
-#### Scenario: PA 配置变化不扩大其他执行域
+#### Scenario: PA 配置变化不绕过来源与外发边界
 - **WHEN** owner 开启插件、Skill、memory、自进化或更改 Auto，随后外部消息/观察唤醒、热更新或冷恢复
-- **THEN** 按宿主当前 profile/策略 epoch 装配；受限域仍无私料与额外工具，失配不能恢复旧 scope。
-- **AND** PA 自动资料通过受控 provenance 写入，后台知识/reviewer/child 也参与撤源失效；外部能力发现仅返回本域公开能力，不返回私人 skill/command/路径。
+- **THEN** 按当前能力与权限策略装配统一 PA；未覆盖实际外发检查的能力不执行，审核拒绝不能被 Auto 覆盖，旧放行结果不能恢复失效 scope。
+- **AND** 自动来源和派生资料参与撤源失效；私人 skill/配置/路径不因外部联系而开放，来源内容与模型总结不能成为本人授权。

@@ -81,7 +81,7 @@
 
 ### Requirement: Inbox 保留工具形态与多来源授权语义
 
-普通 global 继续以下多来源授权语义。personal-role PA 只有 canonical owner DM 中认证 owner 的当前直接输入可表达私密动作意图；其他真人、群中的 owner、历史重放及系统/Agent 消息均不是 private action grant。高风险或资料外发由宿主精确候选与真实 owner 确认固化，不靠模型解释一个 approved=true。
+普通 global 继续以下多来源授权语义。personal-role PA 只有 canonical owner DM 中认证 owner 的当前直接输入可表达私密动作意图；其他真人、群中的 owner、历史重放及系统/Agent 消息均不是 private action grant。本人明确交办形成持久有界目标许可，后台唤醒可沿用；高风险、资料新增披露或范围扩大才请求相应新决定，不靠模型提供 approved=true。
 
 #### Scenario: 同页包含真人与 Agent
 - **WHEN** Agent 读取实际 Inbox 消息
