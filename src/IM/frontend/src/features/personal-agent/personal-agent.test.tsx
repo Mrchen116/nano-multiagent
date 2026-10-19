@@ -92,3 +92,11 @@ it('treats an incident as information and records misunderstanding without appro
  expect(api.resolvePersonalDecision).not.toHaveBeenCalled();
  expect(api.updatePersonalAgentPolicy).not.toHaveBeenCalled();
 });
+
+it('shows a saved owner request awaiting admission and removes it when admission completes',async()=>{
+ const view=mount(<PersonalAgentCollaboration state={state} pendingOwnerInput onDraft={()=>{}}/>);
+ expect(screen.getByRole('status')).toHaveTextContent('Understanding your request');
+ view.unmount();
+ mount(<PersonalAgentCollaboration state={state} pendingOwnerInput={false} onDraft={()=>{}}/>);
+ expect(screen.queryByText('Understanding your request…')).not.toBeInTheDocument();
+});

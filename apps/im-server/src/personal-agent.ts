@@ -134,7 +134,7 @@ export class PersonalAgents {
     for(const id of args.scope.allowed_conversation_ids) if(!this.sourceAllowed(b,id,'write')) fail(403,'scope_target_not_accessible');
     let taskRef=args.task_ref;
     if(!taskRef) {
-      const task=this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:evidence.id},'create',{conversation_id:b.conversation_id,title:String(args.title||evidence.content).slice(0,240),description:args.goal_description||evidence.content,mode:'dag',assignee:{type:'agent',id:b.agent_id},status:'doing',request_key:`pa-goal:${b.binding_id}:${evidence.id}:${args.goal_key??'0'}`});
+      const task=this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:evidence.id},'create',{conversation_id:b.conversation_id,title:String(args.title||evidence.content).slice(0,240),description:args.goal_description||evidence.content,mode:'dag',assignee:args.scope.owner_responsible===true?{type:'user',id:b.owner_user_id}:{type:'agent',id:b.agent_id},status:'doing',request_key:`pa-goal:${b.binding_id}:${evidence.id}:${args.goal_key??'0'}`});
       taskRef=task.graph_id;
     }
     const graph=one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',taskRef);

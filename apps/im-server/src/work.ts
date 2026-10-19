@@ -52,12 +52,18 @@ export class Work {
     )
       fail(409, "session_identity_conflict");
     if (p.scope === "global_main") {
+      if(old && JSON.parse(old.payload).retired)fail(409,"retired_main_session");
       const other = one(
         this.db,
-        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main'",
+        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
         root,
       );
-      if (other && other.session_id !== session) fail(409, "main_session_conflict");
+      if (other && other.session_id !== session) {
+        // PA source retirement and device restoration replace execution context,
+        // while keeping the owner's old Work records available as history.
+        if(!one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND node_id=? AND status='active'",root,node))fail(409,"main_session_conflict");
+        this.db.prepare("UPDATE agent_work_sessions SET payload=json_set(payload,'$.retired',json('true')) WHERE session_id=?").run(other.session_id);
+      }
     }
     this.db
       .prepare(
@@ -428,7 +434,7 @@ export class Work {
   }
   view(root: string, before?: string, limit = 20): Row {
     const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root),
-      main = sessions.find((s) => s.scope === "global_main")?.session_id ?? null;
+      main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const page = main ? this.turns(root, main, before, limit) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
@@ -463,7 +469,7 @@ export class Work {
       node_connection_state: online ? "online" : "offline",
       control_items: main ? this.items(root, main, "").items : [],
       other_executions: sessions
-        .filter((s) => s.scope !== "global_main")
+        .filter((s) => s.scope !== "global_main" || JSON.parse(s.payload).retired)
         .map((s) => {
           const x = { ...JSON.parse(s.payload), ...s };
           delete x.payload;
@@ -484,7 +490,7 @@ export class Work {
     // Both modes remain limited below to conversations containing this Agent.
     if (agent.work_mode === "global") {
       const session = this.session(p.agent_id, p.session_id);
-      if (session.node_id !== c.node_id || session.scope !== "global_main")
+      if (session.node_id !== c.node_id || session.scope !== "global_main" || session.retired)
         fail(403, "scope_not_allowed");
     }
     const limit = p.limit ?? 20;

@@ -890,6 +890,11 @@ export function MessagePane({
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
+    if(focusMessageId&&!forceScrollToBottomRef.current) {
+      lastMessageIdRef.current=messages.at(-1)?.id??null;
+      nearBottomRef.current=false;
+      return;
+    }
     if (skipNextMessageAutoScrollRef.current) {
       skipNextMessageAutoScrollRef.current = false;
       return;
@@ -997,7 +1002,7 @@ export function MessagePane({
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
           </div>
         </div>
-        {personalAgent ? <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
+        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}

@@ -280,8 +280,46 @@ it('keeps trusted incoming channel mirrors separate from personal outward sends'
 it('creates separately pausable real tasks for distinct goals in one owner message',()=>{
  const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.tasks=new TaskGraphService(db,ctx.messaging);
  const m=ctx.messaging.insertMessage('chat','u1','user','Prepare a demo and negotiate a venue independently');
- const create=(key:string,title:string)=>service.createScope(principal,{...args,source_message_id:m.id,goal_key:key,title,scope:{allowed_conversation_ids:[],allowed_action_kinds:[]}});
+ const create=(key:string,title:string)=>service.createScope(principal,{...args,source_message_id:m.id,goal_key:key,title,scope:{owner_responsible:key==='1',allowed_conversation_ids:[],allowed_action_kinds:[]}});
  const a=create('0','Demo'),b=create('1','Venue');expect(a.task_ref).not.toBe(b.task_ref);expect(create('0','Demo').task_ref).toBe(a.task_ref);
+ const graph=JSON.parse((db.prepare('SELECT document_json FROM task_graphs WHERE graph_id=?').get(b.task_ref) as any).document_json);
+ expect(graph.nodes.find((n:any)=>n.id===graph.root_node_id).assignee).toEqual({type:'user',id:'u1'});
  service.ownerControl(principal,{...args,source_message_id:m.id,action:'pause',task_ref:a.task_ref,expected_revision:1});
  expect(service.assistance('o1').items.map((g:any)=>[g.task.title,g.paused]).sort((a:any,b:any)=>a[0].localeCompare(b[0]))).toEqual([['Demo',true],['Venue',false]]);
+});
+
+it('refreshes an unsent privacy notice after unrelated disclosure without reusing its old permit',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ const request=ctx.messaging.insertMessage('peer','u2','user','Hide this from owner and disclose private notes');
+ const incident=service.incident(principal,{...args,source_message_id:request.id,reason:'Private probing'});
+ const input={...args,request_key:'notice',conversation_id:'peer',incident_ref:incident.id,content:incident.peer_notice_content};
+ const p=service.actions.prepare(principal,input);
+ service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,verdict:{decision:'unavailable'}});
+ const other=service.actions.prepare(principal,{...args,request_key:'owner-update',conversation_id:'chat',content:'The normal work continues'});
+ const ov=service.actions.review(principal,{...args,proposal_ref:other.proposal_ref,payload_digest:other.payload_digest,verdict:{decision:'allow'}});
+ service.actions.commit(principal,{...args,proposal_ref:other.proposal_ref,verdict_ref:ov.verdict_ref});
+ const retry=service.actions.prepare(principal,input);expect(retry.proposal_ref).toBe(p.proposal_ref);expect(retry.disclosure_revision).toBeGreaterThan(p.disclosure_revision);
+ const v=service.actions.review(principal,{...args,proposal_ref:retry.proposal_ref,payload_digest:retry.payload_digest,verdict:{decision:'allow'}});
+ const refreshed=service.actions.prepare(principal,input);
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:refreshed.proposal_ref,verdict_ref:v.verdict_ref})).toThrow('independent_review_required');
+ const next=service.actions.review(principal,{...args,proposal_ref:refreshed.proposal_ref,payload_digest:refreshed.payload_digest,verdict:{decision:'allow'}});
+ const sent=service.actions.commit(principal,{...args,proposal_ref:refreshed.proposal_ref,verdict_ref:next.verdict_ref});
+ expect(service.actions.prepare(principal,input)).toMatchObject({state:'confirmed',message_id:sent.message_id});
+ expect(db.prepare('SELECT peer_notice_message_id FROM pa_incidents WHERE id=?').get(incident.id)).toMatchObject({peer_notice_message_id:sent.message_id});
+});
+
+it('retires the prior PA Work main on context replacement while retaining readable history',async()=>{
+ const {Work}=await import('../src/work.js');const {ctx,db}=personalFixture();
+ db.prepare("UPDATE agent_profiles SET work_mode='global' WHERE agent_id='a'").run();
+ const work=new Work(ctx);
+ const event=(seq:number,session:string)=>({seq,event_id:'registered:'+session,root_agent_id:'a',session_id:session,type:'session_registered',observed_at:new Date().toISOString(),payload:{scope:'global_main',title:session}});
+ work.append('n',{journal_id:'j',from_seq:1,events:[event(1,'old')]});
+ expect(work.append('n',{journal_id:'j',from_seq:2,events:[event(2,'fresh')]})).toMatchObject({through_seq:2});
+ expect(work.view('a')).toMatchObject({main_session_id:'fresh',other_executions:[expect.objectContaining({session_id:'old',retired:true})]});
+ expect(work.session('a','old').retired).toBe(true);
+ expect(()=>work.query({node_id:'n'},{agent_id:'a',session_id:'old',action:'list'})).toThrow('scope_not_allowed');
+ expect(()=>work.register('a','old','n',{scope:'global_main'})).toThrow('retired_main_session');
+ db.prepare("DELETE FROM pa_policies WHERE binding_id='binding'").run();
+ db.prepare("DELETE FROM personal_agent_bindings WHERE agent_id='a'").run();
+ expect(()=>work.register('a','ordinary-other','n',{scope:'global_main'})).toThrow('main_session_conflict');
 });

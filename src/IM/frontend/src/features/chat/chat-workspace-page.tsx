@@ -1197,7 +1197,7 @@ export function ChatWorkspacePage() {
               : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)
                 ? <button type="button" onClick={()=>navigate(location.state.sourceReturnUrl)}>{t('pa.returnSource','← 返回刚才的聊天')}</button>
                 : undefined}
-            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} onDraft={handlePersonalDraft} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='sent')}/> : undefined}
+            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} onDraft={handlePersonalDraft} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='pending')}/> : undefined}
             onReadMessage={(messageId) => {
               if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);

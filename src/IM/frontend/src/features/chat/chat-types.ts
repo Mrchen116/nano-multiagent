@@ -11,7 +11,7 @@ export type ConversationKind =
   | "group"
   | "agent-network";
 
-export type DeliveryStatus = "sent" | "running" | "completed" | "failed";
+export type DeliveryStatus = "pending" | "sent" | "running" | "completed" | "failed";
 
 export type ToolCallStatus = "running" | "completed" | "failed";
 

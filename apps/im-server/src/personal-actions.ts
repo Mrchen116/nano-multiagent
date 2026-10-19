@@ -98,7 +98,10 @@ export class PersonalActions {
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     if(previous) {
       if(previous.payload_digest!==hash||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
-      if(!['confirmed','sending','unknown'].includes(previous.state))this.validate(b,previous);return {...this.project(previous),message_id:previous.message_id,result:previous.result_json?JSON.parse(previous.result_json):undefined,conversation_id:previous.conversation_id};
+      if(['confirmed','sending','unknown','deny','needs_owner'].includes(previous.state)) {
+        if(['deny','needs_owner'].includes(previous.state))this.validate(b,previous);
+        return {...this.project(previous),message_id:previous.message_id,result:previous.result_json?JSON.parse(previous.result_json):undefined,conversation_id:previous.conversation_id};
+      }
     }
     const ownerOnly=args.conversation_id===b.conversation_id;
     const scope=args.task_ref?one(this.db,'SELECT * FROM pa_goal_scopes WHERE binding_id=? AND task_ref=? AND revoked=0',b.binding_id,args.task_ref):undefined;
@@ -118,6 +121,14 @@ export class PersonalActions {
     const denials=all(this.db,"SELECT evidence_json FROM pa_operations WHERE binding_id=? AND conversation_id=? AND scope_id IS ? AND scope_revision IS ? AND state='deny'",b.binding_id,args.conversation_id,scope?.scope_id??null,scope?.revision??null)
       .filter(op=>{const e=JSON.parse(op.evidence_json);return JSON.stringify(e.owner_decisions)===JSON.stringify(evidence.owner_decisions)&&JSON.stringify(e.recipient_ids)===JSON.stringify(evidence.recipient_ids)&&e.last_owner_message_id===evidence.last_owner_message_id;});
     if(denials.length>=3)fail(409,'disclosure_rewrite_budget_exhausted');
+    // Unsent operations may refresh review evidence, but never reuse a prior permit.
+    // Consumed or uncertain operations above keep their original delivery identity.
+    if(previous) {
+      const refreshed={...previous,task_ref:args.task_ref??null,scope_id:scope?.scope_id??null,scope_revision:scope?.revision??null,policy_revision:policy.revision,disclosure_revision:policy.disclosure_revision,audience_json:JSON.stringify(evidence.recipient_ids),evidence_json:JSON.stringify(evidence)};
+      this.validate(b,refreshed);
+      this.db.prepare("UPDATE pa_operations SET task_ref=?,scope_id=?,scope_revision=?,policy_revision=?,disclosure_revision=?,audience_json=?,evidence_json=?,state='prepared',verdict_json=NULL,verdict_ref=NULL,expires_at=NULL WHERE operation_id=?").run(refreshed.task_ref,refreshed.scope_id,refreshed.scope_revision,refreshed.policy_revision,refreshed.disclosure_revision,refreshed.audience_json,refreshed.evidence_json,previous.operation_id);
+      return this.project(this.operation(b,previous.operation_id));
+    }
     const id=randomUUID();
     this.db.prepare(`INSERT INTO pa_operations(operation_id,binding_id,request_key,task_ref,scope_id,scope_revision,policy_revision,disclosure_revision,conversation_id,audience_json,payload_json,payload_digest,evidence_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,b.binding_id,args.request_key,args.task_ref??null,scope?.scope_id??null,scope?.revision??null,policy.revision,policy.disclosure_revision,args.conversation_id,JSON.stringify(evidence.recipient_ids),JSON.stringify(payload),hash,JSON.stringify(evidence),now());
     return this.project(this.operation(b,id));
