@@ -1,0 +1,10 @@
+[
+  {
+    "file": "apps/im-server/src/personal-actions.ts",
+    "line": 129,
+    "summary": "[P1] Refreshing evidence lets a late verdict over the old evidence authorize the new generation",
+    "failure_scenario": "prepare refreshes evidence and policy/disclosure revisions on the same operation_id while retaining payload_digest. review-result checks only proposal_ref and payload_digest, so it cannot distinguish an in-flight verdict computed before that refresh. Independently reproduced with real PersonalActions: A prepared at disclosure revision 0 with no prior disclosure, B committed another message to the same peer, A prepared again at revision 1 with B in its evidence, then A's late allow over the original packet was accepted and committed confirmed. The independent reviewer never saw the new cumulative disclosure evidence, defeating the existing parallel-disclosure fence. Bind each returned evidence generation/digest to the host review and require an exact current match at review-result, in addition to clearing existing permits. A late result from the previous generation must require fresh review; confirmed/sending/unknown receipt semantics must remain unchanged.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]

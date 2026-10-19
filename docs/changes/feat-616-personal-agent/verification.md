@@ -273,3 +273,78 @@ Corrected delta outcome: **implementation-mismatch**（唯一已确认不符 R3-
 ### Handoff
 
 本轮所有结论只对应冻结 `439a75144`。仅修改 `code-review-r3.json` 与本报告；按 caller 本轮要求提交这两个报告，源码/测试/共享服务均未修改。提交号见 reviewer 最终交接消息。
+
+## Round 4 — Unsent Review Recovery and Retired Work Context
+
+### Metadata and verdict
+
+- review_round: `4`
+- verification_mode: `targeted-closure` + 明确派发的恢复/Work/UI delta。
+- executed_base / prior candidate: `439a75144525c6d4740bbdc665e792f57cf71d51`
+- validated_at: `f8edd7971768cae1decfc4ad62b2b9e06b4e618a`
+- fix_delta_range: `439a75144..f8edd7971`
+- focus_issues: `R3-W1`；新增真实 `main_session_conflict` 恢复缺陷、owner assignee、pending DTO/手机定位/标题修复。
+- verdict: **Fix before PR — 1 CRITICAL / 0 WARNING / 0 SUGGESTION**。旧顺序恢复问题已关闭；刷新审查证据新增的晚到旧审核结果接受问题为 CONFIRMED，caller 已确认该直接复现有效。
+- requires_full_verification: `false`。仅需修复/复验当前审查代际绑定，不扩展无关扫描。
+- Code findings: `code-review-r4.json`。
+
+### Closure and unchanged boundaries
+
+| 范围 | 本轮判断与证据 | 状态 |
+|---|---|---|
+| R3-W1：unavailable 后其他消息推进 disclosure revision 导致通知永远不能重审 | 相同正文/目标的未发送 operation 重建当前 evidence/revisions，清 verdict/ref/expiry 后回 prepared；旧探针的两次 retry 都能 prepare，新增真实测试继续审核并记录一次 peer receipt | **closed**，顺序恢复失败已消除 |
+| 已签旧 permit 必须失效 | 新测试在 allowed 后再次 prepare，旧 verdict_ref commit 拒绝；新审核后可完成 | **closed**，但晚到旧 reviewer result 是另一条未防住的路径 R4-C1 |
+| confirmed/sending/unknown 不重建/不重发 | prepare 直接返回原状态与 receipt，不进入 evidence refresh；内容不匹配仍拒绝 | retained |
+| deny/needs_owner 不刷新来重置拒绝预算 | 直接走原 op validate/return；新审查候选仍使用现有拒绝预算检查 | retained |
+| 来源 invalidation 后重新准备 | 实际刷新分支也包括 `invalidated`；该状态只由先前 prepared/allowed 的未发操作失效产生。仍重核当前 ACL/scope/policy/受众、清旧permit，未见通过它恢复已消费操作的路径 | 实际边界已记录，不把代码概括成只有3个状态 |
+| R2已关闭 Channels ingress/block | 本批不更改专用 incoming/transport block；此前真实HTTP跨包证据保留 | closed，retained |
+
+### Work context replacement verification
+
+真实故障是来源失效后 NodeStore 换新 main，但 IM Work 仍永久占用旧 main，导致 Work 上传与后续 owner admission 卡住。本批只允许**当前 active PA 的已归属 node**登记替代 main；普通 global Agent 的唯一 main 约束保留。
+
+- `Work.append:103–109` 先用 Agent 当前 node/global/is_stale 身份限制 journal；`register:54–65` 只有 active personal binding 的 node 可将旧 main 标记 retired。
+- retired payload 保留旧 Work 身份与历史；再次 register 已退休 main 拒绝。`Work.view` 只选未退休 main，并将旧 main 放 other_executions；`Work.query` 拒绝 retired scope。
+- 独立 `/tmp/pa-static-review-616/round4-work.mts` 使用真实 Work.append + 内存 DB：
+  - 旧main登记后，一批先登记新main再出现 invalid scope：整批失败，旧main仍 active，journal cursor仍1，证明 retirement 与 journal transaction 原子回滚。
+  - 合法新main登记成功：through_seq=2，view选fresh，old.retired=true且历史可读。
+  - old query拒绝 `scope_not_allowed`；其他node append拒绝 `scope_not_allowed`；binding置pending后再换main拒绝 `main_session_conflict`，fresh保持。
+- 现有新增20项PA套件还覆盖 ordinary Agent main_session_conflict 保留、旧main不可复活。未发现该Work修复扩大其他owner/node或普通Agent权限。
+
+### Independent execution and reused evidence
+
+1. `pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts`：2026-10-19 15:02，固定 `f8edd7971`，**20 tests passed**。包括真实 action恢复/旧permit拒绝/一次peerreceipt、Work.append事务替代及明确owner assignee。
+2. 原 `/tmp/pa-static-review-616/round3-notice-retry.mts` 重跑：原先 `proposal_requires_review` 的两个 retry 现在均成功 prepare；该探针只核准备恢复，最终发送由新增套件证明，不把其尚未commit的null receipt误报为新失败。
+3. `/tmp/pa-static-review-616/round4-review-generation.mts`：真实 frozen prepare/review/commit，确认晚到旧证据的审核结果可被错误接受，详见R4-C1。
+4. `/tmp/pa-static-review-616/round4-work.mts`：上述事务/当前node/retired query/pending负向直接证据，无产品服务/模型。
+5. 复用 caller恢复相关54测试、106前端与build/typecheck证据。实际读取 `/tmp/feat616-r3-all-tests.log`：全量为 **391 passed / 1 timeout**，失败是workspace-tools并发90s超时；`/tmp/feat616-workspace-retry.log` 单独 **1 passed / 34.85s**；`/tmp/feat616-r3-web-all-tests.log` 前端 **897 passed**。准确保留全量原运行的失败和隔离重跑结果，不写成一次全量全绿，不据此扩展本轮未变化功能测试。
+
+### Corrected Delta Reconciliation
+
+| Delta item / 原契约 | 实现与证据 | Outcome |
+|---|---|---|
+| 未发送审核故障恢复 | 当前权限下重建证据，清已有旧permit，正常恢复顺序测试通过 | aligned 的顺序恢复；并发代际 R4-C1 implementation-mismatch |
+| 并行累计披露必须基于实际最新证据 | payload身份未变而evidence刷新；旧packet晚到allow仍可成功签发新permit | **implementation-mismatch** |
+| 来源失效后新上下文继续工作，旧Work留历史不继续控制 | 当前active PA node替代main、retired历史投影、query拒绝，真实append原子回滚/成功均验证 | aligned |
+| 本人明确负责的私人目标 | scope只在显式owner_responsible=true时用当前binding.owner_user_id assignee；默认仍PA；共享任务已有assignee不变 | aligned |
+| 等待接收状态与真实DTO | DeliveryStatus纳入pending，界面按实际pending显示等待；不是把sent冒称模型执行 | aligned |
+| 移动出处与标题 | focusMessageId期间抑制自动滚底；手机去重复PA badge以给标题空间；前端回归保留 | 静态aligned；真实产品复验由独立reviewer判断 |
+
+Uncovered observable behavior: 本批Work旧main退役后仍可作为历史查看，属于原design“退休上下文/保留Work历史”的落实；没有新增读取旧来源的Agent权限。未发现应另外新建或放宽契约的对外行为。**no new spec delta**，canonical尚未归并。
+
+Outcome: **implementation-mismatch**，唯一确认的不符为审查证据代际绑定。
+
+### CRITICAL — R4-C1
+
+**刷新提案证据后，晚到的旧证据审核仍能放行新一代操作。**
+
+- 契约：spec「发送前内容或权限变化」「改变出口或逐步套取」，Gateway PA delta「连续披露与并行操作」要求当前受众/许可/累计披露进入独立审核，不能用旧历史全部放行。
+- 位置：`apps/im-server/src/personal-actions.ts:126–129` 更新同一operation的evidence/revisions；`review:137–143` 只校proposal_ref/payload_digest，没有evidence generation绑定。host的review-result同样未携带其实际审查的证据代际。
+- 独立直接复现：A prepare时disclosure_revision=0/previous_disclosures=0，A审核在途；B向同peer真实commit；A retry prepare刷新成revision=1/previous_disclosures=1；随后A旧packet晚到的allow仍被接受为allowed，commit=confirmed。没有更改正文或伪造不同payload，正是同一操作的恢复并发。
+- 原因：清掉已签旧verdict_ref只能挡已经存在的permit；旧审核调用在刷新之后才返回时，当前服务会用刷新后的op做validate，却不知道这个allow从未看过该证据。
+- 建议：prepare返回完整evidence及scope/policy/disclosure revisions的generation或digest；host将它与本次独立审核原样绑定回review-result，server要求与当前op完全匹配。旧代际返回需fresh review，不能签新permit。保留不确定发送的原receipt语义，新增“A旧review→Bcommit→A刷新→旧allow拒绝→新allow通过”的最低层回归。
+- caller已确认该复现是有效阻断，并计划按evidence_digest闭合；本报告不提前覆盖后续未冻结改动。
+
+### Handoff
+
+仅写并提交 `code-review-r4.json` 与本报告。此前有效结论保留；R3-W1与本批Work修复的直接证据已记录，新审查代际绑定问题需修后定向闭合，不再扩展额外扫描。提交号见最终交接。
