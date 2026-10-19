@@ -111,3 +111,5 @@ Web：`http://127.0.0.1:53186`；原生 Debug origin：`http://127.0.0.1:53186`�
 ## 实施后验收范围确认（2026-10-19）
 
 用户明确“web验证过就行”，以[incident验收范围调整](incident.md#验收范围调整2026-10-19)为准；Runbook与原型中原生手势项目保留为原设计历史，不再是本次产品放行前置。iOS代码和契约目标未变，既有自动化/静态验证保留；未发生新实现或关键设计变化，不重新开启Gate2。
+
+M1已按上述用户确认范围完成，实现、测试、独立门禁和原生证据边界分别见[implementation](evidence/implementation.md)、[verification](verification.md)、[code-review](code-review.md)与[regression](regression.md)。

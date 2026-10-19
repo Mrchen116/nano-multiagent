@@ -172,3 +172,50 @@ Outcome: **aligned（本轮focus范围）**。Round 1 auth/conversations/Work已
 ### Author follow-up after R2（不代替独立C1收口）
 
 原始workspace-tools（未改90秒限制）单独复跑通过，62.84秒；Web sidebar单文件16/16通过。此前全套失败项均已分别复跑通过，日志与非一次全绿的边界见evidence/implementation.md。产品必验仍待收口，C1继续pending；没有因代码复审零finding而判定M1完成。
+
+## Round 3 · C1 Final Targeted Closure · 2026-10-19
+
+> Validation snapshot: `d9be419c7791c5cccf06b629ce72c4af8cd023de → 3a477acd6d65d8f1aadab98ac60671334e311b76`
+
+- verification_mode: targeted-closure
+- review_round: 3
+- executed_base: `d9be419c7791c5cccf06b629ce72c4af8cd023de`
+- validated_at: `3a477acd6d65d8f1aadab98ac60671334e311b76`
+- prior_verification_path: 本文件Rounds 1–2；focus_issues: C1
+- fix_delta_range: `1823aef43..3a477acd6`（仅报告、证据及用户确认的验收范围说明，无产品修复）
+- requires_full_verification: false
+- verdict: **pass — 实现、设计一致性与用户确认后的验收门禁通过**。
+- surviving CRITICAL / WARNING / SUGGESTION: **0 / 0 / 0**。
+- 交付状态：current契约归并、unit归档、PR与远端CI尚由orchestrator执行；本报告不声称这些步骤已完成，不声称合并或部署。
+
+### Scope Authority 与原结论保留
+
+用户明确：“我理解这个需求和ios没有特别大关系，web验证过就行”。`incident.md:34-36` 与 `design.md` 的实施后验收范围确认及M1退出标准已记录此决定。原生长按/侧滑/详情/审批卡/失效提示的实际模拟器补验移出本次产品放行前置；iOS实现和契约目标未改，静态审查、30 XCTest + 17 Swift Testing、Release未签名归档保留。**原生真实交互未完成项仍是未验，不改写为通过。** 这是用户范围裁决，不是通过改spec掩盖错误实现。
+
+核对 `1823aef43..3a477acd6` 的全部变更路径，以及 `git diff --exit-code` 对 `src apps packages package.json pnpm-lock.yaml`：没有产品、测试、依赖或边界变更。故R1后端13项、R2修复及15项独立Web/35项扩展验证、原生自动化/归档仍适用，无需full复验。R2 code-review的 `[]` 与W1/W2 closed结论保留。
+
+### C1 Completion / Evidence Reconciliation
+
+| C1子项 / 契约 | 最终证据与核验 | 结果 |
+|---|---|---|
+| Web R1双方发现/历史、R2只读与成员回归、R3实时/恢复/撤权/滚动 | 已读取独立产品 `regression.md` R1–R4；R4明确用户当前Web+IM HTTP/WS范围pass，0未解决问题。桌面与真实390×844窄屏交互有证据；pending卡内容可读且无写表单，大图撤权时卸载，真实WS resume与撤权旧事件拒收，普通成员实际发送保留 | **closed** |
+| 原型must-match与实际覆盖 | R1/R2真实作者/只读/媒体/分页；R3真实窄屏Back、People/Agent/Network、长单条与最早历史；R4:161-169逐项保留。独立查看`review-r3-narrow-network-390.png`，分类与双方标题可辨。原生must-match按用户决定不再要求实际补验 | **covered within accepted scope** |
+| 后端全套失败项有无未解决失败 | `/tmp/nano618-backend-final.log`为343/347，4项失败；`/tmp/nano618-backend-retry.log`中另2文件15项通过；原始workspace-tools未改90秒时限，`/tmp/nano618-workspace-tools-final.log`1/1通过、62.84秒。正式测试/断言/时限未改，没有skip；全部失败项均有后续通过证据 | **closed**；分次通过，不称一次全套绿 |
+| Web全套与失败项 | `/tmp/nano618-web-final2.log` 888/889、95通过文件/1失败；唯一sidebar既有用例5秒超时，`/tmp/nano618-sidebar-retry.log`该文件16/16通过、2.97秒。此前滚动fixture与trajectory项已在4文件35项复跑通过；本审查者R2独立15项通过 | **closed**；分次通过，不称一次全套绿 |
+| 最终Web TypeScript编译与生产构建 | 旧build日志21:51早于R2修复，本轮仅补这项版本证据：冻结HEAD执行 `npm run build`（cwd `src/IM/frontend`），`tsc -b && vite build`退出0；日志`/tmp/nano618-independent-final-web-build.log`，571 modules transformed，built in1.45s，仅既有chunk体积提示 | **passed at validated_at** |
+| runtime build/typecheck与架构工具 | 已读`/tmp/nano618-runtime-build.log`、`/tmp/nano618-typecheck.log`各workspace包Done；这些runtime源码与本轮产品修复无交集。Python62 passed/31 deselected、ruff All checks passed/83 files formatted日志已读。旧Node installer候选带较早commit，**不作为本unit发布包证明** | **retained / passed** |
+| 文档与依赖审计 | `/tmp/nano618-docs-final.log`258 maintained Markdown sources/65 required routes通过；旧docs-check失败链接已修，最终日志替代。`/tmp/nano618-npm-audit.log`0 vulnerabilities | **passed**；归并/归档后caller再执行相应文档检查 |
+| 原生实现与构建门禁 | R2已核对can_write→readOnly全链、send guard、列表/详情写控件约束；同产品树30 XCTest +17 Swift Testing通过，Release `CODE_SIGNING_ALLOWED=NO` archive成功，无后续iOS源码改动 | **retained**；不代表原生实际交互全验、签名安装或发布 |
+| current归并、归档、PR/远端CI | 本轮未发生，职责属于orchestrator交付阶段 | **delivery pending**，不再混同为缺实现或设计偏离 |
+
+### Final C1 Verdict
+
+**C1在实现/一致性与当前用户验收范围内关闭。** 未发现缺实现、架构违反、实质spec/design偏离或缺少必要回归保护。原生真实交互不作pass声明；不再作为当前用户要求的阻塞。分次回归的负载超时根因仍未定，主仓旧lib报`target is required`不能证明同因；最终采用原时限真实通过结果，不依赖该无效对照。
+
+M1的实现与验证部分通过，**生命周期交付步骤仍pending**：归并current delta、归档unit并同步索引、创建/更新PR及远端CI，由caller完成后再宣布整个unit交付结束。无需因这些尚未执行步骤倒推产品验证失败。
+
+### Corrected Delta Retention
+
+R2 corrected-delta focus已aligned，本轮无新行为delta。用户只调整验收范围；Web/iOS/auth/conversations/Work的实现目标均未变，R2 aligned结论保留。**Outcome: aligned（retained，无新增delta）**。
+
+本轮只追加verification及code-review保留说明，不改源码、测试、设计或产品报告，不提交。最终Web build仅生成忽略产物；没有自启服务或接生产。`regression.md` R4由独立产品reviewer同期追加，按caller交接读取，不冒充本审查者亲自重跑产品旅程。

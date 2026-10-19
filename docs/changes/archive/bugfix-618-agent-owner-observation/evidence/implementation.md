@@ -64,3 +64,14 @@ unit保持active；不归并current spec、不归档、不创建Ready PR。待�
 已停止本unit fixture/Vite（PID39825/21404），核实58054、58055、53186均释放；fixture按finally清理合成SQLite。关闭本次启动的iPhone17Pro和宿主恢复时自动启动的Nano feat578 390，两设备均Shutdown，没有清除原设备数据。worktree与已安装依赖保留，用于补验；临时计时实验已删除。主仓dirty/untracked未修改或提交。
 
 恢复时在unit根目录运行`node --import tsx docs/changes/bugfix-618-agent-owner-observation/evidence/fixture.mts`，前端目录以`VITE_IM_PROXY_TARGET=http://127.0.0.1:58054 npm run dev -- --host 127.0.0.1 --port 53186 --strictPort`启动；按需调用control的`/seed`、`/classifications`、`/history`、`/media`、`/approval`。新建DB的conversation ID以实际列表为准，不能复用历史报告ID。原生base URL仍应为53186。CUA替代驱动的用户答复尚未收到，不把等待时间当作授权。
+
+## 最终门禁与归档（后续状态替代前述阻塞快照）
+
+用户2026-10-19明确“web验证过就行”。产品R4与verification R3按用户确认范围pass，code review R2 findings=[]保留；iOS实际交互未验历史保持原结论。最终Web编译由独立审查者在3a477acd6补跑通过；代码执行树仍为1823aef43，后续只有报告、范围说明、canonical归并和归档，没有产品源码/测试/依赖变化。
+
+- final sync：origin/main仍为d9be419c7791c5cccf06b629ce72c4af8cd023de，已经包含在unit，main没有新增产品变动。
+- corrected-delta已核对，11条增改Requirement精确归并到IM五个area；入口Requirement计数、对齐标记、文档地图更新；归档仅修外部相对链接。源码门禁validated_at/executed_base保留，effective_base=d9be419c7791c5cccf06b629ce72c4af8cd023de，最终effective_through精确SHA在PR Validation Summary记录。
+- 整个unit已git mv到archive，文档检查245 maintained Markdown sources/65 required routes通过，check_change_unit_archived通过，git diff --check通过。活动区不保留副本。
+- 服务端口已释放、模拟器已关闭；worktree保留至PR/CI完成，临时实验不进入长期测试。旧runbook中的active路径仅为历史执行记录，资源现在位于archive。
+
+远端CI结果由PR记录；本记录不代替远端检查，不代表合并、部署或原生真机验收。

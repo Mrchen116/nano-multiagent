@@ -1,6 +1,6 @@
 # bugfix-618：Agent 协作私聊对双方 owner 只读可见
 
-> 状态：实现与独立代码复审已完成，产品补验及最终验证门禁待收口；2026-10-19。Full bugfix，仍保持 active；目标行为尚未归并到 current specs。实际通过与阻塞分别见 [verification.md](verification.md) 和 [regression.md](regression.md)。
+> 状态：实现、独立代码审查、一致性核对及用户确认范围内的产品验收已完成；2026-10-19。Full bugfix，已归并 current specs 并归档待 PR/CI 交付。原生实际交互未验的历史边界保留，详见 [verification.md](verification.md) 和 [regression.md](regression.md)。
 
 ## Relations
 
@@ -138,10 +138,10 @@ owner 打开后应清楚辨认两个 Agent 的身份以及自己的只读状态�
 
 当前原因已经不同于 #128 的旧 Python 报告：
 
-1. [建会话](../../../apps/im-server/src/messaging.ts)的 `resolveTarget()` 已把真实发起方 owner 写入会话，但参与者只加入两个 Agent；旧孤儿 owner 原因已消失，补单个 owner 字段不能解决双方观察问题。
-2. [会话读取权限](../../../apps/im-server/src/conversation-access.ts)只允许成员或合资格的公开群读者；[列表](../../../apps/im-server/src/messaging.ts)按参与者查询。没有从私聊双方 Agent 管理归属派生只读观察资格的行为，所以即使 owner 正确仍被排除。
-3. [前端分类](../../../src/IM/frontend/src/features/chat/chat-types.ts)将所有非真人私聊归入 `direct-agent`，Network 仅覆盖全 Agent 群聊；仅放开读取不会自动补上发现入口。
-4. [当前鉴权契约](../../specs/im/auth-tenancy.md)明确私聊仅成员可读；[Work 契约](../../specs/im/agent-work.md)也明确 Work 可见不授予原聊天访问权。实现符合旧契约，但旧契约缺少用户此次确认的双方 owner 观察语义。
+1. [建会话](../../../../apps/im-server/src/messaging.ts)的 `resolveTarget()` 已把真实发起方 owner 写入会话，但参与者只加入两个 Agent；旧孤儿 owner 原因已消失，补单个 owner 字段不能解决双方观察问题。
+2. [会话读取权限](../../../../apps/im-server/src/conversation-access.ts)只允许成员或合资格的公开群读者；[列表](../../../../apps/im-server/src/messaging.ts)按参与者查询。没有从私聊双方 Agent 管理归属派生只读观察资格的行为，所以即使 owner 正确仍被排除。
+3. [前端分类](../../../../src/IM/frontend/src/features/chat/chat-types.ts)将所有非真人私聊归入 `direct-agent`，Network 仅覆盖全 Agent 群聊；仅放开读取不会自动补上发现入口。
+4. [当前鉴权契约](../../../specs/im/auth-tenancy.md)明确私聊仅成员可读；[Work 契约](../../../specs/im/agent-work.md)也明确 Work 可见不授予原聊天访问权。实现符合旧契约，但旧契约缺少用户此次确认的双方 owner 观察语义。
 
 这次修复需要显式补齐产品权限契约并对齐各读取入口，不能作为已有成员权限检查的一次局部放宽。原报告何时首次引入坏行为的精确提交未重新定位；不把架构迁移时间当作本次缺口的回归提交。
 

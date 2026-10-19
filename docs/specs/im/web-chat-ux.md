@@ -1,6 +1,6 @@
 # IM - Web Chat UX Specification
 
-> 对齐: bugfix-606
+> 对齐: bugfix-618
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -563,3 +563,19 @@ Web IM 在手机浏览器与主屏 Web App 中 SHALL 保持输入、导航和页
 - **WHEN** 手机键盘或输入辅助条使可视高度收缩
 - **THEN** composer仅保留正常内边距，不额外重复Home指示条留白
 - **AND** 收起后恢复正常底部安全区，不要求失焦才能恢复
+
+### Requirement: Network 展示 Agent 私聊并标识只读
+
+#### Scenario: Network 私聊入口
+- **WHEN** owner 使用 Network 筛选
+- **THEN** 包含有观察资格的 Agent 私聊和既有 Agent 群聊，显示双方身份。
+
+#### Scenario: 只读观察界面
+- **WHEN** owner 打开协作私聊
+- **THEN** 能查看和滚动往来，明确只读，不显示输入、发送或加入入口；普通成员聊天仍可发言。
+
+
+#### Scenario: 在线观察资格失效
+- **GIVEN** 同账号同空间保持前台查看，只改变参与 Agent 的实际 owner
+- **WHEN** 下一次权限复查拒绝读取
+- **THEN** 清除当前正文、挂载媒体与过期列表条目，回到列表并显示不可访问提示；迟到历史响应不重新显示内容。

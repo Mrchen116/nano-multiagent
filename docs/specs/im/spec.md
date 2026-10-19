@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-610
+> 对齐: bugfix-618
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -8,7 +8,7 @@
 
 `IM` 是多人协作的即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心, 并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
 
-它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天读取遵循会话公开范围及成员资格、写入要求成员资格，全局 Agent Work 详情对有效公司成员完整开放;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
+它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天读取遵循会话公开范围、成员及双方Agent owner观察资格、写入要求成员资格，全局 Agent Work 详情对有效公司成员完整开放;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
 
 **显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
 
@@ -18,10 +18,10 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、账号设置与系统策略预设 | 14 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口 | 26 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存 | 24 |
-| [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 5 |
+| [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、账号设置与系统策略预设 | 15 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口 | 27 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存 | 25 |
+| [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 6 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
 | [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹及父子执行范围导航 | 8 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
