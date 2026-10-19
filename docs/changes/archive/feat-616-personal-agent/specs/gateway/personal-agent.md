@@ -22,3 +22,11 @@
 - **WHEN** PA 发出消息或修改共享内容
 - **THEN** 实际外发核对真实授权、完整 payload 与受众；主人私聊和私人工作不加 PA 审核，原工具权限继续生效。
 - **AND** 不把该检查声明为任意代码/插件的完整网络隔离。
+
+### Requirement: 默认服务指导复用普通配置和 Skill
+#### Scenario: 用户调整服务方式
+- **WHEN** 主人修改或清空 PA 的 custom_prompt
+- **THEN** 沿用普通 Agent 的配置和 Persona 加载机制，运行时不暗中补回默认服务文案；固定主人身份、来源、权限及对外披露规则仍有效。
+#### Scenario: 跨轮次持续工作
+- **WHEN** Global 或 PA 接续已接受的持续事项
+- **THEN** 可按普通 Skill 发现、选择和加载机制使用随包 nano-ongoing-work，复用已有工作记录、任务、子 Agent、Heartbeat 和 schedule；不新增 PA 账本服务或调度器，不覆盖用户已有 ongoing-work Skill，也不绕过用户禁用选择。

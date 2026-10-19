@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -40,17 +40,18 @@ it('keeps the ordinary Global capability catalog and executes owner extensions a
     for (const personal of [false,true]) {
       const root=join(home,personal?'personal':'global');await mkdir(root);
       const skills=join(root,'skills');await mkdir(join(skills,'owner-skill'),{recursive:true});
+      await cp(new URL('../../personal-assistant/assets/skills/nano-ongoing-work/',import.meta.url),join(skills,'nano-ongoing-work'),{recursive:true});
       await writeFile(join(skills,'owner-skill','SKILL.md'),'---\nname: owner-skill\ndescription: Owner skill\n---\nUse ordinary tools.');
       await writeFile(join(root,'extension.mjs'),`export const name='owner-extension';export const inject=['tools'];export function apply(ctx){ctx.tools.register({name:'owner_tool',description:'Owner installed tool',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},execute:()=>({value:'OWNER_EXTENSION_EXECUTED'})});}`);
       await writeFile(join(root,'plugins.json'),JSON.stringify([{module:'./extension.mjs'}]));
       await writeFile(join(root,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
-export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("Draft")'},reply_draft:{target_conversation_id:'source',source_message_id:'source-message',field_name:'reply'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
+export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("Draft")'},reply_draft:{target_conversation_id:'source',source_message_id:'source-message',field_name:'reply'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
       await prepareProfile(root,[{insert:[{id:'capability-fixture',name:join(root,'fixture.mjs')}]}]);
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
       const calls:any[]=[];
       client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='conversations')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
       const config={agentId:'agent',revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
-        extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{skill_creation:true,memory_curation:true},
+        systemPrompt:'OWNER_EDITABLE_GUIDANCE',extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{skill_creation:true,memory_curation:true},
         ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),approval:{...approvalDefaults,dangerouslySkipPermissions:true,globalRoot:root}};
       try {
         await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
@@ -62,7 +63,16 @@ export const name='capability-fixture';export const inject=['tools'];export func
         const catalog=await client.rpc.request('configuration.catalog',{agentId:'agent',cwd:root}) as any;
         const names=catalog.tools.map((tool:any)=>tool.name).sort();catalogs.push(names.filter((name:string)=>name!=='personal_sources'));
         for(const name of ['bash','read','write','web_search','web_fetch','skill_manage','plugin_manager','owner_tool','task_graph'])expect(names).toContain(name);
-        expect(catalog.skills.map((skill:any)=>skill.name)).toContain('owner-skill');
+        expect(catalog.skills.map((skill:any)=>skill.name)).toEqual(expect.arrayContaining(['owner-skill','nano-ongoing-work']));
+        expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
+        const before=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
+        expect(JSON.stringify(before.prompt)).toContain('OWNER_EDITABLE_GUIDANCE');
+        await client.rpc.request('configuration.apply',{...config,revision:'2',systemPrompt:'',skillSelection:{mode:'explicit_denylist',names:['nano-ongoing-work']}});
+        const after=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
+        expect(JSON.stringify(after.prompt)).not.toContain('OWNER_EDITABLE_GUIDANCE');
+        expect(after.skills.map((skill:any)=>skill.name)).not.toContain('nano-ongoing-work');
+        expect(after.skills.map((skill:any)=>skill.name)).toContain('owner-skill');
+        if(personal)expect(JSON.stringify(after.prompt)).toContain('nano-personal-agent');
         if(personal){
           expect(names).toContain('personal_sources');
           expect(calls.find(call=>call.method==='personal_sources').args).toEqual({action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1});

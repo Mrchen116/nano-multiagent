@@ -77,12 +77,16 @@ it('creates one private PA through the existing configuration operation and reco
   expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id=?').get(state.binding.conversation_id)).toEqual({n:0});
   expect(candidates[0].tool_allowlist).toEqual(expect.arrayContaining(['read','task_graph','send_message','personal_sources']));
   expect(candidates[0].features.skill_creation).toBe(true);
+  expect(candidates[0].custom_prompt).toContain("nano-ongoing-work");
+  expect(candidates[0].skills_selection_mode).toBe("default_discovery");
   expect(candidates[0].personal_agent.bindingId).toBe(state.binding.binding_id);
   expect(ctx.messaging.conversation(state.binding.conversation_id,'u1').space_id).toBe('personal:o1');
   expect(ctx.messaging.createConversation(ctx.identity.user('u1')!,{title:'Own PA',type:'direct',participants:[{type:'agent',id:state.binding.agent_id}]}).id).toBe(state.binding.conversation_id);
   expect(ctx.messaging.resolveTarget(state.binding.agent_id,'user:u1')).toBe(state.binding.conversation_id);
   expect(()=>ctx.messaging.conversation(state.binding.conversation_id,'u2')).toThrow();
+  db.prepare('UPDATE agent_profiles SET custom_prompt=? WHERE agent_id=?').run('请简短回复，保留我的偏好',state.binding.agent_id);
   expect((await app.inject({method:'POST',url:'/im/v1/personal-agent',payload})).json().binding.binding_id).toBe(state.binding.binding_id);
+  expect(db.prepare('SELECT custom_prompt FROM agent_profiles WHERE agent_id=?').get(state.binding.agent_id)).toEqual({custom_prompt:'请简短回复，保留我的偏好'});
   expect(candidates).toHaveLength(1);
   expect(ctx.gateway.relayMessage).not.toHaveBeenCalled();
   expect((await app.inject({url:'/im/v1/personal-agent',headers:{'x-user':'u2'}})).json().binding).toBeNull();

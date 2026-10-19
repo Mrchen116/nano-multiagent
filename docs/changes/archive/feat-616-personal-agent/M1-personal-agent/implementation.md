@@ -152,3 +152,9 @@ The user's test service remains available at its isolated local URL while they i
 - 确认无历史的主人PA私聊显示三个简短示例。点击只填写并聚焦既有输入框，编辑和跨聊天草稿恢复复用原机制，只有用户明确Send才发送；已有文字或任何附件状态时隐藏示例，其他人的PA不显示此主人引导。
 - 窄验证：IM/tenancy 2文件21tests、Web创建/草稿3文件28tests通过，包含旧initial_goal不发送、创建同key重试、示例只填写、附件上传/失败隐藏及移除后恢复；contracts/IM和Web构建通过。原创建发送路径的红测和最终日志分别保留在本地/tmp/feat616-r11-*；现有大chunk构建提示未变。
 - current IM spec、归档spec/design/delta已同步；独立静态发现的附件显示遗漏已修复，最终closure与真实注册/首聊验收以verification/acceptance本轮记录为准。先前注册到公司身份连续性的证据仍保留，R10视频中的创建任务字段由本轮交互替代。
+
+### R12 editable defaults and shared ongoing-work guidance
+
+- 新PA创建把默认服务职责写入现有custom_prompt；既有Agent配置、Persona加载、编辑/清空、创建幂等与恢复机制直接复用，不增加迁移或自动回填。固定PA系统提示仅去除重复服务偏好，身份/来源/草稿协议/披露边界保留。
+- 随包新增nano-ongoing-work，普通Global和PA均按现有Skill机制发现和按需加载。沿用现有任务、工作记录、子Agent、Heartbeat和schedule，不覆盖用户ongoing-work或Skill选择，不新建PA状态/调度服务。
+- 创建默认字段先红后绿；4文件35tests通过，含实际DSH Global/PA加载Skill全文、清空custom prompt、禁用Skill后其他Skill保留及PA固定身份提示保留；contracts/IM/PA/DSH构建、全仓typecheck通过。日志/tmp/feat616-r12-*。真实产品与独立审查随后记录。
