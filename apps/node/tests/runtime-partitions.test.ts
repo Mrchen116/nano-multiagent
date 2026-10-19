@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import type { AgentConfiguration, SessionBinding } from '@nano/product-contracts';
+import { InboxStore, KnowledgeUpdates, NodeStore } from '@nano/personal-assistant';
 import { RuntimePartitions, type PartitionRuntime, type RuntimePartition } from '../src/runtime-partitions.js';
 class Host implements PartitionRuntime {
   available = true;
@@ -76,4 +77,26 @@ it('drops unbound preview status without weakening trusted product calls',async(
   expect(received).toEqual([]);expect(errors).toEqual([]);
   runtime.handle('product.call',value=>value);
   await expect(Promise.resolve().then(()=>pa.handlers.get('product.call')!({sessionId:'preview'}))).rejects.toThrow('trusted Session lineage');
+});
+
+it('does not acknowledge a new host fact when an old generation delivery completes late',async()=>{
+  const {runtime,pa,errors}=fixture(),partition=runtime.forAgent('pa');
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  store.bind({agentId:'pa',sessionId:'root-pa',ownerId:'owner',cwd:'/private/work',revision:'1',conversationId:'dm'});
+  const fact={id:'same-fact',reviewId:'same-review',agentId:'pa',rootSessionId:'root-pa',sessionId:'root-pa',kind:'memory',action:'add',turn:1};
+  pa.result['knowledge.facts']={facts:[fact],reviews:[{id:'same-review',status:'completed'}]};
+  let release!:()=>void,delivering!:()=>void;
+  const started=new Promise<void>(resolve=>{delivering=resolve;}),receipt=new Promise<void>(resolve=>{release=resolve;});
+  const updates=new KnowledgeUpdates({nodeId:'node',agents:[config('pa',true)],runtime:runtime.scoped(partition),store,inbox,partitionKey:partition.key,
+    im:async()=>({}),onError:error=>errors.push(error),relay:{request:async()=>{delivering();await receipt;return{type:'ack',payload:{message_id:'old-receipt'}};}}});
+  try {
+    const pending=updates.recover();await started;
+    runtime.unavailable(partition);
+    pa.result['knowledge.facts']={facts:[{...fact,turn:2}],reviews:[{id:'same-review',status:'completed'}]};
+    release();await pending;
+    expect(pa.calls.filter(call=>call.method==='knowledge.acknowledge')).toEqual([]);
+    expect(String(errors.at(-1))).toContain('generation_changed');
+    await updates.recover();
+    expect(pa.calls.filter(call=>call.method==='knowledge.acknowledge')).toEqual([{method:'knowledge.acknowledge',params:{id:'same-fact'}}]);
+  } finally {release();await updates.stop();inbox.close();store.close();}
 });

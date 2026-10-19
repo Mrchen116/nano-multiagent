@@ -53,7 +53,8 @@ export class WorkflowResults {
     return this.running;
   }
   private async reconcile() {
-    const { runtime, store } = this.options;
+    const { store } = this.options;
+    const runtime = this.options.runtime.capture?.() ?? this.options.runtime;
     for (const record of (await runtime.request(
       "workflow.pending",
       {},

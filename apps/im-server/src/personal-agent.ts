@@ -344,11 +344,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
       const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id)!;
       await ops.update(profile,{...profileResponse(profile,true),display_name:name.trim()},u.owner_id);
     });
-    transaction(ctx.db,()=>{
-      ctx.db.prepare('UPDATE personal_agent_bindings SET display_name=? WHERE binding_id=?').run(name.trim(),b.binding_id);
-      ctx.db.prepare('UPDATE users SET display_name=? WHERE username=?').run(name.trim(),`agent:${b.agent_id}`);
-      ctx.db.prepare('UPDATE conversations SET title=? WHERE id=?').run(name.trim(),b.conversation_id);
-    }); return pa.state(u.owner_id);
+    return pa.state(u.owner_id);
   });
   app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(user(req).owner_id,body(req)));
   app.get('/im/v1/personal-agent/assistance',req=>pa.assistance(user(req).owner_id));

@@ -234,7 +234,10 @@ export class Messaging {
     }
     const profiles = ids.map(id => one(this.db, "SELECT ap.* FROM agent_profiles ap JOIN users u ON u.username='agent:'||ap.agent_id WHERE u.id=?", id)).filter(Boolean);
     const contactingPersonal=profiles.some(profile=>!!profile && profile.owner_id!==p.owner_id && canContactPersonalAgent(this.db,p,profile));
-    const space = inheritedSpace ?? (contactingPersonal ? "company:default" : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
+    // An owner may invite their PA into a colleague group without moving its private assets into that group.
+    const sharedPersonalGroup=b.type==='group' && profiles.some(profile=>!!profile && canContactPersonalAgent(this.db,p,profile)
+      && ids.some(id=>!canActorAccess(this.db,id,profile.space_id)));
+    const space = inheritedSpace ?? (contactingPersonal || sharedPersonalGroup ? "company:default" : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
     this.ctx.identity.requireSpace(p, space);
     if (ids.some(id => !canActorAccess(this.db, id, space))) fail(404, "participant not found");
     if (!ids.includes(p.id)) ids.unshift(p.id);

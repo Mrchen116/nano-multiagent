@@ -59,6 +59,8 @@ export interface RuntimeEvent {
 export interface RuntimePort {
   request(method: string, params: unknown): Promise<unknown>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
+  /** Capture the current host generation for one asynchronous reconciliation. */
+  capture?(): RuntimePort;
 }
 export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 

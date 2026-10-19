@@ -39,7 +39,8 @@ export class KnowledgeUpdates {
     return this.running;
   }
   private async reconcile() {
-    const { facts, reviews } = await this.options.runtime.request('knowledge.facts', {}) as { facts: Fact[]; reviews: Review[] };
+    const runtime = this.options.runtime.capture?.() ?? this.options.runtime;
+    const { facts, reviews } = await runtime.request('knowledge.facts', {}) as { facts: Fact[]; reviews: Review[] };
     const groups = new Map<string, Fact[]>();
     for (const fact of facts) {
       const binding = this.options.store.bindings().find(item => item.sessionId === fact.rootSessionId);
@@ -65,7 +66,7 @@ export class KnowledgeUpdates {
             if (typeof result.payload.message_id !== 'string' || !result.payload.message_id) throw new Error('Knowledge notice has no delivery receipt');
           }
         }
-        for (const fact of group) await this.options.runtime.request('knowledge.acknowledge', { id: fact.id });
+        for (const fact of group) await runtime.request('knowledge.acknowledge', { id: fact.id });
       } catch (error) { this.options.onError(error); }
     }
   }

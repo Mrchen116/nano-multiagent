@@ -47,18 +47,26 @@ export class RuntimePartitions implements RuntimePort {
     if (!partition) throw new Error(`Unknown runtime Agent: ${agentId}`);
     return partition;
   }
-  scoped(partition: RuntimePartition): RuntimePort {
+  scoped(partition: RuntimePartition, generation?: number): RuntimePort {
+    const current = () => {
+      if (generation !== undefined && generation !== partition.generation) throw new Error('Runtime generation_changed');
+    };
     return {
+      capture: () => this.scoped(partition, generation ?? partition.generation),
       request: async (method, params) => {
+        current();
         const value = object(params);
         if (['knowledge.facts', 'knowledge.acknowledge', 'workflow.pending', 'workflow.acknowledge'].includes(method)) {
           const result = await partition.runtime.request(method, params);
+          current();
           if (method === 'knowledge.facts') for (const fact of (object(result).facts ?? []) as unknown[]) this.validateOrigin(partition, fact);
           if (method === 'workflow.pending') for (const record of result as unknown[]) this.validateOrigin(partition, record);
           return result;
         }
         if (this.resolve(value) !== partition) throw new Error('Cross-partition scoped request');
-        return this.request(method, params);
+        const result = await this.request(method, params);
+        current();
+        return result;
       },
       onNotification: listener => partition.runtime.onNotification((method, value) => {
         try { if(this.validateOrigin(partition, value, true)) listener(method, value); } catch (error) { this.options.onError(error); }

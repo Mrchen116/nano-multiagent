@@ -24,7 +24,7 @@ export function AgentProfilePage() {
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
   if (query.isPending) return <p>{t("common.loading")}</p>;
   if (query.isError || !agent) return <section className="im-agent-panel"><p role="alert">{t("agents.loadError")}</p><button onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
-  if (agent.owner_id === self) return <AgentDetailPage />;
+  if (agent.owner_id === self) return <AgentDetailPage personal={agent.role === "personal"} />;
   const work = agent.work_mode === "global" && params.get("view") === "work";
   return <div className="agents-overview">
     <AgentsRailDesktop activeId={agentId} />

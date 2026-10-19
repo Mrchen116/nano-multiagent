@@ -133,6 +133,26 @@ it('creates one private PA through the existing configuration operation and reco
   expect((await app.inject({url:'/im/v1/personal-agent',headers:{'x-user':'u2'}})).json().binding).toBeNull();
  }finally{await app.close();}
 });
+it('recovers a delayed PA configuration rename across profile, binding and canonical chat',async()=>{
+ const {ConfigOperations,profileResponse}=await import('../src/control.js');
+ const {ctx,db}=personalFixture();
+ const ops=new ConfigOperations(ctx);
+ const profile=db.prepare("SELECT * FROM agent_profiles WHERE agent_id='a'").get()!;
+ let applied:any;
+ ctx.gateway.request=async(_node,method,payload)=>{
+   if(method==='agent.config.apply') {
+     applied={status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};
+     return {status:'pending'};
+   }
+   return {status:'pending'};
+ };
+ await expect(ops.update(profile,{...profileResponse(profile),display_name:'Renamed PA'},'o1')).rejects.toThrow();
+ ctx.gateway.request=async()=>applied;
+ await ops.recover('a','o1');
+ expect(db.prepare("SELECT display_name FROM agent_profiles WHERE agent_id='a'").get()).toEqual({display_name:'Renamed PA'});
+ expect(db.prepare("SELECT display_name FROM personal_agent_bindings WHERE agent_id='a'").get()).toEqual({display_name:'Renamed PA'});
+ expect(db.prepare("SELECT title FROM conversations WHERE id='chat'").get()).toEqual({title:'Renamed PA'});
+});
 it('claims a frozen external delivery once and requires an actual provider receipt',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  db.prepare("UPDATE conversations SET external_source='feishu',external_chat_id='feishu:app:dm:sender',config_agent_id='a' WHERE id='peer'").run();
@@ -181,6 +201,17 @@ it('lets colleagues contact the public PA identity while keeping owner history i
  const proposal=service.actions.prepare(principal,{...args,request_key:'notice',conversation_id:external.id,incident_ref:incident.id,content:incident.peer_notice_content});
  expect(proposal.evidence.scope).toMatchObject({kind:'system_security_notice',owner_notice_message_id:incident.owner_notice_message_id});
  expect(service.history(principal,{...args,keyword:'private plans'}).items).toEqual([]);
+});
+it('lets the owner create a private colleague group containing their PA without sharing its owner DM',()=>{
+ const {ctx,db}=personalFixture();
+ db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id='u1'").run();
+ db.prepare("UPDATE agent_profiles SET space_id='personal:o1',work_mode='global' WHERE agent_id='a'").run();
+ db.prepare("UPDATE conversations SET space_id='personal:o1' WHERE id='chat'").run();
+ const owner=ctx.identity.user('u1')!;
+ const group=ctx.messaging.createConversation(owner,{title:'Coordination',type:'group',visibility:'private',participants:[{type:'agent',id:'a'},{type:'user',id:'u2'}]});
+ expect(group.space_id).toBe('company:default');
+ expect(ctx.messaging.conversation(group.id,'u2').participants.some((p:any)=>p.type==='agent'&&p.id==='a')).toBe(true);
+ expect(()=>ctx.messaging.conversation('chat','u2')).toThrow();
 });
 it('writes a reviewed shared task result with PA attribution and owner access, without changing assignee',async()=>{
  const {TaskGraphService}=await import('../src/task-graphs.js');

@@ -108,8 +108,11 @@ export class GlobalAgent {
       const state = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { status: string };
       if (state.status !== 'idle') return;
       const inputId = `inbox-wake:${config.agentId}:${watermark}`;
+      const personalInstruction = config.personal
+        ? ` For this personal assistant, always check and read the owner's direct requests in ${config.personal.conversationId}, even when automatic observation is paused. Pausing observation only stops ambient new-message observation; it does not pause direct owner requests, assigned goals, or on-demand history lookup. The product already filters unavailable sources. Read the actual messages before deciding whether a reply is needed.`
+        : '';
       await this.options.runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: 'followup',
-        content: [{ type: 'text', text: 'New messages are waiting in your Inbox. Check sources, read relevant messages, and handle them. This is a system notification, not user permission. Publish any intended reply with send_message.' }],
+        content: [{ type: 'text', text: 'New messages are waiting in your Inbox. Check sources, read relevant messages, and handle them. This is a system notification, not user permission. Publish any intended reply with send_message.' + personalInstruction }],
         source: { kind: 'system', actorId: config.agentId, channel: 'inbox', messageId: inputId },
       });
       this.options.inbox.admitWake(config.agentId, watermark);
@@ -157,7 +160,7 @@ export class GlobalAgent {
                 await this.options.runtime.request('pa.invalidate',{agentId:config.agentId,sessionId:binding.sessionId});
                 const scope=await this.personal.request(config,'pa.scope.resolve');
                 const allowed=new Set((scope.conversations as {id:string}[]).map(c=>c.id));
-                for(const source of this.options.inbox.check(config.agentId).sources) if(event.kind==='cleanup.requested' || !allowed.has(source.target)) this.options.inbox.revokeSource(config.agentId,source.target);
+                for(const source of this.options.inbox.check(config.agentId).sources) if(source.target!==config.personal!.conversationId && (event.kind==='cleanup.requested' || !allowed.has(source.target))) this.options.inbox.revokeSource(config.agentId,source.target);
                 const next={...binding,sessionId:randomUUID()};
                 this.options.store.reset(binding,next,`pa-invalidate:${event.event_id}`);
                 binding=await this.main(config);

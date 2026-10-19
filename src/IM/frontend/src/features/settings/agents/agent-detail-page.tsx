@@ -1263,12 +1263,12 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   );
 }
 
-export function AgentDetailPage() {
+export function AgentDetailPage({ personal = false }: { personal?: boolean } = {}) {
   const { agentId = "" } = useParams();
-  return <AgentDetailPageContent key={agentId} agentId={agentId} />;
+  return <AgentDetailPageContent key={agentId} agentId={agentId} personal={personal} />;
 }
 
-function AgentDetailPageContent({ agentId }: { agentId: string }) {
+function AgentDetailPageContent({ agentId, personal }: { agentId: string; personal: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -1378,7 +1378,10 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
-      void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat"] });
+      void queryClient.invalidateQueries({ queryKey: ["personal-agent"] });
+      void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      void queryClient.invalidateQueries({ queryKey: ["public-agents"] });
       if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
       savedResetTimer.current = setTimeout(() => {
         setSaved(false);
@@ -1694,7 +1697,7 @@ function AgentDetailPageContent({ agentId }: { agentId: string }) {
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
-            <p className="text-xs text-slate-500">{tr("工作模式")}：{draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
+            <p className="text-xs text-slate-500">{tr("工作模式")}：{personal ? t("pa.label") : draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
           </div>
           {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
           <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">

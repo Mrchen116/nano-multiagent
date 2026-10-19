@@ -2,6 +2,7 @@
 import { KnowledgeFiles } from './knowledge/files.js';
 import { PersonalSecurity, personalEvidenceMessages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
@@ -471,7 +472,12 @@ export default class NanoRuntime {
       await ctx.llm.resolveModelInfo(next.provider, next.model);
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
       if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
-      if (previous) {
+      const { revision: _nextRevision, ...nextExecution } = next;
+      const { revision: _previousRevision, ...previousExecution } = previous ?? next;
+      // A display-name revision does not change execution and must not wait for a long-running goal.
+      const metadataOnly = previous && isDeepStrictEqual(previousExecution, nextExecution);
+      if (metadataOnly) previous.revision = next.revision;
+      if (previous && !metadataOnly) {
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;

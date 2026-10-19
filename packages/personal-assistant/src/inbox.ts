@@ -33,7 +33,8 @@ export class InboxStore {
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
   }
   receive(input: RelayInput, attention: boolean): void {
-    this.db.prepare('INSERT OR IGNORE INTO inbox(agent_id,target,message_id,payload,attention) VALUES(?,?,?,?,?)')
+    // Source cleanup can remove the highest rowid; never reuse an admitted wake sequence.
+    this.db.prepare('INSERT OR IGNORE INTO inbox(seq,agent_id,target,message_id,payload,attention) VALUES((SELECT max(coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0))+1),?,?,?,?,?)')
       .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
   }
   /** Remove a revoked source from future reads and frozen page caches. */

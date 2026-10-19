@@ -37,6 +37,13 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     expect((await read('b')).tools).toContain('task_graph');
     await client.rpc.request('session.submit', { sessionId: 'session-a', inputId: 'busy', mode: 'followup', content: [{ type: 'text', text: 'wait' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'busy' } });
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: 'session-a' }) as { status: string }).status).toBe('running');
+    let renamed = false;
+    const rename = client.rpc.request('configuration.apply', { ...config, revision: '2-renamed', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } }).then(() => { renamed = true; });
+    void rename.catch(() => {}); // The failure cleanup closes the runtime before a blocked apply can finish.
+    await expect.poll(() => renamed, {timeout: 1500}).toBe(true);
+    await rename;
+    expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
+    expect((await read('a')).tools).toEqual(['read', 'skill']);
     let applied = false;
     const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
     await expect.poll(async () => (await read('a')).tools).toEqual([]);

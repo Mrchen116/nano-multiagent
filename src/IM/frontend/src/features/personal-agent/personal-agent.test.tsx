@@ -50,7 +50,7 @@ it('keeps a cleanup pending until the computer reports completion',async()=>{
  vi.mocked(api.cleanupPersonalAgent).mockResolvedValue({operation_id:'op1',status:'pending'});
  mount(<PersonalAgentDialog state={state} nodes={[]} conversations={[]} onClose={()=>{}} onCreated={()=>{}}/>);
  await userEvent.click(screen.getByText('Clear assistant source cache'));
- await userEvent.click(screen.getByRole('button',{name:'Clear source cache'}));
+ await userEvent.click(screen.getByRole('button',{name:'Clear all source cache'}));
  expect(await screen.findByText('Requested; waiting for your computer to confirm completion.')).toBeInTheDocument();
  expect(screen.queryByText('Source cache cleared.')).not.toBeInTheDocument();
 });

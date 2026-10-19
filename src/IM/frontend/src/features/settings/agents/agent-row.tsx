@@ -3,7 +3,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
 
-type AgentListItem = Pick<AgentSummary, "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string };
+type AgentListItem = Pick<AgentSummary, "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string; role?: string };
 
 /** Online when the agent's owning node reports online, via the agent's own
  *  node_status first and the nodes table as fallback. */
@@ -92,7 +92,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
         <p
           className={`m-0 mt-[2px] truncate text-im-text-muted ${isMobile ? "text-[12.5px]" : "font-mono text-[11px]"}`}
         >
-          {isMobile ? agent.description || agent.agent_id : agent.agent_id}
+          {agent.role === "personal" ? t("pa.label") : isMobile ? agent.description || agent.agent_id : agent.agent_id}
         </p>
       </div>
       {isMobile ? (
