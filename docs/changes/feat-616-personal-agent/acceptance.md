@@ -249,3 +249,45 @@ Validation snapshot: `a41c22630578d28f76dcb5bee393cfdc9a7bab29` → 同版本。
 截至约14:47，供应商14:43:26预留成功回执已在peer原DM可见，owner目标仍为To do/等待林悦确认、next check15:30（`owner-final2.txt`）；本轮未观察到任务完成回写，不以发送预留请求代替目标完成。对方“无需再回复”后没有观察到额外回复，但在入站消费可能未完成的情况下，不将沉默判为主动选择不回复通过。未再发送催办来人为救活流程。
 
 caller确认运行仍是已构建a41c22630，未build/restart，后段源码dirty不改变本轮validated_at。共7项问题：6 major、1 minor；另空名缺提示为局部未满足项，保留在场景表。测试创建的新任务/消息均保留，观察和测试群排除恢复原状态，无服务清理动作（本reviewer未启动服务）。本轮只提交acceptance.md；无需外部GitHub issue。需要re-review。
+
+
+## Round 2 · 2026-10-19 · targeted
+
+Validation snapshot: `439a75144525c6d4740bbdc665e792f57cf71d51`。14:50:39起，HEAD与干净状态已核实；caller交接同一持久化环境新IM/Node与前端产物，reviewer未重启。范围：P1–P7、无效名称、目标收尾；Round 1其余fail/inconclusive继续保留，未使用工程测试通过替代产品证据。独立CLI仅owner `pa-accept-r2` 与peer `pa-peer-r2`，未增加第三个浏览器；旧session已关闭。
+
+### 当前判定
+
+**fail**，highest_required_action **fix-implementation**。桌面出处定位、旧拒绝消息恢复、折叠通知及无效名称有改善；手机出处仍实际跳到最新消息，且标题新增拥挤。新双目标缺少可见执行反馈，未具备证据关闭P1/P6/P7和收尾。
+
+### 定向复验事实
+
+- **R2-E1 新目标输入**：14:51:29在owner UI点击Send，内容明确“验收测试R2演示”与“验收测试R2场地”两件新目标、分别本人负责、不改旧目标；演示等本人验收再完成，场地询价→推荐→选择→预留不付款→供应商确认收尾。14:54:45仍仅本人消息，Following up保持3（旧任务），没有PA ack或可见接收/排队状态。`r2-accepted.png`、`r2-owner4.txt`。没有重复催办或API插入任务来代替自然语言旅程。
+- **R2-E2 历史定位**：1440真实点击PA答案链接跨到原DM，2024原文出现在可见区并有绿色高亮，返回PA成功，`r2-history-desktop.png`。随后回PA、resize390，再真实点同链接，toast Original message located却滚到最新14:50消息，`r2-history-mobile.png`。第二次从原DM返回PA再点链接，仍失败，`r2-history-mobile-repeat.png`。不是在原DM仅resize复拍。
+- **R2-E3 DOM补充证据**：基于已观察原话定位元素，仅测量UI；`r2-source-mobile-boxes.txt`：原话span y=-850.71875，消息bubble y=-878；`.chat-pane-messages` y=98/h=665.8125，scrollTop=1024、scrollHeight=1690、clientHeight=666，确实停在底部，原文不可见。没有读实现推断原因。
+- **R2-E4 通知恢复与密度**：peer原DM实际出现14:50拒绝/已通知消息（`r2-peer1.txt`），无私人预算/日程内容，关闭P4本次既有失败操作的恢复缺口；未外推新故障注入。隐私提醒默认折叠成一行、跟进入口在标题栏，1440/768消息可见面积改善。`r2-accepted.png`、`r2-tablet.png`。390新标题里Personal assistant换行，与节点行重叠，PA名称被挤压；`r2-goals-mobile.png`，需修复移动布局而不能仅因弹层可点就通过。
+- **R2-E5 空名**：390设置填空白，出现 `Enter a name for your assistant.`，Save name disabled；Done退出保留小航，未保存无效名。`r2-invalid-name.png`、`r2-invalid-name.txt`。该旧失败关闭。未改变当前PA名称，不干扰用户同步试用。
+
+### P1–P7 与补充项
+
+| 项目 | Round 2结果 | 证据 / 保留问题 |
+|---|---|---|
+| P1 独立目标/本人责任/独立暂停完成 | inconclusive | R2-E1新目标未被处理；旧合并任务不作回迁或通过依据，Round1失败未关闭 |
+| P2 出处定位 | fail | R2-E2/E3桌面通过、手机两次失败，返回可用 |
+| P3 通知与目标层级 | fail | R2-E4折叠与标题入口修复主要挤压；390标题出现重叠，新回归保留 |
+| P4 拒绝通知恢复 | pass | R2-E4 peer原DM实收旧operation恢复后的拒绝告知，无私料 |
+| P5 首次可见反馈 | fail | R2-E1发送后数分钟无反馈，不能看到是否执行；仍为minor体验问题，执行阻塞另待诊断 |
+| P6 必要选择推荐/理由/后果 | inconclusive | R2-E1尚无报价/选择；不拿提示词修订当产品证据 |
+| P7 私密草稿回原输入框 | inconclusive | 新模型旅程受阻，未取得新结构化草稿；旧纯文本不作修复证据 |
+| 无效名称 | pass | R2-E5就地提示、禁用保存、原名保留 |
+| 完成回写 | inconclusive | 新目标尚未创建，不能走到供应商回执闭环；旧Round1任务仍To do |
+| 首次创建/改名/重复进入 | inconclusive | 本轮未新开第三浏览器/配置新节点；原PA不迁移不删除，保留Round1缺口 |
+
+### 场景与证据继承
+
+Round1场景表中所有未在本轮明确关闭的fail/inconclusive逐项继续有效，尤其搜索同策略对照、内部子任务、群/Agent多来源、冷恢复、清理、通知故障、许可/受众变更、全出口/记忆/并发安全。P4只关闭“已有失败拒绝通知恢复”的具体缺口，不将“本人控制与通知失败”整个复合场景判pass。无效名称整体可改为pass。历史查询更早约定仍fail（移动定位）；独立目标/更正/暂缓/完成仍保留Round1失败；日常极简与真正必要介入亦未满足。导航与代发身份/owner私密边界继承Round1已验证部分，本轮没有改变相关入口或资源权限，未新增全安全结论。
+
+### Round 2 收尾
+
+14:56:00最后核查，14:51:29的新双目标发送已约4分半，仍无PA回复、新任务或peer协调消息（`r2-final-owner.txt` / `r2-final-peer.txt`）。不把未执行场景判作模型能力通过，也不继续无限轮询。当前直接可见问题为2 major（移动出处、移动标题）、1 minor（等待反馈）；P1/P6/P7与收尾保留未解决/未能复验。未改设置、服务或源码，无新增账号/节点；两个专用浏览器本轮结束关闭。需caller解决执行前置后继续受影响旅程，且固定新候选版本。
+
+Caller于收尾提供工程诊断（reviewer未读实现独立定位）：来源排除退休旧上下文后，新PA main session注册遇到 `main_session_conflict`；Node待上传journal seq341与IM旧main归属冲突，Work上传阻塞owner输入进入Inbox。owner消息pending、relay sent无receipt。因此本轮不将等待解释为模型正在思考；上述UI事实与版本结论不变。
