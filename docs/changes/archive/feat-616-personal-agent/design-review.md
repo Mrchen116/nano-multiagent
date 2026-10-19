@@ -12,7 +12,7 @@
 - completed_at: `2026-10-16T17:41:59Z`
 - duration: `12m 50s`
 - executed_base: `481467ac16f0eda4561fca5c8230050541600de9`（本地 `main` HEAD 与 `refs/remotes/origin/main` 一致；本轮未声称重新获取远端）。
-- validated_at: 上述 HEAD **加未提交冻结设计树**；`research/design-r1-snapshot.sha256` 的 SHA-256 为 `b7dcebe3d093502a79e5ed101c396675ac8096f2a03d2197520f5797b15a86d0`。逐文件校验 11/11 通过，包含 spec、design、prototype、7 个 delta 与 M1 `.gitkeep`。这些文件尚未提交，不以 HEAD 冒充其提交 SHA。
+- validated_at: 当轮 HEAD 加未提交的 R1 冻结设计工作树；当时逐文件校验 11/11 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - 工作树：审查开始时仅 `?? docs/changes/feat-616-personal-agent/`；本报告为审查输出，不在受审 manifest 中。研究记录是旁证，不替代冻结设计或执行验证。
 
 ### Verdict
@@ -180,7 +180,7 @@
 - completed_at: `2026-10-16T17:54:06Z`
 - duration: `6m 40s`
 - executed_base: `481467ac16f0eda4561fca5c8230050541600de9`；本地 HEAD 与 origin/main 引用一致，tracked diff 为空，本轮未重新 fetch。
-- validated_at: 上述 HEAD 加未提交冻结树，`research/design-r2-snapshot.sha256` SHA-256=`e90317f090174dfe3d5b8b7e4644994b5cb9c28a0fdf894f981ed183b1957e32`；14/14 文件通过。R2 manifest 路径以仓库根为相对基准，与 R1 manifest 的 unit-relative 格式不同；按正确基准校验，不把首次工作目录错误当文件变化。
+- validated_at: 当轮 HEAD 加未提交的 R2 冻结设计工作树；当时逐文件校验 14/14 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - evidence boundary: 本轮不重新读取产品代码、不浏览、不读凭据、不运行真实后端/模型；仅文档、canonical、原型源码与内存函数检查，并追加本报告。未将研究旁证或旧基线测试升级成实现验证。
 
 ### Verdict
@@ -330,7 +330,7 @@
 - completed_at: `2026-10-16T18:03:21Z`
 - duration: `3m 47s`
 - executed_base / HEAD / 本地 origin/main: `481467ac16f0eda4561fca5c8230050541600de9`。reviewer 未联网刷新远端，不将本地 tracking ref 称为本轮实时远端核验。
-- validated_at: **上述 HEAD + 未提交 R3 manifest 所定义的实际工作树**；manifest `research/design-r3-snapshot.sha256` 的 SHA-256 为 `2436a3eb1ce537f64450fb8854e4e3b4e72a317cbc44df1e2e02ee4c2e7cd9a1`，开审与写报告前均核实 **14/14**。这不是已提交的 unit SHA。
+- validated_at: 当轮 HEAD 加未提交的 R3 冻结设计工作树；当时逐文件校验 14/14 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - working tree: tracked diff 为空，只有本 unit 未跟踪；未创建分支/提交。本次仅追加 `design-review.md`，追加前 SHA-256 为 `8a0b5e64ebc13e86c41d90a01748822aaf9c270033b81ba11628b85de4ab1f7d`，保留 R1/R2 及作者 resolutions 全文。
 
 ### Verdict
@@ -464,7 +464,7 @@ R1-W1 设备交接与 R1-W5 任务通知的关闭结论 retained；对应设计/
 - completed_at: `2026-10-16T18:07:19Z`
 - duration: `1m 49s`
 - executed_base / HEAD / 本地 origin/main: `481467ac16f0eda4561fca5c8230050541600de9`；未重新查询远端。
-- validated_at: **HEAD + 未提交 R4 manifest 定义的工作树**。`research/design-r4-snapshot.sha256` 的 SHA-256 为 `8576a481e1d60690ebe7f9c91fd37b552ca29acb843ec39a1feadd8f9d4eee3a`，开审及写入前 **14/14** 验证通过；不伪称 unit commit。
+- validated_at: 当轮 HEAD 加未提交的 R4 冻结设计工作树；当时逐文件校验 14/14 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - working tree: 仅本 unit 未跟踪、tracked diff 为空。本轮仅追加报告；原报告（含 Author Resolutions after Round 3）SHA-256 `e2c82651dc2e8182e1f5e1c13f30887ccf35e063c7e1c4f2c87baa6d20b87bad`，原字节全部保留。
 
 ### Verdict
@@ -576,7 +576,7 @@ R3 已关闭的任务读写、PA 专业执行主体、广权限输出隔离，�
 - completed_at: `2026-10-16T18:10:13Z`
 - duration: `1m 32s`
 - executed_base / HEAD: `481467ac16f0eda4561fca5c8230050541600de9`，tracked diff 为空，只有本 unit 未跟踪；未刷新远端。
-- validated_at: **HEAD + 未提交 R5 manifest 的实际树**；`research/design-r5-snapshot.sha256` SHA-256 `6e2562d439f05ab9dca3a8a846c14f164b0bb4461adbb9f35f99e441caad28ee`，开审和写入前 **14/14** 核验通过，不表示已提交 SHA。
+- validated_at: 当轮 HEAD 加未提交的 R5 冻结设计工作树；当时逐文件校验 14/14 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - write scope: 仅追加 `design-review.md`；此前全部报告与 Author Resolutions 原字节保留，前缀 SHA-256 `9ac9ffab7cbf93ff25bc888a0979832fed9c5022d54eb953b30d1c0b6eb1df97`。
 
 ### Verdict
@@ -669,7 +669,7 @@ old sending -> block -> unblock -> new message:
 - completed_at: `2026-10-16T18:12:20Z`
 - duration: `1m 15s`
 - executed_base / HEAD: `481467ac16f0eda4561fca5c8230050541600de9`；未重新查询远端。tracked diff 为空、只有本 unit 未跟踪，无分支/提交操作。
-- validated_at: **HEAD + 未提交 R6 manifest 定义的实际树**。`research/design-r6-snapshot.sha256` SHA-256 为 `683719c53b7024d29330e7500603dc046c2cf6f65af5eef22e7b001a7c3a0db3`；开审及报告写入前 **14/14** 验证通过，不表示已提交 unit SHA。
+- validated_at: 当轮 HEAD 加未提交的 R6 冻结设计工作树；当时逐文件校验 14/14 通过，不表示已提交的 unit SHA。临时校验清单已清理，历史内容保留在 Git 提交 `1190bbbfc`。
 - write scope: 仅追加本报告；R1–R5 与作者 resolutions 原字节保留，追加前 SHA-256 `2bf089fe197378e19463847cfe57d57f5f8f6642bc42952cbecc88582b888bf5`。
 
 ### Verdict

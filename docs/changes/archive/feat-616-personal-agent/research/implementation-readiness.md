@@ -64,7 +64,7 @@ change-workflow 明确 Full 通过 Gate 2 才实施，prototype-and-runbook 明�
 ## 2026-10-16 18:11 UTC — design closure preparation
 
 - Live origin/main rechecked at 17:59 UTC: 481467ac16f0eda4561fca5c8230050541600de9, matching local HEAD; no upstream drift.
-- Current design snapshot: research/design-r6-snapshot.sha256 (manifest hash 683719c53b7024d29330e7500603dc046c2cf6f65af5eef22e7b001a7c3a0db3); all 14 frozen files verified.
+- Historical design baseline: the uncommitted R6 worktree passed all 14 file checks at review time. The temporary manifest was removed after archiving; its historical contents remain in Git commit `1190bbbfc`. Current reviews use the candidate commit and diff.
 - Spec/design + prototype + 10 canonical deltas, one M1 .gitkeep. No product edits, commits, branches, push, services or credentials configured.
 - All 6 prototype-only state scripts run sequentially from repository root: 97 checks passed, exit 0. Durable scripts and log: research/prototype-state-checks/ (latest-run.txt). Synthetic jsdom state machines are not visual, accessibility, backend, security or provider evidence.
 - Independent R1–R6 review history is preserved in design-review.md. Formal R6 completed at 18:12 UTC: Issues Found, 0 critical / 2 warning; all reported substantive design/interaction issues closed. Real visual and DeepSeek resource prerequisites remain blocking. Do not treat static closure as Gate 2 approval.
