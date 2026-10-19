@@ -99,6 +99,7 @@ export interface MessagePaneProps {
   /** Compatibility input for callers not yet upgraded to the typed timeline. */
   messages?: Message[];
   mentionCandidates: MentionCandidate[];
+  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
   draftSeed?: { id: string; conversationId?: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
@@ -228,6 +229,7 @@ export function MessagePane({
   messages: messagesProp,
   mentionCandidates,
   draftSeed = null,
+  onUseReplyDraft,
   slashSkills = [],
   slashCommands = [],
   nodeName,
@@ -1105,6 +1107,7 @@ export function MessagePane({
                   onSheetRequest={requestActionSheet}
                   interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
                   interactiveSubmissionId={submittedMessages.get(m.id)}
+                  onUseReplyDraft={onUseReplyDraft}
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
@@ -1554,9 +1557,10 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onUseReplyDraft,
 }: {
   message: Message;
+  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
   interactiveReadOnly?: boolean;
   interactiveSubmissionId?: string;
   onInteractionSelect(selection: InteractiveSelection): void;
@@ -1805,7 +1809,7 @@ function MessageBubble({
             </div>
           )}
           {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} /></React.Suspense>}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} onUseReplyDraft={onUseReplyDraft} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>

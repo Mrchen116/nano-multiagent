@@ -13,7 +13,7 @@ import { createConversation, listConversations } from '../chat/chat-api';
 vi.mock('./onboarding-api');
 vi.mock('../personal-agent/personal-agent-api');
 vi.mock('../chat/chat-api');
-const pa={binding:{binding_id:'b',agent_id:'a',owner_id:'o',owner_user_id:'u',node_id:'device',node_epoch:1,conversation_id:'existing',display_name:'Assistant',status:'active'},policy:{revision:1,observation_enabled:true,excluded_conversation_ids:[]}};
+const pa={binding:{binding_id:'b',agent_id:'a',owner_id:'o',owner_user_id:'u',node_id:'device',node_epoch:1,conversation_id:'existing',display_name:'Assistant',status:'active'},policy:{revision:1,excluded_conversation_ids:[]}};
 const computer = { node_id: 'device', node_name: 'My computer', alias: null, status: 'online' };
 const install = { available: true, origin: 'https://nano.example', command: 'install Nano', script_url: 'https://nano.example/install.sh' };
 const modelStatus = { revision: 'r1', services: [], models: [], catalog: [{provider: 'deepseek', display_name: 'DeepSeek', models: [{id: 'deepseek-chat'}]}], default_model: '', workspace_base: '/my-workspaces' };
@@ -54,7 +54,8 @@ it('creates one personal assistant and preserves the goal and operation key for 
  await userEvent.click(button);
  await screen.findByRole('alert');
  const first = vi.mocked(createPersonalAgent).mock.calls[0][0];
- expect(first).toMatchObject({node_id:'device',observation_enabled:true});
+ expect(first).toMatchObject({node_id:'device'});
+ expect(first).not.toHaveProperty('observation_enabled');
  expect(first).not.toHaveProperty('history_days');
  await userEvent.click(screen.getByRole('button', { name: 'Check and retry' }));
  await waitFor(() => expect(createPersonalAgent).toHaveBeenCalledTimes(2));

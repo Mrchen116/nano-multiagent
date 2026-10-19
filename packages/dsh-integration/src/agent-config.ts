@@ -64,7 +64,6 @@ export class ConfigurationScopes extends Service {
   catalog(agent: Agent) { return this.tools.catalog(agent); }
   /** Apply owner plugin changes only while every Agent sharing the workspace is reserved idle. */
   managePlugins(config: AgentConfiguration, command: PluginCommand) {
-    if (config.personal) throw new Error('Personal Agent workspace plugins are not admitted');
     return this.extensions.manage(config, command, (workspace, job) => this.maintain(workspace, job));
   }
   private async maintain(workspace: string, job: () => Promise<void>): Promise<void> {
@@ -106,7 +105,7 @@ export class ConfigurationScopes extends Service {
     await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
-    if (!config.personal) await this.extensions.attach(ctx, config);
+    await this.extensions.attach(ctx, config);
     if (config.personal) await ctx.plugin(PersonalTools, config).await();
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
@@ -166,7 +165,7 @@ export class ConfigurationScopes extends Service {
     // The native Agent restriction and prompt view still apply its exact choices.
     const configs = [...this.allConfigurations()].filter(config => config.agentId === scope.agentId);
     for (const [key, plugin] of [['intelligent_ui', IntelligentUI], ['memory_curation', MemoryCuration], ['skill_creation', SkillCreation], ['task_graph', TaskGraphs], ['heartbeat', Heartbeat]] as const) {
-      const enabled = configs.some(config => !(config.personal && key === 'skill_creation') && (key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false));
+      const enabled = configs.some(config => (key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false));
       const existing = scope.features.get(key);
       if (!enabled && existing) { await existing.dispose(); scope.features.delete(key); }
       if (enabled && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId }); await fiber.await(); scope.features.set(key, fiber); }

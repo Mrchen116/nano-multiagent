@@ -884,3 +884,15 @@ it('preserves authenticated PA delegation across realtime creation, reconciliati
  expect(second.messages[0].sender.type).toBe('agent');
  expect(second.messages).toHaveLength(1);
 });
+
+
+it.each(['message.created', 'message.reconciled'] as const)('retains reply draft routing in %s events', type => {
+  const reply_draft = {target_conversation_id:'original', source_message_id:'source', field_name:'$reply', possible_stale:true};
+  const event = toChatWsEvent(type, {
+    conversation_id:'c1',message_id:'card',sender_user_id:'agent:a1',sender_type:'agent',content:'Reply draft',
+    attachments:[],tool_calls:[],thinking:[],token_usage:null,delivery_status:'completed',created_at:'2026-10-19T08:00:00Z',
+    elapsed_ms:null,kernel_message_id:null,reply_draft,
+  });
+  const next = applyWsEvent({...emptyConversationState,conversation_id:'c1'},event!);
+  expect(next.messages[0].reply_draft).toEqual(reply_draft);
+});

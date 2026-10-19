@@ -1,6 +1,6 @@
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
-import { PersonalAgentCollaboration, PersonalAgentGoals } from '../personal-agent/personal-agent-collaboration';
-import { getPersonalAgent, renamePersonalAgent, type PersonalDecision } from '../personal-agent/personal-agent-api';
+import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
+import { getPersonalAgent, renamePersonalAgent } from '../personal-agent/personal-agent-api';
 import { GroupTaskPanel } from "../tasks/group-task-panel";
 import type { NodeUpdateView } from '../settings/im-settings-api';
 import { nodeUpdateActive } from '../settings/nodes/node-update-panel';
@@ -1117,12 +1117,12 @@ export function ChatWorkspacePage() {
     });
   }
 
-  function handlePersonalDraft(decision: PersonalDecision, text: string) {
-    const target = decision.target_conversation_id;
+  function handlePersonalDraft(draft: NonNullable<Message["reply_draft"]>, text: string) {
+    const target = draft.target_conversation_id;
     if (!target) return;
     const existing = composerStoreFor(selfUserId).get(target)?.draft;
-    // Preserve a reply the owner was already writing instead of replacing it.
-    setDraftSeed({id:`pa:${decision.id}:${decision.revision}:${Date.now()}`,conversationId:target,text:existing?.trim()?`${existing}\n\n${text}`:text});
+    if (existing?.trim() && existing !== text && !window.confirm(t('pa.replaceDraft'))) return;
+    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text});
     navigate(`/chat/${encodeURIComponent(target)}`, {state:{personalAgentReturn:true}});
   }
 
@@ -1198,14 +1198,13 @@ export function ChatWorkspacePage() {
             conversation={activeConversation}
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
-            headerActions={isPersonalConversation && personalAgent.data ? <PersonalAgentGoals state={personalAgent.data}/> : undefined}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
               ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
               : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)
                 ? <button type="button" onClick={()=>navigate(location.state.sourceReturnUrl)}>{t('pa.returnSource','← 返回刚才的聊天')}</button>
                 : undefined}
-            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} onDraft={handlePersonalDraft} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='pending')}/> : undefined}
+            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='pending')}/> : undefined}
             onReadMessage={(messageId) => {
               if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);
@@ -1215,6 +1214,7 @@ export function ChatWorkspacePage() {
             globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
+            onUseReplyDraft={isPersonalConversation ? handlePersonalDraft : undefined}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
             configLabel={isPersonalConversation ? t('pa.settings','个人助手设置') : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}

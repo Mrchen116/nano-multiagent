@@ -14,7 +14,7 @@ interface Connection {
 }
 export interface ExternalDelivery {
   agentId:string; target:string; shadowId?:string; appId:string; sourceId:string; chatId:string;
-  text:string; card?:Record<string,unknown>; operationId:string; taskRef?:string; incidentRef?:string;
+  text:string; card?:Record<string,unknown>; operationId:string; incidentRef?:string;
   dispatch(text:string,card?:Record<string,unknown>):Promise<string>;
 }
 interface Options {
@@ -143,7 +143,7 @@ export class ExternalChannels {
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
         this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_task_ref:payload.pa_task_ref, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
+        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -196,7 +196,7 @@ export class ExternalChannels {
       if(this.options.personalAgent?.(chat.agentId)) {
         if(!this.options.personalDelivery)throw new Error('Personal delivery adapter unavailable');
         const id=await this.options.personalDelivery({agentId:chat.agentId,target:chat.id,shadowId:chat.shadowId,appId:chat.appId,sourceId:chat.sourceId,chatId:chat.chatId,
-          text,card,operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,taskRef:typeof metadata?.pa_task_ref==='string'?metadata.pa_task_ref:undefined,dispatch});
+          text,card,operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,dispatch});
         if(!id)throw new Error('Personal delivery has no provider receipt');
         this.state.settle(output.id,'confirmed',id);
       } else await dispatch(text,card);

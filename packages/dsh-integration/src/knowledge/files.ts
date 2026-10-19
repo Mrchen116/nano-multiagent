@@ -47,18 +47,14 @@ export class KnowledgeFiles {
     this.memoryRoot = join(workspace, '.nanoassistant', 'memory'); this.skillRoot = join(workspace, '.nanoassistant', 'skills');
   }
   memoryText(target: 'memory' | 'user') { return readText(join(this.memoryRoot, target === 'memory' ? 'MEMORY.md' : 'USER.md')); }
-  /** Clear automatically derived notes without claiming deletion of append-only logs. */
-  async clearMemory() {
-    for (const name of ['MEMORY.md', 'USER.md']) { const path = join(this.memoryRoot, name); await safePath(this.workspace, path); await atomicWrite(path, ''); }
-  }
-  async memory(change: MemoryChange, sessionId: string, signal?: AbortSignal, provenance?: {kind:'derived'|'external_claim'; sources: unknown[]}) {
+  async memory(change: MemoryChange, sessionId: string, signal?: AbortSignal) {
     if (!(change.target in memoryLimits)) throw new Error('Unknown memory target');
     await safePath(this.workspace, this.memoryRoot);
     return locked(this.memoryRoot, async () => {
       const entries = (await this.memoryText(change.target)).split(delimiter).map(value => value.trim()).filter(Boolean);
       const content = change.content?.trim();
       if (change.action !== 'remove' && !content) throw new Error('Memory content is required');
-      const entry = `${content}\n<!-- source: ${JSON.stringify({ session_id: sessionId, timestamp: Date.now() / 1000, ...(provenance ? {provenance} : {}) })} -->`;
+      const entry = `${content}\n<!-- source: ${JSON.stringify({ session_id: sessionId, timestamp: Date.now() / 1000 })} -->`;
       if (change.action === 'add') entries.push(entry);
       else if (change.action === 'replace' || change.action === 'remove') {
         const index = change.old_text ? entries.findIndex(value => value.split('<!-- source:')[0]!.includes(change.old_text!)) : -1;

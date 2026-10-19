@@ -91,7 +91,7 @@ export class Messaging {
         this.ctx.personal!.authority(principal,{agent_id:agentId});
         if(mode==="write" && id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
         if(!this.ctx.personal!.sourceAllowed(personal,id,mode))fail(404,"conversation_id not found");
-        return conversationAccess(this.db,id,personal.owner_user_id)!;
+        return this.ctx.personal!.sourceAccess(personal,id,mode)!;
       }
       if (!agent || agent.space_id !== c.space_id || !agentAvailable(this.db, agent)) fail(404, "conversation_id not found");
       uid = this.agentUser(agentId!).id;
@@ -329,6 +329,8 @@ export class Messaging {
       result[key] = JSON.parse(m[`${key}_json`] ?? "null");
     const interactive = this.interactions.message(id);
     if (interactive) result.interactive = interactive;
+    const replyDraft=this.ctx.personal?.replyDraft(id);
+    if(replyDraft)result.reply_draft=replyDraft;
     for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
     Object.defineProperties(result, {
       awaiting_permission_at: { value: m.awaiting_permission_at },
@@ -364,7 +366,7 @@ export class Messaging {
       this.members(id).map((u) => u.id),
       frame,
     );
-    for(const b of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=? AND p.observation_enabled=1",frame.event_id)) this.ctx.personal?.wake(b);
+    for(const b of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id)) this.ctx.personal?.wake(b);
     return frame;
   }
   insertMessage(
@@ -377,7 +379,7 @@ export class Messaging {
     status = "completed",
     extra: Row = {},
   ): Row {
-    if (extra.interactive && !this.db.isTransaction)
+    if ((extra.interactive || extra.reply_draft) && !this.db.isTransaction)
       return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
     const old = key
       ? one(
@@ -417,10 +419,13 @@ export class Messaging {
       )
       .run(cId, sender);
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
-    if(type==="user") this.db.prepare("UPDATE pa_decisions SET status='declined',revision=revision+1 WHERE kind='draft' AND status='pending' AND json_extract(payload_json,'$.target_conversation_id')=? AND binding_id IN (SELECT binding_id FROM personal_agent_bindings WHERE owner_user_id=?)").run(cId,sender);
     if (extra.interactive) {
       if (type !== 'agent') fail(403, 'Only Agent messages may contain interactive replies');
       this.interactions.record(id, cId, sender, extra.interactive);
+    }
+    if (extra.reply_draft) {
+      if(!this.ctx.personal)fail(422,'invalid_reply_draft');
+      this.ctx.personal.recordReplyDraft(id,extra.reply_draft);
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
@@ -637,6 +642,11 @@ export class Messaging {
       relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
     }
     return relays;
+  }
+  /** Queue other direct-chat Agents in the same transaction as a reviewed PA message. */
+  queueDirectAgentRelays(message:Row):void {
+    if(one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)?.type!=='direct')return;
+    this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>`agent:${agent.agent_id}`!==one(this.db,'SELECT username FROM users WHERE id=?',message.sender_user_id)?.username));
   }
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
   relayEligible(task: Row): boolean {

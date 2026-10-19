@@ -20,6 +20,7 @@ export interface InteractiveCardProps {
   message: Message;
   readOnly?: boolean;
   submittedMessageId?: string;
+  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
   onSelect(selection: InteractiveSelection): void;
   onSend(input: InteractionReplyInput, key: string): Promise<unknown>;
 }
@@ -31,13 +32,15 @@ class RenderBoundary extends Component<{ children: React.ReactNode; fallback: Re
 }
 
 /** Render public source while keeping edits private until an explicit continuation. */
-export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend}: InteractiveCardProps) {
+export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onUseReplyDraft}: InteractiveCardProps) {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState(false);
   const [initial, setInitial] = useState<Record<string, unknown>>({});
   const [generation, setGeneration] = useState(0);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [applyingDraft, setApplyingDraft] = useState(false);
+  const [replyText, setReplyText] = useState('');
   const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const state = useRef<Record<string, unknown>>({});
@@ -59,11 +62,29 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     conversationId: message.conversation_id, source_message_id: message.id,
     state: value, editedAt,
   });
+  function updateReplyText() {
+    const value = message.reply_draft ? state.current[message.reply_draft.field_name] : undefined;
+    setReplyText(typeof value === 'string' ? value : '');
+  }
+  async function useReplyDraft() {
+    if (!message.reply_draft || !onUseReplyDraft || lockedRef.current || applyingDraft) return;
+    clearTimeout(timer.current);
+    setApplyingDraft(true);
+    try {
+      // Persist the same private edits before navigation unmounts this card.
+      await saveRequest.current?.catch(() => undefined);
+      await save();
+      if (dirty.current || saving.current) return;
+      const value = state.current[message.reply_draft.field_name];
+      if (typeof value === 'string' && value.trim()) onUseReplyDraft(message.reply_draft, value);
+    } finally { setApplyingDraft(false); }
+  }
   async function load() {
     setError(null);
     try {
       const draft = await readInteractionDraft(message.conversation_id, message.id);
       state.current = draft.state; revision.current = draft.draft_revision;
+      updateReplyText();
       setInitial(draft.state); setDone(Boolean(draft.submission_message_id));
       setGeneration(value => value + 1); setLoaded(true); dirty.current = false;
       touched.current = false;
@@ -165,16 +186,18 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={busy || Boolean(pending.current)} className="interactive-card-fields">
+      <fieldset disabled={busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
           onParseResult={parsed => {
             state.current = {...parsed?.stateDeclarations, ...state.current};
+            updateReplyText();
             if (!lockedRef.current) select(state.current, lastEditedAt.current);
           }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
             state.current = value;
+            updateReplyText();
             if (lockedRef.current || pending.current) return;
             if (touched.current) lastEditedAt.current = Date.now();
             select(value, lastEditedAt.current);
@@ -186,6 +209,10 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
       </fieldset>
     </RenderBoundary>}
     {error === 'render' && fallback}
+    {message.reply_draft && onUseReplyDraft && loaded && error !== 'render' && <div className="interactive-card-status">
+      {message.reply_draft.possible_stale && <p role="status">{t('pa.draftStale')}</p>}
+      <button type="button" disabled={locked || busy || applyingDraft || !replyText.trim()} onClick={() => void useReplyDraft()}>{t('pa.useDraft')}</button>
+    </div>}
     {(locked || busy || done || error) && <div className="interactive-card-status" aria-live="polite">
       {locked ? t('chat.interactive.readOnly') : busy ? t('chat.interactive.sending') : done ? t('chat.interactive.submitted') : null}
       {error && error !== 'render' && <span role="alert">{t(`chat.interactive.${error}Error`)}</span>}

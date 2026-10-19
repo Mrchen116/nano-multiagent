@@ -443,7 +443,7 @@ CREATE TABLE IF NOT EXISTS personal_agent_bindings (
 );
 CREATE TABLE IF NOT EXISTS pa_policies (
  binding_id TEXT PRIMARY KEY REFERENCES personal_agent_bindings(binding_id),
- revision INTEGER NOT NULL DEFAULT 1, observation_enabled INTEGER NOT NULL DEFAULT 1,
+ revision INTEGER NOT NULL DEFAULT 1,
  excluded_json TEXT NOT NULL DEFAULT '[]', disclosure_revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS conversation_participation_history (
@@ -467,28 +467,12 @@ BEGIN
  FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id
  WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
+ AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
  AND NOT EXISTS(SELECT 1 FROM json_each(p.excluded_json) WHERE value=NEW.conversation_id);
 END;
-CREATE TABLE IF NOT EXISTS pa_goal_scopes (
- scope_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, task_ref TEXT NOT NULL,
- owner_message_id TEXT NOT NULL, owner_text TEXT NOT NULL, scope_json TEXT NOT NULL,
- revision INTEGER NOT NULL DEFAULT 1, revoked INTEGER NOT NULL DEFAULT 0,
- UNIQUE(binding_id,task_ref)
-);
-CREATE TABLE IF NOT EXISTS pa_assistance (
- binding_id TEXT NOT NULL, task_ref TEXT NOT NULL, scope_id TEXT, next_action TEXT,
- next_check_at TEXT, waiting_on TEXT, decision_id TEXT, paused INTEGER NOT NULL DEFAULT 0,
- schedule_id TEXT, status TEXT NOT NULL DEFAULT 'active', revision INTEGER NOT NULL DEFAULT 1,
- PRIMARY KEY(binding_id,task_ref)
-);
-CREATE TABLE IF NOT EXISTS pa_decisions (
- id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, task_ref TEXT, kind TEXT NOT NULL,
- payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', revision INTEGER NOT NULL DEFAULT 1,
- snooze_until TEXT, resolution_json TEXT, request_key TEXT, UNIQUE(binding_id,request_key)
-);
 CREATE TABLE IF NOT EXISTS pa_operations (
  operation_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, request_key TEXT NOT NULL,
- task_ref TEXT, scope_id TEXT, scope_revision INTEGER, policy_revision INTEGER NOT NULL,
+ policy_revision INTEGER NOT NULL,
  disclosure_revision INTEGER NOT NULL, conversation_id TEXT NOT NULL, audience_json TEXT NOT NULL,
  payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL, evidence_json TEXT NOT NULL,
  verdict_json TEXT, verdict_ref TEXT, expires_at TEXT, state TEXT NOT NULL DEFAULT 'prepared',
@@ -497,11 +481,6 @@ CREATE TABLE IF NOT EXISTS pa_operations (
 CREATE TABLE IF NOT EXISTS pa_delegated_messages (
  message_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, agent_id TEXT NOT NULL,
  authorized_by TEXT NOT NULL, display_name TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS pa_cleanup_operations (
- operation_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, conversation_id TEXT,
- request_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
- UNIQUE(binding_id,request_key)
 );
 CREATE TABLE IF NOT EXISTS pa_source_reads (
  binding_id TEXT NOT NULL, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
@@ -520,7 +499,8 @@ CREATE TABLE IF NOT EXISTS pa_contact_blocks (
 CREATE TRIGGER IF NOT EXISTS personal_membership_revoked AFTER DELETE ON conversation_participants BEGIN
  INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at)
  SELECT b.binding_id,'source.revoked',json_object('conversation_id',OLD.conversation_id),p.revision,strftime('%Y-%m-%dT%H:%M:%fZ','now')
- FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id WHERE b.owner_user_id=OLD.user_id;
+ FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id WHERE (b.owner_user_id=OLD.user_id OR EXISTS(SELECT 1 FROM users WHERE id=OLD.user_id AND username='agent:'||b.agent_id))
+ AND NOT EXISTS(SELECT 1 FROM conversation_participants cp JOIN users u ON u.id=cp.user_id WHERE cp.conversation_id=OLD.conversation_id AND (cp.user_id=b.owner_user_id OR u.username='agent:'||b.agent_id));
  UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE conversation_id=OLD.conversation_id AND state IN ('prepared','allowed');
 END;
 CREATE TABLE IF NOT EXISTS pa_node_residencies (
@@ -561,4 +541,11 @@ CREATE TABLE IF NOT EXISTS interaction_submissions (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
     semantic_json TEXT NOT NULL
+);
+
+-- Navigation metadata only; editable draft content belongs to interaction_drafts.
+CREATE TABLE IF NOT EXISTS pa_reply_drafts (
+ message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+ target_conversation_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
+ field_name TEXT NOT NULL
 );

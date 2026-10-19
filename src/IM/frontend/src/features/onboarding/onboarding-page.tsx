@@ -22,7 +22,6 @@ export function OnboardingPage() {
   const [nodeId, setNodeId] = useState<string>(draft.nodeId ?? '');
   const [name, setName] = useState<string>(draft.name ?? text('小助理', 'My assistant'));
   const [goal, setGoal] = useState<string>(draft.goal ?? '');
-  const [observe, setObserve] = useState(true);
   const [viewStep, setViewStep] = useState<number | null>(null);
   const [installMethod, setInstallMethod] = useState<'agent' | 'manual'>('agent');
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
@@ -44,7 +43,7 @@ export function OnboardingPage() {
   const create = useMutation({
     mutationFn: () => {
       if (!node || !name.trim()) throw new Error('not ready');
-      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim(),initial_goal:goal.trim()||undefined,observation_enabled:observe});
+      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim(),initial_goal:goal.trim()||undefined});
     },
     onSuccess: async result => {
       await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']})]);
@@ -87,8 +86,7 @@ export function OnboardingPage() {
           {step === 2 && <><h2>{text('你想让助手帮你做什么？', 'What would you like help with?')}</h2><p className="onboarding-sub">{text('给它一个名字，有想推进的事情可以一起交代。','Give it a name and, if you like, a goal to start with.')}</p>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <label htmlFor="onboarding-goal">{text('最近想推进什么？（可选）', 'What would you like to work on? (optional)')}</label><textarea id="onboarding-goal" value={goal} onChange={e => setGoal(e.target.value)} />
-            <label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" style={{width:'auto'}} checked={observe} onChange={e=>setObserve(e.target.checked)}/>{text('了解我的聊天与任务，主动跟进','Follow my conversations and tasks')}</label>
-            <p className="onboarding-detail">{text('助手可按需查询你有权查看的已参与聊天，相关资料由你配置的模型处理。你随时可以暂停观察或排除聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. Pause observation or exclude chats anytime; your assistant does not mark messages read for you.')}</p>
+            <p className="onboarding-detail">{text('助手可按需查询你有权查看的已参与聊天，相关资料由你配置的模型处理。你随时可以排除聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. Exclude chats anytime; your assistant does not mark messages read for you.')}</p>
             {create.error && error(text('电脑尚未确认创建结果。名称和目标已保留，重试会核对同一助手。','Your computer has not confirmed creation. Your name and goal are preserved; retry checks the same assistant.'))}
             {node?.status !== 'online' && error(text('电脑暂时离线，重新上线后即可继续。', 'Your computer is offline. Continue when it reconnects.'))}
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !configured || !personal.isSuccess || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建并开始合作 →', 'Create and start →')}</button></div>

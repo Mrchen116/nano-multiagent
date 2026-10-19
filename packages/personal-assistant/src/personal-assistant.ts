@@ -1,13 +1,13 @@
 import type { ExternalDelivery } from './external.js';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimePort, SessionBinding } from '@nano/product-contracts';
+import { canonicalJson, interactiveResponse, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
 
 type Data = Record<string, unknown>;
-interface Verdict { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; scopes?: Data[]; controls?: Data[]; incident?: {reason:string} }
+interface Verdict { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; incident?: {reason:string} }
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
@@ -26,7 +26,7 @@ export class PersonalAssistant {
     return response.payload.result as Data;
   }
 
-  private async review(config: AgentConfiguration, kind: 'input'|'scope'|'action', evidence: unknown): Promise<Verdict> {
+  private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown): Promise<Verdict> {
     try {
       const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence}) as Verdict;
       if (!result || !['allow','deny','needs_owner','unavailable'].includes(result.decision) || typeof result.reason !== 'string') throw new Error('Invalid independent verdict');
@@ -34,43 +34,12 @@ export class PersonalAssistant {
     } catch (error) { this.options.onError(error); return {decision:'unavailable',reason:'Independent review is temporarily unavailable'}; }
   }
 
-  /** Record only a current authenticated owner message as an authorization candidate. */
-  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput, refreshControl = true): Promise<boolean> {
+  /** Admit a current authorized source, preserving owner instructions versus ambient facts. */
+  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): Promise<boolean> {
     const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
     if(source.allowed!==true)return false;
-    const owner = input.conversation_id === config.personal!.conversationId && input.message.sender_type === 'user'
-      && input.message.sender_user_id === config.personal!.ownerId;
-    if (owner) {
-      const prior = this.options.store.command(`pa-scope:${input.message.id}`);
-      if (!prior) {
-        const evidence = await this.request(config,'pa.scope.resolve',{source_message_id:input.message.id});
-        if (!evidence.owner_message) throw new Error('Owner source is not authenticated');
-        const reviewKey=`pa-scope-review:${input.message.id}`;
-        const saved=this.options.store.command(reviewKey);
-        const verdict:Verdict=saved?JSON.parse(saved):await this.review(config,'scope',evidence);
-        if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
-        if(!saved)this.options.store.saveCommand(reviewKey,JSON.stringify(verdict));
-        if (verdict.decision === 'allow') {
-          for (const control of verdict.controls??[]) {
-            const key=`${reviewKey}:control:${createHash('sha256').update(JSON.stringify(control)).digest('hex')}`;
-            if(!this.options.store.command(key)) {
-              try { await this.request(config,'pa.owner.control',{...control,source_message_id:input.message.id}); }
-              catch(error) {
-                if(!/assistance_revision_conflict|policy_revision_conflict/.test(String(error))) throw error;
-                // Reinterpret the same authenticated message against current facts, never replay a stale revision forever.
-                this.options.store.forgetCommand(reviewKey);
-                if(refreshControl) return this.admit(config,binding,input,false);
-                throw error;
-              }
-              this.options.store.saveCommand(key,'done');
-            }
-          }
-          for (const [index,scope] of (verdict.scopes??[]).entries()) await this.request(config,'pa.scope.create',{
-            source_message_id:input.message.id,goal_key:String(index),scope,title:scope.title,goal_description:scope.goal_description,task_ref:scope.task_ref});
-        }
-        this.options.store.saveCommand(`pa-scope:${input.message.id}`, JSON.stringify({decision:verdict.decision}));
-      }
-    } else {
+    input.metadata.personal_source_role = source.role;
+    if (source.role !== 'owner_instruction' && source.role !== 'owner_fact') {
       const verdict = await this.review(config,'input',{source:{conversation_id:input.conversation_id,message_id:input.message.id,
         actor:input.message.sender_user_id,kind:input.message.sender_type},content:input.message.content});
       if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
@@ -94,56 +63,24 @@ export class PersonalAssistant {
     return true;
   }
 
-  /** A source read uses the same server owner ACL every time, including after pause. */
+  /** Apply source preferences directly; the server authenticates the owner's original instruction. */
   async tool(config: AgentConfiguration, binding: SessionBinding, call: ProductCall): Promise<unknown> {
-    const {action} = call.args;
-    const args = (call.args.args ?? Object.fromEntries(Object.entries(call.args).filter(([key])=>key !== 'action'))) as Data;
-    if (call.sessionId !== binding.sessionId) throw new Error('Personal history and goals belong to the main PA');
-    const methods: Record<string,string> = {'history.search':'pa.history.search','history.read':'pa.history.read',
-      goals:'pa.assistance.read','goal.update':'pa.assistance.update',decision:'pa.decision.create',incident:'pa.incident.report'};
-    if (action === 'goals') return {...await this.request(config,'pa.assistance.read'), authorization:await this.request(config,'pa.scope.resolve')};
-    if (typeof action === 'string' && methods[action]) return this.request(config,methods[action]!,args);
-    if (action === 'followup') return this.followup(config,binding,args);
-    throw new Error('Unknown personal assistant action');
+    if (call.sessionId !== binding.sessionId) throw new Error('Source preferences belong to the main PA');
+    if (!['list','exclude','include'].includes(String(call.args.action))) throw new Error('Unknown personal source action');
+    return this.request(config,'pa.sources',call.args);
   }
 
-  /** Review concrete egress tools using host-collected execution evidence, not model citations. */
-  async guard(config: AgentConfiguration, call: ProductCall): Promise<Verdict> {
-    const args=(call.args.args??{}) as Data;
-    const network=args.network as Data|undefined;
-    if(network) {
-      const key=`pa-network:${config.agentId}:${network.requestKey}`;
-      const result=await this.executeReviewed(config,{request_key:`${call.operationId}:${network.requestKey}`,network},call.args.executionEvidence);
-      if(result.state!=='sending')return {decision:result.decision as Verdict['decision']??'deny',reason:String(result.reason??'Network operation already consumed or unavailable')};
-      const permit={proposal_ref:result.proposal_ref,requestDigest:network.requestDigest,requestKey:network.requestKey};
-      this.options.store.saveCommand(key,JSON.stringify(permit));
-      return {...{decision:'allow',reason:'Frozen network request consumed'},permit} as Verdict;
-    }
-    const scope = await this.request(config,'pa.scope.resolve');
-    return this.review(config,'action',{kind:'tool',toolName:call.args.toolName,args:call.args.args,
-      executionEvidence:call.args.executionEvidence,authorization:scope});
-  }
-
-  /** Record the actual adapter outcome; model-supplied pass strings are not permits. */
-  async complete(config:AgentConfiguration,call:ProductCall):Promise<Data> {
-    const permit=call.args.permit as Data;
-    const saved=this.options.store.command(`pa-network:${config.agentId}:${permit?.requestKey}`);
-    if(!saved||JSON.stringify(JSON.parse(saved))!==JSON.stringify(permit))throw new Error('Unknown network execution permit');
-    return this.request(config,'pa.action.complete',{proposal_ref:permit.proposal_ref,state:call.args.state});
-  }
-
-  /** Shared task results use the same frozen proposal and actual write receipt. */
-  async task(config:AgentConfiguration,call:ProductCall):Promise<unknown> {
-    const ops=call.args.operations as {op:string;node_id:string;patch:Data}[];
-    if(!Array.isArray(ops)||ops.length!==1||ops[0]!.op!=='update_task'||Object.keys(ops[0]!.patch).some(key=>!['status','result'].includes(key))) throw new Error('PA task result writes require one concrete status/result update');
+  /** Private tasks continue through the ordinary command; shared writes review the complete command. */
+  async task(config:AgentConfiguration,call:ProductCall,task:Data):Promise<unknown> {
+    const proposal=await this.request(config,'pa.action.prepare',{request_key:call.operationId,task});
+    if(proposal.owner_private === true) return undefined;
     const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:call.sessionId});
-    const result=await this.executeReviewed(config,{request_key:call.operationId,task_ref:call.args.task_ref,
-      task:{graph_id:call.args.graph_id,node_id:ops[0]!.node_id,patch:ops[0]!.patch,base_revision:call.args.base_revision}},evidence);
+    const result=await this.executeReviewed(config,{},evidence,proposal);
     return result.state==='confirmed'?{ok:true,result:result.result}:{ok:false,error:result};
   }
 
-  private async executeReviewed(config:AgentConfiguration,args:Data,evidence:unknown):Promise<Data> {
-    const proposal=await this.request(config,'pa.action.prepare',args);
+  private async executeReviewed(config:AgentConfiguration,args:Data,evidence:unknown,prepared?:Data):Promise<Data> {
+    const proposal=prepared ?? await this.request(config,'pa.action.prepare',args);
     if(['confirmed','sending','unknown'].includes(String(proposal.state))) return proposal.state==='sending'?{state:'unknown'}:proposal;
     const verdict=await this.review(config,'action',{...proposal.evidence as Data,executionEvidence:evidence});
     const receipt=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
@@ -157,30 +94,44 @@ export class PersonalAssistant {
     const target = String(call.args.target ?? '');
     const text = String(call.args.text ?? '');
     if (!target || !text.trim()) throw new Error('Sending requires target and nonempty text');
+    const interactive = interactiveResponse(call.args.interactive);
+    if (interactive && config.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
+    const replyDraft = call.args.reply_draft;
+    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, reply_draft:replyDraft ?? null});
     const previous = inbox.publication(call.operationId);
-    if (previous && (previous.target !== target || previous.body !== text)) throw new Error('Publication identity conflict');
+    if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;
     if(target.replace(/^conversation:/,'').startsWith('external:')) {
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:target.startsWith('conversation:')?target:`conversation:${target}`,text,
-        pa_task_ref:call.args.task_ref,from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
+        from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
     }
     const conversation = await this.resolve(config,target);
     if (inbox.blocking(config.agentId,conversation)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
-    inbox.preparePublication(call.operationId,target,text);
+    inbox.preparePublication(call.operationId,target,publicationBody);
+    if (conversation === config.personal!.conversationId) {
+      // Private owner replies use the ordinary publication path, including IntelligentUI.
+      inbox.settlePublication(call.operationId,'sending');
+      try {
+        const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
+          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {}),
+          from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
+        if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
+        const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
+        inbox.settlePublication(call.operationId,'confirmed',result);return result;
+      } catch(error) {inbox.settlePublication(call.operationId,'unknown');throw error;}
+    }
     const proposal = await this.request(config,'pa.action.prepare',{request_key:call.operationId,conversation_id:conversation,
-      content:text,attachments:call.args.attachments ?? [],task_ref:call.args.task_ref});
+      content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(call.operationId,'confirmed',result); return result;
     }
-    const owner = conversation === config.personal!.conversationId;
     // All used source data is collected by the runtime host; the main model cannot choose it.
-    const executionEvidence = owner ? undefined : await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:call.sessionId});
-    const verdict: Verdict = owner ? {decision:'allow',reason:'Authenticated canonical owner recipient'}
-      : await this.review(config,'action',{...proposal.evidence as Data,executionEvidence});
+    const executionEvidence = await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:call.sessionId});
+    const verdict: Verdict = await this.review(config,'action',{...proposal.evidence as Data,executionEvidence});
     const receipt = await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,
       payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if (verdict.decision !== 'allow' || !receipt.verdict_ref) {
@@ -203,7 +154,7 @@ export class PersonalAssistant {
   /** Freeze and consume a provider permit immediately before the real channel send. */
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
-    const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,task_ref:delivery.taskRef,incident_ref:delivery.incidentRef,
+    const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
@@ -235,38 +186,4 @@ export class PersonalAssistant {
     return resolved.replace(/^conversation:/,'');
   }
 
-  /** Recreate only still-authorized goal timers after retiring a shared personal context. */
-  async restoreFollowups(config: AgentConfiguration, binding: SessionBinding) {
-    const evidence=await this.request(config,'pa.scope.resolve');
-    const allowed=new Set((evidence.conversations as Data[]).map(c=>c.id));
-    for(const goal of evidence.assistance as Data[]) {
-      if(goal.paused || goal.status==='completed' || !goal.next_check_at)continue;
-      const scope=(evidence.scopes as Data[]).find(s=>s.task_ref===goal.task_ref);
-      if(!scope || scope.revoked || ((scope.scope as Data).allowed_conversation_ids as string[]).some(id=>!allowed.has(id))) {
-        await this.request(config,'pa.assistance.update',{task_ref:goal.task_ref,expected_revision:goal.revision,next_check_at:null,schedule_id:null,next_action:'所需聊天已不可访问，相关跟进已停止。'});
-        continue;
-      }
-      await this.followup(config,binding,{task_ref:goal.task_ref,at:new Date(Math.max(Date.parse(String(goal.next_check_at)),Date.now()+5000)).toISOString(),next_action:goal.next_action});
-    }
-  }
-  private async followup(config:AgentConfiguration,binding:SessionBinding,args:Data):Promise<Data> {
-    const taskRef=String(args.task_ref ?? '');
-    if(!taskRef)throw new Error('Follow-up requires an existing goal');
-    const state=await this.request(config,'pa.assistance.read',{task_ref:taskRef});
-    const goals=(state.items ?? state.assistance ?? []) as Data[];
-    const goal=goals.find(item=>item.task_ref===taskRef);
-    if(!goal || goal.paused || goal.status==='completed')throw new Error('Goal is unavailable or paused');
-    const at=String(args.at ?? '');
-    if(!Number.isFinite(Date.parse(at)) || Date.parse(at)<=Date.now())throw new Error('Choose a future follow-up time');
-    const jobs=await this.options.runtime.request('schedule.command',{agentId:config.agentId,sessionId:binding.sessionId,action:'jobs'}) as Data[];
-    const title=`PA follow-up ${taskRef}`;
-    const prior=jobs.find(job=>job.name===title && job.sessionId===binding.sessionId && job.enabled);
-    const timing=prior ? {id:prior.id,expected:{id:prior.id,title:prior.name,prompt:prior.instruction,...prior.schedule as Data},change:{kind:'at',at}} : {at};
-    const scheduled=await this.options.runtime.request('schedule.command',{agentId:config.agentId,sessionId:binding.sessionId,
-      action:prior?'update':'create',args:{...timing,title,prompt:`Continue existing PA goal ${taskRef}. First call personal_assistant goals to recheck current scope, pause and latest facts. This scheduled event grants no new authorization. Continue safe work; notify only on meaningful change.`}}) as Data;
-    if(prior && scheduled.updated !== true) throw new Error('Follow-up changed; read the current goal and retry');
-    if(typeof scheduled.id!=='string')throw new Error('Follow-up has no schedule receipt');
-    await this.request(config,'pa.assistance.update',{task_ref:taskRef,expected_revision:goal.revision,schedule_id:scheduled.id,next_check_at:at,next_action:args.next_action});
-    return {task_ref:taskRef,schedule_id:scheduled.id,next_check_at:at,status:'scheduled'};
-  }
 }

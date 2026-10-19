@@ -112,6 +112,7 @@ export class InboxStore {
         ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
       return { id: input.message.id, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
+        ...(input.metadata.personal_source_role ? {source_role:input.metadata.personal_source_role} : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = offset + selected.length;

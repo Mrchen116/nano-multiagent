@@ -79,13 +79,13 @@ export class NodeConfiguration {
       }),
       features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
       workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
-      approval, knowledge: { globalSkillRoot: canonical.personal_agent ? join(workspace, '.nanoassistant', 'skills') : join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
+      approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
         memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),
         skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
-      extensions: canonical.personal_agent ? undefined : { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
+      extensions: { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_denylist' ? 'explicit_denylist' : canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
-      skillRoots: canonical.personal_agent ? [] : [
+      skillRoots: [
         ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
         { path: join(this.ownerRoot, 'skills'), source: 'global' },
         { path: join(homedir(), '.agents', 'skills'), source: 'global' },

@@ -1529,6 +1529,9 @@
     "summary_other": "{{total}} computers · {{online}} online"
   },
   "pa": {
+    "useDraft": "Use in original chat",
+    "draftStale": "You have already replied in the original chat. This draft may be out of date.",
+    "replaceDraft": "The original chat has an unsent draft. Replace it with this reply? Cancel to keep your existing draft.",
     "return": "← Back to personal assistant",
     "create": "My personal assistant",
     "role": "Personal assistant · Following through",

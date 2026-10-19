@@ -412,9 +412,8 @@ export class Gateway {
       ).run(p.status ?? "online", now(), p.last_error ?? null, p.agent_count ?? null, c.node_id);
       // Pending observations survive transient review failures. Existing heartbeats retry them without a new user message.
       if((p.status??'online')==='online') for(const binding of all(db,`SELECT DISTINCT b.* FROM personal_agent_bindings b
-        JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies policy ON policy.binding_id=b.binding_id
-        WHERE b.node_id=? AND b.status='active' AND e.state IN ('pending','received')
-        AND (e.conversation_id IS NULL OR policy.observation_enabled=1)`,c.node_id)) this.ctx.personal?.wake(binding);
+        JOIN pa_source_events e ON e.binding_id=b.binding_id
+        WHERE b.node_id=? AND b.status='active' AND e.state IN ('pending','received')`,c.node_id)) this.ctx.personal?.wake(binding);
       return ack({ node_id: c.node_id });
     }
     if (type === "agent.work.append")
@@ -426,8 +425,8 @@ export class Gateway {
       try {
         const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
         if(personal && ["create","apply","delete"].includes(p.action)) {
-          const destination=p.args?.conversation_id??one(db,"SELECT conversation_id FROM task_graphs WHERE graph_id=?",p.args?.graph_id??"")?.conversation_id;
-          if(destination!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+          const destination=p.action==='create'?p.args?.conversation_id:one(db,"SELECT conversation_id FROM task_graphs WHERE graph_id=?",p.args?.graph_id??"")?.conversation_id;
+          if(destination!==personal.conversation_id)throw new TaskGraphError("personal_reviewed_delivery_required","Shared task changes require reviewed delivery");
         }
         if (!p.request_id)
           throw new TaskGraphError(
@@ -548,6 +547,7 @@ export class Gateway {
         const saved = s.message(previous.message_id);
         const savedInteractive = s.interactions.publication(previous.message_id);
         if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
+          || canonicalJson(saved.reply_draft ? {target_conversation_id:saved.reply_draft.target_conversation_id,source_message_id:saved.reply_draft.source_message_id,field_name:saved.reply_draft.field_name} : null) !== canonicalJson(p.reply_draft ?? null)
           || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({
           conversation_id: previous.conversation_id,
@@ -584,7 +584,7 @@ export class Gateway {
         p.attachments ?? [],
         key,
         'completed',
-        { interactive, publish: false },
+        { interactive, reply_draft:p.reply_draft, publish: false },
       );
       if (p.background_returns)
         db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(

@@ -103,15 +103,18 @@ export class NanoApproval extends Service {
     if (downstream.kind !== 'allow') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
+    // Source preferences use the original owner message and revision checked by the product host.
+    if (config.personal && exec.name === 'personal_sources') return allow('owner_source_control');
     if (policy.rules !== 'dsh' && (safeTools.has(exec.name)
-      || config.personal && (exec.name === 'personal_files' || exec.name === 'personal_assistant' && ['history.search','history.read','goals'].includes(String((exec.arguments as {action?:unknown}).action)))
-      || exec.name === 'conversations' && ['list', 'info', 'read'].includes(String((exec.arguments as { action?: unknown }).action))
+      || exec.name === 'conversations' && ['list', 'info', 'read', 'search'].includes(String((exec.arguments as { action?: unknown }).action))
       || policy.enabled && (['schedule_list', 'schedule_history', 'get_goal', 'todo_write'].includes(exec.name)
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
       || !['bash', 'send_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
+    // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
+    if (config.personal && policy.enabled && exec.name === 'send_message') return allow('product_disclosure_gate');
     const messageContext = exec.name === 'send_message'
       ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, exec) as MessageApprovalContext : undefined;
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
@@ -121,7 +124,7 @@ export class NanoApproval extends Service {
     const started = Date.now();
     let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
     try {
-      // Persistent owner scopes and UI choices must reach the ordinary reviewer too, including after recovery.
+      // Original owner messages and submitted UI choices remain evidence after recovery.
       const personalAuthorization=config.personal ? await this.ctx.nanoProduct.call('pa.authorization',{},exec) : undefined;
       const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, personalAuthorization, reviewer };
       const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)

@@ -1,3 +1,4 @@
+import { isInteractiveStringState } from './interactive-source.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
@@ -13,7 +14,7 @@ export class PersonalAgents {
   binding(owner: string) { return one(this.db, 'SELECT * FROM personal_agent_bindings WHERE owner_id=?', owner); }
   policy(bindingId: string): Row {
     const p = one(this.db, 'SELECT * FROM pa_policies WHERE binding_id=?', bindingId)!;
-    return { revision: p.revision, observation_enabled: !!p.observation_enabled, excluded_conversation_ids: JSON.parse(p.excluded_json) };
+    return { revision: p.revision, excluded_conversation_ids: JSON.parse(p.excluded_json) };
   }
   state(owner: string) {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
@@ -30,14 +31,38 @@ export class PersonalAgents {
       (args.binding_id !== undefined && args.binding_id !== b.binding_id) || (args.epoch !== undefined && args.epoch !== b.node_epoch)) fail(403, 'personal_binding_not_authorized');
     return b;
   }
+  sourceAccess(b: Row, conversationId: string, mode: 'read'|'write' = 'read') {
+    const owner = conversationAccess(this.db, conversationId, b.owner_user_id);
+    const agentUser = this.ctx.messaging.agentUser(b.agent_id);
+    const agent = conversationAccess(this.db, conversationId, agentUser.id);
+    const participated = one(this.db, 'SELECT 1 FROM conversation_participation_history WHERE conversation_id=? AND user_id=?', conversationId, b.owner_user_id);
+    return [owner && participated ? owner : undefined, agent].find(access => access && (mode === 'read' || access.can_write));
+  }
   sourceAllowed(b: Row, conversationId: string, mode: 'read'|'write' = 'read') {
-    const ownerAccess = conversationAccess(this.db, conversationId, b.owner_user_id);
-    const agentUser=one(this.db,'SELECT id FROM users WHERE username=?',`agent:${b.agent_id}`);
-    const contactAccess=agentUser?conversationAccess(this.db,conversationId,agentUser.id):undefined;
-    const access=ownerAccess ?? (contactAccess?.is_member ? contactAccess : undefined);
-    if (!access || (mode === 'write' && !access.can_write)) return false;
-    if (ownerAccess && !one(this.db, 'SELECT 1 FROM conversation_participation_history WHERE conversation_id=? AND user_id=?', conversationId, b.owner_user_id) && !contactAccess?.is_member) return false;
-    return !this.policy(b.binding_id).excluded_conversation_ids.includes(conversationId);
+    return !!this.sourceAccess(b, conversationId, mode) && !this.policy(b.binding_id).excluded_conversation_ids.includes(conversationId);
+  }
+  sourceConversations(b: Row,scope="joined"): Row[] {
+    const agentUser = this.ctx.messaging.agentUser(b.agent_id);
+    const policy = this.policy(b.binding_id);
+    const ids = new Set<string>([...all(this.db,'SELECT conversation_id FROM conversation_participation_history WHERE user_id=?',b.owner_user_id).map(row=>row.conversation_id),
+      ...this.ctx.messaging.conversations(agentUser.id,scope).map(row=>row.id),...policy.excluded_conversation_ids]);
+    return [...ids].filter(id => this.sourceAccess(b,id)).map(id => {
+      const viewer = conversationAccess(this.db,id,b.owner_user_id) ? b.owner_user_id : agentUser.id;
+      return {...this.ctx.messaging.conversation(id,viewer),excluded:policy.excluded_conversation_ids.includes(id)};
+    });
+  }
+  /** Change future source access using an authenticated owner message, without erasing prior work. */
+  sources(principal: Row, args: Row) {
+    const b = this.authority(principal,args);
+    if (!['list','exclude','include'].includes(args.action)) fail(422,'invalid_source_action');
+    if (args.action !== 'list') {
+      this.ownerMessage(b,args.source_message_id);
+      if (!this.sourceAccess(b,args.conversation_id)) fail(404,'source_not_accessible');
+      const excluded = new Set(this.policy(b.binding_id).excluded_conversation_ids);
+      if (args.action === 'exclude') excluded.add(args.conversation_id); else excluded.delete(args.conversation_id);
+      this.updatePolicy(b.owner_id,{expected_revision:args.expected_revision,excluded_conversation_ids:[...excluded]});
+    }
+    return {policy:this.policy(b.binding_id),items:this.sourceConversations(b)};
   }
   /** Revalidate every ingress path, including relays queued before a policy change. */
   sourceActor(message:Row) {return message.sender_source_id?`external:${message.conversation_id}:${message.sender_source_id}`:message.sender_user_id;}
@@ -49,7 +74,9 @@ export class PersonalAgents {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
     if(!m || !this.messageAllowed(b,m)) return {allowed:false};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    return {allowed:true};
+    const role = m.sender_type === 'user' && m.sender_user_id === b.owner_user_id && !m.sender_source_id
+      ? m.conversation_id === b.conversation_id ? 'owner_instruction' : 'owner_fact' : 'external';
+    return {allowed:true,role,policy_revision:this.policy(b.binding_id).revision};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
@@ -57,9 +84,9 @@ export class PersonalAgents {
     if (input.expected_revision !== current.revision) fail(409, 'policy_revision_conflict');
     const excluded = input.excluded_conversation_ids ?? current.excluded_conversation_ids;
     if (!Array.isArray(excluded) || excluded.some(id=>typeof id !== 'string' || id === b.conversation_id)) fail(422, 'invalid_source_exclusions');
-    if (input.observation_enabled !== undefined && typeof input.observation_enabled !== 'boolean') fail(422,'invalid_observation_setting');
+    if (excluded.some(id=>!current.excluded_conversation_ids.includes(id)&&!this.sourceAccess(b,id))) fail(404,'source_not_accessible');
     transaction(this.db,()=> {
-      this.db.prepare('UPDATE pa_policies SET revision=revision+1,observation_enabled=?,excluded_json=? WHERE binding_id=?').run(Number(input.observation_enabled ?? current.observation_enabled),JSON.stringify([...new Set(excluded)]),b.binding_id);
+      this.db.prepare('UPDATE pa_policies SET revision=revision+1,excluded_json=? WHERE binding_id=?').run(JSON.stringify([...new Set(excluded)]),b.binding_id);
       this.db.prepare("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id=? AND state IN ('prepared','allowed')").run(b.binding_id);
       for (const id of excluded) this.db.prepare("UPDATE pa_source_events SET state='revoked' WHERE binding_id=? AND conversation_id=? AND state!='processed'").run(b.binding_id,id);
       this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'policy.changed',?,?,?)").run(b.binding_id,JSON.stringify({excluded_conversation_ids:excluded}),current.revision+1,now());
@@ -68,37 +95,10 @@ export class PersonalAgents {
     return this.policy(b.binding_id);
   }
   wake(b: Row) { this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch}}); }
-  history(principal: Row, args: Row): Row {
-    const b=this.authority(principal,args), policy=this.policy(b.binding_id);
-    if (args.conversation_id && !this.sourceAllowed(b,args.conversation_id)) fail(404,'source_not_accessible');
-    const limit=Math.max(1,Math.min(100,Number(args.limit)||30));
-    const clauses=['m.rowid < ?'], values:any[]=[Number(args.cursor)||Number.MAX_SAFE_INTEGER];
-    if(args.conversation_id){clauses.push('m.conversation_id=?');values.push(args.conversation_id);}
-    if(args.keyword){clauses.push("instr(lower(m.content),lower(?))>0");values.push(String(args.keyword));}
-    if(args.before){clauses.push('m.created_at<?');values.push(args.before);}
-    if(args.after){clauses.push('m.created_at>=?');values.push(args.after);}
-    if(args.participant_id){clauses.push('EXISTS(SELECT 1 FROM conversation_participation_history hp WHERE hp.conversation_id=m.conversation_id AND hp.user_id=?)');values.push(args.participant_id);}
-    const allowed=all(this.db,'SELECT conversation_id FROM conversation_participation_history WHERE user_id=?',b.owner_user_id).map(c=>c.conversation_id).filter(id=>this.sourceAllowed(b,id));
-    if(!allowed.length)return {items:[],next_cursor:null,coverage:'current_authorized_participated_conversations'};
-    clauses.push(`m.conversation_id IN (${allowed.map(()=>'?').join(',')})`);values.push(...allowed);
-    const candidates=all(this.db,`SELECT m.rowid source_cursor,m.*,u.display_name author_name FROM messages m JOIN users u ON u.id=m.sender_user_id
-      JOIN conversation_participation_history h ON h.conversation_id=m.conversation_id AND h.user_id=? WHERE ${clauses.join(' AND ')} ORDER BY m.rowid DESC LIMIT ?`,b.owner_user_id,...values,limit+1);
-    const matches=candidates.filter(m=>this.sourceAllowed(b,m.conversation_id)).slice(0,limit+1), page=matches.slice(0,limit);
-    for(const m of page) this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,policy.revision);
-    return {items:page.map(m=>({conversation_id:m.conversation_id,message_id:m.id,author_id:m.sender_user_id,author_name:m.author_name,content:m.content,created_at:m.created_at,source_policy_revision:policy.revision,url:`/chat/${m.conversation_id}?message_id=${m.id}`})),next_cursor:matches.length>limit?page.at(-1)!.source_cursor:null,coverage:'current_authorized_participated_conversations'};
-  }
-  readHistory(principal: Row,args:Row) {
-    const b=this.authority(principal,args);
-    if(!args.message_id) return this.history(principal,args);
-    const message=one(this.db,'SELECT rowid source_cursor,* FROM messages WHERE id=?',args.message_id);
-    if(!message || !this.sourceAllowed(b,message.conversation_id)) fail(404,'source_not_accessible');
-    const after=all(this.db,'SELECT rowid source_cursor FROM messages WHERE conversation_id=? AND rowid>=? ORDER BY rowid LIMIT ?',message.conversation_id,message.source_cursor,1+Math.max(0,Math.min(50,Number(args.context_after)||0)));
-    return this.history(principal,{...args,keyword:undefined,conversation_id:message.conversation_id,cursor:args.cursor ?? after.at(-1)!.source_cursor+1});
-  }
   observations(principal: Row,args:Row) {
     const b=this.authority(principal,args), policy=this.policy(b.binding_id);
     const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
-      .filter(e=>!e.conversation_id || (policy.observation_enabled && this.sourceAllowed(b,e.conversation_id)))
+      .filter(e=>!e.conversation_id || this.sourceAllowed(b,e.conversation_id))
       .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
       .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>({...e,conversation_type:e.conversation_id?one(this.db,'SELECT type FROM conversations WHERE id=?',e.conversation_id)?.type:undefined,payload:JSON.parse(e.payload_json),message:e.message_id?this.ctx.messaging.message(e.message_id):null}));
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
@@ -115,113 +115,39 @@ export class PersonalAgents {
     return {acknowledged:args.event_ids,stage:args.stage};
   }
   ownerMessage(b:Row,id:string) {
-    const m=one(this.db,"SELECT * FROM messages WHERE id=? AND conversation_id=? AND sender_user_id=? AND sender_type='user'",id,b.conversation_id,b.owner_user_id);
+    const m=one(this.db,"SELECT * FROM messages WHERE id=? AND conversation_id=? AND sender_user_id=? AND sender_type='user' AND sender_source_id IS NULL",id,b.conversation_id,b.owner_user_id);
     if(!m) fail(403,'direct_owner_evidence_required');
     return {id:m.id,content:m.content,created_at:m.created_at};
   }
-  ownerDecisions(bindingId:string,taskRef?:string) {
-    return all(this.db,"SELECT * FROM pa_decisions WHERE binding_id=? AND status IN ('resolved','declined')",bindingId)
-      .filter(d=>!taskRef||d.task_ref===taskRef).map(d=>({decision_id:d.id,task_ref:d.task_ref,prompt:JSON.parse(d.payload_json),owner_resolution:JSON.parse(d.resolution_json??'null'),status:d.status,revision:d.revision}));
+  /** Return original owner inputs and their published UI context; private drafts are not authorization. */
+  authorization(principal: Row, args: Row) {
+    const b = this.authority(principal,args);
+    const messages = all(this.db,"SELECT * FROM messages WHERE conversation_id=? AND sender_user_id=? AND sender_type='user' AND sender_source_id IS NULL ORDER BY rowid",b.conversation_id,b.owner_user_id);
+    return {policy:this.policy(b.binding_id),owner_messages:messages.map(m=>({id:m.id,content:m.content,created_at:m.created_at,
+      ...(m.interaction_reply_json ? {interaction_reply:JSON.parse(m.interaction_reply_json)} : {})})),
+      proposals:all(this.db,'SELECT m.id,m.content,m.created_at,i.source,i.superseded_by FROM messages m JOIN message_interactive i ON i.message_id=m.id WHERE m.conversation_id=? AND m.sender_user_id=? ORDER BY m.rowid',b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id)};
   }
-  scopes(principal:Row,args:Row) {
-    const b=this.authority(principal,args);
-    const rows=all(this.db,'SELECT * FROM pa_goal_scopes WHERE binding_id=?',b.binding_id).filter(s=>!args.task_ref||s.task_ref===args.task_ref);
-    return {binding:b,policy:this.policy(b.binding_id),assistance:this.assistance(b.owner_id).items,owner_decisions:this.ownerDecisions(b.binding_id,args.task_ref),owner_message:args.source_message_id?this.ownerMessage(b,args.source_message_id):null,conversations:this.ctx.messaging.conversations(b.owner_user_id).filter(c=>this.sourceAllowed(b,c.id)).map(c=>({id:c.id,title:c.title,participants:c.participants})),scopes:rows.map(s=>({...s,scope:JSON.parse(s.scope_json)}))};
+  /** Validate a draft's original chat and declared state field without treating it as send permission. */
+  validateReplyDraft(conversationId:string,senderId:string,input:Row,interactiveSource?:string):Row {
+    const b=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE u.id=? AND b.conversation_id=?",senderId,conversationId);
+    const source=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',input?.source_message_id??'',input?.target_conversation_id??'');
+    if(!b||!source||!conversationAccess(this.db,source.conversation_id,b.owner_user_id)?.can_write||!this.sourceAllowed(b,source.conversation_id)
+      ||typeof input.field_name!=='string'||!interactiveSource||!isInteractiveStringState(interactiveSource,input.field_name))fail(422,'invalid_reply_draft');
+    return {target_conversation_id:source.conversation_id,source_message_id:source.id,field_name:input.field_name};
   }
-  createScope(principal:Row,args:Row) {
-    const b=this.authority(principal,args), evidence=this.ownerMessage(b,args.source_message_id);
-    if(!args.scope || !Array.isArray(args.scope.allowed_conversation_ids)||!Array.isArray(args.scope.allowed_action_kinds)) fail(422,'invalid_scope');
-    for(const id of args.scope.allowed_conversation_ids) if(!this.sourceAllowed(b,id,'write')) fail(403,'scope_target_not_accessible');
-    let taskRef=args.task_ref;
-    if(!taskRef) {
-      const task=this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:evidence.id},'create',{conversation_id:b.conversation_id,title:String(args.title||evidence.content).slice(0,240),description:args.goal_description||evidence.content,mode:'dag',assignee:args.scope.owner_responsible===true?{type:'user',id:b.owner_user_id}:{type:'agent',id:b.agent_id},status:'doing',request_key:`pa-goal:${b.binding_id}:${evidence.id}:${args.goal_key??'0'}`});
-      taskRef=task.graph_id;
-    }
-    const graph=one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',taskRef);
-    if(!graph || !this.sourceAllowed(b,graph.conversation_id)) fail(404,'task_not_accessible');
-    const previous=one(this.db,'SELECT * FROM pa_goal_scopes WHERE binding_id=? AND task_ref=?',b.binding_id,taskRef);
-    if(previous && previous.owner_message_id===evidence.id) return {...previous,scope:JSON.parse(previous.scope_json)};
-    if(previous && graph.conversation_id===b.conversation_id && (args.title || args.goal_description)) {
-      const doc=JSON.parse(graph.document_json);
-      this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id},'apply',{graph_id:taskRef,base_revision:graph.revision,request_key:`pa-goal-update:${evidence.id}:${taskRef}`,change_note:'Owner updated this goal',operations:[{op:'update_task',node_id:doc.root_node_id,patch:{...(args.title?{title:args.title}:{}),...(args.goal_description?{description:args.goal_description}:{})}}]});
-    }
-    const scopeId=previous?.scope_id??randomUUID();
-    this.db.prepare(`INSERT INTO pa_goal_scopes(scope_id,binding_id,task_ref,owner_message_id,owner_text,scope_json) VALUES(?,?,?,?,?,?)
-      ON CONFLICT(binding_id,task_ref) DO UPDATE SET owner_message_id=excluded.owner_message_id,owner_text=excluded.owner_text,scope_json=excluded.scope_json,revision=pa_goal_scopes.revision+1,revoked=0`).run(scopeId,b.binding_id,taskRef,evidence.id,previous ? previous.owner_text+'\n\n[Owner update]\n'+evidence.content : evidence.content,JSON.stringify(args.scope));
-    this.db.prepare('INSERT OR IGNORE INTO pa_assistance(binding_id,task_ref,scope_id) VALUES(?,?,?)').run(b.binding_id,taskRef,scopeId);
-    return {...one(this.db,'SELECT * FROM pa_goal_scopes WHERE scope_id=?',scopeId),scope:args.scope};
+  /** Bind navigation metadata only; 617 owns all editable draft content. */
+  recordReplyDraft(messageId:string,input:Row):void {
+    const m=one(this.db,'SELECT * FROM messages WHERE id=?',messageId)!;
+    const interactive=one(this.db,'SELECT source FROM message_interactive WHERE message_id=?',messageId);
+    const draft=this.validateReplyDraft(m.conversation_id,m.sender_user_id,input,interactive?.source);
+    this.db.prepare('INSERT INTO pa_reply_drafts VALUES(?,?,?,?)').run(messageId,draft.target_conversation_id,draft.source_message_id,draft.field_name);
   }
-  /** Only the host's independent interpretation of a current owner message can call this. */
-  ownerControl(principal:Row,args:Row) {
-    const b=this.authority(principal,args); this.ownerMessage(b,args.source_message_id);
-    if(['pause','resume','draft_only'].includes(args.action)) {
-      const a=one(this.db,'SELECT * FROM pa_assistance WHERE binding_id=? AND task_ref=?',b.binding_id,args.task_ref);
-      if(a && ['pause','resume'].includes(args.action) && !!a.paused===(args.action==='pause')) return this.assistance(b.owner_id);
-      if(!a || a.revision!==args.expected_revision) fail(409,'assistance_revision_conflict');
-      transaction(this.db,()=>{
-        if(args.action==='draft_only') {
-          const scope=one(this.db,'SELECT * FROM pa_goal_scopes WHERE binding_id=? AND task_ref=?',b.binding_id,args.task_ref);
-          if(!scope)fail(404,'goal_scope_not_found');
-          const value=JSON.parse(scope.scope_json);value.allowed_action_kinds=value.allowed_action_kinds.filter((kind:string)=>kind!=='message');
-          value.constraints=(value.constraints??'')+'; Only prepare private drafts until owner authorizes sending again.';
-          this.db.prepare('UPDATE pa_goal_scopes SET scope_json=?,revision=revision+1 WHERE scope_id=?').run(JSON.stringify(value),scope.scope_id);
-        }
-        this.db.prepare('UPDATE pa_assistance SET paused=?,revision=revision+1 WHERE binding_id=? AND task_ref=?').run(args.action==='draft_only'?a.paused:Number(args.action==='pause'),b.binding_id,args.task_ref);
-        this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'assistance.changed',?,?,?)").run(b.binding_id,JSON.stringify({task_ref:args.task_ref,paused:args.action==='pause',preference:args.action}),this.policy(b.binding_id).revision,now());
-      });
-      this.wake(b);return this.assistance(b.owner_id);
-    }
-    const policy=this.policy(b.binding_id);
-    if(args.action==='observe') return this.updatePolicy(b.owner_id,{expected_revision:args.expected_revision,observation_enabled:args.enabled});
-    if(['exclude','include'].includes(args.action) && typeof args.conversation_id==='string' && args.conversation_id!==b.conversation_id) {
-      if(!conversationAccess(this.db,args.conversation_id,b.owner_user_id))fail(404,'source_not_accessible');
-      return this.updatePolicy(b.owner_id,{expected_revision:args.expected_revision,excluded_conversation_ids:args.action==='exclude'?[...policy.excluded_conversation_ids,args.conversation_id]:policy.excluded_conversation_ids.filter((id:string)=>id!==args.conversation_id)});
-    }
-    fail(422,'invalid_owner_control');
-  }
-  assistance(owner:string) {
-    const b=this.binding(owner); if(!b) return {items:[]};
-    return {items:all(this.db,'SELECT * FROM pa_assistance WHERE binding_id=?',b.binding_id).flatMap(a=>{
-      const graph=one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',a.task_ref);
-      if(!graph||!this.sourceAllowed(b,graph.conversation_id)) return [];
-      const d=JSON.parse(graph.document_json),root=d.nodes.find((n:Row)=>n.id===d.root_node_id);
-      return [{...a,paused:!!a.paused,task:{title:root.title,status:root.status,result:root.result}}];
-    })};
-  }
-  updateAssistance(principal:Row,args:Row) {
-    const b=this.authority(principal,args), a=one(this.db,'SELECT * FROM pa_assistance WHERE binding_id=? AND task_ref=?',b.binding_id,args.task_ref);
-    if(!a) fail(404,'assistance_not_found');
-    if(args.expected_revision!==a.revision) fail(409,'assistance_revision_conflict');
-    if(args.next_check_at && !args.schedule_id) fail(422,'schedule_receipt_required');
-    const completed=args.status==='completed';
-    if(completed) {
-      const graph=one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',args.task_ref);
-      if(!graph || !this.sourceAllowed(b,graph.conversation_id)) fail(404,'task_not_accessible');
-      if(graph.conversation_id!==b.conversation_id && JSON.parse(graph.document_json).nodes.find((node:Row)=>node.id===JSON.parse(graph.document_json).root_node_id)?.status!=='done') fail(409,'shared_task_result_requires_reviewed_update');
-      if(graph.conversation_id===b.conversation_id) {
-        const doc=JSON.parse(graph.document_json);
-        this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id},'apply',{graph_id:args.task_ref,base_revision:graph.revision,request_key:`pa-complete:${b.binding_id}:${args.task_ref}:${a.revision}`,change_note:'Goal outcome confirmed',operations:[{op:'update_task',node_id:doc.root_node_id,patch:{status:'done',...(typeof args.result==='string'?{result:args.result}:{})}}]});
-      }
-    }
-    const value=(key:string)=>key in args?args[key]:a[key];
-    this.db.prepare('UPDATE pa_assistance SET next_action=?,next_check_at=?,waiting_on=?,schedule_id=?,status=?,revision=revision+1 WHERE binding_id=? AND task_ref=?').run(completed?null:value('next_action'),completed?null:value('next_check_at'),completed?null:value('waiting_on'),value('schedule_id'),args.status??a.status,b.binding_id,args.task_ref);
-    if(completed) {
-      this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'assistance.changed',?,?,?)").run(b.binding_id,JSON.stringify({task_ref:args.task_ref,completed:true}),this.policy(b.binding_id).revision,now());this.wake(b);
-    }
-    return this.assistance(b.owner_id);
-  }
-  createDecision(principal:Row,args:Row) {
-    const b=this.authority(principal,args), d=args.decision??args;
-    if(!d.question || !['draft','choice'].includes(d.kind)||!Array.isArray(d.options??[])) fail(422,'invalid_decision');
-    if(d.target_conversation_id&&!this.sourceAllowed(b,d.target_conversation_id)) fail(404,'source_not_accessible');
-    const old=d.request_key?one(this.db,'SELECT * FROM pa_decisions WHERE binding_id=? AND request_key=?',b.binding_id,d.request_key):null;
-    const id=old?.id??randomUUID();
-    if(!old) this.db.prepare('INSERT INTO pa_decisions(id,binding_id,task_ref,kind,payload_json,request_key) VALUES(?,?,?,?,?,?)').run(id,b.binding_id,d.task_ref??null,d.kind,JSON.stringify({...d,options:d.options??[],recommended:d.recommended??null}),d.request_key??null);
-    return this.decisions(b.owner_id).items.find((item:Row)=>item.id===id);
-  }
-  decisions(owner:string) {
-    const b=this.binding(owner); if(!b) return {items:[]};
-    return {items:all(this.db,'SELECT * FROM pa_decisions WHERE binding_id=?',b.binding_id).map(d=>({...JSON.parse(d.payload_json),id:d.id,task_ref:d.task_ref,kind:d.kind,status:d.status,revision:d.revision,snooze_until:d.snooze_until}))};
+  replyDraft(messageId:string):Row|undefined {
+    const draft=one(this.db,'SELECT d.*,m.conversation_id FROM pa_reply_drafts d JOIN messages m ON m.id=d.message_id WHERE d.message_id=?',messageId);
+    if(!draft)return;
+    const b=one(this.db,'SELECT owner_user_id FROM personal_agent_bindings WHERE conversation_id=?',draft.conversation_id);
+    const stale=!!b&&!!one(this.db,"SELECT 1 FROM messages WHERE conversation_id=? AND sender_user_id=? AND sender_type='user' AND rowid>(SELECT rowid FROM messages WHERE id=?) LIMIT 1",draft.target_conversation_id,b.owner_user_id,draft.source_message_id);
+    return {target_conversation_id:draft.target_conversation_id,source_message_id:draft.source_message_id,field_name:draft.field_name,possible_stale:stale};
   }
   incidents(owner:string) {
     const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
@@ -251,27 +177,19 @@ export class PersonalAgents {
     const b=this.authority(principal,args);
     switch(type) {
       case 'pa.state': return this.state(b.owner_id);
-      case 'pa.history.search': return this.history(principal,args);
+      case 'pa.sources': return this.sources(principal,args);
+      case 'pa.authorization': return this.authorization(principal,args);
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
         this.db.prepare('INSERT OR REPLACE INTO pa_runtime_status VALUES(?,?,?)').run(b.binding_id,b.node_epoch,Number(args.available));return {recorded:true};
       case 'pa.source.admit': return this.admitSource(principal,args);
-      case 'pa.history.read': return this.readHistory(principal,args);
       case 'pa.observations.read': return this.observations(principal,args);
       case 'pa.observations.ack': return this.acknowledge(principal,args);
-      case 'pa.scope.resolve': return this.scopes(principal,args);
-      case 'pa.scope.create': return this.createScope(principal,args);
-      case 'pa.owner.control': return this.ownerControl(principal,args);
-      case 'pa.assistance.read': return this.assistance(b.owner_id);
-      case 'pa.assistance.update': return this.updateAssistance(principal,args);
-      case 'pa.decision.create': return this.createDecision(principal,args);
       case 'pa.incident.report': return this.incident(principal,args);
       case 'pa.action.prepare': return this.actions.prepare(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
       case 'pa.action.commit': return this.actions.commit(principal,args);
       case 'pa.action.complete': return this.actions.complete(principal,args);
-      case 'pa.cleanup.ack':
-        this.db.prepare("UPDATE pa_cleanup_operations SET status='completed' WHERE binding_id=? AND operation_id=?").run(b.binding_id,args.operation_id);return {status:'completed'};
       default: fail(400,'unsupported_personal_operation');
     }
   }
@@ -295,7 +213,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         transaction(ctx.db,()=>{
           ctx.db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(u.id);
           ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',input.initial_goal??null,now());
-          ctx.db.prepare('INSERT INTO pa_policies(binding_id,observation_enabled) VALUES(?,?)').run(id,Number(input.observation_enabled!==false));
+          ctx.db.prepare('INSERT INTO pa_policies(binding_id) VALUES(?)').run(id);
           ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node.node_id,u.owner_id);
         });
         b=pa.binding(u.owner_id)!;
@@ -303,7 +221,13 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
       if(b.status==='active') return pa.state(u.owner_id);
       const personal={bindingId:b.binding_id,ownerId:b.owner_id,conversationId:b.conversation_id,epoch:b.node_epoch};
       const recovered=await ops.recover(b.agent_id,u.owner_id);
-      if(!recovered) await ops.create({agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:{cron_scheduling:true,task_graph:true,memory_curation:true,heartbeat:true,skill_creation:false},skills:[],tool_allowlist:['inbox','conversations','send_message','personal_assistant','personal_files','web_search','subagent','subagent_fork','interrupt_agent','list_agents','structured_output','memory','task_graph','get_goal','set_goal','todo_write','schedule_list','schedule_history','workflow'],group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null},u.owner_id,b.node_id);
+      if(!recovered) {
+        const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
+        const catalog=resolved?.capabilities;
+        if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
+        const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
+        await ops.create({agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:{cron_scheduling:true,task_graph:true,memory_curation:true,heartbeat:true,skill_creation:true},skills:[],tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null},u.owner_id,b.node_id);
+      }
       transaction(ctx.db,()=>{
         const agentUser=ctx.messaging.agentUser(b!.agent_id);
         const space=`personal:${u.owner_id}`;
@@ -347,29 +271,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     return pa.state(u.owner_id);
   });
   app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(user(req).owner_id,body(req)));
-  app.get('/im/v1/personal-agent/assistance',req=>pa.assistance(user(req).owner_id));
-  app.get('/im/v1/personal-agent/decisions',req=>pa.decisions(user(req).owner_id));
-  for(const action of ['pause','resume'])app.post(`/im/v1/personal-agent/assistance/:taskRef/${action}`,req=>{
-    const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');
-    const changed=ctx.db.prepare("UPDATE pa_assistance SET paused=?,status='pending',revision=revision+1 WHERE binding_id=? AND task_ref=? AND revision=?").run(Number(action==='pause'),b.binding_id,params(req).taskRef,body(req).expected_revision);
-    if(!changed.changes)fail(409,'assistance_revision_conflict');
-    ctx.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'assistance.changed',?,?,?)").run(b.binding_id,JSON.stringify({task_ref:params(req).taskRef,paused:action==='pause'}),pa.policy(b.binding_id).revision,now());
-    pa.wake(b);return pa.assistance(b.owner_id);
-  });
-  app.post('/im/v1/personal-agent/decisions/:id',req=>{
-    const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');
-    const d=one(ctx.db,'SELECT * FROM pa_decisions WHERE id=? AND binding_id=?',params(req).id,b.binding_id),input=body(req);
-    if(!d)fail(404,'decision_not_found');
-    if(d.resolution_json&&JSON.parse(d.resolution_json).request_key===input.request_key)return pa.decisions(b.owner_id).items.find((x:Row)=>x.id===d.id);
-    if(d.revision!==input.expected_revision||d.status!=='pending')fail(409,'decision_revision_conflict');
-    const payload=JSON.parse(d.payload_json);
-    if(input.option&&!payload.options.some((o:Row)=>o.id===input.option)&&d.kind!=='draft')fail(422,'invalid_decision_option');
-    if(!input.option&&!input.decline&&!input.snooze_until)fail(422,'decision_required');
-    transaction(ctx.db,()=>{
-      ctx.db.prepare('UPDATE pa_decisions SET status=?,revision=revision+1,snooze_until=?,resolution_json=? WHERE id=?').run(input.snooze_until?'pending':input.decline?'declined':'resolved',input.snooze_until??null,JSON.stringify(input),d.id);
-      ctx.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'owner.decision',?,?,?)").run(b.binding_id,JSON.stringify({decision_id:d.id,...input}),pa.policy(b.binding_id).revision,now());
-    });pa.wake(b);return pa.decisions(b.owner_id).items.find((x:Row)=>x.id===d.id);
-  });
+  app.get('/im/v1/personal-agent/sources',req=>{const b=pa.binding(user(req).owner_id);return {policy:b?pa.policy(b.binding_id):null,items:b?pa.sourceConversations(b):[]};});
   app.get('/im/v1/personal-agent/incidents',req=>pa.incidents(user(req).owner_id));
   app.post('/im/v1/personal-agent/incidents/:id',req=>{
     const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');
@@ -380,12 +282,5 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
       ctx.db.prepare('UPDATE pa_incidents SET status=? WHERE id=?').run(action==='block'?'blocked':'closed',incident.id);
       ctx.db.prepare('UPDATE pa_policies SET revision=revision+1 WHERE binding_id=?').run(b.binding_id);
     });pa.wake(b);return pa.incidents(b.owner_id).items.find((i:Row)=>i.id===incident.id);
-  });
-  app.get('/im/v1/personal-agent/cleanup',req=>{const b=pa.binding(user(req).owner_id);return {items:b?all(ctx.db,'SELECT * FROM pa_cleanup_operations WHERE binding_id=?',b.binding_id):[]};});
-  app.post('/im/v1/personal-agent/cleanup',req=>{
-    const b=pa.binding(user(req).owner_id),input=body(req);if(!b)fail(404,'personal_agent_not_found');if(!input.request_key)fail(422,'request_key_required');
-    ctx.db.prepare('INSERT OR IGNORE INTO pa_cleanup_operations VALUES(?,?,?,?,?,?)').run(randomUUID(),b.binding_id,input.conversation_id??null,input.request_key,'pending',now());
-    const op=one(ctx.db,'SELECT * FROM pa_cleanup_operations WHERE binding_id=? AND request_key=?',b.binding_id,input.request_key)!;
-    ctx.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'cleanup.requested',?,?,?)").run(b.binding_id,JSON.stringify(op),pa.policy(b.binding_id).revision,now());pa.wake(b);return op;
   });
 }

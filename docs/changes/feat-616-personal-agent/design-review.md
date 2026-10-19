@@ -1423,3 +1423,96 @@ design:306的M1 W7仍要求真实DeepSeek端到端同时证明有用与边界，
 ### Recommendations
 
 无。按用户授权进入既定实施流程，保留真实验收退出条件。
+
+
+## Round 17
+
+### Metadata
+
+- reviewer: `/root/design_review_r7`，独立 `change-design-reviewer`。
+- target: feat-616 **设计版本 R9**，基于 feat-617 `87f5214a7`，集成 HEAD `b50704bdd`；本节序号沿用报告历史，非设计版本号。
+- review_mode: **full**。
+- mode_reason: 主人输入授权、工具边界、目标体系、来源撤销及交互承载均实质重写；不能以 Round 16 或旧实现验收代替本轮审查。
+- started_at: `2026-10-19T20:25:34+08:00`
+- completed_at: `2026-10-19T20:30:14+08:00`
+- duration: `281s`
+- worktree: `/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent`。
+- frozen input hashes: spec.md: `bb7b135b2324473f71e92a57de188c6480b9995706cac3b0666b1c3bbbc7a316`; design.md: `294670fbb1693c853c397e72eb530ee1d24c509e3ad5d079e588558d1021112d`; prototype.html: `2bf216ad3b334a32c0e3088ed2e13f1c5db02453ae575fc106ac3da0e7d01a1c`
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。** 复用与缩减方向可实施；新增草稿采用的完整往返及已有输入冲突仍缺少与设计一致的可操作方案。此结论不要求恢复任何旧 PA 目标、审批或配置体系。
+
+### Coverage 与证据
+
+**需求与现状。** 本轮逐项核对新版 spec 的固定绑定、完整 Global 能力、双身份历史、双向新消息、草稿/代发/静默、来源控制、持续协助、披露及双向告知。实际产品入口 `packages/personal-assistant/src/global-agent.ts:80,136–184,209–269,336–393` 仍含旧 admit/scopes/assistance 与 PA 专用发送分支；`apps/im-server/src/personal-agent.ts:23–40,72–96` 已有可信绑定和来源访问基础，但历史 SQL 仍仅枚举主人参与历史；`packages/dsh-integration/src/personal-security.ts:15–19,89–114,132–174` 仍有白名单、替代文件/搜索工具、goal/decision 和退休上下文。新版明确删除这些生产引用并扩展原 conversations/Inbox，正对实际需要改动的接缝；没有把当前代码已经存在误当新契约已实现。
+
+**职责与复杂度。** IM 持有绑定、当前会话权限、来源事件、披露冻结和提交；PA 编排原 Inbox、Global、send_message/task_graph；DSH integration 承担模型审核和原工具适配。主人输入直达主 PA、来源工具只做可信身份/证据/版本验证，取消独立 scope 抽取和 PA 决策状态机，符合最新要求且减少重复授权状态。私人运行实例继续作为数据归属隔离，普通插件/代码沿原能力规则；这是用户明确改变的支持边界，不再要求旧“所有任意执行均受出口门覆盖”的保证。保留旧 task_graph 数据，不新增旧私有表兼容读取，也未要求删除用户任务。
+
+**披露和告知。** `design.md:44–58` 将真实主人消息、617 提交和服务端材料作为证据，明确模型提案不签发许可；冻结具体消息/附件/共享任务、独立审核、后端复核和真实回执链继续成立。`apps/im-server/src/personal-actions.ts:47–79,83–115` 说明旧实现确有冻结、权限/受众/版本复核，但也仍有 scope 和任务动作限制，必须按本轮设计移除；不能直接保留旧分支声称复用完成。新版明确外发 interactive 全量内容进入 payload，不只查 text；私聊给主人不加披露审核。固定对方通知仍以主人通知真实回执为前置。任意 shell/插件网络流量与审核模型误判均未被夸大成已解决。本轮无真实模型安全测试，M1 仍须验证拒泄露与正常持续协助。
+
+**617 复用接口。** `apps/im-server/src/interactions.ts:58–73,76–138` 已持有不可变 publication、私有 interaction_drafts 的 CAS revision、真实提交身份和 interaction_reply；`packages/product-contracts/src/interactive-types.ts` 区分 public UI、私有草稿和提交快照。`src/IM/frontend/src/features/chat/interactive/interactive-card.tsx:55–119` 已持有本地当前字段、异步保存及提交。设计新增 reply_draft 仅保存来源定位/field_name，正文由该唯一存储持有，采用另走原聊天输入框，避免复制造成第二套正文/决策状态。实际 `message-pane.tsx:385–398` 的 draftSeed 当前直接 setDraft，不能未经冲突判断复用；其 `:211–215,414–436` 已有按会话保存未发送内容的基本能力，适合复用而非另建草稿库。
+
+**独立 UI 操作。** 独立 Chrome 标签 `1805414554`，`http://127.0.0.1:8766/prototype.html`，先看桌面实际渲染再操作。将回复改为“周四 16:00 演示，材料提前发你。”，采用后标题为林悦、内容只出现在输入框、历史无新增气泡；点击发送才产生本人气泡。390×844 视口下原聊天没有返回或聊天列表入口。恢复桌面后输入另一段尚未发送的文本，再切 PA 并采用，原输入被替换，未出现保留/取消等处理。源码 `prototype.html:8–10` 与观察一致。视口已恢复；这只是静态原型，不声称后端/权限/存储验证。原产品 `app-shell.tsx:17–18,24,55–88` 明确手机会话隐藏全局导航、列表有底部导航；本轮所需是继承原会话返回路径，不是新增一套导航。旧 R9/R15 的基线/代发身份证据仅继承其未改视觉要求，不能替代本轮新增采用流程。
+
+**delta 与 milestone。** 两个 personal-agent delta 的 canonical target 当前尚不存在，ADDED 分类正确；原先分散的八个 delta 删除与“普通 Global 不增加 PA 业务”一致。新版 IM delta 覆盖配置/双身份/双向/草稿/代发/来源/告知；Gateway delta 覆盖完整能力/来源/外发；持续协助明确沿 current Global 语义。M1 单组避免跨共享文件并行冲突，退出项包含旧生产引用清理、普通 Agent 回归、模型与重启证据。主 6.1 Sol/审核 6 Luna 为本轮确认配置，旧 DeepSeek 资源问题不复活。未运行产品测试或访问生产。
+
+### 历史问题闭环
+
+- Round 16 的原前置顺序警告保持关闭；新模型配置与本轮验收范围以 R9 为准。
+- 旧 PA 专属 goals/decision/cleanup、全出口限制、来源派生清理相关通过项由最新用户授权显式替代，不作为本轮复用保证，也不以旧已通过阻止缩减。
+- 固定绑定/私人 Work ACL、真实 actor 与代发标记、主人通知回执顺序保留为要求；本轮未宣称重新完成全部实现验收。
+
+### Issues
+
+#### R17-W1 — 草稿采用缺少完整往返与已有输入保护
+
+- 位置：`design.md:52–54,76`；`prototype.html:2,5,8–10`。
+- 证据：390 宽度采用后侧栏隐藏、无可用返回入口；桌面原聊天已有未发送输入后切到 PA 再采用会丢掉该内容。原型亦未体现“主人已回复”的过时提示。设计虽说“不自动覆盖用户编辑”，没有指定发生冲突时用户如何保留已有输入并继续采用。
+- 后果：实施者若照原型或直接套用现有 draftSeed，会造成输入丢失；手机用户不能完成 PA→原聊天→PA 往返。仅验证“采用不发送”不足以指导这条新增交互。
+- 收口要求：补最小可操作方案并同步设计：继承现有会话返回/列表路径；按会话保留输入，目标输入非空时明确保留、取消或用户主动替换的处理；显示已回复时的过时状态。无需新设置页、审批、业务状态机或新草稿数据库。用桌面和390实际操作证明往返、冲突不丢内容、采用不自动发送即可。
+
+### Recommendations
+
+无额外建议；本轮不扩展实现范围。
+
+
+## Round 18
+
+### Metadata
+
+- reviewer: `/root/design_review_r7`，独立 `change-design-reviewer`。
+- target: feat-616 设计版本 R9，Round 17 后最小原型/设计修复。
+- review_mode: **closure**。
+- mode_reason: 仅复核 R17-W1；没有新增架构、权限或产品能力变化。
+- retained_from: **Round 17** 的需求、架构、617 接口、披露边界、delta 和 milestone 审查；没有重新扩大范围。
+- started_at: `2026-10-19T20:30:23+08:00`
+- completed_at: `2026-10-19T20:33:13+08:00`
+- duration: `170s`
+- final hashes: spec.md: `bb7b135b2324473f71e92a57de188c6480b9995706cac3b0666b1c3bbbc7a316`; design.md: `9342659f47f14264b3949836c3123d905994759fdaddf74f654d358aa4016430`; prototype.html: `f3c557297ad2b342b1b5bf860d4500e30686dcf776740e7b8f8416e36b7c6e3e`
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 通过。**
+
+这是设计准入结论。R9 实现、真实模型持续协助/披露测试、重启和普通 Global 回归仍需按 M1 完成；不把旧版本实现验收继承为新版本通过。
+
+### 历史问题闭环与证据
+
+#### R17-W1：closed
+
+作者在 design 的“IntelligentUI 与原聊天草稿”明确：非空目标输入由用户取消保留或明确替换，手机版复用原聊天返回/列表路径；原型按会话保留 composer 并加轻量过时提示，没有新配置或草稿存储。
+
+独立复验桌面：在林悦输入“原聊天已有草稿，暂不发送”，回 PA 编辑另一份草稿并采用；取消替换后原输入仍完整且无新消息。普通空输入采用与真正发送的区分已在 R17 实操成立。明确替换分支由原型 confirm 的选择控制；本轮未把浏览器确认框的工具超时算作替换成功证据。
+
+独立复验最终390×844页面：可见“你已在原聊天回复，草稿可能过时，请核对后采用”；将草稿改为“手机回复：周四16点”，采用后只进入林悦输入框，聊天历史无新增本人消息；通过返回按钮往返 PA 与林悦，PA 编辑字段及林悦未发送输入均保持。方案中的返回继承现有产品会话导航；静态两会话原型的切换仅表达这条往返，不作为新增生产导航要求。观察了最终画面和文本层级，轻提示在草稿动作旁，未增加审批负担。原型标签已关闭，临时视口已恢复。
+
+证据澄清：R17 的 UI 观察是修复前页面；报告落盘采样与作者开始局部修复接近。最终接受的设计/原型以本轮 final hashes 为准，R17 历史观察不被回写成修复后结果。
+
+### Issues
+
+无未关闭项。
+
+### Recommendations
+
+无。

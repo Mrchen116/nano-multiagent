@@ -15,7 +15,7 @@ export function openDatabase(path: string): DatabaseSync {
     }
     if (db.prepare("SELECT 1 FROM task_graphs WHERE json_extract(document_json,'$.schema_version') != 2 OR conversation_id='' LIMIT 1").get()) {db.close();throw Error("Task collaboration v2 data migration required");}
   }
-  db.exec("DROP TRIGGER IF EXISTS personal_observation_event");
+  db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked");
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
   if (!db.prepare("PRAGMA table_info(pa_operations)").all().some(column => column.name === "result_json"))
     db.exec("ALTER TABLE pa_operations ADD COLUMN result_json TEXT");

@@ -103,9 +103,7 @@ export class KnowledgeRuntime extends Service {
   }
   async memory(exec: ToolExecution, change: MemoryChange) {
     const agent = exec.agent!;
-    // Model-created notes cannot mint an owner decision, even after compaction or child return.
-    const provenance = this.config(agent)?.personal ? {kind:'derived' as const, sources: [{sessionId:agent.id,throughSeq:agent.session.snapshotEvents().at(-1)?.seq ?? -1,rootSessionId:this.root(agent).id}]} : undefined;
-    const result = await this.files(agent).memory(change, agent.id, exec.signal, provenance);
+    const result = await this.files(agent).memory(change, agent.id, exec.signal);
     await this.changed(exec, { ...result, kind: 'memory' }); return result;
   }
   async skill(exec: ToolExecution, change: SkillChange) {

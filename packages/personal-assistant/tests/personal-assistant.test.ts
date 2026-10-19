@@ -18,9 +18,9 @@ function fixture(decision = 'deny') {
   }};
   const relay={request:async(type:string,payload:Record<string,unknown>)=>{
     calls.push({type,payload});
+    if(type==='agent.message')return {type:'ack',payload:{message_id:'owner-delivery',conversation_id:'c_owner'}};
     let result:unknown={};
-    if(type==='pa.source.admit')result={allowed:true};
-    if(type==='pa.scope.resolve')result={owner_message:null,scopes:[]};
+    if(type==='pa.source.admit')result={allowed:true,role:payload.conversation_id==='c_owner'?'owner_instruction':'external'};
     if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence_digest:'evidence',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
     if(type==='pa.action.review-result')result={state:decision,verdict_ref:decision==='allow'?'v':null};
     if(type==='pa.action.commit')result={state:'confirmed',message_id:'m',conversation_id:'c_peer'};
@@ -30,24 +30,6 @@ function fixture(decision = 'deny') {
   const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
-it('reinterprets a stale owner control against fresh state without blocking the owner message forever',async()=>{
- const f=fixture('allow');let reviews=0,resolves=0,controls=0;
- f.runtime.request=async method=>method==='pa.review'? (++reviews===1
-  ? {decision:'allow',reason:'Pause request',controls:[{action:'pause',task_ref:'goal',expected_revision:1}]}
-  : {decision:'allow',reason:'Owner reports an already applied control; current state is authoritative',scopes:[]}):{};
- f.relay.request=async(type)=>{
-  if(type==='pa.scope.resolve')resolves++;
-  if(type==='pa.owner.control'){controls++;return {type:type+'.result',payload:{ok:false,error:{code:'assistance_revision_conflict'}}};}
-  return {type:type+'.result',payload:{ok:true,result:type==='pa.source.admit'?{allowed:true}:type==='pa.scope.resolve'?{owner_message:{id:'owner-input'},assistance:[{task_ref:'goal',revision:resolves}]}:{}}};
- };
- try {
-  const input={agent_id:'pa',conversation_id:'c_owner',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-input',content:'I already clicked pause. Please draft a thank-you.',sender_type:'user',sender_user_id:'owner',attachments:[]}};
-  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
-  expect([reviews,resolves,controls]).toEqual([2,2,1]);
-  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
-  expect(reviews).toBe(2);
- }finally{f.inbox.close();f.store.close();}
-});
 it.each(['deny','needs_owner','unavailable'])('never commits a %s disclosure and exposes no review tool',async decision=>{
   const f=fixture(decision);
   try{
@@ -69,16 +51,6 @@ it('commits only the frozen proposal with host verdict and preserves actual rece
     expect(f.calls.filter(x=>x.type==='pa.action.commit')).toHaveLength(1);
   }finally{f.inbox.close();f.store.close();}
 });
-it('queries history while observation is paused without manufacturing owner permission',async()=>{
-  const f=fixture();
-  try{
-    await f.pa.tool(f.config,f.binding,{...f.call,args:{action:'history.search',keyword:'last year',before:'2025-12-31'}});
-    const query=f.calls.find(x=>x.type==='pa.history.search')!;
-    expect(query.payload).toMatchObject({keyword:'last year',before:'2025-12-31'});
-    expect(f.calls.some(x=>x.type==='pa.scope.create')).toBe(false);
-  }finally{f.inbox.close();f.store.close();}
-});
-
 it('external owner-name claims and old history do not create owner authorization',async()=>{
   const f=fixture('allow');
   try {
@@ -88,32 +60,6 @@ it('external owner-name claims and old history do not create owner authorization
     expect(f.reviews).toEqual([expect.objectContaining({kind:'input'})]);
   }finally{f.inbox.close();f.store.close();}
 });
-it('a followup is only promised after a real native schedule receipt and the current goal revision',async()=>{
-  const f=fixture();const native:Record<string,unknown>[]=[];
-  f.relay.request=async(type,payload)=>{f.calls.push({type,payload});return {type:type+'.result',payload:{ok:true,result:type==='pa.assistance.read'?{items:[{task_ref:'goal',revision:7,paused:false}]}:{}}};};
-  f.runtime.request=async(_method,args)=>{native.push(args as Record<string,unknown>);return (args as any).action==='jobs'?[]:{id:'schedule'};};
-  try {
-    expect(await f.pa.tool(f.config,f.binding,{...f.call,args:{action:'followup',args:{task_ref:'goal',at:'2050-01-01T09:00:00Z',next_action:'Check response'}}})).toMatchObject({status:'scheduled',schedule_id:'schedule'});
-    expect(native[1]).toMatchObject({action:'create',args:{at:'2050-01-01T09:00:00Z'}});
-    expect((native[1]!.args as object)).not.toHaveProperty('schedule');
-    expect(f.calls.at(-1)!.payload).toMatchObject({expected_revision:7,schedule_id:'schedule'});
-    f.runtime.request=async(_method,args)=>(args as any).action==='jobs'?[]:{};
-    await expect(f.pa.tool(f.config,f.binding,{...f.call,args:{action:'followup',args:{task_ref:'goal',at:'2050-01-01T09:00:00Z'}}})).rejects.toThrow('receipt');
-  }finally{f.inbox.close();f.store.close();}
-});
-it('unknown network outcomes retain the consumed host permit and cannot be forged by a tool',async()=>{
-  const f=fixture('allow');
-  const original=f.relay.request;
-  f.relay.request=async(type,payload)=>type==='pa.action.commit'?{type:type+'.result',payload:{ok:true,result:{state:'sending'}}}:original(type,payload);
-  try {
-    const verdict=await f.pa.guard(f.config,{...f.call,args:{toolName:'web_search',args:{network:{url:'https://search.example/?q=public',method:'GET',requestKey:'tool:http:1',requestDigest:'actual-request'}},executionEvidence:{messages:[]}}}) as any;
-    expect(verdict).toMatchObject({decision:'allow',permit:{proposal_ref:'p',requestDigest:'actual-request'}});
-    await expect(f.pa.complete(f.config,{...f.call,args:{permit:{...verdict.permit,requestDigest:'changed'},state:'confirmed'}})).rejects.toThrow('permit');
-    await f.pa.complete(f.config,{...f.call,args:{permit:verdict.permit,state:'unknown'}});
-    expect(f.calls.at(-1)).toMatchObject({type:'pa.action.complete',payload:{proposal_ref:'p',state:'unknown'}});
-  }finally{f.inbox.close();f.store.close();}
-});
-
 it('drops a revoked direct relay before review or private storage',async()=>{
   const f=fixture('allow'); const original=f.relay.request;
   f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:false}}}:original(type,payload);
@@ -121,23 +67,6 @@ it('drops a revoked direct relay before review or private storage',async()=>{
     const accepted=await f.pa.admit(f.config,f.binding,{agent_id:'pa',conversation_id:'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'revoked',content:'Excluded secret',sender_type:'user',sender_user_id:'peer',attachments:[]}});
     expect(accepted).toBe(false);expect(f.reviews).toHaveLength(0);
   }finally{f.inbox.close();f.store.close();}
-});
-
-it('keeps independent goals from one owner message separate and retries the same interpretation',async()=>{
- const f=fixture('allow');const original=f.relay.request;let failSecond=true,reviews=0;
- f.runtime.request=async method=>{if(method==='pa.review'){reviews++;return {decision:'allow',reason:'Owner goals',scopes:[{title:'Demo'},{title:'Venue'}]};}return {};};
- f.relay.request=async(type,payload)=>{
-  if(type==='pa.scope.resolve')return {type:type+'.result',payload:{ok:true,result:{owner_message:{id:'owner-message'}}}};
-  if(type==='pa.scope.create'&&payload.goal_key==='1'&&failSecond){failSecond=false;throw new Error('temporary disconnect');}
-  return original(type,payload);
- };
- const input={agent_id:'pa',conversation_id:'c_owner',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-message',content:'Prepare demo and negotiate venue independently',sender_type:'user' as const,sender_user_id:'owner',attachments:[]}};
- try {
-  await expect(f.pa.admit(f.config,f.binding,input)).rejects.toThrow('temporary disconnect');
-  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
-  const goals=f.calls.filter(c=>c.type==='pa.scope.create').map(c=>({key:c.payload.goal_key,title:c.payload.title}));
-  expect(goals).toEqual([{key:'0',title:'Demo'},{key:'0',title:'Demo'},{key:'1',title:'Venue'}]);expect(reviews).toBe(1);
- }finally{f.inbox.close();f.store.close();}
 });
 
 it('retries a fixed privacy notice with a content-bound identity and skips an actual receipt',async()=>{
@@ -155,5 +84,48 @@ it('retries a fixed privacy notice with a content-bound identity and skips an ac
   const count=f.calls.filter(c=>c.type==='pa.action.prepare').length;
   delivered=true;await f.pa.admit(f.config,f.binding,input);
   expect(f.calls.filter(c=>c.type==='pa.action.prepare')).toHaveLength(count);
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it.each(['owner_instruction','owner_fact'])('admits authenticated %s when independent review is unavailable',async role=>{
+ const f=fixture('unavailable');
+ const original=f.relay.request;
+ f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,role}}}:original(type,payload);
+ try {
+  const input={agent_id:'pa',conversation_id:role==='owner_instruction'?'c_owner':'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-input',content:'Please prepare the demo',sender_type:'user' as const,sender_user_id:'owner',attachments:[]}};
+  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
+  expect(f.reviews).toHaveLength(0);
+  expect(input.metadata).toMatchObject({personal_source_role:role});
+ }finally{f.inbox.close();f.store.close();}
+});
+it('changes sources directly with owner evidence, without an independent model decision',async()=>{
+ const f=fixture('unavailable');
+ try {
+  await f.pa.tool(f.config,f.binding,{...f.call,args:{action:'exclude',conversation_id:'c_peer',source_message_id:'owner-input',expected_revision:2}});
+  expect(f.calls).toContainEqual(expect.objectContaining({type:'pa.sources',payload:expect.objectContaining({action:'exclude',conversation_id:'c_peer',source_message_id:'owner-input',expected_revision:2})}));
+  expect(f.reviews).toHaveLength(0);
+ }finally{f.inbox.close();f.store.close();}
+});
+it('freezes all interactive content and draft metadata into one publication identity',async()=>{
+ const f=fixture('allow');
+ const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Choose")])'};
+ const reply_draft={target_conversation_id:'c_peer',source_message_id:'original',field_name:'draft'};
+ try {
+  await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive,reply_draft}});
+  expect(f.calls.find(c=>c.type==='agent.message')!.payload).toMatchObject({interactive,reply_draft});
+  expect(f.calls.some(c=>c.type.startsWith('pa.action.'))).toBe(false);
+  expect(f.reviews).toHaveLength(0);
+  await expect(f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive:{...interactive,source:'changed'},reply_draft}})).rejects.toThrow('identity conflict');
+ }finally{f.inbox.close();f.store.close();}
+});
+it('returns private tasks to the ordinary task command, and reviews full shared task operations',async()=>{
+ const f=fixture('allow');const original=f.relay.request;
+ const task={action:'create',arguments:{conversation_id:'c_owner',title:'Demo',nodes:[]}};
+ try {
+  f.relay.request=async(type,payload)=>type==='pa.action.prepare'?{type:type+'.result',payload:{ok:true,result:{owner_private:true}}}:original(type,payload);
+  expect(await f.pa.task(f.config,f.call,task)).toBeUndefined();expect(f.reviews).toHaveLength(0);
+  f.relay.request=original;
+  expect(await f.pa.task(f.config,f.call,{...task,arguments:{...task.arguments,conversation_id:'c_peer'}})).toMatchObject({ok:true});
+  expect(f.calls.find(c=>c.type==='pa.action.prepare')!.payload).toMatchObject({task:{action:'create',arguments:{title:'Demo',conversation_id:'c_peer'}}});
  }finally{f.inbox.close();f.store.close();}
 });

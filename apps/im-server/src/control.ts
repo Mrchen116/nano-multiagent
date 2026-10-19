@@ -426,7 +426,6 @@ export class ConfigOperations {
       if(op.operation_kind==='restore') {
         db.prepare("UPDATE personal_agent_bindings SET status='active' WHERE agent_id=? AND node_id=?").run(op.agent_id,op.node_id);
         db.prepare('UPDATE agent_profiles SET is_stale=0,staled_at=NULL WHERE agent_id=?').run(op.agent_id);
-        db.prepare("UPDATE pa_assistance SET next_check_at=NULL,schedule_id=NULL,revision=revision+1 WHERE binding_id=(SELECT binding_id FROM personal_agent_bindings WHERE agent_id=?)").run(op.agent_id);
         db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) SELECT b.binding_id,'runtime.restored','{}',p.revision,? FROM personal_agent_bindings b JOIN pa_policies p USING(binding_id) WHERE b.agent_id=?").run(now(),op.agent_id);
       }
       const vals = [

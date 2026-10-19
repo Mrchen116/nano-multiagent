@@ -94,3 +94,15 @@ The user's test service remains available at its isolated local URL while they i
 
 - Full frontend on 9cebd17b7: 97 files / 898 tests passed (`/tmp/feat616-r8-all-frontend.log`). Backend full run: 402/403 passed; the existing historical-fork regression caught revision-only apply skipping a fork that intentionally retained older tool/prompt settings (`/tmp/feat616-r8-all-backend.log`).
 - Revision-only apply now checks every template/live configuration, not just the node's current template. A historical fork with different execution choices still follows the existing full apply path; genuinely unchanged execution revisions remain nonblocking. The unchanged history and busy capability suites then passed all 4 tests (`/tmp/feat616-r8-history-regression.log`). This correction does not alter PA privacy or owner UI contracts.
+
+## R9 — 复用 Global 与 feat-617（2026-10-19）
+
+- 基线：最新 `origin/unit/feat-617` `87f5214a7`，集成于 `b50704bdd`；R9 Gate 2 为 Round 18 Approved。
+- 移除 PA scopes/assistance/decisions/cleanup/观察暂停、受限工具/个人文件/搜索替代、逐工具附加审核、退休上下文和专属定时恢复。正常 task_graph 数据保留，旧本地表不再读取。
+- 普通 Global 的工具目录、插件/Skills、配置、内存与执行机制复用。PA 私人消息走普通 agent.message，私人任务走普通 task_graph.command；具体外发才冻结 payload/独立审查/实际提交。普通自动审批不再重复审 PA send_message，显式执行限制仍生效。
+- 两种身份的历史查询合入 conversations；主人双向消息与实际角色进入 Inbox。personal_sources 由主 PA 直接调用，服务端校验原主人消息、revision 和访问权；撤销待摄入来源，不销毁已有上下文或提醒。
+- 草稿正文唯一保存在 feat-617 interaction_drafts；reply_draft 仅定位原聊天和字段。采用前保存编辑，已有输入明确替换，采用不提交或发消息。保留既有导航与 PA 代发标记。
+- 修正 PA→Agent 私聊投递缺少持久 relay_tasks 的链路；真实接收节点与幂等回归通过。
+- 测试处置：删除退休机制专属断言；保留绑定/epoch/ACL/真实回执/incident 保护，改写为双身份与双向消息、当前来源、普通能力一致和617真实提交/草稿保护。新增5项PA行为先红后绿；首轮runtime/IM/Web窄测分别通过。
+- 整合前验证：PA/Global/617/Node 4文件61 tests；最终PA 12 tests；runtime权限/能力11 tests；IM 8文件73 tests；Web 100文件922 tests、typecheck和build；Python非E2E 62 passed/31 deselected；ruff check/format通过。Web草稿完整往返用例将总预算5秒改15秒，冷加载仍有独立条件等待，整套重新通过。
+- 本段不宣告真实模型、产品验收或最终CI通过；运行与独立审查证据随后补充。

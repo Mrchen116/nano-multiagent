@@ -17,15 +17,15 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
   for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
     const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
     const assembly = new BlockAssembler();
-    const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 && !config.personal ? 30_000 : 60_000)]);
-    const maxTokens = config.personal ? 16384 : stage === 1 ? 2112 : 10240;
+    const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 ? 30_000 : 60_000)]);
+    const maxTokens = stage === 1 ? 2112 : 10240;
     const userText = transcript + suffix;
     // Public DSH estimator is a heuristic, not the provider tokenizer. Reserve the full stage output.
     const estimatedInput = estimateContent([{ type: 'text', text: system }, { type: 'text', text: userText }]) + 8;
     if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
       throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
     }
-    for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: config.personal ? model.reasoning?.efforts.find(effort=>effort.id==='low')?.id ?? model.reasoning?.defaultEffort ?? model.reasoning?.efforts[0]?.id : ReasoningEffortId('low'),
+    for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: ReasoningEffortId('low'),
       messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
 
     usage = assembly.usage;
