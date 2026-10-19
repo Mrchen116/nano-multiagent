@@ -92,6 +92,7 @@
 | [`research/brainstorms/`](research/brainstorms/README.md) | 脑暴与阶段性方案材料 |
 | [`research/architecture-reviews/`](research/architecture-reviews/README.md) | 带 commit 和 working-tree 状态的架构审查快照 |
 | [`research/studies/`](research/studies/README.md) | 带来源记录与结论文章的主体研究包 |
+| [Intelligent UI 开源选型](research/studies/intelligent-ui-open-source-2026-10-19/README.md) | feat-617 通用交互回复的候选、证据边界与接入建议 |
 | [2026-09-13 Skills 精简审计](research/studies/skills-gpt6-audit-2026-09-13/README.md) | Skill 触发、渐进披露与约束保留的改写记录 |
 | [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
 
