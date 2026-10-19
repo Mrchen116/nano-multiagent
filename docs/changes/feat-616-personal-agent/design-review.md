@@ -1354,7 +1354,7 @@ R8窄复核中继续修正同一时间源：发送后的nextCheck按当前模拟
 
 **同轮发现并关闭。** 首次补走草稿时，较晚本人消息被插在先前PA代发上方，源于ordinaryContent把全部peerReplies画完后固定追加delegatedMessage。已向作者报告实际步骤，作者把PA代发也追加同一消息序列，双方视角按同一序列渲染。reviewer reload后重新代发，再完整完成草稿放回/发送：本人界面顺序为林悦原请求→PA代发→本人后续消息；对方也显示相同顺序与各自作者，没有丢失或重复。最终console未见原型脚本错误；两条错误来自浏览器Zotero扩展连接，不归因原型。未据此扩展其他无关旅程。
 
-**证据与适用边界。** 可持久复查的代表图/作者走查在 [history-delegation-ux.md](research/history-delegation-ux.md)，包括 [历史答案桌面](research/history-delegation-evidence/history-answer-desktop.png)、[历史答案手机](research/history-delegation-evidence/history-answer-mobile.png)、[原文](research/history-delegation-evidence/history-source.png)、[本人手机代发](research/history-delegation-evidence/delegation-owner-mobile.png)、[对方手机代发](research/history-delegation-evidence/delegation-peer-mobile.png)；本轮独立操作与其主要流程一致，邻接消息顺序修复的额外证据以上述reload复验为准。仅检查合成报价约定和固定代发文本，不将其称作通用搜索器；未找到/未覆盖/无权与分页撤权的真实差异由现有spec/design/安全场景明确，留待产品运行验收，不宣称本原型实现这些后端状态。手机是响应式Web，不是native iOS验收。
+**证据与适用边界。** 可持久复查的代表图/作者走查在 [history-delegation-ux.md](research/history-delegation-ux.md)，包括 [历史答案桌面](research/history-delegation-evidence/README.md)、[历史答案手机](research/history-delegation-evidence/README.md)、[原文](research/history-delegation-evidence/README.md)、[本人手机代发](research/history-delegation-evidence/README.md)、[对方手机代发](research/history-delegation-evidence/README.md)；本轮独立操作与其主要流程一致，邻接消息顺序修复的额外证据以上述reload复验为准。仅检查合成报价约定和固定代发文本，不将其称作通用搜索器；未找到/未覆盖/无权与分页撤权的真实差异由现有spec/design/安全场景明确，留待产品运行验收，不宣称本原型实现这些后端状态。手机是响应式Web，不是native iOS验收。
 
 **极简原则。** spec保留用户最新原话，design:65–67把检索分页、来源/审核/恢复归系统责任，正常入口保留聊天输入；自然语言暂停/来源例外和只给草稿可表达偏好，必要新决定才询问。IM delta同步普通流程不配置历史时间、审批参数或每消息三选一。实际新增路径符合此收敛，没有把安全技术步骤搬成产品按钮。原型表/M1与新增记录衔接，不要求重做导航或扩大配置范围。
 

@@ -429,10 +429,25 @@ export default class NanoRuntime {
     handle('pa.evidence', async value => {
       const {agentId,sessionId} = value as {agentId:string;sessionId:string};
       const config = [...this.configurations.values()].find(config => config.agentId === agentId);
-      if (!config?.personal || this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004,'Unknown personal evidence binding');
-      const agent = await this.agent(sessionId);
-      const assembly = await ctx.systemPrompt.assemble({scope:agent});
-      return {sessionId, messages:personalEvidenceMessages(agent),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
+      if (!config?.personal) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const agent = this.bindings.has(sessionId) ? await this.agent(sessionId) : ctx.agents.get(SessionId(sessionId));
+      if (!agent) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const lineage = [agent];
+      let root = agent;
+      // Native children share the product identity, but their own evidence and
+      // delegation context must both reach the disclosure reviewer.
+      while (!this.bindings.has(root.id) && root.session.header.parentSession) {
+        const parent = ctx.agents.get(root.session.header.parentSession);
+        if (!parent) throw new RpcError(-32004,'Unknown personal evidence binding');
+        lineage.push(parent);
+        root = parent;
+      }
+      if (this.bindings.get(root.id)?.agentId !== agentId) throw new RpcError(-32004,'Unknown personal evidence binding');
+      const evidence = await Promise.all(lineage.map(async scope => {
+        const assembly = await ctx.systemPrompt.assemble({scope});
+        return {sessionId:scope.id,messages:personalEvidenceMessages(scope),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
+      }));
+      return {...evidence[0],rootSessionId:root.id,ancestors:evidence.slice(1)};
     });
     handle('pa.review', async value => {
       const {agentId,kind,evidence} = value as {agentId:string;kind:string;evidence:unknown};

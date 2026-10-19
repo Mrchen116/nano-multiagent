@@ -131,8 +131,9 @@ export class PersonalAgents {
   validateReplyDraft(conversationId:string,senderId:string,input:Row,interactiveSource?:string):Row {
     const b=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE u.id=? AND b.conversation_id=?",senderId,conversationId);
     const source=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',input?.source_message_id??'',input?.target_conversation_id??'');
-    if(!b||!source||!conversationAccess(this.db,source.conversation_id,b.owner_user_id)?.can_write||!this.sourceAllowed(b,source.conversation_id)
-      ||typeof input.field_name!=='string'||!interactiveSource||!isInteractiveStringState(interactiveSource,input.field_name))fail(422,'invalid_reply_draft');
+    if(!b||!source||!conversationAccess(this.db,source.conversation_id,b.owner_user_id)?.can_write||!this.sourceAllowed(b,source.conversation_id))fail(422,'invalid_reply_draft');
+    if(typeof input.field_name!=='string'||!interactiveSource||!isInteractiveStringState(interactiveSource,input.field_name))
+      fail(422,'invalid_reply_draft: field_name must name a declared top-level string state including $, for example $draft, not the TextArea name');
     return {target_conversation_id:source.conversation_id,source_message_id:source.id,field_name:input.field_name};
   }
   /** Bind navigation metadata only; 617 owns all editable draft content. */

@@ -50,6 +50,7 @@ it('uses submitted 617 choices as authorization while keeping editable reply dra
  expect(db.prepare('SELECT count(*) n FROM messages WHERE conversation_id=?').get('peer')).toEqual({n:1});
  expect(()=>ctx.messaging.insertMessage('peer','a1','agent','Wrong location',[],null,'completed',{interactive,reply_draft:metadata})).toThrow('invalid_reply_draft');
  expect(()=>ctx.messaging.insertMessage('chat','a1','agent','Missing field',[],null,'completed',{interactive,reply_draft:{...metadata,field_name:'missing'}})).toThrow('invalid_reply_draft');
+ expect(()=>ctx.messaging.insertMessage('chat','a1','agent','Input name is not state',[],null,'completed',{interactive,reply_draft:{...metadata,field_name:'body'}})).toThrow('field_name must name a declared top-level string state including $');
  const sent=await ctx.messaging.sendMessage({...request,headers:{...request.headers,'idempotency-key':'selection'},body:{sender_user_id:'u1',interaction_reply:{source_message_id:card.id,action_id:'coordinate',state:{'$body':'Coordinate Thursday only'}}}});
  const auth=service.authorization(principal,args);
  expect(auth.owner_messages).toContainEqual(expect.objectContaining({id:sent.id,interaction_reply:expect.objectContaining({source_message_id:card.id,state:{'$body':'Coordinate Thursday only'}})}));

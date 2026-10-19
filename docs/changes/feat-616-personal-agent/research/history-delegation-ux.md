@@ -4,14 +4,14 @@
 
 ## 实际走查
 
-- 桌面1440与手机390：输入“去年产品协作群里，我们怎么约定演示报价的？”，直接得到结论及作者/日期/群名出处，无时间选择、审批或模式设置。[桌面答案](history-delegation-evidence/history-answer-desktop.png)、[手机答案](history-delegation-evidence/history-answer-mobile.png)。
-- 点击“查看原消息”进入原产品协作群，定位2025-06-12消息，显示前后两条上下文并高亮本人原文；点击“返回个人助手”回同一答案。出处让用户核实依据，返回不要求重问。[原文画面](history-delegation-evidence/history-source.png)。
-- 接着输入“替我回复林悦：这次演示先不放报价，重点展示门店协作，报价单会另发给你确认。”，直接回执并可打开原私聊，未弹额外确认；两侧均为同一正文并固定显示“陈同学的 PA · 代为发送”。[本人手机](history-delegation-evidence/delegation-owner-mobile.png)、[对方手机](history-delegation-evidence/delegation-peer-mobile.png)。对方视角切换位于产品外演示条。
+- 桌面1440与手机390：输入“去年产品协作群里，我们怎么约定演示报价的？”，直接得到结论及作者/日期/群名出处，无时间选择、审批或模式设置。[桌面答案](history-delegation-evidence/README.md)、[手机答案](history-delegation-evidence/README.md)。
+- 点击“查看原消息”进入原产品协作群，定位2025-06-12消息，显示前后两条上下文并高亮本人原文；点击“返回个人助手”回同一答案。出处让用户核实依据，返回不要求重问。[原文画面](history-delegation-evidence/README.md)。
+- 接着输入“替我回复林悦：这次演示先不放报价，重点展示门店协作，报价单会另发给你确认。”，直接回执并可打开原私聊，未弹额外确认；两侧均为同一正文并固定显示“陈同学的 PA · 代为发送”。[本人手机](history-delegation-evidence/README.md)、[对方手机](history-delegation-evidence/README.md)。对方视角切换位于产品外演示条。
 - 默认首次启用、设置与观察范围中的固定时间窗口文案已删除；查询入口没有历史窗口配置。这里只改新增两段体验，不重做旧目标旅程。
 
 ## 发现与修订
 
-第一次走查发现历史原文上方继承了“今天”时间标签，且查询后代发会覆盖先前答案；已去掉错误日期并保留本段连续对话。复查已确认原文只显示历史日期、返回后答案保留、继续代发仍保留先前问答；桌面双方标记亦已观察：[本人桌面](history-delegation-evidence/delegation-owner-desktop.png)、[对方桌面](history-delegation-evidence/delegation-peer-desktop.png)。不扩大为产品重设计。草稿放回输入框和不回复沿既有路径，不要求新配置。
+第一次走查发现历史原文上方继承了“今天”时间标签，且查询后代发会覆盖先前答案；已去掉错误日期并保留本段连续对话。复查已确认原文只显示历史日期、返回后答案保留、继续代发仍保留先前问答；桌面双方标记亦已观察：[本人桌面](history-delegation-evidence/README.md)、[对方桌面](history-delegation-evidence/README.md)。不扩大为产品重设计。草稿放回输入框和不回复沿既有路径，不要求新配置。
 
 ## 范围
 

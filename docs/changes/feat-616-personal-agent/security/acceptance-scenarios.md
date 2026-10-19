@@ -1,5 +1,7 @@
 # feat-616 安全与有用性验收场景（统一 PA 与独立审查版）
 
+> Historical matrix, superseded by R9 spec.md and design.md. Retained only as earlier research evidence; retired scopes, observation pause, cleanup and tool restrictions are not current acceptance criteria.
+
 本文件随 2026-10-19 新 spec/design 修订。旧研究中的攻击样本可继续使用，R6 的逐动作人工批准/内部成果重新提供、R10 及之前 external 模型上下文无私人 canary 不再是当前成功标准。统一 PA 可读取目标必要私料；应检查真实接收者及共享存储，而非以所有模型都不知道秘密换取通过。使用合成 fixture，不访问生产私料。
 
 | 场景 | 必须同时成立的结果 |

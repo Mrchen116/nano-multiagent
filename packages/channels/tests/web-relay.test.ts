@@ -98,6 +98,18 @@ test('heartbeat timeout reconnects; revoked identity stops automatic reconnect',
   await expect(relay.request('node.report', {})).rejects.toBeInstanceOf(RelayDeliveryError);
 });
 
+test('preserves a definite IM validation failure for tool recovery', async () => {
+  const s = await server((socket, frame) => {
+    if (frame.type === 'node.register') ack(socket, frame);
+    else socket.send(JSON.stringify({type:'error',payload:{message_type:frame.type,code:'invalid_reply_draft: use the declared state key'}}));
+  });
+  const relay = connection(s.url); await relay.start();
+  await expect(relay.request('agent.message', {})).rejects.toMatchObject({
+    delivery:'rejected',code:'invalid_reply_draft: use the declared state key',
+    message:'IM rejected the request: invalid_reply_draft: use the declared state key',
+  });
+});
+
 test('stop rejects waiters and cancels reconnect and heartbeat', async () => {
   const s = await server((socket, frame) => { if (frame.type === 'node.register') ack(socket, frame); });
   const relay = connection(s.url); await relay.start();

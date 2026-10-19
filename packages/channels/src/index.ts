@@ -228,7 +228,8 @@ export class WebRelayConnection {
     if (pending && this.matches(pending.frame, frame)) {
       clearTimeout(pending.timer); this.active = undefined;
       if (frame.type === 'error') {
-        pending.reject(new RelayDeliveryError('IM rejected the request', 'rejected', String(frame.payload.code ?? 'error')));
+        const code = String(frame.payload.code ?? 'error');
+        pending.reject(new RelayDeliveryError(`IM rejected the request: ${code}`, 'rejected', code));
         if (pending.frame.type === 'node.register' || pending.frame.type === 'node.heartbeat') {
           this.disconnect(generation, false, 'IM rejected control frame'); return;
         }

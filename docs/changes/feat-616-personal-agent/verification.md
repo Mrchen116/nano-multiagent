@@ -708,3 +708,62 @@ Uncovered Observable Behavior: **no new spec delta**。capture是现有恢复契
 - 固定`8acd1d722`，2026-10-19 16:17独立执行`pnpm exec vitest run packages/dsh-integration/tests/history.test.ts packages/dsh-integration/tests/capabilities.test.ts`：**2 files / 4 tests passed**。确认编译产物也包含applyRevisionOnly；真实DSH的历史冷恢复后工具/提示词更新，以及原busy metadata/nonmetadata差别都通过，不仅验证helper比较。
 - 复用caller的`/tmp/feat616-r8-history-regression.log`同两suite4项通过；实际读取`/tmp/feat616-r8-all-frontend.log`：`9cebd17b7` **97 files / 898 tests passed**，本次无前端变化，继续有效。caller正在重跑修复后完整backend，该进行中结果未在本节提前写绿。
 - Retained：R8 S1原序列及knowledge/workflow fresh恢复、中央rename提交/延迟恢复、群space/私人ACL、owner Inbox与watermark、UI入口/role/cache证据全部未失效；之前安全矩阵限制及独立真实产品R6判定继续保留。此次只追加报告，未改源码、服务或模型配置。
+
+## Round 9 — Full Global Reuse and IntelligentUI Integration
+
+### Scope, authority and verdict
+
+- review_round: `9`；code_review_mode: **full**，审完整`b50704bdd..649881496`实际代码diff（54个apps/packages/src文件），不是空upstream或仅看最后修复。
+- executed_base: `b50704bdd`（feat-617 `87f5214a7`集成基线）；validated_at: `6498814966a9fc901873f9f874fd2b24e3ae4784`。
+- caller随后合入等价617文档归档为`d370ab6b74e128afa30eaf708f420ef82c75f597`；实际核对`git diff 649881496 HEAD -- apps packages src scripts tests`为空时，固定代码结论可保留到该merge。发现后的未提交index.ts修复不计入本报告通过证据。
+- verification_mode: **full**，核当前R9 spec、design、Gate2 Round18、两份PA delta及唯一M1，并对本轮delta做一致性对账。requires_full_verification: `false`（本次已是完整指定范围，非轻量门禁强行继承）。
+- verdict: **Fix before PR — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**（存活实现问题R9-W1）；`code-review-r9.json`含一项CONFIRMED。
+- corrected-delta outcome: **implementation-mismatch**，仅R9-W1影响“完整Global子执行能力”。其他已核代码/契约对齐；M1真实模型与产品退出证据仍pending，不能据工程通过宣告M1完成。
+- 原R8结论只继承未改变的binding/epoch、private asset ACL、配置事务、分区来源/代际与原Global通用机制。旧PA scopes/assistance/decision/cleanup/工具白名单、派生记忆清理/退休、网络permit与旧多目标引擎的通过或失败均被R9授权方案**superseded**，不是需要恢复的缺实现。
+
+### Completeness and correctness mapping
+
+| 当前Requirement / Scenario | 实现与证据 | 结果及边界 |
+|---|---|---|
+| 固定PA及现有配置/导航 | binding、canonical DM、ConfigOperations改名/恢复路径保留；NodeConfiguration恢复普通extensions/skillRoots/knowledge root；ConfigurationScopes不再禁插件/skill_creation，ToolSelection移除PA工具白名单 | 静态及新native能力对照covered；不能继承旧“PA不加载owner插件”的保证 |
+| 双身份历史并集、不重复/无日期窗口 | PersonalAgents.sourceAccess/sourceConversations合并owner参与且可读与PA自身可读；Work.query复用list/info/read/search，快照每页重核当前集合，真实sender/source与interactive/submission投影 | 新sources测试及本轮真实Gateway跨页probe通过；2001历史可读，排除后的旧cursor不返该源，owner unread不变 |
+| 主人双向消息与角色分离 | schema observation trigger包含主人主动发送；admitSource按持久canonical DM与真实sender区分owner_instruction/owner_fact/external；PA自发消息不入自动观察；Inbox呈现source_role并以原message ID去重 | sources/PA测试及真实DB/Gateway probe通过；owner在其他聊天的话不能调用owner来源控制，当前DM指令不先独立审查 |
+| 草稿/代发/不回复 | reply_draft只存source/target/field，server校canonical owner DM、owner可写且源message归属、声明string state；正文与私有编辑唯一由617 interaction_drafts持有；前端先save再采用，保留失败/冲突编辑、非空输入明确替换，采用不提交 | IM草稿/真实617提交、UI卡片和完整聊天integration回归covered；真实R9手机/桌面往返和“保持安静”仍由产品验收 |
+| 主PA直接排除/恢复来源 | personal_sources限定main调用，host覆盖binding/epoch，server核owner原DM message、policy revision及source access；事件撤销待入队来源，Global仅revoke队列并通知当前session，不reset/clear memory/delete schedules | 新Global测试核同一main/记忆与schedule不被销毁；独立Gateway probe拒owner_fact作控制证据；不再存在全局观察暂停产品 |
+| 任务/子Agent/定时等复用Global | 私人task prepare返回owner_private后走普通task_graph.command；共享create/apply/delete冻结完整native command并经原TaskGraphService验证/actor/assignee/版本执行；内部工具无PA泛用附加guard | 私人/共享全命令及PA独立群task probe通过；**native child公开消息/共享任务证据入口仍失败，R9-W1**。真实持续协助/重启需产品证据 |
+| 能读私人信息≠能对外披露 | PA消息、interactive完整合并source、附件快照、共享task真实payload冻结；review无tools/session，host绑定evidence_digest，commit重核owner原输入、policy/disclosure revision、audience、当前来源及真实receipt；owner DM交付走普通路径 | 更新后的disclosure/PA/617工程回归covered；代码/shell/plugin网络沿普通权限，按R9明确不宣称全面拦截；真实语义拒绝与有用替代待测 |
+| 可疑套取双向告知 | 真实source incident、owner持久消息receipt后固定peer notice、content-bound operation、重复incident与旧receipt沿原链路；来源/contact block仍重核 | 工程新测试保留有效边界；R9新审核policy与真实接收者最终文案由产品配对验证，不能套用R8旧语义样本 |
+
+### R9-W1 — Native child public delivery cannot obtain its evidence
+
+- 契约：R9 spec“工具、代码、Skills、插件和子Agent能力与普通Global一致”，gateway delta完整Global执行；design明确原send_message/task_graph为唯一普通能力实现，主/子内部派发不是另一个被缩减的PA。
+- 固定代码位置：`PersonalAssistant.send:133`与`task:77`均向`pa.evidence`传native child的`call.sessionId`；`dsh-integration/index.ts:432–433`仅接受`this.bindings.get(sessionId)`并调用需显式binding的agent resolver。native子执行只有parent/root lineage，ProductBridge已能识别其正确root，但它未被加入显式binding表。
+- 独立真实官方DSH探针：`pnpm exec tsx /tmp/pa-static-review-616/r9-child-delivery.mts`，结果`r9-child-delivery.log`。root通过公开subagents.start('fork')创建child，child的真实tools.execute调用公开send_message，ProductBridge回传正确root/agent/owner，再由真实PersonalAssistant.send反向调用真实runtime `pa.evidence`。结果`childHasPublicSend=true`，`isError=true / Unknown personal evidence binding`，`rootEvidenceAccepted=true`，`commitCalls=0`。不是审核模型deny，也不是编造不存在的child工具。
+- probe的IM prepare/commit和LLM stream是合成fixture；实际失败发生在真实DSH身份/证据入口，未依赖假review拒绝。临时子进程已shutdown，目录清除，没有共享服务变更。
+- 后果：授权内由普通Global child直接协调对方的同一native工具在PA child必然失败；共享任务走同一证据调用也受影响。child可转交主PA完成并不能满足复用同一能力的契约。
+- 建议：核child当前可信root及PA绑定/跨区边界后采集真实父/子执行证据；不能仅放宽任意session访问或绕过独立出站审核。补实际native child成功消息/任务与伪造/异PA lineage拒绝回归后闭合。caller已收到失败，后续修复需固定新候选单独closure，本报告不自动清除。
+
+### Independent checks and current CI evidence
+
+1. 固定R9代码独立执行：`pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts apps/im-server/tests/personal-disclosure.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/personal-assistant/tests/global-agent.test.ts`，2026-10-19 20:54，**4 files / 61 tests passed**。
+2. `/tmp/pa-static-review-616/r9-gateway-probe.mts`经真实Gateway.handle/Work/PersonalAgents/TaskGraphService、内存DB与合成人员，全部断言通过：跨页排除、2001历史、unread不变、owner主动消息被观察、self不观察、owner_fact不能控制、owner不在PA独立群时reviewed共享task可写、canonical私人task走普通command。socket仅为不发送的fixture；首次运行缺socket、另一次撞到caller合并中的冲突标记，均为探针/现场时序错误，修正并在等价merge完成后重跑通过，不记产品bug。
+3. 上述真实DSH child探针确认R9-W1；源码/测试未修改。检查生产引用未见旧pa_assistance/pa_goal_scopes/pa_decisions/pa_cleanup、personal_files、pa.invalidate/pa.scope或observation_enabled残留（排除tests/lib/dist）；旧本地表允许保留但不被当前生产链读取。
+4. 复用并实际读取caller证据：Web `/tmp/feat616-r9-web-tests.log` **100 files / 922 tests passed**；Python非E2E **62 passed / 31 deselected**；本轮build/typecheck/ruff通过由caller交接及M1记录支持。首轮backend `/tmp/feat616-r9-backend-tests.log`为427pass/7timeout，不能写全绿；7文件限并发recheck为19/19；随后完整`/tmp/feat616-r9-backend-limited.log`为 **102 files / 434 tests passed**。未重复全量。
+5. caller已将保留数据的隔离IM/Node重启为649881构建，并通过正常配置API设置完整Global默认工具、skill_creation/intelligent_ui、主6.1 Sol/审6 Luna。此为可定位的caller运行交接，不当作本审查者独立完成真实模型旅程。独立R9产品报告尚未完成，M1的双身份/双向消息、草稿采用与代发、自然语言来源控制、持续协作/拒绝泄露及重启最终证据保持pending。
+6. 本报告JSON与`git diff --check`通过。本次docs-check遇到caller在途历史图片/文档清理，返回12条旧design-review/history-delegation-ux broken links；已交caller，未改其文件或把现场dirty文档缺口写成固定649881代码finding。最终文档校验需在caller清理收口后重跑，不能沿用早先R9 docs-check通过冒称当前现场已绿。
+
+### Corrected delta and evidence reconciliation
+
+| 当前delta / 决定 | Outcome |
+|---|---|
+| gateway/personal-agent：完整Global能力、直接主人输入无前置scope提取、来源未来访问、具体外发mandatory review | 其余实现aligned；子执行公开投递/共享task为**implementation-mismatch / R9-W1** |
+| im/personal-agent：固定IM入口、双身份历史、双向源、617草稿/代发、来源限制和事件提醒 | 代码与当前工程证据aligned；真实产品must-match旅程pending |
+| 删除旧目标/决策/清理/工具缩减、保留原tasks | aligned；schema新库不建旧业务表，代码/UI/API无旧生产引用，正常任务数据未批量删除 |
+| 复用617及普通Global、包依赖 | metadata走同一617 source/draft/submission/DTO/WS；server与PA无DSH import、Node仅client、无第二loop/HTTP kernel；原普通Global来源/工具测试有效 |
+| 旧security/acceptance-scenarios.md与本报告旧31项矩阵 | scopes/暂停/清理/禁插件/网络全面关口条款已被最新R9 spec/design授权取代，不作为R9要求或通过证明。该旧文件未同步标退役，需在文档收尾明确其历史地位，不能重新要求实现旧方案 |
+
+Outcome：**implementation-mismatch**。当前不存在需要静默缩小spec以适应实现的理由；R9-W1应修复。独立真实产品与M1退出证据pending单独列明，不以没有报告再造代码finding；M1仍不得标complete。
+
+### Handoff
+
+本轮只写`code-review-r9.json`和verification，按派发不提交；未改源码、测试、设计、delta或共享服务，未推送。完整指定diff已审查，停止泛化扫描。caller后续冻结修复和真实验收证据到来后，只对失效范围及R9-W1做closure。

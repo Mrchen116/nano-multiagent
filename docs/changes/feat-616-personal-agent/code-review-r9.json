@@ -1,0 +1,10 @@
+[
+  {
+    "file": "/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent/packages/personal-assistant/src/personal-assistant.ts",
+    "line": 133,
+    "summary": "[P2] Resolve native child evidence through its trusted root before reviewing delivery",
+    "failure_scenario": "A PA native fork child has the ordinary public send_message tool and a valid ProductBridge rootSessionId, but send() requests pa.evidence using call.sessionId, the child UUID. At frozen 649881496 the runtime only accepts entries in this.bindings, which contains the root and explicitly bound history forks, not native children. Actual official DSH child dispatch fails with Unknown personal evidence binding before independent review or commit; shared task writes use the same child-session request at line 77. This prevents the Global child coordination capability that R9 requires. Independently reproduced by /tmp/pa-static-review-616/r9-child-delivery.mts: childHasPublicSend=true, isError=true, rootEvidenceAccepted=true, commitCalls=0. Validate the child's current trusted root lineage and collect its real parent/child evidence while retaining the mandatory delivery review; do not merely bypass evidence collection.",
+    "review_mode": "full: b50704bdd..649881496",
+    "status": "CONFIRMED"
+  }
+]
