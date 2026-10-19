@@ -90,6 +90,20 @@ export class ModelPolicy extends Service {
     const effort = info.reasoning?.efforts.some(effort => effort.id === selection.effort) ? selection.effort : undefined;
     return { revision: config.revision, chain: chain(config), ...(sticky ? { sticky } : {}), ...(effort ? { effort } : {}), ...(selection.ultracode && effort === 'xhigh' ? {ultracode:true} : {}) };
   }
+  /** Keep session model choices when only the configuration revision changes.
+   *
+   * Args:
+   *   config: An execution-equivalent configuration verified by ConfigurationScopes.
+   */
+  async advanceRevision(config: AgentConfiguration) {
+    const updates: [string, Selection][] = [];
+    for (const [id, previous] of this.configs) if (previous.agentId === config.agentId) {
+      const selection = { ...this.selections.get(id)!, revision: config.revision };
+      this.selections.set(id, selection); updates.push([id, selection]);
+    }
+    const state = await this.state;
+    await Promise.all(updates.map(([id, selection]) => state.table('sessions').put(key(id), selection)));
+  }
   async changed(config: AgentConfiguration) {
     for (const [id, previous] of this.configs) if (previous.agentId === config.agentId) {
       const agent = this.host.agents.get(id as Agent['id']); if (agent) this.fallback.interrupt(agent);

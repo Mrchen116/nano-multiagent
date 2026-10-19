@@ -472,7 +472,9 @@ export default class NanoRuntime {
       const previous = [...this.configurations.values()].find(config => config.agentId === next.agentId);
       if (previous && previous.mode !== next.mode) throw new RpcError(-32602, 'Work mode is immutable');
       // A display-name revision does not change execution and must not wait for a long-running goal.
-      const metadataOnly = previous && (await configuration).applyRevisionOnly(next);
+      const scopes = await configuration, modelPolicy = await models;
+      const metadataOnly = previous && scopes.applyRevisionOnly(next);
+      if (metadataOnly) await modelPolicy.advanceRevision(next);
       if (previous && !metadataOnly) {
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
