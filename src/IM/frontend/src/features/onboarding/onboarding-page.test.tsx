@@ -44,12 +44,12 @@ it('keeps failed model validation on the model step and never stores the entered
  expect(Array.from({length: localStorage.length}, (_, i) => localStorage.getItem(localStorage.key(i)!)).join(' ')).not.toContain('private-key-example');
  expect(createPersonalAgent).not.toHaveBeenCalled();
 });
-it('creates one personal assistant and preserves the goal and operation key for retry', async () => {
+it('creates one personal assistant and preserves the name and operation key for retry', async () => {
  vi.mocked(setupNode).mockResolvedValue({ ...modelStatus, default_model: 'model-one', models: [{ provider: 'p', model: 'model-one' }] });
  vi.mocked(createPersonalAgent).mockRejectedValue(new Error('offline'));
  mount();
- await screen.findByRole('heading', { name: 'What would you like help with?' });
- const button = screen.getByRole('button', { name: 'Create and start →' });
+ await screen.findByRole('heading', { name: 'Name your personal assistant' });
+ const button = screen.getByRole('button', { name: 'Create personal assistant' });
  await waitFor(() => expect(button).toBeEnabled());
  await userEvent.click(button);
  await screen.findByRole('alert');
@@ -75,7 +75,7 @@ it('reopens the canonical PA chat without replacing the owner draft or convertin
 it('shows saved models without developer proxy discovery or a duplicate setup test', async () => {
  vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model: 'model-one', models: [{provider: 'p', model: 'model-one'}], services: [{provider: 'p', display_name: 'Team service', source: 'custom', native: false, credential_stored: true, models: [{name: 'model-one', id: 'model-one'}]}]});
  mount();
- await screen.findByRole('heading', {name: 'What would you like help with?'});
+ await screen.findByRole('heading', {name: 'Name your personal assistant'});
  await userEvent.click(screen.getByRole('button', {name: '← Back'}));
  expect(await screen.findByRole('heading', {name: 'Team service'})).toBeInTheDocument();
  expect(screen.queryByText('Local model proxy')).not.toBeInTheDocument();
@@ -89,16 +89,18 @@ it('returns to computer recovery when an already-created assistant is offline', 
  expect(screen.getByText(/Run the command on that computer again/)).toBeInTheDocument();
 });
 
-it('submits the initial goal once and opens the returned canonical chat directly', async () => {
+it('creates an empty personal chat without sending an old setup goal', async () => {
  vi.mocked(setupNode).mockResolvedValue({...modelStatus, default_model:'m',models:[{provider:'p',model:'m'}]});
  vi.mocked(createPersonalAgent).mockResolvedValue(pa);
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`,JSON.stringify({goal:'Old setup draft'}));
  const router=mount();
- await screen.findByRole('heading',{name:'What would you like help with?'});
- await userEvent.type(screen.getByLabelText('What would you like to work on? (optional)'),'Plan next week');
- await userEvent.click(screen.getByRole('button',{name:'Create and start →'}));
+ await screen.findByRole('heading',{name:'Name your personal assistant'});
+ expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
+ expect(screen.queryByText('Start your first task')).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));
  await screen.findByText('Chat opened');
  expect(createPersonalAgent).toHaveBeenCalledTimes(1);
- expect(vi.mocked(createPersonalAgent).mock.calls[0][0].initial_goal).toBe('Plan next week');
+ expect(vi.mocked(createPersonalAgent).mock.calls[0][0]).not.toHaveProperty('initial_goal');
  expect(router.state.location.pathname).toBe('/chat/existing');
  expect(router.state.location.state).toBeNull();
  expect(createConversation).not.toHaveBeenCalled();

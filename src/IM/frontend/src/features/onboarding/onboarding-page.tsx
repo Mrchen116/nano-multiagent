@@ -21,7 +21,6 @@ export function OnboardingPage() {
   const [requestKey] = useState<string>(() => draft.requestKey ?? crypto.randomUUID());
   const [nodeId, setNodeId] = useState<string>(draft.nodeId ?? '');
   const [name, setName] = useState<string>(draft.name ?? text('小助理', 'My assistant'));
-  const [goal, setGoal] = useState<string>(draft.goal ?? '');
   const [viewStep, setViewStep] = useState<number | null>(null);
   const [installMethod, setInstallMethod] = useState<'agent' | 'manual'>('agent');
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
@@ -43,14 +42,14 @@ export function OnboardingPage() {
   const create = useMutation({
     mutationFn: () => {
       if (!node || !name.trim()) throw new Error('not ready');
-      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim(),initial_goal:goal.trim()||undefined});
+      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim()});
     },
     onSuccess: async result => {
       await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']})]);
       if (result.binding) navigate(`/chat/${result.binding.conversation_id}`);
     },
   });
-  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,goal})); }, [draftKey,requestKey,currentNodeId,name,goal]);
+  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name})); }, [draftKey,requestKey,currentNodeId,name]);
   async function copy() {
     const install = state.data?.install;
     if (!install?.available) return;
@@ -61,13 +60,13 @@ export function OnboardingPage() {
     try { await navigator.clipboard.writeText(installMethod === 'manual' ? install.command : prompt); setCopied(true); setCopyError(false); }
     catch { setCopyError(true); }
   }
-  const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('认识你的助手', 'Meet your assistant'), text('开始第一件事', 'Start your first task')];
+  const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('创建个人助手', 'Create personal assistant')];
   const error = (message: string) => <p className="onboarding-error" role="alert">{message}</p>;
   const next = (index: number, disabled = false) => <button className="onboarding-primary" disabled={disabled} onClick={() => setViewStep(index)}>{text('继续 →', 'Continue →')}</button>;
   return <div className="onboarding-screen">
     <header className="onboarding-topbar"><NanoBrand /><div className="onboarding-account"><span>{user.display_name} · {text('个人空间', 'Personal space')}</span><Link to="/membership">{text('加入团队', 'Join team')}</Link><div className="im-auth-language" role="group" aria-label={text('语言', 'Language')}><button onClick={() => setLanguage('zh')} aria-pressed={zh}>中</button><span>/</span><button onClick={() => setLanguage('en')} aria-pressed={!zh}>EN</button></div></div></header>
-    <main className="onboarding-main"><div className="onboarding-intro"><span>{text('从这里开始', 'START HERE')}</span><h1>{text('让你的第一个助手，准备好工作。', 'Get your first assistant ready to work.')}</h1><p>{text('服务已经为你准备好了。连接自己的电脑，选好模型，告诉助手你想做什么。', 'Your space is ready. Connect your computer, choose a model, and tell your assistant what matters.')}</p></div>
-      <div className="onboarding-layout"><aside><ol className="onboarding-steps">{title.map((label, i) => <li key={label} className={i === step ? 'active' : i < step ? 'done' : ''}><span>{i < step ? '✓' : i + 1}</span>{label}</li>)}</ol><p className="onboarding-note">{text('助手在你自己的电脑上工作，文件保存在该电脑。', 'Your assistant works on your computer, where its files are stored.')}<br /><br />{text('进度会自动保留，随时可以回来继续。', 'Your progress is saved. Come back whenever you are ready.')}</p><Link className="onboarding-skip" to="/chat">{text('稍后设置，先看看空间', 'Set up later, explore your space')}</Link></aside>
+    <main className="onboarding-main"><div className="onboarding-intro"><span>{text('从这里开始', 'START HERE')}</span><h1>{text('让你的个人助手，准备好工作。', 'Get your personal assistant ready to work.')}</h1><p>{text('连接自己的电脑和模型，再给个人助手起个名字。', 'Connect your computer and model, then name your personal assistant.')}</p></div>
+      <div className="onboarding-layout"><aside><ol className="onboarding-steps">{title.map((label, i) => <li key={label} className={i === Math.min(step,2) ? 'active' : i < step ? 'done' : ''}><span>{i < step ? '✓' : i + 1}</span>{label}</li>)}</ol><p className="onboarding-note">{text('助手在你自己的电脑上工作，文件保存在该电脑。', 'Your assistant works on your computer, where its files are stored.')}<br /><br />{text('进度会自动保留，随时可以回来继续。', 'Your progress is saved. Come back whenever you are ready.')}</p><Link className="onboarding-skip" to="/chat">{text('稍后设置，先看看空间', 'Set up later, explore your space')}</Link></aside>
         <section className="onboarding-card" aria-live="polite">
           {state.isPending ? <p>{text('正在准备你的空间…', 'Loading your space…')}</p> : state.error ? <>{error(text('暂时无法读取设置进度。你的数据仍会保留。', 'Setup progress could not be loaded. Your data is preserved.'))}<button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重试', 'Retry')}</button></> : <>
           {step === 0 && <><h2>{text('把这台电脑接进来', 'Connect your computer')}</h2><p className="onboarding-sub">{text('选择你习惯的方式。两种方式都会把电脑连接到当前个人空间。', 'Choose the way you prefer. Both connect a computer to this personal space.')}</p>
@@ -83,15 +82,14 @@ export function OnboardingPage() {
             {node && <ModelServicesPanel key={node.node_id} node={node} initialAdd onEditingChange={setEditingModel} />}
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{next(2, !configured || working || editingModel || node?.status !== 'online')}</div>
           </>}
-          {step === 2 && <><h2>{text('你想让助手帮你做什么？', 'What would you like help with?')}</h2><p className="onboarding-sub">{text('给它一个名字，有想推进的事情可以一起交代。','Give it a name and, if you like, a goal to start with.')}</p>
+          {step === 2 && <><h2>{text('给你的个人助手起个名字', 'Name your personal assistant')}</h2><p className="onboarding-sub">{text('创建后进入聊天，随时告诉它你想做什么。','After creation, start a chat whenever you have something in mind.')}</p>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
-            <label htmlFor="onboarding-goal">{text('最近想推进什么？（可选）', 'What would you like to work on? (optional)')}</label><textarea id="onboarding-goal" value={goal} onChange={e => setGoal(e.target.value)} />
             <p className="onboarding-detail">{text('助手可按需查询你有权查看的已参与聊天，相关资料由你配置的模型处理。你随时可以排除聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. Exclude chats anytime; your assistant does not mark messages read for you.')}</p>
-            {create.error && error(text('电脑尚未确认创建结果。名称和目标已保留，重试会核对同一助手。','Your computer has not confirmed creation. Your name and goal are preserved; retry checks the same assistant.'))}
+            {create.error && error(text('电脑尚未确认创建结果。名称已保留，重试会核对同一助手。','Your computer has not confirmed creation. Your name is preserved; retry checks the same assistant.'))}
             {node?.status !== 'online' && error(text('电脑暂时离线，重新上线后即可继续。', 'Your computer is offline. Continue when it reconnects.'))}
-            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !configured || !personal.isSuccess || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建并开始合作 →', 'Create and start →')}</button></div>
+            <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !configured || !personal.isSuccess || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建个人助手', 'Create personal assistant')}</button></div>
           </>}
-          {step === 3 && <><span className="onboarding-chip">{text('我的个人助手','My personal assistant')}</span><h2>{existingAgent?.display_name || name}</h2><p className="onboarding-sub">{existingAgent?.status==='active'?text('继续交代目标、查看进展，或直接问一件过去的事。','Continue your goals, check progress, or ask about a past conversation.'):text('助手正在准备，创建信息和目标已保存。','Your assistant is getting ready. Its setup and goal are saved.')}</p><div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手','Manage assistants')}</Link><button className="onboarding-primary" disabled={!existingAgent} onClick={()=>existingAgent&&navigate(`/chat/${existingAgent.conversation_id}`)}>{text('打开个人助手 →','Open personal assistant →')}</button></div></>}
+          {step === 3 && <><span className="onboarding-chip">{text('我的个人助手','My personal assistant')}</span><h2>{existingAgent?.display_name || name}</h2><p className="onboarding-sub">{existingAgent?.status==='active'?text('继续交代目标、查看进展，或直接问一件过去的事。','Continue your goals, check progress, or ask about a past conversation.'):text('助手正在准备，创建信息已保存。','Your assistant is getting ready. Its setup is saved.')}</p><div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手','Manage assistants')}</Link><button className="onboarding-primary" disabled={!existingAgent} onClick={()=>existingAgent&&navigate(`/chat/${existingAgent.conversation_id}`)}>{text('打开个人助手 →','Open personal assistant →')}</button></div></>}
 
           </>}
         </section>

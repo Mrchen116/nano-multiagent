@@ -62,7 +62,7 @@ it('creates one private PA through the existing configuration operation and reco
  const {registerPersonalAgentRoutes}=await import('../src/personal-agent.js');
  const {ctx,db}=fixture();ctx.gateway.broadcast=vi.fn();ctx.messaging=new Messaging(ctx);ctx.personal=new PersonalAgents(ctx);
  db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('n','o1',1)").run();
- const candidates:any[]=[];
+ const candidates:any[]=[];ctx.gateway.relayMessage=vi.fn();
  ctx.gateway.request=async(_node,method,payload)=>{
    if(method==='node.capabilities.resolve')return {capabilities:{tools:[{name:'read',default_on:true},{name:'task_graph',default_on:true},{name:'send_message',default_on:false}]}};
    expect(method).toBe('agent.create');candidates.push(payload.agent);
@@ -70,10 +70,11 @@ it('creates one private PA through the existing configuration operation and reco
  };
  const app=Fastify();registerPersonalAgentRoutes(app,ctx);await app.ready();
  try {
-  const payload={request_key:'first',node_id:'n',display_name:'小航'};
+  const payload={request_key:'first',node_id:'n',display_name:'小航',initial_goal:'Do not send stale setup input'};
   const response=await app.inject({method:'POST',url:'/im/v1/personal-agent',payload});
   expect(response.statusCode,response.body).toBe(201);
   const state=response.json();expect(state.binding.status).toBe('active');
+  expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id=?').get(state.binding.conversation_id)).toEqual({n:0});
   expect(candidates[0].tool_allowlist).toEqual(expect.arrayContaining(['read','task_graph','send_message','personal_sources']));
   expect(candidates[0].features.skill_creation).toBe(true);
   expect(candidates[0].personal_agent.bindingId).toBe(state.binding.binding_id);
@@ -83,6 +84,7 @@ it('creates one private PA through the existing configuration operation and reco
   expect(()=>ctx.messaging.conversation(state.binding.conversation_id,'u2')).toThrow();
   expect((await app.inject({method:'POST',url:'/im/v1/personal-agent',payload})).json().binding.binding_id).toBe(state.binding.binding_id);
   expect(candidates).toHaveLength(1);
+  expect(ctx.gateway.relayMessage).not.toHaveBeenCalled();
   expect((await app.inject({url:'/im/v1/personal-agent',headers:{'x-user':'u2'}})).json().binding).toBeNull();
  }finally{await app.close();}
 });

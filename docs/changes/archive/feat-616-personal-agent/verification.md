@@ -895,3 +895,38 @@ interactive-card将617 ThemeProvider包在原Renderer外、原fieldset内，并�
 独立在frontend执行`pnpm exec vitest run src/features/chat/interactive/catalog.test.tsx src/features/chat/interactive/interactive-card.test.tsx`：**2 files / 15 tests passed**，5.32s，日志`/tmp/pa-static-review-616/r10-main-sync-ui-tests.log`。含真实库局部状态/组合示例执行，以及PA草稿保存失败不采用、重试成功采用且未send。独立`pnpm exec tsx scripts/generate-interactive-ui.ts --check` **exit=0**（成功静默，`r10-main-sync-generated-check.log`）；`git diff --check`通过。复用已实际读取caller `/tmp/feat616-r10-main-ui-tests.log` **4 files / 78 tests passed**及`/tmp/feat616-r10-main-ui-build.log`构建成功（已有chunk size warning）。未重复全量。
 
 本轮不以jsdom测试代判真实主题美术/窄屏布局体验；上游617已核结果按版本保留，caller另安排实际卡片布局复验。注册→首次设置→公司批准的独立产品补验与本轮两个冲突整合分别记录，不互相代填。仅新增本轮JSON并追加verification，未改实现或共享服务、未commit；既有失败/closure记录保留。
+
+## Round 11 — Name-only creation and first-chat composer suggestions
+
+- executed_base: `10873316bc2b9cac74f71c06e447320f9edaff66`；validated_at: 该HEAD后本轮18文件dirty增量，2026-10-19 23:48 Asia/Shanghai。用户已授权创建只命名、示例只填写composer并由本人Send；未重新审核整条交付。
+- code_review_mode: **bounded patch**；verification_mode: **delta consistency**。`code-review-r11.json`含一项CONFIRMED；当前 **Fix before PR — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**，corrected-delta **implementation-mismatch**，仅R11-W1附件状态显示条件。requires_full_verification: `false`。其他本批行为及未失效历史证据保留；独立产品验收继续单独进行。
+
+### Covered implementation and contract
+
+首次设置与聊天入口创建弹窗移除任务textarea、goal状态和initial_goal业务参数；前端API与共享creation DTO同步。onboarding只保存requestKey/node/name，不再读取或传递旧localStorage.goal；创建与pending恢复继续使用原operation key。服务端创建始终将旧列写null，删除按旧列自动insertMessage/relayMessage分支，没有数据迁移或删除既有用户消息。旧SQL列保留兼容已有DB；不再作为业务输入/自动任务使用。已有PA/不同request_key仍返回同一binding，未改原幂等和config operations。
+
+示例父flag来自当前登录用户的personal-agent binding，必须当前conversationId等于canonical owner DM，且当前按conversationId独立query的历史isSuccess、非fetching、无更多历史、items空。没有用“某会话包含personal Agent”代替主人关系；他人PA虽能显示角色，不获得此flag。历史加载/错误、非空历史或其他聊天不会开启示例；真实stream有消息时MessagePane外层messages非空也不展示。切换会话继续原composer store和useLayoutEffect恢复，示例只setDraft并focus；按钮type=button，没有发送/任务/模型调用。已有正文隐藏示例，点击后编辑、切换回来、最后显式Send的回归通过。
+
+当前/归档spec与IM delta的“创建与第一条消息分开”Scenario一致；design要求owner、确认空白历史、空输入框、无待发送附件，本批主要链路与文档对齐。未新增引导状态机、已读标记或聊天发送协议。
+
+### R11-W1 — Attachment state missing from starter visibility
+
+message-pane.tsx:1075仅检查pending.length===0，而原handleAdd开始先增加uploading，只有成功才写pending；失败则只写failed并保留文件与Retry/Remove。由此在上传中、以及上传失败后仍展示三条首次示例，与本轮“已有draft/附件隐藏”和design“无待发送附件”不一致。建议条件同时要求uploading===0、failed.length===0，并在现有composer suite覆盖延迟上传、失败保留和移除后再出现；不改变示例只填写不发送。
+
+这是根据当前真实状态更新/渲染条件确认的显示缺口，不声称会自动发送或丢失附件。隔离`/tmp/pa-static-review-616/r11-attachment-probe.test.tsx`尝试因仓外Vite root模块解析两次在收集前失败，**没有执行断言**；该工具fixture错误不是产品失败或运行复现成功证据，未改仓库以解决它。具体机制与可直接放入既有suite的步骤已交caller，修复与回归由实现方处理。
+
+### Validation and handoff
+
+- 独立`pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/tenancy.test.ts`：**2 files / 21 tests passed**，5.69s，日志`/tmp/pa-static-review-616/r11-backend-tests.log`。创建请求即使带旧initial_goal也无消息行、无relay；重试只有一次agent配置创建，身份/私人连续性未失效。
+- 独立frontend：`pnpm exec vitest run src/features/onboarding/onboarding-page.test.tsx src/features/personal-agent/personal-agent.test.tsx src/features/chat/components/message-pane-composer-draft.test.tsx`，**3 files / 27 tests passed**，2.92s；日志`/tmp/pa-static-review-616/r11-ui-tests.log`。覆盖移除任务、旧setup草稿不发送、同key重试、示例填写聚焦、编辑与会话草稿保留、显式Send一次。当前suite未覆盖R11-W1，不用27绿掩盖该具体缺口。
+- 已读取caller同范围backend21/UI27日志及frontend build成功（已有chunk warning）；最后parent判定相关补测/build按其完成版本再记录。未重复全量。
+- 只新增code-review-r11.json和本节，不改实现/测试/设计、不commit、不操作共享运行时。R11-W1尚未自动closed；冻结修复后只需本显示条件及新增附件回归做closure，无需第二轮泛化审查。真实创建/手机首屏/人工点击发送由独立产品reviewer判断，本报告不代填pass。
+
+### R11-W1 targeted closure — attachment upload and retry states
+
+- validated_at: `10873316b`之后caller冻结的同一dirty增量，2026-10-19 23:51 Asia/Shanghai。修复文件Git blob：message-pane.tsx=`c182b7b4d4bacc1131121728dd1f8e3d6023ce22`；composer-draft回归=`1a8b5e0828518b0de048b318cc427bb2e1a5a49e`。仅复验R11-W1，不扩审。
+- **R11-W1 closed；Approved / corrected-delta aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。`code-review-r11.json`更新为当前存活问题`[]`；上节完整保留最初finding的位置、具体触发与原Fix before PR结论，现明确由本节closure替代其存活状态，不抹除历史失败。
+- 示例渲染条件现在同时要求pending为空、uploading===0、failed为空；父owner/当前历史query flag、正文为空及composer可用约束未改。附件成功仍由pending隐藏，延迟上传和失败保留也隐藏；移除最后失败文件后恢复。未改变上传重试/移除逻辑、setDraft+focus或普通显式Send路径。
+- 新回归在实际MessagePane触发drop，挂起真实uploadAttachment promise，断言开始上传后示例消失；reject后Retry控件出现而示例仍隐藏；点击Remove后示例恢复。它在仓内正常收集执行，补上原/tmp fixture未能运行的证据，未仅断言布尔helper。独立`pnpm exec vitest run src/features/chat/components/message-pane-composer-draft.test.tsx`：**1 file / 17 tests passed**，2.17s，日志`/tmp/pa-static-review-616/r11-attachment-closure-tests.log`。原示例填写/聚焦/编辑、跨聊天草稿保留、明确Send一次的用例继续通过。
+- 复用并实际读取caller `/tmp/feat616-r11-ui-tests-final.log`：**3 files / 28 tests passed**；`/tmp/feat616-r11-web-build-final.log`frontend build成功（已有依赖注释/chunk warning）。`git diff --check`和JSON校验通过。R11其余后端21/UI27以及此前仍适用证据保留，没有重跑全量。
+- 本次仍仅写code-review-r11.json与verification，不commit、不改实现或共享服务。创建仅命名与示例只填写的当前spec/design/delta现无存活工程不一致；独立产品体验/真实点击发送验收继续另记。

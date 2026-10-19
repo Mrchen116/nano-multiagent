@@ -1529,6 +1529,13 @@
     "summary_other": "{{total}} computers · {{online}} online"
   },
   "pa": {
+    "firstChatTitle": "Start with something small",
+    "firstChatHint": "Choose an example and make it yours. Clicking fills the message box without sending.",
+    "examples": {
+      "planWeek": "Help me plan my study time and breaks this week.",
+      "startExercise": "I want to exercise three times a week. Help me make a beginner plan.",
+      "findNextStep": "I keep putting a few things off. Help me figure out my next step."
+    },
     "useDraft": "Use in original chat",
     "draftStale": "You have already replied in the original chat. This draft may be out of date.",
     "replaceDraft": "The original chat has an unsent draft. Replace it with this reply? Cancel to keep your existing draft.",

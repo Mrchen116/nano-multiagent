@@ -18,29 +18,27 @@ export function PersonalAgentDialog({state, nodes, conversations, onClose, onCre
   const zh = getCurrentLanguage() === 'zh', text = (cn:string,en:string) => zh ? cn : en;
   const cache = useQueryClient();
   const [name,setName] = useState(state.binding?.display_name ?? text('小助理','My assistant'));
-  const [goal,setGoal] = useState('');
   const [nodeId,setNodeId] = useState(nodes.find(n=>n.status==='online')?.node_id ?? nodes[0]?.node_id ?? '');
   const [sourceSearch,setSourceSearch] = useState('');
   const createKey = useRef(crypto.randomUUID());
   const refresh = () => cache.invalidateQueries({queryKey:['personal-agent']});
-  const create = useMutation({mutationFn:()=>createPersonalAgent({request_key:createKey.current,node_id:nodeId,display_name:name.trim(),initial_goal:goal.trim() || undefined}),onSuccess:async result=>{await Promise.all([refresh(),cache.invalidateQueries({queryKey:['chat']})]);if(result.binding) onCreated(result.binding.conversation_id);}});
+  const create = useMutation({mutationFn:()=>createPersonalAgent({request_key:createKey.current,node_id:nodeId,display_name:name.trim()}),onSuccess:async result=>{await Promise.all([refresh(),cache.invalidateQueries({queryKey:['chat']})]);if(result.binding) onCreated(result.binding.conversation_id);}});
   const update = useMutation({mutationFn:(patch:{excluded_conversation_ids?:string[]})=>updatePersonalAgentPolicy({expected_revision:state.policy!.revision,...patch}),onSuccess:refresh,onError:refresh});
   const rename = useMutation({mutationFn:()=>renamePersonalAgent(name.trim()),onSuccess:async()=>{await Promise.all([refresh(),...['chat','contacts','public-agents','settings'].map(key=>cache.invalidateQueries({queryKey:[key]}))]);}});
-  const recover = useMutation({mutationFn:()=>createPersonalAgent({request_key:state.creation!.request_key,node_id:state.binding!.node_id,display_name:state.binding!.display_name,initial_goal:state.creation!.initial_goal??undefined}),onSuccess:refresh,onError:refresh});
+  const recover = useMutation({mutationFn:()=>createPersonalAgent({request_key:state.creation!.request_key,node_id:state.binding!.node_id,display_name:state.binding!.display_name}),onSuccess:refresh,onError:refresh});
   const restore=useMutation({mutationFn:()=>restorePersonalAgent(nodeId),onSuccess:refresh,onError:refresh});
   const policy = state.policy;
   return <Dialog.Root open onOpenChange={open=>{if(!open)onClose();}}><Dialog.Portal><Dialog.Overlay className="pa-dialog-overlay"/><Dialog.Content className="pa-dialog"><Dialog.Title>{state.binding ? text('个人助手','Personal assistant') : text('认识你的个人助手','Meet your personal assistant')}</Dialog.Title>
     <Dialog.Description>{state.binding ? text('直接在聊天里交代目标、纠正偏好或叫停。','Give it goals, correct preferences, or ask it to stop in chat.') : text('准备、协调和持续跟进交给它。需要你决定的事，再来找你。','It prepares, coordinates, and follows through, asking you when a decision is needed.')}</Dialog.Description>
     {!state.binding ? <form onSubmit={e=>{e.preventDefault();create.mutate();}}>
       <label>{text('名字','Name')}<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} required/></label>{!name.trim()&&<p className="pa-error" role="status">{text('请填写助手名字。','Enter a name for your assistant.')}</p>}
-      <label>{text('最近想推进什么？（可选）','What would you like to work on? (optional)')}<textarea value={goal} onChange={e=>setGoal(e.target.value)}/></label>
       {nodes.length > 1 && <label>{text('工作电脑','Computer')}<select value={nodeId} onChange={e=>setNodeId(e.target.value)}>{nodes.map(n=><option key={n.node_id} value={n.node_id}>{n.node_name}{n.status!=='online'?text(' · 离线',' · Offline'):''}</option>)}</select></label>}
       <p>{text('助手可按需查询你有权查看的已参与聊天。相关资料会由你配置的模型处理。你随时可以排除某个聊天；PA 看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. You can exclude a chat anytime. Assistant activity does not mark messages read for you.')}</p>
       {!nodes.length && <p><Link to="/onboarding">{text('先连接工作电脑和模型','Connect a computer and model first')}</Link></p>}
       {create.isError && <p className="pa-error" role="alert">{text('尚未确认创建成功。内容已保留，请重试。','Creation has not been confirmed. Your input is preserved; retry.')}</p>}
-      <footer><Dialog.Close className="pa-secondary" type="button">{text('稍后','Later')}</Dialog.Close><button className="im-btn im-btn-primary" disabled={!name.trim()||!nodeId||create.isPending}>{create.isPending?text('正在创建…','Creating…'):text('创建并开始合作','Create and start')}</button></footer>
+      <footer><Dialog.Close className="pa-secondary" type="button">{text('稍后','Later')}</Dialog.Close><button className="im-btn im-btn-primary" disabled={!name.trim()||!nodeId||create.isPending}>{create.isPending?text('正在创建…','Creating…'):text('创建个人助手','Create personal assistant')}</button></footer>
     </form> : <>
-      {state.binding.status!=='active'&&<p role="status">{text('助手尚未准备完成，目标已保留。','Your assistant is not ready; its goal is saved.')} {state.creation&&<button className="pa-secondary" disabled={recover.isPending} onClick={()=>recover.mutate()}>{text('重新准备','Retry setup')}</button>}</p>}
+      {state.binding.status!=='active'&&<p role="status">{text('助手尚未准备完成，创建信息已保留。','Your assistant is not ready; its setup is saved.')} {state.creation&&<button className="pa-secondary" disabled={recover.isPending} onClick={()=>recover.mutate()}>{text('重新准备','Retry setup')}</button>}</p>}
       <form onSubmit={e=>{e.preventDefault();rename.mutate();}}><label>{text('名字','Name')}<input value={name} onChange={e=>setName(e.target.value)} maxLength={80} required/></label>{!name.trim()&&<p className="pa-error" role="status">{text('请填写助手名字。','Enter a name for your assistant.')}</p>}{name.trim()!==state.binding.display_name&&<button className="pa-secondary" disabled={!name.trim()||rename.isPending}>{text('保存名字','Save name')}</button>}</form>
       <Link to={`/settings/agents/${state.binding.agent_id}`} onClick={onClose} className="pa-secondary">{text('模型、指令与能力配置','Model, instructions & capabilities')}</Link>
       {policy && <>

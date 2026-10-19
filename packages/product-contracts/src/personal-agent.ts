@@ -15,7 +15,7 @@ export interface PersonalAgentPolicy {
 }
 export interface PersonalAgentState {
   binding: PersonalAgentBinding | null; policy: PersonalAgentPolicy | null;
-  creation?: {request_key:string;initial_goal:string|null}|null;
+  creation?: {request_key:string}|null;
 }
 /** Navigation metadata only; edited text belongs to the ordinary interaction draft. */
 export interface PersonalReplyDraft {

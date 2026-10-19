@@ -145,3 +145,10 @@ The user's test service remains available at its isolated local URL while they i
 - 用户通知PR366已合并；同步main `65de8cd20`，集成为`0e6474e1f`，PR368 base改为main。两个交互UI冲突同时保留616草稿保存/采用禁用和617主题/组合指导，生成源重新生成。78个UI/工作区tests、DSH build、native通信2tests通过，Web构建通过；独立15tests与生成资产检查通过。
 - 本轮真实新账号从/register进入首次设置，通过正常浏览器确认隔离Node后创建小禾，个人计划两小时在pending仍能回忆，管理员正常批准后同一PA继续改为三小时。read-only before/after确认完整binding/profile一致且binding数为1。真实产品结论及视频以acceptance R10为准。
 - 本地安装包未发布，不能把本轮当下载/安装验收；使用同一分支已构建的Node，独立身份/config/runtime/workspace，模型连接复用已验证Sol6.1/Luna6配置。注册、设备浏览器确认、PA创建、公司申请/批准均真实UI。专用Node已停止，临时config/绑定URL/凭据已移除；保留忽略目录中的证据与合成测试数据，原53808主服务更新至合并后构建并继续保留。
+
+### R11 name-only creation and first-chat examples
+
+- 根据用户反馈，PA创建只保留命名，首次设置显示电脑、模型、创建PA三步；任务交代回到真实聊天。前端不再保存/提交旧goal字段，服务端不再因创建或重试而插入/投递第一条消息；旧数据库列保留但新建写null，不删除已有用户历史。
+- 确认无历史的主人PA私聊显示三个简短示例。点击只填写并聚焦既有输入框，编辑和跨聊天草稿恢复复用原机制，只有用户明确Send才发送；已有文字或任何附件状态时隐藏示例，其他人的PA不显示此主人引导。
+- 窄验证：IM/tenancy 2文件21tests、Web创建/草稿3文件28tests通过，包含旧initial_goal不发送、创建同key重试、示例只填写、附件上传/失败隐藏及移除后恢复；contracts/IM和Web构建通过。原创建发送路径的红测和最终日志分别保留在本地/tmp/feat616-r11-*；现有大chunk构建提示未变。
+- current IM spec、归档spec/design/delta已同步；独立静态发现的附件显示遗漏已修复，最终closure与真实注册/首聊验收以verification/acceptance本轮记录为准。先前注册到公司身份连续性的证据仍保留，R10视频中的创建任务字段由本轮交互替代。

@@ -18,13 +18,12 @@ export interface PersonalAgentBinding {
 export interface PersonalAgentState {
   binding: PersonalAgentBinding | null;
   policy: PersonalAgentPolicy | null;
-  creation?: {request_key: string; initial_goal: string | null} | null;
+  creation?: {request_key: string} | null;
 }
 export interface CreatePersonalAgent {
   request_key: string;
   node_id: string;
   display_name: string;
-  initial_goal?: string;
 }
 const base = '/im/v1/personal-agent';
 export const getPersonalAgent = () => authFetchJson<PersonalAgentState>(base);

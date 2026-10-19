@@ -93,6 +93,8 @@ export interface MessagePaneProps {
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
   personalAgent?: boolean;
+  /** Owner PA only, after the initial history request has confirmed an empty chat. */
+  personalStarterExamples?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
@@ -224,6 +226,7 @@ export function MessagePane({
   headerActions,
   focusMessageId,
   personalAgent = false,
+  personalStarterExamples = false,
   returnNavigation,
   timeline,
   messages: messagesProp,
@@ -1067,8 +1070,14 @@ export function MessagePane({
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
             <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-            <p className="chat-pane-empty-title">{t("chat.messagePane.emptyTitle")}</p>
-            <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
+            <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
+            <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
+            {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
+              {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
+                setDraft(t(`pa.examples.${key}`));
+                composerRef.current?.focus();
+              }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
+            </div>}
           </div>
         ) : (
           <>

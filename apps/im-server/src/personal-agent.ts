@@ -20,7 +20,7 @@ export class PersonalAgents {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
     const runtime=binding?one(this.db,'SELECT available FROM pa_runtime_status WHERE binding_id=? AND node_epoch=?',binding.binding_id,binding.node_epoch):undefined;
     return {binding:binding?{...binding,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
-      policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key,initial_goal:binding.initial_goal}:null};
+      policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key}:null};
   }
   authority(principal: Row, args: Row): Row {
     const b = one(this.db, `SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id
@@ -213,7 +213,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const id=randomUUID(),agent=`pa_${id.replaceAll('-','').slice(0,12)}`,conversation=`c_${randomUUID().replaceAll('-','').slice(0,12)}`;
         transaction(ctx.db,()=>{
           ctx.db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(u.id);
-          ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',input.initial_goal??null,now());
+          ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',null,now());
           ctx.db.prepare('INSERT INTO pa_policies(binding_id) VALUES(?)').run(id);
           ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node.node_id,u.owner_id);
         });
@@ -237,11 +237,6 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         for(const id of [u.id,agentUser.id])ctx.db.prepare('INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(b!.conversation_id,id);
         ctx.db.prepare("UPDATE personal_agent_bindings SET status='active' WHERE binding_id=?").run(b!.binding_id);
       });
-      if(b.initial_goal) {
-        const m=ctx.messaging.insertMessage(b.conversation_id,u.id,'user',b.initial_goal,[],`pa-first-goal:${b.binding_id}`);
-        const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id)!;
-        ctx.gateway.relayMessage(m,profile,`pa-first-goal:${b.binding_id}`);
-      }
       reply.code(201);return pa.state(u.owner_id);
     });
   });

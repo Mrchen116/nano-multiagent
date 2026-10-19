@@ -1,4 +1,4 @@
-> 当前结论：**Round 9 full PASS；Round 10 注册/加入公司及合并影响 targeted PASS（2026-10-19，限定下述样本）**。R10从真实注册开始，见文末；安装包下载未验。视频入口：`data/acceptance/feat-616/r10-registration/README.md`；R9完整旅程证据仍保留。
+> 当前结论：**R9 full、R10 注册/公司路径、R11 只起名创建及首聊示例均 PASS（各自限定样本与版本）**。最新创建体验以文末R11为准；R10创建时交代任务的旧步骤已被新需求替代。R11视频入口：`data/acceptance/feat-616/r11-first-chat/README.md`。
 
 # feat-616 — 独立真实产品验收
 
@@ -497,3 +497,37 @@ caller合并main并构建 `0e6474e1f` 后，reviewer刷新原nano账号的既有
 `r10-registration-to-company.mp4` **196.00秒（3分16秒）**，全部是真实动作录像，包含真实注册、确认绑定、首次创建、个人使用、申请、管理员批准、同PA继续及私人Work访问边界。跨两个身份页面按实际顺序拼接，等待省略；没有伪造DOM、静态图替代注册或预置账号。`clip-index.json`给出源视频起止，原始录像保留于raw/raw-admin。已抽帧目视检查字幕、布局与操作内容。
 
 专用headless浏览器和两个context全部关闭；未停止caller管理的服务。仅追加本报告和本地ignored证据，不修改archive设计、不提交代码或报告。
+
+
+## Round 11 · 2026-10-19 · 只起名创建与首聊示例 targeted
+
+**Verdict: PASS；blocking 0，major 0。** 用户已确认创建时只起名，首次聊天给3条可编辑示例；本轮替代 R10 创建时交代任务那一步，其余个人/公司连续性与 R9 核心行为不重跑。
+
+### 版本与路径
+
+checkout基线 `10873316bc2b9cac74f71c06e447320f9edaff66` 加 caller 本轮未提交R11修改；caller集中重启53808 IM、新建无Agent独立Node并构建前端，最终前端产物 `index-b902mmex.js`。reviewer在最终build通知后刷新空白页再点击/编辑/发送；不是将基线提交当作包含R11实现。最终提交映射由caller补充。
+
+真实新账号 `r11-first-chat` / 初晴R11 从 /register 开始，普通UI确认“初晴的测试电脑”绑定，等待新版ready后才创建；无API预注册、伪造Node或注入聊天记录。沿用R10环境边界：未发布安装包，source-built电脑端由caller准备，模型连接复用既有配置；本轮不称完整安装测试。
+
+### 必验行为与体验对照
+
+证据位于 `data/acceptance/feat-616/r11-first-chat/`（ignored）。桌面1440×900、手机390×844，均实际查看截图并操作控件。
+
+| 判据 | 实际结果 | 证据 |
+|---|---|---|
+| 创建只起名，不交代任务 | 新onboarding步骤为电脑、模型、创建个人助手；最后表单只有名字，创建按钮“创建个人助手”，无任务输入。输入小晴创建 | `03-name-only-onboarding.txt/png` |
+| 创建后为空白主人DM | 自动进入 `c_cf658e24d309`，PA `pa_9f6b06ef2e21`；没有任何用户/Agent消息，显示“从一件小事开始”及3条示例，文案明确点击不发送 | `04-empty-owner-chat.txt`、`04-empty-owner-chat-desktop.png`、`13-pa-identity.txt` |
+| 桌面/手机可读可点 | 3条示例纵向排列，手机长例自然换行，说明和输入框同时可辨认；没有横向裁切/遮挡。桌面与手机都真实点击过示例 | `04-empty-owner-chat-desktop.png`、`05-empty-owner-chat-mobile.png`、`06-final-empty-mobile.png` |
+| 点击仅填入并聚焦 | 手机点击学习休息示例，输入框填入准确正文，document.activeElement为该textbox；消息列表仍空，未生成用户消息 | `07-example-filled-not-sent.txt/png` |
+| 不覆盖已有输入 | 将输入编辑为本人原草稿后，3个示例按钮隐藏，原文保留；用户清空输入后示例再次出现，可以选择另一个 | `08-existing-draft-protected.txt/png` |
+| 编辑后本人Send才发送 | 桌面选择拖延示例，编辑为白鹭书店读书两小时的下一步建议请求；Send前仍无消息，23:52本人只点击一次Send，出现且仅出现该编辑后正文，没有发出原示例 | `10-edited-before-send.txt/png`、`11-single-message-after-send.txt/png` |
+| 有历史不再显示示例 | Send后示例消失，刷新后仍消失；随后PA真实回复一个简短建议，最终仅1条用户消息+1条回复 | `12-history-no-examples-mobile.png`、`14-first-reply.txt`、`14-first-reply-mobile.png`、`15-first-reply-desktop.png` |
+| 他人PA不显示主人示例 | 管理员独立context通过新聊天选择同事初禾R10的小禾，空白DM `c_9i5yiwxl` 仅显示“暂无消息/发出第一条消息”，没有3条主人示例；未向该PA发送消息 | `09-other-pa-no-owner-examples.txt/png` |
+
+整体体验成立：创建动作只确认名字，具体需求留到聊天；示例是可修改的输入起点，发送权仍在本人，既有输入不会被替换。空白与历史态转换明确；没有将点击示例伪装成授权或自动发消息。本轮未新增附件上传专项场景，不以工程测试结果代替该项产品观察。
+
+### 录像与收尾
+
+`r11-first-chat.mp4` 约118秒：真实注册、只起名创建、桌面/手机空态、点击填入、编辑后Send、历史与回复、同事PA对照。只剪去等待/环境准备，片段原速；`clip-index.json`列明原片来源与时间。R9/R10原证据完整保留，R10含任务输入的创建画面不再代表当前体验。
+
+专用headless Chrome、两个context已全部关闭；服务归caller管理。仅追加acceptance与ignored本地证据，未修改实现/设计，未commit。

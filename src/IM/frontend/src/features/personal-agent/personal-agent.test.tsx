@@ -20,19 +20,20 @@ beforeEach(async()=>{
  vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[]});
 });
 afterEach(()=>{clients.splice(0).forEach(c=>c.clear());});
-it('creates with the original goal exactly once and retries the same operation after an uncertain result',async()=>{
+it('creates without a task and retries the same operation after an uncertain result',async()=>{
  const done=vi.fn();vi.mocked(api.createPersonalAgent).mockRejectedValueOnce(new Error('lost response')).mockResolvedValue(state);
  mount(<PersonalAgentDialog state={{binding:null,policy:null}} nodes={[{node_id:'n1',node_name:'Computer',status:'online'}]} conversations={[]} onClose={()=>{}} onCreated={done}/>);
  await userEvent.clear(screen.getByLabelText('Name'));await userEvent.type(screen.getByLabelText('Name'),'Aster');
- await userEvent.type(screen.getByLabelText('What would you like to work on? (optional)'),'Coordinate my launch');
- await userEvent.click(screen.getByRole('button',{name:'Create and start'}));await screen.findByRole('alert');
+ expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));await screen.findByRole('alert');
  const first=vi.mocked(api.createPersonalAgent).mock.calls[0][0];
- expect(first).toMatchObject({display_name:'Aster',node_id:'n1',initial_goal:'Coordinate my launch'});
+ expect(first).toMatchObject({display_name:'Aster',node_id:'n1'});
+ expect(first).not.toHaveProperty('initial_goal');
  expect(first).not.toHaveProperty('history_days');
  expect(first).not.toHaveProperty('observation_enabled');
  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
  expect(done).not.toHaveBeenCalled();
- await userEvent.click(screen.getByRole('button',{name:'Create and start'}));await waitFor(()=>expect(done).toHaveBeenCalledWith('pa-chat'));
+ await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));await waitFor(()=>expect(done).toHaveBeenCalledWith('pa-chat'));
  expect(vi.mocked(api.createPersonalAgent).mock.calls[1][0].request_key).toBe(first.request_key);
 });
 it('offers source exclusions and ordinary configuration without retired observation or cleanup controls',async()=>{
@@ -46,11 +47,11 @@ it('offers source exclusions and ordinary configuration without retired observat
  await waitFor(()=>expect(api.updatePersonalAgentPolicy).toHaveBeenLastCalledWith({expected_revision:4,excluded_conversation_ids:['private']}));
 });
 it('restores a pending creation from the server instead of creating a second identity',async()=>{
- const pending={...state,binding:{...state.binding!,status:'pending'},creation:{request_key:'original-key',initial_goal:'Saved goal'}};
+ const pending={...state,binding:{...state.binding!,status:'pending'},creation:{request_key:'original-key'}};
  vi.mocked(api.createPersonalAgent).mockResolvedValue(state);
  mount(<PersonalAgentDialog state={pending} nodes={[]} conversations={[]} onClose={()=>{}} onCreated={()=>{}}/>);
  await userEvent.click(screen.getByRole('button',{name:'Retry setup'}));
- await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledWith(expect.objectContaining({request_key:'original-key',initial_goal:'Saved goal',node_id:'n1'})));
+ await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledWith(expect.objectContaining({request_key:'original-key',node_id:'n1'})));
 });
 
 it('treats an incident as information and records misunderstanding without approving disclosure',async()=>{
