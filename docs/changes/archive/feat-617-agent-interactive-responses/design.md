@@ -130,4 +130,3 @@ node apps/node/lib/cli.js status --config .gateway-config.yaml
 | M1-interactive-replies | 原实现与同一 worktree；catalog/生成资产、IM 状态/事件、Web Renderer、PA 上下文、公开 tool schema | **R1** 普通/Global 的无交互提示知识问题实际生成有意义交互，指定原话和跨领域样本通过；无验收题专用逻辑，1440/768/390 可读可操作。 **R2** 本地探索不调用模型，多次继续会话正确携带状态，重复网络请求不重复入队，旧表单仍可读。 **R3** 私人状态、读写权限、离线/错误、替代/fork、patch 历史与 Feature 开关正确。 **W1** 固定版本 full catalog、原生动作/计算/条件/Each、宿主 Query/Mutation 与 patch 的有意义窄测试，真实模型源与失败记录。 **W2** 原型和真实浏览器交互对照、类型/构建/相关测试、静态审查、一致性与独立产品验收；未接入具体业务工具的边界如实披露。 |
 
 ## Changelog
-
