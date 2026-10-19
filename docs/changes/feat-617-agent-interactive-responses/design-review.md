@@ -227,3 +227,58 @@ R1-W1 已关闭，当前冻结设计通过 Gate 2。此结论是设计审查通�
 - R3-W1：以 click capture 可见标签与 Renderer message/context 分离；onStateUpdate 完整 ref + 具名 formState 合并，Set 后立即冻结，Mutation 共用提交。设计给出具体 Form 内外状态/不同标签映射及窄测试。
 - R3-W2：按 current 基线整理：IM 修改交互确认完整 Requirement，Web 仅新增连续探索，Gateway 修改任务表达并新增普通提问；未变条目不重复。旧单次提交 Scenario 被请求级幂等完整替代。
 - R3-W3：Runbook 补入当前栈保留数据 stop/build/start/health/status 命令与 PID 验证，明确禁止重跑会清库的 e2e-up。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer target: `/root/openui_restore_design_review`，与 R3 相同的独立 reviewer；未参与作者修订。
+- review_mode: `closure`
+- mode_reason: 修订仅闭合 R3-W1 的宿主事件映射、R3-W2 的 delta 归并类别和 R3-W3 的保留数据复验入口；需求、核心模块职责、原型和 milestone 未变化，R3 full 的其余证据仍有效。
+- started_at: 2026-10-19T17:44:04+08:00。
+- completed_at: 2026-10-19T17:45:42+08:00。
+- duration: 98 秒。
+- baseline: `unit/feat-617` / `55c0b23f4630a273ad4be449534cb0f2f9931254`；开始时 working tree 干净。
+- 受审范围：`design.md:61-73,99-122`、三份 delta、R3 Author Resolution。本轮仅追加本报告；未执行重启、模型调用或产品改动。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R3-W1/W2/W3 均关闭，本轮冻结设计通过 Gate 2。该结论不代表普通提问已生成交互，也不代表新版代码、真实客户端和持久化已验收；这些仍须按 M1-R1/R2/R3/W1/W2 完成。
+
+### Coverage 与证据
+
+- `retained_from: Round 3`：用户普通提问与跨领域通用性要求、only617/Features 边界、完整 OpenUI 复用、模块职责、patch/请求级幂等、桌面与 768/390 原型实操、真实产品基线及 milestone 覆盖。理由：本轮没有改变这些决定或原型，三项修订是已要求结果的接线与交付细化，重复原型走查不会增加证据。
+- W1 闭环重新核对固定安装 react-lang 1.0.1 的实际 Action 回调和 store subscription，而非只读作者声明；W2 将每个 ADDED/MODIFIED Requirement 与当前 canonical 的实际名称逐项匹配；W3 对照 Node CLI、lifecycle、IM main/server 和已有 `.e2e-ports.env` 的非敏感端口/identity 信息静态核实。未执行 Runbook 中的停启命令。
+
+### 历史问题闭环
+
+#### R3-W1 — closed
+
+- **Author Resolution**：click capture 提取用户可见动作文字，与 Renderer message/context 分开；完整 onStateUpdate ref 合并局部 formState 后冻结；ToAssistant/Mutation 共用提交；增加明确映射例。
+- **本轮证据**：`design.md:61` 已不再假设上游提供可见 label，改为宿主捕获 aria-label/可见文字，缺失时使用明确的“向 Agent 提问”，不拿生成 message 冒充用户所见按钮。`:63` 明确用完整 state ref 加当前具名 formState，按本次事件时点复制，不等 debounce；Mutation 也走相同提交。`:67` 的 Form 外 scale、Form 内草稿、不同按钮文字/ToAssistant message 例明确本人正文、附属上下文与完整快照，并要求 Mutation 复验。
+- **可实现性核实**：固定 react-lang `exports-CLfR509v.mjs:570-577` 的 store 订阅把当前完整 snapshot 同步传给 onStateUpdate；lang-core `index.mjs:5202-5230` 的 store.set 先 rebuildSnapshot 再同步通知 listeners。结合原 Action Set 顺序执行，宿主 ref 可在后续 ToAssistant/Mutation 之前取得更新值，不依赖下一次 React render。上游 Button/Form 行为不需要被替换或裁剪。
+- **关闭理由**：可见文字、模型生成信息和完整状态不再混同为一个上游回调字段；已明确适配来源、取值时点与窄验证，足以指导实施。实际点击/键盘、表单与 Mutation 的结果仍由后续测试兑现。
+
+#### R3-W2 — closed
+
+- **Author Resolution**：以 current 为基线重分 MODIFIED/ADDED，删除重复未变条目。
+- **本轮证据**：IM delta 以 MODIFIED 替换“交互确认保留真实用户、原回复与选择语义”，保留群中身份/草稿隔离和手写限制语 Scenario；旧单次提交规则被请求级幂等与新请求独立保存替代，新增 patch 历史目标。Gateway 的已有通用交付 Requirement 使用 MODIFIED，保留外部渠道文字场景；“普通提问能主动获得适用交互表达”使用 ADDED。Web 只 ADDED“通用交互支持连续本地探索”。逐项检查显示两个 MODIFIED 名称均存在于 current，两个 ADDED 名称均不存在。
+- **关闭理由**：归并不会再产生重复 Requirement 或保留相反的终身单次提交规则；未变化的消息权限/fork、Web 阅读/失败体验、Features 默认开启等仍由 current 原条目承担，没有被删除。
+
+#### R3-W3 — closed
+
+- **Author Resolution**：补当前栈 stop/build/start/health/status，核对 PID 和 owner 节点，禁止重跑清库入口。
+- **本轮证据**：`design.md:101-120` 固定当前 worktree，先停止该 config 的 Node 和 `.im.pid` 的 IM，构建后 source 原端口环境，显式使用原 sqlite/upload/config 并重启当前 Node/IM；声明先核对 PID、停止后确认端口释放，以及 IM health、Node ready/connected、owner 的节点 online 检查；明确当前现场不得重跑 e2e-up。
+- **命令核实**：`apps/node/src/cli.ts:42-48,138-147` 接受带显式 config 的 stop/start/status；`lifecycle.ts` 按 config 路径与进程出生时间约束停止对象，不删除运行数据库。`apps/im-server/src/main.ts` 接受 serve/host/port，server 从 IM_DB_PATH/IM_UPLOAD_DIR 读取指定数据路径。已有 `.e2e-ports.env` 的 58769 与本 unit node identity 对应，并通过 source 保留既有环境。未执行这些命令，因此未声称重启成功。
+- **关闭理由**：下游已有具体保留数据的复验路径，不必再自行猜测或调用会清库的默认起栈流程；构建与运行版本、健康及节点连接均有明确检查。
+
+### Issues
+
+无新增 CRITICAL / WARNING，无历史未关闭问题。
+
+### Recommendations
+
+无。按既定 M1 实施及真实普通提问验收，不扩大为新的设计循环。

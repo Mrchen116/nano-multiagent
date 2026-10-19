@@ -1,5 +1,5 @@
 import React from 'react';
-import { createLibrary, defineComponent, useFormName, useFormValidation, useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
+import { defineComponent, useFormName, useFormValidation, useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
 import { openuiLibrary } from '@openuidev/react-ui/genui-lib';
 import { Button } from '@openuidev/react-ui';
 import { z } from 'zod';
@@ -19,43 +19,32 @@ const ContinueButton = defineComponent({
   },
 });
 
-// Keep the upstream form layout/validation, with a visible, host-owned continuation.
+// Extend only for already-published messages; all upstream components and slots remain.
 const Form = defineComponent({
-  name: 'Form',
-  description: 'A named group of labelled fields with one ContinueButton.',
-  props: z.object({ name: z.string(), buttons: ContinueButton.ref, fields: z.array(openuiLibrary.components.FormControl.ref).default([]) }),
+  name: 'Form', description: openuiLibrary.components.Form.description,
+  props: openuiLibrary.components.Form.props.extend({buttons: z.union([openuiLibrary.components.Form.props.shape.buttons, ContinueButton.ref])}),
   component: openuiLibrary.components.Form.component,
 });
-const names = new Set([
-  'Stack', 'Card', 'CardHeader', 'TextContent', 'Form', 'FormControl',
-  'Input', 'TextArea', 'Select', 'SelectItem', 'Slider', 'CheckBoxGroup', 'CheckBoxItem',
-  'RadioGroup', 'RadioItem', 'Table', 'Col', 'BarChart', 'LineChart', 'Series', 'Separator',
-]);
-
-/** The only catalogue used to generate the server schema and model instructions. */
-const narrowedLibrary = openuiLibrary.extend({
-  components: {
-    add: [{ component: ContinueButton, slots: ['Card.children'] }],
-    override: [Form],
-    remove: Object.keys(openuiLibrary.components).filter(name => !names.has(name)),
-  },
+export const interactiveLibrary = openuiLibrary.extend({
+  components: { add: [{ component: ContinueButton, slots: ['Card.children'] }], override: [Form] },
 });
 
-// Upstream group notes refer to components removed from this catalogue.
-export const interactiveLibrary = createLibrary({
-  components: Object.values(narrowedLibrary.components), root: 'Stack', id: 'nano-1',
-  componentGroups: narrowedLibrary.componentGroups?.map(({name, components}) => ({name, components})),
-});
+export const interactiveTools = [
+  { name: 'conversation_messages', mode: 'read', description: 'Read messages from the current conversation as the signed-in viewer. Query only.', parameters: { type: 'object', properties: { limit: { type: 'integer' } } } },
+  { name: 'continue_conversation', mode: 'write', description: 'Send a new user request with the current UI state to this reply author. Mutation only; returns an enqueue receipt, not a completed business result.', parameters: { type: 'object', properties: { message: { type: 'string' }, context: {} }, required: ['message'] } },
+] as const;
 
 export const interactivePrompt = interactiveLibrary.prompt({
-  preamble: 'Write an OpenUI program only inside send_message.interactive.source. The text argument remains a readable summary. These language instructions do not replace your normal tool-use or final-answer workflow.',
-  bindings: true, builtinFunctions: true, toolCalls: false,
+  preamble: 'Write OpenUI inside send_message.interactive.source. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.',
+  bindings: true, builtinFunctions: true, toolCalls: true, editMode: true,
+  tools: interactiveTools.map(tool => ({name:tool.name, description:tool.description, inputSchema:{...tool.parameters},outputSchema:{}})),
   additionalRules: [
-    'Nano supports complete, immutable replies. Use only the components listed here. Never use Query, Mutation, Action, @ToAssistant, @OpenUrl, @Run, HTML or JavaScript.',
-    'ContinueButton(id, label) is the only action. Both arguments must be string literals, not variables, expressions or hidden instructions. Local fields never execute business actions.',
-    'Use static, unique form and field names. Wrap each field in FormControl with a visible label. Declare every mutable variable with the dollar prefix: $mode = "walk", then bind Select value to $mode. mode = "walk" is an ordinary constant and does NOT initialize $mode. Use bindings for local derived displays. Keep all fields inside a named Form; conditional controls and dynamically generated fields are unsupported.',
-    'Editable drafts must use the value argument, never placeholder as content: TextArea("draft", "Edit the draft", 4, null, "Actual editable draft"). Initialize chosen values explicitly; do not tell users a blank value means accepting hidden defaults.',
-    'Use a single primary continuation. Form(name, continueButton, fields) accepts ContinueButton directly. Keep mobile layouts readable; do not add large navigation sections.',
-    'Provide an independently readable text summary alongside the interactive response. Plain questions should receive plain text. After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses this sentinel because the card is already delivered. Never end with an empty response.',
+    'Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.',
+    'Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.',
+    'The only currently connected tools are conversation_messages for Query and continue_conversation for Mutation. The current conversation and user identity come from the host. No filesystem or arbitrary shell/network tool is implicitly connected. Use ToAssistant OR the continue_conversation Mutation for a request, not both for the same request.',
+    'OpenUrl supports http/https navigation. Declare every mutable variable with the dollar prefix. Use actual values for editable content, never placeholders as the content. Labels and units must make parameter changes understandable. Keep the main chat readable on narrow screens.',
+    'Match control binding types exactly: Input/TextArea/Select/RadioGroup values are strings, including numeric-looking option IDs; Slider values are number arrays. Set must preserve the bound type. Convert an arithmetic result to a string with empty-string concatenation when storing it in a string-bound variable; use numeric coercion only for calculations.',
+    'For edits, send interactive.source_mode="patch" with supersedes_message_id and changed statements, or send a full new source. New versions retain the original publicly readable history.',
+    'After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses it because the interactive reply is already delivered. Never end with an empty response.',
   ],
 });

@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { Renderer } from '@openuidev/react-lang';
 import { interactiveLibrary } from './catalog';
+import { openuiLibrary } from '@openuidev/react-ui/genui-lib';
 
 const source = `root = Stack([form])
 form = Form("draft", send, [field])
@@ -23,4 +24,15 @@ describe('interactive catalogue', () => {
     fireEvent.click(screen.getByRole('button', { name: '继续修改' }));
     expect(action).toMatchObject({ type: 'nano_continue', params: { action_id: 'continue' }, humanFriendlyMessage: '继续修改' });
   });
+});
+
+it('preserves every upstream component and executes local actions without host messages', async () => {
+  expect(Object.keys(interactiveLibrary.components)).toEqual(expect.arrayContaining(Object.keys(openuiLibrary.components)));
+  let requests=0;
+  render(<Renderer response={'$n = 1\nroot = Stack([TextContent("" + $n), Button("下一步", @Set($n, $n + 1)), Button("重置", @Reset($n))])'} library={interactiveLibrary} publishObservability={false} onAction={() => {requests++}} />);
+  fireEvent.click(await screen.findByRole('button',{name:'下一步'}));
+  expect(await screen.findByText('2')).toBeVisible();
+  fireEvent.click(screen.getByRole('button',{name:'重置'}));
+  expect(await screen.findByText('1')).toBeVisible();
+  expect(requests).toBe(0);
 });

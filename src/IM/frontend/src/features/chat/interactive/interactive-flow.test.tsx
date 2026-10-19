@@ -31,7 +31,7 @@ describe('interactive choices and handwritten requests',()=>{
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
   fireEvent.change(composer,{target:{value:'  先别发送，把语气改得随意一点  '}});
   fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('  先别发送，把语气改得随意一点  ',[],expect.objectContaining({source_message_id:'card',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'林悦，周日10点断桥见'})})})})));
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('  先别发送，把语气改得随意一点  ',[],expect.objectContaining({source_message_id:'card',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'林悦，周日10点断桥见'})})})}),expect.any(String)));
   await waitFor(()=>expect(composer).toHaveValue(''));
   expect(screen.queryByText(/将附带当前选择|Current choices will be attached/)).not.toBeInTheDocument();
  });
@@ -57,4 +57,23 @@ describe('interactive choices and handwritten requests',()=>{
   await waitFor(()=>expect(send).toHaveBeenCalledWith('',[],expect.objectContaining({action_id:'send'}),expect.any(String)));
   expect(composer).toHaveValue('这是还没发出的补充');
  });
+});
+
+it('retries an uncertain handwritten interaction with the same frozen message, state and key',async()=>{
+ const send=vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined);
+ render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
+ const field=await screen.findByPlaceholderText('编辑草稿');
+ fireEvent.change(field,{target:{value:'第一版草稿'}});
+ const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
+ fireEvent.change(composer,{target:{value:'解释现在的选择'}});
+ fireEvent.submit(composer.closest('form')!);
+ await screen.findByText(/是否送达尚未确认|Delivery is unconfirmed/);
+ expect(composer).toBeDisabled();
+ fireEvent.change(field,{target:{value:'继续在本地探索'}});
+ fireEvent.submit(composer.closest('form')!);
+ await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
+ expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
+ expect(send.mock.calls[0][3]).toEqual(expect.any(String));
+ await waitFor(()=>expect(composer).not.toBeDisabled());
+ expect(field).toHaveValue('继续在本地探索');
 });

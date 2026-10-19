@@ -41,3 +41,14 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 ## 2026-10-19 用户实测后的范围纠正
 
 原 PR #366 / cf4b17f00 的表单切片未满足通用 Intelligent UI。用户普通知识问题实际仅得到文字，授权恢复 OpenUI 能力，并要求无交互提示的指定原话和跨领域实测、禁止专用答案/组件。unit 恢复 active；原证据保留但不外推为本次目标通过。spec/design/delta/prototype 已按新边界修订，待独立 Gate 2；产品代码尚未修正。
+
+
+## R3：按用户反馈恢复完整 OpenUI（实施候选）
+
+- 用户明确要求保留 OpenUI 能力，以普通“给我讲解下冒泡排序”实测，禁止交互暗示与题目专用实现。R4 design closure Approved；原表单验收不代替此次验收。
+- 保留全部 82 个上游组件，新增的第 83 个仅为旧 ContinueButton 兼容；保留原生动作、计算、条件/Each、Query/Mutation/toolProvider。宿主工具为当前会话读取和当前用户继续对话，不隐式开放本地文件或任意系统调用。
+- 私人状态使用原生 store；请求按独立幂等键保存，提交后可继续探索；原生 message/context 与可见点击文字分离，完整 state ref 与 Form 局部状态合成；手写输入保持原文与冻结重试键。增量 source 经 mergeStatements 存成完整新版本，发布幂等比较原始输入。
+- 定向红绿：旧库拒绝 Button/Query，提交后草稿锁死，patch 无 root；修复后 22 项 source/messages 通过。真实第一轮模型样本暴露 Select 数字绑定使当前标签为空，保留失败消息；通用字符串绑定指导与按声明类型校验覆盖初值和 Set，无题目专用分支。
+- 真实浏览器：Global 原话在 17:56 生成步骤/柱状图/重置；18:06 再发同一句（先取消旧状态附带）生成显示正常的版本。普通 Agent 原话“给我讲解下单利和复利的区别”生成输入/下拉/曲线/动态金额，2万元、10% 显示26000/26620与差620；刷新保留。自然语言追问保存当时参数；提交后仍可调至3万元，前一快照仍为2万元。后续完整证据与独立验收待补。
+- 验证：前端99 suites / 905 tests；IM与PA交互22 suites / 108 tests；pnpm build、Web build通过。日志分别 /tmp/feat617-native-final-web-tests.log、/tmp/feat617-native-im-tests.log、/tmp/feat617-native-build-3.log、/tmp/feat617-native-web-build-4.log。最后只加发布原始输入断言，interactive-messages 11项再次通过。
+- 本 worktree 保留数据重启：IM健康且Node ready；旧会话/历史/草稿未重置。主 checkout、feat-616及生产未变。隔离浏览器 Slider 在 jsdom 组合测试耗时异常，真实浏览器验证 Set 2→3、手动3→4正常；未替换或裁剪 Slider。

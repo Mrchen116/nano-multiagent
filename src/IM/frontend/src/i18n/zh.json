@@ -1101,7 +1101,10 @@
       "loadLatest": "载入最新草稿",
       "attached": "将附带当前选择",
       "cancel": "取消附带",
-      "choices": "已提交的选择"
+      "choices": "已提交的选择",
+      "ask": "向 Agent 提问",
+      "actionError": "这个动作尚未接入，或链接类型不受支持。",
+      "pendingRetry": "上次消息是否送达尚未确认。再次发送会重试原消息和当时的选择。"
     }
   },
   "feature": {
