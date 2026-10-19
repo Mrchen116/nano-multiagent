@@ -808,3 +808,18 @@ PersonalAssistant的消息/共享task原prepare→review→带evidence_digest的
 - PA提示要求事实引用优先使用返回的url，Inbox仅有ID时调用原read取出处。保留实际作者、外部事实不是主人指令、当前来源控制及出站review规则；无新权限或模型自行构造链接的要求。对应当前spec“保留真实作者与出处”、双身份历史和原IM导航，**no new spec delta**。
 - 固定该候选独立`pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts`：**1 file / 3 tests passed**，含源消息精确URL断言、双身份/排除与草稿/提交证据回归；日志`/tmp/pa-static-review-616/r9-source-links-tests.log`。复用已读取caller `/tmp/feat616-r9-source-links.log`两文件15通过及IM/DSH build成功；未重复未失效全量或共享服务操作。
 - 这证明工具现在提供可用真实定位数据并与已有前端参数一致；真实模型是否引用、用户是否在此轮产品样本中点击到正确原消息，继续等待独立产品证据。bf6的child/草稿closure、原61/434/Web922等有效工程结果保持，不把这一字段补全自动写成最终M1通过。
+
+#### R9 bounded group-authority closure — `46d6558bb`
+
+- validated_at: `46d6558bbf25867f41c91dd3e6fc13ebdd6bcbee`；2026-10-19 21:40 Asia/Shanghai。范围仅`1f0660ff7..46d6558bb`实际新增建群权限修复、`source.owner_can_read`与对应提示/文档；该区间包含前轮报告归档，不重新审核已经通过的实现。
+- code_review_mode: **patch / bounded closure**；`code-review-r9-group-closure.json=[]`。verification_mode: **delta consistency**；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。截至1f0660ff7的有效证据保留；产品验收仍独立进行。
+
+**实际故障与权限修复。** 原运行Agent用户membership=pending，`resolveParticipants`把其当人类账号判断公司联系人，且createConversation再以人类requireSpace拦截。Work.query已经核当前node/profile、agentAvailable、有效main session及PA binding；新的共享Messaging路径对人类参与者可见性使用现有`canActorAccess(principal.id, company:default)`，创建时仅`kind=agent`分支改用同一空间资格判定，人类路径仍requireSpace。该helper验证实时profile非stale、主人资格、固定profile空间；私人PA到company的例外沿用已有active binding与双方公司成员条件，不把普通私人Agent迁入公司空间。最终所有显式参与者仍需能访问所选space，创建者自动加入真实参与者表；显式邀请其他Agent的原拒绝分支、agent owner约束和可用性核验未移除。
+
+新测试通过真实Work.query→Messaging→SQLite事务，runtime用户明确设pending：Global与personal PA均能创建仅自己和peer的private公司群；最终space/visibility/两位实际成员精确断言。主人改为suspended后同请求拒绝。另将普通非PA profile设personal空间，即使主人同时有公司资格，也仍拒绝公司peer。不是把用户pending状态改active绕过原规则。caller红测日志`/tmp/feat616-r9-group-red.log`确有Global与PA两项`participant not found`，修复后独立同套成功。
+
+**出处与delta。** `source.owner_can_read`在原消息/来源过滤后的投影中，以该条真实conversation和绑定owner调用现有conversationAccess；不是从PA自己的可读性推断owner可读。新增断言同时覆盖owner参与来源true、仅PA独立参与来源false。PA提示要求false时说明只有自己可读并给相关摘要，不把URL说成owner可打开入口；没有改变owner/PA权限、扩大历史集合或让链接授予ACL。design“身份与双向消息”补充原消息URL/可读事实及既有空间资格，和两份PA delta的完整Global能力、双身份历史/真实出处、固定私人ACL一致。**no new spec delta**；本轮代码未更改私人配置/Work或实际外发审核边界。
+
+**验证与限制。** 独立`pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts`：**1 file / 6 tests passed**，1.24s，日志`/tmp/pa-static-review-616/r9-group-authority-tests.log`。实际读取caller绿测`/tmp/feat616-r9-group-green.log`：**4 files / 25 tests passed**；IM/DSH build成功复用caller交接，未重复全量。真实模型能否自然建群并继续协调、是否正确解释仅PA可读出处，仍由正在进行的产品旅程判定；本轮不给其代填pass。
+
+仅新增本轮closure JSON和追加verification，未改源码/测试/设计、未重启共享运行时、未commit。R9原始finding及其bf6/1f closure记录保留，旧61/434/Web922等有效证据无失效；在该有界范围未发现新的实际权限缺陷，结束本轮静态审查。

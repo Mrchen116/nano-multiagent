@@ -407,7 +407,9 @@ export class TaskGraphService {
   private projection(doc: Obj, user: string, actor: Obj): Obj {
     const c = this.chat(doc.conversation_id, user);
     if (!c) forbidden();
-    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:!this.personalRead && c.can_write};
+    // Query mode does not revoke mutation rights; shared PA writes still use reviewed delivery.
+    const canWrite = c.can_write || (!!this.personalRead && !!conversationAccess(this.db, doc.conversation_id, this.personalRead.agentUserId)?.can_write);
+    return {id:c.id,title:c.title,visibility:c.visibility,dissolved_at:c.dissolved_at,is_member:c.is_member,can_write:canWrite};
   }
 
   private source(id: string, user: string) {

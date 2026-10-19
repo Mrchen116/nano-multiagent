@@ -4,7 +4,7 @@
 
 ## 基线与职责
 
-实施工作树为 feat-616 原工作树；初始基于 feat-617 `87f5214a7`，集成提交 `b50704bdd`，随后同步最新远端 `e61588616` 于 `d370ab6b7`。两次基线产品代码相同，后次仅更新 feat-617 文档与证据保存规则。保持现有顶栏/聊天布局。Global 主 session、Inbox、conversations、send_message、task_graph、schedule、Heartbeat、普通文件与插件机制继续作为唯一能力实现。
+实施工作树为 feat-616 原工作树；初始基于 feat-617 `87f5214a7`，集成提交 `b50704bdd`，随后同步最新远端 `e61588616` 于 `d370ab6b7`。两次基线产品代码相同，后次仅更新 feat-617 文档与证据保存规则。最终再同步 `2aee3995e` 于 `e5eb09a12`，包含聊天宽度布局更新。保持现有顶栏/聊天布局。Global 主 session、Inbox、conversations、send_message、task_graph、schedule、Heartbeat、普通文件与插件机制继续作为唯一能力实现。
 
 ```mermaid
 flowchart TD

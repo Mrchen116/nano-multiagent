@@ -29,8 +29,8 @@ it('reads owner tasks without PA membership and removes excluded sources before 
  const binding=service.authority(principal,args);
  const read=(action:string,query:Record<string,unknown>)=>tasks.readPersonal(actor,'u1',action,query,id=>service.sourceAllowed(binding,id));
  expect(()=>tasks.execute(actor,'get',{graph_id:doc.graph_id})).toThrow();
- expect(read('get',{graph_id:doc.graph_id,view:'all'})).toMatchObject({graph_id:doc.graph_id,conversation:{can_write:false}});
- expect(read('list',{limit:1})).toMatchObject({total:1,items:[{title:'Owner private task',can_edit:false}],next_cursor:null});
+ expect(read('get',{graph_id:doc.graph_id,view:'all'})).toMatchObject({graph_id:doc.graph_id,conversation:{can_write:true}});
+ expect(read('list',{limit:1})).toMatchObject({total:1,items:[{title:'Owner private task',can_edit:true}],next_cursor:null});
  db.prepare("UPDATE conversations SET type='group',visibility='public' WHERE id='peer'").run();
  service.updatePolicy('o1',{expected_revision:1,excluded_conversation_ids:['peer']});
  expect(tasks.execute(actor,'get',{graph_id:doc.graph_id})).toMatchObject({graph_id:doc.graph_id});
@@ -214,4 +214,15 @@ it('retires the prior PA Work main on context replacement while retaining readab
  db.prepare("DELETE FROM pa_policies WHERE binding_id='binding'").run();
  db.prepare("DELETE FROM personal_agent_bindings WHERE agent_id='a'").run();
  expect(()=>work.register('a','ordinary-other','n',{scope:'global_main'})).toThrow('main_session_conflict');
+});
+
+it('reports a PA own private task as editable and completes it with the ordinary task command',()=>{
+ const {ctx,db}=personalFixture();
+ const tasks=new TaskGraphService(db,ctx.messaging),actor={kind:'agent' as const,id:'a',node_id:'n'};
+ const created=tasks.execute(actor,'create',{conversation_id:'chat',title:'Prepare materials',mode:'dag',request_key:'own-private'});
+ const read=tasks.readPersonal(actor,'u1','get',{graph_id:created.graph_id,view:'all'},()=>true);
+ expect(read.nodes[0].can_edit).toBe(true);
+ expect(()=>tasks.readPersonal(actor,'u1','apply',{graph_id:created.graph_id,operations:[]},()=>true)).toThrow();
+ tasks.execute(actor,'apply',{graph_id:created.graph_id,base_revision:1,request_key:'complete',change_note:'Material prepared',operations:[{op:'update_task',node_id:'n1',patch:{status:'done',result:'Material ready'}}]});
+ expect(tasks.readPersonal(actor,'u1','get',{graph_id:created.graph_id,view:'all'},()=>true).nodes[0]).toMatchObject({status:'done',result:'Material ready'});
 });

@@ -118,3 +118,5 @@ The user's test service remains available at its isolated local URL while they i
 
 - R9 实测发现运行 Agent 账号 membership=pending 导致正常创建协作群失败。共享建群路径改用既有 canActorAccess 的 profile/owner 权限，保留普通私人 Agent 不能访问公司联系人、所有 Agent 不能邀请其他 Agent 的限制。普通 Global 和 PA 各自红测后通过，关联 4 文件 25 tests 通过。
 - 查询出处新增 owner_can_read，区分 PA 独立参与而主人无权打开的来源；主 PA 明确标注这种来源并提供摘要，原链接不授予任何访问权。
+- 真实持续协助完成子执行、普通文件更新和带标记代发后，任务读取错误固定 can_edit=false，导致模型停止收尾。移除旧只读查询对权限展示的覆盖；投影反映主人/PA现有会话写权限，读取接口依旧拒绝mutation，实际共享写仍强制披露审查。新增原生任务创建→读取→完成回归，先红后绿。
+- 最终同步 feat-617 `2aee3995e`（合并 `e5eb09a12`），新增聊天宽度布局；唯一冲突为等价 waitFor 的空格差异。宽度布局补前端测试/构建与实际卡片复验，未改变 PA 授权逻辑。
