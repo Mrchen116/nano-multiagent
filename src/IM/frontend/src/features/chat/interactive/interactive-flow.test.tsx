@@ -70,7 +70,10 @@ it('retries an uncertain handwritten interaction with the same frozen message, s
  await screen.findByText(/是否送达尚未确认|Delivery is unconfirmed/);
  expect(composer).toBeDisabled();
  fireEvent.change(field,{target:{value:'继续在本地探索'}});
- fireEvent.submit(composer.closest('form')!);
+ const retry = screen.getByRole('button',{name:'Send',exact:true});
+ expect(retry).not.toBeDisabled();
+ expect(retry.closest('[aria-disabled="true"]')).toBeNull();
+ fireEvent.click(retry);
  await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
  expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
  expect(send.mock.calls[0][3]).toEqual(expect.any(String));

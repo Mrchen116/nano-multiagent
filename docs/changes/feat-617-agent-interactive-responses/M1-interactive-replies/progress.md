@@ -57,3 +57,8 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 ### 2026-10-19 18:16 完整原生实测与 W2 修正
 
 完整实测源和失败样本已保存在 [新作者走查](../evidence/native-browser-review.md) 与 native-model-samples.json。普通原话跨领域自主生成、原生重置/刷新、同卡两轮手写快照与回答均实测通过。完整backend96/373、Python62与typecheck通过。独立静态W2同次native请求WS/POST双增revision已先红后绿：统一权威读回版本，保留当前编辑，2 suites/16 tests。等待冻结版本独立closure与产品完整新轮报告；未宣称门禁完成。
+
+
+### 2026-10-19 18:18 产品复验失败重试修正
+
+独立产品 reviewer 在真实模型新卡片的第二次手写请求中中断POST，发现Send被可访问树判为disabled。确认button本身不需要禁用，原因是附件dropzone的aria-disabled向子控件继承。改为data-disabled，仅禁用文件drop行为，不向整个输入区施加禁用语义；未知请求的正文/状态/key仍冻结。回归用实际Send按钮点击代替直接form submit，并断言无禁用祖先，先红后绿；附件禁用仍拒绝drop。3 suites/18 tests通过。前一版全Web99/907通过；本修复后再跑最终Web。origin/main final fetch仍cc47abe3f，无main增量、无重合变更；所有门禁base保持cc47abe3f。
