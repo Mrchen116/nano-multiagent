@@ -649,3 +649,52 @@ caller在盘点过程中明确要求直接补可控工程组合。本轮仅在`/
 **N3 — 改key预算与独立审核超窗/故障，passed。** `pnpm exec tsx /tmp/pa-static-review-616/r7-budget-review-fault.mts`，日志`r7-budget-review-fault.log`；使用真实IM数据库/PersonalActions及编译后的reviewPersonal函数，model元数据/stream为fixture。连续初稿+两次改写均deny且每次换key/正文，伪造commit均拒，下一prepare报`disclosure_rewrite_budget_exhausted`。独立review必要证据超过context时回unavailable且stream请求数0，不裁掉canary；注入stream异常也回unavailable。该probe不证明语义底线识别或端到端服务恢复。
 
 产品R5仍在核心闭环，本节没有代填其结果。后续只补实际发生证据和对应版本，不用工程数量消除真实语义或旅程缺口；S1修复前不得把扩展后的工程安全退出证据标全部通过。
+
+## Round 8 — Generation Closure and R5 Configuration/Inbox Fixes
+
+### Metadata and verdict
+
+- review_round: `8`
+- executed_base: `ed73cb9b8d3159eb512893b20e24316da097fab0`；R7后的安全对账S1及产品R5记录`5e750449d`为本轮focus来源。
+- validated_at: `9cebd17b720a326b4fc51838fe3041bd13fa2034`
+- code_review_mode: `closure` + 本批实际fix delta；`code-review-r8.json=[]`。
+- verification_mode: `corrected-delta`，只复验S1与本轮重命名/PA配置入口、混合群、暂停观察下owner请求、cleanup/Inbox序号的实际变化；未重开未失效的完整审查。
+- verdict: **Approved — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**（上述定向代码与corrected-delta范围）。
+- corrected-delta outcome: **aligned**；requires_full_verification: `false`。
+- S1 **closed**。此前N1插件PID隔离、N3预算/审核故障和R2–R7有效结论保留；安全矩阵中其他语义/旅程及未执行组合仍保留原证据限制，不据此宣告31项整体通过。
+
+### S1 closure — pin one reconciliation to its actual generation
+
+`RuntimePort.capture()`为一次异步对账提供当前代际的scope。RuntimePartitions.scoped生成捕获port后，在每次调用前以及await返回后核generation；原未捕获port继续能在后续对账取得新代际，避免把长期消费者永久锁在旧进程。KnowledgeUpdates与WorkflowResults都在reconcile起点capture，并沿同一port完成读取、lookup/submit和ACK。普通不分区RuntimePort仍兼容原路径，不引入新权限或跨区搜索。
+
+- 原S1脚本原样独立重跑：`pnpm exec tsx /tmp/pa-static-review-616/r7-partition-collections.mts`，输出保存`r8-partition-collections.log`。现在`late_old_generation_ack_fenced=true`；晚回执后新generation的same-fact(turn=2)仍存在，旧ACK报`Runtime generation_changed`，没有删掉新结果。原同ID复合键、局部离线及observer通过项保持。
+- 最小扩展`r8-partition-closure.mts`继续执行fresh knowledge recover，验证新对账可正常ACK；另将真实WorkflowResults的session.submit回包挂起后旋转generation，旧流程不能ACK新run，fresh recover正常提交并确认。输出四项`S1_*`均true，exit=0。Host仍为合成集合/故障fixture；RuntimePartitions、两类消费者和NodeStore/Inbox为真实实现，不称真实DSH自然生成随机ID碰撞。
+- 新持久回归`apps/node/tests/runtime-partitions.test.ts`覆盖同一knowledge晚回执序列，并要求新recover随后ACK成功；本轮独立测试通过。没有仅测试拒绝而把恢复路径永久禁用。
+
+### Actual fix delta and corrected contract reconciliation
+
+| Delta / 契约位置 | 代码与直接证据 | Outcome |
+|---|---|---|
+| security场景14：旧generation不得确认新结果；gateway/agent-capabilities的分区来源约束 | capture贯穿knowledge/workflow整批；原S1与fresh恢复probe、真实消费者回归均通过 | **aligned / S1 closed** |
+| im/agents-nodes固定身份/改名与恢复，im/personal-agent名字一致 | `ConfigOperations.commit`同一事务更新profile、agent user、PA binding和canonical DM title，以operation的agent/owner约束；移除PA route在独立事务写名字，所有入口和延迟recover共享实际commit | aligned |
+| 正常和延迟重命名不能等长期goal结束 | runtime只在除revision外全部execution配置deep-equal时跳过whenIdle，仍校immutable partition/mode及模型；实际工具/提示词变化继续原restrict、whenIdle和apply。capabilities真实DSH回归在running期间1500ms内metadata revision生效，工具不变；真正执行配置仍等idle | aligned，不扩大动态权限 |
+| 延迟rename提交与可信binding | IM新增回归先返回pending，再recover applied receipt，最终profile/binding/chat三者同名；原Gateway fingerprint/revision检查保留。profileResponse输入不是模型身份凭证，binding仍取当前服务器记录 | aligned |
+| 完整配置入口、PA角色显示与可见缓存 | dialog增加现有settings路由链接；AgentProfilePage从服务端role传personal显示，列表及联系人保留role；成功保存对chat/personal-agent/contacts/public-agents等现有query key失效。没有新配置协议或工具权限；相关32前端测试本轮独立通过 | 静态/工程aligned；真实跨页面显示另由产品复验 |
+| im/conversations-messages：owner决定群成员，PA私人资产不对联系人开放 | owner+自有PA+同事的group选择company space，再走原requireSpace、participant访问与owner添加Agent约束；不把PA canonical DM/private space改成共享。新增真实Messaging回归群成功且peer仍读不到owner DM | aligned；不是允许Agent自行拉其他Agent |
+| gateway/personal-agent暂停观察≠暂停本人请求/历史 | PA专属Inbox wake指向当前canonical owner DM，明确先读实际owner消息；仍标system非新授权，实际owner/来源认证、scope签发与独立guard未变。普通Agent不添加该说明 | aligned的执行说明；R5那条请求实际交付需产品复验 |
+| 来源cleanup保留本人待处理请求，不复用旧wake ID | GlobalAgent仍对非owner来源revoke，canonical owner Inbox保留；其他源/模型context/文件的既有失效流程不撤销。Inbox.receive显式seq大于当前行及持久wakes最大watermark，清理最高row后重开数据库的新owner消息仍能wake，新增回归通过 | aligned，不等于保留被排除外部源或物理擦除承诺 |
+| 清理操作文案 | 按钮明确“清理全部来源缓存”，未新增scoped selector或确认流程；保留不删原聊天/执行记录/已发送内容的真实边界 | 文本与实际操作aligned；产品体验判定独立 |
+
+Uncovered Observable Behavior: **no new spec delta**。capture是现有恢复契约的内部代际能力；metadata-only只跳过无执行变化的等待；名称提交收敛与UI链接落实现有身份/能力配置；混合群沿既有owner成员操作；直接owner请求与源清理遵守既有暂停/保留目标边界。没有为错误实现缩小active delta，canonical尚未归并。R6已核对的其他corrected delta继续有效。
+
+### Independent validation and evidence limits
+
+- 固定`9cebd17b7`，2026-10-19 16:11：`pnpm exec vitest run apps/node/tests/runtime-partitions.test.ts apps/im-server/tests/personal-agent.test.ts packages/personal-assistant/tests/inbox.test.ts packages/personal-assistant/tests/knowledge.test.ts packages/personal-assistant/tests/workflows.test.ts packages/dsh-integration/tests/capabilities.test.ts`，**6 files / 45 tests passed**。
+- 固定同候选，16:12，frontend目录：`pnpm exec vitest run src/features/personal-agent/personal-agent.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/features/settings/agents/agent-profile-page.test.tsx`，**3 files / 32 tests passed**。
+- 两条上述S1原始/扩展隔离probe均exit=0；未重跑无关全量，未启动/重启共享服务。
+- 复用caller本批91后端定向结果（`r8-extra-tests.log`77及最终`r8-final-runtime-tests.log`14）、全typecheck/build/frontend build成功；实际读取对应末段。较早`r8-web-tests.log`全套失败、`r8-web-targeted-fixed.log`31/32仍有旧chat cache断言；后续detail22通过加本轮当前候选三文件32通过闭合该变化。**不把当前frontend写成全量一次全绿**。R6基线397后端与此前897前端仅按其版本继承，不能冒充R8全量。
+- 产品R5已在`acceptance.md`记录主6.1 Sol/审核6 Luna下选择后继续、原目标Done、新授权询价、首次创建、公开搜索及私密child成果的具体通过样本，同时明确rename、群创建、暂停后按需查询及cleanup基线影响。本轮代码/fixture复验不能替产品把后四项自动改为pass；caller正在单独恢复服务并安排真实复验，本审查未干预。
+
+### Handoff
+
+仅新增`code-review-r8.json`并追加verification；未改实现、测试、设计或delta正文，未操作共享服务或推送。S1旧失败报告保留并由本轮明确closure，其他未执行安全组合保持可复现前置；不重复开启泛化审查或以窄测试代替真实模型/用户旅程。报告提交号见交接消息。
