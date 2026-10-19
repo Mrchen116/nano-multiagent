@@ -1551,6 +1551,31 @@
     "returnSource": "← Back to previous chat",
     "retry": "Personal assistant unavailable · Retry",
     "label": "Personal assistant",
-    "noOtherChats": "No other conversations"
+    "noOtherChats": "No other conversations",
+    "privacy": {
+      "title": "Privacy protection",
+      "protected": "Blocked",
+      "expand": "View",
+      "collapse": "Hide",
+      "intro": "Nothing to do. Your assistant declined these requests.",
+      "requests_one": "{{count}} request",
+      "requests_other": "{{count}} requests",
+      "evidence": "Reasons and records",
+      "source": "View original message",
+      "dismiss": "Got it",
+      "options": "Future requests",
+      "optionsHint": "Collaboration can continue, with each request still checked. Blocking only stops requests to your assistant; your own chats are unaffected.",
+      "misunderstanding": "Mark as misunderstanding",
+      "block": "Block requests to my assistant",
+      "saving": "Saving…",
+      "error": "Could not save all changes. The remaining notices are still here; please try again.",
+      "saved": {
+        "dismiss": "Notices dismissed. Privacy protection stays on.",
+        "misunderstanding": "Marked as a misunderstanding. Future requests will still be checked.",
+        "block": "Your assistant will no longer accept new requests from this person."
+      },
+      "contacts_one": "{{count}} person",
+      "contacts_other": "{{count}} people"
+    }
   }
 }

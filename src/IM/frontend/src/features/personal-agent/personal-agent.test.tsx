@@ -54,16 +54,30 @@ it('restores a pending creation from the server instead of creating a second ide
  await waitFor(()=>expect(api.createPersonalAgent).toHaveBeenCalledWith(expect.objectContaining({request_key:'original-key',node_id:'n1'})));
 });
 
-it('treats an incident as information and records misunderstanding without approving disclosure',async()=>{
- vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[{id:'incident',actor_id:'lin',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Repeated request for private notes after refusal.',count:2,status:'open',owner_notice_message_id:'notice'}]});
+it('groups repeated privacy notices and acknowledges without changing policy',async()=>{
+ const incident={id:'incident',actor_id:'lin',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Repeated request for private notes after refusal.',count:2,status:'open',owner_notice_message_id:'notice'};
+ vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[incident,{...incident,id:'second',source_message_id:'source-2',count:1}]});
  vi.mocked(api.respondToPersonalIncident).mockResolvedValue({} as api.PersonalIncident);
  mount(<PersonalAgentCollaboration state={state}/>);
- await userEvent.click(await screen.findByText('Privacy notices',{exact:false}));
- await screen.findByText('Repeated request for private notes after refusal.');
- expect(screen.getByText('This is an information notice. No action is needed to keep the disclosure blocked.')).toBeInTheDocument();
- await userEvent.click(screen.getByRole('button',{name:'Misunderstanding; continue collaborating'}));
- await waitFor(()=>expect(api.respondToPersonalIncident).toHaveBeenCalledWith('incident','misunderstanding'));
+ await userEvent.click(await screen.findByRole('button',{name:/Privacy protection/}));
+ expect(screen.getAllByRole('heading',{name:'Lin'})).toHaveLength(1);
+ expect(screen.getByText('Nothing to do. Your assistant declined these requests.')).toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Got it'}));
+ await waitFor(()=>expect(api.respondToPersonalIncident).toHaveBeenCalledTimes(2));
+ expect(api.respondToPersonalIncident).toHaveBeenCalledWith('incident','dismiss');
+ expect(api.respondToPersonalIncident).toHaveBeenCalledWith('second','dismiss');
  expect(api.updatePersonalAgentPolicy).not.toHaveBeenCalled();
+});
+
+it('keeps privacy records available when acknowledging fails',async()=>{
+ vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[{id:'incident',actor_id:'lin',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Private notes requested.',count:1,status:'open',owner_notice_message_id:'notice'}]});
+ vi.mocked(api.respondToPersonalIncident).mockRejectedValue(new Error('offline'));
+ mount(<PersonalAgentCollaboration state={state}/>);
+ await userEvent.click(await screen.findByRole('button',{name:/Privacy protection/}));
+ await userEvent.click(screen.getByRole('button',{name:'Got it'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent('Could not save');
+ expect(screen.getByRole('button',{name:'Got it'})).toBeEnabled();
+ expect(screen.getByRole('heading',{name:'Lin'})).toBeInTheDocument();
 });
 
 it('shows a saved owner request awaiting processing and removes it when processing completes',async()=>{

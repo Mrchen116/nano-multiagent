@@ -987,3 +987,8 @@ message-pane.tsx:1075仅检查pending.length===0，而原handleAdd开始先增�
 ### R12 prompt/Skill responsibility closure
 
 用户补充提醒后，仅复核`61f1cdd34`后默认短文案（blob=`6d1542232164bc9979859b284fe4efcf8e9f600b`）及design新增分工说明，2026-10-20 00:08 Asia/Shanghai：custom_prompt现仅保留主动推进、少打扰、关注相关输入、沟通偏好和跨轮次/等待时按需加载nano-ongoing-work的触发条件；记录字段、恢复步骤、实际唤醒/回执、完成核验和取消收尾均由未变化的Skill集中承载，固定身份/来源/权限/草稿协议未改。**Approved / aligned，0新增finding**，R12 JSON仍为`[]`，不另建轮次或重跑完整门禁。已读取caller `/tmp/feat616-r12-prompt-boundary-tests.log`创建suite **13 tests passed**及`/tmp/feat616-r12-prompt-build.log`IM build成功；`git diff --check`通过。此前默认保存/编辑/清空与native Skill的工程及caller产品样本仍支持未变的加载/配置机制，不能冒充此次精简文字本身的全新真实模型语义验收。仅追加本段、不改实现或commit。
+
+
+## R13 privacy notice UX
+
+Independent code review Approved; delta aligned, no open findings. See [R13 verification](verification-r13.json) and [code review](code-review-r13.json). The initial acknowledgement/peer-delivery race is preserved in review history and closed by a failing-then-passing API regression plus an independent recovery probe. Product evidence is in [R13 acceptance](acceptance-r13.md).

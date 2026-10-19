@@ -36,6 +36,6 @@ export interface PersonalIncident {
   status: string; owner_notice_message_id: string | null; peer_notice_message_id?: string | null;
 }
 export const getPersonalIncidents = () => authFetchJson<{items: PersonalIncident[]}>(`${base}/incidents`);
-export const respondToPersonalIncident = (id: string, action: 'block' | 'misunderstanding') => authFetchJson<PersonalIncident>(`${base}/incidents/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify({action})});
+export const respondToPersonalIncident = (id: string, action: 'block' | 'misunderstanding' | 'dismiss') => authFetchJson<PersonalIncident>(`${base}/incidents/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify({action})});
 
 export const restorePersonalAgent = (node_id: string) => authFetchJson<PersonalAgentState>(`${base}/restore`,{method:'POST',body:JSON.stringify({node_id})});

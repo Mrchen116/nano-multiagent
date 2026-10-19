@@ -273,11 +273,16 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.post('/im/v1/personal-agent/incidents/:id',req=>{
     const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');
     const incident=one(ctx.db,'SELECT * FROM pa_incidents WHERE id=? AND binding_id=?',params(req).id,b.binding_id),action=body(req).action;
-    if(!incident)fail(404,'incident_not_found');if(!['block','misunderstanding'].includes(action))fail(422,'invalid_incident_action');
+    if(!incident)fail(404,'incident_not_found');if(!['block','misunderstanding','dismiss'].includes(action))fail(422,'invalid_incident_action');
     transaction(ctx.db,()=>{
-      if(action==='block')ctx.db.prepare('INSERT OR IGNORE INTO pa_contact_blocks VALUES(?,?)').run(b.binding_id,incident.actor_id);
-      ctx.db.prepare('UPDATE pa_incidents SET status=? WHERE id=?').run(action==='block'?'blocked':'closed',incident.id);
-      ctx.db.prepare('UPDATE pa_policies SET revision=revision+1 WHERE binding_id=?').run(b.binding_id);
-    });pa.wake(b);return pa.incidents(b.owner_id).items.find((i:Row)=>i.id===incident.id);
+      if(action==='block') {
+        ctx.db.prepare('INSERT OR IGNORE INTO pa_contact_blocks VALUES(?,?)').run(b.binding_id,incident.actor_id);
+        ctx.db.prepare("UPDATE pa_incidents SET status='blocked' WHERE binding_id=? AND actor_id=? AND status='open'").run(b.binding_id,incident.actor_id);
+      }
+      // Acknowledging the UI must not cancel an in-flight fixed peer notice or reopen a resolved decision.
+      if(action==='dismiss')ctx.db.prepare("UPDATE pa_incidents SET status='dismissed' WHERE id=? AND status='open'").run(incident.id);
+      else ctx.db.prepare('UPDATE pa_incidents SET status=? WHERE id=?').run(action==='block'?'blocked':'closed',incident.id);
+      if(action!=='dismiss')ctx.db.prepare('UPDATE pa_policies SET revision=revision+1 WHERE binding_id=?').run(b.binding_id);
+    });if(action!=='dismiss')pa.wake(b);return pa.incidents(b.owner_id).items.find((i:Row)=>i.id===incident.id);
   });
 }

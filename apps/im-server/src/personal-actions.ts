@@ -41,7 +41,7 @@ export class PersonalActions {
   }
   recipients(conversationId:string,payload:Row) {return payload.transport?[payload.transport.destination.source_id]:this.audience(conversationId);}
   securityNotice(b:Row,id:string,conversationId:string,content:string) {
-    const incident=one(this.db,"SELECT i.* FROM pa_incidents i JOIN messages m ON m.id=i.owner_notice_message_id WHERE i.id=? AND i.binding_id=? AND i.conversation_id=? AND i.status='open' AND m.conversation_id=? AND m.delivery_status='completed'",id,b.binding_id,conversationId,b.conversation_id);
+    const incident=one(this.db,"SELECT i.* FROM pa_incidents i JOIN messages m ON m.id=i.owner_notice_message_id WHERE i.id=? AND i.binding_id=? AND i.conversation_id=? AND i.status IN ('open','dismissed') AND m.conversation_id=? AND m.delivery_status='completed'",id,b.binding_id,conversationId,b.conversation_id);
     if(!incident||content!==PEER_NOTICE)fail(403,'invalid_security_notice');return incident;
   }
   operation(b:Row,id:string) {

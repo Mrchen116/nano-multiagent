@@ -1,0 +1,157 @@
+{
+  "review_round": "R13",
+  "verification_mode": "delta consistency",
+  "code_review_mode": "bounded closure: R13-W1 only",
+  "base": "68c4807b0f2b72f1cb80310ab676d47ded74a303",
+  "candidate": "Caller-frozen R13 correction after 68c4807b; 2026-10-20 00:22 Asia/Shanghai",
+  "candidate_blobs": {
+    "apps/im-server/src/personal-agent.ts": "308e6500b64b3e955503381a05d2f842515e4cfe",
+    "src/IM/frontend/src/features/personal-agent/personal-agent-incidents.tsx": "d8a7c07e0751649b91083d733153cbc549b6ae22",
+    "apps/im-server/src/personal-actions.ts": "87e12d652a6ebc302284a2bdbf4b55217762d0d6"
+  },
+  "verdict": "Approved",
+  "corrected_delta_outcome": "aligned",
+  "requires_full_verification": false,
+  "counts": {
+    "critical": 0,
+    "warning": 0,
+    "suggestion": 0
+  },
+  "findings": [],
+  "mapping": [
+    {
+      "contract": "Compact collapsed protection summary; group repeated notices by actor with progressively disclosed evidence",
+      "outcome": "aligned in code and narrow component tests",
+      "evidence": "Actor ID Map groups open API records; summary totals request counts and distinct actors; each returned record keeps its own reason, message locator and count. Initially expanded=false; future contact controls and all reasons are separate details. Original names/reasons stay untranslated data."
+    },
+    {
+      "contract": "Got it has no policy/block/wake effect and only closes seen records",
+      "outcome": "aligned / R13-W1 closed",
+      "evidence": "UI targets only displayed records. Owner-bound route now changes open to dismissed conditionally, preserving other states and unchanged policy/block/wake. Dedicated dismissed remains eligible for the exact reviewed fixed peer notice with actual owner receipt. Actual Fastify prepare+allow then dismiss then commit regression succeeds and stores peer receipt; independent unavailable then dismiss then prepare/review/commit recovery succeeds once."
+    },
+    {
+      "contract": "Block retains actor-level boundary and resolves all current same-actor notices",
+      "outcome": "aligned",
+      "evidence": "Only one grouped record is sent for block. Backend obtains actor from the persisted owner-bound incident, inserts the existing contact block and marks open records with the same binding and actor blocked in one transaction. Previously closed records and other actors/bindings are excluded by the UPDATE predicate. Original block policy revision and wake remain."
+    },
+    {
+      "contract": "Mutation failures remain visible and retryable",
+      "outcome": "aligned by code inspection; all-failure path exercised",
+      "evidence": "Promise.allSettled completes displayed-record requests before one query invalidation; any rejection produces an error, no optimistic dismissal removes the failed item, and refreshed open records remain actionable. Component test proves retained notice and enabled retry after total failure. Mixed partial success is not independently simulated in this review and is not claimed as an executed sample."
+    },
+    {
+      "contract": "Current spec, archive spec/design and IM delta agree",
+      "outcome": "documents aligned; implementation mismatch limited to R13-W1",
+      "evidence": "All specify grouped informational notices, display-only acknowledgement, explicit contact block, preserved evidence and retry after failure. No new approval authority, owner bypass or PA lifecycle introduced."
+    }
+  ],
+  "independent_checks": [
+    {
+      "command": "pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-disclosure.test.ts",
+      "result": "2 files / 25 tests passed",
+      "log": "/tmp/pa-static-review-616/r13-backend-tests.log",
+      "phase": "initial bounded review"
+    },
+    {
+      "command": "pnpm exec vitest run src/features/personal-agent/personal-agent.test.tsx",
+      "cwd": "src/IM/frontend",
+      "result": "1 file / 6 tests passed",
+      "log": "/tmp/pa-static-review-616/r13-ui-tests.log",
+      "phase": "initial bounded review"
+    },
+    {
+      "command": "pnpm exec tsx /tmp/pa-static-review-616/r13-dismiss-receipt-probe.mts",
+      "result": "exit=0; reproduced acknowledgement invalidating reviewed peer delivery and subsequent retry",
+      "log": "/tmp/pa-static-review-616/r13-dismiss-receipt-probe.log",
+      "boundary": "Actual Fastify route, Messaging/PersonalAgents/PersonalActions/SQLite; synthetic owner and peer, simulated independent allow; no real LLM, browser or peer device receipt. App and database closed in finally.",
+      "phase": "initial bounded review"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed",
+      "phase": "initial bounded review"
+    },
+    {
+      "phase": "R13-W1 closure",
+      "command": "pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-disclosure.test.ts",
+      "result": "2 files / 26 tests passed, 0.58s",
+      "log": "/tmp/pa-static-review-616/r13-dismiss-closure-tests.log",
+      "coverage": "Actual Fastify acknowledgement after prepare/allow, exact peer message and persisted receipt; no wake; changed content rejected; stale dismiss preserves blocked; prior privacy/source/receipt regressions."
+    },
+    {
+      "phase": "R13-W1 closure",
+      "command": "pnpm exec tsx /tmp/pa-static-review-616/r13-dismiss-closure-probe.mts",
+      "result": "exit=0; all eight boundary assertions true",
+      "log": "/tmp/pa-static-review-616/r13-dismiss-closure-probe.log",
+      "coverage": "Actual Fastify/Messaging/PersonalActions/SQLite: unavailable review, dismiss, same source returns same dismissed incident, same proposal refreshes and commits exactly one fixed peer receipt. Policy unchanged, mutated payload rejected, later block remains ineligible, stale dismiss preserves blocked. Synthetic identities and allow, no shared service or LLM; app/database closed."
+    },
+    {
+      "phase": "R13-W1 closure",
+      "command": "git diff --check and both JSON parsers",
+      "result": "passed"
+    }
+  ],
+  "retained_caller_evidence": [
+    "/tmp/feat616-r13-ui-tests.log: 1 file / 6 passed, read",
+    "/tmp/feat616-r13-backend-tests.log: 2 files / 25 passed, read",
+    "/tmp/feat616-r13-build.log: IM build passed, read",
+    "/tmp/feat616-r13-web-build.log: frontend build passed with existing chunk warning, read",
+    "/tmp/feat616-r13-dismiss-red.log: added actual Fastify regression failed with invalid_security_notice before correction, read",
+    "/tmp/feat616-r13-backend-tests.log: corrected 2 files / 26 tests passed, read",
+    "Corrected IM build passed per caller; no unrelated full-suite rerun"
+  ],
+  "product_limits": "Actual collapsed/expanded desktop/mobile visual quality and user journey remain the product reviewer's scope. No screenshots or fixtures are treated as exhaustive semantic safety proof. Existing unaffected R1-R12 evidence and historical findings remain retained; no full-suite rerun.",
+  "handoff": "Only existing code-review-r13.json and verification-r13.json updated. Original CONFIRMED finding and failure evidence retained in history. Current code review findings empty and delta aligned. No implementation/test/design changes, commit or shared runtime restart by reviewer. Unaffected R13 UI/i18n/grouping and earlier evidence retained; bounded closure complete.",
+  "history": [
+    {
+      "phase": "initial bounded review",
+      "candidate": "R13 dirty diff frozen by caller; 2026-10-20 00:20 Asia/Shanghai",
+      "candidate_blobs": {
+        "apps/im-server/src/personal-agent.ts": "308e6500b64b3e955503381a05d2f842515e4cfe",
+        "src/IM/frontend/src/features/personal-agent/personal-agent-incidents.tsx": "d8a7c07e0751649b91083d733153cbc549b6ae22",
+        "apps/im-server/src/personal-actions.ts": "87e12d652a6ebc302284a2bdbf4b55217762d0d6"
+      },
+      "verdict": "Fix before PR",
+      "corrected_delta_outcome": "implementation-mismatch",
+      "counts": {
+        "critical": 0,
+        "warning": 1,
+        "suggestion": 0
+      },
+      "code_review_findings": [
+        {
+          "file": "/Users/czj/.codex/worktrees/feat-616-personal-agent/nano-multiagent/apps/im-server/src/personal-agent.ts",
+          "line": 282,
+          "summary": "[P2] Keep dismissing an owner notice from invalidating its pending peer delivery",
+          "failure_scenario": "The owner receives the persisted privacy notice and clicks Got it while the fixed peer refusal is awaiting review or retry. dismiss changes the incident to closed. PersonalActions.securityNotice requires status=open at prepare and commit, so an already allowed fixed refusal now fails with invalid_security_notice. Re-admitting the same source returns that same closed incident with no peer receipt, and every subsequent prepare fails; the input/peer-notice recovery cannot finish. Independently reproduced with actual Fastify dismiss, PersonalAgents and PersonalActions in /tmp/pa-static-review-616/r13-dismiss-receipt-probe.mts: dismissStatus=200, policyUnchanged=true, reviewedPeerCommitError=invalid_security_notice, retryReturnsClosedIncident=true, retryPrepareRejected=true. Separate UI acknowledgement from security-notice eligibility, or precisely retain the eligibility of a dismissed record while preserving block/misunderstanding revocation, actual owner receipt, exact fixed content and mandatory review. Add this interleaving to the regression tests; Got it is specified as display-only acknowledgement.",
+          "review_mode": "bounded patch: 68c4807b plus R13 dirty diff",
+          "status": "CONFIRMED"
+        }
+      ],
+      "verification_findings": [
+        {
+          "id": "R13-W1",
+          "status": "open",
+          "severity": "WARNING",
+          "contract": "Current and archive IM PA Scenario 简洁的隐私知情提醒: 知道了仅收起本次已看到的提醒，不改变披露策略; existing design requires actual owner receipt then reviewed fixed peer notice",
+          "actual": "dismiss leaves policy revision, blocks and wake unchanged, but sets the incident closed. Existing fixed notice eligibility requires open. The owner acknowledgement can therefore cancel an already reviewed peer refusal and permanently prevent retry for the same admitted source.",
+          "evidence": "/tmp/pa-static-review-616/r13-dismiss-receipt-probe.log",
+          "action": "Decouple acknowledgement display state from fixed-notice delivery eligibility; preserve exact fixed content, real owner receipt, binding/source checks and mandatory review. Cover owner acknowledgement after prepare/allow and before commit, followed by successful permitted retry. Do not broadly accept blocked or misunderstanding incidents."
+        }
+      ],
+      "note": "Original R13-W1 failure and actual repro are retained here. Closure changes its current status; it does not erase the reproduced initial failure."
+    }
+  ],
+  "closed_findings": [
+    {
+      "id": "R13-W1",
+      "status": "closed",
+      "resolution": "dismiss changes only open to dedicated dismissed, without policy revision/block/wake. securityNotice accepts only open or dismissed with all original exact content, owner completed receipt, binding/conversation, source/audience and mandatory review constraints. closed/blocked are still rejected, and late dismiss cannot overwrite either. UI still filters only open, so acknowledged reminders disappear without canceling peer delivery.",
+      "evidence": [
+        "/tmp/pa-static-review-616/r13-dismiss-closure-tests.log",
+        "/tmp/pa-static-review-616/r13-dismiss-closure-probe.log"
+      ],
+      "limits": "No schema change; existing TEXT status column reused. No general permission fast path. Product visual evidence remains separate."
+    }
+  ]
+}

@@ -560,3 +560,8 @@ reviewer准备新账号 `r12-guidance-owner` / 知夏R12，通过真实注册与
 一次清空保存先持续“保存中”，约几十秒后成功；reviewer等待确定成功再刷新，没有把10秒工具等待超时误判为保存失败。最终状态与后续行为均已验证。
 
 本轮以截图、可见文本、真实Work及持久文件为证据，原始页面录像保留raw/，没有另剪短视频。全部工作结束，无主动后续事项。专用浏览器/context已关闭。独立Node71257收到TERM后DSH子进程退出但Node残留、在IM切换期间出现runtime unavailable；最终仅对该确认的fixture PID执行KILL，exec退出137，无剩余子进程。此收尾事实保留，不外推为职责/Skill机制失败。自建config/binding URL及runtime credentials已删除，其他本地证据保留；主IM/Node由caller管理，未停止。只追加本报告，未commit。
+
+
+## Round 13 - privacy notice UX
+
+Scoped product acceptance PASS: [R13 report](acceptance-r13.md). Actual desktop interactions and retained narrow-screen evidence cover grouping, original-message return, acknowledgement without policy effects, and actor-level blocking. Synthetic incidents validate presentation and persistence, not model classification.

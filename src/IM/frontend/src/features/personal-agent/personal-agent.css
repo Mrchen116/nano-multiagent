@@ -27,3 +27,40 @@
 
 .pa-source-return { flex-shrink: 0; padding: 7px 16px; border-bottom: 1px solid var(--im-border); font-size: 12px; color: var(--im-text-muted); }
 .pa-source-return button { cursor: pointer; }
+
+/* A quiet protection summary; evidence and contact controls are progressively disclosed. */
+.pa-privacy { border: 1px solid var(--im-border); border-radius: 14px; background: var(--im-surface); color: var(--im-text); overflow: hidden; }
+.pa-privacy-summary { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; border: 0; background: transparent; text-align: left; color: inherit; cursor: pointer; }
+.pa-privacy-summary:hover { background: var(--im-surface-hover); }
+.pa-privacy-icon { display: grid; place-items: center; width: 36px; height: 40px; flex: none; border-radius: 10px; background: #edf5f2; color: #387465; }
+.pa-privacy-icon svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pa-privacy-summary-copy { min-width: 0; flex: 1; display: grid; gap: 5px; font-size: 12px; line-height: 1.5; color: var(--im-text-muted); }
+.pa-privacy-summary-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--im-text); font-size: 14px; font-weight: 600; }
+.pa-privacy-protected { padding: 1px 6px; border-radius: 4px; background: #edf5f2; color: #387465; font-size: 10px; font-weight: 500; }
+.pa-privacy-toggle { display: flex; gap: 7px; align-items: center; flex: none; color: var(--im-text-muted); font-size: 12px; }
+.pa-privacy-body { border-top: 1px solid var(--im-border); padding: 0 16px 4px; }
+.pa-privacy-intro { margin: 14px 0; color: var(--im-text-muted); font-size: 12px; line-height: 1.6; }
+.pa-privacy-person { padding: 16px 0; border-top: 1px solid var(--im-border); }
+.pa-privacy-person-heading { display: flex; gap: 9px; align-items: center; min-width: 0; }
+.pa-privacy-person-heading h3 { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: 14px; font-weight: 600; }
+.pa-privacy-person-heading > span:last-child { flex: none; font-size: 11px; color: var(--im-text-muted); }
+.pa-privacy-avatar { width: 28px; height: 28px; display: grid; place-items: center; flex: none; border-radius: 50%; background: var(--im-surface-hover); color: var(--im-text-muted); font-size: 12px; }
+.pa-privacy-reason { margin: 10px 0 8px; color: var(--im-text); font-size: 13px; line-height: 1.65; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pa-privacy-evidence summary, .pa-privacy-options summary { width: fit-content; color: var(--im-text-muted); font-size: 12px; line-height: 1.6; cursor: pointer; padding: 5px 0; }
+.pa-privacy-evidence ol { margin: 8px 0 14px; padding: 0 0 0 15px; border-left: 2px solid var(--im-border); list-style: none; }
+.pa-privacy-evidence li + li { margin-top: 14px; }
+.pa-privacy-evidence li p { margin: 0 0 5px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
+.pa-privacy-evidence a { font-size: 12px; color: var(--im-accent); text-decoration: none; }
+.pa-privacy-evidence a:hover { text-decoration: underline; }
+.pa-privacy-repeat { margin-left: 10px; font-size: 11px; color: var(--im-text-muted); }
+.pa-privacy-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-top: 12px; }
+.pa-privacy-actions button { padding: 6px 12px; min-height: 32px; border: 1px solid var(--im-border); border-radius: 7px; background: var(--im-surface); color: var(--im-text); font: inherit; font-size: 12px; cursor: pointer; }
+.pa-privacy-actions button:hover { background: var(--im-surface-hover); }
+.pa-privacy-options { flex: 1; min-width: 160px; }
+.pa-privacy-options > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.pa-privacy-options p { flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.6; color: var(--im-text-muted); }
+.pa-privacy-actions .pa-privacy-block { color: var(--im-danger, #a33c36); }
+.pa-privacy button:disabled { opacity: .5; cursor: default; }
+.pa-privacy button:focus-visible, .pa-privacy summary:focus-visible, .pa-privacy a:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 3px; }
+.pa-privacy-feedback { margin: 10px 0; font-size: 12px; line-height: 1.6; color: var(--im-text-muted); }
+@media (max-width: 480px) { .pa-privacy-summary { gap: 9px; padding: 12px; } .pa-privacy-body { padding: 0 12px 4px; } .pa-privacy-icon { width: 30px; height: 34px; } .pa-privacy-actions button { min-height: 40px; } .pa-privacy-options summary, .pa-privacy-evidence summary { padding: 9px 0; } }

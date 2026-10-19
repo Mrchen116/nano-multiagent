@@ -1,0 +1,23 @@
+{
+  "round": "R13",
+  "verdict": "PASS",
+  "scope": "privacy notice presentation, source navigation, dismiss and block",
+  "desktop": [
+    1280,
+    720
+  ],
+  "narrow_shared_evidence": [
+    513,
+    827
+  ],
+  "synthetic_fixture": true,
+  "dismiss_policy_blocks_events_unchanged": true,
+  "block_all_actor_open_incidents": true,
+  "limitations": [
+    "No new LLM classification or delivery journey",
+    "No partial-failure injection",
+    "No misunderstanding mutation",
+    "Narrow evidence from parent, reviewed as screenshots"
+  ],
+  "evidence_directory": "data/acceptance/feat-616/r13-privacy-notices"
+}

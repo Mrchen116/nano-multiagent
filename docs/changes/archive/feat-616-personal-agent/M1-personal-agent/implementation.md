@@ -160,3 +160,10 @@ The user's test service remains available at its isolated local URL while they i
 - 创建默认字段先红后绿；4文件35tests通过，含实际DSH Global/PA加载Skill全文、清空custom prompt、禁用Skill后其他Skill保留及PA固定身份提示保留；contracts/IM/PA/DSH构建、全仓typecheck通过。日志/tmp/feat616-r12-*。真实产品与独立审查随后记录。
 - R12冻结实现为6903405c8，独立code review/delta consistency Approved；随后合入main d1e6a8f0c（PR369）为61f1cdd34，六处冲突分别保留owner观察只读与PA配置/标识/草稿/广播完整payload，独立整合审查Approved。合并影响IM22、披露/来源17、Web54tests及前后端构建通过，docs-check通过；未修改上游iOS实现，差异相对main不含本轮iOS变更。
 - 用户再次提醒Prompt/Skill分工后，默认文案进一步精简为每轮职责/偏好/触发条件，流程细节只留Skill；创建13tests与IM build再次通过，独立closure无finding。真实模型样本验证的是6903405c8初版默认及未变的Skill/配置机制，不把后续精简文案声称为已重新跑过模型样本。
+
+### R13 privacy notices as a compact, optional read
+
+- 用户截图暴露重复大卡、长操作并列和缺少单纯已读出口。改为默认折叠的保护摘要，按actor分组显示请求数与最新原因，完整原因/消息出处和后续协作操作逐层展开；沿用现有聊天导航、消息返回和i18n。
+- 新dismiss动作仅把主人可见的open记录标为dismissed；不改policy revision、block或wake。误会与拒收沿用原机制，actor级拒收同时解决该人的其余open提醒。批量确认发生部分错误时刷新真实结果并保留未成功记录。
+- 独立审查发现最初复用closed会让待发固定对方通知invalid_security_notice。已先红复现，再以专属dismissed状态纠正；固定通知仍需原owner回执、冻结内容、受众和独立审查，closed/blocked没有放宽，迟到dismiss不覆盖既有决定。新增真实Fastify→prepare/review→dismiss→commit回归验证已审固定通知可完成并落回执。
+- 本轮后端2文件26tests、Web6tests、整仓typecheck、IM/Web build、docs-check通过；本地日志/tmp/feat616-r13-*。独立审查和实际UI验收分别见本轮review/verification与acceptance记录。用户测试53808已加载新版本；保留原主账号提醒，未部署生产。
