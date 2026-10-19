@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/personal-assistant/src/personal-assistant.ts",
+    "line": 58,
+    "summary": "[P1] Direct relays bypass source exclusions and contact blocks",
+    "failure_scenario": "After the owner excludes a group or blocks a sender, a new group @ / direct PA message still travels through Gateway.relayMessage rather than pa.observations.read. admit sends its full content to the input reviewer and, on an ordinary allow result, saves it into NodeStore without checking current source policy or pa_contact_blocks. Independently reproduced with the real Gateway, Messaging, PersonalAgents and PersonalAssistant: sourceAllowed=false, sender blocked, relay_tasks count=1, admit=true, and the excluded text persisted in store.inputs. Filtering only the observation queue therefore does not enforce the promised exclusion/block boundary, including relays already queued when policy changes. Enforce server-authoritative current source/contact admission on the direct relay and before consuming queued inputs; retain canonical owner control access.",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "apps/im-server/src/personal-agent.ts",
+    "line": 26,
+    "summary": "[P1] A normal device credential recovery permanently invalidates its PA binding",
+    "failure_scenario": "Identity.deviceRecoverDevice increments node_binding_state.node_epoch but never advances personal_agent_bindings.node_epoch or the trusted PA configuration. The new legitimate node principal therefore fails this equality and every pa.* operation returns personal_binding_not_authorized. An independent call to the real deviceRecoverDevice changed epoch 1 to 2 and immediately reproduced that failure. POST /personal-agent returns the existing active binding (lines 273-285), so retrying setup cannot repair it; choosing another same-owner node also returns the old binding. Implement the specified same-owner epoch/rebinding transition, preserving canonical PA/DM/goals while retiring old execution authority and preparing the new trusted partition. Do not weaken the stale-epoch check.",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "packages/personal-assistant/src/global-agent.ts",
+    "line": 120,
+    "summary": "[P2] A failed PA observation recovery prevents unrelated global Agents from recovering",
+    "failure_scenario": "On reconnect/restart, recover first awaits the shared recoverPersonalObservations call. If a PA has a pending source event while its own runtime is unavailable, that call invokes main for the failed PA and rejects before the loop recovering any ordinary Agent starts. Independently reproduced with an ordinary global Agent plus an offline PA with one queued source event: recover rejected 'personal host offline' and there were zero ordinary session.ensure calls. Previously accepted ordinary Inbox work and receipts are left unreconciled despite its healthy partition. Isolate PA observation/recovery failures by Agent/partition, report the affected PA, and continue recovering healthy Agents while preserving the failed event for retry.",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]

@@ -17,7 +17,8 @@ export class PersonalAgents {
   }
   state(owner: string) {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
-    return {binding:binding?{...binding,status:binding.status==='active'&&node?.status!=='online'?'unavailable':binding.status}:null,
+    const runtime=binding?one(this.db,'SELECT available FROM pa_runtime_status WHERE binding_id=? AND node_epoch=?',binding.binding_id,binding.node_epoch):undefined;
+    return {binding:binding?{...binding,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
       policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key,initial_goal:binding.initial_goal}:null};
   }
   authority(principal: Row, args: Row): Row {
@@ -37,6 +38,18 @@ export class PersonalAgents {
     if (!access || (mode === 'write' && !access.can_write)) return false;
     if (ownerAccess && !one(this.db, 'SELECT 1 FROM conversation_participation_history WHERE conversation_id=? AND user_id=?', conversationId, b.owner_user_id) && !contactAccess?.is_member) return false;
     return !this.policy(b.binding_id).excluded_conversation_ids.includes(conversationId);
+  }
+  /** Revalidate every ingress path, including relays queued before a policy change. */
+  sourceActor(message:Row) {return message.sender_source_id?`external:${message.conversation_id}:${message.sender_source_id}`:message.sender_user_id;}
+  messageAllowed(b: Row, message: Row) {
+    return this.sourceAllowed(b,message.conversation_id) && !one(this.db,
+      'SELECT 1 FROM pa_contact_blocks WHERE binding_id=? AND actor_id=?',b.binding_id,this.sourceActor(message));
+  }
+  admitSource(principal: Row, args: Row) {
+    const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
+    if(!m || !this.messageAllowed(b,m)) return {allowed:false};
+    this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
+    return {allowed:true};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
@@ -86,8 +99,8 @@ export class PersonalAgents {
     const b=this.authority(principal,args), policy=this.policy(b.binding_id);
     const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
       .filter(e=>!e.conversation_id || (policy.observation_enabled && this.sourceAllowed(b,e.conversation_id)))
-      .filter(e=>!e.message_id || !one(this.db,"SELECT 1 FROM pa_contact_blocks k JOIN messages m ON m.sender_user_id=k.actor_id WHERE k.binding_id=? AND m.id=?",b.binding_id,e.message_id))
-      .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>({...e,payload:JSON.parse(e.payload_json),message:e.message_id?this.ctx.messaging.message(e.message_id):null}));
+      .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
+      .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>({...e,conversation_type:e.conversation_id?one(this.db,'SELECT type FROM conversations WHERE id=?',e.conversation_id)?.type:undefined,payload:JSON.parse(e.payload_json),message:e.message_id?this.ctx.messaging.message(e.message_id):null}));
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
     return {items,policy_revision:policy.revision};
   }
@@ -210,20 +223,21 @@ export class PersonalAgents {
     return {items:all(this.db,'SELECT * FROM pa_decisions WHERE binding_id=?',b.binding_id).map(d=>({...JSON.parse(d.payload_json),id:d.id,task_ref:d.task_ref,kind:d.kind,status:d.status,revision:d.revision,snooze_until:d.snooze_until}))};
   }
   incidents(owner:string) {
-    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,u.display_name actor_name FROM pa_incidents i JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
+    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
   }
   incident(principal:Row,args:Row) {
     const b=this.authority(principal,args),source=one(this.db,'SELECT * FROM messages WHERE id=?',args.source_message_id);
-    if(!source||!this.sourceAllowed(b,source.conversation_id)||source.sender_user_id===b.owner_user_id)fail(404,'incident_source_not_accessible');
+    if(!source||!this.sourceAllowed(b,source.conversation_id)||(source.sender_user_id===b.owner_user_id&&!source.sender_source_id))fail(404,'incident_source_not_accessible');
+    const actorId=this.sourceActor(source);
     args={...args,category:args.category??'suspected_probing'};
     if(typeof args.category!=='string'||typeof args.reason!=='string')fail(422,'incident_evidence_required');
     const seen=one(this.db,'SELECT i.* FROM pa_incidents i JOIN pa_incident_evidence e ON e.incident_id=i.id WHERE e.binding_id=? AND e.message_id=? AND e.category=?',b.binding_id,source.id,args.category);
     if(seen)return {...seen,peer_notice_content:PEER_NOTICE,peer_notice_requires_review:true};
-    const open=one(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND actor_id=? AND conversation_id=? AND category=? AND status='open'",b.binding_id,source.sender_user_id,source.conversation_id,args.category);
+    const open=one(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND actor_id=? AND conversation_id=? AND category=? AND status='open'",b.binding_id,actorId,source.conversation_id,args.category);
     if(open){this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,args.category,open.id);this.db.prepare('UPDATE pa_incidents SET count=count+1,source_message_id=?,reason=? WHERE id=?').run(source.id,args.reason,open.id);return {...one(this.db,'SELECT * FROM pa_incidents WHERE id=?',open.id)!,peer_notice_content:PEER_NOTICE,peer_notice_requires_review:true};}
-    const id=randomUUID(),actor=one(this.db,'SELECT display_name FROM users WHERE id=?',source.sender_user_id)!;
+    const id=randomUUID(),actor=source.sender_display_name?{display_name:source.sender_display_name}:one(this.db,'SELECT display_name FROM users WHERE id=?',source.sender_user_id)!;
     transaction(this.db,()=>{
-      this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,source.sender_user_id,source.conversation_id,source.id,args.category,args.reason);
+      this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,args.category,args.reason);
       this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,args.category,id);
       const message=this.ctx.messaging.insertMessage(b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id,'agent',`${actor.display_name}的请求可能超出了协作范围。${args.reason}\n我已拒绝这次索取；其他工作继续。`,[],`pa-incident:${id}`,'completed',{publish:false});
       this.db.prepare('UPDATE pa_incidents SET owner_notice_message_id=? WHERE id=?').run(message.id,id);
@@ -237,6 +251,10 @@ export class PersonalAgents {
     switch(type) {
       case 'pa.state': return this.state(b.owner_id);
       case 'pa.history.search': return this.history(principal,args);
+      case 'pa.runtime.status':
+        if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
+        this.db.prepare('INSERT OR REPLACE INTO pa_runtime_status VALUES(?,?,?)').run(b.binding_id,b.node_epoch,Number(args.available));return {recorded:true};
+      case 'pa.source.admit': return this.admitSource(principal,args);
       case 'pa.history.read': return this.readHistory(principal,args);
       case 'pa.observations.read': return this.observations(principal,args);
       case 'pa.observations.ack': return this.acknowledge(principal,args);
@@ -299,6 +317,22 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         ctx.gateway.relayMessage(m,profile,`pa-first-goal:${b.binding_id}`);
       }
       reply.code(201);return pa.state(u.owner_id);
+    });
+  });
+  app.post('/im/v1/personal-agent/restore',async req=>{
+    const u=user(req),input=body(req);
+    return ops.serialized(`personal:${u.owner_id}`,async()=>{
+      const b=pa.binding(u.owner_id);if(!b)fail(404,'personal_agent_not_found');
+      const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b USING(node_id) WHERE n.node_id=? AND n.owner_id=? AND b.owner_id=?',input.node_id,u.owner_id,u.owner_id);
+      if(!node)fail(404,'node_not_found');if(node.status!=='online')fail(409,'node_offline');
+      const pending=one(ctx.db,"SELECT node_id FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')",b.agent_id);
+      if(pending&&pending.node_id!==node.node_id)fail(409,'restore_already_pending');
+      if(pending)await ops.recover(b.agent_id,u.owner_id);
+      else if(b.node_id!==node.node_id||b.status!=='active') {
+        const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id);if(!profile)fail(409,'complete_initial_setup_first');
+        await ops.restorePersonal(profile,u.owner_id,node.node_id,node.node_epoch);
+      }
+      pa.wake(pa.binding(u.owner_id)!);return pa.state(u.owner_id);
     });
   });
   app.patch('/im/v1/personal-agent',async req=>{

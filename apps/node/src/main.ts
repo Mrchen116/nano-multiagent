@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { RuntimePartitions, type RuntimePartition } from './runtime-partitions.js';
@@ -75,6 +76,12 @@ function installPartitionConsumers(partition: RuntimePartition): void {
   workflowsByPartition.set(partition.key, new WorkflowResults({ agents: partition.agents, store, runtime: port, partitionKey,
     receive: (sessionId, input) => product.background(sessionId, input), onError: reportError }));
 }
+async function reportPersonalAvailability(partition: RuntimePartition, available: boolean) {
+  if(!relay.ready)return;
+  for(const agent of partition.agents) if(agent.personal) await relay.request('pa.runtime.status',{
+    request_id:randomUUID(),node_id:config.node.node_id,agent_id:agent.agentId,binding_id:agent.personal.bindingId,epoch:agent.personal.epoch,available,
+  }).catch(reportError);
+}
 const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings(), onError: reportError,
   create: partition => {
     const partitionHome = partition.key === 'ordinary' ? home : join(home, 'pa', Buffer.from(partition.key).toString('base64url'));
@@ -92,6 +99,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       },
       onReady: async () => {
         installPartitionConsumers(partition);
+        await reportPersonalAvailability(partition,true);
         if (!updateHolding) await admitted(async () => {
           if (partition.key === 'ordinary') await modelSetup.recover();
           if (operations) {
@@ -108,6 +116,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       },
       onError: reportError,
       onUnavailable: async () => {
+        await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
         if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
       },
@@ -235,7 +244,7 @@ const relay = new WebRelayConnection({
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
     } finally { admissions--; }
   },
-  onState: async state => { if (state === 'ready' && typeof relay.registration?.owner_timezone === 'string') store.setOwnerTimezone(relay.registration.owner_timezone); await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
+  onState: async state => { if (state === 'ready' && typeof relay.registration?.owner_timezone === 'string') store.setOwnerTimezone(relay.registration.owner_timezone); await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available); await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });

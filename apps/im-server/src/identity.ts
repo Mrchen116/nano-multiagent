@@ -595,6 +595,7 @@ export class Identity {
         "agent_channels",
         "agent_channel_removals",
         "agent_config_operations",
+        "personal_agent_bindings",
       ].map((table) => [
         table,
         this.all(`SELECT * FROM ${table} WHERE node_id=? ORDER BY rowid`, nodeId),
@@ -875,6 +876,7 @@ export class Identity {
         digest(runtime),
         user.owner_id,
       );
+      this.rotatePersonalEpoch(op.node_id,user.owner_id,op.expected_epoch+1);
       this.run(
         "UPDATE node_binding_operations SET state='cancelled' WHERE node_id=? AND operation_id!=? AND state!='committed'",
         op.node_id,
@@ -897,6 +899,12 @@ export class Identity {
       );
       return { state: "committed" };
     });
+  }
+  /** Rotate personal authority with device credentials; never carry an old permit forward. */
+  private rotatePersonalEpoch(node: string, owner: string, epoch: number) {
+    this.run('UPDATE personal_agent_bindings SET node_epoch=? WHERE node_id=? AND owner_id=?',epoch,node,owner);
+    this.run("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id IN (SELECT binding_id FROM personal_agent_bindings WHERE node_id=?) AND state IN ('prepared','allowed')",node);
+    this.run("UPDATE agent_config_operations SET status='rejected',error_code='node_epoch_changed',updated_at=datetime('now') WHERE node_id=? AND agent_id IN (SELECT agent_id FROM personal_agent_bindings WHERE node_id=?) AND status IN ('pending','gateway_applied')",node,node);
   }
   deviceRecover(id: string, token: string): Row {
     const op = this.operation(id, token);
@@ -926,6 +934,7 @@ export class Identity {
         digest(runtime),
         op.node_id,
       );
+      this.rotatePersonalEpoch(op.node_id,row.owner_id,row.node_epoch+1);
       this.run(
         "UPDATE node_binding_operations SET state='committed',target_user_id=?,target_owner=?,runtime_token=? WHERE operation_id=?",
         row.user_id,

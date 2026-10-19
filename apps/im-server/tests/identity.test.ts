@@ -314,6 +314,7 @@ describe("device possession and ownership transfer", () => {
     });
     expect(identity.user("owner")!.default_entry_node_id).toBe("new-node");
 
+    identity.run("INSERT INTO personal_agent_bindings VALUES('pa-binding','owner','owner','pa-test','new-node',1,'pa-chat','Assistant','create','active',NULL,datetime('now'))");
     const recover = identity.deviceStart({
       node_id: "new-node",
       node_name: "Device",
@@ -327,6 +328,7 @@ describe("device possession and ownership transfer", () => {
     identity.deviceRecoverDevice(recover.operation_id, recover.operation_token);
     const recovered = identity.deviceRecover(recover.operation_id, recover.operation_token);
     expect(recovered.node_epoch).toBe(2);
+    expect(recovered.snapshot.personal_agent_bindings).toMatchObject([{binding_id:'pa-binding',node_epoch:2}]);
     expect(identity.authenticateRuntime(runtime.runtime_token)).toBeNull();
     expect(() => identity.deviceRecover(started.operation_id, started.operation_token)).toThrow();
 

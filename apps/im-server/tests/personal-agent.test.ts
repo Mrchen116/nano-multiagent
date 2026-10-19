@@ -212,3 +212,49 @@ it('keeps a changed private goal title and closes its real task with a followup 
  expect(service.assistance('o1').items[0]).toMatchObject({status:'completed',next_check_at:null,waiting_on:null,task:{status:'done',result:'Bob confirmed Wednesday 15:00'}});
  expect(service.observations(principal,args).items.some((event:any)=>event.kind==='assistance.changed'&&event.payload.completed)).toBe(true);
 });
+
+it('rechecks direct relay admission for exclusions and blocked contacts',async()=>{
+ const {ctx,db,service,principal,args}=personalFixture();
+ const m=ctx.messaging.insertMessage('peer','u2','user','Do not ingest this');
+ const input={...args,source_message_id:m.id,conversation_id:'peer'};
+ expect(await service.handle(principal,'pa.source.admit',input)).toMatchObject({allowed:true});
+ service.updatePolicy('o1',{expected_revision:1,excluded_conversation_ids:['peer']});
+ expect(await service.handle(principal,'pa.source.admit',input)).toMatchObject({allowed:false});
+ service.updatePolicy('o1',{expected_revision:2,excluded_conversation_ids:[]});
+ db.prepare("INSERT INTO pa_contact_blocks(binding_id,actor_id) VALUES('binding','u2')").run();
+ expect(await service.handle(principal,'pa.source.admit',input)).toMatchObject({allowed:false});
+});
+
+it('restores the same PA onto an owned node with a receipt and fences its old authority',async()=>{
+ const {default:Fastify}=await import('fastify');const {registerPersonalAgentRoutes}=await import('../src/personal-agent.js');
+ const {ctx,db,service,principal,args}=personalFixture();ctx.personal=service;
+ db.prepare("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('new','o1','New computer','online')").run();
+ db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('new','o1',3)").run();
+ let requests=0;
+ ctx.gateway.request=async(node,method,payload)=>{
+   requests++;expect(node).toBe('new');expect(method).toBe('agent.create');
+   expect(()=>service.authority(principal,args)).toThrow();
+   expect(payload.agent).toMatchObject({personal_agent:{bindingId:'binding',ownerId:'o1',conversationId:'chat',epoch:3},workspace_root:null});
+   return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:{...payload.agent,workspace_root:'/new/private/pa',workspace_is_default:true}};
+ };
+ const app=Fastify();registerPersonalAgentRoutes(app,ctx);await app.ready();
+ try {
+   expect((await app.inject({method:'POST',url:'/im/v1/personal-agent/restore',headers:{'x-user':'u2'},payload:{node_id:'new'}})).statusCode).toBe(404);
+   const response=await app.inject({method:'POST',url:'/im/v1/personal-agent/restore',payload:{node_id:'new'}});
+   expect(response.statusCode,response.body).toBe(200);
+   expect(response.json().binding).toMatchObject({binding_id:'binding',agent_id:'a',conversation_id:'chat',node_id:'new',node_epoch:3,status:'active'});
+   expect(service.authority({owner_id:'o1',node_id:'new',node_epoch:3},{...args,epoch:3}).agent_id).toBe('a');
+   expect(()=>service.authority(principal,args)).toThrow();
+   expect(db.prepare("SELECT workspace_root FROM agent_profiles WHERE agent_id='a'").get()).toEqual({workspace_root:'/new/private/pa'});
+   expect((await app.inject({method:'POST',url:'/im/v1/personal-agent/restore',payload:{node_id:'new'}})).statusCode).toBe(200);expect(requests).toBe(1);
+ }finally{await app.close();}
+});
+
+it('shows a failed personal host as unavailable while its node stays online',async()=>{
+ const {db,service,principal,args}=personalFixture();db.prepare("UPDATE nodes SET status='online' WHERE node_id='n'").run();
+ expect(service.state('o1').binding.status).toBe('active');
+ await service.handle(principal,'pa.runtime.status',{...args,available:false});
+ expect(service.state('o1').binding.status).toBe('unavailable');
+ await service.handle(principal,'pa.runtime.status',{...args,available:true});
+ expect(service.state('o1').binding.status).toBe('active');
+});

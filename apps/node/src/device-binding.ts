@@ -13,6 +13,7 @@ import { atomicPrivate } from "./lifecycle.js";
 import { NodeConfiguration } from "./configuration.js";
 interface Snapshot {
   agent_profiles: Record<string, unknown>[];
+  personal_agent_bindings?: {agent_id:string;binding_id:string;owner_id:string;conversation_id:string;node_epoch:number}[];
   channel_manifest_heads: { manifest_revision: number }[];
   agent_channels: (ChannelAad & Record<string, unknown>)[];
   agent_channel_removals: Record<string, unknown>[];
@@ -256,6 +257,19 @@ export async function bindDevice(
     } finally {
       db.close();
     }
+  }
+  // Device recovery runs before startup. Preserve same-device data while retiring the old epoch.
+  for (const binding of snapshot.personal_agent_bindings ?? []) {
+    if(binding.owner_id!==result.owner_id)throw new Error('Personal binding owner mismatch');
+    const agent=config.agents.find(agent=>agent.agent_id===binding.agent_id);
+    if(!agent)continue;
+    const previous=agent.personal_agent as {bindingId:string;ownerId:string;epoch:number}|undefined;
+    if(previous && (previous.bindingId!==binding.binding_id || previous.ownerId!==binding.owner_id))throw new Error('Personal binding identity changed');
+    if(previous && previous.epoch!==binding.node_epoch) {
+      const partition=(epoch:number)=>join(home,'pa',Buffer.from(`personal:${binding.binding_id}:${epoch}`).toString('base64url'));
+      if(await exists(partition(previous.epoch)) && !await exists(partition(binding.node_epoch)))await rename(partition(previous.epoch),partition(binding.node_epoch));
+    }
+    agent.personal_agent={bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch};
   }
   config.node.user_id = result.owner_id;
   config.im_service.token = result.runtime_token;

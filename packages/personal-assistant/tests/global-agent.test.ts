@@ -254,3 +254,17 @@ it('retains completed Web receipts offline while reconciling external inputs, th
     expect(inbox.completedInputs('main', 1)).toEqual([]);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
+
+it('recovers healthy ordinary work while an unavailable PA retains its pending source event',async()=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ const calls:{method:string;args:any}[]=[],errors:unknown[]=[];
+ const agents=[{agentId:'ordinary',workspace:'/tmp/ordinary',revision:'1',provider:'test',model:'test',mode:'global' as const},{agentId:'pa',workspace:'/tmp/pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'owner-chat',epoch:1}}];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents,store,inbox,image:async()=>'',onError:error=>errors.push(error),
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{calls.push({method,args});if(args?.agentId==='pa')throw new Error('personal host offline');return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};}},
+  relay:{ready:true,request:async(type)=>({type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:[{event_id:1,kind:'policy.changed',payload:{}}]}:{}}})}});
+ try {
+  await product.recover();
+  expect(calls.some(c=>c.method==='session.ensure'&&c.args.agentId==='ordinary')).toBe(true);
+  expect(errors.some(e=>String(e).includes('personal host offline'))).toBe(true);
+ }finally{await product.stop();inbox.close();store.close();}
+});

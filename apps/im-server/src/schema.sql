@@ -530,3 +530,7 @@ CREATE TABLE IF NOT EXISTS pa_incident_evidence (
  binding_id TEXT NOT NULL, message_id TEXT NOT NULL, category TEXT NOT NULL, incident_id TEXT NOT NULL,
  PRIMARY KEY(binding_id,message_id,category)
 );
+
+CREATE TABLE IF NOT EXISTS pa_runtime_status (
+ binding_id TEXT PRIMARY KEY, node_epoch INTEGER NOT NULL, available INTEGER NOT NULL
+);

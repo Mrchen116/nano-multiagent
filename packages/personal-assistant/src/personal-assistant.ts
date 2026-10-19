@@ -36,6 +36,8 @@ export class PersonalAssistant {
 
   /** Record only a current authenticated owner message as an authorization candidate. */
   async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): Promise<boolean> {
+    const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
+    if(source.allowed!==true)return false;
     const owner = input.conversation_id === config.personal!.conversationId && input.message.sender_type === 'user'
       && input.message.sender_user_id === config.personal!.ownerId;
     if (owner) {
@@ -61,8 +63,12 @@ export class PersonalAssistant {
       if (verdict.incident) {
         const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident.reason});
         if(notice.owner_notice_message_id && notice.peer_notice_content) {
+          if(input.conversation_id.startsWith('external:')) await this.options.relay.request('agent.message',{
+            node_id:this.options.nodeId,to:`conversation:${input.conversation_id}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
+          else {
           const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
           await this.executeReviewed(config,{request_key:`pa-incident:${notice.id}`,incident_ref:notice.id,conversation_id:input.conversation_id,content:notice.peer_notice_content},evidence);
+          }
         }
       }
       if (verdict.decision !== 'allow') return false;
@@ -180,7 +186,7 @@ export class PersonalAssistant {
   /** Freeze and consume a provider permit immediately before the real channel send. */
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
-    const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,task_ref:delivery.taskRef,
+    const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,task_ref:delivery.taskRef,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
@@ -212,13 +218,27 @@ export class PersonalAssistant {
     return resolved.replace(/^conversation:/,'');
   }
 
+  /** Recreate only still-authorized goal timers after retiring a shared personal context. */
+  async restoreFollowups(config: AgentConfiguration, binding: SessionBinding) {
+    const evidence=await this.request(config,'pa.scope.resolve');
+    const allowed=new Set((evidence.conversations as Data[]).map(c=>c.id));
+    for(const goal of evidence.assistance as Data[]) {
+      if(goal.paused || goal.status==='completed' || !goal.next_check_at)continue;
+      const scope=(evidence.scopes as Data[]).find(s=>s.task_ref===goal.task_ref);
+      if(!scope || scope.revoked || ((scope.scope as Data).allowed_conversation_ids as string[]).some(id=>!allowed.has(id))) {
+        await this.request(config,'pa.assistance.update',{task_ref:goal.task_ref,expected_revision:goal.revision,next_check_at:null,schedule_id:null,next_action:'所需聊天已不可访问，相关跟进已停止。'});
+        continue;
+      }
+      await this.followup(config,binding,{task_ref:goal.task_ref,at:new Date(Math.max(Date.parse(String(goal.next_check_at)),Date.now()+5000)).toISOString(),next_action:goal.next_action});
+    }
+  }
   private async followup(config:AgentConfiguration,binding:SessionBinding,args:Data):Promise<Data> {
     const taskRef=String(args.task_ref ?? '');
     if(!taskRef)throw new Error('Follow-up requires an existing goal');
     const state=await this.request(config,'pa.assistance.read',{task_ref:taskRef});
     const goals=(state.items ?? state.assistance ?? []) as Data[];
     const goal=goals.find(item=>item.task_ref===taskRef);
-    if(!goal || goal.paused)throw new Error('Goal is unavailable or paused');
+    if(!goal || goal.paused || goal.status==='completed')throw new Error('Goal is unavailable or paused');
     const at=String(args.at ?? '');
     if(!Number.isFinite(Date.parse(at)) || Date.parse(at)<=Date.now())throw new Error('Choose a future follow-up time');
     const jobs=await this.options.runtime.request('schedule.command',{agentId:config.agentId,sessionId:binding.sessionId,action:'jobs'}) as Data[];

@@ -45,7 +45,7 @@ export interface PersonalDelegation {
 }
 /** Host-only transport. The tool bridge must not expose review/scope issuance as tools. */
 export type PersonalAgentMethod =
-  | 'pa.state' | 'pa.history.search' | 'pa.history.read'
+  | 'pa.runtime.status' | 'pa.state' | 'pa.source.admit' | 'pa.history.search' | 'pa.history.read'
   | 'pa.observations.read' | 'pa.observations.ack'
   | 'pa.scope.resolve' | 'pa.scope.create' | 'pa.owner.control' | 'pa.assistance.read' | 'pa.assistance.update'
   | 'pa.decision.create' | 'pa.action.prepare' | 'pa.action.review-result'

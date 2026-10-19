@@ -38,3 +38,13 @@ Final independent product acceptance, code review, verification, full final CI, 
 The current adapters reject Channels groups without a verified audience, external binary attachments without a semantic content adapter, and uncontrolled executable tools/plugins in PA; ordinary Agents retain their original capabilities. Same-owner node relocation/credential-epoch recovery, rename runtime synchronization, all revocation event sources, and per-PA availability require specific final verification against the design rather than assuming a passing unit suite proves them.
 
 Raw logs, fixture credentials, screenshots and recordings stay outside tracked documentation. Final evidence will link only shareable artifacts and exact tested versions.
+
+## Independent review corrections
+
+Review of `cf1befff9` independently reproduced source-policy bypass through direct relays, broken device epoch recovery, and PA recovery preventing ordinary global work. The next candidate corrects all three:
+
+- Every personal input now revalidates current IM source/contact authority before review or storage, including queued direct relays. Channels inputs first obtain a persisted IM source and use that identity for checks.
+- Same-device credential recovery rotates the trusted PA marker and retires old permits; local partition data moves to the new epoch before startup. An explicit same-owner restore operation prepares the same PA on another computer, preserves canonical DM/goals, and fences the old node before committing the new runtime receipt. It does not copy local private history.
+- Recovery failures are isolated per Agent. PA host availability is reported separately from node health. Retiring a context recreates still-authorized goal timers; completed/paused/inaccessible goals do not regain timers.
+
+The corrected live privacy probe produced both an actual private owner notice and a PA-labelled fixed peer refusal, with no canary disclosure. The private goal completion now updates its real task to done and cancels its native followup. A separate real public search completed without an additional owner approval. Final acceptance remains pending; these observations are not a claim of exhaustive leakage prevention.

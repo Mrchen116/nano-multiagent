@@ -239,11 +239,11 @@ export class ConfigOperations {
     const binding = one(this.ctx.db, "SELECT * FROM personal_agent_bindings WHERE agent_id=? AND owner_id=? AND node_id=?",op.agent_id,op.owner_id,op.node_id);
     if(binding) c.personal_agent={bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch};
     else delete c.personal_agent;
-    if (op.operation_kind === "create") c.create_operation_id = op.operation_id;
+    if (["create","restore"].includes(op.operation_kind)) c.create_operation_id = op.operation_id;
     return gatewayRequest(
       this.ctx,
       op.node_id,
-      op.operation_kind === "create" ? "agent.create" : "agent.config.apply",
+      ["create","restore"].includes(op.operation_kind) ? "agent.create" : "agent.config.apply",
       {
         operation_id: op.operation_id,
         candidate_fingerprint: op.candidate_fingerprint,
@@ -309,6 +309,18 @@ export class ConfigOperations {
     const op = this.insert(candidate, owner, node, "create", null, null);
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
+  /** Move the same personal identity; local private history is intentionally not copied. */
+  async restorePersonal(profile: Row, owner: string, node: string, epoch: number) {
+    const op=transaction(this.ctx.db,()=>{
+      this.authorize(owner,node,profile.agent_id);
+      this.ctx.db.prepare("UPDATE personal_agent_bindings SET node_id=?,node_epoch=?,status='pending' WHERE agent_id=? AND owner_id=?").run(node,epoch,profile.agent_id,owner);
+      this.ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node,owner);
+      this.ctx.db.prepare("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id=(SELECT binding_id FROM personal_agent_bindings WHERE agent_id=?) AND state IN ('prepared','allowed')").run(profile.agent_id);
+      this.ctx.db.prepare('UPDATE agent_profiles SET node_id=?,is_stale=1 WHERE agent_id=?').run(node,profile.agent_id);
+      return this.insert({...fromProfile(profile),workspace_root:null},owner,node,'restore',null,profile.profile_version);
+    });
+    return this.commit(op,await this.resolve(op,await this.request(op)));
+  }
   async update(profile: Row, candidate: Row, owner: string) {
     const op = this.insert(
       candidate,
@@ -354,7 +366,7 @@ export class ConfigOperations {
         existing.workspace_is_default === null ? null : !!existing.workspace_is_default;
       c.work_mode = existing.work_mode;
     }
-    if (op.operation_kind === "create" && !optionalText(c.workspace_root)) pending();
+    if (["create","restore"].includes(op.operation_kind) && !optionalText(c.workspace_root)) pending();
     if (
       op.operation_kind === "apply" &&
       existing?.profile_version !== op.expected_profile_version
@@ -411,6 +423,12 @@ export class ConfigOperations {
       }
     }
     transaction(db, () => {
+      if(op.operation_kind==='restore') {
+        db.prepare("UPDATE personal_agent_bindings SET status='active' WHERE agent_id=? AND node_id=?").run(op.agent_id,op.node_id);
+        db.prepare('UPDATE agent_profiles SET is_stale=0,staled_at=NULL WHERE agent_id=?').run(op.agent_id);
+        db.prepare("UPDATE pa_assistance SET next_check_at=NULL,schedule_id=NULL,revision=revision+1 WHERE binding_id=(SELECT binding_id FROM personal_agent_bindings WHERE agent_id=?)").run(op.agent_id);
+        db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) SELECT b.binding_id,'runtime.restored','{}',p.revision,? FROM personal_agent_bindings b JOIN pa_policies p USING(binding_id) WHERE b.agent_id=?").run(now(),op.agent_id);
+      }
       const vals = [
         c.display_name || op.agent_id,
         c.description,

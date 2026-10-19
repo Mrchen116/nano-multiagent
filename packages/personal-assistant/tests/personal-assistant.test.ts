@@ -19,6 +19,7 @@ function fixture(decision = 'deny') {
   const relay={request:async(type:string,payload:Record<string,unknown>)=>{
     calls.push({type,payload});
     let result:unknown={};
+    if(type==='pa.source.admit')result={allowed:true};
     if(type==='pa.scope.resolve')result={owner_message:null,scopes:[]};
     if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
     if(type==='pa.action.review-result')result={state:decision,verdict_ref:decision==='allow'?'v':null};
@@ -92,5 +93,14 @@ it('unknown network outcomes retain the consumed host permit and cannot be forge
     await expect(f.pa.complete(f.config,{...f.call,args:{permit:{...verdict.permit,requestDigest:'changed'},state:'confirmed'}})).rejects.toThrow('permit');
     await f.pa.complete(f.config,{...f.call,args:{permit:verdict.permit,state:'unknown'}});
     expect(f.calls.at(-1)).toMatchObject({type:'pa.action.complete',payload:{proposal_ref:'p',state:'unknown'}});
+  }finally{f.inbox.close();f.store.close();}
+});
+
+it('drops a revoked direct relay before review or private storage',async()=>{
+  const f=fixture('allow'); const original=f.relay.request;
+  f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:false}}}:original(type,payload);
+  try {
+    const accepted=await f.pa.admit(f.config,f.binding,{agent_id:'pa',conversation_id:'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'revoked',content:'Excluded secret',sender_type:'user',sender_user_id:'peer',attachments:[]}});
+    expect(accepted).toBe(false);expect(f.reviews).toHaveLength(0);
   }finally{f.inbox.close();f.store.close();}
 });

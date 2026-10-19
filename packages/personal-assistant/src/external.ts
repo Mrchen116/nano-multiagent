@@ -14,7 +14,7 @@ interface Connection {
 }
 export interface ExternalDelivery {
   agentId:string; target:string; shadowId?:string; appId:string; sourceId:string; chatId:string;
-  text:string; card?:Record<string,unknown>; operationId:string; taskRef?:string;
+  text:string; card?:Record<string,unknown>; operationId:string; taskRef?:string; incidentRef?:string;
   dispatch(text:string,card?:Record<string,unknown>):Promise<string>;
 }
 interface Options {
@@ -88,6 +88,10 @@ export class ExternalChannels {
     }
     for (const attachment of row.input.message.attachments) attachment.content_type = this.state.image(attachment.url, chat.agentId)!.mediaType;
     this.state.updateInput(id, row.message, row.input);
+    if(this.options.personalAgent?.(chat.agentId)) {
+      if(!this.ready)throw new Error('Personal source authority requires the center');
+      await this.flush();
+    }
     await this.options.receive(row.input); this.state.accept(id);
     void this.flush().catch(this.options.onError);
   }
@@ -117,6 +121,12 @@ export class ExternalChannels {
         return ack(type, { message_id: this.state.output(output.id)!.platformId });
       }
     }
+    if(['pa.source.admit','pa.incident.report'].includes(type) && String(payload.source_message_id).startsWith('external:')) {
+      const source=this.state.inbound().find(row=>row.id===payload.source_message_id&&row.input.agent_id===payload.agent_id);
+      const chat=source?this.state.chat(source.chatId):undefined;
+      if(!source?.mirror||!chat?.shadowId)throw new Error('Personal source is not yet synchronized');
+      return this.options.relay.request(type,{...payload,source_message_id:source.mirror,conversation_id:chat.shadowId});
+    }
     if (type === 'task_graph.command' && ['create', 'apply', 'delete'].includes(String(payload.action)) && String(payload.source_message_id).startsWith('external:')) {
       const source = this.state.inbound().find(row => row.id === payload.source_message_id && row.input.agent_id === payload.agent_id);
       if (!source?.mirror) return { type: 'task_graph.result', payload: { request_id: payload.request_id, ok: false,
@@ -133,7 +143,7 @@ export class ExternalChannels {
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
         this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_task_ref:payload.pa_task_ref, delivery_status: 'completed' };
+        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_task_ref:payload.pa_task_ref, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -186,7 +196,7 @@ export class ExternalChannels {
       if(this.options.personalAgent?.(chat.agentId)) {
         if(!this.options.personalDelivery)throw new Error('Personal delivery adapter unavailable');
         const id=await this.options.personalDelivery({agentId:chat.agentId,target:chat.id,shadowId:chat.shadowId,appId:chat.appId,sourceId:chat.sourceId,chatId:chat.chatId,
-          text,card,operationId:output.operationId,taskRef:typeof metadata?.pa_task_ref==='string'?metadata.pa_task_ref:undefined,dispatch});
+          text,card,operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,taskRef:typeof metadata?.pa_task_ref==='string'?metadata.pa_task_ref:undefined,dispatch});
         if(!id)throw new Error('Personal delivery has no provider receipt');
         this.state.settle(output.id,'confirmed',id);
       } else await dispatch(text,card);

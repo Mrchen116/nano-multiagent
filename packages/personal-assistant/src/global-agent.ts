@@ -119,7 +119,9 @@ export class GlobalAgent {
   async recover(): Promise<void> {
     await this.recoverPersonalObservations();
     for (const config of this.options.agents.filter(agent => agent.mode === 'global')) {
-      const binding = await this.main(config); await this.controls.recover(config.agentId); await this.reconcile(binding); await this.wake(config, binding);
+      try {
+        const binding = await this.main(config); await this.controls.recover(config.agentId); await this.reconcile(binding); await this.wake(config, binding);
+      } catch(error) { this.options.onError(error); }
     }
   }
   /** Consume persisted source events without changing the owner's read receipts. */
@@ -128,6 +130,7 @@ export class GlobalAgent {
     if (this.observations) return this.observations;
     const task = (async()=>{
       for (const config of this.options.agents.filter(agent=>agent.personal)) {
+        try {
         let more = true;
         while (more) {
           const batch = await this.personal.request(config,'pa.observations.read',{limit:50});
@@ -136,12 +139,12 @@ export class GlobalAgent {
           for (const event of events) {
             if (event.message) {
               const message=event.message;
-              if(message.sender_agent_id===config.agentId || message.sender?.agent_id===config.agentId) {
+              if(message.sender_agent_id===config.agentId || message.sender?.agent_id===config.agentId || (message.sender?.type==='agent'&&message.sender?.id===config.agentId)) {
                 await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'}); continue;
               }
               await this.receive({agent_id:config.agentId,conversation_id:event.conversation_id,
                 relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,conversation_type:'direct',source_policy_revision:event.policy_revision},
+                metadata:{pa_observation:true,conversation_type:event.conversation_type,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at}});
             } else {
@@ -157,6 +160,7 @@ export class GlobalAgent {
                 const next={...binding,sessionId:randomUUID()};
                 this.options.store.reset(binding,next,`pa-invalidate:${event.event_id}`);
                 binding=await this.main(config);
+                await this.personal.restoreFollowups(config,binding);
                 if(event.kind==='cleanup.requested') await this.personal.request(config,'pa.cleanup.ack',{operation_id:event.payload.operation_id});
               }
               if(event.kind==='assistance.changed' && (event.payload.paused || event.payload.completed)) {
@@ -172,6 +176,7 @@ export class GlobalAgent {
             await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'});
           }
         }
+        } catch(error) { this.options.onError(error); }
       }
     })().finally(()=>{this.observations=undefined;});
     this.observations=task; return task;

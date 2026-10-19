@@ -286,6 +286,11 @@ export class Gateway {
     if (p.node_id !== c.node_id || !this.valid(c)) fail(403, "node identity mismatch");
     if (!Array.isArray(p.agents) || p.agents.some((x: unknown) => typeof x !== "string"))
       fail(400, "agents must be strings");
+    // A restored PA no longer belongs to this node; keep its ordinary Agents reconnectable.
+    p={...p,agents:p.agents.filter((id:string)=>{
+      const b=one(db,'SELECT owner_id,node_id FROM personal_agent_bindings WHERE agent_id=?',id);
+      return !b || b.owner_id!==c.owner_id || b.node_id===c.node_id;
+    })};
     for (const agent of p.agents) {
       const prior = one(db, "SELECT owner_id,node_id FROM agent_profiles WHERE agent_id=?", agent);
       if (prior && (prior.owner_id !== c.owner_id || prior.node_id !== c.node_id))
@@ -712,6 +717,7 @@ export class Gateway {
       c.owner_id,
     );
     if (!agentAvailable(this.ctx.db, a)) fail(403, "agent_not_accessible");
+    if(one(this.ctx.db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',id)) this.ctx.personal!.authority(c,{agent_id:id});
     return a!;
   }
   streaming(c: Connection, p: Row): Row {
@@ -910,6 +916,8 @@ export class Gateway {
       s = this.ctx.messaging;
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
     if (!conversation || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
+    const personal=one(db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
+    if(personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
     const c = s.conversation(m.conversation_id, m.sender_user_id);
     const relay = randomUUID(),
