@@ -110,6 +110,34 @@
 
 无。
 
+## Round 2 — W1 targeted closure
+
+- verification_mode: `targeted-closure`；code review mode: `closure`。
+- executed_base / finding_origin_head: `0373d8feca33a449c0ea7e7f5a01fa88909e3e87`
+- validated_at / candidate: `aaa6bfc24a052e4da3da1eeeec4a819f47d7a142`
+- fix_delta_range: `0373d8fec..aaa6bfc24`
+- checked_at: `2026-10-19T16:33:49+08:00`
+- focus_issues: `W1`（确定 POST 409 被误当未知发送）；保留 Round 1 的其他实现结论。本轮未扩大为整条分支 full 重审。
+- requires_full_verification: `false`
+- verdict: **W1 closed — 1 CRITICAL pending evidence / 0 WARNING / 0 SUGGESTION**。
+
+### W1 closure evidence
+
+1. `chat-api.ts:78` 识别真实服务端 `{detail: {code, submission_message_id}}` 的两种明确 409，转成 `InteractionSubmissionError`。已核对 `server.ts:150` 与 `context.ts:20` 的真实响应封装；其他错误保留现有未知发送处理。没有依赖不匹配的假想错误格式。
+2. `interactive-card.tsx:96` 的确定冲突分支清掉 pending、停止重放、保留当前 Renderer 字段并显示具体已提交/过期说明。已提交冲突提供指向原提交消息的链接；`ChatWorkspacePage` 原有 `message_id` locator 可消费该链接。网络未知仍保留原 frozen input/key，已有 uncertain retry 回归未被删除。
+3. `message-pane.tsx:662,1091` 对确定冲突清掉附带选择；普通 composer 的原文保留，下一次发送可作为独立文字。`chat-workspace-page.tsx:873,1137` 显示具体冲突说明与原提交链接。卡片按钮失败路径同样去除冲突附件；没有显示业务已执行成功。
+4. 新卡片参数化测试分别覆盖 alreadySubmitted/stale：保留本机字段、无重复重试入口、只读并有正确提示/原结果链接。新 flow 测试覆盖手写原文保留、移除冲突附件与再次按普通文字发送。caller 的 `/tmp/feat617-conflict-fixed.log` 显示 `npm test -- src/features/chat/interactive src/features/chat/chat-api.test.ts`：**4 suites / 24 tests passed**，包含旧 uncertain retry；caller 交接 production build 通过。复用有效窄验证，不重复全量。
+5. 同 delta 的 CSS 将只读字段文字恢复可读，submitted 文案改为“选择已提交给 Agent”，避免在后续回复后继续声称等待。它们只改善现有只读/提交语义，没有扩大本 unit 能力或改变业务执行权限；最终真实视觉对照仍交 C1 的产品证据。
+
+### Focus finding disposition
+
+| Finding | Disposition | Current evidence |
+|---|---|---|
+| `code-review.json` 原 P2 / verifier W1 | **closed** | 确定冲突与未知发送分流，停止无效重放，保留新输入、原结果入口和独立文字恢复；2 个卡片场景 + 1 个手写场景回归通过 |
+| C1 全部 R1/R2/R3/W2 产品退出证据 | **pending，未复验** | caller 已派独立产品 reviewer；尚未提供完整结果。不得将本次 closure 等同完整产品验收通过 |
+
+`code-review.json` 更新为 `[]`：focus finding 已关闭，fix delta 未发现存活代码问题。报告仅包含上述范围的独立静态核对，未声称本轮实际浏览器复现或完整 unit 已可交 PR。
+
 ## Corrected Delta Reconciliation
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
@@ -117,9 +145,9 @@
 | IM：共同持久化/授权、刷新/节点离线 | Messaging 投影、transaction、schema、Interactions 权限 | interactive-messages 持久化/隔离/离线 | aligned |
 | IM：fork/原会话删除、只读、不复制草稿 | `conversation-actions.ts:331`；`interactions.ts:103` | fork copy 窄测；真实旅程待 C1 | aligned at implementation seam |
 | IM：真实用户、原回复、实际选择、群中不同成员 | `interactions.ts:69`；`messaging.ts:575`；两条 PA 输入 | interactive-messages；PA interactive-replies | aligned |
-| IM：已提交/被替代明确状态、不同意图冲突且保留输入 | backend 409 正确；frontend `interactive-card.tsx:94` 未区分 | backend 已有；POST 冲突 UI 无保护 | **implementation-mismatch (W1)** |
+| IM：已提交/被替代明确状态、不同意图冲突且保留输入 | backend 409 + `chat-api.ts:78` 类型化；card 停止重放保留字段/原结果链接；composer 去除冲突附件保留原文 | 原 backend 回归；Round 2 两卡片 + 一手写恢复场景，4 suites / 24 tests | aligned (W1 closed at aaa6bfc24) |
 | IM：手写正文原样与草稿同时进入公开消息/模型 | `message-pane.tsx:647`；`interactions.ts:79`；withInteractionContext | interactive-flow、IM、PA 双路径“先别发送” | aligned |
-| Web：调整后继续、已提交/实际业务结果区分 | Renderer + 自己消息 snapshot + ContinueButton | catalog/card/flow；部分真栈记录 | aligned except W1 |
+| Web：调整后继续、已提交/实际业务结果区分 | Renderer + 自己消息 snapshot + ContinueButton；明确冲突单独展示 | catalog/card/flow；Round 2 冲突恢复回归；部分真栈记录 | aligned at implementation seam |
 | Web：手机/桌面、生成/失败、摘要与输入 | 原 MessagePane 内嵌、CSS、RenderBoundary、既有运行投影 | 实现三宽度与异常对照待 C1 | evidence pending |
 | Web：个人草稿恢复与跨设备 CAS 冲突 | GET/PUT 用户 key + CAS；load/save conflict | interactive-card PUT conflict、IM CAS/隔离 | aligned |
 | Gateway：任意 Agent 按任务交付、真实用户执行链 | global-mode tool + PA public send / Relay/Inbox | 模型样本、communication-native、PA tests；完整 R1 待 C1 | aligned at implementation seam |
@@ -131,4 +159,4 @@
 - 本 unit 顺带修改默认 E2E 模板：显式工具名单、两普通 Agent 加一个 Global Agent、空 Skill 禁用名单。它是已授权的开发/验收预设行为，已在 `docs/development/worktree-runtime.md` 与 `evidence/e2e-config-validation.md` 正确归属；不属于这三份产品 delta，无需把运维预设硬塞入产品 spec。
 - 没有发现其他应进入三份产品 delta 却遗漏的对外行为。NO_REPLY 的特殊投影限定已确认交互的该 turn，属于单份公开回复契约的实现，未改变普通无卡片回复。
 
-Outcome: **implementation-mismatch**（W1）；另有 C1 产品退出证据未齐。不能给出 All checks passed / Ready for PR。
+Outcome: **aligned**（实现与最终 delta，经 aaa6bfc24 的 W1 closure）。C1 产品退出证据仍 pending，因此完整 unit 尚不能给出 All checks passed / Ready for PR。
