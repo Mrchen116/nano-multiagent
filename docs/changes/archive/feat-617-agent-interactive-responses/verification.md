@@ -4,9 +4,9 @@
 
 ## Current verdict — full OpenUI restoration
 
-**Static closure passed — 1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
+**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
-最新定向 closure 的固定实现候选 `19efc4031bb858af5251410dec0c68849dbf77b1`，effective_through `60b311a48ac5e999a3594d81316acf3c69eac433`（仅移除测试无效类型选项，产品代码不变）；full 审查候选 `07ca4831c`、旧交付基线 `cf4b17f00`、unit/main 基线 `cc47abe3f` 均保留。此前表单切片 PASS 不外推为本轮用户目标通过。详见 Round 5/6。
+最终有效代码 `60b311a48ac5e999a3594d81316acf3c69eac433`（产品代码等同定向 closure 候选 `19efc4031`），产品报告提交 `cff39b7164c29b6f764603f0a6f36ea51af3594d`。full 审查候选 `07ca4831c`、旧交付基线 `cf4b17f00`、unit/main 基线 `cc47abe3f` 均保留。W2、产品N1与C2均 closed；当前结论来自新版 full 静态、两项代码 closure、独立新产品旅程和相关专项证据，不依赖旧表单 PASS 外推。详见 Round 5/6/7。
 
 ## Previous delivery verdict — superseded by restored full OpenUI scope
 
@@ -290,18 +290,18 @@ Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证�
 | IM MODIFIED：真实用户/群隔离/手写正文原文 | 原身份/read-write checks + request snapshot + 完整 withInteractionContext；相关 backend/Web/PA tests | aligned |
 | IM MODIFIED：多次探索与请求幂等 | request级key、完整semantic、source/user可多次、同键重试/不同语义409；新迁移/窄测 | aligned；W2 在 Round 6 closed |
 | IM MODIFIED：patch 完整历史 | 公共 mergeStatements、完整校验、publication_json、同作者同会话限制、事务回滚 | aligned |
-| Web ADDED：组件/计算/动作与连续本地探索 | 未删除完整上游组件；native Renderer；local Set/Reset无新请求 | implemented / independent product evidence C2 pending |
+| Web ADDED：组件/计算/动作与连续本地探索 | 未删除完整上游组件；native Renderer；local Set/Reset无新请求 | aligned；Round 7 普通原话/跨领域和本地探索证据闭合 |
 | Web ADDED：提问后继续探索、错误不抹可读内容 | 可多次submit、请求冻结、已提交不锁全卡、tool errors沿原生通道；私有revision双推进 | aligned；W2 在 Round 6 closed |
 | Web ADDED：Query/业务动作边界 | 仅已登记只读Query和明确Mutation，host身份/cid固定，返回message receipt非业务完成 | aligned |
-| Gateway MODIFIED：各任务通用交互及外部文字 | 通用 Feature、完整 catalog/skill、原公开交付与渠道strip retained | implemented / real generation C2 pending |
-| Gateway ADDED：无提示普通问题和跨领域 | 代码/提示无验收题逻辑；作者现场新模型样本保留失败 | source aligned / independent product evidence C2 pending |
+| Gateway MODIFIED：各任务通用交互及外部文字 | 通用 Feature、完整 catalog/skill、原公开交付与渠道strip retained | aligned；Round 7 作者Global+独立普通真实模型证据 |
+| Gateway ADDED：无提示普通问题和跨领域 | 代码/提示无验收题逻辑；作者现场新模型样本保留失败 | aligned；源码无专用逻辑+Round 7两种主题自然触发 |
 | Gateway ADDED：保留OpenUI并遵守权限 | full82+legacy组件、原生机制、仅两host工具，未接入文件/任意系统调用 | aligned |
 
 ### Uncovered Observable Behavior
 
 无新增遗漏。旧 Features、消息读取/fork授权、Web基本阅读/失败与外部摘要 Requirement 在 current 原条目中保留；当前 MODIFIED/ADDED 类别与已交付 canonical 基线对应，未把未变旧条目重复 ADDED。恢复全部 UI 能力与业务工具接通范围已分别写明。
 
-Outcome: **aligned**（Round 6 定向核对后 W2 closed，重试按钮修复与 delta 相符）；C2 独立产品证据仍待补。当前不能 Ready for PR / 再次宣称完整用户目标通过。
+Outcome: **aligned**（Round 6 W2/重试修复 + Round 7 C2证据closure）；无存活 delta-mismatch / implementation-mismatch，0 CRITICAL / 0 WARNING。
 
 
 ## Round 6 — W2 and retry accessibility targeted closure
@@ -346,3 +346,51 @@ Outcome: **aligned**（Round 6 定向核对后 W2 closed，重试按钮修复与
 | C2 新用户目标独立产品证据 | **pending** | 等待既定独立 full + targeted 产品报告 |
 
 `code-review.json` 更新为 `[]`。本轮仅更改报告，未改源码/测试/环境、未触碰其他 worktree；没有对未证明的边界继续扩展审查。
+
+
+## Round 7 — C2 final evidence closure
+
+### Metadata and verdict
+
+- verification_mode: `targeted-closure`；focus_issues: `C2`（新目标独立产品证据）。
+- executed_base: `cc47abe3f`
+- effective_code_through: `60b311a48ac5e999a3594d81316acf3c69eac433`；产品代码等同前次固定候选 `19efc4031`。
+- evidence_commit: `cff39b7164c29b6f764603f0a6f36ea51af3594d`
+- checked_at: `2026-10-19T18:26:44+08:00`
+- retained_from: Round 5 full、Round 6两项定向代码closure；不重跑已有效覆盖的全量，不扩大源码审查。
+- requires_full_verification: `false`
+- verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**。
+
+已核对 60b311a48..cff39b716 的新增内容只涉及 unit 验收/审查报告和截图，未改变有效产品代码。`code-review.json` 保持 `[]`，本轮仅追加/同步 verification；未改其他报告、源码、测试、配置或运行环境。
+
+### C2 — closed: new requirements and meaningful evidence
+
+| 新目标 / must-match | 证据与核对结果 | 结论 |
+|---|---|---|
+| 无交互暗示原话主动生成有意义界面 | `acceptance.md` Round 3，独立普通 Agent 新会话原话“给我讲解下冒泡排序”，自行生成步骤/状态数组/解释/上下步重置/Tabs，连续三步数组与说明匹配；浏览器仅本地私有保存、没有POST聊天请求 | covered |
+| 通用性且无验收题专用实现 | 独立私有群原话“为什么月亮会有阴晴圆缺？”自行生成月相探索；另一领域普通样本和Global原话的作者实证见 native-browser-review/native-model-samples；Round 5 已直接核产品代码/prompt/Skill无题材专用分支或答案，黑盒样本不单独承担此证明 | covered |
+| 本地探索后多次解释、当时状态保留 | 独立步骤3手写追问与步骤5继续追问，模型正确理解两次具体状态；原生按钮独立两次201，用户正文标签与generated event.message/context、state区分保存，模型对应解释；作者同卡20000/620→30000/930及原提交快照保留提供不同主题交叉证据 | covered |
+| 私人状态和用户身份 | 原生月相 owner满月/peer上弦互不覆盖，分别提交形成各自真实状态与用户消息，后续模型分别解释；不是把先前表单隔离当新版状态证明 | covered |
+| 错误后真实可重试、提交后继续保存 | 修复资产 `/assets/index-Bp2CmFPF.js` 由独立reviewer加载；手写POST受控断连后实际Send click成功201，两请求正文/source/state相同；随后连续原生按钮请求，立即本地操作的PUT均200，无虚假409；产品N1 closed。WS/POST全部交错的确定保护由Round 6双顺序窄测承担，不以有限浏览器成功样本过度外推 | covered |
+| 三宽度与连续探索原型 must-match | 已重读 Round 3 原型对照，并直接打开 `review-native-1440.png`、`review-native-768.png`、`review-native-390.png` 核 explicit contract：参数/状态/解释和动作同属回复；按钮合理换行，主聊天滚动、导航及输入保持；可见当前上下文条与Detach。交互前后真实意义变化来自步骤轨迹而非仅截图上有按钮 | covered |
+| 完整上游能力、Query/Mutation、patch与业务权限 | Round 5源码+有意义窄测试证明全部82上游组件注册（+旧ContinueButton）、原生Set/Reset、Form内外完整state、Query真实listMessages seam、Mutation同提交链、工具读写分类和未知工具拒绝、patch合并完整版本及原始发布幂等。独立浏览器只声称实际操作的组件/动作；未将新source替代旧source假称为patch协议验证 | covered at declared lower seams |
+| Features、简单文字、离线/历史、fork与渠道摘要 | 保留旧证据的具体未变路径，以及本轮旧消息同时可读/新卡连续操作；只保留其已证明范围。原生iOS/外部channel未实际接入，不声称真机或外部现场验收；摘要边界仍由DTO/渠道回退专项承担 | covered within explicit boundary |
+
+这次证据覆盖的是用户纠正后的“普通提问主动交互、完整原生机制、连续探索”目标；旧表单“一次确认锁死”不再作为新版验收标准。当前三份 delta 的 MODIFIED/ADDED 与最终实现无新增偏离，未接入任意文件/shell业务能力的边界已明确，未静默降低新目标。
+
+### Final verification evidence
+
+- 已实际读取 `/tmp/feat617-native-final-build.log`，最终前端类型/production build完成，资产 `index-Bp2CmFPF.js` 与产品复验记录相符；caller交接后端build、typecheck、ruff通过。
+- 已实际读取 `/tmp/feat617-native-docs-prearchive.log`：docs-check **251 maintained Markdown sources / 64 required routes**。
+- Web最终 **99 suites / 908 tests**，全backend **96 suites / 373 tests**，Python非E2E **62 passed**；前述相关源码、具体回归及已有日志核对按Round 5/6保留，未重复运行。
+- audit critical gate通过，实际audit日志为 **5 low severity vulnerabilities，0 critical**；没有宣称依赖零告警，也不据低风险告警扩展本unit。
+- caller最终fetch仍为 `origin/main=cc47abe3f`，无集成增量。后续 canonical归并/归档若只变契约归属和文档，不因文档SHA增加重复本轮有效实现验收。
+
+### Final disposition
+
+- W2：closed（Round 6权威revision及双顺序窄回归；Round 3产品定向保存亦成功）。
+- N1：closed（dropzone可访问语义修复、冻结请求真实Send重试、独立最终资产复验）。
+- C2：closed（本轮新版目标的独立产品证据与专项实现证据完整拼合）。
+- M1 W1/W2/R1/R2/R3：按上述证据边界满足，milestone **1/1 complete**；corrected-delta **aligned**。
+
+All checks passed. Ready for PR update after canonical reconciliation and archival. 本结论不代表PR已push、CI已完成、已合并、发布或部署。
