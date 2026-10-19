@@ -139,7 +139,7 @@ export class PersonalAssistant {
     const proposal=await this.request(config,'pa.action.prepare',args);
     if(['confirmed','sending','unknown'].includes(String(proposal.state))) return proposal.state==='sending'?{state:'unknown'}:proposal;
     const verdict=await this.review(config,'action',{...proposal.evidence as Data,executionEvidence:evidence});
-    const receipt=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,verdict});
+    const receipt=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if(verdict.decision!=='allow'||!receipt.verdict_ref)return {...verdict,state:verdict.decision};
     return {...await this.request(config,'pa.action.commit',{proposal_ref:proposal.proposal_ref,verdict_ref:receipt.verdict_ref}),proposal_ref:proposal.proposal_ref};
   }
@@ -175,7 +175,7 @@ export class PersonalAssistant {
     const verdict: Verdict = owner ? {decision:'allow',reason:'Authenticated canonical owner recipient'}
       : await this.review(config,'action',{...proposal.evidence as Data,executionEvidence});
     const receipt = await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,
-      payload_digest:proposal.payload_digest,verdict});
+      payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if (verdict.decision !== 'allow' || !receipt.verdict_ref) {
       const result = {status:verdict.decision === 'allow'?'unavailable':verdict.decision,target,reason:verdict.reason,
         message:'Nothing was sent. Continue safe work; use a different, reduced disclosure if possible. Ask the owner only for a necessary new decision.'};
@@ -202,7 +202,7 @@ export class PersonalAssistant {
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
     const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
     const verdict=await this.review(config,'action',{...proposal.evidence as Data,executionEvidence:evidence});
-    const checked=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,verdict});
+    const checked=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if(verdict.decision!=='allow'||!checked.verdict_ref)throw new Error(`Personal delivery ${verdict.decision}: ${verdict.reason}`);
     const claim=await this.request(config,'pa.action.commit',{proposal_ref:proposal.proposal_ref,verdict_ref:checked.verdict_ref});
     if(claim.state!=='sending')throw new Error('External delivery permit was not consumed');

@@ -21,7 +21,7 @@ function fixture(decision = 'deny') {
     let result:unknown={};
     if(type==='pa.source.admit')result={allowed:true};
     if(type==='pa.scope.resolve')result={owner_message:null,scopes:[]};
-    if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
+    if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence_digest:'evidence',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
     if(type==='pa.action.review-result')result={state:decision,verdict_ref:decision==='allow'?'v':null};
     if(type==='pa.action.commit')result={state:'confirmed',message_id:'m',conversation_id:'c_peer'};
     return {type:type+'.result',payload:{ok:true,result}};

@@ -47,23 +47,23 @@ it('requires a frozen independent verdict, prevents stale audiences and parallel
  const first=prepare('first'),parallel=prepare('parallel');
  expect(()=>service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:'allow'})).toThrow('independent_review_required');
  expect(()=>service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:'changed',verdict:{decision:'allow'}})).toThrow();
- const verdict=service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:first.payload_digest,verdict:{decision:'allow'}});
+ const verdict=service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:first.payload_digest,evidence_digest:first.evidence_digest,verdict:{decision:'allow'}});
  const sent=service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:verdict.verdict_ref});
  expect(ctx.messaging.message(sent.message_id).delegation).toMatchObject({agent_id:'a',authorized_by:'u1'});
  expect(ctx.gateway.broadcast).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({event_type:'message.created',data:expect.objectContaining({message_id:sent.message_id,delegation:expect.objectContaining({agent_id:'a',authorized_by:'u1'})})}));
  expect(ctx.messaging.members('peer').map(x=>x.id)).toEqual(['u1','u2']);
  expect(service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:verdict.verdict_ref})).toEqual(sent);
- expect(()=>service.actions.review(principal,{...args,proposal_ref:parallel.proposal_ref,payload_digest:parallel.payload_digest,verdict:{decision:'allow'}})).toThrow('proposal_requires_review');
+ expect(()=>service.actions.review(principal,{...args,proposal_ref:parallel.proposal_ref,payload_digest:parallel.payload_digest,evidence_digest:parallel.evidence_digest,verdict:{decision:'allow'}})).toThrow('proposal_requires_review');
  const changed=prepare('audience');
  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
- expect(()=>service.actions.review(principal,{...args,proposal_ref:changed.proposal_ref,payload_digest:changed.payload_digest,verdict:{decision:'allow'}})).toThrow('audience_changed');
+ expect(()=>service.actions.review(principal,{...args,proposal_ref:changed.proposal_ref,payload_digest:changed.payload_digest,evidence_digest:changed.evidence_digest,verdict:{decision:'allow'}})).toThrow('audience_changed');
 });
 it('invalidates an already reviewed send when the owner replies or the source is excluded',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const owner=ctx.messaging.insertMessage('chat','u1','user','Coordinate with Bob');
  db.prepare("INSERT INTO pa_goal_scopes VALUES('scope','binding','goal',?,?,?,1,0)").run(owner.id,owner.content,JSON.stringify({allowed_conversation_ids:['peer'],allowed_action_kinds:['message']}));
  const p=service.actions.prepare(principal,{...args,request_key:'send',task_ref:'goal',conversation_id:'peer',content:'Wednesday works'});
- const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,verdict:{decision:'allow'}});
+ const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
  ctx.messaging.insertMessage('peer','u1','user','I already handled this');
  expect(()=>service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref})).toThrow('owner_already_replied');
  service.updatePolicy('o1',{expected_revision:1,excluded_conversation_ids:['peer']});
@@ -103,7 +103,7 @@ it('claims a frozen external delivery once and requires an actual provider recei
  db.prepare("INSERT INTO pa_goal_scopes VALUES('scope','binding','goal',?,?,?,1,0)").run(owner.id,owner.content,JSON.stringify({allowed_conversation_ids:['peer'],allowed_action_kinds:['message']}));
  const proposal=service.actions.prepare(principal,{...args,request_key:'external',task_ref:'goal',conversation_id:'peer',content:'Wednesday?',transport:{kind:'feishu',destination:{app_id:'app',source_id:'feishu:app:dm:sender',chat_id:'oc_123'}}});
  expect(proposal.evidence.recipient_ids).toEqual(['feishu:app:dm:sender']);
- const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,verdict:{decision:'allow'}});
+ const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict:{decision:'allow'}});
  const claim=service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref});
  expect(claim).toMatchObject({state:'sending',payload:{content:'Wednesday?',transport:{destination:{chat_id:'oc_123'}}}});
  expect(service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref}).state).toBe('unknown');
@@ -111,7 +111,7 @@ it('claims a frozen external delivery once and requires an actual provider recei
  expect(()=>service.actions.complete(principal,{...args,proposal_ref:proposal.proposal_ref,state:'confirmed'})).toThrow('provider_receipt_required');
  expect(service.actions.complete(principal,{...args,proposal_ref:proposal.proposal_ref,state:'confirmed',provider_message_id:'om_actual'})).toEqual({state:'confirmed',provider_message_id:'om_actual'});
  const nextArgs={...args,request_key:'next-external',task_ref:'goal',conversation_id:'peer',content:'Still Wednesday?',transport:{kind:'feishu',destination:{app_id:'app',source_id:'feishu:app:dm:sender',chat_id:'oc_123'}}};
- const next=service.actions.prepare(principal,nextArgs),allowed=service.actions.review(principal,{...args,proposal_ref:next.proposal_ref,payload_digest:next.payload_digest,verdict:{decision:'allow'}});
+ const next=service.actions.prepare(principal,nextArgs),allowed=service.actions.review(principal,{...args,proposal_ref:next.proposal_ref,payload_digest:next.payload_digest,evidence_digest:next.evidence_digest,verdict:{decision:'allow'}});
  db.prepare("INSERT INTO pa_contact_blocks VALUES('binding','external:peer:sender')").run();
  expect(()=>service.actions.commit(principal,{...args,proposal_ref:next.proposal_ref,verdict_ref:allowed.verdict_ref})).toThrow('contact_blocked');
  expect(()=>service.actions.prepare(principal,{...nextArgs,request_key:'after-block'})).toThrow('contact_blocked');
@@ -151,7 +151,7 @@ it('writes a reviewed shared task result with PA attribution and owner access, w
  const owner=ctx.messaging.insertMessage('chat','u1','user','Help update the shared launch task');
  db.prepare("INSERT INTO pa_goal_scopes VALUES('scope','binding',?,?,?, ?,1,0)").run(task.graph_id,owner.id,owner.content,JSON.stringify({allowed_conversation_ids:['peer'],allowed_action_kinds:['task_update']}));
  const proposal=service.actions.prepare(principal,{...args,request_key:'task-result',task:{graph_id:task.graph_id,node_id:'n1',patch:{result:'Material prepared',status:'doing'},base_revision:1}});
- const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,verdict:{decision:'allow'}});
+ const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict:{decision:'allow'}});
  const result=service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref});
  expect(result).toMatchObject({state:'confirmed',result:{graph_id:task.graph_id,revision:2}});
  const stored=JSON.parse((db.prepare('SELECT document_json FROM task_graphs WHERE graph_id=?').get(task.graph_id) as any).document_json);
@@ -170,7 +170,7 @@ it('reviews real attachment bytes and invalidates approval if the stored file ch
   db.prepare("INSERT INTO pa_goal_scopes VALUES('scope','binding','goal',?,?,?,1,0)").run(owner.id,owner.content,JSON.stringify({allowed_conversation_ids:['peer'],allowed_action_kinds:['message']}));
   const proposal=service.actions.prepare(principal,{...args,request_key:'attachment',task_ref:'goal',conversation_id:'peer',content:'Here is the material',attachments:[{url:'/im/v1/conversations/chat/attachments/resource'}]});
   expect(proposal.evidence.payload.attachment_snapshots[0].text).toBe(text);
-  const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,verdict:{decision:'allow'}});
+  const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict:{decision:'allow'}});
   writeFileSync(join(folder,'message-images','blob'),'Private budget inserted after review');
   expect(()=>service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref})).toThrow('attachment_snapshot_changed');
   expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()).toEqual({n:0});
@@ -180,9 +180,9 @@ it('counts network requests in the same disclosure ledger and cannot reuse a rev
  const {service,principal,args}=personalFixture();
  const prepare=(key:string)=>service.actions.prepare(principal,{...args,request_key:key,network:{url:'https://search.example/query',method:'POST',body:{query:'Public train schedule'}}});
  const first=prepare('net1'),second=prepare('net2');
- const reviewed=service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:first.payload_digest,verdict:{decision:'allow'}});
+ const reviewed=service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:first.payload_digest,evidence_digest:first.evidence_digest,verdict:{decision:'allow'}});
  expect(service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:reviewed.verdict_ref})).toMatchObject({state:'sending',payload:{network:{method:'POST',body:{query:'Public train schedule'}}}});
- expect(()=>service.actions.review(principal,{...args,proposal_ref:second.proposal_ref,payload_digest:second.payload_digest,verdict:{decision:'allow'}})).toThrow('proposal_requires_review');
+ expect(()=>service.actions.review(principal,{...args,proposal_ref:second.proposal_ref,payload_digest:second.payload_digest,evidence_digest:second.evidence_digest,verdict:{decision:'allow'}})).toThrow('proposal_requires_review');
  expect(service.actions.complete(principal,{...args,proposal_ref:first.proposal_ref,state:'confirmed'}).state).toBe('confirmed');
  expect(prepare('net3').evidence.previous_disclosures).toHaveLength(1);
 });
@@ -294,15 +294,15 @@ it('refreshes an unsent privacy notice after unrelated disclosure without reusin
  const incident=service.incident(principal,{...args,source_message_id:request.id,reason:'Private probing'});
  const input={...args,request_key:'notice',conversation_id:'peer',incident_ref:incident.id,content:incident.peer_notice_content};
  const p=service.actions.prepare(principal,input);
- service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,verdict:{decision:'unavailable'}});
+ service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'unavailable'}});
  const other=service.actions.prepare(principal,{...args,request_key:'owner-update',conversation_id:'chat',content:'The normal work continues'});
- const ov=service.actions.review(principal,{...args,proposal_ref:other.proposal_ref,payload_digest:other.payload_digest,verdict:{decision:'allow'}});
+ const ov=service.actions.review(principal,{...args,proposal_ref:other.proposal_ref,payload_digest:other.payload_digest,evidence_digest:other.evidence_digest,verdict:{decision:'allow'}});
  service.actions.commit(principal,{...args,proposal_ref:other.proposal_ref,verdict_ref:ov.verdict_ref});
  const retry=service.actions.prepare(principal,input);expect(retry.proposal_ref).toBe(p.proposal_ref);expect(retry.disclosure_revision).toBeGreaterThan(p.disclosure_revision);
- const v=service.actions.review(principal,{...args,proposal_ref:retry.proposal_ref,payload_digest:retry.payload_digest,verdict:{decision:'allow'}});
+ const v=service.actions.review(principal,{...args,proposal_ref:retry.proposal_ref,payload_digest:retry.payload_digest,evidence_digest:retry.evidence_digest,verdict:{decision:'allow'}});
  const refreshed=service.actions.prepare(principal,input);
  expect(()=>service.actions.commit(principal,{...args,proposal_ref:refreshed.proposal_ref,verdict_ref:v.verdict_ref})).toThrow('independent_review_required');
- const next=service.actions.review(principal,{...args,proposal_ref:refreshed.proposal_ref,payload_digest:refreshed.payload_digest,verdict:{decision:'allow'}});
+ const next=service.actions.review(principal,{...args,proposal_ref:refreshed.proposal_ref,payload_digest:refreshed.payload_digest,evidence_digest:refreshed.evidence_digest,verdict:{decision:'allow'}});
  const sent=service.actions.commit(principal,{...args,proposal_ref:refreshed.proposal_ref,verdict_ref:next.verdict_ref});
  expect(service.actions.prepare(principal,input)).toMatchObject({state:'confirmed',message_id:sent.message_id});
  expect(db.prepare('SELECT peer_notice_message_id FROM pa_incidents WHERE id=?').get(incident.id)).toMatchObject({peer_notice_message_id:sent.message_id});
@@ -322,4 +322,19 @@ it('retires the prior PA Work main on context replacement while retaining readab
  db.prepare("DELETE FROM pa_policies WHERE binding_id='binding'").run();
  db.prepare("DELETE FROM personal_agent_bindings WHERE agent_id='a'").run();
  expect(()=>work.register('a','ordinary-other','n',{scope:'global_main'})).toThrow('main_session_conflict');
+});
+
+it('rejects a late review that examined evidence from before another disclosure',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ const owner=ctx.messaging.insertMessage('chat','u1','user','Coordinate with Bob');
+ db.prepare("INSERT INTO pa_goal_scopes VALUES('scope','binding','goal',?,?,?,1,0)").run(owner.id,owner.content,JSON.stringify({allowed_conversation_ids:['peer'],allowed_action_kinds:['message']}));
+ const input={...args,task_ref:'goal',conversation_id:'peer',content:'A reviewed update'};
+ const a=service.actions.prepare(principal,{...input,request_key:'a'});
+ const b=service.actions.prepare(principal,{...input,request_key:'b',content:'Earlier disclosed fact'});
+ const review=(p:any)=>service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ const bv=review(b);service.actions.commit(principal,{...args,proposal_ref:b.proposal_ref,verdict_ref:bv.verdict_ref});
+ const current=service.actions.prepare(principal,{...input,request_key:'a'});
+ expect(current.payload_digest).toBe(a.payload_digest);expect(current.evidence_digest).not.toBe(a.evidence_digest);
+ expect(()=>review(a)).toThrow('review_evidence_changed');
+ const av=review(current);expect(service.actions.commit(principal,{...args,proposal_ref:current.proposal_ref,verdict_ref:av.verdict_ref}).state).toBe('confirmed');
 });

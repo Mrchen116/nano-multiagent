@@ -133,11 +133,12 @@ export class PersonalActions {
     this.db.prepare(`INSERT INTO pa_operations(operation_id,binding_id,request_key,task_ref,scope_id,scope_revision,policy_revision,disclosure_revision,conversation_id,audience_json,payload_json,payload_digest,evidence_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,b.binding_id,args.request_key,args.task_ref??null,scope?.scope_id??null,scope?.revision??null,policy.revision,policy.disclosure_revision,args.conversation_id,JSON.stringify(evidence.recipient_ids),JSON.stringify(payload),hash,JSON.stringify(evidence),now());
     return this.project(this.operation(b,id));
   }
-  project(op:Row){return {proposal_ref:op.operation_id,payload_digest:op.payload_digest,evidence:JSON.parse(op.evidence_json),scope_revision:op.scope_revision,policy_revision:op.policy_revision,disclosure_revision:op.disclosure_revision,state:op.state};}
+  project(op:Row){return {proposal_ref:op.operation_id,payload_digest:op.payload_digest,evidence_digest:digest({evidence:op.evidence_json,scope:op.scope_revision,policy:op.policy_revision,disclosure:op.disclosure_revision}),evidence:JSON.parse(op.evidence_json),scope_revision:op.scope_revision,policy_revision:op.policy_revision,disclosure_revision:op.disclosure_revision,state:op.state};}
   review(principal:Row,args:Row) {
     const b=this.pa.authority(principal,args),op=this.operation(b,args.proposal_ref);
     this.validate(b,op);
     if(op.state==='confirmed')return {state:op.state,verdict_ref:null};
+    if(args.evidence_digest!==this.project(op).evidence_digest)fail(409,'review_evidence_changed');
     if(args.payload_digest!==op.payload_digest||!['allow','deny','needs_owner','unavailable'].includes(args.verdict?.decision))fail(422,'invalid_independent_verdict');
     const ref=args.verdict.decision==='allow'?randomUUID():null,state=args.verdict.decision==='allow'?'allowed':args.verdict.decision;
     this.db.prepare('UPDATE pa_operations SET verdict_json=?,verdict_ref=?,expires_at=?,state=? WHERE operation_id=?').run(JSON.stringify(args.verdict),ref,new Date(Date.now()+60000).toISOString(),state,op.operation_id);
