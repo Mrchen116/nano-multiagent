@@ -1,6 +1,7 @@
 import * as PersonalTools from './personal-security.js';
 import { assertPersonalConfiguration } from './personal-security.js';
 import { realpath } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -44,6 +45,20 @@ export class ConfigurationScopes extends Service {
    */
   packageManager(invocation?: ProfilePnpmInvocation) { this.extensions.packageManager = invocation; }
   forAgent(agent: Agent) { return this.agents.get(agent)?.config; }
+  /** Advance metadata without replacing a historical branch's distinct execution choices.
+   *
+   * Args:
+   *   next: Current requested configuration.
+   * Returns:
+   *   Whether every live/template scope already has the requested execution settings.
+   */
+  applyRevisionOnly(next: AgentConfiguration): boolean {
+    const configs = [...this.allConfigurations()].filter(config => config.agentId === next.agentId);
+    const { revision: _, ...execution } = next;
+    if (!configs.length || configs.some(({ revision: _revision, ...current }) => !isDeepStrictEqual(current, execution))) return false;
+    for (const config of configs) config.revision = next.revision;
+    return true;
+  }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }
   catalog(agent: Agent) { return this.tools.catalog(agent); }
   /** Apply owner plugin changes only while every Agent sharing the workspace is reserved idle. */
