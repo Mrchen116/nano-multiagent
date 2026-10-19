@@ -1,5 +1,5 @@
 import type { ExternalDelivery } from './external.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimePort, SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
@@ -7,7 +7,7 @@ import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
 
 type Data = Record<string, unknown>;
-interface Verdict { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; scope?: Data; controls?: Data[]; incident?: {reason:string} }
+interface Verdict { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; scopes?: Data[]; controls?: Data[]; incident?: {reason:string} }
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
@@ -45,14 +45,21 @@ export class PersonalAssistant {
       if (!prior) {
         const evidence = await this.request(config,'pa.scope.resolve',{source_message_id:input.message.id});
         if (!evidence.owner_message) throw new Error('Owner source is not authenticated');
-        const verdict = await this.review(config,'scope',evidence);
+        const reviewKey=`pa-scope-review:${input.message.id}`;
+        const saved=this.options.store.command(reviewKey);
+        const verdict:Verdict=saved?JSON.parse(saved):await this.review(config,'scope',evidence);
         if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
-        if (verdict.decision === 'allow' && verdict.controls?.length) {
-          for (const control of verdict.controls) await this.request(config,'pa.owner.control',{...control,source_message_id:input.message.id});
-        }
-        if (verdict.decision === 'allow' && verdict.scope) {
-          await this.request(config,'pa.scope.create',{source_message_id:input.message.id,scope:verdict.scope,
-            title:verdict.scope.title,goal_description:verdict.scope.goal_description,task_ref:verdict.scope.task_ref});
+        if(!saved)this.options.store.saveCommand(reviewKey,JSON.stringify(verdict));
+        if (verdict.decision === 'allow') {
+          for (const [index,control] of (verdict.controls??[]).entries()) {
+            const key=`${reviewKey}:control:${index}`;
+            if(!this.options.store.command(key)) {
+              await this.request(config,'pa.owner.control',{...control,source_message_id:input.message.id});
+              this.options.store.saveCommand(key,'done');
+            }
+          }
+          for (const [index,scope] of (verdict.scopes??[]).entries()) await this.request(config,'pa.scope.create',{
+            source_message_id:input.message.id,goal_key:String(index),scope,title:scope.title,goal_description:scope.goal_description,task_ref:scope.task_ref});
         }
         this.options.store.saveCommand(`pa-scope:${input.message.id}`, JSON.stringify({decision:verdict.decision}));
       }
@@ -62,12 +69,15 @@ export class PersonalAssistant {
       if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
       if (verdict.incident) {
         const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident.reason});
-        if(notice.owner_notice_message_id && notice.peer_notice_content) {
+        if(notice.owner_notice_message_id && notice.peer_notice_content && !notice.peer_notice_message_id) {
           if(input.conversation_id.startsWith('external:')) await this.options.relay.request('agent.message',{
             node_id:this.options.nodeId,to:`conversation:${input.conversation_id}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
           else {
           const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
-          await this.executeReviewed(config,{request_key:`pa-incident:${notice.id}`,incident_ref:notice.id,conversation_id:input.conversation_id,content:notice.peer_notice_content},evidence);
+          // A revised fixed notice is a new frozen operation; never mutate an old proposal on retry.
+          const digest=createHash('sha256').update(String(notice.peer_notice_content)).digest('hex');
+          const result=await this.executeReviewed(config,{request_key:`pa-incident:${notice.id}:${digest}`,incident_ref:notice.id,conversation_id:input.conversation_id,content:notice.peer_notice_content},evidence);
+          if(result.state==='unavailable')throw new Error(String(result.reason??'Privacy notice review is temporarily unavailable'));
           }
         }
       }

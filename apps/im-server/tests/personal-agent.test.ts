@@ -110,6 +110,11 @@ it('claims a frozen external delivery once and requires an actual provider recei
  expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()).toEqual({n:0});
  expect(()=>service.actions.complete(principal,{...args,proposal_ref:proposal.proposal_ref,state:'confirmed'})).toThrow('provider_receipt_required');
  expect(service.actions.complete(principal,{...args,proposal_ref:proposal.proposal_ref,state:'confirmed',provider_message_id:'om_actual'})).toEqual({state:'confirmed',provider_message_id:'om_actual'});
+ const nextArgs={...args,request_key:'next-external',task_ref:'goal',conversation_id:'peer',content:'Still Wednesday?',transport:{kind:'feishu',destination:{app_id:'app',source_id:'feishu:app:dm:sender',chat_id:'oc_123'}}};
+ const next=service.actions.prepare(principal,nextArgs),allowed=service.actions.review(principal,{...args,proposal_ref:next.proposal_ref,payload_digest:next.payload_digest,verdict:{decision:'allow'}});
+ db.prepare("INSERT INTO pa_contact_blocks VALUES('binding','external:peer:sender')").run();
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:next.proposal_ref,verdict_ref:allowed.verdict_ref})).toThrow('contact_blocked');
+ expect(()=>service.actions.prepare(principal,{...nextArgs,request_key:'after-block'})).toThrow('contact_blocked');
 });
 it('keeps paused observations recoverable and reports a suspected probe privately before a peer notice can be proposed',()=>{
  const {ctx,service,principal,args}=personalFixture();
@@ -257,4 +262,26 @@ it('shows a failed personal host as unavailable while its node stays online',asy
  expect(service.state('o1').binding.status).toBe('unavailable');
  await service.handle(principal,'pa.runtime.status',{...args,available:true});
  expect(service.state('o1').binding.status).toBe('active');
+});
+
+it('keeps trusted incoming channel mirrors separate from personal outward sends',async()=>{
+ const {ctx,db,service,principal}=personalFixture();ctx.personal=service;ctx.gateway.authenticate=()=>principal as any;
+ db.prepare("UPDATE conversations SET owner_id='o1',external_source='feishu',external_chat_id='feishu:app:dm:sender',config_agent_id='a' WHERE id='peer'").run();
+ db.prepare("INSERT INTO agent_channels VALUES('channel','o1','a','n','feishu',1,'{\"app_id\":\"app\"}','fp',1,'{}','{}','key',1,1,?,?)").run(new Date().toISOString(),new Date().toISOString());
+ const req={headers:{authorization:'Bearer gateway','idempotency-key':'shadow:provider-message'},params:{conversation_id:'peer'},query:{agent_id:'a'},body:{sender_type:'user',sender_source_id:'sender',sender_display_name:'External peer',content:'Can we meet?',suppress_relay:true}} as any;
+ await expect(ctx.messaging.sendMessage(req)).rejects.toThrow('personal_reviewed_delivery_required');
+ const m=ctx.messaging.incomingExternal(req);expect(m.content).toBe('Can we meet?');
+ expect(ctx.messaging.incomingExternal(req).id).toBe(m.id);
+ expect(service.incident(principal,{agent_id:'a',source_message_id:m.id,reason:'Test probing'}).actor_id).toBe('external:peer:sender');
+ expect(()=>ctx.messaging.incomingExternal({...req,params:{conversation_id:'chat'}})).toThrow('incoming_source_not_verified');
+ ctx.gateway.authenticate=()=>null;expect(()=>ctx.messaging.incomingExternal(req)).toThrow('gateway_credential_required');
+});
+
+it('creates separately pausable real tasks for distinct goals in one owner message',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.tasks=new TaskGraphService(db,ctx.messaging);
+ const m=ctx.messaging.insertMessage('chat','u1','user','Prepare a demo and negotiate a venue independently');
+ const create=(key:string,title:string)=>service.createScope(principal,{...args,source_message_id:m.id,goal_key:key,title,scope:{allowed_conversation_ids:[],allowed_action_kinds:[]}});
+ const a=create('0','Demo'),b=create('1','Venue');expect(a.task_ref).not.toBe(b.task_ref);expect(create('0','Demo').task_ref).toBe(a.task_ref);
+ service.ownerControl(principal,{...args,source_message_id:m.id,action:'pause',task_ref:a.task_ref,expected_revision:1});
+ expect(service.assistance('o1').items.map((g:any)=>[g.task.title,g.paused]).sort((a:any,b:any)=>a[0].localeCompare(b[0]))).toEqual([['Demo',true],['Venue',false]]);
 });

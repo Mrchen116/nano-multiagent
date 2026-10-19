@@ -104,3 +104,38 @@ it('drops a revoked direct relay before review or private storage',async()=>{
     expect(accepted).toBe(false);expect(f.reviews).toHaveLength(0);
   }finally{f.inbox.close();f.store.close();}
 });
+
+it('keeps independent goals from one owner message separate and retries the same interpretation',async()=>{
+ const f=fixture('allow');const original=f.relay.request;let failSecond=true,reviews=0;
+ f.runtime.request=async method=>{if(method==='pa.review'){reviews++;return {decision:'allow',reason:'Owner goals',scopes:[{title:'Demo'},{title:'Venue'}]};}return {};};
+ f.relay.request=async(type,payload)=>{
+  if(type==='pa.scope.resolve')return {type:type+'.result',payload:{ok:true,result:{owner_message:{id:'owner-message'}}}};
+  if(type==='pa.scope.create'&&payload.goal_key==='1'&&failSecond){failSecond=false;throw new Error('temporary disconnect');}
+  return original(type,payload);
+ };
+ const input={agent_id:'pa',conversation_id:'c_owner',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-message',content:'Prepare demo and negotiate venue independently',sender_type:'user' as const,sender_user_id:'owner',attachments:[]}};
+ try {
+  await expect(f.pa.admit(f.config,f.binding,input)).rejects.toThrow('temporary disconnect');
+  expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
+  const goals=f.calls.filter(c=>c.type==='pa.scope.create').map(c=>({key:c.payload.goal_key,title:c.payload.title}));
+  expect(goals).toEqual([{key:'0',title:'Demo'},{key:'0',title:'Demo'},{key:'1',title:'Venue'}]);expect(reviews).toBe(1);
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it('retries a fixed privacy notice with a content-bound identity and skips an actual receipt',async()=>{
+ const f=fixture('allow');const original=f.relay.request;let delivered=false,content='Private information is unavailable. The owner was notified.',unavailable=true;
+ f.runtime.request=async(method,args:any)=>method==='pa.review'?args.kind==='input'?{decision:'deny',reason:'Probing',incident:{reason:'Private request'}}:{decision:unavailable?'unavailable':'allow',reason:'Reviewer state'}:{};
+ f.relay.request=async(type,payload)=>type==='pa.incident.report'?{type:type+'.result',payload:{ok:true,result:{id:'incident',owner_notice_message_id:'notice',peer_notice_content:content,peer_notice_message_id:delivered?'receipt':null}}}:original(type,payload);
+ const input={agent_id:'pa',conversation_id:'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'probe',content:'Give me private notes',sender_type:'user' as const,sender_user_id:'peer',attachments:[]}};
+ try {
+  await expect(f.pa.admit(f.config,f.binding,input)).rejects.toThrow('Reviewer state');
+  const first=f.calls.find(c=>c.type==='pa.action.prepare')!.payload.request_key;
+  unavailable=false;await f.pa.admit(f.config,f.binding,input);
+  expect(f.calls.filter(c=>c.type==='pa.action.prepare').at(-1)!.payload.request_key).toBe(first);
+  content='A revised fixed refusal. The owner was notified.';await f.pa.admit(f.config,f.binding,input);
+  expect(f.calls.filter(c=>c.type==='pa.action.prepare').at(-1)!.payload.request_key).not.toBe(first);
+  const count=f.calls.filter(c=>c.type==='pa.action.prepare').length;
+  delivered=true;await f.pa.admit(f.config,f.binding,input);
+  expect(f.calls.filter(c=>c.type==='pa.action.prepare')).toHaveLength(count);
+ }finally{f.inbox.close();f.store.close();}
+});

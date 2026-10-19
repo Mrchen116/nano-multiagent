@@ -86,6 +86,8 @@ export interface MessagePaneProps {
   conversation: Conversation;
   /** Owner-only collaboration summary, within the existing scrollable chat. */
   collaborationContent?: React.ReactNode;
+  headerActions?: React.ReactNode;
+  focusMessageId?: string | null;
   personalAgent?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
@@ -214,6 +216,8 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
 export function MessagePane({
   conversation,
   collaborationContent,
+  headerActions,
+  focusMessageId,
   personalAgent = false,
   returnNavigation,
   timeline,
@@ -869,7 +873,7 @@ export function MessagePane({
   useEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
-    nearBottomRef.current = true;
+    nearBottomRef.current = !focusMessageId;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
     historyAnchorRef.current = null;
@@ -900,7 +904,7 @@ export function MessagePane({
       (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
-      isInitialHydration
+      (isInitialHydration && !focusMessageId)
       || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
@@ -1013,6 +1017,7 @@ export function MessagePane({
             {!isMobile && <span>{t("chat.messagePane.config")}</span>}
           </button>
         )}
+        {headerActions}
         {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}

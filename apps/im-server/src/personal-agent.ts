@@ -134,7 +134,7 @@ export class PersonalAgents {
     for(const id of args.scope.allowed_conversation_ids) if(!this.sourceAllowed(b,id,'write')) fail(403,'scope_target_not_accessible');
     let taskRef=args.task_ref;
     if(!taskRef) {
-      const task=this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:evidence.id},'create',{conversation_id:b.conversation_id,title:String(args.title||evidence.content).slice(0,240),description:args.goal_description||evidence.content,mode:'dag',request_key:`pa-goal:${b.binding_id}:${evidence.id}`});
+      const task=this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:evidence.id},'create',{conversation_id:b.conversation_id,title:String(args.title||evidence.content).slice(0,240),description:args.goal_description||evidence.content,mode:'dag',assignee:{type:'agent',id:b.agent_id},status:'doing',request_key:`pa-goal:${b.binding_id}:${evidence.id}:${args.goal_key??'0'}`});
       taskRef=task.graph_id;
     }
     const graph=one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',taskRef);
@@ -143,7 +143,7 @@ export class PersonalAgents {
     if(previous && previous.owner_message_id===evidence.id) return {...previous,scope:JSON.parse(previous.scope_json)};
     if(previous && graph.conversation_id===b.conversation_id && (args.title || args.goal_description)) {
       const doc=JSON.parse(graph.document_json);
-      this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id},'apply',{graph_id:taskRef,base_revision:graph.revision,request_key:`pa-goal-update:${evidence.id}`,change_note:'Owner updated this goal',operations:[{op:'update_task',node_id:doc.root_node_id,patch:{...(args.title?{title:args.title}:{}),...(args.goal_description?{description:args.goal_description}:{})}}]});
+      this.ctx.gateway.tasks.execute({kind:'agent',id:b.agent_id,node_id:b.node_id},'apply',{graph_id:taskRef,base_revision:graph.revision,request_key:`pa-goal-update:${evidence.id}:${taskRef}`,change_note:'Owner updated this goal',operations:[{op:'update_task',node_id:doc.root_node_id,patch:{...(args.title?{title:args.title}:{}),...(args.goal_description?{description:args.goal_description}:{})}}]});
     }
     const scopeId=previous?.scope_id??randomUUID();
     this.db.prepare(`INSERT INTO pa_goal_scopes(scope_id,binding_id,task_ref,owner_message_id,owner_text,scope_json) VALUES(?,?,?,?,?,?)

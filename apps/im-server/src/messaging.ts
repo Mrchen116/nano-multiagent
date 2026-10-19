@@ -471,6 +471,32 @@ export class Messaging {
       },
     );
   }
+  /** Authenticate private provider ingestion separately from outward message delivery. */
+  incomingExternalSource(principal:Row,id:string,agentId:string):Row {
+    if(principal.kind!=='gateway')fail(403,'gateway_credential_required');
+    const binding=this.ctx.personal!.authority(principal,{agent_id:agentId});
+    const c=one(this.db,'SELECT * FROM conversations WHERE id=? AND config_agent_id=? AND owner_id=?',id,agentId,binding.owner_id);
+    const channel=c?all(this.db,'SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1',agentId,binding.node_id,binding.owner_id,c.external_source)
+      .find(row=>String(c.external_chat_id).startsWith(`${row.provider}:${JSON.parse(row.config_json).app_id}:${c.type==='group'?'group':'dm'}:`)):undefined;
+    if(!c||!channel||!this.ctx.personal!.sourceAllowed(binding,id))fail(403,'incoming_source_not_verified');
+    return {...c,owner_user_id:binding.owner_user_id};
+  }
+  /** Mirror authenticated provider input only into its private owner/Agent shadow. */
+  incomingExternal(req:FastifyRequest):Row {
+    const p=this.principal(req),id=params(req).conversation_id,b=body(req),agentId=query(req).agent_id;
+    const c=this.incomingExternalSource(p,id,agentId);
+    if(typeof b.sender_source_id!=='string'||!b.sender_source_id||typeof b.content!=='string')fail(422,'incoming_source_required');
+    if(c.type==='direct'&&!c.external_chat_id.endsWith(`:dm:${b.sender_source_id}`))fail(403,'incoming_actor_mismatch');
+    const attachments=b.attachments??[];
+    if(!Array.isArray(attachments)||attachments.length>5)fail(422,'invalid_attachments');
+    const key=req.headers['idempotency-key'];if(typeof key!=='string'||!key.startsWith('shadow:'))fail(422,'incoming_receipt_required');
+    const old=one(this.db,'SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=?',id,key);if(old)return this.message(old.id);
+    const content=this.validateReferences(p,id,b.content,agentId);
+    const safeAttachments=attachments.map((a:Row)=>({url:this.validateReferences(p,id,a.url,agentId),content_type:a.content_type,file_name:a.file_name}));
+    return this.insertMessage(id,c.owner_user_id,'user',content,safeAttachments,key,'completed',{
+      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
+    });
+  }
   async sendMessage(req: FastifyRequest): Promise<Row> {
     const p = this.principal(req),
       b = body(req),

@@ -33,3 +33,10 @@
 
 .pa-source-return { flex-shrink: 0; padding: 7px 16px; border-bottom: 1px solid var(--im-border); font-size: 12px; color: var(--im-text-muted); }
 .pa-source-return button { cursor: pointer; }
+
+.pa-goals-menu { position: relative; flex-shrink: 0; font-size: 12px; }
+.pa-goals-menu > summary { cursor: pointer; padding: 6px 8px; border: 1px solid var(--im-border); border-radius: 7px; }
+.pa-goals-panel { position: absolute; top: calc(100% + 10px); right: 0; z-index: 40; width: min(360px, calc(100vw - 32px)); max-height: min(65dvh, 600px); overflow: auto; padding: 12px 16px; background: var(--im-surface); border: 1px solid var(--im-border); border-radius: 12px; box-shadow: 0 10px 35px #0002; }
+.pa-goals-panel h3 { margin: 0 0 6px; font-size: 14px; }
+.pa-goals-panel p { margin: 6px 0; line-height: 1.6; }
+.pa-goals-panel button { padding: 6px 10px; border: 1px solid var(--im-border); border-radius: 7px; cursor: pointer; }

@@ -1,5 +1,5 @@
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
-import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
+import { PersonalAgentCollaboration, PersonalAgentGoals } from '../personal-agent/personal-agent-collaboration';
 import { getPersonalAgent, renamePersonalAgent, type PersonalDecision } from '../personal-agent/personal-agent-api';
 import { GroupTaskPanel } from "../tasks/group-task-panel";
 import type { NodeUpdateView } from '../settings/im-settings-api';
@@ -1189,13 +1189,15 @@ export function ChatWorkspacePage() {
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
             timeline={visibleTimeline}
+            focusMessageId={locatorMessageId}
+            headerActions={isPersonalConversation && personalAgent.data ? <PersonalAgentGoals state={personalAgent.data}/> : undefined}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
               ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
               : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)
                 ? <button type="button" onClick={()=>navigate(location.state.sourceReturnUrl)}>{t('pa.returnSource','← 返回刚才的聊天')}</button>
                 : undefined}
-            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} onDraft={handlePersonalDraft}/> : undefined}
+            collaborationContent={isPersonalConversation && personalAgent.data ? <PersonalAgentCollaboration state={personalAgent.data} onDraft={handlePersonalDraft} pendingOwnerInput={streamState.messages.some(m=>m.sender_type==='user'&&m.sender_user_id===selfUserId&&m.delivery_status==='sent')}/> : undefined}
             onReadMessage={(messageId) => {
               if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);

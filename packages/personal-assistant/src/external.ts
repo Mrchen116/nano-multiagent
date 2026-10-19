@@ -245,11 +245,11 @@ export class ExternalChannels {
           const image = this.state.image(attachment.url, chat.agentId)!;
           if (image.uploaded) attachments.push(JSON.parse(image.uploaded));
           else {
-            const uploaded = await this.options.im(`/im/v1/uploads?conversation_id=${encodeURIComponent(chat.shadowId!)}&agent_id=${encodeURIComponent(chat.agentId)}&file_name=image.png`, { method: 'POST', headers: { 'Content-Type': image.mediaType }, body: new Uint8Array(image.data) });
+            const uploaded = await this.options.im(`/im/v1/uploads?conversation_id=${encodeURIComponent(chat.shadowId!)}&agent_id=${encodeURIComponent(chat.agentId)}&file_name=image.png${this.options.personalAgent?.(chat.agentId)?'&external_incoming=1':''}`, { method: 'POST', headers: { 'Content-Type': image.mediaType }, body: new Uint8Array(image.data) });
             this.state.uploaded(attachment.url, uploaded); attachments.push(uploaded);
           }
         }
-        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/messages?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
+        const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/${this.options.personalAgent?.(chat.agentId)?'external-incoming':'messages'}?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
           content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
       }

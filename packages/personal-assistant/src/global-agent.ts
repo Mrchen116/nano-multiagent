@@ -137,6 +137,7 @@ export class GlobalAgent {
           const events = batch.items as Record<string,any>[];
           more = events.length === 50;
           for (const event of events) {
+            try {
             if (event.message) {
               const message=event.message;
               if(message.sender_agent_id===config.agentId || message.sender?.agent_id===config.agentId || (message.sender?.type==='agent'&&message.sender?.id===config.agentId)) {
@@ -174,6 +175,11 @@ export class GlobalAgent {
                 source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});
             }
             await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'});
+            } catch(error) {
+              // Leave this event pending without blocking other sources or policy changes.
+              this.options.onError(error);
+              more=false;
+            }
           }
         }
         } catch(error) { this.options.onError(error); }

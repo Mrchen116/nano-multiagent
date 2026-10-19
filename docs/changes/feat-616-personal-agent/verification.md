@@ -137,3 +137,71 @@
 ## Handoff
 
 `code-review.json` 给出3项 CONFIRMED full findings（C1、C2、W1）；本报告另记录待完成退出证据 C3。共享现场由 caller 提交报告，report_commit 尚未产生；未推送。修复后优先核这些具体失败条件及受影响范围，产品 reviewer 继续独立验收，不以本报告代替真实 UI/模型体验判断。
+
+## Round 2 — Targeted Closure and Fix Delta
+
+### Metadata and verdict
+
+- review_round: `2`
+- verification_mode: `targeted-closure`，同时核修复引入的 source/Channels、restore、设备 epoch、本机分区、per-PA status 与 timer 恢复 delta。
+- executed_base / prior head: `cf1befff963e6d251e332c513e8ca6adf1d86619`
+- validated_at: `a41c22630578d28f76dcb5bee393cfdc9a7bab29`
+- fix_delta_range: `cf1befff9..a41c22630`
+- focus_issues: Round 1 `C1 / C2 / W1`；Round 1 其他未失效判断保留。
+- verdict: **fail — 2 CRITICAL / 0 WARNING / 0 SUGGESTION**，均为新增/受影响 Channels 边界的直接复现问题。
+- requires_full_verification: `false`。新增问题局限在已派发的跨包修复路径，无需重开未变化部分的全量审查。
+- Code findings: `code-review-r2.json`；Round 1 原 JSON 完整保留，不把原问题自动删除。
+- C3 的最终产品证据由 root / 独立产品 reviewer 继续闭合，本轮未重复将“产品报告未出”列为代码 finding，也不宣称整体交付已通过。
+
+### Historical issue closure
+
+| 原问题 | 本轮证据 | 状态 |
+|---|---|---|
+| C1：直接 relay / queued input 绕过来源排除和屏蔽 | Gateway.relayMessage 先 `messageAllowed`；PersonalAssistant.admit 先请求 IM `pa.source.admit`、false 时不 review/store；新增真实 IM policy 测试和 PA revoked input 测试通过 | **closed**，Web/已持久来源的旧失败条件已关闭；Channels 实际接入另有 R2-C1 |
+| C2：device epoch 恢复后 PA 403，且无同 owner restore | Identity.rotatePersonalEpoch 随设备事务旋转 binding/失效 permits，snapshot 包含 PA；真实 `deviceRecoverDevice` 后新 epoch 的 authority 成功。bindDevice 独立实际执行保存 marker epoch=2、旧分区目录消失、新分区保留 durable marker；restore HTTP 测试核同 PA/DM、新 owner node、旧 principal 失权与幂等 | **closed**，不通过移除旧 epoch 检查关闭问题 |
+| W1：PA offline source recovery 阻断 ordinary | GlobalAgent 对 observations 和每 Agent 的恢复分别 catch；原独立探针重跑时 ordinary `session.ensure=1`、PA 错误留给 onError；新回归测试通过 | **closed** |
+
+### Delta implementation and evidence
+
+| 受影响边界 | 检查结果 |
+|---|---|
+| `pa.source.admit` 与当前来源/contact policy | IM 从认证 binding+真实 message 解析，不接收模型 owner；调用在独立输入审核前。Web 旧绕过关闭；Channels mapping 依赖的真实 mirror 写入不兼容，见 R2-C1 |
+| 外部 actor / incident / block | 外部 source ID 不再被当成 shadow owner；incident actor/展示改用来源身份。该新身份尚未贯通 egress block，见 R2-C2 |
+| 同 owner restore / ConfigOperations restore | 先 server fence 旧 node/binding、pending+stale、失效未发 permit，再由新 node `agent.create` 真回执提交 active；保留 PA/DM/goal，workspace 取新端，不复制旧本地历史。新测试覆盖错误 owner、旧 principal 拒绝和同目标重试 |
+| 同设备 epoch / snapshot / local partition | 已独立执行真实 Identity 和 bindDevice（合成 HTTP result），新 config personal epoch 正确且 old home 分区重命名保留原资料；旧 node token 拒绝沿原测试保留。不是生产/真实新节点迁移验收 |
+| per-PA status | node onReady/onUnavailable/relay ready 都报告分区 status；IM 按 binding epoch 使用记录；server 测试证明 node 仍在线时 PA unavailable 并可恢复。没有用 ordinary node health 代替 PA 状态 |
+| 撤源后有效 timer | GlobalAgent 在新 binding ensure 后调用 restoreFollowups；helper 只恢复非暂停/非完成且 scope 存在、未撤销、所有目标来源仍允许的 assistance；不可用目标清除旧 next_check/schedule。具体真实调度恢复旅程仍由产品验收补证；本轮未发现新增确定性 timer 缺陷 |
+| corrected delta / canonical specs | 本 fix delta 未修改契约正文，仍实施已批准 design；**no spec delta**。尚未归并 canonical，未以改 spec 适配问题实现 |
+
+### Independent execution
+
+候选 HEAD 在本轮代码阅读与测试时均为 `a41c22630`、源码 clean；仅写报告，没有修改实现或测试。
+
+1. `pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/identity.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/personal-assistant/tests/global-agent.test.ts packages/personal-assistant/tests/external.test.ts apps/node/tests/device-binding.test.ts`
+   - 2026-10-19 14:33，**6 files / 74 tests passed**。复用 caller 所报较早全量 386 tests / build/typecheck 作为背景，不冒称本轮重跑全量。
+2. `/tmp/pa-static-review-616/round2-probe.mts`：真实 Identity 恢复后 epoch=2，新 PA authority 成功；真实 ExternalChannels + Messaging.sendMessage 对正常外部 DM 的 mandatory mirror 失败，异常 `personal_reviewed_delivery_required`，receive=0。
+3. 原 `/tmp/pa-static-review-616/partition-probe.mts` 重跑：ordinary ensure 从0变为1，旧 W1 关闭。
+4. `/tmp/pa-static-review-616/local-epoch-probe.mts`：真实 bindDevice + 临时本地 HTTP fixture，动作 prove/recover-device/prepare/recover，保存 epoch=2；新分区 durable marker 内容与旧分区一致，旧目录不存在。临时 HTTP server 和目录在 finally 关闭/清除；没有产品服务或模型调用。
+5. `/tmp/pa-static-review-616/round2-block-egress.mts`：真实 PersonalActions，既有有效 scope 下先插入 sourceActor 对应的 external block，再准备、审核、提交新 Feishu payload，实际结果仍为 `sending`。
+
+### CRITICAL
+
+**R2-C1 — Channels 输入被新增 mandatory flush 阻断，`pa.source.admit` 到不了真实接入。**
+
+- 契约：保留既有 Channels 行为、真实外部身份与当前来源核验；设计允许可受控外部 DM，而不是全部阻止正常联络。
+- 位置：`packages/personal-assistant/src/external.ts:91–95,252–254`；`apps/im-server/src/messaging.ts:90,479–483`。
+- 证据：flush 对 incoming mirror 调普通消息写 API，目标是非 canonical shadow、sender_type=user；现 PA access(write) 拒绝非 owner DM，下一层还拒绝 PA 的 user sender。因此新增的同步前置让正常 PA Feishu 输入在 receive 前必然失败。当前 external test mock 了整个 `im` 函数，未覆盖此跨包契约。
+- 独立复现：真实两个类组合，正常 DM 返回 `personal_reviewed_delivery_required`，接收调用0；无网络平台依赖。
+- 建议：为可信 incoming mirror 设窄入口，绑定当前 node/PA/channel/source、真实 external actor、幂等原消息及无 relay 副作用；保留普通 PA 外发与 owner 冒充拒绝。补真实 IM handler 与 Channels 的边界回归，不能仅继续 mock IM 写成功。
+
+**R2-C2 — External block 身份未参与实际 transport commit，已屏蔽对象仍能收到后续目标消息。**
+
+- 契约：IM PA delta「联系屏蔽」要求阻断新请求/投递及相应待办许可；design 同会话安全通知也不得绕屏蔽。
+- 位置：`apps/im-server/src/personal-agent.ts:42–45` 引入 `external:<shadow>:<sender>` 身份；`personal-actions.ts:59–63` 仍只对 shadow participants 查 block。
+- 证据：shadow participants 是 owner 与 PA，永远不等于新 external actor；policy revision 能淘汰旧 proposal，但新 proposal 捕获新 revision 后仍通过，所以已有目标的定时/主动协调可以继续外发到被屏蔽对象。
+- 独立复现：使用真实冻结动作/审查/commit，实现原样返回 `sending`。没有假设模型主动绕过：审核包也未包含该 block 事实。
+- 建议：将经过认证的 transport 接收者映射到同一 canonical external actor，在 prepare 与 commit 核当前 block/许可，覆盖 incident 和既有目标继续发送；不能把 owner 的 shadow sender 当外部收件人。
+
+### Handoff
+
+Round 1 的3项代码 finding 已有逐项 closure 证据；本轮2项新增 CONFIRMED 问题不能用旧 finding 关闭结论覆盖。报告只对应固定 `a41c22630`，后续 root 改动不在本轮结果内。未提交/推送，由 caller 归入下一候选。

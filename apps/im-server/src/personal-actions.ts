@@ -16,6 +16,8 @@ export class PersonalActions {
     const channel=one(this.db,"SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1 AND json_extract(config_json,'$.app_id')=?",b.agent_id,b.node_id,b.owner_id,input.kind,input.destination?.app_id??'');
     if(chat?.type==='group')fail(409,'external_group_audience_unavailable');
     if(!chat||!channel||chat.config_agent_id!==b.agent_id||chat.external_source!==input.kind||chat.external_chat_id!==input.destination?.source_id||!String(input.destination?.source_id??'').startsWith(`${input.kind}:${input.destination?.app_id}:dm:`)||typeof input.destination?.chat_id!=='string'||!input.destination.chat_id)fail(403,'external_destination_not_verified');
+    const actor=`external:${conversationId}:${chat.external_chat_id.slice(`${input.kind}:${input.destination.app_id}:dm:`.length)}`;
+    if(one(this.db,'SELECT 1 FROM pa_contact_blocks WHERE binding_id=? AND actor_id=?',b.binding_id,actor))fail(403,'contact_blocked');
     return {kind:input.kind,destination:{app_id:JSON.parse(channel.config_json).app_id,chat_id:input.destination.chat_id,source_id:chat.external_chat_id},channel_id:channel.channel_id,channel_revision:channel.channel_revision,...(input.card?{card:input.card}:{})};
   }
   attachments(b:Row,conversationId:string,items:Row[],content:string) {
