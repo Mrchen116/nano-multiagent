@@ -184,6 +184,8 @@ const relay = new WebRelayConnection({
         ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
           tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: payload.skills_selection_mode ?? 'explicit_denylist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
       });
+      // Creation previews have no persisted Agent to initialize their workspace yet.
+      await mkdir(workspace, { recursive: true });
       if (preview) {
         const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number };
         await relay.request(frame.type.replace('.request', ''), { request_id: payload.request_id, node_id: config.node.node_id,

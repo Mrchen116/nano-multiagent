@@ -185,14 +185,11 @@ export interface SystemNotice {
   scope_id?: string;
 }
 
-export interface PersonalDelegation {
-  agent_id: string;
-  authorized_by: string;
-  display_name: string;
-  label: string;
-}
+import type { MessageInteractive, InteractionSnapshot } from "./interactive/types";
 
 export interface Message {
+  interactive?: MessageInteractive;
+  interaction_reply?: InteractionSnapshot;
   id: string;
   conversation_id: string;
   sender: Actor;
@@ -299,8 +296,8 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 
 export type WsEvent =
   | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null; delegation?: PersonalDelegation | null }
-  | { type: "message.reconciled"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[]; system_notice?: SystemNotice | null; delegation?: PersonalDelegation | null }
+  | { type: "message.created"; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null; delegation?: PersonalDelegation | null }
+  | { type: "message.reconciled"; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[]; system_notice?: SystemNotice | null; delegation?: PersonalDelegation | null }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }
   | { type: "message.discarded"; seq?: number; conversation_id: string; message_id: string; reason: string }

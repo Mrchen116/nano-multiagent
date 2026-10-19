@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RelayInput } from '@nano/product-contracts';
-import { formatLocalTime } from '@nano/product-contracts';
+import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Fragment { seq: number; part: number }
@@ -125,7 +125,7 @@ export class InboxStore {
       const imported = this.db.prepare('SELECT body FROM imported_parts WHERE seq=? ORDER BY part').all(seq) as {body: string}[];
       if (imported.length) return imported.map(row => JSON.parse(row.body) as Record<string, unknown>[]);
     }
-    const text = input.message.content;
+    const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
     for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);

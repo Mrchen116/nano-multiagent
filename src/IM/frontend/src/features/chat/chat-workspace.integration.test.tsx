@@ -1767,6 +1767,24 @@ describe("ChatWorkspacePage — integration", () => {
     expect(bubble!.textContent).not.toMatch(/user-uuid-planner/);
   });
 
+  it("clears the queued choice status when the Agent delivery receipt arrives", async () => {
+    let delivered = false;
+    const fallback = mockFetch();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/conversations/c1/messages') && !init?.method) return jsonResponse({items:[{
+        ...FIXTURES.messagesC1[0], content:'', delivery_status:delivered?'completed':'pending',
+        interaction_reply:{source_message_id:'card',source_summary:'行程',agent_id:'a-planner',state:{},fields:[{name:'mode',label:'方式',value:'bike',display_value:'骑行'}]},
+      }],next_before_message_id:null});
+      return fallback(input,init);
+    }));
+    renderAtRoute('/chat/c1');
+    await screen.findByText(/Saved, waiting for Agent|已保存，等待 Agent 处理/);
+    delivered=true;
+    act(()=>emitSharedChatEvent({type:'relay.delivery_receipt',conversation_id:'c1',message_id:'m1',delivery_status:'accepted'}));
+    await waitFor(()=>expect(screen.queryByText(/Saved, waiting for Agent|已保存，等待 Agent 处理/)).not.toBeInTheDocument());
+    expect(screen.getByText('骑行')).toBeInTheDocument();
+  });
+
   it("bugfix-405 R1: node.status_changed offline event updates Node chip from online to offline without page refresh", async () => {
     // Page opens and initially shows the node as online (from initial fetch).
     renderAtRoute("/chat/c1");

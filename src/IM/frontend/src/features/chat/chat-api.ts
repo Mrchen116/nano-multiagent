@@ -1,6 +1,7 @@
 // Canonical REST client for the Chat surface. All calls share authFetch so
 // token refresh and retry semantics stay owned by the auth transport.
 
+import { InteractionSubmissionError } from "./interactive/submission-error";
 import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { browserTimezone } from "../auth/user-timezone";
@@ -43,7 +44,12 @@ export async function listMessages(
   return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
 }
 
+import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
+
 export interface CreateMessageRequest {
+  interactionReply?: InteractionReplyInput;
+  interactionContexts?: InteractionContextInput[];
+  idempotencyKey?: string;
   conversationId: string;
   content: string;
   attachments?: Attachment[];
@@ -61,13 +67,25 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
     attachments: req.attachments ?? [],
-    timezone: browserTimezone()
+    timezone: browserTimezone(),
+    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
+    ...(req.interactionContexts?.length ? { interaction_contexts: req.interactionContexts } : {})
   };
-  return authFetchJson<Message>(
+  const response = await authFetch(
     `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,
-    { method: "POST", body: JSON.stringify(body) },
-    "createMessage"
+    { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) }
   );
+  if (!response.ok) {
+    const text = await response.text();
+    if (req.interactionReply && response.status === 409) {
+      let detail: {code?: string; submission_message_id?: string} = {};
+      try { detail = JSON.parse(text).detail ?? {}; } catch { /* Preserve the original response below. */ }
+      if (detail.code === "interaction_already_submitted") throw new InteractionSubmissionError("alreadySubmitted", detail.submission_message_id);
+      if (detail.code === "interaction_read_only") throw new InteractionSubmissionError("stale");
+    }
+    throw new Error(`createMessage failed: ${response.status} ${text}`);
+  }
+  return response.json() as Promise<Message>;
 }
 
 export interface CreateConversationRequest {
@@ -231,4 +249,14 @@ export function joinConversation(id: string): Promise<Conversation> {
 export async function listPublicConversations(): Promise<Conversation[]> {
   const result = await authFetchJson<{items: Conversation[]}>("/im/v1/conversations?scope=public");
   return result.items;
+}
+
+function interactionPath(cid: string, mid: string): string {
+  return `/im/v1/conversations/${encodeURIComponent(cid)}/messages/${encodeURIComponent(mid)}/interaction-state`;
+}
+export function readInteractionDraft(cid: string, mid: string): Promise<InteractionDraft> {
+  return authFetchJson(interactionPath(cid, mid));
+}
+export function saveInteractionDraft(cid: string, mid: string, revision: number, state: Record<string, unknown>): Promise<InteractionDraft> {
+  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) });
 }

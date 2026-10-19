@@ -24,6 +24,26 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY)");
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-replies-v1'").get()) {
+      if (!db.prepare("PRAGMA table_info(interaction_drafts)").all().some(column => column.name === "updated_at"))
+        db.exec("ALTER TABLE interaction_drafts ADD COLUMN updated_at TEXT");
+      if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "interaction_reply_json"))
+        db.exec("ALTER TABLE messages ADD COLUMN interaction_reply_json TEXT");
+      db.prepare("INSERT INTO schema_migrations VALUES('interactive-replies-v1')").run();
+    }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-native-v2'").get()) {
+      if (!db.prepare("PRAGMA table_info(message_interactive)").all().some(column => column.name === "publication_json"))
+        db.exec("ALTER TABLE message_interactive ADD COLUMN publication_json TEXT");
+      db.exec(`CREATE TABLE interaction_submissions_v2 (
+        source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE, semantic_json TEXT NOT NULL);
+        INSERT INTO interaction_submissions_v2 SELECT * FROM interaction_submissions;
+        DROP TABLE interaction_submissions;
+        ALTER TABLE interaction_submissions_v2 RENAME TO interaction_submissions;
+        CREATE INDEX interaction_submissions_source_user ON interaction_submissions(source_message_id,user_id);`);
+      db.prepare("INSERT INTO schema_migrations VALUES('interactive-native-v2')").run();
+    }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-timezone-v1'").get()) {
       for (const table of ['users', 'messages']) {
         if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'timezone'))

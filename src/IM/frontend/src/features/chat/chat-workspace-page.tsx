@@ -82,12 +82,15 @@ import { NewChatModal } from "./components/new-chat-modal";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
+import { InteractionSubmissionError } from "./interactive/submission-error";
+
 const HISTORY_PAGE_SIZE = 50;
 
 type ChatWorkspaceError = {
   conversationId: string;
   kind: "send" | "attachment";
   message: string;
+  submissionMessageId?: string;
 };
 
 const ATTACHMENT_ERROR_KEYS: Record<
@@ -747,7 +750,7 @@ export function ChatWorkspacePage() {
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
-        if (event.eventType === 'node.update_wait_changed' && event.payload.conversation_id === conversationIdRef.current) {
+        if ((event.eventType === 'node.update_wait_changed' || event.eventType === 'relay.delivery_receipt') && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
@@ -846,11 +849,14 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
-        attachments: payload.attachments
+        attachments: payload.attachments,
+        interactionReply: payload.interactionReply,
+        idempotencyKey: payload.idempotencyKey,
+        interactionContexts: payload.interactionContexts
       }),
     onSuccess: (created, payload) => {
       clearSendError(payload.conversationId);
@@ -872,7 +878,8 @@ export function ChatWorkspacePage() {
       setWorkspaceError({
         conversationId: payload.conversationId,
         kind: "send",
-        message: err instanceof Error ? err.message : t("chat.messagePane.sendError")
+        message: err instanceof InteractionSubmissionError ? t(`chat.interactive.${err.reason}Error`) : err instanceof Error ? err.message : t("chat.messagePane.sendError"),
+        ...(err instanceof InteractionSubmissionError ? {submissionMessageId: err.submissionMessageId} : {})
       });
     }
   });
@@ -1143,7 +1150,8 @@ export function ChatWorkspacePage() {
                   : "chat.messagePane.sendErrorTitle"
               )}
             </p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{visibleWorkspaceError.message}</p>
+            <p className="mt-0.5 text-xs text-slate-700">{visibleWorkspaceError.message}</p>
+            {visibleWorkspaceError.submissionMessageId && <Link className="text-xs underline" to={`/chat/${encodeURIComponent(visibleWorkspaceError.conversationId)}?message_id=${encodeURIComponent(visibleWorkspaceError.submissionMessageId)}`}>{t('chat.interactive.previousSubmission')}</Link>}
           </div>
           <button
             type="button"
@@ -1216,11 +1224,11 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments
-            }).then(() => undefined)}
+              attachments, interactionReply, idempotencyKey, interactionContexts
+            })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
             selfUserId={selfUserId}
