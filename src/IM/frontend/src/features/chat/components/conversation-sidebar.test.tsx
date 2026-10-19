@@ -73,6 +73,16 @@ describe("ConversationSidebar", () => {
     expect(screen.queryByRole("button", { name: /Deploy: agent network/ })).not.toBeInTheDocument();
   });
 
+  it("includes two-Agent directs in Network alongside Agent groups", async () => {
+    const user = userEvent.setup();
+    const observed = conv({id:"observation",title:"Atlas ↔ Scout",direct_kind:"agent-agent",is_observer:true,can_write:false,participants:[{type:"agent",id:"atlas"},{type:"agent",id:"scout"}]});
+    render(<ConversationSidebar conversations={[...CONVS,observed]} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} />);
+    await user.click(screen.getByRole("tab", {name:"Network"}));
+    expect(screen.getByRole("button", {name:/Atlas ↔ Scout/})).toBeVisible();
+    expect(screen.getByRole("button", {name:/Deploy: agent network/})).toBeVisible();
+    expect(screen.queryByRole("button", {name:/Assistant/})).toBeNull();
+  });
+
   it("filters by search query against title + preview", async () => {
     const user = userEvent.setup();
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} />);

@@ -51,7 +51,7 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], refreshed: { Task { await store.loadChat(conversationID) } })
+                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }
@@ -85,12 +85,15 @@ struct ConversationView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if store.checkingAccess.contains(conversationID) {
+            if store.revokedChats.contains(conversationID) {
+                Text(L("此聊天已不可访问。", "This conversation is no longer accessible.")).font(.caption).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity).background(.bar)
+            } else if store.checkingAccess.contains(conversationID) {
                 VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
-                    Text(conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
-                    if conversation.dissolved_at == nil && conversation.visibility == "public" && conversation.is_member == false {
+                    Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
+                    if conversation.is_observer == true { Text(L("你可以查看双方往来，不能发送消息。", "You can view this exchange, but cannot send messages.")).font(.caption).foregroundStyle(.secondary) }
+                    if conversation.is_observer != true && conversation.dissolved_at == nil && conversation.visibility == "public" && conversation.is_member == false {
                         Button(L("加入群聊", "Join group")) { Task {
                             do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/join", body: EmptyResponse()); await store.inspectConversation(conversationID); await store.loadConversations() }
                             catch { store.errors[conversationID] = error.localizedDescription }

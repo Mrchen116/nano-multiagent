@@ -222,3 +222,88 @@ it('resumes both spaces after a revoked mixed node is handed to an approved owne
   expect(db.prepare('SELECT root_agent_id FROM agent_work_events WHERE seq>=3 ORDER BY seq').all()).toEqual([{root_agent_id:'handoff-company'},{root_agent_id:'handoff-private'}]);
   expect(db.prepare("SELECT payload FROM agent_work_sessions WHERE root_agent_id='handoff-company'").get()?.payload).not.toContain('revoked private content');
 });
+
+it('lets both real Agent owners observe existing direct history and events without acquiring membership or write rights', async () => {
+  const { app, db, register, request } = await fixture();
+  const alice = await register('observer-alice'), bob = await register('observer-bob'), outsider = await register('observer-admin');
+  db.prepare("UPDATE users SET membership_status='active',is_company_admin=1").run();
+  agent(db, 'left', alice.user.id, 'company:default');
+  agent(db, 'right', bob.user.id, 'company:default');
+  agent(db, 'same', alice.user.id, 'company:default');
+  agent(db, 'private-left', alice.user.id, `personal:${alice.user.id}`);
+  agent(db, 'private-right', alice.user.id, `personal:${alice.user.id}`);
+  const messaging = app.im.messaging;
+  const cross = messaging.resolveTarget('left', 'agent:right');
+  const same = messaging.resolveTarget('left', 'agent:same');
+  const personal = messaging.resolveTarget('private-left', 'agent:private-right');
+  // These histories predate observation and do not require another Agent message.
+  db.prepare("UPDATE conversations SET owner_id='legacy-orphan' WHERE id=?").run(cross);
+  const interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([form])\nform = Form("draft", ContinueButton("send", "Continue"), [FormControl("Draft", TextArea("body", "Draft", 3, null, "Read only"))])'};
+  const histories = [cross, same, personal].map(id => messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null, 'completed', id === cross ? {interactive} : {}));
+  const interactionPath = `/im/v1/conversations/${cross}/messages/${histories[0].id}/interaction-state`;
+  db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(cross,alice.user.id);
+  const upload = await app.inject({method:'POST',url:`/im/v1/uploads?conversation_id=${cross}&file_name=history.txt`,payload:'historical attachment',headers:{authorization:`Bearer ${alice.access_token}`,'content-type':'text/plain'}});
+  expect(upload.statusCode).toBe(201);
+  const media = upload.json().url;
+  db.prepare('DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?').run(cross,alice.user.id);
+  for (const pair of [alice, bob]) {
+    expect((await request(pair.access_token, 'GET', media)).body).toBe('historical attachment');
+    const detail = await request(pair.access_token, 'GET', `/im/v1/conversations/${cross}`);
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({is_observer: true, is_member: false, can_write: false, can_join: false, title: 'left ↔ right', participant_ids: ['agent-left', 'agent-right']});
+    expect((await request(pair.access_token, 'GET', `/im/v1/conversations/${cross}/messages`)).json().items[0].message.content).toBe('existing history');
+    const ids = (await request(pair.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id);
+    expect(ids.filter((id: string) => id === cross)).toHaveLength(1);
+    expect((await request(pair.access_token, 'GET', '/im/v1/sync')).json().items.map((c: any) => c.id)).toContain(cross);
+    expect((await request(pair.access_token, 'GET', interactionPath)).json()).toMatchObject({draft_revision:0,state:{}});
+    expect((await request(pair.access_token, 'PUT', interactionPath, {expected_draft_revision:0,state:{}})).statusCode).toBe(404);
+    for (const [method, path, payload] of [
+      ['POST', `/im/v1/conversations/${cross}/messages`, {sender:{type:'user',id:pair.user.id},interaction_reply:{source_message_id:histories[0].id,action_id:'send',state:{}}}],
+      ['POST', `/im/v1/conversations/${cross}/messages`, {content: 'intrude', sender: {type: 'agent', id: 'left'}}],
+      ['PATCH', `/im/v1/conversations/${cross}`, {title: 'changed', is_pinned: true}],
+      ['POST', `/im/v1/conversations/${cross}/participants`, {participants: [{type: 'user', id: pair.user.id}]}],
+      ['DELETE', `/im/v1/conversations/${cross}/participants/agent-left`, undefined],
+      ['POST', `/im/v1/conversations/${cross}/join`, {}],
+      ['DELETE', `/im/v1/conversations/${cross}`, undefined],
+    ] as const) expect((await request(pair.access_token, method, path, payload)).statusCode, path).toBe(404);
+    expect((await app.inject({method:'POST', url:`/im/v1/uploads?conversation_id=${cross}&file_name=note.txt`, payload:'blocked',headers:{authorization:`Bearer ${pair.access_token}`,'content-type':'text/plain'}})).statusCode).toBe(404);
+  }
+  expect((await request(outsider.access_token, 'GET', media)).statusCode).toBe(404);
+  expect((await request(outsider.access_token, 'GET', interactionPath)).statusCode).toBe(404);
+  expect(db.prepare('SELECT COUNT(*) n FROM interaction_drafts').get()).toEqual({n:0});
+  expect((await request(outsider.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);
+  expect((await request(bob.access_token, 'GET', `/im/v1/conversations/${personal}`)).statusCode).toBe(404);
+  expect((await request(alice.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id).sort()).toEqual([cross, same, personal].sort());
+  expect(db.prepare('SELECT COUNT(*) n FROM messages WHERE conversation_id=?').get(cross)).toEqual({n:1});
+  expect(db.prepare('SELECT COUNT(*) n FROM relay_tasks').get()).toEqual({n:0});
+
+  const streams = [alice, bob, outsider].map(pair => {
+    const frames: any[] = [];
+    const socket: any = {readyState:1, bufferedAmount:0, send: (raw: string) => frames.push(JSON.parse(raw)), close: () => {}};
+    const browser = {socket, userId:pair.user.id, sessionId:app.im.identity.accessSession(pair.access_token).sid, ready:true, cursor:0};
+    app.im.gateway.browsers.add(browser);
+    return {frames, browser};
+  });
+  const first = messaging.event(cross, null, 'message.created', {content:'live collaboration'});
+  expect(streams.map(s => s.frames.some(f => f.event_id === first.event_id))).toEqual([true,true,false]);
+  for (const s of streams) { s.frames.length = 0; app.im.gateway.replay(s.browser, 0); }
+  expect(streams.map(s => s.frames.some(f => f.event_id === first.event_id))).toEqual([true,true,false]);
+  // Runtime availability is not ownership: preserve offline/stale known history.
+  db.prepare("UPDATE agent_profiles SET is_stale=1 WHERE agent_id='right'").run();
+  expect((await request(alice.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(200);
+  db.prepare("UPDATE agent_profiles SET owner_id=? WHERE agent_id='left'").run(bob.user.id);
+  const next = messaging.event(cross, null, 'message.created', {content:'after ownership change'});
+  expect(streams[0].frames.some(f => f.event_id === next.event_id)).toBe(false);
+  expect(streams[1].frames.some(f => f.event_id === next.event_id)).toBe(true);
+  streams[0].frames.length = 0; app.im.gateway.replay(streams[0].browser, 0);
+  expect(streams[0].frames.some(f => f.conversation_id === cross)).toBe(false);
+  expect((await request(alice.access_token, 'GET', media)).statusCode).toBe(404);
+  expect((await request(alice.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);
+  db.prepare("UPDATE users SET membership_status='suspended' WHERE id=?").run(bob.user.id);
+  expect((await request(bob.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);
+  // Profiles must resolve in the conversation's space; a legacy third participant is not a two-Agent direct.
+  db.prepare("UPDATE agent_profiles SET space_id=? WHERE agent_id='same'").run(`personal:${alice.user.id}`);
+  expect((await request(alice.access_token, 'GET', `/im/v1/conversations/${same}`)).statusCode).toBe(404);
+  db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(personal, 'agent-right');
+  expect((await request(alice.access_token, 'GET', `/im/v1/conversations/${personal}`)).statusCode).toBe(404);
+});

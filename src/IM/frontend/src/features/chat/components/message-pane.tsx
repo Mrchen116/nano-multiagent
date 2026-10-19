@@ -605,7 +605,7 @@ export function MessagePane({
 
   const kind = classifyConversationKind(conversation);
   const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
-  const isGroup = kind === "group" || kind === "agent-network";
+  const isGroup = conversation.type === "group";
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
   const directControlCommand = /^\/(?:stop|new|compact)$/.test(draft.trim());
@@ -1019,11 +1019,11 @@ export function MessagePane({
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
-        {conversation.type === "direct" && onRename ? (
+        {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
             isPinned={conversation.is_pinned} isMuted={conversation.is_muted} onPreferenceChange={onPreferenceChange} />
-        ) : onOpenConfig && (
+        ) : !conversation.is_observer && onOpenConfig && (
           <button
             type="button"
             className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
@@ -1041,7 +1041,7 @@ export function MessagePane({
         {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
       </header>
 
-      {conversation.can_write === false && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
+      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         {messages.length === 0 ? (
@@ -1076,6 +1076,7 @@ export function MessagePane({
                   workAgentId={globalAgentIds.includes(m.sender.id) ? m.sender.id : undefined}
                   nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
+                  readOnly={conversation.can_write === false}
                   isMobile={isMobile}
                   participants={conversation.participants}
                   isDirectChat={isDirectChat}
@@ -1096,7 +1097,11 @@ export function MessagePane({
         )}
       </div>
 
-      <form className="chat-pane-composer" onSubmit={handleSubmit}>
+      {conversation.is_observer && <div className="chat-observer-notice" role="status">
+        <strong>{t("chat.messagePane.observerTitle")}</strong>
+        <span>{t("chat.messagePane.observerDescription")}</span>
+      </div>}
+      {conversation.can_write !== false && <form className="chat-pane-composer" onSubmit={handleSubmit}>
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy || Boolean(pendingInteraction)}>
           {pending.length > 0 && (
@@ -1203,7 +1208,7 @@ export function MessagePane({
             </p>
           )}
         </AttachmentDropzone>
-      </form>
+      </form>}
 
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
@@ -1528,6 +1533,7 @@ function MessageBubble({
   conversationId,
   isMobile,
   participants,
+  readOnly = false,
   isDirectChat = false,
   agentOnline = false,
   onFork,
@@ -1549,6 +1555,7 @@ function MessageBubble({
   conversationId: string;
   isMobile?: boolean;
   participants?: Actor[];
+  readOnly?: boolean;
   isDirectChat?: boolean;
   agentOnline?: boolean;
   onFork?(messageId: string): void;
@@ -1822,6 +1829,7 @@ function MessageBubble({
               <PermissionCard
                 key={req.request_id}
                 request={req}
+                readOnly={readOnly}
                 disabled={!!req.agent_id && !(participants ?? []).some(p => p.type === "agent" && p.id === req.agent_id)}
                 conversationId={message.conversation_id}
                 messageId={message.id}

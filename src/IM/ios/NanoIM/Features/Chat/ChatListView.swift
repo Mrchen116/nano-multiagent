@@ -48,11 +48,13 @@ struct ChatListView: View {
                         }
                     }.padding(.vertical, 8)
                 }.buttonStyle(.plain).listRowInsets(EdgeInsets(top: 3, leading: 20, bottom: 3, trailing: 20)).contextMenu {
+                    if chat.can_write != false {
                     Button(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")) { patch(chat, "is_pinned", !chat.is_pinned) }
                     Button(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute")) { patch(chat, "is_muted", !chat.is_muted) }
+                    }
                 }
-                .swipeActions(edge: .leading, allowsFullSwipe: false) { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) } }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) } }
             }
             if filtered.isEmpty, store.listError == nil, store.listLoaded {
                 ContentUnavailableView(search.isEmpty ? L("暂无聊天", "No conversations") : L("没有找到聊天", "No matching conversations"), systemImage: search.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass", description: Text(search.isEmpty ? L("使用右上角 + 创建聊天。", "Use + to start a conversation.") : L("试试其他名称或关键词。", "Try another name or keyword.")))
