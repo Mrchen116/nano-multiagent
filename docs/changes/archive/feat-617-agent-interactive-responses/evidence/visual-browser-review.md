@@ -33,6 +33,7 @@
 - 前端窄测试 14/14；全量 99 文件、910/910，通过。
 - 最终前端 build、后端 build、typecheck 通过；native communication 专项 2/2 通过。
 - 两个完整构图示例验证输入绑定、结果计算及本地 reset，不触发宿主请求；测试仅替换图表渲染以避开 jsdom canvas 限制，图表外观由真实浏览器验证。
+- 后端本轮默认并行全量为354 passed / 23 failed（16文件失败，主要为超时）；对失败文件用maxWorkers=2复验，14文件/38项通过、2项仍失败。再按CI的Node24串行复验这两个文件，capabilities 3项通过，workspace-tools仍在90秒超时。日志 `/tmp/feat617-visual-backend-tests.log`、`/tmp/feat617-visual-backend-retry.log`、`/tmp/feat617-visual-runtime-node24.log`。这不能宣称本机后端全绿；最终远端CI单独记录，不为本视觉增量修改未受影响的插件测试或延长其阈值。
 - 中屏/手机、旧消息完整旅程由独立产品 reviewer 在 `acceptance.md` 本轮记录。实现方的 viewport override 曾未生效，不能将实际 1537 的截图误作 769/390 证据。
 - 既有实时连接忙提示在部分标签出现；本轮没有修改连接上限或宣称解决该问题。关闭自己的多余页后旧消息页未再显示提示。持久化完成、刷新读取与本地交互已分别观察。
 - 保留当前隔离预览服务，未部署生产、合并 PR 或做真机验收。
