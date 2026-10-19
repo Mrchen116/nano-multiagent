@@ -19,7 +19,7 @@ export interface InteractionSnapshot extends Omit<InteractionReplyInput, 'source
   source_summary: string;
   agent_id: string;
   action_label?: string;
-  fields: { name: string; label: string; value: unknown }[];
+  fields: { name: string; label: string; value: unknown; display_value?: string }[];
 }
 export interface InteractionDraft {
   draft_revision: number;

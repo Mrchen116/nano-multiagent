@@ -1796,7 +1796,7 @@ function MessageBubble({
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
-              <dt>{field.label}</dt><dd>{typeof field.value === 'string' ? field.value : JSON.stringify(field.value)}</dd>
+              <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
             </React.Fragment>)}</dl>
           </details>}
           {message.attachments && message.attachments.length > 0 && (
@@ -1862,6 +1862,7 @@ function MessageBubble({
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+          {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}
           {deliveryStatus === "running" && (
             <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
               <span

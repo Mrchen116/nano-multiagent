@@ -743,7 +743,7 @@ export function ChatWorkspacePage() {
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
-        if (event.eventType === 'node.update_wait_changed' && event.payload.conversation_id === conversationIdRef.current) {
+        if ((event.eventType === 'node.update_wait_changed' || event.eventType === 'relay.delivery_receipt') && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
