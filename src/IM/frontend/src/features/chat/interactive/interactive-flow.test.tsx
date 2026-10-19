@@ -79,3 +79,23 @@ it('retries an uncertain handwritten interaction with the same frozen message, s
  await waitFor(()=>expect(composer).not.toBeDisabled());
  expect(field).toHaveValue('继续在本地探索');
 });
+
+it('keeps both private-chat card states and prioritizes the one most recently used',async()=>{
+ const send=vi.fn().mockResolvedValue(undefined);
+ const second={...card,id:'other-card',content:'另一个草稿',interactive:{...card.interactive!,source:card.interactive!.source.replace('编辑草稿','另一份草稿')}};
+ render(<MessagePane conversation={conversation} messages={[card,second]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
+ const first=await screen.findByPlaceholderText('编辑草稿');const other=await screen.findByPlaceholderText('另一份草稿');
+ const clock=vi.spyOn(Date,'now').mockReturnValue(200);
+ try {
+  fireEvent.change(other,{target:{value:'第二张的修改'}});
+  clock.mockReturnValue(201);fireEvent.change(first,{target:{value:'第一张的修改'}});
+ } finally {clock.mockRestore();}
+ const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
+ fireEvent.change(composer,{target:{value:'对比这两份草稿'}});fireEvent.submit(composer.closest('form')!);
+ await waitFor(()=>expect(send).toHaveBeenCalled());
+ const contexts=send.mock.calls[0][4];
+ expect(contexts.map((context:any)=>context.source_message_id)).toEqual(['card','other-card']);
+ expect(contexts.map((context:any)=>context.state.draft.body.value)).toEqual(['第一张的修改','第二张的修改']);
+ fireEvent.change(first,{target:{value:'发送后的修改'}});
+ expect(contexts[0].state.draft.body.value).toBe('第一张的修改');
+});
