@@ -1,186 +1,112 @@
-# feat-617: Agent 交互式回复 — 技术方案
+# feat-617: Agent 交互式回复设计
 
-> 对齐: [spec.md](spec.md)，2026-10-19；用户授权作者自主选型与设计。
+状态：用户于 2026-10-19 否定首轮表单切片并授权在原 PR #366 修正；下述设计替代 cf4b17f00 的收窄方案。原 design-review / acceptance 保留为历史，不证明此次目标。尚待独立设计复审与实际实施验收。
 
-## Changelog
+## 目标与依据
 
-- 2026-10-19：按用户补充，增加 Agent Features 默认启用的 `intelligent_ui` 开关。
+用户普通提问时，Agent 按内容选择文字、可视化和交互组合；用户能探索、比较、理解并继续对话。保留 OpenUI 原生组件、状态、计算与动作；真实工具仍由 Nano 提供权限和结果。不得为冒泡排序写专用组件、路由、提示词例子或答案。
 
-## 现状分析
+依据：当前实现 `catalog.tsx` 主动删除大部分上游组件，服务端拒绝 Action/Set/Reset，提示词将知识问题归入纯文字；普通“给我讲解下冒泡排序”实际收到纯文字，消息没有 interactive，已证实问题发生在生成和能力设计层。原表单验收未覆盖这个入口。
 
-### 涉及范围
+固定依赖继续为 react-lang/lang-core 1.0.1、react-ui 0.18.1。公开 API 已核实：完整 openuiLibrary、Action/@Set/@Reset/@ToAssistant/@OpenUrl、Query/Mutation/toolProvider、createParser/evaluateRoot/mergeStatements；不 fork 上游，不引入第二套 Agent Loop。
 
-- `packages/dsh-integration/src/global-mode.ts` 注册 `send_message`，通过 product bridge 调用产品能力。Global 模式 prose 属于私有草稿；单线程 final prose 可自动交付。
-- `packages/personal-assistant/src/global-agent.ts` 负责显式公开消息的目标解析、源上下文核对、publication 幂等和实际发送；`single-thread.ts` 投影普通聊天的回复与工具过程。
-- `apps/im-server/src/gateway.ts` 接收 `agent.message`，按可信 node/agent 解析发件人并使用 dispatch log 去重；`messaging.ts` 持有消息、事件、用户身份、relay 入队与历史；`schema.sql` / `db.ts` 持有迁移。
-- `src/IM/frontend/src/features/chat/` 的 `MessageBubble`、chat-api/types 与现有实时投影负责正文、附件、操作和输入框。当前 React 19 + Markdown，没有通用交互内容字段。
-- `packages/product-contracts` 是跨层产品 DTO 的归属；当前 `RelayInput.message` 只有文本与附件等字段。
+## 关键决定
 
-### 既有约束
+1. **完整上游库为基础。** `openuiLibrary` 的组件不做删除，不覆盖上游 Button、Form 的行为。保留此前已经存在的 ContinueButton 作为旧消息可读的附加组件，Form 槽位允许旧按钮但不缩窄原本类型。组件和提示词仍由同一目录生成同版 server schema / DSH Skill，CI 检查漂移。
+2. **表达按任务需要。** Feature 指导模型主动判断交互是否帮助理解过程、变化、关系、比较或编辑，不等用户明确要求交互。没有业务场景白名单，不给特定算法加触发词。详细语法仍按需读取 Skill。单一事实可用文字；知识讲解不预先归类为纯文字。
+3. **上游本地交互原样执行。** 状态绑定、条件渲染、Each、计算函数、Set/Reset、多个动作与按钮由 Renderer 执行。字段可在 Form 外，不要求静态字段、静态按钮文字或单一主提交。浏览/本地操作不产生模型请求；个人状态继续保存且互不共享。
+4. **继续对话可多次发生。** 原生 ToAssistant 事件、无 action 的上游按钮和旧 ContinueButton 接现有消息入口。一次成功请求不会锁死整个界面，用户可继续探索并提出另一个请求。每次实际请求独立生成幂等键；同键重试收敛到原消息，不按 source+user 限制终身只能提交一次。被替代、复制到 fork 的旧版本仍不可发起新业务请求。
+5. **真实工具有明确接线。** 保留 Query/Mutation/toolProvider 原生机制；首批通用宿主工具为 `conversation_messages`（只读当前会话，复用现有 REST 权限）与 `continue_conversation`（写入当前用户请求并沿现有 relay/Inbox 驱动原 Agent）。查询只允许绑定已登记只读工具，Mutation 绑定写入工具；未知工具反馈未接入，不自动映射任意 shell、文件或网络请求。后续业务工具可按同一接入方式增加，不需更换 UI 协议。此次不宣称已经提供通用 Agent 文件编辑器。发送/保存等最终业务行为由 Agent 在既有工具/审批中执行，Mutation 返回入队回执并不冒充业务完成。
+6. **链接是宿主动作。** OpenUrl 支持 http/https 的正常新页导航，使用 noopener；不执行 javascript/data/file URL。自定义动作注册与处理保留上游机制，不以未知事件静默执行。
+7. **增量编辑保留历史。** `interactive.source_mode = 'patch'` 时必须指定同作者同会话的 `supersedes_message_id`。IM 用公开 mergeStatements 合并并校验，保存新消息中的完整程序；原消息不改内容。新增记录保存原始发布输入用于重试身份比对，避免补丁与合并结果不同导致假冲突。原生/外部渠道继续收到独立摘要。
+8. **不另造任意程序执行器。** 模型通过 OpenUI 语言使用完整注册能力；自定义组件/函数的代码由应用定义。语法、已声明工具和现有资源大小限制保留，删除因静态表单设计而额外施加的限制。
 
-继续遵守 `SPEC.md` 的 DSH 公开 exports、stdio 和包依赖方向。IM 与 Channels 不 import DSH。交互产物必须经过公开交付链；模型私有草稿、工具过程不自动成为公开内容。会话读取、写入、fork、重连与身份必须沿用 current IM 规则。
-
-### 可复用能力
-
-- **用** `send_message`、publication/dispatch idempotency、`Messaging.insertMessage`、事件同步与 relay queue；不新增第二个消息系统或 Agent loop。
-- **改** 消息 DTO、持久化、用户消息上下文和前端正文渲染，加入一个可选的交互回复。
-- **用** OpenUI `@openuidev/react-lang=1.0.1`、`@openuidev/lang-core=1.0.1`、`@openuidev/react-ui=0.18.1` 的解析器、组件、状态与 Renderer；按确切版本锁定，不 fork 核心、不引入其 chat shell、Gateway 或托管模型服务。
-- **不用** 首版 Query/Mutation/toolProvider、任意 HTML/JS、跨回复 `mergeStatements`；这些不是当前核心旅程的必要条件。
-- **不用** PA incidents 专用查询/标题/按钮作为协议。feat-616 现有卡片不在本 unit 中迁移。
-
-### 相关历史
-
-feat-584 定义当前会话/身份与消息协作语义；bugfix-606 定义 Web 入口刷新行为；既有 Global Agent 与公开 publication 契约决定交付边界。feat-616 是提出需求的场景，实施与数据模型不作为 feat-617 前置。研究基线、开源成熟度和未验证项见 [选型研究](../../../research/studies/intelligent-ui-open-source-2026-10-19/research.md)。
-
-## 架构总览
+## 组件与职责
 
 ```mermaid
 flowchart LR
-  A[DSH 中的 Agent] -->|send_message: text + interactive| B[dsh-integration]
-  B -->|公开产品调用| C[Personal Assistant]
-  C -->|agent.message| D[IM 消息与事件]
-  D --> E[Web IM / OpenUI Renderer]
-  E -->|本地状态| E
-  E -->|当前用户的选择与原消息引用| D
-  D -->|既有 Relay / Inbox| C
-  C -->|真实用户输入及来源| A
+  A[Agent 选择表达并生成 OpenUI] --> B[现有 send_message / PA 公开交付]
+  B --> C[IM 保存原始输入与完整公开版本]
+  C --> D[完整 OpenUI Renderer]
+  D -->|状态/计算/本地动作| D
+  D -->|当前用户继续请求| E[现有消息 API / relay / Inbox]
+  E --> A
+  D -->|已登记只读 Query| F[当前用户的既有读取 API]
 ```
 
-OpenUI 负责描述与渲染；Nano 保存公开消息、个人草稿和真实点击，沿原有 Agent 执行链继续任务。
+- `product-contracts`：公开描述、patch 模式、用户事件/状态快照 DTO 与生成纯数据 catalog。
+- `dsh-integration`：Agent Features、send_message schema 与生成指导；仅使用 DSH 已公开接口。
+- PA：publication identity、公开审查、普通/Global 输入来源；不直接解释 UI 程序、不 import DSH。
+- IM：公共版本与发布幂等、用户私有状态、交互请求幂等、身份与会话权限。parser/evaluator 使用 lang-core 公开 API；不加载 React。
+- Web：完整 Renderer、本地状态保存、原生事件适配与应用工具接线；复用现有聊天、请求重试与错误反馈。
 
-## 关键决策
+## 接口与状态
 
-**1. 采用 OpenUI，做小范围适配，不自行编写 UI 语言。** 首版库包含排版、表格、条形/折线图、单选、多选、输入、滑块及通用继续按钮。复用上游组件视觉，映射 Nano 字体、颜色、圆角与容器宽度。按钮适配用于确保用户看到的操作文字与回传语义一致，不为隐私、行程等业务创建特殊组件。
+### 公开消息
 
-Catalogue 的唯一维护源放在 `src/IM/frontend/src/features/chat/interactive/catalog.tsx`；构建脚本从所选组件生成序列化 library spec 和模型提示词资产，输出到 `packages/dsh-integration/assets/interactive-ui/`。生成步骤通过显式脚本运行，不在运行时跨包 import 前端代码；CI 验证生成物与源一致。IM 校验器使用随构建生成的同版 library spec（从 product-contracts 的纯数据 export 分发），不加载 React。源目录、生成目标与依赖固定在脚本中，避免手工维护两份组件列表。上游完整库不自动成为模型可用库。
+既有 `{format:'openui',catalog_version:'nano-1',source,supersedes_message_id?}` 增加可选 `source_mode:'patch'`；缺失为完整源。版本仍以固定依赖及生成 catalog 管理，本次为同一尚未合并版本的兼容扩展；旧 ContinueButton 消息真实存在，必须可读。
 
-**2. 每条公开消息最多一个独立交互区。** `text` 保留可独立阅读的摘要，原生/外部 channel 继续显示它；Web 依次显示正文和交互区。首版完整校验后一次交付，生成期间沿用现有运行/工具进度。模型无需对简单问题调用交互能力。
+source 仍限 64 KiB，完整解析及已知组件/函数检查交由上游。允许状态声明、原生 Action、Query/Mutation、条件内容与 Each。Query/Mutation 的工具名必须为当前宿主已提供的静态名称，且匹配读写类型；不再以禁用两种语法代替工具权限。
 
-**3. 首版动作统一为继续对话。** 注册 `ContinueButton(id, label)`，id/label 必须为静态字符串，按钮只回传实际可见 label 与用户填写值；不接受模型生成的隐藏命令、URL、工具名称或任意 `params.context`。动作 catalog 从校验后的 source 提取并保存。其他控件只调整本地状态。真正的发送/保存由 Agent 在既有业务工具和权限边界内完成；“已提交选择”与“任务已完成”分开展示。
+patch 合并须在同一事务内完成原版本验证、新完整源校验、旧版本 superseded 更新和新消息写入；失败不发布半条消息。发布重试比较原始 normalized 输入，而面向用户的消息返回完整 source。
 
-**4. 个人草稿与公开确认分开。** 未提交状态按当前用户与原消息保存，不广播给群成员，也不自动送模型。点击继续后，生成带可读选择摘要的本人消息；此后同一用户的该卡片只读，想改方案可直接发文字，由 Agent 返回新卡片。多用户群中每人各自提交，不能代替其他人选择。
+### 私有交互状态
 
-**5. 每次交付内容不可变。** 后续修改生成新消息。可选 `supersedes_message_id` 明确将同一 Agent、同一会话的旧卡片标成“已有更新”；不靠标题猜测。服务器检查提交时是否已被替代；即使仍可提交，也只是新的用户输入，Agent 必须结合当前事实解释，不把旧卡片视为持续有效的执行授权。
+GET/PUT interaction-state 路径与身份校验继续复用。保存 Renderer 原始 state（16 KiB），包括独立输入与绑定变量；不广播个人状态。CAS 冲突保留当前操作并提供重新读取。取消“已提交就禁止保存”的条件；`submission_message_id` 表示最近一次确认，后续编辑清空此标记以区分未发送的改动。
 
-**6. 上游适配有明确止点。** M1 开始先做固定版本与实际模型的四类任务验证；出现具体 DSL/Renderer 缺陷先判断是否可用小适配解决。若核心生成可靠性不合格，回 design owner 用同样契约换 json-render，并对实质变化复审，不在实施期悄悄维护两个引擎。
+服务端不通过静态表单字段数量校验限制合法 UI。已声明变量和可读选择通过上游解析/求值与当前状态生成；动态来源数据无法静态给出可见标签时保留原始字段键和值，不丢弃真实输入。所有状态均作为用户提供的数据，不授予新角色/目标/权限。
 
-**7. Agent Features 控制能力。** Node capability registry 暴露 `intelligent_ui`（默认 true，关联 send_message），复用 Agent 配置页现有 checkbox 与配置同步。缺失值视为启用。DSH 使用独立 Feature 生命周期挂载 `nano-interactive-replies` 提示，并按当前 Agent 配置过滤历史 preset；PA 显式发布接口在关闭时拒绝带 interactive 的调用，反馈改用文字。关闭不会删除已有卡片、草稿或选择；既有卡片提交仍是普通用户输入，后续回复遵守当前开关。
+### 发给 Agent 的事件
 
-## 接口与数据流
+`interaction_reply` 继续包含 source_message_id/state，兼容旧 action_id；增加上游事件 `{type:'continue_conversation', message, context?, form_name?, label?}`。旧 action_id 仍从保存源取得文字。原生事件携带 Renderer 的 message/context 与用户操作时可见的按钮标签；正文优先显示实际标签，生成的 message/context 作为附属交互信息明确标记，不冒充手写要求或系统指令。用户直接打字时原文仍独立完整保留。
 
-### 公开回复
+Web 使用事件自身的当前 state 发起请求，不等待 debounce。source 作者仍为显式目标 Agent，浏览器不能通过 event 更换 Agent 或会话。按用户前缀隔离 Idempotency-Key；相同 key 相同语义返回原 message，不同语义 409。缺键的交互请求拒绝，避免网络不确定时无法重试。成功后清除该次 pending，允许后续新的请求；正在进行的同一次请求禁止重入，网络不确定时保留原 input/key。
 
-扩展 `send_message` 的公开 target/text 分支，允许 `interactive`；内部 `agent_id/message` 分支不接受它。新增产品 DTO 归 `packages/product-contracts/src/interactive.ts`：
+`interaction_submissions` 改为 message_id 主键，保留 source/user 索引，不再对 source/user 唯一；增量迁移保留全部历史记录。确认快照、本人消息与 relay 入队继续在同一事务内提交。离线时显示已保存待处理，回执到达后更新状态。
 
-```ts
-type InteractiveResponse = {
-  format: 'openui';
-  catalog_version: 'nano-1';
-  source: string;
-  supersedes_message_id?: string;
-};
-```
+### toolProvider
 
-模型提示词给出可用组件、局部状态以及“何时应保持文字”的例子。通过现有随包 skill 承载详细语法，工具说明给出发现入口；生成的 catalog 与 skill 同版本。Agent 可以组合任何已注册组件，不需要按业务场景选预制卡片。
+- `conversation_messages({limit?})`：固定当前 cid，读取已有 listMessages，返回简洁的 message id、sender、content、delivery 状态；不提供跨会话参数。沿既有服务器 read 权限，不获取其他用户草稿。
+- `continue_conversation({message,context?})`：与 ToAssistant 共用一次交互提交实现和幂等；返回 `{message_id,delivery_status}`。只能由 Mutation 调用，不能在 Query 自动执行；服务器发布前核对读写绑定。实际业务结果继续在聊天中交付。
+- 宿主工具描述和读写分类由同一目录生成到模型提示与服务器校验资产。错误使用原生查询/Mutation 错误通道，保留已经可读的 UI；不因后台工具失败抹掉整张界面。
 
-source 上限 64 KiB UTF-8，沿用消息 envelope 总量约束；先 parse/validate 完整源码和 catalog，拒绝未知组件、未完成输入、Query/Mutation、未注册动作及非常量按钮 id/label，不执行任意 JS。校验错误作为工具失败反馈 Agent，可修正后重新发送；未成功校验的 source 不显示给用户。UI 运行错误显示原消息的 text 和“交互暂不可用”，保留普通输入。
+### 更新、历史与只读
 
-PA 的 publication identity 必须包含规范化 interactive（不能仍只比较 target/text）；Node inbox publication、IM dispatch log 的重试内容校验涵盖文本与交互摘要 hash。同 operationId 同内容返回原结果，不同内容返回冲突。held_for_revalidation 不保存公开交互。权限/披露审查必须包含全部 source 的可见内容和默认值，不能只审 text；现有身份与源授权规则不变。
+新 source 通过新消息呈现；patch 合并保留旧公开版本。当前用户已保存的局部状态不因为另一个用户操作改变。fork 保留公开完整源和已确认快照，不复制个人草稿；已替代/fork 历史禁止新业务提交，但可读性和本地浏览不应被笼统禁用。历史状态不触发 Mutation。
 
-IM 同一事务保存 message + interactive 记录，再广播完整 `message.created`。`message_interactive` 以 message_id 为主键，含 format、catalog_version、source、提取的 action id/label、superseded_by；message JSON 暴露可选 interactive。server 不 import React 或 DSH。schema migration 为增量新增表，历史消息无需改写。
+## 前端体验与原型
 
-单线程 Agent 同样走显式 send_message 交付卡片；已有 final prose 投影保留。提示词要求卡片内容不要在 final prose 重复生成，验收确认一份交互只出现一次；不为本 unit 重写普通单线程回复的生命周期。Global 模式只公开显式 send_message 的内容。
+当前产品基线为 [首轮真实浏览器记录](evidence/implementation-browser-review.md) 的同一聊天页面；导航、消息顺序和底部输入保持。原型 [prototype.html](prototype.html) 展示本次改变：正文解释与探索区同属一条回复，本地参数/多视图/重置能连续操作，向 Agent 提问后仍能探索。走查证据见 [连续探索原型走查](evidence/prototype-continuous-review.md)。原三类表单原型保留为 [prototype-forms.html](prototype-forms.html) 历史参考，其“一次提交锁死”不再是目标。
 
-外部 channel 路由在分发前剥离 interactive，发送 text；不把原始 DSL 或本机路径泄漏到外部客户端。Web/iOS 的摘要文本与消息身份保持一致。
-
-### 用户状态与提交
-
-- `GET /im/v1/conversations/:cid/messages/:mid/interaction-state`：普通登录用户按现有会话 read 权限读取自己的 `{draft_revision, state, submission_message_id}`；不读取别人的草稿。
-- `PUT` 同路径：会话 write 权限；body `{expected_draft_revision, state}`，最多 16 KiB。原子 CAS 更新自己的草稿；冲突返回 409，前端保留当前编辑并提示已有另一设备的更改，重新读取后继续，不能静默覆盖。debounce 500ms；UI 不等待保存才能响应。
-- `POST /im/v1/conversations/:cid/messages`：复用 createMessage，新增可选 `interaction_reply: {source_message_id, action_id?, state}`；普通打字附带选择时 action_id 省略。使用 `Idempotency-Key`，并按实际 user_id 加前缀隔离 key。source 必须属于 cid、有交互、未被替代；动作必须在保存的 registry 内。服务端从登录身份与原消息取发件人/来源/按钮文字，不信任浏览器提交这些字段。
-
-同一 viewer 对同一 source 只产生一条确认消息：`interaction_submissions(source_message_id, user_id)` 唯一。提交身份保存完整的 `{source_message_id, action_id ?? null, typed_content, canonical_state}`，user_id 从登录态取得；typed_content 按原文比较，state 按规范化 JSON 比较。完整语义相同的重试返回原消息；action、正文或 state 任一不同均返回 409，展示原提交结果并保留本次未提交的正文和状态，提示新的要求可单独发送。存在原提交时，先在会话权限核对后完成上述比较，不因后来卡片被替代而把成功重试误报为新操作。保存确认快照、更新个人草稿为提交态、创建本人消息与 relay 入队在同一事务内完成。沿用现有 relay 持久队列；节点离线显示消息已保存待处理，重试返回原消息，不二次入队。网络失败时不显示成功；客户端以相同 key 查询/重试收敛不确定结果。
-
-公开正文与选择 snapshot 分开保存，映射如下：
-
-| 提交入口 | 请求 | 持久化与公开回显 |
-|---|---|---|
-| 点击 ContinueButton | `interaction_reply.action_id` 必填，`content` 省略；同时携带 state | content 由服务器取动作 registry 的可见 label；typed_content 为空。选择快照与可读摘要保存在 interaction_reply_json，前端作为该条本人消息的附加选择区展示 |
-| 普通输入框带选择 | content 为用户手写原文，action_id 省略；同时携带 state | content 和 typed_content 均原样保存用户原文；服务器生成的选择摘要只进入独立的 interaction_reply_json，不替换、改写或省略原文 |
-
-同时提供 action_id 和非空手写 content 的混合请求返回 422，避免两种语义混用；普通文字路径仍要求非空 content。按钮路径先生成可信 content 再进入既有非空消息校验。保留字段名称、类型、值与 source message id，超大值按明确限制拒绝，不截断后冒充原输入。表单值属于用户输入数据，原卡片内容属于 Agent 生成材料；不能把隐藏模型文字升级成用户指令。
-
-模型输入组装在 PA 层同时覆盖普通 Relay 和 Global Inbox：完整保留持久化 content，在其后追加独立标识的选择上下文（source id、原回复摘要、按钮、field state），来源继续是实际用户及当前会话。语义字段与 text 来自持久快照；不通过 system 通道注入，也不让浏览器指定目标 Agent/系统角色。群聊点击定向唤醒原卡片作者 Agent，仍要求其在群内有效且可用；普通打字附带卡片也按此显式目标处理，避免 mention_only 下无响应。其他 Agent 的旁听仍按既有群策略执行。
-
-例如普通文字请求 `content="先别发送，把语气改得随意一点"`，state 中草稿为“林悦，周六改为 11 点在断桥见”。本人消息首先原样显示“先别发送，把语气改得随意一点”，附加区再显示草稿。普通 Relay 和 Global Inbox 交给模型的用户输入都必须包含这两段，且将前者标为本次手写要求、后者标为所附 Agent 回复的选择数据。相同 state 下把正文换成“发给林悦”属于不同提交，不能返回旧提交成功。W2 窄验证分别检查 REST 持久正文、历史/事件回显、两条 PA 输入路径以及相同 state/不同正文或 action 的 409；不靠原型模拟代替。
-
-前端保存 Renderer 的 opaque state 原值，用 initialState 恢复。选择摘要由适配的表单字段登记（可见 label、field key）生成，服务器只保留 source 中存在的字段与局部变量，不信任隐藏额外字段。schema/表单定义变更通过新卡片处理；同一 source 的 catalog 固定。
-
-普通输入框在用户修改某张卡片后显示一个可取消的“附带选择：标题”条。只有带此条发送时才提交该卡片状态；取消后就是普通文字。提交请求携带当下 state，消除 debounce 尚未落库的竞态。离开再进入恢复最近编辑的尚未提交卡片；已确认的选择存在公开消息中。
-
-### 历史、删除与 fork
-
-消息列表/实时事件共享 interactive 数据；个人草稿只按需 GET，不放进群广播。删除会话或消息时级联删除其 interactive/draft/submission 辅助记录。登出清空前端状态，切换会话不复用同一 Renderer 状态。
-
-fork 将已公开交互 source、确认 snapshot 与摘要复制到新消息并重映射 source/superseded/submission 引用，超出 fork 范围的引用仅保留文字说明；不复制任何用户未提交草稿。复制的旧卡片作为只读历史，显示“来自分支前的记录”；新分支需要继续交互时由 Agent 给出新卡片。原会话删除后 fork 中内容仍可读。
-
-## 前端原型
-
-- 原型：[prototype.html](prototype.html)，仅模拟 UI，不调用后端、不证明 OpenUI 能生成这些内容。
-- 目标：用户先读简短建议，再调整选项，看清当前选择，点击继续；聊天仍是主界面。
-- 排版：沿用顶栏、会话侧栏、本人浅绿色消息、Agent 浅灰内容和底部输入框；交互在对应 Agent 回复内部。桌面卡片最大 720px；移动端上下排列、按钮整行，输入框常驻。长内容随主消息区滚动，不添加卡片内纵向滚动层。
-- 状态：普通、未提交编辑、提交中、已提交、失败重试、已替代、无法渲染；演示控制放在产品区域之外。
-
-### 现有 UX grounding
-
-| 当前产品入口 | 画面与操作基线 | 沿用或改善 | 本次设计 |
+| 区域/状态 | 对齐 | 入口与宽度 | 验收 |
 |---|---|---|---|
-| `/chat/c_04143c1727c6`，feat-616 隔离服务 | 2026-10-19 实际登录查看；1440×1000，顶栏与左栏固定，消息主滚动区，底部输入，PA提醒在消息外 | 保留导航和输入位置，将本次通用交互嵌入对应消息以保留上下文 | 原型同一聊天背景中的行程调整与后续选择消息 |
-| Web MessageBubble / global.css | Markdown、附件和本人/Agent 消息层级 | 文字仍是简短入口，卡片只承担调整与选择 | 文本摘要 → 控件 → 当前选择 → 单一主动作 |
+| 简短文字先交代结论；图形/参数/解释在同一回复内，参数变化可见且含义可理解 | must-match | 聊天消息，1440/768/390 | R1/W2 |
+| 本地操作即时响应、无新聊天消息；提交后可以继续探索并发送另一请求 | must-match | 控件/动作/输入，三种宽度 | R2/W2 |
+| 本人私有状态刷新恢复；文字继续仍方便，提交与实际业务完成分明 | must-match | 刷新/离线/自然语言 | R2/R3 |
+| 图表、步骤、Tabs、布局等具体组合 | may-adapt | 由任务与模型生成决定 | R1，不要求固定模板 |
+| 原有导航、Agent Features | retained | 当前产品入口 | 原通过证据 + 定向回归 |
 
-### 原型对齐契约
+关键体验是用户看懂变化关系，不能以“有图表/有按钮”替代；真实模型内容不同于原型是正常的，需核对信息组织和实际交互结果。
 
-| 区域/状态 | 对齐级别 | 入口 | viewport/状态 | 验收投影 |
-|---|---|---|---|---|
-| 交互与正文属于同一回复，摘要在前，选择和主动作相邻 | must-match | 聊天消息 | 1440×1000、768×900、390×844；正常/编辑 | M1 R1/W2 |
-| 本地调整即时更新；继续后本人选择消息可见；已提交卡片只读 | must-match | 卡片继续/输入附带 | 三种宽度；编辑/提交/失败 | M1 R2/W2 |
-| 正文失效仍能阅读，旧卡片不继续执行，输入入口始终可用 | must-match | 历史/异常 | 390×844；替代/降级 | M1 R3/W2 |
-| 桌面左右、移动上下的字段排列，适配 Nano tokens | may-adapt | 回复内部 | 上述三种布局已有原型 | M1 R1 |
-| 顶栏/会话导航背景及演示状态控制 | out-of-scope | 当前导航保持不变 | 演示栏不是产品入口 | 不新增产品设置 |
+## 风险与验证界限
 
-### 原型走查
+真实工具继续受当前用户会话权限及 Agent 工具审批约束。生成来源不等于用户授权；UI 事件附属上下文保持来源标记。普通本地动作不加审批。未知工具/不支持链接明确失败，不执行猜测的替代目标。
 
-走查记录见 [evidence/prototype-review.md](evidence/prototype-review.md)。原型不代表真实模型、真实状态持久化或产品验收。
-
-## 契约层增量
-
-- [IM 消息 delta](specs/im/conversations-messages.md)：公开交互与选择、身份、回看/fork。
-- [Web 体验 delta](specs/im/web-chat-ux.md)：选择、文字继续、错误/移动体验。
-- [Gateway 能力 delta](specs/gateway/agent-capabilities.md)：任意 Agent 按需交付交互，外部渠道文字回退。
-
-## 风险与回退
-
-- OpenUI 1.0 刚发布，只有固定版本通过本仓样本才能采用；实际兼容或模型生成问题先在 M1 起点暴露，不先铺完整系统。若换引擎，保留 Nano 消息与选择契约，更新受影响设计并独立复审。
-- UI/模型可能误解业务动作。首版 ContinueButton 只有可见 label 与字段，结果先标“已提交”；真实执行完成由 Agent 的实际结果消息说明，不将 UI 回调当业务成功。
-- 不提供 toolProvider 或任意 JS/HTML；具体格式限制、资源上限及重复提交检查围绕本需求，不建设通用插件权限平台。
-- 暂停新交互生成时，既有 text 继续可读；保留读取旧 catalog 的 renderer，不靠删除历史数据回滚。依赖升级须保留旧版本消息可读或提供明确迁移。
+完整组件库会增加提示长度，W1 记录加载成本与真实生成结果；只修正实际发现的问题，不按猜测再次砍能力。上游组件适配有可见错误时优先最窄修复，不重写整套 Renderer。复杂领域计算由模型程序表达或通用扩展，不预埋验收题答案。
 
 ## Runbook for Reviewer
 
-只在 feat-617 自己的 worktree 启动隔离服务，不复用、重建或停止 feat-616 的现场。
+复用本 worktree 已有隔离栈 `http://127.0.0.1:58769`，用户名 nano、密码 nano1234。普通 e2e / Global e2e-global；主模型 codexOAuth:gpt-6.1-sol，审核 codexOAuth:gpt-6-luna。已有运行数据不可重置。首次启动路径和保留数据重启按 `docs/development/worktree-runtime.md`；不操作 feat-616 或生产。
 
-| 服务 | 停止 | 启动 | 健康检查 |
-|---|---|---|---|
-| 本 unit IM + Node + 前端构建 | `./scripts/e2e-down.sh --wt "$PWD"` | 首次 `pnpm install --frozen-lockfile && ./scripts/e2e-up.sh --wt "$PWD"` | source 本 worktree `.e2e-ports.env` 后 `curl -fsS "$IM_URL/health"`，核对 own node ready |
+真实浏览器进行桌面/中等/手机尺寸操作。先以普通用户原话“给我讲解下冒泡排序”发问；不得追加“做交互/按钮/滑块”指导，不用 API 注入预制 source 充当该旅程。另选未在产品提示中出现的不同领域普通问题，检查是否按需要主动使用交互；报告原始问题、完整回复、交互后的变化及失败样本。核对产品代码/提示/Skill 没有算法专用逻辑。API fixture 只用于工具、权限、patch、幂等的确定性回归。
 
-脚本首次启动可能重建测试数据；已有有效现场先核对版本与进程，不盲目重跑。保留数据重启按 `docs/development/worktree-runtime.md` 执行。
+## Milestone
 
-**Review 驱动方式**：端到端真栈，真实浏览器桌面/窄桌面/手机尺寸；必须操作行程、草稿、通用提醒三类卡片并继续打字，验证刷新、离线与失败。不能只用 API 或手写 fixture 代替 Agent 生成能力。
+继续同一 M1-interactive-replies，不新建第二套生命周期。先设计复审，主 Agent 修复，独立静态与产品复验，沿原 PR 交付。
 
-**验收前置**：本地脚本的 nano/nano1234 测试账号和独立 node；同一隔离租户经产品注册建立第二个用户与测试群。真实模型配置取现有 config/e2e/gateway.yaml 支持的本机代理，密钥不入库；实施前检查代理与实际模型响应，本轮最小真实请求已得到 `OK/end_turn`，见原型走查记录；未验证候选 DSL 生成。外发任务仅向该隔离栈的第二测试用户发消息；不需真人联系人或生产服务。当前本机已有可用真实模型联调方式与浏览器，具体端口由脚本分配。
+| ID | 依赖/范围 | 退出标准 |
+|---|---|---|
+| M1-interactive-replies | 原实现与同一 worktree；catalog/生成资产、IM 状态/事件、Web Renderer、PA 上下文、公开 tool schema | **R1** 普通/Global 的无交互提示知识问题实际生成有意义交互，指定原话和跨领域样本通过；无验收题专用逻辑，1440/768/390 可读可操作。 **R2** 本地探索不调用模型，多次继续会话正确携带状态，重复网络请求不重复入队，旧表单仍可读。 **R3** 私人状态、读写权限、离线/错误、替代/fork、patch 历史与 Feature 开关正确。 **W1** 固定版本 full catalog、原生动作/计算/条件/Each、宿主 Query/Mutation 与 patch 的有意义窄测试，真实模型源与失败记录。 **W2** 原型和真实浏览器交互对照、类型/构建/相关测试、静态审查、一致性与独立产品验收；未接入具体业务工具的边界如实披露。 |
 
-## Milestones
+## Changelog
 
-| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
-|---|---|---|---|---|---|
-| M1-interactive-replies | 任意 Agent 的交互回复完整闭环 | 无；不依赖 feat-616 | 单一 | product-contracts，dsh-integration 公开工具/资产，PA 交付与输入，IM 消息/迁移/relay/fork，Web chat 与窄测试，生成脚本/锁文件 | **[reviewer] R1** 同一真实模型在普通/Global Agent 完成行程调整、草稿修改、通用提醒，简单问题仍用文字；1440/768/390 三种宽度摘要、控件、动作与输入均可辨认可操作。 **[reviewer] R2** 本地操作无需模型；按钮或带选择的文字使 Agent 正确理解实际改动；本人选择消息与业务实际结果分明，重复点击不二次入队。 **[reviewer] R3** 刷新/换设备可读自己的草稿和公开结果；群成员草稿隔离，离线与失败如实，替代/fork 旧卡片只读；外部/原生仍可读摘要。 **[worker] W1** 起点固定 OpenUI 版本，用实际 provider 跑三类交互加纯文字样本并保留成功/失败、输出量、耗时；确认公开 API 与 source validation；不通过时先修订设计。 **[worker] W2** 真实浏览器截图/录屏与原型逐项对照覆盖所有 must-match；Parser/Renderer、消息和提交幂等、身份/草稿隔离、CAS、relay/Inbox 上下文、fork 与 public source 披露审查的窄测试；相关构建、类型、架构契约与 docs-check 通过。 |
