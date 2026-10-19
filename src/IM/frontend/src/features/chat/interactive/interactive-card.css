@@ -1,0 +1,30 @@
+.interactive-card { margin-top: 20px; min-width: 0; width: 100%; color: var(--foreground, #202124); }
+.interactive-card-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.interactive-card :is(input, textarea, select):disabled { color: inherit; -webkit-text-fill-color: currentColor; opacity: 1; }
+.interactive-card input, .interactive-card textarea, .interactive-card select { max-width: 100%; font: inherit; }
+.interactive-card-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #667085; }
+.interactive-card-status button { border: 0; background: transparent; color: #2563eb; cursor: pointer; }
+.interactive-selection { display: flex; align-items: center; gap: 8px; margin: 0 8px 8px; padding: 8px 12px; border-radius: 10px; background: #eef4ff; font-size: 13px; }
+.interactive-snapshot { margin-top: 8px; padding: 8px 12px; border-left: 2px solid #a7bbd9; font-size: 13px; }
+.interactive-snapshot dl { margin: 6px 0 0; }
+.interactive-snapshot dt { color: #667085; }
+.interactive-snapshot dd { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The generated library supplies its own surfaces; the host only provides space. */
+.chat-bubble-card:has(.interactive-card) { width: 100%; max-width: none; padding: 12px 0; border-radius: 0; background: transparent; }
+@media (max-width: 767px) {
+  .interactive-card { margin-top: 16px; }
+  .chat-bubble-card:has(.interactive-card) { padding-block: 8px; }
+}
+
+/* Theme tokens also follow portals through the public OpenUI ThemeProvider. */
+.interactive-card { container: nano-interactive / inline-size; color: var(--im-text); }
+.interactive-card .openui-card-card { padding: 24px; background: var(--im-surface); border-color: var(--im-border); border-radius: 12px; }
+.interactive-card .openui-card-sunk { box-shadow: none; }
+.interactive-card .openui-card-clear { padding-inline: 0; }
+.interactive-card .nano-ui-card-row > div > .openui-card { flex: 1 1 16rem !important; }
+.interactive-card .openui-overview-card { background: var(--im-surface); }
+.interactive-card .openui-metric-indicator__main-value { font-variant-numeric: tabular-nums; }
+.interactive-card :is(input, textarea, select) { font-family: var(--im-font-sans); }
+@container nano-interactive (max-width: 520px) {
+  .interactive-card .openui-card-card, .interactive-card .openui-card-sunk { padding: 16px; }
+}

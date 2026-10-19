@@ -12,6 +12,7 @@ interface Catalog {
   }[];
 }
 const features = [
+  { key: "intelligent_ui", requires_tool: "send_message", default_on: true },
   { key: "task_graph", requires_tool: "task_graph", default_on: true },
   { key: "memory_curation", requires_tool: "memory", default_on: true },
   { key: "skill_creation", requires_tool: "skill_manage", default_on: true },

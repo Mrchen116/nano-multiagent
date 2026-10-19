@@ -48,7 +48,7 @@ export function AttachmentDropzone({ onAdd, children, className, disabled = fals
     <div
       className={className}
       data-dragging={dragging}
-      aria-disabled={disabled}
+      data-disabled={disabled}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}

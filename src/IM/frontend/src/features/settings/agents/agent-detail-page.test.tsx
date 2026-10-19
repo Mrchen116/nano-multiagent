@@ -705,6 +705,20 @@ describe("agent behavior settings", () => {
     apiMocks.listAgentsMock.mockResolvedValue([]);
   });
 
+  it("defaults Intelligent UI on and saves an explicit off choice", async () => {
+    const user = userEvent.setup();
+    const state = makeDetailState({features: [{key: "intelligent_ui", label_i18n: "feature.intelligent_ui.label", help_i18n: "feature.intelligent_ui.help", default_on: true, available: true, requires_tool: "send_message"}]});
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, features: {intelligent_ui: false}});
+    renderDetailPage();
+    const toggle = await screen.findByRole("checkbox", {name: /Intelligent UI/i});
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", {name: /Save Agent/i}));
+    await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith("agent-core-1", expect.objectContaining({features: {intelligent_ui: false}})));
+    expect(toggle).not.toBeChecked();
+  });
+
   it("saves custom instructions with the selected features", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(

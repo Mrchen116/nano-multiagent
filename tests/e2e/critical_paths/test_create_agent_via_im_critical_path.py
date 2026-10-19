@@ -16,6 +16,7 @@ from __future__ import annotations
 import secrets
 from pathlib import Path
 
+import httpx
 import pytest
 
 from ._im_client import IMClient
@@ -30,6 +31,35 @@ def test_agent_created_via_im_lands_and_replies(
     node_id = im_user.wait_for_online_node(timeout=40)
 
     new_agent_id = "e2eNew" + secrets.token_hex(3)
+    # The creation page reads capabilities and previews before any Agent workspace exists.
+    with httpx.Client(
+        base_url=im_user.im_url,
+        headers={"Authorization": f"Bearer {im_user.token}"},
+        timeout=40.0,
+    ) as http:
+        catalog = http.get(f"/im/v1/nodes/{node_id}/capabilities")
+        catalog.raise_for_status()
+        assert catalog.json()["tools"]
+        preview_root = Path(
+            catalog.json()["default_workspace_template"].replace(
+                "{agent_id}", new_agent_id
+            )
+        )
+        assert not preview_root.exists()
+        preview = http.post(
+            f"/im/v1/nodes/{node_id}/prompt-preview",
+            json={
+                "agent_id_hint": new_agent_id,
+                "custom_prompt": "PREVIEW_WORKSPACE_SENTINEL",
+            },
+        )
+        preview.raise_for_status()
+        assert "PREVIEW_WORKSPACE_SENTINEL" in preview.json()["prompt"]
+        assert preview_root.is_dir()
+        assert new_agent_id not in {
+            agent["agent_id"] for agent in im_user.list_agents()
+        }
+
     created = im_user.create_agent(
         node_id,
         new_agent_id,

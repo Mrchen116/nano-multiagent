@@ -1,0 +1,110 @@
+{
+  "draft": {
+    "response": {
+      "text": "已拟好发给林悦的消息，你可以先修改草稿和语气。当前不会发送，确认后再进行下一步。",
+      "source": "root = Stack([intro, draftForm])\nintro = TextContent(\"给林悦的消息草稿：约周六上午11点在断桥见。你可以先调整内容和语气；此步骤只确认草稿，不会发送。\")\ndraftForm = Form(\"linyue_message_draft\", confirmButton, [draftField, toneField])\ndraftField = FormControl(\"消息草稿\", TextArea(\"message_draft\", \"修改消息内容\", 4, {required: true}, \"林悦，周六上午11点在断桥见，方便吗？\"))\ntoneField = FormControl(\"语气\", Select(\"message_tone\", [SelectItem(\"friendly\", \"自然亲切\"), SelectItem(\"casual\", \"轻松随意\"), SelectItem(\"polite\", \"礼貌简洁\")], \"选择语气\", {required: true}, \"friendly\"))\nconfirmButton = ContinueButton(\"confirm_linyue_draft\", \"确认草稿和语气\")"
+    },
+    "result": {
+      "case": "draft",
+      "elapsed_seconds": 13.88,
+      "usage": {
+        "input_tokens": 3097,
+        "output_tokens": 336,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "stop_reason": "end_turn",
+      "source_bytes": 747,
+      "success": true
+    }
+  },
+  "notice": {
+    "response": {
+      "text": "这条提醒表示：一位你不熟悉的联系人曾向助手询问你的私人就诊信息，助手没有向其透露。你可以选择进一步了解请求来源，或了解如何处理该联系人。无论选择哪一项，都不代表你同意披露任何就诊信息，也不会自动联系、屏蔽或举报对方。",
+      "source": "root = Stack([notice, boundary, nextForm], \"column\", \"m\")\nnotice = Card([CardHeader(\"有人询问了你的私人就诊信息\", \"助手没有透露你的信息\"), TextContent(\"一位你不熟悉的联系人向助手询问了你的私人就诊信息。这条提醒是告知你发生了这次询问，不是要求你授权披露。提醒本身也不代表对方已经掌握你的就诊信息。\")])\nboundary = TextContent(\"**你的选择不构成披露授权。** 下列选项仅用于确定接下来提供哪方面的说明，不会自动向对方发送信息，也不会自动联系、屏蔽或举报对方。\")\nnextForm = Form(\"privacy_next_step\", nextButton, [choiceField])\nchoiceField = FormControl(\"你想先了解哪一方面？\", RadioGroup(\"privacy_choice\", [RadioItem(\"继续了解来源\", \"了解有哪些可核实的请求来源、身份与询问内容；无法确认的部分会明确说明。\", \"source\"), RadioItem(\"了解如何处理联系人\", \"了解核实身份、限制联系、屏蔽或举报等处理方式，再由你决定是否采取措施。\", \"contact\")], \"source\"), \"已默认选中“继续了解来源”，你可以更改。两项都不允许披露私人就诊信息。\")\nnextButton = ContinueButton(\"privacy_next\", \"继续了解所选事项\")"
+    },
+    "result": {
+      "case": "notice",
+      "elapsed_seconds": 18.66,
+      "usage": {
+        "input_tokens": 3109,
+        "output_tokens": 476,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "stop_reason": "end_turn",
+      "source_bytes": 1271,
+      "success": true
+    }
+  },
+  "itinerary": {
+    "response": {
+      "text": "先按“杭州西湖、周六半天约4小时、从龙翔桥地铁站附近出发”规划：轻松线约2—3公里，沿湖滨走到断桥、北山街；多走线约6—7公里，从湖滨经断桥、白堤、孤山到曲院风荷。两条线都以免费湖岸景点为主，不含游船。你可以调整出发时间、人均预算和路线，再让我继续细化。现在不会联系任何人，也不会预订或付款。",
+      "source": "root = Stack([intro, comparison, tips, settings], \"column\", \"l\")\nintro = TextContent(\"## 周六 · 西湖半日游\\n暂按杭州西湖、龙翔桥地铁站附近集合、游玩约4小时安排。路线时间包含休息和拍照，不含往返市内交通。\")\ncomparison = Card([CardHeader(\"两种路线怎么选\", \"以下为估算；实际步行距离取决于入口与绕行。\"), routes])\nroutes = Table([Col(\"对比\", [\"路线\", \"步行量\", \"节奏\", \"预计用时\", \"人均预算参考\"]), Col(\"轻松沿湖线\", [\"龙翔桥 → 湖滨公园 → 断桥 → 北山街近断桥段\", \"约2—3公里\", \"湖边慢走，中途坐下喝茶或休息；不绕湖\", \"约3—4小时\", \"约50—120元\"]), Col(\"多走风景线\", [\"龙翔桥 → 湖滨公园 → 断桥 → 白堤 → 孤山 → 曲院风荷\", \"约6—7公里\", \"以步行为主，留两次短休息；终点不返回起点\", \"约4—4.5小时\", \"约60—150元\"])])\ntips = Card([CardHeader(\"出发前的小提醒\"), TextContent(\"• 两条路线所列湖岸、公园步行区域以免费为主，不安排付费游船或景区。预算参考含简单餐饮、饮水及少量市内交通，不含往返杭州交通。\\n• 周六建议08:00—09:00出发，尽量避开断桥、白堤午间人流；若下午出发，可相应压缩停留时间。\\n• 多走线在曲院风荷附近结束，可根据体力选择公交或网约车离开；拥堵时需预留时间。\\n• 雨天或怕累优先轻松线；穿舒适防滑鞋。这里仅做规划，不联系任何人，不进行预订或付款。\", \"small\")])\nsettings = Form(\"west_lake_saturday_preferences\", nextStep, [routeField, timeField, budgetField, notesField])\nrouteField = FormControl(\"更倾向哪条路线？\", Select(\"route_choice\", [SelectItem(\"relaxed\", \"轻松沿湖线 · 约2—3公里\"), SelectItem(\"walking\", \"多走风景线 · 约6—7公里\")], \"选择路线\", {required: true}, \"relaxed\"))\ntimeField = FormControl(\"周六开始游玩的时间\", Input(\"start_time\", \"例如08:30或13:00\", \"text\", {required: true}, \"08:30\"), \"指到达龙翔桥附近、开始游玩的时间；暂按半天约4小时。\")\nbudgetField = FormControl(\"人均预算（元）\", Input(\"per_person_budget\", \"填写金额\", \"number\", {required: true, numeric: true, min: 0}, \"150\"), \"包含餐饮、饮水和市内交通；不含往返杭州交通。\")\nnotesField = FormControl(\"补充信息（可选）\", TextArea(\"trip_notes\", \"可填写具体日期、实际出发地点、同行者或饮食偏好\", 3, null, \"\"), \"若实际不是从龙翔桥出发，我会相应调整起终点。\")\nnextStep = ContinueButton(\"refine_west_lake_plan\", \"按我的选择继续细化半日行程\")"
+    },
+    "result": {
+      "case": "itinerary",
+      "elapsed_seconds": 31.61,
+      "usage": {
+        "input_tokens": 3101,
+        "output_tokens": 1062,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "stop_reason": "end_turn",
+      "source_bytes": 2689,
+      "success": true
+    }
+  },
+  "plain": {
+    "response": {
+      "text": "42",
+      "source": null
+    },
+    "result": {
+      "case": "plain",
+      "elapsed_seconds": 9.76,
+      "usage": {
+        "input_tokens": 3073,
+        "output_tokens": 13,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0
+        },
+        "service_tier": "standard"
+      },
+      "stop_reason": "end_turn",
+      "source_bytes": 0,
+      "success": true
+    }
+  }
+}

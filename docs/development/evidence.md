@@ -47,11 +47,11 @@
 
 ## 保存与引用
 
-- 小型、可审查且不含 secret 的截图、录屏、请求摘要和对照表放在对应 `<unit>/M*/evidence/`。
+- 截图、录屏保存在 gitignored 或仓外目录，不提交 Git；对应 `<unit>/M*/evidence/` 只保留文字结论、场景/尺寸、可复现定位、小型脱敏请求摘要和对照表。需要图片时记录本地目录与文件名。
 - verifier/reviewer 的 unit 级结论写在 `verification.md`、`acceptance.md` 或 `regression.md` 并链接原始 evidence；code review 结果进入 PR Validation Summary，快速开发同时保留在 unit `code-review.md`。
 - PID、完整服务日志、数据库、临时 config、浏览器缓存和原始 LLM 对话保留在 gitignored/仓外位置；unit 记录时间、session id、路径和必要的脱敏摘要。
 - evidence 含 token、cookie、个人数据、完整 prompt 或第三方内容时，不提交原件；保存可复现定位信息和脱敏结论。
-- `/tmp` 或浏览器临时会话只适合当场调查。交付依赖它时，先把必要结果转存到 unit evidence 或可重复测试。
+- `/tmp` 或浏览器临时会话只适合当场调查。交付依赖图片或录屏时，转存到稳定的 gitignored/仓外目录；必要文字结果写入 unit evidence，或转化为可重复测试。
 
 ## 从一次证据进入长期保护
 

@@ -1086,9 +1086,35 @@
       "pin": "Pin chat",
       "mute": "Mute chat"
     },
-    "viewWork": "View Work"
+    "viewWork": "View Work",
+    "interactive": {
+      "title": "Interactive reply",
+      "fallback": "This reply cannot be displayed interactively. Use the text summary above.",
+      "loading": "Restoring your choices…",
+      "submitted": "Choices submitted",
+      "queued": "Saved, waiting for Agent",
+      "readOnly": "Historical reply · read only",
+      "sending": "Submitting…",
+      "loadError": "Could not restore the draft.",
+      "saveError": "Draft has not been saved.",
+      "conflictError": "Another device updated this draft. Load the latest version to continue.",
+      "alreadySubmittedError": "You already submitted different choices on another device. Your local edits are retained; send further changes as a new text message.",
+      "staleError": "This card no longer accepts choices because it has been updated or is copied history. Your edits are retained; continue with a new text message.",
+      "previousSubmission": "View previous submission",
+      "sendError": "Submission is unconfirmed. Retry the same submission.",
+      "retry": "Retry",
+      "loadLatest": "Load latest draft",
+      "choices": "Submitted choices",
+      "ask": "Ask the Agent",
+      "actionError": "This action is not connected or this link type is unsupported.",
+      "pendingRetry": "Delivery is unconfirmed. Send again to retry the original message."
+    }
   },
   "feature": {
+    "intelligent_ui": {
+      "label": "Intelligent UI",
+      "help": "Let this Agent create interactive cards with editable fields and choices when useful. Turn off to use text replies; existing cards remain available."
+    },
     "task_graph": {
       "label": "Task Graphs",
       "help": "Allow the agent to save plans, exploration branches and progress for the Tasks page. Turning this off keeps existing records."
