@@ -77,3 +77,8 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 - 增量保护扩展既有interactive-messages、interactive-replies、interactive-flow测试；后台快照缺失/群聊接口无隔离/PA未注入背景均先红，未新建平行测试文件。原explicit按钮、CAS与重试保护保留。
 - 窄后端2文件19 tests、Web2文件16 tests通过；全后端96 suites377 tests、全Web99 suites908 tests、pnpm typecheck/build与Web build通过（原型/真实产品尚须本轮独立验收）。命令日志 `/tmp/feat617-context-*.log`。
 - 用户要求真实验证必须清历史：保留备份后，停止617隔离栈，清空仅c_8iutij8v/c_igsjsbh2两测试聊天84条消息；仅重置e2e/e2e-global的3个Node session及16条Global Inbox数据，确认三项均为0、foreign_key_check=0。其他聊天/Agent/节点身份保留。重启后使用新runtime session，不把新聊天页面误当成无历史Global上下文。
+
+
+### 自然上下文最终闭环
+
+产品26f2743e0 Round4与静态Round10（有效code329c64c9c、证据c5d64d54c）均pass；新policy从清空记录和全新session分别验证事实42纯文字、普通知识自动交互，两张自然生成卡片独立状态/最近排序/冻结与正确指代均通过。完整后端96/377、Web99/908+新增多卡1项（同文件6tests）、Python62、native prompt6、build/typecheck/Ruff/docs及critical audit已通过；新增多卡后Web tsc通过。finalfetch cc47abe3f无main增量。归并三个已审delta与对应area索引，整体归档后更新原PR366；不merge、不部署生产、不改616。当前隔离服务及数据供用户继续试用。

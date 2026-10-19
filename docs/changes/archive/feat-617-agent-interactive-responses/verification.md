@@ -4,9 +4,9 @@
 
 ## Current verdict — natural direct-chat background
 
-**Static delta checks passed — 1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
+**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
-最新固定候选 `329c64c9c2b82b01833fdfb98847133d1abd11d0`（在f63ffa73d上仅prompt/工具描述/生成资产澄清）；自然上下文实现候选 `f63ffa73d`、patch base `72791ffad`、unit execution/effective base `cc47abe3f`。Round 8/9静态无存活问题，三份最新delta aligned；仅新自然上下文体验的独立产品证据待补（C1-NC）。此前完整OpenUI、原生修复和preview保留原范围，不用旧手写公开确认/Detach体验替代新目标。
+有效产品代码 `329c64c9c2b82b01833fdfb98847133d1abd11d0`；本轮最终证据与新增最低层多卡回归有效至 `c5d64d54c4477a412617a945e1ccc6237e1acdee`。自然上下文实现候选 `f63ffa73d`、patch base `72791ffad`、unit execution/effective base `cc47abe3f` 均保留。Round 8/9静态与Round 10最终证据closure后，C1-NC closed，code-review `[]`，三份最新delta aligned。此前完整OpenUI、原生修复和preview仅保留实际未受影响范围。
 
 ## Previous delivery verdict — superseded by restored full OpenUI scope
 
@@ -455,16 +455,16 @@ All checks passed. Ready for PR update after canonical reconciliation and archiv
 | IM MODIFIED：私聊自然追问与群聊明确提交 | direct后台metadata、group server guard、Web两条路径/后台无publicsnapshot | aligned |
 | IM ADDED：发问时冻结/重试不重复入队 | transaction+原key短路；Web深克隆attempt；backend重复/状态变化回归 | aligned |
 | IM ADDED：背景私聊作者过滤、群聊隔离与原路由 | enqueueRelays按已选receiver与source author过滤；背景不进入mention；group拒绝 | aligned |
-| Web MODIFIED：静默自动保存/自然输入、普通本人消息仅原话 | card默认/恢复ref和普通背景接口；删除saved/currentchoices/detach；explicit仍独立 | aligned at implementation seam；C1-NC pending |
-| Web MODIFIED：桌面手机、生成失败、个人状态/真实失败 | 既有布局/摘要/输入；CAS/native失败保留；普通请求冻结正文/附件/背景/key | aligned at implementation seam；新对照 C1-NC pending |
-| Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned at seam；模型实际行为 C1-NC pending |
+| Web MODIFIED：静默自动保存/自然输入、普通本人消息仅原话 | card默认/恢复ref和普通背景接口；删除saved/currentchoices/detach；explicit仍独立 | aligned；Round 10真实普通/Global/群聊及静默UI证据闭合 |
+| Web MODIFIED：桌面手机、生成失败、个人状态/真实失败 | 既有布局/摘要/输入；CAS/native失败保留；普通请求冻结正文/附件/背景/key | aligned；Round 10三宽度/刷新新对照 + 当前冻结/CAS专项 |
+| Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned；Round 10实际冻结追问/换题 + 新policy样本 |
 | Gateway ADDED：所有群Agent不读未提交状态 | 前后端群guard，既有draft仅人类本人GET/PUT授权不变；明确提交后才共享 | aligned |
 
 ### Uncovered Observable Behavior
 
 无遗漏新增对外行为。自然上下文不新增数据库表/列、不改变已注册组件/工具或workspace权限；普通消息原子提交与publish返回值是本轮已设计的数据一致性/503语义修复，已纳入核对。三份delta按当前canonical的同名MODIFIED与新增ADDED分类，无重复旧手写公开确认契约。
 
-Outcome: **aligned**。静态delta完成；本轮产品C1-NC仍pending，完整交付当前不能再次宣称Ready for PR。
+Outcome: **aligned**。本轮产品C1-NC经Round 10 closed，无存活CRITICAL/WARNING；实现与最终三份delta一致。
 
 
 ## Round 9 — prompt clarification patch closure
@@ -493,3 +493,59 @@ Outcome: **aligned**。静态delta完成；本轮产品C1-NC仍pending，完整�
 作者新增 `evidence/natural-context-browser-review.md` 保存空白普通原话、step2自然追问、继续step3、relay固定step2、公开interaction_reply=null、模型按4与3解释的端到端结果，同时保留最初残留work登记导致session冲突的失败与恢复边界。它能补充普通路径证据，不能单独代替当前尚在进行的Global/群聊/三宽度独立增量产品裁决。
 
 C1-NC继续pending，待同一独立产品报告到齐后一次性证据closure；无需因本次纯prompt澄清重开Full设计、重审83组件或改变已执行基线。本轮只更新verification，code-review.json仍为`[]`，未动caller未跟踪截图/relay证据。
+
+
+## Round 10 — C1-NC final evidence closure and corrected delta
+
+### Metadata and verdict
+
+- verification_mode: `targeted-closure` + final `corrected-delta`；focus: Round 8/9的C1-NC及全部自然上下文must-match。
+- validated_product_code: `329c64c9c2b82b01833fdfb98847133d1abd11d0`（数据/UI状态实现为f63ffa73d，329仅prompt澄清）。
+- effective_through: `c5d64d54c4477a412617a945e1ccc6237e1acdee`；相对329仅产品证据、措辞澄清、报告和既有interactive-flow的一项多卡回归，无运行代码变化。
+- independent_acceptance_commit: `26f2743e0`，`acceptance.md` Round 4。
+- executed_base / effective_base: `cc47abe3f`，caller final fetch无main增量。
+- checked_at: `2026-10-19T20:11:20+08:00`
+- retained_from: Round 8/9自然背景patch/接口/隐私/冻结/prompt核对，以及此前未受影响实际范围；未重跑full。
+- requires_full_verification: `false`
+- verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected-delta aligned**。
+
+本轮仅更新verification；code-review.json保持`[]`，未改实现/测试/其他报告或运行环境。没有将设计澄清或文档SHA增长作为重审全库理由。
+
+### C1-NC evidence reconciliation
+
+| 当前目标 / explicit must-match | 实际新证据与独立核对 | 结论 |
+|---|---|---|
+| 普通私聊自然追问使用发问时状态，后来探索不改旧问题 | `natural-context-ordinary-sample.json` 与作者记录：空白session原话生成排序卡，step2普通问“为什么这里要交换”，后来step3；relay固定step2、公开interaction_reply=null、private draft到3，模型实际按4与3而非后来4与1解释 | covered |
+| Global同语义及换题相关性 | 独立acceptance R4：空白Global普通浮力问题生成卡；全浸没10N时问→继续未浸入20N→模型仍按10N解释。下一翻译问题的relay仍携带未浸入背景，模型只翻译没有强拉回卡片；不是清除背景才可换题 | covered |
+| 群聊所有Agent不获未提交state，普通消息不隐式定向 | 独立新群：本人改12月冬至；无@普通发言relay无context/reply、mentions空；随后明确@作者问其是否知道所选时节，仍无背景且实际模型明确不知道。不是把普通群relay“存在接收记录”误写为“群Agent完全不收群消息” | covered |
+| 群聊明确按钮后才公开本人快照/定向 | 独立实际按钮提交后才出现Submitted choices和冬至state/event.context，原作者正确解释冬至；保留明确提交反馈不等于恢复普通保存成功或附带模式 | covered |
+| 两卡连续操作、最近操作优先、状态不串用与冻结 | 最初最终报告仍缺该项，已要求定向补证，未用旧single-selection外推。`two-card-context-sample.json`：真实模型分别生成排序/利息两卡，先改本金20000再改排序第2步；relay中两个不同source按排序卡在前排列，state为$s='2'与$p='20000'/$rate='5'，发送后private state变3/30000，实际回答仍为第2次4与3、20000/5%。已打开可见答复截图核对，与raw数据一致 | covered |
+| 正常无Draft saved/Current choices/Detach，控件/输入与刷新仍可用 | 独立R4实看Global/群多次操作和刷新，正常无管理提示；本人普通消息只有原文。已直接打开R4的1440、767、390截图核explicit contract：控件、说明、导航/输入无重叠，原生明确提交与异常状态可辨认。767不冒称768，旧R3精确768仅保留未改变布局范围 | covered |
+| 新常驻policy实际生效且保留简单文字/无提示知识交互 | `new-policy-model-samples.json`：329新session62f1cc07的17+25只回复42，无卡；再全新session52f832a5原话排序生成827f86fc，点击下一步数组4,2,3,1→2,4,3,1及解释同步变化。已打开新policy手机截图；实际prompt-preview200包含新policy/群边界由作者现场记录，native6项原生装配专项通过 | covered within this provider/sample |
+| 新背景异常重试、CAS、附件和权限边界 | Round 8实际源码与新19项backend/PA、Web16项专项守新metadata/不公开/群拒收/无跨cid/冻结/非授权；Round 6旧native竞态与按钮重试保留其原明确动作范围，未用旧interaction_reply重试冒充新context重试现场 | covered at declared seam |
+
+两卡是本轮新缓存的退出要求，前次独立产品报告明确未执行；因此本轮接受新增真实客户端/relay/模型直接证据及最低层回归，而非静默删掉该标准。`interactive-flow.test.tsx`新增同文件测试守两份独立state、最近操作排序、发送后修改不改旧请求；已读取 `/tmp/feat617-context-multicard-test.log`：同文件 **6 tests passed**，caller交接Web `tsc -b`通过。测试本身无产品行为改动，无需再次full重审或重跑无失效全量。
+
+### Final corrected delta
+
+`11b62181f` 对IM delta只澄清“群聊私人未提交状态仅本人可见”，私聊自然文字可供接收Agent判断；并把发问冻结Scenario的WHEN限定私聊。它消除了旧句可能把私聊发问后也不许Agent看背景的误读，完全符合已审R5最终边界和f63实现，不是新增权限或追认错误实现。其余Web/Gateway delta未变。当前唯一Corrected Delta Reconciliation段已同步为aligned，新增可观察行为仍无遗漏。
+
+### Retained evidence and scope
+
+| 保留范围 | 证据来源 | 为何仍有效 / 不外推边界 |
+|---|---|---|
+| 完整82+legacy组件、原生本地动作/计算/Query/Mutation/patch | Round 5源码与窄测试，Round 6修复，acceptance R3 | 本轮未改变注册/工具/patch执行；不宣称每组件或未接入业务已浏览器逐项验过 |
+| 普通/Global原生明确请求、W2与N1 | Round 6绿测+acceptance R3最终资产复验 | native提交通道保留；旧普通文字公开快照/附带模式不再作为当前行为 |
+| 私聊背景与群隐私/原路由、普通发送事务与503 | Round 8源码、19项专项及全backend96/377；R4实际relay | 群内只能明确动作共享；卡片作者metadata过滤不改变普通群mention路由 |
+| Web/CAS/unknown请求冻结及新静默状态 | Round 8 Web16、全Web99/908；本轮多卡6；R4三档画面 | 真实异常未在R4重复，只沿当前有效协议保护；不把旧ordinary公开submit状态留为新目标 |
+| 新prompt | Round 9源码+native3 suites/6 tests，新policy真实新session样本 | f63上的Global/群产品结论只保留不变传输/控件范围；329生成策略由自己的新样本支持 |
+| 创建Agent的workspace preview修复 | preview-workspace-code-review及其真实新目录E2E | 生成/背景修改未涉及Node目录路径，不需重开preview全旅程 |
+| 构建/类型/docs与原回归 | context全backend96/377、全Web99/908、Python62、typecheck/build/Webbuild/Ruff，docs252/64及前次已核日志 | 后续仅prompt/证据/一条新增测试，已补原生装配与Web类型；归并/归档后的链接门禁由caller完成 |
+
+### Final disposition
+
+C1-NC **closed**；当前W1/W2/R1/R2/R3按本轮影响范围与上述保留证据满足，M1 **1/1 complete**。Code review无存活finding，最新三份delta **aligned**，没有剩余CRITICAL/WARNING。
+
+真实产品样本只证明本次provider/config与有限旅程，未声称所有模型必然选择同样UI。连接上限造成的`Real-time updates are busy`及reload边界按acceptance如实保留；没有新降低连接限制或扩大为生产故障裁决。原生手机/软键盘、iOS、外部channel与生产未现场接入，保留各自原测试边界，不宣称真机或部署通过。
+
+All checks passed. Ready for canonical reconciliation, archival and updating PR #366. 此结论不表示这些动作、远端CI、合并或部署已经完成。

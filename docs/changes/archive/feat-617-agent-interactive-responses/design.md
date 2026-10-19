@@ -165,7 +165,7 @@ PA普通/Global两条入口通过同一product-contracts格式化器在原话后
 
 用户最新确认的私聊/群聊边界覆盖此前草案中“群聊仅作者获得私有背景”的方案，群聊一律不随普通文字附带。
 
-本轮继续M1。原R1/W1的完整库和普通生成证据保留；R2/R3/W2对自然文字背景、隐私和群路由重新验证。静态审查与verifier做实际增量，一位独立产品reviewer验新旅程，不重跑已无影响的全83组件或未接入工具。当前修订待Gate2完成，原preview-workspace修复36e713cdb保持有效。
+本轮继续M1。原R1/W1的完整库和普通生成证据保留；R2/R3/W2对自然文字背景、隐私和群路由重新验证。静态审查与verifier做实际增量，一位独立产品reviewer验新旅程，不重跑已无影响的全83组件或未接入工具。当前修订已由Gate2 R5与实施/独立产品/静态R10闭环，原preview-workspace修复36e713cdb保持有效。
 
 
 ### 本轮实现期用户补充：常驻UI决策引导
@@ -173,3 +173,8 @@ PA普通/Global两条入口通过同一product-contracts格式化器在原话后
 用户给出外部调研参考，并确认system prompt应有Intelligent UI引导。实际本仓已由nano-intelligent-ui插件常驻注入短规则、nano-interactive-ui按需提供完整生成语法；本轮仅细化既有表达选择、真实数据/能力及私聊/群聊说明，同步send_message工具描述和生成语法资产，沿既有入口，不新增输出路由或生成Agent。属于R5设计中既有prompt职责的澄清，无传输、权限、组件或milestone变化；R5仍有效，新提示的原生装配与真实普通问题另验证。
 
 外部primary参考：CopilotKit [runtime prompt](https://github.com/CopilotKit/OpenIntelligentUI/blob/main/apps/agent/src/prompt.py)、[master playbook](https://github.com/CopilotKit/OpenIntelligentUI/blob/main/apps/agent/skills/master-playbook/SKILL.md)及OpenUI [system prompt generator](https://www.openui.com/docs/openui-lang/system-prompts)。采用任务导向的表达选择和短常驻/完整语法按需加载分工；上游Jev、沙箱HTML/JS桥接及特定业务组件不作为本仓已接入事实。
+
+
+## 最终交付状态（自然上下文修订）
+
+有效产品代码329c64c9c；用户确认的私聊/群聊边界、无管理提示、常驻决策引导完成。独立设计R5Approved，产品Round4 pass（Global/群聊/三宽度），静态Round10 PASS 0C/0W、corrected-delta aligned，普通新上下文与两卡实测及原始背景见natural-context-browser-review.md。原型与真实模型/持久化证据互不替代。final sync origin/main=cc47abe3f无增量，后续仅已审delta归并、索引和整体归档，无产品语义变化；各门禁按明确范围保留至最终归档树。PR待远端CI，不自动merge或部署。
