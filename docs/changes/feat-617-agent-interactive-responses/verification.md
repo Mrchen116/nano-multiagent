@@ -2,11 +2,11 @@
 
 > Validation snapshot: `cc47abe3f → 0373d8feca33a449c0ea7e7f5a01fa88909e3e87`
 
-## Current verdict — full OpenUI restoration
+## Current verdict — natural direct-chat background
 
-**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
+**Static delta checks passed — 1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION；corrected delta aligned。**
 
-最终有效代码 `60b311a48ac5e999a3594d81316acf3c69eac433`（产品代码等同定向 closure 候选 `19efc4031`），产品报告提交 `cff39b7164c29b6f764603f0a6f36ea51af3594d`。full 审查候选 `07ca4831c`、旧交付基线 `cf4b17f00`、unit/main 基线 `cc47abe3f` 均保留。W2、产品N1与C2均 closed；当前结论来自新版 full 静态、两项代码 closure、独立新产品旅程和相关专项证据，不依赖旧表单 PASS 外推。详见 Round 5/6/7。
+当前固定候选 `f63ffa73d1e3204017bc1b521fae6719710b3cb2`；patch base `72791ffad`，unit execution base `cc47abe3f`。本轮静态patch无存活问题，三份最新delta与实现 aligned；仅新自然上下文体验的独立产品证据待补（本轮 C1-NC）。此前完整OpenUI、两项原生修复及preview修复保留原有效范围，不用旧手写公开提交/Detach体验替代新目标。详见 Round 8。
 
 ## Previous delivery verdict — superseded by restored full OpenUI scope
 
@@ -283,7 +283,7 @@ Outcome: **aligned**（最终实现 a211d7643；W1/A1/A2 修复与 C1 产品证�
 
 旧 W1、A1/A2/C1 在原交付范围的闭合历史保留。本次新问题 W2 open，C2 pending；当前代码审查 JSON 为本轮一个 CONFIRMED finding。静态核对本身已完整结束，不等待新产品报告才报告确定问题，不追逐假想边界。
 
-## Corrected Delta Reconciliation
+## Previous Restoration Corrected Delta Reconciliation
 
 | Current delta item | 最终实现/证据 | 结果 |
 |---|---|---|
@@ -394,3 +394,74 @@ Outcome: **aligned**（Round 6 W2/重试修复 + Round 7 C2证据closure）；�
 - M1 W1/W2/R1/R2/R3：按上述证据边界满足，milestone **1/1 complete**；corrected-delta **aligned**。
 
 All checks passed. Ready for PR update after canonical reconciliation and archival. 本结论不代表PR已push、CI已完成、已合并、发布或部署。
+
+
+## Round 8 — private background / group explicit-submit delta
+
+### Metadata and verdict
+
+- code review mode: `patch`，完整受审源码增量 `72791ffad..f63ffa73d`。
+- verification_mode: `delta` + `corrected-delta`，核对当前全部三份自然上下文 delta 和该 diff 的可观察行为。
+- validated_at / candidate: `f63ffa73d1e3204017bc1b521fae6719710b3cb2`
+- pre_fix_head: `72791ffadc9e3c0e3bb0bc9543c8a049bcf44dbb`
+- executed_base: `cc47abe3f`；最终fetch由caller后续确认，不自行改写已执行基线。
+- checked_at: `2026-10-19T19:48:47+08:00`
+- retained_from: Round 5/6/7 中完整库、原生动作/工具/patch、W2/N1修复及原生产品已证明范围；preview-workspace独立patch结论保留。旧普通输入“附带选择公开确认/Detach”是此次主动替换对象，不予retained。
+- requires_full_verification: `false`；无新的包边界、Agent loop或拓扑影响。
+- 结论：**patch code review `[]`；delta aligned；1 CRITICAL pending product evidence / 0 WARNING / 0 SUGGESTION**。
+
+### Completeness / correctness / coherence
+
+| 新契约或受影响路径 | 实现与实际证据 | 结果 |
+|---|---|---|
+| 私聊来源与状态规范化 | `interactions.ts:46–55` 要求人类、数组最多3条、同cid交互消息、有效时间戳；复用原16KiB state解析；作者/摘要（160字）/fields从持久source取得，浏览器不选择目标Agent | covered |
+| 背景只进入relay metadata | `messaging.ts:510,577–589` 从背景构建每目标payload，仅保留其自己author的项；不加mention、不改变receiver选择。Message/event/history没有新字段；不写submission或draft | covered |
+| 群聊所有Agent不读未提交state | `messaging.ts:488–490` 对非direct直接拒绝interaction_contexts；group的无action/event interaction_reply也拒绝。普通群发送前端仅二参数，不读取私有草稿来拼relay；明确按钮仍公开原snapshot、定向source作者 | covered |
+| 普通消息/relay原子保存、离线语义 | `messaging.ts:517–524` message/event记录和relays在一个transaction内，commit后publish；publishMessages聚合真实deliverRelays布尔；原存在relay且无人接收时503保留。suppress_relay仍是空receiver数组，原timezone/attachments/reference流程保留 | covered |
+| 首次冻结和重试 | 服务端已存在key直接返回原message，不重新生成或覆盖metadata；Web `message-pane.tsx:645–669` 当次正文、附件、states、key深拷贝到pending attempt，未知错误保留，4xx明确失败解除；成功只清attempt、不清背景 | covered |
+| 默认/恢复背景与多卡候选 | `interactive-card.tsx:67,171–184` 初始/恢复state、parsed声明和native完整snapshot均通知父缓存；`message-pane.tsx:260,645–652` 按cid/source保存，仅当前消息候选、排除替代/read_only、实际操作时间优先，其次最新卡片，最多传3 | implemented；真实多卡相关性待 C1-NC |
+| 自然原文与原生请求分离 | 普通direct使用onSend第5参数，interactionReply为undefined；普通group不传背景；native按钮保持显式第3/4参数通道。自然消息没有interaction_reply，不会成为Submitted choices或修改draft revision | covered |
+| 两种Agent输入与非授权标记 | `single-thread.ts:117`、`inbox.ts:115` 共用 `withInteractionContext` 新第3参数；`interactive.ts:35–42` 原文在前，背景单独标记发问时数据、相关才用、换题忽略、歧义澄清、不是授权 | covered at seam；真实模型判断待 C1-NC |
+| 正常UI静默，真实失败保留 | 删除saved成功文案与CurrentChoices/Detach DOM/i18n，保留read-only/busy/done/error、CAS、unknown retry和明确native结果；无新业务控件或状态管理模式 | implemented；真实三宽度及恢复待 C1-NC |
+| 跨包边界 | product-contracts纯DTO/formatter，IM不importPA/DSH/React，PA仍经现有session/Inbox，无新工具/Loop；状态只从已授权用户发送链进入 | coherent |
+
+没有发现需要maintainer处理的确定新增代码问题。`code-review.json` 保持 `[]`；未因范围收窄而忽略正常发送路径的事务/广播/503变化。
+
+### Reused validation and limits
+
+已实际读取下列日志尾部/结果，并核对新增断言所经过的真实seam，不重复已有效覆盖的全量：
+
+- `/tmp/feat617-context-green.log`：后端2文件 **19 tests passed**。私聊background进入durable relay、公开broadcast/message不含值、无submission/draft revision变化、后来状态重试仍保留首次背景；group普通无背景/无implicit mention、传字段/无动作旧submit拒绝、明确动作公开；跨cid拒绝。
+- `/tmp/feat617-context-web-green.log`：Web2文件 **16 tests passed**。direct静默普通文字第5参数、发成功后背景继续可用、group普通不传/按钮明确传、冻结重试保护保留。
+- PA新增回归真实经过普通session.submit和Global Inbox输出，断言原问题、state与not authorization/Ignore标记共同存在；原红测日志context-red/pa-red由caller交接，当前green结果与受审实现一致。
+- `/tmp/feat617-context-backend-all.log`：全后端 **96 suites / 377 tests passed**；`context-web-all.log`：全Web **99 suites / 908 tests passed**。
+- `context-typecheck.log`、`context-build.log`、`context-web-build.log`：typecheck/Node build/production Web build完成；build日志发布candidate标签为提交前72791ffad，是同working tree构建记录，不声称该标签已发布。
+- `/tmp/feat617-context-docs.log`：**252 maintained Markdown sources / 64 required routes passed**。
+- 本轮 `git diff --check 72791ffad..f63ffa73d` 通过。
+
+用户额外要求的历史清理与备份/重启由caller执行，本reviewer未读写运行数据库、未操作服务。其清理数量/foreign-key结果为caller现场交接，不能代替新的输入/relay/模型证据；本轮不将旧会话数据清空等同新体验通过。
+
+### Issue — CRITICAL C1-NC（本轮产品证据pending）
+
+当前design末节新must-match要求真实普通/Global私聊“当前状态追问/换题忽略”、发出后继续操作不改旧背景、多卡指代以及群内普通文字不泄露/明确动作才共享、1440/768/390无保存成功/CurrentChoices/Detach且异常仍可处理。设计R5Approved与原型只证明目标与可实施性；目前新真实客户端取证/独立产品增量验收仍在进行。
+
+建议按已派发旅程补实际客户端、持久relay首次快照和公开投影缺字段、两种Agent实收输入及真实模型结果、群路由与三宽度对照。只需闭合本轮增量，不重做全83组件/未接入工具/preview，不据“清过历史”猜测模型已经正确理解。该项属于未完成退出证据，不是已证实产品bug；收到独立报告后定向closure即可。
+
+## Corrected Delta Reconciliation
+
+| 本轮最新delta | 实现/证据 | Outcome |
+|---|---|---|
+| IM MODIFIED：明确提交/群中成员/多次幂等/patch保留 | 原native/action路径保留；group拒绝无动作interaction_reply；原patch/request seam retained | aligned |
+| IM MODIFIED：私聊自然追问与群聊明确提交 | direct后台metadata、group server guard、Web两条路径/后台无publicsnapshot | aligned |
+| IM ADDED：发问时冻结/重试不重复入队 | transaction+原key短路；Web深克隆attempt；backend重复/状态变化回归 | aligned |
+| IM ADDED：背景私聊作者过滤、群聊隔离与原路由 | enqueueRelays按已选receiver与source author过滤；背景不进入mention；group拒绝 | aligned |
+| Web MODIFIED：静默自动保存/自然输入、普通本人消息仅原话 | card默认/恢复ref和普通背景接口；删除saved/currentchoices/detach；explicit仍独立 | aligned at implementation seam；C1-NC pending |
+| Web MODIFIED：桌面手机、生成失败、个人状态/真实失败 | 既有布局/摘要/输入；CAS/native失败保留；普通请求冻结正文/附件/背景/key | aligned at implementation seam；新对照 C1-NC pending |
+| Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned at seam；模型实际行为 C1-NC pending |
+| Gateway ADDED：所有群Agent不读未提交状态 | 前后端群guard，既有draft仅人类本人GET/PUT授权不变；明确提交后才共享 | aligned |
+
+### Uncovered Observable Behavior
+
+无遗漏新增对外行为。自然上下文不新增数据库表/列、不改变已注册组件/工具或workspace权限；普通消息原子提交与publish返回值是本轮已设计的数据一致性/503语义修复，已纳入核对。三份delta按当前canonical的同名MODIFIED与新增ADDED分类，无重复旧手写公开确认契约。
+
+Outcome: **aligned**。静态delta完成；本轮产品C1-NC仍pending，完整交付当前不能再次宣称Ready for PR。
