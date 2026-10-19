@@ -17,7 +17,7 @@ describe('private interactive reply', () => {
     const send = vi.fn().mockResolvedValue({}); const select=vi.fn();
     render(<InteractiveCard message={message} onSend={send} onSelect={select} />);
     const field=await screen.findByRole('textbox');
-    await waitFor(()=>expect(field).toHaveValue('周日见'));
+    await waitFor(() => expect(field).toHaveValue('周日见'));
     fireEvent.change(field,{target:{value:'周日10点断桥见'}});
     await waitFor(()=>expect(select).toHaveBeenCalled());
     expect(send).not.toHaveBeenCalled();
