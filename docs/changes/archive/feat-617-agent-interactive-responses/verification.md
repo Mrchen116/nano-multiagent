@@ -462,6 +462,7 @@ All checks passed. Ready for PR update after canonical reconciliation and archiv
 | Gateway ADDED：按原话相关性/换题/歧义/非授权 | 双输入共用formatter与随包Skill通用指导，无关键词强制路由 | aligned；Round 10实际冻结追问/换题 + 新policy样本 |
 | Gateway ADDED：所有群Agent不读未提交状态 | 前后端群guard，既有draft仅人类本人GET/PUT授权不变；明确提交后才共享 | aligned |
 | Web ADDED：消息随聊天面板和内容伸缩 | Round 11静态实现与R6一致；Round 12核独立acceptance R5真实同源复利、1537/769/390、宽表格/代码内滚、长文上限、复制及手机操作，C1-LAYOUT closed | aligned |
+| Web ADDED：交互回复使用统一产品视觉 | Round 13核public ThemeProvider/theme、公开Stack薄包装、同源构图guide/示例与生成资产；独立旧source/新构图/三宽度视觉证据仍待C1-VISUAL | aligned（静态；产品证据pending） |
 
 ### Uncovered Observable Behavior
 
@@ -652,3 +653,63 @@ All checks passed. Ready for canonical reconciliation, archival and updating PR 
 C1-LAYOUT **closed**。R6 Approved + Round 11代码审查`[]`与一致性核对 + R5独立产品pass + 当前证据closure，满足同一M1的布局增量退出标准。没有剩余本轮CRITICAL/WARNING或待产品证据门禁，`layout-code-review.json`保持`[]`。
 
 既有“Real-time updates are busy”仍按R5保留事实：历史阅读与本地操作完成，本轮未验证实时消息送达，不将其扩成布局缺陷或声称连接已恢复。Global/群权限、幂等、83组件、Query/Mutation/patch和原生设备仅保留原实际范围，不重跑或外推。源码、测试、设计、配置、运行环境均未修改，未提交截图；报告由caller提交，远端CI、合并与部署仍是独立事项。
+
+
+## Round 13 — unified theme and information composition delta
+
+### Metadata and verdict
+
+- reviewer: `/root/layout_static_review`，独立审查，未参与视觉方案或实施；skills: `change-code-review` + `change-verifier`。
+- verification_mode: `delta` + scoped `corrected-delta`；review_mode: `patch`。
+- validated_at: `d8ba0ac509709da4185b891bbd3f54c8136aba65`；fix_delta_range: `d9876365f4f3e4fdd5ac7fc8e8809aa6fecd6203..d8ba0ac509709da4185b891bbd3f54c8136aba65`。
+- executed_base: `cc47abe3f92eebbf8f9d3fb1b1e221d95625599d`；effective_base: `d9be419c7791c5cccf06b629ce72c4af8cd023de`；effective_through: `2feef94d8f59967b0a97d1f07c95ddeb0250f46f`。
+- checked_at: `2026-10-19T22:22:34+08:00`。final sync为其他unit设计/issue模板、文档/工作流与脚本，未改变本次产品、测试或设计；冻结validated_at不变。
+- retained_from: Round 12面板空间与消息操作、Round 10自然上下文及此前未变完整库/协议范围；design-review Round 7 Approved。
+- requires_full_verification: `false`。
+- verdict: **静态PASS — 0实现CRITICAL / WARNING；代码review `[]`，corrected-delta静态aligned。C1-VISUAL为尚未完成的独立产品退出证据，整体M1不可仅凭本轮静态结论放行。**
+
+### Completeness / correctness / coherence
+
+| 最新契约与设计 | 实现与验证 | 结论 |
+|---|---|---|
+| spec统一视觉：不同作者/历史消息兼容，Nano决定外观 | `interactive-card.tsx:171-189`以public ThemeProvider/lightTheme包原Renderer，`.interactive-card`及其portal同主题；`theme.ts:1-63`映射现有IM字体、表面、文字、动作/边框和多色palette。原load/initialState/busy/readOnly/state/action接口不变，catalog_version/组件props及generated JSON schema无改动 | aligned；旧source/portal实际体验待产品 |
+| design公开Stack适配与窄容器 | `catalog.tsx:28-38`复用公开Stack props/description/component，row+wrap时加display:contents宿主；`interactive-card.css:20-30`只给直属Card16rem basis，原Card仍minWidth:0。520px命名inline-size容器只改padding；没有重写上游React或给Buttons/nowrap/非Card行加列宽 | aligned |
+| spec信息主次：主结论、控制与结果、辅助解释 | `catalog.tsx:51-55`覆盖主结论、三档间距、清晰章节、变量结果就近、对称比较、图形有解释作用、辅助内容后置和避免嵌套Card；常驻intelligent-ui只追加一句结构职责，详细Skill仍按需加载 | 静态aligned；真实模型结果待产品 |
+| design两份完整通用示例 | `composition-examples.ts:1-30`阅读时间/累计投入与公交地铁对称比较，输入均转数值计算、假设有标记、local Reset不请求模型；`catalog.test.tsx:40-64`实际Renderer验证20→30→Reset与5→6联动及0外部动作。图表在该单测stub，不把它当成真实图表布局测试 | aligned at declared seam |
+| 同源资产及公开契约 | `generate-interactive-ui.ts`仍从同一catalog生成DSH prompt和PA Skill；已审37行生成增量与规则/两个示例一致，全前端pretest检查无漂移。product-contracts catalog、DSH catalog JSON/公开工具未变 | aligned |
+| 状态/权限/旧业务契约不退回 | 两项旧interactive-card测试仅增加等待恢复值再操作；原冲突回显和保存失败保护保留。未改IM/PA存储/relay、直接私聊与群边界、ToAssistant/Mutation或patch逻辑 | retained；控件外观变化的可用性需本次验 |
+
+主题只覆盖Web消费端及其portal，执行侧只变既有短prompt和同源Skill，不引入DSH private export、跨包相对导入、第二套Loop或新工具。样式/内容职责按R7分开；现有公开库足以写出两个示例，未为了凑数加新组件。是否还有真实表达缺口仍须结合模型样本记录，不凭静态推断全部任务都已足够。
+
+### Reused validation
+
+已直接读取下列caller提交的当前候选日志，不重复运行未失效测试：
+
+- `/tmp/feat617-visual-full-frontend.log`：`npm test -- --maxWorkers=2`，含`check:interactive-assets`，99 files / **910 passed**，22:15:22开始。
+- `/tmp/feat617-visual-narrow-final2.log`：catalog + interactive-card两文件，**14 passed**；示例联动/legacy组件、本地动作与原恢复/重试/冲突行为覆盖保留。
+- `/tmp/feat617-visual-build-final.log`：Web **tsc -b + Vite build通过**；大chunk及上游注释annotation警告不冒充失败，也不由此扩展性能重构。
+- `/tmp/feat617-visual-backend-build.log`：workspace/backend build至apps/node完成；构建发生在产品提交前，日志版本戳为d987，caller将其绑定受审产品内容，不冒称构建时HEAD已为d8。
+- `/tmp/feat617-visual-native-test.log`：native **1 file / 2 passed**。该摘要未逐项证明模型构图质量，仅复用原生入口装配范围。
+- 独立`git diff --check d9876365f..d8ba0ac50`通过。
+
+### Prototype / Reference Contract and C1-VISUAL
+
+| R7明确must-match | 当前直接证据 | 剩余 |
+|---|---|---|
+| 同一旧source换肤、不同作者历史、菜单和键盘焦点 | 已读baseline.json/source和最终same-source-desktop-final、compound-portal-desktop截图；旧source三色曲线与新portal青绿选中底已核。caller确认最终资产index-DciNEapF.js，DOM三色stroke及SQLite source SHA不变 | 最终资产下同source与不同作者历史回归、焦点/禁用/portal独立实际证据 |
+| 同原话两轮新上下文复利、另一个非财务问题；主次与变量结果清楚 | caller新群c_0usbd4jg/c_nlxmdmhx；本地source有复利Select/LineChart与咖啡Slider/BarChart，均可追溯，未将之硬编码进产品；已打开新复利portal及Tab画面 | 作者持久/浏览器记录及独立模型内容/交互裁决、失败与表达缺口记录 |
+| 1537/768/390阅读/操作，控件改变结果，状态语义保留 | 原型记录只是模拟；当前compound-tablet.png画布仍为桌面宽，不能按文件名当中屏证据 | 独立DOM有效宽度/三档操作、旧state可用；不将旧R5“未改字体/主题”画面外推到本次换肤 |
+
+**CRITICAL C1-VISUAL — 产品退出证据pending（非已确认代码缺陷）**：design末尾M1增量退出标准要求独立同source/历史、新模型构图和三宽度实际操作。当前静态审查时尚未收到这轮完整报告。旧图palette差异经caller补最终资产同source截图、三色DOM stroke及原source SHA后已REFUTED，原图为根入口导入修订前时点；不列代码缺陷或要求再改产品。
+
+建议：收到独立产品报告后一次性核对最终资产、实际有效视口、同source历史兼容/portal/focus、本地数值和两领域模型构图；使用既有日志和新证据定向closure，不重审全部后端/83组件或重跑全量910项。原型和fixture只作其明确用途，不替代真实模型结果。
+
+### Final delta correction coverage
+
+本轮corrected-delta覆盖全部实际新增：Web ADDED `交互回复使用统一产品视觉`（delta:40-48）的两个Scenario，与主题/历史兼容、构图及桌面/手机消费结果对齐。current `docs/specs/im/web-chat-ux.md`尚无该Requirement，新ADDED分类正确；旧面板自适应Requirement已在current并无语义改变，不重复添加；旧自然上下文MODIFIED和IM/Gateway delta均保留Round 10/12的已归并结论。
+
+没有新增DTO、公开schema、工具、权限或业务能力；16rem响应式和主题换肤是本条对外契约的实现，通用示例/guide是生成质量机制而非新业务承诺，未遗漏另一份应落到Gateway的行为契约。未发现delta-mismatch或implementation-mismatch。唯一Corrected Delta Reconciliation段已补本轮行，Outcome保持 **aligned（静态）**；待C1-VISUAL闭合后可将新ADDED直接归并current及同步入口数量，不能用改spec追认未过的视觉结果。
+
+### Current disposition
+
+代码审查PASS，JSON结果见code-review.md Round 1。0 WARNING / 0 SUGGESTION；唯一剩余CRITICAL为C1-VISUAL证据门禁。旧C1-LAYOUT和C1-NC维持closed，不因主题变化重开未受影响后端；旧样式实看只保留布局/业务实际范围，不直接宣称新主题通过。报告commit由本reviewer仅暂存code-review.md与verification.md创建，未改产品、测试、设计或运行环境。
