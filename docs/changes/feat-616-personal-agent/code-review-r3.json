@@ -1,0 +1,10 @@
+[
+  {
+    "file": "packages/personal-assistant/src/personal-assistant.ts",
+    "line": 78,
+    "summary": "[P2] A failed fixed privacy notice cannot recover after another disclosure commits",
+    "failure_scenario": "The content-bound incident key is stable across retries. After its first independent review returns unavailable, any successful message from another goal (including a private owner delivery) increments the binding's disclosure_revision. The next incident retry resolves the same existing proposal, whose frozen disclosure revision is stale; PersonalActions.prepare calls validate and throws proposal_requires_review before a new review can happen. All later retries fail identically, leaving peer_notice_message_id null. Independently reproduced with real PersonalAgents/PersonalActions: unavailable notice review, one ordinary owner delivery, then two retries both rejected proposal_requires_review. Refresh evidence or create a new review generation for exact-payload operations conclusively not sent, while preserving the no-resend rule for sending/unknown/confirmed outcomes. The new per-event catch prevents unrelated work from stalling but does not recover this required notification.",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]

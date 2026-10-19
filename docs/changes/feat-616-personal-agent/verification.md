@@ -205,3 +205,71 @@
 ### Handoff
 
 Round 1 的3项代码 finding 已有逐项 closure 证据；本轮2项新增 CONFIRMED 问题不能用旧 finding 关闭结论覆盖。报告只对应固定 `a41c22630`，后续 root 改动不在本轮结果内。未提交/推送，由 caller 归入下一候选。
+
+## Round 3 — Targeted Closure and Corrected Delta Check
+
+### Metadata and verdict
+
+- review_round: `3`
+- verification_mode: `targeted-closure` + 本批 implementation delta 核对；未重开未失效的 full 结论。
+- executed_base / prior head: `a41c22630578d28f76dcb5bee393cfdc9a7bab29`
+- validated_at: `439a75144525c6d4740bbdc665e792f57cf71d51`
+- fix_delta_range: `a41c22630..439a75144`
+- focus_issues: `R2-C1 / R2-C2`，以及派发明确纳入的多 scopes、独立任务、通知恢复/事件隔离、目标索引/历史定位和草稿/选择工具指导。
+- verdict: **Fix before PR — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**。唯一新增 confirmed 问题是固定安全通知在临时审核故障后的恢复仍会被过期 proposal 阻断；不是重提旧正文冲突，也不是以未出的产品报告凑 finding。
+- requires_full_verification: `false`
+- Code findings: `code-review-r3.json`。Round 1/2 原报告与各 closure 记录完整保留。
+- 实施链路已静态/工程验证的部分与真实产品复验保持区分：`acceptance.md` 当前 Round 1 仍为旧运行版本的失败记录，尚不能据本轮代码通过项自动清除。root 已安排最终独立产品复验，本轮未重启/占用共享服务。
+
+### Historical findings closure
+
+| 原 finding | 本轮实际证据 | 状态 |
+|---|---|---|
+| R2-C1：mandatory Channels mirror 被 PA 普通消息写权限拒绝 | ExternalChannels 改走专用 `external-incoming`，实际 Fastify conversation handlers 校 node/binding/channel/source，并保留 `sender_source_id`；正常 DM 端到端 admitted=1；普通 PA outward write 拒绝仍保留 | **closed** |
+| R2-C2：external block 不进入 transport commit | `PersonalActions.transport` 从已验证 source_id 得到与 sourceActor 相同的 actor；prepare 与 validate/commit 都调用它；同一实际来源在屏蔽后新 prepare 与已审旧 commit 均报 `contact_blocked` | **closed** |
+| Round 1 C1/C2/W1 | 本批未撤销来源核验、epoch rotation/restore 和 per-Agent recovery；正常 Channels source 还经过 `pa.source.admit`；旧证据仍适用 | **closed，retained** |
+
+### Independent execution and reused evidence
+
+1. `pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/personal-assistant/tests/global-agent.test.ts packages/personal-assistant/tests/external.test.ts`
+   - 固定 `439a75144`，2026-10-19 14:51：**4 files / 69 tests passed**。
+   - 覆盖真实 incoming handler 的 inward/outward 分离、block 前已审/之后新 prepare、单 owner 消息多独立 task、单事件失败不挡其他事件和固定通知 content key。
+2. `/tmp/pa-static-review-616/round3-channel-http.mts`：真实 ExternalChannels → Fastify `registerConversationActions` handlers（inject，无监听产品服务）→ Messaging.incomingExternal → 实际持久消息 → IM `pa.source.admit`。
+   - 正常 Feishu DM 接收调用 **1**；数据库正文与 `sender_source_id=sender` 正确；source admit `allowed=true`。
+   - 从同一已持久消息计算 sourceActor 后屏蔽：原已审操作 commit=`contact_blocked`；新 prepare=`contact_blocked`；同源入站 allowed=false。
+   - 没有 mock 掉 IM 写入或 PersonalActions 权限检查；平台连接/独立语义模型使用合成适配，不称为真实飞书平台验收。临时 Fastify app 在 finally close，无共享服务重启。
+3. `/tmp/pa-static-review-616/round3-notice-retry.mts`：真实 incident / frozen proposal / review / commit。
+   - 固定通知第一次 review=`unavailable`，随后另一目标向 owner 正常发送成功；同一 incident content-bound key 连续两次重试均为 `proposal_requires_review`；peer notice receipt 仍 null。确认 R3-W1。
+4. 复用 caller 已提供并实际读取的窄 gate 输出：`/tmp/feat616-fixed-batch-tests.log`（69后端）、`/tmp/feat616-ui-location-tests.log`（2 files/105前端）、`/tmp/feat616-batch-typecheck.log`（全包 typecheck）、`/tmp/feat616-r3-frontend-build.log`（成功 frontend build）。这些只证明相应工程 gate，不代替需要真实模型选择/产品体验的结果。
+
+### Implementation / corrected delta reconciliation
+
+本批没有修改 active delta-spec 正文。以下变化均属于既有目标版 spec/design 的落实；**no new spec delta**，未静默放宽来源、身份或通知契约，尚未归并 canonical。
+
+| 本批变化 / 对应契约 | 实现与测试证据 | Outcome |
+|---|---|---|
+| Channels 正常输入须能通过可信来源链，同时不开放 PA 任意写 | `messaging.ts:475–499` 专用 incoming source/mirror，`conversation-actions.ts:20` 注册；媒体入口仅 `external_incoming=1` 且同样校认证来源；真实 HTTP 组合证明正常输入和 block | aligned |
+| External 屏蔽阻断新请求/外发 | `personal-actions.ts:19–20` canonical actor block，transport 在 prepare 和 commit 再核；真实组合结果和回归一致 | aligned |
+| 一句话多个独立目标可分别跟进/暂停 | `personal-security.ts:55,72` scopes 数组协议；`personal-assistant.ts:48–63` 缓存独立审查并逐 scope 执行；IM goal_key 分离 create key、update key带task_ref；两任务分别pause回归 | aligned（模型是否正确拆分仍由产品复验） |
+| 私人任务保留 PA 真实责任和进行状态 | `personal-agent.ts:137` create 传真实 PA assignee 与 doing，不更改外部共享任务 assignee | aligned |
+| 固定安全告知内容变化不得修改已冻结操作 | `personal-assistant.ts:77–80` 将内容 SHA-256 加入 Web notice key；已有 peer receipt 不再重复发 | 内容变更路径 aligned；临时故障后恢复仍 implementation-mismatch，R3-W1 |
+| 一个失败源不阻断其他来源/策略事件 | `global-agent.ts:140–182` 每事件 catch，失败保留 pending、继续本batch其他事件，停止无穷当前批重读；新增回归 | aligned |
+| UI 目标标题索引/旧通知不常驻占屏 | `PersonalAgentGoals` 经 headerActions 装入 PA 标题，Incidents 折叠，原聊天 shell/导航未移动 | 静态契约 aligned；真实窄屏/操作质量不由代码审查代判 |
+| 历史定位不被首屏自动滚底覆盖 | chat-workspace 将 locatorMessageId 传 MessagePane；focus 时禁 initial auto-bottom，已有关联 frontend 回归 | 静态契约 aligned；P2旧产品失败待实际复验 |
+| 草稿可带回、选择须推荐/理由/后果、定时无变化安静 | 工具/系统提示补 source_message_id、draft/choice 与当前 scope 的明确用法；现有 decision API/回原输入框被复用；next_check 清理指导 | 接口/指导 aligned；不把 prompt 改动当真实 DeepSeek 行为已经通过 |
+
+Corrected delta outcome: **implementation-mismatch**（唯一已确认不符 R3-W1）；未发现需要新增/放宽 delta-spec 的遗漏对外行为。
+
+### WARNING — R3-W1
+
+**固定安全通知第一次未发送后，其他正常交付使它永久卡在旧 disclosure revision。**
+
+- 契约：spec「本人控制与通知失败」「目标必需的新授权与审核不可用」要求失败保留重试、恢复继续；design 的未知与未发送区分仍适用，不能把所有状态都当未知回执而丢失通知。
+- 位置：新增固定 key `packages/personal-assistant/src/personal-assistant.ts:77–80`；同文件 `executeReviewed:137–143`；`apps/im-server/src/personal-actions.ts:63,99–101` 的 previous proposal validate。
+- 机制：notice key只随incident/正文变化，不随重新审核 generation 变化。首次review unavailable 后 state未发送；任何正常 commit 都会递增 disclosure_revision。重试 prepare 命中同一旧proposal，validate直接抛 `proposal_requires_review`，到不了新的独立审查；事件虽保留pending，却每次相同失败。
+- 直接证据：独立真实状态操作产生上述两个连续拒绝，peer_notice_message_id=null。旧正文 conflict 已修，这里是确定未发状态的证据版本恢复。
+- 建议：对**确定未发送**的精确 payload 提案允许新一轮审查 generation/刷新当前完整证据；保留当前 ACL、scope、来源/受众及累计披露重审，不能沿用旧 allow。`sending / unknown / confirmed` 继续原操作核回执、禁止盲重发。补“审核暂不可用→其他正常交付→恢复通知”的最低层回归。
+
+### Handoff
+
+本轮所有结论只对应冻结 `439a75144`。仅修改 `code-review-r3.json` 与本报告；按 caller 本轮要求提交这两个报告，源码/测试/共享服务均未修改。提交号见 reviewer 最终交接消息。
