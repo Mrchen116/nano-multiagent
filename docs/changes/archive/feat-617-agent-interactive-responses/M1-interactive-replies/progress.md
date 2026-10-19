@@ -82,3 +82,12 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 ### 自然上下文最终闭环
 
 产品26f2743e0 Round4与静态Round10（有效code329c64c9c、证据c5d64d54c）均pass；新policy从清空记录和全新session分别验证事实42纯文字、普通知识自动交互，两张自然生成卡片独立状态/最近排序/冻结与正确指代均通过。完整后端96/377、Web99/908+新增多卡1项（同文件6tests）、Python62、native prompt6、build/typecheck/Ruff/docs及critical audit已通过；新增多卡后Web tsc通过。finalfetch cc47abe3f无main增量。归并三个已审delta与对应area索引，整体归档后更新原PR366；不merge、不部署生产、不改616。当前隔离服务及数据供用户继续试用。
+
+
+## 2026-10-19 统一视觉与信息构图
+
+- 沿用同一feat-617/PR366。先完成主题与信息构图设计及原型，Gate2 R7 Approved；实现d8ba0ac50。public ThemeProvider统一Nano字体、表面、动作、图表和portal；公开Stack适配仅让可换行直属Card拥有合理列宽；组件schema和历史source不变。
+- 按需Skill增加构图规则与阅读/通勤两份完整交互示例，常驻决策提示只加一条职责说明。新上下文原话两轮复利与非金融咖啡问题均由真实模型生成；记录示例Slider→Input版本差异，不将样本冒称最终prompt逐字复跑。
+- 独立代码审查及corrected-delta Round13静态通过；独立产品Round6在1537/769/390下通过主题、同源历史/不同作者、portal、焦点、变量结果及手机输入。现有组件足够承载两例，未发现必须新增组件的表达缺口。实现方证据见evidence/visual-browser-review.md。
+- 全Web910、窄测14、native专项2、backend build/typecheck、Python62、Ruff、docs-check通过；后端本轮全量超时及限定并发复验在最终记录如实汇总。
+- final sync origin/main=d9be419c7只含其他unit设计与issue intake，无本轮产品变更。新ADDED精确归并current及area计数；截图只在仓库外，保留58769隔离预览，未merge或部署。
