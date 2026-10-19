@@ -1,0 +1,138 @@
+[
+  {
+    "message_id": "37bf7426a21346dc9da72027d3d62e14",
+    "content": "为什么现在手只需要这么大的力？",
+    "interaction_reply": null,
+    "metadata": {
+      "conversation_type": "direct",
+      "mentioned_agent_ids": [],
+      "participant_agent_ids": [
+        "e2e-global"
+      ],
+      "config_profile_version": 2,
+      "node_epoch": 1,
+      "interaction_contexts": [
+        {
+          "source_message_id": "ef964189b20046f699e5837ee622be33",
+          "source_summary": "因为水会给物体一个向上的浮力，帮你承担一部分重量，所以提着它时感觉更轻；物体的质量和所受重力并没有变。\n\n水越深，压强越大，因此物体底部受到的向上压力比顶部受到的向下压力大，合起来就产生了浮力。浮力等于物体排开的水的重量（阿基米德原理）。\n\n例如，一块重力为 20 牛的石头，浸入水中后受到 5 牛浮力，静止悬提它就只需",
+          "agent_id": "e2e-global",
+          "state": {
+            "$fraction": "1"
+          },
+          "fields": [
+            {
+              "name": "fraction",
+              "label": "浸入水中的体积比例",
+              "value": "1",
+              "display_value": "完全浸没"
+            }
+          ],
+          "interacted_at": 1792410944679
+        }
+      ]
+    }
+  },
+  {
+    "message_id": "ac51e105a0fa4888a04a828743e22b07",
+    "content": "换个话题，帮我把“今天辛苦了，早点休息”翻译成自然的英文。",
+    "interaction_reply": null,
+    "metadata": {
+      "conversation_type": "direct",
+      "mentioned_agent_ids": [],
+      "participant_agent_ids": [
+        "e2e-global"
+      ],
+      "config_profile_version": 2,
+      "node_epoch": 1,
+      "interaction_contexts": [
+        {
+          "source_message_id": "ef964189b20046f699e5837ee622be33",
+          "source_summary": "因为水会给物体一个向上的浮力，帮你承担一部分重量，所以提着它时感觉更轻；物体的质量和所受重力并没有变。\n\n水越深，压强越大，因此物体底部受到的向上压力比顶部受到的向下压力大，合起来就产生了浮力。浮力等于物体排开的水的重量（阿基米德原理）。\n\n例如，一块重力为 20 牛的石头，浸入水中后受到 5 牛浮力，静止悬提它就只需",
+          "agent_id": "e2e-global",
+          "state": {
+            "$fraction": "0"
+          },
+          "fields": [
+            {
+              "name": "fraction",
+              "label": "浸入水中的体积比例",
+              "value": "0",
+              "display_value": "未浸入"
+            }
+          ],
+          "interacted_at": 1792410952999
+        }
+      ]
+    }
+  },
+  {
+    "message_id": "4cafdda45cab484c9448aa10d3ce6ef6",
+    "content": "我刚才换了一个选项，先继续看，暂时不用回答。",
+    "interaction_reply": null,
+    "metadata": {
+      "conversation_type": "group",
+      "mentioned_agent_ids": [],
+      "participant_agent_ids": [
+        "e2e-peer"
+      ],
+      "config_profile_version": 2,
+      "node_epoch": 1
+    }
+  },
+  {
+    "message_id": "db6a139317144b968c594fc5b1b1c49c",
+    "content": "<mention type=\"user\" target_id=\"u_vkevrugm\"/> 你知道我刚才在卡片里选的具体时节吗？不知道就直接说不知道，别猜。",
+    "interaction_reply": null,
+    "metadata": {
+      "conversation_type": "group",
+      "mentioned_agent_ids": [
+        "e2e-peer"
+      ],
+      "participant_agent_ids": [
+        "e2e-peer"
+      ],
+      "config_profile_version": 2,
+      "node_epoch": 1
+    }
+  },
+  {
+    "message_id": "ee75e045ea864daf80227858c6d65889",
+    "content": "解释我选的时节",
+    "interaction_reply": {
+      "source_message_id": "a03053f91f294131bb66cb942bb7039e",
+      "source_summary": "已保留原来的时节切换，并添加“解释我选的时节”按钮。切换仍只在本地更新；只有明确点击按钮，才会把当前选择提交到群聊，请我解释。",
+      "agent_id": "e2e-peer",
+      "event": {
+        "type": "continue_conversation",
+        "message": "请解释我选的时节：12月冬至前后",
+        "context": {
+          "season": "december"
+        },
+        "label": "解释我选的时节"
+      },
+      "action_label": "解释我选的时节",
+      "state": {
+        "$season": "december"
+      },
+      "fields": [
+        {
+          "name": "season",
+          "label": "season",
+          "value": "december",
+          "display_value": "12月冬至前后"
+        }
+      ]
+    },
+    "metadata": {
+      "conversation_type": "group",
+      "mentioned_agent_ids": [
+        "e2e-peer"
+      ],
+      "participant_agent_ids": [
+        "e2e-peer"
+      ],
+      "config_profile_version": 2,
+      "node_epoch": 1
+    }
+  }
+]
