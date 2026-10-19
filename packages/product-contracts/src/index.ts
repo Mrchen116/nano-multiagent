@@ -33,7 +33,7 @@ export interface RelayInput {
   agent_id: string;
   conversation_id: string;
   idempotency_key: string;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown> & { interaction_contexts?: import('./interactive.js').InteractionContext[] };
   participants?: { type: string; id: string; user_id: string; display_name: string }[];
   message: {
     id: string;

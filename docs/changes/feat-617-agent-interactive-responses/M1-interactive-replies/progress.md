@@ -70,3 +70,10 @@ Final sync 通过 HTTPS fetch 与 GitHub main API，`origin/main` 仍为 `cc47ab
 - final sync：origin/main仍`cc47abe3f`，无增量；effective_base保持该值。归档与canonical归并仅移动文件、同步已审delta和链接，不改变代码或目标语义，所有门禁retained。
 - 最终验证：backend96 suites/373 tests；Web99 suites/908 tests；Python非E2E62通过/31 deselected；pnpm build/typecheck、Web tsc/Vite build、ruff检查/格式通过；npm critical audit通过（5 low，0 critical）。docs-check归档前251/64，通过；归档后再执行完整链接与unit门禁。
 - 三份delta按MODIFIED/ADDED归并canonical。完整unit归档后更新同一PR366并等待CI；归档不表示合并或部署。未修改feat-616或生产，保留本worktree与隔离IM/Node供用户试用，用户不再需要现场时清理本任务进程与worktree。
+
+## 2026-10-19 私聊后台状态与群聊明确提交
+
+- 用户确认普通私聊发送携带后台状态供Agent判断，群聊所有Agent都不能看未提交状态；移除保存成功与CurrentChoices/Detach。独立设计R5 Approved 0C/0W。
+- 增量保护扩展既有interactive-messages、interactive-replies、interactive-flow测试；后台快照缺失/群聊接口无隔离/PA未注入背景均先红，未新建平行测试文件。原explicit按钮、CAS与重试保护保留。
+- 窄后端2文件19 tests、Web2文件16 tests通过；全后端96 suites377 tests、全Web99 suites908 tests、pnpm typecheck/build与Web build通过（原型/真实产品尚须本轮独立验收）。命令日志 `/tmp/feat617-context-*.log`。
+- 用户要求真实验证必须清历史：保留备份后，停止617隔离栈，清空仅c_8iutij8v/c_igsjsbh2两测试聊天84条消息；仅重置e2e/e2e-global的3个Node session及16条Global Inbox数据，确认三项均为0、foreign_key_check=0。其他聊天/Agent/节点身份保留。重启后使用新runtime session，不把新聊天页面误当成无历史Global上下文。

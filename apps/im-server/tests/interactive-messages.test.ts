@@ -37,6 +37,7 @@ describe('interactive message persistence', () => {
   });
   it('preserves handwritten content and rejects changed retries without discarding the prior result', async () => {
     const {messaging,card,db,request} = setup();
+    db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
     const state={draft:{body:{value:'林悦，周六11点断桥见'}}};
     const sent=await messaging.sendMessage(request('u1','先别发送，把语气改得随意一点',state));
     expect(sent.content).toBe('先别发送，把语气改得随意一点');
@@ -87,6 +88,7 @@ describe('interactive message persistence', () => {
 
   it('keeps exploring after submission and persists each new request with its own identity', async () => {
     const {messaging,request,db} = setup();
+    db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
     const first=await messaging.sendMessage(request());
     const draft=request();draft.body={expected_draft_revision:1,state:{draft:{body:{value:'周日见'}}}};
     expect(messaging.interactions.writeDraft(draft)).toMatchObject({submission_message_id:null});
@@ -118,4 +120,56 @@ describe('interactive message persistence', () => {
     await expect(messaging.sendMessage(missing)).rejects.toMatchObject({statusCode:422});
   });
 
+});
+
+
+it('freezes private-chat background in durable relays without publishing or submitting it', async () => {
+  const {messaging,card,db,ctx,request}=setup();
+  db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
+  ctx.gateway.send=()=>true;
+  const req=request('u1','为什么这里不同？'); delete req.body.interaction_reply;
+  req.body.interaction_contexts=[{source_message_id:card.id,state:{draft:{body:{value:'仅私聊背景'}}}}];
+  const sent=await messaging.sendMessage(req);
+  const relay=JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json);
+  expect(relay.metadata.interaction_contexts).toMatchObject([{source_message_id:card.id,fields:[{value:'仅私聊背景'}]}]);
+  expect(sent.content).toBe('为什么这里不同？'); expect(sent.interaction_reply).toBeNull();
+  expect(JSON.stringify(vi.mocked(ctx.gateway.broadcast).mock.calls)).not.toContain('仅私聊背景');
+  expect(JSON.stringify(messaging.message(sent.id))).not.toContain('仅私聊背景');
+  expect(all(db,'SELECT * FROM interaction_submissions')).toHaveLength(0);
+  expect(messaging.interactions.readDraft(request()).draft_revision).toBe(0);
+  req.body.interaction_contexts[0].state.draft.body.value='后来修改';
+  expect((await messaging.sendMessage(req)).id).toBe(sent.id);
+  expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
+  expect(JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json).metadata.interaction_contexts[0].fields[0].value).toBe('仅私聊背景');
+});
+it('keeps group drafts invisible to every Agent until an explicit action is submitted', async () => {
+  const {messaging,card,db,ctx,request}=setup();
+  db.prepare("UPDATE conversations SET type='group' WHERE id='chat'").run(); ctx.gateway.send=()=>true;
+  const draft=request(); draft.body={expected_draft_revision:0,state:{draft:{body:{value:'不能共享'}}}};
+  messaging.interactions.writeDraft(draft);
+  const plain=request('u1','解释一下');delete plain.body.interaction_reply;
+  const sent=await messaging.sendMessage(plain);
+  const relay=JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json);
+  expect(relay.metadata.mentioned_agent_ids).toEqual([]);
+  expect(JSON.stringify(relay)).not.toContain('不能共享');expect(sent.interaction_reply).toBeNull();
+  const leak=request('u1','普通文字');delete leak.body.interaction_reply;
+  leak.body.interaction_contexts=[{source_message_id:card.id,state:{draft:{body:{value:'不能共享'}}}}];
+  await expect(messaging.sendMessage(leak)).rejects.toMatchObject({statusCode:422});
+  await expect(messaging.sendMessage(request('u1','隐式附带',{draft:{body:{value:'不能共享'}}}))).rejects.toMatchObject({statusCode:422});
+  const explicit=request('u1',undefined,{draft:{body:{value:'明确共享'}}});explicit.headers['idempotency-key']='explicit';
+  const result=await messaging.sendMessage(explicit);
+  expect(result.interaction_reply.fields[0].value).toBe('明确共享');
+  const last=JSON.parse(all(db,'SELECT * FROM relay_tasks').at(-1)!.payload_json);
+  expect(last.metadata.mentioned_agent_ids).toContain('a');
+});
+
+it('does not accept background sourced from another conversation', async () => {
+  const {messaging,card,db,request}=setup();
+  db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
+  db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('other','Other','now')").run();
+  db.prepare("UPDATE messages SET conversation_id='other' WHERE id=?").run(card.id);
+  const req=request('u1','解释'); delete req.body.interaction_reply;
+  req.body.interaction_contexts=[{source_message_id:card.id,state:{}}];
+  await expect(messaging.sendMessage(req)).rejects.toMatchObject({statusCode:404});
+  expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(0);
 });

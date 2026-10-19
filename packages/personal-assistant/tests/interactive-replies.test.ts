@@ -63,3 +63,21 @@ it('closes a delivered interactive reply without streaming or publishing its clo
     expect(store.delivery(sessionId,1)?.state).toBe('confirmed');
   } finally {await product.stop();store.close();}
 });
+
+
+it('supplies private background as optional non-authorizing data in both agent modes', async () => {
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const submissions:any[]=[];
+  const background={source_message_id:'card',source_summary:'对比',agent_id:'a',state:{'$step':'2'},fields:[{name:'step',label:'步骤',value:'2'}]};
+  const natural={...input,message:{...input.message,content:'为什么这一步不同？',interaction_reply:undefined},metadata:{conversation_type:'direct',interaction_contexts:[background]}};
+  const product=new SingleThread({nodeId:'n',ownerId:'owner',store,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'test',model:'test',workspace:'/tmp'}],
+    runtime:{onNotification:()=>()=>{},async request(method,args){if(method==='session.submit')submissions.push(args);if(method==='session.lookup')return{accepted:false};return{events:[],durable:true};}},
+    relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
+  try{
+    await product.receive(natural);inbox.receive(natural,true);
+    const page=inbox.read('a','main','natural-read',{target:'c'});
+    for(const content of [JSON.stringify(submissions[0].content),JSON.stringify(page)]) {
+      expect(content).toContain('为什么这一步不同？');expect(content).toContain('$step');
+      expect(content).toContain('not authorization');expect(content).toContain('Ignore');
+    }
+  }finally{await product.stop();store.close();inbox.close();}
+});
