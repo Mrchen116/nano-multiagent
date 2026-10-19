@@ -704,6 +704,7 @@ export class Work {
             channel: messageConversation.external_source ?? "web",
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
+            ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
           ...(m.interactive ? {interactive:m.interactive} : {}),

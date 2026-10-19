@@ -767,3 +767,44 @@ Outcome：**implementation-mismatch**。当前不存在需要静默缩小spec以
 ### Handoff
 
 本轮只写`code-review-r9.json`和verification，按派发不提交；未改源码、测试、设计、delta或共享服务，未推送。完整指定diff已审查，停止泛化扫描。caller后续冻结修复和真实验收证据到来后，只对失效范围及R9-W1做closure。
+
+### R9 targeted closure — native child evidence and recoverable draft diagnostics
+
+- finding_origin_head: `6498814966a9fc901873f9f874fd2b24e3ae4784`；validated_at: `bf6fbab66198b3cf5a5d9fbfc4b52a909d68a119`；2026-10-19 21:06 Asia/Shanghai。
+- code_review_mode: **closure**，仅R9-W1和本批实际草稿诊断/Skill修正；verification_mode: **targeted-closure + corrected-delta**。原`code-review-r9.json`保留为发生过的失败记录，当前存活问题为`code-review-r9-closure.json=[]`。
+- verdict: **Approved — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**（上述定向工程范围）；R9-W1 **closed**。corrected-delta: **aligned**；requires_full_verification: `false`。这替代上节R9-W1的存活状态，不删除原失败证据，不宣告独立产品验收或M1完成。
+
+#### R9-W1 closure and authority boundary
+
+`pa.evidence`先确认目标是当前personal配置；显式绑定的session仍用原resolver，其余session仅从当前官方DSH Agent集合取实体。runtime沿该实体真实`session.header.parentSession`逐级查找，直到现有绑定；缺实体、缺祖先或最终绑定agent不符均拒绝。返回child自身messages/system/contexts，并带真实rootSessionId和每级ancestor证据。父链由DSH持有，不接受调用方自报parent或把任意session加入binding。
+
+PersonalAssistant的消息/共享task原prepare→review→带evidence_digest的review-result→commit链未删除；owner私人路径、主PA来源控制约束、跨runtime分区与未知identity拒绝也未改变。此修复恢复原Global child公开能力，不赋予child新的来源管理权限或跳过披露审核。
+
+- 原失败探针**原样**独立复跑：`pnpm exec tsx /tmp/pa-static-review-616/r9-child-delivery.mts`，日志`r9-child-delivery-closure.log`。真实官方DSH native fork仍有公开send_message，现`childSendResult.isError=false`、`status=sent`、`commitCalls=1`、`errors=[]`；root evidence继续成功。与原同脚本`Unknown personal evidence binding / commitCalls=0`形成直接闭环。
+- 独立运行新增`personal-child-delivery.test.ts`：实际DSH child同时调用公开send_message和task_graph，共两次经真实PersonalAssistant审核链的commit；断言证据包含child会话、root及真实delegation/主人消息，未知agent/session仍拒绝。脚本/测试的模型stream和IM最终sink为合成fixture，证明实际运行时身份、证据采集及宿主提交路径；不冒称真实接收者送达或审核模型语义验收。
+
+#### Draft diagnostic and corrected-delta reconciliation
+
+| 本批契约 / 修正 | 实际核对与结论 |
+|---|---|
+| gateway delta完整Global子执行、具体外发独立review | 真实祖先链恢复child消息/共享task的完整executionEvidence；原冻结payload、真实owner来源及review/commit边界保留。**aligned / R9-W1 closed** |
+| im delta与design的617草稿字段/采用 | schema与PA提示明确`field_name`为已声明的顶层string state键（如`$draft`），不是`TextArea("reply_body",...,$draft)`的input name。IM原binding、canonical owner DM、原消息归属、owner可写、sourceAllowed及string state校验全部保留，仅给字段错误可执行诊断。**aligned**，未将草稿元数据变成发送授权 |
+| 业务错误可恢复 | Channels仍返回`RelayDeliveryError(delivery=rejected, code=原code)`，其message现在也含IM诊断，真实WebSocket回归能收到字段错误；无重放/自动发送或错误转成功。**aligned / no new spec delta** |
+| shared IntelligentUI Skill | Form签名与已有例子都为`Form(name, buttons, fields?)`，将矛盾的“第三参数”改为“第二参数”；不改617 parser/schema或放宽输入验证。**aligned** |
+| 当前基线与历史证据 | design/design-review说明`e61588616 → d370ab6b7`等价代码基线；旧安全矩阵明确historical/superseded，PNG改为本地历史索引，不作为当前真实产品通过样本。两份PA delta无新增失配，R9先前其余mapping保留 |
+
+#### Validation retained and remaining product evidence
+
+- 固定候选独立执行：`pnpm exec vitest run packages/dsh-integration/tests/personal-child-delivery.test.ts apps/im-server/tests/personal-sources.test.ts packages/channels/tests/web-relay.test.ts`，**3 files / 16 tests passed**，2.41s；日志`/tmp/pa-static-review-616/r9-closure-tests.log`。除child两路径外，包括真实IM对错误字段的拒绝诊断及Channels实际WS业务错误传播。
+- 复用并读取caller本批`/tmp/feat616-r9-fix-tests.log`：**5 files / 33 tests passed**；build/typecheck成功为caller交接，未冒称本轮独立重跑。保留固定649881/d370的独立61项、完整backend434、Web922、Python62及其他未失效证据；本批无前端执行变化，未重复全量。
+- 文档独立校验：首次直接`./scripts/docs-check`用系统Python报缺`yaml`，属于本机解释器选择；以仓库已有环境执行`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check`后，**272 maintained Markdown sources / 64 required routes passed**。上节在途旧图片broken links现已闭合，不把第一次解释器错误写成产品缺陷。
+- 真实模型能否正确生成`$draft`、遇到错误后恢复并完成编辑/采用，仍需正在进行的独立产品验收；工程回归证明提示/错误通道与严格校验，没有替其填pass。其他R9真实用户旅程和M1退出证据同样保持pending，待实际报告按版本补入。
+- 本轮仅写本节和closure JSON，按派发**未commit**；未改实现/测试/设计或启动重启共享服务。复验过程中caller新增`apps/im-server/src/work.ts` dirty改动不属冻结bf6候选、未计入本轮结论且未触碰。隔离DSH探针由自身finally关闭子进程并清理临时home；原日志留在`/tmp`。
+
+#### R9 final link increment — retained closure at `1f0660ff7`
+
+- caller随后将已观察的“三源综合只有裸ID、模型称工具没有链接”缺口冻结为`1f0660ff7773c6cc1015f6c5eea72de884ab15f3`。只增量审`bf6fbab66..1f0660ff7`四文件，不扩展全量；本节现在明确纳入上面先前dirty的`work.ts`修改。closure JSON仍为`[]`，**Approved / corrected-delta aligned / 0 CRITICAL / 0 WARNING**保留。
+- Work.query在原read/search共同的消息投影上，用服务器必需`ctx.publicUrl`及已读真实消息的`conversation_id/id`编码生成`source.url`，与现有Web `/chat/:conversationId?message_id=...`定位协议一致；搜索覆盖多源时用每条消息自身cid，不错误套用query target。URL在原当前source/ACL过滤、cursor再核与消息选择之后生成，不新增访问能力、不泄漏过滤前的源，也不将链接当作访问许可。普通Global查询获得同一有用字段。
+- PA提示要求事实引用优先使用返回的url，Inbox仅有ID时调用原read取出处。保留实际作者、外部事实不是主人指令、当前来源控制及出站review规则；无新权限或模型自行构造链接的要求。对应当前spec“保留真实作者与出处”、双身份历史和原IM导航，**no new spec delta**。
+- 固定该候选独立`pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts`：**1 file / 3 tests passed**，含源消息精确URL断言、双身份/排除与草稿/提交证据回归；日志`/tmp/pa-static-review-616/r9-source-links-tests.log`。复用已读取caller `/tmp/feat616-r9-source-links.log`两文件15通过及IM/DSH build成功；未重复未失效全量或共享服务操作。
+- 这证明工具现在提供可用真实定位数据并与已有前端参数一致；真实模型是否引用、用户是否在此轮产品样本中点击到正确原消息，继续等待独立产品证据。bf6的child/草稿closure、原61/434/Web922等有效工程结果保持，不把这一字段补全自动写成最终M1通过。

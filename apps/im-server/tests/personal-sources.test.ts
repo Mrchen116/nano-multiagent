@@ -17,6 +17,8 @@ it('queries both identities once and keeps excluded sources out of list, search 
  expect(result.messages.map((m:any)=>m.message_id).sort()).toEqual([ownerMessage.id,peerMessage.id].sort());
  expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.url).toBe(`http://im.test/chat/peer?message_id=${ownerMessage.id}`);
  expect(query({action:'read',target:'agent-only'}).messages[0].sender.name).toBe('u2');
+ expect(query({action:'read',target:'agent-only'}).messages[0].source.owner_can_read).toBe(false);
+ expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.owner_can_read).toBe(true);
  const command=ctx.messaging.insertMessage('chat','u1','user','Do not read the Agent peer conversation');
  service.sources(principal,{...args,action:'exclude',conversation_id:'agent-only',source_message_id:command.id,expected_revision:1});
  expect(query({action:'search',query:'launch'}).messages.map((m:any)=>m.message_id)).toEqual([ownerMessage.id]);
@@ -59,4 +61,29 @@ it('uses submitted 617 choices as authorization while keeping editable reply dra
  ctx.messaging.insertMessage('peer','u1','user','Actually Friday');
  expect(ctx.messaging.message(card.id).reply_draft.possible_stale).toBe(true);
  expect(ctx.messaging.interactions.readDraft(request).state).toEqual({'$body':'Coordinate Thursday only'});
+});
+
+it.each(['global', 'personal'])('lets a %s Agent create its own peer group using profile authority, not runtime membership', kind=>{
+ const {ctx,db,principal,args}=personalFixture();
+ db.prepare("UPDATE users SET membership_status='pending',personal_space_enabled=0 WHERE id='a1'").run();
+ if(kind==='global'){db.prepare('DELETE FROM pa_policies').run();db.prepare('DELETE FROM personal_agent_bindings').run();}
+ else {
+  db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id='u1'").run();
+  db.prepare("UPDATE agent_profiles SET space_id='personal:o1'").run();
+ }
+ const work=new Work(ctx);
+ const created=work.query(principal,{...args,action:'create',title:'Agent collaboration',type:'group',visibility:'private',participant_ids:['u2']});
+ expect(db.prepare('SELECT user_id FROM conversation_participants WHERE conversation_id=? ORDER BY user_id').all(created.target)).toEqual([{user_id:'a1'},{user_id:'u2'}]);
+ expect(db.prepare('SELECT space_id,visibility FROM conversations WHERE id=?').get(created.target)).toEqual({space_id:'company:default',visibility:'private'});
+ db.prepare("UPDATE users SET membership_status='suspended' WHERE id='u1'").run();
+ expect(()=>work.query(principal,{...args,action:'create',title:'Revoked',participant_ids:['u2']})).toThrow();
+});
+
+it('does not give an ordinary personal-space Agent company contact authority',()=>{
+ const {ctx,db,principal,args}=personalFixture();
+ db.prepare('DELETE FROM pa_policies').run();db.prepare('DELETE FROM personal_agent_bindings').run();
+ db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id='u1'").run();
+ db.prepare("UPDATE users SET membership_status='pending' WHERE id='a1'").run();
+ db.prepare("UPDATE agent_profiles SET space_id='personal:o1'").run();
+ expect(()=>new Work(ctx).query(principal,{...args,action:'create',title:'Forbidden',participant_ids:['u2']})).toThrow('participant not found');
 });

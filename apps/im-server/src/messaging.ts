@@ -209,7 +209,7 @@ export class Messaging {
       const profile = u.username.startsWith("agent:")
         ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", u.username.slice(6)) : undefined;
       const visible = profile ? (canAccessSpace(principal, profile.space_id) || canContactPersonalAgent(this.db,principal,profile)) && agentAvailable(this.db, profile)
-        : u.id === principal.id || (principal.membership_status === "active" && u.membership_status === "active");
+        : u.id === principal.id || (canActorAccess(this.db, principal.id, "company:default") && u.membership_status === "active");
       if (!visible || (space && !canActorAccess(this.db, id, space))) fail(404, "participant not found");
       if (group && u.username.startsWith("agent:") && !one(this.db,
         "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id))
@@ -240,7 +240,10 @@ export class Messaging {
     const sharedPersonalGroup=b.type==='group' && profiles.some(profile=>!!profile && canContactPersonalAgent(this.db,p,profile)
       && ids.some(id=>!canActorAccess(this.db,id,profile.space_id)));
     const space = inheritedSpace ?? (contactingPersonal || sharedPersonalGroup ? "company:default" : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
-    this.ctx.identity.requireSpace(p, space);
+    // Runtime users carry no human membership; their live profile and owner confer scope.
+    if (p.kind === "agent") {
+      if (!canActorAccess(this.db, p.id, space)) fail(404, "resource not accessible");
+    } else this.ctx.identity.requireSpace(p, space);
     if (ids.some(id => !canActorAccess(this.db, id, space))) fail(404, "participant not found");
     if (!ids.includes(p.id)) ids.unshift(p.id);
     if (b.type === "direct" && ids.length !== 2)

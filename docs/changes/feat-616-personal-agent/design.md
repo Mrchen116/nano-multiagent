@@ -25,7 +25,7 @@ flowchart TD
 
 ### 身份与双向消息
 
-保留 personal_agent_bindings 和既有 owner-only 配置/Work ACL、身份 epoch。PA 自己的可读会话与主人可读且参与过的会话取并集；source exclusions 应用于整个 PA 的查询与接收。查询扩展现有 conversations 工具的 list/info/read，并增加 search 参数能力，不新增 PA 历史工具或数据库。
+保留 personal_agent_bindings 和既有 owner-only 配置/Work ACL、身份 epoch。PA 自己的可读会话与主人可读且参与过的会话取并集；source exclusions 应用于整个 PA 的查询与接收。查询扩展现有 conversations 工具的 list/info/read，并增加 search 参数能力，不新增 PA 历史工具或数据库。消息来源附原消息 URL 和主人是否可读的事实；仅 PA 可读时明确说明并给出相关事实摘要，不把链接展示为主人可打开的入口。Agent 建群复用现有会话权限，依据实时 profile/owner 权限而非运行账号的成员状态。
 
 IM 消息事件为主人所在聊天创建观察事件，包含主人发出的消息；PA 自身聊天仍走正常 relay，持久消息 ID 去重。观察只增加 Inbox 输入，不创建目标。PA 自发消息跳过自动唤醒。直接主人消息无需独立审核；主人其他聊天发言作为事实，不自动当作 PA 指令。外部输入的风险判断保留来源，失败只影响相应外部输入。
 
