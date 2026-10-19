@@ -1,5 +1,7 @@
 # 原型走查记录
 
+> 本文提到的截图仅保存在仓库外；定位见[本地证据说明](local-artifacts.md)。
+
 2026-10-19，作者使用 Playwright CLI 实际打开原型，检查 1440×1000、768×900、390×844。原型为手工模拟，不连接后端，不等同 OpenUI/模型验证。
 
 ## 当前产品对照
@@ -20,13 +22,13 @@
 
 ## 代表性画面
 
-- [桌面初始](prototype-desktop.png)
-- [窄桌面](prototype-compact.png)
-- [手机初始](prototype-mobile.png)
-- [手机提交状态](prototype-mobile-submitted.png)
-- [手机文字附带选择](prototype-mobile-context.png)
-- [旧卡片只读](prototype-mobile-stale.png)
-- [渲染失败后的摘要](prototype-mobile-fallback.png)
+- 桌面初始（本地截图 `prototype-desktop.png`）
+- 窄桌面（本地截图 `prototype-compact.png`）
+- 手机初始（本地截图 `prototype-mobile.png`）
+- 手机提交状态（本地截图 `prototype-mobile-submitted.png`）
+- 手机文字附带选择（本地截图 `prototype-mobile-context.png`）
+- 旧卡片只读（本地截图 `prototype-mobile-stale.png`）
+- 渲染失败后的摘要（本地截图 `prototype-mobile-fallback.png`）
 
 ## 验收资源可用性
 
