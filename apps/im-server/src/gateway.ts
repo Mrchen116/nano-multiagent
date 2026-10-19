@@ -1,3 +1,4 @@
+import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { withHumanApproval } from "./messaging.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -207,16 +208,7 @@ export class Gateway {
         const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id);
         if (!profile || !canAccessSpace(this.ctx.identity.user(b.userId), profile.space_id)) continue;
       }
-      if (
-        frame.conversation_id &&
-        !one(
-          this.ctx.db,
-          "SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?",
-          frame.conversation_id,
-          b.userId,
-        )
-      )
-        continue;
+      if (frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
       this.write(b.socket, frame);
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
@@ -245,13 +237,11 @@ export class Gateway {
     } else
       for (const e of all(
         db,
-        "SELECT e.* FROM conversation_events e JOIN conversation_participants p ON p.conversation_id=e.conversation_id WHERE p.user_id=? AND e.event_id>? AND e.event_id<=? ORDER BY e.event_id",
-        b.userId,
+        "SELECT * FROM conversation_events WHERE event_id>? AND event_id<=? ORDER BY event_id",
         cursor,
         top,
       )) {
-        const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", e.conversation_id);
-        if (!conversation || !canActorAccess(db, b.userId, conversation.space_id)) continue;
+        if (!conversationAccess(db,e.conversation_id,b.userId)) continue;
         const data = JSON.parse(e.payload_json);
         this.write(b.socket, {
           op: "event",

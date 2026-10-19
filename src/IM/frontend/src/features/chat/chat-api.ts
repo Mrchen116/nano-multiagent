@@ -24,6 +24,7 @@ export async function listConversations(): Promise<Conversation[]> {
 export interface ListMessagesOptions {
   limit?: number;
   beforeMessageId?: string;
+  signal?: AbortSignal;
 }
 
 export interface ListMessagesResult {
@@ -40,7 +41,7 @@ export async function listMessages(
   if (opts.beforeMessageId) params.set("before_message_id", opts.beforeMessageId);
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
-  return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
+  return authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
 }
 
 export interface CreateMessageRequest {

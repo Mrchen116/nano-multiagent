@@ -26,13 +26,15 @@ struct ChatInfoView: View {
     var body: some View {
         Form {
             if let chat {
-                Section(L("聊天设置", "Conversation settings")) {
+                if chat.is_observer == true {
+                    Section { LabeledContent(L("名称", "Name"), value: chat.title); Text(L("Agent 协作 · 只读", "Agent collaboration · read only")).foregroundStyle(.secondary) }
+                } else { Section(L("聊天设置", "Conversation settings")) {
                     TextField(L("名称", "Name"), text: $title)
                     Button(L("保存名称", "Save name")) { mutate(["title": .string(title)]) }.disabled(title.isEmpty || title == chat.title || busy)
                     Toggle(L("置顶", "Pinned"), isOn: Binding(get: { chat.is_pinned }, set: { mutate(["is_pinned": .bool($0)]) })).disabled(busy)
                     Toggle(L("静音", "Muted"), isOn: Binding(get: { chat.is_muted }, set: { mutate(["is_muted": .bool($0)]) })).disabled(busy)
                 }
-                .disabled(chat.can_write == false)
+                .disabled(chat.can_write == false) }
                 if chat.type == "group" {
                     Section(L("可见范围", "Visibility")) {
                         if chat.can_change_visibility == true {

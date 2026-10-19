@@ -25,7 +25,7 @@ final class ChatStore {
     private var epoch = UUID()
     private var stream: UserStream
     private var discarded: Set<String> = []
-    private var revokedChats: Set<String> = []
+    private(set) var revokedChats: Set<String> = []
     private var dirtyChats: Set<String> = []
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
@@ -166,6 +166,7 @@ final class ChatStore {
             if [403, 404].contains((error as? APIError)?.status ?? 0) {
                 timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
                 revokedChats.insert(id)
+                conversations.removeAll { $0.id == id }
             }
             errors[id] = error.localizedDescription
         }
@@ -250,6 +251,8 @@ final class ChatStore {
         }
     }
     func send(_ id: String, retry: Bool = false, textOnly: Bool = false) async {
+        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
+        guard chat?.can_write != false else { return }
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
         if !retry {
             guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),

@@ -5669,3 +5669,6 @@ body {
     min-height: calc(var(--im-viewport-height) - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   }
 }
+
+.chat-observer-notice { display:flex; flex-direction:column; gap:3px; padding:14px 20px; border-top:1px solid var(--border-color, #e5e7eb); background:#fafbfc; color:#64748b; font-size:12px; line-height:1.6; }
+.chat-observer-notice strong { color:#475569; font-weight:600; }

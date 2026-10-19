@@ -30,7 +30,9 @@ try {
   socket.on('message',raw=>{const f=JSON.parse(raw.toString());if(waiting&&(f.type==='error'||f.type==='ack'&&f.payload.message_type===waiting.type||f.type==='agent.work.ack'&&waiting.type==='agent.work.append')){const w=waiting;waiting=undefined;clearTimeout(w.timer);w.resolve(f);}});
   await once(socket,'open');
   async function send(type,payload){const r=await new Promise((resolve,reject)=>{waiting={type,resolve,reject,timer:setTimeout(()=>{waiting=undefined;reject(Error('timeout '+type));},4000)};socket.send(JSON.stringify({type,payload:{node_id:owner+'-node',...payload}}));});assert.notEqual(r.type,'error',JSON.stringify(r));return r.payload;}
-  await send('node.register',{agents});return send;
+  await send('node.register',{agents});
+  const heartbeat=setInterval(()=>{if(socket.readyState===1)socket.send(JSON.stringify({type:'node.heartbeat',payload:{node_id:owner+'-node'}}));},5000);socket.once('close',()=>clearInterval(heartbeat));
+  return send;
  }
  const alice=await node('alice',['alpha','beta','palpha','pbeta']);const bob=await node('bob',['gamma']);const outputs=[];
  const group=await http('POST','/im/v1/conversations','alice',{title:'发布计划协作',type:'group',participants:[{type:'agent',id:'alpha'},{type:'agent',id:'beta'}]});
@@ -41,6 +43,7 @@ try {
  control=controlServer(async(request,response)=>{
   try{
    if(request.url==='/send') await alice('agent.message',{from_session_id:'alpha|tool_call:'+Date.now(),to:'agent:gamma',text:'新进展：备份已经完成，发布清单已更新。'});
+   else if(request.url==='/send-back') await bob('agent.message',{from_session_id:'gamma|tool_call:'+Date.now(),to:'agent:alpha',text:'对端新消息：发布复核完成。'});
    else if(request.url==='/seed') {
     await alice('agent.message',{from_session_id:'alpha|tool_call:cross-history',to:'agent:gamma',text:'跨 owner 协作：请复核发布清单。'});
     await bob('agent.message',{from_session_id:'gamma|tool_call:cross-reply',to:'agent:alpha',text:'已复核，回滚步骤完整。'});
