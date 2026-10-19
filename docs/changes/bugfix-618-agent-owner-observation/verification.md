@@ -106,3 +106,69 @@ Outcome: implementation-mismatch
 - 独立后端命令与结果、Web两次失败及可达审批复现详见同目录 `code-review.md`；结果均在冻结HEAD执行。
 - `evidence/implementation.md` 是实施者证据，版本前后的测试必须区分；其中“最终版须复跑”和“仍在运行”未升级成pass。
 - 本报告允许 caller 的独立产品报告与最终门禁补充后关闭 C1；W1/W2需要实现/测试修复及固定版本复验。
+
+## Round 2 · Targeted Closure · 2026-10-19
+
+> Validation snapshot: `d9be419c7 → 1823aef433264a8732ae56461a73deea60ada701`
+
+- verification_mode: targeted-closure；附W1/W2对应corrected-delta收口
+- review_round: 2
+- prior_verification_path: 本文件Round 1
+- executed_base: `d9be419c7`
+- validated_at: `1823aef433264a8732ae56461a73deea60ada701`
+- pre_fix_head: `03d1d5a65`
+- fix_delta_range: `03d1d5a65..3786dd735`；补查main合并 `3786dd735..1823aef43`
+- focus_issues: W1（两端审批卡只读）、W2（滚动前提及撤权/迟到回归）
+- requires_full_verification: false
+- verdict: **targeted pass**（W1/W2关闭，范围内新增CRITICAL/WARNING均0）；**整unit仍pending，C1未关闭**。
+
+### Summary
+
+| 维度 | 本轮结果 |
+|---|---|
+| Completeness | 两项focus均完成；C1最终全量/产品/CI/契约归并等尚未完成，不计本轮通过 |
+| Correctness | 只读资格贯通审批卡；撤权与迟到历史断言实际执行通过 |
+| Coherence | 保留既有成员默认审批分支；无服务端/ACL/运行时或依赖边界变化 |
+
+### Focus Issues 与直接证据
+
+| Issue / 契约 | 实现位置 | 测试与版本证据 | 结论 |
+|---|---|---|---|
+| W1：observer审批内容可读、不能提供写表单；`incident.md`只观察不写入 / Web与iOS只读delta | Web `message-pane.tsx:1047,1782`传readOnly，`permission-card.tsx:100,182-223`保留问题/输入、隐藏textarea/options并阻止handler；原生`ConversationView.swift:54`、`ChatMessageView.swift:61,157-175`同样保护 | 冻结HEAD独立页面组合含pending card：问题和工具命令可见，无textbox/Allow/Deny；同跑成员PermissionCard，2文件15项通过。原生同树30 XCTest与另17 Swift tests、Release未签名归档日志通过；原生真实卡片/菜单手势由独立产品R2继续验收 | **closed**，静态实现与测试一致；不把原生构建当真实UI通过 |
+| W2：`specs/im/web-chat-ux.md:16-19`在线owner变化清理与迟到响应不恢复 | `chat-public-visitor.test.tsx:49-60`设置真实滚动前提后发history请求，撤权到列表，正文/cache清理，迟到response解析后内容仍不显示 | 本轮独立 `npm exec vitest -- run src/features/chat/chat-public-visitor.test.tsx src/features/chat/components/permission-card.test.tsx --maxWorkers=1`，**15/15 pass**，日志`/tmp/nano618-independent-r2-web.log`，22:29:50；不再停在旧47行 | **closed** |
+| 普通成员审批持续有效 | 两端readOnly默认false；未改决定请求协议或后端write门禁 | 独立PermissionCard成员测试通过；复用4文件35项Web通过 | covered |
+| 原生失效文案附带修正 | `ChatStore.swift:166-171`只把403/404显示改为友好文案，仍清理原数据 | 原生同树测试/归档通过；真实失效体验由产品R2复查 | source aligned；产品pending |
+
+独立命令cwd为本worktree `src/IM/frontend`，2 files / 15 tests passed，18.63s。没有重复运行有效的35项Web或完整原生门禁。日志的原生命令明确指向本worktree工程，源码在fix commit后未变；main merge不改这些路径，可保留其版本适用性。
+
+### Main Merge / 共享边界影响
+
+- `3786dd735..1823aef43` 共19文件，属于issue intake模板、labels、独立issue-triage workflow、sync-issue-labels辅助脚本及文档。无IM或依赖变化，也未改既有产品CI流程；不要求full复验。
+- fix范围除两端审批和Web测试外，只有原生失效copy、fixture补验资源与origin纠正、报告/截图。没有权限/媒体/消息/重放新路径，R1已通过的后端13项窄证据与统一资格源码结论保留。
+- auth delta的同一相对链接修正保持契约语义；本轮没有新spec设计变更。
+
+### Corrected Delta Focus Reconciliation（R2当前结论）
+
+本段收口Round 1唯一 `Corrected Delta Reconciliation` 中Web/iOS两项对应的实现偏离；旧表为R1历史快照，不代表R2仍存活问题。
+
+| Delta item | Implementation evidence | Test evidence | R2 outcome |
+|---|---|---|---|
+| `specs/im/web-chat-ux.md`：只读观察、owner失效后清理与迟到响应 | readOnly贯通MessageBubble/PermissionCard；现有reconcile/abort机制保持 | 冻结HEAD独立pending卡只读、撤权与迟到response、成员审批15项全通过 | **aligned** |
+| `specs/im/ios-client.md`：原生只读状态、无写表单 | ConversationView将can_write=false传至消息审批卡；问题/工具输入保留、决定与提交guard落实 | 同树原生测试/未签名Release归档通过；真实手势仍归C1产品门禁 | **aligned**（实现/测试核对范围）；产品pending |
+
+Uncovered Observable Behavior：未发现修复引入新的对外行为遗漏。原生403/404copy是既有不可访问反馈的清晰化；fixture的长历史、媒体、分类和pending卡仅为验收输入。
+
+Outcome: **aligned（本轮focus范围）**。Round 1 auth/conversations/Work已对齐结论保留；本次没有据产品门禁仍pending反向改写delta。
+
+### Remaining Issues / 未验证边界
+
+- **C1 remains pending**：最终全量重跑、独立产品R2与原生长按/侧滑/详情实际交互、CI及current契约归并/归档收尾仍由caller推进，不在本轮签M1完成。
+- 原生30 XCTest与17 Swift tests/未签名archive现已有有效日志，该部分构建门禁可计完成；不能代替模拟器真实手势或真机安装。
+- caller交接Web首轮887/889、后端343/347及部分重试已绿，本轮仅复用与focus直接相关的有效通过证据；未改workspace-tools仍超时的根因未定，主仓旧lib对照的target required不能证明同因。最终套件未完成不宣称通过。
+- W1/W2无存活CRITICAL/WARNING；C1是跨轮保留的未完成门禁。无需扩为full verification，但整体PR ready结论仍未授予。
+
+本轮只追加code-review/verification，未修改产品、测试、设计或其他reviewer文件，未提交，自启服务为零。
+
+### Author follow-up after R2（不代替独立C1收口）
+
+原始workspace-tools（未改90秒限制）单独复跑通过，62.84秒；Web sidebar单文件16/16通过。此前全套失败项均已分别复跑通过，日志与非一次全绿的边界见evidence/implementation.md。产品必验仍待收口，C1继续pending；没有因代码复审零finding而判定M1完成。

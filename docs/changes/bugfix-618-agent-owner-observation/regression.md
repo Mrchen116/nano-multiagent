@@ -81,3 +81,63 @@ Highest Required Action: **fix-implementation**（审批卡发现由caller负责
 本unit evidence下：review-web-readonly.png、review-web-bob.png、review-web-member.png、review-web-narrow.png、review-web-revoked.png、review-ios-readonly.png（修正origin前）、review-ios-live.png、review-ios-live-latest.png、review-ios-revoked.png。截图是本轮实际客户端画面；本报告记录的HTTP状态来自reviewer现场请求。
 
 报告未提交，遵循caller“只写报告/截图，不提交”指令。自启服务为零，fixture已恢复alpha owner=alice。
+
+## Round 2 · 2026-10-19 · Targeted follow-up
+
+> Validation snapshot: `d9be419c7 → 1823aef433264a8732ae56461a73deea60ada701`
+> 修复范围：caller交接 `03d1d5a65..3786dd735`；合入main仅issue模板/文档。reviewer实际核实HEAD，git status干净；仅查看修改路径确认保留边界，未读实现。Web仍53186，IM58054，control58055；DB重建，新跨owner ID `c_pyam0xq4`。
+
+### 当前结论
+
+**inconclusive，因此门禁仍 fail。** 本轮可执行的Web审批卡、长内容/分页、媒体与真实WS恢复补验均通过，没有新增已确认产品问题。原生两项修复的可视复验和实际长按/侧滑/详情，以及窄屏返回/列表补验仍受系统UI控制阻塞，不能宣告完成。
+
+R1中未受此次修复影响且证据充分的具体结论继续保留：同owner唯一会话、跨owner双方读取、私人空间隔离、既有历史、普通文字观察无composer/加入、普通成员Web发送。普通文字R1结论不覆盖审批卡；R1原生内部错误提示问题须本轮实际观察后才能关闭。
+
+### 独立补验结果
+
+| R1缺口/修复 | R2结果 | 实际证据与边界 |
+|---|---|---|
+| Web pending审批卡 | pass | 实际打开私聊，卡片显示bash、NEEDS REVIEW、deploy --check及说明，无Allow/Deny/决定按钮、理由表单。正文因fixture超时显示relay idle/failed，但卡仍NEEDS REVIEW；这是持久pending卡只读观察状态，不冒充正在运行节点审批。见review-r2-web-card-media.png。 |
+| Web媒体查看与无上传 | pass | review-icon.png缩略图正常，实际点击Enlarge image进入大图；消息只有附件读取控件、没有上传composer。文本附件点击触发系统另存为面板，未保存；HTTP直接读取确认实际内容“Synthetic release checklist: login, messages, rollback.”。 |
+| 已挂载媒体撤权清理 | pass | 大图预览正在打开时，仅/revoke，页面自动回列表，大图和正文消失，旧项移除并提示不可访问。见review-r2-media-revoked.png。随后restore。 |
+| 附件授权 | pass | 图片及文本URL从typed timeline的message.attachments提取；Alice、Bob均200且分别image/png、text/plain；Charlie均404；revoke后Alice两个URL均404。 |
+| 附件写入/冒用Agent | pass | 真人Alice POST /im/v1/uploads?conversation_id=c_pyam0xq4&file_name=forbidden.txt，text/plain合成body，404 conversation_id not found；POST messages带sender_id=agent:alpha及sender Actor也404。前后完整typed history JSON一致，没有新增或篡改。 |
+| 修改/撤回消息 | not-applicable于已声明入口 | current spec未声明这两项HTTP操作，实际消息操作仅Copy；不为验收新建功能。曾尝试未核实路径的请求不是有效授权证据，不据其返回码声称“全部写入口已测”。已有发送/上传/改名/成员写接口的实际拒绝分别保留R1/R2证据。 |
+| 长单条内容滚动 | pass（桌面） | 实际滚动100行长清单，从15–51行至71–100行，再到附件/审批卡；底栏持续只读，行文没有被固定高度裁切。见review-r2-web-long.png与review-r2-web-approval.png（该图实际是长清单尾部）。 |
+| 历史分页 | pass（Web） | 初次50条从历史20开始；向上滚动后实际加载历史01–19及最初alpha请求/gamma回复，显示No earlier messages。见review-r2-web-history.png。没有用API取全量替代这一UI动作。 |
+| 双方WS实时/断线重放 | pass | reviewer先完整阅读/tmp/nano618-http-ws-audit.mts再独立运行真实ws-ticket→带同源Origin的/im/ws/user→resume。原脚本默认50条分页导致计数50!=53；只在内存把历史读取增加limit=200后再执行，最终71条=本次基线+3，双方live、Bob断线后resume补回、Charlie无受保护live、撤权Alice停止后续live、参与者仍两Agent全部断言通过。该改动只修正审计脚本取数范围，不改受审代码/文件。 |
+| 撤权后旧事件重放 | pass | 独立新建Alice socket，先revoke再ws-ticket/resume after_event_id=0，收到12帧但目标私聊事件0；恢复owner。结合上条Bob真实补发证明不是仅“没有任何连接输出”。 |
+| 真人/人机分类排除 | pass（桌面） | All实际显示“真人沟通”“我的助手”和成员群；点击Network后只剩三Agent私聊。没有给owner加入或获得其他群权限。 |
+| 既有纯Agent群分类 | not-applicable于本次owner旁观权限增量；保留原分类保护 | 纯Agent群仍依成员或公开群访客资格，不因管理owner获得群旁观。本fixture没有符合原读取路径且加入列表的纯Agent群；caller明确旧分类分支未改、组件保护保留。本报告不声称实际新验了纯Agent群，不扩大权限来制造验收场景。 |
+| 原生审批卡/友好撤权修复 | inconclusive | 确认Simulator窗口iPhone17Pro iOS26.4。重新登录Alice后，真实列表显示三Agent私聊及真人/人机；点击跨owner已进入会话。但系统“保存密码？”浮层遮挡，AX只有宿主，Raise→Escape→Tab本轮未解除，故未观察审批卡与修复后的失效提示。未使用其他UI驱动。 |
+| 原生真实长按/侧滑/详情 | inconclusive | 仍保留R1控制限制，没有将AX缺少Pin/Mute当作手势证据，也没有把索引click(durationMs)当长按。 |
+| 窄屏返回/列表 | inconclusive | R1 393×852画面仍有效；本轮准备切换时Chrome实际停在文本附件的“保存为review-checklist”系统面板。点击取消后CUA timeoutReached，随后AX读取同样超时。没有保存到默认私人目录，未盲试后续输入。桌面DOM仍可操作不代表窄屏路径已完成。 |
+
+### 工具/环境限制及交接
+
+Chrome另存面板是reviewer点击合成文本附件触发；文件未保存。Simulator密码提示未保存。两项均已及时交caller处理；用户关于是否允许替代原生UI驱动的答复仍由caller接收，reviewer未自行切换技术。所有受审服务保持运行，alpha owner最终restore为alice。
+
+新增截图：review-r2-web-card-media.png、review-r2-media-revoked.png、review-r2-web-long.png、review-r2-web-history.png、review-r2-web-approval.png。均为真实Web。原生本轮没有可用修复验收截图，不复用R1图片冒充新版本。
+
+剩余必验：原生审批只读与友好失效、原生列表长按/侧滑/详情、窄屏返回/分类实际操作。修复后的整体Web观察流程已可接受：审批内容可理解但不提供决定入口；媒体可读且撤权清理；长消息和前页历史可达。整体Full验收仍不能因Web通过而放行原生缺口。报告未提交；needs_re_review=true，gh_issues_filed=0。
+
+## Round 3 · 2026-10-19 · 窄屏交互定向补验
+
+> validated_at仍为 `1823aef433264a8732ae56461a73deea60ada701`，executed_base仍为 `d9be419c7`；仅补R2的窄屏返回/分类/滚动缺口，未读实现。
+
+**本轮范围 pass。** R2的窄屏inconclusive关闭；Full整体仍受原生必验缺口阻塞，不据本轮Web结果放行原生。
+
+使用公开CUA browser viewport capability，新建独立Chrome页1805414649进入53186，现有Alice会话正常恢复。最初set(390,844)因浏览器已有80%缩放，现场只读DOM确认innerWidth=487、innerHeight=1055、devicePixelRatio≈0.8；将override校正为312×675后，DOM实测**390×844 CSS像素**，未改变浏览器缩放设置。以下验收均在后者尺寸完成，结束已调用viewport.reset()。
+
+| 必验点 | 实际操作与结果 |
+|---|---|
+| 返回列表 | 进入alpha↔gamma→点击真实Back按钮→回到All列表；长历史阅读后再次Back成功。返回后All恢复是实际既有行为，没有将其误写成保留Network筛选。 |
+| 分类排除 | All中真人沟通、我的助手及成员群可见；点People仅真人沟通，点Agent仅我的助手，点Network仅三条Agent私聊。按钮全部可点击，双方名称完整可辨。 |
+| 长单条滚动 | 在390宽私聊实际向上滚动，读到长清单91–100行，再向上读到标题与1–6行；正文正常折行，固定只读条持续可见，无输入/发送/加入入口。 |
+| 历史分页 | 实际向前滚动触发前一页加载，再继续滚动看到No earlier messages、最初alpha请求/gamma回复和发布历史01–06；不是只检查隐藏DOM。 |
+
+体验结论：窄屏列表中筛选、标题与预览的层级清楚；点击进入后标题和返回保持固定，长内容纵向可达，底栏没有覆盖已滚到的正文。列表与会话往返不需要依靠屏外控件或猜测导航，未发现新问题。审批卡/媒体的独立修复结论仍引用R2，本轮没有点击文本附件或操作原生系统弹窗。
+
+证据：`review-r3-narrow-network-390.png`（390 CSS宽真实Network）、`review-r3-narrow-long-end.png`、`review-r3-narrow-long-middle.png`（该图实际为长清单开头及相邻历史）、`review-r3-narrow-history.png`。`review-r3-narrow-network.png`为校正前487 CSS宽，不用它声称390验收。
+
+剩余必验仅原生：审批卡只读、友好失效修复、列表长按/侧滑和详情。未使用替代UI驱动，报告未提交，新增产品问题0。

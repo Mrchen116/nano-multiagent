@@ -1,6 +1,6 @@
 # bugfix-618：Agent 协作私聊对双方 owner 只读可见
 
-> 状态：需求已收口，进入技术设计；2026-10-19。Full bugfix，需要跨授权、实时订阅和客户端的独立回归矩阵。本文描述目标行为，尚未实施，不覆盖 current specs。
+> 状态：实现与独立代码复审已完成，产品补验及最终验证门禁待收口；2026-10-19。Full bugfix，仍保持 active；目标行为尚未归并到 current specs。实际通过与阻塞分别见 [verification.md](verification.md) 和 [regression.md](regression.md)。
 
 ## Relations
 

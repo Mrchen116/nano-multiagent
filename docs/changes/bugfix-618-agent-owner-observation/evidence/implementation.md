@@ -40,8 +40,21 @@
 pre_fix_head `03d1d5a65`。审批只读资格遗漏和滚动fixture前提问题均接受，具体闭环见code-review/verification的后续Round。
 
 - Web修复+既有审批成员行为+分类+此前无关trajectory超时项：4文件35测试通过（`/tmp/nano618-web-fix.log`）；新增的真实页面用例同时证明审批内容可读、决定按钮/理由框不存在。
-- iOS修复后：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ... -jobs 2 test`，30测试0失败，`/tmp/nano618-ios-fix.log`。
+- iOS修复后：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ... -jobs 2 test`，30项XCTest与17项Swift Testing通过，`/tmp/nano618-ios-fix.log`。
 - Release设备归档：同工程 `generic/platform=iOS`、Release、`CODE_SIGNING_ALLOWED=NO`、`-jobs 2 archive`，ARCHIVE SUCCEEDED，`/tmp/nano618-ios-archive.log`。归档是未签名构建，不等于真机安装或生产发布。
 - 全量Web首轮最终887/889通过：本unit滚动fixture和无关trajectory5秒超时各1项；两项均在上述35项复跑中通过，最终全套正在重跑。
 - 后端全量343/347通过，4个超时分布3文件；串行重跑后model-fallback、control-work全部15项通过，只剩未改动workspace-tools的90秒超时。正在主仓对照同一测试，不把重试/基线疑点写成通过。
 - 隔离资源补齐：fixture提供`/classifications`（真人/人机私聊）、`/history`（60条历史+100行长清单）、`/media`（受保护测试图标及文本附件）、`/approval`（正式节点streaming生成待审批卡），用于独立补验。原生origin应为53186，经同源Vite转发API和WS；58054仅用于不带浏览器Origin的直接API。
+
+## 最终集成树的验证状态（尚未交付）
+
+`validated_at=1823aef433264a8732ae56461a73deea60ada701`，`executed_base=d9be419c7`。main增量包含issue模板、workflow/script和文档，不改本次IM或依赖；独立R2审查范围及retained依据见[code-review](../code-review.md)、[verification](../verification.md)。没有把main增量概括为全是文档。
+
+- Web受控全套：95文件通过、1文件失败，888/889测试通过；唯一失败为sidebar既有首个渲染用例5秒超时（`/tmp/nano618-web-final2.log`）。随后该文件独立复跑16/16通过（`/tmp/nano618-sidebar-retry.log`，2.97秒），此前相关35项与独立15项也通过。分次复跑通过不写成一次全套绿。
+- 后端全套失败项最终全部复跑通过：原始workspace-tools（原有90秒限制）单文件62.84秒通过，`/tmp/nano618-workspace-tools-final.log`；此前另外两文件15项通过。其产品源、测试与依赖lock相对main均无变动。主仓基线因旧构建报`target is required`，不是相同故障，不能用它证明基线同样超时。临时延长计时实验65.51秒通过只用于定位，正式结果采用上述未修改用例；没有改超时、skip或断言。分次复跑不等于全套一次全绿，最初负载超时原因仍不作确定归因。
+- 文档完整性：使用项目Python环境运行`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check`，258 maintained Markdown sources、65 required routes通过。系统Python缺yaml的尝试属于环境错误。
+- Web依赖审计：`npm audit --audit-level=critical`通过，0 vulnerabilities（`/tmp/nano618-npm-audit.log`）。
+- 产品R2具体通过和剩余inconclusive见[regression](../regression.md)。CUA对Simulator坐标/拖动持续`noWindowsAvailable`，Chrome系统保存面板又导致`timeoutReached`；模拟器宿主重启后仍未恢复。没有以AX状态冒充手势验收，也未未经用户指示切换其他UI驱动。
+- 产品R3使用CUA新建页和公开viewport能力，实测390×844 CSS像素，窄屏返回、分类、长内容、分页独立通过；原生审批卡/失效修复可视复验、长按/侧滑/详情仍未完成。历史R2窄屏阻塞已关闭。
+
+unit保持active；不归并current spec、不归档、不创建Ready PR。待补齐原生真实交互并关闭verification的C1后，再完成最终同步、归并、归档和CI交付；不合并或部署。

@@ -48,3 +48,37 @@
 - 审批控件 finding accepted：Web 将会话只读资格透传到 MessageBubble/PermissionCard，保留问题、工具输入和审批状态，隐藏理由框与决定按钮；原生同样透传到 ChatPermissionCard 并隐藏决定/提交入口。成员默认分支不变，服务端拒写门禁保持。非成员页面回归直接包含 pending card，原有 PermissionCard 成员测试保留。
 - 迟到历史 finding accepted：明确设置可滚动高度、视口和顶部位置，再触发真实页面的分页请求。修后35项相关Web测试通过，已执行撤权及迟到返回不恢复内容断言。
 - 产品 minor accepted：原生 inspect 403/404 后改用统一可理解的失效文案，避免主区暴露内部 conversation_id 字段；原生30测试再次通过。
+
+## Round 2 · Patch review + finding closure · 2026-10-19
+
+- review_mode: patch + closure
+- executed_base: `d9be419c7`
+- validated_at: `1823aef433264a8732ae56461a73deea60ada701`
+- pre_fix_head / finding_origin_head: `03d1d5a65550061a10c944552f0078dac9085408`
+- fix_delta_range: `03d1d5a65..3786dd735`
+- 补查范围：`3786dd735..1823aef43` 的main合并影响；本轮不重审完整unit，不签M1完成。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus findings closure
+
+| R1 finding | 结果 | 直接证据 |
+|---|---|---|
+| 观察者仍能操作待审批卡 | **closed** | Web `message-pane.tsx:1047,1782` 将 `can_write===false` 传给 MessageBubble→PermissionCard；`permission-card.tsx:100,182-223` 保留问题/工具输入，隐藏理由框与决定，并阻止handler提交。iOS `ConversationView.swift:54`→`ChatMessageView.swift:61,161,175`同样传递readOnly、隐藏决定并阻止提交。两端默认readOnly=false，成员分支保留。 |
+| jsdom滚动前提不足，撤权/迟到断言不执行 | **closed** | `chat-public-visitor.test.tsx:49-60` 明确scrollHeight=1200/clientHeight=300/scrollTop=0；先等历史请求，再撤权、清空正文/cache，最后解析迟到历史并确认未恢复。冻结HEAD独立运行包含此用例与成员审批的2文件15测试通过。 |
+
+### 独立与复用验证
+
+- **独立重跑**：cwd `src/IM/frontend`，`npm exec vitest -- run src/features/chat/chat-public-visitor.test.tsx src/features/chat/components/permission-card.test.tsx --maxWorkers=1`，**2 files / 15 tests passed**，2026-10-19 22:29:50，18.63s。日志 `/tmp/nano618-independent-r2-web.log`。当前场景含实际Agent sender、pending卡与真实参与Agent，断言问题及工具输入可见，无textbox/Allow/Deny，同时执行撤权/迟到历史；成员PermissionCard现有发送、失败/决定行为通过。
+- **复用且已检查**：`/tmp/nano618-web-fix.log` 4 files / 35 tests passed（22:10:38）；`/tmp/nano618-ios-fix.log` XCTest 30 tests / 0 failures、Swift Testing另17 tests通过，`TEST SUCCEEDED`（22:11:39）；`/tmp/nano618-ios-archive.log` 同worktree、generic/platform=iOS、Release、`CODE_SIGNING_ALLOWED=NO`，`ARCHIVE SUCCEEDED`。日志命令和结果均已读取，产品源树与本轮冻结版一致；不是原生手势/真实产品验收或已签名真机安装证据。
+- iOS `ChatStore.swift:166-171` 的403/404只替换用户可见失效文案，清理及其他错误分支保持；未发现本轮新的产品缺陷。
+
+### main合并与保留影响判断
+
+实际 `3786dd735..1823aef43` 仅19个issue intake相关文件：issue模板/labels、专用issue-triage workflow、sync-issue-labels脚本和文档；不是19个全为纯文档。已检查路径及专用workflow/脚本，均不进入IM运行时、依赖锁文件或现有产品测试门禁。合并没有改IM产品/测试路径，本轮修复之外也没有backend/PA/DSH改动，因此R1服务端owner读取/成员写入、媒体、live/replay结论仍适用，无需full重审。相同delta链接修正不改变产品契约。fixture扩充仅合成长历史/媒体/审批/分类资源，origin修正为已有Vite同源53186，属于验收接线，无新增产品能力。
+
+结论：本轮两项finding均关闭，无新增存活finding；全量、产品交互、current契约归并及CI的C1仍pending，见verification Round 2。未改源码/测试/设计，未提交。
