@@ -120,3 +120,11 @@ The user's test service remains available at its isolated local URL while they i
 - 查询出处新增 owner_can_read，区分 PA 独立参与而主人无权打开的来源；主 PA 明确标注这种来源并提供摘要，原链接不授予任何访问权。
 - 真实持续协助完成子执行、普通文件更新和带标记代发后，任务读取错误固定 can_edit=false，导致模型停止收尾。移除旧只读查询对权限展示的覆盖；投影反映主人/PA现有会话写权限，读取接口依旧拒绝mutation，实际共享写仍强制披露审查。新增原生任务创建→读取→完成回归，先红后绿。
 - 最终同步 feat-617 `2aee3995e`（合并 `e5eb09a12`），新增聊天宽度布局；唯一冲突为等价 waitFor 的空格差异。宽度布局补前端测试/构建与实际卡片复验，未改变 PA 授权逻辑。
+
+### R9 final validation snapshot
+
+- Product code `afee6ff54`, based on latest feat-617 `2aee3995e`. Final backend typecheck passed; frontend build passed (existing large-chunk warning), 117 affected UI tests passed. After task projection correction, PA/disclosure 24 tests and ordinary task collaboration 4 tests passed. Group and source-permission increment passed 25 tests; independent closure has no new findings. Full 434 backend/922 Web evidence above is retained for unaffected behavior.
+- Isolated service `http://127.0.0.1:53808` was restarted from the final backend at 21:46:09; latest frontend loaded after build. Owner/peer synthetic accounts use main 6.1 Sol and review 6 Luna. The separate fresh-onboarding stack on 65348 completed actual creation/configuration/bash response, then was stopped with e2e-down; its data and evidence are kept locally. Main user test service remains running as requested.
+- Final product journey independently observed task Done revision2 and current source restoration at 21:47–21:48. Full acceptance and video index remain governed by acceptance.md; this implementation record does not replace the product gate.
+
+- 最后隐私实测发现两项通知缺口：输入明确deny但缺少可选incident时会静默结束；固定拒绝语的Luna审核误针对历史私群汇总作出deny（操作88b514cc）。前者统一走现有事件通知；后者只对服务器已核固定文案/owner receipt的安全通知提供完整固定payload、实际受众和策略，普通对外内容的完整执行证据不变。通知加入原请求短摘录，主人无需获得源私群权限即可理解索取对象。原历史事件重复按现有聚合计数，不把旧通知重发当作新验收。

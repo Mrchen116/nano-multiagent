@@ -27,6 +27,12 @@ export class PersonalAssistant {
   }
 
   private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown): Promise<Verdict> {
+    const action = evidence as Data;
+    // The server validates this fixed refusal and its owner-notice receipt; unrelated history is not the proposed disclosure.
+    if (kind === 'action' && action.security_notice) evidence = {
+      security_notice:action.security_notice,recipient_ids:action.recipient_ids,
+      external_destination:action.external_destination,payload:action.payload,policy:action.policy,
+    };
     try {
       const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence}) as Verdict;
       if (!result || !['allow','deny','needs_owner','unavailable'].includes(result.decision) || typeof result.reason !== 'string') throw new Error('Invalid independent verdict');
@@ -43,8 +49,8 @@ export class PersonalAssistant {
       const verdict = await this.review(config,'input',{source:{conversation_id:input.conversation_id,message_id:input.message.id,
         actor:input.message.sender_user_id,kind:input.message.sender_type},content:input.message.content});
       if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
-      if (verdict.incident) {
-        const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident.reason});
+      if (verdict.incident || verdict.decision === 'deny') {
+        const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident?.reason ?? verdict.reason});
         if(notice.owner_notice_message_id && notice.peer_notice_content && !notice.peer_notice_message_id) {
           if(input.conversation_id.startsWith('external:')) await this.options.relay.request('agent.message',{
             node_id:this.options.nodeId,to:`conversation:${input.conversation_id}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});

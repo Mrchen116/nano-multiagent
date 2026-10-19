@@ -167,7 +167,7 @@ export class PersonalAgents {
     transaction(this.db,()=>{
       this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,args.category,args.reason);
       this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,args.category,id);
-      const message=this.ctx.messaging.insertMessage(b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id,'agent',`${actor.display_name}的请求可能超出了协作范围。${args.reason}\n我已拒绝这次索取；其他工作继续。`,[],`pa-incident:${id}`,'completed',{publish:false});
+      const message=this.ctx.messaging.insertMessage(b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id,'agent',`${actor.display_name}的请求可能超出了协作范围。${args.reason}\n\n原请求${source.content.length > 500 ? "（摘录）" : ""}：\n${String(source.content).slice(0,500).split("\n").map(line=>`> ${line}`).join("\n")}\n\n我已拒绝这次索取；其他工作继续。`,[],`pa-incident:${id}`,'completed',{publish:false});
       this.db.prepare('UPDATE pa_incidents SET owner_notice_message_id=? WHERE id=?').run(message.id,id);
     });
     const incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=?',id)!;

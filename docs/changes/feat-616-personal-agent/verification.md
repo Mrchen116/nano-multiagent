@@ -823,3 +823,18 @@ PersonalAssistant的消息/共享task原prepare→review→带evidence_digest的
 **验证与限制。** 独立`pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts`：**1 file / 6 tests passed**，1.24s，日志`/tmp/pa-static-review-616/r9-group-authority-tests.log`。实际读取caller绿测`/tmp/feat616-r9-group-green.log`：**4 files / 25 tests passed**；IM/DSH build成功复用caller交接，未重复全量。真实模型能否自然建群并继续协调、是否正确解释仅PA可读出处，仍由正在进行的产品旅程判定；本轮不给其代填pass。
 
 仅新增本轮closure JSON和追加verification，未改源码/测试/设计、未重启共享运行时、未commit。R9原始finding及其bf6/1f closure记录保留，旧61/434/Web922等有效证据无失效；在该有界范围未发现新的实际权限缺陷，结束本轮静态审查。
+
+#### R9 bounded native-task closure — `c1f4b9583`
+
+- validated_at: `c1f4b95835e041f5638a9ed830e10585d7da3443`；2026-10-19 21:45 Asia/Shanghai。仅审核本提交实际TaskGraphService投影/回归和文档，以及随后同一Form指导修正的生成源收口；未机械扩展到已另派前端验收的`e5eb09a12`布局合并。
+- code_review_mode: **bounded closure**；`code-review-r9-task-closure.json=[]`。verification_mode: **delta consistency**；**Approved / aligned — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**，requires_full_verification: `false`。截至46d的未失效静态与工程证据保留，产品持续协作收尾结果不在此代判。
+
+**故障与委托机制一致性。** 实测模型看到原`readPersonal`硬编码`can_write=false`及派生`can_edit=false`后，误认为无权完结已创建任务。projection现在在当前sourceAllowed及chat可读检查后，报告owner/PA任一当前conversationAccess.can_write；主人拥有而PA未入群的会话沿已有owner委托能力，owner不在而PA可写的独立会话沿已有PA能力。这与`executeDelegated`原有“owner可写则owner，否则实际agentUser”选择访问身份一致，不是由can_edit布尔值授予写权限。
+
+readPersonal仍只接受get/list/activity，其专属service实例在execute中继续拒绝所有create/apply/delete。Gateway的普通task_graph.command仍拒绝PA对非canonical owner DM的mutation（`personal_reviewed_delivery_required`）；PersonalActions.prepare仅对canonical DM返回owner_private，其他任务冻结完整原命令。commit仍校binding/epoch、source/audience、evidence_digest、独立allow与receipt，再调用原executeDelegated和native版本/成员/assignee校验。新投影没有新增写API、改目的地或绕过共享review。普通非personalRead投影仍按其原会话写权限，dissolved/非成员可读但不可写的语义不变。
+
+**直接证据。** 新回归真实TaskGraphService/SQLite创建PA自有canonical私人任务→readPersonal节点can_edit=true→readPersonal apply仍拒绝→普通execute apply置done并存result→readPersonal回读done/result；owner可写但PA未入群的既有读取期望同步为true。caller `/tmp/feat616-r9-task-red.log`记录修复前两处true/false失败。独立`pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts apps/im-server/tests/personal-disclosure.test.ts`：**2 files / 24 tests passed**，8.08s，日志`/tmp/pa-static-review-616/r9-task-editability-tests.log`；覆盖任务实际mutation及共享披露边界。已读取caller `/tmp/feat616-r9-task-green.log`，同24项及普通task-collaboration **4 tests passed**。未重跑全量。
+
+当前gateway delta“完整Global任务与具体共享外发审核”、im delta“私人资产ACL”及design原native任务实现均**aligned / no new spec delta**。后续`afee6ff5464f75fdf2e6a5d527ae64bb9fe54010`只将此前已核Form buttons第二参数修正移至catalog prompt生成源并重生成DSH prompt，未改变Form schema或执行校验；不能再把只手改生成Skill视为完整生成资产收口。独立`pnpm exec tsx scripts/generate-interactive-ui.ts --check` **exit=0**，日志`/tmp/pa-static-review-616/r9-interactive-generated-check.log`为空（该checker成功静默）；catalog、DSH prompt及生成Skill现一致。
+
+仅写报告，不改实现/测试或共享服务、不commit。任务真实产品样本需由产品reviewer确认模型已继续完成，不拿“can_edit=true”的工程证据替代实际用户旅程。
