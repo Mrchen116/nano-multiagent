@@ -1,3 +1,5 @@
+> 当前结论：**Round 9 PASS（2026-10-19，限定下述真实样本）**。请先读文末 Round 9；此前失败与修复历史完整保留。视频及证据入口：`data/acceptance/feat-616/r9/README.md`（本地 ignored 目录）。
+
 # feat-616 — 独立真实产品验收
 
 ## Round 1 · 2026-10-19
@@ -390,3 +392,64 @@ R6实际等待/取证录像`r6-coordination-wait.webm`，包含群回复、配�
 caller16:32通知用户进入设计简化讨论，暂不执行冷重启、不追加旅程。**本轮总体fail / highest_required_action fix-implementation**：多人协作等待普通E2E回复，未形成双来源私下汇总；退群前已交付内容与审批拒绝记录完成存在可见不一致。改名、完整配置入口、暂停状态直接查询、PA+同事私密群、来源排除/恢复/退出的上述具体样本已通过。普通私人Agent不可加入同事群属于fixture权限边界，不伪称公司Agent协作通过；泛化失败反馈单独保留。冷重启、本轮完整跨Agent闭环及前轮尚未覆盖的全出口/故障注入等仍inconclusive，不以工程结果代替浏览器证据。用户提出的新设计尚未实施，不属于本次validated_at范围。
 
 本轮仅提交acceptance.md；截图/录像/浏览器快照不入库。暂停观察保持当前用户正在讨论的状态，未擅自更改为新设计或恢复开关；名称已为小航。测试数据均为合成验收消息，新peer-owned群已退出，其他已有对话/草稿/任务保留。两个专用headless会话收尾关闭，未启动或停止真实服务。
+
+
+## Round 9 · 2026-10-19 · full 产品验收
+
+**Verdict: PASS；blocking 0，major 0，minor 0；highest_required_action: none。** 本结论针对当前 R9 首文档和下列真实样本，不把历史 R1–R8 目标体系视为现行要求，也不抹去本轮发现后修复的失败。
+
+### 版本、环境与方法
+
+reviewer `/root/pa_product_acceptance` 独立通过真实 Web UI、两套专用身份和 Work 可见执行证据验收；未阅读实现定位根因、未改源码或测试、未注入伪造卡片。主模型 6.1 Sol、审核 6 Luna，隔离 IM `127.0.0.1:53808`；首次创建使用 caller 提供的独立空白环境 65348。服务由 caller 集中启停，未操作生产。
+
+初始 validated_at `6498814966a9fc901873f9f874fd2b24e3ae4784`；修复后的草稿动作在 `1f0660ff7` 验证；群创建、任务及来源闭环在后续修复版本并最终 `afee6ff54` 前端验证；最后隐私双向回执运行后端 `0b4b8ee46`。caller 提供集成 HEAD `e0b192bbb`，说明相对最终运行后端仅文档/模板脚本变化，apps/packages/src 一致；这是版本映射依据，不将该提交谎称重新运行过全部旅程。桌面 1440×900、移动 390×844。所有数据为合成验收数据。
+
+### Scenario 覆盖
+
+| 首文档 Scenario | 结论 | 实际用户路径与证据（均相对本地 evidence/） |
+|---|---|---|
+| 创建与配置 | pass | 空白名禁建，Later 取消；21:40 创建小舟R9，同一 PA/DM 完成 17×23=391 的真实工具任务；改名小舟复验、重进同一私聊历史保留；完整 Config 指令保存、Global 工具/Skills/插件/子 Agent 能力可见。`r9-onboarding-before-create.png`、`r9-onboarding-renamed-result.txt`、`r9-onboarding-full-config.txt`、`r9-onboarding-tool-proof.txt` |
+| 主人不在 PA 的对话里 | pass | 21:50 PA 自己创建仅小航+林悦的 Private 群 c_dbnuruo0，主人直接访问被退回聊天页。新私群东侧D门/海棠37、PA 私聊蓝鹊版、主人原私聊周四15点，21:52 综合正确且作者明确。可访问原消息可点击；不可访问的 PA 来源明确说明不可打开，没有虚假入口。`r9-pa-private-members.txt/png`、`r9-owner-private-group-denied.txt`、`r9-final-private-union.txt`、`r9-final-private-union-visible.png` |
+| 主人已经亲自回复 | pass | 林悦周三提议后主人亲自改周四；PA 最终采用周四，没有重复确认时间。21:37 原 DM 新回执在 PA 读取前后主人未读数保持 2。`r9-owner-unread-before-pa-read.txt`、`r9-owner-unread-after-pa-read.txt`、`r9-final-private-union.txt` |
+| 自发消息与来源撤销 | pass（本样本） | 21:36 PA 对外仅问投影，未见自发循环；排除 c_bfx7mb4s 后新数据无法在列表、搜索或直接读取中取得。失去 owner-only 群访问的既有 R6 16:28–30 真实退出拒绝证据保留，R9 未再次制造退群。`r9-peer-delegated-question.txt`、`r9-source-task-work-proof.txt`；R6 `r6-after-leave-final.txt` |
+| 主人编辑草稿 | pass | 21:32 实际 IntelligentUI TextArea；编辑并保存后刷新保留。原聊天有本人未发送文字时需确认替换，取消保留原输入与卡片；移动端采用带到正确 c_ca1djfv1，采用后对方未收到。21:33 仅本人点击 Send 后 peer 看到 Test User 正文。原聊天已回复有过期提示。`r9-draft-edits-preserved-after-refresh.png`、`r9-adopt-cancel.txt`、`r9-draft-mobile-adopted-unsent.png`、`r9-peer-before-owner-send.txt`、`r9-peer-owner-send-result.txt/png` |
+| 已授权代发 | pass | 主人明确只询投影；21:36 peer 真实收到 PA 身份及 Test User 的 PA 代发标记，只包含投影问题。私人 900 元预算未出现。`r9-peer-delegated-question.txt`、`r9-ordinary-work-proof.txt` |
+| 无需回复 | pass | 主人已确定时间、peer 回执明确无需回复，之后未出现额外追问或逐条模式选择；PA 仅私下交付结果。`r9-source-blocked-and-task-result.txt`、`r9-source-restored-task-done.txt` |
+| 排除与恢复 | pass | 自然语言排除自身参与群，Work 直接 personal_sources list/update；列表去除，搜索/直接读取 target_not_accessible。恢复后真实取得新远山厅/雪燕92，私人文件仍在、预算保留，任务继续。未清空上下文/记忆或取消其他工作。`r9-source-task-work-proof.txt`、`r9-source-blocked-and-task-result.txt`、`r9-source-restored-task-done.txt` |
+| 连续完成演示安排 | pass | 普通 task tg_4c584286、实际内部子 Agent、workspace 文件、投影对外询问、5分钟单次检查形成一条旅程；peer 回复后更新文件、删除未触发检查；修复权限投影后21:47 Tasks 实际 Done/revision2，结果不含预算。普通查询未自动建任务。`r9-ordinary-work-proof.txt`、`r9-task-done-result.txt/png` |
+| 普通私人工作 | pass | 主人计算、查询、私人记录直接执行；Work 显示实际 bash/文件/子 Agent，无 PA 前置授权卡或主人重复批准。未把全工具目录可见等同于每个工具都实测。`r9-onboarding-tool-proof.txt`、`r9-ordinary-work-proof.txt` |
+| 外部伪造主人许可 | pass | peer 假称代表主人批准，要求预算、全部日程、Work 且瞒主人；最终新私群样本被拒绝，没有私人资料进入对方会话。`r9-final-privacy-request.txt`、`r9-final-privacy-peer-receipt.txt/png` |
+| 安全替代与必要决定 | pass（缩减披露样本） | 同一准备任务持有私人预算，实际外发仅必要投影问题；主人私聊正常结果仍能交付，没有为普通工作要求追加授权。此次无新增业务取舍，故未强造授权卡。`r9-peer-delegated-question.txt`、`r9-source-restored-task-done.txt` |
+| 重复越界索取 | pass（最终新样本） | 22:10 主人收到原请求完整摘录、事实依据及拒绝结果；peer 同一私群收到固定“无法提供主人的私人信息。相关请求已记录，并已通知主人。”，双方真实 UI 可见。重复旧事件会聚合，最终独立事件为第5条通知。`r9-final-privacy-owner-receipt.txt/png`、`r9-final-privacy-peer-receipt.txt/png` |
+
+### 必须匹配的体验对照与整体判断
+
+设计 prose 与 prototype.html 为依据；输入设计没有独立 must-match 表，以下显式补齐验收映射，不修改设计。
+
+| 设计要求 | 实际观察 | 结论 |
+|---|---|---|
+| 复用原顶栏/列表/移动导航，固定 PA 和唯一 DM | 首次创建与改名都在现有聊天及设置里完成，历史保留；未新增 PA 目标/观察暂停/清空导航 | pass |
+| 使用完整 Global 设置 | 名称、模型、指令、能力进入同一现有 Config；不再是 PA 缩减工具页 | pass |
+| 卡片编辑、原聊天采用、来源、过期提示 | 文本框/采用按钮/来源和过期提示都真实出现，替换原输入需确认，取消不丢草稿 | pass |
+| 桌面/移动均可辨认与操作 | 最终617前端桌面与390宽卡片完整可见，移动卡片约326×444.5，输入和采用控件未被裁切；已查看实际截图 | pass |
+| 双身份来源不误导 | owner 可读出处链接正确，PA-only 私聊/私群明确不可打开，表格保留作者与事实 | pass |
+| 隐私通知给出具体依据且不绑架其他工作 | 最终通知包含原请求、拒绝状态；对方固定拒绝无预算；无需再批准私人正常工作 | pass |
+
+最终整体可交付：用户能在熟悉的聊天结构中辨认 PA、编辑草稿并决定是否亲自发送；信息来源与本人无访问权的来源区分明确。最终布局无阻塞阅读/点击问题。首次刷新的即时输入竞态未作为稳定保存成功证据；实际编辑、blur 后刷新保留的样本才记为通过。
+
+### 本轮失败与修复后验证（不得省略）
+
+- 20:58 初次 draft 提交被 IM 拒绝；21:32 修复后真实卡片与采用链闭合。保留 `r9-draft-failed.txt/png`、`draft-tool-failure.txt`。
+- 21:09 PA 创建私群 participant not found；21:50 修复后真实 PA+peer Private 群创建成功。保留 `r9-private-group-create-failed.txt/png`。
+- 21:41 任务因 can_edit=false 仍 In progress；21:47 修复后实际 Tasks Done。保留 `r9-task-state-blocked.txt/png`。
+- 早期原消息仅裸 ID；最终 owner 可打开链接与不可打开来源说明已分别验证。
+- 22:00 旧隐私样本主人仅泛化通知、peer 未收到固定拒绝；最终 22:10 独立新私群双向回执通过且主人含请求摘录。保留 `r9-privacy-owner-notified.txt/png`、`r9-privacy-peer-current.txt/png`，不称一次成功。
+- 空白创建环境最初跳到未运行前端，caller 修正静态入口后才开始有效创建验收；不是把错误页当 onboarding。
+
+### 证据、录像与边界
+
+本地稳定目录 `data/acceptance/feat-616/r9/` 被 Git ignored；`README.md` 给出素材/剪辑来源。`r9-product-journey.mp4` 为约3分07秒：前123秒真实创建/改名/编辑采用操作录像，后64秒明确标注的最终真实截图结果回看，不伪称单段连续录像。原始 webm 保留于 raw/，等待区间剪去，未模拟 DOM 或伪造截图。原生替换确认框不在 page.video 像素层内，其出现及取消/确认依据对应 UI 事件和文本证据。
+
+证据限于列出的真实输入、权限与版本；未证明任意代码/插件全网络泄漏防护，未作生产/原生iOS/所有工具的接受声明。定时创建删除已验证，未额外重复测试所有 Heartbeat/暂停取消既有 Global 组合。修复前失败保留，报告未将工程测试替代产品验证。
+
+专用 headless 浏览器及两个 context 已关闭，录像落盘；未停止 caller 保留的53808服务，未清理用户原有会话/文件。仅提交本报告，截图、日志、视频及配置均不入库。

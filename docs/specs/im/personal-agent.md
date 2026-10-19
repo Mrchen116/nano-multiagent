@@ -1,0 +1,40 @@
+# IM Personal Agent Specification
+
+> 对齐: feat-616
+
+## Purpose
+
+定义固定个人助手的身份、聊天访问、原聊天协助与风险通知；普通 Agent 配置和 IntelligentUI 行为复用相应现有 area。
+
+## Requirements
+
+### Requirement: 固定个人助手保持原 IM 体验
+#### Scenario: 创建、改名和配置
+- **WHEN** 用户创建或配置自己的 PA
+- **THEN** 固定主人关系与私聊入口保持，使用原 Agent 设置与导航；他人可联系 PA，但不能读取主人私人配置和 Work。
+
+### Requirement: 历史查询同时覆盖主人和 PA
+#### Scenario: 双身份查询
+- **WHEN** 主人询问跨聊天进展
+- **THEN** 查询当前可访问的主人与 PA 参与聊天并集，保留真实作者与出处，不增加任意日期窗口。
+
+### Requirement: 双向主人消息可用于协助
+#### Scenario: 主人先回复
+- **WHEN** 主人亲自在原聊天回复
+- **THEN** PA 能接收该消息并避免重复回复，读取不改变主人的已读状态。
+
+### Requirement: PA 回复草稿复用 IntelligentUI
+#### Scenario: 编辑并采用
+- **WHEN** 主人编辑 PA 提供的回复草稿并采用
+- **THEN** 编辑内容进入正确的原聊天输入框，主人确认发送后才向对方发布；采用不自动发送。
+#### Scenario: PA 代发
+- **WHEN** PA 按已有授权在原聊天代发
+- **THEN** 对方能辨认 PA 实际身份及代发标记，发送成功以真实回执为准。
+
+### Requirement: 来源限制与风险提醒明确
+#### Scenario: 来源排除与恢复
+- **WHEN** 主人调整 PA 的聊天访问范围
+- **THEN** 对新消息和历史查询实际生效，不承诺抹除已读内容，不展示全局暂停观察开关。
+#### Scenario: 可疑套取
+- **WHEN** 对方反复越界索取且有原消息证据
+- **THEN** 阻止披露并通知主人，真实通知送达后才告知对方；不增加常规人工审批。
