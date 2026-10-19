@@ -1,0 +1,11 @@
+- insert:
+    - id: workspace-counter-group
+      name: cordis:group
+      group: true
+      isolate:
+        workspaceCallCounter: true
+      config:
+        - id: workspace-counter-provider
+          name: ./provider.mjs
+        - id: workspace-counter-consumer
+          name: ./consumer.mjs

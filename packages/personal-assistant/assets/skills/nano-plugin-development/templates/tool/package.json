@@ -1,0 +1,1 @@
+{"name": "workspace-total", "version": "1.0.0", "type": "module", "description": "汇总整数分金额", "dsh": {"bundle": {"patch": "./cordis.patch.yml"}}, "peerDependencies": {"@deepseek-ai/dsh-tools": "*"}}

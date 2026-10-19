@@ -1,6 +1,6 @@
 # IM - Agent Work Specification
 
-> 对齐: feat-546 / feat-554 / feat-572 / feat-583 / feat-584 / feat-589 / feat-587
+> 对齐: bugfix-612
 > 上级: [IM Specification](spec.md)
 
 ## Purpose

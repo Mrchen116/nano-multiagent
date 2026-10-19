@@ -1,0 +1,3 @@
+- insert:
+    - id: workspace-total-tool
+      name: ./tool.mjs

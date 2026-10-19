@@ -15,6 +15,7 @@
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 编写代码、docstring、注释或 TODO/FIXME | [`coding-guidelines.md`](coding-guidelines.md) |
 | 联调 LLM provider、本地代理或查看交互日志 | [`llm-integration.md`](llm-integration.md) |
+| 创建 workspace 插件、查当前公开 API 与验证模板 | [随包插件开发 Skill](../../packages/personal-assistant/assets/skills/nano-plugin-development/SKILL.md) |
 | 编写 current spec 或归并 delta-spec | [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) |
 | 查 change unit 的目录、文件归属和归档规则 | [`../changes/README.md`](../changes/README.md) |
 
