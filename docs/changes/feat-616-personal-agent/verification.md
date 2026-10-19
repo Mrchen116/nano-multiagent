@@ -348,3 +348,81 @@ Outcome: **implementation-mismatch**，唯一确认的不符为审查证据代�
 ### Handoff
 
 仅写并提交 `code-review-r4.json` 与本报告。此前有效结论保留；R3-W1与本批Work修复的直接证据已记录，新审查代际绑定问题需修后定向闭合，不再扩展额外扫描。提交号见最终交接。
+
+## Round 5 — Evidence Closure and Corrected Delta Reconciliation
+
+### Metadata and separate verdicts
+
+- review_round: `5`
+- code_review_mode: `closure`，唯一 focus 为 R4-C1，不扩展代码扫描；`code-review-r5.json=[]`。
+- verification_mode: `corrected-delta`，按本轮明确要求核全部 active delta 与最终统一PA设计、当前实现及既有有效证据。
+- executed_base: `f8edd7971768cae1decfc4ad62b2b9e06b4e618a`
+- validated_at: `8845a281517ddc72f8e084f915205e1783466138`（实现 commit `03fda087e`）。
+- R4-C1 code closure: **Approved — closed，0 存活代码 finding**。
+- corrected-delta outcome: **implementation-mismatch — 1 CRITICAL / 0 WARNING / 0 SUGGESTION**。任务 delta 的“owner当前资格∩来源策略读取任务”没有贯通现有 `task_graph get/list`；此结论来自明确派发的 delta 核对，不把真实实现缺口改写成更小的需求。
+- requires_full_verification: `false`；未重开未失效部分。当前真实产品 R3 验收仍由独立 reviewer 执行，不据代码闭合自动通过产品或整个M1。
+
+### R4-C1 closure evidence
+
+`PersonalActions.project` 新增 evidence_digest，输入覆盖完整 evidence_json 及 scope/policy/disclosure revisions；`review` 先做原 validate，再要求提交digest与当前投影一致。未提供digest也拒绝。它与payload_digest分别绑定证据和精确动作，不依赖主模型自报。
+
+Host 在 `PersonalAssistant.executeReviewed`、普通 `send` 与 `external` 三处实际审查/发送路径捕获原 proposal 的 digest，原样回传 `pa.action.review-result`，不在审核返回后重新请求新 digest。task/network/固定notice经executeReviewed复用同一关口，Channels经external；scope创建不伪造该回执。confirmed/sending/unknown的既有receipt分支与commit时最终版本核验未改变。
+
+独立执行：
+
+- `pnpm exec vitest run apps/im-server/tests/personal-agent.test.ts packages/personal-assistant/tests/personal-assistant.test.ts`，2026-10-19 15:08，固定候选 **2 files / 32 tests passed**。
+- `/tmp/pa-static-review-616/round5-evidence-closure.mts` 使用真实 PersonalActions 重跑原失败序列：A旧证据revision=0/披露条数0 → B真实commit → A刷新revision=1/披露条数1 → 晚到旧allow拒绝 **review_evidence_changed** → 新证据allow及commit均成功。没有mock权限验证或改payload来制造通过。
+- 复用 caller 的 IM/PA build 成功证据，不重复无关全量；上轮Work事务与Channels真实HTTP证据继续适用。
+
+旧 finding **R4-C1 closed**。没有发现该digest修复扩大权限或恢复未知发送的路径。
+
+### Delta corrections made in this round
+
+按 caller 明确授权，仅纠正可由最终design和真实接口支持的旧目标文字；没有修改实现、测试、current canonical或design。
+
+| Active delta | 陈旧文字与校正 | 证据 |
+|---|---|---|
+| `im/agents-nodes.md` | “外部交流按受限会话执行”改为统一私密主执行处理有来源的外部输入、外部仅获已授权/已审答复 | 最终design统一PA；GlobalAgent.main/receive与无外部业务session分支 |
+| `im/agent-work.md` | “主/子及外部/观察执行”改为统一主/内部子执行及处理外部/观察来源产生的Work，不再暗示三类独立业务执行域 | final design:16、127；Work owner-only投影与真实主执行 |
+| `gateway/task-graphs.md`、`im/conversations-messages.md` | 删除早期一次性入群批准/受众版本许可机制的承诺，准确写PA工具不自行create/join、owner经既有成员操作加入具体群；仍核当前资格且不授予私人披露权 | design:180“owner决定入群”；PersonalSecurity禁止conversations create/join；Messaging成员操作限制Agent归属 |
+| `im/agents-nodes.md` residency段 | 校正“服务器和本机永久双marker”的未实现机制承诺：服务器持久node residency拒绝跨owner；本机仅在服务器绑定成功后保存新owner/token，普通配置不能改personal binding；不声称有独立本机永久marker | final design:213；PersonalAgent创建/restore写pa_node_residencies；Identity.checkTransferRecipient；bindDevice提交顺序和NodeConfiguration身份不可变 |
+| `gateway/global-agent.md` | caller本轮已纠正外部session旧措辞；核统一私密执行和canonical owner控制限制一致 | 本轮文件diff与GlobalAgent ownerControl分支；该文件本reviewer未再修改 |
+
+这些校正不改变真人/普通Agent的现有权限、不新增逐动作审批，也不把已排除的来源恢复给PA。服务器residency仍不因重命名本地runtime目录而消失；本轮只删除不存在的独立本机marker机制承诺。
+
+### Corrected Delta Reconciliation
+
+| Delta item | Implementation / retained test evidence | Outcome |
+|---|---|---|
+| gateway/global-agent：统一跨源私密执行、owner私聊控制与来源授权 | GlobalAgent.binding/main/receive、ownerControl、PA scopes；旧外部session文字已纠正 | aligned |
+| gateway/agent-capabilities：受控能力、原工具审批AND、插件/子执行无旁路、来源派生 | PersonalSecurity/ConfigurationScopes/ToolSelection与此前native DSH真实进程证据；普通Agent条款按该文件PA特例前言解释 | aligned 的既有代码/工程范围，未将未测攻击外推通过 |
+| gateway/personal-agent：来源/目标/动作/恢复/历史能力 | 既有固定binding、scope、历史ACL/排除、外发多sink、unknown不重发、Work退休与本轮digest闭合证据；任务读取仍有下列实质缺口 | **implementation-mismatch**（任务来源策略） |
+| gateway/task-graphs：owner当前资格代表协助、任务capability/版本/真实actor | reviewed `executeDelegated` 写回仍核owner/source/版本并保留assignee；普通 `get/list` 未使用该owner/source入口 | **implementation-mismatch**，R5-C1 |
+| im/task-graphs：源任务唯一真相、负责人不因协助改派 | 私有目标按明确owner_responsible或默认PA建原task；共享结果沿executeDelegated；owner源任务读取部分缺实现 | **implementation-mismatch**，R5-C1 |
+| im/personal-agent：固定入口/目标/观察/历史/代发/告知/简洁 | 代码与已保留的工程/真实样本映射见前轮；最新产品复验尚在进行，不把旧P1–P7失败自动关闭 | 契约文字与目标对齐；产品退出判定保留 |
+| im/agent-work：私密Work与内部成果自动返回 | owner-only ACL、partition消费者、历史退休投影；已校正统一主/子术语 | aligned |
+| im/auth-tenancy：固定资源空间、数据面token/对象ACL与PA私密资产 | 现有identity/source/Work/trajectory ACL；允许联系PA不开放其私人资产；任务专用读取入口例外尚缺 | **implementation-mismatch**，同R5-C1，不另计重复问题 |
+| im/agents-nodes：首个PA、同owner恢复、跨owner拒绝 | create/retry/rename/restore/epoch与perPAstatus既有证据；统一执行与residency文字已按实际最终机制纠正 | aligned 的工程范围；最终产品旅程不代判 |
+| im/conversations-messages：真人/普通Agent群规则、owner决定PA成员关系、影子会话 | owner成员操作与Agent工具限制、private external incoming adapter；已移除旧一次性入群permit文字 | aligned |
+
+### Uncovered Observable Behavior
+
+本轮证据digest是host-only协议字段，不产生新用户权限；Work退休/源排除后的新main属于已批准恢复契约；专用external incoming用于入站private shadow而不是PA外发权限。未发现应新增一套用户流程的遗漏行为。
+
+任务读取不符是既有delta明确要求而实现遗漏，不是需要缩减或删除的“新行为”。当前仍禁止声称全部corrected delta aligned或提前canonical归并。
+
+### CRITICAL — R5-C1: Task reads do not follow owner/source authority
+
+- 契约：`gateway/task-graphs.md:7`、`im/task-graphs.md:8,20` 要求PA按owner当前读取资格及有效观察/目标范围读取任务；`gateway/personal-agent.md` 排除/失权使受影响源API失效。最终design:79,117,197仍明确原任务协助与本人来源范围。
+- 实际：`Gateway.handle task_graph.command:420–449` 对read仍直接 `TaskGraphService.execute(kind=agent,id=PA)`；`executeTransaction:478–481` 的get/list使用PA自己的user ID，不走owner/source policy。只有reviewed写回使用 `delegatedOwner`。
+- 独立真实probe `/tmp/pa-static-review-616/round5-task-read.mts`：创建owner参加、PA未加入的私密群任务；`PersonalAgents.sourceAllowed=true`，但真实Gateway.get返回 `not_found_or_forbidden`。将源设为公开并在PA政策排除后，`sourceAllowed=false`，同一真实Gateway.get却 `ok=true` 返回完整图。不是只绕过Gateway直接调用私有helper所得的推断。
+- 后果：PA不能读取本该协助的本人私密源任务；又可借普通公开群task工具重新摄取已排除来源，破坏来源例外。不能靠改小delta解释成当前预期。
+- 建议：为PA get/list/activity等实际可用只读入口核trusted binding、owner当前task源资格∩PA source policy，同时保留task capability和普通Agent原路径。每次分页/图读取重核，并把确实读取的任务来源纳入可撤销来源证据；原reviewed写回/assignee边界保持。以最低层Gateway/TaskGraph seam补私密owner允许、排除/失权拒绝、普通Agent不扩权回归。
+
+Outcome: **implementation-mismatch**。R4并发代码blocker已独立关闭；新增剩余问题仅来自本轮明确要求的corrected-delta核对。真实产品最终验收仍独立进行。
+
+### Handoff
+
+文档校验使用仓库既有Python环境：`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs-check`，276 maintained Markdown sources / 64 required routes通过（默认系统Python缺PyYAML，未安装新依赖）。
+
+本轮仅写R5报告、verification与上述4个active delta文件，未改实现/测试/服务。报告及delta校正一起提交，最终提交号见交接消息；canonical尚未归并。既有不相关证据保留，不重复开启全量实现审查。
