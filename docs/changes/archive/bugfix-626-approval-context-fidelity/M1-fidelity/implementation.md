@@ -28,4 +28,11 @@
 
 - Red：`/tmp/nano-626-red.log`，旧实现普通 nano 动作读取额外授权 1 次（期望 0），Codex 被超大包污染；`/tmp/nano-626-red-context.log`，上游 parser/profile/recovery 差异 4 项失败。
 - Green：`/tmp/nano-626-green-focused.log`，23 tests / 4 files passed；新增 optional/继承保护见 `/tmp/nano-626-final-context.log`。
-- build/typecheck/full regression 与真实产品验收、独立门禁待完成后补充。以上不是生产验证，也未部署。
+- `pnpm build`、`pnpm typecheck` 通过；`pnpm test` 106 files / 476 tests passed（`/tmp/nano-626-{build,typecheck,full-tests}.log`）。
+- `pytest -m "not e2e" -q` 62 passed / 31 deselected；ruff check 和 format 均通过；docs-check 通过（`/tmp/nano-626-{python,ruff,docs}.log`）。
+- Web npm ci/build/test/audit：100 files / 936 tests passed，critical audit 通过（`/tmp/nano-626-web-*.log`）。未改 iOS，按 CI 路径规则不适用本地 iOS gate。
+- 用户要求的线上原始失败轨迹只审核回归通过，详见 [production-replay.md](production-replay.md)：CC/Codex 有效 allow，工具执行次数 0，主 Agent 未续跑。它不是生产部署。
+- 独立产品回归 `M1-fidelity/regression.md`：pass，百万字符库内旧历史不放大两策略请求；PA participant/observer/ownerDM/外发边界真栈覆盖。
+- 独立 code review：无发现；verification Round 2：本地 gate pass，0 CRITICAL / 0 WARNING，canonical 与已审 delta 一致。
+- final sync：`origin/main ff5fbc8f5` 合入 `7dce653ef393e5fac8cb242b5cf92ddeff363a20`，相对 executed_base 只增加 feat-625 design-review.md 135 行，产品/测试树仍与 validated_at `40cd54ddf81c5c7262d1d2f69cb83b5dd3287bad` 一致。三道门禁 retained；后续仅报告、canonical 归并与完整归档。远端 CI 在 Ready PR 创建后运行，以 PR checks 为最终状态。
+- 隔离服务清理完成：大历史栈 55423、小历史栈 56030 均无监听，所属 Node/DSH 进程和 tmux 已退出。生产只读取证，未重启或部署。
