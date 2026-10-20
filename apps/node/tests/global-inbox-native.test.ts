@@ -71,3 +71,57 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     inbox.close(); store.close(); await rm(home, { recursive: true, force: true });
   }
 }, 20000);
+
+it('keeps a due PA background batch outside a busy native turn and admits it once on idle',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'nano-pa-background-'));
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  let client:RuntimeClient|undefined,product:GlobalAgent|undefined;
+  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+  let entered=false,logs='';const errors:unknown[]=[];
+  try {
+    await writeFile(join(home,'model.mjs'),`import {appendFile} from 'node:fs/promises';
+export const name='background-model';export const inject=['llm'];export function apply(ctx){let step=0;ctx.on('llm/stream',async function*(o){
+  await appendFile(${JSON.stringify(join(home,'requests.jsonl'))},JSON.stringify(o.messages)+'\\n');
+  if(step++===0){yield {type:'block-end',index:0,block:{type:'tool-call',id:'held-read',name:'inbox',arguments:JSON.stringify({action:'read',target:'background'})}};yield{type:'finish',reason:{kind:'tool-calls'}};}
+  else{yield{type:'block-end',index:0,block:{type:'text',text:'No public reply needed.'}};yield{type:'finish',reason:{kind:'stop'}};}
+});}`);
+    await prepareProfile(home,[{insert:[{id:'background-model',name:join(home,'model.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    const config:AgentConfiguration={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',personal:{bindingId:'binding',ownerId:'owner',conversationId:'own',epoch:1},approval:{dangerouslySkipPermissions:true}};
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+    product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime:client.rpc,image:async()=>'',onError:error=>errors.push(error),
+      relay:{request:async(type,args:any)=>{
+        if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
+        const result=type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:args.conversation_id==='own'?'participant':'observer',conversation_type:'direct',channel:'web'}
+          :type==='pa.observations.read'?{items:[]}:type==='pa.sources'?{items:[{id:'background',excluded:false}]}:{};
+        return {type:'ack',payload:{ok:true,result}};
+      }}});
+    client.rpc.handle('product.call',async value=>{
+      const call=value as ProductCall;
+      if(call.method==='inbox'){entered=true;await held;return {target:'background',messages:[]};}
+      return product!.call(call);
+    });
+    client.rpc.handle('model.check',()=>({published:false}));
+    const input=(id:string,target:string):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata:{},message:{id,content:id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
+    await product.receive(input('direct task','own'));
+    await expect.poll(()=>entered).toBe(true);
+    const observed=input('PRIVATE_OBSERVED_BODY','background');
+    Object.assign(observed.metadata,{personal_delivery:'observer',personal_is_owner:true,conversation_type:'direct',channel:'web'});
+    // Persist a due deadline without changing the native subprocess clock.
+    inbox.receive(observed,false,Date.now()-600001);
+    await product.recover();
+    const binding=store.bindingFor('pa','global:pa')!;
+    const state=()=>client!.rpc.request('session.observe',{sessionId:binding.sessionId}) as Promise<{status:string;events:any[]}>;
+    expect(JSON.stringify((await state()).events)).not.toContain('inbox-background');
+    release();
+    await expect.poll(async()=>JSON.stringify((await state()).events).includes('inbox-background')).toBe(true);
+    await expect.poll(async()=>(await state()).status).toBe('idle');
+    const events=(await state()).events;
+    expect(events.filter(e=>e.type==='user/message'&&e.data.source?.channel==='inbox-background')).toHaveLength(1);
+    const requests=await readFile(join(home,'requests.jsonl'),'utf8');
+    expect(requests).not.toContain('PRIVATE_OBSERVED_BODY');
+    expect(inbox.check('pa',true).sources.find(s=>s.target==='background')?.unread).toBe(1);
+    expect(errors).toEqual([]);
+  }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
+  finally{release();if(product)await product.stop();if(client){client.process.kill('SIGKILL');await client.exited;}inbox.close();store.close();await rm(home,{recursive:true,force:true});}
+},20000);

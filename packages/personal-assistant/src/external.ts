@@ -90,9 +90,10 @@ export class ExternalChannels {
     this.state.updateInput(id, row.message, row.input);
     if(this.options.personalAgent?.(chat.agentId)) {
       if(!this.ready)throw new Error('Personal source authority requires the center');
-      await this.flush();
-    }
-    await this.options.receive(row.input); this.state.accept(id);
+      // The durable IM source event is the PA's sole ingress; output projection is independent.
+      await this.mirrorInput(row);
+    } else await this.options.receive(row.input);
+    this.state.accept(id);
     void this.flush().catch(this.options.onError);
   }
   image(url: string, agentId: string): { data: Buffer; mediaType: string } {
@@ -104,6 +105,11 @@ export class ExternalChannels {
   }
 
   async request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> {
+    if(type==='node.delivery_receipt' && typeof payload.external_source_message_id==='string') {
+      const source=this.state.inbound().find(row=>row.mirror===payload.external_source_message_id && row.input.agent_id===payload.agent_id);
+      if(source && ['completed','failed'].includes(String(payload.delivery_status)))await this.removeReaction(source.id);
+      return ack(type);
+    }
     if (type === 'node.delivery_receipt' && String(payload.relay_task_id).startsWith('external:')) {
       if (['completed', 'failed'].includes(String(payload.delivery_status))) await this.removeReaction(String(payload.relay_task_id));
       return ack(type);
@@ -232,8 +238,32 @@ export class ExternalChannels {
     const task = (async () => {
       while (this.flushAgain) {
         this.flushAgain = false;
-      for (const row of this.state.inbound()) {
-        if (row.mirror) continue;
+      for (const row of this.state.inbound()) await this.mirrorInput(row);
+      for (const frame of this.state.pendingFrames()) {
+        const output = this.state.output(frame.outputId)!; const chat = this.state.chat(output.chatId)!;
+        if (!chat.shadowId) continue;
+        try {
+        if (frame.body.kind === 'system_notice') {
+          const { kind: _, ...payload } = frame.body;
+          const response = await this.options.relay.request('node.system_message', { ...payload, node_id: this.options.nodeId, conversation_id: chat.shadowId });
+          if (typeof response.payload.message_id !== 'string') throw new Error('Knowledge projection has no message identity');
+          this.state.mirrorOutput(output.id, response.payload.message_id);
+        } else if (frame.body.kind === 'turn_start') {
+          const response = await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, conversation_id: chat.shadowId });
+          if (typeof response.payload.message_id !== 'string') throw new Error('IM mirror has no message identity');
+          this.state.mirrorOutput(output.id, response.payload.message_id);
+        } else {
+          if (!output.imId) continue;
+          await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, message_id: output.imId });
+        }
+        this.state.confirmFrame(frame.id);
+        } catch(error) { this.options.onError(error); }
+      }
+      }
+    })().finally(() => { this.flushing = undefined; }); this.flushing = task; return task;
+  }
+  private async mirrorInput(row: ReturnType<ExternalStore['inbound']>[number]): Promise<void> {
+        if (row.mirror) return;
         const chat = this.state.chat(row.chatId)!;
         if (!chat.shadowId) {
           const result = await this.options.im('/im/v1/conversations/external/find-or-create', json({ external_source: 'feishu', external_chat_id: chat.sourceId, agent_id: chat.agentId,
@@ -252,27 +282,6 @@ export class ExternalChannels {
         const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/${this.options.personalAgent?.(chat.agentId)?'external-incoming':'messages'}?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
           content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
-      }
-      for (const frame of this.state.pendingFrames()) {
-        const output = this.state.output(frame.outputId)!; const chat = this.state.chat(output.chatId)!;
-        if (!chat.shadowId) continue;
-        if (frame.body.kind === 'system_notice') {
-          const { kind: _, ...payload } = frame.body;
-          const response = await this.options.relay.request('node.system_message', { ...payload, node_id: this.options.nodeId, conversation_id: chat.shadowId });
-          if (typeof response.payload.message_id !== 'string') throw new Error('Knowledge projection has no message identity');
-          this.state.mirrorOutput(output.id, response.payload.message_id);
-        } else if (frame.body.kind === 'turn_start') {
-          const response = await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, conversation_id: chat.shadowId });
-          if (typeof response.payload.message_id !== 'string') throw new Error('IM mirror has no message identity');
-          this.state.mirrorOutput(output.id, response.payload.message_id);
-        } else {
-          if (!output.imId) continue;
-          await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, message_id: output.imId });
-        }
-        this.state.confirmFrame(frame.id);
-      }
-      }
-    })().finally(() => { this.flushing = undefined; }); this.flushing = task; return task;
   }
   private async approval(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;

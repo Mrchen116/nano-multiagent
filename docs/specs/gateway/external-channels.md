@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: feat-572
+> 对齐: bugfix-621
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -392,19 +392,24 @@ Gateway 收到来自飞书的用户消息后，尽力在内部 IM 创建或查�
 
 ### Requirement: IM 离线时飞书对话不阻塞
 
-Gateway 对内部 IM 的外部 channel 同步是 best-effort：IM 不可达不得影响飞书主路径，agent 仍需正常回复用户；恢复 IM 后，后续飞书消息继续按影子会话规则同步。
+普通 Agent 延续离线执行与恢复镜像；正式 PA 需要中央身份和来源授权，不可用时持久保留输入待恢复。旧输出镜像失败不阻塞已可验证的新输入。
 
 #### Scenario: IM 离线时飞书 1:1 对话仍正常
-- **GIVEN** IM 服务当前不可达
+- **GIVEN** IM 服务当前不可达且 plato-bot 为普通 Agent
 - **WHEN** 用户在飞书与 plato-bot 1:1 对话
 - **THEN** plato-bot 仍正常回复用户
 - **AND** 本次消息可暂不同步到内部 IM
 
 #### Scenario: IM 离线时飞书群聊 @Bot 仍正常
-- **GIVEN** IM 服务当前不可达
+- **GIVEN** IM 服务当前不可达且 plato-bot 为普通 Agent
 - **WHEN** 用户在飞书群 @plato-bot 并发消息
 - **THEN** plato-bot 仍在群里正常回复
 - **AND** 本次消息可暂不同步到内部 IM
+
+#### Scenario: PA 等待中央恢复
+- **GIVEN** 正式 PA 的中央服务暂不可用
+- **WHEN** 飞书消息到达后中央服务恢复
+- **THEN** 输入在本地持久保留，授权可验证后单次接入同一个主会话
 
 ### Requirement: 外部 channel 会话隔离
 
@@ -524,3 +529,16 @@ Gateway 启动的每个托管飞书 listener 与创建它的 Gateway 共享退�
 - **WHEN** 消息图片或自动转发引用内网、loopback、任意外部 URL、跳转到非许可来源或未授权会话附件
 - **THEN** 不因消息处理自动抓取目标或转发凭据；大小/类型/超时限制在实际读取时生效，不先无限下载再检查。
 - **AND** 错误反馈能区分附件不可用且不泄漏令牌、内部地址细节或完整敏感 URL；普通链接不被自动当图片抓取。
+
+### Requirement: PA 飞书主人私聊身份与交付
+
+PA 复用首个发送者持久绑定的主人身份。已绑定主人与 PA 的飞书单聊具有与 Web 主人私聊相同的交办权限；主人回复和定时提醒送到该单聊不经过对外披露审查。群聊与其他私聊不取得该豁免。普通工具权限保持有效。
+
+#### Scenario: 主人单聊收发和提醒
+- WHEN 已绑定主人通过飞书单聊交办并安排提醒
+- THEN PA 在原单聊回复并在到时发送提醒，依据平台回执确认送达
+
+#### Scenario: 失败输出与新输入隔离
+- GIVEN 旧输出投影失败
+- WHEN 新飞书消息到达
+- THEN 新输入继续持久化和接入，重放不造成重复执行

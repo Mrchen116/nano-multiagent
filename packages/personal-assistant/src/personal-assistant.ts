@@ -40,23 +40,35 @@ export class PersonalAssistant {
     } catch (error) { this.options.onError(error); return {decision:'unavailable',reason:'Independent review is temporarily unavailable'}; }
   }
 
-  /** Admit a current authorized source, preserving owner instructions versus ambient facts. */
-  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): Promise<boolean> {
+  /** Refresh authenticated source facts without reviewing observed text as a request. */
+  async source(config: AgentConfiguration, input: RelayInput): Promise<boolean> {
     const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
     if(source.allowed!==true)return false;
-    input.metadata.personal_source_role = source.role;
+    if (typeof source.is_owner !== 'boolean' || !['participant','observer'].includes(String(source.delivery))) throw new Error('Missing trusted personal source facts');
+    delete input.metadata.personal_source_role;
+    input.metadata.personal_is_owner = source.is_owner;
+    input.metadata.personal_delivery = source.delivery;
+    input.metadata.conversation_type = source.conversation_type;
+    input.metadata.channel = source.channel;
     // Only the authenticated server admission can set or clear this annotation.
     delete input.metadata.personal_actor_risk;
     if(source.actor_risk) input.metadata.personal_actor_risk = source.actor_risk;
-    if (source.role !== 'owner_instruction' && source.role !== 'owner_fact') {
+    return true;
+  }
+
+  /** Admit authorized sources; only participant requests need input review. */
+  async admit(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): Promise<boolean> {
+    if (!await this.source(config,input)) return false;
+    if (input.metadata.personal_is_owner !== true && input.metadata.personal_delivery === 'participant') {
       const verdict = await this.review(config,'input',{source:{conversation_id:input.conversation_id,message_id:input.message.id,
-        actor:input.message.sender_user_id,kind:input.message.sender_type,actor_risk:source.actor_risk},content:input.message.content});
+        actor:input.message.sender_user_id,kind:input.message.sender_type,actor_risk:input.metadata.personal_actor_risk},content:input.message.content});
       if (verdict.decision === 'unavailable') throw new Error(verdict.reason);
       if (verdict.incident || verdict.decision === 'deny') {
         const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident?.reason ?? verdict.reason});
         if(notice.owner_notice_message_id && notice.peer_notice_content && !notice.peer_notice_message_id) {
-          if(input.conversation_id.startsWith('external:')) await this.options.relay.request('agent.message',{
-            node_id:this.options.nodeId,to:`conversation:${input.conversation_id}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
+          const target=this.options.store.canonicalConversation(config.agentId,input.conversation_id);
+          if(target.startsWith('external:')) await this.options.relay.request('agent.message',{
+            node_id:this.options.nodeId,to:`conversation:${target}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
           else {
           const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
           // A revised fixed notice is a new frozen operation; never mutate an old proposal on retry.
@@ -110,8 +122,9 @@ export class PersonalAssistant {
     const previous = inbox.publication(call.operationId);
     if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;
-    if(target.replace(/^conversation:/,'').startsWith('external:')) {
-      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:target.startsWith('conversation:')?target:`conversation:${target}`,text,
+    const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
+    if(deliveryTarget.startsWith('external:')) {
+      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
@@ -165,6 +178,7 @@ export class PersonalAssistant {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
+    if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
     const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});

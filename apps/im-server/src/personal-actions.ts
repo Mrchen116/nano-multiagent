@@ -60,7 +60,8 @@ export class PersonalActions {
       if(!graph||graph.revision!==JSON.parse(op.evidence_json).task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
     }
     const currentAuthorization=this.pa.authorization({node_id:b.node_id,owner_id:b.owner_id,node_epoch:b.node_epoch},{agent_id:b.agent_id});
-    if(digest(currentAuthorization.owner_messages)!==digest(JSON.parse(op.evidence_json).authorization.owner_messages))fail(409,'owner_authorization_changed');
+    const previousGuard=JSON.parse(op.evidence_json).authorization.guard_messages;
+    if(!Array.isArray(previousGuard)||digest(currentAuthorization.guard_messages)!==digest(previousGuard))fail(409,'owner_authorization_changed');
     if(frozen.incident_ref)this.securityNotice(b,frozen.incident_ref,op.conversation_id,frozen.content);
     if(frozen.transport && JSON.stringify(this.transport(b,op.conversation_id,frozen.transport))!==JSON.stringify(frozen.transport))fail(409,'external_destination_changed');
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
@@ -100,6 +101,7 @@ export class PersonalActions {
     const replyDraft=args.reply_draft?this.pa.validateReplyDraft(args.conversation_id,this.pa.ctx.messaging.agentUser(b.agent_id).id,args.reply_draft,interactive?.source):undefined;
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
     const payload={content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(replyDraft?{reply_draft:replyDraft}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     if(previous) {
       if(previous.payload_digest!==hash||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
@@ -109,8 +111,9 @@ export class PersonalActions {
       }
     }
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
-    const sources=all(this.db,`SELECT m.id message_id,m.conversation_id,m.sender_user_id author_id,m.content,m.created_at FROM pa_source_reads r JOIN messages m ON m.id=r.message_id WHERE r.binding_id=?`,b.binding_id)
-      .filter(s=>this.pa.sourceAllowed(b,s.conversation_id));
+    const sources=all(this.db,`SELECT m.* FROM pa_source_reads r JOIN messages m ON m.id=r.message_id WHERE r.binding_id=?`,b.binding_id)
+      .filter(s=>this.pa.sourceAllowed(b,s.conversation_id))
+      .map(s=>({...this.pa.messageEvidence(b,s),message_id:s.id,author_id:s.sender_user_id}));
     // History is evidence, never a replacement for the originating owner request.
     const prior=all(this.db,"SELECT payload_json,conversation_id,audience_json,state FROM pa_operations WHERE binding_id=? AND state IN ('confirmed','sending','unknown')",b.binding_id)
       .filter(op=>op.conversation_id!==b.conversation_id||JSON.parse(op.payload_json).transport);

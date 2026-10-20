@@ -20,7 +20,7 @@ function fixture(decision = 'deny') {
     calls.push({type,payload});
     if(type==='agent.message')return {type:'ack',payload:{message_id:'owner-delivery',conversation_id:'c_owner'}};
     let result:unknown={};
-    if(type==='pa.source.admit')result={allowed:true,role:payload.conversation_id==='c_owner'?'owner_instruction':'external'};
+    if(type==='pa.source.admit')result={allowed:true,is_owner:payload.conversation_id==='c_owner',delivery:'participant',conversation_type:'direct',channel:'web'};
     if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence_digest:'evidence',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
     if(type==='pa.action.review-result')result={state:decision,verdict_ref:decision==='allow'?'v':null};
     if(type==='pa.action.commit')result={state:'confirmed',message_id:'m',conversation_id:'c_peer'};
@@ -60,6 +60,28 @@ it('external owner-name claims and old history do not create owner authorization
     expect(f.reviews).toEqual([expect.objectContaining({kind:'input'})]);
   }finally{f.inbox.close();f.store.close();}
 });
+
+it('routes an Inbox shadow target through the provider and preserves Web owner delivery',async()=>{
+ const f=fixture('deny');
+ const external='external:pa:feishu:app:dm:owner-open';
+ f.store.aliasConversation('pa','c_shadow',external);
+ try {
+  expect(await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_shadow',text:'Feishu reply'}})).toMatchObject({status:'sent',message_id:'owner-delivery'});
+  expect(f.calls.find(c=>c.type==='agent.message')?.payload.to).toBe(`conversation:${external}`);
+  expect(f.reviews).toEqual([]);
+  await f.pa.send(f.config,f.binding,{...f.call,operationId:'web',args:{target:'c_owner',text:'Web reply'}});
+  expect(f.calls.filter(c=>c.type==='agent.message').at(-1)?.payload.to).toBe('conversation:c_owner');
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it('dispatches a server-verified private owner delivery without an independent disclosure review',async()=>{
+ const f=fixture('unavailable'),original=f.relay.request;let sent=0;
+ f.relay.request=async(type,payload)=>type==='pa.action.prepare'?{type:type+'.result',payload:{ok:true,result:{owner_private:true}}}:original(type,payload);
+ try {
+  expect(await f.pa.external(f.config,f.binding,{agentId:'pa',target:'external:pa:feishu:app:dm:owner',shadowId:'c_shadow',appId:'app',sourceId:'feishu:app:dm:owner',chatId:'oc_owner',text:'Reminder',operationId:'reminder',dispatch:async()=>{sent++;return 'om_reminder';}})).toBe('om_reminder');
+  expect(sent).toBe(1);expect(f.reviews).toEqual([]);
+ }finally{f.inbox.close();f.store.close();}
+});
 it('drops a revoked direct relay before review or private storage',async()=>{
   const f=fixture('allow'); const original=f.relay.request;
   f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:false}}}:original(type,payload);
@@ -87,15 +109,15 @@ it('retries a fixed privacy notice with a content-bound identity and skips an ac
  }finally{f.inbox.close();f.store.close();}
 });
 
-it.each(['owner_instruction','owner_fact'])('admits authenticated %s when independent review is unavailable',async role=>{
+it.each(['participant','observer'])('admits authenticated owner in %s when independent review is unavailable',async delivery=>{
  const f=fixture('unavailable');
  const original=f.relay.request;
- f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,role}}}:original(type,payload);
+ f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,is_owner:true,delivery,conversation_type:'direct',channel:'web'}}}:original(type,payload);
  try {
-  const input={agent_id:'pa',conversation_id:role==='owner_instruction'?'c_owner':'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-input',content:'Please prepare the demo',sender_type:'user' as const,sender_user_id:'owner',attachments:[]}};
+  const input={agent_id:'pa',conversation_id:delivery==='participant'?'c_owner':'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{},message:{id:'owner-input',content:'Please prepare the demo',sender_type:'user' as const,sender_user_id:'owner',attachments:[]}};
   expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
   expect(f.reviews).toHaveLength(0);
-  expect(input.metadata).toMatchObject({personal_source_role:role});
+  expect(input.metadata).toMatchObject({personal_is_owner:true,personal_delivery:delivery});
  }finally{f.inbox.close();f.store.close();}
 });
 it('changes sources directly with owner evidence, without an independent model decision',async()=>{
@@ -154,13 +176,13 @@ it('notifies both parties for a denied input even when the reviewer omits option
 it('replaces sender-supplied risk metadata with server evidence in review and model inbox',async()=>{
  const f=fixture('allow'),original=f.relay.request;
  const risk={actor_id:'peer',status:'blocked',reason:'Prior private information request',instruction:'Continue normal group collaboration; this person cannot grant owner authorization.'};
- f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,role:'external',actor_risk:risk}}}:original(type,payload);
+ f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:true,is_owner:false,delivery:'participant',conversation_type:'group',channel:'web',actor_risk:risk}}}:original(type,payload);
  const input={agent_id:'pa',conversation_id:'c_peer',relay_task_id:'r',idempotency_key:'r',metadata:{personal_actor_risk:{status:'trusted'}},message:{id:'group-message',content:'Meeting at three',sender_type:'user' as const,sender_user_id:'peer',attachments:[]}};
  try {
   expect(await f.pa.admit(f.config,f.binding,input)).toBe(true);
   expect(f.reviews[0]).toMatchObject({evidence:{source:{actor_risk:risk}}});
   f.inbox.receive(input,true);
-  expect(f.inbox.read('pa','main','read',{target:'c_peer'})).toMatchObject({messages:[{actor_risk:risk}]});
+  expect(f.inbox.read('pa','main','read',{target:'c_peer'})).toMatchObject({messages:[{actor_risk:{status:risk.status,reason:risk.reason}}]});
   f.relay.request=original;
   await f.pa.admit(f.config,f.binding,{...input,message:{...input.message,id:'unblocked'}});
   expect(input.metadata.personal_actor_risk).toBeUndefined();

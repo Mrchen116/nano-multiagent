@@ -89,7 +89,7 @@ export class Messaging {
       const personal=agentId?one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId):undefined;
       if(personal) {
         this.ctx.personal!.authority(principal,{agent_id:agentId});
-        if(mode==="write" && id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+        if(mode==="write" && !this.ctx.personal!.ownerConversation(personal,id))fail(403,"personal_reviewed_delivery_required");
         if(!this.ctx.personal!.sourceAllowed(personal,id,mode))fail(404,"conversation_id not found");
         return this.ctx.personal!.sourceAccess(personal,id,mode)!;
       }
