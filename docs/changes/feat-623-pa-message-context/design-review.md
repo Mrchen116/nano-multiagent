@@ -78,3 +78,53 @@
 - R1-W3 — accepted。核对 PersonalActions.validate 的完整 owner_messages digest 后，在 design §5 将完整审核上下文与服务器生成的 guard_messages 分离；仅真实主人私聊/明确寻址的参与群原文进入新增授权失效域，保留目标新回复、来源权限及其余既有校验。补无关 observer 来信仍可发送、直接/目标更正仍复核的验证。
 
 本轮不改变 spec 的用户要求、delta 或 M1 数量；修订落在 design 的可复用能力、§4/§5、runbook 第 5 项和 M1 worker 退出标准。
+
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review_623`，沿用 R1 独立 reviewer。
+- reviewer target / validated_at: `029cf9a92240fed7488917d7bb2b409345cc2271`
+- executed_base: `8330f0565`；显式实施依赖仍为 bugfix-621 `bc59dfa7209f06642bda26aef78b7dfeba125004`。
+- review_mode: `delta`
+- mode_reason: R1-W1/W2 为局部收口；R1-W3 新增服务器内部 guard 证据投影，需复核它对 review/commit 失效规则和旧操作恢复的影响，不能只确认文字已改。未改变用户需求、模块职责、公开工具接口或 milestone 划分，沿用 R1 full 的其余覆盖。
+- compared_range: `10d91e8e5..029cf9a92`
+- started_at: `2026-10-20T11:15:16+08:00`
+- completed_at: `2026-10-20T11:15:39+08:00`
+- duration: `23s`（工具记录的核对区间，不含报告整理）。
+- retained_from: Round 1；本轮 diff 只有 design 与审查报告，spec、三份 delta、M1 骨架及产品代码没有变化。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+R1 三项问题均在设计层关闭。修订既保留完整事实供 reviewer 判断，又明确区分及时请求和背景通知的提交条件、消息序号与授权失效域，可以进入既定实施流程。该结论是设计门禁，不代表产品代码、真实十分钟批次或真实模型旅程已经验证通过。
+
+### Coverage 与证据
+
+- **背景接纳与恢复**：复核 `design.md:115-127` 和实际 `packages/dsh-integration/src/index.ts:73-79,580-597`。修订使用已有 onlyIfIdle，成功条件明确为 accepted/durable；busy 分支保留期限与身份、不推进通知水位，等待 idle；已接受后 ACK 丢失继续用 inputEvidence 查重。`input-evidence.ts` 会从队列插入或 user/message 识别 accepted，因此重试不会要求已有已接受消息再次通过空闲条件。M1 增加“PA 查 idle 后 runtime 先变忙”的真实接线验证要求。
+- **序号不复用**：统一 max+1 纳入 Inbox、及时通知、背景已通知及背景在途四类水位。独立内存 SQLite 复核删除最高 Inbox 行后两种状态：`notified=1, submitting=null → new_seq=2`；`notified=0, submitting=4 → new_seq=5`，新行都进入背景候选。此为设计所选分配规则的验证，不是尚未编写实现的测试结果。
+- **授权失效域**：复核 `design.md:133-138` 与 `personal-actions.ts:51-73,139-165`。guard 是服务器产生的真实主人私聊/显式寻址参与群原文集合，既不由主模型裁剪证据，也不把 observer 从完整 reviewer 上下文中删去；新 observer 原文不会改变 guard。直接更正仍改变 guard；目标主人已回复、当前来源权限、受众、策略和附件等仍由原验证保护。旧 prepared/allowed 缺 guard 必须重新 prepare/review，confirmed/unknown 不重发，未产生旧许可绕过。
+- **验证与范围**：`design.md:175,181` 已补无关背景不使外发失效、真实更正仍失效以及上述两个时序/序号用例。R1 已核对的真实渠道资源与隔离 runbook 保留，不重跑与本次文档差异无关的服务。需求、delta 的消费者口径、客户端不变和唯一 M1 结构均 retained。
+
+架构判断：修订复用既有 runtime 接纳参数和现有序号分配方式，guard 是 IM 所有的派生证据，不引入新审批服务、第二任务循环或语义分类器。新增规则有明确消费位置和最窄验证，未发现实质维护或运行复杂度问题。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮证据与状态 |
+|---|---|---|
+| R1-W1 | onlyIfIdle=true；busy 保留待处理状态并等 idle | `design.md:122-124` 与 runtime submit/inputEvidence 契约一致；忙碌竞态进入 M1。**closed** |
+| R1-W2 | 四类最大序号统一分配，不重置水位 | `design.md:115`；独立 SQLite 两组删除后分配验证均高于持久水位。**closed** |
+| R1-W3 | 完整 owner_messages 与 guard_messages 分离 | `design.md:136-137` 明确替换旧全量 digest、保留目标及权限复核、拒绝旧无 guard 许可；runbook/M1 增加正反对照。**closed** |
+
+### Issues
+
+无新增问题，无未关闭的历史问题。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+R2 无新增 findings 或 recommendations；author 核对 R1-W1/W2/W3 闭环与实际差异，无实质异议。受审 spec/design/delta/M1 骨架在 R2 后未改；本段只记录门禁接受，不改变受审方案。Gate 2 完成，交给默认 change-orchestrator-simple 实施。
