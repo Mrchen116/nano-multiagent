@@ -93,3 +93,64 @@ it('wakes for new input after clearing the newest source, including after reopen
     expect(JSON.stringify(store.read('alice','main','read',{target:'owner'}))).toContain('New direct instruction');
   } finally {store.close();rmSync(dir,{recursive:true});}
 });
+
+const personalInput = (id: string, delivery = 'observer', target = 'owner-chat'): RelayInput => ({
+  ...input(id, id, target), metadata: { conversation_type: 'direct', channel: 'web', personal_delivery: delivery, personal_is_owner: id !== 'peer' },
+});
+it('projects one conversation context per PA page and preserves ordered ingestion across a relation boundary', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    store.updateTarget('alice', 'owner-chat', 'A conversation');
+    store.receive(personalInput('peer'), false);
+    store.receive(personalInput('owner'), false);
+    store.receive(personalInput('joined', 'participant'), true);
+    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,conversation_type:'direct',delivery:'observer'}]);
+    const page = store.read('alice','main','observed',{target:'owner-chat'});
+    expect(page).toMatchObject({target:'owner-chat',name:'A conversation',channel:'web',conversation_type:'direct',delivery:'observer',messages:[
+      {id:'peer',sender:{is_owner:false}}, {id:'owner',sender:{is_owner:true}},
+    ]});
+    for (const message of page.messages as Record<string,unknown>[]) {
+      expect(message).not.toHaveProperty('delivery'); expect(message).not.toHaveProperty('channel');
+      expect(message).not.toHaveProperty('conversation_type'); expect(message).not.toHaveProperty('source_role');
+    }
+    expect(store.commitRead('main','observed',[{type:'text',text:JSON.stringify(page)}],false)).toBe(true);
+    const next = store.read('alice','main','joined',{target:'owner-chat',cursor:String(page.next_cursor)});
+    expect(next).toMatchObject({delivery:'participant',messages:[{id:'joined'}]});
+    expect(store.commitRead('main','joined',[{type:'text',text:JSON.stringify(next)}],false)).toBe(true);
+    expect(store.check('alice',true)).toEqual({sources:[]});
+  } finally {store.close();}
+});
+it('persists a fixed background deadline and notification identity separately from unread consumption', () => {
+  const dir=mkdtempSync(join(tmpdir(),'nano-inbox-background-')); const path=join(dir,'inbox.sqlite3');
+  let store=new InboxStore(path);
+  try {
+    store.receive(personalInput('one'),false,1000);
+    store.receive(personalInput('two'),false,2000);
+    expect(store.background('alice',2000)).toMatchObject({dueAt:601000,unread:true});
+    const first=store.background('alice',601000)!;
+    store.prepareBackground('alice',first.watermark);
+    store.close();store=new InboxStore(path);
+    expect(store.background('alice',602000)).toMatchObject({dueAt:601000,watermark:first.watermark,pending:true});
+    store.admitBackground('alice',first.watermark,602000);
+    expect(store.background('alice',602000)).toBeUndefined();
+    expect(store.check('alice',true).sources[0].unread).toBe(2);
+    store.receive(personalInput('three'),false,603000);
+    expect(store.background('alice',603000)).toMatchObject({dueAt:1202000});
+    const read=store.read('alice','main','read',{target:'owner-chat'});
+    expect(store.commitRead('main','read',[{type:'text',text:JSON.stringify(read)}],false)).toBe(true);
+    expect(store.background('alice',1202000)).toBeUndefined();
+  } finally {store.close();rmSync(dir,{recursive:true});}
+});
+it('never reuses a background notification sequence after the highest source is revoked', () => {
+  const store=new InboxStore(':memory:');
+  try {
+    store.receive(personalInput('old'),false,0);
+    const old=store.background('alice',600000)!;
+    store.prepareBackground('alice',old.watermark);
+    store.admitBackground('alice',old.watermark,600000);
+    store.revokeSource('alice','owner-chat');
+    store.receive(personalInput('new','observer','other-chat'),false,700000);
+    expect(store.background('alice',700000)!.watermark).toBeGreaterThan(old.watermark);
+    expect(store.background('alice',700000)!.dueAt).toBe(1200000);
+  } finally {store.close();}
+});

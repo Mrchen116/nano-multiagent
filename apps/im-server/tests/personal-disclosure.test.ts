@@ -208,3 +208,30 @@ it('freezes reply draft navigation through prepare and commit without delivering
  expect(db.prepare('SELECT count(*) n FROM messages WHERE conversation_id=?').get('peer')).toEqual({n:1});
  expect(Object.keys(db.prepare('SELECT * FROM pa_reply_drafts WHERE message_id=?').get(committed.message_id)!)).not.toContain('content');
 });
+
+it('retains observer owner context without invalidating a permit, but rejects direct and addressed corrections',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ db.prepare("INSERT INTO conversations(id,title,type,created_at) VALUES('background','Background','group',datetime('now'))").run();
+ for(const id of ['u1','u2'])db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('background',?)").run(id);
+ const original=ctx.messaging.insertMessage('background','u1','user','I will update my draft');
+ const instruction=ctx.messaging.insertMessage('chat','u1','user','Send Bob the approved answer');
+ const prepare=(key:string)=>service.actions.prepare(principal,{...args,request_key:key,conversation_id:'peer',content:'Approved answer'});
+ const review=(p:any)=>service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ const p=prepare('background'),v=review(p);
+ expect(p.evidence.authorization.owner_messages.map((m:any)=>m.id)).toEqual([original.id,instruction.id]);
+ expect(p.evidence.authorization.guard_messages.map((m:any)=>m.id)).toEqual([instruction.id]);
+ ctx.messaging.insertMessage('background','u1','user','I will finish tomorrow');
+ expect(service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref}).state).toBe('confirmed');
+ const direct=prepare('direct'),dv=review(direct);
+ ctx.messaging.insertMessage('chat','u1','user','Wait, do not send');
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:direct.proposal_ref,verdict_ref:dv.verdict_ref})).toThrow('owner_authorization_changed');
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('background','a1')").run();
+ const group=prepare('group'),gv=review(group);
+ ctx.messaging.insertMessage('background','u1','user','<mention type="user" target_id="a1"/> Wait');
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:group.proposal_ref,verdict_ref:gv.verdict_ref})).toThrow('owner_authorization_changed');
+ const legacy=prepare('legacy'),lv=review(legacy);
+ const evidence=legacy.evidence;delete evidence.authorization.guard_messages;
+ db.prepare('UPDATE pa_operations SET evidence_json=? WHERE operation_id=?').run(JSON.stringify(evidence),legacy.proposal_ref);
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:legacy.proposal_ref,verdict_ref:lv.verdict_ref})).toThrow('owner_authorization_changed');
+ expect(prepare('legacy').state).toBe('prepared');
+});

@@ -347,11 +347,11 @@ it('replays a Feishu owner observation once with its original sender, channel an
   runtime:{onNotification:()=>()=>{},request:async(method)=>{calls.push(method);return {events:[],durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{
    if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
-   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,role:'owner_instruction'}:{}}};
+   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'feishu'}:{}}};
   }}});
  try {
   await product.recoverPersonalObservations();await product.recoverPersonalObservations();
-  expect(inbox.read('pa','existing-main','read',{target:'c_shadow'})).toMatchObject({messages:[{id:'original-message',sender:{id:'owner-open',name:'J'},channel:'feishu',source_role:'owner_instruction',time:'2026-10-20T09:00:00+08:00'}]});
+  expect(inbox.read('pa','existing-main','read',{target:'c_shadow'})).toMatchObject({channel:'feishu',delivery:'participant',messages:[{id:'original-message',sender:{id:'owner-open',name:'J',is_owner:true},time:'2026-10-20T09:00:00+08:00'}]});
   expect(store.inputs('existing-main')).toHaveLength(1);
   expect(calls.filter(method=>method==='session.submit')).toHaveLength(1);
   expect(calls).not.toContain('pa.review');

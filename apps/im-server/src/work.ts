@@ -670,6 +670,7 @@ export class Work {
         continue;
       }
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
+      const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -691,6 +692,7 @@ export class Work {
           sender: {
             id: m.sender_user_id,
             name: m.sender.display_name,
+            ...(personalFacts?{is_owner:personalFacts.is_owner}:{}),
             kind: messageConversation.external_source && m.sender_type === "user" ? "external" : m.sender_type,
             ...(messageConversation.external_source && m.sender_type === "user"
               ? {
@@ -704,6 +706,7 @@ export class Work {
             channel: messageConversation.external_source ?? "web",
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
+            ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },

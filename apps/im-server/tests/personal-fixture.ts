@@ -12,6 +12,7 @@ export function personalFixture() {
  f.db.prepare("INSERT INTO pa_policies(binding_id) VALUES('binding')").run();
  f.db.prepare("INSERT INTO conversations(id,title,type,created_at) VALUES('peer','Peer','direct',?)").run(new Date().toISOString());
  for(const id of ['u1','u2']) f.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer',?)").run(id);
+ f.db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
  const service=new PersonalAgents(f.ctx); f.ctx.personal=service;
  return {...f,service,principal:{node_id:'n',owner_id:'o1',node_epoch:1},args:{agent_id:'a',binding_id:'binding',epoch:1}};
 }
