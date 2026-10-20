@@ -128,3 +128,49 @@ R1 三项问题均在设计层关闭。修订既保留完整事实供 reviewer �
 ### Author Resolutions
 
 R2 无新增 findings 或 recommendations；author 核对 R1-W1/W2/W3 闭环与实际差异，无实质异议。受审 spec/design/delta/M1 骨架在 R2 后未改；本段只记录门禁接受，不改变受审方案。Gate 2 完成，交给默认 change-orchestrator-simple 实施。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/design_review_623`，沿用 R1/R2 独立 reviewer。
+- reviewer target / validated_at: `ffee4c9a2c4cc17dde5fcc2ddd578d4b67ae48bf`
+- executed_base: `8330f0565`；显式实施依赖仍为 bugfix-621 `bc59dfa7209f06642bda26aef78b7dfeba125004`。
+- review_mode: `delta`
+- mode_reason: 用户要求删除 PA 模型输出中的 requires_attention，是有界工具投影变化；本轮只复核这一差异及其内部消费者，不重复已通过的身份、通知和授权全量审查。
+- compared_range: `bb147a433..ffee4c9a2`
+- started_at: `2026-10-20T11:21:46+08:00`
+- completed_at: `2026-10-20T11:21:55+08:00`
+- duration: `9s`（工具记录的核对区间，不含报告整理）。
+- retained_from: Round 2（及其引用的 Round 1 full 覆盖）；本次范围内仅 design §1、示例及 M1 对应验证文字变化，spec/delta/milestone 划分与产品代码未变。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+PA 模型可见的 check sources 去掉 requires_attention，与用户的新要求一致。设计把裁剪限定在 GlobalAgent 的 PA 工具结果投影，保留内部 attention 状态和普通 Global 返回；没有改变唤醒、消息消费或发送前复核。
+
+### Coverage 与证据
+
+- **投影位置正确**：`global-agent.ts:197-211` 已取得 personalConfig，并在 inbox/check 分支生成实际工具结果，可在此做 PA 专属裁剪。`design.md` 的字段说明与 JSON 示例均已删除 requires_attention，保留 target/name/unread 与新增 conversation_type/delivery。
+- **内部逻辑不依赖裁剪后的输出**：`inbox.ts:55-71` 的 check/阻塞/通知水位都直接基于持久 Inbox 行；`personal-assistant.ts:120` 与 `global-agent.ts:368` 的发送前复核调用 InboxStore.blocking，并不读取模型收到的 requires_attention。来源恢复处 `global-agent.ts:162` 也直接使用内部 check。设计明确这些行为不变，因而移除输出字段不丢失宿主判断依据。
+- **未留下模型协议引用**：检索 `packages/dsh-integration/src`、`packages/product-contracts/src` 及工具引用转换路径，没有发现固定提示或工具声明要求模型使用 requires_attention。此轮不将该字段改名或换成其他相同含义的模型标签。
+- **验证边界足够**：M1 新增“实际 PA 工具返回不包含 requires_attention 且宿主原触发/复核仍有效”的要求；普通 Global 返回保持原样。无需增加存储迁移、新通知机制或额外 milestone。
+
+职责判断：InboxStore 保持内部状态和通用行为；GlobalAgent 负责 PA 对模型的结果投影。此边界利用现有 personalConfig 分流，改动面小且不会把模型输出裁剪扩散到调度或安全检查。
+
+### 历史问题闭环
+
+R1-W1、R1-W2、R1-W3 保持 **closed**；本轮未修改 R2 通过的 onlyIfIdle/ACK、统一序号分配或 guard_messages 设计，关闭证据 retained from Round 2。
+
+### Issues
+
+无新增问题，无未关闭的历史问题。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+R3 无新增问题；author 接受 delta 审查结论。仅移除 PA 模型工具输出的内部字段，受审设计此后未改，原 Gate 2 通过状态保持。
