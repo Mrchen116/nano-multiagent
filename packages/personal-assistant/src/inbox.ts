@@ -103,6 +103,10 @@ export class InboxStore {
   }
   /** Remove a revoked source from future reads and frozen page caches. */
   revokeSource(agent: string, target: string): void {
+    // Saved model projections changed shape; fragment ownership is stable across versions.
+    this.db.prepare(`DELETE FROM reads WHERE EXISTS (
+      SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq')
+      WHERE i.agent_id=? AND i.target=?)`).run(agent,target);
     const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND target=?').all(agent,target) as {seq:number}[];
     for(const {seq} of rows) {
       this.db.prepare('DELETE FROM imported_parts WHERE seq=?').run(seq);
@@ -110,7 +114,6 @@ export class InboxStore {
     }
     this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND target=?').run(agent,target);
     this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND json_extract(data,'$.target')=?").run(agent,target);
-    this.db.prepare("DELETE FROM reads WHERE json_extract(body,'$.target')=?").run(target);
     this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
   }
   private entries(agent: string, target?: string): Entry[] {
@@ -262,7 +265,9 @@ export class InboxStore {
     try {
       for (const fragment of fragments) {
         this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string };
+        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string } | undefined;
+        // Older revocations can leave saved reads behind; reject their entire consumption.
+        if (!row) { this.db.exec('ROLLBACK'); return false; }
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
