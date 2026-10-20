@@ -28,8 +28,12 @@ DSH 迁移提交 `129b083613`（refactor-581）引入的 `GlobalAgent.wake` 在 
 
 ## 修复
 
-待实施。
+使用 DSH 公开 steer 调度系统提醒，移除仅 idle 才提交的限制。沿现有 watermark 和幂等 inputId 提交；提交期间到达的新输入继续排入提醒，不等下次 idle。正文、来源、personal 提醒附加说明、attention 过滤和发送前复核保持原逻辑。
 
 ## 验证
 
-待验证。
+修前：更新后的 attention 用例有 2 个失败；真实 DSH 子进程用例显示下次模型请求仍只有 1 条提醒，期望 2 条。修后：两个测试文件共 37 个用例通过，覆盖忙碌提醒、连续到达及去重、空闲唤醒、背景过滤、只提醒不注入正文、原发送前复核。
+
+扩展 global-agent.test.ts 保留产品协议与 attention 策略保护；新增 apps/node/tests/global-inbox-native.test.ts 在节点集成层连接真实 PA、SQLite Inbox 与锁定版本的 DSH 子进程，以确定性的模型 fixture 观察实际模型请求，验证 next-step 时机、正文读取与旧稿拦截。它保护跨进程调度接线，不替代真实模型或生产验证。
+
+完整 CI 与独立代码审查待完成。

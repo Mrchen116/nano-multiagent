@@ -207,12 +207,16 @@ it.each([
   const input: RelayInput = { agent_id: 'a', conversation_id: 'c_group', relay_task_id: 'task-event', idempotency_key: 'task-event', metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] }, message: { id: 'task-event', content: 'Assignment changed <mention type="user" target_id="a"/>', sender_type: 'system', sender_user_id: 'actor', attachments: [] } };
   try {
     await product.receive(input); await product.receive(input);
-    expect(submitted).toEqual([]);
+    expect(submitted).toHaveLength(attention ? 1 : 0);
+    if (attention) {
+      expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system', channel: 'inbox' } });
+      expect(JSON.stringify(submitted[0])).not.toContain(input.message.content);
+    }
     expect(inbox.check('a').sources).toEqual([expect.objectContaining({ unread: 1, requires_attention: attention })]);
     expect(inbox.read('a', 'main', 'read', { target: 'c_group' })).toMatchObject({ messages: [{ id: 'task-event', sender: { type: 'system' } }] });
     status = 'idle'; await product.recover(); await product.receive(input);
     expect(submitted).toHaveLength(attention ? 1 : 0);
-    if (attention) expect(submitted[0]).toMatchObject({ mode: 'followup', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
+    if (attention) expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
     await product.receive({ ...input, message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
     expect(cancellations).toBe(1);
     await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
@@ -304,4 +308,30 @@ it('revokes queued excluded sources without replacing the main context or removi
   expect(methods).not.toContain('schedule.command');expect(methods).not.toContain('pa.invalidate');
   expect(methods).toContain('session.submit');
  }finally{await product.stop();inbox.close();store.close();}
+});
+
+it('notifies about messages received during an in-flight busy notification without waiting for idle', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const submitted: Record<string, unknown>[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global' }], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async (method, value) => {
+      if (method === 'session.submit') { submitted.push(value as Record<string, unknown>); if (submitted.length === 1) await held; }
+      return method === 'session.descendants' ? [] : { events: [], durable: true, status: 'running' };
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : {} }) }, image: async () => '', onError: error => { throw error; } });
+  const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
+  try {
+    const first = product.receive(input('first'));
+    await expect.poll(() => submitted.length).toBe(1);
+    const second = product.receive(input('second'));
+    await expect.poll(() => inbox.check('a').sources[0]?.unread).toBe(2);
+    release();
+    await Promise.all([first, second]);
+    expect(submitted).toHaveLength(2);
+    expect(submitted[1]).toMatchObject({ mode: 'steer', source: { kind: 'system', channel: 'inbox' } });
+    expect(submitted[1].inputId).not.toBe(submitted[0].inputId);
+    await product.receive(input('second'));
+    expect(submitted).toHaveLength(2);
+  } finally { release(); await product.stop(); inbox.close(); store.close(); }
 });
