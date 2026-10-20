@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { authFetch } from "../../auth/auth-fetch";
 import {
   createAgentChannel,
+  getAgentConfigRequestDetail,
+  isConfigApplyPendingError,
   createNodeAgent,
   deleteAgentChannel,
   getAgentConfig,
@@ -232,6 +234,28 @@ describe("workspace creation transport", () => {
       workspace_root: "/srv/agent-new",
       agent_id_hint: "agent-new",
     });
+  });
+});
+
+describe("Agent configuration response errors", () => {
+  it("does not expose proxy HTML as a configuration error", async () => {
+    vi.mocked(authFetch).mockResolvedValue(new Response('<!DOCTYPE html><html>Cloudflare private diagnostics</html>', {
+      status: 502, headers: { "Content-Type": "text/html" },
+    }));
+    const error = await getAgentConfig("a1").catch(error => error);
+    expect(error.status).toBe(502);
+    expect(getAgentConfigRequestDetail(error)).not.toMatch(/html|Cloudflare|private diagnostics/i);
+    expect(getAgentConfigRequestDetail(error)).toContain("502");
+  });
+
+  it("recognizes a structured pending receipt without displaying serialized JSON", async () => {
+    vi.mocked(authFetch).mockResolvedValue(new Response(JSON.stringify({ detail: {
+      code: "config_apply_pending", message: "Configuration application is still being confirmed.",
+    } }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    const error = await getAgentConfig("a1").catch(error => error);
+    expect(isConfigApplyPendingError(error)).toBe(true);
+    expect(error.code).toBe("config_apply_pending");
+    expect(error.detail).toBe("Configuration application is still being confirmed.");
   });
 });
 

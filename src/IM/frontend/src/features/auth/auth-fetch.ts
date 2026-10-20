@@ -1,6 +1,7 @@
 import { useAuthStore } from "./auth-store";
 import { withBase } from "./auth-api";
 import { forceRefreshSession } from "./auth-session";
+import { readHttpError } from "./http-error";
 
 function buildHeaders(init: RequestInit | undefined, token: string | null): Headers {
   const headers = new Headers(init?.headers ?? {});
@@ -42,11 +43,10 @@ export async function authFetchJson<T>(
 ): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const { detail } = await readHttpError(res);
     if (operationLabel) {
-      throw Object.assign(new Error(`${operationLabel} failed: ${res.status} ${text}`), { status: res.status });
+      throw Object.assign(new Error(`${operationLabel} failed: ${res.status} ${detail}`), { status: res.status });
     }
-    const detail = text || res.statusText;
     throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${detail})`);
   }
   return (await res.json()) as T;

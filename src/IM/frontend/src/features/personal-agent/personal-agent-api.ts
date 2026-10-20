@@ -38,8 +38,6 @@ export interface PersonalIncident {
 export const getPersonalIncidents = () => authFetchJson<{items: PersonalIncident[]}>(`${base}/incidents`);
 export const respondToPersonalIncident = (id: string, action: 'block' | 'misunderstanding' | 'dismiss') => authFetchJson<PersonalIncident>(`${base}/incidents/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify({action})});
 
-export const restorePersonalAgent = (node_id: string) => authFetchJson<PersonalAgentState>(`${base}/restore`,{method:'POST',body:JSON.stringify({node_id})});
-
 export interface BlockedPersonalContact {
   actor_id: string; actor_name: string; reason: string;
   evidence: {id: string; reason: string; original: boolean; conversation_id: string; message_id: string | null}[];

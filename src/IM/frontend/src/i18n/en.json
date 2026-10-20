@@ -1,4 +1,7 @@
 {
+  "httpErrors": {
+    "responseUnavailable": "Unable to get a server response (HTTP {{status}}). Check the operation result again shortly."
+  },
   "auth": {
     "language": {
       "label": "Language"
@@ -1589,13 +1592,7 @@
       "immediate": "Checked chats are excluded immediately. Your assistant stops receiving new messages and looking up history there; previously read content is not erased. Uncheck to restore access.",
       "saving": "Saving…",
       "saved": "Changes applied",
-      "saveError": "The change was not saved. Please retry.",
-      "moveTitle": "Change working computer",
-      "moveHelp": "Keep the same assistant and chat. The previous computer stops acting for you. Local private history is not copied; your assistant reloads sources it can still access.",
-      "computer": "Computer",
-      "chooseComputer": "Choose another online computer",
-      "move": "Continue on this computer",
-      "saveBeforeMove": "Save or discard your configuration changes before changing computers."
+      "saveError": "The change was not saved. Please retry."
     },
     "blocked": {
       "title": "Blocked contacts",
