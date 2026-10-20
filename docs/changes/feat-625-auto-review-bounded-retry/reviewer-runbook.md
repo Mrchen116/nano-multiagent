@@ -147,6 +147,16 @@ P无网络probe只证实公开`sessionId`/loop marker分派、ALS以及非所属
 
 计时证据分两层：worker用fake clock完整证明30/60/90秒每次预算及360秒上界；Q真栈至少分别观察一条CC超时恢复和一条Guardian超时恢复，保持生产默认时长（允许耗时数分钟），不能把10ms缩时测试充作真实预算证明。准备/cleanup不合作边界用native profile注入可控promise，再检查真实cancel/dispose事件与晚到工具零执行。各模式fallback通过真正IM产生的普通请求、Global委派子任务和测试schedule/heartbeat触发；复用现有产品工具与配置，不把直接改source.kind的底层submit当Q真IM证据。工程native tests补确定性覆盖。
 
+### 5.2 合入626后的交叉回归（实施必须保留）
+
+产品新基线`051e7d68e159814cdba1e622f760208fc6d3af68`已修复上下文保真；运行现有`approval-sources.test.ts`、`codex-approval.test.ts`、`personal-security.test.ts`及lifecycle/native suites，并在恢复fixture加入下列反例。这里是待执行契约，不借626历史报告声称625已经通过。
+
+- 普通PA工具动作的准备及所有恢复均断言`pa.authorization`读取次数为0；库内巨大/不在有效上下文的历史标记不进入审核prompt。父压缩后full恢复不复活已删除原文，继承Inbox维持restored；PA入站/披露独立链、observer、主人DM豁免原测试仍通过，不能因禁普通取数而删除独立消息检查。
+- Codex Inbox按message分项并保留page/sender/reply；generic Inbox/send正文同call只出现一次，distinct call仍在。service恢复后的full输入重新使用同一规范化冻结rows，cursor/full/delta/fork不因重复投影而误判前缀。
+- `503 → {"outcome":"allow"}`应一次service恢复后成功，format=0；`{"outcome":"deny"}`和外围JSON包裹的合法assessment直接按现parser处理，不触发格式恢复。缺省risk/auth/rationale保持626；非法outcome/enum/type才占格式额度，不恢复旧四字段要求或parser额外risk拒绝。
+- 组合context rebuild→503→full恢复，检查full沿用recovery admission且context额度不重置；有checkpoint的delta preserve不裁历史，初次full也沿用当前default recovery（不是另加首轮preserve），无0.65缩放；User成本、最近5工具/ProtectedAssistant保护、超大optional先剔除及显式遗漏断言仍成立。required/action确实放不下时不可用，不能靠service retry裁权限证据换allow。
+- Q在双策略真实PA受审任务中同时核对上述库外历史标记不泄入、服务恢复不重复副作用；输入体积/来源和恢复轨迹证据分开记录。626的历史production replay只能作为回归参考，不替代此次候选实施SHA验证。
+
 ## 6. 证据与清理
 
 每个场景至少保存：claim、受审SHA/构建时间、策略/实际模型/模式/fallback配置摘要、输入消息ID、主session与callId/reviewId、request开始时间与failure分类、额外/format/context计数、可得usage及未知字段、最终route、业务副作用次数、结果pass/fail/inconclusive。

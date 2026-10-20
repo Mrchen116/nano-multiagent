@@ -8,7 +8,7 @@
 
 ### 涉及范围
 
-事实基线为 `80134297ddfabb08e80e83c01a20e20280de20f0`（首文档提交；产品源码同 `5454f3140f9c92532c690db8dec80b9f77080384`）。
+原R2受审设计基线为 `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59`（首文档来自`80134297ddfabb08e80e83c01a20e20280de20f0`，最初产品源码同`5454f3140f9c92532c690db8dec80b9f77080384`）。交接前已ff-only同步并核对最新产品基线 **`051e7d68e159814cdba1e622f760208fc6d3af68`**；其合入bugfix-626后，普通审批上下文、Guardian投影/admission和output contract已变化。以下设计按此新基线修订，保留626，不得用旧R2 Approved跳过本次实质变化复审。
 
 | 当前路径 | 实际职责与本次影响 |
 |---|---|
@@ -50,7 +50,16 @@
 
 - feat-615：独立CC/Codex插件与Guardian生命周期；沿用full/delta/fork、配置失效和只读工具限制，不把Codex简化成另一段分类prompt。
 - 既有approval-sources及classifier相关测试：去重指令、来源事实与超窗处理；不得裁授权、改来源或模型以恢复失败。
-- refactor-581：DSH接入与进程边界；不恢复旧Python broker。其后feat-623改动sources的消息投影，本次不改那部分语义。
+- refactor-581：DSH接入与进程边界；不恢复旧Python broker。
+- [bugfix-626](../archive/bugfix-626-approval-context-fidelity/design.md) 已合入当前产品：普通审批不再附PA全库授权包；Codex规范化消息粒度、preserve/recovery admission及assessment输出已恢复固定上游行为。本unit只在该新基线增加故障恢复，不能从旧625草案复制回已撤销的626前逻辑。
+
+### 626交叉保真约束（最新基线必须保留）
+
+- `approval.ts` / `classifier.ts` / `types.ts`：`ApprovalReviewRequest`已无personalAuthorization；所有service恢复仅重用冻结的有效context投影，不调用PA入站/披露检查作备用审核。PA两道消息检查及主人/observer边界仍独立，故障恢复不得修改它们。
+- `sources.ts` 的`codexEntries`在当前/继承来源规范化后再计算cursor：Inbox每message独立保留page/真实sender/reply/observation；同call generic正文去重但不同call不删，恢复/inherited仍restored；CC保持普通工具正文省略及有效历史界限。首次prepare与后续full恢复均经过相同投影，不将live持久化到新授权。
+- Codex profile/admission保留626：User/ManualApproval计消息成本，非用户成功纳入才计40条上限，消息/工具单项5000/1000、聚合20000/10000；ProtectedAssistant及最近5条已选工具受保护。先剔除永远放不下的optional，再按类别/旧先策略淘汰；preserve不裁历史，recovery才按规则缩旧历史并保来源首尾/遗漏。无全库重读、无0.65预算乘数、无新证据摘要器。
+- output prompt及`parseCodexDecision`保持626：`{"outcome":"allow"}`为有效low allow；bare deny缺省high、authorization缺省unknown，rationale用原默认，外围文字中的JSON按现parser有效；非法outcome/enum/type才是格式失败。不得强制旧四字段或恢复parser额外critical-allow禁令；风险语义由现有policy判定而非格式恢复controller改写。
+- 这组是保留已合入行为，不扩大首文档要求；新增恢复的格式计数必须以当前parser结果为准，不能将合法bare/embedded verdict误耗format额度。
 
 ## 架构总览
 
@@ -81,7 +90,7 @@ controller仅恢复**判定工作**，从不调用待审工具体。CC正常阶�
 
 第一次正常尝试保留现有缓存和并发fork优化。遇到可恢复服务失败、格式失败或90秒deadline：先撤销本次generation的发布资格、cancel并dispose其handle；清空本次可用checkpoint引用，后续恢复从该动作开头冻结的parent evidence重建full reviewer。失败turn中的assistant输出、检查结果和半成品事件均不seed新尝试，只有当前动作成功完成且generation有效才commit新checkpoint。已有另一并发动作的成功checkpoint不能被失败分支覆盖或清除。
 
-`contextRebuildRemaining=1` 属于action controller，在全部技术恢复间共享。context overflow/compaction仍可一次重建，处于当前90秒尝试内，不消耗服务恢复额度；第二次context失败终止，不得再借service retry重置context额度。context重建收紧历史的现有规则保留，完整待审动作/授权不可裁掉。
+`contextRebuildRemaining=1` 属于action controller，在全部技术恢复间共享。context overflow/compaction仍可一次重建，处于当前90秒尝试内，不消耗服务恢复额度；第二次context失败终止，不得再借service retry重置context额度。沿用626的`reviewInput` preserve/recovery admission：有checkpoint的delta用`allowHistoryTruncation=false`（preserve），放不下触发正常context rebuild；无checkpoint的full（含初次full、context重建full和技术恢复full）沿用当前默认`true`的recovery admission，按实际模型剩余预算选择，不恢复已删除的0.65任意乘数。技术恢复改成无checkpoint的干净full并不重置contextRebuildRemaining，也不另套新的证据裁剪策略或重放父压缩已删除的历史。完整动作与required证据放不下即unavailable；授权约束不可静默删掉，recovery仅按626规则对旧历史保来源/首尾/显式遗漏地缩短。
 
 替代方案：在公开 `agent/request-error` 返回retry可保留已完成检查，但同一个turn的整体90秒deadline、非法verdict、事件半提交和context重建额度将分散到多处，难以证明重置预算且不串状态。当前选择牺牲失败分支的只读检查缓存，换取确定隔离；只读重复无业务副作用，所有model/inspection仍计入trace。不是未经清理的“外层重跑整个Guardian”。
 
@@ -89,7 +98,7 @@ controller仅恢复**判定工作**，从不调用待审工具体。CC正常阶�
 
 | 事项 | 本设计值与范围 |
 |---|---|
-| action准备 | 15秒，冻结来源/动作/策略材料及resolve审核模型一次，包含pa.authorization、inherited、transcript/history；使用父取消信号。prepare超时为技术不可用，不是已经开始的判断超时，不消耗恢复额度、不无限重做准备。 |
+| action准备 | 15秒，冻结来源/动作/策略材料及resolve审核模型一次，只包含当前有效执行历史、既有inherited来源及必要messageContext；**不调用pa.authorization或数据库全库授权/聊天历史**。使用父取消信号。prepare超时为技术不可用，不是已经开始的判断超时，不消耗恢复额度、不无限重做准备。 |
 | CC判断 | 每次stage1模型尝试30秒、stage2尝试60秒；重试仅当前失败阶段，保留之前有效stage结果，2次额外额度跨阶段共享；legacy每次30秒。 |
 | Guardian正常尝试 | 每次90秒，覆盖reviewer创建、上下文编排、所有模型步骤/只读检查及至多一次全action context rebuild；技术恢复的新尝试重新分配90秒。 |
 | 额外恢复 | action最多2次；其中format最多1次；不因CC stage/Guardian新session/context重建而重置。 |
@@ -106,7 +115,7 @@ prepare异步只读工作超时后不使用晚到值；它们持有被撤销toke
 | 父exec已取消/owner释放或controller已关闭 | cancelled，撤销generation，无重试、无fallback放行；始终优先于同刻TIMEOUT/allow。 |
 | 本次controller判断计时器到期 | review_timeout，允许共享额度内恢复；不能凭通用AbortError文字猜测。 |
 | AUTH/INVALID_CREDENTIAL/MISSING_CREDENTIAL、QUOTA/ACCOUNT_QUOTA、NO_ADAPTER/INVALID_REQUEST/永久配置错误 | permanent，不恢复；即使同时有429status也不能覆盖quota/auth。 |
-| 有效最终deny/allow | 正常verdict，不进入错误分类；CC stage1非allow正常推进。 |
+| 当前parser接受的有效最终deny/allow（含626的Codex bare/embedded/default verdict） | 正常verdict，不进入错误分类、不耗format额度；CC stage1非allow正常推进。controller不新增风险/字段校验。 |
 | 原生EMPTY_RESPONSE或正常完成但空白/无法解析verdict | invalid_verdict（细分empty_response/empty_text/malformed），最多一次，共用总额度；不因native默认把EMPTY_RESPONSE当transient而绕开子额度。 |
 | RATE_LIMIT或可确定的429 | transient，尊重可得Retry-After；若quota/永久事实存在先排除。 |
 | status=503，或SERVER且status不可得 | transient；已知非503服务器状态本unit不额外泛化重试。TRANSPORT/STREAM_CLOSED等明确结构化传输失败、provider TIMEOUT可恢复。 |
@@ -224,4 +233,4 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配，精确原生reviewer身份分派及idle+active同parent fork+另一parent+CC+main并发归因、缓存attempt切换/旧流隔离、Guardian生命周期dispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |
+| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配，精确原生reviewer身份分派及idle+active同parent fork+另一parent+CC+main并发归因、缓存attempt切换/旧流隔离、Guardian生命周期dispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过，runbook§5.2的626有效context/零全库读取、来源规范化、admission phase及bare/embedded输出交叉回归不退化；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |

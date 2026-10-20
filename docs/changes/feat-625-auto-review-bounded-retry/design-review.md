@@ -334,3 +334,21 @@ R1-W1、R1-W2均以独立核实的设计/公共接口事实关闭。修订后的
 | `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391` |
 
 **交E边界：** 默认`change-orchestrator-simple`承接单M1工程交付；须由父P完成正式交办，不在本author会话开始实施。沿用完整预算、action共享2次/format1次、Guardian全action context rebuild≤1、精确原生身份分派/失败状态隔离、取消优先与既有fallback。Python≥3.11及审核候选真实low smoke仍是E/Q前置；真实loop/HTTP并发矩阵、17场景、真实双策略插件旅程、适用Full门禁仍未运行，不写pass。公开IM relay待父P恢复处理；本报告保存不代发消息或团队图、不授权merge/部署/发布。
+
+### Author pre-handoff compatibility check — bugfix-626 baseline drift
+
+**新产品事实基线：`051e7d68e159814cdba1e622f760208fc6d3af68`。** 已确认本workspace main只有原有usage.json未跟踪后ff-only同步；未stash/reset/覆盖用户内容。实际读取`ff5fbc8..051e7d68`审批源码、tests和canonical diff，并读626归档design与current实现。不是仅凭PR标题或归档状态判断。
+
+**结论：需实质修订，不能沿用R2 Approved硬交E。** R2对其受审版本的结论保留历史原文，但本次新设计需父P回原独立reviewer复审；author不签新的Approved、不自行派reviewer。用户首文档决定和单M1不变，不需重复问用户。
+
+| 实际变化 | 对625的影响与本次文档处理 |
+|---|---|
+| approval/classifier/types删除普通动作pa.authorization及personalAuthorization注入 | 625旧prepare表明确要求pa.authorization，已与current冲突，必须改。design准备只冻结有效history/inherited/必要messageContext，显式禁止普通动作全库重读，不把独立消息检查当备用。 |
+| sources新增codexEntries、Inbox按message、同call正文去重，历史/继承规范化 | 保留真实sender/page/reply/live-restored和不同call；design明确投影后cursor、冻结rows和full恢复不复活压缩原文，runbook加入交叉回归。 |
+| codex-context profile/admission恢复固定参考逻辑，codex.ts移除0.65乘数 | preserve/recovery phase需跨service恢复保留；全action context rebuild额度不重置，required/action不可丢，不能从旧草案恢复任意缩放。design决策2及626交叉约束同步。 |
+| 新output_contract及parser接受bare/embedded/default verdict，不再parser额外critical-allow拒绝 | 会改变625“格式失败”入口，必须明确现parser是语义owner；合法bare allow/deny不得耗format额度，不重建旧四字段校验。新增503→bare allow等用例。 |
+| canonical新增“普通工具审批遵守当前有效执行上下文”Requirement | 位于625 delta所替换Requirement之外，原最窄delta仍适用；已逐段比较完整replacement与最新canonical，其差异仍仅原计划的失败分流两行。保留626新Requirement，不用旧canonical整文件覆盖。 |
+
+修订文件为`design.md`（最新事实基线、626保真约束、prepare/context phase/format及M1退出标准）、`reviewer-runbook.md`（§5.2组合回归）及本报告追加。首文档、delta、M1骨架未变；没有产品代码修改。完整预算/2次总恢复/format1次、精确stream身份分派、原fallback及审核路由smoke前置不变。
+
+**工程必须保留的验证：** 现有approval-sources、codex-approval、personal-security和native/lifecycle测试；新增恢复中pa.authorization读取0、库外/压缩历史不入prompt、规范化正文不重复/来源不升级、503→bare allow的format=0、bare deny不重试、context→service恢复phase/required保护不退化及PA独立两道消息检查回归。626历史报告不是625实现pass；本轮仅静态核对，未运行产品测试/真实smoke，Python≥3.11和真实reviewer候选可用性仍待E/Q。
