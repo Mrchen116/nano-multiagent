@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: bugfix-611
+> 对齐: bugfix-622
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -22,6 +22,8 @@
 - **GIVEN** 全局主 Agent 正在处理工作
 - **WHEN** 其他聊天发来符合接收条件的新请求
 - **THEN** 新请求保留供其读取，不因收到请求就强制中断当前工作
+- **AND** 符合触发配置的新输入在主 Agent 下一次模型请求前提供 Inbox 系统提醒，不必等当前任务结束；已开始的模型请求和工具执行不被硬中断
+- **AND** 提醒不包含新消息正文或代表真人授权，正文与来源仍通过 Inbox 主动读取；原发送前复核继续生效
 - **AND** 用户能在工作视图中查看其后续读取和处理过程
 
 #### Scenario: 空闲时收到符合触发条件的输入
