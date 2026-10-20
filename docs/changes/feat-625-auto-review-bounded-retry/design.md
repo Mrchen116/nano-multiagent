@@ -117,7 +117,17 @@ prepare异步只读工作超时后不使用晚到值；它们持有被撤销toke
 
 ### 5. **补充实际可见的HTTP facts，但不依赖上游私有错误分类。**
 
-沿用 `installLlmAttribution` 的单个dispatcher owner，新增内部 `withReviewHttpFacts(sink, iterable)`：在iterator创建/每次next/return的ALS context内安装唯一请求sink；classifier调用以及Guardian scoped `llm/stream`各自包装，不能用sessionId全局map（并发同parent易串）。transport handler捕获当次模型POST的response start status及Retry-After，全部原handler方法保持this/参数/返回值透传。
+沿用 `installLlmAttribution` 的单个dispatcher owner，新增内部 `withReviewHttpFacts(sink, iterable)`，在iterator创建/每次next/return的ALS context内安装唯一请求sink。**`llm/stream` bound于全局LlmRuntime，不是Agent carrier；scope.on不提供按reviewer隔离。** 本设计只安装一个integration级`llm/stream`分派listener；不在每个Guardian scope注册llm listener。`agent/request`与`agent/request-error`仍用其真实Agent carrier scoped listener。
+
+分派在读取任何`currentAttempt`、创建request ordinal或绑定sink之前执行：
+
+1. Guardian owner registry只接受本service创建的**精确原生reviewer sessionId**（包含每个full/delta reviewer或并发fork各自唯一ID），不用parent/rootOf/主Agent session、模型名或字符串前缀推断归属。公开`GenerateOptions.sessionId`是loop stamped身份；另用根export `isAgentLoopRequest(options)`确认原生loop envelope。普通CC hand-built options没有该marker。
+2. `!isAgentLoopRequest(options)`、无sessionId、无精确registry entry或辅助`purpose`流：原样`yield* next()`，不读任何owner/currentAttempt、不断言active、不改signal/metadata、不新建或清空sink；因此CC调用者自己安装的ALS sink也原样保留。辅助compaction仍由现有scoped request/context检查处理，不能借它创建普通reviewer request额度。
+3. 只有精确命中本reviewer的普通loop流才读取该entry的`currentAttempt`；校验active generation与已冻结provider/model/low一致。idle entry缺currentAttempt时仅拒绝**这个reviewer自己的异常发流**，绝不能阻断main/CC/另一reviewer。成功匹配后为这一条stream分配requestOrdinal和sink，快照attempt引用，后续iterator绝不重新从可变entry读取新attempt；继续next或写facts/usage前检查所捕获generation仍有效；失效后仍须对旧iterator执行return清理，但关闭sink写入，晚到值不得写终态trace或后继attempt。
+4. owner entry在`agents.create` setup登记（已知创建用sessionId，尚不可drive），setup失败负责释放；create完成后在followup前绑定currentAttempt。缓存idle保留身份但清空attempt；每次复用显式绑定新attempt；dispose/quarantine先使attempt失效并保留精确entry tombstone阻断该旧reviewer，直到drain完成才按entry对象相等条件删除。新full/fork使用新ID，不继承旧entry。流finally只关闭自己的sink，不清除后继attempt的绑定。
+5. CC/legacy在其调用点直接包装**本次stream**，而不向Guardian registry登记主session；同parent多个CC请求各有独立ALS/request ordinal。transport handler只捕获当前sink的模型POST response facts，全部原handler方法保持this/参数/返回值透传。
+
+公开依据：`dsh-llm` public index.d.ts的事件this为LlmRuntime；types.d.ts的sessionId声明为loop stamped request routing identity；公开`isAgentLoopRequest`检查精确request对象身份。已读固定版agent-loop打包L1269–1276，正常request用`markAgentLoopRequest(Object.freeze({...sessionId:this.session.id}))`；读取实现仅为证据，不private import。Author R1公开无网络探针与局限见design-review报告，实施native/HTTP验收不能被该探针替代。
 
 仅 `POST /(v1/)?messages|chat/completions|responses` 的当前有sink流可观察；跳过主Agent流/其他工具HTTP。只取status、Retry-After和白名单request-id，不记录完整headers、body或URL query。成功200不覆写同次失败facts，多次HTTP只关联本model request最后失败响应；不得把不同模型请求之间的429带入下一请求。
 
@@ -148,12 +158,18 @@ interface ReviewAttempt {
   request<T>(work: (facts: HttpFactsSink) => Promise<T>): Promise<T>;
   assertActive(): void;
 }
+interface GuardianStreamOwners {
+  // exact native reviewer identity, not parent/root/model route
+  register(sessionId: SessionId, owner: GuardianOwner): () => void;
+  // Global llm/stream: identity test first, then bind exactly one request sink.
+  wrap(options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>;
+}
 ```
 
 - Facade先跑既有downstream/免审检查；只有需模型时创建reviewId及controller。冻结exec的精确工具名/参数、模型、配置、message context、可信来源，不把后续模型建议当新授权。trace不持有敏感prompt副本。
 - `ApprovalReviewRequest`增私有recovery，`ApprovalReviewResult`可返回决策/usage/metadata，trace由controller统一持有，失败同样可取得。策略为单个run回调提供“不含重试的一次正常判断”，不得自行另套service loop。
 - CC的buildPolicy/transcript/suffix/model info准备在一次15秒prepare内完成；每次stream建新BlockAssembler（不混partial），传parent关联sessionId便于现有proxy定位。有效stage1结果不会因stage2失败丢失；stage2共享总额度。legacy只用s1。
-- Guardian把trunk claim/忙闲/fork作为整个action租约，准备parent证据一次。初次能沿用committed checkpoint；恢复强制full。复用的reviewer保存可替换的`currentAttempt`引用，scoped request/error/llm监听器每次读取该引用，不闭包捕获上一个动作的controller或signal；action结束/idle时清空它，未绑定时禁止发请求。成功commit时必须满足：signal未取消、generation有效、仍持有原trunk对象/租约且配置fingerprint未失效。失败/cancel/config release不能republish旧cache。
+- Guardian把trunk claim/忙闲/fork作为整个action租约，准备parent证据一次。初次能沿用committed checkpoint；恢复强制full。复用的reviewer保存可替换的`currentAttempt`引用；Agent carrier的scoped request/error监听器读取当前引用，全局llm分派仅在精确身份命中后快照它，不能依赖scope隔离llm事件或捕获上一个动作的controller/signal。action结束/idle时清空它，未绑定时只禁止这个reviewer自己发起普通请求。成功commit时必须满足：signal未取消、generation有效、仍持有原trunk对象/租约且配置fingerprint未失效。失败/cancel/config release不能republish旧cache。
 - 原生reviewer每次model request通过`ReviewAttempt.request`记录独立request ordinal及usage；多个只读检查步骤不计额外恢复；无判定结束才进入format分类。context重建先dispose旧分支并takeContextRebuild，再在本次剩余90秒内重建，不重置正常尝试时限。
 - action、attempt、request ordinal三层区分：CC正常s2也是新attempt记录但retryOrdinal不增加；Guardian多step是request记录，只有controller授予的恢复增加retryOrdinal。audit避免把“最大2次额外”误读为“总共只能2/3个model requests”。
 
@@ -185,7 +201,7 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 
 - 完整恢复可把一次判断拉长到几分钟且增加费用，这是已确认取舍；无并发预判或盲目模型切换。执行侧端到端等待需至少覆盖360秒审核+既有人工等待，不能沿用测试120秒poll把正常长恢复当失败。
 - transport observer是进程级hook但有request-local sink、仅审核模型POST生效；必须回归现有主/子session归因和并发隔离。不可见headers明确unknown，不扩大到工具网络。
-- Guardian full恢复会重复只读调查、失去失败分支缓存；公开Agent能力足够，但implementation/native fixture须证明create/dispose和scoped llm listener顺序；这些未验证实现不当作已完成能力。
+- Guardian full恢复会重复只读调查、失去失败分支缓存；公开Agent能力及request identity可用，但implementation/native fixture须证明create/dispose与全局llm分派的登记/绑定/回收顺序。强制同时保留idle cache、同parent的active reviewer与fork、另一parent reviewer、CC及main并发流，核对各request sink、header、delay、usage和取消互不串；另测缓存复用切换attempt、失败后新full身份和late旧流不能获得新generation。这些未验证实现不当作已完成能力。
 - 不合作provider/FS teardown无法靠应用实现绝对物理消失；5秒quarantine保证无late授权/无继续重试，不以无限等待守住表面cleanup。发生真实cleanup不可用时记录具体资源并阻断，不自动重启生产。
 - 回退为撤回本unit产品commit（保留历史audit可读性、未知optional字段无害），恢复原无故障恢复行为；不修改owner配置。merge/部署仍需人类指令。
 
@@ -200,7 +216,7 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 
 **Review驱动方式**：端到端真栈，不改客户端面；允许复用客户端同一IM HTTP/WS接口代驱动（不可用RuntimeClient直接submit代替产品旅程）。Native RuntimeClient fixtures是worker工程证据，不替代Q真IM旅程。
 
-**验收前置与本轮实际检查**：隔离脚本、默认无secret config、node_modules存在；LLM_PROXY health返回200。当前P workspace没有`.venv`，系统Python3.9.6且缺yaml/httpx/pytest，不满足仓库≥3.11要求；E/Q需提供自己的≥3.11解释器并按local-development创建或复用隔离dev环境（runbook给安装命令），不是借生产主仓环境。health不证明指定模型可用；Q执行前通过专用E2E目录的smoke确认模型/窗口/low支持，不读或复制生产凭据。本轮未启动栈、未花真实模型请求、未宣称验收pass。真实provider不可用时可继续确定性矩阵，但对应真实旅程必须inconclusive并报E，不用stub冒充。
+**验收前置与本轮实际检查**：隔离脚本、默认无secret config、node_modules存在；LLM_PROXY health返回200。当前P workspace没有`.venv`，系统Python3.9.6且缺yaml/httpx/pytest，不满足仓库≥3.11要求；E/Q需提供自己的≥3.11解释器并按local-development创建或复用隔离dev环境（runbook给安装命令），不是借生产主仓环境。health不证明指定模型可用。R1纠正：默认main目录`deepseek:deepseek-v4-flash`仅声明high/max，不能用作固定low审核；runbook改选已有`codexOAuth:gpt-6.1-sol`（声明low、context_window=258400），只改隔离tool_approval_model，不改产品审核effort或虚报能力。该候选尚未真实smoke，Q执行前先静态核对目录/映射，再通过专用E2E目录的真实审核smoke确认路由可用；本地声明/effort拒绝属于配置失败，不归provider故障，不读或复制生产凭据。本轮未启动栈、未花真实模型请求、未宣称验收pass。真实provider不可用时可继续确定性矩阵，但对应真实旅程必须inconclusive并报E，不用stub冒充。
 
 ## Milestones
 
@@ -208,4 +224,4 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配与并发归因、Guardiandispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |
+| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配，精确原生reviewer身份分派及idle+active同parent fork+另一parent+CC+main并发归因、缓存attempt切换/旧流隔离、Guardian生命周期dispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |

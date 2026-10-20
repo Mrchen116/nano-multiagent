@@ -6,7 +6,7 @@
 
 - 只在E/Q自己的本unit worktree/临时目录运行；不使用生产或开发主仓，不修改真实Agent配置/owner目录，不重启LLM_PROXY。每个策略使用独立runtime目录、IM DB、端口、node identity、workspace、owner config、DSH home。
 - 当前基线资源检查：P workspace的node_modules、E2E scripts及config模板存在，`:4000/health`为200；没有`.venv`，系统python是3.9.6且缺yaml/httpx/pytest，不满足仓库Python≥3.11要求。E/Q需使用自己的已有≥3.11 dev环境，或先提供≥3.11解释器后按`docs/development/local-development.md`准备；不可把下面的python3.11替换成系统3.9。health不是模型可用性凭证，不复制私人配置/secret。
-- 外部资源：仓库`config/e2e/gateway.yaml`提供模型目录；本机`:4000`提供真实模型路由。受审版本的integration构建、Gateway capability中的审核模型及context window需一致；low档位/真实请求由验收smoke检查。若不可用，保留报错并标真实旅程inconclusive，不把fixture成功当真实成功。
+- 外部资源：仓库`config/e2e/gateway.yaml`提供声明目录；本机`:4000`提供模型代理入口，但不保证指定路由真实可用。main保留`deepseek:deepseek-v4-flash`，它只声明high/max，**不得选作固定low审核**。审核候选明确选已有`codexOAuth:gpt-6.1-sol`（context_window=258400，levels含low），不修改其能力声明或产品审核effort；它尚未真实smoke，当前只证明本地声明合格，不声称服务可用。受审integration构建、Gateway capability与映射后的native model声明须一致。缺low、窗口、UNSUPPORTED_REASONING_EFFORT等发HTTP前错误按本地配置失败处理，先修隔离配置，不误归为provider临时故障；真实HTTP/provider失败另标inconclusive，fixture不能替代。
 
 从E/Q的受审worktree根执行：
 
@@ -47,7 +47,16 @@ source=yaml.safe_load(Path('config/e2e/gateway.yaml').read_text())
 for a in source['agents']:
     if a['agent_id']=='e2e-global':
         a['tool_allowlist']=list(dict.fromkeys(a['tool_allowlist']+['plugin_manager']))
-source['llm']['tool_approval_model']='deepseek:deepseek-v4-flash'
+reviewer='codexOAuth:gpt-6.1-sol'
+matches=[(p,m) for p in source['llm']['providers'] for m in p['models'] if m['name']==reviewer]
+assert len(matches)==1, 'reviewer must select one exact catalog route'
+provider,model=matches[0]
+assert isinstance(model.get('context_window'),int) and model['context_window']>0
+assert isinstance(model.get('reasoning'),dict) and 'low' in model['reasoning']['levels']
+source['llm']['tool_approval_model']=reviewer
+print({'main':source['llm']['default_model'],'reviewer':reviewer,
+       'provider':provider['name'],'reviewer_context_window':model['context_window'],
+       'reviewer_effort':'low','live_smoke':'not_run'})
 (root/'source-config.yaml').write_text(yaml.safe_dump(source,allow_unicode=True,sort_keys=False))
 (root/'.gateway-owner/config.yaml').write_text(yaml.safe_dump({'auto_mode':{
  'enabled':True,'rules':policy,'dangerously_skip_permissions':False,
@@ -63,6 +72,13 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 实际执行时把down放入`trap EXIT INT TERM`，或用受控tmux跨多次工具调用持有栈；记录PID、端口、工作区和受审SHA。脚本从本worktree构建启动IM和Node，Node管理stdio DSH。检查生成的`.gateway-config.yaml`确实把`NANO_OWNER_CONFIG_ROOT`指向该`.gateway-owner`，不能让此配置落回真实`~/.nanoassistant`。同一runtime目录不要反复up刷新策略（它会重建DB）；要清楚down后分配新目录。示例未启动真实fixture，也不自动删除证据目录。
 
 agent如有显式approval_mode，以IM config GET/PATCH的实际值为准：CC选`cc`、Codex选`codex`或清空回到上述node继承。不要用UI展示名猜有效配置。既有`IMClient.update_agent_config`通过真实GET/PATCH配置入口并保存profile_version，可复用；核对返回配置和下一轮生效。
+
+### 2.1 审核路由smoke（执行者实际运行，不能用health替代）
+
+1. 起隔离栈后，登录IM读取`GET /im/v1/agents/e2e-global/capabilities`的models及生成的本次配置：确认main仍deepseek，reviewer为上述唯一候选、有窗口且low映射有效；`apps/node/src/providers.ts`会把levels变为native reasoningEfforts，不能只改tool_approval_model字符串而遗漏目录。
+2. 在新私聊向该Global Agent发送：`这是隔离审核smoke。请仅在当前workspace用bash执行 printf FEAT625_REVIEW_SMOKE，不访问网络或其它目录，并报告实际工具结果。` bash避免普通文件fastpath。通过Work确认**确实进入模型审核**而非免审；脱敏approval-domain/native请求摘要确认reviewer provider/model、effort=low、实际HTTP请求、合法判定、工具一次执行。代理日志只提供请求事实，不能替代Work消费与输出。CC/Codex各跑一次，各自记录callId/reviewId及代理locator；无有效审核请求不算smoke成功。
+3. 发HTTP前的UNSUPPORTED_REASONING_EFFORT/缺模型/窗口/credential配置错误记为`local_config_failed`；先修本次隔离资源，不把它放入503/transport恢复证据。HTTP已发但路由不可用记具体provider结果；未实际运行/未成功均不能写“模型可用”。若候选真实不可用，可在本次隔离目录换另一**已有low+窗口声明**候选后重新smoke并记录实际选择，但产品恢复过程不得临时换模型或effort。
+4. P设计修订只执行了无网络目录和公共事件探针，**未执行本smoke**。当前真实路由可用性仍待E/Q执行，不是已验证资源。
 
 ## 3. 真IM驱动与可检查位置
 
@@ -116,6 +132,18 @@ pnpm exec vitest run packages/dsh-integration/tests/review-recovery.test.ts \
 | 请求中/退避中 `/stop`，deadline与stop同刻，dispose迟返allow | cancel优先，后续HTTP零新增、工具零执行；晚到不复活、不发布cache；超5秒quarantine不再恢复。 |
 | 普通有人值守耗尽，Global耗尽，child耗尽，schedule/heartbeat分别allow/deny | 分别原ask / return_to_agent / child无卡 / 配置allow一次或deny零次；cancel不能fallback allow。 |
 | 审计缺usage、partial usage、旧domain行、trace写失败 | model/action关联、knownUsage非伪零、旧行可读；写失败不新增自动allow。 |
+
+### 5.1 精确stream归属的强制并发/idle/full-fork用例
+
+这组由worker用真实DSH loop + HTTP fixture实现，并把request→reviewer session→reviewId/attempt/generation→HTTP facts对照交Q检查；纯mock scope隔离或仅最终allow/deny不足：
+
+- 先成功审核并保留idle缓存reviewer I（currentAttempt为空）；另创建同parent的active reviewer A和并发fork B、另一parent reviewer C，同时发main流M与CC hand-built流D（D沿用与M相同主session作日志关联）。A/B/C必须是真实`agents.create`产生的不同原生session身份，不能在测试中都写parent ID。
+- barrier让A/B/C/M/D同时进入全局`llm/stream`，HTTP fixture分别返回A=429+Retry-After 2秒、B=503、C=成功/不同usage、D=另一request-id/usage、M=正常文本。断言全局owner分派先以公开loop marker+精确原生session命中A/B/C才读currentAttempt；M/D和所有非所属流透明、不被I的空attempt或其它owner signal拦截，M仍无审核sink、D保留自己直接绑定的sink。
+- 核对A只取得A的429/header/delay，B只取得B的503，C/D的usage/requestId不混；只有A按2秒延迟、取消B不取消A/C/D/M。X-Session-Id即使相同也不能合并facts，X-Agent-Session-Id保持各实际身份。
+- A技术恢复废弃旧session后新full reviewer F有新registry entry；人为迟返A的chunks/HTTP facts不能写F的attempt、usage或checkpoint。B从fork结束不能覆盖另一成功trunk。I仍idle时M/D继续成功；人为让I自己普通loop发流应失败关闭且不产生HTTP，不能因此影响其他流。
+- 再复用成功缓存C进入下一动作，必须绑定新currentAttempt；旧stream finally不得清空新绑定，旧generation不能获得新授权。重复create失败、dispose迟返/quarantine、listener/entry卸载场景，registry数量与资源归属可核对。辅助purpose流不能被计作普通审核request或从其它owner获取sink，原context/compaction边界不退化。
+
+P无网络probe只证实公开`sessionId`/loop marker分派、ALS以及非所属流透传可行（见design-review Author Resolutions）；没有真实Agent/fork/HTTP，不能代替以上实施证据。
 
 计时证据分两层：worker用fake clock完整证明30/60/90秒每次预算及360秒上界；Q真栈至少分别观察一条CC超时恢复和一条Guardian超时恢复，保持生产默认时长（允许耗时数分钟），不能把10ms缩时测试充作真实预算证明。准备/cleanup不合作边界用native profile注入可控promise，再检查真实cancel/dispose事件与晚到工具零执行。各模式fallback通过真正IM产生的普通请求、Global委派子任务和测试schedule/heartbeat触发；复用现有产品工具与配置，不把直接改source.kind的底层submit当Q真IM证据。工程native tests补确定性覆盖。
 
