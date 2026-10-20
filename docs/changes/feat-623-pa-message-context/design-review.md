@@ -174,3 +174,54 @@ R1-W1、R1-W2、R1-W3 保持 **closed**；本轮未修改 R2 通过的 onlyIfIdl
 ### Author Resolutions
 
 R3 无新增问题；author 接受 delta 审查结论。仅移除 PA 模型工具输出的内部字段，受审设计此后未改，原 Gate 2 通过状态保持。
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/design_review_623`，沿用独立 reviewer。
+- reviewer target / validated_at: `3017f812f63aad10418ed13d71bf2a6713e9bc1c`
+- executed_base: `8330f0565`；显式实施依赖仍为 bugfix-621 `bc59dfa7209f06642bda26aef78b7dfeba125004`。
+- review_mode: `delta`
+- mode_reason: 本次是 PA check/read 呈现与同源分页的有界变化，需覆盖模型下一操作、fragment/cursor、持久消费、附件和风险投影；其余身份、通知及披露设计未变，沿用有效 full 审查证据。
+- compared_range: `e5f7c9117..3017f812f`
+- started_at: `2026-10-20T11:27:32+08:00`
+- completed_at: `2026-10-20T11:27:58+08:00`
+- duration: `26s`（工具记录的核对区间，不含报告整理）。
+- retained_from: Round 3、Round 2 与 Round 1 未受影响的覆盖；此次只有 design 和 gateway personal-agent delta 变化，无产品代码或 milestone 划分变化。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+按导航、页级来源、逐条作者/原文分层后，模型仍能判断消息是谁发的、来自什么聊天、以什么关系接收，以及去哪里继续读或发送。共享字段移到页级时保留内部逐条事实，并在关系边界切页，避免用当前关系覆盖历史。设计已明确投影发生在持久 body/digest 之前，能保持消费和附件协议一致。
+
+### Coverage 与证据
+
+| 本轮范围 | 独立核对及结论 |
+|---|---|
+| 判断与下一操作 | `design.md:81-116` 的 check 保留 target/name/unread/type/delivery，read 自包含 target/name/type/delivery/channel；每条仍有 message id、可信 sender/is_owner、time/content。target 支持下一次 read/send_message；next_cursor 支持续页；缺少成员和前文时有既有 conversations info/read/search 入口。未用输出标签替模型判断是否是任务或是否应回复。 |
+| 页级关系与顺序 | `design.md:120` 明确按内部接收事实、同上下文的连续片段截取，不排序、不跳过剩余片段；check delivery 取第一条未消费片段。对照 `inbox.ts:87-120`，既有 snapshot 是有序 `{seq,part}` 列表，next offset 基于实际 selected 数量，因此可在现有分页选择处缩短当前页，不需新分组协议；长消息的 fragment 顺序和关系均可保持。 |
+| 冻结结果与消费 | `inbox.ts:120-123` 先 present 再保存 body/digest；`:171-185` 消费依据保存的 selected fragments 和完整结果，而非模型返回的 metadata。修订明确 PA 字段投影先于 toolReferences/持久化，禁止保存后再裁剪；读重试仍返回原 body。跨关系切页必须在选取 selected 时生效，不能只在返回层过滤消息；设计的“不跳过剩余消息”和 M1 分页不漏读要求已覆盖此约束。 |
+| 附件与引用转换 | `inbox.ts:150-160` 用根 target、messages[].id/content 定位图片及验证实际图片内容，修订保留这些路径与 content blocks。`tool-references.ts:100-103` 只映射根 target/next_cursor 和 check sources，对新增根上下文字段直接保留，不要求重复逐条 channel/delivery。`global-agent.ts:214-218` 的 info 权限检查仍先于 Inbox read。 |
+| 原始选择与风险信息 | `inbox.ts:130` 仍通过 withInteractionContext 构成原 content，设计没有删除实际交互选择；同名或同文用户仍由 sender.id/type/is_owner 区分。`personal-agent.ts:71-75` 的风险本来包含 actor_id/status/reason/instruction；仅模型投影保留 status/reason 并依附相应消息，固定规则移到一次系统说明，独立审核原证据不减。风险身份不再靠重复 actor_id，但消息的真实 sender 与宿主身份仍存在。 |
+| 权限与空态 | `design.md:121` 区分无未读与权限错误，并要求当前权限重新核实；历史 delivery 不提供访问或发送授权。`work.ts:510,551` 是现有 sourceAllowed/info 的执行位置。裁剪模型字段不裁剪服务端权限、guard 或披露证据。 |
+| Delta / milestone | gateway delta 只把观察关系的呈现位置改为读取结果的会话上下文，仍保留观察不等于任务/控制/发送授权的消费者契约。M1 增加实际 check/read 输出、关系边界不漏读、附件及持久消费、普通 Global 不变的验证。其余 delta、用户场景、真实模型/十分钟/飞书验证仍 retained。 |
+
+架构判断：共享来源信息按页展示，逐条可信事实继续在 Inbox 内保存；分页边界由持有 fragment snapshot 的 Inbox 层处理，模型输出由现有 PA 投影处理。此处复用已有 cursor、toolReferences 和持久 read 机制即可，无需新缓存、短 ID 系统或成员快照协议。固定风险规则移出重复结果也不改变 IM 的风险权威。
+
+### 历史问题闭环
+
+R1-W1、R1-W2、R1-W3 保持 **closed**，证据 retained from Round 2；本次未改背景接纳、水位或授权失效集合。R3 的 PA 不输出 requires_attention、保留宿主行为也继续成立。
+
+### Issues
+
+无新增问题，无未关闭的历史问题。上述结论为设计审查；本轮没有运行尚未实现的新分页或真实模型旅程。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+R4 无新增 findings/recommendations；author 核对字段用途、共同上下文、按需信息和既有持久消费路径后接受结论。受审设计此后未改，Gate 2 保持通过；实现时仍需交付 M1 已明确的实际模型工具返回和完整摄取证据。
