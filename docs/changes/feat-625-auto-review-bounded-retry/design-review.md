@@ -199,3 +199,138 @@ JS
   ```
 
 - **剩余限制：** 候选尚未真实smoke，实际provider可用性未知；Python≥3.11环境仍需E/Q提供，docs-check/真实IM旅程未运行。以上不伪装为通过，不将本地配置错误归到provider。公开IM relay问题由父P处理，与本地设计修订无关。待独立reviewer按实际diff复审，未授权实施。
+
+## Round 2
+
+### Metadata
+
+- reviewer_target: 原独立 delegated Gate 2 reviewer subagent，真实 session ID `f3bff003-49fa-40ab-b29c-e469c1a0daf4`（本轮重新定向核实）。沿用同一审查上下文，未参与需求/设计修订，未把长期 P 身份作为独立审查身份。
+- review_mode: **full**
+- mode_reason: 实际 diff 不只是旧问题的文字关闭：新增 integration 级 `GuardianStreamOwners.register/wrap` 共享 seam，将原错误 scoped 归属改为全局精确身份分派，并明确 setup/idle/cache/fork/full/quarantine 的登记生命周期；M1退出断言也相应扩展。按 skill 对核心共享接口/生命周期变化的标准，选择 full 而不是仅 closure；不仅核对作者给出的两项 resolution。没有需求范围、跨包依赖方向或客户端变化。
+- started_at: `2026-10-20T15:00:05+08:00`
+- completed_at: `2026-10-20T15:02:13+08:00`（事实核对完成，随后追加报告）
+- duration: `PT2M8S`
+- validated_at / executed_base: `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59`（HEAD与本地origin/main相同）
+- previous_validated_at: `bea22ef0ee3215e2498ac653ad4ee1082657f07e`
+- effective_base / effective_through: `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59`；仅设计门禁，不声明实现已完成。
+- checkout: `/Users/czj/.nanoassistant/workspaces/nano-product`，branch `main`；开始时仍仅 `.claude/skills/.usage.json` 未跟踪，未读取/改写其内容。
+- skills: 本轮实际重新加载 `change-design-reviewer`、report reference与`codebase-design`；沿用已加载AGENTS/change-workflow及R1架构证据。未访问Inbox/conversations、未发公开消息、未修改团队图、未派其他Agent、未建分支或提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1-W1、R1-W2均以独立核实的设计/公共接口事实关闭。修订后的接口、归属与生命周期已足以指导实施；没有发现会使下游实质走偏的新问题。此结论只通过本冻结版本的设计门禁，**不代表实现、HTTP并发矩阵、真实模型smoke、docs-check或产品旅程通过**。
+
+### Reviewed artifacts and preservation
+
+本轮完整读取新`design.md`（227行）、`reviewer-runbook.md`（156行）、整个未变`spec.md`（169行）和delta（85行）、空`.gitkeep`；读取R1原报告及全部Author Resolutions。检查`bea22ef0..617ddaf3`真实diff：只有design、runbook、报告三文件变化；`packages/`、`apps/`、canonical specs、首文档、delta、M1骨架均无diff。未将修改摘要或作者probe当成审查结论。
+
+独立计算R1最初137行原始字节SHA-256，仍为：
+
+```text
+95d48d95adf82df0b6b3218813f2779347edbaa92f89fea4d7cca21971c89a57
+```
+
+与Author Resolutions的保留值一致；本轮仅追加Round 2，不回写R1或作者resolution。
+
+### Full coverage and evidence
+
+#### 1. Actual assembly, responsibilities and public reuse
+
+- 重新读取生产入口`apps/node/src/main.ts` L39–44、`integration/src/client.ts` L13–24、`integration/src/index.ts` L107–115/L155–158：固定profile将Node模型目录装配到官方pi-ai，再装配同一integration attribution与Guardian。新分派位于真实生产seam，不是新增测试专用审批链。
+- `design.md` L120–138/L161–173现在明确：单integration级全局listener负责过滤与sink绑定；Guardian owner管理自身原生session登记/currentAttempt；CC/legacy直接绑定自己的stream；原dispatcher仍只有一个owner。接口保持integration私有，不加入product-contracts、不跨PA/Node/IM引入DSH、不复制loop。
+- 该registry不是第二套执行状态机：它保存“本service创建的精确reviewer身份→当前attempt”的窄归属，不保存业务授权、模型调度或新重试额度。新增维护代价是登记/清理成对与tombstone资源；对应真实全局事件不提供scope隔离的事实，抽象有必要且职责集中。没有要求为纯内存映射增加网络port或新服务。
+- 独立重读已安装`dsh-llm`根export map、`types/call-config.d.ts` L40–52、`types/types.d.ts` L520–530与打包L357–387：`isAgentLoopRequest`是公开根能力，检查精确request对象的WeakSet身份；sessionId公开定义为loop stamped routing identity，purpose公开区分辅助请求。它不是人类授权证明，设计也没有拿它扩权限。
+- 独立读取已安装agent-loop打包L1269–1276：普通request确实mark冻结原对象并写入`this.session.id`。读取`dsh-llm` L2197–2226/L2364–2365：native prepared-call仍把原options传入同一全局waterfall，没有先克隆丢marker。包内部文件只读取证，没有private运行时import。
+- 重新核对公开`agents.create` setup/creation-only signal/dispose契约（`dsh-agent` root d.ts L80–103/L129–145）及打包cancel→whenIdle→scope disposal路径，确认setup先登记但不drive、create成功后再绑定和followup的顺序可由现有公开接口实现。
+
+#### 2. Isolation, cleanup, cancellation and concurrent state
+
+`design.md` L124–128/L172/L176–180已经给出可实施的不变量：
+
+1. 原生loop marker + 精确reviewer sessionId先过滤，再访问currentAttempt；不用parent/root/model/prefix归并。主Agent、hand-built CC及辅助purpose透明透传，既有CC sink不被清空。
+2. 命中后校验当前generation与冻结reviewer/model/low，快照attempt，stream的next/return沿该快照而非反复读取可变entry。旧流不写后继trace；finally只关闭自己的sink。
+3. setup失败释放；idle清attempt但保留身份；缓存复用先绑定新attempt；full/fork使用新ID；dispose/quarantine先失效并保留tombstone直到drain，按entry对象相等删除。取消与配置释放仍不能重发布旧checkpoint，另一个成功fork/trunk不被失败动作清除。
+4. tombstone只阻断自身旧reviewer的异常流，不影响main/CC/其他reviewer；5秒cleanup失败仍关闭action，不靠移除登记把未drain的旧资源重新开放。服务卸载继续drain，不kill共享DSH。
+
+这些决定闭合了R1的实际缺口，而不是仅将“并发要测试”加进清单。runbook §5.1进一步要求真实DSH loop + HTTP同时覆盖idle I、同parent A/fork B、另一parent C、main M、同主session hand-built CC D，并验证429/header/delay/usage、取消、旧A到新full F、缓存新attempt、setup失败/quarantine/entry卸载。该矩阵在设计态尚未运行，但目标资源、身份和反例足够明确。
+
+**本reviewer独立无网络probe**使用现有公共Context/LlmRuntime/LlmAdapter、`prepareCall().stream()`、精确loop marker和ALS（不是复制作者probe输出），得到：
+
+```json
+{"prepared_stream_seen":[["A","a1"],["B","b1"],["M",null],["M","cc"],["I",null],["A","a2"]],"owner_reads":["A","B","I","A"],"owned_idle":"rejected","loop_marker_copy":"not_preserved","native_agent":false,"http":false,"network":false}
+```
+
+`[exit code: 0]`。证明公开prepared-stream入口能保留精确marker，main不读owner、CC原sink保留、purpose不计普通审核、idle只拒自身、缓存切换可绑定新attempt；也确认克隆对象不会保留marker，因此设计保持原envelope、不靠复制字段认领是正确的。**该probe没有真实Agent、fork、HTTP或取消/drain，不能替代runbook矩阵。**
+
+#### 3. All user constraints, safety counts and budgets
+
+重新通读17个Scenario并与本轮设计全文逐项对照：
+
+- 短暂成功、混合故障：同一个ToolExecution构造一个controller，只重判不执行工具体，额外最多2次跨CC阶段/Guardian正常步骤共享；没有被新的requestOrdinal或session registry重置。
+- CC完整阶段、Guardian完整正常尝试、整体有界：30/60/90秒和15秒准备、10秒单次退避/20秒总退避、5秒单资源回收、360秒保护未改；恢复不挤原90秒残余。新增身份登记不引入另一套budget。
+- 首次格式、再次格式/总额耗尽：EMPTY_RESPONSE与空白/非法统一格式子额度最多1次且占总2次；正常stage推进/context重建不是服务恢复，Guardian全action context rebuild仍≤1。
+- CC两阶段/最终deny、Codex风险/可信授权/只读调查、永久错误：保留各原流程和精确冻结动作，无刷deny到allow、无换模型、无扩权；public stream marker仅归属，不替代来源证据。
+- 请求/退避取消及单次timeout：parent/owner取消始终优先，generation关闭后无后续恢复/fallback放行/晚到执行；新registry的currentAttempt快照与tombstone与此相容。
+- 普通有人值守、Global/child、unattended allow/deny：重新读取`approval.ts` L71–98/L126–145，原分流/deny计数真实存在且设计未改；技术不可用不冒充安全deny，配置allow仍可在终态仅执行一次，不作“耗尽一律零执行”承诺。
+- 可追踪内部尝试、真实双策略旅程：review/attempt/request三层与usage未知/partial仍保留，trace经原domain/observe而非假称Work新增attempt UI；真模型、真IM fixture、native与fake-clock证据分层不变。
+
+未受实质影响的source投影/独立模型/审计兼容性与fallback理由 **retained_from: Round 1**；本轮通过产品源码/canonical无diff、设计全文重读和上述关键路径复核，确认未改变R1全覆盖结论，不以旧Approved代替本轮判断（R1原本未Approved）。
+
+#### 4. Reviewer resource selection and executable acceptance
+
+- runbook L50–63明确选择目录已有的`codexOAuth:gpt-6.1-sol`，唯一route、正context window、levels含low先断言；main仍deepseek，不改能力声明或产品effort。重新读取`config/e2e/gateway.yaml` L80–95、`configuration.ts` L64–67与`providers.ts` L29–49，候选名→provider→native id/efforts映射闭合。
+- 独立运行只读Node探针，用现有js-yaml解析真实目录，**实际调用仓库`providerProfiles`**，而非只复述作者Python结果：
+
+  ```json
+  {"provider":"anthropic","reviewer":"codexOAuth:gpt-6.1-sol","contextWindow":258400,"low":"low","main":"deepseek:deepseek-v4-flash","network":false,"provider_available":"unknown"}
+  ```
+
+  `[exit code: 0]`。没有写配置或读取私人凭据；仅证明静态声明经实际mapper后合格，不证明代理/供应商可用。
+- 重新读取固定pi-ai L1705–1708/L1848–1852严格effort校验；旧资源确定在HTTP前失败的问题已被合格候选选择修复。runbook §2.1新增CC/Codex各自真实受审bash smoke，不能用普通文件fastpath、health、未发HTTP或缺合法判定算成功；本地配置错误与真实HTTP/provider故障分开。`apps/im-server/src/control.ts` L855–872确有所用capabilities endpoint，并返回models。
+- 已指定候选smoke失败时，只能在**验收准备阶段**选择另一已有low+窗口的候选并重跑记录；不是在产品失败恢复中换审核模型，不违背首文档。真实服务未知且暂未运行在设计态已诚实标明，不能因此要求Gate 2先运行模型或制造实现。
+- 隔离起停、身份/DB/owner config/DSH home、plugin_manager能力、Work/permission查询和清理证据继续 **retained_from: Round 1**；实际diff未改这些脚本/入口。Python≥3.11仍由E/Q准备；本轮实测仍3.9.6，docs-check未跑，不声称通过。
+
+#### 5. Delta, frontend and milestone
+
+- 完整重读delta并核对current L508–579：canonical target仍正确，MODIFIED的8个原Scenario保留，无误删默认规则、来源、超窗、委派、切换/继承与进行中请求；新增恢复消费者契约未因registry设计改变。
+- 首文档与批准边界未变，#330、插件API、通用防循环仍非目标；无客户端变化，无需prototype或提前真实后端实现。
+- M1数量、范围、依赖与单闭环组织未变，新增退出断言正是stream归属修订的实施验证，不另开产品范围；骨架仍空`.gitkeep`。full本轮连同扩展的milestone criteria核对，未发现并行冲突或不可解释的验收入口。
+
+### Historical issue closure
+
+| Finding ID | Author Resolution | 本轮独立证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | accepted；唯一全局dispatcher listener + public loop marker/精确reviewer身份，定义登记/快照/idle/quarantine及并发矩阵 | 本轮读取公开d.ts/exports、真实loop/prepareCall打包数据流；独立prepared-stream/ALS无网络probe；设计L120–138/L161–180和runbook§5.1生命周期/反例闭合 | **closed（设计层）** |
+| R1-W2 | accepted；改选已有low+258400声明候选，main分离、配置断言和双策略受审smoke | 本轮读取真实catalog/configuration/mapper并实际调用providerProfiles，确认输出low/窗口；核实smoke不会以health或fastpath替代审核 | **closed（设计层）** |
+
+### Issues / Recommendations
+
+- 新增CRITICAL：0。
+- 新增WARNING：0；无历史still-open finding。
+- 无额外可选recommendation；不把正常实施/验收门禁重复升格为未收口需求。
+
+### Validation limits and handoff
+
+- 本轮只读Git/身份/探针均检查成功exit code；一次错误猜测的`apps/im-server/src/agents.ts`搜索返回不存在，已用目录grep定位并读取真实`control.ts`，未当作验证成功。
+- 未运行docs-check、build/typecheck、Vitest/pytest、真实模型smoke、Agent/HTTP fixture或IM产品旅程；未安装依赖、未启动服务。本轮两个probe均无网络且不是实现验收。
+- 具体后续前置：E/Q需≥3.11 dev环境、实际构建与冻结实施SHA；指定审核候选须先按§2.1实际smoke；§5.1真实loop/HTTP及取消/清理矩阵、原17场景和Full适用门禁仍必须执行。若provider不可用据实inconclusive，不用本Approved代替。
+- **设计审查无未沟通的具体阻塞。** 本报告未提交；仅向委派者交付。Approved不授权自动merge、部署或发布，后续实质设计变更仍按workflow复审。
+
+### Author Gate 2 closure / retained
+
+原author完整读取Round 2（含full范围、独立公共prepared-stream probe、实际providerProfiles映射证据、17场景、历史finding关闭及执行限制），核对当前受审产物后，**无实质异议，无待改设计事项**。接受R2 `Approved — 0 CRITICAL / 0 WARNING`，R1-W1/W2仅在设计层closed；设计门禁闭环，不等于产品实施或测试通过。
+
+- **reviewed_design_ref / retained_from:** `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59` / Round 2。受审之后仅追加本报告的Round 2与本closure，无实质设计变化；无需为报告保存动作复审。R1、Author Resolutions及R2 reviewer原文均未回写；追加本节前完整319行报告SHA-256为`bea64a44f6e6579f550e68b0acc1b10b3493cf66d64657d0bb08babf28f3510c`。
+- **retained依据：** 与受审SHA逐字节及Git blob比对，下面五项均未变；本次文档交接commit只允许本`design-review.md`一项diff。
+
+| 受审产物 | retained Git blob |
+|---|---|
+| `spec.md` | `c01ecf2817dbc14ca02fe1c1cdc2d57ed021c686` |
+| `design.md` | `d026f8b23c5817001cb7127af9d9c9a71be0731d` |
+| `specs/gateway/agent-capabilities.md` | `4c003d9ba89dc25da2bc933642fc6b99b4ad7f39` |
+| `reviewer-runbook.md` | `e37371434ba93df07650dbf8b35e3ea257e54875` |
+| `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391` |
+
+**交E边界：** 默认`change-orchestrator-simple`承接单M1工程交付；须由父P完成正式交办，不在本author会话开始实施。沿用完整预算、action共享2次/format1次、Guardian全action context rebuild≤1、精确原生身份分派/失败状态隔离、取消优先与既有fallback。Python≥3.11及审核候选真实low smoke仍是E/Q前置；真实loop/HTTP并发矩阵、17场景、真实双策略插件旅程、适用Full门禁仍未运行，不写pass。公开IM relay待父P恢复处理；本报告保存不代发消息或团队图、不授权merge/部署/发布。
