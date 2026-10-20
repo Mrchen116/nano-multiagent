@@ -48,7 +48,7 @@ Agent 解读：先撤掉普通工具审批独立拉取全库授权证据的行�
 
 `policy/approval.ts` 为普通受审动作主动调用 `pa.authorization`。CC 在 transcript 追加完整包；Codex 将它放入必须完整保留的 planned_action，因此历史预算恢复也无法解决这个额外包过大的问题。实际生产只验证了 CC 失败，Codex 影响有当前代码路径依据。
 
-feat-616 新增独立授权通道，后改为原始主人私聊；bugfix-621 扩展飞书主人；feat-623 扩展为所有可访问主人原文及所涉聊天完整历史。设计和测试着重来源、授权变更与原文存在性，缺少对主会话压缩边界和最终审核请求的检验。详见 [调查复盘](../archive/feat-623-pa-message-context/retro-pipeline-rootcause.md)。
+feat-616 新增独立授权通道，后改为原始主人私聊；bugfix-621 扩展飞书主人；feat-623 扩展为所有可访问主人原文及所涉聊天完整历史。设计和测试着重来源、授权变更与原文存在性，缺少对主会话压缩边界和最终审核请求的检验。详见 [调查复盘](../feat-623-pa-message-context/retro-pipeline-rootcause.md)。
 
 ## 修复方向与非目标
 

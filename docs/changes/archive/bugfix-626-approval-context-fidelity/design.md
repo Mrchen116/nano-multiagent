@@ -26,7 +26,7 @@
 
 ### 相关历史
 
-feat-552 / bugfix-613 确立 CC 规则与 Inbox 特例；feat-615 引入同步 Codex Guardian；feat-616 / 621 / 623 引入并扩大 PA 授权取数。复盘见 [retro](../archive/feat-623-pa-message-context/retro-pipeline-rootcause.md)。
+feat-552 / bugfix-613 确立 CC 规则与 Inbox 特例；feat-615 引入同步 Codex Guardian；feat-616 / 621 / 623 引入并扩大 PA 授权取数。复盘见 [retro](../feat-623-pa-message-context/retro-pipeline-rootcause.md)。
 
 另有 active feat-625 已对齐审核失败重试，尚未在本基线实现；它不是本问题的解决方案。本 unit 不撤销其独立需求，final sync 若包含该实现，保留其有界重试与取消契约并复验交叉路径。
 

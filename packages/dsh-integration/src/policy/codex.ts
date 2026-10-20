@@ -9,6 +9,7 @@ import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client';
 import type { ApprovalReviewRequest, ApprovalReviewResult } from './types.js';
 import { codexPolicy, parseCodexDecision, reviewInput, tokenCost } from './codex-context.js';
 import { inspectionTools } from './codex-inspection.js';
+import { codexEntries } from './sources.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { codexApproval: CodexApproval } }
 interface Checkpoint { rows: string[]; events: SessionEvent[]; sessionId: string }
@@ -62,14 +63,14 @@ export class CodexApproval extends Service {
         this.ctx.llm.resolveModelInfo(request.reviewer.provider,request.reviewer.model,signal),
       ]);
       signal.throwIfAborted();
-      const evidence=[...request.sources.restoreEntries(request.inherited,false),...rows];
+      const evidence=[...codexEntries(request.sources.restoreEntries(request.inherited,false)),...rows];
       const serialized=evidence.map(row=>JSON.stringify(row));
       if(checkpoint&&!prefix(checkpoint.rows,serialized)){checkpoint=undefined;if(reviewer){await this.discard(reviewer);reviewer=undefined;}}
       const schemas=inspectionTools(cwd,()=>signal).map(({name,description,parameters})=>({name,description,parameters}));
       const overhead=tokenCost(system)+tokenCost(JSON.stringify(schemas))+outputReserve+512;
       const limit=model.context?.contextWindow;
       if(!limit)throw new Error('Guardian reviewer model has no declared context window');
-      const action={name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd,rules:request.config.approval,recipient:request.messageContext,nano_personal_authorization:request.personalAuthorization};
+      const action={name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd,rules:request.config.approval,recipient:request.messageContext};
       let mode=fork?'fork':checkpoint?'delta':'full';
       for(let attempt=0;attempt<2;attempt++){
         signal.throwIfAborted();
@@ -81,9 +82,9 @@ export class CodexApproval extends Service {
           if(checkpoint){
             // A delta cannot silently drop new evidence. Rebuild from the current parent when tight.
             const delta=evidence.slice(checkpoint.rows.length);
-            try { input=reviewInput(delta,action,remaining); } catch(error) { throw new ReviewBudgetError(String(error)); }
+            try { input=reviewInput(delta,action,remaining,false); } catch(error) { throw new ReviewBudgetError(String(error)); }
             if(input.includes('reason="evidence_budget"'))throw new ReviewBudgetError('Guardian delta requires budget rebuild');
-          }else input=reviewInput(evidence,action,Math.floor((limit-overhead)*(attempt?0.65:1)));
+          }else input=reviewInput(evidence,action,limit-overhead);
           if(!reviewer)reviewer=await this.create(request,system,signal,checkpoint,limit,overhead);
           reviewer.signal=signal;reviewer.failure=undefined;reviewer.input=input;reviewer.first=true;
           reviewer.start=reviewer.handle.agent.session.snapshotEvents().length;

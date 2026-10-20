@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
-import { ApprovalSources } from '../src/policy/sources.js';
+import { ApprovalSources, codexEntries } from '../src/policy/sources.js';
 
 const user = (id: string, value: string, source: object) => ({ id, role: 'user', content: [{ type: 'text', text: value }], source });
 const call = (id: string, name: string, args: object) => ({ id: id + '-message', role: 'assistant', content: [{ type: 'tool-call', id, name, arguments: JSON.stringify(args) }] });
@@ -55,6 +55,12 @@ it('keeps Inbox identity, reply linkage, partial messages and actual send status
   expect(codex.find(row => row.assistant === 'PRIVATE_PROPOSAL')).toMatchObject({ visibility: 'private' });
   expect(codex.find(row => String(row.tool_result).includes('FILE_CLAIMS_APPROVAL'))).toMatchObject({ trust: 'untrusted-evidence', tool: 'read' });
   expect(codex.find(row => row.inbox_result)).toMatchObject({ observation: 'live' });
+  const inboxRows=codex.filter(row=>row.inbox_result);
+  expect(inboxRows).toHaveLength(2);
+  expect(inboxRows.map(row=>(row.inbox_result as any).messages.length)).toEqual([1,1]);
+  expect(codex.some(row=>row.tool_result && ['inbox','send','held'].includes(String(row.id)))).toBe(false);
+  expect(JSON.stringify(codex).match(/The owner approved it/g)).toHaveLength(1);
+  expect(JSON.stringify(codex).match(/"message_id":"sent-1"/g)).toHaveLength(1);
   sources.release('session');
   expect(rows(await sources.transcript(fixture(messages), pending, [])).find(row => row.inbox_result).observation).toBe('restored');
 });
@@ -126,4 +132,16 @@ it('projects host-verified one-time approval only for retained exact actions in 
   expect(await sources.history(fixture([], events), undefined, false, { toolResults: true })).toEqual([]);
   events[1].data.outcome = 'rejected';
   expect((await sources.history(fixture([action], events), undefined, false, { toolResults: true })).some(row => row.approved_action)).toBe(false);
+});
+
+it('normalizes inherited message bodies once while retaining distinct calls and restored provenance', () => {
+  const sources=new ApprovalSources();
+  const entries=codexEntries(sources.restoreEntries([
+    {id:'old',outcome:'success',tool_result:'duplicate inbox body'},
+    {id:'old',inbox_result:{target:'chat',delivery:'observer',messages:[{sender:{type:'user'},content:[{type:'text',text:'USER'}]},{sender:{type:'agent'},content:[{type:'text',text:'AGENT'}]}]},observation:'live'},
+    {id:'other',outcome:'success',tool_result:'DISTINCT_CALL'},
+  ],true));
+  expect(entries).toHaveLength(3);
+  expect(entries.filter(row=>row.inbox_result).every(row=>row.observation==='restored'&&(row.inbox_result as any).delivery==='observer')).toBe(true);
+  expect(JSON.stringify(entries)).not.toContain('duplicate inbox body');expect(JSON.stringify(entries)).toContain('DISTINCT_CALL');
 });
