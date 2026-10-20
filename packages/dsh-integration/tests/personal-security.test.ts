@@ -6,31 +6,51 @@ import { reviewPersonal } from '../lib/personal-security.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 
-it('uses owner evidence for ordinary permissions and leaves PA delivery review to its mandatory product boundary',async()=>{
- const home=await mkdtemp(join(tmpdir(),'pa-owner-approval-'));let client:RuntimeClient|undefined;
+it.each(['nano', 'codex'] as const)('keeps %s ordinary approval inside effective history while PA delivery retains its product boundary',async(rules)=>{
+ const home=await mkdtemp(join(tmpdir(),'pa-owner-approval-'));let client:RuntimeClient|undefined;let logs='';
  try {
-  await writeFile(join(home,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
+  await writeFile(join(home,'fixture.mjs'),`import{appendFile}from'node:fs/promises';
 export const name='pa-owner-approval';export const inject=['tools','llm'];export function apply(ctx){
+const steps=new Set();
 ctx.tools.register({name:'owner_action',description:'Perform an owner action',parameters:{type:'object',properties:{text:{type:'string'}},required:['text']},output:{schema:{type:'object'},render:(_a,r)=>[{type:'text',text:JSON.stringify(r)}]},execute:args=>({executed:args.text})});
 ctx.on('tools/pre-execute',(exec,next)=>exec.name==='send_message'&&exec.arguments.target==='blocked'?{kind:'deny',reason:'Explicit restriction'}:next());
-ctx.on('llm/stream',async function*(o){const prompt=o.messages[0].content[0].text;const allow=prompt.includes('SERVER_OWNER_CHOICE')&&!prompt.includes('FORBIDDEN_DISCLOSURE');yield{type:'block-end',index:0,block:{type:'text',text:allow?'<block>no</block>':'<block>yes</block><reason>Not authorized</reason>'}};yield{type:'finish',reason:{kind:'stop'}};});
-ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];for(const text of ['Chosen reservation','FORBIDDEN_DISCLOSURE'])results.push(await ctx.tools.execute({name:'owner_action',callId:'action-'+results.length,arguments:{text},agent,signal:new AbortController().signal}));for(const target of ['peer','blocked'])results.push(await ctx.tools.execute({name:'send_message',callId:'send-'+results.length,arguments:{target,text:'Chosen reservation'},agent,signal:new AbortController().signal}));await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
-  await prepareProfile(home,[{insert:[{id:'pa-owner-approval',name:join(home,'fixture.mjs')}]}]);
-  client=new RuntimeClient({home,cwd:home});
+ctx.on('llm/stream',async function*(o){
+ if(o.model==='review'){
+  const prompt=JSON.stringify(o.messages);await appendFile(process.env.DSH_HOME+'/review-input.jsonl',prompt+'\\n');
+  const latest=o.messages.findLast(m=>m.role==='user');const input=latest.content.filter(c=>c.type==='text').map(c=>c.text).join('');const pending=input.includes('<planned_action>')?input.split('<planned_action>').at(-1):input.trim().split('\\n').filter(line=>line.startsWith('{')).at(-1);const allow=prompt.includes('CURRENT_OWNER_CHOICE')&&!pending.includes('FORBIDDEN_DISCLOSURE');
+  yield{type:'block-end',index:0,block:{type:'text',text:${rules==='codex'?`JSON.stringify({outcome:allow?'allow':'deny',risk_level:allow?'low':'high',user_authorization:'high',rationale:'Not authorized'})`:`allow?'<block>no</block>':'<block>yes</block><reason>Not authorized</reason>'`}}};yield{type:'finish',reason:{kind:'stop'}};return;
+ }
+ const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+ if(!steps.has(human.id)){steps.add(human.id);const call=JSON.parse(human.content[0].text);yield{type:'block-end',index:0,block:{type:'tool-call',id:'call-'+human.id,name:call.name,arguments:JSON.stringify(call.args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
+ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
+});}`);
+  await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'main',contextWindow:100000},{id:'review',contextWindow:100000,reasoningEfforts:{low:'low'}}]}}}},{insert:[{id:'pa-owner-approval',name:join(home,'fixture.mjs')}]}]);
+  client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
   const sent:string[]=[];let authorityReads=0;
   client.rpc.handle('product.call',value=>{const call=value as any;
    if(call.method==='send_message.context')return {target:'peer',sender:{type:'agent',agent_id:'pa'},recipient:{kind:'user'},channel:'web'};
-   if(call.method==='pa.authorization'){authorityReads++;return {owner_messages:[{id:'owner-request',sender_id:'owner',content:'Book the selected reservation'},{id:'choice',sender_id:'owner',interaction_reply:{source_message_id:'proposal',submission:{choice:'SERVER_OWNER_CHOICE'}}}],published_proposals:[{id:'proposal',content:'Choose a reservation'}]};}
+   if(call.method==='pa.authorization'){authorityReads++;return {owner_messages:[{content:'DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT'.repeat(50000)}]};}
    if(call.method==='send_message'){sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
    throw Error('Unexpected product call '+call.method);
   });
-  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home}};
+  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules,reviewer:{provider:'fixture',model:'review'}}};
   await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
   await client.rpc.request('session.ensure',{sessionId:'root',agentId:'pa',ownerId:'owner',revision:'1',cwd:home});
-  await expect.poll(async()=>readFile(join(home,'results.json'),'utf8').catch(()=>''),{timeout:10000}).not.toBe('');
-  const results=JSON.parse(await readFile(join(home,'results.json'),'utf8'));
-  expect(sent).toEqual(['Chosen reservation']);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBeGreaterThan(0);
- }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+  for(const [index,call] of [
+   {name:'owner_action',args:{text:'CURRENT_OWNER_CHOICE chosen reservation'}},
+   {name:'owner_action',args:{text:'FORBIDDEN_DISCLOSURE'}},
+   {name:'send_message',args:{target:'peer',text:'CURRENT_OWNER_CHOICE chosen reservation'}},
+   {name:'send_message',args:{target:'blocked',text:'Chosen reservation'}},
+  ].entries()){
+   const id=String(index);
+   await client.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:JSON.stringify(call)}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
+   await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:10000}).toBeTruthy();
+  }
+  const observation=await client.rpc.request('session.observe',{sessionId:'root'}) as any;
+  const results=observation.events.filter((event:any)=>event.type==='tool/result').map((event:any)=>event.data.message);
+  expect(sent).toEqual(['CURRENT_OWNER_CHOICE chosen reservation']);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
+  const prompt=await readFile(join(home,'review-input.jsonl'),'utf8');expect(prompt).toContain('CURRENT_OWNER_CHOICE');expect(prompt).not.toContain('DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT');expect(prompt).not.toContain('nano_personal_authorization');
+ }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}finally{if(client)await client.shutdown().catch(()=>{});await rm(home,{recursive:true,force:true});}
 },20000);
 
 it('keeps the ordinary Global capability catalog and executes owner extensions and source controls',async()=>{
