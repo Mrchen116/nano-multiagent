@@ -38,3 +38,10 @@
 - 修复 `5b6b2bb63`：无候选的退出路径清除等待标记；没有改变忙碌/未 ACK 时的等待语义。相关 Inbox + attention 16/16、PA build、真实 DSH 两例 2/2 通过，日志 `/tmp/feat-623-empty-batch-green.log`、`/tmp/feat-623-fix-build.log`、`/tmp/feat-623-fix-native.log`。
 - 独立 R2 code review：0 存活 finding；verification：0 CRITICAL / 0 WARNING；corrected-delta：aligned。详见 unit [代码审查](../code-review.md) 与 [一致性核对](../verification.md)。
 - `f036aedd5` 的完整本地 CI 对未修改部分保留；此修复按影响范围补验。真实十分钟现场保持原运行版本，不能把未重启的进程标成新 head；产品报告分别标明原验证版本与可保留结论。
+
+## 最终门禁与交付范围
+
+- 独立产品验收 [acceptance](../acceptance.md)：pass，16 个 Scenario 覆盖、0 新增问题。真实首批600.045秒、提前读取、普通群/明确群交办、观察语义、冒称、直接更正和飞书实际reply/reminder均有本轮证据。真实长工具跨背景期限不提交，随后模型在当前turn主动读完；idle补发由真实DSH native fixture覆盖，不混称真实模型已走该分支。
+- 运行版本 `f036aedd5`；窄修复 `5b6b2bb63` 的受影响边界由独立R2和16项时序/2项native测试闭环，其余真实结论按明确范围保留。
+- final sync：origin/main仍`e63501054`，无需追加代码合并；新单元三份delta按Requirement完整归并current规范，gateway个人助手索引6→8。完整unit归档；PR显式包含未合并依赖#371。
+- 真实试验数据与临时脚本仅在隔离目录及`/tmp/pa623-review-evidence`，不提交凭据、运行日志、数据库或构建产物。

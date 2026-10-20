@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: bugfix-622
+> 对齐: feat-623
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -34,6 +34,11 @@
 #### Scenario: 普通群聊更新遵循各 Agent 配置
 - **WHEN** 群内有未提及某个全局 Agent 的普通更新
 - **THEN** 其处理和唤醒行为符合该 Agent 的配置，而不是由全局模式统一改成固定规则
+- **AND** PA 自己参与的群聊同样遵守该规则。
+
+#### Scenario: PA 通过主人观察未参与聊天
+- **WHEN** PA 通过主人权限接收自己未参与聊天的更新
+- **THEN** 它们按 [personal-agent](personal-agent.md) 的背景批次规则保存和通知，不被当作需要及时打断式提醒的直接请求；主人直接请求仍及时通知且可读取相关背景。
 
 ### Requirement: 主 Agent 统筹工作，并偏向按需委派执行
 
@@ -158,7 +163,6 @@
 #### Scenario: 受限的聊天访问
 - **WHEN** Agent 查询它不可访问的聊天，或子 Agent 尝试消费全局主 Inbox
 - **THEN** 请求被拒绝，不扩大访问权限或改变消费位置
-
 
 #### Scenario: 模型读取简洁且可操作的 Inbox 结果
 - **WHEN** 全局 Agent 查看或读取 Inbox
