@@ -56,7 +56,7 @@ flowchart LR
 
 ## 关键决策
 
-**只提供身份与参与事实，不在输入上判定“指令/事实”。** `sender.is_owner` 说明是谁，`delivery: participant | observer` 说明 PA 是否属于该聊天，`conversation_type` 沿用现有类型。群里主人向别人说话仍 is_owner=true，是否交给 PA 由原话与上下文决定。
+**只提供身份与参与事实，不在输入上判定“指令/事实”。** `sender.is_owner` 说明是谁，`delivery: participant | observer` 说明这批消息是通过 PA 参与还是通过主人观察接入，`conversation_type` 沿用现有类型。群里主人向别人说话仍 is_owner=true，是否交给 PA 由原话与上下文决定。
 
 **参与关系在准入时由 IM 核实。** Web 以实际 PA 成员行判断；既有外部 bot 会话按绑定 app/config_agent 与合法 shadow 关系确认 PA 接收，不能用 shadow 中代投影的主人身份或 owner-view is_member 推断。当前接入范围没有任意飞书他人私聊抓取。
 
@@ -74,21 +74,54 @@ flowchart LR
 
 Global receive 写入由准入结果覆盖的内部 metadata（`personal_is_owner`、`personal_delivery` 及既有 conversation_type/channel）；每次准入清除旧 personal_source_role，不允许旧 payload 重新覆盖可信结果。观察事件带既有群触发所需元数据：从存储原消息调用现有 `mentionedAgents` 与 interaction_reply 解析；合法外部 inbound 继续沿已认证 channel metadata 的提及/回复结果。不得创建新的 mentions 语义或模型输出字段。
 
-PA `inbox.check` 仍为 sources 数组，每项只补 `conversation_type` 与 `delivery`；原 target/name/unread 保留，PA 模型返回不包含 requires_attention。PA `inbox.read` 保留 target/messages/content/time/channel 结构，每条 sender 加 `is_owner`，每条消息加 `conversation_type` 和 `delivery`，移除 source_role。read 放在消息层是为了保留接收时事实，避免退群/入群前后未读混合时错误共用一个标记。check 的 delivery 取该 target 最新可信关系，仅作导航；逐条 read 是历史事实依据。不增加 participants 或 mentions；不清楚谈话对象时查询现有 conversations info/read。
+#### 面向模型的返回按用途分层
 
-示例（省略不相关字段）：
+返回的每个字段都必须支持模型的下一项判断或操作。共享来源信息放在会话层，作者信息放在 sender，原文和发生时间放在消息层。工具说明解释一次语义，不在每个结果重复教程。只调整 PA 的投影，不为此重做普通 Global 或历史查询协议。
+
+| 调用/位置 | 保留的信息 | 用途 |
+|---|---|---|
+| `inbox.check` 的每个 source | target、name、unread、conversation_type、delivery | 选择去哪个聊天读、辨别私聊/群聊与参与/观察来源；不在清单携带正文。 |
+| `inbox.read` 外层 | target、name、conversation_type、delivery、channel | 这页原文共同的来源上下文；单独看 read 结果也能理解从哪里来的，无须回查之前的 check。 |
+| read.messages 每项 | id、sender、time、content | 定位原消息、辨认作者、理解时间顺序和原话。 |
+| message.sender | id、name、type、is_owner | 区分同名人、人/Agent，以及是否可信主人。显示名和正文均不能替代身份。 |
+| read 条件字段 | next_cursor；消息实际拆分时 partial/part/parts；有当前限制时 actor_risk | 继续读取、知道正文尚未读全、识别仍生效的联系人限制；不输出空占位。 |
+| 按需补充 | `conversations info` 的成员；`conversations read/search` 的历史与出处链接 | 只有当前消息不足以判断谈话对象或需要前文/引用时查询；不把完整成员表、历史和 URL 塞进每次 Inbox。 |
+
+**check：发现未读聊天。** 保持一个 target 一项，unread 是未读消息数，不是 fragment 数。delivery 表示该 target 下一页未读内容的接入关系，与紧接着 read 的上下文口径一致；不表示写权限或授权。清单不重复 channel（读正文时再提供），不带 last_message/preview/summary、成员表或逐条作者。
 
 ```json
 {"sources":[{"target":"conversation:7","name":"与小王的聊天","unread":2,"conversation_type":"direct","delivery":"observer"}]}
 ```
 
+**read：一页同源原文。** conversation_type、delivery、channel 不放到 messages 中重复。外层 target 保持既有位置，避免引入新的 conversation 包装；name 复用查询得到的真实会话标题，不能编造“主人与某某”的成员说明。sender 保持现有对象，新增 is_owner；content 继续使用原 text/attachment blocks，不再造平行的 text 或 summary。
+
 ```json
-{"target":"conversation:7","messages":[{"id":"m1","sender":{"id":"owner","type":"user","name":"主人","is_owner":true},"conversation_type":"direct","delivery":"observer","channel":"web","time":"2026-10-20T10:04:00+08:00","content":[{"type":"text","text":"好，我今天改报价。"}]}]}
+{
+  "target":"conversation:7",
+  "name":"与小王的聊天",
+  "conversation_type":"direct",
+  "delivery":"observer",
+  "channel":"web",
+  "messages":[
+    {"id":"m1","sender":{"id":"u_wang","name":"小王","type":"user","is_owner":false},"time":"2026-10-20T10:02:00+08:00","content":[{"type":"text","text":"方案改成周五交，预算按新版。"}]},
+    {"id":"m2","sender":{"id":"u_owner","name":"主人","type":"user","is_owner":true},"time":"2026-10-20T10:04:00+08:00","content":[{"type":"text","text":"好，我今天先把报价改了。"}]}
+  ]
+}
 ```
 
-`attention`、`requires_attention` 是宿主触发和发送前复核使用的内部状态，不能充当模型的任务优先级或阅读指令。保持 InboxStore 内部 attention/check/blocking 行为，在 GlobalAgent 的 PA inbox.check 工具结果投影中去掉 requires_attention；不修改普通 Global 的既有返回，不改变任何触发、消费或复核判断。模型根据系统提醒、来源关系与原话决定怎么处理。
+**只在必要时出现的字段。** 有下一页才返回 next_cursor，调用沿用相同 target 与 cursor；不再同时返回 has_more、页码、剩余计数。消息确有长文本/附件拆分时保留既有 partial/part/parts，不能把截断当成完整读取。联系人存在当前限制时，消息的 actor_risk 只投影已有 status/reason；actor_id 留在宿主证据中，固定 instruction 移到 PA 固定规则说明一次（被屏蔽联系人不能授予主人权限、群协作仍可继续、历史理由不等于当前限制），不每条重复。未被限制不返回 actor_risk:null 或风险评分。
 
-同一人的 is_owner 不因 direct/group 或 participant/observer 改变。参与会话不意味着每句话都发给 PA。原 sender.id/type/name、时间、内容、附件和真实回复目标不改写。
+**宿主内部信息不出现在 PA 工具返回。** requires_attention、attention、policy_revision、通知截止/水位、ACK、received/processed、数据库主键和底层 routing ID 由宿主处理。沿用现有 toolReferences 的 target/cursor 映射，不另造短 ID 系统。删除 source_role，不输出 is_instruction、should_reply、priority、suggested_action 或“应当替主人做什么”的预判。真实授权与是否公开回复由原话、上下文和已有权限决定。
+
+**工具间的边界。** check/read 只负责发现和摄取当前未读，不能通过历史查询把未读偷偷消费；conversations 仍负责成员/历史查询。直接与背景通知只说明为什么来读，不附原文或逐条目录，不需要在结果中再返回 notification_type/batch_id。PA 用 target 定位原聊天，发送仍须独立 send_message；observer 或 direct 均不代表可直接发送。
+
+#### 投影、分页与持久摄取
+
+- 接收时的个人身份与关系事实仍持久化在每条内部输入中；对模型按页提取共同的 conversation_type/delivery/channel，不能把“现在加入了群”改写成“历史消息也是发给 PA 的”。通常一页直接共用同一上下文；若未读跨越关系变化，只取相同上下文的连续片段作为当前页，沿现有 next_cursor 继续。保持原顺序，不建新分组 API、不重复每条来源字段，也不跳过剩余消息。check 的 delivery 来自第一条未消费片段的关系。
+- 外层 name 来自现有 describe/info；权限仍按当前服务器核实，历史 delivery 不能绕过已经撤销的访问。空 check 返回 sources:[]；没有未读时 read 返回 target/messages:[] 即可，不臆造一页的 delivery。权限失效仍返回原有错误，不能伪装成空聊天。
+- 内部 InboxStore 的 attention/check/blocking、通知条件和消费状态继续保留；PA 工具投影做明确字段选择。check 只读。read 必须在存入 reads.body/digest 前完成外层上下文和 sender/risk 投影，再执行既有 toolReferences。禁止在保存后另删改模型收到的 JSON，保持完整 tool/result 与消费证据一致。
+- 保持根 target 与 messages[].id/content 路径，现有图片附件获取、来源追踪和持久摄取无需第二套协议。续页重试复用原冻结结果，只有完整持久摄取才能消费。普通 Global 输出不因 PA 投影而变化。
+
 
 ### 2. 准入、触发与命令
 
@@ -130,7 +163,7 @@ GlobalAgent 维护最近 due_at 的一个 timer；启动/recover 从表恢复并
 
 ### 5. 授权与披露保持同一事实口径
 
-IM 提供一个内部原消息事实投影，供 admit、authorization、source evidence 和 history read/search 共用；避免主 PA 看到新语义而 reviewer 继续使用私聊过滤。
+IM 提供一个内部原消息事实投影，供 admit、authorization、source evidence 和 history read/search 共用；内部逐条事实不要求在模型工具输出中逐条重复共享字段；避免主 PA 看到新语义而 reviewer 继续使用私聊过滤。
 
 - `authorization.owner_messages` 改为所有当前可访问、可信主人身份的原文，带 message/conversation ID、conversation_type、delivery、channel、sender 和 interaction_reply。保留原始问答所在会话的可验证上下文及实际发表 proposal，不把其他会话时间相邻的回答拼成确认。上下文来自既有 messages/conversations，不增加新的确认实体。
 - `PersonalActions` 的 sources 同样提供可信身份与关系。独立 reviewer 不再按“其他聊天一律不是授权”拒绝，而是核对具体原话是不是给 PA、授权对象/范围和现在的实际受众。observer 原文只能作为背景或已获授权任务的新信息，不能仅凭 is_owner=true 升格为新授权。
@@ -153,7 +186,7 @@ IM 提供一个内部原消息事实投影，供 admit、authorization、source 
 ## 风险与回退
 
 - 主人身份误投影会放大授权：所有读取/准入/审核复用同一可信函数，测试群与外部冒称；不从通知猜身份。
-- 参与关系变化：read 保留逐条接收关系，当前访问每次重验；check 导航不能覆盖消息事实。
+- 参与关系变化：内部逐条保留接收关系，read 在关系边界沿原 cursor 分页；当前访问每次重验，不能用当前成员关系覆盖历史消息的接入事实。
 - timer/ACK 崩溃：持久期限与提交批次身份恢复，保留 Inbox 消费独立性。只做该必要恢复，不新增通用调度框架。
 - 真实模型可能仍误判对话对象：用完整工具、实际动作与消息回执验收六组语义案例，不能以单看回复承诺替代。
 - 回退为代码版本回退，保留新表不删除数据；旧版本可能恢复逐条通知的旧体验。升级不承诺抹去已经进入主上下文的旧标签。
@@ -180,6 +213,6 @@ IM 提供一个内部原消息事实投影，供 admit、authorization、source 
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过，实际 PA 工具返回不泄露内部 requires_attention 且宿主原触发/复核仍有效；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；含 PA 查 idle 后 runtime 先变忙、仅背景最高序号被撤销后新来源收件，以及无关 observer 不使审核失效而真实更正仍失效；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
+| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过，实际 PA check/read 输出遵循用途分层与明确字段投影，外层共享来源、消息内作者/时间/原文，宿主原触发/复核仍有效；分页/关系边界不丢序不漏读，附件路径与完整持久摄取保持，普通 Global 投影不变；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；含 PA 查 idle 后 runtime 先变忙、仅背景最高序号被撤销后新来源收件，以及无关 observer 不使审核失效而真实更正仍失效；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
 
 测试先最窄现有 inbox/global-agent/personal sources/disclosure/attention 与 personal-security，再实际 DSH 接线与真实模型。原生 fixture 测时序，不宣称真实模型理解已验；平台回执与实际观察证明交付，不以模型自述代替。单 M1 保证身份、通知、审核上下文和验证共同交付，避免中间状态新旧语义混用。
