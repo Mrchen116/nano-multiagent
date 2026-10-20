@@ -100,3 +100,48 @@ N/A。
 未发现 unit diff 中需要另加 Requirement 的遗漏。guard_messages、legacy 未读重准入、明确群控制、字段精简/分页是现有 delta 与 design 的实现细化；不因 W1 静默收窄契约。
 
 Outcome: **implementation-mismatch**。
+
+## Round 2 — Targeted closure verification
+
+- review_round: `2`
+- verification_mode: `targeted-closure`，附受影响 corrected-delta 核对
+- validated_at / effective_through: `5b6b2bb63821be62534030e9226abca2be2c3c98`
+- executed_base / effective_base: `2f789f62a`
+- pre_fix_head / fix_delta_range: `f036aedd5` / `f036aedd5..5b6b2bb63`
+- focus_issues: `W1`
+- requires_full_verification: `false`
+- verdict: **pass（静态一致性门禁），0 CRITICAL / 0 WARNING / 0 SUGGESTION**
+
+R1 原报告保留为历史；本轮使 W1 closed，并将未受影响的 R1 一致性结论保留至修复 head。spec/design/三份 delta 没有修改；实现变化仅为 `global-agent.ts:183` 的空候选退出清除等待标志，相关现有测试追加新批次实际通知断言。
+
+### Validated Issues
+
+| Issue | 原契约 | 修复与验证 | 结论 |
+|---|---|---|---|
+| W1：最后候选撤销后，新有效批次无 timer | spec:93、design:146/:216；PA delta 背景通知与撤销场景 | 无 batch 时删除 waitingForIdle；原公开入口复现新消息后 `timers=1`、到期 `submitted=1`；扩展原 personal-attention ACK/revoke 用例由旧实现失败变为通过 | **closed** |
+
+### Evidence 与 retained 范围
+
+- 在 `5b6b2bb63` 独立执行 `pnpm exec tsx /tmp/feat623-review-empty-batch.mts`。真实 GlobalAgent/InboxStore、同 R1 clock/relay/RuntimePort fixture；不操作私有状态。输出对比见 code-review Round 2。
+- 核对共享红绿证据：`/tmp/feat-623-empty-batch-red.log` **1 failed / 6 passed**，失败是新批次提交数为 1 而非 2；`/tmp/feat-623-empty-batch-green.log` **2 suites / 16 tests passed**。原测试覆盖的 ACK、busy race、截止、消费和停止行为继续通过。
+- 未修改身份/投影/消费/guard/权限/运行时协议，R1 107 项窄测及固定 f036 本地全量、native 证据对未受影响部分保留。不将旧 build 或正在运行的 f036 服务改写成 5b6 的执行证据；本轮只补受影响路径的公共 seam 验证。
+- 产品 reviewer 正在运行 f036 的真实十分钟等旅程，保持独立 pending；本轮通过只表示静态一致性及 W1 的修复闭环，不宣称 M1 全部产品退出标准已完成。无需重跑未受影响 full verification。
+
+### Round 2 Corrected Delta Reconciliation
+
+按 caller 要求追加 R2、保留 R1 历史。三份 delta 与 design 未变；最终校正结论如下。
+
+| Delta item | 本轮判断依据 | Outcome |
+|---|---|---|
+| gateway/personal-agent：可信来源、同一主人身份、关系与分页 | 没有涉及此代码；保留 R1 已验证映射与回归证据 | aligned |
+| gateway/personal-agent：观察非请求/控制/自动警告 | 未修改准入、控制或 reviewer 规则；保留 R1 | aligned |
+| gateway/personal-agent：来源控制与观察文本不能控制来源 | 未修改 IM 来源权限/ownerMessage；保留 R1 | aligned |
+| gateway/personal-agent：联系人限制及撤销 | 未修改风险/策略投影；保留 R1 | aligned |
+| gateway/personal-agent：十分钟节奏、busy/recover、提前读取、通知消费及撤销 | W1 修复与原公开入口复现通过；原有 16 项相关测试通过，其余路径未改 | **aligned** |
+| gateway/personal-agent：原始授权身份与对话上下文 | authorization/guard 未改；保留 R1 | aligned |
+| gateway/global-agent：及时触发、群配置、PA observer 例外 | 修复只清理已无背景的等待标志，普通 Global/及时通知/onlyIfIdle 未改；保留 R1 | aligned |
+| im/personal-agent：主人已回复、双方背景及无自动任务/警告 | 无 IM/指导变化；保留 R1，真实模型产品门禁独立 pending | aligned |
+
+Uncovered Observable Behavior: **None**。修复恢复既定行为，没有新增未被 delta 覆盖的对外语义。
+
+Final corrected-delta outcome: **aligned**。

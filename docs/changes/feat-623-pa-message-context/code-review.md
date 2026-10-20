@@ -45,3 +45,29 @@
 - 真实模型六组语义、真实十分钟与飞书平台回执由独立产品 reviewer 负责，此次不据静态代码声称通过。
 
 结论：**request changes，1 个 CONFIRMED P2**。产品验收 pending 是独立证据状态，不是本 finding 的推测前提；已通过的本地全量未覆盖此故障。
+
+## Round 2 — W1 closure 与 patch review
+
+- validated_at / effective_through: `5b6b2bb63821be62534030e9226abca2be2c3c98`
+- executed_base / effective_base: `2f789f62a`；受审修复范围 `f036aedd5..5b6b2bb63`
+- review_mode: `patch`，并 closure `W1`；R1 固定版本结论作为历史保留。
+
+### Patch Findings
+
+```json
+[]
+```
+
+### Focus closure
+
+| Finding | 结论 | 直接证据 |
+|---|---|---|
+| W1：空批退出遗留 waitingForIdle | **closed** | `global-agent.ts:183` 在最终复核后无 batch 时删除等待标志；新批次恢复定时，过期成功 submit |
+
+修复只影响来源复核后无候选的退出路径；实际 busy、未 ACK、来源仍有候选等路径的等待/幂等逻辑均未修改。扩展原有 ACK/revoke 测试，在取消排除、收到新消息后推进十分钟，断言第二次实际提交；保护的是原遗漏的公开通知行为，没有加入新抽象或改变批次契约。
+
+独立重跑原 `/tmp/feat623-review-empty-batch.mts`，固定修复 head：撤销后仍 `sources=[], timers=0`；新有效消息后 **`timers=1, dueAt=1200001`**；推进到 1200002ms 后 **`submitted=1, timers=0`**。与 R1 相同输入/入口，故障消失。复用并核对 `/tmp/feat-623-empty-batch-red.log`（新增断言旧实现 1 failed / 6 passed）和 `/tmp/feat-623-empty-batch-green.log`（修复后 inbox + personal-attention **16/16 passed**）。
+
+R1 其余审查结论保留至本 head：修复不改变身份、投影、分页、权限、授权 guard 或 runtime 接纳协议，未见新缺陷，无需扩成重复 full review。真实十分钟环境仍运行 `f036aedd5`；本轮没有重启/替换该现场，也没有把该现场声称为修复版本的产品验收。
+
+最终代码审查结论：**pass，0 个存活 finding**；独立产品验收与后续交付 CI 状态继续由对应 owner 记录。

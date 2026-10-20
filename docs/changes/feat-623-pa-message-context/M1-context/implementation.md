@@ -31,3 +31,10 @@
 - final-base 只读同步：`origin/main=e63501054`，没有新增 upstream code；PR #371 仍 open，交付保留显式依赖。
 
 隔离真栈已按 runbook 建立，由独立产品 reviewer 记录实际模型/平台结果；上述 fixture 和自动测试不代表真实模型意图验收通过。
+
+## 审查修复与证据保留
+
+- R1 独立审查确认：最后观察来源在到期复核时被撤销，空批退出遗留 `waitingForIdle`，后续新有效批次不再建 timer。修复前扩展已有 ACK/revoke 用例可复现（1 failed / 6 passed），见 `/tmp/feat-623-empty-batch-red.log`。
+- 修复 `5b6b2bb63`：无候选的退出路径清除等待标记；没有改变忙碌/未 ACK 时的等待语义。相关 Inbox + attention 16/16、PA build、真实 DSH 两例 2/2 通过，日志 `/tmp/feat-623-empty-batch-green.log`、`/tmp/feat-623-fix-build.log`、`/tmp/feat-623-fix-native.log`。
+- 独立 R2 code review：0 存活 finding；verification：0 CRITICAL / 0 WARNING；corrected-delta：aligned。详见 unit [代码审查](../code-review.md) 与 [一致性核对](../verification.md)。
+- `f036aedd5` 的完整本地 CI 对未修改部分保留；此修复按影响范围补验。真实十分钟现场保持原运行版本，不能把未重启的进程标成新 head；产品报告分别标明原验证版本与可保留结论。
