@@ -97,13 +97,33 @@ export class NanoApproval extends Service {
     });
     return reached;
   }
+  /** Preserve judgment facts, but atomically replace its planned route with the observed cancellation. */
+  private async cancelReview(exec: ToolExecution, config: ApprovalConfiguration, reviewId?: string,
+    initial: Partial<Pick<ApprovalAudit, 'reviewer' | 'recovery'>> = {}): Promise<PreToolDecision> {
+    // Manual approval has no automatic review identity; retain its existing cancellation path.
+    if (!reviewId) return { kind: 'cancel' };
+    await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
+      const now = Date.now();
+      const existing = entries.some(entry => entry.recovery?.reviewId === reviewId);
+      const updated = entries.map(entry => entry.recovery?.reviewId !== reviewId ? entry : {
+        ...entry, recovery: { ...entry.recovery, terminalReason: 'cancelled', finalRoute: 'cancel',
+          fallbackOutcome: undefined, endedAt: now, elapsedMs: now - entry.recovery.startedAt },
+      });
+      // Cancellation neither increments refusal counts nor repeats request usage on a second row.
+      if (updated.some(entry => entry.decision === 'cancelled' && (entry.reviewId ?? entry.recovery?.reviewId) === reviewId)) return updated;
+      return [...updated, { time: now, callId: exec.callId, tool: exec.name, source: 'review_cancelled', decision: 'cancelled',
+        reason: 'Automatic review cancelled', consecutive: entries.at(-1)?.consecutive ?? 0, total: entries.at(-1)?.total ?? 0,
+        rules: config.rules, ...(existing ? { reviewId } : initial) }];
+    });
+    return { kind: 'cancel' };
+  }
   private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string, reviewId?: string): Promise<PreToolDecision> {
-    if (exec.signal.aborted) return { kind: 'cancel' };
+    if (exec.signal.aborted) return this.cancelReview(exec, config.approval!, reviewId);
     const route = this.route(exec.agent!, config);
     if (route === 'interactive') return { kind: 'ask', reason };
     const allowed = route === 'unattended' && config.approval!.unattendedFallback === 'allow';
     await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!, { reviewId });
-    if (exec.signal.aborted) return { kind: 'cancel' };
+    if (exec.signal.aborted) return this.cancelReview(exec, config.approval!, reviewId);
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
@@ -145,9 +165,8 @@ export class NanoApproval extends Service {
         : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
     } catch (caught) { error = caught; }
     if (recovery.signal.aborted || exec.signal.aborted) {
-      await this.record(exec, 'review_cancelled', 'cancelled', 'Automatic review cancelled', policy,
+      return this.cancelReview(exec, policy, recovery.trace.reviewId,
         { reviewer, recovery: recovery.finish('cancelled', 'cancel') });
-      return { kind: 'cancel' };
     }
     if (!result) {
       const failure = reviewFailure(error);
@@ -157,6 +176,7 @@ export class NanoApproval extends Service {
       // Persist before any old fallback can allow. A storage failure must not become allow.
       const trace = recovery.finish(recovery.trace.terminalReason ?? failure.category, route === 'interactive' ? 'interactive_pending' : route, fallback);
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, recovery: trace, elapsedMs: trace.elapsedMs });
+      if (recovery.signal.aborted || exec.signal.aborted) return this.cancelReview(exec, policy, trace.reviewId);
       return this.escalate(exec, frozenConfig, reason, 'classifier_unavailable', trace.reviewId);
     }
     const verdict = result.decision;
@@ -172,7 +192,7 @@ export class NanoApproval extends Service {
           trace.fallbackOutcome = route === 'unattended' ? frozenConfig.approval!.unattendedFallback : undefined;
         }
       });
-    if (recovery.signal.aborted || exec.signal.aborted) return { kind: 'cancel' };
+    if (recovery.signal.aborted || exec.signal.aborted) return this.cancelReview(exec, policy, trace.reviewId);
     if (verdict.behavior === 'allow') return { kind: 'allow' };
     if (escalation) return this.escalate(exec, frozenConfig, verdict.reason, 'classifier_block', trace.reviewId);
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
