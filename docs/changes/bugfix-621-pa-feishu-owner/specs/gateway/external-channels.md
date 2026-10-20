@@ -20,3 +20,20 @@ PA 复用首个发送者持久绑定的主人身份。已绑定主人与 PA 的�
 ### Requirement: IM 离线时飞书对话不阻塞
 
 普通 Agent 延续离线执行与恢复镜像；正式 PA 需要中央身份和来源授权，不可用时持久保留输入待恢复。旧输出镜像失败不阻塞已可验证的新输入。
+
+#### Scenario: IM 离线时飞书 1:1 对话仍正常
+- **GIVEN** IM 服务当前不可达且 plato-bot 为普通 Agent
+- **WHEN** 用户在飞书与 plato-bot 1:1 对话
+- **THEN** plato-bot 仍正常回复用户
+- **AND** 本次消息可暂不同步到内部 IM
+
+#### Scenario: IM 离线时飞书群聊 @Bot 仍正常
+- **GIVEN** IM 服务当前不可达且 plato-bot 为普通 Agent
+- **WHEN** 用户在飞书群 @plato-bot 并发消息
+- **THEN** plato-bot 仍在群里正常回复
+- **AND** 本次消息可暂不同步到内部 IM
+
+#### Scenario: PA 等待中央恢复
+- **GIVEN** 正式 PA 的中央服务暂不可用
+- **WHEN** 飞书消息到达后中央服务恢复
+- **THEN** 输入在本地持久保留，授权可验证后单次接入同一个主会话

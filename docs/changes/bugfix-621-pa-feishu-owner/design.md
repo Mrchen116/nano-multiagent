@@ -37,7 +37,8 @@ feat-616 建立 PA 私密边界及 observation；bugfix-594 已有基于可信 o
 
 - PersonalAgents 提供内部 owner-DM/owner-message 判定，admitSource、ownerMessage、authorization 与普通输出 mirror guard 共用。
 - PersonalActions.prepare 的既有 owner_private 响应扩展至可信主人飞书 transport；原审查 prepare/review/commit/complete 用于其他目标。
-- ExternalChannels 将输入 mirror 与输出 flush 分离，PA 输入以 IM observation 为唯一执行入口；agent.message 同时解析 external id 和已有 shadow id；本地 conversation.query 暴露的 owner_recipient 沿用可信 channel 事实。
+- ExternalChannels 将输入 mirror 与输出 flush 分离，PA 输入以 IM observation 为唯一执行入口。PersonalAssistant.send 在选择 Web/外部发送分支之前，使用 NodeStore 已有可信 conversation_aliases 把 shadow target 归一化为 external target；复用 ExternalStore.chat 已支持的 shadow 查找，进入实际外发边界。Web canonical target 保持原路径。回归直接使用 Inbox 提供的 shadow target，断言真实平台回执而非仅 IM 消息。
+- 本地 conversation.query 暴露的 owner_recipient 沿用可信 channel 事实。
 - 直接引用飞书外部消息 ID 的源操作若仍存在，由 ExternalChannels 按已有 mirror 映射翻译；主执行入口得到中心 message ID，无需模型生成映射。
 - 同一 schedule 工具由主会话创建短时一次性提醒；不改每日生产 schedule。
 
@@ -58,7 +59,7 @@ feat-616 建立 PA 私密边界及 observation；bugfix-594 已有基于可信 o
 
 **Review 驱动方式**：端到端真栈，本 unit 不改客户端面。使用专用 lark-cli profile 的用户身份调用飞书真实消息 API，观察 SDK 入站、真实 PA 模型运行、平台回执并通过飞书消息 API 读取实际回复与定时提醒。不得通过直接注入 runtime 输入代替飞书收消息。Web 私聊通过客户端同一 API 驱动。
 
-**验收前置**：本机已有 ~/.config/nano-multiagent/feishu-e2e.env 和 scripts/e2e-feishu-probe.py。启动前验证非默认 profile 属于同一测试 App、用户授权有效且只有一个 listener；不打印密钥。以测试用户初始化正式 PA 并把测试 Bot 绑定给该 PA，使用本机已配置模型代理。临时脚本、数据和原始日志留在 ignored runtime，报告保留标记、时间、版本、消息/调度回执和证据路径。资源确实失效时记录阻塞，不以 mock 冒充真实验收。
+**验收前置**：本机已有 ~/.config/nano-multiagent/feishu-e2e.env 和 scripts/e2e-feishu-probe.py。启动前验证非默认 profile 属于同一测试 App、用户授权有效且只有一个 listener；用户 API 授权过期时，可由已登录飞书客户端发送同样的测试来信，并由 Bot API 读取实际送达消息。当前用户已主动协助续期专用 profile 授权；不打印密钥。以测试用户初始化正式 PA 并把测试 Bot 绑定给该 PA，使用本机已配置模型代理。临时脚本、数据和原始日志留在 ignored runtime，报告保留标记、时间、版本、消息/调度回执和证据路径。资源确实失效时记录阻塞，不以 mock 冒充真实验收。
 
 ## Milestones
 
