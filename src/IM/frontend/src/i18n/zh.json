@@ -1,4 +1,7 @@
 {
+  "httpErrors": {
+    "responseUnavailable": "暂时无法获取服务器响应（HTTP {{status}}），请稍后查看操作结果。"
+  },
   "auth": {
     "language": {
       "label": "语言"
@@ -1579,13 +1582,7 @@
       "immediate": "勾选即排除，更改立即生效。排除后不再接收该聊天的新消息或查询历史；不会抹除已读内容。取消勾选可恢复访问。",
       "saving": "正在保存…",
       "saved": "已生效",
-      "saveError": "更改尚未保存成功，请重试。",
-      "moveTitle": "更换工作电脑",
-      "moveHelp": "保留同一个助手和聊天，旧电脑停止替你行动。本地私人历史不会自动复制，助手会重新读取仍获准的资料。",
-      "computer": "工作电脑",
-      "chooseComputer": "选择另一台在线电脑",
-      "move": "在这台电脑继续",
-      "saveBeforeMove": "请先保存或撤销配置修改，再更换工作电脑。"
+      "saveError": "更改尚未保存成功，请重试。"
     },
     "blocked": {
       "title": "已屏蔽联系人",

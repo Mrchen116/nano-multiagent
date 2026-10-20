@@ -93,6 +93,12 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 - **WHEN** ACK frame 丢失、连接重连或 IM 在 profile 持久化前重启
 - **THEN** IM 使用同一 operation id 重试或查询 Gateway operation status
 - **AND** 结果仍不可确认时 API 返回 `503 config_apply_pending`，页面显示正在确认且禁止重复编辑，不把旧 profile 显示为已经保存的当前配置
+- **AND** 完整请求已收到后，HTTP 连接允许等待既有节点确认流程返回；不因短于该流程的 socket 空闲超时提前断开。请求体接收时限与大小限制继续生效。
+
+#### Scenario: 配置接口遇到代理错误页面
+- **WHEN** 加载或保存 Agent 配置时，代理返回 HTML 或其他非业务 JSON 错误
+- **THEN** 页面显示当前语言的简短服务器响应提示和 HTTP 状态，保留正在编辑的内容，不展示代理页面源码，也不自动重发修改请求
+- **AND** 业务 JSON 中的待确认状态、冲突原因与操作标识继续用于原有恢复流程
 
 #### Scenario: 创建 Agent 的已应用结果丢失后可恢复
 - **GIVEN** Gateway 已创建并为某 create operation 持久化 applied receipt

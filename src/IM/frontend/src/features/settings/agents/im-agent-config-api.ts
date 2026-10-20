@@ -1,4 +1,5 @@
 import { authFetch } from "../../auth/auth-fetch";
+import { readHttpError } from "../../auth/http-error";
 
 function normalizeItemsEnvelope<T>(payload: { items: T[] } | T[]): T[] {
   return Array.isArray(payload) ? payload : payload.items;
@@ -468,7 +469,7 @@ export class AgentConfigRequestError extends Error {
 
 export function isConfigApplyPendingError(error: unknown): boolean {
   if (error instanceof AgentConfigRequestError) {
-    return error.status === 503 && error.detail.includes("config_apply_pending");
+    return error.status === 503 && (error.code === "config_apply_pending" || error.detail.includes("config_apply_pending"));
   }
   return error instanceof Error && error.message.includes("config_apply_pending");
 }
@@ -495,24 +496,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const method = init?.method ?? "GET";
-    let detail = response.statusText || "request failed";
-    let code: string | null = null;
-    let agentId: string | null = null;
-    const rawBody = await response.text();
-    if (rawBody) {
-      try {
-        const parsed = JSON.parse(rawBody) as {
-          detail?: string;
-          code?: string;
-          agent_id?: string;
-        };
-        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
-        code = typeof parsed.code === "string" ? parsed.code : null;
-        agentId = typeof parsed.agent_id === "string" ? parsed.agent_id : null;
-      } catch {
-        detail = rawBody;
-      }
-    }
+    const { detail, code, agentId } = await readHttpError(response);
     throw new AgentConfigRequestError({
       status: response.status,
       detail,

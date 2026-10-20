@@ -275,22 +275,6 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
       reply.code(201);return pa.state(u.owner_id);
     });
   });
-  app.post('/im/v1/personal-agent/restore',async req=>{
-    const u=user(req),input=body(req);
-    return ops.serialized(`personal:${u.owner_id}`,async()=>{
-      const b=pa.binding(u.owner_id);if(!b)fail(404,'personal_agent_not_found');
-      const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b USING(node_id) WHERE n.node_id=? AND n.owner_id=? AND b.owner_id=?',input.node_id,u.owner_id,u.owner_id);
-      if(!node)fail(404,'node_not_found');if(node.status!=='online')fail(409,'node_offline');
-      const pending=one(ctx.db,"SELECT node_id FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')",b.agent_id);
-      if(pending&&pending.node_id!==node.node_id)fail(409,'restore_already_pending');
-      if(pending)await ops.recover(b.agent_id,u.owner_id);
-      else if(b.node_id!==node.node_id||b.status!=='active') {
-        const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id);if(!profile)fail(409,'complete_initial_setup_first');
-        await ops.restorePersonal(profile,u.owner_id,node.node_id,node.node_epoch);
-      }
-      pa.wake(pa.binding(u.owner_id)!);return pa.state(u.owner_id);
-    });
-  });
   app.patch('/im/v1/personal-agent',async req=>{
     const u=user(req),b=pa.binding(u.owner_id),name=body(req).display_name;
     if(!b)fail(404,'personal_agent_not_found');if(typeof name!=='string'||!name.trim()||name.length>80)fail(422,'invalid_name');

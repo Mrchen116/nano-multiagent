@@ -309,18 +309,6 @@ export class ConfigOperations {
     const op = this.insert(candidate, owner, node, "create", null, null);
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
-  /** Move the same personal identity; local private history is intentionally not copied. */
-  async restorePersonal(profile: Row, owner: string, node: string, epoch: number) {
-    const op=transaction(this.ctx.db,()=>{
-      this.authorize(owner,node,profile.agent_id);
-      this.ctx.db.prepare("UPDATE personal_agent_bindings SET node_id=?,node_epoch=?,status='pending' WHERE agent_id=? AND owner_id=?").run(node,epoch,profile.agent_id,owner);
-      this.ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node,owner);
-      this.ctx.db.prepare("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id=(SELECT binding_id FROM personal_agent_bindings WHERE agent_id=?) AND state IN ('prepared','allowed')").run(profile.agent_id);
-      this.ctx.db.prepare('UPDATE agent_profiles SET node_id=?,is_stale=1 WHERE agent_id=?').run(node,profile.agent_id);
-      return this.insert({...fromProfile(profile),workspace_root:null},owner,node,'restore',null,profile.profile_version);
-    });
-    return this.commit(op,await this.resolve(op,await this.request(op)));
-  }
   async update(profile: Row, candidate: Row, owner: string) {
     const op = this.insert(
       candidate,

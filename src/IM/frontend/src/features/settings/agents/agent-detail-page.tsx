@@ -1748,7 +1748,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           </div>
         </section>
 
-        {personal && <PersonalAgentSettings agentId={agentId} hasUnsavedChanges={isDirty || applyPending || mutation.isPending} />}
+        {personal && <PersonalAgentSettings agentId={agentId} />}
 
         {/* feat-379-M3: Behavior card replaced with BehaviorCard component */}
         <BehaviorCard

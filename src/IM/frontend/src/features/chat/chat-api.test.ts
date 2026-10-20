@@ -267,7 +267,9 @@ describe("chat-api", () => {
 
   it("preserves the visible Chat operation label and response body on JSON errors", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
-    f.mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }));
+    f.mockResolvedValueOnce(new Response(JSON.stringify({ detail: "temporarily unavailable" }), {
+      status: 503, headers: { "Content-Type": "application/json" },
+    }));
 
     await expect(listConversations()).rejects.toThrow(
       "listConversations failed: 503 temporarily unavailable"

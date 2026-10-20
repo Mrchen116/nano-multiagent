@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { authFetch } from "./auth-fetch";
+import { authFetch, authFetchJson } from "./auth-fetch";
+import { i18n } from "../../i18n";
 import { useAuthStore } from "./auth-store";
 
 const SAMPLE_USER = {
@@ -131,5 +132,22 @@ describe("authFetch", () => {
     const res = await authFetch("/im/v1/agents");
     expect(res.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a short localized error for a proxy page and never retries a mutation", async () => {
+    await i18n.changeLanguage("zh");
+    try {
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+        '<!DOCTYPE html><html>Cloudflare diagnostics</html>', { status: 502, headers: { "Content-Type": "text/html" } },
+      ));
+      const error = await authFetchJson("/im/v1/personal-agent/policy", { method: "PATCH", body: "{}" }).catch(error => error);
+      if (!(error instanceof Error)) throw new Error("Expected a failed HTTP response");
+      expect(error.message).toContain("502");
+      expect(error.message).toMatch(/服务器|服务/);
+      expect(error.message).not.toMatch(/html|Cloudflare/i);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 });

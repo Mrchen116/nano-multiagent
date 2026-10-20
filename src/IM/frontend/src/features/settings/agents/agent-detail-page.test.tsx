@@ -40,7 +40,8 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
   useIsMobile: () => false
 }));
 
-vi.mock("./im-agent-config-api", () => ({
+vi.mock("./im-agent-config-api", async () => ({
+  ...await vi.importActual<typeof import("./im-agent-config-api")>("./im-agent-config-api"),
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -184,6 +185,20 @@ describe("agent detail page", () => {
       }
     };
   }
+
+  it("preserves an edited name when saving cannot obtain a server response", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.updateAgentConfigMock.mockRejectedValue(new Error("PATCH config failed: 502 (Server response unavailable)"));
+    renderDetailPage();
+    const name = await screen.findByDisplayValue("Core Planner");
+    await user.clear(name);
+    await user.type(name, "My edited assistant");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByTestId("agent-save-error")).toHaveTextContent("Server response unavailable");
+    expect(name).toHaveValue("My edited assistant");
+    expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1);
+  });
 
   it("shows skills usage list with use counts, status, trend, and archived filter", async () => {
     const user = userEvent.setup();

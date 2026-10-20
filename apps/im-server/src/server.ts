@@ -69,7 +69,9 @@ export async function createServer(options: ServerOptions = {}) {
     logger: false,
     bodyLimit: 2 * 1024 * 1024,
     requestTimeout: 15000,
-    connectionTimeout: 15000,
+    // A received request may wait through multiple bounded node RPCs. Destroying
+    // its socket early turns a recoverable configuration receipt into a proxy 502.
+    connectionTimeout: 0,
     keepAliveTimeout: 5000,
     trustProxy: false,
   });
