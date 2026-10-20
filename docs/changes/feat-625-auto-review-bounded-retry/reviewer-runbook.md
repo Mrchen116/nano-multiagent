@@ -1,6 +1,14 @@
 # feat-625 Reviewer Runbook
 
-本文件是设计态可执行验收说明；尚未实施/运行，不是验收报告。Q在工程交接后用实际受审SHA执行；新fixture/测试文件由M1实现，不把尚不存在的命令宣称已可用。
+本文件保留已审设计的验收判据，下面补充候选实现可运行入口；**不是独立验收报告**。Q在工程交接后用实际受审SHA执行，不把E自验或历史基线smoke当作产品pass。版本/环境/已跑结果见[M1实施事实](M1-review-recovery/progress.md)。
+
+### 候选实现执行地图
+
+- 本worktree已有Python3.11.13 `.venv`、pnpm11.7.0/Node25.8.2和frozen DSH0.2.1-alpha.1；Q自行准备其隔离环境，系统3.9不适用。真实候选审核`codexOAuth:gpt-6.1-sol`已由E分别smoke及插件旅程发过HTTP；这不免除Q复验。
+- 长期受控fixture及E2E文件已落地。运行全文件覆盖两策略各10场景+请求中/退避中stop+生产默认30/90秒timeout恢复；`-k 'not real_default'`可先跑非长时场景，不能代替真实默认预算用例。所有受控请求走真IM→Node→DSH→HTTP，区别于真实vendor插件旅程。
+- pytest使用默认tmp目录时旧证据可能按保留策略清除；验收建议首次分配一个**不存在的**本地gitignored目录，再传`--basetemp="$PWD/.e2e-feat625-q-<unique>"`。pytest会清理既有basetemp，因此绝不复用用户数据目录。测试生成`approval-export.json`/`deadline-export.json`/`stop-export.json`，栈在finally down。
+- 额外native suites：`review-owner-native.test.ts`验证同barrier的真实I/A/B/C/M/D归属及idle拒绝；`review-source-recovery.test.ts`验证冻结来源投影；`review-audit.test.ts`验证旧fallback与持久化失败；`review-quarantine-native.test.ts`验证真实原生不合作stream晚到。后两类不是完整IM模式旅程，Q仍须覆盖§5所列Global/child/schedule/heartbeat真实入口。
+- 不引入UI进行中journal：仅持久终态trace可由session.observe/隔离approval-domain读取；进程突死前未落盘事实不保证完整。导出须保留此限制，不能补造attempt。
 
 ## 1. 隔离、版本与资源
 

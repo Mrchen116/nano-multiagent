@@ -104,6 +104,8 @@ export default class NanoRuntime {
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    let guardianStreams: CodexApproval | undefined;
+    ctx.inject(['codexApproval'], child => { guardianStreams = child.codexApproval; });
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
       while (session && !this.bindings.has(session.id) && session.header.parentSession) {
@@ -112,7 +114,7 @@ export default class NanoRuntime {
         session = parent;
       }
       return session?.id ?? sessionId;
-    });
+    }, (options, next) => guardianStreams ? guardianStreams.wrap(options, next) : next());
     new TrajectoryRuns(ctx);
     let configurationService: ConfigurationScopes;
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);

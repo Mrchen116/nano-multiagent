@@ -323,6 +323,6 @@ export function apply(ctx){
     expect(rows.find(row => row.send_message_result)?.send_message_result).toMatchObject({ status: 'sent', message_id: 'sent-1' });
     expect(rows.at(-1)).toMatchObject({ fixture_effect: {}, id: 'call-3' });
     const observed = await client.rpc.request('session.observe', { sessionId: 'overflow' }) as { approvals: { source: string; decision: string; reason: string }[] };
-    expect(observed.approvals.find(row => row.source === 'classifier_unavailable')).toMatchObject({ decision: 'no_verdict', reason: expect.stringContaining('Review context exceeds configured window') });
+    expect(observed.approvals.find(row => row.source === 'classifier_unavailable')).toMatchObject({ decision: 'no_verdict', recovery: { terminalReason: 'context', retriesUsed: 0 } });
   } finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }
 }, 30_000);
