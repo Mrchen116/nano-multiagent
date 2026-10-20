@@ -99,4 +99,43 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 新增**真正native Agent/whenIdle/dispose**不合作stream测试，而不是只用fake handle：reviewer第一条迭代故意忽略AbortSignal12s且最终吐allow，父真实session.cancel后5秒取消终态，立刻提第二动作。初次得到实质红测：第二动作过早创建reviewer并执行，原因是model-loop在迭代器return的5秒race退回后已经idle，native dispose可以早于原始iterator settle；只等dispose不足以证明底层drain。
 - 修正局限于recovery/Guardian：每条捕获stream持有原始return的drain承诺，超5秒即以此承诺quarantine；discard等待当前attempt全部原始drain后再native dispose/移除exact registry，避免idle/dispose错当底层完成。正常stream路径不变。新native测试确认during-quarantine无第二reviewer/无effect，12秒晚allow只清理，实际`agent/disposed`后新动作才允许且effect只有after-drain一行。最窄组合 **3 files/33 tests/exit0，native13.06s**。
 - 因此上述大批次及真IM成功为stream-drain修正前证据，不伪称最终版本全绿：已起最终 **workspace typecheck + 全integration suites**，以及完整8条真IM文件（两策略20场景+4stop+2production deadline）在新独占`.e2e-feat625-controlled-r2/`复验；待收集后更新。
-- 当前未冻结、未独立审查/产品pass、未canonical/归档/PR。全量frontend/Python结果与本次仅integration内部清理修正无重叠，保留；独立门禁须审真实最终SHA。
+- 上一条为第三阶段进行中快照；源码现已冻结于下节所列提交。尚无独立审查/产品pass、未canonical/归档/PR。全量frontend/Python结果与本次仅integration内部清理修正无重叠，保留；独立门禁须审真实最终SHA。
+
+## 最终工程自验与独立门禁交接（R1）
+
+### 版本与范围
+
+- `unit_id=feat-625-auto-review-bounded-retry`，`review_round=1`，mode=full，有用户旅程。
+- `implementation_sha=c11683040302bcf1c4211bcd83aa284f58efc77d`，提交`feat(approval): recover automatic review with bounded fresh attempts`；本节后续提交仅更新工程证据，不修改实现/测试。派发时`validated_at`取本节提交后的clean unit HEAD，以实际`git rev-parse HEAD`为准；两者源码/测试/fixture完全相同。
+- `executed_base=861b94129bc8c5aadbca76967268fd203fe04112`。本轮完成前已`git fetch origin main`，HEAD基线与origin/main仍同为861；已审设计R4为6760d853f06ac81401977514975a9985587196f9，产品事实基线为051e7d68e159814cdba1e622f760208fc6d3af68，不混作实施基线。
+- worktree：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/unit-feat-625-auto-review-bounded-retry`；branch：`unit/feat-625-auto-review-bounded-retry`。未改用户主仓/生产checkout；未push、未创建PR、未merge/deploy/release。
+- 改动只含integration policy/单一attribution接缝、相关测试/长期HTTP与真IM驱动、active unit工程事实/runbook；没有改已审spec/design/delta、没有canonical提前覆盖current specs。既有公共Tool/PreToolDecision、配置、domain版本布局不变。
+
+### 最终源码实际执行结果
+
+所有行均工程自验，不代表独立门禁通过；命令均在上述worktree，退出码均0。
+
+| 命令 | 实际结果 / 证据 |
+|---|---|
+| `pnpm typecheck && pnpm exec vitest run packages/dsh-integration/tests` | workspace8项目typecheck通过；**44 files/166 tests passed，275.69s**，含native90s×3、真实native晚到14.26s、HTTP15场景、owner同barrier及626回归。实际源码与c116相同 |
+| `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 .venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_retry_critical_path.py -q --basetemp="$PWD/.e2e-feat625-controlled-r2" --timeout=240` | **8 passed/342.35s**，两策略各10受控场景、请求中/退避中真`/stop`四场景、真实默认30/90秒timeout→allow。每个允许动作实际文件恰一行，非允许无该行；手工fallback由真实permission卡deny接口闭合 |
+| `pnpm build` | 全workspace构建/本地installer candidate通过，版本c116、candidate hash `efa5f6aa3074`；只构建未发布 |
+| `PATH="$PWD/.venv/bin:$PATH" ./scripts/docs-check` | 246 maintained Markdown sources、67 routes通过（本末节追加前） |
+| `.venv/bin/ruff check . && .venv/bin/ruff format --check .` | 全仓通过，85 files already formatted |
+| `.venv/bin/python -m pytest -m 'not e2e' -q` | **62 passed/39 deselected，1.06s** |
+| retained `pnpm test` / frontend `npm run test` | 前者111 files/534 tests、后者100 files/936 tests均exit0；仅integration清理修正影响范围已由最终44/166覆盖，未重复无关frontend/PA/IM tests。不能把534写成最终全仓重新执行 |
+
+### 可复查证据与环境
+
+- `.e2e-feat625-controlled-r2/`保留8个pytest场景目录与8份脱敏的`approval-export.json` / `deadline-export.json` / `stop-export.json`，同时有隔离stack数据；均gitignored，**其中config/DB/原始prompt不可提交或直接公开**。fixture records只含case、model、route、session、时间和选定故障，trace不含正文。
+- 双真实vendor旅程及限制见第二阶段表，`.e2e-feat625-plugin-{nano,codex}/work.json`的`turns[].items[].payload.presentation.detail`提供实际install与两次工具结果，不应使用截断summary当全量输出。
+- 最后`ps`按上述所有本次stack路径核对，IM/Node/HTTP fixture活动进程0；历史真实plugin IM端口49813/50124均关闭。全部新真IM栈finally down；专用worktree保留给独立门禁/后续修复，不自行删除。
+- 已沉淀与本unit无暂态耦合的agent-scope `async-boundary-validation` Skill：区分wrapper/idle/dispose与原始iterator settle、并发quarantine集合和重放事件关联；不修改仓库生产运行代码。
+
+### 下一步：由父E派发独立门禁
+
+1. 同一独立静态审查者承担`change-code-review`（review_mode=full，diff_range=`861b94129...validated_at`）与`change-verifier`（verification_mode=full），分别结论和证据；不自行兼任产品Q。特别核对共享完整预算、单stream/HTTP sink、exact owner registry、actual raw drain/quarantine、旧fallback/持久化、626冻结来源和协议兼容。
+2. Q独立`change-reviewer`，mode=full/revalidation_mode=full；使用[runbook](../reviewer-runbook.md)和原始17场景，不把E自验当产品pass。受控HTTP与真实vendor旅程分开；除已有普通IM入口，**Global/child/schedule/heartbeat实际故障旅程**仍需Q独立覆盖（现E只在持久化facade测试了这些fallback，不冒充完整模式IM旅程）。负数clamp业务示例偏差如实保留，Q自行判断完整插件规则。
+3. 本执行子会话仍为唯一实现/后续修复者；收门禁发现后续用本会话，不另派修复worker。code review/Q返回后才进行按失效范围修复/复验、final sync门禁有效性、delta校正/canonical归并、archive、Ready PR与required远端CI；本次未完成这些步骤。
+
+当前可交付仅为**工程候选及中立门禁输入**，不宣称M1全部退出、独立验收通过或Ready PR完成。
