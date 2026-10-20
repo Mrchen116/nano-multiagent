@@ -30,7 +30,7 @@
 - 用 `sourceAccess/sourceAllowed` 过滤可读范围；用真实 `conversation_participants` 中 PA 对应 agent user 判断参与身份。主人观察权限和历史参与记录不证明 PA 当前在场。
 - 改 bugfix-621 的 `sourceRole` 为 owner 身份判断；保留其绑定 app、配置 agent、sender_source_id 与 owner_open_id 核验，以及真实目标 `ownerConversation`。首次来信绑定不变。
 - 用既有 `needsAttention`、群提及/回复解析、Inbox 单条唯一键和持久消费；用 bugfix-622 的 `mode: steer` 处理直接提醒。
-- 用既有 `session.status idle`、recover、stop 生命周期补发到期背景；只增加一个最近截止的本地 timer，时间与进度落在同一 SQLite。
+- 用既有 `session.status idle`、recover、stop 生命周期补发到期背景；只增加一个最近截止的本地 timer，时间与进度落在同一 SQLite。复用已有 session.submit.onlyIfIdle（index.ts 的接纳边界检查，heartbeat 已使用），不新造运行时锁。
 - 不用 `pa_observation` 判断观察者：飞书主人与 PA 的直接聊天也通过这个传输入口。它只标识管道，不描述会话关系。
 
 ### 相关历史
@@ -112,12 +112,15 @@ observer 批次：
 
 在 Inbox SQLite 新建一张小表 `background_wakes(agent_id PRIMARY KEY, last_notified_at, due_at, notified_through_seq, submitting_through_seq)`。原 Inbox 不复制，observer 与归属保存在输入 metadata，原 `wakes` 继续服务及时通知。receive 与首次登记 due_at 在同一事务完成；重复消息不改变期限。所有时间为节点持久接收/通知时间的 UTC 毫秒，不使用聊天原发生时间。
 
+序号分配继续使用现有统一 max+1，并将新表的 notified_through_seq 与 submitting_through_seq 一并纳入全库最大值，与 inbox.seq、原 wakes.watermark 共同取 max。来源撤销即使删除最高 Inbox 行，也不能复用任何已通知或在途 inputId 的序号；不通过重置水位补救。
+
 - 候选集 = 权限仍有效、observer、未消费、seq 高于 notified_through_seq 的 Inbox 行。
 - 尚无通知历史：首候选接收时 `due_at=received_at+600000`。
 - 已通知过：首候选使 `due_at=max(received_at,last_notified_at+600000)`。后续输入不推迟 due_at。若通知距今已超十分钟，空闲时新数据可立即形成一批。
 - 没候选时取消 timer/清 due_at；保留 last_notified_at 和通知水位。读取使候选消失即撤销该空批；后来的新首批按上述规则重新计算，不从直接消息时间重置背景节奏。
 - 到期且忙碌：不 submit、不更新时间，维持 due；下一次 idle 一次收齐所有当前候选。直接通知永远不受该条件限制。
-- 到期且空闲：取得最高候选 seq，先持久化 submitting_through_seq，以 `inbox-background:<agent>:<seq>` 为幂等 inputId，沿公开 submit 的 steer 入口发系统通知。steer 避免状态检查与提交之间已变忙时排成一轮独立 followup；这只是兜住正常事件竞态，不硬中断。成功 ACK 后原子更新 notified_through_seq、last_notified_at、清提交标记，再为期间新增候选登记下一期限。
+- 到期且空闲：取得最高候选 seq，先持久化 submitting_through_seq，以 `inbox-background:<agent>:<seq>` 为幂等 inputId，沿公开 submit 的 steer 入口并设置 onlyIfIdle=true 发系统通知。运行时在实际接纳边界原子检查 status、nextTurn、nextStep，堵住 PA 层检查后主人请求或 schedule 抢先到达的竞态。仅 accepted=true 且 durable=true 才算成功 ACK；成功后原子更新 notified_through_seq、last_notified_at、清提交标记，再为期间新增候选登记下一期限。
+- 返回 accepted=false,busy=true：不推进通知时间/水位，保留 due 与提交身份，在下次 idle 重试；不轮询、不排入当前任务下一 step。check/read 仍能看到等待期间所有新增消息，一次读取后已消费的后续候选取消，不补发空批。
 - 未 ACK/进程重启：submitting_through_seq 存在时复用同一 inputId 重试；不扩成新的批次。没有提交标记的已消费消息不触发通知。运行时已接收但本地未 ACK 的重复 submit 沿原幂等语义恢复，不声称 exactly-once 模型执行。
 - 通知成功只推进通知水位，不推进 fragments/consumed。新消息后续通知可引导再看尚未读完的旧消息；无新增时不靠十分钟定时器反复催读同一条。
 
@@ -130,6 +133,8 @@ IM 提供一个内部原消息事实投影，供 admit、authorization、source 
 - `authorization.owner_messages` 改为所有当前可访问、可信主人身份的原文，带 message/conversation ID、conversation_type、delivery、channel、sender 和 interaction_reply。保留原始问答所在会话的可验证上下文及实际发表 proposal，不把其他会话时间相邻的回答拼成确认。上下文来自既有 messages/conversations，不增加新的确认实体。
 - `PersonalActions` 的 sources 同样提供可信身份与关系。独立 reviewer 不再按“其他聊天一律不是授权”拒绝，而是核对具体原话是不是给 PA、授权对象/范围和现在的实际受众。observer 原文只能作为背景或已获授权任务的新信息，不能仅凭 is_owner=true 升格为新授权。
 - `ownerMessage`（来源设置工具使用）移除 source_role 检查，核实原始主人 + participant + 原文实际寻址：主人与 PA 私聊，或现有明确提及/interaction_reply 指向 PA 的共同群。返回带上下文证据；模型仍负责动作与原话一致。observer 引用不能直接改变来源设置。工具描述同步移除 canonical-DM-only 表述。
+- **完整上下文和外发失效域分开**：当前 PersonalActions.validate 比较整个 owner_messages digest；扩大 owner_messages 后必须替换该比较。prepare 的 evidence.authorization 额外保存服务器生成的 `guard_messages`，包含可信主人在真实主人与 PA 私聊中的原文，以及 participant 群中按既有提及/interaction_reply 明确向 PA 发出的原文。observer 与未寻址群消息仅留在完整 owner_messages 上下文，不进入 guard；不增加语义分类调用、人工确认或由模型挑选证据的接口。validate 重新生成同一 guard 集合比较 digest：直接主人更正/撤销、明确向 PA 的群授权变化需要重新审核；无关 observer 来信不使原 permit 失效。
+- 目标会话更新仍独立受现有 Inbox blocking 及 PersonalActions 的目标主人新回复检查保护；source/policy/audience/profile/attachment/task 变化继续走原 validate，不缩小这些边界。guard 不能替代目标发送前复核。原 observer 中对他人的新承诺不视为撤回 PA 授权；若出现在实际待代发目标，则已有“主人已回复”保护仍阻止重复插话。旧 prepared/allowed 操作没有 guard 快照时沿既有重新 prepare/review 路径补齐，不推断旧证据为新许可；confirmed/unknown 不重发。
 - 实际主人私聊免披露复审继续由 bugfix-621 的 ownerConversation/真实外部目标判断；不能用 incoming is_owner 或 conversation_type=direct 替代。群聊和他人私聊保持冻结 payload、真实受众、当前来源权限与独立 review。
 
 ### 6. 既有数据与升级
@@ -167,12 +172,12 @@ IM 提供一个内部原消息事实投影，供 admit、authorization、source 
 2. 至少一轮真实十分钟：首条起计、期间多次收发、到期不再发消息仍通知，所有累计消息可完整读取。记录收件、截止、submit 与 read 时刻；不以缩短 timer 的测试替代此轮。
 3. 独立一轮提前请求：背景未到期，主人直接引用小王条件，证明背景已可读、结果正确，跨过原到期点不再通知已读条目。
 4. 忙碌中直接更正及时读取；背景忙碌延后合并。工作视图/原生轨迹可观察通知与读取区别；通知正文不包含新消息原文。
-5. 真实飞书主人原地回复与一次性定时提醒，平台 API 读取确认各一次，Web 同一 PA 回归。来源撤销、重放、失败出站不堵入站、群/他人私聊披露限制复用 bugfix-621 有效用例。
+5. 真实飞书主人原地回复与一次性定时提醒，平台 API 读取确认各一次，Web 同一 PA 回归。来源撤销、重放、失败出站不堵入站、群/他人私聊披露限制复用 bugfix-621 有效用例。审核期间由 observer 聊天新增主人消息，已获授权的外发应继续；改为主人直接更正或目标已被主人回复，则必须重新复核。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
+| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；含 PA 查 idle 后 runtime 先变忙、仅背景最高序号被撤销后新来源收件，以及无关 observer 不使审核失效而真实更正仍失效；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
 
 测试先最窄现有 inbox/global-agent/personal sources/disclosure/attention 与 personal-security，再实际 DSH 接线与真实模型。原生 fixture 测时序，不宣称真实模型理解已验；平台回执与实际观察证明交付，不以模型自述代替。单 M1 保证身份、通知、审核上下文和验证共同交付，避免中间状态新旧语义混用。
