@@ -77,6 +77,32 @@ export class PersonalAgents {
   messageAllowed(b: Row, message: Row) {
     return this.sourceAllowed(b,message.conversation_id) && (one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)?.type === 'group' || !this.actorRisk(b,this.sourceActor(message)));
   }
+  private feishuOwner(b: Row, conversationId: string): string | undefined {
+    const chat=one(this.db,"SELECT * FROM conversations WHERE id=? AND owner_id=? AND config_agent_id=? AND external_source='feishu'",conversationId,b.owner_id,b.agent_id);
+    if(!chat)return;
+    const channel=all(this.db,"SELECT config_json,provider_runtime_json FROM agent_channels WHERE owner_id=? AND node_id=? AND agent_id=? AND provider='feishu' AND enabled=1",b.owner_id,b.node_id,b.agent_id)
+      .find(row=>String(chat.external_chat_id).startsWith(`feishu:${JSON.parse(row.config_json).app_id}:${chat.type==='group'?'group':'dm'}:`));
+    return channel?JSON.parse(channel.provider_runtime_json).owner_open_id:undefined;
+  }
+  /** Identify a private owner destination from current persisted channel facts.
+   *
+   * Args:
+   *   b: Authenticated personal binding.
+   *   conversationId: Persisted Web or provider shadow conversation.
+   * Returns:
+   *   Whether the destination is the owner's private chat with this PA.
+   */
+  ownerConversation(b: Row, conversationId: string): boolean {
+    if(conversationId===b.conversation_id)return true;
+    const owner=this.feishuOwner(b,conversationId);
+    const chat=one(this.db,'SELECT type,external_chat_id FROM conversations WHERE id=?',conversationId);
+    return !!owner && chat?.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
+  }
+  private sourceRole(b: Row, message: Row): 'owner_instruction'|'owner_fact'|'external' {
+    if(message.sender_type!=='user'||message.sender_user_id!==b.owner_user_id)return 'external';
+    if(message.sender_source_id && message.sender_source_id!==this.feishuOwner(b,message.conversation_id))return 'external';
+    return this.ownerConversation(b,message.conversation_id)?'owner_instruction':'owner_fact';
+  }
   /** List current restrictions and evidence the owner can actually open. */
   blockedContacts(owner: string) {
     const b=this.binding(owner); if(!b)return {items:[]};
@@ -109,8 +135,7 @@ export class PersonalAgents {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
     if(!m || !this.messageAllowed(b,m)) return {allowed:false};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    const role = m.sender_type === 'user' && m.sender_user_id === b.owner_user_id && !m.sender_source_id
-      ? m.conversation_id === b.conversation_id ? 'owner_instruction' : 'owner_fact' : 'external';
+    const role = this.sourceRole(b,m);
     return {allowed:true,role,policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
   updatePolicy(owner: string, input: Row) {
@@ -135,7 +160,12 @@ export class PersonalAgents {
     const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
       .filter(e=>!e.conversation_id || this.sourceAllowed(b,e.conversation_id))
       .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
-      .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>({...e,conversation_type:e.conversation_id?one(this.db,'SELECT type FROM conversations WHERE id=?',e.conversation_id)?.type:undefined,payload:JSON.parse(e.payload_json),message:e.message_id?this.ctx.messaging.message(e.message_id):null}));
+      .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>{
+        const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
+        const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
+        return {...e,conversation_type:conversation?.type,channel:conversation?.external_source??'web',payload:JSON.parse(e.payload_json),
+          message:message?{...message,sender_source_id:message.sender_source_id}:null};
+      });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
     return {items,policy_revision:policy.revision};
   }
@@ -150,14 +180,15 @@ export class PersonalAgents {
     return {acknowledged:args.event_ids,stage:args.stage};
   }
   ownerMessage(b:Row,id:string) {
-    const m=one(this.db,"SELECT * FROM messages WHERE id=? AND conversation_id=? AND sender_user_id=? AND sender_type='user' AND sender_source_id IS NULL",id,b.conversation_id,b.owner_user_id);
-    if(!m) fail(403,'direct_owner_evidence_required');
+    const m=one(this.db,'SELECT * FROM messages WHERE id=?',id);
+    if(!m || this.sourceRole(b,m)!=='owner_instruction' || !this.messageAllowed(b,m)) fail(403,'direct_owner_evidence_required');
     return {id:m.id,content:m.content,created_at:m.created_at};
   }
   /** Return original owner inputs and their published UI context; private drafts are not authorization. */
   authorization(principal: Row, args: Row) {
     const b = this.authority(principal,args);
-    const messages = all(this.db,"SELECT * FROM messages WHERE conversation_id=? AND sender_user_id=? AND sender_type='user' AND sender_source_id IS NULL ORDER BY rowid",b.conversation_id,b.owner_user_id);
+    const messages = all(this.db,"SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid",b.owner_user_id)
+      .filter(m=>this.sourceRole(b,m)==='owner_instruction' && this.messageAllowed(b,m));
     return {policy:this.policy(b.binding_id),owner_messages:messages.map(m=>({id:m.id,content:m.content,created_at:m.created_at,
       ...(m.interaction_reply_json ? {interaction_reply:JSON.parse(m.interaction_reply_json)} : {})})),
       proposals:all(this.db,'SELECT m.id,m.content,m.created_at,i.source,i.superseded_by FROM messages m JOIN message_interactive i ON i.message_id=m.id WHERE m.conversation_id=? AND m.sender_user_id=? ORDER BY m.rowid',b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id)};
@@ -190,7 +221,7 @@ export class PersonalAgents {
   }
   incident(principal:Row,args:Row) {
     const b=this.authority(principal,args),source=one(this.db,'SELECT * FROM messages WHERE id=?',args.source_message_id);
-    if(!source||!this.sourceAllowed(b,source.conversation_id)||(source.sender_user_id===b.owner_user_id&&!source.sender_source_id))fail(404,'incident_source_not_accessible');
+    if(!source||!this.sourceAllowed(b,source.conversation_id)||this.sourceRole(b,source)!=='external')fail(404,'incident_source_not_accessible');
     const actorId=this.sourceActor(source);
     args={...args,category:args.category??'suspected_probing'};
     if(typeof args.category!=='string'||typeof args.reason!=='string')fail(422,'incident_evidence_required');

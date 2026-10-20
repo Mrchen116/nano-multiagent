@@ -55,8 +55,9 @@ export class PersonalAssistant {
       if (verdict.incident || verdict.decision === 'deny') {
         const notice=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,reason:verdict.incident?.reason ?? verdict.reason});
         if(notice.owner_notice_message_id && notice.peer_notice_content && !notice.peer_notice_message_id) {
-          if(input.conversation_id.startsWith('external:')) await this.options.relay.request('agent.message',{
-            node_id:this.options.nodeId,to:`conversation:${input.conversation_id}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
+          const target=this.options.store.canonicalConversation(config.agentId,input.conversation_id);
+          if(target.startsWith('external:')) await this.options.relay.request('agent.message',{
+            node_id:this.options.nodeId,to:`conversation:${target}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
           else {
           const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
           // A revised fixed notice is a new frozen operation; never mutate an old proposal on retry.
@@ -110,8 +111,9 @@ export class PersonalAssistant {
     const previous = inbox.publication(call.operationId);
     if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;
-    if(target.replace(/^conversation:/,'').startsWith('external:')) {
-      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:target.startsWith('conversation:')?target:`conversation:${target}`,text,
+    const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
+    if(deliveryTarget.startsWith('external:')) {
+      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
@@ -165,6 +167,7 @@ export class PersonalAssistant {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
+    if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
     const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});

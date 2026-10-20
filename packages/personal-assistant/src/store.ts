@@ -90,7 +90,15 @@ export class NodeStore {
     if (!conversationId.startsWith('external:')) return conversationId;
     return (this.db.prepare('SELECT alias FROM conversation_aliases WHERE agent_id=? AND canonical=?').get(agentId, conversationId) as { alias: string } | undefined)?.alias;
   }
-  private canonicalConversation(agentId: string, conversationId: string): string {
+  /** Resolve a persisted conversation alias before selecting its delivery transport.
+   *
+   * Args:
+   *   agentId: Registered Agent identity.
+   *   conversationId: Original or mirrored conversation target.
+   * Returns:
+   *   The persisted canonical target, or the unchanged target when unaliased.
+   */
+  canonicalConversation(agentId: string, conversationId: string): string {
     return (this.db.prepare('SELECT canonical FROM conversation_aliases WHERE agent_id=? AND alias=?').get(agentId, conversationId) as { canonical: string } | undefined)?.canonical ?? conversationId;
   }
   bindingFor(agentId: string, conversationId: string): SessionBinding | undefined {

@@ -146,15 +146,27 @@ it('never reports completed before the platform response and preserves unknown o
   } finally { await external.stop(); store.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-it('authenticates a personal channel input through its persisted IM source before admission',async()=>{
- const store=new NodeStore(':memory:','owner'),calls:{type:string;payload:any}[]=[];let external:ExternalChannels;
+it('mirrors personal inputs once for observation without blocking them on failed output projections',async()=>{
+ const store=new NodeStore(':memory:','owner'),calls:{type:string;payload:any}[]=[],mirrors:string[]=[],errors:unknown[]=[];
+ let received=0,sent=0,removed=0;
+ let external:ExternalChannels;
  external=new ExternalChannels(':memory:',{nodeId:'node',ownerId:'owner',store,personalAgent:()=>true,
-  relay:{ready:true,request:async(type,payload)=>{calls.push({type,payload});return {type:type+'.result',payload:{ok:true,result:{allowed:true}}};}},
-  im:async(path)=>({id:path.endsWith('find-or-create')?'shadow-chat':'shadow-message'}),
-  receive:async input=>{await external.request('pa.source.admit',{agent_id:input.agent_id,source_message_id:input.message.id,conversation_id:input.conversation_id});},permission:async()=>{},onError:error=>{throw error;}});
- external.add('pa',{config:{appId:'app'},send:async()=>'',thinking:async()=>undefined,image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}});
+  relay:{ready:true,request:async(type,payload)=>{calls.push({type,payload});if(type==='node.streaming_delta')throw new Error('old output projection failed');return {type:type+'.result',payload:{ok:true,result:{allowed:true}}};}},
+  im:async(path,options)=>{if(path.endsWith('find-or-create'))return {id:'shadow-chat'};const content=JSON.parse(String(options?.body)).content;mirrors.push(content);return {id:`shadow-${content}`};},
+  personalDelivery:delivery=>delivery.dispatch(delivery.text),
+  receive:async()=>{received++;},permission:async()=>{},onError:error=>{errors.push(error);}});
+ external.add('pa',{config:{appId:'app'},send:async()=>{sent++;return 'om_actual';},thinking:async(_id,reaction)=>{if(reaction)removed++;return 'thinking';},image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}});
  try {
-  await external.receive('pa',{messageId:'m',chatId:'dm',senderId:'peer',isGroup:false,mentioned:false,time:'1000',parts:[{type:'text',text:'Hello'}]});
-  expect(calls).toContainEqual({type:'pa.source.admit',payload:{agent_id:'pa',source_message_id:'shadow-message',conversation_id:'shadow-chat'}});
+  const message={messageId:'m',chatId:'dm',senderId:'peer',isGroup:false,mentioned:false,time:'1000',parts:[{type:'text' as const,text:'first'}]};
+  await external.receive('pa',message);
+  expect(await external.request('agent.message',{to:'conversation:shadow-chat',from_session_id:'pa|tool_call:reply',text:'Reply'})).toMatchObject({payload:{message_id:'om_actual'}});
+  await external.receive('pa',{...message,messageId:'next',parts:[{type:'text',text:'next'}]});
+  await external.receive('pa',message);await external.recover();
+  expect(mirrors).toEqual(['first','next']);expect(received).toBe(0);expect(sent).toBe(1);
+  expect(errors.some(error=>String(error).includes('old output projection failed'))).toBe(true);
+  await external.request('pa.source.admit',{agent_id:'pa',source_message_id:'external:pa:app:m',conversation_id:'external:pa:feishu:app:dm:peer'});
+  expect(calls).toContainEqual({type:'pa.source.admit',payload:{agent_id:'pa',source_message_id:'shadow-first',conversation_id:'shadow-chat'}});
+  await external.request('node.delivery_receipt',{agent_id:'pa',external_source_message_id:'shadow-first',delivery_status:'completed'});
+  expect(removed).toBe(1);
  }finally{await external.stop();store.close();}
 });

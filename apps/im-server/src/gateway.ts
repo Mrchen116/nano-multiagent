@@ -632,8 +632,8 @@ export class Gateway {
           )
           ?.username.slice(6);
       const a = this.requireAgent(c, source);
-      const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
-      if(personal && p.conversation_id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+      const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
+      if(personal && !this.ctx.personal!.ownerConversation(personal,p.conversation_id))fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
       if (!p.text?.trim()) fail(400, "text required");
       if (p.system_notice) {
@@ -740,8 +740,8 @@ export class Gateway {
       if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
         fail(403, "agent_user_id does not match source Agent");
       const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
-      const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
-      if(personal && id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+      const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
+      if(personal && !this.ctx.personal!.ownerConversation(personal,id))fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
       const transition = p.reply_process_transition;
       if (transition?.predecessor_message_id) {
@@ -802,8 +802,8 @@ export class Gateway {
     const m = s.message(p.message_id);
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
-    const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
-    if(personal && m.conversation_id!==personal.conversation_id)fail(403,"personal_reviewed_delivery_required");
+    const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
+    if(personal && !this.ctx.personal!.ownerConversation(personal,m.conversation_id))fail(403,"personal_reviewed_delivery_required");
     s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
     let eventType = "",
       data: Row = {};

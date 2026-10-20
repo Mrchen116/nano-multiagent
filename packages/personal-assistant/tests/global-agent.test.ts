@@ -305,3 +305,25 @@ it('revokes queued excluded sources without replacing the main context or removi
   expect(methods).toContain('session.submit');
  }finally{await product.stop();inbox.close();store.close();}
 });
+
+it('replays a Feishu owner observation once with its original sender, channel and local time',async()=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'pa',ownerId:'owner',sessionId:'existing-main',conversationId:'global:pa',revision:'1'});
+ const calls:string[]=[];
+ const config={agentId:'pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}};
+ const event={event_id:1,conversation_id:'c_shadow',conversation_type:'direct',channel:'feishu',policy_revision:1,
+  message:{id:'original-message',content:'Remind me later',sender_type:'user',sender_user_id:'owner',sender_source_id:'owner-open',created_at:'2026-10-20T01:00:00Z',timezone:'Asia/Shanghai',sender:{display_name:'J'}}};
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>{throw e;},
+  runtime:{onNotification:()=>()=>{},request:async(method)=>{calls.push(method);return {events:[],durable:true,status:'idle'};}},
+  relay:{ready:true,request:async(type,payload:any)=>{
+   if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
+   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,role:'owner_instruction'}:{}}};
+  }}});
+ try {
+  await product.recoverPersonalObservations();await product.recoverPersonalObservations();
+  expect(inbox.read('pa','existing-main','read',{target:'c_shadow'})).toMatchObject({messages:[{id:'original-message',sender:{id:'owner-open',name:'J'},channel:'feishu',source_role:'owner_instruction',time:'2026-10-20T09:00:00+08:00'}]});
+  expect(store.inputs('existing-main')).toHaveLength(1);
+  expect(calls.filter(method=>method==='session.submit')).toHaveLength(1);
+  expect(calls).not.toContain('pa.review');
+ }finally{await product.stop();inbox.close();store.close();}
+});
