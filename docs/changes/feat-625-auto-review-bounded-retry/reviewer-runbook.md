@@ -151,8 +151,9 @@ P无网络probe只证实公开`sessionId`/loop marker分派、ALS以及非所属
 
 产品新基线`051e7d68e159814cdba1e622f760208fc6d3af68`已修复上下文保真；运行现有`approval-sources.test.ts`、`codex-approval.test.ts`、`personal-security.test.ts`及lifecycle/native suites，并在恢复fixture加入下列反例。这里是待执行契约，不借626历史报告声称625已经通过。
 
-- 普通PA工具动作的准备及所有恢复均断言`pa.authorization`读取次数为0；库内巨大/不在有效上下文的历史标记不进入审核prompt。父压缩后full恢复不复活已删除原文，继承Inbox维持restored；PA入站/披露独立链、observer、主人DM豁免原测试仍通过，不能因禁普通取数而删除独立消息检查。
-- Codex Inbox按message分项并保留page/sender/reply；generic Inbox/send正文同call只出现一次，distinct call仍在。service恢复后的full输入重新使用同一规范化冻结rows，cursor/full/delta/fork不因重复投影而误判前缀。
+- 普通PA工具动作的准备及所有恢复均断言`pa.authorization`读取次数为0；库内巨大/不在有效上下文的历史标记不进入审核prompt。父压缩后full恢复不复活已删除原文；技术恢复保留冻结rows的实际observation，不能把所有继承Inbox一律降为restored或为提高成功率升为live；PA入站/披露独立链、observer、主人DM豁免原测试仍通过，不能因禁普通取数而删除独立消息检查。
+- Codex Inbox按message分项并保留page/sender/reply；generic Inbox/send正文同call只出现一次，distinct call仍在。service恢复后的full输入重用同一规范化冻结rows，cursor/full/delta/fork不因重复投影而误判前缀。
+- **来源对照（两路径都必须测试）**：①同epoch父会话已观察live Inbox→同进程委派→子动作503→干净full恢复，首次和恢复输入的该message均仍live，若另有restored项则仍restored；②跨epoch委派/真正丢失观察证明，或仅有旧持久`host_context`，按现restore规则为restored→503→full仍restored，不能提升。另覆盖同epoch旧`host_context_live`按`restoreEntries(...,false)`保留live，防止只测新格式。逐项对照真实sender/page/reply、observation、同call正文去重/distinct call和规范化cursor；`codexEntries`及技术恢复不得重写来源。epoch取当前宿主契约，不为测试新增授权查询、消息库重读或要求用户重新确认。
 - `503 → {"outcome":"allow"}`应一次service恢复后成功，format=0；`{"outcome":"deny"}`和外围JSON包裹的合法assessment直接按现parser处理，不触发格式恢复。缺省risk/auth/rationale保持626；非法outcome/enum/type才占格式额度，不恢复旧四字段要求或parser额外risk拒绝。
 - 组合context rebuild→503→full恢复，检查full沿用recovery admission且context额度不重置；有checkpoint的delta preserve不裁历史，初次full也沿用当前default recovery（不是另加首轮preserve），无0.65缩放；User成本、最近5工具/ProtectedAssistant保护、超大optional先剔除及显式遗漏断言仍成立。required/action确实放不下时不可用，不能靠service retry裁权限证据换allow。
 - Q在双策略真实PA受审任务中同时核对上述库外历史标记不泄入、服务恢复不重复副作用；输入体积/来源和恢复轨迹证据分开记录。626的历史production replay只能作为回归参考，不替代此次候选实施SHA验证。

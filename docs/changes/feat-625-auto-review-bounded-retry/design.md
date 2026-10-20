@@ -56,7 +56,7 @@
 ### 626交叉保真约束（最新基线必须保留）
 
 - `approval.ts` / `classifier.ts` / `types.ts`：`ApprovalReviewRequest`已无personalAuthorization；所有service恢复仅重用冻结的有效context投影，不调用PA入站/披露检查作备用审核。PA两道消息检查及主人/observer边界仍独立，故障恢复不得修改它们。
-- `sources.ts` 的`codexEntries`在当前/继承来源规范化后再计算cursor：Inbox每message独立保留page/真实sender/reply/observation；同call generic正文去重但不同call不删，恢复/inherited仍restored；CC保持普通工具正文省略及有效历史界限。首次prepare与后续full恢复均经过相同投影，不将live持久化到新授权。
+- `sources.ts` 的`codexEntries`在当前/继承来源规范化后再计算cursor：Inbox每message独立保留page/真实sender/reply/observation；同call generic正文去重但不同call不删。**同action技术恢复**只重用prepare冻结的实际live/restored，不因503、超时、创建新full reviewer或context重建改变observation。**同进程委派**按现有epoch/来源契约保留：`saved.epoch === this.epoch`使用`restoreEntries(...,false)`，保留可信live；已有restored绝不升live。**跨epoch/真正失去进程观察证明的恢复**才按既有`restoreEntries(...,true)`置restored；旧持久`host_context`也保持原restore语义，不能仅凭“inherited”身份统一降级或升级。`codexEntries`只规范化/去重、不解释授权；首次prepare冻结规范化rows，技术恢复full重用它们，不能反复按进程恢复规则重标。CC保持普通工具正文省略及有效历史界限；不复活压缩原文、不新增授权取数，也不把技术恢复或持久化本身变成新授权。
 - Codex profile/admission保留626：User/ManualApproval计消息成本，非用户成功纳入才计40条上限，消息/工具单项5000/1000、聚合20000/10000；ProtectedAssistant及最近5条已选工具受保护。先剔除永远放不下的optional，再按类别/旧先策略淘汰；preserve不裁历史，recovery才按规则缩旧历史并保来源首尾/遗漏。无全库重读、无0.65预算乘数、无新证据摘要器。
 - output prompt及`parseCodexDecision`保持626：`{"outcome":"allow"}`为有效low allow；bare deny缺省high、authorization缺省unknown，rationale用原默认，外围文字中的JSON按现parser有效；非法outcome/enum/type才是格式失败。不得强制旧四字段或恢复parser额外critical-allow禁令；风险语义由现有policy判定而非格式恢复controller改写。
 - 这组是保留已合入行为，不扩大首文档要求；新增恢复的格式计数必须以当前parser结果为准，不能将合法bare/embedded verdict误耗format额度。

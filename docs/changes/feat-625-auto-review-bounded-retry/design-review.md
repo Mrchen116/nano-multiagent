@@ -352,3 +352,117 @@ R1-W1、R1-W2均以独立核实的设计/公共接口事实关闭。修订后的
 修订文件为`design.md`（最新事实基线、626保真约束、prepare/context phase/format及M1退出标准）、`reviewer-runbook.md`（§5.2组合回归）及本报告追加。首文档、delta、M1骨架未变；没有产品代码修改。完整预算/2次总恢复/format1次、精确stream身份分派、原fallback及审核路由smoke前置不变。
 
 **工程必须保留的验证：** 现有approval-sources、codex-approval、personal-security和native/lifecycle测试；新增恢复中pa.authorization读取0、库外/压缩历史不入prompt、规范化正文不重复/来源不升级、503→bare allow的format=0、bare deny不重试、context→service恢复phase/required保护不退化及PA独立两道消息检查回归。626历史报告不是625实现pass；本轮仅静态核对，未运行产品测试/真实smoke，Python≥3.11和真实reviewer候选可用性仍待E/Q。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: 原独立 Gate 2 delegated reviewer，实际session `f3bff003-49fa-40ab-b29c-e469c1a0daf4`（本轮定向重新核实）；同一执行者续审，未参与626产品修改或625设计修订，不以长期P身份冒充独立reviewer。
+- review_mode: **full**
+- mode_reason: 实际产品diff改变普通审批证据入口、共享来源投影、Guardian admission与parser语义；设计实质修改prepare的核心证据边界、context恢复策略及M1退出判据。不是单纯报告保存，也不能仅做旧finding closure。按skill选择full，覆盖本轮影响并重核完整需求/安全闭环；未变化的公共运行时能力有明确retained依据。
+- started_at: `2026-10-20T18:10:52+08:00`
+- completed_at: `2026-10-20T18:13:35+08:00`（事实核对完成时间；随后追加本报告）
+- duration: `PT2M43S`
+- validated_at / executed_base: **`d9de1581d13cca8485dfc1db658e1ac13bc06b47`**（本轮HEAD及本地origin/main相同）。
+- product_baseline: **`051e7d68e159814cdba1e622f760208fc6d3af68`**；独立Git核实其后至本轮冻结SHA的`packages/`、`apps/`、canonical spec均无diff。
+- previous_reviewed_design_ref: `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59`；历史R2闭环保留，但不作为新设计自动通过的依据。
+- effective_base / effective_through: 本轮冻结SHA；仅设计审查，不是实现/产品验收。
+- checkout: `/Users/czj/.nanoassistant/workspaces/nano-product`，branch `main`；开始时仅原`.claude/skills/.usage.json`未跟踪，未读取/修改。
+- skills/scope: 实际加载`change-design-reviewer`，沿用已加载`codebase-design`、report reference与仓库workflow。只追加本report；未改设计/产品/团队图，未提交、建分支、访问Inbox/conversations、公开发送或委派。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。新冻结设计的Gate 2未通过。**
+
+主要兼容修订方向与626实际产品一致；但新增来源描述把“同action技术恢复/同进程委派”和“失去live provenance的进程恢复”混在一起，可能引导工程无条件将当前仍可信live的继承/冻结证据降为restored。应由原author局部消歧并补双向回归，见 **R3-W1**。不要求重新确认已决定的人类范围、预算或fallback。
+
+### Artifact and diff coverage
+
+先读Author compatibility check L338–354，再独立读取实际diff，没有用其摘要替代取证：
+
+1. 比较`617ddaf35..051e7d68`的产品审批源码、资产和canonical变动；完整读取当前`approval.ts`、`classifier.ts`、`types.ts`、`sources.ts`、`codex-context.ts`、`codex.ts`及相关测试定义。
+2. 比较`051e7d68..d9de1581`，确实只改625 design/runbook/report三文件；完整读取新design（236行）、runbook（166行）、delta（85行），重读首文档17场景与非目标、当前canonical L508–596，并读取626归档design作历史参照而非产品事实替代。
+3. spec/delta/M1骨架从R2至本轮均无变化；新design blob=`bf805a016b136192641341574ea442291a7d82e7`，runbook blob=`7d9df2dbff9f25f2b5417ecd12842b4dcb34d022`。
+4. 本轮追加前354行报告SHA-256=`74dc583befee89eea2b5de9b09f3b5ad08868e2bb48054d43ebc322cea570374`。R1、Author Resolutions、R2和兼容核对均保留；不修改旧结论。
+
+### Full coverage and independent evidence
+
+#### 1. Production assembly and responsibility boundary
+
+重新读取生产`apps/node/src/main.ts` L39–44、integration `index.ts` L107–115/L155–158，确认仍是Node生成官方profile、integration安装attribution和CC/Codex/NanoApproval，非仅测试入口。`approval.ts` L126–129现在只构造exec/config/sources/inherited/messageContext/reviewer，已删除普通动作`pa.authorization`；classifier的transcript/system和types也删除该参数。`codex.ts` L66–73的真实动作没有旧授权包。
+
+本轮设计L58/L101将15秒prepare改为当前有效history/既有inherited/必要messageContext，禁止全库重读；与生产边界吻合。恢复controller应隐藏额度、时间、取消和trace，不负责检索新授权、重建消息库或解释风险schema。原策略/source/parser继续拥有投影与语义，facade继续拥有最终路由和工具调度。复用626纯投影/admission比新增retry专属摘要器、授权包或第二套parser更局部且维护代价更低；设计选择正确，除R3-W1的来源范围表达外未发现需重构的职责缺口。
+
+PA独立链确实仍存在：读取`personal-assistant.ts` L59–84的非主人participant入站、L103–109的prepare→独立action review→commit、L136–155的主人DM豁免/对外证据；integration `index.ts` L429–456暴露`pa.evidence/pa.review`，`personal-security.ts` L23–43使用独立无工具stream。它们不是普通工具失败备用审核，不因普通取数为0而应删除。对应源码从R2至本轮无diff。
+
+#### 2. Effective history, normalization and frozen evidence
+
+- `sources.history` L131–175使用`deriveMessages()`，PTC仅挂到仍有效的root；普通CC不附generic工具正文，Codex请求toolResults/fullAssistant，压缩删除原文不靠遍历DB补回。
+- `codexEntries` L20–27按宿主结果call id仅删除同call generic outcome/body，Inbox逐message复制页级外壳；sender/reply/delivery/observation不会因类别选择而改写。空页保持结果。当前history L175已规范化；`codex.ts` L66对inherited也规范化，L67才计算serialized cursor，L68前缀不匹配即丢cache。
+- 规范化后的冻结rows适用于技术恢复full；失败reviewer历史不回灌，model/provider/动作不切换。设计L59、L91、L93和runbook§5.2覆盖这些新交叉点，未要求复活父压缩原文。
+- 重新读取`approval-sources.test.ts` L34–66/L86–113/L122–147，现有测试定义覆盖当前live、release后restored、压缩root、manual exact action、恢复继承去重；本轮未执行这些测试。**同进程继承是否仍live必须按真实epoch保留，不能从测试只含recovered=true反例推导“一切inherited都是restored”**，详见finding。
+
+#### 3. Guardian profile/admission and service recovery
+
+完整读取当前`codex-context.ts` L86–130及`codex.ts` L78–87：历史计入message成本；非用户纳入才计40；单项消息/工具5000/1000、聚合20000/10000；已选assistant和最近5条已选工具required。最终请求计入完整action、framing和omission；required不足时只有recovery可按顺序缩历史正文、保来源和首尾，其余required不牺牲；optional先剔除无法单项容纳者，再从旧项移除。当前delta显式false，full默认true；0.65确实已删。
+
+修订设计L60/L93及runbook L157正确沿用这个现行phase：初次full也使用默认recovery admission，并非service故障后才首次允许历史收缩；有checkpoint的delta preserve不裁历史，放不下进入正常context rebuild。service失败后的干净full使用冻结证据与同一规则，不通过新session重置全action contextRebuildRemaining。没有新百分比缩放、扩大窗口、换模型或裁动作以换成功。要求context rebuild→503→full与required放不下的组合回归，是合理新增退出条件而非暗增需求。
+
+#### 4. Parser owns valid verdicts; format recovery does not reinterpret risk
+
+当前`codex-context.ts` L10–26与新增output_contract确实接受bare allow/deny及外围文本JSON；allow缺省low、deny缺省high、authorization缺省unknown、空/缺rationale用默认，非法outcome/enum/type仍拒。旧四字段强制和额外critical/high allow过滤已删，不应由retry controller重造。
+
+设计L61–62/L118将有效性完全交给现parser；runbook§5.2明确503→bare allow只耗service额度、format=0，bare deny不重试，符合首文档“真实有效deny不刷allow”。读取`codex-approval.test.ts` L8–14/L28–52的现有样例定义核实预期；本轮没有运行parser/产品测试，也不把626旧测试记录当625通过。此兼容修订闭合，无新增warning。
+
+#### 5. All 17 scenarios, budgets, cancellation and old routing
+
+重读首文档L59–169并与新design全文核对：
+
+| 首文档场景组 | 本轮判断 |
+|---|---|
+| 短暂恢复成功、混合共享次数 | controller仍隶属ToolExecution，2次总恢复跨阶段/故障类型，新source/cursor/session不另送额度；只重判不调用工具体 |
+| CC完整阶段、Codex完整90秒、整体有界 | 30/60/90秒、15秒prepare、20秒总退避、5秒回收、360秒保护未变；Codex330/CC265秒估算仍容纳完整末次机会 |
+| 首次格式、再次格式/总额耗尽 | format最多1次且占总2次；626 bare/default语义由parser先决，EMPTY_RESPONSE仍统一格式子额度 |
+| CC阶段/最终deny、Codex风险授权检查、永久错误 | 正常CC stage推进不耗恢复；只读调查与context不成新授权；永久错误不换模型/刷allow；证据原样保真范围尚有R3-W1 |
+| 主动取消、非主动单次timeout | parent取消优先，generation失效、drain/quarantine、late create只清理仍在；不会以context/profile新phase重置期限 |
+| 普通有人值守、Global/child、unattended allow/deny | 重新读取`approval.ts` L71–98/L131–143，原route/计数事实未改；耗尽按旧配置，cancel无fallback放行，不声称全部耗尽零执行 |
+| 内部尝试可追踪、真实双策略插件旅程 | action/attempt/request与已知usage/unknown、optional audit兼容、真实Work/副作用及四类证据分层保留；§5.2增加有效上下文/输出组合回归 |
+
+**retained_from: Round 2**：公开DSH failure/create/dispose/全局stream marker能力、精确reviewer registry/ALS方案、HTTP facts seam、optional audit、取消晚到不复活的架构可行性。独立Git核实依赖声明/lock、安装入口、attribution/audit及相关DSH边界没有产品diff；新design对应接口与决定逐段未改。R2 probe仍仅说明公开seam可行，不能当本轮新source实现或真实loop/HTTP验证。
+
+#### 6. Canonical/delta, milestone and acceptance prerequisites
+
+本轮独立Node只读文本断言核对delta的完整MODIFIED块：8个Scenario都在，规范化预期的失败WHEN及新增legacy AND后，与最新canonical对应块逐字一致；返回`modified_scenarios=8, only_expected_failure_lines=true, new_626_requirement_outside_replacement=true`，exit0。626新增“普通工具审批遵守当前有效执行上下文”在该窄replacement之外，必须保留；delta无需复制整个canonical或另写重复Requirement。
+
+单M1数量/依赖/并行组未改，扩展的是626交叉回归退出条件，和恢复安全闭环同属一项，不需拆层或新审批。M1骨架仍空；源码/前端没有本轮新客户端面，无prototype要求。runbook原隔离起停、真实IM/Work入口与专用low审核候选前置 **retained_from: Round 2**，对应apps/config/脚本未变化。新§5.2已明确真实PA受审任务不走fastpath冒充审核、库外标记和副作用分开记录、626历史replay不替代本候选SHA。Python仍3.9.6，模型真实smoke/HTTP旅程仍待E/Q，不写已验证。
+
+### Historical issues
+
+- **R1-W1 — closed（设计层，retained_from Round 2）**：本轮仍为精确原生身份先过滤的唯一全局分派，无恢复错误scoped隔离假设；本轮不重跑也不升级旧probe为产品证据。
+- **R1-W2 — closed（设计层，retained_from Round 2）**：审核候选、静态low/窗口断言和双策略真实smoke契约未变，不把health当可用性。
+- R2无finding；本轮新基线需要自身结论，不沿用旧Approved。
+
+### Issues
+
+#### R3-W1 — 明确区分同action技术恢复、同进程委派与失去live provenance的进程恢复，不能无条件把inherited写成restored
+
+- **位置：** `design.md` L59“恢复/inherited仍restored”；`reviewer-runbook.md` L154“继承Inbox维持restored”。前者与L58/L91所说复用冻结投影相邻，未限定“恢复”是进程恢复而非本unit的service恢复；后者也没有给出同进程对照。
+- **独立事实：** 当前`approval.ts` L55–57保存委派来源时记录`epoch: this.epoch`并保存真实history；L65–68仅在`saved.epoch !== this.epoch`时以`recovered=true`重投影。`sources.restoreEntries` L77–87明确：同进程旧`host_context_live`在`!recovered`时保留live，已有`inbox_result`也只有recovered=true才改restored。`codex.ts` L66再次restore时传false，`codexEntries`本身只规范化/去重、不改observation。因此当前并非“一切inherited都restored”；同一action一次503也不使本进程失去已经观察到的live来源。
+- **为何需要修订：** 625承诺保留626来源语义，不新增授权规则。若按这两句实现统一降级，原本同进程可信Inbox证据会在委派或内部service恢复后变成仅历史背景，已授权动作可能无故被拒/要求重确认、转人工或进入unattended fallback；反向若为保通过又一律升live则更错误。新接口必须固定真实observation，而不是因“恢复”重命名来源。现有recovered=true测试不足以证明两条路径都保留了现状。
+- **需要闭环：** 原author把文本限定为：技术恢复重用本action已冻结的实际live/restored标记，普通同进程inherited按现有epoch/来源契约保留，不做无条件降级；只有真正失去进程观察证明的恢复/跨epoch委派记录才按现有restore规则变restored，已restored不能提升。runbook增加同进程live继承及其503→full仍live、跨epoch/旧持久记录restored的对照，均保留sender/page/reply与去重/cursor。无需新消息库检索、改变授权语义或重问用户。
+
+### Recommendations and validation limits
+
+- 无额外可选recommendation；新增0 CRITICAL / 1 WARNING。
+- 本轮成功只读Git/文本断言均核对exit0；没有安装、启动服务、真实模型、产品源码执行探针或实施测试。未运行docs-check/build/typecheck/Vitest/pytest/真实IM旅程，Python合格环境与实际路由可用性仍需E/Q。
+- 本轮仅追加R3。具体阻塞是R3-W1来源语义消歧与对照验收契约；回原author判真修订、冻结后续投本reviewer。没有需求范围或人类决策阻塞，不授权merge/部署/发布。
+
+### Author Resolutions — Round 3
+
+**完整读取R3，R3-W1 accepted。** 原author核对current `approval.ts:55–68`的delegated epoch及`sources.ts:65–88`的restore逻辑后判真：原文把技术恢复、同进程继承与丢失观察证明混称“恢复”，存在误导统一降级的实际风险；不能以收紧来源为安全理由改变既有可信授权语义。
+
+| Finding | Author resolution | 具体修改 / 待验证 |
+|---|---|---|
+| R3-W1 | **accepted，已修订，待独立reviewer复核** | design的626来源约束明确三条路径：同action503/timeout/full/context重建保留冻结的真实live/restored；同epoch继承按现`restoreEntries(...,false)`保留，包括旧`host_context_live`；仅跨epoch/丢观察证明按现true规则restored，旧`host_context`及已有restored不升live。runbook§5.2同步删去无条件降级措辞，加入同epoch live继承→503→full仍live与跨epoch/旧持久restored→503→full仍restored的双向对照；sender/page/reply、去重/distinct call及cursor均继续对照。 |
+
+**retained / 边界：** 首文档、最窄delta、M1骨架均无变化；626其余入口/admission/output、恢复预算/次数、失败分支隔离、精确stream归属、审计、取消与既有fallback不受W1修订影响。没有新增授权取数、重检用户、产品代码或范围调整。仅design一处来源约束、runbook§5.2来源措辞及一项对照验收、本报告追加；旧reviewer各轮原文未修改。R3非Approved，本resolution不是门禁通过；冻结新ref交父P续原reviewer，author不指定审查mode、不签Approved。本轮只做静态文件/diff核对，未执行产品测试、真实smoke或docs-check，不新增pass声明。
