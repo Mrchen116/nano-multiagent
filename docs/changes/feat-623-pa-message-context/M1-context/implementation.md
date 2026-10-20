@@ -17,3 +17,17 @@
 | 普通工具权限、能力目录与已有 editable prompt | personal-security.test.ts keep | 与真实 DSH fixture 同轮通过，不替代真实模型意图验收 |
 
 新永久测试均归属现有 backend Vitest gate；无一次性验收脚本进入长期测试集。构建 `pnpm build` 已通过；PA typecheck 已通过。完整 CI、独立产品与静态门禁在最终版本继续记录。
+
+## 冻结版本全量验证
+
+受测实现：`f036aedd5e7bc972a413989474f166a8d49db752`（build 产物内容与该提交一致）。
+
+- `pnpm build`、`pnpm typecheck`：通过；`/tmp/feat-623-build.log`、`/tmp/feat-623-typecheck.log`。
+- `pnpm test`：106 suites / 469 tests 通过，111.59 秒；`/tmp/feat-623-backend-full.log`。
+- Web `npm ci`、`npm run build`、`npm run test`：100 files / 936 tests 通过；`/tmp/feat-623-web-build.log`、`/tmp/feat-623-frontend-tests.log`。
+- `npm audit --audit-level=critical`：通过（5 个已有 low）；`/tmp/feat-623-frontend-audit.log`。
+- `pytest -m 'not e2e' -q`：62 passed / 31 deselected；ruff check / format：通过；`/tmp/feat-623-pytest.log`、`/tmp/feat-623-ruff.log`。
+- docs-check：248 maintained Markdown sources / 67 routes 通过；`/tmp/feat-623-docs-check.log`。
+- final-base 只读同步：`origin/main=e63501054`，没有新增 upstream code；PR #371 仍 open，交付保留显式依赖。
+
+隔离真栈已按 runbook 建立，由独立产品 reviewer 记录实际模型/平台结果；上述 fixture 和自动测试不代表真实模型意图验收通过。

@@ -118,6 +118,10 @@ it('recovers an uncertain background ACK with its original identity and drops re
     await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);expect(f.inbox.check('pa',true).sources).toEqual([]);
     expect(f.product.busy).toBe(false);
+    f.excluded.delete('background');
+    await f.product.receive(f.input('new accessible batch'));
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(f.submitted).toHaveLength(2);
   } finally {await f.close();vi.useRealTimers();}
 });
 it('stops the deadline timer without consuming stored background',async()=>{

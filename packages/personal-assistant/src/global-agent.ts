@@ -179,7 +179,8 @@ export class GlobalAgent {
     this.waitingForIdle.add(config.agentId);
     if (this.options.relay.ready===false) return;
     await this.refreshPersonalSources(config);
-    const batch=inbox.background(config.agentId); if(!batch)return;
+    const batch=inbox.background(config.agentId);
+    if(!batch) {this.waitingForIdle.delete(config.agentId);return;}
     const inputId=`inbox-background:${config.agentId}:${batch.watermark}`;
     if(batch.pending && !batch.unread) {
       const prior=await runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted:boolean};
