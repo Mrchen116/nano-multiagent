@@ -74,17 +74,19 @@ flowchart LR
 
 Global receive 写入由准入结果覆盖的内部 metadata（`personal_is_owner`、`personal_delivery` 及既有 conversation_type/channel）；每次准入清除旧 personal_source_role，不允许旧 payload 重新覆盖可信结果。观察事件带既有群触发所需元数据：从存储原消息调用现有 `mentionedAgents` 与 interaction_reply 解析；合法外部 inbound 继续沿已认证 channel metadata 的提及/回复结果。不得创建新的 mentions 语义或模型输出字段。
 
-PA `inbox.check` 仍为 sources 数组，每项只补 `conversation_type` 与 `delivery`；原 target/name/unread/requires_attention 保留。PA `inbox.read` 保留 target/messages/content/time/channel 结构，每条 sender 加 `is_owner`，每条消息加 `conversation_type` 和 `delivery`，移除 source_role。read 放在消息层是为了保留接收时事实，避免退群/入群前后未读混合时错误共用一个标记。check 的 delivery 取该 target 最新可信关系，仅作导航；逐条 read 是历史事实依据。不增加 participants 或 mentions；不清楚谈话对象时查询现有 conversations info/read。
+PA `inbox.check` 仍为 sources 数组，每项只补 `conversation_type` 与 `delivery`；原 target/name/unread 保留，PA 模型返回不包含 requires_attention。PA `inbox.read` 保留 target/messages/content/time/channel 结构，每条 sender 加 `is_owner`，每条消息加 `conversation_type` 和 `delivery`，移除 source_role。read 放在消息层是为了保留接收时事实，避免退群/入群前后未读混合时错误共用一个标记。check 的 delivery 取该 target 最新可信关系，仅作导航；逐条 read 是历史事实依据。不增加 participants 或 mentions；不清楚谈话对象时查询现有 conversations info/read。
 
 示例（省略不相关字段）：
 
 ```json
-{"sources":[{"target":"conversation:7","name":"与小王的聊天","unread":2,"requires_attention":false,"conversation_type":"direct","delivery":"observer"}]}
+{"sources":[{"target":"conversation:7","name":"与小王的聊天","unread":2,"conversation_type":"direct","delivery":"observer"}]}
 ```
 
 ```json
 {"target":"conversation:7","messages":[{"id":"m1","sender":{"id":"owner","type":"user","name":"主人","is_owner":true},"conversation_type":"direct","delivery":"observer","channel":"web","time":"2026-10-20T10:04:00+08:00","content":[{"type":"text","text":"好，我今天改报价。"}]}]}
 ```
+
+`attention`、`requires_attention` 是宿主触发和发送前复核使用的内部状态，不能充当模型的任务优先级或阅读指令。保持 InboxStore 内部 attention/check/blocking 行为，在 GlobalAgent 的 PA inbox.check 工具结果投影中去掉 requires_attention；不修改普通 Global 的既有返回，不改变任何触发、消费或复核判断。模型根据系统提醒、来源关系与原话决定怎么处理。
 
 同一人的 is_owner 不因 direct/group 或 participant/observer 改变。参与会话不意味着每句话都发给 PA。原 sender.id/type/name、时间、内容、附件和真实回复目标不改写。
 
@@ -178,6 +180,6 @@ IM 提供一个内部原消息事实投影，供 admit、authorization、source 
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；含 PA 查 idle 后 runtime 先变忙、仅背景最高序号被撤销后新来源收件，以及无关 observer 不使审核失效而真实更正仍失效；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
+| M1-context | 统一事实投影与背景通知，完成真实旅程 | bugfix-621、bugfix-622 代码基线 | — | 上述 IM/PA/DSH 接线、对应既有 tests、`apps/node/tests/global-inbox-native.test.ts`、本 unit evidence；无客户端更改 | [reviewer] spec 全部场景通过，六组意图对比、真实十分钟批次、提前引用背景、真实飞书回复/提醒与 Web 连续性有实际结果；[worker] 可信身份、成员/观察关系、群触发/命令、旧数据恢复、通知/消费分离测试通过，实际 PA 工具返回不泄露内部 requires_attention 且宿主原触发/复核仍有效；fake clock 验首批/后续固定期限、空批取消、无新来信到点、忙碌合并、ACK 重试、重启/撤销及直接 wake 竞态；含 PA 查 idle 后 runtime 先变忙、仅背景最高序号被撤销后新来源收件，以及无关 observer 不使审核失效而真实更正仍失效；真实 DSH fixture 验 steer 及时通知与背景空闲合并；相关类型检查、build、架构契约与 docs-check 通过 |
 
 测试先最窄现有 inbox/global-agent/personal sources/disclosure/attention 与 personal-security，再实际 DSH 接线与真实模型。原生 fixture 测时序，不宣称真实模型理解已验；平台回执与实际观察证明交付，不以模型自述代替。单 M1 保证身份、通知、审核上下文和验证共同交付，避免中间状态新旧语义混用。
