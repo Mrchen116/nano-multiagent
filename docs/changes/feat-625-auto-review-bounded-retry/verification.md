@@ -180,3 +180,94 @@ N/A。没有客户端面或视觉原型契约；本报告不做产品可用性�
 - 本轮无IM/Gateway长驻服务；native测试自建temp runtime/HTTP server，在各finally shutdown/close。所有本会话后台安装/build/tests jobs均已收集结束；没有需要移交的运行job。
 - 只提交本目录两份报告；未推共享unit分支，未merge/deploy/release。agent-scope async-boundary-validation只沉淀可复用的持久化取消观察方法，不含本unit进度。
 - 父E下一步：将W1原文/版本/复现交原实施者，先修复并冻结新SHA，再按实际delta复验；Q补独立17场景/模式入口与真实插件限制；最后才能判断sync/CI/canonical/archive/Ready PR。不将本报告FAIL或工程retained证据说成全门禁pass。
+
+---
+
+## Round 2 — targeted-closure（W1 与相邻持久化窗口）
+
+### Summary / 版本
+
+**Verifier verdict: PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION（本轮 targeted-closure）。W1 closed。** R1 的历史 FAIL 与 finding 原文保留，不回写；本轮不是重新 full，也不是独立产品 Q 或 Ready PR。
+
+| 字段 | 固定值 |
+|---|---|
+| review_round / verification_mode | 2 / targeted-closure |
+| code_review_modes | patch + closure，完整修复 delta，不扩大审整条 unit |
+| validated_at | `3dbfac7689a959b7a33106631bafd4f7975a9ae8` |
+| executed_base | `861b94129bc8c5aadbca76967268fd203fe04112`（Full 的原始 base，不替换为 pre-fix） |
+| pre_fix_head / finding_origin_head | `4c20949e5e6995944f35217177950e14dfdf67da` |
+| fix_delta_range | `4c20949e5e6995944f35217177950e14dfdf67da..3dbfac7689a959b7a33106631bafd4f7975a9ae8` |
+| fix_implementation_sha | `db8bc8201badf734fa7bde25bcd27a00b09128fe` |
+| prior_reports | `code-review.md`、本报告 Round 1；原提交 `ce3d08fc212e94c5dc18cccdceeb97ab86ba3b7f` |
+| report integration | `7beeaf72e` 的 R1 两份报告与原 ce3d 报告 byte-identical（Git diff exit0） |
+| effective_base / effective_through | **未建立**，没有 final sync；本轮 retained 仅限固定输入间差异，不外推 main |
+| requires_full_verification | **false**；修复影响保持在同一 facade 的取消/审计终态，相关权限与 native 边界已复验，无需重开全量验证 |
+| independent code-review output | `code-review-r2.md`：JSON finding 数组 `[]`；closure状态与证据如下 |
+
+### Code review patch + closure
+
+| Focus finding | 原位置与确认状态 | 本轮 closure | 依据 |
+|---|---|---|---|
+| R1-W1 / P2 | 原 `policy/approval.ts:175`，CONFIRMED | **closed** | 新 `approval.ts:100–118,167–179,185–197` 在取消后 await 同 reviewId 的原子终态更新；持久化前/后双 gate 独立通过 |
+
+Patch 范围包含全部5个文件：两份原报告集成、progress证据追加，以及 `approval.ts` 和 `review-audit.test.ts` 实质修复。没有存活 finding，无 still_open/superseded；未发现相邻 no-result/fallback/escalate 路径的新 correctness 问题。不是按作者的“已修好”声明关单，而是核对代码和独立运行冻结版本长期测试。
+
+### Completeness / Correctness
+
+本轮闭环 spec.md:122–125 的取消语义、spec.md:150–155 的最终路由/用量追踪、design.md:193–203 的原审计事实/取消终态/落盘失败边界；原17场景与M1其余映射沿R1 retained，不重写为新full结论。无 prototype/reference 改动，must-match **N/A**。
+
+| 受影响契约 / 窗口 | 实现位置（`packages/dsh-integration/src/`） | 独立证据 / 状态 |
+|---|---|---|
+| 模型 allow 或 deny 已返回，持久化前 copy / copy后update仍pending时取消 | `policy/approval.ts:185–195` → `100–118` | `review-audit.test.ts:80–120` 的 model allow/deny × before/after gate；返回cancel、原模型判定保留、唯一详细trace改为cancelled/cancel、linked取消行各1，**covered** |
+| no-result 第一条详细审计 pending，尚未进入allow或ask fallback | `approval.ts:171–180` | unavailable before unattended allow / interactive ask × 双gate；只两条row，取消未进入fallback，**covered** |
+| unattended allow/deny、Global return_to_agent或有效deny阈值escalation的第二条记录pending | `approval.ts:120–127,188–197` | 四类第二写入 × 双gate，返回cancel；唯一详细trace纠正实际终态、未发生fallbackOutcome清除，**covered** |
+| 早取消与普通backoff取消 | `approval.ts:167–169`；cancelReview的initial参数 | 无历史trace时原位写一条详细cancel行；既有backoff测试继续通过，**covered** |
+| 保留模型判定/metadata/attempt/request/usage，取消不重计usage或增deny | `approval.ts:108–116` | map保留原entry并仅改recovery终态字段，嵌套attempt/usage与metadata不重建；测试explicit fixture knownUsage 7/3仍在原trace，新行无recovery/usage，counts与前行相等；**covered** |
+| cancel终态写入失败必须reject，不能allow或伪装已完成写入 | `approval.ts:105–118`，调用方await/返回其Promise | `review-audit.test.ts:123–133` deferred gate + 第二次写入报错；独立执行reject测试通过；已有首次存储失败no-allow测试保留，**covered** |
+| 终态幂等和manual路径 | `approval.ts:103–104,113` | reviewId限定修改，已有cancelled行则不追加；无自动reviewId维持manual取消路径；静态可直接核对，旧manual/native权限回归通过 |
+
+精确持久化窗口的证明层级是 **facade + schema/storage seam 的长期测试**：真实父AbortController仅在deferred gate已进入后abort，gate位于schema解析copy前和copy后/update resolve前，测试还断言facade没有提前settle。测试中的effects是允许返回计数，不是声称真实工具执行。真实native HTTP/业务副作用由相邻integration回归另行保护；没有将本轮测试冒称真IM storage故障注入。
+
+### Coherence / 失效与 retained 判断
+
+- **失效并重验：** R1-W1、模型verdict/no-verdict/fallback/escalation的审计取消窗口、终态写入失败、计数/usage及旧fallback相关结论。原行仍保留模型判定，取消事实通过同reviewId终态/新增行表达，不抹除已发生的安全deny计数；无新fail-open。
+- **实现范围实核：** Git确认 `db8bc820..3dbfac -- packages scripts tests` exit0，validated tree 与fix源码/测试一致；`4c209..3dbfac` 除approval.ts/review-audit测试和3份报告/progress外无变化。旧报告集成不会变更其历史结论。
+- **R1 full retained：** recovery次数/30–60–90预算/prepare15s/action360s/cleanup5s、Retry-After、唯一global dispatcher/HTTP sink、exact-owner身份/缓存fork隔离、raw iterator drain、Guardian clean full/context≤1、626来源/零全库读取/admission/parser、独立模型/检查权限、DSH公开exports/依赖锁和current/unit specs均未改。通过精确path diff exit0和本轮受影响回归支持保留；没有将90秒×3、默认30/90超时、owner并发HTTP及parser旧证据说成重跑。
+- **外部门禁仍保留限制：** 本轮不兼Q。Global/child/schedule/heartbeat完整真IM故障旅程、真实双策略插件独立验收和Codex负数clamp旅程限制不因W1 closed而补成pass；父E需结合Q另行报告判定。最终sync/CI/canonical/archive/Ready PR仍不在本轮结论内。
+
+### 独立命令 / 结果
+
+全部命令在新建本人R2 worktree运行，未进入作者现场或重新执行上轮被拒的自定义probe。
+
+| 命令 | 退出 / 结果 |
+|---|---|
+| `pnpm install --frozen-lockfile` | 0；锁文件不变，Node v25.8.2 / pnpm11.7.0 / frozen DSH0.2.1-alpha.1 |
+| `pnpm --filter @nano/dsh-integration... build` | 0；编译本轮product-contracts + integration产物 |
+| 下列9文件 `pnpm exec vitest run ...` | **0，9 files / 94 tests，25.83s**；其中audit27条（含16个双gate窗口及终态写入失败），真实native quarantine约13.78秒、真HTTP三策略15条均通过 |
+| `pnpm --filter @nano/dsh-integration typecheck` | 0 |
+| `git diff --check 4c20949..3dbfac768` | 0 |
+| `git diff --exit-code ce3d08fc2 3dbfac768 -- <R1两份报告>` | 0；R1历史原文一致 |
+| `git diff --exit-code db8bc820 3dbfac768 -- packages scripts tests` | 0；fix frozen identity |
+
+```sh
+pnpm exec vitest run \
+  packages/dsh-integration/tests/review-audit.test.ts \
+  packages/dsh-integration/tests/approval.test.ts \
+  packages/dsh-integration/tests/approval-workspace.test.ts \
+  packages/dsh-integration/tests/approval-retry-native.test.ts \
+  packages/dsh-integration/tests/review-quarantine-native.test.ts \
+  packages/dsh-integration/tests/personal-security.test.ts \
+  packages/dsh-integration/tests/approval-sources.test.ts \
+  packages/dsh-integration/tests/review-source-recovery.test.ts \
+  packages/dsh-integration/tests/review-recovery.test.ts
+```
+
+作者progress:143–169的有版本/命令证据只作补充：红测17failed/10passed→修复27绿；workspace8项目typecheck、9/94、真IM受影响6passed/2deselected、contract28/docs-check通过。本轮独立确认9/94与integration typecheck；**未重跑作者真IM6条/全workspace typecheck/contract/docs-check**。真IM6条不包含storage gate，其精确窗口由上列长期测试承担；本轮无工具拒绝或测试失败。
+
+### Issues / 交接现场
+
+- 本轮 **0C / 0W / 0S**，validated_issues：W1 closed；无需追加独立候选核验。两份静态输出分别为本R2段与`code-review-r2.md`的`[]`，不覆盖R1 JSON finding。
+- R1 worktree先核clean，HEAD=`ce3d08fc2`不是3dbfac祖先（`merge-base --is-ancestor` exit1），原因是父branch cherry-pick报告造成历史分叉；没有尝试非ff merge、解决冲突或覆盖R1。按caller预授权fallback，先核绝对目标不存在/branch不存在后，新建 `review/feat-625-r2` 于3dbfac。
+- R2保留续验：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r2`；R1保留原报告commit/现场不动。两现场owner仍为本独立reviewer，父E收集报告commit后可续同会话；无自动删除。
+- native测试自有temporary runtime/HTTP均按finally关闭，进程模式复查无本轮残留；唯一后台安装/build/tests job已结束并收集。没有启动IM/Gateway长驻服务。
+- 只提交R2 JSON与本报告追加段，不改源码/测试/配置/设计，不推共享unit分支，不发公开、不改团队图、不派worker、不merge/deploy。请父E整合报告并维持其他独立门禁与final-sync版本边界。
