@@ -139,3 +139,31 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 3. 本执行子会话仍为唯一实现/后续修复者；收门禁发现后续用本会话，不另派修复worker。code review/Q返回后才进行按失效范围修复/复验、final sync门禁有效性、delta校正/canonical归并、archive、Ready PR与required远端CI；本次未完成这些步骤。
 
 当前可交付仅为**工程候选及中立门禁输入**，不宣称M1全部退出、独立验收通过或Ready PR完成。
+
+## R1 静态门禁 W1 返修（工程事实，非closure verdict）
+
+### 来源与版本
+
+- 父E已将R1候选4c209推送；Q继续使用其独立4c209现场，本执行者未进入或修改该现场。本节不再沿用上节“未push”的历史快照作为当前团队事实。
+- `pre_fix_head=4c20949e5e6995944f35217177950e14dfdf67da`。恢复先核clean/HEAD，然后按父E指令仅cherry-pick独立报告原commit `ce3d08fc212e94c5dc18cccdceeb97ab86ba3b7f`，本branch落点`7beeaf72e`。已用git diff核对两份报告与原commit逐字一致，**不改历史FAIL/CONFIRMED结论**。
+- 已完整读取[code-review](../code-review.md)和[verification](../verification.md)：1 P2 CONFIRMED / 0C-1W。W1是终态审计不一致，不是确认取消后执行或重复副作用。
+- reviewer首个直接probe足以确认。其第二probe的工具拒绝没有被重试/换工具绕过；以下为本执行者在允许工具内开发的长期Vitest用例，不把该拒绝记成测试结果或权限授权。
+
+### 根因、红测与修复范围
+
+- facade在模型verdict/no-verdict后先封planned trace并await domain update；父取消可穿过这个持久化await，返回cancel而留下唯一完整allow/deny或fallback trace。`escalate`的首/尾取消检查也只返回cancel，未记录同reviewId终态。
+- 在`review-audit.test.ts`的storage seam使用deferred gate，将真实`AbortController.abort()`放在**持久copy前**与**持久copy后但update尚未resolve**，不是旧abort-before-review/backoff测试。8条路由×2边界：model allow、model deny、no-result→unattended allow前、no-result→interactive ask前、unattended allow/deny写入中、Global return_to_agent、deny阈值escalation fallback。另测取消补记写入失败必须reject而不能allow。
+- 修复前实际`pnpm exec vitest run packages/dsh-integration/tests/review-audit.test.ts`：**17 failed / 10 passed / exit1**。16条窗口均返回cancel却保留旧route，补记失败用例因根本没写取消而错误resolve cancel；测试确实到达目标gate并且未提前完成。未触及产品源码前取得有意义红测。
+- 修复只改`policy/approval.ts`：新增私有取消终态操作，在**一次同session原子domain update**中保留原判定行的decision/reason/metadata/attempt/usage事实，将该reviewId唯一详细trace最终route/reason改为cancel/cancelled、移除未执行的fallbackOutcome，并追加同reviewId `review_cancelled/cancelled`终态行。无已有trace的早取消仍只写一条详细取消行；已有trace时新行不重复usage，取消不新增拒绝计数，重复补记不重复终态行。
+- 有效verdict持久化后、no-result持久化后、escalate入/出持久化的取消检查都经这一操作；非取消路由及配置不变，manual无自动reviewId仍沿旧路径。所有取消写入必须await，存储失败继续抛出，不能借取消/丢失审计返回allow。
+- 没有修改recovery预算/次数、HTTP listener/sink、Guardian registry/生命周期、来源投影/626、公开类型、audit schema/version、设计/delta/canonical。模型allow/deny事实仍在原行；不是把原模型判断伪装成cancel，也不抹去实际安全deny计数。
+
+### 验证与待复验范围
+
+- 初次修复最窄 build + audit：**27 passed / exit0**。补强model fixture knownUsage留存与取消行不重复usage断言后再次单跑：**27 passed /0.311s/exit0**。该补强后的源码/测试已冻结于`fix_implementation_sha=db8bc8201badf734fa7bde25bcd27a00b09128fe`；后续只有本节证据追加。
+- `pnpm typecheck && pnpm exec vitest run`下列9文件：**9 files / 94 tests passed /27.02s/exit0**；workspace8项目typecheck通过。文件为`review-audit`、`approval`、`approval-workspace`、`approval-retry-native`、`review-quarantine-native`、`personal-security`、`approval-sources`、`review-source-recovery`、`review-recovery`。包括三策略真HTTP15场景、真实native晚到drain、旧fallback/counters、626有效来源/零全库读取、30/60/90预算组合；其后仅补强audit fixture/断言未改源码，最窄重跑单列。
+- 真IM受影响回归使用新独占gitignored`.e2e-feat625-audit-closure/`运行：`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 .venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_retry_critical_path.py -q -k 'not real_default' --basetemp="$PWD/.e2e-feat625-audit-closure" --timeout=240`：**6 passed /2 deselected /201.55s/exit0**。两策略各10受控场景及4个真实stop；有有效allow/deny、no-verdict及真实人工fallback，允许动作effect一次、取消零执行，finally清理栈。该普通IM回归没有制造storage gate；W1精确持久化窗口证据是上列deferred长期单测，不混称IM已覆盖该注入点。
+- `PATH="$PWD/.venv/bin:$PATH" ./scripts/docs-check`通过248篇/67routes，`pytest tests/contract -q` **28 passed/0.56s/exit0**。首组合最后`git diff --check`因本节EOF多一空行exit2，修正该文档空行后通过，无产品代码变化；最终落盘后再执行docs-check/diff检查。
+- 失效判断：W1及同类persist窗口、原audit终态/计数/取消/旧fallback结论需closure复验；该处为公共facade，扩大到已有native权限/来源/普通IM矩阵。**原90s×3及默认30/90s timeout、并发owner HTTP归因、预算退避、parser/admission、真实vendor插件结果**在本次delta无变化，保留R1 report与原44/166、真IM8条对应部分证据；不能把retained说成本轮重新执行。PA/IM/frontend无改动，不机械重跑无关全量。
+- 本轮结果已全部收集，最后按独占closure目录核对IM/Node/fixture活动进程0，保留6份脱敏export（不提交config/DB/原始prompt）。agent-scope `async-boundary-validation`追加了持久copy前后双gate和cancel-terminal写入失败配方，无本unit暂态数据。
+- clean commit冻结后交父E：code review patch/closure + verifier targeted-closure，prior reports为本unit R1两份、focus W1及相邻persist取消边界；`fix_delta_range=4c20949e5e6995944f35217177950e14dfdf67da..validated_at`，其中报告集成为7beeaf72e、实际源码/测试patch为`7beeaf72e..db8bc8201badf734fa7bde25bcd27a00b09128fe`，其后仅本progress证据。`validated_at`取本节追加后的clean HEAD，由最终交接回执提供。原`executed_base=861b94129bc8c5aadbca76967268fd203fe04112`保留，未做final sync或外推effective_through。是否独立closure pass由独立reviewer决定；Q对相关审计范围的失效通知由父E协调。本执行者未push修复、不改Q现场、不派新worker、不归档/PR/pass。
