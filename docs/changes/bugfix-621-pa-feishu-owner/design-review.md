@@ -56,3 +56,46 @@
 - R1-W1 — accepted。design 接口与数据流明确 PersonalAssistant.send 分派前使用 NodeStore 可信 alias 归一化，并要求 shadow target 真实平台回执回归。ExternalStore.chat 已支持 shadow 查找，不重复新增。
 - R1-W2 — accepted。MODIFIED 完整保留普通 Agent 两个离线 Scenario，并补充 PA 中央恢复单次接入 Scenario。
 - 验收前置 — accepted。runbook 记载真实客户端可替代用户 API 发送；用户已主动协助续期专用 profile 授权。
+
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review_621`（与 R1 相同的独立 reviewer）
+- target: HEAD `869cdf6108481c77f9977a9c0b8cce79f485faf6`
+- review_mode: `closure`
+- mode_reason: 相对 R1 的实质修改限于既定目标归一化落点、遗漏 Scenario 的恢复与验收资源澄清；未改变需求、职责边界、执行主链或 milestone，按旧问题闭环复核。
+- started_at: `2026-10-20T09:52:49+08:00`（本轮证据确认时间）
+- completed_at: `2026-10-20T09:53:02+08:00`
+- duration: 13 秒；此前已读完本轮文档 diff。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+### Coverage 与证据
+
+- 已检查 `9fa676f00..869cdf610` 全部文件差异，只有 design、external-channels delta 和审查记录；incident、global-agent delta、M1 和实现未改。
+- retained_from: **Round 1**。主人绑定、原始授权、单入口、失败隔离、免披露审查的可信边界、普通工具权限与架构职责保留 R1 已覆盖证据，修订未扩大相关范围。
+- runbook 已纳入真实飞书客户端发送的替代路径，仍要求 SDK 入站、真实模型执行、回复与提醒平台回执/读取。主 agent 另报告专用 CLI 授权已由用户续期且缺失 scope 为空；该状态是作者本轮提供的前置事实，本 reviewer 未自行认证或执行收发，不把授权完成当成产品验收完成。
+
+### 历史问题闭环
+
+#### R1-W1 — closed
+
+- **Author Resolution**：在 PersonalAssistant.send 选择 Web/外部分支前使用 NodeStore 既有 alias 归一化 shadow target，并直接回归 Inbox shadow target 的平台回执。
+- **本轮证据**：`design.md:40` 已明确该责任和处理顺序。`store.ts:76-77` 的 `aliasConversation` 持久保存按 agent 隔离的 alias→canonical 映射，`:93-94` 已有同方向查询；`external.ts:241` 在镜像创建后写入 shadow→external 映射；`external-store.ts:25-27` 原本就支持 shadow 查找。该方案能在原先 `personal-assistant.ts:113-119` 分支之前解决地址，复用现有外发边界且保留 Web canonical 路径，不再依赖模型主动更换地址。
+- 当前 NodeStore 的 canonicalConversation 为 private，实施需将既有查询封装为可供 PA 调用的受限方法；这是已确定职责内的小接口落实，不构成额外设计决定或新的阻断。
+
+#### R1-W2 — closed
+
+- **Author Resolution**：完整保留普通 Agent 两个离线 Scenario，补充 PA 等待中央恢复的单次接入场景。
+- **本轮证据**：`specs/gateway/external-channels.md:24-34` 保留原 1:1 与群 @Bot 的 WHEN/THEN/AND，GIVEN 明确普通 Agent；`:36-39` 定义 PA 本地持久保留、中央恢复后授权可验证再单次接入。满足 MODIFIED 完整替换规则，也与 design 的中央准入决定一致。
+
+### Issues
+
+无未关闭问题。
+
+### Recommendations
+
+无。Gate 2 通过仅表示设计可实施；真实飞书收发、一次性提醒送达及权限回归仍须按 M1 验收。
