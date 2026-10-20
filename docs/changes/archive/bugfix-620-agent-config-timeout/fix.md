@@ -36,4 +36,8 @@
 
 - Red：真实配置 HTTP 在 15 秒被关闭；HTML 和结构化 pending 的 3 条前端新增用例失败。
 - Green：16 秒节点响应经真实 HTTP 返回 200；后台窄测试 34 条通过；前端配置、认证及 PA 设置窄测试 58 条通过，覆盖保存报错后编辑内容保留、无自动重发、旧换机接口 404 且绑定不变。
-- 全量检查和独立 code review 交付前补充；产品代码与生产版本区分记录。
+- 全量：后端 104 文件 / 449 测试；前端 100 文件 / 936 测试；非 E2E Python 62 测试通过。根 build/typecheck、Web build、ruff check/format、docs-check 通过。旧 Chat 错误测试改为真实 JSON 业务响应，原 operation label 与业务消息断言保留；新 HTML 输入由共享最低层测试保护。
+- 独立 code review：full 核对 `a4c4b1b3..7a4f53763`，patch 核对 `7a4f53763..e2cc070d7`，无存活 findings，详见 `code-review.md`。
+- 真实浏览器：隔离 IM 数据库、账号、工作区及端口 54842，正常登录并打开 PA 配置；即使有两台在线电脑也没有迁移入口。反向代理对一次保存返回 HTML 502，页面只展示中文短提示，显示名编辑保留，计数确认只有一次 PATCH；手动重试成功，刷新后新名称与 v2 保留。
+- 浏览器 evidence 位于本地 `data/acceptance/bugfix-620/config-error.png` 与 `config-saved.png`，不提交截图/fixture。该验收的节点回执为可控 fixture，仅证明 UI/HTTP 交互；真实 TCP 超时由长期后端测试覆盖，不宣称验证了真实模型或生产保存。自建服务与浏览器页已清理。
+- 主仓 dirty/untracked 内容保留；复用本任务已附着、干净的 worktree 从最新 main 建专属 bugfix 分支，未在 dirty main 创建产品提交。
