@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import { InboxStore } from '../src/inbox.js';
 import type { RelayInput } from '@nano/product-contracts';
 const input = (id: string, text: string, target = 'group-a'): RelayInput => ({
@@ -153,4 +154,45 @@ it('never reuses a background notification sequence after the highest source is 
     expect(store.background('alice',700000)!.watermark).toBeGreaterThan(old.watermark);
     expect(store.background('alice',700000)!.dueAt).toBe(1200000);
   } finally {store.close();}
+});
+
+it('revokes saved legacy pages by their source fragments without affecting another agent', () => {
+  const store = new InboxStore(':memory:');
+  const legacy = (body: Record<string, unknown>) => ({
+    messages: (body.messages as Record<string, unknown>[]).map(message => ({ ...message, target: body.target })),
+  });
+  try {
+    store.receive(input('old', 'revoked private context'), true);
+    store.receive({ ...input('other', 'still authorized'), agent_id: 'bob' }, true);
+    const page = store.read('alice', 'alice-main', 'old-read', { target: 'group-a' }, legacy);
+    const other = store.read('bob', 'bob-main', 'other-read', { target: 'group-a' }, legacy);
+    store.revokeSource('alice', 'group-a');
+    expect(store.commitRead('alice-main', 'old-read', [{ type: 'text', text: JSON.stringify(page) }], false, 1)).toBe(false);
+    expect(store.read('alice', 'alice-main', 'old-read', { target: 'group-a' })).toMatchObject({ messages: [] });
+    expect(store.commitRead('bob-main', 'other-read', [{ type: 'text', text: JSON.stringify(other) }], false, 1)).toBe(true);
+  } finally { store.close(); }
+});
+
+it('rejects already orphaned durable reads atomically and lets valid unread messages recover', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-orphan-'));
+  const path = join(dir, 'inbox.sqlite3');
+  let store = new InboxStore(path);
+  try {
+    store.receive(input('valid', 'keep unread'), true);
+    store.receive(input('removed', 'old source'), true);
+    const page = store.read('alice', 'main', 'old-read', { target: 'group-a' });
+    store.close();
+    // Reproduce the persisted state left by legacy source revocation.
+    const db = new DatabaseSync(path);
+    db.prepare('DELETE FROM inbox WHERE message_id=?').run('removed');
+    db.close();
+    store = new InboxStore(path);
+    expect(store.commitRead('main', 'old-read', [{ type: 'text', text: JSON.stringify(page) }], false, 1)).toBe(false);
+    expect(store.check('alice').sources).toMatchObject([{ unread: 1 }]);
+    expect(store.completedInputs('main', 1)).toEqual([]);
+    const remaining = store.read('alice', 'main', 'new-read', { target: 'group-a' });
+    expect(remaining).toMatchObject({ messages: [{ id: 'valid' }] });
+    expect(store.commitRead('main', 'new-read', [{ type: 'text', text: JSON.stringify(remaining) }], false, 2)).toBe(true);
+    expect(store.check('alice').sources).toEqual([]);
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
 });
