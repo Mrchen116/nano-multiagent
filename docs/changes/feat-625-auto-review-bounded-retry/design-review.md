@@ -466,3 +466,62 @@ PA独立链确实仍存在：读取`personal-assistant.ts` L59–84的非主人p
 | R3-W1 | **accepted，已修订，待独立reviewer复核** | design的626来源约束明确三条路径：同action503/timeout/full/context重建保留冻结的真实live/restored；同epoch继承按现`restoreEntries(...,false)`保留，包括旧`host_context_live`；仅跨epoch/丢观察证明按现true规则restored，旧`host_context`及已有restored不升live。runbook§5.2同步删去无条件降级措辞，加入同epoch live继承→503→full仍live与跨epoch/旧持久restored→503→full仍restored的双向对照；sender/page/reply、去重/distinct call及cursor均继续对照。 |
 
 **retained / 边界：** 首文档、最窄delta、M1骨架均无变化；626其余入口/admission/output、恢复预算/次数、失败分支隔离、精确stream归属、审计、取消与既有fallback不受W1修订影响。没有新增授权取数、重检用户、产品代码或范围调整。仅design一处来源约束、runbook§5.2来源措辞及一项对照验收、本报告追加；旧reviewer各轮原文未修改。R3非Approved，本resolution不是门禁通过；冻结新ref交父P续原reviewer，author不指定审查mode、不签Approved。本轮只做静态文件/diff核对，未执行产品测试、真实smoke或docs-check，不新增pass声明。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: 原独立 delegated Gate 2 reviewer，实际session `f3bff003-49fa-40ab-b29c-e469c1a0daf4`（本轮定向核实）；同一reviewer续审，未参与设计修订或产品实施。
+- review_mode: **closure**
+- mode_reason: 已独立检查`d9de1581..6760d853`真实diff：设计仅L59来源语义消歧，runbook仅§5.2对应措辞及同epoch/cross-epoch对照，报告保存R3并追加Author Resolutions。没有需求、核心职责/接口、milestone或产品变化；新增对照是原R3-W1所需验证契约，不是新范围。118行增量主要来自历史报告，不据行数扩大为full。closure范围足够，无需扩大。
+- started_at: `2026-10-20T18:20:34+08:00`
+- completed_at: `2026-10-20T18:21:05+08:00`（事实核对完成，随后追加报告）
+- duration: `PT31S`
+- validated_at / executed_base / effective_base / effective_through: **`6760d853f06ac81401977514975a9985587196f9`**（HEAD与本地origin/main相同）；产品基线仍为`051e7d68e159814cdba1e622f760208fc6d3af68`。
+- checkout: `/Users/czj/.nanoassistant/workspaces/nano-product`，`main`；开始时仅原`.claude/skills/.usage.json`未跟踪，未读取或修改。
+- skills/scope: 实际重新加载`change-design-reviewer`及report reference；仅读文件/Git和追加本报告，没有改设计/产品/图、提交、建分支、公开发送、读取Inbox/conversations或派Agent。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+**R3-W1 closed（设计层）。** 作者accepted不是通过依据；本轮按实际源码与修订契约独立核实后关闭。Approved适用于新冻结设计，不表示625实现、真实smoke/HTTP矩阵或产品验收完成。
+
+### Closure evidence — R3-W1
+
+- **Author Resolution：** L460–468 accepted，明确三个不同生命周期，设计与runbook同步修订，没有以更严格来源降级为理由改变现有语义。
+- **当前宿主epoch事实：** 重新读取`approval.ts` L26/L55–68，epoch属于NanoApproval实例；委派保存实际来源和当前epoch，读取时仅以`saved.epoch !== this.epoch`选择recovered。新design L59同epoch使用false、跨epoch使用true与真实入口一致，不是由reviewer sessionId或技术retry次数推断来源。
+- **旧格式和新格式均闭合：** 重新读取`sources.restoreEntries` L65–88：旧`host_context_live`仅在false时live；仅旧`host_context`始终restored；新`inbox_result`在true时降为restored，false保留原标记，不把已有restored提升。新设计明确旧持久格式沿原restore语义；runbook L156另列同epoch旧`host_context_live`，没有仅测新格式或跨epoch。
+- **规范化不重标：** 重新读取`codexEntries` L20–27，其只按call去重并按message展开，保留外壳；`codex.ts` L66–68先对已按epoch处理的inherited使用false并规范化，再算serialized cursor。新design L59把首次prepare冻结规范化rows、后续service full复用及禁止反复按进程恢复规则重标写明，与源码边界和既有625冻结设计相容。
+- **原缺口已消除：** design L59删去“恢复/inherited仍restored”，明确503/timeout/新full/context rebuild均不改变同action冻结observation；runbook L154–156删去无条件继承降级，并要求①同epoch父live→委派→503→full仍live，同时混入restored仍restored；②跨epoch/失去证明/旧host_context→restored→503→full不提升；另测旧host_context_live。sender/page/reply、同call去重/distinct call、cursor继续逐项对照。既防止误降级导致重新确认/错误fallback，也防止为通过而升级来源。
+- **职责与权限没有漂移：** 仍由现有宿主epoch/restore契约解释来源，codexEntries负责投影，controller只复用冻结证据；未增加消息库读取、授权检查或第二套来源规则，不改变原用户授权边界。
+
+### Retained scope and preservation
+
+**retained_from: Round 3**：全17场景、626零普通全库读取、admission/parser与canonical窄replacement、M1和其他安全契约；**retained_from: Round 2**：既有公开DSH/transport seam与审核模型预检设计事实。本轮独立Git核实从产品基线至6760d853的packages/apps/canonical/config/scripts/lock无diff，spec/delta/M1骨架从R3受审版本无diff；设计和runbook实际变化仅上述闭环，不是仅凭作者声明保留。
+
+开始时冻结报告468行SHA-256=`aa149f36e428d11ac94814042c3a68d7354a0add6e60bcd07889c38b6b312fc4`；本轮只在其后追加Round 4。重新断言原R3输入的前354行SHA-256仍为`74dc583befee89eea2b5de9b09f3b5ad08868e2bb48054d43ebc322cea570374`，没有回写历史结论或Author Resolutions。
+
+### Issues / Recommendations / limits
+
+- 新增CRITICAL 0，WARNING 0；R3-W1关闭，无still-open finding。R1-W1/W2的设计层关闭状态不变。
+- 无额外可选recommendation，无设计审查具体阻塞；回原author完成报告闭环保存，再由父P按workflow交接。
+- 本轮是静态closure，所有执行的Git/文本校验检查exit0；未运行产品源码探针、模型smoke、Agent/HTTP fixture、IM旅程或docs-check/build/typecheck/Vitest/pytest。实测系统Python仍3.9.6；≥3.11环境、实际审核路由可用性及所有实施/验收门禁仍由E/Q完成，不写pass，不用旧probe代替。
+- 未提交、不授权自动merge、部署或发布。后续若产品基线或设计实质变化，仍需按实际diff核对，不能将本次Approved无限外推。
+
+### Author final Gate 2 closure / retained — Round 4
+
+原author完整读取Round 4，核对其R3-W1独立闭环证据、retained范围和执行限制后，**无实质异议，无新增设计修改**。接受R4 `Approved — 0 CRITICAL / 0 WARNING`；R3-W1与R1-W1/W2均在设计层closed。R4 closure与R3 full retained共同构成当前设计门禁闭环，不表示产品实现或验收通过。
+
+- **reviewed_design_ref / retained_from：** `6760d853f06ac81401977514975a9985587196f9` / Round 4（full范围沿R3 retained）。本次只保存R4原文并追加本closure；所有reviewer历史及Author Resolutions保留，不修改结论；无需为report-only保存再审。
+- **交接前远端核对：** fetch origin main成功，远端仍为`6760d853f06ac81401977514975a9985587196f9`，未出现进一步提交或影响625的语义变化。产品事实基线仍为`051e7d68e159814cdba1e622f760208fc6d3af68`；最终提交与受审SHA在全仓和unit内均只允许本报告差异。五项产物逐字节及blob比对不变：
+
+| 受审产物 | retained Git blob |
+|---|---|
+| `spec.md` | `c01ecf2817dbc14ca02fe1c1cdc2d57ed021c686` |
+| `design.md` | `f44953c2164854c83b056bab3ff043d7ac85d111` |
+| `reviewer-runbook.md` | `d7f3259772b4f3627d926fe8dacbb0aa802d573e` |
+| `specs/gateway/agent-capabilities.md` | `4c003d9ba89dc25da2bc933642fc6b99b4ad7f39` |
+| `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391` |
+
+**交E：** 由父P正式分配，默认simple、单M1。626来源双向对照（同epoch live继承→503→full仍live、跨epoch/旧持久restored不提升）、零普通全库取数、admission/output组合回归，与完整预算/共享额度、精确stream归属及原fallback必须保留。真实low审核路由smoke与Python≥3.11仍为E/Q前置，所有实现/真实HTTP/IM旅程及Full门禁待执行，不新增pass声明。本author不实施、不发群/改图、不授权merge/部署/发布。
