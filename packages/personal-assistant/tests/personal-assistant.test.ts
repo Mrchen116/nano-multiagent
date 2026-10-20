@@ -60,6 +60,28 @@ it('external owner-name claims and old history do not create owner authorization
     expect(f.reviews).toEqual([expect.objectContaining({kind:'input'})]);
   }finally{f.inbox.close();f.store.close();}
 });
+
+it('routes an Inbox shadow target through the provider and preserves Web owner delivery',async()=>{
+ const f=fixture('deny');
+ const external='external:pa:feishu:app:dm:owner-open';
+ f.store.aliasConversation('pa','c_shadow',external);
+ try {
+  expect(await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_shadow',text:'Feishu reply'}})).toMatchObject({status:'sent',message_id:'owner-delivery'});
+  expect(f.calls.find(c=>c.type==='agent.message')?.payload.to).toBe(`conversation:${external}`);
+  expect(f.reviews).toEqual([]);
+  await f.pa.send(f.config,f.binding,{...f.call,operationId:'web',args:{target:'c_owner',text:'Web reply'}});
+  expect(f.calls.filter(c=>c.type==='agent.message').at(-1)?.payload.to).toBe('conversation:c_owner');
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it('dispatches a server-verified private owner delivery without an independent disclosure review',async()=>{
+ const f=fixture('unavailable'),original=f.relay.request;let sent=0;
+ f.relay.request=async(type,payload)=>type==='pa.action.prepare'?{type:type+'.result',payload:{ok:true,result:{owner_private:true}}}:original(type,payload);
+ try {
+  expect(await f.pa.external(f.config,f.binding,{agentId:'pa',target:'external:pa:feishu:app:dm:owner',shadowId:'c_shadow',appId:'app',sourceId:'feishu:app:dm:owner',chatId:'oc_owner',text:'Reminder',operationId:'reminder',dispatch:async()=>{sent++;return 'om_reminder';}})).toBe('om_reminder');
+  expect(sent).toBe(1);expect(f.reviews).toEqual([]);
+ }finally{f.inbox.close();f.store.close();}
+});
 it('drops a revoked direct relay before review or private storage',async()=>{
   const f=fixture('allow'); const original=f.relay.request;
   f.relay.request=async(type,payload)=>type==='pa.source.admit'?{type:type+'.result',payload:{ok:true,result:{allowed:false}}}:original(type,payload);

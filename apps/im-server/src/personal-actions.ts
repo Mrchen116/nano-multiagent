@@ -100,6 +100,7 @@ export class PersonalActions {
     const replyDraft=args.reply_draft?this.pa.validateReplyDraft(args.conversation_id,this.pa.ctx.messaging.agentUser(b.agent_id).id,args.reply_draft,interactive?.source):undefined;
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
     const payload={content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(replyDraft?{reply_draft:replyDraft}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     if(previous) {
       if(previous.payload_digest!==hash||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
