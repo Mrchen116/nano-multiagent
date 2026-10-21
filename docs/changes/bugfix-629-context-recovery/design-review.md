@@ -77,3 +77,55 @@
 
 - **R1-W1 accepted**：已核对 DSH tools public `get(name, scope)` 返回 restricted-aware visible definition，以及 Nano 显式 `/skill:name` 不依赖业务 tool allowlist。设计关键决策2改为按该 scope 的 `skill` 能力选择索引或保留既有正文恢复；无能力分支不靠 History、不增权限，启用/回退均成立。Runbook矩阵保留原 `['workflow']` 配置并新增允许 `skill` 的分支；普通步骤无重复由取消高频引用 contribution 保证。更新现状、总览、风险段保持一致。delta仍只要求能恢复及无每步重复，不要求全局移除自动正文，故无需改变产品契约条目。
 - 其他结论采纳；未新增任务数据库、分类器或DSH修改。R1报告保留，修订需独立闭环后才实施。
+
+## Round 2
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design629_review`（与 R1 相同）
+- reviewer target: `design.md` 的 Skill 恢复分支及相关现状/总览/风险/验收矩阵；R1 Author Resolutions
+- frozen baseline: Nano `c4cc9275e0614236e794bed66ef07a92b480f8ac`；插件与 DSH 基线沿用 R1
+- review_mode: delta
+- mode_reason: R1-W1 的解决引入“有重读工具用索引、无重读工具保留正文”的有界行为分支，需复核权限、快照增长和显式回退的影响，故比仅确认措辞的 closure 范围稍宽；其余需求、turn 导航、事务和 milestone 未改变，无需重做 full
+- started_at: 2026-10-21T15:54:25+08:00
+- completed_at: 2026-10-21T15:55:24+08:00
+- duration: 59s
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1-W1 已在设计层闭环。修订保留受限工具配置原本具备的 Skill 恢复行为，同时为具备重读能力的会话移除自动全文恢复；两种路径都遵守当前 Skill selection 和工具白名单。
+
+### Coverage 与证据
+
+- **公开能力查询**：独立读取固定 DSH `packages/core/tools/src/index.ts:1156-1232`。`get(name, scope)` 返回 `view(scope).visible`；该视图按 scope 链的 restrictions 过滤继承工具。Nano `ToolSelection` 正是用 `agent.ctx.tools.restrict` 施加业务选择，因此设计使用 `agent.ctx.tools.get('skill', agent)` 能识别本问题中的 `['workflow']` 与允许 `skill` 两种配置，不需要访问私有 registry 或修改 DSH。
+- **执行含义**：该查询判断当前 scope 的工具可见能力，不是预先批准任何一次业务动作。DSH 的 PTC presentation 可通过其正常 transport 调用可见工具，原有执行 guards/approval 继续生效；本设计没有绕过这些执行门禁，也没有向 allowlist 添加名称。
+- **受限配置与回退**：`design.md` 关键决策 2 明确无 `skill` 能力时保留当前仍获准 Skill 的既有全文恢复，继续由 `skills.get` 过滤。该路径不需要模型调用 `skill`、`read` 或 History，因此对原 `model-policy.test.ts` 的 `['workflow'] + /skill:retained` 及插件显式停用后的摘要模式均有完整内容来源。原生显式调用语义保持。
+- **增长与职责影响**：本轮不撤回关键决策 1，引用和 Notes hint 仍不再每步改变插件 contribution。全文分支保留稳定 contribution，DSH 的完整文本比较会抑制未变化快照；真实 Skill 集合、内容或配置变化仍可以触发环境重建。既有有限换窗成本与普通步骤持续增长的区分仍有效，未新增一次性清除标记、缓存状态机或另一套恢复数据库。
+- **验证闭合**：关键决策 2 保留受限配置原输入并要求压缩、重启及回退；Runbook 第 4 项明确两种工具能力交叉两种 compaction 模式，受限分支检验正文、业务 schema 和普通步骤增长，可调用分支检验真实读取正文。未通过临时增加工具白名单绕过 R1 用例。
+- **delta 契约**：已核对 delta 未改。它要求当前获准 Skill 仍可供任务读取、普通进展不反复追加未变化正文，并未要求所有配置必须去掉自动正文；受限分支保留可读取的现有正文符合消费者结果。无需新增“正文只能通过某工具获得”的产品约束。
+- **retained_from: Round 1**：Git diff 确认 `incident.md`、delta-spec、milestone 骨架无变化，设计中 turn_id、History 过滤、checkpoint、compaction 事务、主故障预算与产品入口均未变。R1 对这些路径的源码证据、来源与授权判断、架构职责和验收边界继续有效。
+
+### 历史问题闭环
+
+- **R1-W1 — closed**。
+  - Author Resolution：接受 Skill 选择与工具可调用性是不同能力；使用 public scoped `tools.get` 选择恢复方式，并补齐原受限配置回归。
+  - 本轮证据：上述 DSH visible view、Nano restrictions、保留全文分支、跨启停与重启矩阵已分别核对；原路径不再依赖不可调用工具或已停用的 History。
+  - 结论范围：设计闭环；是否实现正确以及真实模型是否完成任务仍由既定实施与验收门禁证明。
+
+### Issues
+
+无未解决 CRITICAL/WARNING。
+
+### Recommendations
+
+无新增建议。无需继续为假设边界扩展本单元范围。
+
+### 本轮边界
+
+只向本报告追加 R2，保留 R1 及 Author Resolutions；未修改设计、代码、配置，未提交或运行服务。Approved 不代表实现、CI、真栈验收或生产恢复已经完成。
+
+### Author Resolutions (R2)
+
+接受 R2 结论，无未解决的实质问题；受审设计未继续变更。进入单 milestone 实施，产品任务恢复与交付仍需按 runbook 实测。
