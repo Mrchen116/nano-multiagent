@@ -111,3 +111,109 @@
 ```
 
 窄复现：`/tmp/feat630-review-round2.mts`（PA control、飞书卡片）、`/tmp/feat630-review-round2-server.mts`（真实 Web 审批闭合、真实撤权 code 与后续 receipt）、`/tmp/feat630-review-round2-unknown.mts`（即时 status 恢复后的 single_thread 收尾）。均用随机端口/临时数据库，受审 PA 源码来自固定 git archive 快照；临时辅助模块只导出该快照解析到的 RelayDeliveryError，以保持 instanceof 与生产包一致。所有临时服务已结束，未触碰生产。产品、负载与 full verifier 结论仍不在本审查范围。
+
+## Round 3 — closure and incremental patch review
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `closure` for Round 1 F1/F4 and Round 2's two new findings; `patch` for added source changes
+- finding_origin_head: Round 1 `24a944b1735215f872b35ff55c196bed9e776788`; Round 2 `effe82d32d94a0337a522f106e20e356656f93e8`
+- pre_fix_head: `effe82d32d94a0337a522f106e20e356656f93e8`
+- validated_at: `19f16cb74fe9ec2112d928c31695a2640882f6cd`
+- patch_range: `effe82d32d94a0337a522f106e20e356656f93e8..19f16cb74fe9ec2112d928c31695a2640882f6cd`
+- completed_at: `2026-10-21T13:37:44Z`
+- verdict: **Pass — all focus findings closed; no new confirmed findings in this patch**
+
+审查本轮全部源码和测试 diff，并核对 PA 来源准入→控制降级→Inbox 分类/唤醒、真实中心撤权错误→本地 receipt 终结、飞书审批存储/卡片消费、三种外发确认出口→single_thread 静默收尾与 Work 事件。复用 caller 的四个 PA 测试文件 29/29 通过证据；独立运行原故障条件，PA 源码使用 `git archive 19f16cb74` 的临时固定快照。未跑全量、未修改产品源码/测试/配置、未部署或提交。
+
+| Focus finding | Closure | Evidence at fixed HEAD |
+|---|---|---|
+| Round 1 F1 / Round 2 surviving PA control 自等待 | **closed** | 来源准入确认非 owner 后，demoteControl 在同一事务恢复 consumed=0 并结束 pending intent；分类时 deferWake，待 controlTasks 的 finally 移除当前任务后再 wake。原非 owner participant `/stop` 复现输出 completed=true、submits=1、pending=0、waking=0；既未调用 owner 取消，也未丢失普通 Inbox 输入。 |
+| Round 1 F4 / Round 2 surviving 撤权 receipt 队头阻塞 | **closed** | 过滤覆盖真实 agent_not_accessible/conversation_id not found；终止本地义务使用 confirmed=-1，未冒充远端接受。原真实 IM/WS/SQLite 成员撤销复现输出 receiptCalls=[revoked,{error:'conversation_id not found'},valid]，pending=[]，后续有效回执成功推进。 |
+| Round 2 new 飞书 permission_resolved 消费旧字段 | **closed** | ExternalChannels 优先读取 nested permission_request.request_id；原取消复现输出 settled=1、updates=1，点击旧卡片只返回“审批已结束”，decisionsAfterCancelled=0。 |
+| Round 2 new unknown 外发确认遗漏本地收尾 | **closed** | 正常 ACK、已有 unknown 查询、catch 即时 status 查询均调用同一 confirm，保存 interactive-delivered，并对 global append 原 message_sent 事实。原 GlobalAgent.call＋SingleThread.recover 复现返回原 confirmed-card，标记存在，message_completed 中没有 NO_REPLY。 |
+| Round 1 F2 全 parts 后 finalize 恢复 | **closed (retained)** | 本轮没有修改 WorkSync/server finalize 路径；复用 Round 2 的已闭合结论及 all-parts 定向回归证据。 |
+| Round 1 F3 Web 审批业务身份与传输 ID 分离 | **closed (retained and rechecked)** | 本轮未改 nested ID 的生产者或 Gateway 解析；独立真实 IM/WS/SQLite 再次仅得到 original-approval 一条 resolved/cancelled，无随机 ID 和遗留 pending。 |
+
+### Findings
+
+```json
+[]
+```
+
+独立命令为 `node --import tsx /tmp/feat630-review-round3.mts`、`node --import tsx /tmp/feat630-review-round3-server.mts`、`node --import tsx /tmp/feat630-review-round3-unknown.mts`。随机端口服务和临时数据库已关闭/清理。此 Pass 只表示上述固定版本的独立代码审查门禁通过；产品用户旅程、持续负载及 full verifier 仍须由 caller 的独立门槛完成。
+
+## Round 4 — index and main synchronization delta review
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `patch`
+- pre_fix_head: `19f16cb74fe9ec2112d928c31695a2640882f6cd`
+- validated_at: `bfb059d2d765df0c00299ded9b1a08ae4f41ee31`
+- patch_range: `19f16cb74fe9ec2112d928c31695a2640882f6cd..bfb059d2d765df0c00299ded9b1a08ae4f41ee31`
+- verdict: **Pass for this delta; Round 3 closures retained**
+
+独立核对三个 SQLite 索引与真实查询谓词/排序的一致性、bugfix-631 的 idle observation 后重取 background 水位与读承诺，以及 bugfix-632 的 Web/iOS `inbox-background` 标题映射和对应 current spec/i18n。实际 `EXPLAIN QUERY PLAN` 返回 `SEARCH relay_tasks USING INDEX relay_tasks_pending_node (target_node_id=?)`，无需额外临时排序或历史全表扫描；索引创建采用既有 schema 初始化路径，可覆盖现存数据库。复用 `.e2e-index-check.log` 的真实 relay-recovery 2/2 通过证据。631 的参数化回归保护了 deadline 前消费与 observe 等待中消费两种时间点；632 仅映射既有触发字段，普通 Inbox 保持自身分类。此次增量没有修改 Round 3 的四处修复。
+
+```json
+[]
+```
+
+限制：索引命中不等于 V7 长时延阈值已经通过，负载仍由 caller 重新实测。本 delta Pass 不覆盖 full verifier 另外发现的原有 Agent 公平调度设计偏离或尚待补充的 V1/V2/V3/V7 技术证据；这些必须在 `verification.md` 的最终版本单独闭合。未执行全量重跑，未修改源码/测试/配置或提交。
+
+## Round 5 — Agent fairness and Retry-After delta review
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `patch`, with closure of full verifier W1
+- pre_fix_head: `bfb059d2d765df0c00299ded9b1a08ae4f41ee31`
+- source_fix_head: `2f057ba8ecedb7f15d6906a62094e480f35f69f2`
+- validated_at: `62f66514a297d289f0cf25f1dc7e3e65d49fc55d` (adds only the center fairness regression after source_fix_head)
+- patch_range: `bfb059d2d765df0c00299ded9b1a08ae4f41ee31..62f66514a297d289f0cf25f1dc7e3e65d49fc55d`
+- verdict: **Pass for this delta; W1 closed; previous closures retained**
+
+核对 Channels 使用 agent_id 或真实 publication 的 from_session_id 获取调度身份，并按 queued unique Agent 顺序选择 lastAgent 的下一个；center replay 对当前有界候选集采用相同三 Agent 轮转。真实 WS 固定 62f 源码探针：初始 A0..A5 占满六个普通槽，A/B 各有积压且 C 单条，释放三个槽后发送顺序为 B0、C0、A6。复用 `.e2e-fairness-retry.log` 12/12（WS 3、WorkSync 7、真实 process 2）与 `.e2e-center-fairness.log` 1/1；新增回归使用实际 publication 字段和三 Agent 数据，能暴露原问题。WorkSync 将本服务数值 Retry-After 作为抖动退避下界，真实 HTTP 429→2 秒回归确认第一次重试不早于 2000ms，stop 仍使用可取消 delay。
+
+```json
+[]
+```
+
+独立命令 `node --import tsx /tmp/feat630-fairness-closure.mts`；Channels 源码来自 62f git archive，临时 WS 已关闭。本增量没有修改输入/receipt/control/publication 的已闭合逻辑；持续 V7 与 V1/V2/V3 技术证据仍由 full verifier 等待最终补充，不以本 delta Pass 替代。
+
+
+## Round 6 — cold-wake/publication recovery and bounded commit delta
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `patch`, with closure of verifier C2
+- pre_fix_head: `62f66514a297d289f0cf25f1dc7e3e65d49fc55d`
+- fix_heads: `67ee7b54748d7670bdb553cc5a6570186a311434`, `883efa4c3c68da33d6eb1c571c97faffd437e6da`, `432400f083afab7388772f4858751ed500eb7dfd`
+- validated_at: `ffdbb99f1b34071c30f8b69667ded6d9074fb0cd` (after product source 432, only tests/fixtures/evidence)
+- patch_range: `62f66514a297d289f0cf25f1dc7e3e65d49fc55d..ffdbb99f1b34071c30f8b69667ded6d9074fb0cd`
+- verdict: **Pass for this delta; C2 closed; previous closures retained**
+
+核对全部产品源码及新增回归/真实故障驱动。cold wake 仅在仍有未读 attention 且公开 session.lookup 证明旧通知 terminal.kind=interrupted 时派生恢复通知；原始/恢复 inputId 各自保持稳定，用户停止、完成和已消费输入不继续。按 max(历史 attention 水位, 已 admit 水位)查实际通知身份，避免将部分消费后的最高未读 seq 错当成通知边界。原固定 67e 故障探针在 ffdb git archive 上独立复验：unread=A:1，lookups=[:2,:2:recovery:10]，submitted=[:2:recovery:10]，正确恢复原 coalesced 通知；没有为 A 捏造 :1 身份。
+
+所有非 personal store binding 的 publication 恢复独立于主 session/wake 的成功与否；仅 agent.message.status 查原 operation，found 后共用 confirmPublication 保存 confirmed、interactive-delivered 和原 message_sent 事实，既不重发工具，也不把 interrupted native turn 伪造为 completed。状态不存在保留未决。真实 V2 after-publication 精确窗口已有原 ACK/message、sending 本地状态、正常 CLI 重启后的 confirmed 和唯一可见回复证据；四窗口及重复 recovery kill 的 native 用户通知/成功写调用各一次，由 `.e2e-crash-native-counts.json` 与 unit technical-acceptance.md 交叉核对。
+
+Work cursor trigger 在启动时替换既有定义，仅更新 committed=0 的 pending receipt；既有每 node 单 pending 唯一索引适用，原子 append/project/cursor 语义不变。新增 1,000 条 retained receipt 的 total_changes 回归能直接暴露历史重写；child tool 测试通过真实分块重组、完整106KiB参数和 parent scope 投影闭合受影响覆盖。复用 `.e2e-pub-recovery.log` 53/53 与 `.e2e-work-child.log` 9/9，不机械重跑全量或扰动持续负载。
+
+```json
+[]
+```
+
+独立复验命令：`node --import tsx /tmp/feat630-coalesced-closure.mts`。临时内存数据库均已关闭。此 delta 没有改变既有 control/receipt/permission/fairness/attempt 修复，保留此前闭合；Work 性能修正仍须完整 V7 同 profile 实测，不能由本次静态 Pass 推导容量门槛通过。仅追加报告，未修改产品源码、测试、配置或提交。
+
+
+## Round 7 — pending Work receipt lookup refinement
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `patch`
+- pre_fix_head: `ffdbb99f1b34071c30f8b69667ded6d9074fb0cd`
+- validated_at: `a1b5b15e2982382539e8e5498d1cdd033cbda00e`
+- patch_range: `ffdbb99f1b34071c30f8b69667ded6d9074fb0cd..a1b5b15e2982382539e8e5498d1cdd033cbda00e`
+- verdict: **Pass for this delta; previous closures retained**
+
+本轮产品diff仅两个Work commit trigger的目标查找。WHERE committed=0 已阻止旧receipt重写，但原查询仍可能按node/journal/seq索引扫描历史；改为先从既有唯一pending-node索引读取一个ID，再按主键更新，保留journal与through_seq校验。用本服务同一node:sqlite引擎、1000旧receipt及一pending独立EXPLAIN：外层SEARCH sqlite_autoindex_work_sync_uploads_1(id=?)，子查询SEARCH work_sync_one_pending(node_id=?)；无历史range扫描。错误journal更新0、尚未达到seq更新0、正确commit更新1、同cursor重试更新0。复用`.e2e-last-focused.log`的serverWork+GlobalAgent53/53通过。没有改变PA恢复、Webattempt、协议/授权或projection原子性，既有证据保留。
+
+```json
+[]
+```
+
+独立探针 `node --import tsx /tmp/feat630-trigger-plan.mts`，临时内存数据库已关闭。432的运行在约7分钟终止，不能视作完整V7；最终a1b同profile十分钟仍待实测。本审查只写报告，未修改源码/测试/配置或提交。

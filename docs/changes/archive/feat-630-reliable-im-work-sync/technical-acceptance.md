@@ -2,9 +2,9 @@
 
 ## Version and boundaries
 
-Implementation base: `5665af409426f22eec86d03d68e6ffbb1c935d00`; integrated main: `536d5a29fd449de5da7ef8c29030c1868d91567a` (bugfix-631 consumed-background wake and bugfix-632 PA review title). Latest product source: `432400f08`; later fixture/test/document commits do not change the product. Official DSH: `0.2.1-alpha.1`. All services, accounts, node identities and workspaces below are isolated test fixtures. No production change or deployment.
+Implementation base: `5665af409426f22eec86d03d68e6ffbb1c935d00`; integrated main: `536d5a29fd449de5da7ef8c29030c1868d91567a` (bugfix-631 consumed-background wake and bugfix-632 PA review title). Final product source: `a1b5b15e2982382539e8e5498d1cdd033cbda00e`; it includes the recovery corrections at `432400f08` and the final constant pending-upload lookup used by V7. Later fixture/test/document commits do not change the product. Official DSH: `0.2.1-alpha.1`. All services, accounts, node identities and workspaces below are isolated test fixtures. No production change or deployment.
 
-Reproducible drivers: [crash-host](../../../tests/e2e/reliability/crash-host.mts), [fault proxy](../../../tests/e2e/reliability/fault-proxy.mts), [model provider](../../../tests/e2e/reliability/model-provider.mts), [sustained load](../../../tests/e2e/reliability/im-load.mts). The crash host instantiates production GlobalAgent/Inbox/NodeStore and the declared public DSH client; it freezes at public request/response boundaries with SIGSTOP. The controller reads persisted facts, SIGKILLs only that host and its official DSH process, then starts the normal Node CLI with the unchanged config and data. It never advances a cursor, marks an input consumed, or inserts a successful delivery fact.
+Reproducible drivers: [crash-host](../../../../tests/e2e/reliability/crash-host.mts), [fault proxy](../../../../tests/e2e/reliability/fault-proxy.mts), [model provider](../../../../tests/e2e/reliability/model-provider.mts), [sustained load](../../../../tests/e2e/reliability/im-load.mts). The crash host instantiates production GlobalAgent/Inbox/NodeStore and the declared public DSH client; it freezes at public request/response boundaries with SIGSTOP. The controller reads persisted facts, SIGKILLs only that host and its official DSH process, then starts the normal Node CLI with the unchanged config and data. It never advances a cursor, marks an input consumed, or inserts a successful delivery fact.
 
 ## V1: Work outage and complete recovery
 
@@ -75,3 +75,27 @@ Failed/interrupted attempts are retained as failures:
 3. Initial fixed-network-profile run: 12,000/12,000/12,000, zero duplicate/error, save p99=736.44 ms and receive p99=736.21 ms; failed the unchanged +500 ms baseline-increment requirement. The cursor trigger rewrote all already-committed hash receipts on each advance. `432400f08` restricts the trigger to committed=0 (at most the one pending event per node); its 1,000-retained-receipts regression proves advancing a cursor does not rewrite history.
 
 Final same-profile ten-minute run is recorded below when complete. Thresholds remain save p99≤1 s, receive p99≤2 s, and each p99 increment≤500 ms, with no message loss/duplicates and bounded windows. No acceptance threshold was relaxed.
+
+### Actual input redelivery (V2 / Scenario 5)
+
+The fault proxy also held outbound `node.delivery_receipt` frames themselves, not merely their returning ACKs. The center therefore actually retransmitted relay `b9705a44063246c7a6cb17b16df79f81` **six times over WS**. The receiver retained only one Inbox row (seq 13, message `ad581d52227342aab4ef6b58a63f3e68`, consumed=1), one native input notification, one successful `write crash630-effect-relay-repeat.txt`, and one formal `CRASH630_DONE` (aggregate replies 7→8, effect files 6→7). After releasing the held receipt frames, center and local receipt became completed/confirmed. Ignored `.e2e-relay-replay.json` records the actual observed relay-frame count; this is distinct from the earlier center-applied/ACK-lost case.
+
+### Bounded lookup refinement
+
+The first committed=0 trigger correction prevented historical writes, but EXPLAIN on the running load database still chose the `(node_id,journal_id,seq)` range and read retained history. `a1b5b15e2` resolves the single pending upload ID by `(node_id,committed=0)` first, then updates that primary key after journal/seq checks. This uses the existing unique pending-node index and does not add another queue or index. The interrupted run after the first correction is not the final V7 result. The final product source is now `a1b5b15e2982382539e8e5498d1cdd033cbda00e`; later test/fixture/evidence changes are non-product.
+
+### Final V7 result: Pass
+
+Product source `a1b5b15e2`, after complete local CI. Both active phases lasted 600 seconds; the Work phase including settlement lasted 601.441 s. Twenty Work clients continuously replenished their backlogs and advanced in the minute snapshots. Steady 100-event batches were 1,562,844 UTF-8 bytes (first metadata batch 1,548,122); largest event 108,732 bytes, including the exact 106 KiB field.
+
+| Metric | No Work | Twenty Work streams | Limit |
+|---|---:|---:|---:|
+| Messages sent / stored / durably received | 12,000 / 12,000 / 12,000 | 12,000 / 12,000 / 12,000 | Equal |
+| Save p99 | 55.51 ms | 254.07 ms | <=1,000 ms |
+| Durable receive p99 | 53.71 ms | 253.86 ms | <=2,000 ms |
+| Save / receive p99 increment | - | 198.56 / 200.15 ms | Each <=500 ms |
+| Duplicate deliveries / message errors | 0 / 0 | 0 / 0 | 0 |
+
+Twenty uploaders committed 65,330 events and uploaded 1,047,824,074 accepted HTTP body bytes. Each uploader made sustained progress; the per-node totals are in [load-summary.json](M1-reliable-im/evidence/load-summary.json). The center issued 329 expected Work-only 429 busy responses, retried with Retry-After; no message errors resulted. This verifies the stated 96 KiB/s-per-Work-node profile, without claiming unlimited ingress or production capacity.
+
+The JSON is aggregate evidence, not a raw log, runtime database or credential file. Final command: `IM_LOAD_BASELINE=.e2e-load-baseline.json IM_LOAD_OUTPUT=.e2e-load-result-final-pass.json node --import tsx tests/e2e/reliability/im-load.mts`. Raw observations: `.e2e-load-final-pass.log`. The retained no-Work baseline scope is documented above.
