@@ -66,3 +66,7 @@
 将高频恢复导航从整份宿主快照中解耦；按用户后续确认，新模式仅重建当前可用 Skill 目录，不自动重放旧正文或已用索引。撤掉候选版 interrupted_turn 与 turn_id 恢复扩展，按原有 Notes/History 复验强制换窗故障，不建立第二套任务数据库或摘要器。若实测仍失败，报告真实结果，不自行补回特殊导航。
 
 回归必须使用默认预算和上述失败组合，检查真实模型请求中的重复正文以及最终交付；脚本预定 finished 不能替代任务恢复证据。分别交付代码验证、独立验收、PR/CI，以及经授权的生产恢复结果。保留生产日志、数据库、会话和旧 Notes。
+
+## R6 authorized Skill/Inbox pruning integration fix
+
+The user explicitly authorized the side-chat finding to be fixed with native pressure pruning: extract Skill gestures once when the complete trusted Inbox result arrives, then allow normal pruning, without another data channel. The current adapter reparses live historical Inbox text from deriveMessages on every pre-step. Native pruning preserves call IDs but can make the text invalid JSON; invocation deduplication happens too late to prevent that parse failure. Completion requires one recognized explicit Skill from a long live human Inbox result, continued steps after native pruning without a crash or duplicate injection, and unchanged partial/non-human/restored-source boundaries.

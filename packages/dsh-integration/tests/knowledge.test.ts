@@ -143,27 +143,29 @@ export function apply(ctx) {
   finally { if(client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home,{recursive:true,force:true}); }
 },30000);
 
-it('invokes selected Skills from live human Inbox input without promoting agent messages or replay', async () => {
+it.each([false, true])('invokes live human Inbox Skills once without promoting other sources (native pruning=%s)', async (prune) => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-global-skill-')); let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   const skills = join(home, 'skills'); await mkdir(join(skills, 'selected'), { recursive: true });
   await writeFile(join(skills, 'selected/SKILL.md'), '---\nname: selected\ndescription: Selected instructions\n---\nSELECTED_SKILL_INSTRUCTIONS');
-  await writeFile(join(home, 'fixture.mjs'), `export const name='global-skill-fixture';export const inject=['llm'];export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&m.source.kind==='nano-system');if(!seen.has(last.id)){seen.add(last.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-read',name:'inbox',arguments:JSON.stringify({action:'read',target:last.id})}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
+  await writeFile(join(home, 'fixture.mjs'), `export const name='global-skill-fixture';export const inject=['llm','toolResultPruner'];export function apply(ctx){if(${prune})ctx.on('agent/pre-step',({agent},next)=>{ctx.toolResultPruner.pruneSession(agent.session);return next();});const seen=new Set();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&m.source.kind==='nano-system');if(!seen.has(last.id)){seen.add(last.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-read',name:'inbox',arguments:JSON.stringify({action:'read',target:last.id})}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
   const config = { agentId:'a', revision:'1', provider:'fixture',model:'test',mode:'global',toolAllowlist:['inbox','skill'],features:{memory_curation:false,skill_creation:false},skillRoots:[{path:skills,source:'workspace'}] };
   const binding = {sessionId:'global-skill',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'global-skill-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
-      client.rpc.handle('product.call', value=>{const call=value as {method:string;args:{target:string}};return call.method==='inbox'?{messages:[{id:call.args.target+'-message',sender:{type:call.args.target==='human'?'user':'agent'},content:[{type:'text',text:'/skill:selected'}]}]}:{};});
+      client.rpc.handle('product.call', value=>{const call=value as {method:string;args:{target:string}};return call.method==='inbox'?{messages:[{id:call.args.target+'-message',sender:{type:call.args.target==='other-agent'?'agent':'user'},partial:call.args.target==='partial-human',content:[{type:'text',text:'/skill:selected'+(prune?' '+ 'a'.repeat(12000):'')}]}]}:{};});
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
     };
     await start();
-    for(const inputId of ['human','other-agent']) {
+    for(const inputId of ['human','other-agent','partial-human']) {
       await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:'Inbox wake'}],source:{kind:'system',actorId:'a',channel:'inbox',messageId:inputId}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId})as{terminal?:unknown}).terminal).toBeTruthy();
     }
     const read=async()=>await client!.rpc.request('session.observe',{sessionId:binding.sessionId})as{events:{type:string;data:{id?:string;source?:{kind:string}}}[]};
+    if (prune) expect((await read()).events.some(e=>e.type==='compaction/prune')).toBe(true);
+    expect((await read()).events.filter(e=>e.type==='turn/end').map(e=>(e.data as {reason:{kind:string}}).reason.kind)).toEqual(['completed','completed','completed']);
     expect((await read()).events.filter(e=>e.type==='user/message'&&e.data.source?.kind==='skill-invocation').map(e=>e.data.id)).toEqual(['nano-skill:human-message:selected']);
     await client!.shutdown();client=undefined;await start();
     expect((await read()).events.filter(e=>e.type==='user/message'&&e.data.source?.kind==='skill-invocation')).toHaveLength(1);

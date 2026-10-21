@@ -2,6 +2,8 @@
 
 ## Changelog
 
+- 2026-10-21 (R6): The user explicitly authorized the related Skill/Inbox pruning fix through the side chat: extract explicit Skill gestures once from complete, trusted live Inbox results before normal pruning. Do not create another data channel or extend to other audit findings.
+
 - 2026-10-21（R5）：用户明确要求 Notes 提示格式对齐 Codex。仅调整现有 hint 展示为 `Recent notes (up to 5, most-recent first):` 和 `- <path> (<lines> lines, <bytes> UTF-8 bytes)`；保留当前会话相对路径、按修改时间倒序、最多五项、4000-byte 上限、仅换窗时展示及不注入正文。无恢复协议、当前任务指针、角色调整或自动文件选择。属于既有 Notes 导航的格式校正；R4 架构/Gate 2 保留，独立静态审查核对该增量，产品复验 R4-1。
 
 - 2026-10-21（R4）：用户确认复用 DSH 原生压力裁剪，并以同一批 25 份资料复验。R3 真实失败仍保留；新增接回被自定义 owner 绕开的 `toolResultPruner`，不新增总量控制器或恢复提示。
@@ -42,6 +44,10 @@ Codex 固定源码 `464add49587a7cb6032d5ab04faa8a1585947853`：
 
 ## 接口、包与数据流
 
+R6 adds one narrowly scoped lifecycle correction in `capabilities.ts`. Observe the existing public `tools/result` event for a successful `inbox` execution whose call is already marked live by `nanoApproval.sources`. Extract only human, non-partial explicit Skill gestures from the host tool's complete structured `result.value.body`. Keep only pending `(messageId, skillName)` pairs in an Agent-keyed in-memory queue until the next accepted pre-step. That pre-step uses the existing selected Skill registry, `isUserInvocable`, and durable `nano-skill:<messageId>:<name>` deduplication; rejected pre-steps do not consume the queue. Direct nano-human input uses the same gesture parser.
+
+This replaces repeated JSON parsing of mutable historical tool text. It does not retain another Inbox body, add persistence or a public recovery protocol, invoke tools from a passive observer, change provenance, or expand permission. Agent/system, partial, failed and non-live results never enter the queue. Restored history does not emit a fresh live result. Repeated live reads of the same human message remain deduplicated by the existing invocation ID. Native pruning then runs normally. Catch-and-discard of malformed historical JSON is not the fix.
+
 - Nano 修改 `packages/dsh-integration/src/knowledge/runtime.ts` 及 `tests/model-policy.test.ts`；新模式跳过恢复 contribution，旧模式恢复原全文行为。
 - 插件修改 `src/history.ts`、`tools.ts`、`checkpoint.ts`、`index.ts`、相关测试/README/golden，删除候选 turn 协议；每步贡献稳定化保留。
 - 原生目录 source 保持 `skill-catalog`；显式正文 source 保持 `skill-invocation`，History 不重新标记。
@@ -63,6 +69,8 @@ Codex 固定源码 `464add49587a7cb6032d5ab04faa8a1585947853`：
 5. **已有路径回归**：原窗口/item History 长记录分页、tool pairing、fork/session 隔离、Auto off、空业务白名单、主动/硬阈值/overflow、Notes 持久化沿用有效测试，凡依赖 turn_id 的证据失效重验。
 
 ## 风险与验收边界
+
+R6 validation extends the existing native live-Inbox Skill test: a long valid Inbox result below the single-result spill threshold contains a human `/skill:selected` gesture; the installed native toolResultPruner must actually emit a prune event. The Skill is recognized once, consecutive steps after pruning complete without JSON errors or duplicate injection, and agent/partial/restored sources remain excluded. A scripted provider proves deterministic runtime integration and provenance, not real-model task recovery.
 
 原生裁剪会移除活动上下文中的正文中段，但保留原始事件；对于同一 25 份资料，能否正确完成任务仍以真实模型和交付为准。R3 不可裁剪硬换窗后的陈旧 Notes 风险不因这次接线自动关闭，本轮不重新引入用户撤回的恢复协议。
 

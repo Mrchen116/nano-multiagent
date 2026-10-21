@@ -287,3 +287,69 @@ Accepted R3: no unresolved substantive findings. The reviewed design is unchange
 ### Author Resolutions (R4)
 
 Accepted R4 delta review: 0 CRITICAL / 0 WARNING. The frozen design and delta are unchanged. Implement the published DSH pruner at the declared pressure/overflow seams, retain R3 failure as evidence, and validate the unchanged 25-volume fixture through the real product entry. Offline reduction is not product acceptance.
+
+## Round 6
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design629_review`
+- reviewer target: 仅 R6 Skill/Inbox 原生裁剪接合；不重审 R4/R5，不审产品代码 diff
+- checkout: `/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`，branch `codex/bugfix-629-context-recovery`
+- baseline: HEAD `6649dd70c66b1817bf742c44898d1b8dda3105c9` 加本轮冻结的 incident/design/delta 增量
+- frozen SHA-256: `incident.md=319e9a797137139d738aa87d2e46ca3f6602df429f2563f97026ef46774f9b05`；`design.md=ea3eb1d20875bf433434475e23c5c9a6e883a7e04da20f8eea4eed92f37446e7`；delta `agent-capabilities.md=9392ff6856398357df58ac5e416ee019dc5710c5ab03eafdfef21acf75e3570a`
+- review_mode: delta
+- mode_reason: 新增单一消费者生命周期修正，沿用 DSH 原生结果事件、既有显式 Skill 注入和当前来源规则；与换窗任务恢复方案、裁剪算法和 Notes 展示没有新的耦合决定
+- started_at: 2026-10-21T18:06:28+08:00
+- completed_at: 2026-10-21T18:08:52+08:00
+- duration: 2m24s
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+从完整、成功且宿主确认 live 的 Inbox 结构化结果一次提取手势，再由原 pre-step 路径按当前 Skill 选择注入，能消除对已裁剪历史文本的 JSON 解析依赖。只传递现有显式调用所需的 `(messageId, skillName)`，没有新增正文副本、持久恢复协议或授权通道。
+
+### Coverage 与证据
+
+#### 已确认的断点与结果观察边界
+
+- `packages/dsh-integration/src/capabilities.ts:95-107` 当前每个 pre-step 遍历 `deriveMessages()`，在检查 invocation ID 前先对标记为 live 的历史工具文本 `JSON.parse`。原生 pruner 保留 call ID，却替换正文中段，所以 dedup 无法阻止已处理过的结果在下一步解析失败。仅 catch 并丢弃会同时掩盖尚未识别的手势，不是所需修复。
+- `packages/dsh-integration/src/global-mode.ts:43-62` 将产品结果保留为 `body`，为文本和附件形成 `content`，read 路径完成 `inbox.prepare` 后调用 `recordInbox(agent.id, callId)`，最后返回 `{ body: result, content: admitted }`。因此成功 `tools/result` 观察点已经可以验证宿主 live 标记并读取完整 body，不需另加产品 RPC 或读取持久历史。
+- 固定 DSH `packages/core/tools/src/index.ts:190-198,570-576,1665-1713,1885-1900` 将 `tools/result` 定义为 scoped、同步、只读的最终结果观察事件；成功结果的 `value` 是执行本地的 lossless JSON，独立于呈现 content 且不会写入 durable events。文本裁剪并不把该结构化值变成被截断的 JSON 字符串。设计在 observer 中只同步提取和入队，不调用工具或异步读取 Skill，符合该公开契约。
+
+#### 来源、选择与去重
+
+- 入队条件同时要求 `exec.name === inbox`、成功最终结果、所属 Agent 的 `isLiveInbox`，再过滤 `sender.type === user` 与非 partial 消息。这保留了原宿主来源准入，失败结果即使曾进入执行体也不供给手势；`check`、非 live、Agent/system、partial、History/read 或恢复事件不会仅因含有 `/skill:` 文本而升级为新调用。
+- `ApprovalSources` 的 live 集合是进程内宿主记录；恢复日志不会重发 `tools/result`，也不会重建新的 live 授权。Agent-keyed 队列不跨 Agent 传递，重启后不从旧正文重新创建待调用手势，符合本次不引入持久恢复协议的限制。
+- Skill 正文仍由 accepted pre-step 使用当前 scoped `skills.get` 和 `isUserInvocable` 获取；不能在观察时把当时可用的正文缓存下来绕过后续 selection。直接 nano-human 输入使用同一手势 parser，保留原语法和输入身份。
+- 既有 `nano-skill:<messageId>:<name>` invocation ID 仍是持久去重依据；同一条真人消息多次 live read 不会因新 call ID 再注入。已经写入的 invocation 即使随后退出 surface，也可从原生日志识别；无需新增已处理消息数据库。注入继续使用 `skill-invocation` source，不改标为新的 `nano-human`。
+
+#### 队列生命周期与职责
+
+- 队列只承接“工具最终结果已观察，但下一步尚未注入”的短期状态，内容是两项定位信息而不是第二份 Inbox 正文；WeakMap 随 Agent 生命周期释放，属于现有适配器局部职责。
+- 设计明确拒绝的 pre-step 不消费队列；accepted 路径才通过原有 selected registry 生成 additions 并使用已有 invocation ID 去重。队列不承担换窗后的任务恢复，也不负责重启重放；这与原 live 来源仅在当前进程成立的范围一致。
+- 原生裁剪继续改写模型可见工具文本，R6 不阻止裁剪、不把完整 Inbox 重新注入上下文、不改变裁剪阈值或工具执行权限。修复位置在 Nano 的 Skill 手势消费者，而非 DSH pruner，避免让通用裁剪器理解产品 Inbox 格式。
+
+#### Delta 与验证
+
+- incident 新增 R6 根因与完成条件；design 给出观察、暂存、消费和来源规则；delta 在既有 canonical Requirement 下补充“Explicit Skill gestures survive later tool-history pruning”场景，保留原有场景。三者一致，描述的是当前合法显式手势不因后续裁剪崩溃/重复，没有承诺增加其他来源的自动调用。
+- 计划扩展 `packages/dsh-integration/tests/knowledge.test.ts:146-172` 的现有原生 live-Inbox Skill 测试，能复用真实 Global tool、来源登记、原生执行日志和重启路径。长结果低于单结果 spill 阈值、但确实出现 native prune 事件，避免把另一种截断或仅构造字符串当作集成证据。
+- 验证连续后续步骤无 JSON 异常且只有一次 invocation，结合真人、Agent、partial 和恢复来源边界，直接对应新增行为。脚本 provider 适合这项确定性集成回归；设计明确不以它替代真实模型任务恢复验收，范围恰当。
+
+### Retained coverage 与历史结论
+
+- `retained_from: Round 4`：公开 pruner、budget 重算、默认阈值、History 可恢复性和权限边界未改。R3 对原生 Skill 目录、无额外已用 Skill 恢复及来源的有效判断保持。R5 Notes 格式校正不是本轮重审对象，本轮不补造其 Gate 2 Round。
+- **R1-W1 — closed 保持**：本次不恢复新模式自动正文，也不改变受限 History 路径。
+- 本轮修复的是 Skill 消费者解析已裁剪 JSON 的异常，与 R5 真实模型仍读旧 Notes 的失败不同。R6 绿色不能关闭后者，既有任务恢复失败记录须继续保留。
+
+### Issues
+
+无未解决 CRITICAL/WARNING。
+
+### Recommendations
+
+无额外建议；不扩张到其他历史 JSON 消费者、任务协议或权限机制。
+
+### 本轮边界
+
+仅追加 R6 到本报告；未修改冻结受审文档、源码、既有验证记录或 runtime，未提交、运行服务或执行测试。结论是该增量的设计门禁通过，不是 Skill 回归或原任务恢复已经验收完成。
