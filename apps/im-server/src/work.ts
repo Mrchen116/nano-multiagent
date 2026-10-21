@@ -52,7 +52,7 @@ export class Work {
     )
       fail(409, "session_identity_conflict");
     if (p.scope === "global_main") {
-      if(old && JSON.parse(old.payload).retired)fail(409,"retired_main_session");
+      if(old && JSON.parse(old.payload).retired && !JSON.parse(old.payload).historical_only)fail(409,"retired_main_session");
       const other = one(
         this.db,
         "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
@@ -73,7 +73,7 @@ export class Work {
         ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
         : JSON.stringify(p));
   }
-  append(node: string, p: Row): Row {
+  append(node: string, p: Row, historical = false): Row {
     let through =
       one(
         this.db,
@@ -119,7 +119,8 @@ export class Work {
             old.event_id !== e.event_id ||
             old.root_agent_id !== e.root_agent_id ||
             old.session_id !== e.session_id ||
-            old.payload !== JSON.stringify(e.payload)
+            old.type !== e.type || old.turn_id !== (e.turn_id ?? null) ||
+            (e.observed_at !== undefined && old.observed_at !== e.observed_at) || old.payload !== JSON.stringify(e.payload)
           )
             fail(409, "event_identity_conflict");
           continue;
@@ -129,8 +130,14 @@ export class Work {
         if (e.seq <= through) continue;
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
         const available = agentAvailable(this.db, profile);
-        if (e.type === "session_registered")
-          this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        if (e.type === "session_registered") {
+          if (historical && e.payload.scope === 'global_main') {
+            const existing = one(this.db,'SELECT * FROM agent_work_sessions WHERE session_id=?',e.session_id);
+            if (existing) {
+              if (existing.root_agent_id!==e.root_agent_id || existing.node_id!==node || existing.scope!=='global_main') fail(409,'session_identity_conflict');
+            } else this.db.prepare('INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?)').run(e.session_id,e.root_agent_id,node,'global_main',null,JSON.stringify({...e.payload,retired:true,historical_only:true}));
+          } else this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        }
         else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
         if (e.type === "session_linked") {
           if (e.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");

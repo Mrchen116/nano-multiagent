@@ -98,3 +98,5 @@ export interface UsageReport {
 export { encodeTrajectoryValue, TrajectoryValueDecoder } from './trajectory-wire.js';
 export * from './interactive.js';
 export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';
+
+export * from './work-sync.js';

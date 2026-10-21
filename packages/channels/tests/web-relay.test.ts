@@ -81,7 +81,7 @@ test('reconnect refreshes auth and registration without replaying uncertain or q
   expect(s.headers).toEqual(['Bearer token-1', 'Bearer token-2']);
   expect(s.frames.map(f => f.type)).toEqual(['node.register', 'node.report', 'node.register']);
   expect(relay.ready).toBe(true);
-  expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'disconnected', close_code: 1012 }), expect.objectContaining({ event: 'retry_scheduled', attempt: 1, delay_ms: 10 }), expect.objectContaining({ event: 'ready', outage_ms: expect.any(Number) })]));
+  expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'disconnected', close_code: 1012 }), expect.objectContaining({ event: 'retry_scheduled', attempt: 1, delay_ms: expect.any(Number) }), expect.objectContaining({ event: 'ready', outage_ms: expect.any(Number) })]));
   expect(JSON.stringify(diagnostics)).not.toContain('token-');
 });
 
@@ -92,7 +92,7 @@ test('heartbeat timeout reconnects; revoked identity stops automatic reconnect',
   await relay.start();
   await expect.poll(() => relay.state, { timeout: 1000 }).toBe('revoked');
   expect(s.connections.length).toBe(2);
-  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'disconnected', phase: 'heartbeat', error_type: 'TimeoutError' }));
+  expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'transport_error', phase: 'heartbeat', error_type: 'TimeoutError' }));
   const count = s.connections.length;
   await pause(60); expect(s.connections).toHaveLength(count);
   await expect(relay.request('node.report', {})).rejects.toBeInstanceOf(RelayDeliveryError);

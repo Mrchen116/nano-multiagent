@@ -1312,14 +1312,14 @@ describe("ChatWorkspacePage — integration", () => {
     const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
     await user.type(composer, "optimistic survives stale history");
     await user.click(screen.getByRole("button", { name: /Send/i }));
-    expect(await screen.findByText("optimistic survives stale history")).toBeInTheDocument();
+    expect(await screen.findByText("optimistic survives stale history",{selector:"span"})).toBeInTheDocument();
 
     await act(async () => {
       resolveRaced(jsonResponse({ items: staleItems, next_before_message_id: null }));
       await Promise.resolve();
     });
     await screen.findByText("optimistic race reset marker");
-    expect(screen.getByText("optimistic survives stale history")).toBeInTheDocument();
+    expect(screen.getByText("optimistic survives stale history",{selector:"span"})).toBeInTheDocument();
   });
 
   it("converges active messages, conversations, agents, and nodes after recovery", async () => {
@@ -1491,7 +1491,7 @@ describe("ChatWorkspacePage — integration", () => {
       const posted = sent.find((r) => /messages$/.test(r.url) && r.init?.method === "POST");
       expect(posted).toBeDefined();
     });
-    expect(composer.value).toBe("");
+    await waitFor(()=>expect(composer.value).toBe(""));
   });
 
   it("drops an image into the composer, uploads it, and sends with attachments in the payload", async () => {
@@ -1535,7 +1535,7 @@ describe("ChatWorkspacePage — integration", () => {
     // composer + chip strip both reset after send. (M18 R9-3: the user's bubble
     // is now rendered optimistically with its attachments, so we scope this
     // assertion to the composer chip strip rather than the whole document.)
-    expect(composer.value).toBe("");
+    await waitFor(()=>expect(composer.value).toBe(""));
     const composerChipStrip = composer.closest("form")?.querySelector(".chat-composer-chip-strip");
     expect(composerChipStrip?.querySelector("img[alt='dropped.png']")).toBeFalsy();
   });
@@ -1773,9 +1773,11 @@ describe("ChatWorkspacePage — integration", () => {
       delivery_status: "sent", tool_calls: [], token_usage: null, created_at: message.created_at
     }));
     await screen.findByText(message.content, { selector: "span" });
+    await waitFor(()=>expect(finishPost).toBeTypeOf('function'));
     await act(async () => { finishPost(jsonResponse(message)); });
     expect(await screen.findByText("Waiting for computer update")).toBeInTheDocument();
-    expect(screen.getAllByText(message.content)).toHaveLength(1);
+    await waitFor(()=>expect(screen.getByRole("textbox")).toHaveValue(""));
+    expect(screen.getAllByText(message.content,{selector:"span"})).toHaveLength(1);
   });
 
   it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {

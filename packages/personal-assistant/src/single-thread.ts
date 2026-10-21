@@ -362,7 +362,7 @@ export class SingleThread {
     if (!pending) return;
     pending.outcome = result.outcome;
     if (!pending.posted) return;
-    await this.delta({ kind: 'permission_resolved', message_id: pending.messageId, request_id: result.requestId,
+    await this.delta({ kind: 'permission_resolved', message_id: pending.messageId, permission_request: {request_id:result.requestId},
       decision: pending.decision ?? (result.outcome === 'allowed-once' ? 'allow_once' : result.outcome === 'rejected' ? 'deny' : result.outcome),
       session_id: pending.sessionId, run_id: pending.sessionId, agent_id: this.binding(pending.sessionId).agentId });
     this.pendingApprovals.delete(result.requestId);

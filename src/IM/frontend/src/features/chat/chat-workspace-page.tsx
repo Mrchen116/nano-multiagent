@@ -864,6 +864,18 @@ export function ChatWorkspacePage() {
     );
   }
 
+  function acceptCreatedMessage(created: Message) {
+    clearSendError(created.conversation_id);
+    // HTTP success and attempt recovery share the message-id merge so either may
+    // arrive before or after the WS echo and an in-flight history response.
+    if (messagesQueryFetchingRef.current) {
+      pendingDiscardedMessageIdsRef.current.delete(created.id);
+      pendingLiveMessageIdsRef.current.add(created.id);
+    }
+    dispatch({ type: "append_optimistic", message: created });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+  }
+
   const sendMutation = useMutation({
     mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
@@ -874,21 +886,7 @@ export function ChatWorkspacePage() {
         idempotencyKey: payload.idempotencyKey,
         interactionContexts: payload.interactionContexts
       }),
-    onSuccess: (created, payload) => {
-      clearSendError(payload.conversationId);
-      // feat-340-M18 R9-3: optimistically render the user's own message immediately
-      // after the POST resolves. The WS message.created echo path is reliable for
-      // agent replies but not always for self-authored bubbles, so previously the
-      // user saw their text vanish into the void until a refetch. Reducer dedupes
-      // by id so the later WS event (if any) does not double-print.
-      if (messagesQueryFetchingRef.current) {
-        pendingDiscardedMessageIdsRef.current.delete(created.id);
-        pendingLiveMessageIdsRef.current.add(created.id);
-      }
-      dispatch({ type: "append_optimistic", message: created });
-      // Bump conversation list ordering on next refetch.
-      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-    },
+    onSuccess: acceptCreatedMessage,
     onError: (err, payload) => {
       if (conversationIdRef.current !== payload.conversationId) return;
       setWorkspaceError({
@@ -1245,6 +1243,12 @@ export function ChatWorkspacePage() {
               conversationId: activeConversation.id,
               text,
               attachments, interactionReply, idempotencyKey, interactionContexts
+            })}
+            onRecovered={acceptCreatedMessage}
+            onSendFailure={() => setWorkspaceError({
+              conversationId: activeConversation.id,
+              kind: "send",
+              message: t("chat.messagePane.sendError")
             })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
