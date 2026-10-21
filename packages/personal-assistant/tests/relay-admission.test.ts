@@ -31,10 +31,10 @@ test('stop-like ordinary text cannot reserve a control position or block later i
  }finally{await product.stop();inbox.close();store.close();}
 });
 
-test('a revoked receipt cannot starve a later valid conversation',async()=>{
+test.each(['scope_not_allowed','agent_not_accessible','conversation_id not found'])('a revoked receipt (%s) cannot starve a later valid conversation',async(code)=>{
  const inbox=new InboxStore(':memory:'),store=new NodeStore(':memory:','owner');const ids:string[]=[];
  inbox.acceptRelay(input,true);inbox.acceptRelay({...input,relay_task_id:'valid',conversation_id:'other',message:{...input.message,id:'valid'}},true);
  const {RelayDeliveryError}=await import('@nano/channels');
- const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[],store,inbox,runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{async request(_type,payload){ids.push(String(payload.relay_task_id));if(payload.relay_task_id==='r')throw new RelayDeliveryError('revoked','rejected','scope_not_allowed');return {type:'ack',payload:{}};}},image:async()=>'',onError:()=>{}});
+ const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[],store,inbox,runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{async request(_type,payload){ids.push(String(payload.relay_task_id));if(payload.relay_task_id==='r')throw new RelayDeliveryError('revoked','rejected',code);return {type:'ack',payload:{}};}},image:async()=>'',onError:()=>{}});
  try{await product.recover();expect(ids).toEqual(['r','valid']);expect(inbox.pendingRelays()).toEqual([]);}finally{await product.stop();inbox.close();store.close();}
 });

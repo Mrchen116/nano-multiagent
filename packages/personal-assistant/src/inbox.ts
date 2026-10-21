@@ -96,6 +96,14 @@ export class InboxStore {
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
   confirmRelay(id: string, status: string): void {this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);}
   pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
+  /** Return a source-authorized ordinary PA message to the Inbox after command classification. */
+  demoteControl(input:RelayInput):void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE inbox SET consumed=0 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);
+      this.finishControl(input);this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+  }
   finishControl(input:RelayInput):void {this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);}
   private trackBackground(agent: string, now: number): void {
     // Old, already notified inputs must not become new background wakes after upgrade.

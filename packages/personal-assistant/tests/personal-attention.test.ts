@@ -8,9 +8,9 @@ function fixture() {
   const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
   const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',groupReplyPolicy:'mention_only',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
-  const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>();let loseAck=false;
+  const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>(),foreign=new Set<string>();let loseAck=false;
   let running=false, race=false;let listener:(method:string,data:any)=>void=()=>{};
-  const source=(target:unknown)=>({allowed:true,is_owner:true,delivery:target==='background'?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
+  const source=(target:unknown)=>({allowed:true,is_owner:!foreign.has(String(target)),delivery:target==='background'?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>{errors.push(error);},
     runtime:{onNotification:fn=>{listener=fn;return()=>{};},request:async(method,args:any)=>{
       methods.push(method);
@@ -33,7 +33,7 @@ function fixture() {
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,
     message:{id,content:id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
   const idle=()=>{running=false;listener('session.status',{sessionId:store.bindingFor('pa','global:pa')!.sessionId,status:'idle'});};
-  return {product,inbox,store,submitted,methods,input,idle,observations,errors,excluded,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},race:()=>{race=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
+  return {product,inbox,store,submitted,methods,input,idle,observations,errors,excluded,foreign,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},race:()=>{race=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
 }
 it('notifies one observer batch at a fixed deadline without another message and never checks it as a direct request',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
@@ -131,4 +131,13 @@ it('stops the deadline timer without consuming stored background',async()=>{
     await f.product.stop();await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(0);expect(f.inbox.check('pa',true).sources[0].unread).toBe(1);
   } finally {await f.close();vi.useRealTimers();}
+});
+
+it('treats a non-owner participant stop as ordinary input without reserving a blocking owner control',async()=>{
+ const f=fixture();f.foreign.add('group');
+ try {
+  const input=f.input('peer-stop','group',{mentioned_agent_ids:['pa']});input.message.content='/stop';input.message.sender_user_id='peer';
+  await Promise.race([f.product.receive(input),new Promise((_,reject)=>setTimeout(()=>reject(Error('peer control blocked Inbox')),300))]);
+  expect(f.methods).not.toContain('session.cancel');expect(f.inbox.pendingControls()).toEqual([]);expect(f.submitted).toHaveLength(1);expect(f.inbox.check('pa',true).sources[0]?.unread).toBe(1);
+ }finally{await f.close();}
 });

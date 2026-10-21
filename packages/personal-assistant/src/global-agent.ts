@@ -107,6 +107,7 @@ export class GlobalAgent {
         this.accepting.delete(key);if(this.controlTasks.get(input.agent_id)===task)this.controlTasks.delete(input.agent_id);
       });
     this.accepting.set(key,task);if(control)this.controlTasks.set(input.agent_id,task);await task;
+    if(control && this.options.inbox.wakePending(config.agentId)!==undefined)await this.wake(config,this.binding(config));
   }
   private ensureAuthority(binding: SessionBinding): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
@@ -125,7 +126,7 @@ export class GlobalAgent {
         for (const receipt of batch) {
           try {await this.transmitReceipt(receipt.input,receipt.status);this.options.inbox.confirmRelay(receipt.input.relay_task_id,receipt.status);}
           catch(error) {
-            if(error instanceof RelayDeliveryError && error.delivery==='rejected' && /scope_not_allowed|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code??'')) {this.options.inbox.rejectRelay(receipt.input.relay_task_id);this.options.onError(error);continue;}
+            if(error instanceof RelayDeliveryError && error.delivery==='rejected' && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code??'')) {this.options.inbox.rejectRelay(receipt.input.relay_task_id);this.options.onError(error);continue;}
             if(!this.stopped) {this.receiptTimer=setTimeout(()=>{void this.drainReceipts();},this.receiptBackoff);this.receiptTimer.unref();this.receiptBackoff=Math.min(30000,this.receiptBackoff*2);}
             this.options.onError(error);return;
           }
@@ -143,6 +144,9 @@ export class GlobalAgent {
     const ownerControl = !config.personal || input.metadata.personal_is_owner === true && input.metadata.personal_delivery === 'participant'
       && needsAttention(input,{...config,groupReplyPolicy:'mention_only'});
     const command = input.message.content.trim();
+    if(!ownerControl && this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) {
+      this.options.inbox.demoteControl(input);deferWake=true;
+    }
     if (ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop')) {
       const binding = await this.main(config);
       let text = '全局模式不支持按聊天重置';
@@ -471,6 +475,14 @@ export class GlobalAgent {
     if (interactive && config?.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
     const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
+    const confirm = (payload:Record<string,unknown>) => {
+      const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
+      inbox.settlePublication(call.operationId,'confirmed',result);
+      const turn=store.events(call.sessionId).find(event=>event.type==='tool/call' && event.data.callId===call.callId)?.data.turn as number|undefined;
+      if(interactive && !global && turn!==undefined)store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+      if(global)this.append(binding,`publication:${call.operationId}`,'message_sent',{call_id:call.callId,text,...result},turn);
+      return result;
+    };
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
@@ -478,8 +490,7 @@ export class GlobalAgent {
       if(previous.state==='unknown' || previous.state==='sending') {
         const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
         if(status.payload.found===true) {
-          const result={status:'sent',message_id:status.payload.message_id,conversation_id:status.payload.conversation_id};
-          inbox.settlePublication(call.operationId,'confirmed',result);return result;
+          return confirm(status.payload);
         }
       }
     }
@@ -527,11 +538,7 @@ export class GlobalAgent {
       const response = await this.options.relay.request('agent.message', { node_id: this.options.nodeId, text,
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
-      const result = { status: 'sent', target, message_id: response.payload.message_id, conversation_id: response.payload.conversation_id };
-      inbox.settlePublication(call.operationId, 'confirmed', result);
-      if (interactive && !global && turn !== undefined) store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`, JSON.stringify(result));
-      if (global) this.append(binding, `publication:${call.operationId}`, 'message_sent', { call_id: call.callId, text, ...result }, turn);
-      return result;
+      return confirm(response.payload);
     } catch (error) {
       if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
@@ -542,8 +549,7 @@ export class GlobalAgent {
         try {
           const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
           if(status.payload.found===true) {
-            const result={status:'sent',message_id:status.payload.message_id,conversation_id:status.payload.conversation_id};
-            inbox.settlePublication(call.operationId,'confirmed',result);return result;
+            return confirm(status.payload);
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }

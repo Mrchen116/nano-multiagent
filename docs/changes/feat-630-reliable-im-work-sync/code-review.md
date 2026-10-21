@@ -51,3 +51,63 @@
 ```
 
 窄复现命令：`node --import tsx /tmp/feat630-review-repro.mts` 与 `node --import tsx /tmp/feat630-review-server.mts`（均从本 worktree 执行）。第一份验证控制自等待、all-parts cursor 和传输字段覆写；第二份使用真实 IM/WS/SQLite 验证审批投影后果，并验证永久失败回执的队头阻塞。脚本为本次临时审查产物，不提交仓库。缺陷修复后需独立复核这些条件；本报告不提前宣称产品场景、负载或全量一致性验收通过。
+
+## Round 2 — closure and incremental patch review
+
+- reviewer: `/root/feat630_static_review`
+- review_mode: `closure` for Round 1 F1–F4; `patch` for added source changes
+- finding_origin_head / pre_fix_head: `24a944b1735215f872b35ff55c196bed9e776788`
+- validated_at: `effe82d32d94a0337a522f106e20e356656f93e8`
+- diff_range: `24a944b1735215f872b35ff55c196bed9e776788..effe82d32d94a0337a522f106e20e356656f93e8`
+- completed_at: `2026-10-21T13:33:37Z`
+- verdict: **Issues Found — 2 original findings still_open; 2 new CONFIRMED patch findings**
+
+核对这一范围内所有源码、回归测试修订、load harness 修订和真实消费方；包含 request 可选 priority 与发送 unknown 后立即查询 status 的新增分支。复用 caller 报告的 18/18 定向回归结果，未跑全量。共享 checkout 在本轮期间出现后续修正，独立复现因此改用 `git archive effe82d32` 的临时 PA 源码快照，不将 caller 正在实施的未提交改动混作本轮受审版本。仅追加本报告，未修改产品源码、测试、配置或提交。
+
+| Round 1 finding | Closure | Evidence at fixed HEAD |
+|---|---|---|
+| F1 control 自等待 | **still_open** | `/stop now` 已按普通文本处理；但 receive 仍先于 personal authority 判断把非 owner PA participant 的精确 `/stop` 标成控制，ingest 随后因 ownerControl=false 进入普通 attention→wake，再等待自身 controlTasks。独立复现 completed=false、submits=0、pending=1、waking=1。 |
+| F2 全部分块已齐但事件未提交 | **closed** | uploadEvent 在 received.size===count 时显式补发最后一块；服务端即使 old part 已存在仍执行 count/finalize，能够重新进入原子 append。新增 all-parts 回归针对原窗口验证一次末块 PUT 后推进 cursor。 |
+| F3 Web 审批业务身份被传输覆写 | **closed** | SingleThread 将业务 ID 放入既有 permission_request 对象，Gateway.streaming 优先读该对象；独立真实 IM/WS/SQLite 输出仅 original-approval 一条 resolved/cancelled，无随机身份和遗留 pending。迁移引出的飞书消费者遗漏另列新 patch finding。 |
+| F4 撤权 receipt 队头阻塞 | **still_open** | rejectRelay 的 confirmed=-1 表达正确，但新增匹配表漏掉实际 requireAgent 返回的 agent_not_accessible，以及 Messaging.access 返回的 conversation_id not found。真实服务端撤销会话资格复现仍仅重复 revoked，valid 从未发送。 |
+
+### Surviving and new findings
+
+```json
+[
+  {
+    "file": "/Users/czj/.codex/worktrees/unit-feat-630/nano-multiagent/packages/personal-assistant/src/global-agent.ts",
+    "line": 96,
+    "summary": "[P1] PA 来源权限判定前预留 control，非主人发送 /stop 仍触发控制自等待",
+    "failure_scenario": "非 owner 的获准 PA participant 在直接聊天发送精确 '/stop'。receive 96 行无条件命中精确命令并保存 pending control、consumed=1；personal.admit 返回 allowed=true、is_owner=false、delivery=participant，独立输入审查 allow。ingest 的 ownerControl=false，因此不会执行 /stop，也不会调用 SessionControls，而会进入 attention→wake；wake 175 行等待正在 await 它的 controlTasks，原问题仍发生，后续同 Agent 的消息与控制均受阻，重启重放亦不能消除。固定 HEAD 临时快照独立复现 completed=false、submits=0、pending=1、waking=1。普通 global 的带参数文本已修复，但不能据此关闭原来源/解析不一致造成的死锁；控制 intent 必须与可信来源分类后的真实执行判定一致。",
+    "review_mode": "closure",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "/Users/czj/.codex/worktrees/unit-feat-630/nano-multiagent/packages/personal-assistant/src/global-agent.ts",
+    "line": 128,
+    "summary": "[P2] 永久失败回执过滤没有覆盖真实撤权错误码，仍会阻塞后续有效回执",
+    "failure_scenario": "scope_not_allowed 人造回归通过，但真实 Gateway.requireAgent 的拒绝是 agent_not_accessible；真实 Messaging.access 在聊天成员资格或 PA source 撤销后返回 conversation_id not found。当前过滤正则均不匹配，仍落入退避并 return，同一条 rowid 最早的 receipt 继续毒住整个节点。用真实 IM/WS/SQLite 创建 revoked、valid 两聊天待回执后移除前一聊天的 Agent 成员，固定快照输出 receiptCalls=[revoked,{error:'conversation_id not found'},revoked,{error:'conversation_id not found'}]，pending=[revoked,valid]，valid 从未发送。应按实际协议的终止性错误处理而非只覆盖测试构造的 code。",
+    "review_mode": "closure",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "/Users/czj/.codex/worktrees/unit-feat-630/nano-multiagent/packages/personal-assistant/src/single-thread.ts",
+    "line": 365,
+    "summary": "[P2] 审批 ID 迁入 permission_request 后未更新飞书消费者，取消或超时不再关闭原卡片",
+    "failure_scenario": "single_thread 的飞书审批卡片发布后，runtime 以 cancelled/unavailable 等结果结束审批。此处仅将业务 ID 放入 permission_request.request_id，但真实组装中的 ExternalChannels.request 在 external.ts 172 行仍调用 resolveApproval(String(payload.request_id),...)。当前 payload 没有顶层 ID，因而查找的是 'undefined'，原 external approval 没有 settle，也没有 updateCard。固定快照以真实 ExternalChannels/ExternalStore 发送新结构 permission_resolved，输出原审批 settled=0、卡片 updates=0；随后点击原卡片仍调用一次 permission；窄复现的成功 stub 显示提交成功，真实 SingleThread.permission 则会因审批已不存在抛错。Web 路径已修复，必须同步迁移这个既有消费方。",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "/Users/czj/.codex/worktrees/unit-feat-630/nano-multiagent/packages/personal-assistant/src/global-agent.ts",
+    "line": 546,
+    "summary": "[P2] unknown 外发查到成功后跳过原成功收尾，single_thread 会把 NO_REPLY 发给用户",
+    "failure_scenario": "single_thread 使用 send_message 发布 interactive，中心已提交但 agent.message ACK 丢失。新增 catch 即时查询 status 并找到原消息后直接 settlePublication/return，未执行正常成功路径 532 行的 store.saveCommand(interactive-delivered:session:turn)。随后模型按既有交互回复契约输出 NO_REPLY 收尾；SingleThread.drain 221–228 行只有该标记存在才丢弃占位并保持静默，缺失时会把 NO_REPLY 作为普通直接聊天正文发布。固定 HEAD 下独立 GlobalAgent.call＋SingleThread.recover 复现返回 status=sent/message_id=confirmed-card，同时 marker=null、message_completed.final_content=['NO_REPLY']。查到远端成功后仍需完成与正常 ACK 相同的本地成功投影及 single_thread 标记，不能仅保存 publication result。",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+窄复现：`/tmp/feat630-review-round2.mts`（PA control、飞书卡片）、`/tmp/feat630-review-round2-server.mts`（真实 Web 审批闭合、真实撤权 code 与后续 receipt）、`/tmp/feat630-review-round2-unknown.mts`（即时 status 恢复后的 single_thread 收尾）。均用随机端口/临时数据库，受审 PA 源码来自固定 git archive 快照；临时辅助模块只导出该快照解析到的 RelayDeliveryError，以保持 instanceof 与生产包一致。所有临时服务已结束，未触碰生产。产品、负载与 full verifier 结论仍不在本审查范围。
