@@ -75,6 +75,19 @@ test('small batches preserve event identity, sequence, body bounds and authentic
   expect((await f.request('GET')).json()).toMatchObject({ through_seq: 1 });
   expect(f.db.prepare('SELECT count(*) count FROM agent_work_events').get()).toMatchObject({ count: 1 });
 });
+test('a chunked child tool keeps its complete arguments, projection and parent ownership',async()=>{
+ const f=await fixture();
+ const linked={...event(2),type:'session_linked',payload:{parent_session_id:'main',child_session_id:'child'}};
+ expect((await f.request('POST',`${prefix}/events`,{from_seq:1,events:[event(1),linked]})).json().through_seq).toBe(2);
+ const full={...event(3),session_id:'child',turn_id:'1',type:'tool_end',payload:{call_id:'child-write',tool_name:'write',arguments:{file_path:'child.txt',content:'x'.repeat(106*1024)},presentation:{summary:'child done',detail:{content:'complete child result'}}}};
+ const chunks=parts(full);
+ for(let i=0;i<chunks.length;i++)expect((await f.request('PUT',`${prefix}/events/3/parts/${i}`,chunks[i])).statusCode).toBe(200);
+ expect((await f.request('GET')).json().through_seq).toBe(3);
+ expect(f.db.prepare("SELECT root_agent_id,node_id,scope,parent_session_id FROM agent_work_sessions WHERE session_id='child'").get()).toEqual({root_agent_id:'root',node_id:'node',scope:'subagent',parent_session_id:'main'});
+ const stored=f.db.prepare('SELECT payload FROM agent_work_events WHERE seq=3').get() as {payload:string};expect(JSON.parse(stored.payload)).toEqual(full.payload);
+ const projected=JSON.parse((f.db.prepare("SELECT payload FROM agent_work_items WHERE session_id='child' AND item_id='tool:child-write'").get() as {payload:string}).payload);
+ expect(projected.input).toEqual(full.payload.arguments);expect(projected.detail).toEqual(full.payload.presentation.detail);
+});
 
 test('parts survive restart, reject corruption and commit a complete 106 KiB event only once', async () => {
   const f = await fixture();

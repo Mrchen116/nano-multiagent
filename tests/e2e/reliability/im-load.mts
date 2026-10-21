@@ -58,7 +58,7 @@ const summaries:any[]=baseline?[baseline]:[];
 try{
  for(const loaded of baseline?[true]:[false,true]){
   phase={name:loaded?'with-work':'without-work',sent:0,received:new Set<string>(),save:[],accept:[],errors:[],workErrors:{},redeliveries:0};starts.clear();
-  token=(await http('/im/v1/auth/login',{username:'load',password:'old-password'})).access_token;
+  if(loaded&&!baseline)token=(await http('/im/v1/auth/login',{username:'load',password:'old-password'})).access_token;
   const start=performance.now();
   if(loaded)for(let i=0;i<20;i++){appendBatch(i);nodes[i]!.sync.start();}
   let refilling=false;const refill=setInterval(()=>{if(!loaded||refilling)return;refilling=true;void(async()=>{try{for(let i=0;i<20;i++){if(nodes[i]!.inbox.throughSeq===nodes[i]!.inbox.journalSeq)appendBatch(i);await new Promise<void>(r=>setImmediate(r));}}finally{refilling=false;}})();},500);
