@@ -81,7 +81,7 @@ export function apply(ctx) {
   }, 0); });
   const seen = new Set();
   ctx.on('llm/stream', async function* (options) {
-    const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'nano-human');
+    const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'user' && 'actorId' in message.source);
     if (seen.has(last.id)) { yield { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } }; yield { type: 'finish', reason: { kind: 'stop' } }; return; }
     seen.add(last.id);
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: last.id + '-call', name: 'run_code', arguments: JSON.stringify({ description: 'Check selected SDK', code: 'return { echo: await tools.fixture_echo({}), missing: typeof tools.read };' }) } };

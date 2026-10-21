@@ -20,6 +20,7 @@ import { recordToolPresentations } from './tool-presentation.js';
 import { readUsage } from './usage.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
+import { isHumanSource } from './input-source.js';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { ProductBridge } from './product-bridge.js';
@@ -82,7 +83,6 @@ interface Submit {
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-human': { kind: 'nano-human'; contextEnvelope?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
     'nano-system': { kind: 'nano-system'; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
   }
 }
@@ -202,7 +202,7 @@ export default class NanoRuntime {
       const config = configurationService.forAgent(request.agent);
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
-      const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && event.data.source?.kind === 'nano-human');
+      const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && isHumanSource(event.data.source));
       if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human) return 'rejected';
       const approvalSessionId = request.agent.id;
       if(!this.bindings.has(approvalSessionId)) return 'rejected';
@@ -587,7 +587,7 @@ export default class NanoRuntime {
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
       (await this.models).fallback.interrupt(agent);
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
-        source: { ...input.source, kind: input.source.kind === 'human' ? 'nano-human' as const : 'nano-system' as const } });
+        source: input.source.kind === 'human' ? { ...input.source, kind: 'user' as const } : { ...input.source, kind: 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);
       else if (input.mode === 'steer') agent.steer(message);
       else if (input.mode === 'inject') agent.inject(message);

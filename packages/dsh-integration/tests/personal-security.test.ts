@@ -20,7 +20,7 @@ ctx.on('llm/stream',async function*(o){
   const latest=o.messages.findLast(m=>m.role==='user');const input=latest.content.filter(c=>c.type==='text').map(c=>c.text).join('');const pending=input.includes('<planned_action>')?input.split('<planned_action>').at(-1):input.trim().split('\\n').filter(line=>line.startsWith('{')).at(-1);const allow=prompt.includes('CURRENT_OWNER_CHOICE')&&!pending.includes('FORBIDDEN_DISCLOSURE');
   yield{type:'block-end',index:0,block:{type:'text',text:${rules==='codex'?`JSON.stringify({outcome:allow?'allow':'deny',risk_level:allow?'low':'high',user_authorization:'high',rationale:'Not authorized'})`:`allow?'<block>no</block>':'<block>yes</block><reason>Not authorized</reason>'`}}};yield{type:'finish',reason:{kind:'stop'}};return;
  }
- const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+ const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  if(!steps.has(human.id)){steps.add(human.id);const call=JSON.parse(human.content[0].text);yield{type:'block-end',index:0,block:{type:'tool-call',id:'call-'+human.id,name:call.name,arguments:JSON.stringify(call.args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);

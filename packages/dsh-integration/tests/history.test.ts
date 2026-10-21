@@ -196,7 +196,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     expect(readable).toContain("fork-only");
     expect(readable).not.toContain("after-point");
     // Source references may quote the original envelope; readable human bodies omit it.
-    const humanRows = readable.trim().split("\n").map(line => JSON.parse(line)).filter(row => row.source === "nano-human");
+    const humanRows = readable.trim().split("\n").map(line => JSON.parse(line)).filter(row => row.source === "user");
     expect(humanRows.length).toBeGreaterThan(0);
     expect(humanRows.every(row => !row.content.startsWith("Message time:"))).toBe(true);
     await client!.shutdown();

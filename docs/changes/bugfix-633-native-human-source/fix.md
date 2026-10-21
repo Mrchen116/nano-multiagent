@@ -32,3 +32,23 @@ refactor-581 原意是使用未修改 DSH 的原生 loop、工具与 Skill，保
 原生 tool-skill 在直接 user 文本中识别空白分隔的 /name；Nano 旧入口额外接受 /skill:name 与紧贴方括号标签的 /name。常规 /name 应由原生负责，只对确有差异的旧入口与旧历史保留薄适配。live Inbox 的原始结果提取、Agent-local 待处理队列和 nano-skill 持久去重保持。
 
 采用 Bugfix lite：单一来源映射根因，无新产品/架构设计；M1-fix 同步有限消费者并验证原生公开入口。
+
+## 修复
+
+- 通过公开 MessageSourceMap 增补带 Nano 身份的原生 user 联合分支；新的直接输入写 user，历史 nano-human 只读兼容。actorId/channel/messageId、contextEnvelope 和 background_returns 原样保留。
+- Nano 的真人消费者同时要求原生 user 的宿主身份；原生子 Agent 的裸 user 初始任务仍是父任务。同步审批来源/路由、Workflow 显式入口及输入关联、可读历史，以及 PA 工作来源展示和 task_graph 的 source_message_id。
+- 常规直接 /name 完全交给原生 tool-skill；薄适配仅覆盖 /skill:name、紧贴标签的入口和旧 pending nano-human。原生中间件可在 Nano scope 返回后追加注入，兼容层仅检测同名原生语法来抑制重复，不另加载一份原生 Skill。live Inbox 原始结果提取和 nano-skill 去重保持。
+- 更新依赖旧来源名的模型夹具，使其结合宿主身份识别原生 user。Guardian 生命周期夹具关闭无关自进化，防止其将原生子任务误当真人并产生额外审查；Guardian 产品实现未改。
+
+## 验证
+
+修前隔离 runtime 测试确认直接输入仍落为 nano-human，原生 inline Skill 不被识别。修后实际安装的未修改 DSH 子进程通过：同一 turn 内 read → create_goal → update_goal complete（4 个 step、3 个成功工具结果）；系统/定时/其他 Agent/原生子 Agent 拒绝创建目标；新真人输入重置重复计数，系统输入继续累计。目标资格不绕过自动审查与人工拒绝。
+
+显式 Skill 覆盖原生 /name、兼容 /skill:name、标签前缀、混合及重复语法、关闭名单、重启幂等和 legacy nano-human 原始记录保留。原生路径的 injection ID 不使用 nano-skill；Inbox 现有裁剪/三轮完成/重启去重测试保留。
+
+- `native-human-source.test.ts`：3 项通过。
+- `approval-sources.test.ts`：11 项通过，覆盖新旧真人、无身份 user、父任务、Agent/系统/定时来源。
+- PA `source-provenance/global-agent/store`：62 项通过。
+- `pnpm build`、`pnpm typecheck` 通过；Python 非 E2E 62 passed / 31 deselected；ruff check/format 和 docs-check 通过。
+
+证据边界：使用真实原生 runtime、文件工具与持久化，模型输出由确定性 fixture 提供；没有声称真模型、Web/飞书/实体客户端或生产验收。独立 code review、最终 CI 与归档结果在交付前补记。

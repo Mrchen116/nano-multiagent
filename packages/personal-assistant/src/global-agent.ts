@@ -427,7 +427,8 @@ export class GlobalAgent {
         const events = this.options.store.events(binding.sessionId);
         const start = events.findLast(event => event.type === 'turn/start');
         const human = events.filter(event => event.seq > (start?.seq ?? Infinity) && event.type === 'user/message')
-          .map(event => event.data.source as { kind: string; messageId?: string }).filter(source => source?.kind === 'nano-human').at(-1)?.messageId;
+          .map(event => event.data.source as { kind: string; messageId?: string }).filter(source => source?.kind === 'nano-human'
+            || source?.kind === 'user' && 'actorId' in source && 'channel' in source && 'messageId' in source).at(-1)?.messageId;
         const { action, target, ...args } = call.args;
         const bound = config?.mode === 'single_thread' && !binding.conversationId.startsWith('owner:') ? binding.conversationId : undefined;
         const source = typeof target === 'string' && target !== 'current' ? target.replace(/^conversation:/, '')

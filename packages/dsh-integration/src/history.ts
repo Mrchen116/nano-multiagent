@@ -1,3 +1,4 @@
+import { isHumanSource } from './input-source.js';
 import { AsyncLocalStorage } from "node:async_hooks";
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -291,7 +292,7 @@ export class NativeHistory {
         if (!message) return [];
         const content = message.content
           // The readable copy keeps human text; runtime/trajectory retains the model context.
-          .filter((block, index) => !(index === 0 && block.type === "text" && message.source.kind === "nano-human" && block.text === message.source.contextEnvelope))
+          .filter((block, index) => !(index === 0 && block.type === "text" && isHumanSource(message.source) && block.text === message.source.contextEnvelope))
           .flatMap((block) =>
             block.type === "text"
               ? [block.text]

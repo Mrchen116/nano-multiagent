@@ -1,3 +1,4 @@
+import { isHumanSource } from "../input-source.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import {
@@ -325,7 +326,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
               (event) =>
                 event.type === "user/message" &&
                 event.seq > (turn?.seq ?? -1) &&
-                ["nano-human", "nano-system"].includes(event.data.source.kind),
+                (isHumanSource(event.data.source) || event.data.source.kind === "nano-system"),
             )
             .map((event) => (event.data as { id: string }).id),
         ]),
