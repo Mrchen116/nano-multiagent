@@ -157,7 +157,7 @@ read 超长行接续额外接受 `offset_chars`，与 `start_line` 一起定位�
 |---|---|---|---|
 | 隔离 IM + Node（Node 拥有 DSH 子进程） | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT"` | source `.e2e-ports.env` 后 `curl -fsS "$IM_URL/openapi.json"`；`pnpm pa status --config "$WT_ROOT/.gateway-config.yaml"` |
 
-验收前先 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm --dir src/IM/frontend build`；沿用 [worktree-runtime](../../development/worktree-runtime.md) 的端口、账号和清理规则。启动脚本 readiness 不代替行为验收。正常重启执行 `pnpm pa restart --config "$WT_ROOT/.gateway-config.yaml"`，只重启该 Node 并保持其 state/DSH home；不可把重新执行会清空运行数据的 e2e-up 当成重启测试。重启后按该配置的 `pnpm pa status` 核对新 PID，并按 e2e 脚本约定更新本次 `.gateway.pid`，使清理指向本次实例；不得动主实例。
+验收前先 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm --dir src/IM/frontend build`；沿用 [worktree-runtime](../../../development/worktree-runtime.md) 的端口、账号和清理规则。启动脚本 readiness 不代替行为验收。正常重启执行 `pnpm pa restart --config "$WT_ROOT/.gateway-config.yaml"`，只重启该 Node 并保持其 state/DSH home；不可把重新执行会清空运行数据的 e2e-up 当成重启测试。重启后按该配置的 `pnpm pa status` 核对新 PID，并按 e2e 脚本约定更新本次 `.gateway.pid`，使清理指向本次实例；不得动主实例。
 
 **验收前置：** 本地已有 Node/pnpm、Python `.venv` 和 `config/e2e/gateway.yaml`；模型来源复用该配置的 provider，开跑前用隔离 Agent 一次真实模型请求验证可达性，不输出凭据。包候选来自 fork pack，记录 commit/version/hash，通过 Nano 依赖自动挂载；固定 Release 资产发布后再执行同版本 frozen-lockfile 安装 smoke。两 Agent/两个 workspace 用于验证隔离（现有 e2e/e2e-peer 可复用，必要时仅改隔离 config 副本）。无待审批的生产发布/安装需求。
 

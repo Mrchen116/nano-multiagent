@@ -166,3 +166,52 @@ The original V1 is narrowed by evidence now available: R1 has established meanin
 ```
 
 No runtime, source or configuration was changed, and no commit or push was made. Only `code-review.md` and `verification.md` were updated; shared runtime and product revalidation remain owned by the caller/product reviewer.
+
+## R3 — final targeted closure of V1
+
+> verification_mode: `targeted-closure`; focus: `V1` only.
+>
+> Implementation validated_at remains Nano `7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`, plugin `7f0a2b78ec530075edd48452c2cf5499548ca99c`; executed_base remains `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`.
+>
+> Product evidence: `acceptance.md` Round R2, committed at `920fc9037e9a988da5d32ed2698dd7a5c4a98093`. Shared HEAD is that report commit; the difference after the implementation ref contains only review/verification/acceptance reports, so prior implementation conclusions remain applicable.
+
+### Closure evidence independently checked
+
+| Remaining V1 obligation | Direct evidence checked | Result |
+|---|---|---|
+| Model-facing default inventory and actual lifecycle | `/tmp/feat627-acceptance/c_zcmlq102.json` contains the three version-bound user/Agent exchanges and actual `plugin_manager` tool details. Calls 180/205 and the restored list show the shipped rc.1 entry enabled true → false → true with installed=false. Set operations return applied; restore re-registers exactly the four context tools and Notes reads `PEER627_PERSIST_SENTINEL`. `/tmp/feat627-acceptance/r2-peer-disabled.json` and `r2-plugin-e2e-peer.json` agree with disabled/enabled states; the main-workspace snapshot remains enabled | R1-3 is **closed at the real product seam**, not merely by the regression test |
+| New ordinary Agents under all three Auto-off rules; empty business selection | Checked native snapshots `r2-806b704b-fbf8-43ca-ad5c-5816407af222.jsonl`, `r2-6a0fd852-52b1-4056-b795-d5accf0c34c2.jsonl`, `r2-c8f5205c-3441-4cdd-b0db-940155d2f488.jsonl`, together with matrix resource/message bindings. Each contains all four context tool calls, no context-tool error, one successful compaction/end, exactly the four context schemas in request/header, and History read of item8 returning the full 4,021-character nano-human input | Covered; no business schema was introduced |
+| Existing pre-upgrade profile | Native `r2-dc4a873c-b162-4d49-9dab-bb9d7d9b66f7.jsonl` shows the same four-tool dispatch, successful reset and original item8 recovery for the pre-existing profile listed in the resource handoff; no per-Agent installation was performed | Covered, supplementing the existing migration regression evidence |
+| Global and genuine native child | Native parent `r2-4399441b-d4f4-4a1e-98ff-1631575925d5.jsonl` contains an actual subagent tool/call at seq72 and received child result. The child's session `r2-9d6a0521-2f55-4fde-9ca9-a8fd7f0df03a.jsonl` has parentSession/origin metadata, all four context calls, one successful reset, and full 1,195-character item8 task recovery. Child schemas are exactly the four context tools. Parent schemas add only existing conversations/inbox/send_message/subagent; parent History reads the 1,084-character original Inbox tool result item22 | Covered without treating an independently created fixture Agent as a child |
+| Personal Agent, original Inbox source and private delivery | Native `r2-1d9ba23e-2abb-4169-9eaf-d16c5183449d.jsonl` shows all four successful context tool calls, one successful reset and full 4,545-character original Inbox item21 recovery retaining role=tool. Actual schemas add only the existing PA fixed capabilities; R2 product report binds its send_message delivery to owner DM reply `a5384fb7bfe34738bc59adbb291dd5e2` | Covered; Inbox content was not converted into top-level human authorization |
+
+The seven session snapshots were checked for actual tool/call/result pairs and request/header schemas, not only Agent self-reports. No context operation returned isError. The matrix's empty business schemas are not represented as a fresh attempt to exercise every undeclared-call denial path; those paths remain supported by the unchanged version-bound native integration tests.
+
+R1 evidence remains applicable for the 13 meaningful same-turn windows, actual pressure reminder/fallback path, 94,291-character original tool-result tail recovered at offset83,291, single external confirmation send, same-session normal restart, missing-record/error handling, cross-scope refusal and persisted opt-out. The only implementation change since those journeys is the already reviewed inventory inclusion filter. The independent product R2 report explicitly inherits those observations and bounds unexecuted branches, including provider hard-overflow and bad-package loading, to their implementation-layer evidence.
+
+Read the final R2 logs without rerunning suites: `/tmp/feat627-r2-tests.log` — **107 files / 482 tests passed**; `/tmp/feat627-r2-typecheck.log` — **all eight applicable workspace typechecks passed**; `/tmp/feat627-r2-docs.log` — **255 maintained Markdown sources / 67 routes passed**. No source, configuration, runtime or tests were changed by this targeted verifier.
+
+### Preserved limitations and final conclusion
+
+R1-1 and R1-2 remain visible, uncorrected model side findings: the original final report and restart recheck have incorrect aggregates, and both prohibited bash attempts occurred and required rejection. The actual request/response checks in R2 above establish correct rows and the prohibition in model input; they do not establish that resets have zero effect on attention/salience. Unit-specific causation remains unestablished, and no controlled baseline was added. Closing this context-management gate under the user's explicit attribution clarification does **not** certify that historical answer as correct or those attempts as compliant, and does not claim that the inventory repair fixed either model behavior.
+
+**V1: closed. Final verifier verdict: PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION; corrected delta remains aligned; requires_full_verification=false.** The mandatory missing product inventory/default-identity evidence is now present. R1 full static verification and R2 scoped code-review remain valid; no repeat code review or full verification is required. Canonical reconciliation, archival, PR delivery and caller-owned runtime cleanup remain subsequent delivery work, not actions performed by this verifier.
+
+```json
+{
+  "unit_id": "feat-627",
+  "review_round": "R3",
+  "verification_mode": "targeted-closure",
+  "focus_issues": ["V1"],
+  "verdict": "pass",
+  "issues": {"critical": 0, "warning": 0, "suggestion": 0},
+  "validated_issues": ["V1 closed by product R2 inventory and seven-session default matrix evidence"],
+  "retained_side_findings": ["R1-1 wrong aggregates remain uncorrected; unit-specific causation unestablished", "R1-2 prohibited attempts remain noncompliant; unit-specific causation unestablished"],
+  "requires_full_verification": false,
+  "corrected_delta_outcome": "aligned",
+  "report_commit": null,
+  "top_concern": "Preserve the documented model-behavior and causal limits in delivery; no remaining implementation or verification blocker"
+}
+```
+
+Only `verification.md` was updated in this closure. No commit or push was performed; the caller owns publishing this shared-worktree report.
