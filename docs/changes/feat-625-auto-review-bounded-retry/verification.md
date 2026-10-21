@@ -392,3 +392,101 @@ pnpm exec vitest run \
 - 创建前确认绝对路径和branch均不存在，创建于冻结SHA：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r4` / `review/feat-625-r4`。本人creator-owner，**保留续验**；R1/R2/R3现场、原报告和作者冻结现场未覆盖。
 - 两个后台安装/build/tests jobs均exit0且已收集；本轮没有启动IM/Gateway/native runtime或遗留自建服务。真实fs回归仅建立并自行清理测试临时目录，不创建raw prompt/DB/config产物。
 - 只提交R4 JSON与verification追加段，不改源码/测试/配置/设计，不push共享unit、不Inbox/conversations/taskgraph/公开消息、不另派worker，不canonical/archive/PR/merge/deploy。父E收集报告commit后整合；报告commit本身不改变validated_at或建立effective_through。
+
+---
+
+## Round 5 — final integration patch + corrected-delta
+
+### Summary / 固定版本与门禁分离
+
+**独立 code review：`code-review-r5.md` = `[]`，未发现有直接证据的存活实现缺陷。Corrected-delta：aligned，18/18完成实现/长期测试映射，无delta-mismatch或implementation-mismatch。但verifier不能给PASS：0 CRITICAL / 1 WARNING / 0 SUGGESTION。R5-W1是未建立的集成运行证据，不是已确认产品bug。** 不将超时直接当作产品缺陷，也不删去失败后用作者烟测或旧R4补成新栈PASS。
+
+| 字段 | 值 / 限定 |
+|---|---|
+| validated_at | `22114489ba131fbf847b60e0a4ca730d61471796` |
+| executed_base（本轮） | `18e1af8b1cd0834ae3f22f5780f2d50b740f5171` |
+| 历史 executed_base | `861b94129bc8c5aadbca76967268fd203fe04112`，R1–R4不改 |
+| review_mode / verification_mode | patch/integration / corrected-delta + targeted integration |
+| ranges | main `861b94129..18e1af8b1`；集成 `6df263df3..f586ff450`；校正 `f586ff450..22114489b` |
+| corrected_delta_result | **aligned**：目标投影、实现和长期测试一致，不等同本轮所有运行通过 |
+| requires_full_verification | **true（受影响的共享集成边界仍需续验）**；不能保留旧栈整体Full有效性，不要求无差别重跑原unit所有组合，欠缺见R5-W1 |
+| effective_base / effective_through | 仅code-review patch及静态corrected-delta映射核定为 `18e1af8b1..22114489b`；**verifier运行集成范围和整体effective_through未建立** |
+| prior findings | 产品R2-W1 **closed**、设施R3-W1 **closed**；原FAIL与closure保留，不重开/改写 |
+
+完整读取final-sync-handoff84行、delta113行全部18场景，复核approval/recovery/classifier/codex/context/sources/HTTP attribution及main的默认context/profile/features/mount、PA Global durable发送/Inbox/单线程、Channels realtime与IM receipt/status/permission identity真实调用链。current契约包括`docs/specs/gateway/agent-capabilities.md:231–262,516–604,804–857`、PA/IM/Channels相关spec、SPEC包边界及testing/worktree-runtime约束。Prototype / Reference：N/A，无前端must-match任务。
+
+### 集成判断与版本证据
+
+- 独立git确认merge `f586ff450` parents为`6df263df3`与`18e1af8b1`。相对6df263的`policy/approval.ts`只有contextTools import与internal_context分支/注释，cancelReview双gate/recovery未被覆盖。merge后到冻结SHA的packages/apps/src/scripts/tests/锁文件diff exit0。
+- **未以625算法文件没变为由全retained。** 627/629改变默认context、有效history/pressure pruning、purpose和profile安装面；630/631/632改变同一PA入口live/restored、发送恢复及request-id/permission身份，已据此扩查和独立测试。旧Q只归其原SHA，父E另调Q，本报告不代Q。
+- `agent-context.ts:4–5`精确四工具notes/history/new_context/get_context_remaining；`approval.ts:132–137`先downstream，非allow立即返回，再内部豁免。最后独立窄复跑三规则Auto-off的**root+child** context成功、显式context deny保留、业务工具不执行均通过，非任意白名单扩权。
+- `codex.ts:45–55`在currentAttempt前检查公开loop、purpose及exact owner；`:199–225`独立reviewer preset、approval=never、空基础allow集+只读inspection guard、固定route/effort，不因默认插件获得父级业务权限。profile/mount及NanoCompaction ownsElsewhere分界已静态核查；新栈native owner/quarantine各1项通过。
+- `sources.ts:131–182`以native deriveMessages有效表面为权威，PTC只补仍有效root子结果，不从durable Inbox复活已裁原文；跨进程epoch降级restored。`codex.ts:86–99`冻结证据，`:100–119,151–156`处理checkpoint差异、服务失败clean-full和一次context rebuild。进程观察保留的restoreEntries(false)不是跨进程live。
+- PA `global-agent.ts:487–558`按operation identity取publication，检查target/body冲突，unknown/sending查询宿主状态，已有result返回，held不自动重发；与Inbox durable observation/wake/receipt、IM status访问检查一起保留sent/held/unknown差别。single-thread将业务permission身份保存在nested request，不被transport request-id覆盖；Channels pending/generation精确匹配ACK。Global44、single-thread9、web-relay12、IM message-attempts7/relay1/work9、PA work7等独立新栈分层通过，不冒称Q真实PA/source旅程全量复验。
+- R4 helper、13个异常路径测试和native实际调用方三文件在`89f2a20da..22114489b` byte-equivalent（git diff exit0），R3-W1纯fs清理/原错误/输出目标保护closure具体retained；没有机械重跑90秒×3或将shutdown尝试说成实际退出。
+
+### 全部18个delta场景映射
+
+delta行号指`specs/gateway/agent-capabilities.md`；源码相对integration/src/policy，测试相对integration/tests。“通过”只指本轮实际结果，长期覆盖存在不等于本轮对应文件全绿。
+
+| # / 场景 | 实现与长期保护 | 独立核定 / 运行边界 |
+|---|---|---|
+| 1 临时故障 L7–12 | recovery:168–208每次独立timer/共享trace，classifier30/60s，codex:102 90s | aligned；recovery25通过，完整预算/跨stage不重放有断言；native HTTP首次11/15通过、4超时 |
+| 2 格式子额度 L14–17 | recovery:197–204额外2/format1；两个parser | aligned；recovery25/codex7通过，格式/服务混用不领新额度 |
+| 3 取消/永久 L19–22 | recovery:28–52,170–198；approval:170–183,198；codex quarantine | aligned；audit27/lifecycle7/native quarantine1通过，有效deny/permanent/context_required不盲retry |
+| 4 Retry-After L24–27 | recovery:199–207不截短>10s；llm-attribution请求局部sink | aligned；recovery/attribution/native owner通过；不称HTTP matrix全绿 |
+| 5 模式/fallback L29–33 | approval:79–85,121–128,174–183，cancel优先、Global/child回父 | aligned；audit27证明cancel不fallback allow；approval首次4/6通过，缺口不隐去 |
+| 6 审计/W1 L35–40 | approval:87–119,179–198；recovery:139–145,186–215 | aligned；audit27双gate/写失败不allow/未知usage与单次计数通过，原W1不重开 |
+| 7 默认规则 L46–48 | approval原rules路由与CC工作区分支 | aligned；approval-workspace2通过，internal_context不是新增审核策略 |
+| 8 来源/PTC L50–57 | sources去重/有效history/PTC root/epoch，codex冻结 | aligned；sources8/source-recovery4通过；新PA状态分层通过，真partial/live/restored仍另交Q |
+| 9 CC超窗 L59–63 | classifier estimateContent+输出预留准入；typed超窗为context | aligned；不裁授权/不盲retry/不换模型；approval超窗native poll未达终态，R5-W1缺口 |
+| 10 子任务 L65–68 | approval:60–70,79–85、runtime委派；context豁免在downstream后 | aligned；最后nano/codex/dsh三项root/child权限边界通过；personal-security首次4/6通过 |
+| 11 配置切换 L70–73 | approval冻结config/exec/reviewer；codex fingerprint/release | aligned；workspace2/lifecycle7通过，迟到结果不发布旧cache |
+| 12 模型失败 L75–79 | approval:153–168 reviewer固定；classifier共享recovery，Codex固定route | aligned；recovery/lifecycle与native HTTP11项通过，剩余真实HTTP需续验，不换执行模型 |
+| 13 逐Agent继承 L81–84 | product-contracts/runtime既有rule解析，625无新选择器 | aligned；静态配置映射已核；model-policy首次1/5通过、4超时，不称新栈全过 |
+| 14 下一轮 L86–88 | runtime替换边界、当前动作structuredClone、codex release | aligned；workspace2/lifecycle7通过；默认profile六Agent重启/opt-out最终仍30s timeout |
+| 15 Codex可信现场 L92–95 | policy/sources/inspection只读、完整action、独立scope | aligned；codex7/sources8/native owner1通过，私稿/历史不变新授权 |
+| 16 连续并发/恢复 L97–101 | codex:69–85,100–192成功checkpoint/clean-full；共享takeContextRebuild | aligned；lifecycle7/source4/native owner1/quarantine1通过，失败cancel不cache/fork归属有保护 |
+| 17 证据预算 L103–107 | codex-context.reviewInput；codex:108–119,217–218 checkpoint不再裁 | aligned；codex7/lifecycle7通过，optional先去/required不裁/一次重建/不复活；非CC不裁路径 |
+| 18 判定/失败 L109–113 | parseCodexDecision合法缺省/外围说明；approval终态/audit/recovery | aligned；codex7/audit27通过，非法outcome/enum/type才格式恢复，无判定不冒充allow |
+
+ADDED1条+MODIFIED2条共18投影，不与首文档17旅程机械等同。默认context另一个Requirement保留，未被MODIFIED整条替换吞掉。完整预算、跨stage共享、取消事实/不allow写失败、CC typed超窗、Codex admission/parser校正均吻合实现；未发现静默改spec/design迎合实现。canonical未改。
+
+### 独立命令与失败证据
+
+环境：自建R5 worktree、冻结HEAD；Node25.8.2 / pnpm11.7.0、DSH0.2.1-alpha.1、context rc.5，与CI Node24/Python3.12区分。
+
+| 命令 / job | 实际结果 |
+|---|---|
+| `pnpm install --frozen-lockfile`（bash-132） | exit0，锁未改 |
+| `pnpm -r --if-present build`（bash-135） | exit0，8 projects；不是根pnpm build/build-node-release或远端CI |
+| `pnpm exec vitest run --maxWorkers=2`下列30文件（bash-138） | **exit1，20 files passed/10 failed，218 tests passed/25 failed，600.70s** |
+| 失败10文件 `--maxWorkers=1`（bash-149） | 观察到HTTP15/15与context5/5超时后主动取消剩余冗余native测试；**未完成/未通过**。取消后job_output unknown、job_list无job，不编造终态exit code |
+| `pnpm typecheck`（bash-158第二命令） | **exit0，8 packages**；第一命令Python3.11 `-m pytest tests/contract/test_runtime_dependency_contract.py -q`因`No module named pytest` exit1，组合job exit1，不称contract通过 |
+| `pnpm exec vitest run --maxWorkers=1 packages/dsh-integration/tests/agent-context-default.test.ts packages/channels/tests/realtime-window.test.ts`（bash-2，02:31较低负载） | **exit1，7 pass/1 fail，66.52s**；PA默认context、三规则root/child边界4项及realtime3项通过；六Agent初始化/opt-out/restart仍30s timeout |
+| merge parents/approval diff、R4 helper3文件identity、merge后产品树identity、Channels相对新main identity、unit diff-check | 均exit0 |
+
+30文件完整命令的续行表示（在bash展开花括号或逐文件列出）：
+
+```bash
+pnpm exec vitest run --maxWorkers=2 \
+  packages/dsh-integration/tests/{agent-context-default,capabilities,history,knowledge,model-policy,workspace-tools,llm-attribution,review-recovery,review-audit,review-source-recovery,review-owner-native,review-quarantine-native,approval-retry-native,codex-approval-lifecycle,codex-approval,approval,approval-workspace,approval-sources,personal-security}.test.ts \
+  packages/personal-assistant/tests/{relay-admission,personal-attention,global-agent,single-thread,external,work-sync}.test.ts \
+  packages/channels/tests/{realtime-window,web-relay}.test.ts \
+  apps/im-server/tests/{relay-delivery,message-attempts,work-sync}.test.ts
+```
+
+原批末尾`&& pnpm typecheck`因vitest exit1未执行，已独立补跑。25失败=22个整test超时（原15/20/25/30/90s），approval:310终态poll及capabilities:110非空结果poll未达两项，realtime-window:28累计frame7而非6一项。后者使用60ms ACK deadline，实现限制的是同时pending普通请求六个，超时释放slot后pump可使累计frame增加，未证明瞬时超并发；测试/实现与新main逐字不变，最后窄复跑3项通过，不报625新并发缺陷。其余timeout未观察到错误allow/来源扩权，但不能仅据此称无运行问题。
+
+host事实：8 logical CPU，load曾177.57/137.60/128.89→694.61/443.52/266.16，最后窄复跑起点9.35/167.51/207.35。互不相关runtime用例同时越deadline，降低workers在高负载时未解决失败；这是环境压力强关联，**非证明全部失败唯一根因**。没有改timeout/fixture/assertion/产品预算/永久电源设置。作者9files73/29.31s与旧Q真IM/预算事实只按原版本/命令retained补充，不替代独立失败。
+
+### R5-W1 / WARNING — targeted integration运行证据未建立
+
+- **契约/位置：** 本轮final-sync targeted integration；current agent-capabilities:804–857默认context/profile/重启/有效上下文，delta L50–88、L97–107来源/冻结/配置。直接测试`agent-context-default.test.ts:9–68`、`approval.test.ts:66,310`、`approval-retry-native.test.ts:12`及失败的配置/history邻域。
+- **事实：** 静态18项与长期保护齐全、native owner/quarantine/PA durable分层通过，但新栈独立批次仍25fail；较低负载复跑只补必要三规则权限边界/PA context/realtime，没有补齐profile/restart、CC超窗终态/HTTP matrix。没有证据判定implementation-mismatch，也不能把targeted退出标准记完成。
+- **可恢复下一步：** 原执行者在稳定隔离现场，**同冻结版本/原期限**先独跑`agent-context-default.test.ts -t 'defaults new and existing Agents'`，再补approval、approval-retry-native及上述配置/history/capability失败邻域，记录初始化/插件切换/请求与终态/清理分段时间和onLog（不提交原始prompt/config）。仍超时则按公开RPC阶段定位，不加timeout；本独立reviewer核收后关闭R5-W1。新栈Q source/context/stop/真vendor仍交Q，不以工程绿测代理。
+- **门禁：verifier NOT PASS，0C/1W/0S**。corrected-delta aligned及code-review `[]`可分别交接，不能据此canonical/归档/Ready PR或整体effective。WARNING不重开产品W1/R3-W1，不建议改spec掩盖失败。
+
+### 现场与交付
+
+本人创建并保留`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r5` / `review/feat-625-r5`。旧R1–R4现场/报告和作者checkout未改；只提交R5 JSON与本追加，不改源码/测试/fixture/配置/spec/design，不push共享unit、不派worker、不Inbox/conversations/taskgraph/公开消息、不canonical/archive/PR/merge/deploy。未启动IM/Gateway，但确启动过native测试子进程。超时worker的orphan只在exact R5 DSH路径且PPID=1核对后TERM，不触碰Q/生产/其他worktree；未知temp home不猜路径删除，现场保留续验。最终exact worktree路径Node/DSH进程检查为0，剩余相关job均已收集或明确取消；report-only diff/check exit0。branch最终提交状态见交接回执。
