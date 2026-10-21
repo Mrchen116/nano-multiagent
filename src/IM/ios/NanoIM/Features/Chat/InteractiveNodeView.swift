@@ -27,6 +27,7 @@ struct InteractiveNodeView: View {
         case "TextContent", "MarkDownRenderer":
             let text = InteractiveNode.text(props[type == "TextContent" ? "text" : "textMarkdown"])
             return AnyView(MarkdownView(text: text, client: runtime.client, baseFont: InteractiveNode.font(props["size"].stringValue))
+                .fixedSize(horizontal: false, vertical: true)
                 .interactiveSurface(props["variant"].stringValue ?? "clear"))
         case "CardHeader", "InlineHeader":
             return AnyView(InteractiveHeading(title: InteractiveNode.text(props[type == "CardHeader" ? "title" : "heading"]),
