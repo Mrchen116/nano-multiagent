@@ -107,3 +107,82 @@ N/A：本 unit 无前端变更、原型或 must-match 视觉契约。仍实际�
 ## 环境收尾
 
 未另起独立服务，使用 caller 交接栈，按交接要求留运行现场用于修复。当前Node PID53542；peer恢复enabled，主Agent仍enabled；临时存储故障已还原，原笔记和报告保留。隔离预算与审批模型配置保留在忽略文件，未触及生产、主checkout或共享LLM代理。只提交本 acceptance.md。
+
+---
+
+## Round R2 — 定向复验与归因口径澄清
+
+> 2026-10-21；mode=targeted；executed_base=`d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`；validated_at=`7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`。
+> fix_delta_range=`b09851c01cf39b6198edd6956914e66b52153c24..7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`；prior_acceptance_paths=本文件 R1。
+> 本轮运行 Node PID56378。随后共享 HEAD 的 `3cb03ab72` 仅为静态报告提交，不改变受验实现。插件 rc.1 与 rollover/Notes/History/提示词均未改动；仅复验模型插件列表修复、补齐身份矩阵，按具体证据继承其余 R1 行为，不机械重跑 13 次换窗。
+
+### 最新裁决
+
+**pass（本 unit 的上下文管理与默认接入范围；保留 2 项模型 Side Findings）**。
+
+用户在 R1 后明确要求：“注意区分哪些问题是我们引入的上下文管理的问题，哪些是agent正常的问题”。据此，本轮分别判断可观测恢复机制、已确认接入缺陷，以及恢复内容已经正确送到模型后发生的计算/遵循错误。R1 的原始报告、错误成品和两次禁止调用均原样保留；本轮不是把错误答案宣布正确，也没有声称普通模型行为已经修好。
+
+模型列表遗漏已由真实入口关闭，默认范围缺口由七种实际执行身份补齐。本轮没有发现仍阻塞本 unit 的上下文丢失、错误原文恢复、重复副作用或权限扩大。Highest Required Action：**out-of-unit**，仅指独立跟踪两项模型行为观察；本 unit 无待修复项。未创建外部 issue（gh_issues_filed=0）。
+
+### R1 问题逐项继承与归因证据
+
+独立检查了 [R1 attribution 证据定位](M1-agent-context/evidence/r1-attribution.md) 指向的三份真实 provider request，不只采用实施者结论。只读取运行证据，未阅读实现作根因定位。
+
+| R1 项 | 原始可见事实是否改变 | 独立检查与 Regression Relation | R2 处理 / Action Rationale |
+|---|---|---|---|
+| R1-1 错误汇总与错误“独立复核” | **未改变、未修复**。原报告仍是14353/13308/245；正确为13482/13237/245。 | `2026-10-21_11-44-52_585-req-anthropic_messages.json` 在第一次错误write前包含全部12行正确基线、确认投递、原因码与proof，逐项与oracle核对存在。没有观察到Notes/History改变或丢失这12行。关系：**unclear，未证实为本unit回归**。 | 保留 major 级答案质量 Side Finding，建议 out-of-unit 的计算/复核能力评测。不将正确输入后的错误计算强归因于上下文数据损坏；也不声称已证明换窗时机对模型毫无影响。 |
+| R1-2 两次违背禁用bash | **未改变、未修复**。两次请求均发生且被审批拒绝。 | seq382之前 `2026-10-21_11-42-37_313-req-anthropic_messages.json` 有2处“不用 bash”，来自已恢复Notes/进度；seq654前 `2026-10-21_11-44-34_432-req-anthropic_messages.json` 有“禁用 bash”任务标题及原约束引用。关系：**unclear，未证实为本unit回归**。 | 保留 major 级指令遵循 Side Finding，建议 out-of-unit 对照评测。不能说禁止约束未进入模型；审批阻止执行也不能把尝试说成遵守。没有新增解析器/硬禁令/提示词定制来掩盖观察。 |
+| R1-3 模型插件列表为空 | 已真实修复，**closed**。 | 模型入口list_bundles先显示默认插件enabled=true；模型入口停用后显示false；恢复后显示true。各状态与管理API一致。关系：**direct**。 | fix-implementation 后实测关闭。无需再次安装包，installed=false仍可正确展示默认插件。 |
+| 新/旧、Global、PA、子Agent矩阵缺口 | 已补齐，**closed**。 | 下表七种身份均经过真实IM入口、真实模型、真实工具与一次有内容的换窗。 | 不再借用测试套件代替用户旅程。空业务集合没有因上下文工具而出现文件/shell工具。 |
+
+### R2-A：模型管理入口实际闭环
+
+继续使用peer聊天 `c_zcmlq102`，所有调用均为真实模型的 `plugin_manager`，没有内部owner调用代替：
+
+1. 用户消息 `ebcc439feb854ed796c6d5d54a683d34` → 回复 `c0d1d9a97ebb4061907f49c8164b4f7b`：默认插件 `dsh-agent-context@0.3.0-rc.1`、enabled=true、installed=false、row=agent-context、diagnostics=[]。响应没有单独state字段，Agent如实说明而未捏造字段。
+2. 用户消息 `9e6ed42af2004a27b7ca212dcb1501a2` → 回复 `5291a134f1bc4de9ae194684e22ded36`：准确包名set_bundle enabled=false返回applied，随后模型list_bundles显示false；管理API响应也为disabled，存于本机 `r2-peer-disabled.json`。
+3. 用户消息 `4f3bf995706449bbb23be5a7583c130c` → 回复 `5281c730f946454c8a3f86726134c841`：模型set_bundle恢复并再次list，显示true；Notes实际读回 `PEER627_PERSIST_SENTINEL`。管理API与主workspace均enabled，保留peer开关隔离。
+
+无需更新前端原型。R1聊天排版与操作体验继续有效；修复后用户可以由模型入口辨认默认插件及实际启停状态，不再被“未安装”误导。
+
+### R2-B：默认身份与工具边界矩阵
+
+caller通过真实IM控制面准备 `/tmp/feat627-acceptance/matrix-resources.json` 中六个独立身份，reviewer创建测试聊天并发出任务；old profile 是交接时预先存在的profile，未为任何身份手工安装上下文插件。reviewer只读取配置核实Auto关闭与三规则，未扩大业务allowlist。
+
+普通/旧profile/PA任务为40条物流材料，仅记录07和23最终核验；先预算→Notes保存→new_context一次→Notes恢复→History实际读原文再核对。正确结果均为 `EVT-007 / KEY-007-627` 与 `EVT-023 / KEY-023-627`。Global及其唯一原生子Agent用10条运单材料，正确结果均为 `A03/P03、A08/P08`，剔除valid=false候选。
+
+| 身份与规则 | 真实聊天 / session | 四恢复工具与实际原文恢复 | 业务工具边界 / 结论 |
+|---|---|---|---|
+| 新普通nano；Auto off；业务[] | `c_wrkm6e9h` / `806b704b-fbf8-43ca-ad5c-5816407af222` | 四项实际成功，1个提交换窗；History item8读4021字符原始nano-human消息；IM回复`d1cb6dab85bf4d2a8444c59a0743e9b3`正确 | 实际request/header工具恰为四恢复工具；pass |
+| 新普通codex；Auto off；业务[] | `c_idydet9t` / `6a0fd852-52b1-4056-b795-d5accf0c34c2` | 四项实际成功，1窗；item8读4021字符；IM回复`ca174ab6607e4789830c935047fa0897`正确 | 同上，无业务schema；pass |
+| 新普通dsh；Auto off；业务[] | `c_e0yibltj` / `c8f5205c-3441-4cdd-b0db-940155d2f488` | 四项实际成功，1窗；item8读4021字符；IM回复`eeeb9de00a824a0d8a775fc7e54a4f96`正确 | 同上，无业务schema；pass |
+| 升级前普通profile；nano Auto off；业务[] | `c_sdo0mozl` / `dc4a873c-b162-4d49-9dab-bb9d7d9b66f7` | 四项实际成功，1窗；item8读4021字符；IM回复`e531e0bbbcb046819293e26512cf14db`正确 | 无需人工安装或加业务工具；schema恰四项；pass |
+| Global；nano Auto off；业务[] | `c_o9vjwxgv` / `4399441b-d4f4-4a1e-98ff-1631575925d5` | 四项实际成功，1窗；History恢复原Inbox结果item22（1084字符），保持role=tool来源；实际创建1个子Agent，最终IM回复`e177e69f924a4215a578edb69be889fc`正确 | 仅四恢复工具+既有conversations/inbox/send_message/subagent；pass |
+| 原生子Agent，继承Global限制 | 父会话subagent真实产生 `9d6a0521-2f55-4fde-9ca9-a8fd7f0df03a` | 四项实际成功，1窗；History item8读1195字符自身任务原文；Notes读回，子结果被父会话收到并交付 | 实际schema恰四恢复工具；无文件/shell、未创建下级；pass |
+| Personal；nano Auto off；业务[] | owner私聊 `c_f4fe01fbf858` / `1d9ba23e-2abb-4169-9eaf-d16c5183449d` | 四项实际成功，1窗；History实际恢复原Inbox材料item21（4545字符），保持role=tool；私聊回复`a5384fb7bfe34738bc59adbb291dd5e2`正确 | 仅四恢复工具+既有conversations/inbox/personal_sources/send_message/subagent；pass |
+
+以上结果不仅是Agent自述：独立检查七个native session的tool/call与tool/result，无恢复工具isError；各自恰一个compaction/end。普通/子Agent的模型schema无业务工具，Global/PA只保留既有产品固定能力。本轮未故意伪造未声明的业务工具调用，因此不把“未提供业务schema”扩大成重复验证过所有强制dispatch拒绝分支；这些分支属于已有版本绑定集成证据。
+
+Global/PA最终回复通过实际send_message到对应测试聊天，非内部submit；Global子Agent确由原生subagent工具创建，不是独立假Agent或fixture。浏览器实看Global用户请求、阶段进展和最终回复，身份、窗口前后及父子结果分段可辨认，1538×1014视口；本机画面 `/tmp/feat627-acceptance/r2-global-ui.png`。
+
+### R2 Scenario 累计覆盖与保留边界
+
+本表的pass限定为本轮按用户归因口径审核的上下文管理行为。R1原始任务的错误成品与禁止调用保持原fail事实，不重写成“答案完全正确”。
+
+| spec Scenario | 当前上下文机制结论 | 证据与继承说明 |
+|---|---|---|
+| 连续长任务 | pass | 继承R1 12份材料、13个有内容窗口、一次且仅一次确认消息、完整明细数据；R1错误汇总保留为未修复Side Finding，不宣称完整答案正确。 |
+| 后续纠正覆盖旧方案 | pass | R1最终验签口径/新标题/剔除旧码正确，History原纠正消息与Notes禁止约束实际进入后续请求；两次模型不遵守禁止指令仍原样保留，未证实为本unit丢失约束。 |
+| 用户约束与长工具结果 | pass | 继承R1 94,291字符原结果在offset83291恢复尾部、原用户引用恢复；R2再覆盖nano-human和Inbox tool两种来源。 |
+| 没有可恢复记录 | pass | 继承R1 E7真实空记录、ENOENT、not_found，修复未改变此行为。 |
+| 接近预算及强制换窗 | pass | 继承R1真实reminder/fallback与安全切窗；R2未改预算/插件包，不重演已验证压力路径。 |
+| 正常重启后继续 | pass | 继承R1同session正常重启、原长尾恢复与已发送状态恢复；不把错误复核称为正确。 |
+| 其他Agent或workspace记录 | pass | 继承R1跨路径、跨session拒绝；R2实际子Agent只读取自身任务，并保持受限schema。 |
+| 新建与已有Agent无需手动配置 | pass | R2-B七身份真实调用和model schema补齐原inconclusive；每个身份都有有内容换窗及原文恢复。 |
+| 停用状态在重启后保留 | pass | 继承R1 peer停用、正常重启、unknown notes且主workspace仍enabled；R2仅修列表，不改变持久配置逻辑。 |
+| 启用、停用和恢复 | pass | R2-A模型入口完整off/on/list闭环与API对照，R1-3关闭；Notes保留、主workspace未改变。 |
+| 加载或恢复失败 | pass | 继承R1已保存笔记EISDIR真实错误、诚实用户反馈和还原后读回；仍不声称实际坏包加载分支另跑过。 |
+
+### R2 收尾
+
+原R1成品未修改；未改实现、测试、设计、提示词、业务工具权限或生产配置。全部矩阵身份与peer最终默认插件enabled，原笔记保留；caller提供的PID56378栈留供后续交付。只追加本报告。跨包SPEC/AGENTS/文档规范无需变化；gateway canonical增量仍由orchestrator按最终实现归并。原始矩阵消息、配置检查与native事件快照仅保留 `/tmp/feat627-acceptance/`，不提交凭据或原始日志。
