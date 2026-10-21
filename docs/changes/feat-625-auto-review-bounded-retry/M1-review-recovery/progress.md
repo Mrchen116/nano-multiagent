@@ -167,3 +167,16 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 失效判断：W1及同类persist窗口、原audit终态/计数/取消/旧fallback结论需closure复验；该处为公共facade，扩大到已有native权限/来源/普通IM矩阵。**原90s×3及默认30/90s timeout、并发owner HTTP归因、预算退避、parser/admission、真实vendor插件结果**在本次delta无变化，保留R1 report与原44/166、真IM8条对应部分证据；不能把retained说成本轮重新执行。PA/IM/frontend无改动，不机械重跑无关全量。
 - 本轮结果已全部收集，最后按独占closure目录核对IM/Node/fixture活动进程0，保留6份脱敏export（不提交config/DB/原始prompt）。agent-scope `async-boundary-validation`追加了持久copy前后双gate和cancel-terminal写入失败配方，无本unit暂态数据。
 - clean commit冻结后交父E：code review patch/closure + verifier targeted-closure，prior reports为本unit R1两份、focus W1及相邻persist取消边界；`fix_delta_range=4c20949e5e6995944f35217177950e14dfdf67da..validated_at`，其中报告集成为7beeaf72e、实际源码/测试patch为`7beeaf72e..db8bc8201badf734fa7bde25bcd27a00b09128fe`，其后仅本progress证据。`validated_at`取本节追加后的clean HEAD，由最终交接回执提供。原`executed_base=861b94129bc8c5aadbca76967268fd203fe04112`保留，未做final sync或外推effective_through。是否独立closure pass由独立reviewer决定；Q对相关审计范围的失效通知由父E协调。本执行者未push修复、不改Q现场、不派新worker、不归档/PR/pass。
+
+## Q Full R1 FAIL证据缺口恢复（工程输入，不改历史verdict）
+
+- 父E续派原执行者，起点`f47f2b06572d05d2cf520a385c3e81e545182ae7`；仅cherry-pick Q acceptance原`befdea05b5f6d09dca1f54c8a4ade2fa2df72ab8`→本branch `afd71206deb2220b0cddcd7840588667b62340e5`，完整保留14pass/3inconclusive和两major。独立静态R2 closure由父集成，未被本执行者改写；Q workspace/残存日志只读。
+- 有限调查定位原Guardian1162s/649s与独立Global能力测试同时超时，宿主sleep928s/645s精确跨其attempt；原attempt、审计、created/disposed、pmset时间和结论边界详见[恢复记录](q-r1-recovery.md)。同命令只加生命周期`caffeinate -i`、不变320s/30s timeout和90s×3预算，**2files7tests/275.18s/exit0**，未确认源码死锁，不把环境定位当context/source缺口自动通过。
+- 本轮**未改产品源码/公开契约/设计/delta**。只增持久真IM/context/source驱动、HTTP fixture精确请求导出、native可选证据导出、stop终态断言和工程runbook；没有扩大timeout或伪造source/授权/compact事实。product diff相对于afd为空，由交接实际git证据核对。
+- 新真IM context组合：**3pass/60.97s**，暖cache delta→context rebuild503→新full→下一delta，以及第二context不能再rebuild和完整required action放不下时0review HTTP/0retry/0effect；`.e2e-feat625-context-final/`。
+- 新真绑定PA source矩阵：**12pass/283.47s**，2策略×direct/PTC×同epoch/真Gateway恢复/公开compact；每页身份/实际observation、sent/held、规范化冻结rows在真实child503前后对照，压缩后旧raw不复活、未观察库内历史不泄入、副作用恰1；`.e2e-feat625-source-final/`。
+- native扩大组合**7files47tests/277.01s**，含原Guardian90s×3、Global能力、真正并发owner/fork/HTTP、实际drain/quarantine与626/W1。可选`NANO_REVIEW_NATIVE_EVIDENCE`将实际observe和review/created/disposed/effect导出，未改变测试预算/断言。`.e2e-feat625-native-r2/`。
+- 分层来源/admission/audit补跑**5files53tests/1.18s**；真IM既有故障矩阵+stop本轮**6pass2deselected/223.23s**，包含两策略20个HTTP场景及4stop，stop新增complete/cancelled/计数0断言和完整approval/request导出；`.e2e-feat625-stop-final/`。这些集合有重叠，不相加冒充独立测试总数；两个默认30/90s真IM场景retained未本轮重跑。
+- 保留Q真正双策略业务插件180/55与负金额/限额拒绝、其他模式fallback事实；不把作者旧clamp示例套到Q另一产物。不声称12个source场景覆盖非空reply/observer/每类admission/旧host_context全部真IM组合：精确行策略与W1storage门控仍是分层长期测试，入口和剩余判定由Q独立核对。
+- 所有入口、输入、预期、超时、raw日志、导出、安全清理、早期设施失败及不相等断言修正见[恢复记录](q-r1-recovery.md)；原始config/DB/prompt不提交。首次docs-check因新文件尚未git add被判非tracked link，stage后重跑，不把失败忽略为成功。
+- 原17场景不重置；父E收到冻结候选后沿原Q节点n5真实@Q定向续验major和W1。源码不变，静态closure保留；新增测试设施是否需patch审由父E按影响判断。未Q通过，不canonical/archive/Ready PR，不merge/deploy；后续修复仍本执行子会话。

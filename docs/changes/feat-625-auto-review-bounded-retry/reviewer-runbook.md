@@ -166,6 +166,17 @@ P无网络probe只证实公开`sessionId`/loop marker分派、ALS以及非所属
 - 组合context rebuild→503→full恢复，检查full沿用recovery admission且context额度不重置；有checkpoint的delta preserve不裁历史，初次full也沿用当前default recovery（不是另加首轮preserve），无0.65缩放；User成本、最近5工具/ProtectedAssistant保护、超大optional先剔除及显式遗漏断言仍成立。required/action确实放不下时不可用，不能靠service retry裁权限证据换allow。
 - Q在双策略真实PA受审任务中同时核对上述库外历史标记不泄入、服务恢复不重复副作用；输入体积/来源和恢复轨迹证据分开记录。626的历史production replay只能作为回归参考，不替代此次候选实施SHA验证。
 
+### 5.3 Q R1 evidence-gap 定向续验入口
+
+保留原[acceptance R1](acceptance.md) FAIL 和已成立14项事实；新增可复跑入口、精确输入/预期、默认时限、原始导出及设施失败边界见 [Q R1恢复记录](M1-review-recovery/q-r1-recovery.md)。该记录是工程事实，不是作者替Q改判：
+
+- 真IM `test_auto_review_context_recovery.py`：暖cache delta context→rebuild503→新full→下一delta，另测第二context不能再次rebuild及required action admission无HTTP/无效果。
+- 真绑定PA `test_auto_review_source_recovery.py`：nano/codex × direct/PTC × 同epoch/真实Gateway恢复/公开compact，真实Inbox分页、sent/held、同步child503→full的冻结来源逐项对照；未观察库内历史和已压缩原文不得复活。
+- 真实native opt-in `NANO_REVIEW_NATIVE_EVIDENCE`：长期Guardian测试导出完整observe、review/created/disposed/effect/parallel；默认90s×3和320s test timeout均不变。原Q超时与宿主sleep时间直接重合，awake复跑方法和结论边界见记录，不以增加timeout关闭finding。
+- W1精确storage race由现存27项长期audit测试复验，真实`/stop`另外查完整trace/零计数/零HTTP续发/零效果；不能把下层gate等同公开IM击中同一个存储窗口。
+
+Q按原始判据自行观察，不把记录中的工程成功尾行当验收结论。未受本轮测试设施变更影响的真实vendor插件180/55及负例、其他执行模式fallback保留Q原证据，不能混用作者另一业务示例或无关重跑。
+
 ## 6. 证据与清理
 
 每个场景至少保存：claim、受审SHA/构建时间、策略/实际模型/模式/fallback配置摘要、输入消息ID、主session与callId/reviewId、request开始时间与failure分类、额外/format/context计数、可得usage及未知字段、最终route、业务副作用次数、结果pass/fail/inconclusive。

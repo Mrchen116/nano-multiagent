@@ -1,9 +1,4 @@
-"""Prove bounded recovery through the real IM user → node → native HTTP approval path.
-
-These controlled-provider facts are not real-vendor/plugin-journey acceptance.
-The lowest layers own timer/classification matrices; this gate owns public ingress,
-actual side effects, manual fallback, persisted approval and process isolation.
-"""
+"""Controlled real-IM HTTP approval, effects and audit; not vendor acceptance."""
 
 from __future__ import annotations
 
@@ -28,7 +23,15 @@ pytestmark = pytest.mark.e2e
 
 
 @contextmanager
-def running(tmp_path: Path, policy: str):
+def running(
+    tmp_path: Path,
+    policy: str,
+    *,
+    work_mode="single_thread",
+    tools=None,
+    review_window=258400,
+    agent_ids=None,
+):
     """Own a fixture and a complete isolated stack, including startup-failure cleanup."""
     if os.environ.get("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
         pytest.skip("set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 for isolated process E2E")
@@ -64,9 +67,15 @@ def running(tmp_path: Path, policy: str):
         port = json.loads(ready.read_text())["port"]
         fixture_url = f"http://127.0.0.1:{port}"
         config = yaml.safe_load((REPO / "config/e2e/gateway.yaml").read_text())
+        if agent_ids is not None:
+            config["agents"] = [
+                agent for agent in config["agents"] if agent["agent_id"] in agent_ids
+            ]
         for agent in config["agents"]:
             agent.update(
-                default_model="main", tool_allowlist=["bash"], work_mode="single_thread"
+                default_model="main",
+                tool_allowlist=tools or ["bash"],
+                work_mode=work_mode,
             )
         config["llm"] = {
             "default_model": "main",
@@ -78,7 +87,9 @@ def running(tmp_path: Path, policy: str):
                     "models": [
                         {
                             "name": model,
-                            "context_window": 258400,
+                            "context_window": review_window
+                            if model == "review"
+                            else 258400,
                             "reasoning": {"default": "low", "levels": ["low"]},
                         }
                         for model in ("main", "review")
@@ -148,7 +159,9 @@ def running(tmp_path: Path, policy: str):
 def approvals(root: Path, call_id: str) -> list[dict]:
     """Read only this test's durable approval domain, filtering by original tool call."""
     rows = []
-    for path in root.glob(".dsh-runtime/*/storages/nano_approval/sessions/*.json"):
+    for path in (root / ".dsh-runtime").glob(
+        "**/storages/nano_approval/sessions/*.json"
+    ):
         rows.extend(
             row
             for row in json.loads(path.read_text())["record"]
@@ -311,8 +324,10 @@ def test_auto_review_public_stop_never_allows_or_retries(
             desc="cancelled review audit",
         )
         trace = next(row["recovery"] for row in rows if row.get("recovery"))
-        assert trace["finalRoute"] == "cancel"
+        assert trace["finalRoute"] == "cancel" and trace["complete"] is True
+        assert trace["terminalReason"] == "cancelled"
         assert all(row["decision"] != "allow" for row in rows)
+        assert all(row["total"] == 0 and row["consecutive"] == 0 for row in rows)
         # Pass the original server backoff boundary; no later HTTP may be issued.
         time.sleep(8.5 if phase == "backoff" else 0.5)
         assert len(records_for_case()) == 1
@@ -320,7 +335,13 @@ def test_auto_review_public_stop_never_allows_or_retries(
         assert not effects.exists() or case_id not in effects.read_text()
         (tmp_path / "stop-export.json").write_text(
             json.dumps(
-                {"trace": trace, "stop": stop_message, "conversation": conversation},
+                {
+                    "trace": trace,
+                    "approvals": rows,
+                    "requests": records_for_case(),
+                    "stop": stop_message,
+                    "conversation": conversation,
+                },
                 indent=2,
             )
         )

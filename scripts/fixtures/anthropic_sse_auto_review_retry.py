@@ -3,7 +3,8 @@
 
 Only fixture inputs are recorded. No production credentials or configuration are read.
 Start with --port 0 --ready-file PATH --record PATH; POST /control selects a
-scenario, and GET /records exposes sanitized transport facts to the E2E driver.
+scenario, and GET /records exposes controlled request facts and reviewer prompts.
+The output is local evidence, not safe for publication without separate review.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from pathlib import Path
 import re
 import threading
 import time
+
+from auto_review_source_scenario import source_blocks
 
 
 def frames(blocks: list[dict]) -> bytes:
@@ -102,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):  # noqa: N802
-        """Expose fixture readiness and sanitized request records."""
+        """Expose fixture readiness and local-only controlled request records."""
         with self.lock:
             result = self.records.copy() if self.path == "/records" else {"ok": True}
         self.respond(200, json.dumps(result).encode())
@@ -110,6 +113,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         """Route main and reviewer independently; main always invokes the real bash tool."""
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+        if self.path == "/release":
+            with self.lock:
+                self.scenarios[body["id"]]["held_release"] = True
+            self.respond(200, b'{"ok":true}')
+            return
         if self.path == "/control":
             with self.lock:
                 self.scenarios[body["id"]] = {**body, "requests": 0}
@@ -119,19 +127,36 @@ class Handler(BaseHTTPRequestHandler):
         # Most recent user fixture marker wins, including cached Guardian deltas.
         identifiers = re.findall(r"RETRY_CASE_([a-zA-Z0-9_]+)", encoded)
         if not identifiers:
-            self.respond(400, b'{"error":{"message":"missing fixture marker"}}')
-            return
+            with self.lock:
+                identifiers = [
+                    key
+                    for key, value in self.scenarios.items()
+                    if value.get("source_mode")
+                ]
+            if len(identifiers) != 1:
+                self.respond(400, b'{"error":{"message":"missing fixture marker"}}')
+                return
         case_id = identifiers[-1]
         with self.lock:
             case = self.scenarios[case_id]
             is_review = body["model"] == "review"
-            if is_review:
+            action_effect = f"printf '{case_id}" in encoded
+            planned_review = is_review and (
+                not case.get("source_mode") or action_effect
+            )
+            if planned_review:
                 ordinal = case["requests"]
                 case["requests"] += 1
             else:
                 ordinal = 0
             plan = case.get("plan", ["allow"])
-            selected = plan[min(ordinal, len(plan) - 1)] if is_review else "main"
+            selected = (
+                plan[min(ordinal, len(plan) - 1)]
+                if planned_review
+                else "allow"
+                if is_review
+                else "main"
+            )
             row = {
                 "case": case_id,
                 "review": is_review,
@@ -143,12 +168,29 @@ class Handler(BaseHTTPRequestHandler):
                 "root": self.headers.get("X-Session-Id"),
                 "effort": body.get("output_config", {}).get("effort"),
                 "failed_history": "FAILED_REVIEW_BRANCH" in encoded,
+                "action_effect": action_effect,
+                # These are controlled fixture inputs, not production traffic. Keep
+                # exact request evidence so Q can inspect full/delta provenance.
+                **(
+                    {"messages": body.get("messages"), "system": body.get("system")}
+                    if is_review or case.get("source_mode")
+                    else {}
+                ),
             }
             self.records.append(row)
             with self.record.open("a") as stream:
                 stream.write(json.dumps(row) + "\n")
+        if not is_review and case.get("source_mode"):
+            self.respond(
+                200,
+                frames(source_blocks(body, case, case_id, tool)),
+                "text/event-stream",
+            )
+            return
         if not is_review:
-            call_id = f"effect-{case_id}"
+            steps = re.findall(r"EFFECT_STEP_(\d+)", encoded)
+            step = steps[-1] if case.get("steps") and steps else None
+            call_id = f"effect-{case_id}" + (f"-{step}" if step is not None else "")
             called = any(
                 block.get("type") == "tool_use" and block.get("id") == call_id
                 for message in body.get("messages", [])
@@ -160,7 +202,13 @@ class Handler(BaseHTTPRequestHandler):
             )
             if called:
                 response = frames(
-                    [{"type": "text", "text": f"FINISHED_RETRY_CASE_{case_id}"}]
+                    [
+                        {
+                            "type": "text",
+                            "text": f"FINISHED_RETRY_CASE_{case_id}"
+                            + (f"_STEP_{step}" if step is not None else ""),
+                        }
+                    ]
                 )
             else:
                 response = frames(
@@ -169,13 +217,30 @@ class Handler(BaseHTTPRequestHandler):
                             "bash",
                             {
                                 "description": "Record isolated review side effect",
-                                "command": f"printf '{case_id}\\n' >> retry-effects.txt # RETRY_CASE_{case_id}",
+                                "command": f"printf '{case_id}\\n' >> retry-effects.txt # RETRY_CASE_{case_id}"
+                                + " required-action-evidence"
+                                * case.get("action_size", 0),
                             },
                             call_id,
                         )
                     ]
                 )
             self.respond(200, response, "text/event-stream")
+            return
+        if selected == "context":
+            self.respond(
+                400,
+                json.dumps(
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "message": "prompt is too long: 300000 tokens > 258400 maximum",
+                        },
+                    }
+                ).encode(),
+                headers={"request-id": f"fixture-{case_id}-{ordinal}"},
+            )
             return
         if selected in ("429", "503", "401", "500", "429long", "429stop"):
             status = int(selected[:3])

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
@@ -84,5 +84,23 @@ export function apply(ctx){
     const created=await lines('agents.jsonl');expect(created.some(row=>row.seeded)).toBe(true);
     const disposed=await lines('disposed.jsonl');expect(disposed.map(row=>row.id).sort()).toEqual(created.map(row=>row.id).sort());
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
-  finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+  finally{
+    const evidence=process.env.NANO_REVIEW_NATIVE_EVIDENCE;
+    if(evidence&&client){
+      await mkdir(evidence,{recursive:true});
+      const observed=await client.rpc.request('session.observe',{sessionId:'parent'}).catch(error=>({observationError:String(error)}));
+      await writeFile(join(evidence,'observation.json'),JSON.stringify(observed,null,2));
+    }
+    if(client)await client.shutdown();
+    if(evidence){
+      // Opt-in raw fixture evidence only. No change to runtime/test budgets or
+      // assertions; Q chooses a fresh gitignored output directory per run.
+      await mkdir(evidence,{recursive:true});
+      for(const file of ['reviews.jsonl','agents.jsonl','disposed.jsonl','effects.jsonl','parallel.jsonl']){
+        const text=await readFile(join(home,file),'utf8').catch(()=>undefined);
+        if(text!==undefined)await writeFile(join(evidence,file),text);
+      }
+    }
+    await rm(home,{recursive:true,force:true});
+  }
 },320000);
