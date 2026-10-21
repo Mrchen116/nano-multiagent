@@ -5,11 +5,12 @@ import Markdown
 struct MarkdownView: View {
     let text: String
     let client: IMClient
+    var baseFont: Font = .body
     var body: some View {
         let document = Document(parsing: text)
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(document.children.enumerated()), id: \.offset) { _, child in
-                MarkdownBlockView(node: child, client: client)
+                MarkdownBlockView(node: child, client: client, baseFont: baseFont)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
     }
@@ -82,6 +83,7 @@ enum MarkdownContent {
 private struct MarkdownBlockView: View {
     let node: any Markup
     let client: IMClient
+    let baseFont: Font
     var body: some View { block(node) }
     private func block(_ node: any Markup) -> AnyView {
         if let code = node as? CodeBlock {
@@ -122,18 +124,18 @@ private struct MarkdownBlockView: View {
                 }.padding(10)
             }.background(.gray.opacity(0.06), in: RoundedRectangle(cornerRadius: 8)))
         }
-        if let html = node as? HTMLBlock { return AnyView(SwiftUI.Text(html.rawHTML).font(.body)) }
+        if let html = node as? HTMLBlock { return AnyView(SwiftUI.Text(html.rawHTML).font(baseFont)) }
         return AnyView(VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(MarkdownContent.pieces(node, baseURL: client.baseURL).enumerated()), id: \.offset) { _, piece in
                 switch piece {
-                case .text(let text): SwiftUI.Text(text).font(.body).tint(.teal)
+                case .text(let text): SwiftUI.Text(text).font(baseFont).tint(.teal)
                 case .image(let source, let label): ProtectedImageView(client: client, source: source, label: label)
                 }
             }
         })
     }
     private func children(_ node: any Markup) -> some View {
-        VStack(alignment: .leading, spacing: 8) { ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in MarkdownBlockView(node: child, client: client) } }
+        VStack(alignment: .leading, spacing: 8) { ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in MarkdownBlockView(node: child, client: client, baseFont: baseFont) } }
     }
     private func inline(_ node: any Markup) -> AttributedString {
         MarkdownContent.inline(node, baseURL: client.baseURL)

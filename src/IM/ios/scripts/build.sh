@@ -3,17 +3,18 @@ set -euo pipefail
 IOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-build}"
+BUILD_REVISION="${NANO_IOS_BUILD_REVISION:-$(git -C "$IOS_ROOT" rev-parse --short=12 HEAD)}"
 BUILD_ROOT="${NANO_IOS_BUILD_ROOT:-/tmp/nano-ios-build}"
 case "$MODE" in
   build)
-    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM -destination 'generic/platform=iOS Simulator' -derivedDataPath "$BUILD_ROOT" build
+    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM NANO_IM_BUILD_REVISION="$BUILD_REVISION" -destination 'generic/platform=iOS Simulator' -derivedDataPath "$BUILD_ROOT" build
     ;;
   test)
     DEVICE_ID="${NANO_IOS_SIMULATOR_ID:?Set NANO_IOS_SIMULATOR_ID to an available iPhone simulator UDID}"
-    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath "$BUILD_ROOT" test
+    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM NANO_IM_BUILD_REVISION="$BUILD_REVISION" -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath "$BUILD_ROOT" test
     ;;
   archive)
-    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM -destination 'generic/platform=iOS' -configuration Release -archivePath "$BUILD_ROOT/NanoIM.xcarchive" -derivedDataPath "$BUILD_ROOT" CODE_SIGNING_ALLOWED=NO archive
+    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM NANO_IM_BUILD_REVISION="$BUILD_REVISION" -destination 'generic/platform=iOS' -configuration Release -archivePath "$BUILD_ROOT/NanoIM.xcarchive" -derivedDataPath "$BUILD_ROOT" CODE_SIGNING_ALLOWED=NO archive
     STAGE="$(mktemp -d "$BUILD_ROOT/ipa.XXXXXX")"
     trap 'rm -rf "$STAGE"' EXIT
     mkdir -p "$STAGE/Payload"

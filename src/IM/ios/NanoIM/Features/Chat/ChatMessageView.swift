@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatMessageView: View {
     let client: IMClient
+    let chat: ChatStore
     let message: ChatMessage
     let selfID: String
     var participants: [ActorRef] = []
@@ -39,6 +40,11 @@ struct ChatMessageView: View {
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
             if !message.content.isEmpty { MarkdownView(text: ChatText.display(message.content, participants: participants), client: client) }
+            if message.interactive != nil {
+                InteractiveCardView(client: client, message: message, chat: chat,
+                    readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil)
+                    .textSelection(.disabled)
+            }
             ForEach(message.attachments) { AttachmentView(client: client, attachment: $0) }
             if hasProcess {
                 DisclosureGroup(isExpanded: $showProcess) {

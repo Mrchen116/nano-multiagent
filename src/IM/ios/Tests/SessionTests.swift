@@ -2,6 +2,15 @@ import XCTest
 @testable import NanoIM
 
 final class SessionTests: XCTestCase {
+    private var attemptDirectory: URL!
+    private var attemptStore: SendAttemptStore { SendAttemptStore(directory: attemptDirectory) }
+    override func setUpWithError() throws {
+        attemptDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    }
+    override func tearDownWithError() throws {
+        if FileManager.default.fileExists(atPath: attemptDirectory.path) { try FileManager.default.removeItem(at: attemptDirectory) }
+    }
+
     private let origin = URL(string: "https://im.example.test")!
     private func user(_ id: String = "alice") -> AuthUser {
         AuthUser(id: id, username: id, display_name: id, owner_id: id, locale: "en", membership_status: "active", is_company_admin: false, default_entry_node_id: nil, owned_node_ids: [], created_at: "2026-01-01")
@@ -27,7 +36,7 @@ final class SessionTests: XCTestCase {
         let data = try pair(user())
         let transport = SessionTestTransport(refreshData: data, held: ["/im/v1/auth/refresh"])
         let vault = SessionTestCredentials(StoredSession(refresh_token: "old", user: user()))
-        let session = Session(baseURL: origin, transport: transport, credentials: vault)
+        let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: attemptStore)
         let first = Task { try await session.request(path: "/im/v1/policies") }
         await transport.waitFor("/im/v1/auth/refresh")
         let second = Task { try await session.request(path: "/im/v1/nodes") }
@@ -44,7 +53,7 @@ final class SessionTests: XCTestCase {
     }
     func testForegroundClientAutomaticallyReportsSystemTimezoneOnEachActivation() async throws {
         let transport = SessionTestTransport(refreshData: try pair(user()))
-        let session = Session(baseURL: origin, transport: transport, credentials: SessionTestCredentials(StoredSession(refresh_token: "old", user: user())))
+        let session = Session(baseURL: origin, transport: transport, credentials: SessionTestCredentials(StoredSession(refresh_token: "old", user: user())), sendAttempts: attemptStore)
         _ = try await session.restore()
         let client = IMClient(baseURL: origin, session: session)
         try await client.syncTimeZone()
@@ -57,7 +66,7 @@ final class SessionTests: XCTestCase {
     func testLateAccountResponseCannotReturnAfterSignOut() async throws {
         let transport = SessionTestTransport(refreshData: try pair(user()), held: ["/im/v1/policies"])
         let vault = SessionTestCredentials(StoredSession(refresh_token: "old", user: user()))
-        let session = Session(baseURL: origin, transport: transport, credentials: vault)
+        let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: attemptStore)
         let request = Task { try await session.request(path: "/im/v1/policies") }
         await transport.waitFor("/im/v1/policies")
         let revoked = await session.signOut()
@@ -69,7 +78,7 @@ final class SessionTests: XCTestCase {
     func testSignOutRevokesCredentialRotatedByInFlightRefresh() async throws {
         let transport = SessionTestTransport(refreshData: try pair(user(), token: "newest"), held: ["/im/v1/auth/refresh"])
         let vault = SessionTestCredentials(StoredSession(refresh_token: "old", user: user()))
-        let session = Session(baseURL: origin, transport: transport, credentials: vault)
+        let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: attemptStore)
         let restore = Task { try await session.restore() }
         await transport.waitFor("/im/v1/auth/refresh")
         let updates = await session.updates()
@@ -88,7 +97,7 @@ final class SessionTests: XCTestCase {
         for status in [503, 401] {
             let vault = SessionTestCredentials(StoredSession(refresh_token: "old", user: user()))
             let transport = SessionTestTransport(refreshData: Data("{\"detail\":\"unavailable\"}".utf8), refreshStatus: status)
-            let session = Session(baseURL: origin, transport: transport, credentials: vault)
+            let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: attemptStore)
             do { _ = try await session.restore(); XCTFail("Expected error") } catch let error as APIError { XCTAssertEqual(error.status, status) }
             XCTAssertEqual(try vault.load() != nil, status == 503)
         }

@@ -177,8 +177,8 @@
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "1";
-				"MARKETING_VERSION" = "0.1.0";
+				"CURRENT_PROJECT_VERSION" = "634";
+				"MARKETING_VERSION" = "0.2.0";
 				"GENERATE_INFOPLIST_FILE" = "NO";
 				"LD_RUNPATH_SEARCH_PATHS" = "$(inherited) @executable_path/Frameworks";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
@@ -198,8 +198,8 @@
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"SUPPORTS_MACCATALYST" = "NO";
 				"CODE_SIGN_STYLE" = "Automatic";
-				"CURRENT_PROJECT_VERSION" = "1";
-				"MARKETING_VERSION" = "0.1.0";
+				"CURRENT_PROJECT_VERSION" = "634";
+				"MARKETING_VERSION" = "0.2.0";
 				"GENERATE_INFOPLIST_FILE" = "NO";
 				"LD_RUNPATH_SEARCH_PATHS" = "$(inherited) @executable_path/Frameworks";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
