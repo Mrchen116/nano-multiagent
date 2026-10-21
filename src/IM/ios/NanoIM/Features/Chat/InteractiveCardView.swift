@@ -16,7 +16,7 @@ struct InteractiveCardView: View {
             } else if runtime.error == nil { ProgressView(L("载入交互内容…", "Loading interaction…")) }
             if runtime.readOnly { Text(L("历史回复，仅供阅读", "Historical reply · read only")).font(.caption).foregroundStyle(.secondary) }
             if runtime.busy { ProgressView(L("正在发送…", "Sending…")) }
-            else if runtime.submitted { Text(L("请求已发送，Agent 将在聊天中回复。", "Request sent. The Agent will reply in the conversation.")).font(.caption).foregroundStyle(NanoTheme.accent) }
+            else if runtime.submitted && !runtime.hasPending { Text(L("请求已发送，Agent 将在聊天中回复。", "Request sent. The Agent will reply in the conversation.")).font(.caption).foregroundStyle(NanoTheme.accent) }
             if let error = runtime.error {
                 ErrorNotice(message: error)
                 if runtime.conflict || !runtime.loaded { Button(L("读取最新", "Load latest")) { Task { await runtime.load() } } }

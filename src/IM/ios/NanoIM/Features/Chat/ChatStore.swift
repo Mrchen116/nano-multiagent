@@ -435,9 +435,9 @@ final class ChatStore {
                 pending[id] = nil
                 if drafts[id] == attempt.draft.content {
                     drafts[id] = ""
-                    let sentIDs = Set(attempt.draft.attachments.map(\.id))
-                    attachments[id]?.removeAll { sentIDs.contains($0.id) }
                 }
+                let sentIDs = Set(attempt.draft.attachments.map(\.id))
+                attachments[id]?.removeAll { sentIDs.contains($0.id) }
             }
             errors[id] = nil
             return message

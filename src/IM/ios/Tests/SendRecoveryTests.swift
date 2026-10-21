@@ -33,6 +33,8 @@ final class SendRecoveryTests: XCTestCase {
         await restored.loadConversations()
         restored.conversations[0].participants = [ActorRef(type: "agent", id: "agent", display_name: "After", user_id: "different-user")]
         restored.drafts["chat"] = "new work"
+        let newAttachment = ChatAttachment(url: "/im/v1/uploads/new", content_type: "image/png", file_name: "new.png")
+        restored.attachments["chat", default: []].append(newAttachment)
         await restored.recoverPending()
         let beforeRetry = await transport.sent()
         XCTAssertEqual(beforeRetry.count, 1)
@@ -45,6 +47,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(payload["content"].stringValue, "<mention type=\"user\" target_id=\"agent-user\"/> original")
         XCTAssertNil(restored.pending["chat"])
         XCTAssertEqual(restored.drafts["chat"], "new work")
+        XCTAssertEqual(restored.attachments["chat"]?.map(\.id), [newAttachment.id])
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
         XCTAssertEqual(restored.timelines["chat"]?.map(\.id), ["sent"])
         restored.clear()
