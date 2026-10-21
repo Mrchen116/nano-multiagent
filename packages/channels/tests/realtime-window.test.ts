@@ -3,11 +3,11 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { WebRelayConnection, type ProtocolFrame } from '../src/index.js';
 const cleanups: (()=>Promise<void>)[]=[];
 afterEach(async()=>{for(const fn of cleanups.splice(0).reverse())await fn();});
-async function setup(handle:(s:WebSocket,f:ProtocolFrame)=>void){
+async function setup(handle:(s:WebSocket,f:ProtocolFrame)=>void,ackTimeoutMs=60){
  const frames:ProtocolFrame[]=[];const wss=new WebSocketServer({port:0});await new Promise<void>(r=>wss.once('listening',r));
  wss.on('connection',s=>s.on('message',data=>{const f=JSON.parse(String(data));frames.push(f);if(f.type==='node.register')s.send(JSON.stringify({type:'ack',payload:{message_type:f.type,request_id:f.payload.request_id,relay_request_ids:1,work_sync_http:1}}));else handle(s,f);}));
  cleanups.push(async()=>{for(const s of wss.clients)s.terminate();await new Promise<void>(r=>wss.close(()=>r()));});
- const relay=new WebRelayConnection({url:`http://127.0.0.1:${(wss.address() as {port:number}).port}`,credentials:()=>({accessToken:'test',registration:{node_id:'n'}}),onFrame(){},ackTimeoutMs:60,heartbeatIntervalMs:20});cleanups.push(()=>relay.stop());await relay.start();return {relay,frames};
+ const relay=new WebRelayConnection({url:`http://127.0.0.1:${(wss.address() as {port:number}).port}`,credentials:()=>({accessToken:'test',registration:{node_id:'n'}}),onFrame(){},ackTimeoutMs,heartbeatIntervalMs:20});cleanups.push(()=>relay.stop());await relay.start();return {relay,frames};
 }
 function ack(s:WebSocket,f:ProtocolFrame){s.send(JSON.stringify({type:'ack',payload:{message_type:f.type,request_id:f.payload.request_id}}));}
 test('a lost business ACK leaves realtime control and heartbeat usable and a late ACK cannot settle another send',async()=>{
@@ -26,4 +26,15 @@ test('six ordinary requests leave two slots for control and bound unsent queue',
  await expect(relay.request('agent.message',{})).rejects.toMatchObject({delivery:'not-sent'});
  await expect(relay.request('node.delivery_receipt',{})).resolves.toMatchObject({type:'ack'});
  expect(frames.filter(f=>f.type==='agent.message')).toHaveLength(6);await relay.stop();await Promise.all(settled);
+});
+test('three Agent publications rotate across a backlog using their real operation scopes',async()=>{
+ let socket:WebSocket|undefined;
+ const {relay,frames}=await setup((s,f)=>{socket=s;if(f.type==='node.heartbeat')ack(s,f);},1000);
+ const send=(agent:string,i:number)=>relay.request('agent.message',{from_session_id:`${agent}|tool_call:${i}`,text:String(i)}).catch(e=>e);
+ const requests=Array.from({length:8},(_,i)=>send('a',i));requests.push(...Array.from({length:3},(_,i)=>send('b',i)),send('c',0));
+ await expect.poll(()=>frames.filter(f=>f.type==='agent.message').length).toBe(6);
+ for(let i=0;i<3;i++)ack(socket!,frames.filter(f=>f.type==='agent.message')[i]!);
+ await expect.poll(()=>frames.filter(f=>f.type==='agent.message').length).toBe(9);
+ expect(frames.filter(f=>f.type==='agent.message').slice(6,9).map(f=>String(f.payload.from_session_id).split('|')[0])).toEqual(['b','c','a']);
+ await relay.stop();await Promise.all(requests);
 });

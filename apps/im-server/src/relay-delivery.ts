@@ -31,7 +31,9 @@ export class RelayDelivery {
       const rows=all(this.ctx.db,"SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted') AND receipt_status IS NULL ORDER BY updated_at,created_at LIMIT 256",id);
       const candidates=rows.filter(row=>!flights.has(row.relay_task_id) && (this.retries.get(row.relay_task_id)?.at??0)<=time);
       while(candidates.length && flights.size<32) {
-        let index=candidates.findIndex(row=>JSON.parse(row.payload_json).agent_id!==this.lastAgents.get(id));if(index<0)index=0;
+        const agents=[...new Set(candidates.map(row=>String(JSON.parse(row.payload_json).agent_id)))];
+        const next=agents[(agents.indexOf(this.lastAgents.get(id)??'')+1)%agents.length];
+        const index=candidates.findIndex(row=>String(JSON.parse(row.payload_json).agent_id)===next);
         const task=candidates.splice(index,1)[0]!;
         if (!this.ctx.messaging.relayEligible(task)) {
           this.ctx.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);this.retries.delete(task.relay_task_id);continue;

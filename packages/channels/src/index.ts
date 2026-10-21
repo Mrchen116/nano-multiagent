@@ -224,6 +224,10 @@ export class WebRelayConnection {
     return type === 'node.register' || type === 'node.heartbeat' || type === 'node.delivery_receipt'
       || type === 'agent.session.ensure' || type === 'agent.message.status' || type.includes('cancel') || type.includes('permission');
   }
+  private agent(frame: ProtocolFrame): string {
+    // Publications carry the same Agent identity in their stable operation scope.
+    return String(frame.payload.agent_id ?? (typeof frame.payload.from_session_id === 'string' ? frame.payload.from_session_id.split('|')[0] : ''));
+  }
   private enqueue(frame: ProtocolFrame, priority?:'control'|'normal'): Promise<ProtocolFrame> {
     const control = priority==='control' || priority!=='normal' && (this.control(frame.type) || frame.type==='node.streaming_delta' && String(frame.payload.kind).startsWith('permission_'));
     // Server-initiated request IDs are retained in their response frames.
@@ -242,12 +246,13 @@ export class WebRelayConnection {
       let index = this.queue.findIndex(item => item.control);
       if (index < 0) {
         if (this.correlated && ordinary >= 6) return;
-        index = this.queue.findIndex(item => String(item.frame.payload.agent_id ?? '') !== this.lastAgent);
-        if (index < 0) index = 0;
+        const agents = [...new Set(this.queue.map(item => this.agent(item.frame)))];
+        const next = agents[(agents.indexOf(this.lastAgent) + 1) % agents.length];
+        index = this.queue.findIndex(item => this.agent(item.frame) === next);
       }
       const pending = this.queue.splice(index, 1)[0];
       if (!pending) return;
-      if (!pending.control) this.lastAgent = String(pending.frame.payload.agent_id ?? '');
+      if (!pending.control) this.lastAgent = this.agent(pending.frame);
       const id = String(pending.frame.payload.request_id);
       const generation = this.generation;
       this.pending.set(id, pending);

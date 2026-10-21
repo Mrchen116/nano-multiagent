@@ -141,3 +141,13 @@ test('all parts durable before a center crash still finalize on restart',async()
  f.inbox.append(event(1,'x'.repeat(106*1024)));f.sync.start();
  await expect.poll(()=>f.inbox.throughSeq).toBe(1);expect(f.calls.filter(c=>c.method==='PUT')).toHaveLength(1);expect(f.errors).toEqual([]);
 });
+test('a busy center Retry-After remains a minimum even during the first jittered retry',async()=>{
+ const times:number[]=[];
+ const f=await fixture((_call,response)=>{
+  times.push(Date.now());
+  if(times.length===1){response.statusCode=429;response.setHeader('retry-after','2');json(response,{detail:'work_sync_busy'});}
+  else json(response,{through_seq:0,expected_seq:1});
+ });
+ f.sync.start();await expect.poll(()=>f.calls.length,{timeout:5000}).toBe(2);
+ expect(times[1]!-times[0]!).toBeGreaterThanOrEqual(2000);expect(f.errors).toHaveLength(1);
+});

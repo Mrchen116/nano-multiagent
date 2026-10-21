@@ -11,7 +11,7 @@ interface Options {
   onError: (error: unknown) => void;
 }
 class SyncError extends Error {
-  constructor(readonly code: string, readonly pause = false) { super(code); }
+  constructor(readonly code: string, readonly pause = false, readonly retryAfterMs = 0) { super(code); }
 }
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
@@ -63,7 +63,7 @@ export class WorkSync {
         if (!this.started) return;
         this.options.onError(error);
         if (error instanceof SyncError && error.pause) { this.paused = true; return; }
-        const wait = Math.min(30_000, this.backoff * (0.8 + Math.random() * 0.4));
+        const wait = Math.max(error instanceof SyncError ? error.retryAfterMs : 0, Math.min(30_000, this.backoff * (0.8 + Math.random() * 0.4)));
         this.backoff = Math.min(30_000, this.backoff * 2);
         try { await this.delay(wait); } catch { return; }
         this.dirty = true;
@@ -89,7 +89,10 @@ export class WorkSync {
       body: text, signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(limits.requestTimeoutMs)]),
     });
     const result = await response.json() as WorkSyncCursor & { detail?: string };
-    if (!response.ok) throw new SyncError(result.detail ?? `work_sync_http_${response.status}`, [400, 409, 413].includes(response.status));
+    if (!response.ok) {
+      const retryAfter = Number(response.headers.get('retry-after')) * 1000;
+      throw new SyncError(result.detail ?? `work_sync_http_${response.status}`, [400, 409, 413].includes(response.status), Number.isFinite(retryAfter) ? Math.max(0, retryAfter) : 0);
+    }
     if (!this.started) throw new SyncError('work_sync_stopped');
     return this.validateCursor(result);
   }
