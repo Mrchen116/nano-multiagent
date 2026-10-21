@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it.each([true, false])('keeps session effort and selected Skill instructions across native compaction (context windows=%s)', async (contextWindows) => {
+it.each([[true, false], [false, false], [true, true], [false, true]])('keeps session effort and separates Skill catalogs from archived bodies (context windows=%s, skill callable=%s)', async (contextWindows, skillCallable) => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-policy-')); let client: RuntimeClient | undefined; let logs='';
   await writeFile(join(home, 'fixture.mjs'), `import {appendFile}from'node:fs/promises';export const name='model-fixture';export const inject=['llm'];export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({purpose:o.purpose,effort:o.reasoningEffort,messages:o.messages,system:o.system})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:o.purpose==='compaction'?'Preserve AUTH_FOCUS and continue the original task.':'A useful response. '.repeat(100)}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:100,outputTokens:20}};});}`);
   await mkdir(join(home,'skills/retained'),{recursive:true});
   await writeFile(join(home,'skills/retained/SKILL.md'),'---\nname: retained\ndescription: Guidance that must survive compaction\n---\nKEEP_SELECTED_SKILL_BODY');
-  const config={agentId:'a',revision:'1',workspace:home,provider:'fixture',model:'test',features:{memory_curation:false,skill_creation:false},toolAllowlist:['workflow'],skillRoots:[{path:join(home,'skills'),source:'workspace'}],reasoningEffort:'low'};
+  const config={agentId:'a',revision:'1',workspace:home,provider:'fixture',model:'test',features:{memory_curation:false,skill_creation:false},toolAllowlist:skillCallable ? ['workflow','skill'] : ['workflow'],skillRoots:[{path:join(home,'skills'),source:'workspace'}],reasoningEffort:'low'};
   const binding={sessionId:'model-session',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test',contextWindow:100000,reasoningEfforts:{low:'low',high:'high',xhigh:'xhigh'}}]}}}},{id:'nano-compaction',config:{retainTokens:0,headroomTokens:100,maxTokens:256}},{insert:[{id:'model-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -41,8 +41,16 @@ it.each([true, false])('keeps session effort and selected Skill instructions acr
     await submit('five');
     const last=JSON.parse((await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').at(-1)!);
     expect(last.effort).toBe('high');expect(JSON.stringify(last.messages.filter((message:{role:string})=>message.role==='system'))).not.toContain('Ultracode is on: use Workflow');
-    expect(JSON.stringify(requests.at(-1))).toContain('Previously used Skills, restored after compaction');
-    expect(JSON.stringify(requests.at(-1))).toContain('KEEP_SELECTED_SKILL_BODY');
+    if (contextWindows) {
+      for (const request of requests.slice(2)) {
+        expect(JSON.stringify(request)).not.toContain('nano-used-skills');
+        expect(JSON.stringify(request)).not.toContain('KEEP_SELECTED_SKILL_BODY');
+      }
+      if (skillCallable) expect(JSON.stringify(last.messages)).toContain('<available_skills>');
+    } else {
+      expect(JSON.stringify(requests.at(-1))).toContain('Previously used Skills, restored after compaction');
+      expect(JSON.stringify(requests.at(-1))).toContain('KEEP_SELECTED_SKILL_BODY');
+    }
     expect((await events()).filter(e=>e.type==='user/message').some(e=>JSON.stringify(e.data).includes('For this summarization only'))).toBe(false);
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}

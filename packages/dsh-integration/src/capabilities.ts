@@ -82,34 +82,42 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
   }
   return [...found.values()];
 }
+type SkillGesture = { id: string; name: string };
+function skillGestures(inputs: { id: string; content: UserMessage['content'] }[]): SkillGesture[] {
+  return inputs.flatMap(input => input.content.flatMap(block => {
+    if (block.type !== 'text') return [];
+    const name = /^(?:\[[^\]]*\]\s*)*\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s|$)/.exec(block.text)?.[1];
+    return name ? [{ id: `nano-skill:${input.id}:${name}`, name }] : [];
+  }));
+}
 /** Native file parsing and resource loading with one selected provider surface. */
 export function apply(ctx: Context, config: AgentConfiguration) {
+  const pending = new WeakMap<Agent, SkillGesture[]>();
+  // Consume the complete host value once; later pruning may make its rendered JSON incomplete.
+  ctx.on('tools/result', (exec, result) => {
+    const agent = exec.agent;
+    if (exec.name !== 'inbox' || !agent || result.isError || !ctx.nanoApproval.sources.isLiveInbox(agent.id, exec.callId)) return;
+    const body = (result.value as unknown as { body: {
+      messages?: { id: string; sender: { type: string }; partial?: boolean; content: UserMessage['content'] }[];
+    } }).body;
+    const gestures = skillGestures((body.messages ?? []).filter(input => input.sender.type === 'user' && !input.partial));
+    if (gestures.length) pending.set(agent, [...(pending.get(agent) ?? []), ...gestures]);
+  });
   // Native explicit invocation only scans its own user source. Preserve Nano's
   // human attribution and adapt the gesture through the same selected registry.
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next(); if (decision.kind === 'reject') return decision;
     const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
-    const inputs = messages.filter(message => message.source.kind === 'nano-human').map(message => ({ id: message.id as string, content: message.content }));
-    // Only successful, host-observed live Inbox reads can supply explicit gestures.
-    // Historical conversations and quoted commands never become fresh invocations.
-    for (const message of agent.session.deriveMessages()) {
-      if (message.role !== 'tool' || message.isError || !ctx.nanoApproval.sources.isLiveInbox(agent.id, message.toolCallId)) continue;
-      const body = JSON.parse(message.content.filter(block => block.type === 'text').map(block => block.text).join('')) as {
-        messages?: { id: string; sender: { type: string }; partial?: boolean; content: { type: string; text?: string }[] }[];
-      };
-      for (const input of body.messages ?? []) if (input.sender.type === 'user' && !input.partial) inputs.push({ id: input.id, content: input.content as UserMessage['content'] });
-    }
+    const gestures = [...skillGestures(messages.filter(message => message.source.kind === 'nano-human')), ...(pending.get(agent) ?? [])];
     const additions: UserMessage[] = [];
-    for (const input of inputs) for (const block of input.content) {
-      if (block.type !== 'text') continue;
-      const name = /^(?:\[[^\]]*\]\s*)*\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s|$)/.exec(block.text)?.[1];
-      if (!name) continue;
-      const id = `nano-skill:${input.id}:${name}`; if (invoked.has(id)) continue;
+    for (const { id, name } of gestures) {
+      if (invoked.has(id)) continue;
       const skill = await ctx.skills.get(name, { scope: agent, cwd: agent.session.header.cwd, signal });
       if (skill && isUserInvocable(skill)) {
         invoked.add(id); additions.push(freezeMessage({ id: MessageId(id), role: 'user', content: [{ type: 'text', text: renderSkillContent(skill) }], source: { kind: 'skill-invocation', name, form: 'instructions' } }));
       }
     }
+    pending.delete(agent);
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
   const allowed = (name: string) => config.skillSelection?.mode === 'explicit_denylist'

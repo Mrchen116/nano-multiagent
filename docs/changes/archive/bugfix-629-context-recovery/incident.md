@@ -1,8 +1,14 @@
-# bugfix-629: 强制换窗后丢失已读任务与动态上下文重复
+# bugfix-629: 动态上下文增长与原生压力裁剪修复
+
+## 本次交付范围（2026-10-21 用户确认）
+
+用户明确要求先合并部署已验证修复以恢复可用性，将强制换窗选错旧 Notes 单独跟进。本次完成范围为稳定上下文贡献、撤除新模式的自动已用 Skill 正文/索引重放、接回 DSH 原生压力裁剪、Notes 提示格式对齐和完整 live Inbox 的一次性 Skill 提取。相同 25 份资料的真实产品回归与原始生产 todo 回放均通过。
+
+强制/显式换窗后选错旧 Notes 的通用任务恢复要求移交 [Issue #377](https://github.com/Mrchen116/nano-multiagent/issues/377)，不作为本次交付阻塞；R3/R5 失败证据保留且不改写为通过。下文原始范围与根因用于保留调查历史；涉及这一未解决要求的完成条件以本段拆分为准。
 
 ## Relations
 
-- Follow-up: [feat-627](../archive/feat-627-codex-context-rollover/spec.md)。本 unit 修复已交付行为，不重写原验收结论。
+- Follow-up: [feat-627](../feat-627-codex-context-rollover/spec.md)。本 unit 修复已交付行为，不重写原验收结论。
 
 ## 原始报告与确认范围
 
@@ -44,7 +50,7 @@
 - **WHEN** 后续多步只新增普通工具结果和历史引用
 - **THEN** 相同 Skill/Memory 正文不因导航变化而逐步重复进入请求，Agent 仍能按需读取所需 Skill 与历史
 
-### Requirement: 强制换窗保留当前工作恢复入口
+### Deferred to #377: 强制换窗保留当前工作恢复入口
 
 #### Scenario: 旧笔记已完成，新任务尚未保存
 - **GIVEN** 旧 Notes 宣称旧事项已完成，而 Agent 已读取新的直接或 Inbox 请求并尚未完成
@@ -63,6 +69,10 @@
 
 ## 修复方向与完成条件
 
-将高频恢复导航从整份宿主快照中解耦；Skill 恢复改为可定位、按需读取；强制换窗提供由原生日志生成的当前 turn 恢复信息，不建立第二套任务数据库或摘要器。具体公开接口与数据流由设计确定。
+将高频恢复导航从整份宿主快照中解耦；按用户后续确认，新模式仅重建当前可用 Skill 目录，不自动重放旧正文或已用索引。撤掉候选版 interrupted_turn 与 turn_id 恢复扩展，按原有 Notes/History 复验强制换窗故障，不建立第二套任务数据库或摘要器。若实测仍失败，报告真实结果，不自行补回特殊导航。
 
 回归必须使用默认预算和上述失败组合，检查真实模型请求中的重复正文以及最终交付；脚本预定 finished 不能替代任务恢复证据。分别交付代码验证、独立验收、PR/CI，以及经授权的生产恢复结果。保留生产日志、数据库、会话和旧 Notes。
+
+## R6 authorized Skill/Inbox pruning integration fix
+
+The user explicitly authorized the side-chat finding to be fixed with native pressure pruning: extract Skill gestures once when the complete trusted Inbox result arrives, then allow normal pruning, without another data channel. The current adapter reparses live historical Inbox text from deriveMessages on every pre-step. Native pruning preserves call IDs but can make the text invalid JSON; invocation deduplication happens too late to prevent that parse failure. Completion requires one recognized explicit Skill from a long live human Inbox result, continued steps after native pruning without a crash or duplicate injection, and unchanged partial/non-human/restored-source boundaries.
