@@ -271,3 +271,64 @@ pnpm exec vitest run \
 - R2保留续验：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r2`；R1保留原报告commit/现场不动。两现场owner仍为本独立reviewer，父E收集报告commit后可续同会话；无自动删除。
 - native测试自有temporary runtime/HTTP均按finally关闭，进程模式复查无本轮残留；唯一后台安装/build/tests job已结束并收集。没有启动IM/Gateway长驻服务。
 - 只提交R2 JSON与本报告追加段，不改源码/测试/配置/设计，不推共享unit分支，不发公开、不改团队图、不派worker、不merge/deploy。请父E整合报告并维持其他独立门禁与final-sync版本边界。
+
+---
+
+## Round 3 — targeted verification of Q recovery test facilities
+
+### Summary / 版本与范围
+
+**Verdict: FAIL — 0 CRITICAL / 1 WARNING / 0 SUGGESTION。** 新增native证据导出错误会跳过runtime关闭，见R3-W1；未发现新的产品实现缺陷，R2-W1 closed与未变化产品范围retained。`requires_full_verification: false`，不需因此重新full审整个unit。
+
+| 字段 | 值 |
+|---|---|
+| validated_at | `2f519f659b114003d35f2fcc2305469f6e40962c` |
+| pre_fix_head / patch_base | `afd71206deb2220b0cddcd7840588667b62340e5` |
+| executed_base | `861b94129bc8c5aadbca76967268fd203fe04112`（原Full base） |
+| code_review_mode / verification_mode | patch / targeted（新增fixture、真实入口、断言、导出与清理；不兼Q） |
+| diff_range | `afd71206deb2220b0cddcd7840588667b62340e5..2f519f659b114003d35f2fcc2305469f6e40962c`，9文件 / +1028 -23 |
+| independent output | `code-review-r3.md`，JSON数组1条P2 CONFIRMED；本段为独立verifier输出 |
+| effective_base / effective_through | 未建立，未final sync，不外推最新main或后续修复 |
+
+读取全部9文件变更与周边调用：`M1-review-recovery/q-r1-recovery.md`、progress171–182、runbook§5.3、native optional导出、两个Python fixture、context/source新驱动及原retry驱动变更。保留R1/R2原报告、Q acceptance R1历史FAIL。Git实核afd..2f519的产品源码/锁文件无差异，`3dbfac..2f519 -- packages/dsh-integration/src`亦exit0；没有修改设计/spec来迎合测试。
+
+### Completeness / Correctness / Coherence
+
+| 本轮设施/契约 | 实际边界与断言 | 结论与限制 |
+|---|---|---|
+| context rebuild → 503 → fresh full → 下一delta | `test_auto_review_context_recovery.py:22–127`发送3条IM消息；fixture返回真实400/503 HTTP，断言5次请求序列、真实session I/I/R/F/F或失败后新full、共享context1/retry1、full旧证据/下一delta非重复及实际文件行数 | 接线与断言非循环：计划只控制HTTP响应，session/trace/effect来自运行时。未预写审核domain或controller。fixture HTTP不是vendor故障，本轮静态核对，不替代Q现场复验 |
+| required action admission | context驱动:130–197用公开review window 20000与完整工具参数，断言context_required/0retry/0review HTTP/0效果、真实permission deny | action体积由模型fixture输出，不patch tokenizer/admission；无HTTP用记录端独立观察，不能只靠作者terminalReason证明 |
+| 626真绑定PA/direct/PTC/restart/compact | `test_auto_review_source_recovery.py:61–245`真实新绑定、公开config/tool/plugin安装、真实Gateway restart或/compact；数据库仅mode=ro观察未消费消息，未插入Inbox/observation/审计 | `auto_review_source_scenario.py`只产公开tool calls，cursor取实际tool_result，compaction engine输出明确为受控模型摘要；summary是受控内容，不伪造宿主compact事件。原本missing markers时仅source-mode唯一case回退，未由正文生成source权威 |
+| 来源冻结与去重 | source驱动:246–331读取真实reviewer HTTP messages，再解JSONL；比较首次与recovered行并分别断言owner/type/part/distinct-call/live/restored/sent/held/PTC-id和原文去留 | 首次==恢复仅证明冻结，显式行断言才证明源语义；两者组合不是自制expected行预灌。compact检查旧id/正文/旧proposal缺席、新live页与summary存在；库外消息真实创建却未观察，不应泄入。没有声称覆盖全部reply/observer/admission组合 |
+| stop/cancel持久化 | retry驱动新增complete=true、terminalReason=cancelled、finalRoute=cancel、行allow不存在、总/连续计数0、跨backoff期限无新HTTP/无效果；完整approval/request导出 | 可作为真实stop边界保护；**不等同命中storage await窗口**。精确窗口仍由review-audit双gate承担，本轮27条通过；R2 closure retained |
+| 隔离与原始证据 | `running()`仍使用tmp root + e2e-up/down、独立config/DB/workspace/identity、fixture127.0.0.1随机端口；source workspace验证在栈根内；restart仅对应隔离config。raw messages/system/observation导出只应保留gitignored本地 | 没有新增产品公共日志或原始prompt提交。fixture docstring的“sanitized”不可被当成无prompt保证：新增records确有完整messages/system，按用户要求本报告不引用内容、不提交原始数据。报告命令均为本地locator/脱敏事实 |
+| native证据可选导出与失败清理 | `codex-approval-native.test.ts:87–104`新增finally中，在shutdown前await mkdir/writeFile | **WARNING R3-W1**；正常输出绿测不能证明不可写/路径错误分支，见下 |
+
+### Issues
+
+**R3-W1 / WARNING / CONFIRMED（code review P2）：opt-in证据导出错误绕过native runtime关闭。**
+
+- 位置：`packages/dsh-integration/tests/codex-approval-native.test.ts:90–94`，及L98–104。契约：AGENTS工作红线、worktree-runtime.md:19要求启动者关闭自己的进程；导出是可选观察，不应改变原测试finally的清理可靠性或覆盖原始失败。
+- 触发：`NANO_REVIEW_NATIVE_EVIDENCE`指向已存在普通文件、不可写目录，或mkdir/writeFile出现磁盘错误。L90/L92抛错会跳过client.shutdown与home删除；L98/L101抛错也会跳过home删除。实际native Agent/runtime已在try中启动，因此存在明确资源泄漏路径。
+- 独立复现（exit0）：读取冻结文件完整新增finally块，用AsyncFunction执行原块，仅注入记录调用的fake client/fs（没有运行真实子进程）；mkdir按普通文件场景抛EEXIST。断言唯一事件为`mkdir`，shutdownCalled=false、homeCleanupCalled=false。该probe只确认可执行控制流，不冒称留下过真实进程或provider超时；无需重跑90秒×3才能确认。
+- 建议交原实施者：导出包裹嵌套try/finally，保证失败时仍shutdown并清理自建home；尽量保留原始测试失败、单列导出错误。回归至少覆盖导出目标错误/写入错误，不仅成功文件导出；不需改生产或放宽timeout。
+- 这是测试设施finding，不重开已closed产品W1。没有未证实高风险条件，不需追加独立候选核验。
+
+### 独立命令与证据
+
+| 命令 / 检查 | 本轮结果 |
+|---|---|
+| `pnpm install --frozen-lockfile` | exit0，依赖锁未改 |
+| `pnpm --filter @nano/dsh-integration... build` | exit0 |
+| `pnpm exec vitest run packages/dsh-integration/tests/review-audit.test.ts packages/dsh-integration/tests/review-source-recovery.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts` | **3 files / 38 tests passed，1.12s，exit0**（27 audit / 4 source / 7 lifecycle） |
+| exact-finally控制流probe（上述R3-W1） | exit0，清理跳过已确认；未创建真实runtime |
+| Python 3.11.13 `compile(text,path,'exec')`五个改动Python文件 | exit0，无pyc输出；328/204/197/331/398行，语法通过；不是pytest或ruff结果 |
+| `git diff --exit-code afd..2f519 -- <产品src/锁>`及`3dbfac..2f519 -- integration/src` | exit0，产品树不变，R2 retained的直接版本依据 |
+
+工具环境探测时`command -v python3.11/uv/ruff`退出1（PATH未提供，系统python3是3.9.6），已使用glob定位本机稳定Python3.11.13做无写入syntax检查；未使用临时uv下载目录或系统3.9运行产品测试。没有将该环境探测失败当产品失败。
+
+本轮**未重跑**真IM context3/source12、native90s×3、stop6、contract/ruff/docs-check；作者在q-r1-recovery.md/progress记录的实际命令、wall time与本地导出为工程retained evidence，不是本轮独立结果或Q通过。原Q的宿主sleep时间关联及awake复跑是有界环境诊断输入，静态本轮不反推全部超时皆非产品问题。Q正独立并行续验，结论回父E；原Q插件负例事实归属于Q自己的产物，不再将作者另一clamp示例泛化到它。
+
+### 现场与交付限制
+
+自建前核对新绝对路径/branch不存在，新建于validated_at：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r3` / `review/feat-625-r3`；本人为owner，**保留续验**。R1/R2旧现场与原报告未动。只提交本R3 JSON和verification追加，不改产品/测试/fixture/设计；不push unit、不Inbox/conversations/taskgraph/公开消息、不派子agent、不canonical/archive/PR/merge/deploy。唯一后台install/build/tests job已结束收集，无启动IM栈，无需交接运行服务；没有创建或公开raw prompt/DB/config证据。父E请将R3-W1交原实施者修复，修后按新增导出失败影响范围复验，不因测试设施修复失效整个产品full。
