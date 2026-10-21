@@ -21,7 +21,7 @@
 - **改** 插件引用：`get_context_remaining` 已支持当前引用及分页；fallback 已附 bounded 引用，无需新增每步通知服务。
 - **改** History：已有规范化事件、来源保真、off-surface 读取、分页、长结果偏移；加原生 turn 定位，复用同一工具。
 - **用** `turn/start` / `turn/end` 的原生日志边界生成恢复导航，不推断自然语言任务完成，不另存任务状态。
-- **改** Skill 恢复：现有 references 与 `skills.get` 已受当前 scope/selection 约束；只给名称、位置与按需读取指引，不自动注入正文。
+- **改** Skill 恢复：现有 references 与 `skills.get` 已受当前 scope/selection 约束；具备 `skill` 调用能力时只给名称、位置与按需读取指引，无该能力的既有显式调用配置保留全文恢复。
 - **不用** 更大 buffer、第二次摘要或丢弃旧笔记作为修复；压力阈值及换窗时机保持。
 
 ### 相关历史
@@ -32,13 +32,13 @@ feat-627 的 Notes/History 和默认启用契约保留。其 R1 算错汇总与�
 
 之前：每步引用变化 → 整份 runtime snapshot 追加 → 已用 Skill 全文重复 → 默认 buffer 被跨过 → 全窗移出 → 仅旧 Notes 指引。
 
-之后：窗口身份只随边界变化；引用通过已有查询/保存前提示按需提供。Skill 只恢复导航。整窗移出仍由同一 compaction owner 执行，同时 checkpoint 给出当前未结束原生 turn 的精确 History 入口；Agent 据原始输入和交付证据判断继续什么。
+之后：窗口身份只随边界变化；引用通过已有查询/保存前提示按需提供。有重读能力时 Skill 只恢复导航；受限调用配置保留原有正文恢复。整窗移出仍由同一 compaction owner 执行，同时 checkpoint 给出当前未结束原生 turn 的精确 History 入口；Agent 据原始输入和交付证据判断继续什么。
 
 ## 关键决策
 
 1. **移除高频动态引用和 Notes 目录贡献，不实现另一套 context diff。** `agent-context:references` 改为仅窗口身份贡献（可重命名为 identity）；不再在每次 assemble 调用 `notes.hint()` 或拼 `referenceText()`。完整引用仍由 `get_context_remaining` 查询及 fallback 提示提供。Notes 目录只在换窗 checkpoint 展示。正常工具调用、写 Notes、读取 Skill 均不改变插件的环境 contribution。DSH 自身因真正环境变化追加快照的语义保持。
 
-2. **已用 Skill 恢复为可发现的位置索引。** 只在成功压缩后的会话提供当前仍可用的 Skill 名称与实际路径，说明正文需用 `skill` 按需重读。持续保留索引而非“assemble 后立即删掉”的一次性标记，避免下次 assemble 因 context 消失再次制造快照。对默认无摘要和显式回退统一使用该恢复规则；当前已加载的正文仍在普通历史，权限/目录选择仍由 native skills 决定。修改现有“自动全文还在”的测试，以确实能重读正文且无无请求的重复全文替代。
+2. **恢复方式同时遵守 Skill 选择与工具调用权限。** 成功压缩后，用公开 `agent.ctx.tools.get('skill', agent)` 判断该 scope 是否能调用 Skill 工具；该 API 对被 restriction 排除的全局工具返回 undefined。可调用时，提供当前仍获准 Skill 的名称、实际路径与 `skill` 重读指引，不自动注入全文。不可调用时，保留既有全文恢复，覆盖用户 `/skill:name` 显式调用但未开放 `skill/read` 的真实配置；不擅自扩大白名单，不以 History 存在为前提。两种 compaction 模式使用同一规则，Skill 禁用/选择仍由 `skills.get` 过滤。贡献持续稳定存在，避免“assemble 后立即删掉”造成下一步 context 再变化；第1项使全文分支也不因引用或 Notes 变化反复追加。保留原测试的 `['workflow'] + /skill:retained` 输入，并增加具备 `skill` 重读能力的组合，分别检查压缩、重启和显式回退。
 
 3. **用不可歧义的原生 turn 边界定位已读任务，不做语义任务提取。** HistoryItem 增加 `turn_id: string | null`，值为该事件所属 `turn/start.seq` 的字符串，限定当前执行 session；不能用容易混淆父子 session 的全局 turn number。`history list_items/search` 增加 `turn_id` 精确过滤，跨多个 window 仍属于同一 turn。窗口/item/source/工具调用结果语义保持。不存在的 turn 返回空页，非法类型仍按工具 schema 校验；所有读仍只针对归档项。
 
@@ -63,7 +63,7 @@ feat-627 的 Notes/History 和默认启用契约保留。其 R1 算错汇总与�
 
 ## 风险与回退
 
-Skill 全文不再自动重放，必须验证 Agent 真正会按需读取正确 Skill，并保留禁用、fork 与显式回退约束。导航只是定位，不是已恢复正文或已完成任务的证据。大工具结果仍可能越过保存区间，因此必须在该情况也通过原始历史恢复；不承诺永不压力换窗。控制信息有界且不保留对话尾部。若更新不健康，可用现有 workspace 开关恢复摘要引擎或回退固定包，保存 Notes/History；不清空生产状态。
+具备 `skill` 能力时不再自动重放正文，必须验证 Agent 真正会按需读取正确 Skill；无重读工具的既有配置保留正文恢复，验证不扩权且无逐步增长。保留禁用、fork 与显式回退约束。导航只是定位，不是已恢复正文或已完成任务的证据。大工具结果仍可能越过保存区间，因此必须在该情况也通过原始历史恢复；不承诺永不压力换窗。控制信息有界且不保留对话尾部。若更新不健康，可用现有 workspace 开关恢复摘要引擎或回退固定包，保存 Notes/History；不清空生产状态。
 
 ## Runbook for Reviewer
 
@@ -82,7 +82,7 @@ Skill 全文不再自动重放，必须验证 Agent 真正会按需读取正确 
 1. **主故障 PA**：先完成旧事项并保存“已完成” Notes；新消息要求读取合成日记并列 todo，实际 Inbox read 后、未保存新 Notes 前强制换窗；检查 History 真实恢复最新输入与日记事实，结果完整且只投递一次。请求/原生事件证明压力触发、恢复及最终交付。
 2. **导航成本**：使用七个合成 Skill（总正文至少52,400字符）后经历换窗；普通工具与 Notes 操作不少于六步。统计请求中各 Skill sentinel 次数和 runtime snapshot 贡献，证明没有每步追加未变化 Skill/Memory 正文；确实需要的 Skill 可通过原生入口重新读取。
 3. **直接输入及多窗**：普通 Agent 的当前 turn 强制/主动换窗并用 turn_id 跨窗读原始直接输入与工具结果；至少两个有内容窗口。通过原生 integration + 真模型结果覆盖，不能仅断言 tool 名存在。
-4. **恢复与边界**：隔离 Node 正常重启后 checkpoint/History 可读；显式 off/on 继续工作；既有来源、tool pairing、会话隔离、Auto off/空业务 allowlist 保留。复用未变路径的有效证据，变化的 Skill 和 turn filtering 需新测试。
+4. **恢复与边界**：隔离 Node 正常重启后 checkpoint/History 可读；显式 off/on 继续工作；既有来源、tool pairing、会话隔离、Auto off/空业务 allowlist 保留。复用未变路径的有效证据，变化的 Skill 和 turn filtering 需新测试。Skill 回归必须包含 `['workflow'] + /skill:name` 与允许 `skill` 两种调用能力，交叉覆盖插件启用/显式停用；前者不临时增加 `skill/read`，验证正文仍可用、业务 schema 仍受限且普通进展不反复追加；后者验证真实工具读取正文。
 
 ## Milestones
 

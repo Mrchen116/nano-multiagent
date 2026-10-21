@@ -72,3 +72,8 @@
 ### 本轮边界
 
 本轮只创建此报告；未修改受审文档、实现、配置或其他 dirty/untracked 内容，未建分支、提交或启动服务。结论是设计审查结论，不是修复完成、真实任务恢复成功或生产部署证明。
+
+### Author Resolutions (R1)
+
+- **R1-W1 accepted**：已核对 DSH tools public `get(name, scope)` 返回 restricted-aware visible definition，以及 Nano 显式 `/skill:name` 不依赖业务 tool allowlist。设计关键决策2改为按该 scope 的 `skill` 能力选择索引或保留既有正文恢复；无能力分支不靠 History、不增权限，启用/回退均成立。Runbook矩阵保留原 `['workflow']` 配置并新增允许 `skill` 的分支；普通步骤无重复由取消高频引用 contribution 保证。更新现状、总览、风险段保持一致。delta仍只要求能恢复及无每步重复，不要求全局移除自动正文，故无需改变产品契约条目。
+- 其他结论采纳；未新增任务数据库、分类器或DSH修改。R1报告保留，修订需独立闭环后才实施。
