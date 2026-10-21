@@ -160,3 +160,39 @@ R4-1：major，关系为**已知持续任务恢复风险/非本轮新增裁剪�
 - PA实际provider目录 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-10-21_17-40-36_556_b4e6877b-1e6c-4f64-b878-2b41e964a3d7/`；普通Agent目录 `2026-10-21_17-41-14_591_d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/`。
 - 最后只读确认PA turn3 seq261 completed，普通Agent turn5 seq133 completed。Node1407运行，`.gateway.pid`同步；两workspace的上下文插件enabled，普通Agent保留workflow-only。所有Notes、History、数据库和资料保留；reviewer不再发测试请求，操作权归还caller统一清理。
 - 只追加此报告。未改源码、设计、生产或测试；未push、创建PR或部署。上层契约归并和残余限制说明由caller按R4明确范围维护。
+
+---
+
+## Round R5 — Notes hint 格式对齐后的 R4-1 单轮复验
+
+> 受验 Nano `418dd4bfb36cf6ecd81e25dc6f3ba225d2f4729e`，插件 `823a202` / `0.3.0-rc.5`。沿用原R4 runtime、普通Agent `e2e` / chat `c_5ppvr208` / session `d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd`；原有checkpoint/references/on-checkpoint保留。未人为改Notes、未改模型/权限、未加入恢复协议或选择提示。
+
+### Verdict：FAIL（R4-1 未关闭）
+
+**Notes hint 新格式与新旧排序实际生效；当前任务恢复仍失败。** reviewer从R4产品时间线取原任务，发送前逐字比较相等，仅重放一次。用户新消息 `3de51209bbd548b3a5498805ad439e15` 没有额外说明排序或提醒该读哪一份；本轮没有补救、重试或扩大实验。R4同25资料裁剪PASS保持原有范围，不重复测试、不受本轮失败改写。
+
+| 链路 | 原始事实 |
+|---|---|
+| 保存当前状态 | seq142 notes.write on-checkpoint，正文“开启验证已完成，换窗后只回复开启验证完成，不读取History或其他笔记。”；成功结果143。 |
+| 实际换窗 | new_context147，compaction/start150、summary151、end153。 |
+| 首个postreset真实提示 | provider `2026-10-21_18-02-07_543-req-anthropic_messages.json` 确实包含下列body-free提示，on-checkpoint排首位；没有旧正文、nano-used-skills、interrupted_turn、turn_id或规则标记自动注入。 |
+| 首次Notes读取 | seq157读取 **checkpoint**，而不是刚写入的on-checkpoint；结果158返回旧环境准备状态。 |
+| 最终交付 | `778082a4d04c4b1e85a6d544444cc270` completed：“环境准备完成，等待下一条新任务。”预期是“开启验证完成”；turn/end164 completed。 |
+
+实际进入模型的提示原文：
+
+```text
+Recent notes (up to 5, most-recent first):
+- on-checkpoint (1 lines, 97 UTF-8 bytes)
+- references (1 lines, 520 UTF-8 bytes)
+- checkpoint (1 lines, 127 UTF-8 bytes)
+```
+
+提示只含相对路径、行数、UTF-8大小，没有Notes正文。它足以证明R5格式接线成功，但不能证明模型选择成功。**R4-1继续保持major任务交付失败；没有观察到该格式改动关闭旧笔记选择风险。** 此单轮不评价其他同类静态适配问题，不把31项实现测试等同于真实用户任务通过。
+
+### 证据与运行环境交接
+
+- `/tmp/bugfix629-r5-e2e/task.txt`：逐字匹配R4原任务；`message-id`、`timeline.json`、`native-events.json`：本轮完整产品与原生证据。
+- 首postreset请求定位保存在 `first-postreset-request-path.txt`；原路径 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-10-21_17-41-14_591_d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/2026-10-21_18-02-07_543-req-anthropic_messages.json`。
+- 原生日志仍在 `/tmp/bugfix629-r4-runtime/.dsh-runtime/**/sessions/**/d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/session.v4.jsonl.zstd`。本轮已结束，无reviewer新请求在途。
+- Node状态文件PID **4684**；reviewer未启停服务，IM保留运行。runtime `/tmp/bugfix629-r4-runtime` 的独占操作权交回caller清理；不新增实验。只提交本报告，不push、不改实现或设计。
