@@ -4,13 +4,33 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
-it.each(['interrupted','user','completed','consumed'])('recovers a cold Inbox wake only for unread interrupted work (%s)',async kind=>{
+it.each([true,false])('reconciles a cold uncertain publication by status without resending (found=%s)',async found=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ inbox.preparePublication('main:call','c','already reviewed reply');inbox.settlePublication('main:call','sending');
+ const requests:string[]=[];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+  relay:{request:async(type,payload)=>{requests.push(type);return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'original',conversation_id:'c'}:{}};}},image:async()=>'',onError:e=>{throw e;}});
+ try{
+  await product.recover();await product.recover();
+  expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
+  expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
+  expect(requests).not.toContain('agent.message');
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toHaveLength(found?1:0);
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
+it.each(['interrupted','user','completed','consumed','partially-consumed'])('recovers a cold Inbox wake only for unread interrupted work (%s)',async kind=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
  const input:RelayInput={agent_id:'a',conversation_id:'c',relay_task_id:'r',idempotency_key:'k',metadata:{conversation_type:'direct'},message:{id:'m',content:'do work',sender_type:'user',sender_user_id:'owner',attachments:[]}};
- inbox.acceptRelay(input,true);inbox.admitWake('a',1);
+ inbox.acceptRelay(input,true);
+ if(kind==='partially-consumed')inbox.acceptRelay({...input,conversation_id:'b',relay_task_id:'r2',idempotency_key:'k2',message:{...input.message,id:'m2'}},true);
+ const boundary=kind==='partially-consumed'?2:1,base=`inbox-wake:a:${boundary}`,recover=kind==='interrupted'||kind==='partially-consumed';inbox.admitWake('a',boundary);
+ if(kind==='partially-consumed'){const page=inbox.read('a','main','read-b',{target:'b'});inbox.commitRead('main','read-b',[{type:'text',text:JSON.stringify(page)}],false,1);}
  if(kind==='consumed'){const page=inbox.read('a','main','read',{target:'c'});inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(page)}],false,1);}
- const submitted:string[]=[],evidence=new Map<string,any>([['inbox-wake:a:1',{accepted:true,acceptedSeq:10,terminal:{kind:kind==='consumed'?'interrupted':kind}}]]);
+ const submitted:string[]=[],evidence=new Map<string,any>([[base,{accepted:true,acceptedSeq:10,terminal:{kind:recover||kind==='consumed'?'interrupted':kind}}]]);
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
@@ -19,11 +39,11 @@ it.each(['interrupted','user','completed','consumed'])('recovers a cold Inbox wa
   }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
  try {
   await product.recover();await product.recover();
-  expect(submitted).toEqual(kind==='interrupted'?['inbox-wake:a:1:recovery:10']:[]);
-  if(kind==='interrupted'){
+  expect(submitted).toEqual(recover?[`${base}:recovery:10`]:[]);
+  if(recover){
    evidence.set(submitted[0]!,{accepted:true,acceptedSeq:21,terminal:{kind:'interrupted'}});
    await product.recover();await product.recover();
-   expect(submitted).toEqual(['inbox-wake:a:1:recovery:10','inbox-wake:a:1:recovery:21']);
+   expect(submitted).toEqual([`${base}:recovery:10`,`${base}:recovery:21`]);
   }
  }finally{await product.stop();inbox.close();store.close();}
 });

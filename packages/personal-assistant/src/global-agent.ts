@@ -203,7 +203,8 @@ export class GlobalAgent {
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
-    const watermark=this.options.inbox.unreadAttention(config.agentId);if(watermark===undefined)return;
+    if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
+    const watermark=Math.max(this.options.inbox.watermark(config.agentId),this.options.inbox.admittedWake(config.agentId));
     const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
     for(;;) {
       const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
@@ -287,7 +288,7 @@ export class GlobalAgent {
       try {
         for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
         if(config.personal)await this.restorePersonalInputs(config);
-        const binding=await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
+        const binding=await this.main(config);await this.recoverPublications(binding);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
       } catch(error) {this.scheduleRecovery();this.options.onError(error);}
     }));
     await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();
@@ -490,14 +491,7 @@ export class GlobalAgent {
     if (interactive && config?.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
     const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
-    const confirm = (payload:Record<string,unknown>) => {
-      const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
-      inbox.settlePublication(call.operationId,'confirmed',result);
-      const turn=store.events(call.sessionId).find(event=>event.type==='tool/call' && event.data.callId===call.callId)?.data.turn as number|undefined;
-      if(interactive && !global && turn!==undefined)store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
-      if(global)this.append(binding,`publication:${call.operationId}`,'message_sent',{call_id:call.callId,text,...result},turn);
-      return result;
-    };
+    const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,!!interactive,payload);
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
@@ -569,6 +563,24 @@ export class GlobalAgent {
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
       throw error;
+    }
+  }
+  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,interactive:boolean,payload:Record<string,unknown>) {
+    const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
+    this.options.inbox.settlePublication(call.operationId,'confirmed',result);
+    const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
+    const turn=this.options.store.events(call.sessionId).find(event=>event.type==='tool/call'&&event.data.callId===call.callId)?.data.turn as number|undefined;
+    if(interactive&&!global&&turn!==undefined)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+    if(global)this.append(binding,`publication:${call.operationId}`,'message_sent',{call_id:call.callId,text,...result},turn);
+    return result;
+  }
+  private async recoverPublications(binding: SessionBinding): Promise<void> {
+    for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
+      const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
+      if(status.payload.found!==true)continue;
+      let text=publication.body,interactive=false;
+      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;interactive=true;}}catch{ /* Plain text publications need no envelope. */ }
+      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,interactive,status.payload);
     }
   }
   private reconcile(binding: SessionBinding): Promise<void> {

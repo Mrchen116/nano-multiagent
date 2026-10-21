@@ -193,9 +193,11 @@ export class InboxStore {
   watermark(agent: string): number { return Number((this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1').get(agent) as { seq: number }).seq); }
   /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
   unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
+  /** Preserve the actual notification boundary even after some of its inputs were consumed or revoked. */
+  admittedWake(agent: string): number { return (this.db.prepare('SELECT watermark FROM wakes WHERE agent_id=?').get(agent) as {watermark:number}|undefined)?.watermark??0; }
   wakePending(agent: string): number | undefined {
     const latest = this.watermark(agent);
-    const admitted = (this.db.prepare('SELECT watermark FROM wakes WHERE agent_id=?').get(agent) as { watermark: number } | undefined)?.watermark ?? 0;
+    const admitted = this.admittedWake(agent);
     return latest > admitted ? latest : undefined;
   }
   admitWake(agent: string, watermark: number): void { this.db.prepare('INSERT INTO wakes VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET watermark=max(watermark,excluded.watermark)').run(agent, watermark); }
@@ -346,6 +348,8 @@ export class InboxStore {
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }
   publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
+  /** Read uncertain sends owned by this execution session without replaying them. */
+  pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
   preparePublication(id: string, target: string, body: string): void { this.db.prepare("INSERT OR IGNORE INTO publications VALUES(?,?,?,'prepared',NULL)").run(id, target, body); }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
   close(): void { this.db.close(); }
