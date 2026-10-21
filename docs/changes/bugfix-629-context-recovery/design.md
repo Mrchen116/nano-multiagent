@@ -2,6 +2,8 @@
 
 ## Changelog
 
+- 2026-10-21（R5）：用户明确要求 Notes 提示格式对齐 Codex。仅调整现有 hint 展示为 `Recent notes (up to 5, most-recent first):` 和 `- <path> (<lines> lines, <bytes> UTF-8 bytes)`；保留当前会话相对路径、按修改时间倒序、最多五项、4000-byte 上限、仅换窗时展示及不注入正文。无恢复协议、当前任务指针、角色调整或自动文件选择。属于既有 Notes 导航的格式校正；R4 架构/Gate 2 保留，独立静态审查核对该增量，产品复验 R4-1。
+
 - 2026-10-21（R4）：用户确认复用 DSH 原生压力裁剪，并以同一批 25 份资料复验。R3 真实失败仍保留；新增接回被自定义 owner 绕开的 `toolResultPruner`，不新增总量控制器或恢复提示。
 
 - 2026-10-21：用户明确确认新模式只重建可用 Skill 目录、旧正文按需读取；要求删除额外已用 Skill 恢复与候选版 interrupted_turn，按原有 Notes/History 复验事故。R2 全文回退与当前 turn 导航设计因此失效，本轮重新执行 Gate 2。既有 rc.2 证据保留为候选基线，不代表新方案通过。
