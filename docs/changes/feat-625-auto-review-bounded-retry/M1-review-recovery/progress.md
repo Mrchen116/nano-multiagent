@@ -192,3 +192,12 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 窄扩大命令`pnpm exec vitest run packages/dsh-integration/tests/{native-review-evidence,codex-approval-lifecycle,review-audit}.test.ts`：**3files47tests/1.77s/exit0**；`pytest tests/contract -q`：**28passed/4.36s/exit0**。原报告与来源commit逐字diff exit0；stage后`docs-check` **252篇/67routes/exit0**、`git diff --cached --check` exit0，产品源码相对2f519的精确path diff exit0。本轮未起native/IM长驻进程，所有job已收集，无服务待清理；workspace Skill另补可复用的可选导出失败清理配方。
 - 未改产品源码/权限/预算/timeout/策略/原native业务断言；本轮不重跑全部真IM或90s×3。`2f519`的新context3/source12/原矩阵6、native7files47和旧产品W1 closure按原版本retained，不写成本轮重新执行；Q已自行隔离续验，本执行者未读写其现场/消息/任务图。
 - 父E以新冻结HEAD交原R3 reviewer做patch+closure / targeted verification；`fix_delta_range=2f519f659b114003d35f2fcc2305469f6e40962c..validated_at`（含报告整合），实质设施patch从`3ba1e3539`起，仅native测试+tests helper/新错误路径测试与本节证据。原`executed_base=861b94129bc8c5aadbca76967268fd203fe04112`保留，无final-sync/effective-through外推。未push/PR/canonical/archive/merge/deploy。
+
+## Final sync：同链路main变化，暂停收尾门禁交接
+
+- 父E收到两个独立结果后续派：Q R2 PASS实际2f519、静态R4 targeted closure PASS实际89f2。先在clean现场依次整合Q报告7dc58→59acee、R4报告8fcc6→6df263，仅三份报告+184行，原报告逐字及Q/89f2产品树等价均git diff exit0。历史R1/R3 FAIL保留，不用报告整合SHA冒充实际执行版本。
+- fetch实际最新main=`18e1af8b1cd0834ae3f22f5780f2d50b740f5171`，相对原861增量134files/+8302/-319；含默认context bundle rc.5/pressure pruning/四工具Auto-off内部放行，以及durable Inbox/发送确认/权限身份/Work隔离，均触及本unit真实入口。不能自动retained全Q PASS或原静态范围。
+- merge完成于`f586ff4500e6b522ed470cd4718037889ecd7442`。唯一文本冲突是approval相邻import，保留ReviewRecovery与contextTools；最终该文件相对6df263仅main原3行增量。继承main archive空行曾使全cached diff-check exit2，确认与main逐字相同未改他人归档，本unit相对新main检查另做。
+- 未canonical/archive/Ready PR。实际校正delta，补完整阶段预算、W1终态与审计失败边界、CC context分流及Codex完整恢复/admission/parser条目，18个投影场景逐项给实现/测试映射。校正不改设计/首文档，不用旧verifier声称新delta已独立审过。
+- [final-sync中性交接](final-sync-handoff.md)提供固定版本、main增量、每闸retained/失效矩阵、原static patch/integration + corrected-delta与Q targeted输入、当前CI等价清单。原executed_base/validated不改；新复验executed_base=18e1af8b1，整体effective_through尚未建立，等独立范围闭环。
+- 准备性验证：pnpm frozen install、integration依赖build/typecheck均exit0；集成代码树9files73tests/29.31s/exit0，含新main默认context/旧error helper等。不是新Q真IM或完整CI，后台job121/123均收集。当前等待父E调度必要独立integration/corrected-delta，不因图权限停止已有授权工程，也不绕过该独立门禁提前归并。
