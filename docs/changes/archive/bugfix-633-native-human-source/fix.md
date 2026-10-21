@@ -51,4 +51,13 @@ refactor-581 原意是使用未修改 DSH 的原生 loop、工具与 Skill，保
 - PA `source-provenance/global-agent/store`：62 项通过。
 - `pnpm build`、`pnpm typecheck` 通过；Python 非 E2E 62 passed / 31 deselected；ruff check/format 和 docs-check 通过。
 
-证据边界：使用真实原生 runtime、文件工具与持久化，模型输出由确定性 fixture 提供；没有声称真模型、Web/飞书/实体客户端或生产验收。独立 code review、最终 CI 与归档结果在交付前补记。
+证据边界：使用真实原生 runtime、文件工具与持久化，模型输出由确定性 fixture 提供；没有声称真模型、Web/飞书/实体客户端或生产验收。最终门禁与归档记录如下。
+
+
+### 最终同步与交付门禁
+
+- 最终同步到 `a782cdd3f9f19fa40da6e836857107ca21681825`（feat-630）；本 unit 的产品/测试 delta 保持不变。独立 [code review](code-review.md) 两轮均为 `[]`，R2 实际核对 `02308ad8e7766fe4eb9db19e4f93811921a7d6db`；其中 DSH 证据复用 R1，PA/producer/Work 持久化链路已按新基线独立复核。
+- 新基线 `pnpm build` / `pnpm typecheck` 通过。完整后端 `pnpm test --maxWorkers=4`：116 files / 544 tests passed（141.40s）。首次默认并发全套有两项仅超时（model-policy、workspace-tools）；两文件单 worker 重跑 6 tests passed，再全套受控并发通过，未调超时、未改断言。
+- 新基线前端：102 files / 949 tests passed，production build 通过；Python 非 E2E 62 passed / 31 deselected；ruff check、ruff format 与 docs-check 通过。
+- 本 lite delta 的完整 Requirement 已直接归并至 `docs/specs/gateway/agent-capabilities.md`，入口计数同步为 37。R2 后只新增 canonical 文档、审查记录和本 unit 归档，产品及测试没有变化；code review 结论保持有效。最终 `effective_base` 为上述新 main，`effective_through` 的最终 SHA 在 PR 交付字段中记录。
+- main 既有 dirty/untracked 状态保持，未合并 PR、未部署或重启生产服务。仅运行隔离的原生测试进程；测试临时 runtime 与一次性 baseline snapshot 均清理。
