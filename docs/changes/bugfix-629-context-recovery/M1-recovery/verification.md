@@ -1,6 +1,6 @@
 # Verification Report: bugfix-629-context-recovery
 
-> Latest conclusion: **Round 4 below reviews the native-pruner delta**. R3 original-incident acceptance is FAIL and remains recorded; R4 product acceptance is pending. Earlier static passes do not establish product success. No Ready-for-PR, canonical merge or completed-unit conclusion is issued.
+> Latest conclusion: **Round 5 below reviews only the Notes hint format**. The R4 same-25-document pruning scenario passed, while R3 original recovery and R4-1 explicit-reset task recovery remain FAIL. R5's real R4-1 recheck is not yet passed. Earlier static passes do not establish product success. No Ready-for-PR, canonical merge or completed-unit conclusion is issued.
 
 > Interim validation snapshot: Nano `164352839cd8717748d4621a5d731780beb44b7e → 2ee87df7becb22f5d2576c192dbbee3018a3a07f`; plugin `621278d → 51eb236`.
 > Scope: `full` implementation/spec/design review plus `corrected-delta`. Review round: 1. Product evidence and final immutable package handoff remain pending.
@@ -83,7 +83,7 @@ None. No speculative edge-case or style changes requested.
 
 ## Corrected Delta Reconciliation
 
-Current reconciliation: approved R4 design/delta at Nano `06c7aec52d759c45dd9db82bfef0a2a052b47b6e`, plugin `ce7d551ef90811191fb190a99f04ba74e961e14c`. Recheck scope is the R3 → R4 native-pruning delta; other valid evidence is retained.
+Current reconciliation: R5 format-only design correction retains approved R4 architecture/delta. Plugin `823a2029d216cc5e128a76976abc7b0c84df4690`; Nano `418dd4bfb36cf6ecd81e25dc6f3ba225d2f4729e`, product source unchanged. R4 pruning reconciliation remains valid; R5 adds the Notes format row only.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -91,12 +91,13 @@ Current reconciliation: approved R4 design/delta at Nano `06c7aec52d759c45dd9db8
 | `agent-capabilities.md:13-18` consumed task plus batch tool-result pressure | Plugin `src/index.ts:139-151,225-231,279,346-348`: public pruner before pressure decision, same budget remeasurement, existing overflow reset afterward | R4 published-pruner integration: batch avoids reset and retains task; unprunable content still resets; public pressure/overflow/explicit behavior covered | aligned at native request seam; same-25-volume real delivery pending |
 | `agent-capabilities.md:20-23` original detail and honest gap | Existing History reads originals removed from active surface by native prune; native replacements preserve source links and visible prune marker | Prior complete arguments/result/Unicode pagination tests retained; R4 original results retained and replayed | aligned; correct interpretation of truncated preview remains product validation |
 | `agent-capabilities.md:25-31` native Skill catalog, no old body/index, restricted History, old-mode behavior | R3 Nano hook and native catalog/source paths unchanged | Retain R3 installed 5-test matrix, real seven-Skill catalog/no-growth/one-Skill re-read, workflow-only real History/source recovery from `regression.md:80-91` | aligned for retained coverage; unexecuted real Node restart/off-on not upgraded to pass |
+| R5 Notes hint presentation, no additional product contract | Plugin `src/notes.ts:231-244` changes existing body-free hint to fixed header and path/line/UTF-8-byte entries; original scope/order/bound unchanged | One exact-format effective red then green; final plugin 31 tests | aligned; no spec delta needed for a new recovery mechanism because none was added |
 
 ### Uncovered Observable Behavior
 
 No uncovered new observable behavior found in the R4 delta. Pruning-at-W, remeasurement before H, original record retention, no unnecessary reset when pressure is removed, existing reset when still above H, and absence of new task hints are explicit in the corrected batch-pressure scenario and design decision 6. Public pressure and overflow wiring are included in the same approved mechanism; explicit reset and no-service behavior are intentionally retained. R3 Skill and protocol-removal behavior is unchanged.
 
-Outcome: **aligned** for the inspected R4 delta/implementation. R4 overall verification is pending on its product exit criterion. R3 V1 is actual FAIL, not pending or passed; R4 preventing one avoidable reset will not prove recovery after every unprunable hard reset. `requires_full_verification: false`: targeted delta review suffices; unchanged valid evidence is retained.
+Outcome: **aligned** for inspected R4 delta and R5 format-only implementation. R4's limited pruning scenario is now accepted by its independent product report. R3 V1 and R4-1 are actual FAIL, not silently superseded by the format change; R5 product recheck remains open. `requires_full_verification: false`: targeted delta review suffices; unchanged valid evidence is retained.
 
 Report ownership: caller will commit this report in the shared unit branch. No review service/process was started; nothing requires cleanup. Await supplementary evidence through the caller; do not poll product execution.
 
@@ -225,3 +226,53 @@ Product report commit `3cddf7e18` closes R4 V1 as **PASS for native pruning of t
 The separate on-after-off task **FAILS** after explicit new_context: it writes a new on-checkpoint, then reads an older checkpoint and delivers the old task status. See regression.md R4-1. This is not evidence of a native-pruning regression, but it blocks declaring the original broad current-task recovery requirement fixed. No additional recovery protocol is introduced without a newly agreed design.
 
 Accordingly the full unit remains active: no canonical-spec merge, archive, Ready PR, merge or production deployment. The scoped code and passing pressure result are preserved for review, and the residual failure is reported to the user. This disposition supersedes any earlier pending-product status; it does not alter the independent code-review verdict.
+
+## Round 5 — Notes hint format and bounded adaptation check
+
+### Metadata and verdict
+
+- `review_mode`: patch, plugin `ce7d551ef90811191fb190a99f04ba74e961e14c → 823a2029d216cc5e128a76976abc7b0c84df4690`; local `src/notes.ts`, existing Notes test, package version only. Nano `0d0d78d97ced7e18976c1964c05aa0a5f8b4fe1e → 418dd4bfb36cf6ecd81e25dc6f3ba225d2f4729e`, rc.5 exact dependency/lock and format explanation; product source unchanged.
+- `verification_mode`: targeted delta; format correction described in `design.md` R5 Changelog, retaining R4 Gate 2 architecture.
+- Reference: local Codex clean HEAD `464add49587a7cb6032d5ab04faa8a1585947853`, specifically `codex-rs/ext/history-notes/tests/history_notes_extension.rs:48` and `src/extension.rs:115-170`.
+- Reviewer changed this verification report only. No source/design/test edit, runtime control, new product input or repeated full suite.
+
+**R5 code-review findings: plugin `[]`; Nano dependency delta `[]` (product source unchanged). Format implementation: aligned. New adaptation omissions confirmed by the bounded check: none. R4-1 product result remains FAIL until the independent new run proves otherwise.**
+
+### Format correctness and evidence
+
+| Requirement | Actual evidence | Result |
+|---|---|---|
+| Fixed Codex sample header and metadata layout | `notes.ts:232,236`: `Recent notes (up to 5, most-recent first):` and `- <path> (<lines> lines, <bytes> UTF-8 bytes)`; exact fixed Codex `THREAD_HINT` sample has the same header/entry metadata | aligned in presentation; session-relative paths intentionally retained |
+| Correct local counts and order | `listings()` still sorts mtime descending, path as stable tie-break. `hint()` reads text for its local newline-split line count and uses actual stat UTF-8 byte size. Test uses two distinct mtimes and Unicode `新状态\ncontinue` = 2 lines / 18 UTF-8 bytes | covered; no guessed backend line-count algorithm claimed |
+| Existing scope and bounded body-free navigation | Still takes first five current-session entries, tests candidate total with `Buffer.byteLength` <=4000, returns empty for no notes, emits no file body. Existing write/read isolation and limit code unchanged | aligned; no automatic file selection/current-task pointer or new recovery instruction |
+| Hint timing and provenance | `perform` still obtains hint at window construction; checkpoint text includes it with existing runtime/window guidance; ordinary assembly does not call hint | unchanged; no per-step dynamic-context regression or role/source rewrite |
+
+- `/tmp/bugfix629-r5-notes-red.log`: one exact-format assertion failed effectively against `<recent_notes>` path-only output; four existing Notes tests passed.
+- `/tmp/bugfix629-r5-notes-green.log`: all 5 Notes tests passed after the format correction.
+- `/tmp/bugfix629-r5-plugin-tests.log`: 9 files / 31 tests passed; `/tmp/bugfix629-r5-plugin-typecheck.log` and `...-build.log` passed. Existing warning about the parent tsconfig path did not prevent those successful gates.
+- Final rc.5 `/tmp/bugfix629-r5-installed-tests.log`: 2 files / 10 tests passed (`agent-context-default` and `model-policy`), exit 0 confirmed by caller. No duplicated 484-test run; unchanged R4 broad evidence retained.
+- Final dependency artifact: release `/tmp/bugfix629-release-verify-rc5/dsh-agent-context-0.3.0-rc.5.tgz` SHA256 independently verified as `25ddf026b251bcebefdfba294607ce518a47ca155de769bdd413b2ee739b8ea7`; computed SHA512 equals final lock, installed manifest is rc.5, all 27 installed lib files equal release bytes and `lib/notes.js` contains the new header. Caller separately compared published download with the pack byte-for-byte.
+- `/tmp/bugfix629-r5-install.log` frozen install passed; `/tmp/bugfix629-r5-nano-build.log` full build passed. Build metadata records pre-pin `0d0d78d97`; the final `418dd4bfb` difference only pins the already-built package/lock and format record, with no Nano source delta. Do not represent that metadata as an installed production release.
+- Full-suite evidence is reused without rerun. It verifies local rendering and existing native mechanics, not selection of the correct note after a real reset.
+
+Codex's fixture is a supplied `thread_hint` backend response, not the implementation of the backend's selection/counting algorithm. Its extension checks response text and the 4000-byte cap and emits a tool-attributed context fragment. R5 matches the visible sample shape only. It does not establish 100% server behavior equivalence, created-vs-updated backend selection semantics, or special trailing-newline/empty-file counting rules unknown from that reference.
+
+### Separately listed new findings from the bounded recovery-chain check
+
+**Confirmed new findings: `[]`.** Checked adjacent Notes/History guidance, current tool schemas and execution dispatch, hint order/bound, reference guidance and checkpoint/source plumbing. No additional patch is requested on the available direct evidence.
+
+| Inspected area | Assessment |
+|---|---|
+| Tool names/parameters in guidance | Guidance names merged `notes`/`history`, action `list_items`/`search`/`read`, `new_context`, `get_context_remaining`; these resolve to actual current dispatch. Returned History window/item IDs and pagination cursors feed the declared corresponding fields. `offset_chars`/`limit_chars`, Notes `start_line`/`end_line` and Unicode continuation fields map to their actual implementations. No stale upstream names were found in current guidance |
+| Notes and History ordering | Hint/list use local modified-time descending; History uses session seq in requested direction with exact directional cursor. This matches current local semantics. Upstream customizable file ordering and absolute Agent path navigation are not promised by this plugin |
+| Isolation and merged tools | Session-relative note paths, current-session archived-only History, immediate local consistency, combined action tools and bounded parameter ranges are explicit DSH adaptations. They differ from Codex's separate backend tools/cross-Agent paths and eventual consistency deliberately; absence of those upstream capabilities is not a newly found omission |
+| References | Guidance explicitly requests current references via `get_context_remaining` and uses attached fallback references. It no longer promises that a new runtime snapshot supplies references every step. This is the retained fix for DSH cumulative environment snapshots |
+| Source and role | Codex tool-attributed context-hint fragment versus DSH user-role compact-checkpoint is a known structural runtime adaptation. Current DSH checkpoint remains native `compact-checkpoint`, while recovered History retains original source/role. No basis to reclassify it as human authorization, introduce developer messages, or manufacture a tool result |
+| Unknown backend details | No backend implementation for hint selection/counting is available in the reference. A difference not established by source or current local contract is not reported as a defect |
+
+### Remaining handoff
+
+- R4 native-pruning and its accepted same-25-document result remain valid, as do independent restart/original History/source, old summary and Skill lifecycle mechanism observations.
+- R3 broad forced-reset task loss and R4-1 wrong-note task completion remain actual failures. The new format has no new task hint, task state or selection policy, so a static pass cannot close them. R4-1 recheck on rc.5 must be recorded by the independent product reviewer; no outcome is predicted here.
+- Final rc.5 immutable package/lock/install/build and installed 10-test handoff is closed on Nano `418dd4bfb` and plugin `823a202`; no PR CI or production claim.
+- `requires_full_verification: false` for this format-only revision. No canonical merge, archive, Ready PR, merge or production change follows from this report.
