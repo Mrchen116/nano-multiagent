@@ -284,14 +284,17 @@ export class GlobalAgent {
   private async recoverAll(): Promise<void> {
     this.waitingForIdle.clear(); this.authorities.clear();
     const receipts=this.drainReceipts();
+    const publications=Promise.all(this.options.store.bindings().filter(binding=>this.options.agents.some(agent=>agent.agentId===binding.agentId&&!agent.personal)).map(async binding=>{
+      try{await this.recoverPublications(binding);}catch(error){this.scheduleRecovery();this.options.onError(error);}
+    }));
     await Promise.all(this.options.agents.filter(agent=>agent.mode==='global').map(async config=>{
       try {
         for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
         if(config.personal)await this.restorePersonalInputs(config);
-        const binding=await this.main(config);await this.recoverPublications(binding);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
+        const binding=await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
       } catch(error) {this.scheduleRecovery();this.options.onError(error);}
     }));
-    await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();
+    await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
   }
   /** Consume persisted source events without changing the owner's read receipts. */
   recoverPersonalObservations(): Promise<void> {

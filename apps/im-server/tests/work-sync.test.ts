@@ -48,6 +48,16 @@ test('an offline machine reads its durable journal with runtime credentials, wit
   expect((await f.request('GET', prefix, undefined, 'wrong-token')).statusCode).toBe(401);
   expect((await f.request('GET', '/im/v1/conversations')).statusCode).toBe(401);
 });
+test('advancing a cursor never rewrites previously committed hash receipts',async()=>{
+ const f=await fixture();await f.request('POST',`${prefix}/events`,{from_seq:1,events:[event(1)]});
+ const original=f.db.prepare('SELECT * FROM work_sync_uploads LIMIT 1').get() as any;
+ const insert=f.db.prepare('INSERT INTO work_sync_uploads VALUES(?,?,?,?,?,?,?,?,?,?,?,1)');
+ f.db.exec('BEGIN');for(let i=0;i<1000;i++)insert.run(`retained-${i}`,original.owner_id,original.node_id,original.node_epoch,original.journal_id,1,`retained-${i}`,original.sha256,original.total_bytes,original.total_parts,original.updated_at);f.db.exec('COMMIT');
+ const changes=()=>Number((f.db.prepare('SELECT total_changes() n').get() as {n:number}).n),before=changes();
+ f.db.prepare('UPDATE agent_work_journals SET through_seq=through_seq WHERE node_id=? AND journal_id=?').run('node','journal');
+ expect(changes()-before).toBe(1);
+ expect(f.db.prepare('SELECT count(*) n FROM work_sync_uploads WHERE committed=1').get()).toMatchObject({n:1001});
+});
 
 test('small batches preserve event identity, sequence, body bounds and authenticated node scope', async () => {
   const f = await fixture();
