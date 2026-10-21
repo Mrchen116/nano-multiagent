@@ -8,7 +8,7 @@
 
 ## Relations
 
-- Follow-up: [feat-627](../archive/feat-627-codex-context-rollover/spec.md)。本 unit 修复已交付行为，不重写原验收结论。
+- Follow-up: [feat-627](../feat-627-codex-context-rollover/spec.md)。本 unit 修复已交付行为，不重写原验收结论。
 
 ## 原始报告与确认范围
 
