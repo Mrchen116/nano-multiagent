@@ -210,3 +210,80 @@ R1-W1 已在设计层闭环。修订保留受限工具配置原本具备的 Skil
 ### Author Resolutions (R3)
 
 Accepted R3: no unresolved substantive findings. The reviewed design is unchanged. R2 automatic-body fallback and turn-navigation approval are superseded by the explicit user decision. Implementation and real-model acceptance must use the R3 scope; a failed stale-Notes recovery will be reported as failed.
+
+## Round 4
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design629_review`
+- reviewer target: 原生工具结果压力裁剪接线、预算重算、相关 delta 与同资料复验；R3 实测失败边界
+- checkout: `/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`，branch `codex/bugfix-629-context-recovery`
+- baseline: HEAD `35fccff2fdea096aad481c02e683c4176b7319b2` 加本轮冻结 design/delta；其他已有 implementation/verification 修改只读
+- frozen SHA-256: `design.md=bc71f63dd616f56f0fb791c6af7d8c68fa8b96bebaf5e954eca0a1856527474f`；delta `agent-capabilities.md=0e572e9ec6e572bf62d2c46e2dda849adec50e1d196a6d9255087d4bbb09584a`
+- DSH: clean HEAD `5badb15009ae1756c3afe0ae0cef1faafc290ccc`；另核安装包 `@deepseek-ai/dsh-compaction-tool-result-pruner@0.2.1-alpha.1` 的公开类型
+- review_mode: delta
+- mode_reason: 用户明确要求接回已有原生裁剪并复验同 25 份资料；变化限于自动压力/overflow 的处理顺序和该事故验收边界，Skill、Notes/History、权限及换窗事务保持 R3 方案，可引用 R3 有效证据
+- started_at: 2026-10-21T17:25:21+08:00
+- completed_at: 2026-10-21T17:27:46+08:00
+- duration: 2m25s
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+这是接回当前默认栈已经存在、却被自定义 compaction owner 绕过的原生步骤。接口可用，接线位置与预算重算闭合；同一批工具资料可以用“压力是否被裁剪解除、原任务是否仍在、是否真实交付”判断结果。R3 强制换窗后的任务丢失仍是失败记录，不能被本轮设计或离线裁剪估算改判为通过。
+
+### Coverage 与证据
+
+#### 现状与原生能力
+
+- 已读取 `M1-recovery/implementation.md` 的 R3 pressure distribution and failed recovery：25 个单项低于 spill 阈值的实际结果在同一步累计约 264,885 个估算 token，下一 pre-step 直接换窗，模型读取旧完成 Notes 后没有交付当前 todo。记录明确区分估算量与 provider 实际输入，未把缺少交付的结果记为成功。本轮没有重跑或修改原始会话。
+- Nano `packages/dsh-integration/src/compaction.ts:17-19` 在 preset owner 存在时提前返回；插件当前 `src/index.ts:138-152` 直接按 H 选择 pressure，`agent/request-error` 与公开 `compactIfNeeded` 也直接进入原换窗事务。两端组合确实绕过宿主 `BasicCompactionEngine` 的 pruner 调用，不是缺少另一个总量配置器。
+- 固定 DSH `packages/compaction/compaction-basic/src/index.ts:290-327` 在 overflow 分支先 prune，在 pressure 达既有阈值后先 prune 并重新 measure，降到阈值以下返回 null。`packages/bundle/base/cordis.patch.yml:407-423` 默认同时组装 spill（12,500 tokens）与 pruner（8192/4096/1024 chars）。它们分别处理单次载荷和压力下活动历史，不能用单项未 spill 推导总量安全。
+- 已核安装版本公开 `lib/types/index.d.ts`：`Context.toolResultPruner` 与同步 `pruneSession(session): PruneResult` 均可用；包根 export 声明该能力。设计要求声明公开类型依赖，通过 `ctx.get` 取可选服务，符合现有组合语义，不需要 private import、复制算法或修改 DSH。
+
+#### 调用时机、预算与原有语义
+
+- pre-step 达 W 后调用 pruner，再用同一 assembly/header/pending messages 调用现有 `budget()`，能避免只重算持久 surface 而漏掉尚未落库输入、工具定义或 system 更新。原始批次结果此时已在 session 内，正是原生 pruner 的处理对象；新 claim 仍由原 admission 路径保留。
+- 裁剪后再按原 W/H 决定提醒、fallback、换窗；低于 W 不主动裁剪，不增加预算配置。公开 pressure 入口同样先裁剪重算，不能只修 hook 后留下直接入口漏接。设计与新增回归矩阵已覆盖这两条路径。
+- provider overflow 保持原来的“恢复事务后由已有 handler 决定重试”路径，只在换窗前接入 native prune；不会把 pressure 的“低于 W 返回”擅自扩张成另一套 provider 重试状态机。此顺序与 BasicCompactionEngine 的 overflow 分支一致。
+- 显式 model-requested/manual 不被压力策略替代；裁剪仍超 H 时继续原换窗，无服务时走旧策略。设计没有让原生服务变成所有第三方组合的强制依赖，也没有扩大工具权限。
+
+#### 持久记录、配对与可恢复性
+
+- 固定 DSH pruner `src/index.ts` 的 `pruneSession` 只遍历当前 surface 的 tool/result，保持原 message/source/call 及其余 event data，仅替换 content。每个替换前同步追加 `compaction/prune`，替换项用 `sourceEventSeqs` 指向原项；原始事件保留，正文中段用固定 prune marker 标示。
+- `packages/llm/token-meter/src/surface-projection.ts:68-91` 消费相邻 shadow-price 与 replacement，替换立即进入原生计量；重新调用 budget 有实际更新来源，不需要手动减 token 或维护另一套计数状态。
+- R3 已核对的 History 根据 active surface 排除当前项；被 prune 移出的完整原项因此可按既有 window/item 搜索/读取，来源不升级，工具配对不需插件自行修补。部分正文仍在活动预览，不等于完整资料；本轮 runbook 已要求模型必要时正常重读并以原资料核对答案。
+
+#### Delta 与验收边界
+
+- 本轮 delta 将新增的“新任务保存前强制换窗”场景改为“大批工具结果造成压力、先裁剪再测量”，保留 canonical 原有多窗继续、原始细节恢复以及 R3 Skill 场景。新增结果对应用户“把 DSH 原生的压力裁剪接回来，别另造一套，再用刚才那25份资料复验”的当前指令；裁剪不足仍沿用既有换窗，并没有声明已解决所有硬溢出恢复。
+- `design.md` 的风险段、runbook 与 M1 退出标准均明确保存 R3 失败、不扩大 fixture 强行换窗、不补特殊导航、不把避免一次换窗夸成不可裁剪场景全通过。这个边界成立；后续交付必须保留残余风险，而不能仅以本轮绿色结果关闭此前所有强制换窗恢复主张。
+- 离线 `/tmp/bugfix629-r3-pruner-check.json` 明确是已发布 `pruneContent` 对 25 项结果的纯计算，264,885 → 32,450 是估算而非真实请求或模型正确性。设计把它作为接线动机，不作验收证明，证据使用恰当。
+- 真栈复验固定相同 25 份内容、默认预算/权限/spill、旧完成 Notes 和真实 Inbox 新任务，要求看到原始批次越线、native prune、新请求仍含当前任务且未发生不必要换窗，以及三项真实待办完整且只交付一次。检查原生事件、provider 请求和 IM 落库，足以区分算法生效、请求保留与业务完成。
+- 自动回归覆盖真实发布版 DSH 组合、裁剪后仍超线、低于 W、服务缺席、显式换窗和两个自动入口；原始事件可读也有明确断言。rc.4 新不可变发布及安装 hash 保留，避免把 rc.3 失败版本与最终验收版本混用。
+
+### Retained coverage
+
+`retained_from: Round 3`。本轮未改变新模式跳过 nano-used-skills、原生 Skill 目录、受限 History、原 Notes/History 提示、来源与白名单、无摘要/no-tail、公开配对换窗事务、workspace 生命周期及无客户端变化；沿用 R3 已核源码和架构判断。R3 的 Approved 只证明当时设计可实施，其随后发生的真实失败已经纳入本轮事实，不保留任何不存在的产品验收通过结论。
+
+### 历史问题闭环
+
+- **R1-W1 — closed 保持**：R3 的用户选择与受限 History 路径不变；本轮不恢复已撤回的全文回退或 turn 协议。
+- R3 真实事故复验失败不是历史设计 issue ID，保留在 implementation/最终产品报告中；R4 定义新的受约束复验，不回写旧失败。
+
+### Issues
+
+无未解决 CRITICAL/WARNING。
+
+### Recommendations
+
+无新增建议；按现有 pruner 与已冻结 25 份资料验证，不新增裁剪器、阈值或重试机制。
+
+### 本轮边界
+
+仅追加 R4，未修改冻结 design/delta、产品代码、插件、既有验证记录或原会话；未提交、运行服务或重复实验。Approved 为设计门禁结论，不是 rc.4 已实现、同资料已交付或生产故障已全部关闭的证明。
+
+### Author Resolutions (R4)
+
+Accepted R4 delta review: 0 CRITICAL / 0 WARNING. The frozen design and delta are unchanged. Implement the published DSH pruner at the declared pressure/overflow seams, retain R3 failure as evidence, and validate the unchanged 25-volume fixture through the real product entry. Offline reduction is not product acceptance.
