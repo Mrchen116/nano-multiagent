@@ -147,3 +147,57 @@ Round 1 三项原问题已闭合。新增的 Gateway 凭据 delta 复制了旧 c
 ### Author Resolutions
 
 - **R2-W1 — accepted**：Gateway 旧 canonical 的 owner JWT `/me`、`/nodes` 语句与 IM 已有机器身份契约互斥。已在 Gateway delta 的同一 Scenario 中，改为“需要核实当前机器管理者时”遵循现有 `GET /im/v1/gateway/identity` 及当前注册凭据，保留 node/owner 核对、owner 调和、失败保留记录和不得冒用真人入口的约束。来源核对为 `apps/node/src/main.ts` 的机器 helper 和 `external.ts` 现有镜像接线；不宣称现有镜像已经调用该查询，也不新增镜像能力。其余受审产物未变，本轮仅此凭据契约消歧，提交独立复审。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/feat630_design_review`（同一独立 reviewer，非设计作者）
+- review_mode: `closure`
+- mode_reason: 相对 Round 2 冻结版本，仅 Gateway delta 的既有 shadow 身份 Scenario 做局部消歧；其余需求、设计、接口、M1 与产品代码无变更，本轮核闭合及该 Scenario 的两包一致性。
+- started_at: `2026-10-21T12:32:14+00:00`
+- completed_at: `2026-10-21T12:32:51+00:00`
+- duration: `37s`
+- frozen_head: `863605b43b715cde715716a91c61deb35c1426e2`
+- product_baseline: `11f599938d67f21398570009f1c7e9e0088b81a1`
+- retained_from: Round 2（full）。R1-W1/R1-W2/R1-W3 已关闭，普通 Web attempt、Work 协议及鉴权、职责、容量、迁移、用户约束与验收证据未受本次消歧影响。
+- checkout: 开始时工作区干净；已独立核对 `47af80ddfbe586d524bc70d306d0ce98573c8d49..HEAD` 仅报告追加和 Gateway delta 两行语义变化。
+- 本轮只追加本报告；原 Round/Author Resolutions 保留，未修改设计或代码，未启动服务、部署或提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R2-W1 已关闭，未发现本次局部修订引入新的实质问题。结合保留的 Round 2 full 覆盖，当前冻结设计满足 Gate 2 的文档审查条件；不代表产品已实施或运行验收通过。
+
+### Coverage 与证据
+
+- [Gateway delta](specs/gateway/relay-protocol.md) 13–16 行现在要求在需核实机器管理者时，使用当前注册运行凭据查询 `GET /im/v1/gateway/identity`，核对 node_id/owner_id，保留 owner 调和、身份失败时保留待同步记录，以及不使用真人 `/me`、节点管理列表或本地旧 owner 作为授权事实的约束。
+- 与 [IM delta](specs/im/gateway-relay.md) 45–48 行对照，两个消费者对所用端点、当前注册机器凭据及禁止真人管理入口的规则一致；Gateway 7、23–26 行的 Work 受限持久身份例外保持，未将该身份扩大到镜像入口。
+- Round 2 对 [Node main](../../../apps/node/src/main.ts) 269–283、[external.ts](../../../packages/personal-assistant/src/external.ts) 265–284、[server.ts](../../../apps/im-server/src/server.ts) 178–186 及 [server E2E](../../../apps/im-server/tests/e2e/server.test.ts) 8–9 行的源码证据保持有效。本次文字明确对齐既有 IM 规则，不声称当前镜像路径已经调用该查询，也不新增镜像功能。
+- spec/design、其他四份 delta、M1/验证矩阵均与 Round 2 相同，故保留此前 full 覆盖；本轮没有前端、运行拓扑、协议能力或权限授予变化，不扩大为实现或视觉验收。
+
+### 历史问题闭环
+
+| issue ID | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R2-W1 | accepted：同一 shadow Scenario 改用既有 gateway identity 与当前注册凭据，保留归属核对、owner 调和、失败保留及真人入口限制，明确不增镜像功能 | Gateway delta 13–16 行与 IM delta 45–48 行已一致；旧 owner JWT `/me`/`/nodes` 要求已移除，Work 独立身份例外及其他 Scenario 未变。 | **closed** |
+
+R1-W1、R1-W2、R1-W3 保持 Round 2 的 **closed**。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
+
+
+### Author Resolutions / Gate 2 收口
+
+- 作者核实 Round 3 无 findings/recommendations，接受其 Approved；R1 三项与 R2 一项均已关闭，无实质异议。此后仅追加审查报告，不修改受审 spec/design/delta/M1。
+- `validated_at`: `863605b43b715cde715716a91c61deb35c1426e2`；`executed_base`: 产品基线 `11f599938d67f21398570009f1c7e9e0088b81a1`；`effective_base`: `b6050dcfc9e85209533ab11a0efd25f1358bece0`；`effective_through`: `863605b43b715cde715716a91c61deb35c1426e2` 的受审产物。
+- 最终 fetch 确认 origin/main 仍为上述 effective_base，产品路径 apps/packages/src/scripts/config/tests 与执行基线无差异；上游增加的 bugfix-631 首文档不改变本设计或其生产事实，因此 retained。报告提交属非实质文档追加，不新开审查轮次。
+- 文档完整性与 diff whitespace 检查通过；未运行产品验收或声称已修复。本 unit 留在 active，实施须由默认 change-orchestrator-simple 接手，另行完成实现、静态审查、产品验收及交付。
