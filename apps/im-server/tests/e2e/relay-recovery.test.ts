@@ -12,7 +12,7 @@ it('saves offline messages and recovers through a bounded node window with monot
  await expect.poll(()=>g.frames.queue.filter(p=>p.type==='relay.message').length).toBe(32);
  await g.frames.send('node.delivery_receipt',{node_id:g.node,relay_task_id:input.payload.relay_task_id,delivery_status:'sent',request_id:'late'});
  const history=await f.http('GET',`/im/v1/conversations/${id}/messages?limit=100`,undefined,f.tokens.alice);
- expect(history.body.items.find((m:any)=>m.id===input.payload.message.id)?.delivery_status).toBe('completed');
+ expect(history.body.items.find((m:any)=>m.message?.id===input.payload.message.id)?.message.delivery_status).toBe('completed');
  g.socket.terminate();await new Promise(r=>g.socket.once('close',r));
  expect((await send(40)).status).toBe(201);
  const again=await connect(f,g.node,g.runtime);await expect.poll(()=>again.frames.queue.filter(p=>p.type==='relay.message').length).toBe(32);

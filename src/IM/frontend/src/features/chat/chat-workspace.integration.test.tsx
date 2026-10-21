@@ -1776,7 +1776,8 @@ describe("ChatWorkspacePage — integration", () => {
     await waitFor(()=>expect(finishPost).toBeTypeOf('function'));
     await act(async () => { finishPost(jsonResponse(message)); });
     expect(await screen.findByText("Waiting for computer update")).toBeInTheDocument();
-    expect(screen.getAllByText(message.content)).toHaveLength(1);
+    await waitFor(()=>expect(screen.getByRole("textbox")).toHaveValue(""));
+    expect(screen.getAllByText(message.content,{selector:"span"})).toHaveLength(1);
   });
 
   it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {

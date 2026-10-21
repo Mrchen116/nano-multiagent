@@ -92,6 +92,8 @@ export class InboxStore {
     this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed')")
       .run(status,input.agent_id,input.message.id);
   }
+  /** Close a revoked obligation without recording a remote acceptance. */
+  rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
   confirmRelay(id: string, status: string): void {this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);}
   pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
   finishControl(input:RelayInput):void {this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);}

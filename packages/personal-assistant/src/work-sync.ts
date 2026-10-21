@@ -150,6 +150,9 @@ export class WorkSync {
     const pending = cursor.pending_event;
     if (pending && (pending.seq !== seq || pending.event_id !== eventId || pending.sha256 !== hash || pending.total_parts !== count)) throw new SyncError('work_sync_event_identity_conflict', true);
     const received = new Set(pending?.received_parts ?? []);
+    // The last part may be durable while projection has not committed yet.
+    // Repeating it re-enters the server's atomic finalize path after a crash.
+    if (received.size === count) received.delete(count - 1);
     for (let part = 0; part < count && this.started; part++) {
       if (received.has(part)) continue;
       const bytes = raw.subarray(part * limits.chunkBytes, Math.min(raw.length, (part + 1) * limits.chunkBytes));

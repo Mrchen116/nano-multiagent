@@ -130,12 +130,12 @@ export class WebRelayConnection {
    *   RelayDeliveryError: Carries rejected, not-sent, or unknown delivery status. The
    *   caller must reconcile unknown delivery before retrying; this transport never replays.
    */
-  request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> {
+  request(type: string, payload: Record<string, unknown>, options: {priority?:'control'|'normal'} = {}): Promise<ProtocolFrame> {
     if (!this.ready || type === 'node.register' || type === 'node.heartbeat') {
       return Promise.reject(new RelayDeliveryError('Relay is not ready for this business request', 'not-sent'));
     }
     const preserve = typeof payload.request_id === 'string' && this.serverRequests.delete(payload.request_id);
-    return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload });
+    return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload },options.priority);
   }
 
   /** Cancels timers, rejects outstanding work, and closes the owned socket without replay. */
@@ -224,8 +224,8 @@ export class WebRelayConnection {
     return type === 'node.register' || type === 'node.heartbeat' || type === 'node.delivery_receipt'
       || type === 'agent.session.ensure' || type === 'agent.message.status' || type.includes('cancel') || type.includes('permission');
   }
-  private enqueue(frame: ProtocolFrame): Promise<ProtocolFrame> {
-    const control = this.control(frame.type);
+  private enqueue(frame: ProtocolFrame, priority?:'control'|'normal'): Promise<ProtocolFrame> {
+    const control = priority==='control' || priority!=='normal' && (this.control(frame.type) || frame.type==='node.streaming_delta' && String(frame.payload.kind).startsWith('permission_'));
     // Server-initiated request IDs are retained in their response frames.
     frame = { type: frame.type, payload: { ...frame.payload, request_id: frame.payload.request_id ?? randomUUID() } };
     if ((!control && this.queue.filter(item => !item.control).length >= 256) || this.queue.length >= 258

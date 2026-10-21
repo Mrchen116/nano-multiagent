@@ -93,7 +93,7 @@ export class GlobalAgent {
     const config = this.options.agents.find(agent=>agent.agentId===input.agent_id && agent.mode==='global');
     if (!config) throw new Error('No global Agent for input');
     const command = input.message.content.trim();
-    const control = input.message.sender_type === 'user' && /^\/(new|stop|compact|effort|workflows|config)(?:\s|$)/.test(command);
+    const control = input.message.sender_type === 'user' && (/^\/(new|stop)$/.test(command) || sessionControl(input,config)!==undefined);
     const saved = structuredClone(input);
     if (config.personal) saved.metadata.personal_unclassified = true;
     this.options.inbox.acceptRelay(saved,!control && !config.personal && needsAttention(input,config),control);
@@ -125,6 +125,7 @@ export class GlobalAgent {
         for (const receipt of batch) {
           try {await this.transmitReceipt(receipt.input,receipt.status);this.options.inbox.confirmRelay(receipt.input.relay_task_id,receipt.status);}
           catch(error) {
+            if(error instanceof RelayDeliveryError && error.delivery==='rejected' && /scope_not_allowed|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code??'')) {this.options.inbox.rejectRelay(receipt.input.relay_task_id);this.options.onError(error);continue;}
             if(!this.stopped) {this.receiptTimer=setTimeout(()=>{void this.drainReceipts();},this.receiptBackoff);this.receiptTimer.unref();this.receiptBackoff=Math.min(30000,this.receiptBackoff*2);}
             this.options.onError(error);return;
           }
@@ -537,6 +538,15 @@ export class GlobalAgent {
         throw new Error(`Interactive reply rejected: ${error.code ?? error.message}`);
       }
       inbox.settlePublication(call.operationId, 'unknown');
+      if(error instanceof RelayDeliveryError && error.delivery==='unknown') {
+        try {
+          const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
+          if(status.payload.found===true) {
+            const result={status:'sent',message_id:status.payload.message_id,conversation_id:status.payload.conversation_id};
+            inbox.settlePublication(call.operationId,'confirmed',result);return result;
+          }
+        } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
+      }
       throw error;
     }
   }

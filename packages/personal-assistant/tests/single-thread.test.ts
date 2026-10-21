@@ -144,3 +144,18 @@ it('holds later input behind a compact command and never treats the focus as mod
     expect(calls.filter(call=>call.method==='session.command')).toHaveLength(1);
   }finally{release();await product.stop();store.close();}
 });
+
+it('keeps the approval identity inside a resolution independently of transport request correlation',async()=>{
+ const store=new NodeStore(':memory:','owner'),frames:Record<string,unknown>[]=[];let notify:(method:string,payload:unknown)=>void=()=>{};
+ const binding=store.bind({agentId:'a',sessionId:'approval-main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
+ store.receive(binding.sessionId,{agent_id:'a',conversation_id:'chat',relay_task_id:'input',idempotency_key:'input',metadata:{conversation_type:'direct'},message:{id:'m',content:'run',sender_type:'user',sender_user_id:'owner',attachments:[]}});
+ const product=new SingleThread({nodeId:'n',ownerId:'owner',agents:[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'test',model:'test'}],store,
+ runtime:{onNotification(listener){notify=listener;return()=>{};},async request(method){return method==='session.lookup'?{accepted:true,turn:1}:{durable:true,events:[]};}},
+ relay:{async request(_type,payload){frames.push(payload);return {type:'ack',payload:{message_id:'bubble'}};}},image:async()=>'',onError:()=>{}});
+ try{
+  notify('approval.request',{sessionId:binding.sessionId,requestId:'original-permission',toolName:'bash',callId:'tool'});
+  await expect.poll(()=>frames.some(p=>p.kind==='permission_request')).toBe(true);
+  notify('approval.resolved',{sessionId:binding.sessionId,requestId:'original-permission',outcome:'timed-out'});
+  await expect.poll(()=>frames.find(p=>p.kind==='permission_resolved')).toMatchObject({permission_request:{request_id:'original-permission'},decision:'timed-out'});
+ }finally{await product.stop();store.close();}
+});

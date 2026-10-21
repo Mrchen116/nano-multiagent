@@ -18,3 +18,23 @@ test('a duplicated relay retains each receipt identity while rejecting mutated i
  expect(()=>inbox.acceptRelay({...input,message:{...input.message,content:'changed'}},true)).toThrow(/conflict/);
  }finally{inbox.close();}
 });
+
+test('stop-like ordinary text cannot reserve a control position or block later inputs',async()=>{
+ const inbox=new InboxStore(':memory:'),store=new NodeStore(':memory:','owner');const submitted:unknown[]=[];
+ const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',mode:'global',provider:'test',model:'test'}],store,inbox,
+ runtime:{onNotification:()=>()=>{},async request(method,payload){if(method==='session.submit')submitted.push(payload);return method==='session.descendants'?[]:{durable:true,events:[]};}},relay:{async request(){return {type:'ack',payload:{}};}},image:async()=>'',onError:()=>{}});
+ try{
+  const first=product.receive({...input,message:{...input.message,content:'/stop now'}});
+  const second=product.receive({...input,relay_task_id:'next',idempotency_key:'next',message:{...input.message,id:'next',content:'continue'}});
+  await Promise.race([Promise.all([first,second]),new Promise((_,reject)=>setTimeout(()=>reject(Error('ordinary input blocked')),200))]);
+  expect(inbox.pendingControls()).toEqual([]);expect(submitted.length).toBeGreaterThan(0);expect(inbox.check('a').sources[0]?.unread).toBe(2);
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
+test('a revoked receipt cannot starve a later valid conversation',async()=>{
+ const inbox=new InboxStore(':memory:'),store=new NodeStore(':memory:','owner');const ids:string[]=[];
+ inbox.acceptRelay(input,true);inbox.acceptRelay({...input,relay_task_id:'valid',conversation_id:'other',message:{...input.message,id:'valid'}},true);
+ const {RelayDeliveryError}=await import('@nano/channels');
+ const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[],store,inbox,runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{async request(_type,payload){ids.push(String(payload.relay_task_id));if(payload.relay_task_id==='r')throw new RelayDeliveryError('revoked','rejected','scope_not_allowed');return {type:'ack',payload:{}};}},image:async()=>'',onError:()=>{}});
+ try{await product.recover();expect(ids).toEqual(['r','valid']);expect(inbox.pendingRelays()).toEqual([]);}finally{await product.stop();inbox.close();store.close();}
+});

@@ -130,3 +130,14 @@ test('stop cancels a pending HTTP response promptly and never acknowledges its u
   expect(Date.now() - started).toBeLessThan(500);
   expect(f.inbox.throughSeq).toBe(0); expect(f.errors).toEqual([]);
 });
+
+test('all parts durable before a center crash still finalize on restart',async()=>{
+ let committed=false;
+ const f=await fixture((call,response)=>{
+  const event=f.inbox.journal(0,1)[0]!,raw=Buffer.from(JSON.stringify(event)),total=Math.ceil(raw.length/16384);
+  if(call.method==='PUT') {expect(call.path.endsWith(`/parts/${total-1}`)).toBe(true);committed=true;}
+  json(response,{through_seq:committed?1:0,expected_seq:committed?2:1,...(committed?{}:{pending_event:{seq:1,event_id:event.event_id,sha256:sha(raw),total_parts:total,received_parts:Array.from({length:total},(_,i)=>i)}})});
+ });
+ f.inbox.append(event(1,'x'.repeat(106*1024)));f.sync.start();
+ await expect.poll(()=>f.inbox.throughSeq).toBe(1);expect(f.calls.filter(c=>c.method==='PUT')).toHaveLength(1);expect(f.errors).toEqual([]);
+});
