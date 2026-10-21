@@ -1,6 +1,6 @@
 # Verification Report: bugfix-629-context-recovery
 
-> Latest conclusion: **Round 6 below reviews the live-Inbox Skill/pruning consumer fix**. R4's same-25-document pressure scenario is PASS; R3 task recovery and R5's real R4-1 recheck remain actual FAIL. R6 fixes a separate deterministic parsing/lifecycle bug and does not close that model note-selection failure. No Ready-for-PR, canonical merge or completed-unit conclusion is issued.
+> Final conclusion: **PASS for the user-approved delivery scope**, with final reconciliation below. Three validated scenarios are merged into current spec. R3/R5 forced-reset old-Notes task-selection failures remain actual FAIL and are explicitly deferred to [#377](https://github.com/Mrchen116/nano-multiagent/issues/377); they are not restated as fixed. Earlier no-delivery/pending conclusions are historical and superseded only for this approved scope, not for that unresolved behavior. This report does not assert that merge or deployment has occurred.
 
 > Interim validation snapshot: Nano `164352839cd8717748d4621a5d731780beb44b7e → 2ee87df7becb22f5d2576c192dbbee3018a3a07f`; plugin `621278d → 51eb236`.
 > Scope: `full` implementation/spec/design review plus `corrected-delta`. Review round: 1. Product evidence and final immutable package handoff remain pending.
@@ -83,22 +83,19 @@ None. No speculative edge-case or style changes requested.
 
 ## Corrected Delta Reconciliation
 
-Current reconciliation: R6 approved delta, Nano `839880856ca9b8d9717fe0045bbc34a7b479de5c`, plugin unchanged at `823a2029d216cc5e128a76976abc7b0c84df4690` / rc.5. R4 pruning and R5 Notes-format alignment remain valid; R6 adds the live-Inbox Skill consumer scenario only.
+Final reconciliation: user-approved scope split `34e0ab6d924821d0ded6a8ce8088cba9b456c718`, independent product final disposition `5fa5db7b9ed5e58afaba36dc50bc36517fc49270`. Executable source remains frozen Nano `839880856ca9b8d9717fe0045bbc34a7b479de5c` and plugin `823a2029d216cc5e128a76976abc7b0c84df4690` / rc.5. Only the three final delta scenarios are delivered; prior forced-reset selection failures are deferred to #377 by explicit user decision.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| `agent-capabilities.md:7-11` same work across windows | Original Notes and window/item History retained, no extra current-turn protocol | Native multi-window/session replay coverage retained; R3 original-incident product report shows actual task loss | Mechanism unchanged; R3 hard-reset recovery FAIL is not closed by R4 pruning |
-| `agent-capabilities.md:13-18` consumed task plus batch tool-result pressure | Plugin `src/index.ts:139-151,225-231,279,346-348`: public pruner before pressure decision, same budget remeasurement, existing overflow reset afterward | R4 published-pruner integration: batch avoids reset and retains task; unprunable content still resets; public pressure/overflow/explicit behavior covered | aligned at native request seam; same-25-volume real delivery pending |
-| `agent-capabilities.md:20-23` original detail and honest gap | Existing History reads originals removed from active surface by native prune; native replacements preserve source links and visible prune marker | Prior complete arguments/result/Unicode pagination tests retained; R4 original results retained and replayed | aligned; correct interpretation of truncated preview remains product validation |
-| `agent-capabilities.md:25-31` native Skill catalog, no old body/index, restricted History, old-mode behavior | R3 Nano hook and native catalog/source paths unchanged | Retain R3 installed 5-test matrix, real seven-Skill catalog/no-growth/one-Skill re-read, workflow-only real History/source recovery from `regression.md:80-91` | aligned for retained coverage; unexecuted real Node restart/off-on not upgraded to pass |
-| R5 Notes hint presentation, no additional product contract | Plugin `src/notes.ts:231-244` changes existing body-free hint to fixed header and path/line/UTF-8-byte entries; original scope/order/bound unchanged | One exact-format effective red then green; final plugin 31 tests | aligned; no spec delta needed for a new recovery mechanism because none was added |
-| `agent-capabilities.md:33-37` explicit human Skill gesture survives tool-history pruning | Nano `capabilities.ts:85-121` synchronously extracts identifiers/names from complete final live result, then uses original current selected Skill/pre-step/durable invocation-ID path; no parsing of historical rendered content | Existing native live-Inbox owner test parameterized with real pruner off/on: actual prune, three completed turns, only human invocation once, agent/partial exclusion, no restart replay | aligned at the native integration seam; independent of real-model Notes selection |
+| Final delta: 新任务已读后大批工具结果造成上下文压力 | Plugin public native-pruner-before-H path, same-request budget remeasurement; archived originals/source links retained, residual pressure still uses original reset | R4 real Web IM same-25-volume original Inbox task retained, 32 native prunes, one correct todo delivery; native automated boundary coverage | aligned; exact full scenario text is present in current `docs/specs/gateway/agent-capabilities.md` |
+| Final delta: 长任务按需恢复 Skill | Nano new mode omits entire used-Skill body/index contribution; native catalog and selected/current-session History retained; old summary mode retains prior body behavior | R3/R4 seven-Skill/no-growth/real reload, workflow-only original-source History, actual normal restart and off/on; native integration retained | aligned; exact full scenario text is present in current spec; does not guarantee model chooses the right note |
+| Final delta: Explicit Skill gestures survive later tool-history pruning | Nano `capabilities.ts:85-121` extracts id/name from complete live final result and injects through current selection/pre-step/durable invocation ID | R6 pruner off/on regression, actual native prune, three completed turns, human once, Agent/partial excluded, no restart replay; final 485 tests | aligned; exact full scenario text is present in current spec |
 
 ### Uncovered Observable Behavior
 
-No uncovered new observable behavior found in R6. The existing live-human gesture semantics, selected registry, source and invocation IDs remain; only the consumer's observation/short-term handoff point changes. Rejected pre-step retains pending identifiers, while accepted processing consumes them. No additional body persistence, authorization channel, source relabeling or task recovery protocol is introduced. Retain the reviewed R4 automatic-pruning and R5 presentation contracts.
+No uncovered delivered behavior found. Notes hint rendering is a separately verified format correction to existing bounded navigation, not a new task-recovery mechanism. The final delta intentionally removes two unchanged canonical scenarios (multi-window continuation and original-detail recovery) from its modification list; current spec retains their pre-existing text unchanged. Their omission from this unit's delta is not deletion of the canonical requirements or proof that all related failures have disappeared. Explicit forced-reset old-Notes selection remains known failed behavior tracked in #377.
 
-Outcome: **aligned** for inspected R6 implementation/delta; R4/R5 unchanged alignment retained. R4's limited pruning scenario is accepted. R3 and R5/R4-1 are actual product FAIL and are not superseded by R6's deterministic Skill fix. `requires_full_verification: false`: targeted delta review suffices; unchanged valid evidence is retained.
+Outcome: **aligned; final scoped verification PASS**, 0 CRITICAL / 0 WARNING / 0 SUGGESTION in the user-approved delivery scope. Independent product disposition also passes that scope. R3/R5 failures remain FAIL and are deferred rather than fixed. `requires_full_verification: false`; frozen implementation/test evidence is retained and no source/dependency delta invalidates it.
 
 Report ownership: caller will commit this report in the shared unit branch. No review service/process was started; nothing requires cleanup. Await supplementary evidence through the caller; do not poll product execution.
 
@@ -327,3 +324,32 @@ The test's deterministic pre-step pruning is appropriate for this consumer bug: 
 - R6 has no task/Skill hint, file selection rule or extra recovery protocol and cannot close those model behavior failures. The unit remains active, with no canonical merge/archive/Ready PR or production claim.
 - Final Nano 485-test/typecheck/full-build evidence is complete and inspected; no duplicate full run by reviewer. Plugin rc.5 artifact conclusions remain valid because the plugin dependency/bytes did not change.
 - `requires_full_verification: false` for closure of the declared deterministic consumer delta on the frozen source. Only this verification report was edited; caller owns commit and runtime/evidence handoff.
+
+## Final scope and current-spec reconciliation
+
+### Validated snapshot and verdict
+
+- Requested scope commit: `34e0ab6d924821d0ded6a8ce8088cba9b456c718`. Actual checkout on entry: `5fa5db7b9ed5e58afaba36dc50bc36517fc49270`; its only additional change from the requested commit is the independent final product disposition appended to `regression.md`.
+- Effective executable source remains Nano `839880856ca9b8d9717fe0045bbc34a7b479de5c`, plugin `823a2029d216cc5e128a76976abc7b0c84df4690`, immutable rc.5 with previously verified artifact/lock/install. Confirmed no subsequent delta in integration source/tests, package manifest or lock.
+- `verification_mode`: corrected-delta/final scope reconciliation. Prior code-review findings `[]` retained; no new code review or full test run required for documentation-only scope closure.
+
+**Final scoped gate: PASS — completeness satisfied, implementation/current-spec delta aligned, architecture coherent; 0 CRITICAL / 0 WARNING / 0 SUGGESTION within this delivery.** The explicit user scope decision allows the already-validated repair to proceed to merge/deployment while the known forced-reset Notes-selection failure remains tracked as [#377](https://github.com/Mrchen116/nano-multiagent/issues/377). It does not convert that failure into success.
+
+### Scope and current contract checks
+
+| Check | Evidence | Conclusion |
+|---|---|---|
+| User-authorized delivered scope | `incident.md` opening delivery section lists stable context contribution, no extra used-Skill replay, native pressure pruning, Notes hint format and once-only complete live-Inbox Skill extraction. `design.md` Final delivery scope mirrors that split and links #377 | consistent with implemented and validated final behavior |
+| Three delta scenarios merged | Compared complete scenario blocks programmatically: batch pressure/native pruning; long-task Skill lifecycle; live-Inbox explicit Skill gestures. Exactly 3 delta blocks, all exact full-text matches in current `docs/specs/gateway/agent-capabilities.md` | aligned; no missing condition, widened source or changed guarantee introduced in the merge |
+| Old current scenarios retained | Diff of current spec only adds those 21 lines; existing multi-window and original-detail scenarios are untouched. Final delta removes their previously repeated unchanged text | no accidental canonical deletion or invented acceptance of the known failing boundary |
+| Known failure preserved and separately owned | `incident.md` marks forced-reset recovery deferred to #377; `design.md` final scope and `regression.md` final disposition preserve R3/R4-1/R5 FAIL and identify out-of-unit #377 | failed evidence stays failed; no additional recovery hints/protocol or widened implementation |
+| Independent product acceptance | `regression.md` final scope section at commit `5fa5db7b9` gives PASS for the user-confirmed delivery, based on same-25-volume Web IM/prune/current-task preservation/one correct delivery, Skill/source/restart/old-mode evidence | current scoped product exit criteria complete; no unresolved in-scope product blocker |
+| Original production request replay | Read `production-replay.md`: fixed source/rc.5, exact completed-turn prefix and scheduled/Inbox ordering, actual journal reads, 10 real requests with 5 constant snapshots, one substantive todo answer captured by isolated sink, 0 resets/errors | useful supplementary causal evidence, not a new independent Web IM/Feishu/production receipt or proof of unavoidable-reset recovery |
+
+### Evidence retained and delivery boundary
+
+Reuse final installed Nano 107 files / **485 tests**, typecheck/full build, plugin 9 files / **31 tests** plus typecheck/build, meaningful red/green evidence and independent code review from the already-frozen source. No new implementation, dependency, fixture or runtime change calls those checks into question. Reviewer re-ran only text comparison and `git diff --check`; no service was controlled or product message sent.
+
+Earlier statements that the full unit could not proceed without solving old-Notes selection described the prior broader scope. They are superseded for delivery disposition by this explicit user decision and the final product report; the underlying FAIL records and known limitation remain. New canonical scenarios cover the verified pressure and Skill behaviors, not a claim that forced-reset task selection is generally solved. Any implementation intended to close #377 requires its own agreed scope and evidence.
+
+This final verifier gate is complete and ready for the caller's authorized delivery steps. It does not itself merge, archive, deploy, restart production or claim version/connection/user-visible acceptance after deployment. Only this report was modified and committed by this reviewer.
