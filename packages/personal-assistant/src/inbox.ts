@@ -191,6 +191,8 @@ export class InboxStore {
   }
   blocking(agent: string, target: string): boolean { return this.entries(agent, target).some(row => !!row.attention); }
   watermark(agent: string): number { return Number((this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1').get(agent) as { seq: number }).seq); }
+  /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
+  unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
   wakePending(agent: string): number | undefined {
     const latest = this.watermark(agent);
     const admitted = (this.db.prepare('SELECT watermark FROM wakes WHERE agent_id=?').get(agent) as { watermark: number } | undefined)?.watermark ?? 0;

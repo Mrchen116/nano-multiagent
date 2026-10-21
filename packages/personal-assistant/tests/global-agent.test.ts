@@ -4,6 +4,30 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
+it.each(['interrupted','user','completed','consumed'])('recovers a cold Inbox wake only for unread interrupted work (%s)',async kind=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ const input:RelayInput={agent_id:'a',conversation_id:'c',relay_task_id:'r',idempotency_key:'k',metadata:{conversation_type:'direct'},message:{id:'m',content:'do work',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+ inbox.acceptRelay(input,true);inbox.admitWake('a',1);
+ if(kind==='consumed'){const page=inbox.read('a','main','read',{target:'c'});inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(page)}],false,1);}
+ const submitted:string[]=[],evidence=new Map<string,any>([['inbox-wake:a:1',{accepted:true,acceptedSeq:10,terminal:{kind:kind==='consumed'?'interrupted':kind}}]]);
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+   if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
+   if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
+   return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
+  }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
+ try {
+  await product.recover();await product.recover();
+  expect(submitted).toEqual(kind==='interrupted'?['inbox-wake:a:1:recovery:10']:[]);
+  if(kind==='interrupted'){
+   evidence.set(submitted[0]!,{accepted:true,acceptedSeq:21,terminal:{kind:'interrupted'}});
+   await product.recover();await product.recover();
+   expect(submitted).toEqual(['inbox-wake:a:1:recovery:10','inbox-wake:a:1:recovery:21']);
+  }
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
 it.each([
   ['owner-id', 'user:owner', undefined, 'owner'],
   ['owner-web', 'conversation:c_owner', {type:'direct',channel:'web',members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'owner'],

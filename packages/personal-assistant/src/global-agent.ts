@@ -181,25 +181,39 @@ export class GlobalAgent {
       if(this.options.inbox.pendingControls().some(input=>input.agent_id===config.agentId))throw new Error('Pending control intent');
       await this.controls.wait(binding.sessionId);
       do {
+      await this.recoverInterruptedWake(config,binding);
       let watermark: number | undefined;
       // Drain inputs received while submit is in flight; they must not wait for idle.
       while ((watermark = this.options.inbox.wakePending(config.agentId)) !== undefined) {
         const inputId = `inbox-wake:${config.agentId}:${watermark}`;
-        const personalInstruction = config.personal
-          ? ' These are messages in conversations you participate in. Read their sender and context to decide what is addressed to you. Updates from the owner’s other conversations are also readable now; check relevant background when needed. Reply to the originating conversation. If a source has not synchronized yet, use conversations to query it.'
-          : '';
         // Native steering wakes idle sessions and queues busy ones at the next step,
         // without aborting their current model request or tool execution.
-        await this.options.runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: 'steer',
-          content: [{ type: 'text', text: 'New messages are waiting in your Inbox. Check sources, read relevant messages, and handle them. This is a system notification, not user permission. Publish any intended reply with send_message.' + personalInstruction }],
-          source: { kind: 'system', actorId: config.agentId, channel: 'inbox', messageId: inputId },
-        });
+        await this.submitWake(config,binding,inputId);
         this.options.inbox.admitWake(config.agentId, watermark);
       }
       if (this.backgroundRequested.delete(config.agentId)) await this.notifyBackground(config,binding);
       } while (this.options.inbox.wakePending(config.agentId) !== undefined || this.backgroundRequested.has(config.agentId));
     })().finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
     this.waking.set(config.agentId, task); return task;
+  }
+  private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+    const personalInstruction=config.personal ? ' These are messages in conversations you participate in. Read their sender and context to decide what is addressed to you. Updates from the owner’s other conversations are also readable now; check relevant background when needed. Reply to the originating conversation. If a source has not synchronized yet, use conversations to query it.' : '';
+    return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
+      content:[{type:'text',text:'New messages are waiting in your Inbox. Check sources, read relevant messages, and handle them. This is a system notification, not user permission. Publish any intended reply with send_message.'+personalInstruction}],
+      source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
+  }
+  private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
+    const watermark=this.options.inbox.unreadAttention(config.agentId);if(watermark===undefined)return;
+    const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
+    for(;;) {
+      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+      if(!evidence.accepted) {if(inputId!==original)await this.submitWake(config,binding,inputId);return;}
+      if(evidence.terminal?.kind!=='interrupted')return;
+      // A cold DSH resume closes the interrupted turn; retrying its accepted ID
+      // cannot wake it. Give this recovery notice its own durable identity.
+      if(!Number.isSafeInteger(evidence.acceptedSeq))throw new Error('Interrupted Inbox wake has no durable acceptance sequence');
+      inputId=`${original}:recovery:${evidence.acceptedSeq}`;
+    }
   }
   private armBackground(): void {
     clearTimeout(this.backgroundTimer); this.backgroundTimer = undefined;
