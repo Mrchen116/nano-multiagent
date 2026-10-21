@@ -103,3 +103,60 @@ PA `pa_983b7fa8a560`、chat `c_e19a27f30db5`、session `534620fd-450e-4756-9b6d-
 - PA provider目录：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-10-21_16-58-04_840_534620fd-450e-4756-9b6d-04ba99d3276f/`；普通Agent对应 `2026-10-21_16-58-31_693_2b9a22d0-3550-407a-b73d-694322b4d52b/`。
 - 最后只读核验：PA后续observer turn4在seq249 completed；普通Agent turn2在seq102 completed。没有reviewer新请求在途。Node PID91473保持运行，未重启或清理；Notes/History/数据库和所有合成资料原样保留，操作权交还caller。
 - Reference Artifacts Reviewed：R3 incident/design/runbook、交接资源、实际原生事件/provider请求/产品响应；没有读实现定位根因。上层文档和R4设计由caller维护，本轮只追加此报告。
+
+---
+
+## Round R4 — 接回原生压力裁剪后的同资料复验
+
+> 2026-10-21；受验 Nano `06c7aec52d759c45dd9db82bfef0a2a052b47b6e`，插件 `ce7d551` / 不可变 `dsh-agent-context@0.3.0-rc.4`。后续 `70222b612` 为caller测试证据文档提交，不改变受验源码/依赖。
+> 全新隔离实例 `/tmp/bugfix629-r4-runtime`，IM `http://127.0.0.1:58043`；Node `wt-bugfix629-r4-runtime-98383`；模型 `codexOAuth:gpt-6-astra` medium、PA Auto off、默认预算。25份资料逐文件与R3字节相同，reviewer独立比较确认；未改资料、答案、预算、安全策略或实现。
+
+### 分范围裁决
+
+- **R4新增范围：PASS。** 同一25份资料的单步大结果由原生裁剪处理，最新Inbox请求保留，没有不必要的强制换窗，真实模型正确交付一次。正常重启、旧摘要回退、新模式不重放正文的机制均得到实际产品证据。
+- **广义“换窗后总能继续当前任务”：FAIL，残余风险仍在。** 重新启用后的一次显式new_context任务保存了新on-checkpoint，但模型换窗后读旧checkpoint，最终回复旧状态；该具体用户任务不能记为通过。R3强制换窗丢失任务的失败也不改判。
+- caller按已批准R4范围确认：本轮只接回原生压力裁剪，不增加用户已撤回的恢复协议；残余旧Notes风险单列保留，不阻塞这一限定增量，但必须在交付中披露。**不能写“所有旅程PASS”或“通用换窗恢复已修好”。** 未创建外部issue、PR或部署。
+
+### 同25份资料：原生裁剪、保留任务、单次交付
+
+PA `pa_003c76a7af96`，chat `c_5fc89e05ee9b`，session `b4e6877b-1e6c-4f64-b878-2b41e964a3d7`。
+
+1. 准备输入 `2c9ebc09d5be4e27af5635815871e0fb`；七个recovery Skill实际成功读取后，Notes seq59/60写“准备已完成，目前没有待处理任务”，准备回复 `25e7bff20f554b2f8b19a0db27fc19e0`，turn/end70完成。没有准备阶段日记读取。
+2. 新Inbox任务 `b5ca2cdf2eea4dcd8c13be1ac0c81e11` 与R3相同文本，实际Inbox seq82/83读入。开始确认 `93013a1f65f24e788d449ba0d0a7bb2f` 不算最终清单。turn2 step4同一步25次skill调用seq92–140，原始成功结果93–141，共 **1,058,668字符**；批次后裁剪前没有新Notes写入。
+3. 原生 `compaction/prune` seq143–205共32个：7份此前准备Skill、25份新分册。25新结果对应替换事件158–206，每份5159字符、合计 **128,975字符**；包含明确的 `[... tool result middle pruned ...]`。每个替换的sourceEventSeqs指回原结果，surfaceOp为replace；原记录仍保存。25新结果的原生shadowedTokenCount合计 **264885**，超过默认H225632。主任务直至turn/end216的 `compaction/end` 数量为 **0**。
+4. 下一次真实provider请求 `2026-10-21_17-41-59_321-req-anthropic_messages.json` 保留新Inbox消息ID、AMBER629B用户原文、全部25个工具调用与一一对应结果。25对callId/result均完整且结果带裁剪标记；无interrupted_turn、turn_id、nano-used-skills。没有重新发用户指令、没有恢复提示、没有脚本预设模型输出。
+5. 成本口径分开：批次调用前provider实际输入 **20437**（20224缓存+213新增）；裁剪后下一请求实际输入 **51293**（8704缓存+42589新增）。原始264885是本地原生计量，**没有作为一整批未裁剪内容送入该provider请求**；不能把它称为实际provider输入。
+6. send_message210/result211落库 `d50178f4e7e6465fa11871f96dd008ef` completed，只有一次AMBER629B最终清单，正确给出：波形归档B17/周四前、秦老师六张显微照片/明早、读书会两袋咖啡豆/周日，并排除已完成校对。独立逐分册核对：3项事实均在各自保留头部，其余22份头部明确没有待办；中段是无行动归档。此样本不需要重读中段即可完成请求，不能据此宣称任意被裁剪中段都不重要。模型没有把裁剪标记删掉或伪造完整结果，最终没有重复清单或执行业务待办。
+
+### 正常重启及裁剪原件恢复
+
+主任务和普通Agent准备均completed后，按原config正常stop/start，Node **99308→1407**，`.gateway.pid`同步；未重建数据库或identity。
+
+- 独立只读核验消息 `996ce2e93ec546f592a5322715a6671f` 明确不重发清单。PA History seq240/241读取原窗口`:initial` item93 offset0/limit1000，seq245/246读取offset22000/limit1000；后者实际返回archive01-0211等原始中段，History报告total_chars42597，role=tool、source=tool、原callId保持。这里的History规范化内容长度与原工具正文长度分别计量，不混用。
+- seq250/251实际读回旧preparation Notes；seq255只交付“原件中段可读，旧记录也可读”，turn/end261完成。没有重读源Skill或文件，没有重发三todo。证明裁剪替换活动上下文后原件仍可由当前会话History分段读回，正常重启没有删除Notes/History。
+
+### 受限Skill、旧摘要与重新启用
+
+普通Agent仅业务 `['workflow']`，没有临时开放skill/read；chat `c_5ppvr208`，session `d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd`。
+
+| 场景 | 实际证据 | 结论 |
+|---|---|---|
+| 显式Skill、换窗、正常重启后按原来源恢复 | 输入 `2d010a6ca37045f8ab595490170b4b12` 的/skill:ledger-r4首次正文source=skill-invocation。主动换窗34/35/37；只读checkpoint结束。正常Node重启后首个provider请求 `17-43-33_629` 中规则正文标记0、旧索引0。新任务 `aa27755db2144060b90f1fa8cca96bef` 导致History seq57搜索，62读原用户item10、67/68读原Skill item12（role=system，source=skill-invocation）。最终 `8332dd5b225d4cef8ebe301017f035ab` 正确125/78/203和规则标记。 | PASS；正文由真实History恢复，没有自动重放或扩业务权限 |
+| 显式off与旧摘要兼容 | 产品API set_bundle=false；实际provider仅workflow。显式Skill准备回复“指南已收到”。公开 `/compact` 消息 `748efeaff1574c048c20f0da1e1ecd9c` 触发原生旧模式summary87/88/90，实际LLM摘要，UI消息 `03c9f699d99a4998bf1e874030554c81` 为“已压缩17项”。后续snapshot96包含nano-used-skills正文；新账本任务最终 `3a7f1c5aa7d8473a896e74d03358b93b` 正确54和规则标记。 | PASS；真实旧摘要模式，不仅是工具列表观察 |
+| on后再次换窗的新模式规则 | set_bundle=true后，notes111写on-checkpoint，new_context116→compaction119/120/122。`17-47-37_155` 和 `17-47-40_144` 两个实际请求的规则正文标记和Previously used Skills均0，turn_id0；四恢复工具恢复且workflow边界不变。最终API两Agent均enabled。 | **机制PASS**；不自动恢复旧正文/索引 |
+| on后这次具体任务的完成 | 用户 `1a1de8ea52764207b30165ba99cc22ee` 要求写新on-checkpoint后读它并回复“开启验证完成”。seq111确实写成功；切窗后seq126却读旧checkpoint，最终 `69297c36748e4ef1901b6cd7fce3722d` 回复“环境准备完成，等待下一条任务”。没有补救或重跑。 | **任务FAIL，R4-1**；旧笔记选择风险保留 |
+
+R4-1：major，关系为**已知持续任务恢复风险/非本轮新增裁剪回归**；建议out-of-unit继续评估广义换窗恢复，后续方案须由用户决定。R4裁剪增量的限定范围不扩成隐藏任务提示或额外协议；本轮不宣称原任务的旧状态选择问题已解决。
+
+### 继承、验证与剩余边界
+
+- R3七Skill正文总量、换窗后原生目录、六普通步骤零增长、真实recovery-1重读的证据保留：该Skill生命周期路径未失效，R4又实际验证受限模式、重启与off/on。R3原事故FAIL保留为旧候选失败基线；不能借R4避免此次换窗倒推所有不可裁剪硬溢出可恢复。
+- 只读取caller有效测试日志，不重复全套：`/tmp/bugfix629-r4-nano-tests.log` 显示107文件/484项pass；typecheck完成；`/tmp/bugfix629-r4-pytests.log` 显示62pass、31deselected。原生裁剪压力入口、仍超线、无服务和显式换窗等确定分支以caller版本绑定测试为准，不把脚本测试说成额外真人旅程。
+- 新增范围无未解决的裁剪/配对/持久化/权限边界阻塞；**广义持续任务保证仍由R4-1与R3失败阻塞**。无新的浏览器视觉界面，按runbook使用真实Web IM调用链验收，未声称完成视觉验收。
+
+### 证据与交接
+
+- 本机原生归纳：`/tmp/bugfix629-r4-e2e/b4e6877b-evidence.json`、`d7c89bcb-evidence.json`，包含prune/sourceEventSeqs/surfaceOp；产品时间线 `c_5fc89e05ee9b-timeline.json`、`c_5ppvr208-timeline.json`；fixture hash对照 `fixture-hashes.json`。原生日志在runtime `.dsh-runtime/**/sessions/**/<session>/session.v4.jsonl.zstd`。
+- PA实际provider目录 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-10-21_17-40-36_556_b4e6877b-1e6c-4f64-b878-2b41e964a3d7/`；普通Agent目录 `2026-10-21_17-41-14_591_d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/`。
+- 最后只读确认PA turn3 seq261 completed，普通Agent turn5 seq133 completed。Node1407运行，`.gateway.pid`同步；两workspace的上下文插件enabled，普通Agent保留workflow-only。所有Notes、History、数据库和资料保留；reviewer不再发测试请求，操作权归还caller统一清理。
+- 只追加此报告。未改源码、设计、生产或测试；未push、创建PR或部署。上层契约归并和残余限制说明由caller按R4明确范围维护。
