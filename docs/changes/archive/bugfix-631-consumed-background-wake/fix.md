@@ -40,3 +40,7 @@
 - Red：原实现下，“during idle observation”用例失败，已读后仍出现第二次通知；“before deadline”通过。
 - Green：`pnpm exec vitest run packages/personal-assistant/tests/personal-attention.test.ts packages/personal-assistant/tests/inbox.test.ts packages/personal-assistant/tests/global-agent.test.ts`，3 文件、56 项通过。
 - 保留既有未读合批、忙碌延期及接纳竞态、主人即时提醒、ACK 不确定恢复、来源撤销和停止计时器覆盖。
+- 在 `f3a1fb94581cba4f0e0b9e1ede0e59144c679d37` 完成本地 CI：`pnpm build`、`pnpm typecheck`；`pnpm test`（107 文件、486 项）；前端 `npm ci`、`npm audit --audit-level=critical`、`npm run test`（100 文件、936 项）；Python 非 E2E（62 项）；docs-check、ruff check、ruff format --check 均通过。iOS 按 CI 路径规则不适用。
+- 独立 code review 见同目录 `code-review.md`，full review 返回 `[]`，并独立复跑个人背景提醒测试 8 项通过。
+- final sync：`origin/main` 为 `b6050dcfc9e85209533ab11a0efd25f1358bece0`，与 executed_base 相同；审查后源码和测试未变，仅回填验证与归档，原测试与审查结论继续有效。PR 记录最终交付 head。
+- 未合并、未部署；上述测试不声明生产用户验收。
