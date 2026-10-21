@@ -50,7 +50,13 @@ it('preserves native Skill-fork wire prefixes, enforces execution-only limits an
       expect(parent.length).toBe(2);
       for (const request of child) expect(request.body.system).toEqual(parent.at(-1)!.body.system);
       expect(child.every(row => JSON.stringify(row.body.tools) === JSON.stringify(parent.at(-1)!.body.tools))).toBe(true);
-      const withoutCacheMarkers = (value: unknown) => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
+      // The adapter wraps the last user text in a block to attach its cache marker.
+      // A later runtime snapshot moves that marker, so compare equivalent text encodings.
+      const withoutCacheMarkers = (value: unknown) => JSON.parse(JSON.stringify(value, (key, item) => {
+        if (key === 'cache_control') return undefined;
+        if (key === 'content' && Array.isArray(item) && item.length === 1 && item[0]?.type === 'text') return item[0].text;
+        return item;
+      }));
       expect(withoutCacheMarkers(child[0]!.body.messages.slice(0, parent.at(-1)!.body.messages.length))).toEqual(withoutCacheMarkers(parent.at(-1)!.body.messages));
       expect(JSON.stringify(child[1]!.body.messages)).toContain('Knowledge review may only execute');
       expect(child).toHaveLength(3);

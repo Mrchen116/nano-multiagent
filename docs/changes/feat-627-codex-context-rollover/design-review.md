@@ -134,3 +134,167 @@ R1-W1、R1-W2、R1-W3 均已关闭；R1-R1、R1-R2、R1-R3 均已落实。本结
 接受 Approved 结论；复核三项阻断均已按实际公开接口闭合，无待处理实质问题。受审设计、首文档、prompt baseline、delta 与 M1 骨架在本轮后无实质变化。文档校验在干净 HEAD 加本 unit 的快照中为 0 问题；当前工作区全量校验仅保留 6 个既有无关链接问题。当前只交付设计，不将静态审查视为实现或运行验收。
 
 格式收尾：仅移除 prompt-baseline 的 diff 展示块中 3 个空白行上的尾随空格；原文和适配文本不变，R2 结论 retained，不另开实质复审。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/design627_review`（同一独立 reviewer）
+- reviewer target: 相对 `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28` 的 `spec.md`、`design.md`、`specs/gateway/agent-capabilities.md`；`prompt-baseline.md` 和此前未改变的恢复协议保留 R2 证据。
+- review_mode: `full`（从派发的 delta 扩大）
+- mode_reason: 新用户要求把可选 workspace 插件改为全部新旧 Agent 的默认机制，并新增运行依赖、迁移、空白名单例外与无 workspace 分支，已改变需求和产品控制边界；按 reviewer 的 full 触发规则检查所有受影响消费者。未改变的算法/提示词不重新开题，证据明确 retained。
+- started_at: `2026-10-21T11:08:30+08:00`
+- completed_at: `2026-10-21T11:11:49+08:00`
+- duration: `PT3M19S`
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-627`，`unit/feat-627@d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`。只追加此报告，保留测试准备及其他既有修改。
+- retained_from: `Round 2`，限于未被本次默认化覆盖的设计与已关闭问题。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 3 WARNING。**
+
+固定 release 包作为 integration 依赖、installation anchor、一次性 profile 默认迁移和原生启停的方向可行。默认化仍缺内部恢复工具的审批决定、现有真白名单契约的 MODIFIED delta，以及首个请求没有预算记录时的 bootstrap 决定。无须新增插件框架、运行时 patch 或迁移数据库。
+
+### Coverage 与证据
+
+| 范围 | 本轮核验与判断 |
+|---|---|
+| 用户约束与需求 | `spec.md` 已记录用户的“所有 agent 默认”原话，并覆盖新建/升级前已有普通、Global、Personal、子 Agent、空业务 allowlist 和显式停用持久化。独立包、不用子仓、真实长任务验收后交付仍保留。相比 R2 的可选安装，这是一项有意的范围变更。 |
+| 包锚点与共用实例 | DSH `app-boot/src/profile.ts:372-422,441-474` 从 installAnchor 的依赖/peer 图 BFS 构造 installation scope，`resolveBundleDir:695-714` 优先 installation 后 profile。integration 直接依赖插件并继续直接依赖当前 DSH/Cordis 包，使设计中的固定版本来源和同一宿主实例有公开承载点。真实路径应从 integration 包位置取得，不能假设该包目前导出了 `./package.json`；这是实现方式选择，不阻断设计。 |
+| Manifest 与 lifecycle | 已在本 worktree 的实际 `0.2.1-alpha.1` 安装中解析并动态导入 `@deepseek-ai/dsh-plugin-manager/operations`，确认 `saveManifest` 为函数。其公开实现原子保存完整 manifest，`PluginManager.selectBundle:734-752` 只改选中集合并保留其他字段。因此单次 `nano.agentContextDefaultInitialized` marker 可与原生 set_bundle 共存，之后 bundle 缺席不应再解释为“未初始化”。已有依赖但 deselected 保持停用，旧 patch 原样保留，设计闭合。 |
+| Shipped inventory | DSH `plugin-manager/src/index.ts:278-327` 列举 installation.dependencies，`installed` 指 profile 直接依赖，shipped 包 removable=false；开启状态来自 profile.bundles。Nano 当前两处 installed 过滤（`workspace-tools.ts:224,255`）确需按新设计调整为包含该 shipped 包。包解析 installation-first 可避免 profile 同名包替代实际运行版本。 |
+| 运行组装与所有 Agent | Nano `index.ts:168-179` 在实际 agent/created 路径 attach 配置/审批；`agent-config.ts` 的 preset attach 和 WorkspaceExtensions 是正确挂载点。无 workspace 分支现在明确直接挂同一 isolated 包，不创建虚假 profile。DSH `subagent/src/child-agent.ts:196-218` 先继承 preset，再叠加子工具限制；普通子任务及 Nano Workflow 的当前 parent-schema 派生工具集能够承接四恢复工具。需分别验证空业务集下的展示与真 dispatch，不能只验注册列表。当前阻断来自审批路径，见 R3-W1。 |
+| 工具与授权边界 | 四个固定 session 内部工具成为有限 allowlist 例外是用户默认机制要求的合理实现；停用后注册撤销、其它 workspace 工具不一并获权、业务操作审批仍保留，方向正确。现行审批没有此内部类别，设计不能仅以工具出现证明可用。current spec 的“任何工具均拒绝”也必须同步增量修订，见 R3-W1/W2。 |
+| C/O 与时序 | 新增从实际 `request/header.config.maxTokens` 取 O、adapterDefaults 只作来源标记是正确的；但首次 pre-step 早于 prepareCall 与初始 header/context，必须区分尚未观察与真实无合法预算，见 R3-W3。正常换窗清理待提交旧 snapshot 的 R1-W2/R2 修订未被本次改变。 |
+| Delta、milestone、runbook | 默认生效和重启停用场景已加入首文档及 ADDED delta；M1 仍以 spec 全场景收口，runbook 新增新旧 profile/各 Agent/空业务集/停用重启观察点，发布资产 frozen-lockfile smoke 与真实三窗任务分开。当前缺 MODIFIED 现有真白名单 Requirement，不能带矛盾归并。审批/首个请求验证需随修订补入现有 M1，不需新里程碑。 |
+| 保留项与架构判断 | `retained_from: Round 2`：Notes/History session 边界、原始来源、稳定窗口/事件引用、长结果恢复、compaction 严格缩短/配对、fallback 提示保真、无摘要/tail、真实任务与外部副作用验收继续适用。插件负责恢复策略，Nano 负责默认安装、工具选择和产品审批；没有理由把这些能力下放 PA/Channels 或建立第二个 loop。无新增客户端界面，不要求原型。 |
+
+### 历史问题闭环
+
+R1-W1/W2/W3 及 R1-R1/R2/R3 保持 closed；R2 无未关闭项。此次问题由新的默认覆盖范围和相关增量引出，不回写前两轮结论。author 对尚未写入冻结设计的后续修订意向不计为本轮闭环证据。
+
+### Issues
+
+#### R3-W1 — 四个基础恢复工具绕过业务 allowlist 后仍被普通审批路径阻断
+
+- **位置：** `design.md:71-72,134`；`spec.md` 的“所有 Agent 默认使用无摘要换窗且可显式回退”。
+- **证据：** 当前 `policy/approval.ts:20` 的 safeTools 不包含 notes/history/new_context/get_context_remaining；`review:99-121` 在 downstream allow 后，对它们仍执行普通审批。当 Auto 关闭且没有额外 alwaysAllowTools 配置，`review:121` 进入 `escalate`；普通人类会话返回 ask，Global/子 Agent 根据 `route:71-77` 返回 return_to_agent，继而 deny。开启 Auto 则依赖独立分类模型，不是内部上下文操作的确定路径。四工具本身只发布普通 ToolDefinition，注册存在不免除此审核。
+- **未修后果：** 合法的 Auto-off Agent 虽展示了四个工具，却无法无人干预地写检查点/主动切窗；Global/子 Agent 直接被拒。新的默认机制会在正常预算回收时阻断连续工作，不能靠扩大业务 allowlist 或 dangerouslySkipPermissions 解决。
+- **修订要求：** 明确当前 Agent/session 内部上下文工具的专门审批语义及审计来源，覆盖 nano/codex/dsh 和 Auto off，同时保留 downstream 明确拒绝与工具自己的作用域/路径校验。其它业务工具不得随此放行。用真实 dispatch 覆盖 Auto-off 普通/Global/PA/子 Agent 的四工具可用，以及业务工具仍受限；把此证据加入现有 M1。
+
+#### R3-W2 — 只有 ADDED delta，会与当前“显式空名单拒绝一切工具”契约同时成立
+
+- **位置：** `specs/gateway/agent-capabilities.md:3-15`；`design.md:136-138`。
+- **证据：** canonical `docs/specs/gateway/agent-capabilities.md:223-255` 的 Requirement 明确静态工具集恰为白名单，显式空集没有任何工具，Scenario“显式空名单的 Agent 会话拒绝一切工具调用”要求任何工具都不执行；“显式工具白名单不被默认集合自动扩宽”同样只允许 plugin_manager 的有限增量。本轮新 ADDED 要求空白名单也得到四个内部恢复工具，直接改变了这些现有消费者契约。
+- **未修后果：** 归并后同一配置同时要求四工具可用和一切工具拒绝，实施/验证会在两条权威断言间自行取舍；只新增一个要求不足以表达这次行为变更。
+- **修订要求：** 在 delta 中对该既有 Requirement 给出 MODIFIED 完整版本，保留未改变 scenarios，仅为当前已挂载的四内部恢复工具增加有限例外，明确其它业务工具和 workspace 插件规则不变；同时更新 design 的 delta 摘要。无需提前改 current spec。
+
+#### R3-W3 — 首次 pre-step 尚无有效 request header/context，缺少预算 bootstrap 状态
+
+- **位置：** `design.md:123`。
+- **证据：** DSH `agent-loop/src/agent.ts:269-285` 先进行 pre-step；到 `step:408` 才调用 prepareRequest，`prepareRequest:547-595` 才获得 adapter prepareCall 的 C/O；`buildRequest:618-625,654-665` 才写首次 request/header 和 request/context。新会话首个 pre-step 没有这些记录是正常时序，并非 Node 缺少 max_tokens 或模型配置非法。设计指定从 prepareCall 后的 header 取 O，同时仍笼统规定“无合法 C/O”就报告无法容纳，尚未明确首次请求如何进入这一步。
+- **未修后果：** 按文字实现可能在第一个模型请求前误报配置失败，或把尚不可知预算返回为 0/已耗尽；所有 Agent 默认挂载会把此前可选插件的冷启动缺口扩大到普通首次对话。
+- **修订要求：** 明确“尚无已准备请求”的 bootstrap 与“已准备但模型无合法预算”两种状态。前者通过公开模型信息读取可得预算，或暂不作压力判定并允许首次请求形成有效 header；不得报配置错误或虚构剩余值。首次 prepareCall 后再依已持久有效 C/O 判定，工具首次不可观测时如实返回不可用。保留真实无合法配置/固定输入超窗的错误及 provider overflow 兜底；增加全新 session、未显式 max_tokens 的首请求验证。无需调用 private 接口或复制 adapter。
+
+### Recommendations
+
+无额外建议。以上是三个直接影响默认机制兑现的缺口；不因未实现的运行结果或假想并发场景扩大设计。
+
+
+### Author Resolutions — R3
+
+- R3-W1 — Accepted. Design now specifies four session-local internal context operations with `internal_context` audit, after retaining downstream denial; Auto-off dispatch must be verified for all three rulesets and child/PA scope. Business authorization and recovered-content provenance remain unchanged.
+- R3-W2 — Accepted. Gateway delta now MODIFIES the complete tool_allowlist Requirement, retaining unrelated scenarios and explicitly bounding the internal-tool exception for empty selection, previews and dispatch.
+- R3-W3 — Accepted. Design now separates initial awaiting_first_request bootstrap from missing resolved model bounds; first pre-step permits DSH prepareCall, tool budget reports unavailable, provider overflow remains guarded, later steps use persisted effective C/O.
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/design627_review`（同一独立 reviewer）
+- reviewer target: R3 Author Resolutions；`design.md` 的内部审批、首次请求预算及 runbook 修订；gateway delta 的完整 MODIFIED Requirement 与新增 Auto-off scenario。
+- review_mode: `delta`
+- mode_reason: R3 已完整审查“所有 Agent 默认”的需求与组装边界；本轮收口其三个具体缺口，并检查审批例外和预算初始化对既有约束的直接影响。没有进一步改变产品范围、包生命周期或 milestone，保留此前公开接缝证据。
+- started_at: `2026-10-21T11:14:50+08:00`
+- completed_at: `2026-10-21T11:15:09+08:00`
+- duration: `PT19S`
+- retained_from: `Round 3` 的公开接缝、默认迁移、所有 Agent 覆盖及架构判断；`Round 2` 的未变恢复算法/提示词与历史问题关闭证据。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-627`。仅追加报告，未改设计或实现、未提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R3 三项全部关闭。该结论覆盖“所有 Agent 默认”的修订设计；实际实现、固定发布包与真栈连续任务验收仍须按 M1 证明。
+
+### Coverage 与证据
+
+1. **内部审批及业务边界。** `design.md:72-73` 将四工具的可见性与实际执行分别收口：仅当前 Agent/session 内部上下文操作在 downstream allow 后按 `internal_context` 放行，明确保留 deny/ask，覆盖 nano/codex/dsh、Auto off。未扩大 alwaysAllowTools，也未使用 dangerouslySkipPermissions；`design.md:137` 继续规定恢复内容不创造操作授权，PA 发送重验不变。该处理可接在 R3 已核实的 `NanoApproval.review` downstream 判定之后，无须改变 DSH 的执行拒绝边界。
+2. **契约完整性。** gateway delta 新增 MODIFIED 与 canonical 同名的完整真白名单 Requirement，明确四个内部工具是有限例外，停用即撤销，预览/下发/执行一致。独立比较原五个 scenarios：禁用默认业务工具、Cron、skill 默认上报三项逐字保留；空集合与显式白名单两项仅加入所需内部工具例外；另增 Auto-off scenario，保留底层拒绝与业务审批。这消除了 R3 的权威契约冲突，没有借默认化放宽所有 workspace 插件。
+3. **首请求预算状态。** `design.md:124-126` 选择明确的 awaiting_first_request 路径：无持久 header/context 时不发压力提示、不因未知预算切窗，预算工具返回 unavailable；由 DSH 首次 prepareCall 建立实际 C/O，随后进入既有预算状态机。已解析但仍无合法边界才报配置问题，首次 provider overflow 仍按既有规则处理。该决定与 R3 核实的 pre-step→prepareCall→header/context 顺序一致，未复制模型默认值或读取 private API。
+4. **验证承接。** `design.md:164` 已把三 rulesets 的 Auto-off 四工具真 dispatch、业务工具保持受限、首次预算 bootstrap 和首请求后有效 C/O 加入现有 runbook。保留至少三窗真实任务、最新纠正、长结果尾段、单次副作用、新旧 profile/各 Agent 类型及停用重启证据。没有用注册列表或本轮文档检查代替运行验收。
+5. **保留结论。** 默认固定包、installation anchor、公开 saveManifest、shipped inventory、单次 marker 迁移及正常启停未再变化，retained_from Round 3。Notes/History 作用域、稳定引用、正常/overflow 重建、提示词保真等 retained_from Round 2；无需重复读取第三方实现或重新审查未改需求。
+
+### 历史问题闭环
+
+| Issue ID | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R3-W1 | Accepted：内部工具专门审批并保留底层拒绝 | `design.md:73,164`；delta Auto-off scenario，明确三规则、Auto off、当前 session、internal_context 与业务约束 | closed |
+| R3-W2 | Accepted：补完整 MODIFIED 真白名单 Requirement | delta 对准原 canonical Requirement，保留三项未变 scenarios，修订两项受影响 scenarios，四工具例外有界 | closed |
+| R3-W3 | Accepted：区分首请求 bootstrap 与真实缺失配置 | `design.md:124-126,164` 明确 unavailable、允许首次 prepareCall、持久有效 C/O 与首请求验证 | closed |
+
+R1 的所有问题仍 closed，无 still-open 项。
+
+### Issues
+
+无新增 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。进入已授权的实施和既定验收即可。
+
+### Implementation evidence requiring R5 delta
+
+Full Nano regression after default activation exposed 25 failures, including native event evidence ending at the next step with `valid model contextWindow and maxTokens output reserve are required`. A real Web IM to Node to DSH to deepseek-v4-flash smoke reproduced the same terminal error. DSH pi-ai `modelInfo` deliberately sets `defaultMaxTokens` only for deployment-configured caps; provider/catalog limits are not necessarily request defaults (public source `packages/llm/llm-pi-ai/src/adapter.ts:300-315`). Omitted maxTokens is valid existing configuration, not invalid setup.
+
+The author revised only the unresolved-output-limit policy: retain actual explicit output limits; otherwise use labeled policy reserve min(32768, floor(C*0.25)), optionally configured per model, without changing model request options. Expose reserve provenance and retain real provider overflow handling. This supersedes the prior post-bootstrap requirement for a concrete maxTokens. C must still be known and valid. No new model lookup service or private DSH seam.
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/design627_review`（同一独立 reviewer）
+- reviewer target: `design.md:124-133` 的输出预留策略及上方实际实施证据说明。
+- review_mode: `delta`
+- mode_reason: 实施暴露 DSH 合法省略 maxTokens 的现状，需修正 R4 对已 prepareCall 后必有具体 O 的假设；只改变缺省输出预算策略，不改变默认覆盖范围、恢复工具、授权边界或 compaction 所有权。
+- started_at: `2026-10-21T11:27:31+08:00`
+- completed_at: `2026-10-21T11:28:04+08:00`
+- duration: `PT33S`
+- retained_from: `Round 4`，但其“已解析后仍无具体输出上限即配置缺失”的预算表述由本轮取代；其余默认安装、审批、契约、bootstrap 及恢复机制证据继续适用。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-627`。仅追加本报告，未改实现、未提交、未重跑模型请求。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+允许缺省 maxTokens，并使用明确标记的策略预留，是符合当前 DSH 契约的有界修正。原预算假设确实不能覆盖所有合法模型配置；本轮替换该假设，不回写 R4 历史结论。
+
+### Coverage 与证据
+
+1. **现状核实。** 独立读取固定 DSH 的 `packages/llm/llm-pi-ai/src/adapter.ts:300-315`：只有 deployment 配置的 configuredMaxTokens 才返回 defaultMaxTokens，catalog maxTokens 明确不是请求默认值。`packages/llm/llm/src/index.ts:883-892` 仅在存在 defaultMaxTokens 时补默认值；`929-950` 的 prepareCall 保留 resolved config，adapterDefaults.maxTokens 只是是否补入的布尔标记。因此 prepareCall 成功、contextWindow 有效但 header.config.maxTokens 缺席完全合法。author 报告的 25 项回归失败及真实 Web IM smoke 是本轮修订触发证据；本 reviewer 未重复运行这些用例，不把报告的失败数量宣称为独立复现结果。
+2. **优先级与含义。** `design.md:126` 优先使用实际请求的明确 maxTokens；仅缺省时才选择 `outputReserveTokens` 全局/per-model 策略值或默认 `min(32768, floor(C*0.25))`。这不覆盖已经明确的请求上限，也不把 catalog 能力当作配置值。request-maxTokens 与 policy-estimate 两种来源显式区分，符合预算工具必须如实标记测量来源的既有约束。
+3. **计算与错误边界。** C 仍必须合法，O 只用于计算 H/W/R；缺省 O 的 H 已明确称为预算估计，不宣称供应商保证的硬容量。显式但非法的上限/预留以及固定输入无法容纳继续报错，不把非法数值悄悄替换成策略默认。现有 `0<R<W<H` 与压力状态机保持，真实 provider overflow 仍走缩短后 retry、无进展失败的原路径。调整没有承诺突然超长结果仍必有完整保存机会。
+4. **模型请求与职责。** 策略值不写入真实模型请求、不更改 Nano 已冻结的 turn 模型配置，仅由上下文插件用于预算；无需私有 DSH 接口、额外模型 lookup 服务或第二个默认值所有者。bootstrap 仍表示首次尚无可观察请求，之后缺省 maxTokens 转为可计算的 policy-estimate，而不是永久 unavailable 或配置失败。
+5. **验证承接。** 现有 M1 的预算状态、真实压力/overflow、首次请求和长任务验证继续适用。实施复验需覆盖合法缺省 maxTokens 的后续步骤、显式 cap 优先、策略覆盖及非法值、两种 output_reserve_source，并核对真实请求没有被注入策略 cap；重跑已暴露的回归与同一路径 Web IM smoke 后，才能声称实际故障已修复。本轮仅批准设计，不以数学/静态核对替代这些运行证据。
+
+### 历史问题闭环
+
+R3-W3 的“区分 bootstrap 与已准备请求”仍成立；它及 R4 中对缺省 O 的错误假设由本轮明确纠正。R1、R3 其余问题保持 closed，没有新增未解决的设计项。
+
+### Issues
+
+无新增 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。按修订策略修复实现并执行既定复验即可。

@@ -1,21 +1,22 @@
 /** Workspace ownership around native DSH package installation and scoped plugin trees. */
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import ContextRolloverEngine from 'dsh-agent-context';
+import { agentContextBundle, initializeContextProfile } from './agent-context.js';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import { Loader, EntryTree, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
 import { PluginManager, type ChangeResult } from '@deepseek-ai/dsh-plugin-manager';
 import type { PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types';
-import { type ProfilePnpmInvocation, type RuntimeResolution, PluginPackages, composeEntries, createRuntimeResolution, initProfile, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
+import { type ProfilePnpmInvocation, type RuntimeResolution, PluginPackages, composeEntries, createRuntimeResolution, loadProfileDirectory, readProfileManifest } from '@deepseek-ai/dsh-app-boot';
 import { auditRows, leakedServices } from '@deepseek-ai/dsh-agent-preset-registry';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
 import type {} from '@deepseek-ai/dsh-hmr';
 import type { AgentConfiguration } from './index.js';
 import { describePluginApi, pluginApiTopics, type PluginApiTopic } from './plugin-development.js';
 
-const require = createRequire(import.meta.url);
-const anchor = require.resolve('@deepseek-ai/dsh/package.json');
+const anchor = fileURLToPath(new URL('../package.json', import.meta.url));
 const inside = (root: string, path: string) => { const value = relative(root, path); return value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value); };
 interface Mount { ctx: Context; config: AgentConfiguration; tree: EntryTree; namespace: string; baseline: Set<string>; tools: string[] }
 export interface PluginCommand { action: 'list_bundles' | 'describe_api' | 'install_bundle' | 'set_bundle' | 'remove_bundle'; topic?: PluginApiTopic; target?: string; enabled?: boolean; approvedBuilds?: string[]; registry?: string }
@@ -62,7 +63,10 @@ export class WorkspaceExtensions {
    *   config: Node-owned workspace and capability selection.
    */
   async attach(ctx: Context, config: AgentConfiguration): Promise<void> {
-    if (!config.workspace) return;
+    if (!config.workspace) {
+      await ctx.isolate('compaction', Symbol()).plugin(ContextRolloverEngine, {modelSurface: 'always'}).await();
+      return;
+    }
     const workspace = await realpath(config.workspace);
     let pending = this.owners.get(workspace);
     if (!pending) {
@@ -120,8 +124,8 @@ class WorkspaceOwner {
   private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string) => void) {}
   static async create(host: Context, workspace: string, changed: (agentId: string) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
-    // A workspace owns an empty profile, not a second base runtime. initProfile preserves existing state.
-    initProfile(dir, []);
+    // The profile owns only extensions; its default migration never rewrites user patches.
+    await initializeContextProfile(dir);
     const managerRoot = new Context();
     managerRoot.provide('profileContext', { name: 'workspace', dir, patchPath: join(dir, 'cordis.patch.yml'), installAnchor: anchor, cwd: workspace,
       home: dir, startedBundles: [], overlays: [], telemetryDisabledEnv: '1', ...(packageManager ? { packageManager } : {}) });
@@ -222,7 +226,7 @@ class WorkspaceOwner {
     return source;
   }
   private async entries() {
-    return (await this.managerRoot.pluginManager.listBundles()).filter(bundle => bundle.installed).map(bundle => {
+    return (await this.managerRoot.pluginManager.listBundles()).filter(bundle => bundle.installed || bundle.name === agentContextBundle).map(bundle => {
       const diagnostics = [...(bundle.error ? [bundle.error.diagnostic ?? bundle.error.code] : []),
         ...this.diagnostics.filter(message => bundle.rows.some(row => message.startsWith(`${row.rowId} (`)))];
       return { name: bundle.name, display_name: bundle.meta?.title ?? bundle.name, description: bundle.meta?.description ?? bundle.description ?? '',
@@ -287,7 +291,9 @@ class WorkspaceOwner {
             result = {...result, enabled: false};
           }
         } else {
-          if (!(await manager.listBundles()).some(bundle => bundle.name === args.target && bundle.installed)) throw new Error('Bundle is not installed in this workspace');
+          const selected = (await manager.listBundles()).find(bundle => bundle.name === args.target && (bundle.installed || bundle.name === agentContextBundle));
+          if (!selected) throw new Error('Bundle is not installed in this workspace');
+          if (args.action === 'remove_bundle' && !selected.removable) throw new Error('Shipped bundle cannot be removed; disable it instead');
           if (args.action === 'set_bundle') {
             if (args.enabled === undefined) throw new Error('enabled is required');
             result = await manager.setBundleEnabled(args.target, args.enabled);

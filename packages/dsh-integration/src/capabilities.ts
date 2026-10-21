@@ -7,6 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem';
 import type { SkillCandidate, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import type { AgentConfiguration } from './index.js';
+import { contextTools } from './agent-context.js';
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
@@ -25,7 +26,7 @@ export class ToolSelection {
     const allow = config.toolAllowlist;
     if (allow === undefined) return names;
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
-    const selected = new Set([...allow, ...installed]);
+    const selected = new Set([...allow, ...installed, ...contextTools]);
     return names.filter(name => selected.has(name));
   }
   attach(agent: Agent, config: AgentConfiguration) {
