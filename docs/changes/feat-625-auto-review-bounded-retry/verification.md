@@ -332,3 +332,63 @@ pnpm exec vitest run \
 ### 现场与交付限制
 
 自建前核对新绝对路径/branch不存在，新建于validated_at：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r3` / `review/feat-625-r3`；本人为owner，**保留续验**。R1/R2旧现场与原报告未动。只提交本R3 JSON和verification追加，不改产品/测试/fixture/设计；不push unit、不Inbox/conversations/taskgraph/公开消息、不派子agent、不canonical/archive/PR/merge/deploy。唯一后台install/build/tests job已结束收集，无启动IM栈，无需交接运行服务；没有创建或公开raw prompt/DB/config证据。父E请将R3-W1交原实施者修复，修后按新增导出失败影响范围复验，不因测试设施修复失效整个产品full。
+
+---
+
+## Round 4 — targeted closure of native evidence cleanup
+
+### Summary / 版本与范围
+
+**Verdict: PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION（本轮targeted范围）。R3-W1 closed。** 原R3 FAIL与finding原文保留，不追改为PASS；原产品R2-W1 closed及full未受影响范围retained。没有以本轮设施closure替代独立产品Q、corrected-delta、final sync、CI或Ready PR门禁。
+
+| 字段 | 值 |
+|---|---|
+| validated_at | `89f2a20da49e3d3741b47fede35b33bb06893f3d` |
+| pre_fix_head / finding_origin_head | `2f519f659b114003d35f2fcc2305469f6e40962c` |
+| executed_base | `861b94129bc8c5aadbca76967268fd203fe04112`（原Full base，不改写） |
+| code_review_mode / verification_mode | patch + closure / targeted-closure |
+| fix_delta_range | `2f519f659b114003d35f2fcc2305469f6e40962c..89f2a20da49e3d3741b47fede35b33bb06893f3d` |
+| substantive patch | `3ba1e3539..89f2a20da`：native测试、tests helper、错误路径长期测试、progress，4文件 / +193 -20；此前仅整合原R3报告 |
+| focus_findings / validated_issues | R3-W1（导出失败跳过runtime关闭与home清理）/ **closed** |
+| independent code-review output | `code-review-r4.md`，JSON `[]`；此段为独立verifier输出与closure说明 |
+| requires_full_verification | **false**；本轮不影响共享产品边界，无需重新full |
+| effective_base / effective_through | 未建立；没有final sync，不外推后续SHA或main |
+
+完整读取4文件patch、新helper及实际native调用方，并核对AGENTS、testing.md、worktree-runtime.md:14–21的进程所有者清理契约。先前Full契约和current spec核对沿R1/R2 retained；本轮无产品/配置/spec/design改动，没有静默修改契约迎合实现。Prototype / Reference：N/A，无前端变更。
+
+### Completeness / Correctness / Coherence
+
+| 关联契约 / 触发 | 实现与长期保护（均在 `packages/dsh-integration/tests/`） | 核定 |
+|---|---|---|
+| 前置mkdir / observation写入失败不能跳过关闭 | `native-review-evidence.ts:22–35`将导出拒绝记为diagnostic，finally仍调用shutdown；`.test.ts:30–44`注入两种前置故障 | covered；不吞故障换绿 |
+| 后置mkdir / fixture读取 / 写入失败仍清理home | helper:37–52嵌套finally保证继续尝试rm；只有ENOENT代表缺失文件，其余读取错误传播为fixture export diagnostic；tests:30–44、101–111覆盖后置三类失败与缺失文件 | covered；不把磁盘/权限读取故障伪装成缺文件 |
+| shutdown拒绝不能阻止home清理；rm拒绝必须报告 | helper:34–52按阶段捕获；tests:30–44覆盖shutdown、rm拒绝，57–64同时导出/关闭拒绝仍到rm | covered；只证明调用与错误可见，**不是shutdown失败时进程也已退出** |
+| 原错误身份、附加故障与多错误保留 | helper:55–59无附加故障重抛原对象；有附加故障AggregateError以原错误为首项及cause，其余保留阶段标签/原cause；tests:30–64、88–93 | covered；原native catch仍用原有日志/observe包装，`codex-approval-native.test.ts:87–94`只是将该错误传给finally，不改业务assertion |
+| 成功测试遇导出故障仍失败 | helper:55–57即使无primary也抛AggregateError；tests:47–55 | covered；非best-effort静默通过 |
+| 输出目标不得误删 | helper唯一rm参数为调用者新建home（:50–51）；实际调用方:10、90–93传入本测试mkdtemp根，evidence只用于mkdir/write | tests:66–85用**真实fs普通文件目标**触发两次EEXIST，home stat为ENOENT、输出文件原文不变；shutdown是计数替身，不是实际runtime |
+| 无opt-in与成功顺序保持 | helper:28、39跳过导出，不跳过shutdown/rm；fixture复制在shutdown后；tests:95–111 | covered；原native预算320000及默认90秒×3、assertions均不变 |
+
+提取逻辑只存在tests辅助模块，不进入产品exports/运行时，不新增DSH private import、fork/patch、第二loop或公共日志。长期测试落在能注入fs/shutdown拒绝的最低测试设施seam；真实fs用例补充输出目标保护，不与产品HTTP/IM旅程重复。注入测试记录的shutdown与rm是接口调用/错误控制流证据，不等同完整native测试或真实进程退出证据。
+
+### 独立命令与证据
+
+全部在本人新建R4 worktree，冻结HEAD=validated_at；Node v25.8.2 / pnpm11.7.0 / frozen DSH0.2.1-alpha.1。
+
+| 命令 / 检查 | 本轮结果 |
+|---|---|
+| `pnpm install --frozen-lockfile` | exit0，锁文件不变 |
+| `pnpm --filter @nano/dsh-integration... build` | exit0，product-contracts + integration编译 |
+| `pnpm exec vitest run packages/dsh-integration/tests/native-review-evidence.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/review-audit.test.ts` | **exit0，3 files / 47 tests passed，2.78s**（13 cleanup / 7 lifecycle / 27 audit） |
+| `pnpm --filter @nano/dsh-integration typecheck` | exit0；按包tsconfig检查src，不宣称此命令另行typecheck了tests |
+| `git diff --exit-code 2f519f659 89f2a20da -- <integration/src、product-contracts、apps、PA、channels、pnpm-lock.yaml>` | exit0；产品树/锁未变，原产品R2 closure与R3产品retained的直接版本依据 |
+| `git diff --exit-code 29dc06f7c 89f2a20da -- <code-review-r3.md、verification.md>` | exit0；原R3两报告逐字保留（追加本段之前） |
+| `git diff --check 2f519f659..89f2a20da` | exit0 |
+
+作者progress:184–194的红测9fail/3pass→13pass、contract28/docs-check252为带版本/命令的补充工程证据，**不是本轮独立重跑结果**。本轮未启动native/IM，也未重跑90秒×3、全部真IM、contract或docs-check；对本finding所需的异常控制流与真实fs输出保护已有直接证据。Q在其独立现场续验，结论不由本静态报告代理；本轮不重新判定此前产品旅程事实。
+
+### Issues / 交接现场
+
+- **0C / 0W / 0S；R3-W1 closed，无still_open或superseded项，无需追加独立候选核验。** 原产品R2-W1不重开；其他Full契约只保留适用证据，不称本轮全部重新执行。若后续产品源码、helper调用契约或预算改变，应按实际影响重判门禁有效性。
+- 创建前确认绝对路径和branch均不存在，创建于冻结SHA：`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r4` / `review/feat-625-r4`。本人creator-owner，**保留续验**；R1/R2/R3现场、原报告和作者冻结现场未覆盖。
+- 两个后台安装/build/tests jobs均exit0且已收集；本轮没有启动IM/Gateway/native runtime或遗留自建服务。真实fs回归仅建立并自行清理测试临时目录，不创建raw prompt/DB/config产物。
+- 只提交R4 JSON与verification追加段，不改源码/测试/配置/设计，不push共享unit、不Inbox/conversations/taskgraph/公开消息、不另派worker，不canonical/archive/PR/merge/deploy。父E收集报告commit后整合；报告commit本身不改变validated_at或建立effective_through。
