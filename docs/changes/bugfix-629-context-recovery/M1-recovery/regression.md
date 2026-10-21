@@ -196,3 +196,37 @@ Recent notes (up to 5, most-recent first):
 - 首postreset请求定位保存在 `first-postreset-request-path.txt`；原路径 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-10-21_17-41-14_591_d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/2026-10-21_18-02-07_543-req-anthropic_messages.json`。
 - 原生日志仍在 `/tmp/bugfix629-r4-runtime/.dsh-runtime/**/sessions/**/d7c89bcb-bfc5-4e8d-9f75-fc3eb32bd7cd/session.v4.jsonl.zstd`。本轮已结束，无reviewer新请求在途。
 - Node状态文件PID **4684**；reviewer未启停服务，IM保留运行。runtime `/tmp/bugfix629-r4-runtime` 的独占操作权交回caller清理；不新增实验。只提交本报告，不push、不改实现或设计。
+
+---
+
+## 最终范围判定 — 按用户授权交付，强制恢复限制移交 #377
+
+> 范围收口提交：`34e0ab6d924821d0ded6a8ce8088cba9b456c718`。用户明确要求先合并部署本次修复、先恢复可用，强制换窗后选错旧Notes另留跟进。此节仅复用既有证据并调整交付裁决，不新增测试、不启动服务，也不将文档提交冒充新的实测实现版本。
+
+### 最终 Verdict：PASS（用户确认的本次交付范围，保留已知限制）
+
+**已验证的修复可交付。** R4真实Web IM旅程证明：稳定上下文贡献与原生压力裁剪让同25份资料的任务保留在有效窗口中，模型正确完成并只交付一次；Skill按需读取、受限来源、正常重启、旧摘要回退与重新启用的新模式机制已有对应证据。不存在需要为这些已验证行为再重复全套验收的新增产品证据缺口。
+
+**通用强制恢复没有因此通过。** R3原事故强制换窗后的任务丢失、R4-1及R5选错旧Notes的真实失败全部原样保留。按用户明确范围决策，移交 [#377 — 强制换窗后的旧 Notes 选择与当前任务恢复](https://github.com/Mrchen116/nano-multiagent/issues/377)，不再作为本次已验证修复合并部署的阻塞项；它仍是未解决的产品限制，不能改写成模型已正确恢复当前任务。
+
+| 最终交付项 | 判定与证据 |
+|---|---|
+| 无变化Skill正文不随普通进展反复复制；新模式目录/正文生命周期 | PASS；R3七Skill及六步骤、R4重启与off/on实测保留。 |
+| 接回原生裁剪，同25资料保留新Inbox并单次完整交付 | PASS；R4原生32次prune、25工具配对、原请求保留、正确三todo一次落库。 |
+| 原始记录、来源与权限边界，正常重启和旧摘要回退 | PASS；R4原始中段History分段恢复、workflow-only原skill-invocation恢复、正常重启及真实/compact证据。 |
+| Notes提示格式对齐 | 格式接线PASS；R5首postreset请求已显示最新路径在首位及行数/UTF-8大小。其任务选择效果仍FAIL，不能用格式正确替代恢复成功。 |
+| 不可避免的强制换窗后，总能识别最新未完成任务 | **未解决，FAIL保留并移交#377**；不属于本次用户确认的阻塞范围。 |
+
+Highest Required Action：**out-of-unit（#377）**。本次已验证交付范围没有剩余产品验收阻塞；重大已知限制仍需后续处理，不能宣传为通用换窗恢复保证。未由reviewer创建新的外部issue。
+
+### 原生产请求回放：补充证据，不冒充独立Web IM验收
+
+本轮读取并对照了 [production-replay.md](production-replay.md) 与本机 `/tmp/bugfix629-prod-replay/evidence-summary.json`。该回放由root执行，reviewer未独立重跑：从原生产已完成turn边界seq6822复制前缀，按原顺序恢复scheduled wake与原Inbox消息；真实模型读取原日记并向隔离sink调用一次实质todo答复。
+
+汇总显示10个真实请求的runtime snapshot数量恒为5，输入含缓存从173612到175942，仅增长2330；新Inbox原文在其读入后的5个请求中持续存在，0换窗、0工具错误、1份实质todo结果，正常completed。它补充支持“原生产请求在稳定上下文窗口内可以继续完成”，不证明不可避免强制换窗后的选择正确。
+
+其消息输入由测试边界回放、外发由本地sink捕获；**不是独立Web IM产品落库、真实飞书回执或生产部署验收**。对应源码/固定包与隔离边界以该报告为准，不覆盖或重写R4/R5各自的validated版本和结果。后续原生适配接线的实现门禁由对应验证报告负责，本reviewer不增加未实际执行的产品旅程声明。
+
+### 交付与现场边界
+
+本节只收口验收报告，不实施合并或部署。生产是否更新、连接是否持续、用户是否实际收到新版本回复，应由后续部署验收单独证明。已归还的运行环境操作权保持不变，本轮未启动或接管任何服务。只提交本报告；此前原始失败、证据路径及known limitation均保留。
