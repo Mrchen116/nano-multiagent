@@ -69,6 +69,9 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     };
     await start();
     expect(await capabilities('tools-a')).toContain('plugin_manager');
+    const defaultBundles = await manage({action:'list_bundles'});
+    expect(defaultBundles.error, defaultBundles.text).toBe(false);
+    expect(JSON.parse(JSON.parse(defaultBundles.text)[0].text).entries).toEqual(expect.arrayContaining([expect.objectContaining({name:'dsh-agent-context',enabled:true})]));
     expect((await capabilities('tools-empty')).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes']);
     for (const topic of ['tool', 'prompt', 'service', 'events', 'compaction']) {
       const api = await manage({ action: 'describe_api', topic });

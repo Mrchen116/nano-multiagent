@@ -256,7 +256,7 @@ class WorkspaceOwner {
   }
   command(args: PluginCommand, callId: string, signal: AbortSignal): Promise<unknown> {
     // Reads must never sit behind an operation waiting for the calling Agent to become idle.
-    if (args.action === 'list_bundles') return this.managerRoot.pluginManager.listBundles().then(entries => ({profileDir: this.dir, entries: entries.filter(bundle => bundle.installed), diagnostics: this.diagnostics, ...(this.pending ? {pending: this.pending} : {})}));
+    if (args.action === 'list_bundles') return this.managerRoot.pluginManager.listBundles().then(entries => ({profileDir: this.dir, entries: entries.filter(bundle => bundle.installed || bundle.name === agentContextBundle), diagnostics: this.diagnostics, ...(this.pending ? {pending: this.pending} : {})}));
     if (args.action === 'describe_api') return Promise.resolve(describePluginApi(this.workspace, args.topic));
     if (this.pending) return Promise.resolve({application:'failed', error:{code:'busy',diagnostic:'A workspace plugin change is pending. Finish this turn and retry later.'}});
     const task = this.chain.then(() => this.execute(args, callId, signal));
