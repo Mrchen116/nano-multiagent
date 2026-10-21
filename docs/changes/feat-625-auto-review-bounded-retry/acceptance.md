@@ -361,3 +361,107 @@ N2 `.e2e-feat625-q-r2-native/{observation.json,reviews.jsonl,agents.jsonl,dispos
 - 21个独立IM栈的finally均执行paired down；2026-10-21T17:23:57Z `.e2e-feat625-q-r2-output/cleanup-check.json` 独立检查 **21个IM端口+21个fixture端口全部无LISTEN、无PID文件、本worktree IM/Node/DSH/fixture进程均无残留**。native无超时孤儿，创建/释放证据相符；未广泛kill、未删证据或动共享代理/生产。未启动浏览器。
 - [x] `SPEC.md`、`AGENTS.md`/`CLAUDE.md`、`docs/specs/CONTRIBUTING.md`：无需本轮变更；[x] `docs/specs/gateway/agent-capabilities.md`：仍需由E在最终版本归并bounded retry/预算/终态契约，沿R1记录，本reviewer不改设计/current契约。
 - 仅本报告追加内容提交到独立 `q/feat625-acceptance-r2`；报告commit不改变本轮validated_at，也不替新实现SHA背书。原始证据在本机保留。主Q负责来源群交付，E负责整合，不自动merge或部署。
+
+---
+
+## Round R3 — main 同链路语义集成后的定向续验
+
+> Validation snapshot: `18e1af8b1cd0834ae3f22f5780f2d50b740f5171 → 22114489ba131fbf847b60e0a4ca730d61471796`
+>
+> unit_id: feat-625-auto-review-bounded-retry · review_round: R3 · mode: targeted · revalidation_mode: targeted
+>
+> 2026-10-21 UTC；来源仍为 `c_fqyj3bvq` / `tg_e33bc1fd/n5`，主Q接单回执 `f5386d3e202548c8aff38d2e24a61c52`。独立产品角色续跑，R1 FAIL、R2 PASS及各自版本/现场完整保留。
+
+### Verdict
+
+**fail（新集成版本的必要体验证据未闭环；相关 Scenario 为 inconclusive，不等于已证明审核算法或授权存在漏洞）**。
+
+- Highest Required Action: **fix-implementation**；新增 findings **1 major / unclear**：Q625-R3-01，交E判真启动/运行阻塞并恢复可复验条件，不要求无证据修改产品源码。gh_issues_filed: 0；needs_re_review: **true**。
+- 17 Scenario 本轮组合结论：**11 pass、6 inconclusive**。新树两个真实 IM context 链成功；其余若干先前观测可按下表具体保留。但新的 profile/Inbox/permission 同链路影响，使 R2 的 source、stop/fallback、native owner和真vendor插件结论不能整体移植。
+- 本轮不能建立整体 `effective_through=22114489…`，报告提交/可获取不等于产品通过、CI有效或允许合并部署。历史 Q625-R1-01/02 在 R2 版本上的 closed 不被改写；本轮记录新的集成证据缺口。
+
+### 版本、准备、范围与体验判据
+
+- 新 worktree `/Users/czj/.nanoassistant/workspaces/nano-quality/.worktrees/q-feat625-acceptance-r3`，分支 `q/feat625-acceptance-r3`；开跑、清理后 tracked clean，HEAD 精确冻结 `22114489…`。不 pull、不切移动 ref、不动 R1/R2 场景；报告 commit 的 parent 保持该 validated_at。
+- 自行准备 Python3.11.13 `.venv`、pip dev、pnpm frozen install、`pnpm build`、frontend npm ci/build，均 exit0。installer 候选 SHA 为 `22114489…`，digest前缀 `1c72f8783daf`；DSH0.2.1-alpha.1、`dsh-agent-context@0.3.0-rc.5` 实际安装。frontend build 8m51s，原 chunk/import warnings及 npm 5 low / 1 high未为验收修改依赖。
+- 按 spec17场景、design、原 reviewer-runbook及 final-sync-handoff 的中性命令/版本/输入预期选择影响范围。main的默认context bundle/profile/inventory/压力裁剪/四内部工具直接影响上下文、准入与插件发现；durable Inbox/wake、发送/确认/恢复与permission identity影响来源及控制链。仅看 name-only和契约，不读实现 diff定位根因、不兼静态审；工程/静态成功叙述不作为产品证据。
+- 新栈均使用专用测试身份、独立owner root/workspace/DB/端口/node identity/DSH home；HTTP/WS真实 IM入口，不用runtime submit。受控模型 `anthropic/main` / `anthropic/review`，effort=low。真vendor计划沿R1 main DeepSeek / reviewer `codexOAuth:gpt-6.1-sol`，本轮栈未进入业务，**不声称已确认本轮vendor可用性**。
+- 默认profile可能影响安装发现，故独立决定 S17需最小双策略真vendor自主创建→安装→180/55→拒绝负金额/负限额复跑，不能沿用R1插件PASS；实际两栈均停在Gateway启动，尚未发送插件任务。
+- Reference Artifacts Reviewed: **N/A**，本unit无新客户端面/原型must-match；实际 viewport **N/A**，未运行浏览器或声称视觉通过。真实Work/发送路径变化纳入功能影响，不以构建产物存在代替用户完成。
+
+### 用户旅程与整体可交付性
+
+分段单栈运行时，用户连续三个受审动作的第一条成功，第二条在缓存上遇context错误并重建、随后503后转干净full成功，第三条复用该成功reviewer的delta；副作用恰好三次。另一条链第二次context错误不再次扩额，进入真实WS人工审批并deny，后续动作新full成功，总副作用两次。这两条新树真实产品证据成立，恢复无需用户重发同一工具。
+
+但同轮的required-action单Agent场景与真实绑定PA source场景，均有Gateway startup timeout，未走到预期业务步骤；两条真vendor栈也未开始smoke/插件。首次矩阵虽留下两个实际Codex成功动作及trace，整条矩阵仍未完成，不能宣称四种stop或各fallback经过本轮体验。用户完整任务在本次可用环境里无法稳定开始/完成，故不能放行；没有将初始化失败伪装成“模型拒绝”，也没有借少数成功动作消除其余必要证据缺口。
+
+### 新执行证据与异常分层
+
+以下路径均相对R3 worktree；未写目录的 `.log` / 汇总 `.json` 均位于 `.e2e-feat625-q-r3-output/`。原始日志/配置/DB/prompt仅本机gitignored保存，不提交。
+
+| ID / 层 | 实际运行结果与本地定位 | 能证明 / 不能证明 |
+|---|---|---|
+| C3 / 真IM+受控HTTP，分段 | `context-isolated-b.log`：allow链1 pass /108.40s；`context-isolated-c.log`：context封顶链1 pass、required-action启动失败1 /232.14s；各成功场景 `context-combination-export.json` | 两条context/service/full/cache链实际闭环；required准入未进入业务，不能沿用R2准入成功当本轮绿 |
+| T3-partial / 真IM+受控HTTP | `.e2e-feat625-q-r3-retry-a/test_auto_review_http_recovery1/` 的fixture、approval domain及`retry-effects.txt`；整体job exit1、第二策略completion polling超时 | Codex两个动作实际503→allow、503→malformed→allow，各效果1；不是整个矩阵通过、不是stop证据，也非真vendor故障 |
+| P3 / 真PA IM source | 首批 `source.log`：首例失败、第二例全局超时在register_or_login；独立串行 `source-isolated-b.log` 首例direct/same/nano在单Agent Gateway启动失败，124.65s，`-x`后其余11例未执行 | 本轮没有完成分页/PTC/sent-held/restart/compact/child的完整新观测；不把未运行11例写成失败或通过 |
+| N3 / native与确定性边界 | `native.log`：7文件47tests，41pass、6timeout，330.36s；Guardian320s、owner30s、quarantine35s、personal-security3例20/20/30s均原限超时；预期native导出目录未生成 | audit27、source4、lifecycle7、effort3实际通过；新的真实native fork/owner/late Guardian缺证据，不用其他41例补齐 |
+| A3/PA3 / lower+PA边界 | `context-boundary.log`：9文件65tests，52pass、13timeout，136.78s；其中source8/parser-admission7、PA16/inbox11/attention9及model-policy手动compact1通过 | 真实来源投影/PA披露/observer等lower补充仍有效，不替代P3产品链；history/capabilities/model-policy/default profile其余超时保留 |
+| I3 / 原期限串行native复核 | `context-default-isolated.log`：单文件、maxWorkers1/no-file-parallelism，5/5原期限超时，124.88s，期限30/15/25/25/25s | 降并发后仍未得到该入口绿；不以负载为全因，不擅自提高deadline |
+| L3 / 真vendor准备 | `.e2e-feat625-q-r3-live-{nano,codex}/{up.log,meta.json,down.log}`；两栈Gateway startup timeout，整次含清理分别238.47/234.38s、down0 | 未进入业务；没有插件/180/55/负例新证据。R1真实调用事实仍只属于旧版本 |
+| 初始现场 | `context.log`：首例失败，第二例全局超时在paired teardown；`.e2e-feat625-q-r3-context-a/.../gateway.log`有`INACTIVE_EFFECT`及relay ready/stopped | 记录运行时原始现象，不据栈文本定位实现或推定漏洞 |
+
+首批两套supplemental共112个不同tests，实际93pass/19timeout；串行I3是其中5项复跑，不叠加统计。**本轮不是21个E2E+96全绿**；该数字仅属R2。成功C3为两个E2E tests，T3-partial为同一未完成测试里的两个动作，二者不混计。
+
+### 精确的新树context/trace定位
+
+| C3链 / 中间动作 | conversation / message | call / review | 实际结果 |
+|---|---|---|---|
+| context→503→allow | `c_6wm0ighq` / `e558373bc2e94a858c0a7af9a6dd6dd9` | `effect-codex_context_chain_allow-1` / `38345d5a-a9fd-4bc6-8d55-f94e5dd5b749` | context1/retry1/format0，两个attempt各90000；request序列allow/context/503/allow/allow，session I/I/R/F/F；后续delta，总3效果，无失败history |
+| context→503→context | `c_gycue8pp` / `95bfa2a15a254b938e9285f612feb132` | `effect-codex_context_chain_context-1` / `06a3bbf3-10ca-410c-98df-6ba60899f6c6` | context1/retry1/format0、interactive_pending、真WS deny；再无第二次rebuild；后续新full，总2效果 |
+
+C3原始目录分别为 `.e2e-feat625-q-r3-context-isolated-b/test_guardian_context_rebuild_0/` 与 `...-context-isolated-c/test_guardian_context_rebuild_0/`；脱敏汇总 `context-observation-summary.json`。T3-partial主session `1f6e75b6-e417-460c-a91a-0b715e64cab0`，首消息 `3a69d806e0d544d692ddad536375ad4a`；call `effect-codex_success` / review `4a365c59-9482-4b7e-b8cd-8d0e373c8000`，retries1/format0；call `effect-codex_mixed` / review `6cd8e342-2589-4431-ab8c-b2f20430a55c`，retries2/format1。trace均complete、route allow、budget90000；效果文件各一行，不以HTTP allow替代工具执行或公开送达。
+
+### 资源条件、分段复核与问题路由
+
+- 初始并发批次与frontend build发生重叠；2026-10-21T18:25Z host load约611/460/282，随后多个工具实际返回 **ENOSPC: no space left on device**。此为明确设施阻塞/资源关联，不是625实现根因证明，也不将自己的并发观测策略造成的干扰包装成产品缺陷。
+- 清理本轮精确归属遗留后，18:41Z load约12/31/108、可用盘约1.4GiB；18:44Z约23/29/92、1.7GiB。未删除他人数据、未停共享/生产进程、未改系统睡眠设置。此后仅串行批次，原deadline不变；I3仍5超时，C3两例通过但required启动失败，P3单Agent仍启动失败。没有“反复直到绿后丢弃红测”。
+- 全部长命令仅生命周期`caffeinate -i`。本轮不以R2的无Sleep日志或作者睡眠解释为新树证据；没有延长测试上限或生产30/60/90秒预算。
+
+| # | Severity / Regression Relation | 期望、实际及复现定位 | Recommended Action / Rationale |
+|---|---|---|---|
+| Q625-R3-01 | **major / unclear** | 集成版本应能在授权隔离环境完成受影响的完整产品链。实际首次批次初始化/终态多处超时并遇ENOSPC；资源回升后原期限串行I3仍5超时，C3 required及P3单AgentGateway启动失败，N3 owner/fork缺证据、L3未进入插件。C3两条成功与T3部分成功均如实保留，但S9/S11/S13/S14/S15/S17未闭环；详见上表日志、精确场景和持续时间 | **fix-implementation**：E先判真运行/初始化阻塞并提供可复跑条件；可能是设施、环境或产品生命周期，Q不猜原因、不要求无证据改源码。随后在精确冻结版本复验required admission、完整PA来源/恢复、stop/人工allow_once/Global-child/无人值守fallback、native owner/late及最小双vendor插件。若版本变化另建新Round保留本轮。不得以静态closure、lower绿或旧Q PASS豁免 |
+
+只有一个集成证据/可执行性阻塞finding，不把其覆盖的每个未运行场景捏造成独立产品缺陷。尚未观察到授权扩大、重复执行或负数规则违约；也未获得足以排除这些相邻回归的新树必要体验证据。
+
+### 17 Scenario 逐项本轮结果与retained边界
+
+期望来源沿R1的 `spec.md` 标题/行；以下retained只指未变的625次数/类型/计时/两阶段具体规则，不替代main改变的profile、Inbox/permission控制及插件旅程。
+
+| Requirement / Scenario | 本轮结果 | 新执行 / 精确保留事实及影响依据 |
+|---|---|---|
+| 临时失败有界恢复 / S1短暂故障 | pass | T3-partial实际Codex503恢复一次效果；R1 M的CC503/429和native transport分类观察保留，错误分类/恢复算法不在本次语义delta；完整来源控制另由S9阻塞 |
+| 同上 / S2共享额外两次 | pass | C3两链context1+service1、再次context封顶，T3 mixed2/format1；R1 B timeout混合及跨stage共享规则不变而具体保留 |
+| 完整判断预算 / S3 CC阶段 | pass | 保留R1 M/B实际30/60/60秒及有效s1不重跑，R2 T2阶段故障事实；本次不是阶段计时/算法改动，未称本轮重新实等60秒 |
+| 同上 / S4 Codex | pass | C3新context/service两个attempt均90000且封顶；保留R1真实90秒恢复计时。N3未完成三次90秒不被算作通过，相关native生命周期缺口列S9/S11 |
+| 同上 / S5有界等待 | pass | 仅保留R1 B三timeout最多两次额外及过长Retry-After分流的既有计时/次数契约；不把本轮Gateway启动等待冒充review尝试或新90秒全程证据 |
+| 格式子额度 / S6首次格式 | pass | T3-partial新503/malformed/allow共2、format1、一次效果；R1 M双策略empty有效恢复事实和未变parser分类具体保留 |
+| 同上 / S7再次格式或先耗尽 | pass | R1 M/B二次格式和首次格式发生在总额耗尽后的边界保留，恢复子额度算法未变；本轮T3混合计数与N3 audit补充，不声称重做所有反例 |
+| 授权/策略 / S8 CC两阶段deny | pass | 保留R1 M/B及R2 T2有效s1非allow→s2、最终deny零执行的两阶段规则事实；main不是CC阶段路由重写，真实permission交互受影响部分另由S13阻塞 |
+| 同上 / S9 Codex检查/授权 | **inconclusive** | C3恢复连续性通过，N3 source/lifecycle、A3/PA3补充通过；但新required准入、真实PA分页/PTC/sent-held/restart/compact及native owner/fork/late未闭环，不能保留R2整项PASS |
+| 同上 / S10永久错误/有效deny | pass | 保留R1 M/R2 T2的401不重试、有效deny不作故障恢复具体规则；这些typed分类/两阶段语义未变。未以本轮无模型请求的启动失败冒充永久错误测试 |
+| 取消优先 / S11请求/退避stop | **inconclusive** | N3 audit27的取消持久化确定性窗口通过；本轮真实stop测试未到达、native quarantine超时，新permission/控制链不能由R2 stop整项继承 |
+| 同上 / S12非主动超时 | pass | 保留R1 M/B真实30/60/90 timeout后恢复、R2 N2三次90秒上限的计时契约；未改计时算法。新树native Guardian/owner生命周期未闭环仍阻塞S9/S11，不偷换为新运行成功 |
+| 既有分流 / S13有人值守 | **inconclusive** | C3真WS ask→deny已观察；但permission resolved身份链变化，R1 allow_once前0后1不能替代新树allow_once，T3矩阵未完成 |
+| 同上 / S14 Global/child | **inconclusive** | 新Inbox/委派/profile影响实际入口；本轮P3未进入child，Global/child技术分流未新跑，R1 F只能保留历史事实 |
+| 同上 / S15无人值守allow/deny | **inconclusive** | N3 audit确定性fallback/cancel边界通过；durable wake/控制链变化，本轮没有实际schedule/heartbeat新证据，不由R1八种组合或lower绿替代 |
+| 可追踪/真实旅程 / S16同动作可区分 | pass | C3/T3-partial实际call/review/attempt/session、完整预算/terminal/usage与effects可关联，C3三动作不同call/review；N3 audit27补关联窗口。不声称新Work显示attempt详情或全部送达 |
+| 同上 / S17全局插件 | **inconclusive** | 独立判定profile/inventory影响需最小双vendor复验；L3两栈未开始smoke/插件，无本轮180/55/负数拒绝。R1 L真vendor完成事实不被改写，但不作新树通过依据 |
+
+Requirement组内结果依次为pass / pass / pass / **fail** / **fail** / **fail** / **fail**；任一必要inconclusive即本轮整体fail。非空reply/observer的R2分层裁决保留为历史事实，新PA来源链尚未完成，不抢先宣称已满足新树完整来源要求。
+
+### 清理、交付与上层同步
+
+- 所有已创建的12个独立IM栈（含启动失败场景）均再次按核实后的绝对路径paired down，exit0。因超时留下的精确R3孤儿DSH，仅对核实命令/worktree/PPID的PID `24205,24213,26948,26963,26967,28055,28437` 发TERM，无广泛kill；初版清理观测脚本因ps标题解析ValueError退出，已修正临时观测并完成，不隐藏该设施错误。
+- 2026-10-21T18:56:07Z `cleanup-check.json` 独立核对 **12个IM端口+10个fixture端口，合计22个LISTEN均释放、所有12栈无PID文件、本worktree IM/Node/DSH/fixture进程无残留**，exit0。原始现场/失败日志保留；未启动浏览器。共享代理、生产/开发主仓、R1/R2目录均未修改或重启。
+- [x] `SPEC.md`、`AGENTS.md`/`CLAUDE.md`、`docs/specs/CONTRIBUTING.md`：无需本轮修改；[x] `docs/specs/gateway/agent-capabilities.md`：bounded retry/最终行为仍应由E在门禁有效后归并，本reviewer不修改canonical、设计或受审实现。
+- 仅本报告追加到独立 `q/feat625-acceptance-r3`，保留前363行历史原文。报告完成不代表产品通过；主Q负责发回来源群，E负责整合与运行问题判真。下一轮沿本任务续验并保留新旧证据，不自动merge/deploy。
