@@ -40,3 +40,36 @@ These tests and code review do not establish real model task quality, user recei
 ```
 
 No implementation edits, runtime changes, commits or pushes were performed by this reviewer. Only the two authorized reports were written.
+
+## R2 — patch and independent R1 attribution check
+
+- Frozen Nano: `7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`; executed base remains `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`.
+- Patch reviewed: `b09851c01cf39b6198edd6956914e66b52153c24...7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`.
+- Plugin remains `7f0a2b78ec530075edd48452c2cf5499548ca99c`, same rc.1 asset/digest. R1 full static conclusions remain applicable outside the patch.
+- Verdict: **PASS — no surviving actionable patch findings**. Original R1 product failure is retained in `acceptance.md`; this is not a claim that the wrong final report or prohibited attempts became correct.
+
+### Inventory repair
+
+The R1 product report identified a concrete introduced integration defect: model-facing `WorkspaceOwner.command(list_bundles)` included only `bundle.installed`, so the shipped default (not installed in the workspace) disappeared even while active. The patch at `packages/dsh-integration/src/workspace-tools.ts:259` now includes that single shipped bundle by name, matching the control-plane list. It does not broaden tool selection, approval, installation, or package ownership.
+
+The added assertion at `packages/dsh-integration/tests/workspace-tools.test.ts:72` uses the existing scripted model → real native `plugin_manager` dispatch → returned tool result before installing other bundles. This protects the actual discrepant seam, rather than only rechecking the already-correct management RPC. Reviewed `/tmp/feat627-inventory-red.log`: the expected enabled default entry failed against `entries: []`; `/tmp/feat627-inventory-green.log`: the complete lifecycle test passed, **1 file / 1 test, 35.00s**. This scoped evidence is sufficient for the one-line fix; the unchanged R1 full-suite evidence is reused. `git diff --check` passed for the patch. R2 user-facing inventory confirmation and the missing identity matrix remain the product reviewer's work.
+
+### Independent causal classification
+
+Read the original `acceptance.md`, the new attribution note, native events `/tmp/feat627-acceptance/session-events.jsonl`, and the actual three request/response pairs in the R1 proxy directory. The request directory is recorded in `M1-agent-context/evidence/r1-attribution.md`; raw transport logs and full messages remain local.
+
+| Original product finding | Independently observed evidence | Attribution / closure |
+|---|---|---|
+| R1-1: incorrect aggregate, repeated after restart | Request `2026-10-21_11-44-52_585-req-anthropic_messages.json` contains all 12 numeric rows in the restored Notes result. Independently extracted rows sum to **13482 / 13237 / 245** and equal all 12 delivered rows. Incorrect **14353 / 13308** are absent from that request and appear in its matched model response's `write` call `call_00_qfLNKrZT4iXHIBH6IK7O2234`. The original wrong final-report artifact is unchanged. | Confirmed model computation/verification error with correct data available. No demonstrated Notes/History/rollover value loss or mutation. **Not fixed, not a correct answer, and not established as a defect introduced by this unit.** Repeating a model-written incorrect note after restart does not itself prove storage corruption. |
+| R1-2: two prohibited bash attempts | Request `2026-10-21_11-42-37_313-req-anthropic_messages.json`, messages 3 and 6, explicitly contains `不用 bash` from native Notes result 371 and progress result 377. Matched response calls `bash echo ok`, call ID matching native tool/call 382. Request `2026-10-21_11-44-34_432-req-anthropic_messages.json`, message 3, contains `禁用 bash` in the restored task heading plus the original constraint reference (Notes result 649); matched response calls the prohibited directory listing, matching native 654. Native results 386/658 are user-rejected errors. | Confirmed instruction-adherence failure despite prohibition present in actual model input; not an absence-of-input failure or bypass of approval. The second input is a Notes heading/reference, **not the full original user message**. **Not fixed or compliant; unit-specific causation is unestablished.** |
+| R1-3: model inventory hides enabled default | Actual command filter, demonstrated red native-dispatch regression, and post-fix green lifecycle result above | **Source defect closed**, user-facing R2 confirmation pending. |
+
+These observations support treating R1-1/R1-2 as model-behavior side findings for this feature's implementation review. They do not establish that rollover timing, instruction presentation or salience had zero causal influence: no matched baseline/counterfactual observation isolates those variables. Such additional comparison would be needed for that stronger causal statement. The latest explicit user clarification requires this distinction; it does not authorize erasing failed product observations. No speculative prompt rewrite, automatic tail retention, arithmetic oracle injection or general Agent behavior mechanism is required by the evidence or introduced by this patch.
+
+### R2 findings
+
+```json
+[]
+```
+
+Only the two reports were updated. No tests needing real services were rerun, no runtime/configuration/source was changed, and no commit or push was performed.

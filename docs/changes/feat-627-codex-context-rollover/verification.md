@@ -115,3 +115,54 @@ Outcome: **aligned**. This reconciliation certifies that the corrected delta des
 ```
 
 Only `verification.md` and `code-review.md` were written. No implementation/runtime/config changes, service startup, commits or pushes were performed; no self-created runtime remains to clean up. The caller owns committing these shared-worktree reports and retaining or updating the outstanding product evidence.
+
+## R2 — delta verification and targeted closure
+
+> Nano validated_at: `7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`; executed_base: `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`.
+>
+> Fix delta: `b09851c01cf39b6198edd6956914e66b52153c24...7fe9224fb3f566b1db2ed4964c4b0e4d09cedb00`; plugin remains `7f0a2b78ec530075edd48452c2cf5499548ca99c`.
+
+### Scope and verdict
+
+Reviewed the complete one-line inventory fix, its native tool-dispatch regression and the user-clarification/evidence documents. Reused R1's full implementation, architecture, prompt, package, regression and corrected-delta conclusions; no additional spec delta is introduced. The explicit user clarification in `spec.md:52` requires causal attribution and retention of failures, not a replacement of the agreed behavior with weaker acceptance claims.
+
+**Implementation delta: PASS. Corrected-delta remains aligned. Overall completeness: PENDING — 1 CRITICAL (V1), 0 WARNING, 0 SUGGESTION; no demonstrated implementation defect remains.** `requires_full_verification: false`.
+
+### Targeted findings ledger
+
+| Item | Evidence checked | Current conclusion |
+|---|---|---|
+| R1-3 inventory mismatch | `src/workspace-tools.ts:259` now includes the shipped default in the model command list, consistent with the pre-existing view. `tests/workspace-tools.test.ts:72` traverses actual native model tool dispatch; red log shows empty list, green log passes the full lifecycle test in 35s | **Source closure verified**; live product R2 still must confirm the model-facing entry |
+| R1-1 wrong aggregate | Independently inspected actual provider request and matched response at `2026-10-21_11-44-52_585`, decoded the restored Notes result and recomputed all 12 rows: **13482 / 13237 / 245**. Rows equal the delivered artifact; incorrect **14353 / 13308** first appear in the outgoing model `write` response, not that request | Model calculation/verification failure is observed; no loss/mutation of these values by the context mechanism is demonstrated. This is **not fixed** and the R1 answer remains wrong, but no evidence establishes a unit-specific source defect requiring an implementation fix |
+| R1-2 prohibited calls | Provider requests `2026-10-21_11-42-37_313` and `2026-10-21_11-44-34_432`, matched response call IDs, native Notes/progress results 371/377/649, calls 382/654, rejected results 386/658 | Prohibition is present before both calls. First request has two full prohibitions; second has a task heading/reference, not the full original message. Model adherence failed; ordinary approval still rejected both calls. No absent-input or permission-bypass defect is demonstrated; **not fixed or compliant** |
+| V1 product completeness | R1 `acceptance.md` records 13 meaningful same-turn windows, original 94,291-character result-tail recovery, one send, same-session restart, scope/missing/error handling and off/on. It also retains wrong totals/prohibited calls, the inventory failure and missing default identity observations | **Still open** pending the independent R2 inventory and identity/default matrix report. R1 observations are not erased or relabeled as an entirely correct task |
+
+The raw request directory is the bounded locator in `M1-agent-context/evidence/r1-attribution.md`; `code-review.md` R2 records message indices, native seqs and matching response IDs. No full transport log is committed. R1's static **482 backend / 22 plugin / 62 Python** results remain applicable outside this narrow fix; the existing lifecycle test's red/green record covers its changed execution seam. No full suite or product journey was duplicated by the verifier.
+
+### Attribution boundary and remaining evidence
+
+The available trace proves that correct source rows and the prohibition reached the model before the observed mistakes. It does not prove that resets never affect attention, instruction salience or reasoning quality. A controlled/matched baseline would be needed to distinguish those broader causal effects; neither the attribution note nor this review supplies one. Accordingly, **“observed model computation/adherence error; no demonstrated context loss/corruption or unit-specific causal defect”** is the supported classification. “Definitely unrelated to rollover in every sense” would exceed the evidence.
+
+Within the user's clarified feature scope, these side findings do not justify speculative Codex prompt edits, a general instruction parser, hard-coded task bans, automatic ordinary-tail retention or an arithmetic-specific fix. No such change is in this frozen patch. The wrong aggregate artifact and the full R1 failed report remain preserved. The static verdict is therefore compatible with a failed historical task; it does not claim the original result was acceptable.
+
+The original V1 is narrowed by evidence now available: R1 has established meaningful repeated transitions, persisted recovery and lifecycle primitives through a real user entry. **Action to close V1:** obtain the independent R2 report bound to this implementation confirming the repaired inventory and ordinary/Global/Personal/native-child, old-profile and empty-business/Auto-off default coverage as dispatched, with any unobserved case explicitly bounded. Preserve the R1 general model failures as limitations and use the latest user scope for the feature verdict. Do not mark V1 closed before that report or assert that the one-line inventory change repairs arithmetic/adherence.
+
+### R2 handoff
+
+```json
+{
+  "unit_id": "feat-627",
+  "review_round": "R2",
+  "verification_mode": "delta+targeted-closure",
+  "verdict": "pending_product_evidence",
+  "issues": {"critical": 1, "warning": 0, "suggestion": 0},
+  "validated_issues": ["R1-3 source defect closed", "R1-1/R1-2 observed model failures, unit-specific causation unestablished", "V1 remains open pending independent product R2"],
+  "implementation_defects": 0,
+  "requires_full_verification": false,
+  "corrected_delta_outcome": "aligned",
+  "report_commit": null,
+  "top_concern": "Close missing product inventory/default-matrix evidence without erasing R1 failures or overclaiming causal independence"
+}
+```
+
+No runtime, source or configuration was changed, and no commit or push was made. Only `code-review.md` and `verification.md` were updated; shared runtime and product revalidation remain owned by the caller/product reviewer.
