@@ -1,6 +1,6 @@
 # Verification Report: bugfix-629-context-recovery
 
-> Latest conclusion: **Round 5 below reviews only the Notes hint format**. The R4 same-25-document pruning scenario passed, while R3 original recovery and R4-1 explicit-reset task recovery remain FAIL. R5's real R4-1 recheck is not yet passed. Earlier static passes do not establish product success. No Ready-for-PR, canonical merge or completed-unit conclusion is issued.
+> Latest conclusion: **Round 6 below reviews the live-Inbox Skill/pruning consumer fix**. R4's same-25-document pressure scenario is PASS; R3 task recovery and R5's real R4-1 recheck remain actual FAIL. R6 fixes a separate deterministic parsing/lifecycle bug and does not close that model note-selection failure. No Ready-for-PR, canonical merge or completed-unit conclusion is issued.
 
 > Interim validation snapshot: Nano `164352839cd8717748d4621a5d731780beb44b7e → 2ee87df7becb22f5d2576c192dbbee3018a3a07f`; plugin `621278d → 51eb236`.
 > Scope: `full` implementation/spec/design review plus `corrected-delta`. Review round: 1. Product evidence and final immutable package handoff remain pending.
@@ -83,7 +83,7 @@ None. No speculative edge-case or style changes requested.
 
 ## Corrected Delta Reconciliation
 
-Current reconciliation: R5 format-only design correction retains approved R4 architecture/delta. Plugin `823a2029d216cc5e128a76976abc7b0c84df4690`; Nano `418dd4bfb36cf6ecd81e25dc6f3ba225d2f4729e`, product source unchanged. R4 pruning reconciliation remains valid; R5 adds the Notes format row only.
+Current reconciliation: R6 approved delta, Nano `839880856ca9b8d9717fe0045bbc34a7b479de5c`, plugin unchanged at `823a2029d216cc5e128a76976abc7b0c84df4690` / rc.5. R4 pruning and R5 Notes-format alignment remain valid; R6 adds the live-Inbox Skill consumer scenario only.
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -92,12 +92,13 @@ Current reconciliation: R5 format-only design correction retains approved R4 arc
 | `agent-capabilities.md:20-23` original detail and honest gap | Existing History reads originals removed from active surface by native prune; native replacements preserve source links and visible prune marker | Prior complete arguments/result/Unicode pagination tests retained; R4 original results retained and replayed | aligned; correct interpretation of truncated preview remains product validation |
 | `agent-capabilities.md:25-31` native Skill catalog, no old body/index, restricted History, old-mode behavior | R3 Nano hook and native catalog/source paths unchanged | Retain R3 installed 5-test matrix, real seven-Skill catalog/no-growth/one-Skill re-read, workflow-only real History/source recovery from `regression.md:80-91` | aligned for retained coverage; unexecuted real Node restart/off-on not upgraded to pass |
 | R5 Notes hint presentation, no additional product contract | Plugin `src/notes.ts:231-244` changes existing body-free hint to fixed header and path/line/UTF-8-byte entries; original scope/order/bound unchanged | One exact-format effective red then green; final plugin 31 tests | aligned; no spec delta needed for a new recovery mechanism because none was added |
+| `agent-capabilities.md:33-37` explicit human Skill gesture survives tool-history pruning | Nano `capabilities.ts:85-121` synchronously extracts identifiers/names from complete final live result, then uses original current selected Skill/pre-step/durable invocation-ID path; no parsing of historical rendered content | Existing native live-Inbox owner test parameterized with real pruner off/on: actual prune, three completed turns, only human invocation once, agent/partial exclusion, no restart replay | aligned at the native integration seam; independent of real-model Notes selection |
 
 ### Uncovered Observable Behavior
 
-No uncovered new observable behavior found in the R4 delta. Pruning-at-W, remeasurement before H, original record retention, no unnecessary reset when pressure is removed, existing reset when still above H, and absence of new task hints are explicit in the corrected batch-pressure scenario and design decision 6. Public pressure and overflow wiring are included in the same approved mechanism; explicit reset and no-service behavior are intentionally retained. R3 Skill and protocol-removal behavior is unchanged.
+No uncovered new observable behavior found in R6. The existing live-human gesture semantics, selected registry, source and invocation IDs remain; only the consumer's observation/short-term handoff point changes. Rejected pre-step retains pending identifiers, while accepted processing consumes them. No additional body persistence, authorization channel, source relabeling or task recovery protocol is introduced. Retain the reviewed R4 automatic-pruning and R5 presentation contracts.
 
-Outcome: **aligned** for inspected R4 delta and R5 format-only implementation. R4's limited pruning scenario is now accepted by its independent product report. R3 V1 and R4-1 are actual FAIL, not silently superseded by the format change; R5 product recheck remains open. `requires_full_verification: false`: targeted delta review suffices; unchanged valid evidence is retained.
+Outcome: **aligned** for inspected R6 implementation/delta; R4/R5 unchanged alignment retained. R4's limited pruning scenario is accepted. R3 and R5/R4-1 are actual product FAIL and are not superseded by R6's deterministic Skill fix. `requires_full_verification: false`: targeted delta review suffices; unchanged valid evidence is retained.
 
 Report ownership: caller will commit this report in the shared unit branch. No review service/process was started; nothing requires cleanup. Await supplementary evidence through the caller; do not poll product execution.
 
@@ -229,6 +230,8 @@ Accordingly the full unit remains active: no canonical-spec merge, archive, Read
 
 ## Round 5 — Notes hint format and bounded adaptation check
 
+> Final product supplement: independent `regression.md:166-201` records **FAIL (R4-1 not closed)**. The new Notes header/order/metadata appeared correctly in the actual first post-reset request, with `on-checkpoint` first, but the model still read old `checkpoint` and delivered the wrong prior status. The pending statements below preserve the earlier static handoff; this is now a confirmed failure, not missing evidence.
+
 ### Metadata and verdict
 
 - `review_mode`: patch, plugin `ce7d551ef90811191fb190a99f04ba74e961e14c → 823a2029d216cc5e128a76976abc7b0c84df4690`; local `src/notes.ts`, existing Notes test, package version only. Nano `0d0d78d97ced7e18976c1964c05aa0a5f8b4fe1e → 418dd4bfb36cf6ecd81e25dc6f3ba225d2f4729e`, rc.5 exact dependency/lock and format explanation; product source unchanged.
@@ -276,3 +279,51 @@ Codex's fixture is a supplied `thread_hint` backend response, not the implementa
 - R3 broad forced-reset task loss and R4-1 wrong-note task completion remain actual failures. The new format has no new task hint, task state or selection policy, so a static pass cannot close them. R4-1 recheck on rc.5 must be recorded by the independent product reviewer; no outcome is predicted here.
 - Final rc.5 immutable package/lock/install/build and installed 10-test handoff is closed on Nano `418dd4bfb` and plugin `823a202`; no PR CI or production claim.
 - `requires_full_verification: false` for this format-only revision. No canonical merge, archive, Ready PR, merge or production change follows from this report.
+
+## Round 6 — complete live Inbox result before native pruning
+
+### Metadata and verdict
+
+- `review_mode`: patch; source/test delta through frozen Nano `839880856ca9b8d9717fe0045bbc34a7b479de5c`, product source change confined to `packages/dsh-integration/src/capabilities.ts`; existing `knowledge.test.ts` owner test extended. Approved R6 design/delta reviewed; no plugin change from rc.5.
+- `verification_mode`: targeted delta plus reconciliation above. Retain R4 native-pruner and R5 hint-format evidence; do not rerun unaffected full gates.
+- Checkout initially had caller-owned pending implementation evidence only. Reviewer changed this report only, not source/design/tests/config or runtime.
+
+**Code-review findings: Nano `[]`; plugin N/A (unchanged). R6 implementation/delta: aligned; scoped verification PASS, 0 CRITICAL / 0 WARNING / 0 SUGGESTION. Targeted deterministic native regression and final full build/485-test/typecheck gates passed. General task recovery remains failed as recorded separately; this scoped pass does not complete the full unit.**
+
+### Lifecycle, provenance and correctness
+
+| Contract / seam | Direct evidence | Assessment |
+|---|---|---|
+| Observe complete successful host-live Inbox result | `capabilities.ts:97-104` checks exact inbox name, Agent, `!result.isError`, current process `isLiveInbox(agent.id, callId)`; reads final `result.value.body.messages` rather than mutable rendered message text | aligned; check/read history/failed/foreign results cannot become pending merely through matching content |
+| Exact producer shape and ordering | Existing `global-mode.ts:43-62` retains raw product result as `body`, completes attachment admission and `inbox.prepare`, records live call, returns `{body,content}`. Read final locked DSH tools implementation: final value is retained losslessly alongside content, `tools/result` callback is invoked synchronously and cannot alter the committed result | Complete body available at the chosen public seam; queue observer performs no async lookup/tool dispatch |
+| Human, complete messages only | `capabilities.ts:103` filters `sender.type === 'user' && !partial` before parser. Existing prefix syntax is unchanged and direct `nano-human` input uses the same extracted parser | No new automatic invoking source/grammar or authorization rule |
+| No second body channel | Agent-keyed WeakMap at line95 contains only generated invocation ID and Skill name; observation at line104 queues those pairs. No message/Skill body cache, file/database write, new RPC, schema/source change | aligned with user scope; transient adapter handoff, not another persisted Inbox or recovery protocol |
+| Accepted pre-step, current selection and consumption | `capabilities.ts:109` returns on rejected decision before consuming. Lines115-117 use scoped current `skills.get`, session cwd/signal and `isUserInvocable`; line120 clears pending after processing | Selection checked at consumption, not frozen as a body during observation; errors during lookup leave the queue for existing failure handling rather than silently discarding |
+| Once-only behavior | Native snapshot invocation IDs are collected at line110, include off-surface history; local invoked set is updated before adding each message. IDs retain `nano-skill:<messageId>:<name>`; same-step duplicate pairs and repeated live-read IDs cannot produce another persisted invocation once admitted | Existing persistent dedup mechanism retained, no new processed-message store |
+| Source, restart and pruning | Existing injected source remains `skill-invocation`; restored sessions do not dispatch fresh final tool results or reconstruct live call provenance; queue is Agent-local/in-memory. Native pruner still operates normally on rendered text | No source upgrade or full-body re-injection; no historical JSON parser remains in the Skill consumer |
+
+The old source loop parsed every still-live historical Inbox tool result before checking invocation IDs; native pruning could therefore break JSON even after the original gesture had already been processed. R6 removes that loop entirely rather than catching and discarding parse errors or exempting Inbox from pruning. This directly addresses the observed repeat-step crash while preserving normal pruning and current Skill permission checks.
+
+### Test validity and evidence
+
+| Evidence | Observed result / meaning |
+|---|---|
+| `/tmp/bugfix629-r6-red.log` | Existing unpruned variant passed; pruned variant failed with three turn endings `error,error,error` instead of `completed,completed,completed`. One effective failure, one pass, three unrelated tests skipped; this is not a five-test red run |
+| `/tmp/bugfix629-r6-green.log` | Two variants passed, three unrelated tests skipped. Both execute the real RuntimeClient/native Global Inbox path; pruned case uses the installed native pruner and explicitly requires a persisted `compaction/prune` event |
+| `knowledge.test.ts:146-175` | 12000-character long result remains below the existing single-result spill limit but above native character prune threshold; fixture's pre-step invokes actual native service to exercise consumer ordering deterministically without a model pressure trigger. It checks three completed turns, exactly `nano-skill:human-message:selected`, excludes Agent/partial-human cases, shuts down/restarts, observes invocation count still one |
+| `/tmp/bugfix629-r6-build.log` | Narrow source compilation passed |
+| `/tmp/bugfix629-r6-full-tests.log` | Final frozen R6 source: 107 files / 485 tests passed; caller confirmed exit 0. Reviewer read completed log, did not rerun |
+| `/tmp/bugfix629-r6-typecheck.log` | Final recursive typecheck passed; completed log inspected |
+| `/tmp/bugfix629-r6-nano-build.log` | Final full build passed; installer candidate metadata identifies exactly `839880856ca9b8d9717fe0045bbc34a7b479de5c`, not a deployed release |
+| Documentation integrity | Caller confirmed final docs check passed; no additional doc gate rerun by reviewer |
+| Reviewer `git diff --check` | Passed |
+
+The test's deterministic pre-step pruning is appropriate for this consumer bug: it exercises actual source registration, final result value, pruning, repeated native turns and durable invocation IDs. R4's already accepted pressure-at-W wiring remains its own evidence. The new case does not claim another true pressure-triggered product journey or a real-model task-recovery success. Failed/non-live/system exclusions are directly established by the guard/producer lifecycle; the newly parameterized fixture explicitly covers human, Agent, partial and restart cases and is not overstated as an exhaustive source matrix.
+
+### Retained conclusions and handoff
+
+- R4 same-25-volume prune-first request preservation and single correct delivery remain PASS.
+- R5 Notes format, bounded metadata and actual first post-reset ordering are PASS as mechanisms; the same independent run still chose old Notes and delivered the wrong status, therefore **R5/R4-1 remains actual FAIL**. R3 hard-reset task-loss evidence also remains FAIL.
+- R6 has no task/Skill hint, file selection rule or extra recovery protocol and cannot close those model behavior failures. The unit remains active, with no canonical merge/archive/Ready PR or production claim.
+- Final Nano 485-test/typecheck/full-build evidence is complete and inspected; no duplicate full run by reviewer. Plugin rc.5 artifact conclusions remain valid because the plugin dependency/bytes did not change.
+- `requires_full_verification: false` for closure of the declared deterministic consumer delta on the frozen source. Only this verification report was edited; caller owns commit and runtime/evidence handoff.
