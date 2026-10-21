@@ -17,6 +17,7 @@
 | `apps/im-server/src/messaging.ts`、`gateway.ts` | message＋relay 同事务；已落库后离线可能返回 503；重连全量重投；回执无终态单调保护 | 保留现有 outbox，离线正常入队；有界投递与稳定回执，不新增面向用户的阶段 |
 | `work.ts`、`server.ts`、`identity.ts`、`schema.sql` | Work append 同事务存事件和投影，按 node/journal 连续确认；global query 依赖 Work session 归属；通用 HTTP principal 仅接受人或活动 socket 的临时 gateway token | 小体积 scope 注册；机器认证专用 Work HTTP；保留原子 append/project 与原始 payload |
 | `packages/product-contracts` | 共享 wire/domain 契约 | 增加请求关联、能力声明、Work 同步请求/结果，保持依赖方向 |
+| `src/IM/frontend/src/features/chat/{chat-api.ts,chat-workspace-page.tsx,components/message-pane.tsx,components/composer-draft-store.ts}` | 普通发送没有稳定 key，只有交互背景路径有 attempt；网络失败后保留草稿，用户重试会创建新消息 | 所有普通发送先保存稳定 attempt；未知结果核对/重试，继承既有编辑器和消息列表交互 |
 
 ### 既有约束
 
@@ -25,7 +26,7 @@
 - `docs/specs/im/gateway-relay.md` 的 durable/幂等、global completed 不等于工作完成、多节点独立投递和权限事实保持。
 - `docs/specs/gateway/global-agent.md` 的 Inbox 读承诺、通知不代表授权、busy steer、发送前复核保持；不跳过 `session.observe` durable/source barrier。
 - `docs/specs/im/agent-work.md` 的完整正文、父子归属和真实未知状态保持。既有 native trajectory 仍按查看生命周期读取。
-- 普通聊天界面不新增内部状态、诊断提示或同步进度；不改 Web/iOS/飞书组件及视觉，没有前端原型。浏览器保持性须在真实页面验收。
+- 普通聊天界面不新增内部状态、诊断提示或同步进度；Web 变更限发送身份及恢复，不改编辑器、消息列表、提示布局或操作方式，iOS/飞书不改。按原型指导“仅前端 UI/交互变化需要原型”，这里不新增 UI/交互，故无 prototype；内部发送恢复与既有画面保持性都须真实浏览器验收。
 
 ### 可复用能力
 
@@ -116,7 +117,19 @@ HTTP 发消息在 message＋relays 提交后，节点离线或投递暂不可用
 
 Work 请求默认三十秒独立期限；未知结果先查 cursor/parts 状态，再补缺失。退避在 1–30 秒间带抖动，只有明确进度才恢复短退避；绝不重建聊天 WS。队列按磁盘游标惰性读取，不加载全量历史。
 
-### 7. 采用一个端到端 milestone；不扩展中心架构
+### 7. 普通 Web 发送在首次 POST 前固定身份，重试不换消息
+
+扩展现有 composer 的 attempt 思路到普通文字和已上传附件。发送前创建 UUID key，按 `(登录用户,conversation,key)` 将不可变 wire 正文、附件 ID、交互背景与草稿版本写入 IndexedDB，再发送现有 `Idempotency-Key`。不新增气泡种类、按钮、文案或阶段标签；原发送锁、失败保留草稿、原方式重试和成功清理行为保持。
+
+网络中断/5xx 作为未知结果：先查询 `GET /im/v1/conversations/:id/message-attempts/:key`。仅当前真人本人且有当前会话资格可查，按 sender＋conversation＋key 返回原消息或 404；runtime token 不能使用。404 不是原 POST 必未提交的证明，重发必须同 key、同快照，由现有消息唯一约束完成去重。创建接口在 key 命中时核对 sender 和规范化 payload，异主或不同正文/附件/交互背景返回 409，不返回别人的消息或静默替换内容。
+
+一次自动恢复最多查询一次并重发一次，同 key 调用完成后按 message_id 合并已有 WS/HTTP 消息。仍未知则沿用现有失败反馈和草稿保留，下一次原方式重试复用相同 attempt；刷新或切回聊天先读 IndexedDB，查询已提交结果后按原成功流程清理。新正文、附件或交互背景发生变化并由用户重新发送，生成新 attempt；旧未知 attempt 仅查询，不再后台重发旧草稿，不能用旧 key 携带新正文。确认成功只清对应草稿版本及本次附件，不清用户后来编辑的内容。
+
+退出账号清除本用户本机 attempt；账号切换严格隔离，失去聊天资格按现有 composer forget 逻辑清除对应 attempt。多标签即使恢复同一 attempt 也只能重发相同 key；用户显式连续发送两次相同正文应有两个不同 key，不能靠正文 hash 合并。此存储只含用户已显式发送的待确认快照，不自动发送普通未提交草稿。
+
+现有 interactive reply/background 的稳定身份与来源校验保持，普通路径复用同一内部 owner，避免第二份独立发送循环。本轮仅 Web 发送可靠性补齐，不宣称原生 iOS 已具有相同本机恢复能力。
+
+### 8. 采用一个端到端 milestone；不扩展中心架构
 
 单 M1 同时交付可靠接收、实时通路与 WorkSync；只完成拆包仍不能兑现“同步失败时能收发”，故不拆出虚假的独立交付。保留单中心 SQLite、现有 Work append/project，不新增 broker、分片中心、对象存储或第二投影流水线。用容量测试给出本基线能力边界；后续多实例需单独设计共享持久任务、连接租约和跨实例路由。
 
@@ -134,7 +147,7 @@ Work 请求默认三十秒独立期限；未知结果先查 cursor/parts 状态�
 
 分块元数据自第一块后不可变，索引范围/块长度/hash 和总长度校验有界；最终事件必须与 envelope 的 seq/event_id 一致，root/session 权限由完整事件再次复核。暂存键包含 owner/node_epoch/journal/seq/event_id/hash，不允许新 epoch 继承未完成旧暂存；相同 epoch 重启可查询缺块。staging 不建立 Work 投影或调用权限。未完成暂存超过 24 小时无新进度，或其设备 epoch 已撤销时清理；这是未确认字节，可从节点原文重传，不清除已确认 Work 或推进游标。完成事件后原子标记提交并异步清除对应暂存，启动时收拢中断的清理。
 
-专用路由使用现有 `identity.authenticateRuntime` 校验持久机器 token 与当前 binding/account；不依赖活动 WS 的临时 token，不以 owner JWT 替代。`server.ts` 仅为注册的三个路由设置机器 auth preHandler，通用用户 principal 不扩大为接受 runtime token；URL 不携带凭据，scope 来自认证身份，body 不得冒充其他 node/owner。
+专用路由使用现有 `identity.authenticateRuntime` 校验持久机器 token 与当前 binding/account；不依赖活动 WS 的临时 token，不以 owner JWT 替代。`server.ts` 仅为注册的三个路由设置机器 auth，并在通用 preHandler 和 onSend 再认证处都识别精确 route config；通用用户 principal 不扩大为接受 runtime token。URL 不携带凭据，scope 来自认证身份，body 不得冒充其他 node/owner。WS 断开不影响此机器上传资格，binding/account/epoch 撤销则在每个请求及最终分块提交前再次拒绝；原消息镜像、附件、skill enable 等入口仍要求原活动注册凭据。
 
 旧 journal_id 与 seq 原样保留。cursor 只能在该节点 journal 的 `[0,本地最高seq]` 内且不得无解释回退；服务端落后已有本地确认位置时保留本地 journal，从服务端缺口补传，不能删除本地状态。历史从未清理，故能恢复；缺失区间明确报错而不跳游标。中心已有 6743、本地 6643 的案例只需验证后推进本地确认，不再上传已保存正文。
 
@@ -161,6 +174,8 @@ IM 重启恢复原 relay_tasks、Work 游标和未完成 parts；节点重启恢
 - IM：[specs/im/gateway-relay.md](specs/im/gateway-relay.md) 修改“全部复用 WS”的范围并增加 durable 排队/隔离契约。
 - Gateway：[specs/gateway/global-agent.md](specs/gateway/global-agent.md) 增加接收与沟通不等待工作同步的契约。
 - Work：[specs/im/agent-work.md](specs/im/agent-work.md) 增加补传回看与聊天独立性。现有完整明细 Requirement 不删。
+- 普通发送：[specs/im/conversations-messages.md](specs/im/conversations-messages.md) 增加同一次普通 Web 发送的重试恢复契约。
+- Gateway 机器凭据：[specs/gateway/relay-protocol.md](specs/gateway/relay-protocol.md) 与 IM 共同明确 Work 专用的离线机器凭据例外，保留其他入口限制。
 - Web/iOS/飞书布局与用户状态枚举无 delta；不新增 canonical area 或用户诊断功能。
 
 ## 风险与回退
@@ -180,7 +195,7 @@ IM 重启恢复原 relay_tasks、Work 游标和未完成 parts；节点重启恢
 |---|---|---|---|
 | 本 unit 的隔离 IM＋Node＋官方 DSH | `./scripts/e2e-down.sh --wt "$PWD"` | `./scripts/e2e-up.sh --wt "$PWD" --main-config config/e2e/gateway.yaml` | `.e2e-ports.env` 指定的 `/health`、受测节点与活进程 birth；继续以实际接收/回复判定 |
 
-**Review 驱动方式**：端到端真栈。虽然无客户端修改，简洁聊天是用户明确约束，仍须真实浏览器走发送、离线后恢复、停止/授权与 Work 回看；API 可用于建测试身份、注入故障和核对数据，不能替代可见回复。移动窄屏仅回归现有 Web 排版，不交付新样式；原生 iOS/飞书无新 UI 验收。
+**Review 驱动方式**：端到端真栈。本轮修改 Web 内部发送身份与恢复且必须保持原交互，须真实浏览器走普通文字/附件发送、commit 后丢 POST 返回、刷新/重试、离线后恢复、停止/授权与 Work 回看；API 可用于建测试身份、注入故障和核对数据，不能替代实际输入框、草稿、消息列表及可见回复。桌面与窄屏均对照现有页面，截图留在实施 evidence，不交付新样式；原生 iOS/飞书无新 UI 验收。
 
 **验收前置**：隔离账号/节点由脚本创建；本地真实 WS/HTTP 故障代理由 M1 测试 fixture 提供，分别控制丢 ACK、延迟、限速与单独拒绝 Work HTTP，不能用生产 Tunnel 或手改成功数据库代替。固定 deterministic model provider 经真实 DSH HTTP 产生工具与回复，控制 payload/副作用计数；补一条配置许可的真实模型聊天确认非 fixture 专属接线，记录模型、版本、耗时与收件侧结果。
 
@@ -192,15 +207,15 @@ IM 重启恢复原 relay_tasks、Work 游标和未完成 parts；节点重启恢
 | V2 | 中心 commit 后丢 ACK；节点 commit 后、wake 前、确认回写前分别强制结束隔离进程并保状态重启 | 真实进程故障；输入、模型通知、测试副作用与正式回复各自按稳定身份计数，不只看 HTTP 200 |
 | V3 | 4 MiB 单事件，中途丢块/重复块/乱 hash/重启/epoch撤销；16 MiB 上限另测 | API/存储契约＋真栈回看；完整事件前游标不动，损坏不投影，不泄露/复活权限；过限明确错误且正常聊天继续 |
 | V4 | WS 请求超时后 late ACK，同 type 并发，旧 generation ACK；Work 持续重试与心跳独立 | 真实 WS integration；无错配/无无限 pending，心跳有机会，业务超时不重连；真实失联/撤销仍停止 |
-| V5 | 离线发送、多个群目标各自恢复、旧 ACK 晚到、已保存后 POST 响应丢失 | 真 API＋浏览器；一次消息/稳定 idempotency key，不因离线误报未保存；目标终态不回退 |
+| V5 | 普通输入框文字/附件发送后中心 commit、丢 POST 返回；刷新/原方式重试；编辑新草稿/切换账号会话；离线发送、多个群目标、旧 ACK | 真浏览器＋故障代理，禁止测试调用方主动补 key 替代产品；同 attempt 只一条消息与一次 Agent 输入，新显式发送相同正文仍是两条，后来草稿不被清除，账号隔离；目标终态不回退 |
 | V6 | 失去群资格/设备撤销、busy新消息提醒、回复前纠正、PA owner 与 observer | 复用相关现有契约/E2E，确认审批及发送前重读不被旁路，单 Thread/外部主路径回归 |
 | V7 | 在同一机器/同候选构建，100 个模拟节点同时连接，20 个持续补 1.56 MB，其他节点合计 20 条普通消息/秒，连续 10 分钟 | 真实 IM/WS/HTTP＋确定性客户端；记录硬件/配置/基线与候选。消息中心保存 p99≤1s、在线节点持久接收 p99≤2s；与无 Work 基线比 p99 增量≤500ms；无消息丢失/重复，队列不超上限。阈值是此负载准入，不宣称人数容量 |
 | V8 | 同一普通用户流程，桌面与窄屏截图、消息区文本、Work入口 | 浏览器；无新增内部标签/气泡/同步条，必要失败和原授权入口仍可用 |
 
-复用与更新 `packages/channels/tests/web-relay.test.ts`、PA 的 global/inbox/session-controls 测试、`apps/im-server/tests/{node-connection,messaging,control}.test.ts` 与相关 Work 测试；新增端到端用例集中在 `tests/e2e/critical_paths/test_im_work_sync_critical_path.py` 与一份故障代理 fixture。单测验证状态边界，协议测试覆盖真实 socket/HTTP，E2E覆盖用户链，不为每个函数叠镜像测试。执行最窄测试后再跑 `pnpm build`、runtime dependency contract、对应既有 critical paths 和仓库当前 CI；无代码阶段仅做文档检查。
+复用与更新 `packages/channels/tests/web-relay.test.ts`、PA 的 global/inbox/session-controls 测试、`apps/im-server/tests/{node-connection,messaging,control}.test.ts` 与相关 Work 测试，Web 普通发送/草稿/API 测试覆盖真实 attempt owner；新增端到端用例集中在 `tests/e2e/critical_paths/test_im_work_sync_critical_path.py` 与一份故障代理 fixture。单测验证状态边界，协议测试覆盖真实 socket/HTTP，E2E覆盖用户链，不为每个函数叠镜像测试。执行最窄测试后再跑 `pnpm build`、runtime dependency contract、对应既有 critical paths 和仓库当前 CI；无代码阶段仅做文档检查。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-reliable-im | 独立可靠的实时投递与 Work 恢复 | 无 | 无 | `apps/{node,im-server}/src`、`packages/{personal-assistant,channels,product-contracts}`、相关 tests/fixture 及本 unit | [reviewer] spec 全部 Scenario，真实聊天无内部状态，V1/V2/V5/V6/V8 取得用户可见证据；[worker] V1–V8 可复查，游标/分块/身份/终态/背压/升级矩阵与本地 CI通过，保留审批与读承诺，禁止产品外假状态修补 |
+| M1-reliable-im | 独立可靠的实时投递与 Work 恢复 | 无 | 无 | `apps/{node,im-server}/src`、`packages/{personal-assistant,channels,product-contracts}`、Web chat API/composer 内部发送、相关 tests/fixture 及本 unit | [reviewer] spec 全部 Scenario，真实聊天无内部状态，V1/V2/V5/V6/V8 取得用户可见证据；[worker] V1–V8 可复查，游标/分块/发送 attempt/身份/终态/背压/升级矩阵与本地 CI通过，保留审批与读承诺，禁止产品外假状态修补 |
