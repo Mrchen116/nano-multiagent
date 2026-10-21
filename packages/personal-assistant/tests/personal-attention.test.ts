@@ -4,7 +4,7 @@ import { GlobalAgent } from '../src/global-agent.js';
 import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
 
-function fixture() {
+function fixture(onObserve?: () => void) {
   const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
   const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',groupReplyPolicy:'mention_only',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
@@ -23,6 +23,7 @@ function fixture() {
       }
       if(method==='session.lookup')return {accepted:seen.has(args.inputId)};
       if(method==='session.descendants')return [];
+      if(method==='session.observe')onObserve?.();
       return {events:[],status:running?'running':'idle',durable:true};
     }},
     relay:{ready:true,request:async(type,args:any)=>{
@@ -65,17 +66,27 @@ it('defers busy background, including an admission race, while a direct correcti
     expect(f.submitted).toHaveLength(2);expect(f.submitted[1].source.channel).toBe('inbox-background');
   } finally {await f.close();vi.useRealTimers();}
 });
-it('makes background readable before its deadline and cancels an already consumed batch',async()=>{
-  vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
+it.each(['before deadline','during idle observation'])('does not wake for background consumed %s',async timing=>{
+  vi.useFakeTimers();vi.setSystemTime(0);let consumeOnObserve=false;
+  const f=fixture(()=>{if(consumeOnObserve){consumeOnObserve=false;consume();}});
+  function consume() {
+    const body=f.inbox.read('pa','main','read',{target:'background'});
+    expect(body).toMatchObject({delivery:'observer',messages:[{content:[{text:'new budget'}]}]});
+    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
+  }
   try {
     await f.product.receive(f.input('new budget'));
     await f.product.receive(f.input('use that budget','own'));
     expect(f.submitted).toHaveLength(1);
-    const body=f.inbox.read('pa','main','read',{target:'background'});
-    expect(body).toMatchObject({delivery:'observer',messages:[{content:[{text:'new budget'}]}]});
-    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
+    if(timing==='before deadline')consume();else consumeOnObserve=true;
     await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);
+    expect(f.inbox.check('pa',true).sources.map(source=>source.target)).toEqual(['own']);
+    await f.product.receive(f.input('later update'));
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(f.submitted).toHaveLength(2);
+    expect(f.submitted[1].source.channel).toBe('inbox-background');
+    expect(f.errors).toEqual([]);
   } finally {await f.close();vi.useRealTimers();}
 });
 it('keeps observed slash commands as background and applies the existing participant group trigger',async()=>{
