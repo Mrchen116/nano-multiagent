@@ -210,3 +210,9 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 宿主本轮8CPU、1min load约14–24、swap用9489MiB/10240MiB、瞬时disk约32MiB/s，表明仍有明显资源压力；不是全部失败唯一原因已证。额外CPU-profile观察设施曾误将debugger ending识别为listening而重连，已修ignored脚本并用无debugger对照取代，该跑次不用于产品根因或PASS；仅对核对确属本次的pid KILL，未触碰其他工作/生产。
 - 补实际`.venv/bin/python -m pytest tests/contract/test_runtime_dependency_contract.py -q` **13pass/7.65s/exit0**，不冒称本轮全28contract或native通过。全部job收集；三个超时native经exact命令+cwd核对后TERM，额外诊断与无debuggerbaseline也实际退出；最终exact unit path native/Vitest为0，原三个mkdtemp home保留恢复现场。
 - 详尽命令、每阶段未到边界、原始日志locator、观察层限制及恢复条件见[集成运行调查](integration-r5-runtime.md)。没有证明需要产品/测试修复，故本轮不改源码/预算/期限/fixture/断言；未替Q通过，未canonical/archive/ReadyPR。父E接收具体初始化/资源阻塞后协调下一次稳定现场与原reviewer R5-W1 closure，不能用本次失败补成整体effective_through。
+
+## Q R3报告整合与03:07只读就绪核对
+
+- 父E明确本轮仅整合报告及只读准备；Q报告252c43528原样cherry-pick为03327b4b2，acceptance367–467完整读取、原报告byte-equivalent，FAIL11pass6inconclusive及major/unclear Q625-R3-01保留。两个新树真IM C3链（context→503→allow、再次context封顶→WS deny）为新pass保留，不外推S9/11/13/14/15/17或required/source/stop/fallback/native owner/双vendor新profile旅程。
+- 03:07:11+0800一次有界只读采样：Data卷仅1566940KiB≈1.49GiB空闲、df100%；8CPU的load14.98/16.20/32.10，瞬时CPU97%busy/3%idle；24GiB RAM、swap用9456.94/10240MiB。相对上轮未实质恢复，自己exact unit路径runtime/test进程0；本轮没有启动任何runtime/新诊断器/重批次，没有kill旧PID或删除数据。
+- 仅量八个已证自己创建的既知目录共191456KiB≈187MiB，均保留。回收这点体积不解决磁盘headroom，不建议牺牲历史原始证据。完整事实、体积表、最小保留建议和保守readiness闸见[原调查新增节](integration-r5-runtime.md)；10GiB盘余量/load接近8等仅建议工程准备线，不是产品契约或已验证充分条件。真正复跑由父E续原计划，未自行起零Agent或并行多栈，未canonical/archive/PR/CI。

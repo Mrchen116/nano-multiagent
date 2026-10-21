@@ -65,3 +65,44 @@ PROBE_RUN=http-one caffeinate -i pnpm exec vitest run \
 - 三个超时测试遗留 pid27008/27748/28202，分别核对 **exact unit DSH命令 + lsof cwd = 本次 mkdtemp home** 后 TERM。最终三者与额外诊断28562、boot-plain28945均不在进程表；按 exact unit path 核对活动 native/Vitest进程0。未杀 Q/其他 worktree/生产/共享代理进程。
 - 三个超时测试的自建临时 home 保留为恢复现场，未猜路径删除；本文只提交脱敏边界和本地 locator，不提交 raw stderr、配置、prompt、PID文件、CPU profile或数据目录。
 - 后续恢复条件：资源实际可用且同期限六 Agent 初始化/opt-out/restart通过，再补 CC超窗终态、15项真实 HTTP matrix、model-policy/history/capabilities等原 R5 缺口；由父E继续原 reviewer/R5-W1 closure。原 Q 新栈验收单独等待其真实结果。
+
+## Q R3报告整合与只读readiness（2026-10-22 03:07 +0800）
+
+父E本轮仅要求整合Q报告和有界只读准备，不继续运行重型测试、initialize或新诊断器。本节没有启动任何native/IM/fixture、没有删除数据或回收文件、没有kill旧PID，没有改期限或预算。
+
+- Q原报告 `252c43528e05331abd5c5244e5ae1083c58031eb` 原样cherry-pick为 `03327b4b2`，完整读取[acceptance R3](../acceptance.md#round-r3--main-同链路语义集成后的定向续验)的367–467行，逐字diff exit0；前R1/R2历史保留。
+- Q R3实际受审仍为18e1→22114489：**FAIL /11pass6inconclusive**，新增 `Q625-R3-01 major/unclear` 运行阻塞，不是已确认审核算法/授权漏洞。S9/11/13/14/15/17及required/source/stop/fallback/native owner/双vendor新profile旅程仍欠闭环。
+- 保留两个真实新树C3成功：`context→503→allow` 后续delta、总3效果；`context→503→context` 封顶→真实WS deny→后续新full、总2效果。它们是Q实际新观察，不因本轮整体FAIL抹除，也不外推required/source等邻域通过。具体call/review与locator保持原报告415–422行。
+- Q初批ENOSPC/load611、I3串行仍5timeout、P3单Agent Gateway启动失败，以及Q的12IM/10fixture端口实际释放，均按原报告保留。本执行者没有再次操作其现场或旧PID。
+
+### 当前资源事实与就绪判断
+
+只读命令为`df -k`、`sysctl`、`vm_stat`、`memory_pressure -Q`、`uptime`、两次相隔1s的`iostat`和精确unit路径`ps`筛选；一次有限采样，不轮询，不附带启动探针。
+
+| 03:07:11 +0800采样 | 实际结果 / 边界 |
+|---|---|
+| 本worktree与本机temp所处Data卷 | 同一`/dev/disk3s5`，Available **1566940KiB（约1.49GiB）**，df显示100%；不是已发生新的ENOSPC，也不是已获得足够headroom |
+| CPU / load | 8 logical CPU；load **14.98/16.20/32.10**；相邻1s实际CPU **49%user/48%system/3%idle** |
+| I/O | 相邻1s disk0约2548tps/14.08MiB/s；未用自启动负载做压力测试 |
+| RAM / swap | 物理24GiB；swap总10240MiB、用 **9456.94MiB**、余783.06MiB；memory_pressure查询报system-wide free52%，这是其查询口径，不等于physical free52% |
+| 自己活动进程 | exact unit路径匹配的Node/Python/Vitest runtime/test进程 **0**；本轮未启动它们，不用已清理旧PID推导新进程身份 |
+
+**未测得足以建议立即复跑的实质资源恢复。** 相对于上轮02:55采样（03:00交付），swap只少约32MiB，盘仍只有约1.5GiB可用，当前CPU接近满载。load比上轮高峰低，不等于启动条件已恢复；现有低层free52%也不能单独推翻CPU/I/O和近满盘事实。没有把这些观测当成全部产品失败唯一根因。
+
+建议父E下一次续跑前采用保守的**工程readiness闸，而非产品契约或已验证充分条件**：先恢复可供swap/本轮证据增长使用的磁盘headroom（建议至少10GiB）；只读采样显示CPU有明显idle、load接近或低于8逻辑CPU且swap没有继续快速增长；自己仍无遗留runtime。满足后先由父E明确续跑一个原期限零Agent/六Agent公开初始化探针，再按实际阶段恢复原测试计划，不并行起多栈。当前条件未满足，本轮不自行启动。
+
+### 可核实拥有的产物体积与保留建议（本轮均未删除）
+
+只对八个已由本执行者创建、绝对路径与realpath一致的既知目录做`du -sk`，每个5s cutoff；未递归扫描Q、共享或生产目录。以下本worktree相对路径和三个mkdtemp目录沿本节前文已有来源：
+
+| 自建目录 | KiB |
+|---|---:|
+| `.e2e-feat625-r5-diagnostics` | 688 |
+| `nano-context-default-uLBEMe` / `nano-context-default-QOzeU6` / `nano-review-recovery-IgkyqO` | 56 /64 /24 |
+| `.e2e-feat625-native-r2` | 660 |
+| `.e2e-feat625-context-final` | 26416 |
+| `.e2e-feat625-source-final` | 109784 |
+| `.e2e-feat625-stop-final` | 53764 |
+| 合计 | **191456KiB，约187MiB** |
+
+这八项即使全回收也不能提供建议headroom，且包含版本相关历史证据，不建议为腾约187MiB直接丢弃。最小应保留受试SHA/命令/退出码/时序manifest、RPC/native失败日志、approval/request/context/source/stop导出及实际effect事实；原配置/DB/prompt只能本地安全保留，不提交或公开。若后续确需回收，只能在父E另行确认具体归属与范围后，先核实所需证据完整，再考虑已重建且非唯一的重复运行产物；本轮不推导删除授权，不建议删Q/共享/生产数据。
