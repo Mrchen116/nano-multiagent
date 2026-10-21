@@ -63,14 +63,17 @@ export class KnowledgeRuntime extends Service {
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const config = agent?.session && this.config(agent);
-      if (!agent || !config || !agent.session.snapshotEvents().some(event => event.type === 'compaction/end')) return assembly;
+      if (!agent || !config || !agent.session.snapshotEvents().some(event => event.type === 'compaction/end' && event.data.error === undefined)) return assembly;
       const refs = await this.files(agent).references(agent.id, (config.skillRoots ?? []).map(root => root.path));
       const content: string[] = [];
+      // Some scoped configurations permit /skill:name but have no callable skill tool.
+      const canReload = !!agent.ctx.tools.get('skill', agent);
       for (const ref of refs) {
         const skill = await this.host.skills.get(ref.name, { scope: agent, cwd: agent.session.header.cwd });
-        if (skill) content.push(renderSkillContent(skill));
+        if (skill) content.push(canReload ? `${skill.name}: ${skill.path}` : renderSkillContent(skill));
       }
-      if (content.length) assembly.contexts.push({ name: 'nano-used-skills', text: `Previously used Skills, restored after compaction:\n${content.join('\n\n')}` });
+      const heading = canReload ? 'Previously used Skills: reread relevant instructions with the skill tool before applying them.' : 'Previously used Skills, restored after compaction:';
+      if (content.length) assembly.contexts.push({ name: 'nano-used-skills', text: `${heading}\n${content.join('\n\n')}` });
       return assembly;
     });
   }
