@@ -186,3 +186,123 @@ R02 的更新/删除覆盖原、新到期点，R03 等安排已持久化后才�
 ### Author Resolutions
 
 - 接受 Round 3 的覆盖与结论，无实质异议。当前 spec/design/单 M1 骨架在受审后未改动；本段仅记录判定。旧上游 clock 依赖已经移出本 unit，设计门禁按本轮通过；尚未实施或实跑。
+
+## Author Revision Notice — 恢复用户明确的长期时间语义
+
+用户指出“啥意思，放弃测长时间的了？”，并确认目标仍是不用现实等待七天，让系统经历七天的时间语义。Round 3 将“取消未知上游依赖”解释为缩减长期范围不成立，旧 Approved 不适用于当前稿。
+
+本次 spec/design 改为本仓隔离时间环境驱动当前 PA/DSH 原生链路，保留原期限、日历与 168 小时窗口；新增当前 alpha.1 调度探针证据及其限度。需按 full 重新审查需求、测试与产品边界、跨进程推进、现实时间域、校准和 M1，不复用旧范围放行。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/pa_eval_design_review`（独立 reviewer）
+- review_mode: `full`
+- mode_reason: 用户纠正了 R3 的范围解释；需求、核心时间环境、跨进程推进与 M1 均实质变化，重新完整核对，不沿用 R3 的范围批准。
+- started_at: `2026-10-21T15:06:54+08:00`
+- completed_at: `2026-10-21T15:08:51+08:00`
+- duration: `117 seconds`（独立核对阶段；报告写入随后完成）
+- baseline: `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`，`main`。
+- reviewed: 当前 spec/design/feasibility、Author Revision Notice、现有真实装配/时间/事件接口，以及 `/tmp/nano-eval-clock-ym7mc6/` 的 preload/probe/receipt；只追加本报告，不提交。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+本稿已恢复用户要的七天时间语义；通用隔离时间环境确实消除了“只能等待 DSH 新 clock API”的前提，不能再退回压缩期限。现有探针也如实证明了原生调度 admission 的可控性。不过，将这一方法扩展到真实 PA 的核心 settle/等待进展协议仍有一个未闭合的设计决定，见 R4-W1。它是当前全栈执行路径里的实际冲突，不是要求先实现所有评测或追求任意系统全保真。
+
+### Coverage 与证据
+
+**用户约束和需求。** 当前 spec 明确保留“三天后”、每日节律、消息日期与后台期限原尺度；A01 起止为 2026-11-02 09:00 至 11-09 09:00，完整 168 小时。A03 一天反馈、A04 取消后两天、A07 两天离线和 A01 完成后继续过原/新 due，覆盖实际长期状态与停止/恢复。R 是校准，不能代替 A；不改任务期限、不人工补写记忆、不用 manual 代替 timed。报告区分模拟行为、现实耗时与真实硬件驻留；不因未触发某老化阈值/compaction 宣称已覆盖。R3 把取消上游依赖解释为可以缩减长期目标的前提已被用户纠正，本轮不将那个解释视作授权。
+
+**探针独立核对。** 三个临时文件的 SHA-256 与 feasibility 表完全一致。本轮读取了脚本及原始 receipt，未重跑、未覆盖作者证据。preload 通过 NODE_OPTIONS 安装 Date 与 timeout/interval，初始随现实小幅推进后切 manual；probe 用当前 integration 的 RuntimeClient、schedule.command/history/evidence，逐日 tickAsync，D3 同 home/session 重启。receipt 有 7 个不同 scheduledAt 的 daily admission 和 1 个七天 once，trigger 全部 timed；同时确有 MISSING_CREDENTIAL、aborted 与最后 pending。因此 2.505 秒是原生调度探针耗时，绝不是 PA 完整执行/送达或全栈七天成绩。作者已指出 latest 误取最旧项，正文没有依赖该字段推断日期，未发现掩盖。启动额外约 100ms 与重启增量也已披露。
+
+**架构与真实接入。** `packages/dsh-integration/src/client.ts:40–57` 的 RuntimeClient 使用官方 CLI，并以合并 env 启动子进程；main.ts/RuntimePartitions 的真实 PA 组装仍沿既有 stdio。测试启动器给每个进程单独传 preload、保持包字节不变且不导入私有 DSH 符号，属于通用测试环境替换，不等于复制 Cron 或第二 Agent Loop；仅用“字节没变”也不足以验收，仍须按正文验证没有覆盖业务函数。角色/工具 guard 的职责与依赖方向维持 R2 的有效边界。新 socket 是隔离控制平面，不恢复生产内核 HTTP 服务；不要求为此修改生产 SPEC 架构红线。
+
+**通用时钟机制。** 当前 ScheduleService 读取 Date.now/setTimeout，探针支持这一事实。[fake-timers 官方说明](https://github.com/sinonjs/fake-timers#clocksetsystemtimenow) 区分修改系统时间与 elapsed timer 推进，jump 又会跳过中间触发。design:175–182 已正确禁止逐进程独立 tick(7d)、用 setSystemTime 平移 deadline、把在线七天做成离线 catch-up；要求同 epoch、保 absolute deadline、新 timer 按新时点起算、同刻顺序固定。这些原则合理。薄 adapter 是本仓待实现平台模拟，不依赖未知上游 API；但它还不能仅凭通用 timer 表生成正文所需的等待因果，见 R4-W1。
+
+**时间域与成本。** Date/业务 timer、持久 deadline、消息/知识时间同源；外部模型网关、现实 watchdog 与成本用 monotonic；OS/TLS/mtime 保持真实且明示边界。离散事件服务时间模型把模型计算耗时留在现实域，是明确可评审的建模选择，不冒称真实延迟竞争等价。按天/小时模型工作仍须执行，七天约 604,800 次 Heartbeat 检查不能为提速删除。30 分钟空载门槛与真实模型基线分开，未把 2.5 秒探针外推为性能承诺。R05 包含认证/重连/知识日期与 activeHours，避免虚拟时钟仅接 schedule。
+
+**评分和证据。** A01–A08 的真实模型质量与 R 确定性 provider 校准分开。source refs、inbox_read_committed、schedule occurrence/admission、真实输入终态及目标账号消息为证据链，未采用工具名称或相似正文判送达。未消费、未送达、provider 故障、采集/时钟失效区分；机会分母保留，未发生机制标未覆盖。固定分支/未知事实/独立 Judge/人工复核未实质变化，`retained_from: Round 2/3` 的这部分证据继续适用，不能沿用旧时间范围结论。
+
+**delta、runbook 与 milestone。** 无客户端改动；生产启动不装 preload，no spec delta 在当前测试模式范围内成立。runbook 明确直接 e2e-up 只是真实时钟对照，加速必须 wrapper 注入全部进程；有效配置与物化源配置分开，重启保留持久状态及当前 epoch。单一 M1 先准入再基线可以纵向交付，且退出条件要求双模式、多日、异步持久化、重启和真实模型贯通。现在的问题不是缺一个验收项，而是验收前要实现的等待判定尚未设计清楚，不能仅把“校准失败则修环境”当作该决定的答案。
+
+### 历史问题闭环
+
+| ID | 当前修订 | 本轮判断 | 状态 |
+|---|---|---|---|
+| R1-W1 | 改为整个测试进程 Date/timer 同源，不再逐字段 BusinessClock 注入 | 原消息/知识时间遗漏已有统一策略，真实与虚拟混合的新增进展问题另记 R4-W1 | **closed for original issue** |
+| R1-W2 | 固定能力和路径 guard 保留，所有后代/review 同范围 | 本轮没有放宽资产可见边界，沿用 R2 公开工具入口核对 | **closed — retained** |
+| R1-R1 | main.ts/RuntimePartitions 仍是实际入口 | RuntimeClient env 接点已核实 | **closed — retained** |
+| R1-R2 | 明确完整七天空载门槛与原 tick 数，不先做业务跳跃优化 | 新方案重新存在该操作量，现有门槛和不删 tick 约束覆盖原建议 | **closed — updated** |
+
+### Issues
+
+#### R4-W1 — settle 的 timer 等待与真实 I/O 等待尚无可执行的判别及推进契约
+
+- **位置：** `design.md:94–102,177–186`，尤其第 4 步“任一 await 在等待将来的受控 timer，应报告 waiting_until”。
+- **已核实的冲突：** 当前 `packages/channels/src/index.ts:215` 为真实 IM 请求注册 10 秒 response-deadline timer；它存在时，正确动作通常是等 socket 回复。与此同时 `packages/dsh-integration/src/client.ts:132–138` 的恢复 backoff、已安装 `dsh-llm-retry/lib/index.js:68–74` 的 cancellableDelay，以及 `dsh-atomic-write/lib/index.js:190–208` 的 writer-lock retry，确实需要虚拟 timer 前进才能让等待完成。native `dsh-timeout/lib/index.js` 的 deadline/idleWatchdog 也用同一种 setTimeout 武装网络中止。它们不是任意扩展插件带来的假想边界。
+- **为何现有描述不够：** 通用 handle/due/generation 只说明“有一个 timer”，不说明它是当前 work 的进展依赖还是保护仍在进行的真实 I/O 的超时。当前 session.status/已知输入终态也不提供该因果关系。正文没有指定 waiting_until 由哪个真实 owner、公开事件或通用观测机制生成，如何与活动模型/文件/网络工作区分，以及两类等待同时存在时何时允许推进。外部 wall watchdog 只能终止卡住的 run，不能决定何时安全推进。另有 `rpc.ts:23–24,91` 按行并发启动 async handler：在现有 RPC 后追加一个普通查询，并不自然构成“之前副作用都持久化”的 fence。
+- **未修后果：** 若一律等 active work 终态后才推进，真实 retry/recovery/lock 等待会死锁并被误报 invalid；若看到 timer 就前进，会让尚在真实 I/O 中的请求先遭遇虚拟超时，或在真实文件写未完成前进入下一业务日期。二者都会阻断或污染用户要求的连续七天。单 DSH 探针刻意没有真实 provider，也未做多进程 settle，不能消除这一缺口。
+- **需要收口：** 补一个有界、可实现的等待/进展契约：列出本能力集需要观测的 active work 和等待类别、各自公开/本仓 owner 接点，谁声明 waiting_until，如何在同刻冻结或推进及其完成收据；明确 RPC fence 等待的是哪些已登记事务/持久化，而非传输有序。用“真实 I/O 中的 deadline”和“必须 timer 解锁的 retry/recovery”两个最小交错说明决策。可以继续采用现有公开 hooks 和本仓只读状态，不要求上游新 API，也不要求提前实现整个 suite；但不能把无法识别的等待默认当已空闲或留给 worker 猜测。
+
+### Recommendations（不阻断）
+
+无额外建议。先收口 R4-W1；不要因本项恢复压缩期限、删掉原生周期或新增业务调度器。
+
+### Author Resolutions — Round 4
+
+- **R4-W1 accepted/fixed**：删除 waiting_until 推断和活动期间冻结虚拟时间的规则。改为 fast/paced：只有已确认空闲才快进；所有模型、网络、retry、recovery、flush 工作期间虚拟时间按现实 1× 前进，不区分内部 timer 的用途。design 决策 5 列出 IM/Channels/Node/PA/integration 各 owner 的活动区间、公开接口/本仓只读接点、native schedule due 取证与真实持久化 fence；明确普通 RPC 查询不是 fence。用 response-deadline 与 retry/lock 两个交错说明可进展。范围、期限和原生业务逻辑未缩减。请求本项 closure 复审；涉及时间执行模型可按 reviewer 判断扩大 delta。
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: `/root/pa_eval_design_review`（独立 reviewer）
+- review_mode: `delta`
+- mode_reason: 围绕 R4-W1 的有界修订，但活动阶段从暂停改为现实 1× 推进，影响业务计时、输入并发和准入校准，因此除闭环外复核这些关联变化。
+- started_at: `2026-10-21T15:16:07+08:00`
+- completed_at: `2026-10-21T15:17:10+08:00`
+- duration: `63 seconds`（独立代码核对阶段；阅读修订与报告写入另计）
+- baseline: `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`，`main`；工作区既有修改保留。
+- reviewed: 冻结的 design 决策 2/5、M1 及 R4 Author Resolutions；只追加本报告，不修改设计、代码或提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R4-W1 已关闭。活动期间持续以现实 1× 推进，直接消除了“既要等待操作完成、又不允许解锁该操作的 timer 前进”的循环，也不再要求从通用 timer 表猜测保护性超时和进展依赖。当前设计已足够指导实现；七天环境性能和实际贯通仍由 M1 准入及基线验证，不把文档通过当作运行验收。
+
+### Coverage 与证据
+
+**推进模型及用户约束。** design:179–207 明确 fast 仅用于证据齐全的空闲状态，模型/网络/retry/recovery/flush 全程 paced；两种模式共用同一时间轴和原 absolute due，paced 耗时计入模拟跨度，固定外界事件仍按其原时间到达。这样真实模型慢时，Heartbeat 和同刻消息能够观察 busy，而非让系统业务时间停住。10 秒 IM response deadline 与 2 秒 retry/100ms writer-lock 两个交错给出了可执行的决策，不再有 waiting_until 的未定义产生方。电脑暂停、控制循环过度落后明确为环境失效，不冒充业务离线。A01 原 168 小时、日历期限、每秒原生检查和离线恢复语义保持；真实模型等待会增加现实成本，但没有恢复压缩故事范围。
+
+**owner 与 fence 接点独立核对。** `apps/node/src/main.ts:88–115` 确认 RuntimeSupervisor 实际装配及 initialize/onReady 恢复链；其类实现在 `packages/dsh-integration/src/client.ts:79–150`，launch/recovery 包含真实 promise 和 250/1000/4000ms backoff。`packages/channels/src/index.ts:206–239,288–291` 有 queue/active、ACK/timeout 与 reconnect 生命周期，可由其 owner 暴露测试快照。`GlobalAgent` 的 busy、drains/calls/workFlush，以及 `Heartbeat.tick` 的 active promise，确实是可增补 generation/fence 的本仓落点；当前普通后台 Inbox 待到期状态不应直接作为永久活动，正文已明确区分。新增观察是实施目标，未声称这些测试接口现已存在。
+
+`packages/dsh-integration/src/index.ts:140–146` 已在 RPC 首个 await 前登记 admissions；`session.observe/descendants` 在 370–388 行执行真实 Session flush，并带 throughSeq。`knowledge/runtime.ts:28–82,137` 已持有 active/tasks/undelivered、busy 与事实 acknowledge。设计据此要求所有 root/child/review 和异步记录完成，配合模型请求 lease，而非只看根 Agent idle。design:198 明确普通 RPC 顺序不提供屏障，新的 owner fence 要等待已登记事务及派生操作，之后 flush/提交并核对 generation；控制器持续 paced，不阻塞在单个 fence 等待。此决定覆盖了 R4 的持久化缺口，实施不需要访问 DSH 私有 Promise 或改写 retry。
+
+**原生 schedule 的边界。** 当前锁定 `dsh-schedule/lib/index.js:1562–1646` 的 drive 先恢复 Agent、followup、Session flush，再提交 delivery 和 next scheduledAt，最后重装 timer；`catalog():2129` 只是读当前记录，确实不等于等待 drive。design:196–200 已要求本次公开 due/history/input evidence、回合与发送终态、后继 timer 重装或任务终止，再核 generation，而非以 catalog 返回作 fence。只从公开 catalog 读取 next due，通用注册表核对原 deadline；不重算 recurring 规则，不调用 private chain/serialize。更新/删除并发仍以真实公开事实结案，不为测试串行化业务。失败缺证保持 paced 并有明确预算停止，不能悄悄 fast。
+
+**架构、范围和验证成本。** 新机制是各已有 owner 的隔离只读活动观察与持久化等待，不把通用控制器扩成业务调度器。M1 已纳入对应 PA/Node/Channels/IM/integration 接点和 fast/paced、真实 deadline/retry、异步写盘/重启的准入验证；30 分钟完整空载七天门槛仍保留，不依据单进程探针预判其会通过。无需提前写完全部测试或追加新里程碑才能结束设计审查。
+
+`retained_from: Round 4`：用户目标与 A/R 覆盖、探针证据及其限度、工具/资产隔离、评分与沉默判定、no spec delta、生命周期/清理和未改动的 M1 交付要求；本轮修订没有改变这些约束。原先“模型计算期间业务时间冻结”的取舍已被本轮 paced 规则替代，不能再沿用该部分旧解释。本轮未启动服务、调用模型或运行场景，运行有效性尚待实施验证。
+
+### 历史问题闭环
+
+| ID | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R4-W1 | fast/paced 取代 waiting_until；给出 owner 活动区间、事务 fence 与两个交错 | 活动工作按现实 1× 运行，保护性 timeout 和进展 retry 均可自然完成；本仓 owner/公开 flush 接点存在，catalog 不再被误作 fence；design:179–209 与实际代码吻合 | **closed** |
+| R1-W1 / R1-W2 | 统一测试时间与固定资产边界保留 | 未恢复逐字段混合时间或放宽候选权限；沿用 R4 闭环 | **closed — retained** |
+
+### Issues
+
+无新增 CRITICAL/WARNING，无仍开放的历史问题。
+
+### Recommendations（不阻断）
+
+无新增。按现有 M1 准入验证实际活动观测、完整七天成本及真实模型贯通；不再扩展假想等待类别或上游接口。
+
+### Author Resolutions — Round 5
+
+接受本轮结论，R4-W1 已由 fast/paced 与 owner fence 收口，无实质异议。受审后 spec/design/feasibility/M1 骨架未再修改；本段仅记录 author 判定。Gate 2 通过仅表示设计就绪，完整环境和真实模型基线仍待 M1，未宣称产品或评测已实现。
