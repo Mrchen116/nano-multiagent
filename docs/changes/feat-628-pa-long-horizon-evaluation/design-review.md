@@ -122,3 +122,67 @@ R1-W1、R1-W2 均已闭合。此结论确认设计决定和实施责任足够明
 ### Author Resolutions
 
 - 接受 Round 2 的覆盖与闭环证据，无实质异议。受审 spec/design/milestone 骨架此后未变；本段仅记录 author 判定，不新增设计决定。Gate 2 通过，实施仍受公开 DSH clock 前置及 M1 准入约束。本次交付止于设计。
+
+### Author Revision Notice — 用户要求取消上游前置
+
+用户原话：“那就不要依赖上游还没有的能力，想个现在能落地的评测方案，把设计改一下”。据此修订 spec 的时间覆盖要求、重写 design，并将旧两个 milestone 空骨架替换为 `M1-replay-baseline/.gitkeep`。当前设计使用压缩故事与短时真实机制两轨，全部时间保持真实；删除 BusinessClock、时钟 IPC、消息时间/健康字段迁移及上游 clock 发布前置。保留受控工具边界、证据与评分约束，基线改为 A01–A08/R01–R05 首次完整小样本。Round 2 的批准只针对历史稿，不用于批准这次实质修订，交独立 reviewer 追加新 Round。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/pa_eval_design_review`（同一独立 reviewer）
+- review_mode: `full`
+- mode_reason: 用户明确改变时间覆盖要求，spec/design 与 milestone 实质重写；本轮重新审查整套方案，不用 Round 2 的 Approved 直接放行。
+- started_at: `2026-10-21T14:22:05+08:00`
+- completed_at: `2026-10-21T14:22:44+08:00`
+- duration: `39 seconds`（独立核对阶段；报告写入随后完成）
+- baseline: `d5ac9c4f9c371e53a7bcac542d551b1fdd303d28`，`main`；本轮仅追加本报告，未修改 spec/design/代码，不提交。
+- reviewed: 当前完整 spec/design、Author Revision Notice、`M1-replay-baseline/.gitkeep`；已确认旧两个 milestone 目录不再作为本稿骨架。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+新方案可基于当前锁定能力实施，不再等待上游时钟 API。批准的是“压缩故事的连续行为 + 短时真实机制”评测设计，不是七天实际流逝的等价证明，也不是已实现或已跑通基线。新增 runner、隔离 guard、场景与评分仍属于 M1 待实施工作。
+
+### Coverage 与证据
+
+**用户新约束和需求范围。** spec 原话及澄清记录保留了用户取消未知上游依赖的要求，验收改为连续故事回放、短时真实定时和相同相对协议重跑。design §关键决策 1–2 分开说明 A/R 的可证与不可证范围：story_day 只留控制侧，候选接收真实消息时间与按当次起点渲染的短期限；保存原故事与 executable variant，报告真实观察长度。改变紧迫度与并发密度的影响在风险段明确，不把故事“D7”包装为经过七天。无需重新引入 clock 满足已被用户修改的旧范围。
+
+**当前能力与实际运行链。** 本轮读取了当前 `cron-owners.ts`、`features/cron.ts` 相关装配及 `schedule-evidence.ts`。锁定 alpha.1 的 `dsh-schedule/lib/types/domain.d.ts:11` 与分发 `lib/index.js:21` 均给出 `MIN_EVERY_INTERVAL_SECONDS=60`；原生工具分发明确支持 after_seconds、every_seconds 和 schedule_create/list/update/delete，180 秒 once 与 120 秒 every 在当前能力内。`schedule-evidence.ts` 从真实 schedule source 和 reminder framing 关联 schedule ID、occurrence、input evidence，并单独处理 manual，因此方案所需证据有当前接点。原生 `lib/index.js:1566–1620` 在恢复时按真实 now 解析 recurring 最近 occurrence、持久化 admission；R03 测的是该已有恢复机制，不是 runner 模拟触发。
+
+`heartbeat-policy.ts:5–9` 接受 s/m/h/d，`heartbeatDue` 和 `withinActiveHours` 由真实 now/用户时区判断；2m 是现有配置而不是加速系统时钟。`inbox.ts` 的十分钟当前规则保持不动。R04 的阻塞工具是待新增的局部 fixture，利用已有工具注册/执行接口保持真实 running，既不伪造 busy，也不要求上游新增服务。真实组装入口仍是 main.ts/RuntimePartitions/RuntimeSupervisor。旧 `test_cron_push_critical_path.py:55` 仍含 schedule_cancel，设计已明确不能直接照搬旧测试或把普通 Agent 结果当 PA 验收；M1 实际 schemas 和 PA owner 绑定验证足以防止沿用过时名称。
+
+**时间、反馈与停止协议。** A01 的 +1、+16、+32 分钟后台输入分别留出真实批处理和固定处理余量；A 轨允许其他合法入口提早读取，R01 则关 Heartbeat、排除 owner 催问独立测十分钟。+48 分钟的请求按消息时间确定 +51 分钟目标，固定 90 秒容差与 +54 分钟完成事件分开；最终观察覆盖原/新截止及后续周期，不以注册确认代替提醒。候选处理慢不顺延外部事件，属于冻结协议内的真实行为结果；runner 迟投递则用默认 5 秒容差归 harness-invalid，未把两者混为一谈。
+
+R02 的更新/删除覆盖原、新到期点，R03 等安排已持久化后才停机，R04 验 actual running，R05 区分已入队工作与取消后的新催促。具体子场景文本、停止/恢复偏移和周期观察长度交 M1 seal，是已明确的 fixture 制作工作；设计已经决定必须观察哪些边界，不需要在本轮补出全部测试脚本。有限反馈按当时可知事实和固定延迟分支回复，unsupported 不临场补答案；它是唯一允许依候选输出改变输入的显式例外，不修改独立事件时间。
+
+**取证、评分和沉默。** 不再要求跨进程全局 drain，而是对已知输入收集完整分页、source ref、admission、终态与目标账号消息；收集缺口为 unknown，可观察但未消费为 fail。窗口关门后固定 30 秒只补采已经发生的投影，以事件实际时间归窗，不把晚回复当按时。timed/manual、业务停止/已入队、stub/真实模型分别保留。A/R 指标分列且保留全部冻结机会分母，未观察到的未来 due 只记创建，不推算触发。基础设施完成允许 PA 有行为失败，但无效环境、缺证或漏跑不能包装成完整基线。首次 A01–A08 加 R01–R05 全子场景各一次和可选三次重跑的含义清楚，没有沿用旧 8×3 或 15 分钟全栈七天要求。
+
+**隔离、架构与维护成本。** `retained_from: Round 2`：工具白名单、native 表示层、受控文件根、锁定 workspace 插件和 root/child/review guard 的机制未改变；公开 tools/pre-execute 接口及现有审批保留拒绝的核对仍有效。当前候选全用真实时间，关闭 bash/web 现在主要服务于资产隔离，不依赖时间伪装。方案删除 BusinessClock、跨进程时钟协议和 IM 时间迁移，harness 只负责输入/观察/生命周期，原 PA/DSH 保持业务决策和原生调度；比上一稿少一个外部能力与一套时间控制机制，职责边界成立。
+
+**Runbook、delta 与 milestone。** `apps/node/src/cli.ts:27–48,138–143` 当前支持 stop/start --config；design:237–240 区分物化源配置和 e2e-up 生成的有效配置，保状态重启只用后者并保留 IM，避免重建工作状态。清理以本 run receipt 作用域执行。生产时钟、调度、Inbox、权限均不改，隔离 guard 仅在测试配置生效，因此 no spec delta 合理；新长期协议仍归 evals README，并更新索引。无前端变化。单 M1 同时交付 runner、场景、取证与真实小样本报告是完整的纵向交付，退出条件覆盖 spec 所有 Scenario，空骨架实际存在。
+
+**取证限度。** 本轮没有启动服务、运行模型或执行任一新场景；当前可落地判断来自已安装 alpha.1 的公开类型/分发实现和仓库真实装配。design 所述其他 npm 版本调查未在本轮重跑，也不是本结论的前提。外部研究的方法借鉴未变，沿用 Round 1 的独立来源核对，不将其当成此方案已有效的实验证明。
+
+### 历史问题闭环
+
+| ID | Author Revision / Resolution | 本轮判断与证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | 用户要求后删除双时钟；全部实际来源、记忆、调度和健康时间保持真实 | 原时间域冲突前提已不存在；新 spec 与 design §决策 1–2 明示压缩故事而非时间等价 | **closed — superseded by new scope** |
+| R1-W2 | 保留 R2 的固定能力集与确定性资产边界 | design §决策 3 和 M1 sentinel 准入未退回“仅不同目录”；沿用 R2 公共接口证据 | **closed — retained** |
+| R1-R1 | main.ts 保持为实际入口 | 当前 design 现状与运行链一致 | **closed — retained** |
+| R1-R2 | 删除虚拟 timer 推进和七天 stub 成本门槛 | 不再有 604,800 次虚拟 tick；实际 A01 90 分钟计划及每 case 预算替代 | **closed — superseded by new scope** |
+
+### Issues
+
+无新增 CRITICAL/WARNING，无仍开放的历史问题。
+
+### Recommendations（不阻断）
+
+无新增。按冻结的相对协议制作并 seal 具体 case，实施后再用真实证据判断结果，不为旧七天全保真目标增加上游依赖。
+
+### Author Resolutions
+
+- 接受 Round 3 的覆盖与结论，无实质异议。当前 spec/design/单 M1 骨架在受审后未改动；本段仅记录判定。旧上游 clock 依赖已经移出本 unit，设计门禁按本轮通过；尚未实施或实跑。
