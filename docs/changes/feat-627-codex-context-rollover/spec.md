@@ -31,6 +31,16 @@
 8. 插件承担上下文管理；Nano 保持产品来源、有效环境与既有授权边界。跨 Agent 的 Notes/History 访问不自动照搬 Codex 的访问范围，不因为切窗或插件安装扩大权限。
 9. 先以 Codex 为行为基线，再验证连续任务效果；不预先承诺成功率、成本或延迟优于现有压缩方案。
 
+2026-10-21，用户继续要求：
+
+> 继续设计，fork仓库改个名字吧，然后这个仓库以子仓的形式进入nano项目，还是说以release包的形式？
+
+用户确认命名与接入方式：
+
+> 采用 dsh-agent-context + 固定版本包
+
+后续设计使用独立仓库 `Mrchen116/dsh-agent-context` 和固定版本发布包，沿用 workspace 插件生命周期；不把源码作为 Nano 子模块或内嵌子仓。本轮继续完成设计及独立设计审查，不包含产品实现、发布包或生产部署。
+
 ### 提示词沿用要求
 
 用户追加的要求适用于 context guidance、`context_window_reminder`、基础预算耗尽后的 fallback prompt、新窗身份与恢复提示，以及相关工具描述。后续 design 必须：
@@ -52,7 +62,7 @@
 | rollover upstream / fork 起点 | `d74876a90968bd5498b5af0bcc2f327c3131f007`，包版本 `0.2.2` | 复用无摘要换窗与持久 Notes 的基础 |
 | Codex | `464add49587a7cb6032d5ab04faa8a1585947853` | 新窗、工具契约和预算提示词参考 |
 
-- Fork：[Mrchen116/dsh-context-rollover](https://github.com/Mrchen116/dsh-context-rollover)，上游为 [athif23/dsh-context-rollover](https://github.com/athif23/dsh-context-rollover)。fork 的成立不代表改造已完成。
+- Fork：[Mrchen116/dsh-agent-context](https://github.com/Mrchen116/dsh-agent-context)，上游为 [athif23/dsh-context-rollover](https://github.com/athif23/dsh-context-rollover)。fork 的成立不代表改造已完成。
 - [当前插件契约](../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace bundle 与压缩引擎启停；[Nano 压缩接线](../../../packages/dsh-integration/src/compaction.ts) 向 Agent preset 的引擎委派。feat-610、feat-614 为相关既有能力。
 - 上游 [新窗入口](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/index.ts) 自动注入 Notes 正文并保留近期 tail，且压力换窗每 turn 最多一次。其 [范围选择](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/rollover.ts) 在保留预算为零时仍先选中尾部节点；不能仅改配置宣称已去掉 tail。
 - 上游 [History](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/history.ts) 只认直接 `user` 来源、将非文本块替换成类型占位符，读取没有 offset；[Nano 输入](../../../packages/dsh-integration/src/index.ts) 使用 `nano-human`/`nano-system` 来源。需适配恢复内容，同时保留真实来源，不将系统通知或外部材料升级为人类授权。
