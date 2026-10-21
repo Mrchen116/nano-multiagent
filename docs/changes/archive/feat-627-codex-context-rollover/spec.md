@@ -41,6 +41,20 @@
 
 后续设计使用独立仓库 `Mrchen116/dsh-agent-context` 和固定版本发布包，沿用 workspace 插件生命周期；不把源码作为 Nano 子模块或内嵌子仓。本轮继续完成设计及独立设计审查，不包含产品实现、发布包或生产部署。
 
+2026-10-21，用户授权实施并明确默认范围：
+
+> 可以，按这个设计开始实施 feat-627，用默认流程，完成插件改造和 Nano 接入，跑完真实长任务验收后交付 PR。
+
+> 哦，我明确下，这套新的压缩机制，作为nano 的所有agent的默认上下文压缩机制
+
+因此本方案成为 Nano 所有新建和既有 Agent 的默认机制，包含 Personal Agent、普通/Global Agent 及其子 Agent；无需逐 workspace 手动安装或把管理工具加入业务 allowlist。既有 workspace 开关保留为用户显式回退入口，停用状态重启后保留。此范围覆盖此前设计中的可选安装默认值，不改变独立固定版本包的分发方式。
+
+2026-10-21，真实长任务验收后用户进一步要求：
+
+> 注意区分哪些问题是我们引入的上下文管理的问题，哪些是agent正常的问题
+
+本次验收须保留实际失败观察，并以执行链和实际入模内容判断归因。不能把长任务中的一般计算错误或指令遵循偏差自动认定为上下文管理缺陷，也不能仅因工具正常就宣布整体回答正确。未建立本 unit 因果关系的 Agent 行为问题单独记录；不为通过本 feature 验收擅自扩大为通用 Agent 行为改造。
+
 ### 提示词沿用要求
 
 用户追加的要求适用于 context guidance、`context_window_reminder`、基础预算耗尽后的 fallback prompt、新窗身份与恢复提示，以及相关工具描述。后续 design 必须：
@@ -63,9 +77,9 @@
 | Codex | `464add49587a7cb6032d5ab04faa8a1585947853` | 新窗、工具契约和预算提示词参考 |
 
 - Fork：[Mrchen116/dsh-agent-context](https://github.com/Mrchen116/dsh-agent-context)，上游为 [athif23/dsh-context-rollover](https://github.com/athif23/dsh-context-rollover)。fork 的成立不代表改造已完成。
-- [当前插件契约](../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace bundle 与压缩引擎启停；[Nano 压缩接线](../../../packages/dsh-integration/src/compaction.ts) 向 Agent preset 的引擎委派。feat-610、feat-614 为相关既有能力。
+- [当前插件契约](../../../specs/gateway/agent-capabilities.md#requirement-agent-可在-workspace-自助安装原生工具) 已支持 workspace bundle 与压缩引擎启停；[Nano 压缩接线](../../../../packages/dsh-integration/src/compaction.ts) 向 Agent preset 的引擎委派。feat-610、feat-614 为相关既有能力。
 - 上游 [新窗入口](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/index.ts) 自动注入 Notes 正文并保留近期 tail，且压力换窗每 turn 最多一次。其 [范围选择](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/rollover.ts) 在保留预算为零时仍先选中尾部节点；不能仅改配置宣称已去掉 tail。
-- 上游 [History](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/history.ts) 只认直接 `user` 来源、将非文本块替换成类型占位符，读取没有 offset；[Nano 输入](../../../packages/dsh-integration/src/index.ts) 使用 `nano-human`/`nano-system` 来源。需适配恢复内容，同时保留真实来源，不将系统通知或外部材料升级为人类授权。
+- 上游 [History](https://github.com/athif23/dsh-context-rollover/blob/d74876a90968bd5498b5af0bcc2f327c3131f007/src/history.ts) 只认直接 `user` 来源、将非文本块替换成类型占位符，读取没有 offset；[Nano 输入](../../../../packages/dsh-integration/src/index.ts) 使用 `nano-human`/`nano-system` 来源。需适配恢复内容，同时保留真实来源，不将系统通知或外部材料升级为人类授权。
 - Codex [新窗实现](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/core/src/session/mod.rs) 的 `start_new_context_window` 重建初始上下文，有特定功能开关控制的客户端消息保留例外；本 unit 不机械引入这些无对应产品需求的例外。
 - Codex [Notes 扩展](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/ext/history-notes/src/extension.rs) 对后端 thread hint 限制为 4,000 bytes；这能证明客户端边界，不能证明服务端选择文件的全部算法。采用近期文件提示且总计不超过 4,000 bytes 是本方案的本地策略。
 - Codex [模型提示词](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/models-manager/models.json)、[预算提醒](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/core/src/session/token_budget.rs)、[预算计算](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/core/src/session/context_window.rs) 和 [工具契约](https://github.com/openai/codex/blob/464add49587a7cb6032d5ab04faa8a1585947853/codex-rs/ext/history-notes/src/tools.rs) 是后续设计的固定参考。
@@ -76,7 +90,7 @@
 2. 用户早先提出过关键约束，或某次工具执行返回过较长的重要结果。切窗后 Agent 需要其中的细节时，能够找回原始内容和来源，区分旧要求与后续修订，不靠笔记中的猜测补齐。
 3. Agent 接近上下文预算时先保存继续工作所需的信息，再进入新窗；达到强制边界后仍可恢复可用的工作记录。新会话没有旧笔记，或者历史目标不存在时，Agent 如实处理缺失，不虚构已恢复的信息。
 4. 节点正常重启后，用户在同一聊天继续工作；此前已经保存的工作记录与历史仍可找回。重启和切窗不会把别的 Agent 或 workspace 的材料带进当前任务。
-5. 用户通过既有插件管理入口启用、停用或恢复此能力。未启用的 workspace 保持原来的工作方式，停用不删除已有工作记录；加载或恢复失败时明确反馈实际状态。
+5. 所有新建与既有 Agent 默认使用该机制，无需用户逐个安装或修改业务工具选择。用户通过既有插件管理入口停用或恢复此能力，显式停用重启后仍保持，停用不删除已有工作记录；加载或恢复失败时明确反馈实际状态。
 
 ## 验收标准
 
@@ -125,11 +139,24 @@
 - **WHEN** 当前任务请求访问既有权限之外的其他 Agent 或 workspace 记录
 - **THEN** 不获得这些记录，也不把它们用于回答或外部操作；换窗、恢复及插件启用不扩张授权
 
+### Requirement: 所有 Agent 默认使用无摘要换窗且可显式回退
+
+#### Scenario: 新建与已有 Agent 无需手动配置（用户场景 5）
+- **GIVEN** 用户使用新建或升级前已存在的普通、Global、Personal 或子 Agent
+- **WHEN** Agent 开始后续工作，用户未显式停用该能力
+- **THEN** 默认使用无摘要换窗和配套恢复工具，无需逐个安装或修改业务工具 allowlist
+- **AND** 不扩大原有业务操作权限
+
+#### Scenario: 停用状态在重启后保留（用户场景 5）
+- **GIVEN** 用户已在一个 workspace 显式停用该能力
+- **WHEN** 节点正常重启或该 workspace 创建新 Agent
+- **THEN** 仍使用原摘要压缩，直至用户重新启用
+
 ### Requirement: 通过现有插件入口控制生效与撤销
 
 #### Scenario: 启用、停用和恢复（用户场景 5）
 - **WHEN** 用户在目标 workspace 启用、停用并重新启用该能力
-- **THEN** 后续工作使用相应已生效的上下文管理方式；停用后恢复现有默认压缩行为，已有工作记录不被删除
+- **THEN** 后续工作使用相应已生效的上下文管理方式；停用后恢复原摘要压缩行为，已有工作记录不被删除
 - **AND** 其他 workspace 的启用选择与工作行为不被改变
 
 #### Scenario: 加载或恢复失败（用户场景 5）

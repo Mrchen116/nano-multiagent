@@ -15,6 +15,7 @@ import type { ApprovalReviewResult } from './types.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
+import { contextTools } from '../agent-context.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
@@ -102,6 +103,8 @@ export class NanoApproval extends Service {
     const downstream = await next();
     if (downstream.kind !== 'allow') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
+    // Session-local continuation must work with Auto off; downstream denials still win.
+    if (contextTools.has(exec.name)) return allow('internal_context');
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     // Source preferences use the original owner message and revision checked by the product host.
     if (config.personal && exec.name === 'personal_sources') return allow('owner_source_control');

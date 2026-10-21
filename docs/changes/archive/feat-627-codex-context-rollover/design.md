@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-10-21：按用户追加要求改为所有 Agent 默认启用；固定包进入 Nano 运行依赖，新增一次性 profile 默认迁移与持久停用语义。
+
 ## 现状分析
 
 ### 涉及范围
@@ -49,7 +51,7 @@ flowchart LR
 
 ## 关键决策
 
-1. **独立仓库 + 固定版本 GitHub Release `.tgz`，不引入 submodule。** 包名为 `dsh-agent-context`；首个改造版本计划 `0.3.0`。Release URL 采用 `https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0/dsh-agent-context-0.3.0.tgz`，此为目标地址，当前尚未发布。版本 tag、来源 commit、资产 SHA-256 与 DSH 兼容版本记在 release 说明。使用 `pnpm pack` 的预构建 npm tarball，而非 GitHub 源码 zip；部署机器不需构建插件。安装前核对 digest，禁止覆盖同名版本资产。workspace profile 自己保存依赖/lock，不把插件写成 Nano 默认运行依赖，不使用 `latest` 或浮动 Git 分支。
+1. **独立仓库 + 固定版本 GitHub Release `.tgz`，不引入 submodule。** 包名为 `dsh-agent-context`；首个改造版本计划 `0.3.0`。Release URL 采用 `https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0/dsh-agent-context-0.3.0.tgz`，此为目标地址，当前尚未发布。版本 tag、来源 commit、资产 SHA-256 与 DSH 兼容版本记在 release 说明。使用 `pnpm pack` 的预构建 npm tarball，而非 GitHub 源码 zip；部署机器不需构建插件。安装前核对 digest，禁止覆盖同名版本资产。Nano `@nano/dsh-integration` 将固定 Release URL 写入运行依赖和 pnpm lock integrity；首次 PR 可固定已验证的 `0.3.0-rc.1` 发布候选，正式版本另行升级，禁止使用未发布地址、`latest` 或浮动 Git 分支。workspace profile 仅保存启停选择，不在首次对话中临时联网安装。
 2. **用原生完整 compaction 事务实现真正无 tail。** 替换 system head 后所有可配对的旧 surface 节点，修掉 retain=0 仍保留最后节点的算法。工具批次结束、无未配对 call/result 时才切；保留尚未被本 step 采纳的新输入。checkpoint 是当前有效 runtime context + 窗口元数据和恢复提示，不含过去任务的摘要。
 3. **稳定引用复用持久事件，不建 ID 数据库。** `window_id = <session-id>:initial` 或 `<session-id>:<successful-compaction-start-seq>`；`item_id = <event-seq>`，以 `(window_id,item_id)` 定位。序号只用于显示；日志中成功提交的 compaction bracket 是边界。普通压缩也计为边界，防止停用/重新启用后引用混淆。失败/未闭合事务不生成新窗。
 4. **工具采用 DSH 扁平 schema。** `notes` / `history` 按 action 分派，`new_context` 无参数，`get_context_remaining` 只读预算与当前引用。后者沿用 Codex guidance 已有的工具名，避免把预算观测塞进 Notes 或 History。
@@ -62,7 +64,14 @@ flowchart LR
 
 bundle patch 只插入一行 `id: agent-context`、`name: dsh-agent-context`、`isolate: {compaction: true}`、`config: {modelSurface: "always"}`。scope 只限定事件/工具范围，不能代替 service isolate；这一行显式建立当前 Agent 的 compaction 服务所有权。fork 保留并使用 `modelSurface: "always"`，在 Nano 存在 agentPresets 时也注册四个工具和 guidance；这些注册随该 scoped row 一起启停。不包含 `compaction-basic` disable、agent-presets 改写或 host profile 修改。peer dependencies 对齐 Nano 当前 DSH `0.2.1-alpha.1`；沿用 host package resolver，不能打包另一份 Cordis/DSH service 单例。包中包含编译产物、类型、patch、MIT LICENSE 与上游归属，不携带本机路径和开发脚本依赖。
 
-使用 `plugin_manager` 的 `install_bundle(target: <固定 release URL>)`、`set_bundle(target: "dsh-agent-context", enabled: boolean)`、`list_bundles`。DSH 原生 install-spec 支持 HTTP tarball。开发期将 pack 解包到隔离 workspace 的普通目录，再用已有本地 bundle 安装路径；不把源仓绝对路径写入发布配置。当前 Nano localSource 把本地 target 视为目录，**不要将本地 tgz 当目录传给它**；本 unit 无须因此扩张该 API。
+Nano 默认接线通过现有 WorkspaceExtensions 完成，不引入另一套管理 UI：
+
+- 安装锚点改为 `@nano/dsh-integration/package.json` 的实际路径。该包直接依赖固定 `dsh-agent-context` 和现有 DSH public packages，DSH `createRuntimeResolution` 从此安装依赖图解析共用实例。原生 PluginManager 能发现 installation-owned bundle；Nano inventory 包含该 shipped bundle，即使 `installed=false`，并保持不可 remove、可 set_bundle 启停。
+- 初始化 profile 后执行一次明确的默认迁移：保留原 manifest/patch 所有字段，首次将 bundle 加入 `dsh.profile.bundles`，写 `nano.agentContextDefaultInitialized=true` 标记，使用公开 `saveManifest` 原子保存。既有 profile 同样迁移；已有此 bundle 依赖但未启用时视为明确停用并保留。此后绝不因 bundle 缺席而自动重新添加；原生 set_bundle 持久化启停，重启保持。默认包随 Nano 更新，不能用 workspace install 覆盖同名 shipped 包冒充升级。
+- 默认 bundle 仍是上述 scoped row。所有产品 Agent 的 preset 复用该挂载，包括 Personal/Global/普通 Agent；子 Agent 继承对应 preset。无 workspace 的 SDK Agent 直接在自身 preset isolate 挂载同一个包，以覆盖工具和测试支持的无 workspace 配置；没有 workspace 时不凭空建立管理 profile。
+- `notes/history/new_context/get_context_remaining` 是该上下文机制的基础工具；注册存在时保持可用，不依赖 `plugin_manager` 或业务 allowlist（包括空列表）。停用撤销注册后即消失。其他工具选择、子 Agent 的业务限制及审批保持现有规则。不可把全部 workspace 工具都提升为默认授权。
+- 四内部工具的审批在 `NanoApproval` 中使用独立的 `internal_context` 审计来源：先执行现有 downstream 判定，明确 deny/ask 不覆盖；允许的情况下，对仅作用当前 Agent/session 的四工具直接放行，适用于 nano/codex/dsh 规则和 Auto 关闭。业务工具、发送重验、跨会话访问仍走原路径，不通过 dangerouslySkipPermissions 或扩大 alwaysAllowTools 实现。验证实际 dispatch，而非只看 schema。
+- 用户沿用 `set_bundle(target: "dsh-agent-context", enabled: boolean)` 和 `list_bundles` 控制；新默认不要求用户调用 `install_bundle`。开发测试可先在 worktree 依赖中使用 pack 候选，最终提交必须是已发布且核对 hash 的固定 URL/lock，不能提交本机链接。
 
 只有 `application=applied` 且该 workspace 中实测工具与 compaction owner 正确才算生效；`failed`、`restart-required` 必须按现有机制显示。停用等待该 workspace Agent idle，释放 scope 的工具、guidance、hooks、compaction service；保留笔记文件与原始日志。其他 workspace 不变化；同 workspace 的所有 Agent 都使用该安装选择，但数据仍按 Agent/session 隔离。更换版本按原生要求重启，不能用 off/on 冒充在线代码升级。
 
@@ -112,7 +121,9 @@ read 超长行接续额外接受 `offset_chars`，与 `start_line` 一起定位�
 
 ### 预算状态机
 
-有效模型 context window 为 C，测量输入（含 system/tools/runtime）为 T，最大输出预留为 O。DSH tokenMeter 的默认测量基于已持久 surface/header；pre-step 尚未提交的 claimed 输入与本轮 runtime snapshot 不在其中。pre-step 的 T 用该基数加公开 estimateMessage/header 能力估算的本次待采纳增量（不重复计入已持久节点，header 以本次 assembly 的 tools 替换旧值）；工具中的只读预算明确返回 persisted-surface 测量时点。两者均标记 estimated，实际 provider overflow 仍按兜底路径处理。可用输入硬上限 H=C−O；fallback buffer B 默认 `min(16384, floor(H*0.15))`；工作上限 W=H−B；reminder 距离 R 默认 `min(6144, floor(W*0.1))`。允许 per-model 精确覆盖 B/R，要求 `0<R<W<H`；无合法 C/O 或固定提示已超过 W 时明确报告配置/上下文无法容纳，不能假报剩余预算。`get_context_remaining` 返回 window_id、remaining=max(0,W−T)、T/W/H、measurement 来源和引用分页，不把估算值说成 provider 精确用量。
+首次请求前没有持久 request/context/header 时是 bootstrap 状态，不是配置错误：pre-step 暂不发预算提醒、不执行压力换窗，继续由 DSH prepareCall 解析并持久化实际模型上下限；只读预算工具此时明确返回 budget_unavailable / awaiting_first_request，不伪报数值。首个真实 request 仍受 provider overflow 兜底保护；随后所有 step 从有效 header/context 计算预算。已完成 prepareCall 后无合法 C 才是容量配置缺失。DSH 允许合法省略 maxTokens；这与未知 C 分开处理，不改变实际模型请求的输出选项。
+
+有效模型 context window 为 C，测量输入（含 system/tools/runtime）为 T，输出预留为 O。DSH tokenMeter 的默认测量基于已持久 surface/header；pre-step 尚未提交的 claimed 输入与本轮 runtime snapshot 不在其中。pre-step 的 T 用该基数加公开 estimateMessage/header 能力估算的本次待采纳增量（不重复计入已持久节点，header 以本次 assembly 的 tools 替换旧值）；工具中的只读预算明确返回 persisted-surface 测量时点。两者均标记 estimated，实际 provider overflow 仍按兜底路径处理。预算输入上限 H=C−O；fallback buffer B 默认 `min(16384, floor(H*0.15))`；工作上限 W=H−B；reminder 距离 R 默认 `min(6144, floor(W*0.1))`。允许 per-model 精确覆盖 B/R，要求 `0<R<W<H`。O 优先取当前有效请求明确的输出上限（实际 prepareCall 后的 request/header.config.maxTokens；adapterDefaults 仅表示来源）。当 DSH 合法省略 maxTokens 时，O 使用预算策略预留 `min(32768, floor(C*0.25))`，可由 `outputReserveTokens` 全局或 per-model 覆盖；此数值不改 provider 请求、不冒充 provider 的最大输出，`output_reserve_source` 明确为 `policy-estimate`，有明确输出上限时为 `request-maxTokens`。未知真实输出上限时，H 也是预算估计，实际 context overflow 仍由原兜底处理。无合法 C、明确但非法的输出上限/预留配置或固定提示已超过 W 时明确报告配置/上下文无法容纳，不能假报剩余预算。`get_context_remaining` 返回 window_id、remaining=max(0,W−T)、T/W/H、measurement 来源和引用分页，不把估算值说成 provider 精确用量。
 
 - T<W−R：正常推进；每次 Notes/History 输出有界，实际入模总预算仍由 tokenMeter 计算。
 - W−R≤T<W：每窗只注入一次 reminder。
@@ -134,7 +145,7 @@ read 超长行接续额外接受 `offset_chars`，与 `start_line` 一起定位�
 - 模型不及时写 Notes 会影响恢复效果；必须验至少三次换窗的完整任务，不把工具成功当产品成功。无已保存思路时只恢复实际日志，不能编造未执行进度。
 - 预算估算/大工具返回可能提前溢出；强制路径验证不循环、来源不丢且失败可见，不承诺恢复所有未记录的思考。
 - DSH public API 的 assembly 时序是主要实现风险；固定当前版本并针对正常/overflow 两条真实请求验证有效状态。不能靠内核 patch 补齐。
-- 停用恢复默认压缩只影响未来操作，不能自动还原已被换窗移出的完整活动对话；原始日志和笔记仍在，重新启用可按需访问。回退旧包要安装原固定版本并遵守 restart-required，不删除工作记录。本设计首次发布不做上游旧格式迁移。
+- 停用恢复原摘要压缩只影响未来操作，不能自动还原已被换窗移出的完整活动对话；原始日志和笔记仍在，重新启用可按需访问。回退旧包要安装原固定版本并遵守 restart-required，不删除工作记录。本设计首次发布不做上游旧格式迁移。
 
 ## Runbook for Reviewer
 
@@ -146,11 +157,11 @@ read 超长行接续额外接受 `offset_chars`，与 `start_line` 一起定位�
 |---|---|---|---|
 | 隔离 IM + Node（Node 拥有 DSH 子进程） | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT"` | source `.e2e-ports.env` 后 `curl -fsS "$IM_URL/openapi.json"`；`pnpm pa status --config "$WT_ROOT/.gateway-config.yaml"` |
 
-验收前先 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm --dir src/IM/frontend build`；沿用 [worktree-runtime](../../development/worktree-runtime.md) 的端口、账号和清理规则。启动脚本 readiness 不代替行为验收。正常重启执行 `pnpm pa restart --config "$WT_ROOT/.gateway-config.yaml"`，只重启该 Node 并保持其 state/DSH home；不可把重新执行会清空运行数据的 e2e-up 当成重启测试。重启后按该配置的 `pnpm pa status` 核对新 PID，并按 e2e 脚本约定更新本次 `.gateway.pid`，使清理指向本次实例；不得动主实例。
+验收前先 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm --dir src/IM/frontend build`；沿用 [worktree-runtime](../../../development/worktree-runtime.md) 的端口、账号和清理规则。启动脚本 readiness 不代替行为验收。正常重启执行 `pnpm pa restart --config "$WT_ROOT/.gateway-config.yaml"`，只重启该 Node 并保持其 state/DSH home；不可把重新执行会清空运行数据的 e2e-up 当成重启测试。重启后按该配置的 `pnpm pa status` 核对新 PID，并按 e2e 脚本约定更新本次 `.gateway.pid`，使清理指向本次实例；不得动主实例。
 
-**验收前置：** 本地已有 Node/pnpm、Python `.venv` 和 `config/e2e/gateway.yaml`；模型来源复用该配置的 provider，开跑前用隔离 Agent 一次真实模型请求验证可达性，不输出凭据。包候选来自 fork pack，记录 commit/version/hash，放入隔离 workspace 后安装；Release 正式资产在最终发布后再执行同版本安装 smoke。两 Agent/两个 workspace 用于验证隔离（现有 e2e/e2e-peer 可复用，必要时仅改隔离 config 副本）。无待审批的生产发布/安装需求。
+**验收前置：** 本地已有 Node/pnpm、Python `.venv` 和 `config/e2e/gateway.yaml`；模型来源复用该配置的 provider，开跑前用隔离 Agent 一次真实模型请求验证可达性，不输出凭据。包候选来自 fork pack，记录 commit/version/hash，通过 Nano 依赖自动挂载；固定 Release 资产发布后再执行同版本 frozen-lockfile 安装 smoke。两 Agent/两个 workspace 用于验证隔离（现有 e2e/e2e-peer 可复用，必要时仅改隔离 config 副本）。无待审批的生产发布/安装需求。
 
-**具体旅程与证据：** 给 Agent 一个需要查找多份本地材料的任务，材料含首轮约束、后续纠正、超过单次 read 上限且关键值在尾段的工具结果；要求写一个最终报告并只做一次受控外部副作用（在隔离 IM 发送确认消息）。用隔离 bundle config 降低 W 触发至少三次 rollover，任务总输入必须超过三窗，不能只连续空调用 new_context。记录用户原要求/纠正、最终回复、确认消息条数、窗口边界与模型请求；再在保存笔记后正常重启同一 Node/会话，继续核对报告。另走新会话无笔记、越界读取、off/on 和加载失败旅程。实现用 fixture 验证 hard-cap/overflow 确定分支，再至少一次实际长任务经过压力提醒路径；不能以 fixture 冒充真实产品接受。
+**具体旅程与证据：** 给 Agent 一个需要查找多份本地材料的任务，材料含首轮约束、后续纠正、超过单次 read 上限且关键值在尾段的工具结果；要求写一个最终报告并只做一次受控外部副作用（在隔离 IM 发送确认消息）。用隔离 bundle config 降低 W 触发至少三次 rollover，任务总输入必须超过三窗，不能只连续空调用 new_context。记录用户原要求/纠正、最终回复、确认消息条数、窗口边界与模型请求；再在保存笔记后正常重启同一 Node/会话，继续核对报告。另走新会话无笔记、越界读取、off/on 和加载失败旅程。默认范围核对新/旧 profile、普通/Global/Personal/子 Agent、空业务 allowlist；在 nano/codex/dsh 的 Auto off 下实测四工具 dispatch 和业务工具仍被拒绝，并验证首次请求前预算为 bootstrap、首个请求后使用有效 C/O；停用后正常重启仍保持，其他 workspace 保持默认启用。实现用 fixture 验证 hard-cap/overflow 确定分支，再至少一次实际长任务经过压力提醒路径；不能以 fixture 冒充真实产品接受。
 
 原始请求/log 留在 worktree 本地且脱敏提取结论；unit 中只提交必要证据摘要与引用，不提交凭据、数据库、原始私人消息。清理本次服务并证明端口/PID 释放。
 

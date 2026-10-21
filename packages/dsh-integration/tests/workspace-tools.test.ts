@@ -69,7 +69,10 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     };
     await start();
     expect(await capabilities('tools-a')).toContain('plugin_manager');
-    expect(await capabilities('tools-empty')).toEqual([]);
+    const defaultBundles = await manage({action:'list_bundles'});
+    expect(defaultBundles.error, defaultBundles.text).toBe(false);
+    expect(JSON.parse(JSON.parse(defaultBundles.text)[0].text).entries).toEqual(expect.arrayContaining([expect.objectContaining({name:'dsh-agent-context',enabled:true})]));
+    expect((await capabilities('tools-empty')).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes']);
     for (const topic of ['tool', 'prompt', 'service', 'events', 'compaction']) {
       const api = await manage({ action: 'describe_api', topic });
       expect(api.error, api.text).toBe(false);
@@ -103,10 +106,10 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     const emptyCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'empty', cwd: a}) as typeof catalog;
     expect(emptyCatalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: false});
     const refreshedCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as typeof catalog;
-    expect(refreshedCatalog.tools.filter(tool => tool.source_group === 'workspace').map(tool => tool.name)).toEqual(['workspace_echo']);
+    expect(refreshedCatalog.tools.filter(tool => tool.source_group === 'workspace').map(tool => tool.name).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes', 'workspace_echo']);
     expect(await capabilities('tools-a')).not.toContain('schedule_create');
     expect(await capabilities('tools-b')).not.toContain('workspace_echo');
-    expect(await capabilities('tools-empty')).toEqual([]);
+    expect((await capabilities('tools-empty')).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes']);
     expect((await call('tools-a2', 'workspace_echo', { value: 'LIVE_WORKSPACE_RESULT' })).text).toContain('LIVE_WORKSPACE_RESULT');
     expect((await call('tools-b', 'workspace_echo', { value: 'denied' })).error).toBe(true);
     await writeFile(join(source, 'tool.mjs'), goodSource.replace('echo:args.value', "echo:'UPDATED:'+args.value"));
@@ -243,6 +246,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await prompt('tools-a')).not.toContain('待核对事项');
     expect(await capabilities('tools-a')).not.toContain('workspace_total');
     expect(await capabilities('tools-a')).not.toContain('workspace_counter_status');
+    expect((await manage({action:'set_bundle',target:'dsh-agent-context',enabled:false})).text).toContain('applied');
     const engine = join(a, 'scoped-compaction'); await mkdir(engine);
     const marker = join(a, 'compaction-owner');
     await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',peerDependencies:{'@deepseek-ai/dsh-compaction-basic':'*'},dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
