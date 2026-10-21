@@ -1,12 +1,13 @@
 import { expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { finishNativeReview } from './native-review-evidence.js';
 
 it('runs Guardian in native isolated scopes, reuses deltas, forks concurrent checks and recovers invalid verdicts', async () => {
-  const home=await mkdtemp(join(tmpdir(),'nano-guardian-native-'));let client:RuntimeClient|undefined;let logs='';
+  const home=await mkdtemp(join(tmpdir(),'nano-guardian-native-'));let client:RuntimeClient|undefined;let logs='';let failure:{error:unknown}|undefined;
   try {
     await writeFile(join(home,'evidence.txt'),'LOCAL_EVIDENCE');
     await writeFile(join(home,'fixture.mjs'),`
@@ -83,24 +84,13 @@ export function apply(ctx){
     const parallel=(await lines('parallel.jsonl'))[0];expect(parallel.map((r:any)=>[r.decision.behavior,r.decision.reason])).toEqual([['allow','parallel-a'],['deny','parallel-b']]);expect(parallel.map((r:any)=>r.metadata.contextMode).sort()).toEqual(['delta','fork']);expect(new Set(parallel.map((r:any)=>r.metadata.sessionId)).size).toBe(2);
     const created=await lines('agents.jsonl');expect(created.some(row=>row.seeded)).toBe(true);
     const disposed=await lines('disposed.jsonl');expect(disposed.map(row=>row.id).sort()).toEqual(created.map(row=>row.id).sort());
-  }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
+  }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;failure={error:new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error})};}
   finally{
-    const evidence=process.env.NANO_REVIEW_NATIVE_EVIDENCE;
-    if(evidence&&client){
-      await mkdir(evidence,{recursive:true});
-      const observed=await client.rpc.request('session.observe',{sessionId:'parent'}).catch(error=>({observationError:String(error)}));
-      await writeFile(join(evidence,'observation.json'),JSON.stringify(observed,null,2));
-    }
-    if(client)await client.shutdown();
-    if(evidence){
-      // Opt-in raw fixture evidence only. No change to runtime/test budgets or
-      // assertions; Q chooses a fresh gitignored output directory per run.
-      await mkdir(evidence,{recursive:true});
-      for(const file of ['reviews.jsonl','agents.jsonl','disposed.jsonl','effects.jsonl','parallel.jsonl']){
-        const text=await readFile(join(home,file),'utf8').catch(()=>undefined);
-        if(text!==undefined)await writeFile(join(evidence,file),text);
-      }
-    }
-    await rm(home,{recursive:true,force:true});
+    // Evidence errors must neither strand the native runtime nor hide a failed assertion.
+    await finishNativeReview({
+      home,evidence:process.env.NANO_REVIEW_NATIVE_EVIDENCE,failure,
+      observe:client?()=>client!.rpc.request('session.observe',{sessionId:'parent'}):undefined,
+      shutdown:client?()=>client!.shutdown():undefined,
+    });
   }
 },320000);

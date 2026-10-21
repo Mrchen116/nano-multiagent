@@ -180,3 +180,15 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 保留Q真正双策略业务插件180/55与负金额/限额拒绝、其他模式fallback事实；不把作者旧clamp示例套到Q另一产物。不声称12个source场景覆盖非空reply/observer/每类admission/旧host_context全部真IM组合：精确行策略与W1storage门控仍是分层长期测试，入口和剩余判定由Q独立核对。
 - 所有入口、输入、预期、超时、raw日志、导出、安全清理、早期设施失败及不相等断言修正见[恢复记录](q-r1-recovery.md)；原始config/DB/prompt不提交。首次docs-check因新文件尚未git add被判非tracked link，stage后重跑，不把失败忽略为成功。
 - 原17场景不重置；父E收到冻结候选后沿原Q节点n5真实@Q定向续验major和W1。源码不变，静态closure保留；新增测试设施是否需patch审由父E按影响判断。未Q通过，不canonical/archive/Ready PR，不merge/deploy；后续修复仍本执行子会话。
+
+## R3静态patch设施finding返修（工程事实，待原reviewer closure）
+
+- 父E续原执行者，`pre_fix_head=2f519f659b114003d35f2fcc2305469f6e40962c`，先核clean并仅cherry-pick独立R3报告原`29dc06f7cfb2acceddde784c35950954332c23c0`→本branch `3ba1e3539`；[code-review-r3](../code-review-r3.md)与[verification R3](../verification.md#round-3--targeted-verification-of-q-recovery-test-facilities)保留原1P2 CONFIRMED/FAIL0C1W，Git对原两报告diff exit0。未把R3设施finding重开为产品W1，R2 closed及Q此前事实保留。
+- 根因确认为opt-in导出直接置于finally的shutdown/home删除之前；mkdir/observation write失败跳过后续清理，后置copy失败跳过home删除，并可覆盖原测试错误。没有启动真实泄漏进程作为复现。
+- 将原序列提取为仅tests内的`native-review-evidence.ts`，先对未修复的等价序列运行长期`native-review-evidence.test.ts`，实际**9failed/3passed/exit1**；前置mkdir/write、后置mkdir/copy、shutdown失败均确实到达门控。红测证明是原可执行清理控制流，不冒充完整native运行。
+- 修复只在测试设施：嵌套try/finally保证先取observe、再shutdown、后复制fixture、最后清理调用者自建mkdtemp home；各阶段单列diagnostic，不论导出或shutdown拒绝都继续尝试后续清理，每项最多一次。仅缺失fixture ENOENT可忽略，真实读取故障归导出错误；不删除有问题的输出目标。shutdown若拒绝如实报告，不能把“尝试关闭”说成进程已退出。
+- 原测试catch仍构造原有带日志/observe的错误并交给finally；无附加故障时重抛同一错误对象，有附加故障时AggregateError以原错误为首项和cause，其余分别标明observation export/shutdown/fixture export/home cleanup及各自cause。成功测试遇导出故障仍失败，不吞错换绿。
+- 长期回归扩大为13项：前置mkdir/observation write、后置mkdir/read/write、shutdown、自建home删除失败、双失败聚合、原错误身份、未opt-in路径、成功顺序/缺失文件；另用真实fs既有普通文件输出目标触发EEXIST，假shutdown被调用一次、home消失、输出文件原文未动，不启动runtime。**13passed/1.46s/exit0**；integration typecheck exit0。
+- 窄扩大命令`pnpm exec vitest run packages/dsh-integration/tests/{native-review-evidence,codex-approval-lifecycle,review-audit}.test.ts`：**3files47tests/1.77s/exit0**；`pytest tests/contract -q`：**28passed/4.36s/exit0**。原报告与来源commit逐字diff exit0；stage后`docs-check` **252篇/67routes/exit0**、`git diff --cached --check` exit0，产品源码相对2f519的精确path diff exit0。本轮未起native/IM长驻进程，所有job已收集，无服务待清理；workspace Skill另补可复用的可选导出失败清理配方。
+- 未改产品源码/权限/预算/timeout/策略/原native业务断言；本轮不重跑全部真IM或90s×3。`2f519`的新context3/source12/原矩阵6、native7files47和旧产品W1 closure按原版本retained，不写成本轮重新执行；Q已自行隔离续验，本执行者未读写其现场/消息/任务图。
+- 父E以新冻结HEAD交原R3 reviewer做patch+closure / targeted verification；`fix_delta_range=2f519f659b114003d35f2fcc2305469f6e40962c..validated_at`（含报告整合），实质设施patch从`3ba1e3539`起，仅native测试+tests helper/新错误路径测试与本节证据。原`executed_base=861b94129bc8c5aadbca76967268fd203fe04112`保留，无final-sync/effective-through外推。未push/PR/canonical/archive/merge/deploy。
