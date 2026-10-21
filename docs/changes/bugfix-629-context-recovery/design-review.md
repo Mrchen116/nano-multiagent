@@ -129,3 +129,84 @@ R1-W1 已在设计层闭环。修订保留受限工具配置原本具备的 Skil
 ### Author Resolutions (R2)
 
 接受 R2 结论，无未解决的实质问题；受审设计未继续变更。进入单 milestone 实施，产品任务恢复与交付仍需按 runbook 实测。
+
+## Round 3
+
+### Metadata
+
+- reviewer: 独立 `change-design-reviewer`，agent `/root/design629_review`
+- reviewer target: 本轮 `incident.md`、重写后的 `design.md`、delta-spec、M1 范围及退出标准；R1/R2 历史结论
+- checkout: `/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`，branch `codex/bugfix-629-context-recovery`
+- baseline: HEAD `9d105ae5d5c79078f8e078b4f1da0076ac70d255` 加本轮冻结的三份未提交文档；HEAD 本身仍含 rc.2 候选实现，不能视作本轮目标已实施
+- frozen document SHA-256: `design.md=bb238b732074ecd997aeb1d854a38a91158a400d49b6ecd62bcf500a77cfb071`；`incident.md=4a594145598098aa0de3166301e9a481d0de0a14f5ea6d1c64064b629a74532b`；delta `agent-capabilities.md=d456d597ca68a371bf02c4ba56f45883ead86e9a6caf4d67b43dc662411ee50d`
+- review_mode: full
+- mode_reason: 用户撤回新模式的额外 Skill 恢复及当前 turn 恢复协议，改变核心恢复方式、History 接口和 milestone 验收语义；不能只依据 R2 closure 放行
+- started_at: 2026-10-21T16:48:51+08:00
+- completed_at: 2026-10-21T16:51:26+08:00
+- duration: 2m35s
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本轮设计可以在当前公开接口内按用户指定方式实施并复验。这个结论不证明原事故已经解决：删除当前 turn 特殊导航后，模型是否会从旧 Notes 转向 History 查回最新工作仍须按默认预算实测；失败不能通过恢复被用户撤回的协议来隐藏，也不能将本 unit 标记验收通过。
+
+### Coverage 与证据
+
+#### 用户决定与需求
+
+- 本轮以交接的用户原话为当前范围：“那就按这个 to be 改，去掉新模式下额外的已用 Skill 恢复逻辑。interrupted_turn 先别加，按 Codex 原本的 Notes/History 方式恢复，再验证之前那个故障场景。”设计 Changelog、关键决策 2/4/5、incident 修复方向及 delta 已一致反映该选择。
+- 当前未完成任务仍需恢复并完整交付，重复外部副作用仍禁止。用户改变的是恢复方式及验证顺序，并没有授权将失败当成成功；M1 与风险段保持了这个区别。R1 对故障链的既有事实没有因目标变化被删改。
+- 不增加任务状态数据库、特殊当前任务提示或最近输入副本；无摘要、无普通对话 tail、无自动 Notes 正文、来源及业务权限边界保持。没有客户端界面变化，视觉原型不适用。
+
+#### 实际组装与公开 owner 判断
+
+- 本轮核对 `packages/dsh-integration/src/agent-config.ts:94-108`、`workspace-tools.ts:65-85`：workspace 插件在实际 Agent preset 内挂载；无 workspace 配置也在该 scope 挂载独立 compaction provider。知识恢复 hook 位于宿主 `KnowledgeRuntime`，将是否贡献内容的判断放在那里，不需要改 PA 或 Channels 的依赖边界。
+- `packages/dsh-integration/src/compaction.ts:17-25` 已通过 `this.ctx.get('agentPresets')?.serviceFor(agent, 'compaction')` 将压缩交给该 Agent 的 owner。本轮复用同一公开查询，避免根据日志是否曾经压缩、工具名称或持久化开关猜测当前模式。
+- 独立读取固定 DSH `packages/preset/agent-preset-registry/src/index.ts:319-327` 及 `src/mount.ts:98-111`：`serviceFor` 查询 Agent 保留的 preset 组合，返回该组合内实际服务，没有服务时为 undefined。此 API 适用于当前内置无摘要 owner 与停用后回到宿主摘要器的分支。它是服务归属查询，不是所有未来第三方引擎都等同 Codex 模式的证明；本次不扩张到未提出的第三方策略分类。
+- 新模式提前返回 assembly 时跳过 references、索引和全文，统计/维护逻辑仍在原职责内。旧摘要分支明确回到原全文行为，因此不会误将 R2 的“可重读则只给索引”继续保留在旧模式。
+
+#### 原生 Skill 目录与受限 History
+
+- 固定 DSH `packages/skill/tool-skill/src/index.ts` 的 catalog pre-step listener 比较当前可见 `skill` 定义、有效 Skill 集合及活动 surface 上目录 digest；`catalogHistory()` 只把仍在 surface 的目录当作可见基线。目录被压缩移出后可重新发布，目录只含名称/描述，不含正文。
+- 同包 `tests/tool-skill.spec.ts:631-655` 已有“compaction hides its durable message”后的目录重建测试；`750-764` 明确工具被限制时不发布目录。本轮只阅读这些测试，未执行。设计“根据当前能力重建目录”应按这一原生语义理解：无 `skill` 工具的配置并不被承诺得到完整可调用目录，也不会为了恢复补出虚假目录。
+- Nano `capabilities.ts:89-113` 的 `/skill:name` 首次显式调用路径保留，按原输入身份加载并持久化 `skill-invocation` 正文。换窗不应重新触发同一输入；按需 History 查询是恢复旧记录，不是重新发起显式调用。
+- 插件原有 `src/history.ts`（`621278df757f9c5678bf7d5429b18f0485967885`）的 `excluded()` 不排除 `skill-invocation` 或普通 tool result，`normalizedItems()` 保留完整正文与 source，`collectHistory()` 只返回离开活动 surface 的项；既有 window/item、搜索、分页和 read offset 足以定位并读回旧 Skill，无须 turn_id。
+- `packages/dsh-integration/src/agent-context.ts` 的 context tools 包含 History；`capabilities.ts:25-30` 在受限业务白名单下仍保留这些启用中的内部工具；`policy/approval.ts:100-109` 在 downstream 允许后通过 internal_context 处理，Auto off 不单独阻断它。因此 `['workflow'] + /skill:name` 在新模式下存在不扩权的历史读取路径。显式停用新模式后 History 不再作为恢复前提，旧摘要模式保留全文。
+- 恢复出的 Skill 历史是当前 session 的旧证据，不能升级为新的人类授权或绕过当前业务执行限制；本轮没有修改这些强制边界。
+
+#### 换窗、Codex 参考与架构判断
+
+- 移除每步引用和 Notes hint 的动态 contribution 仍直接针对完整 runtime snapshot 累计增长；保留窗口身份、查询引用和换窗 Notes hint 即可，无需另建 projection 或在 DSH 内做 diff。
+- 删除 interrupted_turn 与 turn_id 后，History 恢复回到原有工具接口，配对事务、完整日志、Notes 存储和当前 session 范围没有理由改动。候选 rc.2 对新协议的测试/验收不再证明本轮恢复成功，设计已要求撤除和重验。
+- 独立抽查 Codex 固定提交 `464add49587a7cb6032d5ab04faa8a1585947853` 的 `core/src/session/mod.rs:4854`、`ext/skills/src/world_state_catalogs.rs:356`、`ext/skills/src/extension.rs:370`、`ext/history-notes/src/extension.rs:115`：窗口重建环境、目录贡献与输入显式 Skill 选择分离；Notes hint 来自有界 backend 响应。后端 hint 生成内容不可见，设计没有将 Nano 的本地提示声明为服务端逐字等价，也没有以参考实现代替事故验收。
+- 取消额外知识恢复并复用原生目录，减少了 Nano 与 DSH 重复维护的载荷生命周期；任务恢复继续由 Notes/History 与模型行为承担，符合用户本次选择。其效果存在待实测风险，但没有出现缺失公开接口、不可读取历史或必须突破权限才能实现的设计断点。
+
+#### Delta、milestone 与验收
+
+- delta 仍锚定正确 canonical Requirement，原有多次换窗与原始细节恢复两个 Scenario 保留；新增 Skill 场景明确新模式不重放正文/已用索引、受限配置从 History 恢复，以及停用后旧模式保持。与 R2 的消费者差异已显式记录，没有把新目标当作 current。
+- 唯一 M1 改为“Codex Skill 生命周期与原 Notes/History 事故复验”，未增加并行冲突面。rc.3 使用不可变新发布，不覆盖 rc.2；候选包与最终安装一致性是必要验证。
+- Runbook 要求真实 Web IM 消息 API、隔离数据、真实 provider 请求及 IM 落库，默认 C/O/B/R、已完成旧 Notes、已读新 Inbox、未保存新 Notes 时压力/overflow、结果只交付一次。触发不了目标路径判未覆盖；误信旧 Notes 判失败；不能靠预定答案、提高 buffer 或秘密恢复特殊提示通过。
+- Skill 矩阵覆盖七个大 Skill、六步普通进展、原生目录重建、真实重读、受限 History、正常重启和 off/on。原窗口/item 长记录、来源、配对、fork/session 隔离及 Auto off 等路径保留；依赖被删除字段的旧证据明确失效。足以指导实施与独立验收。
+
+### 历史问题闭环
+
+- **R1-W1 — closed，处理方式按用户新决定替换**。R2 通过“无工具时保留全文”解决缺口，本轮用户明确撤回新模式的该分支；现由启用中的 session-local History 读取原始加载记录，旧摘要模式仍保留全文。公开可访问路径和来源已按上述证据复核，不把已撤回的全文恢复作为本轮门禁。
+- R1/R2 的当前 turn 协议判断属于旧目标，本轮不保留其放行效力。此前已读任务恢复能力必须用不带协议的真实请求重新证明。
+- 无其他历史未解决 issue；无须改写 R1/R2 原结论。
+
+### Issues
+
+无未解决 CRITICAL/WARNING。
+
+### Recommendations
+
+无新增建议；按已冻结范围实施和复验，不为假设风险添加被用户撤回的机制。
+
+### 本轮边界
+
+只在该 worktree 的本报告追加 R3，未修改三份冻结受审文档、产品代码、插件、配置或运行数据，未提交、启动服务或执行验收。原事故若复验失败，应报告失败及尚未解决的事实，本轮 Approved 不可用于声称修复完成或部署健康。
+
+### Author Resolutions (R3)
+
+Accepted R3: no unresolved substantive findings. The reviewed design is unchanged. R2 automatic-body fallback and turn-navigation approval are superseded by the explicit user decision. Implementation and real-model acceptance must use the R3 scope; a failed stale-Notes recovery will be reported as failed.

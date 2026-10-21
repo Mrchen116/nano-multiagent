@@ -1,91 +1,64 @@
-# bugfix-629: 上下文导航与当前 turn 恢复
+# bugfix-629: 上下文增长修复与 Codex Skill 生命周期对齐
 
 ## Changelog
 
+- 2026-10-21：用户明确确认新模式只重建可用 Skill 目录、旧正文按需读取；要求删除额外已用 Skill 恢复与候选版 interrupted_turn，按原有 Notes/History 复验事故。R2 全文回退与当前 turn 导航设计因此失效，本轮重新执行 Gate 2。既有 rc.2 证据保留为候选基线，不代表新方案通过。
+
 ## 现状分析
 
-### 涉及范围
+生产事故版本 Nano `be6c1271b` 与插件 `0.3.0-rc.1`。Nano 当前实现将会话曾用 Skill 全文加入每次 runtime context assemble；插件每步变化的引用及 Notes hint 触发 DSH 完整快照追加，导致无变化正文反复增长。硬阈值换窗后模型依据旧完成 Notes 结束，未恢复已读新 Inbox 请求。原始证据与默认预算见 [incident](incident.md)。
 
-- Nano 生产 `be6c1271b`；当前主线 `45d87e671` 在生产基础上仅增加 feat-628 与本事故文档，相关实现一致。
-- 独立插件仓 `Mrchen116/dsh-agent-context`，基线 `621278d`（实现 `7f0a2b78`）、固定包 `0.3.0-rc.1`。改动 `src/index.ts`、`checkpoint.ts`、`history.ts`、`tools.ts`、提示词及相应测试；Nano 更新固定包与 lock。
-- Nano `knowledge/runtime.ts` 从 `.usage.json` 的 session references 恢复已用 Skill；`model-policy.test.ts` 覆盖压缩与重启，现断言自动全文恢复，需要替换为可按需恢复的行为断言。
-- 不修改客户端面，不产生前端原型。
+候选 rc.2 已移除高频动态引用，但添加了已用 Skill 索引/无工具时全文回退、`interrupted_turn`、History `turn_id` 扩展。这些候选设计现按用户选择撤回。主仓原有 dirty 文件和调查报告不在本 unit 修改范围。
 
-### 既有约束
+## 参考行为与边界
 
-只经 DSH 已声明公开 exports、Cordis hooks 与 Session API 工作；不修改、fork、patch 或 private-import DSH。固定 `0.2.1-alpha.1`。无 LLM 摘要、无普通对话 tail、无 Notes 正文自动注入，不制造新的授权或第二套任务数据库。保留完整工具配对、原始日志、业务白名单和 workspace 生命周期。
+Codex 固定源码 `464add49587a7cb6032d5ab04faa8a1585947853`：
+- `core/src/session/mod.rs:4854`：token-budget 换窗重建当前环境；不重跑原用户输入的 Skill 选择。
+- `ext/skills/src/world_state_catalogs.rs:356`：目录属于环境贡献；`extension.rs:370` 的显式 Skill 正文属于本次输入。
+- `core/src/session/mod.rs:4920`：上下文基线与增量。DSH 原生 runtime context 采用完整快照比较，因此本插件不再将每步引用、Notes 修改作为环境变化；不在本 unit fork/patch DSH 或接管所有环境贡献。
+- `ext/history-notes/src/extension.rs:115`：新窗口取得 bounded Notes hint，正文由工具按需读取。后端内部提示生成逻辑不可见，本地实现不宣称服务端逐字等价。
 
-### 可复用能力
+遵守 DSH 公开 exports、Cordis hooks、原生 Session/compaction 事务。无摘要、无对话 tail、无自动 Notes 正文、无新的任务状态数据库或恢复协议。业务权限与来源保持。用户明确禁止本轮加入 interrupted_turn；如果原有 Notes/History 无法通过事故场景，报告真实失败，不能自行恢复该协议或增加隐藏提示使测试通过。
 
-- **用** `systemPrompt.context` 的完整快照语义：它适合低频有效环境，不承担每步引用目录。
-- **改** 插件引用：`get_context_remaining` 已支持当前引用及分页；fallback 已附 bounded 引用，无需新增每步通知服务。
-- **改** History：已有规范化事件、来源保真、off-surface 读取、分页、长结果偏移；加原生 turn 定位，复用同一工具。
-- **用** `turn/start` / `turn/end` 的原生日志边界生成恢复导航，不推断自然语言任务完成，不另存任务状态。
-- **改** Skill 恢复：现有 references 与 `skills.get` 已受当前 scope/selection 约束；具备 `skill` 调用能力时只给名称、位置与按需读取指引，无该能力的既有显式调用配置保留全文恢复。
-- **不用** 更大 buffer、第二次摘要或丢弃旧笔记作为修复；压力阈值及换窗时机保持。
+## 架构与关键决策
 
-### 相关历史
+1. **稳定插件环境贡献。** 保留候选 rc.2 对高频贡献的修复：`agent-context:references` 仅提供窗口身份；引用仍经已有 `get_context_remaining` 与 fallback 提示按需取得。Notes hint 只在窗口构造时产生。普通工具/Notes 进展不修改插件 runtime context，避免触发整份宿主正文追加。不引入另一套 runtime projection。
 
-feat-627 的 Notes/History 和默认启用契约保留。其 R1 算错汇总与本故障不混同；原13窗验收是有用证据但不覆盖本次压力组合。独立原始调查见 incident 所引本地报告；不提交私人请求或日志。固定 Codex 参考的差异更新只用于解释设计失配，不移植其 runtime 或声称线上行为一致。
+2. **新模式完全取消额外已用 Skill 恢复。** Nano `KnowledgeRuntime` 的恢复 hook 在公开 `agentPresets.serviceFor(agent, 'compaction')` 返回当前 workspace owner 时直接返回 assembly，不读取 session usage references、不追加 `nano-used-skills` 索引或正文。复用 `NanoCompaction` 已有 owner 判断，不增加开关/状态机。当前内置 owner 即无摘要换窗引擎。使用统计和自动 Skill 维护职责保留。
 
-## 架构总览
+3. **复用原生目录和按需读取。** DSH `tool-skill` pre-step 已根据活动 surface 上的目录、当前有效 Skill 集合与工具可见性重新发布目录；正文不在目录中。目录未变且仍可见时不重复。显式 `/skill:name` 首次注入不变；换窗不重放旧输入。可调用 `skill/read` 时按当前权限读取；无这些业务工具时，已加载的 `skill-invocation` 或工具结果通过当前会话 History 按需恢复，来源不升级为新的人类授权。不因恢复扩大白名单。显式停用新模式后，旧摘要模式保留原有全文恢复，不把它称为 Codex 新模式。
 
-之前：每步引用变化 → 整份 runtime snapshot 追加 → 已用 Skill 全文重复 → 默认 buffer 被跨过 → 全窗移出 → 仅旧 Notes 指引。
+4. **撤掉候选自定义任务恢复协议。** 从插件删除 `interruptedTurn` helper、checkpoint `interrupted_turn`、HistoryItem/`list_items/search` 的 `turn_id` 字段与过滤、相关提示和专有测试。History 回到原有 window/item 定位、分页、来源和当前 session 范围。新窗口仅保留原有 Notes hint、窗口身份和有效环境；不补充最近输入副本或当前任务提示。不删除真实历史、Notes，也不重置生产会话。
 
-之后：窗口身份只随边界变化；引用通过已有查询/保存前提示按需提供。有重读能力时 Skill 只恢复导航；受限调用配置保留原有正文恢复。整窗移出仍由同一 compaction owner 执行，同时 checkpoint 给出当前未结束原生 turn 的精确 History 入口；Agent 据原始输入和交付证据判断继续什么。
+5. **恢复效果由真实场景决定。** 保持原 Codex 适配的 Notes/History guidance；移除候选专用协议文案。Agent 自行读 Notes，必要时查原始 History。当前任务继续要求完成且不重复交付；模型如果误信旧 Notes，按失败记录。本轮不用脚本预设最终答案，不放宽默认预算或绕过 Auto off。
 
-## 关键决策
+## 接口、包与数据流
 
-1. **移除高频动态引用和 Notes 目录贡献，不实现另一套 context diff。** `agent-context:references` 改为仅窗口身份贡献（可重命名为 identity）；不再在每次 assemble 调用 `notes.hint()` 或拼 `referenceText()`。完整引用仍由 `get_context_remaining` 查询及 fallback 提示提供。Notes 目录只在换窗 checkpoint 展示。正常工具调用、写 Notes、读取 Skill 均不改变插件的环境 contribution。DSH 自身因真正环境变化追加快照的语义保持。
-
-2. **恢复方式同时遵守 Skill 选择与工具调用权限。** 成功压缩后，用公开 `agent.ctx.tools.get('skill', agent)` 判断该 scope 是否能调用 Skill 工具；该 API 对被 restriction 排除的全局工具返回 undefined。可调用时，提供当前仍获准 Skill 的名称、实际路径与 `skill` 重读指引，不自动注入全文。不可调用时，保留既有全文恢复，覆盖用户 `/skill:name` 显式调用但未开放 `skill/read` 的真实配置；不擅自扩大白名单，不以 History 存在为前提。两种 compaction 模式使用同一规则，Skill 禁用/选择仍由 `skills.get` 过滤。贡献持续稳定存在，避免“assemble 后立即删掉”造成下一步 context 再变化；第1项使全文分支也不因引用或 Notes 变化反复追加。保留原测试的 `['workflow'] + /skill:retained` 输入，并增加具备 `skill` 重读能力的组合，分别检查压缩、重启和显式回退。
-
-3. **用不可歧义的原生 turn 边界定位已读任务，不做语义任务提取。** HistoryItem 增加 `turn_id: string | null`，值为该事件所属 `turn/start.seq` 的字符串，限定当前执行 session；不能用容易混淆父子 session 的全局 turn number。`history list_items/search` 增加 `turn_id` 精确过滤，跨多个 window 仍属于同一 turn。窗口/item/source/工具调用结果语义保持。不存在的 turn 返回空页，非法类型仍按工具 schema 校验；所有读仍只针对归档项。
-
-4. **每次重置都明确当前执行边界及恢复入口。** `perform` 在提交前从原生日志计算未结束 turn；若该 turn 有即将移出的普通记录，checkpoint 加 body-free `<interrupted_turn>`，包含 turn_id、记录范围/数量、第一条与最近若干条记录的 window/item/role/tool/source-kind 定位，以及可直接调用的 `history list_items` 参数。全部导航有固定大小上限，完整项可分页取得。提示明确：换窗不是任务完成；旧 Notes 可能早于该 turn 的直接输入或 Inbox 结果，继续或结束前必须恢复此 turn 的原始输入与已发生的交付。读完后按真实状态工作，不能因为有未结束 turn 就重复发送已经完成的结果。无未结束 turn 的人工压缩不虚构待办；本 step 尚未持久化的 claimed 输入仍沿原有路径保留。
-
-5. **不增加任务完成分类器或工具拦截状态机。** 当前缺陷是恢复入口缺失，框架不应根据任意 Note 文案猜测任务状态。恢复导航是控制元数据，模型必须通过实际 History 调用取得内容，最终是否恢复以真实请求和交付检验；脚本预定的最终答案不算验收。若真栈发现该导航不足以让任务恢复，作为本单元的实际缺陷回到设计收口，不能用fixture预设成功遮盖。
-
-6. **当前环境重建保持原有公开事务。** checkpoint 仍带有效 runtime context，并过滤插件窗口身份 contribution；随后 native projection 可补充新窗口快照。这一边界上有限的环境重建不随普通步骤增长。测试区分重建边界的固定成本与每步增长，不能只比较最终 token 数。无为减少这次边界成本而伪造 native runtime-context 消息或修改 DSH projection。
-
-## 接口与数据流
-
-- `normalizedItems(session)` 扫描原生事件时跟踪当前 `turn/start.seq`，`turn/end` 后清空；每个用户/助手/tool 项携带该 turn_id。来源保持原字段，含 Inbox 的结果仍是 tool，未知/系统来源不升级为用户。
-- `searchHistory(session, {turn_id, ...existing})` 先在当前 session 的归档项内筛选，再沿现有稳定 cursor 分页。`read` 仍使用 window/item，长结果仍用 offset。
-- `interruptedTurn(session, shadowedSeqs)` 只在当前 open turn 与本次 shadowed 项有交集时生成恢复描述；metadata 中的 item refs 来源于 normalizedItems。多次换窗查询同一 turn_id 可以跨窗定位；新请求的 seq 不被旧 Notes 隐去。checkpoint 持久化恢复描述，因此节点重启不会丢掉已写入的入口。
-- 控制提示先列当前 turn 恢复入口，再列旧 Notes 路径，明确二者不是同一时刻的状态。重启后沿已持久化 checkpoint 恢复；不改旧 Note，不把恢复内容重标为新的 `nano-human`。
-- `get_context_remaining` 返回的 references 保持现 schema，供保存笔记前获取新提交 item ID。调整 guidance 中“下一份 snapshot 自动出现”措辞，明确按需查询；提示词 golden 同步并在本单元记录相对原 Codex 适配的原因。
-- 插件发布新的不可变 prerelease `0.3.0-rc.2`，Nano dependency/lock 精确指向带校验的 tgz。发布安装包与生产部署分开；不发布新的 Nano 安装 release。
-
-## 契约层增量 (delta-spec)
-
-- `docs/specs/gateway/agent-capabilities.md`：补充强制换窗时旧 Notes/新已读任务组合及按需恢复 Skill 的场景；见 `specs/gateway/agent-capabilities.md`。其余 package 无行为增量。
-
-## 风险与回退
-
-具备 `skill` 能力时不再自动重放正文，必须验证 Agent 真正会按需读取正确 Skill；无重读工具的既有配置保留正文恢复，验证不扩权且无逐步增长。保留禁用、fork 与显式回退约束。导航只是定位，不是已恢复正文或已完成任务的证据。大工具结果仍可能越过保存区间，因此必须在该情况也通过原始历史恢复；不承诺永不压力换窗。控制信息有界且不保留对话尾部。若更新不健康，可用现有 workspace 开关恢复摘要引擎或回退固定包，保存 Notes/History；不清空生产状态。
+- Nano 修改 `packages/dsh-integration/src/knowledge/runtime.ts` 及 `tests/model-policy.test.ts`；新模式跳过恢复 contribution，旧模式恢复原全文行为。
+- 插件修改 `src/history.ts`、`tools.ts`、`checkpoint.ts`、`index.ts`、相关测试/README/golden，删除候选 turn 协议；每步贡献稳定化保留。
+- 原生目录 source 保持 `skill-catalog`；显式正文 source 保持 `skill-invocation`，History 不重新标记。
+- 已发布 rc.2 不覆盖、不重打 tag。修订版发布新的不可变 `0.3.0-rc.3`，Nano dependency/lock 精确 pin tgz 并校验下载 hash。安装包发布不等于生产部署。
+- 对外 delta 见 [agent-capabilities](specs/gateway/agent-capabilities.md)，仅当前 unit 先改目标契约，完成验收后再归并 canonical。
 
 ## Runbook for Reviewer
 
-**Review 驱动方式**：不改客户端面；端到端真栈，使用 Web IM 实际调用的注册/登录、Agent 配置、聊天与消息 API；不可用私有 `session.submit` 替代产品入口。检查落库消息、原生会话与实际 provider 请求，以确认新输入确实在恢复后重新入模和结果真正投递。
+复用隔离 worktree `/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`，配置、端口、workspace、identity、数据库均使用其 e2e 实例。启动/停止依照 `scripts/e2e-up.sh` / `scripts/e2e-down.sh`，运行时升级使用正常停止/启动并保留隔离数据。最终验收前提供固定包 hash、API 地址、测试身份、Agent/conversation ID 和 provider 请求路径。实际入口是 Web IM 使用的消息 API，不用私有 session.submit 替代产品验收。
 
-| 服务 | 停止命令 | 启动命令 | 健康检查 |
-|---|---|---|---|
-| 隔离 IM + Node/DSH | `./scripts/e2e-down.sh --wt "$WT"` | 在最终 unit checkout `pnpm install --frozen-lockfile && pnpm build`，然后 `./scripts/e2e-up.sh --wt "$WT"` | `$WT/.e2e-ports.env` 中实际端口的 `/health`、测试 owner 登录、Node connected、真实消息完成 |
+默认预算 C=258400、O=32768、B=16384、R=6144；不提高 buffer、不修改 policy、不伪造压力。真实模型使用已配置的 codexOAuth:gpt-6-astra。合成工具资料需避开原生 spill 的单项上限，多项实际读取可产生压力；若本次没有实际触发目标边界，只记录未覆盖。
 
-`WT=/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`。仅使用此 worktree 产生的端口、config、workspace、identity 和数据库。外部模型使用仓库默认隔离 E2E config 的既有 provider；启动前检查 provider URL 可用。凭据不写文档。测试 owner 只存在于隔离实例，不使用生产身份或外部聊天。
+必验场景：
 
-验收前置由实施者准备并在派发时提供具体 API 地址、测试 owner 登录方式、合成日记 workspace、Agent/conversation IDs、最终包 hash 和请求日志目录。默认预算 C=258,400、O=32,768、B=16,384、R=6,144，无提高 buffer。合成日记/只读 fixture（Auto off 下可通过原生 `skill` 工具加载大日记测试资料）提供足够大的实际工具结果，使已有新 Inbox 请求在未保存新 Notes 前跨过硬阈值；不向模型塞预定答案。若实际模型输出未触发目标路径，判未覆盖，调整 fixture 规模，不能宣称通过。
+1. **原事故**：旧任务已完成，Notes 已记完成；随后新 Inbox 请求已被读取。通过实际工具结果增长，在未保存新 Notes 前触发 pressure/overflow 换窗。新窗口确认无旧任务正文、无 interrupted_turn；观察模型是否通过原有 Notes/History 恢复最新输入和资料，完整交付一次。必须检查原生事件、真实 provider 请求、History 调用与 IM 落库。失败如实报，不添加新任务导航绕过。
+2. **Skill 生命周期**：使用至少七个合成 Skill（正文总计 >=52400 字符），换窗后目录按原生机制重建；无旧正文和 nano-used-skills；不少于六步普通工具/Notes 操作不增长同份正文。确有需要时真实调用 skill 重读。
+3. **受限与重启**：默认新模式下 `['workflow'] + /skill:name` 首次正文出现；换窗和正常重启后不自动恢复正文或已用索引，History 可读到原 skill-invocation 正文且来源不变。不临时开放 skill/read。具备 skill 工具的配置验证原生目录与重读。显式 off 后旧摘要恢复正文；on 后再次换窗回到新规则。
+4. **已有路径回归**：原窗口/item History 长记录分页、tool pairing、fork/session 隔离、Auto off、空业务白名单、主动/硬阈值/overflow、Notes 持久化沿用有效测试，凡依赖 turn_id 的证据失效重验。
 
-必验矩阵：
+## 风险与验收边界
 
-1. **主故障 PA**：先完成旧事项并保存“已完成” Notes；新消息要求读取合成日记并列 todo，实际 Inbox read 后、未保存新 Notes 前强制换窗；检查 History 真实恢复最新输入与日记事实，结果完整且只投递一次。请求/原生事件证明压力触发、恢复及最终交付。
-2. **导航成本**：使用七个合成 Skill（总正文至少52,400字符）后经历换窗；普通工具与 Notes 操作不少于六步。统计请求中各 Skill sentinel 次数和 runtime snapshot 贡献，证明没有每步追加未变化 Skill/Memory 正文；确实需要的 Skill 可通过原生入口重新读取。
-3. **直接输入及多窗**：普通 Agent 的当前 turn 强制/主动换窗并用 turn_id 跨窗读原始直接输入与工具结果；至少两个有内容窗口。通过原生 integration + 真模型结果覆盖，不能仅断言 tool 名存在。
-4. **恢复与边界**：隔离 Node 正常重启后 checkpoint/History 可读；显式 off/on 继续工作；既有来源、tool pairing、会话隔离、Auto off/空业务 allowlist 保留。复用未变路径的有效证据，变化的 Skill 和 turn filtering 需新测试。Skill 回归必须包含 `['workflow'] + /skill:name` 与允许 `skill` 两种调用能力，交叉覆盖插件启用/显式停用；前者不临时增加 `skill/read`，验证正文仍可用、业务 schema 仍受限且普通进展不反复追加；后者验证真实工具读取正文。
+删除自动正文后是否正确重读是模型行为，需要真栈验证。没有特殊 interrupted_turn 导航时，硬阈值场景可能仍被旧 Notes 误导；这不是补提示前先假定成功的理由。若失败，交付实测结果与剩余根因，回到用户确认后再考虑下一方案。生产数据不改、不清空；新部署需已有明确授权或最终 PR 审查后决定。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-recovery | 消除重复上下文并恢复强制换窗任务 | 无 | 单主线 | 插件 index/history/tools/checkpoint/guidance/tests；Nano knowledge/runtime、相关测试、固定包 lock、契约与运行指导 | [worker] 旧版真实 request fixture 先红；默认预算强制/overflow、已有Inbox任务、turn过滤、长内容分页、来源/配对/隔离及Skill按需读取通过；包构建与完整CI通过。[reviewer] 上述真栈矩阵证明当前请求恢复、正确交付、无重复副作用与无每步全文膨胀。 |
+| M1-recovery | Codex Skill 生命周期与原 Notes/History 事故复验 | 无 | 单主线 | Nano knowledge/测试/固定包，插件候选协议撤除与稳定贡献，相关契约 | [worker] 有效红测后新旧模式、目录/正文、来源、重启及插件全量通过；不可变安装一致。[reviewer] 按默认预算复验原事故，真实 Notes/History 恢复并完整交付一次；Skill 正文无自动重放与逐步增长。失败不得记为通过。 |
