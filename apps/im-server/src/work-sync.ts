@@ -43,10 +43,10 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     DROP TRIGGER IF EXISTS work_sync_commit_insert;
     DROP TRIGGER IF EXISTS work_sync_commit_update;
     CREATE TRIGGER work_sync_commit_insert AFTER INSERT ON agent_work_journals BEGIN
-      UPDATE work_sync_uploads SET committed=1 WHERE committed=0 AND node_id=NEW.node_id AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
+      UPDATE work_sync_uploads SET committed=1 WHERE id=(SELECT id FROM work_sync_uploads WHERE node_id=NEW.node_id AND committed=0) AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
     END;
     CREATE TRIGGER work_sync_commit_update AFTER UPDATE OF through_seq ON agent_work_journals BEGIN
-      UPDATE work_sync_uploads SET committed=1 WHERE committed=0 AND node_id=NEW.node_id AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
+      UPDATE work_sync_uploads SET committed=1 WHERE id=(SELECT id FROM work_sync_uploads WHERE node_id=NEW.node_id AND committed=0) AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
     END;`);
   let active = 0;
   const activeNodes = new Set<string>(), leases = new WeakMap<FastifyRequest, string>(), handlers = new WeakSet<FastifyRequest>();
