@@ -33,7 +33,8 @@ function turnTitle(turn: WorkTurn) {
   const trigger = turn.trigger ?? {};
   const origin = typeof turn.origin === "string" ? turn.origin : str(turn.origin?.kind);
   const type = str(trigger.kind) || origin;
-  if (type === "inbox" || type === "global_inbox") return "Inbox 唤醒";
+  if (type === "inbox") return "Inbox 唤醒";
+  if (type === "inbox-background") return "近况同步";
   if (type === "heartbeat") return "Heartbeat";
   if (turn.scope === "cron" || type === "cron") return cronTitle(trigger.source, turn.job_id);
   if (turn.scope === "workflow") return "Workflow 执行";
