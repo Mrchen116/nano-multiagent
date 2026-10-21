@@ -201,3 +201,12 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 未canonical/archive/Ready PR。实际校正delta，补完整阶段预算、W1终态与审计失败边界、CC context分流及Codex完整恢复/admission/parser条目，18个投影场景逐项给实现/测试映射。校正不改设计/首文档，不用旧verifier声称新delta已独立审过。
 - [final-sync中性交接](final-sync-handoff.md)提供固定版本、main增量、每闸retained/失效矩阵、原static patch/integration + corrected-delta与Q targeted输入、当前CI等价清单。原executed_base/validated不改；新复验executed_base=18e1af8b1，整体effective_through尚未建立，等独立范围闭环。
 - 准备性验证：pnpm frozen install、integration依赖build/typecheck均exit0；集成代码树9files73tests/29.31s/exit0，含新main默认context/旧error helper等。不是新Q真IM或完整CI，后台job121/123均收集。当前等待父E调度必要独立integration/corrected-delta，不因图权限停止已有授权工程，也不绕过该独立门禁提前归并。
+
+## R5-W1 集成运行证据有界调查（门禁仍未关闭）
+
+- 原reviewer R5报告db7c875原样cherry-pick为22a5cbf25；保留code-review `[]`、corrected-delta18/18 aligned和verifier **NOT PASS/0C1W0S**。产品/测试/fixture/锁树仍精确22114489，新执行基线18e1，报告整合不当成重新运行的版本。
+- 父E续原执行者后加载systematic-debugging/async-boundary-validation，按原30s期限、单worker/单测试先跑六Agent context默认/profile/opt-out/restart。实际exit1/1fail4skip/35.09s；RPC时间点表明唯一等待为initialize6，未到session.ensure或插件开关。第二次仅Nano自有await诊断也exit1/37.77s：进入initialize handler已用28.72s，worker结束后native继续mount至48.93s；未观察initialize返回，不把timeout视为已清理或已证opt-out死锁。
+- 最窄nano无503 HTTP对照按原25s期限仍exit1/1fail14skip/33.22s，同为initialize1未返回，尚未submit/审核HTTP；无fixture的公开initialize0单独30s cutoff也exit1，TERM后实际exit与自建home删除均完成。未继续重跑其余重型native批次刷冗余timeout，欠CC超窗终态/HTTP15矩阵/model-policy/history/capabilities等场景保持待验证。
+- 宿主本轮8CPU、1min load约14–24、swap用9489MiB/10240MiB、瞬时disk约32MiB/s，表明仍有明显资源压力；不是全部失败唯一原因已证。额外CPU-profile观察设施曾误将debugger ending识别为listening而重连，已修ignored脚本并用无debugger对照取代，该跑次不用于产品根因或PASS；仅对核对确属本次的pid KILL，未触碰其他工作/生产。
+- 补实际`.venv/bin/python -m pytest tests/contract/test_runtime_dependency_contract.py -q` **13pass/7.65s/exit0**，不冒称本轮全28contract或native通过。全部job收集；三个超时native经exact命令+cwd核对后TERM，额外诊断与无debuggerbaseline也实际退出；最终exact unit path native/Vitest为0，原三个mkdtemp home保留恢复现场。
+- 详尽命令、每阶段未到边界、原始日志locator、观察层限制及恢复条件见[集成运行调查](integration-r5-runtime.md)。没有证明需要产品/测试修复，故本轮不改源码/预算/期限/fixture/断言；未替Q通过，未canonical/archive/ReadyPR。父E接收具体初始化/资源阻塞后协调下一次稳定现场与原reviewer R5-W1 closure，不能用本次失败补成整体effective_through。
