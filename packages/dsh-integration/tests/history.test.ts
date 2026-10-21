@@ -160,7 +160,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     const capabilities = async (id: string) =>
       client!.rpc.request("session.capabilities", { sessionId: id });
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["read"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "ORIGINAL_PERSONA",
@@ -180,7 +180,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     expect(JSON.stringify(childRequest)).toContain("ORIGINAL_PERSONA");
     expect(requests.at(-1).model).toBe("test");
     expect(JSON.stringify(requests.at(-1).messages)).toContain(
-      "HISTORY_SUMMARY",
+      "Context reset reason: manual",
     );
     expect(JSON.stringify(requests.at(-1).messages)).not.toContain(
       "after-point",
@@ -195,12 +195,15 @@ it("forks a native message with its configuration and compacted prefix, independ
     );
     expect(readable).toContain("fork-only");
     expect(readable).not.toContain("after-point");
-    expect(readable).not.toContain("Message time:");
+    // Source references may quote the original envelope; readable human bodies omit it.
+    const humanRows = readable.trim().split("\n").map(line => JSON.parse(line)).filter(row => row.source === "nano-human");
+    expect(humanRows.length).toBeGreaterThan(0);
+    expect(humanRows.every(row => !row.content.startsWith("Message time:"))).toBe(true);
     await client!.shutdown();
     client = undefined;
     await start();
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["read"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "ORIGINAL_PERSONA",
@@ -210,7 +213,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     config = { ...config, revision: "3" };
     await client!.rpc.request("configuration.apply", config);
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["write"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "write"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "NEW_PERSONA",

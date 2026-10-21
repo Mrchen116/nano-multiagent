@@ -29,6 +29,7 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     },
       agents: [{ agentId: 'alice', workspace: dir, revision: '1', provider: 'test', model: 'test', mode: 'global' }],
       relay: { async request(type, payload) {
+        if (type === 'agent.session.ensure')return {type:'ack',payload:{}};
         if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: (payload.events as any[]).at(-1).seq } };
         if (type === 'conversation.query') {
           const info = { target: external, id: external, type: 'direct', channel: 'feishu', owner_recipient: true, name: 'Owner' };

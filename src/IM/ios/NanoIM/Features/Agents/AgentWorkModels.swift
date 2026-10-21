@@ -13,7 +13,8 @@ struct AgentWorkTurn: Codable, Identifiable, Sendable {
     var title: String {
         let kind = trigger?["kind"]?.agentString ?? (origin?.agentString.isEmpty == false ? origin?.agentString : origin?["kind"].stringValue) ?? ""
         switch kind {
-        case "inbox", "global_inbox": return L("收到新消息", "New messages")
+        case "inbox": return L("收到新消息", "New messages")
+        case "inbox-background": return L("近况同步", "Catch up on recent conversations")
         case "heartbeat": return L("主动检查", "Proactive check")
         case "cron": return (trigger?["source"]?.agentString == "manual" ? L("手动运行定时任务", "Scheduled task run manually") : L("定时任务", "Scheduled task")) + (job_id.map { " · " + $0 } ?? "")
         case "human", "user": return L("用户输入", "User input")

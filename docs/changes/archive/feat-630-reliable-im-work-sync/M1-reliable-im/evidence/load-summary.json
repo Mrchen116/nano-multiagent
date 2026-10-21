@@ -1,0 +1,73 @@
+{
+  "pass": true,
+  "node": "v25.8.2",
+  "cpu": "Apple M3",
+  "cpus": 8,
+  "memory_bytes": 25769803776,
+  "duration_per_phase_seconds": 600,
+  "nodes": 100,
+  "bulk_nodes": 20,
+  "work_bytes_per_second_per_node": 98304,
+  "work_uploaded_bytes": [
+    52861160,
+    53022450,
+    52508240,
+    52214140,
+    53022450,
+    51684760,
+    52155320,
+    51890630,
+    52743520,
+    52096500,
+    53018490,
+    52283004,
+    52341836,
+    52459500,
+    52694828,
+    51371654,
+    52783076,
+    52783076,
+    52047676,
+    51841764
+  ],
+  "messages_per_second": 20,
+  "summaries": [
+    {
+      "name": "without-work",
+      "duration_ms": 601023.752666,
+      "sent": 12000,
+      "stored": 12000,
+      "received": 12000,
+      "p99_save_ms": 55.50929199997336,
+      "p99_accept_ms": 53.71220900001936,
+      "redeliveries": 0,
+      "errors": [],
+      "work_errors": {},
+      "uploaded_events": 0
+    },
+    {
+      "name": "with-work",
+      "duration_ms": 601440.5295000001,
+      "sent": 12000,
+      "stored": 12000,
+      "received": 12000,
+      "p99_save_ms": 254.06566700001713,
+      "p99_accept_ms": 253.85833399998955,
+      "redeliveries": 0,
+      "errors": [],
+      "work_errors": {
+        "Error: work_sync_busy": 329
+      },
+      "uploaded_events": 65330
+    }
+  ],
+  "measured_product_source": "a1b5b15e2982382539e8e5498d1cdd033cbda00e",
+  "effective_base": "536d5a29fd449de5da7ef8c29030c1868d91567a",
+  "baseline_source": "2f057ba8ecedb7f15d6906a62094e480f35f69f2",
+  "baseline_retained_basis": "Same center message/relay code and HTTP/WS wiring. Later PA recovery helpers are not instantiated in load clients; later Work triggers are inactive without Work.",
+  "payload_bytes": {
+    "first_100_event_bytes": 1548122,
+    "second_100_event_bytes": 1562844,
+    "max_event_bytes": 108732
+  }
+}

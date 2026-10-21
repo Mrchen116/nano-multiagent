@@ -308,7 +308,7 @@ it("keeps failed files across chats and sends only text without consuming attach
   expect(screen.queryByText("failed.png")).not.toBeInTheDocument();
   view.rerender(pane(CONV_A, { uploadAttachment, onSend }));
   await user.click(screen.getByRole("button", { name: "Send text only" }));
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith("keep my text", []));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith("keep my text", [], undefined, expect.any(String), []));
   expect(screen.getByRole("button", { name: "Remove failed.png" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Send text only" })).toBeDisabled();
   expect(screen.getByRole("textbox")).toHaveValue("");

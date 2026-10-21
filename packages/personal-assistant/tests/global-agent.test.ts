@@ -4,6 +4,50 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
+it.each([true,false])('reconciles a cold uncertain publication by status without resending (found=%s)',async found=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ inbox.preparePublication('main:call','c','already reviewed reply');inbox.settlePublication('main:call','sending');
+ const requests:string[]=[];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+  relay:{request:async(type,payload)=>{requests.push(type);return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'original',conversation_id:'c'}:{}};}},image:async()=>'',onError:e=>{throw e;}});
+ try{
+  await product.recover();await product.recover();
+  expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
+  expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
+  expect(requests).not.toContain('agent.message');
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toHaveLength(found?1:0);
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
+it.each(['interrupted','user','completed','consumed','partially-consumed'])('recovers a cold Inbox wake only for unread interrupted work (%s)',async kind=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ const input:RelayInput={agent_id:'a',conversation_id:'c',relay_task_id:'r',idempotency_key:'k',metadata:{conversation_type:'direct'},message:{id:'m',content:'do work',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+ inbox.acceptRelay(input,true);
+ if(kind==='partially-consumed')inbox.acceptRelay({...input,conversation_id:'b',relay_task_id:'r2',idempotency_key:'k2',message:{...input.message,id:'m2'}},true);
+ const boundary=kind==='partially-consumed'?2:1,base=`inbox-wake:a:${boundary}`,recover=kind==='interrupted'||kind==='partially-consumed';inbox.admitWake('a',boundary);
+ if(kind==='partially-consumed'){const page=inbox.read('a','main','read-b',{target:'b'});inbox.commitRead('main','read-b',[{type:'text',text:JSON.stringify(page)}],false,1);}
+ if(kind==='consumed'){const page=inbox.read('a','main','read',{target:'c'});inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(page)}],false,1);}
+ const submitted:string[]=[],evidence=new Map<string,any>([[base,{accepted:true,acceptedSeq:10,terminal:{kind:recover||kind==='consumed'?'interrupted':kind}}]]);
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+   if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
+   if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
+   return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
+  }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
+ try {
+  await product.recover();await product.recover();
+  expect(submitted).toEqual(recover?[`${base}:recovery:10`]:[]);
+  if(recover){
+   evidence.set(submitted[0]!,{accepted:true,acceptedSeq:21,terminal:{kind:'interrupted'}});
+   await product.recover();await product.recover();
+   expect(submitted).toEqual([`${base}:recovery:10`,`${base}:recovery:21`]);
+  }
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
 it.each([
   ['owner-id', 'user:owner', undefined, 'owner'],
   ['owner-web', 'conversation:c_owner', {type:'direct',channel:'web',members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'owner'],
@@ -179,7 +223,7 @@ it('forwards conversation discovery and membership actions with the registered i
   const sent: Record<string, unknown>[] = [];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
     runtime: { onNotification: () => () => {}, request: async () => ({}) },
-    relay: { request: async (_type, payload) => { sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
+    relay: { request: async (_type, payload) => { if(_type==='agent.session.ensure')return {type:'ack',payload:{}};sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
   const call: ProductCall = { method: 'conversations', args: {}, operationId: 'main:query', callId: 'query', sessionId: 'main', rootSessionId: 'main', agentId: 'a', ownerId: 'owner' };
   try {
     for (const args of [{ action: 'create', type: 'group', title: 'Team', visibility: 'public', participant_ids: ['user'] }, { action: 'join', target: 'c_group' }, { action: 'list', scope: 'public' }]) {
@@ -217,7 +261,7 @@ it.each([
     status = 'idle'; await product.recover(); await product.receive(input);
     expect(submitted).toHaveLength(attention ? 1 : 0);
     if (attention) expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
-    await product.receive({ ...input, message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
+    await product.receive({ ...input, relay_task_id:'stop',idempotency_key:'stop', message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
     expect(cancellations).toBe(1);
     await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
     expect(submitted).toHaveLength(attention ? 2 : 0);

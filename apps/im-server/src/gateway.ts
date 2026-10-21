@@ -161,6 +161,7 @@ export class Gateway {
     this.trajectory.closeDevice(connection);
     if (this.nodes.get(connection.node_id) !== connection) return;
     this.nodes.delete(connection.node_id);
+    this.ctx.messaging.delivery.disconnect(connection.node_id);
     this.ctx.db.prepare("UPDATE nodes SET status='offline',last_error=? WHERE node_id=?")
       .run(reason, connection.node_id);
     this.publishNodeStatus(connection, "offline", { last_error: reason });
@@ -363,6 +364,7 @@ export class Gateway {
     this.publishNodeStatus(c, "online", { last_heartbeat_at: now(), last_error: null });
     return {
       message_type: "node.register",
+      relay_request_ids:1, work_sync_http:1,
       im_user_url: this.ctx.publicUrl,
       node_id: c.node_id,
       node_epoch: c.node_epoch,
@@ -376,7 +378,7 @@ export class Gateway {
       s = this.ctx.messaging;
     const ack = (extra: Row = {}) => ({
       type: "ack",
-      payload: { message_type: type, ...extra },
+      payload: { message_type: type, request_id:p.request_id, ...extra },
     });
     if (type === "node.register") {
       const result = this.register(c, p);
@@ -497,6 +499,8 @@ export class Gateway {
       if (!relay) fail(404, "relay task not found");
       const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (!['sent','accepted','completed','failed'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(
         "UPDATE relay_tasks SET status=?,receipt_status=?,receipt_detail=?,updated_at=? WHERE relay_task_id=?",
@@ -512,9 +516,23 @@ export class Gateway {
         p,
         p.delivery_status,
       );
+      s.delivery.receipt(c.node_id,p.relay_task_id);
       return ack({ relay_task_id: p.relay_task_id });
     }
     if (type === "node.streaming_delta") return ack(this.streaming(c, p));
+    if (type === 'agent.session.ensure') {
+      const agent=this.requireAgent(c,String(p.agent_id));
+      if(agent.work_mode!=='global' || typeof p.session_id!=='string' || !p.session_id)fail(400,'invalid_scope');
+      this.work.register(agent.agent_id,p.session_id,c.node_id,{scope:'global_main',title:agent.display_name});
+      return ack({session_id:p.session_id});
+    }
+    if (type === 'agent.message.status') {
+      const agent=this.requireAgent(c,String(p.agent_id));
+      const previous=one(db,'SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=? AND source_agent_id=?',`${agent.agent_id}:${String(p.operation_id)}`,agent.agent_id);
+      if(!previous)return ack({found:false});
+      s.access({...c,kind:'gateway'},previous.conversation_id,agent.agent_id);
+      return ack({found:true,conversation_id:previous.conversation_id,message_id:previous.message_id,target_kind:previous.target_kind,target_id:previous.target_id,source_agent_id:agent.agent_id});
+    }
     if (type === "agent.message") {
       const source = String(p.from_session_id ?? "")
         .replace(/^agent:/, "")
@@ -966,8 +984,7 @@ export class Gateway {
       now(),
       now(),
     );
-    if (this.send(a.node_id, { type: "relay.message", payload }))
-      db.prepare("UPDATE relay_tasks SET status='sent' WHERE relay_task_id=?").run(relay);
+    s.delivery.drain(a.node_id);
   }
   groupReply(messageId: string) {
     const s = this.ctx.messaging,
@@ -997,6 +1014,7 @@ export class Gateway {
   }
   shutdown() {
     this.trajectory.shutdown();
+    this.ctx.messaging.delivery.stop();
     for (const c of this.nodes.values()) {
       this.disconnect(c, "server_shutdown");
       c.socket.close(1001, "server_shutdown");
@@ -1024,7 +1042,8 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
       token: randomBytes(32).toString("base64url"),
       lastSeen: Date.now(),
     };
-    let processing = Promise.resolve();
+    let registration = Promise.resolve();
+    let inFlight=0;
     let queued = 0,
       windowAt = Date.now(),
       framesInWindow = 0;
@@ -1043,12 +1062,14 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
         return;
       }
       queued += bytes;
-      processing = processing.then(async () => {
+      if (++inFlight>16) {socket.close(1013);return;}
+      const process = async () => {
         let frame: Row = {};
         try {
           frame = JSON.parse(raw.toString());
+          if(frame.type!=='node.register')await registration;
           const result = await g.handle(c, frame.type, frame.payload ?? {});
-          g.write(socket, result);
+          g.write(socket, {...result,payload:{...result.payload,request_id:frame.payload?.request_id}});
           if (frame.type === "node.register" && result.type === "ack") {
             ctx.updates?.reconnect(c);
             g.channelInitialize?.(c.node_id);
@@ -1074,8 +1095,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
                   });
               }
             }
-            ctx.messaging.deliverRelays(all(ctx.db,
-              "SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted')",c.node_id));
+            ctx.messaging.delivery.drain(c.node_id);
           }
         } catch (e) {
           g.write(socket, {
@@ -1089,9 +1109,12 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
           });
           if ((e as any).statusCode === 403 && !g.valid(c)) socket.close(1008);
         } finally {
-          queued -= bytes;
+          queued -= bytes; inFlight--;
         }
-      });
+      };
+      const task=process();
+      if (!g.nodes.has(c.node_id)) registration=task;
+      void task;
     });
     socket.on("close", () => g.disconnect(c));
   });

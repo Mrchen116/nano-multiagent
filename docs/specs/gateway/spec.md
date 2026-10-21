@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-614
+> 对齐: feat-630
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -19,9 +19,9 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与图文投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、PA 可读聊天副本 | 22 |
-| [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、成员查询、内部委派、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾 | 17 |
+| [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、成员查询、内部委派、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾 | 19 |
 | [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、启停、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 13 |
-| [Agent Capabilities](agent-capabilities.md) | 网页模型服务管理与验证、完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist、全局固定基础工具、workspace 自建插件管理、开发指导与可选 Workflow、通用交互表达与背景理解 | 33 |
+| [Agent Capabilities](agent-capabilities.md) | 网页模型服务管理与验证、完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 调和、tool allowlist、全局固定基础工具、workspace 自建插件管理、默认无摘要换窗与按需恢复、开发指导与可选 Workflow、通用交互表达与背景理解 | 36 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义与对应原生主会话归属 | 4 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 22 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |

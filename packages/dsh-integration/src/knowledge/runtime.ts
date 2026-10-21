@@ -63,7 +63,9 @@ export class KnowledgeRuntime extends Service {
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const config = agent?.session && this.config(agent);
-      if (!agent || !config || !agent.session.snapshotEvents().some(event => event.type === 'compaction/end')) return assembly;
+      if (!agent || !config || !agent.session.snapshotEvents().some(event => event.type === 'compaction/end' && event.data.error === undefined)) return assembly;
+      // The workspace context engine rebuilds the native catalog; old bodies stay in History.
+      if (this.host.get('agentPresets')?.serviceFor(agent, 'compaction')) return assembly;
       const refs = await this.files(agent).references(agent.id, (config.skillRoots ?? []).map(root => root.path));
       const content: string[] = [];
       for (const ref of refs) {

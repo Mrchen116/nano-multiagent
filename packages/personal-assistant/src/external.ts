@@ -169,7 +169,7 @@ export class ExternalChannels {
       if (output.reply) await this.removeReaction(output.reply);
     } else this.state.frame(output.id, payload);
     if (payload.kind === 'permission_request' && output.reply) await this.approval(output, payload);
-    if (payload.kind === 'permission_resolved') await this.resolveApproval(String(payload.request_id), String(payload.decision));
+    if (payload.kind === 'permission_resolved') await this.resolveApproval(String((payload.permission_request as Record<string,unknown>|undefined)?.request_id ?? payload.request_id), String(payload.decision));
     void this.flush().catch(this.options.onError); return ack(type);
   }
   private async finish(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {

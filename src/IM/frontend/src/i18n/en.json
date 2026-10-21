@@ -677,6 +677,7 @@
       "状态未知": "Unknown",
       "空闲": "Idle",
       "Inbox 唤醒": "Inbox wake-up",
+      "近况同步": "Catch up on recent conversations",
       "收到子 Agent 结果": "Subagent result received",
       "收到后台 Bash 结果": "Background Bash result received",
       "收到 Workflow 结果": "Workflow result received",

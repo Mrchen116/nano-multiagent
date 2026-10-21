@@ -1,6 +1,6 @@
 # IM - Gateway Relay Specification
 
-> 对齐: feat-596
+> 对齐: feat-630
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -13,19 +13,24 @@ IM 与 Gateway 之间 WebSocket、中继任务、离线边界、后台通知、�
 
 ### Requirement: Gateway 经 /im/ws/gateway 持久双向连接，协议帧契约稳定
 
-Node Gateway 主动向 IM 建 `/im/ws/gateway` 持久连接，所有双向通信复用之。既有上下行帧保持；Gateway 额外上行 `agent.config.boundary`，IM 仅在配置边界 durable insert 成功后返回 success ACK。非法、不支持或持久化失败的帧返回稳定错误信封，不静默丢弃或崩连接。
+Node Gateway 主动向 IM 建立 `/im/ws/gateway` 持久连接，用于实时消息、回执、必要控制与小体积权威元数据。工作记录批量补传使用独立、按节点授权的同步入口；补传失败不阻断实时沟通。既有上行 `agent.config.boundary` 仍仅在配置边界 durable insert 成功后返回 success ACK。非法、不支持或持久化失败的帧返回稳定错误信封，不静默丢弃或崩连接。
 
 #### Scenario: 非 JSON 帧返回 invalid_message 错误信封
 - **WHEN** Gateway 经 `/im/ws/gateway` 发非 JSON 文本
-- **THEN** 收到稳定 `invalid_message` 错误信封
+- **THEN** 收到稳定 `invalid_message` 错误信封。
 
 #### Scenario: 不支持的消息类型返回 unsupported_message_type
 - **WHEN** Gateway 发 `{type:"unknown.type", payload:{}}`
-- **THEN** 收到稳定 `unsupported_message_type` 错误信封
+- **THEN** 收到稳定 `unsupported_message_type` 错误信封。
 
-#### Scenario: 配置边界复用串行 ACK 通道
+#### Scenario: 配置边界保留 durable ACK 与必要顺序
 - **WHEN** Gateway 上行 `agent.config.boundary`
-- **THEN** 该业务帧与其他需确认业务帧按连接顺序等待 ACK，ACK 表示 IM 已完成 durable insert 或幂等命中
+- **THEN** ACK 表示 IM 已完成 durable insert 或幂等命中；同一配置边界及相关操作的因果顺序保持，不因历史工作记录补传而等待。
+
+#### Scenario: 工作记录同步失败不拆实时连接
+- **GIVEN** 实时通路仍可用
+- **WHEN** 节点工作记录同步请求失败或超时
+- **THEN** 消息、回执、停止与权限响应仍可通过实时连接，历史记录可以稍后恢复。
 
 ### Requirement: Gateway 上报实际配置边界并在 durable ACK 后完成投递
 
@@ -263,7 +268,7 @@ IM 接收 Gateway 的自进化 system notification 时，校验来源 AgentProfi
 
 ### Requirement: Gateway HTTP 数据操作使用当前注册连接的运行凭据
 
-已授权 Gateway 成功注册后取得绑定当前有效设备身份与 node 的不透明运行凭据，用于消息镜像和附件等机器数据操作。它与真人 access JWT 不互相替代，不授予人的聊天或配置管理权限。
+已授权 Gateway 成功注册后取得绑定当前有效设备身份与 node 的不透明运行凭据，用于消息镜像和附件等机器数据操作。它与真人 access JWT 不互相替代，不授予人的聊天或配置管理权限。仅工作记录专用同步入口允许使用当前有效绑定、账号与设备 epoch 的持久机器身份，不要求实时 WS 在线；该例外不扩展到消息镜像、附件或其他机器数据及真人入口。
 
 #### Scenario: 机器为非管理者的聊天交付图片
 - **GIVEN** B 与 A 管理的 Agent 私聊，A 本人不是成员
@@ -273,7 +278,7 @@ IM 接收 Gateway 的自进化 system notification 时，校验来源 AgentProfi
 #### Scenario: 运行凭据过期或节点身份不匹配
 - **GIVEN** 设备被交接、管理者被停用、连接临时凭据已失效，或请求 Agent 不属于该 node
 - **WHEN** 客户端使用旧运行凭据或伪造 node／Agent 关系执行机器操作
-- **THEN** 请求被拒，不通过降级为 owner 读取或加入真人成员恢复；绑定/恢复后的设备凭据只用于同一节点重新注册，HTTP 数据操作仍要求该设备当前注册在线。
+- **THEN** 请求被拒，不通过降级为 owner 读取或加入真人成员恢复；除受限 Work 同步入口外，绑定/恢复后的设备凭据只用于同一节点重新注册，其他 HTTP 数据操作仍要求该设备当前注册在线；Work 专用凭据也不能绕过当前 binding、账号和 epoch 撤销。
 
 #### Scenario: shadow 代记不冒充真人
 - **GIVEN** Gateway 正在镜像其已有外部来源聊天
@@ -294,6 +299,19 @@ IM 接收 Gateway 的自进化 system notification 时，校验来源 AgentProfi
 - **THEN** 仅接受 profile_version 和要启用的技能 ID，按现有 optimistic locking / Gateway apply 协议合并到已有技能列表，保留工作模式、工具、模型及其他完整配置。
 - **AND** 真人凭据、其他节点 Agent、过期版本、停用或已交接机器被拒绝；该入口不授予完整配置、公司策略或他人设备管理权限。
 
+#### Scenario: 实时连接断开时独立补传 Work
+- **GIVEN** 节点的当前绑定、账号与设备 epoch 仍有效，实时 WS 暂时断开
+- **WHEN** Gateway 使用其持久机器身份调用仅属于本节点的 Work 同步入口
+- **THEN** 可以补传和核对本节点工作记录，不因缺少活动 WS 临时凭据而拒绝。
+
+#### Scenario: Work 同步设备被撤销或交接
+- **WHEN** 绑定或账号已失效，或设备已交接且旧 epoch 不再有效
+- **THEN** 旧机器身份的 Work 上传、查询和未完成分块提交被拒绝，不能恢复旧权限。
+
+#### Scenario: 持久机器身份不能跨用其他入口
+- **WHEN** 使用 Work 同步采用的持久机器身份请求消息镜像、附件、账号、完整配置或真人用户流
+- **THEN** 请求被拒，其他入口仍执行原本的认证和授权规则。
+
 ### Requirement: 已授权更新的切换阶段持久等待新消息
 
 #### Scenario: 切换期间发送和刷新
@@ -306,10 +324,31 @@ IM 接收 Gateway 的自进化 system notification 时，校验来源 AgentProfi
 
 #### Scenario: 普通离线
 - **WHEN** 目标电脑未处于有效更新切换过程而离线
-- **THEN** 沿用普通离线失败语义，不冒充正在更新或已可处理。
+- **THEN** 消息成功保存后保留待投递并在同身份节点恢复时自动交付，不以普通离线误报消息未保存，也不冒充正在更新或已可处理。
 
 #### Scenario: 取消与恢复失败
 - **WHEN** 更新取消且原节点恢复接入
 - **THEN** 主动重放暂存消息，不依赖断线重连。
 - **WHEN** 更新进程中断且电脑尚未恢复
 - **THEN** 已暂存消息显示电脑恢复后继续处理、无需重发；聊天入口提供恢复提示，不无限显示正常更新；同身份节点恢复后继续投递。
+
+### Requirement: 已持久保存的消息在节点暂不可达时保留并自动投递
+
+#### Scenario: 中心已保存而节点离线
+- **WHEN** 用户发送消息，IM 已持久保存消息和目标投递任务，但目标节点暂不可达
+- **THEN** 返回已保存的同一消息，保留待投递状态，不把暂时离线误报为消息未保存
+- **AND** 节点恢复后自动投递，重试不产生第二条消息。
+
+#### Scenario: 一个目标暂不可达
+- **WHEN** 群聊消息的部分 Agent 不可达，其他目标仍可用
+- **THEN** 各目标独立接收和恢复，晚到或重复确认不使已有终态回退，不阻断其他目标。
+
+### Requirement: 实时请求确认与工作同步具有独立恢复边界
+
+#### Scenario: 业务请求确认迟到
+- **WHEN** 某请求超时后收到迟到确认，或同类其他请求正在进行
+- **THEN** 确认只归属原请求，不误完成其他请求；结果未知的有副作用操作按原身份核对，不盲目重新执行。
+
+#### Scenario: 历史积压与多节点恢复
+- **WHEN** 大量历史记录积压或节点同时重连
+- **THEN** 节点的正常消息与必要控制仍有处理机会，单节点补传不使其他用户的通信等待其清空历史。

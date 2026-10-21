@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it('keeps explicit empty tools and Skills empty, restores a subset, and preserves another Agent', async () => {
+const contextTools = ['get_context_remaining', 'history', 'new_context', 'notes'];
+
+it('keeps empty business tools and Skills empty while retaining context management, and restores a subset', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-capabilities-')); let client: RuntimeClient | undefined; let logs = '';
   const root = join(home, 'skills'); await mkdir(join(root, 'local-skill'), { recursive: true });
   await writeFile(join(root, 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Selected test guidance\n---\nLOCAL_SKILL_BODY');
@@ -16,8 +18,8 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'g', mode: 'global' }, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
     for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
-    expect((await read('a')).tools).toEqual([]);
-    expect((await read('g')).tools.sort()).toEqual(['conversations', 'inbox', 'send_message', 'subagent']);
+    expect((await read('a')).tools.sort()).toEqual(contextTools);
+    expect((await read('g')).tools.sort()).toEqual([...contextTools, 'conversations', 'inbox', 'send_message', 'subagent'].sort());
     expect((await read('a')).skills).toEqual([]);
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'a', cwd: home }) as { tools: { name: string }[]; skills: { name: string }[] };
     expect(catalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history']));
@@ -26,13 +28,13 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     expect(catalog.skills.map(skill => skill.name)).toContain('local-skill');
     const preview = await client.rpc.request('configuration.preview', { config: { ...config, systemPrompt: 'PREVIEW_ONLY_581' }, cwd: home }) as { prompt: string; tools: string[]; skills: unknown[] };
     expect(preview.prompt).toContain('PREVIEW_ONLY_581');
-    expect(preview.tools).toEqual([]);
+    expect(preview.tools.sort()).toEqual(contextTools);
     expect(preview.skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('PREVIEW_ONLY_581');
     expect((await read('b')).tools).toContain('task_graph');
     expect((await read('b')).skills.map(skill => skill.name)).toContain('local-skill');
     await client.rpc.request('configuration.apply', { ...config, revision: '2', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } });
-    expect((await read('a')).tools).toEqual(['read', 'skill']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     expect((await read('a')).skills.map(skill => skill.name)).toEqual(['local-skill']);
     expect((await read('b')).tools).toContain('task_graph');
     await client.rpc.request('session.submit', { sessionId: 'session-a', inputId: 'busy', mode: 'followup', content: [{ type: 'text', text: 'wait' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'busy' } });
@@ -43,15 +45,15 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     await expect.poll(() => renamed, {timeout: 1500}).toBe(true);
     await rename;
     expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
-    expect((await read('a')).tools).toEqual(['read', 'skill']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     let applied = false;
     const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
-    await expect.poll(async () => (await read('a')).tools).toEqual([]);
+    await expect.poll(async () => (await read('a')).tools.sort()).toEqual(contextTools);
     expect((await read('a')).skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('AFTER_IDLE_581');
     expect(applied).toBe(false);
     await client.rpc.request('session.cancel', { sessionId: 'session-a' }); await pending;
-    expect((await read('a')).tools).toEqual(['write']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'write'].sort());
     expect(JSON.stringify((await read('a')).prompt)).toContain('AFTER_IDLE_581');
     await client.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
@@ -79,7 +81,7 @@ export function apply(ctx) {
   }, 0); });
   const seen = new Set();
   ctx.on('llm/stream', async function* (options) {
-    const last = options.messages.findLast(message => message.role === 'user');
+    const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'nano-human');
     if (seen.has(last.id)) { yield { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } }; yield { type: 'finish', reason: { kind: 'stop' } }; return; }
     seen.add(last.id);
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: last.id + '-call', name: 'run_code', arguments: JSON.stringify({ description: 'Check selected SDK', code: 'return { echo: await tools.fixture_echo({}), missing: typeof tools.read };' }) } };
