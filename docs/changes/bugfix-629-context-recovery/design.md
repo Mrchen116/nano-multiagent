@@ -81,3 +81,7 @@ R6 validation extends the existing native live-Inbox Skill test: a long valid In
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-recovery | 原生压力裁剪与同资料事故复验 | 无 | 单主线 | Nano knowledge/测试/固定包，插件原生 pruner 接线、候选协议撤除与稳定贡献，相关契约 | [worker] 有效红测后原生裁剪/重算/仍超线/无服务/显式换窗、保留的新旧模式回归及插件全量通过；不可变安装一致。[reviewer] 同一 25 份资料在默认预算下通过原生裁剪保留当前任务，真实模型完整交付一次；Skill 正文无自动重放与逐步增长。失败不得记为通过。 |
+
+## Final delivery scope
+
+2026-10-21 用户明确批准合并部署当前已验证修复，强制换窗选错旧 Notes 独立跟进 [#377](https://github.com/Mrchen116/nano-multiagent/issues/377)。不新增实现或改变预算/恢复协议；M1 的原生压力裁剪、上下文增长与 Inbox 适配验证有效，R5 失败不改判。原始生产 todo 从首次换窗前的回放已通过，详见 [production replay](M1-recovery/production-replay.md)。
