@@ -44,3 +44,7 @@ Web 和原生 iOS 为真实的 `inbox-background` 类型显示“近况同步”
 - 既有 `agent-work-panel.test.tsx` 17 项通过，覆盖工作记录与子执行展示、刷新、导航和状态。此低影响显示修正不新增仅锁文案的永久测试。
 - `swiftc -frontend -parse src/IM/ios/NanoIM/Features/Agents/AgentWorkModels.swift` 通过；本机没有完整 Xcode，iOS 模拟器测试及 Release 归档交由本 PR 的必跑 CI 验证。
 - 产品源代码检索确认 Web 与 iOS 不再包含 `global_inbox`；历史变更文档中记录的旧模块名称继续保留。
+- 本地 CI（`268acd62beff3c373a1b784c4d7f3e1e33ed11a3`）：`pnpm build`、`pnpm typecheck`、后台 107 文件 / 485 项、前端 100 文件 / 936 项、Python 非 E2E 62 项、docs-check、ruff check 和 ruff format --check 全部通过；前端 critical audit 门禁通过。
+- 独立 full code review 返回 `[]`，范围、版本及证据见同目录 `code-review.md`。
+- 浏览器截图保存在本机 `/Users/czj/Repos/nano-multiagent/output/playwright/bugfix-632/`；临时组件入口、浏览器与隔离 Vite 均已清理。
+- final sync 的 main 基线为 `c88536f59db208cfb1998f0bee64b9fe5631f799`；审查后仅补验证记录与归档，源码与测试未变，原门禁结论 retained。最终交付 head 见 PR。
