@@ -217,3 +217,11 @@ Retain the independent R3 successes at `regression.md:80-91`: native Skill catal
 - No confirmed code-review defect or additional implementation warning in the scoped delta. No speculative work requested.
 
 `requires_full_verification: false`; the declared delta and all its affected admission/overflow/package seams were reviewed. Caller will commit this report after the independent product handoff. No canonical spec merge or completion archive is authorized by this interim report.
+
+## Delivery disposition after independent R4 product report
+
+Product report commit `3cddf7e18` closes R4 V1 as **PASS for native pruning of the unchanged 25-document batch**. Normal restart, source-preserving History recovery, old-summary fallback, and re-enabled Skill lifecycle mechanisms also passed. Source/dependency tree remains Nano `06c7aec52` and plugin `ce7d551`; subsequent commits only record evidence, so static findings and corrected-delta alignment are retained.
+
+The separate on-after-off task **FAILS** after explicit new_context: it writes a new on-checkpoint, then reads an older checkpoint and delivers the old task status. See regression.md R4-1. This is not evidence of a native-pruning regression, but it blocks declaring the original broad current-task recovery requirement fixed. No additional recovery protocol is introduced without a newly agreed design.
+
+Accordingly the full unit remains active: no canonical-spec merge, archive, Ready PR, merge or production deployment. The scoped code and passing pressure result are preserved for review, and the residual failure is reported to the user. This disposition supersedes any earlier pending-product status; it does not alter the independent code-review verdict.
