@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
 
 /** Carries the existing IM envelope without translating business payloads. */
 export interface ProtocolFrame {
@@ -10,7 +11,7 @@ export interface RegistrationAck extends Record<string, unknown> {
   gateway_access_token?: string;
   node_epoch?: number;
 }
-export type RelayState = 'stopped' | 'connecting' | 'registering' | 'ready' | 'reconnecting' | 'revoked';
+export type RelayState = 'stopped' | 'connecting' | 'registering' | 'ready' | 'reconnecting' | 'revoked' | 'upgrade_required';
 /** Safe connection lifecycle facts; payloads, credentials and URLs are never included. */
 export interface RelayDiagnostic {
   timestamp: string;
@@ -47,6 +48,7 @@ export interface WebRelayOptions {
   onState?: (state: RelayState) => void | Promise<void>;
   onError?: (error: Error) => void;
   onDiagnostic?: (event: RelayDiagnostic) => void;
+  requiredCapabilities?: string[];
   heartbeatPayload?: () => Record<string, unknown>;
   heartbeatIntervalMs?: number;
   ackTimeoutMs?: number;
@@ -64,6 +66,7 @@ interface Pending {
   resolve: (frame: ProtocolFrame) => void;
   reject: (error: Error) => void;
   timer?: ReturnType<typeof setTimeout>;
+  control: boolean;
 }
 const results: Record<string, [string, string]> = {
   'agent.work.append': ['agent.work.ack', 'journal_id'],
@@ -78,7 +81,13 @@ const results: Record<string, [string, string]> = {
 /** Owns the existing IM socket protocol; durable delivery and retry decisions belong to its caller. */
 export class WebRelayConnection {
   private socket?: WebSocket;
-  private active?: Pending;
+  private readonly pending = new Map<string, Pending>();
+  private correlated = false;
+  private readonly serverRequests = new Set<string>();
+  private lastAgent = '';
+  private readySince = 0;
+  private heartbeatFailures = 0;
+  private heartbeatSuccesses = 0;
   private queue: Pending[] = [];
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private heartbeatTimer?: ReturnType<typeof setTimeout>;
@@ -125,7 +134,8 @@ export class WebRelayConnection {
     if (!this.ready || type === 'node.register' || type === 'node.heartbeat') {
       return Promise.reject(new RelayDeliveryError('Relay is not ready for this business request', 'not-sent'));
     }
-    return this.enqueue({ type, payload });
+    const preserve = typeof payload.request_id === 'string' && this.serverRequests.delete(payload.request_id);
+    return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload });
   }
 
   /** Cancels timers, rejects outstanding work, and closes the owned socket without replay. */
@@ -190,10 +200,17 @@ export class WebRelayConnection {
         void this.enqueue({ type: 'node.register', payload: credentials.registration }).then(frame => {
           if (generation !== this.generation) return;
           clearTimeout(this.connectTimer); this.connectTimer = undefined;
+          if (this.options.requiredCapabilities?.some(key=>frame.payload[key]!==1)) {
+            this.running=false;this.generation++;this.clearTimers();this.failRequests('IM upgrade required');
+            this.socket=undefined;socket.terminate();this.setState('upgrade_required');
+            this.rejectStart?.(new RelayDeliveryError('IM upgrade required','rejected','upgrade_required'));
+            this.resolveStart=undefined;this.rejectStart=undefined;return;
+          }
           this.currentRegistration = frame.payload;
           this.diagnose('ready', 'register', this.outageStartedAt === undefined ? {} : { outage_ms: Date.now() - this.outageStartedAt });
           this.outageStartedAt = undefined;
-          this.attempt = 0;
+          this.correlated = frame.payload.relay_request_ids === 1;
+          this.readySince = Date.now(); this.heartbeatFailures = 0; this.heartbeatSuccesses = 0;
           this.setState('ready');
           this.resolveStart?.(frame.payload);
           this.resolveStart = undefined; this.rejectStart = undefined;
@@ -203,41 +220,68 @@ export class WebRelayConnection {
     } catch (error) { this.disconnect(generation, false, 'Unable to establish IM connection', { error_type: errorType(error) }); }
   }
 
+  private control(type: string): boolean {
+    return type === 'node.register' || type === 'node.heartbeat' || type === 'node.delivery_receipt'
+      || type === 'agent.session.ensure' || type === 'agent.message.status' || type.includes('cancel') || type.includes('permission');
+  }
   private enqueue(frame: ProtocolFrame): Promise<ProtocolFrame> {
-    return new Promise((resolve, reject) => { this.queue.push({ frame, resolve, reject }); this.pump(); });
+    const control = this.control(frame.type);
+    // Server-initiated request IDs are retained in their response frames.
+    frame = { type: frame.type, payload: { ...frame.payload, request_id: frame.payload.request_id ?? randomUUID() } };
+    if ((!control && this.queue.filter(item => !item.control).length >= 256) || this.queue.length >= 258
+      || this.pending.has(String(frame.payload.request_id)) || this.queue.some(item => item.frame.payload.request_id === frame.payload.request_id)) {
+      return Promise.reject(new RelayDeliveryError('Relay request window is full', 'not-sent'));
+    }
+    return new Promise((resolve, reject) => { this.queue.push({ frame, control, resolve, reject }); this.pump(); });
   }
   private pump(): void {
-    if (this.active || this.socket?.readyState !== WebSocket.OPEN) return;
-    const pending = this.queue.shift();
-    if (!pending) return;
-    this.active = pending;
-    const generation = this.generation;
-    pending.timer = setTimeout(() => this.disconnect(generation, false, 'IM response deadline exceeded', { error_type: 'TimeoutError' }), this.options.ackTimeoutMs ?? 10000);
-    try {
-      this.socket.send(JSON.stringify(pending.frame), error => {
-        if (error) this.disconnect(generation, false, 'IM frame send failed');
-      });
-    } catch { this.disconnect(generation, false, 'IM frame send failed'); }
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    const limit = this.correlated ? 8 : 1;
+    while (this.pending.size < limit) {
+      const ordinary = [...this.pending.values()].filter(item => !item.control).length;
+      let index = this.queue.findIndex(item => item.control);
+      if (index < 0) {
+        if (this.correlated && ordinary >= 6) return;
+        index = this.queue.findIndex(item => String(item.frame.payload.agent_id ?? '') !== this.lastAgent);
+        if (index < 0) index = 0;
+      }
+      const pending = this.queue.splice(index, 1)[0];
+      if (!pending) return;
+      if (!pending.control) this.lastAgent = String(pending.frame.payload.agent_id ?? '');
+      const id = String(pending.frame.payload.request_id);
+      const generation = this.generation;
+      this.pending.set(id, pending);
+      pending.timer = setTimeout(() => {
+        if (generation !== this.generation || !this.pending.delete(id)) return;
+        pending.reject(new RelayDeliveryError('IM response deadline exceeded', 'unknown'));
+        if (pending.frame.type === 'node.register') this.disconnect(generation, false, 'Node registration timeout', {error_type:'TimeoutError'});
+        else this.pump();
+      }, this.options.ackTimeoutMs ?? 10000);
+      try {
+        this.socket.send(JSON.stringify(pending.frame), error => {
+          if (error) this.disconnect(generation, false, 'IM frame send failed');
+        });
+      } catch { this.disconnect(generation, false, 'IM frame send failed'); return; }
+    }
   }
   private receive(frame: ProtocolFrame, generation: number): void {
-    // Revocation is terminal even if it arrives while no business request is waiting.
     if (frame.type === 'error' && frame.payload.code === 'gateway_owner_mismatch') {
       this.disconnect(generation, true, 'Gateway authority revoked'); return;
     }
-    const pending = this.active;
+    const id = frame.payload.request_id;
+    const pending = this.correlated
+      ? (typeof id === 'string' ? this.pending.get(id) : undefined)
+      : [...this.pending.values()].find(item => this.matches(item.frame, frame));
     if (pending && this.matches(pending.frame, frame)) {
-      clearTimeout(pending.timer); this.active = undefined;
+      clearTimeout(pending.timer); this.pending.delete(String(pending.frame.payload.request_id));
       if (frame.type === 'error') {
         const code = String(frame.payload.code ?? 'error');
         pending.reject(new RelayDeliveryError(`IM rejected the request: ${code}`, 'rejected', code));
-        if (pending.frame.type === 'node.register' || pending.frame.type === 'node.heartbeat') {
-          this.disconnect(generation, false, 'IM rejected control frame'); return;
-        }
+        if (pending.frame.type === 'node.register') { this.disconnect(generation, false, 'IM rejected registration'); return; }
       } else pending.resolve(frame);
-      this.pump();
-      return;
+      this.pump(); return;
     }
-    // User callbacks must not own the receive loop: approval/cancel/ACK frames keep flowing.
+    if (typeof frame.payload.request_id==='string' && frame.type!=='ack' && frame.type!=='error' && !frame.type.endsWith('.result')) this.serverRequests.add(frame.payload.request_id);
     void Promise.resolve().then(() => this.options.onFrame(frame)).catch(error => this.report(error instanceof Error ? error : new Error('IM inbound callback failed')));
   }
   private matches(sent: ProtocolFrame, received: ProtocolFrame): boolean {
@@ -256,14 +300,22 @@ export class WebRelayConnection {
   private scheduleHeartbeat(generation: number): void {
     this.heartbeatTimer = setTimeout(() => {
       if (generation !== this.generation || !this.ready) return;
-      if (this.active || this.queue.length) { this.scheduleHeartbeat(generation); return; }
+      this.scheduleHeartbeat(generation);
+      if ([...this.pending.values(), ...this.queue].some(item => item.frame.type === 'node.heartbeat')) return;
       const payload = this.options.heartbeatPayload?.() ?? {
         node_id: this.registrationPayload.node_id, status: 'online',
         agent_count: Array.isArray(this.registrationPayload.agents) ? this.registrationPayload.agents.length : 0,
       };
       void this.enqueue({ type: 'node.heartbeat', payload }).then(() => {
-        if (generation === this.generation) this.scheduleHeartbeat(generation);
-      }).catch(() => this.disconnect(generation, false, 'Heartbeat failed'));
+        if (generation !== this.generation) return;
+        this.heartbeatFailures = 0; this.heartbeatSuccesses++;
+        if (Date.now() - this.readySince >= 60000 && this.heartbeatSuccesses >= 2) this.attempt = 0;
+      }).catch(() => {
+        if (generation === this.generation && ++this.heartbeatFailures >= 2) {
+          this.diagnose('transport_error', 'heartbeat', {error_type:'TimeoutError'});
+          this.disconnect(generation, false, 'Heartbeat failed', {error_type:'TimeoutError'});
+        }
+      });
     }, this.options.heartbeatIntervalMs ?? 30000);
   }
   private disconnect(generation: number, revoked: boolean, message: string, details: DiagnosticDetails = {}): void {
@@ -286,15 +338,15 @@ export class WebRelayConnection {
       return;
     }
     this.setState('reconnecting');
-    const delay = Math.min((this.options.reconnectInitialMs ?? 1000) * 2 ** Math.min(this.attempt++, 20), this.options.reconnectMaxMs ?? 30000);
+    const delay = Math.round(Math.min((this.options.reconnectInitialMs ?? 1000) * 2 ** Math.min(this.attempt++, 20) * (0.8 + Math.random() * 0.4), this.options.reconnectMaxMs ?? 30000));
     this.diagnose('retry_scheduled', 'connect', { attempt: this.attempt, delay_ms: delay });
     this.reconnectTimer = setTimeout(() => { void this.connect(); }, delay);
   }
   private phase(): RelayDiagnostic['phase'] {
     if (this.currentState === 'connecting') return 'connect';
     if (this.currentState === 'registering') return 'register';
-    if (this.active?.frame.type === 'node.heartbeat') return 'heartbeat';
-    return this.active ? 'send' : 'receive';
+    if ([...this.pending.values()].some(item => item.frame.type === 'node.heartbeat')) return 'heartbeat';
+    return this.pending.size ? 'send' : 'receive';
   }
   private diagnose(event: RelayDiagnostic['event'], phase: RelayDiagnostic['phase'], details: DiagnosticDetails = {}): void {
     try {
@@ -304,10 +356,10 @@ export class WebRelayConnection {
     } catch { /* A diagnostic sink cannot change connection lifecycle behavior. */ }
   }
   private failRequests(message: string): void {
-    if (this.active) {
-      clearTimeout(this.active.timer);
-      this.active.reject(new RelayDeliveryError(message, 'unknown')); this.active = undefined;
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer); pending.reject(new RelayDeliveryError(message, 'unknown'));
     }
+    this.pending.clear(); this.correlated = false; this.serverRequests.clear();
     for (const pending of this.queue.splice(0)) pending.reject(new RelayDeliveryError(message, 'not-sent'));
   }
   private clearTimers(): void {

@@ -1,3 +1,5 @@
+import {RelayDelivery} from './relay-delivery.js';
+import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -26,7 +28,8 @@ export function withHumanApproval(call: Row, permissions: Row[]): Row {
 
 export class Messaging {
   readonly interactions: Interactions;
-  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); }
+  readonly delivery:RelayDelivery;
+  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); this.delivery=new RelayDelivery(ctx); }
   get db() {
     return this.ctx.db;
   }
@@ -556,12 +559,12 @@ export class Messaging {
     const old = key
       ? one(
           this.db,
-          "SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
+          "SELECT * FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
           id,
           key,
         )
       : undefined;
-    if (old) return this.message(old.id);
+    if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
@@ -570,14 +573,14 @@ export class Messaging {
       : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id);
     // Freeze private background with its message; publish only after both are durable.
-    const {m,relays} = transaction(this.db, () => {
+    const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
         agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone, publish:false });
+      this.db.prepare('UPDATE messages SET caller_payload_json=? WHERE id=?').run(messageAttemptPayload(b),m.id);
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
-    const delivered = this.publishMessages([m]);
+    this.publishMessages([m]);
     if (!b.suppress_relay) {
-      if (relays.length && !delivered) fail(503,"target_node_id is not connected");
       const wait = this.ctx.updates?.messageWait(m.id);
       if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
@@ -660,21 +663,8 @@ export class Messaging {
     return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
   }
   deliverRelays(relays: Row[]): boolean {
-    let sent = false;
-    for (const task of relays) {
-      if (!this.relayEligible(task)) {
-        this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
-        continue;
-      }
-      if (this.ctx.updates?.acceptingQueue(task.target_node_id)) {
-        sent = true;
-        continue;
-      }
-      if (this.ctx.gateway.send(task.target_node_id,{type:"relay.message",payload:JSON.parse(task.payload_json)})) {
-        this.db.prepare("UPDATE relay_tasks SET status='sent',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
-        sent = true;
-      }
-    }
+    let sent=false;
+    for (const node of new Set(relays.map(task=>String(task.target_node_id)))) sent=this.delivery.drain(node)||sent;
     return sent;
   }
   /** Publish committed system messages and attempt their already durable relay rows. */

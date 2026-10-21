@@ -11,7 +11,7 @@ import { ModelSetup, type SetupRequest } from './model-setup.js';
 import { projectCapabilities } from './capabilities.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { WorkSync, NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -133,6 +133,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
 const modelSetup = new ModelSetup(configuration, runtime);
 const relay = new WebRelayConnection({
   url: config.im_service.url,
+  requiredCapabilities:['relay_request_ids','work_sync_http'],
   credentials: () => ({ accessToken: config.im_service.token, registration: {
     node_id: config.node.node_id, node_name: config.node.node_name ?? config.node.node_id, version: release.version, release,
     agents: agents.map(agent => agent.agentId), user_id: config.node.user_id,
@@ -239,14 +240,30 @@ const relay = new WebRelayConnection({
     }
     if (frame.type === 'relay.message') {
       const input = frame.payload as unknown as RelayInput;
-      if (store.priorRelay(input.idempotency_key)) return;
+      if(input.metadata.node_epoch !== undefined && input.metadata.node_epoch!==relay.registration?.node_epoch)throw new Error('Stale relay epoch');
+      if (!agents.some(agent=>agent.agentId===input.agent_id))throw new Error('Unknown relay target');
       if (agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global') await globalProduct.receive(input);
       else await product.receive(input);
     }
     if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
     } finally { admissions--; }
   },
-  onState: async state => { if (state === 'ready' && typeof relay.registration?.owner_timezone === 'string') store.setOwnerTimezone(relay.registration.owner_timezone); await lifecycle.connected(state === 'ready'); if (state !== 'ready') trajectory?.closeAll(); if (state === 'revoked') managed.revoke(); if (state === 'ready' && !updateHolding) await admitted(async () => { for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available); await knowledge.migrateSkills(); await managed.flush(); await external.recover(); await product.recover(); await globalProduct.recover(); if (knowledge) await knowledge.recover(); if (workflows) await workflows.recover(); if (usage) await usage.recover(); }); },
+  onState: async state => {
+    if(state==='ready') {
+      workAvailable=true;workSync.signal();
+      if(typeof relay.registration?.owner_timezone==='string')store.setOwnerTimezone(relay.registration.owner_timezone);
+    }
+    await lifecycle.connected(state==='ready');
+    if(state!=='ready')trajectory?.closeAll();
+    if(state==='revoked') {workAvailable=false;managed.revoke();}
+    if(state==='ready' && !updateHolding)await admitted(async()=>{
+      await settlePartitions([globalProduct.recover(), (async()=>{
+        for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
+        await knowledge.migrateSkills();await managed.flush();await external.recover();await product.recover();
+        await knowledge.recover();await workflows.recover();await usage.recover();
+      })()]);
+    });
+  },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
@@ -302,7 +319,9 @@ product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
   image: downloadImage,
 });
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError });
+let workAvailable=false;
+const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);
@@ -359,6 +378,7 @@ await updater.start();
 await managed.start();
 await external.recover();
 await product.recover(true);
+workSync.start();
 void relay.start().catch(reportError);
 heartbeat.start();
 process.stdout.write(`Node ${config.node.node_id} ready; DSH hosts=${runtime.partitions.size}\n`);
@@ -366,7 +386,7 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   trajectory.closeAll();
-  try { await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

@@ -1,3 +1,5 @@
+import {registerWorkSyncRoutes,authenticateWorkSync} from './work-sync.js';
+import {registerMessageAttemptRoutes} from './message-attempts.js';
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -85,6 +87,7 @@ export async function createServer(options: ServerOptions = {}) {
   } as ImContext;
   ctx.messaging = new Messaging(ctx);
   ctx.gateway = new Gateway(ctx);
+  ctx.messaging.delivery.start();
   ctx.personal = new PersonalAgents(ctx);
   app.decorate("im", ctx);
   // Preserve the shutdown reason before the WebSocket plugin closes its clients.
@@ -114,7 +117,7 @@ export async function createServer(options: ServerOptions = {}) {
       path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
     )
-      ctx.messaging.principal(req);
+      (req.routeOptions.config as {workSync?:boolean}).workSync === true ? authenticateWorkSync(ctx,req) : ctx.messaging.principal(req);
   });
   app.addHook("onSend", async (req, reply, payload) => {
     const viewerAsset = req.url.split('?')[0]!.startsWith('/trajectory/');
@@ -148,7 +151,7 @@ export async function createServer(options: ServerOptions = {}) {
       path !== '/im/v1/node-update/report' &&
       !path.startsWith("/im/v1/device-binding/")
     )
-      ctx.messaging.principal(req);
+      (req.routeOptions.config as {workSync?:boolean}).workSync === true ? authenticateWorkSync(ctx,req) : ctx.messaging.principal(req);
     return payload;
   });
   app.setErrorHandler((error, req, reply) => {
@@ -168,6 +171,8 @@ export async function createServer(options: ServerOptions = {}) {
   registerOnboardingRoutes(app, ctx, releaseDirectory);
   registerIdentityRoutes(app, ctx);
   registerMessagingRoutes(app, ctx);
+  registerMessageAttemptRoutes(app,ctx);
+  registerWorkSyncRoutes(app,ctx);
   registerConversationActions(app, ctx);
   registerControlRoutes(app, ctx);
   registerPersonalAgentRoutes(app, ctx);

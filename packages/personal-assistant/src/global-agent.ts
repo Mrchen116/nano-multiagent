@@ -15,6 +15,8 @@ interface Options {
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
   onError(error: unknown): void;
+  onWork?(): void;
+  authorityEpoch?(): number | undefined;
 }
 export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
@@ -35,7 +37,14 @@ export class GlobalAgent {
   private readonly drains = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
   private readonly calls = new Map<string, AbortController>();
-  private workFlush?: Promise<void>;
+  private receiptDrain?: Promise<void>;
+  private receiptTimer?: ReturnType<typeof setTimeout>;
+  private receiptBackoff=1000;
+  private recoveryTimer?: ReturnType<typeof setTimeout>;
+  private recovering?:Promise<void>;
+  private readonly controlTasks=new Map<string,Promise<void>>();
+  private readonly authorities = new Set<string>();
+  private readonly accepting = new Map<string,Promise<void>>();
   private readonly childCursors: Record<string, number> = {};
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
@@ -55,7 +64,7 @@ export class GlobalAgent {
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.calls.size > 0 || !!this.workFlush ||
+    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.calls.size > 0 ||
       this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
   }
   private binding(config: AgentConfiguration): SessionBinding {
@@ -70,7 +79,7 @@ export class GlobalAgent {
     const { conversationId: _, ...runtimeBinding } = binding;
     await runtime.request('session.ensure', runtimeBinding);
     this.append(binding, 'registered', 'session_registered', { scope: 'global_main', title: config.agentId });
-    await this.flushWork();
+    await this.ensureAuthority(binding);
     return binding;
   }
   /** The channel invokes this at its actual send boundary, including system/final paths. */
@@ -80,7 +89,51 @@ export class GlobalAgent {
     return this.personal.external(config,await this.main(config),delivery);
   }
   heartbeatBinding(config: AgentConfiguration): Promise<SessionBinding> { return this.main(config); }
-  async receive(input: RelayInput): Promise<void> { await this.ingest(input); }
+  async receive(input: RelayInput): Promise<void> {
+    const config = this.options.agents.find(agent=>agent.agentId===input.agent_id && agent.mode==='global');
+    if (!config) throw new Error('No global Agent for input');
+    const command = input.message.content.trim();
+    const control = input.message.sender_type === 'user' && /^\/(new|stop|compact|effort|workflows|config)(?:\s|$)/.test(command);
+    const saved = structuredClone(input);
+    if (config.personal) saved.metadata.personal_unclassified = true;
+    this.options.inbox.acceptRelay(saved,!control && !config.personal && needsAttention(input,config),control);
+    void this.drainReceipts();
+    const key = `${input.agent_id}:${input.message.id}`;
+    const active = this.accepting.get(key); if (active) return active;
+    if (control && !this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) return;
+    const prior=control ? this.controlTasks.get(input.agent_id) : undefined;
+    const task = (async()=>{await prior;await this.ingest(input);if(control)this.options.inbox.finishControl(input);})()
+      .catch(error=>{this.scheduleRecovery();throw error;}).finally(()=>{
+        this.accepting.delete(key);if(this.controlTasks.get(input.agent_id)===task)this.controlTasks.delete(input.agent_id);
+      });
+    this.accepting.set(key,task);if(control)this.controlTasks.set(input.agent_id,task);await task;
+  }
+  private ensureAuthority(binding: SessionBinding): Promise<void> {
+    if (this.options.relay.ready === false) return Promise.resolve();
+    const key = `${this.options.authorityEpoch?.() ?? 0}:${binding.agentId}:${binding.sessionId}`;
+    if (this.authorities.has(key)) return Promise.resolve();
+    return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
+      .then(()=>{this.authorities.add(key);});
+  }
+  private drainReceipts(): Promise<void> {
+    if (this.receiptDrain) return this.receiptDrain;
+    clearTimeout(this.receiptTimer);
+    const task = (async()=>{
+      if (this.options.relay.ready===false) return;
+      let batch;
+      while ((batch=this.options.inbox.pendingRelays()).length) {
+        for (const receipt of batch) {
+          try {await this.transmitReceipt(receipt.input,receipt.status);this.options.inbox.confirmRelay(receipt.input.relay_task_id,receipt.status);}
+          catch(error) {
+            if(!this.stopped) {this.receiptTimer=setTimeout(()=>{void this.drainReceipts();},this.receiptBackoff);this.receiptTimer.unref();this.receiptBackoff=Math.min(30000,this.receiptBackoff*2);}
+            this.options.onError(error);return;
+          }
+        }
+      }
+      this.receiptBackoff=1000;
+    })().finally(()=>{this.receiptDrain=undefined;});
+    this.receiptDrain=task;return task;
+  }
   private async ingest(input: RelayInput, deferWake = false): Promise<void> {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
@@ -105,7 +158,8 @@ export class GlobalAgent {
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const attention = !unaddressedControl && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     this.options.inbox.receive(input, attention);
-    await this.receipt(input, 'sent');
+    if (config.personal) this.options.inbox.classify(input,attention);
+    void this.receipt(input, 'sent');
     this.armBackground();
     if (attention && !deferWake) {
       if (config.personal) await this.recoverPersonalObservations();
@@ -118,6 +172,8 @@ export class GlobalAgent {
     const active = this.waking.get(config.agentId);
     if (active) return active;
     const task = (async () => {
+      await this.controlTasks.get(config.agentId);
+      if(this.options.inbox.pendingControls().some(input=>input.agent_id===config.agentId))throw new Error('Pending control intent');
       await this.controls.wait(binding.sessionId);
       do {
       let watermark: number | undefined;
@@ -167,7 +223,7 @@ export class GlobalAgent {
   private async restorePersonalInputs(config: AgentConfiguration): Promise<void> {
     await this.refreshPersonalSources(config);
     for (const input of this.options.inbox.unclassified(config.agentId)) {
-      if (await this.personal.source(config,input)) this.options.inbox.classify(input,input.metadata.personal_delivery==='participant' && needsAttention(input,config));
+      if (await this.personal.admit(config,await this.main(config),input)) this.options.inbox.classify(input,input.metadata.personal_delivery==='participant' && needsAttention(input,config));
       else this.options.inbox.revokeSource(config.agentId,input.conversation_id);
     }
   }
@@ -196,17 +252,25 @@ export class GlobalAgent {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
     } else if(!result.busy) throw new Error('Background notification has no durable admission ACK');
   }
-  async recover(): Promise<void> {
-    this.waitingForIdle.clear();
-    for (const config of this.options.agents.filter(agent=>agent.personal)) {
-      try { await this.restorePersonalInputs(config); } catch(error) { this.options.onError(error); }
-    }
-    await this.recoverPersonalObservations();
-    for (const config of this.options.agents.filter(agent => agent.mode === 'global')) {
+  private scheduleRecovery():void {
+    if(this.stopped || this.recoveryTimer)return;
+    this.recoveryTimer=setTimeout(()=>{this.recoveryTimer=undefined;void this.recover().catch(this.options.onError);},1000);this.recoveryTimer.unref();
+  }
+  recover():Promise<void> {
+    if(this.recovering)return this.recovering;
+    this.recovering=this.recoverAll().finally(()=>{this.recovering=undefined;});return this.recovering;
+  }
+  private async recoverAll(): Promise<void> {
+    this.waitingForIdle.clear(); this.authorities.clear();
+    const receipts=this.drainReceipts();
+    await Promise.all(this.options.agents.filter(agent=>agent.mode==='global').map(async config=>{
       try {
-        const binding = await this.main(config); await this.controls.recover(config.agentId); await this.reconcile(binding); await this.wake(config, binding, true);
-      } catch(error) { this.options.onError(error); }
-    }
+        for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
+        if(config.personal)await this.restorePersonalInputs(config);
+        const binding=await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
+      } catch(error) {this.scheduleRecovery();this.options.onError(error);}
+    }));
+    await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();
   }
   /** Consume persisted source events without changing the owner's read receipts. */
   recoverPersonalObservations(): Promise<void> {
@@ -390,7 +454,7 @@ export class GlobalAgent {
     return context;
   }
   private async query(binding: SessionBinding, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    await this.flushWork();
+    await this.ensureAuthority(binding);
     const response = await this.options.relay.request('conversation.query', { ...args, node_id: this.options.nodeId,
       agent_id: binding.agentId, session_id: binding.sessionId, request_id: randomUUID() });
     if (!response.payload.ok) throw new Error(String(response.payload.error));
@@ -410,6 +474,13 @@ export class GlobalAgent {
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
       if (previous.result) return JSON.parse(previous.result) as unknown;
+      if(previous.state==='unknown' || previous.state==='sending') {
+        const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
+        if(status.payload.found===true) {
+          const result={status:'sent',message_id:status.payload.message_id,conversation_id:status.payload.conversation_id};
+          inbox.settlePublication(call.operationId,'confirmed',result);return result;
+        }
+      }
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
     if (global) await this.reconcile(binding);
@@ -504,7 +575,7 @@ export class GlobalAgent {
           if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
         }
         await this.projectChildren(binding);
-        await this.flushWork();
+        this.options.onWork?.();
       }
     })().finally(() => this.drains.delete(binding.sessionId));
     this.drains.set(binding.sessionId, task); return task;
@@ -535,23 +606,14 @@ export class GlobalAgent {
   private append(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()): void {
     this.options.inbox.append({ event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
       session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), type, payload, observed_at: new Date(time).toISOString() });
-  }
-  private flushWork(): Promise<void> {
-    if (this.options.relay.ready === false) return Promise.resolve();
-    if (this.workFlush) return this.workFlush;
-    const task = (async () => {
-      const { inbox, relay, nodeId } = this.options;
-      let events;
-      while ((events = inbox.journal(inbox.throughSeq)).length) {
-        const ack = await relay.request('agent.work.append', { node_id: nodeId, journal_id: inbox.journalId, from_seq: events[0]!.seq, events });
-        if (ack.payload.expected_seq !== undefined) { inbox.acknowledge(Number(ack.payload.expected_seq) - 1); continue; }
-        if (typeof ack.payload.through_seq !== 'number') throw new Error('Missing durable work ACK');
-        inbox.acknowledge(ack.payload.through_seq);
-      }
-    })().finally(() => { this.workFlush = undefined; });
-    this.workFlush = task; return task;
+    this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {
+    if(input.metadata.pa_observation || input.relay_task_id.startsWith('external:')) {await this.transmitReceipt(input,status);return;}
+    this.options.inbox.settleRelay(input,status);
+    await this.drainReceipts();
+  }
+  private async transmitReceipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation) {
       if(input.metadata.channel==='feishu')await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,agent_id:input.agent_id,external_source_message_id:input.message.id,delivery_status:status});
       return;
@@ -559,6 +621,6 @@ export class GlobalAgent {
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
   }
   async stop(): Promise<void> {
-    this.stopped=true; clearTimeout(this.backgroundTimer);
-    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.workFlush; }
+    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);clearTimeout(this.recoveryTimer);
+    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
 
 import { resetComposerStores } from "../features/chat/components/composer-draft-store";
 
@@ -81,6 +82,7 @@ if (typeof window !== "undefined" && typeof globalThis.Request === "function") {
 }
 
 beforeEach(() => {
+  Object.defineProperty(globalThis, "indexedDB", { configurable: true, writable: true, value: new IDBFactory() });
   resetComposerStores();
 });
 

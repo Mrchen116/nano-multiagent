@@ -176,7 +176,7 @@ it('keeps native private tasks unreviewed and executes whole shared create, appl
 });
 
 it('persists one direct relay to the recipient Agent after reviewing the entire interactive publication',()=>{
- const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();ctx.gateway.send=vi.fn(()=>true);
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();ctx.gateway.send=vi.fn(()=>true);ctx.gateway.isOnline=()=>true;
  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES('a2','agent:b','Receiver','o1',datetime('now'),'active')").run();
  db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('b','o1','n','Receiver',datetime('now'),datetime('now'))").run();
  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a2')").run();

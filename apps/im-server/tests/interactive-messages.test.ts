@@ -138,7 +138,7 @@ it('freezes private-chat background in durable relays without publishing or subm
   expect(all(db,'SELECT * FROM interaction_submissions')).toHaveLength(0);
   expect(messaging.interactions.readDraft(request()).draft_revision).toBe(0);
   req.body.interaction_contexts[0].state.draft.body.value='后来修改';
-  expect((await messaging.sendMessage(req)).id).toBe(sent.id);
+  await expect(messaging.sendMessage(req)).rejects.toMatchObject({statusCode:409});
   expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
   expect(JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json).metadata.interaction_contexts[0].fields[0].value).toBe('仅私聊背景');
 });

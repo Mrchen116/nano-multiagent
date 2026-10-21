@@ -179,7 +179,7 @@ it('forwards conversation discovery and membership actions with the registered i
   const sent: Record<string, unknown>[] = [];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
     runtime: { onNotification: () => () => {}, request: async () => ({}) },
-    relay: { request: async (_type, payload) => { sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
+    relay: { request: async (_type, payload) => { if(_type==='agent.session.ensure')return {type:'ack',payload:{}};sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
   const call: ProductCall = { method: 'conversations', args: {}, operationId: 'main:query', callId: 'query', sessionId: 'main', rootSessionId: 'main', agentId: 'a', ownerId: 'owner' };
   try {
     for (const args of [{ action: 'create', type: 'group', title: 'Team', visibility: 'public', participant_ids: ['user'] }, { action: 'join', target: 'c_group' }, { action: 'list', scope: 'public' }]) {
@@ -217,7 +217,7 @@ it.each([
     status = 'idle'; await product.recover(); await product.receive(input);
     expect(submitted).toHaveLength(attention ? 1 : 0);
     if (attention) expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
-    await product.receive({ ...input, message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
+    await product.receive({ ...input, relay_task_id:'stop',idempotency_key:'stop', message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
     expect(cancellations).toBe(1);
     await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
     expect(submitted).toHaveLength(attention ? 2 : 0);

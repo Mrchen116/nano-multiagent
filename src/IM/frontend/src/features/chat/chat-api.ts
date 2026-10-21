@@ -62,8 +62,20 @@ function requireSelfUser(): { id: string } {
   return { id: user.id };
 }
 
-export async function createMessage(req: CreateMessageRequest): Promise<Message> {
+function messageOwner() {
   const self = requireSelfUser();
+  let current = true;
+  // A token refresh keeps the owner; even a brief logout invalidates the old send.
+  const release = useAuthStore.subscribe(state => { if (state.user?.id !== self.id) current = false; });
+  return { id:self.id, release, assert() {
+    if (!current || useAuthStore.getState().user?.id !== self.id) {
+      throw Object.assign(new Error("createMessage: session changed"), {status:401});
+    }
+  } };
+}
+
+export async function createMessage(req: CreateMessageRequest): Promise<Message> {
+  const self = messageOwner();
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
@@ -72,21 +84,58 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
     ...(req.interactionContexts?.length ? { interaction_contexts: req.interactionContexts } : {})
   };
-  const response = await authFetch(
-    `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,
-    { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) }
-  );
-  if (!response.ok) {
-    const text = await response.text();
-    if (req.interactionReply && response.status === 409) {
-      let detail: {code?: string; submission_message_id?: string} = {};
-      try { detail = JSON.parse(text).detail ?? {}; } catch { /* Preserve the original response below. */ }
-      if (detail.code === "interaction_already_submitted") throw new InteractionSubmissionError("alreadySubmitted", detail.submission_message_id);
-      if (detail.code === "interaction_read_only") throw new InteractionSubmissionError("stale");
+  const request = { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) };
+  const send = async (): Promise<Message> => {
+    self.assert();
+    const response = await authFetch(
+      `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,
+      request
+    );
+    self.assert();
+    if (!response.ok) {
+      const text = await response.text();
+      if (req.interactionReply && response.status === 409) {
+        let detail: {code?: string; submission_message_id?: string} = {};
+        try { detail = JSON.parse(text).detail ?? {}; } catch { /* Preserve the original response below. */ }
+        if (detail.code === "interaction_already_submitted") throw new InteractionSubmissionError("alreadySubmitted", detail.submission_message_id);
+        if (detail.code === "interaction_read_only") throw new InteractionSubmissionError("stale");
+      }
+      throw Object.assign(new Error(`createMessage failed: ${response.status} ${text}`), { status: response.status });
     }
-    throw new Error(`createMessage failed: ${response.status} ${text}`);
-  }
-  return response.json() as Promise<Message>;
+    const message = await response.json() as Message;
+    self.assert();
+    return message;
+  };
+  try { return await send(); }
+  catch (error) {
+    const status = (error as { status?: number }).status;
+    if (!req.idempotencyKey || req.interactionReply || status !== undefined && status < 500) throw error;
+    self.assert();
+    const committed = await lookupMessageAttempt(req.conversationId, req.idempotencyKey);
+    self.assert();
+    return committed ?? await send();
+  } finally { self.release(); }
+}
+
+/** Resolve a submitted snapshot without creating or resending a message.
+ *
+ * Args:
+ *   conversationId: Current user's conversation.
+ *   key: Original immutable send identity.
+ * Returns:
+ *   The committed message, or null when it cannot currently be found.
+ */
+export async function lookupMessageAttempt(conversationId: string, key: string): Promise<Message | null> {
+  const self = messageOwner();
+  try {
+    const response = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}/message-attempts/${encodeURIComponent(key)}`);
+    self.assert();
+    if (response.status === 404) return null;
+    if (!response.ok) throw Object.assign(new Error(`message attempt failed: ${response.status}`), { status: response.status });
+    const message = await response.json() as Message;
+    self.assert();
+    return message;
+  } finally { self.release(); }
 }
 
 export interface CreateConversationRequest {

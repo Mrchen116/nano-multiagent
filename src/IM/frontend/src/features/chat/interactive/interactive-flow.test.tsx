@@ -54,7 +54,7 @@ describe('interactive choices and handwritten requests',()=>{
   fireEvent.change(await screen.findByPlaceholderText('编辑草稿'),{target:{value:'群内私人草稿'}});
   const composer=screen.getByPlaceholderText(/type @ to mention|输入 @ 召唤/);
   fireEvent.change(composer,{target:{value:'解释一下'}});fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[]));
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[],undefined,expect.any(String),[]));
   fireEvent.click(screen.getByRole('button',{name:'继续修改'}));
   await waitFor(()=>expect(send).toHaveBeenLastCalledWith('',[],expect.objectContaining({action_id:'send',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'群内私人草稿'})})})}),expect.any(String)));
  });
@@ -70,8 +70,8 @@ describe('interactive choices and handwritten requests',()=>{
  });
 });
 
-it('retries an uncertain handwritten interaction with the same frozen message, state and key',async()=>{
- const send=vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined);
+it('retries unchanged handwritten sends with the same key and treats edited context as a new explicit send',async()=>{
+ const send=vi.fn().mockRejectedValueOnce(new Error('network')).mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined);
  render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
  const field=await screen.findByPlaceholderText('编辑草稿');
  fireEvent.change(field,{target:{value:'第一版草稿'}});
@@ -79,8 +79,7 @@ it('retries an uncertain handwritten interaction with the same frozen message, s
  fireEvent.change(composer,{target:{value:'解释现在的选择'}});
  fireEvent.submit(composer.closest('form')!);
  await screen.findByText(/是否送达尚未确认|Delivery is unconfirmed/);
- expect(composer).toBeDisabled();
- fireEvent.change(field,{target:{value:'继续在本地探索'}});
+ expect(composer).not.toBeDisabled();
  const retry = screen.getByRole('button',{name:'Send'});
  expect(retry).not.toBeDisabled();
  expect(retry.closest('[aria-disabled="true"]')).toBeNull();
@@ -89,6 +88,11 @@ it('retries an uncertain handwritten interaction with the same frozen message, s
  expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
  expect(send.mock.calls[0][3]).toEqual(expect.any(String));
  await waitFor(()=>expect(composer).not.toBeDisabled());
+ fireEvent.change(field,{target:{value:'继续在本地探索'}});
+ fireEvent.submit(composer.closest('form')!);
+ await waitFor(()=>expect(send).toHaveBeenCalledTimes(3));
+ expect(send.mock.calls[2][3]).not.toBe(send.mock.calls[0][3]);
+ expect(send.mock.calls[2][4][0].state.draft.body.value).toBe('继续在本地探索');
  expect(field).toHaveValue('继续在本地探索');
 });
 
