@@ -75,7 +75,7 @@ feat-627 的 Notes/History 和默认启用契约保留。其 R1 算错汇总与�
 
 `WT=/Users/czj/.codex/worktrees/bugfix-629-context-recovery/nano-multiagent`。仅使用此 worktree 产生的端口、config、workspace、identity 和数据库。外部模型使用仓库默认隔离 E2E config 的既有 provider；启动前检查 provider URL 可用。凭据不写文档。测试 owner 只存在于隔离实例，不使用生产身份或外部聊天。
 
-验收前置由实施者准备并在派发时提供具体 API 地址、测试 owner 登录方式、合成日记 workspace、Agent/conversation IDs、最终包 hash 和请求日志目录。默认预算 C=258,400、O=32,768、B=16,384、R=6,144，无提高 buffer。合成日记/只读 fixture 提供足够大的实际工具结果，使已有新 Inbox 请求在未保存新 Notes 前跨过硬阈值；不向模型塞预定答案。若实际模型输出未触发目标路径，判未覆盖，调整 fixture 规模，不能宣称通过。
+验收前置由实施者准备并在派发时提供具体 API 地址、测试 owner 登录方式、合成日记 workspace、Agent/conversation IDs、最终包 hash 和请求日志目录。默认预算 C=258,400、O=32,768、B=16,384、R=6,144，无提高 buffer。合成日记/只读 fixture（Auto off 下可通过原生 `skill` 工具加载大日记测试资料）提供足够大的实际工具结果，使已有新 Inbox 请求在未保存新 Notes 前跨过硬阈值；不向模型塞预定答案。若实际模型输出未触发目标路径，判未覆盖，调整 fixture 规模，不能宣称通过。
 
 必验矩阵：
 

@@ -265,8 +265,8 @@ importers:
         specifier: 1.2.0
         version: 1.2.0
       dsh-agent-context:
-        specifier: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.1/dsh-agent-context-0.3.0-rc.1.tgz
-        version: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.1/dsh-agent-context-0.3.0-rc.1.tgz(515712b08d225c1e9d3b1be21b587c26)
+        specifier: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.2/dsh-agent-context-0.3.0-rc.2.tgz
+        version: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.2/dsh-agent-context-0.3.0-rc.2.tgz(515712b08d225c1e9d3b1be21b587c26)
       js-yaml:
         specifier: 4.1.0
         version: 4.1.0
@@ -4482,9 +4482,9 @@ packages:
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
 
-  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.1/dsh-agent-context-0.3.0-rc.1.tgz:
-    resolution: {integrity: sha512-XY+Skc//w9CpCYfFXxZXTxDqrnMalHe2EaOGiB5eSCIpiVnVLzs1LuCIopskucfHmWt6g/DS4FaDNF4mEiJIMQ==, tarball: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.1/dsh-agent-context-0.3.0-rc.1.tgz}
-    version: 0.3.0-rc.1
+  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.2/dsh-agent-context-0.3.0-rc.2.tgz:
+    resolution: {integrity: sha512-x5kdNY6JaJliFp9U5S2FHk+anSQz+a9Ps1Zqc62ittJ08xFz7sVW8wnPNZnB3bxcQ39VStzZ/zgNPl969UZngA==, tarball: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.2/dsh-agent-context-0.3.0-rc.2.tgz}
+    version: 0.3.0-rc.2
     engines: {node: '>=22.19'}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
@@ -10538,7 +10538,7 @@ snapshots:
       domelementtype: 2.3.0
       domhandler: 5.0.3
 
-  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.1/dsh-agent-context-0.3.0-rc.1.tgz(515712b08d225c1e9d3b1be21b587c26):
+  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.2/dsh-agent-context-0.3.0-rc.2.tgz(515712b08d225c1e9d3b1be21b587c26):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.10-alpha.1)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/dsh-agent': 0.2.1-alpha.1(bc8e1a234d16d0329e7a818df1caf030)
