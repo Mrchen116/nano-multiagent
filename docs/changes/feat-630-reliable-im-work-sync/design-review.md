@@ -80,3 +80,70 @@ PA 持有本地消息交接、通知/消费和外发恢复；Channels 持有连�
 - **R1-W3 — accepted**：IM delta 完整 MODIFIED 机器 HTTP 凭据 Requirement，并为 WS 暂断、撤销/交接和跨入口拒绝增加场景；同步修改 Gateway relay-protocol 凭据 Requirement，原镜像/附件及真人管理约束保留。设计明确 preHandler 和 onSend 两个认证阶段均使用精确路由规则。
 
 以上均为本轮可靠性承诺的必要闭合，不改普通聊天信息组织，不放宽其他入口权限。受审产物发生实质变化，需独立复审；本段不修改 Round 1 的 Issues Found 结论。
+
+
+## Round 2
+
+### Metadata
+
+- reviewer_target: `/root/feat630_design_review`（同一独立 reviewer，非设计作者）
+- review_mode: `full`
+- mode_reason: R1-W1 的修订增加普通 Web 持久发送 owner、共享查询接口及 M1 客户端范围，且新增 Gateway 机器凭据 delta；按技能的共享接口/milestone 变化规则采用 full，不仅核对旧问题文字。
+- started_at: `2026-10-21T12:27:38+00:00`
+- completed_at: `2026-10-21T12:30:41+00:00`
+- duration: `183s`
+- frozen_head: `47af80ddfbe586d524bc70d306d0ce98573c8d49`
+- product_baseline: `11f599938d67f21398570009f1c7e9e0088b81a1`
+- reviewed_scope: 本 unit 的 spec/design、五份 delta、M1 和 Round 1 Author Resolutions。
+- checkout: 开始时工作区干净；已独立核对从产品基线到本 HEAD 的 apps/packages/src/scripts/config/tests 没有 diff。上游新增文档没有改变本轮产品事实。
+- retained_from: Round 1。未受影响的 Node/PA/Channels/IM 源码、Work 协议、DSH 边界和隔离启动证据保持有效；本轮确认相关产品路径无变更，重新对照完整设计与 delta，不将旧结论当作本轮放行依据。
+- 本轮只追加本报告，不修改 Round 1 或 Author Resolutions；未启动产品、未部署、未改代码、未提交。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+Round 1 三项原问题已闭合。新增的 Gateway 凭据 delta 复制了旧 canonical 中的一条身份校验规则，与本轮 IM delta 明确保留的机器身份规则互斥；需做一次有界契约消歧，见 R2-W1。
+
+### Coverage 与证据
+
+| 覆盖面 | 本轮核对与判断 |
+|---|---|
+| 现状、实际组装和职责 | 产品代码与 R1 基线相同，Node 实际组装、global main/query/reconcile 全量 flush、Inbox/wakes 及 Channels 单 active/心跳的 R1 证据仍成立。完整设计仍由 PA 接收/通知/复核，Channels 关联/传输，IM 持久任务及授权，DSH 唯一执行；没有因新增 Web 恢复引入第二 Agent Loop 或改变依赖方向。 |
+| 普通 Web 发送与 API 身份 | 重新读取 [message-pane.tsx](../../../src/IM/frontend/src/features/chat/components/message-pane.tsx) 671–708、[chat-api.ts](../../../src/IM/frontend/src/features/chat/chat-api.ts) 65–89 和 [messages schema](../../../apps/im-server/src/schema.sql) 133–160 行；普通路径确实缺 key，现有 conversation/key 唯一约束可复用。[design.md](design.md) 120–130 行已给出首次 POST 前不可变 attempt 持久化、真人本人/会话资格限定查询、404 后仍同 key 重发、异主/异 payload 冲突拒绝及 message_id 合并。它补的是客户端到中心的发送身份，不与 relay_task_id 或 runtime inputId 混用。 |
+| Web 恢复与生命周期 | 设计已区分未知结果与明确新发送；自动核对/重发有界；刷新或切回读取本机 attempt；新编辑生成新身份，旧未知 attempt 不后台发送；迟到成功只清匹配草稿版本/附件；退出、切换账号、失去会话资格、多标签和相同正文的两次显式发送都有决定。复用既有 composer attempt owner，未另建独立发送循环。这足以指导普通文字/附件恢复，不再要求测试调用方给普通消息主动补 key。 |
+| 普通离线和 delta 保真 | IM delta 73–91 行完整 MODIFIED 原更新等待 Requirement：普通离线改为已保存后待投递；切换提示、多电脑/访问变更、取消/恢复失败均保留。原 R1-W2 冲突已消除；新 ADDED 排队条目与其一致。 |
+| Work 机器鉴权及来源复核 | [design.md](design.md) 148–150 行已明确仅三个精确配置路由使用当前 runtime binding/account/epoch，preHandler/onSend 两阶段都采用专用规则，最终分块提交再核撤销；IM delta 26–70 行已保留原消息/附件/skill/真人入口约束，增加 WS 暂断可同步、撤销拒绝与跨入口拒绝。Gateway delta 23–26 行同样声明 Work 独立恢复。R1-W3 所指 Work 例外缺失已闭合，但新 Gateway delta 的旧镜像身份 Scenario 引入本轮范围内的契约冲突，见 R2-W1。 |
+| Work 协议、恢复与容量 | 与 R1 相比，Work 批次/分块、cursor 对账、暂存与 epoch、原子 append/project、终态单调、32 项 relay 窗口、有限 WS pending、独立心跳/退避、session scope 与 retired 历史、stop/重启 owner 和升级/回退边界未改；复核完整设计后未见新增不一致。16 MiB 支持上限与更大事件暂停且聊天继续仍是明确限制，不扩大为已实现容量承诺。 |
+| 用户约束和客户端呈现 | [design.md](design.md) 29、122–130、198、210、213 行把用户操作限定为原输入框发送、原失败保留草稿/重试及现有 Work 入口，不新增内部状态、气泡、按钮、文案或布局。本轮恢复设计有明确状态决定，但没有新增待用户判断的视觉/交互方案，因此不要求制造新 prototype。未运行浏览器，也不宣称完成视觉保持性验收；真实桌面/窄屏发送、草稿、消息列表和回复已落入实施验收。 |
+| 需求、delta、M1 和验收资源 | spec 76–78 行增加普通发送回包丢失 Scenario，范围 123 行增加普通 Web 恢复；新增 conversations-messages delta 三个消费者 Scenario 分别覆盖未知恢复、后来草稿/切换和两次同文发送，canonical 路径正确。M1 221 行已纳入 Web API/composer 内部发送，V5 210 行要求真实入口＋故障代理并验证同 attempt 一次输入、新显式同文两条、后来草稿不被清除和账号隔离；V1–V4/V6–V8、隔离资源与真实 DSH/provider 前置仍有效。未实施/未运行测试并不等于验收已通过。 |
+
+### 架构判断
+
+新增持久 attempt 属于 Web 发送 owner，中心只负责按真人和会话资格核对已保存结果及同 key 内容一致性；它没有侵入 PA 执行去重或把消息恢复状态展示给聊天用户。IndexedDB 的成本对应刷新恢复需求，复用 existing composer attempt 与中心 messages 唯一身份的边界合理。Work 持久机器身份只用于受限同步入口，消息/附件仍依赖活动注册凭据的决定也合理；两份消费者契约对镜像身份如何取得须一致，不能一份要求 owner JWT，一份禁止同一步使用它。
+
+### 历史问题闭环
+
+| issue ID | Author Resolution | 本轮独立证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | accepted：新增普通 Web attempt、持久快照、查询/同 key 重试、草稿/账号生命周期及真实 V5/M1 | design 120–130、198、210、221 行；spec 76–78、123 行；conversations-messages delta 5–17 行。首次发送身份到刷新恢复、后续草稿与显式新发送已闭合，新增实现落点与浏览器验收一致。 | **closed** |
+| R1-W2 | accepted：完整 MODIFIED 更新等待 Requirement | IM gateway-relay delta 73–91 行，普通离线已改为 durable 排队，未改变的更新与恢复 Scenario 保留。 | **closed** |
+| R1-W3 | accepted：IM/Gateway 完整声明 Work 持久机器身份例外，双阶段精确路由鉴权 | design 150 行，IM delta 26–70 行，Gateway delta 7、23–26 行；离线例外和其他 HTTP 入口拒绝已明确。新 delta 的另一条镜像身份旧规则冲突单独记 R2-W1，不回写或扩大旧 issue。 | **closed** |
+
+### Issues
+
+#### R2-W1 — 新 Gateway 凭据 delta 对同一镜像身份校验仍要求 owner JWT，与 IM delta 的机器身份规则互斥
+
+- **位置**：[specs/gateway/relay-protocol.md](specs/gateway/relay-protocol.md) 13–16 行，对照 [specs/im/gateway-relay.md](specs/im/gateway-relay.md) 45–48 行。
+- **证据**：Gateway 完整 MODIFIED 条目仍写“恢复旧 owner 记录或处理新的外部镜像消息”时，`/im/v1/me`、`/im/v1/nodes` 继续用 owner JWT 查询真实账号/节点；同轮 IM delta 对“准备或恢复外部消息镜像”明确要求 `GET /im/v1/gateway/identity`，并禁止使用真人 `/me` 或节点管理列表。两个前置覆盖同一恢复过程，不能同时满足。
+- **当前事实**：Gateway 这句话确实来自旧 canonical [relay-protocol.md](../../specs/gateway/relay-protocol.md) 352–355 行，属于本轮复制进完整 MODIFIED 的既有契约漂移，不是本轮新增 runtime 故障。实际 Node [main.ts](../../../apps/node/src/main.ts) 269–283 行给 ExternalChannels 的 IM helper 使用注册返回的机器凭据；[external.ts](../../../packages/personal-assistant/src/external.ts) 265–284 行镜像路径没有上述 owner JWT 的 `/me`/`/nodes` 调用。IM [server.ts](../../../apps/im-server/src/server.ts) 178–186 行已有仅机器凭据的 identity 路由，[server E2E](../../../apps/im-server/tests/e2e/server.test.ts) 8–9 行也区分设备持久 token 被拒与当前注册 token 成功。这里不声称当前镜像路径已经执行了新 identity 查询。
+- **未修后果**：新 Work 鉴权设计归并后，两包权威契约仍指导实现者在同一镜像恢复环节使用相反凭据。维护或验收可能重新引入 owner JWT 依赖，或为满足旧 Scenario 而放宽机器 helper/真人数据入口；这与本轮“只给 Work 加受限离线例外，其余身份边界保持”的决定不相容。
+- **所需修订**：在已经受审的 Gateway MODIFIED 条目内，消歧这一个 Scenario，使当前机器归属核对与 IM 的受限 gateway identity 规则一致，保留 owner 调和、当前节点一致性、失败保留记录及不得用真人凭据写机器数据的保证。不要以“保留未变 Scenario”为由重新确认互斥的旧端点规则；本问题只要求对齐这一契约，不扩展为新的外部镜像功能或放宽 Work 以外的入口。
+
+### Recommendations
+
+无额外可选建议。
+
+### Author Resolutions
+
+- **R2-W1 — accepted**：Gateway 旧 canonical 的 owner JWT `/me`、`/nodes` 语句与 IM 已有机器身份契约互斥。已在 Gateway delta 的同一 Scenario 中，改为“需要核实当前机器管理者时”遵循现有 `GET /im/v1/gateway/identity` 及当前注册凭据，保留 node/owner 核对、owner 调和、失败保留记录和不得冒用真人入口的约束。来源核对为 `apps/node/src/main.ts` 的机器 helper 和 `external.ts` 现有镜像接线；不宣称现有镜像已经调用该查询，也不新增镜像能力。其余受审产物未变，本轮仅此凭据契约消歧，提交独立复审。
