@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it.each([[true, false], [false, false], [true, true], [false, true]])('keeps session effort and restores selected Skills according to callable tools (context windows=%s, skill callable=%s)', async (contextWindows, skillCallable) => {
+it.each([[true, false], [false, false], [true, true], [false, true]])('keeps session effort and separates Skill catalogs from archived bodies (context windows=%s, skill callable=%s)', async (contextWindows, skillCallable) => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-policy-')); let client: RuntimeClient | undefined; let logs='';
   await writeFile(join(home, 'fixture.mjs'), `import {appendFile}from'node:fs/promises';export const name='model-fixture';export const inject=['llm'];export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({purpose:o.purpose,effort:o.reasoningEffort,messages:o.messages,system:o.system})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:o.purpose==='compaction'?'Preserve AUTH_FOCUS and continue the original task.':'A useful response. '.repeat(100)}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:100,outputTokens:20}};});}`);
   await mkdir(join(home,'skills/retained'),{recursive:true});
@@ -41,10 +41,12 @@ it.each([[true, false], [false, false], [true, true], [false, true]])('keeps ses
     await submit('five');
     const last=JSON.parse((await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').at(-1)!);
     expect(last.effort).toBe('high');expect(JSON.stringify(last.messages.filter((message:{role:string})=>message.role==='system'))).not.toContain('Ultracode is on: use Workflow');
-    if (skillCallable) {
-      expect(JSON.stringify(requests.at(-1))).toContain('Previously used Skills: reread relevant instructions with the skill tool before applying them.');
-      expect(JSON.stringify(requests.at(-1))).not.toContain('KEEP_SELECTED_SKILL_BODY');
-      expect(JSON.stringify(requests.at(-1))).toContain(join(home,'skills/retained/SKILL.md'));
+    if (contextWindows) {
+      for (const request of requests.slice(2)) {
+        expect(JSON.stringify(request)).not.toContain('nano-used-skills');
+        expect(JSON.stringify(request)).not.toContain('KEEP_SELECTED_SKILL_BODY');
+      }
+      if (skillCallable) expect(JSON.stringify(last.messages)).toContain('<available_skills>');
     } else {
       expect(JSON.stringify(requests.at(-1))).toContain('Previously used Skills, restored after compaction');
       expect(JSON.stringify(requests.at(-1))).toContain('KEEP_SELECTED_SKILL_BODY');
