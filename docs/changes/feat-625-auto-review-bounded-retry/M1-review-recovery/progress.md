@@ -224,3 +224,37 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 合计37pass/4skip是作者新执行，不是原30文件25fail逐项关闭。原报告未列全10个失败文件，未猜测剩余清单或重跑已独立绿的realtime；公开RPC阶段、原exact-input终态断言、所有命令/期限/原始log locator见[集成运行调查最新节](integration-r5-runtime.md)。41spawn=41exit全code0、32home实际不存在、全部RPC已结、最终自己runtime/test0；七job已收取，无手工kill/新数据清理/其他现场操作。
 - 原R5 NOT PASS/静态[]/18aligned、Q R3 FAIL11pass6inconclusive及两个真IM C3pass全部保留；本次只交父E恢复原reviewer的R5-W1核收与资源协调后的Q定向续验，不替代真实host/双vendor/required/source/stop/native owner等产品缺口。本轮无真IM/Q重批次、无canonical/archive/ReadyPR或CI全绿声明；未改变整体effective_through。
 - 收包检查：系统Python直跑docs-check因缺PyYAML exit1，改用现有`PYTHON=.venv/bin/python ./scripts/docs-check`实际**265篇/67routes/exit0**，非安装依赖或测试修复；产品/测试/fixture/脚本/锁对22114489、R5两报告对db7c875、Q报告对252c43528均实际diff0，working diff-check exit0。本轮只追加本调查与progress两份文档，raw日志/配置仍ignored；workspace Skill另补失败清单/单探针→串行恢复/真实退出核对通用方法。
+
+## SF625-R4-01：compact 测试与当前无摘要换窗契约对齐（工程patch，待独立核收）
+
+### 准入、根因与最小修改
+
+- 父E续原持续实施任务#361；先核专属branch/clean HEAD=`8d216861f620e674a54d0a300b1c993b47b9e41b`，本轮不fetch/merge新main。已读取Q本地R4报告471–575及其来源汇总/一个compact export，只作为调查输入；**Q报告的commit/remote因其Git门禁拒绝仍未确认，本branch未复制/代提交/整合R4报告**。未在Q worktree运行Git，未改独立verdict或任务图。
+- 对照[current gateway契约](../../../specs/gateway/agent-capabilities.md#requirement-所有-agent-默认使用无摘要换窗并支持显式回退)804–842：默认`/compact`使用无摘要换窗；显式停用能力时才回退摘要。旧`test_auto_review_source_recovery.py:261`仍要求fixture的`SUMMARY_RETRY_CASE`摘要存在，故与当前默认矛盾。现有fixture只有真正走旧compaction engine时才会产该marker；本轮不改fixture来伪造摘要，也不退回产品旧语义。
+- 仅`tests/e2e/critical_paths/test_auto_review_source_recovery.py`：保留原compact确认、同一动作503→allow、一次效果、一次retry、首请求/恢复来源全等、旧message/body/proposal/库历史不复活；将旧摘要marker“必须有”改为“必须无”。不是仅删断言：捕获原本就发送的继续消息receipt，要求唯一新live来源恰是该receipt、不是旧message，并验证目标conversation、participant、user/is_owner。same/restart原断言、PTC/direct入口、原180s期限及所有HTTP/工具输入均不变，无新增helper/fixture/driver或产品源码修改。
+
+### 红证据、新执行与失败边界
+
+所有本地证据在ignored `.e2e-feat625-source-contract-fix/`；不提交source正文、配置、DB或raw日志。
+
+| 命令 / 范围 | 实际结果与限制 |
+|---|---|
+| Q原R4选中source12（本轮未代跑旧测试） | 原8pass/4compact旧摘要断言fail保留，来源为本地R4报告及其原始export；不追改旧pytest结果或宣称Q报告已提交 |
+| `.venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_source_recovery.py --collect-only -q -k compact` | exit0，四compact/12收集、8 deselected；没有运行其他八条 |
+| `env -u NANO_PROBE_INSPECT -u NODE_OPTIONS NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 caffeinate -i .venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_source_recovery.py -k compact -q --basetemp=.e2e-feat625-source-contract-fix/pytest` | **exit1，3pass/1fail/8deselected，175.88s**。direct两策略及PTC codex原入口通过新断言；PTC nano尚未创建PA，line84 `/im/v1/personal-agent` 返回503，未到compact或新断言，不能把该失败算旧摘要finding或抹为整批绿 |
+| 同前env，仅指定`test_real_inbox_pages_sent_proposal_and_child_service_recovery[ptc-compact-nano]`，`--basetemp=.e2e-feat625-source-contract-fix/ptc-nano-recheck` | 旧四栈实际退出/端口关闭后，只独跑这一条、原180s期限；**exit0，1pass/22.27s**，无产品/fixture/输入修正。不是重跑全部source12或扩大native/vendor批次 |
+| 旧marker oracle在本执行者四份新鲜受控export上单独重放（`own-legacy-oracle.log`） | **预期exit1，4/4旧“摘要必须有”断言失败**；只输出组合/布尔结果，不读取Q数据或输出message正文。这是事后对实际新export的旧oracle重放，不冒充新执行的pre-fix E2E |
+| 新鲜export/效果/来源及实际清理聚合（`metadata-and-cleanup.jsonl`） | exit0；四组合均503→allow/retry1，来源全等、唯一live/owner/participant、旧body/message/proposal/summary/库历史均无、各一次效果 |
+
+PTC nano首次失败的`pytest/test_real_inbox_pages_sent_pro2/stack/gateway.log:54–61`记录`CordisError INACTIVE_EFFECT`，栈为DSH HMR `watchConfig → WorkspaceOwner.create`，另有`DSH runtime unavailable`。这是PA创建阶段的实际运行故障，**非已定位的本断言patch回归、也未证明仅由资源导致**；单条fresh成功只证明本次原入口可通过，不能宣称修复或根因已闭环。原失败现场/日志保留，未顺手修改runtime/HMR或增加重试/期限。
+
+一次诊断命令拟把Q retained export的正文写入工程日志，遭`Sensitive-Source Provenance`拒绝，**未运行且停止该动作，没有换工具/身份重试**；转而只使用本任务明确授权的新鲜隔离栈及自己的受控export、输出非正文校验结果。此限制不影响独立测试修正，不把权限拒绝解释为Q事实被推翻。后续任何具体拒绝仍停止该动作。
+
+### 隔离、受验树影响与交接
+
+- 全程只串行一个IM/fixture/native窗口；没有90s×3、native边界、vendor、同/restart整批或CI heavy。每次由现有`running`负责独立owner/workspace/DSH home/端口，原finally paired down。五个实际自建栈的**10个记录端口均已不可连接、IM/Gateway PID文件不存在、exact本unit runtime/test进程0**；没有手工kill或额外删除。`.e2e-ports.env`由当前down脚本保留，不误称已删；首次诊断把它列作应删除项而exit1，读脚本后改以实际PID/端口核验exit0，未改清理实现。
+- Python lint exit0；format初检exit1，仅需一处assert换行，待测试结束才做格式化，AST与已执行候选完全一致（SHA256 `a26a60cb489fcf381ce88ca47a3bd57d869a751f76ee719a165d70efb6c0d2a4`），最终ruff check/format均exit0。不因纯换行再重复起栈。
+- **Q受验树8d216861→本patch影响分析**：唯一可执行改动是原发送receipt赋局部变量及完成后的compact断言；所有用户消息、tool/control参数、交互顺序、等待/期限、fixture模型响应、观察export与清理都未改变。same路径无变化，restart只捕获既有返回值，原断言完全保留；Q当时八个非compact pytest成功及17Scenario产品观察可以按其实际受验树分别保留，但不能改写成新树重新跑过或整套CI通过。四compact新断言均已在实际原入口执行成功，来自3pass批次和独立1pass，不合成为一次4pass命令。
+- 交父E的独立门禁范围为**test-only patch code review + targeted verification**：核当前无摘要契约与旧模式边界、精确继续消息receipt/来源身份、503前后冻结/一次效果保护，确认没有放宽业务权限或篡改fixture；核同/restart输入与原断言未变、首次PA创建503的分层及生命周期。R6已有targeted closure和corrected-delta18aligned分别保留；SF625-R4-01只提交工程修正，不自行写独立closure。
+- 完整changed-path仅本E2E测试与本progress；产品源码/所有fixture/driver/锁及三份独立报告不变。Q R4报告真实SHA仍待Q本人提供，父E据实际获取再整合；本轮不canonical/archive/PR/merge/deploy或最终sync，不修改整体effective字段。
+- 收包核验：`PYTHON=.venv/bin/python ./scripts/docs-check` **266篇/67routes/exit0**；最终ruff check与format --check、working diff-check均exit0。相对8d216861的packages/apps/src/scripts/config/锁/根配置及acceptance/verification/code-review报告实际diff0；only changed-path为上列两文件。未把Q报告传输阻塞写成已整合，也未把本轮PA创建故障的一次fresh成功写成产品修复。

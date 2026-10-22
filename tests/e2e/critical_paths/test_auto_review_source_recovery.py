@@ -213,7 +213,7 @@ def test_real_inbox_pages_sent_proposal_and_child_service_recovery(
                     "compacted": epoch == "compact",
                 },
             ).raise_for_status()
-            client.send_message(
+            continued_message = client.send_message(
                 conversation,
                 f"Continue the earlier observed task RETRY_CASE_{case_id}.",
             )
@@ -254,11 +254,20 @@ def test_real_inbox_pages_sent_proposal_and_child_service_recovery(
             assert first == recovered
             observed = [r for r in first if r.get("inbox_result", {}).get("messages")]
             assert len(observed) == 1 and observed[0]["observation"] == "live"
-            assert observed[0]["inbox_result"]["messages"][0]["id"] != message
+            inbox = observed[0]["inbox_result"]
+            assert (
+                inbox["target"] == conversation and inbox["delivery"] == "participant"
+            )
+            live_message = inbox["messages"][0]
+            assert live_message["id"] == continued_message != message
+            assert live_message["sender"]["type"] == "user"
+            assert live_message["sender"]["is_owner"] is True
             assert message not in text
             assert "SOURCE_USER_START" not in text and "SOURCE_USER_END" not in text
             assert f"SOURCE_PROPOSAL_{case_id}" not in text
-            assert f"SUMMARY_RETRY_CASE_{case_id}" in text
+            # Default /compact changes windows without synthesizing a summary;
+            # neither old source bodies nor a synthetic authorization may return.
+            assert f"SUMMARY_RETRY_CASE_{case_id}" not in text
             assert (
                 next(r["recovery"] for r in rows if r.get("recovery"))["retriesUsed"]
                 == 1
