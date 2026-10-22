@@ -1216,12 +1216,35 @@
     },
     "status": {
       "todo": "待做",
-      "doing": "进行中",
+      "doing": "推进中",
+      "waiting": "等待中",
       "done": "已完成",
       "paused": "暂缓",
       "dropped": "已放弃",
       "in_review": "待确认",
       "closed": "已关闭"
+    },
+    "ongoing": "进行中",
+    "resume": "恢复推进",
+    "wait": {
+      "reason": "等待原因与恢复条件",
+      "reasonUnavailable": "等待原因暂不可用",
+      "invalid": "安排需要处理：负责人需重新核对并安排跟进。",
+      "unknown": "暂无法核实安排，请稍后重试。",
+      "noSchedule": "下次检查 · 暂无有效安排",
+      "nextCheck": "下次检查",
+      "savedTime": "已保存的安排时间",
+      "notReceipt": "安排时间不是执行回执；以实际检查结果为准。"
+    },
+    "runtime": {
+      "label": "负责人执行状态",
+      "running": "运行中",
+      "idle": "空闲",
+      "waiting_permission": "等待授权",
+      "failed": "失败",
+      "interrupted": "已中断",
+      "offline": "节点离线",
+      "unknown": "暂无法核实"
     },
     "overview": "根任务总览",
     "byAssignee": "按负责人",

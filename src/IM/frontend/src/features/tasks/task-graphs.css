@@ -204,3 +204,11 @@
 }
 
 .tasks-edit-overlay { z-index:103; }
+
+.tasks-status--waiting, .tasks-progress-card .tasks-status--waiting { color:var(--im-warning); }
+.tasks-status--waiting i { background:var(--im-warning); }
+.tasks-wait { display:flex; flex-direction:column; gap:10px; padding:14px; border:1px solid var(--im-border); border-radius:8px; background:var(--im-surface); overflow-wrap:anywhere; }
+.tasks-wait-reason { white-space:pre-wrap; line-height:1.6; }
+.tasks-wait-diagnostic, .tasks-progress-card .tasks-wait-diagnostic { color:var(--im-warning); }
+.tasks-wait--compact { width:100%; padding:10px 0 0; border:0; border-top:1px solid var(--im-border); border-radius:0; background:transparent; font-size:11px; }
+.tasks-wait--compact .tasks-wait-reason { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }

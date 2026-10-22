@@ -113,6 +113,7 @@ export class ConfigurationScopes extends Service {
       const disabled = new Set<string>();
       for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory'], ['skill_creation', 'nano-skill-creation']] as const) if (selected.features?.[feature] === false) disabled.add(section);
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
+      if (!this.tools.selection(selected, Skills.goalTools).length) disabled.add('tool:goal');
       assembly.sections = assembly.sections.filter(section => !disabled.has(section.name));
       assembly.contexts = assembly.contexts.filter(section => !disabled.has(section.name));
       return assembly;
@@ -136,7 +137,7 @@ export class ConfigurationScopes extends Service {
   /** Withdraw choices now; additions and the rest of the configuration wait for idle. */
   restrictSelection(next: AgentConfiguration): void {
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
-      if (next.toolAllowlist !== undefined) config.toolAllowlist = config.toolAllowlist === undefined ? [...next.toolAllowlist] : config.toolAllowlist.filter(name => next.toolAllowlist!.includes(name));
+      if (next.toolAllowlist !== undefined) config.toolAllowlist = this.tools.selection(config, next.toolAllowlist);
       if (next.skillSelection?.mode === 'explicit_allowlist') config.skillSelection = { mode: 'explicit_allowlist', names: config.skillSelection?.mode === 'explicit_allowlist' ? config.skillSelection.names.filter(name => next.skillSelection!.names.includes(name)) : [...next.skillSelection.names] };
       else if (next.skillSelection?.mode === 'explicit_denylist') {
         if (config.skillSelection?.mode === 'explicit_allowlist') config.skillSelection.names = config.skillSelection.names.filter(name => !next.skillSelection!.names.includes(name));

@@ -7,3 +7,11 @@ export function needsAttention(input: RelayInput, config: AgentConfiguration): b
   return input.metadata.conversation_type !== 'group' || config.groupReplyPolicy === 'always'
     || (Array.isArray(mentions) && mentions.includes(config.agentId)) || input.metadata.reply_to_agent_id === config.agentId;
 }
+
+/** Read a command after the host-resolved mention of this input's target Agent. */
+export function controlText(input:RelayInput):string {
+  const text=input.message.content.trim();
+  const self=input.participants?.find(member=>member.type==='agent'&&member.id===input.agent_id);
+  const mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);
+  return self&&mention?.[1]===self.user_id?text.slice(mention[0].length).trim():text;
+}

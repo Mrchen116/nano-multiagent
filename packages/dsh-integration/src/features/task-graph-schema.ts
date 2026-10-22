@@ -28,7 +28,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
     "assignee": assignee,
     "status": { "type": "string", "enum": ["todo", "doing", "in_review", "done", "paused", "closed"] },
     "result": { "type": "string", "maxLength": 32000 },
-    "statuses": { "type": "string", "description": "Optional list filter: comma-separated todo, doing, in_review, done, paused or closed. Applied before limit; cursor is bound to this set." },
+    "statuses": { "type": "string", "description": "Optional list filter: comma-separated todo, doing, waiting, in_review, done, paused or closed. Applied before limit; cursor is bound to this set." },
     "assignee_type": { "type": "string", "enum": ["user", "agent"], "description": "List filter; supply with assignee_id." },
     "assignee_id": { "type": "string", "description": "List filter; supply with assignee_type to find matching nodes across all levels." },
     "title": {
@@ -92,7 +92,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
       "type": "array",
       "minItems": 1,
       "maxItems": 100,
-      "description": "Only for action=apply. Execute 1-100 operations in order as one atomic mutation. Use stable node IDs (for example n1) for existing nodes. To reference a node added earlier in this batch, use @client_ref (for example @A); bare A is not a batch reference and forward references are not allowed. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/result/links/order only). add_dependency/remove_dependency: from,to (prerequisite -> successor; direct siblings in the same dag scope). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. For an existing dag root n1, example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a plan\"},{\"op\":\"add_task\",\"client_ref\":\"B\",\"container_id\":\"n1\",\"title\":\"Confirm attendees\"},{\"op\":\"add_dependency\",\"from\":\"@A\",\"to\":\"@B\"}].",
+      "description": "Only for action=apply. Execute 1-100 operations in order as one atomic mutation. Use stable node IDs (for example n1) for existing nodes. To reference a node added earlier in this batch, use @client_ref (for example @A); bare A is not a batch reference and forward references are not allowed. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/wait/result/links/order only). add_dependency/remove_dependency: from,to (prerequisite -> successor; direct siblings in the same dag scope). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/waiting/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. For an existing dag root n1, example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a plan\"},{\"op\":\"add_task\",\"client_ref\":\"B\",\"container_id\":\"n1\",\"title\":\"Confirm attendees\"},{\"op\":\"add_dependency\",\"from\":\"@A\",\"to\":\"@B\"}].",
       "items": {
         "type": "object",
         "properties": {
@@ -182,7 +182,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
           },
           "patch": {
             "type": "object",
-            "description": "Only title/description/mode/status/result/links/order."
+            "description": "Only title/description/mode/status/wait/result/links/order. Enter waiting with status=waiting and wait={reason,schedule_id}; first create a real future Schedule for the current owner session. Leaving waiting clears the reference. Server supplies verification fields; do not include them."
           }
         },
         "required": [

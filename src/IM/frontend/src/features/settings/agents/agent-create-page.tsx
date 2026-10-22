@@ -953,10 +953,8 @@ export function AgentCreatePage() {
             // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const nextAllowlist =
-              value && requiresTool && !draft.tool_allowlist.includes(requiresTool)
-                ? [...draft.tool_allowlist, requiresTool]
-                : draft.tool_allowlist;
+            const requiredTools = requiresTool ? [requiresTool] : [];
+            const nextAllowlist = value ? [...new Set([...draft.tool_allowlist, ...requiredTools])] : draft.tool_allowlist;
             setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist });
           }}
           onPolicyChange={(value) => {

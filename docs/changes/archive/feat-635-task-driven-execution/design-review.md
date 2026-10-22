@@ -29,10 +29,10 @@ Task 唯一持久真相、PA 协调、DSH 原生生命周期驱动和 Schedule �
 
 独立读了以下真实入口，而非仅按设计中的文件名确认：
 
-- [`apps/node/src/main.ts`](../../../apps/node/src/main.ts) 的 RuntimePartitions 初始化、`SingleThread`/`GlobalAgent` 实例化、`product.call` 注册、onReady/reconnect 恢复。各产品模式确实共享 RuntimePort，PA 分区也在此装配；新增协调应沿该路径进入普通/PA 分区。
-- [`packages/personal-assistant/src/global-agent.ts`](../../../packages/personal-assistant/src/global-agent.ts) 的主 binding、Inbox wake、产品调用和 `/stop`，以及 [`single-thread.ts`](../../../packages/personal-assistant/src/single-thread.ts) 的聊天绑定、自动出站与审批。这两种出站方式不同，不能只让原生 Agent 跑起来就认为交付链已闭合。R1-W1 指出具体缺口。
-- [`session-controls.ts`](../../../packages/personal-assistant/src/session-controls.ts) 与 [`store.ts`](../../../packages/personal-assistant/src/store.ts) 已有持久 control intents、串行控制、恢复与回执。复用它们承载停止屏障合理；新增 action 必须在 session.ensure/自动投递前恢复屏障，设计已要求，M1 也有专门竞态验证。
-- [`apps/im-server/src/gateway.ts`](../../../apps/im-server/src/gateway.ts) 的 `task_graph.command`、[`personal-actions.ts`](../../../apps/im-server/src/personal-actions.ts) 的 prepare/review/commit、[`task-graphs.ts`](../../../apps/im-server/src/task-graphs.ts) 的真实 Agent/空间/会话资格、事务/revision/幂等回执。设计把 async Schedule 检查放在同步 SQLite 事务外，并要求 PA 审核后对冻结 payload 检查、事务内复核，符合当前组装与不可 await 的事务边界。
+- [`apps/node/src/main.ts`](../../../../apps/node/src/main.ts) 的 RuntimePartitions 初始化、`SingleThread`/`GlobalAgent` 实例化、`product.call` 注册、onReady/reconnect 恢复。各产品模式确实共享 RuntimePort，PA 分区也在此装配；新增协调应沿该路径进入普通/PA 分区。
+- [`packages/personal-assistant/src/global-agent.ts`](../../../../packages/personal-assistant/src/global-agent.ts) 的主 binding、Inbox wake、产品调用和 `/stop`，以及 [`single-thread.ts`](../../../../packages/personal-assistant/src/single-thread.ts) 的聊天绑定、自动出站与审批。这两种出站方式不同，不能只让原生 Agent 跑起来就认为交付链已闭合。R1-W1 指出具体缺口。
+- [`session-controls.ts`](../../../../packages/personal-assistant/src/session-controls.ts) 与 [`store.ts`](../../../../packages/personal-assistant/src/store.ts) 已有持久 control intents、串行控制、恢复与回执。复用它们承载停止屏障合理；新增 action 必须在 session.ensure/自动投递前恢复屏障，设计已要求，M1 也有专门竞态验证。
+- [`apps/im-server/src/gateway.ts`](../../../../apps/im-server/src/gateway.ts) 的 `task_graph.command`、[`personal-actions.ts`](../../../../apps/im-server/src/personal-actions.ts) 的 prepare/review/commit、[`task-graphs.ts`](../../../../apps/im-server/src/task-graphs.ts) 的真实 Agent/空间/会话资格、事务/revision/幂等回执。设计把 async Schedule 检查放在同步 SQLite 事务外，并要求 PA 审核后对冻结 payload 检查、事务内复核，符合当前组装与不可 await 的事务边界。
 
 架构上应由 IM 保持 Task 状态及权限真相，PA 解析身份、聊天作用域与产品交付，集成层管理原生 Agent 队列和生命周期；当前设计大体遵循此分工。复用 NodeStore 控制、Task 回执、CronOwners 与原生 Schedule，比新增目标存储、提醒系统或 Agent Loop 更简单。最多 60 秒、仅有 waiting 时开启的元数据检查有明确失效检测用途，不属于另造模型轮询器。无须为本需求新增通用能力依赖框架。R1-W1/W2 可在这些既有职责内补齐，不要求大规模抽象。
 
@@ -42,8 +42,8 @@ Task 唯一持久真相、PA 协调、DSH 原生生命周期驱动和 Schedule �
 
 - `@deepseek-ai/dsh-agent` 的公开 `Agent.status`、`inbox.nextTurn/nextStep`、`followup`，以及 `agent/pre-step` waterfall 支持检查/替换进入 step 的消息；`Inbox.remove/replace/prepend` 可保留竞争输入。已安装 goal-round-driver 也使用这些公开能力。设计不必 private import 或 fork。
 - `@deepseek-ai/dsh-goal` 根 export 的 `GoalService.disarm(agent)` 确实存在；其职责是撤销 activation，原生 driver 检查 armed。关闭 Feature 时同时撤销自动激活、过滤既有 goal 输入、隐藏工具和 prompt 比只改 allowlist 完整。依赖需按设计声明到集成层，不能跨包导入。
-- [`cron-owners.ts`](../../../packages/dsh-integration/src/cron-owners.ts) 已有 Agent realm、catalog、原 session 约束与关闭时读存储；原生 Schedule catalog 含 status、sessionId 和下一次时间数据，足以实现目标 inspect。一次性提醒已消费与未来有效时间的区分有实现依据。
-- [`product-bridge.ts`](../../../packages/dsh-integration/src/product-bridge.ts) 的既有 call 必须带 ToolRunContext/callId；设计明确另增受信生命周期 snapshot 入口，避免伪造工具调用，合理。
+- [`cron-owners.ts`](../../../../packages/dsh-integration/src/cron-owners.ts) 已有 Agent realm、catalog、原 session 约束与关闭时读存储；原生 Schedule catalog 含 status、sessionId 和下一次时间数据，足以实现目标 inspect。一次性提醒已消费与未来有效时间的区分有实现依据。
+- [`product-bridge.ts`](../../../../packages/dsh-integration/src/product-bridge.ts) 的既有 call 必须带 ToolRunContext/callId；设计明确另增受信生命周期 snapshot 入口，避免伪造工具调用，合理。
 - stop 先持久屏障再取消/核对写入/原子暂停、unknown 不报完成、旧提醒先重读、改派不继承旧 Schedule 写权、普通输入优先均已写明。实际并发正确性应由 M1 的原生生命周期及真栈测试证明，本轮未把设计文字当作测试通过。
 
 #### Delta 覆盖
@@ -98,7 +98,7 @@ Task 唯一持久真相、PA 协调、DSH 原生生命周期驱动和 Schedule �
 
 #### R1-W4 — 等待安排失效时，详情丢失原等待原因和恢复条件
 
-- 位置：[prototype.html](prototype.html) 第 16 行 `refresh` 的 invalid 分支；[安排失效截图](evidence/feat635-web-invalid.png)；design 的等待详情 must-match。
+- 位置：[prototype.html](prototype.html) 第 16 行 `refresh` 的 invalid 分支；安排失效截图（本地证据 `evidence/feat635-web-invalid.png`）；design 的等待详情 must-match。
 - 证据：正常详情显示“等待负责人确认预算”和“预算确认后，继续选择供应方案。已在所属会话发出询问。”；切换安排失效后，这两处被“等待安排需要处理”和“关联的定时安排已删除……”完全替换。页面仍直接提供恢复推进/暂缓按钮，只有背景卡片残留简短原因，详情没有原恢复条件。Web 与 iOS 共用这一渲染逻辑。
 - 用户代价：Schedule 失效是技术事实，不代表业务阻塞解除；用户在详情决定是否恢复时却看不到仍在等什么及满足什么条件才能继续。窄屏/原生遮罩下也无法靠背景补回这层信息。
 - 要求：失效诊断作为等待安排的独立状态呈现，保留原业务 reason/恢复条件；仍显示暂无有效检查，不把旧时间当有效承诺。同步原型和 must-match，并复查失效、离线/unknown 与正常等待三种状态的信息关系。
@@ -167,7 +167,7 @@ Task 唯一持久真相、PA 协调、DSH 原生生命周期驱动和 Schedule �
 
 正常等待保留业务原因、恢复条件和有效下次检查；失效画面保留相同业务内容，将“关联安排已删除”放在独立诊断段，并显示暂无有效安排；unknown 仍保留业务内容，保存时间明确标成尚无法确认有效，未冒充未来执行承诺。iOS 示意中原因、恢复条件、诊断、检查状态、任务正文和两个操作均清楚分层，操作可见，没有用背景卡片补足详情信息。原五栏、负责人运行状态分离与暂停/恢复布局未改变，Round 1 已操作的相关路径证据继续适用。must-match 与 IM delta 已同步此信息关系。
 
-可复核证据：[Web 失效 R2](evidence/feat635-web-invalid-r2.png)、[Web unknown R2](evidence/feat635-web-unknown-r2.png)、[iOS 失效 R2](evidence/feat635-ios-invalid-r2.png)。以上是原型内容关系及交互方案证据；原生 iOS 触感、动态字号/VoiceOver、真实后端和投递验收仍由 M1 执行，本轮未宣称验证。
+可复核证据：Web 失效 R2（本地证据 `evidence/feat635-web-invalid-r2.png`）、Web unknown R2（本地证据 `evidence/feat635-web-unknown-r2.png`）、iOS 失效 R2（本地证据 `evidence/feat635-ios-invalid-r2.png`）。以上是原型内容关系及交互方案证据；原生 iOS 触感、动态字号/VoiceOver、真实后端和投递验收仍由 M1 执行，本轮未宣称验证。
 
 ### 历史问题闭环
 
@@ -191,3 +191,127 @@ Task 唯一持久真相、PA 协调、DSH 原生生命周期驱动和 Schedule �
 Round 2 结论 accepted，无未解决实质问题或额外建议。作者核对受审文件哈希，除本报告外与 R2 冻结版本一致。
 
 审查后仅将 spec.md 首部状态从“待技术设计”改为“设计通过 Gate 2、待 M1 实施”，添加 design/review 相对链接；需求正文、设计、delta、原型、M1 和证据内容均未变。此为状态归档更新，retained_from: Round 2，不触发设计复审。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/design_review_635`（原独立 reviewer；未参与本次方案修订）
+- review_mode: `full`
+- mode_reason: 用户纠正了 Goal 的产品需求和能力边界，故完整复核受影响的 Goal 配置切面，包括实际装配、工具目录/执行选择、配置生效、双端入口、delta 与 milestone；未改变的 Task 体系不重复审查。
+- retained_from: Round 2 的 Task 状态、责任集合、waiting、运行中撤销、产品交付与审批、stop、原型任务面判断；本轮七份 dirty 文档只改变 Goal 配置，未把历史 Goal Feature 通过结论保留为当前证据。
+- started_at: 2026-10-22T16:36:02.812+08:00
+- completed_at: 2026-10-22T16:39:53.246+08:00
+- duration: 230 秒
+- baseline: `/Users/czj/.codex/worktrees/unit-feat-635/nano-multiagent`，`unit/feat-635 @ 89a4beeb80ce102e9a0a39acb162bc0f2a34342f`。开始时仅七份澄清文档 dirty，未改产品；本轮只追加本报告，不修改实现、设计、索引，不提交。
+- inputs: spec Q16/目标/验收场景、design 决定 7/§7/前端契约/M1、两份 Goal delta 及 current 预览、实际 Node/运行时/Web/iOS 入口、更新原型。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+将 Goal 还原为三个普通可选工具的方案成立；移除 Feature、三工具联动及额外原生生命周期控制符合用户最新澄清。唯一需收口的是配置生效边界：design 已改为普通工具的立即收缩/idle 增加，但 M1 和两份 canonical 的总配置契约仍保留整轮不切换/下一轮整体生效，现有 Goal delta 只引用“普通规则”而没有消歧。
+
+### Coverage 与证据
+
+#### 最新需求与真实产品装配
+
+以 Q16 新增用户原话为准：没有 DSH Goal Feature，总开关不参与授权；默认集不选 `create_goal/get_goal/update_goal`，显式名单逐项有效；选择一个不改变另两个；不改 Goal 原生生命周期，不做历史迁移，不影响独立 Task 责任。新 spec、design §7、两份 Goal Requirement 对这一主体语义一致。
+
+实际链路已核到生产入口：`apps/node/src/main.ts:180–212` 将 Agent/node 能力请求交给原生 `configuration.catalog` 后经 `projectCapabilities` 返回，提示预览另经同一候选配置；`main.ts:356–362` 的 ConfigurationOperations 调用 `configuration.apply`。集成层 `index.ts:311–338` 的 catalog/selection 和 `agent-config.ts` 共用 ToolSelection，catalog 会暂时撤掉本 Agent 限制再列完整原生工具，随后恢复调用限制，因此“默认关闭但目录仍可选择”有真实接线基础，不需要新 Feature 或额外工具注册。
+
+`apps/node/src/capabilities.ts:65` 已把三个 Goal 工具设为 `default_on:false`；待删的是 features 数组中的 dsh_goal。`ToolSelection.selection/refresh` 当前 Feature 硬 gate 与 §7 冲突，设计已要求只在未配置 allowlist 时排除三个工具、显式列表逐项保留；直接工具 dispatch 和配置预览应继续共用这一选择。现有 global 固定基础工具与上下文工具规则不包含 Goal，不会要求三工具联动。
+
+#### 配置生命周期与复杂度判断
+
+独立核对 `ConfigurationScopes.attachAgent/setFeatures/restrictSelection`、`index.ts:configuration.apply` 和 `features/goal.ts`。上一版确实新增 Goal plugin、disarm、goal 消息过滤、prompt Feature gate、retainedGoals 及配置 apply 的 Goal 例外。§7 明确移除这些特例及 `@deepseek-ai/dsh-goal` 直接依赖，保留原生工具与权限，足以指导删除对应专用行为。无 Goal 工具被有效选择时在现有 systemPrompt filter 隐藏 `tool:goal`，不需要改原生 driver、目标 phase 或 Task。职责仍由 Node 投影目录、集成层过滤可调用工具、客户端编辑名单各自承担；相比 Feature 包装，减少了两个配置真相与额外生命周期层，符合本次范围。
+
+普通工具收缩确实位于 `configuration.apply` 的 `whenIdle` 前，完整配置应用位于其后。新设计要求取消立即收缩、新增等待 idle，方向符合现有机制；实现应从**当前有效选择**计算收缩，尤其当前 allowlist 未配置而下次显式选择单个 Goal 时，不能沿用“undefined 就已允许所有工具”的旧假定使新工具提前可调用。这是该明确契约的实施核对点，不要求新增框架或兼容历史 Goal 数据。
+
+工具选择只决定可调用集合，不等于原生 Goal 操作已经获得真人授权。当前 native source/PA 权限边界不在本轮修改范围，未把 Global Inbox 中的人类文本等同于直接 Goal 授权，也未要求为此扩展授权链。
+
+#### Web/iOS 与独立原型体验
+
+核对真实 Web 创建页的 `defaultNames(default_on)`、详情页 `PillSelector` 的单工具列表及 Feature 联动 handler，以及 iOS `AgentConfigView` 的工具 DisclosureGroup/逐工具 Toggle、`AgentDraft.setFeature`。三工具已经可由普通列表表达，删除 dsh_goal 目录项及专用联动即可，不需新配置页面或新控件。原型的 checkbox 代表工具选择语义；真实 Web 沿用既有 PillSelector，iOS 沿用既有 Toggle 和保存流程。
+
+本轮使用独占 **headless** Playwright 会话和临时 `127.0.0.1:46351` 静态服务，先看 1280×850 默认配置画面，再选中仅 get_goal 并保存，确认另外两项未联动；随后切到原型 iOS 示意并以 390×844 看图，再选 create_goal/update_goal、取消 get_goal 并保存。工具名和各自选中状态、保存按钮及反馈在同一可视区域内，没有总开关，也未因窄屏丢失选择信息。此为局部交互方案验证，不宣称真实 SwiftUI、后端持久化或模型调用已通过。
+
+按用户“图片证据不要上库”要求，截图仅保存在仓外 `/tmp/feat635-goal-design-review/`；未向 unit 添加图片。独占浏览器会话与临时 HTTP 进程均已关闭。报告保留文字结果即可。真实两端失败反馈和持久重开按既有流程验收，不要求原型模拟完整后端。
+
+#### Delta、milestone 与验收前置
+
+两份 Goal delta 的新标题和正文与对应 canonical 预览一致，旧 Feature 总开关断言已经替换；Task delta 未变。作为同一尚未交付 PR 内的纠正，保留原 unit 的 ADDED 归并形式可理解，不需要另造兼容层或新 unit。
+
+但 §7 的运行时生效边界没有同步到 M1-R4，且两份 canonical 的通用配置 Requirement 仍无条件要求整轮不切换。新的 Goal Scenario 只说“沿用普通工具配置”，读者会回到互相矛盾的契约。该处会影响实施/verifier 的判据，见 R3-W1。
+
+本次不新增服务、账号或硬件依赖；Task 的原验收资源不重审。实现后的受影响验证应覆盖默认目录/默认可调用集、单项显式选择和取消、双端保存重开、有效 prompt、根/子继承，以及配置运行中撤销/新增时机；不能把历史 Feature 开关截图或 disarm 测试当作这次通过证据。
+
+### 历史问题闭环
+
+R1-W1–W4 在 Round 2 已关闭，未被本次 Goal 配置局部变化重新打开。Round 2 的 Author Resolution 仍为 accepted；其中 Goal Feature、disarm、整体下一轮生效的正面判断已被用户新澄清取代，本轮不沿用。不存在旧 issue 因本轮被静默改写。
+
+### Issues
+
+#### R3-W1 — 普通工具生效边界尚未同步到 M1 与 canonical 通用契约
+
+- 位置：`design.md:192` 对照同文件 M1 表 `:262` 的 R4；`docs/specs/im/agents-nodes.md:55–57`、`docs/specs/gateway/agent-capabilities.md:135–157`，及本 unit 两份对应 Goal delta。
+- 证据：新 §7 明确“工具取消选择沿用普通工具立即收缩、新增在 idle 配置边界生效”；真实 `configuration.apply` 也先 `restrictSelection` 后 `whenIdle`。但 M1-R4 仍写“两端 Goal 默认关，主动开启/关闭下一轮有效”；IM 通用 Requirement 明列 tools 并说“已在进行的整轮不切换”，Gateway 通用 Requirement 要求 tools 与其它配置“下一轮新回复整体生效”。新的 Goal delta 仅引用“普通工具配置的生效规则”，没有解除这层歧义。
+- 未修后果：实施者或 verifier 可以依据 M1/current spec 保留原来的 Goal 撤销延迟，或依据 §7 立即撤销而被通用契约判错；当前待删的 retainedGoals 特例正好影响这一行为，不能仅视为名词清理。
+- 要求：保持用户已经选定的普通工具语义，不引入新 Feature 或新生命周期控制；将 M1-R4 改成无 Feature、三个工具逐项选择/取消、默认集与显式名单、取消立即收缩/新增 idle 生效的可观察判据。对 canonical 中与该既有机制冲突的配置描述做最小 delta 消歧（保留模型/prompt/skills 等不受影响场景），区分可调用工具的撤销边界与完整配置生效。同步 design 中仍以“Goal 开关”概括本轮验收的摘要。无需重审未改 Task 体系。
+
+### Recommendations
+
+无额外建议；本轮不要求改造原生 Goal 或扩大普通工具配置机制。
+
+
+### Author Resolution — Round 3
+
+- R3-W1 accepted：M1-R4 改为无 Feature、工具逐项选择、取消立即收缩/新增 idle 生效；两份 canonical 通用配置 Requirement 及对应 MODIFIED delta 最小消歧，保留其余模型/prompt/skills 场景。design 的界面和归并摘要同步为工具选择。
+- 实施将从当前有效工具选择计算收缩，覆盖未配置白名单时新增单个 Goal 工具不可提前生效的场景。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/design_review_635`（同一独立 reviewer）
+- review_mode: `closure`
+- mode_reason: 仅核实 R3-W1 的局部契约消歧及 M1 修订，未新增产品要求、共享接口或生命周期机制。
+- retained_from: Round 3 的实际装配、目录/选择/配置链、职责与复杂度、原型体验和前置判断；Task 判断仍按 Round 3 所列范围保留自 Round 2。原型未改，不重复启动浏览器。
+- started_at: 2026-10-22T16:43:46.102+08:00
+- completed_at: 2026-10-22T16:43:59.496+08:00
+- duration: 13 秒
+- baseline: `unit/feat-635 @ 89a4beeb80ce102e9a0a39acb162bc0f2a34342f` 的同一 worktree；作者现有文档及两份回归测试修改保留。本轮只追加报告，不改实现/设计/测试、不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R3-W1 已关闭。受影响 Goal 方案可继续实施；设计通过不代表当前仍带 Feature 的实现或新增红测已经通过验收。
+
+### Coverage 与证据
+
+核对 Author Resolution 与实际文档：design §7、M1-R4、前端/归并摘要已统一为无 Goal Feature、三个工具默认不选且逐项选择/取消、显式名单有效、取消立即收缩和新增 idle 生效。Task 的其它 M1 退出条件未改。
+
+IM 通用配置 Requirement 现在明确完整配置不在整轮中切换，同时列出工具撤销的有限例外；Gateway 通用 Requirement 明确后续 dispatch 撤销、不打断已开始调用、新增等待 idle，且从当前有效选择计算收缩，避免默认未选工具因候选显式名单提前启用。新的 Goal Scenario 引用“普通规则”已有一致指向，不需再增加 Goal 特例。
+
+两份 delta 均新增完整 MODIFIED Requirement。独立按标题抽取比较：delta 与 canonical 预览正文完全一致；IM 原有 11 个 Scenario、Gateway 原有 5 个 Scenario 全文保留，未改变模型/prompt/skills、配置失败/回执/乐观锁等无关契约。只补通用正文中的生效边界，变更范围适当。
+
+本轮不重跑产品或浏览器。作者报告新增目录/选择回归为预期红测，属于后续实施证据，本轮没有将其视为实现通过。图片外移和 Git 历史清理是作者独立交付事项，本轮未修改或新增图片。
+
+### 历史问题闭环
+
+| 原 issue | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R3-W1 | accepted：M1、通用 canonical 与完整 MODIFIED delta 同步消歧 | design §7/M1-R4 与摘要一致；两端通用配置明确工具撤销/新增边界；两份 delta 与 canonical 匹配，16 个既有 Scenario 全文保留 | closed |
+
+R1-W1–W4 继续保持 Round 2 的关闭状态；本轮无新增问题。
+
+### Issues
+
+无未解决 CRITICAL 或 WARNING。
+
+### Recommendations
+
+无额外建议。

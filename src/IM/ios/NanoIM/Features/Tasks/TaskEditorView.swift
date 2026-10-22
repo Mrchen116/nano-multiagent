@@ -127,7 +127,7 @@ struct TaskEditorView: View {
                 Button(L("放弃修改", "Discard changes"), role: .destructive) { dismiss() }
                 Button(L("继续编辑", "Keep editing"), role: .cancel) {}
             } message: { Text(L("任务尚未保存。", "Your changes have not been saved.")) }
-            .sheet(isPresented: $showingStatus) { TaskStatusPicker(status: $draft.status) }
+            .sheet(isPresented: $showingStatus) { TaskStatusPicker(status: $draft.status, originalStatus: baseline?.status) }
             .sheet(isPresented: $showingAssignee) { TaskActorPicker(actors: participants, selectedKey: draft.assignee?.taskKey, context: graph?.conversation.title ?? conversations.first { $0.id == conversationID }?.title ?? "") { draft.assignee = $0 } }
             .sheet(isPresented: $showingConversation) { conversationPicker }
             .navigationDestination(isPresented: $showingComparison) {

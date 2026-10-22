@@ -4,11 +4,15 @@ import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 
 export type TaskMode = "none" | "dag" | "explore";
-export type TaskStatus = "todo" | "doing" | "in_review" | "done" | "paused" | "closed";
+export type TaskStatus = "todo" | "doing" | "waiting" | "in_review" | "done" | "paused" | "closed";
 export type TaskActor = { type: "user" | "agent"; id: string; display_name?: string | null; user_id?: string | null };
 export type DirectCounts = Record<TaskStatus | "total", number>;
 export type TaskConversation = { id: string; title: string; visibility: "public" | "private"; dissolved_at: string | null; is_member: boolean; can_write: boolean };
+export type TaskWait = { reason: string; schedule_id: string; owner_agent_id: string; session_id: string; next_check_at: string };
+export type TaskWaitHealth = { state: "valid" | "invalid" | "unknown"; checked_at: string; reason_code?: string };
 export type TaskNode = {
+  wait?: TaskWait;
+  wait_health?: TaskWaitHealth;
   created_by?: TaskActor;
   assignee?: TaskActor | null;
   updated_by_actor?: TaskActor;
@@ -52,7 +56,7 @@ export type TaskGraph = {
 export type TaskGraphSummary = Pick<TaskGraph,
   "graph_id" | "root_node_id" |
   "revision" | "updated_at" | "updated_by" | "relative_url"
-> & { title: string; mode: TaskMode; status: TaskStatus; created_by?: TaskActor; assignee?: TaskActor | null; direct_counts?: DirectCounts; conversation?: TaskConversation; node_id?: string; scope_id?: string | null; parent_path?: {id: string; title: string}[] };
+> & Pick<TaskNode, "wait" | "wait_health"> & { title: string; mode: TaskMode; status: TaskStatus; created_by?: TaskActor; assignee?: TaskActor | null; direct_counts?: DirectCounts; conversation?: TaskConversation; node_id?: string; scope_id?: string | null; parent_path?: {id: string; title: string}[] };
 export type TaskGraphList = { items: TaskGraphSummary[]; next_cursor: string | null; total: number };
 
 export class TaskGraphReadError extends Error {
@@ -167,3 +171,5 @@ export async function writeTaskGraph(path: string, body: Record<string, unknown>
   if (!response.ok) throw new TaskGraphReadError(response.status, data?.detail?.code ?? "write_failed", data?.detail?.message ?? response.statusText);
   return data;
 }
+
+export const getTaskRuntime = (graphId: string, nodeId: string) => read<{state: "running" | "idle" | "offline" | "unknown"}>(`/im/v1/task-graphs/${encodeURIComponent(graphId)}/runtime?node_id=${encodeURIComponent(nodeId)}`);

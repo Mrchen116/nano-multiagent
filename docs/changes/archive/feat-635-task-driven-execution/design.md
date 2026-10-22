@@ -1,8 +1,23 @@
 # feat-635: Task 持续执行体系升级 — 技术方案
 
-> 对齐：[spec.md](spec.md)，Q1–Q16 最新结论；2026-10-22 用户授权由设计方确定实现方案。设计阶段，未实施。
+> 对齐：[spec.md](spec.md)，Q1–Q16 最新结论；2026-10-22 用户授权由设计方确定实现方案。M1 已完成；最终交付与验证见 M1 证据和独立门禁报告。
 
 ## Changelog
+
+- 2026-10-22 用户交付反馈纠正：撤销 DSH Goal Feature，三个工具默认不选且可逐项配置；删除专门的 Goal 生命周期插件及直接依赖，保留原生语义和普通工具配置边界。图片仅留仓外。Gate 2 Round 4 已通过受影响设计。用户随后要求以 Web 验证为主，本轮 iOS 以源码审查和编译回归收口，不新增原生界面实测。
+
+- 2026-10-22 实施接线：系统来源使用 `nano-system` 的 `task-execution` / `task-change` channel；内部 RuntimePort 失效 RPC 为 `task.execution.changed`，停止控制为 `task-stop`。这些命名承载原设计语义，不改变人类来源与权限边界。
+- 停止写入屏障使用 Gateway 按认证 node/Agent 跟踪的进行中任务写入 Promise；等待既有写入终结后原子暂缓，覆盖客户端已超时而服务端写入仍在完成的情况。
+- 真实验收发现权限拒绝可在 doing 未变时反复触发原生轮次：记录结构化 `NanoApprovalDenied`，允许当前轮报告阻塞，idle 后阻止同一责任的自动重试；新输入或责任 revision 变化重新判断。没有新增 Task 轮数预算，也没有自动解除授权拒绝。
+- 最后一项责任在工具执行后退出时保留本轮最终答复机会；只在尚未入场且已失效的自动输入上拒绝入场，避免吞掉刚完成的工具结果。
+- 独立验收确认 Single Thread 无 Global Work journal 造成状态长期 unknown。新增 Task 读权限内的 `/im/v1/task-graphs/:graph_id/runtime?node_id=...`，服务端从实际节点负责人解析 Agent；经 node/runtime `task.execution.state` 只观察已绑定原生 session 的 running/idle，不加载或唤醒。无有效连接返回 offline，读取失败返回 unknown。Web/iOS 同源显示“负责人执行状态”，不返回其他聊天内容。
+- 独立静态审查修复：有效模型配置变更仅解除 runtime error 的重试冻结，拒绝/取消不被顺便解锁；Task 功能首次启用也重新发现 scope 和建立 binding，不要求先发聊天。
+- UI 真人恢复后，旧“保持暂停”指令仍阻挡后续正常动作。IM 仅为认证真人的 paused→doing 写入 `resume_request {actor_id,at,revision}`，改派或退出 doing/waiting 清除；调用方不能 patch 此字段。PA 透传当前责任，原生仅在事实首次出现/变化时以 `task-human-control` 交给模型与审批，审批标为 `human-task-control`，仅撤销该 Task 的旧暂停，不授予额外工具权限、不成为 Goal 直接人类输入。定时器或 Agent 自称恢复不能生成此事实。
+- 群聊 `@Agent /stop` 先核对 host roster 中本 Agent 的 mention，再沿既有 `/stop` 控制屏障执行；其他成员 mention 不作为本 Agent 控制前缀。
+
+- 模型失败时若 next-turn 已有通知，配置修复会在无拒绝/停止屏障且原生 idle 时唤醒保留输入；普通 poke 仍让位给待处理消息，避免复制输入。
+- 依用户要求合入 main `0904bc49c`：沿用 feat-636 的原生紧凑任务卡片、状态定位和导航，在新卡片中呈现 waiting 原因/检查时间，waiting 定位同一进行中组；真人来源判断沿用 bugfix-633 的 `isHumanSource`，Task 恢复控制仍不升级为原生 Goal 真人授权。
+- 远端 CI 暴露已绑定冷会话的创建/恢复竞争：恢复前先使用公开 `SessionController.resolveAgent` 与到期 Schedule 共用原生恢复 Promise，再执行 `create` 保留 cwd/preset 校验及尚未持久化会话的创建。停止屏障仍先于原生会话恢复建立。
 
 ## 现状分析
 
@@ -31,7 +46,7 @@ DSH 是唯一执行运行时；PA 不 import DSH，node 只经集成 client 调�
 
 ### 相关历史
 
-[feat-569](../archive/feat-569-task-graphs-mvp/spec.md) 奠定 Task 图；当前 Task spec 最近标记 feat-587，其现行正文才是本次基线，不依靠编号推断行为。已核对当前的逐层 Task、五栏分页、负责人视图、个人资源空间契约。[bugfix-633](../archive/bugfix-633-native-human-source/fix.md) 的真实来源边界必须保留；自动续跑不是直接真人输入。设计基线 `540190927`，其中仅包含本 unit 需求；生产页面只读观察另记在原型依据中。
+[feat-569](../feat-569-task-graphs-mvp/spec.md) 奠定 Task 图；当前 Task spec 最近标记 feat-587，其现行正文才是本次基线，不依靠编号推断行为。已核对当前的逐层 Task、五栏分页、负责人视图、个人资源空间契约。[bugfix-633](../bugfix-633-native-human-source/fix.md) 的真实来源边界必须保留；自动续跑不是直接真人输入。设计基线 `540190927`，其中仅包含本 unit 需求；生产页面只读观察另记在原型依据中。
 
 ## 架构总览
 
@@ -59,7 +74,7 @@ flowchart LR
 4. **waiting 必须关联可验证的原生 Schedule。** 沿用 `schedule_create`，不引入 Task 专用 Schedule 工具或审核模型。服务端通过真实 node 请求校验，不相信模型自行填写“已安排”。检查是一个观察点；跨 IM 和 Schedule 不做分布式事务，观察点后删除由失效检查补偿。
 5. **停止先建立持久屏障，再取消、暂缓、确认。** 同一 session 的停止控制先落 NodeStore，恢复启动也先恢复屏障；IM 以停止请求身份原子暂缓范围内全部 doing/waiting。网络故障不能让 idle 先把任务重新拉起。
 6. **无 Task 轮数预算，但尊重真实运行故障。** 不因 final 文本结束责任，也不对模型失败/额度/权限错误无限热重试。挂起自动投递、显示原有运行错误，依既有运行恢复信号、配置恢复或用户新请求重新判定；Task 状态不伪装成完成或暂停。
-7. **Goal 是独立、显式开启的可选能力。** 新增 `features.dsh_goal`，仅严格 `true` 开启；既有 allowlist 包含 Goal 工具也不构成开启。Task 不依赖 Goal，不做双写、迁移、历史数据清理。
+7. **Goal 只是默认不选的三个普通工具。** 不增加 `features.dsh_goal`；显式 allowlist 分别决定 create_goal/get_goal/update_goal，未配置 allowlist 时默认排除三者。Task 不依赖 Goal，不做双写、迁移、历史数据清理。
 
 ## 接口与数据流
 
@@ -174,13 +189,13 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 
 ### 7. Goal 配置与能力刷新
 
-在能力目录增加 `dsh_goal` 默认 false，并将 `create_goal/get_goal/update_goal` 的默认选择关闭。运行时 ToolSelection 增加硬 gate：`features.dsh_goal !== true` 时三工具与原生 Goal 专属引导不可见/不可执行；未设置 tool_allowlist 的 Agent 同样适用。明确开启时配置页按原有能力联动模式将三工具加入 allowlist，关掉时硬 gate 关闭；其他工具/Feature 不受影响。此处只为这个既有工具组写小的联动规则，不为三工具新增通用能力依赖框架。
+按用户交付反馈纠正：能力目录不提供 `dsh_goal` Feature；三个原生工具保留在普通工具目录，`default_on=false`。ToolSelection 仅在未配置 toolAllowlist 时从默认集合排除三者；显式列表逐项决定可调用工具。Web/iOS 复用现有工具选择入口，选择一个不联动另外两个，保存/失败反馈与其他工具一致；其他 Feature 不变。
 
-工具名使用原生 `create_goal/get_goal/update_goal`，不造 wrapper。`ConfigurationScopes` 现有 systemPrompt assembly filter 同步隐藏 `tool:goal`。原生 Goal driver 不由工具白名单控制：关闭 Feature 时经公开 `GoalService.disarm(agent)` 撤销该 Agent 的自动推进激活，并在原生 pre-step 过滤已排队的 `source.kind=goal` 自动轮次，保留竞争输入；不改 Goal phase/objective、不动 Task。需要新增直接依赖时仅声明匹配已锁定版本的 `@deepseek-ai/dsh-goal` 公开根 export。开启不自行恢复已 disarm 的旧目标，由原生工具按其授权恢复。禁止 fork/private import。按没有旧 Goal 数据设计，不扫描、迁移、清空。开关沿用当前配置“下一轮整体生效”，进行中的轮次不强制打断；根/子执行继承同一有效工具 gate。UI 文案说明独立记录；不能表示开启 Goal 会把 Task 交给 Goal。
+工具名与授权保持原生，不造 wrapper。无 Goal 工具被选中时，现有 systemPrompt filter 隐藏不可用工具的 `tool:goal` 引导；不额外 disarm、过滤 Goal 输入或干预原生生命周期。移除之前专门的 Goal plugin 和 `dsh-goal` 直接依赖。工具取消选择沿用普通工具立即收缩、新增在 idle 配置边界生效的规则，不保留 Goal 特例。根/子执行继承现有工具选择，Task 与 Goal 不同步。历史 Feature 开关截图不再作为本次配置入口通过证据。
 
 ## 前端原型
 
-原型：[prototype.html](prototype.html)。覆盖现有 Tasks 的局部增量、详情、等待异常/离线、恢复/暂停和 Goal 开关。目标是回答“为什么停在进行中、何时再检查、Agent 现在是否在线”，避免把业务等待当运行故障。
+原型：[prototype.html](prototype.html)。覆盖现有 Tasks 的局部增量、详情、等待异常/离线、恢复/暂停和 Goal 工具逐项选择。目标是回答“为什么停在进行中、何时再检查、Agent 现在是否在线”，避免把业务等待当运行故障。
 
 ### 现有 UX grounding
 
@@ -191,7 +206,7 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 | Web `/tasks` 与层级/负责人视图 | 五组、独立分页、卡片打开不挤压原看板 | 进行中合并两状态、各卡有文字徽标；等待原因最多两行，时间另行，不用大块说明占满卡片 |
 | Web Task 详情 | 右侧遮罩面板，窄屏充满可用宽度 | 标题/状态→负责人实际运行状态→等待原因/恢复条件/检查时间→原正文/结果；可恢复推进、暂缓，错误信息留在详情 |
 | 原生 iOS Tasks | 纵向状态组、原生导航及表单/详情 | 保留纵向组，卡片足够触控；详情用现有原生 sheet，关闭在顶部、动作在内容下方，支持滚动和安全区；不用五栏挤手机 |
-| Web/iOS Agent 配置 | 既有能力特性设置 | DSH Goal 默认关闭；开关旁说明原生目标与 Task 独立，保存反馈遵循既有页面交互 |
+| Web/iOS Agent 配置 | 既有工具选择列表 | 三个 Goal 工具默认不选，可分别选择/取消，Features 中无 Goal；保存反馈遵循既有页面交互 |
 
 普通 UI 用户不编辑 schedule ID，不新增“等几轮”设置。等待原因和恢复条件以一段文字阅读，时间按用户时区显示；无效时保留原业务等待原因与恢复条件，在其下独立显示安排失效诊断和暂无有效检查；unknown 同样保留原因，显示“暂无法核实”，不覆盖业务阻塞。离线时区分“保存的安排时间”与“实际执行未核实”。原型动作只修改虚构数据；外层平台/情景下拉是设计演示，不进入产品。背景新建/搜索/其他卡片不实现，明确 disabled。
 
@@ -202,7 +217,7 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 | 五栏与等待卡片信息层级 | must-match | Web Tasks / 负责人 / 直属子任务 | 1280、390；doing+waiting 合计，无第六栏 | M1-R1 / W3 |
 | 等待详情保留业务原因/恢复条件、安排诊断与运行状态分离、暂停/恢复反馈 | must-match | Web Task 详情 | 1280、390；有效/失效/unknown/离线/恢复/暂缓 | M1-R2 / W3 |
 | 原生纵向组、等待详情与安全区操作 | must-match | iOS Tasks | 390、430；长原因、滚动、关闭、暂停/恢复 | M1-R3 / W3 |
-| 默认关闭 Goal 与保存反馈 | must-match | Web/iOS Agent 配置 | 默认/开/关；下一轮有效 | M1-R4 / W3 |
+| Goal 工具默认不选与逐项保存 | must-match | Web/iOS Agent 配置 | 无 Feature；三个工具分别选/取消，不联动；默认集与显式列表正确 | M1-R4 / W3 |
 | 字体精确字宽、系统 sheet 动画 | may-adapt | iOS 原生控件 | 保持上述内容顺序和可操作性 | M1-R3 |
 | 原型外层情景控件、未改动图编辑/搜索 | out-of-scope | 仅原型 | 不进入产品 | N/A |
 
@@ -214,8 +229,8 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 
 - [IM Task](specs/im/task-graphs.md) → `docs/specs/im/task-graphs.md`：修改记录/执行边界、七状态、五栏计数；新增等待与实际运行分离。保留无关场景。
 - [Gateway Task](specs/gateway/task-graphs.md) → `docs/specs/gateway/task-graphs.md`：持续责任、等待、停止/恢复、无预算及读错边界；原有权限、审批、逐层通知不另抄。
-- [Gateway 能力](specs/gateway/agent-capabilities.md) → `docs/specs/gateway/agent-capabilities.md`：Goal 默认关闭与独立开启。
-- [IM Agent 配置](specs/im/agents-nodes.md) → `docs/specs/im/agents-nodes.md`：两端 Goal 开关的可观察行为。
+- [Gateway 能力](specs/gateway/agent-capabilities.md) → `docs/specs/gateway/agent-capabilities.md`：Goal 工具默认不选、逐项选择与配置生效边界。
+- [IM Agent 配置](specs/im/agents-nodes.md) → `docs/specs/im/agents-nodes.md`：两端 Goal 工具选择的可观察行为。
 - 原生 Schedule 本身语义不变，Task 对其关联约束归 Gateway Task；`heartbeat-cron` no spec delta。node/channels 仅传输组装，no spec delta。
 
 ## 风险与回退
@@ -233,7 +248,7 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 | 服务 | 停止 | 启动 | 健康及版本 |
 |---|---|---|---|
 | 隔离 IM server、node、DSH 子进程、Web 构建 | `"$WT/scripts/e2e-down.sh" --wt "$RT"` | 在 WT 执行 `./scripts/e2e-up.sh --wt "$RT" --main-config "$WT/config/e2e/gateway.yaml"` | 以脚本输出 URL/端口、ready 与登录检查为准；核对启动源 WT HEAD 与受审版本，重建 Web |
-| 原型静态服务（可选） | Ctrl-C 停止自己开的进程 | `python3 -m http.server 46350 --bind 127.0.0.1 --directory "$WT/docs/changes/feat-635-task-driven-execution"` | 打开 `/prototype.html`；不向外监听 |
+| 原型静态服务（可选） | Ctrl-C 停止自己开的进程 | `python3 -m http.server 46350 --bind 127.0.0.1 --directory "$WT/docs/changes/archive/feat-635-task-driven-execution"` | 打开 `/prototype.html`；不向外监听 |
 | 原生 iOS 客户端 | 仅 terminate 自己的模拟器 App/模拟器 | `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer NANO_IOS_BUILD_ROOT="$RT/ios-build" "$WT/src/IM/ios/scripts/build.sh" build`；用独占 simulator 安装 build 产物并 launch | 设置服务器为 RT 的 IM URL、登录隔离账号；核对 App build revision，勿使用他人 booted 设备 |
 
 **Review 驱动方式**：端到端真栈。改了客户端，Web 与原生 iOS 都必须真驱动 Tasks 列表、详情、暂停/恢复与 Agent 配置；后端证据仅辅助解释，不能代替客户端。执行责任旅程从真实聊天和 Tasks 状态入口触发，检查真实模型继续工具行动、回执、持久状态及界面。禁止用直接 DB 写入伪造验收。
@@ -246,6 +261,6 @@ Global 与 SingleThread 的 `/stop` 分支改为调用共享停止控制，而�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | Task 责任从状态到持续执行闭环 | 无 | 单组 | `apps/im-server/src` Task/Gateway/PA action；`packages/product-contracts`；`packages/personal-assistant/src` Task协调/控制/绑定；`packages/dsh-integration/src` 插件/工具/Schedule接口；`apps/node/src` 组装/能力目录；Web Task/Agent配置；iOS Task/Agent配置；对应测试与本 unit evidence/current-spec 归并 | [reviewer] R1：根/负责人/深层视图仍五组，doing+waiting 计数与分页正确，责任涵盖本人所有层级且 todo 不开工；R2：等待详情区分阻塞/安排/实际运行，相关答复提前恢复、到期只检查，安排失效可见且处理、离线不伪装运行；R3：原生 iOS 同语义并保持纵向阅读、sheet、安全区触控及关闭返回位置；R4：两端 Goal 默认关，主动开启/关闭下一轮有效，Task 独立推进；R5：真模型完成一轮后继续其他有效工作，父负责人整合结果，in_review/done 退出；SingleThread 自动第二轮可呈现人工审批并交付结果/模型故障，例行无变化不刷屏；R6：暂停/stop 覆盖正确 scope，重启/断线不绕屏障，改派接续及旧提醒不重开任务，自然语言明确恢复可用；同轮多步执行 A 期间 UI 暂缓/关闭/改派在下一原生边界传入变更，B 不被无条件停止；R7：模型/权限/运行限制如实可见、不热循环、不伪完成，无 Task 专属轮数终止，换窗不重复续跑。[worker] W1：窄测试覆盖状态原子性、wait 真实校验/审核后二次校验/幂等、全量责任范围与跨层、旧/新 owner；W2：公开 DSH 生命周期集成竞态测试覆盖 idle/pre-step/普通Inbox竞争、stop屏障恢复、写入未知、安排失效/消费/重启及错误恢复；运行依赖 contract 通过，相关 TS 与 Swift 构建测试通过；W3：真 Web/iOS 截图或录屏与原型逐条对照，证据无真实隐私数据；W4：真栈证据链、delta 按实际实现归并、清理隔离进程，提交只含本任务文件。 |
+| M1 | Task 责任从状态到持续执行闭环 | 无 | 单组 | `apps/im-server/src` Task/Gateway/PA action；`packages/product-contracts`；`packages/personal-assistant/src` Task协调/控制/绑定；`packages/dsh-integration/src` 插件/工具/Schedule接口；`apps/node/src` 组装/能力目录；Web Task/Agent配置；iOS Task/Agent配置；对应测试与本 unit evidence/current-spec 归并 | [reviewer] R1：根/负责人/深层视图仍五组，doing+waiting 计数与分页正确，责任涵盖本人所有层级且 todo 不开工；R2：等待详情区分阻塞/安排/实际运行，相关答复提前恢复、到期只检查，安排失效可见且处理、离线不伪装运行；R3：原生 iOS 同语义并保持纵向阅读、sheet、安全区触控及关闭返回位置；R4：两端无 Goal Feature，三工具默认不选且逐项选择/取消，显式名单有效；取消立即收缩、新增 idle 生效，Task 独立推进；R5：真模型完成一轮后继续其他有效工作，父负责人整合结果，in_review/done 退出；SingleThread 自动第二轮可呈现人工审批并交付结果/模型故障，例行无变化不刷屏；R6：暂停/stop 覆盖正确 scope，重启/断线不绕屏障，改派接续及旧提醒不重开任务，自然语言明确恢复可用；同轮多步执行 A 期间 UI 暂缓/关闭/改派在下一原生边界传入变更，B 不被无条件停止；R7：模型/权限/运行限制如实可见、不热循环、不伪完成，无 Task 专属轮数终止，换窗不重复续跑。[worker] W1：窄测试覆盖状态原子性、wait 真实校验/审核后二次校验/幂等、全量责任范围与跨层、旧/新 owner；W2：公开 DSH 生命周期集成竞态测试覆盖 idle/pre-step/普通Inbox竞争、stop屏障恢复、写入未知、安排失效/消费/重启及错误恢复；运行依赖 contract 通过，相关 TS 与 Swift 构建测试通过；W3：真 Web/iOS 截图或录屏与原型逐条对照，证据无真实隐私数据；W4：真栈证据链、delta 按实际实现归并、清理隔离进程，提交只含本任务文件。 |
 
 单 M1 是一个共同交付闭环：仅落 waiting 或仅加 driver 都无法兑现停止/恢复和界面含义，不拆成可误交付的横切里程碑。骨架仅 `M1/.gitkeep`。

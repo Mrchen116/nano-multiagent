@@ -6,7 +6,7 @@ import { authFetchJson } from "../auth/auth-fetch";
 import { listConversations } from "../chat/chat-api";
 import type { Conversation } from "../chat/chat-types";
 import { getTaskGraph, TaskGraphReadError, writeTaskGraph, type TaskGraph, type TaskMode, type TaskNode, type TaskStatus } from "./task-graphs-api";
-import { actorName, taskStatuses } from "./task-progress";
+import { actorName, editableTaskStatuses } from "./task-progress";
 
 export type TaskEditTarget = { graph?: TaskGraph; node?: TaskNode; parent?: TaskNode; conversationId?: string; claim?: boolean };
 export function TaskEditor({ target, onClose, onSaved }: { target: TaskEditTarget; onClose(): void; onSaved(graphId: string): void }) {
@@ -76,7 +76,7 @@ export function TaskEditor({ target, onClose, onSaved }: { target: TaskEditTarge
     <form className="tasks-edit-form" onSubmit={save}>
       {!graph ? <label>{t("tasks.conversation")}<select required value={conversationId} onChange={e => { setConversationId(e.target.value); setAssignee(""); }}><option value="">{t("tasks.chooseConversation")}</option>{writable.map(chat => <option value={chat.id} key={chat.id}>{chat.title}</option>)}</select></label> : <p>{t("tasks.conversation")}: {graph.conversation?.title}</p>}
       <label>{t("tasks.title")}<input autoFocus required value={title} onChange={e => setTitle(e.target.value)} /></label>
-      <label>{t("tasks.description")}<textarea value={description} onChange={e => setDescription(e.target.value)} /></label><><label>{t("tasks.statusLabel")}<select value={status} onChange={e => setStatus(e.target.value as TaskStatus)}>{taskStatuses.map(value => <option value={value} key={value}>{t(`tasks.status.${value}`)}</option>)}</select></label><label>{t("tasks.result")}<textarea value={result} onChange={e => setResult(e.target.value)} /></label></>
+      <label>{t("tasks.description")}<textarea value={description} onChange={e => setDescription(e.target.value)} /></label><><label>{t("tasks.statusLabel")}<select value={status} onChange={e => setStatus(e.target.value as TaskStatus)}>{editableTaskStatuses((latest ?? node)?.status).map(value => <option value={value} key={value}>{t(`tasks.status.${value}`)}</option>)}</select></label><label>{t("tasks.result")}<textarea value={result} onChange={e => setResult(e.target.value)} /></label></>
       {!node && <label>{t("tasks.structure")}<select value={mode} onChange={e => setMode(e.target.value as TaskMode)}>{(parent ? ["none", "dag", "explore"] : ["dag", "explore"]).map(value => <option value={value} key={value}>{t(`tasks.mode.${value}`)}</option>)}</select></label>}
       {!target.claim && <label>{t("tasks.assignee")}<select value={assignee} onChange={e => setAssignee(e.target.value)}><option value="">{t("tasks.unassigned")}</option>{node?.assignee && assignee === `${node.assignee.type}:${node.assignee.id}` && !candidates.some(actor => `${actor.type}:${actor.id}` === assignee) && <option value={assignee}>{actorName(node.assignee)}</option>}{candidates.map(actor => <option key={`${actor.type}:${actor.id}`} value={`${actor.type}:${actor.id}`}>{actor.display_name ?? actor.id}</option>)}</select></label>}
       <p className="tasks-detail-note">{t("tasks.membersOnly")}</p>

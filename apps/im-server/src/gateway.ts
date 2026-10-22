@@ -45,7 +45,26 @@ export class Gateway {
   constructor(readonly ctx: ImContext) {
     this.work = new Work(ctx);
     this.trajectory = new TrajectoryObservers(ctx);
-    this.tasks = new TaskGraphService(ctx.db,ctx.messaging);
+    this.tasks = new TaskGraphService(ctx.db,ctx.messaging,undefined,{
+      runtime:async agentId=>{
+        const agent=one(ctx.db,'SELECT node_id FROM agent_profiles WHERE agent_id=? AND is_stale=0',agentId);
+        const connection=agent&&this.nodes.get(agent.node_id);
+        if(!connection||!this.valid(connection))return {state:'offline'};
+        const result=await this.request(agent.node_id,'task.execution.state',{agent_id:agentId});
+        return {state:result.state==='running'||result.state==='idle'?result.state:'unknown'};
+      },
+      inspect:async input=>{
+        const agent=one(ctx.db,'SELECT node_id FROM agent_profiles WHERE agent_id=? AND is_stale=0',input.agent_id);
+        if(!agent)throw new Error('Task owner is unavailable');
+        const proof=await this.request(agent.node_id,'task.wait.validate',input);
+        if(proof.error)throw new Error(proof.error);
+        return proof as unknown as import('@nano/product-contracts').TaskWaitInspection;
+      },
+      changed:change=>{
+        for(const row of all(ctx.db,'SELECT agent_id,node_id FROM agent_profiles WHERE is_stale=0')) if(change.agent_ids.includes(row.agent_id))
+          this.send(row.node_id,{type:'task.execution.changed',payload:{...change,agent_id:row.agent_id}});
+      },
+    });
   }
   isOnline(id: string) {
     return this.nodes.has(id);
@@ -373,7 +392,20 @@ export class Gateway {
       personal_agents:all(db,"SELECT * FROM personal_agent_bindings WHERE owner_id=? AND node_id=? AND node_epoch=?",c.owner_id,c.node_id,c.node_epoch),
     };
   }
-  async handle(c: Connection, type: string, p: Row): Promise<Row> {
+  private readonly taskWrites=new Map<string,Set<Promise<Row>>>();
+  async handle(c:Connection,type:string,p:Row):Promise<Row> {
+    const key=`${c.node_id}:${p.agent_id}`;
+    // A timed-out client does not cancel its server-side write. Stop waits for that
+    // outcome before its atomic pause, including PA-reviewed commits.
+    if(type==='task.execution.pause')await Promise.allSettled([...(this.taskWrites.get(key)??[])]);
+    const work=this.handleFrame(c,type,p);
+    if(type==='pa.action.commit'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)) {
+      const writes=this.taskWrites.get(key)??new Set<Promise<Row>>();this.taskWrites.set(key,writes);writes.add(work);
+      void work.finally(()=>{writes.delete(work);if(!writes.size)this.taskWrites.delete(key);}).catch(()=>{});
+    }
+    return work;
+  }
+  private async handleFrame(c: Connection, type: string, p: Row): Promise<Row> {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const ack = (extra: Row = {}) => ({
@@ -413,6 +445,15 @@ export class Gateway {
         type: "agent.work.ack",
         payload: this.work.append(c.node_id, p),
       };
+    if(['task.execution.snapshot','task.execution.pause','task.execution.scopes'].includes(type)) {
+      try {
+        const actor={kind:'agent' as const,id:p.agent_id,node_id:c.node_id};
+        const binding=one(db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',p.agent_id)?this.ctx.personal!.authority(c,{agent_id:p.agent_id}):undefined;
+        const policy=binding?{ownerUserId:binding.owner_user_id,sourceAllowed:(id:string)=>this.ctx.personal!.sourceAllowed(binding,id)}:undefined;
+        const result=type==='task.execution.scopes'?this.tasks.executionScopes(actor,policy):type==='task.execution.snapshot'?this.tasks.executionSnapshot(actor,p.conversation_id,policy):this.tasks.pauseExecution(actor,p.conversation_id,p.request_key,policy);
+        return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result}};
+      } catch(error) {return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:error instanceof TaskGraphError?error.asDict():{code:'source_unavailable',message:String(error)}}};}
+    }
     if (type === "task_graph.command") {
       try {
         const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
@@ -435,7 +476,7 @@ export class Gateway {
           payload: {
             request_id: p.request_id,
             ok: true,
-            result: this.tasks.execute(
+            result: await this.tasks.executeChecked(
               {
                 kind: "agent",
                 id: p.agent_id,

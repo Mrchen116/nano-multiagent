@@ -64,7 +64,7 @@
 ### Requirement: 用户停止 SHALL 阻止同范围自动续跑
 
 #### Scenario: 停止范围与确认
-- **WHEN** 有资格用户发出 /stop
+- **WHEN** 有资格用户发出 /stop，或通过已核实的本 Agent mention 定向发出 /stop
 - **THEN** 停止当前执行并暂缓对应范围内本人 doing 与 waiting；Global 主会话涵盖其跨聊天责任，single_thread 仅当前聊天，范围外不变。
 - **AND** 重启或连接恢复不能越过尚未确认的停止控制，任务暂缓未确认时如实报告；已经完成的外部副作用不回滚。
 
@@ -76,6 +76,7 @@
 #### Scenario: 明确恢复
 - **WHEN** 用户对 paused 表达恢复意图或操作恢复推进
 - **THEN** 无需固定命令即可恢复 doing；普通新消息、条件变化及定时器均不能自行解除用户暂缓。
+- **AND** 认证真人 UI 恢复事实进入执行与审批上下文，只撤销该 Task 的旧暂缓，不成为额外工具许可；Agent 写入或自称恢复不能伪造该事实。
 
 ### Requirement: Task 恢复 SHALL 尊重真实运行边界
 

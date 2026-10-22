@@ -261,7 +261,7 @@ it.each([
     status = 'idle'; await product.recover(); await product.receive(input);
     expect(submitted).toHaveLength(attention ? 1 : 0);
     if (attention) expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
-    await product.receive({ ...input, relay_task_id:'stop',idempotency_key:'stop', message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
+    await product.receive({ ...input, relay_task_id:'stop',idempotency_key:'stop', participants:[{type:'agent',id:'a',user_id:'agent-a',display_name:'A'}], message: { ...input.message, id: 'stop', content: '<mention type="user" target_id="agent-a"/> /stop', sender_type: 'user' } });
     expect(cancellations).toBe(1);
     await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
     expect(submitted).toHaveLength(attention ? 2 : 0);

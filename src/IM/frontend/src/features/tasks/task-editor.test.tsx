@@ -88,3 +88,19 @@ it("requires a rework reason when claiming completed work", async () => {
   await waitFor(()=>expect(writes).toHaveLength(1));
   expect(writes[0]).toMatchObject({change_note:"Validation failed",operations:expect.arrayContaining([{op:"claim_task",node_id:"n1"}])});
 });
+
+it("preserves an existing wait when saving other fields without offering a new wait", async () => {
+  const waiting = {...root, status: "waiting" as const, wait: {reason:"Await budget approval, then purchase",schedule_id:"s",owner_agent_id:"a",session_id:"main",next_check_at:"2026-10-22T12:00:00Z"}};
+  renderEditor({graph,node:waiting});
+  expect(screen.getByLabelText("Status")).toHaveValue("waiting");
+  await userEvent.clear(screen.getByLabelText("Title"));
+  await userEvent.type(screen.getByLabelText("Title"),"Budget check");
+  await userEvent.click(screen.getByRole("button",{name:"Save"}));
+  await waitFor(()=>expect(writes).toHaveLength(1));
+  expect(writes[0].operations[0].patch).toMatchObject({title:"Budget check",status:"waiting"});
+  expect(writes[0].operations[0].patch).not.toHaveProperty("wait");
+});
+it("does not offer waiting for a new task", async () => {
+  renderEditor({graph,parent:root});
+  expect(within(screen.getByLabelText("Status")).queryByRole("option",{name:"Waiting"})).not.toBeInTheDocument();
+});

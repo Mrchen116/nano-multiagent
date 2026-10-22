@@ -10,6 +10,8 @@ import type { AgentConfiguration } from './index.js';
 import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
+export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
+
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
   private readonly agents = new Map<Agent, { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }>();
@@ -25,7 +27,7 @@ export class ToolSelection {
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
   selection(config: AgentConfiguration, names: string[]): string[] {
     const allow = config.toolAllowlist;
-    if (allow === undefined) return names;
+    if (allow === undefined) return names.filter(name => !goalTools.includes(name));
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
     const selected = new Set([...allow, ...installed, ...contextTools]);
     return names.filter(name => selected.has(name));
@@ -57,6 +59,7 @@ export class ToolSelection {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled = Object.entries({ task_graph: 'task_graph', memory: 'memory_curation', skill_manage: 'skill_creation' }).filter(([, feature]) => state.config.features?.[feature] === false).map(([tool]) => tool);
+    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.

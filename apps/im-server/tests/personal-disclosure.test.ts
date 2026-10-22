@@ -235,3 +235,20 @@ it('retains observer owner context without invalidating a permit, but rejects di
  expect(()=>service.actions.commit(principal,{...args,proposal_ref:legacy.proposal_ref,verdict_ref:lv.verdict_ref})).toThrow('owner_authorization_changed');
  expect(prepare('legacy').state).toBe('prepared');
 });
+
+it('checks native waiting evidence after PA review and before committing the frozen task command',async()=>{
+ const {ctx,db,service,principal,args}=personalFixture();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ const inspect=vi.fn(async()=>({valid:false,checked_at:new Date().toISOString()}));
+ ctx.gateway.tasks=new TaskGraphService(db,ctx.messaging,undefined,{inspect,changed:()=>{}});
+ const task=ctx.gateway.tasks.execute({kind:'user',id:'u1'},'create',{conversation_id:'peer',title:'Await decision',mode:'dag',status:'doing',assignee:{type:'agent',id:'a'},request_key:'task'});
+ ctx.messaging.insertMessage('chat','u1','user','Coordinate this task');
+ const proposal=service.actions.prepare(principal,{...args,request_key:'wait-review',task:{action:'apply',arguments:{graph_id:task.graph_id,operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Await owner budget confirmation',schedule_id:'native'}}}],base_revision:1,request_key:'waiting',change_note:'Asked and confirmed delivery'}}});
+ const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict:{decision:'allow'}});
+ const commit={...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref};
+ await expect(service.actions.commitChecked(principal,commit)).rejects.toThrow('schedule');
+ expect(ctx.gateway.tasks.execute({kind:'user',id:'u1'},'get',{graph_id:task.graph_id,view:'all'}).revision).toBe(1);
+ inspect.mockResolvedValue({valid:true,owner_agent_id:'a',session_id:'main',next_check_at:new Date(Date.now()+60000).toISOString(),checked_at:new Date().toISOString()} as any);
+ expect(await service.actions.commitChecked(principal,commit)).toMatchObject({state:'confirmed',result:{revision:2}});
+ expect(ctx.gateway.tasks.execute({kind:'user',id:'u1'},'get',{graph_id:task.graph_id,view:'all'}).nodes[0]).toMatchObject({status:'waiting',wait:{session_id:'main'}});
+});

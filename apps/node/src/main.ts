@@ -11,7 +11,7 @@ import { ModelSetup, type SetupRequest } from './model-setup.js';
 import { projectCapabilities } from './capabilities.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { WorkSync, NodeStore, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { WorkSync, NodeStore, TaskExecution, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -45,6 +45,8 @@ await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers } }]);
 const store = new NodeStore(join(home, 'node.sqlite3'), config.node.user_id);
 const inbox = new InboxStore(join(home, 'global.sqlite3'));
 let product: SingleThread;
+let tasks:TaskExecution;
+const productCalls=new Map<string,{sessionId:string;promise:Promise<unknown>}>();
 let globalProduct: GlobalAgent;
 let operations: ConfigurationOperations;
 let heartbeat: Heartbeat;
@@ -93,7 +95,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           const snapshot = await runtime.partitions.get('ordinary')!.runtime.request('model.setup.snapshot', {});
           await rpc.request('model.setup.sync', snapshot);
         }
-        await rpc.request('initialize', { protocol: 1, packageManager: installedPackageManager(release), agents: partition.agents,
+        await rpc.request('initialize', { protocol: 1, taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
       },
@@ -108,6 +110,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           }
           if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
           if (product) {
+            if(relay.ready){await tasks.recoverStops(partition.agents.map(a=>a.agentId));await tasks.recover(partition.agents.map(a=>a.agentId));}
             await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
               knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover(), usage.recover()]);
           }
@@ -160,6 +163,15 @@ const relay = new WebRelayConnection({
       await relay.request('node.setup', { request_id: payload.request_id, node_id: config.node.node_id, ...status });
       return;
     }
+    if(frame.type==='task.execution.state') {
+      const result=await runtime.request('task.execution.state',{agentId:String(payload.agent_id)}).catch(()=>({state:'unknown'})) as import('@nano/product-contracts').TaskExecutionState;
+      await relay.request('task.execution.state.result',{...result,request_id:payload.request_id,node_id:config.node.node_id});return;
+    }
+    if(frame.type==='task.wait.validate') {
+      const result=await tasks.inspect(payload as unknown as Parameters<TaskExecution['inspect']>[0]).catch(error=>({error:String(error)}));
+      await relay.request('task.wait.validate.result',{...result,request_id:payload.request_id,node_id:config.node.node_id});return;
+    }
+    if(frame.type==='task.execution.changed'){await tasks.recover([String(payload.agent_id)]);return;}
     if (frame.type === 'trajectory.prepare') { trajectory.prepare(payload.scope as Parameters<NodeTrajectory['prepare']>[0], String(payload.ticket)); return; }
     if (frame.type === 'trajectory.close') { trajectory.close(String(payload.observer_id)); return; }
     if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
@@ -257,6 +269,8 @@ const relay = new WebRelayConnection({
     if(state!=='ready')trajectory?.closeAll();
     if(state==='revoked') {workAvailable=false;managed.revoke();}
     if(state==='ready' && !updateHolding)await admitted(async()=>{
+      await tasks.recoverStops(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
+      await tasks.recover(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
       await settlePartitions([globalProduct.recover(), (async()=>{
         for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
         await knowledge.migrateSkills();await managed.flush();await external.recover();await product.recover();
@@ -315,13 +329,16 @@ managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.n
 managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
   agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
 })));
+tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime,relay,
+  drain:async sessionId=>{await Promise.allSettled([...productCalls.values()].filter(c=>c.sessionId===sessionId).map(c=>c.promise));},
+});
 product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
-  image: downloadImage,
+  image: downloadImage, taskStop:(binding,input)=>tasks.stop(binding,input),
 });
 let workAvailable=false;
 const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);
@@ -330,7 +347,12 @@ runtime.handle('configuration.workflow', async value => {
   return {effective: true};
 });
 runtime.handle('model.check', value => product.modelCheck(value as { sessionId: string; turn: number }));
-runtime.handle('product.call', call => globalProduct.call(call as ProductCall));
+runtime.handle('product.task_execution.snapshot', value=>tasks.snapshot(value as Parameters<TaskExecution['snapshot']>[0]));
+runtime.handle('product.call', value=>{
+  const call=value as ProductCall;
+  const promise=globalProduct.call(call);productCalls.set(call.operationId,{sessionId:call.rootSessionId,promise});
+  void promise.finally(()=>productCalls.delete(call.operationId)).catch(()=>{});return promise;
+});
 operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   current: agentId => configuration.current(agentId),
   resolve: (candidate, creating) => configuration.resolve(candidate, creating),
@@ -340,6 +362,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     await runtime.request('configuration.apply', next);
     const previous = agents.find(agent => agent.agentId === next.agentId);
     if (previous) Object.assign(previous, next); else agents.push(next);
+    await tasks.recover([next.agentId]);
   },
 });
 usage = new UsageReports({nodeId: config.node.node_id, store, runtime, relay, onError: reportError});
@@ -381,10 +404,14 @@ await product.recover(true);
 workSync.start();
 void relay.start().catch(reportError);
 heartbeat.start();
+const taskWatch=setInterval(()=>{
+  if(relay.ready&&!updateHolding)void tasks.watch().catch(reportError);
+},60_000);taskWatch.unref();
 process.stdout.write(`Node ${config.node.node_id} ready; DSH hosts=${runtime.partitions.size}\n`);
 async function stop() {
   if (stopping) return;
   stopping = true;
+  clearInterval(taskWatch);
   trajectory.closeAll();
   try { await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }

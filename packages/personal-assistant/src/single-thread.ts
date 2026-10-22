@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import { needsAttention } from './attention.js';
+import { needsAttention, controlText } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
 import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
@@ -19,6 +19,7 @@ interface Options {
   relay: RelayPort;
   image: (url: string, agentId: string) => Promise<string>;
   onError: (error: unknown) => void;
+  taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
@@ -57,8 +58,8 @@ export class SingleThread {
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
     const control = sessionControl(input, config);
-    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(input.message.content.trim()) && !control;
-    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(input.message.content.trim())) {
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
+    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {
       store.bufferGroup(input);
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
@@ -71,18 +72,19 @@ export class SingleThread {
       ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
     });
     if (ownerDirect) store.markCanonical(binding);
-    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(input.message.content.trim())) {
+    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(controlText(input))) {
       const commandId = `${input.agent_id}:${input.message.id}`;
       let text = store.command(commandId);
       if (!text) {
-        await runtime.request('session.ensure', runtimeBinding(binding));
-        const result = await runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
+        let result:{wasRunning:boolean;paused?:number};
+        if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
+        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
         await this.reconcile(binding.sessionId);
-        if (input.message.content.trim() === '/new') {
+        if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
           text = store.command(commandId)!;
         } else {
-          text = result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
+          text = result.paused ? `已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。` : result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
           store.saveCommand(commandId, text);
         }
       }
@@ -227,12 +229,14 @@ export class SingleThread {
         }
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
-      const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => item.input.metadata.origin === 'heartbeat');
+      const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => ['heartbeat','task_execution'].includes(String(item.input.metadata.origin)));
+      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
+      const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
       if (heartbeatOnly || group) {
-        if (!end && heartbeatOnly) continue;
+        if (!end && heartbeatOnly && !approvalPending && !approvalVisible) continue;
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as { content: { type: string; text?: string }[] } | undefined;
         const text = last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim();
-        if (end && ((heartbeatOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
+        if (end && !approvalVisible && ((heartbeatOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
           if (delivery.messageId) await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'silent_reply' });
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
@@ -269,7 +273,8 @@ export class SingleThread {
       const final = answers.at(-1);
       const message = final?.data.message as { id: string; content: { type: string; text?: string }[] } | undefined;
       const publication = this.publication(sessionId, turn);
-      const text = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') || publication?.confirmed || '';
+      const finalText = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') || publication?.confirmed || '';
+      const text=approvalVisible&&['NO_REPLY','HEARTBEAT_OK'].includes(finalText.trim())?'':finalText;
       const reason = end.data.reason as { kind: string };
       const completed = reason.kind === 'completed';
       if (!completed && !text && !publication && run?.attempts.some(attempt => attempt.error) && !events.some(event => event.type === 'tool/call' && event.data.turn === turn)) {
@@ -346,6 +351,7 @@ export class SingleThread {
     const delivery = input?.turn === undefined || input.turn === null ? undefined : this.options.store.delivery(request.sessionId, input.turn);
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
+    this.options.store.saveCommand(`task-approval-visible:${request.sessionId}:${input!.turn}`,'visible');
     const call = this.options.store.events(request.sessionId).find(event => event.type === 'tool/call' && event.data.callId === request.callId);
     await this.delta({ kind: 'permission_request', message_id: delivery.messageId, session_id: request.sessionId,
       agent_id: this.binding(request.sessionId).agentId, run_id: request.sessionId,
@@ -378,7 +384,7 @@ export class SingleThread {
     if (this.options.store.receipt(inputId) === status) return;
     if (!input.metadata.runtime_input_id) await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
     // /stop has no model input, so it has no input receipt row.
-    if (input.message.content.trim() !== '/stop') this.options.store.confirmReceipt(inputId, status);
+    if (controlText(input) !== '/stop') this.options.store.confirmReceipt(inputId, status);
   }
   private stream({ sessionId, frame }: Stream) {
     if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
@@ -392,6 +398,8 @@ export class SingleThread {
     if (frame.chunk?.type !== 'text-delta') return;
     stream.chain = stream.chain.then(async () => {
       const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
+      const turnInputs=this.options.store.inputs(sessionId).filter(input=>input.turn===turn);
+      if(!turnInputs.length||turnInputs.every(input=>input.input.metadata.origin==='task_execution'))return;
       const delivery = this.options.store.delivery(sessionId, turn);
       if (!delivery?.messageId || delivery.state !== 'sending') return;
       if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;

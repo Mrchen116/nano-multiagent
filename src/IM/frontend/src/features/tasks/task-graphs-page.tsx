@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
 import { joinConversation } from "../chat/chat-api";
 import { TaskBoard, TaskCounts, TaskOverview, actorName, taskStatuses } from "./task-progress";
+import { TaskWaitInfo, TaskAgentRuntime } from "./task-wait";
 import { TaskEditor, type TaskEditTarget } from "./task-editor";
 import { useTranslation } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
@@ -100,6 +101,8 @@ function TaskNodeDetail({ graph, node, onSelect, onEnter, onDiscuss, onCopy }: {
     <div className="tasks-detail-id">{t("tasks.nodeDetails")} · <span>{node.id}</span></div>
     <section><h2>{node.title}</h2><div className="tasks-tags"><span className="tasks-mode">{t(`tasks.mode.${node.mode}`)}</span><TaskStatusBadge status={node.status} /></div></section>
     <section className="tasks-detail-facts"><dl><div><dt>{t("tasks.creator")}</dt><dd>{actorName(node.created_by)}</dd></div><div><dt>{t("tasks.assignee")}</dt><dd>{actorName(node.assignee) || t("tasks.unassigned")}</dd></div></dl><TaskCounts counts={node.direct_counts} /><p>{taskStatuses.map(status => `${t(`tasks.status.${status}`)} ${node.direct_counts?.[status] ?? 0}`).join(" · ")}</p></section>
+    {node.assignee?.type === "agent" && <TaskAgentRuntime agentId={node.assignee.id} graphId={graph.graph_id} nodeId={node.id} />}
+    {node.status === "waiting" && <section><TaskWaitInfo wait={node.wait} health={node.wait_health} /></section>}
     <section><h3>{t("tasks.description")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{node.description || t("tasks.noDescription")}</ReactMarkdown></div></section>
     <section><h3>{t("tasks.result")}</h3><div className="tasks-prose"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{node.result || t("tasks.noResult")}</ReactMarkdown></div></section>
     {node.change_note && <section><h3>{t("tasks.changeNote")}</h3><p className="tasks-prose">{node.change_note}</p></section>}
@@ -213,6 +216,7 @@ export function TaskGraphsPage() {
     <Dialog.Root open={Boolean(selected && !invalidLocation)} onOpenChange={open => { if (!open) closeDetail(); }}><Dialog.Portal><Dialog.Overlay className="tasks-dialog-overlay" /><Dialog.Content className="tasks-detail tasks-detail--overlay" aria-describedby={undefined}>
       <div className="tasks-dialog-heading"><Dialog.Title>{t("tasks.nodeDetails")}</Dialog.Title><Dialog.Close className="tasks-button">{t("tasks.close")}</Dialog.Close></div>
       {graph && selected && <><div className="tasks-detail-actions">{selected.can_edit && <button className="tasks-button tasks-button--primary" onClick={() => setEditor({ graph, node: selected })}>{t("tasks.edit")}</button>}{selected.can_claim && <button className="tasks-button" disabled={busy} onClick={() => selected.status === "done" ? setEditor({ graph, node: selected, claim: true }) : void act(() => writeTaskGraph(`/${encodeURIComponent(graph.graph_id)}/apply`, { base_revision: graph.revision, request_key: crypto.randomUUID(), change_note: "", operations: [{ op: "claim_task", node_id: selected.id }] }))}>{t("tasks.claim")}</button>}{selected.can_delete && <details><summary>{t("tasks.more")}</summary><button className="tasks-button" onClick={() => setDeleting(true)}>{t("tasks.delete")}</button></details>}</div>
+        {selected.can_edit && (selected.status === "waiting" || selected.status === "paused") && <div className="tasks-detail-actions">{(["doing", ...(selected.status === "waiting" ? ["paused"] : [])] as TaskStatus[]).map(status => <button className="tasks-button" disabled={busy} key={status} onClick={() => void act(() => writeTaskGraph(`/${encodeURIComponent(graph.graph_id)}/apply`, { base_revision: graph.revision, request_key: crypto.randomUUID(), change_note: "", operations: [{ op: "update_task", node_id: selected.id, patch: { status } }] }))}>{t(status === "doing" ? "tasks.resume" : "tasks.status.paused")}</button>)}</div>}
         {deleting && <section className="tasks-conflict"><h3>{t("tasks.deleteSubtree")}</h3><p>{t("tasks.deleteScope", { title: selected.title, count: deletionIds.size })}</p><button className="tasks-button" disabled={busy} onClick={() => void act(async () => { await writeTaskGraph(`/${encodeURIComponent(graph.graph_id)}`, { base_revision: graph.revision, request_key: crypto.randomUUID(), node_id: selected.id }, "DELETE"); closeDetail(); if (selected.id === graph.root_node_id) navigate("/tasks"); })}>{t("tasks.confirmDelete", { count: deletionIds.size })}</button><button className="tasks-button" onClick={() => setDeleting(false)}>{t("tasks.cancel")}</button></section>}
         {error && <p role="alert">{error}</p>}
         <TaskNodeDetail graph={graph} node={selected} {...actions} />

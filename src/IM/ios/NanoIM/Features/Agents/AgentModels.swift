@@ -84,8 +84,9 @@ struct AgentDraft: Equatable, Sendable {
     }
     mutating func setFeature(_ feature: AgentFeature, enabled: Bool) {
         features[feature.key] = enabled
-        if enabled, let tool = feature.requires_tool, !tool_allowlist.contains(tool) {
-            tool_allowlist.append(tool)
+        let requiredTools = feature.requires_tool.map { [$0] } ?? []
+        if enabled {
+            for tool in requiredTools where !tool_allowlist.contains(tool) { tool_allowlist.append(tool) }
         }
     }
     func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false) -> [String: JSONValue] {

@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-615
+> 对齐: feat-635
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -54,7 +54,7 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。完整配置不在已进行的整轮中切换；可调用工具的取消选择例外地立即收缩，新增工具仍等待当前执行空闲后的完整配置应用，不中断已开始的工具调用。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
@@ -883,3 +883,10 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 #### Scenario: 离线、空列表与中断可区分
 - **WHEN** 无插件、读取失败或待执行操作期间节点重启
 - **THEN** 页面分别显示空状态、无法确认或重新读取的实际状态，未完成操作可重试，不把离线或未知结果当成成功
+
+### Requirement: Web 与原生 iOS SHALL 支持逐项选择默认关闭的 Goal 工具
+
+#### Scenario: 默认及保存反馈
+- **WHEN** 用户进入现有或新建 Agent 的能力配置
+- **THEN** Features 中没有 DSH Goal 开关，普通工具列表中的 create_goal、get_goal、update_goal 默认不选；已保存的显式选择如实显示。
+- **AND** 用户可分别选择或取消三个工具且互不联动，保存结果和生效时机沿用普通工具配置；失败不能展示已生效，Task 配置不受影响。

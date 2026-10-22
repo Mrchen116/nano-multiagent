@@ -1780,11 +1780,8 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             // its required tool; we no longer materialize the whole default_on set.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const willAddTool =
-              value && requiresTool && !draft.tool_allowlist.includes(requiresTool);
-            const nextAllowlist = willAddTool
-              ? [...draft.tool_allowlist, requiresTool!]
-              : draft.tool_allowlist;
+            const requiredTools = requiresTool ? [requiresTool] : [];
+            const nextAllowlist = value ? [...new Set([...draft.tool_allowlist, ...requiredTools])] : draft.tool_allowlist;
             // feat-394 M9-E: features is the single-true-source for enable state.
             // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
             // No parallel sync into draft.heartbeat.enabled or draft.cron needed.

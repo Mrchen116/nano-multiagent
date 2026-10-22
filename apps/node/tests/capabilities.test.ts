@@ -55,3 +55,13 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
     disabled.find((command) => command.name === "effort")?.description,
   ).not.toContain("ultracode");
 });
+
+it("lists Goal tools as individually selectable defaults without a feature", () => {
+  const tools = ['create_goal', 'get_goal', 'update_goal'];
+  const node = {llm: {default_model: 'test', providers: []}} as unknown as NodeConfigurationFile;
+  const capabilities = projectCapabilities({tools: tools.map(name => ({name, description: name})), skills: []}, node,
+    {agentId: 'a', revision: '1', provider: 'test', model: 'test', toolAllowlist: tools});
+  expect(capabilities.features.some(feature => feature.key === 'dsh_goal')).toBe(false);
+  expect(capabilities.tools.map(tool => tool.name)).toEqual(tools);
+  expect(capabilities.tools.every(tool => tool.default_on === false)).toBe(true);
+});
