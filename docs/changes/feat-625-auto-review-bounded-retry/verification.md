@@ -591,3 +591,53 @@ env -u NANO_PROBE_INSPECT -u NODE_OPTIONS caffeinate -i pnpm exec vitest run --m
 - **Q R3仍FAIL/11pass6inconclusive，Q625-R3-01未由本轮关闭。** 真实required/source/stop/fallback/native owner/双vendor新profile交父E续原Q，底层RuntimeClient fixture（包括product.call stub）不是真实PA/IM。不能由本轮closure宣布整体effective/CI/Ready PR，亦未canonical/archive/merge/deploy。
 - 新建前检查绝对路径/branch不存在，在冻结SHA建立`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r6` / `review/feat-625-r6`，本人owner，保留续验；R5和作者现场不覆盖。最终exact R6路径Node/DSH进程为0，两个相关jobs已收取exit0，没有启动IM/Gateway或操作其他现场。
 - 仅R6 JSON与verification追加报告commit；原R5完整字节前缀、code-review和acceptance不改，不push共享unit、不Inbox/conversations/taskgraph/公开消息、不派worker。原产品W1与设施R3-W1各自closed，不复活历史FAIL；报告commit自身不是新的受试产品版本。
+
+---
+
+## Round 7 — test-only compact oracle patch / SF625-R4-01 targeted closure
+
+### Summary / 版本与门禁范围
+
+**Verdict: PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION（本test-only patch及定向运行范围）；SF625-R4-01 closed。** `code-review-r7.md`为`[]`。在全新独立worktree、同一冻结树、原180s期限下，四个compact组合一次串行命令 **4pass / 8deselected，82.69s，exit0**；没有把工程首批3pass/1fail与后来1pass拼成一次全绿。先前PA创建503仍是未闭环运行事件，不由本次成功反推根因或宣称已修。
+
+| 字段 | 值 / 适用边界 |
+|---|---|
+| validated_at / 本轮 executed_at | `6959d7533acf73c9dc4b31436f1116be7ccf2c79` |
+| executed_base | `18e1af8b1cd0834ae3f22f5780f2d50b740f5171`，不更改早期full base |
+| pre_patch_head / finding_origin_head | `8d216861f620e674a54d0a300b1c993b47b9e41b`（Q R4实际受验树） |
+| code_review_mode / verification_mode | patch / targeted-closure，focus=`SF625-R4-01`；R6 integration/corrected-delta retained |
+| fix_delta_range | `8d216861f..6959d7533`仅source-recovery测试和progress，46+/3-；产品/fixture/driver/锁/设计与delta无改动 |
+| requires_full_verification | **false（本patch范围）**；未发现共享实现边界变化或新存活finding |
+| effective_base / effective_through | 本R7 patch/定向运行及适用R6静态结论可在`18e1af8b1..6959d7533`范围使用；**整体effective_through仍未建立**，不代替最终main失效判断、Q报告实际发布/整合、CI或Ready PR |
+
+Q R4本地报告`acceptance.md:471–575`已实际读取：在8d216861产品**17/17 Scenario pass、pass-with-issues、0blocking/0major/1minor**，Q625-R3-01由Q在R4关闭；原source命令实际8pass/4旧摘要断言fail，native47、vendor及其他组合按该报告各自新执行/retained记录。其**报告commit/remote仍未确认**；575行交付措辞不是Git回执。本轮未在Q现场运行任何Git，未复制/代提交Q报告或读取/输出被拒绝的来源export正文。Q历史verdict与R6当时记录的Q R3 FAIL均不追改；本轮只给E提供新patch closure及retained依据，Q产品结论仍归实际8d树，不伪称Q亲测6959。
+
+### 契约、断言与接线审查
+
+1. **漂移成立，不是退回旧产品行为。** current `docs/specs/gateway/agent-capabilities.md:804–814,829–842`明确所有Agent默认无摘要换窗，显式workspace停用才回退摘要。未改变该默认配置。`scripts/fixtures/auto_review_source_scenario.py:66–73`仅在真实旧compaction-engine请求时生成旧SUMMARY marker；本patch不修改fixture造摘要，也不把显式fallback的预期改为无摘要。旧“必须有摘要”与当前默认相矛盾，改为明确“必须无”符合current，而非静默迁就错误实现。
+2. **不是仅删断言：精确正来源加负授权保护。** `test_auto_review_source_recovery.py:216–219,252–274`捕获原已发送继续消息的返回值，唯一live Inbox必须target为本conversation、delivery为participant；其中消息id必须**等于该继续消息receipt且不同于旧id**，sender必须user/is_owner=true。`_im_client.py:323–354`证实receipt是经过成功HTTP响应取得的真实用户message id，不是send_message状态、transport请求id或本地猜值。该变量仅在restart/compact赋值，只在compact分支读取，无未赋值路径。
+3. **旧授权不会凭换窗复活。** 库外历史、旧message id、SOURCE_USER_START/END、旧proposal继续不得出现在审核请求，新增旧SUMMARY也不得出现；first与recovered投影必须全等。既有allow审计、两次真实HTTP选择503→allow、retry1和恰好一次文件效果均保留。新正来源与这些负保护同时成立，不能以“没有旧来源”单独通过。
+4. **逐行检查测试接线，不只看产品src。** complete diff只有测试与progress；用户消息、control/工具入参、PA创建/config、direct/PTC安装与调用、等待顺序、compact确认、180s期限、HTTP响应计划、source export与finally清理均未变。新增assignment不新增发送或等待；same路径逐行不变，restart仅捕获既有返回且所有原断言不变。断言发生在原业务完成之后，不改变运行调度或制造授权。Q当时8个非compact成功及17Scenario具体产品事实有retained依据，四compact自动化则由本轮新运行补齐，不能把Q旧4fail重写为当时4pass。
+5. **R6 retained边界。** 实核`b355b3e6..6959d7533`仅R6报告/progress及本source测试；packages/apps/src/scripts/config/锁、spec/design/delta均无实现变化。R6的R5-W1运行closure、18/18 corrected-delta aligned及更早产品/设施W1 closed继续适用；不是再次执行R6的37项/知识/安装测试或整体corrected-delta。没有新增spec delta、设计偏离或权限扩张。
+
+### 实际运行与混合历史证据分账
+
+| 层级 / 版本与命令 | 真实结果 / 不能推导的结论 |
+|---|---|
+| Q原8d树，R4 source12 | 本地报告载明8pass/4compact旧SUMMARY断言fail；真实产品来源/503恢复/一次效果成立。本人未代跑旧测试、不读取其受限export，不把这些失败计为新命令通过 |
+| 作者候选，`compact-pytest.log`与progress:244–249 | 首批**exit1、3pass/1fail、175.88s**，ptc-compact-nano在line84 PA创建返回503，未进入compact/新断言；fresh精确单条**exit0、1pass、22.27s**。已读取自有工程日志和非正文metadata；这仍是两条不同命令，原失败保留 |
+| 作者`own-legacy-oracle.log` | 四份新鲜受控export事后旧oracle均预期失败，只证明旧marker与实际观测不兼容，不冒充修正前E2E运行或独立验收 |
+| 本轮6959，依赖与build，bash-160 | Python3.11 venv/pip dev、pnpm frozen install、根`pnpm build`（含installer）、frontend npm ci/build均**exit0**。installer标记6959；npm依赖告警8项保持原状，未升级依赖/运行audit fix，不声称CI全绿 |
+| 本轮6959，唯一heavy批次，bash-162 | `env -u NANO_PROBE_INSPECT -u NODE_OPTIONS NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 caffeinate -i .venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_source_recovery.py -k compact -q -x --basetemp=.e2e-feat625-r7-compact` → **exit0，4passed/8deselected，82.69s**。direct/PTC × nano/codex四compact实际原入口；未加载observer、未mock来源/审批、未放宽原180s或加重试 |
+
+本轮2026-10-22 +0800，独立`review-feat-625-r7` checkout clean后运行，所有构建结束才开一个IM/fixture窗口，四栈由原pytest顺序串行。`-x`只在首次失败停止；本次无失败，**没有追加复跑**。未重跑其余8条same/restart、90s×3、native owner、全source12或vendor；这些不写为本轮新观察。
+
+四份自有受控export另外用原`projected_rows`解析并按resolved path去重（pytest current别名不加计）：各两条审核记录503/allow，first=recovered、唯一live、正确target/participant/user-owner、非旧id，旧body/message/proposal/summary/library全部不在请求，retry1与各一行effect均为true。只输出布尔元数据，不输出来源正文。**与具体继续receipt相等**由原运行test line262直接断言；export未保存该receipt，不在后处理里伪造这一独立核对。
+
+### 前置503事件、closure与保留现场
+
+- **SF625-R4-01 closed（本test patch/targeted范围）。** current默认与新oracle相符，关键正/负保护均在四条实际原入口通过；code-review `[]`、0C/0W/0S，无本patch新增阻塞。父E可据本报告把测试Side Finding闭环反馈原Q，不改Q历史产品verdict或声称其报告已发布。
+- **PA创建503 / HMR事件未关闭。** 作者原失败`gateway.log:44,54–61`实际记录DSH runtime unavailable及`watchConfig → WorkspaceOwner.create / INACTIVE_EFFECT`，阶段在测试line84、尚未进入本断言。已知栈只支持“调用时context失活”，不能确定为何失活、时间因果或是否同一RPC/PID；后来的fresh单条和本独立4pass均不证明其仅属资源、由patch引起或已修复。本轮不新增重现/修复HMR；后续如原实施者继续诊断，应保留原阶段、RPC/PID/time关系，由父E单独判断，不以增timeout/隐藏重试掩盖。该历史事件与本已成立的test-contract closure分别交付，不冒充整个运行系统无flaky。
+- **清理有实际终态。** 原`running` finally执行paired down并终止fixture；本人另外检查四个独立stack的IM+fixture共8个记录端口均不可连接，root级服务PID文件无存活记录；8份native runtime.pid所记8个PID均已不在进程表，exact R7路径Node/fixture进程0。保留的`.e2e-ports.env`及native runtime.pid是现场文件，不声称它们已删除；未手工kill/删除或操作作者/Q/生产现场。初次后处理把pytest current别名多算一份、又误假设stdio Gateway另有端口，两次校验命令exit1后按实际拓扑修正，最终全部校验exit0；这不是产品测试复跑或清理行为修改。
+- 最终报告检查：JSON解析为`[]`、R1–R6 verification完整字节前缀不变，产品/fixtures/配置/锁/spec/design/delta等价检查、ruff check/format与`git diff --check`均exit0；`PYTHON=.venv/bin/python ./scripts/docs-check`为**266篇/67routes/exit0**。这些是报告完整性/静态检查，不代替CI。
+- 本人owner现场`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r7`，branch `review/feat-625-r7`，保留续验。仅提交R7 JSON和本verification追加；R1–R6历史全文原样保留，不改源码/tests/fixture/spec/design/配置、Q报告或旧verdict。报告发布仅限自有review分支，真实commit/push结果另以Git回执交父E；未触共享unit、main同步、canonical、归档、PR、merge、部署或公开消息。
