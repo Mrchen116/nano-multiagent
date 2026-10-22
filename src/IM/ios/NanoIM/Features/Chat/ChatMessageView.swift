@@ -6,6 +6,7 @@ struct ChatMessageView: View {
     let message: ChatMessage
     let selfID: String
     var participants: [ActorRef] = []
+    var showSenderName = false
     var readOnly = false
     let refreshed: () -> Void
     @State private var showProcess = false
@@ -27,13 +28,19 @@ struct ChatMessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
-            VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(senderName).font(.caption.bold()).foregroundStyle(.secondary)
-                NanoTimestamp(value: message.created_at)
-                Spacer()
-                Text(status).font(.caption2).foregroundStyle(message.delivery_status == "failed" ? .red : .secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                if showSenderName && !mine && message.system_notice == nil {
+                    Text(senderName).font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
+                }
+                messageContent
+                if hasMetadata { metadata }
             }
+            if !mine { Spacer(minLength: 14) }
+            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
+        }
+    }
+    private var messageContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let notice = message.system_notice {
                 Label(notice["kind"].stringValue ?? L("系统通知", "System notice"), systemImage: "info.circle").font(.callout)
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
@@ -66,32 +73,27 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
-            if message.sender_type == "agent" {
-                HStack {
-                    if let usage = message.token_usage { ChatUsageView(usage: usage) }
-                    Spacer()
-                    if let ms = message.elapsed_ms { Text(String(format: "%.1fs", ms / 1000)) }
-                    else if message.delivery_status == "running", let start = startedAt {
-                        Text(start, style: .timer).monospacedDigit().accessibilityLabel(L("本轮耗时", "Turn duration"))
-                    }
-                }.font(.caption2).foregroundStyle(.secondary)
-            }
             }.padding(14).background(mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine ? Color.clear : NanoTheme.border, lineWidth: 1))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
-            if !mine { Spacer(minLength: 14) }
-            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
-        }
     }
-    private var status: String {
-        switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return message.sender_type == "agent" ? L("已完成", "Completed") : L("已发送", "Sent"); default: return L("已发送", "Sent") }
+    private var hasMetadata: Bool {
+        ["running", "failed"].contains(message.delivery_status) || (message.sender_type == "agent" && (message.token_usage != nil || message.elapsed_ms != nil))
     }
-    private var startedAt: Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: message.created_at) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: message.created_at)
+    private var metadata: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if mine { Spacer(minLength: 0) }
+            if message.delivery_status == "failed" { Label(mine ? L("发送失败", "Send failed") : L("失败", "Failed"), systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+            else if message.delivery_status == "running" { Text(L("进行中", "Running")) }
+            if message.sender_type == "agent" {
+                if let usage = message.token_usage { ChatUsageView(usage: usage) }
+                if !mine { Spacer(minLength: 0) }
+                if let ms = message.elapsed_ms { Text(String(format: "%.1fs", ms / 1000)) }
+                else if message.delivery_status == "running", let start = nanoDate(message.created_at) {
+                    Text(start, style: .timer).monospacedDigit().accessibilityLabel(L("本轮耗时", "Turn duration"))
+                }
+            }
+        }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 4)
     }
     private var hasProcess: Bool { !(message.tool_calls ?? []).isEmpty || !(message.thinking ?? []).isEmpty || !(message.background_returns ?? []).isEmpty || !(message.reply_process ?? []).isEmpty }
     private struct ProcessItem: Identifiable {
