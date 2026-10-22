@@ -159,3 +159,13 @@ Round2对照证据追加：局部`pa-row-review.json/html`共3对PNG，已独立
 适用自动化/构建：Web34 tests /3files、Webbuild、iOSBUILD SUCCEEDED，日志见R5代码报告；先前44 XCTest+21 SwiftTesting及全Web测试仅在本delta未影响范围保留。没有为视觉数值编写镜像测试，也不机械重跑全unit。docs-check本轮259 maintained Markdown/67 required routes通过由caller交接；独立git diff-check通过。
 
 本次仅追加code-review/verification，未改实现/测试/设计、未占用浏览器/GUI/服务或提交。caller统一清理本轮现场并完成最终artifact检查；用户确认后才PR保持。本地可审预览可以交用户评估，本报告不授权PR/生产部署/真机安装。
+
+
+## Final sync — retained（2026-10-22）
+
+- 用户已确认本轮效果并要求提 PR。
+- validated_at: `09eb0e45855705e76bad50419df34e51141534f6`（最新 PA 行 delta；此前 full 的实际执行版本见上文）。
+- executed_base: `d846b015b8774461bb26b172e458443ce1eb071d`。
+- effective_base: `f6695dcaabfd8b3b1acadd0f7dda20378d0bc27a`；effective_through: `aa63af9b5f5856533df2419d200237fccc599f54`，及随后仅作相同 delta 的 canonical 归并、unit 归档和交付记录的提交。
+- main 增量仅为独立 feat-635 的设计/需求/原型与证据，没有产品代码、当前 specs、依赖或 CI 改动。逐项核对无影响本报告的范围、交互、权限与测试前提，保留前述 full 与最新局部通过结论；不把本次 retained 判断描述为重新执行全部门禁。
+- corrected delta 保持此前独立逐项核对通过的原文，按所属 area 归并 canonical；不引入新的产品要求。

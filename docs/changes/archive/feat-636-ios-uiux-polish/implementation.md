@@ -89,3 +89,16 @@ Gate 2 R3 已通过。独立 code-review R1 的 2 项已在 R2 关闭；R2 同�
 本轮创建页最初503已查明：默认挑第一个online节点时选中仅响应config.get的展示fixture，capabilities请求无返回而超时；真实Node全程online。停止展示fixture后完整reload，既有逻辑选中真实在线Node，创建侧栏正常，未修改正式源码或伪造能力。中文草稿确认因此使用真实Node的E2E Agent；19后图不是原研究助手，比较条件已明确。
 
 本轮收尾：单一headless feat636pa会话已关闭，prototype/gallery HTTP与fixture relay已停止；e2e-down再次STOPPED，63878无监听；仅本轮2D7CB8A5模拟器Shutdown，不关闭并行feat635设备/浏览器或用户Chrome。源码本地09eb0e458与更新文档保留，未push/PR，用户效果确认仍待回复。
+
+
+## 用户确认后的 PR 交付（2026-10-22）
+
+用户已回复“ok，提pr了吗”，效果确认完成并授权创建 PR。之前的未 push/未 PR/等待确认均为当时的历史状态。
+
+已 merge `origin/main` `f6695dcaabfd8b3b1acadd0f7dda20378d0bc27a`，集成树 `aa63af9b5f5856533df2419d200237fccc599f54`；main 增量只有 feat-635 的独立文档/原型，各门禁 retained 依据见对应报告。已将6项独立核对通过的 delta 原文归并到 ios-client 与 personal-agent 两份 canonical spec。后续交付保留本 worktree 以便审查与手机安装准备；本轮不合并、不部署、不安装到真机。
+
+本地最终交付检查：pnpm build/typecheck、check:ios-runtime 通过；Python non-e2e 62 passed / 31 deselected，ruff check/format 通过，npm critical audit 通过。docs-check 在选择含 PyYAML 的 miniforge Python 后执行，并按检查要求将 canonical 对齐标记改为最新 feat-636、同步 IM area 索引计数，267 maintained Markdown / 67 routes 通过。最新 arm64 Release archive 成功，IPA 为 /tmp/nano-feat636-device/NanoIM-unsigned.ipa，构建源码为集成树aa63af9b5（产品源与09eb0e458的28项SHA256全部相同），不再引用旧IPA作为最终包。
+
+后端全量首次115文件/537测试中，113文件/535测试通过，2项在并行Release编译期间超时（provider冷启动15秒、workspace工具90秒）。保留原日志 /tmp/nano-feat636-ci-backend.log；待编译结束后不改源码、不放宽超时，按 --maxWorkers=1 对两个文件复核，4项全部通过，日志 /tmp/nano-feat636-ci-timeout-recheck.log。主干同基线CI已全绿。现有证据支持本机并行负载相关的超时，未证明更深唯一根因；不将首轮全量记为一次全绿，不为未改动后端扩大修补范围。
+
+完整unit已git mv至archive；归档后docs-check通过（258 maintained Markdown / 67 routes），check_change_unit_archived通过，git diff --check通过。最终文件归档与canonical索引属于交付文档收尾，产品源码仍逐字匹配已验收09eb0e458。

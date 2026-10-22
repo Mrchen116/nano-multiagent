@@ -243,3 +243,13 @@ Web 英文 1440×960 列表中 PA 与普通行的头像/间距/字体一致，Co
 **Round 7 delta verdict：pass；累计最终 verdict 保持 pass，新增问题 0。** 新 must-match 行关系与真实页面相符。历史对照图需注明重建环境及上述配置对象差异，不把数据变化当作视觉优化。
 
 已关闭交接的唯一 headless browser `feat636pa`，没有新开 headed 浏览器或操作用户 Chrome；原生已恢复 large/light、Agent 列表并交回 caller，未关闭设备/共享服务。仅追加本报告，未读实现定位或修改源码。用户确认前不得创建 PR 的交付约束保持。
+
+
+## Final sync — retained（2026-10-22）
+
+- 用户已确认本轮效果并要求提 PR。
+- validated_at: `09eb0e45855705e76bad50419df34e51141534f6`（最新 PA 行 delta；此前 full 的实际执行版本见上文）。
+- executed_base: `d846b015b8774461bb26b172e458443ce1eb071d`。
+- effective_base: `f6695dcaabfd8b3b1acadd0f7dda20378d0bc27a`；effective_through: `aa63af9b5f5856533df2419d200237fccc599f54`，及随后仅作相同 delta 的 canonical 归并、unit 归档和交付记录的提交。
+- main 增量仅为独立 feat-635 的设计/需求/原型与证据，没有产品代码、当前 specs、依赖或 CI 改动。逐项核对无影响本报告的范围、交互、权限与测试前提，保留前述 full 与最新局部通过结论；不把本次 retained 判断描述为重新执行全部门禁。
+- corrected delta 保持此前独立逐项核对通过的原文，按所属 area 归并 canonical；不引入新的产品要求。

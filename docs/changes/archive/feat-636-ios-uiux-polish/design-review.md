@@ -291,3 +291,13 @@ M1-E 局部实施验收需在真实客户端对照默认短名行高、长名/�
 ### Round5 Author retained note
 
 R5 后仅将 delta-spec 既有「双端查找」一句同步为已审的普通行样式、整行配置和无额外 Configure，与 R5 已审 spec/design/prototype 一致，无新增决定、接口或旅程；由本轮 corrected-delta 纳入静态复核，不另触发设计复审。
+
+
+## Final sync — retained（2026-10-22）
+
+- 用户已确认本轮效果并要求提 PR。
+- validated_at: `09eb0e45855705e76bad50419df34e51141534f6`（最新 PA 行 delta；此前 full 的实际执行版本见上文）。
+- executed_base: `d846b015b8774461bb26b172e458443ce1eb071d`。
+- effective_base: `f6695dcaabfd8b3b1acadd0f7dda20378d0bc27a`；effective_through: `aa63af9b5f5856533df2419d200237fccc599f54`，及随后仅作相同 delta 的 canonical 归并、unit 归档和交付记录的提交。
+- main 增量仅为独立 feat-635 的设计/需求/原型与证据，没有产品代码、当前 specs、依赖或 CI 改动。逐项核对无影响本报告的范围、交互、权限与测试前提，保留前述 full 与最新局部通过结论；不把本次 retained 判断描述为重新执行全部门禁。
+- corrected delta 保持此前独立逐项核对通过的原文，按所属 area 归并 canonical；不引入新的产品要求。

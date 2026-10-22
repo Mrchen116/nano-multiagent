@@ -146,3 +146,13 @@ iOS 的PA与普通条目使用同一私有agentRow内容、44pt默认头像、6p
 R5 effective_through：`09eb0e45855705e76bad50419df34e51141534f6`（仅本地源码commit，未push）；未因纯提交metadata重跑既有检查。已亲自查看24-Web桌面及26-iOS最终原图，行内容与已审共享组件关系一致；整行/active/大小字号产品closure仍待独立报告。
 
 R5 final closure：已读取acceptance Round7最终PASS、亲自核对3对尺寸与桌面/窄屏/iOS大小字号/active/create/dirty原图。09eb0e458源码无变化，未引入新存活finding，最终返回`[]`。未重审其他已有效full范围；corrected-delta普通行/整行配置/无额外Configure与最终实现aligned，用户确认后才PR。
+
+
+## Final sync — retained（2026-10-22）
+
+- 用户已确认本轮效果并要求提 PR。
+- validated_at: `09eb0e45855705e76bad50419df34e51141534f6`（最新 PA 行 delta；此前 full 的实际执行版本见上文）。
+- executed_base: `d846b015b8774461bb26b172e458443ce1eb071d`。
+- effective_base: `f6695dcaabfd8b3b1acadd0f7dda20378d0bc27a`；effective_through: `aa63af9b5f5856533df2419d200237fccc599f54`，及随后仅作相同 delta 的 canonical 归并、unit 归档和交付记录的提交。
+- main 增量仅为独立 feat-635 的设计/需求/原型与证据，没有产品代码、当前 specs、依赖或 CI 改动。逐项核对无影响本报告的范围、交互、权限与测试前提，保留前述 full 与最新局部通过结论；不把本次 retained 判断描述为重新执行全部门禁。
+- corrected delta 保持此前独立逐项核对通过的原文，按所属 area 归并 canonical；不引入新的产品要求。
