@@ -71,6 +71,21 @@
 
 Gate 2 R3 已通过。独立 code-review R1 的 2 项已在 R2 关闭；R2 同时覆盖 Web 离开保护 delta，无存活代码 finding。独立产品 reviewer 已完成 Web 正常、搜索、无 PA 身份、他人 PA 权限与失败恢复，原生 full acceptance 另见追加报告。独立产品最终局部closure已到（acceptance Round6），包含新聊天层级、时间边界、默认/大字号、运行失败用量、复制与横向表格；full verifier 最终 PASS，0 CRITICAL / WARNING / SUGGESTION，13/13 Scenario 与6项 corrected delta 全部 aligned；本次预览不提前执行用户确认后的PR交付。当前不声称 PR/CI/生产/真机交付完成。
 
+## 用户反馈：PA 列表行校正（源码09eb0e458）
+
+用户指出PA卡片高于普通行且Configure多余。Web移除专属卡片CSS、复用既有AgentRow与onSelect；由同一组件承担desktop/mobile/active与原搜索字段。iOS共用私有agentRow与相同row insets、44头像和6文本间距，移除特殊底色/配置字样，保留系统导航与辅助说明；contact缺失时不显示伪造状态。7个源/测试文件的小范围校正，功能状态与权限、草稿保护保持。产品Round7 PASS，静态R5无finding、verifier Round2 delta PASS，既有full有效结论保留。
+
+- Gate2 R5 Approved、代码R5无finding；其余Full门禁证据保留，M1-E局部产品/一致性复验另追加。
+- Web 3文件34测试通过：`/tmp/nano-feat636-pa-row-web.log`；Web build通过：`/tmp/nano-feat636-pa-row-web-build.log`；iOS simulator build通过：`/tmp/nano-feat636-pa-row-ios-build.log`。本轮纯呈现变更不为样式写镜像测试，也不重复无效的全量测试。
+- 原Web导航/dirty测试只改新标准accessibleName；红日志中详情用例确实找不到新行名，一项并发导入的ENOSPC单独视作环境失败，不冒充产品红。磁盘恢复只清理本任务旧before/device的编译intermediate缓存，源码/截图/Archive和IPA保留。
+- 本轮e2e-up重建隔离身份与数据库，实际IM为63878，PA为新owner通过既有API创建的同名助手。联系人顺序、节点标识、Mine标记变化在对照条件明确标注，不冒充完全相同的数据快照。
+- 桌面真实DOM实测：PA/E2E Global/E2E Agent均56px，padding9px 10px，头像32px。父级自走原生整行进入对应配置并返回，图after/24、26；独立复验已通过窄屏、大字号、active、创建侧栏与草稿保护。最终3对/6原图尺寸一致，独立补充3图，共9内嵌PNG；原23组后图中PA受影响画面均已更新。新增页3对与补图、主画廊5组更新图及全部补图均在浏览器实际解码，原图放大/关闭操作通过；渲染图pa-row-final-gallery.png已亲自查看。
+- 本轮新增PA行反馈另有3组局部前后页pa-row-review.html，原23组对应后图更新为最终样式。上一Release IPA源码仍为3200455b0，本轮09eb0e458仅Debug构建/模拟器验证；后续分发必须重新归档，不能把旧IPA当作本轮最终包。
+
 ## 本地预览收尾
 
 本轮创建的 Playwright 验收会话均已关闭；本轮 prototype/gallery HTTP、模型 HTTP/SSE、选择性 PA 失败代理及 fixture relay/control 均已停止。`e2e-down.sh --wt` 返回 `STOPPED`，隔离 Node/IM 已停止；专用模拟器2D7CB8A5-EC2A-46C6-9D5C-C823EEED3EC1已 shutdown，字体恢复large、浅色。端口54071/63680/63681/63682/63683无监听，原Node/IM PID无存活进程。保留 managed worktree 和自包含23组画廊便于用户确认，不归档、不提PR、不改变生产或用户手机。
+
+本轮创建页最初503已查明：默认挑第一个online节点时选中仅响应config.get的展示fixture，capabilities请求无返回而超时；真实Node全程online。停止展示fixture后完整reload，既有逻辑选中真实在线Node，创建侧栏正常，未修改正式源码或伪造能力。中文草稿确认因此使用真实Node的E2E Agent；19后图不是原研究助手，比较条件已明确。
+
+本轮收尾：单一headless feat636pa会话已关闭，prototype/gallery HTTP与fixture relay已停止；e2e-down再次STOPPED，63878无监听；仅本轮2D7CB8A5模拟器Shutdown，不关闭并行feat635设备/浏览器或用户Chrome。源码本地09eb0e458与更新文档保留，未push/PR，用户效果确认仍待回复。

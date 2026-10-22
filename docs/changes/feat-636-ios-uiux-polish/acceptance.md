@@ -212,3 +212,34 @@ E2E Agent 配置显示“群回复策略 · 仅被提及时回复”，菜单有
 **pass。** 原全部 Scenario 与新增「单聊与群聊」Scenario 已有真实产品或明确补充证据，must-match 全部 match；两个 major 均已在 Round 3/4 关闭，本轮无新阻断。Round 5 的「大字号普通 Markdown」由 inconclusive 更新为 pass，「真实对照」说明条件已补齐。其余累计 pass 保持。
 
 本结论限本次隔离环境的产品体验和视觉对照；不代表生产部署、真机安装或真实 LLM 任务质量。用户确认后才进入 PR 的约束仍有效，本 reviewer 未创建 PR。默认字号 large、浅色已恢复；12:24 明确交回模拟器控制权。仅更新本 acceptance.md，未修改实现或其他仓库文件；未开启新的浏览器窗口。
+
+## Round 7 — PA 行样式校正 targeted 验收
+
+- 2026-10-22 14:34–14:44，reviewer `/root/uiux_product_gate`；validated_at 为 caller 冻结的 PA 行样式 working tree（Gate 2 R5 Approved、静态 R5 无问题后构建的 Web/iOS）。范围仅 design「PA 行样式校正」与 M1-E 受影响交互；Round 1–6 已通过且未失效的创建、模型服务、消息、任务及权限/恢复结论保持，不重新执行。
+- 新现场 `http://127.0.0.1:63878`、nano 专用身份、本人 PA `pa_a40eeba6d62a`，真实节点 `wt-nano-multiagent-22994`。本轮重新建环境，不能将联系人顺序、节点 ID、在线状态与旧图视作同一数据快照。
+
+### 独立实际体验
+
+Web 英文 1440×960 列表中 PA 与普通行的头像/间距/字体一致，Configure 消失；保留“我的个人助手”分区、本人身份与整行入口，不再用另一种卡片视觉。实际浏览器测得 PA、E2E Global Agent、E2E Agent 高度均为 56 CSS px。点 PA 进入正确 ID 的配置，详情侧栏显示同一行的 active 高亮；实际截图 `reviewer/web-pa-row-active.png` 已看图。
+
+390×844 下三行均为 67.25 CSS px，PA 姓名、个人助手副标题与箭头清晰，未被 Configure 挤占。实际点 PA 后进入同一正确配置 URL。`after/25-pa-row-web-mobile.png` 已保存并目视。桌面证据 `reviewer/web-pa-row-desktop.png`；与 caller 的 after24 相同新布局。
+
+研究助手配置改描述为 `PA row review draft`，点 PA 弹离开确认；继续编辑后实读描述仍为原草稿，再次点 PA 并放弃才跳转正确 PA。草稿未保存。额外中文截图使用实际在线节点的 E2E Agent：填写“验收临时草稿不保存”后点 PA，实际出现中文确认弹层，确认退出后离开；`reviewer/web-pa-row-unsaved-confirm.png`。这张图与旧图的被编辑助手不同，但保护语义相同，不能描述为同一配置快照。
+
+创建页最初进入等待后显示 `503 (target_node_id is not connected)`，未据此把侧栏判 pass。caller 核实为本轮展示 fixture 不实现创建能力请求，停掉该 fixture relay 后保留真实节点；完整 reload 创建页后真实在线节点成为默认选项，创建内容及 PA 侧栏均实际正常显示，`reviewer/web-pa-row-create.png` 已覆盖早先 Loading 截图并独立看图。本轮未执行创建。后半段 fixture 联系人因此显示离线，这一环境状态变化与行样式无关。
+
+原生每次操作前核对 full AX 的窗口为 `Nano UIUX 636`，未接触并行 feat635。默认 large 下 PA 和相邻普通行使用一致头像、左右边距与文本布局，无特殊底色与“配置”字样；整行实际进入本人配置后返回。辅助 accessibility-medium 下 PA 名称/副标题/在线/箭头完整，普通 E2E Global 和长旅行名称按内容自然换行增高，没有为了统一固定高度裁切。`reviewer/ios-pa-row-large.png` 已拍；默认 after26 与实操一致。大字号这里允许不同正文长度导致行高不同，不用短 PA 行与多行普通名称强行要求像素等高。
+
+### Delta 判定与清理
+
+| 受影响项 | 来源 | 结果 |
+|---|---|---|
+| Web 桌面/窄屏 PA 与普通行视觉统一 | 用户反馈；design M1-E 校正 | pass，实际行高与目视一致 |
+| 列表整行直达与详情 active | 原 M1-E；校正保持条款 | pass，两宽度直达正确 PA |
+| 原草稿继续编辑/放弃保护 | 原 M1-E；校正保持条款 | pass，真实草稿未保存 |
+| 创建侧栏布局 | caller targeted 范围；共用行契约 | pass，环境修正后真实页面 |
+| 原生默认/辅助字号、长名与直接配置 | design M1-E；原生 may-adapt | pass，无裁切/突出卡片样式 |
+
+**Round 7 delta verdict：pass；累计最终 verdict 保持 pass，新增问题 0。** 新 must-match 行关系与真实页面相符。历史对照图需注明重建环境及上述配置对象差异，不把数据变化当作视觉优化。
+
+已关闭交接的唯一 headless browser `feat636pa`，没有新开 headed 浏览器或操作用户 Chrome；原生已恢复 large/light、Agent 列表并交回 caller，未关闭设备/共享服务。仅追加本报告，未读实现定位或修改源码。用户确认前不得创建 PR 的交付约束保持。

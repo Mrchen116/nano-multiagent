@@ -242,3 +242,52 @@ R1–R3 无重新打开项。本轮无 CRITICAL、WARNING 或新增可选建议�
 ### Author final assessment
 
 R3 Approved 已核实；未解决实质问题为零。进入实施，首文档、设计、delta与原型此后无未经审查的实质变化。保留用户确认后才提PR的交付限制；只做本地工作。
+
+## Round 5
+
+- reviewer_target: `/root/uiux_design_gate`（独立 reviewer）
+- review_mode: `delta`
+- mode_reason: 用户新增 PA 行一致性反馈改变既有呈现决定，按有界视觉/交互 delta 核对；不是仅文字 closure，不重审其他已验项。
+- retained_from: `Round 1–4`；PA 本人绑定、优先分区、整行直达配置、搜索/去重、权限、读取失败恢复及草稿离开保护的语义保持；其他功能和消息增量的设计结论不重新打开。
+- started_at: `2026-10-22T14:23:05+08:00`
+- completed_at: `2026-10-22T14:25:57+08:00`
+- duration: 2 分 52 秒
+- baseline: `d6db6a47597acec6e8994b0f9c96c4c25c41fcde`；本轮开始时 spec/design/prototype 已有待审修改，产品源码未因该视觉反馈改变。
+- Verdict: **Approved — 0 CRITICAL / 0 WARNING**
+
+### 覆盖与独立证据
+
+读取用户原话及 spec/design 新增的 PA 行校正、修订后的决定 6，并核查原型 agents 页与桌面侧栏。先查看真实 [桌面基线](/Users/czj/.codex/artifacts/feat-636-uiux/before/24-pa-row-web-desktop.png)、[窄屏基线](/Users/czj/.codex/artifacts/feat-636-uiux/before/25-pa-row-web-mobile.png)、[原生基线](/Users/czj/.codex/artifacts/feat-636-uiux/before/26-pa-row-ios.png)：PA 确实使用独立浅绿卡片/底色、不同头像与边距关系，并在姓名旁增加 Configure/配置。桌面 240px 侧栏尤其因额外动作挤压姓名；这是同一列表里的实际层级和密度不一致，不只是颜色偏好。
+
+接管父代理已经建立的**唯一 headless session `feat636pa`**，不新开浏览器、不操作别的 session。实际点击 iOS PA 演示控件，观察默认行与相邻短名称行；点击 PA 整行进入配置，确认名称为我的 PA 后返回；切换大字号再复查；切到 Web PA 并在 390×844 中再次进入配置/返回。亲自查看以下截图：
+
+- [默认与桌面侧栏](/Users/czj/.codex/artifacts/feat-636-uiux/prototype-pa-row-review-default.png)
+- [整行配置结果](/Users/czj/.codex/artifacts/feat-636-uiux/prototype-pa-row-review-config.png)
+- [大字号](/Users/czj/.codex/artifacts/feat-636-uiux/prototype-pa-row-review-large.png)
+- [Web 窄屏](/Users/czj/.codex/artifacts/feat-636-uiux/prototype-pa-row-review-web-mobile.png)
+
+画面判断：PA 保留在“我的个人助手”分区，仍容易定位；头像/两行文本/内边距与相邻短名称行使用同一行关系，去除特别底色、边框卡片及可见 Configure 后，没有另造一个占空间的主操作。整行进入配置的动作可用，返回回到列表。大字号长名称自然占更多行，PA 没有用固定高度或专属按钮压缩其身份文字。原型只证明该内容与交互决定，不证明真实 Web/SwiftUI 的最终行高或系统控件形态。
+
+### 真实接线与职责判断
+
+已读现有 `agent-row.tsx`：它已经统一 index/sidebar 与 detail/create rail 的头像、两行文本、桌面/窄屏 padding、min-height、节点/在线线索、active 背景和 aria-current，整行调用 `onSelect(agent_id)`。让 PA 入口直接复用此组件，比继续在 `personal-agent-entry.tsx` 维护专属 Avatar/identity/action 样式更简单，也能避免以后两个行实现再次漂移。保留本人分区和既有查询/匹配/去重职责，不需要重写列表或新增服务。
+
+已核实两个真实组装点 `AgentsListPage`、`AgentsRailDesktop` 都调用 `PersonalAgentEntry`；后者 `selectAgent` 已接受 onSelectAgent 回调。实施时将当前 isMobile/activeId 与所需已有 Agent/contact 信息投影到同一个 AgentRow，保留原回调，才能同时兑现“同一行样式”和已选状态/草稿保护。无需从公开可见性推导管理权限，也不能为了样式另读他人配置。
+
+原生 `AgentsView` 当前 PA 的 40pt 头像、额外 vertical padding、专属底色/配置文本，与普通 NavigationLink 的内容和 row insets 分开，是真实维护落点。将 PA 与普通行提取为**同一个小型行内容布局**、共用 insets，PA 的 destination 仍为 AgentConfigView、普通行仍为 Profile，职责与本次要求相称；不需要通用表单/列表框架。系统 NavigationLink 箭头与辅助说明可继续表达可点击性，可见“配置”字样不再承担必需信息。
+
+spec 与 design 的用户反馈、决定 6 和局部 must-match 已明确覆盖桌面 index、详情/创建侧栏、Web 窄屏及原生；原 M1-E 追加局部复验即可。delta 的长期消费者结果（本人优先区、直接配置、权限/失败边界）不变，无须另造 canonical requirement。既有隔离服务和设备资源足够，本轮不新增外部前置。
+
+### Issues、历史闭环与验收投影
+
+无 CRITICAL / WARNING；R1–R4 没有重新打开项。这次取代的是早期“独立 PA 卡片/配置字样”的视觉决定，保留其可发现性与直接导航目标；不以旧 Approved 抵消用户这次反馈。
+
+M1-E 局部实施验收需在真实客户端对照默认短名行高、长名/大字号的自然增高、Web active、整行目标与返回，并保留已有搜索/错误/权限/草稿保护结果。无需为纯文案或数值样式写镜像测试。Approved 是方案足以指导此项修正，不代表本次产品变更已验收。
+
+### 本轮边界
+
+只追加本 Round，未改 spec/design/prototype 或源码、未提交。`feat636pa` 已在完成操作后关闭，复查关闭返回 `Browser 'feat636pa' is not open`；未操作 Simulator、未启动服务、未触碰其他任务浏览器。截图保存在仓外指定目录。其他已验结论与用户确认后才提 PR 的要求保持。
+
+### Round5 Author retained note
+
+R5 后仅将 delta-spec 既有「双端查找」一句同步为已审的普通行样式、整行配置和无额外 Configure，与 R5 已审 spec/design/prototype 一致，无新增决定、接口或旅程；由本轮 corrected-delta 纳入静态复核，不另触发设计复审。

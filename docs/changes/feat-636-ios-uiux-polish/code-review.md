@@ -122,3 +122,27 @@ ConversationView 仅在 group 或 is_observer 时传递名字显示开关，obse
 静态审查通过不代替新增单聊/群聊默认及辅助字号真实截图、时间/运行失败状态产品复验；verification保持待这些证据，不将旧21组画廊当作新增scope已验。只改报告，未操作GUI/浏览器/服务或产品源码。
 
 R4 effective_through：`3200455b0`；最终28路径source manifest已独立SHA256核对一致。`/tmp/nano-feat636-ios-archive4.log` 为本聊天delta后的Release arm64 ARCHIVE SUCCEEDED；未因本地提交metadata重跑此前有效测试。
+
+
+## Round 5 — targeted delta：PA 与普通助手共用行
+
+- reviewer_target: `/root/uiux_static_gate`
+- review_mode: `patch`，仅 `d6db6a47597acec6e8994b0f9c96c4c25c41fcde` 后 caller 冻结的 PA 行内容/组装/CSS/既有测试 delta。
+- completed_at: `2026-10-22T14:30:22+08:00`
+- verdict: **Approved — 0 surviving findings**
+
+已核对用户新增同普通行要求、Gate2 R5 Approved、design 决定6与局部M1-E。Web PersonalAgentEntry直接复用既有AgentRow；真实联系人对象展开保留owner/node/状态/description，仅以本人binding覆盖agent_id/display_name并指定personal角色。联系人尚未返回时，用binding提供最小真实身份、空description，不从public可见性推导管理权限；设备/状态显示继续遵守现有AgentRow的fallback契约。两组装点均传现有agent、正确桌面/窄屏isMobile与active ID比较，因此正常active/aria-current不丢失；owner-description搜索字段仍在。onSelect仍由原selectAgent回调/列表navigate承担，详情dirty确认、create原blocker不被绕过。没有新增专用行框架或另一套导航。
+
+iOS 的PA与普通条目使用同一私有agentRow内容、44pt默认头像、6pt两行间距和相同12/20 row insets；只改目的地和副标题。特殊底色、额外padding及可见配置文本已移除，NavigationLink系统箭头与辅助hint保留。本人PA查不到contact时不显示臆造的在线/离线文字，online=false只不画绿点；身份、搜索/去重、错误恢复与公开联系人权限保持。
+
+34 tests /3 files `/tmp/nano-feat636-pa-row-web.log`通过；本轮只更新两个既有导航/dirty测试的标准row accessible name，原行为断言保留。亲自核对红日志`/tmp/nano-feat636-pa-row-red.log`：有1个真实“预期My assistant、实际仍Configure My assistant”的旧accessibleName差异；另一个suite的ENOSPC属于磁盘环境失败，不作为产品红测。Web build `/tmp/nano-feat636-pa-row-web-build.log`通过，iOS build `/tmp/nano-feat636-pa-row-ios-build.log` BUILD SUCCEEDED；独立diff-check通过。没有为纯高度、padding或文案写镜像测试，没有重跑此前有效全量。
+
+```json
+[]
+```
+
+只改代码审查/verification报告；本次真实短名行高、active、整行目标/返回及大字号局部产品验收和新增前后图尚待交接，不把静态共享同组件直接当成画面已通过。此前R1–R4有效结论保留，未操作GUI/服务/浏览器、未改产品/设计/测试、未提交或PR。
+
+R5 effective_through：`09eb0e45855705e76bad50419df34e51141534f6`（仅本地源码commit，未push）；未因纯提交metadata重跑既有检查。已亲自查看24-Web桌面及26-iOS最终原图，行内容与已审共享组件关系一致；整行/active/大小字号产品closure仍待独立报告。
+
+R5 final closure：已读取acceptance Round7最终PASS、亲自核对3对尺寸与桌面/窄屏/iOS大小字号/active/create/dirty原图。09eb0e458源码无变化，未引入新存活finding，最终返回`[]`。未重审其他已有效full范围；corrected-delta普通行/整行配置/无额外Configure与最终实现aligned，用户确认后才PR。

@@ -2,6 +2,8 @@
 
 > Validation snapshot: `d846b015b8774461bb26b172e458443ce1eb071d → 3200455b0`（源码本地可恢复快照；报告随本地unit文档保存；未 push/PR）
 
+> Latest effective_through: `09eb0e45855705e76bad50419df34e51141534f6`；本次PA行校正见Round 2，之前full有效结论按范围保留。
+
 ## Round 1 — full
 
 - reviewer: `/root/uiux_static_gate`，未参与受审实现。
@@ -114,7 +116,7 @@ M1 是单阶段体验 milestone，A–F 及用户追加 G 均有正式产品实�
 | ios-client / 创建与模型服务 | AgentsView 创建顺序；Me/设备常驻入口；ModelServices setup 状态；AgentModelOption display metadata/Menu tag | AgentContracts、ModelServiceContracts、test4；R2真实创建/异常恢复，最终标签截图已核 | aligned |
 | ios-client / 工作与任务阅读 | AgentWork 摘要/JSON拆责；TaskCompactCard/status定位/fit图；原权限分页保留 | 既有 Task/Agent契约，R2真实旅程，03/05/06/07对照 | aligned |
 | ios-client / 表单与完整阅读 | Markdown text fixedSize；Me/Node/Policy持续标签/单save；JSONDetailPage | test4既有设置/交互；R2表单；大字号末段最终原图已核 | aligned |
-| personal-agent / 双端查找 | own binding优先区、原contact搜索复用；两个rail回调；详情pending modal和create原blocker | Web3files34tests、红绿dirty回归；原生本人入口与Web他人权限 | aligned |
+| personal-agent / 双端查找（含R5字面校正） | own binding优先区、原contact搜索复用；两个rail回调；详情pending modal和create原blocker；Web AgentRow/iOS共用行、整行配置、无额外Configure | 原Web回归与R5 34/3files；构建；产品R7桌面/窄屏/active/create/dirty及原生大小字号；未影响权限/失败范围保留 | aligned |
 | personal-agent / 无PA与读取失败 | 单独personal错误+retry，不阻断public contacts；无binding不造本人卡 | Web真实第二身份/中断恢复；原生第二身份/选择性PA503及恢复R4 | aligned |
 | ios-client追加 / 消息身份与时间不占用正文气泡 | ChatTimelinePresentation标记首条/300秒/跨本地日；ConversationView独立时间；ChatMessageView外置群/observer名字及状态 | TimelineTests分组边界与test5；22/23真实对照及R6时间/状态/大小字号复验 | aligned |
 
@@ -123,3 +125,37 @@ M1 是单阶段体验 milestone，A–F 及用户追加 G 均有正式产品实�
 无独立遗漏的对外语义。新增聊天身份/时间/状态分层已纳入第6项ios-client delta；完整日期时间、observer direct保留身份与原业务路径均匹配设计。模型显示名保留 canonical 值、PA 原联系人搜索和配置草稿切换确认已纳入校正；区域语言值只是让现有已存设置正确显示且保留值，落于既有“表单清楚表达当前状态”，未新增locale协议或写入政策。operation覆盖恢复属于现有失败/未完成修改的可行动恢复，不另造历史结果承诺。
 
 Outcome: **aligned。** 全部6项corrected delta与最终实现/适用测试/直接证据一致，没有未覆盖的独立对外行为变化。
+
+
+## Round 2 — PA 行一致性 targeted delta（保留 Round 1 full）
+
+- verification_mode: `delta` / 对应corrected-delta校正。
+- baseline: `d6db6a47597acec6e8994b0f9c96c4c25c41fcde` → `09eb0e45855705e76bad50419df34e51141534f6`（本地源码commit，未push）；此前full的3200455b0源码结论及不受影响证据保持。
+- scope: 用户追加PA行一致性、design/Gate2 R5与M1-E局部范围；不重验创建/模型/消息/任务等已有效full范围。
+- 最终状态：**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；corrected-delta aligned。** 完成于2026-10-22T14:46:32+08:00，有效源码`09eb0e45855705e76bad50419df34e51141534f6`。
+- requires_full_verification: `false`。
+
+### Completeness / Correctness / Coherence
+
+Web直接共用AgentRow，两caller投影actual contact、mobile、active；fallback保留binding身份，不编造节点，已有description搜索/role/owner信息及选择回调保持。独立核对详情dirty保护与创建blocker调用链未被绕过，选中背景现在来自原AgentRow标准active状态。iOS共用同一agentRow函数与insets，PA无contact不臆造状态文本。没有API、权限、schema、依赖或执行运行时变化，移除专属CSS与共享原组件是已批准的最小实现。
+
+适用证据：Web34/3files及build、iOS BUILD SUCCEEDED，日志见code-review R5。既有自动化只更新标准accessibleName，原导航/搜索/dirty断言保留；ENOSPC不算产品红测。已读acceptance Round7最终pass：Web桌面index、详情/创建rail、窄屏同行高/active/整行目标/dirty保留与放弃、iOS默认及大字号/长名自然增高均有独立实际操作和前后原图。此前权限、失败恢复、搜索和全量测试仅在未受影响范围保留；本轮视觉与受影响导航另用R7直接证据闭环。
+
+本次是已存在personal-agent“可辨认优先区与直接配置”的呈现校正：用户要求普通行替代独立卡片/Configure，长期consumer语义不变，无独立新增canonical requirement。delta-spec现已把第4项“personal-agent / 双端查找”原句字面同步为已审的普通行样式、整行配置及无额外Configure；与Gate2 R5一致，无新决定，corrected-delta补充共用标准row的实现证据；其余5项aligned保留。新增可观察细节已由spec/design用户追加明确记录，不属于漏掉独立产品语义。
+
+无存活实现/契约/架构或证据问题。本次delta verdict PASS；Round1 full历史PASS按未失效范围保留，corrected-delta全部6项仍aligned。用户确认后才PR继续有效。本reviewer未占用GUI/服务/浏览器。
+
+Round2新增静态画面核对：已亲自查看`after/24-pa-row-web-desktop.png`与`after/26-pa-row-ios.png`，去除专属底色/Configure且保留优先分区，与共享组件实现一致。caller实际量得Web PA与相邻短名行均56px、padding9px10px、头像32px；这是caller现场测量证据，非本verifier自行操作测量。新隔离现场/owner重建与旧图差异须由最终对照说明保留；此后已由Round7完整局部产品验收通过，未用静态一致冒充产品体验。
+
+Round2对照证据追加：局部`pa-row-review.json/html`共3对PNG，已独立检查before/after尺寸分别1440×960、390×844、1170×2532成对一致；新旧隔离身份/节点/联系人顺序及Mine标记差异已明确标注。亲自查看Web桌面与窄屏、iOS新旧原图，普通行替代卡片的视觉方向与已审实现一致；行为closure已由acceptance Round7最终pass补齐。fixture不支持capabilities导致创建页503属于验收前置/隔离现场能力选择，源码未新增故障，不以该环境条件回滚已有代码结论。
+
+
+### Round 2 最终证据收口与边界
+
+亲自读取acceptance R7、Gate2 R5及author retained note。局部pa-row-review最终为3对+3补充=9内嵌PNG；三对图片尺寸成对一致，桌面1440×960、窄屏390×844、iOS1170×2532。亲自查看新旧Web/iOS原图及reviewer的原生大字号、Webactive、创建页和中文dirty确认图，显示关系与共享组件实现一致。主23组中受影响后图更新为最终行样式，19图明确后图改用在线E2E助手、比较目标是草稿保护和PA行样式，不冒充同一助手内容；重建现场导致owner/Mine/节点/联系人顺序变化已标注。新现场63878只是隔离验收资源，未改生产或手机。
+
+独立产品实测桌面3条短名行均56 CSS px，窄屏均67.25 CSS px；iOS大字号不同内容自然增高可读。创建页503的真实原因是本轮仅提供展示/config.get的fixture被默认选中，停掉fixture、reload选择真实在线节点后创建页面和侧栏恢复，无源码修补。只把这一可证环境条件排除出产品finding，不把原失败操作当通过；最终R7使用恢复后的真实页面。
+
+适用自动化/构建：Web34 tests /3files、Webbuild、iOSBUILD SUCCEEDED，日志见R5代码报告；先前44 XCTest+21 SwiftTesting及全Web测试仅在本delta未影响范围保留。没有为视觉数值编写镜像测试，也不机械重跑全unit。docs-check本轮259 maintained Markdown/67 required routes通过由caller交接；独立git diff-check通过。
+
+本次仅追加code-review/verification，未改实现/测试/设计、未占用浏览器/GUI/服务或提交。caller统一清理本轮现场并完成最终artifact检查；用户确认后才PR保持。本地可审预览可以交用户评估，本报告不授权PR/生产部署/真机安装。
