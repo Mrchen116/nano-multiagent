@@ -490,3 +490,104 @@ host事实：8 logical CPU，load曾177.57/137.60/128.89→694.61/443.52/266.16�
 ### 现场与交付
 
 本人创建并保留`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r5` / `review/feat-625-r5`。旧R1–R4现场/报告和作者checkout未改；只提交R5 JSON与本追加，不改源码/测试/fixture/配置/spec/design，不push共享unit、不派worker、不Inbox/conversations/taskgraph/公开消息、不canonical/archive/PR/merge/deploy。未启动IM/Gateway，但确启动过native测试子进程。超时worker的orphan只在exact R5 DSH路径且PPID=1核对后TERM，不触碰Q/生产/其他worktree；未知temp home不猜路径删除，现场保留续验。最终exact worktree路径Node/DSH进程检查为0，剩余相关job均已收集或明确取消；report-only diff/check exit0。branch最终提交状态见交接回执。
+
+---
+
+## Round 6 — R5-W1 targeted runtime closure
+
+### Summary / 版本与范围
+
+**Verdict: PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION（R5-W1 targeted integration范围）；R5-W1 closed。** 原R5 NOT PASS、R2-W1/R3-W1 closed及Q R3 FAIL分别保留，不追改历史。`code-review-r6.md`为`[]`：无产品/测试patch，R5静态审查与18/18 corrected-delta **aligned retained**；不是重新生成整体Q或CI通过。
+
+| 字段 | 值 / 边界 |
+|---|---|
+| validated_at / 本轮独立执行 | `b355b3e6b9dd2810a0520a8f7133a4aa0c0c1384` |
+| 工程补证 executed_at | `3e5fff368d0d536ec471b0a6e7dc88e78d6e51fc`；实际运行七命令，不改为报告冻结SHA |
+| executed_base | `18e1af8b1cd0834ae3f22f5780f2d50b740f5171`；更早Full base不改 |
+| finding_origin_head / prior | `22114489ba131fbf847b60e0a4ca730d61471796` / R5 `db7c875efe3677e024bfcfe37df10d6b7cf57a12` |
+| verification_mode / code_review_mode | targeted-closure（R5-W1）+ corrected-delta/static retained / evidence-only patch + retained |
+| fix_delta_range | `22114489b..b355b3e6b`只有报告/记录；没有实现fix或timeout放宽，闭环来自同树原期限的具体运行证据 |
+| requires_full_verification | **false（本轮closure已足够）**；R5当时true的未决共享边界经下表闭环，不据此取消Q独立新栈验收 |
+| effective_base / effective_through | **仅R5静态/corrected-delta及本R5-W1 targeted运行范围**建立 `18e1af8b1..b355b3e6b`；整体effective_through仍未建立，Q R3继续FAIL待续验 |
+
+独立git核对`22114489b..b355b3e6b`的packages/apps/src/scripts/tests/锁与根vitest配置diff exit0；spec/design/全部delta也diff0。`3e5fff368..b355b3e6b`仅integration-r5-runtime.md与progress.md，原R5两报告逐字等价。没有因作者新绿测就自动覆盖原报告；以下先还原全部失败，再审观察器、核原始结果和生命周期，最后独立补缺失四项及一项无observer对照。
+
+### 原R5全部25失败的精确闭环账
+
+原始独立30文件批次仍是20 files pass/10 fail、218 tests pass/25 fail、600.70s/exit1，未改写成整批通过。恢复原始Vitest失败输出逐test核对，发现作者七文件**尚未覆盖knowledge三项与workspace-tools一项**，并非只缺泛化“更多native”。本轮已独立补完四项，不需作者猜清单或另派worker。
+
+证据代号：
+- **A1–A7**：作者七份`*.vitest.log`与对应JSONL逐项核收，均执行于3e5fff368：A1=context-recovery-0918（1p/4skip），A2=approval-recovery-0922（6p），A3=http-matrix-recovery-0923（15p），A4=history-recovery-0924（1p），A5=capabilities-recovery-0932（3p），A6=model-policy-recovery-0927（5p），A7=personal-security-recovery-0929（6p）。共37pass/4skip，不把skip算pass。
+- **R**：本人R5较低负载最后窄复跑的成功项：PA default、三规则root/child与realtime，见R5命令表；与当前产品/测试树实际等价，具体retained，不复活当时仍失败的六Agent用例。
+- **I1–I3**：本轮独立、根仓配置、**无观察setup**、单worker/fileParallelism=false、原期限串行结果：I1六Agentprofile对照1p/4skip；I2 knowledge原失败三项3p/2skip；I3 workspace-tools1p。
+
+以下file均省略`.test.ts`；除最后一行外都在`packages/dsh-integration/tests/`。名称和参数来自原失败结果，不用后来整文件总数推测匹配：
+
+| ID | file / 原失败test完整名称或精确参数展开 | 闭环证据 |
+|---|---|---|
+| 01 | agent-context-default / defaults new and existing Agents to context management and persists explicit workspace opt-out | A1；I1无observer再证 |
+| 02 | agent-context-default / gives a private Personal Agent the same default context tools without business permissions | R |
+| 03 | agent-context-default / allows bounded internal context operations with codex Auto off while retaining child business denial | R |
+| 04 | agent-context-default / allows bounded internal context operations with dsh Auto off while retaining child business denial | R |
+| 05 | approval-retry-native / nano executes once after real reviewer HTTP (initial503=false) | A3 |
+| 06 | approval-retry-native / nano executes once after real reviewer HTTP (initial503=true) | A3 |
+| 07 | approval-retry-native / dsh executes once after real reviewer HTTP (initial503=true) | A3 |
+| 08 | approval-retry-native / dsh executes once after real reviewer HTTP (initial503=date) | A3 |
+| 09 | approval / uses the dedicated reviewer once per stage, escalates valid denials, and distinguishes unattended faults | A2 |
+| 10 | approval / assembles native Inbox, delivered proposal and project instructions, and stops oversized review requests before submission | A2 |
+| 11 | capabilities / keeps empty business tools and Skills empty while retaining context management, and restores a subset | A5 |
+| 12 | capabilities / shadows owner tools in one workspace, constrains actual dispatch, and rebuilds after restart | A5 |
+| 13 | capabilities / discovers copied skills in the same session while disabled names survive reload | A5 |
+| 14 | history / forks a native message with its configuration and compacted prefix, independently and across restart | A4 |
+| 15 | knowledge / runs independent native maintenance children, persists successful facts and withdraws each Feature | I2 |
+| 16 | knowledge / invokes live human Inbox Skills once without promoting other sources (native pruning=false) | I2 |
+| 17 | knowledge / invokes live human Inbox Skills once without promoting other sources (native pruning=true) | I2 |
+| 18 | model-policy / keeps session effort and separates Skill catalogs from archived bodies (context windows=true, skill callable=false) | A6 |
+| 19 | model-policy / keeps session effort and separates Skill catalogs from archived bodies (context windows=false, skill callable=false) | A6 |
+| 20 | model-policy / keeps session effort and separates Skill catalogs from archived bodies (context windows=true, skill callable=true) | A6 |
+| 21 | model-policy / keeps session effort and separates Skill catalogs from archived bodies (context windows=false, skill callable=true) | A6 |
+| 22 | personal-security / keeps codex ordinary approval inside effective history while PA delivery retains its product boundary | A7 |
+| 23 | personal-security / keeps the ordinary Global capability catalog and executes owner extensions and source controls | A7 |
+| 24 | workspace-tools / installs workspace tools into existing chats, isolates dispatch, retries failed source and preserves restart choices | I3 |
+| 25 | packages/channels/tests/realtime-window / six ordinary requests leave two slots for control and bound unsent queue | R；原60ms deadline/累计frame与并发pending区别仍按R5解释，不改断言 |
+
+去重后恰好25项：作者七文件补齐其中17项；R5实际成功的具体4个原失败项retained；本轮I2/I3补另4项。I1重复验证01，仅作无observer对照，不再加一次closure计数。原22 timeout/2 poll/1 frame断言的失败事实全部保留；本轮不推断它们此前唯一根因均为资源压力。
+
+### 观察器审查与工程原始证据核收
+
+完整读取作者ignored `vitest.config.ts`两行与`setup.ts`49行：
+
+- config保留仓库include及15s默认期限，仅设置maxWorkers=1/fileParallelism=false和setup；每test显式30/25/20秒等原期限、fixture/断言及生产30/60/90秒预算均未改。
+- ObservedClient继承公开RuntimeClient；原options转发给super，仅包装onLog同步落盘后继续原callback。NANO_PROBE_INSPECT分支能改变child NODE_OPTIONS，但七次记录命令明确unset该变量和NODE_OPTIONS；本轮I1–I3亦unset，且完全不加载该setup。RPC wrapper绑定原request、传原method/params、返回原result或重抛error；prepareProfile/shutdown调用原实现；notification只记type、exit只旁观，不生成判定/终态或响应。
+- **不是零扰动等价证明**：同步append与async wrapper会增加I/O/微任务并可在磁盘故障时抛错，因此不声称所有调度完全相同。没有发现它绕过权限、预算、断言或替换审核结果的机制；七份原Vitest输出确为原测试绿，I1根配置无observer同样通过是最窄相关对照，不外推为所有观察设施全面认证。
+- 对七份JSONL独立做结构断言和聚合：spawn/exit分别2/5/15/2/5/8/4，共**41/41，全部code0/signal null**；test-end pass分别1/6/15/1/3/5/6，共37。按(pid,id)对应rpc-start与rpc-end/error，分别54/201/340/48/80/126/48条全部闭合，含测试预期拒绝，不把notification的任意turn/end冒充input终态。
+- 独立检查每次afterEach记录home exists=false，并检查32个unique home当前实际不存在；41个记录PID当前不在进程表。这里只核作者已有证据，不kill/删除其资源。JSONL证明生命周期及观察完整，业务终态仍归原测试sessionId+inputId lookup与效果/审计断言。
+- runtime.md:112–179的零Agent1421ms对照、contract13pass/7.65s、资源恢复与七次exit0作为带命令/版本的工程事实核收；没有将其称为本轮独立重复执行。作者37pass补证只在逐项匹配后使用，不以总数替代原25个失败清单。
+
+### 本轮独立执行（新worktree，无observer）
+
+2026-10-22 +0800，Node25.8.2/pnpm11.7.0、冻结DSH0.2.1-alpha.1/context rc.5。preflight load4.31/9.51/16.08、Data卷Available9187812KiB，只用于当前一个native窗口，不将磁盘建议值当产品契约或通过保证。依赖/build结束后才串行跑测试，没有并行Q/IM栈或宿主重批次。
+
+共同前缀：`env -u NANO_PROBE_INSPECT -u NODE_OPTIONS caffeinate -i pnpm exec vitest run --maxWorkers=1 --no-file-parallelism`，使用根vitest.config.ts，无setup/vi.mock/注册hook，无延长期限。
+
+| 实际命令后缀 / job | 结果 |
+|---|---|
+| `pnpm install --frozen-lockfile`，继而`pnpm --filter @nano/dsh-integration... build`（bash-93） | 两者exit0；product-contracts+integration编译，不声称全部release/CI build |
+| `packages/dsh-integration/tests/agent-context-default.test.ts -t 'defaults new and existing Agents'`，I1，09:38:31 | **exit0，1pass/4skip，8.26s**，test7991ms，原30s |
+| `packages/dsh-integration/tests/knowledge.test.ts`配下方精确`-t`正则，I2，09:38:41 | **exit0，3pass/2skip，9.53s**；maintenance4335ms、pruning=false2427ms/true2587ms，原30/20/20s |
+| `packages/dsh-integration/tests/workspace-tools.test.ts`，I3，09:38:53 | **exit0，1pass，60.24s**，test60060ms，原90s |
+
+I2完整命令（正则为OR，不含额外转义）：
+
+```bash
+env -u NANO_PROBE_INSPECT -u NODE_OPTIONS caffeinate -i pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/dsh-integration/tests/knowledge.test.ts -t 'runs independent native maintenance children|invokes live human Inbox Skills'
+```
+
+三条在同一bash-95按set-e顺序执行，全部exit0后才继续/收取，整体exit0；不是三个同时native job。workspace测试本身有既定kill/restart/async cleanup断言，未新增故障或改清理行为。本轮未重跑七文件37项、原30文件整批、90秒×3、native owner/真IM或vendor；按范围复用可信证据并补精确欠项，而非重复已有效测试。
+
+### Closure / 门禁边界与现场
+
+- **R5-W1 closed，0C/0W/0S。** profile/opt-out/restart、CC超窗终态、15项真实HTTP与配置/history/capability/personal邻域由核收的同树原期限证据建立；剩余knowledge/工作区安装面已独立补齐，原R5权限四工具/root/child/downstream deny与durable分层的适用成功事实retained。R5静态18场景映射无delta变更，aligned retained，不重新写目标迎合实现。
+- **Q R3仍FAIL/11pass6inconclusive，Q625-R3-01未由本轮关闭。** 真实required/source/stop/fallback/native owner/双vendor新profile交父E续原Q，底层RuntimeClient fixture（包括product.call stub）不是真实PA/IM。不能由本轮closure宣布整体effective/CI/Ready PR，亦未canonical/archive/merge/deploy。
+- 新建前检查绝对路径/branch不存在，在冻结SHA建立`/Users/czj/.nanoassistant/workspaces/nano-engineering/.worktrees/review-feat-625-r6` / `review/feat-625-r6`，本人owner，保留续验；R5和作者现场不覆盖。最终exact R6路径Node/DSH进程为0，两个相关jobs已收取exit0，没有启动IM/Gateway或操作其他现场。
+- 仅R6 JSON与verification追加报告commit；原R5完整字节前缀、code-review和acceptance不改，不push共享unit、不Inbox/conversations/taskgraph/公开消息、不派worker。原产品W1与设施R3-W1各自closed，不复活历史FAIL；报告commit自身不是新的受试产品版本。
