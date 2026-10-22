@@ -1,6 +1,6 @@
 # feat-635: Task 持续执行体系升级
 
-状态：需求已收口，Full feat；首文档场景与验收标准已补齐，待技术设计，尚未实施。
+状态：需求与技术设计已收口，Full feat；[设计方案](design.md) 已通过 [Gate 2 Round 2](design-review.md)，Approved，0 CRITICAL / 0 WARNING；待 M1 实施，尚未修改产品代码。
 
 审阅进度：Q1–Q16 已收口，以各题最新结论为准。Q15 最新修订确认 waiting 与 doing 为并列状态，Tasks 页面将两者归入“进行中”栏；定时跟进纳入本期。Q16 明确不考虑旧数据，DSH Goal 对所有现有及新建 Agent 默认关闭，仅允许用户在配置页主动开启。工具传参与界面布局留给设计，本次没有实施或部署。
 
