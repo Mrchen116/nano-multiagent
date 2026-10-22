@@ -5713,12 +5713,5 @@ body {
 /* The owner's assistant keeps one stable configuration entry across Agent pages. */
 .agents-pa-section { margin: 2px 0 12px; }
 .agents-pa-section h2 { margin: 8px 5px; color: var(--im-text-muted); font-size: 11px; font-weight: 600; }
-.agents-pa-entry { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 10px; text-align: left; border: 1px solid var(--im-accent-border); border-radius: 12px; background: var(--im-accent-soft); color: var(--im-text); cursor: pointer; }
-.agents-pa-entry:hover { filter: brightness(.98); }
-.agents-pa-entry:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 2px; }
-.agents-pa-identity { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
-.agents-pa-identity strong { font-size: 13px; font-weight: 600; }
-.agents-pa-identity small { font-size: 11px; color: var(--im-text-muted); }
-.agents-pa-action { flex-shrink: 0; color: var(--im-accent); font-size: 11px; }
 .agents-pa-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; color: var(--im-text-muted); font-size: 12px; }
 .agents-pa-feedback button { border: 0; background: transparent; color: var(--im-accent); cursor: pointer; }

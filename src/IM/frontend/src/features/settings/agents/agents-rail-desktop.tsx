@@ -66,7 +66,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
       </div>
       <input type="search" className="chat-sidebar-search" aria-label={t("agents.search")} placeholder={t("agents.search")} value={search} onChange={e => setSearch(e.target.value)} />
       <nav className="flex-1 overflow-y-auto px-2 py-[6px]" aria-label={t("agents.title")}>
-        <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} searchText={agents.find(agent => agent.agent_id === personalBinding?.agent_id)?.description} onRetry={() => void personal.refetch()} onSelect={selectAgent} />
+        <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} agent={agents.find(agent => agent.agent_id === personalBinding?.agent_id)} isMobile={false} isActive={activeId === personalBinding?.agent_id} onRetry={() => void personal.refetch()} onSelect={selectAgent} />
         {agents.filter(agent => agent.agent_id !== personalBinding?.agent_id).filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
           <AgentRow
             key={agent.agent_id}

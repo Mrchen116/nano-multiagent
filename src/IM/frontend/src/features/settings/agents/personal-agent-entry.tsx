@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../i18n';
 import { useAuthStore } from '../../auth/auth-store';
-import { Avatar, colorForAgent, initialsOf } from '../../chat/components/avatar';
 import { getPersonalAgent, type PersonalAgentState } from '../../personal-agent/personal-agent-api';
+import { AgentRow, type AgentRowProps } from './agent-row';
 
 export function usePersonalAgentEntry() {
   const self = useAuthStore(s => s.user?.id);
@@ -14,22 +14,18 @@ export function configuredPersonalAgent(state?: PersonalAgentState) {
 }
 
 /** One owner entry shared by the list and detail/create navigation rails. */
-export function PersonalAgentEntry({state, failed, search, searchText = "", onRetry, onSelect}: {
-  state?: PersonalAgentState; failed: boolean; search: string; searchText?: string; onRetry: () => void; onSelect: (id: string) => void;
+export function PersonalAgentEntry({state, failed, search, agent, isMobile, isActive = false, onRetry, onSelect}: {
+  state?: PersonalAgentState; failed: boolean; search: string; agent?: AgentRowProps['agent']; isMobile: boolean; isActive?: boolean; onRetry: () => void; onSelect: (id: string) => void;
 }) {
   const {t} = useTranslation();
   const binding = configuredPersonalAgent(state);
-  const matches = binding && `${binding.display_name} ${binding.agent_id} ${t('pa.label')} ${searchText}`.toLowerCase().includes(search.trim().toLowerCase());
+  const matches = binding && `${binding.display_name} ${binding.agent_id} ${t('pa.label')} ${agent?.description ?? ''}`.toLowerCase().includes(search.trim().toLowerCase());
   return <>
     {failed && <div className="agents-pa-feedback" role="status"><span>{t('pa.retry')}</span><button onClick={onRetry} type="button">{t('agents.retry')}</button></div>}
     {state?.creation && <p className="agents-pa-feedback">{t('agents.paSettingUp')}</p>}
     {matches && <section className="agents-pa-section" aria-label={t('pa.create')}>
       <h2>{t('pa.create')}</h2>
-      <button type="button" className="agents-pa-entry" onClick={() => onSelect(binding.agent_id)} aria-label={`${t('agents.configure')} ${binding.display_name}`}>
-        <Avatar initials={initialsOf(binding.display_name)} color={colorForAgent(binding)} size={36} />
-        <span className="agents-pa-identity"><strong>{binding.display_name}</strong><small>{t('pa.label')}</small></span>
-        <span className="agents-pa-action">{t('agents.configure')} ›</span>
-      </button>
+      <AgentRow agent={{...agent, agent_id: binding.agent_id, display_name: binding.display_name, description: agent?.description ?? '', role: 'personal'}} nodes={[]} isActive={isActive} isMobile={isMobile} onSelect={onSelect} />
     </section>}
   </>;
 }

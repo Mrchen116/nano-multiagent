@@ -131,11 +131,11 @@ describe("agents list page", () => {
       return new Response(null,{status:404});
     });
     renderRouter({routes:appRoutes,initialEntries:["/settings/agents"]});
-    const own = await screen.findByRole("button",{name:"Configure My assistant"});
+    const own = await screen.findByRole("button",{name:"My assistant"});
     expect(screen.getAllByText("My assistant")).toHaveLength(1);
     expect(screen.getByRole("button",{name:/Someone else's assistant/})).toBeInTheDocument();
     await user.type(screen.getByRole("searchbox"), "Owner only search");
-    expect(screen.getByRole("button", {name:"Configure My assistant"})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"My assistant"})).toBeInTheDocument();
     await user.click(own);
     expect(apiMocks.navigate).toHaveBeenCalledWith("/settings/agents/my-pa");
   });

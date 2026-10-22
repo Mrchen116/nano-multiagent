@@ -92,7 +92,7 @@ export function AgentsListPage() {
           className="flex-1 overflow-y-auto"
           style={{ padding: isMobile ? "8px 10px" : "6px 8px" }}
         >
-          <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} searchText={agents.find(agent => agent.agent_id === personalBinding?.agent_id)?.description} onRetry={() => void personal.refetch()} onSelect={id => navigate(`/settings/agents/${encodeURIComponent(id)}`)} />
+          <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} agent={agents.find(agent => agent.agent_id === personalBinding?.agent_id)} isMobile={isMobile} isActive={activeAgentId === personalBinding?.agent_id} onRetry={() => void personal.refetch()} onSelect={id => navigate(`/settings/agents/${encodeURIComponent(id)}`)} />
           {agentsQuery.isLoading ? (
             <p className="p-2 text-[13px] text-[oklch(0.55_0.01_240)]">{t("common.loading")}</p>
           ) : agentsQuery.isError ? (

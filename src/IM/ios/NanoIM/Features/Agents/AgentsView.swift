@@ -36,17 +36,10 @@ struct AgentsView: View {
             if let binding, personalMatches {
                 Section(L("我的个人助手", "My personal assistant")) {
                     NavigationLink { AgentConfigView(client: client, agentID: binding.agent_id) } label: {
-                        HStack(spacing: 12) {
-                            AvatarView(name: binding.display_name, kind: "agent", size: 40)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(binding.display_name).font(.body.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                                Text(L("个人助手 · 你的专属助手", "Personal assistant · Yours")).font(.caption).foregroundStyle(NanoTheme.muted)
-                            }
-                            Spacer(minLength: 4)
-                            Text(L("配置", "Configure")).font(.subheadline).foregroundStyle(NanoTheme.accent)
-                        }.padding(.vertical, 4)
-                    }.accessibilityLabel(L("配置个人助手：", "Configure personal assistant: ") + binding.display_name)
-                }.listRowBackground(NanoTheme.softAccent)
+                        agentRow(name: binding.display_name, subtitle: L("个人助手", "Personal assistant"), status: contacts.first { $0.agent_id == binding.agent_id }?.status)
+                    }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                        .accessibilityHint(L("打开个人助手配置", "Open personal assistant settings"))
+                }
             }
             if personal?.creation != nil { Text(L("个人助手正在设置，请稍后重试。", "Personal assistant setup is in progress.")).font(.callout).foregroundStyle(.secondary) }
             if !regular.isEmpty { Section(L("其他助手", "Other assistants")) {
@@ -54,17 +47,8 @@ struct AgentsView: View {
                 NavigationLink {
                     AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
                 } label: {
-                    HStack(spacing: 12) {
-                        AvatarView(name: contact.display_name, online: contact.status == "online", kind: "agent")
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(contact.display_name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
-                            Text((contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")))
-                                .font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 4)
-                        Text(contact.status == "online" ? L("在线", "Online") : L("离线", "Offline"))
-                            .font(.caption).foregroundStyle(contact.status == "online" ? NanoTheme.accent : NanoTheme.muted)
-                    }.accessibilityElement(children: .combine).accessibilityLabel("\(contact.display_name), \(contact.status ?? "unknown"), \(contact.node_name ?? "")")
+                    agentRow(name: contact.display_name, subtitle: (contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")), status: contact.status)
+                        .accessibilityLabel("\(contact.display_name), \(contact.status ?? "unknown"), \(contact.node_name ?? "")")
                 }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
             }
             } }
@@ -80,6 +64,20 @@ struct AgentsView: View {
             guard scenePhase == .active else { return }
             repeat { await load(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled
         }
+    }
+    private func agentRow(name: String, subtitle: String, status: String?) -> some View {
+        HStack(spacing: 12) {
+            AvatarView(name: name, online: status == "online", kind: "agent")
+            VStack(alignment: .leading, spacing: 6) {
+                Text(name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
+                Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            if let status {
+                Text(status == "online" ? L("在线", "Online") : L("离线", "Offline"))
+                    .font(.caption).foregroundStyle(status == "online" ? NanoTheme.accent : NanoTheme.muted)
+            }
+        }.accessibilityElement(children: .combine)
     }
     private func load() async {
         do {

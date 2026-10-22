@@ -197,12 +197,12 @@ describe("agent detail page", () => {
     const name = await screen.findByDisplayValue("Core Planner");
     await user.clear(name);
     await user.type(name, "Unsaved name");
-    await user.click(screen.getByRole("button", {name:"Configure My assistant"}));
+    await user.click(screen.getByRole("button", {name:"My assistant"}));
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog");
     await user.click(within(dialog).getByRole("button", {name:/Keep editing/i}));
     expect(name).toHaveValue("Unsaved name");
-    await user.click(screen.getByRole("button", {name:"Configure My assistant"}));
+    await user.click(screen.getByRole("button", {name:"My assistant"}));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", {name:/Leave without saving/i}));
     expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/my-pa");
     expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
