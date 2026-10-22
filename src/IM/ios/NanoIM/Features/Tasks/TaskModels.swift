@@ -1,6 +1,13 @@
 import Foundation
 import CoreGraphics
 
+struct TaskWait: Codable, Sendable, Hashable {
+    var reason: String; var schedule_id: String; var owner_agent_id: String; var session_id: String; var next_check_at: String
+}
+struct TaskWaitHealth: Codable, Sendable, Hashable {
+    var state: String; var checked_at: String; var reason_code: String?
+}
+
 struct TaskNode: Codable, Identifiable, Sendable, Hashable {
     var id: String
     var container_id: String?
@@ -27,6 +34,8 @@ struct TaskNode: Codable, Identifiable, Sendable, Hashable {
     var can_delete: Bool?
     var can_claim: Bool?
     var direct_counts: TaskCounts?
+    var wait: TaskWait?
+    var wait_health: TaskWaitHealth?
 
 }
 struct TaskDependency: Codable, Sendable, Hashable { let from: String; let to: String }
@@ -53,6 +62,8 @@ struct TaskSummary: Codable, Identifiable, Sendable {
     var created_by: ActorRef?
     var assignee: ActorRef?
     var direct_counts: TaskCounts?
+    var wait: TaskWait?
+    var wait_health: TaskWaitHealth?
     var id: String { graph_id + ":" + (node_id ?? root_node_id) }
 }
 struct TaskGraphPage: Decodable, Sendable { let items: [TaskSummary]; let next_cursor: String?; let total: Int }
@@ -98,7 +109,7 @@ struct NativeTaskLayout {
 }
 
 func taskStatus(_ status: String) -> String {
-    switch status { case "todo": return L("待办", "To do"); case "doing": return L("进行中", "In progress"); case "done": return L("完成", "Done"); case "paused": return L("暂缓", "Paused"); case "in_review": return L("待确认", "In review"); case "closed": return L("已关闭", "Closed"); default: return status }
+    switch status { case "todo": return L("待办", "To do"); case "doing": return L("推进中", "Advancing"); case "waiting": return L("等待中", "Waiting"); case "done": return L("完成", "Done"); case "paused": return L("暂缓", "Paused"); case "in_review": return L("待确认", "In review"); case "closed": return L("已关闭", "Closed"); default: return status }
 }
 
 struct TaskConversation: Codable, Sendable, Hashable {
@@ -110,13 +121,15 @@ struct TaskConversation: Codable, Sendable, Hashable {
     var can_write: Bool
 }
 struct TaskCounts: Codable, Sendable, Hashable {
-    var todo: Int; var doing: Int; var in_review: Int; var done: Int; var paused: Int; var closed: Int; var total: Int
+    var todo: Int; var doing: Int; var waiting: Int; var in_review: Int; var done: Int; var paused: Int; var closed: Int; var total: Int
     var summary: String { L("直属子任务：已完成 \(done) / 共 \(total)", "Direct subtasks: \(done) done / \(total) total") }
 }
 struct TaskPathPart: Codable, Sendable, Hashable { var id: String; var title: String }
-let taskStatuses = ["todo", "doing", "in_review", "done", "paused", "closed"]
+let taskStatuses = ["todo", "doing", "waiting", "in_review", "done", "paused", "closed"]
 let taskGroups = ["todo", "doing", "in_review", "done", "closed"]
-func taskGroupContains(_ group: String, status: String) -> Bool { group == status || (group == "todo" && status == "paused") }
+func taskGroupTitle(_ group: String) -> String { group == "doing" ? L("进行中", "In progress") : taskStatus(group) }
+func taskEditableStatuses(_ current: String?) -> [String] { taskStatuses.filter { $0 != "waiting" || current == "waiting" } }
+func taskGroupContains(_ group: String, status: String) -> Bool { group == status || (group == "todo" && status == "paused") || (group == "doing" && status == "waiting") }
 
 extension ActorRef {
     var taskKey: String { type + ":" + id }

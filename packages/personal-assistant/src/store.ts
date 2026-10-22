@@ -210,12 +210,12 @@ export class NodeStore {
   /** Native scheduled messages already exist in DSH; never submit them a second time. */
   private runtimeInput(sessionId: string, message: RuntimeInput): void {
     const source = message.source;
-    if (source?.kind !== 'schedule' && !(source?.kind === 'nano-system' && source.channel === 'heartbeat')) return;
+    if (source?.kind !== 'schedule' && !(source?.kind === 'nano-system' && ['heartbeat','task-execution','task-change'].includes(String(source.channel)))) return;
     const binding = this.bindings().find(binding => binding.sessionId === sessionId)!;
     const input: RelayInput = {
       relay_task_id: `runtime:${sessionId}:${message.id}`, idempotency_key: message.id,
       agent_id: binding.agentId, conversation_id: binding.conversationId,
-      metadata: { runtime_input_id: message.id, origin: source.kind === 'schedule' ? 'schedule' : 'heartbeat',
+      metadata: { runtime_input_id: message.id, ...(source.kind==='nano-system'&&source.channel==='task-change'?{context_only:true}:{}), origin: source.kind === 'schedule' ? 'schedule' : ['task-execution','task-change'].includes(String(source.channel))?'task_execution':'heartbeat',
         ...(binding.conversationId.startsWith('external:') ? { external_reply: `runtime:${message.id}`, channel: 'feishu' } : {}),
       },
       message: { id: message.id, content: message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join(''),

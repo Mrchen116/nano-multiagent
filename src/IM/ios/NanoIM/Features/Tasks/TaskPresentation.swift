@@ -1,7 +1,62 @@
 import SwiftUI
 
+struct TaskWaitView: View {
+    let wait: TaskWait?
+    let health: TaskWaitHealth?
+    var compact = false
+    private var state: String { health?.state ?? "unknown" }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !compact { Text(L("等待原因与恢复条件", "Waiting reason and resume condition")).font(.headline) }
+            Text(wait?.reason ?? L("等待原因暂不可用", "Waiting reason unavailable"))
+                .lineLimit(compact ? 3 : nil).fixedSize(horizontal: false, vertical: true)
+            if state == "invalid" {
+                Text(L("安排需要处理：负责人需重新核对并安排跟进。", "Schedule needs attention. The assignee must check and arrange follow-up.")).foregroundStyle(.orange)
+                Text(L("下次检查 · 暂无有效安排", "Next check · No valid schedule"))
+            } else {
+                if state != "valid" && (!compact || health != nil) { Text(L("暂无法核实安排，请稍后重试。", "Schedule could not be verified. Check again later.")).foregroundStyle(.orange) }
+                if let wait {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(state == "valid" ? L("下次检查", "Next check") : L("已保存的安排时间", "Saved schedule time"))
+                        NanoDateTime(value: wait.next_check_at)
+                    }
+                }
+            }
+            if !compact { Text(L("安排时间不是执行回执；以实际检查结果为准。", "A scheduled time is not an execution receipt. Check the actual outcome.")).font(.footnote).foregroundStyle(NanoTheme.muted) }
+        }.font(compact ? .caption : .subheadline).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(compact ? 0 : 14)
+            .background(compact ? Color.clear : NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct TaskRuntimeState: Decodable { let state: String }
+
+struct TaskAgentRuntimeView: View {
+    let client: IMClient
+    let agentID: String
+    let graphID: String
+    let nodeID: String
+    @State private var state = "unknown"
+    var body: some View {
+        Text(L("负责人执行状态", "Assignee execution") + " · " + (state == "offline" ? L("节点离线", "Node offline") : state == "unknown" ? L("暂无法核实", "Could not be verified") : agentWorkStatus(state)))
+            .font(.footnote).foregroundStyle(NanoTheme.muted)
+            .task(id: "\(graphID)/\(nodeID)/\(agentID)") {
+                state = "unknown"
+                while !Task.isCancelled {
+                    do {
+                        let observed: TaskRuntimeState = try await client.get("/im/v1/task-graphs/\(graphID.pathComponent)/runtime?node_id=\(nodeID.pathComponent)")
+                        guard !Task.isCancelled else { return }
+                        state = ["running", "idle", "offline"].contains(observed.state) ? observed.state : "unknown"
+                    } catch { state = "unknown" }
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
+    }
+}
+
 func taskStatusIcon(_ status: String) -> String {
     switch status {
+    case "waiting": return "clock"
     case "doing": return "circle.lefthalf.filled"
     case "in_review": return "questionmark.circle"
     case "done": return "checkmark.circle.fill"
@@ -109,12 +164,13 @@ struct TaskActorPicker: View {
 
 struct TaskStatusPicker: View {
     @Binding var status: String
+    var originalStatus: String?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 6) {
-                    ForEach(taskStatuses, id: \.self) { value in
+                    ForEach(taskEditableStatuses(originalStatus), id: \.self) { value in
                         Button {
                             status = value; dismiss()
                         } label: {
@@ -205,7 +261,7 @@ struct TaskStatusSummary: View {
             HStack(spacing: 8) {
                 ForEach(taskStatuses, id: \.self) { status in
                     let count = counts[status, default: 0]
-                    Button { locate(status == "paused" ? "todo" : status) } label: {
+                    Button { locate(status == "paused" ? "todo" : status == "waiting" ? "doing" : status) } label: {
                         HStack(spacing: 5) {
                             Image(systemName: taskStatusIcon(status))
                             Text(taskStatus(status))
@@ -228,6 +284,8 @@ struct TaskCompactCard<Actions: View>: View {
     let assignee: ActorRef?
     var source: String? = nil
     var parentPath: String? = nil
+    var wait: TaskWait? = nil
+    var waitHealth: TaskWaitHealth? = nil
     var selectedCandidate = false
     let open: () -> Void
     @ViewBuilder var actions: () -> Actions
@@ -256,6 +314,7 @@ struct TaskCompactCard<Actions: View>: View {
             if let parentPath, !parentPath.isEmpty {
                 Text(parentPath).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
             }
+            if status == "waiting" { TaskWaitView(wait: wait, health: waitHealth, compact: true) }
             if selectedCandidate {
                 Label(L("已选方案", "Selected candidate"), systemImage: "checkmark.circle.fill")
                     .font(.caption).foregroundStyle(NanoTheme.accent)

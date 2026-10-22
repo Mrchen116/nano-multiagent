@@ -55,6 +55,9 @@ it('isolates native schedule owners, preserves disabled jobs across restart, and
     expect(history.records).toHaveLength(1);
     const manual = await client!.rpc.request('schedule.command', { agentId: 'a', sessionId: 'session-a', action: 'create', args: { title: 'Manual', prompt: 'Manual task', after_seconds: 3600 } }) as { id: string };
     expect(await client!.rpc.request('schedule.command', { agentId: 'a', action: 'jobs' })).toEqual(expect.arrayContaining([expect.objectContaining({ id: manual.id, name: 'Manual', instruction: 'Manual task', enabled: true, schedule: expect.objectContaining({ kind: 'after' }) })]));
+    expect(await client!.rpc.request('schedule.wait.inspect',{agentId:'a',sessionId:'session-a',scheduleId:manual.id})).toMatchObject({valid:true,owner_agent_id:'a',session_id:'session-a'});
+    expect(await client!.rpc.request('schedule.wait.inspect',{agentId:'b',sessionId:'session-b',scheduleId:manual.id})).toMatchObject({valid:false});
+    expect(await client!.rpc.request('schedule.wait.inspect',{agentId:'a',sessionId:'session-a',scheduleId:a.id})).toMatchObject({valid:false});
     const run = { agentId: 'a', sessionId: 'session-a', action: 'run', args: { id: manual.id, inputId: 'manual-schedule:test' } };
     await client!.rpc.request('schedule.command', run); await client!.rpc.request('schedule.command', run);
     const admissions = await client!.rpc.request('schedule.evidence', { sessionId: 'session-a' }) as { messageId: string; trigger: string; accepted: boolean }[];
@@ -62,6 +65,7 @@ it('isolates native schedule owners, preserves disabled jobs across restart, and
     await client!.rpc.request('configuration.apply', { ...agents[0], revision: '2', systemPrompt: 'UPDATED_PERSONA_MARKER', features: { task_graph: false, cron_scheduling: false } });
     expect(await tools('session-a')).not.toContain('task_graph');
     expect(await tools('session-a')).not.toContain('schedule_create');
+    expect(await client!.rpc.request('schedule.wait.inspect',{agentId:'a',sessionId:'session-a',scheduleId:manual.id})).toMatchObject({valid:false,reason_code:'schedule_disabled_or_unbound'});
     expect(JSON.stringify(await capabilities())).toContain('UPDATED_PERSONA_MARKER');
     // Existing native Session identity still accepts its original product binding.
     expect(await client!.rpc.request('session.ensure', bindings[0])).toMatchObject({ sessionId: 'session-a' });

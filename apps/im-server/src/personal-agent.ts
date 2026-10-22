@@ -305,7 +305,7 @@ export class PersonalAgents {
       case 'pa.incident.report': return this.incident(principal,args);
       case 'pa.action.prepare': return this.actions.prepare(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
-      case 'pa.action.commit': return this.actions.commit(principal,args);
+      case 'pa.action.commit': return this.actions.commitChecked(principal,args);
       case 'pa.action.complete': return this.actions.complete(principal,args);
       default: fail(400,'unsupported_personal_operation');
     }

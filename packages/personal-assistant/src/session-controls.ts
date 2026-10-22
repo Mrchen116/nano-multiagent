@@ -1,13 +1,13 @@
 import type { RelayInput, RuntimePort, SessionBinding, AgentConfiguration } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { NodeStore } from './store.js';
-import { needsAttention } from './attention.js';
+import { needsAttention, controlText } from './attention.js';
 
 export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; text?: string; delivered?: boolean }
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
-  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(input.message.content.trim());
+  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(controlText(input));
   if (!match || !needsAttention(input, { ...config, groupReplyPolicy: 'mention_only' })) return;
   return { action: match[1]!, argument: match[2]?.trim() ?? '' };
 }
@@ -31,7 +31,7 @@ export class SessionControls {
   }
   async wait(sessionId: string) { await this.tails.get(sessionId); }
   async recover(agentId: string) {
-    for (const intent of this.options.store.controls()) if (intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
+    for (const intent of this.options.store.controls()) if (intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;

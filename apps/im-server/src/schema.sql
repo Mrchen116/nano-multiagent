@@ -555,3 +555,5 @@ CREATE TABLE IF NOT EXISTS pa_reply_drafts (
  target_conversation_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
  field_name TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_execution_stops (agent_id TEXT NOT NULL, request_key TEXT NOT NULL, conversation_id TEXT NOT NULL, result_json TEXT NOT NULL, PRIMARY KEY(agent_id,request_key));

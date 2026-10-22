@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, MessageApprovalContext } from '@nano/product-contracts';
 import { canonicalJson, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
-import { needsAttention } from './attention.js';
+import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
 import { logicalEvents } from './presentation.js';
@@ -17,6 +17,7 @@ interface Options {
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
+  taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
@@ -92,7 +93,7 @@ export class GlobalAgent {
   async receive(input: RelayInput): Promise<void> {
     const config = this.options.agents.find(agent=>agent.agentId===input.agent_id && agent.mode==='global');
     if (!config) throw new Error('No global Agent for input');
-    const command = input.message.content.trim();
+    const command = controlText(input);
     const control = input.message.sender_type === 'user' && (/^\/(new|stop)$/.test(command) || sessionControl(input,config)!==undefined);
     const saved = structuredClone(input);
     if (config.personal) saved.metadata.personal_unclassified = true;
@@ -139,20 +140,25 @@ export class GlobalAgent {
   private async ingest(input: RelayInput, deferWake = false): Promise<void> {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
-    const binding = await this.main(config);
+    const stopping=input.message.sender_type==='user'&&controlText(input)==='/stop'&&!!this.options.taskStop;
+    const binding=stopping?this.binding(config):await this.main(config);
+    if(stopping&&config.personal) {
+      if(!await this.personal.source(config,input)){await this.receipt(input,'completed');return;}
+      if(input.metadata.personal_is_owner!==true||input.metadata.personal_delivery!=='participant')await this.main(config);
+    }
     if (config.personal && !await this.personal.admit(config,binding,input)) { await this.receipt(input,'completed'); return; }
     const ownerControl = !config.personal || input.metadata.personal_is_owner === true && input.metadata.personal_delivery === 'participant'
       && needsAttention(input,{...config,groupReplyPolicy:'mention_only'});
-    const command = input.message.content.trim();
+    const command = controlText(input);
     if(!ownerControl && this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) {
       this.options.inbox.demoteControl(input);deferWake=true;
     }
     if (ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop')) {
-      const binding = await this.main(config);
+      const binding = this.binding(config);
       let text = '全局模式不支持按聊天重置';
       if (command === '/stop') {
-        const result = await this.options.runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
-        text = result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
+        const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean;paused?:number};
+        text=result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
       await this.options.relay.request('agent.message', { node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
@@ -418,6 +424,7 @@ export class GlobalAgent {
       }
       if (call.method === 'task_graph') {
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
+        if(config?.mode==='single_thread'&&this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)throw new Error('Task execution session was superseded');
         if (config?.features?.task_graph === false) throw new Error('Task Graphs Feature is disabled');
         if (config?.mode === 'global') await this.reconcile(binding);
         else {

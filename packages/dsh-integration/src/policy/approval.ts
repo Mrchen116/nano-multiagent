@@ -77,7 +77,7 @@ export class NanoApproval extends Service {
     const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
-    return inputs.some(input => isHumanSource(input.source)) ? 'interactive' : 'unattended';
+    return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
   private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
     let reached = { consecutive: 0, total: 0 };

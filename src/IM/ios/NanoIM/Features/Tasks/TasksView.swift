@@ -59,6 +59,7 @@ struct TasksView: View {
                                     ForEach(rows) { item in
                                         TaskCompactCard(title: item.title, status: item.status, assignee: item.assignee, source: item.conversation.title,
                                                         parentPath: ownerMode ? item.parent_path?.map(\.title).joined(separator: " › ") : nil,
+                                                        wait: item.wait, waitHealth: item.wait_health,
                                                         open: { selected = item }) {
                                             HStack(spacing: 12) {
                                                 NavigationLink {
@@ -145,7 +146,7 @@ struct TaskStatusGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: taskStatusIcon(status)).foregroundStyle(NanoTheme.accent)
-                Text(status == "todo" && includesPaused ? L("待办 · 含暂缓", "To do · includes paused") : taskStatus(status)).font(.subheadline.weight(.semibold))
+                Text(status == "todo" && includesPaused ? L("待办 · 含暂缓", "To do · includes paused") : taskGroupTitle(status)).font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(partial ? L("已加载 \(count)", "\(count) loaded") : "\(count)").font(.caption).foregroundStyle(NanoTheme.muted)
             }.padding(.horizontal, 4).padding(.vertical, 2)
@@ -268,6 +269,7 @@ struct TaskGraphView: View {
                             TaskStatusGroup(status: group, count: nodes.count, includesPaused: nodes.contains { $0.status == "paused" }) {
                                 ForEach(nodes) { node in
                                     TaskCompactCard(title: node.title, status: node.status, assignee: node.assignee,
+                                                    wait: node.wait, waitHealth: node.wait_health,
                                                     selectedCandidate: scope.selected_candidate_id == node.id, open: { selected = node }) {
                                         Button { browsingScopeID = node.id } label: { TaskSubtaskLabel(counts: node.direct_counts) }
                                             .buttonStyle(.plain)
@@ -398,6 +400,8 @@ struct TaskNodeView: View {
                                 .font(.subheadline).foregroundStyle(NanoTheme.muted)
                         }
                     }
+                    if node.assignee?.type == "agent", let agentID = node.assignee?.id { TaskAgentRuntimeView(client: client, agentID: agentID, graphID: graph.graph_id, nodeID: node.id) }
+                    if node.status == "waiting" { TaskWaitView(wait: node.wait, health: node.wait_health) }
                     if !node.description.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             taskSectionLabel(L("任务说明", "Description"))
@@ -450,6 +454,12 @@ struct TaskNodeView: View {
                         }.font(.subheadline).padding(.top, 12)
                     } label: { Text(L("创建与修改信息", "Creation and changes")).font(.subheadline).foregroundStyle(NanoTheme.muted) }
                     if let chat = node.last_chat_id { Button { onReference(chat, referenceText(node, graph: graph, base: client.baseURL)) } label: { Label(L("回到聊天并引用", "Reference in chat"), systemImage: "arrowshape.turn.up.left") }.font(.subheadline) }
+                    if node.can_edit == true && ["waiting", "paused"].contains(node.status) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack { waitActions(node) }
+                            VStack(alignment: .leading) { waitActions(node) }
+                        }.buttonStyle(.bordered).disabled(busy)
+                    }
                     if node.can_claim == true {
                         Button(L("领取任务", "Claim task")) { if node.status == "done" { claiming = true } else { Task { await claim() } } }.buttonStyle(.bordered).disabled(busy)
                     }
@@ -499,6 +509,17 @@ struct TaskNodeView: View {
         guard !editing else { return }
         do { let fresh = try await client.taskGraph(graph.graph_id); guard !editing else { return }; updatedGraph = fresh; error = nil }
         catch { guard !editing else { return }; self.error = error.localizedDescription; if [403,404].contains((error as? APIError)?.status ?? 0) { dismiss() } }
+    }
+    @ViewBuilder private func waitActions(_ node: TaskNode) -> some View {
+        Button(L("恢复推进", "Resume progress")) { Task { await changeStatus("doing") } }
+        if node.status == "waiting" { Button(L("暂缓", "Pause")) { Task { await changeStatus("paused") } } }
+    }
+    private func changeStatus(_ status: String) async {
+        busy = true; error = nil; defer { busy = false }
+        do {
+            try await client.applyTask(currentGraph, operations: [.object(["op": .string("update_task"), "node_id": .string(nodeID), "patch": .object(["status": .string(status)])])], key: UUID().uuidString)
+            await refresh()
+        } catch { self.error = error.localizedDescription }
     }
     private func claim() async {
         if currentGraph.nodes.first(where: { $0.id == nodeID })?.status == "done", claimReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { error = L("请填写返工原因。", "Provide a rework reason."); return }

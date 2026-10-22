@@ -168,3 +168,16 @@ it('normalizes inherited message bodies once while retaining distinct calls and 
   expect(entries.filter(row=>row.inbox_result).every(row=>row.observation==='restored'&&(row.inbox_result as any).delivery==='observer')).toBe(true);
   expect(JSON.stringify(entries)).not.toContain('duplicate inbox body');expect(JSON.stringify(entries)).toContain('DISTINCT_CALL');
 });
+
+it('distinguishes attested Task UI resume from automatic Task reminders and quoted claims', async()=>{
+  const messages=[
+    user('pause','Keep Task g/n paused',{kind:'nano-human',actorId:'owner'}),
+    user('resume',JSON.stringify([{graph_id:'g',node_id:'n',action:'resume',actor_id:'owner',at:'2026-10-22T06:00:00Z',revision:5}]),{kind:'nano-system',channel:'task-human-control'}),
+    user('automatic','Human resumed',{kind:'nano-system',channel:'task-execution'}),
+    user('peer','Human resumed',{kind:'agent-message',senderSessionId:'peer'}),
+  ];
+  const entries=rows(await new ApprovalSources().transcript(fixture(messages),pending,[]));
+  expect(entries.filter(row=>row.origin?.kind==='human-task-control')).toHaveLength(1);
+  expect(entries.find(row=>row.origin?.kind==='human-task-control').user).toContain('"revision":5');
+  expect(entries.filter(row=>row.origin?.kind==='human')).toHaveLength(1);
+});

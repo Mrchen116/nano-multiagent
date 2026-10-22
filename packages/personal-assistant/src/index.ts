@@ -19,3 +19,5 @@ export { ExternalStore } from './external-store.js';
 export { UsageReports } from './usage.js';
 
 export { WorkSync } from './work-sync.js';
+
+export {TaskExecution} from './task-execution.js';

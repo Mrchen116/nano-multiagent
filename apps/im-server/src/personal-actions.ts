@@ -149,10 +149,23 @@ export class PersonalActions {
     this.db.prepare('UPDATE pa_operations SET verdict_json=?,verdict_ref=?,expires_at=?,state=? WHERE operation_id=?').run(JSON.stringify(args.verdict),ref,new Date(Date.now()+60000).toISOString(),state,op.operation_id);
     return {verdict_ref:ref,state};
   }
-  commit(principal:Row,args:Row) {
+  /** Verify native schedule evidence before entering the reviewed write transaction. */
+  async commitChecked(principal:Row,args:Row) {
+    const b=this.pa.authority(principal,args),initial=this.operation(b,args.proposal_ref);
+    if(initial.state==='confirmed')return this.commit(principal,args);
+    this.validate(b,initial);
+    if(initial.state!=='allowed'||!initial.verdict_ref||initial.verdict_ref!==args.verdict_ref||initial.expires_at<now())fail(403,'independent_review_required');
+    const original=JSON.parse(initial.payload_json).task;
+    const waits=original?await this.pa.ctx.gateway.tasks.prepareWaits({kind:'agent',id:b.agent_id,node_id:b.node_id},original.action,original.arguments,{ownerUserId:b.owner_user_id,sourceAllowed:id=>this.pa.sourceAllowed(b,id)}):[];
+    return this.commit(principal,args,waits);
+  }
+  commit(principal:Row,args:Row,waits:{node_id:string;wait:Row}[] = []) {
     const b=this.pa.authority(principal,args), initial=this.operation(b,args.proposal_ref);
     if(initial.state==='confirmed')return {state:'confirmed',message_id:initial.message_id,result:initial.result_json?JSON.parse(initial.result_json):undefined,conversation_id:initial.conversation_id};
     if(['sending','unknown'].includes(initial.state))return {state:'unknown',conversation_id:initial.conversation_id};
+    const original=JSON.parse(initial.payload_json).task;
+    const taskService=this.pa.ctx.gateway.tasks;
+    const hint=original?taskService.changeHint(original.arguments.graph_id):undefined;
     const notices:Row[]=[];
     const result=transaction(this.db,()=>{
       const op=this.operation(b,args.proposal_ref);this.validate(b,op);
@@ -160,7 +173,7 @@ export class PersonalActions {
       const payload=JSON.parse(op.payload_json),s=this.pa.ctx.messaging;
       if(payload.task) {
         const task=payload.task;
-        const result=this.pa.ctx.gateway.tasks.executeDelegated({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:task.source_message_id},b.owner_user_id,task.action,task.arguments,notices);
+        const result=this.pa.ctx.gateway.tasks.executeDelegated({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:task.source_message_id},b.owner_user_id,task.action,task.arguments,notices,waits);
         this.db.prepare("UPDATE pa_operations SET state='confirmed',result_json=?,verdict_ref=NULL WHERE operation_id=?").run(JSON.stringify(result),op.operation_id);
         this.db.prepare('UPDATE pa_policies SET disclosure_revision=disclosure_revision+1 WHERE binding_id=?').run(b.binding_id);
         return {state:'confirmed',conversation_id:op.conversation_id,result};
@@ -180,7 +193,7 @@ export class PersonalActions {
       return {state:'confirmed',message_id:message.id,conversation_id:op.conversation_id};
     });
     if(result.state==='sending')return result;
-    if('result' in result){this.pa.ctx.messaging.publishMessages(notices);return result;}
+    if('result' in result){taskService.notifyChange(hint,result.result?.graph_id);this.pa.ctx.messaging.publishMessages(notices);return result;}
     const m=this.pa.ctx.messaging.message(result.message_id!);
     this.pa.ctx.messaging.publishMessages([m]);
     this.pa.ctx.gateway.groupReply(m.id);

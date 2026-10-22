@@ -1222,12 +1222,35 @@
     },
     "status": {
       "todo": "To do",
-      "doing": "In progress",
+      "doing": "Advancing",
+      "waiting": "Waiting",
       "done": "Done",
       "paused": "Paused",
       "dropped": "Dropped",
       "in_review": "In review",
       "closed": "Closed"
+    },
+    "ongoing": "In progress",
+    "resume": "Resume progress",
+    "wait": {
+      "reason": "Waiting reason and resume condition",
+      "reasonUnavailable": "Waiting reason unavailable",
+      "invalid": "Schedule needs attention. The assignee must check and arrange follow-up.",
+      "unknown": "Schedule could not be verified. Check again later.",
+      "noSchedule": "Next check · No valid schedule",
+      "nextCheck": "Next check",
+      "savedTime": "Saved schedule time",
+      "notReceipt": "A scheduled time is not an execution receipt. Check the actual outcome."
+    },
+    "runtime": {
+      "label": "Assignee execution",
+      "running": "Running",
+      "idle": "Idle",
+      "waiting_permission": "Awaiting permission",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "offline": "Node offline",
+      "unknown": "Could not be verified"
     },
     "overview": "Root overview",
     "byAssignee": "By assignee",

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   listNodes: vi.fn(),
   listAgents: vi.fn(),
   navigate: vi.fn(),
+  updateAgentConfig: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -28,12 +29,13 @@ vi.mock("../../chat/chat-api", () => ({
 
 vi.mock("../../../hooks/use-is-mobile", () => ({ useIsMobile: () => false }));
 
-vi.mock("./im-agent-config-api", () => ({
+vi.mock("./im-agent-config-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./im-agent-config-api")>(),
   getAgentDetailState: apiMocks.getAgentDetailState,
   listAgentSummaries: apiMocks.listAgentSummaries,
   listNodes: apiMocks.listNodes,
   promptPreview: vi.fn(),
-  updateAgentConfig: vi.fn(),
+  updateAgentConfig: apiMocks.updateAgentConfig,
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -154,4 +156,24 @@ describe("agent feature settings", () => {
 
     expect(await screen.findByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
   });
+});
+
+it("saves a single Goal tool without a feature or selecting its siblings", async () => {
+  const user = userEvent.setup();
+  const state = agentState(CRON);
+  state.capabilities.features = [];
+  const names = ['create_goal', 'get_goal', 'update_goal'];
+  state.capabilities.tools = names.map(name => ({name, description:name, default_on:false}));
+  apiMocks.getAgentDetailState.mockResolvedValue(state);
+  apiMocks.updateAgentConfig.mockImplementation(async (_id, payload) => ({...state.config,...payload}));
+  renderDetail();
+  await screen.findByRole('heading', {name:'Settings Agent'});
+  const pill = (name: string) => document.querySelector<HTMLButtonElement>(`[data-testid="pill-selector-tools"] [data-pill-name="${name}"]`)!;
+  expect(screen.queryByRole('checkbox', {name:/DSH Goal/})).toBeNull();
+  for (const name of names) expect(pill(name)).toHaveAttribute('aria-pressed', 'false');
+  await user.click(pill('get_goal'));
+  expect(pill('create_goal')).toHaveAttribute('aria-pressed', 'false');
+  expect(pill('update_goal')).toHaveAttribute('aria-pressed', 'false');
+  await user.click(screen.getByRole('button', {name:/^Save$/i}));
+  await waitFor(() => expect(apiMocks.updateAgentConfig).toHaveBeenCalledWith('agent-1', expect.objectContaining({features:{},tool_allowlist:['get_goal']})));
 });

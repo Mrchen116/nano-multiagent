@@ -79,9 +79,11 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("task graph browsing", () => {
   it("opens the root overview without selecting a tree and drills into direct children", async () => {
+    list.items[0].status = "waiting";
     const { router } = renderTasks("/tasks");
     await screen.findByRole("button", { name: "View Video product" });
     expect(screen.getAllByTestId("task-status-column")).toHaveLength(5);
+    expect(within(screen.getByRole("region", { name: "In progress" })).getByText("Video product")).toBeInTheDocument();
     expect(screen.queryByText("A Choose direction")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/tasks");
     await userEvent.click(screen.getByRole("button", { name: "Enter subgraph of Video product" }));
@@ -89,13 +91,16 @@ describe("task graph browsing", () => {
     expect(screen.queryByText("Z1 Prototype")).not.toBeInTheDocument();
   });
 
-  it("keeps paused records in todo and in-review records in their own direct-child column", async () => {
+  it("keeps waiting with ongoing while paused and review retain their groups", async () => {
     currentGraph.nodes.find(node => node.id === "B")!.status = "paused";
     currentGraph.nodes.find(node => node.id === "C")!.status = "in_review";
+    currentGraph.nodes.find(node => node.id === "D")!.status = "waiting";
     renderTasks("/tasks/tg-1");
     await screen.findByRole("button", { name: "View B Implement" });
     expect(within(screen.getByRole("region", { name: "To do" })).getByText("Paused")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "In review" })).getByText("C Test")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "In progress" })).getByText("D Documentation")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "In progress" })).getByText("Waiting")).toBeInTheDocument();
     expect(screen.queryByText("Z1 Prototype")).not.toBeInTheDocument();
   });
 
@@ -252,6 +257,32 @@ describe("task graph browsing", () => {
     expect(screen.queryByLabelText("Task graph canvas, scroll to explore")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to root goal" }));
     expect(screen.getByRole("button", { name: "View A Choose direction" })).toBeInTheDocument();
+  });
+
+  it.each([['Paused', 'paused', 'To do'], ['Resume progress', 'doing', 'In progress']])("%s saves an explicit status and refreshes waiting details", async (label, status, group) => {
+    const waiting = currentGraph.nodes.find(node => node.id === "B")!;
+    Object.assign(waiting, {status:"waiting",can_edit:true,wait:{reason:"Wait for budget, then purchase",schedule_id:"s",owner_agent_id:"a",session_id:"main",next_check_at:"2026-10-22T12:00:00Z"}});
+    const fetchBefore = fetchMock.getMockImplementation()!;
+    const writes: Record<string, any>[] = [];
+    fetchMock.mockImplementation(async (url: string, ...args: unknown[]) => {
+      const init = args[0] as RequestInit | undefined;
+      if (init?.method === "POST") {
+        const body = JSON.parse(init.body as string); writes.push(body);
+        Object.assign(waiting,{status:body.operations[0].patch.status,wait:undefined});
+        return Response.json({graph_id:currentGraph.graph_id});
+      }
+      return fetchBefore(url);
+    });
+    renderTasks("/tasks/tg-1?node=B");
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", {name:label}));
+    await waitFor(()=>expect(writes).toHaveLength(1));
+    expect(writes[0].base_revision).toBe(9);
+    expect(writes[0].change_note).toBe("");
+    expect(writes[0].operations).toEqual([{op:"update_task",node_id:"B",patch:{status}}]);
+    await waitFor(()=>expect(within(dialog).queryByText("Wait for budget, then purchase")).not.toBeInTheDocument());
+    await userEvent.click(within(dialog).getByRole("button",{name:"Close"}));
+    expect(within(screen.getByRole("region",{name:group})).getByText("B Implement")).toBeVisible();
   });
 
   it("loads status columns independently, preserves appended cards on refresh, and resets every column for search", async () => {

@@ -1,8 +1,8 @@
 # feat-635: Task 持续执行体系升级
 
-状态：需求与技术设计已收口，Full feat；[设计方案](design.md) 已通过 [Gate 2 Round 2](design-review.md)，Approved，0 CRITICAL / 0 WARNING；待 M1 实施，尚未修改产品代码。
+状态：M1 已完成并进入 PR 交付，Full feat；[设计方案](design.md) 已通过 [Gate 2 Round 2](design-review.md)，独立[产品验收](acceptance.md)、[代码审查](code-review.md)与[一致性核验](verification.md)均通过。实施、测试和版本边界见[验证记录](evidence/implementation-validation.md)；未部署生产。
 
-审阅进度：Q1–Q16 已收口，以各题最新结论为准。Q15 最新修订确认 waiting 与 doing 为并列状态，Tasks 页面将两者归入“进行中”栏；定时跟进纳入本期。Q16 明确不考虑旧数据，DSH Goal 对所有现有及新建 Agent 默认关闭，仅允许用户在配置页主动开启。工具传参与界面布局留给设计，本次没有实施或部署。
+审阅进度：Q1–Q16 已收口，以各题最新结论为准。Q15 最新修订确认 waiting 与 doing 为并列状态，Tasks 页面将两者归入“进行中”栏；定时跟进纳入本期。Q16 明确不考虑旧数据；最新交付反馈要求三个 Goal 工具默认不选，并在普通工具列表逐项选择，不设 Feature 总开关。工具传参与界面布局见设计与最终实现；以下 Q1–Q16 保留事前对齐历史。
 
 ## Relations
 
@@ -29,7 +29,7 @@
 本节与各题结论已按 Q15 最新决定统一：waiting 与 doing 并列，页面分栏不等于任务状态，两者都归入“进行中”栏；等待前的定时跟进纳入本期。早先原话与被替代的提案保留为讨论历史，不能覆盖最新结论。
 
 - 本 feat 升级 Nano 现有 Task 体系，作为默认的目标与任务体系；Task 持续推进不依赖 DSH Goal。
-- 所有现有及新建 Agent 默认关闭 DSH Goal 管理工具，仅在用户于配置页主动开启后暴露；这项可选开关不改变 Task 的独立执行责任，不做 Task/Goal 套壳或状态同步。
+- 所有现有及新建 Agent 的默认工具选择不包含 DSH Goal 管理工具；用户可在工具列表分别选择 create_goal、get_goal、update_goal，不提供 Goal Feature 总开关或工具联动。显式工具白名单按用户选择生效，不做 Task/Goal 套壳或状态同步。
 - 持续推进责任以进入 `doing` 为依据，不限于“领取”这一入口。存在 doing 时继续；没有 doing 且所有 waiting 均有有效后续安排时，Task 不要求立即续跑。waiting 的安排失效时须触发处理，不能静默失联。不能因一轮回复结束而遗失责任。
 - Agent 自主安排多项进行中任务的推进顺序；续跑提示提供全部本人 `doing` 和 `waiting` 任务，分别标明待推进与等待中，不能只提供单一任务。助手按当前 Agent 负责的任务理解该列表范围，具体见 Q4。
 - 确实没有可执行的下一步时，允许说明阻塞原因和恢复条件后等待；第一期即允许 Agent 根据相关用户答复、协作 Agent 交付或实际送达的外部结果自主判断恢复，不要求额外恢复指令。
@@ -50,9 +50,9 @@
 
 本节记录当前行为，不预先决定升级后必须保留或改变哪些规则。核对基线为本地主仓 `8363845c7`。
 
-- Task 已支持持久图、计划依赖与探索关系、创建者和负责人、分配与领取、六种进展状态、结果记录、协作通知、所属会话权限、版本冲突与幂等处理。依据：[IM Task 契约](../../specs/im/task-graphs.md)、[Gateway Task 契约](../../specs/gateway/task-graphs.md)及 [Task 服务](../../../apps/im-server/src/task-graphs.ts)。
-- 当前 Task 明确定位为记录：保存不调度，分配不等于开工，领取表示接手并推进；状态变化不直接启动或停止 Agent，子任务完成不自动完成父任务。上述边界见两个 current specs，工具说明也明确“不执行任务”：[工具入口](../../../packages/dsh-integration/src/features/task-graphs.ts)。
-- 当前已有 Inbox、协作系统通知与 Heartbeat 等唤醒能力，但尚未据此建立 Task 的统一持续执行契约。Heartbeat 当前读取独立的工作空间指令，不能直接当作 Task 已具备自动续跑的证明：[Heartbeat](../../../packages/personal-assistant/src/heartbeat.ts)。
+- Task 已支持持久图、计划依赖与探索关系、创建者和负责人、分配与领取、六种进展状态、结果记录、协作通知、所属会话权限、版本冲突与幂等处理。依据：[IM Task 契约](../../../specs/im/task-graphs.md)、[Gateway Task 契约](../../../specs/gateway/task-graphs.md)及 [Task 服务](../../../../apps/im-server/src/task-graphs.ts)。
+- 当前 Task 明确定位为记录：保存不调度，分配不等于开工，领取表示接手并推进；状态变化不直接启动或停止 Agent，子任务完成不自动完成父任务。上述边界见两个 current specs，工具说明也明确“不执行任务”：[工具入口](../../../../packages/dsh-integration/src/features/task-graphs.ts)。
+- 当前已有 Inbox、协作系统通知与 Heartbeat 等唤醒能力，但尚未据此建立 Task 的统一持续执行契约。Heartbeat 当前读取独立的工作空间指令，不能直接当作 Task 已具备自动续跑的证明：[Heartbeat](../../../../packages/personal-assistant/src/heartbeat.ts)。
 - 原生 DSH Goal 的相关参考能力是：保存目标、自动发起后续轮次、控制停止与轮数边界。其直接真人来源限制暴露了 Global Inbox 入口的适配问题；本 feat 选择升级 Task，而不是把这项来源桥接作为目标方案。参考材料位于本地 DSH 的 `packages/goal/`；DSH 行为不自动成为本 feat 的验收要求。
 - bugfix-633 处理直接真人输入的原生来源语义，不能替代本 feat 的 Task 执行需求对齐。
 
@@ -87,7 +87,7 @@
 
 > 领取是进入待做状态，还是进行中状态？
 
-现状核实：当前领取会设置负责人为领取者，并进入“进行中”；分配只改变负责人，不改变状态。依据：[Task 服务领取操作](../../../apps/im-server/src/task-graphs.ts)。当前领取不驱动自动持续执行，因此“进行中记录”与“实际持续工作”仍需在本 feat 对齐。此追问尚未构成对选项的选择。
+现状核实：当前领取会设置负责人为领取者，并进入“进行中”；分配只改变负责人，不改变状态。依据：[Task 服务领取操作](../../../../apps/im-server/src/task-graphs.ts)。当前领取不驱动自动持续执行，因此“进行中记录”与“实际持续工作”仍需在本 feat 对齐。此追问尚未构成对选项的选择。
 
 用户最终答复：
 
@@ -211,7 +211,7 @@
 
 参考核实：本地 DSH `5badb15009` 的 `packages/goal/tool-goal/src/index.ts` 提示同一阻塞持续至少默认 3 个 Goal 轮次；代码在自动 Goal 来源下校验累计 `roundsStarted` 门槛与非空原因，没有独立核验同一阻塞的连续次数，直接真人来源不受该轮数门槛限制。`packages/interaction/tool-ask-user/src/index.ts` 的默认提问工具可挂起等回答，限时模式也支持无限等待；Goal driver 只在 Agent idle 等条件满足后续跑。因此不能把 DSH 描述为遇到用户问题必然空转三轮。普通文本提问后结束轮次、Goal 仍 active 且 armed 时，则可能继续自动推进。
 
-Nano 现状依据：[Global Agent 契约](../../specs/gateway/global-agent.md) 已规定普通消息询问、真实投递状态和按原来源理解回复；等待确认期间可以处理独立工作，无事则 idle。Task 升级应承接这项消息式协作语义，而不是把整个 Agent 挂在单个问题上。
+Nano 现状依据：[Global Agent 契约](../../../specs/gateway/global-agent.md) 已规定普通消息询问、真实投递状态和按原来源理解回复；等待确认期间可以处理独立工作，无事则 idle。Task 升级应承接这项消息式协作语义，而不是把整个 Agent 挂在单个问题上。
 
 已确认方案：不设置统一的最少轮数，按当前任务是否存在可执行下一步判断。
 
@@ -387,7 +387,7 @@ waiting 任务保留状态、阻塞原因与后续安排，用户暂缓任务保
 
 建议提醒示例：“任务 T2 不能转为 waiting：没有有效的后续检查安排。请继续推进；确需等待时，先安排检查，再一并登记 waiting、等待原因和安排 ID。”运行层故障仍如实处理，不把定时工具不可用伪装成等待安排已建立，也不绕过已有能力开关。
 
-后续动作原则：回复提前到达时读取上下文，条件满足则转回 doing 并解除等待信息；定时到期时检查任务最新状态，可以推进则转回 doing，仍需等待则保持 waiting 并更新下一次有效安排；完成、关闭或用户暂缓后，旧定时输入不得让任务重新开工。对同一任务重复唤醒的协调交给设计，不另建 Agent Loop。定时消息仍在创建它的主会话执行，参见 [Heartbeat/Cron current 契约](../../specs/gateway/heartbeat-cron.md)。
+后续动作原则：回复提前到达时读取上下文，条件满足则转回 doing 并解除等待信息；定时到期时检查任务最新状态，可以推进则转回 doing，仍需等待则保持 waiting 并更新下一次有效安排；完成、关闭或用户暂缓后，旧定时输入不得让任务重新开工。对同一任务重复唤醒的协调交给设计，不另建 Agent Loop。定时消息仍在创建它的主会话执行，参见 [Heartbeat/Cron current 契约](../../../specs/gateway/heartbeat-cron.md)。
 
 留给设计的呈现建议：等待说明显示原因和下次检查时间；Web 与 iOS 状态语义一致。普通续跑不逐轮刷聊天，有意义的交付、阻塞、需要答复或暂停变化再告知。完整正文、讨论和附件按需读取，清单覆盖所有层级本人 doing 和 waiting，分别标明待推进与等待中，不把一页当作全部。
 
@@ -442,6 +442,12 @@ waiting 任务保留状态、阻塞原因与后续安排，用户暂缓任务保
 
 ### Q16：旧数据与 DSH Goal 的默认开关
 
+**交付反馈后的最新澄清（2026-10-22）优先于下方历史解读：**
+
+> 我不想把DSH goal作为一个feature 啊，只是默认关闭那些工具，用户想一个个工具开起来也可以
+
+因此不增加 `dsh_goal` Feature；三个工具默认不选，用户在现有工具列表逐项开启或关闭，选择一个不改变另两个。未配置白名单使用不含 Goal 的默认集；显式白名单包含某 Goal 工具就允许该工具，无第二道总开关。撤销/新增沿用普通工具配置生效规则，不额外 disarm、过滤或改变原生 Goal 生命周期。Task 持续执行保持独立。此前 Feature 设计与验收仅作为历史记录，受影响 Goal 结论需按本次澄清复验。
+
 助手原提案：首次启用前核对旧 doing，避免进度记录被直接当成开工指令；产品停止向 Agent 暴露 DSH Goal 管理流程。用户明确缩小旧数据范围，并保留用户手动开启 DSH Goal 的入口。
 
 用户答复：
@@ -452,7 +458,7 @@ waiting 任务保留状态、阻塞原因与后续安排，用户暂缓任务保
 
 - 按没有旧 Task／Goal 数据处理，不做存量清单、核对流程、迁移或历史 Goal 自动转换；不能据此删除实际生产数据。
 - 所有现有 Agent 和新建 Agent 的 DSH Goal 管理工具默认关闭，默认工具集不暴露 create_goal、get_goal、update_goal。
-- 用户可以在配置页主动为指定 Agent 开启 DSH Goal；开启后按其原有能力和权限规则使用，关闭后不再暴露。默认关闭不是删除能力或禁止用户选择。
+- 用户可以在配置页工具列表分别开启或关闭三个 DSH Goal 工具；选中后按原生能力和权限规则使用，不依赖 Feature 总开关。默认关闭不是删除工具或禁止用户选择。
 - Task 持续推进独立成立，不用 DSH Goal 驱动 Task，不做两套目标双写或状态同步。用户主动开启 Goal 后也不把 Task 自动转成 Goal。
 - DSH 继续作为唯一执行运行时，通过公开接口接入；不另建 Agent Loop，不 fork、patch 或扩大私有接口依赖。
 
@@ -619,9 +625,9 @@ waiting 任务保留状态、阻塞原因与后续安排，用户暂缓任务保
 - **THEN** 所有 Agent 默认不向模型暴露 DSH Goal 管理工具；Task 持续推进不依赖开启 Goal。
 
 #### Scenario: 配置页主动开启或关闭
-- **WHEN** 用户在配置页明确为指定 Agent 开启 DSH Goal
-- **THEN** 该 Agent 可按原有能力与权限使用 Goal 管理工具，其他 Agent 的默认关闭状态不受影响；用户再次关闭后，不再暴露这些工具。
-- **AND** 开启不将 Task 转为 Goal，不建立 Task/Goal 双写或状态同步。
+- **WHEN** 用户在现有工具列表单独选择或取消某个 Goal 工具
+- **THEN** 只有该工具的选择改变，不联动另外两个工具，没有 DSH Goal Feature 总开关；已选工具按原生权限执行，生效时机沿用普通工具配置。
+- **AND** 未配置白名单时三工具默认不可调用，显式白名单选择予以保留；工具选择不额外改变原生 Goal 生命周期，不将 Task 转为 Goal，不建立 Task/Goal 双写或状态同步。
 
 ## 范围与非目标
 

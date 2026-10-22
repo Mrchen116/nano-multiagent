@@ -100,3 +100,4 @@ export * from './interactive.js';
 export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';
 
 export * from './work-sync.js';
+export * from './task-execution.js';

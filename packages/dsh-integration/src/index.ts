@@ -23,6 +23,7 @@ import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
+import { TaskExecutionDriver } from './task-execution.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
@@ -101,6 +102,7 @@ export default class NanoRuntime {
   private readonly controller;
   private readonly models: Promise<ModelPolicy>;
   private readonly cron: CronOwners;
+  private tasks!: TaskExecutionDriver;
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
@@ -158,6 +160,7 @@ export default class NanoRuntime {
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
+    this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent)});
     this.controller = ctx.plugin(SessionController, { nativeOpen: false });
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -203,7 +206,8 @@ export default class NanoRuntime {
       const history = request.agent.session.snapshotEvents();
       const turnStart = history.findLast(event => event.type === 'turn/start')?.seq ?? -1;
       const human = history.some(event => event.seq > turnStart && event.type === 'user/message' && isHumanSource(event.data.source));
-      if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human) return 'rejected';
+      const taskTurn=history.some(event=>event.seq>turnStart&&event.type==='user/message'&&event.data.source?.kind==='nano-system'&&['task-execution','task-change'].includes(String(event.data.source.channel)));
+      if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human&&!taskTurn) return 'rejected';
       const approvalSessionId = request.agent.id;
       if(!this.bindings.has(approvalSessionId)) return 'rejected';
       const requestId = randomUUID();
@@ -233,7 +237,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { protocol: number; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { protocol: number; taskStops?: string[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
       await this.sessionController;
       await approvalFiber.await();
@@ -260,6 +264,7 @@ export default class NanoRuntime {
         this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } }] }));
         }
       }
+      for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       await history.recoverExports(config.bindings.map(binding => binding.sessionId));
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
@@ -406,8 +411,16 @@ export default class NanoRuntime {
       if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
       return (await models).command(await this.agent(request.sessionId), request);
     });
+    handle('task.execution.state', value=>{
+      const {agentId}=value as {agentId:string};
+      if(![...this.configurations.values()].some(config=>config.agentId===agentId))throw new RpcError(-32004,'Unknown product Agent');
+      return this.tasks.observe(agentId);
+    });
+    handle('task.execution.changed', value=>{this.tasks.changed((value as {agentId:string}).agentId,(value as {reset?:boolean}).reset!==false);return {ok:true};});
+    handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
       const { sessionId } = value as { sessionId: string };
+      this.tasks.interrupt(sessionId);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
       (await models).fallback.interrupt(agent);
@@ -484,6 +497,7 @@ export default class NanoRuntime {
       }
       await this.cron.setEnabled(next.agentId, next.features?.cron_scheduling === true);
       this.peer.notify('heartbeat.subscription', { agentId: next.agentId, enabled: next.features?.heartbeat === true });
+      if (!metadataOnly) this.tasks.configured(next.agentId);
       return { effective: true, revision: next.revision };
     });
     handle('configuration.features', async value => {
@@ -500,6 +514,16 @@ export default class NanoRuntime {
       await this.cron.setEnabled(agentId, enabled);
       for (const config of this.configurations.values()) if (config.agentId === agentId) config.features = { ...config.features, cron_scheduling: enabled };
       return { effective: true, enabled };
+    });
+    handle('schedule.wait.inspect',async value=>{
+      const {agentId,sessionId,scheduleId}=value as {agentId:string;sessionId:string;scheduleId:string};
+      const config=[...this.configurations.values()].find(config=>config.agentId===agentId);
+      const checked_at=new Date().toISOString();
+      if(!config?.features?.cron_scheduling||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'schedule_disabled_or_unbound'};
+      const catalog=await this.cron.command(agentId,undefined,'catalog',{}) as ScheduleCatalogEntry[];
+      const task=catalog.find(t=>t.id===scheduleId&&t.sessionId===sessionId);
+      const valid=task?.status==='active'&&Date.parse(task.scheduledAt)>Date.now();
+      return {valid,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(!valid?{reason_code:'schedule_inactive_or_expired'}:{})};
     });
     handle('schedule.evidence', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId); await this.flush(agent);
@@ -564,9 +588,17 @@ export default class NanoRuntime {
     if (config?.personal && (binding.ownerId !== config.personal.ownerId || binding.cwd !== config.workspace)) throw new RpcError(-32004, 'Personal Session must retain its owner and private workspace');
     if (!this.configurations.has(preset)) throw new RpcError(-32002, 'Unknown configuration revision');
     this.bindings.set(binding.sessionId, binding);
-    await (await this.sessionController).create({ sessionId: SessionId(binding.sessionId), cwd: binding.cwd, agentPreset: preset });
+    const controller = await this.sessionController;
+    if (previous) {
+      // Schedule delivery and product recovery must join the same native resume.
+      // create() still checks cwd/preset and handles a binding not yet persisted.
+      const restored = await controller.resolveAgent(SessionId(binding.sessionId));
+      if ('error' in restored && restored.error.code !== 'session/not-found') throw restored.error;
+    }
+    await controller.create({ sessionId: SessionId(binding.sessionId), cwd: binding.cwd, agentPreset: preset });
     const agent = await this.agent(binding.sessionId);
     await this.flush(agent);
+    void this.tasks.poke(agent);
     return { sessionId: agent.id, revision: binding.revision };
   }
 

@@ -176,3 +176,29 @@ it('reconciles a committed interactive send with a lost ACK before terminal NO_R
   expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(false);
  }finally{await global.stop();await single.stop();inbox.close();store.close();}
 });
+
+it('keeps native Task progress quiet while preserving a requested approval and its result',async()=>{
+ const store=new NodeStore(':memory:','owner'),frames:Record<string,unknown>[]=[];let notify:(method:string,payload:unknown)=>void=()=>{};
+ const binding=store.bind({agentId:'a',sessionId:'task-main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
+ let events:RuntimeEvent[]=[{seq:1,type:'turn/start',time:1,data:{turn:1}},{seq:2,type:'user/message',time:2,data:{turn:1,id:'task-auto',source:{kind:'nano-system',channel:'task-execution'},content:[{type:'text',text:'Continue task'}]}}];
+ const errors:unknown[]=[];
+ const product=new SingleThread({nodeId:'n',ownerId:'owner',agents:[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'test',model:'test'}],store,
+ runtime:{onNotification(listener){notify=listener;return()=>{};},async request(method){return method==='session.lookup'?{accepted:true,turn:1}:{durable:true,events};}},
+ relay:{async request(type,payload){frames.push({...payload,transport:type});return {type:'ack',payload:{message_id:'task-bubble'}};}},image:async()=>'',onError:error=>{errors.push(error);}});
+ try{
+  await product.recover();expect(frames).toEqual([]);
+  notify('session.stream',{sessionId:binding.sessionId,frame:{type:'start',attemptId:'auto',turn:1}});
+  notify('session.stream',{sessionId:binding.sessionId,frame:{type:'chunk',attemptId:'auto',turn:1,chunk:{type:'text-delta',text:'Routine progress'}}});
+  notify('session.stream',{sessionId:binding.sessionId,frame:{type:'end',attemptId:'auto',turn:1}});
+  events=[...events,{seq:3,type:'tool/call',time:3,data:{turn:1,callId:'approve',name:'bash',arguments:'{"command":"reviewed command"}'}}];
+  notify('approval.request',{sessionId:binding.sessionId,requestId:'task-approval',toolName:'bash',callId:'approve'});
+  await expect.poll(()=>frames.some(p=>p.kind==='permission_request')).toBe(true);
+  notify('approval.resolved',{sessionId:binding.sessionId,requestId:'task-approval',outcome:'allowed-once'});
+  await expect.poll(()=>frames.some(p=>p.kind==='permission_resolved')).toBe(true);
+  events=[...events,{seq:4,type:'assistant/message',time:4,data:{turn:1,message:{id:'answer',content:[{type:'text',text:'NO_REPLY'}]}}},{seq:5,type:'turn/end',time:5,data:{turn:1,reason:{kind:'completed'}}}];
+  await product.recover();
+  expect(frames.some(p=>p.kind==='message_delta'||p.kind==='message_discarded'||p.transport==='node.delivery_receipt')).toBe(false);
+  expect(frames.find(p=>p.kind==='message_completed')).toMatchObject({message_id:'task-bubble',final_content:'',delivery_status:'completed'});
+  expect(errors).toEqual([]);
+ }finally{await product.stop();store.close();}
+});
