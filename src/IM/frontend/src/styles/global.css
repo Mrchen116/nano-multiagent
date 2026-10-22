@@ -5709,3 +5709,9 @@ body {
 
 .chat-observer-notice { display:flex; flex-direction:column; gap:3px; padding:14px 20px; border-top:1px solid var(--border-color, #e5e7eb); background:#fafbfc; color:#64748b; font-size:12px; line-height:1.6; }
 .chat-observer-notice strong { color:#475569; font-weight:600; }
+
+/* The owner's assistant keeps one stable configuration entry across Agent pages. */
+.agents-pa-section { margin: 2px 0 12px; }
+.agents-pa-section h2 { margin: 8px 5px; color: var(--im-text-muted); font-size: 11px; font-weight: 600; }
+.agents-pa-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; color: var(--im-text-muted); font-size: 12px; }
+.agents-pa-feedback button { border: 0; background: transparent; color: var(--im-accent); cursor: pointer; }

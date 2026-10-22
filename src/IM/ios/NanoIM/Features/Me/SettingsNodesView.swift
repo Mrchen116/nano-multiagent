@@ -75,6 +75,7 @@ struct SettingsNodeView: View {
     var body: some View {
         Form {
             SettingsFeedback(error: error ?? refreshError, success: success)
+            Section { NavigationLink { ModelServicesView(client: client, nodeID: node.node_id) } label: { Label(L("模型服务", "Model services"), systemImage: "square.stack.3d.up") } }
             Section(L("设备状态", "Device status")) {
                 LabeledContent(L("设备名称", "Device name"), value: node.node_name)
                 LabeledContent(L("设备 ID", "Device ID"), value: node.node_id).textSelection(.enabled)
@@ -85,14 +86,13 @@ struct SettingsNodeView: View {
                 if let message = node.last_error, !message.isEmpty { Text(message).foregroundStyle(.secondary).textSelection(.enabled) }
             }
             Section(L("设备配置", "Device settings")) {
-                TextField(L("别名", "Alias"), text: $draft.alias)
+                VStack(alignment: .leading, spacing: 6) { Text(L("别名", "Alias")).font(.caption).foregroundStyle(.secondary); TextField(L("别名", "Alias"), text: $draft.alias) }
                 Toggle(L("启用中继", "Enable relay"), isOn: $draft.relay_enabled)
                 Toggle(L("启用上报", "Enable reporting"), isOn: $draft.reporting_enabled)
             }.disabled(!canManage || busy)
-            Section {
-                Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(!canManage || busy || !dirty)
-                Button(L("放弃修改", "Discard changes")) { draft = SettingsNodeUpdate(node); error = nil; success = nil }.disabled(busy || !dirty)
-            }
+            if dirty { Section {
+                Button(L("放弃修改", "Discard changes")) { draft = SettingsNodeUpdate(node); error = nil; success = nil }.disabled(busy)
+            } }
             Section {
                 NavigationLink {
                     AgentCreateView(client: client, nodeID: node.node_id)

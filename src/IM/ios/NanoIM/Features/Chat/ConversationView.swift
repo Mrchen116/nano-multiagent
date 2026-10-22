@@ -35,6 +35,7 @@ struct ConversationView: View {
     private var uploading: Bool { uploads.contains(where: \.uploading) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
     var body: some View {
+        let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
@@ -51,7 +52,13 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                VStack(spacing: 12) {
+                                    if timestampIDs.contains(message.id), let date = nanoDate(message.created_at) {
+                                        Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
+                                            .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+                                    }
+                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                }
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }

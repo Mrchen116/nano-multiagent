@@ -63,7 +63,7 @@ struct AgentDraft: Equatable, Sendable {
     var tool_allowlist: [String] = []
     var features: [String: Bool] = [:]
     var custom_prompt = ""
-    var group_reply_policy = "MENTION"
+    var group_reply_policy = "manual"
     var heartbeat = AgentHeartbeat()
 
     func enabledSkills(candidates: [String]) -> [String] {
@@ -134,7 +134,12 @@ struct AgentOption: Codable, Identifiable, Sendable {
 }
 struct AgentModelOption: Codable, Identifiable, Sendable {
     var name: String; var provider: String?; var reasoning: Reasoning?
+    var display_name: String?; var provider_display_name: String?
     var id: String { name }
+    var displayLabel: String {
+        let model = display_name ?? name.split(separator: "/", maxSplits: 1).last.map(String.init) ?? name
+        return model + ((provider_display_name ?? provider).map { " · " + $0 } ?? "")
+    }
     struct Reasoning: Codable, Sendable { var kind: String; var `default`: String?; var levels: [String]? }
 }
 struct AgentFeature: Codable, Identifiable, Sendable {

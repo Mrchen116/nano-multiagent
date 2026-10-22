@@ -25,6 +25,7 @@ struct MeView: View {
                     NavigationLink {
                         SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated)
                     } label: { Label(L("个人资料与语言", "Profile and language"), systemImage: "person.text.rectangle") }
+                    NavigationLink { ModelServicesNodesView(client: client, ownerID: user.owner_id) } label: { Label(L("模型服务", "Model services"), systemImage: "square.stack.3d.up") }
                     NavigationLink {
                         SettingsNodesView(client: client, ownerID: user.owner_id)
                     } label: { Label(L("我的设备", "My devices"), systemImage: "desktopcomputer") }
@@ -102,18 +103,15 @@ struct SettingsAccountView: View {
                         }
                     }
                     Picker(L("语言", "Language"), selection: $locale) {
-                        Text("中文").tag("zh")
-                        Text("English").tag("en")
+                        Text("中文").tag(locale.hasPrefix("zh") ? locale : "zh")
+                        Text("English").tag(locale.hasPrefix("en") ? locale : "en")
                     }
                 } header: { Text(L("偏好", "Preferences")) } footer: {
                     Text(L("保存后，语言选择会同步到账号。", "Your language preference is saved to your account."))
                 }
-                Section {
-                    Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }
-                        .disabled(busy || !dirty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Button(L("放弃修改", "Discard changes")) { reset(profile); error = nil; success = nil }
-                        .disabled(busy || !dirty)
-                }
+                if dirty { Section {
+                    Button(L("放弃修改", "Discard changes")) { reset(profile); error = nil; success = nil }.disabled(busy)
+                } }
             } else { SettingsLoading(retry: { Task { await load() } }, error: error) }
         }
         .navigationTitle(L("个人资料与语言", "Profile and language"))
@@ -165,12 +163,12 @@ struct SettingsHelpView: View {
             Section {
                 Toggle(L("前台新消息提醒", "Foreground message reminders"), isOn: $reminders)
             } header: { Text(L("消息提醒", "Message reminders")) } footer: {
-                Text(L("仅在 App 活跃时提示其他未静音聊天的新消息，不显示正文。关闭提醒仍可正常聊天。后台、锁屏或 App 被终止时，首版不保证系统新消息推送；回到前台后补齐消息。", "While the app is active, show reminders for new messages in other unmuted chats without message text. Chat works with reminders off. This version does not guarantee system notifications in the background, on the lock screen or after termination. Messages catch up when you return."))
+                Text(L("App 打开时，提示其他未静音聊天的新消息，不显示正文。后台或锁屏时暂不提供系统推送；重新打开后会同步消息。", "While the app is active, show reminders for new messages in other unmuted chats without message text. Chat works with reminders off. This version does not guarantee system notifications in the background, on the lock screen or after termination. Messages catch up when you return."))
             }
             Section(L("免费安装", "Free installation")) {
-                Text(L("当前 Mac 构建 Nano IM；Mac mini 通过 AltServer 为 AltStore Classic 提供安装与续签。Apple 账号登录、协议、设备信任和开发者模式需由你在系统界面完成。不要在聊天中提供密码或验证码。", "The current Mac builds Nano IM. Mac mini runs AltServer for installation and refresh through AltStore Classic. Complete Apple account sign-in, agreements, device trust and Developer Mode in the system UI. Do not share passwords or verification codes in chat."))
+                Text(L("通过 AltStore 安装和管理 Nano IM。首次安装时，在 Mac 上运行 AltServer，并用 USB 连接手机完成配对。Apple 账号和验证码请只在系统或 AltStore 中输入。", "Install and manage Nano IM with AltStore. For first installation, run AltServer on your Mac and pair your iPhone over USB. Enter Apple credentials only in the system or AltStore."))
                 Text(L("首次安装：USB 连接并信任 iPhone，在 Mini 的 AltServer 菜单选择 Install AltStore。按系统提示启用开发者模式，然后在 AltStore 的 My Apps 使用 + 选择本次构建的 IPA。", "First installation: connect and trust your iPhone over USB, then choose Install AltStore from Mini’s AltServer menu. Enable Developer Mode when prompted, then use + in AltStore → My Apps to select the built IPA."))
-                Text(L("免费签名通常在 7 天后到期，以 AltStore 内该 App 显示的实际到期时间为准。构建日期不等于签名到期日，本页不会假报续签成功或剩余天数。", "Free signing typically expires after 7 days. Check this app’s actual expiration in AltStore. The build date is not the signing expiration date; this page does not claim a successful refresh or a remaining lifetime."))
+                Text(L("免费签名通常有效 7 天。请在 AltStore 的 My Apps 查看 Nano IM 的实际到期时间和刷新结果。", "Free signing typically lasts 7 days. Check Nano IM’s actual expiration and refresh result in AltStore → My Apps."))
             }
             Section(L("同一 Wi-Fi 下续签", "Refresh on the same Wi-Fi")) {
                 Label(L("让 Mini 与 iPhone 连到同一局域网，并保持 AltServer 运行。", "Connect Mini and iPhone to the same local network and keep AltServer running."), systemImage: "1.circle")

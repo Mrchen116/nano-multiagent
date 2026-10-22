@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({ navigate: vi.fn() }));
@@ -115,8 +115,36 @@ describe("agents list page", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
     expect(await screen.findByText(/upstream unavailable/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Retry/i }));
+    await user.click(within(screen.getByText(/upstream unavailable/i).closest("section")!).getByRole("button", { name: /Retry/i }));
 
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
   });
+  it("keeps the bound personal assistant separate from other agents and opens its configuration", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/personal-agent")) return jsonResponse({binding: {agent_id:"my-pa", display_name:"My assistant", owner_user_id:"user-1", status:"active"}, creation:null});
+      if (url.includes("/im/v1/contacts?")) return jsonResponse({items:[
+        {user_id:"other",kind:"agent",agent_id:"other-pa",display_name:"Someone else's assistant",owner_id:"other-user",role:"personal"},
+        {user_id:"mine",kind:"agent",agent_id:"my-pa",display_name:"My assistant",owner_id:"user-1",owner_display_name:"Owner only search",role:"personal"}
+      ],next_cursor:null});
+      return new Response(null,{status:404});
+    });
+    renderRouter({routes:appRoutes,initialEntries:["/settings/agents"]});
+    const own = await screen.findByRole("button",{name:"My assistant"});
+    expect(screen.getAllByText("My assistant")).toHaveLength(1);
+    expect(screen.getByRole("button",{name:/Someone else's assistant/})).toBeInTheDocument();
+    await user.type(screen.getByRole("searchbox"), "Owner only search");
+    expect(screen.getByRole("button", {name:"My assistant"})).toBeInTheDocument();
+    await user.click(own);
+    expect(apiMocks.navigate).toHaveBeenCalledWith("/settings/agents/my-pa");
+  });
+
+  it("keeps public agents usable when the personal assistant lookup fails", async () => {
+    mockAgentsAndNodes();
+    renderRouter({routes:appRoutes,initialEntries:["/settings/agents"]});
+    expect(await screen.findByRole("button",{name:/Core Planner/})).toBeInTheDocument();
+    expect(await screen.findByText(/Personal assistant unavailable/)).toBeInTheDocument();
+  });
+
 });

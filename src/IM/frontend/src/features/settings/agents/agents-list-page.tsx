@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { AgentRow } from "./agent-row";
+import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listPublicAgents } from "./public-agents";
 import { useAuthStore } from "../../auth/auth-store";
@@ -20,6 +21,8 @@ export function AgentsListPage() {
   const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
   const [search, setSearch] = useState("");
   const agents = agentsQuery.data ?? [];
+  const personal = usePersonalAgentEntry();
+  const personalBinding = configuredPersonalAgent(personal.data);
   const nodes: [] = [];
   const newAgentPath = "/settings/agents/new";
   const errorDetail =
@@ -89,6 +92,7 @@ export function AgentsListPage() {
           className="flex-1 overflow-y-auto"
           style={{ padding: isMobile ? "8px 10px" : "6px 8px" }}
         >
+          <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} agent={agents.find(agent => agent.agent_id === personalBinding?.agent_id)} isMobile={isMobile} isActive={activeAgentId === personalBinding?.agent_id} onRetry={() => void personal.refetch()} onSelect={id => navigate(`/settings/agents/${encodeURIComponent(id)}`)} />
           {agentsQuery.isLoading ? (
             <p className="p-2 text-[13px] text-[oklch(0.55_0.01_240)]">{t("common.loading")}</p>
           ) : agentsQuery.isError ? (
@@ -118,7 +122,7 @@ export function AgentsListPage() {
             </section>
           ) : (
             <nav aria-label={t("agents.title")}>
-              {agents.filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
+              {agents.filter(agent => agent.agent_id !== personalBinding?.agent_id).filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
                 <AgentRow
                   key={agent.agent_id}
                   agent={agent}

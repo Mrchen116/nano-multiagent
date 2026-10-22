@@ -133,6 +133,25 @@ struct PendingSend: Codable, Sendable {
     var requestBody: Data?
 }
 
+enum ChatTimelinePresentation {
+    /// Group nearby messages, retaining a time marker when the local date changes.
+    static func timestampMessageIDs(in items: [TimelineItem], calendar: Calendar = .current) -> Set<String> {
+        var result = Set<String>()
+        var previous: Date?
+        for item in items {
+            guard let message = item.message, message.system_notice == nil,
+                  let date = nanoDate(message.created_at) else { continue }
+            if let previous {
+                if !calendar.isDate(date, inSameDayAs: previous) || date.timeIntervalSince(previous) >= 300 { result.insert(message.id) }
+            } else {
+                result.insert(message.id)
+            }
+            previous = date
+        }
+        return result
+    }
+}
+
 /// Merge authoritative pages by stable identity; replay never appends a delta twice.
 enum TimelineMerge {
     static func merge(current: [TimelineItem], page: [TimelineItem], older: Bool, discarded: Set<String>) -> [TimelineItem] {

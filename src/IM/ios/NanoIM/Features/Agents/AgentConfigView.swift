@@ -27,9 +27,9 @@ struct AgentConfigView: View {
                     DisclosureGroup(L("配置归属", "Configuration")) {
                         LabeledContent("Agent ID", value: agentID)
                         LabeledContent(L("版本", "Version"), value: String(config.profile_version))
-                        LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单 Thread", "Single Thread"))
-                        Text(config.workspace_root ?? L("等待节点确认 workspace", "Waiting for the node to confirm the workspace")).textSelection(.enabled)
-                        Text(L("模式和 workspace 创建后不可改。", "Mode and workspace are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
+                        LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单会话", "Single conversation"))
+                        Text(config.workspace_root ?? L("等待电脑确认工作目录", "Waiting for the computer to confirm the working directory")).textSelection(.enabled)
+                        Text(L("工作模式和目录在创建后固定。", "Work mode and directory are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section { NavigationLink(L("现有定时任务", "Existing scheduled jobs")) { AgentCronView(client: client, agentID: agentID) } }
@@ -125,11 +125,16 @@ struct AgentConfigView: View {
 struct AgentEditorFields: View {
     @Binding var draft: AgentDraft
     let capabilities: AgentCapabilities?
+    var showProfile = true
+    var showModels = true
+    var showCapabilities = true
+    var showInstructions = true
     @State private var addingFallback = ""
     private var models: [AgentModelOption] { capabilities?.models ?? [] }
     private var reasoning: AgentModelOption.Reasoning? { models.first { $0.name == (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) }?.reasoning }
     var body: some View {
-        Section(L("基本资料", "Profile")) {
+        Group {
+        if showProfile { Section(L("基本资料", "Profile")) {
             VStack(alignment: .leading, spacing: 7) {
                 Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
                 TextField(L("名称", "Name"), text: $draft.display_name)
@@ -139,16 +144,32 @@ struct AgentEditorFields: View {
                 TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
             }.padding(.vertical, 4)
             Picker(L("群回复策略", "Group reply policy"), selection: $draft.group_reply_policy) {
-                Text(L("仅被提及", "When mentioned")).tag("MENTION")
-                Text(L("始终回复", "Always reply")).tag("ALWAYS")
-                Text(L("不回复", "Do not reply")).tag("NO_REPLY")
+                let policy = draft.group_reply_policy
+                let mention = ["manual", "mention", "mention_only"].contains(policy.lowercased())
+                Text(L("仅被提及时回复", "When mentioned")).tag(mention ? policy : "manual")
+                Text(L("始终回复", "Always reply")).tag(policy.lowercased() == "always" ? policy : "always")
+                if !mention && policy.lowercased() != "always" {
+                    Text(L("原配置：", "Stored: ") + policy).tag(policy)
+                }
             }
-        }
-        Section(L("模型与推理", "Model and reasoning")) {
-            Picker(L("主模型", "Primary model"), selection: $draft.default_model) {
-                Text(L("平台默认", "Platform default") + (capabilities?.platform_default_model.map { " · \($0)" } ?? "")).tag("")
-                if !draft.default_model.isEmpty && !models.contains(where: { $0.name == draft.default_model }) { Text(draft.default_model + L("（当前不可用）", " (unavailable)")).tag(draft.default_model) }
-                ForEach(models) { model in Text(model.name + (model.provider.map { " · \($0)" } ?? "")).tag(model.name) }
+        } }
+        if showModels { Section(L("模型与推理", "Model and reasoning")) {
+            Menu {
+                Picker(L("主模型", "Primary model"), selection: $draft.default_model) {
+                    Text(defaultModelLabel).tag("")
+                    if !draft.default_model.isEmpty && !models.contains(where: { $0.name == draft.default_model }) { Text(draft.default_model + L("（当前不可用）", " (unavailable)")).tag(draft.default_model) }
+                    ForEach(models) { model in Text(model.displayLabel).tag(model.name) }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(L("主模型", "Primary model")).font(.subheadline).foregroundStyle(.secondary)
+                    HStack(alignment: .top) {
+                        Text(draft.default_model.isEmpty ? defaultModelLabel : modelLabel(draft.default_model))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption)
+                    }.foregroundStyle(NanoTheme.accent)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }.disabled(capabilities == nil)
             if reasoning?.kind == "selectable" {
                 Picker(L("推理强度", "Reasoning effort"), selection: $draft.reasoning_effort) {
@@ -160,7 +181,7 @@ struct AgentEditorFields: View {
             DisclosureGroup(L("备用模型", "Fallback models") + " · \(draft.model_fallbacks.count)") {
             ForEach(Array(draft.model_fallbacks.enumerated()), id: \.offset) { index, model in
                 HStack {
-                    Text("\(index + 1). \(model)")
+                    Text("\(index + 1). " + modelLabel(model)).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button { draft.model_fallbacks.swapAt(index, index - 1) } label: { Image(systemName: "arrow.up") }.disabled(index == 0).accessibilityLabel(L("上移备用模型", "Move fallback up"))
                     Button { draft.model_fallbacks.remove(at: index) } label: { Image(systemName: "minus.circle") }.accessibilityLabel(L("移除备用模型", "Remove fallback"))
@@ -168,16 +189,17 @@ struct AgentEditorFields: View {
             }
             Picker(L("添加备用模型", "Add fallback model"), selection: $addingFallback) {
                 Text(L("选择模型", "Select model")).tag("")
-                ForEach(models.filter { $0.name != (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) && !draft.model_fallbacks.contains($0.name) }) { Text($0.name).tag($0.name) }
+                ForEach(models.filter { $0.name != (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) && !draft.model_fallbacks.contains($0.name) }) { Text($0.displayLabel).tag($0.name) }
             }.disabled(capabilities == nil)
             .onChange(of: addingFallback) { _, value in if !value.isEmpty { draft.model_fallbacks.append(value); addingFallback = "" } }
             }
-        }
-        Section(L("指令与能力", "Instructions and capabilities")) {
+        } }
+        if showCapabilities {
+        if showInstructions { Section(L("指令与能力", "Instructions and capabilities")) {
             DisclosureGroup(L("自定义指令", "Custom instructions")) {
                 TextEditor(text: $draft.custom_prompt).frame(minHeight: 160).accessibilityLabel(L("自定义指令", "Custom instructions"))
             }
-        }
+        } }
         Section {
             DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.count)") {
                 if let capabilities {
@@ -231,11 +253,16 @@ struct AgentEditorFields: View {
                 }
             }
         }
+        } }
         .onChange(of: draft.default_model) { _, _ in
             draft.reasoning_effort = ""
             draft.model_fallbacks.removeAll { $0 == (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) }
         }
     }
+    private var defaultModelLabel: String {
+        L("平台默认", "Platform default") + (capabilities?.platform_default_model.map { " · " + modelLabel($0) } ?? "")
+    }
+    private func modelLabel(_ name: String) -> String { models.first { $0.name == name }?.displayLabel ?? name }
     private func selection(_ name: String, keyPath: WritableKeyPath<AgentDraft, [String]>, fixed: Bool = false) -> Binding<Bool> {
         Binding(get: { fixed || draft[keyPath: keyPath].contains(name) }, set: { selected in if selected { if !draft[keyPath: keyPath].contains(name) { draft[keyPath: keyPath].append(name) } } else { draft[keyPath: keyPath].removeAll { $0 == name } } })
     }

@@ -18,7 +18,10 @@ struct SettingsPoliciesView: View {
                 SettingsFeedback(error: error, success: success)
                 if !isAdmin { Section { Label(L("仅管理员可修改，当前为只读。", "Only administrators can edit. These settings are read-only."), systemImage: "lock") } }
                 Section(L("模型与审计", "Model and audit")) {
-                    TextField(L("默认模型", "Default model"), text: field(\.default_model)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L("默认模型", "Default model")).font(.caption).foregroundStyle(.secondary)
+                        TextField(L("模型 ID", "Model ID"), text: field(\.default_model)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
                     Picker(L("审计级别", "Audit level"), selection: field(\.audit_level)) {
                         Text(L("关闭", "Off")).tag("off")
                         Text(L("基本", "Basic")).tag("basic")
@@ -32,13 +35,9 @@ struct SettingsPoliciesView: View {
                     integerField(L("保留天数", "Retention days"), keyPath: \.retention_days)
                 } header: { Text(L("运行与存储限制", "Runtime and storage limits")) } footer: { Text(L("所有数值必须为大于零的整数。", "All numeric values must be positive integers.")) }
                     .disabled(!isAdmin || saving)
-                if isAdmin {
-                    Section {
-                        Button(saving ? L("保存中…", "Saving…") : L("保存策略", "Save policies")) { Task { await save() } }
-                            .disabled(saving || draft == saved || !draft.valid)
-                        Button(L("放弃修改", "Discard changes")) { self.draft = saved; error = nil; success = nil }.disabled(saving || draft == saved)
-                    }
-                }
+                if isAdmin && draft != saved { Section {
+                    Button(L("放弃修改", "Discard changes")) { self.draft = saved; error = nil; success = nil }.disabled(saving)
+                } }
             } else { SettingsLoading(retry: { Task { await load() } }, error: error) }
             if isAdmin {
                 Section {
