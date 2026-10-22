@@ -31,7 +31,7 @@ DSH 是唯一执行运行时；PA 不 import DSH，node 只经集成 client 调�
 
 ### 相关历史
 
-[feat-569](../archive/feat-569-task-graphs-mvp/spec.md) 奠定 Task 图；当前 Task spec 最近标记 feat-587，其现行正文才是本次基线，不依靠编号推断行为。已核对当前的逐层 Task、五栏分页、负责人视图、个人资源空间契约。[bugfix-633](../bugfix-633-native-human-source/fix.md) 的真实来源边界必须保留；自动续跑不是直接真人输入。设计基线 `540190927`，其中仅包含本 unit 需求；生产页面只读观察另记在原型依据中。
+[feat-569](../archive/feat-569-task-graphs-mvp/spec.md) 奠定 Task 图；当前 Task spec 最近标记 feat-587，其现行正文才是本次基线，不依靠编号推断行为。已核对当前的逐层 Task、五栏分页、负责人视图、个人资源空间契约。[bugfix-633](../archive/bugfix-633-native-human-source/fix.md) 的真实来源边界必须保留；自动续跑不是直接真人输入。设计基线 `540190927`，其中仅包含本 unit 需求；生产页面只读观察另记在原型依据中。
 
 ## 架构总览
 
