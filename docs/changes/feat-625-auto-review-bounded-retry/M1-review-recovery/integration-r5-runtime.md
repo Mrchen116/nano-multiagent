@@ -1,5 +1,7 @@
 # R5-W1 集成运行证据调查（工程输入，未关闭门禁）
 
+> 更新索引：下列初始调查与03:07阻塞按当时事实保留。2026-10-22 09:14公开零Agent初始化恢复、09:21–09:28七文件串行37pass见文末“资源恢复与原期限串行补证”；它们是作者工程输入，尚未改写原独立R5-W1 NOT PASS或Q R3 FAIL。
+
 ## 固定版本与结论
 
 - 受试产品、测试、fixture、锁文件仍为 `22114489ba131fbf847b60e0a4ca730d61471796`；本轮 executed_base 为 `18e1af8b1cd0834ae3f22f5780f2d50b740f5171`。原 executed_base 与 R1–R4 记录不改。
@@ -106,3 +108,72 @@ PROBE_RUN=http-one caffeinate -i pnpm exec vitest run \
 | 合计 | **191456KiB，约187MiB** |
 
 这八项即使全回收也不能提供建议headroom，且包含版本相关历史证据，不建议为腾约187MiB直接丢弃。最小应保留受试SHA/命令/退出码/时序manifest、RPC/native失败日志、approval/request/context/source/stop导出及实际effect事实；原配置/DB/prompt只能本地安全保留，不提交或公开。若后续确需回收，只能在父E另行确认具体归属与范围后，先核实所需证据完整，再考虑已重建且非唯一的重复运行产物；本轮不推导删除授权，不建议删Q/共享/生产数据。
+
+## 资源恢复与原期限串行补证（2026-10-22 09:14–09:28 +0800）
+
+### 版本、恢复准入与零Agent对照
+
+父E根据新的资源事实先续同一执行者做一次有界只读核对、至多一个原30s cutoff公开零Agent探针；探针结果回包并由父E核实后，才另行续原最窄→邻域串行计划。本轮没有fetch/merge新main。全部新执行的`validated_at=3e5fff368d0d536ec471b0a6e7dc88e78d6e51fc`、`executed_base=18e1af8b1cd0834ae3f22f5780f2d50b740f5171`；该HEAD含报告整合，产品/测试/fixture/脚本/锁树与`22114489ba131fbf847b60e0a4ca730d61471796`逐path实际diff为0。
+
+09:14:32–33 +0800一次只读采样：Data卷Available **11810232KiB≈11.26GiB**（df98%），8 logical CPU的load **6.16/14.64/19.30**，相邻1s CPU **30%user/5%system/65%idle**、disk0约223tps/2.02MiB/s；swap用 **2948.44MiB/4096MiB**，memory_pressure查询free65%（不是物理free百分比）。自己exact unit runtime/test为0，当前构建/测试候选为0；另一个生产native未触碰。相对03:07磁盘、swap、CPU/I/O均有实质改善，只支持一个最窄恢复探针，不是已证全部失败仅由资源引起。
+
+```bash
+env -u NANO_PROBE_INSPECT -u NODE_OPTIONS \
+  PROBE_RUN=boot-recovery-20261022-0914 \
+  caffeinate -i node .e2e-feat625-r5-diagnostics/boot-profile.mjs
+```
+
+**exit0**：prepared6ms、spawn10ms、initialize返回1431ms（公开RPC约1421ms）；同刻开始shutdown，1461ms实际exit code0/signal null，1463ms删除自建home。仍为原30_000ms诊断cutoff，无debugger/观察hook/业务fixture。日志为`boot-recovery-20261022-0914.log`与`.events.json`；PID40748与自建home后续实际不存在，不需fallback kill。此结果仅证明本次公开bootstrap恢复，不替代六Agent或HTTP/Q旅程。
+
+### 七文件串行矩阵与命令
+
+父E续跑后先完整核原[verification R5](../verification.md#独立命令与失败证据)的455–492行。原报告记录10个失败文件/25fail，但未逐名列全10个；以下覆盖父E与R5直接指向的七个文件，不猜测其余文件、不无差别重跑30文件。`realtime-window`已有独立窄复跑3pass，按原版本保留，未重复；其他未知失败文件若还需覆盖，由原reviewer补精确清单后定向核收。
+
+每行是一个独立命令，前一job实际结束/收取后才启动下一行；每次仅一个native批次，maxWorkers1、fileParallelism=false。使用前文已有ignored观察配置，仓库原testTimeout15000、每test自带期限、生产恢复预算、fixture和业务断言均不变；没有打开NANO_PROBE_INSPECT或NODE_OPTIONS。命令模板如下（`FILE`与`PROBE_RUN`按表逐项替换，非同时执行的shell变量清单）；第一行另加`-t 'defaults new and existing Agents'`，其余跑整文件：
+
+```bash
+set -o pipefail
+env -u NANO_PROBE_INSPECT -u NODE_OPTIONS PROBE_RUN="$RUN" \
+  caffeinate -i pnpm exec vitest run \
+  --config .e2e-feat625-r5-diagnostics/vitest.config.ts \
+  "packages/dsh-integration/tests/$FILE.test.ts" \
+  2>&1 | tee ".e2e-feat625-r5-diagnostics/$RUN.vitest.log"
+result=${PIPESTATUS[0]}; exit "$result"
+```
+
+| 实际开始 +0800 / job | FILE / PROBE_RUN | 保留原期限 | 真实结果（命令exit0） | 新执行的范围 |
+|---|---|---|---|---|
+| 09:21:11 / bash-76 | `agent-context-default` / `context-recovery-0918` | 30s | **1pass/4skip，6.17s**；test5992ms | 六Agent新旧profile默认context、disable/enable、重启和managed removal；不是把4skip算pass |
+| 09:22:14 / bash-77 | `approval` / `approval-recovery-0922` | native各30s；低层默认15s | **6pass，11.92s** | reviewer阶段/escalation/终态及来源上下文；CC超窗终态原poll、仅normal effect、overflow no_verdict/context断言通过 |
+| 09:23:03 / bash-78 | `approval-retry-native` / `http-matrix-recovery-0923` | 每项25s | **15pass，26.51s** | nano/codex/dsh × 无503/503整数/日期/非法Retry-After/transport真实HTTP矩阵，原效果与审计断言 |
+| 09:24:11 / bash-79 | `history` / `history-recovery-0924` | 25s | **1pass，3.10s** | 原生fork的配置/已compact前缀独立性及重启 |
+| 09:26:27 / bash-81 | `capabilities` / `capabilities-recovery-0932` | 20s/25s/30s | **3pass，13.33s** | 空tools/skills、busy配置切换、extension实际dispatch/PTC及重启、复制skill实时发现/禁用保留；run标签0932不是实际开始时刻 |
+| 09:27:04 / bash-82 | `model-policy` / `model-policy-recovery-0927` | 四native各20s；低层默认15s | **5pass，19.98s** | context windows开关×Skill可调用2×2、effort、manual compact命令幂等、重启和配置更新；另1低层preset路由 |
+| 09:27:50 / bash-83 | `personal-security` / `personal-security-recovery-0929` | 两native各20s、Global30s；低层默认15s | **6pass，9.50s** | nano/codex有效历史授权、普通Global/PA capability与owner extension/source controls；另3低层effort组合 |
+
+合计是**七个串行命令、37pass/4skip**，不是一次30文件全批通过，也不宣称原25个独立失败逐一映射完毕。没有新confirmed产品缺陷或修复必要性；本轮未改产品源码、测试、fixture、期限、策略或预算。
+
+### 公开阶段、终态与实际清理
+
+以下从对应`$RUN.jsonl`的原始时间点计算，单位ms；native onLog仍按需写`$RUN.native.log`，没有 stderr 输出的跑次不补造日志文件。prepareProfile为实际原调用，不计入initialize；shutdown列是调用shutdown至其finally返回，另核实际exit事件，不仅看Vitest绿灯。
+
+| PROBE_RUN缩写 | prepareProfile | 每次initialize | 代表后续公开RPC | 每次shutdown总耗时 |
+|---|---|---|---|---|
+| context | 2 | 1440 /2363 | set_bundle17/26、remove_bundle18；12次session.ensure均返回 | 62 /74 |
+| approval | 各1 | 1385 /807 /758 /719 /690 | submit24次返回5–19；configuration.apply110；原exact-input lookup终态断言全过 | 96 /73 /39 /197 /58 |
+| HTTP matrix | 各1–2 | 671–1125（15次） | 15次ensure28–43、submit8–12；原每input终态/效果/审计断言全过 | 31–59（15次） |
+| history | 2 | 1177 /920 | compact23、fork74/0/0（含幂等）、configuration.apply23/26 | 46 /67 |
+| capabilities | 3 /2 /4 | 2204 /1565 /1895 /1799 /1813 | configuration.apply49/44/54；submit9次11–24；原PTC结果与终态poll通过 | 162 /141 /109 /67 /98 |
+| model-policy | 3 /1 /1 /1 | 1248–2453（8次） | 首次compact20–25、重复0–1；effort16–26；配置更新17–20 | 48–64（8次） |
+| personal-security | 4 /1 /1 /1 | 1546 /1036 /1079 /1403 | 8次submit10–15；两个Global configuration.apply28/11；原效果/source断言通过 | 50 /46 /62 /67 |
+
+记录器的notification只保留事件type和时间，不导出正文，不能凭任意一个`turn/end`判断某input完成；终态归属仍由原测试以**sessionId+inputId的公开session.lookup**断言证明。这里的submit数字只是公开RPC返回时间，不冒充审核总延迟。完整配置、review prompt与临时数据库不提交。
+
+七份JSONL聚合实际**41个spawn=41个exit**（全部code0/signal null），37个test-end全部pass；所有rpc-start都有对应rpc-end或rpc-error（含原测试预期拒绝），无未结RPC。32个唯一自建home在最后afterEach及后续实际文件存在检查均不存在，41个spawn PID后续均不在进程表，exact unit路径runtime/test进程0。没有手工kill、额外删除、共享服务重启或其他Q/生产现场操作；旧失败三home继续保留。七个job全部收取exit0，零Agentjob也已收取。
+
+### 中性结论与独立核收边界
+
+- 相同产品/测试树、相同期限，在多维资源实质改善后，原先未进入的六Agent插件开关/重启、CC超窗终态、HTTP15矩阵与指定配置邻域已实际执行通过。该事实支持恢复原reviewer/R5-W1定向核收，**不证明此前每个失败唯一根因都是资源，也不把单次串行通过外推为长期稳定性或整套CI通过**。
+- 先前实际`.venv` runtime dependency contract **13pass/7.65s/exit0**保留；本轮无产品/测试变更，未为重复绿灯再跑contract/build/全30文件。本文件只是工程证据，不修改verification/code-review/acceptance的独立结论。原R5 `[]`/18aligned及NOT PASS、Q R3 FAIL/11pass6inconclusive和两个真实C3成功均各按原版本保留。
+- 原Q缺口S9/11/13/14/15/17、真实host source/context/stop/required/fallback/native owner与双vendor新profile，仍由父E协调原Q续验。本轮没有启动真IM、双vendor、90s×3 owner/quarantine或Q批次；ordinary RuntimeClient/native fixture即使含Global product.call stub，也不标成真实PA/IM验收。
+- 交父E的下一步为：读取本次原始结果和同树diff后，沿原独立reviewer核收R5-W1，明确七文件与未枚举的其余失败范围；再按资源协调原Q定向续验。整体effective_through仍未建立，未canonical/archive/PR/merge/deploy。

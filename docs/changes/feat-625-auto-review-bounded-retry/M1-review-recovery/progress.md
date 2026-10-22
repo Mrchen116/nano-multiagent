@@ -216,3 +216,11 @@ main均`deepseek:deepseek-v4-flash`；审核均`anthropic/codexOAuth:gpt-6.1-sol
 - 父E明确本轮仅整合报告及只读准备；Q报告252c43528原样cherry-pick为03327b4b2，acceptance367–467完整读取、原报告byte-equivalent，FAIL11pass6inconclusive及major/unclear Q625-R3-01保留。两个新树真IM C3链（context→503→allow、再次context封顶→WS deny）为新pass保留，不外推S9/11/13/14/15/17或required/source/stop/fallback/native owner/双vendor新profile旅程。
 - 03:07:11+0800一次有界只读采样：Data卷仅1566940KiB≈1.49GiB空闲、df100%；8CPU的load14.98/16.20/32.10，瞬时CPU97%busy/3%idle；24GiB RAM、swap用9456.94/10240MiB。相对上轮未实质恢复，自己exact unit路径runtime/test进程0；本轮没有启动任何runtime/新诊断器/重批次，没有kill旧PID或删除数据。
 - 仅量八个已证自己创建的既知目录共191456KiB≈187MiB，均保留。回收这点体积不解决磁盘headroom，不建议牺牲历史原始证据。完整事实、体积表、最小保留建议和保守readiness闸见[原调查新增节](integration-r5-runtime.md)；10GiB盘余量/load接近8等仅建议工程准备线，不是产品契约或已验证充分条件。真正复跑由父E续原计划，未自行起零Agent或并行多栈，未canonical/archive/PR/CI。
+
+## 09:14就绪恢复与09:21–09:28串行工程补证（待独立核收）
+
+- 父E先续一次条件式就绪核对。09:14:32–33+0800实际Data可用11810232KiB≈11.26GiB，8CPU load6.16/14.64/19.30、瞬时65%idle，swap用2948.44/4096MiB、自己runtime/test0；较03:07多维实质改善，才运行一个原30s cutoff零Agent公开initialize。exit0：1421ms返回、实际exit1461ms、home删除1463ms，后续PID/home均不存在；先回父核实，没有自动扩批。
+- 父E另续原工程计划后，固定`validated_at=3e5fff368d0d536ec471b0a6e7dc88e78d6e51fc`/base18e1，产品/测试/fixture/脚本/锁树实际与22114489 diff0，不fetch/merge。原期限/断言/预算、一个worker/一个native批次串行：六Agent指定test1pass4skip/6.17s；approval6pass/11.92s；真实HTTP15pass/26.51s；history1pass/3.10s；capabilities3pass/13.33s；model-policy5pass/19.98s；personal-security6pass/9.50s，七个命令均exit0。最窄先过再扩，没有新源码缺陷或修复。
+- 合计37pass/4skip是作者新执行，不是原30文件25fail逐项关闭。原报告未列全10个失败文件，未猜测剩余清单或重跑已独立绿的realtime；公开RPC阶段、原exact-input终态断言、所有命令/期限/原始log locator见[集成运行调查最新节](integration-r5-runtime.md)。41spawn=41exit全code0、32home实际不存在、全部RPC已结、最终自己runtime/test0；七job已收取，无手工kill/新数据清理/其他现场操作。
+- 原R5 NOT PASS/静态[]/18aligned、Q R3 FAIL11pass6inconclusive及两个真IM C3pass全部保留；本次只交父E恢复原reviewer的R5-W1核收与资源协调后的Q定向续验，不替代真实host/双vendor/required/source/stop/native owner等产品缺口。本轮无真IM/Q重批次、无canonical/archive/ReadyPR或CI全绿声明；未改变整体effective_through。
+- 收包检查：系统Python直跑docs-check因缺PyYAML exit1，改用现有`PYTHON=.venv/bin/python ./scripts/docs-check`实际**265篇/67routes/exit0**，非安装依赖或测试修复；产品/测试/fixture/脚本/锁对22114489、R5两报告对db7c875、Q报告对252c43528均实际diff0，working diff-check exit0。本轮只追加本调查与progress两份文档，raw日志/配置仍ignored；workspace Skill另补失败清单/单探针→串行恢复/真实退出核对通用方法。
