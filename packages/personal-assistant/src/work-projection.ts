@@ -8,7 +8,8 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     const nextEnd = events.find(candidate => candidate.seq > event.seq && candidate.type === 'turn/end')?.seq ?? Infinity;
     const source = events.find(candidate => candidate.seq > event.seq && candidate.seq < nextEnd && candidate.type === 'user/message')?.data.source as { kind: string; channel?: string; scheduleId?: string; triggerKind?: string } | undefined;
     if (!source) return;
-    return { type: 'turn_started', turn, payload: { model: modelAt(events, event.seq), run_id: `${sessionId}:${turn}`, origin: child ? 'background_task' : 'system', trigger: { kind: child || ['agent-message', 'subagent-settled'].includes(source.kind) ? 'background_task' : source.kind === 'schedule' ? 'cron' : ['human', 'nano-human'].includes(source.kind) ? 'human' : source.channel ?? 'inbox', job_id: source.scheduleId, source, trigger_kind: source.triggerKind } } };
+    const human = ['human', 'nano-human'].includes(source.kind) || source.kind === 'user' && 'actorId' in source && 'channel' in source && 'messageId' in source;
+    return { type: 'turn_started', turn, payload: { model: modelAt(events, event.seq), run_id: `${sessionId}:${turn}`, origin: child ? 'background_task' : 'system', trigger: { kind: child || ['agent-message', 'subagent-settled'].includes(source.kind) ? 'background_task' : source.kind === 'schedule' ? 'cron' : human ? 'human' : source.channel ?? 'inbox', job_id: source.scheduleId, source, trigger_kind: source.triggerKind } } };
   }
   const model = event.type === 'request/header'
     ? (event.data.header as { config?: { model?: unknown } } | undefined)?.config?.model

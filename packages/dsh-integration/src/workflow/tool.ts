@@ -8,6 +8,7 @@ import type { NanoWorkflowEngine } from "./engine.js";
 import type { WorkflowMeta } from "@deepseek-ai/dsh-workflow";
 import type { AgentConfiguration } from "../index.js";
 import type { WorkflowRecord } from "./state.js";
+import { isHumanSource } from "../input-source.js";
 
 /** Keep replay/accounting identities in storage, outside model-facing run results. */
 function presentRun(record: WorkflowRecord) {
@@ -43,7 +44,7 @@ export function registerWorkflowTool(
       return decision;
     const inputs = [
       ...messages
-        .filter((message) => message.source.kind === "nano-human")
+        .filter((message) => isHumanSource(message.source))
         .map((message) => ({
           id: message.id as string,
           text: message.content

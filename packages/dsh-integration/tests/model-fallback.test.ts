@@ -154,7 +154,7 @@ class Fixture extends LlmAdapter{
  async resolveModel(provider,id){return{provider,id,name:id,context:{contextWindow:id==='primary'?100000:70000},defaultMaxTokens:1000,reasoning:{efforts:[{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:id==='primary'?'high':'low'}};}
  async prepareCall(provider,model,signal){if(scenario==='prepare'&&model==='primary')throw new LlmError('preparation auth failed','AUTH',{status:401});return super.prepareCall(provider,model,signal);}
  async *stream(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({model:o.model,effort:o.reasoningEffort,messages:o.messages})+'\\n');
- if(o.model==='primary'&&(!['new-input','pre-step'].includes(scenario)||o.messages.findLast(m=>m.role==='user'&&m.source.kind==='nano-human')?.id==='one')){
+ if(o.model==='primary'&&(!['new-input','pre-step'].includes(scenario)||o.messages.findLast(m=>m.role==='user'&&m.source.kind==='user'&&'actorId'in m.source)?.id==='one')){
   if(scenario==='tool'&&step++===0){yield{type:'block-end',index:0,block:{type:'tool-call',id:'read-once',name:'fixture_read',arguments:'{}'}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
   if(scenario==='finish'){yield{type:'finish',reason:{kind:'error',failure:{code:'AUTH',message:'terminal auth failure',status:401}},usage:{inputTokens:7,outputTokens:0}};return;}
   throw new LlmError('candidate failed',scenario==='context'?'CONTEXT_WINDOW_EXCEEDED':'AUTH',{status:scenario==='context'?400:401});

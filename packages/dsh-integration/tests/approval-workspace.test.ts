@@ -53,7 +53,7 @@ export function apply(ctx) {
  ctx.on('tools/pre-execute',(exec,next)=>exec.name==='write'&&exec.arguments.file_path==='blocked.txt'?{kind:'deny',reason:'Host restriction'}:next());
  ctx.on('llm/stream',async function*(options) {
   if(options.system){await appendFile(process.env.DSH_HOME+'/reviews.jsonl','review\\n');yield{type:'block-end',index:0,block:{type:'text',text:'<block>yes</block><reason>outside fixture denied</reason>'}};yield{type:'finish',reason:{kind:'stop'}};return;}
-  const user=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+  const user=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
   if(!seen.has(user.id)){seen.add(user.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:'write-'+user.id,name:'write',arguments:JSON.stringify({file_path:user.content[0].text,content:'proof'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
   yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
  });

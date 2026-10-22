@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { UserMessage } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -16,6 +17,7 @@ import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
+import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
@@ -72,10 +74,10 @@ export class NanoApproval extends Service {
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
-    const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as { source?: { kind?: string; channel?: string } });
+    const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
-    return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
+    return inputs.some(input => isHumanSource(input.source)) ? 'interactive' : 'unattended';
   }
   private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
     let reached = { consecutive: 0, total: 0 };

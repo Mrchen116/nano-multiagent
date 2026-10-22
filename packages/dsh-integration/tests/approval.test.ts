@@ -30,7 +30,7 @@ it('skips the reviewer only for verified owner messages and reviews other public
 export const name='message-approval-fixture';export const inject=['llm'];
 export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exec,next)=>exec.name==='send_message'&&exec.arguments.target==='owner-blocked'?{kind:'deny',reason:'Explicit tool restriction'}:next());ctx.on('llm/stream',async function*(options){
  if(options.system){await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({system:options.system,prompt:options.messages[0].content[0].text})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"not authorized"}':'<block>yes</block><reason>not authorized</reason>'}};yield{type:'finish',reason:{kind:'stop'}};return;}
- const human=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+ const human=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  if(!steps.has(human.id)){steps.add(human.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:'send-'+human.id,name:'send_message',arguments:JSON.stringify({target:human.content[0].text,text:'This is a reply to myself'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
@@ -83,7 +83,7 @@ export function apply(ctx) {
       content = scenario === 'fault' ? 'no valid verdict' : scenario === 'allow' ? '<block>no</block>' : '<block>yes</block><reason>scope missing</reason>';
       if (options.system.startsWith('REVIEW_POLICY')) content = '{"risk":"high","decision":"deny","reason":"sensitive exfiltration"}';
     } else {
-      const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind?.startsWith('nano-')); const scenario = last.content[0].text;
+      const last = options.messages.findLast(message => message.role === 'user' && ['user', 'nano-system'].includes(message.source?.kind)); const scenario = last.content[0].text;
       const step = steps.get(last.id) ?? 0; steps.set(last.id, step + 1);
       if (step < (scenario === 'threshold' ? 3 : 1)) {
         yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: last.id + '-' + step, name: 'fixture_effect', arguments: JSON.stringify({ scenario }) } };
@@ -197,7 +197,7 @@ export function apply(ctx) {
    yield {type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"Synthetic denial"}':'<block>yes</block><reason>Synthetic denial</reason>'}};
    yield {type:'finish',reason:{kind:'stop'}};return;
   }
-  const human=options.messages.findLast(message=>message.role==='user'&&message.source?.kind==='nano-human');
+  const human=options.messages.findLast(message=>message.role==='user'&&message.source?.kind==='user'&&'actorId'in message.source);
   if(!seen.has(human.id)) {
    seen.add(human.id);
    for(const [index,call] of JSON.parse(human.content[0].text).entries())yield {type:'block-end',index,block:{type:'tool-call',id:human.id+'-'+index,name:call.name,arguments:JSON.stringify(call.args)}};

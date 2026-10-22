@@ -8,6 +8,7 @@ import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem';
 import type { SkillCandidate, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import type { AgentConfiguration } from './index.js';
 import { contextTools } from './agent-context.js';
+import { isHumanSource } from './input-source.js';
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
@@ -103,12 +104,18 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     const gestures = skillGestures((body.messages ?? []).filter(input => input.sender.type === 'user' && !input.partial));
     if (gestures.length) pending.set(agent, [...(pending.get(agent) ?? []), ...gestures]);
   });
-  // Native explicit invocation only scans its own user source. Preserve Nano's
-  // human attribution and adapt the gesture through the same selected registry.
+  // Native /name owns direct user gestures. Only bridge Nano's older syntax
+  // (/skill:name or an attached [label]) and pending legacy nano-human inputs.
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next(); if (decision.kind === 'reject') return decision;
     const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
-    const gestures = [...skillGestures(messages.filter(message => message.source.kind === 'nano-human')), ...(pending.get(agent) ?? [])];
+    // The native middleware may append its injections after this scope returns.
+    // Detect its /name syntax here solely to suppress the compatibility copy.
+    const nativeNames = new Set(messages.filter(message => message.source.kind === 'user').flatMap(message => message.content.flatMap(block =>
+      block.type === 'text' ? [...block.text.matchAll(/(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g)].map(match => match[2]) : [])));
+    const compatibility = messages.filter(message => isHumanSource(message.source) && (message.source.kind === 'nano-human'
+      || message.content.some(block => block.type === 'text' && /^(?:\[[^\]]*\]\s*)*\/skill:|^(?:\[[^\]]*\]\s*)+\//.test(block.text))));
+    const gestures = [...skillGestures(compatibility).filter(gesture => !nativeNames.has(gesture.name)), ...(pending.get(agent) ?? [])];
     const additions: UserMessage[] = [];
     for (const { id, name } of gestures) {
       if (invoked.has(id)) continue;
