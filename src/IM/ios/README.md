@@ -38,4 +38,6 @@ NANO_IOS_SIMULATOR_ID=<设备UDID> ./src/IM/ios/scripts/build.sh test
 - `UI/`：原生 Markdown、受保护媒体、Quick Look 和系统分享。
 - `Tests/`：会话轮换/退出竞态、消息合并、管理请求与返回模型契约。
 
+通用交互回复用随包的 OpenUI `lang-core` 1.0.1 在 JavaScriptCore 中解析、求值，再以 SwiftUI/Swift Charts 呈现；不嵌入网页。`Runtime/interactive-runtime.ts` 为宿主桥接源码，组件目录来自 product-contracts。修改桥接或目录后，在仓库根运行 `pnpm exec tsx scripts/generate-ios-interactive.ts`，将资源与许可证一起更新；CI 用 `--check` 防止源码与安装包漂移。原生运行不提供任意 JavaScript、网络或文件系统接口。打包后的解释器协议回归由根 `pnpm test` 运行，原生会话及呈现仍走 Xcode gate。
+
 真实服务必须按仓库 [worktree runtime](../../../docs/development/worktree-runtime.md) 隔离。行为契约见 [iOS Client](../../../docs/specs/im/ios-client.md)，本版交付范围与证据见 [feat-578](../../../docs/changes/archive/feat-578-ios-app/release-acceptance.md)。模拟器 UI 与 API 验证不代替真机的中文输入、VoiceOver、免费续签和到期恢复；这些剩余实证跟进 [#327](https://github.com/Mrchen116/nano-multiagent/issues/327)。

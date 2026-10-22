@@ -51,7 +51,7 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }
@@ -141,7 +141,7 @@ struct ConversationView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let pending = store.pending[conversationID], !store.sending.contains(conversationID) {
                 HStack { Text(L("等待核对发送结果", "Awaiting delivery confirmation")).font(.caption); Spacer(); Button(L("重试核对", "Retry")) { Task { await store.send(conversationID, retry: true) } } }
-                    .accessibilityLabel(pending.content)
+                    .accessibilityHint(pending.content)
             }
             if !(store.attachments[conversationID] ?? []).isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(store.attachments[conversationID] ?? []) { item in

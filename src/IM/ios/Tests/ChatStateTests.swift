@@ -3,6 +3,15 @@ import XCTest
 
 @MainActor
 final class ChatStateTests: XCTestCase {
+    private var attemptDirectory: URL!
+    private var attemptStore: SendAttemptStore { SendAttemptStore(directory: attemptDirectory) }
+    override func setUpWithError() throws {
+        attemptDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    }
+    override func tearDownWithError() throws {
+        if FileManager.default.fileExists(atPath: attemptDirectory.path) { try FileManager.default.removeItem(at: attemptDirectory) }
+    }
+
     private let user = AuthUser(id: "user", username: "user", display_name: "User", owner_id: "user", locale: "en", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
 
     func testForegroundRemindersHandleHumanSentWithoutRepeatingCreation() async throws {
@@ -84,7 +93,7 @@ final class ChatStateTests: XCTestCase {
             let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
             let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
             let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page, detail: Data(json.utf8))
-            let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+            let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
             _ = try await session.login(username: "user", password: "test")
             let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
             store.selectedID = "chat"
@@ -119,7 +128,7 @@ final class ChatStateTests: XCTestCase {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
         let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page, list: list)
-        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
         _ = try await session.login(username: "user", password: "test")
         return ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
     }
@@ -129,7 +138,7 @@ final class ChatStateTests: XCTestCase {
         let bridge = try (2...61).map { try message($0) }
         let pair = TokenPair(access_token: "test-access", refresh_token: "test-refresh", user: user)
         let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: try JSONEncoder().encode(MessagePage(items: latest, next_before_message_id: "m62")), bridge: try JSONEncoder().encode(MessagePage(items: bridge, next_before_message_id: "m2")))
-        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
         _ = try await session.login(username: "user", password: "test")
         let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
         store.timelines["chat"] = try (1...60).map { try message($0) }
@@ -147,7 +156,7 @@ final class ChatStateTests: XCTestCase {
         let received = try message(1)
         let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
         let transport = LostSendTransport(pair: try JSONEncoder().encode(pair), message: try JSONEncoder().encode(received.message!), page: try JSONEncoder().encode(MessagePage(items: [received])), list: list)
-        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
         _ = try await session.login(username: "user", password: "test")
         let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
         store.drafts["chat"] = "message 1"
@@ -164,11 +173,12 @@ final class ChatStateTests: XCTestCase {
         XCTAssertEqual(timezones, [TimeZone.autoupdatingCurrent.identifier])
         XCTAssertEqual(initialKeys.count, 1)
         XCTAssertFalse(initialKeys[0].isEmpty)
+        store.drafts["chat"] = "a newer draft"
         await store.send("chat", retry: true)
         let retryKeys = await transport.keys
         XCTAssertEqual(retryKeys, [initialKeys[0], initialKeys[0]])
         XCTAssertNil(store.pending["chat"])
-        XCTAssertEqual(store.drafts["chat"], "")
+        XCTAssertEqual(store.drafts["chat"], "a newer draft")
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
         store.clear()
     }
@@ -251,7 +261,7 @@ final class ChatStateTests: XCTestCase {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
         let transport = UploadTransport(pair: try JSONEncoder().encode(pair), message: try JSONEncoder().encode(message(1).message!), list: list, statuses: statuses, gated: gated)
-        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials())
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
         _ = try await session.login(username: "user", password: "test")
         let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
         await store.loadConversations()
@@ -316,6 +326,9 @@ private actor LostSendTransport: HTTPTransport {
             if keys.count == 1 { throw URLError(.networkConnectionLost) }
             body = message
         } else if url.path == "/im/v1/conversations" { body = list }
+        else if url.path.contains("/message-attempts/") {
+            return (Data(#"{"detail":"not found"}"#.utf8), HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: [:])!)
+        }
         else { body = page }
         return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!)
     }

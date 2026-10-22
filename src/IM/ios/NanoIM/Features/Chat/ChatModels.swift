@@ -100,6 +100,8 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var elapsed_ms: Double?
     var kernel_message_id: String?
     var system_notice: JSONValue?
+    var interactive: MessageInteractive?
+    var interaction_reply: JSONValue?
 }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String
@@ -124,10 +126,11 @@ struct ChatCommandSet: Codable, Sendable, Identifiable {
     struct Skill: Codable, Sendable, Identifiable { var skill_key: String; var name: String; var description: String; var id: String { skill_key } }
     struct Command: Codable, Sendable, Identifiable { var name: String; var description: String; var id: String { name } }
 }
-struct PendingSend: Sendable {
+struct PendingSend: Codable, Sendable {
     var key = UUID().uuidString
     let content: String
     let attachments: [ChatAttachment]
+    var requestBody: Data?
 }
 
 /// Merge authoritative pages by stable identity; replay never appends a delta twice.

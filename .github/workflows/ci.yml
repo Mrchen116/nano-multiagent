@@ -102,6 +102,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build and typecheck
         run: pnpm build && pnpm typecheck
+      - name: Check packaged native interactive runtime
+        run: pnpm check:ios-runtime
       - name: Native runtime and IM regressions
         run: pnpm test
 

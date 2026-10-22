@@ -13,6 +13,10 @@ final class ChatStore {
     var attachments: [String: [ChatAttachment]] = [:]
     var uploadDrafts: [String: [AttachmentUpload]] = [:]
     var pending: [String: PendingSend] = [:]
+    var interactionPending: [String: PendingSend] = [:]
+    var interactionSelections: [String: InteractionSelection] = [:]
+    var interactionSending: Set<String> = []
+    private var interactionConversations: [String: String] = [:]
     var sending: Set<String> = []
     var errors: [String: String] = [:]
     var selectedID: String?
@@ -23,6 +27,8 @@ final class ChatStore {
     var checkingAccess: Set<String> = []
     private var cursor: Int?
     private var epoch = UUID()
+    private var sendEpoch = UUID()
+    private var ownerRevision: Int?
     private var stream: UserStream
     private var discarded: Set<String> = []
     private(set) var revokedChats: Set<String> = []
@@ -31,17 +37,36 @@ final class ChatStore {
     private var refreshTask: Task<Void, Never>?
     private var notificationFloor = 0
 
-    init(client: IMClient, user: AuthUser) { self.client = client; self.user = user; self.stream = UserStream(client: client) }
+    init(client: IMClient, user: AuthUser) {
+        self.client = client; self.user = user; self.stream = UserStream(client: client)
+        restoreAttempts()
+    }
+    private func restoreAttempts() {
+        do {
+            for attempt in try client.session.sendAttempts.load(origin: client.baseURL, userID: user.id) {
+                if let source = attempt.sourceMessageID {
+                    interactionPending[source] = attempt.draft; interactionConversations[source] = attempt.conversationID
+                } else {
+                    pending[attempt.conversationID] = attempt.draft
+                    if drafts[attempt.conversationID] == nil { drafts[attempt.conversationID] = attempt.draft.content }
+                    if attachments[attempt.conversationID] == nil { attachments[attempt.conversationID] = attempt.draft.attachments }
+                }
+            }
+        } catch { listError = error.localizedDescription }
+    }
 
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
         Task { await stream.stop() }
     }
     func clear() {
+        sendEpoch = UUID()
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
+        interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil; listLoaded = false
     }
     func run() async {
+        restoreAttempts()
         let token = epoch
         var attempt = 0
         defer { Task { await stream.stop() } }
@@ -54,6 +79,8 @@ final class ChatStore {
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard token == epoch, !Task.isCancelled else { return }
                 await reconcile(sync.items)
+                await recoverPending()
+                guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
                 // Persisted snapshots contain every delta, so invalidation/re-read avoids
@@ -138,9 +165,14 @@ final class ChatStore {
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess) where !allowed.contains(id) {
-            timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
+            await revokeConversation(id)
+            guard token == epoch else { return }
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+        }
+        for chat in values where chat.can_write == false || chat.dissolved_at != nil {
+            await discardConversationAttempts(chat.id)
+            guard token == epoch else { return }
         }
         checkingAccess = []
         conversations = values
@@ -164,7 +196,8 @@ final class ChatStore {
             guard token == epoch else { return }
             inspectedConversation = nil
             if [403, 404].contains((error as? APIError)?.status ?? 0) {
-                timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; pending[id] = nil
+                await revokeConversation(id)
+                guard token == epoch else { return }
                 revokedChats.insert(id)
                 conversations.removeAll { $0.id == id }
                 errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
@@ -188,9 +221,11 @@ final class ChatStore {
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             errors[id] = nil
+            await recoverPending(id)
         } catch {
             guard token == epoch, !(error is CancellationError) else { return }
-            if [403,404].contains((error as? APIError)?.status ?? 0) { timelines[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil; drafts[id] = nil }
+            if [403,404].contains((error as? APIError)?.status ?? 0) { await revokeConversation(id) }
+            guard token == epoch else { return }
             errors[id] = error.localizedDescription
         }
     }
@@ -230,7 +265,7 @@ final class ChatStore {
             guard let current = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }) else { return }
             let api = error as? APIError
             if [403,404].contains(api?.status ?? 0) {
-                timelines[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+                await revokeConversation(id)
                 errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
                 await loadConversations()
                 return
@@ -254,36 +289,197 @@ final class ChatStore {
         let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
         guard chat?.can_write != false else { return }
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
+        sending.insert(id)
+        defer { sending.remove(id) }
         if !retry {
             guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),
                   textOnly || (uploadDrafts[id] ?? []).isEmpty else { return }
             let content = drafts[id] ?? "", files = textOnly ? [] : attachments[id] ?? []
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return }
-            pending[id] = PendingSend(content: content, attachments: files)
+            do {
+                let token = sendEpoch, revision = try await sessionRevision()
+                guard token == sendEpoch else { return }
+                guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+                let draft = try client.prepareMessage(PendingSend(content: content, attachments: files), userID: user.id,
+                    participants: chat?.participants ?? [], contexts: backgroundContexts(id, chat: chat))
+                let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
+                try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+                guard token == sendEpoch else { return }
+                pending[id] = draft
+            } catch { errors[id] = error.localizedDescription; return }
         }
         guard let draft = pending[id] else { return }
-        let token = epoch
-        sending.insert(id); errors[id] = nil
-        defer { sending.remove(id) }
+        let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
+        let token = sendEpoch
+        errors[id] = nil
         do {
-            let message = try await client.sendMessage(id, draft: draft, userID: user.id, participants: conversations.first { $0.id == id }?.participants ?? [])
-            guard token == epoch, !revokedChats.contains(id) else { return }
-            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: [TimelineItem(type: "message", message: message)], older: false, discarded: discarded)
-            pending[id] = nil
-            if drafts[id] == draft.content { drafts[id] = "" }
-            let sentIDs = Set(draft.attachments.map(\.id))
-            attachments[id]?.removeAll { sentIDs.contains($0.id) }
-            await loadConversations()
+            _ = try await resolveAttempt(attempt, lookup: retry, resend: true)
         } catch {
-            guard token == epoch, !(error is CancellationError) else { return }
-            if let api = error as? APIError, (400..<500).contains(api.status), ![408,429].contains(api.status) {
-                pending[id] = nil; errors[id] = api.detail
-            } else {
-                errors[id] = L("发送结果尚未确认。重试会核对同一条消息。", "Delivery is unconfirmed. Retry checks the same message.")
-                await loadChat(id)
-                // Refreshing history is useful evidence, but identical text is not a receipt.
-                errors[id] = L("发送结果尚未确认。重试会核对同一条消息。", "Delivery is unconfirmed. Retry checks the same message.")
+            if !(error is CancellationError) {
+                errors[id] = error.localizedDescription
+                if pending[id] != nil { await loadChat(id) }
+                if token == sendEpoch, pending[id]?.key == draft.key { errors[id] = error.localizedDescription }
             }
         }
+    }
+
+    func interactionAttempt(_ id: String, sourceMessageID: String) -> PendingSend? {
+        interactionConversations[sourceMessageID] == id ? interactionPending[sourceMessageID] : nil
+    }
+
+    func submitInteraction(_ id: String, input: InteractionReplyInput, key: String) async throws -> ChatMessage {
+        try requireWritable(id)
+        let source = input.source_message_id
+        guard interactionPending[source] == nil, !interactionSending.contains(source) else {
+            throw APIError(status: 0, detail: unconfirmedText)
+        }
+        interactionSending.insert(source)
+        defer { interactionSending.remove(source) }
+        let token = sendEpoch, revision = try await sessionRevision()
+        guard token == sendEpoch else { throw CancellationError() }
+        try requireWritable(id)
+        let draft = try client.prepareMessage(PendingSend(key: key, content: "", attachments: []), userID: user.id, interaction: input)
+        let attempt = SendAttempt(conversationID: id, sourceMessageID: source, draft: draft)
+        try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+        guard token == sendEpoch else { throw CancellationError() }
+        interactionPending[source] = draft; interactionConversations[source] = id
+        guard let message = try await resolveAttempt(attempt, lookup: false, resend: true) else { throw APIError(status: 0, detail: unconfirmedText) }
+        return message
+    }
+
+    func retryInteraction(_ id: String, sourceMessageID: String) async throws -> ChatMessage {
+        try requireWritable(id)
+        guard let draft = interactionAttempt(id, sourceMessageID: sourceMessageID), !interactionSending.contains(sourceMessageID) else { throw CancellationError() }
+        interactionSending.insert(sourceMessageID)
+        defer { interactionSending.remove(sourceMessageID) }
+        let attempt = SendAttempt(conversationID: id, sourceMessageID: sourceMessageID, draft: draft)
+        guard let message = try await resolveAttempt(attempt, lookup: true, resend: true) else { throw APIError(status: 0, detail: unconfirmedText) }
+        return message
+    }
+
+    /// Reopening queries durable attempts without submitting any new work.
+    func recoverPending(_ id: String? = nil) async {
+        let ordinary = pending.filter { id == nil || $0.key == id }.map { SendAttempt(conversationID: $0.key, sourceMessageID: nil, draft: $0.value) }
+        let cards = interactionPending.compactMap { source, draft -> SendAttempt? in
+            guard let chat = interactionConversations[source], id == nil || id == chat else { return nil }
+            return SendAttempt(conversationID: chat, sourceMessageID: source, draft: draft)
+        }
+        for attempt in ordinary + cards {
+            guard !revokedChats.contains(attempt.conversationID), !checkingAccess.contains(attempt.conversationID) else { continue }
+            if let source = attempt.sourceMessageID {
+                guard !interactionSending.contains(source) else { continue }
+                interactionSending.insert(source)
+                _ = try? await resolveAttempt(attempt, lookup: true, resend: false)
+                interactionSending.remove(source)
+            } else {
+                guard !sending.contains(attempt.conversationID) else { continue }
+                sending.insert(attempt.conversationID)
+                _ = try? await resolveAttempt(attempt, lookup: true, resend: false)
+                sending.remove(attempt.conversationID)
+            }
+        }
+    }
+
+    private var unconfirmedText: String { L("发送结果尚未确认。重试会核对同一条消息。", "Delivery is unconfirmed. Retry checks the same message.") }
+
+    private func requireWritable(_ id: String) throws {
+        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
+        guard !revokedChats.contains(id), !checkingAccess.contains(id), chat?.can_write != false, chat?.dissolved_at == nil else {
+            throw APIError(status: 403, detail: L("此聊天不能发送消息。", "This conversation does not allow sending."))
+        }
+    }
+
+    private func backgroundContexts(_ id: String, chat: Conversation?) -> [InteractionContextInput] {
+        guard chat?.type == "direct" else { return [] }
+        let messages = (timelines[id] ?? []).compactMap(\.message)
+        let replaced = Set(messages.compactMap { $0.interactive?.supersedes_message_id })
+        return messages.enumerated().compactMap { index, message -> (InteractionSelection, Int)? in
+            guard let card = message.interactive, card.read_only != true, card.superseded_by == nil, !replaced.contains(message.id),
+                  let selection = interactionSelections[message.id], selection.conversationID == id else { return nil }
+            return (selection, index)
+        }.sorted { $0.0.editedAt == $1.0.editedAt ? $0.1 > $1.1 : $0.0.editedAt > $1.0.editedAt }.prefix(3)
+            .map { InteractionContextInput(source_message_id: $0.0.source_message_id, state: $0.0.state, interacted_at: $0.0.editedAt == 0 ? nil : $0.0.editedAt) }
+    }
+
+    private func isCurrent(_ attempt: SendAttempt, token: UUID) -> Bool {
+        guard token == sendEpoch, !revokedChats.contains(attempt.conversationID), !checkingAccess.contains(attempt.conversationID) else { return false }
+        if let source = attempt.sourceMessageID { return interactionAttempt(attempt.conversationID, sourceMessageID: source)?.key == attempt.draft.key }
+        return pending[attempt.conversationID]?.key == attempt.draft.key
+    }
+
+    private func resolveAttempt(_ attempt: SendAttempt, lookup: Bool, resend: Bool) async throws -> ChatMessage? {
+        let token = sendEpoch, revision = try await sessionRevision()
+        let id = attempt.conversationID
+        let lookupKey = attempt.sourceMessageID == nil ? attempt.draft.key : "interaction:\(user.id):\(attempt.draft.key)"
+        do {
+            try await client.session.assertOwner(user.id, revision: revision)
+            var message: ChatMessage?
+            if lookup { message = try await client.lookupMessageAttempt(id, key: lookupKey) }
+            guard isCurrent(attempt, token: token) else { throw CancellationError() }
+            if message == nil, resend {
+                do { message = try await client.sendMessage(id, draft: attempt.draft, userID: user.id) }
+                catch let conflict as APIError where conflict.status == 409 {
+                    // A conflict may be a lost acknowledgement; only the sender's receipt resolves it.
+                    message = try await client.lookupMessageAttempt(id, key: lookupKey)
+                    if message == nil { throw conflict }
+                }
+            }
+            try await client.session.assertOwner(user.id, revision: revision)
+            guard isCurrent(attempt, token: token) else { throw CancellationError() }
+            guard let message else { errors[id] = unconfirmedText; return nil }
+            try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
+            guard isCurrent(attempt, token: token) else { throw CancellationError() }
+            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: [TimelineItem(type: "message", message: message)], older: false, discarded: discarded)
+            if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
+            else {
+                pending[id] = nil
+                if drafts[id] == attempt.draft.content {
+                    drafts[id] = ""
+                }
+                let sentIDs = Set(attempt.draft.attachments.map(\.id))
+                attachments[id]?.removeAll { sentIDs.contains($0.id) }
+            }
+            errors[id] = nil
+            return message
+        } catch {
+            guard isCurrent(attempt, token: token), !(error is CancellationError) else { throw CancellationError() }
+            try await client.session.assertOwner(user.id, revision: revision)
+            if let api = error as? APIError, (400..<500).contains(api.status), ![408, 429].contains(api.status) {
+                try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
+                guard isCurrent(attempt, token: token) else { throw CancellationError() }
+                if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
+                else { pending[id] = nil }
+                if [403, 404].contains(api.status) { await revokeConversation(id) }
+                errors[id] = api.detail
+                throw api
+            }
+            errors[id] = unconfirmedText
+            throw APIError(status: 0, detail: unconfirmedText)
+        }
+    }
+
+    private func sessionRevision() async throws -> Int {
+        let revision = await client.session.revision()
+        if let ownerRevision, ownerRevision != revision { throw CancellationError() }
+        try await client.session.assertOwner(user.id, revision: revision)
+        ownerRevision = revision
+        return revision
+    }
+
+    private func discardConversationAttempts(_ id: String) async {
+        guard let revision = try? await sessionRevision() else { return }
+        pending[id] = nil
+        for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
+            interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
+        }
+        interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
+        try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
+    }
+    private func revokeConversation(_ id: String) async {
+        let token = epoch
+        await discardConversationAttempts(id)
+        guard token == epoch else { return }
+        timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+        revokedChats.insert(id)
     }
 }

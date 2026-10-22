@@ -158,6 +158,10 @@ struct SettingsHelpView: View {
     @AppStorage("nano.foregroundReminders") private var reminders = true
     var body: some View {
         Form {
+            Section(L("版本", "Version")) {
+                LabeledContent("Nano IM", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") + " (" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") + ")")
+                if let revision = Bundle.main.object(forInfoDictionaryKey: "NanoIMBuildRevision") as? String { LabeledContent(L("代码版本", "Source revision"), value: revision).font(.caption).textSelection(.enabled) }
+            }
             Section {
                 Toggle(L("前台新消息提醒", "Foreground message reminders"), isOn: $reminders)
             } header: { Text(L("消息提醒", "Message reminders")) } footer: {
