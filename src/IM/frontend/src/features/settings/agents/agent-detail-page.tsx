@@ -1276,6 +1276,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const isMobile = useIsMobile();
   useAgentStatusBroadcastConsumer();
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
+  const [pendingAgent, setPendingAgent] = useState<string | null>(null);
   const previousServerConfig = useRef<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1455,6 +1456,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     return (hasAttemptedSave || touched[field]) && validationErrors[field];
   }
 
+  function selectAgent(nextID: string) {
+    if (nextID === agentId) return;
+    if (isDirty) setPendingAgent(nextID);
+    else navigate(`/settings/agents/${encodeURIComponent(nextID)}`);
+  }
+
   function handleDiscard() {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
@@ -1476,7 +1483,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     if (isMobile) return statePanel;
     return (
       <div className="flex h-full overflow-hidden">
-        <AgentsRailDesktop activeId={agentId} />
+        <AgentsRailDesktop activeId={agentId} onSelectAgent={selectAgent} />
         {statePanel}
       </div>
     );
@@ -2072,6 +2079,18 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           </div>
         </footer>
       ) : null}
+      {pendingAgent && (
+        <div className="chat-modal-backdrop" role="presentation">
+          <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="agent-detail-unsaved-title">
+            <header className="chat-modal-header bg-white"><h2 id="agent-detail-unsaved-title">{t("agents.create.unsavedExitTitle")}</h2></header>
+            <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t("agents.create.unsavedExitBody")}</p></div>
+            <footer className="chat-modal-footer bg-white">
+              <button className="chat-modal-btn-ghost" type="button" onClick={() => setPendingAgent(null)}>{t("agents.create.keepEditing")}</button>
+              <button className="chat-modal-btn-primary" type="button" onClick={() => navigate(`/settings/agents/${encodeURIComponent(pendingAgent)}`)}>{t("agents.create.leaveWithoutSaving")}</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </form>
   );
 
@@ -2081,7 +2100,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   return (
     <div className="flex h-full overflow-hidden">
-      <AgentsRailDesktop activeId={agentId} />
+      <AgentsRailDesktop activeId={agentId} onSelectAgent={selectAgent} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[oklch(0.93_0.007_240)]">
         {detailPanel}
       </div>

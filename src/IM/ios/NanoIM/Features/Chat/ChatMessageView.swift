@@ -56,7 +56,7 @@ struct ChatMessageView: View {
                             case .other(let label, let value): DisclosureGroup(label) {
                                 if let text = value["text"].stringValue ?? value["result"].stringValue { MarkdownView(text: text, client: client) }
                                 if let error = value["error"].stringValue { ErrorNotice(message: error) }
-                                NavigationLink(L("全部详情", "All details")) { JSONDetailView(value: value) }
+                                NavigationLink(L("全部详情", "All details")) { JSONDetailPage(value: value) }
                             }
                             }
                         }
@@ -111,8 +111,8 @@ struct ChatMessageView: View {
                 if let approval = tool.approval { Label(approval == "user_allow" ? L("已授权", "Authorized") : L("已拒绝", "Denied"), systemImage: "hand.raised") }
                 if let reason = tool.reason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                 if let output = tool.output { Text(output).font(.callout).textSelection(.enabled) }
-                if let input = tool.input { NavigationLink(L("输入", "Input")) { JSONDetailView(value: input) } }
-                if let detail = tool.detail { NavigationLink(L("结果详情", "Result details")) { JSONDetailView(value: detail) } }
+                if let input = tool.input { NavigationLink(L("输入", "Input")) { JSONDetailPage(value: input) } }
+                if let detail = tool.detail { NavigationLink(L("结果详情", "Result details")) { JSONDetailPage(value: detail) } }
             }
         } label: { HStack { Text((tool.emoji ?? "🔧") + " " + tool.name); Spacer(); Text(tool.status).font(.caption); if let ms = tool.duration_ms { Text(String(format: "%.1fs", ms / 1000)).font(.caption) } } }
     }
@@ -161,7 +161,7 @@ struct ChatPermissionCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(permission.tool_name, systemImage: "hand.raised.fill").font(.headline)
             Text(permission.question)
-            NavigationLink(L("查看操作输入", "Inspect action input")) { JSONDetailView(value: permission.tool_input) }
+            NavigationLink(L("查看操作输入", "Inspect action input")) { JSONDetailPage(value: permission.tool_input) }
             if permission.status == "resolved" { Text(L("已处理：", "Resolved: ") + (permission.decision ?? "")).foregroundStyle(.secondary) }
             else if permission.status == "submitted" || submitted { Label(L("已提交，等待确认", "Submitted, awaiting confirmation"), systemImage: "clock") }
             else if !readOnly { ForEach(permission.options) { option in

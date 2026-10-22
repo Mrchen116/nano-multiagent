@@ -314,6 +314,8 @@
     }
   },
   "agents": {
+    "configure": "Configure",
+    "paSettingUp": "Personal assistant setup is in progress.",
     "selectTitle": "Select an Agent",
     "selectBody": "Choose an Agent from the sidebar to view and edit its configuration.",
     "title": "Agents",

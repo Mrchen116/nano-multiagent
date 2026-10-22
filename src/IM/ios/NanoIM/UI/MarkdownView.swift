@@ -128,7 +128,7 @@ private struct MarkdownBlockView: View {
         return AnyView(VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(MarkdownContent.pieces(node, baseURL: client.baseURL).enumerated()), id: \.offset) { _, piece in
                 switch piece {
-                case .text(let text): SwiftUI.Text(text).font(baseFont).tint(.teal)
+                case .text(let text): SwiftUI.Text(text).font(baseFont).tint(.teal).fixedSize(horizontal: false, vertical: true)
                 case .image(let source, let label): ProtectedImageView(client: client, source: source, label: label)
                 }
             }

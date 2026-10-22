@@ -23,7 +23,9 @@ struct AgentContractsTests {
     }
 
     @Test func creationAndPreviewKeepGlobalToolsAndDiscoveryIntent() throws {
-        let caps = try JSONDecoder().decode(AgentCapabilities.self, from: Data(#"{"node_id":"n","models":[{"name":"m","provider":"p","reasoning":{"kind":"selectable","default":"high","levels":["low","high"]}}],"skills":[{"name":"guide","description":"Guide","default_on":true,"source_group":"global","location":"/skills/guide/SKILL.md"}],"tools":[{"name":"bash","description":"Shell","default_on":true}],"features":[],"platform_default_model":"m","default_workspace_template":"/agents/{agent_id}"}"#.utf8))
+        let caps = try JSONDecoder().decode(AgentCapabilities.self, from: Data(#"{"node_id":"n","models":[{"name":"m","provider":"p","display_name":"研究模型","provider_display_name":"团队服务","reasoning":{"kind":"selectable","default":"high","levels":["low","high"]}}],"skills":[{"name":"guide","description":"Guide","default_on":true,"source_group":"global","location":"/skills/guide/SKILL.md"}],"tools":[{"name":"bash","description":"Shell","default_on":true}],"features":[],"platform_default_model":"m","default_workspace_template":"/agents/{agent_id}"}"#.utf8))
+        #expect(caps.models.first?.displayLabel == "研究模型 · 团队服务")
+        #expect(caps.models.first?.name == "m")
         var draft = AgentDraft()
         draft.agent_id = "worker"; draft.display_name = "Worker"; draft.work_mode = "global"
         draft.skills_selection_mode = "default_discovery"; draft.workspace_root = "/repo"

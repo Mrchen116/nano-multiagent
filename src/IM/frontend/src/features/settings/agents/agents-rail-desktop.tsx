@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
 import { AgentRow } from "./agent-row";
+import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { listPublicAgents } from "./public-agents";
 import { useAuthStore } from "../../auth/auth-store";
 
@@ -21,6 +22,8 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
   const query = useQuery({ queryKey: ["public-agents", self], queryFn: listPublicAgents, refetchInterval: 3000, staleTime: 30_000 });
   const [search, setSearch] = useState("");
   const agents = query.data ?? [];
+  const personal = usePersonalAgentEntry();
+  const personalBinding = configuredPersonalAgent(personal.data);
   const nodes: [] = [];
 
   function selectAgent(agentId: string) {
@@ -63,7 +66,8 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
       </div>
       <input type="search" className="chat-sidebar-search" aria-label={t("agents.search")} placeholder={t("agents.search")} value={search} onChange={e => setSearch(e.target.value)} />
       <nav className="flex-1 overflow-y-auto px-2 py-[6px]" aria-label={t("agents.title")}>
-        {agents.filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
+        <PersonalAgentEntry state={personal.data} failed={personal.isError} search={search} searchText={agents.find(agent => agent.agent_id === personalBinding?.agent_id)?.description} onRetry={() => void personal.refetch()} onSelect={selectAgent} />
+        {agents.filter(agent => agent.agent_id !== personalBinding?.agent_id).filter(agent => `${agent.display_name} ${agent.agent_id} ${agent.description}`.toLowerCase().includes(search.toLowerCase())).map((agent) => (
           <AgentRow
             key={agent.agent_id}
             agent={agent}

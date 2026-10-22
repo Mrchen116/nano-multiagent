@@ -31,6 +31,8 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
+vi.mock("./public-agents", () => ({ listPublicAgents: apiMocks.listAgentSummariesMock }));
+
 vi.mock("../../chat/chat-api", () => ({
   createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock
@@ -185,6 +187,26 @@ describe("agent detail page", () => {
       }
     };
   }
+
+  it("protects an edited configuration when opening the personal assistant from the rail", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+    client.setQueryData(["personal-agent", undefined], {binding:{agent_id:"my-pa",display_name:"My assistant",status:"active"},creation:null});
+    renderDetailPage(client);
+    const name = await screen.findByDisplayValue("Core Planner");
+    await user.clear(name);
+    await user.type(name, "Unsaved name");
+    await user.click(screen.getByRole("button", {name:"Configure My assistant"}));
+    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", {name:/Keep editing/i}));
+    expect(name).toHaveValue("Unsaved name");
+    await user.click(screen.getByRole("button", {name:"Configure My assistant"}));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", {name:/Leave without saving/i}));
+    expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/my-pa");
+    expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
+  });
 
   it("preserves an edited name when saving cannot obtain a server response", async () => {
     const user = userEvent.setup();

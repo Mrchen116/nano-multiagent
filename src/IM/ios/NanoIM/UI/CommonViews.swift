@@ -13,13 +13,24 @@ struct ErrorNotice: View {
     }
 }
 
+/// Embeddable content has no navigation side effects and wraps to its container.
 struct JSONDetailView: View {
     let value: JSONValue
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(value.prettyPrinted).font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding()
-        }.navigationTitle(L("详细信息", "Details"))
+        Group {
+            if case .string(let text) = value { Text(text).font(.callout) }
+            else { Text(value.prettyPrinted).font(.system(.caption, design: .monospaced)) }
+        }.textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct JSONDetailPage: View {
+    let value: JSONValue
+    var body: some View {
+        ScrollView { JSONDetailView(value: value).padding() }
+            .navigationTitle(L("详细信息", "Details"))
+            .navigationBarTitleDisplayMode(.inline)
     }
 }
 

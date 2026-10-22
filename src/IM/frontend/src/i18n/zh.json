@@ -314,6 +314,8 @@
     }
   },
   "agents": {
+    "configure": "配置",
+    "paSettingUp": "个人助手正在设置，请稍后重试。",
     "selectTitle": "选择一个 Agent",
     "selectBody": "从左侧选择 Agent，查看和编辑它的配置。",
     "title": "Agents",
