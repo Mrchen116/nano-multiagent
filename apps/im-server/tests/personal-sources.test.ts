@@ -46,7 +46,8 @@ it('projects trusted owner identity independently from actual PA participation',
  expect(authorization.owner_messages[1]).toMatchObject({conversation_id:'peer',delivery:'observer',sender:{id:'u1',is_owner:true}});
  expect(authorization.conversations.find((c:any)=>c.id==='peer').messages.map((m:any)=>m.id)).toEqual([fact.id,external.id]);
  const proposal=service.actions.prepare(principal,{...args,request_key:'context',conversation_id:'peer',content:'A concrete reply'});
- expect(proposal.evidence.sources.find((m:any)=>m.message_id===fact.id)).toMatchObject({conversation_id:'peer',is_owner:true,delivery:'observer',sender:{id:'u1',is_owner:true}});
+ expect(proposal.evidence.sources).toContainEqual({conversation_id:'peer',allowed:true});
+ expect(JSON.stringify(proposal.evidence)).not.toContain(fact.content);
 });
 
 it('accepts the bound Feishu owner DM as original authority while keeping groups and other senders separate',()=>{
