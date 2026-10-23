@@ -35,16 +35,17 @@ refactor-581-dsh-personal-assistant 建立 DSH/PA 职责及恢复链路；本 un
 ## 关键决策
 
 1. **重启重建，运行中增量。** runtime 内存状态可丢弃，每个根初始化最多一次成功的 catalog/history 重建；失败不标为完成。缓存只保留紧凑用量事实、每会话当前未完成轮次及尚未处理的增量事件，完成轮次原始事件释放。重启首次 O(可达会话+历史事件)，常态 O(新增事件+新增报告)，存量报告占 O(已完成轮次) 紧凑内存。拒绝持久游标数据库：现有日志和 outbox 已提供恢复与幂等。
-2. **持久事实之后才发布报告。** listener 只排队；每次读取捕获某 live session 的事件上界，再 await flush，成功后只处理该上界前事实。flush 中新到事件留给后续 drain。冷 observation 自身是持久来源；首次 live observation 也只消费屏障前捕获 cut。没有屏障就失败，不能推进游标。
+2. **持久事实之后才发布报告。** listener 只排队；每次读取捕获某 live session 的事件上界，再 await flush，成功后只处理该上界前事实。flush 中新到事件留给后续 drain。冷 observation 自身是持久来源；首次 live observation 也只消费屏障前捕获 cut。已初始化 child 若在读取前卸载，只对该 changed child 获取 prepared observation，按已处理 seq 消费其持久新增事实；不信任卸载时 best-effort final flush 或仅有的排队 turn/end。排队终态超出持久 cut 时失败并保留 pending，不能发布未持久报告或推进游标；不把 detached Session 传给 flush。live flush 中发生卸载时同样回到该 child 的 prepared observation 核验。没有屏障就失败，不能推进游标。
 3. **初始化与增量无缝衔接。** 初始化前建立 root/session 状态并开始收集事件；observation cut 以内只重放一次，cut 之后排队。仅处理 inheritedEventCount 之后的 own events，未完成 turn 保留，遇 turn/start 重置，turn/end 使用既有 helper。根读取串行化；根与子并发事件按各自 seq 保留，不用 dirty boolean 覆盖中途到达。
-4. **新 child 通过运行中事实接入。** subagent/catalog 的 childId 以及 live parentSession 链将新 child 归到已知 root；首次访问该 child 可有一次自身重建。已有 descendant→root 映射支撑父会话卸载后的通知。catalog/turn 事件在冷初始化期间也进入队列，读取 drain 处理新发现会话；无变化不重复 listDescendants。
+4. **新 child 通过运行中事实接入。** subagent/catalog 的 childId 以及 live parentSession 链将新 child 归到已知 root；首次访问该 child 可有一次自身重建。已有 descendant→root 映射支撑父会话卸载后的通知；index.ts 实际 session.event 通知也使用该映射兜底 rootSessionId，确保 PA 对正确 binding 发起恢复。catalog/turn 事件在冷初始化期间也进入队列，读取 drain 处理新发现会话；无变化不重复 listDescendants。
 5. **传输游标不承担持久真相。** usage.read 改为返回 `{reports,cursor}`，cursor 为 runtime/root epoch 加报告位置。缺失或失效游标返回该 root 全部紧凑报告；有效游标仅切新增尾部。PA 内存 cursor 在全部 saveUsage 成功后推进；ACK 前 outbox 已持久化。PA 重启无游标重放，runtime 重启 epoch 变化重放，同一 run id 被现有 INSERT OR IGNORE 和 IM 去重。旧原生日志及 usage_reports 无迁移。RPC 是本仓成套发布的内部边界，不新增混合版本协商。
-6. **恢复与实时排队共用同一 owner。** PA recover 继续标记绑定根；每次请求带根 cursor。drain 包含读取和 ACK 交付，ACK 等待期间到达的 dirty roots 仍在同一循环中消费；失败保留 outbox，后续 recover 再试。避免已有 running promise 与 drain 退出竞态吞掉新通知。
+6. **outbox 只查询待确认行。** NodeStore 初始化在原 usage_reports 上 CREATE INDEX IF NOT EXISTS 建立 acknowledged=0 的 partial index（键 acknowledged，行内 rowid 顺序支持原 ORDER BY rowid）。保留 acknowledged 历史作为去重真相；旧库启动自动加索引，回滚旧代码仍可使用原表。首次建索引按历史规模扫描一次，之后 pending 查询随待交付条目而非全部历史增长；用实际 SQLite EXPLAIN QUERY PLAN 与大量 confirmed/少量 pending 记录核验。
+7. **恢复与实时排队共用同一 owner。** PA recover 继续标记绑定根；每次请求带根 cursor。drain 包含读取和 ACK 交付，ACK 等待期间到达的 dirty roots 仍在同一循环中消费；失败保留 outbox，后续 recover 再试。避免已有 running promise 与 drain 退出竞态吞掉新通知。
 
 ## 接口与数据流
 
 - product-contracts 定义 UsageReadResult（reports: UsageReport[]，cursor: string），不引入 DSH 类型。
-- runtime 初始化 UsageReader(ctx)，订阅公开 session/event；`read(rootId,cursor?)` 内部串行处理 root dirty sessions 并返回一页增量。保留可直接测试的 readUsage 真实函数入口，状态必须是 runtime 生命周期而非每次 RPC 新建。
+- readUsage(ctx,rootId,cursor?) 使用按 Context 持有的 reader，首个 recovery 的第一个 await 之前订阅公开 session/event；内部串行处理 root dirty sessions 并返回一页增量。usageRoot(ctx,sessionId) 为实际通知接线提供已知 descendant→root 映射。首次 recovery 前的工作由冷重建覆盖，状态属于 runtime 生命周期而非每次 RPC 新建。
 - index.ts 保留可信 root binding 校验，usage.read 仅转交 reader 和可选 cursor；missing-root 恢复仍可得到空结果且允许后续再次恢复，不把缺失当永久已初始化。
 - PA 请求 → runtime 先持久再投影 → 新 reports + cursor → PA saveUsage 全部同步落库 → 内存 cursor 前移 → node.report → ACK 后 confirmUsage。
 - RPC 应答丢失：PA 仍用旧 cursor 重读相同事实；PA 中途保存失败：cursor 不前移，重试幂等。网络恢复不需要重开全部冷子会话；runtime 重启需要冷重建。
@@ -61,7 +62,7 @@ no spec delta。内部 RPC 在同一节点发布单元内调整，不改变用�
 
 涉及 node 内 PA 与 DSH 子进程，产品回归使用隔离 IM + node 真栈。停止：`./scripts/e2e-down.sh`；启动：按 `docs/development/worktree-runtime.md` 执行 `./scripts/e2e-up.sh`，通过输出地址的 health 和 node connected 检查。本 unit 不接管生产或其他 worktree 服务。
 
-**Review 驱动方式**：不改客户端面；用客户端实际 IM 接口发起普通及后台子任务工作，读取实际用量统计；断线/重启后再次读取，最终不漏计、不重计。可观察旅程保持不变，独立产品 reviewer 执行。若 UI 无对应入口，使用现有客户端 metrics/usage 接口；不能用内部 usage.read 替代产品验收。
+**Review 驱动方式**：不改客户端面；用客户端实际 IM 接口发起普通及后台子任务工作，读取实际用量统计；断线/重启后再次读取，最终不漏计、不重计。可观察旅程保持不变，独立产品 reviewer 执行。使用 GET /im/v1/metrics/usage?agent_id=<id>，选定单一 agent scope 比较完成前后差值，不累加 owner/conversation/agent 多 scope；以实际完成的原生 turn 事实对账。不能用内部 usage.read 替代产品验收。
 
 **验收前置**：隔离脚本、现有测试账户与模型配置来源遵循 worktree-runtime；reviewer 检查受审构建版本与隔离端口，不输出凭据。性能 microbenchmark 只用隔离 fixtures，不能声称生产占比。
 
@@ -69,4 +70,4 @@ no spec delta。内部 RPC 在同一节点发布单元内调整，不改变用�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-incremental-usage | 增量读取与可靠交付 | 无 | 单组 | integration usage/index、product-contracts 用量类型、PA usage 与相关测试 | [reviewer] motivation 的普通/后台工作、断线重启两场景保持准确且恰好一次；[worker] 真实 readUsage，400 不变 child 冷恢复后重复读取零冷观察/零 catalog 遍历；单 child 新 turn 不遍历其他 child，热事件派生仅增量；[worker] 根子并发、初始化竞态、fork 继承、flush 失败、RPC/ACK 丢失、PA/runtime 重启恢复正确；[worker] 分别记录冷/热处理量与耗时，窄测试、构建及适用 CI 通过 |
+| M1-incremental-usage | 增量读取与可靠交付 | 无 | 单组 | integration usage/index、product-contracts 用量类型、PA usage/store 与相关测试 | [reviewer] motivation 的普通/后台工作、断线重启两场景保持准确且恰好一次；[worker] 真实 readUsage，400 不变 child 冷恢复后重复读取零冷观察/零 catalog 遍历；单 child 新 turn 不遍历其他 child，热事件派生仅增量；[worker] 根子并发、初始化竞态、fork 继承、已初始化 child 完成并卸载、final flush 失败、flush 失败、RPC/ACK 丢失、PA/runtime 重启恢复正确；[worker] 大量已确认历史下 pending 查询使用索引且仅返回新增项；[worker] 分别记录冷/热处理量与耗时，窄测试、构建及适用 CI 通过 |
