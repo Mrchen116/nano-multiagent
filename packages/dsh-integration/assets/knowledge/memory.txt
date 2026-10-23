@@ -29,4 +29,4 @@ Do not describe an unsuccessful attempt or an untested alternative as a reliable
 
 This review can write only Memory. Do not write task rules into Memory because Skill maintenance is unavailable. If nothing is worth saving, just say 'Nothing to save.' and stop.
 
-Prompt source: Hermes agent/background_review.py at bf0203a794a07aac3ff764972ab9087baa4e4f4e. Nano adaptations: docs/changes/feat-637-hermes-evolution-prompts/prompt-map.md.
+Prompt source: Hermes agent/background_review.py at bf0203a794a07aac3ff764972ab9087baa4e4f4e. Nano adaptations: docs/changes/archive/feat-637-hermes-evolution-prompts/prompt-map.md.

@@ -33,4 +33,4 @@ Do NOT capture (these become persistent self-imposed constraints that bite you l
 
 Do not save an unsuccessful attempt or an untested alternative as a reliable method. Save only a method with traceable successful evidence. A setup fix belongs in an existing setup or troubleshooting Skill only after it succeeds.
 
-Prompt source: Hermes agent/background_review.py at bf0203a794a07aac3ff764972ab9087baa4e4f4e. Nano adaptations: docs/changes/feat-637-hermes-evolution-prompts/prompt-map.md.
+Prompt source: Hermes agent/background_review.py at bf0203a794a07aac3ff764972ab9087baa4e4f4e. Nano adaptations: docs/changes/archive/feat-637-hermes-evolution-prompts/prompt-map.md.

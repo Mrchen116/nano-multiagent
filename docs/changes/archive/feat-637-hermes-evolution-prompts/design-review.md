@@ -34,7 +34,7 @@
 
 #### 1. 当前契约及真实产品接线
 
-核对了 [仓库架构](../../../SPEC.md)、[current agent-capabilities](../../specs/gateway/agent-capabilities.md)、[Global 契约](../../specs/gateway/global-agent.md) 及 [change workflow](../../development/change-workflow.md)。current 的 Memory 快照、fork 前缀、独立工具白名单和成功事实调和继续适用。active delta 尚未归并。
+核对了 [仓库架构](../../../../SPEC.md)、[current agent-capabilities](../../../specs/gateway/agent-capabilities.md)、[Global 契约](../../../specs/gateway/global-agent.md) 及 [change workflow](../../../development/change-workflow.md)。current 的 Memory 快照、fork 前缀、独立工具白名单和成功事实调和继续适用。active delta 尚未归并。
 
 实际产品路径为：
 
@@ -48,11 +48,11 @@ Node Configuration.runtime
   → PA KnowledgeUpdates / IM 系统通知
 ```
 
-- [apps/node/src/configuration.ts](../../../apps/node/src/configuration.ts):69-92 将 `work_mode`、feature、维护周期和 owner Skill root 传给 integration。运行模式与 Skill 存储范围确实是两个字段。
-- [apps/node/src/main.ts](../../../apps/node/src/main.ts):87-115 按实际运行分区装配 supervisor、Agent 配置和 binding。
-- [integration 组装入口](../../../packages/dsh-integration/src/index.ts):128-129、255-268 安装唯一 `KnowledgeRuntime` 并登记产品 binding。[agent-config.ts](../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 挂载 feature。
-- [KnowledgeRuntime](../../../packages/dsh-integration/src/knowledge/runtime.ts):170-237 确认当前 F4 复用通用 Skill 指令，按 session/kind 去重，未设两个合格 session 的前置门槛。设计对当前缺口的描述成立。
-- [KnowledgeUpdates](../../../packages/personal-assistant/src/knowledge.ts):41-69 按真实 fact 调和，并等待运行中的 review 结束。没有写入时不产生成功 fact；单次写入成功后整轮失败，仍可有真实写入事实。设计没有把复盘完成、知识写入和通知送达混为一件事。
+- [apps/node/src/configuration.ts](../../../../apps/node/src/configuration.ts):69-92 将 `work_mode`、feature、维护周期和 owner Skill root 传给 integration。运行模式与 Skill 存储范围确实是两个字段。
+- [apps/node/src/main.ts](../../../../apps/node/src/main.ts):87-115 按实际运行分区装配 supervisor、Agent 配置和 binding。
+- [integration 组装入口](../../../../packages/dsh-integration/src/index.ts):128-129、255-268 安装唯一 `KnowledgeRuntime` 并登记产品 binding。[agent-config.ts](../../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 挂载 feature。
+- [KnowledgeRuntime](../../../../packages/dsh-integration/src/knowledge/runtime.ts):170-237 确认当前 F4 复用通用 Skill 指令，按 session/kind 去重，未设两个合格 session 的前置门槛。设计对当前缺口的描述成立。
+- [KnowledgeUpdates](../../../../packages/personal-assistant/src/knowledge.ts):41-69 按真实 fact 调和，并等待运行中的 review 结束。没有写入时不产生成功 fact；单次写入成功后整轮失败，仍可有真实写入事实。设计没有把复盘完成、知识写入和通知送达混为一件事。
 
 #### 2. Hermes 来源与复用
 
@@ -88,11 +88,11 @@ Node Configuration.runtime
 
 依据如下：
 
-- 锁定的 `@deepseek-ai/dsh-session-query` 公开入口导出 `observeSession`。其 `SessionObservation` 提供不可变 `events`、`cursor`、`inheritedEventCount` 和 header。可以按继承事件数剔除父历史；本仓 [usage.ts](../../../packages/dsh-integration/src/usage.ts):14-15 已使用这一公开能力。
+- 锁定的 `@deepseek-ai/dsh-session-query` 公开入口导出 `observeSession`。其 `SessionObservation` 提供不可变 `events`、`cursor`、`inheritedEventCount` 和 header。可以按继承事件数剔除父历史；本仓 [usage.ts](../../../../packages/dsh-integration/src/usage.ts):14-15 已使用这一公开能力。
 - 锁定的 `@deepseek-ai/dsh-agent` 公开类型提供 `Agent.status`、`Agent.inbox` 及 Inbox 的两个待执行列表。`idle` 本身只表示没有 driver，不能单独当作完成证据。
 - 锁定的 `@deepseek-ai/dsh-session` 公开 `turn/end.reason` 区分 `completed`、`aborted`、`error`、`interrupted` 和 `forked`。只有正常完成的实际使用过程符合本设计；冷读取补出的 `interrupted` 和 fork seed 的 `forked` 不能充数。
-- 产品 binding 提供 owner、Agent 和 cwd，见 [index.ts](../../../packages/dsh-integration/src/index.ts):68-74。设计已要求核对这些事实，不能因为共享 Skill root 就扩大历史访问范围。
-- [feat-446 原需求](../archive/feat-446-skill-view-tool/spec.md):163-168、498-526 要求跨 session、正常可用历史、目标自动 Skill 和不并发。Git 历史 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/background/skill_batch_review.py`:76-106、165-190 确认旧版两份历史门槛及目标专用提示词。旧加载器只检查文件存在和非空，不能以旧代码本身证明它已正确排除所有未结束会话。
+- 产品 binding 提供 owner、Agent 和 cwd，见 [index.ts](../../../../packages/dsh-integration/src/index.ts):68-74。设计已要求核对这些事实，不能因为共享 Skill root 就扩大历史访问范围。
+- [feat-446 原需求](../feat-446-skill-view-tool/spec.md):163-168、498-526 要求跨 session、正常可用历史、目标自动 Skill 和不并发。Git 历史 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/background/skill_batch_review.py`:76-106、165-190 确认旧版两份历史门槛及目标专用提示词。旧加载器只检查文件存在和非空，不能以旧代码本身证明它已正确排除所有未结束会话。
 
 未发现必须新增 DSH API、私有 import 或第二套执行运行时的理由。实施仍须用真实锁定 DSH 验证冷历史、继承事件、待执行 Inbox 和异常结束分支；类型存在不能代替这些验证。
 
@@ -112,9 +112,9 @@ delta 的 canonical target 正确。三个条目均为 ADDED，没有删除或�
 
 Runbook 使用仓库 E2E 脚本和独立临时目录。`e2e-up.sh`:28-32、113、178-197、225-269 支持从当前 checkout 的构建产物启动临时目录内的隔离栈。配置副本需启用 `memory`、`skill_manage` 和对应 feature，设计已说明。HTTP 消息入口足以驱动本次知识维护旅程。
 
-[knowledge.test.ts](../../../packages/dsh-integration/tests/knowledge.test.ts):80-81、133-137 当前仍在 Global、单 session 下预设 F4 合法 patch。它只能证明既有接线，必须随实施改为非 Global 两个合格 session 的正向路径，并保留 Global 不触发的反向覆盖。设计的验证矩阵已要求这两项。
+[knowledge.test.ts](../../../../packages/dsh-integration/tests/knowledge.test.ts):80-81、133-137 当前仍在 Global、单 session 下预设 F4 合法 patch。它只能证明既有接线，必须随实施改为非 Global 两个合格 session 的正向路径，并保留 Global 不触发的反向覆盖。设计的验证矩阵已要求这两项。
 
-[knowledge-policy.test.ts](../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 保护 Memory 快照及 fork 继承；67-98 保护失败 review 不消耗普通提醒周期。设计保留这些回归有依据。真实模型正反例、输入、持久化产物和通知记录也已纳入退出标准；fixture 结果不能代替内容质量验收。
+[knowledge-policy.test.ts](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 保护 Memory 快照及 fork 继承；67-98 保护失败 review 不消耗普通提醒周期。设计保留这些回归有依据。真实模型正反例、输入、持久化产物和通知记录也已纳入退出标准；fixture 结果不能代替内容质量验收。
 
 ### 历史问题闭环
 
@@ -132,9 +132,9 @@ Runbook 使用仓库 E2E 脚本和独立临时目录。`e2e-up.sh`:28-32、113�
 
 证据链：
 
-1. [memory-curation.ts](../../../packages/dsh-integration/src/features/memory-curation.ts):12-15、25-32 让 fork 继承父快照；没有压缩时不重读文件。[对应回归](../../../packages/dsh-integration/tests/knowledge-policy.test.ts):29-37 明确验证这一行为。
-2. [runtime.ts](../../../packages/dsh-integration/src/knowledge/runtime.ts):211-218 只附加维护指令；Memory 路径不读取最新持久内容。[memory 工具](../../../packages/dsh-integration/src/features/memory-curation.ts):17-20 只有 add/replace/remove，没有读取操作。
-3. [files.ts](../../../packages/dsh-integration/src/knowledge/files.ts):53-67 在写入时读取当前文件，但不把条目返回给 review；add 直接追加，也不做语义去重。
+1. [memory-curation.ts](../../../../packages/dsh-integration/src/features/memory-curation.ts):12-15、25-32 让 fork 继承父快照；没有压缩时不重读文件。[对应回归](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):29-37 明确验证这一行为。
+2. [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):211-218 只附加维护指令；Memory 路径不读取最新持久内容。[memory 工具](../../../../packages/dsh-integration/src/features/memory-curation.ts):17-20 只有 add/replace/remove，没有读取操作。
+3. [files.ts](../../../../packages/dsh-integration/src/knowledge/files.ts):53-67 在写入时读取当前文件，但不把条目返回给 review；add 直接追加，也不做语义去重。
 
 具体影响：同一长会话内，review A 保存事实 P；父会话未压缩；review B 再处理 P 或用户对 P 的纠正。B 继承的 notes 仍不含 A 的产物。B 无法确认该事实是否已落盘，也无法检查当前完整条目是否已被另一条维护改正。只增加“检查重复”的文字，无法提供缺失的当前状态。Global 长期主会话仍保留 Memory 自进化，因此这不是被 F4 的 Global 禁用规则排除的路径。
 
@@ -148,7 +148,7 @@ Runbook 使用仓库 E2E 脚本和独立临时目录。`e2e-up.sh`:28-32、113�
 
 #### R1-R1 — 用当前配置契约表述运行模式限制
 
-`design.md`:113 提到运行中切为 Global。当前 [configuration.apply](../../../packages/dsh-integration/src/index.ts):477-478 拒绝改变 work mode。建议写清这是 F4 入口及写入时核对的模式条件；本 unit 不需要增加运行模式切换能力。该措辞不阻断本轮，也不要求扩展配置 API。
+`design.md`:113 提到运行中切为 Global。当前 [configuration.apply](../../../../packages/dsh-integration/src/index.ts):477-478 拒绝改变 work mode。建议写清这是 F4 入口及写入时核对的模式条件；本 unit 不需要增加运行模式切换能力。该措辞不阻断本轮，也不要求扩展配置 API。
 
 ### 本轮验证与边界
 
@@ -238,7 +238,7 @@ R1 的两个条目在设计层关闭。新方案仍有三个会使实施走偏�
 
 本轮逐项核对 8 个 Requirement、21 个 Scenario。Memory 分类、去重和纠错，Skill 提炼，失败方法排除，workaround 条件及清理责任，知识单一归属，前台部分成功，以及非 Global F4 均继续在范围内。combined 是用户明确新增的范围，不能按旧版“只保留分离 review”的判断排除。
 
-历史依据成立：[feat-349 design](../archive/feat-349-self-evolving-skills-memory/design.md):192、282 明确列出三种复盘；[M6 progress](../archive/feat-349-self-evolving-skills-memory/M6-wire-default-session-metadata/progress.md):65-70 保存同次复盘调用两类工具的记录。迁移父版本 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/hooks/builtins/self_improvement.py`:245-274 有两项同时到期时选择 combined 的代码。当前 [runtime.ts](../../../packages/dsh-integration/src/knowledge/runtime.ts):148-168、186-218 按 kind 分开调度，确实没有该分支。历史记录证明曾有接线，不代替本次产品验收。
+历史依据成立：[feat-349 design](../feat-349-self-evolving-skills-memory/design.md):192、282 明确列出三种复盘；[M6 progress](../feat-349-self-evolving-skills-memory/M6-wire-default-session-metadata/progress.md):65-70 保存同次复盘调用两类工具的记录。迁移父版本 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/hooks/builtins/self_improvement.py`:245-274 有两项同时到期时选择 combined 的代码。当前 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):148-168、186-218 按 kind 分开调度，确实没有该分支。历史记录证明曾有接线，不代替本次产品验收。
 
 Nano 的单操作协议、自动 Memory 纠错和成功后结算周期是已确认的产品选择。Hermes 的批量事务、整个 Skill 删除、无人值守 Memory 审批未被纳入。feat-638 仍仅登记，不与本次实施混合。
 
@@ -257,9 +257,9 @@ Nano 的单操作协议、自动 Memory 纠错和成功后结算周期是已确�
 
 #### 3. 当前产品装配与权限
 
-重新核对实际组装入口：[Node Configuration.runtime](../../../apps/node/src/configuration.ts):69-92 → [Node 普通运行分区](../../../apps/node/src/main.ts):87-115 → [integration KnowledgeRuntime](../../../packages/dsh-integration/src/index.ts):128-129 → [feature 挂载](../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 → 知识工具、文件及 PA 事实调和。产品路径不是测试专用实现。
+重新核对实际组装入口：[Node Configuration.runtime](../../../../apps/node/src/configuration.ts):69-92 → [Node 普通运行分区](../../../../apps/node/src/main.ts):87-115 → [integration KnowledgeRuntime](../../../../packages/dsh-integration/src/index.ts):128-129 → [feature 挂载](../../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 → 知识工具、文件及 PA 事实调和。产品路径不是测试专用实现。
 
-读取工具应复用原生工具及现有 [ToolSelection](../../../packages/dsh-integration/src/capabilities.ts):15-77。设计按“父有效权限与 review 白名单的交集”执行，保留原工具 schema 前缀，并不恢复父 Agent 禁用的 read/glob/grep。这个选择符合架构与授权边界。读取资料不能改变 scope、目标或授权。F4 继续只读取绑定主文档及使用宿主筛选历史。
+读取工具应复用原生工具及现有 [ToolSelection](../../../../packages/dsh-integration/src/capabilities.ts):15-77。设计按“父有效权限与 review 白名单的交集”执行，保留原工具 schema 前缀，并不恢复父 Agent 禁用的 read/glob/grep。这个选择符合架构与授权边界。读取资料不能改变 scope、目标或授权。F4 继续只读取绑定主文档及使用宿主筛选历史。
 
 锁定 DSH 的公开 `tools/result` 提供执行期 canonical `value` 和最终 `content`，可以观察真正返回的结果；不能只按参数或调用成功登记完整读取。原生 read 返回路径、offset、编号行和 totalLines，可以支持分页完整性检查。长行会截断，因此行数齐全也不等于内容完整。设计对此已有要求。原生 skill 的结果与原始主文档存在差异，见 R2-W1。
 
@@ -267,7 +267,7 @@ Nano 的单操作协议、自动 Memory 纠错和成功后结算周期是已确�
 
 `design.md`:140-148 已明确宿主只提供路径，review 自行读取两份当前文件。读取失败不回退到冻结 notes。普通与 Global 都覆盖不压缩的连续两次维护，检查第二次真实请求是否含第一次持久产物。这能验收 R1 的具体风险。
 
-当前 [memory-curation.ts](../../../packages/dsh-integration/src/features/memory-curation.ts):11-15、25-32 和 [knowledge-policy.test.ts](../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 仍保护父快照与 fork 继承。新方案没有要求破坏该行为。Memory 写入仍使用既有锁及原子替换，不声称读取与写入跨模型请求构成事务，也不引入语义去重引擎。
+当前 [memory-curation.ts](../../../../packages/dsh-integration/src/features/memory-curation.ts):11-15、25-32 和 [knowledge-policy.test.ts](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 仍保护父快照与 fork 继承。新方案没有要求破坏该行为。Memory 写入仍使用既有锁及原子替换，不声称读取与写入跨模型请求构成事务，也不引入语义去重引擎。
 
 读取失败、不完整及明确不存在已区分，但“未完成”如何参与复盘终态和计数还未定义，见 R2-W2。
 
@@ -281,11 +281,11 @@ Nano 的单操作协议、自动 Memory 纠错和成功后结算周期是已确�
 - 任一参与 Feature 关闭时取消整个联合 fork，保留已成功写入；另一项后续可单独维护。不增加部分 fork 恢复系统。
 - `KnowledgeReview.kind` 可增加 combined；`KnowledgeFact.kind` 保持 memory/skills；联合创建 Skill 的来源仍为 F3。普通写入来源不能因新 review 类型误落为 F1。
 
-[review-readings.ts](../../../packages/dsh-integration/src/knowledge/review-readings.ts):5-13 目前按 Memory 的 turn/start、Skill 的 step/start 读数，并以对应工具的成功结果作为前台维护点。默认周期在 [runtime.ts](../../../packages/dsh-integration/src/knowledge/runtime.ts):203-208 为各 10。用户已接受的“后台正常完成才推进、前台工具成功才重置”继续适用，不要求改为 Hermes 的更早重置时机。
+[review-readings.ts](../../../../packages/dsh-integration/src/knowledge/review-readings.ts):5-13 目前按 Memory 的 turn/start、Skill 的 step/start 读数，并以对应工具的成功结果作为前台维护点。默认周期在 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):203-208 为各 10。用户已接受的“后台正常完成才推进、前台工具成功才重置”继续适用，不要求改为 Hermes 的更早重置时机。
 
 当前取消按 kind 精确匹配，来源也按 kind=skills 判断，见 `runtime.ts`:111-115、239-242。设计已明确改为参与类别和 F3 来源，须由实施验证新的分支，不能仅扩 enum。轨迹记录是另一个真实消费者，现有设计遗漏它，见 R2-W3。
 
-[PA KnowledgeUpdates](../../../packages/personal-assistant/src/knowledge.ts):41-69 按 review ID 合并真实 facts，只检查 review 是否 running，不依赖 review.kind。它能够沿用一份 combined review 的两类更新，并仅通知真正写入的类别。无写入完成不产生成功通知；部分写入后失败仍保留事实。该方向与现有产品通知相容。
+[PA KnowledgeUpdates](../../../../packages/personal-assistant/src/knowledge.ts):41-69 按 review ID 合并真实 facts，只检查 review 是否 running，不依赖 review.kind。它能够沿用一份 combined review 的两类更新，并仅通知真正写入的类别。无写入完成不产生成功通知；部分写入后失败仍保留事实。该方向与现有产品通知相容。
 
 #### 6. F4、职责及复杂度
 
@@ -303,7 +303,7 @@ delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质�
 
 单 M1 仍可覆盖完整交付，目录只含 `.gitkeep`。21 个 Scenario 的数量正确，未预填任务或进度。Runbook 提供隔离目录、受控配置及 IM→Node→DSH→模型→落盘→通知的路径。当前客户端无需重做交互，但“完全不影响轨迹展示”的判断尚不能成立，须由 R2-W3 的接口选择明确。
 
-验证矩阵已覆盖：连续 Memory、父权限、读取失败、Skill 不完整读取、combined 去重/单项回退、取消/部分成功、新活动、F4 正反向和继承约束。还需补充三个发现要求的具体分支。当前 [knowledge.test.ts](../../../packages/dsh-integration/tests/knowledge.test.ts):99-107 已通过真实轨迹 API 验证维护用途与边界坐标，是新增 combined 投影的合适回归位置。
+验证矩阵已覆盖：连续 Memory、父权限、读取失败、Skill 不完整读取、combined 去重/单项回退、取消/部分成功、新活动、F4 正反向和继承约束。还需补充三个发现要求的具体分支。当前 [knowledge.test.ts](../../../../packages/dsh-integration/tests/knowledge.test.ts):99-107 已通过真实轨迹 API 验证维护用途与边界坐标，是新增 combined 投影的合适回归位置。
 
 ### Issues
 
@@ -319,7 +319,7 @@ delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质�
 1. `@deepseek-ai/dsh-skill-filesystem@0.2.1-alpha.1` 的 `lib/index.js`:665-703 先解析 YAML frontmatter，再令 `content = parsed.body.trim()`。
 2. `@deepseek-ai/dsh-tool-skill@0.2.1-alpha.1` 的 `lib/index.js`:787-792 返回 name、provider、resourceBase 和上述 content。它不返回原始 YAML 头或原文件字节。
 3. `@deepseek-ai/dsh-skill` 的 `renderSkillContent` 包装正文及资源目录，不补回 YAML 头。
-4. [KnowledgeFiles.skill](../../../packages/dsh-integration/src/knowledge/files.ts):76-92 读取并修改包含 YAML 头的原始 `SKILL.md`；edit 要求完整文档。两种内容不是同一个比较对象。
+4. [KnowledgeFiles.skill](../../../../packages/dsh-integration/src/knowledge/files.ts):76-92 读取并修改包含 YAML 头的原始 `SKILL.md`；edit 要求完整文档。两种内容不是同一个比较对象。
 
 未修后果：实施若直接比较正文与原文件，合法写入会一直被拒绝；若只凭 skill 成功就登记完整文件读取，则模型没看见的 frontmatter 也能被整文件覆盖。两种结果都不满足 delta 的完整当前文件约束。
 
@@ -334,7 +334,7 @@ delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质�
 
 设计规定读取拒绝、失败或无法取得完整内容时不写 Memory，并报告维护未完成。但结算仍按 fork 正常完成推进参与类别。没有定义“工具失败后模型报告未完成并正常停止”如何成为维护失败。
 
-具体路径：combined 已启动，Skill 写入成功；Memory 的 read 被拒绝；模型按 prompt 不写 Memory，并用普通文本报告未完成后结束。原生 fork 可以正常 completed，工具失败本身不等于整轮异常退出。当前 [runtime.ts](../../../packages/dsh-integration/src/knowledge/runtime.ts):222-224 仅按 `result.stopReason === 'completed'` 推进计数；设计新增的运行状态没有补充读取未完成的结算事实。按现方案延续该路径，就会推进两项冻结读数，尽管 Memory 维护未完成。
+具体路径：combined 已启动，Skill 写入成功；Memory 的 read 被拒绝；模型按 prompt 不写 Memory，并用普通文本报告未完成后结束。原生 fork 可以正常 completed，工具失败本身不等于整轮异常退出。当前 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):222-224 仅按 `result.stopReason === 'completed'` 推进计数；设计新增的运行状态没有补充读取未完成的结算事实。按现方案延续该路径，就会推进两项冻结读数，尽管 Memory 维护未完成。
 
 必要修改：定义并记录读取未完成如何参与本轮 review 的终态和计数结算。不要依靠模型回复中的“未完成”几个字，也不要将原生正常 stop 自动等同于知识维护完成。明确 combined 在上述路径是否整轮未完成，并保留已成功 Skill 写入及其真实通知。无知识增量的正常完成仍可结算；无需强制所有无修改 review 都先读文件。
 
@@ -349,11 +349,11 @@ delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质�
 
 证据：
 
-- [runtime.ts](../../../packages/dsh-integration/src/knowledge/runtime.ts):215 将维护 kind 传给 `withKnowledgeRun`。
-- [trajectory-runs.ts](../../../packages/dsh-integration/src/trajectory-runs.ts):14、32 将参数与持久 kind 限制为现有类型，没有 combined。
-- [product-contracts/trajectory.ts](../../../packages/product-contracts/src/trajectory.ts):26-33 的 `TrajectoryRun.kind` 同样没有 combined。
-- [navigation-model.ts](../../../packages/trajectory-ui/src/client/navigation-model.ts):18-19 及 [查看器 boot.jsx](../../../packages/dsh-trajectory-viewer/src/boot.jsx):130 只识别 memory/skills，其余回退到内部 label 或普通执行名称。
-- [current agent-work](../../specs/im/agent-work.md) 的“从真实发起位置进入子 Agent 的本次执行”要求从真实发起事实辨认后台用途，不从内部标签或 UUID 猜测。
+- [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):215 将维护 kind 传给 `withKnowledgeRun`。
+- [trajectory-runs.ts](../../../../packages/dsh-integration/src/trajectory-runs.ts):14、32 将参数与持久 kind 限制为现有类型，没有 combined。
+- [product-contracts/trajectory.ts](../../../../packages/product-contracts/src/trajectory.ts):26-33 的 `TrajectoryRun.kind` 同样没有 combined。
+- [navigation-model.ts](../../../../packages/trajectory-ui/src/client/navigation-model.ts):18-19 及 [查看器 boot.jsx](../../../../packages/dsh-trajectory-viewer/src/boot.jsx):130 只识别 memory/skills，其余回退到内部 label 或普通执行名称。
+- [current agent-work](../../../specs/im/agent-work.md) 的“从真实发起位置进入子 Agent 的本次执行”要求从真实发起事实辨认后台用途，不从内部标签或 UUID 猜测。
 
 未修后果：直接传 combined 会遇到类型或持久 schema 不匹配；用某个单项或 unknown 隐式替代，会丢失联合用途，或把 `nano-review:<id>` 暴露为名称。维护可执行并不能证明现有轨迹导航及用途展示正确。
 
@@ -426,7 +426,7 @@ R2 三个阻断项均在设计层关闭，重复读取成本建议也已落实�
 
 #### 1. 当前事实、实际组装及职责
 
-重新读取 [SPEC](../../../SPEC.md)、[current agent-capabilities](../../specs/gateway/agent-capabilities.md):432-438 和 [current agent-work](../../specs/im/agent-work.md) 的发起入口、执行范围及父子导航要求。以 base 版本 `knowledge/runtime.ts`:204-224 核对原来分开运行单项、只按原生 completed 结算、F4 追加通用提示的现状；当前 HEAD 已含实现，不能把设计中的旧现状叙述当作 HEAD 的运行实况。
+重新读取 [SPEC](../../../../SPEC.md)、[current agent-capabilities](../../../specs/gateway/agent-capabilities.md):432-438 和 [current agent-work](../../../specs/im/agent-work.md) 的发起入口、执行范围及父子导航要求。以 base 版本 `knowledge/runtime.ts`:204-224 核对原来分开运行单项、只按原生 completed 结算、F4 追加通用提示的现状；当前 HEAD 已含实现，不能把设计中的旧现状叙述当作 HEAD 的运行实况。
 
 实际组装仍是 `apps/node/src/configuration.ts`:69-92 提供配置 → `apps/node/src/main.ts`:87-115 的运行分区与 supervisor → `packages/dsh-integration/src/index.ts`:128-129 安装 KnowledgeRuntime → features 挂载维护能力 → KnowledgeFiles 落盘 → `packages/personal-assistant/src/knowledge.ts`:41-69 消费真实 facts。轨迹经 withKnowledgeRun → TrajectoryRuns → product-contracts → 两个浏览器用途消费者；不是仅测试中存在的路径。
 

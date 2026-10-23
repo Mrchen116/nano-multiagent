@@ -74,3 +74,17 @@
 产品 R2 保留新失败：Global 前台在输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 回复后自行进行维护，未读当前 Memory，重复追加后台已存内容并混淆项目。前台 Memory 描述补当前双文件读取及项目身份；两类前台指引明确回复后的同执行仍属前台，暂缓维护应留给独立 review。修复只改提示与设计适配记录；既有快照机制不变。失败不由后续清理掩盖，等待同条件独立复验。
 
 前台提示修复冻结为 `1bc6219356186ebc0a3f255cf4a441936495d8e3`。设计 R5/delta Approved、静态 R3/patch 与 verification 通过（均0 CRITICAL / 0 WARNING），corrected-delta aligned retained。R5 同轮指出首次文件不存在不能误判为读取失败，已补“明确不存在按空内容，其他失败或未读完整跳过”。`ff30a6ea8` 上两文件9项通过（`/tmp/feat637-r3-tests.log`）；最后单句补充后 package build 重新通过（`/tmp/feat637-r3-build.log`）。`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` 通过259 maintained Markdown / 67 routes；默认系统 Python 缺少yaml的首次命令失败属于环境选择，未修改产品绕过。
+
+## 最终同步、门禁有效性与契约归并
+
+产品 R3 在 `1bc6219356186ebc0a3f255cf4a441936495d8e3` 完成，21项 Scenario 的有效真实证据全部通过；R1/R2三个 major 均关闭，无 inconclusive。报告保留历次失败以及 retained 的具体范围，不声称21项全部在最后一轮重跑。
+
+最终同步 `origin/main=9600bf3b16929fa411bb6956909c5df9777b5c3a`，相对实际审查基线仅新增 bugfix-640 的5个活动设计文档；没有运行代码、依赖、配置、current spec 或本 unit 变动。合并提交 `abd3dba1f80a0fbed1c0a4d2c3190abf8ca3b029`。设计 R5、静态 R3、产品 R3 与 corrected-delta 结论均 retained；不是以无冲突或CI代替判断。
+
+| Gate | validated_at | executed_base | effective_base | 同步后结论 |
+|---|---|---|---|---|
+| Design R5 | `1bc6219356186ebc0a3f255cf4a441936495d8e3` | `5462b7217421a2c27871c1c5951c1e48644e54ba` | `9600bf3b16929fa411bb6956909c5df9777b5c3a` | Approved，0C/0W，retained |
+| Code review R3 / verification R3 / corrected-delta | 同上 | 同上 | 同上 | 无finding、PASS、aligned，retained |
+| Product R3 + retained R1/R2 | 同上 | 同上 | 同上 | pass，21场景覆盖，retained |
+
+`effective_through` 为最终 PR head，确切 SHA 写入 PR；本记录之后只进行已核对 delta 的机械归并、路径归档与来源链接更新，不新增行为。Gateway四条 ADDED Requirement 与IM一条 MODIFIED Requirement 原样归并，更新两个包索引及文档地图。不触及生产，不自动合并PR。

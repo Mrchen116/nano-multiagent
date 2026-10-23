@@ -40,11 +40,11 @@
 
 2026-10-23 核对当前 checkout：
 
-- [Skill review prompt](../../../packages/dsh-integration/assets/knowledge/skills.txt) 强调积极更新，允许在支持文件中保存 session detail，已有禁止临时故障成为长期限制的条款，但缺少 Hermes 当前版本中完整的提炼、去重和未成功方法排除规则。
-- [Memory review prompt](../../../packages/dsh-integration/assets/knowledge/memory.txt) 主要提示用户画像与行为偏好，要求简短来源索引；没有完整描述用户信息与环境事实的分工。[Memory 工具](../../../packages/dsh-integration/src/features/memory-curation.ts) 已支持两类目标，因此不能把现有 prompt 的遗漏解释为产品不支持环境记忆。
-- [后台维护入口](../../../packages/dsh-integration/src/knowledge/runtime.ts) 当前分别运行 Memory 和 Skill review。这是当前实现，不是原设计要求。feat-349 的[设计](../archive/feat-349-self-evolving-skills-memory/design.md)明确包含 combined review；[执行记录](../archive/feat-349-self-evolving-skills-memory/M6-wire-default-session-metadata/progress.md)记录同一复盘调用两类工具。迁移提交 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52` 的父版本仍有 combined 分支，新 DSH 实现按 kind 分开调度。已查材料中未找到明确取消该能力的决定。
-- [主 Agent 的 Skill 指引与工具说明](../../../packages/dsh-integration/src/features/skill-creation.ts) 主要描述操作和写入范围，尚未完整表达上游的局部修改优先、规则提炼和去重要求。主 Agent 直接维护 Skill 也是本需求覆盖的知识写入路径。
-- [current 契约](../../specs/gateway/agent-capabilities.md) 已定义后台 review 的历史继承、工具执行边界、Memory 快照及成功更新调和。当前 prompt 没有完整表达所有沉淀质量规则；本需求的目标行为尚不能视为已实现。
+- [Skill review prompt](../../../../packages/dsh-integration/assets/knowledge/skills.txt) 强调积极更新，允许在支持文件中保存 session detail，已有禁止临时故障成为长期限制的条款，但缺少 Hermes 当前版本中完整的提炼、去重和未成功方法排除规则。
+- [Memory review prompt](../../../../packages/dsh-integration/assets/knowledge/memory.txt) 主要提示用户画像与行为偏好，要求简短来源索引；没有完整描述用户信息与环境事实的分工。[Memory 工具](../../../../packages/dsh-integration/src/features/memory-curation.ts) 已支持两类目标，因此不能把现有 prompt 的遗漏解释为产品不支持环境记忆。
+- [后台维护入口](../../../../packages/dsh-integration/src/knowledge/runtime.ts) 当前分别运行 Memory 和 Skill review。这是当前实现，不是原设计要求。feat-349 的[设计](../feat-349-self-evolving-skills-memory/design.md)明确包含 combined review；[执行记录](../feat-349-self-evolving-skills-memory/M6-wire-default-session-metadata/progress.md)记录同一复盘调用两类工具。迁移提交 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52` 的父版本仍有 combined 分支，新 DSH 实现按 kind 分开调度。已查材料中未找到明确取消该能力的决定。
+- [主 Agent 的 Skill 指引与工具说明](../../../../packages/dsh-integration/src/features/skill-creation.ts) 主要描述操作和写入范围，尚未完整表达上游的局部修改优先、规则提炼和去重要求。主 Agent 直接维护 Skill 也是本需求覆盖的知识写入路径。
+- [current 契约](../../../specs/gateway/agent-capabilities.md) 已定义后台 review 的历史继承、工具执行边界、Memory 快照及成功更新调和。当前 prompt 没有完整表达所有沉淀质量规则；本需求的目标行为尚不能视为已实现。
 
 此前讨论中的 worktree 累积暴露了一类风险：临时新建环境让局部任务得以推进，随后被概括成长期流程，却没有同时处理适用条件、原流程的复用要求和资源退出责任。本需求将这一模式作为反例，不把更换 prompt 当作已经证明能消除此类故障的结论。
 
@@ -241,7 +241,7 @@
 
 ## 已确认的 F4 回归修复
 
-历史调查发现，[feat-446 原需求](../archive/feat-446-skill-view-tool/spec.md) 对 F4 要求至少两个会话的证据，只修改目标 Skill，不创建或修改其他 Skill。旧实现包含对应的专用提示词和证据数量检查。
+历史调查发现，[feat-446 原需求](../feat-446-skill-view-tool/spec.md) 对 F4 要求至少两个会话的证据，只修改目标 Skill，不创建或修改其他 Skill。旧实现包含对应的专用提示词和证据数量检查。
 
 当前 DSH 的 F4 入口复用通用 `skills.txt`，再追加目标 Skill 和历史记录。该入口没有保留旧版专用提示词中的完整限制，也未看到至少两个会话的前置检查。这是当前代码与历史约束的差异，不表示已验证生产环境发生了越界写入。
 
@@ -251,7 +251,7 @@
 
 ### 已确认：本次 F4 仅适用于非 Global 模式
 
-设计核对时发现，[Global 主会话绑定](../../../packages/personal-assistant/src/global-agent.ts) 按 `global:<agentId>` 复用持久 session。多个任务、多个聊天来源和多轮使用可以发生在同一个 session 中。因此，“至少两个不同的已结束会话”不能直接作为 Global 模式中独立使用经历的等价条件。
+设计核对时发现，[Global 主会话绑定](../../../../packages/personal-assistant/src/global-agent.ts) 按 `global:<agentId>` 复用持久 session。多个任务、多个聊天来源和多轮使用可以发生在同一个 session 中。因此，“至少两个不同的已结束会话”不能直接作为 Global 模式中独立使用经历的等价条件。
 
 Agent 曾建议采用两个不同会话中已正常完成的使用记录。用户未接受该建议，原话：“妈的，这个很棘手，现在global模式好像跟F4有点冲突，我没想好”。
 
