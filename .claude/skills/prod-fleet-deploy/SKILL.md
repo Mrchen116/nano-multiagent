@@ -19,6 +19,7 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 - 两机公网 HTTP/WS 与工具使用持久普通代理，本机/内网直连；不以 TUN 为前提，不修改用户 Clash 全局规则。验证实际链路，区分业务公网探针和独立 Tunnel 传输，见 [公网代理](references/runbook.md#公网代理)。
 - 复用现有 IM/Tunnel LaunchAgent 和公网 launcher；不退回旧 `nohup uvicorn`、内网访问入口或全网卡监听。保留 Cloudflare HTTPS 重定向，当前版本公网模式必须使用 `pnpm im public-server`；首次从旧 Python 切换先完成 `docs/operations/dsh-migration.md`。
 - 常规部署复用 mini 持久 IM signing key、数据库、附件和各 Gateway 设备密钥/运行凭据；缺失先停止，不自动换钥、重新 bind 或初始化公司。Gateway config 先 stop 再改，防运行态回写；稳定环境写 config，不靠一次启动的 inline 设置。
+- 部署验收通过后，按 [备份轮转](references/runbook.md#备份轮转) 在各机保留最近 3 次部署备份和必要的迁移前快照；核实保留集可恢复、旧备份无引用后清理过期目录并留档。
 - 若仍是旧 PA 目录布局，先完成 [无覆盖迁移](../../../docs/operations/pa-workspace-layout-migration.md)，备份并保持密钥不变；迁移完成后不重复执行。
 - 按授权范围更新；依赖顺序为 IM → 需要更新的代理 → Gateway。涉及前端时重建未入仓的 dist。
 - 首次 DSH 迁移除节点候选外，还必须核对生产 IM 的旧待发 relay、全局主会话登记和工具配置镜像，按 [迁移操作单](../../../docs/operations/dsh-migration.md) 留档转换。候选 ready 不代表真实模型、飞书或消息交付已验收。
