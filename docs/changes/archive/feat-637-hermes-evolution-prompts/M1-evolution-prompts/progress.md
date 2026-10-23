@@ -88,3 +88,9 @@
 | Product R3 + retained R1/R2 | 同上 | 同上 | 同上 | pass，21场景覆盖，retained |
 
 `effective_through` 为最终 PR head，确切 SHA 写入 PR；本记录之后只进行已核对 delta 的机械归并、路径归档与来源链接更新，不新增行为。Gateway四条 ADDED Requirement 与IM一条 MODIFIED Requirement 原样归并，更新两个包索引及文档地图。不触及生产，不自动合并PR。
+
+### 归档后验证与现场清理
+
+整个 unit 通过 `git mv` 进入 archive，Markdown 相对引用及四份 prompt 来源路径随之校正，不改变提示行为。机械核对 Gateway/IM 归并文本与已校正 delta 逐字一致。归档后 docs-check 通过（254 maintained Markdown / 67 routes）、change-unit archived 检查及 diff check 通过；全仓 build/typecheck 重新通过（`/tmp/feat637-delivery-build.log`、`/tmp/feat637-delivery-typecheck.log`），ruff check/format 通过（85 files）。其余本地 CI 证据沿用本记录已列全量与窄回归，远端 CI 在最终 PR head 再次执行。
+
+独立 reviewer 确认所有测试输入及后台执行均已结束，所建浏览器标签已关闭。caller 通过本次运行目录 stop 触发既有 e2e-down，`stop.log` 返回 STOPPED；65441 端口无监听，按本次路径检查无残留 Node/DSH/e2e 进程。两次隔离原始证据目录保留，不提交。唯一 unit worktree 保留供 PR 审查。未部署、未合并，未改主 checkout 已有工作。
