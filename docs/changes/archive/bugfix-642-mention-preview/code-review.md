@@ -16,4 +16,4 @@ Result: Passed。Findings: `[]`。
 
 ## Closure
 
-审查后仅新增本 unit 文档，产品代码与测试未变，结论 retained。effective_through: 包含本报告的提交。未执行 final main sync 或 CI；本 unit 等待用户验收后收尾。
+审查后仅新增本 unit 文档，产品代码与测试未变，结论 retained。effective_through: 包含本报告的提交。已同步 `73de6fb5c1910d185bf94010e7eea34dd3d00ca0`：主干修改 messaging 的 publishMessages 投递调度，不改变 conversation 预览读取、成员字典或前端展示；本次产品 diff 不变，独立审查和用户截图确认 retained。effective_base: `73de6fb5c1910d185bf94010e7eea34dd3d00ca0`；effective_through: 包含本归档记录的最终提交。用户明确授权不等待 GitHub CI。

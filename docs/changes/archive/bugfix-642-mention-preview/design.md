@@ -17,7 +17,9 @@ Base: `b6db5d02345b63691d6198ea3abe63c17a353e4e`。
 - 前端 sidebar、mention parser、global message toast：3 files / 47 tests 通过。
 - `pnpm --filter @nano/im-server typecheck`、`git diff --check` 通过。
 - 独立本地 IM + Vite，真实浏览器登录并刷新会话，列表和正文均显示两个完整人名；DOM 无原始标签。一次性截图：worktree `output/mention-preview/verified.png`，不提交。
-- 独立静态审查见 `code-review.md`。未执行全仓 CI，未作线上验证；用户验收待完成。
+- 独立静态审查见 `code-review.md`。未执行全仓 CI，未作线上验证；用户已查看修复截图并确认合并（2026-10-23），明确不等待 GitHub CI。
+
+- 最终同步 main 后重跑 messaging、message-attempts、system-notices 与 personal-disclosure：4 files / 29 tests 通过；documentation integrity 与 diff check 通过。
 
 ## 风险与回滚
 
@@ -25,4 +27,4 @@ API 预览由 wire 文本变为可读文本；消费者仍接受字符串。正�
 
 ## Canonical 文档影响
 
-最窄 delta 见 `specs/im/web-chat-ux.md`；待用户验收及快修收尾时归并。
+最窄 delta 见 `specs/im/web-chat-ux.md`；已归并到 `docs/specs/im/web-chat-ux.md`，同时更新 IM spec 入口的 Requirement 计数。
