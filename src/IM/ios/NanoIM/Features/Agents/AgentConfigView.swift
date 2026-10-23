@@ -3,6 +3,8 @@ import SwiftUI
 struct AgentConfigView: View {
     let client: IMClient; let agentID: String
     @Environment(\.dismiss) private var dismiss
+    @State private var capabilityToast: CapabilityToastMessage?
+    @State private var checkingCapability = false
     @State private var config: AgentConfig?
     @State private var draft = AgentDraft()
     @State private var capabilities: AgentCapabilities?
@@ -15,14 +17,18 @@ struct AgentConfigView: View {
     @State private var confirmLeave = false
     @State private var preview: AgentPrompt?
     @State private var saved = false
-    private var dirty: Bool { config != nil && draft != config!.draft }
+    private var dirty: Bool {
+        guard let config else { return false }
+        var baseline = config.draft; baseline.fixed_tools = draft.fixed_tools
+        return draft != baseline
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
         Form {
             if let config {
-                AgentEditorFields(draft: $draft, capabilities: capabilities).disabled(pending || busy || conflicted)
-                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID, capabilities: capabilities).disabled(pending || busy || conflicted)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted)
+                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted)
                 Section {
                     DisclosureGroup(L("配置归属", "Configuration")) {
                         LabeledContent("Agent ID", value: agentID)
@@ -64,7 +70,7 @@ struct AgentConfigView: View {
                                 Text(L("版本", "Version") + ": \(currentConfig.profile_version)")
                             }.textSelection(.enabled)
                             Button(L("保留草稿，基于此版本继续编辑", "Keep draft and edit against this version")) { self.config = currentConfig; conflicted = false; self.currentConfig = nil; error = nil }
-                            Button(L("使用服务端配置替换草稿", "Replace draft with server configuration"), role: .destructive) { self.config = currentConfig; draft = currentConfig.draft; conflicted = false; self.currentConfig = nil; error = nil }
+                            Button(L("使用服务端配置替换草稿", "Replace draft with server configuration"), role: .destructive) { self.config = currentConfig; draft = currentConfig.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; conflicted = false; self.currentConfig = nil; error = nil }
                         }
                     } else {
                         Button(L("提示词预览", "Preview prompt")) { Task { await loadPreview() } }.disabled(capabilities == nil || busy)
@@ -78,6 +84,7 @@ struct AgentConfigView: View {
         .onChange(of: error) { _, value in if value != nil { proxy.scrollTo("configuration-status", anchor: .top) } }
         .onChange(of: saved) { _, value in if value { proxy.scrollTo("configuration-status", anchor: .top) } }
         }
+        .capabilityToast($capabilityToast)
         .contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
         .navigationTitle(L("Agent 配置", "Agent configuration")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .confirmationAction) {
@@ -90,25 +97,52 @@ struct AgentConfigView: View {
         .sheet(item: $preview) { value in AgentTextSheet(title: L("提示词预览", "Prompt preview"), text: value.prompt, preview: true) }
         .task { await load() }
     }
+    private func changeCapability(_ action: CapabilityAction) {
+        capabilityToast = nil
+        guard let capabilities, !checkingCapability else { return }
+        var candidate = draft
+        let blocks = candidate.changeCapability(action, capabilities: capabilities)
+        if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
+        let removed = candidate.removingCapabilities(from: draft, capabilities: capabilities)
+        if removed.isEmpty { draft = candidate; return }
+        checkingCapability = true
+        Task {
+            defer { checkingCapability = false }
+            do {
+                let usage: CapabilityUsage = try await client.get(agentPath(agentID) + "/capability-usage")
+                if let block = usage.blocks(removing: removed).first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
+                // Apply against the current draft so unrelated edits survive the request.
+                let blocks = draft.changeCapability(action, capabilities: capabilities)
+                if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name) }
+            } catch { capabilityToast = .init(text: CapabilityBlock(code: "capability_unavailable", target: action.target).message, anchor: action.kind + ":" + action.name) }
+        }
+    }
     private func load() async {
         do { let value: AgentConfig = try await client.get(agentPath(agentID) + "/config", query: [URLQueryItem(name: "source", value: "mirror")]); config = value; draft = value.draft; error = nil; await loadCapabilities() }
         catch { self.error = agentError(error) }
     }
     private func loadCapabilities() async {
-        do { capabilities = try await client.get(agentPath(agentID) + "/capabilities"); capabilityError = nil }
+        do { capabilities = try await client.get(agentPath(agentID) + "/capabilities"); draft.fixed_tools = capabilities?.fixed_tools ?? []; capabilityError = nil
+            let _: CapabilityUsage? = try? await client.get(agentPath(agentID) + "/capability-usage")
+        }
         catch { capabilityError = agentError(error); capabilities = nil }
     }
     private func save() async {
         guard let config else { return }
         busy = true; saved = false; error = nil; defer { busy = false }
-        do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; saved = true }
-        catch { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && (error as? APIError)?.status == 409 }
+        do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; saved = true }
+        catch {
+            if let blocks = (error as? APIError)?.blocks, let block = blocks.first, let capabilities {
+                draft.restoreCapabilities(blocks, capabilities: capabilities)
+                capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
+            } else { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && (error as? APIError)?.status == 409 }
+        }
     }
     private func reconcile() async {
         busy = true; defer { busy = false }
         do {
             let value: AgentConfig = try await client.get(agentPath(agentID) + "/config")
-            if value.profile_version > (config?.profile_version ?? 0) { config = value; draft = value.draft; pending = false; saved = true; error = nil }
+            if value.profile_version > (config?.profile_version ?? 0) { config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; pending = false; saved = true; error = nil }
             else { pending = false; error = L("服务器版本未改变；草稿已恢复，可核对后重试保存。", "The server version is unchanged. The draft is restored; review it before retrying.") }
         } catch { self.error = agentError(error) }
     }
@@ -125,6 +159,7 @@ struct AgentConfigView: View {
 struct AgentEditorFields: View {
     @Binding var draft: AgentDraft
     let capabilities: AgentCapabilities?
+    var onCapabilityChange: ((CapabilityAction) -> Void)? = nil
     var showProfile = true
     var showModels = true
     var showCapabilities = true
@@ -204,9 +239,8 @@ struct AgentEditorFields: View {
             DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.count)") {
                 if let capabilities {
                     ForEach(capabilities.tools) { option in
-                        let fixed = draft.work_mode == "global" && ["inbox", "conversations", "send_message", "agent"].contains(option.name)
                         VStack(alignment: .leading) {
-                            Toggle(option.name, isOn: selection(option.name, keyPath: \.tool_allowlist, fixed: fixed)).disabled(fixed)
+                            Toggle(option.name, isOn: Binding(get: { draft.effectiveTools.contains(option.name) }, set: { change(.init(kind: "tool", name: option.name, enabled: $0)) })).capabilityAnchor("tool:" + option.name)
                             if let description = option.description, !description.isEmpty {
                                 DisclosureGroup(L("工具说明", "Tool description")) {
                                     Text(description).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -214,7 +248,6 @@ struct AgentEditorFields: View {
                             }
                         }
                     }
-                    if draft.work_mode == "global" { Text(L("全局模式固定保留 inbox、conversations、send_message、agent。", "Global mode always retains inbox, conversations, send_message, and agent.")).font(.caption).foregroundStyle(.secondary) }
                 }
                 ForEach(draft.tool_allowlist.filter { tool in !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
@@ -228,9 +261,9 @@ struct AgentEditorFields: View {
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
                                 ForEach(options) { option in
-                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { draft.setSkill(option.name, enabled: $0, candidates: capabilities.skills.map(\.name)) })) {
+                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
                                         VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
-                                    }
+                                    }.capabilityAnchor("skill:" + option.name)
                                 }
                             }
                         }
@@ -242,14 +275,8 @@ struct AgentEditorFields: View {
         Section {
             DisclosureGroup(L("运行特性", "Runtime features")) {
                 ForEach(capabilities?.features ?? []) { feature in
-                    let available = feature.requires_tool.map { required in capabilities?.tools.contains { $0.name == required } ?? false } ?? true
-                    Toggle(isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { draft.setFeature(feature, enabled: $0) })) {
-                        VStack(alignment: .leading) {
-                            Text(agentFeatureName(feature.key))
-                            if let tool = feature.requires_tool { Text(L("需要工具：", "Requires tool: ") + tool).font(.caption).foregroundStyle(.secondary) }
-                            if !available { Text(L("当前不可用，保留已存选择", "Unavailable; stored selection is preserved")).font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }.disabled(!available)
+                    Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
+                        .capabilityAnchor("feature:" + feature.key)
                 }
             }
         }
@@ -263,13 +290,15 @@ struct AgentEditorFields: View {
         L("平台默认", "Platform default") + (capabilities?.platform_default_model.map { " · " + modelLabel($0) } ?? "")
     }
     private func modelLabel(_ name: String) -> String { models.first { $0.name == name }?.displayLabel ?? name }
-    private func selection(_ name: String, keyPath: WritableKeyPath<AgentDraft, [String]>, fixed: Bool = false) -> Binding<Bool> {
-        Binding(get: { fixed || draft[keyPath: keyPath].contains(name) }, set: { selected in if selected { if !draft[keyPath: keyPath].contains(name) { draft[keyPath: keyPath].append(name) } } else { draft[keyPath: keyPath].removeAll { $0 == name } } })
+    private func change(_ action: CapabilityAction) {
+        onCapabilityChange?(action)
     }
+
 }
 
 func agentFeatureName(_ key: String) -> String {
     switch key {
+    case "intelligent_ui": return L("交互式回复", "Intelligent UI")
     case "task_graph": return L("任务图", "Task graphs")
     case "memory_curation": return L("记忆维护", "Memory curation")
     case "skill_creation": return L("Skill 创建", "Skill creation")
@@ -281,12 +310,11 @@ func agentFeatureName(_ key: String) -> String {
 
 struct AgentHeartbeatFields: View {
     @Binding var draft: AgentDraft
-    let client: IMClient; let agentID: String; let capabilities: AgentCapabilities?
+    let client: IMClient; let agentID: String
     @State private var document: AgentPrompt?
     @State private var error: String?
     var body: some View {
-        Section(L("心跳与定时任务", "Heartbeat and scheduled jobs")) {
-            Toggle(L("启用心跳", "Enable heartbeat"), isOn: Binding(get: { draft.features["heartbeat"] ?? false }, set: { draft.features["heartbeat"] = $0 }))
+        Section(L("心跳设置", "Heartbeat settings")) {
             TextField(L("间隔，例如 30m / 1h", "Interval, e.g. 30m / 1h"), text: Binding(get: { draft.heartbeat.every ?? "" }, set: { draft.heartbeat.every = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never)
             TextField(L("活跃开始 HH:mm（可选）", "Active from HH:mm (optional)"), text: hour(\.start))
             TextField(L("活跃结束 HH:mm（可选）", "Active until HH:mm (optional)"), text: hour(\.end))
@@ -297,7 +325,6 @@ struct AgentHeartbeatFields: View {
                     catch { self.error = agentError(error) }
                 }
             }
-            Toggle(L("启用定时任务", "Enable scheduled jobs"), isOn: Binding(get: { draft.features["cron_scheduling"] ?? false }, set: { value in if let feature = capabilities?.features.first(where: { $0.key == "cron_scheduling" }) { draft.setFeature(feature, enabled: value) } else { draft.features["cron_scheduling"] = value } }))
             if let error { ErrorNotice(message: error) }
         }.sheet(item: $document) { AgentTextSheet(title: "HEARTBEAT.md", text: $0.prompt) }
     }

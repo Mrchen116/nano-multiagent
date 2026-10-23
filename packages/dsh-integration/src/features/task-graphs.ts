@@ -1,11 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis';
+import type { Agent } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import type {} from '../product-bridge.js';
 import { taskGraphParameters } from './task-graph-schema.js';
 export const name = 'nano-task-graphs';
 export const inject = ['tools', 'nanoProduct', 'systemPrompt'];
 
-/** Independent Feature scope; disposing it removes only this tool and guidance. */
+/** Feature guidance is independent of the callable Task tool. */
 export function apply(ctx: Context) {
   ctx.systemPrompt.section({ name: 'nano-task-graphs', order: 810, text: [
     "Task graphs are durable plans and progress records owned by one fixed conversation inside this Agent's fixed personal or company resource space. Joining a company never publishes personal conversation tasks. Public group tasks are readable to eligible company members; writing requires joining that conversation.",
@@ -18,12 +19,16 @@ export function apply(ctx: Context) {
     "After confirmed waiting, deliver meaningful progress, the blocker, alternatives tried, what is needed from whom, and the next check to the Task's fixed conversation, including Tasks assigned by another Agent. In Global mode this requires send_message; private prose is not delivery. Do not repeat already confirmed feedback or unchanged status at each recheck. A failed or unknown feedback send does not undo the saved waiting state: keep its Schedule and resolve delivery truthfully.",
     'Prefer submitting finished results as in_review for feedback, then done after confirmation; direct done is allowed. Verify the whole objective and actually deliver the result to the fixed conversation. Assignment alone does not start work; claim_task means taking responsibility and sets doing. Task notifications are system collaboration messages, never new human deletion consent. Keep containment, dependencies and alternatives distinct; finishing a child does not finish its parent.',
   ].join('\n') });
-  ctx.tools.register({ name: 'task_graph', description: "Query or maintain durable task graphs in IM; doing responsibility keeps the owning Agent working through native execution. Use list/get to read, create to make only a root goal, apply to atomically change nodes and relationships, and delete to remove a graph or subtree. To save a multi-step plan, first create without operations, then apply using the returned graph_id, root_node_id and revision. Supply only the fields documented for the chosen action.", parameters: taskGraphParameters,
+}
+
+/** Register the tool while gating automatic feedback on current Feature selection. */
+export function registerTool(ctx: Context, enabled: (agent: Agent) => boolean) {
+  ctx.tools.register({ name: 'task_graph', description: "Query or maintain durable task graphs in IM; Use list/get to read, create to make only a root goal, apply to atomically change nodes and relationships, and delete to remove a graph or subtree. To save a multi-step plan, first create without operations, then apply using the returned graph_id, root_node_id and revision. Supply only the fields documented for the chosen action.", parameters: taskGraphParameters,
     output: { schema: { type: 'object', additionalProperties: true }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
     execute: async (args, exec) => {
       const value=await ctx.nanoProduct.call('task_graph',args,exec);
       const response=value as {ok:boolean;result?:{graph_id:string;revision:number;feedback?:{conversation_id:string;tasks:unknown[]}}};
-      if((args as {action:string}).action==='apply'&&response.ok===true&&response.result?.feedback?.tasks.length) {
+      if(exec.agent&&enabled(exec.agent)&&(args as {action:string}).action==='apply'&&response.ok===true&&response.result?.feedback?.tasks.length) {
         exec.deferContext(createUserMessage({
           source:{kind:'nano-system',actorId:exec.agent!.id,channel:'task-feedback',messageId:`task-feedback:${exec.callId}`},
           content:[{type:'text',text:[

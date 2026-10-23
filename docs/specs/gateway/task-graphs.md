@@ -1,6 +1,6 @@
 # gateway - Task Graphs Specification
 
-> 对齐: bugfix-646
+> 对齐: feat-645、bugfix-646
 > 上级: [gateway Specification](spec.md)
 
 ## Purpose
@@ -20,9 +20,9 @@
 
 
 #### Scenario: 配置任务图特性
-- **WHEN** 用户在 Agent 配置中开启或关闭默认开启的“任务图”特性并保存
+- **WHEN** 用户在 Agent 配置中合法开启或关闭默认开启的“任务图”特性并保存
 - **THEN** 该 Agent 下一轮回复按最新配置采用任务图能力，当前正在回复的一轮不切换，已有聊天历史和任务图记录保留；关闭有效任务能力后不新增 Task 自动续跑，开启后按当前责任重新检查。
-- **AND** 开启开关通过既有界面联动选中 `task_graph` 工具；有效能力同时要求特性开启和工具白名单包含该工具。关闭后即使白名单保留该工具，也不向后续模型提供或允许调用，预览采用同一有效配置。
+- **AND** 开启 Task 通过界面联动选中 task_graph 和完整 Cron Feature；Task 关闭且工具单独选中时普通任务调用仍可用，自动责任注入、恢复和续跑仍要求 Task Feature，预览采用同一配置。
 - **AND** 关闭某个 Agent 的特性不撤销用户按所属会话读取既有任务图的 Web/iOS 访问权，也不改变其他 Agent 或输入渠道的权限。
 
 ### Requirement: 图操作使用真实会话与账号归属
@@ -32,7 +32,7 @@
 #### Scenario: 真实身份与公司能力
 - **WHEN** 有效成员交办已启用任务工具的真实注册 PA Agent 维护任务
 - **THEN** 可跨 owner/Gateway 在所属会话范围内读取同一持久图，写入要求会话成员资格；不接受模型指定身份、未核实内核 child、停用 owner 或过期机器连接。
-- **AND** 工具开关和 allowlist 继续同时生效；工具不按任务依赖调度执行；协作系统消息按原群策略处理。
+- **AND** 工具选择及既有身份权限生效，普通任务操作不要求 Task Feature 开启；工具不按任务依赖调度执行；协作系统消息按原群策略处理。
 
 #### Scenario: 外部渠道复用现有主人与 Agent 资格
 - **WHEN** 飞书等外部渠道的 Agent 调用任务工具
@@ -230,3 +230,16 @@
 - WHEN 人或 Agent 修改、改派、删除责任，或系统因群解散关闭任务
 - THEN 受影响负责人在下一模型步骤对齐最新责任；空闲且无可执行任务时不为同步单独启动。
 - AND 离线期间任务已撤回，恢复历史后的首个普通输入也附最新空责任事实，不沿用历史责任。
+
+### Requirement: 有 doing 或 waiting 责任 SHALL 阻止关闭 Task
+
+#### Scenario: 按负责人跨会话判断
+- **GIVEN** 本 Agent 在任一会话仍负责 doing 或 waiting 节点
+- **WHEN** 用户关闭 Task
+- **THEN** 关闭被拒，任务、安排与配置保持不变，并提示先暂停或结束这些责任
+- **AND** 其他 Agent 的任务、todo/paused/in_review/done/closed 不阻碍本 Agent 关闭
+
+#### Scenario: 没有责任时关闭
+- **GIVEN** 本 Agent 没有 doing/waiting 责任，也无其他 Feature 依赖 Task
+- **WHEN** 用户关闭 Task
+- **THEN** 允许关闭，既有记录与用户访问权限保留，Cron 不自动关闭；后续重新开启只沿既有任务恢复规则处理

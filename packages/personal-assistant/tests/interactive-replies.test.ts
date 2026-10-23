@@ -26,17 +26,14 @@ it('preserves handwritten instructions and attached values in both Relay and Glo
 it.each(['web','feishu'])('publishes immutable UI identities and text fallback for %s', async channel => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const sent:any[]=[];
   store.bind({agentId:'a',sessionId:'main',conversationId:'c',ownerId:'owner',cwd:'/tmp',revision:'1'});
-  const agents=[{agentId:'a',revision:'1',provider:'test',model:'test',features:{intelligent_ui:true}}];
+  const agents=[{agentId:'a',revision:'1',provider:'test',model:'test',mode:'single_thread' as const,features:{intelligent_ui:true}}];
   const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents,runtime:{onNotification:()=>()=>{},request:async()=>({events:[],durable:true})},
-    relay:{async request(type,payload){if(type==='agent.message'){sent.push(payload);return{type:'ack',payload:{message_id:'card',conversation_id:'c'}};}return{type:'result',payload:{ok:true,result:{type:'direct',channel}}};}},image:async()=>'',onError:error=>{throw error;}});
+    relay:{async request(type,payload){if(type==='agent.session.ensure')throw new Error('invalid_scope');if(type==='agent.message'){sent.push(payload);return{type:'ack',payload:{message_id:'card',conversation_id:'c'}};}return{type:'result',payload:{ok:true,result:{type:'direct',channel}}};}},image:async()=>'',onError:error=>{throw error;}});
   store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'send-card',name:'send_message',arguments:'{}'}}]);
   const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("选项")])'};
   const call:ProductCall={method:'send_message',args:{target:'current',text:'摘要',interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
   try{
     agents[0].features.intelligent_ui=false;
-    await expect(product.call(call)).rejects.toThrow('Intelligent UI Feature is disabled');
-    expect(sent).toHaveLength(0);
-    agents[0].features.intelligent_ui=true;
     await product.call(call);await product.call(call);expect(sent).toHaveLength(1);
     expect(store.command('interactive-delivered:main:1')).toBeTruthy();
     expect(sent[0].text).toBe('摘要');expect(sent[0].interactive).toEqual(channel==='web'?interactive:undefined);

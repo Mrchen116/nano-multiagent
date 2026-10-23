@@ -149,7 +149,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
     client.rpc.handle('product.task_execution.snapshot', async () => await readFile(join(home,'completed'),'utf8').catch(()=>null)
       ? {kind:'quiescent',tasks:[],repair_task_ids:[]}
       : {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]});
-    const config = {agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'};
+    const config = {features:{intelligent_ui:false,cron_scheduling:true},agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
     await expect.poll(async () => {

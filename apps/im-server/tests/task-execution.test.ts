@@ -68,6 +68,12 @@ describe('durable Task execution responsibility',()=>{
     expect(await tasks.executeChecked(actor,'apply',args)).toEqual(result);
     expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).nodes.find((n:any)=>n.id===child).status).toBe('paused');
   });
+  it('allows the selected Task tool without the Feature, but keeps automatic execution gated', () => {
+    const {db,tasks,graph}=setup();
+    db.prepare("UPDATE agent_profiles SET features_json=?").run(JSON.stringify({task_graph:false}));
+    expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).graph_id).toBe(graph.graph_id);
+    expect(() => tasks.executionSnapshot(actor,'chat')).toThrow();
+  });
   it('requires real schedule evidence, saves waiting atomically, and replays a confirmed write after schedule expiry',async()=>{
     const {tasks,inspect,waiting,graph}=setup();
     inspect.mockResolvedValueOnce({valid:false} as any);

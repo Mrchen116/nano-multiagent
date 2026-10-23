@@ -23,8 +23,11 @@ function toast(kind,msg){
   const t=$('feedback'),trigger=document.activeElement;
   t.textContent=msg;
   const anchor=(trigger?.querySelector('.toggle')||trigger||$('save')).getBoundingClientRect();
-  const box=t.getBoundingClientRect(),margin=16,gap=8;
-  const x=Math.max(margin,Math.min(anchor.left+anchor.width/2-box.width/2,innerWidth-box.width-margin));
+  const margin=16,gap=8,screen=$('shell').getBoundingClientRect();
+  const left=Math.max(0,screen.left)+margin,right=Math.min(innerWidth,screen.right)-margin;
+  t.style.maxWidth=Math.min(320,right-left)+'px';
+  const box=t.getBoundingClientRect();
+  const x=Math.max(left,Math.min(anchor.left+anchor.width/2-box.width/2,right-box.width));
   const above=anchor.top-box.height-gap;
   t.style.left=x+'px';
   t.style.top=(above>=margin?above:Math.min(anchor.bottom+gap,innerHeight-box.height-margin))+'px';

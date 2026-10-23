@@ -9,7 +9,7 @@ it('combines due maintenance in one native fork and persists its actual trajecto
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   const content = '---\nname: verified-method\ndescription: Reuse observed results\n---\nCheck the evidence before changing the method.';
   await writeFile(join(home, 'fixture.mjs'), `export const name='combined-fixture';export const inject=['llm'];export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');let name,args;const n=steps.get(last.id)||0;steps.set(last.id,n+1);if(prompt.startsWith('Review the conversation')){const calls=[['read',{file_path:${JSON.stringify(join(home,'.nanoassistant/memory/USER.md'))}}],['read',{file_path:${JSON.stringify(join(home,'.nanoassistant/memory/MEMORY.md'))}}],['memory',{action:'add',target:'user',content:'The user prefers concise answers.'}],['skill_manage',{action:'create',name:'verified-method',content:${JSON.stringify(content)}}]];if(n<calls.length)[name,args]=calls[n];}if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
-  const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:true},knowledge:{memoryInterval:1,skillInterval:1},toolAllowlist:['read','memory','skill_manage','skill']};
+  const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:true},knowledge:{memoryInterval:1,skillInterval:1},toolAllowlist:['read','memory','skill_manage','skill']};
   const binding = {sessionId:'combined-root',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'combined-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -20,7 +20,7 @@ it('combines due maintenance in one native fork and persists its actual trajecto
     };
     await start();
     await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:'learn',mode:'followup',content:[{type:'text',text:'Learn the verified method and my preference.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'learn'}});
-    const facts=async()=>await client!.rpc.request('knowledge.facts',{}) as {reviews:{kind:string;status:string}[];facts:{kind:string;source?:string}[]};
+    const facts=async()=>await client!.rpc.request('knowledge.facts',{}) as {reviews:{kind:string;status:string;turn:number;childSessionId?:string}[];facts:{kind:string;source?:string}[]};
     await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='completed').length,{timeout:8000}).toBeGreaterThan(0);
     expect((await facts()).reviews).toEqual([expect.objectContaining({kind:'combined',status:'completed'})]);
     expect((await facts()).facts.map(f=>f.kind).sort()).toEqual(['memory','skills']);
@@ -32,11 +32,11 @@ it('combines due maintenance in one native fork and persists its actual trajecto
     expect(runs.value).toEqual([expect.objectContaining({kind:'combined',delegation:'background',provider:'fork',state:'completed'})]);
     expect(runs.value[0]!.launchSeq).toBeTypeOf('number');
     expect(runs.value[0]!.endSeq).toBeGreaterThan(runs.value[0]!.startSeq!);
-  } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
+  } catch(error) {throw new Error(`${error}\n${logs}\n${JSON.stringify(await client?.rpc.request('knowledge.facts',{}).catch(()=>null))}`,{cause:error});}
   finally {if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}
 },20000);
 
-it('settles each category independently and cancels a combined review without losing its successful write', async () => {
+it('rejects configuration cancellation of accepted maintenance and preserves successful writes after process stop', async () => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-review-lifecycle-'));
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
@@ -55,7 +55,7 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
  if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}
  else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}
 });}`);
-  const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:true},knowledge:{memoryInterval:2,skillInterval:3},toolAllowlist:['read','memory','skill_manage']};
+  const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:true},knowledge:{memoryInterval:2,skillInterval:3},toolAllowlist:['read','memory','skill_manage','skill']};
   const binding = {sessionId:'lifecycle-root',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'lifecycle-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -65,8 +65,8 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
       await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:inputId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {terminal?:unknown}).terminal).toBeTruthy();
     };
-    const facts=async()=>await client!.rpc.request('knowledge.facts',{}) as {reviews:{kind:string;status:string}[];facts:{kind:string;name?:string}[]};
-    const completed=async()=>(await facts()).reviews.filter(r=>r.status==='completed').map(r=>r.kind);
+    const facts=async()=>await client!.rpc.request('knowledge.facts',{}) as {reviews:{kind:string;status:string;turn:number;childSessionId?:string}[];facts:{kind:string;name?:string}[]};
+    const completed=async()=>(await facts()).reviews.filter(r=>r.status==='completed').sort((a,b)=>a.turn-b.turn).map(r=>r.kind);
     await submit('one');expect(await completed()).toEqual([]);
     await submit('two');await expect.poll(completed).toEqual(['memory']);
     await submit('three');await expect.poll(completed).toEqual(['memory','skills']);
@@ -77,16 +77,20 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
     expect((await facts()).reviews.filter(r=>r.status==='running')).toEqual([expect.objectContaining({kind:'combined'})]);
     // New foreground activity must survive both the running slot and its cancellation.
     await submit('seven');
-    await client.rpc.request('configuration.apply',{...config,features:{memory_curation:false,skill_creation:true}});
+    expect(await client.rpc.request('configuration.prepare',{operationId:'close-review',fingerprint:'2',config:{...config,features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true}}})).toMatchObject({ready:false,blocks:expect.arrayContaining([{code:'capability_busy',target:{kind:'feature',name:'memory_curation'}}])});
+    expect((await facts()).reviews.filter(r=>r.status==='running')).toHaveLength(1);
+    await client.shutdown(); client=undefined;
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]}); await client.rpc.request('session.ensure',binding);
     await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='cancelled').length).toBe(1);
     expect((await facts()).facts).toEqual([expect.objectContaining({kind:'skills',name:'partial-method'})]);
     expect(await readFile(join(home,'.nanoassistant/skills/partial-method/SKILL.md'),'utf8')).toBe(content);
     await expect(readFile(join(home,'.nanoassistant/skills/after-close/SKILL.md'),'utf8')).rejects.toThrow('ENOENT');
     await rm(join(home,'hold-combined'));
-    await submit('eight');await expect.poll(completed).toEqual(['memory','skills','memory','skills']);
+    await submit('eight');await expect.poll(completed).toEqual(['memory','skills','memory','combined']);
     await client.rpc.request('configuration.apply',config);
-    await submit('nine');await expect.poll(completed).toEqual(['memory','skills','memory','skills','memory']);
-  } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
+    await submit('nine');expect(await completed()).toEqual(['memory','skills','memory','combined']);
+  } catch(error) {throw new Error(`${error}\n${logs}\n${JSON.stringify(await client?.rpc.request('knowledge.facts',{}).catch(()=>null))}`,{cause:error});}
   finally {if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },30000);
 
@@ -101,7 +105,7 @@ it('runs F4 only after two completed product sessions and binds patches to the a
   for(let i=0;i<24;i++) await files.skill({action:'create',name:`catalog-${i}`,content:`---\nname: catalog-${i}\ndescription: ${'Catalog description. '.repeat(40)}\n---\nUnrelated reusable method.`},'F1');
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs='';
   await writeFile(join(home,'fixture.mjs'), `import {existsSync,writeFileSync} from 'node:fs';export const name='f4-fixture';export const inject=['llm'];export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');const n=steps.get(last.id)||0;steps.set(last.id,n+1);let name,args;if(prompt.startsWith('Review only the existing automatic Skill')){if(n===2){writeFileSync(process.env.DSH_HOME+'/f4-held','held');while(!existsSync(process.env.DSH_HOME+'/release-f4')){o.signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,10));}}const calls=[['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'unread'}],['read',{file_path:${JSON.stringify(join(root,'verified-method/SKILL.md'))}}],['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'verified'}]];if(n<calls.length)[name,args]=calls[n];}else if(n===0){name='skill';args={name:'verified-method'};}else if(last.id==='use-20'){writeFileSync(process.env.DSH_HOME+'/second-held','held');while(!existsSync(process.env.DSH_HOME+'/release-second')){o.signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,10));}}if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
-  const config={agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'single_thread',features:{memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000},toolAllowlist:['read','skill','skill_manage'],skillRoots:[{path:root,source:'workspace'}]};
+  const config={agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'single_thread',features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000},toolAllowlist:['read','skill','skill_manage'],skillRoots:[{path:root,source:'workspace'}]};
   const bindings=['first','second','other-owner'].map(sessionId=>({sessionId,agentId:'a',revision:'1',ownerId:sessionId==='other-owner'?'outsider':'owner',cwd:home}));
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'f4-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -143,7 +147,7 @@ it('runs F4 only after two completed product sessions and binds patches to the a
     await expect.poll(async()=>(await reviews()).filter(r=>r.status==='skipped').length).toBeGreaterThan(1);
     expect((await reviews()).filter(r=>r.childSessionId)).toHaveLength(1);
     expect(JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))['verified-method'].uses_since_last_B).toBe(20);
-  }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
+  }catch(error){throw new Error(`${error}\n${logs}\n${JSON.stringify(await client?.rpc.request('knowledge.facts',{}).catch(()=>null))}`,{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },30000);
 
@@ -154,7 +158,7 @@ it('keeps real writes but does not settle either interval after incomplete combi
   const user=join(home,'.nanoassistant/memory/USER.md'),memory=join(home,'.nanoassistant/memory/MEMORY.md');
   const content='---\nname: learned\ndescription: Verified steps\n---\nPreserve the observed result.';
   await writeFile(join(home,'fixture.mjs'),`export const name='incomplete-fixture';export const inject=['llm'];export function apply(ctx){let reviews=0;const steps=new Map();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');const n=steps.get(last.id)||0;steps.set(last.id,n+1);let name,args;if(prompt.startsWith('Review the conversation')){if(n===0)reviews++;const calls=reviews===1?[['read',{file_path:${JSON.stringify(user)}}],['skill_manage',{action:'create',name:'learned',content:${JSON.stringify(content)}}]]:[['read',{file_path:${JSON.stringify(user)}}],['read',{file_path:${JSON.stringify(memory)}}]];if(n<calls.length)[name,args]=calls[n];}if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
-  const config={agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:true},knowledge:{memoryInterval:2,skillInterval:2},toolAllowlist:['read','memory','skill_manage']};
+  const config={agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:true},knowledge:{memoryInterval:2,skillInterval:2},toolAllowlist:['read','memory','skill_manage','skill']};
   const binding={sessionId:'incomplete-root',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try{
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'incomplete-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -172,6 +176,6 @@ it('keeps real writes but does not settle either interval after incomplete combi
     await client.rpc.request('trajectory.prepare',{observerId:binding.sessionId,rootAgentId:'a',rootSessionId:binding.sessionId,sessionId:binding.sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
     const runs=await client.rpc.request('trajectory.call',{observerId:binding.sessionId,method:'trajectory/runs'}) as {value:{kind:string;state:string}[]};
     expect(runs.value.map(r=>[r.kind,r.state])).toEqual([['combined','completed'],['combined','completed']]);
-  }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
+  }catch(error){throw new Error(`${error}\n${logs}\n${JSON.stringify(await client?.rpc.request('knowledge.facts',{}).catch(()=>null))}`,{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },20000);

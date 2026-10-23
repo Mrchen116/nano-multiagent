@@ -19,7 +19,7 @@ it('continues one admitted input on the backup and restores successful sticky se
     reasoningEffort: 'high',
     modelFallbacks: [{ provider: 'fixture', model: 'backup', reasoningEffort: 'low' }],
     toolAllowlist: [],
-    features: {},
+    features: {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false},
   };
   const binding = { sessionId: 'fallback-session', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };
   await writeFile(
@@ -148,7 +148,7 @@ it.each([
         ...(scenario === 'multi-attempt' ? [{ provider: 'fixture-boundary', model: 'backup2' }] : []),
       ],
       toolAllowlist: scenario === 'tool' ? ['fixture_read'] : [],
-      features: {},
+      features: {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false},
       approval: { ...approvalDefaults, globalRoot: home, dangerouslySkipPermissions: true },
     };
     const binding = { sessionId: 'boundary', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };

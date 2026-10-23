@@ -94,7 +94,7 @@ export function apply(ctx) {
     yield { type: 'block-end', index: 0, block: { type: 'text', text: content } }; yield { type: 'finish', reason: { kind: 'stop' } };
   });
 }`);
-  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', mode: agentId === 'global' ? 'global' : 'single_thread',
+  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, mode: agentId === 'global' ? 'global' : 'single_thread',
     approval: { ...approvalDefaults, globalRoot: home, askTimeoutSec: agentId === 'timeout' ? 0.05 : 600, rules: agentId === 'dsh' ? 'dsh' : 'nano', denyLimit: agentId === 'dsh' ? 1 : 3, reviewer: { provider: 'fixture', model: 'review-model' } } }));
   try {
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model', reasoningEfforts: { low: 'low' } }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
