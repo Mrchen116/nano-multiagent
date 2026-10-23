@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-637
+> 对齐: bugfix-646
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -972,3 +972,10 @@ F4 SHALL 只适用于非 Global 运行模式。至少两个不同的已结束会
 - **WHEN** 联合复盘失败、取消，或其中一项能力在运行期间关闭
 - **THEN** 已成功的修改和真实通知保留，未完成复盘不推进后台维护周期
 - **AND** 已关闭能力不再接受后续写入；其他仍启用能力可在后续正常触发时继续维护。
+
+### Requirement: 审核请求 SHALL 使用原审核模型声明的推理能力
+
+#### Scenario: 原模型不支持 low
+- **WHEN** 所选审核模型声明可调推理能力
+- **THEN** 支持 low 时使用 low，否则使用该模型声明的默认档位或首个支持档位；未声明可调能力时不强设 low。
+- **AND** 保留同一审核 provider/model、完整适用证据、判定规则及失败分流，不通过换模型或删证据放行。
