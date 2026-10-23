@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import {act, fireEvent, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, vi} from "vitest";
 import {useAuthStore} from "../../auth/auth-store";
 import {appRoutes} from "../../../app/router";
@@ -256,11 +256,11 @@ it("keeps independently captured heartbeat and prompt bodies after online read f
   expect(screen.queryByText(/Node is offline/i)).not.toBeInTheDocument();
 });
 
-it("preserves a last successful usage read when only the next usage request fails", async () => {
+it.each(["transport", "envelope"] as const)("preserves a last successful usage read when the next usage request fails (%s)", async (failure) => {
   let fail = false;
   const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation((input, init) => {
-    if (String(input).endsWith("/settings/sections/usage")) return fail ? Promise.reject(new Error("usage transport failed")) : Promise.resolve(json({source: "current", captured_at: "2026-10-23T00:00:00Z", error: null, data: {agent_id: config.agent_id, node_id: "node-1", node_online: true, skills: [], heatmap_data: [], health: {created_auto_total: 0, active_auto_total: 0, used_auto_total: 0}}}));
+    if (String(input).endsWith("/settings/sections/usage")) return fail && failure === "transport" ? Promise.reject(new Error("usage transport failed")) : Promise.resolve(json({source: fail ? "last_known" : "current", captured_at: "2026-10-23T00:00:00Z", error: fail ? {code: "read_failed", message: "RPC timeout"} : null, data: {agent_id: config.agent_id, node_id: "node-1", node_online: true, skills: [], heatmap_data: [], health: {created_auto_total: 0, active_auto_total: 0, used_auto_total: 0}}}));
     return original(input, init);
   });
   const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
@@ -268,6 +268,7 @@ it("preserves a last successful usage read when only the next usage request fail
   expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
   fail = true; await presence("online");
   expect(await screen.findByText(/Last confirmed:.*Could not refresh/i)).toBeInTheDocument();
+  expect(within(screen.getByText("No skill usage yet").closest("section")!).getByRole("button", {name: /^Retry$/i})).toBeEnabled();
   expect(screen.getByText("No skill usage yet")).toBeInTheDocument();
   expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
 });

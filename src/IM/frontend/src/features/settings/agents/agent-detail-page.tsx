@@ -1262,7 +1262,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
           <SettingsReadNotice read={read} />
           <h3 className="im-agent-card-title">No skill usage yet</h3>
           <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
-          {usageQuery.isError && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
+          {read?.error && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
         </div>
       </section>
     );
@@ -1271,7 +1271,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   return (
     <div className="grid gap-3" data-testid="agent-skills-usage-panel">
       <SettingsReadNotice read={read} />
-      {usageQuery.isError && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
+      {read?.error && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="mb-3 flex flex-wrap gap-0" role="tablist" aria-label="Skill usage views">
           {(["list", "agent", "health"] as SkillsUsageView[]).map((item, index) => (
