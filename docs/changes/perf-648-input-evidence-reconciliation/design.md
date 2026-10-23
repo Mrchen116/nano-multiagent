@@ -16,7 +16,7 @@ PA 仅经 RuntimeClient 使用公开 session.observe/session.lookup；不引入 
 
 ### 可复用能力
 
-使用 lookup 返回的 accepted/pending/turn/terminal 和 observe 的 modelRuns；后者可按逻辑 turn 及 attempts 关联。runtime `model-fallback.ts` evidence 对运行中的逻辑 run 隐藏 terminal、映射 logical turn；completed run 才返回最终 terminal。`input-evidence.ts` 对取消未消费输入给出 cancelled-before-consumption；pending 表明输入仍在 inbox。复用 store 已有 inputEvidence、交付表、receipt 幂等逻辑，不增加 runtime API。只保留轻量终态标记，不重复存储整个 modelRuns 或事件历史。
+使用 lookup 返回的 accepted/pending/turn/terminal 和 observe 的 modelRuns；后者可按逻辑 turn 及 attempts 关联。runtime `model-fallback.ts` evidence 对运行中的逻辑 run 隐藏 terminal、映射 logical turn；completed run 才返回最终 terminal。`input-evidence.ts` 对取消未消费输入给出 cancelled-before-consumption；pending 表明输入仍在 inbox。recordEvents 当前也会用物理 turn/end 覆盖 inputs.terminal；缓存后必须约束这个写路径。复用 store 已有 inputEvidence、交付表、receipt 幂等逻辑，不增加 runtime API。只保留轻量终态标记，不重复存储整个 modelRuns 或事件历史。
 
 ### 相关历史
 
@@ -31,6 +31,8 @@ PA 仅经 RuntimeClient 使用公开 session.observe/session.lookup；不引入 
 **只缓存 fresh lookup 的最终证据，不能推断旧 terminal。** 新增 inputs.evidence_final 默认 0。历史行不回填猜测；首次对账逐行查询并收敛。fresh evidence 必须 accepted=true、pending=false、terminal 非空。若 observe 中存在关联 logical turn 或 attempt turn 的 run，还必须 state=completed；running/switching 一律不收敛。不存在关联 run 时，lookup 的既有权威语义允许普通/旧会话终态或 cancelled-before-consumption 收敛；非空旧 store.terminal 不参与判断。lookup 晚于 observe、看到已完成而 observe 仍 running 时延迟一个 drain 收敛，保守而安全。
 
 **证据收敛独立于 delivery/receipt。** 在同一 SQL UPDATE 写入 accepted/turn/terminal 和 evidence_final，receipt 未确认时也可缓存最终运行证据，但每次 drain 仍经过原交付恢复路径。取消未消费且没有 turn 的输入可收敛证据，维持现有无 turn 交付行为，不新增完成 receipt。
+
+**最终逻辑证据不再被延迟物理事件覆盖。** recordEvents 仍保存全部事件，但它对 inputs.terminal 的物理 turn/end 更新仅作用 evidence_final=0 行。这样 observe 快照先于 lookup、下一 drain 才补录第一 attempt 失败时，completed 逻辑证据仍保持。未最终确认的输入继续沿用原事件暂态，再由 fresh lookup 覆盖；Global 默认 final=false，不受此保护分支影响。
 
 **用一个可索引字段，不建立另一套运行状态机。** 创建/升级数据库时为 inputs 添加缺失的 evidence_final INTEGER NOT NULL DEFAULT 0；建立 (session_id,evidence_final) 索引。receive 保持默认待查询；inputEvidence 的可选 final 参数缺省 false，Global 原有调用行为保持。新增 lookupInputIds(sessionId) 仅返回 evidence_final=0 的 id，避免历史 payload 反序列化。无定时失效、重试框架、缓存 TTL 或新共享协议。
 
@@ -62,4 +64,4 @@ no spec delta：纯内部性能优化，保留 `docs/specs/gateway/routing-deliv
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-pending-evidence | 可信最终证据复用 | 无 | 单一 | PA single-thread.ts/store.ts 与 PA tests | [worker] 1000 历史完成输入补证据后零事件 drain 为 0 lookup，加 K 待定输入仅 K lookup；fresh 终态和 receipt 未确认可独立恢复；fallback switching/多 attempt、未消费/取消、旧 DB 升级与重启覆盖；窄测试、构建及适用本地 CI 通过。[reviewer] motivation 两个 Scenario 保持原聊天回复、fallback 最终结果和恢复不重复。 |
+| M1-pending-evidence | 可信最终证据复用 | 无 | 单一 | PA single-thread.ts/store.ts 与 PA tests | [worker] 1000 历史完成输入补证据后零事件 drain 为 0 lookup，加 K 待定输入仅 K lookup；fresh 终态和 receipt 未确认可独立恢复；fallback switching/多 attempt、未消费/取消、旧 DB 升级与重启、最终 lookup 之后补录物理失败事件不覆盖逻辑终态覆盖；窄测试、构建及适用本地 CI 通过。[reviewer] motivation 两个 Scenario 保持原聊天回复、fallback 最终结果和恢复不重复。 |
