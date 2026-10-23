@@ -26,7 +26,7 @@ interface ReviewRun<T> {
   parse: (text:string) => T | undefined;
 }
 interface Checkpoint { rows: string[]; events: SessionEvent[]; sessionId: string }
-interface Reviewer { handle: AgentHandle; signal: AbortSignal; failure?: Error; start: number; input: string; first: boolean; limit: number; overhead: number }
+interface Reviewer { handle: AgentHandle; signal: AbortSignal; failure?: Error; start: number; input: string; inputId?: string; first: boolean; limit: number; overhead: number }
 interface Trunk { fingerprint: string; busy: boolean; reviewer?: Reviewer; checkpoint?: Checkpoint }
 class ReviewBudgetError extends Error {}
 const outputReserve=2048;
@@ -133,7 +133,9 @@ export class CodexApproval extends Service {
           signal.addEventListener('abort',cancel,{once:true});
           try{
             signal.throwIfAborted();
-            agent.followup(createUserMessage({content:[{type:'text',text:input}],source:{kind:'user'}}));
+            const message=createUserMessage({content:[{type:'text',text:input}],source:{kind:'user'}});
+            reviewer.inputId=message.id;
+            agent.followup(message);
             await agent.whenIdle();
             signal.throwIfAborted();
           }finally{signal.removeEventListener('abort',cancel);}
@@ -178,6 +180,12 @@ export class CodexApproval extends Service {
         for(const tool of tools)scope.tools.register(tool);
         const names=new Set(tools.map(tool=>tool.name));
         scope.tools.guard(exec=>names.has(exec.name)?undefined:'Guardian permits only host-owned read-only inspection');
+        // Native workspace guidance enters through pre-step messages as well as system contexts.
+        // Parent instructions are already evidence in input; only host review inputs may direct this Agent.
+        scope.on('agent/pre-step',async(_payload,next)=>{
+          const decision=await next();
+          return decision.kind==='reject'?decision:{...decision,messages:decision.messages.filter(message=>message.id===reviewer.inputId)};
+        },{prepend:true});
         scope.systemPrompt.section({name:'nano-guardian',order:0,text:system,complete:true,interpolate:false});
         scope.on('system-prompt/assemble',async(_assembly,_context,next)=>({...await next(),contexts:[],tools:scope.tools.schemas(agent)}),{prepend:true});
         scope.on('agent/request',async(_payload,next)=>{
