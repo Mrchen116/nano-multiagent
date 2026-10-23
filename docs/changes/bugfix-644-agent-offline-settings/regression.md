@@ -117,3 +117,74 @@ Reference Artifacts Reviewed：design.md R3 表格、design-evidence/r3-current-
 ## 环境收尾
 
 测试期间只操作本次隔离 Node 与临时代理。临时 Gateway config 的 IM URL 已恢复 `http://127.0.0.1:59021`，Node 重启 PID 29150；59029 转发进程已停止。隔离 IM/Vite 仍交 caller 管理；不执行 e2e-down 以免影响其后续复验。专用渠道已通过真实新增恢复，未外发消息。普通 Agent 最终显示名 E2E Agent；测试保存的模型／强度／一个备用及 Feature/Skill/tool 选择留在本次隔离数据中供复验，未修改生产。浏览器 session 在最终在线确认后关闭。
+
+---
+
+# Round 2 — 2026-10-24 复验
+
+> mode=full；revalidation_mode=full。真实受验业务源码 `acf0c72f2e799775311cca501dfb934d9174472f`；开始 HEAD `f226eb2b2b177b2d9aa4f64b54ec85431e3a488f`。caller 说明 IM 已在 `82cf77613` 构建，后续 acf 只涉及 Vite 直接服务的 Web 修正。期间合入的 `516a6a1e98e902fbba4026c43a8716c36c221c73` 仅同步文档、skills 和 CI；未将它冒充本轮全部重验过的新业务树。
+
+## Verdict
+
+**fail**。Highest Required Action：**fix-implementation**。**1 major、0 minor**；needs_re_review=true。
+
+Round 1 的 I1–I5 均关闭。真实 pending、渠道生命周期、非空 PA/cron/插件只读、历史正文、目录变化和明确纠正已取得决定性证据。但完全无历史快照的 Skills 区把尚未确认的启用数量显示为 `0 selected`，与空禁用名单语义及同区未知说明矛盾，R2 尚未满足。只需修复 I6 并对无快照／旧快照／真实空选择做局部复验；下列其他证据可以按其具体边界保留，不需要重跑整套渠道及断线旅程。
+
+## 环境与证据来源
+
+- 继续使用 Round 1 的专用隔离 IM 59021、Web 59020、Node/DSH 及测试账号。浏览器 session `bugfix644-review-r2`；主要桌面 1440×1000，PA 页 2400×1454，完全无快照页手机 390×844。没有访问生产对象或外发消息。
+- 新增前置来自本次隔离运行数据：真实未来 cron `Offline review future reminder`（2027-12-31）、可启停和卸载的 `review-offline-plugin`、测试模型 `review:catalog-model`、workspace Skill `review-offline-skill`；PA 有真实测试群 `Offline review source chat` 和隔离数据库中的合成受限联系人 `review-restricted-contact`。
+- 无快照：停止隔离 Node 后，只删除 `e2e-peer` 的显示快照，保留真实 committed profile。旧快照错位：先真实读取 Global settings，再通过真实 PATCH 将 description 改为新值并提交 profile v2，不再次读取 settings 即停止 Node；离线页面面对 v1 显示快照和 v2 committed profile。
+- pending 与 removal 实验仅暂停／切断真实 Relay，未替换业务 HTTP 响应。API 验证使用浏览器真实登录身份；数据核对只读。读取失败实验仅 abort usage 请求。
+- 本轮没有读取产品实现定位原因、修改业务源码或以自动化测试代替体验判断。原生 iOS UI 不在本次实际体验声明内，继续由 caller 依交接范围承担共享契约及构建验证。
+
+## 复验矩阵
+
+| 来源 | 结论 | 实际结果与证据 |
+|---|---|---|
+| R1 离线首次进入／刷新／完整配置 | **pass** | 主模型与 high 保留；折叠的已保存备用模型可离线展开，`Fallback 1` 显示 deepseek:deepseek-v4-flash 且不可修改。I3关闭。[备用模型](review-evidence/r2-offline-fallback.png)。独立浏览器首次进入及平板证据保留 Round 1 R1 的已验证部分；本轮修正未改变该读取路径。 |
+| R2 默认、继承与没有历史信息 | **fail** | Global 旧快照/新 profile 下，Feature default、Skills 来源与 reasoning 均标为未确认；没有沿用旧默认值。无快照 e2e-peer 身份与显式配置保留、推理显示 current value unavailable，但 Skills 在真实 `explicit_denylist` / `skills=[]` 下错误显示 0 selected。见 I6。[旧快照](review-evidence/r2-old-snapshot.png)、[无快照手机](review-evidence/r2-no-snapshot-mobile.png)、[错误计数](review-evidence/r2-no-snapshot-skills.png)。 |
+| R3 全页只读与保留阅读 | **pass** | PA 非空聊天 checkbox、既有联系人 Unblock 均 disabled；搜索/展开仍可用。非空 cron 的 `Delete Offline review future reminder` disabled。已安装测试插件的启停 switch 和 Uninstall disabled。I3 的备用阅读已修复。[PA状态](review-evidence/r2-offline-pa.png)、[真实控制项](review-evidence/r2-offline-pa-controls.png)、[插件](review-evidence/r2-offline-plugin.png)、[cron与正文](review-evidence/r2-history-body.png)。 |
+| R4 禁止新离线变更 | **pass** | create、edit、disable、enable、delete、reconnect 六项渠道真实 API 均返回 409 / agent_node_offline，前后 channel GET 完全相同；实际 channel_id 使用真实资源 ID。初次使用旧已删除ID得到404的请求不计覆盖。removal retry 也409，receipt 的 created_at 与 updated_at 均保持 16:55:14.972Z、apply_state=pending。页面 Add/Edit/Disable/Delete/重连或 retry 均禁用。旧离线自动应用文案已改为恢复并刷新后可修改，I5关闭。[只读渠道](review-evidence/r2-channel-offline.png)、[删除回执](review-evidence/r2-removal-offline.png)。 |
+| R5 失联不等于本地停止 | **pass / retained** | Round 1 的仅断 Relay、Node存活、Last known status而非当前Connected证据保持有效。本轮代理再次仅切断传输；卡片仍写 Node offline 与最后已知连接状态，未把失联解释成停用／删除。 |
+| R6 编辑中掉线 | **pass / retained** | 保留 Round 1 名称/模型/high、手机渠道弹层草稿与取消可达证据。本轮未提交 review:catalog-model 也跨 Node 停止/启动保留，不自动保存。 |
+| R7 提交结果待确认 | **pass** | 真正保存生成 operation `daa43840dbbd478d9debdb02758fc2a5`，16:53:12.662Z，数据库 status=pending；丢弃回传并断线后，离线重开明确显示 submitted change awaiting confirmation / Do not repeat，并保持 Save disabled。I1关闭。[pending重开](review-evidence/r2-pending-reopen.png)。 |
+| R8 旧操作保留与恢复 | **pass** | 上述同一 config operation 恢复后 committed、error_code=null，页面名称成为 R2 pending accepted。在线删除返回200后丢弃回执，离线重开仍有 Deletion pending、credentials removed 与保存时间，Retry apply disabled，直调retry409不改receipt。恢复后同一removal变applied，页面不再保留待删卡片；随后可真实新增渠道201。[删除待确认](review-evidence/r2-removal-offline.png)。 |
+| R9 先刷新后开放 | **pass** | 本轮恢复及保存后看到 Connected. Refreshing information before enabling changes；表单先禁用，再在真实 ready=true 后可编辑。保留 Round 1 的完整草稿恢复证据。统计单区失败不阻断其他已确认配置。 |
+| R10 目录／版本变化与读取失败 | **pass** | 单独 abort usage 后，同屏节点在线；区域说明 Could not refresh / last confirmed view preserved，不再报Gateway offline，Retry恢复。I4关闭。[读取失败](review-evidence/r2-read-failed.png)。保留未保存测试模型草稿，实际移除模型、workspace Skill并通过UI卸载插件200；恢复后模型 review:catalog-model、工具 review_offline_echo 原选择仍在，各自明确提示 unavailable并阻止Save。用户通过真实表单取消失效工具、重选codex模型/high后PATCH200。当前Skills是explicit_denylist：启用项由发现集推导；移除默认启用测试Skill后变为真实0项，保存的其他禁用名称保留，此处不能误当显式allowlist丢失。[目录冲突](review-evidence/r2-catalog-conflict.png)。并发版本冲突保留 Round 1 R10 的有效证据。 |
+| R11 恢复后正常操作 | **pass** | 在线 Reconnect200、Delete200，I2关闭。目录纠正后真实PATCH200；最终名称恢复 E2E Agent，模型codexOAuth:gpt-6.1-sol/high、备用保留。专用渠道通过真实凭据表单新增201，最终实际Connected；编辑/停用/启用沿用 Round 1 已成功路径。[最终在线](review-evidence/r2-online-final.png)。 |
+
+### 历史正文与时效补证
+
+在线实际读取 HEARTBEAT.md 的 `Offline settings review` 正文，断线后正文仍可读，同区保留最后确认 00:57:29 与“当前未确认”；非空 cron 独立保留 00:56:51。[正文与cron](review-evidence/r2-history-body.png)。stable prompt preview 在真实在线读取后也跨断线保留正文，独立最后确认 00:59:58；未把未加载正文的折叠区当作通过。[prompt历史](review-evidence/r2-prompt-history.png)。
+
+## 整体体验与 must-match
+
+沿用已审阅的 design R3 must-match，而非重新定义验收线。核心表单、Skills分组/pills、连续模型/推理字段、普通导航和渠道弹层结构保留；这轮新增状态提示没有阻断可读内容。备用展开、非空历史正文、非空PA控制项和旧操作状态均通过真实阅读/操作核验。关键截图已打开检查；手机无快照的字段没有被整页错误替代，已保存值仍可读。
+
+唯一剩余体验冲突在 Skills 局部：标题右侧明确给出零数量，下面又说完整发现列表未知。用户会把未知能力集合理解为已禁用全部技能，因此不能以更小字号的免责声明抵消确定性错误。整体暂不可交付，受影响范围集中在无快照状态的计数表达。
+
+## 新问题 I6 — major：无快照的空禁用名单被显示为零个启用 Skill
+
+- Regression Relation：direct；Recommended Action：fix-implementation。
+- 来源：incident R2 与设计“未确认/无历史信息不能伪装为已确认空值”的 must-match。
+- 复现：停止本次隔离Node → 仅移除e2e-peer显示快照 → 手机390×844重新打开Config → 展开阅读Access & Model；最后再次点击Refresh并真实直读settings核对。
+- 实际：settings `ready=false`，`config.skills_selection_mode=explicit_denylist`、`config.skills=[]`；页面Skills标题显示 **0 selected**，下方同时显示 `The full discovered Skills list has not been confirmed for this configuration`。列表只有 `-`。空禁用名单表示没有显式禁用名称，无法在发现集合未知时推出启用数量为零。
+- 期望：把完整启用数量明确标为未知／尚未确认；显式禁用名单和已知名称仍可阅读。只有已确认候选结果或真实显式空选择的适用语义才可显示确定的零。
+- Action Rationale：这正是本次要修正的“未知被解释成业务值”，会使用户误认为全部技能关闭；属于R2核心结果，不因其他旅程通过降级。
+- 证据：[真实手机画面](review-evidence/r2-no-snapshot-skills.png)。复验期间两次独立清除该Agent快照并观察到同样结果，未改业务返回值。
+
+## 后续局部复验边界
+
+I1–I5关闭；R1、R3–R11及历史正文证据可保留，前提是修正只影响未知Skills计数/来源表达。下一轮只需覆盖：无快照+空explicit_denylist、未知发现集合+非空名单、旧快照/新profile的未知来源，以及真实已确认空结果；确认未知不再显示零、显式信息仍可读且只读。若修改扩大到配置提交、渠道或恢复机制，应按实际影响扩大复验。
+
+## 自动化与文档归并
+
+本角色未新增/运行自动化测试。caller应为I6补最窄回归，保留其独立code review与既有测试证据。`SPEC.md`、AGENTS与CONTRIBUTING无需变化；IM current spec 的最终归并仍由caller在I6通过后进行。本次报告不把未通过的R2写成current行为。
+
+## Round 2 环境收尾
+
+- 透明代理59029已停止，临时Gateway IM URL恢复直连59021；测试模型与workspace Skill文件已恢复。测试插件已通过真实Uninstall移除，失效工具allowlist也经用户式操作纠正；未触碰dsh-agent-context。
+- HEARTBEAT fixture放到实际workspace的`.nanoassistant/HEARTBEAT.md`，非空cron及合成PA前置保留给局部复验。e2e-peer显示快照在最后一次实验中删除，Node恢复后会自然重建；其committed配置未改。
+- e2e名称恢复E2E Agent，codexOAuth:gpt-6.1-sol/high及一个deepseek备用保留；专用Feishu渠道已重新新增并实际Connected，无外发消息。
+- caller仍拥有隔离IM/Vite。只清理本角色浏览器与代理；Node直连恢复后的最终PID随交接消息提供，不执行e2e-down。
