@@ -1,21 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from '../../../i18n';
-import { listAgentPlugins, manageAgentPlugin, type PluginCommand, type PluginText } from './im-agent-config-api';
+import { getAgentSettingsSection, type AgentPlugins, manageAgentPlugin, type PluginCommand, type PluginText } from './im-agent-config-api';
+
+import {SettingsReadNotice} from './settings-read-notice';
 
 /** Installed bundles have their own lifecycle, including plugins that contribute no tools. */
-export function AgentPluginsPanel({agentId}: {agentId: string}) {
+export function AgentPluginsPanel({agentId, readOnly = false}: {agentId: string; readOnly?: boolean}) {
   const {t, i18n} = useTranslation();
   const client = useQueryClient();
-  const key = ['agent-plugins', agentId];
+  const key = ['settings', 'agents', agentId, 'plugins'];
   const [confirm, setConfirm] = useState<string>();
-  const query = useQuery({queryKey: key, queryFn: () => listAgentPlugins(agentId), retry: false,
-    refetchInterval: state => state.state.data?.pending ? 1000 : false});
-  const mutation = useMutation({mutationFn: (command: PluginCommand) => manageAgentPlugin(agentId, command),
-    onSuccess: data => {client.setQueryData(key, data); setConfirm(undefined);},
+  const query = useQuery({queryKey: key, queryFn: ({signal}) => getAgentSettingsSection<AgentPlugins>(agentId, "plugins", signal), retry: false,
+    refetchInterval: state => state.state.data?.data?.pending ? 1000 : false});
+  const mutation = useMutation({mutationFn: (command: PluginCommand) => {
+      if (readOnly || query.isFetching || query.isError || query.data?.source !== 'current' || query.data.data?.pending) throw new Error(t('agents.settings.refreshing'));
+      return manageAgentPlugin(agentId, command);
+    },
+    onSuccess: () => {setConfirm(undefined);},
+    onSettled: () => {void client.invalidateQueries({queryKey:key});},
   });
-  const data = query.data;
-  const blocked = !!data?.pending || mutation.isPending || query.isFetching || query.isError || mutation.isError;
+  const data = query.data?.data;
+  const blocked = readOnly || query.data?.source !== 'current' || !!data?.pending || mutation.isPending || query.isFetching || query.isError || mutation.isError;
   const local = (text: PluginText) => typeof text === 'string' ? text : text[i18n.language] ?? text[i18n.language.split('-')[0]] ?? text.en ?? Object.values(text)[0];
   const refresh = () => {mutation.reset(); void query.refetch();};
   return <section className="min-w-0 overflow-hidden rounded-xl border border-[var(--im-border)] bg-white" aria-label={t('agents.plugins.title')}>
@@ -32,6 +38,7 @@ export function AgentPluginsPanel({agentId}: {agentId: string}) {
         {t('agents.plugins.refresh')}
       </button>
     </div>
+    <div className="px-5"><SettingsReadNotice read={query.data} /></div>
     {query.isPending && <p role="status" className="px-5 pb-5 text-sm text-slate-500">{t('agents.plugins.loading')}</p>}
     {(query.isError || mutation.isError || data?.error) && <div role="alert" className="mx-5 mb-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
       <p className="font-semibold">{t(query.isError ? 'agents.plugins.unavailable' : 'agents.plugins.operationFailed')}</p>

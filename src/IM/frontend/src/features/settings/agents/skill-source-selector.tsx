@@ -26,6 +26,7 @@ interface SkillSourceSelectorProps {
   selectionMode: SelectionMode;
   options: AgentAllowlistOption[];
   workspaceRoot?: string | null;
+  readOnly?: boolean;
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
@@ -40,6 +41,7 @@ export function SkillSourceSelector({
   options,
   workspaceRoot = "",
   isLoading = false,
+  readOnly = false,
   errorMessage = null,
   onRetry,
   onChange
@@ -112,6 +114,7 @@ export function SkillSourceSelector({
                     role="checkbox"
                     aria-checked={partiallySelected ? "mixed" : allSelected}
                     aria-label={`${group.label}: ${selectedCount}/${group.options.length}, ${actionLabel}`}
+                    disabled={readOnly}
                     data-skill-group={group.key}
                     data-state={allSelected ? "all" : partiallySelected ? "partial" : "none"}
                     onClick={() => toggleGroup(group.options.map((option) => option.name), allSelected)}
@@ -138,6 +141,7 @@ export function SkillSourceSelector({
                       <button
                         key={`${group.key}:${opt.location ?? opt.name}`}
                         type="button"
+                        disabled={readOnly}
                         data-pill-name={opt.name}
                         aria-pressed={isOn}
                         title={opt.description || opt.location || opt.name}

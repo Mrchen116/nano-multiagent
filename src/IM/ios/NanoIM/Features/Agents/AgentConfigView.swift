@@ -102,7 +102,7 @@ struct AgentConfigView: View {
         guard let config else { return }
         busy = true; saved = false; error = nil; defer { busy = false }
         do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; saved = true }
-        catch { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && (error as? APIError)?.status == 409 }
+        catch { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && isAgentStateConflict(error) }
     }
     private func reconcile() async {
         busy = true; defer { busy = false }

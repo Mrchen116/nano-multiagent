@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 /**
  * Prompt preview reflects features-based heartbeat/cron state.
  *
@@ -121,6 +122,8 @@ function makeAgentState(opts: {
       platform_default_model: null,
       features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
     },
+    ready: true, liveCapabilities: true, pendingOperation: null,
+    display: {source: "current", captured_at: null, data: null, error: null},
     owningNode: null,
   };
 }

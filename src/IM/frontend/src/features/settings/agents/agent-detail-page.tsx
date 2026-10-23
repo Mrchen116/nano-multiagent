@@ -16,7 +16,6 @@ import {
   effectiveReasoningModel,
   isStaleReasoningEffort,
   ModelReasoningField,
-  normalizeReasoningEffort,
   reasoningEffortAfterModelChange,
 } from "./model-reasoning-field";
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
@@ -25,7 +24,8 @@ import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentWorkPanel } from "./agent-work-panel";
 import { AgentChannelsPanel } from "./agent-channels-panel";
-import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
+import { useAgentSettingsState } from "./use-agent-settings-state";
+import { SettingsReadNotice } from "./settings-read-notice";
 import {
   AgentAllowlistOption,
   AgentConfig,
@@ -34,12 +34,11 @@ import {
   ModelOption,
   SkillUsageItem,
   SkillsUsageResponse,
-  getAgentDetailState,
   getAgentConfigRequestDetail,
   getAgentConfigRequestStatus,
   getAgentHeartbeatMd,
-  getAgentSkillsUsage,
-  listAgentCronJobs,
+  getAgentSettingsSection,
+  AgentConfigRequestError,
   deleteAgentCronJob,
   promptPreview,
   isConfigApplyPendingError,
@@ -58,7 +57,6 @@ function normalizeText(value: string) {
 
 function normalizeAgentConfig(
   config: AgentConfigFormState,
-  modelOptions: ModelOption[],
 ): AgentConfigFormState {
   const defaultModel = normalizeText(config.default_model ?? "") || null;
   return {
@@ -66,12 +64,22 @@ function normalizeAgentConfig(
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
     custom_prompt: (config.custom_prompt ?? "").trim(),
+    features: config.features ?? {},
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
     default_model: defaultModel,
     model_fallbacks: fallbacksAfterPrimaryChange(config.model_fallbacks ?? [], defaultModel),
-    reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, config.reasoning_effort),
+    reasoning_effort: config.reasoning_effort,
   };
+}
+
+// Presence, timestamps and server revisions never turn an untouched form into a draft.
+function sameEditableConfig(a: AgentConfig, b: AgentConfig): boolean {
+  const fields = (config: AgentConfig) => {
+    const {node_id, node_name, node_status, updated_at, profile_version, ...editable} = normalizeAgentConfig(config);
+    return editable;
+  };
+  return JSON.stringify(fields(a)) === JSON.stringify(fields(b));
 }
 
 function validateDraft(draft: AgentConfigFormState) {
@@ -119,6 +127,9 @@ function formatUpdatedAt(value?: string | null) {
 // Uses the same checkbox idiom as allowlist-selector.tsx (appearance:none + :checked → --im-accent)
 // and the same collapsible pattern as tool-calls-panel.tsx (aria-expanded + ▸/▾ + class toggle).
 interface BehaviorCardProps {
+  readOnly: boolean;
+  unknownFeatures?: string[];
+  capabilitiesKnown: boolean;
   agentId: string;
   draft: AgentConfigFormState;
   capabilityFeatures: AgentFeature[];
@@ -129,6 +140,9 @@ interface BehaviorCardProps {
 }
 
 function BehaviorCard({
+  readOnly,
+  unknownFeatures = [],
+  capabilitiesKnown,
   agentId,
   draft,
   capabilityFeatures,
@@ -144,6 +158,8 @@ function BehaviorCard({
   const [previewError, setPreviewError] = useState<string | null>(null);
   // Debounce handle for preview re-fetch on change
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewAbort = useRef<AbortController | null>(null);
+  useEffect(() => { if (readOnly) { previewAbort.current?.abort(); setPreviewLoading(false); } return () => previewAbort.current?.abort(); }, [readOnly]);
 
   const effectiveFeatures = useMemo(
     () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
@@ -155,6 +171,10 @@ function BehaviorCard({
   // effectiveToolIds hack that injected capability-inferred tools is removed because
   // _build_tool_names() now correctly includes all tools (R1 fix).
   const fetchPreview = useCallback(async () => {
+    if (readOnly) return;
+    previewAbort.current?.abort();
+    const controller = new AbortController();
+    previewAbort.current = controller;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -165,23 +185,23 @@ function BehaviorCard({
         ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills,
         skills_selection_mode: draft.skills_selection_mode
-      });
-      setPreviewText(text);
+      }, controller.signal);
+      if (!controller.signal.aborted) setPreviewText(text);
     } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : "Preview failed");
+      if (!controller.signal.aborted) setPreviewError(err instanceof Error ? err.message : "Preview failed");
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, agentId, effectiveFeatures, draft.custom_prompt, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
-    if (!previewOpen) return;
+    if (!previewOpen || readOnly) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, previewOpen, draft.custom_prompt, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -200,11 +220,12 @@ function BehaviorCard({
       </div>
 
       {/* Custom Instructions are the only public per-agent prompt input. */}
-      <ApprovalModeField value={draft.approval_mode} onChange={onApprovalModeChange} />
+      <ApprovalModeField disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
         <textarea
+          disabled={readOnly}
           id="custom-instructions"
           className="im-agent-textarea"
           value={draft.custom_prompt ?? ""}
@@ -218,7 +239,11 @@ function BehaviorCard({
         </p>
       </div>
 
-      {/* Features section — rendered only when capabilities list is non-empty */}
+      {!capabilitiesKnown && capabilityFeatures.length === 0 && <div className="im-agent-field" data-testid="features-section">
+        <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
+        <p className="im-agent-field-help">{t("agents.settings.featureUnknown")}</p>
+      </div>}
+      {/* Features use confirmed defaults only; unknown values stay indeterminate. */}
       {capabilityFeatures.length > 0 && (
         <div data-testid="features-section" className="im-agent-field">
           <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
@@ -240,14 +265,16 @@ function BehaviorCard({
                   <input
                     type="checkbox"
                     data-feature-key={feat.key}
+                    disabled={readOnly}
+                    ref={input => { if (input) input.indeterminate = unknownFeatures.includes(feat.key); }}
                     checked={checked}
                     className="im-feature-checkbox mt-[2px] shrink-0"
                     onChange={(e) => onFeatureToggle(feat.key, e.target.checked)}
                   />
                   <div className="min-w-0">
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
-                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n)}</p>
-                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{t(feat.help_i18n)}</p>
+                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n, feat.key)}</p>
+                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{unknownFeatures.includes(feat.key) ? t("agents.settings.featureUnknown") : t(feat.help_i18n, "")}</p>
                   </div>
                 </label>
               );
@@ -260,6 +287,7 @@ function BehaviorCard({
       <div className="im-agent-field">
         <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
         <select
+          disabled={readOnly}
           id="group-reply-policy"
           className="im-input"
           aria-describedby="group-policy-help"
@@ -280,6 +308,7 @@ function BehaviorCard({
         <button
           type="button"
           className={`im-behavior-preview-toggle ${previewOpen ? "im-behavior-preview-toggle--open" : ""}`}
+          disabled={readOnly && previewText === null}
           onClick={handlePreviewToggle}
           aria-expanded={previewOpen}
           style={{
@@ -307,7 +336,7 @@ function BehaviorCard({
             {previewError && (
               <p className="text-[11px] text-rose-600">{t("agents.form.behavior.previewError")}</p>
             )}
-            {!previewLoading && !previewError && previewText !== null && (
+            {!previewLoading && previewText !== null && (
               <>
                 <pre
                   style={{
@@ -366,6 +395,7 @@ function parseCadence(every: string): { amount: string; unit: HeartbeatUnit } {
 }
 
 interface HeartbeatCardProps {
+  readOnly: boolean;
   agentId: string;
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
@@ -376,7 +406,7 @@ interface HeartbeatCardProps {
   hideEnableToggle?: boolean;
 }
 
-function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
+function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
   const { t } = useTranslation();
   // feat-394-M11 decision E: no hardcoded fallback — cadence binds directly to backend value.
   // When heartbeat is not configured, every is undefined → input shows empty (placeholder "30m").
@@ -404,18 +434,24 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
   const [hbMdContent, setHbMdContent] = useState<string | null>(null);
   const [hbMdLoading, setHbMdLoading] = useState(false);
   const [hbMdNodeOnline, setHbMdNodeOnline] = useState(true);
+  const hbAbort = useRef<AbortController | null>(null);
+  useEffect(() => { if (readOnly) { hbAbort.current?.abort(); setHbMdLoading(false); setHbMdNodeOnline(false); } return () => hbAbort.current?.abort(); }, [readOnly]);
 
   async function handleHbMdToggle() {
     if (!hbMdOpen) {
       setHbMdOpen(true);
+      if (readOnly) return;
+      hbAbort.current?.abort();
+      const controller = new AbortController();
+      hbAbort.current = controller;
       setHbMdLoading(true);
       try {
-        const resp = await getAgentHeartbeatMd(agentId);
-        setHbMdContent(resp.content);
+        const resp = await getAgentHeartbeatMd(agentId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (resp.node_online) setHbMdContent(resp.content);
         setHbMdNodeOnline(resp.node_online);
       } catch {
-        setHbMdContent(null);
-        setHbMdNodeOnline(false);
+        if (!controller.signal.aborted) setHbMdNodeOnline(false);
       } finally {
         setHbMdLoading(false);
       }
@@ -436,7 +472,8 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <input
               type="checkbox"
-              data-testid="heartbeat-enabled-toggle"
+              disabled={readOnly}
+                data-testid="heartbeat-enabled-toggle"
               checked={enabled}
               className="im-feature-checkbox"
               onChange={(e) => onToggle(e.target.checked)}
@@ -460,6 +497,7 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
             <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
             <div className="flex gap-2 items-center">
               <input
+                disabled={readOnly}
                 id="heartbeat-every"
                 className="im-input"
                 type="number"
@@ -474,6 +512,7 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
                 onFocus={(e) => e.target.select()}
               />
               <select
+                disabled={readOnly}
                 id="heartbeat-every-unit"
                 className="im-input"
                 data-testid="heartbeat-every-unit"
@@ -499,6 +538,7 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
             </Label.Root>
             <div className="flex gap-2 items-center">
               <input
+                disabled={readOnly}
                 id="heartbeat-active-start"
                 className="im-input"
                 data-testid="heartbeat-active-hours-start"
@@ -510,6 +550,7 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
               />
               <span className="text-slate-500 text-sm">–</span>
               <input
+                disabled={readOnly}
                 id="heartbeat-active-end"
                 className="im-input"
                 data-testid="heartbeat-active-hours-end"
@@ -560,12 +601,12 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
                     {t("agents.form.heartbeat.heartbeatMdOffline", "Node is offline — HEARTBEAT.md unavailable")}
                   </p>
                 )}
-                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent === "" && (
+                {!hbMdLoading && hbMdContent !== null && hbMdContent === "" && (
                   <p className="text-[11px] text-slate-400 italic">
                     {t("agents.form.heartbeat.heartbeatMdEmpty", "HEARTBEAT.md not found")}
                   </p>
                 )}
-                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent !== "" && (
+                {!hbMdLoading && hbMdContent !== null && hbMdContent !== "" && (
                   <pre
                     style={{
                       fontSize: "0.72rem",
@@ -598,6 +639,8 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
 // feat-394-M2 decision 5: CronCard — per-agent cron enable/disable.
 // feat-394-M3 WARNING-3: also shows task list + delete (spec Scenario: 配置页查看并手动删除任务).
 interface CronCardProps {
+  readOnly: boolean;
+  operationReadOnly: boolean;
   agentId: string;
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
@@ -605,7 +648,7 @@ interface CronCardProps {
   hideEnableToggle?: boolean;
 }
 
-function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
+function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
   const { t } = useTranslation();
   // feat-394 M9-E: enable is the single-true-source in features["cron_scheduling"]; no draft.cron object.
   const enabled = draft.features?.cron_scheduling ?? false;
@@ -614,20 +657,24 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
   // feat-394-M3: fetch cron jobs list for this agent
   // When hideEnableToggle the card only renders when cron is on, so enabled||hideEnableToggle.
   const jobsQuery = useQuery({
-    queryKey: ["cron-jobs", agentId],
-    queryFn: () => listAgentCronJobs(agentId),
+    queryKey: ["settings", "agents", agentId, "cron"],
+    queryFn: ({signal}) => getAgentSettingsSection<CronJobSummary[]>(agentId, "cron", signal),
     enabled: enabled || hideEnableToggle,  // when controlled externally, always fetch
     staleTime: 30_000,
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (jobId: string) => deleteAgentCronJob(agentId, jobId),
+    mutationFn: (jobId: string) => {
+      if (operationReadOnly || jobsQuery.isFetching || jobsQuery.data?.source !== "current") throw new Error(t("agents.settings.refreshing"));
+      return deleteAgentCronJob(agentId, jobId);
+    },
+    onError: () => { void jobsQuery.refetch(); },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["cron-jobs", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId, "cron"] });
     },
   });
 
-  const jobs = jobsQuery.data ?? [];
+  const jobs = jobsQuery.data?.data ?? [];
 
   return (
     <section className="im-agent-card">
@@ -641,6 +688,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <input
               type="checkbox"
+              disabled={readOnly}
               data-testid="cron-enabled-toggle"
               checked={enabled}
               className="im-feature-checkbox"
@@ -660,10 +708,13 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
       {/* feat-394-M3: cron jobs task list (spec Scenario: 配置页查看并手动删除任务) */}
       {(enabled || hideEnableToggle) && (
         <div className="im-agent-field" data-testid="cron-jobs-list">
+          <SettingsReadNotice read={jobsQuery.data} />
+          {(jobsQuery.isError || jobsQuery.data?.source !== "current" || deleteMutation.isError) && <button type="button" className="im-btn im-btn-muted" disabled={jobsQuery.isFetching} onClick={() => {deleteMutation.reset(); void jobsQuery.refetch();}}>{t("agents.settings.retry")}</button>}
+          {deleteMutation.isError && <p role="alert" className="im-agent-field-error">{t("agents.settings.pending")}</p>}
           {jobsQuery.isError && (
             <p className="text-[12px] text-red-500">{t("agents.form.cron.loadError")}</p>
           )}
-          {!jobsQuery.isError && jobs.length === 0 && (
+          {!jobsQuery.isError && jobsQuery.data?.data !== null && jobsQuery.data !== undefined && jobs.length === 0 && (
             <p className="text-[12px] text-slate-400 italic">{t("agents.form.cron.noJobs")}</p>
           )}
           {jobs.length > 0 && (
@@ -686,7 +737,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
                     data-testid={`cron-job-delete-${job.id}`}
                     className="shrink-0 text-[12px] text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
                     onClick={() => deleteMutation.mutate(job.id)}
-                    disabled={deleteMutation.isPending}
+                    disabled={operationReadOnly || jobsQuery.isFetching || jobsQuery.data?.source !== "current" || deleteMutation.isPending || deleteMutation.isError}
                     aria-label={`${t("agents.form.cron.deleteJob")} ${job.name}`}
                   >
                     {t("agents.form.cron.deleteJob")}
@@ -1190,7 +1241,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   const [showArchived, setShowArchived] = useState(false);
   const usageQuery = useQuery({
     queryKey: ["settings", "agents", agentId, "skills-usage"],
-    queryFn: () => getAgentSkillsUsage(agentId),
+    queryFn: ({signal}) => getAgentSettingsSection<SkillsUsageResponse>(agentId, "usage", signal),
     staleTime: 30_000,
   });
 
@@ -1213,11 +1264,13 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
     );
   }
 
-  const usage = usageQuery.data;
+  const usage = usageQuery.data?.data;
+  if (!usage) return <section className="im-agent-card"><SettingsReadNotice read={usageQuery.data} /><button type="button" className="im-btn im-btn-muted w-fit" disabled={usageQuery.isFetching} onClick={() => void usageQuery.refetch()}>{tr("重试")}</button></section>;
   if (!usage || usage.skills.length === 0) {
     return (
       <section className="im-agent-card">
         <div>
+          <SettingsReadNotice read={usageQuery.data} />
           <h3 className="im-agent-card-title">No skill usage yet</h3>
           <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
         </div>
@@ -1227,6 +1280,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
 
   return (
     <div className="grid gap-3" data-testid="agent-skills-usage-panel">
+      <SettingsReadNotice read={usageQuery.data} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="mb-3 flex flex-wrap gap-0" role="tablist" aria-label="Skill usage views">
           {(["list", "agent", "health"] as SkillsUsageView[]).map((item, index) => (
@@ -1274,10 +1328,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const isMobile = useIsMobile();
-  useAgentStatusBroadcastConsumer();
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
   const [pendingAgent, setPendingAgent] = useState<string | null>(null);
-  const previousServerConfig = useRef<AgentConfigFormState | null>(null);
+  const baseConfig = useRef<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [applyPending, setApplyPending] = useState(false);
@@ -1294,38 +1347,27 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     };
   }, []);
 
-  const detailQuery = useQuery({
-    queryKey: ["settings", "agents", agentId, "detail-state"],
-    queryFn: () => getAgentDetailState(agentId),
-    staleTime: 30_000
-  });
+  const settings = useAgentSettingsState(agentId);
+  const detailQuery = settings.query;
+  const readOnly = settings.readOnly || applyPending;
 
   useEffect(() => {
     const config = detailQuery.data?.config;
     if (!config) return;
-    const { node_status: _previousStatus, ...previousFields } = previousServerConfig.current ?? {};
-    const { node_status, ...fields } = config;
-    // Live presence must not replace an in-progress configuration edit.
-    if (previousServerConfig.current && JSON.stringify(previousFields) === JSON.stringify(fields)) {
-      setDraft(current => current ? { ...current, node_status } : config);
-    } else {
-      setDraft(config);
-      setErrorMessage(null);
-    }
-    previousServerConfig.current = config;
-  }, [detailQuery.data]);
+    setDraft(current => {
+      if (current && baseConfig.current && !sameEditableConfig(current, baseConfig.current) && !sameEditableConfig(current, config)) return current;
+      baseConfig.current = config;
+      return config;
+    });
+  }, [detailQuery.data?.config]);
 
   const capabilities = detailQuery.data?.capabilities;
   const owningNode = detailQuery.data?.owningNode ?? null;
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(
-    () => (draft ? normalizeAgentConfig(draft, modelOptions) : null),
+    () => (draft ? normalizeAgentConfig(draft) : null),
     [draft, modelOptions],
-  );
-  const normalizedServerState = useMemo(
-    () => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config, modelOptions) : null),
-    [detailQuery.data, modelOptions],
   );
   const availableModels = useMemo(
     () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
@@ -1333,13 +1375,13 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   );
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
-  const hasStaleReasoning = isStaleReasoningEffort(
+  const hasStaleReasoning = detailQuery.data?.liveCapabilities === true && !readOnly && isStaleReasoningEffort(
     modelOptions,
     effectiveReasoningModel(draft?.default_model ?? null, platformDefaultModel),
     draft?.reasoning_effort ?? null,
   );
-  const isDirty =
-    normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
+  const isDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
+  const versionConflict = isDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
     detailQuery.error instanceof Error
       ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message
@@ -1347,6 +1389,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
+      if (readOnly || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
         owner_id: _ownerId,
@@ -1372,12 +1415,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           node_name: owningNode?.node_name ?? updated.node_name ?? null,
           node_status: owningNode?.status ?? updated.node_status ?? capabilities.node_status ?? null
         };
+        baseConfig.current = nextConfig;
         setDraft(nextConfig);
         queryClient.setQueryData(["settings", "agents", agentId, "detail-state"], {
-          config: nextConfig,
-          capabilities,
-          owningNode
+          ...detailQuery.data, config: nextConfig, ready: false,
         });
+        void detailQuery.refetch();
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["chat"] });
@@ -1397,11 +1440,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         setErrorMessage(null);
         return;
       }
-      setApplyPending(false);
+      setApplyPending(!(error instanceof AgentConfigRequestError));
+      void detailQuery.refetch();
       const detail = getAgentConfigRequestDetail(error);
       const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
-        status === 409
+        status === 409 && !(error instanceof AgentConfigRequestError && error.code === "agent_node_offline")
           ? t("agents.form.access.reasoning.saveConflict", { detail: `${status}: ${detail}` })
           : detail,
       );
@@ -1412,7 +1456,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     if (!applyPending) return;
     const retryInterval = window.setInterval(() => {
       void detailQuery.refetch().then((result) => {
-        if (result.isSuccess) {
+        if (result.isSuccess && !result.data.pendingOperation) {
           setApplyPending(false);
           return;
         }
@@ -1464,7 +1508,10 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   function handleDiscard() {
     if (detailQuery.data?.config) {
-      setDraft(detailQuery.data.config);
+      const config = !readOnly ? detailQuery.data.config : baseConfig.current;
+      if (!config) return;
+      baseConfig.current = config;
+      setDraft(config);
       setErrorMessage(null);
       setHasAttemptedSave(false);
       setTouched({});
@@ -1534,12 +1581,15 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const displayedNodeName =
     draft.node_name ?? capabilities.node_name ?? owningNode?.node_name ?? draft.node_id ?? capabilities.node_id ?? "—";
   const displayedNodeId = draft.node_id ?? capabilities.node_id ?? "—";
-  const displayedNodeStatusRaw = draft.node_status ?? capabilities.node_status ?? owningNode?.status ?? "unknown";
+  const displayedNodeStatusRaw = settings.nodeState;
   const displayedNodeStatus = displayedNodeStatusRaw.toLowerCase();
 
   let footerStatusClass = "im-agent-footer-status";
   let footerStatusText = t("agents.detail.noChanges");
-  if (errorMessage) {
+  if (versionConflict) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = t("agents.settings.conflict");
+  } else if (errorMessage) {
     footerStatusClass = "im-agent-footer-status error";
     footerStatusText = errorMessage;
   } else if (hasAttemptedSave && (hasValidationErrors || hasStaleReasoning)) {
@@ -1571,7 +1621,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
+    if (readOnly || versionConflict || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
     mutation.mutate(normalizedDraft);
   }
 
@@ -1635,7 +1685,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               {activeSection === "config" && <button
                 className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
                 type="submit"
-                disabled={mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+                disabled={readOnly || versionConflict || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
               >
                 {headerSaveText}
               </button>}
@@ -1682,19 +1732,24 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         </nav>
       </header>
 
+      {settings.reason && <div className="px-5 py-3 border-b border-[var(--im-border)]" role="status" data-testid="settings-availability">
+        <p className="text-sm text-slate-600">{t(`agents.settings.${settings.reason}`)}</p>
+        <SettingsReadNotice read={detailQuery.data?.display} />
+        <button type="button" className="im-btn im-btn-muted mt-2" disabled={detailQuery.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey: ["settings", "agents", agentId]})}>{t("agents.settings.retry")}</button>
+      </div>}
       <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : ""}`}>
         {activeSection === "work" && draft.work_mode === "global" ? (
           <AgentWorkPanel agentId={agentId} />
         ) : activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
         ) : activeSection === "plugins" ? (
-          <AgentPluginsPanel agentId={agentId} />
+          <AgentPluginsPanel agentId={agentId} readOnly={settings.connectionReadOnly} />
         ) : activeSection === "overview" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.overview")}>
             {t("agents.detail.sections.overviewPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "channels" ? (
-          <AgentChannelsPanel agentId={agentId} nodeStatus={displayedNodeStatusRaw} />
+          <AgentChannelsPanel agentId={agentId} nodeStatus={displayedNodeStatusRaw} readOnly={settings.connectionReadOnly} />
         ) : activeSection === "sessions" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
             {t("agents.detail.sections.sessionsPlaceholder")}
@@ -1716,6 +1771,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <div className="im-agent-field">
               <Label.Root htmlFor="display-name">{t("agents.form.identity.displayName")}</Label.Root>
               <input
+                disabled={readOnly}
                 id="display-name"
                 className="im-input"
                 value={draft.display_name}
@@ -1739,6 +1795,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           <div className="im-agent-field">
             <Label.Root htmlFor="description">{t("agents.form.identity.description")}</Label.Root>
             <input
+              disabled={readOnly}
               id="description"
               className="im-input"
               value={draft.description ?? ""}
@@ -1755,13 +1812,16 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           </div>
         </section>
 
-        {personal && <PersonalAgentSettings agentId={agentId} />}
+        {personal && <PersonalAgentSettings agentId={agentId} readOnly={settings.connectionReadOnly} />}
 
         {/* feat-379-M3: Behavior card replaced with BehaviorCard component */}
         <BehaviorCard
           agentId={agentId}
           draft={draft}
           capabilityFeatures={capabilities.features ?? []}
+          capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
+          readOnly={readOnly}
+          unknownFeatures={detailQuery.data?.display.data?.features.filter(feature => feature.enabled === null).map(feature => feature.key)}
           onApprovalModeChange={(value) => {
             setSaved(false);
             setErrorMessage(null);
@@ -1806,6 +1866,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           return (
             <HeartbeatCard
               agentId={agentId}
+              readOnly={readOnly}
               draft={draft}
               onToggle={(enabled) => {
                 // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
@@ -1841,7 +1902,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           if (cronInFeatures && !draft.features?.cron_scheduling) return null;
           return (
             <CronCard
+              operationReadOnly={settings.connectionReadOnly}
               agentId={agentId}
+              readOnly={readOnly}
               draft={draft}
               onToggle={(enabled) => {
                 // feat-394 M9-E: enable is in features["cron_scheduling"]; no draft.cron object.
@@ -1869,6 +1932,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           <div className="grid gap-4">
             <SkillSourceSelector
               testId="pill-selector-skills"
+              readOnly={readOnly}
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               selectionMode={
@@ -1890,9 +1954,11 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 });
               }}
             />
+            {!detailQuery.data?.liveCapabilities && (!detailQuery.data?.display.data || !detailQuery.data.display.data.derived_current) && <p className="im-agent-field-help">{t("agents.settings.skillsUnknown")}</p>}
             <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
             <PillSelector
               testId="pill-selector-tools"
+              readOnly={readOnly}
               label={t("agents.form.access.tools")}
               labelAction={
                 <button
@@ -1932,7 +1998,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             models={availableModels}
             primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
             value={draft.model_fallbacks ?? []}
-            disabled={detailQuery.isLoading && availableModels.length === 0}
+            disabled={readOnly}
             onChange={(modelFallbacks) => {
               setSaved(false);
               setErrorMessage(null);
@@ -1944,7 +2010,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               className="im-input"
               value={draft.default_model ?? ""}
               aria-describedby="default-model-help"
-              disabled={detailQuery.isLoading && availableModels.length === 0}
+              disabled={readOnly}
               onChange={(event) => {
                 setSaved(false);
                 setErrorMessage(null);
@@ -1983,6 +2049,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           </ModelFallbackField>
           <ModelReasoningField
             idPrefix="detail-agent"
+            disabled={readOnly}
+            capabilitiesKnown={detailQuery.data?.liveCapabilities === true && !readOnly}
+            lastKnownValue={detailQuery.data?.display.data?.derived_current ? detailQuery.data.display.data.reasoning?.value : null}
             modelOptions={modelOptions}
             selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
             value={draft.reasoning_effort}
@@ -2069,7 +2138,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={readOnly || versionConflict || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
             >
               {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>

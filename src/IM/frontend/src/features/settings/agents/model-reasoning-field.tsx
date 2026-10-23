@@ -66,6 +66,8 @@ interface ModelReasoningFieldProps {
   selectedModel: string | null;
   value: string | null;
   disabled?: boolean;
+  capabilitiesKnown?: boolean;
+  lastKnownValue?: string | null;
   applyPending?: boolean;
   onChange: (value: string | null) => void;
 }
@@ -76,16 +78,27 @@ export function ModelReasoningField({
   selectedModel,
   value,
   disabled = false,
+  capabilitiesKnown = true,
+  lastKnownValue = null,
   applyPending = false,
   onChange,
 }: ModelReasoningFieldProps) {
   const { t } = useTranslation();
   const descriptor = descriptorForModel(modelOptions, selectedModel);
   const selectId = `${idPrefix}-reasoning-effort`;
-  const stale = isStaleReasoningEffort(modelOptions, selectedModel, value);
+  const stale = capabilitiesKnown && isStaleReasoningEffort(modelOptions, selectedModel, value);
 
   let field: ReactNode;
-  if (!selectedModel) {
+  if (!capabilitiesKnown) {
+    const shown = value ?? lastKnownValue;
+    field = <>
+      <Label.Root htmlFor={selectId}>{t("agents.form.access.reasoning.label")}</Label.Root>
+      <select id={selectId} className="im-input" value={shown ?? ""} disabled>
+        <option value={shown ?? ""}>{shown ? reasoningLevelLabel(shown, t) : t("agents.settings.inheritedUnknown")}</option>
+      </select>
+      {!value && lastKnownValue && <p className="im-agent-field-help">{t("agents.settings.inheritedLastKnown")}</p>}
+    </>;
+  } else if (!selectedModel) {
     field = (
       <>
         <span className="im-agent-reasoning-label">{t("agents.form.access.reasoning.label")}</span>
