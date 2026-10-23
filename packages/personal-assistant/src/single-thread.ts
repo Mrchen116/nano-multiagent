@@ -9,7 +9,7 @@ import { formatLocalTime, withInteractionContext } from '@nano/product-contracts
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
-interface InputEvidence { accepted: boolean; turn?: number; terminal?: unknown }
+interface InputEvidence { accepted: boolean; pending?: boolean; turn?: number; terminal?: unknown }
 interface Options {
   nodeId: string;
   ownerId: string;
@@ -199,9 +199,13 @@ export class SingleThread {
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
     this.modelRuns.set(sessionId, read.modelRuns ?? []);
-    for (const input of store.inputs(sessionId)) {
-      const evidence = await runtime.request('session.lookup', { sessionId, inputId: input.id }) as InputEvidence;
-      store.inputEvidence(input.id, evidence);
+    for (const inputId of store.lookupInputIds(sessionId)) {
+      const evidence = await runtime.request('session.lookup', { sessionId, inputId }) as InputEvidence;
+      const run = read.modelRuns?.find(run => run.turn === evidence.turn || run.attempts.some(attempt => attempt.turn === evidence.turn));
+      // Only fresh logical evidence can settle an input. Receipt recovery below
+      // remains independent, and an older running observation delays finality.
+      const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
+      store.inputEvidence(inputId, evidence, final);
     }
     const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
     for (const input of store.inputs(sessionId)) {

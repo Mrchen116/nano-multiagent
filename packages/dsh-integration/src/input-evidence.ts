@@ -40,3 +40,34 @@ export function inputEvidence(events: readonly SessionEvent[], inputId: string) 
     terminal,
   };
 }
+
+/** Collects inbox inputs by final native turn ownership in one history replay.
+ *
+ * Args:
+ *   events: Complete durable session history in event order.
+ *   inputTurn: Native turn whose inputs are requested.
+ *
+ * Returns:
+ *   Unique inbox input IDs in first-insertion order. Claims count even before
+ *   user/message; cancellation preserves any prior ownership, as inputEvidence does.
+ */
+export function inputIdsForTurn(events: readonly SessionEvent[], inputTurn: number): string[] {
+  const queues: Record<string, string[]> = { 'next-turn': [], 'next-step': [] };
+  const insertedIds = new Set<string>();
+  const turns = new Map<string, number | undefined>();
+  let turn: number | undefined;
+  for (const event of events) {
+    if (event.type === 'turn/start') turn = event.data.turn;
+    if (event.type === 'agent/inbox/spliced') {
+      const { target, start, inserted, removedCount = 0, outcome } = event.data;
+      const ids = inserted.map(message => message.id);
+      const removed = queues[target]!.splice(start, removedCount, ...ids);
+      for (const id of ids) insertedIds.add(id);
+      if (outcome !== 'canceled')
+        for (const id of removed) turns.set(id, turn);
+    }
+    if (event.type === 'user/message') turns.set(event.data.id, turn);
+    if (event.type === 'turn/end') turn = undefined;
+  }
+  return [...insertedIds].filter(id => turns.get(id) === inputTurn);
+}

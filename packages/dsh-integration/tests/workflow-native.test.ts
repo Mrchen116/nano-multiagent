@@ -76,6 +76,7 @@ export function apply(ctx) {
     };
     await initialize([]);
     await client!.rpc.request("session.ensure", binding);
+    await client!.rpc.request("usage.read", {sessionId: "workflow"});
     await client!.rpc.request("session.submit", {
       sessionId: "workflow",
       inputId: "launch",
@@ -121,7 +122,9 @@ export function apply(ctx) {
         ),
       )?.outputTokens,
     ).toBe(outputTokens(parentObservation.events));
-    const usage = await client!.rpc.request('usage.read', {sessionId: 'workflow'}) as {sessionId: string;turn: number;usage: {total_tokens: number}}[];
+    const page = await client!.rpc.request('usage.read', {sessionId: 'workflow'}) as import('@nano/product-contracts').UsageReadResult;
+    const usage = page.reports;
+    expect((await client!.rpc.request('usage.read', {sessionId: 'workflow', cursor: page.cursor}) as import('@nano/product-contracts').UsageReadResult).reports).toEqual([]);
     expect(new Set(usage.map(item => item.sessionId)).size).toBe(5);
     expect(usage.reduce((sum, item) => sum + item.usage.total_tokens, 0)).toBe(15);
     const first = (await read())[0]!;
@@ -140,7 +143,9 @@ export function apply(ctx) {
     await client!.shutdown();
     client = undefined;
     await initialize([binding]);
-    expect(await client!.rpc.request('usage.read', {sessionId: 'workflow'})).toEqual(usage);
+    const recovered = await client!.rpc.request('usage.read', {sessionId: 'workflow', cursor: page.cursor}) as import('@nano/product-contracts').UsageReadResult;
+    expect(recovered.reports).toEqual(usage);
+    expect(recovered.cursor).not.toBe(page.cursor);
     const replay = (await client!.rpc.request("workflow.control", {
       sessionId: "workflow",
       runId: first.id,

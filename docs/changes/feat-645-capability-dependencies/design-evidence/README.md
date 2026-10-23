@@ -1,5 +1,15 @@
 # 设计走查证据
 
+> 修订状态：用户指出下列旧截图中的提示插行会把工具挤开；此前对这一体验的通过判断撤回。当前 prototype 已移除全部占位容器，改为独立浮层。修订版尚未完成实际渲染复验，下文保留为历史证据，不代表新版本视觉通过。
+
+## 本次修订
+
+- 删除 62/82/84px 的提示占位，提示不再插入工具 flex 或 Feature grid。
+- 单一 body 浮层，锚定所点控件，简短文案、紧凑尺寸，约两秒消失；滚动或继续调整时收起。
+- 待复验：1440/768/390 下 schedule_list 与 Task 关闭受阻，出现/消失前后控件坐标、列表换行与面板高度必须完全一致；不以源码检查代替画面验证。
+- 本轮浏览器拒绝读取用户当前打开的 file:// 地址（仅允许 http/https）；未换用其他入口绕过该限制。
+- 参考：[Atlassian Designing messages](https://atlassian.design/foundations/content/designing-messages/) 区分覆盖式短暂通知和会推动内容的系统 Banner；本原型的局部锚定与两秒时长来自本任务已确认交互，不声称是 Atlassian 的完整组件规范。
+
 2026-10-23，作者通过 Codex browser 实际渲染本 unit `prototype.html`。这是一份设计原型，未调用产品 API、未改变生产开关、未证明真实 runtime 已实现。
 
 ## 当前产品依据

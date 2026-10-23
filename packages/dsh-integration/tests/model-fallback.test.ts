@@ -95,6 +95,8 @@ it('continues one admitted input on the backup and restores successful sticky se
     config.modelFallbacks.push({ provider: 'fixture', model: 'primary', reasoningEffort: 'high' });
     await client!.rpc.request('configuration.apply', config);
     expect((await submit('four')).terminal).toMatchObject({ kind: 'completed' });
+    const completed = (await client!.rpc.request('session.observe', { sessionId: binding.sessionId })) as any;
+    expect(completed.modelRuns.map((run: any) => run.inputs)).toEqual([['one'], ['two'], ['three'], ['four']]);
     const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
@@ -115,6 +117,10 @@ it('continues one admitted input on the backup and restores successful sticky se
 }, 20000);
 
 it.each([
+  'success',
+  'no-fallback',
+  'no-fallback-error',
+  'multi-attempt',
   'prepare',
   'finish',
   'exhausted',
@@ -137,7 +143,10 @@ it.each([
       provider: 'fixture-boundary',
       model: 'primary',
       reasoningEffort: 'high',
-      modelFallbacks: [{ provider: 'fixture-boundary', model: 'backup' }],
+      modelFallbacks: scenario.startsWith('no-fallback') ? [] : [
+        { provider: 'fixture-boundary', model: 'backup' },
+        ...(scenario === 'multi-attempt' ? [{ provider: 'fixture-boundary', model: 'backup2' }] : []),
+      ],
       toolAllowlist: scenario === 'tool' ? ['fixture_read'] : [],
       features: {},
       approval: { ...approvalDefaults, globalRoot: home, dangerouslySkipPermissions: true },
@@ -154,12 +163,12 @@ class Fixture extends LlmAdapter{
  async resolveModel(provider,id){return{provider,id,name:id,context:{contextWindow:id==='primary'?100000:70000},defaultMaxTokens:1000,reasoning:{efforts:[{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:id==='primary'?'high':'low'}};}
  async prepareCall(provider,model,signal){if(scenario==='prepare'&&model==='primary')throw new LlmError('preparation auth failed','AUTH',{status:401});return super.prepareCall(provider,model,signal);}
  async *stream(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({model:o.model,effort:o.reasoningEffort,messages:o.messages})+'\\n');
- if(o.model==='primary'&&(!['new-input','pre-step'].includes(scenario)||o.messages.findLast(m=>m.role==='user'&&m.source.kind==='user'&&'actorId'in m.source)?.id==='one')){
+ if(o.model==='primary'&&!['success','no-fallback'].includes(scenario)&&(!['new-input','pre-step'].includes(scenario)||o.messages.findLast(m=>m.role==='user'&&m.source.kind==='user'&&'actorId'in m.source)?.id==='one')){
   if(scenario==='tool'&&step++===0){yield{type:'block-end',index:0,block:{type:'tool-call',id:'read-once',name:'fixture_read',arguments:'{}'}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
   if(scenario==='finish'){yield{type:'finish',reason:{kind:'error',failure:{code:'AUTH',message:'terminal auth failure',status:401}},usage:{inputTokens:7,outputTokens:0}};return;}
   throw new LlmError('candidate failed',scenario==='context'?'CONTEXT_WINDOW_EXCEEDED':'AUTH',{status:scenario==='context'?400:401});
  }
- if(scenario==='exhausted')throw new LlmError('backup failed','AUTH',{status:401});
+ if(scenario==='exhausted'||(scenario==='multi-attempt'&&o.model==='backup'))throw new LlmError('backup failed','AUTH',{status:401});
  yield{type:'block-end',index:0,block:{type:'text',text:'Recovered.'}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:10,outputTokens:5}};
  }}ctx.llm.registerAdapter(['fixture-boundary'],new Fixture());}`,
     );
@@ -239,7 +248,8 @@ class Fixture extends LlmAdapter{
           return result.terminal;
         })
         .toBeTruthy();
-      const success = ['prepare', 'finish', 'restart'].includes(scenario);
+      const success = ['prepare', 'finish', 'restart', 'success', 'no-fallback', 'multi-attempt'].includes(scenario);
+      const switched = success && !['success', 'no-fallback'].includes(scenario);
       expect(result.terminal.kind, JSON.stringify(result)).toBe(
         success
           ? 'completed'
@@ -257,19 +267,22 @@ class Fixture extends LlmAdapter{
           .toBe('completed');
       const read = (await client.rpc.request('session.observe', { sessionId: binding.sessionId })) as any;
       const models = read.modelRuns.flatMap((run: any) => run.attempts.map((a: any) => a.route.model));
-      expect(models.includes('backup')).toBe(success || scenario === 'exhausted' || scenario === 'pre-step');
+      expect(models.includes('backup')).toBe(switched || scenario === 'exhausted' || scenario === 'pre-step');
       if (scenario === 'pre-step')
         expect((await readFile(join(home, 'requests.jsonl'), 'utf8')).includes('\"model\":\"backup\"')).toBe(false);
       if (scenario === 'prepare')
         expect(read.events.filter((e: any) => e.type === 'user/message' && e.data.id === 'one')).toHaveLength(1);
       if (success) {
+        expect(read.modelRuns).toHaveLength(1);
+        expect(read.modelRuns[0].inputs).toEqual(['one']);
+        expect(result.turns).toHaveLength(scenario === 'multi-attempt' ? 3 : switched ? 2 : 1);
         const headers = read.events.filter((e: any) => e.type === 'request/context');
-        expect(headers.at(-1).data.contextWindow).toBe(70000);
+        expect(headers.at(-1).data.contextWindow).toBe(switched ? 70000 : 100000);
         const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8'))
           .trim()
           .split('\n')
           .map((line) => JSON.parse(line));
-        expect(requests.at(-1).effort).toBe('low');
+        expect(requests.at(-1).effort).toBe(switched ? 'low' : 'high');
       }
       if (scenario === 'tool') expect(await readFile(join(home, 'effects'), 'utf8')).toBe('read');
       await client.shutdown();

@@ -12,7 +12,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
-import { inputEvidence } from './input-evidence.js';
+import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -257,16 +257,8 @@ export class ModelFallback {
     const run = this.list(agent.id).findLast((run) => run.attempts.some((attempt) => attempt.turn === event.data.turn));
     if (!run || run.state === 'completed') return;
     const history = agent.session.snapshotEvents();
-    const ids = history.flatMap((event) =>
-      event.type === 'agent/inbox/spliced' ? event.data.inserted.map((message) => message.id) : [],
-    );
-    for (const id of ids)
-      if (
-        inputEvidence(history, id).turn === event.data.turn &&
-        !id.startsWith('nano-fallback:') &&
-        !run.inputs.includes(id)
-      )
-        run.inputs.push(id);
+    for (const id of inputIdsForTurn(history, event.data.turn))
+      if (!id.startsWith('nano-fallback:') && !run.inputs.includes(id)) run.inputs.push(id);
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
