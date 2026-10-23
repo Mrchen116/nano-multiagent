@@ -50,3 +50,30 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 `policy/codex.ts:105` 的 effort 修订只在所选模型的声明能力内选择 low/default/首档，没有更换 provider/model、删证据、改变 verdict parser、失败分流或只读 reviewer 约束；生命周期参数回归有对应证据。此结论限于 CodexApproval。固定版本的默认 Nano `policy/classifier.ts:28` 仍硬编码 low（未在本次 diff 内），caller 已确认另补兼容性修订；本报告不把 Codex 测试外推为整条默认 Nano 产品链路通过。
 
 上述两项条件均已直接复核，无待证实高风险候选。未启动服务、未改源码/测试/配置；仅新增本报告与 verification.md。
+
+## Round 2 — patch
+
+- 固定受审版本：`e2219e12b89b581fbd1808ad768f78c72090c081`；patch：`6223412809e5bdb98a741402d913e33589d686bc..e2219e12b89b581fbd1808ad768f78c72090c081`，其中 `1d8508030` 仅为 R1 报告。
+- 时间：2026-10-23 23:37 +08；同一独立 reviewer，未参与修复。开始时仅 design-review.md 有其他 reviewer 的未提交内容，未修改或提交该文件。
+- 完整覆盖 patch 内 Task 拒绝作用范围、首次 source unavailable 普通输入、Nano classifier effort 与新增测试/文档。R1 其他实现未变，沿用其已核实结论，不重新执行 full。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus findings closure
+
+| R1 finding | 结论 | 直接证据与回归 |
+|---|---|---|
+| dependency from/to 未定位，独立责任被整图抑制 | **closed** | `task-execution.ts:119-124` 已提取 from/to；复用 native scope 参数化 dependency 用例（`:179-220`），被拒 A 与同图独立 B 分别保留屏障/完成；再次执行同一 R1 驱动复现得到 held=[g/A,g/B], automaticAdmitted=1，独立 C 可推进 |
+| 非责任父节点子树删除拒绝漏屏障 | **closed** | `task-execution.ts:122-124` 对 delete 明确采用已知当前图责任批次，不猜测快照未展开的树；native subtree 用例同时验证另一图 B 完成；同一 R1 复现得到 held=[g/child], automaticAdmitted=0 |
+
+### 新补丁安全与兼容性复核
+
+- `policy/classifier.ts:15,28` 从同一 reviewer provider/model 的 ModelInfo 中选择 low/default/首个支持档位；未声明 reasoning 时传 undefined。`approval.test.ts:330-345` 的三种能力用例对两阶段请求均断言模型身份、完整适用 transcript 与最终 deny。原 context 估算/输出预留、两阶段后缀、解析和失败分流未改；这不是通过换模型或删证据处理拒绝。原 native fixture 现在明确声明其原本期望的 low 能力，不以隐含不合法 effort 维持通过。Codex R1 同模型参数测试仍适用。
+- `task-execution.ts:75-80` 仅在之前已知任务时注入 source unavailable 提示；初次没有已知责任时保留原普通输入，自动 admission 的 reject/hold 未放开。直接 pre-step seam 验证：unknown responsibility 时消息数 1、原消息同一对象、interrupted=source；known responsibility 时消息数 2、仍保留原消息及 source hold。两者都允许普通输入按既有语义处理，已知旧 Task 仍收到停止依据旧快照动作的提示。
+- 有效测试复用：caller 提供的 e2219e12b 源码窄测 `/tmp/nano-646-patch-final.log`，`approval/task-execution/task-recovery` 3 文件 / 24 测试，23:33:37 开始、108.78 秒通过；报告已读取汇总并逐项检查测试 seam。R1 的 Codex effort 8 测试保留。未重复全量后端 CI，不把尚未返回的真实产品结论当作缺陷或成功证据。
+
+直接复核仍使用 R1 `/tmp/nano-646-review-scope.mts`；其 dependency 与 subtree 输入不变，另外补入 known/unknown responsibility 的 unavailable pre-step 对照。精确输出记录于 verification Round 2。没有未确认的存活候选；本轮只改报告。

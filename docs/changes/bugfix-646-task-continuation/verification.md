@@ -74,20 +74,67 @@ N/A。无 UI must-match；未以主观视觉判断代替独立产品验收。
 
 无。
 
+## Round 2 — targeted-closure + patch verification
+
+> Validation snapshot: `6223412809e5bdb98a741402d913e33589d686bc → e2219e12b89b581fbd1808ad768f78c72090c081`
+
+- 时间：2026-10-23 23:37 +08；独立 verifier 不变。
+- verification_mode：targeted-closure，focus R1 W1/W2，并核对 classifier effort、source unavailable 新补丁和全部 corrected delta。
+- verdict：**pass（本次静态与故障验证范围）**，0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+- validated_issues：W1 closed、W2 closed；无新增 issue。
+- requires_full_verification：false。patch 未更改 IM/PA 事务、反馈与等待链，R1 相关结论仍可保留；原 R1 缺陷的当前结论由本轮替代，历史事实保留在上文。
+- outcome：**aligned**。这不是整项 M1 产品验收或最终 CI 通过结论。
+
+### Focus closure 与新增实现核对
+
+| 契约 / focus | 最终代码与 evidence | 结论 |
+|---|---|---|
+| R1 W1：局部拒绝不停止可定位的独立任务；design:46 | integration `task-execution.ts:119-124` 纳入 dependency from/to；native scope dependency 用例保护同图独立责任；相同 R1 三任务输入只持有 A/B，C 可自动 admission | closed |
+| R1 W2：子树删除拒绝必须停止未变化自动重试；design:44-46 | delete 采用当前图已知责任批次，避免假设父节点必须直接负责；native subtree 用例证明另一图责任仍完成；原 child-only 输入不再自动 admission | closed |
+| 原审核模型推理能力与证据/失败规则 | `policy/classifier.ts:15-36`、`policy/codex.ts:105` 都保留原 provider/model，使用该模型声明档位；Nano 仍两阶段、每阶段保留完整适用 transcript、解析器/预算/失败机制不变 | covered |
+| 初次 Task 源 unavailable 不改变无已知责任的普通输入；已知责任仍有保护 | `task-execution.ts:75-80` 保持 hold/source，own-only reject；只有 previous.tasks 非空才追加 task-change。普通输入原对象保留；现有 native approval 用例保护首次无 Task 数据源仍能按真实原输入处理 | covered |
+
+真实方法复核命令与 R1 一致：
+
+```sh
+PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec tsx /tmp/nano-646-review-scope.mts
+```
+
+在 e2219e12b 的实际源码上输出：
+
+```json
+{"case":"dependency","held":["g/A","g/B"],"automaticAdmitted":1}
+{"case":"delete-subtree","held":["g/child"],"automaticAdmitted":0}
+{"case":"source-unavailable","known":false,"decision":"allow","messages":1,"originalPreserved":true,"interrupted":"source"}
+{"case":"source-unavailable","known":true,"decision":"allow","messages":2,"originalPreserved":true,"interrupted":"source"}
+```
+
+以上是实际 driver listener/poke/pre-step seam，未替换受审判断，不是生产模型或实际删除副作用证明。自动 source admission 的拒绝分支和 poke 的 unavailable return 均未在补丁中放开。
+
+### 证据复用与门禁边界
+
+- 读取并复用 `/tmp/nano-646-patch-final.log`：e2219e12b 源码对应 `approval/task-execution/task-recovery`，3 文件 / 24 测试绿，23:33:37 开始，108.78 秒。scope 从旧 node 用例参数化扩到 dependency/subtree，保留无关 revision 不解锁及本节点版本变化后重新评估的旧断言；implementation 新记录保存 2 红/1 绿的回归来源。
+- Nano 三档位参数化测试 `approval.test.ts:330-345` 核对两次 stream 的 provider/model/effort/transcript 和最终 deny；旧 native fixture 显式声明 low，保留原有人值守/无人值守/拒绝计数/无效 verdict 等真实生命周期断言。R1 的 Codex 8 测试与其未变源码结论继续有效。
+- 前端 103 文件/963 测试、Python 65、typecheck/ios/ruff/docs 为 caller 提供的旁证，本轮未重跑、不扩大其证明范围。最终限并发后端 CI 和真实模型产品旅程仍由各 gate 提供。没有为尚未返回的外部 gate 增加 WARNING，也没有提前宣称 M1 全部退出标准完成。
+- design-review.md 的并发补充设计复核由另一独立 reviewer 持有，本轮不修改该文件、不替代其结论；本轮只判断当前最终文档与实际补丁的一致性。
+
 ## Corrected Delta Reconciliation
+
+本节为最终唯一 reconciliation，覆盖原两份 delta 与新增模型兼容性 delta；R1 对旧实现的历史结果见上一轮与 Git。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| Task:5-10 当前事实、可验证结果及合法独立工作 | driver prompt/feature guidance | native continuation/withdrawal + 本轮 W1 复现 | implementation-mismatch |
-| Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚 | IM cap/new/renew/unchanged graph，native 一小时 Schedule | aligned |
-| Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback + receipt，deferContext，原 publication | IM child/replay/later pause；native 三终态/unknown/final step | aligned，正常真实旅程另 gate |
-| Task:26-34 失败屏障与新输入、独立工作 | error/source/flush/denied 分离；task_graph scope 提取有缺口 | native deny/recovery + W1/W2 直接复现 | implementation-mismatch |
-| Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | global-mode、shared guidance 与生成源/产物 | 代码逐源及 native final-step；未改空响应恢复实现 | aligned |
+| Task:5-10 当前事实、可验证结果及合法独立工作 | driver/feature guidance；dependency 正确定位，delete 保守采用已知图批次 | R1 continuation/withdrawal；R2 native scope 三分支及直接复现 | aligned |
+| Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚未变 | R1 IM cap/new/renew/unchanged graph 与 native Schedule 仍适用 | aligned |
+| Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback/receipt、deferContext、原 publication 未变 | R1 IM child/replay/later pause；native 三终态/unknown/final step | aligned；正常真实旅程另 gate |
+| Task:26-34 失败屏障与新输入、独立工作 | deny 作用范围修正；source unavailable 保留已知 Task 警告和普通输入；error/flush 恢复未变 | 24 测试中 scope/recovery/approval；直接 source known/unknown 对照 | aligned |
+| Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | Global/shared/生成资产未变，复用 R1 全部检查 | 原 native communication/final step；没有更改空响应恢复策略 | aligned |
+| agent-capabilities:5-10 原审核模型声明能力；保留 provider/model/证据/verdict/失败分流 | Nano/DSH classifier 与 CodexApproval 能力选择一致；personal-security 已有相同选择 | Nano 两阶段三档位 deny/transcript 回归，Codex R1 effort8 测试与生命周期证据 | aligned |
 
 ### Uncovered Observable Behavior
 
-检查完整 diff 后，新增的 `updated_at` 最小投影与 mutation `feedback` 已被 design:54-55 及 Task delta 的责任恢复/固定聊天行为涵盖；不是独立用户设置或新发言旁路。Codex reviewer effort 参数从硬编码 low 改为同模型声明能力选择，是本 unit 实施中新发现的请求兼容性修复，已写 design Changelog 与 implementation:11；符合 current `agent-capabilities.md:225-240` 的按已选模型分类、失败不换模型既有保证。无需将 low/default/首档这一内部选择算法新增为用户契约，也不能据此声称全部 Nano 规则已修复。未发现其他需要补写却遗漏的用户可观察契约。
+检查全部三份 delta 及本次 patch 后，无遗漏对外行为。source unavailable 补丁恢复普通无 Task 输入的既有语义，仍满足 Task delta:26-34 的故障屏障与新输入处理，无需增加新的用户功能契约。`updated_at`、mutation `feedback` 仍由 design 接口及原 Task delta 覆盖。新增审核模型能力 delta 明确把此次兼容性变化及不换模型、不删证据的边界归入 current agent-capabilities 的既有审核契约；文档与实现一致。
 
-Outcome: **implementation-mismatch**。
+Outcome: **aligned**。
 
-本轮只新增本 unit 的 code-review.md 与 verification.md，无源码/测试/配置/设计改动，也未启动需清理的服务。独立复现临时脚本在 /tmp；其输入和结果已持久记录于报告。
+本轮只修改本 unit 的 code-review.md 与 verification.md，保留其他 reviewer 的 design-review.md 修改；未改源码/测试/配置/设计，也未启动需清理的服务。
