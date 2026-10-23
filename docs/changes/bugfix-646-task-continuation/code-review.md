@@ -161,3 +161,23 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 | `pnpm exec vitest run packages/dsh-integration/tests/task-execution.test.ts -t 'restores a stop fence' --maxWorkers=1` | **1 passed / 12 skipped**；00:38:02，26.30 秒。实际新编译 runtime 下 fence 内领取/拒绝及解锁后首模型步含宿主 stop 事实成立 |
 
 未发现可操作新缺陷或未证实高风险候选。原全量 631 中两项失败由 caller 负责定点处理，本报告不把它们改写为已绿、也未重复其失败文件。真实产品已由 regression.md Round 3 通过，属于既有产品证据；本次集成窄验证不冒充新产品旅程或生产部署。只更新本 unit 两份报告，没有源码/测试/配置/设计改动，没有服务需清理。
+
+## Round 6 — P4 narrow patch closure
+
+- 固定范围：`b0d107309..00ffba95923751b2ef04cc561158f85cb66adfa0`；同一独立 reviewer，未参与实现；2026-10-24 00:49 +08。开始时工作树干净。
+- 本轮只审 automaticOnly 集合判定一处修正及对应原测试矩阵扩展；其余 R5 源码/集成结论保留。不重跑全量或接管真实产品现场。
+
+### Findings
+
+```json
+[]
+```
+
+### P4 closure 与证据边界
+
+- `single-thread.ts:238-239` 从 `every(A) || every(B)` 修正为 `every(A || B)`，A 仍是既有 origin=heartbeat/task_execution，B 仍是 sender_type=system 且 system_notice.kind=task_graph。没有扩大单条输入获静默资格的集合；只允许同 turn 内两种既有自动类别混合，与已有 stream 的逐项 union 过滤一致。任一普通真人或其他通知不满足 A/B，则整个 direct turn 不新增静默资格。
+- 修改不影响有意义 final、可见/待展示审批、same-turn confirmed-send、fallback/stop 或普通真人交付。native Task 记录经 NodeStore 既有 runtimeInput 映射为 origin=task_execution，task-change 的 context_only 不改变此分类；宿主控制来源不被升级为真人授权。
+- 读取 `/tmp/nano-646-mixed-notice-red-direct.log`：新增 mixed-native 的静默与有意义正文两例均在旧实现的早期 bubble 断言失败（2 failed / 19 passed）。读取 `/tmp/nano-646-mixed-notice-green.log`：SingleThread + interactive **2 files / 26 passed**，00:47:34，3.80 秒。新增矩阵保留 mixed-human、伪带 notice 的 user、other system、正常正文与审批原有保护；不以精确文案测试替代交付 seam。
+- 已读 regression.md 产品 Round 4：P4 是真实 Task notice + native context 的混合自动轮次；独立的旧真人 turn14 NO_REPLY 是范围外体验观察，本修复不通用吞真人 sentinel。P4 的**代码缺陷已关闭**，修后真实产品闭环仍待 reviewer；不将先前产品 R3 的纯通知通过外推为本次混合场景已验收。
+
+无存活 finding；本轮仅追加/更新两份报告，未改源码/测试/配置/设计，没有新测试服务或进程需清理。

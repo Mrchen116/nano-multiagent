@@ -205,9 +205,28 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 
 仅更新两份报告，未更改受审源码、测试、配置、设计；没有新服务或需移交的运行现场。
 
+## Round 6 — P4 targeted closure / corrected-delta retained
+
+> Validation snapshot: `b0d107309 → 00ffba95923751b2ef04cc561158f85cb66adfa0`。
+
+- 同一独立 verifier；2026-10-24 00:49 +08；verification_mode：targeted-closure + corrected-delta，唯一 focus 为产品 Round 4 P4 混合自动输入静默遗漏。
+- verdict：**pass（该实现纠错范围）**，0 CRITICAL / 0 WARNING / 0 SUGGESTION；outcome：**aligned**；requires_full_verification：false。
+- validated_issue：P4 implementation defect closed；实际混合输入产品复验待独立 reviewer，不能以本报告代签。
+
+| 核对目标 | 最终实现与证据 | 结论 |
+|---|---|---|
+| Task notice + native task context 混合 turn 仍是自动轮次 | drain 的 `every(A||B)` 与既有允许类别/stream一致；没有跨 turn 旧 send 标记或来源推测 | aligned |
+| 普通真人/other notice/mixed-human 不新增静默 | A/B 每项条件不变，任意普通真人 false；原反例矩阵保留，测试仍确认其 final 可见 | aligned |
+| 自动混合场景有意义正文与审批继续交付 | 只改 automaticOnly 输入集合判断，final text 与 approvalVisible 分支未动；mixed-native 正常正文新增绿测，既有 native/notice 审批用例保留 | aligned |
+| design / delta 是否需要扩展 | 实现恢复既有 Task/native 自动类别混合后的预期表现，未新增静默来源、权限或功能；三份 delta 无变更、无遗漏新行为 | aligned，Gate 2 有效设计保留 |
+
+有效红绿证据已读取：旧判定下 mixed-native 两例提前生成 bubble，**2 failed / 19 passed**；新源码下 SingleThread + interactive **2 files / 26 passed**，00:47:34，3.80 秒（`/tmp/nano-646-mixed-notice-red-direct.log`、`/tmp/nano-646-mixed-notice-green.log`）。本轮无需重复全量；caller 提供 PA tsc 已完成。R5 完整 build 与其余 35 项有效窄证据按未修改范围保留，不能将旧版本 full gate 迁移成新版本全绿。
+
+产品 Round 4 已证明 stop 优先、新明确恢复、普通新回复/显式 send 与纯通知仍有效；P4混合轮次是新增必验失败。本报告关闭的是实现问题，产品 gate 仍须修后窄复验。turn14 仅旧真人输入选择 NO_REPLY 是单独范围外观察，本次没有借修复扩大为吞掉普通真人输出。只改本 unit 两份报告，未改受审源码/测试/设计或运行真实服务。
+
 ## Corrected Delta Reconciliation
 
-本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 4 新增 Task 通知场景；历史结果由各轮与 Git 保留。最新固定源码为 `defa49f2d`、effective_base 为 `55376c111`；Round 5 已核对主线输入证据/重放与交付/stop 的实际交互，保留未失效证据。
+本节为最终唯一 reconciliation，覆盖三份 delta 及通知/native 自动输入混合纠错；历史结果由各轮与 Git 保留。最新固定源码为 `00ffba959`；Round 5 的 effective_base `55376c111` 和已验证主线交互保持，Round 6 只修 automaticOnly 集合判定。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -215,7 +234,7 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 | Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚未变 | R1 IM cap/new/renew/unchanged graph 与 native Schedule 仍适用 | aligned |
 | Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback/receipt、deferContext、原 publication 未变 | R1 IM child/replay/later pause；native 三终态/unknown/final step | aligned；正常真实旅程另 gate |
 | Task:26-28 SingleThread 已确认显式交付 | confirmed publication 的同 turn/绑定聊天键；stream 与 final sentinel 分支；可见审批不丢泡 | card/plain + confirmed/unknown + same/different chat 对照，原可见审批回归 | aligned；真实产品 R2 待回填 |
-| Task:30-34 直聊 Task 系统通知的静默收尾 | 当前turn纯system/task_graph归类；stream/final自动交付路径；不跨turn借旧send；final缓存不裁payload | R4 PA24绿、产品R3通过；R5合并版PA/input证据34绿 | aligned |
+| Task:30-34 直聊 Task 系统通知的静默收尾 | 当前turn每项输入满足既有native自动类别或system/task_graph；stream/final一致；不跨turn借旧send；final缓存不裁payload | R6 mixed-native红2→PA26绿，mixed-human/meaningful/approval保护；P4修后产品复验待 | aligned（实现）；产品gate待复验 |
 | Task:35-38 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA失败恢复/审批来源；产品R2旧队列与新恢复通过；R5最终build native stop单例通过 | aligned |
 | Task:40-48 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；restore保持可信控制队列类别 | R2 scope/recovery证据保留；R5输入归属/native stop通过；完整CI的既有环境失败另由caller gate汇总 | aligned（实现/契约）；最终测试gate待回填 |
 | Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | Global/shared/生成资产未变，复用 R1 全部检查 | 原 native communication/final step；没有更改空响应恢复策略 | aligned |
@@ -223,8 +242,8 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 
 ### Uncovered Observable Behavior
 
-检查全部三份 delta 及本次集成增量后，无遗漏对外行为。Round 5 的 evidence_final 与 inputIdsForTurn 按 perf-648/649 的行为不变契约合入；没有改变通知静默、真人/混合输入、显式送达、审批、stop 或恢复语义，不需为性能实现补 Task 功能 delta。Round 4 的 Task 纯通知 Scenario 与其他三份 delta 覆盖保持完整，optional system_notice 仍只是已有线字段类型；没有把普通 system/定时输入提升为恢复授权。
+检查全部三份 delta 及本次纠错后，无遗漏对外行为。R6 只是使两种既有自动输入类别的混合满足 all-inputs 自动判定；不新增单条输入的允许类别、不影响普通真人混合轮次，不需为同一既有行为另加功能 delta。R5 evidence_final/inputIdsForTurn 的行为不变集成结论保留，Task通知 Scenario 与其他 delta 仍完整；没有把普通 system/定时输入提升为恢复授权。
 
 Outcome: **aligned**。
 
-本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。真实产品闭环已在 regression Round 3 明确通过并保留；最终 CI 仍需 caller 对失败文件和完整结果的明确汇总，不能由本节 aligned 推断全量绿或生产部署完成。
+本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。regression R3与R4未失效产品证据保留，但R4新增P4须修后窄复验；最终CI仍由caller汇总，不能由aligned推断产品P4已通过、全量绿或生产部署完成。
