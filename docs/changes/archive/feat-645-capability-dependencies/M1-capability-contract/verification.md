@@ -227,3 +227,71 @@ caller本轮交接称Round2的single_thread/Global真实卡片、Memory/Skill维
 两项修复均落实既有“配置操作可恢复/先校验再持久化”“创建默认workspace可实际运行”“工具/Skill选择真实可用且保留mode”承诺，没有新产品对外接口或需求变化。无需为修复另写行为delta：**no additional spec delta / aligned**。
 
 本轮只新增指定JSON及追加本报告；未提交、未修改业务或测试、未操作服务，也未替产品reviewer修改acceptance结论。
+
+## Round 4 — Final Targeted Evidence Closure
+
+> validated_at: `e9b76b457979faa121ec605789c8fe7a2b63d203`
+> executed_base: `55376c1112ff870837a6ee65febf52e1f3686a9b`
+> verification_mode: `targeted-closure + corrected-delta evidence reconciliation`
+> 本轮范围：C1及Round1–3尚未收齐的产品/CI证据；已核实 `e725603ed..e9b76b457` 没有apps/packages/src或workflow变更，仅报告/截图与用户批准的验证范围记录。不重跑code review、测试或真实服务。
+
+### 最终结论
+
+**PASS（依用户明确批准后的本次验收范围）**。0 CRITICAL / 0 WARNING / 0 SUGGESTION，`requires_full_verification: false`。C1和产品A1/A2/A3的本次阻塞项已收口；原P1/P2保持closed，既有空数组code-review closure及targeted结果沿用，corrected-delta仍为 **aligned**。
+
+此结论覆盖实现一致性、已声明退出标准及本次有效证据；不将VoiceOver实体iPhone播报/读屏焦点列为已测，不宣称生产部署、公网长期稳定或所有历史流程限制已修复。后续canonical归并、unit archive、对应归档门禁重跑及caller拥有的服务/Simulator/临时数据清理仍是交付收尾动作。
+
+### 验证范围的授权与原生证据
+
+`spec.md`“实施验收范围确认”、`design.md`“实施验收平台范围确认”和`design-review.md`作者补注一致记录：用户先确认“真机”为实体iPhone、Simulator已测、剩余仅为VoiceOver播报/读屏焦点后，明确回复“不用不用这个。”。caller将该直接用户授权转交独立产品reviewer，`acceptance.md` Round2据此只排除该项门禁，未改变依赖、关闭保护、Toast呈现或实现。**本verifier采纳的是明确的范围授权，不是自行把未测项降成通过。**
+
+本轮独立打开并核对以下真实原生截图及Round2操作记录：
+
+- `acceptance-r2-native-dependency.png`：本任务Nano feat645 Simulator原生配置Form，Task graphs和Scheduled jobs均开启，Tools为22；与reviewer的Task开启→Scheduled jobs 0→1、Tools17→22操作记录一致。
+- `acceptance-r2-native-toast-visible.png` / `acceptance-r2-native-toast-dismissed.png`：固定new_context保持开启；显示时提示完整位于应用画布内且不盖目标switch，消失后原工具行和下方Form布局位置一致，无占位行。画面为真实Simulator窗口714×1660并含chrome，不是Web390或HTML意图原型。
+- reviewer还在原生实际执行Scheduled jobs受Task保护、skill受Skill Creation保护、关闭Task后可再关闭Cron、保存后收到node confirmed并由Web回读一致；AX能读取switch名称/值和提示。`acceptance-r2-native-block-toast.png`和`acceptance-r2-native-tool-block.png`只作为相应状态的补充，不把未捕获到提示的静态帧单独当作Toast证明。
+- 安装产物与该任务构建的主程序SHA256均为`1f5031b3fa1a6e5df8d2de47c9186f5ba10110ee751373842777db97e7645e9e`，debug dylib摘要也一致，见`validation.md`与reviewer独立比对记录。后续Node/PA修复没有Swift变更，证据适用受审实现。
+
+**C1 closure：closed within approved scope。** 原生Toggle/提示显隐/AX/安全区/保存确认已有实际证据；VoiceOver实体设备语音和读屏焦点仍未测、按用户授权排除。AX可读或Simulator窗口聚焦均不被改写成实际VoiceOver焦点/播报通过。
+
+### 其余pending证据闭环
+
+| 历史缺口 / 退出标准 | 最终直接证据 | 收口 |
+|---|---|---|
+| A1 / M1-R3：普通、Global、Personal在IntelligentUI关时实际发布新卡片 | `acceptance.md` R2-J1逐条给出配置、真实调用及可见新卡片；single消息ID`e7b65d17cba04eceb5eebb885783d238`，Global/PA分别显示验收卡片。Personal截图本轮已独立打开，确认原PA会话有“PA645验收卡片”可见内容；保留正常API辅助恢复前提 | closed；不再仅依mock或选中态证明发送 |
+| 新workspace真实PA恢复 | e725修复后正常Node restart；caller使用原creation.request_key和原node/name调用正常产品创建API，HTTP201/binding active；reviewer随后真实进入该PA、配置并发布卡片 | 本次实现及实际使用证据closed；旧pending UI恢复入口限制保留，不声称全程UI创建顺畅 |
+| A3 / M1-R2：真实Memory/Skill维护busy且关闭不cancel | R2-J2前台收口后关闭Memory/Skill均保持checked并提示in-use；后台随后继续成功写入隔离MEMORY.md并通知；两张busy截图和真实后续写入/来源session定位齐备 | closed；“不取消已接受工作”有真实后果证据 |
+| A3 / M1-R2：Heartbeat真实busy、阻止关闭而工作继续 | R2-J2两次capability-usage返回heartbeat feature busy，Task/Schedule计数均0；点击关闭保持checked且in-use；同一回合继续产出HEARTBEAT645_READ_OK，32tools/49.2秒；随后按正常cadence/version刷新再合法关闭 | closed；初次bash被low参数审批拒绝的回合明确不计成功 |
+| A3 / M1-R4：tool-only不反开Feature或恢复自动行为 | R2-J1 memory合法写入；R2-J4六Feature全false下skill_manage list、task_graph创建todo；约01:28:50至01:30:30有界观察无新后台维护，四次MEMORY hash/mtime相同，候选未写入、todo未推进、usage无active/busy；结合既有生命周期集成回归 | closed；不把有限观察夸成长时间无人值守保证 |
+| M1-R1/R2原生及M1-W3 must-match | 上述真实Simulator交互/截图/AX、保存confirmed和Web回读；原Web1440/768/390三阶段几何与独立R1/R2产品检查仍有效 | closed；VoiceOver按明确授权排除且仍记未测 |
+| M1-R5整理/后续选择 | R2覆盖矩阵明确继承本unit旧fixture隔离演练及`restart-choices.json`，并标注其实际版本1ce3925a3；后续正常restart和合法tool-only使用未反向迁移 | retained covered；无生产迁移声明 |
+
+独立产品`acceptance.md`保留Round1 fail，Round2对15个Scenario逐项对账并最终pass；没有删除失败历史。M1-R1–R5和M1-W1–W5的实现/证据完成度在本次调整范围内已闭合，先前Round1–3的INCOMPLETE是当时快照，现由本节最终结论取代。
+
+### 最终远端CI核对
+
+本verifier通过GitHub connector只读获取 [run39992871340](https://github.com/Mrchen116/nano-multiagent/actions/runs/39992871340) 最新job/step summaries，核对如下。该run为e725产品版本，e725→本轮validated_at没有源代码或workflow变化，结果适用。
+
+| Job | 实际结果 | 解释 |
+|---|---|---|
+| backend `120548802272` | Build/typecheck、packaged runtime、native/IM、Python、Ruff check/format均success；仅Change unit is archived失败 | `validation.md`记录127files/638tests、Python65passed/31deselected及85files format。归档检查仍正确拒绝active unit，整个backend job当前结论仍failure，**不写成整个CI green** |
+| Web `120548803026` | completed/success；npm ci、共享契约构建、critical audit、vitest均success | `validation.md`记录104files/987tests全部通过，已覆盖先前干净job与edit fixture问题 |
+| iOS `120548889910` | completed/success；Native regression tests与Release device archive均success | 补齐最终Swift自动回归及device archive证据；真实可见交互仍独立取上述产品证据 |
+
+因此最终功能/构建/格式检查已通过，唯一剩余CI红项为交付流程中的active-unit归档门禁。caller应在canonical归并与archive后让该门禁按实际归档状态通过；本轮不修改CI规则或提前宣称该步骤已成功。
+
+### 保留的边界与交接
+
+- VoiceOver实体iPhone播报/读屏焦点未测，按用户本次明确授权排除；不得在最终交付描述中省略“未测”或改写成通过。
+- 旧PA pending UI未提供可达Retry的恢复限制仍存在；本轮通过正常认证产品API、原request key恢复，随后reviewer真实UI配置/调用成功。不得宣称PA创建全程无故障，也不得把API辅助恢复写成直接改DB。
+- 自动审批模型不支持low参数、实时连接重连现象仍保留；验收仅用必要的逐项Allow once/实际持久结果核对，没有修改审批模型或弱化权限，不宣称这些独立限制已修复。
+- reviewer补注的四个自建标签`1805418682`、`1805418685`、`1805418688`、`1805418691`因Debugger unattached未关闭，已明确移交caller；本轮没有代为操作用户或其他任务标签。隔离服务、Simulator、临时配置/数据的最终清理由caller执行，不在未核实前记已完成。
+- 既有`code-review-closure.json`、`code-review-ci-card.json`、`code-review-workspace.json`的空数组及corrected-delta aligned结论均沿用。本轮只追加本报告，不重开全审、不运行测试、不修改其他文件、不提交。
+
+Final outcome: **PASS / aligned；0 CRITICAL、0 WARNING、0 SUGGESTION（用户已批准的验证范围内）**。可继续canonical归并、unit归档及最终交付收尾；没有新增实现修复要求。
+
+### Final sync补注
+
+`effective_base: 503c98e93`，`effective_through: f93700d2cf69f7e5c9de4bf903afbef3c8b91377`。原executed_base和validated_at保持不变；本轮只读核实e9b76b457→f937的apps/packages/src及workflow无差异，主线增量仅prod-fleet-deploy的备份轮转说明，不影响上述结论，不触发full复验。
+
+caller交接已通过e2e-down正常停止本任务IM/Node/DSH，原PID均不存在，54795/48646无listener，专属Simulator已shutdown；临时secret清理仍在进行。该状态按caller现场证据登记，本verifier未另行操作服务，也不把尚在进行的secret清理或未补证的浏览器标签关闭记为完成。

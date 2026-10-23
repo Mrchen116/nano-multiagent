@@ -119,8 +119,8 @@
 
 本聊天读取时的本地基线：`59ca15b2a`。以下描述 current，不是目标方案：
 
-- [Agent capabilities current](../../specs/gateway/agent-capabilities.md) 目前采用单个 `requires_tool` 联动，保留白名单约束及 Skill 禁用选择。
-- [Task current](../../specs/gateway/task-graphs.md) 要求首次 waiting 关联有效未来原生 Schedule；任务图开关只联动任务图工具。
+- [Agent capabilities current](../../../specs/gateway/agent-capabilities.md) 目前采用单个 `requires_tool` 联动，保留白名单约束及 Skill 禁用选择。
+- [Task current](../../../specs/gateway/task-graphs.md) 要求首次 waiting 关联有效未来原生 Schedule；任务图开关只联动任务图工具。
 - `apps/node/src/capabilities.ts` 仅声明单个工具依赖；Web 创建及编辑页取消工具时会关闭对应 Feature。
 - `packages/dsh-integration/src/index.ts` 目前通过 Cron Feature 控制调度服务及等待安排校验，不能满足已确认的“工具单独开启即实际可用”。
 - `packages/dsh-integration/src/features/intelligent-ui.ts` 要求加载交互 Skill，同时尊重禁用选择，尚无完整依赖保证。

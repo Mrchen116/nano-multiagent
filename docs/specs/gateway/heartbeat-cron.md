@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Heartbeat and Cron Specification
 
-> 对齐: bugfix-608
+> 对齐: feat-645
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -13,7 +13,7 @@ heartbeat 与 cron 两套本地主动机制的 per-agent 开关、调度和错�
 
 ### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
 
-Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活跃时段、忙时跳过和无事静默行为。Cron采用原生定时工具，在创建它的主会话中到期执行并沿用上下文，不为每个任务或每次运行建立独立会话。两者各受对应Agent开关控制；IM不是调度源。
+Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活跃时段、忙时跳过和无事静默行为。Cron采用原生定时工具，在创建它的主会话中到期执行并沿用上下文，不为每个任务或每次运行建立独立会话。Heartbeat 由对应 Feature 控制；Cron Feature 提供功能指导和完整工具依赖，定时工具与必要执行服务由有效工具及已保存安排保障，不以 Feature 作为额外调用门槛；IM不是调度源。
 
 #### Scenario: 原主对话到期执行
 - **GIVEN** 主Agent在single_thread聊天或global主工作会话创建定时任务
@@ -26,12 +26,12 @@ Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活�
 - **THEN** 任务使用该数字人的有效模型、工具、Skill、身份与审批规则执行，不因冷恢复退回默认配置。
 
 #### Scenario: 未启用的Agent两套机制都不跑
-- **GIVEN** 某Agent的Heartbeat与Cron开关均关闭
+- **GIVEN** 某 Agent 的 Heartbeat 与 Cron 均关闭，也未选择调度工具、没有 active 安排或已接收调度工作
 - **WHEN** 调度tick或手动运行请求到达
 - **THEN** 不创建对应运行，手动运行得到明确不可用结果；重新启用按各自错过时间规则恢复。
 
 #### Scenario: 配置与任务管理即时生效
-- **WHEN** 用户通过既有配置入口启停主动能力，或主Agent通过原生定时工具创建、查看、更新和删除任务
+- **WHEN** 用户通过既有配置入口合法启停主动能力，或主Agent通过原生定时工具创建、查看、更新和删除任务
 - **THEN** 管理结果反映实际生效状态，其他Agent任务不受影响；删除停止未来触发，已入队输入不被冒充撤回。
 
 #### Scenario: 过期一次性任务恢复后补发
@@ -131,3 +131,21 @@ Heartbeat tick 与 cron 执行使用与人工聊天相同的主模型 + 有序�
 - **WHEN** 评估时钟活跃窗口或文件 cron
 - **THEN** 不以 Gateway 系统时区猜测执行。
 - **AND** 相对 every 节律和 DSH 原生定时工具行为不因本变更改写。
+
+### Requirement: Cron SHALL 保护生效安排并兑现单工具操作
+
+#### Scenario: Task 或 active 安排阻止关闭 Cron
+- **GIVEN** Task Feature 开启，或该 Agent 存在 active 定时安排
+- **WHEN** 用户关闭 Cron
+- **THEN** 关闭被拒并说明需要先处理的依赖或安排，业务状态不被修改
+- **AND** 到期但尚未完成的 active 一次性安排仍受保护，inactive 历史不阻碍关闭
+
+#### Scenario: Feature 关闭时单独创建提醒
+- **GIVEN** Cron Feature 关闭且仅 schedule_create 工具被单独启用
+- **WHEN** Agent 合法创建提醒并到达触发时间，包含重启恢复后
+- **THEN** 该安排实际执行，Feature 保持关闭，不附带提供其他未选工具或 Cron 额外指导；原身份、来源与审批规则保留
+
+#### Scenario: Heartbeat 与 Cron 独立关闭
+- **GIVEN** Heartbeat 没有已接受或未确认的工作，Cron 也无开启 Feature 依赖、active 安排或相关在途调用
+- **WHEN** 用户分别关闭这两项 Feature
+- **THEN** 可分别关闭并按共享依赖规则调整关联工具，保留历史；HEARTBEAT 文件内容和未来 tick 不构成关闭阻碍

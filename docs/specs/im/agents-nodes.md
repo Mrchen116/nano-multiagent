@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-635
+> 对齐: feat-645
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -55,6 +55,8 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
 前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。完整配置不在已进行的整轮中切换；可调用工具的取消选择例外地立即收缩，新增工具仍等待当前执行空闲后的完整配置应用，不中断已开始的工具调用。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
+
+本次取消选择若会撤销仍被开启 Feature、有效业务责任或正在执行的工具调用需要的能力，保存先被拒绝；只有通过依赖与占用校验的变更才进入上述生效流程。普通运行中不因此阻止无关配置更新。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
@@ -450,12 +452,12 @@ Agent 创建/编辑页在已有 Skill 来源分组内提供紧凑的批量选择
 - **GIVEN** Agent 配置页的一个 Skill 来源分组有多个可选 Skill
 - **WHEN** 用户对该分组执行批量选择
 - **THEN** 该组当前可见 Skill 一同进入配置草稿
-- **AND** 用户仍可在保存前取消或加入任意单个 Skill
+- **AND** 用户仍可在保存前调整单个 Skill；开启 Feature 必需的 Skill 保持选中并以局部轻提示说明原因
 
 #### Scenario: 用户批量取消部分已选分组
 - **GIVEN** 某来源分组的全部或部分可见 Skill 已在配置草稿中选择
 - **WHEN** 用户对该分组执行批量取消或修改其中一个 Skill
-- **THEN** 页面清楚反映未选、部分选择或全选的实际状态
+- **THEN** 页面保留开启 Feature 必需项，取消其余项，清楚反映未选、部分选择或全选的实际状态；有受保护项时用一条轻提示说明
 - **AND** 不把尚未保存的草稿误显示为已在运行时生效
 
 #### Scenario: 窄屏配置仍保持清晰的分组操作
@@ -575,15 +577,15 @@ IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断
 
 ### Requirement: 设置 detail 页工具勾选态按存储真值渲染
 
-agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:存储为空时全部不亮,不再按 capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单作为合法配置可表达、可保存、刷新后保持。
+agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:合法空名单不按默认值回填，运行模式固定项仍显示真实有效状态,不再按 capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单在 single_thread 且无开启 Feature 依赖业务工具时合法；有固定项或开启 Feature 时不能借空集绕过依赖保护。
 
 #### Scenario: 存储为空全不亮
-- **GIVEN** agent 的存储 `tool_allowlist` 为空
+- **GIVEN** single_thread agent 的存储 `tool_allowlist` 为空且依赖工具的 Feature 均关闭
 - **WHEN** 打开该 agent 的设置 detail 页
-- **THEN** 工具面板全部不亮
+- **THEN** 可选业务工具均不亮，当前运行模式的固定能力保持选中
 
 #### Scenario: 显式清空保存后保持
-- **GIVEN** agent 当前启用若干工具
+- **GIVEN** single_thread agent 当前启用若干工具且依赖工具的 Feature 均关闭
 - **WHEN** 用户取消全部勾选、保存、刷新页面
 - **THEN** 工具面板保持全部不亮
 
@@ -890,3 +892,25 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 - **WHEN** 用户进入现有或新建 Agent 的能力配置
 - **THEN** Features 中没有 DSH Goal 开关，普通工具列表中的 create_goal、get_goal、update_goal 默认不选；已保存的显式选择如实显示。
 - **AND** 用户可分别选择或取消三个工具且互不联动，保存结果和生效时机沿用普通工具配置；失败不能展示已生效，Task 配置不受影响。
+
+### Requirement: Web 与 iOS SHALL 使用一致的 Feature 依赖联动与轻提示
+
+#### Scenario: 开启、关闭和独立重开
+- **WHEN** 用户创建或编辑 Agent 的 Feature、工具或 Skill
+- **THEN** 开启 Feature 完整展开依赖；合法关闭默认撤销直接工具和 Skill但保留共享及固定能力；随后单开工具或 Skill 尊重最后选择，不反开 Feature
+- **AND** 默认 Task 带出 Cron；关闭 Task 不级联关闭 Cron，工具旁不增加依赖归属标注
+
+#### Scenario: 阻止关闭时保留选择
+- **WHEN** 用户点击被开启 Feature、固定基础能力或真实业务责任需要的开关
+- **THEN** 开关保持原态且不闪动；操作附近轻提示说明先处理什么，约 2 秒后淡出，无关闭按钮、不遮挡目标或抢焦点；提示作为独立浮层，不挤开控件、不改变列表换行或留下空位
+- **AND** 重复点击延长同一提示，不堆叠；批量取消保留需要项，页面仍可编辑其他配置
+
+#### Scenario: 保存重新校验且保留草稿
+- **GIVEN** 页面预检后新增了有效责任或出现相关在途工作
+- **WHEN** 用户保存关闭候选
+- **THEN** 服务端重新检查并拒绝冲突关闭，页面恢复被阻止能力及其依赖，保留其他编辑并轻提示，不自动再次提交
+- **AND** API 返回明确依赖、占用、资源缺失或状态无法确认原因；未确认成功不显示已生效
+
+#### Scenario: 查询状态不泄露业务内容
+- **WHEN** 有权限用户请求 Agent 能力使用状态
+- **THEN** 仅返回本 Agent 的责任计数、相关忙碌能力与检查时间，不返回任务内容或他人数据；配置保存仍以最新权威状态复核

@@ -97,3 +97,9 @@ GitHub Actions run `39990544671`：
 该最新run的iOS job120548889910随后completed/success（Native regression tests与Release device archive均success）。截至e725603ed，全部功能/构建/格式CI步骤均通过，仅归档门禁仍正确拒绝active unit。2026-10-24独立产品Round2已在真实Simulator完成原生开关联动和保护提示；Apple官方《Performing accessibility testing for your app》说明VoiceOver不在Simulator提供，因此不能把AX文本或自动回归冒称真机VoiceOver播报。已向用户请求是否授权替代验证，未答复前保留该缺口，不自行归档或宣称全部门禁通过。参考：https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app 。
 
 原生受审产物补核：simctl get_app_container解析本任务设备win.nanoim.ios后，已安装NanoIM与本任务/tmp/nano-ios-feat645/Build/Products/Debug-iphonesimulator/NanoIM.app的主程序SHA256均为1f5031b3fa1a6e5df8d2de47c9186f5ba10110ee751373842777db97e7645e9e；NanoIM.debug.dylib均为6cf4d50bb9374485b5280c4dec47da7fbe61e9dff299a6033eb1a91b876ac424。确认真实点验使用该build，非旧生产包。设计预览HTTP48646已正常停止并确认无listener。
+
+### 交付收口
+
+用户明确排除VoiceOver真机播报/读屏焦点门禁后，独立产品Round2为pass（15 scenarios），静态verifier最终PASS/aligned、0存活问题；没有把未测VoiceOver写成通过。final sync合并origin/main503c98e93，仅部署技能备份说明，产品和CI源码均未变，既有证据保留。四份已校正delta逐Requirement归并canonical，更新包索引计数和docs入口；完整unit整体git mv至archive，原失败记录及设计/验收截图均保留。本地docs integrity和archive check通过，最终归档commit的远端CI以PR状态为准。
+
+本任务IM/Node/DSH经e2e-down正常停止，原PID36641/69004/69038均不存在，54795及设计预览48646无listener；专属Nano feat645 Simulator已shutdown。任务临时JWT、Gateway config及其三份备份、channel key、两个DSH partition credential/profile文件已删除；日志、workspace和数据库仅保留在原临时目录用于排障，不能原样重启且未提交。reviewer旧四标签已不在最新浏览器inventory，root空标签8670成功关闭；root旧8676/8673仍因Debugger unattached无法显式关闭，未改动用户标签，不把这两页记成已关闭。
