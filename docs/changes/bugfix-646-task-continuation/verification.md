@@ -174,9 +174,40 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 
 本轮没有新增代码 finding 或 delta drift；仅更新两份报告，未运行全量、未修改任何被审源码/测试/配置/设计，未启动服务。
 
+## Round 5 — final-main targeted integration delta
+
+> validated_at: `defa49f2db762ab7e0e0415b4a10312f0dcaf764`；executed_base / effective_base: `55376c111`；reviewed integration delta: `e53e488e5..defa49f2d`。
+
+- 同一独立 verifier；2026-10-24 00:39 +08；verification_mode：targeted delta，重点 perf-648 evidence_final 与 Task notice/plain delivery、perf-649 输入归属与 stop/control/fallback。
+- verdict：**pass（集成静态与定向验证）**；0 CRITICAL / 0 WARNING / 0 SUGGESTION；outcome：**aligned**。
+- requires_full_verification：false；已核实新增共享边界和实际编译运行时，没有重新改变本 unit 的 Task/发送/审批契约。R4 之前不受影响证据保留，不重新执行全量。
+
+| 主线增量与本 unit 关联 | 实际证据 | 结论 |
+|---|---|---|
+| evidence_final 收窄 lookup，不能删除 Task 来源或错误静默真人/混合输入 | PA drain 查询仅改用 lookupInputIds；后续分类仍来自全部 store.inputs 的原 payload/逻辑 turn；Task pure-notice/normal text/forged notice/mixed/visible approval 原保护未改 | aligned |
+| 逻辑终态固定不能吞未送达正文/receipt，迟到物理失败不能重开已交付泡 | final 要 accepted、pending=false、terminal 与完成 logical run；lookup final 与 delivery/receipt 分离；recordEvents 只阻止覆写 final terminal | aligned；input-reconciliation 的迁移/重启/receipt故障/late event 测试通过 |
+| confirmed plain send 的同轮去重保持 | 原 publication 命令键及 turn/chat 限制不变；final evidence 不跳过交付循环，实际消息和回执可独立补发 | aligned；SingleThread/interactive 既有完整用例通过 |
+| inputIdsForTurn 不改 stop 控制的消息/队列/来源 | helper 与旧 inputEvidence 逐前缀结果一致；ModelFallback 仅替换 run.inputs 收集方式，排除 sentinel 和去重保留；Task stop next-step/flush 代码未变 | aligned |
+| fence 内 claim 的旧排队输入不可提前固定，首个解锁模型步必须看到 stop | 被拒后恢复到 next-turn/next-step 的输入仍 pending，不能 evidence_final；原生 native stop 竞态在最终完整 build 后实际通过 | aligned |
+| 新 main 与当前三份 delta 无对外行为冲突 | 上游 perf-648/649 均 no spec delta；本 unit Task/Global/reviewer delta 不变，无 Task 执行、审批授权或公开回复语义替换 | aligned |
+
+### 独立验证与版本
+
+读取 `/tmp/nano-646-final-sync-build.log`，确认完整 build 为 defa49f2d、installer `bca4d1524c5d`；收到 caller 构建成功通知后执行 native 测试，明确区别 R3 的旧编译版本限制。
+
+- 直接源码 suite：PA single-thread / interactive-replies / input-reconciliation 与 integration input-evidence，`pnpm exec vitest run` 指定这四文件、`--maxWorkers=1`：**4 files / 34 passed**，00:37:50，14.12 秒。
+- 最终 runtime suite：integration task-execution，仅 `-t 'restores a stop fence' --maxWorkers=1`：**1 passed / 12 skipped**，00:38:02，26.30 秒。实际在新编译 native runtime 下检查 fence 内控制恢复与首个模型输入，填补本次 merge 的关键运行接缝。
+- 上述均使用 `/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin` Node24。未重复 caller 正在定位的 workspace-tools/knowledge-policy 旧全量失败文件；完整 CI 结论仍待 caller 汇总，不将 629/631 或本轮 35 项通过改写为全量绿。
+
+### 产品与保留证据
+
+已读取本 unit regression.md Round 3：在 1fbacfe3d 真实产品中，分配/完成通知独立轮次均 completed 而无哨兵/空 running，真人 23×8=184 与6+5=11正常交付；P1/P2/Global 依明确图/消息/时间证据保留并最终 open issues=0。本轮 perf-648/649 按设计保持该对外语义，源码交互与窄测未发现使之失效的变化，故保留其产品结论；**本轮没有重新运行或伪造新产品/生产验收**。
+
+仅更新两份报告，未更改受审源码、测试、配置、设计；没有新服务或需移交的运行现场。
+
 ## Corrected Delta Reconciliation
 
-本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 4 新增 Task 通知场景；历史结果由各轮与 Git 保留。最新固定源码为 `1fbacfe3d`，保留 R2/R3 未失效的证据和明确版本限制。
+本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 4 新增 Task 通知场景；历史结果由各轮与 Git 保留。最新固定源码为 `defa49f2d`、effective_base 为 `55376c111`；Round 5 已核对主线输入证据/重放与交付/stop 的实际交互，保留未失效证据。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -184,16 +215,16 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 | Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚未变 | R1 IM cap/new/renew/unchanged graph 与 native Schedule 仍适用 | aligned |
 | Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback/receipt、deferContext、原 publication 未变 | R1 IM child/replay/later pause；native 三终态/unknown/final step | aligned；正常真实旅程另 gate |
 | Task:26-28 SingleThread 已确认显式交付 | confirmed publication 的同 turn/绑定聊天键；stream 与 final sentinel 分支；可见审批不丢泡 | card/plain + confirmed/unknown + same/different chat 对照，原可见审批回归 | aligned；真实产品 R2 待回填 |
-| Task:30-34 直聊 Task 系统通知的静默收尾 | 当前turn纯system/task_graph归类；stream/final自动交付路径；不跨turn借旧send | 1fbacfe PA两文件24 tests：pure/meaningful/user/other/mixed/approval | aligned；产品R3待回填 |
-| Task:35-38 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA notify失败/相同ID恢复、审批来源测试；4f8f编译版native stop首模型步通过，main未改该driver | aligned；实际旧输入/新恢复由产品R2核实 |
-| Task:40-48 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；restore保持可信控制队列类别 | R2 scope/recovery仍有效；旧automatic denial超时及最终native环境超时由caller定点复核，未计绿 | aligned（实现/契约）；最终测试gate待回填 |
+| Task:30-34 直聊 Task 系统通知的静默收尾 | 当前turn纯system/task_graph归类；stream/final自动交付路径；不跨turn借旧send；final缓存不裁payload | R4 PA24绿、产品R3通过；R5合并版PA/input证据34绿 | aligned |
+| Task:35-38 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA失败恢复/审批来源；产品R2旧队列与新恢复通过；R5最终build native stop单例通过 | aligned |
+| Task:40-48 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；restore保持可信控制队列类别 | R2 scope/recovery证据保留；R5输入归属/native stop通过；完整CI的既有环境失败另由caller gate汇总 | aligned（实现/契约）；最终测试gate待回填 |
 | Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | Global/shared/生成资产未变，复用 R1 全部检查 | 原 native communication/final step；没有更改空响应恢复策略 | aligned |
 | agent-capabilities:5-10 原审核模型声明能力；保留 provider/model/证据/verdict/失败分流 | Nano/DSH classifier 与 CodexApproval 能力选择一致；personal-security 已有相同选择 | Nano 两阶段三档位 deny/transcript 回归，Codex R1 effort8 测试与生命周期证据 | aligned |
 
 ### Uncovered Observable Behavior
 
-检查全部三份 delta 及本次 patch 后，无遗漏对外行为。Round 4 的纯 Task 系统通知静默、来源反例、有意义正文边界已由新增 Scenario 覆盖；stream 延后及既有空正文/HEARTBEAT_OK 行为是沿用自动交付路径，非新的来源授权。optional system_notice 是补足现有线字段类型。其余 SingleThread query、stop 事实、confirmed plain send、source unavailable、updated_at、feedback 与审核能力结论均保留；main descendant/usage 仍由自身 current/archive 契约承担，没有将其改写成本 unit 新功能，也没有把普通 system/定时输入提升为恢复授权。
+检查全部三份 delta 及本次集成增量后，无遗漏对外行为。Round 5 的 evidence_final 与 inputIdsForTurn 按 perf-648/649 的行为不变契约合入；没有改变通知静默、真人/混合输入、显式送达、审批、stop 或恢复语义，不需为性能实现补 Task 功能 delta。Round 4 的 Task 纯通知 Scenario 与其他三份 delta 覆盖保持完整，optional system_notice 仍只是已有线字段类型；没有把普通 system/定时输入提升为恢复授权。
 
 Outcome: **aligned**。
 
-本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。最终 CI 与真实产品闭环仍需各 gate 的明确结果，不能由本节 aligned 推断已完成。
+本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。真实产品闭环已在 regression Round 3 明确通过并保留；最终 CI 仍需 caller 对失败文件和完整结果的明确汇总，不能由本节 aligned 推断全量绿或生产部署完成。

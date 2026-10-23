@@ -133,3 +133,31 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - 复用 `/tmp/nano-646-task-notice-green.log`：PA SingleThread + interactive 两文件 / 24 测试通过，00:24:33 开始、4.09 秒；均直接读取 PA src，不涉及 R3 旧 native lib 版本问题。implementation 保存三例有意义红测来源。本轮未追加运行测试。
 
 产品 R2 发现的残留 P3 是新的 Task 通知 turn，不能将其归为旧 same-turn 去重再次失效。本轮只确认该新原因的代码与 delta 修复；**不含尚未提供的产品 R3 结果**。caller 的 build 后全量及原 native 环境超时复核仍独立记录，未冒充全绿。无存活待确认候选；本轮仅改本 unit 两份报告。
+
+## Round 5 — final-main integration patch
+
+- 固定受审 HEAD：`defa49f2db762ab7e0e0415b4a10312f0dcaf764`；executed_base / effective_base：`55376c111`；集成增量：`e53e488e5..defa49f2d`，包含 main 的 perf-648 / perf-649 合入。
+- 同一独立 reviewer；2026-10-24 00:39 +08；开始时工作树干净。只审这些共享输入证据/重放变化与本 unit 的实际交互，保留 R4 之前未失效结论；未以 merge 无冲突判通过。
+
+### Findings
+
+```json
+[]
+```
+
+### 集成风险与实证
+
+1. **perf-648 与 Task 通知/显式交付。** `single-thread.ts:202-212` 只用 `lookupInputIds` 缩小待查询集合；随后交付仍遍历 `store.inputs(sessionId)` 的全部持久输入，并按逻辑 turn 取 sender_type、system_notice、origin。`store.ts:204-205` 不删除/裁剪 payload，evidence_final 仅控制重复 lookup，故 Task pure-notice 与 mixed/human 的分类不因终态缓存丢来源。confirmed-send 和 approvalVisible 的同 session/turn 交付键仍独立；未因 lookup 已固定就跳过待确认消息/receipt。`store.ts:231` 防止迟到物理 turn/end 覆写逻辑终态，不改变输入正文或交付结果；升级把历史终态留为 unresolved，避免把旧物理失败误当 final。
+2. **perf-649 与 stop/control/旧输入恢复。** 新 `inputIdsForTurn` 的双队列、非 canceled claim、user/message 和最后 turn 归属，与原 inputEvidence 的计算一致；helper 只返回 ID，不改消息 source/content，也不操作 inbox。`model-fallback.ts:260-261` 保留原 nano-fallback 排除与唯一 run.inputs；原来的 stop cancel keepInbox、inject 去重/flush、被拒控制 next-step 恢复均未更改。fence 内 claim 后恢复的旧输入仍 pending，因此 perf-648 不会提前固定它；下次实际消费后 lookup 仍可更新最终逻辑 turn。Task 控制通知不因入 fallback inputs 变成人类新授权。
+3. **真实共享接线。** 复查 runtime session.lookup 的 fallback.evidence 包装、SingleThread logicalEvents、NodeStore inputEvidence、同轮 publication 和 Task stop 的完整调用关系。perf-648 对 physical/logical turn 的判定不会拿 receipt 成功代替模型完成；perf-649 没有改变审批或恢复策略。上游两个 unit 的 archived verification 仅作为契约/已完成范围旁证，本轮结论来自 merge 后真实源码和下面窄测。
+
+### 构建与独立测试
+
+先读取 caller `/tmp/nano-646-final-sync-build.log`，核实完整构建对应 `defa49f2d`，installer candidate `bca4d1524c5d`；收到 build 成功通知后才启动 native 测试。本轮不存在 R3 的旧 lib 版本混用。
+
+| 命令（Node24 PATH，均 maxWorkers=1） | 实际结果 |
+|---|---|
+| `pnpm exec vitest run packages/personal-assistant/tests/single-thread.test.ts packages/personal-assistant/tests/interactive-replies.test.ts packages/personal-assistant/tests/input-reconciliation.test.ts packages/dsh-integration/tests/input-evidence.test.ts --maxWorkers=1` | **4 files / 34 passed**；00:37:50，14.12 秒。直接覆盖新 final-evidence 与本 unit 通知/交付边界，归属 helper 逐历史前缀和旧 inputEvidence 差分一致 |
+| `pnpm exec vitest run packages/dsh-integration/tests/task-execution.test.ts -t 'restores a stop fence' --maxWorkers=1` | **1 passed / 12 skipped**；00:38:02，26.30 秒。实际新编译 runtime 下 fence 内领取/拒绝及解锁后首模型步含宿主 stop 事实成立 |
+
+未发现可操作新缺陷或未证实高风险候选。原全量 631 中两项失败由 caller 负责定点处理，本报告不把它们改写为已绿、也未重复其失败文件。真实产品已由 regression.md Round 3 通过，属于既有产品证据；本次集成窄验证不冒充新产品旅程或生产部署。只更新本 unit 两份报告，没有源码/测试/配置/设计改动，没有服务需清理。
