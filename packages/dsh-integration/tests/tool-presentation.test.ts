@@ -47,6 +47,10 @@ it('preserves native presenter output and actual child identity across configura
     await client!.shutdown();client=undefined;
     await start();
     expect((await observe()).filter(e=>e.data.nanoToolView).map(e=>e.data.nanoToolView)).toEqual(views);
+    const restored=await client!.rpc.request('session.descendants',{sessionId:'view'}) as any[];
+    const restoredDetail=restored.find(item=>item.id===child);
+    expect(restoredDetail).toMatchObject({id:detail.id,throughSeq:detail.throughSeq,events:detail.events});
+    expect(await client!.rpc.request('session.descendants',{sessionId:'view'})).toEqual(restored);
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

@@ -5,7 +5,7 @@ import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
-import { SessionId } from '@deepseek-ai/dsh-session';
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
@@ -385,14 +385,24 @@ export default class NanoRuntime {
       const root = await this.agent(sessionId); await this.flush(root);
       const children = await ctx.subagents.listDescendants(root.id);
       const workflowRuns = await (await workflow).read(root);
-      return Promise.all(children.map(async child => {
-        if (child.kind !== 'child') return child;
+      const descendants = [];
+      // Cold children include inherited history. Bound in-flight reads instead of
+      // pinning every full log while presentation persistence is still pending.
+      for (const child of children) {
+        if (child.kind !== 'child') { descendants.push(child); continue; }
         const live = ctx.sessions.get(child.id);
         if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
-        using observation = await ctx.sessionQuery.observeSession(child.id);
+        let throughSeq: number;
+        let events: SessionEvent[];
+        {
+          using observation = await ctx.sessionQuery.observeSession(child.id);
+          throughSeq = observation.cursor;
+          events = observation.events.slice(observation.inheritedEventCount);
+        }
         const workflowRun = workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===child.id)));
-        return { ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq: observation.cursor, modelRuns: (await models).fallback.list(child.id), events: await toolViews(child.id, observation.events.slice(observation.inheritedEventCount)) };
-      }));
+        descendants.push({ ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq, modelRuns: (await models).fallback.list(child.id), events: await toolViews(child.id, events) });
+      }
+      return descendants;
     });
     handle('workflow.pending', async () => (await workflow).pending());
     handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
