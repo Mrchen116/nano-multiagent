@@ -58,3 +58,12 @@ Round 2 independently reproduced a no-snapshot `explicit_denylist=[]` profile di
 - Meaningful red: the real page test expected an unconfirmed count and received `0 selected` (`/tmp/bugfix644-i6-red.log`).
 - Green: both affected files, 23 tests passed, including empty/nonempty denylist before confirmation and confirmed empty discovery after recovery (`/tmp/bugfix644-i6-green.log`). Frontend TypeScript build passed (`/tmp/bugfix644-i6-typecheck.log`).
 - Independent revalidation is restricted to I6 and the related unknown/confirmed-empty boundaries. Round 2's other real journeys and static source scopes retain their stated evidence; this patch does not invalidate channel, pending operation, PA, preview or backend coverage.
+
+
+## Delivery gate closure and canonical merge
+
+Product Round 3 passed with zero issues at source `feb2e1885129bc9479bd29821065101149b6584d`; report commit `a0b9a78f9aac8f880c8565790c4414d6c079801a`. Static Round 3 and corrected delta passed at that same source; report commit `a6505bf255eefe4740fcd627a40c3cd03fc295c0`. Product I1-I6 and static W1-W4 are closed. The reports explicitly retain the unaffected earlier scopes rather than claiming every journey was repeated in Round 3.
+
+`executed_base` and `effective_base` for the final local reviews are `55376c1112ff870837a6ee65febf52e1f3686a9b`; a final fetch before archival confirmed no additional main commits. The effective-through archived commit is identified in the PR. Changes after the frozen source consist only of review/evidence documents, exact reviewed delta merging into current IM specs, requirement-count alignment and archival relative-link repair. No business behavior changes invalidate the final reviews. Gate 2 remains the approved Round 3 design; the implementation corrects the existing unknown/read-only requirements without altering that design.
+
+The complete unit is archived after the applicable independent gates and local equivalent checks. Local broad-suite failures and the unavailable simulator test result remain explicitly recorded above; required remote CI is still required before handoff and is reported on the PR. No production merge or deployment is part of this task.

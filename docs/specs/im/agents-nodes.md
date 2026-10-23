@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-635
+> 对齐: bugfix-644
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -61,7 +61,14 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 - **THEN** 响应保留既有稳定配置字段、可空 `reasoning_effort`、有序 `model_fallbacks` 及 profile version
 - **AND** 专属人设只以可见的 `custom_prompt` 返回，不含 profile `system_prompt`
 
+#### Scenario: 新离线请求不产生配置操作
+- **GIVEN** Agent 所属节点当前不可达
+- **WHEN** 用户或客户端提交新的配置修改
+- **THEN** 页面禁用提交，服务端拒绝该请求且不创建新候选操作或修改已提交配置
+- **AND** 先前已经接受的操作继续使用原操作标识确认结果，不因断线被删除或标成功
+
 #### Scenario: PATCH 经 Gateway 可恢复 apply 后持久化运行配置并保持乐观锁
+- **GIVEN** 节点当前可达，且没有阻止本次修改的未确认操作
 - **WHEN** 前端带当前 profile version 保存配置
 - **THEN** IM 先持久化候选 configuration operation，并取得 owning Gateway 对完整候选配置的成功 apply operation 结果，再持久化 profile
 - **AND** 成功响应与随后读取反映持久值；过期 version 被拒且不覆盖新值
@@ -214,11 +221,17 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 
 #### Scenario: 列 cron 任务经 RPC 代理
 - **WHEN** 前端 `GET /im/v1/agents/{id}/cron/jobs`
-- **THEN** 200 返回 jobs 数组；节点离线或超时时返回空列表（不报错），不直读 gateway 侧文件
+- **THEN** 在线成功时 200 返回 jobs 数组；节点离线或超时时返回明确不可用错误，不以空数组冒充无任务，也不直读 gateway 侧文件
 
 #### Scenario: 删 cron 任务经 RPC 代理
 - **WHEN** 前端 `DELETE /im/v1/agents/{id}/cron/jobs/{job_id}`
-- **THEN** 204 表示删除成功；节点离线或 RPC 超时或 job_id 不存在均返回 404
+- **THEN** 204 表示删除成功；节点离线或 RPC 超时返回明确不可用错误，只有已确认 job_id 不存在才返回 404
+
+#### Scenario: 离线查看已取得内容
+- **GIVEN** 页面已成功取得 HEARTBEAT.md 或提示词预览，或 IM 曾成功取得该 Agent 的任务列表
+- **WHEN** 节点失联或再次读取失败
+- **THEN** 页面保留已取得的文件预览或最后同步任务列表并标明时间，禁止重新生成预览与删除任务
+- **AND** 新页面没有取得文件预览时显示暂时无法获取，不能把离线响应中的空内容当作空文件；真实成功空结果仍可显示为空
 
 ### Requirement: Agent 创建必须挂在已绑定且在线的节点下,workspace_root 仅在创建时由节点确定
 
@@ -381,7 +394,7 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 
 工具候选合并 Gateway 的 PA 内置声明与对应上下文中已注册的工具：内置声明保持既有顺序及 default_on，其他注册工具去重追加、default_on=false；已有注册项携带真实描述，缺失 runtime 实例的内置声明仍保留。节点创建页使用共享目录，Agent 编辑页还包含其工作区工具并采用该工作区的同名覆盖。候选可见不代表已启用；选中状态和保存值仍由用户配置决定，不因新增候选而扩大已有白名单（含显式空集），global 固定基础工具规则不变。
 
-新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由 IM **当场**经 gateway WS 向在线节点解析后返回，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
+新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由 IM **当场**经 gateway WS 向在线节点解析后返回，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。Agent 设置页可保留已成功取得的有限展示信息，供离线只读；这些信息带取得时间，不作为当前候选目录、保存校验或操作许可。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
 
 #### Scenario: 节点能力含 features 列表供创建页渲染
 - **GIVEN** 一个已知节点,网关在线
@@ -414,7 +427,7 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 #### Scenario: 用户按有效模型能力选择推理设置
 - **GIVEN** 创建或编辑页已取得在线节点能力
 - **WHEN** 用户选择一个可调推理模型，或当前继承的 platform default 是可调推理模型
-- **THEN** 页面只提供该 model descriptor 声明的 levels，并初始选择其 default
+- **THEN** 页面只提供该 model descriptor 声明的 levels，新建或用户主动切换模型时可初始选择其 default；读取已有配置时保留已存强度及继承语义，不因刷新自动补值
 - **AND** 继承 default 时保存的 `default_model` 仍为空，只持久化用户明确选择的强度
 - **WHEN** 有效模型是 fixed、平台默认不可解析，或目录未声明推理能力
 - **THEN** 页面分别显示固定思考、无法确定模型或不可配置说明，不提交不属于有效模型的强度
@@ -441,6 +454,12 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 - **WHEN** 用户打开配置页、保存后重新打开或刷新
 - **THEN** 禁用名单中的候选 Skill 显示为灰色未选中，名单外显示为绿色选中，分组计数表示启用数量
 - **AND** 编辑并保存后仍持久化禁用名称，保留暂时不可见的禁用名称。
+
+#### Scenario: 无实时能力不误判已保存配置
+- **GIVEN** 节点失联或本次能力读取失败
+- **WHEN** 用户查看已保存的模型、推理强度、Features、工具和 Skills
+- **THEN** 页面保留显式配置和最近确认的名称、来源与派生状态；未取得的信息明确未知
+- **AND** 不因缺少目录显示强度不受支持、移除配置项或填入默认值，历史展示信息不能用于开启编辑
 
 ### Requirement: Agent 配置页可按 Skill 来源分组批量调整选择
 
@@ -522,13 +541,19 @@ Agent 详情页的“通道”页只管理可配置的外部 channel，不把内
 
 ### Requirement: 外部 channel desired state 与 runtime state 分离并自动收敛
 
-IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断状态。保存成功只代表 desired state 已提交；节点离线或 Gateway 尚未应用时显示“配置已保存，等待节点应用”，不能伪造已连接。节点重连后 IM 下发完整 manifest 自动收敛。启用、停用、编辑、重连和删除均经同一资源生命周期；内部 revision 只用于并发/CAS，不作为用户可见版本。删除先保留无凭据 removal receipt，实际停止失败可重试；影子会话和历史不随 channel 删除。
+IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断状态。保存成功只代表 desired state 已提交；请求在线被接受后节点断线或 Gateway 尚未应用时显示“配置已保存，等待节点应用”，不能伪造已连接。节点重连后 IM 下发完整 manifest 自动收敛。启用、停用、编辑、重连和删除均经同一资源生命周期；内部 revision 只用于并发/CAS，不作为用户可见版本。删除先保留无凭据 removal receipt，实际停止失败可重试；影子会话和历史不随 channel 删除。
 
-#### Scenario: 节点离线仍可保存并在重连后自动应用
-- **GIVEN** Agent 所属节点离线
-- **WHEN** 用户新增、编辑、启用、停用或删除 channel
-- **THEN** IM 保存期望状态并显示等待节点应用，不显示已连接
-- **AND** 节点恢复后无需再次保存或重启，页面自动收敛到 connected、limited、failed 或 disabled
+#### Scenario: 新离线渠道操作被拒绝
+- **GIVEN** Agent 所属节点当前离线
+- **WHEN** 用户新增、编辑、启用、停用、重连、删除 channel 或重试删除
+- **THEN** 页面禁用入口和已打开弹窗中的提交，服务端拒绝新操作，不改变 desired 配置、凭据、revision 或删除回执
+- **AND** 用户仍能阅读已有配置、最后状态及诊断，取消弹窗；不承诺节点本地渠道已停止
+
+#### Scenario: 已接受的渠道变更在重连后继续收敛
+- **GIVEN** 渠道变更已被接受，随后节点断线或结果尚未确认
+- **WHEN** 节点恢复连接
+- **THEN** 原 manifest 和删除回执继续确认实际结果，无需再次提交
+- **AND** 页面在确认前保留待应用或待确认状态，不把旧连接状态当作本次操作成功
 
 #### Scenario: 删除等待实际停止且保留历史
 - **GIVEN** channel 已产生外部影子会话
@@ -544,7 +569,7 @@ IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断
 - **THEN** 无需重填未变化的 secret，页面显示连接进度和真实终态；手动重连不改变 desired 配置
 
 #### Scenario: transient removal feedback 随 receipt 生命周期收敛
-- **GIVEN** 用户离线时点击 removal retry，页面显示等待节点
+- **GIVEN** 已有 removal receipt 未确认且节点离线，页面显示等待节点并禁用 retry
 - **WHEN** 节点恢复后用户再次在线 retry，或后台成功令 receipt 消失
 - **THEN** 旧离线等待提示立即清除；receipt 消失时相关临时错误也清除，页面进入通用空态
 
@@ -890,3 +915,25 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 - **WHEN** 用户进入现有或新建 Agent 的能力配置
 - **THEN** Features 中没有 DSH Goal 开关，普通工具列表中的 create_goal、get_goal、update_goal 默认不选；已保存的显式选择如实显示。
 - **AND** 用户可分别选择或取消三个工具且互不联动，保存结果和生效时机沿用普通工具配置；失败不能展示已生效，Task 配置不受影响。
+
+### Requirement: Agent 设置与外部渠道离线时保持可读并统一只读，恢复后刷新再解锁
+
+#### Scenario: 离线首次打开或跨浏览器查看
+- **GIVEN** 当前用户有权查看该 Agent，但节点不可达
+- **WHEN** 用户打开整个 Agent 配置页及相关分区
+- **THEN** 页面显示已保存配置和最后成功同步的展示信息、来源与时间，没有取得的信息明确暂时无法获取
+- **AND** 模型与推理强度成对保留；插件、统计、任务和渠道的未知状态不伪装为空、关闭或失败，已同步工作历史仍可阅读
+- **AND** 所有配置写入和节点操作禁用，阅读、展开、取消、放弃草稿及检查连接仍可用
+
+#### Scenario: 编辑中掉线并恢复
+- **GIVEN** 用户已有未保存草稿或已打开的渠道编辑弹窗
+- **WHEN** 节点失联并随后重新连接
+- **THEN** 页面保留本页草稿并立即禁用修改和提交；重连先刷新当前配置、能力、相关资源版本和未确认结果，完成后才恢复相应操作
+- **AND** 刷新或历史数据均不自动提交草稿、不清空选择、不替用户补默认值；迟到的旧请求不能解锁页面
+- **AND** 若版本或真实能力变化造成冲突，用户核对、调整或放弃后再主动保存，不能自动用新版本覆盖服务端内容
+
+#### Scenario: 在线某一区域读取失败
+- **GIVEN** 节点在线但某一设置分区的当前信息未取得
+- **WHEN** 用户查看该分区
+- **THEN** 页面保留最近确认内容、说明读取失败并允许重试；该分区未刷新成功前不可操作
+- **AND** 独立分区不因统计等无关读取失败被禁用，历史信息不充当当前能力
