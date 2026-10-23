@@ -79,3 +79,9 @@ GitHub Actions run `39990544671`：
 - Web 构建前置补齐后，全量剩唯一旧 agent-edit 测试失败：缺少新 capability-usage 成功夹具使关闭请求按规则保持原态；补齐后暴露其旧断言会把显式 allowlist 转为 denylist。夹具与断言改为明确保留已加载 allowlist、实际选择 tdd-execution-worker/plan；5 tests 原超时下通过（`/tmp/feat645-web-edit-fixture-green.log`），未改产品行为。
 - 产品 reviewer 实际发卡片返回 invalid_scope。调用链确认 single_thread 的 conversation query 误走 Global session 注册；IM 本来允许 single_thread 查询而不创建 Global Work 记录。`629c6aff7` 仅对 Global query 注册 authority；原访问及发送审批保留。加强既有 interactive-replies 夹具，先 2 tests 同错失败，再 interactive-replies/global-agent 52 tests 通过；PA build 通过。真实复验由原 reviewer 追加 Round 2。
 - 为真实维护保护验收，经 reviewer 请求，仅本任务三测试 workspace 的 `.nanoassistant/config.yaml` 将 memory/skill nudge interval 设为 1；正常 stop/start 保留 Agent/DB，原配置有则先备份。未修改生产或模型审批。实际 Node PID64225 / DSH64231 ready/connected，运行产品629c6aff7。
+
+### 新建个人助手 workspace 时序修复
+
+独立 Round2 创建个人助手时，configuration.prepare 的 WorkspaceExtensions.attach 报 workspace realpath ENOENT。prepare 现先于 persist，而旧目录创建仅在 persist/write 内，导致新 Agent 预检失败。NodeConfiguration.resolve 在身份、能力及模型验证后创建目标目录，让预检挂载成功；候选仍仅在通过预检后持久化。没有提前写入 Agent 配置或 runtime recovery snapshot。
+
+既有默认/自定义 workspace base 两场景补上“预检前目录存在、内存和落盘配置仍不包含新 Agent”断言，修前 2 项 ENOENT 失败，修后 Node24.22.1 下 configuration.test.ts 9 tests 通过，Node build 通过。真实个人助手入口待正常重启后的 targeted 复验。

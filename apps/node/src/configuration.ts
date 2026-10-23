@@ -108,6 +108,8 @@ export class NodeConfiguration {
     if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);
+    // Runtime preparation mounts this directory before the configuration is committed.
+    await mkdir(resolved.workspace_root, { recursive: true });
     return resolved;
   }
   persist(candidate: CanonicalAgentConfiguration): Promise<void> {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -61,10 +61,16 @@ it.each([false, true])('uses the advertised workspace base for creation and conf
     expect(template).toBe(join(base, '{agent_id}'));
     const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false} }), true);
     expect(created.workspace_root).toBe(template.replace('{agent_id}', 'new'));
+    // Runtime preparation mounts the workspace before the candidate is persisted.
+    expect((await stat(created.workspace_root!)).isDirectory()).toBe(true);
+    expect(config.current('new')).toBeUndefined();
+    expect((await NodeConfiguration.read(path)).current('new')).toBeUndefined();
     await config.persist(created);
     expect((await NodeConfiguration.read(path)).current('new')?.workspace_root).toBe(created.workspace_root);
     const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, workspace_root: join(home, 'explicit') }), true);
     expect(explicit.workspace_root).toBe(join(home, 'explicit'));
+    expect((await stat(explicit.workspace_root!)).isDirectory()).toBe(true);
+    expect(config.current('explicit')).toBeUndefined();
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
