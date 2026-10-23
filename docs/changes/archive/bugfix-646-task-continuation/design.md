@@ -89,3 +89,16 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-continuation | Task 责任、等待与交付闭环 | 无 | 串行 | integration driver/task feature/interactive guidance，PA 快照字段与现有交付接线，IM waiting 校验及提交反馈投影，product-contracts 责任字段、提示生成源与产物，所属测试及 specs | [reviewer] incident 全部 Scenario 通过真实旅程及必要故障证据验证，原聊天等待/结果可见、独立工作完成、期限生效、无重复刷屏、停止有效；[worker] 有意义红测后窄测试绿，native 拒绝/普通输入/错误恢复和最终交付步骤保护、IM 首次/续期边界与原子性验证，完整构建/typecheck/CI、独立 code review/verifier、记录版本与隔离进程清理 |
+
+## 用户复核续修：停止不唤醒与变更同步审计（2026-10-24）
+
+本节替换上文“解除 stop fence 后主动处理旧输入”的实施语义，其余设计与 M1 范围保持。用户已明确批准延迟消费停止提醒，不新增 milestone。
+
+- 删除 TaskExecutionDriver.block(false) 因 inbox 非空主动 followup 的逻辑。PA stop 仍先 block/cancel/drain/pause，inject 已核实控制通知并 flush 成功后解 block；解 block 只是允许以后有效触发，不自身触发模型。原生被拒绝步骤的恢复仍保持 task-human-control 为 next-step。停止确认由宿主发送，无需模型。
+- 保留停止处理中被挡住的普通输入与 Schedule。它们没有丢失，但不能仅因队列非空立即执行；停止完成后新消息/Schedule/真实责任变化带来的正常唤醒会一并消费。停止不是永久禁用 Agent，暂停 Task 的恢复仍需明确恢复事实。
+- poke 的正常 idle 调度仍让位原生待处理输入；对 changed(..., reconsider=true) 的真实责任重新评估，允许在队列含停止通知时读取当前责任。仅当仍有 runnable 且通过现有 cancelled/denial 判断才 followup，防止明确页面恢复被 inject 阻塞；纯暂停/删除的 quiescent 与无变化 cancelled 责任不唤醒。
+- agent/pre-step 冷恢复时，即使 state.shown 不存在且最新责任为空，普通新输入也附当前完整责任快照；已知旧责任变化继续发送 delta。原生历史不是最新任务事实；不恢复所有已结束任务的详情推送。
+- 群解散直接写任务 JSON 的路径，在事务提交后向这些图的负责人复用 TaskGraphService.notifyChange，不生成新的聊天 Task 通知。原有普通 API/Agent/PA 提交后通知、改派前后负责人并集与 reconnect 重新读取继续复用。
+- 审计记录入口、提交后通知、负责人范围、运行中下一步与空闲后续读取证据。不把仅存在通知回调当作模型已见：native 请求内容与真实产品运行状态分别验收。
+
+验证：rewrite-merge 现有原生 stop fence 测试，检查解除后零模型调用、停止通知持久恢复、后续新输入首步可见；单独覆盖页面恢复与冷恢复空责任。IM 在现有 task-execution 测试保护修改/改派/删除及群解散的提交后通知。产品复验 stop 完成后 idle/请求计数不增长，后续普通问题正常、旧答复不恢复、页面恢复可继续；Task 外部修改在运行中下一步可见。Global 非空内部收尾、SingleThread 静默、既有 waiting 一小时和交付契约保持有效。
