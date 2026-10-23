@@ -116,3 +116,43 @@
 
 - R2-W1 — accepted。锁定 DSH query 的公开 source 标记区分实际来源，不能以第一次 sessions.get 未命中推断持久性。design 接口与数据流已规定：observe 返回 live 时重新取得 Session，捕获上界再 flush；无法取得或 flush=false 失败，prepared 才使用持久 observation。M1 覆盖此并发边界。
 - 水位明确绑定 live Session 生命周期（WeakMap），prepared 恢复不向未来 live 对象移交游标；这是对“可信水位”的具体收口，不新增持久缓存。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: independent Codex agent `/root/design_review`，沿用前两轮 reviewer；未参与修订或实现。
+- review_mode: `delta`
+- mode_reason: 变化限定为 R2-W1 的实际来源分支、同模块水位生命周期及对应并发验收补充；需求、消费者、原始文件发布方式、RPC、模块职责和 milestone 交付切片不变。包含 WeakMap 生命周期影响核对，因此不限于 closure。
+- reviewed HEAD: `ac0df963be40eb9c5471c5391638bb8cab1476ae`
+- compared baseline: `c88ade620a1b5d754f891c508d5bf18cb2d9dbc6`
+- checkout / branch: 同 Round 1；仅临时 benchmark 脚本未跟踪，未修改它。
+- started_at: `2026-10-24T01:03:58+08:00`
+- completed_at: `2026-10-24T01:04:11+08:00`
+- duration: `PT13S`
+- design.md SHA-256: `a41b11f61454e655a68e2b45f004b21f448bd6bd6b254cbb425a937d67ce820f`。motivation.md 与 Round 1 相同；delta SHA-256 与 Round 2 相同。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING.** Gate 2 通过。R2-W1 的持久边界已在设计中闭合，水位生命周期收口未引入额外阻断问题。此结论只批准设计进入实施，不代表性能、实现或产品验收已通过。
+
+### Coverage 与证据
+
+- **持久来源与固定上界：** `design.md:39` 明确检查 observation.source，只有 prepared 直接使用持久 observation；返回 live 时重新取得实时 Session，统一执行捕获 seq → flush → 读取该上界。获取失败或没有持久屏障明确失败、不发布。重新核对锁定 DSH 的 `dsh-session-query/lib/types/observation.d.ts:7-23` 与 `README.md:106-110`，source 判别与其真实公开契约一致；无需新增读取 API、同步读取调用点或私有导入。
+- **水位生命周期与恢复：** `design.md:32,39` 将水位绑定到 live Session 对象的 WeakMap；prepared 不创建供未来 live 接管的水位，新 live 首次完整重建，之后仅追加。锁定 query README 明确冷日志会在内存补 interruptedTurnClosers，且不修改持久源；因此不跨生命周期复用游标是对真实来源差异的直接处理。单会话队列仍按 session id 串行写文件；WeakMap 仅约束可复用的增量状态，没有第二份事实源、正文缓存或 Session 强引用。代价是新 live 生命周期首次重建，属于既定恢复成本，不改变正常连续轮次目标。
+- **失败和并发：** 统一 live 路径继续要求 flush 成功后发布；既有“任何写入失败清水位、下次完整恢复、raw/rebuild 意图不得被合并丢失”条款未变。prepared 读取后即使后续会话激活，未来 live 没有继承游标，按同队列完整接管即可，不依赖冷切面与未来对象的事件前缀相同。
+- **验收变化：** M1 `design.md:69` 新增 observe 查询期间转 live 的持久上界场景，覆盖 R2-W1 的真实入口。其成功/失败分支与等待期间新增事件的截面约束归于已规定的持久上界、失败恢复和并发矩阵；无需额外测试基础设施或扩大产品旅程。
+- **retained_from: Round 2。** Git 对比只改 design.md 与 append-only review；motivation、delta、产品代码、锁定依赖未改。Round 2 对原始文件延迟读取与原子发布、PA/RPC 组装、fork 继承、自动可读副本、用户范围约束、canonical target、隔离验收与性能口径的覆盖继续有效。R2-R1 仍是可选的最终证据呈现建议，不阻断。
+
+### 历史问题闭环
+
+- **R2-W1 — closed。** Author Resolution 接受 query 来源可能变化；本轮按公开 source 判别并对 live 结果重新执行固定上界与 flush，消除了“初查无 Session 即当作持久冷读”的错误前提，且缺少 Session/屏障时不发布。设计和 M1 已对应补齐。
+- **R1-W1 — closed，retained_from: Round 2。** 原始文件仍只完整原子发布，延迟消费者不会因正常聊天追加遇到原始半行；相关设计与 delta 本轮未变。
+
+### Issues / Recommendations
+
+无新增 issue 或建议；不继续扩大设计审查。
+
+### 本轮执行边界
+
+仅追加本 Round，未改旧报告、设计或代码，未提交；未运行 CI、服务或额外子任务。
