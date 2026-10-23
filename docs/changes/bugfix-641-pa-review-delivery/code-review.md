@@ -28,3 +28,15 @@
 无阻塞 finding；代码审查通过。审查后的提交只回填本文件与 fix.md 的完成事实，不改变受审代码。
 
 用户实际旅程验收、生产部署和旧孤立消息恢复尚未执行；canonical delta 保留待归并状态，不将 fixture 或代码审查当作生产恢复证据。
+
+## 本地完整 CI（2026-10-23）
+
+在 `426ffb2e49bba2aa686943a9711a8e57b3feeee8` 上执行与 CI 对应的本地门禁：
+
+- `pnpm build && pnpm typecheck && pnpm check:ios-runtime && pnpm test`：通过，122 文件 / 594 项后端测试。
+- 前端 `npm ci && npm audit --audit-level=critical && npm test`：通过，103 文件 / 963 项测试；现有 5 low / 2 moderate / 1 high 告警未触及 critical 阻断门槛，未擅自升级依赖。
+- `./scripts/docs-check`、`pytest -m 'not e2e' -q`、`ruff check .`、`ruff format --check .`：通过；65 项 Python 测试、31 项 e2e 未选择。
+- change-unit branch gate 按实际 `codex/pa-group-delivery` 分支通过（规则只要求 `unit/*` 分支已归档）。本 unit 仍诚实记录实际用户旅程验收待完成。
+- 完整 diff 不涉及 iOS 原生文件或 CI 配置，按 PR 路径门禁跳过 Xcode 测试/归档；原生交互资源校验已通过。
+
+用户明确授权本地 CI 通过即提 PR、直接合入并部署，不等待 GitHub CI。该授权不伪作已发生的用户实际旅程验收。
