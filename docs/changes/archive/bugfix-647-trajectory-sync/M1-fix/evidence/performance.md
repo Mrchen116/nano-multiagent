@@ -24,10 +24,10 @@
 
 ```sh
 pnpm build
-node docs/changes/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs seed /tmp/nano-cold-history-check
-node docs/changes/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs baseline /tmp/nano-cold-history-check
-node docs/changes/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs fixed /tmp/nano-cold-history-check
-node docs/changes/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs failure /tmp/nano-cold-history-check
+node docs/changes/archive/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs seed /tmp/nano-cold-history-check
+node docs/changes/archive/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs baseline /tmp/nano-cold-history-check
+node docs/changes/archive/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs fixed /tmp/nano-cold-history-check
+node docs/changes/archive/bugfix-647-trajectory-sync/M1-fix/evidence/cold-history-benchmark.mjs failure /tmp/nano-cold-history-check
 ```
 
 `PROBE_CHILDREN`、`PROBE_PREFIX` 可缩小 smoke 数据。各模式结束均关闭自己启动的 RuntimeClient。生成日志/JSON/home 只保存在输出目录，不提交。
