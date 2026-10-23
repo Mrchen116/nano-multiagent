@@ -260,3 +260,7 @@ R1 原型、当前界面依据和跨端限制仍有效；本轮不重复浏览�
 ### 结论
 
 当前设计可进入既定实施流程；后续产品验收仍执行 M1 的真实 Web 三阶段布局比较及原生 iOS 焦点/安全区验证。已关闭本 reviewer 创建的预览标签组（可恢复关闭，未删除其他标签），未停止静态服务、未修改受审设计或产品代码、未提交。
+
+### Author Acceptance — R4
+
+作者核实 R3-W1 已关闭，R4 为 Approved、0 CRITICAL / 0 WARNING；能力语义与运行时设计沿 R2 retained。同步 evidence README 只记录既有复核事实，不改受审交互或架构，Gate 2 retained。用户已授权开始实施，后续在 unit/feat-645 独立 worktree 交付。
