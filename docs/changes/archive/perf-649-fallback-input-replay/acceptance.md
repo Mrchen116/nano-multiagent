@@ -83,3 +83,39 @@ N/A：内部性能变更，无前端原型、reference 或 must-match 视觉契�
 - [x] `docs/specs/gateway/agent-capabilities.md`：无需更新；本次观察保持既有失败、备用、粘性行为，design 为 no spec delta。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## Round 2 — 同步 main 后有界产品 delta
+
+> Validation snapshot: `4bb02455b1d072a899a54bf62cdf2927c4069a99 → 9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2`
+> mode=targeted；2026-10-24 00:07:41–00:07:47 Asia/Shanghai。
+
+**Verdict: pass（产品 delta）**。Highest Required Action: pass；问题 0；无产品复验阻塞。此结论不代表本机全量测试 green，亦不替代远端 CI。
+
+### 版本与独立观察
+
+已核对 HEAD 等于新 validated_at。`latest-build.log` 最终 installer metadata 为该完整 SHA；运行 PID 22364 指向本 worktree 的 cli.js、Node 24.22.1 与 `/private/tmp/perf649-environment/final-runtime/.gateway-config.yaml`。真实 IM 为 `http://127.0.0.1:51967`，独立登录隔离账号 nano 后确认节点 `wt-final-runtime-22158` online。未重启、未启动重型测试，未读取 caller final-smoke 成功结果作为验收证据。
+
+以客户端同一 HTTP 接口独立发送三条新消息，每次先记录现有消息 ID 集合，仅断言集合外的新消息；等待预期正文后再读一次列表确认恰好一条正文。会话为 `c_zgy3i41v`。原始证据 `/tmp/perf649-environment/reviewer-final.jsonl`，驱动 `/tmp/perf649-environment/reviewer-final.py`，进程退出码 0，记录末项 `pass=true`。
+
+| 场景 / UTC 观察时间 | 新用户消息 ID | 实际 IM 返回与裁决 |
+|---|---|---|
+| 普通成功 / 16:07:43.629 | `54c46c1803c5473abf06a5d42b7dd1f2` | 保存 ok/空备用后，一条新 `PERF649-ACK-ok`，ID `870381975afb41d1ac6d538e8334ae3b`；无额外 Agent 消息。pass |
+| 备用成功 / 16:07:45.840 | `f106e15955bb46749ee221c2f7ffa938` | 保存 fail+[backup] 后按序新增 fail 401 提示 `474ca01068e742ccbec6d29420040871`、独立切换说明 `7fdd9a3e5d1149d19e93497e2b9ef016`、backup 正文 `d8d3552d928f498198c8ef5c0fb38ded`；无需重发。pass |
+| 粘性续聊 / 16:07:47.445 | `ac2d9715f9764224bb9e812aaeaa31b3` | 仅新增一条 `PERF649-ACK-backup`，ID `b0dace28d0b44f4ba364383ef0607213`；无重复失败或切换说明。pass |
+
+备用与粘性正文均有 `token_usage`：context_used=10、output=4、total=14，未观察到 usage 接缝妨碍正文交付。该字段检查不代表本轮覆盖 usage 全部计费或并发语义。用户可以正常接续请求，并通过一次切换说明辨认备用来源。无前端变化，视觉 / viewport 仍未验；Reference Artifacts Reviewed 继续 N/A。
+
+### 前轮保留范围
+
+独立核对前轮 validated_at 到本轮 HEAD 的文件增量：涉及 descendants 装配、usage 和相应 PA 接缝；本 unit `input-evidence.ts`、`model-fallback.ts` 无 diff。新真栈普通/备用/粘性已覆盖重新装配后的实际回复链。本轮不扩展到 descendants 子任务或 usage 并发场景，也不将静态审查当作真实恢复证据。
+
+- **普通成功、备用成功：pass**，以上新消息证据刷新该范围；Round 1 严格连续两条普通消息的历史不重复结论保留。
+- **无备用失败：pass，retained**，仍引用 Round 1 证据 7–8 的实际 401 且无备用调用；本轮未重跑。备用选择/输入归属源码未变，新装配下 fail→backup 正常，没有发现失效信号。
+- **恢复或取消：pass，retained**，仅保留 Round 1 证据 12–21 已实测的“备用成功后 Gateway 重启续聊”和“slow 在途取消、release 后有限窗口无旧正文、新请求继续”。本轮没有重启或重新取消，不声称新 SHA 下重新观察了这两段。此次增量没有修改该 input/fallback、重启入口或取消路径；有界 delta 未出现需要扩大复验的副作用。
+- 中间 model.check 强制中断恢复仍属于 runtime gate，不新增真栈覆盖。旧有限观察窗口与合成模型限制继续有效。
+
+### 交回与总门禁边界
+
+仅追加本报告，未修改源码、测试或设计，未提交。最后隔离 e2e 配置为 fail+[backup]，服务仍运行，交由 caller 集中停止。上层文档无需更新的判断保留。
+
+Caller 明确交接：本机全量验证两次因过载失败，不算 green；用户允许先 Draft PR 并依靠远端 CI 补齐。产品 delta 通过不能抹平该缺口，最终工程门禁以 caller 的验证记录及远端 CI 为准。

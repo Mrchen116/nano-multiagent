@@ -117,3 +117,39 @@ N/A：内部归属回放优化，无前端、原型或必须对齐的视觉 refe
 本轮只读 git、代码、现有报告和日志，未运行测试、benchmark 或服务。Round 1 的 20 tests、RED、性能与旧版 build 仍以原实际版本与来源解释；main #393 自有的历史测试证据保留在 `docs/changes/archive/bugfix-647-trajectory-sync/validation.md`，不将其当成新 SHA 的现场执行。检查时 `/tmp/perf649-environment/final-build.log` 仅显示串行 TypeScript 编译进行中，最终编译结果由 caller 补充；新版 startup/备用链观察同理。
 
 未发现需要把本轮扩大为 full verification 的语义或架构变化。两个报告只追加本轮，不修改旧实际验证 SHA；未改产品、测试、配置、设计或其他 unit 报告，未提交或创建/启动新现场。现有机器过载下的全量测试未通过状态仍以 caller 的 evidence 记录为准，不被本 delta PASS 覆盖。
+
+## Round 3 — perf-650 main integration delta
+
+- reviewer: `/root/static_review`，独立静态 verifier。
+- verification_mode: `delta`。
+- executed_base: `4bb02455b1d072a899a54bf62cdf2927c4069a99`（git 核实完整 SHA）。
+- prior_validated_at: `fd7acae2847451cda839652225267f8e3d3520aa`。
+- validated_at: `9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2`；HEAD 与指定版本相同。
+- fix_delta_range: `fd7acae2847451cda839652225267f8e3d3520aa..9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2`。
+- scope: usage/index/PA 增量对本 unit 输入归属/turn/end、原门禁和 no spec delta 的影响，另核前端共享证据适用性。
+- completed_at: `2026-10-24T00:02:56+08:00`。
+- requires_full_verification: `false`。
+
+### Verdict
+
+**PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION；本 unit no spec delta retained。**
+
+只对本轮有界静态 delta 裁决；完整新 main 构建与新版真栈启动/备用链观察由 caller 待执行，不由此 PASS 代签。
+
+### Reconciliation
+
+| 检查项 | 实现与直接证据 | 结论 |
+|---|---|---|
+| perf-649 算法、归属、取消/恢复与性能目标 | 对两个源码、两个测试、benchmark 的 `git diff --exit-code e5a381225..9b95fea3...` 为 0 | 原差分、计数、benchmark、RuntimeClient 窄测 retained；原实际验证 SHA 不改 |
+| turn/end 新监听是否改输入/ModelRun | UsageReader 仅保存 own events 引用并投影 token；consume 的 turn 缓冲独立，未写 event/inbox/fallback 或原持久日志；没有接管 turn lifecycle | aligned，未引入本 unit 输入归属语义变化 |
+| index 共享 runtime 接线 | session.event 仅增加 usageRoot 的已知根回退；usage.read 与 PA usage 消费者同步改为 `{reports,cursor}`；fallback/lookup/observe 路径不变 | aligned；新 runtime 仍需要 caller 的最终 build/启动证据 |
+| PA 与 store 的相交影响 | usage recover 继续独立异步响应 turn/end；保存 facts 后更新 cursor，ACK 由 durable outbox 重试；新 usage_reports_pending 索引不改输入完成状态 | aligned，无 ModelFallback 输入或逻辑 run 状态耦合 |
+| usage 的回归证据 | 阅读 usage 两文件与 workflow-native 新断言，并核对 archive/perf-650 的实际验证版本、final-sync 的 3 files / 11 tests 记录 | 上游共享证据可参考，不声称本轮实跑；不扩成旧 backend 全量 retained |
+| 前端共享证据 | 新 SHA 的 frontend tree 仍为 `0432845539bbcf3bc413b54e081c5f866c033271`；package/lock、生成脚本及前端所用 product-contracts runtime 源无变化；index 仅新增 UsageReadResult interface | 共享 perf-648 前端证据 retained；新增 interface 不产生 runtime 变动，保留原 suite/retry 与 timeout 来源 |
+| no spec delta | 新 executed_base 到本 unit 的 diff 仍为内部归属计算和报告；usage 主干改动归已归档 perf-650，不改变本 unit motivation/design 所要求的输入证据及备用链公开结果 | retained，无本 unit current spec 归并项 |
+
+### Evidence boundaries
+
+本轮未运行测试、benchmark、构建或产品进程；所有 retained 判断来自实际 git 内容核对和调用方静态审查。共享前端证据仍是 `M1-linear-replay/evidence.md` 的 perf-648 原 suite 与原样局部重试组合：其最初 timeout 不删除，也不改写成新 SHA 的一次完整执行。此前后端全量 incomplete、旧 startup/build 的实际版本不变。
+
+没有发现需 full verification 的新边界影响。caller 仍须记录完整新 main build 和新版真栈启动/备用链局部观察的实际结果；本轮报告不提前宣告交付门禁完成。只追加本 unit 两份报告，未改源代码、测试、配置、设计或其他 unit，未提交。

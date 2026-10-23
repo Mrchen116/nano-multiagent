@@ -66,3 +66,34 @@
 ### Validation limits
 
 未重复旧 narrow tests、benchmark 或全量测试，未启动任何进程；遵守 caller 关于全机过载与串行构建的安排。检查时 `/tmp/perf649-environment/final-build.log` 仍在 TypeScript 构建阶段，不能据旧 build 宣称本次最终依赖/注入环境已实跑通过；caller 负责新版 build 与产品启动/备用链局部观察。主干 #393 的既有验证见其归档报告，但不冒称在本冻结版重跑。旧版完整产品 acceptance 的实际 SHA 继续保留，新增 runtime 启动契约由新版局部观察补齐。无关键语义缺证要求重跑已覆盖的旧算法测试。
+
+## Round 3 — perf-650 main integration patch
+
+- reviewer: `/root/static_review`，未参与受审实现。
+- review_mode: `patch`。
+- executed_base: `4bb02455b1d072a899a54bf62cdf2927c4069a99`（git 已核实完整 SHA）。
+- prior_validated_at: `fd7acae2847451cda839652225267f8e3d3520aa`。
+- validated_at: `9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2`；现场 HEAD 相同，开审时工作区干净。
+- diff_range: `fd7acae2847451cda839652225267f8e3d3520aa..9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2`。
+- scope: perf-650 usage/index/PA/type 增量对 perf-649 输入归属、fallback turn/end、既有门禁与前端证据保留的影响；不代替 perf-650 全量审查。
+- completed_at: `2026-10-24T00:02:56+08:00`。
+
+### Verdict
+
+**PASS — patch 范围无存活代码问题；无须扩大 full review。**
+
+```json
+[]
+```
+
+### Coverage and retained evidence
+
+1. 本轮 `git diff --exit-code e5a381225..9b95fea3b7a577674ffbdd2c9882ab6ee3e97fa2 --` 对本 unit 两个源码、两个 test 文件及 benchmark 退出 0。输入归属、最后 turn、claim/cancel、恢复、逻辑 run、多 attempt 和性能计数的旧代码与原测试结论 retained；旧报告的实际执行 SHA 保留。
+2. `dsh-integration/src/usage.ts:31` 新 listener 仅读取 own event 并追加到独立 pending/dirty 状态，`:145` consume 维护独立 usage turn 缓冲。flush/observe 与 token derive 不改 Session 原始事件、inbox、ModelRun 或 inputEvidence。UsageReader 对自身读取串行，不接管 ModelFallback observe/schedule，也不在 inputIdsForTurn 中引入调用或常驻缓存。
+3. `index.ts:193` 的 usageRoot 回退仅为已发现且祖先卸载的子事件补全 rootSessionId；原 sessionId/event 不变。`:369` 的 usage.read 新分页结果与 PA usage.ts 的同步消费者一起更新；原 session.lookup/session.observe 和 fallback turn/end 接线未变。PA `usage.ts:23` 仍在 turn/end 后异步独立 recover，`:45` 保存所有 reports 后推进 cursor，node.report outbox 与 fallback 控制状态分离。store 新增 pending 索引不改变输入持久状态或既有 run identity。
+4. 阅读新增 usage 回归与 workflow-native 的真实接线断言，覆盖冷恢复、flush 时事件、父子结束、child 卸载、ACK/保存失败/重试及 restart；参考 perf-650 自有验证记录的实际版本和 final-sync 3 files / 11 tests 结果。它们是上游共享证据，本轮没有执行这些检查，也不据此宣称本冻结版 backend 全套通过。
+5. 前端树仍为 `0432845539bbcf3bc413b54e081c5f866c033271`；本次增量对 frontend（含 package-lock）、根 package/lock、前端生成脚本及 product-contracts 的 interactive/catalog/trajectory 运行时源均无变化。product-contracts 唯一变化为导出 `UsageReadResult` interface，无值、schema 或序列化实现变化，类型在构建中擦除。因此此前共享 perf-648 前端 suite + 未改文件局部重试的证据继续 retained，不需要因新增该 interface 重跑前端；最初单项 timeout 与实际共享执行 SHA 仍保留，不重写为本轮执行或一次全绿运行。
+
+### Limits
+
+未运行任何测试、benchmark、构建或服务。旧 unit 窄测/性能与前端共享证据可保留；变更后的完整 backend build 及新版真栈启动/备用链观察仍由 caller 完成，本报告不预填成功。未对旧后端全量 incomplete 状态改判，也没有把 perf-650 改动纳入本 unit 的性能收益或增加公开行为承诺。本轮仅追加本报告和 verification.md，未修改实现或提交。
