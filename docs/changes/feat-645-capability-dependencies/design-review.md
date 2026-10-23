@@ -151,3 +151,112 @@ R1 原型、当前界面依据和跨端限制仍有效；本轮不重复浏览�
 用户截图显示工具提示插入 flex 列表，使 schedule_update 等按钮被挤到下方；提示消失后占位仍存在。作者接受该问题，撤回 R1/R2 在此交互范围的体验通过判断，不更改历史 reviewer 原文。
 
 当前修订删除全部提示占位与 DOM 插行，改为 body 独立浮层，缩短单依赖文案并更新 design 与 IM delta。能力语义、架构和其他历史证据不变。修订版需要独立视觉复审；浏览器对当前 file:// 页面读取返回协议安全拒绝，本轮未以其他入口绕过。源码检查不能据此签署视觉 Approved。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer target：`/root/design_review_645`，沿用独立 reviewer，未参与 UI 修订。
+- review_mode：`delta`。
+- mode_reason：用户实图推翻旧提示体验判断；本轮独立重新渲染和操作浮层，检查布局稳定、触发目标、窄屏及 iOS 意图。仅看源码不足以关闭该问题。
+- retained_from：Round 2 的依赖、运行时边界、关闭保护、两项历史 Warning 闭环和 milestone 划分；这些均未改变，不重复评审。
+- started_at：`2026-10-23T15:35:52+00:00`。
+- completed_at：`2026-10-23T15:45:55+00:00`。
+- duration：603 秒。
+- checkout：`unit/feat-645`，基线 `40deea7f1`，本轮开始时 clean。
+- preview：作者提供的隔离纯静态预览 `http://127.0.0.1:48646/prototype.html`。Chrome 原生 UI 操作，100% 缩放；桌面选项、768/390 container 和 iOS 意图画布。没有宣称真实 390 浏览器 viewport、原生 iOS 或产品运行验收。
+
+### Verdict
+
+**Not approved — 0 CRITICAL / 1 WARNING。Gate 2 的 UI 范围尚未恢复通过。**
+
+原先提示插入布局流、挤动控件的问题已在本轮所走路径关闭；但 iOS 意图画布的多行责任提示越出手机画布，不能把当前原型作为窄屏边界的成熟依据。需要有界修订并只复核该边界。
+
+### Coverage 与可见证据
+
+| 场景 | 独立观察 |
+|---|---|
+| 桌面选项 → 点击 schedule_list | 保持勾选；显示“请先关闭「Cron 定时调度」”。提示位于目标上方，未盖目标；显示前、显示中和自然消失后，schedule_list、schedule_update、工具 panel 边缘与相邻 Skills panel 未移动。 |
+| Web 768 container → 相同触发 | 提示不参与工具换行；相邻 schedule 工具排列及 panel 高度在出现/消失前后相同。 |
+| Web 390 container → 相同触发 | schedule_create/list 同行，update/delete 同行；提示出现时与消失后没有遗留占位或另起工具行；点击目标不被覆盖。 |
+| Web 390 → 提示后滚动 | 提示立即收起，没有把旧提示留在已滚走的锚点位置。 |
+| Web 390 → 提示后合法开启 Heartbeat | Heartbeat 开启并显示未保存状态，旧提示立即收起。单独尝试关闭 Cron、固定 notes 则分别替换为依赖/固定能力提示，不把这两次拒绝当成合法调整。 |
+| iOS 意图 → doing/waiting → 尝试关闭 Task | Toggle 保持开启且焦点仍在 Task；Form 各行在提示出现/消失前后未移位，目标 Toggle 未被覆盖；但多行提示向右越出手机画布，见 R3-W1。 |
+
+读回 `design.md:203–218,267,273` 与 IM delta，已明确独立浮层、不占行高、目标不遮挡和三阶段布局比较；`prototype.html` 的单一 body 浮层、pointer-events:none、滚动隐藏与有效调整清除与上述可见结果一致。计时器仍是约 2 秒提示，本轮仅观察自然消失，不声称精确测量淡入淡出耗时。
+
+保留一张只含原型区域的独立截图：[iOS 意图多行提示越界](design-evidence/r3-ios-overlay-overflow.png)。截图裁掉浏览器侧栏和地址区；没有保存真实产品数据或借用其他任务证据。
+
+### 历史问题闭环
+
+- 用户指出的工具流插入、schedule_update 被挤动、提示消失仍占位：**closed（本轮独立视觉路径）**。
+- Round 2 的 R1-W1/R1-W2 仍为 closed；本轮没有重开能力语义或运行时架构。
+
+### Issues
+
+#### R3-W1 — iOS 意图原型没有将浮层限制在模拟手机画布内
+
+- 位置：`prototype.html:3,21–30`；`design.md:209,218,225`。
+- 复现：在宽桌面浏览器选择“iOS 意图”，勾选 doing/waiting，再点任务图 Toggle。两次独立触发均显示完整责任提示，但其右端越出模拟手机画布；证据见上方独立截图。
+- 原因证据：浮层属于 body，横向约束使用 `innerWidth` 和 `100vw`，而手机画布只是 `.shell.ios` 的 390px container。提示以右侧 Toggle 为中心后，桌面 viewport 的右边界允许它伸出模拟屏幕。长提示也覆盖了上一行部分内容；本轮没有把这一点单独列为问题，因为设计只明确不盖触发目标。
+- 影响：当前意图原型没有实际呈现 design 指定的窄屏边缘与安全区约束。它不能证明实施者将交付怎样的窄屏多行提示；这属于当前可见设计证据缺口，不推断真实 iOS 已有同样 bug。
+- 需要：保持独立浮层和零位移做法，让模拟移动画布以自己的可视边界约束提示；或提供能真实呈现同一边界的独立移动 viewport 预览。复核 iOS 意图和 Web 390 的长责任提示：完整可读、位于目标屏幕内、离边缘符合设计、不盖触发控件、出现与消失不改变 Form/工具布局。无需扩大能力架构或启动完整产品栈。
+
+### Recommendations
+
+无新增建议。
+
+### 结论
+
+本轮仅追加报告与独立截图，不改设计或产品代码、不提交、不停止作者静态预览服务。后续可按 delta 复核 R3-W1 和受其影响的短提示位置；不需要重做已通过的运行时/依赖设计审查。
+
+### Author Resolution — R3-W1
+
+将提示横向边界从整个浏览器 viewport 改为应用画布与 viewport 的交集，左右保留 16px；先按该宽度测量换行后的浮层，再夹取锚点位置。没有改动浮层生命周期和能力语义。请求有界复核 iOS 意图与 Web 390 的长责任提示、短依赖提示和布局稳定。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer target：`/root/design_review_645`，沿用独立 reviewer，未参与作者修订。
+- review_mode：`delta`。
+- mode_reason：R3-W1 的改变只涉及浮层限宽与横向定位，必须实际渲染移动画布长提示及相邻短提示，不扩展到未变能力架构。
+- retained_from：Round 2 的能力语义/运行时设计与历史闭环，以及 Round 3 已核实的零布局占位、滚动/有效调整清除和其余视觉路径。
+- started_at：`2026-10-23T15:46:58+00:00`。
+- completed_at：`2026-10-23T15:49:22+00:00`。
+- duration：144 秒。
+- checkout：同一 `unit/feat-645` worktree，作者对 prototype/design/resolution 的修订与 R3 证据均保留；本轮只追加本节及两张独立截图。
+- preview：刷新隔离静态页面 `http://127.0.0.1:48646/prototype.html`，Chrome 原生 UI、100% 缩放，iOS 意图与 Web 390 container。仍不把 container 证据声称为真实移动 viewport 或原生 iOS 验收。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R3-W1 closed，Gate 2 通过。**
+
+当前原型已能呈现移动画布内的完整提示，且没有恢复原先的布局挤动。此次是设计门禁结论，不是产品实施或原生 iOS 运行验收结论。
+
+### Coverage 与闭环证据
+
+| 检查项 | 独立观察与结果 |
+|---|---|
+| iOS 意图、doing/waiting、关闭 Task | 完整责任文案自然两行显示，右端留在模拟手机边界以内；与边界保留的间隙符合 16px 设计值。提示在目标 Toggle 上方，Toggle 完整可见且保持开启。对照提示前、显示中、自然消失后，Form 分隔线、Task/Memory/Skill/Cron 行和下方工具 panel 未移动。 |
+| Web 390、doing/waiting、关闭 Task | 同一长文案完整可读、位于画布内，未盖 Task Toggle；卡片位置和边缘在三阶段一致，消失后没有残留占位。 |
+| iOS 意图、关闭受 Task 依赖的 Cron | 单行“请先关闭「任务图」”仍贴近 Cron Toggle 上方，在画布右边缘内；目标不被盖住，未把短提示拉成跨屏横条。 |
+| Web 390、点击 schedule_list | “请先关闭「Cron 定时调度」”保持单行，目标上方且画布内；schedule_create/list、update/delete 的换行关系及工具 panel 底边在显示/消失前后相同。 |
+
+保存并再次打开检查本轮独立截图：[iOS 长提示修订](design-evidence/r4-ios-overlay-contained.png)、[Web 390 长提示修订](design-evidence/r4-web390-overlay-contained.png)。图片仅保留静态原型区域，未包含浏览器侧栏和地址区。
+
+源码交叉核对：`prototype.html:26–32` 先求 shell 与 viewport 的横向交集并留 16px，再设置最大宽度、测量换行后的浮层、夹取最终位置；body 独立浮层及隐藏机制未改变。`design.md:279` 已明确模拟画布采用相同边界约束。该证据解释本轮可见结果，但没有替代实际浏览器操作。
+
+### Issues
+
+无新增问题。R3-W1 作者 Resolution 已经独立视觉复核关闭；R1-W1/R1-W2 及原布局位移问题维持 closed。
+
+### Recommendations
+
+无新增建议。
+
+### 结论
+
+当前设计可进入既定实施流程；后续产品验收仍执行 M1 的真实 Web 三阶段布局比较及原生 iOS 焦点/安全区验证。已关闭本 reviewer 创建的预览标签组（可恢复关闭，未删除其他标签），未停止静态服务、未修改受审设计或产品代码、未提交。

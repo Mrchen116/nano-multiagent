@@ -273,3 +273,7 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 - **M1-W3 [worker]**：真实 Web 截图/短录屏与原型对照，覆盖 1440/768/390、Toast 延时和重复触发，直接比较触发前/显示中/消失后相邻控件的坐标与面板高度；iOS build/契约测试及原生局部交互证据；证据写本 unit，不借其他任务日志。
 - **M1-W4 [worker]**：native 工具 schema 与 prompt/call 路径分别断言；新建/恢复/预览/手动运行/等待校验一致；core public exports/架构 contract 通过，所有后台依赖基于公开 API。
 - **M1-W5 [worker]**：先跑 product-contracts、integration capabilities/cron/knowledge、PA configuration、IM control/Task 和 Web/iOS 窄测试，再按 CI 风险扩展；无代码迁移、Task/Goal 双写、生产变更或未清理的任务自建进程。
+
+### R3 窄屏原型边界修订
+
+浮层的横向边界以当前应用可视画布与 viewport 的交集为准；模拟 Web 390 / iOS 手机画布时也保留左右 16px，长责任提示自然换行。它仍脱离文档流，不改变控件布局、不遮挡触发控件。
