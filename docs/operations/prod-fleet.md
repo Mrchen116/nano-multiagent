@@ -76,11 +76,9 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 
 ### 公网代理出口
 
-两机所有公网请求使用各机既有 Clash：Mini `http://127.0.0.1:7890`，Air `http://127.0.0.1:7895`。Clash 使用仓库 [`scripts/prod_proxy_policy.js`](../../scripts/prod_proxy_policy.js) 作为全局扩展，登录后自动启动并启用 TUN；公网规则统一走现有「🔰 选择节点」，本机、局域网与 Tailscale 网段直连。订阅和节点凭据留在本机，不入仓库。
+两机 Gateway 的公网 HTTP/HTTPS、fetch 与 WebSocket 使用现有 Clash 普通代理，无需开启 TUN：Mini `http://127.0.0.1:7890`，Air `http://127.0.0.1:7895`。两机 gateway.environment 持久提供大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY（同机 SOCKS5 端口）、NO_PROXY，以及 NODE_USE_ENV_PROXY=1；Mini IM launcher 使用同一环境。NO_PROXY 覆盖 localhost、loopback、两台 Tailscale 地址及实际 LLM 内网地址。DSH 和工具继承环境，Node 在配置应用后刷新原生 HTTP/HTTPS/fetch，WebSocket 显式传 agent；配置秘密不复制进 Gateway plist。
 
-两机 `gateway.environment` 持久提供大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY（同机 SOCKS5 端口）、NO_PROXY，以及 `NODE_USE_ENV_PROXY: "1"`；Mini IM launcher 使用同一出口。NO_PROXY 至少覆盖 localhost、loopback、两台 Tailscale 地址及实际 LLM 内网地址。Gateway 应用配置后通过 Node 公开 API 刷新 HTTP/HTTPS/fetch，通道 WebSocket 显式使用其 agent；DSH 与工具继承环境。配置秘密不复制进 Gateway plist。
-
-不读取代理变量的工具与 Cloudflare QUIC/UDP 由 TUN 接管。Mini Tunnel 边缘 IPv6 路由必须落在实际 Clash TUN interface，四条 UDP 7844 必须有非 DIRECT 代理链与双向流量。HTTP_PROXY 本身不证明 QUIC 已代理。正式验收使用持久业务出口并读取完整正文；显式绕过 HTTP 代理的诊断在 TUN 下仍不等于物理直连。操作与恢复门禁见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理与-tun)。
+社区用户可使用自己的普通 HTTP 代理地址，不依赖 Clash 名称、节点组、控制 API 或 TUN。正式公网探针读取服务持久代理配置并消费完整正文；显式直连诊断与业务验收分开。Cloudflare Tunnel 是中心服务部署组件，QUIC/UDP 不受 HTTP_PROXY 接管，不能把客户端 HTTP 代理成功称为 Tunnel 已代理。操作见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理)。
 
 ## 源站与隧道
 
@@ -97,7 +95,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
 | Tunnel supervisor | 仓库 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 LaunchAgent 使用主仓 `.venv/bin/python` 启动 |
-| Tunnel 路径 | QUIC / IPv6，经 Mini Clash TUN 和既有代理；部署前执行 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复采样 600 秒 |
+| Tunnel 路径 | QUIC / IPv6，经 Mini en0；部署前执行 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复采样 600 秒 |
 | ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 404 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |

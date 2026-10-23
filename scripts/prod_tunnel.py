@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supervise and verify the Mini's Cloudflare QUIC path through its local TUN."""
+"""Supervise and verify the Mini's production Cloudflare QUIC/IPv6 path."""
 
 from __future__ import annotations
 
@@ -19,11 +19,7 @@ HOME_DIR = Path.home()
 TUNNEL_CONFIG = HOME_DIR / ".cloudflared/nano-im-public.yml"
 CHILD_PID = HOME_DIR / ".nanoassistant/public-tunnel-child.pid"
 EDGE_ADDRESSES = ["2606:4700:a0::1", "2606:4700:a8::1"]
-CLASH_CONFIG = (
-    HOME_DIR
-    / "Library/Application Support/io.github.clash-verge-rev.clash-verge-rev"
-    / "clash-verge.yaml"
-)
+INTERFACE = "en0"
 METRICS = "http://127.0.0.1:20241"
 PUBLIC_URL = "https://im.nanoim.win/"
 RECOVERY_SECONDS = 30
@@ -69,16 +65,7 @@ def public_probe(*, direct_diagnostic: bool = False) -> dict:
     return {"https": 200, "bytes": len(public.content), "public_egress": route}
 
 
-def _clash_get(path: str) -> dict:
-    """Read local routing metadata without exposing controller credentials."""
-    config = yaml.safe_load(CLASH_CONFIG.read_text())
-    # Both production versions expose a local Unix socket; no public controller.
-    transport = httpx.HTTPTransport(uds=config["external-controller-unix"])
-    with httpx.Client(transport=transport, trust_env=False, timeout=3) as client:
-        return client.get("http://localhost" + path).raise_for_status().json()
-
-
-def _check_path() -> str:
+def _check_path() -> None:
     config = yaml.safe_load(TUNNEL_CONFIG.read_text())
     if (
         config.get("protocol") != "quic"
@@ -86,18 +73,13 @@ def _check_path() -> str:
         or config.get("metrics") != "127.0.0.1:20241"
     ):
         raise RuntimeError("Tunnel must use QUIC/IPv6 and the managed metrics endpoint")
-    tun = _clash_get("/configs")["tun"]
-    interface = tun.get("device", "")
-    if not tun.get("enable") or not interface.startswith("utun"):
-        raise RuntimeError("Production proxy TUN is unavailable")
     for address in EDGE_ADDRESSES:
         route = subprocess.check_output(
             ["/sbin/route", "-n", "get", "-inet6", address], text=True
         )
-        routed = re.search(r"interface:\s*(\S+)", route)
-        if routed is None or routed[1] != interface:
-            raise RuntimeError("Tunnel IPv6 destination must use the proxy TUN")
-    return interface
+        interface = re.search(r"interface:\s*(\S+)", route)
+        if interface is None or interface[1] != INTERFACE:
+            raise RuntimeError("Tunnel IPv6 destination must use Mini's en0 route")
 
 
 def _ready() -> bool:
@@ -110,7 +92,7 @@ def _ready() -> bool:
 
 
 def _snapshot() -> dict:
-    interface = _check_path()
+    _check_path()
     pid = int(CHILD_PID.read_text())
     command = subprocess.check_output(
         ["ps", "-p", str(pid), "-o", "comm="], text=True
@@ -148,32 +130,13 @@ def _snapshot() -> dict:
     closed = re.search(r"^quic_client_closed_connections (\S+)$", metrics, re.MULTILINE)
     if closed is None:
         raise RuntimeError("Tunnel QUIC connection counter is missing")
-    connections = _clash_get("/connections")["connections"]
-    proxied = [
-        connection
-        for connection in connections
-        if connection["metadata"].get("network") == "udp"
-        and str(connection["metadata"].get("destinationPort")) == "7844"
-        and connection["metadata"].get("process") == "cloudflared"
-    ]
-    if len(proxied) != 4 or any(
-        not connection.get("chains")
-        or "DIRECT" in connection["chains"]
-        or connection.get("upload", 0) <= 0
-        or connection.get("download", 0) <= 0
-        for connection in proxied
-    ):
-        raise RuntimeError("Four Tunnel QUIC connections must carry traffic via proxy")
-    # The actual proxy chains prove QUIC's egress. The independent HTTPS request
-    # proves the business path using the Gateway's persisted configuration.
+    # QUIC health and this HTTPS business request are independent checks.
     public = public_probe()
     return {
         "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "pid": pid,
         "ipv6_quic_ha": 4,
-        "interface": interface,
-        "quic_egress": "configured_proxy",
-        "proxy_chains": [connection["chains"] for connection in proxied],
+        "interface": INTERFACE,
         "closed_connections": int(float(closed[1])),
         **public,
     }
@@ -220,11 +183,11 @@ def _supervise() -> None:
                 unhealthy_since = None
             if not path_ok:
                 if not waiting:
-                    print("Waiting for verified proxy TUN/IPv6 path", flush=True)
+                    print("Waiting for verified QUIC/IPv6 path", flush=True)
                 waiting = True
                 if child is not None:
                     print(
-                        "Proxy TUN unavailable; stopping Tunnel until it recovers",
+                        "IPv6 path unavailable; stopping Tunnel until the route recovers",
                         flush=True,
                     )
                     _stop(child)
@@ -275,7 +238,7 @@ def main() -> int:
     parser.add_argument(
         "--ready",
         action="store_true",
-        help="Check proxy TUN path before starting Tunnel",
+        help="Check IPv6 path before starting Tunnel",
     )
     parser.add_argument(
         "--seconds", type=int, default=0, help="Require continuous healthy samples"
@@ -310,7 +273,7 @@ def main() -> int:
         while True:
             if args.ready:
                 _check_path()
-                print("Verified QUIC/IPv6 proxy TUN path")
+                print("Verified QUIC/IPv6 en0 path")
             elif args.public_only:
                 print(
                     json.dumps(

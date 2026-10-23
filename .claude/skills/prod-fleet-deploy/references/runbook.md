@@ -19,7 +19,7 @@ MacBook Air Gateway 长期复用固定 detached `prod-main` worktree，各自安
 
 ## 更新 Mini 代码和前端
 
-涉及公网运行服务前，使用 Mini 已安装的 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 验证代理 TUN/QUIC 路径；目标版本未跟踪该运维脚本时保留已安装版本，不从未提交的本地文件覆盖生产 supervisor。
+涉及公网运行服务前，使用 Mini 已安装的 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 验证现有 QUIC/IPv6 路径；目标版本未跟踪该运维脚本时保留已安装版本，不从未提交的本地文件覆盖生产 supervisor。
 
 以下是按需执行的命令，不是整段盲跑脚本。首先确认 Mini 当前分支为 main、已跟踪改动不会被覆盖，并确认远端目标 SHA 是本次授权版本。
 
@@ -74,18 +74,14 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 - 代理仅在本次授权范围需要时更新或重启。先核对实际 base_url、监听、进程 cwd/PID 与管理方式；不要根据旧端口示例杀服务，也不要为符合旧文档擅改可用配置。SearXNG 稳定地址继续写各机 config。
 - `ssh mini 'zsh -lc "…"'` 可取得 npm/docker 的 login PATH；Node 使用已经核实的绝对可执行路径，两个目标 checkout 都先安装锁定依赖并构建。
 
-### 公网代理与 TUN
+### 公网代理
 
-持久策略与端口以 [生产拓扑](../../../../docs/operations/prod-fleet.md#公网代理出口) 为准。不能用交互 shell 的一次 export 证明自启服务，也不能把 HTTP_PROXY 当作 UDP 已代理。
+代理地址只在 [生产拓扑](../../../../docs/operations/prod-fleet.md#公网代理出口) 维护。使用各机已有普通 HTTP/SOCKS 代理，不开启 TUN，不依赖 Clash 控制 API 或修改其全局规则。
 
-1. 在权限受限目录备份两机 Clash 的 config.yaml、verge.yaml、profiles/Script.js、生成配置及 Mini supervisor/plist。核对已安装 supervisor 与目标版本差异，不从未知文件覆盖生产。
-2. 两机 Clash 全局扩展安装目标版本 scripts/prod_proxy_policy.js，保留订阅及选中节点。持久开启 TUN、Clash 登录自启；重新加载后通过本地控制 socket 核对 enable、实际 utun、规则与 UDP 支持。控制密钥和订阅不导出到报告。
-3. 两 Gateway 先 stop 再持久写代理环境，保留身份。Mini IM launcher 同步大小写 HTTP/HTTPS/ALL_PROXY、NO_PROXY 与 NODE_USE_ENV_PROXY。用固定 Node CLI 应用，代理值不复制进 Gateway plist。
-4. Tunnel 路径切换先停原受管 Tunnel，安装经过 review 的 scripts/prod_tunnel.py 到既有路径；验证 ingress、loopback IM 与 --ready 后 bootstrap 原 plist。保持 QUIC/IPv6、Tunnel 身份和 HTTPS 规则。
-5. 用 lsof 与 Clash /connections 检查 Gateway/DSH/工具实际链路，以及四条 cloudflared UDP 7844 的非 DIRECT 代理链、双向字节和 utun 路由。本机源站、LLM 与 Tailscale 仍直接到原地址。
-6. 路径/恢复机制变更须验证代理不可用时 supervisor 暂停 Tunnel，恢复后自动重建四连接；随后 --seconds 600 要求 child PID 与 closed_connections 全程不变。普通服务部署仍采样 30 秒。
-
-正式检查从服务 config 读取代理。Air 从候选/生产 checkout 使用 `.venv/bin/python scripts/prod_tunnel.py --public-only --seconds 30`；Mini 使用已安装脚本的完整检查。--direct-diagnostic 必须与 --public-only 联用，只绕过应用 HTTP 代理，TUN 开启时仍受系统路由接管；物理直连诊断必须另行隔离且不能破坏正式出口。公网 HTTPS 失败、Tunnel readiness 失败和代理链失败分别记录，不一概归因 Cloudflare。
+1. 两 Gateway 先 stop，再写 gateway.environment 的大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY 与 NODE_USE_ENV_PROXY=1，保留身份；Mini IM launcher 使用同一环境。用固定 Node CLI restart，代理值不复制进 Gateway plist。
+2. 核对真实 Gateway/DSH/工具的代理连接与本机/内网直接连接；变量存在不能代替生效证据。工具是否支持代理须看其实际协议，不能把 HTTP_PROXY 视作所有 UDP 已代理。
+3. 公网探针默认读取服务 config，Mini 用已安装 prod-tunnel.py 完整采样，Air 用同一脚本 --public-only --seconds 30。--direct-diagnostic 必须与 --public-only 联用，只供独立诊断，不能代替业务验收。
+4. Tunnel 的 QUIC 健康独立检查；客户端 HTTPS 失败不统一归因 Cloudflare。普通发布不必更改或重启 Tunnel，若实际修改路径或恢复机制，须按 600 秒门禁验收。
 
 ### 固定生产 worktree
 

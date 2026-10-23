@@ -11,7 +11,7 @@
 
 随后侧聊向主对话转交要求：“让主 thread 改下吧，彻底解决这个问题。”转交的明确澄清为“正式服务默认走代理”；需覆盖真实 HTTP/fetch、WebSocket、DSH/工具、登录自启和与业务相同出口的验收，并保留直连失败证据。侧聊是 ephemeral thread，历史接口不可读取；这里保留转交来源，不冒充完整逐字对话。
 
-已确定范围：两机现有代理作为默认公网出口；loopback 与应直连内网保留 NO_PROXY；公网正式验收使用同一持久配置。用户随后直接澄清所有公网流量都走代理，包括海外 Cloudflare，本地请求可以直连。因此两机使用既有 Clash TUN 接管不读取代理变量的流量，公网规则统一代理，本机/局域网/Tailscale 直连；Mini Tunnel 保持 QUIC/IPv6，实际连接改走 TUN，并执行恢复验证与 600 秒稳定门禁。
+已确定范围：正式 HTTP/fetch、WebSocket、DSH/工具及公网验收使用各机现有普通代理，本机/内网直连。用户明确指出社区用户通常不开 TUN，因此取消候选 TUN 策略，不更改两机 Clash 配置。Cloudflare Tunnel 属于中心部署组件，其 QUIC 路径不能用 HTTP_PROXY 假装已代理；不把这一特殊组件变成社区客户端的前提。
 
 ## 现象 / 复现
 
@@ -25,7 +25,7 @@
 ## 根因
 
 1. **配置应用只改环境，没有更新已创建的网络客户端。** `apps/node/src/lifecycle.ts` 的 `applyGatewayEnvironment` 自 `58c1ff99ee`（Node/DSH 迁移）起只赋值 `process.env`。Node 官方提供运行时 `http.setGlobalProxyFromEnv()`，可同步刷新 HTTP、HTTPS 和原生 fetch；当前代码未使用它。
-2. **WebSocket 与 QUIC 存在独立绕过。** ws 设置自己的 createConnection；未显式传 agent 时不会使用刷新后的 HTTPS 全局 agent。Feishu SDK 和 WebRelay 都需通过公开参数传入该 agent。QUIC 是 UDP，HTTP_PROXY 无法接管；原两机 Clash TUN 均未开启，旧 supervisor 还要求 en0 路径。
+2. **WebSocket 与 QUIC 存在独立绕过。** ws 设置自己的 createConnection；未显式传 agent 时不会使用刷新后的 HTTPS 全局 agent。Feishu SDK 和 WebRelay 都需通过公开参数传入该 agent。QUIC 是 UDP，HTTP_PROXY 无法接管。
 3. **生产配置与交互 shell 混用。** 正式自启依赖 config，而部分验收与手工调用依赖临时 shell 变量；二者不能互相证明。工具子进程也必须继承经过配置确定的代理和 NO_PROXY。
 4. **公网检查与业务出口不一致，且失败层被混合报告。** 当前 supervisor 的 loopback readiness、Tunnel 路径/QUIC 指标与外部 HTTPS 探针混在一份 snapshot 中，外部 HTTPS 又被强制直连；正式业务代理成功时仍可因独立直连失败被误判为 Tunnel 不健康。
 
@@ -37,9 +37,9 @@
 
 - 配置应用后调用公开 http.setGlobalProxyFromEnv，刷新已初始化 HTTP/HTTPS 与原生 fetch；WebRelay 与 Feishu WebSocket 显式传全局 agent。稳定环境仍由 config 拥有，不复制到 plist。
 - 最低 Node 收口为已修补的 24.22.1（保留 26.12.1 线），移除缺少上述 API 的 22 线；@types/node 更新至 24.19.2。
-- scripts/prod_proxy_policy.js 作为既有 Clash 全局扩展：TUN + 私网直连 + 公网 MATCH 到现有选择节点。保留订阅和节点，持久开启 TUN/登录自启；两 Gateway 与 Mini IM launcher 持久配置大小写代理环境及 NO_PROXY。
-- 已核对的 supervisor 纳入版本管理；保留 QUIC/IPv6 和 readiness 恢复，前置路径改为实际 TUN，snapshot 额外要求四条 cloudflared UDP 7844 具有非 DIRECT 代理链与双向字节。公网 HTTPS 默认读服务 config 并消费完整正文。
-- --public-only 供 Air 检查相同业务出口；--direct-diagnostic 仅绕过应用 HTTP 代理，TUN 开启时仍受系统路由接管，不能称为物理直连。既有失败证据保留，各失败层分开记录。
+- 两 Gateway 与 Mini IM launcher 持久配置大小写普通代理环境与 NO_PROXY，无 TUN 依赖。
+- 已核对的 supervisor 纳入版本管理；保留 QUIC/IPv6 和 readiness 恢复，保留既有 QUIC/IPv6 路径条件与四连接检查。公网 HTTPS 默认读服务 config 并消费完整正文。
+- --public-only 供 Air 检查相同业务出口；--direct-diagnostic 仅绕过应用 HTTP 代理，不进入正式业务验收。既有失败证据保留，各失败层分开记录。
 - 同步 Gateway canonical spec、生产拓扑与部署 Skill/runbook。
 
 ## 验证
