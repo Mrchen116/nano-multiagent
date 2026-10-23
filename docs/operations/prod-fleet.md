@@ -74,6 +74,8 @@ IM launcher 和 Gateway LaunchAgent 使用该目录下 `bin/node` 的绝对路�
 
 Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会话的解压和重放；启动超过默认等待时间时，CLI 可能回退到普通后台进程。验收必须确认 LaunchAgent 已加载且其 PID 与 ready state 相同，不能只检查后台进程已上线。
 
+Air 的 `gateway.environment` 持久设置 `HTTP_PROXY`、`HTTPS_PROXY` 为本机已有的 `http://127.0.0.1:7895`，并设置 `NODE_USE_ENV_PROXY: "1"`，使登录服务中的 HTTP 客户端与 Node fetch 使用已验证的出口；保留既有 `NO_PROXY` / `no_proxy`。不能依赖启动终端继承的代理环境来证明登录自启可用。
+
 ## 源站与隧道
 
 官网与 Mini 上的 IM 是同一套服务。更新 Mini 主仓代码、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
