@@ -7,6 +7,7 @@ it.each(['chat', 'owner:owner'])('keeps a failed attempt pending and delivers fa
   const store = new NodeStore(':memory:', 'owner');
   const frames: Record<string, unknown>[] = [];
   let accepted = false;
+  let lookups = 0;
   let events: RuntimeEvent[] = [];
   const runs: ModelRunProjection[] = [];
   const product = new SingleThread({
@@ -22,8 +23,10 @@ it.each(['chat', 'owner:owner'])('keeps a failed attempt pending and delivers fa
       },
       async request(method) {
         if (method === 'session.submit') accepted = true;
-        if (method === 'session.lookup')
-          return { accepted, turn: 1, terminal: runs[0]?.state === 'completed' ? runs[0].terminal : undefined };
+        if (method === 'session.lookup') {
+          lookups++;
+          return { accepted, pending: false, turn: 1, terminal: runs[0]?.state === 'completed' ? runs[0].terminal : undefined };
+        }
         return { durable: true, events, modelRuns: runs };
       },
     },
@@ -82,6 +85,9 @@ it.each(['chat', 'owner:owner'])('keeps a failed attempt pending and delivers fa
     ]);
     expect(frames.filter((frame) => frame.relay_task_id === 'relay').map((frame) => frame.delivery_status)).toEqual(conversation === 'chat' ? ['sent'] : []);
     runs[0]!.attempts.push({ turn: 2, route: { provider: 'p', model: 'backup' } });
+    runs[0]!.state = 'running';
+    await product.recover();
+    expect(store.inputs(sessionId)[0]?.terminal).toBeNull();
     runs[0]!.state = 'completed';
     runs[0]!.terminal = { kind: 'completed' };
     runs[0]!.switched = 'backup';
@@ -99,7 +105,9 @@ it.each(['chat', 'owner:owner'])('keeps a failed attempt pending and delivers fa
       { seq: 3, type: 'turn/end', time: 4, data: { turn: 2, reason: { kind: 'completed' } } },
     );
     await product.recover();
+    const settledLookups = lookups;
     await product.recover();
+    expect(lookups).toBe(settledLookups);
     const completed = frames.filter((frame) => frame.kind === 'message_completed');
     expect(completed.map((frame) => frame.final_content)).toEqual([
       'primary 暂时无法完成回复：unavailable',
