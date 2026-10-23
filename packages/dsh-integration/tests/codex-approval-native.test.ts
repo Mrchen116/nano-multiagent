@@ -83,3 +83,89 @@ export function apply(ctx){
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },140000);
+
+
+it.each(['instructions', 'blocked'] as const)('isolates native PA review from workspace guidance and blocked filesystem I/O: %s', async (scenario) => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-guardian-boundary-'));
+  let client: RuntimeClient | undefined;
+  try {
+    await writeFile(join(home, 'AGENTS.md'), 'WORKSPACE_DUTY: resume old diary work before answering.');
+    await writeFile(join(home, 'blocked.txt'), 'private evidence');
+    // Both implementations encounter the same uncooperative filesystem boundary:
+    // the old in-process async open and the isolated synchronous inspection.
+    await writeFile(join(home, 'blocked-fs.mjs'), `
+import fs from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
+const path = ${JSON.stringify(join(home, 'blocked.txt'))};
+const mark = () => fs.writeFileSync(${JSON.stringify(join(home, 'blocked-pid'))}, String(process.pid));
+const open = fs.promises.open;
+fs.promises.open = function(file, ...args) { if (String(file) === path) { mark(); return new Promise(() => {}); } return open.call(this, file, ...args); };
+const openSync = fs.openSync;
+fs.openSync = function(file, ...args) { if (String(file) === path) { mark(); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); } return openSync.call(this, file, ...args); };
+syncBuiltinESMExports();
+const timeout = AbortSignal.timeout;
+AbortSignal.timeout = ms => timeout(ms === 90000 ? 1500 : ms);
+`);
+    await writeFile(join(home, 'fixture.mjs'), `
+import {appendFile} from 'node:fs/promises';
+export const name = 'guardian-boundary-fixture'; export const inject = ['llm'];
+export function apply(ctx) {
+ const inspected = new Set();
+ ctx.on('llm/stream', async function*(o) {
+  if (o.model === 'review') {
+   await appendFile(process.env.DSH_HOME+'/requests.jsonl', JSON.stringify(o.messages)+'\\n');
+   const input = o.messages.findLast(m => m.role === 'user' && m.content.some(c => c.type === 'text' && c.text.includes('<planned_action>')));
+   const text = input.content.filter(c => c.type === 'text').map(c => c.text).join('');
+   const action = JSON.parse(text.split('<planned_action>')[1].split('</planned_action>')[0]);
+   if (action.payload.content === 'blocked' && !inspected.has(input.id)) {
+    inspected.add(input.id);
+    yield {type:'block-end',index:0,block:{type:'tool-call',id:'blocked-read',name:'guardian_read',arguments:JSON.stringify({path:'blocked.txt'})}};
+    yield {type:'finish',reason:{kind:'tool-calls'}}; return;
+   }
+   const extra = o.messages.some(m => m.role === 'user' && m.id !== input.id && m.content.some(c => c.type === 'text' && c.text.includes('WORKSPACE_DUTY')));
+   yield {type:'block-end',index:0,block:{type:'text',text:JSON.stringify({decision:extra?'deny':'allow',reason:extra?'workspace guidance escaped evidence':'current exact action authorized'})}};
+  } else yield {type:'block-end',index:0,block:{type:'text',text:'done'}};
+  yield {type:'finish',reason:{kind:'stop'}};
+ });
+}
+`);
+    await prepareProfile(home, [
+      {id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'main',contextWindow:100000},{id:'review',contextWindow:100000,reasoningEfforts:{low:'low'}}]}}}},
+      {insert:[{id:'guardian-boundary-fixture',name:join(home,'fixture.mjs')}]},
+    ]);
+    client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture',NODE_OPTIONS:`--import=${join(home,'blocked-fs.mjs')}`}});
+    const config = {agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules:'codex',reviewer:{provider:'fixture',model:'review'}}};
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+    await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'pa',revision:'1',ownerId:'owner',cwd:home});
+    await client.rpc.request('session.submit',{sessionId:'parent',inputId:'owner',mode:'followup',content:[{type:'text',text:'Authorize only the current exact public reply.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'owner'}});
+    await expect.poll(async () => (await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'owner'}) as any).terminal).toBeTruthy();
+    const review = (content: string) => client!.rpc.request('pa.review',{agentId:'pa',kind:'action',sessionId:'parent',evidence:{payload:{content},recipient_ids:['owner']}}) as Promise<any>;
+    if (scenario === 'instructions') {
+      expect(await review('current')).toMatchObject({decision:'allow'});
+      const requests = (await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      const messages = requests[0];
+      const input = messages.find((m:any) => m.role === 'user' && m.content.some((c:any) => c.type === 'text' && c.text.includes('<planned_action>')));
+      expect(JSON.stringify(input)).toContain('WORKSPACE_DUTY'); // Original PA instructions remain review evidence.
+      expect(messages.filter((m:any) => m.role === 'user')).toHaveLength(1);
+    } else {
+      const pending = review('blocked');
+      await expect.poll(() => readFile(join(home,'blocked-pid'),'utf8').catch(() => ''),{timeout:5000}).not.toBe('');
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([pending, new Promise((_,reject) => { timer=setTimeout(() => reject(new Error('Reviewer remained blocked after its deadline')),5000); })]);
+        expect(result).toMatchObject({decision:'unavailable'});
+      } finally { clearTimeout(timer); }
+      const pid = Number(await readFile(join(home,'blocked-pid'),'utf8'));
+      expect(pid).not.toBe(client.process.pid);
+      await expect.poll(() => { try { process.kill(pid,0); return true; } catch { return false; } }).toBe(false);
+      expect(await review('after-timeout')).toMatchObject({decision:'allow'});
+    }
+  } finally {
+    if (client) {
+      const force = setTimeout(() => client!.process.kill('SIGKILL'),1000);
+      try { await client.shutdown(); } catch { /* A red regression may leave the old runtime blocked. */ }
+      finally { clearTimeout(force); await client.exited; }
+    }
+    await rm(home,{recursive:true,force:true});
+  }
+},20000);

@@ -86,6 +86,8 @@ it('bounds read-only inspection and rejects non-regular files even through symli
     const tools = inspectionTools(cwd,()=>new AbortController().signal);
     const run = (name:string,args:unknown)=>tools.find(t=>t.name===name)!.execute(args,{signal:new AbortController().signal} as any);
     expect(await run('guardian_read',{path:'a'})).toMatchObject({text:'hello',truncated:false});
+    // Filesystem failures should report the cause, not the entire child program and stack.
+    await expect(run('guardian_read',{path:'missing'})).rejects.toThrow(/^ENOENT: no such file or directory/);
     await expect(run('guardian_read',{path:'device'})).rejects.toThrow(/regular/);
     expect(await run('guardian_list',{path:'.'})).toMatchObject({entries:expect.arrayContaining(['a','device'])});
     const abort=new AbortController();abort.abort();
