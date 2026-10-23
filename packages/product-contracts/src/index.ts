@@ -95,6 +95,11 @@ export interface UsageReport {
   time: number;
   usage: {prompt_tokens: number; completion_tokens: number; total_tokens: number};
 }
+/** Completed-turn usage page; stale runtime cursors cause an idempotent replay. */
+export interface UsageReadResult {
+  reports: UsageReport[];
+  cursor: string;
+}
 export { encodeTrajectoryValue, TrajectoryValueDecoder } from './trajectory-wire.js';
 export * from './interactive.js';
 export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';

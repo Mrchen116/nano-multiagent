@@ -17,7 +17,7 @@ import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
-import { readUsage } from './usage.js';
+import { readUsage, usageRoot } from './usage.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
@@ -190,7 +190,7 @@ export default class NanoRuntime {
       while (!this.bindings.has(root.id) && root.header.parentSession) {
         const parent = ctx.sessions.get(root.header.parentSession); if (!parent) break; root = parent;
       }
-      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : undefined, event });
+      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : usageRoot(ctx, session.id), event });
     });
     const liveness = setInterval(() => {
       for (const sessionId of this.bindings.keys()) {
@@ -367,12 +367,9 @@ export default class NanoRuntime {
       return (await models).fallback.evidence(agent, inputId);
     });
     handle('usage.read', async value => {
-      const {sessionId} = value as {sessionId: string};
+      const {sessionId, cursor} = value as {sessionId: string; cursor?: string};
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      try { return await readUsage(ctx, sessionId); } catch (error) {
-        if ((error as {code?: string}).code === 'SESSION_QUERY_SESSION_NOT_FOUND') return [];
-        throw error;
-      }
+      return readUsage(ctx, sessionId, cursor);
     });
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
