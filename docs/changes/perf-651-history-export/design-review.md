@@ -60,3 +60,59 @@
 
 - R1-W1 — accepted。PA distill 的 source_jsonl_paths 是延迟读取引用，等待一次队列不能保护后续读取。修订 design 关键决策 1/3/5 与接口数据流：原始导出仅 session.export 显式完整原子发布；正常轮次只增量可读副本，不新增第二份原始缓存。delta 增补延迟读取 Scenario，M1 增补并发读取验证。
 - 同次落实恢复共用队列及显式 path 重试，消除对 initialize 回调静默的假设；请求标志在合并及失败重试时保真。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: independent Codex agent `/root/design_review`，沿用 Round 1 reviewer；未参与设计修订或实现。
+- review_mode: `full`
+- mode_reason: 原始导出从自动追加改为显式完整发布，path 改变执行语义，冷读/实时读取与恢复并入队列，核心数据流和 milestone 验收发生变化；不能仅用旧问题 closure 放行。
+- reviewed HEAD: `c88ade620a1b5d754f891c508d5bf18cb2d9dbc6`
+- compared design baseline: `af01637e41f5e6cadade25dd2760a1e0a2980022`
+- checkout / branch: 同 Round 1；本轮开始只有临时 benchmark 脚本未跟踪，未修改它。
+- started_at: `2026-10-24T01:00:26+08:00`
+- completed_at: `2026-10-24T01:01:52+08:00`
+- duration: `PT1M26S`
+- 文档 SHA-256：motivation.md 与 Round 1 相同；design.md 为 `d587675639af2e835c8de51caa1a2bdda43426a7c930b158c43d4fa20d464b5a`；delta 为 `58b2fe9e850987ed27da244357e193620cff4e4b901cf532c6e3f4c6f4c123d6`。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING.** R1-W1 已关闭。新引入的运行期冷读入口需要明确识别 query 转为 live observation 后的持久屏障，见 R2-W1；其余修订无阻断问题。
+
+### Coverage 与证据
+
+1. **首文档与用户约束。** 重新读取 motivation.md；用户允许在确认消费者后选择按需生成，要求完整性、fork、恢复与限定范围。显式原始导出改变文件刷新时机已有真实 PA 路径依据并进入 delta，未扩张 RPC 签名、产品范围或生产操作。核心性能目标仍是正常新增轮次按增量处理，完整显式请求成本已明确保留。
+2. **现状和组装。** 比较 af01637e4..c88ade620，只有 unit 文档和 baseline evidence 改变，产品及依赖未变。复核 `history.ts:338-362` 与 `index.ts:349-358`，既有恢复、binding 校验与 path 入口可承接本方案。Round 1 的 PA distill、IM 预填 prompt、Skill 必须读所有 JSONL 的消费者证据仍适用；不存在前端布局变更。
+3. **架构、数据流和职责。** `design.md:27-43` 把高频可读投影与低频原始快照分开，同在 NativeHistory 内复用 DSH facts，符合 `SPEC.md` 的 integration 投影职责。每次显式请求重用原始命名并临时写入/rename，比另存 append 原始缓存再复制快照减少一份大文件和水位状态；已发布文件保持完整，后续显式请求可发布更新完整切面，不承诺路径内容永久固定。原始文件不会再因正常续聊暴露半行。live 路径的先捕获上界再 flush 正确；冷读的来源识别仍缺一处闭合，见 R2-W1。
+4. **队列与失败恢复。** pending/raw/rebuild 分离并要求合并保真，自动请求不能覆盖显式/重建意图；失败清水位，期间有新请求才继续，无新请求报错，避免无限重试。path 主动请求允许用户再次请求恢复；启动也经过同队列，移除了依赖 initialize 完全静默的假设。文件缺失/长度不符完整重建、其他错误传播、原始写失败保留前一完整文件且 RPC 不报成功均合理；无须引入磁盘游标或新后台任务。
+5. **fork 与增量完整性。** 完整原始请求读取从零到持久上界的切面，可读增量只处理水位后的消息，均保留 DSH 继承前缀。fork 返回前等待可读副本，原始副本首次显式生成；继承到消息点和父子独立增长依旧由未改变的 DSH fork 管理。版本头、来源、envelope 过滤与图片占位要求均保留。
+6. **delta 和验收。** canonical target 仍为 gateway/routing-delivery；ADDED 原有 Scenario 保留，新增延迟提炼读取覆盖原始发布变化，恢复条款区分可读启动恢复与原始请求生成。M1 增加延迟读取，隔离 RuntimeClient + fixture 的产品路径足够检验本次机制，不要求真实模型/UI。仍需实现期兑现队列意图保真、部分写失败和同会话并发矩阵；R2-W1 应纳入该矩阵。
+7. **性能证据边界。** 新增 `M1-export/evidence/benchmark.md` 与临时脚本的 fixture、计数、阶段和限制吻合，本轮只读检查方法，未重跑或声称优化已实现。热路径不再序列化原始全文是合理优化，显式 O(总历史) 请求成本已在风险中披露；最终 evidence 宜分别列出正常 20 轮与显式导出开销，见可选建议。
+
+### 历史问题闭环
+
+- **R1-W1 — closed。** Author Resolution 接受延迟读路径事实。`design.md:31,35,39-43` 明确原始文件不再原地 append，只在显式请求中完整临时写入并 rename；普通后续聊天只改变可读副本，即使可读追加失败也不会污染既有原始快照。其他显式请求的失败保留旧完整文件，成功发布另一个完整切面。delta `:13-15` 与 M1 对应补入延迟读取。原始文件读取保证不再依赖模型容忍半行，足以在设计层关闭原问题。
+
+### Issues
+
+#### R2-W1 — observeSession 的冷读入口可能返回 live 切面，不能跳过持久屏障
+
+- **位置：** `design.md:34,39-41`。
+- **证据：** 设计先用 ctx.sessions.get 区分实时和未加载会话，并把后者的 sessionQuery.observeSession 称为“冷读租约”。锁定 `@deepseek-ai/dsh-session-query/README.md:106-110` 明确 query live-first 且冷读中 session 激活后转为 live；其公开 `lib/types/observation.d.ts:7-23` 提供 `source: 'live' | 'prepared'`。安装的 `lib/index.js:348-365` 在 await stat/load 后重新 get，发现附着即返回 live；`:473-495` 只捕获 seq 并 snapshotEvents，没有 flush。单次入口 get 未命中不能证明返回 observation 来自持久冷记录。
+- **具体场景与后果：** 对一个尚未加载的已绑定会话调用 session.export，query 等待读盘时同会话被 session.ensure/submit 激活并追加事件；query 返回 live observation。若按设计的“冷读”直接发布，则没有经过该切面的持久屏障，新导出可包含尚未持久或随后 flush 失败的事件，违背本 unit 的持久事实保证。单会话导出队列不能阻止产品正常激活/提交会话，因此序列化导出任务本身不能消除此窗口。
+- **要求闭合：** 明确根据实际 observation 来源保证持久性；prepared 结果可依赖其持久来源，live 结果也必须遵守固定上界后成功 flush 再发布的约束。可以复用既有 flush 与 observation 的公开 source/cursor，不要求新增抽象、重试框架或私有 API；flush 缺失/失败不得返回成功路径。
+- **复审证据：** 补充该来源判断及“初查未加载 → query 等待时激活 → 返回 live”并发验证，覆盖屏障成功与失败、等待中新增事件不越过固定上界。无需启动生产或全量 CI。
+
+### Recommendations
+
+- **R2-R1（可选）：** 最终 benchmark 分开报告顺序 20 轮自动维护成本和一次显式原始导出成本，注明最终完整性读取是否计入各阶段。按需化已是允许的行为改变，但不宜把移到显式请求的全量成本描述为所有工作负载均消失；不影响设计通过判据。
+
+### 本轮执行边界
+
+仅追加本 Round；未修改设计、代码或旧 Round，未提交，未运行全量 CI、服务或额外子任务。本轮仍是设计审查，不是实现测试或产品验收。
+
+### Author Resolutions
+
+- R2-W1 — accepted。锁定 DSH query 的公开 source 标记区分实际来源，不能以第一次 sessions.get 未命中推断持久性。design 接口与数据流已规定：observe 返回 live 时重新取得 Session，捕获上界再 flush；无法取得或 flush=false 失败，prepared 才使用持久 observation。M1 覆盖此并发边界。
+- 水位明确绑定 live Session 生命周期（WeakMap），prepared 恢复不向未来 live 对象移交游标；这是对“可信水位”的具体收口，不新增持久缓存。

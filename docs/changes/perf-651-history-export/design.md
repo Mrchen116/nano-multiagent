@@ -29,14 +29,14 @@ turn/end → 单会话合并队列 → 捕获 seq / flush → 校验可读副本
 ## 关键决策
 
 1. **原始历史按显式请求完整发布。** 实际消费者是 PA distill，它取得路径后可能很久才让 Skill 读取；因此原始文件始终采用原子替换，绝不原地 append。turn/end、fork 和启动不再更新原始导出；只在 session.export 生成最新完整持久切面，返回原有命名的路径。后续聊天不改变该文件，下一次显式导出也只发布完整文件。保留历史遗留文件，不删除、不另建全量缓存。生成时机的变化写入 delta。
-2. **可读副本正常采用 JSONL 追加。** 首次、重启、文件缺失/长度不符或失败后完整原子重建。每会话仅记录下一个事件序号、可读字节长度；原始和可读写入（若适用）均完成后才更新水位。追加不重编码旧消息，不截掉 fork 前缀。同长度的用户原地改写不属于支持的派生文件编辑协议。
+2. **可读副本正常采用 JSONL 追加。** 首次、重启、文件缺失/长度不符或失败后完整原子重建。每个 live Session 生命周期仅记录下一个事件序号、可读字节长度（WeakMap，不保留 Session 强引用）；原始和可读写入（若适用）均完成后才更新水位。追加不重编码旧消息，不截掉 fork 前缀。同长度的用户原地改写不属于支持的派生文件编辑协议。
 3. **合并尚未完成的请求。** 每会话最多一个执行任务加 pending/raw/rebuild 标志。新 turn/end 设 pending；显式 export 同时保留 raw 标志，恢复请求保留 rebuild 标志，不能被普通请求覆盖。循环处理到最新请求，未变化切面不写可读文件。失败保留拒绝结果并使水位失效；如果失败期间有新请求，继续处理且不能丢失未成功的 raw/rebuild 意图；无新请求则报错，不无限自重试。不同会话独立。
 4. **持久切面、排队和恢复统一。** 队列捕获 session.seq 后再 flush，导出上界固定到捕获序号。session.export 会主动请求导出，故失败后再次请求可以恢复；fork 返回前等待可读副本；stop 等待已排队任务。启动 recoverExports 使用同一队列强制重建可读副本，避免与已加载 Session 的事件回调交叉写。无须假定 initialize 期间完全没有后台回调。
 5. **不引入第二份派生全量缓存。** 仅合并队列不能改善顺序轮次；每轮增量追加原始文件会破坏延迟读取完整性；为原始 append 文件再建快照副本会增加磁盘副本和状态。选择低频显式完整原始导出 + 高频增量可读副本，满足已证实消费者且保持结构小。
 
 ## 接口与数据流
 
-NativeHistory 公共方法及 RPC 签名不变，path 由只检查文件改为请求/等待完整快照。队列以 session id 标识，每次执行从 ctx.sessions.get 取实时 Session；若未加载，使用既有 sessionQuery.observeSession 的冷读租约。实时读取只改现有 snapshotEvents 调用为按上界/起点读取（无新读取调用点），普通任务取尾段；raw 请求取完整切面，其可读投影仍只处理水位后的尾段。冷读首次需要完整 observation，这是低频恢复/请求成本。
+NativeHistory 公共方法及 RPC 签名不变，path 由只检查文件改为请求/等待完整快照。队列以 session id 标识，每次执行从 ctx.sessions.get 取实时 Session；若未加载，使用既有 sessionQuery.observeSession 租约并检查实际 source：prepared 才使用持久 observation；如果等待读盘时会话变 live，重新取得 live Session 并走同一捕获上界/flush 路径，无法取得或 flush=false 则失败，不发布。实时读取只改现有 snapshotEvents 调用为按上界/起点读取（无新读取调用点），普通任务取尾段；raw 请求取完整切面，其可读投影仍只处理水位后的尾段。prepared 恢复不建立可供未来 live Session 复用的水位；首次接管新的 live Session 完整重建，避免把冷读中补齐的 interrupted-turn closers 当成另一生命周期的稳定前缀。冷读需要完整 observation，这是低频恢复/请求成本。
 
 writeExport 内部验证可读文件长度（ENOENT 视为需要重建，其他错误传播）。有可信水位时只 append 非空消息行；无水位时写临时文件并 rename。无消息完整副本允许空文件。raw 请求单独序列化 header + 全部原生事件并原子 rename。任一步失败清除水位，下次从零重建可读副本；原始生成失败保留上次完整原始文件，并向 RPC 返回失败。DSH facts 不改变。
 
@@ -66,4 +66,4 @@ writeExport 内部验证可读文件长度（ENOENT 视为需要重建，其他�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-export | 增量导出与合并队列 | 无 | 无 | history.ts、history tests、unit evidence 与 delta | [worker] 顺序 20 轮相较 baseline 的原始事件序列化和应用写入字节下降 ≥95%，同样完整输出；突发请求不逐项全量重写；测试覆盖持久上界、同会话并发、跨会话隔离、延迟原始读取、失败重建、缺失文件、fork 与 restart；[reviewer] 完整历史阅读/提炼输入、fork 独立增长和重启恢复场景保持成立 |
+| M1-export | 增量导出与合并队列 | 无 | 无 | history.ts、history tests、unit evidence 与 delta | [worker] 顺序 20 轮相较 baseline 的原始事件序列化和应用写入字节下降 ≥95%，同样完整输出；突发请求不逐项全量重写；测试覆盖持久上界（含 observe 从 prepared 查询转为 live）、同会话并发、跨会话隔离、延迟原始读取、失败重建、缺失文件、fork 与 restart；[reviewer] 完整历史阅读/提炼输入、fork 独立增长和重启恢复场景保持成立 |
