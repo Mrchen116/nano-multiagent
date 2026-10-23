@@ -166,3 +166,21 @@ caller完整build `/tmp/nano-646-final-sync-build.log`，installer `bca4d1524c5d
 消息 `f1345cd538a14525a4717865fc0dd435`（16:40:22.159）同样可见NO_REPLY，但宿主turn14仅含旧真人答复 `eed519...`、无Task系统通知/自动输入、无工具或确认send。它**不是P4同因**。当前已确认范围保留普通真人输入无确认交付的原投递语义，不将系统静默规则泛化为吞真人输出；该文案对用户不友好，作为范围外模型回复体验观察保留，不以它再增加本次门禁。关键业务效果仍正确：旧答复没有越过停止。
 
 本轮无源码/配置修改，测试Task最终done，Schedule已清理，服务未停。待P4窄修后只需复验同类混合自动输入静默和普通新回复不被吞；其余未失效结论保留。
+
+## Round 5 — P4 混合自动来源闭环
+
+> validated_at: `00ffba95923751b2ef04cc561158f85cb66adfa0`；executed_base: R4 `defa49f2d`；修复范围 `b0d107309..00ffba959`。
+
+**Verdict: pass**。Highest Required Action: pass；P4 closed，open in-unit issues=0，needs_re_review=false。R4普通旧真人输入选择NO_REPLY的side finding保留原范围判断，不扩大为通用吞真人输出协议。
+
+caller PA编译成功后Gateway53900于16:49:01Z ready；仍为隔离IM55324、同node/身份/DB。reviewer开始核实HEAD完整hash一致且clean。仅复验混合自动输入静默及独立真人回复：本次按逐输入允许类别组合判定，未改变停止、Task状态或Schedule业务语义，因此保留R4停止前旧答复不恢复、新明确恢复174、纯通知turn20/21及新任务结果68，R1–R3未失效Global/期限/询问等证据继续保留。
+
+### 真实复现与决定性证据
+
+- 在 `c_ctzoho3d` 新建 `tg_42e4c903` 等整数×5，询问 `82dd4812a0514a8e8b726b9b79855ad0` 实际可见，分配系统消息 `41368d1e64c6411ebc838055d60f4c3b`。真实Schedule已建、图waiting。
+- 确认一次授权bash sleep40正在执行后，16:50:47发送 `/stop` `a02aa3ea1ed14faf9b411658ae870da8`；暂停通知 `320197600cfa4d46a1c26a81d69dbe49` 与停止确认 `e036eaf004f94920b8f7e7861345f908` 真实可见。
+- reviewer直接读取16:49:01之后的聊天历史：混合轮收尾后无新增NO_REPLY，无空running消息，会话idle、Task paused。被用户中断的原轮保留空failed终态，不误称running残留，也没有伪造完成。
+- 读取核对caller只读宿主JSON `output/review646-r5-host-turns.json`：session `81161fc0-739d-4878-ad1c-5e5994ff7733` turn23同时包含分配系统消息 `41368...`（system_notice.kind=task_graph）及 `task-change:1b071824-ebf4-4080-93d7-34e77e72ad66`（context_only/origin=task_execution）。两输入同轮completed，seq425于16:51:04.981Z turn/end；delivery23 confirmed、message_id null、content空。**已实际形成与P4相同类别的混合轮，不是未执行导致无消息。** 后续暂停通知turn25也completed且静默。
+- 真人新问题 `f40e6b6556c04538a30643fa53c4bbb8` 要求保持Task暂停并问31×4；16:52:08消息 `0778337c0ec742c7850e62adc3e075e9` 正确回答124并说明保持暂停，delivery completed。宿主turn26 completed；同轮显式send可见，未吞普通回复或重复投递。最终idle、图paused。
+
+P4由“混合自动输入公开哨兵”变为“同类真实混合轮completed且无公开占位”，并保留真人独立结果，闭环通过。没有修改实现/配置，没有操作生产；服务仍由caller持有。上层文档归并/CI/部署仍不由本产品报告替代。
