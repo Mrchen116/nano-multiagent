@@ -231,3 +231,31 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - R1–R6 未受影响的 feedback/一小时waiting/实际投递/混合通知静默/审核模型兼容性与审批边界保留；旧“解fence自动唤醒”测试预期被本次用户新授权明确替换，不能继续当产品保证。R7–R9设计批准是契约来源，不代替上述实现检查与原生复现。
 
 本轮 gate：1 条 P2 CONFIRMED 存活；需修后 targeted closure。没有额外未证实高风险候选。只追加本 unit 两份报告；未改被审实现/测试/配置/设计。
+
+## Round 8 — latest-stop closure and main capability integration
+
+- 固定source：`3bdcdc546a073c9503eadda6c57573547ceb45db`；patch base为R7 source `503498e1f`，报告 `7983dcac5` 已保留；main `63724d53f` 经 `d44a48792` 实际合入。2026-10-24 03:06 +08；同一独立 reviewer，未参与实现。
+- 范围：R7 P2 closure、新main与本unit的Task Tool/Feature/feedback、配置依赖/占用保护、Schedule/stop/来源边界；不重新全量审查feat-645前端/其他Feature内部实现。起始只有未跟踪隔离配置；随后两canonical文件仅对齐元数据dirty，已逐行确认无契约改动，未修改或提交它们。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus finding closure
+
+**R7 P2 — closed。** `task-execution.ts:184-195` 现按完整事件正序收集可信stop的首次出现，Set以稳定消息ID去重；重复restore不会改变接受顺序。最后一个首次接受的stop选定后，仅对它检查consumed/pending/current messages，没有因最新已消费而回溯旧stop的循环。原source/ID保持，未增加wake或额外持久队列。原生回归 `task-context-sync.test.ts:89-112` 使用与独立复现相同的older/newer→fence reject→逆序重入队→normal shutdown/restart→未来输入，实际断言只恢复newer。
+
+读取 `/tmp/nano-646-stop-order-red.log`：**1 failed / 3 passed**，实际收到older而非newer，03:00:49，5.94秒。读取 `/tmp/nano-646-followup-integrated.log`：**7 files / 39 passed**，03:01:56，20.04秒；包含修后stop顺序、quiet release/冷恢复/UI resume、反馈Feature门控、IM入口与能力回归。既有单stop跨正常退出和第二次输入不重复保留；不重复运行同型绿测。
+
+### 实际merge与契约边界
+
+- **指导与工具分离正确合并。** `features/task-graphs.ts` 的完整646 Feature guidance 保留：事实推进、一小时waiting、Schedule重估、固定聊天、unknown诚实性、合法替代/非授权等没有被主线旧文本覆盖。工具移到registerTool常驻注册；`agent-config.ts:107` 的enabled回调读取执行Agent的 `forAgent` 当前/历史配置，成功apply的deferContext仅在Task Feature开启时发生，未以preset模板状态替代实际Agent选择。native feedback新增Feature=false手动tool用例证明普通调用成功、无task-feedback、无额外send；原三状态Feature=true仍实际反馈。
+- **自动执行没有随tool独立而扩大。** driver enabled、PA snapshot/recover仍要求Task Feature；IM普通操作仅核工具/身份，execution/execution_scopes仍要求Feature，execution_pause保留宿主stop资格。新增IM用例同时断言Feature关闭后get可用而自动snapshot拒绝。Task工具可手动调用不等于自动责任、自动反馈或人工授权。
+- **能力撤回不破坏持续责任。** main新增Task跨会话doing/waiting计数，在IM configuration gate拒绝撤回Task Feature/tool；save在配置pending期间拒绝新增加的active assignee，防止读用量与实际保存间漏过。此前paused/in_review等不阻止关闭，符合新canonical第19项Requirement。Node pendingConfigurations恢复、runtime prepare/apply reservation及current configuration回调接线存在；stop.cancel/inject/flush/block(false)不受新增工具占用门控而改成wake。
+- **Cron依赖与waiting仍是实安排。** Task Feature依赖完整Cron+tool，manual Tool独立不启用自动指导；configureSchedules和schedule.wait.inspect按实际仍active的安排与会话核实，不因无关Feature开关伪造等待失效。IM一小时cap/receipt/固定聊天投影未改；Task自己的正常resume/recover继续走PA→driver最新scope。
+- **其余冲突。** Global query的双方修复同为仅Global ensureAuthority，差别仅格式；SingleThread权限仍由IM。IM/native测试保留两边语义并集而非任选；新增capability pre-execute guard与原审批/source链并存，没有Task豁免。停止协作context_only、冷恢复tasks=[]和latest-stop逻辑没有被main覆盖。
+- **文档并集。** 冻结canonical为Agent Capabilities **45 Requirements / 168 Scenarios**、Task **19 Requirements / 39 Scenarios**，入口索引45/19一致；本unitTask delta五个ADDED Requirement全部存在于canonical。主线新增Task责任占用保护与本unitpassive同步Requirement均保留，没有以覆盖一边消除冲突。后续两文件仅将“对齐: feat-645、bugfix-646”改成docs-check要求的单一bugfix-646，内容不变，可保留。
+
+本轮0存活finding，R7 P2已关闭；集成build/typecheck由caller确认通过，适用39项测试已直接读取。全量后端与真实产品新栈结论由对应gate提供，不把进行中结果写成通过；前序未受影响范围保留，未启动或占用产品服务。仅append本unit两份报告，不改实现或其他报告。

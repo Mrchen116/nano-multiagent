@@ -298,3 +298,46 @@ Outcome: **implementation-mismatch**。没有为了适配错误实现修改契�
 已读取可信32项窄测与128文件656项全量绿日志（Node24，02:56本轮），复用full build/typecheck事实；本轮仅追加一个独立原生latest-stop复现，没有重复全量。新产品旅程由另一独立reviewer在caller隔离栈进行，本轮不占用其数据或服务，不将其未返回结论当作代码缺陷，也不提前代签。
 
 前序feedback事务/receipt、waiting一小时、Global非空结语、SingleThread普通/卡片/混合通知交付、supported-effort与原审批链结论保留。旧“解除fence后启动以消费队列”的停止语义被用户本次授权取代，必须采用本轮passive新基准。仅追加两份报告，未更改实现或共享merge内容。
+
+## Round 8 — R7 P2 closure / main integration delta
+
+> validated source: `3bdcdc546a073c9503eadda6c57573547ceb45db`；patch base: `503498e1f`；R7 report: `7983dcac5`；effective main: `63724d53f`，merge: `d44a48792`。
+
+- 同一独立 verifier；2026-10-24 03:06 +08；verification_mode：targeted-closure + integration delta + corrected-delta。
+- verdict：**pass（本次静态/故障与集成范围）**，0 CRITICAL / 0 WARNING / 0 SUGGESTION；outcome：**aligned**。
+- validated_issues：R7 W1/P2 closed；requires_full_verification：false。已按真实共享边界检查upstream与本unit交互，不将“无冲突”当证据；未重新代验feat-645全部产品与其他Feature内部细节。
+- 自有报告append-only；未跟踪配置和两文件纯“对齐”元数据修改为caller所有，保留不动。
+
+### Correctness / Coherence 与闭环
+
+| 契约 / 合并风险 | 最终证据 | 结论 |
+|---|---|---|
+| 最新可信stop按发生/首次接受顺序，重复入队不改变顺序 | 正序事件+稳定ID Set；选最新后才检查资格；不循环回溯已消费最新后的旧通知 | R7 P2 closed |
+| 冷恢复normal dispose后最新控制可见且不额外wake | 原真实双stop回归红1→绿、normal teardown与future ordinary输入请求内容；原单stop/不重复测试保留；block(false)仍无followup | aligned |
+| Task Feature完整指导不丢，tool独立但不启动自动行为 | Feature guidance完整保留；registerTool与Feature拆分；driver和PA自动snapshot/recover门控未撤销，IMexecution分支仍校Feature | aligned |
+| apply feedback依实际Agent当前Feature选择 | registerTool enabled回调为ConfigurationScopes.forAgent；未直接捕获preset配置。Featureoff手动工具实际2次apply成功而无deferContext/send；on状态三终态测试保留 | aligned |
+| 配置撤回与责任更新竞态不丢doing/waiting | IMactiveTaskCount跨会话、withdrawsTask gate与save pending withdrawal防护；Taskpause/stop保持可操作，paused等不假作doing | aligned，canonical新增第19项已覆盖 |
+| Schedule/配置变化与passive stop的交互 | TaskFeature依赖Cron及工具，实际active Schedule保持运行；waitinspect继续核ownership/session/time；prepare/reservation与tool选择不改cancel/inject/flush/no-wake顺序 | aligned |
+| API/Agent/委托/系统写入到Agent同步 | R7全入口追踪保持；main修改Task工具资格但不删post-commit notifyChange、before/after负责人并集或cold空责任补充 | aligned，retained |
+| 主线query同修复、Task测试双边并集与规范计数 | SingleThread不注册Global、现有IMACL保留；IM/get vs execution及nativeFeatureoff反馈用例均存在；45cap/19Task正文与索引一致 | aligned |
+
+### 有效证据与独立性
+
+已读 `/tmp/nano-646-stop-order-red.log`：原生older/newer顺序用例在旧实现收到older，1 failed/3 passed，03:00:49，5.94秒。已读 `/tmp/nano-646-followup-integrated.log`：七相关文件 **39 passed**，03:01:56，20.04秒；包括latest-stop、passive/empty/UIresume、Featureon/off反馈及IM/能力接缝。修复直接覆盖上一轮独立真实复现，未靠mock内部函数或提高timeout消除finding。caller已确认集成build/typecheck成功；本轮不重复已有效覆盖的测试，不将上一轮503源码的656全绿冒充当前main集成全量。
+
+当前产品reviewer在同worktree隔离栈实测3bd；本轮未操作其身份/数据/进程，真实产品最终结论与后端全量由各gate提供。静态通过不能替代这些结果。先前一小时waiting、反馈事务/receipt、Global非空结语、SingleThread正常/混合通知交付、原审批与supported-effort未受此merge实质改变，适用证据保留。
+
+### Corrected Delta Reconciliation — Round 8
+
+依本轮append-only要求新增闭环段，R7的implementation-mismatch作为旧版本历史保留。
+
+| Delta / canonical | 最终实现与证据 | Outcome |
+|---|---|---|
+| 本unitTask原四项ADDED+Global/reviewer模型delta未改范围 | 原646完整指导和事务/来源/交付实现保留；前序适用门禁保留 | aligned（retained） |
+| Task新第五项ADDED：passive停止、未来有效触发、同Agentnotice被动 | R7源审与39项有效native/IM回归；main不改no-wake语义 | aligned |
+| 同项：normal restart只补最新未消费可信stop、已消费不重复 | first accepted unique ID顺序修复，原生两stop逆序恢复红→绿；最新选定后单次资格检查 | aligned，R7 P2 closed |
+| 外部修改/群解散与冷空责任 | 所有提交后通知入口保留，原生首ordinary当前tasks=[]；active责任门控的主线调整未删同步 | aligned |
+| 新mainTask工具/Feature独立、Task占用保护 | canonical普通工具与自动责任分开；Featureoff手动tool/无反馈真实runtime用例，IMactiveTask gate+save竞态防护 | aligned |
+| canonical/delta归并及入口计数 | 冻结Agent Capabilities45req/168scenario、Task19req/39scenario；gateway索引45/19；本unitTask5ADDED标题全部在canonical，主线占用Requirement与passiveRequirement并集保留 | aligned，无delta-mismatch |
+
+Outcome: **aligned**。未发现遗漏的新对外行为或新架构偏离；两canonical后续仅“对齐”头部元数据变化已逐行核对，不需因此重开功能验证。新full/product门禁仍待对应明确结果，不从本报告推出生产部署或全部交付完成。
