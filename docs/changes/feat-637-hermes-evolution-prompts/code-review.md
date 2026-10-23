@@ -53,3 +53,23 @@
 - 设计文档的刷新措辞、引用和 runbook 校正没有改变公共行为或 milestone；spec 与两份 delta 相对 R1 未变。本轮未扩大到原分支 full 审查，R1 未变化范围保留。
 
 结论：patch 审查通过，R1 finding closed；0 存活代码问题。复用现有窄测试和相关 build 证据，未重跑全量。不代替独立产品21场景验收或最终同步后的失效判断。
+
+## Round R3
+
+- review_mode: bounded patch
+- diff_range: `138eccfd7..1bc6219356186ebc0a3f255cf4a441936495d8e3`
+- validated_at: `1bc6219356186ebc0a3f255cf4a441936495d8e3`
+- executed_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`
+- 先前静态版本：`fc101f8532e638324ebcf8bf60e51044af68c377`；至 `138eccfd7` 没有产品代码、spec 或 delta 增量，R2 未变范围 retained。
+
+```json
+[]
+```
+
+实际改动仅两处前台模型指引及对应设计／来源／进度记录：Memory 工具描述要求写前完整读取当前双文件、保持项目身份、不用陈旧快照重复保存、尊重延后维护；Skill system section 同步明确回复消息不把后续同执行调用变为后台 review。`KnowledgeFiles` 实际路径为 `<workspace>/.nanoassistant/memory/{USER,MEMORY}.md`，描述与落点一致。未修改 schema、执行器、硬检查、后台调度或冻结快照，不产生新的权限或事务承诺。文档明确这些是操作指引，未将其写成宿主强制保证。
+
+复用 `/tmp/feat637-r3-tests.log`：最终两文件9项通过；`/tmp/feat637-r3-build.log`：package tsc 构建成功。它们保护既有执行机制，不证明模型会服从新说明。真实 Global 输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 的产品失败由 acceptance 保留，修复效果待产品 reviewer 同条件复验；本轮不关闭该产品 finding。
+
+结论：当前 bounded patch 无可确认代码缺陷；R1 finding 保持 closed。未运行全量、未修改实现/测试、未提交，保留并行 acceptance.md。
+
+同轮收尾纳入 caller 新冻结 `1bc6219356186ebc0a3f255cf4a441936495d8e3` 的补充：仅 read 明确不存在才按空文件处理，拒绝／其他失败／不完整才跳过。该句与后台原有缺失文件规则和实际首次保存路径一致，避免将新 workspace 的无文件误判为不可维护。设计和 prompt-map 同步，无新执行逻辑。上述 R3 validated_at/diff_range 已延伸至此版本；两文件9项与 build 的实际运行版本为前一个 `ff30a6ea8`，最后增量仅此模型说明，机制回归 retained，不冒称在最后 SHA 重跑。

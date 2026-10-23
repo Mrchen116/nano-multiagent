@@ -164,3 +164,27 @@
 None。暂缓知识的排除属于既有长期价值／单一归属约束的修正；skill-catalog过滤恢复原有F4合格正向路径，不是新的证据单位或放宽配额；原生失败/取消保留是既有结算契约。未发现本次 unit diff 中遗漏的对外行为。
 
 Outcome: aligned
+
+### R3 corrected-delta 有效性
+
+当前补充核对版本为 `1bc6219356186ebc0a3f255cf4a441936495d8e3`，executed_base 仍为 `5462b7217421a2c27871c1c5951c1e48644e54ba`。已用 git diff 确认从 R2 经 `138eccfd7` 到该版本，首文档和两份 delta 未变。新增前台当前双文件读取、项目身份及延后维护说明，分别落实既有“后台已保存内容后避免重复／纠正”、单一归属和用户约束，未改变快照或写入接口。R2 Corrected Delta Reconciliation 保持 aligned，无新增遗漏对外行为；无需为空 delta 重新建立审查轮。
+
+## Round R3 / bounded delta
+
+- validated_at: `1bc6219356186ebc0a3f255cf4a441936495d8e3`
+- executed_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`
+- verification_mode: delta
+- fix_delta_range: `138eccfd7..1bc6219356186ebc0a3f255cf4a441936495d8e3`
+- requires_full_verification: false
+- verdict: PASS，0 CRITICAL / 0 WARNING / 0 SUGGESTION（仅本次静态 delta）。
+
+| 核对项 | 实现与契约证据 | 结果 |
+|---|---|---|
+| 当前 Memory 原文件读取与项目身份 | `features/memory-curation.ts:17` 补写前完整读取双文件、不从陈旧继承快照重复追加、不混并不同项目；与 `KnowledgeFiles` 构造和 memoryText 的真实 workspace 根路径一致 | aligned；操作指引，不宣称前台新增读取硬检查或刷新快照 |
+| 延后维护与回复后的执行身份 | 同 Memory 描述及 `features/skill-creation.ts:10` 明确用户只允许后续维护时，不在回复后继续同执行写入；后台仍由既有独立调度负责 | aligned；遵守显式约束，没有新调度/授权协议 |
+| 对应设计与来源说明 | design 新段和 prompt-map 记录产品失败及必要适配；单操作 schema、读写实现、锁、facts、F4与combined均未修改 | aligned；R2 未变实现和R1闭环结论 retained |
+| delta-spec | 首文档及Gateway/IM两delta均未变；当前指引落实已有去重、明确归属、用户约束场景 | corrected-delta aligned retained，见上段 |
+
+复用最终 `/tmp/feat637-r3-tests.log` 两文件9项和 `/tmp/feat637-r3-build.log` package tsc 成功证据，不重复全量。测试保护机制回归；指引效果仍需独立真实模型复验。产品 R2 的输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 已暴露前台未读、重复保存及项目混淆，本静态 PASS 不关闭该产品失败、不声称21场景全部通过。只追加两报告，未触碰 acceptance、实现、测试或设计；未提交。
+
+同轮补充：caller 将冻结延伸为 `1bc6219356186ebc0a3f255cf4a441936495d8e3`，仅增加 read 明确不存在视为空内容、其他读取失败／拒绝／不完整才跳过的区分，设计和 prompt-map 同步。已对该小 delta 与原文件落点／首次创建路径核对；aligned，未改 spec/delta 或执行机制。上述 R3 与 corrected-delta 的 validated_at 已延伸至此版本。测试实际运行于 `ff30a6ea8`，最后仅一处说明文字，既有机制回归 retained，不新增一次全量或虚记重跑。

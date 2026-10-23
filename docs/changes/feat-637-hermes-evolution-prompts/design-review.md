@@ -577,3 +577,73 @@ Runbook 指向现有隔离启停脚本、受控账号、真实 IM 消息入口�
 - 已核对冻结版本、完整设计 delta、受影响提示词落点和 F4 过滤的设计性质；未重做 full 或扩大需求。
 - `spec.md` 与两个 delta-spec 未改，21 场景的产品验收要求仍成立。原始失败案例及修订后真实结果应由产品记录保存，不能因本轮 Approved 覆盖失败历史。
 - 本轮未运行测试、真实模型、服务或浏览器；未复验行为质量。代码/一致性和独立产品门禁仍各自负责相应判断。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，沿用 R3/R4 独立设计 reviewer；未参与设计或实现，不兼任代码、一致性或产品验收。
+- review_mode: `delta`
+- mode_reason: 新增前台 Memory 的当前文件读取指引及回复后维护身份边界，有界改变模型指令，不能仅 retained；需求、协议、快照、调度和 UI 未变，只审受影响的去重、用户约束和首次写入路径，不重做 full。
+- started_at: `2026-10-23T13:34:43+08:00`
+- completed_at: `2026-10-23T13:36:54+08:00`
+- duration: `131s`
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`，branch `unit/feat-637`。开始时已有未跟踪 acceptance.md，收尾时另有其他 reviewer 的报告修改；本轮仅追加本文件，不触碰这些内容。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- reviewed_delta: 从 R4 的 `fc101f8532e638324ebcf8bf60e51044af68c377` 起；初始冻结 `ff30a6ea8adf82404f4bf998092c5d24f7ea5f0f`，同轮发现后作者最小修订并冻结 `1bc6219356186ebc0a3f255cf4a441936495d8e3`。
+- validated_at / effective_through: `1bc6219356186ebc0a3f255cf4a441936495d8e3` 的当前设计内容；不是追溯批准初始缺口版本。
+- 受审设计散列: `design.md` = `43e376b1a4a2f9d2d4994864fdc1c4f3e9867656ee18c17bcfc6a3fccda09c8f`；`prompt-map.md` = `2b4f066381537447185ab925442c8226c2a8e81dc89aeece4ae1b8a5af4a6b01`。
+- 历史保全: 追加前报告 SHA-256 `3d84557b33c381a6adaca556471e363daa474a742ad3ae281ddf7c6e938aabbf`，保留所有既有轮次。未修改设计或代码、未创建 worktree、未提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING（未解决）。Gate 2 对同轮修订后的设计继续成立。**
+
+本轮发现的首次缺失文件语义已由作者在 `1bc621935` 修正并核实关闭；过程和版本保留如下。当前内容读取及前后台身份说明符合既定去重与尊重用户约束要求，不代表模型行为已经验收通过。
+
+### Coverage 与证据
+
+#### 1. 前台当前内容输入及项目身份
+
+`design.md`:140 和 `prompt-map.md` 末段把前台 Memory 操作指引补齐到当前 workspace 的 `.nanoassistant/memory/USER.md`、`MEMORY.md` 全文。路径与 `KnowledgeFiles` 构造器 :49 的 memoryRoot、runtime.files(agent) 使用 session cwd 的现有接线一致。冻结 snapshot 仍是历史输入，后台写入后可能过时；通过已有且获准的 read 获取当前文件能为前台去重提供真实数据，不需刷新父快照或宿主另行注入内容。
+
+当前指引同时要求原位纠正、不新增同义副本，并保留不同项目的身份。它限制将两个项目的运行环境或路径合并为一个事实，不改变 USER/MEMORY/Skill 的分类。与既有“重复表达不产生重复记忆”“明确纠正替代旧事实”及准确环境事实要求一致，不新增项目实体库、语义去重器或工具协议。
+
+本轮最小修订明确：仅 read 确认不存在才视为空；权限拒绝、其他失败、未读完整均跳过。读取权限不因工具说明恢复，被禁用的 read 不能由 shell 或宿主注入替代。本规则仍是前台操作指引，不声称已有与后台同等的强制读取 guard，也不承诺跨调用事务。
+
+#### 2. 回复消息与后台维护的身份
+
+Memory 说明和 Skill 前台指引明确：发送回复并不结束当前执行或创建后台 review，同执行中随后调用的维护工具仍属前台。对于此次原始条件“本轮只口头确认，允许后续维护”，前台应停止知识写入，后续由原有独立维护调度处理；这与已有工具作用域和调度身份一致。
+
+“交给独立 review”不产生新的用户授权，也不取消原有 feature、到期、工具权限或用户条件。泛化的暂缓要求仍须按上下文尊重，不能解释为允许后台立即执行被禁止的修改。现有 prompt 保留显式用户约束和不绕过禁用能力，design 以“用户只允许后续维护时”限定该路径；本次不引入授权引擎或新的自动触发条件。
+
+触发修订的输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 及前台写入行为，已在产品 reviewer 的 acceptance.md R2-P1 与 prompt-map 记录。本轮读取该交接证据以核对设计问题，未重复运行模型；产品失败不会因新指引或本轮 Approved 被改写为已通过。
+
+#### 3. 同轮发现与关闭：R5-W1
+
+- 初始位置：`ff30a6ea8` 的 design:140、memory 工具说明。“两份文件完整读取；不能读取则跳过”没有区分文件尚不存在与真实读取失败。
+- 具体影响：新 workspace 首次写入，或 USER/MEMORY 仅有一类已建立时，另一文件不存在。`knowledge/files.ts`:18-20 的 readText 明确把 ENOENT 视为空，文件由成功写入建立；初始化 snapshot 不预先创建两份文件。按初始新文案，前台可能因另一文件缺失而跳过合法首次记忆，和既有创建能力及后台缺失语义不一致。这不是假设另加一个异常系统。
+- Author Resolution：同轮收到发现后，在 `1bc621935` 同步 design、prompt-map、Memory 工具说明，增加“read 明确确认不存在才按空内容；拒绝、其他失败或不完整跳过”。没有新增 fallback、权限或协议。
+- 本轮核实：直接比较 `ff30a6ea8..1bc621935`，三处语义一致，并与后台 memory/combined 已有缺失规则相同。**closed，设计层。** 未报告初始版本 Approved，也未另开形式化审查轮。
+
+#### 4. 保留范围
+
+**retained_from: Round 4（其未变化的基础覆盖 retained_from: Round 3）。** 首文档、Gateway/IM delta、单 M1、后台当前读取与结算、Skill 原文件资格、F4 证据预算/门槛/目标、combined 调度/取消/facts、轨迹用途及刷新后重入均未改变。没有新 UI 决定或新的真实服务前置，无需重复渲染、上游来源核对或全范围设计检查。
+
+### 历史问题闭环
+
+R1/R2 设计问题、R3 非阻断建议和 R4 语义范围继续保持关闭。本次没有重新打开这些契约；R5-W1 的发现、作者修订和关闭证据见上节。
+
+### Issues
+
+无未解决项。0 CRITICAL / 0 WARNING；本轮过程发现 R5-W1 已在最终受审版本关闭。
+
+### Recommendations
+
+无新增建议。
+
+### 本轮验证与边界
+
+- 核对初始及修订冻结版本、设计和提示词差异、当前双文件路径、首次缺失处理及前台/后台身份契约。只追加本报告，保留原轮次及实际失败记录。
+- 未运行测试、模型或浏览器；没有以提示词文字或设计可行性宣称去重、项目身份和用户暂缓行为实际通过。修订后的同条件产品复验仍由独立产品 reviewer 完成。

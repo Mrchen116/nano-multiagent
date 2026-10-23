@@ -72,3 +72,5 @@
 冻结版本全仓 `pnpm build`、`pnpm typecheck` 通过，日志 `/tmp/feat637-final-build.log`、`/tmp/feat637-final-typecheck.log`。此前未受修复影响的全量、前端及架构测试证据保留；修复风险由两文件9项定向回归覆盖，不因角色交接机械重跑。
 
 产品 R2 保留新失败：Global 前台在输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 回复后自行进行维护，未读当前 Memory，重复追加后台已存内容并混淆项目。前台 Memory 描述补当前双文件读取及项目身份；两类前台指引明确回复后的同执行仍属前台，暂缓维护应留给独立 review。修复只改提示与设计适配记录；既有快照机制不变。失败不由后续清理掩盖，等待同条件独立复验。
+
+前台提示修复冻结为 `1bc6219356186ebc0a3f255cf4a441936495d8e3`。设计 R5/delta Approved、静态 R3/patch 与 verification 通过（均0 CRITICAL / 0 WARNING），corrected-delta aligned retained。R5 同轮指出首次文件不存在不能误判为读取失败，已补“明确不存在按空内容，其他失败或未读完整跳过”。`ff30a6ea8` 上两文件9项通过（`/tmp/feat637-r3-tests.log`）；最后单句补充后 package build 重新通过（`/tmp/feat637-r3-build.log`）。`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` 通过259 maintained Markdown / 67 routes；默认系统 Python 缺少yaml的首次命令失败属于环境选择，未修改产品绕过。
