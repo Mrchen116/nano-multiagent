@@ -60,6 +60,7 @@ struct AgentDraft: Equatable, Sendable {
     var workspace_root = ""
     var skills: [String] = []
     var skills_selection_mode = "explicit_denylist"
+    var fixed_tools: [String] = []
     var tool_allowlist: [String] = []
     var features: [String: Bool] = [:]
     var custom_prompt = ""
@@ -70,24 +71,8 @@ struct AgentDraft: Equatable, Sendable {
         if skills_selection_mode == "explicit_denylist" { return candidates.filter { !skills.contains($0) } }
         return skills_selection_mode == "default_discovery" ? candidates : skills
     }
-    mutating func setSkill(_ name: String, enabled: Bool, candidates: [String]) {
-        if skills_selection_mode != "explicit_denylist" {
-            let selected = enabledSkills(candidates: candidates)
-            skills = candidates.filter { !selected.contains($0) }
-            skills_selection_mode = "explicit_denylist"
-        }
-        if enabled { skills.removeAll { $0 == name } }
-        else if !skills.contains(name) { skills.append(name) }
-    }
     var effectiveTools: [String] {
-        work_mode == "global" ? Array(Set(tool_allowlist + ["inbox", "conversations", "send_message", "agent"])).sorted() : tool_allowlist
-    }
-    mutating func setFeature(_ feature: AgentFeature, enabled: Bool) {
-        features[feature.key] = enabled
-        let requiredTools = feature.requires_tool.map { [$0] } ?? []
-        if enabled {
-            for tool in requiredTools where !tool_allowlist.contains(tool) { tool_allowlist.append(tool) }
-        }
+        Array(Set(tool_allowlist + fixed_tools + (work_mode == "global" ? ["inbox", "conversations", "send_message", "subagent"] : []))).sorted()
     }
     func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false) -> [String: JSONValue] {
         var body: [String: JSONValue] = [
@@ -144,10 +129,15 @@ struct AgentModelOption: Codable, Identifiable, Sendable {
     struct Reasoning: Codable, Sendable { var kind: String; var `default`: String?; var levels: [String]? }
 }
 struct AgentFeature: Codable, Identifiable, Sendable {
-    var key: String; var label_i18n: String; var help_i18n: String; var default_on: Bool; var available: Bool; var requires_tool: String?
+    var key: String; var label_i18n: String; var help_i18n: String; var default_on: Bool; var available: Bool; var requires: Requirements
+    struct Requirements: Codable, Sendable {
+        var features: [String]; var tools: [String]; var skills: [String]
+        func values(for kind: String) -> [String] { kind == "feature" ? features : kind == "tool" ? tools : skills }
+    }
     var id: String { key }
 }
 struct AgentCapabilities: Codable, Sendable {
+    var fixed_tools: [String]? = nil
     var node_id: String; var models: [AgentModelOption]; var skills: [AgentOption]; var tools: [AgentOption]
     var platform_default_model: String?; var default_workspace_template: String?; var features: [AgentFeature]
 }

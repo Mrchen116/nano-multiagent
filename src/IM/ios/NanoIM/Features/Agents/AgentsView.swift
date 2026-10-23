@@ -190,6 +190,7 @@ struct AgentCreateView: View {
     var nodeID: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @State private var capabilityToast: CapabilityToastMessage?
     @State private var nodes: [AgentNode] = []
     @State private var selectedNode = ""
     @State private var capabilities: AgentCapabilities?
@@ -254,7 +255,7 @@ struct AgentCreateView: View {
                     }
                     if nodes.first(where: { $0.id == selectedNode })?.status == "offline" { Text(L("电脑离线，恢复连接后可创建助手。", "This computer is offline. Reconnect it to create an assistant.")).font(.caption).foregroundStyle(.secondary) }
                 }
-                AgentEditorFields(draft: $draft, capabilities: capabilities, showProfile: false, showCapabilities: false)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showCapabilities: false)
                 Section {
                     DisclosureGroup(L("高级设置", "Advanced settings"), isExpanded: $advanced) {
                         VStack(alignment: .leading, spacing: 6) { Text(L("助手标识", "Assistant ID")).font(.caption).foregroundStyle(.secondary); TextField("Agent ID", text: $draft.agent_id).textInputAutocapitalization(.never).autocorrectionDisabled() }
@@ -265,7 +266,7 @@ struct AgentCreateView: View {
                         else { Text(L("使用电脑默认目录", "Use the computer's default directory")).font(.callout).foregroundStyle(.secondary) }
                     }
                 }
-                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, showProfile: false, showModels: false, showInstructions: false) }
+                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showModels: false, showInstructions: false) }
                 }.disabled(pending)
                 Section {
                     if let error { ErrorNotice(message: error) }
@@ -279,6 +280,7 @@ struct AgentCreateView: View {
                 }
             }
         }
+        .capabilityToast($capabilityToast)
         .disabled(busy)
         .navigationTitle(L("新建助手", "New assistant")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .navigationBarBackButtonHidden(created == nil)
@@ -307,6 +309,13 @@ struct AgentCreateView: View {
             openURL(client.baseURL.appendingPathComponent("chat").appendingPathComponent(result.id))
         } catch { self.error = agentError(error) }
     }
+    private func changeCapability(_ action: CapabilityAction) {
+        capabilityToast = nil
+        guard let capabilities else { return }
+        if let block = draft.changeCapability(action, capabilities: capabilities).first {
+            capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name)
+        }
+    }
     private func loadCapabilities() async {
         let changed = hasEdits
         capabilities = nil
@@ -317,7 +326,7 @@ struct AgentCreateView: View {
             capabilities = value; error = nil
             draft.tool_allowlist = value.tools.filter { $0.default_on == true }.map(\.name)
             draft.skills = []; draft.skills_selection_mode = "explicit_denylist"
-            draft.features = Dictionary(uniqueKeysWithValues: value.features.map { ($0.key, $0.default_on) })
+            draft.initializeCapabilities(value)
             if !changed { initialDraft = draft }
         } catch { if !Task.isCancelled { self.error = agentError(error) } }
     }

@@ -1,3 +1,4 @@
+import type { CapabilityBlock } from "@nano/product-contracts/capabilities";
 import { authFetch } from "../../auth/auth-fetch";
 import { readHttpError } from "../../auth/http-error";
 
@@ -101,17 +102,18 @@ export interface ModelOption {
 
 // feat-379-M3: feature toggle descriptor from FEATURE_REGISTRY (decision 7).
 // Projection served by GET /im/v1/agents/{id}/capabilities.features.
-// available=false when requires_tool is not in the agent's tool_allowlist.
+// Dependencies describe required resources independently of the current selection.
 export interface AgentFeature {
   key: string;
   label_i18n: string;
   help_i18n: string;
   default_on: boolean;
   available: boolean;
-  requires_tool: string | null;
+  requires: { features: string[]; tools: string[]; skills: string[] };
 }
 
 export interface CapabilitySnapshot {
+  fixed_tools?: string[];
   node_id: string;
   node_name: string;
   node_status: string;
@@ -286,6 +288,7 @@ interface ModelOptionWire {
 }
 
 interface AgentCapabilitiesWire {
+  fixed_tools?: string[];
   agent_id?: string;
   node_id: string;
   workspace_root?: string;
@@ -303,6 +306,7 @@ interface AgentCapabilitiesWire {
 }
 
 interface NodeCapabilitiesWire {
+  fixed_tools?: string[];
   node_id: string;
   node_name?: string;
   node_status?: string;
@@ -406,8 +410,8 @@ function toCapabilitySnapshot(
     platform_default_model: raw.platform_default_model ?? null,
     default_workspace_template:
       "default_workspace_template" in raw ? raw.default_workspace_template ?? null : null,
-    // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
     features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
+    fixed_tools: raw.fixed_tools ?? [],
   };
 }
 
@@ -449,6 +453,7 @@ export class AgentConfigRequestError extends Error {
   detail: string;
   code: string | null;
   agentId: string | null;
+  blocks: CapabilityBlock[];
 
   constructor(input: {
     status: number;
@@ -457,6 +462,7 @@ export class AgentConfigRequestError extends Error {
     path: string;
     code?: string | null;
     agentId?: string | null;
+    blocks?: CapabilityBlock[];
   }) {
     super(`${input.method} ${input.path} failed: ${input.status} (${input.detail})`);
     this.name = "AgentConfigRequestError";
@@ -464,6 +470,7 @@ export class AgentConfigRequestError extends Error {
     this.detail = input.detail;
     this.code = input.code ?? null;
     this.agentId = input.agentId ?? null;
+    this.blocks = input.blocks ?? [];
   }
 }
 
@@ -496,7 +503,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const method = init?.method ?? "GET";
-    const { detail, code, agentId } = await readHttpError(response);
+    const { detail, code, agentId, blocks } = await readHttpError(response);
     throw new AgentConfigRequestError({
       status: response.status,
       detail,
@@ -504,6 +511,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       path,
       code,
       agentId,
+      blocks,
     });
   }
   return (await response.json()) as T;
@@ -904,4 +912,8 @@ export function listAgentPlugins(agentId: string): Promise<AgentPlugins> {
 }
 export function manageAgentPlugin(agentId: string, command: PluginCommand): Promise<AgentPlugins> {
   return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`, {method: 'POST', body: JSON.stringify(command)});
+}
+
+export function getAgentCapabilityUsage(agentId: string): Promise<{ checked_at: string; active_tasks: number; active_schedules: number; busy: { kind: "feature" | "tool"; name: string }[] }> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/capability-usage`);
 }
