@@ -298,3 +298,48 @@ R4-W1 保持 closed；R1-W1 / R1-W2 / R1-W3 继续 closed；无新增待闭环 i
 ### Recommendations
 
 无新增建议。
+
+## Round 7
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: 同一开放 PR 交付会话中用户新授权的有界续修；仅复核停止不主动唤醒、真实责任恢复、冷恢复空责任与群解散通知入口。未改变共享协议或 M1 划分，不重复全量审查。
+- started_at: 2026-10-24T02:43:18+08:00
+- completed_at: 2026-10-24T02:45:45+08:00
+- duration: 147s
+- validated_at: `unit/bugfix-646` HEAD `900a09eedf6e0c9f37b88e99687b750c41fb5d85`；worktree `/Users/czj/.codex/worktrees/task-stop-sync-646/nano-multiagent`。
+- executed_base: 已集成 main `503c98e93`；合并提交 `26f2757a6` 的上游变化仅为 prod-fleet-deploy skill/runbook 文档，不影响本轮受审接线。
+- reviewed SHA-256: incident.md `e61eb4d6a176d9d6232533c940ad0c7dcf2d72ccbafd39e16b98b962a5538822`；design.md `2941e34bbe2d4f00be83342cd9249a3c26b98c96575f859bfec2a3bf53fc0483`；specs/gateway/task-graphs.md `916368c9a89e20fbb7696ba2add7e76184a6a33a482777768d59e52ca9e81c18`。
+- 本轮仅审设计与其接口可行性，不审并行编写的测试、不运行服务；按此次明确派发仅提交本报告。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+方案与新授权的“立即停止，控制通知留待后续有效触发消费”一致，复用现有 admission、责任投影和提交后 invalidation 足以实现，无需新调度器或全量任务详情推送。实施与真实静止/恢复验收仍待后续门禁。
+
+### Coverage 与证据
+
+1. **新需求与旧结论边界。** incident 续修段保留用户先要求分析、随后“好，改”及同时审计外部任务变化的授权；design 明确替换解除 stop fence 后主动处理旧输入的语义。Round 4/5 对控制事实持久化和 next-step 恢复顺序的要求继续有效，不能因本次不唤醒而删除这些保护；停止后的首个后续模型步仍必须看到真实控制事实。
+2. **立即停止与延迟消费。** 当前 `TaskExecutionDriver.block(false)` 确实对非空 inbox 调用 followup，能产生用户反对的专门唤醒。PA `task-execution.ts:58–76` 已依次执行 block/cancel/drain/pause receipt、稳定 input ID 的 inject、完成 intent、解除 block。公开 DSH `runtime-types.d.ts:182–209` 明确 followup/steer 会唤醒而 inject 不唤醒；删除解除 block 的额外 followup，保留原生 next-step 控制消息恢复，与这些语义吻合。宿主独立发送 stop 确认，无须模型再生成确认；新消息或真实 Schedule 仍是正常触发，不能将旧队列非空本身作为恢复授权。
+3. **页面恢复与误唤醒。** 当前 poke 在读取前、读取后都有 inbox 非空退出，pending stop inject 会挡住页面 resume 的责任重新评估。设计允许 changed/reconsider 分支读取当前事实，同时仍要求 runnable、cancelled 责任实质变化和拒绝屏障通过才 followup；这兼顾页面明确恢复与纯暂停/删除保持空闲。实现必须同时照顾读取前后两次 inbox 检查，不可只解除第一处；普通 idle 的让位行为仍保留。单独回归页面恢复、重复无变化 hint、quiescent、待处理控制通知及普通新输入，足以判定漏醒/误醒，不能以单次 poke 被调用作为通过证据。
+4. **冷恢复责任事实。** 当前 pre-step 的非 runnable 分支只在 previous.tasks 非空时追加 delta；进程新建 state.shown 缺失时，恢复的旧历史可能没有新的空责任说明。为首个 ordinary 输入附当前成功读取的完整 snapshot 是最小补足，不需缓存或推送已结束任务正文。该事实仍来自 PA/IM 当前 scope，不能把 source unavailable 当成确认空责任；已知旧责任仍使用现有 delta。
+5. **群解散与入口审计。** `messaging.ts:700–719` 在事务内直接关闭未完成节点并取消 relay，提交后只有 membership；这是与普通 Task 服务不同的真实遗漏。现有 `TaskGraphService.notifyChange/changeHint:881–891` 可从保留的图及 assignee 得到负责人，不依赖它们仍是 doing；因此提交后复用该能力可通知被关闭图的原负责人而无需新增聊天 notice。普通 API/Agent 的 execute 在 COMMIT 后 notifyChange（:448–466）；PA 委托在其事务完成后调用同一通知（`personal-actions.ts:193`）；改派/删除已有 before+after 负责人并集；/stop 使用独立 pauseExecution receipt。在线任务 JSON 写入搜索还发现 migration 文件，但它是迁移入口，不属本轮在线事件框架，不因此扩大改造。
+6. **通知到模型的实际链路。** `gateway.ts:43–66` 的真实 TaskGraphService.changed 发送 task.execution.changed；`apps/node/src/main.ts:174` 交 PA tasks.recover；PA `task-execution.ts:82–96` 按当前 scopes 确保需要的绑定，随后对已有会话 changed。即使关闭后 scopes 为空，changed 仍被调用，运行中原会话能在下一 pre-step 重读；闲置无责任只刷新判断而不专门开模型。设计也明确要验证 native 请求内容，而不是仅验证 callback 存在，符合用户对同步效果的要求。
+7. **职责、权限与验证。** IM 保持写入/权限/事务权威，PA 保持身份和 scope，integration 只决定原生 admission 与当前上下文；没有把通知升级为人工授权，也没有绕开已取消/拒绝动作。新增 Task delta 的停止静止、后续有效触发与冷恢复 Scenario 与续修需求相符。M1 内现有 native 队列、IM post-commit 与真实 stop idle/后续问题/页面恢复/外部修改下一步可见的验证切面足够，不需新 milestone。任何“仍 idle”“首次请求内容正确”结论须在实施后实际取得，本轮未提前声称通过。
+
+### 历史问题与 retained
+
+- R4-W1 保持 closed：控制通知仍按 next-step 保留；本轮改的是何时唤醒，不撤销首个后续步骤必须可见的要求。
+- R1-W1 / R1-W2 / R1-W3 及 R1-R1 保持已关闭/已处理。
+- retained_from: Round 2、3、5、6 的未受影响范围：事务 feedback、waiting 一小时、既有投递与静默、审核模型参数兼容性及审批边界。停止不专门唤醒采用本轮新裁决，不能引用旧测试的自动唤醒预期覆盖新要求。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。
