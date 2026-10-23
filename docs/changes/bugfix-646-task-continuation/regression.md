@@ -135,3 +135,34 @@ caller显式构建product-contracts/PA（`/tmp/nano-646-notice-build.log`）后�
 SingleThread `/agents/e2e/work` 不可访问，不能把无公开消息直接推定为模型没执行。caller提供了只读宿主sqlite提取的原始终态事实，reviewer读取核对 `output/review646-r3-host-turns.json`：session `ac6c116e-cf6f-4bbc-8722-fbdcdc7c8610` 中，分配消息对应turn2、seq88于16:28:38.592Z completed；完成消息对应turn4、seq121于16:29:46.345Z completed，输入均为真实 `sender_type=system / system_notice.kind=task_graph`。这份宿主事实只证明独立轮次确实结束，聊天无哨兵/无空running及真人结果由reviewer直接通过产品API观察，不依赖owner成功描述。
 
 P3状态：**closed**。必要的分配/完成独立系统轮次、流式终态和真人回复保护已覆盖。只读证据及临时产物不提交；服务未停止，最终Task done。上层文档归并仍由owner收尾，本报告不修改current spec。
+
+## Round 4 — final sync 输入对账/终态集成
+
+> validated_at: `defa49f2db762ab7e0e0415b4a10312f0dcaf764`（合入main `55376c111`）；baseline为R3。
+
+**Verdict: fail**，Highest Required Action: fix-implementation。新增P4（1 minor、必验自动通知静默失败），needs_re_review=true。停止优先与新恢复正常，R3已修的纯Task通知静默仍成立；不能将混合自动来源漏判与普通真人输入混为一类。
+
+### 版本与保留范围
+
+caller完整build `/tmp/nano-646-final-sync-build.log`，installer `bca4d1524c5d`；本隔离Gateway44583于16:38:22Z ready，IM55324/用户/node/历史保留。reviewer开始时HEAD完整匹配且clean。新增main perf648/perf649涉及pending输入、终态缓存及fallback归属，本轮覆盖真实排队/停止/恢复与显式send、Task通知收尾；R1期限与独立责任、R2Global纯Schedule/固定聊天和stop、R3正常SingleThread询问等未失效证据保留，不机械重跑。
+
+创建direct按产品语义返回原聊天 `c_ctzoho3d`，因此只按16:38:22后新输入、消息ID与新Task判断，未将R2历史哨兵当本轮问题。
+
+### 实测事实
+
+- 新图 `tg_982485a1` 等整数×6；询问 `0e57230a792440dc96ef6037bb3bfc34` 实际送达。waiting rev2，真实Schedule16:42:25。reviewer确认单次授权 `bash sleep 50` 正在running后，16:40:13.072提交答复29（`eed519dc576d4622bd52ab7f27a3edb9`，返回pending），16:40:13.297紧接 `/stop`（`2a5cd1f85f9545529bdec78f007748c9`）。16:40:13.464图rev3 paused；旧答复随后completed，16:40:22对应模型轮终态完成，16:42:18新恢复前仍rev3 paused、没有174结果。停止确认 `976c94b1f52542dcbbbde15df6f75259` 可见，停止优先 **pass**。
+- 新恢复 `4fa9edd9d9c74c0a91f41b49909b4cb4` 于16:42:18明确恢复并另问10+4。16:42:42消息 `3a08161be3464dbcb9f7394e42b558d3` 交付 `29×6=174` 和 `10+4=14`，图rev5 done，正常新输入/显式send **pass**。本轮新恢复在原定时点前7秒发生，不宣称本轮再次跨timer；R2对应停止跨原timer证据保留。
+- 另建普通独立图 `tg_85efeacc`，分配系统消息 `4c16c11822a24dfa9c4d34e321b18782`，结果 `01a8c51278414f52b9e84a8419681704` 正确交付17×4=68，完成系统消息 `22aa4a16636c49e5bb7862b43d6482e4`。终态idle，正常新消息与纯通知后的历史未新增NO_REPLY或空running。宿主JSON追加的new_task_notices已读取核对：该图分配为turn20 completed、完成为turn21 completed，确认不是尚未执行。被stop中断的旧轮空failed记录保留真实中断事实，不当作残留running。
+
+### P4 — Task通知与context-only自动输入混合轮泄漏哨兵
+
+- Severity: minor；Regression Relation: direct；Recommended Action: fix-implementation；Action Rationale: 本单元自动输入静默的真实交叉场景，须按实际来源组合处理，不能只覆盖纯单一通知。
+- 新消息 `c606210a788b46da9125addeebc006fb`（16:40:13.757）正文NO_REPLY、completed，用户确实可见。
+- reviewer读取caller只读宿主提取 `output/review646-r4-host-turns.json`：session `81161fc0-739d-4878-ad1c-5e5994ff7733` turn13 输入同时含真实Task系统分配消息 `e44d404b6e2b4898876c3923d1914d5c`，以及 `context_only=true / origin=task_execution` 的 task-change。轮次completed；工具只有schedule_list/delete，无send_message；投递记录confirmed NO_REPLY。此为自动输入组合，不含真人新消息，期望保持静默。
+- 公开结果由reviewer直接读聊天；宿主事实只用于准确界定输入与轮次，未读实现推断。
+
+### Side finding — 旧真人答复回合选择NO_REPLY
+
+消息 `f1345cd538a14525a4717865fc0dd435`（16:40:22.159）同样可见NO_REPLY，但宿主turn14仅含旧真人答复 `eed519...`、无Task系统通知/自动输入、无工具或确认send。它**不是P4同因**。当前已确认范围保留普通真人输入无确认交付的原投递语义，不将系统静默规则泛化为吞真人输出；该文案对用户不友好，作为范围外模型回复体验观察保留，不以它再增加本次门禁。关键业务效果仍正确：旧答复没有越过停止。
+
+本轮无源码/配置修改，测试Task最终done，Schedule已清理，服务未停。待P4窄修后只需复验同类混合自动输入静默和普通新回复不被吞；其余未失效结论保留。
