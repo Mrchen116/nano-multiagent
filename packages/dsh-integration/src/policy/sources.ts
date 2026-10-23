@@ -90,7 +90,7 @@ export class ApprovalSources {
     });
   }
 
-  async history(agent: Agent, pendingCallId?: string, includeAssistant = false, options: { toolResults?: boolean; fullAssistant?: boolean } = {}): Promise<Record<string, unknown>[]> {
+  async history(agent: Agent, pendingCallId?: string, includeAssistant = false, options: { toolResults?: boolean; fullAssistant?: boolean; privateContext?: boolean } = {}): Promise<Record<string, unknown>[]> {
     const lines: Record<string, unknown>[] = [];
     const calls = new Map<string, string>();
     let proposal = '';
@@ -153,7 +153,10 @@ export class ApprovalSources {
       } else if (message.role === 'user') {
         const source = message.source;
         const kind: string = source.kind;
-        if (kind === 'runtime-context' || source.kind === 'skill-invocation') continue;
+        if (kind === 'runtime-context' || source.kind === 'skill-invocation') {
+          if(options.privateContext)lines.push({context:text(message.content),origin:{kind}});
+          continue;
+        }
         if (kind === 'agent-instructions') {
           lines.push({ agent_instructions: text(message.content) });
           continue;

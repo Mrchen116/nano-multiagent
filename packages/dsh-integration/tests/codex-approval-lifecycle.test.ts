@@ -18,7 +18,7 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
   }} as any);
   const plugin=new CodexApproval(ctx);
   const controller=new AbortController();
-  const request={exec:{agent:{id:'parent',session:{header:{cwd:'/tmp'}}},callId:'pending',name:'edit',arguments:{path:'a',text:'complete'},signal:controller.signal},config:{agentId:'a',revision:'1',approval:{...approvalDefaults,rules:'codex'}},reviewer:{provider:'fixture',model:'fixture'},sources:{history:async()=>rows,restoreEntries:(r:any)=>r},inherited:[]} as unknown as ApprovalReviewRequest;
+  const request={exec:{agent:{id:'parent',session:{header:{cwd:'/tmp'},requestHeader:()=>undefined}},callId:'pending',name:'edit',arguments:{path:'a',text:'complete'},signal:controller.signal},config:{agentId:'a',revision:'1',approval:{...approvalDefaults,rules:'codex'}},reviewer:{provider:'fixture',model:'fixture'},sources:{history:async()=>rows,restoreEntries:(r:any)=>r},inherited:[]} as unknown as ApprovalReviewRequest;
   return{plugin,request,controller,disposed,inputs,setRows:(next:any[])=>rows=next,close:()=>ctx.fiber.dispose()};
 }
 function verdict(events:any[]){events.push({type:'assistant/message',seq:events.length,data:{message:{content:[{type:'text',text:JSON.stringify({outcome:'allow',risk_level:'low',user_authorization:'high',rationale:'authorized'})}]}}});events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});}
@@ -59,4 +59,30 @@ it.each(['parent','deadline'] as const)('suppresses late grants on %s cancellati
     await rejected;
     expect(timeout.mock.calls).toEqual([[90000]]);expect(h.disposed).toHaveLength(2);
   }finally{timeout.mockRestore();await h.close();}
+});
+
+
+it('keeps PA disclosure checkpoints separate, appends deltas and discards old context after rollover',async()=>{
+  const h=harness(async({events,input})=>{
+    if(!input.includes('"payload"'))return verdict(events);
+    events.push({type:'assistant/message',seq:events.length,data:{message:{content:[{type:'text',text:'{"decision":"allow","reason":"Original owner authorized this exact public reply"}'}]}}});
+    events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});
+  });
+  let evidence:any[]=[{user:'ORIGINAL_OWNER_AUTHORIZATION',origin:{kind:'human'}}];
+  const request={agent:h.request.exec.agent!,config:h.request.config,action:{payload:{content:'Public reply'},recipient_ids:['peer']},evidence:async()=>evidence};
+  try{
+    const tool=await h.plugin.review(h.request);
+    const first=await h.plugin.reviewDisclosure(request);
+    expect(first.decision).toBe('allow');expect(first.metadata?.contextMode).toBe('full');
+    expect(first.metadata?.sessionId).not.toBe(tool.metadata?.sessionId);
+    evidence.push({tool_result:'ACTUAL_SENT_RECEIPT'});
+    const delta=await h.plugin.reviewDisclosure(request);
+    expect(delta.metadata?.sessionId).toBe(first.metadata?.sessionId);expect(delta.metadata?.contextMode).toBe('delta');
+    expect(h.inputs.at(-1)).toContain('ACTUAL_SENT_RECEIPT');expect(h.inputs.at(-1)).not.toContain('ORIGINAL_OWNER_AUTHORIZATION');
+    evidence=[{context:'New window summary: not authorization',origin:{kind:'runtime-context'}}];
+    const reset=await h.plugin.reviewDisclosure(request);
+    expect(reset.metadata?.sessionId).not.toBe(first.metadata?.sessionId);expect(h.inputs.at(-1)).not.toContain('ORIGINAL_OWNER_AUTHORIZATION');
+    await h.plugin.release('parent');
+    expect(h.disposed).toEqual(expect.arrayContaining([tool.metadata!.sessionId,first.metadata!.sessionId,reset.metadata!.sessionId]));
+  }finally{await h.close();}
 });

@@ -83,10 +83,17 @@ function bounded(row: Row, limit: number, minimumBodyTokens = 0, measure = token
  * output reserve. Delta admission preserves historical bodies; a fresh replay
  * may shorten older historical evidence after optional evidence is exhausted.
  */
-export function reviewInput(rows: Row[], action: unknown, budget: number, allowHistoryTruncation = true): string {
+export function reviewInput(rows: Row[], action: unknown, budget: number, allowHistoryTruncation = true, fullEvidence = false): string {
   const pending = `\n<planned_action>${JSON.stringify(action)}</planned_action>`;
   const render = (entries: Entry[], omitted: boolean) => `<conversation_transcript>\n${entries.map(entry => entry.text).join('\n')}\n${omitted ? '<guardian_truncated reason="evidence_budget" />' : ''}\n</conversation_transcript>${pending}`;
   if (tokenCost(render([], true)) > budget) throw new Error('Guardian budget cannot fit complete pending action');
+  // Disclosure needs the actual private material, even when ordinary tool review
+  // would pre-trim it. Use the same recovery policy only after full admission fails.
+  if (fullEvidence) {
+    const complete=render(rows.map(row=>({row,text:JSON.stringify(row),kind:'history',required:true})),false);
+    if(tokenCost(complete)<=budget)return complete;
+    if(!allowHistoryTruncation)throw new Error('Guardian disclosure delta requires budget rebuild');
+  }
   const entries: Entry[] = rows.map(row => {
     const kind = historical(row) ? 'history' : 'assistant' in row ? 'protected' : 'tool';
     return { row, kind, text: kind === 'history' ? JSON.stringify(row) : bounded(row, kind === 'tool' ? 1000 : 5000), required: kind !== 'tool' };
