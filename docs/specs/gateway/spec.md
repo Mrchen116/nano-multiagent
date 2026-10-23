@@ -26,7 +26,7 @@
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 22 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |
 | [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离、限定附件来源 | 17 |
-| [Task Graphs](task-graphs.md) | 会话内任务协作、真实 Agent 授权、本人全层持续责任、有效等待、停止恢复、原子修改与未知回执 | 17 |
+| [Task Graphs](task-graphs.md) | 会话内任务协作、真实 Agent 授权、本人全层持续责任、有效等待、停止恢复、原子修改与未知回执 | 18 |
 | [Personal Agent](personal-agent.md) | 可信主人与参与关系、双身份历史、观察背景批次、来源限制与对外披露边界；通用能力复用 Global | 8 |
 
 ## Maintenance Rule
