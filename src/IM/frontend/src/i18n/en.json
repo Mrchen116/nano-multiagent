@@ -432,7 +432,7 @@
       },
       "offline": {
         "title": "Node is offline",
-        "detail": "Changes are saved securely and apply automatically when the node returns."
+        "detail": "Settings are read-only until the connection is restored and refreshed."
       },
       "confirm": {
         "disableTitle": "Disable the Feishu channel?",
@@ -836,6 +836,7 @@
       "inheritedUnknown": "Follow node; current value unavailable",
       "inheritedLastKnown": "Follow node; showing the last confirmed value.",
       "conflict": "Settings changed elsewhere. Your draft is preserved. Discard changes to load the latest configuration, then edit again.",
+      "catalogUnavailable": "Unavailable in the current catalog: {{names}}. Correct these selections before saving.",
       "featureUnknown": "Default state has not been confirmed"
     }
   },

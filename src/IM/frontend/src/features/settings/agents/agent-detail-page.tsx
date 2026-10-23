@@ -34,6 +34,7 @@ import {
   ModelOption,
   SkillUsageItem,
   SkillsUsageResponse,
+  type SettingsRead,
   getAgentConfigRequestDetail,
   getAgentConfigRequestStatus,
   getAgentHeartbeatMd,
@@ -101,7 +102,7 @@ function resolveEffectiveFeatures(
   return result;
 }
 
-function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentModel: string | null): ModelOption[] {
+function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentModel: string | null, fallbacks: string[] = []): ModelOption[] {
   const resolved: ModelOption[] = [];
   const seen = new Set<string>();
   for (const option of modelOptions ?? []) {
@@ -112,8 +113,8 @@ function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentMod
   }
   // bugfix-429 R5: keep the agent's current model selectable even if it is no
   // longer advertised by the node (provider unknown → label degrades to name).
-  if (currentModel && !seen.has(currentModel)) {
-    resolved.unshift({ name: currentModel, provider: "" });
+  for (const name of [currentModel, ...fallbacks]) {
+    if (name && !seen.has(name)) { resolved.unshift({name, provider: ""}); seen.add(name); }
   }
   return resolved;
 }
@@ -154,12 +155,14 @@ function BehaviorCard({
   const { t } = useTranslation();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewCapturedAt, setPreviewCapturedAt] = useState<string | null>(null);
+  const [previewStale, setPreviewStale] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   // Debounce handle for preview re-fetch on change
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewAbort = useRef<AbortController | null>(null);
-  useEffect(() => { if (readOnly) { previewAbort.current?.abort(); setPreviewLoading(false); } return () => previewAbort.current?.abort(); }, [readOnly]);
+  useEffect(() => { if (readOnly) { previewAbort.current?.abort(); setPreviewLoading(false); setPreviewStale(true); } return () => previewAbort.current?.abort(); }, [readOnly]);
 
   const effectiveFeatures = useMemo(
     () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
@@ -186,9 +189,9 @@ function BehaviorCard({
         skill_ids: draft.skills,
         skills_selection_mode: draft.skills_selection_mode
       }, controller.signal);
-      if (!controller.signal.aborted) setPreviewText(text);
+      if (!controller.signal.aborted) { setPreviewText(text); setPreviewCapturedAt(new Date().toISOString()); setPreviewStale(false); }
     } catch (err) {
-      if (!controller.signal.aborted) setPreviewError(err instanceof Error ? err.message : "Preview failed");
+      if (!controller.signal.aborted) { setPreviewError(err instanceof Error ? err.message : "Preview failed"); setPreviewStale(true); }
     } finally {
       setPreviewLoading(false);
     }
@@ -333,9 +336,7 @@ function BehaviorCard({
             {previewLoading && (
               <p className="text-[11px] text-slate-500">{t("agents.form.behavior.previewLoading")}</p>
             )}
-            {previewError && (
-              <p className="text-[11px] text-rose-600">{t("agents.form.behavior.previewError")}</p>
-            )}
+            {!previewLoading && <SettingsReadNotice read={{source: previewText === null ? "unavailable" : previewStale ? "last_known" : "current", captured_at: previewCapturedAt, data: previewText, error: previewError ? {code: "read_failed", message: previewError} : null}} />}
             {!previewLoading && previewText !== null && (
               <>
                 <pre
@@ -433,9 +434,11 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
   const [hbMdOpen, setHbMdOpen] = useState(false);
   const [hbMdContent, setHbMdContent] = useState<string | null>(null);
   const [hbMdLoading, setHbMdLoading] = useState(false);
-  const [hbMdNodeOnline, setHbMdNodeOnline] = useState(true);
+  const [hbMdCapturedAt, setHbMdCapturedAt] = useState<string | null>(null);
+  const [hbMdStale, setHbMdStale] = useState(false);
+  const [hbMdError, setHbMdError] = useState<SettingsRead<string>["error"]>(null);
   const hbAbort = useRef<AbortController | null>(null);
-  useEffect(() => { if (readOnly) { hbAbort.current?.abort(); setHbMdLoading(false); setHbMdNodeOnline(false); } return () => hbAbort.current?.abort(); }, [readOnly]);
+  useEffect(() => { if (readOnly) { hbAbort.current?.abort(); setHbMdLoading(false); setHbMdStale(true); } return () => hbAbort.current?.abort(); }, [readOnly]);
 
   async function handleHbMdToggle() {
     if (!hbMdOpen) {
@@ -445,13 +448,14 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
       const controller = new AbortController();
       hbAbort.current = controller;
       setHbMdLoading(true);
+      setHbMdError(null);
       try {
         const resp = await getAgentHeartbeatMd(agentId, controller.signal);
         if (controller.signal.aborted) return;
-        if (resp.node_online) setHbMdContent(resp.content);
-        setHbMdNodeOnline(resp.node_online);
-      } catch {
-        if (!controller.signal.aborted) setHbMdNodeOnline(false);
+        if (resp.node_online) { setHbMdContent(resp.content); setHbMdCapturedAt(new Date().toISOString()); setHbMdStale(false); }
+        else { setHbMdStale(true); setHbMdError({code: "offline", message: "offline"}); }
+      } catch (error) {
+        if (!controller.signal.aborted) { setHbMdStale(true); setHbMdError({code: "read_failed", message: String(error)}); }
       } finally {
         setHbMdLoading(false);
       }
@@ -596,11 +600,7 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
                 {hbMdLoading && (
                   <p className="text-[11px] text-slate-500">{t("agents.form.heartbeat.heartbeatMdLoading", "Loading...")}</p>
                 )}
-                {!hbMdLoading && !hbMdNodeOnline && (
-                  <p className="text-[11px] text-slate-400 italic">
-                    {t("agents.form.heartbeat.heartbeatMdOffline", "Node is offline — HEARTBEAT.md unavailable")}
-                  </p>
-                )}
+                {!hbMdLoading && <SettingsReadNotice read={{source: hbMdContent === null ? "unavailable" : hbMdStale ? "last_known" : "current", captured_at: hbMdCapturedAt, data: hbMdContent, error: hbMdError}} />}
                 {!hbMdLoading && hbMdContent !== null && hbMdContent === "" && (
                   <p className="text-[11px] text-slate-400 italic">
                     {t("agents.form.heartbeat.heartbeatMdEmpty", "HEARTBEAT.md not found")}
@@ -1237,6 +1237,7 @@ function PrototypePlaceholder({ title, children }: { title: string; children: Re
 }
 
 function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
+  const {t} = useTranslation();
   const [view, setView] = useState<SkillsUsageView>("list");
   const [showArchived, setShowArchived] = useState(false);
   const usageQuery = useQuery({
@@ -1249,30 +1250,19 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
     return <p className="text-sm text-slate-500">Loading skill usage...</p>;
   }
 
-  if (usageQuery.isError) {
-    const detail = usageQuery.error instanceof Error ? usageQuery.error.message : "Skill usage unavailable";
-    return (
-      <section className="im-agent-card border-rose-200 bg-rose-50/80">
-        <div>
-          <h3 className="im-agent-card-title text-rose-700">Gateway offline</h3>
-          <p className="im-agent-card-sub text-rose-600">{detail}</p>
-        </div>
-        <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>
-          Retry
-        </button>
-      </section>
-    );
-  }
-
-  const usage = usageQuery.data?.data;
-  if (!usage) return <section className="im-agent-card"><SettingsReadNotice read={usageQuery.data} /><button type="button" className="im-btn im-btn-muted w-fit" disabled={usageQuery.isFetching} onClick={() => void usageQuery.refetch()}>{tr("重试")}</button></section>;
+  const read: SettingsRead<SkillsUsageResponse> | undefined = usageQuery.isError
+    ? {source: usageQuery.data?.data ? "last_known" : "unavailable", data: usageQuery.data?.data ?? null, captured_at: usageQuery.data?.captured_at ?? null, error: {code: "read_failed", message: String(usageQuery.error)}}
+    : usageQuery.data;
+  const usage = read?.data;
+  if (!usage) return <section className="im-agent-card"><SettingsReadNotice read={read} /><button type="button" className="im-btn im-btn-muted w-fit" disabled={usageQuery.isFetching} onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button></section>;
   if (!usage || usage.skills.length === 0) {
     return (
       <section className="im-agent-card">
         <div>
-          <SettingsReadNotice read={usageQuery.data} />
+          <SettingsReadNotice read={read} />
           <h3 className="im-agent-card-title">No skill usage yet</h3>
           <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
+          {usageQuery.isError && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
         </div>
       </section>
     );
@@ -1280,7 +1270,8 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
 
   return (
     <div className="grid gap-3" data-testid="agent-skills-usage-panel">
-      <SettingsReadNotice read={usageQuery.data} />
+      <SettingsReadNotice read={read} />
+      {usageQuery.isError && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="mb-3 flex flex-wrap gap-0" role="tablist" aria-label="Skill usage views">
           {(["list", "agent", "health"] as SkillsUsageView[]).map((item, index) => (
@@ -1349,7 +1340,8 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   const settings = useAgentSettingsState(agentId);
   const detailQuery = settings.query;
-  const readOnly = settings.readOnly || applyPending;
+  const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
+  const readOnly = settings.readOnly || confirmationPending;
 
   useEffect(() => {
     const config = detailQuery.data?.config;
@@ -1370,8 +1362,8 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     [draft, modelOptions],
   );
   const availableModels = useMemo(
-    () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
-    [capabilities?.model_options, draft?.default_model]
+    () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null, draft?.model_fallbacks),
+    [capabilities?.model_options, draft?.default_model, draft?.model_fallbacks]
   );
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
@@ -1380,6 +1372,14 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     effectiveReasoningModel(draft?.default_model ?? null, platformDefaultModel),
     draft?.reasoning_effort ?? null,
   );
+  const fixedTools = draft?.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : [];
+  const absent = (names: string[], options: {name: string}[]) => names.filter(name => !options.some(option => option.name === name));
+  const missingModels = absent([draft?.default_model, ...(draft?.model_fallbacks ?? [])].filter((name): name is string => !!name), modelOptions);
+  const missingTools = absent(draft?.tool_allowlist ?? [], [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
+  const missingSkills = absent(draft?.skills ?? [], capabilities?.skills ?? []);
+  const missingAllowedSkills = (draft?.skills_selection_mode ?? ((draft?.skills.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery")) === "explicit_allowlist" ? missingSkills : [];
+  const catalogCurrent = detailQuery.data?.liveCapabilities === true && !readOnly;
+  const catalogInvalid = catalogCurrent && (missingModels.length > 0 || missingTools.length > 0 || missingAllowedSkills.length > 0);
   const isDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
   const versionConflict = isDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
@@ -1597,7 +1597,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     footerStatusText = hasStaleReasoning
       ? t("agents.form.access.reasoning.staleError")
       : t("agents.form.errors.required");
-  } else if (applyPending) {
+  } else if (confirmationPending) {
     footerStatusText = t("agents.form.access.reasoning.applyPending");
   } else if (mutation.isPending) {
     footerStatusClass = "im-agent-footer-status";
@@ -1609,7 +1609,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
-  const headerSaveText = mutation.isPending || applyPending
+  const headerSaveText = mutation.isPending || confirmationPending
     ? t("agents.detail.saving")
     : saved
       ? t("agents.detail.saved")
@@ -1621,7 +1621,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (readOnly || versionConflict || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
+    if (readOnly || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
     mutation.mutate(normalizedDraft);
   }
 
@@ -1685,7 +1685,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               {activeSection === "config" && <button
                 className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
                 type="submit"
-                disabled={readOnly || versionConflict || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+                disabled={readOnly || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
               >
                 {headerSaveText}
               </button>}
@@ -1735,6 +1735,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
       {settings.reason && <div className="px-5 py-3 border-b border-[var(--im-border)]" role="status" data-testid="settings-availability">
         <p className="text-sm text-slate-600">{t(`agents.settings.${settings.reason}`)}</p>
         <SettingsReadNotice read={detailQuery.data?.display} />
+        {confirmationPending && settings.reason !== "pending" && <p className="im-agent-field-help">{t("agents.settings.pending")}</p>}
         <button type="button" className="im-btn im-btn-muted mt-2" disabled={detailQuery.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey: ["settings", "agents", agentId]})}>{t("agents.settings.retry")}</button>
       </div>}
       <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : ""}`}>
@@ -1939,7 +1940,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 draft.skills_selection_mode ??
                 (draft.skills.length > 0 ? "explicit_allowlist" : "default_discovery")
               }
-              options={capabilities.skills}
+              options={[...capabilities.skills, ...missingSkills.map(name => ({name, description: ""}))]}
               workspaceRoot={draft.workspace_root ?? ""}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
@@ -1954,6 +1955,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 });
               }}
             />
+            {catalogCurrent && missingAllowedSkills.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingAllowedSkills.join(", ")})}</p>}
             {!detailQuery.data?.liveCapabilities && (!detailQuery.data?.display.data || !detailQuery.data.display.data.derived_current) && <p className="im-agent-field-help">{t("agents.settings.skillsUnknown")}</p>}
             <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
             <PillSelector
@@ -1972,7 +1974,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               }
               selected={draft.tool_allowlist}
               fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
-              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
+              options={[...capabilities.tools, ...[...missingTools, ...fixedTools.filter(name => !capabilities.tools.some(tool => tool.name === name))].map(name => ({name}))]}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
@@ -1992,6 +1994,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               }}
             />
           </div>
+          {catalogCurrent && missingTools.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingTools.join(", ")})}</p>}
           <ModelFallbackField
             label={t("agents.form.access.model")}
             labelHtmlFor="default-model"
@@ -2047,6 +2050,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               })}
             </select>
           </ModelFallbackField>
+          {catalogCurrent && missingModels.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingModels.join(", ")})}</p>}
           <ModelReasoningField
             idPrefix="detail-agent"
             disabled={readOnly}
@@ -2138,7 +2142,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={readOnly || versionConflict || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={readOnly || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
             >
               {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>

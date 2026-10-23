@@ -67,7 +67,7 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
-  enabled?: boolean;
+  enabled?: boolean | null;
   // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
@@ -355,7 +355,7 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         name: value.name.trim(),
         description: value.description ?? "",
         default_on: value.default_on,
-        ...(typeof value.enabled === "boolean" ? {enabled: value.enabled} : {}),
+        ...(typeof value.enabled === "boolean" || value.enabled === null ? {enabled: value.enabled} : {}),
         location: value.location ?? null,
         source_group: value.source_group ?? null,
       }];
@@ -511,13 +511,7 @@ export function getAgentConfigRequestDetail(error: unknown): string {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await authFetch(withBase(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const response = await authFetch(withBase(path), init);
   if (!response.ok) {
     const method = init?.method ?? "GET";
     const { detail, code, agentId } = await readHttpError(response);
@@ -667,7 +661,7 @@ export async function getAgentDetailState(agentId: string, signal?: AbortSignal)
         model_options: display?.models ?? [],
         platform_default_model: display?.derived_current ? display.models.find(model => model.source === "inherited")?.name : null,
         tools: display?.tools ?? config.tool_allowlist.map(name => ({name, description: ""})),
-        skills: display?.skills.map(skill => ({...skill, enabled: skill.enabled ?? undefined})) ?? config.skills.map(name => ({name, description: ""})),
+        skills: display?.skills ?? config.skills.map(name => ({name, description: ""})),
         features: display?.features.map(feature => ({...feature, default_on: feature.enabled ?? false, available: false, requires_tool: null})) ??
           Object.entries(config.features ?? {}).map(([key, enabled]) => ({key, label_i18n: `agents.features.${key}.label`, help_i18n: `agents.features.${key}.help`, default_on: enabled, available: false, requires_tool: null})),
       }, null);

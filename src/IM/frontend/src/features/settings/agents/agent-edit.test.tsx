@@ -190,3 +190,84 @@ it("shows an unavailable cron observation instead of claiming there are no jobs"
   await waitFor(() => expect(screen.getByTestId("cron-jobs-list")).toHaveTextContent(/no previously confirmed/i));
   expect(screen.getByTestId("cron-jobs-list")).not.toHaveTextContent(/no scheduled jobs/i);
 });
+
+it("shows an accepted pending operation after reopening offline", async () => {
+  online = false; pending = true; open();
+  await screen.findByLabelText("Display Name");
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/waiting for.*confirm|awaiting.*confirm/i);
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  expect(patches()).toHaveLength(0);
+});
+
+it("lets offline users expand saved fallback models without editing", async () => {
+  online = false; config.model_fallbacks = ["retired:fallback"];
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /Fallbacks.*1/i}));
+  const fallback = screen.getByRole("combobox", {name: /Fallback.*1/i});
+  expect(fallback).toHaveValue("retired:fallback");
+  expect(fallback).toBeDisabled();
+});
+
+it("retains missing catalog selections and requires explicit correction before save", async () => {
+  config.default_model = "retired:primary"; config.model_fallbacks = ["retired:fallback"];
+  config.tool_allowlist = ["retired-tool"]; config.skills = ["retired-skill"]; config.skills_selection_mode = "explicit_allowlist";
+  const user = userEvent.setup(); open();
+  fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Kept draft"}});
+  expect(screen.getByRole("button", {name: "retired-tool"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", {name: "retired-skill"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getAllByText(/unavailable in the current catalog/i)).toHaveLength(3);
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("Default Model"), "codex_oauth:gpt-5.5");
+  await user.click(screen.getByRole("button", {name: /Fallbacks.*1/i}));
+  await user.click(screen.getByRole("button", {name: /^Remove$/i}));
+  await user.click(screen.getByRole("button", {name: "retired-tool"}));
+  await user.click(screen.getByRole("button", {name: "retired-skill"}));
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(JSON.parse(patches()[0][1].body)).toMatchObject({display_name: "Kept draft", skills: ["tdd-execution-worker", "playwright", "plan", "retired-skill"], skills_selection_mode: "explicit_denylist", tool_allowlist: [], model_fallbacks: []});
+});
+
+it("keeps independently captured heartbeat and prompt bodies after online read failures", async () => {
+  config.features = {heartbeat: true};
+  let fail = false;
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    if (url.endsWith("/heartbeat-md") || url.endsWith("/prompt-preview")) {
+      if (fail) return Promise.resolve(json({detail: "temporary read failure"}, 503));
+      return Promise.resolve(json(url.endsWith("/heartbeat-md") ? {node_online: true, content: "Remember weekly review"} : {prompt: "Confirmed stable prompt"}));
+    }
+    return original(input, init);
+  });
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /Preview stable system prompt/i}));
+  expect(await screen.findByText("Remember weekly review")).toBeInTheDocument();
+  expect(await screen.findByText("Confirmed stable prompt")).toBeInTheDocument();
+  await presence("offline");
+  await waitFor(() => expect(screen.getAllByText(/Last confirmed:/i).length).toBeGreaterThanOrEqual(2));
+  fail = true; await presence("online");
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await waitFor(() => expect(screen.getAllByText(/Could not refresh this information/i).length).toBeGreaterThanOrEqual(2));
+  expect(screen.getByText("Remember weekly review")).toBeInTheDocument();
+  expect(screen.getByText("Confirmed stable prompt")).toBeInTheDocument();
+  expect(screen.queryByText(/Node is offline/i)).not.toBeInTheDocument();
+});
+
+it("preserves a last successful usage read when only the next usage request fails", async () => {
+  let fail = false;
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    if (String(input).endsWith("/settings/sections/usage")) return fail ? Promise.reject(new Error("usage transport failed")) : Promise.resolve(json({source: "current", captured_at: "2026-10-23T00:00:00Z", error: null, data: {agent_id: config.agent_id, node_id: "node-1", node_online: true, skills: [], heatmap_data: [], health: {created_auto_total: 0, active_auto_total: 0, used_auto_total: 0}}}));
+    return original(input, init);
+  });
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /View skill statistics/i}));
+  expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
+  fail = true; await presence("online");
+  expect(await screen.findByText(/Last confirmed:.*Could not refresh/i)).toBeInTheDocument();
+  expect(screen.getByText("No skill usage yet")).toBeInTheDocument();
+  expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
+});

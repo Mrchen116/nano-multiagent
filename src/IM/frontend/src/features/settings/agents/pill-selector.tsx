@@ -11,7 +11,7 @@ export type PillOption = {
   name: string;
   description?: string;
   source_group?: string | null;
-  enabled?: boolean;
+  enabled?: boolean | null;
 };
 
 type PillSelectorProps = {

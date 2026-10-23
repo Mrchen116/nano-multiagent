@@ -569,7 +569,7 @@ function featureOptions(value: unknown): Row[] {
     }));
 }
 function agentCapabilities(profile: Row, capabilities: Row): Row {
-  if (!capabilities || !['models','skills','tools','features'].every(key => Array.isArray(capabilities[key])))
+  if (!capabilities || !['models','skills','tools'].every(key => Array.isArray(capabilities[key])))
     fail(502, 'Agent capabilities are unavailable');
   return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
     models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),

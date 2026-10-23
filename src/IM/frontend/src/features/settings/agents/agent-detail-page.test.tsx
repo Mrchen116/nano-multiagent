@@ -367,7 +367,8 @@ describe("agent detail page", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
     await user.click(screen.getByRole("button", { name: "Skills" }));
-    expect(await screen.findByText(/Gateway offline/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Could not refresh this information/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
   });
 
   it("opens the canonical direct chat for the current agent", async () => {
@@ -735,7 +736,7 @@ describe("agent behavior settings", () => {
         node_status: "online",
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
-        tools: [{ name: "memory", description: "Memory tool" }],
+        tools: [{ name: "memory", description: "Memory tool" }, ...(overrides.features ?? []).filter(f => f.requires_tool && f.requires_tool !== "memory").map(f => ({name: f.requires_tool!, description: "Required feature tool"}))],
         model_options: [],
         platform_default_model: null,
         features: overrides.features ?? [

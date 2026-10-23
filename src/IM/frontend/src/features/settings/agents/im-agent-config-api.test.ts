@@ -161,7 +161,7 @@ describe("getAgentConfig source selection", () => {
     await getAgentConfig("a1");
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/config?source=mirror",
-      expect.anything(),
+      undefined,
     );
   });
 
@@ -169,7 +169,7 @@ describe("getAgentConfig source selection", () => {
     await getAgentConfig("a1", "live");
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/config?source=live",
-      expect.anything(),
+      undefined,
     );
   });
 });
@@ -334,7 +334,7 @@ describe("getAgentSkillsUsage", () => {
 
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/skills/usage",
-      expect.anything(),
+      undefined,
     );
     expect(usage.skills[0].name).toBe("deploy-check");
     expect(usage.skills[0].use_count).toBe(3);
@@ -414,4 +414,15 @@ describe("agent channel API", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+});
+
+it("does not declare a JSON body for bodyless channel actions", async () => {
+  vi.mocked(authFetch).mockImplementation(async () => new Response("{}", {status: 200}));
+  await reconnectAgentChannel("a1", "c1");
+  await deleteAgentChannel("a1", "c1", 1);
+  await retryAgentChannelRemoval("a1", "c1");
+  for (const [, init] of vi.mocked(authFetch).mock.calls.slice(-3)) {
+    expect(init?.body).toBeUndefined();
+    expect(new Headers(init?.headers).has("content-type")).toBe(false);
+  }
 });

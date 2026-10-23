@@ -432,7 +432,7 @@
       },
       "offline": {
         "title": "节点当前离线",
-        "detail": "配置更改会安全保存，节点上线后自动应用。"
+        "detail": "连接恢复并刷新信息前，设置仅供查看。"
       },
       "confirm": {
         "disableTitle": "停用飞书通道？",
@@ -835,6 +835,7 @@
       "inheritedUnknown": "跟随节点，当前值暂时无法获取",
       "inheritedLastKnown": "跟随节点；此处为最后确认值。",
       "conflict": "配置已在其他地方更新，草稿已保留。请放弃修改载入最新配置后重新编辑。",
+      "catalogUnavailable": "当前目录已不可用：{{names}}。请修正这些选择后再保存。",
       "featureUnknown": "默认启用状态暂未确认"
     }
   },

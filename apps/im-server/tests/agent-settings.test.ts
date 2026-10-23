@@ -16,6 +16,16 @@ const capabilities={models:[{name:'model',display_name:'Model',reasoning:{kind:'
   platform_default_model:'model',features:[{key:'heartbeat',default_on:true}],tools:[{name:'task_graph',description:'Tasks'},{name:'not-selected'}],
   skills:[{name:'enabled',source_group:'global'},{name:'excluded',source_group:'workspace'}]};
 
+it('keeps older Gateway capabilities without optional Features editable',async()=>{
+  const {app,ctx}=setup();
+  const {features: _features,...legacy}=capabilities;
+  ctx.gateway.request=async()=>({capabilities:legacy});
+  try {
+    expect((await app.inject('/im/v1/agents/a/capabilities')).json()).toMatchObject({features:[]});
+    expect((await app.inject('/im/v1/agents/a/settings')).json()).toMatchObject({ready:true,node:{state:'online'},live_capabilities:{features:[]},display:{source:'current',error:null}});
+  } finally {await app.close();}
+});
+
 it('persists only selected display metadata and reads committed settings while offline or pending',async()=>{
   const {app,ctx,db}=setup();
   db.prepare("UPDATE agent_profiles SET skills_selection_mode='explicit_denylist',skills_json='[\"excluded\"]'").run();

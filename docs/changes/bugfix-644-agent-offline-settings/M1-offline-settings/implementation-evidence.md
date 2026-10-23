@@ -21,3 +21,13 @@ Edited display name to `Offline draft 644`, selected `codexOAuth:gpt-6.1-sol` / 
 ## Broader checks at handoff
 
 Backend/frontend build passed. Python non-E2E: 65 passed / 31 deselected; ruff check and format passed. Full Web: 969 passed / 4 failed across 104 files; the failures are being investigated with a narrow rerun, so this is not a full-suite pass. Backend full suite, native tests/archive and final docs/type checks remain to be recorded before delivery.
+
+## Independent review corrections — 2026-10-24
+
+The first static and product review found real gaps; their original reports remain intact. This patch preserves `enabled: null` in historical Skill projections, separates content-read failures from node presence, retains missing configured catalog entries with an explicit correction requirement, and keeps accepted pending operations visible after reopening offline. Saved fallback lists remain expandable in read-only mode. Bodyless channel actions now use the existing `authFetch` body-aware headers, and offline channel guidance matches the write gate. The settings capability guard accepts the same optional `features` payload as the existing capabilities API.
+
+- W1 backend regression: the new optional-features test failed before the correction; all 17 `agent-settings` tests passed afterward (`/tmp/bugfix644-review-w1-red.log`, `...-green.log`).
+- Frontend regressions: four failures for pending reopen, collapsed fallback reading, missing catalog entries, and unconfirmed inherited Skills; the API bodyless request regression also failed before correction (`/tmp/bugfix644-review-front-red.log`, `...-api-red.log`).
+- Related frontend validation: 4 files / 67 tests passed, including independent prompt/heartbeat capture retention after online read failure and retained usage history (`/tmp/bugfix644-review-front-green3.log`). Production frontend build passed (`/tmp/bugfix644-review-front-build.log`). Subsequent notice visibility/retry markup is included in the next final validation.
+- A serial full backend run on the pre-sync revision was interrupted for final-main integration; it is not a passing gate. It had reported failures in workspace-tools, knowledge, native-human-source, and realtime-window. Earlier broad runs were also affected by severe host load; final revision checks must establish their actual status.
+- No merge or deployment to production has been performed. Independent closure review and missing real-fixture coverage are still required.
