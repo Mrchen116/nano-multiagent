@@ -34,9 +34,6 @@ it.each(['web','feishu'])('publishes immutable UI identities and text fallback f
   const call:ProductCall={method:'send_message',args:{target:'current',text:'摘要',interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
   try{
     agents[0].features.intelligent_ui=false;
-    await expect(product.call(call)).rejects.toThrow('Intelligent UI Feature is disabled');
-    expect(sent).toHaveLength(0);
-    agents[0].features.intelligent_ui=true;
     await product.call(call);await product.call(call);expect(sent).toHaveLength(1);
     expect(store.command('interactive-delivered:main:1')).toBeTruthy();
     expect(sent[0].text).toBe('摘要');expect(sent[0].interactive).toEqual(channel==='web'?interactive:undefined);

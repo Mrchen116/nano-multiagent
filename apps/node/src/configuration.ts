@@ -1,3 +1,4 @@
+import {validateCapabilities} from '@nano/product-contracts/capabilities';
 import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -103,6 +104,8 @@ export class NodeConfiguration {
     if (previous && previous.work_mode !== candidate.work_mode) throw new Error('Work mode is immutable');
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
+    const invalid = validateCapabilities(candidate);
+    if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);
     return resolved;

@@ -1,3 +1,4 @@
+import {validateCapabilities} from '@nano/product-contracts/capabilities';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -40,6 +41,10 @@ const home = join(dirname(configPath), '.dsh-runtime', config.node.node_id);
 await mkdir(home, { recursive: true });
 const { providers, env } = providerProfiles(config.llm);
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
+for (const agent of config.agents) {
+  const invalid = validateCapabilities(agent);
+  if (invalid.length) throw new Error(`Invalid capability dependencies for ${agent.agent_id}: ${JSON.stringify(invalid)}`);
+}
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
 await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers } }]);
 const store = new NodeStore(join(home, 'node.sqlite3'), config.node.user_id);
@@ -97,6 +102,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
         }
         await rpc.request('initialize', { protocol: 1, taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
+          pendingConfigurations: operations?.pending().filter(item => partition.agents.some(agent => agent.agentId === item.candidate.agent_id)).map(item => ({operationId: item.intent.operation_id, fingerprint: item.intent.candidate_fingerprint, config: configuration.runtime(item.candidate)})) ?? [],
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
       },
       onReady: async () => {
@@ -220,6 +226,15 @@ const relay = new WebRelayConnection({
         return {plugins: await runtime.request('plugins.manage', {agentId, action: payload.action, target: payload.target, enabled: payload.enabled})};
       })().catch(error => ({error: String(error)}));
       await relay.request('node.plugins', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
+    }
+    if (frame.type === 'agent.capability-usage.request') {
+      const agentId = String(payload.agent_id);
+      const result = await (async () => {
+        const usage = await runtime.request('configuration.usage', {agentId}) as {checked_at: string; active_schedules: number; busy: {kind: string; name: string}[]};
+        if (heartbeat.busyFor(agentId)) usage.busy.push({kind: 'feature', name: 'heartbeat'});
+        return {usage};
+      })().catch(() => ({error: {code: 'capability_usage_unavailable', message: 'Unable to confirm capability usage'}}));
+      await relay.request('agent.capability-usage', {request_id: payload.request_id, node_id: config.node.node_id, agent_id: agentId, ...result});
     }
     if (frame.type === 'node.skills.usage.request') {
       const agentId = String(payload.agent_id);
@@ -357,9 +372,25 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   current: agentId => configuration.current(agentId),
   resolve: (candidate, creating) => configuration.resolve(candidate, creating),
   persist: candidate => configuration.persist(candidate),
-  apply: async candidate => {
+  prepare: async (candidate, intent) => {
+    const previous = agents.find(agent => agent.agentId === candidate.agent_id);
+    const withdrawHeartbeat = previous?.features?.heartbeat === true && candidate.features.heartbeat !== true;
+    if (withdrawHeartbeat && !heartbeat.hold(candidate.agent_id, intent.operation_id)) {
+      heartbeat.release(candidate.agent_id, intent.operation_id);
+      return {ready: false, error_code: 'capability_in_use', message: 'Heartbeat is active', blocks: [{code: 'capability_busy', target: {kind: 'feature', name: 'heartbeat'}}]};
+    }
+    try {
+      return await runtime.request('configuration.prepare', {operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint, config: configuration.runtime(candidate)}) as import('@nano/personal-assistant').ConfigurationPreparation;
+    } catch { heartbeat.release(candidate.agent_id, intent.operation_id); return {ready: false, error_code: 'capability_usage_unavailable', message: 'Unable to confirm capability usage'}; }
+  },
+  release: async (candidate, intent) => {
+    heartbeat.release(candidate.agent_id, intent.operation_id);
+    if (runtime.availableFor(candidate.agent_id)) await runtime.request('configuration.release', {agentId: candidate.agent_id, operationId: intent.operation_id});
+  },
+  apply: async (candidate, intent) => {
     const next = configuration.runtime(candidate);
-    await runtime.request('configuration.apply', next);
+    const applied = await runtime.request('configuration.apply', {...next, operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint}) as {effective: boolean; message?: string};
+    if (!applied.effective) throw new Error(applied.message ?? 'Configuration was not applied');
     const previous = agents.find(agent => agent.agentId === next.agentId);
     if (previous) Object.assign(previous, next); else agents.push(next);
     await tasks.recover([next.agentId]);

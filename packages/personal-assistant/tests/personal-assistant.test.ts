@@ -42,6 +42,8 @@ it.each(['deny','needs_owner','unavailable'])('never commits a %s disclosure and
 it('commits only the frozen proposal with host verdict and preserves actual receipt',async()=>{
   const f=fixture('allow');
   try{
+    f.config.features = {intelligent_ui: false};
+    f.call.args.interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Explicit card")])'};
     expect(await f.pa.send(f.config,f.binding,f.call)).toMatchObject({status:'sent',message_id:'m'});
     const commit=f.calls.find(x=>x.type==='pa.action.commit')!;
     expect(commit.payload).toMatchObject({proposal_ref:'p',verdict_ref:'v',binding_id:'binding',epoch:1});

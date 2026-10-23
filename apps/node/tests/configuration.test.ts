@@ -59,11 +59,11 @@ it.each([false, true])('uses the advertised workspace base for creation and conf
     expect(config.current('existing')?.workspace_root).toBe(join(base, 'existing'));
     const template = config.defaultWorkspace('{agent_id}');
     expect(template).toBe(join(base, '{agent_id}'));
-    const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new' }), true);
+    const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false} }), true);
     expect(created.workspace_root).toBe(template.replace('{agent_id}', 'new'));
     await config.persist(created);
     expect((await NodeConfiguration.read(path)).current('new')?.workspace_root).toBe(created.workspace_root);
-    const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', workspace_root: join(home, 'explicit') }), true);
+    const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, workspace_root: join(home, 'explicit') }), true);
     expect(explicit.workspace_root).toBe(join(home, 'explicit'));
   } finally { await rm(home, { recursive: true, force: true }); }
 });

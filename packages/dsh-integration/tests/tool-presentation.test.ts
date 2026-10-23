@@ -9,7 +9,7 @@ it('preserves native presenter output and actual child identity across configura
   let client: RuntimeClient | undefined;
   let logs = '';
   const binding = {sessionId:'view', agentId:'a', revision:'1', ownerId:'owner', cwd:home};
-  let config = {agentId:'a', revision:'1', provider:'deepseek-official', model:'deepseek-flash', toolAllowlist:['read','subagent']};
+  let config = {features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false},agentId:'a', revision:'1', provider:'deepseek-official', model:'deepseek-flash', toolAllowlist:['read','subagent']};
   try {
     await writeFile(join(home, 'sample.txt'), 'PERSISTED_CONTENT');
     await writeFile(join(home, 'fixture.mjs'), `export const name='presenter-fixture';export const inject=['llm'];export function apply(ctx){

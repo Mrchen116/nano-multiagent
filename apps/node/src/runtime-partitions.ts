@@ -204,8 +204,8 @@ export class RuntimePartitions implements RuntimePort {
       return observer.partition.runtime.request(method, params);
     }
     let partition: RuntimePartition;
-    if (method === 'configuration.apply') {
-      const candidate = params as AgentConfiguration;
+    if (method === 'configuration.apply' || method === 'configuration.prepare') {
+      const candidate = (method === 'configuration.prepare' ? value.config : params) as AgentConfiguration;
       partition = this.assign(candidate);
       if (this.started && !partition.runtime.available) await this.startPartition(partition);
     } else if (['configuration.preview', 'configuration.catalog'].includes(method) && value.config) {

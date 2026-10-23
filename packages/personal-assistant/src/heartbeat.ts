@@ -17,6 +17,8 @@ interface Intent { agentId: string; task: string; due: number; sessionId: string
 /** Node-owned heartbeat policy. Cron's native timer and storage never enter this loop. */
 export class Heartbeat {
   private readonly db: DatabaseSync;
+  private readonly holds = new Map<string, string>();
+  private readonly admitting = new Set<string>();
   private readonly subscriptions = new Set<string>();
   private timer?: ReturnType<typeof setTimeout>;
   private active?: Promise<void>;
@@ -27,6 +29,15 @@ export class Heartbeat {
   }
   /** Includes uncertain persisted admissions awaiting reconciliation. */
   get busy(): boolean { return !!this.active || !!this.db.prepare('SELECT 1 FROM pending LIMIT 1').get(); }
+  /** Reserve only this Agent's future heartbeat admissions during configuration. */
+  hold(agentId: string, operationId: string): boolean {
+    const existing = this.holds.get(agentId);
+    if (existing && existing !== operationId) return false;
+    this.holds.set(agentId, operationId);
+    return !this.busyFor(agentId);
+  }
+  release(agentId: string, operationId: string): void { if (this.holds.get(agentId) === operationId) this.holds.delete(agentId); }
+  busyFor(agentId: string): boolean { return this.admitting.has(agentId) || !!this.db.prepare('SELECT 1 FROM pending WHERE agent=?').get(agentId); }
   subscription(agentId: string, enabled: boolean): void { if (enabled) this.subscriptions.add(agentId); else this.subscriptions.delete(agentId); }
   start(interval = 1000): void {
     if (this.running) return; this.running = true;
@@ -40,7 +51,7 @@ export class Heartbeat {
   private async evaluate(agentId: string | undefined, manual: boolean, now: number) {
     for (const agent of this.options.agents) {
       if (agentId && agent.agentId !== agentId) continue;
-      if (!this.options.available(agent.agentId)) continue;
+      if (!this.options.available(agent.agentId) || this.holds.has(agent.agentId)) continue;
       if (!agent.features?.heartbeat || !this.subscriptions.has(agent.agentId)) { if (manual) throw new Error('Heartbeat Feature is disabled'); continue; }
       const settings = this.options.settings(agent.agentId);
       const timezone = settings.timezone ?? settings.active_hours?.timezone;
@@ -62,12 +73,15 @@ export class Heartbeat {
         const intent: Intent = { agentId: agent.agentId, task: task.name, due, sessionId: binding.sessionId, inputId, mode: 'followup', onlyIfIdle: true,
           content: [{ type: 'text', text: `Current time: ${formatLocalTime(now, timezone)}${timezone ? ` (${timezone})` : ' (user timezone unknown)'}.\nRead .nanoassistant/HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\n\n${task.prompt}` }],
           source: { kind: 'system', actorId: agent.agentId, channel: 'heartbeat', messageId: inputId } };
+        if (this.holds.has(agent.agentId)) break;
         this.db.prepare('INSERT INTO pending VALUES(?,?)').run(agent.agentId, JSON.stringify(intent));
         await this.admit(intent);
       }
     }
   }
   private async admit(intent: Intent) {
+    this.admitting.add(intent.agentId);
+    try {
     const evidence = await this.options.runtime.request('session.lookup', { sessionId: intent.sessionId, inputId: intent.inputId }) as { accepted: boolean };
     if (!evidence.accepted) await this.options.runtime.request('session.submit', intent);
     // Busy is a skipped boundary, never a delayed low-priority wake behind human work.
@@ -76,6 +90,7 @@ export class Heartbeat {
       this.db.prepare('INSERT INTO due VALUES(?,?,?) ON CONFLICT(agent,task) DO UPDATE SET time=excluded.time').run(intent.agentId, intent.task, intent.due);
       this.db.prepare('DELETE FROM pending WHERE agent=?').run(intent.agentId); this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    } finally { this.admitting.delete(intent.agentId); }
   }
   async stop(): Promise<void> { this.running = false; clearTimeout(this.timer); await this.active; this.db.close(); }
 }

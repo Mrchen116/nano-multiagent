@@ -22,7 +22,7 @@ import { withKnowledgeRun } from '../trajectory-runs.js';
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
-interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void }
+interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
 const storageKey = (value: string) => Buffer.from(value).toString('base64url');
 interface Batch { root: string; name: string }
 interface Active { controller: AbortController; task: Promise<void>; agentId: string; rootSessionId: string; kinds: KnowledgeKind[]; source: 'F3' | 'F4'; turn: number; batch?: Batch; reads: ReviewFiles }
@@ -33,6 +33,7 @@ interface ReviewContext { id: string; work: Active; allow: string[]; parent: Age
 export class KnowledgeRuntime extends Service {
   static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery'];
   private readonly state: Promise<Domain<KnowledgeDomain>>;
+  private readonly scans = new Map<string, number>();
   private readonly active = new Map<string, Active>();
   private readonly tasks = new Set<Promise<unknown>>();
   private readonly host: Context;
@@ -102,6 +103,8 @@ export class KnowledgeRuntime extends Service {
   }
   /** Reviews and their asynchronous bookkeeping must finish before an update. */
   get busy(): boolean { return this.active.size > 0 || this.tasks.size > 0 || this.undelivered.size > 0; }
+  /** Accepted maintenance, without treating unrelated foreground turns as busy. */
+  busyKinds(agentId: string): KnowledgeKind[] { return [...new Set([...this.active.values()].filter(work => work.agentId === agentId).flatMap(work => work.kinds).concat(this.scans.has(agentId) ? ['skills'] : []))]; }
   /** Pause periodic curation during an update without changing Feature settings. */
   suspendUpdates(held: boolean): void { this.updateHeld = held; }
   private track(task: Promise<unknown>) {
@@ -188,11 +191,12 @@ export class KnowledgeRuntime extends Service {
     let scan = () => {};
     if (kind === 'skills') {
       scan = () => {
-        if (this.updateHeld) return;
+        if (this.updateHeld || this.options.held?.(agentId, 'skills')) return;
         const agent = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => this.host.agents.get(SessionId(binding.sessionId))).find(Boolean);
         if (!agent) return;
         const files = this.files(agent);
-        this.track(Promise.all([files.curate(files.skillRoot), ...(this.config(agent)?.knowledge?.globalSkillRoot ? [files.curate(this.config(agent)!.knowledge!.globalSkillRoot!)] : [])]).then(() => invalidateSkills(this.config(agent)!)));
+        this.scans.set(agentId, (this.scans.get(agentId) ?? 0) + 1);
+        this.track(Promise.all([files.curate(files.skillRoot), ...(this.config(agent)?.knowledge?.globalSkillRoot ? [files.curate(this.config(agent)!.knowledge!.globalSkillRoot!)] : [])]).then(() => invalidateSkills(this.config(agent)!)).finally(() => { const remaining = this.scans.get(agentId)! - 1; if (remaining) this.scans.set(agentId, remaining); else this.scans.delete(agentId); }));
       };
       const timer = setInterval(scan, 3600000); timer.unref(); ctx.effect(() => () => clearInterval(timer));
     }
@@ -227,7 +231,9 @@ export class KnowledgeRuntime extends Service {
     if (this.stopping || [...this.active.values()].some(work => batch
       ? work.batch?.root === batch.root && work.batch?.name === batch.name
       : !work.batch && work.rootSessionId === agent.id)) return;
-    const config = this.config(agent)!; const id = randomUUID(); const controller = new AbortController();
+    const config = this.config(agent)!;
+    if ((batch ? ['skills'] as const : ['memory', 'skills'] as const).some(kind => this.options.held?.(config.agentId, kind))) return;
+    const id = randomUUID(); const controller = new AbortController();
     const files = this.files(agent);
     const reads = new ReviewFiles(agent.session.header.cwd!, [join(files.memoryRoot, 'USER.md'), join(files.memoryRoot, 'MEMORY.md')], [files.skillRoot, ...(config.knowledge?.globalSkillRoot ? [config.knowledge.globalSkillRoot] : [])]);
     const task = Promise.resolve().then(() => this.review(agent, id, controller.signal, batch)).catch(async error => {
