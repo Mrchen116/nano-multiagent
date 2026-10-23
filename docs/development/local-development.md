@@ -2,7 +2,7 @@
 
 ## 环境和安装
 
-后端要求 Node.js 24（或 package.json 指定的受支持版本）和 pnpm 11.7.0；Python 3.11+ 用于文档、迁移辅助与黑盒测试。使用已有 `.venv`，无需为 worktree 复制环境。
+前后端统一推荐 Node.js 24.22.1 LTS（最低安全版本范围见 package.json）和 pnpm 11.7.0；Python 3.11+ 用于文档、迁移辅助与黑盒测试。使用已有 `.venv`，无需为 worktree 复制环境。后端、前端与安装包 CI 均使用 24.22.1。
 
 ```bash
 pnpm install --frozen-lockfile

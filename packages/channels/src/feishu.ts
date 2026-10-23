@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import https from 'node:https';
 import { Client, WSClient, EventDispatcher } from '@larksuiteoapi/node-sdk';
 
 export interface FeishuConfiguration { appId: string; appSecret: string; botOpenId?: string; ownerOpenId?: string; domain?: string }
@@ -67,7 +68,7 @@ export class FeishuConnection {
     const common = { appId: config.appId, appSecret: config.appSecret, domain: config.domain ?? 'https://open.feishu.cn', logger };
     this.client = new Client(common);
     this.dispatcher = new EventDispatcher({ logger });
-    this.socket = new WSClient({ ...common, handshakeTimeoutMs: 10000,
+    this.socket = new WSClient({ ...common, agent: https.globalAgent, handshakeTimeoutMs: 10000,
       onReady: () => options.status?.('ready'), onReconnected: () => options.status?.('ready'),
       onReconnecting: () => options.status?.('reconnecting'), onError: () => options.status?.('failed') });
   }

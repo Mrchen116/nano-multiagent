@@ -66,6 +66,20 @@
 
 Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占位 `api_key: nano-local-proxy`，供原生 provider 完成配置。它不是身份凭据，也不能替代其他需要认证的上游密钥；不要为了获得 loopback 默认值改写已验证的代理地址。
 
+### Node 运行时
+
+两机 Nano 统一使用官方 Node.js 24.22.1 LTS，安装在 `~/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/`；下载包必须与官方 SHA256 清单一致。该版本已包含 [2026-10-21 安全修复](https://nodejs.org/en/blog/release/v24.22.1)，包括 Brotli 解码修复。官方二进制内置 Brotli，不能仅凭 `process.versions.brotli` 的 `1.2.0` 字符串判断是否有补丁；核对发行包哈希、补丁新增的 `zlib.constants.BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH === -17`，以及 live process 未加载 Homebrew Brotli 动态库。
+
+IM launcher 和 Gateway LaunchAgent 使用该目录下 `bin/node` 的绝对路径；两机 `gateway.environment.PATH` 将该 `bin` 放在已有 PATH 前，供 DSH 与其子进程使用。Gateway 自启定义由实际运行 CLI 的 `process.execPath` 生成，因此升级时必须用新 Node 执行 `apps/node/lib/cli.js restart --config …`。重启后同时核对 IM、Gateway、DSH 的实际可执行文件与新 PID，不以终端 `node -v` 代替。安装/启停步骤见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#node-运行时升级)。
+
+Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会话的解压和重放；启动超过默认等待时间时，CLI 可能回退到普通后台进程。验收必须确认 LaunchAgent 已加载且其 PID 与 ready state 相同，不能只检查后台进程已上线。
+
+### 公网代理出口
+
+两机 Gateway 的公网 HTTP/HTTPS、fetch 与 WebSocket 使用现有 Clash 普通代理，无需开启 TUN：Mini `http://127.0.0.1:7890`，Air `http://127.0.0.1:7895`。两机 gateway.environment 持久提供大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY（同一 HTTP 代理地址；DSH 不支持 SOCKS URL）、NO_PROXY，以及 NODE_USE_ENV_PROXY=1；Mini IM launcher 使用同一环境。NO_PROXY 覆盖 localhost、loopback、两台 Tailscale 地址及实际 LLM 内网地址。DSH 和工具继承环境，Node 在配置应用后刷新原生 HTTP/HTTPS/fetch，WebSocket 显式传 agent；配置秘密不复制进 Gateway plist。
+
+社区用户可使用自己的普通 HTTP 代理地址，不依赖 Clash 名称、节点组、控制 API 或 TUN。正式公网探针读取服务持久代理配置并消费完整正文；显式直连诊断与业务验收分开。Cloudflare Tunnel 是中心服务部署组件，QUIC/UDP 不受 HTTP_PROXY 接管，不能把客户端 HTTP 代理成功称为 Tunnel 已代理。操作见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理)。
+
 ## 源站与隧道
 
 官网与 Mini 上的 IM 是同一套服务。更新 Mini 主仓代码、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
@@ -74,14 +88,14 @@ Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占�
 |---|---|
 | 公网入口 / `IM_PUBLIC_URL` | `https://im.nanoim.win` |
 | IM LaunchAgent | `io.github.mrchen116.nano-multiagent.public-im` |
-| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → `/opt/homebrew/bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
+| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → Node 运行时目录下 `bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
 | 源站 / worker | `127.0.0.1:8011` / 1 |
 | 生产数据库 | Mini `~/Repos/nano-multiagent/data/im_service.sqlite3` |
 | 附件 | 数据库旁 `message-images/` 与 `data/uploads/`，保留原目录及元数据 |
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
-| Tunnel supervisor | 已安装的 `~/.nanoassistant/bin/prod-tunnel.py`，由原 LaunchAgent 使用主仓 `.venv/bin/python` 启动；本次 DSH 切换未替换脚本 |
-| Tunnel 路径 | QUIC / IPv6，经 Mini `en0`；部署前执行已安装脚本的 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复才采样 600 秒 |
+| Tunnel supervisor | 仓库 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 LaunchAgent 使用主仓 `.venv/bin/python` 启动 |
+| Tunnel 路径 | QUIC / IPv6，经 Mini en0；部署前执行 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复采样 600 秒 |
 | ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 404 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |

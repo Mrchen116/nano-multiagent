@@ -32,6 +32,16 @@ ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent && pnpm install --frozen-lockfile 
 
 前端或其依赖变更必须重建 `src/IM/frontend/dist`，它是未入仓的产物。记录本次 build 的资源文件名，随后确认官网 HTML 引用这些资源且请求成功；仅 pull 不等于官网前端更新。
 
+## Node 运行时升级
+
+版本、安装路径和 Brotli 验证依据只在 [生产舰队](../../../../docs/operations/prod-fleet.md#node-运行时) 维护。运行时升级不隐含源码版本升级、安装包发布或修改其他服务的 Node：
+
+1. 从 Node 官方下载指定平台发行包和 SHA256 清单，校验后安装到两机的固定版本目录；保留旧运行时用于恢复。用新 Node 安装锁定依赖并构建，先完成候选版本验证。
+2. 记录并备份两机 config、Gateway plist/state，以及 Mini 的 IM launcher/plist、持久 signing key 和安装清单；涉及数据库时使用一致快照。备份放本机权限受限目录，不输出秘密。
+3. 按原 Gateway 的生命周期入口 stop 后，仅在 `gateway.environment.PATH` 前置新 Node 的 `bin`，保留其他配置。Mini 的既有 IM launcher 改用新 Node 绝对路径，并前置同一 PATH；保留原公网参数、数据库、附件和密钥。
+4. 按 IM → Gateway 顺序切换。两机均用新 Node 的绝对路径执行各自原 checkout 的 `apps/node/lib/cli.js restart --config …`，让生命周期入口重建自启定义；不要只改 Homebrew 软链接。
+5. 核对两机 Gateway plist、state 和 live executable，确认各 DSH 子进程也使用新运行时；核对 IM live executable 与 Brotli 补丁。完成下文公网检查、30 秒 Tunnel 采样及两节点真实模型回复；安装清单和身份保持原值。
+
 ## IM 与 Tunnel 的受管启动
 
 使用 [生产舰队](../../../../docs/operations/prod-fleet.md#源站与隧道) 中的现有 LaunchAgent。部署前读取实际 plist/launcher 并核对：
@@ -63,6 +73,15 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 - Mini Gateway 的 IM URL 是 Mini loopback；MacBook Air Gateway 使用官网 HTTPS URL，具体值见拓扑文档。人类登录 token 与 Gateway 运行凭据不可互换。
 - 代理仅在本次授权范围需要时更新或重启。先核对实际 base_url、监听、进程 cwd/PID 与管理方式；不要根据旧端口示例杀服务，也不要为符合旧文档擅改可用配置。SearXNG 稳定地址继续写各机 config。
 - `ssh mini 'zsh -lc "…"'` 可取得 npm/docker 的 login PATH；Node 使用已经核实的绝对可执行路径，两个目标 checkout 都先安装锁定依赖并构建。
+
+### 公网代理
+
+代理地址只在 [生产拓扑](../../../../docs/operations/prod-fleet.md#公网代理出口) 维护。使用各机已有普通 HTTP/SOCKS 代理，不开启 TUN，不依赖 Clash 控制 API 或修改其全局规则。
+
+1. 两 Gateway 先 stop，再写 gateway.environment 的大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY 与 NODE_USE_ENV_PROXY=1，保留身份；Mini IM launcher 使用同一环境。用固定 Node CLI restart，代理值不复制进 Gateway plist。
+2. 核对真实 Gateway/DSH/工具的代理连接与本机/内网直接连接；变量存在不能代替生效证据。工具是否支持代理须看其实际协议，不能把 HTTP_PROXY 视作所有 UDP 已代理。
+3. 公网探针默认读取服务 config，Mini 用已安装 prod-tunnel.py 完整采样，Air 用同一脚本 --public-only --seconds 30。--direct-diagnostic 必须与 --public-only 联用，只供独立诊断，不能代替业务验收。
+4. Tunnel 的 QUIC 健康独立检查；客户端 HTTPS 失败不统一归因 Cloudflare。普通发布不必更改或重启 Tunnel，若实际修改路径或恢复机制，须按 600 秒门禁验收。
 
 ### 固定生产 worktree
 
@@ -118,12 +137,12 @@ pnpm pa restart --config ~/.nanoassistant/config.yaml
 5. 两 Gateway 的 LaunchAgent、live process、state 都指向目标版本，日志无持续认证/owner/重连错误。受影响代理和既有外部通道健康；本地 200 但官网/Tunnel 失败，不能报告部署成功。
 6. 保留数据、附件、签名密钥、设备身份、成员准入；发现漂移先核实，普通更新不隐含迁移授权。验证完成后再清理旧生产 worktree。
 
-无凭据公网检查示例（只读，不跟随重定向，以便看到真实状态）：
+无凭据公网检查示例（在 Mini，显式使用业务代理；只读且不跟随重定向）：
 
 ```bash
-curl --noproxy '*' --max-time 15 -sS -o /dev/null -w '%{http_code}\n' https://im.nanoim.win/
-curl --noproxy '*' --max-time 15 -sS -D - -o /dev/null 'http://im.nanoim.win/login?deploy_check=1'
-curl --noproxy '*' --max-time 15 -sS -D - -o /dev/null \
+curl --proxy http://127.0.0.1:7890 --noproxy '' --max-time 15 -sS -o /dev/null -w '%{http_code} %{size_download}\n' https://im.nanoim.win/
+curl --proxy http://127.0.0.1:7890 --noproxy '' --max-time 15 -sS -D - -o /dev/null 'http://im.nanoim.win/login?deploy_check=1'
+curl --proxy http://127.0.0.1:7890 --noproxy '' --max-time 15 -sS -D - -o /dev/null \
   -H 'Content-Type: application/json' \
   --data '{"username":"deploy_https_probe_nonexistent","password":"FAKE_NOT_A_REAL_PASSWORD"}' \
   http://im.nanoim.win/im/v1/auth/login
@@ -144,7 +163,7 @@ curl --noproxy '*' --max-time 15 -sS -D - -o /dev/null \
 
 ## 恢复与故障定位
 
-- 官网失败、loopback 正常：检查 Tunnel LaunchAgent、ingress、DNS/边缘规则及 `public-tunnel.log`，不要改回 Tailscale HTTP 当作恢复官网。
+- 官网失败、loopback 正常：先区分业务代理出口、Tunnel readiness 和实际代理连接链，再检查 Tunnel LaunchAgent、ingress、DNS/边缘规则及 `public-tunnel.log`；不要改回 Tailscale HTTP 当作恢复官网。
 - 两端都失败：核对 `public-im.log`、launcher 的环境和路径、持久密钥、目标代码和依赖，不退回旧裸 uvicorn 命令。
 - 官网旧前端：核对 Mini dist 是否重建、官网 HTML 的资源名和浏览器缓存；不能只看 Git SHA。
 - Gateway 不在线：检查配置 URL、设备运行凭据、active owner、Gateway state/live process 及新日志。不要为了恢复在线自动换设备密钥或重新 bind。

@@ -17,7 +17,7 @@
 
 ## 自行部署 IM
 
-需要 Node.js 24（或满足 package.json 的版本）和 pnpm 11.7.0。在仓库根目录安装并构建：
+推荐 Node.js 24.22.1 LTS（最低安全版本范围见 package.json）和 pnpm 11.7.0。在仓库根目录安装并构建：
 
 ```bash
 pnpm install --frozen-lockfile
