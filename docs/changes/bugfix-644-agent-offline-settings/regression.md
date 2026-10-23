@@ -188,3 +188,38 @@ I1–I5关闭；R1、R3–R11及历史正文证据可保留，前提是修正只
 - HEARTBEAT fixture放到实际workspace的`.nanoassistant/HEARTBEAT.md`，非空cron及合成PA前置保留给局部复验。e2e-peer显示快照在最后一次实验中删除，Node恢复后会自然重建；其committed配置未改。
 - e2e名称恢复E2E Agent，codexOAuth:gpt-6.1-sol/high及一个deepseek备用保留；专用Feishu渠道已重新新增并实际Connected，无外发消息。
 - caller仍拥有隔离IM/Vite。只清理本角色浏览器与代理；Node直连恢复后的最终PID随交接消息提供，不执行e2e-down。
+
+---
+
+# Round 3 — 2026-10-24 I6 局部复验
+
+> mode=full；revalidation_mode=targeted。Validated at：`feb2e1885129bc9479bd29821065101149b6584d`。本轮开始checkout clean；caller冻结Web业务源码，并声明仅修正Skills发现计数确认状态及page接线，无后端/API/保存/恢复逻辑变更。Vite实际服务本checkout；沿用同一隔离栈，不重建无变化的后端。effective_base `55376c111` 的文档/CI增量不改变本轮产品判据。
+
+## Verdict
+
+**pass**。**0 major、0 minor**；Highest Required Action：**none**；needs_re_review=false。I6关闭，I1–I5继续保持关闭。
+
+无快照的空禁用名单和非空禁用名单均显示“Default state has not been confirmed”，不再把未知完整启用数量写成零；真实在线确认的零选择仍能显示零。修正后的信息表达满足R2，连同Round 2已通过／retained证据，R1–R11全部通过。本结论仍限定于报告声明的真实Web体验与caller承担的平台契约范围，不新增原生iOS UI通过声明。
+
+## 四项决定性证据
+
+| 来源与前置 | 结论 | 真实操作与观察 |
+|---|---|---|
+| I6 / R2：无快照，空explicit_denylist | **pass** | 停止隔离Node后，仅删除e2e-peer显示快照，保留profile。手机390×844从真实入口进入，settings ready=false、source=unavailable、skills_selection_mode=explicit_denylist、skills=[]；Skills总数改为未确认，`0 selected`不存在；保存禁用，模型/已有工具仍可读。[手机](review-evidence/r3-no-snapshot-empty-denylist.png)。 |
+| I6 / R2：未知发现集合，非空禁用名单 | **pass** | 在线先把e2e真实47项全部取消并保存，随后停Node并仅删除该Agent显示快照。桌面1440×1000的真实settings ready=false、source=unavailable，profile仍有47个显式禁用名称。完整启用数量显示未确认，没有0 selected；47名称保留为未选只读项。可见分组0/47对应这份显式禁用名单，没有把它当作完整发现集合；下方仍说明完整列表尚未确认。[非空名单](review-evidence/r3-no-snapshot-nonempty-denylist.png)。 |
+| I6 / R2：旧快照、新profile | **pass** | 在线读取Global v2快照；离开详情页后真实PATCH description返回200，提交v3，未再次读取settings即停Node。离线settings source=last_known、profile_version=3；页面保留已知名称，Skills总数未确认，分组为—/34、—/12，未沿用旧启用数，也未归零。[版本错位](review-evidence/r3-old-snapshot-new-profile.png)。 |
+| I6边界：真实已确认零选择 | **pass** | Node在线时通过真实Config页面取消最后启用的review-offline-skill，PATCH200后重新打开。真实settings ready=true、目录47项、explicit_denylist保存47项，页面0 selected且各组均0；未被一律替换为未知。随后同一配置被用于上一行无快照非空名单试验，证明两种状态的可见区别。[真实零](review-evidence/r3-confirmed-zero.png)。 |
+
+本轮关键截图已逐张打开检查。手机未确认文案在原Skills标题旁完整可读，已保存工具与模型继续可见；桌面没有新增面板或改动既有字段顺序。明确禁用名称与未知发现总数可区分，原有灰色未选样式和只读条件保留。未采用模拟HTTP业务响应。
+
+## 保留证据与范围
+
+Round 2的R1、R3–R11及历史heartbeat/prompt正文证据全部retained；Round 2 I1–I5关闭依据保持有效。原因是本次补丁仅限Skills未知计数表达和其page接线，未改变配置提交、渠道写入、pending/removal恢复、PA、cron、插件或其他分区读取；本轮真实入口也未观察到需要扩大范围的新副作用。不重复完整渠道或Relay丢ACK旅程。
+
+本角色未读取实现、未新增/运行自动化测试。caller所报两文件23测试和前端tsc仅作为交接信息，未替代上述真实体验。后续current spec归并和最终CI由caller完成；不再遗留产品验收阻塞项。
+
+## Round 3 环境释放
+
+恢复本轮临时改动：e2e再次启用原review-offline-skill，其余禁用项保持原值；Global description恢复Round 2结束值。均通过真实配置保存恢复。e2e-peer committed配置从未修改；两个Agent显示快照由Node恢复后正常重建。未更改渠道、cron、PA或插件配置。
+
+Node重新直连59021；未启用代理59029。IM59021/Vite59020继续由caller管理。专用浏览器`bugfix644-review-r3`关闭后释放；本轮没有遗留正在执行的页面动作、路由拦截、临时断流或后台代理。最终Node PID及恢复核验随完成消息提供。
