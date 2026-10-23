@@ -38,3 +38,14 @@ On 2026-10-24, after code, independent review and real product acceptance were c
 ## Known boundary
 
 Product R4 recorded a separate ordinary pre-stop human reply for which the model chose literal NO_REPLY without a confirmed explicit send. The old reply did not resume the paused task. This unit preserves ordinary-human delivery semantics and does not generalize automatic-input silence to arbitrary human replies; the observation remains a separate experience issue in regression.md. No production merge or deployment is part of this delivery.
+
+## Same-PR quiet-stop follow-up (2026-10-24)
+
+This section supersedes the original delivery's source/gate metadata for the additional user request. Prior failures and prior product findings above remain historical evidence; they are not the final follow-up outcome.
+
+- User explicitly requested passive stop notification and an audit of human/system Task mutation synchronization. Design R7–R9 approved the scoped changes. Native and IM regressions reproduced quiet-stop, passive-context/UI-resume, cold empty responsibility, dissolution notification and normal-teardown stop loss before fixes.
+- Final integrated behavior source: `3bdcdc546`; main baseline: `63724d53f` (merged by `d44a48792`). The main capability separation is retained: callable Task tools remain available with Feature off, while feedback guidance and automatic execution remain Feature-gated. The added manual-tool regression covers this integration seam.
+- Static R7 found a concrete latest-stop ordering defect after blocked admission reinserted older inputs last. The final source selects the newest distinct stop by first acceptance, then checks only that notice's consumed/pending state. Native red: 1 failed / 3 passed; integrated targeted green: 7 files / 39 passed.
+- Full backend on the integrated final source: `pnpm test`, Node 24.22.1, **130 files / 675 passed**, 108.71 seconds. Frontend: **104 files / 987 passed**, 26.18 seconds. There are no final local suite failures; the earlier load-related failures belong to the initial delivery and have not been removed from this record.
+- Complete build and typecheck, Web production build, Python **65 passed / 31 e2e deselected**, ruff checks, packaged iOS runtime, documentation integrity (**273 maintained sources / 67 routes**) and archive validation passed. The only post-source canonical edit corrects the alignment header to the required single latest unit; requirement counts remain 45 capability / 19 Task.
+- Local raw logs: `/tmp/nano-646-followup-integrated.log`, `/tmp/nano-646-followup-integrated-full.log`, `/tmp/nano-646-followup-frontend-test.log`; stop-order failure is preserved in `/tmp/nano-646-stop-order-red.log`. None are committed.

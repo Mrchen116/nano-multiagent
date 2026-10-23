@@ -1,6 +1,6 @@
 # gateway - Task Graphs Specification
 
-> 对齐: feat-645、bugfix-646
+> 对齐: bugfix-646
 > 上级: [gateway Specification](spec.md)
 
 ## Purpose
