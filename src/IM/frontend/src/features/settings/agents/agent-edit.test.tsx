@@ -95,6 +95,18 @@ it("keeps saved settings readable and blocks editing when live capabilities are 
   expect(patches()).toHaveLength(0);
 });
 
+it.each([{disabled: []}, {disabled: ["hidden-disabled-skill"]}])("distinguishes an unconfirmed discovered Skill count from confirmed empty results ($disabled)", async ({disabled}) => {
+  online = false;
+  config.skills = disabled; config.skills_selection_mode = "explicit_denylist";
+  open();
+  await screen.findByLabelText("Display Name");
+  expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent(/has not been confirmed/i);
+  for (const name of disabled) expect(screen.getByRole("button", {name})).toBeDisabled();
+  settingsRead = async () => json({...settings(), live_capabilities: {...capabilities, skills: []}});
+  await presence("online");
+  await waitFor(() => expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent("0 selected"));
+});
+
 it("blocks save when required fields are empty", async () => {
   const user = userEvent.setup(); open();
   await user.clear(await screen.findByLabelText("Display Name"));

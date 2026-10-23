@@ -49,3 +49,12 @@ Source tree: `acf0c72f2e799775311cca501dfb934d9174472f` (report-only HEAD `f226e
 ## Final sync validity assessment
 
 Final sync integrates `origin/main` `55376c1112ff870837a6ee65febf52e1f3686a9b` in merge `c2c6503f731c164e8759126c1af5b0cb91bf747a`. The increment after already-reviewed main `51072cb58` contains only skill/deployment documentation and the CI iOS path filter (now also used on main pushes). No runtime, IM, Web, native source, tests or current behavior spec changed. PR iOS detection retains the full-branch diff; this unit's Swift changes still require the native job. Static review, corrected delta, final builds and real product source remain valid for their stated scope. Canonical spec merging and archive path changes are documentary and will be checked separately.
+
+
+## Product I6 correction — unknown discovery count
+
+Round 2 independently reproduced a no-snapshot `explicit_denylist=[]` profile displaying `0 selected`. The selector now receives whether discovery was actually confirmed, so an unknown discovered set cannot produce a numeric enabled count. Explicit configured names remain visible; a confirmed empty result still displays zero. This is a local read presentation change, with no API, persistence, save or recovery changes.
+
+- Meaningful red: the real page test expected an unconfirmed count and received `0 selected` (`/tmp/bugfix644-i6-red.log`).
+- Green: both affected files, 23 tests passed, including empty/nonempty denylist before confirmation and confirmed empty discovery after recovery (`/tmp/bugfix644-i6-green.log`). Frontend TypeScript build passed (`/tmp/bugfix644-i6-typecheck.log`).
+- Independent revalidation is restricted to I6 and the related unknown/confirmed-empty boundaries. Round 2's other real journeys and static source scopes retain their stated evidence; this patch does not invalidate channel, pending operation, PA, preview or backend coverage.

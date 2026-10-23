@@ -25,6 +25,7 @@ interface SkillSourceSelectorProps {
   selected: string[];
   selectionMode: SelectionMode;
   options: AgentAllowlistOption[];
+  discoveryConfirmed?: boolean;
   workspaceRoot?: string | null;
   readOnly?: boolean;
   isLoading?: boolean;
@@ -39,6 +40,7 @@ export function SkillSourceSelector({
   selected,
   selectionMode,
   options,
+  discoveryConfirmed = true,
   workspaceRoot = "",
   isLoading = false,
   readOnly = false,
@@ -75,7 +77,7 @@ export function SkillSourceSelector({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Label.Root>{label}</Label.Root>
         <span className="text-[11px] text-slate-500" data-testid={`${testId}-mode`}>
-          {options.some(isUnknown) ? t("agents.settings.featureUnknown") : selectionMode === "default_discovery"
+          {(!discoveryConfirmed && selectionMode !== "explicit_allowlist") || options.some(isUnknown) ? t("agents.settings.featureUnknown") : selectionMode === "default_discovery"
             ? t("agents.form.access.skillsDefaultDiscovery")
             : t("agents.form.access.skillsExplicitCount", { count: effectiveSelected.length })}
         </span>

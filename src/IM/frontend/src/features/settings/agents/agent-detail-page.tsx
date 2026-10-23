@@ -1941,6 +1941,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 (draft.skills.length > 0 ? "explicit_allowlist" : "default_discovery")
               }
               options={[...capabilities.skills, ...missingSkills.map(name => ({name, description: ""}))]}
+              discoveryConfirmed={!!(detailQuery.data?.liveCapabilities || detailQuery.data?.display.data?.derived_current)}
               workspaceRoot={draft.workspace_root ?? ""}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
