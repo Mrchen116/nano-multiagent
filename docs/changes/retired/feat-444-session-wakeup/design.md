@@ -211,7 +211,7 @@ sequenceDiagram
 
 > 本 unit 当前为 paused。本段更新只修正已经失效的运行入口，不表示其余设计已按当前代码重新批准；恢复实施前必须重新 grounding 并重过 design review。
 
-本 unit 改动 Gateway 进程。Reviewer 按 [`docs/development/worktree-runtime.md`](../../development/worktree-runtime.md) 使用隔离 IM + Gateway 栈，不调用 Gateway HTTP health endpoint：
+本 unit 改动 Gateway 进程。Reviewer 按 [`docs/development/worktree-runtime.md`](../../../development/worktree-runtime.md) 使用隔离 IM + Gateway 栈，不调用 Gateway HTTP health endpoint：
 
 ```bash
 WT_ROOT="$(git rev-parse --show-toplevel)"

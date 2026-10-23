@@ -1,5 +1,7 @@
 # bugfix-494: 清理 Feishu SDK cache 协程 warning
 
+> 状态：Retired（2026-10-19）。退役原因与当前入口见[退役索引](../README.md)。以下内容保留历史，不再作为实施要求。
+
 ## Relations
 
 - Related: feat-464

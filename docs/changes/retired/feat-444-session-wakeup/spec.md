@@ -1,5 +1,7 @@
 # feat-444: session wakeup
 
+> 状态：Retired（2026-10-19）。退役原因与当前入口见[退役索引](../README.md)。以下内容保留历史，不再作为实施要求。
+
 ## Relations
 
 <!-- 无依赖时整段可省略。只列 unit_id，理由写在正文。 -->
