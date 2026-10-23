@@ -42,6 +42,6 @@
 
 - 修前：新增群代发用例复现 `conversation_id not found`，直接聊天用例暴露同步传输，事务回滚用例失败。
 - 修后：IM disclosure/PA/source/relay/messaging/attempt 六文件 52 项通过；覆盖非成员 PA、两个接收 Agent、离线/背压恢复、幂等、第二个 relay 写失败整体回滚。
-- Guardian/PA 第一轮 25 项通过，覆盖文本、mention、完整受众、交互、附件、任务、外部目的地、限制及 unknown；真实 DSH 子执行用例通过。后续 native 隔离与取消验证见 code-review.md。
+- Guardian/PA 第一轮 25 项通过，覆盖文本、mention、完整受众、交互、附件、任务、外部目的地、限制及 unknown；真实 DSH 子执行用例通过。后续 native 隔离与取消、review 生命周期及 relay 恢复验证全部通过；合计 96 项，精确命令见 code-review.md。独立完整代码审查返回 `[]`。
 - 原有受众变更、主人新指令、来源排除、附件内容变化、并行 disclosure 版本失效测试保留并通过。
 - 用户实际验收、生产验证及历史孤立 relay 修复未进行；不据单元或 native fixture 声称生产已恢复。
