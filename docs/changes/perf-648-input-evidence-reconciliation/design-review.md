@@ -54,3 +54,49 @@
 ### Author Resolutions
 
 - R1-W1: accepted。核实 store.recordEvents 的 UPDATE 无条件覆盖 terminal，且 session.observe 在 flush 前获取 events 快照。design 的“最终逻辑证据不再被延迟物理事件覆盖”明确写入所有权：物理事件仅更新 evidence_final=0 行；M1 加入跨 drain 延迟事件回归。原事件持久化及未定输入行为不变，不需要 runtime 协议变更。
+
+
+## Round 2
+
+### Metadata
+
+- reviewer: independent Codex subagent `/root/design_review`，沿用 Round 1 reviewer，未参与设计修订或实现。
+- reviewer target: `docs/changes/perf-648-input-evidence-reconciliation/` at `13d5a40b1ff5d9e8e9b0411add6600e1688210e1`。
+- review_mode: `delta`。
+- mode_reason: R1-W1 的有界设计修订增加 recordEvents 写入条件及原 M1 的针对性回归断言；没有改变需求、核心职责、共享接口、milestone 数量/范围/依赖。独立核对该条件对 final、未定与 Global 三类行的影响，其他覆盖 retained。
+- started_at: `2026-10-23T23:18:22+08:00`。
+- completed_at: `2026-10-23T23:19:22+08:00`。
+- duration: `60s`。
+- validated_at / executed_base: `13d5a40b1ff5d9e8e9b0411add6600e1688210e1`。
+- 受审 Git blob：`design.md = 7a5b20c02696938878a764e96f5ff89ff58f3cfb`；`motivation.md = 70cf28fc77c15d20a20192b6b61479719b601dd8`。
+- 工作边界：只追加本报告；保留 perf-649/perf-650 的其他任务变更，不修改设计或代码，不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1-W1 已在设计层闭环。新增写入条件直接保护已固定的逻辑证据，保留完整事件、未定输入和 Global 的既有路径，没有引入新的共享协议或状态机。此结论是 Gate 2 设计审查通过，实施与 M1 验证尚未执行。
+
+### Coverage 与证据
+
+- `retained_from: Round 1`：需求与规模目标、真实产品组装、fallback evidence 协议、缺失/pending/取消判据、receipt 恢复、迁移回滚、no spec delta、用户旅程及验收环境。已比较 `cb1cfbfd8..13d5a40b1`：相关 PA/integration 源码、`apps/node/src/main.ts`、`SPEC.md`、Gateway current specs 与 motivation 无变化；变更集中在受审 design 与报告，R1 源码证据和真实 NodeStore 探针仍适用。
+- 本轮重新核对全部 inputs 写入口：`store.ts:173,176-180,205,224`。receive/runtimeInput 是显式列名的插入，accepted 只改 accepted；会覆盖 terminal 的现有路径是 inputEvidence 与 recordEvents。新设计 `design.md:33-37` 要求 inputEvidence 原子写入标记和证据，并将 recordEvents 的物理终态更新限于 `evidence_final=0`，覆盖了 R1 中的冲突 writer。
+- 对 final 行：下一 drain 即使补录第一 attempt error，行不满足 UPDATE 条件；完整事件仍持久化并进入 logicalEvents，交付与 model notice 不丢事实。对未定/旧行：默认 0，沿用暂态投影和 fresh lookup，直到可信收敛。对 Global：`global-agent.ts:535` 的既有 inputEvidence 调用不传 final，设计默认 false，保持原回查与投影行为。
+- M1 在 `design.md:67` 增加“最终 lookup 之后补录物理失败事件不覆盖逻辑终态”，并保留旧 DB/重启、0/K lookup、receipt 恢复和用户不重复回复要求。它与 R1 的跨 drain 反例一致，作为原 M1 的回归条件足以指导实施；不需要新增 milestone 或 runtime 变更。
+- 本轮未重跑 R1 的未修复源码探针，因为产品代码未变；闭环依据是设计中的明确保护与验收约束，不声称产品修复已通过测试。
+
+### 历史问题闭环
+
+- **R1-W1 — closed（设计层）。** Author Resolution 为 accepted，新增“最终逻辑证据不再被延迟物理事件覆盖”。独立核对 `design.md:35` 的条件准确落在 `store.ts:205` 所在 writer，且明确不跳过事件持久化；M1 纳入延迟事件回归。R1 的物理 error 覆盖已固定 logical completed 的路径在目标方案中被阻断，未定与 Global 路径保留。
+
+### Issues
+
+无未解决 CRITICAL / WARNING，无新增 issue。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+R2 Approved 已核实；无实质异议，0 CRITICAL / 0 WARNING。受审设计无后续语义变化，Gate 2 通过，进入 change-orchestrator-simple。
