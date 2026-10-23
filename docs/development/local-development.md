@@ -47,3 +47,7 @@ Web mock 模式仅用于页面开发；真实模式、代理与路径见 [fronte
 依赖以 [SPEC](../../SPEC.md) 为准，只有 integration 导入 DSH。先核对 checkout、branch 和 dirty 状态，只暂存本任务文件；代码规范见 [coding guidelines](coding-guidelines.md)。
 
 Commit message 使用 `<type>(<unit>/<milestone>/<roadpoint>): <desc>`；简单任务可省略不适用层级。具体交付门禁见 [change workflow](change-workflow.md)。
+
+主仓作为已提交内容的同步入口。任务交付前将本任务完成的源码、文档和 Skill 按主题提交；没有完成的工作保存在独立分支/worktree，注明恢复位置与未完成边界，不把草稿长期散落在主仓。已有但不属于本任务的修改先保留并说明归属，只有获得整理授权后才迁移或收口。
+
+本机凭据、Skill 使用记录、机器清单、`.worktrees/` 与 `output/` 使用明确的忽略规则；待提交的源码、spec、设计或 Skill 不得靠忽略规则隐藏。主仓提交完成后检查 `git status --porcelain`，并核对本任务产物已提交或有可恢复的保存位置；正常同步不依赖反复 stash 或覆盖本地修改。
