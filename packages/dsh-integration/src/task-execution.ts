@@ -76,7 +76,7 @@ export class TaskExecutionDriver {
         if(!state.interrupted)this.hold(state,'source');
         retain();state.automaticTurn=false;
         if(own.length&&!ordinary.length)return {kind:'reject'};
-        messages.push(this.message(agent,this.delta(previous??snapshot,snapshot),'task-change'));
+        if(previous?.tasks.length)messages.push(this.message(agent,this.delta(previous,snapshot),'task-change'));
         return next();
       }
       if(state.interrupted==='source')state.interrupted=undefined;
@@ -116,10 +116,12 @@ export class TaskExecutionDriver {
   private denied(exec:ToolExecution,state:State):void {
     const snapshot=state.shown;if(!snapshot)return;
     let tasks=snapshot.tasks.filter(task=>task.status==='doing'||snapshot.repair_task_ids.includes(taskId(task)));
-    const args=exec.arguments as {graph_id?:string;node_id?:string;operations?:{node_id?:string;container_id?:string;scope_id?:string}[]};
+    const args=exec.arguments as {action?:string;graph_id?:string;node_id?:string;operations?:{node_id?:string;container_id?:string;scope_id?:string;from?:string;to?:string}[]};
     if(exec.name==='task_graph'&&args.graph_id){
-      const ids=[args.node_id,...(args.operations??[]).flatMap(op=>[op.node_id,op.container_id,op.scope_id])].filter(Boolean);
-      tasks=tasks.filter(task=>task.graph_id===args.graph_id&&(!ids.length||ids.includes(task.node_id)));
+      const ids=[args.node_id,...(args.operations??[]).flatMap(op=>[op.node_id,op.container_id,op.scope_id,op.from,op.to])].filter(Boolean);
+      // Deletion can cover descendants absent from the responsibility projection.
+      // Hold that graph's batch rather than guessing subtree membership.
+      tasks=tasks.filter(task=>task.graph_id===args.graph_id&&(args.action==='delete'||!ids.length||ids.includes(task.node_id)));
     }
     // Unattributed tools can affect the current batch; do not guess a task identity.
     if(tasks.length)state.denied.set(actionKey(exec),new Map(tasks.map(task=>[taskId(task),taskVersion(task)])));

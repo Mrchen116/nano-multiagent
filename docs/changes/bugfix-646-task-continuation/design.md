@@ -4,7 +4,7 @@
 
 ## Changelog
 
-- 实施真实模型验收发现工具审批硬编码 low，与默认 DeepSeek high/max 能力不匹配。采用既有 disclosure 审核的能力选择：支持 low 则用 low，否则原模型 default/首个声明档位；不改模型、来源证据、规则或 verdict。增加同模型请求参数回归保护。
+- 实施真实模型验收发现Nano/Codex 工具审批均硬编码 low，与默认 DeepSeek high/max 能力不匹配。采用既有 disclosure 审核的能力选择：支持 low 则用 low，否则原模型 default/首个声明档位；不改模型、来源证据、规则或 verdict。增加同模型请求参数回归保护。
 
 ## 现状分析
 
@@ -43,7 +43,7 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 
 4. **运行状态与业务状态分离；新输入可处理不等于自动重试获准。** 参数、版本冲突、`{ok:false}` 业务校验返回模型修复，不能一律 disarm。flush/snapshot/agent 错误复用 interrupted 停止无意义自动重复，业务状态不变。配置修复、Task 数据源恢复的变更提示或一次真实成功的新输入轮次可重新评估运行错误。拒绝记录不因 ordinary input、heartbeat、同名不同动作成功清空；记录精确动作与拒绝时责任，而非只记 tool name。成功执行同一动作或相关责任有实质变化才解除对应阻挡，所有执行仍经过独立审批。
 
-5. **以真实可知范围限制自动重复，不伪造动作归属。** Task 工具操作能以 graph/node 定位时，只抑制受影响节点的无变化自动重试，其余 doing 可继续；普通工具无法可靠定位 Task 时采用会话当前责任批次屏障，允许新输入、当前轮合法替代/收尾和新增独立责任，不能猜测某个 Task。用于判断恢复的责任投影排除整图 revision（另一节点更新不算旧任务恢复），包括节点身份、status、wait、resume_request、title 和节点自己的 updated_at。IM 的节点 updated_at 随该节点实际修改更新，不沿用整图 updated_at；PA 保留这个已有字段，因此正文改变能触发重新评估，同图其他节点更新不能清掉旧屏障。恢复只是重新评估，不能视为审批授权。被抑制节点仍出现在责任提示中，明确不得重复原拒绝动作；它不等于 waiting、完成或授权。运行错误属于共享 session 时阻断该 session 的自动调度，不能宣称其他同 session 模型任务可独立运行。
+5. **以真实可知范围限制自动重复，不伪造动作归属。** Task 工具操作能以 graph/node 定位时（包括 dependency from/to），只抑制受影响节点的无变化自动重试，其余 doing 可继续；delete 可覆盖未在快照展开的后代，按当前图责任批次抑制；普通工具无法可靠定位 Task 时采用会话当前责任批次屏障，允许新输入、当前轮合法替代/收尾和新增独立责任，不能猜测某个 Task。用于判断恢复的责任投影排除整图 revision（另一节点更新不算旧任务恢复），包括节点身份、status、wait、resume_request、title 和节点自己的 updated_at。IM 的节点 updated_at 随该节点实际修改更新，不沿用整图 updated_at；PA 保留这个已有字段，因此正文改变能触发重新评估，同图其他节点更新不能清掉旧屏障。恢复只是重新评估，不能视为审批授权。被抑制节点仍出现在责任提示中，明确不得重复原拒绝动作；它不等于 waiting、完成或授权。运行错误属于共享 session 时阻断该 session 的自动调度，不能宣称其他同 session 模型任务可独立运行。
 
 6. **失败保留可核实状态与原有幂等机制。** Schedule 成功但 waiting apply 失败：读取真实状态、相同 request_key 重试未知写入，不盲建第二 Schedule；只清理本轮确定无引用且自己创建的安排。waiting 成功但 send 失败/未知：保留 waiting 与定时复查，按 publication 当前状态决定修复/重试，不能倒回 doing 以制造消息重发。Schedule 到期与安排失效 watcher 竞态继续通过 native inbox/pre-step 重读合并。明确停止/关闭永远优先。
 
@@ -60,6 +60,7 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 
 - Gateway Task: `specs/gateway/task-graphs.md` → `docs/specs/gateway/task-graphs.md`。
 - Gateway Global: `specs/gateway/global-agent.md` → `docs/specs/gateway/global-agent.md`。
+- 审核模型参数兼容性：`specs/gateway/agent-capabilities.md` → `docs/specs/gateway/agent-capabilities.md`，只记录同模型推理能力选择，不涉及 feat-645 的功能/工具开关。
 
 ## 风险与回退
 
@@ -71,7 +72,7 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| 本 unit 隔离 IM + Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT" --main-config "$WT_ROOT/output/task-review.yaml"` | `.e2e-ports.env` 的 IM_URL `/openapi.json`、Node online、真实聊天可响应 |
+| 本 unit 隔离 IM + Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH" ./scripts/e2e-up.sh --wt "$WT_ROOT" --main-config "$WT_ROOT/output/task-review.yaml"` | `.e2e-ports.env` 的 IM_URL 的认证 `/im/v1/agents`、Node online、真实聊天可响应 |
 
 **验收前置**：caller 在 worktree output 生成仓库 E2E config 临时副本，为 e2e-global/e2e-peer 启用 task_graph、Cron 及对应工具（显式配齐以隔离 feat-645），保留独立 node identity/data/workspace/home；使用默认专用 nano/nano1234 测试用户。真实 provider 从仓库 catalog 的本地代理接入，先发隔离聊天确认可用；不可用如实报告 blocker。本地 workspace 临时文件模拟缺失后出现的外部条件；短 Schedule 由实际模型自行创建，超一小时边界由 Task API 使用真实 native Schedule 另测。模型仅操作隔离数据和临时文件，不外发到生产聊天。
 

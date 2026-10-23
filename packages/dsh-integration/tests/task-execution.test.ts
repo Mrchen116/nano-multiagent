@@ -176,7 +176,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it('keeps an unchanged denied Task held while another owned Task completes',async()=>{
+it.each(['node','dependency','subtree'] as const)('keeps an unchanged denied Task held while independent work completes: %s',async(scope)=>{
   const home=await mkdtemp(join(tmpdir(),'nano-task-scope-'));let client:RuntimeClient|undefined;
   try {
     await writeFile(join(home,'probe.mjs'),`import {appendFile} from 'node:fs/promises';
@@ -190,14 +190,15 @@ export function apply(ctx){let step=0,denied=false;
  ctx.on('llm/stream',async function*(o){
   step++;await appendFile(process.env.DSH_HOME+'/calls',JSON.stringify(o.messages)+'\\n');
   const node=step===3?'B':'A';
-  const block=step%2?{type:'tool-call',id:'effect-'+step,name:'task_graph',arguments:JSON.stringify({action:'apply',graph_id:'g',base_revision:1,request_key:'finish-'+node,change_note:'Verified result',operations:[{op:'update_task',node_id:node,patch:{status:'done',result:'Verified '+node}}]})}:{type:'text',text:'The result or blocker has been handled.'};
+  const args=step===1&&${JSON.stringify(scope)}==='dependency'?{action:'apply',graph_id:'g',base_revision:1,request_key:'edge',change_note:'Order A after remote',operations:[{op:'add_dependency',from:'remote',to:'A'}]}:step===1&&${JSON.stringify(scope)}==='subtree'?{action:'delete',graph_id:'g',node_id:'parent',base_revision:1,request_key:'delete'}:{action:'apply',graph_id:node==='B'&&${JSON.stringify(scope)}==='subtree'?'other':'g',base_revision:1,request_key:'finish-'+node,change_note:'Verified result',operations:[{op:'update_task',node_id:node,patch:{status:'done',result:'Verified '+node}}]};
+  const block=step%2?{type:'tool-call',id:'effect-'+step,name:'task_graph',arguments:JSON.stringify(args)}:{type:'text',text:'The result or blocker has been handled.'};
   yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:step%2?'tool-calls':'stop'}};
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-scope-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});
     let revision=1,updated='2026-10-23T15:00:00Z';const completed:string[]=[];
-    client.rpc.handle('product.task_execution.snapshot',()=>({kind:completed.length===2?'quiescent':'continue',tasks:['A','B'].filter(id=>!completed.includes(id)).map(id=>({graph_id:'g',node_id:id,title:id,status:'doing',revision,updated_at:updated,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]}));
+    client.rpc.handle('product.task_execution.snapshot',()=>({kind:completed.length===2?'quiescent':'continue',tasks:['A','B'].filter(id=>!completed.includes(id)).map(id=>({graph_id:id==='B'&&scope==='subtree'?'other':'g',node_id:id,title:id,status:'doing',revision,updated_at:updated,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]}));
     client.rpc.handle('product.call',value=>{
       const call=value as {method:string;args:{operations:{node_id:string}[]}};
       expect(call.method).toBe('task_graph');completed.push(call.args.operations[0]!.node_id);revision++;

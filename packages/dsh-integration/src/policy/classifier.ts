@@ -1,4 +1,4 @@
-import { BlockAssembler, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { Context } from '@deepseek-ai/cordis';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
@@ -25,7 +25,7 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
     if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
       throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
     }
-    for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: ReasoningEffortId('low'),
+    for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: model.reasoning?.efforts.find(value=>value.id==='low')?.id??model.reasoning?.defaultEffort??model.reasoning?.efforts[0]?.id,
       messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
 
     usage = assembly.usage;

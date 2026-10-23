@@ -11,3 +11,8 @@ Baseline: e7f8249d26287dbaccde298365323c70e3cd5fc8, isolated unit/bugfix-646 wor
 - Real stack prerequisite found: default DeepSeek reviewer supports high/max, while tool approval hard-coded low; the request failed before any verdict. Same-model supported effort selection now matches the existing disclosure path. Red 2 failed / 6 passed, then green 8 passed in codex-approval-lifecycle; reviewer identity, full evidence and verdict rules retained. This is request compatibility, not a classifier-policy exemption. Initial real smoke is NOT acceptance evidence.
 
 Real acceptance and full CI results are recorded by their respective gates. No production configuration or service changed.
+
+- Independent review found dependency endpoints and subtree deletion scope gaps. Native regression reproduced both (2 failed/1 passed); dependency denial now scopes from/to, while subtree delete conservatively holds that graph's owned batch without stopping another graph. No new hierarchy cache or API reads.
+- Nano classifier uses the same supported effort rule as Codex; direct two-stage review regression verifies unchanged reviewer, complete evidence and denied verdict (red 2 failures; green 3 cases). Existing native low-effort fixture explicitly declares its model capability.
+
+- Full-suite failure exposed a real admission regression in approval's native fixture: an initial unavailable Task source with no previously known responsibility injected an extra Task-change input and displaced the ordinary input selected by the fixture. Restrict the unavailable warning to known prior responsibilities; automatic admission still fails closed, and unrelated ordinary inputs retain their original semantics. Native approval regression is reused rather than duplicated.
