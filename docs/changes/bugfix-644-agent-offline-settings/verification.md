@@ -91,21 +91,79 @@ None.
 
 ## Corrected Delta Reconciliation
 
-All current deltas were checked. Do not rewrite target contracts to accommodate these implementation defects.
+Current reconciliation, updated at Round 2 validated source `acf0c72f2e799775311cca501dfb934d9174472f`. The original Round 1 mismatch remains recoverable in report commit `a685d1aa4fff34a30d763a4e35cce4ea93fe5564`; its findings above are historical and their closure is recorded below.
 
-| Delta item | Implementation evidence | Test evidence | Outcome |
+| Delta item | Final implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
-| agents-nodes ADDED readable/read-only/recovery/unknown semantics | settings/snapshots/hook/sections/channels | backend61, frontend focused tests, reviewer SSR | **implementation-mismatch: W2/W3/W4** |
-| Configuration new offline rejection, accepted-op recovery, inherited null reasoning | PATCH gate, ConfigOperations, pending summary, no default writeback | No offline op, same-op recovery, name-only reasoning:null | aligned |
-| Live capabilities plus read-only finite display; no false invalidation | agentCapabilities/configurationDisplay/adapter | Reviewer HTTP compatibility reproduction and SSR | **implementation-mismatch: W1/W2/W4** |
-| HEARTBEAT/prompt/cron: successful wire, unknown vs empty, timed retained previews | Cron explicit unavailable; retained local preview body | Cron HTTP/UI unavailable; preview source | **implementation-mismatch: W3** |
-| Channel new offline rejection and retained manifest/removal convergence | Channel gate/panel | Every route side-effect protection; old23/new5 tests | aligned |
-| PA source/blocked-contact offline settings boundary; refresh and chat protection | settingsOwner; independent PA queries/guards | Backend offline/online PA; frontend8 | aligned |
+| agents-nodes ADDED readable/read-only/recovery/unknown semantics | settings/snapshots/hook/sections/channels; preserved null Skill state; independent timed previews | Backend17 and frontend67 review-correction evidence; two final usage-failure cases | aligned |
+| Configuration new offline rejection, accepted-op recovery, inherited null reasoning | Retained PATCH gate/ConfigOperations; pending fact now comes from durable settings response as well as local submission state | Retained no-offline-op/same-op recovery/null inheritance; pending reopen regression | aligned |
+| Live capabilities plus read-only finite display; no false invalidation | Optional features normalization restored; unknown Skill state retained; current directory absence explicitly shown without losing draft entries | Optional-features HTTP test; unknown Skill component test; missing model/fallback/tool/allowlist Skill correction test | aligned |
+| HEARTBEAT/prompt/cron: successful wire, unknown vs empty, timed retained previews | Preview body/capturedAt/stale/error separated; no readOnly-to-node-offline assignment; cron gates retained | Retained cron tests; independently captured heartbeat/prompt body retention test | aligned |
+| Channel offline rejection and accepted manifest/removal convergence | Retained route gates; bodyless action headers delegated to authFetch; offline guidance corrected | Retained lifecycle/side-effect tests; bodyless action API regression | aligned |
+| PA source/blocked-contact offline settings boundary, refreshed reads, chat protection | Retained settingsOwner/query guards; no merge or patch changes to this path | Retained PA backend/frontend evidence | aligned |
+| Online section read failure retains last result and offers retry | Usage transport errors and HTTP200 last_known/error use SettingsRead.error; empty and nonempty history both expose retry | Parameterized transport/envelope regression, 2 passed at final revision | aligned |
 
 ### Uncovered Observable Behavior
 
-- Unexpected extra behavior not authorized by delta: the new settings entry rejects previously supported missing-features Gateway payloads, making an online older node uneditable (W1). Fix implementation rather than adding a delta to bless the regression.
-- Native `agent_node_offline` 409 is separated from version-conflict recovery as expressly required by design; successful wire stays unchanged. This is covered shared-interface compatibility work, not an omitted native redesign.
-- No-store headers, finite settings section reads, cron unavailable errors, new-write rejection and finite display snapshots are within the declared design/delta. No other unaccounted stable external behavior was identified.
+None at the final reviewed source. The unauthorized missing-features compatibility regression identified in Round 1 is repaired. Added catalog error feedback, pending-operation visibility, preview timestamps, bodyless request correction and section retries implement existing incident/design/delta obligations; no new product requirement or delta rewrite is needed. Native availability error classification remains the previously declared compatibility work.
 
-Outcome: **implementation-mismatch**. Fix W1-W4, add their targeted regression protection, and complete caller/independent-product gates before final delivery. Pending checks were not counted as passing.
+Outcome: **aligned**. This is the current corrected-delta result; final CI and product acceptance remain independently reported gates.
+
+## Round 2 - targeted closure and repair patch review
+
+> Original executed base: `1ef49808ffd2618c275b6e38683f93f74ff8455d`.
+> Finding origin: `4ba1eefca3c547f40f9b1060c64941ee3cf6ee09`.
+> Initial Round 2 source: `82cf77613d5a40b400b0094dfc1a84a614dde85e`.
+> Repair commits: `fc322942c94ba036cade0758c5d48e7383ee01ae`, then `acf0c72f2e799775311cca501dfb934d9174472f`.
+> Final validated_at: `acf0c72f2e799775311cca501dfb934d9174472f`.
+> Modes: code review patch + focus closure; verification targeted-closure + corrected-delta.
+> Current static verdict: **PASS - 0 CRITICAL / 0 WARNING / 0 SUGGESTION**.
+> requires_full_verification: **false**. Corrected-delta: **aligned**.
+
+### Scope and evidence retained
+
+This round inspected the repair patch, all four prior warnings, product findings I1-I5 at their implementation seams, the additional usage-envelope repair, and the effect of merging `origin/main` at `51072cb58`. It did not mechanically re-review unrelated runtime performance implementations or replace the independent real-product reviewer. Current `code-review.json` is `[]`; original JSON findings remain in Git at `a685d1aa4` and their individual dispositions are below.
+
+The merge from fc322942c to 82cf77613 has no changes under IM backend, Web, native iOS, current IM specs, `apps/node/src/main.ts`, or integration knowledge code. Accordingly the original HTTP/SQLite permission, binding, snapshot and mutation side-effect evidence and unchanged frontend draft/channel/PA/native paths remain applicable. This retention is based on actual path and call-chain comparison, not simply on commit ancestry.
+
+Upstream perf-648/649/650 and trajectory changes do touch runtime assembly, input reconciliation, model fallback replay, descendants and token-accounting `usage.read`. They warrant the caller's final integrated build/CI and real runtime acceptance. They do not change the settings Skill-usage seam: `apps/node/src/main.ts:224-227` continues to resolve `node.skills.usage.request` through `knowledge.usage`, not accounting `usage.read`. No shared settings contract or new dependency-boundary violation was identified; a full repetition of the unit's unchanged static review is not required. Real runtime conclusions are not inferred from static retention alone.
+
+### Focus-finding closure
+
+| Finding | Disposition | Evidence |
+|---|---|---|
+| W1 optional features locks older online Gateway | **closed** | `control.ts:572` now validates required models/skills/tools while retaining featureOptions normalization. New HTTP test compares old capabilities and new settings for the same missing-features response; 17 backend tests passed. |
+| W2 unknown discovered Skills appear enabled | **closed** | Adapter and normalizer preserve enabled:null; selector excludes unknown derived states from enabled count and displays an indeterminate group/dash count. New actual-component test protects this state. Explicit allow/deny semantics remain unchanged. |
+| W3 preview false-offline classification and missing acquisition time | **closed** | Heartbeat no longer derives node presence from readOnly. Both previews retain body, own capturedAt and stale/read-error state. Existing successful empty-body semantics remain. New frontend case retains independent heartbeat/prompt bodies and timestamps across disconnect and online read errors without Node-is-offline feedback. |
+| W4 missing configured catalog entries and incompatibility feedback | **closed** | Missing primary/fallback models, tools and explicit-allowlist Skills remain visible in existing controls; current confirmed catalogs cause explicit unavailable feedback and block save until corrected. Missing denylist rules remain valid retained policy. New integration test preserves draft and verifies explicit user correction before one PATCH. |
+
+No prior focus finding is silently dropped or superseded by a changed target. The implementation is corrected against the original target contracts.
+
+### Product-review fix seams
+
+| Product issue | Static repair assessment | Acceptance boundary |
+|---|---|---|
+| I1 accepted pending disappears after offline reopen | confirmationPending includes durable pendingOperation; availability notice explicitly retains submitted/waiting fact even when its primary reason is offline/refreshing | Pending reopen regression protects the API-to-UI seam. Separate reviewer must close the real delayed/accepted-operation journey. |
+| I2 bodyless reconnect/delete return JSON-empty-body 400 | requestJson delegates headers to existing body-aware authFetch; bodyless reconnect/delete/removal-retry do not declare JSON while real payload writes still get JSON headers | API regression protects the three bodyless actions; actual channel lifecycle remains product acceptance. |
+| I3 saved fallbacks cannot expand offline | Collapse/expand reading is permitted with retained values while selects/add/remove stay disabled; unknown saved fallback names remain in display options | Offline saved-fallback expansion regression passed. |
+| I4 usage failure mislabeled offline / history lost | Usage transport and SettingsRead envelope failures preserve last body/time and show read-failure feedback; no Gateway-offline assertion | History/failed-read regressions passed. The HTTP200 retry gap found during this round is repaired as documented next. |
+| I5 offline guidance promises new changes apply later | Existing localized offline guidance now accurately says read-only until connection and refreshed data return; accepted-pending guidance remains separate | Copy repair stays within R4 and does not introduce UI redesign. |
+
+### Additional concrete gap found and closed during this round
+
+Initial repair source returned a correct failed-read notice but showed Retry only when React Query `isError` was true. The real settings-section protocol also returns HTTP200 with `{source:last_known,data:<previous successful data>,error:{code:read_failed|timeout}}`; that result has isError=false and no section Retry. With main settings still ready, its global refresh notice cannot supply the missing action. This was a direct protocol/branch mismatch in delta's online-read-failure/retry scenario.
+
+Commit `acf0c72f2` changes both empty-history and nonempty-history branches to use `read.error`, which covers transport errors after adaptation and successful HTTP failure envelopes. The existing regression was parameterized over transport rejection and HTTP200 last_known/error, and asserts Retry within the usage section rather than accidentally matching another page control. The final focused log records 2 passed / 13 filtered skips. Those skips are the deliberate test-name filter, not hidden product failures. The nonempty branch uses the same corrected condition and was inspected directly; no duplicate full suite was added.
+
+A reviewer-created temporary external harness initially had path resolution and matcher-binding failures. Those runs are not valid product red/green evidence and are not counted as such. The protocol defect was independently established from the real backend response contract and frontend branches; final executable evidence uses the repository's normal test harness below.
+
+### Validation evidence and limits
+
+- `/tmp/bugfix644-review-w1-green.log`: 1 backend file / 17 tests passed for fc322942c's backend change; that backend file is unchanged in the merge and final usage-only correction.
+- `/tmp/bugfix644-review-front-green3.log`: 4 frontend files / 67 tests passed for the substantive correction patch. The main merge leaves those source paths unchanged.
+- `/tmp/bugfix644-review-front-build.log`: frontend production build passed before the final two-condition usage correction. Caller is performing final integrated build/CI; this is not relabeled as a final-revision build.
+- `/tmp/bugfix644-review-usage-envelope2.log`: final correction's transport/envelope cases, 2 passed / 13 filtered skips, at final source acf0c72f2.
+- `git diff --check fc322942c^..acf0c72f2`: passed.
+- Original backend route, frontend channel/PA/native source evidence remains scoped to unchanged paths. Earlier broad/backend/native work and real screenshots retain their stated versions and limitations, not a newly invented final-CI pass.
+
+This round does not declare M1-U1/U2/U3's separate real acceptance or M1-W4's final complete CI passed while caller/reviewer are still collecting them. The scoped static closure and delta gates pass; overall delivery remains contingent on those independent final gates. No business source, test, configuration, design or delta was changed by this reviewer; only these review reports are committed.
