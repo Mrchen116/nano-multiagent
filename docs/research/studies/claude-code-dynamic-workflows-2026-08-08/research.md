@@ -34,7 +34,7 @@ current-owner: pending-adoption
 | 二进制观察 | 哈希固定的本机 installed package/binary | shipped 2.1.226 的内嵌实现调用链 |
 | 推论 | 主证据与必要的二进制 escalation 共同约束下的实现解释 | 复刻蓝图；不冒充 vendor 内部实现 |
 
-原始 LLM 请求、完整 system prompt 和本机日志不进入 Git；本文只记录 locator、必要短摘录和脱敏摘要。
+原始 LLM 请求、可能包含仓库上下文的完整 prompt 和本机日志不进入 Git；但它们不是未知信息。对已捕获 session，LLM Proxy 中的 `system + tools + messages` 就是 Claude Code 交给 provider 的完整逐字 payload。本文记录 locator、逐块哈希、可重复提取命令和必要短摘录。
 
 ## 官方来源
 
@@ -192,6 +192,48 @@ return result
 - 完成后进入主会话的是 origin 为 `task-notification` 的合成 user message，携带 result、diagnostics、usage 和重新执行方式；主模型再输出最终结果。
 - worker 请求带 `cc_is_subagent=true`，独立 system prompt，24 个可用工具。任务虽然没有调用工具，工具 schema 仍进入 context。
 - worker 固定 addendum 的关键短句是：`Your final text response is returned verbatim as a string to the calling script`。这使子 agent 的 final text 成为脚本值，而不是直接对用户说的话。
+
+### E1 prompt capture manifest
+
+主请求 capture：
+
+```text
+/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-08_17-59-46_353_896b1c37-dec8-402f-9116-238c55377086/2026-08-08_17-59-46_754-req-anthropic_messages.json
+```
+
+| Payload 部分 | 精确规模 | SHA-256 |
+|---|---:|---|
+| system block 0 | 70 chars | `bb82bc00259ed5cef8a911f48df3ae1a1a118cb524e68ba938f63738bac362d9` |
+| system block 1 | 57 chars | `2719b7a469d904b3281d8488976f33103944211279bddf04c05bca44d184dae6` |
+| system block 2 | 8,841 chars | `e445699d27ddf98b2ed6eebf89f9a5ef0894d6bb55f853b40e6a566856ec4d0a` |
+| canonical messages array | 21,904 chars | `353c5e9b99838387026dba0b9a67da34acac2c761cc2bdac90a175d4b34f9910` |
+| canonical Workflow tool object | 21,259 chars | `661b6239b6a6d6392bd21f99960b9c29d549d474f99d85ae6f3593d400e02096` |
+| Workflow description | 19,214 chars | `4eb73456ae42222167257e641abc09046bf2babefcf810eb94b83aab7a1acc60` |
+| canonical Workflow input schema | 1,775 chars | `43eb76f815ee69e6a0fffa168825ce02340840fd722742fc5c7b16ff2615400c` |
+
+子 agent capture：
+
+```text
+/Users/czj/Repos/LLM_PROXY/logs/session/2026-08-08_17-59-46_353_896b1c37-dec8-402f-9116-238c55377086/2026-08-08_17-59-52_569-req-anthropic_messages.json
+```
+
+其三个 system block 分别是 91、57、3,753 chars，对应 SHA-256：
+
+```text
+eef1dc1afbecfc3a36fc5b4d3f27cde5c65d6b7806a171e71e92a1abf312feee
+2719b7a469d904b3281d8488976f33103944211279bddf04c05bca44d184dae6
+775358454315603a51c85a092146d1c4b6185b2434f2972ff71c4b7b7b836c8d
+```
+
+可逐字提取：
+
+```bash
+jq '.system' <request.json>
+jq '.messages' <request.json>
+jq '.tools[] | select(.name == "Workflow")' <request.json>
+```
+
+这里的“完整”严格限定为 Claude Code 2.1.226 在这次已捕获分支中提交给 LLM Proxy/provider 的 payload。它不自动覆盖未触发的 permission、saved/remote workflow、错误分支或未来版本，也不包含 provider 在代理之后可能追加的 server-side instructions。
 
 成本和时延：
 
