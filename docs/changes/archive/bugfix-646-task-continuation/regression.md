@@ -184,3 +184,24 @@ caller PA编译成功后Gateway53900于16:49:01Z ready；仍为隔离IM55324、�
 - 真人新问题 `f40e6b6556c04538a30643fa53c4bbb8` 要求保持Task暂停并问31×4；16:52:08消息 `0778337c0ec742c7850e62adc3e075e9` 正确回答124并说明保持暂停，delivery completed。宿主turn26 completed；同轮显式send可见，未吞普通回复或重复投递。最终idle、图paused。
 
 P4由“混合自动输入公开哨兵”变为“同类真实混合轮completed且无公开占位”，并保留真人独立结果，闭环通过。没有修改实现/配置，没有操作生产；服务仍由caller持有。上层文档归并/CI/部署仍不由本产品报告替代。
+
+## Round 6 — Stop 零唤醒与外部 Task 事实同步
+
+> reviewed runtime: 初段 `503498e1f`；main 合并后的 `3bdcdc546`（caller 编译并重启）；报告时 HEAD `48894194b4cabffc1cfc257a063dfed729a93c01`。隔离环境 IM `127.0.0.1:65373`、node `wt-nano-multiagent-89192`，真实模型 `deepseek:deepseek-v4-flash`。时间均为 2026-10-23 UTC。
+
+**Verdict: inconclusive（外部改派最终消费被模型服务 402 阻塞）**。已完成停止/冷恢复/人工恢复场景 pass；没有新增已证实的本单元实现缺陷。Highest Required Action: restore-test-environment；needs_re_review=true，仅余外部改派最终交付需环境恢复后复验。不得把路由触发成功称为模型完成交付。R1–R5 未失效证据保留。
+
+### 已完成的真实产品证据
+
+- **Global 停止不唤醒、旧答复不恢复**：群 `c_k31qjfl9`、图 `tg_89396459` 父 n1 / 子 n2 同归 e2e-global。在真实 sleep50 工具执行中，旧整数17消息 `fb6ff0104a5b4ca1a64b5d222a5c5cc2` 后紧接 stop `e01a0ecba0ff47aaa23ca37edb55f529`（19:00:09.428）。父子均 paused，停止确认 `1cfd6627d8bc403bb5fa2442abe6c63b`；父暂停通知 `a789e0e4450f44ea9c6b06e354e2d983`、子通知 `3c248169ee434ac7b52170420c257b7a` 均可见。原生主 session `32ecec36-1b0a-43cc-863e-b5451ffb88c4` 的 step/start 总数维持16、turn总数维持1，19:00:23与19:00:57两次确认，stop及同Agent父子通知未新起模型步骤。没有将 request/header 数量误当调用次数。
+- **其他Agent与下一次有效输入**：19:00:57只@e2e的4+5得到消息 `b07bad733a2e484ba8d642f0d870277e` 正确9，没有唤醒Global。19:01:09新@Global问2+8且不恢复，原生turn2 seq114包含可信 `task-stop-notice`；消息 `7f17977823284b20bf62110a26b973fc` 回答10并核对父子paused，旧17没有重新承担责任。
+- **SingleThread 真实 waiting、stop 与同Agent父子通知不唤醒**：合并版中 peer群 `c_srk0ejg6`、图 `tg_35dc6808` 的父子已通过真实 Schedule `schedule-3e91e0ea-32e5-40b1-96ed-762c522eb68b` 进入waiting。真实sleep50中，旧13消息 `65b7b034ea7c45069b899399402626d4` 后stop `3f9ed7e880d94a938caec3ea3cee515c`（19:05:22.805）；两项paused、停止确认 `05bfb39128e44f1f92e3541850720941`。主session `f4bd74aa-3b20-4661-b73f-8ce47b9aed15` 的step总数24在超过45秒观察内不增加，idle。不存在“先唤醒再靠模型选择静默”的假通过。
+- **真人从 Task API 明确恢复**：19:05:33.973用户对 `tg_89396459/n2` 发出正常 Task apply，将其恢复doing并明确计算17×7。19:05:43.989消息 `90104f737794462e82deea3625bfe323` 实际交付119，n2 done、父n1仍paused。证明停工事实没有挡住后来的明确人工恢复。本轮通过的是Web使用的同一Task mutation API；Chrome Task页能见paused节点，但节点详情按钮未展开，未宣称完成浏览器点击恢复路径，caller已明确接受API验收。
+- **冷恢复首个真实模型步骤消费停工事实和当前快照**：caller正常重启Gateway，保留IM、原生DB和绑定；没有手工改持久化状态。peer停工notice此前未消费。19:08:20.747原有真实Schedule到期（早于19:08:22普通输入），原生turn3首step seq193在19:08:20.875开始；seq194为停工notice（actor、原stop ID、19:05:22、paused2），seq195为真实schedule reminder，seq196为当前 `quiescent / tasks:[]` 快照。因此这是有效Schedule唤醒后的冷恢复消费，不能称为stop自行唤醒。新问题消息 `58ab52b5b34140cb949c0f16d6f90f6a` 后回复 `96967df8583c488a95bb0f8e4d2bc8c2` 正确11，父子保持paused、旧13没有恢复。
+- **群解散移除现有责任**：独立群 `c_va9xocxd`、doing根 `tg_42762148/n1` 于19:11:35.108由用户解散，API确认closed、dissolved_at存在、can_write=false。原生Global seq518在19:11:35.390追加nano-system/task-change，明确 `removed:["tg_42762148/n1"], doing:[], waiting:[]`。这是运行中消费者实际收到移除事实，不仅是DB/callback断言。后续要求确认的普通消息 `df0d159be6624f6aa47fe55f4dbe91f3` 未得到成功回复，受下述余额阻塞，故不额外声称最终回答或完整收尾已验证。
+
+### 环境阻塞与验收边界
+
+- **外部改派待复验**：用户API创建 `tg_7ffac859`，19:11:46.476将负责人由Global改为e2e并设doing，目标为实际交付13×3。改派系统消息 `589eaaf6f7fa4b0698100f3a06a54624` completed，确实触发新负责人；但公开失败消息 `badda266c36140c9a642ded3387cda71` 返回 `402 Insufficient Balance`，request_id `9f243acb-8869-4158-a895-11b51e78a833`。任务仍doing，没有39交付，因此该项 inconclusive；不因模型账户余额失败虚构实现问题，也不更换模型绕过已约定联调条件。
+- 初始夹具schedule allowlist错误导致Global旧session无schedule工具；caller修正为六个真实schedule工具后，新peer场景成功建立Schedule。Global旧session仍无该工具且探索多轮，其等待配置不算本轮有效waiting验收；停止与人工恢复证据有效。群解散后停止扩展探索，没有把该夹具问题增列本单元缺陷。中途caller维护重启打断初次颜色任务输入，不计产品失败。
+- 证据为reviewer直接操作产品API、Chrome可见状态与原生SQLite只读事件；没有以模型thinking或源码推断行为。原始API流水 `/tmp/646-stop-sync-evidence.jsonl`，筛选原生事件 `/tmp/646-r6-native-evidence.json`，原生DB在隔离worktree `.dsh-runtime/wt-nano-multiagent-89192/node.sqlite3`。这些本地产物不提交。未改源码、测试或运行配置；服务由caller持有。最终余额阻塞后不再新增模型调用；剩余doing测试图与测试服务交回caller清理。
