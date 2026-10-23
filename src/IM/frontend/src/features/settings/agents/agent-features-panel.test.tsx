@@ -41,6 +41,7 @@ vi.mock("./im-agent-config-api", async (importOriginal) => ({
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
+import type { AgentDetailState } from "./im-agent-config-api";
 
 const HEARTBEAT = {
   key: "heartbeat",
@@ -60,7 +61,7 @@ const CRON = {
   requires: { features: [], tools: ["cron"], skills: [] },
 };
 
-function agentState(feature: typeof HEARTBEAT | typeof CRON) {
+function agentState(feature: typeof HEARTBEAT | typeof CRON): AgentDetailState {
   return {
     config: {
       agent_id: "agent-1",
@@ -73,6 +74,8 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON) {
       tool_allowlist: [] as string[],
       group_reply_policy: "MENTION" as const,
       default_model: null,
+      model_fallbacks: [],
+      reasoning_effort: null,
       workspace_root: "/tmp",
       workspace_is_default: false,
       profile_version: 1,
