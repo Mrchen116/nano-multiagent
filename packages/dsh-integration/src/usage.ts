@@ -106,7 +106,7 @@ class UsageReader {
     return {reports: root.reports.slice(start), cursor: `${root.epoch}:${root.reports.length}`};
   }
 
-  private async update(root: RootUsage, id: string, state: SessionUsage) {
+  private async update(root: RootUsage, id: string, state: SessionUsage): Promise<void> {
     const live = this.ctx.sessions.get(SessionId(id));
     const cut = live?.seq;
     let durableLive = false;
