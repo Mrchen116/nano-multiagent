@@ -33,7 +33,7 @@
 
 - 独立产品验收通过真实 HTTP 入口提交原话；用户消息 `a2d0ebd8e93d432594bf6e8602da0639`。
 - 实际目标群 `c_b692y37a` 新消息 `85a6b4c1832541df80a80e3e8b39b546`，只出现一次；主人收到指向该消息的结果。未执行材料中的清理指令。
-- 操作 `3e1935b1-172d-409d-a591-dcf37f56ede9` 为 confirmed，绑定该消息。IM evidence 2,893 字符；披露 reviewer 首次完整模型请求 67,061 字符，后续同会话请求 67,549 字符。两次都包含主人原话与实际目标群，没有无关历史正文，没有旧全库 owner_messages。
+- 操作 `3e1935b1-172d-409d-a591-dcf37f56ede9` 为 confirmed，绑定该消息。IM evidence 2,893 字符；披露 reviewer 首次完整模型请求序列化后 67,061 字符，后续同会话请求 67,549 字符（日志文件含排版空白，首次约 67.7k 字符）。两次都包含主人原话与实际目标群，没有无关历史正文，没有旧全库 owner_messages。
 - reviewer `nano-codex-f5e8b01e-23e8-4de0-815f-f3443d33a89d`，metadata `contextMode=full`；真实 verdict allow，明确匹配原授权、原群成员与受限范围。原始请求在本机 LLM_PROXY 对应 session 日志；仅提交指标与定位，不提交私有副本。
 
 ## 本地检查记录
@@ -43,3 +43,17 @@
 - Web：103 文件、963 tests 通过；构建通过。Python 非 E2E：65 passed / 31 deselected；ruff check/format、TypeScript typecheck、iOS 交互 runtime 检查通过。
 
 - Web critical 依赖审计返回 0；现有 moderate/high 提示未触及 critical 门禁。final sync 的 origin/main 仍为 executed_base，无主干增量。
+
+## 产品回归与清理
+
+- 独立产品 reviewer R1 pass，0 blocking / major / minor；完整路径见 [regression.md](regression.md)。负向请求在真实输入分类阶段拒绝，群内合成私密标记出现 0 次；固定拒绝另经独立披露 allow 并绑定主人通知回执。不将该结果表述为独立动作审核的真实 deny。
+- 同一许可重复提交、审核期变更与强制换窗由确定性自动化覆盖；本次真聊天实际观察为自主读取历史、发送一次、主人收到结果。
+- 真聊天结束后通过 e2e-down 停止隔离栈，并清理首次创建失败留下的本任务 DSH 孤儿进程。最终 SQLite 快照与日志仅本机 `/tmp/nano-pa-review-640/` 留存；未连接或改动生产。
+
+## Final sync 与门禁有效性
+
+- executed_base = effective_base：`9600bf3b16929fa411bb6956909c5df9777b5c3a`；最后 fetch 无主干增量。
+- 产品实现 validated_at：`24e952eb905d75ffce07e1188e82767639fd4a45`；测试适配 targeted validated_at：`1520c62fc71650e5898f8860ad269354c6c19513`。
+- Gate 2 Approved；独立 code review 无 finding；verifier full + corrected-delta pass；独立产品 R1 pass。其后只精确归并已审 delta、补充证据和移动整个 unit，产品代码与测试不变，以上门禁 retained；effective_through 的最终完整 SHA 在 PR body 记录。
+- Canonical 归并：`docs/specs/gateway/personal-agent.md` 增加已授权长期工作与换窗缺证据两个 Scenario；未新增契约含义。无新增长期文档，领域入口保持有效。
+- 完整 unit 归档表示准备交付；尚待 PR required CI 全绿与人工审查，不表示合并或部署。
