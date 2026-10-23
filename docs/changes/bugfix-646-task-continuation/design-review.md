@@ -176,3 +176,84 @@ design 已要求 shared 提示与 Skill 同步；建议明确 `scripts/generate-
 ### Recommendations
 
 无新增建议。
+
+## Round 4
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: 仅审新增“真实验收发现的交付与停止接线补充”的三个 SingleThread 接线设计及其失败/验证边界；不审实现 diff，不重开原全量设计。
+- started_at: 2026-10-23T23:58:20+08:00
+- completed_at: 2026-10-24T00:02:14+08:00
+- duration: 234s
+- validated_at: `unit/bugfix-646` HEAD `97be7854e9956e599eea42ed9e1d9988548dc8c4` 加受审 design 工作区。
+- reviewed SHA-256: design.md `539167d44bd4003d8c24ef6393956d89d9d98c8c511f7c0b0ff4cffe4d89016c`。
+- 只追加本报告；依派发要求本轮不提交。真实产品失败描述来自派发及设计来源记录，本轮未独立重跑产品旅程。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+SingleThread query 和已确认发送后的 sentinel 处理方向可行；stop 的可信事实注入方向合理，但 inject 的排队语义与现有 fence 恢复接线存在顺序缺口，需先关闭 R4-W1 再实施相应停止补充。Round 2/3 未受影响的结论 retained。
+
+### Coverage 与证据
+
+1. **SingleThread query。** IM `apps/im-server/src/work.ts:488–509` 已校验 node/agent，并仅对 Global 查询要求已登记 global_main session；后续仍通过真实用户/Agent 会话可见性处理。PA query 仅在 Global ensureAuthority，符合现有 IM 职责，修复无关注册前置不等于放宽聊天 ACL。需保留 SingleThread 正常 info/read/send 前置查询、Global ensure 和无权限聊天拒绝的验证；派发中“44 测试通过”仅作为实施方结果，本轮不复述为独立验收。
+2. **停止事实与来源。** `TaskExecution.stop` 当前已有 durable control intent、block、cancel keepInbox、drain、IM pause receipt 和解除 block；IM `pauseExecution` 原请求键可重放暂停数。以稳定 ID 复用 session.submit、在通知持久化前不完成 intent，能保留失败后重试而无需新增状态表。宿主已核实 actor/message/time/scope 的 task-human-control 适合作为停止事实；`policy/sources.ts:164–165` 已识别该来源，但首部说明目前只描述 UI resume，实施时需如设计所说同时说明 stop 撤销与原消息时间，不能将一般 system 文本视为人类授权。SingleThread 普通消息已有 `single-thread.ts:126–129` 的原发生时间，故旧排队答复可与停止时间比较。公开 inject API 的排队而非已消费语义仍需补足顺序保证，见 R4-W1。
+3. **发送确认与 sentinel。** `global-agent.ts:579–585` 在实际确认 publication 后持有 call/session/turn、目标及服务端 conversation_id，可在既有 command/事件账本上表达同 turn 同绑定聊天已交付，不能只凭 send 调用或 target 字符串推断。`single-thread.ts:223–229` 已有 card sentinel 处理，`:398–415` 在 card 已交付时等待 final 而不流出后续文字。新的文本规则需同时覆盖这一流式边界与 final 判定，保留 final prose、不同目标、unknown/held/failed、已展示审批；不得先流出 NO_REPLY 再仅删除 final。这是当前补充“不能公开泄露哨兵”的验证切面，不要求新增交付账本。
+4. **范围与 retained_from。** 原 Task 状态/一小时安排、固定聊天反馈、审批规则/模型与失败分流、SingleThread 来源权限和 Global 非空私有收尾不变；Round 2/3 对上述项的证据继续有效。stop 新增的权威事实来自已存在真人控制入口，不把自动 Schedule 或 Task snapshot 升级成人类授权。没有生产操作或新循环。
+
+### 历史问题闭环
+
+R1-W1 / R1-W2 / R1-W3 继续 closed；R1-R1 继续 addressed；Round 3 无遗留问题。本轮新问题见下。
+
+### Issues
+
+#### R4-W1 — inject 持久化不能保证解 fence 后旧输入先看到停止事实
+
+- 位置：design.md 新增“真实验收发现的交付与停止接线补充”第二项。
+- 证据：锁定 DSH `dsh-agent/lib/types/runtime-types.d.ts:200–209` 定义 inject 为下一 pre-step 的排队上下文，不自行唤醒；`integration/index.ts:644–661` 在 inject 后 flush；`input-evidence.ts:13–18` 的 accepted 仅需出现 inbox/spliced，不要求 user/message 或模型已经消费。当前 `TaskExecutionDriver` 把 task-human-control 也放入 ordinary，blocked 分支 `task-execution.ts:62–64` 调用 restore；`:174–175` 将这些消息统一 prepend 到 next-turn。
+- 具体失败路径：停止通知已 inject，flush/解除 fence 之间到达一次正常唤醒，原生 pre-step 领取旧 ordinary 和注入通知；fence 拒绝该步后，把两者依次恢复为 next-turn。解除 fence 后旧答复可先作为独立普通轮次进入模型，控制通知留到下一轮。即便稳定 ID 的 accepted/durable 已成立，原始“旧答复不能在停止后被当作恢复”的失败仍可能出现。
+- 关闭要求：明确一个原生 admission 顺序保证，使可信 stop 事实在解 fence 后首次可执行模型步之前或同批可见。可保留控制消息的 next-step 身份/顺序或采用等效既有 admission 约束；不能仅以 accepted+flush 为模型已知证据，也不能以删除全部旧输入解决。记录 notify 失败/重试、重启后 pending 与完成 intent 的恢复边界。
+- 必须验证：用真实 native inbox/pre-step 测试旧答复已排队、stop inject 已接受、fence 内发生一次被拒绝 admission、解除 fence 后第一次实际模型请求含 stop 事实且旧答复未被升级为恢复；同时验证该通知持久化失败仍 pending、稳定 ID 重试不重复，后续新的明确真人恢复仍可处理。无需为这项增加第二调度器或新状态表。
+
+### Recommendations
+
+无新增可选建议。
+
+## Round 5
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: 依派发仅复核 R4-W1 对应的 next-step 恢复规则与原生竞态验证补充；其余段落沿用 R4/Round 2/3 的有效证据。
+- started_at: 2026-10-24T00:02:38+08:00
+- completed_at: 2026-10-24T00:03:35+08:00
+- duration: 57s
+- validated_at: `unit/bugfix-646` HEAD `97be7854e9956e599eea42ed9e1d9988548dc8c4` 加受审 design 工作区。
+- reviewed SHA-256: design.md `8bfc23de6ebb93e4c661a7c3bc0bcf459f3f074e5b1b549385ff691fa556d758`。
+- 只追加报告，不提交；不审本轮并行变化的实现或测试文件。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R4-W1 的设计解决方案已闭合。新增 SingleThread 三项接线补充可以进入后续实施与验证；本轮没有声称竞态已经由代码或真实产品测试消除。
+
+### Coverage 与历史问题闭环
+
+- **R4-W1 — closed。** Author Resolution 来源为派发方明确接受 finding 的消息及 design 新增停止段落末尾：不能将 inject+flush 等同模型可见；fence 拒绝已领取的批次时，把 task-human-control 保留/恢复为 next-step，其他 ordinary 保持 next-turn；要求解 fence 后第一个模型步同时看到停止事实与旧输入。
+- 独立核对公开 `dsh-agent/lib/types/runtime-types.d.ts:43–59`：原生 inbox 暴露 nextTurn、nextStep 及 prepend(target,message)，故设计可在既有 restore 处保留队列类别；`:200–209` 的 inject 定义本就使用 next-step，不需新增 RPC、调度或持久表。R4 的实际遗漏是把控制通知转换到普通轮次，此修改直接关闭该路径。
+- 补充保留原 pause receipt → inject+flush → 完成 stop intent/解 fence 的顺序，以及通知失败继续 pending/fence、同 receipt 与稳定 input ID 重试；新规则不会以 accepted 代替已可见，也不删除无关旧输入。已有 pending 控制恢复机制继续承担重启恢复，后续原生测试须同时核对通知失败与首个实际模型请求。
+- 验证标准足够具体：fence 内先发生一次实际 pre-step 领取与 reject，再解除 fence，检查第一个实际模型输入包含可信停止通知，并验证旧答复不能表示新的恢复；后续明确真人恢复仍有效。此项检验真实队列边界，不能以模拟 submit 返回 accepted 替代。
+- **retained_from: Round 4。** SingleThread conversation query 的模式资格/ACL，confirmed 同目标同 turn 的显式交付、流式及 final sentinel 处理，来源时间说明与审批保留均未修改；R4 除此 issue 外的覆盖继续有效。原 Round 2/3 未受影响设计结论保留。
+
+### Issues
+
+无未解决 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。

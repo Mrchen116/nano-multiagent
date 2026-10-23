@@ -220,17 +220,17 @@ export class SingleThread {
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
-      const interactiveDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
-      if (end && interactiveDelivered) {
+      const explicitDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
+      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
+      if (end && explicitDelivered && !approvalVisible) {
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as {content: {type: string; text?: string}[]} | undefined;
         if (last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim() === 'NO_REPLY') {
-          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'interactive_reply_delivered'});
+          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'explicit_reply_delivered'});
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
       const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => ['heartbeat','task_execution'].includes(String(item.input.metadata.origin)));
-      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
       const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
       if (heartbeatOnly || group) {
         if (!end && heartbeatOnly && !approvalPending && !approvalVisible) continue;
@@ -404,7 +404,7 @@ export class SingleThread {
       if (!delivery?.messageId || delivery.state !== 'sending') return;
       if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
       if (!frame.chunk!.text) return;
-      // A confirmed card owns the reply. Wait for the final message to distinguish
+      // A confirmed explicit send owns the reply. Wait for the final message to distinguish
       // its non-empty closing sentinel from an additional meaningful answer.
       if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) return;
       const published = this.publication(sessionId, turn) ?? { confirmed: '' };

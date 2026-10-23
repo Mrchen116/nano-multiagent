@@ -23,6 +23,15 @@
 - **THEN** 反馈回到 Task 固定所属聊天；等待说明包含实际进展、阻塞、尝试、所需协作与下次检查；Global 以 send_message 实际交付。
 - **AND** 相同已确认反馈不重复发送；发送失败/未知不伪造送达、不改变真实 waiting，其他独立工作继续。
 
+#### Scenario: SingleThread 已确认显式交付
+- **WHEN** SingleThread 本轮 send_message 已确认送达本轮绑定聊天，模型以 NO_REPLY 收尾
+- **THEN** 不公开哨兵；其他聊天、未确认发送或可见审批不被该交付标记吞掉。
+
+#### Scenario: 停止优先于旧排队输入
+- **WHEN** 真人 /stop 已暂停 Task，但原生 inbox 仍有停止前收到的答复或定时输入
+- **THEN** 解除停止隔离前将受信停止事实持久化，并保证首次后续模型步可见；模型与独立审批均区分原消息时序，旧输入不能被视为停止后的恢复授权。
+- **AND** 停止后新的明确真人恢复仍可作用于对应 Task；通知持久化失败保持 stop pending，不伪报完成。
+
 ### Requirement: 自动失败屏障 SHALL 与 Task 业务状态分离
 
 #### Scenario: 故障与修复

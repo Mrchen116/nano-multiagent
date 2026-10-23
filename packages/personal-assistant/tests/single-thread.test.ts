@@ -160,20 +160,21 @@ it('keeps the approval identity inside a resolution independently of transport r
  }finally{await product.stop();store.close();}
 });
 
-it('reconciles a committed interactive send with a lost ACK before terminal NO_REPLY rendering',async()=>{
+it.each([{interactive:true,found:true,same:true},{interactive:false,found:true,same:true},{interactive:false,found:true,same:false},{interactive:false,found:false,same:true}])('suppresses closing sentinel only for a confirmed bound-chat send: %j',async({interactive,found,same})=>{
  const {GlobalAgent}=await import('../src/global-agent.js'),{InboxStore}=await import('../src/inbox.js'),{RelayDeliveryError}=await import('@nano/channels');
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:'),frames:Record<string,unknown>[]=[];
  store.bind({agentId:'a',sessionId:'main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
  store.receive('main',{agent_id:'a',conversation_id:'chat',relay_task_id:'input',idempotency_key:'input',metadata:{conversation_type:'direct'},message:{id:'m',content:'show a card',sender_type:'user',sender_user_id:'owner',attachments:[]}});
  const events:RuntimeEvent[]=[{seq:1,type:'turn/start',time:1,data:{turn:1}},{seq:2,type:'tool/call',time:2,data:{turn:1,callId:'send',name:'send_message'}},{seq:3,type:'assistant/message',time:3,data:{turn:1,message:{content:[{type:'text',text:'NO_REPLY'}]}}},{seq:4,type:'turn/end',time:4,data:{turn:1,reason:{kind:'completed'}}}];
  const runtime={onNotification:()=>()=>{},async request(method:string){return method==='session.lookup'?{accepted:true,turn:1,terminal:{kind:'completed'}}:{durable:true,events};}};
- const relay={async request(type:string,payload:Record<string,unknown>){frames.push(payload);if(type==='agent.message')throw new RelayDeliveryError('ACK lost','unknown');return {type:'ack',payload:type==='agent.message.status'?{found:true,message_id:'card',conversation_id:'chat'}:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{message_id:'bubble'}};}};
+ const relay={async request(type:string,payload:Record<string,unknown>){frames.push(payload);if(type==='agent.message')throw new RelayDeliveryError('ACK lost','unknown');return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'card',conversation_id:same?'chat':'other-chat'}:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{message_id:'bubble'}};}};
  const agents=[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread' as const,provider:'test',model:'test'}],options={nodeId:'n',ownerId:'owner',agents,store,runtime,relay,image:async()=>'',onError:()=>{}};
  const global=new GlobalAgent({...options,inbox}),single=new SingleThread(options);
  try{
-  expect(await global.call({method:'send_message',args:{target:'chat',text:'Card',interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("card")'}},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'})).toMatchObject({status:'sent',message_id:'card'});
-  expect(store.command('interactive-delivered:main:1')).toBeTruthy();await single.recover();
-  expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(false);
+  const sending=global.call({method:'send_message',args:{target:'chat',text:'Card',...(interactive?{interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("card")'}}:{})},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'});
+  if(found)expect(await sending).toMatchObject({status:'sent',message_id:'card'});else await expect(sending).rejects.toThrow('ACK lost');
+  await single.recover();
+  expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(!(found&&same));
  }finally{await global.stop();await single.stop();inbox.close();store.close();}
 });
 

@@ -158,6 +158,7 @@ it('holds a single-thread same-group tool send until the accepted correction is 
       if(method==='session.lookup')return {accepted:true,...((value as any).inputId==='a:original'?{turn:1}:corrected?{turn:2}:{})};
       return {durable:true,events:[{seq:corrected?2:1,time:1,type:'tool/call',data:{turn:corrected?2:1,callId:corrected?'new':'old'}}],status:'running'};
     }},relay:{async request(type,payload){
+      if(type==='agent.session.ensure')throw new Error('invalid_scope');
       if(type==='conversation.query'){if(!corrected)store.receive('chat',input('correction'));return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web'}}};}
       if(type==='agent.work.append')return {type:'agent.work.ack',payload:{through_seq:(payload.events as any[]).at(-1).seq}};
       if(type==='agent.message'){sends++;expect(payload.to).toBe('conversation:c_group');}

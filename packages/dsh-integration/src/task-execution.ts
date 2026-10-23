@@ -172,7 +172,7 @@ export class TaskExecutionDriver {
     return freezeMessage({id,role:'user',source:{kind:'nano-system',actorId:this.options.bindings.get(agent.id)!.agentId,channel:sourceChannel,messageId:id},content:[{type:'text',text}]});
   }
   private restore(agent:Agent,messages:UserMessage[]):void {
-    for(const message of messages.toReversed())if(!agent.inbox.nextTurn.some(m=>m.id===message.id)&&!agent.inbox.nextStep.some(m=>m.id===message.id))agent.inbox.prepend('next-turn',message);
+    for(const message of messages.toReversed())if(!agent.inbox.nextTurn.some(m=>m.id===message.id)&&!agent.inbox.nextStep.some(m=>m.id===message.id))agent.inbox.prepend(channel(message)==='task-human-control'?'next-step':'next-turn',message);
   }
   /** Reserve one continuation after persistence and a second native inbox check. */
   async poke(agent:Agent,reconsider=false):Promise<void> {

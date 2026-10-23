@@ -293,6 +293,12 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
       return observed.events.some(event=>event.type==='agent/inbox/spliced'&&event.data.inserted?.some(message=>message.source?.kind==='schedule'));
     },{timeout:5000}).toBe(true);
     expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
+    await client.rpc.request('session.submit',{sessionId:'s',inputId:'stop-notice',mode:'inject',content:[{type:'text',text:'HOST_STOP_NOTICE: prior queued replies cannot resume paused Tasks.'}],source:{kind:'system',actorId:'o',channel:'task-human-control',messageId:'stop'}});
+    await client.rpc.request('session.submit',{sessionId:'s',inputId:'concurrent-wake',mode:'followup',content:[{type:'text',text:'Another queued input'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'concurrent-wake'}});
+    await expect.poll(async()=>{
+      const observed=await client!.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{inserted?:{id:string}[]}}[]};
+      return observed.events.filter(event=>event.type==='agent/inbox/spliced'&&event.data.inserted?.some(message=>message.id==='stop-notice')).length;
+    }).toBeGreaterThanOrEqual(2);
     pending=false;
     await client.rpc.request('task.execution.block',{sessionId:'s',blocked:false});
     await expect.poll(()=>readFile(join(home,'calls'),'utf8').catch(()=>'')).toContain('Keep this ordinary input');
@@ -300,7 +306,8 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     const calls=await readFile(join(home,'calls'),'utf8');
     expect(calls).toContain('STOP_OLD_SCHEDULE');
     // Native inbox classes may admit the held human and Schedule in separate turns.
-    expect(calls.trim().split('\n')).toHaveLength(2);
+    expect(calls.trim().split('\n')[0]).toContain('HOST_STOP_NOTICE');
+    expect(calls).toContain('Another queued input');
     expect(calls).not.toContain('Unconfirmed stop');
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);

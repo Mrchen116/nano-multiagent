@@ -59,7 +59,7 @@ it('closes a delivered interactive reply without streaming or publishing its clo
     await product.recover();
     expect(frames.some(f=>f.kind==='message_delta' && f.delta_text==='NO_REPLY')).toBe(false);
     expect(frames.some(f=>f.kind==='message_completed' && f.final_content==='NO_REPLY')).toBe(false);
-    expect(frames).toContainEqual(expect.objectContaining({kind:'message_discarded',reason:'interactive_reply_delivered'}));
+    expect(frames).toContainEqual(expect.objectContaining({kind:'message_discarded',reason:'explicit_reply_delivered'}));
     expect(store.delivery(sessionId,1)?.state).toBe('confirmed');
   } finally {await product.stop();store.close();}
 });

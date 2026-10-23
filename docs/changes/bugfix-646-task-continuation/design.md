@@ -49,6 +49,12 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 
 审批误判的处理边界：本次保留拒绝和来源证据，不增加 task_graph 白名单、不降低共享资源规则。真实拒绝返回模型说明并寻找合法路径；不可执行时停止无效重试并交付阻塞。原始人类授权、Agent 派发、Task 控制、Schedule 唤醒分别保留来源，不把 task snapshot 提升成人类授权。分类器规则调整需要独立证据，不纳入本次。
 
+## 真实验收发现的交付与停止接线补充
+
+- SingleThread 共用的 conversation query 不应执行仅支持 Global 的 `agent.session.ensure`。只在 Global 注册工作主会话；SingleThread 查询仍由 IM 校验节点、Agent 与聊天成员权限，不新增豁免。
+- `/stop` 目前暂停持久 Task 并保留原生 inbox，却没有将真人停止事实写入模型/审批证据；旧排队答复因晚处理而被误认为恢复。复用已有 `session.submit(mode=inject)`：在 pause receipt 确认之后、解除 stop fence 之前，以稳定 input ID 注入并 flush `task-human-control` 来源的停止通知，携带宿主已核实的操作者、原消息 ID/时间、作用范围与暂停数量。明确停止前已排队输入即使晚处理也不能恢复 paused Task，只有停止后新的明确真人恢复才可。暂停成功但通知失败则仍维持已有 stop pending/fence，重试同 receipt 与同 input ID；不新增调度器、状态表或删除无关排队消息。来源说明承认此受信控制事实，不把普通 system 文本提升为授权。仅 inject+flush 不等于模型已见：fence 期间若原生 pre-step 已领取普通输入与控制通知，reject 恢复时必须保留 task-human-control 的 next-step 语义（其余普通输入仍为 next-turn），确保解 fence 后首个模型步已同时看到停止事实；以原生队列竞态测试覆盖，不凭 accepted 标记推断可见。
+- SingleThread 已确认通过 send_message 向本轮绑定聊天发送文字结果后，模型结尾的 NO_REPLY 应与已交付卡片一样被抑制，不能公开泄露哨兵或重复结果。使用实际 confirmed publication 的目标与 turn 关联；其他聊天、unknown/failed 发送和已有可见审批不能因此吞掉本聊天正文。Global 仍不使用 NO_REPLY。正常 SingleThread final prose 仍可直接交付。
+
 ## 接口与数据流
 
 - `TaskResponsibility` 最小投影增加节点 `updated_at`，源为 IM 现有 list/execution 返回的该节点时间，PA 不再裁掉此字段；无需数据库迁移或正文加载。driver 私有状态保存拒绝 action key 与受影响责任投影（排除 graph revision），提示附受抑制任务标识。snapshot 仍完整，不隐藏责任或改写 status。分别覆盖同节点 description 修改与同图其他节点修改。
