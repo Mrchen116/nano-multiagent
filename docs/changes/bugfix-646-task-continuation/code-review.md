@@ -77,3 +77,38 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - 有效测试复用：caller 提供的 e2219e12b 源码窄测 `/tmp/nano-646-patch-final.log`，`approval/task-execution/task-recovery` 3 文件 / 24 测试，23:33:37 开始、108.78 秒通过；报告已读取汇总并逐项检查测试 seam。R1 的 Codex effort 8 测试保留。未重复全量后端 CI，不把尚未返回的真实产品结论当作缺陷或成功证据。
 
 直接复核仍使用 R1 `/tmp/nano-646-review-scope.mts`；其 dependency 与 subtree 输入不变，另外补入 known/unknown responsibility 的 unavailable pre-step 对照。精确输出记录于 verification Round 2。没有未确认的存活候选；本轮只改报告。
+
+## Round 3 — patch
+
+- 固定受审版本：`3a2debdd5eea8d3153fa5ae4903f67a33c9c5d92`；上次有效报告 `97be7854e`。本 unit 实现增量 `4f8f1704f`，并检查 merge 引入 `origin/main 4bb02455b` 的共享 integration/PA 接线；未把无冲突当作集成正确的证明。
+- 时间：2026-10-24 00:13 +08；同一独立 reviewer，未参与修复；开始时工作树干净。
+- 范围：产品 R1 P1/P2/P3 对应 SingleThread query、宿主 stop 事实持久化及首步可见、审批来源、confirmed send/sentinel；main PR393 descendant/reconcileRoot 与 PR394 usage 的交互。R2 未受影响的 Task cap、反馈、拒绝作用范围与审核模型兼容性结论保留。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus closure（代码与故障 seam）
+
+| 产品 R1 问题 | 代码处理与证据 | 静态结论 |
+|---|---|---|
+| P1 SingleThread send 查询误执行 Global session 注册 | PA `global-agent.ts:491` 只在 Global ensureAuthority；IM `work.ts:488-520` 仍验证 Agent/node/空间/会话权限，SingleThread 不需要 Global journal session；原同群修正测试显式令 agent.session.ensure 抛 invalid_scope，正常查询/重核验仍通过 | addressed；真实提问/等待链由产品 R2 复验 |
+| P2 旧排队答复越过 /stop | PA `task-execution.ts:63-74` 顺序为 fence/cancel/drain → IM pause receipt → 固定 ID inject → runtime submit flush → 完成 control → 解 fence；source 携带原 actor/message/time/scope，失败前不完成 control。integration `task-execution.ts:174-175` 对被拒入场的控制保留 next-step，普通消息仍 next-turn。真实 native 队列竞态测试检查第一次模型调用含 HOST_STOP_NOTICE，定向重跑通过（RuntimeClient 使用 4f8f 编译产物，不能据此证明合并后 index）；审批来源投影及 Nano/DSH/Codex 共享规则保留停止时间优先 | addressed；不代替真实旧输入/后续真人恢复旅程 |
+| P3 plain explicit send 后公开 NO_REPLY | `global-agent.ts:580-588` 仅真实 confirmed publication、同 call turn、同绑定聊天/有效映射保存既有交付键；SingleThread `:223-231,409` 共用于卡片/文字的流式和 final 哨兵处理。unknown、不同聊天不设键；visible approval 不丢弃整泡，既有 final 审批分支剔除哨兵并保留审批结果 | addressed；产品 R2 核对真实聊天 |
+
+### 合并接线与边界
+
+- PR393 将 PA reconcile 拆成 root 与 child drains：Task mutation/send 现在只 await `reconcileRoot`，它仍先持久记录 root events、模型投影、Inbox read/consumption，再执行来源与交付检查；子轨迹使用单独队列不参与授权。Task stop 的 drain 仍来自 `apps/node/src/main.ts:332-334` 的已接收 product calls，不会由于 child 展示读取换路而跳过。检查实际 merge 后 `index.ts:640-660` 的 submit/flush、`:427-438` 的 cancel keepInbox 以及 PA stop 的调用顺序，没有覆盖新增控制逻辑。
+- PR394 的 usage.read 已由 PA UsageReports 同步消费 `{reports,cursor}`，turn/end 通知新增 usageRoot 只用于统计归属；不参与 task-human-control 分类、stop fence 或 SingleThread 交付键。检查共享 index 的 listener/RPC 与 usage 持久屏障，未发现本 patch 的停止/交付顺序被改变。
+- `policy/sources.ts:9,164-165` 将宿主 Task 控制投影为 human-task-control；普通 Task/Schedule/Agent 消息仍不是新授权。classifier 与 Codex policy 均实际复用 reviewSourceInstructions。旧排队消息的原发生时间由 SingleThread 入模前言保留；不因后处理顺序将其升格为新恢复。
+- 修复复用现有 control intent、inputEvidence 去重、inbox、publication 和交付键；无新调度器、存储表、审批豁免或跨包运行时依赖。
+
+### 验证结果与未完成门禁
+
+- 复核 `/tmp/nano-646-finalpatch-green.log`：6 文件 / 89 测试中 88 通过，新增 stop/交付均通过；旧 automatic denial 在等第二次模型调用的 5000ms poll 超时，**本报告不把该批记为全绿，也不在无新证据时定性产品根因**。该用例由 caller 在合并版单 worker 全量中重跑。
+- 我方在合并源码工作树单独执行：`pnpm exec vitest run packages/dsh-integration/tests/task-execution.test.ts packages/personal-assistant/tests/global-agent.test.ts -t 'restores a stop fence|source checks independent' --maxWorkers=1`，Node24 PATH；00:11:36 开始、22.87 秒，2 文件 / 3 passed / 57 skipped。PA 两例直接 import 3a2 源码，覆盖 Task/send root 来源检查独立于 child drain；native stop 的 RuntimeClient 实际启动仍为 4f8f 编译产物，仅保留为未被 main 修改的 driver stop 修复证据。caller 随后发现 e2e-up 不执行 build，停止错误的集成验证，重新显式 build；本次 3 例不能称为 3a2 完整 runtime 集成通过。
+- 产品 R1 原报告仍为失败历史；P1/P2/P3 的最终真实闭环由新隔离栈产品 R2 负责，不用静态通过取代。最终后端全量/typecheck 仍由 caller 执行，不能据此提前宣称 M1 完成。
+
+本轮无未证实高风险存活候选；仅追加本报告与 verification.md，未修改源码/测试/配置/设计，未触碰或重启产品 reviewer 的服务。

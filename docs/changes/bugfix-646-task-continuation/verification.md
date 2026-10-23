@@ -118,23 +118,58 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - 前端 103 文件/963 测试、Python 65、typecheck/ios/ruff/docs 为 caller 提供的旁证，本轮未重跑、不扩大其证明范围。最终限并发后端 CI 和真实模型产品旅程仍由各 gate 提供。没有为尚未返回的外部 gate 增加 WARNING，也没有提前宣称 M1 全部退出标准完成。
 - design-review.md 的并发补充设计复核由另一独立 reviewer 持有，本轮不修改该文件、不替代其结论；本轮只判断当前最终文档与实际补丁的一致性。
 
+## Round 3 — targeted-closure + integration patch verification
+
+> Validation snapshot: `97be7854e9956e599eea42ed9e1d9988548dc8c4 → 3a2debdd5eea8d3153fa5ae4903f67a33c9c5d92`
+
+- verification_mode：targeted-closure + corrected-delta；focus 产品 R1 P1/P2/P3 新修订与 main 合并接线。
+- 时间：2026-10-24 00:13 +08；独立 verifier 不变，未参与实现；未重新扩大为 unit full。
+- verdict：**静态与本轮定向验证 pass**，0 CRITICAL / 0 WARNING / 0 SUGGESTION；outcome：**aligned**。
+- requires_full_verification：false。已静态检查共享 index/PA 的实际合并交互；native stop 仅有 4f8f 编译版本边界证据；原 R2 未变化的契约证据仍有效。本轮并不认证上游 PR 全部内部实现，也不替代 caller 的最终集成 CI。
+- 完整交付 gate 仍待：合并版后端全量、typecheck 与产品 R2。已知一次旧 automatic denial poll 超时未被隐去，不能将 88/89 写成全通过。
+
+### Completeness / Correctness / Coherence
+
+| 修订契约与现场风险 | 实际实现、验证与限制 | 结果 |
+|---|---|---|
+| design 新补充 SingleThread query 模式资格 | PA `global-agent.ts:491` 限 Global 注册；IM `work.ts:488-520` 已按 work_mode 分流 session 前置，保留节点、Agent、空间与会话权限；native product query 回归显式拒绝错误 Global 注册 | aligned |
+| Task delta:30-33 停止事实先持久、首步可见、失败保持 pending | PA `task-execution.ts:63-74` 先 pause receipt、稳定 input ID inject，runtime `index.ts:640-660` 实际 flush 后返回；意外 notify 失败不写 intent.text、不解 fence。原生 `restore` 仅把 task-human-control 恢复 next-step；native stop 竞态含 fence 内实际拒绝与解锁后的首个模型输入对照 | aligned |
+| 同场景：审批识别真实控制与原消息时序、后续新恢复有效 | 源说明与投影 `sources.ts:9,164-165`；classifier 和 codex-context 均引用该规则。stop host 内容含原 actor/message/created_at/scope，普通输入保留原消息时间；UI resume 仍为独立宿主事实，不赋予额外工具权限。approval-sources 区分 stop/resume 与普通自动提示 | aligned；真实模型对旧答复与后续新恢复的遵循由产品 R2 核实 |
+| Task delta:26-28 SingleThread confirmed bound-chat send 不公开 NO_REPLY、保留审批 | PA `global-agent.ts:580-588` 从持久 tool/call 得 turn、服务端 payload 得实际聊天，限定同绑定聊天或映射后记交付。`single-thread.ts:223-231,409` 停止流式哨兵并在 final 丢弃重复泡；approvalVisible 排除丢泡，`:280` 保留审批正文语义。正常有意义 final prose 仍完成交付 | aligned |
+| 发送 unknown/其他聊天不得吞掉正文 | 仅确认路径记 key；parameterized SingleThread 回归有 card/plain、found false、different chat 对照；既有可见审批回归保留 | aligned |
+| merge PR393 descendant/reconcileRoot | PA task_graph/send 实际 await root drain，仍记录 source events 并提交 Inbox；child drain 独立。PA 两个 source-independent 用例直引合并 src 通过；native stop 启动 4f8f lib，仅保留为 driver 未变的既有证据 | aligned，未仅依赖 merge 无冲突 |
+| merge PR394 incremental usage | 新 usage.read/UsageReadResult 在两端同步；统计 root attribution 不驱动 Task/控制来源；submit/flush/cancel keepInbox 顺序未被改动 | aligned |
+
+design R4 的队列 WARNING 已由独立设计 R5 关闭；本轮独立检查对应实现与实际原生测试，而非把设计 Approved 当作实施证据。以上均复用原生公开接口，无额外执行循环、审批替代链或业务状态镜像。
+
+### 有效验证与待回填证据
+
+- caller 新窄测记录 `/tmp/nano-646-finalpatch-green.log`：**88 passed / 1 failed（89 total）**。失败为旧 automatic permission-denial 等第二模型调用的 5000ms poll 超时；新增 stop/query/交付测试均通过。记录失败原样保留，caller 将在单 worker 合并版后端全量中复跑；本轮未自行改 timeout 或测试。
+- 独立合并源码工作树命令：`PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec vitest run packages/dsh-integration/tests/task-execution.test.ts packages/personal-assistant/tests/global-agent.test.ts -t 'restores a stop fence|source checks independent' --maxWorkers=1`。结果 **2 files / 3 passed / 57 skipped**，00:11:36，22.87 秒。其中 PA 两例直引 3a2 src，验证 merge 中 Task/send 的 root 源检查；native stop 使用 RuntimeClient 启动旧 4f8f lib，只证明该版本 stop 首步可见（driver 未被 main 修改）。caller 发现旧产物后停掉错误集成验证并显式 build；本次结果不证明 3a2 完整 runtime 集成，最终 build 后测试/产品证据待回填。
+- PA 停止失败/恢复回归验证 pause 已成功但通知失败仍保留 pending/fence，重试相同 input ID 与内容；native stop 回归验证通知已 inject 后 fence 内并发唤醒/拒绝，解 fence 后第一个实际模型请求包含 HOST_STOP_NOTICE。
+- R2 的一小时首次/续期、反馈 receipt/unknown、拒绝作用范围、supported effort、Global 收尾与 SingleThread 原正常 final 证据未失效，保留原结论。完整产品 R1 的失败历史不覆盖；须由独立产品 R2 对新栈实测修复后的 P1/P2/P3。
+
+本轮只追加/更新两份静态报告，无新自建服务需清理；未操作 caller 的集成 E2E 或产品 R2 栈。
+
 ## Corrected Delta Reconciliation
 
-本节为最终唯一 reconciliation，覆盖原两份 delta 与新增模型兼容性 delta；R1 对旧实现的历史结果见上一轮与 Git。
+本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 3 新增 Task 场景；历史结果由各轮与 Git 保留。固定实现为 `3a2debdd5`，保留仍适用的 R2 证据。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
 | Task:5-10 当前事实、可验证结果及合法独立工作 | driver/feature guidance；dependency 正确定位，delete 保守采用已知图批次 | R1 continuation/withdrawal；R2 native scope 三分支及直接复现 | aligned |
 | Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚未变 | R1 IM cap/new/renew/unchanged graph 与 native Schedule 仍适用 | aligned |
 | Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback/receipt、deferContext、原 publication 未变 | R1 IM child/replay/later pause；native 三终态/unknown/final step | aligned；正常真实旅程另 gate |
-| Task:26-34 失败屏障与新输入、独立工作 | deny 作用范围修正；source unavailable 保留已知 Task 警告和普通输入；error/flush 恢复未变 | 24 测试中 scope/recovery/approval；直接 source known/unknown 对照 | aligned |
+| Task:26-28 SingleThread 已确认显式交付 | confirmed publication 的同 turn/绑定聊天键；stream 与 final sentinel 分支；可见审批不丢泡 | card/plain + confirmed/unknown + same/different chat 对照，原可见审批回归 | aligned；真实产品 R2 待回填 |
+| Task:30-33 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA notify失败/相同ID恢复、审批来源测试；4f8f编译版native stop首模型步通过，main未改该driver | aligned；实际旧输入/新恢复由产品R2核实 |
+| Task:35-43 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；新restore仅改变可信控制队列类别 | R2 scope/recovery仍有效；旧automatic denial有一次超时，待caller最终集成重跑，未计绿 | aligned（实现/契约）；最终测试gate待回填 |
 | Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | Global/shared/生成资产未变，复用 R1 全部检查 | 原 native communication/final step；没有更改空响应恢复策略 | aligned |
 | agent-capabilities:5-10 原审核模型声明能力；保留 provider/model/证据/verdict/失败分流 | Nano/DSH classifier 与 CodexApproval 能力选择一致；personal-security 已有相同选择 | Nano 两阶段三档位 deny/transcript 回归，Codex R1 effort8 测试与生命周期证据 | aligned |
 
 ### Uncovered Observable Behavior
 
-检查全部三份 delta 及本次 patch 后，无遗漏对外行为。source unavailable 补丁恢复普通无 Task 输入的既有语义，仍满足 Task delta:26-34 的故障屏障与新输入处理，无需增加新的用户功能契约。`updated_at`、mutation `feedback` 仍由 design 接口及原 Task delta 覆盖。新增审核模型能力 delta 明确把此次兼容性变化及不换模型、不删证据的边界归入 current agent-capabilities 的既有审核契约；文档与实现一致。
+检查全部三份 delta 及本次 patch 后，无遗漏对外行为。SingleThread query 是既有合法会话读取/发送契约的接线修复，无新权限；stop 事实与 confirmed plain send 的新场景已明确列入 Task delta。main 的 descendant/usage 变化已有各自 current/archive 契约，本轮核实其与 Task admission、source check 和 delivery 的实际交互，不把它们冒充本 unit 新行为。source unavailable、`updated_at`、mutation `feedback` 及审核模型能力仍由原 delta/design 涵盖；没有把普通 system/定时输入提升为恢复授权。
 
 Outcome: **aligned**。
 
-本轮只修改本 unit 的 code-review.md 与 verification.md，保留其他 reviewer 的 design-review.md 修改；未改源码/测试/配置/设计，也未启动需清理的服务。
+本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。最终 CI 与真实产品闭环仍需各 gate 的明确结果，不能由本节 aligned 推断已完成。
