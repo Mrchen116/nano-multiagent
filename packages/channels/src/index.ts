@@ -1,5 +1,7 @@
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
 
 /** Carries the existing IM envelope without translating business payloads. */
 export interface ProtocolFrame {
@@ -170,7 +172,9 @@ export class WebRelayConnection {
       const url = new URL(this.options.url);
       url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:';
       url.pathname = '/im/ws/gateway'; url.search = ''; url.hash = '';
-      const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${credentials.accessToken}`, 'User-Agent': 'nano-multiagent-gateway' } });
+      // ws supplies createConnection, so Node otherwise bypasses its global agent.
+      const socket = new WebSocket(url, { agent: url.protocol === 'wss:' ? https.globalAgent : http.globalAgent,
+        headers: { Authorization: `Bearer ${credentials.accessToken}`, 'User-Agent': 'nano-multiagent-gateway' } });
       this.socket = socket;
       socket.on('error', (error: Error & { code?: string }) => {
         if (generation !== this.generation) return;

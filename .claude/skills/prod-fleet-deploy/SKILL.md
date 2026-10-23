@@ -14,6 +14,7 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 - 当前拓扑与入口以 [生产舰队](../../../docs/operations/prod-fleet.md) 为准：官网经 Cloudflare Tunnel 到 Mini 的唯一 loopback IM；MacBook Air 不运行 IM。普通部署更新这套源站即更新官网，不另建公网实例。
 - Mini 主仓只安全 fast-forward；MacBook Air 主仓默认只 fetch，保留 dirty/untracked，从固定的 detached `prod-main` worktree 启动 Gateway，版本记录为精确 Git SHA，不在目录名中编码版本。两机各自安装锁定的 Node/pnpm 依赖并构建；旧 `.venv` 只供尚在使用的运维脚本及回退代码使用。
 - Nano 使用生产舰队记录的固定 Node 运行时；升级时核对官方包哈希与 Brotli 补丁，更新 IM launcher、Gateway 自启及子进程 PATH，再验证 IM/Gateway/DSH 的 live executable。具体步骤见 [Node 运行时升级](references/runbook.md#node-运行时升级)。
+- 两机所有公网业务与 Mini 的 Cloudflare QUIC 均使用现有 Clash 代理；本机、局域网和 Tailscale 直连。代理必须持久化并验证实际连接链，不能以环境变量存在替代生效证据。执行 [公网代理与 TUN](references/runbook.md#公网代理与-tun)，不把显式绕过 HTTP 代理的诊断混入业务验收。
 - 复用现有 IM/Tunnel LaunchAgent 和公网 launcher；不退回旧 `nohup uvicorn`、内网访问入口或全网卡监听。保留 Cloudflare HTTPS 重定向，当前版本公网模式必须使用 `pnpm im public-server`；首次从旧 Python 切换先完成 `docs/operations/dsh-migration.md`。
 - 常规部署复用 mini 持久 IM signing key、数据库、附件和各 Gateway 设备密钥/运行凭据；缺失先停止，不自动换钥、重新 bind 或初始化公司。Gateway config 先 stop 再改，防运行态回写；稳定环境写 config，不靠一次启动的 inline 设置。
 - 若仍是旧 PA 目录布局，先完成 [无覆盖迁移](../../../docs/operations/pa-workspace-layout-migration.md)，备份并保持密钥不变；迁移完成后不重复执行。

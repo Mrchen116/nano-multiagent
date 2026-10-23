@@ -1,6 +1,11 @@
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { connect } from "node:net";
+import { WebSocketServer } from "ws";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
@@ -99,3 +104,66 @@ it("manages one real node, preserves its environment, and refuses a reused PID",
     await rm(home, { recursive: true, force: true });
   }
 }, 90000);
+
+
+it("applies configured proxy routing to initialized HTTP clients and inherited tool processes", async () => {
+  const home = await mkdtemp(join(tmpdir(), "nano-proxy-"));
+  const key = join(home, "key.pem"); const cert = join(home, "cert.pem");
+  let origin: ReturnType<typeof createHttpsServer> | undefined;
+  let proxy: ReturnType<typeof createHttpServer> | undefined;
+  const sockets = new Set<import("node:stream").Duplex>();
+  const connections: string[] = [];
+  try {
+    await exec("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+      "-subj", "/CN=proxy-only.invalid", "-addext", "subjectAltName=DNS:proxy-only.invalid,IP:127.0.0.1",
+      "-keyout", key, "-out", cert]);
+    origin = createHttpsServer({ key: await readFile(key), cert: await readFile(cert) }, (request, response) => response.end(request.url));
+    const web = new WebSocketServer({ server: origin });
+    web.on("connection", socket => socket.on("message", data => {
+      const frame=JSON.parse(data.toString()); socket.send(JSON.stringify({type:"ack",payload:{message_type:frame.type,probe:"websocket-through-proxy"}}));
+    }));
+    await new Promise<void>(resolve => origin!.listen(0, "127.0.0.1", resolve));
+    const originPort = (origin.address() as import("node:net").AddressInfo).port;
+    proxy = createHttpServer();
+    proxy.on("connect", (request, downstream, head) => {
+      connections.push(request.url!);
+      const upstream = connect(originPort, "127.0.0.1", () => {
+        downstream.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) upstream.write(head);
+        downstream.pipe(upstream); upstream.pipe(downstream);
+      });
+      sockets.add(downstream); sockets.add(upstream);
+      downstream.on("error", () => upstream.destroy()); upstream.on("error", () => downstream.destroy());
+    });
+    await new Promise<void>(resolve => proxy!.listen(0, "127.0.0.1", resolve));
+    const proxyPort = (proxy.address() as import("node:net").AddressInfo).port;
+    const environment = { ...process.env, NODE_EXTRA_CA_CERTS: cert };
+    for (const name of ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY"])
+      delete environment[name];
+    const program = `
+      import https from 'node:https'; import { promisify } from 'node:util'; import { execFile } from 'node:child_process';
+      import { applyGatewayEnvironment } from ${JSON.stringify(pathToFileURL(resolve("apps/node/lib/lifecycle.js")).href)};
+      import { WebRelayConnection } from ${JSON.stringify(pathToFileURL(resolve("packages/channels/lib/index.js")).href)};
+      const direct='https://127.0.0.1:${originPort}'; const target='https://proxy-only.invalid:${originPort}';
+      const get=url=>new Promise((resolve,reject)=>{const request=https.get(url,response=>{let body='';response.on('data',data=>body+=data);response.on('end',()=>resolve(body));});request.on('error',reject);});
+      // Clients already exist when the foreground Gateway reads its config.
+      await get(direct+'/warm-http'); await (await fetch(direct+'/warm-fetch')).text();
+      applyGatewayEnvironment({gateway:{environment:{NODE_USE_ENV_PROXY:'1',HTTP_PROXY:'http://127.0.0.1:${proxyPort}',HTTPS_PROXY:'http://127.0.0.1:${proxyPort}',NO_PROXY:'127.0.0.1',no_proxy:'127.0.0.1'}}});
+      const result={http:await get(target+'/http'),fetch:await(await fetch(target+'/fetch')).text()};
+      const relay=new WebRelayConnection({url:target,credentials:()=>({accessToken:'fixture',registration:{node_id:'proxy-test'}}),onFrame(){},ackTimeoutMs:2000});result.websocket=(await relay.start()).probe;await relay.stop();
+      result.tool=(await promisify(execFile)(process.execPath,['--input-type=module','-e',\`console.log(await(await fetch('https://proxy-only.invalid:${originPort}/tool')).text())\`],{env:process.env})).stdout.trim();
+      result.bypass=await(await fetch(direct+'/no-proxy')).text();
+      applyGatewayEnvironment({gateway:{environment:{HTTPS_PROXY:'http://127.0.0.1:9'}}});
+      try{await fetch(target+'/must-not-fallback');throw Error('unexpected success')}catch(error){result.failure=error.cause?.code;}
+      console.log(JSON.stringify(result));
+    `;
+    const result = await exec(process.execPath, ["--input-type=module", "-e", program], { env: environment, timeout: 20000 });
+    expect(JSON.parse(result.stdout)).toEqual({ http: "/http", fetch: "/fetch", websocket: "websocket-through-proxy", tool: "/tool", bypass: "/no-proxy", failure: "ECONNREFUSED" });
+    expect(connections.length).toBeGreaterThan(0);
+    expect(connections.every(target => target === `proxy-only.invalid:${originPort}`)).toBe(true);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([origin, proxy].filter(Boolean).map(server => new Promise<void>(resolve => server!.close(() => resolve()))));
+    await rm(home, {recursive:true,force:true});
+  }
+}, 30000);

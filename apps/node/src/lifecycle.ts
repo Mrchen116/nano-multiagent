@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
+import { setGlobalProxyFromEnv } from "node:http";
 import lockfile from "proper-lockfile";
 import { loadNodeRelease } from "./release.js";
 import type { NodeRelease } from "@nano/product-contracts";
@@ -209,6 +210,11 @@ export async function claimGateway(config: string) {
     },
   };
 }
+/** Apply configured environment and refresh clients created before config loading.
+ *
+ * Args:
+ *   config: Local node configuration owning the stable service environment.
+ */
 export function applyGatewayEnvironment(config: NodeConfigurationFile) {
   const environment = config.gateway?.environment ?? {};
   for (const [key, value] of Object.entries(environment)) {
@@ -224,6 +230,9 @@ export function applyGatewayEnvironment(config: NodeConfigurationFile) {
       );
     process.env[key] = value;
   }
+  // launchd starts Node before this config is read; assigning the flag alone
+  // leaves the existing HTTP/HTTPS agents and fetch dispatcher on their old route.
+  if (process.env.NODE_USE_ENV_PROXY === "1") setGlobalProxyFromEnv();
 }
 /** Serializes public lifecycle commands and rechecks process birth before every signal. */
 export async function manageGateway(

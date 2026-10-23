@@ -51,6 +51,13 @@
 - **AND** 本次显式 CLI 控制优先于同名配置环境，不能被配置静默取消
 - **AND** 未显式配置 `PATH` 时，macOS 登录服务仍可发现系统目录及 Homebrew 常用目录中的命令
 
+#### Scenario: 持久代理配置作用于真实网络客户端
+- **GIVEN** `gateway.environment` 显式启用 `NODE_USE_ENV_PROXY=1` 并提供 HTTP/HTTPS 代理及 NO_PROXY
+- **WHEN** Gateway 应用配置后发出 HTTP、原生 fetch 或通道 WebSocket 请求
+- **THEN** 公网请求使用配置的代理，包括配置应用前已经初始化的原生客户端
+- **AND** NO_PROXY 匹配的本机/内网请求直连，工具子进程继承同一环境
+- **AND** 配置代理不可用时请求明确失败，不静默降级公网直连
+
 ### Requirement: 启用登录自启的 macOS Gateway 由系统保持运行
 
 #### Scenario: 用户登录后自动运行
