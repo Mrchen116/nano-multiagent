@@ -171,3 +171,5 @@ Preserve valid instructions. Patch the incorrect step in place. If the evidence 
 ## 独立产品验收后的必要适配
 
 Global 联合复盘曾把用户暂缓的 Skill 修改步骤及待确认状态写入环境 Memory（review `44fa9fd6-bb4a-46e5-8b8c-989f8c0b4a1d`）。原复用段落将 Memory 描述为 current situation/state of operations，与本需求排除临时进度存在歧义。仅将该定义收紧为人物信息和长期环境事实，并在 Memory 单项、联合指令及前台工具说明排除临时任务状态、待审批事项和延后的 Skill 修改队列。未改变写入协议或增加审批；尊重暂缓修改，不通过另一知识类别保存完整规则。对应首文档“没有长期价值的信息不沉淀”“同一纠正不被双份固化”，不扩大需求。
+
+Global 前台在回复后继续调用维护工具，且未读取后台已保存的当前文件，产生重复偏好与项目事实（输入 `96db63dddaec4425bbc0bcfcf3fe2c09`）。前台 Memory 说明补充当前双文件读取、不可读取时跳过与保持项目身份；Memory/Skill 指引明确回复消息不会将同一执行变成后台 review，用户延后的维护交给独立调度。仅补齐已有去重及尊重用户约束的操作指引，不刷新冻结快照、不新增前台硬检查或授权引擎。
