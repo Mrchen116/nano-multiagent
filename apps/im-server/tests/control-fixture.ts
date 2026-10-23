@@ -1,3 +1,4 @@
+import { Gateway, type Connection } from "../src/gateway.js";
 import { afterEach } from "vitest";
 import { createIdentity } from "../src/identity.js";
 import { openDatabase } from "../src/db.js";
@@ -36,6 +37,7 @@ export function fixture() {
     identity,
     publicUrl: 'http://im.test',
     gateway: {
+      nodes: new Map(),
       request: async () => null,
       send: () => false,
       isOnline: () => false,
@@ -43,4 +45,15 @@ export function fixture() {
     },
   } as unknown as ImContext;
   return { db, ctx };
+}
+
+/** Attach a genuine binding/socket seam while preserving each test's RPC handler. */
+export function connectFixtureGateway({ctx,db}: ReturnType<typeof fixture>): Connection {
+  db.prepare("INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES('o1','owner-binding','Owner','o1',datetime('now'),'active')").run();
+  db.prepare("INSERT OR IGNORE INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('n','o1',1)").run();
+  const gateway=new Gateway(ctx);
+  const connection={node_id:'n',owner_id:'o1',node_epoch:1,socket:{readyState:1}} as Connection;
+  ctx.gateway.nodes.set('n',connection);
+  ctx.gateway.valid=gateway.valid.bind(gateway);
+  return connection;
 }

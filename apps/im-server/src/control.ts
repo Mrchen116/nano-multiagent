@@ -16,6 +16,8 @@ import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, req
 import { canonicalJson } from "./task-graphs.js";
 import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
+import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
+  settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
 async function gatewayRequest(
   ctx: ImContext,
   node: string,
@@ -566,6 +568,16 @@ function featureOptions(value: unknown): Row[] {
       requires_tool: typeof x.requires_tool === "string" ? x.requires_tool : null,
     }));
 }
+function agentCapabilities(profile: Row, capabilities: Row): Row {
+  if (!capabilities || !['models','skills','tools','features'].every(key => Array.isArray(capabilities[key])))
+    fail(502, 'Agent capabilities are unavailable');
+  return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
+    models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
+    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),platform_default_model:capabilities.platform_default_model ?? null};
+}
+function settingsError(code: string) {
+  return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
+}
 function previewInput(b: Row): Row {
   return {
     features: b.features ?? {},
@@ -587,6 +599,10 @@ function requiredWorkspace(p: Row) {
   return p.workspace_root;
 }
 export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
+  app.addHook('onRequest', async (req, reply) => {
+    if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
+      reply.header('Cache-Control','private, no-store');
+  });
   const ops = new ConfigOperations(ctx);
   const user = (req: FastifyRequest) => {
     const u = ctx.identity.authenticateRequest(req);
@@ -740,6 +756,75 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       workspace_is_default: p.workspace_is_default == null ? null : !!p.workspace_is_default,
     }));
   });
+  const settingsProfile = (req: FastifyRequest) => {
+    const identity = user(req);
+    return requireProfile(ctx, params(req).agent_id, identity.owner_id);
+  };
+  const activeOperation = (profile: Row) => one(ctx.db,
+    "SELECT operation_id,status FROM agent_config_operations WHERE agent_id=? AND owner_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1",
+    profile.agent_id, profile.owner_id) ?? null;
+  app.get('/im/v1/agents/:agent_id/settings', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    settingsProfile(req);
+    return ops.serialized(params(req).agent_id, async () => {
+      let profile = settingsProfile(req);
+      let connection = settingsConnection(ctx, profile);
+      let error: SettingsRead['error'] = connection ? null : settingsError('offline');
+      if (connection && activeOperation(profile)) {
+        try { await ops.recover(profile.agent_id, profile.owner_id); }
+        catch (failure) {
+          if ((failure as Row).detail?.code !== 'config_apply_pending') throw failure;
+        }
+        profile = settingsProfile(req);
+        if (settingsConnection(ctx, profile) !== connection) { connection = undefined; error = settingsError('read_failed'); }
+      }
+      let live: Row | null = null;
+      let display = readSettingsSnapshot(ctx, profile, 'configuration');
+      const pendingOperation = activeOperation(profile);
+      if (connection && !pendingOperation) {
+        const before = profile;
+        try {
+          const response = await ctx.gateway.request(profile.node_id, 'agent.capabilities.resolve', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
+          live = agentCapabilities(profile, response?.capabilities);
+        } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
+        // Re-authenticate the HTTP identity after RPC; permission loss never falls back to a snapshot.
+        profile = settingsProfile(req);
+        if (!settingsReadCurrent(ctx, before, profile, connection)) { live = null; error = settingsError('read_failed'); }
+        if (live) {
+          const capturedAt = now(), data = configurationDisplay(profile, live);
+          writeSettingsSnapshot(ctx, profile, 'configuration', data, capturedAt);
+          display = {source:'current',captured_at:capturedAt,data,error:null};
+        } else display = readSettingsSnapshot(ctx, profile, 'configuration');
+      }
+      if (error) display.error = error;
+      return {config:profileResponse(profile,true),node:{node_id:profile.node_id,state:!profile.node_id?'unknown':settingsConnection(ctx,profile)?'online':'offline'},
+        display,live_capabilities:live,pending_operation:activeOperation(profile),ready:!!live && !activeOperation(profile)};
+    });
+  });
+  app.get('/im/v1/agents/:agent_id/settings/sections/:section', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    let profile = settingsProfile(req);
+    const section = params(req).section as Exclude<SettingsSection,'configuration'>;
+    if (!['plugins','cron','usage'].includes(section)) fail(404, 'Settings section not found');
+    const connection = settingsConnection(ctx, profile);
+    if (!connection) return {...readSettingsSnapshot(ctx,profile,section),error:settingsError('offline')};
+    const before = profile;
+    let data: Row | Row[] | null = null, error: SettingsRead['error'] = null;
+    try {
+      const action = {plugins:'node.plugins.request',cron:'node.cron.jobs.request',usage:'node.skills.usage.request'}[section];
+      const response = await ctx.gateway.request(profile.node_id,action,{agent_id:profile.agent_id,
+        ...(section === 'plugins' ? {action:'list_bundles'} : {workspace_root:requiredWorkspace(profile)})});
+      if (response?.error) fail(502, 'Settings read failed');
+      data = settingsSectionDisplay(section,profile,response);
+    } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
+    profile = settingsProfile(req);
+    if (!settingsReadCurrent(ctx,before,profile,connection)) { data = null; error = settingsError('read_failed'); }
+    if (data !== null) {
+      const capturedAt = now(); writeSettingsSnapshot(ctx,profile,section,data,capturedAt);
+      return {source:'current',captured_at:capturedAt,data,error:null};
+    }
+    return {...readSettingsSnapshot(ctx,profile,section),error};
+  });
   app.get("/im/v1/agents/:agent_id/config", async (req) => {
     const id = params(req).agent_id,
       source = query(req).source ?? "live";
@@ -793,6 +878,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         });
       if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
       if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
+      requireSettingsNodeOnline(ctx, p);
       const c: Row = {
         ...fromProfile(p),
         display_name: b.display_name,
@@ -848,6 +934,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       || !['set_bundle', 'remove_bundle'].includes(b.action) || typeof b.target !== 'string' || !b.target.trim()
       || b.action === 'set_bundle' && typeof b.enabled !== 'boolean'
       || b.action === 'remove_bundle' && b.enabled !== undefined)) fail(422, 'Invalid plugin command');
+    if (method === 'POST') requireSettingsNodeOnline(ctx,p);
     const result = await rpc(p.node_id, 'node.plugins.request', {agent_id: p.agent_id, ...b});
     if (result.error) fail(409, result.error);
     return result.plugins;
@@ -899,24 +986,25 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/cron/jobs", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    if (!p.node_id) return [];
-    const r = await gatewayRequest(ctx, p.node_id, "node.cron.jobs.request", {
+    if (!settingsConnection(ctx,p)) fail(503, {code:'agent_node_offline',message:'The Agent computer is offline.'});
+    const r = await ctx.gateway.request(p.node_id, "node.cron.jobs.request", {
       agent_id: p.agent_id,
       workspace_root: requiredWorkspace(p),
     });
-    return r?.jobs ?? [];
+    if (!Array.isArray(r?.jobs)) fail(502, "Cron result is unavailable");
+    return r.jobs;
   });
   app.delete("/im/v1/agents/:agent_id/cron/jobs/:job_id", async (req, reply) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const r = p.node_id
-      ? await gatewayRequest(ctx, p.node_id, "node.cron.delete.request", {
+    requireSettingsNodeOnline(ctx,p);
+    const r = await ctx.gateway.request(p.node_id, "node.cron.delete.request", {
           agent_id: p.agent_id,
           workspace_root: requiredWorkspace(p),
           job_id: params(req).job_id,
-        })
-      : null;
-    if (!r?.deleted) fail(404, "job_id not found");
+        });
+    if (!r || typeof r.deleted !== "boolean") fail(502, "Cron deletion result is unavailable");
+    if (!r.deleted) fail(404, "job_id not found");
     return reply.code(204).send();
   });
   app.get("/im/v1/agents/:agent_id/skills/usage", async (req) => {

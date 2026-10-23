@@ -557,3 +557,11 @@ CREATE TABLE IF NOT EXISTS pa_reply_drafts (
 );
 
 CREATE TABLE IF NOT EXISTS task_execution_stops (agent_id TEXT NOT NULL, request_key TEXT NOT NULL, conversation_id TEXT NOT NULL, result_json TEXT NOT NULL, PRIMARY KEY(agent_id,request_key));
+
+CREATE TABLE IF NOT EXISTS agent_settings_snapshots (
+  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  section TEXT NOT NULL CHECK(section IN ('configuration','plugins','cron','usage')),
+  owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+  workspace_root TEXT, profile_version INTEGER NOT NULL, captured_at TEXT NOT NULL,
+  data_json TEXT NOT NULL, PRIMARY KEY(agent_id,section)
+);

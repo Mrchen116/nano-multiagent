@@ -1,3 +1,4 @@
+import { requireSettingsNodeOnline } from "./agent-settings.js";
 import { agentAvailable } from "./identity.js";
 import {
   createCipheriv,
@@ -685,12 +686,21 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
         type: "channel.reconcile",
         payload: { ...manifest, request_id: randomUUID().replaceAll("-", "") },
       });
+  const writable = (req: import('fastify').FastifyRequest, removal = false) => {
+    const owner = ctx.identity.authenticateRequest(req).owner_id, p = params(req);
+    const resources = service.list(owner,p.agent_id);
+    if (p.channel_id && !resources.some(resource => resource.channel_id === p.channel_id && (resource.resource_type === 'removal') === removal))
+      channelError('channel_not_found',404);
+    const profile = one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=? AND owner_id=?',p.agent_id,owner)!;
+    requireSettingsNodeOnline(ctx,profile);
+    return owner;
+  };
   app.get("/im/v1/agents/:agent_id/channels", async (req) =>
     service.list((await ctx.identity.authenticateRequest(req)).owner_id, params(req).agent_id),
   );
   app.post("/im/v1/agents/:agent_id/channels", async (req, reply) => {
     const result = service.create(
-      (await ctx.identity.authenticateRequest(req)).owner_id,
+      writable(req),
       params(req).agent_id,
       body(req),
     );
@@ -700,7 +710,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
   app.patch("/im/v1/agents/:agent_id/channels/:channel_id", async (req) => {
     const p = params(req),
       result = service.update(
-        (await ctx.identity.authenticateRequest(req)).owner_id,
+        writable(req),
         p.agent_id,
         p.channel_id,
         body(req),
@@ -713,7 +723,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
       revision = Number(query(req).channel_revision);
     if (!Number.isInteger(revision) || revision < 1) channelError("channel_revision_invalid");
     const result = service.delete(
-      (await ctx.identity.authenticateRequest(req)).owner_id,
+      writable(req),
       p.agent_id,
       p.channel_id,
       revision,
@@ -724,7 +734,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
   app.post("/im/v1/agents/:agent_id/channels/:channel_id/actions/reconnect", async (req) => {
     const p = params(req),
       r = service.reconnect(
-        (await ctx.identity.authenticateRequest(req)).owner_id,
+        writable(req),
         p.agent_id,
         p.channel_id,
       );
@@ -743,7 +753,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
   app.post("/im/v1/agents/:agent_id/channel-removals/:channel_id/actions/retry", async (req) => {
     const p = params(req),
       r = service.retry(
-        (await ctx.identity.authenticateRequest(req)).owner_id,
+        writable(req,true),
         p.agent_id,
         p.channel_id,
       );
