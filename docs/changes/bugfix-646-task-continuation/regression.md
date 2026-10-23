@@ -109,3 +109,29 @@ AGENTS.md；docs/README.md；incident.md；design.md及Runbook；change-reviewer
 P3保持 **minor / Regression Relation unclear / fix-implementation**：真实聊天中多次公开内部哨兵，用户无法从该文本理解发生了什么。owner已收到稳定消息ID并另行修复；本轮不能以尚未重启的新源码关闭该项。下一轮可以仅复验受影响的SingleThread系统通知/静默，以及普通真实用户回复不被误吞；P1/P2和Global证据在相应实现未失效时保留。
 
 全部测试Task为done或paused，结果与停止事实保留；所有临时Schedule由模型按真实状态完成/清理。reviewer未停caller服务。上层文档待同步结论沿用R1。
+
+## Round 3 — P3 最窄闭环复验
+
+> validated_at: `1fbacfe3d89f842424fa5e6a7d57707dc02971f7`；executed_base: Round 2 `3a2debdd5`。
+
+**Verdict: pass**。Highest Required Action: pass；open issues=0；needs_re_review=false。R1 P1/P2 保持关闭，P3本轮关闭。该结论为本单元产品验收，不替代构建/CI、代码审查或生产部署。
+
+### 版本、范围与保留证据
+
+caller显式构建product-contracts/PA（`/tmp/nano-646-notice-build.log`）后仅重启本隔离Gateway：IM仍55324，node/owner与R2b相同，Gateway35366，16:26:45Z ready；reviewer开始时核实HEAD完整hash一致。工作树已有他人code-review.md/verification.md修改，未触碰，仅追加本报告。
+
+本次范围为SingleThread真实Task通知独立轮次的静默终态与普通真人回复。新聊天 `c_4uqc8f03` 使用SingleThread `e2e`，避免将R2历史哨兵计为本轮失败。R2已通过的必要询问/提前恢复、stop前旧排队输入不重开及stop后新恢复、Global纯Schedule固定聊天交付与短stop，按其具体图/消息/轮次证据保留；本次窄通知投递修正不改变Task、Schedule或停止控制判据。R1一小时边界、独立责任和参数修复也保留，不重跑未变矩阵。
+
+### 独立可观察结果
+
+- 输入 `a782607972c846418f0273226f40d472` 要求等待整数×8，建立图 `tg_470c8c69`。分配系统消息 `c2add8a5979f4c23894769fa42467777` 于16:28:04进入聊天。
+- 必要询问 `f86caf0de39a43b9ac01f9ee06609011` 于16:28:06实际送达；waiting说明 `bd92f89e19594f6fa0d78014a2ea4fa4` 于16:28:22可见，Task waiting且Schedule真实安排16:32:10。
+- 分配通知处理后再次读取全新聊天：仅上述有意义消息，没有NO_REPLY，也没有空running占位。随后16:29:32真人输入 `49445b9ddb4a41758f439ea3dca3f755` 给23，并另问6+5。
+- 16:29:36结果消息 `a417cd376e464a1290cb2e571cbfcee5` 实际可见，包含 `23×8=184` 与 `6+5=11`，均正确。图rev4 done，安排取消；16:29:40产生完成系统通知 `9b730b9a669140d4af4e21f331a6d5af`。
+- 完成通知处理后重新读取全量消息：共7项（2条真人、2条Task系统、3条有意义Agent消息），全部completed；正文无NO_REPLY，无空消息/残留running。会话run_state=idle。普通真人问题和结果没有被静默规则吞掉。
+
+### 独立轮次的补充宿主事实
+
+SingleThread `/agents/e2e/work` 不可访问，不能把无公开消息直接推定为模型没执行。caller提供了只读宿主sqlite提取的原始终态事实，reviewer读取核对 `output/review646-r3-host-turns.json`：session `ac6c116e-cf6f-4bbc-8722-fbdcdc7c8610` 中，分配消息对应turn2、seq88于16:28:38.592Z completed；完成消息对应turn4、seq121于16:29:46.345Z completed，输入均为真实 `sender_type=system / system_notice.kind=task_graph`。这份宿主事实只证明独立轮次确实结束，聊天无哨兵/无空running及真人结果由reviewer直接通过产品API观察，不依赖owner成功描述。
+
+P3状态：**closed**。必要的分配/完成独立系统轮次、流式终态和真人回复保护已覆盖。只读证据及临时产物不提交；服务未停止，最终Task done。上层文档归并仍由owner收尾，本报告不修改current spec。
