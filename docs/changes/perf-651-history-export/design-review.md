@@ -156,3 +156,7 @@
 ### 本轮执行边界
 
 仅追加本 Round，未改旧报告、设计或代码，未提交；未运行 CI、服务或额外子任务。
+
+### Author Resolutions
+
+Round 3 Approved accepted: 0 CRITICAL / 0 WARNING. Implementation began only after this gate. No subsequent substantive design changes.
