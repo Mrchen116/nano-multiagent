@@ -235,9 +235,8 @@ export class SingleThread {
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
       const turnInputs=store.inputs(sessionId).filter(item=>item.turn===turn);
-      const heartbeatOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin)));
-      const taskNoticeOnly=turnInputs.every(item=>item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
-      const automaticOnly=heartbeatOnly||taskNoticeOnly;
+      const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
+        || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
       const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
       if (automaticOnly || group) {
         if (!end && automaticOnly && !approvalPending && !approvalVisible) continue;
