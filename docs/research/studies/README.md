@@ -9,6 +9,8 @@
 | 主题 | 状态与用途 |
 |---|---|
 | [Intelligent UI 开源选型](intelligent-ui-open-source-2026-10-19/README.md) | OpenUI、json-render 等候选的维护证据、交互机制与 feat-617 选型快照；已补实施验收入口 |
+| [`claude-code-auto-mode-classifier-2026-08-13/`](claude-code-auto-mode-classifier-2026-08-13/README.md) | 核验 Nano 旧 Auto Mode prompt 的 Claude Code 来源，并以 installed 2.1.227 runtime trace 记录当前两阶段 Security Monitor classifier |
+| [`llm-user-simulator-agent-evaluation-2026-08-10/`](llm-user-simulator-agent-evaluation-2026-08-10/README.md) | 研究交互式 Agent 评测中的模拟用户、渐进披露与 sim-to-real 风险，并推导 feat-532 的受控 Owner Proxy |
 | [Skills GPT-6 精简审计](skills-gpt6-audit-2026-09-13/README.md) | 46 个维护源入口、逐项尺寸、保留约束与本地遗留项；历史审计快照 |
 | [`openclaw-message-context-envelopes-2026-08-10/`](openclaw-message-context-envelopes-2026-08-10/README.md) | 还原 OpenClaw 的消息时间、按需上下文前缀与 prompt cache 稳定机制，并记录 nano 的候选学习契约 |
 | [`claude-code-dynamic-workflows-2026-08-08/`](claude-code-dynamic-workflows-2026-08-08/README.md) | 从官方文档、本地固定源码和 Luna runtime trace 还原 Claude Code Dynamic Workflows 的运行契约与复刻架构 |

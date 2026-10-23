@@ -9,6 +9,7 @@
 | 个人生产：公网 HTTPS/Tunnel → mini 唯一 IM + 双 Gateway | [`prod-fleet.md`](prod-fleet.md)；执行部署用 skill [`prod-fleet-deploy`](../../.claude/skills/prod-fleet-deploy/SKILL.md) |
 | 普通 HTTP/WS 代理与本机/内网直连 | [生产出口](prod-fleet.md#公网代理出口)；[操作与验证](../../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 从 Python Gateway 首次切到 Node + DSH | [`dsh-migration.md`](dsh-migration.md)；保留非聊天资产并核实未决外发 |
+| 验证 Tunnel QUIC/IPv6 出口与断线恢复 | [`prod-fleet.md`](prod-fleet.md#源站与隧道)；执行 [`prod_tunnel.py`](../../scripts/prod_tunnel.py) 路径门禁 |
 | 首次升级会话归属与任务协作数据 | [feat-584 迁移 guidance](../changes/archive/feat-584-task-progress-permissions/migration-guidance.md)；备份、显式映射和验证后启动 |
 | 首次升级 PA workspace/global home 目录 | [`pa-workspace-layout-migration.md`](pa-workspace-layout-migration.md)；完成后再按生产舰队流程启动 |
 | 第一次启动本机 IM + Gateway + Web IM（开发主链路） | [`local-stack.md`](local-stack.md) |
