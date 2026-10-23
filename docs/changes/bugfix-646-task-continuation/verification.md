@@ -151,9 +151,32 @@ design R4 的队列 WARNING 已由独立设计 R5 关闭；本轮独立检查对
 
 本轮只追加/更新两份静态报告，无新自建服务需清理；未操作 caller 的集成 E2E 或产品 R2 栈。
 
+## Round 4 — narrow patch + corrected-delta
+
+> Validation snapshot: `a9e0f38ff → 1fbacfe3d89f842424fa5e6a7d57707dc02971f7`
+
+- 时间：2026-10-24 00:27 +08；同一独立 verifier，未参与实现。
+- verification_mode：delta + corrected-delta，单一新增 Scenario“直聊 Task 系统通知的静默收尾”，以及 PA stream/final 受影响边界。
+- verdict：**pass（本次代码/契约范围）**，0 CRITICAL / 0 WARNING / 0 SUGGESTION；outcome：**aligned**。
+- requires_full_verification：false；本 patch 不改 native integration、Task 执行/停止、审批判定、Global 或同轮 confirmed-send 算法，无需重开 R3 未变范围。
+
+| 范围 | 实现与直接证据 | 结论 |
+|---|---|---|
+| 新 Task delta:30-34 纯宿主 Task 通知的静默收尾 | PA `single-thread.ts:233-246` 从本 turn 的持久输入同时核对 system/task_graph，进入既有自动交付路径；不读取旧 turn 送达标记 | aligned |
+| 不误吞真人/其他通知/混合轮次 | sender_type 与 kind 双条件、all-inputs 范围；新增参数化测试分别覆盖伪带 Task notice 的 user、other_notice、混入真人 | aligned |
+| 有意义正文、实际任务与审批保留 | 只改变展示归类，receive/submit/native 执行不变；有意义 final 继续交付；pending/visible 审批保护与 final 剔 sentinel 逻辑不变；notice/native 两种审批回归都检查 permission_request/resolved 与完成泡 | aligned |
+| 通知 stream 不污染已生成审批 bubble | `:405` 过滤纯 task_execution/宿主 Task 自动输入的 transient text；正常 final 仍作权威交付，mixed/human/other notice 不新增过滤 | aligned |
+| RelayInput 可选字段来自真实既有链路 | IM Task metadata → system insert → system_notice 投影 → 整体 Relay message → PA JSON 持久输入均存在；仅增加可空 optional TS 字段，不新增协议 | aligned |
+
+有效证据复用 `/tmp/nano-646-task-notice-green.log`：两文件 / 24 测试全绿，00:24:33，4.09 秒；代码测试直接 import PA src，受审实现为 1fbacfe3d，不外推为 native runtime 或完整产品验收。三 case 红证据记录在 implementation。设计 R6 的 0C/0W 仅提供设计状态，本轮从实际 producer/consumer 与测试独立核对实现，没有用设计批准替代验证。
+
+R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。caller 已提供产品 R2 对 P1/P2/Global 的实际通过及剩余 P3 来源归因；本轮没有接管产品现场，**产品 R3 尚待，未写入本轮通过证据**。build 后最终后端全量和旧 native 环境超时复核仍属 caller gate，不能从 PA 24 tests 推断通过。
+
+本轮没有新增代码 finding 或 delta drift；仅更新两份报告，未运行全量、未修改任何被审源码/测试/配置/设计，未启动服务。
+
 ## Corrected Delta Reconciliation
 
-本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 3 新增 Task 场景；历史结果由各轮与 Git 保留。固定实现为 `3a2debdd5`，保留仍适用的 R2 证据。
+本节为最终唯一 reconciliation，覆盖三份 delta 及 Round 4 新增 Task 通知场景；历史结果由各轮与 Git 保留。最新固定源码为 `1fbacfe3d`，保留 R2/R3 未失效的证据和明确版本限制。
 
 | Delta item | Implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -161,14 +184,15 @@ design R4 的队列 WARNING 已由独立设计 R5 关闭；本轮独立检查对
 | Task:12-17 首次/续期 cap、普通 Schedule 不限 | IM 双阶段校验及事务回滚未变 | R1 IM cap/new/renew/unchanged graph 与 native Schedule 仍适用 | aligned |
 | Task:19-24 固定聊天、实际反馈、无重复/未知诚实性 | committed feedback/receipt、deferContext、原 publication 未变 | R1 IM child/replay/later pause；native 三终态/unknown/final step | aligned；正常真实旅程另 gate |
 | Task:26-28 SingleThread 已确认显式交付 | confirmed publication 的同 turn/绑定聊天键；stream 与 final sentinel 分支；可见审批不丢泡 | card/plain + confirmed/unknown + same/different chat 对照，原可见审批回归 | aligned；真实产品 R2 待回填 |
-| Task:30-33 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA notify失败/相同ID恢复、审批来源测试；4f8f编译版native stop首模型步通过，main未改该driver | aligned；实际旧输入/新恢复由产品R2核实 |
-| Task:35-43 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；新restore仅改变可信控制队列类别 | R2 scope/recovery仍有效；旧automatic denial有一次超时，待caller最终集成重跑，未计绿 | aligned（实现/契约）；最终测试gate待回填 |
+| Task:30-34 直聊 Task 系统通知的静默收尾 | 当前turn纯system/task_graph归类；stream/final自动交付路径；不跨turn借旧send | 1fbacfe PA两文件24 tests：pure/meaningful/user/other/mixed/approval | aligned；产品R3待回填 |
+| Task:35-38 停止优先于旧排队输入 | pause receipt → stable inject/flush → terminal intent/unfence；control 保持 next-step，原消息时间/来源规则入模及入审核 | PA notify失败/相同ID恢复、审批来源测试；4f8f编译版native stop首模型步通过，main未改该driver | aligned；实际旧输入/新恢复由产品R2核实 |
+| Task:40-48 失败屏障与新输入、独立工作 | R2 deny/source/error/flush 逻辑保留；restore保持可信控制队列类别 | R2 scope/recovery仍有效；旧automatic denial超时及最终native环境超时由caller定点复核，未计绿 | aligned（实现/契约）；最终测试gate待回填 |
 | Global:5-14 空响应恢复保持、非空私有收尾、SingleThread 分支 | Global/shared/生成资产未变，复用 R1 全部检查 | 原 native communication/final step；没有更改空响应恢复策略 | aligned |
 | agent-capabilities:5-10 原审核模型声明能力；保留 provider/model/证据/verdict/失败分流 | Nano/DSH classifier 与 CodexApproval 能力选择一致；personal-security 已有相同选择 | Nano 两阶段三档位 deny/transcript 回归，Codex R1 effort8 测试与生命周期证据 | aligned |
 
 ### Uncovered Observable Behavior
 
-检查全部三份 delta 及本次 patch 后，无遗漏对外行为。SingleThread query 是既有合法会话读取/发送契约的接线修复，无新权限；stop 事实与 confirmed plain send 的新场景已明确列入 Task delta。main 的 descendant/usage 变化已有各自 current/archive 契约，本轮核实其与 Task admission、source check 和 delivery 的实际交互，不把它们冒充本 unit 新行为。source unavailable、`updated_at`、mutation `feedback` 及审核模型能力仍由原 delta/design 涵盖；没有把普通 system/定时输入提升为恢复授权。
+检查全部三份 delta 及本次 patch 后，无遗漏对外行为。Round 4 的纯 Task 系统通知静默、来源反例、有意义正文边界已由新增 Scenario 覆盖；stream 延后及既有空正文/HEARTBEAT_OK 行为是沿用自动交付路径，非新的来源授权。optional system_notice 是补足现有线字段类型。其余 SingleThread query、stop 事实、confirmed plain send、source unavailable、updated_at、feedback 与审核能力结论均保留；main descendant/usage 仍由自身 current/archive 契约承担，没有将其改写成本 unit 新功能，也没有把普通 system/定时输入提升为恢复授权。
 
 Outcome: **aligned**。
 

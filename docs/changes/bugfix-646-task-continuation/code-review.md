@@ -112,3 +112,24 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - 产品 R1 原报告仍为失败历史；P1/P2/P3 的最终真实闭环由新隔离栈产品 R2 负责，不用静态通过取代。最终后端全量/typecheck 仍由 caller 执行，不能据此提前宣称 M1 完成。
 
 本轮无未证实高风险存活候选；仅追加本报告与 verification.md，未修改源码/测试/配置/设计，未触碰或重启产品 reviewer 的服务。
+
+## Round 4 — narrow patch
+
+- 固定源码：`1fbacfe3d89f842424fa5e6a7d57707dc02971f7`；唯一受审 patch `a9e0f38ff..1fbacfe3d`。同一独立 reviewer；2026-10-24 00:27 +08；开始时工作树干净。
+- 仅核对 PA SingleThread 纯 Task 通知的自动交付归类、流式边界、RelayInput 已有字段声明及新增 Scenario；保留 R3 其他结论，不重跑全量。
+
+### Findings
+
+```json
+[]
+```
+
+### 覆盖与来源证据
+
+- `single-thread.ts:233-238` 按**当前 turn 全部输入**的 sender_type=system 与 system_notice.kind=task_graph 同时成立才认定 Task 纯通知，复用自动轮次分支，不查另一 turn 的 confirmed-send 记录。外层循环已持有至少一条该 turn 的 input，不存在将空输入集合误分类成 Task 通知的新路径。
+- `:240-246` 在没有待展示/可见审批时延后占位；结束时只抑制既有静默 sentinel/空正文，有意义 final 仍进入普通交付；approvalVisible 不丢弃整泡，既有 final 逻辑保留审批并去掉 sentinel。`:405` 对 native task_execution/宿主 Task 纯自动输入停止流式 routine text，避免已生成审批 bubble 被通知正文污染；真人/其他系统/混合真人的 stream 不满足该条件。
+- 实际字段链：IM `task-notifications.ts:37` 生成 task_graph 元数据，`messaging.ts:636-639` 以 system 持久化；`:344-345` 投影 system_notice，`:651-652` 将整个消息写入 Relay；PA NodeStore `store.ts:172-175` 保存完整输入。新增 optional/null `RelayInput.message.system_notice` 只是补足已有线上字段类型，没有新线协议、权限或新来源提升。
+- `single-thread.test.ts` 的直接通知矩阵覆盖纯通知 sentinel、正常正文、user 伪带同 notice、other_notice、混合真人；原 native Task 审批测试参数化为 native/notice 两种，保护审批请求/resolve/final 不丢失且没有 routine stream。未修改原 same-turn confirmed-send 判定与 Global 路径。
+- 复用 `/tmp/nano-646-task-notice-green.log`：PA SingleThread + interactive 两文件 / 24 测试通过，00:24:33 开始、4.09 秒；均直接读取 PA src，不涉及 R3 旧 native lib 版本问题。implementation 保存三例有意义红测来源。本轮未追加运行测试。
+
+产品 R2 发现的残留 P3 是新的 Task 通知 turn，不能将其归为旧 same-turn 去重再次失效。本轮只确认该新原因的代码与 delta 修复；**不含尚未提供的产品 R3 结果**。caller 的 build 后全量及原 native 环境超时复核仍独立记录，未冒充全绿。无存活待确认候选；本轮仅改本 unit 两份报告。
