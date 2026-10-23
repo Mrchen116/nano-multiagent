@@ -200,13 +200,13 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 |---|---|---|
 | Web `/settings/agents/:id` 配置 | 2026-10-23 只读观察已打开的 nano-quality 页面；左列表、顶部 Agent 身份/保存、配置标签、白色卡片与 teal 勾选。此生产页当时没有六项 capability Feature 列表，保留独立 Heartbeat/Cron 控件；源码与另一项设计的 E2E 截图展示 capability 列表可用时的六项卡片。没有点保存或开关。 | 保留页面组织；六项由 capability 元数据展示，不借此修复该生产快照的目录问题。读取 [取证说明](design-evidence/README.md)。 |
 | Web 创建页 | 同一 Behavior/Allowlist 组件与声明式默认草稿 | 同一联动算法；没有运行责任，不展示模拟 Task 数等新产品内容 |
-| iOS `AgentConfigView` | 源码为 native Form、运行特性 DisclosureGroup、工具/Skill Toggle、页面保存与错误区；本轮未操纵真实 iOS 配置 | 保留 Form 顺序、导航与 Toggle。仅在操作区域旁的临时反馈空隙显示轻提示，不加入依赖说明行。原型 iOS 模式单独表现 native Form 行，不以缩窄 Web 冒充 iOS。实际 native 交互在实施验收验证。 |
+| iOS `AgentConfigView` | 源码为 native Form、运行特性 DisclosureGroup、工具/Skill Toggle、页面保存与错误区；本轮未操纵真实 iOS 配置 | 保留 Form 顺序、导航与 Toggle。仅在操作控件附近的独立浮层显示轻提示，不占 Form 行高，不加入依赖说明行。原型 iOS 模式单独表现 native Form 行，不以缩窄 Web 冒充 iOS。实际 native 交互在实施验收验证。 |
 
 ### 体验决定
 
 - 保留 Web Feature 卡片与工具/Skill 选择区域。点击受保护项仍可得到原因；不是灰到无法交互的死控件，也不出现先关再弹回的闪动。
-- Toast 文案直接说明先处理什么；单句，约 2 秒，150ms 淡入/淡出，重复触发更新时间；无按钮、不抢焦点、`role=status`/polite announcement；reduced-motion 去除位移动画。多依赖提示“请先关闭使用此工具的功能，再调整此工具”，不塞长列表。
-- Toast 放在被操作项所在分区的局部提示位置；窄屏紧随所操作的条目，预留可见空隙、pointer-events:none；窄屏换行，不盖住点击目标、保存入口或安全区。iOS 在 Form 对应行后保留临时反馈空隙，使用同类轻量 Toast，原 Toggle 焦点保留，VoiceOver 只读文案。
+- Toast 文案直接说明先处理什么；单句，约 2 秒，150ms 淡入/淡出，重复触发更新时间；无按钮、不抢焦点、`role=status`/polite announcement；reduced-motion 去除位移动画。单依赖文案简化为“请先关闭「{Feature 名称}」”；多依赖提示“请先关闭使用此工具的功能”，不塞长列表。
+- Toast 使用独立浮层，不进入 Feature grid、工具 flex 或 iOS Form 的布局流；禁止占位容器和提示插行。默认贴近触发控件上方 8px，顶部空间不足才放下方，横向限制在视口内且离边缘至少 16px；不盖触发目标。最大宽度 320px，13px 常规字重、8px/12px 内边距、7px 圆角，短文案优先单行，长文案自然换行。浮层 pointer-events:none，不拦截相邻操作；滚动、视口变化和下一次有效调整时收起。出现、消失、切换提示均不得改变任一控件的位置或面板高度。iOS 用 Form 外的 overlay 实现同一局部反馈，不添加反馈行，遵循安全区；原 Toggle 焦点保留，VoiceOver 只读文案。
 - 先做静态判断，不需要网络；Task/Cron 动态关闭在查询期间维持开态，仅相关操作暂不可重复提交。失败返回开态和 Toast，其他编辑可继续。保存时仍后端复核，避免历史 usage 使关闭绕过。
 - 不增加常驻“由某 Feature 启用”文字，不引入确认弹框、依赖树 UI、自动暂停业务或新的任务管理入口。
 
@@ -222,7 +222,7 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 
 ### 原型走查
 
-实际走查记录和代表性截图落在 [design-evidence/README.md](design-evidence/README.md)。HTML 原型不代替真实客户端/后台验收。设计交付前验证 Web 三个宽度及 iOS 意图模式，独立 reviewer 自行渲染核对；原生 iOS 不在此阶段伪造已验证结论。
+用户后续指出原提示插入工具流造成按钮移位，旧体验批准在此范围失效；本次已修订为不占位浮层，修订版视觉复验尚未完成。实际走查记录和代表性截图落在 [design-evidence/README.md](design-evidence/README.md)。HTML 原型不代替真实客户端/后台验收。设计交付前验证 Web 三个宽度及 iOS 意图模式，独立 reviewer 自行渲染核对；原生 iOS 不在此阶段伪造已验证结论。
 
 ## 契约层增量 (delta-spec)
 
@@ -264,12 +264,12 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 | M1-capability-contract | 完整依赖与工具/Feature 生命周期拆分 | 无 | 无 | product-contracts、Node capabilities/config、PA configuration/Task/Heartbeat、IM control/TaskGraphService、dsh-integration、Web 创建/详情选择器、iOS AgentModels/ConfigView、相应测试与 E2E fixture | 下述 M1-R1–R5、M1-W1–W5 |
 
 - **M1-R1 [reviewer]**：六 Feature 按 D1 联动；默认 Task→Cron；共享 read/skill 保留；允许关闭时工具/Skill 默认关闭；无额外依赖标注。
-- **M1-R2 [reviewer]**：doing/waiting、active Schedule、Feature 依赖和真实维护占用分别阻止关闭；只提示不改业务状态；约 2 秒轻提示、不闪动/抢焦点，Web 窄屏及 iOS 指定交互符合原型。
+- **M1-R2 [reviewer]**：doing/waiting、active Schedule、Feature 依赖和真实维护占用分别阻止关闭；只提示不改业务状态；约 2 秒轻提示、不闪动/抢焦点，出现与消失时工具坐标和面板高度不变，Web 窄屏及 iOS 指定交互符合原型。
 - **M1-R3 [reviewer]**：同一草稿关 Feature 再单开工具，保存重读与实际调用一致；预览不出现已关闭 Feature 的额外 section；审批及角色权限仍保留；Intelligent UI 关且 send_message 开时，在普通/Global 与 Personal 实际发布路径提交显式合法 interactive 内容仍发布新卡片，额外交互生成指导不恢复。
 - **M1-R4 [reviewer]**：单开 schedule_create 实际建立并到期执行安排，Cron Feature 保持关；单开 memory/skill_manage 不触发主动维护；单开 task_graph 不恢复 Task 自动续跑。
 - **M1-R5 [reviewer]**：部署提示词在隔离已有不完整配置副本上保留 Feature 补齐 Task→Cron；重复启动不改用户后续合法选择。无生产配置修改。
 - **M1-W1 [worker]**：纯依赖转换共用 fixtures 覆盖六项、默认闭包、共享依赖、关后重开、固定模式、Skill deny/allowlist、资源缺失；Swift 与 TS 输出一致，schema/公开导出构建通过。
 - **M1-W2 [worker]**：IM/Node/runtime 集成验证拒绝发生在落盘前、operation 重放/补偿和关闭与新 Task/新 Schedule 的两种竞争次序；失败不能留下半套选择；关闭尝试不触发维护 cancel，显式取消/失败/进程退出仍保留成功事实与未完成计数；旧单工具联动和 Feature 否决路径（含两条 PA interactive 发布门槛）移除。
-- **M1-W3 [worker]**：真实 Web 截图/短录屏与原型对照，覆盖 1440/768/390、Toast 延时和重复触发；iOS build/契约测试及原生局部交互证据；证据写本 unit，不借其他任务日志。
+- **M1-W3 [worker]**：真实 Web 截图/短录屏与原型对照，覆盖 1440/768/390、Toast 延时和重复触发，直接比较触发前/显示中/消失后相邻控件的坐标与面板高度；iOS build/契约测试及原生局部交互证据；证据写本 unit，不借其他任务日志。
 - **M1-W4 [worker]**：native 工具 schema 与 prompt/call 路径分别断言；新建/恢复/预览/手动运行/等待校验一致；core public exports/架构 contract 通过，所有后台依赖基于公开 API。
 - **M1-W5 [worker]**：先跑 product-contracts、integration capabilities/cron/knowledge、PA configuration、IM control/Task 和 Web/iOS 窄测试，再按 CI 风险扩展；无代码迁移、Task/Goal 双写、生产变更或未清理的任务自建进程。
