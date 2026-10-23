@@ -16,7 +16,7 @@ export function verifiedRun(runs: readonly TrajectoryRun[], sessionId: string, r
 
 /** Use producer-owned purpose rather than guessing from internal identifiers. */
 export function runTitle(run: TrajectoryRun): string {
-  return run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行'
+  return run.kind === 'combined' ? '记忆与技能复盘' : run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行'
 }
 
 /** Test inclusive native event coordinates; unknown coordinates cannot prove membership. */

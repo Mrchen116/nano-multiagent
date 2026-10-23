@@ -1,13 +1,15 @@
-import { mkdir, readFile, writeFile, rename, rm, lstat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, rm, lstat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import lockfile from 'proper-lockfile';
 import { load } from 'js-yaml';
+import type { ReviewFiles } from './review-files.js';
 import { isSkillName } from '@deepseek-ai/dsh-skill';
 
 export interface MemoryChange { action: 'add' | 'replace' | 'remove'; target: 'memory' | 'user'; content?: string; old_text?: string }
 export interface SkillChange { action: 'create' | 'edit' | 'patch' | 'write_file' | 'remove_file'; name: string; scope?: 'agent' | 'global'; content?: string; old_string?: string; new_string?: string; file_path?: string; file_content?: string }
-interface Usage { source: string; state: string; use_count: number; uses_since_last_B: number; created_at: string; last_used_at: string | null; archived_at: string | null; recent_call_keys: string[]; session_refs: { session_id: string; tool_call_id: string; timestamp: string; location: string }[]; archive_error?: string | null }
+export interface Usage { source: string; state: string; use_count: number; uses_since_last_B: number; created_at: string; last_used_at: string | null; archived_at: string | null; recent_call_keys: string[]; session_refs: { session_id: string; tool_call_id: string; timestamp: string; location: string }[]; archive_error?: string | null }
+export interface SkillReviewGuard { reads: ReviewFiles; check(): void; target?: { root: string; name: string } }
 const memoryLimits = { memory: 2200, user: 1375 };
 const delimiter = '\n§\n';
 const auto = new Set(['F3', 'F4']);
@@ -67,16 +69,23 @@ export class KnowledgeFiles {
       await atomicWrite(path, text, signal); return { success: true, target: change.target, action: change.action, path };
     }, signal);
   }
-  async skill(change: SkillChange, source: string, signal?: AbortSignal) {
+  async skill(change: SkillChange, source: string, signal?: AbortSignal, review?: SkillReviewGuard) {
     if (!isSkillName(change.name) || change.name.length > 64) throw new Error('Invalid native Skill name');
     const root = change.scope === 'global' ? this.globalSkillRoot : this.skillRoot;
     if (!root) throw new Error('Global Skill root is unavailable');
     await safePath(change.scope === 'global' ? root : this.workspace, root);
     return locked(root, async () => {
+      review?.check();
+      if (review?.target) {
+        if (change.action !== 'patch' || await realpath(root) !== await realpath(review.target.root) || change.name !== review.target.name) throw new Error('F4 may only patch its bound target.');
+        const usage = await readJson<Record<string, Usage>>(join(root, '.usage.json'), {});
+        if (!auto.has(usage[change.name]?.source ?? '')) throw new Error('F4 cannot change manual or unknown-source Skills.');
+      }
       const directory = join(root, change.name); const main = join(directory, 'SKILL.md'); await safePath(root, main);
       const existing = await readText(main); let path = main; let content = change.content;
       if (change.action === 'create' && existing) throw new Error('Skill already exists');
       if (change.action !== 'create' && !existing) throw new Error('Skill does not exist in the selected writable scope');
+      if (review && change.action !== 'create' && change.action !== 'write_file' && change.action !== 'remove_file') review.reads.require(main, existing);
       if (change.action === 'patch') {
         if (!change.old_string || !existing.includes(change.old_string) || existing.indexOf(change.old_string) !== existing.lastIndexOf(change.old_string)) throw new Error('Skill patch must match exactly once');
         content = existing.replace(change.old_string, () => change.new_string ?? '');
@@ -84,7 +93,12 @@ export class KnowledgeFiles {
       if (change.action === 'write_file' || change.action === 'remove_file') {
         if (!change.file_path || !/^(references|templates|scripts|assets)\//.test(change.file_path) || change.file_path.split('/').includes('..')) throw new Error('Invalid Skill support-file path');
         path = join(directory, change.file_path); await safePath(root, path); content = change.file_content;
-        if (change.action === 'remove_file') { signal?.throwIfAborted(); await rm(path); }
+        if (review) {
+          let previous: string | undefined;
+          try { previous = await readFile(path, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+          if (previous !== undefined) review.reads.require(path, previous);
+        }
+        if (change.action === 'remove_file') { signal?.throwIfAborted(); review?.check(); await rm(path); review?.reads.committed(path, undefined); }
       } else {
         if (!content || [...content].length > 100_000) throw new Error('Skill content is missing or exceeds its limit');
         const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)([\s\S]*)$/.exec(content);
@@ -93,7 +107,9 @@ export class KnowledgeFiles {
       }
       if (change.action !== 'remove_file') {
         if (content === undefined || [...content].length > 100_000) throw new Error('Skill content is missing or exceeds its limit');
+        review?.check();
         await atomicWrite(path, content, signal);
+        review?.reads.committed(path, content);
       }
       if (change.action === 'create') {
         const usage = await readJson<Record<string, Usage>>(join(root, '.usage.json'), {});
@@ -150,11 +166,51 @@ export class KnowledgeFiles {
     }
     return [...found.values()];
   }
-  async batchAccepted(root: string, name: string) {
+  /** Consume only the use count frozen when this F4 run was accepted.
+   * Args:
+   *   root: Managed Skill root shared by the accepted target.
+   *   name: Exact target name.
+   *   count: Frozen count; newer uses remain available for the next batch.
+   */
+  async batchAccepted(root: string, name: string, count: number) {
     await locked(root, async () => {
       const usage = await readJson<Record<string, Usage>>(join(root, '.usage.json'), {});
-      if (usage[name]) usage[name].uses_since_last_B = 0;
+      if (usage[name]) usage[name].uses_since_last_B = Math.max(0, usage[name].uses_since_last_B - count);
       await atomicWrite(join(root, '.usage.json'), JSON.stringify(usage, null, 2));
+    });
+  }
+  /** Freeze an eligible target and its evidence references under the existing root lock.
+   * Args:
+   *   root: Agent or configured owner Skill root.
+   *   name: Exact automatic Skill name.
+   * Returns:
+   *   The current count, usage references and reviewed session IDs, or undefined
+   *   when the target is not writable, automatic, present or due.
+   */
+  async batchCandidate(root: string, name: string) {
+    if (!isSkillName(name)) return;
+    const allowed = await Promise.all([this.skillRoot, this.globalSkillRoot].filter(Boolean).map(path => realpath(path!).catch(() => resolve(path!))));
+    if (!allowed.includes(await realpath(root))) return;
+    return locked(root, async () => {
+      await safePath(root, join(root, name, 'SKILL.md'));
+      const record = (await readJson<Record<string, Usage>>(join(root, '.usage.json'), {}))[name];
+      if (!record || !auto.has(record.source) || record.uses_since_last_B < 20 || !await readText(join(root, name, 'SKILL.md'))) return;
+      const state = await readJson<{ reviewed_session_ids?: string[] }>(join(root, '.curator_state.json'), {});
+      return { count: record.uses_since_last_B, refs: record.session_refs, reviewed: state.reviewed_session_ids ?? [] };
+    });
+  }
+  /** Mark completed evidence, preserving deterministic curator state.
+   * Args:
+   *   root: The accepted target's managed root.
+   *   ids: Supplied session IDs from a successfully completed review.
+   * Side Effects:
+   *   Retains at most 200 distinct reviewed IDs under the existing root lock.
+   */
+  async batchReviewed(root: string, ids: string[]) {
+    await locked(root, async () => {
+      const path = join(root, '.curator_state.json');
+      const state = await readJson<{ last_scan_at?: string; reviewed_session_ids?: string[] }>(path, {});
+      await atomicWrite(path, JSON.stringify({ ...state, reviewed_session_ids: [...new Set([...(state.reviewed_session_ids ?? []), ...ids])].slice(-200) }, null, 2));
     });
   }
   async curate(root: string, now = new Date().toISOString()) {
