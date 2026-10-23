@@ -2,7 +2,7 @@
 
 冻结 clean unit HEAD：`validated_at` 是实际验证的 unit tree；`executed_base` 是与当时 origin/main 的 merge-base。给角色 unit_id、unit_dir、branch、这两个 SHA 和普通轮次 review_round。
 
-- reviewer：unit_worktree_dir、mode=full、revalidation_mode=full|targeted；targeted 附 prior_acceptance_paths、focus_scenarios_or_issues、fix_delta_range。
+- reviewer：unit_worktree_dir、mode=full、revalidation_mode=full|targeted；按 [验证平台与深度](../../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 明确本轮平台、验证方法与范围依据，不默认双端实测；targeted 附 prior_acceptance_paths、focus_scenarios_or_issues、fix_delta_range。
 - verifier：verify_worktree_dir、verification_mode=full|targeted-closure|delta；复验附 prior_verification_path、fix_delta_range；closure 附 focus_issues。
 - code review：review_mode=full|patch|closure、diff_range、focus_findings。range 分别为 executed_base...validated_at、pre_fix_head..validated_at、finding_origin_head..validated_at。
 - corrected-delta：可与 code review/verification 同次派发；Full 校正并 push delta 后提供 unit、branch、verify_worktree_dir、validated_at/executed_base、verification_mode=corrected-delta；不要求普通复验字段。
