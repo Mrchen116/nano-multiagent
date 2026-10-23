@@ -37,7 +37,7 @@
 
 - 配置应用后调用公开 http.setGlobalProxyFromEnv，刷新已初始化 HTTP/HTTPS 与原生 fetch；WebRelay 与 Feishu WebSocket 显式传全局 agent。稳定环境仍由 config 拥有，不复制到 plist。
 - 最低 Node 收口为已修补的 24.22.1（保留 26.12.1 线），移除缺少上述 API 的 22 线；@types/node 更新至 24.19.2。
-- 两 Gateway 与 Mini IM launcher 持久配置大小写普通代理环境与 NO_PROXY，无 TUN 依赖。
+- 两 Gateway 与 Mini IM launcher 持久配置大小写普通 HTTP 代理环境与 NO_PROXY，无 TUN 依赖。DSH 的 ALL_PROXY 必须为 HTTP URL；实测 SOCKS URL 会警告并为该 scheme 直连，因此不配置 SOCKS URL。
 - 已核对的 supervisor 纳入版本管理；保留 QUIC/IPv6 和 readiness 恢复，保留既有 QUIC/IPv6 路径条件与四连接检查。公网 HTTPS 默认读服务 config 并消费完整正文。
 - --public-only 供 Air 检查相同业务出口；--direct-diagnostic 仅绕过应用 HTTP 代理，不进入正式业务验收。既有失败证据保留，各失败层分开记录。
 - 同步 Gateway canonical spec、生产拓扑与部署 Skill/runbook。
@@ -47,4 +47,11 @@
 - 修复前已复现真实失败：仅写环境时 HTTPS/fetch 目标 ENOTFOUND；刷新原生代理后，未传 agent 的 WSS 阶段仍 ENOTFOUND。
 - Node 窄回归通过：真实本地 CONNECT + TLS 校验，初始化后的 HTTPS/fetch、实际 WebRelay、继承环境的 Node 工具均成功；loopback 不入代理，代理不可用明确 ECONNREFUSED。
 - Python CLI 的真实 CONNECT/TLS 回归 3 项通过：持久配置覆盖 shell、完整正文、缺失配置拒绝、代理失败不静默直连且不误报 Tunnel。
-- 其余门禁与生产实测完成后在此回填精确版本和结果。
+- 本地构建/typecheck/iOS runtime 检查通过；Node 121 文件/576 测试，Python 非 E2E 65 项通过；ruff 与 docs-check 通过。
+- 生产源码 e54d7d2d84495747a3eba1809a0195e53b77db0c；对应远端 CI run 39892638228 的后端、前端、iOS detection/build/tests 全部 success。
+- 两机正式 Gateway/DSH 使用 Node24.22.1，自启 CLI 确认 enabled；state 与 LaunchAgent PID 一致、ready/connected=true；Brotli补丁 -17。公网持久 HTTP 代理环境生效，TUN=false，Clash 原配置文件哈希未变。
+- 官网真实会话：Mini 输入 f09008d61fa64b0db1442d66fe0b61dd → 回复 227e30eaf37440efb44e6385bcb9ce2a；Air 输入 65220d8a21444680ba2e799f639caca6 → 回复 0f8326ff42664dba964001a5d9e922d9。两者均实际执行 curl，HTTP200/15bytes，消息与relay/receipt全completed。
+- Air 11:21:29–11:21:58、Mini 11:27:27–11:27:57 的配置代理页面/API连续样本均200，正文分别538/15bytes；浏览器真实实时回复成功。采样只证明该窗口，不能外推无限稳定。
+- Mini 原日本Z03节点经同机TLS探针超时，其他既有节点通过；现有选择组切到新加坡Z01后上述连续门禁通过。未启用TUN或修改Clash规则；该选择由其既有 store-selected 持久化。
+- 保留失败边界：最初IM切换期间Air因relay未ready退出，由LaunchAgent恢复并完成原输入；Mini恢复早期有relay-notready日志。早期SOCKS ALL_PROXY配置已改HTTP。旧出口的代理TLS失败与独立QUIC关闭计数增长均保留，不归因为模型或统一归因Cloudflare。
+- 独立code review按实际返回结果收口；未收到结论前不伪造完成。生产截图、运行态与失败记录在本机 output/proxy-20261023/，不入Git。

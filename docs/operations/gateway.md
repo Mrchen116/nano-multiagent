@@ -72,6 +72,26 @@ llm:
 - `gateway.environment` 只接受操作系统环境可用的字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。macOS 登录服务默认可发现系统目录和 Homebrew 常用目录；工具位于其他目录时，在这里显式设置 `PATH`。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 
+### 使用普通 HTTP 代理
+
+只开启 Clash 等普通代理即可，无需 TUN。后台 Node 服务不会自动继承浏览器使用的系统代理；在 `gateway.environment` 持久配置自己的代理端口，停止后编辑并重启 Gateway：
+
+```yaml
+gateway:
+  environment:
+    NODE_USE_ENV_PROXY: "1"
+    HTTP_PROXY: http://127.0.0.1:<proxy-port>
+    HTTPS_PROXY: http://127.0.0.1:<proxy-port>
+    ALL_PROXY: http://127.0.0.1:<proxy-port>
+    http_proxy: http://127.0.0.1:<proxy-port>
+    https_proxy: http://127.0.0.1:<proxy-port>
+    all_proxy: http://127.0.0.1:<proxy-port>
+    NO_PROXY: localhost,127.0.0.1,::1,<internal-host>
+    no_proxy: localhost,127.0.0.1,::1,<internal-host>
+```
+
+将 `<internal-host>` 替换为需直连的内网 LLM/IM 地址；保持两种大小写一致，供不同工具读取。DSH 不支持 SOCKS URL，因此 ALL_PROXY 同样使用 HTTP 代理地址。配置作用于原生 HTTP/HTTPS、fetch、通道 WebSocket 和继承环境的工具，不依赖 Clash 控制接口或特定节点组。代理故障时请求失败，不自动回退公网直连。
+
 ## 启动、停止与重启
 
 默认 config：

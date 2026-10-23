@@ -76,7 +76,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 
 ### 公网代理出口
 
-两机 Gateway 的公网 HTTP/HTTPS、fetch 与 WebSocket 使用现有 Clash 普通代理，无需开启 TUN：Mini `http://127.0.0.1:7890`，Air `http://127.0.0.1:7895`。两机 gateway.environment 持久提供大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY（同机 SOCKS5 端口）、NO_PROXY，以及 NODE_USE_ENV_PROXY=1；Mini IM launcher 使用同一环境。NO_PROXY 覆盖 localhost、loopback、两台 Tailscale 地址及实际 LLM 内网地址。DSH 和工具继承环境，Node 在配置应用后刷新原生 HTTP/HTTPS/fetch，WebSocket 显式传 agent；配置秘密不复制进 Gateway plist。
+两机 Gateway 的公网 HTTP/HTTPS、fetch 与 WebSocket 使用现有 Clash 普通代理，无需开启 TUN：Mini `http://127.0.0.1:7890`，Air `http://127.0.0.1:7895`。两机 gateway.environment 持久提供大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY（同一 HTTP 代理地址；DSH 不支持 SOCKS URL）、NO_PROXY，以及 NODE_USE_ENV_PROXY=1；Mini IM launcher 使用同一环境。NO_PROXY 覆盖 localhost、loopback、两台 Tailscale 地址及实际 LLM 内网地址。DSH 和工具继承环境，Node 在配置应用后刷新原生 HTTP/HTTPS/fetch，WebSocket 显式传 agent；配置秘密不复制进 Gateway plist。
 
 社区用户可使用自己的普通 HTTP 代理地址，不依赖 Clash 名称、节点组、控制 API 或 TUN。正式公网探针读取服务持久代理配置并消费完整正文；显式直连诊断与业务验收分开。Cloudflare Tunnel 是中心服务部署组件，QUIC/UDP 不受 HTTP_PROXY 接管，不能把客户端 HTTP 代理成功称为 Tunnel 已代理。操作见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理)。
 
