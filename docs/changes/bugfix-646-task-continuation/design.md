@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 实施真实模型验收发现工具审批硬编码 low，与默认 DeepSeek high/max 能力不匹配。采用既有 disclosure 审核的能力选择：支持 low 则用 low，否则原模型 default/首个声明档位；不改模型、来源证据、规则或 verdict。增加同模型请求参数回归保护。
+
 ## 现状分析
 
 ### 涉及范围

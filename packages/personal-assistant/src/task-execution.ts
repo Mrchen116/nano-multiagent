@@ -33,7 +33,7 @@ export class TaskExecution {
       const frame=await this.options.relay.request('task.execution.snapshot',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:conversation,request_id:randomUUID()});
       if(!frame.payload.ok)throw new Error('Task source unavailable');
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
-      const tasks=items.map(({graph_id,node_id,title,status,revision,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,conversation:{id:conversation.id},relative_url,wait,resume_request}));
+      const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
       if(tasks.some(t=>t.status==='waiting'))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
       const repair:string[]=[];let unavailable=false;
       for(const task of tasks)if(task.status==='waiting') {

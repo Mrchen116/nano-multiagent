@@ -519,6 +519,8 @@ export class TaskGraphService {
       catch { fail('task_wait_schedule_unavailable','Native schedule verification is unavailable'); }
       if (!proof!.valid || proof!.owner_agent_id!==n.assignee.id || !proof!.session_id || !proof!.next_check_at || !(Date.parse(proof!.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires an active future schedule for this task owner');
+      if (Date.parse(proof!.next_check_at!) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
       checked.push({node_id:n.id,wait:{reason:n.wait.reason,schedule_id:n.wait.schedule_id,owner_agent_id:proof!.owner_agent_id,session_id:proof!.session_id,next_check_at:proof!.next_check_at}});
     }
     return checked;
@@ -805,9 +807,18 @@ export class TaskGraphService {
       const checked = waits.find(item=>item.node_id===n.id);
       if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
+      if (Date.parse(checked.wait.next_check_at) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
       n.wait={...n.wait,...checked.wait};
     }
     result={...result,...summary(doc)};
+    if (action==='apply') {
+      // Keep feedback tied to this committed revision, including on receipt replay.
+      // A later read may fail or observe a different state or conversation access.
+      const feedback=doc.nodes.filter((n:Obj)=>changed.includes(n.id)&&['waiting','in_review','done'].includes(n.status))
+        .map((n:Obj)=>({node_id:n.id,title:n.title,status:n.status,...(n.wait?{wait:n.wait}:{}),result:n.result}));
+      if(feedback.length)result.feedback={conversation_id:doc.conversation_id,tasks:feedback};
+    }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
       notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));

@@ -29,7 +29,9 @@ it('discovers UI-started responsibility, validates the current session, and reco
     const identity={sessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
     expect(await service.snapshot(identity)).toMatchObject({kind:'continue',repair_task_ids:['g/n1']});
     task={...task,wait:{...task.wait!,session_id:binding.sessionId}};
-    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting'}]});
+    const updated='2026-10-23T15:00:00Z';
+    Object.assign(task,{updated_at:updated});
+    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting',updated_at:updated}]});
     valid=false;expect(await service.snapshot(identity)).toMatchObject({kind:'continue',repair_task_ids:['g/n1']});
     const input:RelayInput={agent_id:'a',conversation_id:'chat',relay_task_id:'stop',idempotency_key:'stop',metadata:{},message:{id:'stop',content:'/stop',sender_type:'user',sender_user_id:'owner',attachments:[]}};
     online=false;
