@@ -130,6 +130,23 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks());
 
+it("keeps a busy named Skill selected before saving", async () => {
+  const state = agentState(CRON);
+  state.capabilities.features = [];
+  state.config.features = {};
+  state.config.skills = [];
+  state.config.skills_selection_mode = "explicit_denylist";
+  state.capabilities.skills = [{name:"ordinary-method",description:"Method",default_on:true}];
+  apiMocks.getAgentDetailState.mockResolvedValue(state);
+  apiMocks.getAgentCapabilityUsage.mockResolvedValue({checked_at:"now",active_tasks:0,active_schedules:0,busy:[{kind:"skill",name:"ordinary-method"}]});
+  renderDetail();
+  const skill = await screen.findByRole("button", {name:"ordinary-method"});
+  await userEvent.click(skill);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/in use/i));
+  expect(skill).toHaveAttribute("aria-pressed","true");
+  expect(apiMocks.updateAgentConfig).not.toHaveBeenCalled();
+});
+
 describe("agent feature settings", () => {
   it("reveals heartbeat cadence after the user enables heartbeat", async () => {
     const user = userEvent.setup();

@@ -393,6 +393,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (!applied.effective) throw new Error(applied.message ?? 'Configuration was not applied');
     const previous = agents.find(agent => agent.agentId === next.agentId);
     if (previous) Object.assign(previous, next); else agents.push(next);
+    if (next.personal) await reportPersonalAvailability(runtime.forAgent(next.agentId), true);
     await tasks.recover([next.agentId]);
   },
 });

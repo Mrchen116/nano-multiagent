@@ -914,6 +914,6 @@ export function manageAgentPlugin(agentId: string, command: PluginCommand): Prom
   return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/plugins`, {method: 'POST', body: JSON.stringify(command)});
 }
 
-export function getAgentCapabilityUsage(agentId: string): Promise<{ checked_at: string; active_tasks: number; active_schedules: number; busy: { kind: "feature" | "tool"; name: string }[] }> {
+export function getAgentCapabilityUsage(agentId: string): Promise<{ checked_at: string; active_tasks: number; active_schedules: number; busy: { kind: "feature" | "tool" | "skill"; name: string }[] }> {
   return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/capability-usage`);
 }

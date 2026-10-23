@@ -45,6 +45,7 @@ extension AgentDraft {
     func removingCapabilities(from previous: AgentDraft, capabilities: AgentCapabilities) -> [CapabilityTarget] {
         capabilities.features.filter { (previous.features[$0.key] ?? $0.default_on) && features[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
         + previous.tool_allowlist.filter { !tool_allowlist.contains($0) }.map { .init(kind: "tool", name: $0) }
+        + previous.enabledSkills(candidates: capabilities.skills.map(\.name)).filter { !enabledSkills(candidates: [$0]).contains($0) }.map { .init(kind: "skill", name: $0) }
     }
     /// Applies the dependency data supplied by the owning node without inferring a feature from a tool.
     mutating func changeCapability(_ action: CapabilityAction, capabilities: AgentCapabilities) -> [CapabilityBlock] {

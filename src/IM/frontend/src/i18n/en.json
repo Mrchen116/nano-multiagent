@@ -1133,7 +1133,7 @@
   "feature": {
     "intelligent_ui": {
       "label": "Intelligent UI",
-      "help": "Let this Agent create interactive cards with editable fields and choices when useful. Turn off to use text replies; existing cards remain available."
+      "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."
     },
     "task_graph": {
       "label": "Task Graphs",

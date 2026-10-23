@@ -1127,7 +1127,7 @@
   "feature": {
     "intelligent_ui": {
       "label": "Intelligent UI",
-      "help": "允许 Agent 按需生成可编辑、可选择的交互卡片。关闭后使用文字回复，已有卡片仍保留。"
+      "help": "引导 Agent 按需使用交互卡片。关闭后不再提供这类指导；消息工具开启时仍可发送卡片。"
     },
     "task_graph": {
       "label": "任务图",

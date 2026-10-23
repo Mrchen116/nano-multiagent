@@ -50,7 +50,7 @@ function CapabilityToast({ message, anchor, stamp }: { message: string; anchor: 
     const timer = window.setTimeout(() => setVisible(false), 2000);
     return () => { clearTimeout(timer); window.removeEventListener("resize", hide); window.removeEventListener("scroll", hide, true); };
   }, [anchor, stamp]);
-  return createPortal(<div ref={ref} className="im-capability-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden={!visible} style={{ position: "fixed", zIndex: 100000, ...position, maxWidth: "min(320px, calc(100vw - 32px))", padding: "8px 12px", borderRadius: 7, fontSize: 13, lineHeight: 1.5, color: "white", background: "#303638", boxShadow: "0 4px 16px #0002", pointerEvents: "none", opacity: visible ? 1 : 0, transition: "opacity 150ms ease" }}>{message}</div>, document.body);
+  return createPortal(<div ref={ref} className="im-capability-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden={!visible} style={{ position: "fixed", zIndex: 100000, ...position, width: "max-content", maxWidth: "min(320px, calc(100vw - 32px))", padding: "8px 12px", borderRadius: 7, fontSize: 13, lineHeight: 1.5, color: "white", background: "#303638", boxShadow: "0 4px 16px #0002", pointerEvents: "none", opacity: visible ? 1 : 0, transition: "opacity 150ms ease" }}>{message}</div>, document.body);
 }
 
 export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, setDraft: (value: T | ((current: T) => T)) => void, caps: CapabilitySnapshot | undefined, agentId?: string) {
@@ -95,10 +95,13 @@ export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, 
       blocks.push(...result.blocks); next = result.draft;
     }
     const previous = latest.current;
+    const skillEnabled = (value: CapabilityDraft, name: string) => value.skills_selection_mode === "explicit_allowlist"
+      ? !!value.skills?.includes(name) : value.skills_selection_mode !== "explicit_denylist" || !value.skills?.includes(name);
     const previousFeatures = { ...Object.fromEntries((caps?.features ?? []).map(feature => [feature.key, feature.default_on])), ...previous.features };
     const removed = [
       ...Object.keys(previousFeatures).filter(k => previousFeatures[k] && !next.features?.[k]).map(name => ({ kind: "feature" as const, name })),
       ...(previous.tool_allowlist ?? []).filter(k => !next.tool_allowlist?.includes(k)).map(name => ({ kind: "tool" as const, name })),
+      ...(caps?.skills ?? []).filter(({name}) => skillEnabled(previous, name) && !skillEnabled(next, name)).map(({name}) => ({ kind: "skill" as const, name })),
     ];
     if (agentId && removed.length) {
       pending.current = true;
