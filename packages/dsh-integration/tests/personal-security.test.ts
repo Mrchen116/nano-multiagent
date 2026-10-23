@@ -111,7 +111,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
 it.each([['high','max'],['low','high'],[]])('uses a supported independent-review effort: %j',async (...efforts:string[])=>{
   let request:any;
   const ctx={llm:{resolveModelInfo:async()=>({reasoning:efforts.length?{efforts:efforts.map(id=>({id})),defaultEffort:efforts[0]}:undefined}),stream:async function*(options:any){request=options;yield{type:'block-end',index:0,block:{type:'text',text:'{"decision":"allow","reason":"public lookup"}'}};yield{type:'finish',reason:{kind:'stop'}};}}};
-  const result=await reviewPersonal(ctx as any,{personal:{bindingId:'b'},provider:'p',model:'m'} as any,'action',{query:'public'});
+  const result=await reviewPersonal(ctx as any,{personal:{bindingId:'b'},provider:'p',model:'m'} as any,'input',{query:'public'});
   expect(result.decision).toBe('allow');expect(request.reasoningEffort).toBe(efforts.includes('low')?'low':efforts[0]);
   expect(request.tools).toBeUndefined();expect(request.sessionId).toBeUndefined();
 });

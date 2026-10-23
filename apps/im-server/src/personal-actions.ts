@@ -59,16 +59,14 @@ export class PersonalActions {
       const graph=one(this.db,'SELECT revision,conversation_id FROM task_graphs WHERE graph_id=?',frozen.task.arguments.graph_id);
       if(!graph||graph.revision!==JSON.parse(op.evidence_json).task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
     }
-    const currentAuthorization=this.pa.authorization({node_id:b.node_id,owner_id:b.owner_id,node_epoch:b.node_epoch},{agent_id:b.agent_id});
-    const previousGuard=JSON.parse(op.evidence_json).authorization.guard_messages;
-    if(!Array.isArray(previousGuard)||digest(currentAuthorization.guard_messages)!==digest(previousGuard))fail(409,'owner_authorization_changed');
+    if(this.pa.authorizationGuard(b)!==JSON.parse(op.evidence_json).owner_guard)fail(409,'owner_authorization_changed');
     if(frozen.incident_ref)this.securityNotice(b,frozen.incident_ref,op.conversation_id,frozen.content);
     if(frozen.transport && JSON.stringify(this.transport(b,op.conversation_id,frozen.transport))!==JSON.stringify(frozen.transport))fail(409,'external_destination_changed');
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
     if(policy.revision!==op.policy_revision || policy.disclosure_revision!==op.disclosure_revision)fail(409,'proposal_requires_review');
     if(JSON.stringify(this.recipients(op.conversation_id,frozen))!==op.audience_json)fail(409,'audience_changed');
     if(one(this.db,'SELECT type FROM conversations WHERE id=?',op.conversation_id)?.type !== 'group' && this.audience(op.conversation_id).some(id=>this.pa.actorRisk(b,id)))fail(403,'contact_blocked');
-    for(const source of JSON.parse(op.evidence_json).sources??[])if(!this.pa.sourceAllowed(b,source.conversation_id))fail(409,'source_revoked');
+    for(const source of JSON.parse(op.evidence_json).sources??[])if(this.pa.sourceAllowed(b,source.conversation_id)!==source.allowed)fail(409,'source_revoked');
     // An owner reply after preparation invalidates the decision to interject.
     const last=one(this.db,"SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1",op.conversation_id,b.owner_user_id)?.id??null;
     if(last!==JSON.parse(op.evidence_json).last_owner_message_id)fail(409,'owner_already_replied');
@@ -111,20 +109,18 @@ export class PersonalActions {
       }
     }
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
-    const sources=all(this.db,`SELECT m.* FROM pa_source_reads r JOIN messages m ON m.id=r.message_id WHERE r.binding_id=?`,b.binding_id)
-      .filter(s=>this.pa.sourceAllowed(b,s.conversation_id))
-      .map(s=>({...this.pa.messageEvidence(b,s),message_id:s.id,author_id:s.sender_user_id}));
-    // History is evidence, never a replacement for the originating owner request.
-    const prior=all(this.db,"SELECT payload_json,conversation_id,audience_json,state FROM pa_operations WHERE binding_id=? AND state IN ('confirmed','sending','unknown')",b.binding_id)
-      .filter(op=>op.conversation_id!==b.conversation_id||JSON.parse(op.payload_json).transport);
-    const authorization=this.pa.authorization(principal,args);
+    // The runtime supplies actual read bodies. IM contributes only current access facts.
+    const sources=all(this.db,'SELECT DISTINCT conversation_id FROM pa_source_reads WHERE binding_id=? ORDER BY conversation_id',b.binding_id)
+      .map(source=>({...source,allowed:this.pa.sourceAllowed(b,source.conversation_id)}));
+    const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',args.conversation_id)!;
     const evidence={agent_profile_version:one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id)!.profile_version,
-      authorization,policy:this.pa.policy(b.binding_id),
+      owner_guard:this.pa.authorizationGuard(b),policy:this.pa.policy(b.binding_id),
+      owner_user_id:b.owner_user_id,
+      recipient:{conversation_id:chat.id,name:chat.title,conversation_type:chat.type,channel:chat.external_source??'web',members:this.pa.ctx.messaging.members(chat.id).map(member=>this.pa.ctx.messaging.actor(member))},
       ...(args.task&&args.task.action!=='create'?{task_revision:one(this.db,'SELECT revision FROM task_graphs WHERE graph_id=?',args.task.arguments.graph_id)?.revision}:{}),
       ...(securityNotice?{security_notice:{content:PEER_NOTICE,owner_notice_message_id:securityNotice.owner_notice_message_id}}:{}),
       recipient_risks:this.audience(args.conversation_id).flatMap(id=>{const risk=this.pa.actorRisk(b,id);return risk?[risk]:[];}),
       recipient_ids:this.recipients(args.conversation_id,payload),external_destination:payload.transport?.destination??null,payload,sources,
-      previous_disclosures:prior.map(op=>({...op,payload:JSON.parse(op.payload_json)})),
       last_owner_message_id:one(this.db,'SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1',args.conversation_id,b.owner_user_id)?.id??null};
     // Unsent operations may refresh review evidence, but never reuse a prior permit.
     // Consumed or uncertain operations above keep their original delivery identity.

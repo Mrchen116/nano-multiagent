@@ -156,6 +156,7 @@ export default class NanoRuntime {
     this.peer.handle('update.release', value => update.release((value as { operationId: string }).operationId));
     ctx.plugin(CcApproval);
     ctx.plugin(CodexApproval);
+    const codex = new Promise<CodexApproval>(resolve => { ctx.inject(['codexApproval'], child => { resolve(child.codexApproval); }); });
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
@@ -439,8 +440,7 @@ export default class NanoRuntime {
       answer(decision, reason);
       return { answered: true };
     });
-    handle('pa.evidence', async value => {
-      const {agentId,sessionId} = value as {agentId:string;sessionId:string};
+    const personalScopes = async (agentId:string,sessionId:string) => {
       const config = [...this.configurations.values()].find(config => config.agentId === agentId);
       if (!config?.personal) throw new RpcError(-32004,'Unknown personal evidence binding');
       const agent = this.bindings.has(sessionId) ? await this.agent(sessionId) : ctx.agents.get(SessionId(sessionId));
@@ -456,6 +456,11 @@ export default class NanoRuntime {
         root = parent;
       }
       if (this.bindings.get(root.id)?.agentId !== agentId) throw new RpcError(-32004,'Unknown personal evidence binding');
+      return {config,lineage,root};
+    };
+    handle('pa.evidence', async value => {
+      const {agentId,sessionId} = value as {agentId:string;sessionId:string};
+      const {lineage,root}=await personalScopes(agentId,sessionId);
       const evidence = await Promise.all(lineage.map(async scope => {
         const assembly = await ctx.systemPrompt.assemble({scope});
         return {sessionId:scope.id,messages:personalEvidenceMessages(scope),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
@@ -463,10 +468,27 @@ export default class NanoRuntime {
       return {...evidence[0],rootSessionId:root.id,ancestors:evidence.slice(1)};
     });
     handle('pa.review', async value => {
-      const {agentId,kind,evidence} = value as {agentId:string;kind:string;evidence:unknown};
+      const {agentId,kind,evidence,sessionId,callId} = value as {agentId:string;kind:string;evidence:Record<string,unknown>;sessionId?:string;callId?:string};
       const config = [...this.configurations.values()].find(config => config.agentId === agentId);
       if (!config?.personal) throw new RpcError(-32004, 'Unknown personal Agent');
-      return reviewPersonal(ctx,config,kind,evidence);
+      if(kind==='input')return reviewPersonal(ctx,config,'input',evidence);
+      if(kind!=='action'||!sessionId)throw new RpcError(-32602,'Personal disclosure requires a bound session');
+      const {lineage}=await personalScopes(agentId,sessionId);
+      try {
+        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:evidence,
+          evidence:async()=>{
+            // Fixed host-validated refusals contain no private task information.
+            if(evidence.security_notice)return [];
+            const scopes=await Promise.all([...lineage].reverse().map(async scope=>{
+              const assembly=await ctx.systemPrompt.assemble({scope});
+              const rows=await (await approval).sources.history(scope,scope.id===sessionId?callId:undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});
+              return [{context:renderPrompt(assembly),origin:{kind:'runtime-system'},session_id:scope.id},
+                {context:renderContextSnapshot(assembly),origin:{kind:'runtime-context'},session_id:scope.id},
+                ...rows.map(row=>({...row,session_id:scope.id}))];
+            }));
+            return scopes.flat();
+          }});
+      } catch(error) {return {decision:'unavailable',reason:`Independent review unavailable: ${String(error)}`};}
     });
     handle('configuration.apply', async value => {
       const next = value as AgentConfiguration;

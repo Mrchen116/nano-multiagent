@@ -10,6 +10,20 @@ const fixture = (messages: unknown[], events: unknown[] = [], header = {}) => ({
 const pending = { name: 'edit', callId: 'edit-current', arguments: { path: '/workspace/<transcript>/notes.md', old_string: 'old', new_string: 'old\nnew' } } as ToolExecution;
 const rows = (prompt: string) => prompt.split('<transcript>\n')[1].split('\n</transcript>')[0].split('\n').map(line => JSON.parse(line));
 
+it('includes private snapshots only for disclosure without upgrading them to human consent',async()=>{
+  const messages=[user('memory','PRIVATE_MEMORY',{kind:'runtime-context'}),user('skill','SKILL_INSTRUCTIONS',{kind:'skill-invocation'}),
+    user('owner','Send the public result only',{kind:'user',actorId:'owner',channel:'web',messageId:'owner-original'}),
+    call('read','conversations',{action:'read',target:'private'}),result('read',{messages:[{content:'FULL_PRIVATE_SOURCE'}]})];
+  const sources=new ApprovalSources();
+  const ordinary=await sources.history(fixture(messages),undefined,false,{toolResults:true,fullAssistant:true});
+  const disclosure=await sources.history(fixture(messages),undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});
+  expect(JSON.stringify(ordinary)).not.toContain('PRIVATE_MEMORY');
+  expect(disclosure).toContainEqual({context:'PRIVATE_MEMORY',origin:{kind:'runtime-context'}});
+  expect(disclosure).toContainEqual({context:'SKILL_INSTRUCTIONS',origin:{kind:'skill-invocation'}});
+  expect(disclosure.filter(row=>(row.origin as any)?.kind==='human')).toHaveLength(1);
+  expect(JSON.stringify(disclosure)).toContain('FULL_PRIVATE_SOURCE');
+});
+
 it('uses host identity for native user inputs while preserving legacy humans and child task provenance', async () => {
   const messages = [
     user('native', 'Direct human', { kind: 'user', actorId: 'owner', channel: 'web', messageId: 'm1' }),

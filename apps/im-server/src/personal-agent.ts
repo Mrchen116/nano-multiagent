@@ -1,6 +1,6 @@
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { isInteractiveStringState } from './interactive-source.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
 import { conversationAccess } from './conversation-access.js';
@@ -225,6 +225,21 @@ export class PersonalAgents {
     const m=one(this.db,'SELECT * FROM messages WHERE id=?',id);
     if(!m || !this.directOwnerMessage(b,m) || !this.messageAllowed(b,m)) fail(403,'direct_owner_evidence_required');
     return this.messageEvidence(b,m);
+  }
+  /** Detect changes to original owner constraints without exporting their history.
+   *
+   * Args:
+   *   b: Authenticated personal binding.
+   * Returns:
+   *   Fingerprint of currently accessible direct owner messages, not authorization.
+   */
+  authorizationGuard(b:Row):string {
+    const hash=createHash('sha256');
+    for(const row of this.db.prepare("SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid").iterate(b.owner_user_id)) {
+      const message=row as Row;
+      if(this.directOwnerMessage(b,message)&&this.messageAllowed(b,message))hash.update(JSON.stringify(this.messageEvidence(b,message))+'\n');
+    }
+    return hash.digest('hex');
   }
   /** Return original owner inputs and their published UI context; private drafts are not authorization. */
   authorization(principal: Row, args: Row) {
