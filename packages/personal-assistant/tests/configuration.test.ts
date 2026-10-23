@@ -12,15 +12,19 @@ it('recovers a persisted configuration after runtime failure without losing the 
   let current = canonicalAgentConfiguration({ agent_id: 'a', workspace_root: directory, custom_prompt: 'old' });
   const next = { ...current, custom_prompt: 'new', features: { task_graph: false } };
   const intent = { operation_id: 'op', expected_previous_fingerprint: agentConfigurationFingerprint(current), candidate_fingerprint: agentConfigurationFingerprint(next), agent: next };
-  let fail = true; let applied = 0; let persisted = 0;
+  let fail = true; let applied = 0; let persisted = 0; let prepared = 0; let released = 0;
   const options = { current: () => current, resolve: async (candidate: typeof current) => candidate,
-    persist: async (candidate: typeof current) => { current = candidate; persisted++; },
+    prepare: async () => { prepared++; return {ready: true}; },
+    release: async () => { released++; },
+    persist: async (candidate: typeof current) => { expect(prepared).toBe(1); current = candidate; persisted++; },
     apply: async () => { if (fail) throw new Error('runtime disconnected'); applied++; },
   };
   let operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), options);
   try {
     await expect(operations.handle('apply', intent)).rejects.toThrow('runtime disconnected');
     expect(operations.status('op').status).toBe('pending');
+    expect(operations.pending()).toEqual([{intent, candidate: next}]);
+    expect(released).toBe(0);
     expect(operations.busy).toBe(true);
     await operations.close(); fail = false;
     operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), options);
@@ -28,7 +32,7 @@ it('recovers a persisted configuration after runtime failure without losing the 
     expect(operations.status('op').status).toBe('applied');
     expect(operations.busy).toBe(false);
     expect(await operations.handle('apply', intent)).toMatchObject({ status: 'applied' });
-    expect([persisted, applied]).toEqual([1, 1]);
+    expect([persisted, applied, prepared, released]).toEqual([1, 1, 2, 1]);
     expect(await operations.handle('apply', { ...intent, candidate_fingerprint: 'different' })).toMatchObject({ error_code: 'operation_id_reused' });
     expect(await operations.handle('apply', { ...intent, operation_id: 'stale', agent: { ...next, custom_prompt: 'third' }, candidate_fingerprint: agentConfigurationFingerprint({ ...next, custom_prompt: 'third' }) })).toMatchObject({ error_code: 'operation_conflict' });
   } finally { await operations.close(); await rm(directory, { recursive: true, force: true }); }
@@ -89,4 +93,23 @@ it('recovers a pre-strategy pending receipt without changing its fingerprint or 
     expect(applied).toMatchObject({custom_prompt: 'new', approval_mode: null});
     expect(current.approval_mode).toBeNull();
   } finally { await ops.close(); await rm(directory, {recursive: true, force: true}); }
+});
+
+it('rejects capability changes before persistence and preserves structured reasons on replay', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nano-config-prepare-'));
+  const current = canonicalAgentConfiguration({ agent_id: 'a', features: { heartbeat: true } });
+  const candidate = { ...current, features: { heartbeat: false } };
+  let persisted = false;
+  const blocks = [{ code: 'capability_busy' as const, target: { kind: 'feature' as const, name: 'heartbeat' } }];
+  const operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), {
+    current: () => current, resolve: async value => value,
+    prepare: async () => ({ ready: false, error_code: 'capability_in_use', message: 'Heartbeat is active', blocks }),
+    persist: async () => { persisted = true; }, apply: async () => { throw new Error('Must not apply'); },
+  });
+  const intent = { operation_id: 'blocked', candidate_fingerprint: agentConfigurationFingerprint(candidate), expected_previous_fingerprint: agentConfigurationFingerprint(current), agent: candidate };
+  try {
+    expect(await operations.handle('apply', intent)).toMatchObject({status: 'rejected', error_code: 'capability_in_use', blocks});
+    expect(persisted).toBe(false);
+    expect(await operations.handle('apply', intent)).toMatchObject({status: 'rejected', blocks});
+  } finally { await operations.close(); await rm(directory, { recursive: true, force: true }); }
 });

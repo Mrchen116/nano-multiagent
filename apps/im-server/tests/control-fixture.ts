@@ -29,6 +29,9 @@ export function fixture() {
     db.prepare(
       "INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat',?)",
     ).run(user);
+  db.prepare('UPDATE agent_profiles SET features_json=?,tool_allowlist_json=?').run(
+    JSON.stringify({intelligent_ui:false,task_graph:true,memory_curation:false,skill_creation:false,cron_scheduling:true,heartbeat:false}),
+    JSON.stringify(['task_graph','schedule_create','schedule_list','schedule_update','schedule_delete','schedule_run','schedule_history']));
   const identity = createIdentity(db, "control-test-secret");
   identity.authenticateRequest = (req: any) => identity.user(req.headers["x-user"] === "u2" ? "u2" : "u1")!;
   const ctx = {

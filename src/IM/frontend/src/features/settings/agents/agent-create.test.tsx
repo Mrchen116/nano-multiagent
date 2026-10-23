@@ -250,7 +250,10 @@ describe("agent create page", () => {
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
-      for (const tool of ["inbox", "conversations", "send_message", "subagent"]) expect(screen.getByRole("button", { name: tool })).toBeDisabled();
+      for (const tool of ["inbox", "conversations", "send_message", "subagent"]) expect(screen.getByRole("button", { name: tool })).toHaveAttribute("aria-pressed", "true");
+      await user.click(screen.getByRole("button", { name: "subagent" }));
+      expect(screen.getByRole("button", { name: "subagent" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("status")).toBeInTheDocument();
     }
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 

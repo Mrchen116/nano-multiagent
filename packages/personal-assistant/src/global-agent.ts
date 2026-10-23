@@ -405,7 +405,7 @@ export class GlobalAgent {
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {
         if (call.sessionId !== call.rootSessionId) throw new Error('Schedules belong to a main Session');
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
-        if (!config?.features?.cron_scheduling) throw new Error('Cron Feature is disabled');
+        if (!config || config.toolAllowlist && !config.toolAllowlist.includes(call.method.replace('.', '_'))) throw new Error('Schedule tool is not enabled');
         const id = String(call.args.id);
         if (call.method === 'schedule.run') {
           const inputId = `manual-schedule:${call.operationId}`;
@@ -428,7 +428,7 @@ export class GlobalAgent {
       if (call.method === 'task_graph') {
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
         if(config?.mode==='single_thread'&&this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)throw new Error('Task execution session was superseded');
-        if (config?.features?.task_graph === false) throw new Error('Task Graphs Feature is disabled');
+        if (config?.toolAllowlist && !config.toolAllowlist.includes('task_graph')) throw new Error('Task Graph tool is not enabled');
         if (config?.mode === 'global') await this.reconcileRoot(binding);
         else {
           const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
@@ -489,7 +489,7 @@ export class GlobalAgent {
     return context;
   }
   private async query(binding: SessionBinding, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    await this.ensureAuthority(binding);
+    if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode === 'global') await this.ensureAuthority(binding);
     const response = await this.options.relay.request('conversation.query', { ...args, node_id: this.options.nodeId,
       agent_id: binding.agentId, session_id: binding.sessionId, request_id: randomUUID() });
     if (!response.payload.ok) throw new Error(String(response.payload.error));
@@ -502,7 +502,6 @@ export class GlobalAgent {
     if(config?.personal) return this.personal.send(config,binding,call);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    if (interactive && config?.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
     const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,!!interactive,payload);

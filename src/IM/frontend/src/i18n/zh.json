@@ -314,6 +314,16 @@
     }
   },
   "agents": {
+    "capabilityFeedback": {
+      "requiredByOne": "请先关闭「{{feature}}」",
+      "requiredByMany": "请先关闭使用此项的功能，再调整此项",
+      "retained": "已保留当前功能需要的能力，其余选择已取消",
+      "activeTasks": "还有进行中或等待中的任务，请先暂停或结束这些任务，再关闭 Task",
+      "activeSchedules": "还有生效中的定时任务，请先停用或删除这些安排，再关闭 Cron",
+      "fixed": "这是当前模式的基础能力，不能关闭",
+      "busy": "该能力正在使用中，请稍后再试",
+      "unavailable": "暂时无法确认能力状态，请稍后再试"
+    },
     "configure": "配置",
     "paSettingUp": "个人助手正在设置，请稍后重试。",
     "selectTitle": "选择一个 Agent",
@@ -1117,7 +1127,7 @@
   "feature": {
     "intelligent_ui": {
       "label": "Intelligent UI",
-      "help": "允许 Agent 按需生成可编辑、可选择的交互卡片。关闭后使用文字回复，已有卡片仍保留。"
+      "help": "引导 Agent 按需使用交互卡片。关闭后不再提供这类指导；消息工具开启时仍可发送卡片。"
     },
     "task_graph": {
       "label": "任务图",

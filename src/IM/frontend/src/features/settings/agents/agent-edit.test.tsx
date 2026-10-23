@@ -24,6 +24,7 @@ describe("agent edit page", () => {
       display_name: string;
       description: string;
       skills: string[];
+      skills_selection_mode: "explicit_allowlist";
       tool_allowlist: string[];
       group_reply_policy: string;
       default_model: string | null;
@@ -39,6 +40,7 @@ describe("agent edit page", () => {
       display_name: "Core Planner",
       description: "Milestone execution coordinator",
       skills: ["tdd-execution-worker", "playwright"],
+      skills_selection_mode: "explicit_allowlist",
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
       default_model: null,
@@ -69,6 +71,12 @@ describe("agent edit page", () => {
           ]),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
+      }
+
+      if (url === "/im/v1/agents/agent-core-1/capability-usage") {
+        return new Response(JSON.stringify({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        });
       }
 
       if (url === "/im/v1/agents/agent-core-1/capabilities") {
@@ -198,8 +206,8 @@ describe("agent edit page", () => {
             description: "Milestone execution coordinator",
             features: {},
             custom_prompt: "",
-            skills: ["playwright"],
-            skills_selection_mode: "explicit_denylist",
+            skills: ["tdd-execution-worker", "plan"],
+            skills_selection_mode: "explicit_allowlist",
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
             default_model: null,

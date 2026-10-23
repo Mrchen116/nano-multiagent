@@ -44,6 +44,7 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
 
 vi.mock("./im-agent-config-api", async () => ({
   ...await vi.importActual<typeof import("./im-agent-config-api")>("./im-agent-config-api"),
+  getAgentCapabilityUsage: vi.fn().mockResolvedValue({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }),
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -692,7 +693,7 @@ describe("agent detail page", () => {
 describe("agent behavior settings", () => {
   function makeDetailState(
     overrides: {
-      features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires_tool?: string | null }>;
+      features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires: { features: string[]; tools: string[]; skills: string[] } }>;
       configFeatures?: Record<string, boolean>;
       customPrompt?: string;
     } = {}
@@ -706,7 +707,7 @@ describe("agent behavior settings", () => {
         custom_prompt: overrides.customPrompt ?? "",
         features: overrides.configFeatures ?? {},
         skills: [],
-        tool_allowlist: overrides.features?.filter((f) => f.requires_tool).map((f) => f.requires_tool as string) ?? [],
+        tool_allowlist: overrides.features?.flatMap((f) => f.requires.tools) ?? [],
         group_reply_policy: "MENTION" as const,
         default_model: null,
         workspace_root: "/tmp",
@@ -727,8 +728,8 @@ describe("agent behavior settings", () => {
         model_options: [],
         platform_default_model: null,
         features: overrides.features ?? [
-          { key: "memory_curation", label_i18n: "记忆自进化", help_i18n: "让 agent 主动把偏好/事实写入长期记忆", default_on: true, available: true, requires_tool: "memory" },
-          { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires_tool: "skill_manage" }
+          { key: "memory_curation", label_i18n: "记忆自进化", help_i18n: "让 agent 主动把偏好/事实写入长期记忆", default_on: true, available: true, requires: { features: [], tools: ["memory"], skills: [] } },
+          { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires: { features: [], tools: ["skill_manage"], skills: [] } }
         ]
       },
       owningNode: null
@@ -744,7 +745,7 @@ describe("agent behavior settings", () => {
 
   it("defaults Intelligent UI on and saves an explicit off choice", async () => {
     const user = userEvent.setup();
-    const state = makeDetailState({features: [{key: "intelligent_ui", label_i18n: "feature.intelligent_ui.label", help_i18n: "feature.intelligent_ui.help", default_on: true, available: true, requires_tool: "send_message"}]});
+    const state = makeDetailState({features: [{key: "intelligent_ui", label_i18n: "feature.intelligent_ui.label", help_i18n: "feature.intelligent_ui.help", default_on: true, available: true, requires: { features: [], tools: ["send_message"], skills: [] }}]});
     apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
     apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, features: {intelligent_ui: false}});
     renderDetailPage();
@@ -825,7 +826,7 @@ describe("agent prompt preview", () => {
     help_i18n: "agents.features.memory_curation.help",
     default_on: true,
     available: true,
-    requires_tool: "memory"
+    requires: { features: [], tools: ["memory"], skills: [] }
   };
 
   function makeStateWithMemoryInAllowlist() {
@@ -1020,7 +1021,7 @@ describe("feature tool linkage with an empty allowlist", () => {
             help_i18n: "agents.features.cron_scheduling.help",
             default_on: false,
             available: true,
-            requires_tool: "cron_tool"
+            requires: { features: [], tools: ["cron_tool"], skills: [] }
           }
         ]
       },
@@ -1087,7 +1088,7 @@ describe("feature tool linkage with an empty allowlist", () => {
             help_i18n: "agents.features.heartbeat.help",
             default_on: false,
             available: true,
-            requires_tool: null
+            requires: { features: [], tools: [], skills: [] }
           }
         ]
       },
@@ -1126,7 +1127,7 @@ describe("feature tool linkage with an empty allowlist", () => {
 
     expect(
       patchBody.tool_allowlist,
-      "heartbeat 无 requires_tool，tool_allowlist 应保持为空"
+      "heartbeat 无工具依赖，tool_allowlist 应保持为空"
     ).toEqual([]);
   });
 });

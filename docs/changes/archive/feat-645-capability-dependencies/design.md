@@ -222,7 +222,7 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 
 ### 原型走查
 
-用户后续指出原提示插入工具流造成按钮移位，旧体验批准在此范围失效；本次已修订为不占位浮层，修订版视觉复验尚未完成。实际走查记录和代表性截图落在 [design-evidence/README.md](design-evidence/README.md)。HTML 原型不代替真实客户端/后台验收。设计交付前验证 Web 三个宽度及 iOS 意图模式，独立 reviewer 自行渲染核对；原生 iOS 不在此阶段伪造已验证结论。
+用户后续指出原提示插入工具流造成按钮移位，旧体验批准在此范围失效；现已修订为不占位浮层，并在 Round 4 完成独立视觉复验（含 iOS 意图画布边界修正）。实际走查记录和代表性截图落在 [design-evidence/README.md](design-evidence/README.md)。HTML 原型不代替真实客户端/后台验收。设计交付前验证 Web 三个宽度及 iOS 意图模式，独立 reviewer 自行渲染核对；原生 iOS 不在此阶段伪造已验证结论。
 
 ## 契约层增量 (delta-spec)
 
@@ -251,7 +251,7 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 
 `VERIFY_ROOT` 由 reviewer 创建独立临时目录；不填主仓或别人的 worktree。脚本实际以 `/health` 验证（不沿用旧 openapi 示例）。默认 `config/e2e/gateway.yaml` 当前 Feature 缺省与显式工具会不完整，worker 在本 unit 更新该无密钥测试 fixture 为显式合法配置，不能把它当生产迁移。
 
-**Review 驱动方式**：共享语义优先 Web 真页面；创建/详情、保护开关、轻提示消失、单开工具、preview 和保存都实际操作。iOS 复用同一业务测试与序列化 fixtures；因本次新增原生 Toast 交互，实施验收需原生 iOS 模拟器走一次保护 Toggle、VoiceOver/焦点与窄屏安全区，不重复全套后端矩阵。
+**Review 驱动方式**：共享语义优先 Web 真页面；创建/详情、保护开关、轻提示消失、单开工具、preview 和保存都实际操作。iOS 复用同一业务测试与序列化 fixtures；因本次新增原生 Toast 交互，实施验收需原生 iOS 模拟器走一次保护 Toggle、轻提示出现/消失、无障碍树与窄屏安全区，不重复全套后端矩阵。VoiceOver 真机播报及读屏焦点按下方用户确认的范围排除，本次不声明已测。
 
 **验收前置**：默认 E2E 用户 `nano/nano1234` 仅在隔离 IM；本机配置中的 E2E LLM 代理为 `127.0.0.1:4000`，实施前只读检查 `/health` 与目标模型目录，不打印密钥。模型工具真实调用使用隔离 e2e/e2e-global，Schedule 指令只写本地测试标记/在隔离聊天反馈；不发外部消息。当前有 Xcode/Simulator 工程及 `src/IM/ios/scripts/build.sh`，实现时检查构建目标和可用模拟器。若模型或模拟器不可用，如实报告验收缺口，不改用生产 Agent 代验。
 
@@ -273,3 +273,13 @@ UI 的占用信息仅帮助提前提示，保存重新检查。动态状态不�
 - **M1-W3 [worker]**：真实 Web 截图/短录屏与原型对照，覆盖 1440/768/390、Toast 延时和重复触发，直接比较触发前/显示中/消失后相邻控件的坐标与面板高度；iOS build/契约测试及原生局部交互证据；证据写本 unit，不借其他任务日志。
 - **M1-W4 [worker]**：native 工具 schema 与 prompt/call 路径分别断言；新建/恢复/预览/手动运行/等待校验一致；core public exports/架构 contract 通过，所有后台依赖基于公开 API。
 - **M1-W5 [worker]**：先跑 product-contracts、integration capabilities/cron/knowledge、PA configuration、IM control/Task 和 Web/iOS 窄测试，再按 CI 风险扩展；无代码迁移、Task/Goal 双写、生产变更或未清理的任务自建进程。
+
+### R3 窄屏原型边界修订
+
+浮层的横向边界以当前应用可视画布与 viewport 的交集为准；模拟 Web 390 / iOS 手机画布时也保留左右 16px，长责任提示自然换行。它仍脱离文档流，不改变控件布局、不遮挡触发控件。
+
+### 实施验收平台范围确认（2026-10-24）
+
+真实 Simulator 已完成原生开关联动、保护提示、保存确认与布局检查。Apple 官方文档说明 VoiceOver 不在 Simulator 提供；用户先询问“这个真机指的是啥，ios模拟器测了吗”，在说明实体 iPhone 与已做模拟器验收、唯一缺口为 VoiceOver 播报/读屏焦点后，明确回复“不用不用这个。”。因此本次不将 VoiceOver 真机验证作为退出门禁，保留未测说明。产品行为、依赖规则与无障碍实现不变，不把无障碍树文本等同于实际语音或读屏焦点验证。
+
+平台限制来源：[Apple — Performing accessibility testing for your app](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)。

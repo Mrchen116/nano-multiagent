@@ -83,8 +83,8 @@ export function apply(ctx) {
  });
 }`);
   const agents = [
-    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['read', 'memory'] },
-    { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
+    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['read', 'memory'] },
+    { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'read', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
   ];
   const bindings = agents.map(config => ({ sessionId: `knowledge-${config.agentId}`, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: config.agentId === 'a' ? workspaceA : workspaceB }));
   try {
@@ -121,7 +121,7 @@ export function apply(ctx) {
     for (const config of agents) await client!.rpc.request('configuration.apply', config);
     for (const binding of bindings) {
       const view = await client!.rpc.request('configuration.preview', { config: agents.find(config => config.agentId === binding.agentId), cwd: binding.cwd }) as { tools: string[] };
-      expect(view.tools).not.toContain('memory'); expect(view.tools).not.toContain('skill_manage');
+      expect(view.tools).toContain(binding.agentId === 'a' ? 'memory' : 'skill_manage');
     }
     await client!.shutdown(); client=undefined; await start();
     expect((await facts()).facts).toHaveLength(2); expect((await facts()).reviews.every(review=>review.status==='completed')).toBe(true);
@@ -136,13 +136,13 @@ export function apply(ctx) {
     await invoke('invoke-excluded');
     const excluded = await client!.rpc.request('session.observe',{sessionId:'knowledge-b'}) as typeof invoked;
     expect(excluded.events.filter(event=>event.type==='user/message' && event.data.source?.kind==='skill-invocation')).toHaveLength(1);
-    await client!.rpc.request('configuration.apply',{...agents[1],features:{memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000}});
+    await client!.rpc.request('configuration.apply',{...agents[1],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000}});
     for(let i=0;i<19;i++) await invoke(`batch-use-${i}`);
     expect((await facts()).reviews.filter(review=>review.status==='completed')).toHaveLength(2);
     expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);
     expect((await facts()).facts).not.toContainEqual(expect.objectContaining({source:'F4'}));
-    await client!.rpc.request('configuration.apply',{...agents[0],features:{memory_curation:true,skill_creation:false}});
-    const restored=await client!.rpc.request('configuration.preview',{config:{...agents[0],features:{memory_curation:true,skill_creation:false}},cwd:workspaceA}) as {tools:string[];prompt:string};
+    await client!.rpc.request('configuration.apply',{...agents[0],features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:false}});
+    const restored=await client!.rpc.request('configuration.preview',{config:{...agents[0],features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:false}},cwd:workspaceA}) as {tools:string[];prompt:string};
     expect(restored.tools).toContain('memory'); expect(restored.prompt).toContain('evidence-backed');
     await client!.shutdown(); client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}\n${await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8').catch(()=> '')}\n${JSON.stringify(client ? await client.rpc.request('knowledge.facts', {}).catch(()=>null) : null)}`, { cause:error }); }
@@ -155,7 +155,7 @@ it.each([false, true])('invokes live human Inbox Skills once without promoting o
   const skills = join(home, 'skills'); await mkdir(join(skills, 'selected'), { recursive: true });
   await writeFile(join(skills, 'selected/SKILL.md'), '---\nname: selected\ndescription: Selected instructions\n---\nSELECTED_SKILL_INSTRUCTIONS');
   await writeFile(join(home, 'fixture.mjs'), `export const name='global-skill-fixture';export const inject=['llm','toolResultPruner'];export function apply(ctx){if(${prune})ctx.on('agent/pre-step',({agent},next)=>{ctx.toolResultPruner.pruneSession(agent.session);return next();});const seen=new Set();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&m.source.kind==='nano-system');if(!seen.has(last.id)){seen.add(last.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-read',name:'inbox',arguments:JSON.stringify({action:'read',target:last.id})}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
-  const config = { agentId:'a', revision:'1', provider:'fixture',model:'test',mode:'global',toolAllowlist:['inbox','skill'],features:{memory_curation:false,skill_creation:false},skillRoots:[{path:skills,source:'workspace'}] };
+  const config = { agentId:'a', revision:'1', provider:'fixture',model:'test',mode:'global',toolAllowlist:['inbox','skill'],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false},skillRoots:[{path:skills,source:'workspace'}] };
   const binding = {sessionId:'global-skill',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'global-skill-fixture',name:join(home,'fixture.mjs')}]}]);

@@ -10,5 +10,6 @@ export async function readHttpError(response: Response) {
     detail: typeof text === "string" && text.trim() ? text : i18n.t("httpErrors.responseUnavailable", { status: response.status }),
     code: typeof structured?.code === "string" ? structured.code : null,
     agentId: typeof structured?.agent_id === "string" ? structured.agent_id : null,
+    blocks: Array.isArray(structured?.blocks) ? structured.blocks : [],
   };
 }
