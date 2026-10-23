@@ -113,3 +113,34 @@ N/A。
 - 本轮 verifier 结论为 delta 的实现/架构核对 pass；保留 R1 已证明的行为与证据范围。最终 PR 交付仍须 caller 完成同版本运行门禁归集。
 - no spec delta；没有发现 unit diff 中新增而未归并的对外行为。
 - 仅追加本两份报告，不修改 R1 历史，不改源码/配置，不提交；`report_commit: pending caller collection`。
+
+## Round 3 — perf-650 Main Delta Verification
+
+> Validation snapshot: `4bb02455b1d072a899a54bf62cdf2927c4069a99 → b2087ede226bb0076c1d20895aef02843afdb417`
+
+- reviewer: independent Codex subagent `/root/static_review`，未参与实现；保留 R1/R2 原始证据与版本。
+- verification_mode: `delta`；review_round: `3`。
+- main_delta: `b78b263abc8249617906117f8f19eeb1e825fab3..4bb02455b1d072a899a54bf62cdf2927c4069a99`。
+- effective / executed_base: snapshot 左端；HEAD 已现场核实，开工工作区干净。
+- verdict: **pass；0 CRITICAL / 0 WARNING / 0 SUGGESTION；R1/R2 静态实现结论 retained**。
+- requires_full_verification: `false`。
+
+### Delta 接缝核对
+
+| 增量 / 契约 | 直接证据 | 结论 |
+|---|---|---|
+| perf-648 原 patch | 两受审范围的源码/测试 `git patch-id --stable` 同为 `dc711fedae44abbd072b55a9fc55a7353a4d3824`；SingleThread 与两回归测试逐文件 diff 为空 | M1 原实现和回归保护等价，retained |
+| NodeStore 证据所有权、迁移、receipt 恢复 | R2→R3 store 唯一增量为 `store.ts:18` usage_reports 部分索引；没有 inputs 或 delivery/receipt 变化 | R1/R2 正确性与持久性结论 retained |
+| runtime session.lookup / session.observe | `index.ts:363-368,374-380` 函数体未变；input-evidence/model-fallback/PA presentation diff 为空 | fresh evidence、logical run 终态、延迟物理事件保护 retained |
+| usageRoot 通知路由 | `index.ts:193` 只补 rootSessionId，保留 sessionId/event；`single-thread.ts:36-40` 原样只读 sessionId；usageRoot 只同步查 owners map | 不改变 SingleThread 的根/子事件路由与对账唤醒资格 |
+| usage 增量与输入 final 隔离 | runtime UsageReader 维护自己的 usage cursor/pending；PA UsageReports 写 usage outbox、发 node.report；不写 inputEvidence、delivery 或 receipt | 无新的完成事实混淆、无共享输入 writer，符合本 unit design 所有权 |
+| spec 增量 | perf-648 重放 patch 等价且仍只改变内部 lookup 选择；perf-650 的 usage API/page 增量归 main | 本 unit no spec delta retained，无遗漏的 unit 对外行为 |
+
+R1/R2 的性能规模、fallback、旧库、延迟事件和 receipt 代码证据仍适用；当前 main 增量没有引入需要 full verification 的共享语义偏离。详细比较命令、范围和引用见 `code-review.md` Round 3。
+
+### 证据局限与交接
+
+- 本轮只做静态 delta 核对和 `git diff --check`，未启动测试、构建或真实服务。caller 将在主机负载允许时串行 build 与最窄 PA/usage 回归；本报告不提前宣称这些门禁通过。
+- `bbf343d56` 的补测成功/超时与 `b78b263ab` CI `39979649421` 通过情况来自 caller 交接，仅保留各自版本和环境边界，不当作新快照的同版本运行证据。
+- 对产品 R1/R2，本轮只建议“代码接缝未发生使原证据失效的变化”；是否保留产品结论由独立产品 reviewer / caller 作出，不由 verifier 替代。
+- 仅追加 `code-review.md`、`verification.md`，不提交；`report_commit: pending caller collection`。

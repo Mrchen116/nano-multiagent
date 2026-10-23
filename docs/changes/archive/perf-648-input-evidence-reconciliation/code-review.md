@@ -65,3 +65,34 @@
 - `git diff --check b78b263abc8249617906117f8f19eeb1e825fab3...817f92040be5916e5abb42196948c1147009c399` 通过；本轮按 patch 模式保留适用 R1 证据，不重复 PA 全审或窄探针。
 - 已读取 `/tmp/perf-648-final-install.log`：lockfile 对齐、Already up to date，pnpm 11.7.0；读取 build 日志时仍在执行，**没有将进行中的 build 或尚未取得的测试宣称通过**。
 - caller 正在同一 validated_at 重跑 build/typecheck、descendants/tool-presentation/global、完整 PA 及 native model-fallback，结果由 caller 归集 `/tmp/perf-648-final-*.log`。本轮结论是静态 patch 集成复核 pass，不代替这些运行门禁。
+
+## Round 3 — perf-650 Main Delta Integration
+
+- reviewer: independent Codex subagent `/root/static_review`；R1/R2 记录原样保留。
+- review_mode: `patch`；只审 main 增量 `b78b263abc8249617906117f8f19eeb1e825fab3..4bb02455b1d072a899a54bf62cdf2927c4069a99` 与 perf-648 的共享接缝，不重新全审 perf-650。
+- effective / executed_base: `4bb02455b1d072a899a54bf62cdf2927c4069a99`。
+- validated_at: `b2087ede226bb0076c1d20895aef02843afdb417`。
+- branch / worktree: `unit/perf-648` / `.worktrees/unit-perf-648`；开工核实 HEAD 与指定快照一致，工作区干净。
+- completed_at: `2026-10-24T00:02:07+08:00`（静态复核完成时间）。
+
+### Verdict
+
+**Pass；R1/R2 代码审查结论 retained；本轮没有存活的 CONFIRMED / PLAUSIBLE finding。**
+
+```json
+[]
+```
+
+### 具体接缝与保留依据
+
+1. **本 unit patch 等价。** 分别对 R2 的 `b78b263ab..817f92040` 和 R3 的 `4bb02455b..b2087ede2`，仅取本 unit 两产品源码与两测试的 diff 后执行 `git patch-id --stable`，结果均为 `dc711fedae44abbd072b55a9fc55a7353a4d3824`。逐文件比较两受审 head：single-thread、两测试、runtime input-evidence/model-fallback、PA presentation 和 Node main 均无变化；store 唯一变化为下述 usage 索引。
+2. **共享 store 没有新的 inputs writer。** main 增量在 `store.ts:18` 仅新增 `usage_reports_pending ON usage_reports(acknowledged) WHERE acknowledged=0`。没有改 inputs schema、evidence_final 迁移/索引、lookupInputIds、inputEvidence、recordEvents、delivery 或 receipt 方法。usage outbox 与输入最终证据保持不同表和不同写入路径，R1 迁移/延迟事件/重开 DB/receipt 恢复结论 retained。
+3. **runtime 输入协议未变。** `index.ts:363-368` 的 session.lookup 仍 flush 后返回 fallback.evidence；现 `374-380` 的 session.observe 仍读取 own events、flush、toolViews 和 modelRuns 后返回 durable。main 增量改变的是 usage.read 返回带 cursor 的 usage page；没有把 usage cursor 用作输入、运行或交付完成证据。ModelFallback、inputEvidence 与 logicalEvents 源码均未变化，final 判据和 fallback 终态判断 retained。
+4. **通知身份未变，SingleThread 不消费新 root 路由。** `index.ts:188-193` 仅在 live ancestor 无法解析产品 binding 时，用 `usageRoot(ctx,session.id)` 补 rootSessionId；sessionId 与 event 原样发送。`single-thread.ts:36-40` 只按 `data.sessionId` 匹配原 binding，没有读取 rootSessionId，因此不新增 child→root 的 SingleThread reconcile，也不截断原 root 事件。`usage.ts:187-189` 的 usageRoot 是同步读取本地 owners map；不会修改事件或输入证据。
+5. **usage 处理不取得输入证据所有权。** 新 runtime UsageReader 监听 own events、缓存 usage 进度并读取持久日志；PA UsageReports 仅调用 usage.read、保存 usage_reports、发送 node.report 并确认 usage outbox。检索其实现没有 inputEvidence / lookupInputIds / delivery receipt 写入，也没有改 session.lookup / session.observe 接线。其 cursor、dirty 和 pending 状态不与 perf-648 final 标记共享。保持本 unit no spec delta。
+
+### Validation 与产品结论边界
+
+- `git diff --check 4bb02455b1d072a899a54bf62cdf2927c4069a99...b2087ede226bb0076c1d20895aef02843afdb417` 通过。本轮遵照 caller 的窄静态范围，不启动测试或服务、不重复全量审查。
+- caller 交接的 `bbf343d56` 补测中 PA171、descendants/conversationtasks 通过、直接 runtime 四文件超时，以及旧 main `b78b263ab` CI `39979649421` 全通过，属于各自版本/环境的证据；本轮没有独立重跑，也不将其等同于新 validated_at 全部运行门禁通过。caller 将串行 build 与最窄 PA/usage 回归并归集结果。
+- 就代码影响而言，未发现需要撤销产品 R1/R2 证据的接缝变化；产品验收记录是否保留仍由独立产品 reviewer / caller 判定，本报告不新增或替代产品验收结论。
