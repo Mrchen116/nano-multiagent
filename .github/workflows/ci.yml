@@ -80,12 +80,6 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Change unit is archived
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
-
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
@@ -115,6 +109,12 @@ jobs:
 
       - name: ruff format check
         run: ruff format --check .
+
+      - name: Change unit is archived
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
 
   frontend:
     name: Frontend checks
