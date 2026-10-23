@@ -257,3 +257,44 @@ R4-W1 的设计解决方案已闭合。新增 SingleThread 三项接线补充可
 ### Recommendations
 
 无新增建议。
+
+## Round 6
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: 仅复核真实 Task 系统通知独立轮次的静默收尾及其来源判定；RelayInput 是声明既有可选线字段，不新增协议或权限。其余设计与 R5 结论保留，不审实现。
+- started_at: 2026-10-24T00:20:57+08:00
+- completed_at: 2026-10-24T00:22:18+08:00
+- duration: 81s
+- validated_at: `unit/bugfix-646` HEAD `91c4fb9800a27f617225785b7e4fa341d0d83015` 加本轮两份受审文档工作区。
+- reviewed SHA-256: design.md `497af8dd52108d12e09af2f0d8995cf4a617c477570420ffe93885e5c6012723`；specs/gateway/task-graphs.md `7354502b8d3cd1498dff69c631e334b2d473ba7541b7c59a1a14dda8832ad79e`。
+- 仅追加报告，不提交；未操作、重启或连接正在验收的栈。独立轮次泄露的现场事实由派发方提供，本轮以真实生产接线核实其设计前提，不将该现场陈述当作本轮独立产品验收。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+使用宿主来源字段限定 Task 纯通知轮次，再复用已有自动轮次展示路径，能补足跨轮 sentinel 泄露而无需跨轮借用历史送达记录。该结论允许进入实施与相关复验，不表示实现或产品验收已通过。
+
+### Coverage 与证据
+
+1. **来源字段真实存在。** `apps/im-server/src/task-notifications.ts:37` 产生 kind=task_graph 的系统通知元数据；`messaging.ts:636–639` 的 persistTaskNotice 以 sender_type=system 插入并进入 relay；同文件 `:344–345` 从 system_notice_json 投影 system_notice，`:648–652` 把真实 message 对象放入 Relay payload。故为 RelayInput.message 声明可选 system_notice（可为 null）只是补足已有字段类型，不需要新增服务端消息标记或平行事件通路。
+2. **范围与来源边界。** 设计同时要求本轮全部输入 sender_type=system 且 system_notice.kind=task_graph，不能凭正文、仅凭 kind、仅凭 direct 或历史送达记录判断。真人伪带同名 notice、其他 system 及混入真人的轮次不满足新增条件。系统通知仍按原系统来源进入模型/审批，不因此取得人类授权；Global 收尾规则不变。
+3. **复用路径与用户代价。** `single-thread.ts:232–243` 已按当前 turn 的输入集合计算 heartbeatOnly，在无可见/待展示审批时延后自动轮次占位，并对 NO_REPLY 静默结算；有意义正文仍进入普通交付。把满足上述精确条件的纯 Task 通知纳入这一现成路径，避免直聊先展示占位/哨兵再删除，也不依赖上一轮 interactive-delivered 标记。已展示审批须继续保留，不能随静默清除；普通有意义 final 继续发布。这是展示归类，不停止任务处理、不增设调度。
+4. **delta。** 新增“直聊 Task 系统通知的静默收尾”Scenario 准确表达宿主来源、NO_REPLY、无可见审批与有意义正文边界；与 canonical Gateway Task “自动续跑保留原有产品交付与审批链”兼容。未把某个系统通知当作任务已完成，也未改变已有等待/停止/恢复契约。
+5. **必要验证切面。** 实施应覆盖真实 system/task_graph 正例；sender_type=user 且伪带同 notice、其他 system、混合真人输入的反例；同任务通知发生在新的 turn 且无本轮 send 标记仍安静；有效正文、可见审批及已有 pending 审批路径保持。该集合可用既有原生输入/交付测试设施验证，并由产品 reviewer 复核纯通知结束后的实际直聊无哨兵，不能只断言布尔分支。
+6. **retained_from: Round 5。** 原 SingleThread 同轮 confirmed 交付、query 模式资格、stop 控制通知 next-step 规则及其竞态回归要求保持；Round 2/3 的其余设计批准继续有效。本轮没有重新审阅这些未修改内容或扩大生产范围。
+
+### 历史问题闭环
+
+R4-W1 保持 closed；R1-W1 / R1-W2 / R1-W3 继续 closed；无新增待闭环 issue。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。

@@ -53,7 +53,7 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 
 - SingleThread 共用的 conversation query 不应执行仅支持 Global 的 `agent.session.ensure`。只在 Global 注册工作主会话；SingleThread 查询仍由 IM 校验节点、Agent 与聊天成员权限，不新增豁免。
 - `/stop` 目前暂停持久 Task 并保留原生 inbox，却没有将真人停止事实写入模型/审批证据；旧排队答复因晚处理而被误认为恢复。复用已有 `session.submit(mode=inject)`：在 pause receipt 确认之后、解除 stop fence 之前，以稳定 input ID 注入并 flush `task-human-control` 来源的停止通知，携带宿主已核实的操作者、原消息 ID/时间、作用范围与暂停数量。明确停止前已排队输入即使晚处理也不能恢复 paused Task，只有停止后新的明确真人恢复才可。暂停成功但通知失败则仍维持已有 stop pending/fence，重试同 receipt 与同 input ID；不新增调度器、状态表或删除无关排队消息。来源说明承认此受信控制事实，不把普通 system 文本提升为授权。仅 inject+flush 不等于模型已见：fence 期间若原生 pre-step 已领取普通输入与控制通知，reject 恢复时必须保留 task-human-control 的 next-step 语义（其余普通输入仍为 next-turn），确保解 fence 后首个模型步已同时看到停止事实；以原生队列竞态测试覆盖，不凭 accepted 标记推断可见。
-- SingleThread 已确认通过 send_message 向本轮绑定聊天发送文字结果后，模型结尾的 NO_REPLY 应与已交付卡片一样被抑制，不能公开泄露哨兵或重复结果。使用实际 confirmed publication 的目标与 turn 关联；其他聊天、unknown/failed 发送和已有可见审批不能因此吞掉本聊天正文。Global 仍不使用 NO_REPLY。正常 SingleThread final prose 仍可直接交付。
+- SingleThread 已确认通过 send_message 向本轮绑定聊天发送文字结果后，模型结尾的 NO_REPLY 应与已交付卡片一样被抑制，不能公开泄露哨兵或重复结果。使用实际 confirmed publication 的目标与 turn 关联；其他聊天、unknown/failed 发送和已有可见审批不能因此吞掉本聊天正文。Global 仍不使用 NO_REPLY。正常 SingleThread final prose 仍可直接交付。真实第二轮还确认 Task 分配/完成通知会产生独立原生轮次，不能跨轮复用旧送达标记：仅当该轮全部输入均为 IM 宿主 system 类型且现有 system_notice.kind=task_graph 时，沿既有自动轮次静默路径处理 NO_REPLY（无可见审批时），仍处理任务且允许有意义正文交付。RelayInput 仅声明当前线上已有的可选 system_notice.kind 字段，不新增线协议；真人或其他系统通知不因此获得该静默待遇。
 
 ## 接口与数据流
 
