@@ -137,6 +137,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared browser contracts
+        run: npx tsc -p ../../../packages/product-contracts/tsconfig.json --typeRoots ./node_modules/@types
+
       - name: Dependency audit (critical)
         run: npm audit --audit-level=critical
 
