@@ -85,3 +85,28 @@ it('retains an unconsumed stop fact through normal runtime teardown without waki
     expect((await f.calls())[1].filter((m:any)=>m.source?.channel==='task-human-control')).toHaveLength(1);
   } finally {await client?.shutdown();await rm(f.home,{recursive:true,force:true});}
 },20_000);
+
+it('restores the newest stop by first acceptance even after blocked admission reinserts older notices last',async()=>{
+  const f=await fixture();let client:RuntimeClient|undefined;
+  try {
+    client=new RuntimeClient({home:f.home,cwd:f.home});
+    client.rpc.handle('product.task_execution.snapshot',()=>f.empty);
+    await client.rpc.request('initialize',{protocol:1,agents:[f.agent],bindings:[]});
+    await client.rpc.request('session.ensure',f.binding);
+    await client.rpc.request('task.execution.block',{sessionId:'s',blocked:true});
+    for(const id of ['older','newer'])await client.rpc.request('session.submit',{sessionId:'s',inputId:'task-stop-notice:a:'+id,mode:'inject',content:[{type:'text',text:'STOP_'+id.toUpperCase()}],source:{kind:'system',actorId:'o',channel:'task-human-control',messageId:id}});
+    await f.submit(client,'Blocked concurrent question');
+    await expect.poll(async()=>{
+      const observed=await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string;events:{type:string;data:{inserted?:{id:string}[]}}[]};
+      return observed.status==='idle'&&observed.events.filter(e=>e.type==='agent/inbox/spliced'&&e.data.inserted?.some(m=>m.id==='task-stop-notice:a:older')).length>=2;
+    }).toBe(true);
+    expect(await f.calls()).toHaveLength(0);
+    await client.shutdown();client=new RuntimeClient({home:f.home,cwd:f.home});
+    client.rpc.handle('product.task_execution.snapshot',()=>f.empty);
+    await client.rpc.request('initialize',{protocol:1,agents:[f.agent],bindings:[f.binding]});
+    await client.rpc.request('session.ensure',f.binding);
+    await f.submit(client,'Future independent question');await expect.poll(async()=>(await f.calls()).length).toBe(1);await f.idle(client);
+    const controls=(await f.calls())[0].filter((m:any)=>m.source?.channel==='task-human-control');
+    expect(controls.map((m:any)=>m.id)).toEqual(['task-stop-notice:a:newer']);
+  } finally {await client?.shutdown();await rm(f.home,{recursive:true,force:true});}
+},20_000);

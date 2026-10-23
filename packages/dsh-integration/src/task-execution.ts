@@ -181,14 +181,17 @@ export class TaskExecutionDriver {
     // Native disposal cancels pending inbox entries. Recover only the latest
     // trusted stop fact, on a future wake, without replaying old user requests.
     const events=agent.session.snapshotEvents();
-    for(const event of events.toReversed()) {
+    const accepted=new Set<string>();let notice:UserMessage|undefined;
+    for(const event of events) {
       if(event.type!=='agent/inbox/spliced')continue;
-      const notice=event.data.inserted.findLast(message=>channel(message)==='task-human-control'&&message.id.startsWith('task-stop-notice:'));
-      if(!notice)continue;
-      const evidence=inputEvidence(events,notice.id);
-      if(evidence.consumedSeq===undefined&&!evidence.pending&&!messages.some(message=>message.id===notice.id))messages.unshift(notice);
-      return;
+      for(const message of event.data.inserted) {
+        if(channel(message)!=='task-human-control'||!message.id.startsWith('task-stop-notice:')||accepted.has(message.id))continue;
+        accepted.add(message.id);notice=message;
+      }
     }
+    if(!notice)return;
+    const evidence=inputEvidence(events,notice.id);
+    if(evidence.consumedSeq===undefined&&!evidence.pending&&!messages.some(message=>message.id===notice.id))messages.unshift(notice);
   }
   /** Reserve one continuation after persistence and a second native inbox check. */
   async poke(agent:Agent,reconsider=false):Promise<void> {
