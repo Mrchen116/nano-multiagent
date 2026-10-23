@@ -14,7 +14,10 @@ ALLOWED = {
     "packages/product-contracts": set(),
     "packages/channels": {"@nano/product-contracts"},
     "packages/personal-assistant": {"@nano/product-contracts", "@nano/channels"},
-    "packages/dsh-integration": {"@nano/product-contracts", "@nano/product-contracts/capabilities"},
+    "packages/dsh-integration": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/capabilities",
+    },
     "packages/dsh-trajectory-viewer": {
         "@nano/product-contracts",
         "@nano/product-contracts/trajectory-wire",
@@ -22,7 +25,10 @@ ALLOWED = {
     },
     "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": {"@nano/product-contracts/capabilities"},
-    "apps/im-server": {"@nano/product-contracts", "@nano/product-contracts/capabilities"},
+    "apps/im-server": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/capabilities",
+    },
     "apps/node": {
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",

@@ -96,7 +96,7 @@ agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选
 #### Scenario: 存储为空全不亮
 - **GIVEN** single_thread agent 的存储 `tool_allowlist` 为空且依赖工具的 Feature 均关闭
 - **WHEN** 打开该 agent 的设置 detail 页
-- **THEN** 工具面板全部不亮
+- **THEN** 可选业务工具均不亮，当前运行模式的固定能力保持选中
 
 #### Scenario: 显式清空保存后保持
 - **GIVEN** single_thread agent 当前启用若干工具且依赖工具的 Feature 均关闭
