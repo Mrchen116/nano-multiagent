@@ -32,6 +32,16 @@ ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent && pnpm install --frozen-lockfile 
 
 前端或其依赖变更必须重建 `src/IM/frontend/dist`，它是未入仓的产物。记录本次 build 的资源文件名，随后确认官网 HTML 引用这些资源且请求成功；仅 pull 不等于官网前端更新。
 
+## Node 运行时升级
+
+版本、安装路径和 Brotli 验证依据只在 [生产舰队](../../../../docs/operations/prod-fleet.md#node-运行时) 维护。运行时升级不隐含源码版本升级、安装包发布或修改其他服务的 Node：
+
+1. 从 Node 官方下载指定平台发行包和 SHA256 清单，校验后安装到两机的固定版本目录；保留旧运行时用于恢复。用新 Node 安装锁定依赖并构建，先完成候选版本验证。
+2. 记录并备份两机 config、Gateway plist/state，以及 Mini 的 IM launcher/plist、持久 signing key 和安装清单；涉及数据库时使用一致快照。备份放本机权限受限目录，不输出秘密。
+3. 按原 Gateway 的生命周期入口 stop 后，仅在 `gateway.environment.PATH` 前置新 Node 的 `bin`，保留其他配置。Mini 的既有 IM launcher 改用新 Node 绝对路径，并前置同一 PATH；保留原公网参数、数据库、附件和密钥。
+4. 按 IM → Gateway 顺序切换。两机均用新 Node 的绝对路径执行各自原 checkout 的 `apps/node/lib/cli.js restart --config …`，让生命周期入口重建自启定义；不要只改 Homebrew 软链接。
+5. 核对两机 Gateway plist、state 和 live executable，确认各 DSH 子进程也使用新运行时；核对 IM live executable 与 Brotli 补丁。完成下文公网检查、30 秒 Tunnel 采样及两节点真实模型回复；安装清单和身份保持原值。
+
 ## IM 与 Tunnel 的受管启动
 
 使用 [生产舰队](../../../../docs/operations/prod-fleet.md#源站与隧道) 中的现有 LaunchAgent。部署前读取实际 plist/launcher 并核对：

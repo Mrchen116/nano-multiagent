@@ -94,7 +94,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "24.22.1"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.7.0
@@ -127,8 +127,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Vitest 4 + jsdom 27 run on Node 20
-          node-version: "20"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: src/IM/frontend/package-lock.json
 

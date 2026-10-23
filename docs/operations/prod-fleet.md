@@ -66,6 +66,12 @@
 
 Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占位 `api_key: nano-local-proxy`，供原生 provider 完成配置。它不是身份凭据，也不能替代其他需要认证的上游密钥；不要为了获得 loopback 默认值改写已验证的代理地址。
 
+### Node 运行时
+
+两机 Nano 统一使用官方 Node.js 24.22.1 LTS，安装在 `~/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/`；下载包必须与官方 SHA256 清单一致。该版本已包含 [2026-10-21 安全修复](https://nodejs.org/en/blog/release/v24.22.1)，包括 Brotli 解码修复。官方二进制内置 Brotli，不能仅凭 `process.versions.brotli` 的 `1.2.0` 字符串判断是否有补丁；核对发行包哈希、补丁新增的 `zlib.constants.BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH === -17`，以及 live process 未加载 Homebrew Brotli 动态库。
+
+IM launcher 和 Gateway LaunchAgent 使用该目录下 `bin/node` 的绝对路径；两机 `gateway.environment.PATH` 将该 `bin` 放在已有 PATH 前，供 DSH 与其子进程使用。Gateway 自启定义由实际运行 CLI 的 `process.execPath` 生成，因此升级时必须用新 Node 执行 `apps/node/lib/cli.js restart --config …`。重启后同时核对 IM、Gateway、DSH 的实际可执行文件与新 PID，不以终端 `node -v` 代替。安装/启停步骤见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#node-运行时升级)。
+
 ## 源站与隧道
 
 官网与 Mini 上的 IM 是同一套服务。更新 Mini 主仓代码、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
@@ -74,7 +80,7 @@ Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占�
 |---|---|
 | 公网入口 / `IM_PUBLIC_URL` | `https://im.nanoim.win` |
 | IM LaunchAgent | `io.github.mrchen116.nano-multiagent.public-im` |
-| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → `/opt/homebrew/bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
+| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → Node 运行时目录下 `bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
 | 源站 / worker | `127.0.0.1:8011` / 1 |
 | 生产数据库 | Mini `~/Repos/nano-multiagent/data/im_service.sqlite3` |
 | 附件 | 数据库旁 `message-images/` 与 `data/uploads/`，保留原目录及元数据 |
