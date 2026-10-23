@@ -39,3 +39,8 @@ Claim：正常稳定读取不再打开不变的冷子会话或派生全部历史
 | 候选再次不变 | 0 | 0 | 0 | 0 | 0 | 0.012 |
 
 Locator：`/tmp/nano-perf650-evidence/{baseline,incremental}.mts` 与同名 jsonl；上游审计 `/Users/czj/.codex/reports/nano-performance-audit-20261023-2247/runtime/usage-count.mts/jsonl`。Limit：观察次数与实际 JS 函数计时，内存 fixture 不模拟磁盘，首次 listDescendants 内部真实存储遍历不在 fixture 时间内。不能推断生产占比、端到端延迟或磁盘提速。冷重建仍线性，当前样本冷恢复更慢；runtime 紧凑 reports 内存随已完成轮次数线性增长。
+
+
+## 持久 outbox 测量
+
+真实 NodeStore、20,000 条 acknowledged 旧行、既有库重开初始化后：建索引初始化 6.439 ms；1,000 次 pending 查询有一条待投递时合计 20.882 ms，空队列合计 14.328 ms，EXPLAIN 使用 `usage_reports_pending`。同一临时库删除该索引后，空查询 1,000 次合计 5309.891 ms，EXPLAIN 为 table scan。Locator：`/tmp/nano-perf650-evidence/outbox.mts/jsonl`。这是本地 SQLite 样本，不推断生产延迟；acknowledged 历史行仍保留幂等去重。
