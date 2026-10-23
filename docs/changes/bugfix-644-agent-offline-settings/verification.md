@@ -1,0 +1,111 @@
+# Verification Report: bugfix-644
+
+> Round: 1; verification_mode: full, including all current delta reconciliation.
+> Validation snapshot: `1ef49808ffd2618c275b6e38683f93f74ff8455d -> 4ba1eefca3c547f40f9b1060c64941ee3cf6ee09`
+> Branch: `unit/bugfix-644`; workdir: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-644`
+> Verdict: **FAIL - 0 CRITICAL / 4 WARNING / 0 SUGGESTION**
+> corrected-delta: **implementation-mismatch**; requires_full_verification: false (this round already is full).
+
+## Summary
+
+| Dimension | Result |
+|---|---|
+| Completeness | All R1-R11 and M1 exits inspected; unknown discovery, preview semantics and changed-directory feedback remain incomplete. |
+| Correctness | Offline mutation gates, finite persistence, recovery and draft preservation are implemented; four blocking warnings remain. |
+| Coherence | D1-D6 and the final R3 existing-UI decision are largely followed; see the specific deviations below. |
+
+This is an independent static implementation verification, not the separate product tryout. Scope: complete dispatched diff, incident, final R3 design/reference contract, both deltas, current IM specs, SPEC and testing rules. No service was started/stopped; no production action or source/test/config/design/delta edit was performed.
+
+## Completeness
+
+The unit has one M1. No worker tasks/progress file is required for this simplified workflow.
+
+| Exit | Evidence | State |
+|---|---|---|
+| M1-U1/U2/U3 | R1-R11 mapping below; implementation evidence; separate independent product reviewer | Static portion inspected; full real product journeys are not declared passed here. |
+| M1-W1 | `M1-offline-settings/backend-evidence.md`; Fastify/SQLite tests in agent-settings/control/approval/plugins/PA | Main boundaries covered; W1 remains. |
+| M1-W2 | Versioned implementation evidence: 9 agent-edit + 8 PA + 25 detail; 23 existing + 5 new channel cases | Draft/cancellation/pending/conflict/null-inheritance paths covered; W1-W4 need regression coverage. |
+| M1-W3 | Real IM/Node/DSH self-check narrative and desktop/mobile/tablet screenshots; final R3 comparison | Representative configuration/draft evidence exists; not a replacement for full channel/PA/Global real acceptance. |
+| M1-W4 | Implementation record: backend/frontend build, Python 65 pass/31 deselected, ruff; caller supplements typecheck/check:ios-runtime exit 0 and Web failed-file rerun | Backend full suite/native/final docs checks were still being collected by caller at this review. Do not convert their pending status into a pass. Final current-spec merge remains a delivery closeout step. |
+
+The implementation record honestly says full Web was 969/973. This reviewer read `/tmp/bugfix644-web-recheck.log`: the three previously failing files subsequently passed all 85 tests; caller reports the other 101 files/888 tests had passed. Together these cover the frozen source files, but they are not a claim that a second monolithic full-suite execution occurred. No full suites were duplicated here.
+
+## Correctness
+
+| Requirement / Scenario | Implementation | Test/direct evidence | State |
+|---|---|---|---|
+| R1: durable display across refresh/browser; model/effort pair | `agent-settings.ts:43-96`, `control.ts:768-807`, `im-agent-config-api.ts:648-681` | Persisted snapshot/authorization HTTP tests; offline form tests; three-width self-check | Main path covered; W2 affects unknown discovery. |
+| R2: explicit/inherited/unknown; unknown never empty/default | configurationDisplay, SettingsReadNotice, ModelReasoningField, independent section results | Backend empty/unavailable/timeout; frontend unavailable cron | **W2/W3** |
+| R3: configuration/PA/plugins/cron read-only; reading/cancel retained | AgentDetailPageContent, PA controls, plugin/cron guards | Frontend 17+25 and offline route tests | Main guards covered; W3 preview feedback deviates. |
+| R4: all new offline channel mutations rejected without side effects; dialogs guarded | `channels.ts:689-758`, AgentChannelsPanel | Every channel route preserves revision/credentials/receipt; five offline UI tests | Covered |
+| R5: disconnect does not assert local work stopped; historical channel state labeled | ConnectionCard; existing Work persistence; no new local-stop code | Existing/offline channel tests; true Relay-only disconnect trial belongs to product reviewer | Static covered; stop-Node self-check alone is not full R5 evidence. |
+| R6: form/dialog draft survives; cancel/discard available; no autosubmit | baseConfig/draft effect; channel dialog memory | Draft+remote-version UI test; channel offline dialog; real self-check | Covered |
+| R7: accepted but uncertain results; duplicate prevention | Existing durable ConfigOperations; settings pending summary; channels unconfirmed; plugin/cron reread | Same-operation recovery HTTP test; single pending PATCH; response-loss channel case | Covered |
+| R8: old pending/manifest/removal recovery retained | Existing recovery plus offline operation summary | Backend same-operation recovery and existing control/channel regressions | Covered |
+| R9: online event cancels old reads; current section must refresh before unlock | use-agent-settings-state, applyAgentStatusEvent, connection-specific channel query, independent PA/section queries | Late response, stream recovery, independent sections | Covered |
+| R10: version/capability changes and online read failure | baseConfig/versionConflict; reasoning stale; per-section freshness | Draft/version conflict tests; independent HTTP and SSR reproductions | **W1/W2/W3/W4** |
+| R11: explicit online save/lifecycle; shared native error classification | PATCH/apply/receipt; online form save; channel lifecycle; Swift isAgentStateConflict | Versioned backend61; frontend online/channel; Swift source contract test | Main path covered; caller owns final native execution evidence. |
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| D1 finite projection; profile authority; no secret/catalog/body replication | Mainly; unknown display and preview time differ | agent-settings.ts, new schema; W2/W3 |
+| D2 one settings entry plus finite independent sections; old successful wire preserved | Mainly; optional-features compatibility differs | control.ts settings/sections and old routes; W1 |
+| D3 global connection plus per-section current reads; unrelated failures independent | Yes | Hook connection boundary; independent plugin/cron/PA/channel queries |
+| D4 reject before new intent, retain accepted recovery | Yes | PATCH before insert; channel writable; plugin/cron/PA guards; unchanged recovery |
+| D5 base/draft/latest, no automatic defaults, existing discard conflict UX | Mainly; missing-directory feedback incomplete | AgentDetailPageContent and handleDiscard; W4 |
+| D6 single complete milestone | Structure followed; completion cannot yet be claimed | One M1; warnings and external gates outstanding |
+| SPEC dependency/runtime boundaries | Yes | IM-only new module; no Node/PA/DSH imports, private runtime access, second loop or kernel HTTP service |
+
+### Prototype / Reference Contract
+
+Current reference is final R3 in `design.md:200-234`, not historical R1/R2 mockups.
+
+| Reference contract | Milestone | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| Existing cards/field order/Skills grouping and original model/effort controls | U1/W3 | Existing DOM reused, selectors receive disabled; no new disabled suffix or merge panel | M1 desktop/mobile/tablet; reviewer actually viewed M1 offline-mobile and R3 offline-mobile | Static covered; no subjective visual score. |
+| Offline notice; draft retained in original fields; unlock after reads | U1/U3/W3 | Hook and draft/base; original disabled selects | Versioned real browser self-check and three-width images | Main contract covered; W2/W3 affect state accuracy. |
+| Existing channel provider/AppID/keep-replace/confirmation/mobile sheet | U2/W3 | ConnectionCard/ChannelDialog/ConfirmationDialog structure retained | Existing lifecycle + offline tests; separate real reviewer | Component inspection does not assert complete real channel journey pass. |
+| Necessary unknown/conflict feedback and original discard | U1/U3/W3 | Existing error locations and handleDiscard; no field merge workflow | Version conflict UI regression | Mainly covered; W4 missing capability-conflict feedback. |
+
+## Issues
+
+### CRITICAL
+
+None confirmed. In-progress caller checks and separate product acceptance are outstanding evidence, not assumed failures or passes.
+
+### WARNING
+
+1. **W1 / CONFIRMED: an optional Features field becomes mandatory and locks online older nodes.** `apps/im-server/src/control.ts:572`. Existing featureOptions normalization and frontend CapabilitySnapshot (`im-agent-config-api.ts:124`) explicitly accept older Gateways without features. Independent Fastify injection with real SQLite and a valid binding, same `{models:[{name:'model'}],skills:[],tools:[]}` payload: old `/capabilities` returned 200/features=[]; new `/settings` returned online/read_failed/ready:false/live_capabilities:null. Restore the existing optional-field normalization while keeping truly failed required reads locked. Add an HTTP regression for this payload. Same as code-review finding 1.
+
+2. **W2 / CONFIRMED: unconfirmed discovered Skills appear enabled after a profile-version mismatch.** `im-agent-config-api.ts:670`, `skill-source-selector.tsx:59-61`. Backend `agent-settings.ts:81-83` correctly recomputes old derived values as enabled:null; frontend erases null and the selector recomputes all discovery entries as selected. Independent SSR of the actual component with default_discovery/readOnly/historical enabled:undefined produced a green `aria-pressed="true"` pill and 1/1 enabled count. This violates design:126 and R2. A generic incomplete-list note does not correct individual enabled assertions. Preserve unknown state/provenance and exclude unconfirmed derived values from current enabled claims using the existing component/feedback structure; do not revive R3-rejected suffix designs. Add a changed-version/offline display regression. Same as code-review finding 2.
+
+3. **W3 / CONFIRMED: preview availability confuses read-only with offline, and previews have no acquisition time.** `agent-detail-page.tsx:438` sets hbMdNodeOnline=false for online refresh/pending/read errors; `599-602` then asserts the node is offline, and returning ready never resets it. Its catch also maps an online read failure to offline. BehaviorCard previewText and HeartbeatCard hbMdContent store no own capturedAt, so retained historical content cannot display its acquisition time. The top configuration-snapshot timestamp is not the file/generated-prompt acquisition time. This violates design:122/154, delta agents-nodes:186-190 and R10. Separate actual connection, refreshing and preview read failure; retain each successful body and its timestamp, label historical content in the existing preview area, and test online main-settings refresh without a false offline message. The false-offline part is code-review finding 3.
+
+4. **W4 / CONFIRMED: changed current model/tool/Skill directories lack the explicit incompatibility feedback required by R10.** `agent-detail-page.tsx:1376-1384` only validates the display name and nonempty reasoning descriptor. `resolveModelOptions:110-119` silently reinserts a disappeared primary model; configured tools/Skills absent from current options are simply not rendered at `1942/1975`, while retained draft values still contain them. Concrete scenario: edit the name online, disconnect, remove its configured model (saved effort=null) or a selected tool/allowlist Skill from the node directory, then reconnect without changing profile_version. The successful current read unlocks saving with no incompatibility message; a removed model can fail only at apply, while missing tools/Skills have no visible configured item to adjust. Incident:174-178 requires the retained draft plus explicit actual incompatibility, and design:124 says all configured names remain visible. Retain affected configured/draft entries with truthful unavailable feedback in existing UI positions after a current-directory read, permit explicit correction, and preserve temporarily invisible denylist rules. Add a directory-change UI regression. This is incomplete target behavior, not a request for a new merge panel or UI redesign.
+
+### SUGGESTION
+
+None.
+
+## Corrected Delta Reconciliation
+
+All current deltas were checked. Do not rewrite target contracts to accommodate these implementation defects.
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| agents-nodes ADDED readable/read-only/recovery/unknown semantics | settings/snapshots/hook/sections/channels | backend61, frontend focused tests, reviewer SSR | **implementation-mismatch: W2/W3/W4** |
+| Configuration new offline rejection, accepted-op recovery, inherited null reasoning | PATCH gate, ConfigOperations, pending summary, no default writeback | No offline op, same-op recovery, name-only reasoning:null | aligned |
+| Live capabilities plus read-only finite display; no false invalidation | agentCapabilities/configurationDisplay/adapter | Reviewer HTTP compatibility reproduction and SSR | **implementation-mismatch: W1/W2/W4** |
+| HEARTBEAT/prompt/cron: successful wire, unknown vs empty, timed retained previews | Cron explicit unavailable; retained local preview body | Cron HTTP/UI unavailable; preview source | **implementation-mismatch: W3** |
+| Channel new offline rejection and retained manifest/removal convergence | Channel gate/panel | Every route side-effect protection; old23/new5 tests | aligned |
+| PA source/blocked-contact offline settings boundary; refresh and chat protection | settingsOwner; independent PA queries/guards | Backend offline/online PA; frontend8 | aligned |
+
+### Uncovered Observable Behavior
+
+- Unexpected extra behavior not authorized by delta: the new settings entry rejects previously supported missing-features Gateway payloads, making an online older node uneditable (W1). Fix implementation rather than adding a delta to bless the regression.
+- Native `agent_node_offline` 409 is separated from version-conflict recovery as expressly required by design; successful wire stays unchanged. This is covered shared-interface compatibility work, not an omitted native redesign.
+- No-store headers, finite settings section reads, cron unavailable errors, new-write rejection and finite display snapshots are within the declared design/delta. No other unaccounted stable external behavior was identified.
+
+Outcome: **implementation-mismatch**. Fix W1-W4, add their targeted regression protection, and complete caller/independent-product gates before final delivery. Pending checks were not counted as passing.
