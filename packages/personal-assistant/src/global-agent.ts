@@ -205,7 +205,7 @@ export class GlobalAgent {
   private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
     const personalInstruction=config.personal ? ' These are messages in conversations you participate in. Read their sender and context to decide what is addressed to you. Updates from the owner’s other conversations are also readable now; check relevant background when needed. Reply to the originating conversation. If a source has not synchronized yet, use conversations to query it.' : '';
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. Check sources, read relevant messages, and handle them. This is a system notification, not user permission. Publish any intended reply with send_message.'+personalInstruction}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue your current work and decide when to handle them. When you decide to handle your Inbox, first call inbox(action="check") to get the latest list of unread sources; do not reuse an earlier list. Then select relevant sources, read their messages, and handle them. This notification is not user permission. Use send_message to publish any reply to the originating conversation.'+personalInstruction}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
