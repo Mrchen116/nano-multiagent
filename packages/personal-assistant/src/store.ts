@@ -15,6 +15,7 @@ export class NodeStore {
       PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
       CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX IF NOT EXISTS usage_reports_pending ON usage_reports(acknowledged) WHERE acknowledged=0;
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS owner_timezone (owner_id TEXT PRIMARY KEY, timezone TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (

@@ -1,6 +1,6 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
@@ -17,7 +17,7 @@ import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
-import { readUsage } from './usage.js';
+import { readUsage, usageRoot } from './usage.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
@@ -42,6 +42,7 @@ import { installLlmAttribution } from './llm-attribution.js';
 import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
+import { DescendantReader } from './descendants.js';
 
 export interface AgentConfiguration {
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
@@ -90,7 +91,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
+  static inject = ['agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout);
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
@@ -189,7 +190,7 @@ export default class NanoRuntime {
       while (!this.bindings.has(root.id) && root.header.parentSession) {
         const parent = ctx.sessions.get(root.header.parentSession); if (!parent) break; root = parent;
       }
-      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : undefined, event });
+      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : usageRoot(ctx, session.id), event });
     });
     const liveness = setInterval(() => {
       for (const sessionId of this.bindings.keys()) {
@@ -366,12 +367,9 @@ export default class NanoRuntime {
       return (await models).fallback.evidence(agent, inputId);
     });
     handle('usage.read', async value => {
-      const {sessionId} = value as {sessionId: string};
+      const {sessionId, cursor} = value as {sessionId: string; cursor?: string};
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      try { return await readUsage(ctx, sessionId); } catch (error) {
-        if ((error as {code?: string}).code === 'SESSION_QUERY_SESSION_NOT_FOUND') return [];
-        throw error;
-      }
+      return readUsage(ctx, sessionId, cursor);
     });
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
@@ -380,27 +378,24 @@ export default class NanoRuntime {
       await this.flush(agent);
       return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: (await models).fallback.list(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
+    const descendantReader = new DescendantReader(ctx);
     handle('session.descendants', async value => {
-      const { sessionId, cursors = {} } = value as { sessionId: string; cursors?: Record<string, number> };
+      const { sessionId, cursors = {}, modelVersions = {} } = value as { sessionId: string; cursors?: Record<string, number>; modelVersions?: Record<string, string> };
       const root = await this.agent(sessionId); await this.flush(root);
-      const children = await ctx.subagents.listDescendants(root.id);
+      const fallback = (await models).fallback;
+      const snapshots = new Map<string, { modelRuns: ReturnType<typeof fallback.list>; modelVersion: string }>();
+      const children = await descendantReader.read(root.id, cursors, id => {
+        const modelRuns = structuredClone(fallback.list(id));
+        const modelVersion = createHash('sha256').update(JSON.stringify(modelRuns)).digest('hex');
+        snapshots.set(id, { modelRuns, modelVersion });
+        return modelVersions[id] !== modelVersion;
+      });
       const workflowRuns = await (await workflow).read(root);
       const descendants = [];
-      // Cold children include inherited history. Bound in-flight reads instead of
-      // pinning every full log while presentation persistence is still pending.
       for (const child of children) {
         if (child.kind !== 'child') { descendants.push(child); continue; }
-        const live = ctx.sessions.get(child.id);
-        if (live && !await ctx.sessions.flush(live)) throw new RpcError(-32005, 'Child Session has no persistence barrier');
-        let throughSeq: number;
-        let events: SessionEvent[];
-        {
-          using observation = await ctx.sessionQuery.observeSession(child.id);
-          throughSeq = observation.cursor;
-          events = observation.events.slice(observation.inheritedEventCount);
-        }
         const workflowRun = workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===child.id)));
-        descendants.push({ ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), throughSeq, modelRuns: (await models).fallback.list(child.id), events: await toolViews(child.id, events) });
+        descendants.push({ ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), ...snapshots.get(child.id), events: await toolViews(child.id, child.events ?? []) });
       }
       return descendants;
     });

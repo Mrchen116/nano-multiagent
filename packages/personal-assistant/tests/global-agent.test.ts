@@ -402,3 +402,68 @@ it('replays a Feishu owner observation once with its original sender, channel an
   expect(calls).not.toContain('pa.review');
  }finally{await product.stop();inbox.close();store.close();}
 });
+
+it.each(['task_graph', 'send_message'])('keeps %s source checks independent of pending child trajectory reads', async method => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let started!: () => void, release!: () => void;
+  const childStarted = new Promise<void>(resolve => { started = resolve; });
+  const held = new Promise<any[]>(resolve => { release = () => resolve([]); });
+  let durable = true;
+  const deliveries: string[] = [];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async name=>{
+      if(name==='session.descendants'){started();return held;}
+      return {events:[],durable,status:'idle'};
+    }},relay:{request:async type=>{
+      deliveries.push(type);
+      return {type:'ack',payload:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{ok:true,result:{id:'graph'},message_id:'sent',conversation_id:'c'}};
+    }},image:async()=>'',onError:()=>{}});
+  const recovery = product.recover();
+  const call: ProductCall = {method,args:method==='send_message'?{target:'c_target',text:'reply'}:{action:'list'},operationId:'main:call',callId:'call',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
+  try {
+    await childStarted;
+    const result = await Promise.race([product.call(call),new Promise(resolve=>setTimeout(()=>resolve('blocked by child history'),250))]);
+    expect(result).not.toBe('blocked by child history');
+    expect(deliveries).toContain(method==='send_message'?'agent.message':'task_graph.command');
+    durable = false;
+    await expect(product.call({...call,operationId:'main:second',callId:'second'})).rejects.toThrow('durable');
+  } finally { release(); await recovery; await product.stop(); inbox.close(); store.close(); }
+});
+
+it('replays a child terminal when model fallback completes at the already acknowledged native cursor', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let complete = false;
+  const acknowledgements: any[] = [];
+  const events = [
+    {seq:0,time:0,type:'turn/start',data:{turn:1}},
+    {seq:1,time:1,type:'user/message',data:{turn:1,source:{kind:'user'},content:[]}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'error'}}},
+    {seq:3,time:3,type:'turn/start',data:{turn:2}},
+    {seq:4,time:4,type:'tool/call',data:{turn:2,callId:'read',name:'read',arguments:'{}'}},
+    {seq:5,time:5,type:'tool/result',data:{turn:2,message:{toolCallId:'read',content:[{type:'text',text:'result'}],isError:false}}},
+    {seq:6,time:6,type:'turn/end',data:{turn:2,reason:{kind:'completed'}}},
+  ];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async (method,args:any)=>{
+      if(method!=='session.descendants')return {events:[],durable:true,status:'idle'};
+      acknowledgements.push(structuredClone(args));
+      const modelVersion = complete?'completed':'switching';
+      const runs = [{id:'run',sessionId:'child',turn:1,state:complete?'completed':'switching',attempts:[{turn:1,route:{model:'primary'}},{turn:2,route:{model:'backup'}}],terminal:{kind:complete?'completed':'error'}}];
+      return [{kind:'child',id:'child',parentId:'main',throughSeq:6,modelVersion,modelRuns:runs,
+        events:args.cursors.child===6 && args.modelVersions?.child===modelVersion?[]:events}];
+    }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:()=>{}});
+  try {
+    await product.recover();
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toEqual([]);
+    complete = true;
+    await product.recover();
+    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'switching'}});
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toMatchObject([{turn_id:'1',payload:{status:'completed',elapsed_ms:6}}]);
+    expect(inbox.journal(0).find(e=>e.type==='tool_end')).toMatchObject({payload:{tool_name:'read',duration_ms:1}});
+    await product.recover();
+    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'completed'}});
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});

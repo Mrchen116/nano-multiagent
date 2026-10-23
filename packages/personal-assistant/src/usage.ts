@@ -1,4 +1,4 @@
-import type { RuntimePort, UsageReport } from '@nano/product-contracts';
+import type { RuntimePort, UsageReadResult } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
 
@@ -14,6 +14,7 @@ interface Options {
 export class UsageReports {
   private running?: Promise<void>;
   private readonly dirty = new Set<string>();
+  private readonly cursors = new Map<string, string>();
   private stopped = false;
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
@@ -27,29 +28,45 @@ export class UsageReports {
     if (this.stopped) return Promise.resolve();
     for (const binding of this.options.store.bindings()) if (!sessionId || binding.sessionId === sessionId) this.dirty.add(binding.sessionId);
     if (this.running) return this.running;
-    this.running = this.drain().finally(() => { this.running = undefined; });
+    // Start in a microtask so even an empty drain clears the assigned promise.
+    this.running = Promise.resolve().then(() => this.drain());
     return this.running;
   }
   private async drain() {
     const {store, runtime, relay, nodeId} = this.options;
-    while (this.dirty.size) {
-      const sessionId = this.dirty.values().next().value!;
-      this.dirty.delete(sessionId);
-      const binding = store.bindings().find(binding => binding.sessionId === sessionId)!;
-      const reports = await runtime.request('usage.read', {sessionId}) as UsageReport[];
-      for (const report of reports) {
-        const runId = `${report.sessionId}:${report.turn}`;
-        store.saveUsage(runId, {node_id: nodeId, agent_id: binding.agentId, run_id: runId, status: 'completed',
-          ...(!binding.conversationId.includes(':') ? {conversation_id: binding.conversationId} : {}),
-          usage: report.usage, completed_at: new Date(report.time).toISOString()});
-      }
-    }
-    if (!relay.ready) return;
-    for (const report of store.pendingUsage()) {
-      await relay.request('node.report', report.payload);
-      store.confirmUsage(report.runId);
+    try {
+      do {
+        while (this.dirty.size) {
+          const sessionId = this.dirty.values().next().value!;
+          this.dirty.delete(sessionId);
+          const binding = store.bindings().find(binding => binding.sessionId === sessionId);
+          if (!binding) continue;
+          try {
+            const {reports, cursor} = await runtime.request('usage.read', {sessionId, cursor: this.cursors.get(sessionId)}) as UsageReadResult;
+            for (const report of reports) {
+              const runId = `${report.sessionId}:${report.turn}`;
+              store.saveUsage(runId, {node_id: nodeId, agent_id: binding.agentId, run_id: runId, status: 'completed',
+                ...(!binding.conversationId.includes(':') ? {conversation_id: binding.conversationId} : {}),
+                usage: report.usage, completed_at: new Date(report.time).toISOString()});
+            }
+            // Delivery can fail after this point: the durable outbox owns retries.
+            this.cursors.set(sessionId, cursor);
+          } catch (error) { this.dirty.add(sessionId); throw error; }
+        }
+        if (!relay.ready) return;
+        for (const report of store.pendingUsage()) {
+          await relay.request('node.report', report.payload);
+          store.confirmUsage(report.runId);
+        }
+        // turn/end may arrive while waiting for an ACK; consume it before exiting.
+      } while (this.dirty.size);
+    } finally {
+      // Clear in the same continuation as the last dirty check. A later notification
+      // must start a new drain rather than join an already completed promise.
+      this.running = undefined;
     }
   }
+
   async stop() {
     this.stopped = true;
     this.unsubscribe();

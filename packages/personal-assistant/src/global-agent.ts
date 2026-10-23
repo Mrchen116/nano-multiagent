@@ -37,6 +37,8 @@ export class GlobalAgent {
   private readonly waking = new Map<string, Promise<void>>();
   private readonly drains = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
+  private readonly childDrains = new Map<string, Promise<void>>();
+  private readonly childrenDirty = new Set<string>();
   private readonly calls = new Map<string, AbortController>();
   private receiptDrain?: Promise<void>;
   private receiptTimer?: ReturnType<typeof setTimeout>;
@@ -47,6 +49,7 @@ export class GlobalAgent {
   private readonly authorities = new Set<string>();
   private readonly accepting = new Map<string,Promise<void>>();
   private readonly childCursors: Record<string, number> = {};
+  private readonly childModelVersions: Record<string, string> = {};
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
     this.controls = new SessionControls(options);
@@ -65,7 +68,7 @@ export class GlobalAgent {
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.calls.size > 0 ||
+    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.calls.size > 0 ||
       this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
   }
   private binding(config: AgentConfiguration): SessionBinding {
@@ -426,7 +429,7 @@ export class GlobalAgent {
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
         if(config?.mode==='single_thread'&&this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)throw new Error('Task execution session was superseded');
         if (config?.features?.task_graph === false) throw new Error('Task Graphs Feature is disabled');
-        if (config?.mode === 'global') await this.reconcile(binding);
+        if (config?.mode === 'global') await this.reconcileRoot(binding);
         else {
           const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
           if (!read.durable) throw new Error('No durable source evidence'); this.options.store.recordEvents(binding.sessionId, read.events);
@@ -515,7 +518,7 @@ export class GlobalAgent {
       }
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
-    if (global) await this.reconcile(binding);
+    if (global) await this.reconcileRoot(binding);
     else {
       const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
       if (!read.durable) throw new Error('No durable source evidence');
@@ -595,7 +598,12 @@ export class GlobalAgent {
       this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
-  private reconcile(binding: SessionBinding): Promise<void> {
+  private async reconcile(binding: SessionBinding): Promise<void> {
+    await Promise.all([this.reconcileRoot(binding), this.reconcileChildren(binding)]);
+  }
+  // Sending needs durable root evidence and Inbox consumption, not an unrelated
+  // child's display history. Separate drains also let recovery track both jobs.
+  private reconcileRoot(binding: SessionBinding): Promise<void> {
     this.dirty.add(binding.sessionId);
     const prior = this.drains.get(binding.sessionId); if (prior) return prior;
     const task = (async () => {
@@ -629,11 +637,18 @@ export class GlobalAgent {
           const projected = projectWorkEvent(binding.sessionId, event, events);
           if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
         }
-        await this.projectChildren(binding);
         this.options.onWork?.();
       }
     })().finally(() => this.drains.delete(binding.sessionId));
     this.drains.set(binding.sessionId, task); return task;
+  }
+  private reconcileChildren(binding: SessionBinding): Promise<void> {
+    this.childrenDirty.add(binding.sessionId);
+    const prior = this.childDrains.get(binding.sessionId); if (prior) return prior;
+    const task = (async () => {
+      while (this.childrenDirty.delete(binding.sessionId)) await this.projectChildren(binding);
+    })().finally(() => this.childDrains.delete(binding.sessionId));
+    this.childDrains.set(binding.sessionId, task); return task;
   }
   private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
     for (const run of runs) {
@@ -644,7 +659,7 @@ export class GlobalAgent {
     }
   }
   private async projectChildren(root: SessionBinding): Promise<void> {
-    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors }) as { kind: string; id: string; parentId: string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[] }[];
+    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors, modelVersions: this.childModelVersions }) as { kind: string; id: string; parentId: string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[]; modelVersion?: string }[];
     for (const child of children) {
       if (child.kind !== 'child') continue;
       const binding = { ...root, sessionId: child.id };
@@ -656,6 +671,7 @@ export class GlobalAgent {
         if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
       }
       if (child.throughSeq !== undefined) this.childCursors[child.id] = child.throughSeq;
+      if (child.modelVersion !== undefined) this.childModelVersions[child.id] = child.modelVersion;
     }
   }
   private append(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()): void {
@@ -677,5 +693,5 @@ export class GlobalAgent {
   }
   async stop(): Promise<void> {
     this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);clearTimeout(this.recoveryTimer);
-    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
+    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

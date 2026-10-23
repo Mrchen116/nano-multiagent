@@ -167,3 +167,89 @@ Playwright CLI 专用 session `bugfix644-r2-review`，原型 URL 与 Round 1 相
 ### Author Resolutions — Round 2
 
 作者核对本轮独立交互证据与文件指纹，无实质异议；R1-W1/R1-W2 已关闭，R1-R1 已采纳为实施回归断言。本轮无新增问题或建议，受审设计与原型不再修改，Gate 2 收口。
+
+### Author Amendment — 用户要求恢复现有界面（Round 3 输入）
+
+用户指出 Skill 的“已禁用”标签属于擅自设计，并明确要求“顺便检查一下原型里还有没有类似擅自新增的设计，全部沿用现有界面，只改这次需要的离线行为”。据此撤销此前允许原型重排／合并背景的做法。改动仅 unit 设计产物：原型主体改用当前真实 DOM/CSS 的静态提取，恢复现有卡片、字段、分区、Skills 和通道向导；新增 `prototype-current.css` 只用于离线打开原型。design 中增加逐项范围核对及 R3 当前证据，旧图不再作为实施模板。
+
+同时撤销 R2 的差异对照／选择性合并新界面：沿用现有错误提示和“放弃修改”载入最新值后再编辑，保持草稿、CAS 和当前能力校验。该项是按用户最新范围纠正先前 author 决定；不是反转用户的 R10 要求，仍不自动覆盖或保存。incident、delta-spec、后端快照／写入接口及 M1 范围不变。请求原独立 reviewer 根据实际修改选择复审模式，重点核对“只改离线行为、其余沿用现有界面”。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/bugfix644_design_review`（与 Round 1/2 同一独立 reviewer，未参与受审修订）
+- review_mode: `full`
+- mode_reason: 用户新增“全部沿用现有界面，只改这次需要的离线行为”的明确边界，原型主体和冲突交互整体替换；重新审查全套体验关系与需求覆盖，未变化的后端证据经文件／代码差异核对后复用，不将旧 Approved 当作新版本通过依据。
+- started_at: `2026-10-23T23:07:00+08:00`
+- completed_at: `2026-10-23T23:13:20+08:00`
+- duration: `6m20s`
+- checkout: 主仓 `main`；审查期间其他任务推进 HEAD，结束核对为 `15063908d`。设计基线 `59ca15b2a` 至审查时 `apps/im-server/src`、`src/IM/frontend/src`、`src/IM/ios` 无差异。保留其他 staged／untracked 内容，仅追加本报告，不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+现有卡片、字段顺序、Skills 来源组／颜色、通道卡片及手机底部弹层已恢复。当前新增内容围绕离线、刷新、未知、待确认与草稿保护；未发现仍需作为本次设计要求移除的额外正常在线界面改造。通过的是设计门禁，不是后端实现、真实掉线恢复或生产验收。
+
+### Coverage 与证据
+
+| 范围 | 本轮判断与依据 |
+|---|---|
+| 用户新增边界 | 独立打开真实隔离页面与原型，对照身份、行为、访问与模型、工作区卡片及分区导航。`agent-detail-page.tsx:1704–2038` 的内容关系与新模板一致；普通 Agent 没有新增工作入口，Skill 没有“已禁用”后缀，也没有模型双列比较块。演示栏在产品区域之外，design 明确不进入实施。 |
+| R1/R2：最后配置与未知 | 离线仍保留原字段、模型／强度、工具与 Skill 分组。手机无快照状态实际显示“自动发现的完整 Skills 名单暂时无法获取”，Features 用未确认态与说明，未把未知显示为已关闭或空名单。有限快照、显式 profile 与默认发现的职责保持 D1/D2 原方案；incident 与 delta 指纹未变。 |
+| R3/R4：全页只读与渠道 | 配置及渠道控件随离线、刷新禁用；取消、阅读和重新读取仍为设计允许入口。实际走过已有通道编辑、无通道 provider picker／新增凭据步骤及手机底部弹层掉线；App ID 输入保留，保存与输入禁用，取消和关闭可用。`agent-channels-panel.tsx:340/436/507` 确认这些弹层及 keep/replace 是现有结构。未引入渠道名称字段。PA、插件、cron 等完整流程仍按原组件接入统一条件，原型未删除或重新设计它们。 |
+| R5：最后状态 | 768×1024 渠道恢复中画面明确“正在确认”，操作禁用；离线卡片保留最后状态说明，不声明本地停止。D4 不改变节点自治，沿用已有 manifest／observed 与 Work 状态契约。 |
+| R6/R9：草稿与恢复 | 在线输入名称“R3 独立草稿”、选择 `codexOAuth:gpt-6.1-sol`／`max`，切离线、刷新中、在线；两项保留在原连续字段，未自动保存。刷新禁用和 ready 后 dirty 条件由本轮交互与当前脚本核对。宽度切换仍保留表单草稿。设计继续要求取消旧查询、读取代次和区域依赖解锁。 |
+| R10：配置冲突 | 冲突前草稿值完整保留且保存禁用。实际点击现有“放弃修改”后显示示例服务端新名称 `E2E Agent（最新名称）`，dirty 清除、保存仍禁用。设计明确 latest 尚未取得不能假称载入最新；离线普通放弃只还原已确认 base，不解除冲突。`agent-detail-page.tsx:1465/2041` 验证已有 discard 和 footer error 承载位置，新增的是状态处理，不是另造比较／合并产品流程。 |
+| R7/R8：在途与历史 pending | D4 与接口 §3 未改变：新写入在副作用前拒绝，已接受 operation／manifest 的恢复继续。原型 pending 仅作反馈证据，真实 ACK／receipt／迟到响应仍由 M1 验证；复用 Round 1 的真实服务组装与恢复入口证据。 |
+| R11：在线正常行为 | 原有表单／通道在线流程继续由现有组件承担；静态模板不成为重写正常业务的要求。模型切换联动、通道凭据验证与既有权限仍按原实现。此次未用静态演示宣称这些后台动作已通过。 |
+| RCA、接口与架构 | 重新核对设计 D1–D6 与 Round 1 核实的真实组装链，D1–D4 及公共接口未变化，目标仍覆盖能力缺失误判与离线写入不一致。IM 的局部快照／读模型、前端局部状态 hook、既有 profile CAS 与恢复机制各司其职；移除字段合并机制进一步减少维护范围，不需要新增通用编辑框架。没有扩大 DSH 接入或引入第二套执行机制。 |
+| delta、milestone、iOS | 两份 delta、incident 和 M1 骨架与 Round 1 指纹完全相同，canonical target、Scenario 保留及共享接口边界继续成立。must-match 已改为原界面与必要状态反馈，M1-U1/U2/U3/W3 对应完整；iOS 409 按 code 分类提醒仍保留，不要求新原生界面。runbook 的隔离栈、真实 UI 与受控边界测试分工未变化。 |
+
+### 独立画面与交互证据
+
+Playwright CLI 专用 session `bugfix644-r3-review`：真实页面 `http://127.0.0.1:53041/settings/agents/e2e` 与原型 `http://127.0.0.1:53042/prototype.html`。本轮登录并读取真实配置，没有修改真实产品数据、凭据或停服务。以下截图已实际查看，不仅依据 DOM／源码作体验判断：
+
+- `/tmp/bugfix644-r3-current.png`：1440×1000 真实在线配置；与新原型的卡片、字段及导航结构对照。真实会话默认英文，原型为现有中文语言文案；该差异不视为新文案设计。
+- `/tmp/bugfix644-r3-proto-online.png`：新原型正常页面，身份／行为等原有排列；没有旧重排或解释标签。
+- `/tmp/bugfix644-r3-offline-pair.png`：原有工具灰／绿色与模型、强度连续字段，保留本轮编辑值。
+- `/tmp/bugfix644-r3-conflict.png`：1440×1000，现有 footer 错误文字、放弃修改和禁用保存；没有字段对照或“保留我的修改”新按钮。
+- `/tmp/bugfix644-r3-unknown-mobile.png`：390×844，未知 Features／Skills 提示与保存规则可读，现有手机底部导航保留。
+- `/tmp/bugfix644-r3-dialog-mobile.png`：390×844，原编辑底部弹层、App ID、keep/replace、取消／保存关系保留；离线提示位于内容上方，草稿 `cli_r3_draft` 可读。
+- `/tmp/bugfix644-r3-tablet-refresh.png`：768×1024，原通道卡片与恢复反馈，无横向溢出，所有变更操作禁用。
+
+新增向导也实际完成 provider picker → App ID `cli_r3_add` → 离线，返回的控件状态确认为保存禁用、取消／关闭可用。一次自动化定位同时命中页头与空态的两个既有“添加通道”按钮，改用明确首个入口后完成；这属于审查脚本定位歧义，不是产品问题。临时截图不提交，专用浏览器关闭，不关闭作者服务。
+
+### 历史问题闭环
+
+| Issue | 本轮处置与依据 | 状态 |
+|---|---|---|
+| R1-W1 | 用户新边界明确排除额外在线界面改造，因此撤销先前要求新增差异对照／保留合并的关闭方式。保留草稿、禁止覆盖新版本、现有错误提示、放弃后载入最新再编辑已形成可执行路径，满足 R10；不因删除旧比较面板而重开。 | **closed，按用户新边界替换解决方式** |
+| R1-W2 | 新原型直接在原模型与强度字段保存草稿，本轮离线／恢复与冲突读取均得到 `codexOAuth:gpt-6.1-sol`／`max`，不再错误拼接为已保存模型加草稿强度。额外保存值面板按用户要求删除，不影响配对与来源。 | **closed** |
+| R1-R1 | iOS `agent_node_offline` 的 409 分类回归仍明确写在 design 风险段；本轮没有测试原生实现，不扩张结论。 | **closed（设计采纳）** |
+
+### Issues
+
+无新增问题，无未关闭 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议；停止本轮审查，不追加无关 UI 优化。
+
+### 本轮受审文件指纹
+
+| 文件 | SHA-256 |
+|---|---|
+| `incident.md` | `e63583c1854a44e734c448aa6710f4fc48fb2b69d8dbe66a77c9be353bc400ca` |
+| `design.md` | `757c040f86ce5fb3239065972124a89b53e85faed84da7bcc8c1bb7962a4cb91` |
+| `prototype.html` | `515d4b39492c428d2ba767c7753a0d0f31e29c79f6bf0137d11848260aa5a9b0` |
+| `prototype-current.css` | `ef995e4dbdb691414b8b2f61f1673c5746ea6e1f5e6edf1a0357356734366b28` |
+| `specs/im/agents-nodes.md` | `0c9e541deaa6ccb255ca1a9fa472f5157fc577b3c0cfc74bb2a466f07e1510cb` |
+| `specs/im/personal-agent.md` | `de17472976cb211e274132bcd43c910828c6ba149ae90d2fe416643aee72da67` |
+| `M1-offline-settings/.gitkeep` | `01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b` |
+
+### Author Resolutions — Round 3
+
+作者核对独立复审的现有界面对照与交互证据，无实质异议。本轮无新增问题或建议；确认按用户最新要求沿用现有界面，仅新增必要离线行为，旧原型的额外界面设计不再作为实施要求。受审设计与原型保持不变，Gate 2 以本轮 Approved 收口。
