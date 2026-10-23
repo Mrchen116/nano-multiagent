@@ -247,3 +247,54 @@ R3 的 stop/query/confirmed-send/merge 源审与仍适用测试继续保留。ca
 Outcome: **aligned**。
 
 本轮只修改本 unit 的 code-review.md 与 verification.md；未改源码/测试/配置/设计，也未启动需清理的服务。regression R3与R4未失效产品证据保留，但R4新增P4须修后窄复验；最终CI仍由caller汇总，不能由aligned推断产品P4已通过、全量绿或生产部署完成。
+
+## Round 7 — quiet stop / mutation synchronization delta verification
+
+> patch base: `a22ee9043`；effective main: `503c98e93`；validated source: `503498e1f94ec05ee99e5ef6367a7ae8bd28bbee`；metadata count correction: `752af9f86`。
+
+- reviewer：同一独立 verifier，未参与实现；2026-10-24 03:01 +08。
+- verification_mode：delta + corrected-delta；覆盖用户新授权的 stop只inject不唤醒、在线Task修改同步、UI恢复、冷空责任及正常dispose后最新停止事实恢复。
+- verdict：**fail — 0 CRITICAL / 1 WARNING / 0 SUGGESTION**；outcome：**implementation-mismatch**。
+- requires_full_verification：false；本次范围已实际覆盖，问题机制与输入时序明确，可按修复影响做targeted closure。随后 caller 的主线集成尚未冻结，不在本轮结论内。
+- 现场开始时只有 caller 的未跟踪测试配置；审查途中有共享现场 main merge，源码证据按固定 Git object读取，未把后续实现或未合并文档算入本轮。
+
+### Completeness / Correctness / Coherence
+
+| 用户契约 / 决策 | 实现与证据 | 结果 |
+|---|---|---|
+| stop完成不因解除fence/旧队列/通知自行启动 | driver block(false) 无followup；pause本次生成的actor relay仅context_only；真实native stop测试检查解锁后零调用、未来新输入首步含stop | covered |
+| 父子同Agent的stop协作消息不重新唤醒；同行正常接收 | IM persistTaskNotice optional actor参数只由pauseExecution传递；enqueueRelays仅同agent_id追加context_only。PA attention、SingleThread buffer/inject及Global attention gate沿用 | covered，未扩大为所有system静默 |
+| 后续UI明确resume/新责任不被pending控制挡住 | poke reconsider的两处pending检查同时调整，runnable/cancelled责任变化/denial仍生效；native UI_RESUMED请求含stop与独立resume事实 | covered |
+| 普通/委托/系统Task变化通知原新负责人 | execute与PA委托按事务提交后notify；改派/删除before+after并集；pause独立post-commit；群解散新post-commit hint；Gateway→Node→PA→driver接线逐入口确认 | covered |
+| 空闲无可执行责任不只为同步开模型，运行中下一步重读 | changed在running时steer既有task-change，idle poke仍需runnable；quiescent无followup | covered |
+| 离线撤回后首ordinary明确空责任 | pre-step在shown缺席且普通输入存在时注入当前成功snapshot；native回归确认旧历史确实含OLD_RESPONSIBILITY而最新reminder含tasks=[] | covered |
+| normal disposal取消pending后只补最新未消费可信stop，不回溯旧stop | restoreStopContext逆扫最后一次inserted；blocked恢复会逆序重新插入同一消息，双stop后选择错误older | **WARNING W1，implementation-mismatch** |
+| 架构与来源 | 恢复保留原source/id，不调用followup/steer、不重放普通取消输入；仍通过公开runtime history和inputEvidence，无新存储/Loop或审批豁免 | 除W1的事实选择外符合 |
+
+### WARNING W1 — 最新停止事实被旧消息重新入队顺序覆盖
+
+契约：本unit design R9“先选最近可信停止通知，再判断其资格；不能因较新已消费而回溯旧停止”，以及 canonical Task `停止后的上下文同步 SHALL 不自行启动执行` 的最新未消费可信停止事实保证。位置：冻结 `packages/dsh-integration/src/task-execution.ts:184-190`。
+
+两条stop按真实接受顺序older→newer，fence内并发普通唤醒被reject后，restore按逆序prepend产生older,newer,newer,older插入事件；normal shutdown取消pending，冷恢复逆扫最终插入选older且return。独立真实RuntimeClient/native profile复现确认首次未来模型请求仅有旧stop，最近stop未进入请求。执行命令与原始输出已持久写在同轮code-review；临时profile已关闭清理。该证据证明最新事实丢失，不外推为已发生错误Task恢复/外发。
+
+可执行建议：以产品stop稳定身份的**首次接受顺序**确定最新通知，重复入队不能改变停止发生顺序；选定最新后才检查consumed/pending/current-batch，最新已消费时不得再回溯旧通知。增加两条stop、受拒恢复、normal dispose/restart的原生回归，以及较新已消费不补旧通知的反例。现有32绿/完整656绿都未覆盖该顺序条件，不能消除finding。
+
+### Corrected Delta Reconciliation — Round 7
+
+依本次明确append-only要求，以下为新增续修范围的独立reconciliation，不修改R6历史结论。
+
+| Delta / canonical item | 直接证据 | Outcome |
+|---|---|---|
+| 原Gateway Task4项ADDED及原10场景中未改部分、Global与reviewer模型能力delta | 实现落点未被本patch改动，R1–R6适用source/test/真实产品证据保留 | aligned（retained） |
+| 新第5项ADDED Requirement：停止后的上下文同步不自行启动；停止通知延迟消费 | 无解除fence followup；actor自身notice context_only；futurewake首步；UI resume pending处理 | aligned，最新停止恢复部分见下一行 |
+| 同Requirement normal restart保留**最新**未消费可信stop、已消费不重复 | 双stop重新入队原生复现：只恢复older，newer丢失 | implementation-mismatch |
+| 外部变更与冷恢复Scenario | 全写入入口commit后hint；群解散新增通知；native首ordinary tasks=[] | aligned |
+| canonical与delta完整性/索引计数 | 固定canonical18 Requirements/37 Scenarios；unit Gateway Task delta5 ADDED/10 Scenarios；752af9f86入口索引18 | aligned，无漏归并行为 |
+
+Outcome: **implementation-mismatch**。没有为了适配错误实现修改契约；后续主线63724d53f的Task工具/Feature拆分与canonical19要求不属于当前冻结对象，须下一轮独立集成delta核对。
+
+### 验证与门禁边界
+
+已读取可信32项窄测与128文件656项全量绿日志（Node24，02:56本轮），复用full build/typecheck事实；本轮仅追加一个独立原生latest-stop复现，没有重复全量。新产品旅程由另一独立reviewer在caller隔离栈进行，本轮不占用其数据或服务，不将其未返回结论当作代码缺陷，也不提前代签。
+
+前序feedback事务/receipt、waiting一小时、Global非空结语、SingleThread普通/卡片/混合通知交付、supported-effort与原审批链结论保留。旧“解除fence后启动以消费队列”的停止语义被用户本次授权取代，必须采用本轮passive新基准。仅追加两份报告，未更改实现或共享merge内容。

@@ -181,3 +181,53 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - 已读 regression.md 产品 Round 4：P4 是真实 Task notice + native context 的混合自动轮次；独立的旧真人 turn14 NO_REPLY 是范围外体验观察，本修复不通用吞真人 sentinel。P4 的**代码缺陷已关闭**，修后真实产品闭环仍待 reviewer；不将先前产品 R3 的纯通知通过外推为本次混合场景已验收。
 
 无存活 finding；本轮仅追加/更新两份报告，未改源码/测试/配置/设计，没有新测试服务或进程需清理。
+
+## Round 7 — same-PR quiet stop / external mutation synchronization
+
+- 独立 reviewer 不变，未参与实现；时间 2026-10-24 03:01 +08。
+- 实际 patch base：前次交付 `a22ee9043`；effective main：`503c98e93`；冻结受审源码：`503498e1f94ec05ee99e5ef6367a7ae8bd28bbee`。Requirement 索引计数另核对文档修订 `752af9f86`。本轮不审随后在共享现场进行的 main `63724d53f` 集成或未冻结修复。
+- worktree：`/Users/czj/.codex/worktrees/task-stop-sync-646/nano-multiagent`，branch `unit/bugfix-646`。开始时已有未跟踪 `.gateway-test-source.yaml`，保留；审查途中 caller 开始另一轮 main 合并，后续定位均以 `git show 503498e1f:<path>` 为准，没有将移动的现场当作受审源码。
+- 完整审本 patch 的 IM self-stop relay、群解散通知、driver passive stop/UI resume/冷空责任/normal-dispose 恢复与对应测试；未机械重审无改动的旧功能。
+
+### Findings
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/task-execution.ts",
+    "line": 186,
+    "summary": "[P2] 按停止通知首次接受顺序选最新事实，不能用最后一次重入队顺序",
+    "failure_scenario": "两个可信 stop 先后注入 older、newer；fence 内一次并发普通输入触发 pre-step，blocked restore 按 messages.toReversed() prepend，产生插入序列 older,newer,newer,older。正常 shutdown 随后取消两条尚未消费的 context。冷恢复当前代码逆扫最后一次 inbox/spliced，选中重新入队较晚的 older 并立即 return，首次未来模型请求仅见 STOP_OLDER，新停止的原时间/作用范围未恢复。它违反 R9 只恢复最新可信 stop、不得回溯更早 stop 的要求，虽然没有额外唤醒。应按产品停止消息的稳定接受顺序去重身份后确定最新事实，再检查该最新通知是否 consumed/pending，不能把 restore 的二次插入视为新的停止。增加双 stop、逆序恢复、正常 dispose/restart 的真实队列回归，并保留较新已消费时不补旧 stop 的反例。",
+    "review_mode": "patch",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+### 独立原生复现
+
+在冻结源码对应的已构建 RuntimeClient/native profile 上执行：
+
+```sh
+PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec tsx /tmp/nano-646-latest-stop-review.mts
+```
+
+临时 profile 仅拦截 LLM stream 将实际请求保存到自己的临时目录；使用真实 initialize/session.ensure/block/session.submit(inject/followup)/session.observe/shutdown/restart。先确认旧、新两个可信控制在 fence 内都已被领取再恢复（两次 inserted），正常退出，恢复为空责任，提交未来普通问题。输出：
+
+```json
+{"stage":"blocked-restored","calls":0,"insertions":["task-stop-notice:a:older","task-stop-notice:a:newer","task-stop-notice:a:newer","task-stop-notice:a:older"]}
+{"stage":"first-future-model","controls":[{"id":"task-stop-notice:a:older","text":"STOP_OLDER"}]}
+```
+
+这确认恢复了错误控制事实，不声称真实模型已据此错误恢复 Task 或发生外部副作用。独立 RuntimeClient 已 shutdown，临时 profile/data 已删除；没有读取或操作产品 reviewer 的隔离身份、服务、数据。
+
+### 已核实与 retained
+
+- `block(false)` 不再调用 followup；self stop 产生的协作通知只对 actor Agent 的持久 relay 标 context_only，其他接收者沿普通通知。PA needsAttention 优先返回 false；SingleThread 后续读取使用 inject，Global 仅 attention 为真才新 wake。普通 Task 通知/其他协作者和公开 stop 确认不被通用抑制。
+- UI resume 的 reconsider 读取前后均允许有 passive pending context，但仍要求 runnable、真实责任变化和既有取消/拒绝屏障通过；纯暂停/删除保持空闲。冷恢复首 ordinary 的成功空责任快照进入真实模型输入；source unavailable 不冒充空责任。
+- 在线写入已追踪：普通 Web/iOS/Agent execute 的 COMMIT→notifyChange，PA executeDelegated 的外层事务完成后 notifyChange，pauseExecution 的提交后 hint；changeHint 对改派/删除保留 before/after assignee 并集。群解散是独立直接 JSON 写路径，新 notifyChange 在事务完成后发给保留图的 assignee；Gateway→Node tasks.recover→native changed/pre-step 接线实际存在。迁移脚本不属于在线变更入口。
+- 复用 `/tmp/nano-646-followup-green.log`，四 native/IM 文件 **32 passed**，02:56:11，17.64秒；读取 `/tmp/nano-646-followup-full.log`，本轮完整 **128 files / 656 passed**，02:56:53，107.68秒；caller 已完成 full build/typecheck。现有绿测没有双 stop 重入队时序，因此不能关闭本次直接复现 finding。
+- canonical 冻结正文有 **18 Requirements / 37 Scenarios**，本 unit Gateway Task delta 有 **5 ADDED Requirements / 10 Scenarios**；752af9f86 的 gateway/spec.md Task Graphs 索引为18，与正文一致。新增 Requirement 正文与 delta一致；随后 main 合并现场出现的19不属于本轮冻结文档，留待下一轮集成核对。
+- R1–R6 未受影响的 feedback/一小时waiting/实际投递/混合通知静默/审核模型兼容性与审批边界保留；旧“解fence自动唤醒”测试预期被本次用户新授权明确替换，不能继续当产品保证。R7–R9设计批准是契约来源，不代替上述实现检查与原生复现。
+
+本轮 gate：1 条 P2 CONFIRMED 存活；需修后 targeted closure。没有额外未证实高风险候选。只追加本 unit 两份报告；未改被审实现/测试/配置/设计。
