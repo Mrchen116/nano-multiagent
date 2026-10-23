@@ -153,6 +153,7 @@ interface ConnectionCardProps {
   provider: ChannelProviderDescriptor;
   manualReconnecting: boolean;
   offline: boolean;
+  connectionUnknown: boolean;
   pending: boolean;
   onEdit(): void;
   onReconnect(): void;
@@ -165,13 +166,15 @@ function ConnectionCard({
   provider,
   manualReconnecting,
   offline,
+  connectionUnknown,
   pending,
   onEdit,
   onReconnect,
   onToggle,
   onDelete,
 }: ConnectionCardProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const unknownLabel = i18n.language.startsWith("zh") ? "连接未确认" : "Connection unconfirmed";
   const observed = channel.observed;
   const observedState = observed?.connection_state ?? "pending";
   const applyFailed = channel.sync_state === "failed" && channel.apply_error !== null;
@@ -179,7 +182,7 @@ function ConnectionCard({
   // The agent list can learn that a node went offline before the cached channel
   // query is invalidated.  The live node state is therefore authoritative for
   // whether any observed connection may still be presented as current.
-  const stale = offline && observed !== null;
+  const stale = observed !== null && (offline || observed.status_stale === true);
   const state = manualReconnecting
     ? "reconnecting"
     : applyFailed
@@ -201,7 +204,7 @@ function ConnectionCard({
   const lastKnownState = observedState === "connected" && observed?.diagnostics_state === "limited"
     ? t("agents.channels.diagnostics.limited.title")
     : t(`agents.channels.status.${observedState}`);
-  const statusLabel = t(`agents.channels.status.${state}`);
+  const statusLabel = connectionUnknown && state === "offline" ? unknownLabel : t(`agents.channels.status.${state}`);
   const statusClass = connected
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : failed
@@ -256,7 +259,7 @@ function ConnectionCard({
         <div className="im-channel-actions flex flex-wrap gap-2" data-testid="channel-actions">
           {state !== "disabling" ? <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onEdit}>{t("agents.channels.actions.edit")}</button> : null}
           {channel.enabled && offline ? (
-            <button type="button" className="im-btn im-btn-muted" disabled>{t("agents.channels.actions.nodeOffline")}</button>
+            <button type="button" className="im-btn im-btn-muted" disabled>{connectionUnknown ? unknownLabel : t("agents.channels.actions.nodeOffline")}</button>
           ) : channel.enabled && ["connected", "reconnecting", "failed"].includes(state) ? (
             <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onReconnect}>{t("agents.channels.actions.reconnect")}</button>
           ) : null}
@@ -324,12 +327,14 @@ function ConfirmationDialog({
   kind,
   provider,
   pending,
+  notice,
   onCancel,
   onConfirm,
 }: {
   kind: "disable" | "delete";
   provider: ChannelProviderDescriptor;
   pending: boolean;
+  notice?: string | null;
   onCancel(): void;
   onConfirm(): void;
 }) {
@@ -345,7 +350,7 @@ function ConfirmationDialog({
             provider: t(textKey(provider.label)),
           })}</h2>
         </header>
-        <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t(`agents.channels.confirm.${kind}Body`)}</p></div>
+        <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t(`agents.channels.confirm.${kind}Body`)}</p>{notice ? <p className="m-0 text-xs text-amber-900" role="status">{notice}</p> : null}</div>
         <footer className="chat-modal-footer bg-white">
           <button type="button" className="chat-modal-btn-ghost" onClick={onCancel}>{t("agents.channels.actions.cancel")}</button>
           <button type="button" className="chat-modal-btn-primary" disabled={pending} onClick={onConfirm}>{t(`agents.channels.confirm.${kind}Action`)}</button>
@@ -361,6 +366,7 @@ interface ChannelDialogProps {
   editing: AgentChannel | null;
   initialStep: "provider" | "credentials";
   pending: boolean;
+  readOnly: boolean;
   requestError: string | null;
   onClose(): void;
   onSave(
@@ -375,6 +381,7 @@ function ChannelDialog({
   editing,
   initialStep,
   pending,
+  readOnly,
   requestError,
   onClose,
   onSave,
@@ -425,7 +432,7 @@ function ChannelDialog({
   }
 
   function submit() {
-    if (!provider || !form) return;
+    if (readOnly || pending || !provider || !form) return;
     const validationErrors = validateProviderForm(provider, form, editing);
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
@@ -458,7 +465,7 @@ function ChannelDialog({
                 <button
                   key={candidate.id}
                   type="button"
-                  disabled={alreadyAdded}
+                  disabled={alreadyAdded || readOnly}
                   className="flex items-center gap-3 rounded-xl border border-[var(--im-border)] bg-white p-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => selectProvider(candidate)}
                 >
@@ -490,6 +497,7 @@ function ChannelDialog({
                 <input
                   id={`${fieldId}-${field.name}`}
                   className="im-input"
+                  disabled={readOnly || pending}
                   autoComplete="off"
                   value={form.values[field.name] ?? ""}
                   onChange={(event) => setFieldValue(field.name, event.target.value)}
@@ -507,6 +515,7 @@ function ChannelDialog({
                 {(["keep", "replace"] as const).map((mode) => (
                   <label key={mode} className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--im-border)] p-2 text-xs">
                     <input
+                      disabled={readOnly || pending}
                       type="radio"
                       name="credential-mode"
                       checked={form.credentialMode === mode}
@@ -536,6 +545,7 @@ function ChannelDialog({
                   id={`${fieldId}-${field.name}`}
                   className="im-input"
                   type={field.inputType ?? "password"}
+                  disabled={readOnly || pending}
                   autoComplete="new-password"
                   value={form.values[field.name] ?? ""}
                   onChange={(event) => setFieldValue(field.name, event.target.value)}
@@ -549,13 +559,14 @@ function ChannelDialog({
               </div>
             )) : null}
             {requestError ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{requestError}</p> : null}
+            {!editing && occupiedProviderIds.has(provider.id) ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{t("agents.channels.provider.added")}</p> : null}
           </div>
         ) : null}
 
         <footer className="chat-modal-footer bg-white">
           <button type="button" className="chat-modal-btn-ghost" onClick={onClose}>{t("agents.channels.actions.cancel")}</button>
           {step === "credentials" && provider && form ? (
-            <button type="button" className="chat-modal-btn-primary" disabled={pending} onClick={submit}>
+            <button type="button" className="chat-modal-btn-primary" disabled={pending || readOnly || (!editing && occupiedProviderIds.has(provider.id))} onClick={submit}>
               {pending ? t("agents.channels.actions.saving") : t("agents.channels.actions.saveConnect")}
             </button>
           ) : null}
@@ -568,30 +579,46 @@ function ChannelDialog({
 export function AgentChannelsPanel({
   agentId,
   nodeStatus = "online",
+  readOnly = false,
   providers = CHANNEL_PROVIDERS,
 }: {
   agentId: string;
   nodeStatus?: string | null;
+  readOnly?: boolean;
   providers?: readonly ChannelProviderDescriptor[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const tr = (zh: string, en: string) => i18n.language.startsWith("zh") ? zh : en;
   const queryClient = useQueryClient();
-  const queryKey = ["settings", "agents", agentId, "channels"];
+  const queryPrefix = ["settings", "agents", agentId, "channels"];
+  // Each connection state has its own observer so a pre-disconnect response
+  // cannot unlock the newly connected page.
+  const queryKey = [...queryPrefix, nodeStatus, readOnly];
   const [dialog, setDialog] = useState<{
     step: "provider" | "credentials";
     editing: AgentChannel | null;
   } | null>(null);
   const [confirmation, setConfirmation] = useState<{ kind: "disable" | "delete"; channel: AgentChannel } | null>(null);
-  const [reconnectingChannelId, setReconnectingChannelId] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState<{
+    kind: "create" | "edit" | "toggle" | "delete" | "retry" | "reconnect";
+    provider: string;
+    channelId?: string;
+    revision?: number;
+    observedAt?: string;
+    submittedAt: number;
+  } | null>(null);
   const [removalRetryNoticeId, setRemovalRetryNoticeId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<RequestErrorState | null>(null);
-  const offline = nodeStatus === "offline";
+  const offline = nodeStatus !== "online" || readOnly;
   const channelsQuery = useQuery({
     queryKey,
-    queryFn: () => listAgentChannels(agentId),
+    queryFn: ({ signal }) => listAgentChannels(agentId, signal),
+    placeholderData: (previous) => previous,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchInterval: (query) => {
       const resources = query.state.data as AgentChannelResource[] | undefined;
-      return resources?.some((resource) => {
+      return unconfirmed || resources?.some((resource) => {
         if (isRemoval(resource)) return true;
         const channel = resource;
         const state = channel.observed?.connection_state;
@@ -600,10 +627,60 @@ export function AgentChannelsPanel({
     },
   });
 
+  const resources = channelsQuery.data ?? [];
+  const unavailable = offline || channelsQuery.isFetching || channelsQuery.isPlaceholderData
+    || !channelsQuery.isFetchedAfterMount || channelsQuery.isError;
+  const editingLatest = dialog?.editing
+    ? resources.find((resource) => resource.channel_id === dialog.editing?.channel_id)
+    : undefined;
+  const draftConflict = !!dialog?.editing && (!editingLatest || isRemoval(editingLatest)
+    || editingLatest.channel_revision !== dialog.editing.channel_revision);
+  const confirmationLatest = confirmation
+    ? resources.find((resource) => resource.channel_id === confirmation.channel.channel_id)
+    : undefined;
+  const confirmationConflict = !!confirmation && (!confirmationLatest || isRemoval(confirmationLatest)
+    || confirmationLatest.channel_revision !== confirmation.channel.channel_revision);
+  const blocked = unavailable || unconfirmed !== null;
+  const connectionNotice = offline
+    ? tr("节点连接未确认，当前只读；未保存的输入已保留。", "Node connection is unconfirmed. Settings are read-only; unsaved input is retained.")
+    : channelsQuery.isError
+      ? tr("通道读取失败，已保留最后取得的信息。", "Channel refresh failed. Previously loaded information is retained.")
+      : unavailable
+        ? tr("已连接，正在刷新通道信息。", "Connected. Refreshing channel information.")
+        : null;
+  const conflictNotice = tr("通道已在其他地方更新，草稿已保留。请取消后重新编辑最新配置。", "The channel changed elsewhere. Your draft is retained. Cancel and reopen to edit the latest configuration.");
+
+  function requireWritable(channel?: AgentChannel) {
+    if (blocked) throw Object.assign(new Error(connectionNotice ?? tr("操作结果待确认，请先重新读取。", "The operation result is unconfirmed. Refresh first.")), { status: 409 });
+    if (channel) {
+      const latest = resources.find((resource) => resource.channel_id === channel.channel_id);
+      if (!latest || isRemoval(latest) || latest.channel_revision !== channel.channel_revision || latest.sync_state === "pending") {
+        throw Object.assign(new Error(conflictNotice), { status: 409 });
+      }
+    }
+  }
+
+  function uncertainFailure(error: unknown, action: NonNullable<typeof unconfirmed>) {
+    const detail = errorDetail(error);
+    setRequestError({ message: detail, removalId: action.kind === "retry" ? action.channelId ?? null : null });
+    // Explicit HTTP rejections are authoritative. Transport failures can have
+    // happened after acceptance, so never resend them automatically.
+    const status = error && typeof error === "object" && "status" in error ? error.status : null;
+    if (![400, 401, 403, 404, 409, 422].includes(Number(status))
+      && !/agent_node_offline|channel_node_offline/.test(detail)) {
+      setUnconfirmed(action);
+    } else {
+      setUnconfirmed(null);
+    }
+    void queryClient.invalidateQueries({ queryKey: queryPrefix });
+  }
+
   function storeResource(saved: AgentChannelResource) {
     queryClient.setQueryData<AgentChannelResource[]>(queryKey, (current = []) => {
-      const exists = current.some((item) => item.channel_id === saved.channel_id);
-      return exists
+      const previous = current.find((item) => item.channel_id === saved.channel_id);
+      if (previous && !isRemoval(saved)
+        && (isRemoval(previous) || previous.channel_revision > saved.channel_revision)) return current;
+      return previous
         ? current.map((item) => item.channel_id === saved.channel_id ? saved : item)
         : [...current, saved];
     });
@@ -619,6 +696,8 @@ export function AgentChannelsPanel({
       form: ChannelProviderFormState;
       editing: AgentChannel | null;
     }) => {
+      requireWritable(editing ?? undefined);
+      if (!editing && resources.some((resource) => resource.provider === provider.id)) throw Object.assign(new Error(conflictNotice), { status: 409 });
       const { config, credentials } = serializeProviderForm(provider, form);
       if (editing) {
         return updateAgentChannel(agentId, editing.channel_id, {
@@ -641,70 +720,72 @@ export function AgentChannelsPanel({
       setRequestError(null);
       setDialog(null);
     },
-    onError: (error) => setRequestError({
-      message: errorDetail(error),
-      removalId: null,
+    onError: (error, { provider, editing }) => uncertainFailure(error, {
+      kind: editing ? "edit" : "create", provider: provider.id,
+      channelId: editing?.channel_id, revision: editing?.channel_revision, submittedAt: Date.now(),
     }),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (channel: AgentChannel) => updateAgentChannel(agentId, channel.channel_id, {
-      channel_revision: channel.channel_revision,
-      enabled: !channel.enabled,
-      config: channel.config,
-      credentials: { mode: "keep" },
-    }),
+    mutationFn: (channel: AgentChannel) => {
+      requireWritable(channel);
+      return updateAgentChannel(agentId, channel.channel_id, {
+        channel_revision: channel.channel_revision,
+        enabled: !channel.enabled,
+        config: channel.config,
+        credentials: { mode: "keep" },
+      });
+    },
     onSuccess: (saved) => {
       storeResource(saved);
       setConfirmation(null);
       setRequestError(null);
     },
-    onError: (error) => setRequestError({
-      message: errorDetail(error),
-      removalId: null,
+    onError: (error, channel) => uncertainFailure(error, {
+      kind: "toggle", provider: channel.provider, channelId: channel.channel_id,
+      revision: channel.channel_revision, submittedAt: Date.now(),
     }),
   });
 
   const reconnectMutation = useMutation({
-    mutationFn: (channel: AgentChannel) => reconnectAgentChannel(agentId, channel.channel_id),
-    onMutate: (channel) => setReconnectingChannelId(channel.channel_id),
+    onMutate: () => Date.now(),
+    mutationFn: (channel: AgentChannel) => {
+      requireWritable(channel);
+      setUnconfirmed({ kind: "reconnect", provider: channel.provider, channelId: channel.channel_id,
+        revision: channel.channel_revision, observedAt: channel.observed?.status_updated_at, submittedAt: Date.now() });
+      return reconnectAgentChannel(agentId, channel.channel_id);
+    },
     onSuccess: () => {
       setRequestError(null);
-      // The command endpoint returns the snapshot read before dispatch. Keep a
-      // stable action projection until the first post-command status poll.
-      window.setTimeout(() => {
-        setReconnectingChannelId(null);
-        void queryClient.invalidateQueries({ queryKey });
-      }, 2_000);
+      void queryClient.invalidateQueries({ queryKey: queryPrefix });
     },
-    onError: (error) => {
-      setReconnectingChannelId(null);
-      setRequestError({ message: errorDetail(error), removalId: null });
-    },
+    onError: (error, channel, submittedAt) => uncertainFailure(error, {
+      kind: "reconnect", provider: channel.provider, channelId: channel.channel_id,
+      revision: channel.channel_revision, observedAt: channel.observed?.status_updated_at, submittedAt: submittedAt ?? Date.now(),
+    }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (channel: AgentChannel) => deleteAgentChannel(
-      agentId,
-      channel.channel_id,
-      channel.channel_revision,
-    ),
+    mutationFn: (channel: AgentChannel) => {
+      requireWritable(channel);
+      return deleteAgentChannel(agentId, channel.channel_id, channel.channel_revision);
+    },
     onSuccess: (saved) => {
       storeResource(saved);
       setConfirmation(null);
       setRequestError(null);
     },
-    onError: (error) => setRequestError({
-      message: errorDetail(error),
-      removalId: null,
+    onError: (error, channel) => uncertainFailure(error, {
+      kind: "delete", provider: channel.provider, channelId: channel.channel_id,
+      revision: channel.channel_revision, submittedAt: Date.now(),
     }),
   });
 
   const retryMutation = useMutation({
-    mutationFn: (removal: AgentChannelRemoval) => retryAgentChannelRemoval(
-      agentId,
-      removal.channel_id,
-    ),
+    mutationFn: (removal: AgentChannelRemoval) => {
+      requireWritable();
+      return retryAgentChannelRemoval(agentId, removal.channel_id);
+    },
     onSuccess: (saved) => {
       storeResource(saved);
       setRemovalRetryNoticeId(null);
@@ -712,17 +793,36 @@ export function AgentChannelsPanel({
     },
     onError: (error, removal) => {
       const detail = errorDetail(error);
-      if (detail.includes("channel_node_offline")) {
+      if (/channel_node_offline|agent_node_offline/.test(detail)) {
         setRemovalRetryNoticeId(removal.channel_id);
         setRequestError(null);
         return;
       }
       setRemovalRetryNoticeId(null);
-      setRequestError({ message: detail, removalId: removal.channel_id });
+      uncertainFailure(error, { kind: "retry", provider: removal.provider,
+        channelId: removal.channel_id, submittedAt: Date.now() });
     },
   });
 
-  const resources = channelsQuery.data ?? [];
+  useEffect(() => {
+    if (unavailable || !unconfirmed) return;
+    const latest = resources.find((resource) => unconfirmed.kind === "create"
+      ? resource.provider === unconfirmed.provider : resource.channel_id === unconfirmed.channelId);
+    const confirmed = unconfirmed.kind === "delete" || unconfirmed.kind === "retry"
+      ? !latest || (isRemoval(latest) && (unconfirmed.kind === "delete" || latest.apply_state !== "failed"))
+      : unconfirmed.kind === "create"
+        ? !!latest
+        : unconfirmed.kind === "reconnect"
+          ? latest && !isRemoval(latest) && latest.observed && !latest.observed.status_stale
+            && latest.observed.observed_revision >= (unconfirmed.revision ?? 0)
+            && Date.parse(latest.observed.status_updated_at) > Math.max(unconfirmed.submittedAt, Date.parse(unconfirmed.observedAt ?? "") || 0)
+          : latest && !isRemoval(latest) && latest.channel_revision > (unconfirmed.revision ?? 0);
+    if (confirmed) {
+      setUnconfirmed(null);
+      setRequestError(null);
+    }
+  }, [resources, unavailable, unconfirmed]);
+
   useEffect(() => {
     const hasRemoval = (channelId: string) => resources.some(
       (resource) => isRemoval(resource) && resource.channel_id === channelId,
@@ -741,8 +841,8 @@ export function AgentChannelsPanel({
   const occupiedProviderIds = new Set(resources.map((resource) => resource.provider));
   const lifecyclePending = toggleMutation.isPending || reconnectMutation.isPending || deleteMutation.isPending || retryMutation.isPending;
 
-  if (channelsQuery.isLoading) return <p className="text-sm text-slate-500">{t("agents.channels.loading")}</p>;
-  if (channelsQuery.isError) {
+  if (channelsQuery.isLoading && !dialog && !confirmation) return <p className="text-sm text-slate-500">{t("agents.channels.loading")}</p>;
+  if (channelsQuery.isError && !channelsQuery.data && !dialog && !confirmation) {
     return (
       <section className="im-agent-card border-rose-200 bg-rose-50/80">
         <h3 className="im-agent-card-title text-rose-700">{t("agents.channels.loadError")}</h3>
@@ -759,12 +859,26 @@ export function AgentChannelsPanel({
           <h3 className="m-0 text-base font-bold text-slate-900">{t("agents.channels.title")}</h3>
           <p className="m-0 mt-1 text-xs text-slate-500">{t("agents.channels.subtitle")}</p>
         </div>
-        <button type="button" className="im-btn im-btn-primary im-channel-primary-action" aria-label={t("agents.channels.actions.add")} onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
+        <button type="button" className="im-btn im-btn-primary im-channel-primary-action" aria-label={t("agents.channels.actions.add")} disabled={blocked || lifecyclePending || saveMutation.isPending} onClick={() => { if (blocked) return; setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
           + {t("agents.channels.actions.add")}
         </button>
       </header>
 
-      {offline && resources.length > 0 ? (
+      {connectionNotice || unconfirmed ? (
+        <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="status">
+          <span>{connectionNotice ?? tr("操作结果待确认；请重新读取后核对最新状态，勿重复提交。", "The operation result is unconfirmed. Refresh and check its latest state before submitting again.")}</span>
+          <button type="button" className="im-btn im-btn-muted" disabled={channelsQuery.isFetching} onClick={async () => {
+            const result = await channelsQuery.refetch();
+            if (result.isSuccess && !offline && unconfirmed && requestError) {
+              // A deliberate reread permits a new explicit action; it does not
+              // prove the lost response succeeded or replay the previous write.
+              setUnconfirmed(null);
+              setRequestError({ message: tr("此前操作结果无法确认。请核对最新状态后决定是否重新操作。", "The previous result could not be confirmed. Check the latest state before deciding whether to try again."), removalId: null });
+            }
+          }}>{t("agents.retry")}</button>
+        </section>
+      ) : null}
+      {nodeStatus === "offline" && resources.length > 0 ? (
         <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="status">
           <strong>{t("agents.channels.offline.title")}</strong>
           <span>{t("agents.channels.offline.detail")}</span>
@@ -785,7 +899,7 @@ export function AgentChannelsPanel({
             <h3 className="im-agent-card-title">{t("agents.channels.empty.title")}</h3>
             <p className="im-agent-card-sub mt-1">{t("agents.channels.empty.description")}</p>
           </div>
-          <button type="button" className="im-btn im-btn-primary im-channel-primary-action" onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
+          <button type="button" className="im-btn im-btn-primary im-channel-primary-action" disabled={blocked || lifecyclePending || saveMutation.isPending} onClick={() => { if (blocked) return; setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
             {t("agents.channels.actions.add")}
           </button>
         </section>
@@ -797,13 +911,10 @@ export function AgentChannelsPanel({
             key={resource.channel_id}
             removal={resource}
             provider={provider}
-            pending={retryMutation.isPending}
+            pending={blocked || lifecyclePending || saveMutation.isPending}
             onRetry={() => {
+              if (blocked) return;
               setRequestError(null);
-              if (offline) {
-                setRemovalRetryNoticeId(resource.channel_id);
-                return;
-              }
               setRemovalRetryNoticeId(null);
               retryMutation.mutate(resource);
             }}
@@ -813,22 +924,25 @@ export function AgentChannelsPanel({
             key={resource.channel_id}
             channel={resource}
             provider={provider}
-            manualReconnecting={reconnectingChannelId === resource.channel_id}
+            manualReconnecting={unconfirmed?.kind === "reconnect" && unconfirmed.channelId === resource.channel_id}
             offline={offline}
-            pending={lifecyclePending}
+            connectionUnknown={offline && nodeStatus !== "offline"}
+            pending={blocked || lifecyclePending || saveMutation.isPending || resource.sync_state === "pending"}
             onEdit={() => {
+              if (blocked) return;
               setRequestError(null);
               setDialog({ step: "credentials", editing: resource });
             }}
-            onReconnect={() => reconnectMutation.mutate(resource)}
+            onReconnect={() => { if (!blocked) reconnectMutation.mutate(resource); }}
             onToggle={() => {
+              if (blocked) return;
               if (resource.enabled) {
                 setConfirmation({ kind: "disable", channel: resource });
               } else {
                 toggleMutation.mutate(resource);
               }
             }}
-            onDelete={() => setConfirmation({ kind: "delete", channel: resource })}
+            onDelete={() => { if (!blocked) setConfirmation({ kind: "delete", channel: resource }); }}
           />
         );
       })}
@@ -841,13 +955,13 @@ export function AgentChannelsPanel({
           editing={dialog.editing}
           initialStep={dialog.step}
           pending={saveMutation.isPending}
-          requestError={requestError?.message ?? null}
+          readOnly={blocked || draftConflict}
+          requestError={draftConflict ? conflictNotice : connectionNotice ?? requestError?.message ?? (unconfirmed ? tr("提交结果待确认，草稿已保留。", "Submission result is unconfirmed; your draft is retained.") : null)}
           onClose={() => setDialog(null)}
-          onSave={(provider, form) => saveMutation.mutate({
-            provider,
-            form,
-            editing: dialog.editing,
-          })}
+          onSave={(provider, form) => {
+            if (blocked || draftConflict) return;
+            saveMutation.mutate({ provider, form, editing: dialog.editing });
+          }}
         />
       ) : null}
 
@@ -855,9 +969,11 @@ export function AgentChannelsPanel({
         <ConfirmationDialog
           kind={confirmation.kind}
           provider={providerById(providers, confirmation.channel.provider) ?? providers[0]}
-          pending={toggleMutation.isPending || deleteMutation.isPending}
+          pending={blocked || confirmationConflict || toggleMutation.isPending || deleteMutation.isPending}
+          notice={confirmationConflict ? tr("通道已更新，请取消后核对最新状态。", "The channel changed. Cancel and check the latest state.") : connectionNotice}
           onCancel={() => setConfirmation(null)}
           onConfirm={() => {
+            if (blocked || confirmationConflict) return;
             if (confirmation.kind === "disable") toggleMutation.mutate(confirmation.channel);
             else deleteMutation.mutate(confirmation.channel);
           }}
