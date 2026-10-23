@@ -36,6 +36,60 @@ it('combines due maintenance in one native fork and persists its actual trajecto
   finally {if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}
 },20000);
 
+it('settles each category independently and cancels a combined review without losing its successful write', async () => {
+  const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
+  const home = await mkdtemp(join(tmpdir(), 'nano-review-lifecycle-'));
+  let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
+  const content = '---\nname: partial-method\ndescription: Preserve completed work\n---\nKeep the successful step.';
+  await writeFile(join(home, 'fixture.mjs'), `import {existsSync,writeFileSync} from 'node:fs';
+export const name='lifecycle-fixture';export const inject=['llm'];
+export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async function*(o){
+ const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));
+ const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');const n=steps.get(last.id)||0;steps.set(last.id,n+1);
+ let name,args;
+ if(prompt.startsWith('Review the conversation')&&existsSync(process.env.DSH_HOME+'/hold-combined')){
+  if(n===0){name='skill_manage';args={action:'create',name:'partial-method',content:${JSON.stringify(content)}};}
+  else{writeFileSync(process.env.DSH_HOME+'/write-done','done');await new Promise(resolve=>{if(o.signal.aborted)resolve();else o.signal.addEventListener('abort',resolve,{once:true});});
+   name='skill_manage';args={action:'create',name:'after-close',content:${JSON.stringify(content.replaceAll('partial-method','after-close'))}};}
+ }
+ if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}
+ else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}
+});}`);
+  const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:true},knowledge:{memoryInterval:2,skillInterval:3},toolAllowlist:['read','memory','skill_manage']};
+  const binding = {sessionId:'lifecycle-root',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
+  try {
+    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'lifecycle-fixture',name:join(home,'fixture.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
+    const submit=async(inputId:string)=>{
+      await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:inputId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
+      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {terminal?:unknown}).terminal).toBeTruthy();
+    };
+    const facts=async()=>await client!.rpc.request('knowledge.facts',{}) as {reviews:{kind:string;status:string}[];facts:{kind:string;name?:string}[]};
+    const completed=async()=>(await facts()).reviews.filter(r=>r.status==='completed').map(r=>r.kind);
+    await submit('one');expect(await completed()).toEqual([]);
+    await submit('two');await expect.poll(completed).toEqual(['memory']);
+    await submit('three');await expect.poll(completed).toEqual(['memory','skills']);
+    await submit('four');await expect.poll(completed).toEqual(['memory','skills','memory']);
+    await submit('five');
+    await writeFile(join(home,'hold-combined'),'hold');await submit('six');
+    await expect.poll(()=>readFile(join(home,'write-done'),'utf8').catch(()=>''),{timeout:8000}).toBe('done');
+    expect((await facts()).reviews.filter(r=>r.status==='running')).toEqual([expect.objectContaining({kind:'combined'})]);
+    // New foreground activity must survive both the running slot and its cancellation.
+    await submit('seven');
+    await client.rpc.request('configuration.apply',{...config,features:{memory_curation:false,skill_creation:true}});
+    await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='cancelled').length).toBe(1);
+    expect((await facts()).facts).toEqual([expect.objectContaining({kind:'skills',name:'partial-method'})]);
+    expect(await readFile(join(home,'.nanoassistant/skills/partial-method/SKILL.md'),'utf8')).toBe(content);
+    await expect(readFile(join(home,'.nanoassistant/skills/after-close/SKILL.md'),'utf8')).rejects.toThrow('ENOENT');
+    await rm(join(home,'hold-combined'));
+    await submit('eight');await expect.poll(completed).toEqual(['memory','skills','memory','skills']);
+    await client.rpc.request('configuration.apply',config);
+    await submit('nine');await expect.poll(completed).toEqual(['memory','skills','memory','skills','memory']);
+  } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
+  finally {if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+},30000);
+
 it('runs F4 only after two completed product sessions and binds patches to the automatic target', async () => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const { KnowledgeFiles } = await import('../src/knowledge/files.js');
@@ -43,31 +97,52 @@ it('runs F4 only after two completed product sessions and binds patches to the a
   const files = new KnowledgeFiles(home); const root = files.skillRoot;
   const content = '---\nname: verified-method\ndescription: Reuse observed results\n---\nCheck the original result.';
   await files.skill({action:'create', name:'verified-method',content},'F3');
+  // A real discovered library contributes catalog metadata, not task evidence.
+  for(let i=0;i<24;i++) await files.skill({action:'create',name:`catalog-${i}`,content:`---\nname: catalog-${i}\ndescription: ${'Catalog description. '.repeat(40)}\n---\nUnrelated reusable method.`},'F1');
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs='';
-  await writeFile(join(home,'fixture.mjs'), `export const name='f4-fixture';export const inject=['llm'];export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');const n=steps.get(last.id)||0;steps.set(last.id,n+1);let name,args;if(prompt.startsWith('Review only the existing automatic Skill')){const calls=[['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'unread'}],['read',{file_path:${JSON.stringify(join(root,'verified-method/SKILL.md'))}}],['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'verified'}]];if(n<calls.length)[name,args]=calls[n];}else if(n===0){name='skill';args={name:'verified-method'};}if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
+  await writeFile(join(home,'fixture.mjs'), `import {existsSync,writeFileSync} from 'node:fs';export const name='f4-fixture';export const inject=['llm'];export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async function*(o){const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');const n=steps.get(last.id)||0;steps.set(last.id,n+1);let name,args;if(prompt.startsWith('Review only the existing automatic Skill')){if(n===2){writeFileSync(process.env.DSH_HOME+'/f4-held','held');while(!existsSync(process.env.DSH_HOME+'/release-f4')){o.signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,10));}}const calls=[['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'unread'}],['read',{file_path:${JSON.stringify(join(root,'verified-method/SKILL.md'))}}],['skill_manage',{action:'patch',name:'verified-method',old_string:'original',new_string:'verified'}]];if(n<calls.length)[name,args]=calls[n];}else if(n===0){name='skill';args={name:'verified-method'};}else if(last.id==='use-20'){writeFileSync(process.env.DSH_HOME+'/second-held','held');while(!existsSync(process.env.DSH_HOME+'/release-second')){o.signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,10));}}if(name){yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});}`);
   const config={agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'single_thread',features:{memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000},toolAllowlist:['read','skill','skill_manage'],skillRoots:[{path:root,source:'workspace'}]};
-  const bindings=['first','second'].map(sessionId=>({sessionId,agentId:'a',revision:'1',ownerId:'owner',cwd:home}));
+  const bindings=['first','second','other-owner'].map(sessionId=>({sessionId,agentId:'a',revision:'1',ownerId:sessionId==='other-owner'?'outsider':'owner',cwd:home}));
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'f4-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings});
-    for(const binding of bindings) await client.rpc.request('session.ensure',binding);
-    const use=async(sessionId:string,n:number)=>{
+    for(const binding of bindings) {
+      await client.rpc.request('session.ensure',binding);
+      await expect.poll(async()=>((await client!.rpc.request('session.capabilities',{sessionId:binding.sessionId})) as {skills:{name:string}[]}).skills.filter(skill=>skill.name.startsWith('catalog-')).length).toBe(24);
+    }
+    const use=async(sessionId:string,n:number,wait=true)=>{
       const inputId=`use-${n}`;
       await client!.rpc.request('session.submit',{sessionId,inputId,mode:'followup',content:[{type:'text',text:'Use the verified method.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
-      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId,inputId}) as {terminal?:unknown}).terminal).toBeTruthy();
+      if(wait) await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId,inputId}) as {terminal?:unknown}).terminal).toBeTruthy();
     };
     const reviews=async()=>(await client!.rpc.request('knowledge.facts',{}) as {reviews:{status:string;source?:string;evidenceSessionIds?:string[];childSessionId?:string}[]}).reviews;
+    await use('other-owner',1000);
+    await files.use(root,'verified-method','missing-history','missing-call',join(root,'verified-method/SKILL.md'));
     for(let i=0;i<20;i++) await use('first',i);
     await expect.poll(async()=>({reviews:await reviews(),usage:JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))}),{timeout:3000}).toMatchObject({reviews:expect.arrayContaining([expect.objectContaining({status:'skipped'})])});
     expect(await readFile(join(root,'verified-method/SKILL.md'),'utf8')).toBe(content);
-    await use('second',20);
+    await use('second',20,false);
+    await expect.poll(()=>readFile(join(home,'second-held'),'utf8').catch(()=>''),{timeout:8000}).toBe('held');
+    expect((await reviews()).filter(r=>r.childSessionId)).toHaveLength(0);
+    const observed=await client.rpc.request('session.observe',{sessionId:'second'}) as {events:{type:string;data:any}[]};
+    expect(JSON.stringify(observed.events.find(e=>e.type==='user/message'&&e.data.source.kind==='skill-catalog')).length).toBeGreaterThan(20000);
+    await writeFile(join(home,'release-second'),'continue');
+    await expect.poll(()=>readFile(join(home,'f4-held'),'utf8').catch(()=>''),{timeout:8000}).toBe('held');
+    await Promise.all([use('first',21),use('second',22)]);
+    expect((await reviews()).filter(r=>r.childSessionId)).toHaveLength(1);
+    await writeFile(join(home,'release-f4'),'continue');
     await expect.poll(reviews,{timeout:8000}).toEqual(expect.arrayContaining([expect.objectContaining({source:'F4',status:'completed'})]));
     const completed=(await reviews()).find(r=>r.status==='completed')!;
     expect(completed.evidenceSessionIds?.sort()).toEqual(['first','second']);
     expect(await readFile(join(root,'verified-method/SKILL.md'),'utf8')).toContain('Check the verified result.');
     expect(JSON.parse(await readFile(join(root,'.curator_state.json'),'utf8')).reviewed_session_ids.sort()).toEqual(['first','second']);
-    expect(JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))['verified-method'].uses_since_last_B).toBe(0);
+    expect(JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))['verified-method'].uses_since_last_B).toBe(2);
+    // Reach the next threshold using only already-reviewed sessions: no second fork.
+    for(let i=23;i<41;i++) await use(i%2?'first':'second',i);
+    await expect.poll(async()=>(await reviews()).filter(r=>r.status==='skipped').length).toBeGreaterThan(1);
+    expect((await reviews()).filter(r=>r.childSessionId)).toHaveLength(1);
+    expect(JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))['verified-method'].uses_since_last_B).toBe(20);
   }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },30000);

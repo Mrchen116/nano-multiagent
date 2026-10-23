@@ -1,6 +1,6 @@
 # feat-637: Hermes 自进化提示词与 F4 约束 — 技术方案
 
-> 对齐：[spec.md](spec.md)。状态：用户于 2026-10-23 明确要求直接实施。Gate 2 未完成独立复审，不记为 Approved。实施与验证见 [M1 记录](M1-evolution-prompts/progress.md)。
+> 对齐：[spec.md](spec.md)。状态：用户于 2026-10-23 明确要求直接实施。当时 Gate 2 尚未完成独立复审；当前已通过独立 Round 3，不追溯改写历史。实施与验证见 [M1 记录](M1-evolution-prompts/progress.md)。
 
 ## Changelog
 
@@ -48,7 +48,7 @@
 - [feat-349](../archive/feat-349-self-evolving-skills-memory/design.md)：建立自进化、来源及隔离约束；§5 明确选择 skill / memory / combined。迁移前 `self_improvement.py` 两项同时到期时使用一个 combined fork。当前 DSH 调度遗漏该分支，本次恢复。
 - [feat-446](../archive/feat-446-skill-view-tool/design.md)：定义 F4 目标、证据及去重边界。其确定性 curator 与 F4 是不同流程。
 - `refactor-581` 的 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52` 引入当前 DSH 知识维护；旧实现删除前仍保有专用证据门槛和提示词。
-- [feat-638](../feat-638-hermes-skill-consolidation/spec.md)：仅登记内容整理需求，本设计不推进它。
+- feat-638：内容整理需求另行登记在主 checkout，未纳入本分支；本设计不推进它。
 
 设计基线于 2026-10-23 重新核对。首次提示词核对固定在 `3ba2b0787ed3a73ec3b08085ed0137f235209cf4`。随后核对 Hermes `HEAD/main` 为 `bf0203a794a07aac3ff764972ab9087baa4e4f4e`，补查后台工具继承、读取检查及 Memory 写入链路。补查的七个实现文件与首次基线内容一致。固定来源和散列见 [prompt-map.md](prompt-map.md)。不能从提示词相同推断完整机制相同。
 
@@ -220,7 +220,7 @@ producer 直接记录 `kind=combined`、`delegation=background` 及真实原生 
 | Skill | 技能复盘 | 同上 |
 | Combined（本次新增） | 记忆与技能复盘 | 同上；只有一个入口，进入同一联合执行范围 |
 
-本次只补现有控件的用途映射，不新建页面、布局或交互。当前对照依据是上述两个消费者代码；尚未取得本次真实画面，不能声称视觉验收通过。实施验收在 Web IM 的现有轨迹入口检查名称、单一入口、进入／返回和刷新后的范围保留。无需另做整页原型或 iOS 专项交互验收。
+本次只补现有控件的用途映射，不新建页面、布局或交互。当前对照依据是上述两个消费者代码；尚未取得本次真实画面，不能声称视觉验收通过。实施验收在 Web IM 的现有轨迹入口检查名称、单一入口、进入／返回和刷新回父轨迹后从持久入口重入相同执行范围。无需另做整页原型或 iOS 专项交互验收。
 
 ## 契约层增量 (delta-spec)
 
@@ -236,7 +236,7 @@ producer 直接记录 `kind=combined`、`delegation=background` 及真实原生 
 
 ## Runbook for Reviewer
 
-**Review 驱动方式**：使用真实 Web IM 调用的会话及消息接口驱动隔离 IM → Node → DSH → provider → 知识写入 → 通知链路。轨迹用途文案通过 Web IM 现有轨迹入口实测，核对一次联合执行的入口、名称、范围及刷新恢复。DSH fixture 测试只证明执行边界，不替代真实模型的内容质量验收。不新增页面布局；无需 iOS 专项验收。
+**Review 驱动方式**：使用真实 Web IM 调用的会话及消息接口驱动隔离 IM → Node → DSH → provider → 知识写入 → 通知链路。轨迹用途文案通过 Web IM 现有轨迹入口实测，核对一次联合执行的入口、名称、范围及刷新后从持久入口重新进入。DSH fixture 测试只证明执行边界，不替代真实模型的内容质量验收。不新增页面布局；无需 iOS 专项验收。
 
 使用一个专用临时运行目录，复用本次实施 checkout。不要启动或停止用户正式实例。按照 [worktree runtime 契约](../../development/worktree-runtime.md) 保存并停止自己启动的进程。
 
@@ -246,7 +246,7 @@ producer 直接记录 `kind=combined`、`delegation=background` 及真实原生 
 
 `NANO_637_RUN` 由本次验收用 `mktemp -d` 创建，只创建一次。启停脚本失败也执行 down。E2E 默认配置来自 `config/e2e/gateway.yaml`；测试账号由启动脚本建立。验收配置副本显式启用 `memory`、`skill`、`skill_manage`、`read`、`glob`、`grep` 及两个 feature，分别准备普通 Agent 和 Global Agent，不修改模板或生产配置来加速试验。
 
-通过 `/im/v1/auth/login` 获取隔离用户凭据；使用 `/im/v1/conversations` 及 `/im/v1/conversations/:conversation_id/messages` 建立和发送测试输入，再读取同一消息接口的结果。请求体遵循该隔离服务的 `/openapi.json`。保存消息 ID、原生 session ID、review ID 和脱敏后的知识差异；不提交 token、原始私有日志或运行数据库。
+通过 `/im/v1/auth/login` 获取隔离用户凭据；使用 `/im/v1/conversations` 及 `/im/v1/conversations/:conversation_id/messages` 建立和发送测试输入，再读取同一消息接口的结果。请求体复用现有 [IM 黑盒客户端](../../../tests/e2e/critical_paths/_im_client.py) 的认证、会话和消息接口；当前 TypeScript IM 不提供 `/openapi.json`。保存消息 ID、原生 session ID、review ID 和脱敏后的知识差异；不提交 token、原始私有日志或运行数据库。
 
 **验收前置**：本地 Node/pnpm、仓库 E2E 脚本、隔离测试账号、LLM_PROXY。2026-10-23 已确认本机代理 `/health` 返回 200，默认模型在仓库无密钥配置中声明为 `deepseek:deepseek-v4-flash`。尚未验证当前模型鉴权及真实生成成功；健康检查不等于模型可用。实施验收前需验证一次正常回复；若不可用，记录资源缺口，不用 fixture 替代质量验收。无外部业务对象、Feishu 账号或硬件需求。
 
@@ -279,8 +279,12 @@ producer 直接记录 `kind=combined`、`delegation=background` 及真实原生 
 |---|---|---|---|---|---|
 | M1 | 更新自进化提示词并恢复联合复盘及非 Global F4 边界 | Gate 2 Approved | 无 | 上述 assets、features、knowledge 模块、轨迹 producer/contract/consumer、相关测试及本 unit delta | [reviewer] spec 的 21 个场景有真实输入与可复查结果；联合与单项选择正确，联合轨迹用途和范围可辨认，F4 模式和来源保护有效，其他自进化保持可用。[worker] 上游复用及适配逐项对账，继承读取权限、Skill 读取检查、执行拒绝与并发测试通过，相关构建和契约检查通过，验证证据与未验证边界明确。 |
 
-## 设计交付状态
+## 设计阶段历史交付状态
 
 独立 thread 已完成 [Round 2/full 审查](design-review.md)，结论为 Issues Found，0 CRITICAL / 3 WARNING。R1 条目已在设计层关闭。作者已核对并修订 R2-W1 的原文件读取、R2-W2 的读取未完成结算和 R2-W3 的轨迹用途接线，并采纳 R2-R1 移除无条件重读。处置记录追加在原报告末尾；原报告保留。修订尚未独立复审，Gate 2 未通过。模型可用性仍需验证，通过 Gate 2 后才交给实施流程。
 
 作者检查：本 unit 的本地链接、行尾空白及单 M1 骨架检查通过。全仓 `python scripts/docs_check.py` 返回 6 个失败，均为本次未修改的索引引用未跟踪文件，包括 product-tryout、prod_tunnel 和两份研究目录；本轮不修复这些已有工作。该全仓检查不能记为通过，也不代替新建未跟踪文档的局部检查。本轮未运行产品测试，未创建实施分支或 worktree，未提交或推送。
+
+## 交付接力更新
+
+2026-10-23 独立 Round 3/full 已 Approved，0 CRITICAL / 0 WARNING，见 [design-review.md](design-review.md)。历史 Gate 2 未闭环即获用户授权实施的时间顺序保留。接力仅校正刷新措辞、未纳入分支的 feat-638 引用和 runbook 的请求契约入口；不改变需求、设计决定、delta 或 M1 范围。真实模型已在隔离环境成功回复，产品与实现门禁继续独立执行。

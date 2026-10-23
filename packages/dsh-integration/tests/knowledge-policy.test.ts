@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
@@ -64,19 +64,24 @@ it('counts a parallel tool round once and resets only successful foreground main
   expect(reviewReadings(events, 'skills')).toEqual({ current: 3, maintained: 3 });
 });
 
-it('retries a failed native review without spending the interval, then resets on completion', async () => {
+it.each(['provider', 'step-limit'])('preserves native %s failure after partial reads and retries without spending the interval', async (failure) => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-review-failure-'));
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   try {
     await writeFile(join(home, 'fixture.mjs'), `export const name='review-failure';export const inject=['llm'];
-export function apply(ctx){let failed=false;ctx.on('llm/stream',async function*(o){
- const review=o.messages.some(m=>m.role==='user'&&m.content.some(b=>b.type==='text'&&b.text.startsWith('Review the conversation')));
- if(review&&!failed){failed=true;throw new Error('intentional fixture failure');}
+export function apply(ctx){let first;let reads=0;ctx.on('llm/stream',async function*(o){
+ const last=o.messages.findLast(m=>m.role==='user'&&['user','nano-human'].includes(m.source?.kind));
+ const review=last.content.some(b=>b.type==='text'&&b.text.startsWith('Review the conversation'));
+ if(review){first??=last.id;if(last.id===first){
+  if(reads++>0&&${JSON.stringify(failure)}==='provider')throw new Error('intentional fixture failure');
+  yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+reads,name:'read',arguments:JSON.stringify({file_path:${JSON.stringify(join(home, '.nanoassistant/memory/USER.md'))}})}};
+  yield{type:'finish',reason:{kind:'tool-calls'}};return;
+ }}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home, [{ id:'llm-pi-ai', config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}],retryPolicy:{mode:'normal',maxRetries:0}}}} }, {insert:[{id:'review-failure',name:join(home,'fixture.mjs')}]}]);
-    const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',features:{memory_curation:true,skill_creation:false},knowledge:{memoryInterval:2},toolAllowlist:['read','memory']};
+    const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:false},knowledge:{memoryInterval:2},toolAllowlist:['read','memory']};
     const binding = {sessionId:'review-failure',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
@@ -85,10 +90,15 @@ export function apply(ctx){let failed=false;ctx.on('llm/stream',async function*(
       await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal).toBeTruthy();
     };
-    const reviews = async () => (await client!.rpc.request('knowledge.facts',{}) as {reviews:{status:string}[]}).reviews;
+    const reviews = async () => (await client!.rpc.request('knowledge.facts',{}) as {reviews:{status:string;diagnostic?:string}[]}).reviews;
     await submit('one'); expect(await reviews()).toHaveLength(0);
     await submit('two');
-    await expect.poll(async()=>(await reviews()).filter(row=>row.status==='error').length).toBe(1);
+    const status = failure === 'provider' ? 'error' : 'aborted';
+    await expect.poll(async()=>(await reviews()).filter(row=>row.status===status).length).toBe(1);
+    expect((await reviews())[0]?.diagnostic).not.toBe('memory_read_incomplete');
+    await client.rpc.request('trajectory.prepare',{observerId:binding.sessionId,rootAgentId:'a',rootSessionId:binding.sessionId,sessionId:binding.sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
+    const runs=await client.rpc.request('trajectory.call',{observerId:binding.sessionId,method:'trajectory/runs'}) as {value:{stopReason:string;state:string}[]};
+    expect(runs.value).toEqual([expect.objectContaining({stopReason:status,state:failure==='provider'?'failed':'cancelled'})]);
     await submit('three');
     await expect.poll(async()=>(await reviews()).filter(row=>row.status==='completed').length).toBe(1);
     await submit('four'); expect(await reviews()).toHaveLength(2);
@@ -99,7 +109,7 @@ export function apply(ctx){let failed=false;ctx.on('llm/stream',async function*(
 
 it('requires complete current raw files, accumulates pages and advances only confirmed writes', async () => {
   const { ReviewFiles } = await import('../src/knowledge/review-files.js');
-  const home=await mkdtemp(join(tmpdir(),'nano-review-reads-')); const files=new KnowledgeFiles(home);
+  const home=await mkdtemp(join(tmpdir(),'nano-review-reads-')); const files=new KnowledgeFiles(home,join(home,'shared'));
   const path=join(files.skillRoot,'verified/SKILL.md');
   const text='---\nname: verified\ndescription: A verified method\n---\nOriginal method.';
   const user=join(files.memoryRoot,'USER.md'), memory=join(files.memoryRoot,'MEMORY.md');
@@ -122,6 +132,20 @@ it('requires complete current raw files, accumulates pages and advances only con
     await files.skill({...patch,old_string:'Changed method.'},'F3',undefined,guard);
     await files.skill({...patch,old_string:'Verified method.',new_string:'Final method.'},'F3',undefined,guard);
     await expect(files.skill({...patch,action:'edit',content:text},'F4',undefined,{...guard,target:{root:files.skillRoot,name:'verified'}})).rejects.toThrow('only patch');
+    const target = {...guard,target:{root:files.skillRoot,name:'verified'}};
+    for (const action of ['create','write_file','remove_file'] as const) {
+      await expect(files.skill({...patch,action,content:text},'F4',undefined,target)).rejects.toThrow('only patch');
+    }
+    await expect(files.skill({...patch,name:'other'},'F4',undefined,target)).rejects.toThrow('only patch');
+    await files.skill({action:'create',scope:'global',name:'verified',content:text},'F3');
+    await expect(files.skill({...patch,scope:'global'},'F4',undefined,target)).rejects.toThrow('only patch');
+    // Source can change after selection; the write boundary must recheck it.
+    const usagePath=join(files.skillRoot,'.usage.json');
+    const usage=JSON.parse(await readFile(usagePath,'utf8'));
+    usage.verified.source='F1';await writeFile(usagePath,JSON.stringify(usage));
+    await expect(files.skill({...patch,old_string:'Final method.'},'F4',undefined,target)).rejects.toThrow('manual or unknown-source');
+    expect(await readFile(path,'utf8')).toContain('Final method.');
+    expect(await readFile(join(home,'shared/verified/SKILL.md'),'utf8')).toBe(text);
     const support=join(files.skillRoot,'verified/references/guide.md');
     await files.skill({action:'write_file',name:'verified',file_path:'references/guide.md',file_content:''},'F1');
     await expect(files.skill({action:'remove_file',name:'verified',file_path:'references/guide.md'},'F3',undefined,guard)).rejects.toThrow('complete original');

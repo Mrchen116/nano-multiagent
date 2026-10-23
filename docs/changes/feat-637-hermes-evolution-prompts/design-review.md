@@ -389,3 +389,118 @@ delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质�
 | R2-R1 | accepted | 额外强制重读并非单操作协议要求。移除无条件失效；本轮以实际成功写入内容更新基线，连续 patch 无须重读。保留锁内比较以发现其他写入；失败不使用未提交内容，结果不确定时重读。不新增持久账本。 |
 
 已同步首文档的联合轨迹可观察结果、design、prompt-map、Gateway delta，并新增 IM delta；M1 仍为一个，骨架不变。首文档仍为 8 个 Requirement、21 个 Scenario。本轮未改产品代码、未运行产品测试或真实界面验收。局部文档检查单独执行，所有实质修订待独立复审。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，独立设计 reviewer；未参与设计编写或实现，不兼任代码审查、一致性核验或产品验收，未派发 subagent。
+- reviewer_handoff: 原 reviewer thread `01a166a0-1151-7551-8024-3df2fe7e2a74` → 本 reviewer。原因是正式交付 thread 接力，需要独立复核当前修订；已读取 R1、R2、全部 Author Resolutions 和当前受审文件，不以作者 accepted 代替关闭结论。
+- review_mode: `full`
+- mode_reason: R2 后除历史问题关闭外，新增公开轨迹 kind、持久 schema、IM delta 和 M1 的展示消费者范围，属于共享接口及 milestone 的实质变化；不能仅做 closure。未变化的固定来源细节可引用 R1/R2 证据，关键当前设计和组装重新核对。
+- started_at: `2026-10-23T13:07:37+08:00`（首次显式记录计时；此前的前置阅读、历史核对与截图查看不计入下述 duration）。
+- completed_at: `2026-10-23T13:11:20+08:00`
+- duration: `223s`（上述记录区间，不冒充全部前置工作耗时）。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`；branch `unit/feat-637`。开始时工作区 clean。本轮只追加本报告，不修改设计或代码，不建 worktree，不提交。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- validated_at / effective_through: `d617906aed41fa14a34f4b3f1b5e49f179ed4129` 的下列设计内容；本轮批准不代表该实现版本通过其他门禁。
+- 历史保全: 追加前报告 SHA-256 `c703b1a7dafac298307b5c545f68ea2b773f91aaed5e2cea68767a5e77bf52ad`；保留原文。R1/R2 的 Issues Found 继续是其当时结论。
+- 授权与时间边界: 用户已明确授权 Gate 2 未复审时实施。本轮只补当前设计闭环，不追溯伪造实施前 Approved。
+
+| 受审文件 | SHA-256 |
+|---|---|
+| `spec.md` | `0cf12c3404cd275ac80e2fdea0b91a41c6285f060356eed0f974cf600b9e68cd` |
+| `design.md` | `7c460d27e6f006bdc7a36d4dd4d4eb210f77ea8246ed406c8ceef7bceaab1419` |
+| `prompt-map.md` | `2b33586a03903ff3657b21057d702298c6b9a14eb3af5bc0199e1fede102cbf3` |
+| `specs/gateway/agent-capabilities.md` | `7c1d7070625c370d1a59e5eab66972e57db10239b412490a16501a5b9b408401` |
+| `specs/im/agent-work.md` | `81e3f8307bf3641b6f118761dfd790999e2edba60d4f1d4a765c169f155ac945` |
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。当前修订的 Gate 2 通过。**
+
+R2 三个阻断项均在设计层关闭，重复读取成本建议也已落实。设计足以指导既定范围的实施与验收；实现正确性、21 场景真实产品结果和交付状态仍由各自门禁判断。
+
+### Coverage 与证据
+
+#### 1. 当前事实、实际组装及职责
+
+重新读取 [SPEC](../../../SPEC.md)、[current agent-capabilities](../../specs/gateway/agent-capabilities.md):432-438 和 [current agent-work](../../specs/im/agent-work.md) 的发起入口、执行范围及父子导航要求。以 base 版本 `knowledge/runtime.ts`:204-224 核对原来分开运行单项、只按原生 completed 结算、F4 追加通用提示的现状；当前 HEAD 已含实现，不能把设计中的旧现状叙述当作 HEAD 的运行实况。
+
+实际组装仍是 `apps/node/src/configuration.ts`:69-92 提供配置 → `apps/node/src/main.ts`:87-115 的运行分区与 supervisor → `packages/dsh-integration/src/index.ts`:128-129 安装 KnowledgeRuntime → features 挂载维护能力 → KnowledgeFiles 落盘 → `packages/personal-assistant/src/knowledge.ts`:41-69 消费真实 facts。轨迹经 withKnowledgeRun → TrajectoryRuns → product-contracts → 两个浏览器用途消费者；不是仅测试中存在的路径。
+
+职责划分合理：integration 持有 DSH 调度、读取结果、目标身份和存储检查；KnowledgeFiles 复用 root 锁与原子写入；PA 只调和并投递真实事实，Node 只管理进程。读取记录只活在本次 review，不需新增公开工具、版本服务、审批系统或第二套运行时。完整文件比较有阻止并发覆盖的具体用途；自己的确定成功写入更新基线，避免每次 patch 都完整重读的成本。
+
+#### 2. 用户约束及全部需求覆盖
+
+首文档仍为 8 个 Requirement、21 个 Scenario，本轮重新对照以下组别及 `design.md`:253-280 验证矩阵与单 M1：
+
+| 需求组 | 设计及验收判断 |
+|---|---|
+| Memory 分类、去重、纠错、无信号 | prompt-map 的归属规则和当前双文件读取闭合；连续普通/Global review 要检查真实模型输入及最终文件，不能仅检查工具存在。无增量允许不写。 |
+| Skill 学习、成功证据、临时 workaround、用户约束 | 保留具名上游段落；排除未经验证方法，保留复用条件、临时资源退出责任；Agent 自选方法不成为用户要求。 |
+| Memory/Skill 单一归属和开关 | 单项不互相代写；combined 使用独立完整指令；执行白名单与父有效权限取交集，不扩写入 scope。 |
+| Combined 正向、单项回退、取消和部分成功 | 一个普通运行槽、同组到期判断、启动冻结读数、保留新活动和前台较新维护点；任一参与项关闭取消联合 fork，已有事实保留，后续可单项运行。 |
+| 主 Agent 直接维护及部分失败 | 单操作协议、edit 整文件/patch 唯一匹配、支持文件动作和来源说明一致；多调用没有事务回滚，前台不虚称后台读取硬检查。 |
+| 非 Global F4 正向、证据不足、无效/已处理、手工来源和并发 | 绑定目标、自动来源、至少两个不同产品 session、只用自有正常完成历史、无在途/待执行输入、同目标槽和锁内 patch 均已决定；Global 仅禁 F4，不禁普通学习。 |
+
+F4 的完成解释保留 R1/R2 的裁决：以读取时冻结的两个不同产品 session 正常完成过程为证据，同 session 后续轮次不增加证据数，内部 child 或继承历史不充数。F4 与普通维护的计数、失败策略独立，模型决定是否存在重复问题，代码只执行证据资格和写入边界。没有要求替 Global 发明证据单位，也没有把 feat-638 的跨 Skill 整理纳入本次。
+
+#### 3. 固定来源与公开能力
+
+来源固定在 Hermes `bf0203a794a07aac3ff764972ab9087baa4e4f4e`。本轮直接复读 [background_review.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/agent/background_review.py) 的联合归属/三分支和 [skill_manager_guards.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/skill_manager_guards.py):32-67、196-206 的本轮路径标记。其余固定文件的散列核对 retained_from: Round 2，prompt_builder/curator retained_from: Round 1；本轮未重复计算七份散列，不声称该 SHA 仍是远端最新 HEAD。
+
+重新检查安装的 DSH 公开包：`dsh-skill-filesystem/lib/index.js`:703 为 `parsed.body.trim()`，`dsh-tool-skill/lib/index.js`:790-791 返回 resourceBase 和正文；`dsh-tools/lib/types/index.d.ts`:92 提供 `tools/result` observer，结果可带 canonical value 及模型可见内容。因此区分正文理解和原文件修改有实际依据，公开事件能支持设计中的本轮结果登记。没有要求 private import 或修改上游安装包。
+
+Hermes 原始机制没有要求自己的每次成功 patch 后失效。Nano 的锁内一致性和成功后更新基线被明确标为本仓策略；Memory 自动纠错、单操作协议、F4 非 Global 和无更新配额是已确认的适配，不再被包装成完整照搬上游。
+
+#### 4. Combined 轨迹与局部体验
+
+`design.md`:207-223 已把 producer、持久 schema、公开 `TrajectoryRun.kind`、`navigation-model.ts` 和 `boot.jsx` 列为同一交付范围。用途值为 combined，名称为“记忆与技能复盘”，fork/background、原生执行状态、发起坐标和本次范围沿用原模型。没有用两条单项假记录或内部 label 代替真实联合用途。当前代码入口 `trajectory-runs.ts`:14、32 与两个用途消费者位置可承载这一决定。
+
+本轮独立查看作者的实际渲染截图 `/tmp/feat637-combined-trajectory.png`（SHA-256 `250ec8c58616a58b471851c30829bf159d3e436c4bd01dfb2b7b45d63d8f1f22`）：1280×720 页面内，“Main Agent › 记忆与技能复盘”、返回发起点、已完成/fork、#43→#77 和原生明细同时可见。名称表达用途、状态和范围另列，用户不必由 UUID 或工具正文猜测归属；八字名称没有遮住相邻操作。对本次仅增加用途文案映射的设计，这份实际容器对照足以判断内容关系，不需要新页面原型。
+
+另在本轮隔离 IM `http://127.0.0.1:65441` 用独立标签只读走到 Agents → E2E Global Agent → Work，确认现有工作记录/原生轨迹切换入口。该时点没有工作记录，本轮没有独立重放 combined 进入/返回/刷新操作，不冒称产品验收通过。旧作者环境 59794 已关闭，未重启它。真实全旅程和窄屏仍由独立产品 reviewer 验收。
+
+刷新契约以 IM delta:11-20 和设计验证矩阵:262 为准：**刷新后可从持久发起入口重新进入同一次执行**。它不要求浏览器自动保持在 child 视图。作者 progress:42 明确记录刷新回父轨迹后重入相同范围，与契约相容；不能把该结果扩大成自动恢复子执行。维护 error 与原生 completed 分开表达也合理：用途或原生停止状态不表示两类知识都已写入。
+
+#### 5. Delta、M1 与前置资源
+
+Gateway delta 的四个 ADDED Requirement 锚定 agent-capabilities；IM delta 修改“从真实发起位置进入子 Agent 的本次执行”，保留 current 的主动委派及并行/嵌套场景，并增加 combined 用途场景，没有丢失未变要求。读取未完成、真实文件资格、单项回退和部分成功均已投影到消费者行为。
+
+单 M1 覆盖 assets/features/knowledge、轨迹 producer/contract/consumer 与验证，退出条件仍要求 21 场景、真实输入与可复查结果。原设计表的 Gate 2 依赖是默认门禁要求；用户授权提前实施的例外已有明确记录，本轮不改写历史顺序。
+
+Runbook 指向现有隔离启停脚本、受控账号、真实 IM 消息入口和 Web 轨迹入口。已能打开本轮隔离 IM；作者 M1 progress 有真实 provider 回复与知识产物定位，模型资源已不只是 /health 推断。但这些既有案例不代替本轮独立产品验收，F4 实际模型质量等仍需各自证据。
+
+### 历史问题闭环
+
+| 原 issue ID | Author Resolution | 本轮证据与结论 |
+|---|---|---|
+| R1-W1 | 改为继承获准 read，宿主只提供准确路径 | **closed，设计层保留。** design:138-148、prompt-map 的 Memory 段要求本轮完整双文件结果；连续普通/Global review 保留真实输入验收，父快照不刷新。 |
+| R1-R1 | 不新增运行模式切换 | **closed，保留。** design:193 仍明确 configuration.apply 不允许修改 work mode，入口及写入时核对模式。 |
+| R2-W1 | 仅完整原文件 read 授予修改资格 | **closed，设计层。** design:134、167-180 和 prompt-map 区分原生正文与 YAML 原文件；无 read 时 F3 只新增、不覆盖，F4 不启动；正文 patch 不另开权限旁路。验证矩阵:260 包含真实 filesystem Skill、头变化、无 read、整文件及正文修改。 |
+| R2-W2 | 宿主记录读取状态，未完成不结算 | **closed，设计层。** design:150-165 把一次 Memory read/写入尝试接入双文件完整状态；正常 stop 但未读全记 error/memory_read_incomplete，combined 全轮不推进，保留成功 Skill facts。完全无增量且未读可正常结算；验证矩阵:261 覆盖工具失败后正常停止，而非只测 provider 抛错。 |
+| R2-W3 | 增加真实 combined 用途及全部消费者 | **closed，设计层。** design:207-223、IM delta 和 M1 明确同次执行、背景 fork、持久记录和两处名称；刷新是重新进入同次执行，不伪装自动恢复子视图。 |
+| R2-R1 | 用实际成功写入内容更新本轮基线 | **closed，建议已采纳。** design:177-180 明确连续 patch 无须无条件重读，失败不推进基线，不确定才清除；保留必要并发比较，不新增持久缓存服务。 |
+
+### Issues
+
+无。0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+- **R3-R1（可选文档消歧）**：design:223、239 的“刷新后的范围保留／刷新恢复”可统一写为“刷新回父轨迹后，仍可由持久入口重入相同执行范围”，与 IM delta 和 progress:42 一致。这是措辞明确化，不新增自动恢复 child URL 的功能要求，也不阻断本轮。
+- **R3-R2（可选引用整理）**：design 的 feat-638 链接在当前隔离 checkout 中不存在。补充可访问的需求登记引用或明确其位于未纳入本分支的需求记录即可；非目标边界已在本 unit 独立写清，不需为此扩大本次范围。
+- **R3-R3（runbook 引用校正）**：审查收尾时 orchestrator 传来产品 reviewer 的观察：当前 TS IM 的 `/openapi.json` 与 `/im/openapi.json` 均为 404，故 design:249 不能继续指向该资源。改为现有 `tests/e2e/critical_paths/_im_client.py` 的认证、会话与消息请求即可；本轮已核对该客户端文件存在并包含实际 `/im/v1` 调用。产品验收已有这一有效入口并在继续，此引用错误不造成待决接口或不可用验收资源，不阻断设计。该 HTTP 404 是交接证据，本轮未重复请求。
+
+### 本轮验证与边界
+
+- 独立完成 full 设计复核、历史闭环、当前产品组装/API核对、局部真实截图判断及现有 Work 入口只读走查；不承担代码质量/实现一致性或产品验收结论。
+- 五份受审 Markdown 无行尾空白，首文档数量为 8/21。本地链接检查仅发现 design 指向当前 checkout 缺失的 feat-638 登记；不声称全部链接或全仓 docs_check 通过。
+- 未运行产品测试、真实模型或全仓测试；未改变服务、配置及业务数据。没有把作者通过案例等同于全部场景通过。
+- 原 R1/R2 与作者处置原样保留；本轮 Approved 仅从本次完成时间开始对上述设计内容有效。
+
+### Author Resolutions — Round 3
+
+已核对本轮全部覆盖与建议，未发现实质设计问题。R3-R1 统一为刷新后从持久入口重入同次范围；R3-R2 去掉本分支不存在的 feat-638 链接并明确分支边界；R3-R3 改用已有 IM 黑盒客户端作为请求契约入口，记录 TS IM 无 OpenAPI 路由。仅文档消歧与运行入口纠错，未改首文档、delta、公共接口或 milestone；Round 3 Approved retained，不新建审查轮。

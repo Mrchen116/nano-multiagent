@@ -287,7 +287,7 @@ export class KnowledgeRuntime extends Service {
         this.pendingBatches.delete(`${config.agentId}:${batch.root}:${batch.name}`);
       }
       const result = await run.result;
-      const incomplete = work.kinds.includes('memory') && work.reads.memoryIncomplete;
+      const incomplete = result.stopReason === 'completed' && work.kinds.includes('memory') && work.reads.memoryIncomplete;
       const completed = result.stopReason === 'completed' && !incomplete && !signal.aborted;
       if (completed && !batch) for (const k of work.kinds) {
         const previous = counters.get(key(k)) ?? { memory: 0, skills: 0 };
@@ -324,7 +324,7 @@ export class KnowledgeRuntime extends Service {
           if (event.type !== 'turn/end' || event.data.reason.kind !== 'completed') continue;
           // Evidence is the completed conversation, not repeated schemas or streamed copies.
           const turn = own.slice(start, i + 1).filter(e => ['turn/start', 'turn/end', 'assistant/message', 'tool/call', 'tool/result'].includes(e.type)
-            || e.type === 'user/message' && !['runtime-context', 'system'].includes(e.data.source.kind))
+            || e.type === 'user/message' && !['runtime-context', 'skill-catalog', 'system'].includes(e.data.source.kind))
             .map(e => e.type === 'assistant/message' ? { ...e, data: { ...e.data, stream: undefined } } : e);
           const used = turn.some(e => e.type === 'user/message' && e.data.source.kind === 'skill-invocation' && keys.has(e.data.id)
             || e.type === 'tool/result' && keys.has(e.data.message.toolCallId) && !e.data.message.isError);

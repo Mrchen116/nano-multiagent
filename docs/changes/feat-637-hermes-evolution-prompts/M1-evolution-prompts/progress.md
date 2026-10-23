@@ -50,3 +50,17 @@
 ## 交付边界
 
 尚未完成独立 code review、verification 和产品 review；本侧对话禁止 subagent，不把作者检查记为独立门禁。尚不归档，不覆盖 current specs，不声称 Ready PR 或部署完成。feat-638 内容整理不在本次范围。
+
+## 正式交付接力：独立门禁与修复
+
+新实施 thread 在相同 worktree 接力，开始时 HEAD `d617906aed41fa14a34f4b3f1b5e49f179ed4129`、clean，`origin/main` 仍为 `5462b7217421a2c27871c1c5951c1e48644e54ba`。按简化流程独立派发设计、静态（code review + verifier）、产品 reviewer；历史“本侧对话未使用 subagent”仅描述前段作者工作。
+
+- 设计 R3/full Approved，0 CRITICAL / 0 WARNING。历史 R1/R2 原样保留；未将后补批准回溯为事前批准。三项文档建议已校正，未改变范围。
+- 静态 R1 确认 Memory 未读全会覆盖原生 provider error 或 16 步 abort 的终态。修复仅在原生 completed 时转换为 memory_read_incomplete，其余保留原生终态及已有诊断；不凭空生成供应商诊断。原生 fixture 的 provider/step-limit 两分支在旧代码失败，修复后通过。
+- 产品 reviewer 确认 Global combined 将暂缓的 Skill 步骤和待确认状态写入环境 Memory（review `44fa9fd6-bb4a-46e5-8b8c-989f8c0b4a1d`）。收紧 Memory/combined/前台工具说明，并将上游 current situation/state of operations 歧义改为长期环境事实，精确适配见 prompt-map；不新增强制分类器或协议。
+- 真实 F4 正向被技能目录元数据占用限额阻塞：三个使用轮次（sessions `9470865c-05d6-437f-9d20-65a89d7d9d47`、`c9631408-c6f4-4029-9706-6fcaad204ca7`、`9607f033-52a1-4dc9-a481-7dda5e8708a6`）分别 26,719 / 25,869 / 20,975 字符，排除 skill-catalog 后为 13,789 / 12,697 / 7,803。证据选择只新增排除自动目录，保留真实用户、Skill 使用和工具结果，不放宽 20,000 限额或两会话门槛。24 个实际发现的技能目录 fixture 复现旧版跳过；修复后 F4 正常启动。
+- 在既有 lifecycle 测试组合覆盖同根 Memory=2/Skill=3 的独立计数、combined 在途关闭及成功 Skill 保留/后续单项重试；扩展既有 F4 场景覆盖缺失/错 owner/仍运行的历史、同目标运行中新增使用、完成后已处理会话再到期不启动；已有文件层测试补错目标/root、非 patch 与接受后手工来源拒绝。未新建平行套件。
+- 修复后 `pnpm exec vitest run packages/dsh-integration/tests/knowledge-policy.test.ts packages/dsh-integration/tests/knowledge-review.test.ts --maxWorkers=1`：2 文件 / 9 项通过，`/tmp/feat637-review-fixes.log`。相关 package build 通过。红测和静态独立复现仍保留 `/tmp/feat637-review-red.log`、`/tmp/feat637-catalog-red.log`、`/tmp/feat637-static-*.log`。
+- 补充 CI 等价检查：`pnpm check:ios-runtime` 通过；前端 `npm audit --audit-level=critical` 通过（仍报告 1 high、2 moderate、5 low，不说零漏洞）。
+
+独立产品验收在专用新鲜运行目录进行，位置由 `/tmp/feat637-review-path` 指向；旧作者证据目录保留。此处不把修复后窄测试称为完整验收通过，仍待独立复验与真实产品结果。
