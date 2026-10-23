@@ -1,5 +1,5 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
-import { personalEvidenceMessages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
+import { personalEvidenceMessages, personalReviewAction, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
@@ -475,7 +475,7 @@ export default class NanoRuntime {
       if(kind!=='action'||!sessionId)throw new RpcError(-32602,'Personal disclosure requires a bound session');
       const {lineage}=await personalScopes(agentId,sessionId);
       try {
-        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:evidence,
+        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),
           evidence:async()=>{
             // Fixed host-validated refusals contain no private task information.
             if(evidence.security_notice)return [];

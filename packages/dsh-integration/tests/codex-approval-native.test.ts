@@ -117,7 +117,7 @@ export function apply(ctx) {
    const input = o.messages.findLast(m => m.role === 'user' && m.content.some(c => c.type === 'text' && c.text.includes('<planned_action>')));
    const text = input.content.filter(c => c.type === 'text').map(c => c.text).join('');
    const action = JSON.parse(text.split('<planned_action>')[1].split('</planned_action>')[0]);
-   if (action.payload.content === 'blocked' && !inspected.has(input.id)) {
+   if (action.arguments.text === 'blocked' && !inspected.has(input.id)) {
     inspected.add(input.id);
     yield {type:'block-end',index:0,block:{type:'tool-call',id:'blocked-read',name:'guardian_read',arguments:JSON.stringify({path:'blocked.txt'})}};
     yield {type:'finish',reason:{kind:'tool-calls'}}; return;
@@ -137,9 +137,9 @@ export function apply(ctx) {
     const config = {agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules:'codex',reviewer:{provider:'fixture',model:'review'}}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'pa',revision:'1',ownerId:'owner',cwd:home});
-    await client.rpc.request('session.submit',{sessionId:'parent',inputId:'owner',mode:'followup',content:[{type:'text',text:'Authorize only the current exact public reply.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'owner'}});
+    await client.rpc.request('session.submit',{sessionId:'parent',inputId:'owner',mode:'followup',content:[{type:'text',text:'群里现在什么进展？要催下。'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'owner'}});
     await expect.poll(async () => (await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'owner'}) as any).terminal).toBeTruthy();
-    const review = (content: string) => client!.rpc.request('pa.review',{agentId:'pa',kind:'action',sessionId:'parent',evidence:{payload:{content},recipient_ids:['owner']}}) as Promise<any>;
+    const review = (content: string) => client!.rpc.request('pa.review',{agentId:'pa',kind:'action',sessionId:'parent',evidence:{owner_user_id:'owner',owner_guard:'INTERNAL_FRESHNESS_GUARD',last_owner_message_id:'OLD_GROUP_MESSAGE',policy:{revision:1,excluded_conversation_ids:[]},sources:[],recipient_risks:[],recipient:{conversation_id:'group',name:'Team',conversation_type:'group',channel:'web',members:[{id:'owner',user_id:'owner',type:'user',display_name:'Owner'}]},payload:{content},recipient_ids:['owner']}}) as Promise<any>;
     if (scenario === 'instructions') {
       expect(await review('current')).toMatchObject({decision:'allow'});
       const requests = (await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -147,6 +147,10 @@ export function apply(ctx) {
       const input = messages.find((m:any) => m.role === 'user' && m.content.some((c:any) => c.type === 'text' && c.text.includes('<planned_action>')));
       expect(JSON.stringify(input)).toContain('WORKSPACE_DUTY'); // Original PA instructions remain review evidence.
       expect(messages.filter((m:any) => m.role === 'user')).toHaveLength(1);
+      const text=input.content.filter((c:any)=>c.type==='text').map((c:any)=>c.text).join('');
+      expect(text).toContain('要催下');
+      expect(text).not.toContain('INTERNAL_FRESHNESS_GUARD');expect(text).not.toContain('OLD_GROUP_MESSAGE');
+      expect(JSON.parse(text.split('<planned_action>')[1].split('</planned_action>')[0])).toMatchObject({tool:'send_message',arguments:{target:'group',text:'current'},audience:{members:[{id:'owner',is_owner:true}]}});
     } else {
       const pending = review('blocked');
       await expect.poll(() => readFile(join(home,'blocked-pid'),'utf8').catch(() => ''),{timeout:5000}).not.toBe('');

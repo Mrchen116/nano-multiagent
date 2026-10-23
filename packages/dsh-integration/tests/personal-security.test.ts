@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { reviewPersonal } from '../lib/personal-security.js';
+import { personalReviewAction } from '../src/personal-security.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 
@@ -114,4 +115,38 @@ it.each([['high','max'],['low','high'],[]])('uses a supported independent-review
   const result=await reviewPersonal(ctx as any,{personal:{bindingId:'b'},provider:'p',model:'m'} as any,'input',{query:'public'});
   expect(result.decision).toBe('allow');expect(request.reasoningEffort).toBe(efforts.includes('low')?'low':efforts[0]);
   expect(request.tools).toBeUndefined();expect(request.sessionId).toBeUndefined();
+});
+
+
+it('projects the exact frozen disclosure and complete audience without backend guards or read-history bookkeeping',()=>{
+ const text='<mention type="user" target_id="q"/> <mention type="user" target_id="e"/> 请汇报当前进展';
+ const members=[['owner','Owner','user'],['p','P','agent'],['q','Q','agent'],['e','E','agent']].map(([id,name,type])=>({id:`actor-${id}`,user_id:id,display_name:name,type,is_stale:null}));
+ const frozen:any={owner_user_id:'owner',agent_profile_version:'internal',owner_guard:'freshness',last_owner_message_id:'old-group-message',
+  recipient:{conversation_id:'group',name:'Development',conversation_type:'group',channel:'web',members},recipient_ids:['owner','p','q','e'],
+  policy:{revision:12,excluded_conversation_ids:[]},sources:[{conversation_id:'old-read-chat',allowed:true}],recipient_risks:[],external_destination:null,
+  payload:{content:text,attachments:[],attachment_snapshots:[]}};
+ const original=JSON.stringify(frozen);
+ expect(personalReviewAction(frozen)).toEqual({tool:'send_message',arguments:{target:'group',text},audience:{name:'Development',type:'group',channel:'web',members:[
+  {id:'owner',name:'Owner',type:'user',is_owner:true},{id:'p',name:'P',type:'agent'},{id:'q',name:'Q',type:'agent'},{id:'e',name:'E',type:'agent'}]}});
+ expect(JSON.stringify(frozen)).toBe(original);
+ const interactive={format:'openui',source:'root = TextContent("Full visible text")'};
+ const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
+ frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};
+ expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive,attachments:[attachment]});
+ frozen.payload={content:'Shared task change',task:{action:'apply',arguments:{graph_id:'graph',base_revision:7,operations:[{op:'update_task',patch:{result:'Full shared task result'}}]},source_message_id:'source'}};
+ expect(personalReviewAction(frozen)).toMatchObject({tool:'task_graph',arguments:{...frozen.payload.task.arguments,action:'apply',source_message_id:'source'}});
+});
+
+it('keeps current restrictions, external visibility and fixed-notice authority explicit, including unknown access facts',()=>{
+ const frozen:any={owner_user_id:'owner',recipient:{conversation_id:'mirror',name:'External contact',conversation_type:'direct',channel:'feishu',members:[]},
+  policy:{revision:2,excluded_conversation_ids:['excluded']},sources:[{conversation_id:'allowed',allowed:true},{conversation_id:'revoked',allowed:false},{conversation_id:'unknown'}],
+  recipient_risks:[{actor_id:'blocked-contact',status:'blocked',reason:'Actual current restriction'}],
+  security_notice:{content:'Exact fixed refusal',owner_notice_message_id:'confirmed-notice'},
+  payload:{content:'Exact fixed refusal',attachments:[],attachment_snapshots:[],transport:{kind:'feishu',channel_revision:4,destination:{app_id:'app',source_id:'feishu:app:dm:sender',chat_id:'external-chat'},card:{body:'Full public card'}}}};
+ const result=personalReviewAction(frozen);
+ expect(result).toMatchObject({arguments:{text:'Exact fixed refusal',card:{body:'Full public card'}},audience:{channel:'feishu',type:'direct',members:[{id:'feishu:app:dm:sender',type:'external'}],destination:frozen.payload.transport.destination},security_notice:frozen.security_notice,
+  restrictions:{excluded_conversation_ids:['excluded'],source_access:[{conversation_id:'revoked',access:'denied'},{conversation_id:'unknown',access:'unknown'}],contacts:frozen.recipient_risks}});
+ expect(JSON.stringify(result)).not.toContain('channel_revision');
+ delete frozen.policy;delete frozen.sources;delete frozen.recipient_risks;
+ expect(personalReviewAction(frozen).restrictions).toEqual({source_exclusions:'unknown',source_access:'unknown',contacts:'unknown'});
 });

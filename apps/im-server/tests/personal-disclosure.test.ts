@@ -207,9 +207,76 @@ it('persists one direct relay to the recipient Agent after reviewing the entire 
  const sent=service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref});
  const relays=db.prepare('SELECT * FROM relay_tasks WHERE message_id=?').all(sent.message_id) as any[];
  expect(relays).toHaveLength(1);expect(JSON.parse(relays[0].payload_json)).toMatchObject({agent_id:'b',message:{sender:{id:'a'},interactive,delegation:{authorized_by:'u1'}}});
+ expect(relays[0].status).toBe('queued');
+ expect(ctx.gateway.send).not.toHaveBeenCalled();
+ ctx.messaging.delivery.drain('n');
  expect(ctx.gateway.send).toHaveBeenCalledWith('n',expect.objectContaining({type:'relay.message',payload:expect.objectContaining({agent_id:'b'})}));
  service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref});
  expect(db.prepare('SELECT count(*) n FROM relay_tasks WHERE message_id=?').get(sent.message_id)).toEqual({n:1});
+});
+
+it('confirms a delegated group send before delivery and recovers queued recipients without duplicating the message',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();
+ ctx.gateway=new Gateway(ctx);ctx.gateway.broadcast=vi.fn();
+ const send=vi.spyOn(ctx.gateway,'send').mockImplementation(()=>{throw new Error('transport must not run during commit');});
+ db.prepare("UPDATE conversations SET type='group' WHERE id='peer'").run();
+ for(const id of ['b','c']) {
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES(?,?,?,'o1',datetime('now'),'active')").run(id,`agent:${id}`,id);
+  db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES(?,'o1','n',?,datetime('now'),datetime('now'))").run(id,id);
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer',?)").run(id);
+ }
+ const p=service.actions.prepare(principal,{...args,request_key:'group',conversation_id:'peer',content:'Please coordinate'});
+ const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ const commit={...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref};
+ const sent=service.actions.commit(principal,commit);
+ expect(sent.state).toBe('confirmed');
+ expect(send).not.toHaveBeenCalled();
+ expect(ctx.messaging.conversation('peer','u1').id).toBe('peer');
+ expect(ctx.messaging.message(sent.message_id)).toMatchObject({conversation_id:'peer',content:'Please coordinate'});
+ expect(ctx.messaging.members('peer').map(u=>u.id)).not.toContain('a1');
+ const relays=db.prepare('SELECT * FROM relay_tasks WHERE message_id=? ORDER BY idempotency_key').all(sent.message_id) as any[];
+ expect(relays).toHaveLength(2);
+ for(const relay of relays) {
+  expect(relay.status).toBe('queued');
+  expect(JSON.parse(relay.payload_json)).toMatchObject({message:{sender:{id:'a'},delegation:{authorized_by:'u1'}},metadata:{source_agent_id:'a'}});
+ }
+ // A browser notification failure must not turn an already committed send into a retry.
+ vi.mocked(ctx.gateway.broadcast).mockImplementation(()=>{throw new Error('browser disconnected');});
+ const next=service.actions.prepare(principal,{...args,request_key:'group-next',conversation_id:'peer',content:'Another approved update'});
+ const nv=service.actions.review(principal,{...args,proposal_ref:next.proposal_ref,payload_digest:next.payload_digest,evidence_digest:next.evidence_digest,verdict:{decision:'allow'}});
+ expect(service.actions.commit(principal,{...args,proposal_ref:next.proposal_ref,verdict_ref:nv.verdict_ref}).state).toBe('confirmed');
+ vi.useFakeTimers();ctx.messaging.delivery.start();
+ try {
+  vi.advanceTimersByTime(250); // Offline: durable rows stay queued.
+  expect(send).not.toHaveBeenCalled();
+  ctx.gateway.nodes.set('n',principal as Connection);send.mockReturnValue(false);
+  vi.advanceTimersByTime(250); // Backpressure: the next tick retries the same rows.
+  expect(db.prepare("SELECT count(*) n FROM relay_tasks WHERE status='sent'").get()).toEqual({n:0});
+  send.mockReturnValue(true);vi.advanceTimersByTime(250);
+  for(const relay of relays)expect(send).toHaveBeenCalledWith('n',expect.objectContaining({type:'relay.message',payload:expect.objectContaining({relay_task_id:relay.relay_task_id})}));
+  expect(db.prepare("SELECT count(*) n FROM relay_tasks WHERE message_id=? AND status='sent'").get(sent.message_id)).toEqual({n:2});
+  expect(service.actions.commit(principal,commit)).toEqual(sent);
+  expect(db.prepare('SELECT count(*) n FROM messages WHERE id=?').get(sent.message_id)).toEqual({n:1});
+  expect(db.prepare('SELECT count(*) n FROM relay_tasks WHERE message_id=?').get(sent.message_id)).toEqual({n:2});
+ } finally {ctx.messaging.delivery.stop();vi.useRealTimers();}
+});
+
+it('rolls back a reviewed group message if any recipient relay cannot be persisted',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway=new Gateway(ctx);
+ db.prepare("UPDATE conversations SET type='group' WHERE id='peer'").run();
+ for(const id of ['b','c']) {
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES(?,?,?,'o1',datetime('now'),'active')").run(id,`agent:${id}`,id);
+  db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES(?,'o1','n',?,datetime('now'),datetime('now'))").run(id,id);
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer',?)").run(id);
+ }
+ const p=service.actions.prepare(principal,{...args,request_key:'atomic',conversation_id:'peer',content:'Please coordinate'});
+ const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ db.exec("CREATE TRIGGER reject_second_relay BEFORE INSERT ON relay_tasks WHEN (SELECT count(*) FROM relay_tasks)>0 BEGIN SELECT RAISE(ABORT,'relay storage failed'); END");
+ expect(()=>service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref})).toThrow('relay storage failed');
+ expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()).toEqual({n:0});
+ expect(db.prepare('SELECT count(*) n FROM relay_tasks').get()).toEqual({n:0});
+ expect(db.prepare('SELECT count(*) n FROM pa_delegated_messages').get()).toEqual({n:0});
+ expect(db.prepare('SELECT state FROM pa_operations WHERE operation_id=?').get(p.proposal_ref)).toEqual({state:'allowed'});
 });
 
 it('freezes reply draft navigation through prepare and commit without delivering to the original chat',()=>{
