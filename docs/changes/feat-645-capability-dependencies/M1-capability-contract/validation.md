@@ -60,4 +60,15 @@ Web 三个宽度的首次工具区测量：1440/768/390 下 before/during/after 
 - npm audit critical 门禁通过；仍报告 5 low / 2 moderate / 1 high，未擅自升级无关依赖。
 - 用户于 2026-10-24 00:52 明确允许本机负担大时改为 PR 远端 CI。已停止本任务 full native/frontend、release build 与等待中的 Swift test，将完整门禁交给远端；分包编译已结束但 release 构建被取消，不能记全量 build 通过。先前 broad native 尝试有多项超时；高负载是观测事实，且最后一轮命令实际使用了 shell Node 25.8.2，不能视为要求的 Node 24 CI。远端 workflow 固定 Node 24.22.1。
 
-独立产品 reviewer 后续已通过 CUA 访问专属 Simulator，原生可见入口恢复可用，继续实际交互验收；此前 timeout 仅为当时的观测，不再认定持续阻塞。
+独立产品 reviewer 后续通过 CUA 观察到 Simulator 主屏，但 scroll/drag 无效果、click 再次 timeout；这不能算原生交互可用。随后只读 booted 列表为空。原生验收仍为 inconclusive。
+
+## 远端 CI 首轮（5ce70533c）
+
+用户允许先开 Draft PR 将完整 CI 移至远端，PR #397。归档检查仍保留在必过 backend job，只后移到测试之后，避免未归档的 Draft 截断运行；未降低门禁。最新 origin/main `55376c111` 已合并，仅带入 skills/docs 和 CI iOS 路径过滤，无产品代码冲突。
+
+GitHub Actions run `39990544671`：
+
+- 完整 build/typecheck、iOS interactive runtime 检查通过。
+- 后端 126 files / 637 tests 通过，唯一失败为 providers 的旧空工具夹具默认开启 Feature，configuration.apply 被新契约拒绝，后续 session.ensure 报 Unknown configuration revision。修正测试夹具为明确关闭 Feature 的纯模型会话，并新增 effective=true 断言；不改变产品校验。
+- Web 87 files / 863 tests 通过；17 suites 未能加载新共享契约子路径。干净前端 job 仅 npm ci，未构建 workspace product-contracts/lib，故新增使用前端现有 TypeScript/@types 的显式契约构建步骤；本地该命令通过。没有源码别名、跨包绕过或第二份依赖表。
+- iOS 完整测试与归档仍运行中。完整结果以最终 head 的远端 CI 为准。
