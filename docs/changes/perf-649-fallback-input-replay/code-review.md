@@ -35,3 +35,34 @@
 这些日志在代码提交前生成，build 版本戳为基线 `3814a7faae6617df3203fd58382ce7d53419090a`，不能解读为干净基线代码的测试。caller 提供该工作树验证来源；实际实现提交为 `e5a381225`，本轮独立 `git diff e5a381..validated_at` 确认其后仅其他 unit 的设计文档变化，受审源码/测试/benchmark 未改变。未发现需要重复运行已有效覆盖测试的关键缺证；本轮未启动服务或修改实现。
 
 本报告只给代码门禁结论；独立产品 reviewer 的完整栈旅程结论另行记录。
+
+## Round 2 — final-main integration patch
+
+- reviewer: `/root/static_review`，独立于本 unit 实现及 main 增量实现。
+- review_mode: `patch`。
+- executed_base: `b78b263abc8249617906117f8f19eeb1e825fab3`（已用 git 核实完整 SHA）。
+- prior_validated_at: `986cb0a237831795a2964e598112a501cd007d66`。
+- validated_at: `fd7acae2847451cda839652225267f8e3d3520aa`；受审前 HEAD 相同且工作区干净。
+- diff_range: `986cb0a237831795a2964e598112a501cd007d66..fd7acae2847451cda839652225267f8e3d3520aa`。
+- scope: 仅 main 集成增量对 perf-649 输入归属、ModelFallback 与共享 runtime 门禁的影响；不替代 #393 的完整审查。
+- completed_at: `2026-10-23T23:58:13+08:00`。
+
+### Verdict
+
+**PASS — patch 范围无存活代码问题，无需扩大 full review。**
+
+```json
+[]
+```
+
+### Delta coverage and retained basis
+
+- `git diff --exit-code e5a381225..fd7acae2847451cda839652225267f8e3d3520aa --` 明确核对本 unit 两个源码、两个测试及 benchmark，退出 0。因此 Round 1 的算法语义、复杂度、差分/RED/计数回归和合成性能结论继续适用于相同源码；原报告的实际验证 SHA 与执行结果保留，不改写成新版实跑。
+- main #393 引入 `DescendantReader`、公开同版本 `dsh-session-persistence` 直接依赖、`index.ts:384` 的 session.descendants 接线及 GlobalAgent 子轨迹 drain。本轮读新 helper 与其调用方、新增 descendants/tool-presentation/global-agent 测试，以及对应 package/lock diff；lock 只新增已存在锁图版本的 importer，未升级 DSH/runtime 版本。新增公开 dependency 在 integration 内，manifest 声明与 package exports 对应，无 private import 或 runtime patch。
+- `index.ts:390` 仅同步 `structuredClone(fallback.list(id))` 并生成模型投影 digest；`DescendantReader` 执行 flush/stat/observe，只输出目录与自有事件，未写 inbox、原生事件、ModelRun、输入归属或 ModelFallback 状态。旧 `session.observe`/`session.lookup` 及 turn/end 到新 helper 的接线未改变。
+- reader 在获取 observation 后同步捕获模型版本，ModelRun 在同 cursor 从 switching 变 completed 时触发自有事件重放；消费者在投影成功后确认 cursor/modelVersion。它保护子轨迹显示对异步 fallback 终态的观察，不对本 unit 的最终 turn 归属投影引入缓存或额外过滤。
+- `global-agent.ts:600` 的 root/child drain 分离未改变 root 对 durable、input completion、logicalEvents 和 model notices 的处理；通知/恢复仍等待双方，业务入口只等待 root，busy/stop 覆盖新增 child drain。新测试明确覆盖 same-cursor fallback completion 和挂起 child 不阻塞发送/任务入口。
+
+### Validation limits
+
+未重复旧 narrow tests、benchmark 或全量测试，未启动任何进程；遵守 caller 关于全机过载与串行构建的安排。检查时 `/tmp/perf649-environment/final-build.log` 仍在 TypeScript 构建阶段，不能据旧 build 宣称本次最终依赖/注入环境已实跑通过；caller 负责新版 build 与产品启动/备用链局部观察。主干 #393 的既有验证见其归档报告，但不冒称在本冻结版重跑。旧版完整产品 acceptance 的实际 SHA 继续保留，新增 runtime 启动契约由新版局部观察补齐。无关键语义缺证要求重跑已覆盖的旧算法测试。
