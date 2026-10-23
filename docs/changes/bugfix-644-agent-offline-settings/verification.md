@@ -91,7 +91,7 @@ None.
 
 ## Corrected Delta Reconciliation
 
-Current reconciliation, updated at Round 2 validated source `acf0c72f2e799775311cca501dfb934d9174472f`. The original Round 1 mismatch remains recoverable in report commit `a685d1aa4fff34a30d763a4e35cce4ea93fe5564`; its findings above are historical and their closure is recorded below.
+Current reconciliation, updated at Round 3 validated source `feb2e1885129bc9479bd29821065101149b6584d`. The original Round 1 mismatch remains recoverable in report commit `a685d1aa4fff34a30d763a4e35cce4ea93fe5564`; its findings above are historical and their closure is recorded below.
 
 | Delta item | Final implementation evidence | Test evidence | Outcome |
 |---|---|---|---|
@@ -101,6 +101,7 @@ Current reconciliation, updated at Round 2 validated source `acf0c72f2e799775311
 | HEARTBEAT/prompt/cron: successful wire, unknown vs empty, timed retained previews | Preview body/capturedAt/stale/error separated; no readOnly-to-node-offline assignment; cron gates retained | Retained cron tests; independently captured heartbeat/prompt body retention test | aligned |
 | Channel offline rejection and accepted manifest/removal convergence | Retained route gates; bodyless action headers delegated to authFetch; offline guidance corrected | Retained lifecycle/side-effect tests; bodyless action API regression | aligned |
 | PA source/blocked-contact offline settings boundary, refreshed reads, chat protection | Retained settingsOwner/query guards; no merge or patch changes to this path | Retained PA backend/frontend evidence | aligned |
+| Unknown discovered Skill collection versus explicit/confirmed empty selection | discoveryConfirmed comes from live capabilities or a profile-aligned display snapshot; explicit allowlist remains authoritative | I6 actual-page red/green plus five independent actual-component SSR boundaries | aligned |
 | Online section read failure retains last result and offers retry | Usage transport errors and HTTP200 last_known/error use SettingsRead.error; empty and nonempty history both expose retry | Parameterized transport/envelope regression, 2 passed at final revision | aligned |
 
 ### Uncovered Observable Behavior
@@ -167,3 +168,37 @@ A reviewer-created temporary external harness initially had path resolution and 
 - Original backend route, frontend channel/PA/native source evidence remains scoped to unchanged paths. Earlier broad/backend/native work and real screenshots retain their stated versions and limitations, not a newly invented final-CI pass.
 
 This round does not declare M1-U1/U2/U3's separate real acceptance or M1-W4's final complete CI passed while caller/reviewer are still collecting them. The scoped static closure and delta gates pass; overall delivery remains contingent on those independent final gates. No business source, test, configuration, design or delta was changed by this reviewer; only these review reports are committed.
+
+
+## Round 3 - I6 local patch and closure
+
+> Review modes: local patch / targeted-closure / corrected-delta affected-area reconciliation.
+> Effective PR base: `55376c111`; prior static source: `acf0c72f2e799775311cca501dfb934d9174472f`.
+> Product Round 2 report parent: `37dea697`; final validated_at: `feb2e1885129bc9479bd29821065101149b6584d`.
+> Static verdict: **PASS - 0 CRITICAL / 0 WARNING / 0 SUGGESTION**.
+> I6 implementation seam: **closed**. Current `code-review.json`: **[]**.
+> Corrected-delta: **aligned**; requires_full_verification: **false**.
+
+### Scope and finding disposition
+
+This is the requested local follow-up, not a repetition of the full review. Inspected all three affected source/test files in feb2e1885: `agent-detail-page.tsx`, `skill-source-selector.tsx`, `agent-edit.test.tsx`, plus the evidence-only implementation note. Product Round 2 independently closed I1-I5 and retained/passed R1/R3-R11 while finding I6 in R2. Those product findings and the static W1-W4 closure remain versioned evidence, not overwritten or reasserted as newly executed journeys.
+
+**I6 - closed at the implementation/automated seam.** With no snapshot and `explicit_denylist=[]`, the discovered collection is unknown, so a numeric enabled total cannot be inferred. The page now passes `discoveryConfirmed` from a real live-capabilities result or `display.data.derived_current`, which the backend preserves only for the matching committed profile version. The selector's existing mode caption uses unconfirmed feedback when that evidence is absent for discovery/denylist modes; it no longer claims zero enabled Skills. A nonempty explicit disabled-name list stays visible/read-only. Per-entry enabled:null and indeterminate group handling from W2 are retained. Actual explicit allowlist selections remain authoritative and are deliberately exempt from needing a discovery census. A confirmed successful empty catalog still permits the existing zero-count meaning.
+
+The new input defaults true for existing call sites, preserving creation-page behavior. The setting page supplies actual provenance explicitly. No selection mutation, PATCH payload, save/recovery condition, channel lifecycle, PA guard, preview or runtime dependency changes are present. No new label suffix, selector redesign or full-directory offline persistence is introduced. There are no surviving patch findings.
+
+### Focused verification evidence
+
+- `/tmp/bugfix644-i6-red.log`: the real Agent detail-page regression failed before the fix with expected unconfirmed feedback versus actual `0 selected`; this is a meaningful observable red, not a collection/import failure.
+- `/tmp/bugfix644-i6-green.log`: two files / 23 tests passed after the fix. The page test covers no snapshot with both empty and nonempty explicit denylists and recovery to a genuinely confirmed empty result; existing selector tests retain explicit-allowlist/denylist conversion and enabled:null protection.
+- `/tmp/bugfix644-i6-typecheck.log`: caller reports successful frontend tsc; the log was inspected and has no diagnostics. This is reused evidence, not an independently rerun compiler claim.
+- Independent actual-component rendering at frozen feb2e1885, command `tsx --tsconfig src/IM/frontend/tsconfig.app.json /tmp/bugfix644-i6-static-boundaries.mts`, exit 0; output `/tmp/bugfix644-i6-static-boundaries.log`: unknown empty denylist, unknown nonempty denylist and old-derived-state all rendered `Default state has not been confirmed`; old-derived group retained its dash count; explicit empty allowlist and confirmed empty denylist both rendered `0 selected`.
+- `git diff --check feb2e1885^..feb2e1885`: passed. No service or production manipulation and no business/test edits were performed by this reviewer.
+
+### Retained evidence and delta impact
+
+The effective main-base movement from `51072cb58` to `55376c111` changes only documentation, skills and CI. Actual diff inspection shows no product implementation movement in that base update. Changes to final CI dispatch affect what caller must execute/report, not the content or provenance of already recorded HTTP/UI results. This local patch itself changes only the Skills discovery-status caption input and its page regression. Consequently Round 2 static closure, mutation/authorization boundaries and the product review's expressly retained unaffected journeys remain applicable. There is no evidence requiring a fresh full static review.
+
+Incident R2, design's unknown/default-discovery constraints and the added agents-nodes delta already require unknown information not to masquerade as an empty business value. I6 fixes the implementation to those same contracts; explicit empty selection and last-confirmed-source semantics are preserved. No delta edit is required, and no newly uncovered stable external behavior was identified. The canonical Corrected Delta Reconciliation table above is updated to this final source while Git retains earlier rounds.
+
+The independent product reviewer is separately performing I6's final real-page closure. This static PASS does not preempt that result or invent final full-CI evidence. Overall unit delivery remains subject to the caller's final checks and the separate product verdict. Only this report is changed; `code-review.json` is revalidated and remains the empty current finding array.
