@@ -111,6 +111,17 @@ export class Messaging {
     const access = conversationAccess(this.db,id,userId);
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
+    const lastMessage = c.last_message_at ? one(this.db,
+      "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+      id, c.last_message_at,
+    ) : undefined;
+    const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
+    // Stored previews can end inside a mention tag. Resolve from the full message
+    // before truncating so existing conversations also recover on refresh.
+    const preview = lastMessage?.content.trim()
+      .replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
+        (_tag: string, targetId: string) => `@${names.get(targetId) || "unknown"}`)
+      .slice(0, 120) || c.last_message_preview;
     const prefs =
       one(
         this.db,
@@ -153,10 +164,8 @@ export class Messaging {
       is_pinned: !!prefs.is_pinned,
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
-      last_message_system_notice: c.last_message_at ? JSON.parse(one(this.db,
-        "SELECT system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
-        id, c.last_message_at,
-      )?.system_notice_json ?? "null") : null,
+      last_message_preview: preview,
+      last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(
         this.db,
         "SELECT 1 FROM messages WHERE conversation_id=? AND delivery_status='running'",
