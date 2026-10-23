@@ -72,3 +72,10 @@ GitHub Actions run `39990544671`：
 - 后端 126 files / 637 tests 通过，唯一失败为 providers 的旧空工具夹具默认开启 Feature，configuration.apply 被新契约拒绝，后续 session.ensure 报 Unknown configuration revision。修正测试夹具为明确关闭 Feature 的纯模型会话，并新增 effective=true 断言；不改变产品校验。
 - Web 87 files / 863 tests 通过；17 suites 未能加载新共享契约子路径。干净前端 job 仅 npm ci，未构建 workspace product-contracts/lib，故新增使用前端现有 TypeScript/@types 的显式契约构建步骤；本地该命令通过。没有源码别名、跨包绕过或第二份依赖表。
 - iOS 完整测试与归档仍运行中。完整结果以最终 head 的远端 CI 为准。
+
+## CI 与实际卡片修复收口
+
+- `e53d3a1d4` 的远端 run `39991376997`：backend 的 build/typecheck、interactive runtime、完整 native/IM 测试、Python、ruff 全通过，仅末尾 active unit 归档门禁失败；unit 尚未完成验收，未提前移动来冒充交付。iOS 完整回归与 Release archive 成功。
+- Web 构建前置补齐后，全量剩唯一旧 agent-edit 测试失败：缺少新 capability-usage 成功夹具使关闭请求按规则保持原态；补齐后暴露其旧断言会把显式 allowlist 转为 denylist。夹具与断言改为明确保留已加载 allowlist、实际选择 tdd-execution-worker/plan；5 tests 原超时下通过（`/tmp/feat645-web-edit-fixture-green.log`），未改产品行为。
+- 产品 reviewer 实际发卡片返回 invalid_scope。调用链确认 single_thread 的 conversation query 误走 Global session 注册；IM 本来允许 single_thread 查询而不创建 Global Work 记录。`629c6aff7` 仅对 Global query 注册 authority；原访问及发送审批保留。加强既有 interactive-replies 夹具，先 2 tests 同错失败，再 interactive-replies/global-agent 52 tests 通过；PA build 通过。真实复验由原 reviewer 追加 Round 2。
+- 为真实维护保护验收，经 reviewer 请求，仅本任务三测试 workspace 的 `.nanoassistant/config.yaml` 将 memory/skill nudge interval 设为 1；正常 stop/start 保留 Agent/DB，原配置有则先备份。未修改生产或模型审批。实际 Node PID64225 / DSH64231 ready/connected，运行产品629c6aff7。

@@ -1,7 +1,7 @@
 # Verification Report: feat-645-capability-dependencies
 
-> Validation snapshot: `5d03e0567^2 → 850e6cd82547c083655bc69d5de465105fd5eeac`  
-> verification_mode: `full + corrected-delta`; review_round: `1`  
+> Validation snapshot: `5d03e0567^2 → 850e6cd82547c083655bc69d5de465105fd5eeac`
+> verification_mode: `full + corrected-delta`; review_round: `1`
 > 产品实现冻结：`9802c9347`；`850e6cd82` 仅补 Web 测试类型。现场后续提交文档证据并合并至 `5ce70533c`；已核实 `850e6cd82..5ce70533c` 的 `apps/`、`packages/`、`src/` 无变化。另按 caller 派发静态核对 CI 差分 `aeccebccb`。本报告由独立 verifier 写入，不修改源码、测试、配置或设计。
 
 ## Summary
@@ -135,3 +135,51 @@ Outcome: **aligned**。没有 `delta-mismatch` 或已证实 `implementation-mism
 - 远端 backend/frontend使用Node24.22.1；iOS相关路径和workflow本身触发原生gate。该顺序变更自身无新增可证实缺陷，targeted code-review findings: `[]`；verification: aligned。实际远端运行结果 pending，不依据YAML静态检查宣布CI通过。
 
 本轮仅新增本报告；没有提交，也没有修改其他工作内容。C1及pending evidence补齐后可作一次targeted证据复核；若后续修改产品代码，应按实际fix影响补核。
+
+## Round 2 — Targeted CI / Provider Fixture / Single-thread Card Delta
+
+> Validation snapshot: `5ce70533c → 629c6aff7a347c10ff597d1ece2d179613fef5f4`
+> verification_mode: `delta + targeted-closure`; code-review scope: 三个指定提交及其直接调用方；不重新 full。
+
+本节更新 Round 1 的适用证据和完成度。Round 1 的源码一致性判断不能覆盖随后真实产品验收发现的 single_thread 卡片失败，也不能替代真实旅程。独立产品 `acceptance.md` 已记录 A1 invalid_scope；本轮只核其修复和相关自动回归，不静默改写该份验收报告的历史 fail。
+
+### 合并审查结论
+
+| 项目 | 结论 |
+|---|---|
+| Targeted code review | 无新增存活问题，`code-review-ci-card.json` 为 `[]` |
+| 实现一致性 | 三个实际修复均 aligned；没有新增授权旁路、产品依赖图副本或通过放宽超时掩盖失败 |
+| 原始 P1 / P2 | 保持 closed；三处增量不改变恢复 snapshot 或命名 Skill 关闭预检 |
+| 产品 A1 | invalid_scope 根因及修复经直接代码链和红绿回归核实；**真实卡片 targeted 复验仍 pending**，不能在验收层宣布 closed |
+| C1 / 产品 A2 | 原生 Toggle、VoiceOver/焦点、安全区可见交互仍缺证据；iOS CI通过不关闭此项 |
+| 产品 A3 | 独立 reviewer 仍缺维护/Heartbeat在途、部分tool-only及Global/Personal实际卡片证据；自动化证据可支持实现，不能把未走完的真实旅程记pass |
+| 最终 verdict | **INCOMPLETE**；本轮没有新增实现 mismatch，仍不能宣布全部M1退出标准完成 |
+| requires_full_verification | `false`；卡片实际复验和其余有界证据可 targeted 补核 |
+
+### 三处实际差分
+
+| 差分 | 触发失败与期望契约 | 实现 / 调用方核对 | 直接验证 | Outcome |
+|---|---|---|---|---|
+| `704c62d89`：干净前端job编译共享契约 | Web引入browser-safe `@nano/product-contracts/capabilities` 后，干净frontend job仅npm ci，没有packages/product-contracts/lib，17 suites加载失败。D4要求公开subpath可构建，不用源码alias绕过 | `.github/workflows/ci.yml:140` 在npm ci后执行 `npx tsc -p ../../../packages/product-contracts/tsconfig.json --typeRoots ./node_modules/@types`；前端已有TypeScript和显式@types/node；product-contracts tsconfig输出lib，exports仍指lib；不加入业务跨包相对import | caller已在Node24运行同一显式命令通过；修复后的干净远端frontend完整结果仍待返回。原run已过863项不能覆盖17个未加载suite | aligned；targeted code review无finding |
+| `e53d3a1d4`：providers纯模型夹具遵守能力契约 | 旧fixture tool_allowlist=[]但Feature按默认开启，configuration.apply拒绝未断言，随后session.ensure报Unknown configuration revision；目标测试仅核credential移除，不应隐式要求不完整Feature配置可用 | `apps/node/tests/providers.test.ts:74` 显式六Feature=false，断言effective=true；真实native lifecycle、HTTP授权头断言、20秒永久超时及产品校验均保留 | run39990544671的native回归为637pass/1fail；修复用例Node24.22.1以原20秒超时单跑11.66秒通过，`/tmp/feat645-provider-fixture-fix.log` | aligned；失败前提修正，没有绕过产品依赖 |
+| `629c6aff7`：single_thread query不注册Global Work | M1-R3 / gateway delta要求IntelligentUI关闭、send_message单开时普通/Global/Personal实际能发布合法卡片；真实single_thread卡片在query前无条件ensureAuthority，IM agent.session.ensure只允许global而返回invalid_scope | `packages/personal-assistant/src/global-agent.ts:491` 仅config.mode==='global'调用ensureAuthority；IM `gateway.ts:564` 的Global限制保留；`work.ts:488` 本已仅Global查询要求Work session记录，single_thread仍验证agent/node/is_stale/available/用户/会话；ProductCall绑定身份、发送revalidation/schema/approval/idempotency均未删除。Global与Personal的原global注册仍保留 | `interactive-replies.test.ts:26` 明确single_thread，并让mock的Global注册失败；修前Web/Feishu两项invalid_scope红（`/tmp/feat645-single-card-red.log`），修后同文件+global-agent共52tests过（`/tmp/feat645-single-card-green.log`）；PA build通过。真实卡片发布待产品reviewer复验 | aligned；机制修复自动回归通过，产品A1验收关闭pending |
+
+本轮还检查 query 的其他实际调用方：messageContext 的目标身份查询、inbox describe/info和conversations，以及send的resolve_target/info。mode条件与服务器现有Work.query分支匹配；普通single_thread不建立Global记录，并不免除IM现有访问校验。未对未知或离线状态增加成功fallback，query仍传播服务器拒绝。
+
+### 更新的远端自动化证据
+
+本 verifier 通过GitHub connector只读获取 run `39990544671` 最新job/step summaries。iOS job `120540953635` 已 `completed / success`，其 `Native regression tests` 与 `Release device archive` 两步均为 `completed / success`。
+
+- [该run的iOS job](https://github.com/Mrchen116/nano-multiagent/actions/runs/39990544671/job/120540953635) 对应 `5ce70533c`，包含 `9802c9347` Swift busy Skill修复及新增三模式回归；`5ce70533c..629c6aff7` 没有iOS源码/测试改动。因此可补齐Round1“修复后Swift新增回归运行pending”和对应iOS Release archive缺口。
+- 这是Swift/iOS自动化gate证据，不是原生可见交互、焦点/VoiceOver或安全区验收；C1和产品A2保持未完成。
+- 同一旧run的backend job因providers fixture失败、frontend因共享契约lib缺失失败，与本次两项修复相对应；旧run不是最终全量CI green。`629c6aff7` 的最终backend/frontend以及整个PR状态仍需以其对应run为准。用户已允许远端CI，本轮不重跑大矩阵。
+
+### Corrected Delta Reconciliation 增量
+
+| Delta / 对外行为 | 本轮影响 | Outcome |
+|---|---|---|
+| gateway agent-capabilities：IntelligentUI关但send_message正常，普通/Global/Personal保留权限与审批 | 新增修复仅消除single_thread查询误走Global注册；目标行为在原delta中已明确，不需为修复放宽契约 | aligned；实际旅程复验pending |
+| im agents-nodes：配置与实际使用一致 | 卡片的invalid_scope是真实执行链偏离，已按原契约修复，不能仅凭保存成功替代发布验收 | aligned；产品A1的最终结论待补 |
+| 架构与运行配置 | 无新产品对外接口；CI只生成既有公开包lib，providers只修测试前提 | aligned；no additional spec delta |
+
+本轮没有发现三项差分产生尚未被unit delta覆盖的新增产品行为。仅追加报告及写入指定JSON，没有提交或修改源码/测试/配置，也没有操作隔离服务。
