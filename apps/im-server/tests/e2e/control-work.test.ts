@@ -4,7 +4,7 @@ import { start, bind } from "./helpers.js";
 
 it("transports configuration receipts, encrypted channel manifests and global Work over the real socket", async () => {
   const f = await start(),
-    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {heartbeat: true}}});
+    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph","read"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:true}}});
   const mirror = await f.http(
     "GET",
     "/im/v1/agents/assistant/config?source=mirror",

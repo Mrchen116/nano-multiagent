@@ -1,4 +1,5 @@
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
+import { effectiveFeatures } from '@nano/product-contracts/capabilities';
 import { canAccessSpace, canActorAccess } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -9,6 +10,17 @@ import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { taskNotices } from "./task-notifications.js";
 
 type Obj = Record<string, any>;
+/** Count an Agent's durable responsibility across all conversations. */
+export function activeTaskCount(db: DatabaseSync, agentId: string): number {
+  return Number(db.prepare("SELECT count(*) AS count FROM task_graphs g, json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') IN ('doing','waiting')").get(agentId)!.count);
+}
+
+/** A pending configuration may withdraw Task behavior, its tool, or both. */
+export function withdrawsTask(previous: Obj, candidate: Obj): boolean {
+  return effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph
+    || (previous.tool_allowlist === undefined || previous.tool_allowlist.includes('task_graph'))
+      && candidate.tool_allowlist !== undefined && !candidate.tool_allowlist.includes('task_graph');
+}
 export interface TaskGraphActor {
   kind: "user" | "agent";
   id: string;
@@ -571,9 +583,9 @@ export class TaskGraphService {
             actor.id,
           )
         : this.row(
-            "SELECT u.id,p.owner_id,p.display_name,p.space_id,p.work_mode,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND (?=1 OR (COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')))",
+            "SELECT u.id,p.owner_id,p.display_name,p.space_id,p.work_mode,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND (?=1 OR (EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph') AND (?=0 OR COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1)))",
             actor.id,
-            actor.node_id ?? null, action==='execution_pause'?1:0,
+            actor.node_id ?? null, action==='execution_pause'?1:0, ['execution','execution_scopes'].includes(action)?1:0,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
     const user = this.personalRead?.ownerUserId ?? delegatedAccessUser ?? delegatedOwner ?? p.id,
@@ -896,6 +908,16 @@ export class TaskGraphService {
     }
   }
   private save(doc: Obj) {
+    const previous = this.row('SELECT document_json FROM task_graphs WHERE graph_id=?', doc.graph_id);
+    const active = (node: Obj) => node.assignee?.type === 'agent' && ['doing','waiting'].includes(node.status);
+    const existing = new Set((previous ? JSON.parse(previous.document_json).nodes : []).filter(active).map((node: Obj) => `${node.id}:${node.assignee.id}`));
+    for (const node of doc.nodes.filter(active)) {
+      if (existing.has(`${node.id}:${node.assignee.id}`)) continue;
+      const operation = this.row("SELECT candidate_json,previous_candidate_json FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')", node.assignee.id);
+      if (operation && operation.previous_candidate_json && withdrawsTask(JSON.parse(operation.previous_candidate_json), JSON.parse(operation.candidate_json))) {
+        fail('capability_in_use', 'Agent configuration is withdrawing Task capability; retry after configuration completes');
+      }
+    }
     const { owner_id, ...body } = doc;
     const space = this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id;
     this.db

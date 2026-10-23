@@ -1,4 +1,5 @@
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
+import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
 import { isInteractiveStringState } from './interactive-source.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -358,7 +359,9 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
-        await ops.create({agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:{cron_scheduling:true,task_graph:true,memory_curation:true,heartbeat:true,skill_creation:true},skills:[],tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null},u.owner_id,b.node_id);
+        let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
+        for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
+        await ops.create(candidate,u.owner_id,b.node_id);
       }
       transaction(ctx.db,()=>{
         const agentUser=ctx.messaging.agentUser(b!.agent_id);
