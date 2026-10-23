@@ -183,3 +183,47 @@ Outcome: **aligned**。没有 `delta-mismatch` 或已证实 `implementation-mism
 | 架构与运行配置 | 无新产品对外接口；CI只生成既有公开包lib，providers只修测试前提 | aligned；no additional spec delta |
 
 本轮没有发现三项差分产生尚未被unit delta覆盖的新增产品行为。仅追加报告及写入指定JSON，没有提交或修改源码/测试/配置，也没有操作隔离服务。
+
+## Round 3 — Targeted Edit Fixture / Workspace Preparation Delta
+
+> validated_at: `e725603ed5d4c8d799ed5c38055a9b4a5bf7c3ce`
+> executed_base: `55376c1112ff870837a6ee65febf52e1f3686a9b`
+> fix_delta_range: `629c6aff7a347c10ff597d1ece2d179613fef5f4..e725603ed5d4c8d799ed5c38055a9b4a5bf7c3ce`
+> verification_mode: `delta + targeted-closure`; scope为caller指定两处修复及直接调用方，不重新full。
+
+### 本轮结论
+
+- Targeted code-review无新增存活问题：`code-review-workspace.json` 为 `[]`。原P1（拒绝候选污染重启快照）与P2（命名Skill关闭预检）保持closed。
+- 两处修复与原契约 **aligned**；workspace准备时序问题的实现/回归已修复，但Personal真实创建/发卡片的产品复验仍pending。本轮不根据尚未收到的结果关闭产品A1/A3，也不提前关闭原生C1/A2。
+- Web干净job的共享契约产物问题及旧edit fixture问题已有远端完整通过证据；这只补Web自动化完成度，不把Web通过等同于整个PR/原生可见验收通过。
+- 总体仍为 **INCOMPLETE**；`requires_full_verification: false`。后续产品与最终CI结果可作targeted证据更新，无需再次full。
+
+### 差分核对
+
+| 修复 | 契约 / 失败原因 | 实现及直接调用方证据 | 测试证据 | Outcome |
+|---|---|---|---|---|
+| `3af469eb7`：agent-edit夹具与实际选择模式/usage一致 | UI关闭动作必须刷新真实usage，读取失败保持原态；D4允许历史explicit allowlist按原语义调整，不要求任意Skill编辑都转换mode | `agent-edit.test.tsx:27,43` 明确initial mode为explicit_allowlist；`:76` 为实际capability-usage路径提供空占用成功响应；`:209` 期望启用集合为tdd-execution-worker/plan，mode保持allowlist。仍执行页面交互、版本更新及实际PATCH快照断言，没有更改产品实现、永久超时或绕过usage | `/tmp/feat645-web-edit-fixture-green.log` 为5tests通过；GitHub job120547121912的共享契约构建及完整vitest步骤均success | aligned；targeted code-review无finding |
+| `e725603ed`：新Agent/Personal workspace在runtime prepare前可挂载 | 真实新PA创建在prepare中WorkspaceExtensions.attach/realpath报ENOENT；D6要求prepare先于candidate持久化，而运行时挂载仍需要真实目录 | `apps/node/src/configuration.ts:97-113` 保留identity、mode、Personal owner/binding不可变、Global workspace不可变、完整静态依赖校验；先由runtime(resolved)校验模型、reasoning/fallback、approval读取，再mkdir目标目录，返回候选，不调用persist/write。Node main将resolve交给既有ConfigurationOperations；后者仍依次保存operation receipt、校验CAS、prepare、成功后persist、apply | `apps/node/tests/configuration.test.ts:45` 原默认/自定义workspace base两场景扩展目录存在、config.current不存在、重读磁盘也不存在候选断言；修前两项ENOENT，修后Node24.22.1下9tests与Node build通过，见validation.md“新建个人助手workspace时序修复” | aligned；代码/回归修复成立，真实新PA验收pending |
+
+### Workspace持久化与权限边界
+
+1. `NodeConfiguration.resolve` 的新增副作用是创建经现有验证解析的目标目录；**不代表零文件系统副作用**。新目录可供catalog/preview及WorkspaceExtensions挂载；如果后续prepare拒绝，空目录可能已存在，但候选不因此成为持久Agent配置、有效runtime配置或已确认重启快照。
+2. `packages/personal-assistant/src/configuration.ts:43-79` 没有变化：resolve之后写入的是既有write-ahead operation receipt；prepare不ready时保存rejected receipt并release，只有ready后调用persist。`NodeConfiguration.write` 才写配置文件、更新value.agents；该持久边界没有前移。
+3. `apps/node/src/runtime-partitions.ts` 的routeConfiguration/only-effective-apply snapshot规则没有变化；新增mkdir不调用assign、不启动Agent、不发布availability，不重新引入P1。
+4. IM创建入口仍先认证owner及owning node，Personal创建仍由server-issued binding产生candidate；Node仍核Personal owner与global mode、既有binding及Global workspace不可变。新增mkdir不接受额外身份字段、不放宽会话/资源空间访问、不关闭Auto或改审批规则。
+5. 目标路径仍来自已选择workspace或现有defaultWorkspace，沿用原persist/write已经使用的recursive mkdir行为；不增加任意路径扫描、复制已有内容或自动历史迁移。runtime配置校验发生在mkdir之前；能力/模型等前置失败不会因为这两行新增逻辑而写入candidate。
+6. 创建preview/capability入口原已在runtime挂载前mkdir（Node `main.ts:206`），本修复补齐的是configuration operation真实resolve→prepare路径，未新增另一份配置真相。
+
+### 证据更新与保留缺口
+
+本verifier通过GitHub connector读取job `120547121912` 的step summaries：`Install dependencies`、`Build shared browser contracts`、`Dependency audit (critical)`、`vitest run`和Complete job均为completed/success。因此Round2的“修复后干净frontend完整结果pending”已由真实成功步骤补齐；caller将其归属为包含edit fixture修复的远端Web job。本轮e725仅改变Node目录准备及测试，没有Web代码变化。
+
+Node workspace红绿与9tests结果复用caller的`validation.md`记录及实际新增断言，没有重复启动大矩阵或服务。记录可证明resolve前置目录和未持久candidate，不能替代“真实Personal创建、首条输入与卡片发布”的产品入口结果。
+
+caller本轮交接称Round2的single_thread/Global真实卡片、Memory/Skill维护busy保护已pass；这些结果尚未在本轮收齐独立产品报告，本报告先保留为交接进展，不据此预写全部M1-R3/R4或产品A3完成。Personal待正常重启后复验、Heartbeat进行中、native AX恢复后已交独立reviewer；**这三部分在收到实际结果前继续pending**。iOS自动化测试/archive已通过的Round2证据仍适用，原生C1/A2只由可见交互证据关闭。
+
+### Corrected Delta Reconciliation 增量
+
+两项修复均落实既有“配置操作可恢复/先校验再持久化”“创建默认workspace可实际运行”“工具/Skill选择真实可用且保留mode”承诺，没有新产品对外接口或需求变化。无需为修复另写行为delta：**no additional spec delta / aligned**。
+
+本轮只新增指定JSON及追加本报告；未提交、未修改业务或测试、未操作服务，也未替产品reviewer修改acceptance结论。

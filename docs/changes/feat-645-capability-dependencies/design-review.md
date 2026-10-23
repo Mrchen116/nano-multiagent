@@ -264,3 +264,7 @@ R1 原型、当前界面依据和跨端限制仍有效；本轮不重复浏览�
 ### Author Acceptance — R4
 
 作者核实 R3-W1 已关闭，R4 为 Approved、0 CRITICAL / 0 WARNING；能力语义与运行时设计沿 R2 retained。同步 evidence README 只记录既有复核事实，不改受审交互或架构，Gate 2 retained。用户已授权开始实施，后续在 unit/feat-645 独立 worktree 交付。
+
+## Author — 验收平台范围确认（2026-10-24）
+
+用户在确认实体iPhone与已完成Simulator测试的区别后，明确表示本次不需要VoiceOver真机验证。design/runbook据此将该项列为未测限制，保留真实Simulator保护Toggle、轻提示、无障碍树与安全区验证。此为用户授权的验证范围调整，未改变产品设计、依赖矩阵、关闭保护、Toast呈现或实现；R4设计/原型结论retained，不新增设计审查Round。独立产品reviewer与verifier仍须按本次已测事实给出结论，不得将VoiceOver语音/读屏焦点记为pass。

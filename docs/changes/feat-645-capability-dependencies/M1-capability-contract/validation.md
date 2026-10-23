@@ -85,3 +85,15 @@ GitHub Actions run `39990544671`：
 独立 Round2 创建个人助手时，configuration.prepare 的 WorkspaceExtensions.attach 报 workspace realpath ENOENT。prepare 现先于 persist，而旧目录创建仅在 persist/write 内，导致新 Agent 预检失败。NodeConfiguration.resolve 在身份、能力及模型验证后创建目标目录，让预检挂载成功；候选仍仅在通过预检后持久化。没有提前写入 Agent 配置或 runtime recovery snapshot。
 
 既有默认/自定义 workspace base 两场景补上“预检前目录存在、内存和落盘配置仍不包含新 Agent”断言，修前 2 项 ENOENT 失败，修后 Node24.22.1 下 configuration.test.ts 9 tests 通过，Node build 通过。真实个人助手入口待正常重启后的 targeted 复验。
+
+### e725603ed 远端完整矩阵与现场恢复
+
+用户授权转远端后，[run39992871340](https://github.com/Mrchen116/nano-multiagent/actions/runs/39992871340) 的 backend job120548802272 已完成全部构建/typecheck、native/IM 127 files / 638 tests、Python 65 passed（31 deselected）及 Ruff check/85 files format check。该 job 仅末尾归档检查失败：unit仍active；保留检查直到真实验收完成。Web job120548803026 全部104 files / 987 tests通过。此时最新 iOS job120548889910仍在运行；较早同Swift版本的tests/archive成功证据仍有效。
+
+新PA修复后正常stop/start，Node69004/DSH69038 ready/connected，继续原测试DB/config。停止本地重负载后仅boot本任务Nano feat645模拟器；CUA AX click/setValue恢复，主Agent打开原生登录页后移交独立产品reviewer，后者连接localhost54795并完成登录、Heartbeat关闭及节点确认。原生受保护开关/提示后续结论以独立acceptance Round2为准，不以“可操作”代替完成验收。
+
+个人助手目录修复后，旧pending UI有既有恢复入口缺口：sidebar直接导航尚不存在的conversation，Retry dialog仅由实际聊天的配置按钮打开。未扩大本unit修改该旧UI。经产品reviewer协调，以正常nano认证GET当前personal-agent取得原creation.request_key，再POST同一创建路由携带原key/node/name（与Retry按钮一致），HTTP201返回active；再次GET确认原pa_29dcc09b9e55 active、原conversation c_9d2b68d1c45c。无数据库改写、新身份或手工mkdir。此步为合法产品API辅助恢复，不冒称UI重试通过；之后由reviewer实际配置和发布卡片。
+
+该最新run的iOS job120548889910随后completed/success（Native regression tests与Release device archive均success）。截至e725603ed，全部功能/构建/格式CI步骤均通过，仅归档门禁仍正确拒绝active unit。2026-10-24独立产品Round2已在真实Simulator完成原生开关联动和保护提示；Apple官方《Performing accessibility testing for your app》说明VoiceOver不在Simulator提供，因此不能把AX文本或自动回归冒称真机VoiceOver播报。已向用户请求是否授权替代验证，未答复前保留该缺口，不自行归档或宣称全部门禁通过。参考：https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app 。
+
+原生受审产物补核：simctl get_app_container解析本任务设备win.nanoim.ios后，已安装NanoIM与本任务/tmp/nano-ios-feat645/Build/Products/Debug-iphonesimulator/NanoIM.app的主程序SHA256均为1f5031b3fa1a6e5df8d2de47c9186f5ba10110ee751373842777db97e7645e9e；NanoIM.debug.dylib均为6cf4d50bb9374485b5280c4dec47da7fbe61e9dff299a6033eb1a91b876ac424。确认真实点验使用该build，非旧生产包。设计预览HTTP48646已正常停止并确认无listener。
