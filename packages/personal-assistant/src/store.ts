@@ -15,6 +15,7 @@ export class NodeStore {
       PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
       CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX IF NOT EXISTS usage_reports_pending ON usage_reports(acknowledged) WHERE acknowledged=0;
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS owner_timezone (owner_id TEXT PRIMARY KEY, timezone TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (
@@ -29,7 +30,8 @@ export class NodeStore {
       CREATE TABLE IF NOT EXISTS inputs (
         input_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id),
         relay_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL,
-        accepted INTEGER NOT NULL DEFAULT 0, turn INTEGER, terminal TEXT
+        accepted INTEGER NOT NULL DEFAULT 0, turn INTEGER, terminal TEXT,
+        evidence_final INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS runtime_events (
         session_id TEXT NOT NULL REFERENCES sessions(session_id), seq INTEGER NOT NULL,
@@ -51,6 +53,12 @@ export class NodeStore {
     this.db.prepare('INSERT INTO node_owner(owner_id) SELECT ? WHERE NOT EXISTS(SELECT 1 FROM node_owner)').run(ownerId);
     const owner = this.db.prepare('SELECT owner_id FROM node_owner').get() as { owner_id: string };
     if (owner.owner_id !== ownerId) { this.db.close(); throw new Error('Node state belongs to a different owner'); }
+    // Historical terminal values include physical attempt ends, so upgrades must
+    // leave every old input eligible for an authoritative lookup.
+    if (!(this.db.prepare('PRAGMA table_info(inputs)').all() as { name: string }[]).some(column => column.name === 'evidence_final')) {
+      this.db.exec('ALTER TABLE inputs ADD COLUMN evidence_final INTEGER NOT NULL DEFAULT 0');
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
     this.toolReferences = new ToolReferences(this.db);
   }
 
@@ -174,10 +182,27 @@ export class NodeStore {
     return id;
   }
   accepted(inputId: string): void { this.db.prepare('UPDATE inputs SET accepted=1 WHERE input_id=?').run(inputId); }
-  inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }): void {
-    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=? WHERE input_id=?').run(
-      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), inputId,
+  /** Persist lookup evidence atomically with its logical finality.
+   *
+   * Args:
+   *   inputId: Durable runtime input identity.
+   *   evidence: Authoritative session.lookup result.
+   *   final: Whether logical completion was established; defaults to unresolved.
+   */
+  inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }, final = false): void {
+    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=?,evidence_final=? WHERE input_id=?').run(
+      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), Number(final), inputId,
     );
+  }
+  /** Select unresolved input identities without loading completed history payloads.
+   *
+   * Args:
+   *   sessionId: Session whose durable evidence needs reconciliation.
+   * Returns:
+   *   Input IDs in admission order, including legacy rows not yet verified.
+   */
+  lookupInputIds(sessionId: string): string[] {
+    return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
   }
   inputs(sessionId: string) {
     return (this.db.prepare('SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? ORDER BY rowid').all(sessionId) as {
@@ -202,7 +227,8 @@ export class NodeStore {
         const messages = event.type === 'agent/inbox/spliced' ? event.data.inserted as RuntimeInput[]
           : event.type === 'user/message' ? [event.data as unknown as RuntimeInput] : [];
         for (const message of messages) this.runtimeInput(sessionId, message);
-        if (event.type === 'turn/end') this.db.prepare('UPDATE inputs SET terminal=? WHERE session_id=? AND turn=?').run(JSON.stringify(event.data.reason), sessionId, Number(event.data.turn));
+        // A delayed physical attempt end cannot replace a final logical lookup.
+        if (event.type === 'turn/end') this.db.prepare('UPDATE inputs SET terminal=? WHERE session_id=? AND turn=? AND evidence_final=0').run(JSON.stringify(event.data.reason), sessionId, Number(event.data.turn));
       }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }

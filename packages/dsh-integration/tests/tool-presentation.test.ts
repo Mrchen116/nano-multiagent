@@ -42,6 +42,10 @@ it('preserves native presenter output and actual child identity across configura
     const detail=children.find(item=>item.id===child);
     expect(detail).toBeTruthy();
     expect(JSON.stringify(detail)).toContain('CHILD_VIEW');
+    const unchanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:detail.modelVersion}}) as any[];
+    expect(unchanged.find(item=>item.id===child)?.events).toEqual([]);
+    const modelChanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:'earlier-model-state'}}) as any[];
+    expect(modelChanged.find(item=>item.id===child)?.events).toEqual(detail.events);
     config={...config,revision:'2',toolAllowlist:[]};
     await client!.rpc.request('configuration.apply',config);
     await client!.shutdown();client=undefined;
