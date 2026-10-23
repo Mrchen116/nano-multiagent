@@ -64,3 +64,9 @@
 - 补充 CI 等价检查：`pnpm check:ios-runtime` 通过；前端 `npm audit --audit-level=critical` 通过（仍报告 1 high、2 moderate、5 low，不说零漏洞）。
 
 独立产品验收在专用新鲜运行目录进行，位置由 `/tmp/feat637-review-path` 指向；旧作者证据目录保留。此处不把修复后窄测试称为完整验收通过，仍待独立复验与真实产品结果。
+
+### 修复冻结版本与静态门禁
+
+修复提交为 `fc101f8532e638324ebcf8bf60e51044af68c377`。设计 R4/delta Approved（0 CRITICAL / 0 WARNING）；静态 R2/patch 的 code review 无剩余 finding，verification 为 PASS（0 CRITICAL / 0 WARNING）。两份 delta 已由独立 verifier 完成 corrected-delta 核对，Outcome 均为 aligned，未漏对外行为；真实产品结果由 acceptance 单独记录。
+
+冻结版本全仓 `pnpm build`、`pnpm typecheck` 通过，日志 `/tmp/feat637-final-build.log`、`/tmp/feat637-final-typecheck.log`。此前未受修复影响的全量、前端及架构测试证据保留；修复风险由两文件9项定向回归覆盖，不因角色交接机械重跑。

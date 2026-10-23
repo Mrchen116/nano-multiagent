@@ -504,3 +504,76 @@ Runbook 指向现有隔离启停脚本、受控账号、真实 IM 消息入口�
 ### Author Resolutions — Round 3
 
 已核对本轮全部覆盖与建议，未发现实质设计问题。R3-R1 统一为刷新后从持久入口重入同次范围；R3-R2 去掉本分支不存在的 feat-638 链接并明确分支边界；R3-R3 改用已有 IM 黑盒客户端作为请求契约入口，记录 TS IM 无 OpenAPI 路由。仅文档消歧与运行入口纠错，未改首文档、delta、公共接口或 milestone；Round 3 Approved retained，不新建审查轮。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，沿用 R3 独立设计 reviewer；未参与设计或实现，不兼任实现一致性、代码审查及产品验收。
+- review_mode: `delta`
+- mode_reason: R3 建议的文案、引用和 runbook 校正可 retained；但 prompt-map 新增明确的临时状态排除规则，并适配上游 Memory 定义，属于有界的提示词语义变化，需要复审。其影响限于知识归属及无长期价值信息的处理；需求、公共协议、调度、轨迹和 milestone 未变，不需要 full。F4 目录过滤及维护终态修复只核对其是否改变设计决定，不审代码质量。
+- started_at: `2026-10-23T13:25:10+08:00`
+- completed_at: `2026-10-23T13:26:33+08:00`
+- duration: `83s`
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`，branch `unit/feat-637`，开始时 clean。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- reviewed_delta: `d617906aed41fa14a34f4b3f1b5e49f179ed4129..fc101f8532e638324ebcf8bf60e51044af68c377`。
+- validated_at / effective_through: `fc101f8532e638324ebcf8bf60e51044af68c377` 的当前设计内容。
+- 受审设计散列: `design.md` = `2c122ae7af6138734acfa5c50c24e5a29d7945c88a5c48b760515584eaa8c5c3`；`prompt-map.md` = `f854450bccacf6ace2c836564bf001991146952659be4bff32b3d3bf27c52ec2`。
+- 历史保全: 追加前报告 SHA-256 `9cf22894c367a4a2d4cc722c21861d00bc53c3f3b75d50074f49f56a4fe63ee4`；保留 R3 及 Author Resolutions 原文。本轮只追加报告，不修改设计或代码、不建 worktree、不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 对当前修订继续成立。**
+
+知识归属修订是既定需求内的必要适配，F4 过滤不放宽证据资格。真实模型是否遵守修订、F4 是否完成正向产品路径，仍须各自验收，不由本设计结论代替。
+
+### Coverage 与证据
+
+#### 1. 临时状态与延后 Skill 修改的知识归属
+
+`prompt-map.md`:77、169-173 新增明确规则：不把临时任务状态、待审批事项或延后的 Skill 编辑队列写进 Memory；Skill 修改不可用或用户暂缓时跳过该修改，不将完整步骤及待办状态转存另一知识类别。上游 Memory 定义中的 current situation/state of operations 收紧为人物信息和长期环境事实，理由与差异已保存在适配记录中，不再声称此句完全原样复用。
+
+该变化与 `spec.md`:66、82-85 的临时进度不形成长期事实，以及 :128-132 的完整规则单一归属一致。它不禁止保存跨任务的长期个人偏好或稳定环境事实，不把一次暂缓推断为永久用户偏好，也不提供新的审批授权或待办执行机制。暂缓的修改不因后台学习转入 Memory，符合保留用户约束的原决定。
+
+波及范围已明确到 Memory 单项、combined 和前台 memory 说明；Skill 单项关于 Memory 的定义同步收紧。核对当前 assets 的入口与描述，未发现同一用途仍保留宽泛 state of operations 定义的冲突。这里只将这些位置作为设计适配的落点证据，不对提示词效果或实现覆盖作门禁结论。未增加工具参数、分类器、持久状态或新的跨包职责。
+
+触发该修订的 Global review `44fa9fd6-bb4a-46e5-8b8c-989f8c0b4a1d` 来自独立产品 reviewer 的交接及 `M1-evolution-prompts/progress.md`:60；本轮没有重放该真实模型过程。其观察支持为何需要消歧，但设计可接受性的依据仍是原需求和当前完整规则之间的相容性。
+
+#### 2. F4 证据预算与维护终态
+
+`design.md`:187-195 仍要求两个不同合格产品 session、自有正常完成的使用过程和工具结果，保留单 session 20,000 字符、总计 100,000 字符限制及目标/来源/patch 约束。runtime 的本次 delta 仅从候选对话中排除 source.kind=`skill-catalog` 的自动目录消息；实际 `skill-invocation`、用户消息、工具调用/结果和完成边界仍在证据选择中，自动目录不能独立证明一次技能使用或一个重复问题。
+
+将目录元数据排除在“使用过程”预算之外，与原设计按有效事件筛选证据相容。它不提高限额、不把同 session 的多轮算为两份、不添加无关会话，也不把未完成输入转成完成证据。`progress.md`:61 的三份字符计数及 fixture 结果是实施方记录，本轮只核对这一变化的设计性质，不重新计数或宣称真实 F4 产品通过。
+
+同时核对到 runtime 仅在原生 completed 时叠加 Memory 读取未完成判断。这落实 `design.md`:163“原生失败或取消保留相应终态”，未改变 R2-W2 已关闭的规则：正常停止但未读全时整轮不结算，部分成功 facts 保留。
+
+#### 3. R3 文档消歧与保留范围
+
+刷新措辞现已明确为刷新回父轨迹后从持久入口重入相同范围；未新增自动恢复 child URL 的能力。feat-638 改为分支外需求登记说明，仍排除内容整理。runbook 改指实际 IM 黑盒客户端，未改变驱动用户旅程的 API 范围。历史交付状态单独标为历史，并保留 Gate 2 未闭环即获用户授权实施的顺序。
+
+**retained_from: Round 3。** 首文档、Gateway/IM delta、公共接口与单 M1 在该 diff 内无变化。R3 对产品组装、DSH 公开能力、职责和依赖、普通/combined 调度、当前文件读取、并发保护、真实 facts 调和、轨迹名称及刷新契约的证据不受影响，继续有效。固定 Hermes SHA 不变，本轮不重新核查远端 HEAD 或文件散列。
+
+### 历史问题闭环
+
+| 原 ID | Author Resolution | 本轮证据与结论 |
+|---|---|---|
+| R3-R1 | 统一刷新后重入措辞 | **closed。** design:223、239 已与 IM delta 的持久入口及同次执行范围一致。 |
+| R3-R2 | 明确 feat-638 未纳入本分支 | **closed。** design:51 去除不存在的本地链接；非目标不变。 |
+| R3-R3 | 改用已有 IM 黑盒客户端 | **closed。** design:249 链接 `tests/e2e/critical_paths/_im_client.py`，该文件存在，不再依赖未提供的 OpenAPI 路由。 |
+| R1-W1、R2-W1/W2/W3、R2-R1 | R3 已关闭 | **closed，retained_from: Round 3。** 本次不改变当前 Memory 输入、Skill 原文件读取资格、联合终态/周期、轨迹用途及连续成功 patch 基线；原生异常终态修复与现有设计一致。 |
+
+### Issues
+
+无。0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+无新增建议。
+
+### 本轮验证与边界
+
+- 已核对冻结版本、完整设计 delta、受影响提示词落点和 F4 过滤的设计性质；未重做 full 或扩大需求。
+- `spec.md` 与两个 delta-spec 未改，21 场景的产品验收要求仍成立。原始失败案例及修订后真实结果应由产品记录保存，不能因本轮 Approved 覆盖失败历史。
+- 本轮未运行测试、真实模型、服务或浏览器；未复验行为质量。代码/一致性和独立产品门禁仍各自负责相应判断。

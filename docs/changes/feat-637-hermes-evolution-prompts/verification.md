@@ -107,3 +107,60 @@
 - 报告由 caller 提交，report_commit 尚无；未创建额外 worktree。
 
 2 warning(s) found. Fix before PR.
+
+## Round R2 / delta + targeted-closure
+
+- validated_at: `fc101f8532e638324ebcf8bf60e51044af68c377`
+- executed_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`
+- verification_mode: delta / targeted-closure
+- fix_delta_range: `d617906aed41fa14a34f4b3f1b5e49f179ed4129..fc101f8532e638324ebcf8bf60e51044af68c377`
+- focus_issues: R1-W1、R1-W2
+- requires_full_verification: false
+- verdict: PASS，0 CRITICAL / 0 WARNING / 0 SUGGESTION（独立静态门禁）。R1 历史结论保留，当前结论以本轮为准。
+
+### 历史问题关闭
+
+| Issue | 结果 | 实现／行为证据 | 结论边界 |
+|---|---|---|---|
+| R1-W1 原生终态被覆盖 | closed | `runtime.ts:290` 只在原生 completed 时应用读取未完成转换；`knowledge-policy.test.ts:67-108` 的两种原生失败核对持久 review/trajectory 的 error/failed 与 aborted/cancelled，并验证不消费周期、后续重试正常 | 不生成 DSH 未返回的 provider 诊断；仅保留原有结果。原正常 completed 但 Memory 未读全的拒绝测试仍保留 |
+| R1-W2 联合生命周期保护 | closed | `knowledge-review.test.ts:39-91`：同一根 session Memory=2/Skill=3，依次 memory、skills、memory；联合运行中已写 Skill，新增前台活动后关闭 Memory，后续写入不落盘，真实 fact/文件保留；下一次 skills 单项及重开后的 memory 单项正常 | 使用可观察 review kind、终态、facts 和磁盘产物；不按内部私有调度次数建立测试 |
+| R1-W2 F4 并发／证据／去重 | closed | `knowledge-review.test.ts:93-148`：错误 owner 和缺失历史不能与单会话凑数；第二会话仍运行时不启动；完成后只提供 first/second；F4 持有期间两个会话同时继续使用，只有一 child，冻结后2次新使用保留；仅已处理会话再累计到20仍不产生第二 child | 错 Agent/workspace 与错 owner 使用同一资格条件，当前新增保护已覆盖实际风险链，不要求为等价字段机械复制；不新增分布式调度或永久结束标记 |
+| R1-W2 绑定目标与来源保护 | closed | `knowledge-policy.test.ts:134-148`：拒绝 create/edit/write_file/remove_file、错 name、错 root，同名全局文件保持；来源在选中后变 F1 时拒绝 patch，目标正文保留 | 文件层已有锁内强制检查，测试落在最低写入边界，不再复制整个原生旅程 |
+
+### 新增 delta 一致性
+
+| 改动 | 契约与依据 | 核对结论 |
+|---|---|---|
+| 排除暂缓 Skill 修改及待确认状态进入 Memory；消除 current situation/state of operations 歧义 | spec 无长期价值信息不沉淀、单一归属、Agent 选择不冒充用户要求；Gateway delta 的长期价值与知识归属要求 | aligned；四处文案与 prompt-map 同步，无新写入能力、授权或审批机制。修复后的模型行为仍由产品 reviewer 给证据，不用文案检查冒充质量通过 |
+| F4 排除 skill-catalog 元数据 | design 的“正常完成使用过程与工具结果”、有限证据预算；不把目录重复注入作为独立使用证据 | aligned；仅排除宿主自动目录 source，真实使用/结果/用户消息及两会话门槛保留，20k/100k 限额不变。24技能真实目录 fixture 在旧代码红、当前绿；修复原有正向不可达，未扩大历史权限 |
+| 原生失败／取消保留；新增回归 | design 的正常完成读取结算、原生终态保留；原单项/联合/F4边界 | aligned；见关闭矩阵 |
+| 设计文档状态、刷新和 runbook纠错 | R3 Approved 后的非实质 Author Resolutions | retained；未改 spec、delta、公共接口、milestone。刷新仍是回父执行后由持久发起入口重入，不改为 child 地址恢复 |
+
+### Evidence retained / 本轮执行
+
+- 独立核对全部 patch 产品/测试改动、R1 findings、当前实现及两份 delta；开始时 clean，HEAD 固定为上述版本。
+- `/tmp/feat637-review-red.log` 两种终态用例旧实现失败；`/tmp/feat637-catalog-red.log` 原目录挤占导致 F4 不启动；`/tmp/feat637-review-fixes.log` 最终两文件9项通过。既有 fixtures 通过真实锁定 DSH 和持久文件/协议结果保护风险，可信且适用于冻结版本，无需再重跑。相关 package build 通过证据由 progress 接力段给出。
+- R1 已核对、patch 未影响的全量、前端、架构和原文件读取基线结论 retained。未机械重跑全量，未启动服务，未修改源码或测试。
+- spec21场景内容质量及真实 UI 由独立产品 reviewer 继续；本静态 PASS 不声称产品 gate 已通过、Ready PR 或部署完成。
+- 本轮只追加 code-review.md 与 verification.md，不提交；report_commit 由 caller 落实。
+
+## Corrected Delta Reconciliation
+
+- verification_mode: corrected-delta，合并在本次独立静态任务中执行。
+- validated_at: `fc101f8532e638324ebcf8bf60e51044af68c377`
+- executed_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`
+- 两份 delta 与首文档从 R1 起未修改（已用指定两 SHA 的 git diff 核实），未为空变更单独重跑；本轮逐条对照最终实现/测试并保留未变覆盖。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| Gateway：长期价值与明确归属（含重复、纠正、临时经验、当前读取和未读完结算） | memory/skills/combined assets；memory-curation工具说明；runtime:136-142、:290-297；review-files | 原位 replace/remove、原文件分页与快照保护；knowledge-review未读全但保留Skill的生命周期；policy原生failure/abort；prompt真实内容质量由产品gate核验 | aligned |
+| Gateway：Skill单操作、部分成功及已有文件完整读取 | files:72-120；review-files:29-77；skill-creation工具协议 | knowledge-policy完整原文件、变化拒绝、连续patch及支持文件；knowledge-review联合取消已成功Skill/fact保留 | aligned |
+| Gateway：非Global F4、两会话、无效/已处理排除、自动来源、目标与并发 | runtime:220-339；files:79-83、:176-213；skill-batch asset | 扩展F4原生fixture、Global禁止、manual candidate、低层错target/root/action/source拒绝；catalog过滤保留正常任务证据 | aligned |
+| Gateway：combined同时到期、单项回退、独立计数、取消/部分成功 | runtime:241-299、:341-344；持久kind与真实fact | 联合单fork/冷恢复、同根2/3周期、在途关闭及后续单项、未读全重试 | aligned |
+| IM：真实发起用途、单次combined范围、持久入口刷新后重入 | trajectory-runs、product-contracts trajectory kind、navigation-model与boot两处用途名称 | 原联合冷恢复协议测试、导航名称测试；作者先前真实范围证据retained，独立产品gate继续 | aligned |
+
+### Uncovered Observable Behavior
+
+None。暂缓知识的排除属于既有长期价值／单一归属约束的修正；skill-catalog过滤恢复原有F4合格正向路径，不是新的证据单位或放宽配额；原生失败/取消保留是既有结算契约。未发现本次 unit diff 中遗漏的对外行为。
+
+Outcome: aligned
