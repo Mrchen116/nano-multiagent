@@ -34,3 +34,34 @@
 - 独立执行（Node v24.22.1）：`PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec vitest run packages/dsh-integration/tests/input-evidence.test.ts`，1 file / 3 tests passed，覆盖中断 claim、仍在队列、取消未消费的真实 evidence 函数。
 - 独立临时 NodeStore 探针结果：`{"node":"v24.22.1","legacyRowEligible":true,"finalSurvivesDelayedEventsAndReopen":true,"globalDefaultUnchanged":true}`。用临时目录创建/迁移/重开 SQLite，finally 删除数据库；没有修改永久测试。
 - `git diff --check <executed_base>...<validated_at>` 通过。未启动服务、未借用其他现场日志；required CI 与独立产品验收由 caller 完成。
+
+## Round 2 — Final Main Sync Integration
+
+- reviewer: independent Codex subagent `/root/static_review`；保留 Round 1 原始快照与证据，不改写其版本。
+- review_mode: `patch`；范围为 main 增量 `1ef49808ffd2618c275b6e38683f93f74ff8455d..b78b263abc8249617906117f8f19eeb1e825fab3` 对本 unit 的集成影响，以及重放后本 unit 是否发生代码变化；不重新全审已合并 bugfix-647。
+- effective / executed_base: `b78b263abc8249617906117f8f19eeb1e825fab3`。
+- validated_at: `817f92040be5916e5abb42196948c1147009c399`。
+- branch / worktree: `unit/perf-648` / `.worktrees/unit-perf-648`；核实 HEAD 等于 validated_at，写报告前工作区干净。
+- completed_at: `2026-10-23T23:41:48+08:00`（完成静态复核时间）。
+
+### Verdict
+
+**Pass；Round 1 retained；没有本轮存活的 CONFIRMED / PLAUSIBLE 代码 finding。**
+
+```json
+[]
+```
+
+### Patch Coverage 与 retained 依据
+
+1. **产品 patch 等价。** 对 R1 validated_at 与 R2 validated_at 的 `single-thread.ts`、`store.ts`、`input-reconciliation.test.ts`、`model-fallback.test.ts` 执行逐文件 Git diff，均为空。两源码 blob 分别仍为 `efd7e68b9cbf6193d9f8040c98d1a17008df1f79`、`9e6836601bf2d2c6e77c7c6badbc2fd99a2de43e`。R1 性能筛选、写入所有权、旧库与重开探针、receipt 恢复和 fallback 测试判断可直接保留。
+2. **实际 runtime seam 未变。** main 增量只在 `index.ts` 增加 sessionPersistence 注入与 session.descendants 实现；实际 session.lookup（现 363-367）和 session.observe（377-382）函数体与 R1 相同。`input-evidence.ts`、`model-fallback.ts`、PA `presentation.ts` 和 `apps/node/src/main.ts` 的两快照 diff 同样为空，fallback 源码 blob 仍为 `808f309f942371786835b06088d577dc5c477d13`。本 unit 不调用新 descendants 协议，不依赖 bugfix-647 来使最终证据判据成立。
+3. **共享 NodeStore writer 不受 Global 拆分影响。** 读取 Global main 增量：变化为 root/child drain 分离、busy/stop 等待子 drain、独立 childCursors/childModelVersions。`global-agent.ts:535-539` 的既有同群 lookup/inputEvidence 调用仍不传 final；新增 descendants reader 与投影路径不读写 inputs.evidence_final，不会绕过本 unit 的证据保护或把缓存证据当 receipt。
+4. **依赖与隔离边界。** 新增依赖是 integration 已声明的公开 `@deepseek-ai/dsh-session-persistence` 0.2.1-alpha.1 根 export，lock 与该声明一致；没有让 PA / Node 引入 DSH。reader 的 metadata cache 只归 runtime descendants；新增测试保护冷历史、modelVersion 切换与 Global root source checks，均没有替换本 unit 的输入对账回归。新 runtime 注入后的真实启动/构建结果仍以 caller 同版本复跑为准。
+5. **其它 main 增量。** feat-645、perf-650 及 bugfix-647 的文档/归档不改本 unit 需求或设计；main 的 IM current spec 小改属于节点能力 UI，与本 unit 内部输入对账无交集。同步后仍 no spec delta。
+
+### Validation 与限制
+
+- `git diff --check b78b263abc8249617906117f8f19eeb1e825fab3...817f92040be5916e5abb42196948c1147009c399` 通过；本轮按 patch 模式保留适用 R1 证据，不重复 PA 全审或窄探针。
+- 已读取 `/tmp/perf-648-final-install.log`：lockfile 对齐、Already up to date，pnpm 11.7.0；读取 build 日志时仍在执行，**没有将进行中的 build 或尚未取得的测试宣称通过**。
+- caller 正在同一 validated_at 重跑 build/typecheck、descendants/tool-presentation/global、完整 PA 及 native model-fallback，结果由 caller 归集 `/tmp/perf-648-final-*.log`。本轮结论是静态 patch 集成复核 pass，不代替这些运行门禁。

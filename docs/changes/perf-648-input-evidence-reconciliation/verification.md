@@ -82,3 +82,34 @@ N/A。
 
 - 本轮仅写 `code-review.md`、`verification.md`，共享现场由 caller 提交；`report_commit: pending caller collection`。
 - 没有自建 worktree 或启动服务；探针临时 SQLite 已删除，未修改源码、测试、配置或设计。
+
+## Round 2 — Final Main Sync Delta Verification
+
+> Validation snapshot: `b78b263abc8249617906117f8f19eeb1e825fab3 → 817f92040be5916e5abb42196948c1147009c399`
+
+- reviewer: independent Codex subagent `/root/static_review`；与 R1 相同，未参与实现。
+- verification_mode: `delta`；review_round: `2`。
+- main_delta: `1ef49808ffd2618c275b6e38683f93f74ff8455d..b78b263abc8249617906117f8f19eeb1e825fab3`；effective / executed_base 为上述 snapshot 左端。
+- verdict: **pass，0 CRITICAL / 0 WARNING / 0 SUGGESTION；Round 1 retained**。
+- requires_full_verification: `false`。
+
+### Delta Coverage
+
+| main 增量 / 共享面 | 核对结果与证据 | R1 结论 |
+|---|---|---|
+| perf-648 产品源码和回归测试重放 | `git diff 2c4b06abc..817f92040 --` 两源码/两测试为空；store 与 single-thread blob 相同 | 输入筛选、最终判据、迁移、持久写入、receipt 恢复全部 retained |
+| runtime 新 sessionPersistence 注入及 descendants reader | `index.ts:94,384-403` 增量仅新服务依赖和子轨迹读取；`session.lookup:363-367`、`session.observe:377-382` 既有函数体未变 | 权威 fresh lookup、logical modelRuns 语义 retained；启动兼容性由 caller 同版本运行测试补证据 |
+| input-evidence / fallback / PA logicalEvents / Node 实际接线 | 四文件 R1→R2 diff 为空，R1 追踪的真实调用链和 logical/physical 区别仍成立 | fallback、延迟物理事件保护及原聊天路径 retained |
+| Global root/child drain 分离 | root source checks 仍观察持久证据；`global-agent.ts:535-539` 原输入 lookup writer 仍默认 final=false；新 reader/cache/cursors 不操作 inputs final 字段 | Global 原行为、NodeStore 所有权边界 retained |
+| integration package 与 lock | 声明公开 session-persistence 根 export，版本与原 DSH 锁定基线一致；没有跨包 private import | 架构一致性 retained |
+| 其它 main 文档、IM UI current spec 小改 | 与 perf-648 两个不变性 Scenario、design、M1 退出标准无交集 | no spec delta retained |
+
+本轮没有新实现或冲突修复，也未发现会使 R1 证据失效的共享语义变化。R1 已在不含 bugfix-647 的原 runtime 上完成，故该 main 增量不是本 unit 成立的前置依赖。无需扩大为全量重新验证。
+
+### Validation / Remaining Caller Gates
+
+- 同步现场 HEAD 与指定 validated_at 一致；检查两快照真实差异，未只依赖“无冲突”说明。完整 unit 范围 `git diff --check` 通过。
+- 已读取同版本 final-install 日志，安装/lock 对齐通过；读取时 final-build 仍运行。caller 正在重跑 build/typecheck、受 main 增量影响的 descendants/tool-presentation/global、完整 PA 与 native model-fallback；最终结果由 caller 汇总，不将尚未完成的命令视为通过。
+- 本轮 verifier 结论为 delta 的实现/架构核对 pass；保留 R1 已证明的行为与证据范围。最终 PR 交付仍须 caller 完成同版本运行门禁归集。
+- no spec delta；没有发现 unit diff 中新增而未归并的对外行为。
+- 仅追加本两份报告，不修改 R1 历史，不改源码/配置，不提交；`report_commit: pending caller collection`。

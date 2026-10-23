@@ -87,3 +87,47 @@ N/A：本 unit 无前端原型、参考图或 must-match 视觉契约；viewport
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 本报告按 caller 明确交接仅写 acceptance.md、不 commit；report_commit 由 caller 收口。
+
+---
+
+## Round 2 — final sync targeted 产品复验
+
+> Validation snapshot: `b78b263abc8249617906117f8f19eeb1e825fab3 → 817f92040be5916e5abb42196948c1147009c399`
+> mode=targeted，revalidation_mode=targeted；保留以上 Round 1 原文。
+
+### Verdict
+
+**pass**。Highest Required Action: pass；blocking/major/minor：0/0/0；needs_re_review=false。
+
+### 范围裁决与继承依据
+
+caller 交接 final sync 合入 bugfix-647，新增 DSH sessionPersistence 注入及 descendants/Global 子轨迹接线。reviewer 独立以 `git diff --name-only 2c4b06abcad6ab4af35d2fffdf0daeb6ba7788a1 HEAD -- apps packages config pnpm-lock.yaml` 核实，变化限于 dsh-integration 的 index/descendants/package 与测试、PA global-agent 与测试、lockfile；SingleThread、store、Node 启动与 IM 交付源码没有差异。没有读取产品实现定位根因。
+
+运行时组装变化仍可能影响真实初始化和会话恢复，因此本轮不只引用静态结论，而在新构建重验连续聊天及同持久数据重启。Round 1 的主模型失败→备用最终正文、失败与切换提示分别显示、IM 暂停时真实模型完成且恢复后唯一交付等具体结论继续有效；本轮不宣称重复进行了这些故障注入，也不将 Global 子轨迹的其他验收归入本 unit。
+
+### 新版本独立实测
+
+- checkout、branch 仍为本 unit；独立核实 HEAD=`817f92040be5916e5abb42196948c1147009c399`。复用 caller 在 final sync 后重新 install/build/typecheck 的构建。
+- 新隔离 IM `http://127.0.0.1:60431`，PID 6100；初始 Node PID 6276 的命令与 cwd 均属于本 worktree。专用 nano 用户、e2e Agent、node `wt-unit-perf-648-6064`。
+- 新聊天 `c_jgk8iet9`：先分别等待 P648_R2_FIRST、P648_R2_SECOND completed，再用既有 helper 重启同一 Node/持久数据，依据新于 `2026-10-23T15:47:31.251786Z` 的 heartbeat 确认同 node 新代次 online，再发送 P648_R2_RESTART。
+- Node 于 `2026-10-23T15:47:57.309Z` ready；约 26 秒，未把 caller 报告的主机高负载推断为产品缺陷。所有实测等待上限 120 秒，仅在临时驱动脚本设置，不改产品或受控测试配置。
+- 三条回复均 completed 且各一条，两个旧回复的 ID 与正文在重启后不变；最后回复完成后再观察 8 秒，未出现旧回复重发。三个对应用户输入也均 completed。
+
+| 正文 | 消息 ID | 结果 |
+|---|---|---|
+| P648_R2_FIRST | 9823f7e454ad4138941e70b0c71fc502 | completed / 1，重启后不变 |
+| P648_R2_SECOND | 0dbc6a36f2774d1aa0d6d7081ffc689c | completed / 1，重启后不变 |
+| P648_R2_RESTART | c638490317734ddfa0bbbf701eb8b0e9 | completed / 1 |
+
+原始独立观察为本机 `/tmp/perf648-r2.log`，包括每次发送 ID、completed 回复、重启前后完整历史、新代次节点与最终 PASS。决定性身份与结果已内嵌上表，不提交临时日志。
+
+### Scenario 覆盖与整体可交付性
+
+| Requirement / Scenario | 期望来源 | 本轮处理与证据 | 结论 |
+|---|---|---|---|
+| 同一聊天持续回复且历史结果不重复 / 长聊天继续发送和恢复 | motivation.md 同名 Scenario | 新构建真实 IM API 连续两次 completed，再重启并收到第三次 completed；以上三消息 ID、旧历史不变与最终观察窗口 | pass（本轮重验） |
+| 运行和投递的中间状态不冒充完成 / 备用模型和交付恢复 | motivation.md 同名 Scenario | 继承 R1 的 P648_FALLBACK3、P648_OUTAGE3、独立失败/切换提示和 IM 暂停恢复结论；相关实现无差异，新运行时初始化/持久恢复已由本轮旅程覆盖 | pass（具体结论继承） |
+
+用户仍能在原聊天连续得到回复，重启不用补发，也未看到重复旧结果。无新客户端变化，本轮无 viewport 或视觉评价；Reference Artifacts Reviewed=N/A。R1 无 fail/inconclusive 待继承关闭项。无新增问题；上层文档同步判断沿用 R1，本 unit 仍 no spec delta。
+
+本轮未更改临时 config 或 Agent 设置。重启后的 Node PID 7990、IM PID 6100 留给 caller 按交接清理；只追加本报告、不 commit。
