@@ -183,6 +183,7 @@ export class PersonalActions {
       const message=s.insertMessage(op.conversation_id,s.agentUser(b.agent_id).id,'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive:payload.interactive,reply_draft:payload.reply_draft});
       if(op.conversation_id!==b.conversation_id)this.db.prepare('INSERT INTO pa_delegated_messages VALUES(?,?,?,?,?)').run(message.id,b.binding_id,b.agent_id,b.owner_user_id,b.display_name);
       s.queueDirectAgentRelays(s.message(message.id));
+      this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});
       this.db.prepare("UPDATE pa_operations SET state='confirmed',message_id=?,verdict_ref=NULL WHERE operation_id=?").run(message.id,op.operation_id);
       if(payload.incident_ref)this.db.prepare('UPDATE pa_incidents SET peer_notice_message_id=? WHERE id=?').run(message.id,payload.incident_ref);
       this.db.prepare('UPDATE pa_policies SET disclosure_revision=disclosure_revision+1 WHERE binding_id=?').run(b.binding_id);
@@ -191,8 +192,9 @@ export class PersonalActions {
     if(result.state==='sending')return result;
     if('result' in result){taskService.notifyChange(hint,result.result?.graph_id);this.pa.ctx.messaging.publishMessages(notices);return result;}
     const m=this.pa.ctx.messaging.message(result.message_id!);
-    this.pa.ctx.messaging.publishMessages([m]);
-    this.pa.ctx.gateway.groupReply(m.id);
+    // Message, events and relays are durable; transport failure cannot revoke this receipt.
+    // The existing delivery timer/reconnect path drains the queued Agent recipients.
+    try {this.pa.ctx.messaging.publishMessages([m],{deferDelivery:true});} catch { /* Browser events replay on reconnect. */ }
     return result;
   }
   complete(principal:Row,args:Row) {

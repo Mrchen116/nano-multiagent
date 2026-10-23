@@ -982,7 +982,7 @@ export class Gateway {
     if (p.kind === "message_completed") this.groupReply(m.id);
     return { kind: p.kind, run_id: p.run_id, message_id: m.id };
   }
-  relayMessage(m: Row, a: Row, key: string, extra: Row = {}) {
+  relayMessage(m: Row, a: Row, key: string, extra: Row = {}, options: {deferDelivery?: boolean} = {}) {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
@@ -990,7 +990,8 @@ export class Gateway {
     const personal=one(db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
     if(personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
-    const c = s.conversation(m.conversation_id, m.sender_user_id);
+    // Delegated PA sends preserve their author even when only the recipient is a member.
+    const c = s.conversation(m.conversation_id, s.agentUser(a.agent_id).id);
     const relay = randomUUID(),
       payload = {
         relay_task_id: relay,
@@ -1025,9 +1026,10 @@ export class Gateway {
       now(),
       now(),
     );
-    s.delivery.drain(a.node_id);
+    if (!options.deferDelivery) s.delivery.drain(a.node_id);
   }
-  groupReply(messageId: string) {
+  /** Persist group recipients inside the caller transaction when delivery is deferred. */
+  groupReply(messageId: string, options: {deferDelivery?: boolean} = {}) {
     const s = this.ctx.messaging,
       m = s.message(messageId),
       c = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", m.conversation_id);
@@ -1050,7 +1052,7 @@ export class Gateway {
         this.relayMessage(m, a, `agent-reply:${m.id}:${a.agent_id}`, {
           source_agent_id: m.sender.id,
           sender_display_name: m.sender.display_name,
-        });
+        }, options);
     }
   }
   shutdown() {

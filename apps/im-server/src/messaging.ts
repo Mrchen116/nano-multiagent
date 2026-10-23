@@ -668,13 +668,13 @@ export class Messaging {
     return sent;
   }
   /** Publish committed system messages and attempt their already durable relay rows. */
-  publishMessages(messages: Row[]) {
+  publishMessages(messages: Row[], options: {deferDelivery?: boolean} = {}) {
     let delivered = false;
     for (const m of messages) {
       const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
       const data = JSON.parse(e.payload_json);
       this.ctx.gateway.broadcast(conversationReaderIds(this.db,m.conversation_id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
-      delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
+      if (!options.deferDelivery) delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
     }
     return delivered;
   }

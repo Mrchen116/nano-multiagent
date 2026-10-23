@@ -27,12 +27,6 @@ export class PersonalAssistant {
   }
 
   private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown, sessionId?:string, callId?:string): Promise<Verdict> {
-    const action = evidence as Data;
-    // The server validates this fixed refusal and its owner-notice receipt; unrelated history is not the proposed disclosure.
-    if (kind === 'action' && action.security_notice) evidence = {
-      security_notice:action.security_notice,recipient_ids:action.recipient_ids,
-      external_destination:action.external_destination,payload:action.payload,policy:action.policy,
-    };
     try {
       const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence,sessionId,callId}) as Verdict;
       if (!result || !['allow','deny','needs_owner','unavailable'].includes(result.decision) || typeof result.reason !== 'string') throw new Error('Invalid independent verdict');
