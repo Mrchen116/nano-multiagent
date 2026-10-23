@@ -343,3 +343,43 @@ R4-W1 保持 closed；R1-W1 / R1-W2 / R1-W3 继续 closed；无新增待闭环 i
 ### Recommendations
 
 无新增建议。
+
+## Round 8
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: R7 后新增一条确定的停止协作通知旁路；仅核对本次 stop、接收人为停止者时的 context_only 设计，不重审其余停止/同步方案。
+- started_at: 2026-10-24T02:46:30+08:00
+- completed_at: 2026-10-24T02:47:43+08:00
+- duration: 73s
+- validated_at: `unit/bugfix-646` HEAD `be2d637d14427f8a23f2cef1c8ed4dde40ddb4db` 加受审 design 工作区；executed_base 仍为已集成的 `503c98e93`。
+- reviewed SHA-256: design.md `620448c5194dadfcf180847924425d5ba2206febc6247a67094269bb0a978770`。
+- 只审设计并提交本报告；并行实现/测试 dirty 不属本轮代码审查，未推送或重启服务。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+限定该次 stop 产生、投递给停止者的协作通知使用既有 context_only，可关闭新的 Agent 唤醒旁路；其他协作者继续正常收到任务通知，无需新增通用过滤机制。
+
+### Coverage 与证据
+
+- **旁路成立。** IM `task-notifications.ts:24–29` 的暂停父节点通知会 mention 子节点 Agent 负责人；`pauseExecution` 在暂停事务中调用 `persistTaskNotice`，后者在 `messaging.ts:636–639` 调用 enqueueRelays，`:645–662` 为聊天 Agent 持久生成 relay。因此父子同负责人时，这条通知可按普通群 mention 再次触发已停止者，不能只靠 R7 去掉 block(false) followup。
+- **SingleThread 不主动醒且不丢上下文。** `attention.ts:5` 优先对 metadata.context_only 返回 false，不受群 @ 或 direct 默认关注影响。`single-thread.ts:62–65` 将该非控制输入存入 bufferGroup 并回传 receipt 后返回，不调用 session.submit；`store.ts:160–174` 后续 takeGroup 才将其转为 context_only 输入，`single-thread.ts:142` 使用 inject。普通任务协作文案不匹配 /stop、/new 控制捷径；专用可信 stop inject 仍是即时停止事实来源。
+- **Global 不由该条消息请求 Agent wake。** `global-agent.ts:103` 用 needsAttention 决定 durable Inbox attention；`:173–180` 再次按该资格写 Inbox，仅 attention 为真才调用 wake。context_only 的停止协作消息保持可查询背景而没有新的 Agent 唤醒水位；普通 Global 不走仅 personal observer 启用的 background 通知路径。本次标记不改变 source 分类、已有输入安全审核或其他授权逻辑。
+- **精确范围与事务。** design 明确只标记 pauseExecution 本次生成且目标为停止 Agent 的 relay，不改变协作消息正文/系统事件，不抑制其他接收者，不泛化为所有 Task system notice 或所有 system 消息。该标记应随本次持久 relay 保存，继续复用原 receipt 重放，避免重连时丢掉不唤醒资格；无须新线协议、第二提醒或停止状态表。
+- **验证与 retained。** 持久 relay 回归需要同负责人父子 Task、自身 context_only、其他协作者正常通知与普通非 stop Task 通知不受影响；再以两个 PA 入口和真实产品 stop 后请求数/idle 验证，不能只检查消息有 metadata。新增原生/IM红测结果由实施方提供，本轮未据此宣称功能已绿。R7 其余停止延迟消费、真实页面恢复、冷恢复空责任及群解散同步设计全部 retained；本轮不撤销它们。
+
+### 历史问题闭环
+
+R4-W1 及 R1 各 issue 保持 closed；本轮新增设计补充无遗留阻断项。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。
