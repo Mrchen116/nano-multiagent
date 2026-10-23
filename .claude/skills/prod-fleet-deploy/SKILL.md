@@ -9,6 +9,7 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 
 ## 不变量
 
+- 切换版本或停服务前，按 [unit 部署提示词检查](references/runbook.md#unit-部署提示词) 核对各服务实际已部署 SHA 到目标 SHA 涉及的 unit，读取 active/archive 中固定命名的 `deployment-prompt.md`。适用且未完成的一次性迁移必须纳入本次部署，按提示词的时机、步骤与验证执行并留档；不能只拉代码重启，也不能因提示词已在早先设计提交中出现而漏检。
 - 合并、部署、更新或重启不包含发包授权。只有用户明确要求发布安装包时才按 [安装包发布规范](../../../docs/operations/local-stack.md#发布首次安装包) 使用确定的版本号发布；普通部署保留当前已验证的安装清单，不自动触发发布工作流或切换安装版本。
 
 - 当前拓扑与入口以 [生产舰队](../../../docs/operations/prod-fleet.md) 为准：官网经 Cloudflare Tunnel 到 Mini 的唯一 loopback IM；MacBook Air 不运行 IM。普通部署更新这套源站即更新官网，不另建公网实例。

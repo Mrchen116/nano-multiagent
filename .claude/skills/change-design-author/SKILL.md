@@ -17,12 +17,13 @@ description: "Full unit 首文档已定稿，需要对齐技术方案、delta-sp
 - milestone 表包含 ID、依赖、并行组、文件范围和两轨退出标准：`[reviewer]` 用户可观察结果，`[worker]` 实现与验证证据。骨架只放 `.gitkeep`，不预填 tasks/progress。
 - 有前端变化时按 [体验设计与原型](references/prototype-and-runbook.md)，从用户目标形成完整的信息组织、视觉与交互方案，再用范围适当的 `prototype.html` 和体验契约供审查、实施与验收。对照现有产品并实际渲染走查，不能以功能覆盖或组件拼装视为设计完成；无前端变化不生成原型。
 - 有对外行为增量时按 [specs/CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 target 的 delta-spec；纯内部变化注明 `no spec delta`，不提前覆盖 current spec。
+- 设计涉及从旧状态到新状态的一次性部署迁移时，在 unit 根目录生成固定命名的 `deployment-prompt.md`，并从 design 链接；无此需要不生成。按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 写清适用条件、迁移步骤与验证恢复，将迁移纳入 milestone 的副本验证；一次性历史整理交由部署 Agent 执行，不为此加入冗余的产品启动迁移或长期兼容逻辑。
 
 模块接口、职责或测试边界需要设计时可用 [codebase-design](../codebase-design/SKILL.md)；普通配置、文案或局部实现不必调用。
 
 ## Gate 2 与交付
 
-Gate 2 首轮创建独立 `change-design-reviewer`，仅实质变化复审，后续按 workflow 的上下文规则复用或交接；审查期间冻结首文档、design、delta-spec、prototype 和骨架。具体派发、恢复和追加报告契约见 [设计审查闭环](references/review-loop.md)。
+Gate 2 首轮创建独立 `change-design-reviewer`，仅实质变化复审，后续按 workflow 的上下文规则复用或交接；将适用的 `deployment-prompt.md` 一并交审，审查期间冻结首文档、design、delta-spec、prototype、部署提示词和骨架。具体派发、恢复和追加报告契约见 [设计审查闭环](references/review-loop.md)。
 
 完成条件：需求与设计覆盖一致、接口和依赖闭合、适用验收资源已落实，最后完整 Round 为 `Approved` 且 `0 CRITICAL / 0 WARNING`，author 判真后无实质问题，受审产物此后无未经审查的实质变化；纯格式或归档变化记录 diff 与 retained 依据即可。常规修订自主完成；只有推翻用户决定才重新对齐。
 

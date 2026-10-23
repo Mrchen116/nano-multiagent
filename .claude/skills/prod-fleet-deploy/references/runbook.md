@@ -12,10 +12,21 @@
 4. 涉及数据库迁移或运行配置修改时先备份。SQLite 使用 backup API，或正常停写后复制完整快照；不要只复制仍在写入的主库。数据库旁 `message-images/`、旧 uploads、配置及密钥一并备份到权限受限目录，不入 Git。
 5. 若本次首次从 Python Gateway 切到 DSH，先按 [DSH 迁移](../../../../docs/operations/dsh-migration.md) 完成每节点最终快照、未决外发核对和资产切换；普通版本重启不能绕过该步骤。
 6. 若仍使用旧 PA 目录，先执行 [无覆盖迁移](../../../../docs/operations/pa-workspace-layout-migration.md)。完成迁移后不重复执行。
+7. 在切换版本或停服务前完成下节 unit 部署提示词检查，将适用步骤排入部署顺序。
 
 MacBook Air Gateway 长期复用固定 detached `prod-main` worktree，各自安装锁定的 Node/pnpm 依赖并构建。精确 SHA 进入部署记录，不进入目录名；普通更新不再创建或清理生产 worktree。首次迁移后才回收干净且无进程使用的历史目录；不 force、不动其他 worktree。
 
 首次切换须同时完成迁移操作单中的「旧生产数据的额外对账」，尤其是 IM 旧全局主会话、可重放 relay 和工具镜像。停止旧 Python Gateway 时从保留的旧 checkout 使用 `PYTHONPATH=<旧checkout>/src <原venv>/bin/python -m personal_assistant.main stop --config …`；新代码已移除旧模块，不能从新 checkout 调旧入口。新状态安装后只用 Node 生命周期命令。
+
+## Unit 部署提示词
+
+固定入口为 unit 根目录的 `deployment-prompt.md`，文件约定见 [Change Unit Storage](../../../../docs/changes/README.md#一次性部署提示词)。检查和执行分开：先读取目标版本文件、确认迁移计划，再按其要求在停写、切换或启动的相应阶段执行。
+
+1. 逐服务记录实际已部署 SHA 与本次目标 SHA；不能以主仓 HEAD 代替运行版本。结合两者之间的提交、PR 和变更文件识别本次新增或完成实现的 unit，按 unit ID 在目标版本的 active/archive 中定位。不能只筛新增 prompt 文件：设计可能早已合并，本次才实现；归档移动也不代表已经迁移生产。基线不明时先查部署记录和现场版本，不猜“最近几个 unit”。
+2. 读取这些 unit 的 `deployment-prompt.md` 及其设计/实现前提，确认目标版本已包含实现且与本次节点、服务范围相符。仅设计完成或 retired 的 unit 不执行。还要核对本环境上次部署记录中未完成的迁移，同版本重试不能因没有 Git 差异而漏掉。
+3. 将适用迁移按前置依赖及停启时机纳入部署计划；在已有部署授权范围内遵循 prompt 完成备份、迁移和验证，不再要求用户重复授权。文件存在本身不授权当前操作生产，也不扩大到未授权节点、数据删除或身份变更；确实超出既有授权的动作单独指出。
+4. 按环境、unit、目标版本和实际对象范围核对完成记录及现场判据，完成过的不重复执行；中断只继续未完成部分。前提缺失、指令冲突或迁移失败时，停止依赖该迁移的切换，按 prompt 恢复并报告，不用临时兼容代码掩盖失败。
+5. 在本机受保护的部署记录中保存 prompt 路径及目标 SHA、适用判断、执行/已完成跳过结果、对象范围、备份位置和验证证据。交付明确哪些迁移完成、哪些不适用或仍未完成；进程在线不能替代迁移验收。无适用 prompt 时记录检查结果并继续常规部署。
 
 ## 更新 Mini 代码和前端
 
