@@ -72,6 +72,8 @@ Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占�
 
 IM launcher 和 Gateway LaunchAgent 使用该目录下 `bin/node` 的绝对路径；两机 `gateway.environment.PATH` 将该 `bin` 放在已有 PATH 前，供 DSH 与其子进程使用。Gateway 自启定义由实际运行 CLI 的 `process.execPath` 生成，因此升级时必须用新 Node 执行 `apps/node/lib/cli.js restart --config …`。重启后同时核对 IM、Gateway、DSH 的实际可执行文件与新 PID，不以终端 `node -v` 代替。安装/启停步骤见 [部署操作单](../../.claude/skills/prod-fleet-deploy/references/runbook.md#node-运行时升级)。
 
+Air 的 `gateway.startup_timeout_seconds` 为 `180`，用于等待既有 DSH 会话恢复；启动超过默认等待时间时，CLI 可能回退到普通后台进程。验收必须确认 LaunchAgent 已加载且其 PID 与 ready state 相同，不能只检查后台进程已上线。
+
 ## 源站与隧道
 
 官网与 Mini 上的 IM 是同一套服务。更新 Mini 主仓代码、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
