@@ -134,3 +134,45 @@ design 已要求 shared 提示与 Skill 同步；建议明确 `scripts/generate-
 ### Recommendations
 
 无新增建议。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`；本轮只审实施期设计补充，不承担实现或测试结果审查。
+- review_mode: delta
+- mode_reason: 有界补充原审核模型参数选择、Task 拒绝归属规则和验收健康入口；不改变公共数据结构、产品目标、审批规则或 milestone 划分。依据派发要求仅复核这三处及新增 capability delta，Round 2 未受影响结论保留。
+- started_at: 2026-10-23T23:34:26+08:00
+- completed_at: 2026-10-23T23:36:09+08:00
+- duration: 103s
+- validated_at: `unit/bugfix-646`，HEAD `1d8508030fa329d0b56db383aaf470b0460f9ece` 加本轮设计补充工作区；位置 `.worktrees/unit-bugfix-646`。源码 dirty 保留，本轮没有审查或更改这些实现 diff。
+- reviewed SHA-256: design.md `a9be545fcaa00061dc1483840e53db932dcb7e0b58a7ce23144894f13112a82c`；specs/gateway/agent-capabilities.md `8e3b12d5a91fc1cff39415548363b43270ac18e30bcb931f3a848ec017e4d043`。
+- effective_through: `e2219e12b89b581fbd1808ad768f78c72090c081`；主任务提交后复核两份受审设计文件哈希均未变化，因此保留本轮设计结论，不扩展为对该实现提交的代码评价。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+三处设计补充可以实施。Round 2 对原有 Task/Global 设计的批准保持；本轮不替代代码审查、测试、真实模型验收，也不表示获准生产部署。
+
+### Coverage 与证据
+
+1. **审核模型推理能力。** design Changelog 和新 capability delta 明确支持 low 时仍用 low，否则使用原模型 default/首档，未声明可调能力不强设 low；保留相同 provider/model、完整适用证据、判定规则与失败分流。当前 canonical `docs/specs/gateway/agent-capabilities.md:163–175` 将 reasoning 能力归属到精确模型；同文 `:557–560、573–576` 要求超窗与无有效判定继续原失败路径、不换审核模型。新增 ADDED Requirement 与这些契约一致，也不触碰 feat-645 的 Feature/Tool 开关。
+2. **能力来源与职责。** 锁定 DSH 公开 `dsh-llm/lib/types/types.d.ts:340–357、381–383、493–494` 提供精确 provider/model 的 efforts、defaultEffort 及请求 reasoningEffort；已有 `personal-security.ts:119` 的 disclosure 选择规则是可复用先例。以公开模型元信息选择合法参数，不需修改 adapter、模型目录或安全规则。HEAD 原 Nano classifier `:28` 的 low 硬编码也证明该修订有具体落点。本轮将“真实模型验收发现错误”视为 implementation.md 的来源记录，没有重跑该实验或将其当作已验收结果。
+3. **依赖端点与删除范围。** `features/task-graph-schema.ts:95、176–180` 明确依赖操作使用 from/to；现有 IM `task-graphs.ts` 对该操作将两端加入 changed，因此拒绝归属包含两端符合真实操作影响。相同文件 `:721–757` 的 delete 按 container 后代展开，而 TaskResponsibility 仍不带层级关系；只凭最小快照不能可靠定位删除后代。设计使用“当前图责任批次”而非伪造精确节点集，保留其他图与新增独立责任、新输入及当前轮合法替代，不改业务状态、不当作授权。复用已有批次屏障比为拒绝归属新增层级查询/缓存更适合当前需求；其范围代价已明确为同图当前批次的保守自动抑制。
+4. **Runbook。** `apps/im-server/src/control.ts:716–724` 实际注册 GET /im/v1/agents，先验证 user(req)，并返回带 node_status 的本人可访问 Agent 投影。用认证该路由确认服务与节点，再确认真实聊天可响应，能够执行；不再依赖不存在的 openapi 入口。该修订只是修正验收入口，不降低真实模型与用户可见结果的要求。
+5. **retained_from: Round 2。** 事务内 feedback/receipt、节点 updated_at 投影、waiting 一小时首次/续期、固定所属聊天交付、Global/SingleThread 收尾区别、停止与恢复、产品身份/审批链及原有真实旅程均未被本轮设计补充改变。R1 三个 issue 的已关闭证据继续有效。没有扩大到生产操作、历史迁移或审批策略改写。
+
+### 历史问题闭环
+
+- R1-W1 / R1-W2 / R1-W3：保持 closed；本轮未改变各自已批准的解决方案。
+- R1-R1：保持 addressed。
+- 本轮无新历史待关闭项。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+无新增建议。
