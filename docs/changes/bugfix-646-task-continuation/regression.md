@@ -78,3 +78,34 @@ AGENTS.md；docs/README.md；incident.md；design.md及Runbook；change-reviewer
 - [x] docs/specs/gateway/task-graphs.md、global-agent.md：需要由owner在最终验收后归并delta-spec。
 - [x] AGENTS.md / CLAUDE.md：无需更新。
 - [x] docs/specs/CONTRIBUTING.md：无需更新。
+
+## Round 2 — targeted closure + main 集成复验
+
+> validated_at / executed_base: `3a2debdd5eea8d3153fa5ae4903f67a33c9c5d92`，2026-10-24 本地时间。
+
+**Verdict: fail**；Highest Required Action: fix-implementation。R1 P1/P2 已关闭，P3 仍复现（1 minor，但必验静默项 fail，未获得降低验收标准的授权）；needs_re_review=true。
+
+### 运行版本与范围
+
+第一次55324之前的53868栈被caller确认仍用旧lib，reviewer立即停止写入，所得结果全部排除，不作为本轮通过证据。caller显式 `pnpm build` 后核对产物的 root reconcile/usage 与 stop恢复补丁，再启动最终隔离IM `http://127.0.0.1:55324`、node `wt-unit-bugfix-646-27791`、Gateway27931；初始化账号 `u_8abizydw`。开始时HEAD完整hash与上述一致、工作树干净。后续owner源码修改未重启，不计入本轮。
+
+本轮仍通过真实同源认证API、聊天历史、Global work公开轨迹，沿用默认DeepSeek与独立审批；无生产/外部消息。原始API记录 `/tmp/646-r2b-evidence.jsonl`。不改源码/配置；没有视觉变更，不做无关客户端矩阵。
+
+保留R1未失效证据：真实一小时首次/续期拒绝及原子性、普通Schedule无期限限制、同图独立责任、普通参数同轮修复、Global跨聊天固定归属。此次变化触及SingleThread投递与停止控制，另以Global真实Schedule及stop验证main合并集成；未机械重跑未变的一小时矩阵。
+
+### 必验项与实际结果
+
+| 来源/目标 | 本轮证据 | 裁决 |
+|---|---|---|
+| R1 P1；incident必要请求实际送达、提前恢复 | SingleThread聊天 `c_ctzoho3d`，图 `tg_98000523`；先公开提问 `b19d43bbf3a14d109d960cf15bf2adc1`（completed），再waiting关联实际Schedule 16:19:19。提前答复 `a1cb5c14d5ce44eea379a0620a992787` 提供13；结果消息 `e07ef4a7c955474b901168648acc204c` 实际交付 `13×7=91`，Task done且Schedule删除，早于到期。没有invalid_scope。 | pass，P1关闭 |
+| R1 P2；stop必须优先于旧排队答复 | 新图 `tg_b542f1d3` 等整数×9，先waiting。reviewer明确授权一次 `bash sleep 50` 作为可观测耗时操作；确认工具call_00_0ZRjvSuI1Kga8YPzXZbP0296状态running后，16:18:18.485发旧答复 `f39ac56b9c6f46fa892eeda13532456e`（返回pending），16:18:18.676紧接 `/stop` `8aa00ca1888c4da5b4675db900304892`。16:18:18.732图rev3 paused；停止确认 `03927c421896419395dd65bfcb84af28`。旧答复随后completed；16:18:40终态消息 `21adbd4ec23f4e46a93ebda60e9288ae` 无Task工具调用。到原Schedule 16:20:32之后图仍rev3 paused、无结果；不是只凭瞬间UI状态判定。 | pass |
+| R1 P2；新的明确恢复仍可用 | 经过上述停止观察后，新输入 `69f1878a22974bc29e0630972d7ddc8b` 明确恢复同图并重申17。16:21:04消息 `26f14f41ce0e4d8ca729436e73b5302e` 交付 `17×9=153`；图rev5 done、结果保存。旧输入未恢复，新恢复意图才完成。 | pass，P2关闭 |
+| main集成：Global纯Schedule外部文件恢复与固定聊天交付 | 聊天 `c_c80hbvdz`，根图 `tg_3bcfefc9`。turn1 16:15:47 completed，waiting安排16:16:59；之后reviewer仅外部写 `review646-r2b/external.txt`，内容 `R2B-SCHEDULE-VERIFIED-731`，未发Global消息。turn2明确trigger cron/schedule，16:17:13 completed；消息 `2b15c846fa3d46d49b07e1f5ec8a46b4` 在原聊天实际交付验证码，图done。独立新路径避免旧文件命中。 | pass |
+| main集成：Global短stop不重开 | 另建 `tg_b67243cd` 等缺失stop.txt，Schedule16:20:19；16:19:51 `/stop` `c2c608fbe6b94ec7b7d8f992d0e3b04e`，图rev3 paused。Global turn4 task-human-control于16:20:06 completed，旧安排清理；过原定时点仍paused，无读文件或恢复结果。 | pass |
+| R1 P3；SingleThread静默哨兵不公开 | 消息 `3f878d843d4846a88ed85c7a2596136e`（分配后）、`3e921be18b67402a839a0d0a4a096e81`（完成后）均正文恰为NO_REPLY且completed；stop旧答复终态 `21adbd4ec23f4e46a93ebda60e9288ae`、新恢复后的 `8cce474a967d4e58ab74a19b21666dd7` 也公开NO_REPLY。业务P1/P2修好没有消除该可见问题。 | fail，P3保留 |
+
+### 问题与收尾
+
+P3保持 **minor / Regression Relation unclear / fix-implementation**：真实聊天中多次公开内部哨兵，用户无法从该文本理解发生了什么。owner已收到稳定消息ID并另行修复；本轮不能以尚未重启的新源码关闭该项。下一轮可以仅复验受影响的SingleThread系统通知/静默，以及普通真实用户回复不被误吞；P1/P2和Global证据在相应实现未失效时保留。
+
+全部测试Task为done或paused，结果与停止事实保留；所有临时Schedule由模型按真实状态完成/清理。reviewer未停caller服务。上层文档待同步结论沿用R1。
