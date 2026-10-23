@@ -102,3 +102,8 @@ PA 仍产生完整责任快照 → integration 在原生边界注入任务引导
 - 审计记录入口、提交后通知、负责人范围、运行中下一步与空闲后续读取证据。不把仅存在通知回调当作模型已见：native 请求内容与真实产品运行状态分别验收。
 
 验证：rewrite-merge 现有原生 stop fence 测试，检查解除后零模型调用、停止通知持久恢复、后续新输入首步可见；单独覆盖页面恢复与冷恢复空责任。IM 在现有 task-execution 测试保护修改/改派/删除及群解散的提交后通知。产品复验 stop 完成后 idle/请求计数不增长，后续普通问题正常、旧答复不恢复、页面恢复可继续；Task 外部修改在运行中下一步可见。Global 非空内部收尾、SingleThread 静默、既有 waiting 一小时和交付契约保持有效。
+
+补充同一停止链审计：pauseExecution 产生的父任务暂停协作消息会通过 persistTaskNotice 给所有聊天 Agent 创建 relay，同一 Agent 同时负责父子节点时可从这条旁路被重新唤醒。系统消息本身仍保留且其他 Agent 正常接收；仅该次 stop 生成的消息、接收人为被停止 Agent 时，在 relay 上使用既有 context_only 标记。停止者的即时控制事实由专用 task-human-control inject 承载；该聊天通知供后续上下文读取，不新增第二条模型提醒或新的传输协议。以持久 relay 的 context_only 和 PA needsAttention 既有行为验证，产品复验包含同负责人父子 Task。
+
+
+补充冷恢复控制事实：真实 native 回归确认 DSH 正常 dispose 会取消未消费 inbox，flush 并不阻止这一后续取消。仅恢复当前任务快照不足以恢复停止的时间/操作者。采用现有公开 session.snapshotEvents 与 inputEvidence：首次冷会话 pre-step 在尚无 shown 时找到最近的 nano-system/task-human-control 且 ID 为 task-stop-notice:* 的产品停止通知；只有该通知既未形成 user/message、也不再 pending 且不在本次 messages 时，将原消息补入当前步骤。此操作本身不唤醒；已消费的事实继续保留原历史，不重复注入。只恢复最新可信停止事实，不重放所有被取消普通输入或改变 DSH 退出语义，不新建持久存储或修改上游。停止队列同进程保留与冷恢复通知保留分别用 native seam 验证，不能把 shutdown 后旧普通队列仍在当成上游保证。

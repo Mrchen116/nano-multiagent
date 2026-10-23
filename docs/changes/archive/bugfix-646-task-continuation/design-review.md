@@ -383,3 +383,44 @@ R4-W1 及 R1 各 issue 保持 closed；本轮新增设计补充无遗留阻断�
 ### Recommendations
 
 无新增建议。
+
+## Round 9
+
+### Metadata
+
+- reviewer target: 原独立 reviewer `/root/design_review_646`。
+- review_mode: delta
+- mode_reason: R8 后 native 正常退出证据揭示未消费 inject 可被 dispose 取消；仅复核首次冷恢复补足可信停止事实的有界设计，不重审已批准的其他停止与任务同步路径。
+- started_at: 2026-10-24T02:53:33+08:00
+- completed_at: 2026-10-24T02:54:25+08:00
+- duration: 52s
+- validated_at: `unit/bugfix-646` HEAD `2824e98e5e2390ad455a366149d3821bf0007c64` 加冻结 design 工作区；executed_base 仍为已集成的 `503c98e93`。
+- reviewed SHA-256: design.md `fefa72021bebb1dfe05bc0e842ed9b31a18de74d6219ad9232a37c300271c4ca`。
+- 本轮只追加设计报告；实施与 native 红绿证据由实施方负责，本 reviewer 未启动服务或运行产品验收。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+从现有持久事件恢复尚未消费且已不在 inbox 的最新可信停止消息，可以补足冷恢复的控制时序，并保持停止不唤醒。无需复制上游 inbox 生命周期或建立新的持久状态。
+
+### Coverage 与证据
+
+1. **现状与证据边界。** 当前公开 `dsh-agent/lib/types/runtime-types.d.ts:199–208` 的 inject 契约明确它不唤醒且 cancellation/disposal 可以丢弃 pending context。integration `submit` 以 `inputEvidence.accepted` 去重，再 flush 返回 durable，因此 accepted/durable 只证明已经持久接受，不能保证之后 dispose 不再取消。实施方提供的正常退出失败结果与公开契约一致；本轮未将并行编写的回归文件当作已通过证据。
+2. **已有接口能够区分所需状态。** `input-evidence.ts:4–44` 从 inbox spliced 重建 pending，并以同 ID 的 user/message 标记 consumed；canceled-before-consumption 仍保留 accepted。新设计检查未 consumed、不 pending、不在当前 messages，足以避免把已经被当前 pre-step 领取但还未写 user/message 的通知重复添加。只检查 accepted 或只检查 pending 均不足。应先选最近可信停止通知再判断该通知资格，不能因较新的停止已经消费而回溯补入更旧停止。
+3. **受信来源与时序保持。** PA `task-execution.ts:58–75` 在 pause receipt 后以 `task-stop-notice:<agentId>:<messageId>` 注入来源为 system/task-human-control 的消息，内容带真实 actor、原时间、scope 与暂停结果。integration submit 将其映射为 nano-system，普通真人同文案不会获得该身份。恢复时使用原消息和原 ID，不能生成一个新的停止时间或扩大 scope；该消息随后沿现有 `policy/sources.ts:164–166` 进入独立审批证据。后续页面恢复通过当前 responsibility 的 resume_request 提供独立事实，原停止通知自身也明确允许其后新的显式恢复，因此本方案无需把旧停止升级为永久屏障。
+4. **职责与生命周期。** 冷恢复投影留在 integration 的原生 pre-step，产品停止事实仍由 PA/IM 产生；读取现有公开事件和复用 inputEvidence 没有跨包绕行、私有 import、运行时 patch 或第二 Agent Loop。仅将事实并入已被正常触发的当前步骤，不调用 followup/steer；当前任务快照仍负责说明现在的责任，历史停止事实负责说明输入时序，二者均有必要。首次成功模型步后该原消息应由原生 user/message 持久记录，后续冷恢复不再重放已消费事实。
+5. **验证与契约。** 必须分别验证同进程保留队列与正常 shutdown 后冷恢复：后者应在 ensure 后零模型调用，后续正常新输入的首个请求同时包含原停止事实与当前责任，第二个请求不产生重复停止消息。冷恢复空责任场景还须确认请求确实带旧历史，避免测试实际创建新 session 而假通过。既有 pending、当前已领取与已消费历史不能重复补入；不要求恢复所有被上游取消的普通输入。该范围兑现 delta 中“首次后续模型步可见”与“不自行启动”的既有承诺，不需新增 milestone。
+6. **retained_from: Round 7、8。** 停止不主动 followup、真实页面恢复、外部变更同步、同负责人协作通知 context_only 及审批边界保持；R2/3/5/6 的未受影响功能仍 retained。本轮修正的是正常退出后控制事实的可见性，不能将其表述为上游保证所有旧普通队列跨 shutdown 保留。
+
+### 历史问题闭环
+
+R4-W1 与 R1 各 issue 继续 closed。本轮新发现的退出语义由冻结补充设计覆盖，无遗留阻断项；具体实现仍须通过对应 native 与产品验证。
+
+### Issues
+
+无 CRITICAL / WARNING。
+
+### Recommendations
+
+- R9-R1：当前 `dsh-session` 声明已将 snapshotEvents 标为 deprecated，并注明“new calls are prohibited”。它仍是本仓现有 inputEvidence、输入提交与审批等路径使用的公开导出，本仓架构契约尚未统一迁移此入口；本轮不要求另建事件索引或扩大迁移。后续升级上游事件读取能力时，应将此冷恢复读取与既有事件证据调用一并处理；不要把当前可调用等同于上游长期承诺。

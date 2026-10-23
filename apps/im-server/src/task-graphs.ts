@@ -867,7 +867,7 @@ export class TaskGraphService {
           }
           this.save({...next,owner_id:row.owner_id});
           for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
-            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata));
+            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata,actor.id));
         }
         result={paused:items.length};
         this.db.prepare('INSERT INTO task_execution_stops VALUES(?,?,?,?)').run(actor.id,requestKey,conversationId??'',JSON.stringify(result));

@@ -262,7 +262,7 @@ export function apply(ctx){let call=0;
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it('restores a stop fence before a native session and retains queued human input until confirmation', async () => {
+it('keeps a confirmed stop quiet and consumes its durable notice with the next external wake', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-task-stop-restart-'));
   let client:RuntimeClient|undefined;
   try {
@@ -301,7 +301,11 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     }).toBeGreaterThanOrEqual(2);
     pending=false;
     await client.rpc.request('task.execution.block',{sessionId:'s',blocked:false});
-    await expect.poll(()=>readFile(join(home,'calls'),'utf8').catch(()=>'')).toContain('Keep this ordinary input');
+    await new Promise(resolve=>setTimeout(resolve,150));
+    expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
+    expect((await client.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
+    await client.rpc.request('session.submit',{sessionId:'s',inputId:'after-stop',mode:'followup',content:[{type:'text',text:'A new question after stop'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'after-stop'}});
+    await expect.poll(()=>readFile(join(home,'calls'),'utf8').catch(()=>'')).toContain('A new question after stop');
     await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'s'})) as {status:string}).status).toBe('idle');
     const calls=await readFile(join(home,'calls'),'utf8');
     expect(calls).toContain('STOP_OLD_SCHEDULE');

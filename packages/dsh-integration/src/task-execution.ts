@@ -6,6 +6,7 @@ import {freezeMessage,MessageId,type UserMessage} from '@deepseek-ai/dsh-llm';
 import type {TaskExecutionSnapshot} from '@nano/product-contracts';
 import type {AgentConfiguration,SessionBinding} from './index.js';
 import type {RpcPeer} from './rpc.js';
+import {inputEvidence} from './input-evidence.js';
 
 const channel=(m:UserMessage)=>m.source.kind==='nano-system'?m.source.channel:undefined;
 const automatic=(m:UserMessage)=>channel(m)==='task-execution';
@@ -53,7 +54,9 @@ export class TaskExecutionDriver {
     ctx.on('agent/disposed',({agent})=>{this.states.delete(agent.id);});
     ctx.on('agent/pre-step',async({agent,messages,signal,step,turn},next)=>{
       if(!options.bindings.has(agent.id))return next();
-      const state=this.state(agent.id),own=messages.filter(automatic),changes=messages.filter(change),ordinary=messages.filter(m=>!automatic(m)&&!change(m));
+      const state=this.state(agent.id);
+      if(!state.shown)this.restoreStopContext(agent,messages);
+      const own=messages.filter(automatic),changes=messages.filter(change),ordinary=messages.filter(m=>!automatic(m)&&!change(m));
       if(ordinary.length){
         state.automaticTurn=false;
         if(state.interrupted==='error'||state.interrupted==='flush')state.recoveringTurn=turn;
@@ -91,7 +94,7 @@ export class TaskExecutionDriver {
         state.automaticTurn=false;
         // A responsibility withdrawn during ordinary work must be visible at the
         // next step; rejecting the whole turn would also discard unrelated work.
-        if(changed&&previous?.tasks.length)messages.push(this.message(agent,this.delta(previous,snapshot),'task-change',changes[0]?.id));
+        if(changed&&(previous?.tasks.length||!previous&&ordinary.length))messages.push(this.message(agent,previous?this.delta(previous,snapshot):this.prompt(agent,snapshot,state),'task-change',changes[0]?.id));
         if(!messages.length&&changes.length&&step===1)return {kind:'reject'};
         return next();
       }
@@ -174,19 +177,32 @@ export class TaskExecutionDriver {
   private restore(agent:Agent,messages:UserMessage[]):void {
     for(const message of messages.toReversed())if(!agent.inbox.nextTurn.some(m=>m.id===message.id)&&!agent.inbox.nextStep.some(m=>m.id===message.id))agent.inbox.prepend(channel(message)==='task-human-control'?'next-step':'next-turn',message);
   }
+  private restoreStopContext(agent:Agent,messages:UserMessage[]):void {
+    // Native disposal cancels pending inbox entries. Recover only the latest
+    // trusted stop fact, on a future wake, without replaying old user requests.
+    const events=agent.session.snapshotEvents();
+    for(const event of events.toReversed()) {
+      if(event.type!=='agent/inbox/spliced')continue;
+      const notice=event.data.inserted.findLast(message=>channel(message)==='task-human-control'&&message.id.startsWith('task-stop-notice:'));
+      if(!notice)continue;
+      const evidence=inputEvidence(events,notice.id);
+      if(evidence.consumedSeq===undefined&&!evidence.pending&&!messages.some(message=>message.id===notice.id))messages.unshift(notice);
+      return;
+    }
+  }
   /** Reserve one continuation after persistence and a second native inbox check. */
   async poke(agent:Agent,reconsider=false):Promise<void> {
     if(!this.options.bindings.has(agent.id)||!this.enabled(agent))return;
     const state=this.state(agent.id);
     if(state.checking){state.requested=true;return;}
-    if(state.queued||state.blocked||['error','cancelled'].includes(state.interrupted??'')&&!reconsider||agent.status!=='idle'||agent.inbox.nextTurn.length||agent.inbox.nextStep.length)return;
+    if(state.queued||state.blocked||['error','cancelled'].includes(state.interrupted??'')&&!reconsider||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
     state.checking=true;
     try {
       await this.ctx.sessions.flush(agent.session);
       const snapshot=await this.snapshot(agent);
       if(snapshot.kind==='unavailable'){if(!state.interrupted)this.hold(state,'source');return;}
       this.refreshDenials(state,snapshot);
-      if(!this.runnable(state,snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||agent.inbox.nextTurn.length||agent.inbox.nextStep.length)return;
+      if(!this.runnable(state,snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
       if(state.interrupted){
         if(['error','cancelled'].includes(state.interrupted)&&(!reconsider||responsibility(snapshot)===state.interruptedAt))return;
         state.interrupted=undefined;
@@ -229,8 +245,7 @@ export class TaskExecutionDriver {
   /** Fence all native admission while a durable stop is unresolved, retaining queued input. */
   block(sessionId:string,blocked:boolean):void {
     const state=this.state(sessionId);state.blocked=blocked;
-    const agent=this.ctx.agents.get(sessionId as Agent['id']);
-    if(!blocked&&agent?.status==='idle'&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))agent.followup(this.message(agent,'Recheck current Task state after human stop.','task-change'));
+    // Releasing a stop fence permits a future wake; queued context is not a wake request.
   }
   interrupt(sessionId:string):void {this.hold(this.state(sessionId),'cancelled');}
 }
