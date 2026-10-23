@@ -127,7 +127,7 @@ async function start(init, port) {
     hasMore: () => reference.binding.session.getSnapshot().hasMore,
     loadThrough: seq => reference.binding.session.loadThrough(seq),
     navigate: run => parent.postMessage({ type: 'viewer-navigate', run: { ...run,
-      label: run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行' } }, '*'),
+      label: run.kind === 'combined' ? '记忆与技能复盘' : run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行' } }, '*'),
   };
   ctx.slots.register({ name: 'root', id: 'nano-trajectory', children: {
     'conversation.view': { kind: 'list', scope: 'session' },

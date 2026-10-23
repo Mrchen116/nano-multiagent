@@ -38,6 +38,13 @@ it('controls Skill writes, keeps creation source stable, deduplicates use and ar
     expect((await files.use(root, 'useful', 'session', 'call-19', location)).counted).toBe(false);
     const usage = JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful;
     expect(usage).toMatchObject({ source: 'F3', use_count: 20 });
+    const accepted = await files.batchCandidate(root, 'useful');
+    expect(accepted?.count).toBe(20);
+    await files.use(root, 'useful', 'later-session', 'later-use', location, '2026-01-01T00:00:00Z');
+    await files.batchAccepted(root, 'useful', accepted!.count);
+    expect(JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful.uses_since_last_B).toBe(1);
+    await files.skill({action:'create',name:'manual',content:content.replace('name: useful','name: manual')},'F1');
+    expect(await files.batchCandidate(root, 'manual')).toBeUndefined();
     await files.curate(root, '2026-02-05T00:00:00Z');
     expect(JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful.state).toBe('stale');
     await files.curate(root, '2026-05-05T00:00:00Z');
@@ -56,28 +63,27 @@ it('runs independent native maintenance children, persists successful facts and 
 export const name='knowledge-fixture'; export const inject=['llm','tools'];
 export function apply(ctx) {
  ctx.tools.register({ name:'fixture_observation', description:'Observe fixture state', parameters:{type:'object',properties:{}}, output:{schema:{},render:()=>[{type:'text',text:'observed'}]},execute:()=>({observed:true}) });
- const seen=new Set();
+ const seen=new Map();
  ctx.on('llm/stream',async function* (options) {
   const last=options.messages.findLast(m=>m.role==='user' && ['nano-human','user'].includes(m.source?.kind));
   const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');
   let name,args;
-  if (!seen.has(last.id)) {
-   seen.add(last.id);
+  const step=seen.get(last.id)||0;seen.set(last.id,step+1);
+  if (step===0 || prompt.includes('consider saving to memory') && step<3) {
    if (prompt.startsWith('Review the conversation')) {
     writeFileSync(${JSON.stringify(join(home, 'review-started'))},'started');
     while(!existsSync(${JSON.stringify(join(home, 'release-review'))}))await new Promise(resolve=>setTimeout(resolve,20));
     if(options.maxTokens!==8192)throw new Error('Review output budget was overwritten');
-    if (prompt.includes('consider saving to memory')) {name='memory';args={action:'add',target:'user',content:'The user prefers evidence-backed concise responses.'};}
-    else if(prompt.includes('actual usage references')) {if(!prompt.includes('invoke-selected'))throw new Error('Missing actual usage history');name='skill_manage';args={action:'patch',name:'reviewed-workflow',old_string:'Verify the requested outcome',new_string:'Recheck the requested outcome'};}
+    if (prompt.includes('consider saving to memory')) {if(step<2){name='read';args={file_path:${JSON.stringify(join(workspaceA,'.nanoassistant/memory/'))}+(step===0?'USER.md':'MEMORY.md')};}else{name='memory';args={action:'add',target:'user',content:'The user prefers evidence-backed concise responses.'};}}
     else {name='skill_manage';args={action:'create',name:'reviewed-workflow',content:${JSON.stringify(content)}};}
    } else if (prompt==='skill fixture') {name='fixture_observation';args={};}
   }
-  if (name) {yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-call',name,arguments:JSON.stringify(args)}};yield {type:'finish',reason:{kind:'tool-calls'}};}
+  if (name) {yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-call-'+step,name,arguments:JSON.stringify(args)}};yield {type:'finish',reason:{kind:'tool-calls'}};}
   else {yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};}
  });
 }`);
   const agents = [
-    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['memory'] },
+    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['read', 'memory'] },
     { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
   ];
   const bindings = agents.map(config => ({ sessionId: `knowledge-${config.agentId}`, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: config.agentId === 'a' ? workspaceA : workspaceB }));
@@ -132,9 +138,9 @@ export function apply(ctx) {
     expect(excluded.events.filter(event=>event.type==='user/message' && event.data.source?.kind==='skill-invocation')).toHaveLength(1);
     await client!.rpc.request('configuration.apply',{...agents[1],features:{memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000}});
     for(let i=0;i<19;i++) await invoke(`batch-use-${i}`);
-    await expect.poll(async()=> (await facts()).reviews.filter(review=>review.status==='completed').length,{timeout:8000}).toBe(3);
-    expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toContain('Recheck');
-    expect((await facts()).facts).toContainEqual(expect.objectContaining({kind:'skills',source:'F4',action:'patch'}));
+    expect((await facts()).reviews.filter(review=>review.status==='completed')).toHaveLength(2);
+    expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);
+    expect((await facts()).facts).not.toContainEqual(expect.objectContaining({source:'F4'}));
     await client!.rpc.request('configuration.apply',{...agents[0],features:{memory_curation:true,skill_creation:false}});
     const restored=await client!.rpc.request('configuration.preview',{config:{...agents[0],features:{memory_curation:true,skill_creation:false}},cwd:workspaceA}) as {tools:string[];prompt:string};
     expect(restored.tools).toContain('memory'); expect(restored.prompt).toContain('evidence-backed');

@@ -11,7 +11,7 @@ interface RunDomain extends DomainSpec { tables: { runs: DomainTableSpec<string,
 const runDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
   runs: domainTable(z.object({
     runId: z.string(), parentSessionId: z.string(), sessionId: z.string(), provider: z.string(), label: z.string().optional(),
-    kind: z.enum(['tool', 'memory', 'skills', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
+    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
     launchSeq: z.number().optional(), callId: z.string().optional(), startSeq: z.number().optional(), endSeq: z.number().optional(),
     startedAt: z.number(), endedAt: z.number().optional(), stopReason: z.string().optional(),
     state: z.enum(['running', 'completed', 'failed', 'cancelled', 'unknown']),
@@ -29,7 +29,7 @@ const launchContext = new AsyncLocalStorage<Launch>();
  * Returns:
  *   The unchanged start result; errors propagate to the original caller.
  */
-export function withKnowledgeRun<T>(agent: Agent, kind: 'memory' | 'skills', start: () => T): T {
+export function withKnowledgeRun<T>(agent: Agent, kind: 'memory' | 'skills' | 'combined', start: () => T): T {
   return launchContext.run({ parentSessionId: agent.id, kind, delegation: 'background', launchSeq: agent.session.seq - 1 }, start);
 }
 

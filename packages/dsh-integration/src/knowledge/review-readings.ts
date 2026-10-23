@@ -7,7 +7,9 @@ export function reviewReadings(events: ReturnType<Agent['session']['snapshotEven
   const calls = new Set<string>();
   for (const event of events) {
     if (event.type === (kind === 'memory' ? 'turn/start' : 'step/start')) current++;
-    if (event.type === 'tool/call' && event.data.name === (kind === 'memory' ? 'memory' : 'skill_manage')) calls.add(event.data.callId);
+    if (event.type === 'tool/call' && event.data.name === (kind === 'memory' ? 'memory' : 'skill_manage')) {
+      try { if (JSON.parse(event.data.arguments).action !== 'list') calls.add(event.data.callId); } catch { /* Invalid calls cannot be maintenance. */ }
+    }
     if (event.type === 'tool/result' && calls.has(event.data.message.toolCallId) && !event.data.message.isError) maintained = current;
   }
   return { current, maintained };
