@@ -5,12 +5,12 @@ import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import type { ApprovalReviewRequest } from '../src/policy/types.js';
 
 function deferred<T=void>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>resolve=done);return{promise,resolve};}
-function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=>Promise<void>){
-  const ctx=new Context();const disposed:string[]=[];const inputs:string[]=[];let rows:any[]=[{user:'original permission',origin:{kind:'human'}}];
-  ctx.provide('llm',{resolveModelInfo:async()=>({context:{contextWindow:100000}})} as any);
+function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=>Promise<void>,reasoning?:any){
+  const ctx=new Context();const disposed:string[]=[];const inputs:string[]=[];const optionsSeen:any[]=[];let rows:any[]=[{user:'original permission',origin:{kind:'human'}}];
+  ctx.provide('llm',{resolveModelInfo:async()=>({context:{contextWindow:100000},reasoning})} as any);
   ctx.provide('tools',{schemas:()=>[{name:'edit',parameters:{type:'object'}}]} as any);
   ctx.provide('agents',{create:async(options:any)=>{
-    const events:any[]=[...(options.seed??[])];const cancelled=deferred();let pending=Promise.resolve();
+    optionsSeen.push(options);const events:any[]=[...(options.seed??[])];const cancelled=deferred();let pending=Promise.resolve();
     const agent={id:options.sessionId,session:{snapshotEvents:()=>events,deriveMessages:()=>events.filter(e=>e.type==='user/message').map(e=>e.data)},
       followup(message:any){inputs.push(message.content[0].text);events.push({type:'user/message',seq:events.length,data:message});pending=run({events,input:message.content[0].text,cancelled:cancelled.promise});},
       whenIdle:()=>pending,cancel:()=>cancelled.resolve()};
@@ -19,7 +19,7 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
   const plugin=new CodexApproval(ctx);
   const controller=new AbortController();
   const request={exec:{agent:{id:'parent',session:{header:{cwd:'/tmp'},requestHeader:()=>undefined}},callId:'pending',name:'edit',arguments:{path:'a',text:'complete'},signal:controller.signal},config:{agentId:'a',revision:'1',approval:{...approvalDefaults,rules:'codex'}},reviewer:{provider:'fixture',model:'fixture'},sources:{history:async()=>rows,restoreEntries:(r:any)=>r},inherited:[]} as unknown as ApprovalReviewRequest;
-  return{plugin,request,controller,disposed,inputs,setRows:(next:any[])=>rows=next,close:()=>ctx.fiber.dispose()};
+  return{plugin,request,controller,disposed,inputs,optionsSeen,setRows:(next:any[])=>rows=next,close:()=>ctx.fiber.dispose()};
 }
 function verdict(events:any[]){events.push({type:'assistant/message',seq:events.length,data:{message:{content:[{type:'text',text:JSON.stringify({outcome:'allow',risk_level:'low',user_authorization:'high',rationale:'authorized'})}]}}});events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});}
 
@@ -84,5 +84,19 @@ it('keeps PA disclosure checkpoints separate, appends deltas and discards old co
     expect(reset.metadata?.sessionId).not.toBe(first.metadata?.sessionId);expect(h.inputs.at(-1)).not.toContain('ORIGINAL_OWNER_AUTHORIZATION');
     await h.plugin.release('parent');
     expect(h.disposed).toEqual(expect.arrayContaining([tool.metadata!.sessionId,first.metadata!.sessionId,reset.metadata!.sessionId]));
+  }finally{await h.close();}
+});
+
+it.each([
+  [{efforts:[{id:'high'},{id:'max'}],defaultEffort:'high'},'high'],
+  [{efforts:[{id:'low'},{id:'high'}],defaultEffort:'high'},'low'],
+  [undefined,undefined],
+])('uses only supported effort for the unchanged configured reviewer: %j',async(reasoning,expected)=>{
+  const h=harness(async({events})=>verdict(events),reasoning);
+  try{
+    const result=await h.plugin.review(h.request);
+    expect(result.decision.behavior).toBe('allow');
+    expect(h.optionsSeen[0].agentOptions).toMatchObject({provider:'fixture',model:'fixture',reasoningEffort:expected});
+    expect(h.inputs[0]).toContain('original permission');
   }finally{await h.close();}
 });

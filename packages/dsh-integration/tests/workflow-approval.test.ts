@@ -59,7 +59,7 @@ export function apply(ctx) {
     await client.rpc.request('initialize', { protocol: 1, agents: [{
       agentId: 'a', revision: '1', mode: 'single_thread', provider: 'deepseek-official', model: 'deepseek-flash',
       toolAllowlist: [kind, 'fixture_effect', 'fixture_native_ask'],
-      approval: { ...approvalDefaults, globalRoot: home, denyLimit: 1, unattendedFallback: 'allow', alwaysAllowTools: [kind] },
+      approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, denyLimit: 1, unattendedFallback: 'allow', alwaysAllowTools: [kind] },
     }], bindings: [] });
     for (const scenario of ['deny', 'fault', 'ask', 'allow']) {
       const sessionId = 'root-' + scenario;

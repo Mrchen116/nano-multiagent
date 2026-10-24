@@ -633,16 +633,16 @@ export class Messaging {
     return timezone;
   }
   /** Persist a task event inside the caller's graph transaction; never publish early. */
-  persistTaskNotice(id: string, sender: string, content: string, metadata: Row): Row {
+  persistTaskNotice(id: string, sender: string, content: string, metadata: Row, contextOnlyAgentId?: string): Row {
     const m = this.insertMessage(id,sender,"system",content,[],null,"completed",{system_notice:metadata,publish:false});
-    this.enqueueRelays(m);
+    this.enqueueRelays(m,null,this.relayAgents(id),[],contextOnlyAgentId);
     return m;
   }
   private relayAgents(id: string): Row[] {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
       .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean) as Row[];
   }
-  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = []): Row[] {
+  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = [], contextOnlyAgentId?: string): Row[] {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Row[] = [];
     for (const a of agents) {
@@ -653,6 +653,7 @@ export class Messaging {
           conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
+          ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
           ...(c.external_source ? {external_source:c.external_source,external_chat_id:c.external_chat_id,trigger_source:"im"} : {})}};
       this.db.prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id,m.id,c.id,a.node_id,JSON.stringify(payload),relayKey,"queued",null,null,now(),now());
       relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
@@ -715,6 +716,8 @@ export class Messaging {
       }
       this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
     });
+    for (const row of all(this.db,'SELECT graph_id FROM task_graphs WHERE conversation_id=?',id))
+      this.ctx.gateway.tasks.notifyChange(undefined,row.graph_id);
     this.membership(id,this.members(id).map(u=>u.id));
   }
   /** Resolve an authorized send target.

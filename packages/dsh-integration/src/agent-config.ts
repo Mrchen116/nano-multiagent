@@ -104,7 +104,7 @@ export class ConfigurationScopes extends Service {
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
     await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
-      TaskGraphs.registerTool(child); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
+      TaskGraphs.registerTool(child, agent => this.forAgent(agent)?.features?.task_graph !== false); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
     }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);

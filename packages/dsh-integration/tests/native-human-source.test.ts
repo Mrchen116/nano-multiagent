@@ -160,7 +160,7 @@ it('still reviews and can deny a goal with native human source eligibility', asy
     await client.rpc.request('initialize', { protocol: 1, agents: ['automatic', 'manual'].map(agentId => ({
       agentId, revision: '1', mode: agentId === 'automatic' ? 'global' : 'single_thread', provider: 'deepseek-official', model: 'deepseek-flash',
       features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false }, toolAllowlist: ['create_goal'],
-      approval: { ...approvalDefaults, enabled: agentId === 'automatic', denyLimit: 1, globalRoot: home },
+      approval: { ...approvalDefaults, rules: 'nano', enabled: agentId === 'automatic', denyLimit: 1, globalRoot: home },
     })), bindings: [] });
     for (const sessionId of ['automatic', 'manual']) {
       await client.rpc.request('session.ensure', { sessionId, agentId: sessionId, revision: '1', ownerId: 'owner', cwd: home });

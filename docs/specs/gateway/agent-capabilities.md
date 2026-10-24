@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-645
+> 对齐: bugfix-646
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -499,11 +499,11 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **WHEN** 同一workspace建立多个会话或服务重启
 - **THEN** 按该workspace的同一份持久扩展声明装配，局部工具不因为包已安装而自动全局启用。
 
-### Requirement: Auto默认沿用Nano规则且可配置为DSH规则
+### Requirement: Auto默认采用Codex规则且可配置为CC或DSH规则
 
 #### Scenario: 默认审核规则
 - **WHEN** 用户未选择其他Auto规则
-- **THEN** 工具权限审核沿用Nano当前判定规则，保留可信来源、短确认、拒绝计数、人工审批和无人值守分流。
+- **THEN** 工具权限审核采用 Codex 规则，保留可信来源、拒绝计数、人工审批和无人值守分流；已有显式 CC 或 DSH 配置保持有效。
 
 #### Scenario: CC与DSH审核使用去重后的指令和来源明确的历史
 - **GIVEN** 当前使用 CC 或 DSH 审核规则
@@ -537,7 +537,7 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 
 #### Scenario: 逐Agent选择与节点继承
 - **WHEN** 用户为 Agent 明确选择 CC 或 Codex，或清空选择回到节点继承
-- **THEN** 明确选择优先于节点规则；空值沿用节点既有 CC/DSH 规则，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
+- **THEN** 明确选择优先于节点规则；空值沿用节点既有 Codex/CC/DSH 规则，节点未配置时采用 Codex，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
 - **AND** Codex 的证据保留和预算恢复遵循“Codex Auto 按风险与授权进行独立、有界的审查”，不沿用 CC/DSH 的不裁剪超窗处理。
 
 #### Scenario: 下一轮切换保持进行中请求
@@ -1021,3 +1021,10 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **WHEN** 配置关闭与新 Task 责任或新定时安排并发到达
 - **THEN** 先建立的有效责任使关闭被拒；先被接受的关闭使冲突的新责任或安排被拒，不出现双方都成功而能力缺失
 - **AND** 使用状态不可确认时明确失败，不把读取失败当作空闲；重试和断联恢复沿既有配置 operation 保持一致
+
+### Requirement: 审核请求 SHALL 使用原审核模型声明的推理能力
+
+#### Scenario: 原模型不支持 low
+- **WHEN** 所选审核模型声明可调推理能力
+- **THEN** 支持 low 时使用 low，否则使用该模型声明的默认档位或首个支持档位；未声明可调能力时不强设 low。
+- **AND** 保留同一审核 provider/model、完整适用证据、判定规则及失败分流，不通过换模型或删证据放行。

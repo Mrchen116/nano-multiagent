@@ -11,7 +11,7 @@ it('parses only valid verdicts and keeps malformed reviews distinct from denials
 });
 
 it('uses one selected rule set and inserts configured rule text without interpreting it', async () => {
-  const config = { ...approvalDefaults, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
+  const config = { ...approvalDefaults, rules: 'nano' as const, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
   const nano = await buildPolicy(config, '/workspace');
   expect(nano).toContain('Keep <nano_workspace_root> literal in this custom rule');
   expect(nano).toContain('/workspace/.nanoassistant');
@@ -97,7 +97,7 @@ export function apply(ctx) {
   const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, mode: agentId === 'global' ? 'global' : 'single_thread',
     approval: { ...approvalDefaults, globalRoot: home, askTimeoutSec: agentId === 'timeout' ? 0.05 : 600, rules: agentId === 'dsh' ? 'dsh' : 'nano', denyLimit: agentId === 'dsh' ? 1 : 3, reviewer: { provider: 'fixture', model: 'review-model' } } }));
   try {
-    await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model' }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
+    await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model', reasoningEfforts: { low: 'low' } }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     const requests: Record<string, unknown>[] = [];
     client.rpc.onNotification((method, value) => { if (method === 'approval.request') { requests.push(value as Record<string, unknown>); const request = value as { requestId: string; sessionId: string };
@@ -302,7 +302,7 @@ export function apply(ctx){
       throw new Error('Unexpected product call: ' + call.method);
     });
     const agents = ['normal', 'overflow'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'main', toolAllowlist: ['inbox', 'send_message', 'fixture_effect'],
-      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
+      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
     for (const config of agents) {
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
@@ -326,3 +326,20 @@ export function apply(ctx){
     expect(observed.approvals.find(row => row.source === 'classifier_unavailable')).toMatchObject({ decision: 'no_verdict', reason: expect.stringContaining('Review context exceeds configured window') });
   } finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }
 }, 30_000);
+
+it.each([
+  [{efforts:[{id:'high'},{id:'max'}],defaultEffort:'high'},'high'],
+  [{efforts:[{id:'low'},{id:'high'}],defaultEffort:'high'},'low'],
+  [undefined,undefined],
+])('preserves Nano review stages and evidence with supported model effort: %j',async(reasoning,expected)=>{
+  const {classify}=await import('../src/policy/classifier.js');
+  const calls:any[]=[];
+  const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:100000},reasoning}),stream:async function*(options:any){calls.push(options);yield {type:'block-end',index:0,block:{type:'text',text:'<block>yes</block><reason>missing authority</reason>'}};yield {type:'finish',reason:{kind:'stop'}};}}};
+  const result=await classify(ctx as any,{exec:{agent:{session:{header:{cwd:'/tmp'}}},signal:new AbortController().signal},config:{mode:'global',approval:{...approvalDefaults,rules:'nano',globalRoot:'/tmp'}},sources:{transcript:async()=>'COMPLETE_HUMAN_EVIDENCE'},inherited:[],reviewer:{provider:'unchanged-provider',model:'unchanged-reviewer'}} as any);
+  expect(result.decision.behavior).toBe('deny');
+  expect(calls).toHaveLength(2);
+  for(const call of calls){
+    expect(call).toMatchObject({provider:'unchanged-provider',model:'unchanged-reviewer',reasoningEffort:expected});
+    expect(call.messages[0].content[0].text).toContain('COMPLETE_HUMAN_EVIDENCE');
+  }
+});
