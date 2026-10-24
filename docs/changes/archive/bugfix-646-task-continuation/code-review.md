@@ -259,3 +259,9 @@ PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH p
 - **文档并集。** 冻结canonical为Agent Capabilities **45 Requirements / 168 Scenarios**、Task **19 Requirements / 39 Scenarios**，入口索引45/19一致；本unitTask delta五个ADDED Requirement全部存在于canonical。主线新增Task责任占用保护与本unitpassive同步Requirement均保留，没有以覆盖一边消除冲突。后续两文件仅将“对齐: feat-645、bugfix-646”改成docs-check要求的单一bugfix-646，内容不变，可保留。
 
 本轮0存活finding，R7 P2已关闭；集成build/typecheck由caller确认通过，适用39项测试已直接读取。全量后端与真实产品新栈结论由对应gate提供，不把进行中结果写成通过；前序未受影响范围保留，未启动或占用产品服务。仅append本unit两份报告，不改实现或其他报告。
+
+## Round 9 — Default Codex rules patch
+
+- Independent reviewer: gpt-6.1-sol/high, unchanged implementation ownership; fixed diff `fde4090c7..b20458be3`.
+- Findings: `[]`. Reviewed the shared default's real readApproval call chain; explicit owner/workspace rules, per-Agent cc/codex and null inheritance; Codex/CC/DSH dispatch; unchanged independent reviewer model, Auto switch, denial and manual paths.
+- Default-path native Codex fixtures and explicitly CC-scoped fixtures match the requested behavior. Directly inspected the 6-file / 27-pass test log and typecheck evidence; no redundant test run or source edits. Later product/report and unrelated feat-652 specification changes do not invalidate this patch review.
