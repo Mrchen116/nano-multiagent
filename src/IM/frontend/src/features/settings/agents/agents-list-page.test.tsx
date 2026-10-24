@@ -85,6 +85,18 @@ describe("agents list page", () => {
     expect(row).toHaveTextContent("MacBook");
   });
 
+  it("identifies an agent search with no matches and restores rows when cleared", async () => {
+    const user = userEvent.setup();
+    mockAgentsAndNodes();
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+    await screen.findByRole("button", { name: /Core Planner/i });
+    await user.type(screen.getByRole("searchbox"), "absent-agent");
+    expect(screen.getByText("No matching agents")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Core Planner/i })).not.toBeInTheDocument();
+    await user.clear(screen.getByRole("searchbox"));
+    expect(screen.getByRole("button", { name: /Core Planner/i })).toBeInTheDocument();
+  });
+
   it("shows an empty state with a path to nodes", async () => {
     mockAgentsAndNodes([], []);
 
@@ -115,7 +127,7 @@ describe("agents list page", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
     expect(await screen.findByText(/upstream unavailable/i)).toBeInTheDocument();
-    await user.click(within(screen.getByText(/upstream unavailable/i).closest("section")!).getByRole("button", { name: /Retry/i }));
+    await user.click(within(screen.getByRole("alert")).getByRole("button", { name: /Retry/i }));
 
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
   });

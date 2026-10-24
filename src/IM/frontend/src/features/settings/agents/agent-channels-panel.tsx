@@ -452,7 +452,6 @@ function ChannelDialog({
                 })
                 : t("agents.channels.dialog.addTitle")}
             </h2>
-            <p>{step === "provider" ? t("agents.channels.dialog.chooseProvider") : t("agents.channels.dialog.credentialsSubtitle")}</p>
           </div>
           <button type="button" className="chat-modal-btn-ghost" aria-label={t("agents.channels.actions.close")} onClick={onClose}>×</button>
         </header>
@@ -466,7 +465,7 @@ function ChannelDialog({
                   key={candidate.id}
                   type="button"
                   disabled={alreadyAdded || readOnly}
-                  className="flex items-center gap-3 rounded-xl border border-[var(--im-border)] bg-white p-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  className="im-channel-provider flex items-center gap-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => selectProvider(candidate)}
                 >
                   <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 font-bold text-blue-700">{candidate.icon}</span>

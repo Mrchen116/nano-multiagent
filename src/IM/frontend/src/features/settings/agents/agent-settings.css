@@ -133,3 +133,25 @@
 .im-agent-create .im-workspace-path-copy code { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
 @container (max-width: 600px) { .im-create-modes { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 767px) { .im-create-footer { flex-wrap: wrap; } .im-create-mode { min-height: 44px; } }
+
+/* The directory uses the page width; selection no longer opens an empty canvas. */
+.im-agent-settings.im-agent-directory { padding: 0 28px 28px; }
+.im-agent-directory > .im-settings-list-header { padding-top: 22px; }
+.im-agent-directory h1 { margin: 0; font-size: 18px; font-weight: 650; }
+.im-directory-content { margin-top: 16px; }
+.im-directory-agents { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 28px; }
+.im-agent-directory .im-agent-row { padding: 15px 0; margin: 0; border-radius: 0; border-top: 1px solid var(--im-border); }
+.im-agent-directory .agents-pa-section { margin: 0 0 18px; }
+.im-agent-directory .agents-pa-section h2 { font-size: 12px; margin-bottom: 8px; color: var(--im-text-muted); }
+.im-agent-directory .im-settings-empty > :first-child { margin-top: 0; }
+.im-agent-directory .im-settings-empty .im-settings-action { margin-top: 8px; }
+.im-settings-feedback { padding: 12px 0; color: var(--im-danger, #a33c36); font-size: 13px; }
+.im-settings-feedback p { margin: 0; }
+.im-settings-feedback p + p { margin-top: 6px; }
+.im-channel-provider { width: 100%; border: 1px solid var(--im-border); border-radius: 6px; padding: 10px; background: white; }
+.im-agent-settings .im-channel-card { padding: 16px 0; }
+@media(max-width:767px) {
+  .im-agent-settings.im-agent-directory { padding: 0 16px 20px; }
+  .im-directory-agents { grid-template-columns: minmax(0,1fr); }
+  .im-agent-directory > .im-settings-search { width: 100%; }
+}

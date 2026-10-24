@@ -56,7 +56,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
     <button
       type="button"
       onClick={() => onSelect(agent.agent_id)}
-      className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
+      className={`im-agent-row flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
         isActive ? "outline outline-1" : "outline-none"
       } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"} ${
         isActive

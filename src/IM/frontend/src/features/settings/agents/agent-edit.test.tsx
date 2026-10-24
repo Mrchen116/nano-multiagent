@@ -254,7 +254,7 @@ it("keeps independently captured heartbeat and prompt bodies after online read f
     return original(input, init);
   });
   const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
-  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /View scheduled checklist/i}));
   await user.click(screen.getByRole("button", {name: /Preview stable system prompt/i}));
   expect(await screen.findByText("Remember weekly review")).toBeInTheDocument();
   expect(await screen.findByText("Confirmed stable prompt")).toBeInTheDocument();
@@ -262,8 +262,8 @@ it("keeps independently captured heartbeat and prompt bodies after online read f
   await waitFor(() => expect(screen.getAllByText(/Last confirmed/i).length).toBeGreaterThanOrEqual(2));
   fail = true; await presence("online");
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
-  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
-  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /View scheduled checklist/i}));
+  await user.click(screen.getByRole("button", {name: /View scheduled checklist/i}));
   await waitFor(() => expect(screen.getAllByText(/Refresh failed/i).length).toBeGreaterThanOrEqual(2));
   expect(screen.getByText("Remember weekly review")).toBeInTheDocument();
   expect(screen.getByText("Confirmed stable prompt")).toBeInTheDocument();

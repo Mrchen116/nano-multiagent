@@ -1028,11 +1028,9 @@ export function AgentCreatePage() {
     </form>
   );
 
-  if (isMobile) return createPanel;
-
   return (
     <div className="flex h-full overflow-hidden">
-      <AgentsRailDesktop isCreatePage />
+      {!isMobile && <AgentsRailDesktop isCreatePage />}
       <div className="flex min-w-0 flex-1 overflow-hidden">{createPanel}</div>
     </div>
   );

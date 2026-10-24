@@ -7,6 +7,7 @@ import { afterEach, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
+  isMobileMock: vi.fn(() => false),
   updateAgentConfigMock: vi.fn(),
   createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock("../../chat/chat-api", () => ({
 }));
 
 vi.mock("../../../hooks/use-is-mobile", () => ({
-  useIsMobile: () => false
+  useIsMobile: apiMocks.isMobileMock
 }));
 
 vi.mock("./im-agent-config-api", async () => ({
@@ -104,6 +105,7 @@ afterEach(() => {
 
 // Default listAgentSummaries/listNodes so the desktop rail (R12-bis-1) doesn't break tests.
 beforeEach(() => {
+  apiMocks.isMobileMock.mockReturnValue(false);
   apiMocks.listAgentChannelsMock.mockResolvedValue([]);
   apiMocks.listNodesMock.mockResolvedValue([]);
   apiMocks.listAgentSummariesMock.mockResolvedValue([
@@ -193,6 +195,22 @@ describe("agent detail page", () => {
       }
     };
   }
+
+  it("retains an open channel draft when the viewport crosses the mobile breakpoint", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const view = renderDetailPage(client);
+    await screen.findByDisplayValue("Core Planner");
+    await user.click(screen.getByRole("button", {name: "Channels"}));
+    await user.click(await screen.findByRole("button", {name: "Connect channel"}));
+    await user.click(screen.getByRole("button", {name: /Feishu/}));
+    await user.type(screen.getByLabelText("App ID"), "draft-app-id");
+    apiMocks.isMobileMock.mockReturnValue(true);
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><AgentDetailPage /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("App ID")).toHaveValue("draft-app-id");
+  });
 
   it("protects an edited configuration when opening the personal assistant from the rail", async () => {
     const user = userEvent.setup();

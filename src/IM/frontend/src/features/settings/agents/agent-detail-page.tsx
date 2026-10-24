@@ -502,7 +502,6 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
                 step={1}
                 value={cadenceAmount}
                 placeholder="30"
-                aria-describedby="heartbeat-every-help"
                 onChange={(e) => emitCadence(e.target.value, cadenceUnit)}
                 // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
                 // rather than appending to it (standard UX for numeric input fields).
@@ -539,7 +538,7 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
                 type="time"
                 value={activeStart}
                 placeholder="09:00"
-                aria-label="Active hours start"
+                aria-label={t("agents.form.heartbeat.activeHoursStart")}
                 onChange={(e) => onActiveHoursChange(e.target.value, activeEnd)}
               />
               <span className="text-slate-500 text-sm">–</span>
@@ -551,7 +550,7 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
                 type="time"
                 value={activeEnd}
                 placeholder="22:00"
-                aria-label="Active hours end"
+                aria-label={t("agents.form.heartbeat.activeHoursEnd")}
                 onChange={(e) => onActiveHoursChange(activeStart, e.target.value)}
               />
             </div>
@@ -2081,13 +2080,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     </form>
   );
 
-  if (isMobile) {
-    return detailPanel;
-  }
-
   return (
     <div className="flex h-full overflow-hidden">
-      <AgentsRailDesktop activeId={agentId} onSelectAgent={selectAgent} />
+      {!isMobile && <AgentsRailDesktop activeId={agentId} onSelectAgent={selectAgent} />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[oklch(0.93_0.007_240)]">
         {detailPanel}
       </div>

@@ -37,9 +37,9 @@ export function AgentPluginsPanel({agentId, readOnly = false}: {agentId: string;
         {t('agents.plugins.refresh')}
       </button>
     </div>
-    <div className="px-5"><SettingsReadNotice read={query.data} /></div>
-    {query.isPending && <p role="status" className="px-5 pb-5 text-sm text-slate-500">{t('agents.plugins.loading')}</p>}
-    {(query.isError || mutation.isError || data?.error) && <div role="alert" className="mx-5 mb-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+    <SettingsReadNotice read={query.data} />
+    {query.isPending && <p role="status" className="im-settings-empty">{t('agents.plugins.loading')}</p>}
+    {(query.isError || mutation.isError || data?.error) && <div role="alert" className="im-settings-feedback">
       <p className="font-semibold">{t(query.isError ? 'agents.plugins.unavailable' : 'agents.plugins.operationFailed')}</p>
       <p className="mt-1 break-words">{query.error?.message ?? mutation.error?.message ?? data?.error}</p>
     </div>}
