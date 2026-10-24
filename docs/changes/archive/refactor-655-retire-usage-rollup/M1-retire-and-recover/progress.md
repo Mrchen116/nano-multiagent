@@ -19,3 +19,5 @@
 2026-10-25：冻结实现 `0d3a762fe`，完整证据见 `acceptance.md`。独立产品验收最终 pass、0 产品问题；静态 code review findings=[]。主子真实工具成功/失败、重启记录与统计不变、真实分页/原生详情、1440/390px、运行中旧统计及真实补齐期间聊天递送已验证。旧库升级/回滚副本及缺 catalog 的真实原生日志首次补建/再次冷重启通过。全量后端703、前端1022、iOS24及archive通过。当前等待 verifier 对已补证据收口，然后 final sync、canonical merge 与 archive。
 
 隔离服务已停止，保留本机证据。e2e-down 遇到 /tmp 与 /private/tmp 配置路径身份差异而拒绝发送信号；核对本轮精确命令、PID 与 IM process birth 后，仅向自有 Gateway/IM 发送 SIGTERM，运行时随其正常退出。Vite 与原型服务器已停止；未处理无关进程。
+
+Final closure: verifier PASS (0 CRITICAL / 0 WARNING); corrected-delta aligned. Integrated origin/main 648e263d2 at 38a945c37, retained gates with explicit impact assessment; canonical specs merged. Integrated Python suite: 70 passed / 32 deselected. Local CI evidence complete; archive and Ready PR follow, remote CI remains a delivery requirement.
