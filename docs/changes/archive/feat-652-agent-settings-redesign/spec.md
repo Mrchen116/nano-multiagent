@@ -94,9 +94,9 @@
 
 需求记录时初始主仓基线为 `503c98e93`，提交前同步至 `63724d53f`，核对了已合并 feat-645 的能力依赖联动与局部轻提示契约；用户截图来自 bugfix-644 演示环境，与主仓不是同一版本。截图直接支持“大块状态区域、两侧空白、卡片堆叠、重复说明、按钮过重”的视觉问题，不能据此推断所有页签已经验收或服务有功能故障。
 
-当前行为以 [Agent 与节点规范](../../specs/im/agents-nodes.md) 和 [个人助手规范](../../specs/im/personal-agent.md) 为依据：保留模型与备用顺序、审批选择、下一轮生效与待确认区分、Skill 选择、通道管理、个人权限、连续导航和草稿保护。离线行为另参考 [bugfix-644 首文档](../archive/bugfix-644-agent-offline-settings/incident.md)。现有规范要求解释的重要语义需要保留；不据此保留重复段落。
+当前行为以 [Agent 与节点规范](../../../specs/im/agents-nodes.md) 和 [个人助手规范](../../../specs/im/personal-agent.md) 为依据：保留模型与备用顺序、审批选择、下一轮生效与待确认区分、Skill 选择、通道管理、个人权限、连续导航和草稿保护。离线行为另参考 [bugfix-644 首文档](../bugfix-644-agent-offline-settings/incident.md)。现有规范要求解释的重要语义需要保留；不据此保留重复段落。
 
-[Agent 详情页](../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx) 可见多处“标题 + 副标题 + 卡片”及字段帮助文字；[通道页](../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)、[插件页](../../../src/IM/frontend/src/features/settings/agents/agent-plugins-panel.tsx)、[工作与会话页](../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx) 是此次完整体验范围的现有入口。代码仅用于界定已有能力，不把当前布局当成目标。
+[Agent 详情页](../../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx) 可见多处“标题 + 副标题 + 卡片”及字段帮助文字；[通道页](../../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)、[插件页](../../../../src/IM/frontend/src/features/settings/agents/agent-plugins-panel.tsx)、[工作与会话页](../../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx) 是此次完整体验范围的现有入口。代码仅用于界定已有能力，不把当前布局当成目标。
 
 ## 用户场景
 
