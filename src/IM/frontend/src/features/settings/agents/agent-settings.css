@@ -115,3 +115,21 @@
   .im-agent-settings .im-agent-detail-footer { padding-inline: 16px; }
   .im-settings-feature { min-height: 44px; }
 }
+
+/* Creation shares the settings form but has one persistent commit action. */
+.im-agent-settings.im-agent-create .im-agent-panel-header { padding-bottom: 16px; }
+.im-settings-back { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; color: var(--im-text-muted); text-decoration: none; font-size: 24px; }
+.im-create-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.im-create-mode { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.im-create-mode input { margin-top: 4px; accent-color: var(--im-accent); }
+.im-create-mode strong { display: block; font-size: 13px; font-weight: 550; }
+.im-create-mode small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--im-text-muted); }
+.im-create-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.im-create-footer > p { margin: 0; }
+.im-create-actions { display: flex; gap: 8px; margin-left: auto; }
+.im-create-actions a { text-decoration: none; }
+.im-agent-settings.im-create-state { padding: 28px; gap: 14px; align-items: flex-start; }
+.im-agent-create .im-workspace-path-summary { border-radius: 6px; }
+.im-agent-create .im-workspace-path-copy code { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+@container (max-width: 600px) { .im-create-modes { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 767px) { .im-create-footer { flex-wrap: wrap; } .im-create-mode { min-height: 44px; } }

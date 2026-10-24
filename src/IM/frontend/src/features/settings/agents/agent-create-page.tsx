@@ -1,7 +1,7 @@
 import { changeCapability } from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
-import { tr } from "./agent-work-text";
+import "./agent-settings.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -76,14 +76,14 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
   };
 }
 
-function validateDraft(draft: CreateAgentFormState) {
+function validateDraft(draft: CreateAgentFormState, t: (key: string) => string) {
   const errors: Partial<Record<"agent_id" | "display_name", string>> = {};
   if (!draft.agent_id) {
-    errors.agent_id = "Agent ID is required.";
+    errors.agent_id = t("agents.form.errors.agentIdRequired");
   } else if (!/^[a-z0-9_-]+$/.test(draft.agent_id)) {
-    errors.agent_id = "Lowercase letters, numbers, _ and - only.";
+    errors.agent_id = t("agents.form.errors.agentIdInvalid");
   }
-  if (!draft.display_name) errors.display_name = "Display name is required.";
+  if (!draft.display_name) errors.display_name = t("agents.form.errors.displayNameRequired");
   return errors;
 }
 
@@ -228,7 +228,6 @@ function CreateBehaviorCard({
     <section className="im-agent-card">
       <div>
         <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
-        <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
       </div>
 
       {/* Custom Instructions — optional textarea; empty is valid */}
@@ -241,42 +240,35 @@ function CreateBehaviorCard({
           className="im-agent-textarea"
           value={draft.custom_prompt ?? ""}
           placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
-          aria-describedby="custom-instructions-help"
           rows={4}
           onChange={(e) => onCustomPromptChange(e.target.value)}
         />
-        <p id="custom-instructions-help" className="im-agent-field-help">
-          {t("agents.form.behavior.customInstructionsHelp")}
-        </p>
       </div>
 
       {/* Features section — rendered only when capabilities list is non-empty */}
       {capabilityFeatures.length > 0 && (
         <div data-testid="features-section" className="im-agent-field">
           <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
-          <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
-          <div className="grid gap-[6px] mt-2">
+          <div className="im-settings-features">
             {capabilityFeatures.map((feat) => {
               const checked = effectiveFeatures[feat.key] ?? feat.default_on;
               return (
                 <label
                   key={feat.key}
-                  className={`flex items-start gap-3 rounded-xl border px-3 py-[10px] transition-colors ${
-                    checked
-                      ? "border-teal-300 bg-teal-50/60 cursor-pointer"
-                      : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
-                  }`}
+                  className="im-settings-feature"
                 >
                   <input
                     type="checkbox"
                     data-feature-key={feat.key}
+                    aria-labelledby={`feature-${feat.key}-label`}
+                    aria-describedby={`feature-${feat.key}-help`}
                     checked={checked}
                     className="im-feature-checkbox mt-[2px] shrink-0"
                     onChange={(e) => onFeatureToggle(feat.key, e.target.checked)}
                   />
                   <div className="min-w-0">
-                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n)}</p>
-                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{t(feat.help_i18n)}</p>
+                    <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
+                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
                   </div>
                 </label>
               );
@@ -291,7 +283,6 @@ function CreateBehaviorCard({
         <select
           id="group-reply-policy"
           className="im-input"
-          aria-describedby="group-policy-help"
           value={draft.group_reply_policy}
           onChange={(e) => onPolicyChange(e.target.value)}
         >
@@ -299,9 +290,6 @@ function CreateBehaviorCard({
           <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
           <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
         </select>
-        <p id="group-policy-help" className="im-agent-field-help">
-          {t("agents.form.behavior.policyHelp")}
-        </p>
       </div>
 
       {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
@@ -435,7 +423,7 @@ export function AgentCreatePage() {
         workspaceMode === "custom" && existingConfirmationRequired && existingConfirmed
     };
   }, [draft, existingConfirmationRequired, existingConfirmed, modelOptions, workspaceMode]);
-  const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
+  const validationErrors = useMemo(() => validateDraft(normalizedDraft, t), [normalizedDraft, t]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const hasStaleReasoning = isStaleReasoningEffort(
     modelOptions,
@@ -578,15 +566,15 @@ export function AgentCreatePage() {
   }
 
   if ((nodesQuery.isLoading || createStateQuery.isLoading) && !capabilities) {
-    return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
+    return <div className="im-agent-panel im-agent-settings im-create-state"><p className="im-agent-field-help">{t("common.loading")}</p></div>;
   }
 
   if ((nodesQuery.isError || createStateQuery.isError) && !capabilities) {
     return (
-      <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
+      <section className="im-agent-panel im-agent-settings im-create-state">
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
-          <p className="text-sm text-rose-600">
+          <p className="text-sm font-semibold">{t("agents.loadError")}</p>
+          <p className="text-sm text-slate-500">
             {nodesQuery.error instanceof Error ? nodesQuery.error.message : queryErrorDetail}
           </p>
         </div>
@@ -604,8 +592,8 @@ export function AgentCreatePage() {
     return (
       <div className="flex h-full min-w-0 flex-1 overflow-hidden">
         {!isMobile && <AgentsRailDesktop isCreatePage />}
-        <div className="flex min-w-0 flex-1 items-center justify-center overflow-y-auto p-6">
-          <section className="im-agent-card grid w-full max-w-lg gap-4">
+        <div className="im-agent-panel im-agent-settings im-create-state">
+          <section className="grid w-full max-w-lg gap-4">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--im-accent)"
               strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" />
@@ -623,13 +611,12 @@ export function AgentCreatePage() {
   }
 
   if (!capabilities) {
-    return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
+    return <div className="im-agent-panel im-agent-settings im-create-state"><p className="im-agent-field-help">{t("common.loading")}</p></div>;
   }
 
-  const statusChipClass = isNodeOnline ? "im-agent-panel-status-chip online" : "im-agent-panel-status-chip";
 
   let footerStatusClass = "im-agent-footer-status";
-  let footerStatusText = t("agents.create.subtitle");
+  let footerStatusText = "";
   if (errorMessage) {
     footerStatusClass = "im-agent-footer-status error";
     footerStatusText = errorMessage;
@@ -643,12 +630,11 @@ export function AgentCreatePage() {
     footerStatusText = t("agents.detail.saving");
   }
 
-  const border = "oklch(0.87 0.006 240)";
 
   const createPanel = (
     <form
       data-testid="agent-create"
-      className="im-agent-panel"
+      className="im-agent-panel im-agent-settings im-agent-create"
       onSubmit={(event) => {
         event.preventDefault();
         setHasSubmitted(true);
@@ -669,87 +655,16 @@ export function AgentCreatePage() {
         mutation.mutate(normalizedDraft);
       }}
     >
-      <header
-        className="im-agent-panel-header"
-        style={{
-          background: "#fff",
-          padding: isMobile ? "14px 16px" : "18px 28px 14px",
-          paddingTop: isMobile ? "calc(14px + env(safe-area-inset-top, 0px))" : "18px"
-        }}
-      >
+      <header className="im-agent-panel-header">
         <div className="im-agent-panel-header-row">
-          {isMobile && (
-            <button
-              type="button"
-              onClick={() => navigate("/settings/agents")}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                border: "none",
-                background: "oklch(0.91 0.006 240)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 16,
-                color: "oklch(0.40 0.01 240)",
-                flexShrink: 0
-              }}
-            >
-              ‹
-            </button>
-          )}
-          <div style={{ flex: 1 }}>
-            <h2
-              className="im-agent-panel-title"
-              style={{ fontSize: isMobile ? 18 : 18, fontWeight: 800, letterSpacing: "-0.02em" }}
-            >
-              {t("agents.create.title")}
-            </h2>
-            <p className="im-agent-panel-subtitle">
-              {t("agents.create.subtitle")}
-            </p>
-          </div>
-          {!isMobile && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <Link
-                className="im-btn im-btn-muted"
-                to="/settings/agents"
-                style={{ textDecoration: "none" }}
-              >
-                {t("agents.create.cancel")}
-              </Link>
-              <button
-                className="im-btn im-btn-primary"
-                type="submit"
-                disabled={mutation.isPending || applyPending || hasStaleReasoning || !isNodeOnline}
-              >
-                {t("agents.create.submit")}
-              </button>
-            </div>
-          )}
+          {isMobile && <Link className="im-settings-back" aria-label={t("agents.create.backToAgents")} to="/settings/agents">‹</Link>}
+          <h2 className="im-agent-panel-title">{t("agents.create.title")}</h2>
         </div>
       </header>
-
-      <div
-        className="im-agent-panel-body"
-        style={{ padding: isMobile ? "14px 14px" : "20px 28px", gap: 14 }}
-      >
-        <section className="im-agent-card">
-          <h3 className="im-agent-card-title">{tr("工作模式")}</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(["single_thread", "global"] as const).map(mode => <label key={mode} className="flex cursor-pointer gap-3 rounded-lg border border-[var(--im-border)] p-3">
-              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "single_thread") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
-              <span><strong>{mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")}</strong><small className="block text-slate-500">{mode === "global" ? tr("一个持续上下文统筹各聊天，按需读取收件箱和委派。") : tr("每个聊天独立上下文，保持现有工作方式。")}</small></span>
-            </label>)}
-          </div>
-          <p className="text-xs text-slate-500">{tr("创建后固定，不能切换工作模式。全局模式固定保留 inbox、conversations、send_message、subagent，其他工具仍可配置。")}</p>
-        </section>
+      <div className="im-agent-panel-body im-agent-detail-body im-settings-config">
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.identity.subNew")}</p>
           </div>
           <div className="im-agent-card-grid-2">
             <div className="im-agent-field">
@@ -769,7 +684,7 @@ export function AgentCreatePage() {
                 }}
               />
               <p id="agent-id-help" className="im-agent-field-help">
-                {t("agents.form.identity.agentIdHelp")}
+                {t("agents.redesign.createIdHelp")}
               </p>
               {shouldShowError("agent_id") ? (
                 <p className="im-agent-field-error">{validationErrors.agent_id}</p>
@@ -782,7 +697,6 @@ export function AgentCreatePage() {
                 className="im-input"
                 value={draft.display_name}
                 aria-invalid={Boolean(shouldShowError("display_name"))}
-                aria-describedby="display-name-help"
                 placeholder={t("agents.form.identity.displayNamePlaceholder")}
                 onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
@@ -802,7 +716,6 @@ export function AgentCreatePage() {
               id="description"
               className="im-input"
               value={draft.description}
-              aria-describedby="description-help"
               placeholder={t("agents.form.identity.descriptionPlaceholder")}
               onChange={(event) => {
                 setErrorMessage(null);
@@ -810,9 +723,6 @@ export function AgentCreatePage() {
                 setDraft({ ...draft, description: event.target.value });
               }}
             />
-            <p id="description-help" className="im-agent-field-help">
-              {t("agents.form.identity.descriptionHelp")}
-            </p>
           </div>
           <div className="im-agent-field">
             <Label.Root htmlFor="owning-node">{t("agents.form.identity.owningNodeRequired")}</Label.Root>
@@ -833,7 +743,87 @@ export function AgentCreatePage() {
                 </option>
               ))}
             </select>
-            <p className="im-agent-field-help">{t("agents.form.identity.owningNodeHelp")}</p>
+          </div>
+        </section>
+
+        <section className="im-agent-card">
+          <h3 className="im-agent-card-title">{t("agents.redesign.workMode")}</h3>
+          <div className="im-create-modes">
+            {(["single_thread", "global"] as const).map(mode => <label key={mode} className="im-create-mode">
+              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "single_thread") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
+              <span><strong>{t(`agents.redesign.mode.${mode}`)}</strong><small>{t(`agents.redesign.modeHelp.${mode}`)}</small></span>
+            </label>)}
+          </div>
+          <p className="im-agent-field-help">{t("agents.redesign.modeFixed")}</p>
+        </section>
+
+        <section className="im-agent-card">
+          <h3 className="im-agent-card-title">{t("agents.redesign.model")}</h3>
+          <div className="im-settings-model-fields">
+            <ModelFallbackField
+              label={t("agents.form.access.model")}
+              labelHtmlFor="default-model"
+              models={availableModels}
+              primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+              value={draft.model_fallbacks ?? []}
+              onChange={(modelFallbacks) => {
+                setErrorMessage(null);
+                setIsDirty(true);
+                setDraft({ ...draft, model_fallbacks: modelFallbacks });
+              }}
+            >
+              <select
+                id="default-model"
+                className="im-input"
+                value={draft.default_model ?? ""}
+                onChange={(event) => {
+                  setErrorMessage(null);
+                  setIsDirty(true);
+                  const defaultModel = event.target.value || null;
+                  const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
+                  setDraft({
+                    ...draft,
+                    default_model: defaultModel,
+                    model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
+                    reasoning_effort: reasoningEffortAfterModelChange(
+                      modelOptions,
+                      effectiveModel,
+                      draft.reasoning_effort,
+                    ),
+                  });
+                }}
+              >
+                <option value="">
+                  {capabilities.platform_default_model
+                    ? t("agents.form.access.modelPlatformDefault", { model: capabilities.platform_default_model })
+                    : t("agents.form.access.modelPlatformDefaultPlain")}
+                </option>
+                {availableModels.map((model) => {
+                  const providerName = model.provider_display_name || model.provider;
+                  const providerSuffix = providerName ? ` · ${providerName}` : "";
+                  const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
+                  return (
+                    <option key={model.name} value={model.name}>
+                      {model.name === capabilities.platform_default_model
+                        ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
+                        : baseLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </ModelFallbackField>
+            <ModelReasoningField
+              idPrefix="create-agent"
+              modelOptions={modelOptions}
+              selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+              value={draft.reasoning_effort}
+              applyPending={applyPending}
+              onChange={(reasoningEffort) => {
+                setErrorMessage(null);
+                setIsDirty(true);
+                setDraft({ ...draft, reasoning_effort: reasoningEffort });
+              }}
+            />
           </div>
         </section>
 
@@ -971,7 +961,6 @@ export function AgentCreatePage() {
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
           <div className="grid gap-4">
             <SkillSourceSelector
@@ -1004,121 +993,19 @@ export function AgentCreatePage() {
               }}
             />
           </div>
-          <ModelFallbackField
-            label={t("agents.form.access.model")}
-            labelHtmlFor="default-model"
-            models={availableModels}
-            primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
-            value={draft.model_fallbacks ?? []}
-            onChange={(modelFallbacks) => {
-              setErrorMessage(null);
-              setIsDirty(true);
-              setDraft({ ...draft, model_fallbacks: modelFallbacks });
-            }}
-          >
-            <select
-              id="default-model"
-              className="im-input"
-              value={draft.default_model ?? ""}
-              onChange={(event) => {
-                setErrorMessage(null);
-                setIsDirty(true);
-                const defaultModel = event.target.value || null;
-                const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
-                setDraft({
-                  ...draft,
-                  default_model: defaultModel,
-                  model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
-                  reasoning_effort: reasoningEffortAfterModelChange(
-                    modelOptions,
-                    effectiveModel,
-                    draft.reasoning_effort,
-                  ),
-                });
-              }}
-            >
-              <option value="">
-                {capabilities.platform_default_model
-                  ? t("agents.form.access.modelPlatformDefault", { model: capabilities.platform_default_model })
-                  : t("agents.form.access.modelPlatformDefaultPlain")}
-              </option>
-              {availableModels.map((model) => {
-                const providerName = model.provider_display_name || model.provider;
-                const providerSuffix = providerName ? ` · ${providerName}` : "";
-                const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
-                return (
-                  <option key={model.name} value={model.name}>
-                    {model.name === capabilities.platform_default_model
-                      ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
-                      : baseLabel}
-                  </option>
-                );
-              })}
-            </select>
-          </ModelFallbackField>
-          <ModelReasoningField
-            idPrefix="create-agent"
-            modelOptions={modelOptions}
-            selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
-            value={draft.reasoning_effort}
-            applyPending={applyPending}
-            onChange={(reasoningEffort) => {
-              setErrorMessage(null);
-              setIsDirty(true);
-              setDraft({ ...draft, reasoning_effort: reasoningEffort });
-            }}
-          />
+
         </section>
 
-        {/* Error / status banner */}
-        {(errorMessage || (hasSubmitted && hasValidationErrors) || (hasSubmitted && !isNodeOnline)) && (
-          <div
-            className={footerStatusClass}
-            style={{
-              background: "#fff",
-              borderRadius: 12,
-              border: `1px solid ${border}`,
-              padding: "10px 16px",
-              fontSize: "0.78rem",
-              fontWeight: 600
-            }}
-          >
-            {footerStatusText}
-          </div>
-        )}
-
-        {/* Bottom action bar */}
-        <div
-          style={{
-            background: "#fff",
-            borderRadius: 12,
-            border: `1px solid ${border}`,
-            padding: "14px 16px",
-            display: "flex",
-            gap: 8,
-            justifyContent: isMobile ? "stretch" : "flex-end",
-            paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
-          }}
-        >
-          {!isMobile && (
-            <Link
-              className="im-btn im-btn-muted"
-              to="/settings/agents"
-              style={{ textDecoration: "none" }}
-            >
-              {t("agents.create.cancel")}
-            </Link>
-          )}
-          <button
-            className="im-btn im-btn-primary"
-            type="submit"
-            disabled={mutation.isPending || applyPending || hasStaleReasoning || !isNodeOnline}
-            style={{ flex: isMobile ? 1 : undefined }}
-          >
-            {mutation.isPending ? t("agents.detail.saving") : t("agents.create.submitArrow")}
+      </div>
+      <footer className="im-agent-detail-footer im-create-footer">
+        {footerStatusText && <p className={footerStatusClass} role={footerStatusClass.includes("error") ? "alert" : "status"}>{footerStatusText}</p>}
+        <div className="im-create-actions">
+          <Link className="im-settings-action" to="/settings/agents">{t("agents.create.cancel")}</Link>
+          <button className="im-settings-action im-settings-action-primary" type="submit" disabled={mutation.isPending || applyPending || hasStaleReasoning || !isNodeOnline}>
+            {mutation.isPending ? t("agents.redesign.creating") : t("agents.create.submit")}
           </button>
         </div>
-      </div>
+      </footer>
       {blocker.state === "blocked" && (
         <div className={isMobile ? "chat-modal-bottom-sheet" : "chat-modal-backdrop"} role="presentation">
           <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="agent-create-unsaved-title">
@@ -1146,7 +1033,7 @@ export function AgentCreatePage() {
   return (
     <div className="flex h-full overflow-hidden">
       <AgentsRailDesktop isCreatePage />
-      <div className="flex-1 overflow-y-auto bg-[oklch(0.93_0.007_240)]">{createPanel}</div>
+      <div className="flex min-w-0 flex-1 overflow-hidden">{createPanel}</div>
     </div>
   );
 }

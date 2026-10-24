@@ -629,12 +629,12 @@
         "lastUpdated": "最后更新"
       },
       "workspaceCreate": {
-        "title": "Workspace",
-        "sub": "Agent 的文件存放在这里；创建后不可更改。",
+        "title": "工作区",
+        "sub": "文件保存在此路径，创建后不可更改。",
         "defaultPathLabel": "默认路径",
         "agentIdPlaceholder": "<agent-id>",
         "defaultPathUnavailable": "由所选节点自动分配",
-        "changePath": "修改",
+        "changePath": "修改路径",
         "customPathLabel": "自定义路径",
         "useDefault": "使用默认路径",
         "pathPlaceholder": "/Users/me/projects/research-agent",
@@ -653,12 +653,14 @@
         "confirmRequired": "请先确认你了解这是一个已有目录。"
       },
       "errors": {
+        "agentIdRequired": "请填写 Agent ID",
+        "displayNameRequired": "请填写显示名",
         "required": "必填",
         "agentIdInvalid": "仅允许小写字母、数字、_ 和 -"
       }
     },
     "create": {
-      "title": "新建 Agent",
+      "title": "创建 Agent",
       "noDevicesTitle": "创建 Agent 前，请先绑定设备",
       "noDevicesBody": "创建自己的 Agent，需要先绑定一台运行 Gateway 的设备。",
       "manageDevices": "管理设备",
@@ -878,6 +880,12 @@
       "featureUnknown": "状态未确认"
     },
     "redesign": {
+      "workMode": "工作模式",
+      "mode": {"single_thread": "单 Thread", "global": "全局模式 · 实验"},
+      "modeHelp": {"single_thread": "每个聊天使用独立上下文。", "global": "跨聊天保持持续上下文，统一处理任务。"},
+      "modeFixed": "创建后不能切换工作模式。",
+      "createIdHelp": "小写字母、数字、_ 和 -；创建后不可更改。",
+      "creating": "正在创建…",
       "model": "模型",
       "savedModel": "已保存模型",
       "modelDefault": "模型默认",

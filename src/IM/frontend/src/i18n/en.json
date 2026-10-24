@@ -654,6 +654,8 @@
         "confirmRequired": "Confirm that you understand this is an existing directory."
       },
       "errors": {
+        "agentIdRequired": "Agent ID is required.",
+        "displayNameRequired": "Display name is required.",
         "required": "Required",
         "agentIdInvalid": "Lowercase letters, numbers, _ and - only"
       }
@@ -879,6 +881,12 @@
       "featureUnknown": "State unconfirmed"
     },
     "redesign": {
+      "workMode": "Work mode",
+      "mode": {"single_thread": "Single thread", "global": "Global · Experimental"},
+      "modeHelp": {"single_thread": "A separate context for each chat.", "global": "One ongoing context coordinates work across chats."},
+      "modeFixed": "Work mode cannot be changed after creation.",
+      "createIdHelp": "Lowercase letters, numbers, _ and -. Cannot be changed after creation.",
+      "creating": "Creating…",
       "model": "Model",
       "savedModel": "Saved model",
       "modelDefault": "Model default",
