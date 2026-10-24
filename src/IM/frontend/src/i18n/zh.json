@@ -531,7 +531,8 @@
         "policyOptionAlways": "回复所有群消息",
         "policyOptionNoReply": "不回复群消息",
         "approvalMode": "审批策略",
-        "approvalInherit": "跟随节点",
+        "approvalInherit": "跟随节点（{{strategy}}）",
+        "approvalUnknown": "策略未确认",
         "approvalDescription": {
           "inherit": "沿用节点现有的审批设置。",
           "cc": "普通工作区文件编辑直接放行，其他操作按 CC 规则审查。",

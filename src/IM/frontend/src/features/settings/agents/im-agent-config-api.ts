@@ -113,6 +113,7 @@ export interface AgentFeature {
 }
 
 export interface CapabilitySnapshot {
+  inherited_approval_rules?: "nano" | "codex" | "dsh" | null;
   fixed_tools?: string[];
   node_id: string;
   node_name: string;
@@ -219,6 +220,7 @@ export interface SettingsRead<T> {
 }
 
 export interface ConfigurationDisplay {
+  inherited_approval_rules?: "nano" | "codex" | "dsh" | null;
   profile_version: number;
   derived_current: boolean;
   models: (Omit<ModelOption, "reasoning"> & {source: "explicit" | "inherited"})[];
@@ -312,6 +314,7 @@ interface ModelOptionWire {
 }
 
 interface AgentCapabilitiesWire {
+  inherited_approval_rules?: "nano" | "codex" | "dsh" | null;
   fixed_tools?: string[];
   agent_id?: string;
   node_id: string;
@@ -330,6 +333,7 @@ interface AgentCapabilitiesWire {
 }
 
 interface NodeCapabilitiesWire {
+  inherited_approval_rules?: "nano" | "codex" | "dsh" | null;
   fixed_tools?: string[];
   node_id: string;
   node_name?: string;
@@ -431,6 +435,7 @@ function toCapabilitySnapshot(
     skills: normalizeAllowlistOptions(raw.skills),
     tools: normalizeAllowlistOptions(raw.tools),
     model_options: normalizeModelOptions(raw),
+    inherited_approval_rules: raw.inherited_approval_rules ?? null,
     platform_default_model: raw.platform_default_model ?? null,
     default_workspace_template:
       "default_workspace_template" in raw ? raw.default_workspace_template ?? null : null,
@@ -667,6 +672,7 @@ export async function getAgentDetailState(agentId: string, signal?: AbortSignal)
         node_id: result.node.node_id,
         node_name: config.node_name ?? undefined,
         model_options: display?.models ?? [],
+        inherited_approval_rules: display?.inherited_approval_rules ?? null,
         platform_default_model: display?.derived_current ? display.models.find(model => model.source === "inherited")?.name : null,
         tools: display?.tools ?? config.tool_allowlist.map(name => ({name, description: ""})),
         skills: display?.skills ?? config.skills.map(name => ({name, description: ""})),

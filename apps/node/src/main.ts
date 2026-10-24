@@ -194,7 +194,7 @@ const relay = new WebRelayConnection({
         await relay.request(preview ? frame.type.replace('.request', '') : 'node.capabilities', {
           request_id: payload.request_id, node_id: config.node.node_id,
           ...(preview ? { error_code: 'model_not_configured', message: 'Connect a model before creating your assistant' } : {
-            capabilities: { ...projectCapabilities({ tools: [], skills: [] }, config), default_workspace_template: configuration.defaultWorkspace('{agent_id}') },
+            capabilities: { ...projectCapabilities({ tools: [], skills: [] }, config), inherited_approval_rules: configuration.inheritedApproval(workspace).rules, default_workspace_template: configuration.defaultWorkspace('{agent_id}') },
           }),
         });
         return;
@@ -214,6 +214,7 @@ const relay = new WebRelayConnection({
         await relay.request(current ? 'agent.capabilities' : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
           ...(current ? { agent_id: agentId, workspace_root: workspace } : {}), capabilities: {
             ...projectCapabilities(catalog, config, current ? candidate : undefined),
+            inherited_approval_rules: configuration.inheritedApproval(workspace).rules,
             ...(!current ? { default_workspace_template: configuration.defaultWorkspace('{agent_id}') } : {}),
           } });
       }

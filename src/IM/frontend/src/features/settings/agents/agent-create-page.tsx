@@ -124,6 +124,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
 // Policy + collapsible Preview panel.
 interface CreateBehaviorCardProps {
   draft: CreateAgentFormState;
+  inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   selectedNodeId: string;
   workspaceMode: WorkspaceMode;
@@ -137,6 +138,7 @@ interface CreateBehaviorCardProps {
 function CreateBehaviorCard({
   draft,
   capabilityFeatures,
+  inheritedRules,
   selectedNodeId,
   workspaceMode,
   workspaceRoot,
@@ -230,7 +232,7 @@ function CreateBehaviorCard({
       </div>
 
       {/* Custom Instructions — optional textarea; empty is valid */}
-      <ApprovalModeField value={draft.approval_mode} onChange={onApprovalModeChange} />
+      <ApprovalModeField inheritedRules={inheritedRules} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
@@ -939,6 +941,7 @@ export function AgentCreatePage() {
         {capabilityEditor.toast}
         <CreateBehaviorCard
           draft={draft}
+          inheritedRules={capabilities.inherited_approval_rules}
           capabilityFeatures={capabilities.features ?? []}
           selectedNodeId={selectedNodeId}
           workspaceMode={workspaceMode}

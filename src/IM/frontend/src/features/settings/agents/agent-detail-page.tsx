@@ -136,6 +136,7 @@ interface BehaviorCardProps {
   capabilitiesKnown: boolean;
   agentId: string;
   draft: AgentConfigFormState;
+  inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   onApprovalModeChange: (value: ApprovalMode) => void;
   onCustomPromptChange: (value: string) => void;
@@ -150,6 +151,7 @@ function BehaviorCard({
   agentId,
   draft,
   capabilityFeatures,
+  inheritedRules,
   onApprovalModeChange,
   onCustomPromptChange,
   onFeatureToggle,
@@ -225,7 +227,7 @@ function BehaviorCard({
       </div>
 
       {/* Custom Instructions are the only public per-agent prompt input. */}
-      <ApprovalModeField disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
+      <ApprovalModeField inheritedRules={inheritedRules} disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
       <div className="im-agent-field">
         <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
@@ -1840,6 +1842,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         <BehaviorCard
           agentId={agentId}
           draft={draft}
+          inheritedRules={capabilities.inherited_approval_rules}
           capabilityFeatures={capabilities.features ?? []}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
           readOnly={readOnly}

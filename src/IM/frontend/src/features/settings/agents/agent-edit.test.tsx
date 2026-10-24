@@ -18,7 +18,7 @@ const capabilities = {
   node_id: "node-1", node_name: "MacBook", node_status: "online",
   skills: ["tdd-execution-worker", "playwright", "plan"].map(name => ({name, description: name})),
   tools: ["bash", "read_file", "task"].map(name => ({name, description: name})),
-  features: [],
+  inherited_approval_rules: "codex", features: [],
   model_options: [{name: "codex_oauth:gpt-5.5", provider: "openai_compat", reasoning: {kind: "selectable", default: "high", levels: ["high", "max"]}}],
   platform_default_model: "codex_oauth:gpt-5.5",
 };
@@ -72,6 +72,7 @@ it("loads settings and saves edited profile, allowlists and the explicit model e
   const user = userEvent.setup(); open();
   const input = await screen.findByLabelText("Display Name");
   expect(screen.getByLabelText("Workspace Root")).toHaveValue(config.workspace_root);
+  expect(screen.getByRole("option", {name: "Follow node (Codex)"})).toBeInTheDocument();
   expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Approval strategy"), "codex");
   await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");

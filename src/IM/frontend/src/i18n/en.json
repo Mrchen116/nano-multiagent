@@ -532,7 +532,8 @@
         "policyOptionAlways": "Every group message",
         "policyOptionNoReply": "No group replies",
         "approvalMode": "Approval strategy",
-        "approvalInherit": "Follow node",
+        "approvalInherit": "Follow node ({{strategy}})",
+        "approvalUnknown": "strategy unconfirmed",
         "approvalDescription": {
           "inherit": "Use the node’s existing approval settings.",
           "cc": "Ordinary workspace file edits pass directly; other actions use the CC policy.",

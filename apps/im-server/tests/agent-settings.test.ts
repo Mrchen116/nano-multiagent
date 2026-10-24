@@ -13,7 +13,7 @@ function setup() {
   return {...f,app,connection};
 }
 const capabilities={models:[{name:'model',display_name:'Model',reasoning:{kind:'selectable',levels:['low','high'],default:'high'}},{name:'unused-secret-model'}],
-  platform_default_model:'model',features:[{key:'heartbeat',default_on:true}],tools:[{name:'task_graph',description:'Tasks'},{name:'not-selected'}],
+  inherited_approval_rules:'codex',platform_default_model:'model',features:[{key:'heartbeat',default_on:true}],tools:[{name:'task_graph',description:'Tasks'},{name:'not-selected'}],
   skills:[{name:'enabled',source_group:'global'},{name:'excluded',source_group:'workspace'}]};
 
 it('keeps older Gateway capabilities without optional Features editable',async()=>{
@@ -35,15 +35,20 @@ it('persists only selected display metadata and reads committed settings while o
     expect(live.statusCode,live.body).toBe(200);
     expect(live.headers['cache-control']).toContain('no-store');
     expect(live.json()).toMatchObject({ready:true,node:{state:'online'},display:{source:'current',data:{derived_current:true,reasoning:{value:'high',source:'inherited'},skills:[{name:'enabled',enabled:true},{name:'excluded',enabled:false}]}}});
+    expect(live.json().live_capabilities.inherited_approval_rules).toBe('codex');
+    expect(live.json().display.data.inherited_approval_rules).toBe('codex');
     const saved=one(db,'SELECT data_json FROM agent_settings_snapshots')!.data_json;
     expect(saved).not.toContain('unused-secret-model'); expect(saved).not.toContain('not-selected'); expect(saved).not.toContain('levels');
     ctx.gateway.nodes.clear();
     const offline=await app.inject('/im/v1/agents/a/settings');
     expect(offline.json()).toMatchObject({ready:false,live_capabilities:null,node:{state:'offline'},display:{source:'last_known'}});
+    expect(offline.json().display.data.inherited_approval_rules).toBe('codex');
     expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
     db.prepare("UPDATE agent_profiles SET profile_version=2,default_model='new-model',reasoning_effort='low',features_json='{\"heartbeat\":false}',skills_json='[\"enabled\"]'").run();
     const changed=(await app.inject('/im/v1/agents/a/settings')).json();
-    expect(changed.display.data).toMatchObject({derived_current:false,models:[{name:'new-model'}],reasoning:{value:'low',source:'explicit'},features:[{key:'heartbeat',enabled:false,source:'explicit'}]});
+    expect(changed.display.data).toMatchObject({derived_current:false,models:[{name:'new-model'}],reasoning:{value:'low',source:'explicit'},features:expect.arrayContaining([{key:'heartbeat',enabled:false,source:'explicit',label_i18n:'',help_i18n:''}])});
+    expect(changed.display.data.inherited_approval_rules).toBeNull();
+    expect(changed.display.data.features.filter((feature:any)=>feature.key!=='heartbeat').every((feature:any)=>feature.enabled===null)).toBe(true);
     expect(changed.display.data.skills.find((s:any)=>s.name==='enabled').enabled).toBe(false);
     db.prepare("INSERT INTO agent_config_operations(operation_id,root_operation_id,agent_id,owner_id,node_id,operation_kind,status,candidate_json,candidate_fingerprint,created_at,updated_at) VALUES('pending','pending','a','o1','n','update','pending','{\"secret\":true}','hash',datetime('now'),datetime('now'))").run();
     const pending=(await app.inject('/im/v1/agents/a/settings')).json();

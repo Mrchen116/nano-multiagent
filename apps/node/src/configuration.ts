@@ -46,6 +46,16 @@ export class NodeConfiguration {
     return agent ? canonicalAgentConfiguration({ ...agent, display_name: agent.title ?? agent.display_name ?? agent.agent_id,
       skills: agent.skills ?? [], heartbeat_json: agent.heartbeat ? JSON.stringify(agent.heartbeat) : null }) : undefined;
   }
+  /** Return the cached policy inherited by this workspace before Agent overrides.
+   * Args:
+   *   workspace: Agent workspace used by runtime configuration.
+   * Returns:
+   *   A copy of the inherited approval configuration.
+   */
+  inheritedApproval(workspace: string) {
+    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
+    return { ...this.policies.get(workspace)! };
+  }
   runtime(agent: LocalAgent | CanonicalAgentConfiguration): AgentConfiguration {
     const model = agent.default_model || this.value.llm.default_model;
     const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
@@ -56,8 +66,7 @@ export class NodeConfiguration {
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
     const workspace = agent.workspace_root!;
-    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
-    const approval = { ...this.policies.get(workspace)! };
+    const approval = this.inheritedApproval(workspace);
     if (canonical.approval_mode !== null) approval.rules = canonical.approval_mode === 'cc' ? 'nano' : 'codex';
     let evolution: Record<string, unknown> = {};
     try { evolution = (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as { self_evolution?: Record<string, unknown> })?.self_evolution ?? {}; }

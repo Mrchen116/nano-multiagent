@@ -140,6 +140,7 @@ it('persists per-Agent approval overrides while inherited policy and disabled Au
       const restored = await NodeConfiguration.read(path);
       expect(restored.current('a')?.approval_mode).toBe(mode);
       expect(restored.runtime(restored.current('a')!).approval).toMatchObject({rules, enabled: false});
+      expect(restored.inheritedApproval(home).rules).toBe('dsh');
     }
     expect(inherited.approval?.rules).toBe('dsh');
     expect(agentConfigurationFingerprint({...original, approval_mode: 'cc'})).not.toBe(agentConfigurationFingerprint({...original, approval_mode: 'codex'}));

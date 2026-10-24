@@ -67,6 +67,7 @@ export function configurationDisplay(profile: Row, capabilities: Row, derivedCur
       source:configuredSkills.includes(name) ? 'explicit' : 'discovered'})),
     skills_selection_mode:mode,
     approval_mode:profile.approval_mode ?? null,
+    inherited_approval_rules:derivedCurrent ? capabilities.inherited_approval_rules ?? null : null,
   };
 }
 

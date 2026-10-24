@@ -581,6 +581,7 @@ function agentCapabilities(profile: Row, capabilities: Row): Row {
     fail(502, 'Agent capabilities are unavailable');
   return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
     models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
+    inherited_approval_rules:capabilities.inherited_approval_rules ?? null,
     commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),platform_default_model:capabilities.platform_default_model ?? null};
 }
 function settingsError(code: string) {
@@ -665,6 +666,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       tools: allowlistOptions(r.tools),
       features: featureOptions(r.features),
       fixed_tools: stringList(r.fixed_tools),
+      inherited_approval_rules: r.inherited_approval_rules ?? null,
       platform_default_model: r.platform_default_model ?? null,
       default_workspace_template: r.default_workspace_template ?? null,
     };
@@ -970,6 +972,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       commands: r.commands ?? [],
       features: featureOptions(r.features),
       fixed_tools: stringList(r.fixed_tools),
+      inherited_approval_rules: r.inherited_approval_rules ?? null,
       platform_default_model: r.platform_default_model ?? null,
     };
   });
