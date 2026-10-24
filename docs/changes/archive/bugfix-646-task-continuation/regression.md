@@ -230,3 +230,30 @@ R6的Global/SingleThread零唤醒、旧答复不恢复、其他Agent正常、明
 e2e尝试把新图标记done时，seq108调用task_graph apply，seq109返回 `NanoApprovalDenied / classifier_block`，理由为 `[External System Writes]`：任务非本会话创建，需要明确人类完成授权。原图同样未写回done。13:42:21.798公开消息 `f77f779b806642088d045bba9d20de6d` 明确说明结果已交付但状态更新被拒绝，不绕过或自动重试；后续改派通知也未被当成新增授权。实际两图仍doing、result空，报告保留这一事实，没有手工替Agent完成、降低审批、改模型重试审批或把拒绝隐藏成成功。本轮原验收bar要求当前责任同步与实际39交付，未要求额外done写回，因此该独立审批观察不虚构成同步缺陷，也不扩展为新的修复循环。
 
 原始API证据追加于 `/tmp/646-stop-sync-evidence.jsonl`；筛选原生请求/来源/工具证据 `/tmp/646-r7-native-evidence.json`（无模型thinking作为判据）。本轮未开浏览器、未新建进程；未停止服务或删除数据。两个doing测试图交回caller收尾，余额问题不再阻塞本次必验项；产品部署、生产验收不在本报告范围。
+
+## Round 8 — 更正R7完成判据，Codex规则下复验明确完成要求
+
+> validated_at: `b20458be30a47a8260288344d2d836c44dfba4d5`（main变更 `f07c6d760` 的独立验收checkout）；caller完整build并于2026-10-24T14:13:49Z启动本隔离Gateway。IM `127.0.0.1:65373`、原node/数据/身份保留；reviewer开始时HEAD匹配且clean。执行模型保持 `codexOAuth:gpt-6.1-sol`，本轮三测试Agent显式Codex审批模式，生产未动。
+
+### 对R7的追加更正
+
+R7新图 `tg_42486a1e` 的真实描述是“由当前负责人计算13×3，在本聊天交付结果并完成任务。” 因此完成状态属于原请求，R7将done写回称为“额外”并仅以交付39判pass的边界错误，现撤回该完整通过判断：当轮只能证明责任同步与39交付，明确完成目标未实现。R7两个拒绝采用CC规则，不能证明Codex也会拒绝；执行模型是gpt-6.1-sol不等于审批规则为Codex。保留R7原始事实，不覆盖旧记录，也不把当时doing改写为done。
+
+本轮用户要求保留Raft对无明确完成要求的工作默认先in_review，不修改该指导；针对与R7完全相同的明确“完成任务”要求，验收必须包含真实done。没有新增“授权完成”聊天、没有修改审批规则或绕过拒绝。
+
+### 真实旅程与状态结果
+
+- 重启后先读取旧图 `tg_7ffac859`、`tg_42486a1e`：均doing、result空、updated_at保持原值。e2e原生seq136/138仅get旧图；本轮采样未出现对旧图的新apply。旧拒绝留下的holding与未重试不能算Codex新拒绝。运行中有多次自动轮私下收尾，但没有以此虚构新的审核决定。
+- 正常认证人类Task API于14:14:50.912新建 `tg_b137be86/n1`（todo，Global），描述逐字沿用R7；14:14:50.942 apply改派e2e并设doing（revision2），通知 `200ef75900e146bfb97b504e7ed044c1` completed。没有额外完成授权输入或直接改DB。
+- 新owner e2e原生turn16 seq248调用task_graph get，seq249读取当前图及明确完成描述；14:15:13.180消息 `f609b409cb404f32a7c799f9da452257` 在固定聊天实际交付13×3=39及加法复核，API确认completed。
+- seq258调用task_graph apply，将新图状态改done并记录结果/交付ID；seq259返回ok、revision3、status done。14:15:26.811 API独立确认根任务done、result含39与上述交付ID、updated_by=e2e；完成通知 `8296fd6f822246649156f81403f4edf1` completed。不是只输出“已完成”的口头声明。
+- 原owner Global本轮自动inbox消费新改派通知（seq634），未代做或修改新图；R7对原owner责任解除的只读确认行为保留，不扩展新的UI矩阵。
+- e2e请求header seq134、Global seq619均为 `codexOAuth:gpt-6.1-sol`；实际模型响应source的responseModel同为gpt-6.1-sol。旧两图仍doing，不借本轮新图成功宣称旧图已完成。
+
+### 实际Codex审核与裁决
+
+reviewer直接读取原生审核域 `storages/nano_approval/sessions/c72d9483-70e4-41d8-88a1-f320e776e596.json`，将本次seq258 callId `call_4798b2222f8649c2a566d1aa7daccfda` 精确关联到14:15:26.784的audit：`rules=codex`、`source=classifier_allow`、`decision=allow`，reason为低风险自动放行，reviewer model `codexOAuth:gpt-6.1-sol`，metadata `risk=low / authorization=unknown / contextMode=delta`。因此本轮明确证明实际Codex审核允许该done写回；**不能进一步声称审核成功提取了人类授权**，其实际授权分类是unknown，放行依据是低风险。审核结果与成功工具回执、最终Task状态相互对应，不以live配置代替实际审核证据。
+
+**Verdict: pass（本轮明确完成要求的同类新任务）**。新图责任改派、结果实际交付、独立Codex审核与done持久化全部完成。R7错误的完整pass边界已在本轮撤回并更正；本轮没有发现Codex继续阻止此类完成操作。旧CC拒绝及其holding保留历史事实，旧图并未自动完成。无明确done要求时默认in_review的Raft行为本轮未修改、未额外验收，不能用这个明确完成场景替它作结论。R6其他停止/冷恢复/人工恢复/解散证据保留原限定，不宣称本轮重跑。
+
+证据：原API流水 `/tmp/646-stop-sync-evidence.jsonl`，执行模型/Task工具事实 `/tmp/646-r8-native-evidence.json`，精确audit摘录 `/tmp/646-r8-audit-evidence.json`。reviewer只追加本报告，不改源码、测试、配置或审批；未新增浏览器页/服务、未删除数据。服务和旧holding测试图由caller收尾；本轮停止新增联调。
