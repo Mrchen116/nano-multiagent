@@ -205,3 +205,28 @@ P4由“混合自动输入公开哨兵”变为“同类真实混合轮completed
 - **外部改派待复验**：用户API创建 `tg_7ffac859`，19:11:46.476将负责人由Global改为e2e并设doing，目标为实际交付13×3。改派系统消息 `589eaaf6f7fa4b0698100f3a06a54624` completed，确实触发新负责人；但公开失败消息 `badda266c36140c9a642ded3387cda71` 返回 `402 Insufficient Balance`，request_id `9f243acb-8869-4158-a895-11b51e78a833`。任务仍doing，没有39交付，因此该项 inconclusive；不因模型账户余额失败虚构实现问题，也不更换模型绕过已约定联调条件。
 - 初始夹具schedule allowlist错误导致Global旧session无schedule工具；caller修正为六个真实schedule工具后，新peer场景成功建立Schedule。Global旧session仍无该工具且探索多轮，其等待配置不算本轮有效waiting验收；停止与人工恢复证据有效。群解散后停止扩展探索，没有把该夹具问题增列本单元缺陷。中途caller维护重启打断初次颜色任务输入，不计产品失败。
 - 证据为reviewer直接操作产品API、Chrome可见状态与原生SQLite只读事件；没有以模型thinking或源码推断行为。原始API流水 `/tmp/646-stop-sync-evidence.jsonl`，筛选原生事件 `/tmp/646-r6-native-evidence.json`，原生DB在隔离worktree `.dsh-runtime/wt-nano-multiagent-89192/node.sqlite3`。这些本地产物不提交。未改源码、测试或运行配置；服务由caller持有。最终余额阻塞后不再新增模型调用；剩余doing测试图与测试服务交回caller清理。
+
+## Round 7 — 402 阻塞后的外部改派定向复验
+
+> validated runtime: `3bdcdc546`；报告前HEAD `4e3e3e3617b4b1f35e6d9849e836f294b08a07a8`（报告变更）。沿用隔离IM `127.0.0.1:65373`、node `wt-nano-multiagent-89192`、原数据及测试身份。时间为2026-10-24 UTC。
+
+**Verdict: pass（本次unit必验范围）**。Highest Required Action: pass；open in-unit issues=0；needs_re_review=false。R6外部改派的“原/新负责人获得当前责任并实际交付39”已闭合；本裁决不表示两个测试Task已标记done。caller确认沿用原验收bar，不新增done写回授权或扩大范围。
+
+### 授权、模型与保留证据
+
+用户明确选择“改用 gpt-6.1-sol 完成复验”后，caller仅调整隔离环境三测试Agent的default_model为 `codexOAuth:gpt-6.1-sol`，保留审批规则；reviewer未改源码、测试、配置、审批或原生持久化数据。本轮独立核对实际原生请求：e2e session `c72d9483-70e4-41d8-88a1-f320e776e596` request/header seq69、Global session `32ecec36-1b0a-43cc-863e-b5451ffb88c4` seq570 的config.model均为该值；实际assistant模型响应source同时给出model `codexOAuth:gpt-6.1-sol`、responseModel `gpt-6.1-sol`，并有成功工具结果和可见交付，不仅检查配置文件。没有以换模型绕过审批，下面的真实拒绝证明审批仍执行。
+
+R6的Global/SingleThread零唤醒、旧答复不恢复、其他Agent正常、明确Task API恢复、冷恢复停工事实与当前空快照、群解散removed消费均按各自版本与DeepSeek证据保留，不宣称本轮重跑或证明模型通用等价性。R1–R5未失效证据继续保留。caller交付的CI40009948870全绿675/987/65仅作为已完成自动检查记录，不代替本轮真实验收。
+
+### 新外部改派及实际消费者
+
+- 启动恢复后，原R6图 `tg_7ffac859` 的e2e在13:40:41.402已实际交付39，消息 `1b2a93848b034e118114168c5bcc8e36` completed；reviewer先读真实状态再安排，未误称这是新改派。
+- reviewer使用正常认证人类Task API新建 `tg_42486a1e/n1`（todo，Global），13:41:10.055通过apply明确由Global改派e2e并设doing，图revision2；系统改派消息 `9c6e4d18de98409091f3d95ac7df9556` completed。没有直接改DB或伪造Agent工具结果。
+- 新负责人e2e正在运行的原生步骤seq96实际消费nano-system/task-change，其中changed含该图revision2、doing列表含该责任；seq98调用task_graph get，seq99获得当前assignee=e2e。13:41:36.411由e2e实际发布消息 `3d5d18358fb8425ba9932c1ed5310bc8`：“646改派复验39”结果13×3=39，并用13+13+13核对；聊天API确认completed。外部责任变更已到达正在运行的真实模型消费者并产生正确交付，**pass**。
+- 原负责人Global收到普通只读确认消息 `2072e2abcfeb42b1a395e2211714e47a`，实际查询该图及旧解散群任务，13:41:53.467发布 `b30c96892b6a41acb9e0936ae71372db` completed：当前负责人e2e、自己已无执行责任、不代做或修改；旧 `tg_42762148/n1` closed且所属群不可写，自己无该群责任。原负责人当前事实消费与解散后的明确确认均有真实回复，**pass**。
+
+### 独立审批边界观察：交付成功不等于Task已完成
+
+e2e尝试把新图标记done时，seq108调用task_graph apply，seq109返回 `NanoApprovalDenied / classifier_block`，理由为 `[External System Writes]`：任务非本会话创建，需要明确人类完成授权。原图同样未写回done。13:42:21.798公开消息 `f77f779b806642088d045bba9d20de6d` 明确说明结果已交付但状态更新被拒绝，不绕过或自动重试；后续改派通知也未被当成新增授权。实际两图仍doing、result空，报告保留这一事实，没有手工替Agent完成、降低审批、改模型重试审批或把拒绝隐藏成成功。本轮原验收bar要求当前责任同步与实际39交付，未要求额外done写回，因此该独立审批观察不虚构成同步缺陷，也不扩展为新的修复循环。
+
+原始API证据追加于 `/tmp/646-stop-sync-evidence.jsonl`；筛选原生请求/来源/工具证据 `/tmp/646-r7-native-evidence.json`（无模型thinking作为判据）。本轮未开浏览器、未新建进程；未停止服务或删除数据。两个doing测试图交回caller收尾，余额问题不再阻塞本次必验项；产品部署、生产验收不在本报告范围。
