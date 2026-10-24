@@ -4,7 +4,7 @@
 
 ### Requirement: 数据面按登录身份、聊天成员与资源管理归属确定访问
 
-普通真人请求中，除 `/im/v1/auth/*` 外,所有数据面路由(`me` / conversations / messages / agents / nodes 等)要求合法 Bearer access token 和有效账号（个人空间可用或公司 active），再核对资源空间;缺失或非法 token 返回 401。默认聊天列表按成员关系及双方 Agent owner 的只读观察资格；详情、消息、历史与受保护附件同时核对资源空间及会话可见范围：有公司资格的用户可读公司空间公开群，私密群和普通私聊仅成员可读；恰含两个同空间 Agent 的私聊还允许双方有效真人 owner 只读观察；一个 PA 与一个真人的私聊允许该 PA 主人按 [personal-agent](personal-agent.md) 只读观察，无资格返回 404；写入还须未解散会话的成员资格；Agent／Gateway 配置保持 owner 管理归属。联系人目录只返回自己及私人助手，以及获准加入公司的成员和公司助手；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不因此放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
+普通真人请求中，除 `/im/v1/auth/*` 外,所有数据面路由(`me` / conversations / messages / agents / nodes 等)要求合法 Bearer access token 和有效账号（个人空间可用或公司 active），再核对资源空间;缺失或非法 token 返回 401。默认聊天列表按成员关系及双方 Agent owner 的只读观察资格；详情、消息、历史与受保护附件同时核对资源空间及会话可见范围：有公司资格的用户可读公司空间公开群，私密群和普通私聊仅成员可读；恰含两个同空间 Agent 的私聊还允许双方有效真人 owner 只读观察；一个 PA 与一个真人的私聊允许该 PA 主人按 [personal-agent](../../../../specs/im/personal-agent.md) 只读观察，无资格返回 404；写入还须未解散会话的成员资格；Agent／Gateway 配置保持 owner 管理归属。联系人目录只返回自己及私人助手，以及获准加入公司的成员和公司助手；全局 Agent Work 的完整读取以 [agent-work](agent-work.md) 为准，不因此放开原聊天或管理操作。Gateway 机器数据入口另接受绑定当前已注册连接的运行凭据，范围见 [gateway-relay](../../../../specs/im/gateway-relay.md)，不能用于真人账号／配置管理。请求主体身份取自服务端验证的 token,不接受 `?user_id=` 之类的查询参数作为信任锚。
 
 #### Scenario: 无 token 的数据面请求返回 401
 - **WHEN** 浏览器前端未带 Bearer 调 `GET /im/v1/me` / `/im/v1/conversations` / `/im/v1/agents` / `/im/v1/nodes`

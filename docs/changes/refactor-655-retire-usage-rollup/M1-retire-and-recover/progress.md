@@ -13,3 +13,9 @@
 - 真 Node + DSH + IM + fake provider token critical path 通过：bubble 与 Global Work 都为 context_used=31001/output=1/cache_read=1000，累计查询 404。
 
 本机运行证据：/tmp/refactor655-native.log、/tmp/refactor655-token-e2e.log、/tmp/refactor655-build.log、/tmp/nano-refactor655-ios-test.log（不提交日志/截图/运行数据）。完整 build 已通过；后续定向代码修改已单包 build。
+
+## 验收收尾
+
+2026-10-25：冻结实现 `0d3a762fe`，完整证据见 `acceptance.md`。独立产品验收最终 pass、0 产品问题；静态 code review findings=[]。主子真实工具成功/失败、重启记录与统计不变、真实分页/原生详情、1440/390px、运行中旧统计及真实补齐期间聊天递送已验证。旧库升级/回滚副本及缺 catalog 的真实原生日志首次补建/再次冷重启通过。全量后端703、前端1022、iOS24及archive通过。当前等待 verifier 对已补证据收口，然后 final sync、canonical merge 与 archive。
+
+隔离服务已停止，保留本机证据。e2e-down 遇到 /tmp 与 /private/tmp 配置路径身份差异而拒绝发送信号；核对本轮精确命令、PID 与 IM process birth 后，仅向自有 Gateway/IM 发送 SIGTERM，运行时随其正常退出。Vite 与原型服务器已停止；未处理无关进程。
