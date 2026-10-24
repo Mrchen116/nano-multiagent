@@ -256,11 +256,12 @@ function BehaviorCard({
                 <label
                   key={feat.key}
                   className="im-settings-feature"
-                  title={t(feat.help_i18n, "")}
                 >
                   <input
                     type="checkbox"
                     data-feature-key={feat.key}
+                    aria-labelledby={`feature-${feat.key}-label`}
+                    aria-describedby={`feature-${feat.key}-help${unknownFeatures.includes(feat.key) ? ` feature-${feat.key}-state` : ""}`}
                     disabled={readOnly}
                     ref={input => { if (input) input.indeterminate = unknownFeatures.includes(feat.key); }}
                     checked={checked}
@@ -269,8 +270,9 @@ function BehaviorCard({
                   />
                   <div className="min-w-0">
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
-                    <p className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
-                    {unknownFeatures.includes(feat.key) && <p className="im-settings-feature-state">{t("agents.settings.featureUnknown")}</p>}
+                    <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
+                    <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
+                    {unknownFeatures.includes(feat.key) && <p id={`feature-${feat.key}-state`} className="im-settings-feature-state">{t("agents.settings.featureUnknown")}</p>}
                   </div>
                 </label>
               );

@@ -1200,19 +1200,19 @@
     },
     "memory_curation": {
       "label": "Memory Curation",
-      "help": "Maintain a persistent MEMORY.md that the agent reads and updates across sessions."
+      "help": "Organize and retain important information across conversations for future tasks."
     },
     "skill_creation": {
       "label": "Skill Creation",
-      "help": "Allow the agent to create and manage skills in its workspace."
+      "help": "Let the Agent save reusable methods as skills in its workspace and maintain them."
     },
     "heartbeat": {
       "label": "Scheduled Check-in (Heartbeat)",
-      "help": "Proactively report on a schedule without waiting for user messages. Configure cadence and active hours."
+      "help": "Send proactive updates on a schedule, with a configurable frequency and active hours."
     },
     "cron_scheduling": {
       "label": "Scheduled Tasks (Cron)",
-      "help": "Run tasks on a cron schedule; due jobs are executed automatically."
+      "help": "Run scheduled tasks automatically when they are due."
     }
   },
   "tasks": {

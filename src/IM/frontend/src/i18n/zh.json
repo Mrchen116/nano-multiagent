@@ -1194,19 +1194,19 @@
     },
     "memory_curation": {
       "label": "记忆整理",
-      "help": "跨会话维护持久化 MEMORY.md，让 agent 能跨对话记忆重要信息。"
+      "help": "跨对话整理和保存重要信息，供后续任务使用。"
     },
     "skill_creation": {
       "label": "技能创建",
-      "help": "允许 agent 在其工作区创建和管理 skill。"
+      "help": "允许 Agent 在工作区把可复用的方法保存为技能，并持续维护。"
     },
     "heartbeat": {
       "label": "定期汇报（Heartbeat）",
-      "help": "按计划节律主动汇报，无需用户触发。可配置频率和活跃时段。"
+      "help": "定期主动汇报，可设置频率和活跃时段。"
     },
     "cron_scheduling": {
       "label": "定时任务（Cron）",
-      "help": "按 cron 表达式调度任务，到期后自动执行。"
+      "help": "到点自动执行计划任务，无需每次手动发起。"
     }
   },
   "tasks": {
