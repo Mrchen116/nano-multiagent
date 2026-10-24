@@ -99,3 +99,53 @@ None。
 None。完整 diff 的新增对外行为是原始文件从自动更新改为显式快照，以及可读副本从原子完整替换改为可见追加尾行；delta:7、:13-15 已明确二者。冷读转 live、生命周期水位和合并队列是兑现上述契约的机制，没有额外 schema、命名、权限、RPC 或客户端行为变更。
 
 Outcome: **aligned**。
+
+## Round 2 — final sync targeted closure
+
+### Metadata
+
+- unit_id: `perf-651-history-export`
+- review_round: `2`
+- verification_mode: `targeted-closure`
+- executed_base / effective_base: `d5b3577923e3dff74de47d947e49c1f963ef91e0`
+- validated_at: `2cedfb1e6f9e464c872a57229fc5ad0df60d66b7`
+- prior_validated_at: `b0939cd0658c778671d71b6e4a749201e1a3c5e6`
+- prior_verification_path: 本文件 Round 1；无存活历史 finding，本轮 closure focus 是 final sync 对原结论的影响。
+- fix_delta_range: `b0939cd0658c778671d71b6e4a749201e1a3c5e6..2cedfb1e6f9e464c872a57229fc5ad0df60d66b7`
+- reviewer / checkout / branch: 同 Round 1；开始时 clean HEAD 精确匹配指定版本；未切换现场。
+- verified_at: `2026-10-25T00:00:26+08:00`
+- requires_full_verification: `false`
+
+**Verdict: Pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION。** final sync 后可以保留原实现、设计与 delta 一致性结论；本轮定向范围未发现新的对外行为遗漏。canonical reconciliation: **aligned**。
+
+### Scope and retained evidence
+
+| 核对项 | 证据与判断 | 结果 |
+|---|---|---|
+| 原导出实现与公开消费者没有变化 | b0939..validated_at 的 `history.ts`、`history-export.test.ts`、PA `src/history.ts`/`tests/history.test.ts` 和 pnpm lock diff 均为空；Round 1 的增量水位、队列、持久上界、失败重建与 ≥95% 合成 workload 结论继续适用 | retained |
+| 原始/可读 JSONL 的 schema、内容保真、文件命名 | 模块无差异，未引入新的写入者；新增任务上下文仍经 DSH 原生事件进入相同投影 | retained |
+| fork/export/启动/停机接线 | 当前 `index.ts:364-375` 仍从 trusted binding 路由到 history；`:285` accepting 前恢复；`:626-640` 在停止输入、等待 Agent/flush 后 drain history | aligned |
+| 能力预检、工具固定集合与历史 fixture | `configuration.apply` 新增 prepare；UI/Task 默认依赖与 read/write-only fixture 不匹配，`history.test.ts:23` 因而显式关闭 intelligent_ui/task_graph，未删减 fork/配置/恢复断言；`fixedTools` 保留历史上下文工具，Task driver `:144-146` 按关闭配置停用 | aligned |
+| 默认 Codex 审批与 Task 同步 | 不改变 session.export、PA 提炼路径或 NativeHistory；Task stop/resume/feedback 走原生事件/flush，没有改写历史前缀或另建派生文件事实 | aligned |
+| 新 HEAD 的 runtime 集成行为 | 独立 [acceptance Round 2](acceptance.md#round-2--final-sync-定向真实复验) 在同 validated_at 重新运行真实 RuntimeClient、read/write-only 且关闭四项无关 Feature 的配置，完整文件、图片/envelope、延迟 raw、fork 独立、重启修复、EISDIR 拒绝与重试均 pass | current evidence |
+
+旧版 7+3 窄测试结果属于 retained baseline，未冒称本轮重新执行；其中真实 history 测试 fixture 已随 inbound 适配，新 HEAD 的运行接线由 acceptance Round 2 独立实测补充。最终 CI 由 caller 单套顺序执行，本 verifier 不重复。新旧性能口径均限逻辑 payload 与序列化工作量；不扩大为生产时延或设备 I/O 结论。
+
+Caller 另已确认本 validated_at 的 build、typecheck、ios-runtime 检查通过；backend 全量测试仍在其顺序 CI 中。本 verifier 只引用该摘要，不将尚未结束的检查记为 pass。
+
+### Canonical merge and delta
+
+独立读取 unit delta 与 current canonical，执行逐文检查：从 delta 的 `### Requirement:` 起到末尾的完整正文，在 canonical `routing-delivery.md:640-658` 出现 **1 次**，Requirement 和全部 **4 个 Scenario** 无文本损失；current 共 **23** 个 Requirement，与 Gateway 索引一致。以 effective_base 为基线的 `spec.md` diff 仅修改 routing 计数 **22→23**，其余 inbound 能力/Task/Heartbeat 区域内容与计数保持 main 状态。
+
+| 校正后的契约项 | 当前代码/集成证据 | 结论 |
+|---|---|---|
+| 连续轮次完整、不重复且以已确认持久切面导出 | 未变化 `history.ts:309-381,399-435,458-460`；retained 导出测试与新 acceptance 连续两轮文件读取 | aligned |
+| 显式原始完整快照与延迟读取；可读副本热追加尾行边界 | 未变化原子临时写/rename，canonical 完整保留 delta:7、13-15；新 acceptance 后续聊天字节不变、显式请求刷新 | aligned |
+| fork 包含继承前缀并独立增长 | 当前 RPC 与未变化 native fork/export 路径；新 acceptance 第二轮处分支后排除 AFTER_POINT、源/分支各自增长 | aligned |
+| 失败不伪报成功，重试及启动从原生事实修复 | 当前 recover/stop 接线与未变化恢复模块；新 acceptance 删除/破坏副本后重启恢复、EISDIR 错误及重试成功 | aligned |
+
+Uncovered Observable Behavior: **None within this unit and the assigned integration scope**。主干新增能力依赖、审批和 Task 自身契约属于其已有 unit/canonical 范围，不作为 perf-651 的新 delta 重复描述；本轮未发现这些入站变化破坏已批准的导出语义。
+
+### Completion boundary
+
+原报告的问题数保持 0，无需要追加复现的具体候选。未修改实现、测试、配置或设计，仅 append 此报告和 code-review；独立产品 reviewer 的 acceptance 修改由其持有。无自建现场/进程，无需清理；report_commit: N/A，交 caller 集中提交。独立产品验收新版本通过，最终全量 CI 结论仍由 caller 另行记录；不宣称启用 Task/UI、真实 Codex 审批、Web/iOS 或生产已经验证。

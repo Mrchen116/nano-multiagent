@@ -80,3 +80,31 @@ N/A：无前端改动、无原型或 must-match 视觉契约。已读 motivation
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
 
 报告按 caller 明确要求只写文件、不提交。report_commit: N/A（交主 Agent 集中交付）。
+
+## Round 2 — final sync 定向真实复验
+
+> 时间：2026-10-24 23:58（Asia/Shanghai）；mode=full；revalidation_mode=targeted。
+>
+> executed_base: `d5b3577923e3dff74de47d947e49c1f963ef91e0`
+>
+> validated_at: `2cedfb1e6f9e464c872a57229fc5ad0df60d66b7`
+>
+> fix_delta_range: `b0939cd0658c778671d71b6e4a749201e1a3c5e6..2cedfb1e6f9e464c872a57229fc5ad0df60d66b7`
+
+**Verdict: pass**；Highest Required Action: pass；blocking / major / minor = 0 / 0 / 0；needs_re_review=false。
+
+启动前核实 HEAD 精确匹配 validated_at，工作树干净。复用 caller 刚完成的构建，不重复全量 CI。沿用 Round 1 隔离真实 RuntimeClient / fixture LLM 驱动，临时 Agent 配置显式关闭 `intelligent_ui`、`task_graph`、`memory_curation`、`skill_creation`，与最新 history fixture 配置一致；因此本轮证明该批准隔离配置下的新版本接线，不宣称启用 Task/UI 或真实 Codex 审批流程已经验收。
+
+本轮实际重新执行 initialize → ensure → submit → lookup completed → export → fork → shutdown → initialize → submit/export，独立读取实际原始和 workspace 文件。临时 home/cwd 为 `perf651-review-EpI5R8`，分支 id 为 `session-a1b83bda-a708-4dc0-a014-948e7617d5f8`。
+
+| 原场景 | 本轮实际观察 | 结论 |
+|---|---|---|
+| motivation 连续聊天后的完整副本；delta 连续轮次导出完整且不重复 | 两轮后原始 JSONL 25 行，可读 5 行；ONE、TWO、两条回复各一次，ONE 的 `[image]` 保留，真人 envelope 不进入正文，来源 user/model/runtime-context 分明 | pass（重验） |
+| delta 延迟提炼读取完整原始快照 | AFTER_POINT 完成后原路径字节保持相等，仍 25 行；显式 export 后同路径变为 33 行并包含新增消息，全部行可 JSON 解析 | pass（重验） |
+| motivation 从历史消息分支后继续聊天；delta 分支导出包含自己的完整历史 | 第二轮 assistant 处分支，BRANCH 后原始 36 行、可读 8 行，包含 ONE/TWO/BRANCH，不含 AFTER_POINT；源继续 SOURCE_AGAIN，源文件不含 BRANCH | pass（重验） |
+| motivation 导出中断后恢复；delta 派生写入失败后重建 | shutdown 后破坏分支可读副本、删除源副本；新 initialize 恢复分支字节与破坏前完全一致，源恢复 9 行；分支重启新增后可读 10 行 | pass（重验） |
+| 同上：失败不得伪报成功与重试 | 将原始目标换成目录后 export 明确 EISDIR；移除障碍重试返回可读取路径，46 行完整 JSONL，含 RESTART_BRANCH | pass（重验） |
+
+所有首文档与 delta 用户场景均在本轮驱动中再次观察通过。Round 1 的非 UI 适用性、无视觉 reference、真实模型与生产未覆盖边界继续有效；没有继承未关闭 fail/inconclusive。并发/写入工作量等底层测试不属于本产品旅程，本轮不重复，也不将它们表述为本轮实测结果。
+
+驱动退出码 0；自身 runtime 正常 shutdown，隔离 home/cwd 删除完成；本轮 `/tmp/perf651-acceptance-round2.mjs` 及其结果记录随后删除，决定性证据已内联于本报告。未修改实现、受版本控制测试或配置，未操作生产、UI 或外部消息。上层文档同步归主 Agent 处理，本轮不更改 Round 1 的历史记录。report_commit=N/A，按派发要求仅 append 后交主 Agent 集中交付。
