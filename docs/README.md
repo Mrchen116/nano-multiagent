@@ -39,6 +39,7 @@
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
+| 复用固定 P/E/Q + PA 阵容、模型与审核规则验收新需求 | [固定日常验收模板](development/worktree-runtime.md#固定日常验收模板) |
 | 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |
 | 首次升级会话归属与任务协作数据 | [feat-584 迁移 guidance](changes/archive/feat-584-task-progress-permissions/migration-guidance.md)；备份后显式映射旧任务 |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |

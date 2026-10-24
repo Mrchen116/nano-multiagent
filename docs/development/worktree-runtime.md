@@ -36,6 +36,33 @@
 
 `e2e-up.sh --feishu` 在启动 Gateway 前用 App 凭据查询 Bot identity；与 `BOT_OPEN_ID` 不一致时立即失败，不会把生产 Bot 凭据接入隔离栈。它还为该 Bot 取得本机 listener lock；同一 Bot 的第二个 worktree 会在启动 Gateway 前失败，必须先对原 worktree 执行 `e2e-down.sh`。`scripts/e2e-feishu-probe.py` 也拒绝 default 或跨 App/Bot 的 CLI profile，故不会因忘记 `--profile` 向生产 Bot 发消息。
 
+## 固定日常验收模板
+
+正常开发流程的真实产品验收使用 `scripts/e2e-up.sh --profile daily --wt <绝对目录>`，每个需求独立实例。角色和初始资料由仓库 [daily 模板](../../config/e2e/daily/team.yaml) 固定维护，初始化复用默认模型目录，不读取个人 Gateway 配置或生产聊天。
+
+| 固定角色 | 职责 | 主模型 / 推理档位 |
+|---|---|---|
+| P · 产品与体验（`daily-product`） | 整理目标、范围和可观察验收标准 | `codexOAuth:gpt-6.1-sol` / `high` |
+| E · 工程交付（`daily-engineering`） | 完成交办、自测、交付可检查产物 | `codexOAuth:gpt-6.1-sol` / `high` |
+| Q · 独立质量（`daily-quality`） | 依据原始要求和真实产物独立核实 | `codexOAuth:gpt-6.1-sol` / `high` |
+| PA · 个人助手（产品生成 ID） | 服务测试主人、读取允许的来源、跟进明确交办 | `codexOAuth:gpt-6-astra` / `medium` |
+
+四者均为 Global 模式，显式选择 Codex 审核规则，无备用主模型；独立工具/PA 审核模型为 `codexOAuth:gpt-6-luna`。审核执行代码优先使用受支持的 `low`，不继承主 Agent 的 effort，也没有额外的模板审核 effort 参数。隔离 owner 配置明确开启 Auto、不跳过权限；权限路由和 PA 对外披露仍遵循[产品审核规则](../operations/auto-permissions.md)。开发侧独立 code reviewer/product reviewer 的模型由各自 skill 派发适配决定，产品内的 Q 不能替代它们。
+
+启动会准备：
+
+- 测试主人 `nano`（密码 `nano1234`）、主人 + P/E/Q 的私密“研发日常”群，以及通过正式产品流程创建的 PA 和主人私聊。PA 默认可观察该群，不作为该群成员。
+- 各自 workspace 和共享的虚构“轻记待办”项目资料（背景、反馈、检查清单）。P 接收普通群交办，E/Q 被 @ 时处理；heartbeat 默认关闭，需要验证时在本轮副本开启。
+- `.e2e-daily.json`，列出实际角色 ID、模型/effort、审核规则、群/PA 入口与项目位置；不包含 token。只有全部 seed 完成才报告 ready，不发送初始化消息、不制造聊天历史或任务，不调用 LLM。
+
+工作区与 owner 根均按本轮 node_id 隔离。同一目录先 down 再 up 也恢复新的基线，旧文件和 Skill 仅作为排障证据保留，不被新实例继承；不同需求不得共用运行中的目录。停止沿用 `e2e-down.sh`，其保留的配置、密钥和状态仍为本地运行证据，不提交仓库。
+
+主 Agent 集中准备环境，向 reviewer 交接版本、清单、入口和本次场景增量。需要额外用户、Agent、数据、Feature 或权限时只在当前副本补充，并记录差异；不复制或改写生产资源。模板 ready 只说明身份和资源建立完成，真实模型回复与用户旅程仍须验收。
+
+`NANO_MULTIAGENT_E2E_MODEL` 可显式覆盖本轮全部工作模型，采用所选模型目录默认 effort，独立审核仍使用 Luna；清单显示实际值，不把覆盖后的运行冒充默认模型验证。一般验收不设置该变量。daily 不与 `--main-config` 或 `--feishu` 混合。
+
+无参数的 `default` 继续服务依赖 `e2e/e2e-peer/e2e-global` 的底层自动回归；专用 Feishu、错误上游等场景作为按需补充，不代替日常基线。
+
 ## 推荐路径：脚本化起停
 
 `scripts/e2e-up.sh` 是完整 IM + Gateway 隔离栈的可执行入口，`scripts/e2e-down.sh` 是与它配对的退出入口。即使启动或验证失败，也必须执行 down。
@@ -56,7 +83,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 PATH="$NANO_MAIN_ROOT/.venv/bin:$PATH" \
-  "$E2E_UP" --wt "$WT_ROOT"
+  "$E2E_UP" --profile daily --wt "$WT_ROOT"
 
 source "$WT_ROOT/.e2e-ports.env"
 curl -fsS "$IM_URL/openapi.json" >/dev/null
