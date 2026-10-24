@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { workSyncLimits as limits, workSyncPrefix, type WorkSyncPart, type WorkSyncCursor } from '@nano/product-contracts';
 import { all, one, fail, transaction, type ImContext, type Row } from './context.js';
 import type { RuntimeIdentity } from './identity.js';
+import type { Connection } from './gateway.js';
 
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -50,6 +51,8 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     END;`);
   let active = 0;
   const activeNodes = new Set<string>(), leases = new WeakMap<FastifyRequest, string>(), handlers = new WeakSet<FastifyRequest>();
+  const connections = new WeakMap<FastifyRequest, Connection>();
+  const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean }>();
   const removals = new Set<Promise<void>>();
   const removeFiles = (id: string) => {
     const removal = rm(join(directory, id), { recursive: true, force: true }).catch(error => app.log.error(error));
@@ -92,6 +95,11 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     if (typeof journal !== 'string' || !journal.length || journal.length > 200) fail(400, 'invalid_journal');
     const body = request.body as Row | undefined;
     if (body && ['node_id', 'owner_id', 'node_epoch'].some(key => key in body)) fail(400, 'invalid_arguments');
+    const produced = request.headers['x-work-produced-seq'], pending = request.headers['x-work-processing-pending'];
+    if (produced !== undefined || pending !== undefined) {
+      if (typeof produced !== 'string' || !/^\d+$/.test(produced) || !integer(Number(produced)) || typeof pending !== 'string' || !['true', 'false'].includes(pending)) fail(400, 'invalid_work_progress');
+      declarations.set(request, { journal, produced: Number(produced), pending: pending === 'true' });
+    }
     return { identity, journal };
   };
   const release = (request: FastifyRequest) => {
@@ -101,12 +109,18 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
   app.addHook('onRequestAbort', async request => { if (!handlers.has(request)) release(request); });
   const serve = (handler: (request: FastifyRequest) => Promise<unknown>) => async (request: FastifyRequest) => {
     handlers.add(request);
-    try { return await handler(request); } finally { handlers.delete(request); release(request); }
+    try {
+      const result = await handler(request), connection = connections.get(request), report = declarations.get(request);
+      if (connection && report) ctx.gateway.work.reportProgress(connection, report.journal, report.produced, report.pending);
+      return result;
+    } finally { handlers.delete(request); release(request); }
   };
   const options = {
     config: { workSync: true }, bodyLimit: limits.requestMaxBytes,
     onRequest: async (request: FastifyRequest) => {
       const identity = authenticateWorkSync(ctx, request);
+      const connection = ctx.gateway.nodes.get(identity.node_id);
+      if (connection?.owner_id === identity.owner_id && connection.node_epoch === identity.node_epoch) connections.set(request, connection);
       if (active >= limits.globalConcurrency || activeNodes.has(identity.node_id))
         throw Object.assign(new Error('work_sync_busy'), { statusCode: 429, detail: 'work_sync_busy', retry_after: 1 });
       active++; activeNodes.add(identity.node_id); leases.set(request, identity.node_id); cleanup();

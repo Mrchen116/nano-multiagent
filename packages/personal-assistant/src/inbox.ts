@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RelayInput } from '@nano/product-contracts';
 import { canonicalJson, formatLocalTime, withInteractionContext } from '@nano/product-contracts';
@@ -24,6 +25,9 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS background_wakes(agent_id TEXT PRIMARY KEY,last_notified_at INTEGER,due_at INTEGER,notified_through_seq INTEGER DEFAULT 0,submitting_through_seq INTEGER);
       CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY,event_id TEXT UNIQUE,event TEXT);
+      CREATE TABLE IF NOT EXISTS work_checkpoints(session_id TEXT PRIMARY KEY,root_session_id TEXT NOT NULL,checkpoint TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS work_checkpoint_roots ON work_checkpoints(root_session_id);
+      CREATE TABLE IF NOT EXISTS work_recovery(root_session_id TEXT PRIMARY KEY,pending INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS read_content(session_id TEXT,call_id TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS targets(agent_id TEXT,target TEXT,name TEXT,PRIMARY KEY(agent_id,target));
@@ -338,6 +342,32 @@ export class InboxStore {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return true;
   }
+  /** Read durable product processing positions for one root and its children. */
+  workCheckpoints(rootSessionId:string):Record<string,WorkCheckpoint> {
+    return Object.fromEntries((this.db.prepare('SELECT session_id,checkpoint FROM work_checkpoints WHERE root_session_id=?').all(rootSessionId) as {session_id:string;checkpoint:string}[])
+      .map(row=>[row.session_id,JSON.parse(row.checkpoint) as WorkCheckpoint]));
+  }
+  /** Commit display facts and their processing cut in one local transaction.
+   *
+   * Args:
+   *   sessionId: Execution whose own events were processed.
+   *   checkpoint: Position covered by the supplied projection facts.
+   *   events: Product facts carrying their stable source identities.
+   */
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:(Record<string,unknown>&{event_id:string})[]):void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for(const event of events)this.append(event);
+      this.db.prepare('INSERT INTO work_checkpoints VALUES(?,?,?) ON CONFLICT(session_id) DO UPDATE SET root_session_id=excluded.root_session_id,checkpoint=excluded.checkpoint WHERE checkpoint!=excluded.checkpoint')
+        .run(sessionId,checkpoint.rootSessionId,JSON.stringify(checkpoint));
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  /** Keep incomplete reconciliation visible across a Node crash. */
+  workPending(rootSessionId:string,pending:boolean):void {
+    this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
+  }
+  get workProcessingPending():boolean {return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 LIMIT 1').get();}
   append(event: Record<string, unknown> & { event_id: string }): void {
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
     const seq = (this.db.prepare('SELECT coalesce(max(seq),0)+1 AS seq FROM journal').get() as { seq: number }).seq;

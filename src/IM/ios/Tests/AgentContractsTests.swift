@@ -75,6 +75,17 @@ struct AgentContractsTests {
         #expect(receipt.observed == nil)
     }
 
+    @Test func workRecordCompletenessIsOptionalAndSeparateFromExecution() throws {
+        for state in ["current", "catching_up", "unknown"] {
+            let response = "{\"record_sync_state\":\"\(state)\",\"node_connection_state\":\"online\",\"main_execution\":\"running\",\"turns\":[],\"next_cursor\":null}"
+            let page = try JSONDecoder().decode(AgentWorkPage.self, from: Data(response.utf8))
+            #expect(page.record_sync_state == state)
+            #expect(page.main_execution == "running")
+        }
+        let previous = try JSONDecoder().decode(AgentWorkPage.self, from: Data(#"{"turns":[],"next_cursor":null}"#.utf8))
+        #expect(previous.record_sync_state == nil)
+    }
+
     @Test func workChildPagePreservesProcessAndMissingUsageWithoutInventingRootState() throws {
         let response = #"{"turns":[{"session_id":"child","turn_id":"turn","status":"waiting_permission","usage":null,"items":[{"item_id":"permission:p","seq":2,"kind":"permission","payload":{"request_id":"p","status":"pending","options":[{"id":"allow_once","label":"Allow once"}],"tool_input":{"command":"pwd"}}}],"next_items_cursor":"2"}],"next_cursor":"older"}"#
         let page = try JSONDecoder().decode(AgentWorkPage.self, from: Data(response.utf8))

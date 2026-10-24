@@ -109,6 +109,8 @@ interface Host {
 export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
+  private readonly historical = new Map<string, ModelRun>();
+  readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
@@ -121,6 +123,7 @@ export class ModelFallback {
     private readonly host: Host,
   ) {
     this.storage = ctx.storageDomain.open(domain);
+    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.historical.set(run.id,run); });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
@@ -164,7 +167,7 @@ export class ModelFallback {
     });
   }
   list(sessionId: string) {
-    return [...this.runs.values()].filter((run) => run.sessionId === sessionId);
+    return [...new Map([...this.historical,...this.runs]).values()].filter((run) => run.sessionId === sessionId);
   }
   evidence(agent: Agent, inputId: string) {
     const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);

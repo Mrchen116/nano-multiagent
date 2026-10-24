@@ -296,7 +296,8 @@ it('retains completed Web receipts offline while reconciling external inputs, th
   try {
     await product.recover();
     expect(receipts).toEqual(['external:feishu']);
-    expect(inbox.completedInputs('main', 1).map(row => row.input.relay_task_id)).toEqual(['web']);
+    expect(inbox.pendingRelays().map(row => [row.input.relay_task_id,row.status])).toEqual([['web','completed']]);
+    expect(inbox.completedInputs('main', 1)).toEqual([]);
     ready = true;
     await product.recover(); await product.recover();
     expect(receipts).toEqual(['external:feishu', 'web']);

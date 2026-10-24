@@ -85,7 +85,8 @@ export class WorkSync {
     const text = body === undefined ? undefined : JSON.stringify(body);
     if (text !== undefined && Buffer.byteLength(text) > limits.requestMaxBytes) throw new SyncError('work_sync_request_too_large', true);
     const response = await fetch(new URL(path, this.base), {
-      method, headers: { authorization: `Bearer ${this.options.credentials()}`, ...(text ? { 'content-type': 'application/json' } : {}) },
+      method, headers: { authorization: `Bearer ${this.options.credentials()}`,
+        'x-work-produced-seq': String(this.options.inbox.journalSeq), 'x-work-processing-pending': String(this.options.inbox.workProcessingPending), ...(text ? { 'content-type': 'application/json' } : {}) },
       body: text, signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(limits.requestTimeoutMs)]),
     });
     const result = await response.json() as WorkSyncCursor & { detail?: string };

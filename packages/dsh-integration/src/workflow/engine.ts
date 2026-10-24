@@ -181,6 +181,13 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     const spent = await this.spent(budget);
     return budget.target === null ? null : Math.max(0, budget.target - spent);
   }
+  /** Read child ownership without executing the budget's native history reads. */
+  async relationships(parentSessionId: string) {
+    await this.ready;
+    return [...(await this.storage).table('runs').entries()]
+      .map(([, record]) => record).filter(record => record.parentSessionId === parentSessionId)
+      .map(record => ({id:record.id,calls:record.calls}));
+  }
   async read(parent: Agent, id?: string) {
     await this.ready;
     const records = [...(await this.storage).table("runs").entries()]

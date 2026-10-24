@@ -190,3 +190,41 @@ test('intake permits enforce one request per node and eight across the center', 
   } finally { for (const request of held) request.destroy(); }
   await expect.poll(async () => (await f.request('GET')).statusCode).toBe(200);
 });
+
+
+test('record completeness requires a current connection declaration and both processing and upload completion', async () => {
+  const f=await fixture();
+  const connection={node_id:'node',owner_id:'alice',node_epoch:1,token:'runtime-secret',lastSeen:Date.now(),socket:{readyState:1,send(){},close(){}}} as any;
+  f.app.im.gateway.nodes.set('node',connection);
+  const view=()=>f.app.im.gateway.work.view('root').record_sync_state;
+  const report=(highest:number,pending:boolean)=>f.app.inject({method:'GET',url:prefix,headers:{authorization:'Bearer runtime-secret','x-work-produced-seq':String(highest),'x-work-processing-pending':String(pending)}});
+  expect(view()).toBe('unknown');
+  expect((await report(1,true)).statusCode).toBe(200);expect(view()).toBe('catching_up');
+  await f.request('POST',`${prefix}/events`,{from_seq:1,events:[event(1)]});
+  expect(view()).toBe('catching_up');
+  await report(1,false);expect(view()).toBe('current');
+  await report(2,false);expect(view()).toBe('catching_up');
+  await f.request('POST',`${prefix}/events`,{from_seq:2,events:[event(2)]});expect(view()).toBe('current');
+  f.app.im.gateway.nodes.set('node',{...connection});expect(view()).toBe('unknown');
+  await report(2,false);expect(view()).toBe('current');
+  f.app.im.gateway.nodes.delete('node');expect(view()).toBe('unknown');
+  await report(2,false);expect(view()).toBe('unknown');
+  await f.app.close();
+  const reopened=await createServer(f.options);cleanups.push(()=>reopened.close());
+  reopened.im.gateway.nodes.set('node',{...connection});
+  expect(reopened.im.gateway.work.view('root').record_sync_state).toBe('unknown');
+});
+
+
+test('a declaration received before socket replacement cannot mark the replacement current', async () => {
+  const f=await fixture();
+  const connection={node_id:'node',owner_id:'alice',node_epoch:1,token:'runtime-secret',lastSeen:Date.now(),socket:{readyState:1,send(){},close(){}}} as any;
+  f.app.im.gateway.nodes.set('node',connection);
+  const append=f.app.im.gateway.work.append.bind(f.app.im.gateway.work);
+  f.app.im.gateway.work.append=(...args)=>{
+    const result=append(...args);f.app.im.gateway.nodes.set('node',{...connection});return result;
+  };
+  const result=await f.app.inject({method:'POST',url:`${prefix}/events`,payload:{from_seq:1,events:[event(1)]},headers:{authorization:'Bearer runtime-secret','x-work-produced-seq':'1','x-work-processing-pending':'false'}});
+  expect(result.statusCode).toBe(200);
+  expect(f.app.im.gateway.work.view('root').record_sync_state).toBe('unknown');
+});

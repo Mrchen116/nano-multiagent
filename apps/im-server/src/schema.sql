@@ -97,18 +97,6 @@ CREATE TABLE IF NOT EXISTS nodes (
     alias TEXT,
     last_error TEXT
 );
-CREATE TABLE IF NOT EXISTS usage_receipts (node_id TEXT NOT NULL,run_id TEXT NOT NULL,PRIMARY KEY(node_id,run_id));
-CREATE TABLE IF NOT EXISTS usage_metrics (
-    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id TEXT,
-    conversation_id TEXT,
-    agent_id TEXT,
-    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-    completion_tokens INTEGER NOT NULL DEFAULT 0,
-    total_tokens INTEGER NOT NULL DEFAULT 0,
-    turns INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS bind_requests (
     bind_id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,

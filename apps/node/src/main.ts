@@ -12,7 +12,7 @@ import { ModelSetup, type SetupRequest } from './model-setup.js';
 import { projectCapabilities } from './capabilities.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { WorkSync, NodeStore, TaskExecution, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, UsageReports, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { WorkSync, NodeStore, TaskExecution, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -67,7 +67,6 @@ const workflowsByPartition = new Map<string, WorkflowResults>();
 const workflows = { get busy() { return [...workflowsByPartition.values()].some(item => item.busy); },
   recover: () => settlePartitions([...workflowsByPartition.values()].map(item => item.recover())),
   stop: () => Promise.all([...workflowsByPartition.values()].map(item => item.stop())) };
-let usage: UsageReports;
 let trajectory: NodeTrajectory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
 const reportError = (error: unknown) => process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
@@ -118,7 +117,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           if (product) {
             if(relay.ready){await tasks.recoverStops(partition.agents.map(a=>a.agentId));await tasks.recover(partition.agents.map(a=>a.agentId));}
             await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
-              knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover(), usage.recover()]);
+              knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
           }
         });
         if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
@@ -296,7 +295,7 @@ const relay = new WebRelayConnection({
       await settlePartitions([globalProduct.recover(), (async()=>{
         for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
         await knowledge.migrateSkills();await managed.flush();await external.recover();await product.recover();
-        await knowledge.recover();await workflows.recover();await usage.recover();
+        await knowledge.recover();await workflows.recover();
       })()]);
     });
   },
@@ -404,7 +403,6 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     await tasks.recover([next.agentId]);
   },
 });
-usage = new UsageReports({nodeId: config.node.node_id, store, runtime, relay, onError: reportError});
 
 history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 for (const partition of runtime.partitions.values()) installPartitionConsumers(partition);
@@ -452,7 +450,7 @@ async function stop() {
   stopping = true;
   clearInterval(taskWatch);
   trajectory.closeAll();
-  try { await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await usage.stop(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

@@ -722,6 +722,8 @@
       "重试": "Retry",
       "节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。": "Node offline. Showing saved records. Active execution status is unknown; permissions are unavailable.",
       "最近已报告的主上下文": "Latest reported main context",
+      "工作记录正在补齐，当前显示已保存内容。": "Work records are catching up. Showing saved content.",
+      "当前显示已保存记录，最新进度尚未确认。": "Showing saved records. The latest progress has not been confirmed.",
       "新统计尚未报告时沿用最近轮次": "Showing the latest reported turn until new statistics arrive",
       "最新轮次在前 · 轮次内部按实际顺序": "Latest turns first · Events in execution order",
       "暂无工作记录。符合配置的新消息会进入收件箱。": "No work records yet. Eligible new messages will enter the inbox.",

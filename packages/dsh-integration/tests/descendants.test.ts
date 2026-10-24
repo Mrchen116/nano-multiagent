@@ -3,6 +3,8 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { DescendantReader } from '../src/descendants.js';
 
+const catalogStorage = (rows = new Map<string, unknown>()) => ({ open: async () => ({table: () => ({entries: () => rows.entries(), put: async (id: string, value: unknown) => { rows.set(id, structuredClone(value)); }}), close: async () => {}}) });
+
 it('reads changed cold branches while preserving full own context and retrying unavailable branches', async () => {
   const root = SessionId('root'), child = SessionId('child'), grandchild = SessionId('grandchild');
   const entry = (id: string) => ({id,createdAt:1,mode:'one-shot'});
@@ -15,13 +17,15 @@ it('reads changed cold branches while preserving full own context and retrying u
   let unavailable = false;
   const bodyReads: string[] = [];
   const ctx = {
+    effect:()=>{},
+    storageDomain: catalogStorage(),
     sessions:{get:()=>undefined},
     sessionPersistence:{identity:Symbol(),stat:async(id:string)=>records.get(id)},
     sessionQuery:{observeSession:async(id:string)=>{
       bodyReads.push(id);
       if(id===grandchild && unavailable)throw new Error('temporary source failure');
       const row=records.get(id);
-      return {...row,inheritedEventCount:1,projections:{values:{subagentCatalog:row.children}},[Symbol.dispose](){}};
+      return {...row,inheritedEventCount:1,projections:{values:{subagentCatalog:row.children,inbox:{'next-turn':[],'next-step':[]}}},[Symbol.dispose](){}};
     }},
   } as unknown as Context;
   const reader = new DescendantReader(ctx);
@@ -51,6 +55,8 @@ it('reads changed cold branches while preserving full own context and retrying u
 it('captures projection state after an awaited observation and re-captures on cold replay', async () => {
   let modelVersion = 'old', observedVersion = '', childReads = 0;
   const ctx = {
+    effect:()=>{},
+    storageDomain: catalogStorage(),
     sessions:{get:()=>undefined},
     sessionPersistence:{identity:Symbol(),stat:async()=>({revision:'same'})},
     sessionQuery:{observeSession:async(id:string)=>{
@@ -71,4 +77,35 @@ it('captures projection state after an awaited observation and re-captures on co
   const changed = await reader.read(SessionId('root'),{child:2},refresh);
   expect(observedVersion).toBe('completed');
   expect(changed).toMatchObject([{id:'child',throughSeq:2,events:[{type:'turn/end'}]}]);
+});
+
+
+it('restores catalog ownership and processed cold cuts without body reads, then reads only a changed branch', async () => {
+  const stored = new Map<string, unknown>();
+  const records = new Map<string, any>([
+    ['root', {revision:'r1',sizeBytes:100,cursor:0,children:[{id:'child',mode:'one-shot',createdAt:1}],events:[]}],
+    ['child', {revision:'c1',sizeBytes:200,cursor:2,children:[],events:[{seq:0,type:'turn/start',data:{turn:1}},{seq:1,type:'assistant/message',data:{}},{seq:2,type:'turn/end',data:{turn:1}}]}],
+  ]);
+  const reads: string[] = [];
+  const context = () => ({
+    effect:()=>{},
+    storageDomain: catalogStorage(stored),
+    sessions:{get:()=>undefined},
+    sessionPersistence:{identity:Symbol(),stat:async(id:string)=>({...records.get(id),header:{id,createdAt:1,version:1,isSeeded:false}})},
+    sessionQuery:{observeSession:async(id:string)=>{
+      reads.push(id); const row=records.get(id);
+      return {...row,header:{id,createdAt:1,version:1,isSeeded:false},source:'prepared',inheritedEventCount:0,
+        projections:{values:{subagentCatalog:row.children,inbox:{'next-turn':[],'next-step':[]}}},[Symbol.dispose](){}};
+    }},
+  } as unknown as Context);
+  const first = new DescendantReader(context());
+  await first.read(SessionId('root'));
+  reads.length = 0;
+  const restarted = new DescendantReader(context());
+  expect(await restarted.read(SessionId('root'),{child:2})).toMatchObject([{id:'child',events:[]}]);
+  expect(reads).toEqual([]);
+  expect(restarted.rootOf('child')).toBe('root');
+  records.set('child',{...records.get('child'),revision:'c2',sizeBytes:250,cursor:3,events:[...records.get('child').events,{seq:3,type:'assistant/message',data:{}}]});
+  expect(await restarted.read(SessionId('root'),{child:2})).toMatchObject([{id:'child',throughSeq:3}]);
+  expect(reads).toEqual(['child']);
 });

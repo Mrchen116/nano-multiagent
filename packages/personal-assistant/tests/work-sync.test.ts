@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { InboxStore } from '../src/inbox.js';
 import { WorkSync } from '../src/work-sync.js';
 
-interface Call { method: string; path: string; body: any; bytes: number; authorization?: string }
+interface Call { method: string; path: string; body: any; bytes: number; authorization?: string; produced?: string; processing?: string }
 const cleanups: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -23,7 +23,7 @@ async function fixture(handler: (call: Call, response: ServerResponse) => void |
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(chunk as Buffer);
     const body = Buffer.concat(chunks), call = { method: request.method!, path: request.url!, body: body.length ? JSON.parse(body.toString()) : undefined,
-      bytes: body.length, authorization: request.headers.authorization };
+      bytes: body.length, authorization: request.headers.authorization, produced: request.headers['x-work-produced-seq'] as string | undefined, processing: request.headers['x-work-processing-pending'] as string | undefined };
     calls.push(call);
     await handler(call, response);
   });
@@ -150,4 +150,17 @@ test('a busy center Retry-After remains a minimum even during the first jittered
  });
  f.sync.start();await expect.poll(()=>f.calls.length,{timeout:5000}).toBe(2);
  expect(times[1]!-times[0]!).toBeGreaterThanOrEqual(2000);expect(f.errors).toHaveLength(1);
+});
+
+
+test('reports processing separately from upload ACK, including completion with no new events', async () => {
+  let remote=0;
+  const f=await fixture((call,response)=>{if(call.method==='POST')remote=call.body.events.at(-1).seq;json(response,{through_seq:remote,expected_seq:remote+1});});
+  f.inbox.workPending('main',true);f.inbox.append(event(1));f.sync.start();
+  await expect.poll(()=>f.inbox.throughSeq).toBe(1);
+  expect(f.calls.at(-1)).toMatchObject({produced:'1',processing:'true'});
+  f.inbox.workPending('main',false);f.sync.signal();
+  await expect.poll(()=>f.calls.at(-1)?.processing).toBe('false');
+  expect(f.calls.at(-1)).toMatchObject({method:'GET',produced:'1'});
+  expect(f.inbox.journalSeq).toBe(1);expect(f.errors).toEqual([]);
 });

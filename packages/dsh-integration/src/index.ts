@@ -17,7 +17,6 @@ import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
-import { readUsage, usageRoot } from './usage.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
@@ -125,7 +124,18 @@ export default class NanoRuntime {
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!, (agentId, action) => !['catalog', 'history', 'list', 'delete'].includes(action) && (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: `schedule_${action}`})));
     ctx.plugin(ConfigurationScopes, this.configurations);
-    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { let session = ctx.sessions.get(SessionId(sessionId)); while (session?.header.parentSession) session = ctx.sessions.get(session.header.parentSession); this.peer.notify('model.changed', { sessionId, rootSessionId: session?.id }); } });
+    const descendantReader = new DescendantReader(ctx);
+    const boundRoot = (id: string): string | undefined => {
+      let current: string | undefined = id;
+      while (current) {
+        if (this.bindings.has(current)) return current;
+        const known = descendantReader.rootOf(current);
+        if (known && this.bindings.has(known)) return known;
+        current = ctx.sessions.get(SessionId(current))?.header.parentSession;
+      }
+    };
+    const modelVersion = (runs: unknown) => createHash('sha256').update(JSON.stringify(runs)).digest('hex');
+    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { this.peer.notify('model.changed', { sessionId, rootSessionId: boundRoot(sessionId) }); } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
@@ -200,11 +210,9 @@ export default class NanoRuntime {
     });
     const toolViews = recordToolPresentations(ctx);
     ctx.on('session/event', (session, event) => {
-      let root = session;
-      while (!this.bindings.has(root.id) && root.header.parentSession) {
-        const parent = ctx.sessions.get(root.header.parentSession); if (!parent) break; root = parent;
-      }
-      this.peer.notify('session.event', { sessionId: session.id, rootSessionId: this.bindings.has(root.id) ? root.id : usageRoot(ctx, session.id), event });
+      const rootSessionId = boundRoot(session.id);
+      if (rootSessionId) descendantReader.remember(session,event,rootSessionId);
+      this.peer.notify('session.event', { sessionId: session.id, rootSessionId, event });
     });
     const liveness = setInterval(() => {
       for (const sessionId of this.bindings.keys()) {
@@ -258,6 +266,8 @@ export default class NanoRuntime {
       await this.sessionController;
       await approvalFiber.await();
       await modelFiber.await();
+      await descendantReader.ready;
+      await (await models).fallback.ready;
       await webFiber.await();
       await workflowFiber.await();
       await workflow;
@@ -382,31 +392,39 @@ export default class NanoRuntime {
       await this.flush(agent);
       return (await models).fallback.evidence(agent, inputId);
     });
-    handle('usage.read', async value => {
-      const {sessionId, cursor} = value as {sessionId: string; cursor?: string};
+    handle('session.work.check', async value => {
+      const {sessionId, cursors = {}, modelVersions = {}} = value as {sessionId:string;cursors?:Record<string,number>;modelVersions?:Record<string,string>};
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      return readUsage(ctx, sessionId, cursor);
+      const fallback = (await models).fallback;
+      const refresh = (id:SessionId) => {
+        const runs=fallback.list(id);
+        return runs.some(run=>run.state!=='completed') || modelVersions[id]!==modelVersion(runs);
+      };
+      const rootSettled=await descendantReader.settled(SessionId(sessionId),cursors,refresh,false);
+      const settled=rootSettled && await descendantReader.settled(SessionId(sessionId),cursors,refresh);
+      return {settled,rootSettled};
     });
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
       await this.flush(agent);
-      return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: (await models).fallback.list(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+      const runs = structuredClone((await models).fallback.list(sessionId));
+      return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: runs, modelVersion: modelVersion(runs), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
-    const descendantReader = new DescendantReader(ctx);
     handle('session.descendants', async value => {
       const { sessionId, cursors = {}, modelVersions = {} } = value as { sessionId: string; cursors?: Record<string, number>; modelVersions?: Record<string, string> };
-      const root = await this.agent(sessionId); await this.flush(root);
+      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
+      const root = SessionId(sessionId);
       const fallback = (await models).fallback;
       const snapshots = new Map<string, { modelRuns: ReturnType<typeof fallback.list>; modelVersion: string }>();
-      const children = await descendantReader.read(root.id, cursors, id => {
+      const children = await descendantReader.read(root, cursors, id => {
         const modelRuns = structuredClone(fallback.list(id));
-        const modelVersion = createHash('sha256').update(JSON.stringify(modelRuns)).digest('hex');
-        snapshots.set(id, { modelRuns, modelVersion });
-        return modelVersions[id] !== modelVersion;
+        const version = modelVersion(modelRuns);
+        snapshots.set(id, { modelRuns, modelVersion: version });
+        return modelVersions[id] !== version;
       });
-      const workflowRuns = await (await workflow).read(root);
+      const workflowRuns = await (await workflow).relationships(root);
       const descendants = [];
       for (const child of children) {
         if (child.kind !== 'child') { descendants.push(child); continue; }

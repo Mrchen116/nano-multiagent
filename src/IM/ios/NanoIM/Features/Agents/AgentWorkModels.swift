@@ -31,6 +31,7 @@ struct AgentWorkSession: Codable, Identifiable, Sendable, Hashable {
 }
 struct AgentWorkPage: Codable, Sendable {
     var root_agent_id: String?; var main_session_id: String?; var revision: Int?; var node_connection_state: String?; var main_execution: String?
+    var record_sync_state: String?
     var latest_main_usage: JSONValue?; var other_executions: [AgentWorkSession]?; var control_items: [AgentWorkItem]?
     var turns: [AgentWorkTurn]; var next_cursor: String?
 }
