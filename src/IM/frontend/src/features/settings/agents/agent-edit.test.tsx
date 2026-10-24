@@ -1,536 +1,287 @@
 import userEvent from "@testing-library/user-event";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import {act, fireEvent, screen, waitFor, within} from "@testing-library/react";
+import {afterEach, beforeEach, vi} from "vitest";
+import {useAuthStore} from "../../auth/auth-store";
+import {appRoutes} from "../../../app/router";
+import {renderRouter} from "../../../test/render-router";
+import type {UserStreamSubscriber} from "../../../realtime/user-stream";
+import type {AgentConfig} from "./im-agent-config-api";
 
-import { useAuthStore } from "../../auth/auth-store";
-import { appRoutes } from "../../../app/router";
-import { renderRouter } from "../../../test/render-router";
-
+const stream = vi.hoisted(() => ({subscribers: new Set<UserStreamSubscriber>()}));
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: (subscriber: UserStreamSubscriber) => {
+  stream.subscribers.add(subscriber); return () => stream.subscribers.delete(subscriber);
+}}));
 const fetchMock = vi.fn();
+const path = "/im/v1/agents/agent-core-1";
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {status, headers: {"Content-Type": "application/json"}});
+const capabilities = {
+  node_id: "node-1", node_name: "MacBook", node_status: "online",
+  skills: ["tdd-execution-worker", "playwright", "plan"].map(name => ({name, description: name})),
+  tools: ["bash", "read_file", "task"].map(name => ({name, description: name})),
+  features: [],
+  model_options: [{name: "codex_oauth:gpt-5.5", provider: "openai_compat", reasoning: {kind: "selectable", default: "high", levels: ["high", "max"]}}],
+  platform_default_model: "codex_oauth:gpt-5.5",
+};
+let config: AgentConfig;
+let online: boolean;
+let pending: boolean;
+let settingsRead: () => Promise<Response>;
+let save: (body: Record<string, unknown>) => Response;
+function settings() {
+  return {
+    config, node: {node_id: "node-1", state: online ? "online" : "offline"},
+    display: {source: "unavailable", captured_at: null, data: null, error: null},
+    live_capabilities: online ? capabilities : null,
+    pending_operation: pending ? {operation_id: "op-1", status: "pending"} : null,
+    ready: online && !pending,
+  };
+}
+function open() { return renderRouter({routes: appRoutes, initialEntries: ["/settings/agents/agent-core-1"]}); }
+async function presence(status: "online" | "offline") {
+  online = status === "online";
+  await act(async () => { for (const s of stream.subscribers) s.onEvent({eventType: "agent.status_changed", payload: {agent_id: config.agent_id, status}}); });
+}
+const patches = () => fetchMock.mock.calls.filter(([url, init]) => url === `${path}/config` && init?.method === "PATCH");
 
-globalThis.fetch = fetchMock as typeof fetch;
+beforeEach(() => {
+  online = true; pending = false;
+  config = {
+    agent_id: "agent-core-1", owner_id: "owner-1", display_name: "Core Planner", description: "Milestone execution coordinator",
+    skills: ["tdd-execution-worker", "playwright"], skills_selection_mode: "explicit_allowlist", tool_allowlist: ["bash", "read_file"],
+    group_reply_policy: "MENTION", default_model: null, model_fallbacks: [], reasoning_effort: null,
+    workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1", workspace_is_default: true,
+    profile_version: 12, node_id: "node-1", node_name: "MacBook", updated_at: "2026-03-13T10:00:00Z",
+  };
+  settingsRead = async () => json(settings());
+  save = body => {config = {...config, ...body, profile_version: config.profile_version + 1}; return json(config);};
+  globalThis.fetch = fetchMock as typeof fetch;
+  fetchMock.mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (url === `${path}/capability-usage`) return json({checked_at: "now", active_tasks: 0, active_schedules: 0, busy: []});
+    if (url === `${path}/settings`) return settingsRead();
+    if (url === `${path}/config` && init?.method === "PATCH") return save(JSON.parse(init.body));
+    if (url.includes("/settings/sections/")) return json({source: "current", captured_at: "2026-10-23T00:00:00Z", data: [], error: null});
+    if (url.includes("/im/v1/contacts?")) return json({items: [{user_id: "agent-user", kind: "agent", agent_id: config.agent_id, display_name: "Core Planner", owner_id: useAuthStore.getState().user?.id, work_mode: "single_thread", node_name: "MacBook", status: "online"}], next_cursor: null});
+    if (url === "/im/v1/agents" || url === "/im/v1/nodes") return json([]);
+    return new Response(null, {status: 404});
+  });
+});
+afterEach(() => {vi.useRealTimers(); fetchMock.mockReset(); stream.subscribers.clear();});
 
-afterEach(() => {
-  vi.useRealTimers();
-  fetchMock.mockReset();
+it("loads settings and saves edited profile, allowlists and the explicit model effort", async () => {
+  const user = userEvent.setup(); open();
+  const input = await screen.findByLabelText("Display Name");
+  expect(screen.getByLabelText("Workspace Root")).toHaveValue(config.workspace_root);
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("Approval strategy"), "codex");
+  await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
+  fireEvent.change(input, {target: {value: "Core Planner X"}});
+  await user.click(screen.getByRole("button", {name: /^playwright$/i}));
+  await user.click(screen.getByRole("button", {name: /^plan$/i}));
+  await user.click(screen.getByRole("button", {name: /^bash$/i}));
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  await waitFor(() => expect(screen.getByLabelText("Profile Version")).toHaveValue("v13"));
+  expect(JSON.parse(patches()[0][1].body)).toMatchObject({profile_version: 12, display_name: "Core Planner X", approval_mode: "codex", skills: ["tdd-execution-worker", "plan"], skills_selection_mode: "explicit_allowlist", tool_allowlist: ["read_file"], default_model: null, reasoning_effort: "max"});
 });
 
-describe("agent edit page", () => {
-  it("loads the agent settings and saves edited profile and allowlists", async () => {
-    const user = userEvent.setup();
-    let currentConfig: {
-      agent_id: string;
-      owner_id: string;
-      display_name: string;
-      description: string;
-      skills: string[];
-      skills_selection_mode: "explicit_allowlist";
-      tool_allowlist: string[];
-      group_reply_policy: string;
-      default_model: string | null;
-      reasoning_effort: string | null;
-      workspace_root: string;
-      workspace_is_default: boolean;
-      profile_version: number;
-      bound_nodes: string[];
-      updated_at: string;
-    } = {
-      agent_id: "agent-core-1",
-      owner_id: "owner-1",
-      display_name: "Core Planner",
-      description: "Milestone execution coordinator",
-      skills: ["tdd-execution-worker", "playwright"],
-      skills_selection_mode: "explicit_allowlist",
-      tool_allowlist: ["bash", "read_file"],
-      group_reply_policy: "MENTION",
-      default_model: null,
-      reasoning_effort: null,
-      workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
-      workspace_is_default: true,
-      profile_version: 12,
-      bound_nodes: ["node-1"],
-      updated_at: "2026-03-13T10:00:00Z"
-    };
+it("keeps saved settings readable and blocks editing when live capabilities are unavailable", async () => {
+  online = false;
+  config.default_model = "codex_oauth:gpt-5.5"; config.reasoning_effort = "high";
+  open();
+  expect(await screen.findByLabelText("Display Name")).toBeDisabled();
+  expect(screen.getByLabelText("Default Model")).toHaveValue(config.default_model);
+  expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  expect(screen.queryByText(/no longer accepts|Remove unavailable/i)).not.toBeInTheDocument();
+  expect(patches()).toHaveLength(0);
+});
 
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
+it.each([{disabled: []}, {disabled: ["hidden-disabled-skill"]}])("distinguishes an unconfirmed discovered Skill count from confirmed empty results ($disabled)", async ({disabled}) => {
+  online = false;
+  config.skills = disabled; config.skills_selection_mode = "explicit_denylist";
+  open();
+  await screen.findByLabelText("Display Name");
+  expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent(/has not been confirmed/i);
+  for (const name of disabled) expect(screen.getByRole("button", {name})).toBeDisabled();
+  settingsRead = async () => json({...settings(), live_capabilities: {...capabilities, skills: []}});
+  await presence("online");
+  await waitFor(() => expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent("0 selected"));
+});
 
-      if (url === "/im/v1/nodes") {
-        return new Response(
-          JSON.stringify([
-            {
-              node_id: "node-1",
-              owner_id: "owner-1",
-              node_name: "MacBook",
-              status: "online",
-              last_heartbeat_at: "2026-03-13T10:00:00Z",
-              agent_count: 1,
-              version: "1.0.0"
-            }
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
+it("blocks save when required fields are empty", async () => {
+  const user = userEvent.setup(); open();
+  await user.clear(await screen.findByLabelText("Display Name"));
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  expect(await screen.findByText(/Display name is required/i)).toBeInTheDocument();
+  expect(patches()).toHaveLength(0);
+});
 
-      if (url === "/im/v1/agents/agent-core-1/capability-usage") {
-        return new Response(JSON.stringify({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }), {
-          status: 200, headers: { "Content-Type": "application/json" }
-        });
-      }
+it("surfaces a version conflict without replacing the draft or its base version", async () => {
+  const user = userEvent.setup();
+  save = () => json({detail: "profile_version conflict"}, 409);
+  open(); fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Draft"}});
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  expect(await screen.findByTestId("agent-save-error")).toHaveTextContent(/409.*profile_version conflict/i);
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Draft");
+  expect(screen.getByLabelText("Profile Version")).toHaveValue("v12");
+});
 
-      if (url === "/im/v1/agents/agent-core-1/capabilities") {
-        return new Response(
-          JSON.stringify({
-            node_id: "node-1",
-            node_name: "MacBook",
-            node_status: "online",
-            capabilities_updated_at: "2026-03-13T10:00:00Z",
-            skills: [
-              { name: "tdd-execution-worker", description: "Execute TDD tasks" },
-              { name: "playwright", description: "Drive browser checks" },
-              { name: "plan", description: "Plan work" }
-            ],
-            tools: [
-              { name: "bash", description: "Run shell commands" },
-              { name: "read_file", description: "Read files" },
-              { name: "task", description: "Dispatch a subtask" }
-            ],
-            model_options: [
-              {
-                name: "codex_oauth:gpt-5.5",
-                provider: "openai_compat",
-                reasoning: { kind: "selectable", default: "high", levels: ["high", "max"] },
-              },
-              { name: "kimiCoding:K2.6", provider: "anthropic" },
-            ],
-            platform_default_model: "codex_oauth:gpt-5.5",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
+it("confirms an accepted pending save without replaying it or losing its paired effort", async () => {
+  const user = userEvent.setup();
+  config.default_model = "codex_oauth:gpt-5.5"; config.reasoning_effort = "high";
+  save = () => {pending = true; return json({detail: {code: "config_apply_pending", message: "Awaiting receipt"}}, 503);};
+  open(); await user.selectOptions(await screen.findByLabelText("Reasoning effort"), "max");
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  await waitFor(() => expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled());
+  expect(screen.getByLabelText("Reasoning effort")).toHaveValue("max");
+  config = {...config, reasoning_effort: "max", profile_version: 13}; pending = false;
+  await waitFor(() => expect(screen.getByLabelText("Profile Version")).toHaveValue("v13"), {timeout: 2500});
+  expect(patches()).toHaveLength(1);
+});
 
-      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
-        const payload = JSON.parse(String(init.body)) as {
-          profile_version: number;
-          display_name: string;
-          description: string;
-          skills: string[];
-          tool_allowlist: string[];
-          group_reply_policy: string;
-          default_model: string | null;
-          reasoning_effort: string | null;
-          workspace_root: string | null;
-        };
+it("preserves a dirty draft through disconnect, delayed refresh and a remote version change", async () => {
+  const user = userEvent.setup(); open();
+  fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Unsubmitted draft"}});
+  await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
+  await presence("offline");
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Unsubmitted draft");
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeDisabled());
+  let finish!: (response: Response) => void;
+  settingsRead = () => new Promise(resolve => {finish = resolve;});
+  await presence("online");
+  expect(screen.getByLabelText("Display Name")).toBeDisabled();
+  config = {...config, display_name: "Changed elsewhere", profile_version: 13};
+  await act(async () => {finish(json(settings()));});
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Unsubmitted draft");
+  expect(screen.getByLabelText("Reasoning effort")).toHaveValue("max");
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  expect(screen.getByText(/Settings changed elsewhere/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", {name: /Discard/i}));
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Changed elsewhere");
+  expect(screen.getByLabelText("Profile Version")).toHaveValue("v13");
+  expect(patches()).toHaveLength(0);
+});
 
-        currentConfig = {
-          ...currentConfig,
-          ...payload,
-          workspace_root: payload.workspace_root ?? "/Users/demo/nano-assistant/workspace/agent-core-1",
-          workspace_is_default: payload.workspace_root == null,
-          profile_version: 13,
-          updated_at: "2026-03-13T10:01:00Z"
-        };
+it("does not save a capability default when only the name was edited", async () => {
+  const user = userEvent.setup(); open();
+  fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Renamed"}});
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(JSON.parse(patches()[0][1].body).reasoning_effort).toBeNull();
+});
 
-        return new Response(JSON.stringify(currentConfig), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
+it("discards a late response from the previous connection and waits for stream recovery", async () => {
+  open(); await screen.findByLabelText("Display Name");
+  const oldResponse = settings();
+  let late!: (response: Response) => void;
+  settingsRead = () => new Promise(resolve => {late = resolve;});
+  await presence("online");
+  await waitFor(() => expect(late).toBeDefined());
+  settingsRead = async () => json(settings());
+  await presence("offline");
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeDisabled());
+  await act(async () => {late(json(oldResponse));});
+  expect(screen.getByLabelText("Display Name")).toBeDisabled();
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/computer is offline/i);
+  await presence("online");
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
+  await act(async () => {for (const s of stream.subscribers) s.onConnectionStatus?.({kind: "reconnecting", retryAt: Date.now() + 1000});});
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeDisabled());
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/connection is not confirmed/i);
+  await act(async () => {for (const s of stream.subscribers) s.onConnectionStatus?.(null);});
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
+  expect(patches()).toHaveLength(0);
+});
 
-      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
-        return new Response(JSON.stringify(currentConfig), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
+it("shows an unavailable cron observation instead of claiming there are no jobs", async () => {
+  online = false; config.features = {cron_scheduling: true};
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => String(input).endsWith("/settings/sections/cron")
+    ? Promise.resolve(json({source: "unavailable", captured_at: null, data: null, error: {code: "offline", message: "offline"}}))
+    : original(input, init));
+  open(); await screen.findByLabelText("Display Name");
+  await waitFor(() => expect(screen.getByTestId("cron-jobs-list")).toHaveTextContent(/no previously confirmed/i));
+  expect(screen.getByTestId("cron-jobs-list")).not.toHaveTextContent(/no scheduled jobs/i);
+});
 
-      if (url === "/im/v1/agents") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
+it("shows an accepted pending operation after reopening offline", async () => {
+  online = false; pending = true; open();
+  await screen.findByLabelText("Display Name");
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/waiting for.*confirm|awaiting.*confirm/i);
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  expect(patches()).toHaveLength(0);
+});
 
-      return new Response(null, { status: 404 });
-    });
+it("lets offline users expand saved fallback models without editing", async () => {
+  online = false; config.model_fallbacks = ["retired:fallback"];
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /Fallbacks.*1/i}));
+  const fallback = screen.getByRole("combobox", {name: /Fallback.*1/i});
+  expect(fallback).toHaveValue("retired:fallback");
+  expect(fallback).toBeDisabled();
+});
 
-    renderRouter({
-      routes: appRoutes,
-      initialEntries: ["/settings/agents/agent-core-1"]
-    });
+it("retains missing catalog selections and requires explicit correction before save", async () => {
+  config.default_model = "retired:primary"; config.model_fallbacks = ["retired:fallback"];
+  config.tool_allowlist = ["retired-tool"]; config.skills = ["retired-skill"]; config.skills_selection_mode = "explicit_allowlist";
+  const user = userEvent.setup(); open();
+  fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Kept draft"}});
+  expect(screen.getByRole("button", {name: "retired-tool"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", {name: "retired-skill"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getAllByText(/unavailable in the current catalog/i)).toHaveLength(3);
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("Default Model"), "codex_oauth:gpt-5.5");
+  await user.click(screen.getByRole("button", {name: /Fallbacks.*1/i}));
+  await user.click(screen.getByRole("button", {name: /^Remove$/i}));
+  await user.click(screen.getByRole("button", {name: "retired-tool"}));
+  await user.click(screen.getByRole("button", {name: "retired-skill"}));
+  await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(JSON.parse(patches()[0][1].body)).toMatchObject({display_name: "Kept draft", skills: [], skills_selection_mode: "explicit_allowlist", tool_allowlist: [], model_fallbacks: []});
+});
 
-    const input = await screen.findByLabelText("Display Name");
-    expect(screen.getByLabelText("Custom Instructions")).toBeInTheDocument();
-    expect(screen.getByText(/MacBook/, { selector: ".im-agent-panel-node" })).toBeInTheDocument();
-    expect((screen.getByLabelText("Workspace Root") as HTMLInputElement).value).toBe(
-      "/Users/demo/nano-assistant/workspace/agent-core-1"
-    );
-
-    expect(screen.getByRole("button", { name: /tdd-execution-worker/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /playwright/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /bash/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /read_file/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("Approval strategy"), "codex");
-
-    const reasoning = await screen.findByLabelText("Reasoning effort");
-    expect(reasoning).toHaveValue("high");
-    await user.selectOptions(reasoning, "max");
-
-    fireEvent.change(input, { target: { value: "Core Planner X" } });
-    await user.click(screen.getByRole("button", { name: /playwright/i }));
-    await user.click(screen.getByRole("button", { name: /^plan$/i }));
-    await user.click(screen.getByRole("button", { name: /bash/i }));
-    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
-
-    expect((await screen.findAllByText("✓ Saved")).length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Approval strategy")).toHaveValue("codex");
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").map(([, init]) => JSON.parse(init.body)).at(-1)).toMatchObject({ approval_mode: "codex" });
-    await waitFor(() => {
-      expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
-    });
-
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => url === "/im/v1/agents/agent-core-1/config?source=mirror")).toBe(true);
-    });
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/im/v1/agents/agent-core-1/config",
-        expect.objectContaining({
-          method: "PATCH",
-          body: JSON.stringify({
-            profile_version: 12,
-            display_name: "Core Planner X",
-            description: "Milestone execution coordinator",
-            features: {},
-            custom_prompt: "",
-            skills: ["tdd-execution-worker", "plan"],
-            skills_selection_mode: "explicit_allowlist",
-            tool_allowlist: ["read_file"],
-            group_reply_policy: "MENTION",
-            default_model: null,
-            model_fallbacks: [],
-            reasoning_effort: "max",
-            approval_mode: "codex"
-          })
-        })
-      );
-    });
-  }, 10_000);
-
-  it("keeps the settings form usable when live capabilities are unavailable", async () => {
-    const user = userEvent.setup();
-
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
-
-      if (url === "/im/v1/nodes") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/capabilities") {
-        return new Response(JSON.stringify({ detail: "target_node_id is not connected" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
-        const payload = JSON.parse(String(init.body)) as { display_name: string; default_model: string | null };
-        return new Response(
-          JSON.stringify({
-            agent_id: "agent-core-1",
-            owner_id: "owner-1",
-            display_name: payload.display_name,
-            description: "",
-            skills: [],
-            tool_allowlist: [],
-            group_reply_policy: "MENTION",
-            default_model: payload.default_model,
-            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
-            workspace_is_default: true,
-            profile_version: 13,
-            node_id: "node-1",
-            updated_at: "2026-03-13T10:01:00Z"
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
-        return new Response(
-          JSON.stringify({
-            agent_id: "agent-core-1",
-            owner_id: "owner-1",
-            display_name: "Core Planner",
-            description: "",
-            skills: [],
-            tool_allowlist: [],
-            group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.5",
-            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
-            workspace_is_default: true,
-            profile_version: 12,
-            node_id: "node-1",
-            updated_at: "2026-03-13T10:00:00Z"
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(null, { status: 404 });
-    });
-
-    renderRouter({
-      routes: appRoutes,
-      initialEntries: ["/settings/agents/agent-core-1"]
-    });
-
-    const input = await screen.findByLabelText("Display Name");
-    expect(screen.queryByText(/target_node_id is not connected/i)).not.toBeInTheDocument();
-
-    fireEvent.change(input, { target: { value: "Core Planner X" } });
-    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
-
-    expect((await screen.findAllByText("✓ Saved")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Core Planner X" })).toBeInTheDocument();
-    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
+it("keeps independently captured heartbeat and prompt bodies after online read failures", async () => {
+  config.features = {heartbeat: true};
+  let fail = false;
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    if (url.endsWith("/heartbeat-md") || url.endsWith("/prompt-preview")) {
+      if (fail) return Promise.resolve(json({detail: "temporary read failure"}, 503));
+      return Promise.resolve(json(url.endsWith("/heartbeat-md") ? {node_online: true, content: "Remember weekly review"} : {prompt: "Confirmed stable prompt"}));
+    }
+    return original(input, init);
   });
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /Preview stable system prompt/i}));
+  expect(await screen.findByText("Remember weekly review")).toBeInTheDocument();
+  expect(await screen.findByText("Confirmed stable prompt")).toBeInTheDocument();
+  await presence("offline");
+  await waitFor(() => expect(screen.getAllByText(/Last confirmed:/i).length).toBeGreaterThanOrEqual(2));
+  fail = true; await presence("online");
+  await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
+  await waitFor(() => expect(screen.getAllByText(/Could not refresh this information/i).length).toBeGreaterThanOrEqual(2));
+  expect(screen.getByText("Remember weekly review")).toBeInTheDocument();
+  expect(screen.getByText("Confirmed stable prompt")).toBeInTheDocument();
+  expect(screen.queryByText(/Node is offline/i)).not.toBeInTheDocument();
+});
 
-  it("blocks save when required fields are empty", async () => {
-    const user = userEvent.setup();
-
-    fetchMock.mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
-
-      if (url === "/im/v1/nodes") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents") {
-        return new Response(
-          JSON.stringify({ items: [{ agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }] }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/capabilities") {
-        return new Response(
-          JSON.stringify({
-            skills: [],
-            tools: [],
-            model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
-            platform_default_model: "codex_oauth:gpt-5.5"
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" }
-          }
-        );
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
-        return new Response(
-          JSON.stringify({
-            agent_id: "agent-core-1",
-            owner_id: "owner-1",
-            display_name: "Core Planner",
-            description: "Milestone execution coordinator",
-            skills: ["tdd-execution-worker", "playwright"],
-            tool_allowlist: ["bash", "read_file"],
-            group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.5",
-            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
-            workspace_is_default: true,
-            profile_version: 12,
-            bound_nodes: [],
-            updated_at: "2026-03-13T10:00:00Z"
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(null, { status: 404 });
-    });
-
-    renderRouter({
-      routes: appRoutes,
-      initialEntries: ["/settings/agents/agent-core-1"]
-    });
-
-    const input = await screen.findByLabelText("Display Name");
-    await user.clear(input);
-    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
-
-    expect(await screen.findByText(/Display name is required\./i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "/im/v1/agents/agent-core-1/config",
-      expect.objectContaining({ method: "PATCH" })
-    );
+it.each(["transport", "envelope"] as const)("preserves a last successful usage read when the next usage request fails (%s)", async (failure) => {
+  let fail = false;
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    if (String(input).endsWith("/settings/sections/usage")) return fail && failure === "transport" ? Promise.reject(new Error("usage transport failed")) : Promise.resolve(json({source: fail ? "last_known" : "current", captured_at: "2026-10-23T00:00:00Z", error: fail ? {code: "read_failed", message: "RPC timeout"} : null, data: {agent_id: config.agent_id, node_id: "node-1", node_online: true, skills: [], heatmap_data: [], health: {created_auto_total: 0, active_auto_total: 0, used_auto_total: 0}}}));
+    return original(input, init);
   });
-
-  it("surfaces real 409 conflict detail without overwriting the current version label", async () => {
-    const user = userEvent.setup();
-
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
-
-      if (url === "/im/v1/nodes") {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/capabilities") {
-        return new Response(
-          JSON.stringify({
-            skills: [],
-            tools: [],
-            model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
-            platform_default_model: "codex_oauth:gpt-5.5"
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" }
-          }
-        );
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
-        return new Response(JSON.stringify({ detail: "profile_version conflict" }), {
-          status: 409,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
-        return new Response(
-          JSON.stringify({
-            agent_id: "agent-core-1",
-            owner_id: "owner-1",
-            display_name: "Core Planner",
-            description: "Milestone execution coordinator",
-            skills: ["tdd-execution-worker", "playwright"],
-            tool_allowlist: ["bash", "read_file"],
-            group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.5",
-            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
-            workspace_is_default: true,
-            profile_version: 12,
-            bound_nodes: ["node-1"],
-            updated_at: "2026-03-13T10:00:00Z"
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(null, { status: 404 });
-    });
-
-    renderRouter({
-      routes: appRoutes,
-      initialEntries: ["/settings/agents/agent-core-1"]
-    });
-
-    const input = await screen.findByLabelText("Display Name");
-    fireEvent.change(input, { target: { value: "Core Planner X" } });
-    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
-
-    expect(await screen.findByTestId("agent-save-error")).toHaveTextContent(/409.*profile_version conflict/i);
-    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
-  });
-
-  it("refreshes the detail when a pending apply is confirmed", async () => {
-    const user = userEvent.setup();
-    let applyPending = false;
-
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/im/v1/contacts?")) return new Response(JSON.stringify({items: [{user_id:"agent-user",kind:"agent",agent_id:"agent-core-1",display_name:"Core Planner",owner_id:useAuthStore.getState().user?.id,work_mode:"single_thread",node_name:"MacBook",status:"online"}],next_cursor:null}), {status:200,headers:{"Content-Type":"application/json"}});
-      if (url === "/im/v1/nodes" || url === "/im/v1/agents") {
-        return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (url === "/im/v1/agents/agent-core-1/capabilities") {
-        return new Response(JSON.stringify({
-          node_id: "node-1",
-          node_name: "MacBook",
-          node_status: "online",
-          skills: [],
-          tools: [],
-          model_options: [{
-            name: "adjustable",
-            provider: "provider-a",
-            reasoning: { kind: "selectable", default: "medium", levels: ["medium", "high"] },
-          }],
-          platform_default_model: null,
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
-        applyPending = true;
-        return new Response(JSON.stringify({ detail: "config_apply_pending" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
-        return new Response(JSON.stringify({
-          agent_id: "agent-core-1",
-          owner_id: "owner-1",
-          display_name: "Core Planner",
-          description: "",
-          skills: [],
-          tool_allowlist: [],
-          group_reply_policy: "MENTION",
-          default_model: "adjustable",
-          reasoning_effort: applyPending ? "high" : "medium",
-          workspace_root: "/tmp/agent-core-1",
-          workspace_is_default: true,
-          profile_version: applyPending ? 13 : 12,
-          node_id: "node-1",
-          updated_at: "2026-03-13T10:00:00Z",
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      return new Response(null, { status: 404 });
-    });
-
-    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents/agent-core-1"] });
-
-    const reasoning = await screen.findByLabelText("Reasoning effort");
-    await user.selectOptions(reasoning, "high");
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: /^Save Agent$/ }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(screen.getByText(/Confirming the previous save/i, { selector: '[role="status"]' })).toHaveAttribute("role", "status");
-    expect(reasoning).toHaveValue("high");
-    expect(screen.getByRole("button", { name: /^Save Agent$/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Saving…$/ })).toBeDisabled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_000);
-    });
-    expect(screen.queryByText(/Confirming the previous save/i, { selector: '[role="status"]' })).not.toBeInTheDocument();
-    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
-  });
+  const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
+  await user.click(screen.getByRole("button", {name: /View skill statistics/i}));
+  expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
+  fail = true; await presence("online");
+  expect(await screen.findByText(/Last confirmed:.*Could not refresh/i)).toBeInTheDocument();
+  expect(within(screen.getByText("No skill usage yet").closest("section")!).getByRole("button", {name: /^Retry$/i})).toBeEnabled();
+  expect(screen.getByText("No skill usage yet")).toBeInTheDocument();
+  expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
 });

@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -54,6 +55,7 @@ vi.mock("./im-agent-config-api", async () => ({
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
   getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
   getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock,
+  getAgentSettingsSection: async (agentId: string, section: string) => ({source: "current", captured_at: null, error: null, data: await (section === "cron" ? apiMocks.listAgentCronJobsMock(agentId) : apiMocks.getAgentSkillsUsageMock(agentId))}),
   listAgentChannels: apiMocks.listAgentChannelsMock,
   createAgentChannel: apiMocks.createAgentChannelMock,
   updateAgentChannel: apiMocks.updateAgentChannelMock
@@ -138,6 +140,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -364,7 +368,8 @@ describe("agent detail page", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
     await user.click(screen.getByRole("button", { name: "Skills" }));
-    expect(await screen.findByText(/Gateway offline/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Could not refresh this information/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
   });
 
   it("opens the canonical direct chat for the current agent", async () => {
@@ -414,6 +419,8 @@ describe("agent detail page", () => {
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -484,6 +491,8 @@ describe("agent detail page", () => {
         ],
         platform_default_model: "kimiCoding:K2.6",
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -538,6 +547,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     });
     apiMocks.listAgentsMock.mockResolvedValue([
@@ -597,6 +608,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     });
     apiMocks.listAgentsMock.mockResolvedValue([
@@ -724,7 +737,7 @@ describe("agent behavior settings", () => {
         node_status: "online",
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
-        tools: [{ name: "memory", description: "Memory tool" }],
+        tools: [{ name: "memory", description: "Memory tool" }, ...Array.from(new Set((overrides.features ?? []).flatMap(f => f.requires.tools))).filter(name => name !== "memory").map(name => ({name, description: "Required feature tool"}))],
         model_options: [],
         platform_default_model: null,
         features: overrides.features ?? [
@@ -732,6 +745,8 @@ describe("agent behavior settings", () => {
           { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires: { features: [], tools: ["skill_manage"], skills: [] } }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }
@@ -747,7 +762,11 @@ describe("agent behavior settings", () => {
     const user = userEvent.setup();
     const state = makeDetailState({features: [{key: "intelligent_ui", label_i18n: "feature.intelligent_ui.label", help_i18n: "feature.intelligent_ui.help", default_on: true, available: true, requires: { features: [], tools: ["send_message"], skills: [] }}]});
     apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
-    apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, features: {intelligent_ui: false}});
+    apiMocks.updateAgentConfigMock.mockImplementation(async () => {
+      const config = {...state.config, features: {intelligent_ui: false}};
+      apiMocks.getAgentDetailStateMock.mockResolvedValue({...state, config});
+      return config;
+    });
     renderDetailPage();
     const toggle = await screen.findByRole("checkbox", {name: /Intelligent UI/i});
     expect(toggle).toBeChecked();
@@ -861,6 +880,8 @@ describe("agent prompt preview", () => {
         platform_default_model: null,
         features: [memoryCapFeature]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }
@@ -1025,6 +1046,8 @@ describe("feature tool linkage with an empty allowlist", () => {
           }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
 
@@ -1092,6 +1115,8 @@ describe("feature tool linkage with an empty allowlist", () => {
           }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
 
@@ -1173,6 +1198,8 @@ describe("explicit empty tool allowlist", () => {
         platform_default_model: null,
         features: []
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }

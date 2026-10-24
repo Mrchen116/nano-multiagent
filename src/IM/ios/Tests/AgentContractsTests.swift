@@ -3,6 +3,13 @@ import Testing
 @testable import NanoIM
 
 struct AgentContractsTests {
+    @Test func offlineSettingsResponseDoesNotStartVersionConflictRecovery() {
+        let offline = APIError(status: 409, detail: "The Agent computer is offline", code: "agent_node_offline")
+        #expect(!isAgentStateConflict(offline))
+        #expect(isAgentStateConflict(APIError(status: 409, detail: "profile_version conflict")))
+        #expect(!isAgentStateConflict(APIError(status: 503, detail: "Pending", code: "config_apply_pending")))
+    }
+
     @Test func configPatchPreservesEmptyExplicitSelectionsAndModelOrder() throws {
         let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"group_reply_policy":"NO_REPLY","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"custom_prompt":"Keep this","heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
         let config = try JSONDecoder().decode(AgentConfig.self, from: Data(response.utf8))

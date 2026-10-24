@@ -177,40 +177,19 @@ describe("AgentChannelsPanel", () => {
     expect(screen.getByText("飞书拒绝了 App ID 或 App Secret")).toBeInTheDocument();
   });
 
-  it("keeps offline desired changes pending and separates disabling from disabled", async () => {
+  it("keeps existing offline desired changes visible and rejects new changes", async () => {
     const user = userEvent.setup();
-    const pending = channel({ sync_state: "pending", observed: null });
-    apiMocks.listAgentChannels.mockResolvedValue([pending]);
-    apiMocks.updateAgentChannel.mockResolvedValue({ ...pending, enabled: false });
-
+    apiMocks.listAgentChannels.mockResolvedValue([channel({ sync_state: "pending", observed: null })]);
     renderPanel("offline");
 
     expect(await screen.findByText("配置已保存")).toBeInTheDocument();
     expect(screen.getByText("节点上线后自动应用")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "节点离线" })).toBeDisabled();
+    for (const name of ["添加通道", "编辑", "停用", "删除", "节点离线"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
     await user.click(screen.getByRole("button", { name: "停用" }));
-    await user.click(screen.getByRole("button", { name: "确认停用" }));
-    expect(await screen.findByText("正在停用")).toBeInTheDocument();
-    expect(apiMocks.updateAgentChannel).toHaveBeenCalledWith(
-      "agent-1",
-      "channel-1",
-      expect.objectContaining({ enabled: false, credentials: { mode: "keep" } }),
-    );
-
-    apiMocks.listAgentChannels.mockResolvedValue([
-      channel({
-        enabled: false,
-        observed: {
-          observed_revision: 7,
-          connection_state: "disabled",
-          status_message: null,
-          status_updated_at: "2026-07-15T06:42:00Z",
-        },
-      }),
-    ]);
-    renderPanel();
-    expect(await screen.findByText("已停用")).toBeInTheDocument();
-    expect(screen.getByText(/凭据已保留/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMocks.updateAgentChannel).not.toHaveBeenCalled();
   });
 
   it("retains deleting receipts across reload and retries failed removal", async () => {
@@ -248,7 +227,7 @@ describe("AgentChannelsPanel", () => {
     apiMocks.reconnectAgentChannel.mockResolvedValue(connected);
     apiMocks.deleteAgentChannel.mockResolvedValue(removal());
 
-    renderPanel();
+    const view = renderPanel();
     await screen.findByText("当前配置已应用");
     await user.click(screen.getByRole("button", { name: "重新连接" }));
     expect(await screen.findByText("正在重新连接")).toBeInTheDocument();
@@ -256,6 +235,11 @@ describe("AgentChannelsPanel", () => {
       "agent-1",
       "channel-1",
     );
+    apiMocks.listAgentChannels.mockResolvedValue([channel({ observed: {
+      ...connected.observed!, status_updated_at: new Date(Date.now() + 1000).toISOString(),
+    } })]);
+    await act(() => view.queryClient.invalidateQueries({ queryKey: ["settings", "agents", "agent-1", "channels"] }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "删除" }));
     await user.click(screen.getByRole("button", { name: "确认删除" }));
     expect(await screen.findByText("删除待应用")).toBeInTheDocument();
@@ -336,7 +320,7 @@ describe("AgentChannelsPanel", () => {
     expect(screen.queryByText("当前配置已应用")).toBeNull();
   });
 
-  it("waits locally for an offline removal retry and clears the notice on success", async () => {
+  it("disables offline removal retry while retaining the receipt", async () => {
     const user = userEvent.setup();
     apiMocks.listAgentChannels.mockResolvedValue([
       removal({
@@ -356,12 +340,12 @@ describe("AgentChannelsPanel", () => {
     await user.click(screen.getByRole("button", { name: "重新尝试应用" }));
 
     expect(apiMocks.retryAgentChannelRemoval).not.toHaveBeenCalled();
-    expect(screen.getByText("等待节点上线后继续删除")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新尝试应用" })).toBeDisabled();
     expect(screen.queryByText(/channel_node_offline/)).toBeNull();
 
     act(() => {
-      view.queryClient.setQueryData(
-        ["settings", "agents", "agent-1", "channels"],
+      view.queryClient.setQueriesData(
+        { queryKey: ["settings", "agents", "agent-1", "channels"] },
         [],
       );
     });

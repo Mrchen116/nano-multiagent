@@ -1,3 +1,4 @@
+import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
 import { isInteractiveStringState } from './interactive-source.js';
@@ -380,14 +381,26 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     await ops.serialized(b.agent_id,async()=>{
       await ops.recover(b.agent_id,u.owner_id);
       const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id)!;
+      requireSettingsNodeOnline(ctx,profile);
       await ops.update(profile,{...profileResponse(profile,true),display_name:name.trim()},u.owner_id);
     });
     return pa.state(u.owner_id);
   });
-  app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(user(req).owner_id,body(req)));
+  const settingsOwner = (req: import('fastify').FastifyRequest) => {
+    const u=user(req), binding=pa.binding(u.owner_id);
+    if (!binding) fail(404,'personal_agent_not_found');
+    const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=? AND owner_id=? AND node_id=? AND is_stale=0',binding.agent_id,u.owner_id,binding.node_id);
+    if (!profile) fail(404,'personal_agent_not_found');
+    ctx.identity.requireSpace(u,profile.space_id);
+    const current=one(ctx.db,'SELECT owner_id,node_epoch FROM node_binding_state WHERE node_id=?',binding.node_id);
+    if (current?.owner_id !== u.owner_id || current.node_epoch !== binding.node_epoch) fail(404,'personal_agent_not_found');
+    requireSettingsNodeOnline(ctx,profile);
+    return u.owner_id;
+  };
+  app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(settingsOwner(req),body(req)));
   app.get('/im/v1/personal-agent/sources',req=>{const b=pa.binding(user(req).owner_id);return {policy:b?pa.policy(b.binding_id):null,items:b?pa.sourceConversations(b):[]};});
   app.get('/im/v1/personal-agent/blocked-contacts',req=>pa.blockedContacts(user(req).owner_id));
-  app.delete('/im/v1/personal-agent/blocked-contacts/:actorId',req=>pa.unblockContact(user(req).owner_id,params(req).actorId));
+  app.delete('/im/v1/personal-agent/blocked-contacts/:actorId',req=>pa.unblockContact(settingsOwner(req),params(req).actorId));
   app.get('/im/v1/personal-agent/incidents',req=>pa.incidents(user(req).owner_id));
   app.post('/im/v1/personal-agent/incidents/:id',req=>{
     const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');

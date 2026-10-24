@@ -21,8 +21,8 @@
 
 ### 既有约束
 
-- 遵循 [SPEC](../../../SPEC.md) 的依赖边界：IM 不读节点文件、不 import DSH；本 unit 不改变 Node 与 DSH 的 stdio 接入或建立第二套运行循环。
-- [配置与节点契约](../../specs/im/agents-nodes.md) 的 profile 乐观锁、Gateway apply receipt、渠道 manifest 和删除回执继续使用。离线禁用不能删掉历史 pending 操作或把它们伪装成失败。
+- 遵循 [SPEC](../../../../SPEC.md) 的依赖边界：IM 不读节点文件、不 import DSH；本 unit 不改变 Node 与 DSH 的 stdio 接入或建立第二套运行循环。
+- [配置与节点契约](../../../specs/im/agents-nodes.md) 的 profile 乐观锁、Gateway apply receipt、渠道 manifest 和删除回执继续使用。离线禁用不能删掉历史 pending 操作或把它们伪装成失败。
 - 节点失联只是 IM 无法联系它。不能因此声称本地任务／飞书连接已停止，也不能主动停止其自治。
 - 授权始终依据当前身份、Agent owner、space、节点绑定，快照不提供权限或能力凭证。继承值和目录缺失不能变成新的保存值。
 - 现有 iOS 调用 `/capabilities`、`/config`、`/plugins`、`/cron/jobs` 等接口；不把这些在线成功响应替换为另一形状。共享写入接口增加明确离线拒绝，在线字段与 receipt 契约保持兼容。
@@ -41,10 +41,10 @@
 
 ### 相关历史
 
-- [feat-514](../archive/feat-514-model-reasoning-effort/design.md)：模型推理能力与 configuration operation。沿用在线校验和 receipt，修正离线时缺 descriptor 的误判。
-- [bugfix-585](../archive/bugfix-585-node-connection-recovery/incident.md)：真实在线状态与旧连接隔离；本次扩展 UI 消费，不能退回仅更新角标。
-- [refactor-470](../archive/refactor-470-managed-channel-composition/design.md)：托管渠道 desired／observed 生命周期。只收紧新变更的接收条件，历史 manifest 仍按原机制恢复。
-- [feat-614](../archive/feat-614-workspace-plugin-development/design.md)：插件操作有独立生命周期和 pending 视图；不能用主表单保存状态替代插件结果。
+- [feat-514](../feat-514-model-reasoning-effort/design.md)：模型推理能力与 configuration operation。沿用在线校验和 receipt，修正离线时缺 descriptor 的误判。
+- [bugfix-585](../bugfix-585-node-connection-recovery/incident.md)：真实在线状态与旧连接隔离；本次扩展 UI 消费，不能退回仅更新角标。
+- [refactor-470](../refactor-470-managed-channel-composition/design.md)：托管渠道 desired／observed 生命周期。只收紧新变更的接收条件，历史 manifest 仍按原机制恢复。
+- [feat-614](../feat-614-workspace-plugin-development/design.md)：插件操作有独立生命周期和 pending 视图；不能用主表单保存状态替代插件结果。
 - 当前 worktree-runtime 文档仍包含已过时的 Python 服务例子、`openapi.json` 健康检查和 down 后删除 config 的说明。本设计按实际 TS 脚本与 `/health` 编写 runbook；不顺带修订无关运维文档。
 
 ## 架构总览

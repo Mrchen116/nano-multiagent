@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
@@ -100,6 +101,8 @@ function makeDetailState(agentId: string, displayName: string) {
       platform_default_model: null,
       features: []
     },
+    ready: true, liveCapabilities: true, pendingOperation: null,
+    display: {source: "current", captured_at: null, data: null, error: null},
     owningNode: null
   };
 }
@@ -174,9 +177,11 @@ describe("agent detail asynchronous shell", () => {
     });
     mocks.updateAgentConfig.mockReturnValue(pendingSave);
     mocks.agentId = "agent-one";
+    mocks.getAgentDetailState.mockImplementation(async () => mocks.agentId === "agent-one" ? agentA : agentB);
     const view = renderPage({ queryClient });
     expect(await screen.findByRole("heading", { name: "Agent One" })).toBeInTheDocument();
 
+    await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
     fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent One Saved" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save Agent$/ }));
     await waitFor(() => expect(mocks.updateAgentConfig).toHaveBeenCalledOnce());
@@ -235,6 +240,7 @@ it("keeps unsaved configuration while live status changes offline and online", a
   fireEvent.change(input, { target: { value: "Unsaved name" } });
   const { applyAgentStatusEvent } = await vi.importActual<typeof import("./agent-status-ws-consumer")>("./agent-status-ws-consumer");
   for (const status of ["offline", "online"]) {
+    mocks.getAgentDetailState.mockResolvedValue({...state, config: {...state.config, node_status: status}, ready: status === "online"});
     act(() => applyAgentStatusEvent(queryClient, {
       eventType: "agent.status_changed", payload: { agent_id: "agent-two", status },
     }));

@@ -130,7 +130,8 @@ export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, 
     if (!latest.current) return;
     const current = latest.current;
     const enabled = (name: string) => current.skills_selection_mode === "explicit_denylist" ? !current.skills?.includes(name) : current.skills_selection_mode === "explicit_allowlist" ? !!current.skills?.includes(name) : true;
-    void apply((caps?.skills ?? []).map(x => x.name).filter(n => enabled(n) === disabled.includes(n)).map(name => ({ kind: "skill", name, enabled: !disabled.includes(name) })));
+    const names = [...new Set([...(caps?.skills ?? []).map(x => x.name), ...(current.skills ?? []), ...disabled])];
+    void apply(names.filter(n => enabled(n) === disabled.includes(n)).map(name => ({ kind: "skill", name, enabled: !disabled.includes(name) })));
   }
   function reject(error: unknown) {
     const blocks = (error as { blocks?: CapabilityBlock[] })?.blocks;

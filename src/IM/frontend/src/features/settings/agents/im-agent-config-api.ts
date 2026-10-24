@@ -68,7 +68,7 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
-  enabled?: boolean;
+  enabled?: boolean | null;
   // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
@@ -204,6 +204,30 @@ export interface AgentDetailState {
   config: AgentConfig;
   capabilities: AgentCapabilities;
   owningNode: AgentDetailNodeView | null;
+  display: SettingsRead<ConfigurationDisplay>;
+  ready: boolean;
+  liveCapabilities: boolean;
+  pendingOperation: { operation_id: string; status: string } | null;
+}
+
+/** A successful observation is readable after disconnect, but never authorizes writes. */
+export interface SettingsRead<T> {
+  source: "current" | "last_known" | "unavailable";
+  captured_at: string | null;
+  data: T | null;
+  error: { code: string; message: string } | null;
+}
+
+export interface ConfigurationDisplay {
+  profile_version: number;
+  derived_current: boolean;
+  models: (Omit<ModelOption, "reasoning"> & {source: "explicit" | "inherited"})[];
+  reasoning: {value: string | null; source: "explicit" | "inherited"} | null;
+  features: {key: string; label_i18n: string; help_i18n: string; enabled: boolean | null; source: string}[];
+  tools: AgentAllowlistOption[];
+  skills: (Omit<AgentAllowlistOption, "enabled"> & {enabled: boolean | null})[];
+  skills_selection_mode: AgentConfig["skills_selection_mode"];
+  approval_mode: string | null;
 }
 
 export interface ChannelDiagnosticCheck {
@@ -335,7 +359,7 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         name: value.name.trim(),
         description: value.description ?? "",
         default_on: value.default_on,
-        ...(typeof value.enabled === "boolean" ? {enabled: value.enabled} : {}),
+        ...(typeof value.enabled === "boolean" || value.enabled === null ? {enabled: value.enabled} : {}),
         location: value.location ?? null,
         source_group: value.source_group ?? null,
       }];
@@ -494,13 +518,7 @@ export function getAgentConfigRequestDetail(error: unknown): string {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await authFetch(withBase(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const response = await authFetch(withBase(path), init);
   if (!response.ok) {
     const method = init?.method ?? "GET";
     const { detail, code, agentId, blocks } = await readHttpError(response);
@@ -627,33 +645,47 @@ export async function createNodeAgent(nodeId: string, next: NodeAgentCreateReque
   return normalizeAgentConfigResponse(raw);
 }
 
-export async function getAgentDetailState(agentId: string): Promise<AgentDetailState> {
-  const config = await getAgentConfig(agentId);
-  const [capabilitiesResult, nodesResult] = await Promise.allSettled([getAgentCapabilities(agentId), listNodes()]);
-  const nodes = nodesResult.status === "fulfilled" ? nodesResult.value : [];
-  const fallbackNodeId = config.node_id ?? "";
-  const fallbackCapabilities: AgentCapabilitiesWire = {
-    agent_id: config.agent_id,
-    node_id: fallbackNodeId,
-    models: config.default_model ? [config.default_model] : [],
-    skills: config.skills,
-    tools: config.tool_allowlist,
-    platform_default_model: null,
-  };
-  const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : fallbackCapabilities;
-  const owningNodeId = config.node_id ?? capabilities.node_id;
-  const owningNode = owningNodeId ? (nodes.find((node) => node.node_id === owningNodeId) ?? null) : null;
-  const enrichedConfig: AgentConfig = {
-    ...config,
-    node_id: config.node_id ?? owningNode?.node_id ?? capabilities.node_id,
-    node_name: owningNode?.node_name ?? null,
-    node_status: owningNode?.status ?? null,
-  };
+/** Read committed settings and independently confirmed live capabilities.
+ * Args:
+ *   signal: Cancels reads superseded by a connection change.
+ */
+export async function getAgentDetailState(agentId: string, signal?: AbortSignal): Promise<AgentDetailState> {
+  const result = await requestJson<{
+    config: Record<string, unknown>;
+    node: {node_id: string; state: string};
+    display: SettingsRead<ConfigurationDisplay>;
+    live_capabilities: AgentCapabilitiesWire | null;
+    pending_operation: AgentDetailState["pendingOperation"];
+    ready: boolean;
+  }>(`/im/v1/agents/${encodeURIComponent(agentId)}/settings`, {signal});
+  const config = normalizeAgentConfigResponse(result.config);
+  const display = result.display.data;
+  // Display labels may survive a disconnect; they are deliberately not a live catalogue.
+  const capabilities = result.live_capabilities
+    ? toCapabilitySnapshot(result.live_capabilities, null)
+    : toCapabilitySnapshot({
+        node_id: result.node.node_id,
+        node_name: config.node_name ?? undefined,
+        model_options: display?.models ?? [],
+        platform_default_model: display?.derived_current ? display.models.find(model => model.source === "inherited")?.name : null,
+        tools: display?.tools ?? config.tool_allowlist.map(name => ({name, description: ""})),
+        skills: display?.skills ?? config.skills.map(name => ({name, description: ""})),
+        features: display?.features.map(feature => ({...feature, default_on: feature.enabled ?? false, available: false, requires: {features: [], tools: [], skills: []}})) ??
+          Object.entries(config.features ?? {}).map(([key, enabled]) => ({key, label_i18n: `agents.features.${key}.label`, help_i18n: `agents.features.${key}.help`, default_on: enabled, available: false, requires: {features: [], tools: [], skills: []}})),
+      }, null);
+  capabilities.node_status = result.node.state;
   return {
-    config: enrichedConfig,
-    capabilities: toCapabilitySnapshot(capabilities, owningNode),
-    owningNode,
+    config: {...config, node_id: result.node.node_id, node_status: result.node.state},
+    capabilities, owningNode: null,
+    display: result.display, ready: result.ready,
+    liveCapabilities: result.live_capabilities !== null,
+    pendingOperation: result.pending_operation,
   };
+}
+
+/** Read one finite settings section without confusing an unavailable result with an empty list. */
+export function getAgentSettingsSection<T>(agentId: string, section: "plugins" | "cron" | "usage", signal?: AbortSignal): Promise<SettingsRead<T>> {
+  return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/settings/sections/${section}`, {signal});
 }
 
 export async function getNodeCreateState(nodeId: string): Promise<NodeCreateState> {
@@ -690,8 +722,8 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
   return normalizeAgentConfigResponse(raw);
 }
 
-export async function listAgentChannels(agentId: string): Promise<AgentChannelResource[]> {
-  return requestJson<AgentChannelResource[]>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`);
+export async function listAgentChannels(agentId: string, signal?: AbortSignal): Promise<AgentChannelResource[]> {
+  return requestJson<AgentChannelResource[]>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`, {signal});
 }
 
 export async function createAgentChannel(
@@ -760,9 +792,11 @@ export async function promptPreview(
     work_mode?: "single_thread" | "global";
     skill_ids?: string[];
     skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
-  }
+  },
+  signal?: AbortSignal,
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/agents/${agentId}/prompt-preview`, {
+    signal,
     method: "POST",
     body: JSON.stringify({
       ...body,
@@ -843,8 +877,8 @@ export interface HeartbeatMdResponse {
 }
 
 /** Fetch the raw HEARTBEAT.md content for an agent via the WS RPC path. */
-export async function getAgentHeartbeatMd(agentId: string): Promise<HeartbeatMdResponse> {
-  return requestJson<HeartbeatMdResponse>(`/im/v1/agents/${agentId}/heartbeat-md`);
+export async function getAgentHeartbeatMd(agentId: string, signal?: AbortSignal): Promise<HeartbeatMdResponse> {
+  return requestJson<HeartbeatMdResponse>(`/im/v1/agents/${agentId}/heartbeat-md`, {signal});
 }
 
 export interface SkillUsageSessionRef {

@@ -67,7 +67,7 @@ export function ModelFallbackField({
           type="button"
           className="im-agent-fallback-toggle"
           aria-expanded={open}
-          disabled={disabled}
+          disabled={disabled && value.length === 0 && !open}
           onClick={() => setOpen((current) => !current)}
         >
           {open ? (

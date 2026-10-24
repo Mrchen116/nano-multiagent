@@ -70,8 +70,8 @@ describe("AgentChannelsPanel removal recovery", () => {
       await screen.findByText("temporary gateway failure: response lost"),
     ).toHaveAttribute("role", "alert");
     act(() => {
-      queryClient.setQueryData(
-        ["settings", "agents", "agent-1", "channels"],
+      queryClient.setQueriesData(
+        { queryKey: ["settings", "agents", "agent-1", "channels"] },
         [],
       );
     });
@@ -83,7 +83,7 @@ describe("AgentChannelsPanel removal recovery", () => {
     expect(screen.queryByText("等待节点上线后继续删除")).toBeNull();
   });
 
-  it("clears the offline waiting notice before an online retry reports an error", async () => {
+  it("requires online refresh before allowing an explicit removal retry", async () => {
     const user = userEvent.setup();
     apiMocks.listAgentChannels.mockResolvedValue([failedRemoval()]);
     apiMocks.retryAgentChannelRemoval.mockRejectedValue(
@@ -100,10 +100,7 @@ describe("AgentChannelsPanel removal recovery", () => {
 
     await screen.findByText("删除未完成");
     await user.click(screen.getByRole("button", { name: "重新尝试应用" }));
-    expect(screen.getByText("等待节点上线后继续删除")).toHaveAttribute(
-      "role",
-      "status",
-    );
+    expect(screen.getByRole("button", { name: "重新尝试应用" })).toBeDisabled();
     expect(apiMocks.retryAgentChannelRemoval).not.toHaveBeenCalled();
 
     view.rerender(
@@ -111,6 +108,7 @@ describe("AgentChannelsPanel removal recovery", () => {
         <AgentChannelsPanel agentId="agent-1" nodeStatus="online" />
       </QueryClientProvider>,
     );
+    await waitFor(() => expect(screen.getByRole("button", { name: "重新尝试应用" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "重新尝试应用" }));
 
     expect(await screen.findByText("temporary gateway failure")).toHaveAttribute(

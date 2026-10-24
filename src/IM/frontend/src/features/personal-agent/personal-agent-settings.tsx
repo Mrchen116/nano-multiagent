@@ -3,21 +3,22 @@ import { useState } from 'react';
 import { useTranslation } from '../../i18n';
 import { useAuthStore } from '../auth/auth-store';
 import { listConversations } from '../chat/chat-api';
-import { getPersonalAgent, updatePersonalAgentPolicy } from './personal-agent-api';
+import { getPersonalAgentSettings, updatePersonalAgentPolicy } from './personal-agent-api';
 import './personal-agent.css';
 import { PersonalAgentBlockedContacts } from './personal-agent-blocked-contacts';
 
 /** Keep PA-only access settings alongside the shared Agent configuration. */
-export function PersonalAgentSettings({ agentId }: { agentId: string }) {
+export function PersonalAgentSettings({ agentId, readOnly = false }: { agentId: string; readOnly?: boolean }) {
   const { t } = useTranslation();
   const ownerId = useAuthStore(s => s.user?.id);
   const cache = useQueryClient();
   const [search, setSearch] = useState('');
-  const state = useQuery({ queryKey: ['personal-agent', ownerId], queryFn: getPersonalAgent });
+  const state = useQuery({ queryKey: ['settings', 'agents', agentId, 'pa-policy', ownerId], queryFn: ({signal}) => getPersonalAgentSettings(signal), staleTime: 0 });
   const chats = useQuery({ queryKey: ['chat', 'conversations'], queryFn: listConversations });
-  const refresh = () => cache.invalidateQueries({ queryKey: ['personal-agent'] });
+  const refresh = async () => {await Promise.all([cache.invalidateQueries({ queryKey: ['personal-agent'] }), cache.invalidateQueries({queryKey: ['settings','agents',agentId,'pa-policy']})]);};
+  const blocked = readOnly || state.isFetching || state.isError || !state.isFetchedAfterMount;
   const update = useMutation({
-    mutationFn: (excluded: string[]) => updatePersonalAgentPolicy({ expected_revision: state.data!.policy!.revision, excluded_conversation_ids: excluded }),
+    mutationFn: (excluded: string[]) => {if (blocked) throw new Error(t("agents.settings.refreshing")); return updatePersonalAgentPolicy({ expected_revision: state.data!.policy!.revision, excluded_conversation_ids: excluded });},
     onSettled: refresh,
   });
   const binding = state.data?.binding;
@@ -31,7 +32,7 @@ export function PersonalAgentSettings({ agentId }: { agentId: string }) {
       <details><summary>{t('pa.configuration.exclusions', { count: policy.excluded_conversation_ids.length })}</summary>
         <label className="im-agent-field">{t('pa.configuration.search')}<input className="im-input" type="search" value={search} onChange={e => setSearch(e.target.value)} /></label>
         {chats.isPending && <p role="status">{t('pa.configuration.loading')}</p>}
-        {chats.isError ? <p role="alert" className="pa-error">{t('pa.configuration.loadError')} <button type="button" onClick={() => void chats.refetch()}>{t('pa.configuration.retry')}</button></p> : <div className="pa-source-list">{visibleChats.map(c => <label key={c.id}><input type="checkbox" checked={policy.excluded_conversation_ids.includes(c.id)} disabled={update.isPending} onChange={e => update.mutate(e.target.checked ? [...policy.excluded_conversation_ids, c.id] : policy.excluded_conversation_ids.filter(id => id !== c.id))} />{c.title}</label>)}</div>}
+        {chats.isError ? <p role="alert" className="pa-error">{t('pa.configuration.loadError')} <button type="button" onClick={() => void chats.refetch()}>{t('pa.configuration.retry')}</button></p> : <div className="pa-source-list">{visibleChats.map(c => <label key={c.id}><input type="checkbox" checked={policy.excluded_conversation_ids.includes(c.id)} disabled={blocked || update.isPending} onChange={e => update.mutate(e.target.checked ? [...policy.excluded_conversation_ids, c.id] : policy.excluded_conversation_ids.filter(id => id !== c.id))} />{c.title}</label>)}</div>}
         {chats.isSuccess && !visibleChats.length && <p className="im-agent-field-help">{t('pa.configuration.noChats')}</p>}
       </details>
       <p className="im-agent-field-help">{t('pa.configuration.immediate')}</p>
@@ -39,6 +40,6 @@ export function PersonalAgentSettings({ agentId }: { agentId: string }) {
       {update.isSuccess && <p role="status" className="im-agent-field-help">{t('pa.configuration.saved')}</p>}
       {update.isError && <p role="alert" className="pa-error">{t('pa.configuration.saveError')}</p>}
     </section>
-    <PersonalAgentBlockedContacts bindingId={binding.binding_id} />
+    <PersonalAgentBlockedContacts bindingId={binding.binding_id} agentId={agentId} readOnly={readOnly} />
   </>;
 }

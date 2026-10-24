@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -96,6 +97,8 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON): AgentDetailState {
       platform_default_model: null,
       features: [feature],
     },
+    ready: true, liveCapabilities: true, pendingOperation: null,
+    display: {source: "current", captured_at: null, data: null, error: null},
     owningNode: null,
   };
 }

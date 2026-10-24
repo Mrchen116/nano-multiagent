@@ -442,7 +442,7 @@
       },
       "offline": {
         "title": "Node is offline",
-        "detail": "Changes are saved securely and apply automatically when the node returns."
+        "detail": "Settings are read-only until the connection is restored and refreshed."
       },
       "confirm": {
         "disableTitle": "Disable the Feishu channel?",
@@ -832,6 +832,22 @@
       "cancel": "Cancel",
       "uninstall": "Uninstall",
       "manage": "Manage plugins"
+    },
+    "settings": {
+      "offline": "The computer is offline. Last confirmed information remains available; settings and live operations are read-only.",
+      "unknown": "The connection is not confirmed. Settings and live operations are read-only.",
+      "refreshing": "Connected. Refreshing information before enabling changes.",
+      "failed": "Could not refresh this information. The last confirmed view is preserved. Retry to continue.",
+      "pending": "The submitted change is awaiting confirmation. Do not repeat the operation.",
+      "retry": "Refresh",
+      "lastKnown": "Last confirmed: {{time}}. The current state has not been confirmed.",
+      "unavailable": "Unavailable; no previously confirmed information is available.",
+      "skillsUnknown": "The full discovered Skills list has not been confirmed for this configuration. Only explicit settings and known names are shown.",
+      "inheritedUnknown": "Follow node; current value unavailable",
+      "inheritedLastKnown": "Follow node; showing the last confirmed value.",
+      "conflict": "Settings changed elsewhere. Your draft is preserved. Discard changes to load the latest configuration, then edit again.",
+      "catalogUnavailable": "Unavailable in the current catalog: {{names}}. Correct these selections before saving.",
+      "featureUnknown": "Default state has not been confirmed"
     }
   },
   "chat": {

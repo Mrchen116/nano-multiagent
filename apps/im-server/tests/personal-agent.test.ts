@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { fixture } from './control-fixture.js';
+import { fixture, connectFixtureGateway } from './control-fixture.js';
 import { personalFixture } from './personal-fixture.js';
 import { Messaging } from '../src/messaging.js';
 import { TaskGraphService } from '../src/task-graphs.js';
@@ -307,6 +307,9 @@ it('lists active blocks with readable evidence and lets only the owner unblock w
   expect((await app.inject({method:'POST',url:'/im/v1/conversations/peer/messages',payload:{content:'Owner must not impersonate PA'}})).statusCode).toBe(404);
   expect((await app.inject({method:'POST',url:'/im/v1/conversations/peer/join'})).statusCode).toBe(404);
   expect((await app.inject({method:'DELETE',url:'/im/v1/personal-agent/blocked-contacts/u2',headers:{'x-user':'u2'}})).statusCode).toBe(404);
+  expect((await app.inject({method:'DELETE',url:'/im/v1/personal-agent/blocked-contacts/u2'})).statusCode).toBe(409);
+  expect((await app.inject({method:'GET',url:'/im/v1/personal-agent/blocked-contacts'})).json().items).toHaveLength(1);
+  connectFixtureGateway({ctx,db});
   expect((await app.inject({method:'DELETE',url:'/im/v1/personal-agent/blocked-contacts/u2'})).statusCode).toBe(200);
   expect((await app.inject({method:'GET',url:'/im/v1/personal-agent/blocked-contacts'})).json().items).toEqual([]);
   expect(service.incidents('o1').items).toHaveLength(1);
