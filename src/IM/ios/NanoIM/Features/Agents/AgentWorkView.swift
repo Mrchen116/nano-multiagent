@@ -29,6 +29,12 @@ struct AgentWorkView: View {
                         Text(agentWorkStatus(root.main_execution ?? "unknown"))
                     }.font(.subheadline)
                     if !online { Text(L("显示已保存的记录，授权暂不可处理。", "Showing saved records. Permissions are unavailable while offline.")).font(.caption).foregroundStyle(.secondary) }
+                    if online && root.record_sync_state != "current" {
+                        Text(root.record_sync_state == "catching_up"
+                            ? L("工作记录正在补齐，当前显示已保存内容。", "Work records are catching up. Showing saved content.")
+                            : L("当前显示已保存记录，最新进度尚未确认。", "Showing saved records. The latest progress has not been confirmed."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     DisclosureGroup(L("执行信息与上下文", "Execution details and context")) {
                         LabeledContent("Agent", value: agentID).textSelection(.enabled)
                         if let sessionID { Text(sessionID).font(.caption).textSelection(.enabled) }

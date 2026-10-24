@@ -14,8 +14,6 @@ export class NodeStore {
       PRAGMA synchronous=FULL;
       PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
-      CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
-      CREATE INDEX IF NOT EXISTS usage_reports_pending ON usage_reports(acknowledged) WHERE acknowledged=0;
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS owner_timezone (owner_id TEXT PRIMARY KEY, timezone TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (
@@ -249,8 +247,8 @@ export class NodeStore {
     };
     this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload,accepted) VALUES(?,?,?,?,1)').run(message.id, sessionId, input.relay_task_id, JSON.stringify(input));
   }
-  events(sessionId: string): RuntimeEvent[] {
-    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? ORDER BY seq').all(sessionId) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
+  events(sessionId: string, afterSeq = -1): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? ORDER BY seq').all(sessionId,afterSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
   }
   cursor(sessionId: string): number {
     return (this.db.prepare('SELECT coalesce(max(seq),-1) AS seq FROM runtime_events WHERE session_id=?').get(sessionId) as { seq: number }).seq;
@@ -290,14 +288,6 @@ export class NodeStore {
   confirmReceipt(inputId: string, status: string): void {
     this.db.prepare('INSERT INTO input_receipts VALUES(?,?) ON CONFLICT(input_id) DO UPDATE SET status=excluded.status').run(inputId, status);
   }
-  saveUsage(runId: string, payload: Record<string, unknown>): void {
-    this.db.prepare('INSERT OR IGNORE INTO usage_reports(run_id,payload) VALUES(?,?)').run(runId, JSON.stringify(payload));
-  }
-  pendingUsage(): {runId: string; payload: Record<string, unknown>}[] {
-    return (this.db.prepare('SELECT run_id,payload FROM usage_reports WHERE acknowledged=0 ORDER BY rowid').all() as {run_id: string;payload: string}[])
-      .map(row => ({runId: row.run_id, payload: JSON.parse(row.payload)}));
-  }
-  confirmUsage(runId: string): void { this.db.prepare('UPDATE usage_reports SET acknowledged=1 WHERE run_id=?').run(runId); }
   close(): void { this.db.close(); }
 }
 export interface Delivery { operationId: string; state: DeliveryState; messageId: string | null; content: string }

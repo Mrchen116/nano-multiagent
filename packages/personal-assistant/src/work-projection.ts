@@ -40,3 +40,49 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     } };
   }
 }
+
+/** Product processing progress, deliberately separate from the WorkSync ACK. */
+export interface WorkCheckpoint {
+  rootSessionId: string;
+  throughSeq: number;
+  replayFrom: number;
+  modelVersion?: string;
+  model?: string;
+  contextWindow?: number;
+}
+
+/** Restore only effective metadata needed by the new/open logical turn.
+ *
+ * Args:
+ *   events: Own events from the caller's durable read or local root ledger.
+ *   prior: Last atomically committed product projection position.
+ * Returns:
+ *   The unprocessed/open suffix with small model/context carry-forward facts.
+ */
+export function workSuffix(events: RuntimeEvent[], prior?: WorkCheckpoint): RuntimeEvent[] {
+  const context:RuntimeEvent[]=[];
+  if(prior?.model)context.push({seq:-2,time:0,type:'request/header',data:{header:{config:{model:prior.model}}}});
+  if(prior?.contextWindow!==undefined)context.push({seq:-1,time:0,type:'request/context',data:{contextWindow:prior.contextWindow}});
+  return [...context,...events.filter(event=>event.seq>=(prior?.replayFrom??0))];
+}
+
+/** Advance a cut while retaining the beginning of an unfinished logical turn.
+ *
+ * Args:
+ *   rootSessionId: Product root whose Work contains this execution.
+ *   throughSeq: Native position covered by this durable observation.
+ *   events: Logical own suffix, including carried model/context metadata.
+ *   modelVersion: Projection metadata version at the same observation cut.
+ * Returns:
+ *   A small checkpoint; completed historical turns no longer need processing.
+ */
+export function workCheckpoint(rootSessionId:string,throughSeq:number,events:RuntimeEvent[],modelVersion?:string):WorkCheckpoint {
+  let replayFrom=throughSeq+1;
+  for(const event of events) {
+    if(event.type==='turn/start')replayFrom=event.seq;
+    if(event.type==='turn/end')replayFrom=throughSeq+1;
+  }
+  const context=events.findLast(event=>event.type==='request/context');
+  return {rootSessionId,throughSeq,replayFrom,modelVersion,model:modelAt(events,Infinity),
+    contextWindow:typeof context?.data.contextWindow==='number'?context.data.contextWindow:undefined};
+}

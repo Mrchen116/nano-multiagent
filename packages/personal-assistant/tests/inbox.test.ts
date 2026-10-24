@@ -196,3 +196,23 @@ it('rejects already orphaned durable reads atomically and lets valid unread mess
     expect(store.check('alice').sources).toEqual([]);
   } finally { store.close(); rmSync(dir, { recursive: true }); }
 });
+
+it('commits product projection and its processing position together, independently of the transport ACK', () => {
+  const dir=mkdtempSync(join(tmpdir(),'nano-work-checkpoint-')),path=join(dir,'inbox.db');
+  let inbox=new InboxStore(path);
+  const checkpoint={rootSessionId:'main',throughSeq:8,replayFrom:9,modelVersion:'finished',model:'m',contextWindow:100000};
+  try {
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    const through=inbox.journalSeq;
+    expect(inbox.throughSeq).toBe(0);
+    inbox.close();inbox=new InboxStore(path);
+    expect(inbox.workCheckpoints('main')).toEqual({child:checkpoint});
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    expect(inbox.journalSeq).toBe(through);
+    inbox.acknowledge(through);
+    expect(inbox.workCheckpoints('main').child).toEqual(checkpoint);
+    expect(()=>inbox.commitWork('child',{...checkpoint,throughSeq:9},[{event_id:'invalid',bad:1n}])).toThrow();
+    expect(inbox.workCheckpoints('main').child.throughSeq).toBe(8);
+    expect(inbox.journalSeq).toBe(through);
+  } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
+});

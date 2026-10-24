@@ -42,12 +42,12 @@ test('registration gates business sends and blocked inbound handlers do not bloc
   });
   const relay = connection(s.url, { ackTimeoutMs: 2000, onFrame: async frame => { received.push(frame.type); await new Promise(() => {}); } });
   const started = relay.start();
-  await expect(relay.request('node.report', {})).rejects.toMatchObject({ delivery: 'not-sent' });
+  await expect(relay.request('node.delivery_receipt', {})).rejects.toMatchObject({ delivery: 'not-sent' });
   await expect.poll(() => s.frames.map(f => f.type), { timeout: 1000 }).toEqual(['node.register']);
   ack(s.connections[0]!, register, { gateway_access_token: 'gateway', node_epoch: 4 });
   expect(await started).toMatchObject({ gateway_access_token: 'gateway', node_epoch: 4 });
   expect(s.headers).toEqual(['Bearer secret']);
-  await expect(relay.request('node.report', { node_id: 'node' })).resolves.toMatchObject({ type: 'ack' });
+  await expect(relay.request('node.delivery_receipt', { node_id: 'node' })).resolves.toMatchObject({ type: 'ack' });
   expect(received).toEqual(['relay.message', 'agent.work.cancel', 'agent.work.permission']);
 });
 
@@ -56,12 +56,12 @@ test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.exec
     if (frame.type === type) {
       socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: 'wrong' } }));
       setTimeout(() => socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: frame.payload.request_id } })), 10);
-    } else if (frame.type === 'node.report') socket.send(JSON.stringify({ type: 'error', payload: { code: 'rejected', message_type: frame.type } }));
+    } else if (frame.type === 'node.delivery_receipt') socket.send(JSON.stringify({ type: 'error', payload: { code: 'rejected', message_type: frame.type } }));
     else ack(socket, frame);
   });
   const relay = connection(s.url); await relay.start();
   expect((await relay.request(type, { request_id: 'right' })).payload.request_id).toBe('right');
-  const rejected = relay.request('node.report', {});
+  const rejected = relay.request('node.delivery_receipt', {});
   const next = relay.request('agent.message', {});
   await expect(rejected).rejects.toMatchObject({ delivery: 'rejected', code: 'rejected' });
   await expect(next).resolves.toMatchObject({ payload: { message_type: 'agent.message' } });
@@ -70,16 +70,16 @@ test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.exec
 test('reconnect refreshes auth and registration without replaying uncertain or queued business frames', async () => {
   let tokens = 0;
   const diagnostics: RelayDiagnostic[] = [];
-  const s = await server((socket, frame) => { if (frame.type === 'node.report') socket.close(1012); else ack(socket, frame); });
+  const s = await server((socket, frame) => { if (frame.type === 'node.delivery_receipt') socket.close(1012); else ack(socket, frame); });
   const relay = connection(s.url, { credentials: async () => ({ accessToken: `token-${++tokens}`, registration: { node_id: 'node' } }), onDiagnostic: event => diagnostics.push(event) });
   await relay.start();
-  const sent = relay.request('node.report', {});
+  const sent = relay.request('node.delivery_receipt', {});
   const queued = relay.request('agent.message', {});
   await expect(sent).rejects.toMatchObject({ delivery: 'unknown' });
   await expect(queued).rejects.toMatchObject({ delivery: 'not-sent' });
   await expect.poll(() => relay.ready && s.headers.length === 2, { timeout: 1000 }).toBe(true);
   expect(s.headers).toEqual(['Bearer token-1', 'Bearer token-2']);
-  expect(s.frames.map(f => f.type)).toEqual(['node.register', 'node.report', 'node.register']);
+  expect(s.frames.map(f => f.type)).toEqual(['node.register', 'node.delivery_receipt', 'node.register']);
   expect(relay.ready).toBe(true);
   expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'disconnected', close_code: 1012 }), expect.objectContaining({ event: 'retry_scheduled', attempt: 1, delay_ms: expect.any(Number) }), expect.objectContaining({ event: 'ready', outage_ms: expect.any(Number) })]));
   expect(JSON.stringify(diagnostics)).not.toContain('token-');
@@ -95,7 +95,7 @@ test('heartbeat timeout reconnects; revoked identity stops automatic reconnect',
   expect(diagnostics).toContainEqual(expect.objectContaining({ event: 'transport_error', phase: 'heartbeat', error_type: 'TimeoutError' }));
   const count = s.connections.length;
   await pause(60); expect(s.connections).toHaveLength(count);
-  await expect(relay.request('node.report', {})).rejects.toBeInstanceOf(RelayDeliveryError);
+  await expect(relay.request('node.delivery_receipt', {})).rejects.toBeInstanceOf(RelayDeliveryError);
 });
 
 test('preserves a definite IM validation failure for tool recovery', async () => {
@@ -113,7 +113,7 @@ test('preserves a definite IM validation failure for tool recovery', async () =>
 test('stop rejects waiters and cancels reconnect and heartbeat', async () => {
   const s = await server((socket, frame) => { if (frame.type === 'node.register') ack(socket, frame); });
   const relay = connection(s.url); await relay.start();
-  const pending = relay.request('node.report', {});
+  const pending = relay.request('node.delivery_receipt', {});
   const rejected = expect(pending).rejects.toMatchObject({ delivery: 'unknown' });
   await pause(10);
   await relay.stop(); await rejected;
@@ -139,7 +139,7 @@ test('replacement authority error is terminal and errors never expose credential
   });
   const relay = connection(s.url, { onError: error => errors.push(error.message) });
   await relay.start();
-  await expect(relay.request('node.report', {})).rejects.toMatchObject({ delivery: 'unknown' });
+  await expect(relay.request('node.delivery_receipt', {})).rejects.toMatchObject({ delivery: 'unknown' });
   await pause(50);
   expect(relay.state).toBe('revoked'); expect(s.connections).toHaveLength(1);
   expect(errors.join(' ')).not.toContain('secret');

@@ -759,24 +759,6 @@ export class Gateway {
       }
       return ack({ request_id: p.request_id, boundary_id: b.boundary_id });
     }
-    if (type === "node.report") {
-      this.requireAgent(c, p.agent_id);
-      const conversation = p.conversation_id ?? (p.message_id ? s.message(p.message_id).conversation_id : undefined);
-      if (conversation) s.access({ ...c, kind: "gateway" }, conversation, p.agent_id);
-      if (p.usage) {
-        if (!p.run_id) fail(400, "run_id_required");
-        transaction(db, () => {
-          const inserted = db.prepare("INSERT OR IGNORE INTO usage_receipts VALUES(?,?)").run(c.node_id, p.run_id);
-          if (!inserted.changes) return;
-          const scopes = [[null, null], ...(conversation ? [[conversation, null]] : []), [conversation ?? null, p.agent_id]];
-          for (const [conversationId, agentId] of scopes) db.prepare(
-            "INSERT INTO usage_metrics(owner_id,conversation_id,agent_id,prompt_tokens,completion_tokens,total_tokens,turns,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          ).run(c.owner_id, conversationId, agentId, p.usage.prompt_tokens ?? 0, p.usage.completion_tokens ?? 0,
-            p.usage.total_tokens ?? 0, 1, p.completed_at ?? now());
-        });
-      }
-      return ack({ run_id: p.run_id });
-    }
     fail(400, "unsupported_message_type");
   }
   requireAgent(c: Connection, id: string): Row {

@@ -9,7 +9,7 @@ import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
 import { logicalEvents } from './presentation.js';
-import { projectWorkEvent } from './work-projection.js';
+import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
@@ -48,10 +48,10 @@ export class GlobalAgent {
   private readonly controlTasks=new Map<string,Promise<void>>();
   private readonly authorities = new Set<string>();
   private readonly accepting = new Map<string,Promise<void>>();
-  private readonly childCursors: Record<string, number> = {};
-  private readonly childModelVersions: Record<string, string> = {};
+  private readonly reconciliation = new Map<string, number>();
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
+    for(const binding of options.store.bindings())if(options.agents.some(agent=>agent.agentId===binding.agentId && agent.mode==='global'))options.inbox.workPending(binding.sessionId,true);
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
@@ -63,6 +63,7 @@ export class GlobalAgent {
       if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
       if (method === 'session.status' && data.status === 'idle') {
         this.waitingForIdle.delete(config.agentId); this.wake(config, binding, true).catch(options.onError);
+        this.reconcile(binding).catch(options.onError);
       }
     });
   }
@@ -300,7 +301,26 @@ export class GlobalAgent {
       try {
         for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
         if(config.personal)await this.restorePersonalInputs(config);
-        const binding=await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
+        const binding=this.binding(config), {inbox,store,runtime}=this.options;
+        const checkpoints=inbox.workCheckpoints(binding.sessionId);
+        const background=inbox.background(config.agentId);
+        const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
+          !!background && (background.pending || background.dueAt<=Date.now()) ||
+          store.controls().some(intent=>intent.binding.agentId===config.agentId && !intent.delivered) || store.lookupInputIds(binding.sessionId).length>0;
+        if(checkpoints[binding.sessionId] && !obligations) {
+          const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,...this.workPositions(binding.sessionId)}) as {settled?:boolean;rootSettled?:boolean};
+          if(check.settled || check.rootSettled) {
+            await this.ensureAuthority(binding);
+            if(!check.settled) {
+              await this.reconcile(binding,true);
+              const refreshed=await runtime.request('session.work.check',{sessionId:binding.sessionId,...this.workPositions(binding.sessionId)}) as {settled?:boolean};
+              if(!refreshed.settled) {await this.main(config);await this.reconcile(binding);await this.wake(config,binding,true);}
+            }
+            else {inbox.workPending(binding.sessionId,false);this.options.onWork?.();}
+            this.armBackground();return;
+          }
+        }
+        await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
       } catch(error) {this.scheduleRecovery();this.options.onError(error);}
     }));
     await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
@@ -597,8 +617,18 @@ export class GlobalAgent {
       this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
-  private async reconcile(binding: SessionBinding): Promise<void> {
-    await Promise.all([this.reconcileRoot(binding), this.reconcileChildren(binding)]);
+  private workPositions(root:string) {
+    const checkpoints=Object.entries(this.options.inbox.workCheckpoints(root));
+    return {cursors:Object.fromEntries(checkpoints.map(([id,cut])=>[id,cut.throughSeq])),
+      modelVersions:Object.fromEntries(checkpoints.filter(([,cut])=>cut.modelVersion!==undefined).map(([id,cut])=>[id,cut.modelVersion!]))};
+  }
+  private async reconcile(binding: SessionBinding, childrenOnly=false): Promise<void> {
+    const root=binding.sessionId,generation=(this.reconciliation.get(root)??0)+1;
+    this.reconciliation.set(root,generation);this.options.inbox.workPending(root,true);this.options.onWork?.();
+    try {
+      await Promise.all([childrenOnly?Promise.resolve():this.reconcileRoot(binding), this.reconcileChildren(binding)]);
+      if(this.reconciliation.get(root)===generation) {this.options.inbox.workPending(root,false);this.options.onWork?.();}
+    }catch(error){this.scheduleRecovery();throw error;}
   }
   // Sending needs durable root evidence and Inbox consumption, not an unrelated
   // child's display history. Separate drains also let recovery track both jobs.
@@ -608,12 +638,14 @@ export class GlobalAgent {
     const task = (async () => {
       while (this.dirty.delete(binding.sessionId)) {
         const { store, inbox, runtime } = this.options;
-        const result = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
+        const result = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; throughSeq?:number; modelRuns?: ModelRunProjection[]; modelVersion?:string };
         if (!result.durable) throw new Error('No durable event barrier');
         store.recordEvents(binding.sessionId, result.events);
-        // Replay is safe and fills a product projection interrupted after the cursor commit.
-        const events = logicalEvents(store.events(binding.sessionId), result.modelRuns ?? []);
-        this.modelNotices(binding, result.modelRuns ?? []);
+        // The native receive cursor can be ahead after a crash. Only the product
+        // checkpoint commits display facts; keep the open logical turn for pairing.
+        const prior=inbox.workCheckpoints(binding.sessionId)[binding.sessionId];
+        const events = logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1),prior), result.modelRuns ?? []);
+        const facts=this.modelNotices(binding, result.modelRuns ?? []);
         for (const event of events) {
           const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
           if (event.type === 'tool/result') {
@@ -629,13 +661,13 @@ export class GlobalAgent {
           const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
           if (event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
             const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
-            // Keep Web receipts durable until reconnect; external channel receipts remain local.
-            if (this.options.relay.ready === false && !entry.input.relay_task_id.startsWith('external:')) continue;
+            // receipt persists the Web outbox intent even while the relay is offline.
             await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
           }
           const projected = projectWorkEvent(binding.sessionId, event, events);
-          if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
+          if (projected) facts.push(this.workEvent(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time));
         }
+        inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,result.throughSeq??store.cursor(binding.sessionId),events,result.modelVersion),facts);
         this.options.onWork?.();
       }
     })().finally(() => this.drains.delete(binding.sessionId));
@@ -650,32 +682,44 @@ export class GlobalAgent {
     this.childDrains.set(binding.sessionId, task); return task;
   }
   private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
+    const facts:ReturnType<GlobalAgent['workEvent']>[]=[];
     for (const run of runs) {
-      for (const attempt of run.attempts) if (attempt.error) this.append(binding, `model-failure:${run.id}:${attempt.turn}`, 'message', {
+      for (const attempt of run.attempts) if (attempt.error) facts.push(this.workEvent(binding, `model-failure:${run.id}:${attempt.turn}`, 'message', {
         role: 'system', text: `${attempt.route.model} 暂时无法完成：${attempt.error.message}`, native_turn: attempt.turn,
-      }, run.turn);
-      if (run.switched) this.append(binding, `model-switched:${run.id}`, 'message', { role: 'system', text: `已改用 ${run.switched}，因为主模型不可用。` }, run.turn);
+      }, run.turn));
+      if (run.switched) facts.push(this.workEvent(binding, `model-switched:${run.id}`, 'message', { role: 'system', text: `已改用 ${run.switched}，因为主模型不可用。` }, run.turn));
     }
+    return facts;
   }
   private async projectChildren(root: SessionBinding): Promise<void> {
-    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, cursors: this.childCursors, modelVersions: this.childModelVersions }) as { kind: string; id: string; parentId: string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[]; modelVersion?: string }[];
+    const inbox=this.options.inbox, checkpoints=inbox.workCheckpoints(root.sessionId);
+    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, ...this.workPositions(root.sessionId) }) as { kind: string; id: string; parentId: string; reason?:string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[]; modelVersion?: string }[];
+    let incomplete=false;
     for (const child of children) {
-      if (child.kind !== 'child') continue;
-      const binding = { ...root, sessionId: child.id };
-      this.append(binding, 'registered', 'session_registered', { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label });
-      this.modelNotices(binding, child.modelRuns ?? []);
-      const events = logicalEvents(child.events ?? [], child.modelRuns ?? []);
+      if (child.kind !== 'child') {if(child.reason!=='unsupported')incomplete=true;continue;}
+      const binding = { ...root, sessionId: child.id },prior=checkpoints[child.id];
+      const facts=[this.workEvent(binding, 'registered', 'session_registered', { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label }),
+        ...this.modelNotices(binding, child.modelRuns ?? [])];
+      const events = logicalEvents(workSuffix(child.events ?? [],prior), child.modelRuns ?? []);
       for (const event of events) {
         const projected = projectWorkEvent(child.id, event, events, true);
-        if (projected) this.append(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time);
+        if (projected) facts.push(this.workEvent(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time));
       }
-      if (child.throughSeq !== undefined) this.childCursors[child.id] = child.throughSeq;
-      if (child.modelVersion !== undefined) this.childModelVersions[child.id] = child.modelVersion;
+      if(child.throughSeq!==undefined) {
+        const cut=prior && !child.events?.length && prior.throughSeq===child.throughSeq ? {...prior,modelVersion:child.modelVersion??prior.modelVersion}
+          :workCheckpoint(root.sessionId,child.throughSeq,events,child.modelVersion);
+        inbox.commitWork(child.id,cut,facts);
+      }else incomplete=true;
     }
+    this.options.onWork?.();
+    if(incomplete)throw new Error('Work descendant records are not yet available');
+  }
+  private workEvent(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()) {
+    return { event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
+      session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), type, payload, observed_at: new Date(time).toISOString() };
   }
   private append(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()): void {
-    this.options.inbox.append({ event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
-      session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), type, payload, observed_at: new Date(time).toISOString() });
+    this.options.inbox.append(this.workEvent(binding,key,type,payload,turn,time));
     this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {
