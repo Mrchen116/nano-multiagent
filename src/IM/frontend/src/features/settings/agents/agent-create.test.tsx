@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
+  getNodeApprovalRulesMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
+  getNodeApprovalRules: apiMocks.getNodeApprovalRulesMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
   listNodes: apiMocks.listNodesMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -71,6 +73,7 @@ function renderCreatePage() {
 
 afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
+  apiMocks.getNodeApprovalRulesMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
@@ -79,6 +82,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  apiMocks.getNodeApprovalRulesMock.mockResolvedValue({inherited_approval_rules: "codex"});
   apiMocks.listAgentSummariesMock.mockResolvedValue([]);
 });
 

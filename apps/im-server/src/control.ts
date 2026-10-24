@@ -582,7 +582,7 @@ function agentCapabilities(profile: Row, capabilities: Row): Row {
   return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
     models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
     inherited_approval_rules:capabilities.inherited_approval_rules ?? null,
-    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),platform_default_model:capabilities.platform_default_model ?? null};
+    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),fixed_tools:stringList(capabilities.fixed_tools),platform_default_model:capabilities.platform_default_model ?? null};
 }
 function settingsError(code: string) {
   return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
@@ -653,6 +653,14 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       payload: { node: updated },
     });
     return updated;
+  });
+  app.get("/im/v1/nodes/:node_id/approval", async (req) => {
+    const u = await user(req), id = params(req).node_id;
+    requireNode(ctx, id, u.owner_id);
+    const workspace = optionalText(query(req).workspace_root);
+    if (!workspace) fail(422, "workspace_root is required");
+    const result = await rpc(id, "node.approval.resolve", {workspace_root: workspace});
+    return {inherited_approval_rules: result.inherited_approval_rules ?? null};
   });
   app.get("/im/v1/nodes/:node_id/capabilities", async (req) => {
     const u = await user(req),

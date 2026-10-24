@@ -141,7 +141,7 @@ it.each([undefined, 'nano', 'dsh'] as const)('persists per-Agent approval overri
       const restored = await NodeConfiguration.read(path);
       expect(restored.current('a')?.approval_mode).toBe(mode);
       expect(restored.runtime(restored.current('a')!).approval).toMatchObject({rules, enabled: false});
-      expect(restored.inheritedApproval(home).rules).toBe('dsh');
+      expect(restored.inheritedApproval(home).rules).toBe(inheritedRules);
     }
     expect(inherited.approval?.rules).toBe(inheritedRules);
     expect(agentConfigurationFingerprint({...original, approval_mode: 'cc'})).not.toBe(agentConfigurationFingerprint({...original, approval_mode: 'codex'}));

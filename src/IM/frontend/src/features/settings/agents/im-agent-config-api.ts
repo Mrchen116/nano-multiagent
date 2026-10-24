@@ -694,6 +694,13 @@ export function getAgentSettingsSection<T>(agentId: string, section: "plugins" |
   return requestJson(`/im/v1/agents/${encodeURIComponent(agentId)}/settings/sections/${section}`, {signal});
 }
 
+/** Confirm workspace policy without creating a directory or resolving a model catalog. */
+export function getNodeApprovalRules(nodeId: string, workspaceRoot: string) {
+  return requestJson<{inherited_approval_rules: CapabilitySnapshot["inherited_approval_rules"]}>(
+    `/im/v1/nodes/${encodeURIComponent(nodeId)}/approval?${new URLSearchParams({workspace_root: workspaceRoot})}`,
+  );
+}
+
 export async function getNodeCreateState(nodeId: string): Promise<NodeCreateState> {
   const [capabilities, nodes] = await Promise.all([getNodeCapabilities(nodeId), listNodes()]);
   const node = nodes.find((item) => item.node_id === nodeId) ?? null;

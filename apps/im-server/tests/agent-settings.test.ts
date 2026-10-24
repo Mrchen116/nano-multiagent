@@ -206,3 +206,29 @@ it('fences section reads and retains only safe usage references across failed re
     expect(one(db,"SELECT * FROM agent_settings_snapshots WHERE section='cron'")).toBeUndefined();
   } finally {await app.close();}
 });
+
+
+it('preserves fixed context and personal tools in settings capabilities', async () => {
+  const {app,ctx}=setup();
+  ctx.gateway.request=async()=>({capabilities:{...capabilities,fixed_tools:['new_context','personal_sources']}});
+  try {
+    const legacy=(await app.inject('/im/v1/agents/a/capabilities')).json();
+    const settings=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(settings.live_capabilities.fixed_tools).toEqual(legacy.fixed_tools);
+    expect(settings.live_capabilities.fixed_tools).toEqual(['new_context','personal_sources']);
+  } finally {await app.close();}
+});
+
+it('resolves approval for the owned node and exact target workspace', async () => {
+  const {app,ctx}=setup();
+  ctx.gateway.request=vi.fn(async()=>({inherited_approval_rules:'nano',private_config:'never expose'}));
+  try {
+    const result=await app.inject('/im/v1/nodes/n/approval?workspace_root=%2Fcustom%20space');
+    expect(result.statusCode,result.body).toBe(200);
+    expect(result.json()).toEqual({inherited_approval_rules:'nano'});
+    expect(ctx.gateway.request).toHaveBeenCalledWith('n','node.approval.resolve',{workspace_root:'/custom space'});
+    expect((await app.inject('/im/v1/nodes/n/approval')).statusCode).toBe(422);
+    expect((await app.inject('/im/v1/nodes/unknown/approval?workspace_root=%2Fcustom')).statusCode).toBe(404);
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
+  } finally {await app.close();}
+});

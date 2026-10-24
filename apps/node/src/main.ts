@@ -183,6 +183,12 @@ const relay = new WebRelayConnection({
     if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
     if (frame.type === 'node.distill.prompt.request') await relay.request('node.distill.prompt', { request_id: payload.request_id, node_id: config.node.node_id,
       ...await history.distill(payload).catch(error => ({ error_code: 'runtime_unavailable', message: String(error) })) });
+    if (frame.type === 'node.approval.resolve') {
+      const workspace = resolve(String(payload.workspace_root));
+      await relay.request('node.approval.resolve.result', {request_id: payload.request_id, node_id: config.node.node_id,
+        inherited_approval_rules: configuration.inheritedApproval(workspace).rules});
+      return;
+    }
     if (['agent.capabilities.resolve', 'node.capabilities.resolve', 'agent.prompt.preview.request', 'node.prompt.preview.request'].includes(frame.type)) {
       const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : undefined;
       const current = config.agents.find(agent => agent.agent_id === agentId);

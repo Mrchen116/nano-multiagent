@@ -25,6 +25,7 @@ import {
   AgentSummary,
   createNodeAgent,
   getNodeCreateState,
+  getNodeApprovalRules,
   getAgentConfigRequestDetail,
   getAgentConfigRequestStatus,
   isConfigApplyPendingError,
@@ -443,6 +444,21 @@ export function AgentCreatePage() {
         draft.agent_id.trim() || t("agents.form.workspaceCreate.agentIdPlaceholder"),
       )
     : null;
+  const approvalWorkspace = workspaceMode === "custom" ? (draft.workspace_root ?? "").trim()
+    : draft.agent_id.trim() ? resolvedDefaultWorkspacePath ?? "" : "";
+  const [settledApprovalWorkspace, setSettledApprovalWorkspace] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledApprovalWorkspace(approvalWorkspace), 300);
+    return () => clearTimeout(timer);
+  }, [approvalWorkspace]);
+  const approvalQuery = useQuery({
+    queryKey: ["settings", "nodes", selectedNodeId, "approval", approvalWorkspace],
+    queryFn: () => getNodeApprovalRules(selectedNodeId, approvalWorkspace),
+    enabled: isNodeOnline && !!approvalWorkspace && approvalWorkspace === settledApprovalWorkspace,
+    retry: false,
+  });
+  const inheritedApprovalRules = workspaceMode === "default" && !draft.agent_id.trim()
+    ? capabilities?.inherited_approval_rules : approvalQuery.data?.inherited_approval_rules;
   const defaultWorkspacePath =
     resolvedDefaultWorkspacePath ?? t("agents.form.workspaceCreate.defaultPathUnavailable");
   const queryErrorDetail =
@@ -931,7 +947,7 @@ export function AgentCreatePage() {
         {capabilityEditor.toast}
         <CreateBehaviorCard
           draft={draft}
-          inheritedRules={capabilities.inherited_approval_rules}
+          inheritedRules={inheritedApprovalRules}
           capabilityFeatures={capabilities.features ?? []}
           selectedNodeId={selectedNodeId}
           workspaceMode={workspaceMode}
