@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -188,17 +188,15 @@ it("forks a native message with its configuration and compacted prefix, independ
     const exportResult = (await client!.rpc.request("session.export", {
       sessionId: fork.sessionId,
     })) as { path: string };
-    expect(await readFile(exportResult.path, "utf8")).toContain("fork-only");
-    const readable = await readFile(
-      join(home, ".nanoassistant/chat_history", `${fork.sessionId}.jsonl`),
-      "utf8",
-    );
-    expect(readable).toContain("fork-only");
-    expect(readable).not.toContain("after-point");
-    // Source references may quote the original envelope; readable human bodies omit it.
-    const humanRows = readable.trim().split("\n").map(line => JSON.parse(line)).filter(row => row.source === "user");
-    expect(humanRows.length).toBeGreaterThan(0);
-    expect(humanRows.every(row => !row.content.startsWith("Message time:"))).toBe(true);
+    const raw = await readFile(exportResult.path, "utf8");
+    expect(raw).toContain("fork-only");
+    expect(raw).toContain("one Remember these facts");
+    expect(raw).not.toContain("after-point");
+    const copyDirectory = join(home, ".nanoassistant/chat_history");
+    await expect(readFile(join(copyDirectory, `${fork.sessionId}.jsonl`))).rejects.toMatchObject({ code: "ENOENT" });
+    await mkdir(copyDirectory, { recursive: true });
+    const legacy = join(copyDirectory, `${binding.sessionId}.jsonl`);
+    await writeFile(legacy, "legacy copy must stay untouched");
     await client!.shutdown();
     client = undefined;
     await start();
@@ -208,7 +206,11 @@ it("forks a native message with its configuration and compacted prefix, independ
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "ORIGINAL_PERSONA",
     );
+    expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
     await submit(fork.sessionId, "cold-fork");
+    await submit(binding.sessionId, "cold-source");
+    expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
+    await expect(readFile(join(copyDirectory, `${fork.sessionId}.jsonl`))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await client!.rpc.request("session.fork", request)).toEqual(fork);
     config = { ...config, revision: "3" };
     await client!.rpc.request("configuration.apply", config);

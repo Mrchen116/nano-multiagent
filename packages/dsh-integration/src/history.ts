@@ -1,7 +1,6 @@
-import { isHumanSource } from './input-source.js';
 import { AsyncLocalStorage } from "node:async_hooks";
-import { appendFile, mkdir, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { SessionController } from "@deepseek-ai/dsh-api-session-controller";
@@ -26,16 +25,9 @@ interface Override {
   config: AgentConfiguration;
   baseRevision: string;
 }
-interface ExportCheckpoint {
-  offset: number;
-  bytes: number;
-}
 interface ExportJob {
   task: Promise<void>;
-  running: boolean;
   pending: boolean;
-  raw: boolean;
-  rebuild: boolean;
 }
 interface Fork {
   source: string;
@@ -97,22 +89,12 @@ export class NativeHistory {
     Promise<{ sessionId: string; idMap: Record<string, string> }>
   >();
   private readonly exports = new Map<string, ExportJob>();
-  // Cold observations may contain synthetic closers. Never transfer a cursor
-  // to a different live lifecycle, or retain a Session just for its export.
-  private readonly checkpoints = new WeakMap<Session, ExportCheckpoint>();
   private writes: Promise<void> = Promise.resolve();
   constructor(
     private readonly ctx: Context,
     private readonly home: string,
   ) {
     this.state = ctx.storageDomain.open(domain);
-    ctx.on("session/event", (session, event) => {
-      if (
-        event.type === "turn/end" &&
-        session.header.agentPreset?.startsWith("nano:")
-      )
-        this.queueExport(session.id);
-    });
     ctx.effect(() => async () => {
       await this.stop();
       await (await this.state).close();
@@ -276,100 +258,23 @@ export class NativeHistory {
       sessionId: result.sessionId,
       status: "ready",
     });
-    await this.queueExport(session.id);
     return { sessionId: result.sessionId, idMap };
   }
   private async writeExport(
     header: Session["header"],
-    snapshot: (offset: number) => ReturnType<Session["snapshotEvents"]>,
-    end: number,
-    raw: boolean,
-    rebuild: boolean,
-    session?: Session,
+    events: ReturnType<Session["snapshotEvents"]>,
   ) {
-    let checkpoint =
-      session && !rebuild ? this.checkpoints.get(session) : undefined;
-    const target = header.cwd
-      ? join(
-          header.cwd, ".nanoassistant", "chat_history",
-          `${encodeURIComponent(header.id)}.jsonl`,
-        )
-      : undefined;
-    try {
-      if (checkpoint && target) {
-        const size = await stat(target)
-          .then(value => value.size)
-          .catch(error => {
-            if (error.code === "ENOENT") return undefined;
-            throw error;
-          });
-        if (checkpoint.offset > end || checkpoint.bytes !== size)
-          checkpoint = undefined;
-      }
-      const offset = checkpoint?.offset ?? 0;
-      const events = snapshot(raw ? 0 : offset);
-      if (raw) {
-        const directory = join(this.home, "exports");
-        await mkdir(directory, { recursive: true });
-        const path = join(directory, `${key(header.id)}.jsonl`);
-        // Distillation reads this path later. Only atomic complete snapshots
-        // may replace it; ordinary turns must never append to the published file.
-        const body = [{ type: "nano-dsh-history", version: 1, header }, ...events]
-          .map(value => JSON.stringify(value)).join("\n") + "\n";
-        await writeFile(`${path}.tmp`, body);
-        await rename(`${path}.tmp`, path);
-      }
-      let bytes = checkpoint?.bytes ?? 0;
-      if (target) {
-        const messages = (raw ? events.slice(offset) : events).flatMap((event) => {
-          const message =
-            event.type === "user/message"
-              ? event.data
-              : event.type === "assistant/message"
-                ? event.data.message
-                : undefined;
-          if (!message) return [];
-          const content = message.content
-            // The readable copy keeps human text; runtime/trajectory retains the model context.
-            .filter((block, index) => !(index === 0 && block.type === "text" && isHumanSource(message.source) && block.text === message.source.contextEnvelope))
-            .flatMap((block) =>
-              block.type === "text"
-                ? [block.text]
-                : block.type === "image"
-                  ? ["[image]"]
-                  : [],
-            )
-            .join("\n");
-          return content
-            ? [
-                {
-                  ts: new Date(event.time).toISOString(),
-                  role: message.role,
-                  content,
-                  source: message.source.kind,
-                },
-              ]
-            : [];
-        });
-        const body = messages.map(message => JSON.stringify(message) + "\n").join("");
-        if (checkpoint) {
-          if (body) await appendFile(target, body);
-        } else {
-          await mkdir(dirname(target), { recursive: true });
-          await writeFile(`${target}.tmp`, body);
-          await rename(`${target}.tmp`, target);
-        }
-        bytes += Buffer.byteLength(body);
-      }
-      if (session) this.checkpoints.set(session, { offset: end, bytes });
-    } catch (error) {
-      // A failed append can leave a partial line. The next attempt replaces the
-      // whole derived copy from DSH facts instead of appending it a second time.
-      if (session) this.checkpoints.delete(session);
-      throw error;
-    }
+    const directory = join(this.home, "exports");
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, `${key(header.id)}.jsonl`);
+    // Distillation reads this path later. Only atomic complete snapshots
+    // may replace it; ordinary turns must never append to the published file.
+    const body = [{ type: "nano-dsh-history", version: 1, header }, ...events]
+      .map(value => JSON.stringify(value)).join("\n") + "\n";
+    await writeFile(`${path}.tmp`, body);
+    await rename(`${path}.tmp`, path);
   }
-  private async writeLive(session: Session, raw: boolean, rebuild: boolean) {
+  private async writeLive(session: Session) {
     // flush may await while the next turn appends. Keep the export inside the
     // cut whose persistence was requested, not the later in-memory tail.
     const end = session.seq;
@@ -377,77 +282,53 @@ export class NativeHistory {
       throw new Error("History export has no persistence barrier");
     await this.writeExport(
       session.header,
-      offset => session.snapshotEvents(SessionLogOffset(offset), end),
-      end, raw, rebuild, session,
+      session.snapshotEvents(SessionLogOffset(0), end),
     );
   }
-  private async exportSession(id: string, raw: boolean, rebuild: boolean) {
+  private async exportSession(id: string) {
     const session = this.ctx.sessions.get(SessionId(id));
-    if (session) return this.writeLive(session, raw, rebuild);
+    if (session) return this.writeLive(session);
     using observation = await this.ctx.sessionQuery.observeSession(SessionId(id));
     if (observation.source === "live") {
       // A Session can become live while observeSession is reading storage.
       const live = this.ctx.sessions.get(SessionId(id));
       if (!live) throw new Error("History export has no persistence barrier");
-      return this.writeLive(live, raw, rebuild);
+      return this.writeLive(live);
     }
     await this.writeExport(
-      observation.header, offset => observation.events.slice(offset),
-      observation.events.length, raw, true,
+      observation.header, observation.events,
     );
   }
-  private queueExport(id: string, options: { raw?: boolean; rebuild?: boolean } = {}) {
+  private queueExport(id: string) {
     const active = this.exports.get(id);
-    if (active?.running) {
+    if (active) {
       active.pending = true;
-      active.raw ||= options.raw ?? false;
-      active.rebuild ||= options.rebuild ?? false;
       return active.task;
     }
     const job: ExportJob = {
-      task: Promise.resolve(), running: true, pending: true,
-      raw: options.raw ?? false, rebuild: options.rebuild ?? false,
+      task: Promise.resolve(), pending: true,
     };
     this.exports.set(id, job);
     job.task = (async () => {
       try {
         while (job.pending) {
-          const { raw, rebuild } = job;
-          job.pending = job.raw = job.rebuild = false;
+          job.pending = false;
           try {
-            await this.exportSession(id, raw, rebuild);
+            await this.exportSession(id);
           } catch (error) {
             if (!job.pending) throw error;
-            // A newer request already needs a retry; preserve any unfulfilled
-            // raw snapshot request rather than letting a turn/end replace it.
-            job.raw ||= raw;
-            job.rebuild = true;
+            // A newer explicit request already requires another publication.
             this.ctx.logger("nano-history").warn(String(error));
           }
         }
       } finally {
-        job.running = false;
+        this.exports.delete(id);
       }
     })();
     void job.task.catch((error) =>
       this.ctx.logger("nano-history").warn(String(error)),
     );
     return job.task;
-  }
-  /** Rebuild bound readable copies from native facts before accepting work. */
-  async recoverExports(sessionIds: string[]) {
-    for (const id of sessionIds) {
-      try {
-        await this.queueExport(id, { rebuild: true });
-      } catch (error) {
-        // New product bindings may precede their first persisted native Session.
-        if (
-          (error as { code?: string }).code !==
-          "SESSION_QUERY_SESSION_NOT_FOUND"
-        )
-          throw error;
-      }
-    }
   }
   /**
    * Publish a complete persisted snapshot for a potentially delayed reader.
@@ -456,7 +337,7 @@ export class NativeHistory {
    * Raises: Persistence or export errors; an older file is never reported as fresh.
    */
   async path(sessionId: string) {
-    await this.queueExport(sessionId, { raw: true });
+    await this.queueExport(sessionId);
     return join(this.home, "exports", `${key(sessionId)}.jsonl`);
   }
   /** Drain configuration writes and all queued history exports on shutdown. */

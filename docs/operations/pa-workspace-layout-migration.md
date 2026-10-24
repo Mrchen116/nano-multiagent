@@ -1,6 +1,7 @@
 # refactor-513 首次生产部署 Agent Prompt
 
 > 使用时机：refactor-513 已合入 `main`、所有实现测试与 E2E 已通过后，由部署 Agent 在现有两台机器上执行一次。
+> 当前适用性：本文保留 refactor-513 的一次性目录迁移步骤；可读聊天副本现已停止生成，旧文件仍保留，当前历史行为见 [Routing and Delivery](../specs/gateway/routing-delivery.md)。
 > 目标：把 PA 的 global home / default workspaces 与 workspace-managed 目录收敛到终态；**不**在产品运行时代码中添加迁移、fallback 或同步逻辑。
 
 将以下内容完整交给有生产部署权限的 Agent：
@@ -96,7 +97,7 @@
 3. 本机 `lsof -ti:8011` 为空。
 4. 两边 Gateway 的 `node.user_id` 均等于 `GET /im/v1/me` 返回的真实 IM owner UUID；日志没有持续 `configured node owner differs`。
 5. 新建未显式 workspace 的 PA Agent 落在 `~/.nanoassistant/workspaces/<agent-id>/`；IM 返回的 `workspace_is_default` 与此一致。
-6. 用一个外部代码仓 PA workspace 完成真实聊天/RPC journey，确认新的 chat history、heartbeat、cron、background output 在 `.nanoassistant/`；再用 CLI 在代码仓确认 extensions、policy、background output 在 `.nanocode/`，且 CLI 没有 PA chat history/heartbeat。
+6. 用一个外部代码仓 PA workspace 完成真实聊天/RPC journey，确认新的 heartbeat、cron、background output 在 `.nanoassistant/`；再用 CLI 在代码仓确认 extensions、policy、background output 在 `.nanocode/`，且 CLI 没有 PA chat history/heartbeat。
 7. 确认无新写入落到 root `chat_history/`、root `HEARTBEAT.md` 或旧产品目录；历史保留文件不应被误删。
 
 ### 7. 收尾与报告
