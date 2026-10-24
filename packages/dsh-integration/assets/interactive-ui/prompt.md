@@ -418,7 +418,7 @@ Before finishing, walk your output and verify:
 - OpenUrl supports http/https navigation. Declare every mutable variable with the dollar prefix. Use actual values for editable content, never placeholders as the content. Labels and units must make parameter changes understandable. Keep the main chat readable on narrow screens.
 - Match control binding types exactly: Input/TextArea/Select/RadioGroup values are strings, including numeric-looking option IDs; Slider values are number arrays. Set must preserve the bound type. Convert an arithmetic result to a string with empty-string concatenation when storing it in a string-bound variable; use numeric coercion only for calculations.
 - For edits, send interactive.source_mode="patch" with supersedes_message_id and changed statements, or send a full new source. New versions retain the original publicly readable history.
-- After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses it because the interactive reply is already delivered. Never end with an empty response.
+- After confirmed delivery, follow the current mode closing rules. In Global mode, write a brief non-empty private closing note; it is not a public reply. In SingleThread mode, use its existing silence protocol after confirmed card delivery. Never end with an empty response or duplicate the delivered card.
 ## Composition examples
 
 ### An explanation with one useful variable

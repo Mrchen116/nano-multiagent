@@ -22,6 +22,7 @@ export interface TaskResponsibility {
   title: string;
   status: 'doing' | 'waiting';
   revision: number;
+  updated_at: string;
   conversation: {id: string};
   relative_url: string;
   wait?: TaskWait;

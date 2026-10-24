@@ -33,7 +33,7 @@ export class TaskExecution {
       const frame=await this.options.relay.request('task.execution.snapshot',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:conversation,request_id:randomUUID()});
       if(!frame.payload.ok)throw new Error('Task source unavailable');
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
-      const tasks=items.map(({graph_id,node_id,title,status,revision,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,conversation:{id:conversation.id},relative_url,wait,resume_request}));
+      const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
       if(tasks.some(t=>t.status==='waiting'))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
       const repair:string[]=[];let unavailable=false;
       for(const task of tasks)if(task.status==='waiting') {
@@ -67,6 +67,9 @@ export class TaskExecution {
     const frame=await this.options.relay.request('task.execution.pause',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:this.scope(binding),request_id:randomUUID(),request_key:id});
     if(!frame.payload.ok)throw new Error('Stop is pending until Task state can be confirmed');
     const result={...cancelled,paused:Number((frame.payload.result as {paused:number}).paused)};
+    await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:`task-stop-notice:${binding.agentId}:${input.message.id}`,mode:'inject',
+      source:{kind:'system',actorId:input.message.sender_user_id,channel:'task-human-control',messageId:input.message.id},
+      content:[{type:'text',text:'Host-attested human stop. Inputs queued before this stop do not resume paused Tasks even when processed later. Only a new explicit human resume after this stop may resume them. Unrelated work may continue.\n'+JSON.stringify({action:'pause',actor_id:input.message.sender_user_id,message_id:input.message.id,created_at:input.message.created_at,scope:{agent_id:binding.agentId,conversation_id:this.scope(binding)??null},paused:result.paused})}]});
     intent.text=JSON.stringify(result);intent.delivered=true;this.options.store.saveControl(intent);
     await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:false});
     return result;

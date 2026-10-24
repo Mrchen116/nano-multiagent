@@ -22,7 +22,7 @@
 | 理解所有 Agent 默认无摘要换窗、历史恢复与显式回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；插件操作见 [compaction 指导](../packages/personal-assistant/assets/skills/nano-plugin-development/references/compaction.md) |
 | 让 Agent 开发 workspace 插件、查询当前 API 与验证实际效果 | [随包插件开发 Skill](../packages/personal-assistant/assets/skills/nano-plugin-development/SKILL.md)；产品边界见 [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) |
 | 更新已安装的电脑端、处理一次性旧版过渡或失败恢复 | [`operations/gateway.md`](operations/gateway.md#更新已安装的电脑端) |
-| 查看讨论后保存的任务图及 Agent 工具契约 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
+| 查看任务图、持续推进、一小时内等待复查与固定聊天反馈 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |

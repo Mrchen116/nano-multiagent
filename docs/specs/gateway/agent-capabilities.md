@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-645
+> 对齐: bugfix-646
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -1021,3 +1021,10 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **WHEN** 配置关闭与新 Task 责任或新定时安排并发到达
 - **THEN** 先建立的有效责任使关闭被拒；先被接受的关闭使冲突的新责任或安排被拒，不出现双方都成功而能力缺失
 - **AND** 使用状态不可确认时明确失败，不把读取失败当作空闲；重试和断联恢复沿既有配置 operation 保持一致
+
+### Requirement: 审核请求 SHALL 使用原审核模型声明的推理能力
+
+#### Scenario: 原模型不支持 low
+- **WHEN** 所选审核模型声明可调推理能力
+- **THEN** 支持 low 时使用 low，否则使用该模型声明的默认档位或首个支持档位；未声明可调能力时不强设 low。
+- **AND** 保留同一审核 provider/model、完整适用证据、判定规则及失败分流，不通过换模型或删证据放行。
