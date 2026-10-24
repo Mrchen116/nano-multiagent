@@ -685,7 +685,7 @@
     "work": {
       "暂不可定位": "Location unavailable",
       "工作": "Work",
-      "全局 · 实验": "Global · Experimental",
+      "全局": "Global mode",
       "跨聊天的主工作轨迹及关联执行": "Main work across chats and linked executions",
       "主 Agent": "Main Agent",
       "节点在线": "Node online",
@@ -798,7 +798,7 @@
       "历史读取失败，请重新打开链接重试": "Unable to load history. Reopen the link to retry.",
       "聊天已打开，但原消息已不可定位": "Chat opened, but the original message is unavailable",
       "工作模式": "Work mode",
-      "全局模式 · 实验": "Global · Experimental",
+      "全局模式": "Global mode",
       "单 Thread": "Single thread",
       "一个持续上下文统筹各聊天，按需读取收件箱和委派。": "Coordinate across chats in one continuous context, reading the inbox and delegating as needed.",
       "每个聊天独立上下文，保持现有工作方式。": "Keep an independent context for each chat.",
@@ -888,7 +888,7 @@
     },
     "redesign": {
       "workMode": "Work mode",
-      "mode": {"single_thread": "Single thread", "global": "Global · Experimental"},
+      "mode": {"single_thread": "Single thread", "global": "Global mode"},
       "modeHelp": {"single_thread": "A separate context for each chat.", "global": "One ongoing context coordinates work across chats."},
       "modeFixed": "Work mode cannot be changed after creation.",
       "createIdHelp": "Lowercase letters, numbers, _ and -. Cannot be changed after creation.",

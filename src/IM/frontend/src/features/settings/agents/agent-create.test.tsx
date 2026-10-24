@@ -233,10 +233,10 @@ describe("agent create page", () => {
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
     if (workMode === "global") {
-      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.click(screen.getByRole("radio", { name: /Global mode/ }));
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-2");
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-1");
-      expect(screen.getByRole("radio", { name: /Global · Experimental/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /Global mode/ })).toBeChecked();
     }
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
@@ -249,7 +249,7 @@ describe("agent create page", () => {
     await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");
 
     if (workMode === "global") {
-      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.click(screen.getByRole("radio", { name: /Global mode/ }));
       for (const tool of ["inbox", "conversations", "send_message", "subagent"]) expect(screen.getByRole("button", { name: tool })).toHaveAttribute("aria-pressed", "true");
       await user.click(screen.getByRole("button", { name: "subagent" }));
       expect(screen.getByRole("button", { name: "subagent" })).toHaveAttribute("aria-pressed", "true");

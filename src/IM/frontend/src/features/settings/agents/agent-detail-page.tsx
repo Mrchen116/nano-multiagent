@@ -1711,7 +1711,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
-            <p className="im-settings-section-meta">{tr("工作模式")}：{personal ? t("pa.label") : draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
+            <p className="im-settings-section-meta">{tr("工作模式")}：{personal ? t("pa.label") : draft.work_mode === "global" ? tr("全局模式") : tr("单 Thread")} · {tr("创建后固定")}</p>
           </div>
           {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
           <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">
