@@ -11,6 +11,7 @@
 #
 # Usage:
 #   ./scripts/e2e-up.sh                                  # repository default profile
+#   ./scripts/e2e-up.sh --profile daily                 # fixed P/E/Q + real PA
 #   ./scripts/e2e-up.sh --feishu                         # dedicated test Bot profile
 #   ./scripts/e2e-up.sh --main-config /path/to/cfg.yaml  # alt source config
 #   ./scripts/e2e-up.sh --wt /custom/worktree/path       # alt target worktree
@@ -38,6 +39,7 @@ DEFAULT_FEISHU_LOCK_ROOT="${XDG_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/n
 WT_ROOT="${PWD}"
 MAIN_CFG="$DEFAULT_E2E_CONFIG"
 E2E_PROFILE="default"
+PROFILE_FLAGS=0
 FEISHU_ENV="$DEFAULT_FEISHU_ENV"
 MAIN_CONFIG_EXPLICIT=0
 FEISHU_LOCK_DIR=""
@@ -112,25 +114,30 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; MAIN_CONFIG_EXPLICIT=1; shift 2 ;;
-    --profile) E2E_PROFILE="$2"; shift 2 ;;
-    --feishu) E2E_PROFILE="feishu"; shift ;;
+    --profile) E2E_PROFILE="$2"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift 2 ;;
+    --feishu) E2E_PROFILE="feishu"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift ;;
     --feishu-env) FEISHU_ENV="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
+if (( PROFILE_FLAGS > 1 )); then
+  echo "select exactly one E2E profile" >&2
+  exit 2
+fi
+
 case "$E2E_PROFILE" in
   default)
     ;;
-  feishu)
+  daily|feishu)
     if [[ $MAIN_CONFIG_EXPLICIT -eq 1 ]]; then
-      echo "--feishu cannot be combined with --main-config" >&2
+      echo "$E2E_PROFILE profile cannot be combined with --main-config" >&2
       exit 2
     fi
     ;;
   *)
-    echo "unknown E2E profile: $E2E_PROFILE (expected default or feishu)" >&2
+    echo "unknown E2E profile: $E2E_PROFILE (expected default, daily or feishu)" >&2
     exit 2
     ;;
 esac
@@ -150,6 +157,9 @@ for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid"; do
     exit 1
   fi
 done
+
+# A failed startup must not expose a previous run's successful handoff.
+rm -f "$WT_ROOT/.e2e-daily.json" "$WT_ROOT/.e2e-ports.env"
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
@@ -200,7 +210,9 @@ PYCFG
 # An explicit critical-path model override must be registered in the copied config.
 # The selector changes only the worktree-local default, so preset and dynamically
 # created agents use the same route.
-if [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
+if [[ "$E2E_PROFILE" == "daily" ]]; then
+  PYTHONPATH="$REPO_ROOT" python3 "$SCRIPT_DIR/e2e_daily.py" "$WT_CFG"
+elif [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
   python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
 fi
 
@@ -228,6 +240,10 @@ if [[ ! -f "$REPO_ROOT/apps/im-server/lib/main.js" || ! -f "$REPO_ROOT/apps/node
 fi
 
 cd "$WT_ROOT"
+if [[ "$E2E_PROFILE" == "daily" ]]; then
+  export IM_FRONTEND_DIST_DIR="$REPO_ROOT/src/IM/frontend/dist"
+  export IM_TRAJECTORY_DIST_DIR="$REPO_ROOT/packages/dsh-trajectory-viewer/dist"
+fi
 IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" IM_DB_PATH="$WT_ROOT/data/im_service.sqlite3" IM_UPLOAD_DIR="$WT_ROOT/data/uploads" IM_PUBLIC_MODE=0 \
   node --input-type=module - "$REPO_ROOT/apps/im-server/lib/main.js" "$IM_PORT" "$WT_ROOT" <<'JS'
 import {spawn,execFileSync} from 'node:child_process';
@@ -274,8 +290,9 @@ JS
 
 # Readiness requires the expected node to be online under the admitted owner.
 # A successful proof alone is insufficient: registration and config sync follow it.
-IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" python - <<'PYREADY'
+IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" E2E_PROFILE="$E2E_PROFILE" E2E_CONFIG="$WT_CFG" PYTHONPATH="$REPO_ROOT" python - <<'PYREADY'
 import os, time, httpx
+from pathlib import Path
 with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
     login = client.post("/im/v1/auth/login", json={"username": "nano", "password": "nano1234"})
     login.raise_for_status()
@@ -290,6 +307,10 @@ with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
         time.sleep(0.5)
     else:
         raise SystemExit("Gateway did not register online within 30s; inspect .gateway.log")
+    if os.environ["E2E_PROFILE"] == "daily":
+        from scripts.e2e_daily import seed
+        client.timeout = httpx.Timeout(60)
+        seed(client, Path(os.environ["E2E_CONFIG"]), pair["user"])
 PYREADY
 
 if [[ $FEISHU_LOCK_HELD -eq 1 ]]; then
@@ -323,4 +344,5 @@ echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/gateway.log)"
 echo "  profile $E2E_PROFILE"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
 echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"
+echo "      product acceptance uses --profile daily (handoff: .e2e-daily.json)"
 echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"

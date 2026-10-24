@@ -14,6 +14,7 @@
 | 探索性试用产品，发现体验和后台运行问题并核实归因 | [`product-tryout`](../../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
+| 用固定日常团队和真实 PA 验收每个需求 | [固定日常验收模板](worktree-runtime.md#固定日常验收模板) |
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 编写代码、docstring、注释或 TODO/FIXME | [`coding-guidelines.md`](coding-guidelines.md) |
 | 联调 LLM provider、本地代理或查看交互日志 | [`llm-integration.md`](llm-integration.md) |
