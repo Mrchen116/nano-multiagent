@@ -1,6 +1,6 @@
 # Auto 权限配置与升级
 
-单聊天 PA、全局 PA 及子任务共用 Auto 策略。当前默认策略版本为 `cc-2.1.267-nano-v1`；同一运行时内规则升级保留原有非空自定义规则；从旧 Python 版本首次切换须先完成 [DSH 迁移](dsh-migration.md)。全局 Agent 的普通消息任务在动作未获准时会自行沟通、换方案或停止该事项，等待回复期间可处理独立工作；单聊天 继续保留各自人工审批入口。
+单聊天 PA、全局 PA 及子任务共用 Auto 策略。未配置规则时默认采用 Codex；已有显式规则选择保持有效，CC 策略版本仍为 `cc-2.1.267-nano-v1`。同一运行时内规则升级保留原有非空自定义规则；从旧 Python 版本首次切换须先完成 [DSH 迁移](dsh-migration.md)。全局 Agent 的普通消息任务在动作未获准时会自行沟通、换方案或停止该事项，等待回复期间可处理独立工作；单聊天继续保留各自人工审批入口。
 
 公开 send_message 只对宿主验证的绑定本人私聊免 LLM 分类；其他人和任何群聊仍审核，包括原群回复。群归属、影子会话归属、正文声称或 send_message 通用工具白名单不扩大豁免；原生内部子 Agent 通信继续既有规则。该分流不跳过工具硬限制、账号/平台权限或投递确认。完整行为见 [Global Agent](../specs/gateway/global-agent.md#scenario-只向绑定本人私聊免-llm-审核)。
 
@@ -18,7 +18,7 @@ Gateway 的 `--config` 选择节点、Agent 和 provider 启动配置，不搬�
 
 ```yaml
 auto_mode:
-  rules: nano
+  rules: codex
   enabled: true
   deny_limit: 3
   total_deny_limit: 20
@@ -43,7 +43,7 @@ auto_mode:
 
 `allow` 表达允许情形，`soft_deny` 表达可结合用户授权判断的限制，`hard_deny` 表达硬限制，`environment` 提供环境事实。规则文字交由 Auto 策略理解；工具本身的明确拒绝仍优先于宽工具许可。原生工具保留其参数和限制；Bash 仍按完整命令语法和参数检查。
 
-`rules: nano` 为默认规则；`rules: dsh` 使用 DSH 规则。两种选择共享原生审批请求与 Nano 产品来源/有人值守分流，不建立第二条审批链。修改后重启生效，独立审核模型仍由下述 `llm.tool_approval_model` 选择。
+`rules: codex` 为默认规则；`rules: nano` 显式选择 CC 规则；`rules: dsh` 使用 DSH 规则。三种选择共享原生审批请求与 Nano 产品来源/有人值守分流，不建立第二条审批链。Agent 的 `approval_mode: cc` 或 `codex` 优先于节点规则，空值继承节点。修改节点规则后重启生效，独立审核模型仍由下述 `llm.tool_approval_model` 选择；模型名称不决定审核规则。
 
 ## 判断未执行的原因
 

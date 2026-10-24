@@ -499,11 +499,11 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **WHEN** 同一workspace建立多个会话或服务重启
 - **THEN** 按该workspace的同一份持久扩展声明装配，局部工具不因为包已安装而自动全局启用。
 
-### Requirement: Auto默认沿用Nano规则且可配置为DSH规则
+### Requirement: Auto默认采用Codex规则且可配置为CC或DSH规则
 
 #### Scenario: 默认审核规则
 - **WHEN** 用户未选择其他Auto规则
-- **THEN** 工具权限审核沿用Nano当前判定规则，保留可信来源、短确认、拒绝计数、人工审批和无人值守分流。
+- **THEN** 工具权限审核采用 Codex 规则，保留可信来源、拒绝计数、人工审批和无人值守分流；已有显式 CC 或 DSH 配置保持有效。
 
 #### Scenario: CC与DSH审核使用去重后的指令和来源明确的历史
 - **GIVEN** 当前使用 CC 或 DSH 审核规则
@@ -537,7 +537,7 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 
 #### Scenario: 逐Agent选择与节点继承
 - **WHEN** 用户为 Agent 明确选择 CC 或 Codex，或清空选择回到节点继承
-- **THEN** 明确选择优先于节点规则；空值沿用节点既有 CC/DSH 规则，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
+- **THEN** 明确选择优先于节点规则；空值沿用节点既有 Codex/CC/DSH 规则，节点未配置时采用 Codex，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
 - **AND** Codex 的证据保留和预算恢复遵循“Codex Auto 按风险与授权进行独立、有界的审查”，不沿用 CC/DSH 的不裁剪超窗处理。
 
 #### Scenario: 下一轮切换保持进行中请求
