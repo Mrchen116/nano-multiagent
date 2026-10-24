@@ -115,15 +115,19 @@ export class RuntimePartitions implements RuntimePort {
     });
     return partition;
   }
-  private assign(config: AgentConfiguration): RuntimePartition {
+  private routeConfiguration(config: AgentConfiguration): RuntimePartition {
     const key = RuntimePartitions.key(config);
     const prior = this.agents.get(config.agentId);
     if (prior && prior.key !== key) throw new Error('Personal binding and runtime epoch are immutable; retire the binding before replacement');
     const partition = prior ?? this.partitions.get(key) ?? this.create(key);
     if (config.personal && partition.agents.some(agent => agent.agentId !== config.agentId)) throw new Error('Personal runtime may contain only its bound Agent');
+    this.agents.set(config.agentId, partition); return partition;
+  }
+  private assign(config: AgentConfiguration): RuntimePartition {
+    const partition = this.routeConfiguration(config);
     const index = partition.agents.findIndex(agent => agent.agentId === config.agentId);
     if (index === -1) partition.agents.push(config); else partition.agents[index] = config;
-    this.agents.set(config.agentId, partition); return partition;
+    return partition;
   }
   private resolve(value: Record<string, unknown>): RuntimePartition {
     const agentIds = [value.agentId, value.rootAgentId].filter((id): id is string => typeof id === 'string');
@@ -204,9 +208,10 @@ export class RuntimePartitions implements RuntimePort {
       return observer.partition.runtime.request(method, params);
     }
     let partition: RuntimePartition;
-    if (method === 'configuration.apply') {
-      const candidate = params as AgentConfiguration;
-      partition = this.assign(candidate);
+    if (method === 'configuration.apply' || method === 'configuration.prepare') {
+      const candidate = (method === 'configuration.prepare' ? value.config : params) as AgentConfiguration;
+      // Preparing a candidate must not change what a crashed child initializes from.
+      partition = this.routeConfiguration(candidate);
       if (this.started && !partition.runtime.available) await this.startPartition(partition);
     } else if (['configuration.preview', 'configuration.catalog'].includes(method) && value.config) {
       const candidate = value.config as AgentConfiguration;
@@ -227,6 +232,10 @@ export class RuntimePartitions implements RuntimePort {
       this.observers.set(id, {partition, generation}); return result;
     }
     const result = await partition.runtime.request(method, params);
+    if (method === 'configuration.apply' && object(result).effective === true) {
+      const {operationId: _operationId, fingerprint: _fingerprint, ...applied} = value;
+      this.assign(applied as unknown as AgentConfiguration);
+    }
     if (method === 'session.fork') { const id = object(result).sessionId; if (typeof id === 'string') this.sessions.set(id, partition); }
     return result;
   }

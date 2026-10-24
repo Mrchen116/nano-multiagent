@@ -34,7 +34,7 @@ struct AgentContractsTests {
         #expect(create["workspace_root"] == .string("/repo"))
         #expect(create["work_mode"] == .string("global"))
         #expect(create["skills_selection_mode"] == .string("default_discovery"))
-        #expect(create["tool_allowlist"] == .array(["agent", "conversations", "inbox", "send_message"].map(JSONValue.string)))
+        #expect(create["tool_allowlist"] == .array(["conversations", "inbox", "send_message", "subagent"].map(JSONValue.string)))
         let preview = draft.previewPayload(capabilities: caps, creating: true, customWorkspace: true)
         #expect(preview["skill_ids"] == .array([.string("guide")]))
         #expect(preview["tool_ids"] == create["tool_allowlist"])
@@ -48,23 +48,14 @@ struct AgentContractsTests {
         var draft = AgentDraft()
         draft.skills = ["blocked", "hidden"]
         #expect(draft.enabledSkills(candidates: ["blocked", "imported"]) == ["imported"])
-        draft.setSkill("imported", enabled: false, candidates: ["blocked", "imported"])
+        let capabilities = AgentCapabilities(node_id: "n", models: [], skills: [AgentOption(name: "blocked"), AgentOption(name: "imported")], tools: [], features: [])
+        _ = draft.changeCapability(.init(kind: "skill", name: "imported", enabled: false), capabilities: capabilities)
         #expect(draft.skills == ["blocked", "hidden", "imported"])
-        draft.setSkill("blocked", enabled: true, candidates: ["blocked", "imported"])
+        _ = draft.changeCapability(.init(kind: "skill", name: "blocked", enabled: true), capabilities: capabilities)
         #expect(draft.skills == ["hidden", "imported"])
         let preview = draft.previewPayload(capabilities: nil, creating: false, customWorkspace: false)
         #expect(preview["skill_ids"] == .array([.string("hidden"), .string("imported")]))
         #expect(preview["skills_selection_mode"] == .string("explicit_denylist"))
-    }
-
-    @Test func enablingFeatureAddsOnlyItsRequiredToolAndDisablingPreservesTool() {
-        var draft = AgentDraft()
-        let feature = AgentFeature(key: "memory_curation", label_i18n: "feature.memory_curation.label", help_i18n: "feature.memory_curation.help", default_on: true, available: false, requires_tool: "memory")
-        draft.setFeature(feature, enabled: true)
-        #expect(draft.payload()["tool_allowlist"] == .array([.string("memory")]))
-        draft.setFeature(feature, enabled: false)
-        #expect(draft.payload()["features"] == .object(["memory_curation": .bool(false)]))
-        #expect(draft.payload()["tool_allowlist"] == .array([.string("memory")]))
     }
 
     @Test func channelRemovalDoesNotRequireLiveChannelOrSecretFields() throws {

@@ -16,7 +16,7 @@ interface Owner { ctx: Context; domain: StorageDomain.DomainFacility; fiber?: Fi
 export class CronOwners {
   private readonly owners = new Map<string, Promise<Owner>>();
   private paused?: string[];
-  constructor(private readonly ctx: Context, private readonly home: string) {}
+  constructor(private readonly ctx: Context, private readonly home: string, private readonly held: (agentId: string, action: string) => boolean = () => false) {}
   private owner(agentId: string): Promise<Owner> {
     let owner = this.owners.get(agentId);
     if (!owner) {
@@ -59,6 +59,7 @@ export class CronOwners {
   async command(agentId: string, sessionId: string | undefined, action: string, args: Record<string, unknown>): Promise<unknown> {
     const owner = await this.owner(agentId);
     const result = owner.chain.then(async () => {
+      if (this.held(agentId, action)) throw new Error('Capability is reserved by configuration');
       if ((action === 'catalog' || action === 'history') && !owner.fiber) {
         const domain = await owner.domain.open(scheduleDomain);
         try {
@@ -70,7 +71,7 @@ export class CronOwners {
           return [...domain.table('tasks').entries()].map(([, task]) => ({ ...task.record, sessionId: task.sessionId, status: task.status, ...(task.lastDelivery ? { lastDelivery: task.lastDelivery } : {}) })); }
         finally { await domain.close(); }
       }
-      if (!owner.fiber) throw new Error('Cron Feature is disabled');
+      if (!owner.fiber) throw new Error('Schedule service is unavailable');
       if (action === 'catalog') return owner.schedule!.catalog();
       if (!sessionId) throw new Error('Schedule command requires a bound Session');
       const session = SessionId(sessionId);

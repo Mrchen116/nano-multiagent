@@ -21,3 +21,5 @@ export { UsageReports } from './usage.js';
 export { WorkSync } from './work-sync.js';
 
 export {TaskExecution} from './task-execution.js';
+
+export type { ConfigurationPreparation } from './configuration.js';

@@ -27,7 +27,7 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
   };
   const capabilities = projectCapabilities(catalog, node, agent);
   expect(capabilities.tools.find(tool => tool.name === "expense_summary")).toMatchObject({source_group: "workspace", enabled: true, default_on: false});
-  expect(capabilities.features.find(feature => feature.key === "intelligent_ui")).toMatchObject({default_on: true, requires_tool: "send_message"});
+  expect(capabilities.features.find(feature => feature.key === "intelligent_ui")).toMatchObject({default_on: true, requires: {features: [], tools: ["send_message", "skill"], skills: ["nano-interactive-ui"]}, available: false});
   const commands = capabilities.commands;
   expect(commands.map((command) => command.name)).toEqual([
     "new",
@@ -64,4 +64,14 @@ it("lists Goal tools as individually selectable defaults without a feature", () 
   expect(capabilities.features.some(feature => feature.key === 'dsh_goal')).toBe(false);
   expect(capabilities.tools.map(tool => tool.name)).toEqual(tools);
   expect(capabilities.tools.every(tool => tool.default_on === false)).toBe(true);
+});
+
+
+it('reports dependency resources independently from the selected allowlist', () => {
+  const node = {llm: {default_model: 'test', providers: []}} as unknown as NodeConfigurationFile;
+  const available = projectCapabilities({tools: ['send_message', 'skill'].map(name => ({name, description: name})), skills: [{name: 'nano-interactive-ui', description: 'UI'}]}, node,
+    {agentId: 'a', revision: '1', provider: 'test', model: 'test', mode: 'global', toolAllowlist: []});
+  expect(available.features.find(feature => feature.key === 'intelligent_ui')).toMatchObject({available: true});
+  expect(available.features.find(feature => feature.key === 'task_graph')).toMatchObject({available: false});
+  expect(available.fixed_tools).toContain('subagent');
 });

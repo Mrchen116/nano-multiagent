@@ -160,33 +160,35 @@ it('keeps the approval identity inside a resolution independently of transport r
  }finally{await product.stop();store.close();}
 });
 
-it('reconciles a committed interactive send with a lost ACK before terminal NO_REPLY rendering',async()=>{
+it.each([{interactive:true,found:true,same:true},{interactive:false,found:true,same:true},{interactive:false,found:true,same:false},{interactive:false,found:false,same:true}])('suppresses closing sentinel only for a confirmed bound-chat send: %j',async({interactive,found,same})=>{
  const {GlobalAgent}=await import('../src/global-agent.js'),{InboxStore}=await import('../src/inbox.js'),{RelayDeliveryError}=await import('@nano/channels');
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:'),frames:Record<string,unknown>[]=[];
  store.bind({agentId:'a',sessionId:'main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
  store.receive('main',{agent_id:'a',conversation_id:'chat',relay_task_id:'input',idempotency_key:'input',metadata:{conversation_type:'direct'},message:{id:'m',content:'show a card',sender_type:'user',sender_user_id:'owner',attachments:[]}});
  const events:RuntimeEvent[]=[{seq:1,type:'turn/start',time:1,data:{turn:1}},{seq:2,type:'tool/call',time:2,data:{turn:1,callId:'send',name:'send_message'}},{seq:3,type:'assistant/message',time:3,data:{turn:1,message:{content:[{type:'text',text:'NO_REPLY'}]}}},{seq:4,type:'turn/end',time:4,data:{turn:1,reason:{kind:'completed'}}}];
  const runtime={onNotification:()=>()=>{},async request(method:string){return method==='session.lookup'?{accepted:true,turn:1,terminal:{kind:'completed'}}:{durable:true,events};}};
- const relay={async request(type:string,payload:Record<string,unknown>){frames.push(payload);if(type==='agent.message')throw new RelayDeliveryError('ACK lost','unknown');return {type:'ack',payload:type==='agent.message.status'?{found:true,message_id:'card',conversation_id:'chat'}:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{message_id:'bubble'}};}};
+ const relay={async request(type:string,payload:Record<string,unknown>){frames.push(payload);if(type==='agent.message')throw new RelayDeliveryError('ACK lost','unknown');return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'card',conversation_id:same?'chat':'other-chat'}:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{message_id:'bubble'}};}};
  const agents=[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread' as const,provider:'test',model:'test'}],options={nodeId:'n',ownerId:'owner',agents,store,runtime,relay,image:async()=>'',onError:()=>{}};
  const global=new GlobalAgent({...options,inbox}),single=new SingleThread(options);
  try{
-  expect(await global.call({method:'send_message',args:{target:'chat',text:'Card',interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("card")'}},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'})).toMatchObject({status:'sent',message_id:'card'});
-  expect(store.command('interactive-delivered:main:1')).toBeTruthy();await single.recover();
-  expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(false);
+  const sending=global.call({method:'send_message',args:{target:'chat',text:'Card',...(interactive?{interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("card")'}}:{})},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'});
+  if(found)expect(await sending).toMatchObject({status:'sent',message_id:'card'});else await expect(sending).rejects.toThrow('ACK lost');
+  await single.recover();
+  expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(!(found&&same));
  }finally{await global.stop();await single.stop();inbox.close();store.close();}
 });
 
-it('keeps native Task progress quiet while preserving a requested approval and its result',async()=>{
+it.each(['native','notice'])('keeps %s Task progress quiet while preserving a requested approval and its result',async(origin)=>{
  const store=new NodeStore(':memory:','owner'),frames:Record<string,unknown>[]=[];let notify:(method:string,payload:unknown)=>void=()=>{};
  const binding=store.bind({agentId:'a',sessionId:'task-main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
- let events:RuntimeEvent[]=[{seq:1,type:'turn/start',time:1,data:{turn:1}},{seq:2,type:'user/message',time:2,data:{turn:1,id:'task-auto',source:{kind:'nano-system',channel:'task-execution'},content:[{type:'text',text:'Continue task'}]}}];
+ let events:RuntimeEvent[]=[{seq:1,type:'turn/start',time:1,data:{turn:1}},{seq:2,type:'user/message',time:2,data:{turn:1,id:'task-auto',source:{kind:'nano-system',channel:origin==='native'?'task-execution':'web_relay'},content:[{type:'text',text:'Continue task'}]}}];
+ if(origin==='notice')store.receive(binding.sessionId,{agent_id:'a',conversation_id:'chat',relay_task_id:'task-notice',idempotency_key:'task-notice',metadata:{conversation_type:'direct'},message:{id:'task-notice',content:'Task assignment',sender_type:'system',sender_user_id:'owner',system_notice:{kind:'task_graph'},attachments:[]}});
  const errors:unknown[]=[];
  const product=new SingleThread({nodeId:'n',ownerId:'owner',agents:[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'test',model:'test'}],store,
  runtime:{onNotification(listener){notify=listener;return()=>{};},async request(method){return method==='session.lookup'?{accepted:true,turn:1}:{durable:true,events};}},
  relay:{async request(type,payload){frames.push({...payload,transport:type});return {type:'ack',payload:{message_id:'task-bubble'}};}},image:async()=>'',onError:error=>{errors.push(error);}});
  try{
-  await product.recover();expect(frames).toEqual([]);
+  await product.recover();expect(frames.filter(p=>p.transport!=='node.delivery_receipt')).toEqual([]);
   notify('session.stream',{sessionId:binding.sessionId,frame:{type:'start',attemptId:'auto',turn:1}});
   notify('session.stream',{sessionId:binding.sessionId,frame:{type:'chunk',attemptId:'auto',turn:1,chunk:{type:'text-delta',text:'Routine progress'}}});
   notify('session.stream',{sessionId:binding.sessionId,frame:{type:'end',attemptId:'auto',turn:1}});
@@ -197,8 +199,34 @@ it('keeps native Task progress quiet while preserving a requested approval and i
   await expect.poll(()=>frames.some(p=>p.kind==='permission_resolved')).toBe(true);
   events=[...events,{seq:4,type:'assistant/message',time:4,data:{turn:1,message:{id:'answer',content:[{type:'text',text:'NO_REPLY'}]}}},{seq:5,type:'turn/end',time:5,data:{turn:1,reason:{kind:'completed'}}}];
   await product.recover();
-  expect(frames.some(p=>p.kind==='message_delta'||p.kind==='message_discarded'||p.transport==='node.delivery_receipt')).toBe(false);
+  expect(frames.some(p=>p.kind==='message_delta'||p.kind==='message_discarded'||origin==='native'&&p.transport==='node.delivery_receipt')).toBe(false);
   expect(frames.find(p=>p.kind==='message_completed')).toMatchObject({message_id:'task-bubble',final_content:'',delivery_status:'completed'});
   expect(errors).toEqual([]);
+ }finally{await product.stop();store.close();}
+});
+
+it.each([
+  ['system','task_graph','NO_REPLY',false],
+  ['system','task_graph','Task update worth sharing',true],
+  ['user','task_graph','NO_REPLY',true],
+  ['system','other_notice','NO_REPLY',true],
+  ['system','task_graph','NO_REPLY',true,'human'],
+  ['system','task_graph','NO_REPLY',false,'native'],
+  ['system','task_graph','Task update worth sharing',true,'native'],
+])('handles direct %s/%s notice closing %s without confusing its source',async(sender,kind,closing,visible,mixed=false)=>{
+ const store=new NodeStore(':memory:','owner'),frames:Record<string,unknown>[]=[];
+ store.bind({agentId:'a',sessionId:'notice-main',conversationId:'chat',ownerId:'owner',revision:'1',cwd:'/tmp'});
+ store.receive('notice-main',{agent_id:'a',conversation_id:'chat',relay_task_id:'notice',idempotency_key:'notice',metadata:{conversation_type:'direct'},message:{id:'notice',content:'Task assignment',sender_user_id:'owner',sender_type:String(sender),system_notice:{kind:String(kind)},attachments:[]}});
+ if(mixed==='human')store.receive('notice-main',{agent_id:'a',conversation_id:'chat',relay_task_id:'human',idempotency_key:'human',metadata:{conversation_type:'direct'},message:{id:'human',content:'A real human question',sender_user_id:'owner',sender_type:'user',attachments:[]}});
+ let events:RuntimeEvent[]=mixed==='native'?[{seq:1,type:'user/message',time:1,data:{turn:1,id:'native-task-change',source:{kind:'nano-system',channel:'task-execution'},content:[{type:'text',text:'Recheck current Task responsibility before the next action.'}]}}]:[];
+ const product=new SingleThread({nodeId:'n',ownerId:'owner',agents:[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'test',model:'test'}],store,
+  runtime:{onNotification:()=>()=>{},async request(method){return method==='session.lookup'?{accepted:true,turn:1}:{durable:true,events};}},
+  relay:{async request(_type,payload){frames.push(payload);return {type:'ack',payload:{message_id:'notice-bubble'}};}},image:async()=>'',onError:error=>{throw error;}});
+ try{
+  await product.recover();
+  if(sender==='system'&&kind==='task_graph'&&mixed!=='human')expect(frames.some(p=>p.kind==='turn_start')).toBe(false);
+  events=[...events,{seq:2,type:'assistant/message',time:2,data:{turn:1,message:{content:[{type:'text',text:closing}]}}},{seq:3,type:'turn/end',time:3,data:{turn:1,reason:{kind:'completed'}}}];
+  await product.recover();
+  expect(frames.some(p=>p.kind==='message_completed'&&p.final_content===closing)).toBe(visible);
  }finally{await product.stop();store.close();}
 });

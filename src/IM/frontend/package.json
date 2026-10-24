@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
+    "@nano/product-contracts": "file:../../../packages/product-contracts",
     "@openuidev/lang-core": "1.0.1",
     "@openuidev/react-lang": "1.0.1",
     "@openuidev/react-ui": "0.18.1",
@@ -39,6 +40,7 @@
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
+    "@types/node": "24.19.2",
     "@types/react": "^19.1.11",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",

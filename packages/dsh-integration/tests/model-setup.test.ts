@@ -50,7 +50,7 @@ it('configures a real empty DSH through settings and credentials, probes native 
     await expect(client!.rpc.request('model.setup.test', { id: 'failure2', providers: failed, provider: 'nano-failure', model: 'failure', api_key: 'bad-secret' })).rejects.toThrow('Model connection verification failed');
     await client!.shutdown(); client = undefined;
     await start(providers);
-    await client!.rpc.request('configuration.apply', { agentId: 'test-agent', revision: '1', provider: 'nano-fixture', model: 'test', workspace: home, features: { memory_curation: false, skill_creation: false } });
+    await client!.rpc.request('configuration.apply', { agentId: 'test-agent', revision: '1', provider: 'nano-fixture', model: 'test', workspace: home, features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false } });
     const binding = { sessionId: 'setup-persisted', agentId: 'test-agent', revision: '1', ownerId: 'owner', cwd: home };
     await client!.rpc.request('session.ensure', binding);
     await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'message', mode: 'followup', content: [{ type: 'text', text: 'Reply READY' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'message' } });

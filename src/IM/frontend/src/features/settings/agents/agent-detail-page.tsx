@@ -1,3 +1,4 @@
+import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { PersonalAgentSettings } from '../../personal-agent/personal-agent-settings';
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import { tr } from "./agent-work-text";
@@ -225,8 +226,6 @@ function BehaviorCard({
           <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
           <div className="grid gap-[6px] mt-2">
             {capabilityFeatures.map((feat) => {
-              // feat-379-M9 (決策 12): features are always enabled — disabled state removed.
-              // tool_allowlist is the linkage authority; features follow tools, not vice versa.
               const checked = effectiveFeatures[feat.key] ?? feat.default_on;
               return (
                 <label
@@ -1316,6 +1315,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   }, [detailQuery.data]);
 
   const capabilities = detailQuery.data?.capabilities;
+  const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities, agentId);
   const owningNode = detailQuery.data?.owningNode ?? null;
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
@@ -1398,6 +1398,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         return;
       }
       setApplyPending(false);
+      if (capabilityEditor.reject(error)) { setErrorMessage(null); return; }
       const detail = getAgentConfigRequestDetail(error);
       const status = getAgentConfigRequestStatus(error);
       setErrorMessage(
@@ -1758,6 +1759,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         {personal && <PersonalAgentSettings agentId={agentId} />}
 
         {/* feat-379-M3: Behavior card replaced with BehaviorCard component */}
+        {capabilityEditor.toast}
         <BehaviorCard
           agentId={agentId}
           draft={draft}
@@ -1773,20 +1775,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             setDraft({ ...draft, custom_prompt: value });
           }}
           onFeatureToggle={(key, value) => {
-            setSaved(false);
             setErrorMessage(null);
-            // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
-            // bugfix-468-M1: empty allowlist means "no tools", so enabling a feature only appends
-            // its required tool; we no longer materialize the whole default_on set.
-            const capFeats = capabilities?.features ?? [];
-            const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const requiredTools = requiresTool ? [requiresTool] : [];
-            const nextAllowlist = value ? [...new Set([...draft.tool_allowlist, ...requiredTools])] : draft.tool_allowlist;
-            // feat-394 M9-E: features is the single-true-source for enable state.
-            // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
-            // No parallel sync into draft.heartbeat.enabled or draft.cron needed.
-            const nextDraft = { ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist };
-            setDraft(nextDraft);
+            setSaved(false);
+            void capabilityEditor.apply([{ kind: "feature", name: key, enabled: value }]);
           }}
           onPolicyChange={(value) => {
             setSaved(false);
@@ -1811,7 +1802,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, features: { ...(draft.features ?? {}), heartbeat: enabled } });
+                void capabilityEditor.apply([{ kind: "feature", name: "heartbeat", enabled }]);
               }}
               onEveryChange={(every) => {
                 setSaved(false);
@@ -1847,7 +1838,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 // feat-394 M9-E: enable is in features["cron_scheduling"]; no draft.cron object.
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, features: { ...(draft.features ?? {}), cron_scheduling: enabled } });
+                void capabilityEditor.apply([{ kind: "feature", name: "cron_scheduling", enabled }]);
               }}
               hideEnableToggle={cronInFeatures}
             />
@@ -1880,14 +1871,9 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              onChange={(skills, skillsSelectionMode) => {
+              onChange={(skills) => {
                 setSaved(false);
-                setErrorMessage(null);
-                setDraft({
-                  ...draft,
-                  skills,
-                  skills_selection_mode: skillsSelectionMode,
-                });
+                capabilityEditor.skills(skills);
               }}
             />
             <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
@@ -1904,25 +1890,15 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                   <span aria-hidden="true">→</span>
                 </button>
               }
-              selected={draft.tool_allowlist}
-              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
-              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
+              selected={[...new Set([...draft.tool_allowlist, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools])]}
+              fixed={capabilityCatalog(capabilities, draft.work_mode).fixed_tools}
+              options={[...capabilities.tools, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools.filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))]}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
               onChange={(toolAllowlist) => {
                 setSaved(false);
-                setErrorMessage(null);
-                // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
-                const capFeats = capabilities?.features ?? [];
-                const removed = draft.tool_allowlist.filter((t: string) => !toolAllowlist.includes(t));
-                const nextFeatures = { ...(draft.features ?? {}) };
-                for (const tool of removed) {
-                  for (const feat of capFeats) {
-                    if (feat.requires_tool === tool) nextFeatures[feat.key] = false;
-                  }
-                }
-                setDraft({ ...draft, tool_allowlist: toolAllowlist, features: nextFeatures });
+                capabilityEditor.tools(toolAllowlist);
               }}
             />
           </div>

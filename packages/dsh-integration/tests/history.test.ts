@@ -20,7 +20,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     provider: "fixture",
     model: "test",
     systemPrompt: "ORIGINAL_PERSONA",
-    features: { memory_curation: false, skill_creation: false },
+    features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false },
     toolAllowlist: ["read"],
   };
   const binding = {

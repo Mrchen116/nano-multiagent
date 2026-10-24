@@ -1,6 +1,6 @@
 # gateway - Task Graphs Specification
 
-> 对齐: feat-635
+> 对齐: bugfix-646
 > 上级: [gateway Specification](spec.md)
 
 ## Purpose
@@ -20,9 +20,9 @@
 
 
 #### Scenario: 配置任务图特性
-- **WHEN** 用户在 Agent 配置中开启或关闭默认开启的“任务图”特性并保存
+- **WHEN** 用户在 Agent 配置中合法开启或关闭默认开启的“任务图”特性并保存
 - **THEN** 该 Agent 下一轮回复按最新配置采用任务图能力，当前正在回复的一轮不切换，已有聊天历史和任务图记录保留；关闭有效任务能力后不新增 Task 自动续跑，开启后按当前责任重新检查。
-- **AND** 开启开关通过既有界面联动选中 `task_graph` 工具；有效能力同时要求特性开启和工具白名单包含该工具。关闭后即使白名单保留该工具，也不向后续模型提供或允许调用，预览采用同一有效配置。
+- **AND** 开启 Task 通过界面联动选中 task_graph 和完整 Cron Feature；Task 关闭且工具单独选中时普通任务调用仍可用，自动责任注入、恢复和续跑仍要求 Task Feature，预览采用同一配置。
 - **AND** 关闭某个 Agent 的特性不撤销用户按所属会话读取既有任务图的 Web/iOS 访问权，也不改变其他 Agent 或输入渠道的权限。
 
 ### Requirement: 图操作使用真实会话与账号归属
@@ -32,7 +32,7 @@
 #### Scenario: 真实身份与公司能力
 - **WHEN** 有效成员交办已启用任务工具的真实注册 PA Agent 维护任务
 - **THEN** 可跨 owner/Gateway 在所属会话范围内读取同一持久图，写入要求会话成员资格；不接受模型指定身份、未核实内核 child、停用 owner 或过期机器连接。
-- **AND** 工具开关和 allowlist 继续同时生效；工具不按任务依赖调度执行；协作系统消息按原群策略处理。
+- **AND** 工具选择及既有身份权限生效，普通任务操作不要求 Task Feature 开启；工具不按任务依赖调度执行；协作系统消息按原群策略处理。
 
 #### Scenario: 外部渠道复用现有主人与 Agent 资格
 - **WHEN** 飞书等外部渠道的 Agent 调用任务工具
@@ -172,3 +172,74 @@
 - **WHEN** SingleThread 因 Task 责任继续执行并产生人工权限请求、成果或运行故障
 - **THEN** 在绑定聊天中可见真实审批、成果或故障，使用原有投递身份恢复而不重复创建消息或审批卡。
 - **AND** 没有新结果的例行自动检查可保持安静，但不会吞掉已经展示的审批或故障；Global 仍沿用显式发送和既有授权。
+
+### Requirement: Task 自动推进 SHALL 以当前事实与可验证结果为准
+
+#### Scenario: 阻塞前与等待复查
+- **WHEN** Agent 推进 doing 任务或到期检查 waiting
+- **THEN** 检查当前状态与工具结果，尝试授权内替代途径及独立部分，重新判断原阻塞是否必要；完成须有可验证结果。
+- **AND** Schedule 唤醒不提供新授权，不重开 paused/closed/done/in_review。
+
+### Requirement: Task waiting 的下次复查 SHALL 在未来一小时以内
+
+#### Scenario: 新增与续期
+- **WHEN** 提交新增或变更 waiting 关联
+- **THEN** 校验原生 Schedule 的真实下一执行时间在未来一小时以内；超限拒绝且任务保持原状，无统一默认等待间隔。
+- **AND** 通用 Schedule 可使用更长时间。
+
+### Requirement: Task 等待与结果反馈 SHALL 交付到固定所属聊天
+
+#### Scenario: 跨聊天与 Agent 派发
+- **WHEN** Task 成功进入 waiting 或提交结果
+- **THEN** 反馈回到 Task 固定所属聊天；等待说明包含实际进展、阻塞、尝试、所需协作与下次检查；Global 以 send_message 实际交付。
+- **AND** 相同已确认反馈不重复发送；发送失败/未知不伪造送达、不改变真实 waiting，其他独立工作继续。
+
+#### Scenario: SingleThread 已确认显式交付
+- **WHEN** SingleThread 本轮 send_message 已确认送达本轮绑定聊天，模型以 NO_REPLY 收尾
+- **THEN** 不公开哨兵；其他聊天、未确认发送或可见审批不被该交付标记吞掉。
+
+#### Scenario: 直聊 Task 系统通知的静默收尾
+- **WHEN** SingleThread 一轮仅处理宿主生成的 Task 系统通知，模型以 NO_REPLY 收尾且没有可见审批
+- **THEN** 静默结束，不把哨兵显示成聊天正文；实际任务照常处理，有意义的正文仍可交付。
+- **AND** 不将真人消息或其他来源仅凭相同文案识别为 Task 系统通知。
+
+#### Scenario: 停止优先于旧排队输入
+- **WHEN** 真人 /stop 已暂停 Task，但原生 inbox 仍有停止前收到的答复或定时输入
+- **THEN** 解除停止隔离前将受信停止事实持久化，并保证首次后续模型步可见；模型与独立审批均区分原消息时序，旧输入不能被视为停止后的恢复授权。
+- **AND** 停止后新的明确真人恢复仍可作用于对应 Task；通知持久化失败保持 stop pending，不伪报完成。
+
+### Requirement: 自动失败屏障 SHALL 与 Task 业务状态分离
+
+#### Scenario: 故障与修复
+- **WHEN** 读取、持久化或模型故障发生
+- **THEN** 停止受影响的无效自动重复，不伪造业务状态；相关运行恢复后可重新评估。普通参数与版本错误允许模型修正。
+
+#### Scenario: 拒绝与新输入
+- **WHEN** 审批拒绝后出现无关通知、心跳或不同动作的同名工具成功
+- **THEN** 不自动解除原拒绝动作的重试屏障；新输入与合法独立工作仍可处理，实际动作仍通过原审批链。
+
+### Requirement: 停止后的上下文同步 SHALL 不自行启动执行
+
+#### Scenario: 停止通知延迟消费
+- WHEN 真人 /stop 已中断并持久暂停作用范围内的 Task
+- THEN 将可信停止通知持久注入下一模型步骤，但解除停止保护、通知本身和停止前积压输入不触发新的模型请求。
+- AND 后续有效新输入或调度触发时一并读取通知；旧答复不能恢复 paused，明确的新恢复或新责任不会被待处理通知阻挡。
+- AND 停止引发的同一 Agent 任务通知只同步上下文，不自行唤醒；正常重启后最新未消费的可信停止事实仍在下一次有效唤醒中可见，已消费通知不重复注入。
+
+#### Scenario: 外部变更与冷恢复
+- WHEN 人或 Agent 修改、改派、删除责任，或系统因群解散关闭任务
+- THEN 受影响负责人在下一模型步骤对齐最新责任；空闲且无可执行任务时不为同步单独启动。
+- AND 离线期间任务已撤回，恢复历史后的首个普通输入也附最新空责任事实，不沿用历史责任。
+
+### Requirement: 有 doing 或 waiting 责任 SHALL 阻止关闭 Task
+
+#### Scenario: 按负责人跨会话判断
+- **GIVEN** 本 Agent 在任一会话仍负责 doing 或 waiting 节点
+- **WHEN** 用户关闭 Task
+- **THEN** 关闭被拒，任务、安排与配置保持不变，并提示先暂停或结束这些责任
+- **AND** 其他 Agent 的任务、todo/paused/in_review/done/closed 不阻碍本 Agent 关闭
+
+#### Scenario: 没有责任时关闭
+- **GIVEN** 本 Agent 没有 doing/waiting 责任，也无其他 Feature 依赖 Task
+- **WHEN** 用户关闭 Task
+- **THEN** 允许关闭，既有记录与用户访问权限保留，Cron 不自动关闭；后续重新开启只沿既有任务恢复规则处理

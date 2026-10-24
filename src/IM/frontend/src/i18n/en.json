@@ -314,6 +314,16 @@
     }
   },
   "agents": {
+    "capabilityFeedback": {
+      "requiredByOne": "Turn off “{{feature}}” first",
+      "requiredByMany": "Turn off the features using this capability first",
+      "retained": "Required capabilities were kept; other selections were cleared",
+      "activeTasks": "Pause or finish active and waiting tasks before turning off Task",
+      "activeSchedules": "Disable or delete active schedules before turning off Cron",
+      "fixed": "This capability is required by the current mode",
+      "busy": "This capability is in use. Try again shortly",
+      "unavailable": "Capability status is unavailable. Try again shortly"
+    },
     "configure": "Configure",
     "paSettingUp": "Personal assistant setup is in progress.",
     "selectTitle": "Select an Agent",
@@ -1123,7 +1133,7 @@
   "feature": {
     "intelligent_ui": {
       "label": "Intelligent UI",
-      "help": "Let this Agent create interactive cards with editable fields and choices when useful. Turn off to use text replies; existing cards remain available."
+      "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."
     },
     "task_graph": {
       "label": "Task Graphs",

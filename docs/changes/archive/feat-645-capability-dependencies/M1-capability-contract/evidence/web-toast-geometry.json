@@ -1,0 +1,92 @@
+[
+  {
+    "width": 1440,
+    "before": {
+      "height": 164,
+      "width": 846,
+      "x": 414,
+      "y": 408.0078125
+    },
+    "during": {
+      "height": 164,
+      "width": 846,
+      "x": 414,
+      "y": 408.0078125
+    },
+    "after": {
+      "height": 164,
+      "width": 846,
+      "x": 414,
+      "y": 408.0078125
+    },
+    "toast": {
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "position": "fixed",
+      "text": "Turn off “Scheduled Tasks (Cron)” first",
+      "width": 247.265625,
+      "x": 1134.0234375,
+      "y": 466.5078125
+    }
+  },
+  {
+    "width": 768,
+    "before": {
+      "height": 198,
+      "width": 690,
+      "x": 36,
+      "y": 373.90625
+    },
+    "during": {
+      "height": 198,
+      "width": 690,
+      "x": 36,
+      "y": 373.90625
+    },
+    "after": {
+      "height": 198,
+      "width": 690,
+      "x": 36,
+      "y": 373.90625
+    },
+    "toast": {
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "position": "fixed",
+      "text": "Turn off “Scheduled Tasks (Cron)” first",
+      "width": 247.265625,
+      "x": 504.734375,
+      "y": 466.40625
+    }
+  },
+  {
+    "width": 390,
+    "before": {
+      "height": 436,
+      "width": 326,
+      "x": 29,
+      "y": 76.0546875
+    },
+    "during": {
+      "height": 436,
+      "width": 326,
+      "x": 29,
+      "y": 76.0546875
+    },
+    "after": {
+      "height": 436,
+      "width": 326,
+      "x": 29,
+      "y": 76.0546875
+    },
+    "toast": {
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "position": "fixed",
+      "text": "Turn off “Scheduled Tasks (Cron)” first",
+      "width": 247.265625,
+      "x": 126.734375,
+      "y": 406.5546875
+    }
+  }
+]

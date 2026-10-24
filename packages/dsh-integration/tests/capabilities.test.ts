@@ -11,7 +11,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
   const root = join(home, 'skills'); await mkdir(join(root, 'local-skill'), { recursive: true });
   await writeFile(join(root, 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Selected test guidance\n---\nLOCAL_SKILL_BODY');
   const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] as string[],
-    skillSelection: { mode: 'explicit_allowlist', names: [] as string[] }, skillRoots: [{ path: root, source: 'workspace' }], features: { task_graph: true, cron_scheduling: true } };
+    skillSelection: { mode: 'explicit_allowlist', names: [] as string[] }, skillRoots: [{ path: root, source: 'workspace' }], features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false } };
   try {
     await writeFile(join(home, 'hang.mjs'), `export const name = 'hang'; export const inject = ['llm']; export function apply(ctx) { ctx.on('llm/stream', async function* (options) { if (options.signal.aborted) return; await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true })); }); }`);
     await prepareProfile(home, [{ insert: [{ id: 'hang', name: join(home, 'hang.mjs') }] }]); client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
@@ -156,3 +156,33 @@ export function apply(ctx) {
   } catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },30000);
+
+it('rejects withdrawal during a native tool execution without blocking unrelated capabilities', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-capability-busy-'));
+  let client: RuntimeClient | undefined;
+  const config = {agentId: 'busy', revision: '1', workspace: home, provider: 'deepseek-official', model: 'deepseek-flash',
+    features: {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false}, toolAllowlist: ['fixture_hold', 'read']};
+  try {
+    await writeFile(join(home, 'fixture.mjs'), `import {writeFile,access} from 'node:fs/promises';
+export const name='capability-busy'; export const inject=['tools','llm']; export function apply(ctx) {
+ ctx.tools.register({name:'fixture_hold',description:'Held operation',parameters:{type:'object',properties:{}},output:{schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]},execute:async(_args,exec)=>{
+  await writeFile(process.env.DSH_HOME+'/entered','yes');
+  while(!exec.signal.aborted){if(await access(process.env.DSH_HOME+'/release').then(()=>true,()=>false))break;await new Promise(resolve=>setTimeout(resolve,20));}
+  return 'done';
+ }});
+ let called=false;ctx.on('llm/stream',async function*(){if(!called){called=true;yield{type:'block-end',index:0,block:{type:'tool-call',id:'hold',name:'fixture_hold',arguments:'{}'}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});
+}`);
+    await prepareProfile(home, [{insert: [{id: 'capability-busy', name: join(home, 'fixture.mjs')}]}]);
+    client = new RuntimeClient({home, cwd: home});
+    await client.rpc.request('initialize', {protocol: 1, agents: [config], bindings: []});
+    await client.rpc.request('session.ensure', {agentId: 'busy', revision: '1', sessionId: 'busy-session', ownerId: 'owner', cwd: home});
+    await client.rpc.request('session.submit', {sessionId: 'busy-session', inputId: 'work', mode: 'followup', content: [{type:'text',text:'Execute the selected tool'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'work'}});
+    await expect.poll(async () => (await client!.rpc.request('configuration.usage', {agentId:'busy'}) as {busy: unknown[]}).busy).toContainEqual({kind:'tool', name:'fixture_hold'});
+    expect(await client.rpc.request('configuration.prepare', {operationId:'withdraw',fingerprint:'2',config:{...config,revision:'2',toolAllowlist:['read']}})).toMatchObject({ready:false,blocks:[{code:'capability_busy',target:{kind:'tool',name:'fixture_hold'}}]});
+    expect(await client.rpc.request('configuration.prepare', {operationId:'other',fingerprint:'3',config:{...config,revision:'3',toolAllowlist:['fixture_hold']}})).toMatchObject({ready:true});
+    await client.rpc.request('configuration.release', {agentId:'busy',operationId:'other'});
+    await writeFile(join(home,'release'),'yes');
+    await expect.poll(async () => (await client!.rpc.request('configuration.usage', {agentId:'busy'}) as {busy: unknown[]}).busy).toEqual([]);
+    await client.shutdown(); client = undefined;
+  } finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive:true,force:true}); }
+}, 30_000);

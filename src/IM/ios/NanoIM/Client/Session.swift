@@ -194,8 +194,11 @@ actor Session {
                 ?? HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
             throw APIError(status: response.statusCode, detail: detail,
                            retryAfter: Double(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 0,
-                           code: payload?["code"].stringValue ?? payload?["detail"]["code"].stringValue)
+                           code: payload?["code"].stringValue ?? payload?["detail"]["code"].stringValue,
+                           blocks: (try? JSONDecoder().decode(CapabilityErrorEnvelope.self, from: data))?.detail.blocks ?? [])
         }
         return (data, response)
     }
 }
+
+private struct CapabilityErrorEnvelope: Decodable { struct Detail: Decodable { var blocks: [CapabilityBlock]? }; var detail: Detail }

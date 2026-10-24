@@ -1,4 +1,5 @@
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
+import { effectiveFeatures } from '@nano/product-contracts/capabilities';
 import { canAccessSpace, canActorAccess } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -9,6 +10,17 @@ import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { taskNotices } from "./task-notifications.js";
 
 type Obj = Record<string, any>;
+/** Count an Agent's durable responsibility across all conversations. */
+export function activeTaskCount(db: DatabaseSync, agentId: string): number {
+  return Number(db.prepare("SELECT count(*) AS count FROM task_graphs g, json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') IN ('doing','waiting')").get(agentId)!.count);
+}
+
+/** A pending configuration may withdraw Task behavior, its tool, or both. */
+export function withdrawsTask(previous: Obj, candidate: Obj): boolean {
+  return effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph
+    || (previous.tool_allowlist === undefined || previous.tool_allowlist.includes('task_graph'))
+      && candidate.tool_allowlist !== undefined && !candidate.tool_allowlist.includes('task_graph');
+}
 export interface TaskGraphActor {
   kind: "user" | "agent";
   id: string;
@@ -519,6 +531,8 @@ export class TaskGraphService {
       catch { fail('task_wait_schedule_unavailable','Native schedule verification is unavailable'); }
       if (!proof!.valid || proof!.owner_agent_id!==n.assignee.id || !proof!.session_id || !proof!.next_check_at || !(Date.parse(proof!.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires an active future schedule for this task owner');
+      if (Date.parse(proof!.next_check_at!) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
       checked.push({node_id:n.id,wait:{reason:n.wait.reason,schedule_id:n.wait.schedule_id,owner_agent_id:proof!.owner_agent_id,session_id:proof!.session_id,next_check_at:proof!.next_check_at}});
     }
     return checked;
@@ -571,9 +585,9 @@ export class TaskGraphService {
             actor.id,
           )
         : this.row(
-            "SELECT u.id,p.owner_id,p.display_name,p.space_id,p.work_mode,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND (?=1 OR (COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')))",
+            "SELECT u.id,p.owner_id,p.display_name,p.space_id,p.work_mode,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND (?=1 OR (EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph') AND (?=0 OR COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1)))",
             actor.id,
-            actor.node_id ?? null, action==='execution_pause'?1:0,
+            actor.node_id ?? null, action==='execution_pause'?1:0, ['execution','execution_scopes'].includes(action)?1:0,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
     const user = this.personalRead?.ownerUserId ?? delegatedAccessUser ?? delegatedOwner ?? p.id,
@@ -805,9 +819,18 @@ export class TaskGraphService {
       const checked = waits.find(item=>item.node_id===n.id);
       if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
+      if (Date.parse(checked.wait.next_check_at) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
       n.wait={...n.wait,...checked.wait};
     }
     result={...result,...summary(doc)};
+    if (action==='apply') {
+      // Keep feedback tied to this committed revision, including on receipt replay.
+      // A later read may fail or observe a different state or conversation access.
+      const feedback=doc.nodes.filter((n:Obj)=>changed.includes(n.id)&&['waiting','in_review','done'].includes(n.status))
+        .map((n:Obj)=>({node_id:n.id,title:n.title,status:n.status,...(n.wait?{wait:n.wait}:{}),result:n.result}));
+      if(feedback.length)result.feedback={conversation_id:doc.conversation_id,tasks:feedback};
+    }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
       notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
@@ -856,7 +879,7 @@ export class TaskGraphService {
           }
           this.save({...next,owner_id:row.owner_id});
           for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
-            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata));
+            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata,actor.id));
         }
         result={paused:items.length};
         this.db.prepare('INSERT INTO task_execution_stops VALUES(?,?,?,?)').run(actor.id,requestKey,conversationId??'',JSON.stringify(result));
@@ -896,6 +919,16 @@ export class TaskGraphService {
     }
   }
   private save(doc: Obj) {
+    const previous = this.row('SELECT document_json FROM task_graphs WHERE graph_id=?', doc.graph_id);
+    const active = (node: Obj) => node.assignee?.type === 'agent' && ['doing','waiting'].includes(node.status);
+    const existing = new Set((previous ? JSON.parse(previous.document_json).nodes : []).filter(active).map((node: Obj) => `${node.id}:${node.assignee.id}`));
+    for (const node of doc.nodes.filter(active)) {
+      if (existing.has(`${node.id}:${node.assignee.id}`)) continue;
+      const operation = this.row("SELECT candidate_json,previous_candidate_json FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')", node.assignee.id);
+      if (operation && operation.previous_candidate_json && withdrawsTask(JSON.parse(operation.previous_candidate_json), JSON.parse(operation.candidate_json))) {
+        fail('capability_in_use', 'Agent configuration is withdrawing Task capability; retry after configuration completes');
+      }
+    }
     const { owner_id, ...body } = doc;
     const space = this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id;
     this.db

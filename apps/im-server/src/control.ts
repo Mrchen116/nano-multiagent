@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   all,
@@ -13,7 +14,7 @@ import {
   type Row,
 } from "./context.js";
 import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, requireCompanyAdmin } from "./identity.js";
-import { canonicalJson } from "./task-graphs.js";
+import { canonicalJson, activeTaskCount, withdrawsTask } from "./task-graphs.js";
 import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
 async function gatewayRequest(
@@ -147,6 +148,7 @@ function pending(): never {
   });
 }
 const safeRejections = new Set([
+  'capability_in_use', 'invalid_capability_dependencies', 'capability_unavailable', 'capability_usage_unavailable',
   "agent_id_already_exists",
   "invalid_agent_config",
   "operation_conflict",
@@ -202,6 +204,12 @@ export class ConfigOperations {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
+    const blocks = validateCapabilities(candidate);
+    if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
+    if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.ctx.db, candidate.agent_id)) {
+      const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';
+      fail(409, {code:'capability_in_use', message:'Pause or finish active tasks before withdrawing Task capability', blocks:[{code:'active_tasks',target:{kind,name:'task_graph'}}]});
+    }
     const id = randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
@@ -284,11 +292,11 @@ export class ConfigOperations {
         )
         .run(JSON.stringify(result), code, result.message ?? null, now(), op.operation_id);
       fail(
-        code.startsWith("workspace_") &&
+        code === 'capability_usage_unavailable' ? 503 : ['invalid_capability_dependencies','capability_unavailable'].includes(code) ? 422 : code.startsWith("workspace_") &&
           !["workspace_already_assigned", "workspace_confirmation_required"].includes(code)
           ? 422
           : 409,
-        { code, message: result.message ?? code },
+        { code, message: result.message ?? code, ...(Array.isArray(result.blocks) ? {blocks:result.blocks} : {}) },
       );
     }
     this.ctx.db
@@ -306,18 +314,18 @@ export class ConfigOperations {
   async create(candidate: Row, owner: string, node: string) {
     if (one(this.ctx.db, "SELECT 1 FROM agent_profiles WHERE agent_id=?", candidate.agent_id))
       fail(409, "agent_id already exists");
-    const op = this.insert(candidate, owner, node, "create", null, null);
+    const op = transaction(this.ctx.db, () => this.insert(candidate, owner, node, "create", null, null));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   async update(profile: Row, candidate: Row, owner: string) {
-    const op = this.insert(
+    const op = transaction(this.ctx.db, () => this.insert(
       candidate,
       owner,
       profile.node_id,
       "apply",
       fromProfile(profile),
       profile.profile_version,
-    );
+    ));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   private async commit(op: Row, result: Row): Promise<Row> {
@@ -563,7 +571,7 @@ function featureOptions(value: unknown): Row[] {
       help_i18n: typeof x.help_i18n === "string" ? x.help_i18n : "",
       default_on: !!x.default_on,
       available: x.available !== false,
-      requires_tool: typeof x.requires_tool === "string" ? x.requires_tool : null,
+      requires: {features:stringList(x.requires?.features),tools:stringList(x.requires?.tools),skills:stringList(x.requires?.skills)},
     }));
 }
 function previewInput(b: Row): Row {
@@ -640,6 +648,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       skills: allowlistOptions(r.skills),
       tools: allowlistOptions(r.tools),
       features: featureOptions(r.features),
+      fixed_tools: stringList(r.fixed_tools),
       platform_default_model: r.platform_default_model ?? null,
       default_workspace_template: r.default_workspace_template ?? null,
     };
@@ -708,6 +717,11 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       if (skills !== undefined) {
         c.skills = skills;
         c.skills_selection_mode = b.skills_selection_mode ?? null;
+      }
+      if (b.features === undefined) {
+        const desired = effectiveFeatures();
+        c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
+        for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
       }
       return ops.create(c, u.owner_id, id);
     });
@@ -797,13 +811,13 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         ...fromProfile(p),
         display_name: b.display_name,
         description: b.description ?? "",
-        skills: b.skills ?? [],
+        skills: b.skills ?? JSON.parse(p.skills_json),
         skills_selection_mode: b.skills_selection_mode ?? p.skills_selection_mode,
-        tool_allowlist: b.tool_allowlist ?? [],
+        tool_allowlist: b.tool_allowlist ?? JSON.parse(p.tool_allowlist_json),
         group_reply_policy: b.group_reply_policy,
         default_model: b.default_model ?? null,
         model_fallbacks: b.model_fallbacks ?? [],
-        features: b.features ?? {},
+        features: b.features ?? JSON.parse(p.features_json),
       };
       if ("approval_mode" in b) c.approval_mode = b.approval_mode;
       for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"])
@@ -868,8 +882,20 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       tools: allowlistOptions(r.tools),
       commands: r.commands ?? [],
       features: featureOptions(r.features),
+      fixed_tools: stringList(r.fixed_tools),
       platform_default_model: r.platform_default_model ?? null,
     };
+  });
+  app.get('/im/v1/agents/:agent_id/capability-usage', async req => {
+    const u = await user(req), p = requireProfile(ctx, params(req).agent_id, u.owner_id);
+    let response: Row | null;
+    try { response = await gatewayRequest(ctx,p.node_id,'agent.capability-usage.request',{agent_id:p.agent_id}); }
+    catch { response = null; }
+    const usage = response?.usage;
+    if (!usage || !Number.isInteger(usage.active_schedules) || !Array.isArray(usage.busy)) {
+      fail(503,{code:'capability_usage_unavailable',message:'Cannot confirm capability usage right now'});
+    }
+    return {checked_at:usage.checked_at,active_schedules:usage.active_schedules,busy:usage.busy,active_tasks:activeTaskCount(ctx.db,p.agent_id)};
   });
   app.post("/im/v1/agents/:agent_id/prompt-preview", async (req) => {
     const u = await user(req),

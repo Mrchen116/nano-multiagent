@@ -108,7 +108,6 @@ export class PersonalAssistant {
     const text = String(call.args.text ?? '');
     if (!target || !text.trim()) throw new Error('Sending requires target and nonempty text');
     const interactive = interactiveResponse(call.args.interactive);
-    if (interactive && config.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
     const replyDraft = call.args.reply_draft;
     const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, reply_draft:replyDraft ?? null});
     const previous = inbox.publication(call.operationId);

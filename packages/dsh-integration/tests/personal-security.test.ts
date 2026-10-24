@@ -72,7 +72,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
       const calls:any[]=[];
       client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='conversations')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
       const config={agentId:'agent',revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
-        systemPrompt:'OWNER_EDITABLE_GUIDANCE',extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{skill_creation:true,memory_curation:true},
+        systemPrompt:'OWNER_EDITABLE_GUIDANCE',extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{intelligent_ui:false,task_graph:false,skill_creation:true,memory_curation:true},
         ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),approval:{...approvalDefaults,dangerouslySkipPermissions:true,globalRoot:root}};
       try {
         await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});

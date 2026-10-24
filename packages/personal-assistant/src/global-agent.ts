@@ -405,7 +405,7 @@ export class GlobalAgent {
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {
         if (call.sessionId !== call.rootSessionId) throw new Error('Schedules belong to a main Session');
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
-        if (!config?.features?.cron_scheduling) throw new Error('Cron Feature is disabled');
+        if (!config || config.toolAllowlist && !config.toolAllowlist.includes(call.method.replace('.', '_'))) throw new Error('Schedule tool is not enabled');
         const id = String(call.args.id);
         if (call.method === 'schedule.run') {
           const inputId = `manual-schedule:${call.operationId}`;
@@ -428,7 +428,7 @@ export class GlobalAgent {
       if (call.method === 'task_graph') {
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
         if(config?.mode==='single_thread'&&this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)throw new Error('Task execution session was superseded');
-        if (config?.features?.task_graph === false) throw new Error('Task Graphs Feature is disabled');
+        if (config?.toolAllowlist && !config.toolAllowlist.includes('task_graph')) throw new Error('Task Graph tool is not enabled');
         if (config?.mode === 'global') await this.reconcileRoot(binding);
         else {
           const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
@@ -489,7 +489,7 @@ export class GlobalAgent {
     return context;
   }
   private async query(binding: SessionBinding, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    await this.ensureAuthority(binding);
+    if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode === 'global') await this.ensureAuthority(binding);
     const response = await this.options.relay.request('conversation.query', { ...args, node_id: this.options.nodeId,
       agent_id: binding.agentId, session_id: binding.sessionId, request_id: randomUUID() });
     if (!response.payload.ok) throw new Error(String(response.payload.error));
@@ -502,10 +502,9 @@ export class GlobalAgent {
     if(config?.personal) return this.personal.send(config,binding,call);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    if (interactive && config?.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
     const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
-    const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,!!interactive,payload);
+    const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
@@ -579,12 +578,13 @@ export class GlobalAgent {
       throw error;
     }
   }
-  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,interactive:boolean,payload:Record<string,unknown>) {
+  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,payload:Record<string,unknown>) {
     const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
     this.options.inbox.settlePublication(call.operationId,'confirmed',result);
     const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
     const turn=this.options.store.events(call.sessionId).find(event=>event.type==='tool/call'&&event.data.callId===call.callId)?.data.turn as number|undefined;
-    if(interactive&&!global&&turn!==undefined)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+    const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===this.options.store.imConversation(binding.agentId,binding.conversationId);
+    if(!global&&turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
     if(global)this.append(binding,`publication:${call.operationId}`,'message_sent',{call_id:call.callId,text,...result},turn);
     return result;
   }
@@ -592,9 +592,9 @@ export class GlobalAgent {
     for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
-      let text=publication.body,interactive=false;
-      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;interactive=true;}}catch{ /* Plain text publications need no envelope. */ }
-      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,interactive,status.payload);
+      let text=publication.body;
+      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
+      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
   private async reconcile(binding: SessionBinding): Promise<void> {

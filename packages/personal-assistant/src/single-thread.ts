@@ -224,23 +224,25 @@ export class SingleThread {
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
-      const interactiveDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
-      if (end && interactiveDelivered) {
+      const explicitDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
+      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
+      if (end && explicitDelivered && !approvalVisible) {
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as {content: {type: string; text?: string}[]} | undefined;
         if (last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim() === 'NO_REPLY') {
-          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'interactive_reply_delivered'});
+          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'explicit_reply_delivered'});
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
-      const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => ['heartbeat','task_execution'].includes(String(item.input.metadata.origin)));
-      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
+      const turnInputs=store.inputs(sessionId).filter(item=>item.turn===turn);
+      const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
+        || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
       const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
-      if (heartbeatOnly || group) {
-        if (!end && heartbeatOnly && !approvalPending && !approvalVisible) continue;
+      if (automaticOnly || group) {
+        if (!end && automaticOnly && !approvalPending && !approvalVisible) continue;
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as { content: { type: string; text?: string }[] } | undefined;
         const text = last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim();
-        if (end && !approvalVisible && ((heartbeatOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
+        if (end && !approvalVisible && ((automaticOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
           if (delivery.messageId) await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'silent_reply' });
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
@@ -403,12 +405,12 @@ export class SingleThread {
     stream.chain = stream.chain.then(async () => {
       const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
       const turnInputs=this.options.store.inputs(sessionId).filter(input=>input.turn===turn);
-      if(!turnInputs.length||turnInputs.every(input=>input.input.metadata.origin==='task_execution'))return;
+      if(!turnInputs.length||turnInputs.every(input=>input.input.metadata.origin==='task_execution'||input.input.message.sender_type==='system'&&input.input.message.system_notice?.kind==='task_graph'))return;
       const delivery = this.options.store.delivery(sessionId, turn);
       if (!delivery?.messageId || delivery.state !== 'sending') return;
       if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
       if (!frame.chunk!.text) return;
-      // A confirmed card owns the reply. Wait for the final message to distinguish
+      // A confirmed explicit send owns the reply. Wait for the final message to distinguish
       // its non-empty closing sentinel from an additional meaningful answer.
       if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) return;
       const published = this.publication(sessionId, turn) ?? { confirmed: '' };

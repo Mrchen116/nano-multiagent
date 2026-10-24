@@ -36,7 +36,7 @@ export function apply(ctx){
     await prepareProfile(home, [{ insert: [{ id: 'human-source-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
     const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash',
-      toolAllowlist: ['read', 'create_goal', 'update_goal', 'subagent'], features: { memory_curation: false, skill_creation: false } };
+      toolAllowlist: ['read', 'create_goal', 'update_goal', 'subagent'], features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false } };
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
     const ensure = (sessionId: string) => client!.rpc.request('session.ensure', { sessionId, agentId: 'a', revision: '1', ownerId: 'owner', cwd: home });
     const observe = (sessionId: string) => client!.rpc.request('session.observe', { sessionId }) as Promise<{ events: any[] }>;
@@ -98,7 +98,7 @@ it('uses native direct Skill gestures and injects compatibility forms only once'
     await writeFile(join(home, 'fixture.mjs'), `export const name='skill-source-fixture';export const inject=['llm'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id==='legacy'&&!agent.session.snapshotEvents().some(e=>e.type==='user/message'))agent.followup({id:'legacy-input',role:'user',content:[{type:'text',text:'/selected'}],source:{kind:'nano-human',actorId:'owner',channel:'test',messageId:'old'}});});ctx.on('llm/stream',async function*(){yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{ insert: [{ id: 'skill-source-fixture', name: join(home, 'fixture.mjs') }] }]);
     const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['skill'],
-      features: { memory_curation: false, skill_creation: false }, skillRoots: [{ path: join(home, 'skills'), source: 'workspace' }] };
+      features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false }, skillRoots: [{ path: join(home, 'skills'), source: 'workspace' }] };
     const binding = { sessionId: 'skills', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
@@ -159,8 +159,8 @@ it('still reviews and can deny a goal with native human source eligibility', asy
     });
     await client.rpc.request('initialize', { protocol: 1, agents: ['automatic', 'manual'].map(agentId => ({
       agentId, revision: '1', mode: agentId === 'automatic' ? 'global' : 'single_thread', provider: 'deepseek-official', model: 'deepseek-flash',
-      features: { memory_curation: false, skill_creation: false }, toolAllowlist: ['create_goal'],
-      approval: { ...approvalDefaults, enabled: agentId === 'automatic', denyLimit: 1, globalRoot: home },
+      features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false }, toolAllowlist: ['create_goal'],
+      approval: { ...approvalDefaults, rules: 'nano', enabled: agentId === 'automatic', denyLimit: 1, globalRoot: home },
     })), bindings: [] });
     for (const sessionId of ['automatic', 'manual']) {
       await client.rpc.request('session.ensure', { sessionId, agentId: sessionId, revision: '1', ownerId: 'owner', cwd: home });

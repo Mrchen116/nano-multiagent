@@ -415,3 +415,9 @@ describe("agent channel API", () => {
     );
   });
 });
+
+it("preserves structured capability blocks for draft recovery", async () => {
+  const blocks = [{ code: "active_tasks", target: {kind: "feature", name: "task_graph"} }];
+  vi.mocked(authFetch).mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code: "active_tasks", message: "Tasks still need this capability", blocks } }), { status: 409 }));
+  await expect(updateAgentConfig("a1", { ...BASE_RAW, features: {task_graph: false} } as never)).rejects.toMatchObject({ code: "active_tasks", blocks });
+});

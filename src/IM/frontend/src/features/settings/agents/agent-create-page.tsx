@@ -1,3 +1,5 @@
+import { changeCapability } from "@nano/product-contracts/capabilities";
+import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import { tr } from "./agent-work-text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -253,9 +255,6 @@ function CreateBehaviorCard({
           <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
           <div className="grid gap-[6px] mt-2">
             {capabilityFeatures.map((feat) => {
-              // feat-379-M9 (決策 12): features are always enabled — disabled state removed.
-              // All tools are available at node level (R1 fix); user can freely toggle features
-              // and the corresponding tool auto-joins the allowlist via linkage logic.
               const checked = effectiveFeatures[feat.key] ?? feat.default_on;
               return (
                 <label
@@ -422,6 +421,7 @@ export function AgentCreatePage() {
   });
 
   const capabilities = createStateQuery.data?.capabilities;
+  const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities);
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(() => {
@@ -474,7 +474,11 @@ export function AgentCreatePage() {
           return current;
         }
         autoDefaultToolsRef.current = toolDefaults;
-        return { ...current, tool_allowlist: toolDefaults };
+        let next = { ...current, features: Object.fromEntries((capabilities.features ?? []).map(f => [f.key, f.default_on])), tool_allowlist: toolDefaults };
+        for (const feature of capabilities.features ?? []) {
+          if (feature.default_on) next = changeCapability(next, { kind: "feature", name: feature.key, enabled: true }, capabilityCatalog(capabilities, next.work_mode)).draft;
+        }
+        return next;
       });
     }
   }, [capabilities]);
@@ -503,6 +507,7 @@ export function AgentCreatePage() {
         return;
       }
       setApplyPending(false);
+      if (capabilityEditor.reject(error)) { setErrorMessage(null); return; }
       const detail = getAgentConfigRequestDetail(error);
       const status = getAgentConfigRequestStatus(error);
       const code =
@@ -931,6 +936,7 @@ export function AgentCreatePage() {
         </section>
 
         {/* feat-379-M5 (ISSUE-1): Behavior card — Custom Instructions + Features + Preview */}
+        {capabilityEditor.toast}
         <CreateBehaviorCard
           draft={draft}
           capabilityFeatures={capabilities.features ?? []}
@@ -950,12 +956,7 @@ export function AgentCreatePage() {
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);
             setIsDirty(true);
-            // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
-            const capFeats = capabilities?.features ?? [];
-            const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const requiredTools = requiresTool ? [requiresTool] : [];
-            const nextAllowlist = value ? [...new Set([...draft.tool_allowlist, ...requiredTools])] : draft.tool_allowlist;
-            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist });
+            void capabilityEditor.apply([{ kind: "feature", name: key, enabled: value }]);
           }}
           onPolicyChange={(value) => {
             setErrorMessage(null);
@@ -979,40 +980,24 @@ export function AgentCreatePage() {
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              onChange={(skills, skillsSelectionMode) => {
-                setErrorMessage(null);
+              onChange={(skills) => {
                 setIsDirty(true);
-                setDraft({
-                  ...draft,
-                  skills,
-                  skills_selection_mode: skillsSelectionMode,
-                });
+                capabilityEditor.skills(skills);
               }}
             />
             <PillSelector
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
-              selected={draft.tool_allowlist}
-              fixed={draft.work_mode === "global" ? ["inbox", "conversations", "send_message", "subagent"] : []}
-              options={draft.work_mode === "global" ? [...capabilities.tools, ...["inbox", "conversations", "send_message", "subagent"].filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))] : capabilities.tools}
+              selected={[...new Set([...draft.tool_allowlist, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools])]}
+              fixed={capabilityCatalog(capabilities, draft.work_mode).fixed_tools}
+              options={[...capabilities.tools, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools.filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))]}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
               onChange={(toolAllowlist) => {
                 toolsEditedRef.current = true;
-                autoDefaultToolsRef.current = [];
-                setErrorMessage(null);
                 setIsDirty(true);
-                // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
-                const capFeats = capabilities?.features ?? [];
-                const removed = draft.tool_allowlist.filter((t) => !toolAllowlist.includes(t));
-                const nextFeatures = { ...(draft.features ?? {}) };
-                for (const tool of removed) {
-                  for (const feat of capFeats) {
-                    if (feat.requires_tool === tool) nextFeatures[feat.key] = false;
-                  }
-                }
-                setDraft({ ...draft, tool_allowlist: toolAllowlist, features: nextFeatures });
+                capabilityEditor.tools(toolAllowlist);
               }}
             />
           </div>

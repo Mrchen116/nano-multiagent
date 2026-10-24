@@ -102,8 +102,7 @@ export class CodexApproval extends Service {
         this.ctx.llm.resolveModelInfo(request.reviewer.provider,request.reviewer.model,signal),
       ]);
       signal.throwIfAborted();
-      const effort=request.purpose==='tool'?ReasoningEffortId('low')
-        :model.reasoning?.efforts.find(value=>value.id==='low')?.id??model.reasoning?.defaultEffort??model.reasoning?.efforts[0]?.id;
+      const effort=model.reasoning?.efforts.find(value=>value.id==='low')?.id??model.reasoning?.defaultEffort??model.reasoning?.efforts[0]?.id;
       const serialized=evidence.map(row=>JSON.stringify(row));
       if(checkpoint&&!prefix(checkpoint.rows,serialized)){checkpoint=undefined;if(reviewer){await this.discard(reviewer);reviewer=undefined;}}
       const schemas=inspectionTools(cwd,()=>signal).map(({name,description,parameters})=>({name,description,parameters}));

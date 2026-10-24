@@ -7,7 +7,7 @@ class Host implements PartitionRuntime {
   calls: {method:string;params:unknown}[] = [];
   listeners = new Set<(method:string,value:unknown)=>void>();
   handlers = new Map<string,(params:unknown)=>unknown>();
-  result: Record<string, unknown> = {};
+  result: Record<string, unknown> = {'configuration.apply': {effective:true}};
   async start() {this.available=true;}
   async shutdown(){this.available=false;}
   async request(method:string,params:unknown){if(!this.available)throw new Error('offline');this.calls.push({method,params});return this.result[method] ?? {};}
@@ -68,6 +68,29 @@ it('creates a new personal host before applying its configuration without exposi
   expect(hosts.get('personal:second:1')?.calls.at(-1)?.method).toBe('configuration.apply');
   expect(runtime.forAgent('second').agents.map(agent=>agent.agentId)).toEqual(['second']);
   expect(ordinary.calls).toEqual([]);
+});
+
+it('keeps only applied configurations in the restart snapshot',async()=>{
+  const {runtime,ordinary,hosts}=fixture();
+  const partition=runtime.forAgent('ordinary'),previous=partition.agents[0];
+  const candidate={...config('ordinary'),revision:'rejected',features:{cron_scheduling:false}};
+  ordinary.result['configuration.prepare']={ready:false,error_code:'capability_in_use'};
+  expect(await runtime.request('configuration.prepare',{operationId:'close',fingerprint:'next',config:candidate})).toMatchObject({ready:false});
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.prepare']={ready:true};
+  await runtime.request('configuration.prepare',{operationId:'close',fingerprint:'next',config:candidate});
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.apply']={effective:false};
+  await runtime.request('configuration.apply',candidate);
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.apply']={effective:true};
+  await runtime.request('configuration.apply',candidate);
+  expect(partition.agents[0]).toEqual(candidate);
+  const fresh=config('new-pa',true);
+  await runtime.request('configuration.prepare',{operationId:'new',fingerprint:'new',config:fresh});
+  expect(runtime.forAgent('new-pa').agents).toEqual([]);
+  await runtime.request('configuration.release',{agentId:'new-pa',operationId:'new'});
+  expect(hosts.get('personal:new-pa:1')?.calls.at(-1)?.method).toBe('configuration.release');
 });
 
 it('drops unbound preview status without weakening trusted product calls',async()=>{
