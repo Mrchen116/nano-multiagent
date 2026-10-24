@@ -282,7 +282,6 @@ export default class NanoRuntime {
       }
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
-      await history.recoverExports(config.bindings.map(binding => binding.sessionId));
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       for (const pending of config.pendingConfigurations ?? []) await prepare(pending);
       this.accepting = true;
