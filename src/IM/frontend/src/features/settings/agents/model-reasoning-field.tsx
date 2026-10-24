@@ -115,7 +115,6 @@ export function ModelReasoningField({
         <div className="im-agent-reasoning-readonly">
           <strong>{t("agents.form.access.reasoning.fixedState")}</strong>
         </div>
-        <p className="im-agent-field-help">{t("agents.form.access.reasoning.fixedHelp")}</p>
       </>
     );
   } else if (!descriptor) {
@@ -125,7 +124,6 @@ export function ModelReasoningField({
         <div className="im-agent-reasoning-readonly">
           {t("agents.form.access.reasoning.unavailableState")}
         </div>
-        <p className="im-agent-field-help">{t("agents.form.access.reasoning.unavailableHelp")}</p>
       </>
     );
   } else {

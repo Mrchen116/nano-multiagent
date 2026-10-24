@@ -85,9 +85,9 @@ describe("AgentChannelsPanel", () => {
 
     renderPanel();
 
-    const emptyHeading = await screen.findByRole("heading", { name: "还没有外部通道" });
+    await screen.findByText("还没有外部通道");
     expect(screen.queryByText(/Web IM/i)).toBeNull();
-    await user.click(within(emptyHeading.closest("section")!).getByRole("button", { name: "添加通道" }));
+    await user.click(screen.getByRole("button", { name: "连接通道" }));
     const picker = screen.getByRole("dialog", { name: "添加通道" });
     await user.click(within(picker).getByRole("button", { name: /飞书/ }));
 
@@ -107,7 +107,7 @@ describe("AgentChannelsPanel", () => {
 
     renderPanel();
     await screen.findByText("当前配置已应用");
-    await user.click(screen.getByRole("button", { name: "添加通道" }));
+    await user.click(screen.getByRole("button", { name: "连接通道" }));
 
     const provider = screen.getByRole("button", { name: /飞书.*已添加/ });
     expect(provider).toBeDisabled();
@@ -132,8 +132,8 @@ describe("AgentChannelsPanel", () => {
     );
 
     renderPanel();
-    const emptyHeading = await screen.findByRole("heading", { name: "还没有外部通道" });
-    await user.click(within(emptyHeading.closest("section")!).getByRole("button", { name: "添加通道" }));
+    await screen.findByText("还没有外部通道");
+    await user.click(screen.getByRole("button", { name: "连接通道" }));
     await user.click(screen.getByRole("button", { name: /飞书/ }));
     await user.type(screen.getByLabelText("App ID"), "cli_created");
     await user.type(screen.getByLabelText("App Secret"), "secret-value");
@@ -184,7 +184,7 @@ describe("AgentChannelsPanel", () => {
 
     expect(await screen.findByText("配置已保存")).toBeInTheDocument();
     expect(screen.getByText("节点上线后自动应用")).toBeInTheDocument();
-    for (const name of ["添加通道", "编辑", "停用", "删除", "节点离线"]) {
+    for (const name of ["连接通道", "编辑", "停用", "删除", "节点离线"]) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
     await user.click(screen.getByRole("button", { name: "停用" }));

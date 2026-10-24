@@ -25,7 +25,7 @@ it('lists zero-tool plugins and retains actual state while a switch waits', asyn
 it('requires inline confirmation for uninstall and keeps errors distinct from empty', async()=>{
   api.manageAgentPlugin.mockRejectedValue(new Error('Node disconnected'));
   mount(); await screen.findByText('Report style');
-  await userEvent.click(screen.getByText('Details'));
+  await userEvent.click(screen.getByText('Plugin details'));
   await userEvent.click(screen.getByRole('button',{name:'Uninstall'}));
   expect(api.manageAgentPlugin).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Confirm uninstall'}));
@@ -35,6 +35,6 @@ it('requires inline confirmation for uninstall and keeps errors distinct from em
 it('shows an unavailable read with refresh instead of an empty collection', async()=>{
   api.listAgentPlugins.mockRejectedValue(new Error('Offline'));
   mount(); expect(await screen.findByRole('alert')).toHaveTextContent(/unable|unavailable/i);
-  expect(screen.getByRole('button',{name:'Refresh'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'Refresh plugins'})).toBeEnabled();
   expect(screen.queryByText('No plugins yet')).not.toBeInTheDocument();
 });

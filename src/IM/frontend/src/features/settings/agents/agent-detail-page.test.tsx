@@ -35,6 +35,7 @@ vi.mock("react-router-dom", async () => {
 vi.mock("./public-agents", () => ({ listPublicAgents: apiMocks.listAgentSummariesMock }));
 
 vi.mock("../../chat/chat-api", () => ({
+  listConversations: vi.fn().mockResolvedValue([]),
   createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock
 }));
@@ -221,7 +222,7 @@ describe("agent detail page", () => {
     const name = await screen.findByDisplayValue("Core Planner");
     await user.clear(name);
     await user.type(name, "My edited assistant");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save Agent" }));
     expect(await screen.findByTestId("agent-save-error")).toHaveTextContent("Server response unavailable");
     expect(name).toHaveValue("My edited assistant");
     expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1);
@@ -243,12 +244,12 @@ describe("agent detail page", () => {
     expect(screen.getByRole("button", { name: "通道" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "会话" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "概览" }));
-    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
-    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "概览" })).toHaveTextContent("agent-core-1");
+    expect(screen.getByRole("button", { name: "编辑设置" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "通道" }));
     expect(screen.getByRole("heading", { name: "外部通道" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "会话" }));
-    expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /相关聊天/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "技能" }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
@@ -291,9 +292,9 @@ describe("agent detail page", () => {
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Capabilities" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /View skill statistics/i }));
+    await user.click(screen.getByRole("button", { name: /View skill activity/i }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
     expect(await screen.findByTestId("agent-skills-usage-panel")).toBeInTheDocument();
@@ -311,31 +312,31 @@ describe("agent detail page", () => {
     await user.click(screen.getByRole("button", { name: "Skills" }));
     await screen.findByText("deploy-check");
 
-    await user.click(screen.getByRole("button", { name: "Agent 维度" }));
-    expect(screen.getByText("使用热力图")).toBeInTheDocument();
-    expect(screen.getByText(/次 · 最近 30 天 · 悬停查看/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent activity" }));
+    expect(screen.getByText("Usage activity")).toBeInTheDocument();
+    expect(screen.getByText(/uses · last 30 days/)).toBeInTheDocument();
     expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
     expect(screen.getByText("Less")).toBeInTheDocument();
     expect(screen.getByText("More")).toBeInTheDocument();
     expect(screen.getByText("Mon")).toBeInTheDocument();
     expect(screen.getByText("Wed")).toBeInTheDocument();
     expect(screen.getByText("Fri")).toBeInTheDocument();
-    expect(screen.getByText("自动创建的 Skill")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
+    expect(screen.getByText("Agent-created skills")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Uses" })).toBeInTheDocument();
     const contributionCells = screen.getAllByLabelText(/skill uses/);
     await user.hover(contributionCells[contributionCells.length - 1]);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
     await user.unhover(contributionCells[contributionCells.length - 1]);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "自进化健康度" }));
-    expect(screen.getByText("自进化存活率")).toBeInTheDocument();
-    expect(screen.getByText("自动创建总数")).toBeInTheDocument();
-    expect(screen.getByText("still active")).toBeInTheDocument();
-    expect(screen.getByText("use_count > 0")).toBeInTheDocument();
-    expect(screen.getAllByText(/存活率/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("生命周期时间线")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "首次使用" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skill health" }));
+    expect(screen.getByText("Skill retention")).toBeInTheDocument();
+    expect(screen.getAllByText("Created").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Used")).toBeInTheDocument();
+    expect(screen.getAllByText(/Retention/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Lifecycle")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "First used" })).toBeInTheDocument();
     expect(screen.getAllByText("2").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("1")).toBeInTheDocument();
   });
@@ -368,7 +369,7 @@ describe("agent detail page", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
     await user.click(screen.getByRole("button", { name: "Skills" }));
-    expect(await screen.findByText(/Could not refresh this information/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Refresh failed/i)).toBeInTheDocument();
     expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
   });
 
@@ -440,8 +441,8 @@ describe("agent detail page", () => {
 
     expect(await screen.findByRole("heading", { name: "Core Planner" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Instructions & behavior" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Capabilities" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open chat/i })).toBeInTheDocument();
 

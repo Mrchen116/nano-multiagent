@@ -101,7 +101,7 @@ it.each([{disabled: []}, {disabled: ["hidden-disabled-skill"]}])("distinguishes 
   config.skills = disabled; config.skills_selection_mode = "explicit_denylist";
   open();
   await screen.findByLabelText("Display Name");
-  expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent(/has not been confirmed/i);
+  expect(screen.getByTestId("pill-selector-skills-mode")).toHaveTextContent(/State unconfirmed/i);
   for (const name of disabled) expect(screen.getByRole("button", {name})).toBeDisabled();
   settingsRead = async () => json({...settings(), live_capabilities: {...capabilities, skills: []}});
   await presence("online");
@@ -182,12 +182,12 @@ it("discards a late response from the previous connection and waits for stream r
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeDisabled());
   await act(async () => {late(json(oldResponse));});
   expect(screen.getByLabelText("Display Name")).toBeDisabled();
-  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/computer is offline/i);
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/Computer offline/i);
   await presence("online");
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
   await act(async () => {for (const s of stream.subscribers) s.onConnectionStatus?.({kind: "reconnecting", retryAt: Date.now() + 1000});});
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeDisabled());
-  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/connection is not confirmed/i);
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/Connection unconfirmed/i);
   await act(async () => {for (const s of stream.subscribers) s.onConnectionStatus?.(null);});
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
   expect(patches()).toHaveLength(0);
@@ -200,7 +200,7 @@ it("shows an unavailable cron observation instead of claiming there are no jobs"
     ? Promise.resolve(json({source: "unavailable", captured_at: null, data: null, error: {code: "offline", message: "offline"}}))
     : original(input, init));
   open(); await screen.findByLabelText("Display Name");
-  await waitFor(() => expect(screen.getByTestId("cron-jobs-list")).toHaveTextContent(/no previously confirmed/i));
+  await waitFor(() => expect(screen.getByTestId("cron-jobs-list")).toHaveTextContent(/No confirmed information/i));
   expect(screen.getByTestId("cron-jobs-list")).not.toHaveTextContent(/no scheduled jobs/i);
 });
 
@@ -228,7 +228,7 @@ it("retains missing catalog selections and requires explicit correction before s
   fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Kept draft"}});
   expect(screen.getByRole("button", {name: "retired-tool"})).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("button", {name: "retired-skill"})).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getAllByText(/unavailable in the current catalog/i)).toHaveLength(3);
+  expect(screen.getAllByText(/No longer available/i)).toHaveLength(3);
   expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Default Model"), "codex_oauth:gpt-5.5");
   await user.click(screen.getByRole("button", {name: /Fallbacks.*1/i}));
@@ -258,12 +258,12 @@ it("keeps independently captured heartbeat and prompt bodies after online read f
   expect(await screen.findByText("Remember weekly review")).toBeInTheDocument();
   expect(await screen.findByText("Confirmed stable prompt")).toBeInTheDocument();
   await presence("offline");
-  await waitFor(() => expect(screen.getAllByText(/Last confirmed:/i).length).toBeGreaterThanOrEqual(2));
+  await waitFor(() => expect(screen.getAllByText(/Last confirmed/i).length).toBeGreaterThanOrEqual(2));
   fail = true; await presence("online");
   await waitFor(() => expect(screen.getByLabelText("Display Name")).toBeEnabled());
   await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
   await user.click(screen.getByRole("button", {name: /View HEARTBEAT.md/i}));
-  await waitFor(() => expect(screen.getAllByText(/Could not refresh this information/i).length).toBeGreaterThanOrEqual(2));
+  await waitFor(() => expect(screen.getAllByText(/Refresh failed/i).length).toBeGreaterThanOrEqual(2));
   expect(screen.getByText("Remember weekly review")).toBeInTheDocument();
   expect(screen.getByText("Confirmed stable prompt")).toBeInTheDocument();
   expect(screen.queryByText(/Node is offline/i)).not.toBeInTheDocument();
@@ -277,10 +277,10 @@ it.each(["transport", "envelope"] as const)("preserves a last successful usage r
     return original(input, init);
   });
   const user = userEvent.setup(); open(); await screen.findByLabelText("Display Name");
-  await user.click(screen.getByRole("button", {name: /View skill statistics/i}));
+  await user.click(screen.getByRole("button", {name: /View skill activity/i}));
   expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
   fail = true; await presence("online");
-  expect(await screen.findByText(/Last confirmed:.*Could not refresh/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Last confirmed.*Refresh failed/i)).toBeInTheDocument();
   expect(within(screen.getByText("No skill usage yet").closest("section")!).getByRole("button", {name: /^Retry$/i})).toBeEnabled();
   expect(screen.getByText("No skill usage yet")).toBeInTheDocument();
   expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();

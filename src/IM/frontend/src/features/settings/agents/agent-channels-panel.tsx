@@ -857,15 +857,14 @@ export function AgentChannelsPanel({
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="m-0 text-base font-bold text-slate-900">{t("agents.channels.title")}</h3>
-          <p className="m-0 mt-1 text-xs text-slate-500">{t("agents.channels.subtitle")}</p>
         </div>
         <button type="button" className="im-btn im-btn-primary im-channel-primary-action" aria-label={t("agents.channels.actions.add")} disabled={blocked || lifecyclePending || saveMutation.isPending} onClick={() => { if (blocked) return; setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
           + {t("agents.channels.actions.add")}
         </button>
       </header>
 
-      {connectionNotice || unconfirmed ? (
-        <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="status">
+      {(!offline && connectionNotice) || unconfirmed ? (
+        <section className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--im-border)] py-2 text-xs text-slate-600" role="status">
           <span>{connectionNotice ?? tr("操作结果待确认；请重新读取后核对最新状态，勿重复提交。", "The operation result is unconfirmed. Refresh and check its latest state before submitting again.")}</span>
           <button type="button" className="im-btn im-btn-muted" disabled={channelsQuery.isFetching} onClick={async () => {
             const result = await channelsQuery.refetch();
@@ -879,7 +878,7 @@ export function AgentChannelsPanel({
         </section>
       ) : null}
       {nodeStatus === "offline" && resources.length > 0 ? (
-        <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="status">
+        <section className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--im-border)] py-2 text-xs text-slate-600" role="status">
           <strong>{t("agents.channels.offline.title")}</strong>
           <span>{t("agents.channels.offline.detail")}</span>
         </section>
@@ -893,16 +892,7 @@ export function AgentChannelsPanel({
       ) : null}
 
       {resources.length === 0 ? (
-        <section className="im-agent-card place-items-center py-10 text-center">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-500">+</span>
-          <div>
-            <h3 className="im-agent-card-title">{t("agents.channels.empty.title")}</h3>
-            <p className="im-agent-card-sub mt-1">{t("agents.channels.empty.description")}</p>
-          </div>
-          <button type="button" className="im-btn im-btn-primary im-channel-primary-action" disabled={blocked || lifecyclePending || saveMutation.isPending} onClick={() => { if (blocked) return; setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
-            {t("agents.channels.actions.add")}
-          </button>
-        </section>
+        <p className="im-settings-empty">{t("agents.channels.empty.title")}</p>
       ) : resources.map((resource) => {
         const provider = providerById(providers, resource.provider);
         if (!provider) return null;

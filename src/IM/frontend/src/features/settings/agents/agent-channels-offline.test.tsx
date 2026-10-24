@@ -109,7 +109,7 @@ describe("Channel drafts and connectivity", () => {
     api.listAgentChannels.mockResolvedValue([]);
     api.createAgentChannel.mockRejectedValue(new Error("network response lost"));
     const view = panel();
-    await user.click((await screen.findAllByRole("button", { name: "添加通道" }))[0]);
+    await user.click((await screen.findAllByRole("button", { name: "连接通道" }))[0]);
     await user.click(screen.getByRole("button", { name: /飞书/ }));
     await user.type(screen.getByLabelText("App ID"), "cli_draft");
     await user.type(screen.getByLabelText("App Secret"), "unsaved-test-secret");

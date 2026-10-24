@@ -611,7 +611,7 @@ describe("agent create page", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming save/i);
     expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("pending-agent");
     expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
     for (const button of screen.getAllByRole("button", { name: /Create agent/i })) {

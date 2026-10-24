@@ -1,3 +1,5 @@
+import "./agent-settings.css";
+import {AgentOverviewPanel, AgentSessionsPanel} from "./agent-summary-panels";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { PersonalAgentSettings } from '../../personal-agent/personal-agent-settings';
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
@@ -220,7 +222,6 @@ function BehaviorCard({
     <section className="im-agent-card">
       <div>
         <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
-        <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
       </div>
 
       {/* Custom Instructions are the only public per-agent prompt input. */}
@@ -234,13 +235,10 @@ function BehaviorCard({
           className="im-agent-textarea"
           value={draft.custom_prompt ?? ""}
           placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
-          aria-describedby="custom-instructions-help"
+
           rows={4}
           onChange={(e) => onCustomPromptChange(e.target.value)}
         />
-        <p id="custom-instructions-help" className="im-agent-field-help">
-          {t("agents.form.behavior.customInstructionsHelp")}
-        </p>
       </div>
 
       {!capabilitiesKnown && capabilityFeatures.length === 0 && <div className="im-agent-field" data-testid="features-section">
@@ -251,18 +249,14 @@ function BehaviorCard({
       {capabilityFeatures.length > 0 && (
         <div data-testid="features-section" className="im-agent-field">
           <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
-          <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
-          <div className="grid gap-[6px] mt-2">
+          <div className="im-settings-features">
             {capabilityFeatures.map((feat) => {
               const checked = effectiveFeatures[feat.key] ?? feat.default_on;
               return (
                 <label
                   key={feat.key}
-                  className={`flex items-start gap-3 rounded-xl border px-3 py-[10px] transition-colors ${
-                    checked
-                      ? "border-teal-300 bg-teal-50/60 cursor-pointer"
-                      : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
-                  }`}
+                  className="im-settings-feature"
+                  title={t(feat.help_i18n, "")}
                 >
                   <input
                     type="checkbox"
@@ -275,8 +269,8 @@ function BehaviorCard({
                   />
                   <div className="min-w-0">
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
-                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n, feat.key)}</p>
-                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{unknownFeatures.includes(feat.key) ? t("agents.settings.featureUnknown") : t(feat.help_i18n, "")}</p>
+                    <p className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
+                    {unknownFeatures.includes(feat.key) && <p className="im-settings-feature-state">{t("agents.settings.featureUnknown")}</p>}
                   </div>
                 </label>
               );
@@ -292,7 +286,7 @@ function BehaviorCard({
           disabled={readOnly}
           id="group-reply-policy"
           className="im-input"
-          aria-describedby="group-policy-help"
+
           value={draft.group_reply_policy}
           onChange={(e) => onPolicyChange(e.target.value)}
         >
@@ -300,9 +294,6 @@ function BehaviorCard({
           <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
           <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
         </select>
-        <p id="group-policy-help" className="im-agent-field-help">
-          {t("agents.form.behavior.policyHelp")}
-        </p>
       </div>
 
       {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
@@ -467,7 +458,6 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
     <section className="im-agent-card">
       <div>
         <h3 className="im-agent-card-title">{t("agents.form.heartbeat.title")}</h3>
-        <p className="im-agent-card-sub">{t("agents.form.heartbeat.sub")}</p>
       </div>
       {/* feat-394 M9 R6: enable toggle shown only when not managed by Features list */}
       {!hideEnableToggle && (
@@ -482,7 +472,7 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
               onChange={(e) => onToggle(e.target.checked)}
             />
             <div>
-              <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+              <p className="im-settings-feature-name">
                 {t("agents.form.heartbeat.enabledLabel")}
               </p>
               <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
@@ -530,9 +520,6 @@ function HeartbeatCard({ readOnly, agentId, draft, onToggle, onEveryChange, onAc
                 ))}
               </select>
             </div>
-            <p id="heartbeat-every-help" className="im-agent-field-help">
-              {t("agents.form.heartbeat.everyHelp")}
-            </p>
           </div>
           {/* feat-394-M7 R5-3 fix: activeHours UI — spec S2.5 "活跃时段外不打扰" */}
           <div className="im-agent-field">
@@ -679,7 +666,6 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
     <section className="im-agent-card">
       <div>
         <h3 className="im-agent-card-title">{t("agents.form.cron.title")}</h3>
-        <p className="im-agent-card-sub">{t("agents.form.cron.sub")}</p>
       </div>
       {/* feat-394 M9 R6: enable toggle shown only when not managed by Features list */}
       {!hideEnableToggle && (
@@ -694,7 +680,7 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
               onChange={(e) => onToggle(e.target.checked)}
             />
             <div>
-              <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+              <p className="im-settings-feature-name">
                 {t("agents.form.cron.enabledLabel")}
               </p>
               <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
@@ -933,30 +919,29 @@ function SkillsListView({
     <section className="im-agent-card" data-testid="skills-usage-list">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="im-agent-card-title">全部 Skill</h3>
-          <p className="im-agent-card-sub">按最近使用时间排序</p>
+          <h3 className="im-agent-card-title">{tr("全部 Skill")}</h3>
         </div>
         <button
           type="button"
           className="rounded-lg border border-[var(--im-border)] bg-transparent px-[10px] py-[5px] text-[0.72rem] font-semibold text-slate-500 hover:bg-[var(--im-surface-2)]"
           onClick={onToggleArchived}
         >
-          {showArchived ? "隐藏 archived" : "显示 archived"}
+          {showArchived ? tr("隐藏 archived") : tr("显示 archived")}
         </button>
       </div>
       {visibleSkills.length === 0 ? (
-        <p className="text-[13px] text-slate-500">当前过滤条件下没有 skill</p>
+        <p className="text-[13px] text-slate-500">{tr("当前过滤条件下没有 skill")}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[0.78rem]">
             <thead>
               <tr className="border-b border-[var(--im-border)] text-left text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-slate-500">
-                <th className="px-2 py-[6px]">名字</th>
-                <th className="px-2 py-[6px]">来源</th>
-                <th className="px-2 py-[6px]">状态</th>
-                <th className="px-2 py-[6px]">使用次数</th>
-                <th className="px-2 py-[6px]">最近使用</th>
-                <th className="px-2 py-[6px]">趋势</th>
+                <th className="px-2 py-[6px]">{tr("名字")}</th>
+                <th className="px-2 py-[6px]">{tr("来源")}</th>
+                <th className="px-2 py-[6px]">{tr("状态")}</th>
+                <th className="px-2 py-[6px]">{tr("使用次数")}</th>
+                <th className="px-2 py-[6px]">{tr("最近使用")}</th>
+                <th className="px-2 py-[6px]">{tr("趋势")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1030,8 +1015,7 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
     <section className="im-agent-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="im-agent-card-title">使用热力图</h3>
-          <p className="im-agent-card-sub">该 agent 的 skill 使用密度</p>
+          <h3 className="im-agent-card-title">{tr("使用热力图")}</h3>
         </div>
       </div>
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white px-5 py-4">
@@ -1086,7 +1070,7 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
             </div>
           </div>
           <div className="mt-4 flex items-center justify-end gap-2 text-[12px] text-slate-600">
-            <span className="mr-auto text-[0.65rem] text-slate-500">{total.toLocaleString()} 次 · 最近 30 天 · 悬停查看</span>
+            <span className="mr-auto text-[0.65rem] text-slate-500">{total.toLocaleString()} {tr("最近 30 天")}</span>
             <span>Less</span>
             {[0, 1, 2, 3, 4].map((level) => (
               <span
@@ -1109,20 +1093,19 @@ function AgentAutoSkillsCard({ usage }: { usage: SkillsUsageResponse }) {
   return (
     <section className="im-agent-card">
       <div>
-        <h3 className="im-agent-card-title">自动创建的 Skill</h3>
-        <p className="im-agent-card-sub">自动沉淀与批量复盘输出</p>
+        <h3 className="im-agent-card-title">{tr("自动创建的 Skill")}</h3>
       </div>
       {automatedSkills.length === 0 ? (
-        <p className="text-[0.8rem] text-slate-500">暂无自动创建的 skill</p>
+        <p className="text-[0.8rem] text-slate-500">{tr("暂无自动创建的 skill")}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[0.78rem]">
             <thead>
               <tr className="border-b border-[var(--im-border)] text-left text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-slate-500">
-                <th className="px-2 py-[6px]">名字</th>
-                <th className="px-2 py-[6px]">来源</th>
-                <th className="px-2 py-[6px]">使用次数</th>
-                <th className="px-2 py-[6px]">状态</th>
+                <th className="px-2 py-[6px]">{tr("名字")}</th>
+                <th className="px-2 py-[6px]">{tr("来源")}</th>
+                <th className="px-2 py-[6px]">{tr("使用次数")}</th>
+                <th className="px-2 py-[6px]">{tr("状态")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1153,9 +1136,9 @@ function AgentDimensionView({ usage }: { usage: SkillsUsageResponse }) {
 
 function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
   const rows = [
-    { label: "自动创建总数", value: usage.health.created_auto_total },
-    { label: "still active", value: usage.health.active_auto_total },
-    { label: "use_count > 0", value: usage.health.used_auto_total },
+    { label: tr("自动创建总数"), value: usage.health.created_auto_total },
+    { label: tr("still active"), value: usage.health.active_auto_total },
+    { label: tr("use_count > 0"), value: usage.health.used_auto_total },
   ];
   const survivalRate = usage.health.created_auto_total > 0
     ? `${usage.health.used_auto_total} / ${usage.health.created_auto_total} = ${Math.round((usage.health.used_auto_total / usage.health.created_auto_total) * 100)}%`
@@ -1165,8 +1148,7 @@ function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
     <div className="grid gap-3">
       <section className="im-agent-card">
         <div>
-          <h3 className="im-agent-card-title">自进化存活率</h3>
-          <p className="im-agent-card-sub">自动创建的 skill 有多少活了下来</p>
+          <h3 className="im-agent-card-title">{tr("自进化存活率")}</h3>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-4 py-2">
           {rows.map((row, index) => (
@@ -1179,26 +1161,25 @@ function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
             </Fragment>
           ))}
         </div>
-        <p className="m-0 mt-1 text-center text-[12px] text-slate-500">存活率 <strong>{survivalRate}</strong></p>
+        <p className="m-0 mt-1 text-center text-[12px] text-slate-500">{tr("存活率")} <strong>{survivalRate}</strong></p>
       </section>
       <section className="im-agent-card">
         <div>
-          <h3 className="im-agent-card-title">生命周期时间线</h3>
-          <p className="im-agent-card-sub">每个自动 skill 的创建 → 首次使用 → 最后使用</p>
+          <h3 className="im-agent-card-title">{tr("生命周期时间线")}</h3>
         </div>
         {automatedSkills.length === 0 ? (
-          <p className="text-[13px] text-slate-500">暂无自动创建的 skill</p>
+          <p className="text-[13px] text-slate-500">{tr("暂无自动创建的 skill")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-[var(--im-border)] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-2 py-2">名字</th>
-                  <th className="px-2 py-2">来源</th>
-                  <th className="px-2 py-2">创建时间</th>
-                  <th className="px-2 py-2">首次使用</th>
-                  <th className="px-2 py-2">最后使用</th>
-                  <th className="px-2 py-2">状态</th>
+                  <th className="px-2 py-2">{tr("名字")}</th>
+                  <th className="px-2 py-2">{tr("来源")}</th>
+                  <th className="px-2 py-2">{tr("创建时间")}</th>
+                  <th className="px-2 py-2">{tr("首次使用")}</th>
+                  <th className="px-2 py-2">{tr("最后使用")}</th>
+                  <th className="px-2 py-2">{tr("状态")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1224,17 +1205,6 @@ function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
   );
 }
 
-function PrototypePlaceholder({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="im-agent-card">
-      <div>
-        <h3 className="im-agent-card-title">{title}</h3>
-        <p className="im-agent-card-sub">{children}</p>
-      </div>
-    </section>
-  );
-}
-
 function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   const {t} = useTranslation();
   const [view, setView] = useState<SkillsUsageView>("list");
@@ -1246,7 +1216,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   });
 
   if (usageQuery.isLoading) {
-    return <p className="text-sm text-slate-500">Loading skill usage...</p>;
+    return <p className="text-sm text-slate-500">{tr("Loading skill usage...")}</p>;
   }
 
   const read: SettingsRead<SkillsUsageResponse> | undefined = usageQuery.isError
@@ -1259,8 +1229,8 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
       <section className="im-agent-card">
         <div>
           <SettingsReadNotice read={read} />
-          <h3 className="im-agent-card-title">No skill usage yet</h3>
-          <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
+          <h3 className="im-agent-card-title">{tr("No skill usage yet")}</h3>
+
           {read?.error && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
         </div>
       </section>
@@ -1268,7 +1238,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   }
 
   return (
-    <div className="grid gap-3" data-testid="agent-skills-usage-panel">
+    <div className="grid gap-3 im-settings-skills" data-testid="agent-skills-usage-panel">
       <SettingsReadNotice read={read} />
       {read?.error && <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>{t("agents.retry")}</button>}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1289,7 +1259,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
               onClick={() => setView(item)}
               aria-pressed={view === item}
             >
-              {item === "list" ? "Skill 列表" : item === "agent" ? "Agent 维度" : "自进化健康度"}
+              {item === "list" ? tr("Skill 列表") : item === "agent" ? tr("Agent 维度") : tr("自进化健康度")}
             </button>
           ))}
         </div>
@@ -1523,7 +1493,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     const statePanel = (
       <div
         data-testid="agent-detail-state-panel"
-        className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto bg-[oklch(0.93_0.007_240)] px-4 py-10 sm:px-8 sm:py-14"
+        className="im-agent-settings flex min-h-0 flex-1 items-start overflow-y-auto bg-white px-4 py-6 sm:px-7"
       >
         {content}
       </div>
@@ -1543,7 +1513,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         data-testid="agent-detail-loading"
         role="status"
         aria-live="polite"
-        className="flex w-full max-w-[420px] items-center gap-4 rounded-2xl border border-[var(--im-border)] bg-white/90 px-5 py-5 shadow-sm"
+        className="flex items-center gap-3"
       >
         <span
           className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-[var(--im-accent)]"
@@ -1562,7 +1532,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     return renderDetailState(
       <section
         data-testid="agent-detail-error"
-        className="grid w-full max-w-[520px] gap-4 rounded-2xl border border-rose-200 bg-white/90 p-5 shadow-sm"
+        className="grid w-full max-w-[520px] gap-3"
       >
         <div className="space-y-1">
           <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
@@ -1610,14 +1580,6 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
-  const headerSaveText = mutation.isPending || confirmationPending
-    ? t("agents.detail.saving")
-    : saved
-      ? t("agents.detail.saved")
-      : isDirty
-        ? t("agents.detail.save")
-        : t("agents.detail.noChanges");
-
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasAttemptedSave(true);
@@ -1629,7 +1591,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const detailPanel = (
     <form
       data-testid="agent-detail"
-      className="im-agent-panel"
+      className="im-agent-panel im-agent-settings"
       onSubmit={handleSubmit}
     >
       <header className="im-agent-panel-header">
@@ -1637,6 +1599,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           {isMobile && (
             <button
               type="button"
+              aria-label={t("agents.title")}
               onClick={() => navigate("/settings/agents")}
               style={{
                 width: 36,
@@ -1659,7 +1622,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           <Avatar
             initials={initialsOf(draft.display_name)}
             color={colorForAgent(draft)}
-            size={isMobile ? 38 : 42}
+            size={32}
             status={displayedNodeStatus === "online" ? "online" : "offline"}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1673,25 +1636,17 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               </span>
             </p>
           </div>
-          {!isMobile && (
-            <div className="im-agent-header-actions">
+          <div className="im-agent-header-actions">
               <button
                 type="button"
-                className="rounded-lg border border-[var(--im-accent)] bg-[var(--im-accent)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-accent-fg)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="im-settings-action"
                 disabled={openDirectChatMutation.isPending}
                 onClick={() => openDirectChatMutation.mutate()}
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
-              {activeSection === "config" && <button
-                className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
-                type="submit"
-                disabled={readOnly || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
-              >
-                {headerSaveText}
-              </button>}
+              {activeSection === "config" && isDirty && <span className="im-settings-save-state">{t("agents.detail.unsavedChanges")}</span>}
             </div>
-          )}
         </div>
         {errorMessage ? (
           <p
@@ -1704,7 +1659,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
           </p>
         ) : null}
         <nav
-          className="-mx-5 mt-3 flex flex-wrap gap-0 border-t border-[var(--im-border)] px-5"
+          className="im-agent-settings-tabs"
           aria-label={t("agents.detail.sections.navLabel")}
         >
           {([
@@ -1719,11 +1674,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <button
               key={section}
               type="button"
-              className={`border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-semibold ${
-                activeSection === section
-                  ? "border-[var(--im-accent)] text-[var(--im-accent)]"
-                  : "border-transparent text-slate-500 hover:text-slate-900"
-              }`}
+
               aria-pressed={activeSection === section}
               onClick={() => setActiveSection(section)}
             >
@@ -1733,13 +1684,13 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         </nav>
       </header>
 
-      {settings.reason && <div className="px-5 py-3 border-b border-[var(--im-border)]" role="status" data-testid="settings-availability">
+      {settings.reason && <div className="im-settings-availability" role="status" data-testid="settings-availability">
         <p className="text-sm text-slate-600">{t(`agents.settings.${settings.reason}`)}</p>
         <SettingsReadNotice read={detailQuery.data?.display} />
         {confirmationPending && settings.reason !== "pending" && <p className="im-agent-field-help">{t("agents.settings.pending")}</p>}
-        <button type="button" className="im-btn im-btn-muted mt-2" disabled={detailQuery.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey: ["settings", "agents", agentId]})}>{t("agents.settings.retry")}</button>
+        <button type="button" className="im-settings-action" disabled={detailQuery.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey: ["settings", "agents", agentId]})}>{t("agents.settings.retry")}</button>
       </div>}
-      <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : ""}`}>
+      <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : activeSection === "config" ? "im-settings-config" : ""}`}>
         {activeSection === "work" && draft.work_mode === "global" ? (
           <AgentWorkPanel agentId={agentId} />
         ) : activeSection === "skills" ? (
@@ -1747,22 +1698,17 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         ) : activeSection === "plugins" ? (
           <AgentPluginsPanel agentId={agentId} readOnly={settings.connectionReadOnly} />
         ) : activeSection === "overview" ? (
-          <PrototypePlaceholder title={t("agents.detail.sections.overview")}>
-            {t("agents.detail.sections.overviewPlaceholder")}
-          </PrototypePlaceholder>
+          <AgentOverviewPanel config={detailQuery.data!.config} model={platformDefaultModel} nodeName={displayedNodeName} nodeState={displayedNodeStatus} personal={personal} onConfigure={() => setActiveSection("config")} />
         ) : activeSection === "channels" ? (
           <AgentChannelsPanel agentId={agentId} nodeStatus={displayedNodeStatusRaw} readOnly={settings.connectionReadOnly} />
         ) : activeSection === "sessions" ? (
-          <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
-            {t("agents.detail.sections.sessionsPlaceholder")}
-          </PrototypePlaceholder>
+          <AgentSessionsPanel agentId={agentId} />
         ) : (
           <>
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
-            <p className="text-xs text-slate-500">{tr("工作模式")}：{personal ? t("pa.label") : draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
+            <p className="im-settings-section-meta">{tr("工作模式")}：{personal ? t("pa.label") : draft.work_mode === "global" ? tr("全局模式 · 实验") : tr("单 Thread")} · {tr("创建后固定")}</p>
           </div>
           {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
           <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">
@@ -1778,7 +1724,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                 className="im-input"
                 value={draft.display_name}
                 aria-invalid={Boolean(shouldShowError("display_name"))}
-                aria-describedby="display-name-help"
+
                 onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
                   setSaved(false);
@@ -1786,9 +1732,6 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                   setDraft({ ...draft, display_name: event.target.value });
                 }}
               />
-              <p id="display-name-help" className="im-agent-field-help">
-                {t("agents.form.identity.displayNameHelper")}
-              </p>
               {shouldShowError("display_name") ? (
                 <p className="im-agent-field-error">{validationErrors.display_name}</p>
               ) : null}
@@ -1801,16 +1744,90 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               id="description"
               className="im-input"
               value={draft.description ?? ""}
-              aria-describedby="description-help"
+
               onChange={(event) => {
                 setSaved(false);
                 setErrorMessage(null);
                 setDraft({ ...draft, description: event.target.value });
               }}
             />
-            <p id="description-help" className="im-agent-field-help">
-              {t("agents.form.identity.descriptionHelp")}
-            </p>
+          </div>
+        </section>
+
+        <section className="im-agent-card">
+          <div><h3 className="im-agent-card-title">{t("agents.redesign.model")}</h3></div>
+          <div className="im-settings-model-fields">
+          <ModelFallbackField
+            label={t("agents.form.access.model")}
+            labelHtmlFor="default-model"
+            models={availableModels}
+            primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+            value={draft.model_fallbacks ?? []}
+            disabled={readOnly}
+            onChange={(modelFallbacks) => {
+              setSaved(false);
+              setErrorMessage(null);
+              setDraft({ ...draft, model_fallbacks: modelFallbacks });
+            }}
+          >
+            <select
+              id="default-model"
+              className="im-input"
+              value={draft.default_model ?? ""}
+
+              disabled={readOnly}
+              onChange={(event) => {
+                setSaved(false);
+                setErrorMessage(null);
+                const defaultModel = event.target.value || null;
+                const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
+                setDraft({
+                  ...draft,
+                  default_model: defaultModel,
+                  model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
+                  reasoning_effort: reasoningEffortAfterModelChange(
+                    modelOptions,
+                    effectiveModel,
+                    draft.reasoning_effort,
+                  ),
+                });
+              }}
+            >
+              <option value="">
+                {platformDefaultModel
+                  ? t("agents.form.access.modelPlatformDefault", { model: platformDefaultModel })
+                  : t("agents.form.access.modelPlatformDefaultPlain")}
+              </option>
+              {availableModels.map((model) => {
+                const providerName = model.provider_display_name || model.provider;
+                const providerSuffix = providerName ? ` · ${providerName}` : "";
+                const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
+                return (
+                  <option key={model.name} value={model.name}>
+                    {model.name === platformDefaultModel
+                      ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
+                      : baseLabel}
+                  </option>
+                );
+              })}
+            </select>
+          </ModelFallbackField>
+          {catalogCurrent && missingModels.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingModels.join(", ")})}</p>}
+          <ModelReasoningField
+            idPrefix="detail-agent"
+            disabled={readOnly}
+            capabilitiesKnown={detailQuery.data?.liveCapabilities === true && !readOnly}
+            lastKnownValue={detailQuery.data?.display.data?.derived_current ? detailQuery.data.display.data.reasoning?.value : null}
+            modelOptions={modelOptions}
+            selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
+            value={draft.reasoning_effort}
+            applyPending={applyPending}
+            onChange={(reasoningEffort) => {
+              setSaved(false);
+              setErrorMessage(null);
+              setDraft({ ...draft, reasoning_effort: reasoningEffort });
+            }}
+          />
           </div>
         </section>
 
@@ -1912,13 +1929,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
             <button
               type="button"
               className="im-agent-access-skills-link"
               onClick={() => setActiveSection("skills")}
             >
-              View skill statistics
+              {t("agents.redesign.viewSkillStats")}
             </button>
           </div>
           <div className="grid gap-4">
@@ -1972,83 +1988,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             />
           </div>
           {catalogCurrent && missingTools.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingTools.join(", ")})}</p>}
-          <ModelFallbackField
-            label={t("agents.form.access.model")}
-            labelHtmlFor="default-model"
-            models={availableModels}
-            primary={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
-            value={draft.model_fallbacks ?? []}
-            disabled={readOnly}
-            onChange={(modelFallbacks) => {
-              setSaved(false);
-              setErrorMessage(null);
-              setDraft({ ...draft, model_fallbacks: modelFallbacks });
-            }}
-          >
-            <select
-              id="default-model"
-              className="im-input"
-              value={draft.default_model ?? ""}
-              aria-describedby="default-model-help"
-              disabled={readOnly}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                const defaultModel = event.target.value || null;
-                const effectiveModel = effectiveReasoningModel(defaultModel, platformDefaultModel);
-                setDraft({
-                  ...draft,
-                  default_model: defaultModel,
-                  model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], effectiveModel),
-                  reasoning_effort: reasoningEffortAfterModelChange(
-                    modelOptions,
-                    effectiveModel,
-                    draft.reasoning_effort,
-                  ),
-                });
-              }}
-            >
-              <option value="">
-                {platformDefaultModel
-                  ? t("agents.form.access.modelPlatformDefault", { model: platformDefaultModel })
-                  : t("agents.form.access.modelPlatformDefaultPlain")}
-              </option>
-              {availableModels.map((model) => {
-                const providerName = model.provider_display_name || model.provider;
-                const providerSuffix = providerName ? ` · ${providerName}` : "";
-                const baseLabel = `${model.display_name || model.name}${providerSuffix}`;
-                return (
-                  <option key={model.name} value={model.name}>
-                    {model.name === platformDefaultModel
-                      ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
-                      : baseLabel}
-                  </option>
-                );
-              })}
-            </select>
-          </ModelFallbackField>
-          {catalogCurrent && missingModels.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingModels.join(", ")})}</p>}
-          <ModelReasoningField
-            idPrefix="detail-agent"
-            disabled={readOnly}
-            capabilitiesKnown={detailQuery.data?.liveCapabilities === true && !readOnly}
-            lastKnownValue={detailQuery.data?.display.data?.derived_current ? detailQuery.data.display.data.reasoning?.value : null}
-            modelOptions={modelOptions}
-            selectedModel={effectiveReasoningModel(draft.default_model, platformDefaultModel)}
-            value={draft.reasoning_effort}
-            applyPending={applyPending}
-            onChange={(reasoningEffort) => {
-              setSaved(false);
-              setErrorMessage(null);
-              setDraft({ ...draft, reasoning_effort: reasoningEffort });
-            }}
-          />
+
         </section>
 
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.workspace.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.workspace.sub")}</p>
           </div>
           <div className="im-agent-card-grid-2">
             <div className="im-agent-field">
@@ -2096,16 +2041,6 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         >
           <p className={footerStatusClass}>{footerStatusText}</p>
           <div className="im-agent-footer-actions">
-            {isMobile && (
-              <button
-                type="button"
-                className="im-btn im-btn-muted"
-                disabled={openDirectChatMutation.isPending}
-                onClick={() => openDirectChatMutation.mutate()}
-              >
-                {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
-              </button>
-            )}
             {isDirty && (
               <button
                 className="im-btn im-btn-muted"

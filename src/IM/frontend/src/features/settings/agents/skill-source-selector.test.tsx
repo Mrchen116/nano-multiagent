@@ -25,7 +25,7 @@ describe("skill source selector", () => {
       />,
     );
 
-    expect(screen.getByTestId("skills-mode")).toHaveTextContent(/discoverable/i);
+    expect(screen.getByTestId("skills-mode")).toHaveTextContent(/discovered/i);
     expect(screen.getByRole("button", { name: "local-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "local-a" }));
     expect(onChange).toHaveBeenCalledWith(
