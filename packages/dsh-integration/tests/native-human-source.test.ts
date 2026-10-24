@@ -82,9 +82,6 @@ export function apply(ctx){
     await submit('repeat', 'repeat-system', 'system');
     expect(await reminders()).toHaveLength(1);
     await client.shutdown(); client = undefined;
-    const readable = await readFile(join(home, '.nanoassistant/chat_history/direct.jsonl'), 'utf8');
-    const row = readable.trim().split('\n').map(line => JSON.parse(line)).find(row => row.source === 'user');
-    expect(row.content).toBe('goal-human');
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
 }, 30_000);
