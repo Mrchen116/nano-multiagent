@@ -18,7 +18,7 @@
 - Node/DSH 接入、PA 与 IM 权限逻辑保持；本次只改开发 fixture、工具和文档。
 - 不读取生产凭据、聊天或 workspace 作为模板。用户选择每需求独立副本，不建立共享持久测试服务。
 - Auto owner 根由 `NANO_OWNER_CONFIG_ROOT` 决定；只向临时 Gateway YAML 填 `auto_mode` 不足以保证生效，必须在隔离 owner 根维护实际读取的配置。
-- 同目录重启现有脚本会重建 IM，但保留旧 workspace 证据；日常 profile 的工作区需要按本轮节点身份划分，避免旧 memory、任务产物污染基线。
+- 同目录重启现有脚本会重建 IM，但保留旧 workspace 和 owner 证据；日常 profile 的工作区及 owner 根都需要按本轮节点身份划分，避免旧 memory、任务产物和全局 Skill 污染基线。
 
 ### 可复用能力
 
@@ -46,7 +46,7 @@
 1. **固定 3 个 Global 团队 Agent 加 1 个真实 PA。** ID 为 `daily-product`、`daily-engineering`、`daily-quality`；显示名采用 P/E/Q 与 `PA · 个人助手`。PA ID 由产品生成并写入本轮清单。研发日常群为主人 + P/E/Q，PA 通过主人的来源权限观察。P 处理普通群交办，E/Q 采用 mention-only；所有角色避免无事附和，heartbeat 默认关闭，需要验证时在副本开启。
 2. **主模型和审核明确对齐生产。** P/E/Q 使用 `codexOAuth:gpt-6.1-sol / high`，PA 使用 `codexOAuth:gpt-6-astra / medium`，四者显式 `approval_mode: codex`、无备用主模型。审核固定 `codexOAuth:gpt-6-luna`；`low` 是当前 Guardian/输入审核的优先选择，不新增无效的审核 effort 配置字段。隔离 owner 配置明确 Auto enabled、Codex、无权限跳过，保留原默认拒绝处理。开发侧 reviewer 的模型表保持原契约。
 3. **daily 是开发流程的默认产品验收模板，低层回归入口保持。** 修改 orchestrator 两种入口、设计 runbook 指引和 reviewer 交接约定，要求常规产品验收使用 daily 并声明场景增量。`e2e-up.sh` 无参数仍保留 default，以免已有 automated test 的身份与工作模式变化。`--profile daily` 不与 `--main-config` 或 Feishu 合并；需要外部渠道时另起专用 profile 作为补充。
-4. **每次启动都拥有新的工作区基线。** daily 在 `.gateway-workspace/<node_id>/` 下建立 P/E/Q workspace 与共享 `project/`；动态 PA 同样使用该 workspace_base。同目录 down/up 不复用此前 Agent 的记忆或修改；保留旧目录只用于排障。模型覆盖环境变量只改变本轮工作模型，审核模型保持 Luna，清单反映实际工作模型及其默认 effort；覆盖时不把 Sol high 等固定 effort 错带给不支持的模型。
+4. **每次启动都拥有新的工作区和 owner 基线。** daily 在 `.gateway-workspace/<node_id>/` 下建立 P/E/Q workspace 与共享 `project/`；动态 PA 同样使用该 workspace_base。`NANO_OWNER_CONFIG_ROOT` 同步指向 `.gateway-owner/<node_id>/`，使全局 Skill、插件和 Auto 配置也属于本轮。同目录 down/up 不复用此前 Agent 的记忆、工作产物或 owner 全局 Skill；保留旧目录只用于排障。模型覆盖环境变量只改变本轮工作模型，审核模型保持 Luna，清单反映实际工作模型及其默认 effort；覆盖时不把 Sol high 等固定 effort 错带给不支持的模型。
 5. **只种固定资料和关系，启动不派发工作。** 示例项目为虚构的“轻记待办”，有背景、用户反馈和检查清单；E 可在共享项目写一个明确交办的产物，Q 读取实际产物核实。初始群和 PA 私聊为空，没有自动发消息、任务或模拟历史；不把 seed 成功等同于真实模型已验收。
 
 ## 接口与数据流
@@ -91,4 +91,4 @@ PA 的配置 PATCH 使用当前公开 config 与 `profile_version`，不从 Gate
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-daily-template | 固定模板、初始化、流程与验证 | 无 | 单 M1 | `config/e2e/daily/`、`scripts/e2e_daily.py`、`scripts/e2e-up.sh`、针对性 Python/真实栈测试、开发说明与相关 change skills | [reviewer] 首文档全部 Scenario 有真实产品证据；[worker] prepare/seed 失败与同根重新启动基线隔离有验证，公开 API 核对真实 PA、群成员和模型/审核配置，旧 default lifecycle 回归通过，相关 lint/docs 和本地 CI 通过 |
+| M1-daily-template | 固定模板、初始化、流程与验证 | 无 | 单 M1 | `config/e2e/daily/`、`scripts/e2e_daily.py`、`scripts/e2e-up.sh`、针对性 Python/真实栈测试、开发说明与相关 change skills | [reviewer] 首文档全部 Scenario 有真实产品证据；[worker] prepare/seed 失败与同根重新启动基线隔离有验证（覆盖共享项目改动及 owner 全局 Skill），公开 API 核对真实 PA、群成员和模型/审核配置，旧 default lifecycle 回归通过，相关 lint/docs 和本地 CI 通过 |
