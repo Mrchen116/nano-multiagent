@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: perf-651
+> 对齐: refactor-653
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -52,7 +52,7 @@ Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺�
 
 Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变用户可见正文的前提下，为送入 Agent 的每条新 user message 固定一个稀疏 context envelope。时间优先采用 Channel 提供的消息发生时间；来源没有合法时间时，采用 Gateway 同步接受该消息时一次固定的接收时间；已知用户时区时，两者都按该消息发生时固定的用户时区呈现为带 offset 的 ISO 时间；未获得用户时区时保留明确 UTC，不猜测用户所在地。入口按该条消息实际经过的 Channel 标为 `Web IM` 或 `Feishu`，不从共享 shadow conversation 推断，也不附加 Direct/Group、Bot ID、chat ID、host 或 IP。
 
-同一消息在 group buffer、normal submit、active steer、retry 和 history replay 中复用同一个固定 envelope；本 requirement 不改变 active steer 的接受、消费、持久化、失败处理或恢复语义。群聊继续保留既有 `[sender]`；模型侧新增 context 不写入 IM message body，也不进入 PA workspace 中供用户查看的简化聊天副本。PA 顶层会话的 system prompt 只保留稳定 timezone，不再把 session 创建时刻称为当前时间；动态时间只随新真人 user message 追加。Heartbeat、cron、subagent 与内部通知不获得真人消息 envelope；没有选择该行为的 Coding CLI 保持既有 prompt/message semantics。
+同一消息在 group buffer、normal submit、active steer、retry 和 history replay 中复用同一个固定 envelope；本 requirement 不改变 active steer 的接受、消费、持久化、失败处理或恢复语义。群聊继续保留既有 `[sender]`；模型侧新增 context 不写入 IM message body。PA 顶层会话的 system prompt 只保留稳定 timezone，不再把 session 创建时刻称为当前时间；动态时间只随新真人 user message 追加。Heartbeat、cron、subagent 与内部通知不获得真人消息 envelope；没有选择该行为的 Coding CLI 保持既有 prompt/message semantics。
 
 #### Scenario: 长会话中的新消息各自保留发生时间
 - **GIVEN** 用户在同一 PA 会话的不同时间先后发送两条真人消息
@@ -86,11 +86,6 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 #### Scenario: model envelope 不污染用户可见正文
 - **WHEN** 用户在 Web IM、飞书或 shadow conversation 查看、复制或搜索消息
 - **THEN** message body 仍是用户原文，不含模型侧 time/Channel prefix
-
-#### Scenario: workspace 可读聊天副本保持既有正文语义
-- **WHEN** PA 将一次真人 user input 写入 `.nanoassistant/chat_history/`
-- **THEN** user content 不含新增 time/Channel envelope
-- **AND** 群聊仍可保留变更前已有的 `[sender]` 投影
 
 #### Scenario: 功能启用前的旧历史不补造 context
 - **GIVEN** 既有 transcript 或 group buffer row 没有可靠 occurrence time/actual Channel marker
@@ -537,19 +532,6 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 - **WHEN** 整个节点失联、无法发出任何终态反馈
 - **THEN** IM 的 idle 看门狗在静默窗口后仍把该回复兜底翻为失败,避免其永久停在进行中
 
-### Requirement: PA 在 workspace 产品目录保留可读聊天副本
-
-Gateway 在每个 PA 会话的 user 或 assistant 文本进入其持久化投递路径时，向 `<workspace_root>/.nanoassistant/chat_history/<conversation-id>.jsonl` 追加一个简化 JSONL 条目。条目保留 `ts`、`role` 与文本 `content`，供用户在 workspace 中查看；它不替代内核 session transcript，也不作为会话恢复的唯一来源。Gateway 不在 workspace 根新建 `chat_history/`。
-
-#### Scenario: 用户与助手文本写入 PA 产品目录
-- **GIVEN** 一个 PA Agent 的 workspace 为代码仓目录，且用户完成一轮有 assistant 文本回复的聊天
-- **WHEN** Gateway 持久化该轮的简化聊天副本
-- **THEN** user 和 assistant 条目写入该 workspace 的 `.nanoassistant/chat_history/`，每项含 `ts`、`role`、`content`，workspace 根没有新建 `chat_history/`
-
-#### Scenario: 可读聊天副本不替代会话恢复记录
-- **WHEN** Gateway 在已有简化聊天副本后恢复该会话
-- **THEN** 仍从内核 session transcript 恢复上下文，而非把简化 JSONL 当作唯一恢复来源
-
 ### Requirement: 内置当前群运行在发言提交前复核已接受消息
 
 本条当前群上下文、插话和过程分段规则及 Scenario 适用于 `single_thread`。global 没有隐含当前群，其显式发送执行独立的目标群复核。全局模式对应行为以 [global-agent](global-agent.md) 为准。
@@ -639,20 +621,24 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 
 ### Requirement: 原生历史导出在完成边界提供完整派生副本
 
-节点自动维护 workspace 可读聊天副本，并在 `session.export` 请求时从原生持久会话生成完整原始 JSONL 快照。普通聊天轮次和启动恢复不再自动刷新原始文件。原始文件保留版本头、原生事件及 fork 继承前缀；可读副本保留文本、来源与图片占位，真人上下文 envelope 不重复进入正文。两者都是派生结果，不能替代原生会话记录。原始快照通过原子替换发布，消费者取得路径后延迟读取也不会因为后续聊天而看到半行；需要最新切面的消费者再次请求 `session.export`。直接读取正在追加的可读副本时可能遇到尚未完成的尾行。
+节点仅在 `session.export` 请求时从原生持久会话生成完整原始 JSONL 快照。普通聊天轮次、fork 和启动不自动生成或刷新导出文件；任何路径均不再维护 workspace 的 `.nanoassistant/chat_history/` 可读副本，已有副本原样保留。原始快照保留版本头、原生事件及 fork 继承前缀，不能替代原生会话记录。快照通过原子替换发布，消费者取得路径后延迟读取也不会因为后续聊天而看到半行；需要最新切面的消费者再次请求 `session.export`。
 
 #### Scenario: 连续轮次导出完整且不重复
 - **WHEN** 已结束多轮原生聊天，消费者请求 `session.export`
-- **THEN** 等待已排队导出完成后返回文件路径，文件包含已导出切面的完整事件序列且无重复；workspace 副本保留对应的全部可读消息
+- **THEN** 等待显式导出完成后返回文件路径，包含已导出切面的完整事件序列且无重复；workspace 不创建或更新可读副本
 
 #### Scenario: 延迟提炼读取完整原始快照
 - **WHEN** 提炼消费者取得原始文件路径后，源会话继续聊天或其他消费者再次导出
 - **THEN** 原路径始终指向完整原始 JSONL，读取不会遇到追加中的半行；要包含后续消息须再次请求导出
 
 #### Scenario: 分支导出包含自己的完整历史
-- **WHEN** 用户成功 fork 历史消息并继续分支会话
-- **THEN** 分支文件保留原生继承前缀和分支自己的后续消息，不混入源会话分支点后的内容
+- **WHEN** 用户成功 fork 历史消息、继续分支会话并显式导出
+- **THEN** 分支快照保留原生继承前缀和自己的后续消息，不混入源会话分支点后的内容
 
-#### Scenario: 派生写入失败后重建
-- **WHEN** 写入派生副本失败，或进程重启后恢复绑定会话
-- **THEN** 失败不能伪报成功导出；下一次导出尝试从原生历史重建完整副本，启动恢复重建可读副本，清除部分写入导致的重复或不完整尾行
+#### Scenario: 导出失败后显式重试
+- **WHEN** 原始快照写入失败
+- **THEN** 失败不能伪报成功；旧快照保持完整，下一次显式导出尝试从原生历史生成完整快照
+
+#### Scenario: 重启不维护旧可读副本
+- **WHEN** 节点启动并恢复已有会话，随后继续聊天或 fork
+- **THEN** 原生历史仍可恢复；缺少的 workspace 可读副本不创建，已有副本不重写也不删除

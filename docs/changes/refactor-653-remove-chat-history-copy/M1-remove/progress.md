@@ -14,3 +14,9 @@
 - 红测：`pnpm exec vitest run packages/dsh-integration/tests/history-export.test.ts -t 'does not generate'` 在旧实现失败：期望0，实际82字节，证明自动写入；日志 `/tmp/refactor-653-red.log`（本机临时证据，不提交）。
 - 修改后导出低层7/7通过；`pnpm build` 及 history/native-human-source/PA history 三文件6/6通过（日志 `/tmp/refactor-653-export-test.log`、`/tmp/refactor-653-native-test.log`）。最终队列释放简化后低层再次7/7通过，完整构建及本地 CI 后续统一执行。
 - 无生产服务；fixture 临时目录和子进程由 finally 清理。未新增永久测试文件或调整超时。
+
+## 独立门禁与 canonical 归并
+
+- 受审实现 head `72b2ddb001792f1862764b51ba0d68f5179c61c0`；base `c097a63219d5d303526c2ede583df39b6f81ff9d`。代码审查 findings=[]；verifier Pass（0 CRITICAL/WARNING/SUGGESTION），corrected-delta aligned；产品真实 RPC 验收 pass（0 issues）。详见 unit 对应报告。
+- 产品验收在最终受审版本重新 `pnpm build` 通过；完整 CI 复用该构建，继续 typecheck/后端/Python/Web 等检查。
+- 按已校正 delta 机械替换两项 requirement、删除一项；入口摘要改为按需原始历史导出，计数23→22。历史 change archive 和评测题库不改写。报告后无源码/测试变化，canonical 归并不使实现验收失效。
