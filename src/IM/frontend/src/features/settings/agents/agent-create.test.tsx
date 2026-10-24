@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
+  getNodeApprovalRulesMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
+  getNodeApprovalRules: apiMocks.getNodeApprovalRulesMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
   listNodes: apiMocks.listNodesMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -71,6 +73,7 @@ function renderCreatePage() {
 
 afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
+  apiMocks.getNodeApprovalRulesMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
@@ -79,6 +82,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  apiMocks.getNodeApprovalRulesMock.mockResolvedValue({inherited_approval_rules: "codex"});
   apiMocks.listAgentSummariesMock.mockResolvedValue([]);
 });
 
@@ -233,10 +237,10 @@ describe("agent create page", () => {
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
     if (workMode === "global") {
-      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.click(screen.getByRole("radio", { name: /Global mode/ }));
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-2");
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-1");
-      expect(screen.getByRole("radio", { name: /Global · Experimental/ })).toBeChecked();
+      expect(screen.getByRole("radio", { name: /Global mode/ })).toBeChecked();
     }
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
@@ -249,7 +253,7 @@ describe("agent create page", () => {
     await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");
 
     if (workMode === "global") {
-      await user.click(screen.getByRole("radio", { name: /Global · Experimental/ }));
+      await user.click(screen.getByRole("radio", { name: /Global mode/ }));
       for (const tool of ["inbox", "conversations", "send_message", "subagent"]) expect(screen.getByRole("button", { name: tool })).toHaveAttribute("aria-pressed", "true");
       await user.click(screen.getByRole("button", { name: "subagent" }));
       expect(screen.getByRole("button", { name: "subagent" })).toHaveAttribute("aria-pressed", "true");
@@ -611,7 +615,7 @@ describe("agent create page", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent(/Confirming the previous save/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Confirming save/i);
     expect(screen.getByLabelText(/^Agent ID/)).toHaveValue("pending-agent");
     expect(screen.getByLabelText("Reasoning effort")).toHaveValue("high");
     for (const button of screen.getAllByRole("button", { name: /Create agent/i })) {

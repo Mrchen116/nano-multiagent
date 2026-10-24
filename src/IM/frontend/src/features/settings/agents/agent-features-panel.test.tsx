@@ -1,8 +1,10 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {AgentConfigRequestError} from "./im-agent-config-api";
 
 const apiMocks = vi.hoisted(() => ({
   getAgentDetailState: vi.fn(),
@@ -96,6 +98,8 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON): AgentDetailState {
       platform_default_model: null,
       features: [feature],
     },
+    ready: true, liveCapabilities: true, pendingOperation: null,
+    display: {source: "current", captured_at: null, data: null, error: null},
     owningNode: null,
   };
 }
@@ -197,7 +201,7 @@ it("saves a single Goal tool without a feature or selecting its siblings", async
   await user.click(pill('get_goal'));
   expect(pill('create_goal')).toHaveAttribute('aria-pressed', 'false');
   expect(pill('update_goal')).toHaveAttribute('aria-pressed', 'false');
-  await user.click(screen.getByRole('button', {name:/^Save$/i}));
+  await user.click(screen.getByRole('button', {name:/^Save Agent$/i}));
   await waitFor(() => expect(apiMocks.updateAgentConfig).toHaveBeenCalledWith('agent-1', expect.objectContaining({features:{},tool_allowlist:['get_goal']})));
 });
 
@@ -241,7 +245,7 @@ it("restores a rejected capability and retains other draft changes", async () =>
   const state = agentState(HEARTBEAT);
   state.config.features = { heartbeat: true };
   apiMocks.getAgentDetailState.mockResolvedValue(state);
-  apiMocks.updateAgentConfig.mockRejectedValue(Object.assign(new Error("busy"), { blocks: [{ code: "capability_busy", target: {kind: "feature", name: "heartbeat"} }] }));
+  apiMocks.updateAgentConfig.mockRejectedValue(new AgentConfigRequestError({status: 409, method: "PATCH", path: "/config", detail: "busy", blocks: [{ code: "capability_busy", target: {kind: "feature", name: "heartbeat"} }] }));
   renderDetail();
   await screen.findByRole("heading", { name: "Settings Agent" });
   const name = screen.getByLabelText(/Display name/i);
@@ -250,7 +254,7 @@ it("restores a rejected capability and retains other draft changes", async () =>
   const toggle = document.querySelector<HTMLInputElement>('[data-feature-key="heartbeat"]')!;
   await userEvent.click(toggle);
   await waitFor(() => expect(toggle).not.toBeChecked());
-  await userEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+  await userEvent.click(screen.getByRole("button", { name: /^Save Agent$/i }));
   await waitFor(() => expect(toggle).toBeChecked());
   expect(name).toHaveValue("Edited name");
   expect(screen.getByRole("status")).toBeInTheDocument();

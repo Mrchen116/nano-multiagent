@@ -1,10 +1,10 @@
 import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
 import { registerControlRoutes } from '../src/control.js';
-import { fixture } from './control-fixture.js';
+import { fixture, connectFixtureGateway } from './control-fixture.js';
 
 it('routes plugin management only for the owner and rejects client supplied scope', async () => {
-  const {ctx}=fixture();
+  const {ctx,db}=fixture(); connectFixtureGateway({ctx,db});
   const view={workspace:'/agent',entries:[{name:'report-style',enabled:true,rows:[]}]};
   const request=vi.fn(async()=>({plugins:view})); ctx.gateway.request=request;
   const app=Fastify(); registerControlRoutes(app,ctx);

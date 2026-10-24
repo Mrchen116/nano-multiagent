@@ -161,7 +161,7 @@ describe("getAgentConfig source selection", () => {
     await getAgentConfig("a1");
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/config?source=mirror",
-      expect.anything(),
+      undefined,
     );
   });
 
@@ -169,7 +169,7 @@ describe("getAgentConfig source selection", () => {
     await getAgentConfig("a1", "live");
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/config?source=live",
-      expect.anything(),
+      undefined,
     );
   });
 });
@@ -334,7 +334,7 @@ describe("getAgentSkillsUsage", () => {
 
     expect(mockedFetch).toHaveBeenCalledWith(
       "/im/v1/agents/a1/skills/usage",
-      expect.anything(),
+      undefined,
     );
     expect(usage.skills[0].name).toBe("deploy-check");
     expect(usage.skills[0].use_count).toBe(3);
@@ -420,4 +420,15 @@ it("preserves structured capability blocks for draft recovery", async () => {
   const blocks = [{ code: "active_tasks", target: {kind: "feature", name: "task_graph"} }];
   vi.mocked(authFetch).mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code: "active_tasks", message: "Tasks still need this capability", blocks } }), { status: 409 }));
   await expect(updateAgentConfig("a1", { ...BASE_RAW, features: {task_graph: false} } as never)).rejects.toMatchObject({ code: "active_tasks", blocks });
+});
+
+it("does not declare a JSON body for bodyless channel actions", async () => {
+  vi.mocked(authFetch).mockImplementation(async () => new Response("{}", {status: 200}));
+  await reconnectAgentChannel("a1", "c1");
+  await deleteAgentChannel("a1", "c1", 1);
+  await retryAgentChannelRemoval("a1", "c1");
+  for (const [, init] of vi.mocked(authFetch).mock.calls.slice(-3)) {
+    expect(init?.body).toBeUndefined();
+    expect(new Headers(init?.headers).has("content-type")).toBe(false);
+  }
 });

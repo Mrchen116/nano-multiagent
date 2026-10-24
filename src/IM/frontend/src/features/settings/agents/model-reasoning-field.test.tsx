@@ -81,7 +81,7 @@ describe("ModelReasoningField", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText(/does not expose configurable reasoning settings/i)).toBeInTheDocument();
+    expect(screen.getByText(/Not configurable/i)).toBeInTheDocument();
 
     await act(async () => {
       await i18n.changeLanguage("zh");
@@ -95,7 +95,7 @@ describe("ModelReasoningField", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText("始终开启思考，由模型决定")).toBeInTheDocument();
+    expect(screen.getByText("始终开启 · 模型管理")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "推理强度" })).not.toBeInTheDocument();
   });
 

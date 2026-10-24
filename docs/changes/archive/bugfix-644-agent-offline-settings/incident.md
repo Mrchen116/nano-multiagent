@@ -80,24 +80,24 @@ Agent 解读及已确认结论：
 
 ### 直接原因与代码依据
 
-1. [im-agent-config-api.ts](../../../src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts) 的 `getAgentDetailState` 在能力请求失败时，用配置中的模型、skills、tools 生成降级数据，不保留“实时能力未取得”这一独立语义；`toCapabilitySnapshot` 将缺失 Features 转为空列表。降级数据混入正常能力目录路径。
-2. [model-reasoning-field.tsx](../../../src/IM/frontend/src/features/settings/agents/model-reasoning-field.tsx) 的 `isStaleReasoningEffort` 把缺失 descriptor 与真实不支持都判成 stale；组件据此展示错误和移除按钮。它无法区分“已取得当前目录且不支持”与“离线、尚未取得目录”。
-3. [agent-detail-page.tsx](../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx) 根据目录决定 Features 是否渲染，多数编辑项和保存入口不使用统一的在线可用性条件；[agent-status-ws-consumer.ts](../../../src/IM/frontend/src/features/settings/agents/agent-status-ws-consumer.ts) 的状态事件只更新 config 的在线标记，不在该路径刷新能力或重新确认操作条件。
-4. [control.ts](../../../apps/im-server/src/control.ts) 的配置更新先记录候选 operation，再向 Gateway 请求应用；离线无结果时进入待确认。能力、预览、插件等读取需节点 RPC，定时任务读取失败则返回空数组。缺少统一区分最后确认值、当前不可达和真实空结果的产品语义。
-5. [agent-channels-panel.tsx](../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx) 已区分部分 last-known 状态，但编辑、启停、删除等操作仍可使用；[channels.ts](../../../apps/im-server/src/channels.ts) 先保存期望变更再尝试推送，新增／编辑／删除不以节点可达为前提。渠道离线可写与配置页面的节点确认路径并存。
-6. [personal-agent-settings.tsx](../../../src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx) 和 [personal-agent-blocked-contacts.tsx](../../../src/IM/frontend/src/features/personal-agent/personal-agent-blocked-contacts.tsx) 在同一配置页内独立提交设置，目前没有接入页面离线只读状态。
+1. [im-agent-config-api.ts](../../../../src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts) 的 `getAgentDetailState` 在能力请求失败时，用配置中的模型、skills、tools 生成降级数据，不保留“实时能力未取得”这一独立语义；`toCapabilitySnapshot` 将缺失 Features 转为空列表。降级数据混入正常能力目录路径。
+2. [model-reasoning-field.tsx](../../../../src/IM/frontend/src/features/settings/agents/model-reasoning-field.tsx) 的 `isStaleReasoningEffort` 把缺失 descriptor 与真实不支持都判成 stale；组件据此展示错误和移除按钮。它无法区分“已取得当前目录且不支持”与“离线、尚未取得目录”。
+3. [agent-detail-page.tsx](../../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx) 根据目录决定 Features 是否渲染，多数编辑项和保存入口不使用统一的在线可用性条件；[agent-status-ws-consumer.ts](../../../../src/IM/frontend/src/features/settings/agents/agent-status-ws-consumer.ts) 的状态事件只更新 config 的在线标记，不在该路径刷新能力或重新确认操作条件。
+4. [control.ts](../../../../apps/im-server/src/control.ts) 的配置更新先记录候选 operation，再向 Gateway 请求应用；离线无结果时进入待确认。能力、预览、插件等读取需节点 RPC，定时任务读取失败则返回空数组。缺少统一区分最后确认值、当前不可达和真实空结果的产品语义。
+5. [agent-channels-panel.tsx](../../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx) 已区分部分 last-known 状态，但编辑、启停、删除等操作仍可使用；[channels.ts](../../../../apps/im-server/src/channels.ts) 先保存期望变更再尝试推送，新增／编辑／删除不以节点可达为前提。渠道离线可写与配置页面的节点确认路径并存。
+6. [personal-agent-settings.tsx](../../../../src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx) 和 [personal-agent-blocked-contacts.tsx](../../../../src/IM/frontend/src/features/personal-agent/personal-agent-blocked-contacts.tsx) 在同一配置页内独立提交设置，目前没有接入页面离线只读状态。
 
 ### 为什么现有保护未覆盖
 
-- [agent-edit.test.tsx](../../../src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx) 的 `keeps the settings form usable when live capabilities are unavailable` 用缺失推理强度的配置，mock 能力 503 但 PATCH 成功，刻意保护“能力失败仍可编辑保存”的旧行为，未覆盖截图中非空强度的场景。
-- [model-reasoning-field.test.tsx](../../../src/IM/frontend/src/features/settings/agents/model-reasoning-field.test.tsx) 保护真实不支持时的错误与清除流程，但未区分离线导致的 descriptor 缺失。
-- [agent-channels-panel.test.tsx](../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx) 明确测试离线期望变更进入 pending，符合旧渠道契约；本次不能只新增禁用按钮测试而继续保留相反的提交行为。
+- [agent-edit.test.tsx](../../../../src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx) 的 `keeps the settings form usable when live capabilities are unavailable` 用缺失推理强度的配置，mock 能力 503 但 PATCH 成功，刻意保护“能力失败仍可编辑保存”的旧行为，未覆盖截图中非空强度的场景。
+- [model-reasoning-field.test.tsx](../../../../src/IM/frontend/src/features/settings/agents/model-reasoning-field.test.tsx) 保护真实不支持时的错误与清除流程，但未区分离线导致的 descriptor 缺失。
+- [agent-channels-panel.test.tsx](../../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx) 明确测试离线期望变更进入 pending，符合旧渠道契约；本次不能只新增禁用按钮测试而继续保留相反的提交行为。
 - 综合根因是配置、能力与运行信息缺少一致的时效和可操作性契约，各区域各自降级。没有调查最初引入 commit 或历史审查过程，不归责于某次提交或审查。
 
 ### 与 current 文档的关系
 
-- [产品定位](../../product/vision.md) 要求稳定 Agent 身份、本地执行与节点自治；[Web IM 原则](../../product/web-im-principles.md) 要求操作前说明可用性、保留未完成输入、不猜测能力及区分配置与运行状态。本 unit 将这些原则落实为一致的页面体验。
-- [agents-nodes.md](../../specs/im/agents-nodes.md) 当前要求 runtime 能力按需解析且不持久化目录。本 unit 要求跨页面重新打开仍能展示最后确认的信息；如何满足、哪些展示信息需要保留由 design 决定，不能用旧实现约束否定需求，也不要求持久化全部候选目录。
+- [产品定位](../../../product/vision.md) 要求稳定 Agent 身份、本地执行与节点自治；[Web IM 原则](../../../product/web-im-principles.md) 要求操作前说明可用性、保留未完成输入、不猜测能力及区分配置与运行状态。本 unit 将这些原则落实为一致的页面体验。
+- [agents-nodes.md](../../../specs/im/agents-nodes.md) 当前要求 runtime 能力按需解析且不持久化目录。本 unit 要求跨页面重新打开仍能展示最后确认的信息；如何满足、哪些展示信息需要保留由 design 决定，不能用旧实现约束否定需求，也不要求持久化全部候选目录。
 - 同一 current 文档明确允许外部渠道离线修改并自动应用，且定时任务离线读取可返回空列表。本 unit 分别改为“禁止新离线变更”及“未知不冒充空”，必须在实施完成后归并对应契约，当前不提前覆盖。
 
 ## 修复方向与验收标准

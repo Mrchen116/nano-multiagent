@@ -368,9 +368,16 @@ struct AgentTextSheet: View {
     }
 }
 
+/// Distinguish a saved-state conflict from a node availability precondition.
+func isAgentStateConflict(_ error: Error) -> Bool {
+    guard let failure = error as? APIError else { return false }
+    return failure.status == 409 && failure.code != "agent_node_offline"
+}
+
 func agentError(_ error: Error) -> String {
     if let error = error as? APIError {
         if error.code == "config_apply_pending" { return L("已提交，等待节点确认。请重读状态，勿重复保存。", "Submitted; waiting for the node. Reload status before saving again.") }
+        if error.code == "agent_node_offline" { return L("所属电脑离线，草稿已保留，请恢复连接后重试。", "The computer is offline. Your draft is preserved; reconnect before trying again.") }
         if error.status == 409 { return L("状态冲突；草稿已保留，请重读并核对。", "State conflict; draft preserved. Reload and review.") + "\n" + error.detail }
         if error.status == 403 || error.status == 404 { return L("当前账号无法访问，或资源已移除。", "This account cannot access the resource, or it was removed.") + "\n" + error.detail }
     }

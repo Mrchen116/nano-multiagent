@@ -79,3 +79,8 @@
 .pa-blocked-heading button { flex-shrink:0; }
 .pa-blocked-person .pa-privacy-reason { margin-left:37px; }
 .pa-blocked-person .pa-privacy-evidence { margin-left:37px; }
+
+.pa-dialog { padding: 20px; border-radius: 10px; }
+.pa-dialog h2 { font-size: 17px; font-weight: 650; }
+.pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 34px; padding: 6px 11px; border-radius: 6px; font-size: 13px; }
+@media(max-width:767px) { .pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 42px; } }

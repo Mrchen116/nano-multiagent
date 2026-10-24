@@ -25,7 +25,7 @@ describe("skill source selector", () => {
       />,
     );
 
-    expect(screen.getByTestId("skills-mode")).toHaveTextContent(/discoverable/i);
+    expect(screen.getByTestId("skills-mode")).toHaveTextContent(/discovered/i);
     expect(screen.getByRole("button", { name: "local-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "local-a" }));
     expect(onChange).toHaveBeenCalledWith(
@@ -112,4 +112,11 @@ it('keeps new skills selected and persists only disabled names, including hidden
   expect(screen.getByRole('button', {name: 'local-b'})).toHaveClass('bg-[oklch(0.93_0.08_180)]');
   await user.click(screen.getByRole('button', {name: 'local-b'}));
   expect(onChange).toHaveBeenCalledWith(['local-a', 'hidden-disabled', 'local-b'], 'explicit_denylist');
+});
+
+it("does not present unconfirmed inherited skill state as enabled", () => {
+  render(<SkillSourceSelector testId="skills" label="Skills" selected={[]} selectionMode="default_discovery" options={[{name: "old-skill", description: "", source_group: "global", enabled: null}]} readOnly onChange={vi.fn()} />);
+  expect(screen.getByRole("button", {name: "old-skill"})).not.toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("checkbox")).toHaveAttribute("aria-checked", "mixed");
+  expect(screen.getByText("—/1")).toBeInTheDocument();
 });

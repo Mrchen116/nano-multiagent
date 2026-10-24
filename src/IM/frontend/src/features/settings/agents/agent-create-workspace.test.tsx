@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
+  getNodeApprovalRulesMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
@@ -14,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
+  getNodeApprovalRules: apiMocks.getNodeApprovalRulesMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
   listNodes: apiMocks.listNodesMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -52,6 +54,7 @@ function renderCreatePage() {
 }
 
 beforeEach(() => {
+  apiMocks.getNodeApprovalRulesMock.mockResolvedValue({inherited_approval_rules: "codex"});
   apiMocks.listAgentSummariesMock.mockResolvedValue([]);
   apiMocks.listNodesMock.mockResolvedValue([
     {
@@ -256,4 +259,18 @@ describe("agent create workspace selection", () => {
     );
     expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it("confirms inheritance for the selected workspace and clears the previous label while changing it", async () => {
+  const user = userEvent.setup();
+  apiMocks.getNodeApprovalRulesMock.mockImplementation(async (_node: string, path: string) => ({inherited_approval_rules: path === "/srv/custom-cc" ? "nano" : "codex"}));
+  renderCreatePage();
+  await fillIdentity("approval-check");
+  await screen.findByRole("option", {name: "Follow node (Codex)"});
+  expect(apiMocks.getNodeApprovalRulesMock).toHaveBeenCalledWith("node-1", "/srv/agents/approval-check");
+  await selectCustomPath(user, "/srv/custom-cc");
+  expect(screen.getByRole("option", {name: /Follow node/})).toHaveTextContent("strategy unconfirmed");
+  await screen.findByRole("option", {name: "Follow node (CC)"});
+  expect(apiMocks.getNodeApprovalRulesMock).toHaveBeenCalledWith("node-1", "/srv/custom-cc");
 });

@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -6,6 +7,7 @@ import { afterEach, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
+  isMobileMock: vi.fn(() => false),
   updateAgentConfigMock: vi.fn(),
   createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
@@ -34,12 +36,13 @@ vi.mock("react-router-dom", async () => {
 vi.mock("./public-agents", () => ({ listPublicAgents: apiMocks.listAgentSummariesMock }));
 
 vi.mock("../../chat/chat-api", () => ({
+  listConversations: vi.fn().mockResolvedValue([]),
   createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock
 }));
 
 vi.mock("../../../hooks/use-is-mobile", () => ({
-  useIsMobile: () => false
+  useIsMobile: apiMocks.isMobileMock
 }));
 
 vi.mock("./im-agent-config-api", async () => ({
@@ -54,6 +57,7 @@ vi.mock("./im-agent-config-api", async () => ({
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
   getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
   getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock,
+  getAgentSettingsSection: async (agentId: string, section: string) => ({source: "current", captured_at: null, error: null, data: await (section === "cron" ? apiMocks.listAgentCronJobsMock(agentId) : apiMocks.getAgentSkillsUsageMock(agentId))}),
   listAgentChannels: apiMocks.listAgentChannelsMock,
   createAgentChannel: apiMocks.createAgentChannelMock,
   updateAgentChannel: apiMocks.updateAgentChannelMock
@@ -101,6 +105,7 @@ afterEach(() => {
 
 // Default listAgentSummaries/listNodes so the desktop rail (R12-bis-1) doesn't break tests.
 beforeEach(() => {
+  apiMocks.isMobileMock.mockReturnValue(false);
   apiMocks.listAgentChannelsMock.mockResolvedValue([]);
   apiMocks.listNodesMock.mockResolvedValue([]);
   apiMocks.listAgentSummariesMock.mockResolvedValue([
@@ -138,6 +143,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -189,6 +196,22 @@ describe("agent detail page", () => {
     };
   }
 
+  it("retains an open channel draft when the viewport crosses the mobile breakpoint", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const view = renderDetailPage(client);
+    await screen.findByDisplayValue("Core Planner");
+    await user.click(screen.getByRole("button", {name: "Channels"}));
+    await user.click(await screen.findByRole("button", {name: "Connect channel"}));
+    await user.click(screen.getByRole("button", {name: /Feishu/}));
+    await user.type(screen.getByLabelText("App ID"), "draft-app-id");
+    apiMocks.isMobileMock.mockReturnValue(true);
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><AgentDetailPage /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("App ID")).toHaveValue("draft-app-id");
+  });
+
   it("protects an edited configuration when opening the personal assistant from the rail", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
@@ -217,7 +240,7 @@ describe("agent detail page", () => {
     const name = await screen.findByDisplayValue("Core Planner");
     await user.clear(name);
     await user.type(name, "My edited assistant");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save Agent" }));
     expect(await screen.findByTestId("agent-save-error")).toHaveTextContent("Server response unavailable");
     expect(name).toHaveValue("My edited assistant");
     expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1);
@@ -239,12 +262,12 @@ describe("agent detail page", () => {
     expect(screen.getByRole("button", { name: "通道" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "会话" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "概览" }));
-    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
-    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "概览" })).toHaveTextContent("agent-core-1");
+    expect(screen.getByRole("button", { name: "编辑设置" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "通道" }));
     expect(screen.getByRole("heading", { name: "外部通道" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "会话" }));
-    expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /相关聊天/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "技能" }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
@@ -287,9 +310,9 @@ describe("agent detail page", () => {
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Capabilities" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /View skill statistics/i }));
+    await user.click(screen.getByRole("button", { name: /View skill activity/i }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
     expect(await screen.findByTestId("agent-skills-usage-panel")).toBeInTheDocument();
@@ -307,31 +330,31 @@ describe("agent detail page", () => {
     await user.click(screen.getByRole("button", { name: "Skills" }));
     await screen.findByText("deploy-check");
 
-    await user.click(screen.getByRole("button", { name: "Agent 维度" }));
-    expect(screen.getByText("使用热力图")).toBeInTheDocument();
-    expect(screen.getByText(/次 · 最近 30 天 · 悬停查看/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent activity" }));
+    expect(screen.getByText("Usage activity")).toBeInTheDocument();
+    expect(screen.getByText(/uses · last 30 days/)).toBeInTheDocument();
     expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
     expect(screen.getByText("Less")).toBeInTheDocument();
     expect(screen.getByText("More")).toBeInTheDocument();
     expect(screen.getByText("Mon")).toBeInTheDocument();
     expect(screen.getByText("Wed")).toBeInTheDocument();
     expect(screen.getByText("Fri")).toBeInTheDocument();
-    expect(screen.getByText("自动创建的 Skill")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
+    expect(screen.getByText("Agent-created skills")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Uses" })).toBeInTheDocument();
     const contributionCells = screen.getAllByLabelText(/skill uses/);
     await user.hover(contributionCells[contributionCells.length - 1]);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
     await user.unhover(contributionCells[contributionCells.length - 1]);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "自进化健康度" }));
-    expect(screen.getByText("自进化存活率")).toBeInTheDocument();
-    expect(screen.getByText("自动创建总数")).toBeInTheDocument();
-    expect(screen.getByText("still active")).toBeInTheDocument();
-    expect(screen.getByText("use_count > 0")).toBeInTheDocument();
-    expect(screen.getAllByText(/存活率/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("生命周期时间线")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "首次使用" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skill health" }));
+    expect(screen.getByText("Skill retention")).toBeInTheDocument();
+    expect(screen.getAllByText("Created").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Used")).toBeInTheDocument();
+    expect(screen.getAllByText(/Retention/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Lifecycle")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "First used" })).toBeInTheDocument();
     expect(screen.getAllByText("2").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("1")).toBeInTheDocument();
   });
@@ -364,7 +387,8 @@ describe("agent detail page", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
     await user.click(screen.getByRole("button", { name: "Skills" }));
-    expect(await screen.findByText(/Gateway offline/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Refresh failed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
   });
 
   it("opens the canonical direct chat for the current agent", async () => {
@@ -414,6 +438,8 @@ describe("agent detail page", () => {
         model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -433,8 +459,8 @@ describe("agent detail page", () => {
 
     expect(await screen.findByRole("heading", { name: "Core Planner" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Instructions & behavior" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Capabilities" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open chat/i })).toBeInTheDocument();
 
@@ -484,6 +510,8 @@ describe("agent detail page", () => {
         ],
         platform_default_model: "kimiCoding:K2.6",
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -538,6 +566,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     });
     apiMocks.listAgentsMock.mockResolvedValue([
@@ -597,6 +627,8 @@ describe("agent detail page", () => {
         model_options: [],
         platform_default_model: null,
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     });
     apiMocks.listAgentsMock.mockResolvedValue([
@@ -724,7 +756,7 @@ describe("agent behavior settings", () => {
         node_status: "online",
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
-        tools: [{ name: "memory", description: "Memory tool" }],
+        tools: [{ name: "memory", description: "Memory tool" }, ...Array.from(new Set((overrides.features ?? []).flatMap(f => f.requires.tools))).filter(name => name !== "memory").map(name => ({name, description: "Required feature tool"}))],
         model_options: [],
         platform_default_model: null,
         features: overrides.features ?? [
@@ -732,6 +764,8 @@ describe("agent behavior settings", () => {
           { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires: { features: [], tools: ["skill_manage"], skills: [] } }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }
@@ -747,7 +781,11 @@ describe("agent behavior settings", () => {
     const user = userEvent.setup();
     const state = makeDetailState({features: [{key: "intelligent_ui", label_i18n: "feature.intelligent_ui.label", help_i18n: "feature.intelligent_ui.help", default_on: true, available: true, requires: { features: [], tools: ["send_message"], skills: [] }}]});
     apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
-    apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, features: {intelligent_ui: false}});
+    apiMocks.updateAgentConfigMock.mockImplementation(async () => {
+      const config = {...state.config, features: {intelligent_ui: false}};
+      apiMocks.getAgentDetailStateMock.mockResolvedValue({...state, config});
+      return config;
+    });
     renderDetailPage();
     const toggle = await screen.findByRole("checkbox", {name: /Intelligent UI/i});
     expect(toggle).toBeChecked();
@@ -861,6 +899,8 @@ describe("agent prompt preview", () => {
         platform_default_model: null,
         features: [memoryCapFeature]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }
@@ -1025,6 +1065,8 @@ describe("feature tool linkage with an empty allowlist", () => {
           }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
 
@@ -1092,6 +1134,8 @@ describe("feature tool linkage with an empty allowlist", () => {
           }
         ]
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
 
@@ -1173,6 +1217,8 @@ describe("explicit empty tool allowlist", () => {
         platform_default_model: null,
         features: []
       },
+      ready: true, liveCapabilities: true, pendingOperation: null,
+      display: {source: "current", captured_at: null, data: null, error: null},
       owningNode: null
     };
   }

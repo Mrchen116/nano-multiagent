@@ -135,7 +135,7 @@ struct AgentConfigView: View {
             if let blocks = (error as? APIError)?.blocks, let block = blocks.first, let capabilities {
                 draft.restoreCapabilities(blocks, capabilities: capabilities)
                 capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
-            } else { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && (error as? APIError)?.status == 409 }
+            } else { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && isAgentStateConflict(error) }
         }
     }
     private func reconcile() async {

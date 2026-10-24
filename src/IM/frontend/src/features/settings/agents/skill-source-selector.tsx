@@ -25,7 +25,9 @@ interface SkillSourceSelectorProps {
   selected: string[];
   selectionMode: SelectionMode;
   options: AgentAllowlistOption[];
+  discoveryConfirmed?: boolean;
   workspaceRoot?: string | null;
+  readOnly?: boolean;
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
@@ -38,8 +40,10 @@ export function SkillSourceSelector({
   selected,
   selectionMode,
   options,
+  discoveryConfirmed = true,
   workspaceRoot = "",
   isLoading = false,
+  readOnly = false,
   errorMessage = null,
   onRetry,
   onChange
@@ -56,7 +60,8 @@ export function SkillSourceSelector({
 
   const disabled = selectionMode === "explicit_denylist" ? selected
     : selectionMode === "explicit_allowlist" ? options.map(option => option.name).filter(name => !selected.includes(name)) : [];
-  const effectiveSelected = options.map(option => option.name).filter(name => !disabled.includes(name));
+  const isUnknown = (option: AgentAllowlistOption) => readOnly && option.enabled === null;
+  const effectiveSelected = options.filter(option => !isUnknown(option)).map(option => option.name).filter(name => !disabled.includes(name));
 
   function toggle(name: string) {
     onChange(disabled.includes(name) ? disabled.filter(item => item !== name) : [...disabled, name], "explicit_denylist");
@@ -72,7 +77,7 @@ export function SkillSourceSelector({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Label.Root>{label}</Label.Root>
         <span className="text-[11px] text-slate-500" data-testid={`${testId}-mode`}>
-          {selectionMode === "default_discovery"
+          {(!discoveryConfirmed && selectionMode !== "explicit_allowlist") || options.some(isUnknown) ? t("agents.settings.featureUnknown") : selectionMode === "default_discovery"
             ? t("agents.form.access.skillsDefaultDiscovery")
             : t("agents.form.access.skillsExplicitCount", { count: effectiveSelected.length })}
         </span>
@@ -93,7 +98,9 @@ export function SkillSourceSelector({
         <div data-testid={testId} className="grid gap-3" role="group" aria-label={label}>
           {groups.map((group) => {
             const selectedCount = group.options.filter((option) => effectiveSelected.includes(option.name)).length;
-            const allSelected = selectedCount === group.options.length;
+            const unknown = group.options.some(isUnknown);
+            const countLabel = unknown ? "—" : selectedCount;
+            const allSelected = !unknown && selectedCount === group.options.length;
             const partiallySelected = selectedCount > 0 && !allSelected;
             const actionLabel = allSelected
               ? t("agents.form.access.skillsGroupClear")
@@ -105,13 +112,14 @@ export function SkillSourceSelector({
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <div className="flex items-baseline gap-2 text-[11px] text-slate-500">
                     <span className="font-semibold uppercase tracking-[0.08em]">{group.label}</span>
-                    <span className="font-mono">{selectedCount}/{group.options.length}</span>
+                    <span className="font-mono">{countLabel}/{group.options.length}</span>
                   </div>
                   <button
                     type="button"
                     role="checkbox"
-                    aria-checked={partiallySelected ? "mixed" : allSelected}
-                    aria-label={`${group.label}: ${selectedCount}/${group.options.length}, ${actionLabel}`}
+                    aria-checked={unknown || partiallySelected ? "mixed" : allSelected}
+                    aria-label={`${group.label}: ${countLabel}/${group.options.length}, ${actionLabel}`}
+                    disabled={readOnly}
                     data-skill-group={group.key}
                     data-state={allSelected ? "all" : partiallySelected ? "partial" : "none"}
                     onClick={() => toggleGroup(group.options.map((option) => option.name), allSelected)}
@@ -121,7 +129,7 @@ export function SkillSourceSelector({
                       aria-hidden="true"
                       className={
                         "grid h-[15px] w-[15px] place-items-center rounded border text-[10px] leading-none " +
-                        (selectedCount > 0
+                        (!unknown && selectedCount > 0
                           ? "border-teal-600 bg-teal-600 text-white"
                           : "border-slate-400 bg-white")
                       }
@@ -138,6 +146,7 @@ export function SkillSourceSelector({
                       <button
                         key={`${group.key}:${opt.location ?? opt.name}`}
                         type="button"
+                        disabled={readOnly}
                         data-pill-name={opt.name}
                         aria-pressed={isOn}
                         title={opt.description || opt.location || opt.name}

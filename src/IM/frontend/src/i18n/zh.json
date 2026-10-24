@@ -325,11 +325,11 @@
       "unavailable": "暂时无法确认能力状态，请稍后再试"
     },
     "configure": "配置",
-    "paSettingUp": "个人助手正在设置，请稍后重试。",
+    "paSettingUp": "助手设置中",
     "selectTitle": "选择一个 Agent",
     "selectBody": "从左侧选择 Agent，查看和编辑它的配置。",
     "title": "Agents",
-    "newButton": "+ 新建",
+    "newButton": "创建 Agent",
     "loadError": "无法加载 Agent 列表。",
     "retry": "重试",
     "openNodes": "前往节点",
@@ -344,17 +344,17 @@
     "detail": {
       "selectPrompt": "选择一个 Agent",
       "selectHint": "选择一个 Agent 以查看或编辑其配置。",
-      "openChat": "打开聊天 ↗",
+      "openChat": "打开聊天",
       "openChatPending": "正在打开直聊…",
       "saveAgent": "保存 Agent",
       "save": "保存",
       "saving": "保存中…",
-      "saved": "✓ 已保存",
+      "saved": "已保存",
       "noChanges": "无改动",
-      "unsavedChanges": "● 有未保存改动",
-      "discard": "放弃",
+      "unsavedChanges": "未保存",
+      "discard": "放弃修改",
       "version": "v{{version}}",
-      "loading": "加载 Agent 配置中...",
+      "loading": "正在读取 Agent…",
       "sections": {
         "navLabel": "Agent 详情分区",
         "work": "工作",
@@ -427,7 +427,7 @@
         "appSecret": "请输入 App Secret"
       },
       "actions": {
-        "add": "添加通道",
+        "add": "连接通道",
         "edit": "编辑",
         "close": "关闭",
         "cancel": "取消",
@@ -442,7 +442,7 @@
       },
       "offline": {
         "title": "节点当前离线",
-        "detail": "配置更改会安全保存，节点上线后自动应用。"
+        "detail": "连接恢复并刷新信息前，设置仅供查看。"
       },
       "confirm": {
         "disableTitle": "停用飞书通道？",
@@ -513,11 +513,11 @@
         "owningNodeSelect": "— 选择节点 —"
       },
       "behavior": {
-        "title": "行为",
+        "title": "指令与行为",
         "sub": "调整该 agent 的说话方式与能力。",
         "customInstructions": "自定义补充指令",
         "customInstructionsHelp": "叠加在标准提示词之上；留空即用标准提示词。",
-        "customInstructionsPlaceholder": "你是我的私人法律顾问,回答时优先引用条款…",
+        "customInstructionsPlaceholder": "",
         "features": "特性开关",
         "featuresHelp": "开启或关闭可选的 agent 能力。",
         "featureDisabledTooltip": "需先在工具允许列表中启用 {{tool}}",
@@ -527,25 +527,26 @@
         "previewError": "无法加载预览。",
         "policy": "群聊回复策略",
         "policyHelp": "在群聊中何时回复（始终在场,不可关闭）。",
-        "policyOptionMention": "MENTION — 仅当被 @ 时回复",
-        "policyOptionAlways": "ALWAYS — 每条群消息都回复",
-        "policyOptionNoReply": "NO_REPLY — 在群里保持沉默",
+        "policyOptionMention": "仅被提及时回复",
+        "policyOptionAlways": "回复所有群消息",
+        "policyOptionNoReply": "不回复群消息",
         "approvalMode": "审批策略",
-        "approvalInherit": "跟随节点",
+        "approvalInherit": "跟随节点（{{strategy}}）",
+        "approvalUnknown": "策略未确认",
         "approvalDescription": {
           "inherit": "沿用节点现有的审批设置。",
           "cc": "普通工作区文件编辑直接放行，其他操作按 CC 规则审查。",
           "codex": "结合风险、授权和工具事实审查，必要时只读核实文件。"
         },
-        "approvalTiming": "保存后从下一轮任务生效；自动审批开关沿用节点设置。"
+        "approvalTiming": "下轮任务生效；自动审批沿用电脑设置。"
       },
       "access": {
-        "title": "访问与模型",
+        "title": "能力",
         "sub": "允许列表保持最小。",
         "skills": "技能",
         "skillsGlobal": "全局",
         "skillsLocal": "工作区",
-        "skillsDefaultDiscovery": "按当前可发现 Skill 使用",
+        "skillsDefaultDiscovery": "全部已发现技能",
         "skillsNewDefault": "新技能默认启用；取消勾选的技能保持禁用。",
         "skillsExplicitCount": "已选 {{count}} 项",
         "skillsGroupSelect": "选择本组",
@@ -561,9 +562,9 @@
         "fallbackAdd": "+ 添加备用",
         "fallbackRemove": "移除",
         "fallbackRow": "备用 {{index}}",
-        "fallbackHelpEmpty": "主模型不可用时按顺序改用。不配则失败呈现与现在一样。",
-        "fallbackHelpPartial": "按优先级从上到下。不能与主模型相同。",
-        "fallbackHelpFull": "已覆盖该节点其余可用模型。按优先级从上到下。",
+        "fallbackHelpEmpty": "主模型不可用时，按顺序尝试。",
+        "fallbackHelpPartial": "优先级从上到下",
+        "fallbackHelpFull": "已添加全部可用备用模型",
         "modelPlatformDefault": "平台默认 ({{model}})",
         "modelPlatformDefaultPlain": "平台默认",
         "modelDefaultSuffix": "(默认)",
@@ -572,16 +573,16 @@
           "shortLabel": "推理",
           "selectModelFirst": "请先选择模型以配置推理强度",
           "platformDefaultHelp": "使用平台默认模型时，Gateway 会采用该模型配置的推荐强度。",
-          "fixedState": "始终开启思考，由模型决定",
+          "fixedState": "始终开启 · 模型管理",
           "fixedHelp": "这个模型不提供可配置的推理强度。",
-          "unavailableState": "此模型不提供可配置的推理设置",
+          "unavailableState": "不可配置",
           "unavailableHelp": "当前节点没有为这个模型声明推理控件。",
-          "selectableHelp": "此模型推荐“{{level}}”。切换模型时，仅会保留新模型也支持的强度。",
+          "selectableHelp": "建议：{{level}}",
           "staleError": "该模型的可选强度已更新。请刷新配置后重新选择，再保存。",
           "staleUnavailableError": "该模型已不接受当前保存的推理强度。请先移除它再保存。",
           "clearUnavailable": "移除不可用的推理设置",
           "saveConflict": "保存前配置已发生变化。请刷新配置后重新选择，再重试。详情：{{detail}}",
-          "applyPending": "正在确认上次保存，请不要重复编辑。你的草稿会保留，确认后将显示保存结果。",
+          "applyPending": "正在确认保存 · 草稿已保留",
           "levels": {
             "none": "无",
             "low": "低",
@@ -599,6 +600,12 @@
         "enabledHelp": "Agent 会定期唤醒，检查 HEARTBEAT.md 中的任务清单。",
         "everyLabel": "节律",
         "everyHelp": "agent 多久唤醒一次。",
+        "activeHoursLabel": "活跃时段（可选）",
+        "activeHoursStart": "开始时间",
+        "activeHoursEnd": "结束时间",
+        "heartbeatMdToggle": "查看定期任务清单",
+        "heartbeatMdLoading": "正在加载…",
+        "heartbeatMdEmpty": "尚未设置定期任务清单",
         "activeHoursHelp": "按你所在地时间；留空表示全天",
         "everyUnitLabel": "节律单位",
         "unit": {
@@ -614,7 +621,7 @@
         "enabledLabel": "启用 cron",
         "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。",
         "loadError": "加载定时任务失败。",
-        "noJobs": "暂无定时任务，可在对话中让 Agent 添加。",
+        "noJobs": "暂无定时任务",
         "jobsListLabel": "定时任务列表",
         "deleteJob": "删除"
       },
@@ -628,12 +635,12 @@
         "lastUpdated": "最后更新"
       },
       "workspaceCreate": {
-        "title": "Workspace",
-        "sub": "Agent 的文件存放在这里；创建后不可更改。",
+        "title": "工作区",
+        "sub": "文件保存在此路径，创建后不可更改。",
         "defaultPathLabel": "默认路径",
         "agentIdPlaceholder": "<agent-id>",
         "defaultPathUnavailable": "由所选节点自动分配",
-        "changePath": "修改",
+        "changePath": "修改路径",
         "customPathLabel": "自定义路径",
         "useDefault": "使用默认路径",
         "pathPlaceholder": "/Users/me/projects/research-agent",
@@ -652,12 +659,14 @@
         "confirmRequired": "请先确认你了解这是一个已有目录。"
       },
       "errors": {
+        "agentIdRequired": "请填写 Agent ID",
+        "displayNameRequired": "请填写显示名",
         "required": "必填",
         "agentIdInvalid": "仅允许小写字母、数字、_ 和 -"
       }
     },
     "create": {
-      "title": "新建 Agent",
+      "title": "创建 Agent",
       "noDevicesTitle": "创建 Agent 前，请先绑定设备",
       "noDevicesBody": "创建自己的 Agent，需要先绑定一台运行 Gateway 的设备。",
       "manageDevices": "管理设备",
@@ -675,7 +684,7 @@
     "work": {
       "暂不可定位": "暂不可定位",
       "工作": "工作",
-      "全局 · 实验": "全局 · 实验",
+      "全局": "全局",
       "跨聊天的主工作轨迹及关联执行": "跨聊天的主工作轨迹及关联执行",
       "主 Agent": "主 Agent",
       "节点在线": "节点在线",
@@ -788,7 +797,7 @@
       "历史读取失败，请重新打开链接重试": "历史读取失败，请重新打开链接重试",
       "聊天已打开，但原消息已不可定位": "聊天已打开，但原消息已不可定位",
       "工作模式": "工作模式",
-      "全局模式 · 实验": "全局模式 · 实验",
+      "全局模式": "全局模式",
       "单 Thread": "单 Thread",
       "一个持续上下文统筹各聊天，按需读取收件箱和委派。": "一个持续上下文统筹各聊天，按需读取收件箱和委派。",
       "每个聊天独立上下文，保持现有工作方式。": "每个聊天独立上下文，保持现有工作方式。",
@@ -796,7 +805,35 @@
       "创建后固定": "创建后固定",
       "固定": "固定",
       "已停止": "已停止",
-      "已终止": "已终止"
+      "已终止": "已终止",
+      "全部 Skill": "全部 Skill",
+      "当前过滤条件下没有 skill": "当前过滤条件下没有 skill",
+      "名字": "名字",
+      "来源": "来源",
+      "状态": "状态",
+      "使用次数": "使用次数",
+      "最近使用": "最近使用",
+      "趋势": "趋势",
+      "使用热力图": "使用热力图",
+      "自动创建的 Skill": "自动创建的 Skill",
+      "暂无自动创建的 skill": "暂无自动创建的 skill",
+      "自进化存活率": "自进化存活率",
+      "生命周期时间线": "生命周期时间线",
+      "创建时间": "创建时间",
+      "首次使用": "首次使用",
+      "最后使用": "最后使用",
+      "自动创建总数": "自动创建总数",
+      "still active": "仍启用",
+      "use_count > 0": "有使用记录",
+      "存活率": "存活率",
+      "隐藏 archived": "隐藏 archived",
+      "显示 archived": "显示 archived",
+      "Skill 列表": "Skill 列表",
+      "Agent 维度": "Agent 维度",
+      "自进化健康度": "自进化健康度",
+      "Loading skill usage...": "正在读取技能使用记录…",
+      "No skill usage yet": "暂无技能使用记录",
+      "最近 30 天": "最近 30 天"
     },
     "publicProfile": "资料",
     "managedBy": "管理员",
@@ -809,7 +846,7 @@
     "plugins": {
       "title": "插件",
       "description": "管理助手安装的插件，按需启用或停用。",
-      "refresh": "刷新",
+      "refresh": "刷新插件",
       "scope": "同一工作区的 Agent 共享这些插件",
       "scopeHelp": "插件由同一工作区内的 Agent 共享。停用会保留安装包；工具调用权限在配置页单独管理。",
       "loading": "正在读取插件…",
@@ -823,7 +860,7 @@
       "failed": "需要处理",
       "waiting": "等待工作区空闲，当前任务会继续完成。",
       "applying": "正在应用更改并释放插件资源…",
-      "details": "详情",
+      "details": "插件详情",
       "entries": "插件条目",
       "confirmTitle": "卸载 {{name}}？",
       "confirmHelp": "这会移除同一工作区内所有 Agent 使用的安装包。你的源码文件会保留。",
@@ -831,6 +868,44 @@
       "cancel": "取消",
       "uninstall": "卸载",
       "manage": "管理插件"
+    },
+    "settings": {
+      "offline": "电脑离线 · 只读",
+      "unknown": "连接未确认 · 只读",
+      "refreshing": "正在刷新 · 只读",
+      "failed": "刷新失败",
+      "pending": "保存结果待确认",
+      "retry": "刷新状态",
+      "lastKnown": "上次确认 {{time}}",
+      "unavailable": "尚无确认信息",
+      "skillsUnknown": "已发现技能尚未确认",
+      "inheritedUnknown": "跟随节点，当前值暂时无法获取",
+      "inheritedLastKnown": "跟随电脑 · 上次确认值",
+      "conflict": "设置已在其他位置更改。放弃草稿可载入最新版本。",
+      "catalogUnavailable": "当前已不可用：{{names}}。请调整后保存。",
+      "featureUnknown": "状态未确认"
+    },
+    "redesign": {
+      "workMode": "工作模式",
+      "mode": {"single_thread": "单 Thread", "global": "全局模式"},
+      "modeHelp": {"single_thread": "每个聊天使用独立上下文。", "global": "跨聊天保持持续上下文，统一处理任务。"},
+      "modeFixed": "创建后不能切换工作模式。",
+      "createIdHelp": "小写字母、数字、_ 和 -；创建后不可更改。",
+      "creating": "正在创建…",
+      "model": "模型",
+      "savedModel": "已保存模型",
+      "modelDefault": "模型默认",
+      "online": "在线",
+      "offline": "离线",
+      "editSettings": "编辑设置",
+      "conversations": "相关聊天",
+      "searchSessions": "搜索聊天",
+      "sessionsFailed": "聊天读取失败。",
+      "noAgents": "没有匹配的 Agent",
+      "noResults": "没有匹配的聊天",
+      "noSessions": "暂无相关聊天",
+      "viewSkillStats": "查看技能使用",
+      "unknown": "连接未确认"
     }
   },
   "chat": {
@@ -1135,19 +1210,19 @@
     },
     "memory_curation": {
       "label": "记忆整理",
-      "help": "跨会话维护持久化 MEMORY.md，让 agent 能跨对话记忆重要信息。"
+      "help": "跨对话整理和保存重要信息，供后续任务使用。"
     },
     "skill_creation": {
       "label": "技能创建",
-      "help": "允许 agent 在其工作区创建和管理 skill。"
+      "help": "允许 Agent 在工作区把可复用的方法保存为技能，并持续维护。"
     },
     "heartbeat": {
       "label": "定期汇报（Heartbeat）",
-      "help": "按计划节律主动汇报，无需用户触发。可配置频率和活跃时段。"
+      "help": "定期主动汇报，可设置频率和活跃时段。"
     },
     "cron_scheduling": {
       "label": "定时任务（Cron）",
-      "help": "按 cron 表达式调度任务，到期后自动执行。"
+      "help": "到点自动执行计划任务，无需每次手动发起。"
     }
   },
   "tasks": {

@@ -11,7 +11,7 @@ export type PillOption = {
   name: string;
   description?: string;
   source_group?: string | null;
-  enabled?: boolean;
+  enabled?: boolean | null;
 };
 
 type PillSelectorProps = {
@@ -21,6 +21,7 @@ type PillSelectorProps = {
   selected: string[];
   fixed?: string[];
   options: PillOption[];
+  readOnly?: boolean;
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
@@ -35,6 +36,7 @@ export function PillSelector({
   fixed = [],
   options,
   isLoading = false,
+  readOnly = false,
   errorMessage = null,
   onRetry,
   onChange,
@@ -84,6 +86,7 @@ export function PillSelector({
                   type="button"
                   data-pill-name={opt.name}
                   aria-pressed={isOn}
+                  disabled={readOnly}
                   title={opt.description || opt.name}
                   onClick={() => toggle(opt.name)}
                   className={

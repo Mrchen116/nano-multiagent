@@ -56,7 +56,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
     <button
       type="button"
       onClick={() => onSelect(agent.agent_id)}
-      className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
+      className={`im-agent-row flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
         isActive ? "outline outline-1" : "outline-none"
       } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"} ${
         isActive
@@ -83,7 +83,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
         size={isMobile ? 38 : 32}
         status={status}
       />
-      <div className="min-w-0 flex-1">
+      <div className="im-agent-row-copy min-w-0 flex-1">
         <p
           className={`m-0 font-semibold truncate text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}
         >
@@ -92,7 +92,8 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
         <p
           className={`m-0 mt-[2px] truncate text-im-text-muted ${isMobile ? "text-[12.5px]" : "font-mono text-[11px]"}`}
         >
-          {agent.role === "personal" ? t("pa.label") : isMobile ? agent.description || agent.agent_id : agent.agent_id}
+          <span className="text-im-text-muted">{agent.role === "personal" ? t("pa.label") : isMobile ? agent.description || agent.agent_id : agent.agent_id}</span>
+          {!isMobile && deviceLabel && <> · <span className="im-agent-row-device text-im-text-muted" title={deviceLabel}>{deviceLabel}</span></>}
         </p>
       </div>
       {isMobile ? (
@@ -104,12 +105,6 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
           ) : null}
           <span className="text-[11px] text-im-text-muted">›</span>
         </div>
-      ) : deviceLabel ? (
-        <span
-          className="shrink-0 self-end pb-[1px] text-[11px] text-right truncate max-w-[92px] text-im-text-muted"
-        >
-          {deviceLabel}
-        </span>
       ) : null}
     </button>
   );

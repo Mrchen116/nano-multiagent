@@ -194,7 +194,7 @@ function mockFetch(opts: {
   const uploadOutcomes = [...(opts.uploadOutcomes ?? [])];
   const sent: { url: string; init?: RequestInit }[] = [];
   const conversations: Conversation[] = [...FIXTURES.conversations];
-  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
     if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: FIXTURES.agents.map(a => ({ kind:"agent", user_id:a.user_id, agent_id:a.agent_id, display_name:a.display_name, owner_id:"u-self", owner_display_name:"You", node_name:"laptop-prod", status:"online", work_mode:"single_thread" })), next_cursor:null });
@@ -296,6 +296,14 @@ function mockFetch(opts: {
           last_error: null
         }
       ]);
+    }
+    if (/\/im\/v1\/agents\/[^/]+\/settings$/.test(url)) {
+      const base = url.slice(0, -"/settings".length);
+      const config = await (await fn(`${base}/config?source=live`)).json();
+      const capabilities = await (await fn(`${base}/capabilities`)).json();
+      return jsonResponse({config, node: {node_id: config.node_id, state: "online"},
+        display: {source: "current", captured_at: "2026-05-01T00:00:00Z", data: null, error: null},
+        live_capabilities: capabilities, pending_operation: null, ready: true});
     }
     if (/\/im\/v1\/agents\/[^/]+\/config\?source=live$/.test(url)) {
       const agentId = decodeURIComponent(url.match(/\/im\/v1\/agents\/([^/]+)\//)![1]!);
