@@ -11,7 +11,7 @@ it('parses only valid verdicts and keeps malformed reviews distinct from denials
 });
 
 it('uses one selected rule set and inserts configured rule text without interpreting it', async () => {
-  const config = { ...approvalDefaults, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
+  const config = { ...approvalDefaults, rules: 'nano' as const, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
   const nano = await buildPolicy(config, '/workspace');
   expect(nano).toContain('Keep <nano_workspace_root> literal in this custom rule');
   expect(nano).toContain('/workspace/.nanoassistant');
@@ -302,7 +302,7 @@ export function apply(ctx){
       throw new Error('Unexpected product call: ' + call.method);
     });
     const agents = ['normal', 'overflow'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'main', toolAllowlist: ['inbox', 'send_message', 'fixture_effect'],
-      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
+      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
     for (const config of agents) {
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });

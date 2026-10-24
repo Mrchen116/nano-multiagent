@@ -17,7 +17,7 @@ export interface ApprovalConfiguration {
 }
 
 export const approvalDefaults: Omit<ApprovalConfiguration, 'globalRoot'> = {
-  enabled: true, rules: 'nano', dangerouslySkipPermissions: false, alwaysAllowTools: [],
+  enabled: true, rules: 'codex', dangerouslySkipPermissions: false, alwaysAllowTools: [],
   denyLimit: 3, totalDenyLimit: 20, askTimeoutSec: 600, unattendedFallback: 'deny',
   allow: [], softDeny: [], hardDeny: [], environment: [],
 };
