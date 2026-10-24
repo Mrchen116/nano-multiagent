@@ -335,7 +335,7 @@ it.each([
   const {classify}=await import('../src/policy/classifier.js');
   const calls:any[]=[];
   const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:100000},reasoning}),stream:async function*(options:any){calls.push(options);yield {type:'block-end',index:0,block:{type:'text',text:'<block>yes</block><reason>missing authority</reason>'}};yield {type:'finish',reason:{kind:'stop'}};}}};
-  const result=await classify(ctx as any,{exec:{agent:{session:{header:{cwd:'/tmp'}}},signal:new AbortController().signal},config:{mode:'global',approval:{...approvalDefaults,globalRoot:'/tmp'}},sources:{transcript:async()=>'COMPLETE_HUMAN_EVIDENCE'},inherited:[],reviewer:{provider:'unchanged-provider',model:'unchanged-reviewer'}} as any);
+  const result=await classify(ctx as any,{exec:{agent:{session:{header:{cwd:'/tmp'}}},signal:new AbortController().signal},config:{mode:'global',approval:{...approvalDefaults,rules:'nano',globalRoot:'/tmp'}},sources:{transcript:async()=>'COMPLETE_HUMAN_EVIDENCE'},inherited:[],reviewer:{provider:'unchanged-provider',model:'unchanged-reviewer'}} as any);
   expect(result.decision.behavior).toBe('deny');
   expect(calls).toHaveLength(2);
   for(const call of calls){

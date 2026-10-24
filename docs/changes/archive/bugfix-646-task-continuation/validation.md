@@ -65,3 +65,7 @@ Independent product R8 (`8181da242`, runtime `b20458be3`) is **pass** for the sa
 The execution and review model remained gpt-6.1-sol. R6 stop/restart/resume and R7 former-owner evidence retain their actual versions and models; this narrow recheck does not claim a new browser or platform matrix. Production was not changed.
 
 Independent patch review covered `fde4090c7..b20458be3`: findings `[]`, including default selection, owner/workspace explicit overrides, per-Agent cc/codex selection and null inheritance, runtime dispatch and denial/manual paths. Existing static/corrected-delta evidence remains valid for unchanged stop/sync behavior. Main build, typecheck, documentation and 6 focused files / 27 tests passed; the final unit build passed. Latest origin/main `d50559ea5` adds only the unrelated feat-652 specification and was merged without runtime changes. Final-head remote CI is recorded on the PR.
+
+### Final CI fixture correction
+
+CI 40102017887 at `afe975fd7` passed 674 tests and failed only the three parameterizations of the unit-specific Nano two-stage reviewer fixture. Unlike the main focused suite, this branch adds those cases; they still inherited the newly changed Codex default while returning the Nano XML verdict. The fixture now explicitly selects Nano rules, matching the other CC-scoped fixtures. No runtime source or product policy changed, so R8 actual completion evidence remains valid. The failed CI record is retained; final corrected-head CI is linked on the PR.
