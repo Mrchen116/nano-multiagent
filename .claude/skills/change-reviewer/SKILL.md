@@ -12,6 +12,7 @@ description: "Full unit 实施完成后被派发产品验收，或用户明确�
 - 以首文档用户目标和可观察结果为判据，读取相关 runbook。涉及界面时读取 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 与适用设计契约；即使没有原型，也要独立评价受影响的完整体验。不要加载 worker 的成功叙述来代替判断。
 - 按 [验证平台与深度](../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 核对本轮实测范围；full 指覆盖全部必验结果，不指每个 Scenario 都在 Web 与 iOS 各跑一次。复用可信构建与测试，独立观察所选真实入口的决定性结果，不因角色交接重跑完整平台矩阵。
 - 环境由 caller 按 runbook 集中准备，交接版本、启停命令、专用身份与授权范围。可按既有授权调整本次隔离环境的临时测试配置，不能改变受审实现、生产配置或扩大外发授权；缺前置时说明具体缺口，不重复派 Agent 做零碎环境操作。
+- 常规环境采用 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板)。先核对 `.e2e-daily.json` 与真实阵容、PA/群聊、模型和审核配置；在固定基线上执行本次场景，并记录临时增量。产品内 Q 是被测角色，不代替你作独立验收；模板 ready 也不等于真实模型或功能已通过。
 - 对指定 `validated_at` 验收。确认运行服务/前端产物来自该版本；只有陈旧或无法证明时重建/重启本次隔离服务，不无条件重启所有服务。共享基础设施、主仓和生产现场不动。
 - 真实验收在已配置的专用测试身份/资源内包含必要常规产品写入；生产、未知身份、非测试数据、广泛通知、付款和不可恢复动作需具体授权。报告写入例外不授权改代码。
 - full 覆盖全部必验 Scenario，可合并成有意义的旅程；targeted 只重验受影响项，未失效项按具体结论引用前轮证据，保留条件见 [validation](../change-orchestrator/references/validation.md)。边界不清或发现新副作用时扩大。

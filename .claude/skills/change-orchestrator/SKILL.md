@@ -18,6 +18,8 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 
 ## 独立门禁
 
+真实产品验收环境由主 Agent 集中按 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板) 使用 `--profile daily` 准备，交接 `.e2e-daily.json`、版本和本次场景增量。每需求独立实例，专项 profile 作为有明确目的的补充，不每次重新发明角色阵容。
+
 | Unit | Product reviewer | Verifier | Code review |
 |---|---|---|---|
 | Full，有用户可观察旅程 | full | full | full |
